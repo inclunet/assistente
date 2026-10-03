@@ -100,7 +100,7 @@ código necessária aqui** — apenas registro da decisão e dos testes existent
   validação de validade pelo serviço compartilhado, `signalNeedsReauth`/`clearNeedsReauth`, campos
   `NeedsReauth`/`AuthType` e evento `MCPServerReauthEvent`.
 - **F2 — Reautorização interativa (backend + binding).** ✅ Concluída.
-  `ReauthorizeServer`, `buildPKCERoundTripperForServer`,
+  `ReauthorizeServer`, `authorizeManagedOAuthInAttempt`,
   `ReauthorizeMCPServer` no controller e no Wails API.
 - **F3 — UI.** ✅ Concluída. Ação "Reautorizar" (menu de linha e toolbar) apenas
   para `oauth2_pkce`, badge "Reautorização necessária" na coluna de status,
@@ -151,7 +151,7 @@ código necessária aqui** — apenas registro da decisão e dos testes existent
 
 O status desta proposta permanece **In Progress**. Para os novos cadastros MCP
 com `oauth_authorization_id`, a reautorização usa o lifecycle compartilhado:
-`pkceRoundTripper` executa somente o protocolo; `oauthflow.Service.AuthorizeUsing`
+`oauthProtocol` executa somente o protocolo; `oauthflow.Service.AuthorizeUsing`
 possui o lease e persiste o resultado no registro composto. Resolução nativa,
 bridge e renovação sob demanda usam o mesmo serviço. O temporizador de renovação
 por conexão foi removido. Cadastros sem referência composta permanecem disponíveis
@@ -169,3 +169,11 @@ pelo transporte legado. A garantia de validade é coberta pelo lifecycle compost
 `TestManagedNativeRefreshUsesFreshClientWithoutBootstrapOverwrite` prova segredo
 atual entre instâncias, rotação persistida e recusa de grant incerto. Credenciais
 históricas permanecem recuperáveis, mas não autorizam fallback por hostname.
+
+O AEP-0112 também remove fisicamente o transporte PKCE, token sources e APIs de
+escrita/lease históricos. Reautorização usa somente o adaptador de protocolo e
+o record compartilhado. DCR persiste cliente/callback por checkpoint do serviço;
+falhas de gravação impedem abertura do browser e não publicam registro parcial.
+Os testes de callback, rollback, concorrência e recuperação foram migrados para
+esse caminho, preservando as garantias anteriores. O status continua In Progress
+enquanto os aceites funcionais da integração compartilhada estiverem pendentes.

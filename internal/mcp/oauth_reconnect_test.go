@@ -115,9 +115,8 @@ func TestReconnectMigrationSuccessFailureAndRetry(t *testing.T) {
 				if strings.Contains(during.LegacyOAuthControlEnc, "secret") {
 					t.Error("staging not encrypted")
 				}
-				if op, _, err := b.credMgr.BeginLegacyOAuth(ctx, cfg.Slug, cfg.ID, false, false, nil); err == nil {
-					op.End()
-					t.Error("concurrent refresh accepted")
+				if err := clientGrantGet(b.buildAuthHTTPClient(ctx, cfg.Slug, cfg), cfg.URL); !errors.Is(err, errOAuthMigrationRequired) {
+					t.Error("concurrent historical runtime accepted", err)
 				}
 				if err := b.ReconnectOAuthSnapshot(ctx, info.ID, inputMethod); err == nil {
 					t.Error("concurrent reconnection accepted")
@@ -221,7 +220,7 @@ func TestReconnectMigrationSuccessFailureAndRetry(t *testing.T) {
 			if count != 0 {
 				t.Fatal("legacy pair retained")
 			}
-			if _, err := b.credMgr.ReadLegacyOAuthToken(ctx, cfg.Slug, cfg.ID); err == nil {
+			if err := clientGrantGet(b.buildAuthHTTPClient(ctx, cfg.Slug, cfg), cfg.URL); !errors.Is(err, errOAuthMigrationRequired) {
 				t.Fatal("old runtime still resolves")
 			}
 			if outcome == "success" || outcome == "public" {

@@ -11,7 +11,6 @@ import (
 	"testing"
 
 	"assistente/internal/database"
-	"assistente/internal/oauthflow"
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 )
@@ -306,8 +305,8 @@ func TestPublishedOAuthRecovery(t *testing.T) {
 					t.Fatal("registration lost after reload")
 				}
 				if variant != "client_credentials" {
-					if _, err := m.ReadLegacyOAuthToken(ctx, "published", "fixture-server", nil); !errors.Is(err, oauthflow.ErrReauthorize) {
-						t.Fatal("PKCE did not require reauthorization", err)
+					if control := readLegacyControlFixture(t, m, ctx, "published"); !control.Pending || control.ConsumerID != "fixture-server" {
+						t.Fatal("PKCE did not require reauthorization")
 					}
 				}
 				if err := m.RestoreLegacyOAuthSnapshot(ctx, dir, info.ID, nil); !errors.Is(err, ErrSnapshotConflict) {

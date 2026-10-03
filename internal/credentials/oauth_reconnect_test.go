@@ -160,11 +160,12 @@ func TestReconnectCrashPreservesPendingAndRecoversMissingTokenRow(t *testing.T) 
 						t.Fatal("crash accepted")
 					}
 					if !missing {
-						if op, _, err := m.BeginLegacyOAuth(ctx, "published", "fixture-server", false, false, nil); !errors.Is(err, oauthflow.ErrReauthorize) {
-							if op != nil {
-								op.End()
-							}
-							t.Fatal("uncertain refresh released", err)
+						control := readLegacyControlFixture(t, m, ctx, "published")
+						if !control.Pending && control.OriginalControl == "" {
+							t.Fatal("uncertain refresh released")
+						}
+						if err := m.RegisterPatternWithContext(ctx, "mcp-tokens:published", &AuthConfig{Source: "static", Type: "oauth2", Token: "late"}); !errors.Is(err, oauthflow.ErrConflict) {
+							t.Fatal("ordinary writer bypassed recovery", err)
 						}
 					}
 					if freshSnapshot {

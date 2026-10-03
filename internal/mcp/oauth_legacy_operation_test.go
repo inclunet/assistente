@@ -3,12 +3,17 @@ package mcp
 import (
 	"bytes"
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
@@ -20,15 +25,8 @@ import (
 	"assistente/internal/oauthflow"
 	"assistente/internal/tools"
 	"github.com/glebarez/sqlite"
-	"golang.org/x/oauth2"
 	"gorm.io/gorm"
 )
-
-type pausedLegacySource struct {
-	inner   oauth2.TokenSource
-	entered chan struct{}
-	release chan struct{}
-}
 
 func TestUnmanagedAuthDeletionRollsBackEveryPattern(t *testing.T) {
 	for _, kind := range []AuthType{AuthBearer, AuthBasic, AuthOAuth2ClientCredentials, AuthNone} {
@@ -181,13 +179,12 @@ func TestLegacyAuthMutationsRejectOtherInstanceConsumerChanges(t *testing.T) {
 			if err := a.DeleteServerAuth("legacy"); !errors.Is(err, oauthflow.ErrConflict) {
 				t.Fatalf("stale route deletion allowed: %v", err)
 			}
-			rt := b.buildPKCERoundTripperForServer(ctx, "legacy", latest)
-			op, auth, err := b.credMgr.BeginLegacyOAuth(ctx, "legacy", latest.ID, true, true, rt.validateLegacyConsumer)
-			if err != nil {
+			client, err := b.credMgr.GetByPatternWithContext(ctx, clientCredPattern("legacy"))
+			if err != nil || client == nil {
 				t.Fatal(err)
 			}
-			defer op.End()
-			if auth.ClientID != "new-client" || auth.ClientSecret != "new-secret" || auth.Token != "new-token" {
+			tokens := loadUserTokens(ctx, b.credMgr, "legacy")
+			if client.ClientID != "new-client" || client.ClientSecret != "new-secret" || tokens == nil || tokens.AccessToken != "new-token" {
 				t.Fatal("new grant changed")
 			}
 		})
@@ -225,7 +222,7 @@ func TestLegacyGenericDeleteRejectsConsumerChangedAfterRead(t *testing.T) {
 	if _, err := b.repository().GetServer(ctx, "legacy"); err != nil {
 		t.Fatal(err)
 	}
-	if auth, err := b.credMgr.ReadLegacyOAuthToken(ctx, "legacy", original.ID); err != nil || auth.Token != "new" {
+	if auth, err := b.credMgr.GetByPatternWithContext(ctx, userTokensPattern("legacy")); err != nil || auth == nil || auth.Token != "new" {
 		t.Fatal("grant changed", err)
 	}
 }
@@ -260,27 +257,30 @@ func TestLegacyDeleteAuthRejectsStaleConsumerAndPreservesFallbacks(t *testing.T)
 func TestLegacyProactiveAdoptsConcurrentRotation(t *testing.T) {
 	for _, force := range []bool{false, true} {
 		t.Run(map[bool]string{false: "proactive", true: "forced"}[force], func(t *testing.T) {
-			a, b, ctx, cfg := legacyWALManagers(t, "https://unused.example")
+			a, b, ctx, cfg := managedWALManagers(t, "https://unused.example")
 			db := a.repository().(*DBRepository).db
 			var rotated atomic.Bool
 			if err := db.Callback().Query().After("gorm:query").Register("rotate_before_resolution", func(tx *gorm.DB) {
 				row, ok := tx.Statement.Dest.(*database.CredentialEntry)
-				if !ok || row.Pattern != userTokensPattern("legacy") || !rotated.CompareAndSwap(false, true) {
+				if !ok || row.ID != cfg.OAuthAuthorizationID || !rotated.CompareAndSwap(false, true) {
 					return
 				}
-				if err := b.credMgr.RegisterPatternWithContext(ctx, row.Pattern, &credentials.AuthConfig{Source: "static", Type: "oauth2", Token: "concurrent", RefreshURL: "rotated", ExpiresAt: time.Now().Add(time.Hour).Unix()}); err != nil {
+				_, store, current := loadManaged(t, b, ctx, "legacy")
+				current.Tokens = oauthflow.Tokens{Access: "concurrent", Refresh: "rotated", Type: "Bearer", ExpiresAt: time.Now().Add(time.Hour)}
+				current.Revision++
+				if err := store.CompareAndSwap(ctx, current, current.Revision-1); err != nil {
 					t.Error(err)
 				}
 			}); err != nil {
 				t.Fatal(err)
 			}
 			t.Cleanup(func() { _ = db.Callback().Query().Remove("rotate_before_resolution") })
-			rt := a.buildPKCERoundTripperForServer(ctx, "legacy", cfg)
-			if _, err := a.credMgr.ReadLegacyOAuthToken(ctx, "legacy", cfg.ID); err != nil {
-				t.Fatal(err)
+			rejected := ""
+			if force {
+				rejected = "old"
 			}
-			token, err := rt.resolveLegacyTokenWithValidity(ctx, rt.oauthCfg, force, tokenRefreshThreshold, "old")
-			if err != nil || token.AccessToken != "concurrent" || !rotated.Load() {
+			token, err := a.resolveManagedOAuth(ctx, cfg, rejected)
+			if err != nil || token.Tokens.Access != "concurrent" || token.Tokens.Refresh != "rotated" || !rotated.Load() {
 				t.Fatalf("did not adopt concurrent token without remote refresh: %v", err)
 			}
 		})
@@ -309,36 +309,43 @@ func TestLegacyNativeFallbackDoesNotReuseDeletedHostname(t *testing.T) {
 	}
 }
 
-func (s *pausedLegacySource) Token() (*oauth2.Token, error) {
-	close(s.entered)
-	<-s.release
-	return s.inner.Token()
-}
-
 func TestLegacyTransportSerializesTokenResolutionWithConfiguration(t *testing.T) {
 	for _, cached := range []bool{false, true} {
 		t.Run(map[bool]string{false: "request", true: "cached"}[cached], func(t *testing.T) {
-			a, _, ctx, cfg := legacyWALManagers(t, "https://example.com")
-			if err := a.credMgr.RegisterPatternWithContext(ctx, userTokensPattern("legacy"), &credentials.AuthConfig{Source: "static", Type: "oauth2", Token: "valid", ExpiresAt: time.Now().Add(time.Hour).Unix()}); err != nil {
+			a, b, ctx, cfg := managedWALManagers(t, "https://example.com")
+			seedManagedRuntime(t, a, ctx, "legacy", "valid", "refresh", time.Now().Add(time.Hour))
+			store, _, _, err := a.managedOAuth(ctx, cfg)
+			if err != nil {
 				t.Fatal(err)
 			}
-			rt := a.buildPKCERoundTripperForServer(ctx, "legacy", cfg)
-			paused := &pausedLegacySource{inner: rt.tokenSource, entered: make(chan struct{}), release: make(chan struct{})}
-			rt.tokenSource = paused
-			rt.base = managedTestRoundTrip(func(req *http.Request) (*http.Response, error) {
-				if req.Header.Get("Authorization") != "Bearer valid" {
-					return nil, errors.New("missing token")
+			entered, release := make(chan struct{}), make(chan struct{})
+			var once sync.Once
+			unblock := func() { once.Do(func() { close(release) }) }
+			defer unblock()
+			var paused atomic.Bool
+			db := a.repository().(*DBRepository).db
+			if err := db.Callback().Query().After("gorm:query").Register("pause_resolution", func(tx *gorm.DB) {
+				if tx.Statement.Table == "credential_entries" && paused.CompareAndSwap(false, true) {
+					close(entered)
+					<-release
 				}
-				return &http.Response{StatusCode: 200, Body: http.NoBody}, nil
-			})
+			}); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = db.Callback().Query().Remove("pause_resolution") })
+			rt := &managedOAuthTransport{manager: a, cfg: cfg, store: store, ctx: ctx, base: managedTestRoundTrip(func(*http.Request) (*http.Response, error) {
+				t.Error("stale configuration sent an authenticated request")
+				return nil, errors.New("stale request")
+			})}
 			done := make(chan error, 1)
 			go func() {
 				if cached {
-					if rt.cachedAccessToken() != "valid" {
-						done <- errors.New("missing cached token")
-						return
+					r, err := a.resolveManagedOAuth(ctx, cfg, "")
+					if r.Tokens.Access != "" {
+						done <- errors.New("stale cached token exposed")
+					} else {
+						done <- err
 					}
-					done <- nil
 					return
 				}
 				req, _ := http.NewRequestWithContext(ctx, http.MethodGet, cfg.URL, nil)
@@ -348,19 +355,21 @@ func TestLegacyTransportSerializesTokenResolutionWithConfiguration(t *testing.T)
 				}
 				done <- err
 			}()
-			<-paused.entered
-			// Discovery/DCR uses this same lock to mutate the shared consumer.
-			// The old implementation released it before calling Token.
-			locked := !rt.mu.TryLock()
-			if !locked {
-				rt.mu.Unlock()
+			select {
+			case <-entered:
+			case <-time.After(5 * time.Second):
+				t.Fatal("resolution did not pause")
 			}
-			close(paused.release)
-			if err := <-done; err != nil {
+			// Cross-instance edits cannot rely on a transport-local mutex. The
+			// resolver must revalidate the durable consumer before exposing a token.
+			edited := cfg
+			edited.URL = "https://replacement.example/mcp"
+			if err := b.SaveConfig("legacy", edited); err != nil {
 				t.Fatal(err)
 			}
-			if !locked {
-				t.Fatal("configuration could change while resolving the authoritative token")
+			unblock()
+			if err := <-done; !errors.Is(err, oauthflow.ErrConflict) && !errors.Is(err, oauthflow.ErrResource) {
+				t.Fatalf("configuration change was not detected: %v", err)
 			}
 		})
 	}
@@ -375,14 +384,20 @@ func TestLegacyRestartDiscoversRefreshEndpoint(t *testing.T) {
 		case "/.well-known/oauth-protected-resource":
 			_ = json.NewEncoder(w).Encode(map[string]any{"resource": resource + "/mcp", "authorization_servers": []string{endpoint}})
 		case "/.well-known/oauth-authorization-server":
-			_ = json.NewEncoder(w).Encode(map[string]any{"issuer": endpoint, "authorization_endpoint": endpoint + "/authorize", "token_endpoint": endpoint + "/token"})
+			_ = json.NewEncoder(w).Encode(map[string]any{"issuer": endpoint, "authorization_endpoint": endpoint + "/authorize", "token_endpoint": endpoint + "/token", "device_authorization_endpoint": endpoint + "/device"})
+		case "/device":
+			_ = json.NewEncoder(w).Encode(map[string]any{"device_code": "code", "user_code": "user", "verification_uri": endpoint + "/verify", "expires_in": 60, "interval": 1})
 		case "/token":
-			refreshed.Add(1)
+			_ = r.ParseForm()
+			if r.Form.Get("grant_type") == "refresh_token" {
+				refreshed.Add(1)
+			}
 			_, _ = io.WriteString(w, `{"access_token":"fresh","refresh_token":"rotated","expires_in":3600,"token_type":"Bearer"}`)
 		case "/mcp":
 			if r.Header.Get("Authorization") != "Bearer fresh" {
 				w.WriteHeader(http.StatusUnauthorized)
 			}
+		case "/verify":
 		default:
 			http.NotFound(w, r)
 		}
@@ -392,24 +407,37 @@ func TestLegacyRestartDiscoversRefreshEndpoint(t *testing.T) {
 	source := httptest.NewServer(server.Config.Handler)
 	defer source.Close()
 	resource = source.URL
-	a, b, ctx, cfg := legacyWALManagers(t, resource)
+	a, b, ctx, cfg := managedWALManagers(t, resource)
+	a.SetOAuthNetworkAuthorizer(func(_ context.Context, destination oauthflow.NetworkDestination) ([]net.IP, bool, error) {
+		return destination.IPs, true, nil
+	})
 	b.SetOAuthNetworkAuthorizer(func(_ context.Context, destination oauthflow.NetworkDestination) ([]net.IP, bool, error) {
 		prompts.Add(1)
 		return destination.IPs, true, nil
 	})
-	cfg.OAuth2TokenURL = ""
+	cfg.OAuth2TokenURL, cfg.OAuth2AuthURL = "", ""
 	if err := a.SaveConfig("legacy", cfg); err != nil {
 		t.Fatal(err)
 	}
-	rt := b.buildPKCERoundTripperForServer(ctx, "legacy", cfg)
+	oldBrowser := browserOpen
+	browserOpen = func(string) error { return nil }
+	defer func() { browserOpen = oldBrowser }()
+	cfg, _, _ = loadManaged(t, a, ctx, "legacy")
+	if err := a.authorizeManagedOAuth(ctx, "legacy", cfg); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.LoadConfigs(); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _, registered := loadManaged(t, b, ctx, "legacy")
+	if registered.Endpoints.Token != endpoint+"/token" {
+		t.Fatal("discovered token endpoint was not preserved across restart")
+	}
+	client := b.managedHTTPClient(ctx, cfg)
 	for i := int32(1); i <= 2; i++ {
-		if i > 1 {
-			if err := a.credMgr.RegisterPatternWithContext(ctx, userTokensPattern("legacy"), &credentials.AuthConfig{Source: "static", Type: "oauth2", Token: "expired", RefreshURL: "rotated", ExpiresAt: time.Now().Add(-time.Hour).Unix()}); err != nil {
-				t.Fatal(err)
-			}
-		}
+		seedManagedRuntime(t, a, ctx, "legacy", "expired", "rotated", time.Now().Add(-time.Hour))
 		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, cfg.URL, nil)
-		resp, err := rt.RoundTrip(req)
+		resp, err := client.Do(req)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -428,14 +456,11 @@ func TestLegacyPublicClientAuthInfoAndPendingRemoval(t *testing.T) {
 	if typ, has, err := b.GetServerAuthInfo("legacy"); err != nil || !has || typ != string(AuthOAuth2PKCE) {
 		t.Fatalf("public client auth: %s %v %v", typ, has, err)
 	}
-	op, _, err := a.credMgr.BeginLegacyOAuth(ctx, "legacy", cfg.ID, false, false, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	seedHistoricalControl(t, a, cfg, time.Now().Add(time.Minute), true)
 	if err := b.DeleteServerAuth("legacy"); !errors.Is(err, oauthflow.ErrTransient) {
 		t.Fatalf("live operation removal: %v", err)
 	}
-	op.End()
+	seedHistoricalControl(t, a, cfg, time.Now().Add(-time.Minute), true)
 	if _, has, err := b.GetServerAuthInfo("legacy"); err != nil || !has {
 		t.Fatalf("pending grant hidden: %v %v", has, err)
 	}
@@ -459,11 +484,7 @@ func TestLegacyDetachRollsBackCredentialsWithConfig(t *testing.T) {
 
 func testLegacyDetachRollsBackCredentialsWithConfig(t *testing.T, stdio bool) {
 	a, _, ctx, cfg := legacyWALManagers(t, "https://example.com")
-	op, _, err := a.credMgr.BeginLegacyOAuth(ctx, "legacy", cfg.ID, false, false, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	op.End()
+	control := seedHistoricalControl(t, a, cfg, time.Now().Add(-time.Minute), true)
 	db := a.repository().(*DBRepository).db
 	if err := db.Callback().Update().Before("gorm:update").Register("reject_detach_config", func(tx *gorm.DB) {
 		if _, ok := tx.Statement.Dest.(*database.MCPServer); ok {
@@ -485,7 +506,8 @@ func testLegacyDetachRollsBackCredentialsWithConfig(t *testing.T, stdio bool) {
 	if _, has, err := a.GetServerAuthInfo("legacy"); err != nil || !has {
 		t.Fatalf("failed save removed grant: %v %v", has, err)
 	}
-	if _, err := a.credMgr.ReadLegacyOAuthToken(ctx, "legacy", cfg.ID, nil); !errors.Is(err, oauthflow.ErrReauthorize) {
+	var pending database.CredentialEntry
+	if err := db.Where("user_id = ? AND pattern = ?", cfg.UserID, userTokensPattern(cfg.Slug)).First(&pending).Error; err != nil || pending.LegacyOAuthControlEnc != control {
 		t.Fatalf("pending marker changed: %v", err)
 	}
 	stored, err := a.GetConfig("legacy")
@@ -527,7 +549,7 @@ func TestLegacyManualDiscoveryKeepsPersistedIdentity(t *testing.T) {
 	}))
 	defer server.Close()
 	endpoint = server.URL
-	a, _, ctx, cfg := legacyWALManagers(t, endpoint)
+	a, _, ctx, cfg := managedWALManagers(t, endpoint)
 	cfg.OAuth2TokenURL = ""
 	cfg.OAuth2AuthURL = ""
 	cfg.OAuth2DeviceAuthURL = ""
@@ -538,23 +560,28 @@ func TestLegacyManualDiscoveryKeepsPersistedIdentity(t *testing.T) {
 	previousBrowser := browserOpen
 	browserOpen = func(string) error { return nil }
 	defer func() { browserOpen = previousBrowser }()
-	rt := a.buildPKCERoundTripperForServer(ctx, "legacy", cfg)
-	rt.explicitAuthorization = true
-	if err := rt.authorize(ctx); err != nil {
+	cfg, _, _ = loadManaged(t, a, ctx, "legacy")
+	if err := a.authorizeManagedOAuth(ctx, "legacy", cfg); err != nil {
 		t.Fatal(err)
 	}
-	if rt.cfg.OAuth2TokenURL == "" {
-		t.Fatal("discovery did not enrich runtime")
+	cfg, store, before := loadManaged(t, a, ctx, "legacy")
+	if cfg.OAuth2TokenURL != endpoint+"/token" || before.Endpoints.Token != cfg.OAuth2TokenURL {
+		t.Fatal("discovery did not persist endpoint")
 	}
-	if tok, _, err := rt.currentToken(); err != nil || tok.AccessToken != "authorized" {
+	if tok, err := a.resolveManagedOAuth(ctx, cfg, ""); err != nil || tok.Tokens.Access != "authorized" {
 		t.Fatalf("discovery invalidated identity: %v", err)
 	}
 	cfg.Name = "edited"
 	if err := a.SaveConfig("legacy", cfg); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := rt.currentToken(); !errors.Is(err, oauthflow.ErrConflict) {
-		t.Fatalf("real edit not detected: %v", err)
+	before.Revision++
+	if err := store.CompareAndSwap(ctx, before, before.Revision-1); !errors.Is(err, oauthflow.ErrConflict) {
+		t.Fatalf("stale writer did not detect real edit: %v", err)
+	}
+	cfg, _, after := loadManaged(t, a, ctx, "legacy")
+	if tok, err := a.resolveManagedOAuth(ctx, cfg, ""); err != nil || tok.Tokens != after.Tokens || tok.Tokens.Access != "authorized" {
+		t.Fatalf("unrelated name edit invalidated grant: %v", err)
 	}
 }
 
@@ -589,14 +616,11 @@ func TestLegacyDeleteServerAllowsInactivePendingAndRollsBack(t *testing.T) {
 	if err := db.AutoMigrate(&database.ToolCatalog{}); err != nil {
 		t.Fatal(err)
 	}
-	op, _, err := a.credMgr.BeginLegacyOAuth(ctx, "legacy", cfg.ID, false, false, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	seedHistoricalControl(t, a, cfg, time.Now().Add(time.Minute), true)
 	if err := a.DeleteConfig("legacy"); !errors.Is(err, oauthflow.ErrTransient) {
 		t.Fatalf("active delete: %v", err)
 	}
-	op.End()
+	seedHistoricalControl(t, a, cfg, time.Now().Add(-time.Minute), true)
 	if err := db.Callback().Delete().Before("gorm:delete").Register("reject_server_delete", func(tx *gorm.DB) {
 		if _, ok := tx.Statement.Dest.(*database.MCPServer); ok {
 			_ = tx.AddError(errors.New("simulated delete failure"))
@@ -663,6 +687,46 @@ func TestLegacyDeleteServerClearsAlreadyStaleCache(t *testing.T) {
 }
 
 func legacyWALManagers(t *testing.T, endpoint string) (*Manager, *Manager, context.Context, ServerConfig) {
+	return oauthWALManagers(t, endpoint, false)
+}
+
+// Historical data fixture, encrypted with the WAL fixture's key. No operational
+// legacy lease is created: only migration/recovery may consume this old format.
+func seedHistoricalControl(t *testing.T, m *Manager, cfg ServerConfig, until time.Time, pending bool) string {
+	t.Helper()
+	body, err := json.Marshal(map[string]any{"Version": 1, "ConsumerID": cfg.ID, "Attempt": "historical-attempt", "Until": until, "Pending": pending})
+	if err != nil {
+		t.Fatal(err)
+	}
+	block, err := aes.NewCipher(bytes.Repeat([]byte{4}, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := rand.Read(nonce); err != nil {
+		t.Fatal(err)
+	}
+	enc := base64.StdEncoding.EncodeToString(gcm.Seal(nonce, nonce, body, nil))
+	db := m.repository().(*DBRepository).db
+	result := db.Model(&database.CredentialEntry{}).Where("user_id = ? AND pattern = ?", cfg.UserID, userTokensPattern(cfg.Slug)).Update("legacy_oauth_control_enc", enc)
+	if result.Error == nil && result.RowsAffected == 0 {
+		result = db.Create(&database.CredentialEntry{UserID: cfg.UserID, Pattern: userTokensPattern(cfg.Slug), Source: "static", AuthType: "oauth2", LegacyOAuthControlEnc: enc})
+	}
+	if result.Error != nil || result.RowsAffected != 1 {
+		t.Fatalf("historical control fixture: rows=%d err=%v", result.RowsAffected, result.Error)
+	}
+	return enc
+}
+
+func managedWALManagers(t *testing.T, endpoint string) (*Manager, *Manager, context.Context, ServerConfig) {
+	return oauthWALManagers(t, endpoint, true)
+}
+
+func oauthWALManagers(t *testing.T, endpoint string, managed bool) (*Manager, *Manager, context.Context, ServerConfig) {
 	t.Helper()
 	dsn := filepath.Join(t.TempDir(), "legacy.db") + "?_pragma=busy_timeout(100)&_pragma=journal_mode(WAL)"
 	previous := database.DB()
@@ -688,7 +752,10 @@ func legacyWALManagers(t *testing.T, endpoint string) (*Manager, *Manager, conte
 	}
 	a, b := newManager(), newManager()
 	cfg := managedConfig(endpoint + "/mcp")
-	cfg.OAuthManaged = false
+	cfg.OAuthManaged = managed
+	if managed {
+		cfg.OAuth2TokenAuthMethod = "none"
+	}
 	cfg.OAuth2TokenURL = endpoint + "/token"
 	if err := a.SaveConfig("legacy", cfg); err != nil {
 		t.Fatal(err)
@@ -697,8 +764,15 @@ func legacyWALManagers(t *testing.T, endpoint string) (*Manager, *Manager, conte
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := a.credMgr.RegisterPatternWithContext(ctx, userTokensPattern("legacy"), &credentials.AuthConfig{Source: "static", Type: "oauth2", Token: "old", RefreshURL: "old-refresh", ExpiresAt: time.Now().Add(-time.Hour).Unix()}); err != nil {
-		t.Fatal(err)
+	if managed {
+		seedManagedRuntime(t, a, ctx, "legacy", "old", "old-refresh", time.Now().Add(-time.Hour))
+		if err := b.LoadConfigs(); err != nil {
+			t.Fatal(err)
+		}
+	} else {
+		if err := a.credMgr.RegisterPatternWithContext(ctx, userTokensPattern("legacy"), &credentials.AuthConfig{Source: "static", Type: "oauth2", Token: "old", RefreshURL: "old-refresh", ExpiresAt: time.Now().Add(-time.Hour).Unix()}); err != nil {
+			t.Fatal(err)
+		}
 	}
 	return a, b, ctx, *stored
 }
@@ -722,17 +796,17 @@ func TestLegacyRefreshCoordinatesProcessesAndEdits(t *testing.T) {
 		_, _ = io.WriteString(w, `{"access_token":"fresh","refresh_token":"rotated","expires_in":3600,"token_type":"Bearer"}`)
 	}))
 	defer func() { unblock(); server.Close() }()
-	a, b, ctx, cfg := legacyWALManagers(t, server.URL)
-	rtA := a.buildPKCERoundTripperForServer(ctx, "legacy", cfg)
-	rtB := b.buildPKCERoundTripperForServer(ctx, "legacy", cfg)
+	a, b, ctx, cfg := managedWALManagers(t, server.URL)
 	done := make(chan error, 1)
-	go func() { _, err := rtA.tokenSource.Token(); done <- err }()
+	go func() { _, err := a.resolveManagedOAuth(ctx, cfg, ""); done <- err }()
 	select {
 	case <-started:
 	case <-time.After(5 * time.Second):
 		t.Fatal("refresh did not start")
 	}
-	if _, err := rtB.tokenSource.Token(); !errors.Is(err, oauthflow.ErrTransient) {
+	waiting, cancelWaiting := context.WithTimeout(ctx, 100*time.Millisecond)
+	defer cancelWaiting()
+	if _, err := b.resolveManagedOAuth(waiting, cfg, ""); !errors.Is(err, context.DeadlineExceeded) || requests.Load() != 1 {
 		t.Fatalf("parallel refresh: %v", err)
 	}
 	edited := cfg
@@ -740,43 +814,41 @@ func TestLegacyRefreshCoordinatesProcessesAndEdits(t *testing.T) {
 	if err := a.SaveConfig("legacy", edited); !errors.Is(err, oauthflow.ErrConflict) {
 		t.Fatalf("parallel config edit: %v", err)
 	}
-	if err := a.DeleteServerAuth("legacy"); !errors.Is(err, oauthflow.ErrTransient) {
+	if err := a.DeleteServerAuth("legacy"); !errors.Is(err, oauthflow.ErrConflict) {
 		t.Fatalf("parallel deletion: %v", err)
 	}
-	cache, err := a.credMgr.GetByPatternWithContext(ctx, userTokensPattern("legacy"))
-	if err != nil || cache == nil || cache.Token != "old" {
+	_, _, cache := loadManaged(t, a, ctx, "legacy")
+	if cache.Tokens.Access != "old" || !cache.RefreshPending {
 		t.Fatal("failed deletion altered cache")
 	}
 	unblock()
 	if err := <-done; err != nil {
 		t.Fatal(err)
 	}
-	token, err := rtB.tokenSource.Token()
-	if err != nil || token.AccessToken != "fresh" || token.RefreshToken != "rotated" || requests.Load() != 1 {
+	token, err := b.resolveManagedOAuth(ctx, cfg, "")
+	if err != nil || token.Tokens.Access != "fresh" || token.Tokens.Refresh != "rotated" || requests.Load() != 1 {
 		t.Fatalf("second instance did not adopt rotation: requests=%d err=%v", requests.Load(), err)
 	}
-	if err := rtB.trySilentRefresh(ctx, "old"); err != nil || requests.Load() != 1 {
+	if _, err := b.resolveManagedOAuth(ctx, cfg, "old"); err != nil || requests.Load() != 1 {
 		t.Fatalf("already replaced rejection refreshed twice: %v", err)
 	}
 }
 
 func TestLegacyTransportRejectsChangedResourceWithValidToken(t *testing.T) {
-	a, _, ctx, cfg := legacyWALManagers(t, "https://original.example")
-	if err := a.credMgr.RegisterPatternWithContext(ctx, userTokensPattern("legacy"), &credentials.AuthConfig{Source: "static", Type: "oauth2", Token: "valid", RefreshURL: "refresh", ExpiresAt: time.Now().Add(time.Hour).Unix()}); err != nil {
-		t.Fatal(err)
-	}
-	rt := a.buildPKCERoundTripperForServer(ctx, "legacy", cfg)
+	a, _, ctx, cfg := managedWALManagers(t, "https://original.example")
+	seedManagedRuntime(t, a, ctx, "legacy", "valid", "refresh", time.Now().Add(time.Hour))
+	client := a.managedHTTPClient(ctx, cfg)
 	edited := cfg
 	edited.URL = "https://replacement.example"
 	if err := a.SaveConfig("legacy", edited); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := rt.tokenSource.Token(); !errors.Is(err, oauthflow.ErrConflict) {
+	if err := clientGrantGet(client, cfg.URL); !errors.Is(err, oauthflow.ErrConflict) && !errors.Is(err, oauthflow.ErrResource) {
 		t.Fatalf("old transport resolved replacement token: %v", err)
 	}
 }
 
-func TestLegacyRefreshNegotiatesOnlyDefinitiveClientRejection(t *testing.T) {
+func TestManagedRefreshUsesExplicitClientMethodWithoutAmbiguousReplay(t *testing.T) {
 	for _, ambiguous := range []bool{false, true} {
 		t.Run(map[bool]string{false: "post_only", true: "ambiguous"}[ambiguous], func(t *testing.T) {
 			var requests atomic.Int32
@@ -797,135 +869,133 @@ func TestLegacyRefreshNegotiatesOnlyDefinitiveClientRejection(t *testing.T) {
 				if r.Form.Get("client_id") != "client" || r.Form.Get("client_secret") != "latest-secret" {
 					t.Error("not using current client")
 				}
-				_, _ = io.WriteString(w, `{"access_token":"fresh","refresh_token":"rotated","expires_in":3600}`)
+				_, _ = io.WriteString(w, `{"access_token":"fresh","refresh_token":"rotated","expires_in":3600,"token_type":"Bearer"}`)
 			}))
 			defer server.Close()
-			a, _, ctx, cfg := legacyWALManagers(t, server.URL)
-			rt := a.buildPKCERoundTripperForServer(ctx, "legacy", cfg)
-			if err := a.SaveServerAuth("legacy", "oauth2_pkce", "", "", "", "latest-secret"); err != nil {
+			a, _, ctx, cfg := managedWALManagers(t, server.URL)
+			cfg.OAuth2TokenAuthMethod = "client_secret_post"
+			if err := a.SaveConfigWithOAuthSecret("legacy", cfg, "latest-secret"); err != nil {
 				t.Fatal(err)
 			}
-			_, err := rt.tokenSource.Token()
+			seedManagedRuntime(t, a, ctx, "legacy", "old", "old-refresh", time.Now().Add(-time.Hour))
+			cfg, _, _ = loadManaged(t, a, ctx, "legacy")
+			_, err := a.resolveManagedOAuth(ctx, cfg, "")
 			if ambiguous {
 				if !errors.Is(err, oauthflow.ErrReauthorize) || requests.Load() != 1 {
 					t.Fatalf("ambiguous refresh replayed: %d %v", requests.Load(), err)
 				}
-				if _, err := rt.tokenSource.Token(); !errors.Is(err, oauthflow.ErrReauthorize) || requests.Load() != 1 {
+				if _, err := a.resolveManagedOAuth(ctx, cfg, ""); !errors.Is(err, oauthflow.ErrReauthorize) || requests.Load() != 1 {
 					t.Fatalf("uncertain grant reused: %v", err)
 				}
-			} else if err != nil || requests.Load() != 2 {
-				t.Fatalf("Post negotiation failed: %d %v", requests.Load(), err)
+			} else if err != nil || requests.Load() != 1 {
+				t.Fatalf("explicit Post authentication failed: %d %v", requests.Load(), err)
 			}
 		})
 	}
 }
 
-var _ oauth2.TokenSource = (*legacyTokenSource)(nil)
-
 func TestLegacyDCRDoesNotPublishConfigWhenClientSaveFails(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, `{"client_id":"registered","client_secret":"secret"}`)
-	}))
-	defer server.Close()
-	a, _, ctx, cfg := legacyWALManagers(t, server.URL)
-	cfg.OAuth2ClientID = ""
-	cfg.OAuth2CallbackPort = 0
-	cfg.OAuth2RegistrationURL = server.URL + "/register"
-	if err := a.SaveConfig("legacy", cfg); err != nil {
-		t.Fatal(err)
-	}
-	db := a.repository().(*DBRepository).db
-	if err := db.Callback().Create().Before("gorm:create").Register("reject_dcr_client", func(tx *gorm.DB) {
-		if row, ok := tx.Statement.Dest.(*database.CredentialEntry); ok && row.Pattern == clientCredPattern("legacy") {
-			_ = tx.AddError(errors.New("simulated secret persistence failure"))
-		}
-	}); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = db.Callback().Create().Remove("reject_dcr_client") })
-	rt := a.buildPKCERoundTripperForServer(ctx, "legacy", cfg)
-	op, _, err := a.credMgr.BeginLegacyOAuth(ctx, "legacy", cfg.ID, true, false, rt.validateLegacyConsumer)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer op.End()
-	rt.legacyOperation = op
-	defer rt.closeCallback()
-	callbacks := 0
-	write := rt.onConfigUpdate
-	rt.onConfigUpdate = func(updated ServerConfig) { callbacks++; write(updated) }
-	if err := rt.registerClient(ctx, true); !errors.Is(err, errOAuthPersistence) {
-		t.Fatalf("registration did not stop: %v", err)
-	}
-	stored, err := a.GetConfig("legacy")
-	if err != nil || stored.OAuth2ClientID != "" || stored.OAuth2CallbackPort != 0 || callbacks != 0 || rt.effectiveClientID() != "" {
-		t.Fatal("partial DCR configuration published")
-	}
-	op.End()
-	restarted := a.buildPKCERoundTripperForServer(ctx, "legacy", *stored)
-	if restarted.effectiveClientID() != "" {
-		t.Fatal("next transport would skip DCR after failed client save")
-	}
+	testManagedDCRCheckpointRollback(t, false)
 }
 
 func TestLegacyDCRRollsBackClientWhenConfigSaveFails(t *testing.T) {
+	// Client and callback now share one encrypted envelope. A failure after SQL
+	// updates that envelope must roll back both, just as the old pair/config did.
+	testManagedDCRCheckpointRollback(t, true)
+}
+
+func testManagedDCRCheckpointRollback(t *testing.T, afterWrite bool) {
+	var registrations, browsers atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/register" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		registrations.Add(1)
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, `{"client_id":"registered","client_secret":"secret"}`)
+		_, _ = io.WriteString(w, `{"client_id":"registered","client_secret":"unsolicited-secret"}`)
 	}))
 	defer server.Close()
-	a, b, ctx, cfg := legacyWALManagers(t, server.URL)
-	cfg.OAuth2ClientID = ""
-	cfg.OAuth2CallbackPort = 0
+	a, b, ctx, cfg := managedWALManagers(t, server.URL)
+	cfg.OAuth2ClientID, cfg.OAuth2CallbackPort = "", 0
+	cfg.OAuth2CallbackHost = "127.0.0.1"
 	cfg.OAuth2RegistrationURL = server.URL + "/register"
 	if err := a.SaveConfig("legacy", cfg); err != nil {
 		t.Fatal(err)
 	}
+	cfg, _, before := loadManaged(t, a, ctx, "legacy")
 	db := a.repository().(*DBRepository).db
-	if err := db.Callback().Update().Before("gorm:update").Register("reject_dcr_config", func(tx *gorm.DB) {
-		if _, ok := tx.Statement.Dest.(*database.MCPServer); ok {
-			_ = tx.AddError(errors.New("simulated config persistence failure"))
+	injected := errors.New("simulated registration persistence failure")
+	var failed atomic.Bool
+	reject := func(tx *gorm.DB) {
+		if fields, ok := tx.Statement.Dest.(map[string]any); ok && fields["oauth_enc"] != nil && registrations.Load() > 0 && failed.CompareAndSwap(false, true) {
+			_ = tx.AddError(injected)
 		}
-	}); err != nil {
+	}
+	var registerErr error
+	if afterWrite {
+		registerErr = db.Callback().Update().After("gorm:update").Before("gorm:commit_or_rollback_transaction").Register("reject_dcr_checkpoint", reject)
+	} else {
+		registerErr = db.Callback().Update().Before("gorm:update").Register("reject_dcr_checkpoint", reject)
+	}
+	if registerErr != nil {
+		t.Fatal(registerErr)
+	}
+	t.Cleanup(func() { _ = db.Callback().Update().Remove("reject_dcr_checkpoint") })
+	previousBrowser := browserOpen
+	browserOpen = func(raw string) error {
+		browsers.Add(1)
+		u, err := url.Parse(raw)
+		if err != nil {
+			return err
+		}
+		q := u.Query()
+		response, err := http.Get(q.Get("redirect_uri") + "?state=" + url.QueryEscape(q.Get("state")) + "&error=access_denied")
+		if response != nil {
+			_ = response.Body.Close()
+		}
+		return err
+	}
+	defer func() { browserOpen = previousBrowser }()
+	if err := a.authorizeManagedOAuth(ctx, "legacy", cfg); !errors.Is(err, injected) {
+		t.Fatalf("registration did not stop on persistence failure: %v", err)
+	}
+	if !failed.Load() || registrations.Load() != 1 || browsers.Load() != 0 {
+		t.Fatalf("continued after failed checkpoint: failed=%v registrations=%d browsers=%d", failed.Load(), registrations.Load(), browsers.Load())
+	}
+	if err := b.LoadConfigs(); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = db.Callback().Update().Remove("reject_dcr_config") })
-	rt := a.buildPKCERoundTripperForServer(ctx, "legacy", cfg)
-	op, _, err := a.credMgr.BeginLegacyOAuth(ctx, "legacy", cfg.ID, true, false, rt.validateLegacyConsumer)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer op.End()
-	rt.legacyOperation = op
-	defer rt.closeCallback()
-	if err := rt.registerClient(ctx, true); !errors.Is(err, errOAuthPersistence) {
-		t.Fatalf("registration did not stop: %v", err)
+	stored, _, rolledBack := loadManaged(t, b, ctx, "legacy")
+	if stored.OAuth2ClientID != "" || stored.OAuth2CallbackPort != 0 || rolledBack.Client.ID != "" || rolledBack.PendingRegistration != nil || rolledBack.Tokens != before.Tokens {
+		t.Fatal("partial DCR client/callback/token published after rollback")
 	}
 	var count int64
-	if err := db.Model(&database.CredentialEntry{}).Where("pattern = ?", clientCredPattern("legacy")).Count(&count).Error; err != nil || count != 0 {
-		t.Fatal("client insert was not rolled back")
+	if err := db.Model(&database.CredentialEntry{}).Where("pattern IN ?", []string{clientCredPattern("legacy"), userTokensPattern("legacy")}).Count(&count).Error; err != nil || count != 0 {
+		t.Fatal("DCR recreated historical pair", err)
 	}
-	if auth, _ := a.credMgr.GetByPatternWithContext(ctx, clientCredPattern("legacy")); auth != nil {
-		t.Fatal("client cache published before commit")
+	if client, err := a.credMgr.GetByPatternWithContext(ctx, clientCredPattern("legacy")); err != nil || client != nil {
+		t.Fatal("client cache published outside shared commit", err)
 	}
-	stored, err := b.repository().GetServer(ctx, "legacy")
-	if err != nil || stored.OAuth2ClientID != "" || stored.OAuth2CallbackPort != 0 || rt.effectiveClientID() != "" {
-		t.Fatal("failed registration changed consumer")
-	}
-	if err := db.Callback().Update().Remove("reject_dcr_config"); err != nil {
+	if err := db.Callback().Update().Remove("reject_dcr_checkpoint"); err != nil {
 		t.Fatal(err)
 	}
-	if err := rt.registerClient(ctx, true); err != nil {
+	// A restarted instance must register again after the failed checkpoint, then
+	// preserve the entire candidate even though this explicit consent is denied.
+	if err := b.authorizeManagedOAuth(ctx, "legacy", stored); err == nil {
+		t.Fatal("denied consent unexpectedly succeeded")
+	}
+	_, _, recovered := loadManaged(t, a, ctx, "legacy")
+	pending := recovered.PendingRegistration
+	if registrations.Load() != 2 || browsers.Load() != 1 || pending == nil || pending.Client.ID != "registered" || pending.Client.Secret != "" || pending.Callback.Port == 0 || pending.Callback.PortPolicy != "fixed" || recovered.Tokens != before.Tokens {
+		t.Fatal("successful checkpoint did not publish client and callback together")
+	}
+	if err := b.LoadConfigs(); err != nil {
 		t.Fatal(err)
 	}
-	stored, err = b.repository().GetServer(ctx, "legacy")
-	if err != nil || stored.OAuth2ClientID != "registered" || stored.OAuth2CallbackPort == 0 {
-		t.Fatal("successful registration did not publish callback")
-	}
-	client, err := a.credMgr.GetByPatternWithContext(ctx, clientCredPattern("legacy"))
-	if err != nil || client == nil || client.ClientID != "registered" || client.ClientSecret != "secret" {
-		t.Fatal("client and config not published together")
+	_, _, reloaded := loadManaged(t, b, ctx, "legacy")
+	if reloaded.PendingRegistration == nil || reloaded.PendingRegistration.Callback != pending.Callback || reloaded.PendingRegistration.Client != pending.Client {
+		t.Fatal("durable candidate changed after restart")
 	}
 }
 
@@ -935,11 +1005,7 @@ func TestLegacyNativeRefusesHostnameWithOrWithoutTokenRow(t *testing.T) {
 	if err := a.credMgr.RegisterPatternWithContext(ctx, "example.com", &credentials.AuthConfig{Source: "static", Type: "bearer", Token: "host-token"}); err != nil {
 		t.Fatal(err)
 	}
-	op, _, err := a.credMgr.BeginLegacyOAuth(ctx, "legacy", cfg.ID, false, false, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	op.End()
+	seedHistoricalControl(t, a, cfg, time.Now().Add(-time.Minute), true)
 	if _, ok := a.resolveNativeAuthToken(ctx, candidate); ok {
 		t.Fatal("hostname bypassed uncertain grant")
 	}
@@ -959,32 +1025,31 @@ func TestLegacyNativeRefusesHostnameWithOrWithoutTokenRow(t *testing.T) {
 }
 
 func TestLegacyRefreshConsentPrecedesDurableAttempt(t *testing.T) {
-	a, _, ctx, cfg := legacyWALManagers(t, "https://192.0.2.1")
+	a, _, ctx, cfg := managedWALManagers(t, "https://192.0.2.1")
 	cfg.OAuth2TokenURL = "http://127.0.0.1:12345/token"
 	if err := a.SaveConfig("legacy", cfg); err != nil {
 		t.Fatal(err)
 	}
-	rt := a.buildPKCERoundTripperForServer(ctx, "legacy", cfg)
+	seedManagedRuntime(t, a, ctx, "legacy", "old", "old-refresh", time.Now().Add(-time.Hour))
+	cfg, _, before := loadManaged(t, a, ctx, "legacy")
 	prompts := 0
-	rt.networkAuthorizer = func(ctx context.Context, destination oauthflow.NetworkDestination) ([]net.IP, bool, error) {
+	a.SetOAuthNetworkAuthorizer(func(ctx context.Context, destination oauthflow.NetworkDestination) ([]net.IP, bool, error) {
 		prompts++
 		if _, bounded := ctx.Deadline(); bounded {
 			t.Error("human consent inherited the DNS deadline")
 		}
-		var row database.CredentialEntry
-		if err := database.DB().Where("pattern = ?", userTokensPattern("legacy")).First(&row).Error; err != nil {
-			t.Fatal(err)
-		}
-		if row.LegacyOAuthControlEnc != "" {
+		_, _, current := loadManaged(t, a, ctx, "legacy")
+		if current.RefreshPending || current.Revision != before.Revision {
 			t.Error("lease acquired before user decision")
 		}
 		return nil, false, nil
-	}
-	if _, err := rt.tokenSource.Token(); !errors.Is(err, oauthflow.ErrNetworkAuthorization) || prompts != 1 {
+	})
+	if _, err := a.resolveManagedOAuth(ctx, cfg, ""); !errors.Is(err, oauthflow.ErrNetworkAuthorization) || prompts != 1 {
 		t.Fatalf("denial: prompts=%d err=%v", prompts, err)
 	}
-	if _, err := a.credMgr.ReadLegacyOAuthToken(ctx, "legacy", cfg.ID); err != nil {
-		t.Fatalf("denial marked grant uncertain: %v", err)
+	_, _, after := loadManaged(t, a, ctx, "legacy")
+	if after.RefreshPending || after.Revision != before.Revision || after.Tokens != before.Tokens {
+		t.Fatal("denial marked grant uncertain")
 	}
 }
 
