@@ -92,6 +92,46 @@ func migrateLLMModelSourceReferenceGuards(db *gorm.DB) error {
 	})
 }
 
+// migrateLLMModelObservationTimeGuards protege schemas existentes desde v33 de
+// escritas SQL diretas com timestamps de verificação/observação futuros.
+func migrateLLMModelObservationTimeGuards(db *gorm.DB) error {
+	if db == nil {
+		return errors.New("banco inválido para os guards de timestamps de modelo")
+	}
+	return db.Transaction(func(tx *gorm.DB) error {
+		for _, table := range []struct {
+			name   string
+			column string
+		}{
+			{name: "llm_model_catalog_bindings", column: "verified_at"},
+			{name: "llm_model_capabilities", column: "observed_at"},
+			{name: "llm_model_capability_fields", column: "observed_at"},
+		} {
+			if !tx.Migrator().HasTable(table.name) || !tx.Migrator().HasColumn(table.name, table.column) {
+				return errMigrationDeferred
+			}
+			for _, operation := range []struct {
+				name  string
+				event string
+			}{
+				{name: "insert", event: "INSERT"},
+				{name: "update", event: "UPDATE OF " + table.column},
+			} {
+				triggerName := "trg_" + table.name + "_" + table.column + "_not_future_" + operation.name
+				statement := fmt.Sprintf(`CREATE TRIGGER IF NOT EXISTS %s
+				BEFORE %s ON %s
+				WHEN NEW.%s IS NULL OR julianday(NEW.%s) IS NULL OR julianday(NEW.%s) > julianday('now')
+				BEGIN SELECT RAISE(ABORT, '%s %s cannot be in the future'); END`,
+					triggerName, operation.event, table.name, table.column, table.column, table.column, table.name, table.column)
+				if err := tx.Exec(statement).Error; err != nil {
+					return fmt.Errorf("criar guard SQL de timestamp em %s.%s (%s): %w", table.name, table.column, operation.name, err)
+				}
+			}
+		}
+		return nil
+	})
+}
+
 func publicDNSReferenceCheckSQL(referenceColumn string) string {
 	controlChecks := make([]string, 0, 33)
 	for code := 0; code <= 31; code++ {

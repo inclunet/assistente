@@ -130,6 +130,54 @@ func TestMigration34GuardsLegacyV33SourceReferencesWithoutRewritingRows(t *testi
 	}
 }
 
+func TestMigration35RejectsFutureVerificationAndObservationTimesInLegacySchema(t *testing.T) {
+	db := newMigratorTestDB(t)
+	tables := []struct {
+		name   string
+		column string
+	}{
+		{name: "llm_model_catalog_bindings", column: "verified_at"},
+		{name: "llm_model_capabilities", column: "observed_at"},
+		{name: "llm_model_capability_fields", column: "observed_at"},
+	}
+	for _, table := range tables {
+		if err := db.Exec(fmt.Sprintf("CREATE TABLE %s (id TEXT PRIMARY KEY, %s DATETIME NOT NULL)", table.name, table.column)).Error; err != nil {
+			t.Fatalf("criar tabela legada %s: %v", table.name, err)
+		}
+	}
+	if err := ensureSchemaMigrationsTable(db); err != nil {
+		t.Fatal(err)
+	}
+	version33 := migration{Version: 33, Name: "llm_model_capabilities", Phase: phasePostAutoMigrate}
+	version34 := migration{Version: 34, Name: "llm_model_source_reference_guards", Phase: phasePostAutoMigrate}
+	version35 := migration{Version: 35, Name: "llm_model_observation_time_guards", Phase: phasePostAutoMigrate, Run: migrateLLMModelObservationTimeGuards}
+	for _, version := range []migration{version33, version34} {
+		if err := recordMigration(db, version); err != nil {
+			t.Fatalf("marcar v%d existente: %v", version.Version, err)
+		}
+	}
+	for range 2 {
+		if err := runMigrationList(db, phasePostAutoMigrate, []migration{version33, version34, version35}); err != nil {
+			t.Fatalf("aplicar/retomar v35: %v", err)
+		}
+	}
+
+	for index, table := range tables {
+		past := time.Now().Add(-time.Minute).UTC().Format(time.RFC3339Nano)
+		validID := fmt.Sprintf("valid-%d", index)
+		if err := db.Exec(fmt.Sprintf("INSERT INTO %s (id, %s) VALUES (?, ?)", table.name, table.column), validID, past).Error; err != nil {
+			t.Errorf("v35 recusou timestamp passado em %s: %v", table.name, err)
+		}
+		future := time.Now().Add(time.Hour).UTC().Format(time.RFC3339Nano)
+		if err := db.Exec(fmt.Sprintf("INSERT INTO %s (id, %s) VALUES (?, ?)", table.name, table.column), fmt.Sprintf("future-%d", index), future).Error; err == nil {
+			t.Errorf("v35 aceitou %s futuro em SQL direto", table.column)
+		}
+		if err := db.Exec(fmt.Sprintf("UPDATE %s SET %s = ? WHERE id = ?", table.name, table.column), future, validID).Error; err == nil {
+			t.Errorf("v35 aceitou UPDATE de %s para timestamp futuro em SQL direto", table.column)
+		}
+	}
+}
+
 func TestLLMModelCapabilitiesRepositoryScopesModelsAndResolvesLocalFacts(t *testing.T) {
 	db := llmModelCapabilitiesTestDB(t)
 	ctx := WithUserID(context.Background(), "owner-a")

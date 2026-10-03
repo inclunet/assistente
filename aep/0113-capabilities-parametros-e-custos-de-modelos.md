@@ -252,7 +252,7 @@ resolução projeta um fato efetivo sem apagar afirmações concorrentes.
 | Fase / PR planejado | Entrega | Limite da fase |
 |---|---|---|
 | 0 — PR de documentação (concluída no PR #887) | Registrar e revisar esta arquitetura e a sequência de entrega. | Sem migração ou mudança de runtime. |
-| 1 — Persistência e resolução local (concluída neste PR) | Migração v33 cria revisões separadas de compatibilidade e configuração, modelos por provedor, vocabulário controlado, vínculos externos verificados e versionados por verificação, afirmações append-only com origem, limites/opções tipados e resolver local determinístico; v34 instala guards SQL de proveniência para bancos que já aplicaram v33, preservando fatos históricos. Alterações em credenciais de conexão compartilhadas invalidam todos os provedores consumidores; adoção de provider legado muda sua identidade de compatibilidade; rotação de token OAuth não é confundida com troca de conta, e a limpeza/restauração de OAuth MCP legado sincroniza a remoção/restauração do hostname compartilhado. Falha no refresh oculta snapshots afetados até recuperação. Instantes são normalizados para UTC, snapshots de autorização/fatos são consistentes e o registry só recebe revisões após commit ou atualização do cache em memória, recusando snapshots de configuração atrasados, inclusive quando a seleção do provedor padrão muda. O wizard persiste provider e credencial em contexto autenticado. Testes cobrem escopo, precedência, expiração, proveniência imutável, offsets, rollback, renovação, invalidação por revisão e troca versionada do provedor padrão. | Sem consultas externas e sem alterar o envio. |
+| 1 — Persistência e resolução local (concluída neste PR) | Migração v33 cria revisões separadas de compatibilidade e configuração, modelos por provedor, vocabulário controlado, vínculos externos verificados e versionados por verificação, afirmações append-only com origem, limites/opções tipados e resolver local determinístico; v34 instala guards SQL de proveniência para bancos que já aplicaram v33, preservando fatos históricos; v35 rejeita em SQLite timestamps de verificação/observação futuros em vínculos e afirmações, também para schemas anteriores. Alterações em credenciais de conexão compartilhadas invalidam todos os provedores consumidores; adoção de provider legado muda sua identidade de compatibilidade; rotação de token OAuth não é confundida com troca de conta, e a limpeza/restauração de OAuth MCP legado sincroniza a remoção/restauração do hostname compartilhado. Falha no refresh oculta snapshots afetados até recuperação. Instantes são normalizados para UTC, snapshots de autorização/fatos são consistentes e o registry só recebe revisões após commit ou atualização do cache em memória, recusando snapshots de configuração atrasados, inclusive quando a seleção do provedor padrão muda. O wizard persiste provider e credencial em contexto autenticado. Testes cobrem escopo, precedência, expiração, proveniência imutável, offsets, rollback, renovação, invalidação por revisão e troca versionada do provedor padrão. | Sem consultas externas e sem alterar o envio. |
 | 2 — Compatibilidade no envio | Traduzir campos canônicos, omitir incompatibilidades conhecidas e aprender rejeições precisas com no máximo um retry seguro. | Integrar ao pipeline backend existente; sem caminho paralelo de mensagem. |
 | 3 — Profile Manager e vozes | Filtrar opções usando fatos locais; persistir/reutilizar listas de vozes por provedor/modelo e estados de desconhecimento. | Abrir a tela não espera por API externa. |
 | 4 — Fontes e jobs | Criar interface de importadores e uma operação de sincronização reutilizada pela chamada manual e pelos jobs, com validação, atualização idempotente, proveniência e vínculos explícitos de identidade; começar por fontes cuja cobertura e licença sejam adequadas. | Fatos externos só governam conexão com identidade de provedor/modelo explicitamente verificada. |
@@ -368,15 +368,18 @@ depender de uma fase ainda aberta deve ser empilhado sobre ela.
   `TestLLMModelCapabilityHistoryIsAppendOnlyAndCascadesWithProvider`.
 - [x] Escritas em provedores de sistema exigem contexto interno de bootstrap;
   usuários autenticados podem consultar os fatos compartilhados, mas não
-  publicar afirmações globais. Timestamps futuros e referências de proveniência
+  publicar afirmações globais. A validação de domínio rejeita timestamps
+  futuros; a v35 instala guards SQLite de INSERT/UPDATE para `verified_at` e
+  `observed_at` em schemas atuais e anteriores à v33. Referências de proveniência
   com credenciais, query, fragmento, IP literal, hostname local/sufixo
-  reservado conhecido ou autoridade fora da gramática DNS ASCII são recusados
+  reservado conhecido ou autoridade fora da gramática DNS ASCII são recusadas
   por CHECKs SQLite em vínculos, capabilities e campos; nomes
   internacionalizados devem usar punycode, cada label tem até 63 bytes e o host
-  até 253 bytes. A v34 instala guards equivalentes para INSERT e UPDATE em
-  bancos que já registraram a v33, sem reescrever referências históricas.
-  `InitPath` ativa FKs em todas as conexões do pool.
+  até 253 bytes. A v34 instala guards equivalentes de INSERT/UPDATE para
+  referências em bancos que já registraram a v33, sem reescrever referências
+  históricas. `InitPath` ativa FKs em todas as conexões do pool.
   Verificado por `TestMigration34GuardsLegacyV33SourceReferencesWithoutRewritingRows`,
+  `TestMigration35RejectsFutureVerificationAndObservationTimesInLegacySchema`,
   testes de escrita SQL direta e `TestInitPathEnablesForeignKeysOnEveryApplicationConnection`.
 - [ ] Parâmetros canônicos são convertidos para o formato de wire correto e
   fatos de não suporte da conexão/modelo impedem envio futuro do campo.
