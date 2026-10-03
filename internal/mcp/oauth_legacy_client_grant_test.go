@@ -362,7 +362,7 @@ func TestComposedClientGrantChecksBindingAfterNetworkConsent(t *testing.T) {
 		}
 		return d.IPs, true, nil
 	})
-	if err := clientGrantGet(a.buildAuthHTTPClient(ctx, cfg.Slug, cfg), cfg.URL); !errors.Is(err, oauthflow.ErrConflict) {
+	if err := clientGrantGet(a.buildAuthHTTPClient(ctx, cfg.Slug, cfg), cfg.URL); !errors.Is(err, oauthflow.ErrConflict) || !strings.Contains(err.Error(), oauthflow.ErrConflict.Error()) || errors.Is(err, errOAuthPersistence) {
 		t.Fatal("changed binding allowed issuance after consent", err)
 	}
 	after, err := store.Load(ctx, cfg.OAuthAuthorizationID)

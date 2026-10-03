@@ -326,6 +326,11 @@ func (s mcpRuntimeOAuthStore) CompareAndSwap(ctx context.Context, r oauthflow.Re
 		}
 		return nil
 	})
+	if errors.Is(err, oauthflow.ErrConflict) {
+		// A concurrent edit is an expected authorization conflict, not a vault
+		// failure. Return only its safe code, never a wrapped storage diagnostic.
+		return oauthflow.ErrConflict
+	}
 	if err != nil {
 		return &oauthPersistenceError{cause: err}
 	}

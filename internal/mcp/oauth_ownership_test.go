@@ -234,6 +234,28 @@ func TestLegacyConfigurationWriterPreservesEditsAndSession(t *testing.T) {
 	}
 }
 
+func TestManagedRuntimeRevisionConflictKeepsPublicClassification(t *testing.T) {
+	m, ctx, cfg := managedTokenTestFixture(t, "https://example.com/mcp", "old", "refresh", time.Now().Add(-time.Hour))
+	_, store, original := loadManaged(t, m, ctx, cfg.Slug)
+	newer := original
+	newer.Revision++
+	newer.Tokens.Access = "newer-token"
+	if err := store.CompareAndSwap(ctx, newer, original.Revision); err != nil {
+		t.Fatal(err)
+	}
+	bound := mcpRuntimeOAuthStore{mcpAtomicOAuthStore: store.(mcpAtomicOAuthStore), cfg: cfg}
+	stale := original
+	stale.Revision++
+	err := bound.CompareAndSwap(ctx, stale, original.Revision)
+	if !errors.Is(err, oauthflow.ErrConflict) || err.Error() != oauthflow.ErrConflict.Error() || errors.Is(err, errOAuthPersistence) {
+		t.Fatalf("revision conflict lost its safe public code: %v", err)
+	}
+	saved, err := store.Load(ctx, original.ID)
+	if err != nil || saved.Revision != newer.Revision || saved.Tokens.Access != newer.Tokens.Access {
+		t.Fatal("stale publication changed current grant", err)
+	}
+}
+
 func TestLegacyRefreshRetryPersistenceFailureDoesNotSendAnotherRequest(t *testing.T) {
 	m, repo, ctx := managedFixture(t)
 	var requests, tokenCalls atomic.Int32

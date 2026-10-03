@@ -1585,7 +1585,11 @@ Os testes históricos foram transferidos para os fluxos reais correspondentes:
   exclusão do hostname. Todos recusam fallback antes de ler sua credencial.
 
 Falhas de persistência no transporte composto preservam classificação para o
-caller sem expor o diagnóstico interno. Retry de corpo não recriável retorna
+caller sem expor o diagnóstico interno. Conflitos de revisão ou consumidor
+mantêm `oauth_authorization_changed`, distinguindo edição concorrente de falha
+do cofre na interface. Evidências: `TestManagedRuntimeRevisionConflictKeepsPublicClassification`
+e `TestComposedClientGrantChecksBindingAfterNetworkConsent`.
+Retry de corpo não recriável retorna
 `oauth_request_not_replayable`, sem uma segunda chamada ao recurso ou vazamento
 do erro de `GetBody`. Evidências: os testes
 `TestLegacyTokenPersistenceFailureIsTerminalAndSanitized`,
