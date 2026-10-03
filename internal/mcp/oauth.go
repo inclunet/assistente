@@ -18,6 +18,7 @@ import (
 
 	"assistente/internal/credentials"
 	"assistente/internal/oauthflow"
+	"assistente/internal/oauthintegrations"
 
 	"github.com/pkg/browser"
 	"golang.org/x/oauth2"
@@ -529,6 +530,15 @@ func (rt *oauthProtocol) authorizePKCE(ctx context.Context) error {
 	}
 	token, err := oauthCfg.Exchange(context.WithValue(ctx, oauth2.HTTPClient, rt.oauthHTTPClient(30*time.Second)), result.Get("code"), exchangeOpts...)
 	if err != nil {
+		var rejected *oauth2.RetrieveError
+		if errors.As(err, &rejected) {
+			switch rejected.ErrorCode {
+			case "invalid_client":
+				return oauthflow.ErrClientConfiguration
+			case "invalid_scope":
+				return oauthflow.ErrPermission
+			}
+		}
 		if terminalOAuthNetworkError(ctx, err) {
 			return errors.Join(errors.New("oauth_code_exchange_failed"), safeOAuthExchangeError(ctx, err))
 		}
@@ -693,7 +703,7 @@ const authErrorHTML = `<!DOCTYPE html>
 </body></html>`
 
 func (rt *oauthProtocol) oauthHTTPClient(timeout time.Duration) *http.Client {
-	return oauthflow.NewNetworkHTTPClient(rt.cfg.URL, rt.networkAuthorizer, timeout)
+	return oauthintegrations.MCPHTTPClient(oauthflow.NewNetworkHTTPClient(rt.cfg.URL, rt.networkAuthorizer, timeout), rt.cfg.URL)
 }
 
 func terminalOAuthNetworkError(ctx context.Context, err error) bool {

@@ -23,6 +23,30 @@ autorização composta; o legado permanece disponível para snapshot e migraçã
 
 ## Motivação
 
+### Correção de interoperabilidade do MCP Slack (03/10/2026)
+
+O aceite real encontrou troca PKCE concluída seguida de `oauth_migration_required`.
+A resposta documentada de `oauth.v2.user.access` usa o papel `user` como
+`token_type`, enquanto o transporte MCP usa Bearer. A extensão em
+`internal/oauthintegrations/slack.go` normaliza essa resposta somente para o
+recurso e endpoint oficiais, sem flexibilizar a validação OAuth dos demais serviços.
+Ela reutiliza o cliente HTTP com consentimento de rede e política de redirects;
+não cria cache, cofre ou renovador paralelo. A normalização atende à troca inicial
+e ao refresh, lê escopos de `scope`/`authed_user.scope` separados por vírgula e
+transforma `ok: false` em recusa mesmo com HTTP 200. Não amplia escopos concedidos.
+O método público/Post continua explícito; nenhuma credencial é convertida em
+cliente confidencial por inferência ou com um segredo inventado.
+
+`TestSlackMCPAuthorizationAndRefresh`, `TestSlackMCPResponseBoundaries` e
+`TestSlackMCPRefreshRejectsInvalidGrantsAndPreservesOmittedMetadata` cobrem o
+ciclo compartilhado e recusas. `McpOAuthSnapshots.test.tsx` cobre diagnóstico
+traduzido/anunciado, fallback sem conteúdo remoto e troca de idioma após falha.
+O status permanece **In Progress**: a repetição do aceite real do Slack após esta
+correção, incluindo ferramenta e reinício, ainda é necessária.
+
+Referências verificadas: [metadados oficiais](https://mcp.slack.com/.well-known/oauth-authorization-server)
+e [resposta de tokens](https://docs.slack.dev/reference/methods/oauth.v2.user.access/).
+
 No início desta proposta, `internal/mcp/oauth.go` gravava duas entradas por servidor e usuário:
 `mcp-client:<slug>` contém client ID/secret; `mcp-tokens:<slug>` contém access
 token, refresh token e expiração. Ambas usam source `static` e tipo `oauth2`;
