@@ -287,7 +287,7 @@ func (m *Manager) PurgeUnreadableCredentials(ctx context.Context) (int, error) {
 	var refreshErr error
 	activeUserID, hasActiveUser := database.UserIDFromContext(ctx)
 	for _, mutation := range mutations {
-		mutationCtx := ctx
+		var mutationCtx context.Context
 		if mutation.UserID == "" {
 			// O registry contém somente os providers do usuário ativo. Um
 			// provider órfão só pode ser sincronizado no contexto explícito de
