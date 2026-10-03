@@ -20,20 +20,6 @@ type DBStore struct{}
 // NewDBStore cria um DBStore pronto para uso.
 func NewDBStore() *DBStore { return &DBStore{} }
 
-func (s *DBStore) BumpCompatibilityRevision(ctx context.Context, id string) error {
-	return database.NewProviderRepository(database.DB()).BumpCompatibilityRevision(ctx, id)
-}
-
-func (s *DBStore) BumpCompatibilityRevisionsForCredentialPattern(ctx context.Context, pattern string) (map[string]int, error) {
-	return database.NewProviderRepository(database.DB()).BumpCompatibilityRevisionsForCredentialPattern(ctx, pattern)
-}
-
-func (s *DBStore) GetCompatibilityRevisionsForCredentialPattern(ctx context.Context, pattern string) (map[string]int, error) {
-	return database.NewProviderRepository(database.DB()).GetCompatibilityRevisionsForCredentialPattern(ctx, pattern)
-}
-
-func (*DBStore) CredentialMutationsBumpCompatibilityRevisionsAtomically() bool { return true }
-
 // Save persiste todos os provedores fornecidos no banco.
 // Usa GORM Save (upsert por primary key).
 //
@@ -86,25 +72,6 @@ func (s *DBStore) Save(ctx context.Context, providers []*llm.ProviderConfig) err
 		p.CompatibilityRevision = compatibilityRevisions[i]
 		p.ConfigRevision = configRevisions[i]
 	}
-	return nil
-}
-
-func (s *DBStore) Create(ctx context.Context, provider *llm.ProviderConfig) error {
-	if provider == nil {
-		return fmt.Errorf("provider nil")
-	}
-	if err := database.RequireUserIDOrBootstrap(ctx); err != nil {
-		return err
-	}
-	dbProvider := toDBModel(provider)
-	if err := database.NewProviderRepository(database.DB()).CreateLLMProvider(ctx, dbProvider); err != nil {
-		if errors.Is(err, database.ErrLLMProviderAlreadyExists) {
-			return ErrProviderAlreadyExists
-		}
-		return err
-	}
-	provider.CompatibilityRevision = dbProvider.CompatibilityRevision
-	provider.ConfigRevision = dbProvider.ConfigRevision
 	return nil
 }
 
@@ -163,17 +130,6 @@ func (s *DBStore) Get(ctx context.Context, id string) (*llm.ProviderConfig, erro
 		return nil, err
 	}
 	return fromDBModel(dbP)
-}
-
-func (s *DBStore) Exists(ctx context.Context, id string) (bool, error) {
-	provider, err := s.Get(ctx, id)
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	return provider != nil, nil
 }
 
 // Count retorna a contagem total de provedores no banco.

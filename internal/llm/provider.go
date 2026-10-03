@@ -145,8 +145,7 @@ type ProviderConfig struct {
 	// CompatibilityRevision identifica o snapshot da conexão carregado do banco.
 	// Requisições em andamento preservam esta revisão ao registrar evidências.
 	CompatibilityRevision int `json:"-"`
-	// ConfigRevision identifica a versão persistida de qualquer configuração do
-	// provedor e impede a publicação tardia de um snapshot antigo no registry.
+	// ConfigRevision identifica a versão persistida da configuração do provedor.
 	ConfigRevision int       `json:"-"`
 	APIFormat      APIFormat `json:"api_format,omitempty"`
 	BaseURL        string    `json:"base_url"`

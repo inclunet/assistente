@@ -378,22 +378,14 @@ func (s *DBStore) ListCredentialsWithRefreshTokensIgnoringScope(ctx context.Cont
 // normais — DeleteCredential pelo pattern com user-scope é o caminho
 // canônico do produto.
 func (s *DBStore) DeleteCredentialsByID(ctx context.Context, ids []string) (int, error) {
-	removed, _, err := s.DeleteCredentialsByIDWithPatterns(ctx, ids)
-	return removed, err
-}
-
-// DeleteCredentialsByIDWithPatterns remove linhas ilegíveis e retorna os pares
-// usuário/pattern cujos snapshots de provider precisam de refresh após commit.
-func (s *DBStore) DeleteCredentialsByIDWithPatterns(ctx context.Context, ids []string) (int, []CredentialPatternMutation, error) {
 	if len(ids) == 0 {
-		return 0, nil, nil
+		return 0, nil
 	}
 	db, err := s.ensureDB()
 	if err != nil {
-		return 0, nil, err
+		return 0, err
 	}
 	removed := 0
-	mutations := make([]CredentialPatternMutation, 0)
 	err = database.WithSQLiteImmediateTransaction(ctx, db, "credentials.purge", func(tx *gorm.DB) error {
 		var candidates []database.CredentialEntry
 		if err := tx.Where("id IN ?", ids).Find(&candidates).Error; err != nil {
@@ -411,23 +403,12 @@ func (s *DBStore) DeleteCredentialsByIDWithPatterns(ctx context.Context, ids []s
 		}
 		result := tx.Where("id IN ?", ids).Delete(&database.CredentialEntry{})
 		removed = int(result.RowsAffected)
-		if result.Error == nil && removed > 0 {
-			seen := make(map[CredentialPatternMutation]struct{}, len(candidates))
-			for _, row := range candidates {
-				mutation := CredentialPatternMutation{UserID: row.UserID, Pattern: row.Pattern}
-				if _, exists := seen[mutation]; exists {
-					continue
-				}
-				seen[mutation] = struct{}{}
-				mutations = append(mutations, mutation)
-			}
-		}
 		return result.Error
 	})
 	if err != nil {
-		return 0, nil, err
+		return 0, err
 	}
-	return removed, mutations, nil
+	return removed, nil
 }
 
 // UpdateRefreshTokenEncByID regrava APENAS a coluna `refresh_token_enc`

@@ -7,30 +7,15 @@ import (
 )
 
 type stubWelcomeRuntime struct {
-	appCtx          context.Context
-	loggedIn        bool
-	hasMasterKey    bool
-	hasMasterErr    error
-	userCount       int64
-	userCountErr    error
-	providerCount   int64
-	providerErr     error
+	appCtx         context.Context
+	loggedIn       bool
+	hasMasterKey   bool
+	hasMasterErr   error
+	userCount      int64
+	userCountErr   error
+	providerCount  int64
+	providerErr    error
 	appContextCalls int
-}
-
-type stubWelcomeController struct {
-	ctx    context.Context
-	result bool
-	err    error
-	wasRun bool
-}
-
-func (s *stubWelcomeController) NeedsWelcomeWizard(context.Context) bool { return false }
-
-func (s *stubWelcomeController) RunWelcomeWizard(ctx context.Context) (bool, error) {
-	s.ctx = ctx
-	s.wasRun = true
-	return s.result, s.err
 }
 
 func (s *stubWelcomeRuntime) AppContext() context.Context {
@@ -184,40 +169,5 @@ func TestRunWelcomeWizardNotWiredWithoutCtrl(t *testing.T) {
 	}
 	if rt.appContextCalls != 0 {
 		t.Fatalf("AppContext não deve ser chamado quando ctrl é nil; calls=%d", rt.appContextCalls)
-	}
-}
-
-func TestRunWelcomeWizardUsesAuthenticatedContext(t *testing.T) {
-	t.Parallel()
-	authCtx := context.WithValue(context.Background(), ctxUID, "owner")
-	controller := &stubWelcomeController{result: true}
-	runtime := &stubWelcomeRuntime{appCtx: context.Background(), loggedIn: true}
-	api := NewWelcome()
-	AttachWelcome(api, stubSession{ctx: authCtx}, controller, runtime)
-
-	completed, err := api.RunWelcomeWizard()
-	if err != nil || !completed {
-		t.Fatalf("RunWelcomeWizard() = (%v, %v), want (true, nil)", completed, err)
-	}
-	if !controller.wasRun || controller.ctx.Value(ctxUID) != "owner" {
-		t.Fatal("controller não recebeu o contexto autenticado")
-	}
-	if runtime.appContextCalls != 0 {
-		t.Fatalf("wizard não deve usar AppContext sem escopo; chamadas=%d", runtime.appContextCalls)
-	}
-}
-
-func TestRunWelcomeWizardFailsClosedWithoutAuthenticatedSession(t *testing.T) {
-	t.Parallel()
-	wantErr := errors.New("auth failed")
-	controller := &stubWelcomeController{result: true}
-	api := NewWelcome()
-	AttachWelcome(api, stubSession{err: wantErr}, controller, &stubWelcomeRuntime{})
-
-	if completed, err := api.RunWelcomeWizard(); completed || !errors.Is(err, wantErr) {
-		t.Fatalf("RunWelcomeWizard() = (%v, %v), want (false, auth error)", completed, err)
-	}
-	if controller.wasRun {
-		t.Fatal("controller rodou sem contexto autenticado")
 	}
 }

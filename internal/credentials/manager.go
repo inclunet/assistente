@@ -53,20 +53,19 @@ type DomainCredential struct {
 
 // Manager armazena e resolve credenciais por domínio.
 type Manager struct {
-	// mutationMu serializes persistent credential writes and cache publication.
+	// mutationMu serializes store-to-cache publication with migration/reset.
 	// Store callbacks may read the manager, so store I/O must not hold mu.
-	mutationMu        sync.Mutex
-	oauthRequests     map[string]map[string]context.CancelFunc
-	oauthContext      context.Context
-	oauthCancel       context.CancelFunc
-	oauthEpoch        uint64
-	oauthService      *oauthflow.Service
-	mu                sync.RWMutex
-	credentials       []*DomainCredential
-	encKey            []byte // para criptografar credenciais em memória
-	store             Store
-	persist           bool
-	revisionRefresher CredentialRevisionRefresher
+	mutationMu    sync.Mutex
+	oauthRequests map[string]map[string]context.CancelFunc
+	oauthContext  context.Context
+	oauthCancel   context.CancelFunc
+	oauthEpoch    uint64
+	oauthService  *oauthflow.Service
+	mu            sync.RWMutex
+	credentials   []*DomainCredential
+	encKey        []byte // para criptografar credenciais em memória
+	store         Store
+	persist       bool
 
 	// integrity guarda o último resultado de `verifyDEKConsistency`,
 	// consultável via `IntegrityStatus()`. Atualizado em
@@ -76,18 +75,6 @@ type Manager struct {
 
 type instanceCredentialStore interface {
 	ListInstanceCredentials(ctx context.Context) ([]StoredCredential, error)
-}
-
-// CredentialRevisionRefresher sincroniza revisões depois de uma mutação de
-// credencial, respeitando se o cofre persistente ou o cache em memória mudou.
-type CredentialRevisionRefresher interface {
-	RefreshCredentialPatternRevisions(ctx context.Context, pattern string) error
-}
-
-// CredentialRevisionAdvancer avança revisões quando o cofre está somente em
-// memória e, portanto, não há trigger SQLite para fazê-lo junto da escrita.
-type CredentialRevisionAdvancer interface {
-	AdvanceCredentialPatternRevisions(ctx context.Context, pattern string) error
 }
 
 // NewManager cria novo credential manager (sem persistência).
@@ -113,42 +100,6 @@ func NewManagerWithStoreAndPersistence(encryptionKey []byte, store Store, persis
 		store:       store,
 		persist:     persist && store != nil,
 	}
-}
-
-// SetCredentialRevisionRefresher conecta o manager ao registry de providers.
-// A chamada ocorre depois do commit do cofre ou da atualização do cache local.
-func (m *Manager) SetCredentialRevisionRefresher(refresher CredentialRevisionRefresher) {
-	if m == nil {
-		return
-	}
-	m.mu.Lock()
-	m.revisionRefresher = refresher
-	m.mu.Unlock()
-}
-
-func (m *Manager) notifyCredentialPatternMutation(ctx context.Context, pattern string) error {
-	if m == nil || pattern == "" || IsInstanceSecretPattern(pattern) {
-		return nil
-	}
-	m.mu.RLock()
-	refresher := m.revisionRefresher
-	persisted := m.persist && m.store != nil
-	m.mu.RUnlock()
-	if refresher == nil {
-		return nil
-	}
-	if persisted {
-		if err := refresher.RefreshCredentialPatternRevisions(ctx, pattern); err != nil {
-			return fmt.Errorf("atualizar revisão dos provedores que usam %q após mutação do cofre: %w", pattern, err)
-		}
-		return nil
-	}
-	if advancer, ok := refresher.(CredentialRevisionAdvancer); ok {
-		if err := advancer.AdvanceCredentialPatternRevisions(ctx, pattern); err != nil {
-			return fmt.Errorf("avançar revisão dos provedores que usam %q após mutação em memória: %w", pattern, err)
-		}
-	}
-	return nil
 }
 
 // RegisterPattern registra credenciais para um padrão de domínio
@@ -213,10 +164,7 @@ func (m *Manager) RegisterStoredCredentialWithContext(ctx context.Context, cred 
 		if cred.ID == "" {
 			persisted, err := m.lookupPersistedByScope(ctx, userID)
 			if err != nil {
-				return errors.Join(
-					fmt.Errorf("listar credenciais persistidas após salvar: %w", err),
-					m.notifyCredentialPatternMutation(ctx, pattern),
-				)
+				return fmt.Errorf("listar credenciais persistidas após salvar: %w", err)
 			}
 			for _, entry := range persisted {
 				if entry.Pattern == pattern && entry.UserID == userID && entry.ID != "" {
@@ -226,28 +174,25 @@ func (m *Manager) RegisterStoredCredentialWithContext(ctx context.Context, cred 
 				}
 			}
 			if persistedID == "" {
-				return errors.Join(
-					fmt.Errorf("id da credencial persistida não encontrado após salvar pattern %q", pattern),
-					m.notifyCredentialPatternMutation(ctx, pattern),
-				)
+				return fmt.Errorf("id da credencial persistida não encontrado após salvar pattern %q", pattern)
 			}
 		}
 	}
 
 	m.mu.Lock()
+	defer m.mu.Unlock()
 	for i, existing := range m.credentials {
 		sameStoredCredential := persistedID != "" && existing.ID == persistedID
 		sameScopedPattern := existing.Pattern == pattern && existing.UserID == userID
 		if sameStoredCredential || sameScopedPattern {
 			existing.invalidateCommandCache()
 			m.credentials[i] = &DomainCredential{ID: persistedID, UserID: userID, Pattern: pattern, regex: regex, Auth: encAuth}
-			m.mu.Unlock()
-			return m.notifyCredentialPatternMutation(ctx, pattern)
+			return nil
 		}
 	}
 	m.credentials = append(m.credentials, &DomainCredential{ID: persistedID, UserID: userID, Pattern: pattern, regex: regex, Auth: encAuth})
-	m.mu.Unlock()
-	return m.notifyCredentialPatternMutation(ctx, pattern)
+
+	return nil
 }
 
 // ResolveForURL resolve credenciais para uma URL
@@ -434,29 +379,21 @@ func (m *Manager) DeletePattern(ctx context.Context, pattern string) error {
 		return errors.New("pattern não pode ser vazio")
 	}
 
-	// Serialize store deletion and cache publication with registration, loads,
-	// legacy OAuth cleanup, migration, and reset. Store I/O must not hold mu.
-	m.mutationMu.Lock()
-	defer m.mutationMu.Unlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
 	userID := ""
 	if scopedUserID, ok := database.UserIDFromContext(ctx); ok {
 		userID = scopedUserID
 	}
-	m.mu.RLock()
-	persist := m.persist
-	store := m.store
-	m.mu.RUnlock()
-	if userID == "" && !IsInstanceSecretPattern(pattern) && persist {
+	if userID == "" && !IsInstanceSecretPattern(pattern) && m.persist {
 		return database.ErrUserScopeRequired
 	}
-	if persist && store != nil {
-		if err := store.DeleteCredential(ctx, pattern); err != nil {
+	if m.persist && m.store != nil {
+		if err := m.store.DeleteCredential(ctx, pattern); err != nil {
 			return err
 		}
 	}
-
-	m.mu.Lock()
 	filtered := m.credentials[:0]
 	for _, dc := range m.credentials {
 		if dc.Pattern != pattern || (userID != "" && dc.UserID != userID) {
@@ -470,8 +407,8 @@ func (m *Manager) DeletePattern(ctx context.Context, pattern string) error {
 	}
 	// evita manter referências antigas
 	m.credentials = append([]*DomainCredential(nil), filtered...)
-	m.mu.Unlock()
-	return m.notifyCredentialPatternMutation(ctx, pattern)
+
+	return nil
 }
 
 // CanPersist indica se o manager está configurado para persistir credenciais.
@@ -492,10 +429,6 @@ func (m *Manager) LoadInstanceSecrets(ctx context.Context) error {
 	if m.store == nil {
 		return nil
 	}
-	// This store snapshot must not publish after a concurrent deletion or reset.
-	m.mutationMu.Lock()
-	defer m.mutationMu.Unlock()
-
 	// Verificação de consistência DEK_keychain ↔ DEK_wraps DEVE rodar
 	// antes de qualquer escrita (e antes mesmo de aceitar carregar
 	// segredos, para evitar populá-los em memória se houver

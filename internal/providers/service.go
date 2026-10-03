@@ -58,18 +58,16 @@ type ServiceConfig struct {
 // Service encapsula a lógica de negócio de gerenciamento de provedores LLM.
 // Não depende de Wails — é testável de forma isolada.
 type Service struct {
-	oauth                                *oauthflow.Service
-	oauthMu                              sync.Mutex
-	providerLifecycleMu                  sync.Mutex
-	oauthAttempts                        map[string]context.CancelFunc
-	registry                             *llm.ProviderRegistry
-	credMgr                              CredentialManager
-	store                                ProviderStore
-	rateLimiter                          *llm.RateLimiter
-	rateLimitKeyFunc                     func(context.Context) string
-	rateLimitPolicy                      llm.RateLimitPolicyResolver
-	acpMgr                               *acp.Manager
-	credentialMutationsObservedByManager bool
+	oauth            *oauthflow.Service
+	oauthMu          sync.Mutex
+	oauthAttempts    map[string]context.CancelFunc
+	registry         *llm.ProviderRegistry
+	credMgr          CredentialManager
+	store            ProviderStore
+	rateLimiter      *llm.RateLimiter
+	rateLimitKeyFunc func(context.Context) string
+	rateLimitPolicy  llm.RateLimitPolicyResolver
+	acpMgr           *acp.Manager
 }
 
 // Count retorna o número de provedores no store.
@@ -80,7 +78,10 @@ func (s *Service) Count(ctx context.Context) (int, error) {
 // NewService cria um Service com as dependências injetadas.
 func NewService(cfg ServiceConfig) *Service {
 	oauth := oauthflow.New(oauthintegrations.ChatGPT())
-	service := &Service{
+	if mgr, ok := cfg.CredMgr.(*credentials.Manager); ok {
+		mgr.SetOAuthService(oauth)
+	}
+	return &Service{
 		oauth: oauth, oauthAttempts: make(map[string]context.CancelFunc),
 		registry:         cfg.Registry,
 		credMgr:          cfg.CredMgr,
@@ -90,12 +91,6 @@ func NewService(cfg ServiceConfig) *Service {
 		rateLimitPolicy:  cfg.RateLimitPolicyResolver,
 		acpMgr:           cfg.ACPManager,
 	}
-	if mgr, ok := cfg.CredMgr.(*credentials.Manager); ok {
-		mgr.SetOAuthService(oauth)
-		mgr.SetCredentialRevisionRefresher(service)
-		service.credentialMutationsObservedByManager = true
-	}
-	return service
 }
 
 // ============================================================================
@@ -125,60 +120,17 @@ func ExtractHostname(baseURL string) (string, error) {
 // Save persists generic providers. OAuth consumers have transactional lifecycle
 // methods and must never be overwritten by an unrelated registry snapshot.
 func (s *Service) Save(ctx context.Context) error {
-	s.providerLifecycleMu.Lock()
-	defer s.providerLifecycleMu.Unlock()
-	return s.save(ctx)
-}
-
-func (s *Service) save(ctx context.Context) error {
 	var generic []*llm.ProviderConfig
 	for _, provider := range s.registry.List() {
 		if provider.Type != llm.ProviderChatGPT && !strings.HasPrefix(provider.CredentialPattern, "oauth:") {
 			generic = append(generic, provider)
 		}
 	}
-	if err := s.store.Save(ctx, generic); err != nil {
-		return err
-	}
-	for _, provider := range generic {
-		if _, err := s.registerAuthoritativeProvider(ctx, provider); err != nil {
-			return fmt.Errorf("sincronizar provider %q após salvar: %w", provider.ID, err)
-		}
-	}
-	return nil
-}
-
-// SaveAndRegister persiste um provider e só retorna sucesso depois que o
-// registry publicou a configuração autoritativa. É usado por fluxos que
-// criam providers fora do formulário padrão, como o wizard de boas-vindas.
-func (s *Service) SaveAndRegister(ctx context.Context, provider *llm.ProviderConfig) (*llm.ProviderConfig, error) {
-	s.providerLifecycleMu.Lock()
-	defer s.providerLifecycleMu.Unlock()
-	return s.saveAndRegister(ctx, provider)
-}
-
-func (s *Service) saveAndRegister(ctx context.Context, provider *llm.ProviderConfig) (*llm.ProviderConfig, error) {
-	if provider == nil {
-		return nil, fmt.Errorf("provider nil")
-	}
-	if err := provider.Validate(); err != nil {
-		return nil, err
-	}
-	if err := s.store.Save(ctx, []*llm.ProviderConfig{provider}); err != nil {
-		return nil, err
-	}
-	registered, err := s.registerAuthoritativeProvider(ctx, provider)
-	if err != nil {
-		return nil, fmt.Errorf("erro ao registrar provider persistido: %w", err)
-	}
-	return registered, nil
+	return s.store.Save(ctx, generic)
 }
 
 // Load carrega provedores do store para o registry.
 func (s *Service) Load(ctx context.Context) error {
-	s.providerLifecycleMu.Lock()
-	defer s.providerLifecycleMu.Unlock()
-
 	providers, err := s.store.Load(ctx)
 	if err != nil {
 		return err
@@ -197,76 +149,25 @@ func (s *Service) Load(ctx context.Context) error {
 			needsSave = true
 			logging.Infof(ctx, "providers.service", "[providers] api_format de '%s' materializado como %q", p.Name, inferred)
 		}
-		if _, err := s.registerAuthoritativeProvider(ctx, p); err != nil {
+		if err := s.registry.Register(p); err != nil {
 			logging.Errorf(ctx, "providers.service", "[providers] Erro ao registrar provedor '%s': %v", p.ID, err)
 		}
 	}
 	logging.Infof(ctx, "providers.service", "[providers] %d provedor(es) carregado(s) do store", len(providers))
-	s.ensureDefault(ctx)
+	s.EnsureDefault(ctx)
 
 	// Persistir api_format materializado para não repetir inferência no próximo boot
 	if needsSave {
-		if err := s.save(ctx); err != nil {
+		if err := s.Save(ctx); err != nil {
 			logging.Errorf(ctx, "providers.service", "[providers] Erro ao persistir api_format materializado: %v", err)
 		}
 	}
 	return nil
 }
 
-// registerAuthoritativeProvider rejeita snapshots atrasados e recarrega a
-// configuração persistida antes de tentar publicar novamente. Isso evita
-// combinar campos de uma gravação antiga com uma revisão de credenciais nova.
-func (s *Service) registerAuthoritativeProvider(ctx context.Context, provider *llm.ProviderConfig) (*llm.ProviderConfig, error) {
-	if provider == nil {
-		return nil, fmt.Errorf("provider nil")
-	}
-	candidate := provider
-	var lastErr error
-	for attempt := 0; attempt < 3; attempt++ {
-		if err := s.registry.Register(candidate); err == nil {
-			if registered := s.registry.Get(candidate.ID); registered != nil {
-				return registered, nil
-			}
-			if candidate.CredentialPattern == "" {
-				return nil, fmt.Errorf("provider %q continua indisponível após registro", candidate.ID)
-			}
-			// Register aceita manter um snapshot oculto enquanto o pattern está
-			// stale. Force uma leitura autoritativa e confirme a visibilidade;
-			// publicação supersedida nunca pode virar sucesso aparente.
-			if err := s.RefreshCredentialPatternRevisions(ctx, candidate.CredentialPattern); err != nil {
-				return nil, fmt.Errorf("sincronizar provider %q após registro stale: %w", candidate.ID, err)
-			}
-			if registered := s.registry.Get(candidate.ID); registered != nil {
-				return registered, nil
-			}
-			lastErr = fmt.Errorf("provider %q permanece stale após refresh", candidate.ID)
-		} else if !errors.Is(err, llm.ErrStaleProviderSnapshot) {
-			return nil, err
-		} else {
-			lastErr = err
-		}
-
-		authoritative, err := s.store.Get(ctx, provider.ID)
-		if err != nil {
-			return nil, fmt.Errorf("recarregar provider %q após snapshot atrasado: %w", provider.ID, err)
-		}
-		if authoritative == nil {
-			return nil, fmt.Errorf("provider %q foi removido durante o registro: %w", provider.ID, lastErr)
-		}
-		candidate = authoritative
-	}
-	return nil, fmt.Errorf("provider %q mudou durante o registro; não foi possível publicar snapshot atual: %w", provider.ID, lastErr)
-}
-
 // EnsureDefault garante que pelo menos um provedor está marcado como padrão.
 // Chamado automaticamente após Load. Seguro executar múltiplas vezes.
 func (s *Service) EnsureDefault(ctx context.Context) {
-	s.providerLifecycleMu.Lock()
-	defer s.providerLifecycleMu.Unlock()
-	s.ensureDefault(ctx)
-}
-
-func (s *Service) ensureDefault(ctx context.Context) {
 	defaultProv, err := s.store.GetDefault(ctx)
 	if err == nil && defaultProv != nil {
 		return
@@ -280,18 +181,16 @@ func (s *Service) ensureDefault(ctx context.Context) {
 	first := all[0]
 	logging.Warnf(ctx, "providers.service", "[providers] Nenhum provedor default — marcando '%s' como default", first.Name)
 
-	if err := s.setDefault(ctx, first.ID); err != nil {
+	if err := s.store.SetDefault(ctx, first.ID); err != nil {
 		logging.Errorf(ctx, "providers.service", "[providers] Erro ao definir default: %v", err)
 		return
 	}
-	first = s.registry.Get(first.ID)
-	if first == nil {
-		return
-	}
+	first.IsDefault = true
 
 	if first.Type != llm.ProviderChatGPT && !strings.HasPrefix(first.CredentialPattern, "oauth:") && first.DefaultModel == "" && first.Model != "" {
 		first.DefaultModel = first.Model
-		if _, err := s.saveAndRegister(ctx, first); err != nil {
+		// Persiste o DefaultModel preenchido
+		if err := s.store.Save(ctx, []*llm.ProviderConfig{first}); err != nil {
 			logging.Errorf(ctx, "providers.service", "[providers] Erro ao salvar DefaultModel: %v", err)
 		}
 	}
@@ -428,9 +327,6 @@ func normalizeProviderRuntimeDefaults(p *llm.ProviderConfig) {
 
 // Create cria e registra um novo provedor LLM.
 func (s *Service) Create(ctx context.Context, req CreateRequest) (*CreateResult, error) {
-	s.providerLifecycleMu.Lock()
-	defer s.providerLifecycleMu.Unlock()
-
 	// O formato e a URL chegam de formulário e de linha de comando, onde
 	// espaço nas pontas é acidente comum. Aparar antes de decidir evita que
 	// " acp " caia no caminho HTTP e a pessoa receba uma cobrança de URL que
@@ -466,12 +362,8 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*CreateResult,
 			return nil, fmt.Errorf("configuração de agente exige api_format %q", llm.APIFormatACP)
 		}
 	}
-	exists, err := s.store.Exists(ctx, req.ID)
-	if err != nil {
-		return nil, fmt.Errorf("verificar existência do provider %q: %w", req.ID, err)
-	}
-	if exists {
-		return nil, fmt.Errorf("provider com ID '%s' já existe: %w", req.ID, ErrProviderAlreadyExists)
+	if s.registry.Get(req.ID) != nil {
+		return nil, fmt.Errorf("provider com ID '%s' já existe", req.ID)
 	}
 
 	// O agente não tem host: o que o endereça é o comando.
@@ -485,6 +377,22 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*CreateResult,
 	}
 
 	credConfigured := false
+	if req.APIKey != "" {
+		if err := s.credMgr.RegisterPatternWithContext(ctx, hostname, &credentials.AuthConfig{Source: "static",
+			Type:  "bearer",
+			Token: req.APIKey,
+		}); err != nil {
+			return nil, fmt.Errorf("erro ao salvar credencial: %w", err)
+		}
+		credConfigured = true
+	}
+
+	if req.APIKey == "" && !isACP {
+		auth, err := s.credentialConfig(ctx, hostname)
+		credConfigured = err == nil && auth != nil && auth.Source != ""
+	}
+
+	isFirst := len(s.registry.List()) == 0
 	provider := &llm.ProviderConfig{
 		ID:                   req.ID,
 		Name:                 req.Name,
@@ -493,6 +401,7 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*CreateResult,
 		BaseURL:              baseURL,
 		DefaultModel:         req.DefaultModel,
 		ReasoningContentMode: llm.ReasoningContentMode(strings.TrimSpace(req.ReasoningContentMode)),
+		IsDefault:            isFirst,
 		Timeout:              180,
 		CredentialPattern:    hostname,
 		ACPCommand:           req.ACPCommand,
@@ -506,59 +415,22 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*CreateResult,
 	if err := provider.Validate(); err != nil {
 		return nil, err
 	}
-	if err := s.store.Create(ctx, provider); err != nil {
-		if errors.Is(err, ErrProviderAlreadyExists) {
-			return nil, fmt.Errorf("provider com ID '%s' já existe: %w", req.ID, ErrProviderAlreadyExists)
-		}
+	if err := s.store.Save(ctx, []*llm.ProviderConfig{provider}); err != nil {
 		return nil, err
 	}
-	cleanupCreatedProvider := func(cause error) error {
-		if deleteErr := s.store.Delete(ctx, req.ID); deleteErr != nil {
-			return errors.Join(cause, fmt.Errorf("remover provider criado parcialmente: %w", deleteErr))
-		}
-		var rollbackErr error
-		_, invalidatedPatterns := s.registry.RemoveProvider(req.ID, provider.CredentialPattern)
-		for _, pattern := range invalidatedPatterns {
-			if refreshErr := s.RefreshCredentialPatternRevisions(ctx, pattern); refreshErr != nil {
-				rollbackErr = errors.Join(rollbackErr, fmt.Errorf("sincronizar credenciais após rollback do provider %q: %w", req.ID, refreshErr))
-			}
-		}
-		return errors.Join(cause, rollbackErr)
+	if err := s.registry.Register(provider); err != nil {
+		return nil, fmt.Errorf("erro ao registrar provider: %w", err)
 	}
-
-	if req.APIKey != "" {
-		if s.credMgr == nil {
-			return nil, cleanupCreatedProvider(fmt.Errorf("credential manager indisponível"))
+	if isFirst {
+		if err := s.store.SetDefault(ctx, req.ID); err != nil {
+			logging.Warnf(ctx, "providers.service", "[providers] Aviso: erro ao marcar como default: %v", err)
 		}
-		if err := s.credMgr.RegisterPatternWithContext(ctx, hostname, &credentials.AuthConfig{Source: "static",
-			Type:  "bearer",
-			Token: req.APIKey,
-		}); err != nil {
-			return nil, cleanupCreatedProvider(fmt.Errorf("erro ao salvar credencial: %w", err))
-		}
-		if err := s.credentialPatternChanged(ctx, hostname); err != nil {
-			return nil, cleanupCreatedProvider(fmt.Errorf("erro ao atualizar revisão dos provedores que usam a credencial: %w", err))
-		}
-		credConfigured = true
-	} else if !isACP {
-		auth, err := s.credentialConfig(ctx, hostname)
-		credConfigured = err == nil && auth != nil && auth.Source != ""
-	}
-
-	registered, err := s.registerAuthoritativeProvider(ctx, provider)
-	if err != nil {
-		return nil, cleanupCreatedProvider(fmt.Errorf("erro ao registrar provider: %w", err))
-	}
-	provider = registered
-	s.ensureDefault(ctx)
-	if current := s.registry.Get(req.ID); current != nil {
-		provider = current
 	}
 
 	if isACP {
-		logging.Infof(ctx, "providers.service", "[providers] Provider '%s' criado (agente=%q, default=%v)", req.ID, provider.ACPCommand, provider.IsDefault)
+		logging.Infof(ctx, "providers.service", "[providers] Provider '%s' criado (agente=%q, default=%v)", req.ID, provider.ACPCommand, isFirst)
 	} else {
-		logging.Infof(ctx, "providers.service", "[providers] Provider '%s' criado (hostname=%s, default=%v)", req.ID, hostname, provider.IsDefault)
+		logging.Infof(ctx, "providers.service", "[providers] Provider '%s' criado (hostname=%s, default=%v)", req.ID, hostname, isFirst)
 	}
 	return &CreateResult{
 		Provider:             provider,
@@ -602,83 +474,8 @@ type UpdateResult struct {
 	CredentialConfigured bool
 }
 
-// RefreshCredentialPatternRevisions publica no registry as revisões que o
-// banco avançou atomicamente junto da mutação do cofre.
-func (s *Service) RefreshCredentialPatternRevisions(ctx context.Context, pattern string) error {
-	if s == nil {
-		return fmt.Errorf("serviço de provedores não inicializado")
-	}
-	if pattern == "" {
-		return fmt.Errorf("credential pattern vazio")
-	}
-	if s.registry == nil {
-		return fmt.Errorf("registry de provedores não inicializado")
-	}
-	syncGeneration := s.registry.BeginCredentialPatternRevisionSync(pattern)
-	var revisions map[string]int
-	if revisionStore, ok := s.store.(CredentialPatternRevisionReader); ok {
-		var err error
-		revisions, err = revisionStore.GetCompatibilityRevisionsForCredentialPattern(ctx, pattern)
-		if err != nil {
-			s.registry.AbortCredentialPatternRevisionSync(pattern, syncGeneration)
-			return fmt.Errorf("ler revisões dos provedores que usam %q: %w", pattern, err)
-		}
-	} else {
-		providers, err := s.store.Load(ctx)
-		if err != nil {
-			s.registry.AbortCredentialPatternRevisionSync(pattern, syncGeneration)
-			return fmt.Errorf("carregar provedores que usam %q: %w", pattern, err)
-		}
-		revisions = make(map[string]int)
-		for _, provider := range providers {
-			if provider.CredentialPattern == pattern && provider.CompatibilityRevision > 0 {
-				revisions[provider.ID] = provider.CompatibilityRevision
-			}
-		}
-	}
-	return s.registry.PublishCredentialPatternRevisions(pattern, syncGeneration, revisions)
-}
-
-// AdvanceCredentialPatternRevisions cobre credenciais mantidas apenas em
-// memória: sem escrita em credential_entries, nenhum trigger SQLite roda.
-func (s *Service) AdvanceCredentialPatternRevisions(ctx context.Context, pattern string) error {
-	if s == nil || s.registry == nil {
-		return fmt.Errorf("serviço ou registry de provedores não inicializado")
-	}
-	if pattern == "" {
-		return fmt.Errorf("credential pattern vazio")
-	}
-	syncGeneration := s.registry.BeginCredentialPatternRevisionSync(pattern)
-	revisionStore, ok := s.store.(CredentialPatternRevisionStore)
-	if !ok {
-		s.registry.AbortCredentialPatternRevisionSync(pattern, syncGeneration)
-		return fmt.Errorf("store de provedores não consegue avançar revisões de credenciais compartilhadas")
-	}
-	revisions, err := revisionStore.BumpCompatibilityRevisionsForCredentialPattern(ctx, pattern)
-	if err != nil {
-		s.registry.AbortCredentialPatternRevisionSync(pattern, syncGeneration)
-		return fmt.Errorf("avançar revisões dos provedores que usam %q: %w", pattern, err)
-	}
-	return s.registry.PublishCredentialPatternRevisions(pattern, syncGeneration, revisions)
-}
-
-// credentialPatternChanged cobre stores de teste/em memória, enquanto o store
-// SQLite já avança revisões transacionalmente com a gravação do cofre.
-func (s *Service) credentialPatternChanged(ctx context.Context, pattern string) error {
-	if s.credentialMutationsObservedByManager {
-		return nil
-	}
-	if atomicStore, ok := s.store.(AtomicCredentialPatternRevisionStore); ok && atomicStore.CredentialMutationsBumpCompatibilityRevisionsAtomically() {
-		return s.RefreshCredentialPatternRevisions(ctx, pattern)
-	}
-	return s.AdvanceCredentialPatternRevisions(ctx, pattern)
-}
-
 // Update atualiza um provedor LLM existente.
 func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*UpdateResult, error) {
-	s.providerLifecycleMu.Lock()
-	defer s.providerLifecycleMu.Unlock()
-
 	existing := s.registry.Get(id)
 	if existing == nil {
 		return nil, fmt.Errorf("provider '%s' não encontrado", id)
@@ -692,7 +489,6 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Up
 		ID:                       existing.ID,
 		Name:                     existing.Name,
 		Type:                     existing.Type,
-		CompatibilityRevision:    existing.CompatibilityRevision,
 		APIFormat:                existing.APIFormat,
 		BaseURL:                  existing.BaseURL,
 		Model:                    existing.Model,
@@ -801,16 +597,6 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Up
 		}); err != nil {
 			return nil, fmt.Errorf("erro ao atualizar credencial: %w", err)
 		}
-		if err := s.credentialPatternChanged(ctx, updated.CredentialPattern); err != nil {
-			return nil, fmt.Errorf("erro ao atualizar revisão dos provedores que usam a credencial: %w", err)
-		}
-		if updated.CredentialPattern == existing.CredentialPattern {
-			current := s.registry.Get(id)
-			if current == nil {
-				return nil, fmt.Errorf("provedor %q deixou o registry durante a troca da credencial", id)
-			}
-			updated.CompatibilityRevision = current.CompatibilityRevision
-		}
 		credConfigured = true
 	} else if updated.CredentialPattern != "" {
 		auth, err := s.credentialConfig(ctx, updated.CredentialPattern)
@@ -820,38 +606,8 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Up
 	if err := s.store.Save(ctx, []*llm.ProviderConfig{updated}); err != nil {
 		return nil, err
 	}
-	if existing.CredentialPattern != updated.CredentialPattern {
-		seen := make(map[string]struct{}, 2)
-		for _, pattern := range []string{existing.CredentialPattern, updated.CredentialPattern} {
-			if pattern == "" {
-				continue
-			}
-			if _, exists := seen[pattern]; exists {
-				continue
-			}
-			seen[pattern] = struct{}{}
-			if err := s.RefreshCredentialPatternRevisions(ctx, pattern); err != nil {
-				return nil, fmt.Errorf("erro ao sincronizar provedores que usam a credencial %q: %w", pattern, err)
-			}
-		}
-	}
-	registered, err := s.registerAuthoritativeProvider(ctx, updated)
-	if err != nil {
+	if err := s.registry.Register(updated); err != nil {
 		return nil, fmt.Errorf("erro ao atualizar provider: %w", err)
-	}
-	updated = registered
-	if existing.CredentialPattern != updated.CredentialPattern && existing.CredentialPattern != "" {
-		// A leitura anterior ao Register ainda enxerga o snapshot antigo no
-		// registry, portanto pode deixar o pattern antigo stale por cobertura
-		// incompleta. Agora que o provider já migrou, repetir a leitura permite
-		// confirmar apenas os consumidores que continuam usando o pattern.
-		if err := s.RefreshCredentialPatternRevisions(ctx, existing.CredentialPattern); err != nil {
-			return nil, fmt.Errorf("provider atualizado, mas não foi possível sincronizar os consumidores restantes da credencial %q: %w", existing.CredentialPattern, err)
-		}
-	}
-	if !credConfigured && updated.CredentialPattern != "" {
-		auth, err := s.credentialConfig(ctx, updated.CredentialPattern)
-		credConfigured = err == nil && auth != nil && auth.Source != ""
 	}
 
 	logging.Infof(ctx, "providers.service", "[providers] Provider '%s' atualizado", id)
@@ -860,22 +616,9 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Up
 
 // Delete remove um provedor do registry.
 func (s *Service) Delete(ctx context.Context, id string) error {
-	s.providerLifecycleMu.Lock()
-	defer s.providerLifecycleMu.Unlock()
-	return s.delete(ctx, id)
-}
-
-func (s *Service) delete(ctx context.Context, id string) error {
 	provider := s.registry.Get(id)
 	if provider == nil {
-		persisted, err := s.store.Get(ctx, id)
-		if err != nil {
-			return fmt.Errorf("provider '%s' não encontrado: %w", id, err)
-		}
-		if persisted == nil {
-			return fmt.Errorf("provider '%s' não encontrado", id)
-		}
-		provider = persisted
+		return fmt.Errorf("provider '%s' não encontrado", id)
 	}
 	if provider.Type == llm.ProviderChatGPT {
 		user, err := database.RequireUserID(ctx)
@@ -917,11 +660,8 @@ func (s *Service) delete(ctx context.Context, id string) error {
 	} else if err := s.store.Delete(ctx, id); err != nil {
 		return err
 	}
-	_, invalidatedPatterns := s.registry.RemoveProvider(id, provider.CredentialPattern)
-	for _, pattern := range invalidatedPatterns {
-		if err := s.RefreshCredentialPatternRevisions(ctx, pattern); err != nil {
-			return fmt.Errorf("provider removido, mas não foi possível sincronizar os consumidores da credencial %q: %w", pattern, err)
-		}
+	if err := s.registry.Remove(id); err != nil {
+		return fmt.Errorf("erro ao remover provider: %w", err)
 	}
 	logging.Infof(ctx, "providers.service", "[providers] Provider '%s' removido", id)
 	return nil
@@ -929,26 +669,14 @@ func (s *Service) delete(ctx context.Context, id string) error {
 
 // SetDefault marca um provedor como padrão do sistema.
 func (s *Service) SetDefault(ctx context.Context, id string) error {
-	s.providerLifecycleMu.Lock()
-	defer s.providerLifecycleMu.Unlock()
-	return s.setDefault(ctx, id)
-}
-
-func (s *Service) setDefault(ctx context.Context, id string) error {
 	if s.registry.Get(id) == nil {
 		return fmt.Errorf("provider '%s' não encontrado", id)
 	}
 	if err := s.store.SetDefault(ctx, id); err != nil {
 		return fmt.Errorf("erro ao definir provider default: %w", err)
 	}
-	providers, err := s.store.Load(ctx)
-	if err != nil {
-		return fmt.Errorf("default persistido, mas não foi possível recarregar os providers: %w", err)
-	}
-	for _, provider := range providers {
-		if _, err := s.registerAuthoritativeProvider(ctx, provider); err != nil {
-			return fmt.Errorf("default persistido, mas não foi possível sincronizar o provider %q: %w", provider.ID, err)
-		}
+	for _, p := range s.registry.List() {
+		p.IsDefault = (p.ID == id)
 	}
 	logging.Infof(ctx, "providers.service", "[providers] Provider '%s' definido como default", id)
 	return nil

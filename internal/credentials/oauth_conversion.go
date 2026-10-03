@@ -40,8 +40,6 @@ func (m *Manager) ConvertLegacyClientCredentials(ctx context.Context, directory,
 	}
 	// Stable per snapshot: a repeated request after a lost response is harmless.
 	id := uuid.NewSHA1(uuid.NameSpaceOID, []byte(p.Database+":"+p.ID)).String()
-	m.mutationMu.Lock()
-	defer m.mutationMu.Unlock()
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if err := s.store.check(ctx); err != nil {

@@ -1,14 +1,10 @@
 package wailsapi
 
 import (
+	"assistente/controllers"
 	"context"
 	"sync"
 )
-
-type welcomeController interface {
-	NeedsWelcomeWizard(ctx context.Context) bool
-	RunWelcomeWizard(ctx context.Context) (bool, error)
-}
 
 // WelcomeRuntime fornece deps de ciclo de vida / instance-wide para o wizard
 // dual-mode (AEP-0088). Implementado pelo App via adapter privado — não entra
@@ -28,12 +24,12 @@ type WelcomeRuntime interface {
 // (AuthenticatedContext) + controller/providers. Por isso o método vive neste
 // bind e NÃO entra em UnauthenticatedAppMethods (allowlist só de *App).
 //
-// RunWelcomeWizard exige sessão autenticada, pois a configuração do provedor
-// e sua credencial são gravadas no escopo do usuário.
+// RunWelcomeWizard também não usa WithUser: preserva o comportamento legado
+// de chamar o controller com o contexto de vida do app (runtime.AppContext).
 type Welcome struct {
 	mu      sync.RWMutex
 	session Session
-	ctrl    welcomeController
+	ctrl    *controllers.WelcomeController
 	runtime WelcomeRuntime
 }
 
@@ -44,7 +40,7 @@ func NewWelcome() *Welcome {
 
 // AttachWelcome associa Session, controller e runtime após o startup.
 // Função de pacote (não método) para não entrar no Bind do Wails.
-func AttachWelcome(w *Welcome, session Session, ctrl welcomeController, runtime WelcomeRuntime) {
+func AttachWelcome(w *Welcome, session Session, ctrl *controllers.WelcomeController, runtime WelcomeRuntime) {
 	if w == nil {
 		return
 	}
@@ -57,7 +53,7 @@ func AttachWelcome(w *Welcome, session Session, ctrl welcomeController, runtime 
 
 // EvaluateNeedsWelcomeWizard replica a lógica dual-mode do wizard (fail-safe true).
 // Exposta para o CLI (cmd/asst) reutilizar sem método no *App / Bind Wails.
-func EvaluateNeedsWelcomeWizard(session Session, ctrl welcomeController, runtime WelcomeRuntime) bool {
+func EvaluateNeedsWelcomeWizard(session Session, ctrl *controllers.WelcomeController, runtime WelcomeRuntime) bool {
 	if runtime == nil {
 		return true
 	}
@@ -107,12 +103,11 @@ func (w *Welcome) NeedsWelcomeWizard() bool {
 // Retorna true se completou com sucesso, false se cancelado.
 func (w *Welcome) RunWelcomeWizard() (bool, error) {
 	w.mu.RLock()
-	session := w.session
 	ctrl := w.ctrl
 	runtime := w.runtime
 	w.mu.RUnlock()
 	if ctrl == nil || runtime == nil {
 		return false, ErrWelcomeNotWired
 	}
-	return WithUser(session, ctrl.RunWelcomeWizard)
+	return ctrl.RunWelcomeWizard(runtime.AppContext())
 }

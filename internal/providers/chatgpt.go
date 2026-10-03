@@ -25,9 +25,6 @@ func (s *Service) oauthStore(ctx context.Context) (oauthflow.Store, error) {
 	return mgr.OAuthStore(ctx)
 }
 func (s *Service) CreateChatGPTConnection(ctx context.Context, name string) (oauthflow.Summary, error) {
-	s.providerLifecycleMu.Lock()
-	defer s.providerLifecycleMu.Unlock()
-
 	generation := s.registry.Generation()
 	user, err := database.RequireUserID(ctx)
 	if err != nil {
@@ -247,14 +244,7 @@ func persistChatGPTAuthorization(ctx context.Context, store oauthflow.Store, r o
 			if current.Type != string(llm.ProviderChatGPT) || current.CredentialPattern != *expectedPattern {
 				return oauthflow.ErrConflict
 			}
-			fields := map[string]any{
-				"credential_pattern":     p.CredentialPattern,
-				"base_url":               p.BaseURL,
-				"api_format":             string(p.APIFormat),
-				"auth_mode":              string(p.AuthMode),
-				"compatibility_revision": gorm.Expr("compatibility_revision + 1"),
-				"config_revision":        gorm.Expr("config_revision + 1"),
-			}
+			fields := map[string]any{"credential_pattern": p.CredentialPattern, "base_url": p.BaseURL, "api_format": string(p.APIFormat), "auth_mode": string(p.AuthMode)}
 			result := database.ScopeByUser(ctx, tx.Model(&database.LLMProvider{}), "user_id").Where("id = ? AND credential_pattern = ?", p.ID, *expectedPattern).Updates(fields)
 			if result.Error != nil {
 				return result.Error
@@ -262,10 +252,8 @@ func persistChatGPTAuthorization(ctx context.Context, store oauthflow.Store, r o
 			if result.RowsAffected != 1 {
 				return oauthflow.ErrConflict
 			}
-			current, err = repository.GetLLMProvider(ctx, p.ID)
-			if err != nil {
-				return err
-			}
+			current.CredentialPattern, current.BaseURL = p.CredentialPattern, p.BaseURL
+			current.APIFormat, current.AuthMode = string(p.APIFormat), string(p.AuthMode)
 			updated, err := fromDBModel(current)
 			if err != nil {
 				return err
@@ -273,13 +261,7 @@ func persistChatGPTAuthorization(ctx context.Context, store oauthflow.Store, r o
 			*p = *updated
 			return nil
 		}
-		dbProvider := toDBModel(p)
-		if err := repository.SaveLLMProvider(ctx, dbProvider); err != nil {
-			return err
-		}
-		p.CompatibilityRevision = dbProvider.CompatibilityRevision
-		p.ConfigRevision = dbProvider.ConfigRevision
-		return nil
+		return repository.SaveLLMProvider(ctx, toDBModel(p))
 	})
 }
 
@@ -297,8 +279,7 @@ func (s *Service) setChatGPTDefaultModel(ctx context.Context, store oauthflow.St
 	}
 	var updated *llm.ProviderConfig
 	err := transaction.WithAuthorization(ctx, authorizationID, func(tx *gorm.DB) error {
-		repository := database.NewProviderRepository(tx)
-		current, err := repository.GetLLMProvider(ctx, provider.ID)
+		current, err := database.NewProviderRepository(tx).GetLLMProvider(ctx, provider.ID)
 		if err != nil {
 			return err
 		}
@@ -306,20 +287,14 @@ func (s *Service) setChatGPTDefaultModel(ctx context.Context, store oauthflow.St
 			return oauthflow.ErrConflict
 		}
 		if current.DefaultModel == "" {
-			result := database.ScopeByUser(ctx, tx.Model(&database.LLMProvider{}), "user_id").Where("id = ? AND credential_pattern = ? AND default_model = ?", provider.ID, current.CredentialPattern, "").Updates(map[string]any{
-				"default_model":   model,
-				"config_revision": gorm.Expr("config_revision + 1"),
-			})
+			result := database.ScopeByUser(ctx, tx.Model(&database.LLMProvider{}), "user_id").Where("id = ? AND credential_pattern = ? AND default_model = ?", provider.ID, current.CredentialPattern, "").Update("default_model", model)
 			if result.Error != nil {
 				return result.Error
 			}
 			if result.RowsAffected != 1 {
 				return oauthflow.ErrConflict
 			}
-			current, err = repository.GetLLMProvider(ctx, provider.ID)
-			if err != nil {
-				return err
-			}
+			current.DefaultModel = model
 		}
 		updated, err = fromDBModel(current)
 		return err

@@ -42,48 +42,6 @@ func TestDBStore_DeleteCredential_RejectsEmptyPattern(t *testing.T) {
 	}
 }
 
-func TestDBStoreDeleteCredentialsByIDReturnsAffectedOwnerPatterns(t *testing.T) {
-	setupScopedCredentialStoreTestDB(t)
-	store := NewDBStore()
-	for _, credential := range []StoredCredential{
-		{ID: "credential-a", UserID: "user-a", Pattern: "api.a.example.com", Auth: &AuthConfig{Source: "static", Type: "bearer", Token: "secret-a"}},
-		{ID: "credential-b", UserID: "user-b", Pattern: "api.b.example.com", Auth: &AuthConfig{Source: "static", Type: "bearer", Token: "secret-b"}},
-		{ID: "credential-keep", UserID: "user-b", Pattern: "api.keep.example.com", Auth: &AuthConfig{Source: "static", Type: "bearer", Token: "secret-keep"}},
-	} {
-		ctx := database.WithUserID(context.Background(), credential.UserID)
-		if err := store.SaveCredential(ctx, credential); err != nil {
-			t.Fatalf("salvar %s: %v", credential.ID, err)
-		}
-	}
-
-	removed, mutations, err := store.DeleteCredentialsByIDWithPatterns(context.Background(), []string{"credential-a", "credential-b"})
-	if err != nil || removed != 2 {
-		t.Fatalf("purge=%d err=%v", removed, err)
-	}
-	got := make(map[string]struct{}, len(mutations))
-	for _, mutation := range mutations {
-		got[mutation.UserID+"\x00"+mutation.Pattern] = struct{}{}
-	}
-	for _, want := range []CredentialPatternMutation{
-		{UserID: "user-a", Pattern: "api.a.example.com"},
-		{UserID: "user-b", Pattern: "api.b.example.com"},
-	} {
-		if _, ok := got[want.UserID+"\x00"+want.Pattern]; !ok {
-			t.Errorf("scope removido não retornado: %+v; got=%+v", want, mutations)
-		}
-	}
-	if len(mutations) != 2 {
-		t.Fatalf("scopes afetados=%+v, want exactly two", mutations)
-	}
-	kept, err := store.ListCredentials(database.WithUserID(context.Background(), "user-b"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(kept) != 1 || kept[0].ID != "credential-keep" {
-		t.Fatalf("credencial fora do purge foi removida: %+v", kept)
-	}
-}
-
 // TestDBStore_SaveCredential_RejectsEmptyPattern garante simetria com
 // DeleteCredential: pattern é parte da identidade da credencial, não
 // pode ser vazio.

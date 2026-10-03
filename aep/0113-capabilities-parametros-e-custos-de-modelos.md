@@ -45,39 +45,22 @@ O projeto já tem contratos que esta proposta deve preservar:
 
 1. **O provedor existente continua sendo a raiz.** `llm_providers` mantém
    identidade da conexão, endpoint, credenciais, `api_format` e opções de
-   protocolo. A identidade de compatibilidade da conexão tem revisão própria,
-   alterada quando mudarem endpoint, formato de API, adaptador ou identidade da
-   credencial/conta efetiva. A adoção de um provider legado do escopo de
-   bootstrap para um usuário também muda essa identidade e avança as revisões de
-   compatibilidade e configuração. Como uma credencial persistida por pattern pode ser
-   compartilhada por vários provedores do mesmo usuário, triggers na transação
-   do cofre persistente avançam as revisões de todos os provedores consumidores
-   de credenciais que representam a conexão. A rotação de tokens no namespace
-   `oauth:` não altera por si só a identidade da conta; vincular ou trocar a
-   conta OAuth continua sendo uma mudança explícita no provedor. Após o commit,
-   o manager sincroniza o registry; operações que removem ou restauram uma
-   credencial de hostname compartilhada também sincronizam o registry. O registry mantém watermarks mesmo quando a revisão chega
-   antes do primeiro registro do provedor; publicações atrasadas preservam a
-   revisão máxima, e um snapshot abaixo dela é rejeitado e recarregado do store
-   antes de republicar todos os campos. Refreshes são versionados por pattern;
-   ao migrar ou remover o último provider, marcas stale órfãs e refreshes antigos
-   são invalidados. Uma exclusão persistida invalida também syncs ativos que
-   poderiam ter lido o ID sob outro pattern; patterns com snapshots ainda stale
-   são relidos, enquanto patterns sem consumidor registrado não geram leitura
-   adicional. Tokens de sync são monotônicos entre sessões, então `Clear` não
-   permite que uma leitura anterior ao logout publique na sessão seguinte. Se
-   a leitura ou publicação falhar, os snapshots afetados
-   ficam indisponíveis até a geração mais recente de sincronização bem-sucedida.
-   Quando o cofre existe apenas em memória, o serviço de provedores avança as
-   revisões explicitamente depois de atualizar o cache. Segredos não são armazenados nem
-   hasheados para formar essa revisão. Uma `config_revision` separada avança
-   quando qualquer configuração persistida do provedor muda, inclusive a
-   seleção do provedor padrão; trocas de padrão e importações que desmarcam
-   outro provedor versionam os registros afetados na mesma transação. O registry recusa
-   snapshots com versão anterior ou conteúdo diferente na mesma versão. Trocar
-   o modelo padrão não invalida fatos de compatibilidade da conexão. `api_format` não será copiado para
-   `llm_models`: um modelo não define o protocolo usado para alcançá-lo.
-
+   protocolo. A revisão de compatibilidade muda quando mudam endpoint, formato,
+   adaptador, escopo de propriedade ou identidade da credencial/conta efetiva.
+   Segredos não são armazenados nem hasheados para formar essa revisão.
+   Mutações de credenciais persistidas compartilhadas avançam no banco as
+   revisões dos provedores consumidores na mesma transação. Rotação de tokens
+   do namespace `oauth:` não representa, por si só, troca de conta.
+   Uma `config_revision` separada identifica mudanças de configuração,
+   incluindo seleção do provedor padrão. Trocar apenas o modelo padrão não
+   invalida fatos de compatibilidade da conexão.
+   A fase 1 entrega esse contrato de persistência e sua resolução local.
+   A fase 2 integra a captura da revisão efetivamente usada na requisição e a
+   invalidação da projeção em memória antes de aplicar fatos ao envio. Essa
+   integração deve reutilizar os contratos de provedores e credenciais vigentes;
+   alterações nos fluxos de autenticação e no wizard não fazem parte da fase 1.
+   `api_format` permanece no provedor: um modelo não define o protocolo usado
+   para alcançá-lo.
 2. **O modelo pertence ao registro do provedor.** `llm_models` referencia um
    `llm_providers.id` e guarda o identificador pelo qual aquele endpoint
    conhece o modelo. Não terá `user_id` próprio: acesso e ciclo de vida vêm do
@@ -251,8 +234,8 @@ resolução projeta um fato efetivo sem apagar afirmações concorrentes.
 | Fase / PR planejado | Entrega | Limite da fase |
 |---|---|---|
 | 0 — PR de documentação (concluída no PR #887) | Registrar e revisar esta arquitetura e a sequência de entrega. | Sem migração ou mudança de runtime. |
-| 1 — Persistência e resolução local (concluída neste PR) | Migração v33 cria revisões separadas de compatibilidade e configuração, modelos por provedor, vocabulário controlado, vínculos externos verificados e versionados por verificação, afirmações append-only com origem, limites/opções tipados e resolver local determinístico; v34 instala guards SQL de proveniência para bancos que já aplicaram v33, preservando fatos históricos; v35 rejeita em SQLite timestamps de verificação/observação futuros em vínculos e afirmações, também para schemas anteriores. Alterações em credenciais de conexão compartilhadas invalidam todos os provedores consumidores; adoção de provider legado muda sua identidade de compatibilidade; rotação de token OAuth não é confundida com troca de conta, e operações que removem/restauram uma credencial de hostname compartilhada sincronizam o registry. Falha no refresh oculta snapshots afetados até recuperação. Instantes são normalizados para UTC, snapshots de autorização/fatos são consistentes e o registry só recebe revisões após commit ou atualização do cache em memória, recusando snapshots de configuração atrasados, inclusive quando a seleção do provedor padrão muda. O wizard persiste provider e credencial em contexto autenticado. Testes cobrem escopo, precedência, expiração, proveniência imutável, offsets, rollback, renovação, invalidação por revisão e troca versionada do provedor padrão. | Sem consultas externas e sem alterar o envio. |
-| 2 — Compatibilidade no envio | Traduzir campos canônicos, omitir incompatibilidades conhecidas e aprender rejeições precisas com no máximo um retry seguro. | Integrar ao pipeline backend existente; sem caminho paralelo de mensagem. |
+| 1 — Persistência e resolução local (implementada no PR #889; em revisão) | Migrações v33/v34/v35, modelos por provedor, catálogo controlado, afirmações e vínculos históricos, limites/opções tipados e resolver local determinístico. Revisões da conexão são persistidas e invalidadas transacionalmente no banco; testes cobrem isolamento, precedência, expiração, rollback, proveniência e integridade SQL. | Sem integração com envio/perfil, sincronização do registry, alterações no cofre/OAuth ou mudanças no wizard. |
+| 2 — Compatibilidade no envio | Integrar a projeção local e a revisão efetiva da conexão ao pipeline; traduzir campos canônicos, omitir incompatibilidades conhecidas e aprender rejeições precisas com no máximo um retry seguro. | Reutilizar o pipeline backend e os contratos vigentes de provedores/credenciais; invalidar fatos antes de usar uma conexão alterada. |
 | 3 — Profile Manager e vozes | Filtrar opções usando fatos locais; persistir/reutilizar listas de vozes por provedor/modelo e estados de desconhecimento. | Abrir a tela não espera por API externa. |
 | 4 — Fontes e jobs | Criar interface de importadores e uma operação de sincronização reutilizada pela chamada manual e pelos jobs, com validação, atualização idempotente, proveniência e vínculos explícitos de identidade; começar por fontes cuja cobertura e licença sejam adequadas. | Fatos externos só governam conexão com identidade de provedor/modelo explicitamente verificada. |
 | 5 — Tarifas e custo | Persistir tabelas de preço versionadas por unidade e origem e usá-las em estimativas sem reescrever histórico. | Não misturar tarifas com campos/capabilities nem prometer precisão quando a fonte for estimada. |
@@ -288,47 +271,21 @@ depender de uma fase ainda aberta deve ser empilhado sobre ela.
 - [x] `llm_models` é ligado a `llm_providers` e não contém `user_id` nem
   `api_format`; IDs iguais em endpoints distintos não compartilham fatos
   aprendidos automaticamente. Verificado por `TestLLMModelCapabilitiesRepositoryScopesModelsAndResolvesLocalFacts`.
-- [x] Aprendizados e vínculos importados incluem a revisão não secreta da
-  identidade de compatibilidade; mudar endpoint, formato, adaptador ou escopo da
-  conta invalida fatos efetivos anteriores sem apagar o histórico nem armazenar
-  hash/segredo da credencial. Observações exigem a revisão capturada e fatos
-  antigos não herdam a revisão atual; snapshots de `ProviderConfig` preservam
-  essa revisão. Gravar/substituir ou excluir uma credencial compartilhada
-  avança na mesma transação todas as revisões de provedores do mesmo usuário que
-  usam o pattern, sem afetar outros patterns ou usuários. Rotação/inserção/
-  exclusão de credenciais `oauth:` não altera a revisão de compatibilidade;
-  rebind explícito de conta continua avançando a revisão no fluxo do provedor.
-  Operações que removem ou restauram uma credencial de hostname compartilhada
-  sincronizam também o pattern após o commit/cache. Se a sincronização falha, snapshots atingidos são ocultados até uma
-  leitura bem-sucedida. Para credenciais mantidas só em memória, a revisão
-  avança após atualizar o cache local. Verificado por
-  `TestProviderCompatibilityRevisionChangesWithOnlyConnectionIdentity`,
+- [x] Afirmações e vínculos incluem a revisão não secreta de compatibilidade.
+  O repositório recusa gravações com revisão ausente ou antiga e desconsidera
+  fatos de revisões anteriores sem apagar o histórico. Mudanças gravadas pelo repositório
+  na identidade do provedor e mutações de credenciais de hostname compartilhadas
+  avançam as revisões no banco; a adoção de dados legados também é versionada.
+  Verificado por `TestProviderCompatibilityRevisionChangesWithOnlyConnectionIdentity`,
   `TestBumpCompatibilityRevisionsForCredentialPatternIsUserScoped`,
-  `TestUpdateAPIKeyInvalidatesConnectionCompatibilityRevision`,
-  `TestCreateAPIKeyInvalidatesExistingCredentialConsumers` e
-  `TestCreateFromTemplateCredentialFailureDoesNotPublishUnpersistedProvider`,
-  `TestCreateFromTemplateAPIKeyInvalidatesExistingCredentialConsumers`,
-  `TestCredentialEntryTriggersAdvanceOnlyMatchingProviderRevisions`,
-  `TestDBStore_SavePublishesCompatibilityRevisionsOnlyAfterCommit`,
-  `TestRegisterAuthoritativeProviderRejectsOutOfOrderModelSnapshot`,
-  `TestRunWelcomeWizardUsesAuthenticatedContext` e
-  `TestRunWelcomeWizardFailsClosedWithoutAuthenticatedSession`,
-  `TestProviderRegistryCompatibilityRevisionNeverRegresses`,
-  `TestProviderRegistryDelayedRegistrationPreservesRevisionAndStaleState`,
-  `TestProviderRegistryKeepsRevisionWatermarkBeforeFirstRegistration`,
-  `TestProviderRegistryRemoveClearsOrphanedStalePattern`,
-  `TestProviderRegistryRemoveInvalidatesLateRefreshBeforeProviderIDReuse`,
-  `TestProviderRegistryFailureBeforeRegistrationKeepsPatternStale`,
-  `TestProviderRegistryProviderMovedOffStalePatternBecomesAvailable`,
-  `TestAdoptLegacyDataAssignsBlankOwners`,
-  `TestRegisterAuthoritativeProviderReloadsStoredSnapshot`,
-  `TestSaveAndRegisterDoesNotReportSupersededStaleSnapshotAsSuccess`,
-  `TestUpdateProviderRefreshesCredentialPatternsAfterMove`,
-  `TestEphemeralCredentialMutationAdvancesProviderIdentity`,
-  `TestClearLegacyOAuthRefreshesCredentialRevisionsAfterCommitAndUnlock`,
-  `TestClearLegacyMCPAuthorizationRefreshesSharedProviderRevision`,
-  `TestHostnameSnapshotRestorationRefreshesCredentialRevisionsAfterCommitAndUnlock` e
-  `TestCredentialRevisionSyncFailureHidesProviderUntilRecovery`.
+  `TestCredentialEntryTriggersAdvanceOnlyMatchingProviderRevisions` e
+  `TestAdoptLegacyDataAssignsBlankOwners`.
+- [ ] A requisição captura a revisão da conexão que efetivamente executa o
+  envio; mudanças de identidade invalidam a projeção usada pelo runtime,
+  incluindo credenciais mantidas apenas em memória. A integração do resolver
+  com envio e perfil deve consultar fatos da revisão correta e recusar
+  snapshots obsoletos. Entrega prevista na fase 2; a fase 1 expõe as revisões
+  persistidas, mas não modifica o cache do registry nem os mutadores do cofre.
 - [x] Suporte de capability e de campo tem os estados suportado, não suportado
   e desconhecido, com origem e instante de observação.
   Persistido nas tabelas de afirmações da migração v33; a validação de domínio rejeita estados e proveniência fora do catálogo, e a v34 estende os guards de referências existentes sem reescrever fatos anteriores.
@@ -352,15 +309,13 @@ depender de uma fase ainda aberta deve ser empilhado sobre ela.
   de a transação confirmar. Verificado por
   `TestLLMModelCapabilityAssertionsNormalizeTimesToUTC` e
   `TestDBStore_SavePublishesCompatibilityRevisionsOnlyAfterCommit`.
-- [x] A revisão de configuração inclui mudanças em `is_default`. Alternar o
-  provedor padrão versiona os registros afetados em uma transação, o serviço
-  sincroniza as revisões persistidas no registry e snapshots atrasados não
-  restauram uma seleção anterior. Importações também versionam o provedor
-  padrão desmarcado. Verificado por
-  `TestSetDefaultProviderAdvancesConfigRevisionsAtomically`,
-  `TestSetDefaultRefreshesRegistryRevisionsAndRejectsStaleSnapshot`,
+- [x] A revisão persistida de configuração inclui mudanças em `is_default`.
+  Trocar o provedor padrão versiona os registros afetados na mesma transação;
+  importações também versionam o registro desmarcado.
+  Verificado por `TestSetDefaultProviderAdvancesConfigRevisionsAtomically`,
   `TestProviderImportDefaultSwitchAdvancesPreviousConfigRevision` e
-  `TestProviderImportAdvancesOnlyRelevantRevisions`.
+  `TestProviderImportAdvancesOnlyRelevantRevisions`. A captura e validação
+  dessas versões no runtime pertencem à fase 2.
 - [x] Vínculos, afirmações e opções de campo não podem ser atualizados ou
   excluídos diretamente enquanto seu modelo existir; apagar um modelo ou
   provedor remove os fatos dependentes em cascata. Verificado por

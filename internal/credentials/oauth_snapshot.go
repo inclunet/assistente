@@ -371,10 +371,6 @@ func (m *Manager) RestoreLegacyOAuthSnapshot(ctx context.Context, directory, id 
 	if !time.Now().Before(p.RetainUntil) {
 		return ErrSnapshotConflict
 	}
-	// Serialize the transaction and cache publication with other credential
-	// mutations so a concurrent delete cannot leave a restored row uncached.
-	m.mutationMu.Lock()
-	defer m.mutationMu.Unlock()
 	if p.Schema == "legacy-hostname-v1" {
 		return m.restoreHostnameSnapshot(ctx, s, p)
 	}
@@ -499,14 +495,6 @@ func (m *Manager) RestoreLegacyOAuthSnapshot(ctx context.Context, directory, id 
 // Hostname recovery is an explicit restoration of copied secrets, not a grant
 // conversion. Do not change consumers or infer ownership of a shared pattern.
 func (m *Manager) restoreHostnameSnapshot(ctx context.Context, s *snapshotSession, p *legacySnapshot) error {
-	pattern := p.HostnameCredential.Entry.Pattern
-	if err := m.restoreHostnameSnapshotAndCache(ctx, s, p); err != nil {
-		return err
-	}
-	return m.notifyCredentialPatternMutation(ctx, pattern)
-}
-
-func (m *Manager) restoreHostnameSnapshotAndCache(ctx context.Context, s *snapshotSession, p *legacySnapshot) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if err := s.store.check(ctx); err != nil {

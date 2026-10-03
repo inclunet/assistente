@@ -142,8 +142,6 @@ func (r *reconnectStore) bound(v oauthflow.Record) bool {
 }
 func (r *reconnectStore) transaction(ctx context.Context, fn func(*gorm.DB) error, after ...func()) error {
 	m := r.s.store.manager
-	m.mutationMu.Lock()
-	defer m.mutationMu.Unlock()
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if err := r.s.store.check(ctx); err != nil {
@@ -310,8 +308,6 @@ func (r *reconnectStore) CompareAndSwap(ctx context.Context, record oauthflow.Re
 	var encrypted string
 	// Publication must be ordered with session changes, so keep the lock through
 	// commit and cache publication just like oauthStore.
-	m.mutationMu.Lock()
-	defer m.mutationMu.Unlock()
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if err := r.s.store.check(ctx); err != nil {
@@ -388,8 +384,6 @@ func (r *reconnectStore) close() {
 	ctx, cancel := context.WithTimeout(database.WithUserID(context.Background(), r.p.UserID), 2*time.Second)
 	defer cancel()
 	m := r.s.store.manager
-	m.mutationMu.Lock()
-	defer m.mutationMu.Unlock()
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if r.s.store.check(ctx) != nil {

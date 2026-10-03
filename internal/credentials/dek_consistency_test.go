@@ -6,7 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	"assistente/internal/database"
 	"github.com/zalando/go-keyring"
 )
 
@@ -96,15 +95,9 @@ func (s *memoryConsistencyStore) ListAllCredentialsIgnoringScope(_ context.Conte
 	return s.credentials, nil
 }
 
-func (s *memoryConsistencyStore) DeleteCredentialsByID(ctx context.Context, ids []string) (int, error) {
-	removed, _, err := s.DeleteCredentialsByIDWithPatterns(ctx, ids)
-	return removed, err
-}
-
-func (s *memoryConsistencyStore) DeleteCredentialsByIDWithPatterns(_ context.Context, ids []string) (int, []CredentialPatternMutation, error) {
+func (s *memoryConsistencyStore) DeleteCredentialsByID(_ context.Context, ids []string) (int, error) {
 	out := s.credentials[:0]
 	removed := 0
-	mutations := make([]CredentialPatternMutation, 0)
 	idSet := make(map[string]struct{}, len(ids))
 	for _, id := range ids {
 		idSet[id] = struct{}{}
@@ -112,25 +105,12 @@ func (s *memoryConsistencyStore) DeleteCredentialsByIDWithPatterns(_ context.Con
 	for _, c := range s.credentials {
 		if _, drop := idSet[c.ID]; drop {
 			removed++
-			mutations = append(mutations, CredentialPatternMutation{UserID: c.UserID, Pattern: c.Pattern})
 			continue
 		}
 		out = append(out, c)
 	}
 	s.credentials = out
-	return removed, mutations, nil
-}
-
-type recordingCredentialRevisionRefresher struct {
-	calls      []CredentialPatternMutation
-	bootstraps []bool
-}
-
-func (r *recordingCredentialRevisionRefresher) RefreshCredentialPatternRevisions(ctx context.Context, pattern string) error {
-	userID, _ := database.UserIDFromContext(ctx)
-	r.calls = append(r.calls, CredentialPatternMutation{UserID: userID, Pattern: pattern})
-	r.bootstraps = append(r.bootstraps, database.IsBootstrap(ctx))
-	return nil
+	return removed, nil
 }
 
 // TestPersistDEKConsistent_RecusaSobrescreverDEKDivergente cobre o
@@ -364,81 +344,6 @@ func TestPurgeUnreadableCredentials_RemoveOrfãsEDeixaResto(t *testing.T) {
 	}
 	if got := mgr.IntegrityStatus().UnreadableCredentialIDs; len(got) != 0 {
 		t.Fatalf("status ainda lista unreadable após purge: %v", got)
-	}
-}
-
-func TestPurgeUnreadableCredentialsRefreshesOnlyActiveOwnerPatterns(t *testing.T) {
-	store := newMemoryConsistencyStore()
-	dekKeychain := []byte("44444444444444444444444444444444")
-	dekOrfa := []byte("OROROROROROROROROROROROROROROROR")
-	encoderOrfa := NewManager(dekOrfa)
-	first, err := encoderOrfa.encryptAuth(&AuthConfig{Source: "static", Type: "bearer", Token: "sk-orphan-a"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	second, err := encoderOrfa.encryptAuth(&AuthConfig{Source: "static", Type: "bearer", Token: "sk-orphan-b"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	store.credentials = []StoredCredential{
-		{ID: "orphan-a", UserID: "user-a", Pattern: "api.shared.example.com", Auth: first},
-		{ID: "orphan-b", UserID: "user-b", Pattern: "api.shared.example.com", Auth: second},
-	}
-	store.wraps[KeyWrapKindMaster] = KeyWrap{Kind: KeyWrapKindMaster, DekID: DEKIdentity(dekKeychain)}
-	manager := NewManagerWithStore(dekKeychain, store, true)
-	refresher := &recordingCredentialRevisionRefresher{}
-	manager.SetCredentialRevisionRefresher(refresher)
-	if err := manager.LoadInstanceSecrets(context.Background()); err != nil {
-		t.Fatalf("LoadInstanceSecrets: %v", err)
-	}
-
-	removed, err := manager.PurgeUnreadableCredentials(database.WithUserID(context.Background(), "user-a"))
-	if err != nil || removed != 2 {
-		t.Fatalf("purge=%d err=%v", removed, err)
-	}
-	got := make(map[string]struct{}, len(refresher.calls))
-	for _, call := range refresher.calls {
-		got[call.UserID+"\x00"+call.Pattern] = struct{}{}
-	}
-	want := CredentialPatternMutation{UserID: "user-a", Pattern: "api.shared.example.com"}
-	if _, ok := got[want.UserID+"\x00"+want.Pattern]; !ok {
-		t.Errorf("revisão do owner ativo não sincronizada para %+v; calls=%+v", want, refresher.calls)
-	}
-	if len(refresher.calls) != 1 || refresher.calls[0].UserID != "user-a" {
-		t.Fatalf("callbacks fora do owner ativo: %+v", refresher.calls)
-	}
-	if refresher.bootstraps[0] {
-		t.Fatal("refresh de usuário ativo foi enviado em contexto bootstrap")
-	}
-}
-
-func TestPurgeUnreadableBootstrapCredentialRefreshesWithBootstrapContext(t *testing.T) {
-	store := newMemoryConsistencyStore()
-	key := []byte("44444444444444444444444444444444")
-	other := []byte("OROROROROROROROROROROROROROROROR")
-	encoder := NewManager(other)
-	credential, err := encoder.encryptAuth(&AuthConfig{Source: "static", Type: "bearer", Token: "sk-orphan"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	store.credentials = []StoredCredential{{ID: "orphan-bootstrap", Pattern: "api.bootstrap.example.com", Auth: credential}}
-	store.wraps[KeyWrapKindMaster] = KeyWrap{Kind: KeyWrapKindMaster, DekID: DEKIdentity(key)}
-	manager := NewManagerWithStore(key, store, true)
-	refresher := &recordingCredentialRevisionRefresher{}
-	manager.SetCredentialRevisionRefresher(refresher)
-	if err := manager.LoadInstanceSecrets(context.Background()); err != nil {
-		t.Fatalf("LoadInstanceSecrets: %v", err)
-	}
-
-	removed, err := manager.PurgeUnreadableCredentials(database.WithBootstrap(context.Background()))
-	if err != nil || removed != 1 {
-		t.Fatalf("purge=%d err=%v", removed, err)
-	}
-	if len(refresher.calls) != 1 || refresher.calls[0] != (CredentialPatternMutation{Pattern: "api.bootstrap.example.com"}) {
-		t.Fatalf("refresh bootstrap inesperado: %+v", refresher.calls)
-	}
-	if len(refresher.bootstraps) != 1 || !refresher.bootstraps[0] {
-		t.Fatalf("refresh do owner vazio precisa de WithBootstrap: %v", refresher.bootstraps)
 	}
 }
 

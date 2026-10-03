@@ -279,10 +279,6 @@ func TestLeituraPelaFronteiraNaoDevolveACPEnv(t *testing.T) {
 		"VT_ACP_ENABLED": "true",
 		"CODEX_API_KEY":  "sk-secreta",
 	}
-	salvo.ConfigRevision++
-	if err := registry.Register(salvo); err != nil {
-		t.Fatalf("registrar ambiente reservado para o teste: %v", err)
-	}
 
 	lista := ctrl.GetLLMProvidersWithStatus(ctx)
 	var lido map[string]interface{}

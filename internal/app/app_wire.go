@@ -408,6 +408,7 @@ func (a *App) wireWelcome() {
 		UpdaterCtrl:                a.updaterCtrl,
 		ConfigureCredentialManager: a.configureCredentialManager,
 		InitLLMClient:              a.initLLMClient,
+		SaveLLMProviders:           a.saveLLMProviders,
 	})
 	if a.welcomeAPI != nil {
 		wailsapi.AttachWelcome(a.welcomeAPI, wailsSession{app: a}, a.welcomeCtrl, welcomeRuntime{app: a})

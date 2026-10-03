@@ -70,8 +70,6 @@ func (m *Manager) EnsureInstanceSecret(ctx context.Context, pattern string, crea
 	if create == nil {
 		return "", ErrInstanceSecretCreate
 	}
-	m.mutationMu.Lock()
-	defer m.mutationMu.Unlock()
 
 	// Reset também usa mu. Mantê-lo até depois da releitura e da atualização do
 	// cache impede trocar encKey/persist no meio de uma cifra ou de um commit.

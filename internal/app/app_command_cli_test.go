@@ -385,8 +385,7 @@ func TestCommandCLIAppConstructorSelectsOnlyModeAndReloadPreservesProviderRegist
 		t.Fatalf("registrar provider de prova: %v", err)
 	}
 	_ = cliApp.reloadUserScopedRuntime()
-	registered := cliApp.llmRegistry.Get(probe.ID)
-	if registered == nil || registered.ID != probe.ID || registered.Name != probe.Name || registered.BaseURL != probe.BaseURL {
+	if cliApp.llmRegistry.Get(probe.ID) != probe {
 		t.Fatal("reloadUserScopedRuntime do modo CLI limpou o registry LLM")
 	}
 }
