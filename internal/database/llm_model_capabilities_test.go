@@ -1055,3 +1055,51 @@ func TestSetDefaultProviderAdvancesConfigRevisionsAtomically(t *testing.T) {
 }
 
 func floatPtr(value float64) *float64 { return &value }
+
+func TestLLMModelFieldOptionsDomainAndSQLiteAgreeOnCharacterBounds(t *testing.T) {
+	db := llmModelCapabilitiesTestDB(t)
+	ctx := WithUserID(context.Background(), "owner-a")
+	if err := db.Create(&LLMProvider{ID: "options-provider", UserID: "owner-a", Name: "Options", Type: "custom"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	repository := NewLLMModelCapabilitiesRepository(db)
+	model, err := repository.SaveModel(ctx, "options-provider", "tts-model", "TTS")
+	if err != nil {
+		t.Fatal(err)
+	}
+	validField := &LLMModelCapabilityField{
+		ModelID: model.ID, CapabilityKey: string(llmcapabilities.CapabilityTTS), FieldKey: string(llmcapabilities.FieldVoice),
+		SupportState: string(llmcapabilities.Supported), Source: string(llmcapabilities.SourceEndpointDiscovery),
+		Scope: string(llmcapabilities.ScopeConnection), ProviderCompatibilityRevision: 1, ObservedAt: time.Now().UTC(),
+	}
+	validOption := LLMModelCapabilityFieldOption{Value: strings.Repeat("é", 512), Label: strings.Repeat("🎵", 512), SupportState: string(llmcapabilities.Supported)}
+	if err := repository.RecordField(ctx, validField, []LLMModelCapabilityFieldOption{validOption}); err != nil {
+		t.Fatalf("512 Unicode characters rejected: %v", err)
+	}
+	var saved LLMModelCapabilityFieldOption
+	if err := db.Where("assertion_id = ?", validField.ID).First(&saved).Error; err != nil {
+		t.Fatal(err)
+	}
+	if saved.Value != validOption.Value || saved.Label != validOption.Label {
+		t.Fatal("Unicode option changed during persistence")
+	}
+	for _, test := range []struct{ name, value, label string }{
+		{"leading space", " alloy", "Alloy"},
+		{"trailing space", "alloy ", "Alloy"},
+		{"oversized Unicode value", strings.Repeat("é", 513), "Voice"},
+		{"oversized Unicode label", "alloy", strings.Repeat("🎵", 513)},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			field := *validField
+			field.ID = ""
+			option := LLMModelCapabilityFieldOption{Value: test.value, Label: test.label, SupportState: string(llmcapabilities.Supported)}
+			if err := repository.RecordField(ctx, &field, []LLMModelCapabilityFieldOption{option}); !errors.Is(err, llmcapabilities.ErrInvalidAssertion) {
+				t.Fatalf("domain error = %v", err)
+			}
+			option.AssertionID = validField.ID
+			if err := db.Create(&option).Error; err == nil {
+				t.Fatal("direct SQL bypassed option bounds")
+			}
+		})
+	}
+}

@@ -291,7 +291,7 @@ depender de uma fase ainda aberta deve ser empilhado sobre ela.
   Persistido nas tabelas de afirmações da migração v33; a validação de domínio rejeita estados e proveniência fora do catálogo, e a v34 estende os guards de referências existentes sem reescrever fatos anteriores.
 - [x] Campos, limites e opções enumeradas são validados por tipos e restrições
   conhecidos; dado externo arbitrário não entra em coluna JSON sem schema
-  versionado e validação. Testes exercitam tipos, limites, opções e triggers SQLite.
+  versionado e validação. Opções enumeradas e seus rótulos são limitados a 512 caracteres; IDs sem espaços ASCII nas extremidades. Testes exercitam tipos, limites, opções Unicode e triggers SQLite.
 - [x] Múltiplas afirmações para o mesmo modelo/campo permanecem auditáveis e a
   resolução efetiva é determinística, local e coberta por testes, inclusive a
   precedência da curadoria versionada. Verificado pelos testes de resolução em `internal/llmcapabilities`.

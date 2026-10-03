@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 type Capability string
@@ -262,8 +263,8 @@ func ValidateFieldAssertion(a FieldAssertion) error {
 	}
 	seen := make(map[string]struct{}, len(a.Options))
 	for _, option := range a.Options {
-		if strings.TrimSpace(option.Value) == "" || len(option.Value) > 512 || strings.ContainsRune(option.Value, '\x00') ||
-			len(option.Label) > 512 || strings.ContainsRune(option.Label, '\x00') || !validState(option.State) {
+		if strings.TrimSpace(option.Value) == "" || strings.Trim(option.Value, " ") != option.Value || utf8.RuneCountInString(option.Value) > 512 || strings.ContainsRune(option.Value, '\x00') ||
+			utf8.RuneCountInString(option.Label) > 512 || strings.ContainsRune(option.Label, '\x00') || !validState(option.State) {
 			return fmt.Errorf("%w: opção enumerada inválida", ErrInvalidAssertion)
 		}
 		if _, exists := seen[option.Value]; exists {

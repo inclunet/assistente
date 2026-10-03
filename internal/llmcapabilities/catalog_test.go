@@ -1,8 +1,10 @@
 package llmcapabilities
 
 import (
+	"errors"
 	"math"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -146,3 +148,32 @@ func TestResolveFieldTieWithDifferentConstraintsBecomesUnknown(t *testing.T) {
 }
 
 func floatPointer(value float64) *float64 { return &value }
+
+func TestValidateFieldOptionsUsesCharacterBoundsAndRejectsPeripheralSpaces(t *testing.T) {
+	for _, test := range []struct {
+		name, value, label string
+		valid              bool
+	}{
+		{"unicode at character limit", strings.Repeat("é", 512), strings.Repeat("🎵", 512), true},
+		{"leading space", " alloy", "Alloy", false},
+		{"trailing space", "alloy ", "Alloy", false},
+		{"value exceeds character limit", strings.Repeat("é", 513), "Voice", false},
+		{"label exceeds character limit", "alloy", strings.Repeat("🎵", 513), false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			assertion := FieldAssertion{
+				Capability: CapabilityTTS, Field: FieldVoice, State: Supported,
+				Source: SourceEndpointDiscovery, Scope: ScopeConnection,
+				ProviderRevision: 1, ObservedAt: time.Now().UTC(),
+				Options: []FieldOption{{Value: test.value, Label: test.label, State: Supported}},
+			}
+			err := ValidateFieldAssertion(assertion)
+			if test.valid && err != nil {
+				t.Fatalf("valid option rejected: %v", err)
+			}
+			if !test.valid && !errors.Is(err, ErrInvalidAssertion) {
+				t.Fatalf("invalid option error = %v", err)
+			}
+		})
+	}
+}
