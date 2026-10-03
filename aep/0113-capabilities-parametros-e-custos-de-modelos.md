@@ -220,8 +220,9 @@ O projeto já tem contratos que esta proposta deve preservar:
 
 13. **A entrega será incremental, com PRs verticais de tamanho moderado.** Cada
     PR implementa um resultado observável, inclui testes do contrato alterado e
-    atualiza fases/critério deste AEP no mesmo PR. O PR desta AEP é somente
-    documental; nenhum schema ou comportamento de runtime é introduzido nele.
+    atualiza fases/critério deste AEP no mesmo PR. O PR #887, que concluiu a fase
+    0, foi exclusivamente documental e não introduziu schema ou comportamento
+    de runtime. A implementação começa na fase 1, neste PR #889.
 
 ### Esquema conceitual
 
