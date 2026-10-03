@@ -260,7 +260,7 @@ func TestLegacyDeleteAuthRejectsStaleConsumerAndPreservesFallbacks(t *testing.T)
 func TestLegacyProactiveAdoptsConcurrentRotation(t *testing.T) {
 	for _, force := range []bool{false, true} {
 		t.Run(map[bool]string{false: "proactive", true: "forced"}[force], func(t *testing.T) {
-			a, b, ctx, _ := legacyWALManagers(t, "https://unused.example")
+			a, b, ctx, cfg := legacyWALManagers(t, "https://unused.example")
 			db := a.repository().(*DBRepository).db
 			var rotated atomic.Bool
 			if err := db.Callback().Query().After("gorm:query").Register("rotate_before_resolution", func(tx *gorm.DB) {
@@ -275,8 +275,12 @@ func TestLegacyProactiveAdoptsConcurrentRotation(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Cleanup(func() { _ = db.Callback().Query().Remove("rotate_before_resolution") })
-			refreshed, err := a.refreshOAuthTokenBestEffort(ctx, "legacy", force)
-			if err != nil || !refreshed || !rotated.Load() {
+			rt := a.buildPKCERoundTripperForServer(ctx, "legacy", cfg)
+			if _, err := a.credMgr.ReadLegacyOAuthToken(ctx, "legacy", cfg.ID); err != nil {
+				t.Fatal(err)
+			}
+			token, err := rt.resolveLegacyTokenWithValidity(ctx, rt.oauthCfg, force, tokenRefreshThreshold, "old")
+			if err != nil || token.AccessToken != "concurrent" || !rotated.Load() {
 				t.Fatalf("did not adopt concurrent token without remote refresh: %v", err)
 			}
 		})

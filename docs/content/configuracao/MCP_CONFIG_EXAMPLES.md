@@ -735,11 +735,13 @@ perder ou substituir a chave impede abrir a cópia.
 **Restaurar configuração** só funciona quando as credenciais estão ausentes e
 não houve alterações posteriores no cadastro, ou quando o servidor foi removido
 inteiramente. A ação não sobrescreve credenciais atuais. O servidor restaurado
-fica desabilitado e sem conexão automática. Para **PKCE**, use **Reautorizar** e,
-após concluir o login, habilite o servidor. Para **Client Credentials**, confira
-o cliente e o segredo recuperados, habilite e conecte: o serviço obtém um token
-novo sem consentimento no navegador. Se o cadastro era incompleto, complete os
-campos antes de conectar. Se o Client ID estiver somente no cofre legado, ele será usado quando o campo da configuração estiver vazio. Nesses snapshots de servidor, tokens antigos não são restaurados ao cofre ativo:
+fica desabilitado e sem conexão automática. Confira os dados recuperados e crie
+um novo snapshot do cadastro restaurado. Para **PKCE**, use **Reconectar e migrar**;
+para **Client Credentials**, use **Converter autorização**. Depois da migração,
+habilite e conecte. Se o cadastro era incompleto, complete os campos antes de
+capturar o novo snapshot. Se o Client ID estiver somente no cofre legado, ele será
+usado quando o campo da configuração estiver vazio. Nesses snapshots de servidor,
+tokens antigos não são restaurados ao cofre ativo:
 restaurar um arquivo não desfaz rotação ou revogação no serviço remoto.
 
 **Para snapshots por hostname**, a confirmação informa que os tokens e demais
@@ -769,30 +771,21 @@ Ao vencer o prazo, a restauração é bloqueada, mas o arquivo não é apagado
 automaticamente. **Descartar snapshot** pede confirmação de que a janela de
 rollback terminou e a recuperação ou migração foi validada; pode remover a última
 cópia e não pode ser desfeito. A exclusão não garante apagamento físico em SSD.
-Esta entrega ainda não converte os cadastros antigos para autorização unificada.
+A restauração não converte automaticamente os cadastros antigos; siga uma das
+ações explícitas de migração abaixo.
 
-### Client Credentials legado em múltiplas instâncias
+### Cadastros OAuth antigos exigem migração
 
-Cadastros Client Credentials antigos e persistidos também coordenam a obtenção
-de tokens entre instâncias atualizadas. Durante uma emissão, alterações do
-cliente, exclusão da autenticação e criação de snapshot são recusadas; aguarde
-terminar e repita a ação. O token continua em cache no transporte, mas cada uso
-confere o cadastro atual. Um token em memória não mantém acesso após a exclusão
-do cliente ou mudança do servidor para uma autorização composta.
+Conectar, reconectar e inicializar um servidor OAuth antigo agora informa que
+a autorização precisa ser migrada. O Assistente preserva as credenciais e não
+abre o navegador nem renova tokens antigos automaticamente. O mesmo vale para
+o envio de ferramentas pelo MCP nativo.
 
-Falhas de emissão podem ser tentadas novamente com **Conectar**. Esse fluxo não
-precisa de login interativo nem utiliza refresh token. Se houver dados de PKCE
-misturados no cadastro, a operação é recusada para investigação, preservando os
-dados. Não compartilhe o banco com versões antigas durante operações OAuth.
-Esta proteção ainda não converte o cadastro para uma autorização unificada.
-
-Enquanto o cadastro Client Credentials permanecer legado, as ferramentas usam o
-bridge local do Assistente. O token de um fallback por hostname não é enviado
-ao provedor LLM pelo MCP nativo. Autorizações Client Credentials compostas
-continuam disponíveis no modo nativo. A confirmação de rede, quando necessária,
-acontece antes da tentativa e não é repetida para o mesmo grant.
-Se o destino de rede mudar e exigir outra aprovação, a emissão é interrompida.
-Use **Conectar** novamente para avaliar o novo destino antes de obter o token.
+Em **Diagnóstico OAuth**, crie um snapshot e siga a conversão de Client
+Credentials ou a reconexão de PKCE abaixo. Após a migração, bridge local e MCP
+nativo usam a mesma autorização composta. A renovação ocorre quando o token é
+necessário; não há um temporizador de renovação por conexão MCP. Continue
+evitando o uso simultâneo do mesmo banco em versões antigas do Assistente.
 
 ### Converter Client Credentials para autorização unificada
 
@@ -820,7 +813,8 @@ preservando os dados para investigação. Para PKCE, use a reconexão explícita
 Para voltar ao cadastro anterior durante os 30 dias de retenção, remova
 explicitamente o servidor convertido e restaure o snapshot. A restauração não
 sobrescreve uma autorização atual. O servidor volta desabilitado, com ID e
-segredo recuperados; habilite e conecte para emitir um token novo. Mantenha o
+segredo recuperados; crie um snapshot desse cadastro restaurado, converta-o e
+depois habilite e conecte para emitir um token novo. Mantenha o
 snapshot até validar a conexão. Não abra o mesmo banco simultaneamente com uma
 versão antiga do Assistente.
 
@@ -859,7 +853,7 @@ original ou crie outro. Se o cadastro foi editado desde a captura, faça outro
 snapshot; a reserva expirada não prende a recuperação à captura anterior.
 
 O provedor pode invalidar tokens anteriores durante a nova autorização; o
-snapshot não reverte essa invalidação. A ação é opcional: cadastros legados
-continuam funcionando, e o Assistente não abre um login só porque o formato
-mudou. A conversão PKCE sem novo login ainda não está disponível quando faltam
-os metadados históricos do grant.
+snapshot não reverte essa invalidação. A migração exige uma ação explícita:
+o Assistente não abre um login só porque o formato mudou, mas o cadastro antigo
+precisa ser migrado antes de voltar a conectar. PKCE com metadados históricos
+incompletos usa **Reconectar e migrar**, preservando o cliente e o snapshot.

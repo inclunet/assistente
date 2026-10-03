@@ -78,21 +78,23 @@ func storeUserToken(t *testing.T, m *Manager, slug, access, refresh string, expi
 
 func TestGetEligibleNativeMCPServers_ExpiredWithoutRefreshSignalsReauthAndSkips(t *testing.T) {
 	emitter := &capturingEmitter{}
-	m := newTestManagerWithEmit(emitter.emit)
-
-	storeUserToken(t, m, "atlassian", "dead-token", "", time.Now().Add(-time.Hour).Unix())
+	m, _, ctx := managedFixture(t)
+	m.emitEvent = emitter.emit
 	m.servers["atlassian"] = &ServerStatus{
 		Slug:   "atlassian",
 		Status: StatusConnected,
 		Config: ServerConfig{
-			Name:      "Atlassian",
-			Transport: TransportSSE,
-			URL:       "https://mcp.atlassian.com/v1/sse",
-			AuthType:  AuthOAuth2PKCE,
+			Name:           "Atlassian",
+			Transport:      TransportSSE,
+			URL:            "https://mcp.atlassian.com/v1/sse",
+			AuthType:       AuthOAuth2PKCE,
+			OAuth2ClientID: "client",
+			OAuth2TokenURL: "https://mcp.atlassian.com/token",
 		},
 		Tools: []MCPToolInfo{{Name: "jira", FullName: "mcp_atlassian__jira"}},
 	}
 
+	seedManagedRuntime(t, m, ctx, "atlassian", "dead-token", "", time.Now().Add(-time.Hour))
 	result := m.GetEligibleNativeMCPServers()
 
 	if len(result) != 0 {
@@ -142,9 +144,8 @@ func TestGetEligibleNativeMCPServers_ExpiredTokenRefreshedAndDelivered(t *testin
 	defer tokenSrv.Close()
 
 	emitter := &capturingEmitter{}
-	m := newTestManagerWithEmit(emitter.emit)
-
-	storeUserToken(t, m, "srv", "old-token", "stored-refresh", time.Now().Add(-time.Minute).Unix())
+	m, _, ctx := managedFixture(t)
+	m.emitEvent = emitter.emit
 	m.servers["srv"] = &ServerStatus{
 		Slug:   "srv",
 		Status: StatusConnected,
@@ -159,6 +160,7 @@ func TestGetEligibleNativeMCPServers_ExpiredTokenRefreshedAndDelivered(t *testin
 		Tools: []MCPToolInfo{{Name: "t", FullName: "mcp_srv__t"}},
 	}
 
+	seedManagedRuntime(t, m, ctx, "srv", "old-token", "stored-refresh", time.Now().Add(-time.Minute))
 	result := m.GetEligibleNativeMCPServers()
 
 	if len(result) != 1 {
@@ -188,8 +190,7 @@ func TestGetEligibleNativeMCPServers_ValidTokenDeliveredWithoutRefresh(t *testin
 	}))
 	defer tokenSrv.Close()
 
-	m := newTestManagerWithEmit(func(string, any) {})
-	storeUserToken(t, m, "srv", "good-token", "r1", time.Now().Add(time.Hour).Unix())
+	m, _, ctx := managedFixture(t)
 	m.servers["srv"] = &ServerStatus{
 		Slug:   "srv",
 		Status: StatusConnected,
@@ -204,6 +205,7 @@ func TestGetEligibleNativeMCPServers_ValidTokenDeliveredWithoutRefresh(t *testin
 		Tools: []MCPToolInfo{{Name: "t", FullName: "mcp_srv__t"}},
 	}
 
+	seedManagedRuntime(t, m, ctx, "srv", "good-token", "r1", time.Now().Add(time.Hour))
 	result := m.GetEligibleNativeMCPServers()
 	if len(result) != 1 || result[0].AuthToken != "good-token" {
 		t.Fatalf("token válido deveria ser entregue sem refresh, got %#v", result)
@@ -265,7 +267,8 @@ func TestReauthorizeServer_RunsInteractiveFlowPersistsTokenAndReconnects(t *test
 	defer func() { browserOpen = oldBrowserOpen }()
 
 	emitter := &capturingEmitter{}
-	m := newTestManagerWithEmit(emitter.emit)
+	m, _, scopedCtx := managedFixture(t)
+	m.emitEvent = emitter.emit
 	m.SetOAuthNetworkAuthorizer(func(_ context.Context, d oauthflow.NetworkDestination) ([]net.IP, bool, error) {
 		return d.IPs, true, nil
 	})
@@ -281,7 +284,9 @@ func TestReauthorizeServer_RunsInteractiveFlowPersistsTokenAndReconnects(t *test
 		NeedsReauth: true,
 		Config: ServerConfig{
 			Name:               "Srv",
-			Transport:          TransportStdio, // in-memory factory; evita probe SSE/rede
+			Transport:          TransportStreamable,
+			DisableSSE:         true, // in-memory factory; evita probe SSE/rede
+			URL:                tokenSrv.URL + "/mcp",
 			Enabled:            true,
 			AuthType:           AuthOAuth2PKCE,
 			OAuth2ClientID:     "client-x",
@@ -292,7 +297,8 @@ func TestReauthorizeServer_RunsInteractiveFlowPersistsTokenAndReconnects(t *test
 		Tools: []MCPToolInfo{},
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	seedManagedRuntime(t, m, scopedCtx, "srv", "", "", time.Time{})
+	ctx, cancel := context.WithTimeout(scopedCtx, 10*time.Second)
 	defer cancel()
 	if err := m.ReauthorizeServer(ctx, "srv"); err != nil {
 		t.Fatalf("ReauthorizeServer: %v", err)
@@ -304,8 +310,8 @@ func TestReauthorizeServer_RunsInteractiveFlowPersistsTokenAndReconnects(t *test
 		t.Error("browser não foi acionado no fluxo interativo")
 	}
 
-	loaded := loadUserTokens(context.Background(), m.credMgr, "srv")
-	if loaded == nil || loaded.AccessToken != "reauth-access" {
+	_, _, loaded := loadManaged(t, m, scopedCtx, "srv")
+	if loaded.Tokens.Access != "reauth-access" {
 		t.Fatalf("token novo deveria ter sido persistido, got %#v", loaded)
 	}
 
@@ -323,7 +329,7 @@ func TestReauthorizeServer_RunsInteractiveFlowPersistsTokenAndReconnects(t *test
 	m.CloseAll()
 }
 
-func TestRefreshOAuthPersistsExplicitStaticSource(t *testing.T) {
+func TestRefreshOAuthPersistsComposedAuthorization(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if _, err := fmt.Fprint(w, `{"access_token":"renewed","refresh_token":"next-refresh","token_type":"Bearer","expires_in":3600}`); err != nil {
@@ -331,15 +337,15 @@ func TestRefreshOAuthPersistsExplicitStaticSource(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	m := newTestManagerWithEmit(func(string, any) {})
-	storeUserToken(t, m, "source-test", "old", "refresh", time.Now().Add(-time.Hour).Unix())
-	m.servers["source-test"] = &ServerStatus{Slug: "source-test", Config: ServerConfig{URL: server.URL + "/mcp", AuthType: AuthOAuth2PKCE, OAuth2TokenURL: server.URL, OAuth2ClientID: "client"}}
+	m, _, ctx := managedFixture(t)
+	m.servers["source-test"] = &ServerStatus{Slug: "source-test", Config: ServerConfig{Transport: TransportStreamable, URL: server.URL + "/mcp", AuthType: AuthOAuth2PKCE, OAuth2TokenURL: server.URL, OAuth2ClientID: "client"}}
+	seedManagedRuntime(t, m, ctx, "source-test", "old", "refresh", time.Now().Add(-time.Hour))
 	refreshed, err := m.refreshOAuthTokenBestEffort(context.Background(), "source-test", true)
 	if err != nil || !refreshed {
 		t.Fatalf("refreshed=%v err=%v", refreshed, err)
 	}
-	auth, err := m.credMgr.GetByPatternWithContext(context.Background(), userTokensPattern("source-test"))
-	if err != nil || auth.Source != "static" || auth.Token != "renewed" || auth.RefreshURL != "next-refresh" {
-		t.Fatalf("refresh not persisted: %v", err)
+	_, _, record := loadManaged(t, m, ctx, "source-test")
+	if record.Tokens.Access != "renewed" || record.Tokens.Refresh != "next-refresh" {
+		t.Fatal("refresh not persisted in composed authorization")
 	}
 }
