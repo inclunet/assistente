@@ -460,3 +460,40 @@ func TestProviderRegistryRemovalInvalidatesInFlightPatternWithoutPriorWatermark(
 		t.Fatalf("sync antigo sem watermark deveria ser invalidado: %v", err)
 	}
 }
+
+func TestProviderRegistryClearRejectsCredentialRefreshFromPreviousSession(t *testing.T) {
+	registry := NewProviderRegistry()
+	provider := &ProviderConfig{
+		ID: "session-provider", Name: "Session provider", Type: ProviderCustom,
+		APIFormat: APIFormatOpenAI, BaseURL: "https://api.example.test/v1",
+		CredentialPattern: "api.example.test", CompatibilityRevision: 1,
+	}
+	if err := registry.Register(provider); err != nil {
+		t.Fatal(err)
+	}
+	oldGeneration := registry.BeginCredentialPatternRevisionSync(provider.CredentialPattern)
+	registry.Clear()
+	newGeneration := registry.BeginCredentialPatternRevisionSync(provider.CredentialPattern)
+	if err := registry.Register(provider); err != nil {
+		t.Fatal(err)
+	}
+	registry.AbortCredentialPatternRevisionSync(provider.CredentialPattern, oldGeneration)
+	registry.mu.RLock()
+	activeGeneration := registry.activeCredentialPatternSyncs[provider.CredentialPattern]
+	registry.mu.RUnlock()
+	if activeGeneration != newGeneration {
+		t.Fatalf("abort antigo encerrou o sync atual: ativo=%d atual=%d", activeGeneration, newGeneration)
+	}
+	if err := registry.PublishCredentialPatternRevisions(provider.CredentialPattern, oldGeneration, map[string]int{provider.ID: 9}); err != nil {
+		t.Fatal(err)
+	}
+	if registry.Get(provider.ID) != nil {
+		t.Fatal("publicação da sessão anterior liberou o snapshot novo")
+	}
+	if err := registry.PublishCredentialPatternRevisions(provider.CredentialPattern, newGeneration, map[string]int{provider.ID: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if got := registry.Get(provider.ID); got == nil || got.CompatibilityRevision != 1 {
+		t.Fatalf("refresh da sessão atual não recuperou o snapshot: %+v", got)
+	}
+}

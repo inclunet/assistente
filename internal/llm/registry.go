@@ -25,6 +25,7 @@ type ProviderRegistry struct {
 	stale                           map[string]bool
 	stalePatterns                   map[string]bool
 	credentialPatternSyncGeneration map[string]uint64
+	credentialPatternSyncSequence   uint64
 	activeCredentialPatternSyncs    map[string]uint64
 }
 
@@ -311,7 +312,14 @@ func (r *ProviderRegistry) MarkCredentialPatternStale(pattern string) int {
 }
 
 func (r *ProviderRegistry) markCredentialPatternStaleLocked(pattern string) (uint64, int) {
-	r.credentialPatternSyncGeneration[pattern]++
+	// Use uma sequência do lifetime do registry, não um contador reiniciado
+	// pelo pattern. Uma leitura iniciada antes de Clear não pode colidir com a
+	// primeira leitura da sessão seguinte.
+	r.credentialPatternSyncSequence++
+	if r.credentialPatternSyncSequence == 0 {
+		r.credentialPatternSyncSequence++
+	}
+	r.credentialPatternSyncGeneration[pattern] = r.credentialPatternSyncSequence
 	delete(r.activeCredentialPatternSyncs, pattern)
 	r.stalePatterns[pattern] = true
 	marked := 0
