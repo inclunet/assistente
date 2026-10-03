@@ -279,7 +279,12 @@ func (m *Manager) resolveManagedOAuth(ctx context.Context, cfg ServerConfig, rej
 	if err = m.validateCurrentOAuthConsumer(ctx, cfg, current); err != nil {
 		return oauthflow.Record{}, err
 	}
-	r, err := service.Resolve(oauthflow.WithNetworkOperation(ctx), store, cfg.OAuthAuthorizationID, cfg.URL, rejected)
+	atomicStore, ok := store.(mcpAtomicOAuthStore)
+	if !ok {
+		return oauthflow.Record{}, oauthflow.ErrResource
+	}
+	boundStore := mcpRuntimeOAuthStore{mcpAtomicOAuthStore: atomicStore, cfg: cfg}
+	r, err := service.Resolve(oauthflow.WithNetworkOperation(ctx), boundStore, cfg.OAuthAuthorizationID, cfg.URL, rejected)
 	if err != nil {
 		return r, err
 	}
@@ -294,6 +299,33 @@ func (m *Manager) resolveManagedOAuth(ctx context.Context, cfg ServerConfig, rej
 		return oauthflow.Record{}, err
 	}
 	return r, nil
+}
+
+type mcpAtomicOAuthStore interface {
+	oauthflow.Store
+	SessionContext(context.Context) (context.Context, context.CancelFunc)
+	CompareAndSwapWithConsumer(context.Context, oauthflow.Record, uint64, func(*gorm.DB) error) error
+}
+
+type mcpRuntimeOAuthStore struct {
+	mcpAtomicOAuthStore
+	cfg ServerConfig
+}
+
+func (s mcpRuntimeOAuthStore) CompareAndSwap(ctx context.Context, r oauthflow.Record, revision uint64) error {
+	// Resolve may wait for another request or for human network consent. Bind
+	// the lease and token publication to the consumer in the same transaction.
+	return s.CompareAndSwapWithConsumer(ctx, r, revision, func(tx *gorm.DB) error {
+		var row database.MCPServer
+		if err := tx.Where("id = ? AND user_id = ? AND slug = ?", s.cfg.ID, s.cfg.UserID, s.cfg.Slug).First(&row).Error; err != nil {
+			return oauthflow.ErrConflict
+		}
+		current, err := serverModelToConfig(row)
+		if err != nil || validateMCPAuthorization(current, r) != nil {
+			return oauthflow.ErrConflict
+		}
+		return nil
+	})
 }
 
 // A transport may outlive a configuration published by another instance.

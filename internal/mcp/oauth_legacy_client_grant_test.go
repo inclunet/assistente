@@ -337,6 +337,43 @@ func TestComposedClientGrantReusesConsentBeforeLeaseAcrossOrigins(t *testing.T) 
 	}
 }
 
+func TestComposedClientGrantChecksBindingAfterNetworkConsent(t *testing.T) {
+	var grants, resources, prompts atomic.Int32
+	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		grants.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"access_token":"must-not-issue","token_type":"Bearer","expires_in":3600}`)
+	}))
+	defer tokenServer.Close()
+	resource := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { resources.Add(1) }))
+	defer resource.Close()
+	a, b, ctx, cfg := composedClientFixture(t, resource.URL)
+	cfg.OAuth2TokenURL = tokenServer.URL + "/token"
+	if err := a.SaveConfigWithOAuthSecret(cfg.Slug, cfg, "secret"); err != nil {
+		t.Fatal(err)
+	}
+	_, store, before := loadManaged(t, a, ctx, cfg.Slug)
+	a.SetOAuthNetworkAuthorizer(func(_ context.Context, d oauthflow.NetworkDestination) ([]net.IP, bool, error) {
+		prompts.Add(1)
+		// Simulate another process replacing the consumer while human consent
+		// is pending, after the resolver's initial read but before its lease CAS.
+		if err := b.repository().(*DBRepository).db.Model(&database.MCPServer{}).Where("id = ?", cfg.ID).Update("oauth_authorization_id", "replacement").Error; err != nil {
+			t.Error(err)
+		}
+		return d.IPs, true, nil
+	})
+	if err := clientGrantGet(a.buildAuthHTTPClient(ctx, cfg.Slug, cfg), cfg.URL); !errors.Is(err, oauthflow.ErrConflict) {
+		t.Fatal("changed binding allowed issuance after consent", err)
+	}
+	after, err := store.Load(ctx, cfg.OAuthAuthorizationID)
+	if err != nil || after.Revision != before.Revision || after.RefreshPending || after.Tokens.Access != "" {
+		t.Fatal("rejected lease changed authorization", err)
+	}
+	if prompts.Load() != 1 || grants.Load() != 0 || resources.Load() != 0 {
+		t.Fatalf("stale consumer reached network: prompts=%d grants=%d resources=%d", prompts.Load(), grants.Load(), resources.Load())
+	}
+}
+
 func TestLegacyClientGrantNativeNeverUsesCachedHostnameAfterCutover(t *testing.T) {
 	a, b, ctx, cfg := legacyClientFixture(t, "https://shared.example")
 	if err := a.credMgr.RegisterPatternWithContext(ctx, "shared.example", &credentials.AuthConfig{Source: "static", Type: "bearer", Token: "stale-native-token"}); err != nil {

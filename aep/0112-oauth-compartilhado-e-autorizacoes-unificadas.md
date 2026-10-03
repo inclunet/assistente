@@ -1513,6 +1513,13 @@ autorização após troca de vínculo no banco. Evidências:
 `TestComposedClientGrantRechecksConsumerAfterIssuance` e
 `TestLegacyClientCredentialsHTTPRequiresMigration`.
 
+A aquisição do lease e a publicação do token também validam o vínculo dentro
+da mesma transação CAS do cofre. Assim, uma troca durante a espera pelo gate ou
+pelo consentimento de rede é recusada antes de emitir o token; o serviço OAuth
+continua genérico e recebe um store adaptado pelo consumidor MCP. Evidência:
+`TestComposedClientGrantChecksBindingAfterNetworkConsent` exige zero chamadas
+ao endpoint de token/recurso e nenhuma alteração na revisão após a recusa.
+
 Permanecem a retirada do runtime privado PKCE e das APIs operacionais legadas
 do cofre, incluindo o lease antigo de Client Credentials ainda referenciado por
 fixtures de concorrência/migração. Leitura, snapshots e recuperação históricos
