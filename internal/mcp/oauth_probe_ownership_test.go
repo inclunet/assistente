@@ -13,7 +13,6 @@ import (
 	"testing"
 	"time"
 
-	"assistente/internal/credentials"
 	"assistente/internal/oauthflow"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"golang.org/x/oauth2"
@@ -54,7 +53,7 @@ func TestLegacyOAuthDoesNotReplayUnavailableBody(t *testing.T) {
 	}
 }
 
-func TestLegacyConnectStopsAfterProbePersistenceFailure(t *testing.T) {
+func TestManagedConnectStopsAfterRefreshPersistenceFailure(t *testing.T) {
 	m, repo, ctx := managedFixture(t)
 	var tokenCalls, resourceCalls, browsers atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -69,16 +68,14 @@ func TestLegacyConnectStopsAfterProbePersistenceFailure(t *testing.T) {
 	}))
 	defer srv.Close()
 	cfg := managedConfig(srv.URL + "/mcp")
-	cfg.OAuthManaged = false
+	cfg.OAuth2TokenAuthMethod = "none"
 	cfg.OAuth2TokenURL = srv.URL + "/token"
 	if err := m.SaveConfig("legacy", cfg); err != nil {
 		t.Fatal(err)
 	}
-	if err := m.credMgr.RegisterPatternWithContext(ctx, userTokensPattern("legacy"), &credentials.AuthConfig{Source: "static", Type: "oauth2", Token: "old", RefreshURL: "old-refresh", ExpiresAt: time.Now().Add(-time.Hour).Unix()}); err != nil {
-		t.Fatal(err)
-	}
+	seedManagedRuntime(t, m, ctx, "legacy", "old", "old-refresh", time.Now().Add(-time.Hour))
 	if err := repo.db.Callback().Update().Before("gorm:update").Register("reject_probe_save", func(tx *gorm.DB) {
-		if fields, ok := tx.Statement.Dest.(map[string]any); ok && fields["token_enc"] != nil {
+		if fields, ok := tx.Statement.Dest.(map[string]any); ok && fields["oauth_enc"] != nil && tokenCalls.Load() > 0 {
 			_ = tx.AddError(errors.New("disk full"))
 		}
 	}); err != nil {
@@ -88,15 +85,19 @@ func TestLegacyConnectStopsAfterProbePersistenceFailure(t *testing.T) {
 	oldBrowser := browserOpen
 	browserOpen = func(string) error { browsers.Add(1); return nil }
 	defer func() { browserOpen = oldBrowser }()
-	if err := m.Connect("legacy"); !errors.Is(err, errOAuthPersistence) {
+	if err := m.Connect("legacy"); !errors.Is(err, oauthflow.ErrConflict) {
 		t.Fatalf("lost terminal error: %v", err)
 	}
 	if tokenCalls.Load() != 1 || resourceCalls.Load() != 0 || browsers.Load() != 0 {
 		t.Fatalf("continued after failure: tokens=%d resource=%d browser=%d", tokenCalls.Load(), resourceCalls.Load(), browsers.Load())
 	}
+	_, _, record := loadManaged(t, m, ctx, "legacy")
+	if !record.RefreshPending || record.Tokens.Access != "old" {
+		t.Fatal("failed rotation was published or lost its recovery barrier")
+	}
 }
 
-func TestLegacyPollingDCRPersistsCallbackForReauthorization(t *testing.T) {
+func TestManagedPollingDCRPersistsCallbackForReauthorization(t *testing.T) {
 	t.Run("probe", func(t *testing.T) { testLegacyPollingDCR(t, false) })
 	t.Run("handshake", func(t *testing.T) { testLegacyPollingDCR(t, true) })
 }
@@ -160,12 +161,10 @@ func testLegacyPollingDCR(t *testing.T, handshakeFallback bool) {
 		var attempts atomic.Int32
 		m.transportFactory = func(connectCtx context.Context, slug string, config ServerConfig) (mcpsdk.Transport, error) {
 			if attempts.Add(1) == 1 {
-				if err := m.buildPKCERoundTripperForServer(connectCtx, slug, config).authorize(connectCtx); err != nil {
-					return nil, err
-				}
 				return &delayedErrorTransport{err: errors.New("standalone SSE request failed")}, nil
 			}
-			if config.OAuth2CallbackPort == 0 || config.OAuth2ClientID != "registered" || !config.DisableSSE {
+			projected, err := m.GetConfig(slug)
+			if err != nil || projected.OAuth2CallbackPort == 0 || projected.OAuth2ClientID != "registered" || !config.DisableSSE {
 				t.Error("fallback lost the latest OAuth metadata or polling preference")
 			}
 			clientTransport, serverTransport := mcpsdk.NewInMemoryTransports()
@@ -178,7 +177,7 @@ func testLegacyPollingDCR(t *testing.T, handshakeFallback bool) {
 		}
 	}
 	cfg := managedConfig(srv.URL + "/mcp")
-	cfg.OAuthManaged, cfg.OAuth2ClientID = false, ""
+	cfg.OAuth2ClientID, cfg.OAuth2TokenAuthMethod = "", "none"
 	cfg.OAuth2TokenURL, cfg.OAuth2AuthURL, cfg.OAuth2RegistrationURL = srv.URL+"/token", srv.URL+"/authorize", srv.URL+"/register"
 	cfg.OAuth2CallbackHost = "127.0.0.1"
 	if err := m.SaveConfig("legacy", cfg); err != nil {
@@ -204,8 +203,12 @@ func testLegacyPollingDCR(t *testing.T, handshakeFallback bool) {
 		t.Fatal(err)
 	}
 	persisted, err := repo.GetServer(ctx, "legacy")
-	if err != nil || persisted.OAuth2CallbackPort == 0 || persisted.DisableSSE != handshakeFallback {
+	if err != nil || persisted.OAuth2CallbackPort != 0 || persisted.OAuthAuthorizationID == "" || persisted.DisableSSE != handshakeFallback {
 		t.Fatalf("lost callback or persisted transient probe flag: %v", err)
+	}
+	_, _, record := loadManaged(t, m, ctx, "legacy")
+	if record.Callback.Port == 0 || record.Client.ID != "registered" {
+		t.Fatal("registration not stored in composed authorization")
 	}
 	if err := m.ReauthorizeServer(ctx, "legacy"); err != nil {
 		t.Fatal(err)

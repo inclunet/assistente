@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"assistente/internal/credentials"
 	"assistente/internal/database"
 	"assistente/internal/oauthflow"
 )
@@ -33,19 +32,19 @@ func TestConnectOAuthConsentPreservesUserAndStopsAfterDenial(t *testing.T) {
 	}))
 	defer source.Close()
 	origin = source.URL
-	m := newTestManagerWithEmit(func(string, any) {})
+	m, _, userCtx := managedFixture(t)
 	defer m.CloseAll()
-	userCtx := database.WithUserID(context.Background(), "captured-user")
-	m.SetAuthContextProvider(func() context.Context { return userCtx })
+	capturedUser, _ := database.RequireUserID(userCtx)
 	m.SetOAuthNetworkAuthorizer(func(ctx context.Context, d oauthflow.NetworkDestination) ([]net.IP, bool, error) {
 		prompts.Add(1)
 		user, err := database.RequireUserID(ctx)
-		if err != nil || user != "captured-user" {
+		if err != nil || user != capturedUser {
 			t.Errorf("lost connection identity: %q %v", user, err)
 		}
 		return nil, false, nil
 	})
 	m.servers["srv"] = &ServerStatus{Slug: "srv", Config: ServerConfig{Enabled: true, Transport: TransportStreamable, URL: origin + "/mcp", AuthType: AuthOAuth2PKCE, OAuth2ClientID: "manual", OAuth2AuthURL: origin + "/authorize", OAuth2TokenURL: origin + "/token"}}
+	seedManagedRuntime(t, m, userCtx, "srv", "", "", time.Time{})
 	err := m.Connect("srv")
 	if err == nil || prompts.Load() != 1 || forbiddenCalls.Load() != 0 {
 		t.Fatalf("denial ignored or identity path missed: %v prompts=%d forbidden=%d", err, prompts.Load(), forbiddenCalls.Load())
@@ -97,8 +96,7 @@ func TestDisconnectCancelsPersistedRefreshConsent(t *testing.T) {
 	defer target.Close()
 	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(401) }))
 	defer source.Close()
-	m := newTestManagerWithEmit(func(string, any) {})
-	storeUserToken(t, m, "srv", "expired", "refresh", time.Now().Add(-time.Hour).Unix())
+	m, _, userCtx := managedFixture(t)
 	started := make(chan struct{}, 1)
 	release := make(chan struct{})
 	defer close(release)
@@ -115,6 +113,7 @@ func TestDisconnectCancelsPersistedRefreshConsent(t *testing.T) {
 		}
 	})
 	m.servers["srv"] = &ServerStatus{Slug: "srv", Config: ServerConfig{Enabled: true, Transport: TransportStreamable, URL: source.URL, AuthType: AuthOAuth2PKCE, OAuth2ClientID: "client", OAuth2TokenURL: target.URL}}
+	seedManagedRuntime(t, m, userCtx, "srv", "expired", "refresh", time.Now().Add(-time.Hour))
 	done := make(chan error, 1)
 	go func() { done <- m.Connect("srv") }()
 	select {
@@ -148,10 +147,9 @@ func TestDisconnectCancelsPersistedRefreshConsent(t *testing.T) {
 func TestConnectConsentOutlivesHandshakeBudget(t *testing.T) {
 	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(401) }))
 	defer source.Close()
-	m := newTestManagerWithEmit(func(string, any) {})
+	m, _, userCtx := managedFixture(t)
 	defer m.CloseAll()
 	m.connectTimeout = 100 * time.Millisecond
-	storeUserToken(t, m, "srv", "expired", "refresh", time.Now().Add(-time.Hour).Unix())
 	started := make(chan struct{})
 	release := make(chan struct{})
 	defer close(release)
@@ -165,6 +163,7 @@ func TestConnectConsentOutlivesHandshakeBudget(t *testing.T) {
 		}
 	})
 	m.servers["srv"] = &ServerStatus{Slug: "srv", Config: ServerConfig{Enabled: true, Transport: TransportStreamable, DisableSSE: true, URL: source.URL, AuthType: AuthOAuth2PKCE, OAuth2ClientID: "client", OAuth2TokenURL: "http://127.0.0.1:1/token"}}
+	seedManagedRuntime(t, m, userCtx, "srv", "expired", "refresh", time.Now().Add(-time.Hour))
 	done := make(chan error, 1)
 	go func() { done <- m.Connect("srv") }()
 	select {
@@ -232,7 +231,7 @@ func testConnectDevicePolling(t *testing.T, disableSSE bool) {
 	}))
 	defer source.Close()
 	origin = source.URL
-	m := newTestManagerWithEmit(func(string, any) {})
+	m, _, userCtx := managedFixture(t)
 	defer m.CloseAll()
 	m.connectTimeout = time.Second
 	m.SetOAuthNetworkAuthorizer(func(_ context.Context, d oauthflow.NetworkDestination) ([]net.IP, bool, error) {
@@ -240,6 +239,7 @@ func testConnectDevicePolling(t *testing.T, disableSSE bool) {
 		return d.IPs, true, nil
 	})
 	m.servers["srv"] = &ServerStatus{Slug: "srv", Config: ServerConfig{Enabled: true, Transport: TransportStreamable, DisableSSE: disableSSE, URL: source.URL + "/mcp", AuthType: AuthOAuth2PKCE, OAuth2ClientID: "client", OAuth2DeviceAuthURL: source.URL + "/device", OAuth2TokenURL: token.URL}}
+	seedManagedRuntime(t, m, userCtx, "srv", "", "", time.Time{})
 	err := m.Connect("srv")
 	// The fixture intentionally rejects MCP after OAuth: reaching it with the token
 	// proves the real handshake survived two polling intervals and resumed.
@@ -258,17 +258,13 @@ func TestBestEffortRefreshUsesNetworkConsentAndCredentialIdentity(t *testing.T) 
 				_, _ = w.Write([]byte(`{"access_token":"new","token_type":"Bearer","expires_in":3600}`))
 			}))
 			defer target.Close()
-			m := newTestManagerWithEmit(func(string, any) {})
-			defer m.CloseAll()
-			userCtx := database.WithUserID(context.Background(), "refresh-owner")
-			m.SetAuthContextProvider(func() context.Context { return userCtx })
-			if err := m.credMgr.RegisterPatternWithContext(userCtx, userTokensPattern("srv"), &credentials.AuthConfig{Source: "static", Type: "oauth2", Token: "old", RefreshURL: "refresh", ExpiresAt: time.Now().Add(-time.Hour).Unix()}); err != nil {
-				t.Fatal(err)
-			}
-			m.servers["srv"] = &ServerStatus{Slug: "srv", Config: ServerConfig{URL: "https://192.0.2.1/mcp", AuthType: AuthOAuth2PKCE, OAuth2ClientID: "client", OAuth2TokenURL: target.URL}}
+			m, _, userCtx := managedFixture(t)
+			owner, _ := database.RequireUserID(userCtx)
+			m.servers["srv"] = &ServerStatus{Slug: "srv", Config: ServerConfig{Transport: TransportStreamable, URL: "https://192.0.2.1/mcp", AuthType: AuthOAuth2PKCE, OAuth2ClientID: "client", OAuth2TokenURL: target.URL}}
+			seedManagedRuntime(t, m, userCtx, "srv", "old", "refresh", time.Now().Add(-time.Hour))
 			m.SetOAuthNetworkAuthorizer(func(ctx context.Context, d oauthflow.NetworkDestination) ([]net.IP, bool, error) {
 				prompts.Add(1)
-				if id, err := database.RequireUserID(ctx); err != nil || id != "refresh-owner" {
+				if id, err := database.RequireUserID(ctx); err != nil || id != owner {
 					t.Errorf("lost owner: %q %v", id, err)
 				}
 				if _, ok := ctx.Deadline(); ok {
@@ -281,20 +277,19 @@ func TestBestEffortRefreshUsesNetworkConsentAndCredentialIdentity(t *testing.T) 
 				t.Fatalf("changed=%v err=%v prompts=%d posts=%d", changed, err, prompts.Load(), posts.Load())
 			}
 			if approve {
-				auth, err := m.credMgr.GetByPatternWithContext(userCtx, userTokensPattern("srv"))
-				if err != nil || auth == nil || auth.Token != "new" {
-					t.Fatalf("owner persistence failed: %v", err)
+				_, _, record := loadManaged(t, m, userCtx, "srv")
+				if record.Tokens.Access != "new" {
+					t.Fatal("owner persistence failed")
 				}
 			}
 		})
 	}
 }
 func TestBestEffortRefreshConsentRetainsCallerCancellation(t *testing.T) {
-	m := newTestManagerWithEmit(func(string, any) {})
-	defer m.CloseAll()
-	storeUserToken(t, m, "srv", "old", "refresh", time.Now().Add(-time.Hour).Unix())
-	m.servers["srv"] = &ServerStatus{Slug: "srv", Config: ServerConfig{URL: "https://192.0.2.1/mcp", AuthType: AuthOAuth2PKCE, OAuth2ClientID: "client", OAuth2TokenURL: "http://127.0.0.1:1/token"}}
+	m, _, userCtx := managedFixture(t)
+	m.servers["srv"] = &ServerStatus{Slug: "srv", Config: ServerConfig{Transport: TransportStreamable, URL: "https://192.0.2.1/mcp", AuthType: AuthOAuth2PKCE, OAuth2ClientID: "client", OAuth2TokenURL: "http://127.0.0.1:1/token"}}
 	started := make(chan struct{})
+	seedManagedRuntime(t, m, userCtx, "srv", "old", "refresh", time.Now().Add(-time.Hour))
 	m.SetOAuthNetworkAuthorizer(func(ctx context.Context, _ oauthflow.NetworkDestination) ([]net.IP, bool, error) {
 		close(started)
 		<-ctx.Done()
@@ -324,10 +319,9 @@ func TestRecoveryStopsAfterRefreshNetworkRefusal(t *testing.T) {
 	var prompts, requests atomic.Int32
 	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { requests.Add(1); w.WriteHeader(401) }))
 	defer source.Close()
-	m := newTestManagerWithEmit(func(string, any) {})
-	defer m.CloseAll()
-	storeUserToken(t, m, "srv", "old", "refresh", time.Now().Add(-time.Hour).Unix())
+	m, _, ctx := managedFixture(t)
 	m.servers["srv"] = &ServerStatus{Slug: "srv", Status: StatusDisconnected, Config: ServerConfig{Enabled: true, Transport: TransportStreamable, URL: source.URL + "/mcp", AuthType: AuthOAuth2PKCE, OAuth2ClientID: "client", OAuth2TokenURL: "http://127.0.0.1:1/token"}}
+	seedManagedRuntime(t, m, ctx, "srv", "old", "refresh", time.Now().Add(-time.Hour))
 	m.SetOAuthNetworkAuthorizer(func(context.Context, oauthflow.NetworkDestination) ([]net.IP, bool, error) {
 		prompts.Add(1)
 		return nil, false, nil

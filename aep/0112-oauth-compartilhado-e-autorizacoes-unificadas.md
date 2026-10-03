@@ -15,6 +15,8 @@ OAuth no editor MCP já consomem essa base. Client Credentials legado dispõe de
 conversão e PKCE incompleto migra por reconexão explícita. Slack já possui
 credencial composta estática e backup cifrado. Permanecem a retirada final do
 runtime MCP legado e os aceites funcionais registrados nas fases abaixo.
+As entradas operacionais de conexão, recuperação e MCP nativo já exigem
+autorização composta; o legado permanece disponível para snapshot e migração.
 
 ## Motivação
 
@@ -311,8 +313,9 @@ e índice para In Progress; marcar Done somente após os critérios de todo o es
    também foram extraídos. Novos cadastros OAuth no editor MCP já usam registro
    composto e o serviço compartilhado para autorização, reautorização e renovação
    em native/bridge. A seção de evidências do consumidor MCP registra os testes.
-   Cadastros legados e importações de backups históricos ainda usam a persistência anterior; sua conversão
-   e o cutover pertencem à fase 3. O aceite com provedores reais permanece pendente.
+   Cadastros legados e backups históricos preservam dados para recuperação,
+   mas exigem migração explícita antes da conexão (fase 3).
+   O aceite com provedores reais permanece pendente.
    O transporte local do recurso MCP em PKCE/Client Credentials também aplica
    isolamento por origem, TLS e guard de rede compartilhado, preservando streams.
    A migração de credenciais continua exclusiva da fase 3.
@@ -324,7 +327,9 @@ e índice para In Progress; marcar Done somente após os critérios de todo o es
    snapshots recuperáveis de PKCE e Client Credentials estão entregues;
    recuperação testada sobre fixtures dos formatos publicados 0.2.0 a 0.5.0;
    recuperação explícita de tokens por hostname também está entregue;
-   conversão e retirada do legado permanecem pendentes.
+   conversão de Client Credentials e reconexão migratória de PKCE entregues;
+   entradas operacionais legadas encerradas e temporizador próprio removido.
+   Permanecem a remoção física dos helpers antigos e os aceites funcionais.
 4. [ ] Convergência de canais: migrar componentes estáticos Slack para uma entrada por
    conexão e referências por papel, sem alterar protocolo nem exigir OAuth inexistente.
    Implementação e testes automatizados descritos na evidência da fase 4 abaixo;
@@ -1439,3 +1444,51 @@ restauração com sobrescrita explícita).
 Permanecem: cutover final do runtime MCP legado, atualização dos contratos
 correspondentes e aceites funcionais com provedores reais. PKCE histórico
 incompleto migra por reconexão aprovada, sem pendência de conversão offline.
+
+### Fase 3 — encerramento das entradas operacionais legadas
+
+Status: **In Progress**. Conectar, autoconectar, reconectar, recuperar e resolver
+MCP nativo recusam OAuth histórico com `oauth_migration_required`, antes de
+rede, browser ou renovação. A UI traduz a orientação para criar snapshot e
+converter Client Credentials ou reconectar PKCE. O cadastro e as linhas cifradas
+são preservados. Uma referência composta inválida não libera fallback legado.
+
+O temporizador de renovação por conexão foi removido; autorizações compostas
+renovam sob demanda pelo serviço compartilhado. Os testes de consentimento,
+cancelamento, timeout interativo, DCR/polling, resolução nativa e recuperação de
+snapshot passam a preparar/obter autorizações compostas, mantendo essas garantias.
+
+Evidências: `TestLegacyOAuthRuntimeRequiresExplicitMigration`,
+`TestManagedConnectStopsAfterRefreshPersistenceFailure`,
+`TestManagedPollingDCRPersistsCallbackForReauthorization`,
+`TestClientCredentialsSnapshotGetsNewTokenAfterEnable`,
+`TestOAuthSnapshotRestoreReauthorizeThenEnable` e `mcpOAuthErrors.test.ts`.
+
+Permanecem nesta fase a remoção física dos helpers privados de transporte,
+token-source e persistência operacional antiga, ainda cobertos por testes
+históricos. Esta entrega fecha suas entradas públicas; não declara essa limpeza
+nem os aceites com serviços reais concluídos.
+
+A recuperação ignora campos OAuth residuais em STDIO e revalida a configuração
+no próprio helper de renovação; esse helper não contém mais o refresh legado.
+Cadastros PKCE sem metadados OAuth explícitos recebem
+`oauth_authentication_selection_required`: inferência histórica por URL também
+atingia serviços públicos. A UI orienta a escolha explícita de nenhuma autenticação
+para públicos ou a migração para OAuth; não deduz ausência de grant pela falta de
+endpoints. `TestHistoricalURLOnlyAuthenticationRequiresExplicitChoice` cobre
+reload do cadastro histórico, credenciais discovery-only preservadas e conexão
+HTTP MCP pública real após escolher nenhuma autenticação, sem exigir migração.
+Para OAuth por descoberta com tipo persistido vazio, a orientação exige confirmar
+e salvar PKCE antes do diagnóstico. O mesmo teste comprova credenciais intactas
+ao salvar, presença no inventário, snapshot e reconexão migratória completa via
+discovery/DCR, sem reconstruir metadados históricos nem reutilizar o grant antigo.
+`TestRecoveryStdioIgnoresResidualLegacyOAuth` prova reconexão STDIO sem HTTP e
+sem alterar o token antigo. Testes de refresh/recovery do Manager usam o registro
+composto, incluindo rejeição definitiva e barreira após resposta ambígua.
+
+O corpo HTTP compartilhado preserva o erro de cancelamento/prazo da requisição
+mesmo quando o servidor encerra o stream com EOF após observar o cancelamento.
+`TestCancelBodyPreservesRequestError` cobre cancelamento antes/durante leitura,
+bytes parciais e prazo; `TestCancelBodyPreservesLiveResponse` mantém EOF/erros
+originais enquanto o contexto está ativo. O teste de streaming com consentimento
+corporativo mantém sua exigência de `context.Canceled` após cancelar.
