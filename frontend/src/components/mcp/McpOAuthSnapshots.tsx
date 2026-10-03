@@ -5,6 +5,7 @@ import type { credentials, mcp } from '../../../wailsjs/go/models';
 import { Button } from '../ui/Button';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { useConfirm } from '../../hooks/useConfirm';
+import { mcpOAuthErrorKey } from '../../lib/mcpOAuthErrors';
 import './McpOAuthSnapshots.css';
 
 export function McpOAuthSnapshots({ consumers, onConverted }: { consumers: mcp.OAuthInventoryItem[]; onConverted?: () => Promise<void> }) {
@@ -14,7 +15,7 @@ export function McpOAuthSnapshots({ consumers, onConverted }: { consumers: mcp.O
   const [snapshots, setSnapshots] = useState<credentials.OAuthSnapshotInfo[] | null>(null);
   const [selected, setSelected] = useState('');
   const [busy, setBusy] = useState(false);
-  const [failed, setFailed] = useState(false);
+  const [failed, setFailed] = useState('');
   const [methods, setMethods] = useState<Record<string, string>>({});
   const [converted, setConverted] = useState<string[]>([]);
   const active = useRef(false);
@@ -30,7 +31,7 @@ export function McpOAuthSnapshots({ consumers, onConverted }: { consumers: mcp.O
     void query.current.then((items) => {
       if (current) setSnapshots(items || []);
     }).catch(() => {
-      if (current) { setFailed(true); announce(t('mcp.snapshots.failed'), 'assertive'); }
+      if (current) { setFailed('mcp.snapshots.failed'); announce(t('mcp.snapshots.failed'), 'assertive'); }
     });
     return () => { current = false; active.current = false; };
   }, [announce, t]);
@@ -45,7 +46,7 @@ export function McpOAuthSnapshots({ consumers, onConverted }: { consumers: mcp.O
   async function run(action: () => Promise<unknown>, success: string, reload = true) {
     if (!active.current) return;
     setBusy(true);
-    setFailed(false);
+    setFailed('');
     try {
       await action();
       if (!active.current) return;
@@ -54,8 +55,9 @@ export function McpOAuthSnapshots({ consumers, onConverted }: { consumers: mcp.O
         if (active.current) { query.current = Promise.resolve(items); setSnapshots(items); }
       }
       if (active.current) announce(t(success));
-    } catch {
-      if (active.current) { setFailed(true); announce(t('mcp.snapshots.failed'), 'assertive'); }
+    } catch (error) {
+      const key = mcpOAuthErrorKey(error) ?? 'mcp.snapshots.failed';
+      if (active.current) { setFailed(key); announce(t(key), 'assertive'); }
     } finally {
       if (active.current) setBusy(false);
     }
@@ -102,7 +104,7 @@ export function McpOAuthSnapshots({ consumers, onConverted }: { consumers: mcp.O
       {eligible.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
     </select>
     <Button disabled={busy || snapshots === null || !selected} onClick={() => void run(() => CreateMCPOAuthSnapshot(selected), 'mcp.snapshots.created')}>{t('mcp.snapshots.create')}</Button>
-    {failed && <p>{t('mcp.snapshots.failed')}</p>}
+    {failed && <p>{t(failed)}</p>}
     {snapshots === null ? <p>{t('mcp.snapshots.loading')}</p> : snapshots.length === 0 ? <p>{t('mcp.snapshots.empty')}</p> : <ul>
       {snapshots.map((item) => <li key={item.id}>
         <h3>{item.name}</h3>

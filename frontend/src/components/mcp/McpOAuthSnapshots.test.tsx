@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import i18n from 'i18next';
+import { I18nextProvider } from 'react-i18next';
 import axe from 'axe-core';
 import { CreateMCPOAuthSnapshot, ListMCPOAuthSnapshots, RestoreMCPOAuthSnapshot, DiscardMCPOAuthSnapshot, ConvertMCPOAuthClientSnapshot, ReconnectMCPOAuthSnapshot } from '@wailsjs/go/wailsapi/MCP';
 import type { credentials, mcp } from '../../../wailsjs/go/models';
@@ -24,6 +25,41 @@ beforeEach(() => {
 });
 
 describe('McpOAuthSnapshots', () => {
+  it.each(['oauth_permission_missing', 'UNKNOWN'])('atualiza o idioma de erro já apresentado: %s', async (code) => {
+    const local = i18n.createInstance();
+    const key = code === 'UNKNOWN' ? 'mcp.snapshots.failed' : 'mcp.error.authorizationPermissions';
+    await local.init({ lng: 'pt-BR', fallbackLng: false, keySeparator: false, resources: {
+      'pt-BR': { translation: { [key]: 'Erro em português' } },
+      es: { translation: { [key]: 'Error en español' } },
+    } });
+    vi.mocked(ReconnectMCPOAuthSnapshot).mockRejectedValue(new Error(code));
+    render(<I18nextProvider i18n={local}><McpOAuthSnapshots consumers={consumers} /></I18nextProvider>);
+    const button = await screen.findByRole('button', { name: 'mcp.snapshots.reconnectNamed' });
+    fireEvent.change(screen.getByLabelText('mcp.connection.tokenAuthMethod'), { target: { value: 'none' } });
+    fireEvent.click(button);
+    await screen.findByText('Erro em português');
+    await act(() => local.changeLanguage('es'));
+    expect(await screen.findByText('Error en español')).toBeInTheDocument();
+    expect(screen.queryByText('Erro em português')).not.toBeInTheDocument();
+  });
+  it.each([
+    ['oauth_client_configuration_required', 'mcp.error.clientConfigurationRequired'],
+    ['oauth_permission_missing', 'mcp.error.authorizationPermissions'],
+    ['oauth_reauthorization_required', 'mcp.error.authorizationRequired'],
+    ['oauth_authorization_changed', 'mcp.error.authorizationChanged'],
+    ['SECRET', 'mcp.snapshots.failed'],
+  ])('mostra e anuncia diagnóstico seguro da migração: %s', async (code, key) => {
+    confirm.mockResolvedValue(true);
+    vi.mocked(ReconnectMCPOAuthSnapshot).mockRejectedValue(new Error(`${code}: SECRET`));
+    render(<McpOAuthSnapshots consumers={consumers} />);
+    const button = await screen.findByRole('button', { name: 'mcp.snapshots.reconnectNamed' });
+    fireEvent.change(screen.getByLabelText('mcp.connection.tokenAuthMethod'), { target: { value: 'none' } });
+    fireEvent.click(button);
+    expect(await screen.findByText(key)).toBeInTheDocument();
+    expect(announce).toHaveBeenCalledWith(key, 'assertive');
+    expect(screen.queryByText(/SECRET/)).not.toBeInTheDocument();
+    expect(button).toBeEnabled();
+  });
   it.each([false, true])('reconecta PKCE somente com método e confirmação (%s)', async (accepted) => {
     confirm.mockResolvedValue(accepted);
     vi.mocked(ReconnectMCPOAuthSnapshot).mockResolvedValue();

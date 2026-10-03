@@ -850,6 +850,23 @@ versão antiga do Assistente.
 
 ### Reconectar e migrar PKCE legado
 
+Para o **MCP oficial do Slack** (`https://mcp.slack.com/mcp`), o servidor anuncia
+autenticação **Post** no endpoint de tokens. Use esse método quando o cliente
+cadastrado tiver Client Secret. **Cliente público** significa que nenhum segredo
+será enviado; não é uma escolha automática para todo cliente PKCE. A migração
+preserva a seleção e os dados existentes, sem trocar o método ou criar um segredo.
+
+O Assistente interpreta o tipo de token `user` e os escopos específicos da
+resposta do Slack, tanto ao autorizar quanto ao renovar. Isso não altera o canal
+Slack nem seus tokens de bot/Socket Mode. Concluir a página do navegador confirma
+o retorno OAuth; aguarde também a confirmação de migração no Assistente antes de
+conectar. Se falhar, o diagnóstico apresenta o motivo conhecido (cliente,
+permissões, reautorização ou conflito), sem mostrar credenciais. Erros desconhecidos
+mantêm a mensagem genérica. Não apague o cadastro ou o snapshot para tentar novamente.
+
+Referências: [metadados OAuth do MCP Slack](https://mcp.slack.com/.well-known/oauth-authorization-server)
+e [resposta do endpoint de tokens](https://docs.slack.dev/reference/methods/oauth.v2.user.access/).
+
 No diagnóstico OAuth, crie um snapshot do servidor PKCE. Na entrada dele,
 selecione o método exigido pelo provedor e use **Reconectar e migrar**:
 
