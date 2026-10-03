@@ -747,6 +747,9 @@ type failingProviderSave struct{ ProviderStore }
 func (s failingProviderSave) Save(context.Context, []*llm.ProviderConfig) error {
 	return errors.New("disk unavailable")
 }
+func (s failingProviderSave) Create(context.Context, *llm.ProviderConfig) error {
+	return errors.New("disk unavailable")
+}
 func TestCreatePersistenceFailureDoesNotPublish(t *testing.T) {
 	registry := llm.NewProviderRegistry()
 	service := NewService(ServiceConfig{Registry: registry, Store: failingProviderSave{NewMemoryStore()}})

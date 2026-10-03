@@ -25,6 +25,9 @@ func (s *Service) oauthStore(ctx context.Context) (oauthflow.Store, error) {
 	return mgr.OAuthStore(ctx)
 }
 func (s *Service) CreateChatGPTConnection(ctx context.Context, name string) (oauthflow.Summary, error) {
+	s.providerLifecycleMu.Lock()
+	defer s.providerLifecycleMu.Unlock()
+
 	generation := s.registry.Generation()
 	user, err := database.RequireUserID(ctx)
 	if err != nil {

@@ -30,8 +30,10 @@ const (
 	// logging the raw storage failure and reporting successful renewal.
 	// The welcome wizard no longer pre-registers a temporary credential before
 	// CreateWizardProvider, removing the duplicate error format.
-	expectedLegacyFormatCount  = 749
-	expectedLegacyFormatDigest = "119d8aa4d66e6dd21011a7f5a03749a4f797bdf2f9da332533257f6e6f009a98"
+	// Provider creation now uses the shared default recovery path instead of a
+	// separate warning when marking the first provider as default.
+	expectedLegacyFormatCount  = 748
+	expectedLegacyFormatDigest = "2e1f25cdf897c701bce8d9d47bbf2281a0646cf5f91f7f578f082491e5e732e3"
 )
 
 // TestLegacyLoggingInventory mantém reproduzível o inventário da issue #675.
@@ -49,7 +51,7 @@ func TestLegacyLoggingInventory(t *testing.T) {
 		}
 		if entry.IsDir() {
 			switch entry.Name() {
-			case ".git", "node_modules", "dist":
+			case ".git", "node_modules", "dist", "build":
 				return filepath.SkipDir
 			}
 			return nil

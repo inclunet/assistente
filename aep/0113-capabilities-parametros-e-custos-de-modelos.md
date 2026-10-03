@@ -62,7 +62,10 @@ O projeto já tem contratos que esta proposta deve preservar:
    revisão máxima, e um snapshot abaixo dela é rejeitado e recarregado do store
    antes de republicar todos os campos. Refreshes são versionados por pattern;
    ao migrar ou remover o último provider, marcas stale órfãs e refreshes antigos
-   são invalidados. Se a leitura ou publicação falhar, os snapshots afetados
+   são invalidados. Uma exclusão persistida invalida também syncs ativos que
+   poderiam ter lido o ID sob outro pattern; patterns com snapshots ainda stale
+   são relidos, enquanto patterns sem consumidor registrado não geram leitura
+   adicional. Se a leitura ou publicação falhar, os snapshots afetados
    ficam indisponíveis até a geração mais recente de sincronização bem-sucedida.
    Quando o cofre existe apenas em memória, o serviço de provedores avança as
    revisões explicitamente depois de atualizar o cache. Segredos não são armazenados nem

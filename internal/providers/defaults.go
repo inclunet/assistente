@@ -219,6 +219,9 @@ func AgentProvider(id, name, agentID string, install acp.Install) *llm.ProviderC
 // Só provedor HTTP passa por aqui: agente de código não tem template, e quem
 // cria um é o formulário, com o agente escolhido no catálogo (AEP-0086 D11).
 func (s *Service) CreateFromTemplate(ctx context.Context, providerType, apiKey string) error {
+	s.providerLifecycleMu.Lock()
+	defer s.providerLifecycleMu.Unlock()
+
 	p, err := BuiltinTemplate(providerType)
 	if err != nil {
 		return err

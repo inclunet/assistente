@@ -60,6 +60,7 @@ type ServiceConfig struct {
 type Service struct {
 	oauth                                *oauthflow.Service
 	oauthMu                              sync.Mutex
+	providerLifecycleMu                  sync.Mutex
 	oauthAttempts                        map[string]context.CancelFunc
 	registry                             *llm.ProviderRegistry
 	credMgr                              CredentialManager
@@ -124,19 +125,39 @@ func ExtractHostname(baseURL string) (string, error) {
 // Save persists generic providers. OAuth consumers have transactional lifecycle
 // methods and must never be overwritten by an unrelated registry snapshot.
 func (s *Service) Save(ctx context.Context) error {
+	s.providerLifecycleMu.Lock()
+	defer s.providerLifecycleMu.Unlock()
+	return s.save(ctx)
+}
+
+func (s *Service) save(ctx context.Context) error {
 	var generic []*llm.ProviderConfig
 	for _, provider := range s.registry.List() {
 		if provider.Type != llm.ProviderChatGPT && !strings.HasPrefix(provider.CredentialPattern, "oauth:") {
 			generic = append(generic, provider)
 		}
 	}
-	return s.store.Save(ctx, generic)
+	if err := s.store.Save(ctx, generic); err != nil {
+		return err
+	}
+	for _, provider := range generic {
+		if _, err := s.registerAuthoritativeProvider(ctx, provider); err != nil {
+			return fmt.Errorf("sincronizar provider %q após salvar: %w", provider.ID, err)
+		}
+	}
+	return nil
 }
 
 // SaveAndRegister persiste um provider e só retorna sucesso depois que o
 // registry publicou a configuração autoritativa. É usado por fluxos que
 // criam providers fora do formulário padrão, como o wizard de boas-vindas.
 func (s *Service) SaveAndRegister(ctx context.Context, provider *llm.ProviderConfig) (*llm.ProviderConfig, error) {
+	s.providerLifecycleMu.Lock()
+	defer s.providerLifecycleMu.Unlock()
+	return s.saveAndRegister(ctx, provider)
+}
+
+func (s *Service) saveAndRegister(ctx context.Context, provider *llm.ProviderConfig) (*llm.ProviderConfig, error) {
 	if provider == nil {
 		return nil, fmt.Errorf("provider nil")
 	}
@@ -155,6 +176,9 @@ func (s *Service) SaveAndRegister(ctx context.Context, provider *llm.ProviderCon
 
 // Load carrega provedores do store para o registry.
 func (s *Service) Load(ctx context.Context) error {
+	s.providerLifecycleMu.Lock()
+	defer s.providerLifecycleMu.Unlock()
+
 	providers, err := s.store.Load(ctx)
 	if err != nil {
 		return err
@@ -178,11 +202,11 @@ func (s *Service) Load(ctx context.Context) error {
 		}
 	}
 	logging.Infof(ctx, "providers.service", "[providers] %d provedor(es) carregado(s) do store", len(providers))
-	s.EnsureDefault(ctx)
+	s.ensureDefault(ctx)
 
 	// Persistir api_format materializado para não repetir inferência no próximo boot
 	if needsSave {
-		if err := s.Save(ctx); err != nil {
+		if err := s.save(ctx); err != nil {
 			logging.Errorf(ctx, "providers.service", "[providers] Erro ao persistir api_format materializado: %v", err)
 		}
 	}
@@ -237,6 +261,12 @@ func (s *Service) registerAuthoritativeProvider(ctx context.Context, provider *l
 // EnsureDefault garante que pelo menos um provedor está marcado como padrão.
 // Chamado automaticamente após Load. Seguro executar múltiplas vezes.
 func (s *Service) EnsureDefault(ctx context.Context) {
+	s.providerLifecycleMu.Lock()
+	defer s.providerLifecycleMu.Unlock()
+	s.ensureDefault(ctx)
+}
+
+func (s *Service) ensureDefault(ctx context.Context) {
 	defaultProv, err := s.store.GetDefault(ctx)
 	if err == nil && defaultProv != nil {
 		return
@@ -250,16 +280,18 @@ func (s *Service) EnsureDefault(ctx context.Context) {
 	first := all[0]
 	logging.Warnf(ctx, "providers.service", "[providers] Nenhum provedor default — marcando '%s' como default", first.Name)
 
-	if err := s.store.SetDefault(ctx, first.ID); err != nil {
+	if err := s.setDefault(ctx, first.ID); err != nil {
 		logging.Errorf(ctx, "providers.service", "[providers] Erro ao definir default: %v", err)
 		return
 	}
-	first.IsDefault = true
+	first = s.registry.Get(first.ID)
+	if first == nil {
+		return
+	}
 
 	if first.Type != llm.ProviderChatGPT && !strings.HasPrefix(first.CredentialPattern, "oauth:") && first.DefaultModel == "" && first.Model != "" {
 		first.DefaultModel = first.Model
-		// Persiste o DefaultModel preenchido
-		if err := s.store.Save(ctx, []*llm.ProviderConfig{first}); err != nil {
+		if _, err := s.saveAndRegister(ctx, first); err != nil {
 			logging.Errorf(ctx, "providers.service", "[providers] Erro ao salvar DefaultModel: %v", err)
 		}
 	}
@@ -396,6 +428,9 @@ func normalizeProviderRuntimeDefaults(p *llm.ProviderConfig) {
 
 // Create cria e registra um novo provedor LLM.
 func (s *Service) Create(ctx context.Context, req CreateRequest) (*CreateResult, error) {
+	s.providerLifecycleMu.Lock()
+	defer s.providerLifecycleMu.Unlock()
+
 	// O formato e a URL chegam de formulário e de linha de comando, onde
 	// espaço nas pontas é acidente comum. Aparar antes de decidir evita que
 	// " acp " caia no caminho HTTP e a pessoa receba uma cobrança de URL que
@@ -431,8 +466,12 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*CreateResult,
 			return nil, fmt.Errorf("configuração de agente exige api_format %q", llm.APIFormatACP)
 		}
 	}
-	if s.registry.Get(req.ID) != nil {
-		return nil, fmt.Errorf("provider com ID '%s' já existe", req.ID)
+	exists, err := s.store.Exists(ctx, req.ID)
+	if err != nil {
+		return nil, fmt.Errorf("verificar existência do provider %q: %w", req.ID, err)
+	}
+	if exists {
+		return nil, fmt.Errorf("provider com ID '%s' já existe: %w", req.ID, ErrProviderAlreadyExists)
 	}
 
 	// O agente não tem host: o que o endereça é o comando.
@@ -446,25 +485,6 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*CreateResult,
 	}
 
 	credConfigured := false
-	if req.APIKey != "" {
-		if err := s.credMgr.RegisterPatternWithContext(ctx, hostname, &credentials.AuthConfig{Source: "static",
-			Type:  "bearer",
-			Token: req.APIKey,
-		}); err != nil {
-			return nil, fmt.Errorf("erro ao salvar credencial: %w", err)
-		}
-		if err := s.credentialPatternChanged(ctx, hostname); err != nil {
-			return nil, fmt.Errorf("erro ao atualizar revisão dos provedores que usam a credencial: %w", err)
-		}
-		credConfigured = true
-	}
-
-	if req.APIKey == "" && !isACP {
-		auth, err := s.credentialConfig(ctx, hostname)
-		credConfigured = err == nil && auth != nil && auth.Source != ""
-	}
-
-	isFirst := len(s.registry.List()) == 0
 	provider := &llm.ProviderConfig{
 		ID:                   req.ID,
 		Name:                 req.Name,
@@ -473,7 +493,6 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*CreateResult,
 		BaseURL:              baseURL,
 		DefaultModel:         req.DefaultModel,
 		ReasoningContentMode: llm.ReasoningContentMode(strings.TrimSpace(req.ReasoningContentMode)),
-		IsDefault:            isFirst,
 		Timeout:              180,
 		CredentialPattern:    hostname,
 		ACPCommand:           req.ACPCommand,
@@ -487,24 +506,59 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*CreateResult,
 	if err := provider.Validate(); err != nil {
 		return nil, err
 	}
-	if err := s.store.Save(ctx, []*llm.ProviderConfig{provider}); err != nil {
+	if err := s.store.Create(ctx, provider); err != nil {
+		if errors.Is(err, ErrProviderAlreadyExists) {
+			return nil, fmt.Errorf("provider com ID '%s' já existe: %w", req.ID, ErrProviderAlreadyExists)
+		}
 		return nil, err
 	}
+	cleanupCreatedProvider := func(cause error) error {
+		if deleteErr := s.store.Delete(ctx, req.ID); deleteErr != nil {
+			return errors.Join(cause, fmt.Errorf("remover provider criado parcialmente: %w", deleteErr))
+		}
+		var rollbackErr error
+		_, invalidatedPatterns := s.registry.RemoveProvider(req.ID, provider.CredentialPattern)
+		for _, pattern := range invalidatedPatterns {
+			if refreshErr := s.RefreshCredentialPatternRevisions(ctx, pattern); refreshErr != nil {
+				rollbackErr = errors.Join(rollbackErr, fmt.Errorf("sincronizar credenciais após rollback do provider %q: %w", req.ID, refreshErr))
+			}
+		}
+		return errors.Join(cause, rollbackErr)
+	}
+
+	if req.APIKey != "" {
+		if s.credMgr == nil {
+			return nil, cleanupCreatedProvider(fmt.Errorf("credential manager indisponível"))
+		}
+		if err := s.credMgr.RegisterPatternWithContext(ctx, hostname, &credentials.AuthConfig{Source: "static",
+			Type:  "bearer",
+			Token: req.APIKey,
+		}); err != nil {
+			return nil, cleanupCreatedProvider(fmt.Errorf("erro ao salvar credencial: %w", err))
+		}
+		if err := s.credentialPatternChanged(ctx, hostname); err != nil {
+			return nil, cleanupCreatedProvider(fmt.Errorf("erro ao atualizar revisão dos provedores que usam a credencial: %w", err))
+		}
+		credConfigured = true
+	} else if !isACP {
+		auth, err := s.credentialConfig(ctx, hostname)
+		credConfigured = err == nil && auth != nil && auth.Source != ""
+	}
+
 	registered, err := s.registerAuthoritativeProvider(ctx, provider)
 	if err != nil {
-		return nil, fmt.Errorf("erro ao registrar provider: %w", err)
+		return nil, cleanupCreatedProvider(fmt.Errorf("erro ao registrar provider: %w", err))
 	}
 	provider = registered
-	if isFirst {
-		if err := s.store.SetDefault(ctx, req.ID); err != nil {
-			logging.Warnf(ctx, "providers.service", "[providers] Aviso: erro ao marcar como default: %v", err)
-		}
+	s.ensureDefault(ctx)
+	if current := s.registry.Get(req.ID); current != nil {
+		provider = current
 	}
 
 	if isACP {
-		logging.Infof(ctx, "providers.service", "[providers] Provider '%s' criado (agente=%q, default=%v)", req.ID, provider.ACPCommand, isFirst)
+		logging.Infof(ctx, "providers.service", "[providers] Provider '%s' criado (agente=%q, default=%v)", req.ID, provider.ACPCommand, provider.IsDefault)
 	} else {
-		logging.Infof(ctx, "providers.service", "[providers] Provider '%s' criado (hostname=%s, default=%v)", req.ID, hostname, isFirst)
+		logging.Infof(ctx, "providers.service", "[providers] Provider '%s' criado (hostname=%s, default=%v)", req.ID, hostname, provider.IsDefault)
 	}
 	return &CreateResult{
 		Provider:             provider,
@@ -566,11 +620,13 @@ func (s *Service) RefreshCredentialPatternRevisions(ctx context.Context, pattern
 		var err error
 		revisions, err = revisionStore.GetCompatibilityRevisionsForCredentialPattern(ctx, pattern)
 		if err != nil {
+			s.registry.AbortCredentialPatternRevisionSync(pattern, syncGeneration)
 			return fmt.Errorf("ler revisões dos provedores que usam %q: %w", pattern, err)
 		}
 	} else {
 		providers, err := s.store.Load(ctx)
 		if err != nil {
+			s.registry.AbortCredentialPatternRevisionSync(pattern, syncGeneration)
 			return fmt.Errorf("carregar provedores que usam %q: %w", pattern, err)
 		}
 		revisions = make(map[string]int)
@@ -595,10 +651,12 @@ func (s *Service) AdvanceCredentialPatternRevisions(ctx context.Context, pattern
 	syncGeneration := s.registry.BeginCredentialPatternRevisionSync(pattern)
 	revisionStore, ok := s.store.(CredentialPatternRevisionStore)
 	if !ok {
+		s.registry.AbortCredentialPatternRevisionSync(pattern, syncGeneration)
 		return fmt.Errorf("store de provedores não consegue avançar revisões de credenciais compartilhadas")
 	}
 	revisions, err := revisionStore.BumpCompatibilityRevisionsForCredentialPattern(ctx, pattern)
 	if err != nil {
+		s.registry.AbortCredentialPatternRevisionSync(pattern, syncGeneration)
 		return fmt.Errorf("avançar revisões dos provedores que usam %q: %w", pattern, err)
 	}
 	return s.registry.PublishCredentialPatternRevisions(pattern, syncGeneration, revisions)
@@ -618,6 +676,9 @@ func (s *Service) credentialPatternChanged(ctx context.Context, pattern string) 
 
 // Update atualiza um provedor LLM existente.
 func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*UpdateResult, error) {
+	s.providerLifecycleMu.Lock()
+	defer s.providerLifecycleMu.Unlock()
+
 	existing := s.registry.Get(id)
 	if existing == nil {
 		return nil, fmt.Errorf("provider '%s' não encontrado", id)
@@ -799,9 +860,22 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Up
 
 // Delete remove um provedor do registry.
 func (s *Service) Delete(ctx context.Context, id string) error {
+	s.providerLifecycleMu.Lock()
+	defer s.providerLifecycleMu.Unlock()
+	return s.delete(ctx, id)
+}
+
+func (s *Service) delete(ctx context.Context, id string) error {
 	provider := s.registry.Get(id)
 	if provider == nil {
-		return fmt.Errorf("provider '%s' não encontrado", id)
+		persisted, err := s.store.Get(ctx, id)
+		if err != nil {
+			return fmt.Errorf("provider '%s' não encontrado: %w", id, err)
+		}
+		if persisted == nil {
+			return fmt.Errorf("provider '%s' não encontrado", id)
+		}
+		provider = persisted
 	}
 	if provider.Type == llm.ProviderChatGPT {
 		user, err := database.RequireUserID(ctx)
@@ -843,12 +917,10 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 	} else if err := s.store.Delete(ctx, id); err != nil {
 		return err
 	}
-	if err := s.registry.Remove(id); err != nil {
-		return fmt.Errorf("erro ao remover provider: %w", err)
-	}
-	if provider.Type != llm.ProviderChatGPT && provider.CredentialPattern != "" {
-		if err := s.RefreshCredentialPatternRevisions(ctx, provider.CredentialPattern); err != nil {
-			return fmt.Errorf("provider removido, mas não foi possível sincronizar os consumidores da credencial %q: %w", provider.CredentialPattern, err)
+	_, invalidatedPatterns := s.registry.RemoveProvider(id, provider.CredentialPattern)
+	for _, pattern := range invalidatedPatterns {
+		if err := s.RefreshCredentialPatternRevisions(ctx, pattern); err != nil {
+			return fmt.Errorf("provider removido, mas não foi possível sincronizar os consumidores da credencial %q: %w", pattern, err)
 		}
 	}
 	logging.Infof(ctx, "providers.service", "[providers] Provider '%s' removido", id)
@@ -857,6 +929,12 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 
 // SetDefault marca um provedor como padrão do sistema.
 func (s *Service) SetDefault(ctx context.Context, id string) error {
+	s.providerLifecycleMu.Lock()
+	defer s.providerLifecycleMu.Unlock()
+	return s.setDefault(ctx, id)
+}
+
+func (s *Service) setDefault(ctx context.Context, id string) error {
 	if s.registry.Get(id) == nil {
 		return fmt.Errorf("provider '%s' não encontrado", id)
 	}

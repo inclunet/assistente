@@ -23,6 +23,7 @@ type blockingProviderStore struct {
 
 func (s *blockingProviderStore) Delete(context.Context, string) error              { return nil }
 func (s *blockingProviderStore) Save(context.Context, []*llm.ProviderConfig) error { return nil }
+func (s *blockingProviderStore) Create(context.Context, *llm.ProviderConfig) error { return nil }
 func (s *blockingProviderStore) Load(context.Context) ([]*llm.ProviderConfig, error) {
 	return nil, nil
 }
@@ -32,6 +33,9 @@ func (s *blockingProviderStore) GetDefault(context.Context) (*llm.ProviderConfig
 }
 func (s *blockingProviderStore) Get(context.Context, string) (*llm.ProviderConfig, error) {
 	return nil, nil
+}
+func (s *blockingProviderStore) Exists(context.Context, string) (bool, error) {
+	return false, nil
 }
 func (s *blockingProviderStore) Count(context.Context) (int, error) {
 	s.started <- struct{}{}

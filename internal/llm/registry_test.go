@@ -54,6 +54,52 @@ func TestProviderRegistryRegisterGetListRemove(t *testing.T) {
 	}
 }
 
+func TestProviderRegistrySnapshotsCannotBeMutatedByCallers(t *testing.T) {
+	registry := NewProviderRegistry()
+	provider := &ProviderConfig{
+		ID: "isolated", Name: "Original", Type: ProviderACP, APIFormat: APIFormatACP, ACPCommand: "agent",
+		Headers:          map[string]string{"X-Test": "original"},
+		ACPArgs:          []string{"original-arg"},
+		ACPEnv:           map[string]string{"TEST": "original"},
+		ACPCredentialEnv: map[string]string{"TOKEN": "secret-ref"},
+	}
+	if err := registry.Register(provider); err != nil {
+		t.Fatal(err)
+	}
+
+	provider.Name = "caller mutation"
+	provider.Headers["X-Test"] = "caller mutation"
+	provider.ACPArgs[0] = "caller mutation"
+	provider.ACPEnv["TEST"] = "caller mutation"
+	provider.ACPCredentialEnv["TOKEN"] = "caller mutation"
+	assertOriginal := func(source string) {
+		t.Helper()
+		got := registry.Get(provider.ID)
+		if got == nil || got.Name != "Original" || got.Headers["X-Test"] != "original" ||
+			got.ACPArgs[0] != "original-arg" || got.ACPEnv["TEST"] != "original" ||
+			got.ACPCredentialEnv["TOKEN"] != "secret-ref" {
+			t.Fatalf("%s alterou o snapshot interno: %+v", source, got)
+		}
+	}
+	assertOriginal("mutação do argumento de Register")
+
+	fromGet := registry.Get(provider.ID)
+	fromGet.Name = "Get mutation"
+	fromGet.Headers["X-Test"] = "Get mutation"
+	fromGet.ACPArgs[0] = "Get mutation"
+	fromGet.ACPEnv["TEST"] = "Get mutation"
+	fromGet.ACPCredentialEnv["TOKEN"] = "Get mutation"
+	assertOriginal("mutação do resultado de Get")
+
+	fromList := registry.List()[0]
+	fromList.Name = "List mutation"
+	fromList.Headers["X-Test"] = "List mutation"
+	fromList.ACPArgs[0] = "List mutation"
+	fromList.ACPEnv["TEST"] = "List mutation"
+	fromList.ACPCredentialEnv["TOKEN"] = "List mutation"
+	assertOriginal("mutação do resultado de List")
+}
+
 func TestProviderRegistryRegisterValidation(t *testing.T) {
 	registry := NewProviderRegistry()
 
@@ -337,5 +383,80 @@ func TestProviderRegistryProviderMovedOffStalePatternBecomesAvailable(t *testing
 	}
 	if got := registry.Get(provider.ID); got == nil || got.CredentialPattern != moved.CredentialPattern {
 		t.Fatalf("conclusão do refresh antigo ocultou o provider migrado: %+v", got)
+	}
+}
+
+func TestProviderRegistryDeleteClearsWatermarkWithoutSnapshotAndInvalidatesRefresh(t *testing.T) {
+	registry := NewProviderRegistry()
+	pattern := "api.example.test"
+	firstGeneration := registry.BeginCredentialPatternRevisionSync(pattern)
+	if err := registry.PublishCredentialPatternRevisions(pattern, firstGeneration, map[string]int{"reused": 5}); err != nil {
+		t.Fatal(err)
+	}
+	if registry.Get("reused") != nil {
+		t.Fatal("watermark-only publication should not create a provider snapshot")
+	}
+	pendingGeneration := registry.BeginCredentialPatternRevisionSync(pattern)
+	if removed, _ := registry.RemoveProvider("reused", pattern); removed {
+		t.Fatal("removal should report no provider snapshot")
+	}
+	if err := registry.PublishCredentialPatternRevisions(pattern, pendingGeneration, map[string]int{"reused": 7}); err != nil {
+		t.Fatal(err)
+	}
+	recreated := &ProviderConfig{
+		ID: "reused", Name: "Recreated", Type: ProviderCustom,
+		APIFormat: APIFormatOpenAI, BaseURL: "https://api.example.test/v1",
+		CredentialPattern: pattern, CompatibilityRevision: 1,
+	}
+	if err := registry.Register(recreated); err != nil {
+		t.Fatalf("reutilizar ID após exclusão com somente watermark: %v", err)
+	}
+}
+
+func TestProviderRegistryRemovalInvalidatesWatermarkPatternDifferentFromPersistedPattern(t *testing.T) {
+	registry := NewProviderRegistry()
+	oldPattern := "old.example.test"
+	newPattern := "new.example.test"
+	oldGeneration := registry.BeginCredentialPatternRevisionSync(oldPattern)
+	if err := registry.PublishCredentialPatternRevisions(oldPattern, oldGeneration, map[string]int{"reused": 5}); err != nil {
+		t.Fatal(err)
+	}
+	pendingOldGeneration := registry.BeginCredentialPatternRevisionSync(oldPattern)
+	_, invalidated := registry.RemoveProvider("reused", newPattern)
+	if len(invalidated) != 0 {
+		t.Fatalf("não há snapshots stale que exijam refresh: %v", invalidated)
+	}
+	if err := registry.PublishCredentialPatternRevisions(oldPattern, pendingOldGeneration, map[string]int{"reused": 7}); err != nil {
+		t.Fatal(err)
+	}
+	recreated := &ProviderConfig{
+		ID: "reused", Name: "Recreated", Type: ProviderCustom,
+		APIFormat: APIFormatOpenAI, BaseURL: "https://new.example.test/v1",
+		CredentialPattern: newPattern, CompatibilityRevision: 1,
+	}
+	if err := registry.Register(recreated); err != nil {
+		t.Fatalf("publicação antiga de outro pattern deve ser invalidada: %v", err)
+	}
+}
+
+func TestProviderRegistryRemovalInvalidatesInFlightPatternWithoutPriorWatermark(t *testing.T) {
+	registry := NewProviderRegistry()
+	oldPattern := "old.example.test"
+	newPattern := "new.example.test"
+	pendingOldGeneration := registry.BeginCredentialPatternRevisionSync(oldPattern)
+	_, invalidated := registry.RemoveProvider("reused", newPattern)
+	if len(invalidated) != 0 {
+		t.Fatalf("não há snapshots stale que exijam refresh: %v", invalidated)
+	}
+	if err := registry.PublishCredentialPatternRevisions(oldPattern, pendingOldGeneration, map[string]int{"reused": 7}); err != nil {
+		t.Fatal(err)
+	}
+	recreated := &ProviderConfig{
+		ID: "reused", Name: "Recreated", Type: ProviderCustom,
+		APIFormat: APIFormatOpenAI, BaseURL: "https://new.example.test/v1",
+		CredentialPattern: newPattern, CompatibilityRevision: 1,
+	}
+	if err := registry.Register(recreated); err != nil {
+		t.Fatalf("sync antigo sem watermark deveria ser invalidado: %v", err)
 	}
 }

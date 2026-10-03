@@ -89,6 +89,25 @@ func (s *DBStore) Save(ctx context.Context, providers []*llm.ProviderConfig) err
 	return nil
 }
 
+func (s *DBStore) Create(ctx context.Context, provider *llm.ProviderConfig) error {
+	if provider == nil {
+		return fmt.Errorf("provider nil")
+	}
+	if err := database.RequireUserIDOrBootstrap(ctx); err != nil {
+		return err
+	}
+	dbProvider := toDBModel(provider)
+	if err := database.NewProviderRepository(database.DB()).CreateLLMProvider(ctx, dbProvider); err != nil {
+		if errors.Is(err, database.ErrLLMProviderAlreadyExists) {
+			return ErrProviderAlreadyExists
+		}
+		return err
+	}
+	provider.CompatibilityRevision = dbProvider.CompatibilityRevision
+	provider.ConfigRevision = dbProvider.ConfigRevision
+	return nil
+}
+
 // Load retorna todos os provedores do banco convertidos para ProviderConfig.
 func (s *DBStore) Load(ctx context.Context) ([]*llm.ProviderConfig, error) {
 	if _, err := database.RequireUserID(ctx); err != nil {
@@ -144,6 +163,17 @@ func (s *DBStore) Get(ctx context.Context, id string) (*llm.ProviderConfig, erro
 		return nil, err
 	}
 	return fromDBModel(dbP)
+}
+
+func (s *DBStore) Exists(ctx context.Context, id string) (bool, error) {
+	provider, err := s.Get(ctx, id)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return provider != nil, nil
 }
 
 // Count retorna a contagem total de provedores no banco.

@@ -59,6 +59,26 @@ func (s *MemoryStore) Save(_ context.Context, providers []*llm.ProviderConfig) e
 	return nil
 }
 
+func (s *MemoryStore) Create(_ context.Context, provider *llm.ProviderConfig) error {
+	if provider == nil {
+		return fmt.Errorf("provider nil")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, exists := s.providers[provider.ID]; exists {
+		return ErrProviderAlreadyExists
+	}
+	if provider.CompatibilityRevision < 1 {
+		provider.CompatibilityRevision = 1
+	}
+	if provider.ConfigRevision < 1 {
+		provider.ConfigRevision = 1
+	}
+	clone := *provider
+	s.providers[provider.ID] = &clone
+	return nil
+}
+
 func memoryProviderConfigurationChanged(current, next *llm.ProviderConfig) bool {
 	if current == nil || next == nil {
 		return true
@@ -163,6 +183,13 @@ func (s *MemoryStore) Get(_ context.Context, id string) (*llm.ProviderConfig, er
 	}
 	clone := *p
 	return &clone, nil
+}
+
+func (s *MemoryStore) Exists(_ context.Context, id string) (bool, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	_, exists := s.providers[id]
+	return exists, nil
 }
 
 func (s *MemoryStore) Count(_ context.Context) (int, error) {

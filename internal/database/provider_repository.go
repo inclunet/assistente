@@ -15,6 +15,10 @@ import (
 // (UPSERT por PK).
 var ErrProviderCrossUser = errors.New("llm provider pertence a outro usuário")
 
+// ErrLLMProviderAlreadyExists indica que um provider com o mesmo ID já foi
+// criado. CreateLLMProvider nunca faz upsert.
+var ErrLLMProviderAlreadyExists = errors.New("llm provider já existe")
+
 // ProviderRepository encapsula a persistência de LLMProvider com um *gorm.DB
 // injetado, permitindo reuso em transações e testes sem depender da global db.
 type ProviderRepository struct {
@@ -89,6 +93,36 @@ func (r *ProviderRepository) SaveLLMProvider(ctx context.Context, provider *LLMP
 		}
 		return tx.Save(provider).Error
 	})
+}
+
+// CreateLLMProvider insere um provider sem sobrescrever um ID existente.
+// A consulta após conflito evita expor qualquer dado do registro que colidiu.
+func (r *ProviderRepository) CreateLLMProvider(ctx context.Context, provider *LLMProvider) error {
+	if err := RequireUserIDOrBootstrap(ctx); err != nil {
+		return err
+	}
+	if provider == nil {
+		return errors.New("llm provider inválido")
+	}
+	if provider.UserID == "" {
+		if userID, ok := UserIDFromContext(ctx); ok {
+			provider.UserID = userID
+		}
+	}
+	if provider.CompatibilityRevision < 1 {
+		provider.CompatibilityRevision = 1
+	}
+	if provider.ConfigRevision < 1 {
+		provider.ConfigRevision = 1
+	}
+	if err := r.db.WithContext(ctx).Create(provider).Error; err != nil {
+		var count int64
+		if lookupErr := r.db.WithContext(ctx).Model(&LLMProvider{}).Where("id = ?", provider.ID).Count(&count).Error; lookupErr == nil && count > 0 {
+			return ErrLLMProviderAlreadyExists
+		}
+		return err
+	}
+	return nil
 }
 
 func providerConfigurationChanged(current, next *LLMProvider) bool {

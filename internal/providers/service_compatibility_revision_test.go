@@ -5,7 +5,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
+	"strings"
 	"testing"
+	"time"
 
 	"assistente/internal/credentials"
 	"assistente/internal/database"
@@ -102,11 +105,386 @@ func TestCreateAPIKeyInvalidatesExistingCredentialConsumers(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("criar provider com credencial compartilhada: %v", err)
 	}
-	if len(store.bumps) != 1 || store.bumps[0] != "existing-provider" {
-		t.Fatalf("criação não invalidou exatamente os consumidores existentes: %v", store.bumps)
+	if len(store.bumps) != 2 || !slices.Contains(store.bumps, "existing-provider") || !slices.Contains(store.bumps, "new-provider") {
+		t.Fatalf("criação não invalidou os consumidores existentes e o novo provider já persistido: %v", store.bumps)
 	}
 	if service.registry.Get("existing-provider").CompatibilityRevision <= previousRevision {
 		t.Fatal("registry manteve revisão antiga no provider que compartilha o pattern")
+	}
+}
+
+func TestCreateRejectsPersistedProviderWhenRegistrySnapshotIsStale(t *testing.T) {
+	store := NewMemoryStore()
+	credentials := &credSpy{}
+	service := NewService(ServiceConfig{
+		Registry: llm.NewProviderRegistry(),
+		CredMgr:  credentials,
+		Store:    store,
+	})
+	ctx := context.Background()
+	request := CreateRequest{
+		ID: "existing-provider", Name: "Existing", Type: string(llm.ProviderCustom),
+		APIFormat: string(llm.APIFormatOpenAI), BaseURL: "https://api.example.test/v1",
+	}
+	if _, err := service.Create(ctx, request); err != nil {
+		t.Fatalf("criar provider inicial: %v", err)
+	}
+	service.registry.BeginCredentialPatternRevisionSync("api.example.test")
+	request.APIKey = "must-not-be-written"
+	if _, err := service.Create(ctx, request); err == nil || !strings.Contains(err.Error(), "já existe") {
+		t.Fatalf("provider persistido com snapshot stale deveria ser reconhecido como duplicado: %v", err)
+	}
+	if len(credentials.registrados) != 0 {
+		t.Fatalf("credencial foi escrita antes da checagem de duplicidade: %v", credentials.registrados)
+	}
+}
+
+func TestConcurrentCreateDoesNotOverwriteProviderWithDuplicateID(t *testing.T) {
+	store := NewMemoryStore()
+	service := NewService(ServiceConfig{Registry: llm.NewProviderRegistry(), Store: store})
+	request := CreateRequest{
+		ID: "shared-id", Name: "Provider", Type: string(llm.ProviderCustom),
+		APIFormat: string(llm.APIFormatOpenAI), BaseURL: "https://api.example.test/v1",
+	}
+	results := make(chan error, 2)
+	for range 2 {
+		go func() {
+			_, err := service.Create(context.Background(), request)
+			results <- err
+		}()
+	}
+
+	var created, duplicate int
+	for range 2 {
+		err := <-results
+		switch {
+		case err == nil:
+			created++
+		case errors.Is(err, ErrProviderAlreadyExists):
+			duplicate++
+		default:
+			t.Errorf("erro inesperado ao criar com ID concorrente: %v", err)
+		}
+	}
+	count, err := store.Count(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created != 1 || duplicate != 1 || count != 1 {
+		t.Fatalf("corrida de criação: criados=%d duplicados=%d no store=%d", created, duplicate, count)
+	}
+}
+
+type loadObservingProviderStore struct {
+	ProviderStore
+	loadCalls chan struct{}
+}
+
+func (s *loadObservingProviderStore) Load(ctx context.Context) ([]*llm.ProviderConfig, error) {
+	s.loadCalls <- struct{}{}
+	return s.ProviderStore.Load(ctx)
+}
+
+type blockingCreateCredentialManager struct {
+	credSpy
+	started chan struct{}
+	release chan struct{}
+}
+
+func (m *blockingCreateCredentialManager) RegisterPatternWithContext(context.Context, string, *credentials.AuthConfig) error {
+	m.started <- struct{}{}
+	<-m.release
+	return errors.New("credential write failed")
+}
+
+func TestCreateKeepsProvisionalProviderHiddenFromConcurrentLoadAndRecoversDefault(t *testing.T) {
+	ctx := context.Background()
+	store := &loadObservingProviderStore{ProviderStore: NewMemoryStore(), loadCalls: make(chan struct{}, 2)}
+	credentials := &blockingCreateCredentialManager{started: make(chan struct{}, 1), release: make(chan struct{})}
+	defer func() {
+		select {
+		case <-credentials.release:
+		default:
+			close(credentials.release)
+		}
+	}()
+	service := NewService(ServiceConfig{Registry: llm.NewProviderRegistry(), CredMgr: credentials, Store: store})
+	createResult := make(chan error, 1)
+	go func() {
+		_, err := service.Create(ctx, CreateRequest{
+			ID: "provisional", Name: "Provisional", Type: string(llm.ProviderCustom),
+			APIFormat: string(llm.APIFormatOpenAI), BaseURL: "https://api.example.test/v1", APIKey: "bad-key",
+		})
+		createResult <- err
+	}()
+	<-credentials.started
+
+	if count, err := store.Count(ctx); err != nil || count != 1 {
+		t.Fatalf("provider deveria estar persistido provisoriamente antes da credencial: count=%d err=%v", count, err)
+	}
+	if service.registry.Get("provisional") != nil {
+		t.Fatal("provider provisório foi publicado antes da credencial")
+	}
+	loadResult := make(chan error, 1)
+	loadStarted := make(chan struct{})
+	go func() {
+		close(loadStarted)
+		loadResult <- service.Load(ctx)
+	}()
+	<-loadStarted
+	select {
+	case <-store.loadCalls:
+		t.Fatal("Load observou provider provisório antes do resultado da credencial")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	close(credentials.release)
+	if err := <-createResult; err == nil {
+		t.Fatal("criação deveria falhar quando a gravação da credencial falha")
+	}
+	if err := <-loadResult; err == nil || !strings.Contains(err.Error(), "nenhum provedor encontrado") {
+		t.Fatalf("Load deveria prosseguir após o rollback e encontrar o store vazio: %v", err)
+	}
+	if service.registry.Get("provisional") != nil {
+		t.Fatal("rollback deixou snapshot provisório publicado no registry")
+	}
+	if count, err := store.Count(ctx); err != nil || count != 0 {
+		t.Fatalf("rollback deveria remover o provider provisório: count=%d err=%v", count, err)
+	}
+
+	result, err := service.Create(ctx, CreateRequest{
+		ID: "successful", Name: "Successful", Type: string(llm.ProviderCustom),
+		APIFormat: string(llm.APIFormatOpenAI), BaseURL: "https://other.example.test/v1",
+	})
+	if err != nil {
+		t.Fatalf("criação após rollback: %v", err)
+	}
+	if result.Provider == nil || !result.Provider.IsDefault {
+		t.Fatalf("primeira criação bem-sucedida não se tornou default após rollback: %+v", result.Provider)
+	}
+}
+
+type failingCredentialRevisionReaderStore struct {
+	ProviderStore
+}
+
+func (s *failingCredentialRevisionReaderStore) GetCompatibilityRevisionsForCredentialPattern(context.Context, string) (map[string]int, error) {
+	return nil, errors.New("revision refresh unavailable")
+}
+
+func TestCreateRollsBackProviderWhenAuthoritativeRegistrationFails(t *testing.T) {
+	ctx := context.Background()
+	store := &failingCredentialRevisionReaderStore{ProviderStore: NewMemoryStore()}
+	registry := llm.NewProviderRegistry()
+	registry.BeginCredentialPatternRevisionSync("api.example.test")
+	service := NewService(ServiceConfig{Registry: registry, CredMgr: &credSpy{}, Store: store})
+	_, err := service.Create(ctx, CreateRequest{
+		ID: "registration-fails", Name: "Registration fails", Type: string(llm.ProviderCustom),
+		APIFormat: string(llm.APIFormatOpenAI), BaseURL: "https://api.example.test/v1",
+	})
+	if err == nil || !strings.Contains(err.Error(), "revision refresh unavailable") {
+		t.Fatalf("criação deveria expor falha do refresh autoritativo: %v", err)
+	}
+	if count, err := store.Count(ctx); err != nil || count != 0 {
+		t.Fatalf("falha de registro deveria remover a linha criada: count=%d err=%v", count, err)
+	}
+	if exists, err := store.Exists(ctx, "registration-fails"); err != nil || exists {
+		t.Fatalf("retry não deveria encontrar provider órfão: exists=%v err=%v", exists, err)
+	}
+	if registry.RemoveIfPresent("registration-fails") {
+		t.Fatal("falha de registro deixou snapshot stale no registry")
+	}
+}
+
+func TestDeleteLoadsPersistedProviderWhenRegistrySnapshotIsStale(t *testing.T) {
+	ctx := context.Background()
+	store := NewMemoryStore()
+	provider := &llm.ProviderConfig{
+		ID: "stale-provider", Name: "Stale provider", Type: llm.ProviderCustom,
+		APIFormat: llm.APIFormatOpenAI, BaseURL: "https://api.example.test/v1", CredentialPattern: "api.example.test",
+	}
+	if err := store.Save(ctx, []*llm.ProviderConfig{provider}); err != nil {
+		t.Fatal(err)
+	}
+	registry := llm.NewProviderRegistry()
+	if err := registry.Register(provider); err != nil {
+		t.Fatal(err)
+	}
+	registry.BeginCredentialPatternRevisionSync(provider.CredentialPattern)
+	if registry.Get(provider.ID) != nil {
+		t.Fatal("provider deveria estar oculto enquanto o pattern está stale")
+	}
+	service := NewService(ServiceConfig{Registry: registry, Store: store})
+	if err := service.Delete(ctx, provider.ID); err != nil {
+		t.Fatalf("excluir provider pelo snapshot persistido: %v", err)
+	}
+	if count, err := store.Count(ctx); err != nil || count != 0 {
+		t.Fatalf("exclusão não removeu o provider persistido: count=%d err=%v", count, err)
+	}
+	if registry.RemoveIfPresent(provider.ID) {
+		t.Fatal("exclusão deixou estado do provider no registry")
+	}
+}
+
+func TestDeleteClearsWatermarkOnlyStateBeforeProviderIDReuse(t *testing.T) {
+	ctx := context.Background()
+	store := NewMemoryStore()
+	provider := &llm.ProviderConfig{
+		ID: "watermark-only", Name: "Persisted provider", Type: llm.ProviderCustom,
+		APIFormat: llm.APIFormatOpenAI, BaseURL: "https://api.example.test/v1",
+		CredentialPattern: "api.example.test", CompatibilityRevision: 1,
+	}
+	if err := store.Save(ctx, []*llm.ProviderConfig{provider}); err != nil {
+		t.Fatal(err)
+	}
+	registry := llm.NewProviderRegistry()
+	firstGeneration := registry.BeginCredentialPatternRevisionSync(provider.CredentialPattern)
+	if err := registry.PublishCredentialPatternRevisions(provider.CredentialPattern, firstGeneration, map[string]int{provider.ID: 5}); err != nil {
+		t.Fatal(err)
+	}
+	if registry.Get(provider.ID) != nil {
+		t.Fatal("registry não deveria conter snapshot do provider")
+	}
+	service := NewService(ServiceConfig{Registry: registry, Store: store})
+	if err := service.Delete(ctx, provider.ID); err != nil {
+		t.Fatalf("excluir provider persistido sem snapshot: %v", err)
+	}
+	if _, err := service.Create(ctx, CreateRequest{
+		ID: provider.ID, Name: "Recreated provider", Type: string(llm.ProviderCustom),
+		APIFormat: string(llm.APIFormatOpenAI), BaseURL: provider.BaseURL,
+	}); err != nil {
+		t.Fatalf("reutilizar ID depois da exclusão: %v", err)
+	}
+}
+
+func TestDeleteRefreshesOtherPatternsThatPublishedWatermarkOnlyState(t *testing.T) {
+	ctx := context.Background()
+	store := NewMemoryStore()
+	removed := &llm.ProviderConfig{
+		ID: "old-provider", Name: "Removed", Type: llm.ProviderCustom,
+		APIFormat: llm.APIFormatOpenAI, BaseURL: "https://new.example.test/v1",
+		CredentialPattern: "new.example.test", CompatibilityRevision: 1,
+	}
+	sibling := &llm.ProviderConfig{
+		ID: "sibling-provider", Name: "Sibling", Type: llm.ProviderCustom,
+		APIFormat: llm.APIFormatOpenAI, BaseURL: "https://old.example.test/v1",
+		CredentialPattern: "old.example.test", CompatibilityRevision: 1,
+	}
+	if err := store.Save(ctx, []*llm.ProviderConfig{removed, sibling}); err != nil {
+		t.Fatal(err)
+	}
+	registry := llm.NewProviderRegistry()
+	if err := registry.Register(sibling); err != nil {
+		t.Fatal(err)
+	}
+	oldGeneration := registry.BeginCredentialPatternRevisionSync(sibling.CredentialPattern)
+	if registry.Get(sibling.ID) != nil {
+		t.Fatal("sync pendente deveria manter sibling stale até novo refresh")
+	}
+	service := NewService(ServiceConfig{Registry: registry, Store: store})
+	if err := service.Delete(ctx, removed.ID); err != nil {
+		t.Fatalf("excluir provider e atualizar o pattern do sibling: %v", err)
+	}
+	if err := registry.PublishCredentialPatternRevisions(sibling.CredentialPattern, oldGeneration, map[string]int{removed.ID: 5}); err != nil {
+		t.Fatal(err)
+	}
+	if siblingAfterDelete := registry.Get(sibling.ID); siblingAfterDelete == nil || siblingAfterDelete.CompatibilityRevision != 1 {
+		t.Fatalf("sibling do pattern antigo não recuperou visibilidade: %+v", siblingAfterDelete)
+	}
+	if _, err := service.Create(ctx, CreateRequest{
+		ID: removed.ID, Name: "Recreated", Type: string(llm.ProviderCustom),
+		APIFormat: string(llm.APIFormatOpenAI), BaseURL: removed.BaseURL,
+	}); err != nil {
+		t.Fatalf("reutilizar ID após publicação atrasada do pattern antigo: %v", err)
+	}
+}
+
+type updateDeleteLifecycleStore struct {
+	ProviderStore
+	saveEntered  chan struct{}
+	deleteCalled chan struct{}
+	releaseSave  chan struct{}
+}
+
+func (s *updateDeleteLifecycleStore) Save(ctx context.Context, providers []*llm.ProviderConfig) error {
+	s.saveEntered <- struct{}{}
+	<-s.releaseSave
+	return s.ProviderStore.Save(ctx, providers)
+}
+
+func (s *updateDeleteLifecycleStore) Delete(ctx context.Context, id string) error {
+	s.deleteCalled <- struct{}{}
+	return s.ProviderStore.Delete(ctx, id)
+}
+
+func TestUpdateAndDeleteShareProviderLifecycleLock(t *testing.T) {
+	ctx := context.Background()
+	store := &updateDeleteLifecycleStore{
+		ProviderStore: NewMemoryStore(), saveEntered: make(chan struct{}, 1),
+		deleteCalled: make(chan struct{}, 1), releaseSave: make(chan struct{}),
+	}
+	service := NewService(ServiceConfig{Registry: llm.NewProviderRegistry(), Store: store})
+	if _, err := service.Create(ctx, CreateRequest{
+		ID: "update-delete", Name: "Before", Type: string(llm.ProviderCustom),
+		APIFormat: string(llm.APIFormatOpenAI), BaseURL: "https://api.example.test/v1",
+	}); err != nil {
+		t.Fatalf("criar provider de teste: %v", err)
+	}
+	updateResult := make(chan error, 1)
+	go func() {
+		_, err := service.Update(ctx, "update-delete", UpdateRequest{Name: "After"})
+		updateResult <- err
+	}()
+	<-store.saveEntered
+	deleteResult := make(chan error, 1)
+	go func() { deleteResult <- service.Delete(ctx, "update-delete") }()
+	select {
+	case <-store.deleteCalled:
+		t.Fatal("Delete executou durante a persistência de Update")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	close(store.releaseSave)
+	if err := <-updateResult; err != nil {
+		t.Fatalf("Update serializado: %v", err)
+	}
+	if err := <-deleteResult; err != nil {
+		t.Fatalf("Delete após Update: %v", err)
+	}
+	if exists, err := store.Exists(ctx, "update-delete"); err != nil || exists {
+		t.Fatalf("Update ressuscitou provider após Delete: exists=%v err=%v", exists, err)
+	}
+	if service.registry.Get("update-delete") != nil {
+		t.Fatal("Delete deixou provider no registry após Update")
+	}
+}
+
+func TestEnsureDefaultPersistsAndPublishesClonedProviderConfiguration(t *testing.T) {
+	ctx := context.Background()
+	store := NewMemoryStore()
+	provider := &llm.ProviderConfig{
+		ID: "provider", Name: "Provider", Type: llm.ProviderCustom,
+		APIFormat: llm.APIFormatOpenAI, BaseURL: "https://api.example.test/v1", Model: "model-a",
+	}
+	if err := store.Save(ctx, []*llm.ProviderConfig{provider}); err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(ServiceConfig{Registry: llm.NewProviderRegistry(), Store: store})
+	if err := service.Load(ctx); err != nil {
+		t.Fatalf("carregar e definir provider default: %v", err)
+	}
+
+	persisted, err := store.Get(ctx, provider.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	registered := service.registry.Get(provider.ID)
+	if !persisted.IsDefault || persisted.DefaultModel != provider.Model {
+		t.Fatalf("configuração default não foi persistida: %+v", persisted)
+	}
+	if registered == nil || !registered.IsDefault || registered.DefaultModel != provider.Model ||
+		registered.ConfigRevision != persisted.ConfigRevision {
+		t.Fatalf("registry não publicou o snapshot default persistido: registered=%+v persisted=%+v", registered, persisted)
 	}
 }
 

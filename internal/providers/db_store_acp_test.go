@@ -2,6 +2,7 @@ package providers
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"assistente/internal/database"
@@ -10,6 +11,27 @@ import (
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 )
+
+func TestDBStoreCreateDoesNotOverwriteExistingProviderID(t *testing.T) {
+	acpTestDB(t)
+	ctx := database.WithUserID(context.Background(), "owner-a")
+	store := NewDBStore()
+	original := &llm.ProviderConfig{ID: "same-id", Name: "Original", Type: llm.ProviderCustom, APIFormat: llm.APIFormatOpenAI, BaseURL: "https://first.example.com/v1"}
+	if err := store.Create(ctx, original); err != nil {
+		t.Fatalf("criar provider: %v", err)
+	}
+	duplicate := &llm.ProviderConfig{ID: original.ID, Name: "Replacement", Type: llm.ProviderCustom, APIFormat: llm.APIFormatOpenAI, BaseURL: "https://second.example.com/v1"}
+	if err := store.Create(ctx, duplicate); !errors.Is(err, ErrProviderAlreadyExists) {
+		t.Fatalf("provider duplicado deveria ser recusado: %v", err)
+	}
+	persisted, err := store.Get(ctx, original.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if persisted.Name != original.Name || persisted.BaseURL != original.BaseURL {
+		t.Fatalf("criação duplicada sobrescreveu o provider original: %+v", persisted)
+	}
+}
 
 func acpTestDB(t *testing.T) *gorm.DB {
 	t.Helper()

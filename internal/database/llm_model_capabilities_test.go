@@ -183,6 +183,28 @@ func TestLLMModelCapabilityRepositoryRequiresCapturedRevisionAndSafeReferences(t
 		"https://example.test/catalog?token=secret",
 		"https://example.test/catalog#secret",
 		"catalog/model-x",
+		"https://localhost/models",
+		"http://intranet/models",
+		"http://127.0.0.1/models",
+		"http://127.1/models",
+		"http://10.0.0.7/models",
+		"http://169.254.10.20/models",
+		"http://100.64.0.1/models",
+		"http://192.0.2.1/models",
+		"http://198.18.0.1/models",
+		"http://240.0.0.1/models",
+		"http://0x7f.0.0.1/models",
+		"http://0177.0.0.1/models",
+		"http://[::1]/models",
+		"http://[fd00::1]/models",
+		"http://[fe80::1]/models",
+		"https://[::2]/catalog",
+		"http://[2002::1]/models",
+		"http://[3fff::1]/models",
+		"https://metadata.google.internal/models",
+		"https://docs.provider.local/models",
+		"https://localhost.localdomain/models",
+		"https://docs.provider.test/models",
 	} {
 		claim := base
 		claim.SourceReference = reference
@@ -190,15 +212,36 @@ func TestLLMModelCapabilityRepositoryRequiresCapturedRevisionAndSafeReferences(t
 			t.Errorf("referência insegura %q aceita: %v", reference, err)
 		}
 	}
-	for _, reference := range []string{"https://docs.example.test/models/model-x", "HTTPS://Docs.Example.test/models/model-x"} {
+	for _, reference := range []string{"https://docs.example.com/models/model-x", "HTTPS://Docs.Example.com/models/model-x", "https://8.8.8.8/catalog"} {
 		claim := base
 		claim.SourceReference = reference
 		if err := repository.RecordCapability(ctx, &claim); err != nil {
 			t.Fatalf("URL pública sem credenciais deveria ser aceita (%s): %v", reference, err)
 		}
 	}
-	if err := db.Exec(`INSERT INTO llm_model_capabilities (id, model_id, capability_key, support_state, source, scope, provider_compatibility_revision, observed_at, source_reference, created_at, updated_at) VALUES ('raw-reference', ?, 'chat', 'unsupported', 'execution_observation', 'connection', 1, ?, 'https://docs.example.test/models?token=secret', ?, ?)`, model.ID, now, now, now).Error; err == nil {
+	if err := db.Exec(`INSERT INTO llm_model_capabilities (id, model_id, capability_key, support_state, source, scope, provider_compatibility_revision, observed_at, source_reference, created_at, updated_at) VALUES ('raw-reference', ?, 'chat', 'unsupported', 'execution_observation', 'connection', 1, ?, 'https://docs.example.com/models?token=secret', ?, ?)`, model.ID, now, now, now).Error; err == nil {
 		t.Fatal("SQLite aceitou query string com potencial segredo em source_reference")
+	}
+}
+
+func TestProviderRepositoryCreateLLMProviderIsInsertOnly(t *testing.T) {
+	db := llmModelCapabilitiesTestDB(t)
+	repository := NewProviderRepository(db)
+	ctx := WithUserID(context.Background(), "owner-a")
+	original := &LLMProvider{ID: "provider-id", Name: "Original", Type: "custom", APIFormat: "openai", BaseURL: "https://provider.example.com/v1"}
+	if err := repository.CreateLLMProvider(ctx, original); err != nil {
+		t.Fatalf("criar provider: %v", err)
+	}
+	duplicate := &LLMProvider{ID: original.ID, Name: "Concurrent replacement", Type: "custom", APIFormat: "openai", BaseURL: "https://attacker.example.com/v1"}
+	if err := repository.CreateLLMProvider(ctx, duplicate); !errors.Is(err, ErrLLMProviderAlreadyExists) {
+		t.Fatalf("ID existente deveria ser rejeitado sem upsert: %v", err)
+	}
+	var persisted LLMProvider
+	if err := db.Where("id = ?", original.ID).Take(&persisted).Error; err != nil {
+		t.Fatal(err)
+	}
+	if persisted.Name != original.Name || persisted.BaseURL != original.BaseURL || persisted.UserID != "owner-a" {
+		t.Fatalf("tentativa duplicada sobrescreveu a linha original: %+v", persisted)
 	}
 }
 

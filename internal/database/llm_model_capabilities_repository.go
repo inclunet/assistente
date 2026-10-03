@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/netip"
 	"net/url"
 	"strings"
 	"time"
@@ -11,6 +12,27 @@ import (
 	"assistente/internal/llmcapabilities"
 	"gorm.io/gorm"
 )
+
+var nonPublicSourceReferencePrefixes = []netip.Prefix{
+	netip.MustParsePrefix("0.0.0.0/8"),
+	netip.MustParsePrefix("100.64.0.0/10"),
+	netip.MustParsePrefix("192.0.0.0/24"),
+	netip.MustParsePrefix("192.0.2.0/24"),
+	netip.MustParsePrefix("192.88.99.0/24"),
+	netip.MustParsePrefix("198.18.0.0/15"),
+	netip.MustParsePrefix("198.51.100.0/24"),
+	netip.MustParsePrefix("203.0.113.0/24"),
+	netip.MustParsePrefix("240.0.0.0/4"),
+	netip.MustParsePrefix("64:ff9b::/96"),
+	netip.MustParsePrefix("64:ff9b:1::/48"),
+	netip.MustParsePrefix("100::/64"),
+	netip.MustParsePrefix("2001::/23"),
+	netip.MustParsePrefix("2001:db8::/32"),
+	netip.MustParsePrefix("2002::/16"),
+	netip.MustParsePrefix("3fff::/20"),
+	netip.MustParsePrefix("5f00::/16"),
+	netip.MustParsePrefix("::/96"),
+}
 
 var (
 	ErrLLMModelNotFound                     = errors.New("modelo LLM não encontrado")
@@ -396,9 +418,63 @@ func validSourceReference(reference string) bool {
 		return false
 	}
 	parsed, err := url.Parse(reference)
-	return err == nil && parsed.IsAbs() && parsed.Opaque == "" &&
-		(strings.EqualFold(parsed.Scheme, "http") || strings.EqualFold(parsed.Scheme, "https")) &&
-		parsed.Hostname() != "" && parsed.User == nil && parsed.RawQuery == "" && !parsed.ForceQuery && parsed.Fragment == ""
+	if err != nil || !parsed.IsAbs() || parsed.Opaque != "" ||
+		(!strings.EqualFold(parsed.Scheme, "http") && !strings.EqualFold(parsed.Scheme, "https")) ||
+		parsed.Hostname() == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.ForceQuery || parsed.Fragment != "" {
+		return false
+	}
+	return isPublicReferenceHost(parsed.Hostname())
+}
+
+func isPublicReferenceHost(host string) bool {
+	host = strings.TrimSuffix(strings.ToLower(host), ".")
+	if host == "" {
+		return false
+	}
+	if address, err := netip.ParseAddr(host); err == nil {
+		address = address.Unmap()
+		if !address.IsGlobalUnicast() || address.IsPrivate() || address.IsLoopback() || address.IsLinkLocalUnicast() ||
+			address.IsLinkLocalMulticast() || address.IsUnspecified() || address.IsMulticast() || address.Zone() != "" {
+			return false
+		}
+		for _, prefix := range nonPublicSourceReferencePrefixes {
+			if prefix.Contains(address) {
+				return false
+			}
+		}
+		return true
+	}
+	if looksLikeNumericIP(host) {
+		// Reject non-canonical numeric IPv4 spellings such as 127.1 and
+		// 0x7f.0.0.1. Some URL clients interpret these as IPs when netip does not.
+		return false
+	}
+	if !strings.Contains(host, ".") {
+		return false
+	}
+	for _, suffix := range []string{".localhost", ".localdomain", ".local", ".internal", ".lan", ".home", ".home.arpa", ".test", ".invalid", ".example", ".onion", ".private", ".corp"} {
+		if host == strings.TrimPrefix(suffix, ".") || strings.HasSuffix(host, suffix) {
+			return false
+		}
+	}
+	return true
+}
+
+func looksLikeNumericIP(host string) bool {
+	for _, component := range strings.Split(host, ".") {
+		if component == "" {
+			return false
+		}
+		if strings.Trim(component, "0123456789") == "" {
+			continue
+		}
+		hexadecimal := strings.TrimPrefix(strings.ToLower(component), "0x")
+		if hexadecimal != component && hexadecimal != "" && strings.Trim(hexadecimal, "0123456789abcdef") == "" {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func (r *LLMModelCapabilitiesRepository) bindingVerifiedForAssertion(tx *gorm.DB, modelID string, revision int, scope llmcapabilities.Scope, source llmcapabilities.Source, bindingID *string, observedAt time.Time) (bool, int, error) {
