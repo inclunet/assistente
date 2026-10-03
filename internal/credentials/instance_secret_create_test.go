@@ -150,6 +150,86 @@ func TestEnsureInstanceSecretCallbackCanUseStorePool(t *testing.T) {
 	}
 }
 
+type ensureSecretInterleavingStore struct {
+	*DBStore
+	deleteStarted chan struct{}
+}
+
+func (s *ensureSecretInterleavingStore) DeleteCredential(ctx context.Context, pattern string) error {
+	s.deleteStarted <- struct{}{}
+	return s.DBStore.DeleteCredential(ctx, pattern)
+}
+
+func TestDeletePatternWaitsForInFlightInstanceSecretPublication(t *testing.T) {
+	_, _, cleanup := openEnsureSecretDB(t)
+	defer cleanup()
+
+	store := &ensureSecretInterleavingStore{DBStore: NewDBStore(), deleteStarted: make(chan struct{}, 1)}
+	manager := NewManagerWithStoreAndPersistence(ensureTestDEK, store, true)
+	ctx := context.Background()
+	if err := manager.LoadInstanceSecrets(ctx); err != nil {
+		t.Fatalf("load instance secrets: %v", err)
+	}
+
+	createStarted := make(chan struct{})
+	resumeCreate := make(chan struct{})
+	var resumeCreateOnce sync.Once
+	releaseCreate := func() { resumeCreateOnce.Do(func() { close(resumeCreate) }) }
+	t.Cleanup(releaseCreate)
+	ensured := make(chan error, 1)
+	go func() {
+		_, err := manager.EnsureInstanceSecret(ctx, "internal-auth:interleaved", func() (string, error) {
+			close(createStarted)
+			<-resumeCreate
+			return "created-value", nil
+		})
+		ensured <- err
+	}()
+	select {
+	case <-createStarted:
+	case <-time.After(time.Second):
+		t.Fatal("secret creation did not reach the interleaving point")
+	}
+
+	deleteStarted := make(chan struct{})
+	deleted := make(chan error, 1)
+	go func() {
+		close(deleteStarted)
+		deleted <- manager.DeletePattern(ctx, "internal-auth:interleaved")
+	}()
+	<-deleteStarted
+	select {
+	case <-store.deleteStarted:
+		t.Fatal("delete reached the store before the in-flight secret was published")
+	case err := <-deleted:
+		t.Fatalf("delete finished before secret creation: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	releaseCreate()
+	if err := <-ensured; err != nil {
+		t.Fatalf("ensure instance secret: %v", err)
+	}
+	if err := <-deleted; err != nil {
+		t.Fatalf("delete instance secret: %v", err)
+	}
+	select {
+	case <-store.deleteStarted:
+	default:
+		t.Fatal("delete did not reach the store after secret publication")
+	}
+	var count int64
+	if err := database.DB().Model(&database.CredentialEntry{}).Where("user_id = '' AND pattern = ?", "internal-auth:interleaved").Count(&count).Error; err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("persisted instance secret rows = %d, want 0", count)
+	}
+	if auth, err := manager.GetByPattern("internal-auth:interleaved"); err != nil || auth != nil {
+		t.Fatalf("instance secret remained cached: auth=%v err=%v", auth, err)
+	}
+}
+
 func TestEnsureInstanceSecretConcurrentManagersUseOneWinner(t *testing.T) {
 	_, _, cleanup := openEnsureSecretDB(t)
 	defer cleanup()

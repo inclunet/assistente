@@ -53,7 +53,7 @@ type DomainCredential struct {
 
 // Manager armazena e resolve credenciais por domínio.
 type Manager struct {
-	// mutationMu serializes store-to-cache publication with migration/reset.
+	// mutationMu serializes persistent credential writes and cache publication.
 	// Store callbacks may read the manager, so store I/O must not hold mu.
 	mutationMu        sync.Mutex
 	oauthRequests     map[string]map[string]context.CancelFunc
@@ -434,22 +434,29 @@ func (m *Manager) DeletePattern(ctx context.Context, pattern string) error {
 		return errors.New("pattern não pode ser vazio")
 	}
 
-	m.mu.Lock()
+	// Serialize store deletion and cache publication with registration, loads,
+	// legacy OAuth cleanup, migration, and reset. Store I/O must not hold mu.
+	m.mutationMu.Lock()
+	defer m.mutationMu.Unlock()
 
 	userID := ""
 	if scopedUserID, ok := database.UserIDFromContext(ctx); ok {
 		userID = scopedUserID
 	}
-	if userID == "" && !IsInstanceSecretPattern(pattern) && m.persist {
-		m.mu.Unlock()
+	m.mu.RLock()
+	persist := m.persist
+	store := m.store
+	m.mu.RUnlock()
+	if userID == "" && !IsInstanceSecretPattern(pattern) && persist {
 		return database.ErrUserScopeRequired
 	}
-	if m.persist && m.store != nil {
-		if err := m.store.DeleteCredential(ctx, pattern); err != nil {
-			m.mu.Unlock()
+	if persist && store != nil {
+		if err := store.DeleteCredential(ctx, pattern); err != nil {
 			return err
 		}
 	}
+
+	m.mu.Lock()
 	filtered := m.credentials[:0]
 	for _, dc := range m.credentials {
 		if dc.Pattern != pattern || (userID != "" && dc.UserID != userID) {
@@ -485,6 +492,10 @@ func (m *Manager) LoadInstanceSecrets(ctx context.Context) error {
 	if m.store == nil {
 		return nil
 	}
+	// This store snapshot must not publish after a concurrent deletion or reset.
+	m.mutationMu.Lock()
+	defer m.mutationMu.Unlock()
+
 	// Verificação de consistência DEK_keychain ↔ DEK_wraps DEVE rodar
 	// antes de qualquer escrita (e antes mesmo de aceitar carregar
 	// segredos, para evitar populá-los em memória se houver

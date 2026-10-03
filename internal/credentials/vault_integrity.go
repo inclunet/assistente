@@ -238,6 +238,8 @@ func (m *Manager) PurgeUnreadableCredentials(ctx context.Context) (int, error) {
 	if m == nil || m.store == nil {
 		return 0, nil
 	}
+	m.mutationMu.Lock()
+	defer m.mutationMu.Unlock()
 	purger, ok := m.store.(unreadableCredentialPurger)
 	if !ok {
 		return 0, errors.New("store atual não suporta remoção por ID; reemita as credenciais manualmente")

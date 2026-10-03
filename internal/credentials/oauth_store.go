@@ -90,6 +90,8 @@ func (s *oauthStore) CreateWithConsumer(ctx context.Context, r oauthflow.Record,
 // lock. The callback must be non-failing, local and non-reentrant.
 func (s *oauthStore) CreateWithConsumerAndPublish(ctx context.Context, r oauthflow.Record, createConsumer func(*gorm.DB) error, publish func()) error {
 	m := s.manager
+	m.mutationMu.Lock()
+	defer m.mutationMu.Unlock()
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if err := s.check(ctx); err != nil {
@@ -147,6 +149,8 @@ func (s *oauthStore) CompareAndSwapWithConsumer(ctx context.Context, r oauthflow
 // The callback follows the same contract as CreateWithConsumerAndPublish.
 func (s *oauthStore) CompareAndSwapWithConsumerAndPublish(ctx context.Context, r oauthflow.Record, revision uint64, update func(*gorm.DB) error, publish func()) error {
 	m := s.manager
+	m.mutationMu.Lock()
+	defer m.mutationMu.Unlock()
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	old, enc, err := s.load(ctx, r.ID)
@@ -319,6 +323,8 @@ func (m *Manager) deleteOAuthAuthorization(ctx context.Context, id string, expec
 	if err != nil {
 		return err
 	}
+	m.mutationMu.Lock()
+	defer m.mutationMu.Unlock()
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if checkSession != nil {

@@ -371,6 +371,10 @@ func (m *Manager) RestoreLegacyOAuthSnapshot(ctx context.Context, directory, id 
 	if !time.Now().Before(p.RetainUntil) {
 		return ErrSnapshotConflict
 	}
+	// Serialize the transaction and cache publication with other credential
+	// mutations so a concurrent delete cannot leave a restored row uncached.
+	m.mutationMu.Lock()
+	defer m.mutationMu.Unlock()
 	if p.Schema == "legacy-hostname-v1" {
 		return m.restoreHostnameSnapshot(ctx, s, p)
 	}

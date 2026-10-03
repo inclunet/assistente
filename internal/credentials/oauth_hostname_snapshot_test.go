@@ -233,6 +233,95 @@ func TestHostnameSnapshotConcurrentRestore(t *testing.T) {
 	}
 }
 
+func TestDeletePatternWaitsForInFlightHostnameSnapshotRestore(t *testing.T) {
+	m, _, db, ctx, _ := legacyOperationFixture(t)
+	if err := m.RegisterPatternWithContext(ctx, "shared.example", &AuthConfig{Source: "static", Type: "bearer", Token: "saved"}); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(t.TempDir(), "recovery")
+	info, err := m.CreateLegacyOAuthSnapshot(ctx, dir, "credential:shared.example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.DeletePattern(ctx, "shared.example"); err != nil {
+		t.Fatal(err)
+	}
+
+	type operationSignalKey struct{}
+	deleteReachedStore := make(chan struct{}, 1)
+	restoreStarted := make(chan struct{})
+	resumeRestore := make(chan struct{})
+	deleteCallback := "test:signal_delete_before_hostname_snapshot_restore"
+	if err := db.Callback().Delete().Before("gorm:delete").Register(deleteCallback, func(tx *gorm.DB) {
+		if tx.Statement.Table == "credential_entries" && tx.Statement.Context.Value(operationSignalKey{}) == "delete" {
+			select {
+			case deleteReachedStore <- struct{}{}:
+			default:
+			}
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	createCallback := "test:pause_hostname_snapshot_restore"
+	if err := db.Callback().Create().Before("gorm:create").Register(createCallback, func(tx *gorm.DB) {
+		if tx.Statement.Table == "credential_entries" && tx.Statement.Context.Value(operationSignalKey{}) == "restore" {
+			select {
+			case <-restoreStarted:
+			default:
+				close(restoreStarted)
+				<-resumeRestore
+			}
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = db.Callback().Delete().Remove(deleteCallback)
+		_ = db.Callback().Create().Remove(createCallback)
+	})
+	var resumeRestoreOnce sync.Once
+	releaseRestore := func() { resumeRestoreOnce.Do(func() { close(resumeRestore) }) }
+	t.Cleanup(releaseRestore)
+
+	restoreCtx := context.WithValue(ctx, operationSignalKey{}, "restore")
+	restored := make(chan error, 1)
+	go func() { restored <- m.RestoreLegacyOAuthSnapshot(restoreCtx, dir, info.ID, nil) }()
+	select {
+	case <-restoreStarted:
+	case <-time.After(time.Second):
+		t.Fatal("hostname snapshot restore did not reach persistence")
+	}
+
+	deleteCtx := context.WithValue(ctx, operationSignalKey{}, "delete")
+	deleted := make(chan error, 1)
+	go func() { deleted <- m.DeletePattern(deleteCtx, "shared.example") }()
+	select {
+	case <-deleteReachedStore:
+		t.Fatal("delete reached the store before hostname snapshot restore committed")
+	case err := <-deleted:
+		t.Fatalf("delete finished before hostname snapshot restore: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	releaseRestore()
+	if err := <-restored; err != nil {
+		t.Fatalf("restore OAuth snapshot: %v", err)
+	}
+	if err := <-deleted; err != nil {
+		t.Fatalf("delete restored hostname credential: %v", err)
+	}
+	var count int64
+	if err := db.Model(&database.CredentialEntry{}).Where("user_id = ? AND pattern = ?", "owner", "shared.example").Count(&count).Error; err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("persisted hostname credential rows = %d, want 0", count)
+	}
+	if auth, err := m.GetByPatternWithContext(ctx, "shared.example"); err != nil || auth != nil {
+		t.Fatalf("hostname credential remained cached: auth=%v err=%v", auth, err)
+	}
+}
+
 func TestHostnameCaseCollisionNeverSelectsToken(t *testing.T) {
 	for _, patterns := range [][]string{
 		{"SHARED.EXAMPLE", "shared.example"}, {"shared.example", "SHARED.EXAMPLE"}, {"*.EXAMPLE", "*.example"},

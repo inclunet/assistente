@@ -48,6 +48,11 @@ func (m *Manager) ClearLegacyOAuth(ctx context.Context, slug, consumerID, hostna
 // ClearLegacyOAuthWithConsumer atomically detaches unmanaged MCP credentials and
 // updates its consumer. Publish runs only after commit, under the vault lock.
 func (m *Manager) ClearLegacyOAuthWithConsumer(ctx context.Context, slug, consumerID, hostname string, update func(*gorm.DB) error, publish func()) error {
+	// Serialize the transaction and its cache publication with every other
+	// credential mutation or snapshot load.
+	m.mutationMu.Lock()
+	defer m.mutationMu.Unlock()
+
 	m.mu.Lock()
 	patterns := []string{"mcp-client:" + slug, "mcp-tokens:" + slug}
 	if hostname != "" {
@@ -225,6 +230,8 @@ func (m *Manager) beginLegacyOAuth(ctx context.Context, slug, consumerID string,
 		return nil, nil, err
 	}
 	s := base.(*oauthStore)
+	m.mutationMu.Lock()
+	defer m.mutationMu.Unlock()
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if err := s.check(ctx); err != nil {
@@ -362,6 +369,8 @@ func (o *LegacyOAuthOperation) Deadline() time.Time { return o.until }
 // Access tokens stay in the transport cache, never in a new persistence format.
 func (o *LegacyOAuthOperation) FinishClientGrant(ctx context.Context) error {
 	s, m := o.store, o.store.manager
+	m.mutationMu.Lock()
+	defer m.mutationMu.Unlock()
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if !o.clientGrant || !time.Now().Before(o.until) {
@@ -410,6 +419,8 @@ func (o *LegacyOAuthOperation) SaveClientWithConsumer(ctx context.Context, auth 
 		return oauthflow.ErrConflict
 	}
 	s, m := o.store, o.store.manager
+	m.mutationMu.Lock()
+	defer m.mutationMu.Unlock()
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if err := s.check(ctx); err != nil {
@@ -462,6 +473,8 @@ func (o *LegacyOAuthOperation) SaveClientWithConsumer(ctx context.Context, auth 
 // End releases only this live lease; uncertain refresh remains durable.
 func (o *LegacyOAuthOperation) End() {
 	s, m := o.store, o.store.manager
+	m.mutationMu.Lock()
+	defer m.mutationMu.Unlock()
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	ctx := database.WithUserID(context.Background(), s.userID)
@@ -658,6 +671,8 @@ func (o *LegacyOAuthOperation) Commit(ctx context.Context, auth *AuthConfig) err
 		return oauthflow.ErrConflict
 	}
 	s, m := o.store, o.store.manager
+	m.mutationMu.Lock()
+	defer m.mutationMu.Unlock()
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if err := s.check(ctx); err != nil {
