@@ -82,6 +82,12 @@ type LLMProvider struct {
 	// ReasoningContentMode é capability explícita do wire protocol
 	// (disabled/replay_with_tools), nunca inferida do endpoint.
 	ReasoningContentMode string
+	// CompatibilityRevision invalida fatos de capabilities quando muda a
+	// identidade efetiva da conexão. Não deriva nem persiste dados de segredo.
+	CompatibilityRevision int `gorm:"not null;default:1;check:compatibility_revision > 0"`
+	// ConfigRevision protege o registry contra snapshots de configuração
+	// atrasados sem invalidar fatos de capabilities ao trocar só opções/modelo.
+	ConfigRevision int `gorm:"not null;default:1;check:config_revision > 0"`
 	// ACPCommand, ACPArgs e ACPEnv guardam como subir o agente de código
 	// quando o formato é acp. Mesmo formato de armazenamento do servidor MCP
 	// stdio, que tem o mesmo problema: JSON em texto, porque SQLite não tem
@@ -105,6 +111,91 @@ type LLMProvider struct {
 	ACPAgentID string `gorm:"type:text"`
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
+}
+
+// LLMModel é um modelo remoto oferecido por uma configuração de provedor.
+// O ID remoto só é único dentro do provider: gateways distintos podem expor
+// o mesmo nome com contratos diferentes.
+type LLMModel struct {
+	UUIDModel
+	ProviderID  string       `gorm:"type:text;not null;uniqueIndex:ux_llm_models_provider_remote" json:"providerId"`
+	RemoteID    string       `gorm:"type:text;not null;uniqueIndex:ux_llm_models_provider_remote" json:"remoteId"`
+	DisplayName string       `gorm:"type:text;not null;default:''" json:"displayName,omitempty"`
+	Provider    *LLMProvider `gorm:"foreignKey:ProviderID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE" json:"-"`
+}
+
+// LLMCapability registra um identificador pertencente ao vocabulário
+// controlado pela aplicação.
+type LLMCapability struct {
+	Key string `gorm:"type:text;primaryKey" json:"key"`
+}
+
+// LLMCapabilityField descreve um campo canônico dentro de uma capability.
+// A chave composta impede colisões como voice em TTS e em áudio Realtime.
+type LLMCapabilityField struct {
+	CapabilityKey string `gorm:"type:text;primaryKey" json:"capabilityKey"`
+	Key           string `gorm:"type:text;primaryKey" json:"key"`
+	ValueType     string `gorm:"type:text;not null" json:"valueType"`
+	Unit          string `gorm:"type:text;not null;default:''" json:"unit,omitempty"`
+}
+
+// LLMModelCapability é uma afirmação com origem e escopo, não o estado
+// efetivo resolvido. Múltiplas afirmações concorrentes são preservadas.
+type LLMModelCapability struct {
+	UUIDModel
+	ModelID                       string     `gorm:"type:text;not null;index" json:"modelId"`
+	CapabilityKey                 string     `gorm:"type:text;not null;index" json:"capabilityKey"`
+	SupportState                  string     `gorm:"type:text;not null" json:"supportState"`
+	Source                        string     `gorm:"type:text;not null" json:"source"`
+	Scope                         string     `gorm:"type:text;not null" json:"scope"`
+	ProviderCompatibilityRevision int        `gorm:"not null" json:"providerCompatibilityRevision"`
+	BindingID                     *string    `gorm:"type:text" json:"bindingId,omitempty"`
+	ObservedAt                    time.Time  `gorm:"not null;index" json:"observedAt"`
+	ValidUntil                    *time.Time `json:"validUntil,omitempty"`
+	SourceReference               string     `gorm:"type:text;not null;default:''" json:"sourceReference,omitempty"`
+}
+
+// LLMModelCapabilityField é uma afirmação tipada de suporte e restrições
+// escalares. Opções enumeradas ficam em LLMModelCapabilityFieldOption.
+type LLMModelCapabilityField struct {
+	UUIDModel
+	ModelID                       string     `gorm:"type:text;not null;index" json:"modelId"`
+	CapabilityKey                 string     `gorm:"type:text;not null" json:"capabilityKey"`
+	FieldKey                      string     `gorm:"type:text;not null" json:"fieldKey"`
+	SupportState                  string     `gorm:"type:text;not null" json:"supportState"`
+	Source                        string     `gorm:"type:text;not null" json:"source"`
+	Scope                         string     `gorm:"type:text;not null" json:"scope"`
+	ProviderCompatibilityRevision int        `gorm:"not null" json:"providerCompatibilityRevision"`
+	BindingID                     *string    `gorm:"type:text" json:"bindingId,omitempty"`
+	Minimum                       *float64   `json:"minimum,omitempty"`
+	Maximum                       *float64   `json:"maximum,omitempty"`
+	Step                          *float64   `json:"step,omitempty"`
+	ObservedAt                    time.Time  `gorm:"not null;index" json:"observedAt"`
+	ValidUntil                    *time.Time `json:"validUntil,omitempty"`
+	SourceReference               string     `gorm:"type:text;not null;default:''" json:"sourceReference,omitempty"`
+}
+
+// LLMModelCapabilityFieldOption pertence à afirmação que publicou a lista,
+// evitando misturar vozes ou opções de fontes distintas.
+type LLMModelCapabilityFieldOption struct {
+	AssertionID  string `gorm:"type:text;primaryKey" json:"assertionId"`
+	Value        string `gorm:"type:text;primaryKey" json:"value"`
+	Label        string `gorm:"type:text;not null;default:''" json:"label,omitempty"`
+	SupportState string `gorm:"type:text;not null" json:"supportState"`
+}
+
+// LLMModelCatalogBinding associa explicitamente uma identidade de catálogo
+// externo à configuração local e revisão para a qual ela foi verificada.
+type LLMModelCatalogBinding struct {
+	UUIDModel
+	ModelID                       string     `gorm:"type:text;not null;index" json:"modelId"`
+	ProviderCompatibilityRevision int        `gorm:"not null" json:"providerCompatibilityRevision"`
+	Source                        string     `gorm:"type:text;not null" json:"source"`
+	ExternalProviderID            string     `gorm:"type:text;not null" json:"externalProviderId"`
+	ExternalModelID               string     `gorm:"type:text;not null" json:"externalModelId"`
+	VerifiedAt                    time.Time  `gorm:"not null" json:"verifiedAt"`
+	ValidUntil                    *time.Time `json:"validUntil,omitempty"`
+	SourceReference               string     `gorm:"type:text;not null;default:''" json:"sourceReference,omitempty"`
 }
 
 // ACPSession vincula uma conversa do app à sessão que o agente de código mantém

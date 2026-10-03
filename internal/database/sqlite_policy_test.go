@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"os"
@@ -27,6 +28,15 @@ func openSQLitePolicyTestDB(t *testing.T, dsn string) (*gorm.DB, func()) {
 	if err := gdb.AutoMigrate(&User{}, &MemoryRecord{}); err != nil {
 		t.Fatalf("automigrate: %v", err)
 	}
+	if err := gdb.Create(&User{
+		UUIDModel:    UUIDModel{ID: "user-1"},
+		Username:     "user-1",
+		PasswordHash: "test",
+		Role:         UserRoleUser,
+		IsActive:     true,
+	}).Error; err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
 	return gdb, func() { _ = sqlDB.Close() }
 }
 
@@ -41,6 +51,62 @@ func TestSQLiteDSNAppliesBusyTimeout(t *testing.T) {
 	}
 	if busyTimeout != int(sqliteBusyTimeout.Milliseconds()) {
 		t.Fatalf("busy_timeout = %d, want %d", busyTimeout, sqliteBusyTimeout.Milliseconds())
+	}
+}
+
+func TestInitPathEnablesForeignKeysOnEveryApplicationConnection(t *testing.T) {
+	previousDB, previousPath := db, dbPath
+	var initializedDB *gorm.DB
+	defer func() {
+		if initializedDB != nil {
+			if sqlDB, err := initializedDB.DB(); err == nil {
+				_ = sqlDB.Close()
+			}
+		}
+		db, dbPath = previousDB, previousPath
+	}()
+
+	path, err := filepath.Abs(filepath.Join(t.TempDir(), "application.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := InitPath(path); err != nil {
+		initializedDB = db
+		t.Fatalf("InitPath: %v", err)
+	}
+	initializedDB = db
+	sqlDB, err := initializedDB.DB()
+	if err != nil {
+		t.Fatalf("pool SQL: %v", err)
+	}
+
+	connections := make([]*sql.Conn, 0, sqliteMaxOpenConns)
+	defer func() {
+		for _, connection := range connections {
+			_ = connection.Close()
+		}
+	}()
+	for index := 0; index < sqliteMaxOpenConns; index++ {
+		connection, err := sqlDB.Conn(context.Background())
+		if err != nil {
+			t.Fatalf("conexão %d: %v", index, err)
+		}
+		connections = append(connections, connection)
+		var foreignKeys int
+		if err := connection.QueryRowContext(context.Background(), "PRAGMA foreign_keys").Scan(&foreignKeys); err != nil {
+			t.Fatalf("ler foreign_keys na conexão %d: %v", index, err)
+		}
+		if foreignKeys != 1 {
+			t.Fatalf("foreign_keys na conexão %d = %d, esperado 1", index, foreignKeys)
+		}
+	}
+
+	now := time.Now().UTC()
+	if _, err := connections[0].ExecContext(context.Background(), `
+		INSERT INTO llm_models (id, provider_id, remote_id, display_name, created_at, updated_at)
+		VALUES ('orphan-model', 'missing-provider', 'remote-model', '', ?, ?)
+	`, now, now); err == nil {
+		t.Fatal("InitPath aceitou modelo sem provedor pai")
 	}
 }
 

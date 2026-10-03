@@ -45,12 +45,22 @@ O projeto já tem contratos que esta proposta deve preservar:
 
 1. **O provedor existente continua sendo a raiz.** `llm_providers` mantém
    identidade da conexão, endpoint, credenciais, `api_format` e opções de
-   protocolo. A identidade de compatibilidade da conexão tem revisão própria,
-   alterada quando mudarem endpoint, formato de API, adaptador ou identidade da
-   credencial/conta efetiva. Segredos não são armazenados nem hasheados para
-   formar essa revisão. `api_format` não será copiado para `llm_models`: um
-   modelo não define o protocolo usado para alcançá-lo.
-
+   protocolo. A revisão de compatibilidade muda quando mudam endpoint, formato,
+   adaptador, escopo de propriedade ou identidade da credencial/conta efetiva.
+   Segredos não são armazenados nem hasheados para formar essa revisão.
+   Mutações de credenciais persistidas compartilhadas avançam no banco as
+   revisões dos provedores consumidores na mesma transação. Rotação de tokens
+   do namespace `oauth:` não representa, por si só, troca de conta.
+   Uma `config_revision` separada identifica mudanças de configuração,
+   incluindo seleção do provedor padrão. Trocar apenas o modelo padrão não
+   invalida fatos de compatibilidade da conexão.
+   A fase 1 entrega esse contrato de persistência e sua resolução local.
+   A fase 2 integra a captura da revisão efetivamente usada na requisição e a
+   invalidação da projeção em memória antes de aplicar fatos ao envio. Essa
+   integração deve reutilizar os contratos de provedores e credenciais vigentes;
+   alterações nos fluxos de autenticação e no wizard não fazem parte da fase 1.
+   `api_format` permanece no provedor: um modelo não define o protocolo usado
+   para alcançá-lo.
 2. **O modelo pertence ao registro do provedor.** `llm_models` referencia um
    `llm_providers.id` e guarda o identificador pelo qual aquele endpoint
    conhece o modelo. Não terá `user_id` próprio: acesso e ciclo de vida vêm do
@@ -88,28 +98,55 @@ O projeto já tem contratos que esta proposta deve preservar:
     conceitual mantém origem (observação de execução, descoberta consultada no
     endpoint, curadoria versionada pela aplicação, documentação/catálogo oficial
     ou catálogo de terceiros), escopo, instante da observação, validade quando
-    conhecida e referência externa não sensível.
+    conhecida e referência externa não sensível. Fatos de execução recebem a
+    revisão capturada pelo snapshot da configuração usado na requisição; uma
+    revisão ausente ou obsoleta é recusada. Observações futuras são inelegíveis
+    e não podem ser gravadas. `observed_at`, `valid_until` e os instantes de
+    verificação são normalizados para UTC antes da validação/persistência.
+    Vínculos, afirmações e opções de campo são append-only: correções publicam
+    uma nova versão, sem editar proveniência, opções ou janelas de validade
+    históricas. SQL direto não pode atualizar nem excluir esses registros
+    enquanto o modelo existir; excluir o modelo ou seu provedor remove todo o
+    histórico dependente em cascata.
     Os escopos distinguem conexão+revisão+modelo da aplicação, identidade de
     provedor e modelo verificada por um adaptador, e informação genérica de
     referência.
-    Uma fonte genérica só pode afetar envio ou ocultação na UI depois de haver
-    vínculo explícito e validado entre sua identidade de provedor/modelo e a
-    conexão selecionada. Só fatos vinculados entram nas afirmações efetivas do
-    modelo; fatos sem vínculo podem permanecer como referência de importação,
-    mas não alteram envio nem perfil. Duas fontes para o mesmo
+    Curadoria da aplicação pode ser específica à conexão local e, nesse caso,
+    usa o escopo `connection`; curadoria que declara correspondência com uma
+    identidade de catálogo externa usa `external_binding` e exige vínculo
+    verificado. Fontes oficiais e de terceiros seguem a mesma exigência de
+    vínculo para afetar o modelo local. Referências externas são URLs HTTP(S)
+    com hostname DNS, sem IP literal nem hostname local ou sufixo reservado
+    conhecido, e sem credenciais, query string ou fragmento; uma referência
+    vazia é permitida. O mesmo limite lexical é aplicado pelo schema SQLite
+    para proteger escritas SQL diretas; ele não resolve DNS nem autoriza buscar
+    essas URLs.
+    Fatos de conexão já estão vinculados ao provider, modelo e revisão locais.
+    Uma fonte genérica ou externa só pode afetar envio ou ocultação na UI depois
+    de haver vínculo explícito e validado entre sua identidade de provedor/modelo
+    e a conexão selecionada. Fatos externos sem vínculo podem permanecer como
+    referência de importação, mas não alteram envio nem perfil. Duas fontes para o mesmo
     modelo/capability/campo são afirmações distintas; uma não apaga
     silenciosamente a outra.
+
+    Um vínculo externo é uma verificação histórica imutável: renovar a mesma
+    identidade cria um novo vínculo com novo ID e `verified_at`, preservando a
+    validade anterior para que fatos observados durante uma lacuna não sejam
+    aceitos retroativamente. O banco rejeita atualizações diretas desses
+    registros. Instantes são normalizados para UTC antes da persistência;
+    repetir a mesma verificação é idempotente somente quando validade e
+    referência de origem também forem iguais.
 
 7. **A resolução de fatos é determinística e respeita o escopo.** Evidência da
     revisão exata da conexão prevalece sobre dados importados de uma identidade
     externa explicitamente verificada e vinculada à mesma revisão. Afirmações
-    com revisão anterior, genéricas ou sem vínculo nunca
+    com revisão anterior, genéricas ou externas sem vínculo nunca
     omitem parâmetros nem ocultam controles, ainda que usem o mesmo ID textual
     de modelo. Entre fatos aplicáveis, a ordem é:
     1. observação direta de execução no endpoint;
     2. descoberta consultada diretamente no endpoint — inclusive endpoint de
        API oficial consultado para essa conexão;
-    3. curadoria versionada pela aplicação com vínculo exato;
+    3. curadoria versionada pela aplicação, específica à conexão ou com vínculo externo exato;
     4. documentação ou catálogo oficial importado com vínculo verificado;
     5. catálogo de terceiros importado com vínculo verificado.
     Dentro da mesma classe e escopo, prevalece a afirmação ativa mais recente;
@@ -165,8 +202,9 @@ O projeto já tem contratos que esta proposta deve preservar:
 
 13. **A entrega será incremental, com PRs verticais de tamanho moderado.** Cada
     PR implementa um resultado observável, inclui testes do contrato alterado e
-    atualiza fases/critério deste AEP no mesmo PR. O PR desta AEP é somente
-    documental; nenhum schema ou comportamento de runtime é introduzido nele.
+    atualiza fases/critério deste AEP no mesmo PR. O PR #887, que concluiu a fase
+    0, foi exclusivamente documental e não introduziu schema ou comportamento
+    de runtime. A implementação começa na fase 1, neste PR #889.
 
 ### Esquema conceitual
 
@@ -177,13 +215,13 @@ um blob de capabilities sem validação:
 | Entidade | Conteúdo e relação |
 |---|---|
 | `llm_providers` | Tabela existente. Configuração do endpoint, protocolo, credenciais, escopo e revisão não secreta de compatibilidade. |
-| `llm_models` | Modelo anunciado pelo provedor; FK para `llm_providers`, ID remoto e metadados estáveis. Sem `user_id` e sem `api_format`. |
+| `llm_models` | Modelo anunciado pelo provedor; FK e ID remoto imutáveis, com recusa de substituição por ID ou chave natural (migração v38); metadados de apresentação podem mudar. Sem `user_id` e sem `api_format`. |
 | `llm_model_catalog_bindings` | Vínculo explícito e verificável entre um modelo local, a revisão compatível da conexão e a identidade provedor/modelo de uma fonte externa; igualdade textual do ID, marca ou formato compatível não basta. |
 | `llm_capabilities` | Vocabulário controlado pela aplicação para capacidades como `tts`, `stt`, chat, entrada de imagem ou geração de áudio. |
 | `llm_model_capabilities` | Afirmações `supported`/`unsupported`/`unknown` de uma capability para um modelo, com origem, escopo e instante de observação. Mais de uma origem pode afirmar sobre o mesmo par. |
 | `llm_capability_fields` | Vocabulário dos campos canônicos, seus tipos, unidade e capability a que pertencem; a chave inclui capability para evitar colisões semânticas. |
 | `llm_model_capability_fields` | Afirmações de suporte do campo para aquela capability/modelo e restrições escalares tipadas, como mínimo, máximo e passo. A chave do aprendizado inclui conexão, modelo, capability e campo. |
-| `llm_model_capability_field_options` | Opções enumeradas relacionadas a uma afirmação de campo, com suporte/origem próprios quando necessário; por exemplo, IDs e rótulos de vozes sem misturar listas de fontes diferentes. |
+| `llm_model_capability_field_options` | Opções enumeradas relacionadas a uma afirmação de campo; o conjunto é selado atomicamente pelo marcador auxiliar `llm_model_capability_field_seals` (v38). Novas opções exigem nova afirmação; afirmações sem selo não governam a resolução. IDs e rótulos de vozes não misturam listas de fontes distintas. |
 | `llm_model_prices` | Tarifas versionadas por provedor/modelo, unidade, modalidade/direção, moeda, origem e período de vigência; separadas do grafo de capabilities. |
 
 As tabelas de afirmações preservam origem e escopo em vez de impor unicidade
@@ -195,9 +233,9 @@ resolução projeta um fato efetivo sem apagar afirmações concorrentes.
 
 | Fase / PR planejado | Entrega | Limite da fase |
 |---|---|---|
-| 0 — PR de documentação | Registrar e revisar esta arquitetura e a sequência de entrega. | Sem migração ou mudança de runtime. |
-| 1 — Persistência e resolução local | Adicionar revisão de compatibilidade do provedor, modelos por provedor, catálogo controlado de capabilities/campos, afirmações com origem, limites/opções tipados e resolver determinístico/cacheável. | Sem consultas externas e sem alterar o envio. |
-| 2 — Compatibilidade no envio | Traduzir campos canônicos, omitir incompatibilidades conhecidas e aprender rejeições precisas com no máximo um retry seguro. | Integrar ao pipeline backend existente; sem caminho paralelo de mensagem. |
+| 0 — PR de documentação (concluída no PR #887) | Registrar e revisar esta arquitetura e a sequência de entrega. | Sem migração ou mudança de runtime. |
+| 1 — Persistência e resolução local (implementada no PR #889; em revisão) | Migrações v33/v34/v35/v36/v37/v38/v39, modelos por provedor, catálogo controlado, afirmações e vínculos históricos, limites/opções tipados e resolver local determinístico. Revisões da conexão são persistidas e invalidadas transacionalmente no banco, inclusive em atualizações SQL diretas; criação usa inserção exclusiva e recusa IDs persistidos ausentes do registry; testes cobrem isolamento, precedência, expiração, rollback, proveniência e integridade SQL. | Sem integração com envio/perfil, sincronização do registry, alterações no cofre/OAuth ou mudanças no wizard. |
+| 2 — Compatibilidade no envio | Integrar a projeção local e a revisão efetiva da conexão ao pipeline; traduzir campos canônicos, omitir incompatibilidades conhecidas e aprender rejeições precisas com no máximo um retry seguro. | Reutilizar o pipeline backend e os contratos vigentes de provedores/credenciais; invalidar fatos antes de usar uma conexão alterada. |
 | 3 — Profile Manager e vozes | Filtrar opções usando fatos locais; persistir/reutilizar listas de vozes por provedor/modelo e estados de desconhecimento. | Abrir a tela não espera por API externa. |
 | 4 — Fontes e jobs | Criar interface de importadores e uma operação de sincronização reutilizada pela chamada manual e pelos jobs, com validação, atualização idempotente, proveniência e vínculos explícitos de identidade; começar por fontes cuja cobertura e licença sejam adequadas. | Fatos externos só governam conexão com identidade de provedor/modelo explicitamente verificada. |
 | 5 — Tarifas e custo | Persistir tabelas de preço versionadas por unidade e origem e usá-las em estimativas sem reescrever histórico. | Não misturar tarifas com campos/capabilities nem prometer precisão quando a fonte for estimada. |
@@ -230,23 +268,73 @@ depender de uma fase ainda aberta deve ser empilhado sobre ela.
 
 ## Critérios de aceitação
 
-- [ ] `llm_models` é ligado a `llm_providers` e não contém `user_id` nem
+- [x] `llm_models` é ligado a `llm_providers` e não contém `user_id` nem
   `api_format`; IDs iguais em endpoints distintos não compartilham fatos
-  aprendidos automaticamente.
-- [ ] Aprendizados e vínculos importados incluem a revisão não secreta da
-  identidade de compatibilidade; mudar endpoint, formato, adaptador ou escopo da
-  conta invalida fatos efetivos anteriores sem apagar o histórico nem armazenar
-  hash/segredo da credencial.
-- [ ] Suporte de capability e de campo tem os estados suportado, não suportado
+  aprendidos automaticamente. Verificado por `TestLLMModelCapabilitiesRepositoryScopesModelsAndResolvesLocalFacts` e `TestMigration38PreservesModelIdentityAndSealedOptions` (identidade imutável sem impedir atualização do nome de apresentação).
+- [x] Afirmações e vínculos incluem a revisão não secreta de compatibilidade.
+  O repositório recusa gravações com revisão ausente ou antiga e desconsidera
+  fatos de revisões anteriores sem apagar o histórico. Mudanças gravadas pelo repositório
+  na identidade do provedor e mutações de credenciais de hostname compartilhadas
+  avançam as revisões no banco; a adoção de dados legados também é versionada.
+  Verificado por `TestProviderCompatibilityRevisionChangesWithOnlyConnectionIdentity`,
+  `TestBumpCompatibilityRevisionsForCredentialPatternIsUserScoped`,
+  `TestCredentialEntryTriggersAdvanceOnlyMatchingProviderRevisions` e
+  `TestAdoptLegacyDataAssignsBlankOwners`.
+- [ ] A requisição captura a revisão da conexão que efetivamente executa o
+  envio; mudanças de identidade invalidam a projeção usada pelo runtime,
+  incluindo credenciais mantidas apenas em memória. A integração do resolver
+  com envio e perfil deve consultar fatos da revisão correta e recusar
+  snapshots obsoletos. Entrega prevista na fase 2; a fase 1 expõe as revisões
+  persistidas, mas não modifica o cache do registry nem os mutadores do cofre.
+- [x] Suporte de capability e de campo tem os estados suportado, não suportado
   e desconhecido, com origem e instante de observação.
-- [ ] Campos, limites e opções enumeradas são validados por tipos e restrições
+  Persistido nas tabelas de afirmações da migração v33; a validação de domínio rejeita estados e proveniência fora do catálogo, e a v34 estende os guards de referências existentes sem reescrever fatos anteriores.
+- [x] Campos, limites e opções enumeradas são validados por tipos e restrições
   conhecidos; dado externo arbitrário não entra em coluna JSON sem schema
-  versionado e validação.
-- [ ] Múltiplas afirmações para o mesmo modelo/campo permanecem auditáveis e a
+  versionado e validação. Opções enumeradas e seus rótulos são limitados a 512 caracteres; IDs sem espaços ASCII nas extremidades. Testes exercitam tipos, limites, opções Unicode e triggers SQLite.
+- [x] Múltiplas afirmações para o mesmo modelo/campo permanecem auditáveis e a
   resolução efetiva é determinística, local e coberta por testes, inclusive a
-  precedência da curadoria versionada.
-- [ ] A resolução nunca usa fato genérico para omitir campo ou ocultar controle
-  sem vínculo validado da identidade externa de provedor/modelo à conexão.
+  precedência da curadoria versionada. Verificado pelos testes de resolução em `internal/llmcapabilities`.
+- [x] A resolução nunca usa fato genérico para omitir campo ou ocultar controle
+  sem vínculo validado da identidade externa de provedor/modelo à conexão. Fatos genéricos são ignorados; vínculos externos exigem modelo, origem e revisão correspondentes.
+- [x] Renovar vínculo externo cria uma verificação histórica com novo ID sem
+  estender a validade da versão anterior; o banco rejeita atualização direta;
+  o mesmo instante normalizado em UTC é idempotente e repetir `verified_at` com
+  validade ou referência diferente é recusado. Listagem/resolução mantêm
+  autorização e fatos no mesmo snapshot. Verificado por
+  `TestLLMModelCatalogBindingRenewalPreservesVerifiedHistory` e testes de escopo.
+- [x] Atualizações SQL não podem reescrever a proveniência de afirmações; os
+  instantes de observação e validade são normalizados para UTC antes dos
+  `CHECK`s do SQLite. O `ProviderConfig` só recebe a revisão persistida depois
+  de a transação confirmar. Verificado por
+  `TestLLMModelCapabilityAssertionsNormalizeTimesToUTC` e
+  `TestDBStore_SavePublishesCompatibilityRevisionsOnlyAfterCommit`.
+- [x] A revisão persistida de configuração inclui mudanças em `is_default`.
+  Trocar o provedor padrão versiona os registros afetados na mesma transação;
+  importações também versionam o registro desmarcado.
+  Verificado por `TestSetDefaultProviderAdvancesConfigRevisionsAtomically`,
+  `TestProviderImportDefaultSwitchAdvancesPreviousConfigRevision` e
+  `TestProviderImportAdvancesOnlyRelevantRevisions` e `TestMigration36VersionsDirectProviderUpdatesWithoutDoubleIncrement` (v36 cobre alterações diretas de endpoint, pattern, formato e modelo; não duplica avanços do repositório e preserva rollback). `TestProviderCreationRefusesPersistedIDsAbsentFromRegistry` e `TestDBStoreCreateRequiresScopeAndPreservesDuplicateIdentity` cobrem a inserção exclusiva nos fluxos de criação; `TestConcurrentProviderCreationReservesIDBeforeWritingCredentials` força preflights concorrentes e preserva a chave do vencedor, e `TestCredentialFailureRollsBackUnpublishedProviderReservation`/`TestProviderReservationRollbackPreservesChangedConfiguration` cobrem reversão da reserva sem remover alterações concorrentes. `TestProviderReservationRollbackPreservesChangedCompatibilityRevision` comprova que a revisão de compatibilidade também integra o predicado atômico do rollback, preservando a identidade após uma alteração concorrente de credencial sem mudança de configuração. `TestProviderReservationRollbackPreservesConcurrentModelFacts` comprova que a condição SQL atômica também preserva modelos e fatos já cadastrados para a reserva, inclusive em provedores de sistema. A v39 recusa substituição de provedores por ID e protege o catálogo canônico contra UPDATE/DELETE/REPLACE; mudanças futuras exigem migração transacional que remova/reinstale os guards junto da definição Go. Verificado por `TestMigration39PreventsReplacingProvidersAndPreservesModelHistory`, `TestMigration39CanonicalCatalogIsImmutableAndMigrationRemainsIdempotent` e `TestMigration39RefusesLegacyCatalogDivergenceBeforeInstallingGuards`. A captura e validação
+  dessas versões no runtime pertencem à fase 2.
+- [x] Vínculos, afirmações e opções de campo não podem ser atualizados ou
+  excluídos diretamente enquanto seu modelo existir; apagar um modelo ou
+  provedor remove os fatos dependentes em cascata. Verificado por
+  `TestLLMModelCapabilityHistoryIsAppendOnlyAndCascadesWithProvider`, e `TestMigration37PreventsReplacingUnreferencedBinding` (sem FKs dependentes mascarando o guard), incluindo tentativas de `INSERT OR REPLACE` com triggers recursivos desligados. A v37 instala guards de INSERT que recusam IDs históricos já existentes, a chave natural de vínculos e o par afirmação/opção, preservando exclusões em cascata e idempotência. A v38 sela listas de opções na transação de `RecordField`, recusa novas opções após o selo e protege o marcador contra UPDATE/DELETE/REPLACE. Campos sem selo não participam da resolução; instalações legadas têm seus conjuntos existentes selados sem reescrever opções. Verificado por `TestMigration38PreservesModelIdentityAndSealedOptions` e `TestMigration38SealsLegacyOptionSetsIdempotently`.
+- [x] Escritas em provedores de sistema exigem contexto interno de bootstrap;
+  usuários autenticados podem consultar os fatos compartilhados, mas não
+  publicar afirmações globais. A validação de domínio rejeita timestamps
+  futuros; a v35 instala guards SQLite de INSERT/UPDATE para `verified_at` e
+  `observed_at` em schemas atuais e anteriores à v33. Referências de proveniência
+  com credenciais, query, fragmento, IP literal, hostname local/sufixo
+  reservado conhecido ou autoridade fora da gramática DNS ASCII são recusadas
+  por CHECKs SQLite em vínculos, capabilities e campos; nomes
+  internacionalizados devem usar punycode, cada label tem até 63 bytes e o host
+  até 253 bytes. A v34 instala guards equivalentes de INSERT/UPDATE para
+  referências em bancos que já registraram a v33, sem reescrever referências
+  históricas. `InitPath` ativa FKs em todas as conexões do pool.
+  Verificado por `TestMigration34GuardsLegacyV33SourceReferencesWithoutRewritingRows`,
+  `TestMigration35RejectsFutureVerificationAndObservationTimesInLegacySchema`,
+  testes de escrita SQL direta e `TestInitPathEnablesForeignKeysOnEveryApplicationConnection`.
 - [ ] Parâmetros canônicos são convertidos para o formato de wire correto e
   fatos de não suporte da conexão/modelo impedem envio futuro do campo.
 - [ ] Somente uma rejeição precisa de campo incompatível produz aprendizado e

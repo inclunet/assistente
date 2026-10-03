@@ -96,7 +96,8 @@ func TestAdoptLegacyDataAssignsBlankOwners(t *testing.T) {
 	if err := db.Create(user).Error; err != nil {
 		t.Fatalf("create user: %v", err)
 	}
-	if err := db.Create(&LLMProvider{ID: "openai", Name: "OpenAI", Type: "openai", BaseURL: "https://api.openai.com/v1"}).Error; err != nil {
+	provider := &LLMProvider{ID: "openai", Name: "OpenAI", Type: "openai", BaseURL: "https://api.openai.com/v1"}
+	if err := db.Create(provider).Error; err != nil {
 		t.Fatalf("create provider: %v", err)
 	}
 	if err := db.Create(&Conversation{Title: "legacy"}).Error; err != nil {
@@ -120,6 +121,14 @@ func TestAdoptLegacyDataAssignsBlankOwners(t *testing.T) {
 	assertOwnedRows(t, "conversations", user.ID)
 	assertOwnedRows(t, "credential_entries", user.ID)
 	assertOwnedRows(t, "task_lists", user.ID)
+
+	var adopted LLMProvider
+	if err := db.First(&adopted, "id = ?", provider.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if adopted.CompatibilityRevision != provider.CompatibilityRevision+1 || adopted.ConfigRevision != provider.ConfigRevision+1 {
+		t.Fatalf("ownership adoption did not advance provider revisions: before=%+v after=%+v", provider, adopted)
+	}
 }
 
 // TestAdoptLegacyData_OrphanWithExistingClaim cobre o cenário que travou

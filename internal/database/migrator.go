@@ -371,6 +371,48 @@ var schemaMigrations = []migration{
 		// pela porta transacional, depois que o host compõe os repositories.
 		Run: func(*gorm.DB) error { return errMigrationDeferred },
 	},
+	{
+		Version: 33,
+		Name:    "llm_model_capabilities",
+		Phase:   phasePostAutoMigrate,
+		Run:     MigrateLLMModelCapabilities,
+	},
+	{
+		Version: 34,
+		Name:    "llm_model_source_reference_guards",
+		Phase:   phasePostAutoMigrate,
+		Run:     migrateLLMModelSourceReferenceGuards,
+	},
+	{
+		Version: 35,
+		Name:    "llm_model_observation_time_guards",
+		Phase:   phasePostAutoMigrate,
+		Run:     migrateLLMModelObservationTimeGuards,
+	},
+	{
+		Version: 36,
+		Name:    "llm_provider_revision_guards",
+		Phase:   phasePostAutoMigrate,
+		Run:     migrateLLMProviderRevisionGuards,
+	},
+	{
+		Version: 37,
+		Name:    "llm_model_history_insert_guards",
+		Phase:   phasePostAutoMigrate,
+		Run:     migrateLLMModelHistoryInsertGuards,
+	},
+	{
+		Version: 38,
+		Name:    "llm_model_identity_and_option_seals",
+		Phase:   phasePostAutoMigrate,
+		Run:     migrateLLMModelIdentityAndOptionSeals,
+	},
+	{
+		Version: 39,
+		Name:    "llm_provider_and_canonical_catalog_guards",
+		Phase:   phasePostAutoMigrate,
+		Run:     migrateLLMProviderAndCatalogGuards,
+	},
 }
 
 // runMigrations aplica, na ordem de Version, todas as migrações da fase
