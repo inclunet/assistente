@@ -438,7 +438,21 @@ type authorizedOAuthTransport struct {
 }
 type cancelBody struct {
 	io.ReadCloser
+	ctx    context.Context
 	cancel context.CancelFunc
+}
+
+func (b *cancelBody) Read(p []byte) (int, error) {
+	if err := b.ctx.Err(); err != nil {
+		return 0, err
+	}
+	n, err := b.ReadCloser.Read(p)
+	// The peer may close its stream after observing cancellation before the
+	// HTTP transport reports it. Preserve the request error instead of EOF.
+	if err != nil && b.ctx.Err() != nil {
+		return n, b.ctx.Err()
+	}
+	return n, err
 }
 
 func (b *cancelBody) Close() error { defer b.cancel(); return b.ReadCloser.Close() }
@@ -507,7 +521,7 @@ func (t *authorizedOAuthTransport) RoundTrip(request *http.Request) (result *htt
 			cancel()
 			return
 		}
-		response.Body = &cancelBody{ReadCloser: response.Body, cancel: cancel}
+		response.Body = &cancelBody{ReadCloser: response.Body, ctx: callCtx, cancel: cancel}
 	})
 	if err != nil {
 		return nil, err

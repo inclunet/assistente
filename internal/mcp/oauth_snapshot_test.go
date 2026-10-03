@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -119,6 +120,13 @@ func testClientCredentialsSnapshotGetsNewToken(t *testing.T, vaultOnlyID bool) {
 	if status.Config.Enabled || status.Config.AutoConnect || status.NeedsReauth || status.Status != StatusDisconnected {
 		t.Fatal("CC recovery enabled connection or requested interactive authorization")
 	}
+	conversion, err := m.CreateOAuthSnapshot(ctx, cfg.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.ConvertOAuthClientSnapshot(ctx, conversion.ID, "client_secret_post"); err != nil {
+		t.Fatal(err)
+	}
 	current, err := m.GetConfig("legacy")
 	if err != nil {
 		t.Fatal(err)
@@ -143,11 +151,11 @@ func testClientCredentialsSnapshotGetsNewToken(t *testing.T, vaultOnlyID bool) {
 		}
 		_ = resp.Body.Close()
 	}
-	if tokens.Load() != 2 || resources.Load() != 2 {
+	if tokens.Load() != 1 || resources.Load() != 2 {
 		t.Fatalf("unexpected token/resource requests: %d/%d", tokens.Load(), resources.Load())
 	}
 	stored, err := m.GetConfig("legacy")
-	if err != nil || stored.OAuth2ClientID != cfg.OAuth2ClientID {
+	if err != nil || stored.OAuth2ClientID != "client" || stored.OAuthAuthorizationID == "" {
 		t.Fatalf("token resolution changed stored configuration: %v", err)
 	}
 }
@@ -220,6 +228,17 @@ func testSnapshotReauthorization(t *testing.T, enableAfterAuthorization bool) {
 		}
 		return resp.Body.Close()
 	}
+	if err := m.ReauthorizeServer(ctx, "legacy"); !errors.Is(err, errOAuthMigrationRequired) || requests.Load() != 0 {
+		t.Fatalf("legacy reauthorization must require migration without remote calls: %v", err)
+	}
+	conversion, err := m.CreateOAuthSnapshot(ctx, cfg.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.ReconnectOAuthSnapshot(ctx, conversion.ID, "none"); err != nil {
+		t.Fatal(err)
+	}
+	m.signalNeedsReauth("legacy", cfg.Name, "test")
 	if enableAfterAuthorization {
 		m.emitEvent = func(event string, _ any) {
 			if event == "mcp:server_reauthorized" {
@@ -250,9 +269,9 @@ func testSnapshotReauthorization(t *testing.T, enableAfterAuthorization bool) {
 	if !enableAfterAuthorization && status != StatusDisconnected {
 		t.Fatal("reauthorization connected disabled consumer")
 	}
-	tokens, err := m.credMgr.ReadLegacyOAuthToken(ctx, "legacy", cfg.ID, nil)
-	if err != nil || tokens.Token != "new-access" {
-		t.Fatalf("reauthorization did not clear pending marker: %v", err)
+	_, _, record := loadManaged(t, m, ctx, "legacy")
+	if record.Tokens.Access != "new-access" || record.State != "connected" {
+		t.Fatal("reauthorization did not connect composed authorization")
 	}
 	stored, err = m.GetConfig("legacy")
 	if err != nil {

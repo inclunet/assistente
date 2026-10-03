@@ -32,8 +32,10 @@ const (
 	// CreateWizardProvider, removing the duplicate error format.
 	// Provider creation now uses the shared default recovery path instead of a
 	// separate warning when marking the first provider as default.
-	expectedLegacyFormatCount  = 748
-	expectedLegacyFormatDigest = "2e1f25cdf897c701bce8d9d47bbf2281a0646cf5f91f7f578f082491e5e732e3"
+	// O cutover MCP remove sete formatos do refresh/reautorização legado;
+	// a renovação composta usa os eventos normalizados de oauthflow.
+	expectedLegacyFormatCount  = 741
+	expectedLegacyFormatDigest = "ef4aa89f869f6293e53d5696435a2b23b9b6a361b7db665d74573ed0801925e3"
 )
 
 // TestLegacyLoggingInventory mantém reproduzível o inventário da issue #675.

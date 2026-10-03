@@ -3,7 +3,7 @@
 **Status:** 🚧 In Progress — backend (ação `ReauthorizeServer`, guarda de token
 expirado no caminho nativo e sinalização `NeedsReauth`), binding Wails, UI de
 reautorização, testes, documentação de usuário e CI verde entregues no PR #771.
-Aguardando revisão e merge do dono do projeto.
+Integração com o ciclo compartilhado do AEP-0112 em andamento.
 
 ## Resumo
 
@@ -53,9 +53,9 @@ Esta AEP define duas garantias complementares:
   (`nativeMCPCandidate`: slug, name, url, authType, toolNames) dos servidores
   elegíveis (conectados, HTTP, com tools, URL segura, `prefer_bridge=false`).
 - Fora do lock, `resolveNativeAuthToken(ctx, candidate)` resolve o Bearer:
-  - Para `oauth2_pkce` com token **expirado ou perto de expirar**
-    (`nativeTokenExpiredOrNear`, mesmo `tokenRefreshThreshold` do loop proativo),
-    chama `refreshOAuthTokenBestEffort(ctx, slug, force=true)`.
+  - Autorizações compostas resolvem validade e renovação no `oauthflow.Service`.
+    Cadastros OAuth antigos são recusados com `oauth_migration_required`, antes
+    de resolver tokens, até a migração explícita prevista no AEP-0112.
   - Se o refresh falhar, chama `signalNeedsReauth(...)` e retorna `ok=false`; o
     servidor **não** entra na lista nativa.
   - Se o refresh der certo, relê o token novo do cofre, limpa o sinal e entrega.
@@ -76,10 +76,9 @@ Esta AEP define duas garantias complementares:
 ### D3 — `ReauthorizeServer(ctx, slug)`
 
 - Só aplicável a `AuthOAuth2PKCE`; caso contrário retorna erro descritivo.
-- Monta o `pkceRoundTripper` via `buildPKCERoundTripperForServer` (extraído de
-  `buildAuthHTTPClient`, que agora o reutiliza) e chama `rt.authorize(ctx)`, que
-  respeita o `oauthFlowArbiter` global (serializa flows interativos entre
-  servidores — AEP-0061) e persiste os tokens ao concluir.
+- Autorizações compostas usam `oauthflow.Service.AuthorizeUsing`, com lease e
+  persistência no registro composto; o protocolo interativo mantém a arbitragem
+  global (AEP-0061). Cadastros antigos exigem **Reconectar e migrar**.
 - Ao final, limpa `NeedsReauth` e reconecta o servidor para adotar o token novo e
   atualizar tools/resources/prompts.
 - Exposto como binding Wails autenticado `ReauthorizeMCPServer(slug)` (via
@@ -154,9 +153,10 @@ O status desta proposta permanece **In Progress**. Para os novos cadastros MCP
 com `oauth_authorization_id`, a reautorização usa o lifecycle compartilhado:
 `pkceRoundTripper` executa somente o protocolo; `oauthflow.Service.AuthorizeUsing`
 possui o lease e persiste o resultado no registro composto. Resolução nativa,
-bridge e renovação proativa usam o mesmo serviço. A descrição legada de D3
-continua aplicável aos cadastros sem referência composta até a migração prevista
-na AEP-0112. Autoconexão e requisições incidentais desses novos cadastros não
+bridge e renovação sob demanda usam o mesmo serviço. O temporizador de renovação
+por conexão foi removido. Cadastros sem referência composta permanecem disponíveis
+para snapshot e migração explícita, mas não conectam nem renovam tokens pelo
+runtime antigo. Autoconexão e requisições incidentais desses cadastros não
 abrem navegador: Conectar e Reautorizar são as entradas interativas explícitas.
 
 Evidências: `TestManagedOAuthPKCEDCRPersistsCallbackAndRefreshAfterRestart`,
