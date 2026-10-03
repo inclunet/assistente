@@ -302,3 +302,25 @@ existente, enquanto o runtime utiliza `oauthflow.DiscoverEndpoints`. Orçamentos
 candidatos, hints saneados e comportamento de preenchimento manual permanecem
 inalterados. Registro dinâmico RFC 7591 também usa HTTP compartilhado; migração
 de credenciais e grants permanece no plano do AEP-0112.
+
+
+## Evolução: valores descobertos visíveis sem registro dinâmico
+
+Status: **Done**. Quando há descoberta completa sem DCR, o formulário completo
+fica visível e editável, com os endpoints e escopos preenchidos nos campos antes
+vazios e o tipo de autenticação efetivamente selecionado. Não é necessário
+acionar a configuração manual para conferir os dados. Esta apresentação substitui
+a forma compacta anterior para servidores sem DCR; servidores com DCR mantêm a
+apresentação compacta existente.
+
+Valores manuais e o fluxo já escolhido são preservados. A troca de Client
+Credentials para PKCE é explícita; os campos de callback só aparecem para PKCE.
+O aviso de navegador exige PKCE gerenciado; cadastros OAuth legados recebem a
+orientação existente de snapshot e migração no Diagnóstico OAuth. Salvar outro
+tipo não converte automaticamente a autorização. A descoberta não inventa Client ID, segredo
+nem callback do aplicativo privado.
+
+Evidências: `McpConnectionSection.test.tsx` cobre visibilidade, edição do fluxo
+e ausência de promessa de navegador em Client Credentials. `McpPage.test.tsx`
+cobre preenchimento dos campos vazios, preservação do cliente e salvamento dos
+endpoints após a escolha explícita de PKCE, além da preservação de valores manuais.
