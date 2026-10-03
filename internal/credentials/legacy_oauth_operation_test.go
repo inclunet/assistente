@@ -349,8 +349,8 @@ func TestClearLegacyOAuthRefreshesCredentialRevisionsAfterCommitAndUnlock(t *tes
 	case <-time.After(2 * time.Second):
 		t.Fatal("refresh de revisões bloqueou enquanto o manager mantinha o lock")
 	}
-	if len(patterns) != 3 {
-		t.Fatalf("esperava sincronização dos três patterns removidos, recebeu %v", patterns)
+	if len(patterns) != 1 || patterns[0] != "shared.example.test" {
+		t.Fatalf("esperava sincronização apenas do hostname compartilhado, recebeu %v", patterns)
 	}
 }
 

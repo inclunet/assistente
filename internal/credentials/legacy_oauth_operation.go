@@ -126,11 +126,10 @@ func (m *Manager) ClearLegacyOAuthWithConsumer(ctx context.Context, slug, consum
 	if err != nil {
 		return err
 	}
-	var syncErr error
-	for _, pattern := range patterns {
-		syncErr = errors.Join(syncErr, m.notifyCredentialPatternMutation(ctx, pattern))
+	if hostname != "" {
+		return m.notifyCredentialPatternMutation(ctx, hostname)
 	}
-	return syncErr
+	return nil
 }
 
 // Context permits only writes belonging to this exact durable attempt.
