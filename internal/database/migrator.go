@@ -389,6 +389,12 @@ var schemaMigrations = []migration{
 		Phase:   phasePostAutoMigrate,
 		Run:     migrateLLMModelObservationTimeGuards,
 	},
+	{
+		Version: 36,
+		Name:    "llm_provider_revision_guards",
+		Phase:   phasePostAutoMigrate,
+		Run:     migrateLLMProviderRevisionGuards,
+	},
 }
 
 // runMigrations aplica, na ordem de Version, todas as migrações da fase
