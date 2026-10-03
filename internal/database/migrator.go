@@ -377,6 +377,12 @@ var schemaMigrations = []migration{
 		Phase:   phasePostAutoMigrate,
 		Run:     MigrateLLMModelCapabilities,
 	},
+	{
+		Version: 34,
+		Name:    "llm_model_source_reference_guards",
+		Phase:   phasePostAutoMigrate,
+		Run:     migrateLLMModelSourceReferenceGuards,
+	},
 }
 
 // runMigrations aplica, na ordem de Version, todas as migrações da fase

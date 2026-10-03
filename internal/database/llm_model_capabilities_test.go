@@ -3,6 +3,8 @@ package database
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -52,6 +54,79 @@ func TestMigrateLLMModelCapabilitiesCreatesStrictCatalogIdempotently(t *testing.
 	}
 	if err := db.Exec(`INSERT INTO llm_capabilities(key) VALUES ('arbitrary_capability')`).Error; err == nil {
 		t.Fatal("SQLite aceitou capability fora do vocabulário controlado")
+	}
+}
+
+func TestMigration34GuardsLegacyV33SourceReferencesWithoutRewritingRows(t *testing.T) {
+	db := newMigratorTestDB(t)
+	longDNSLabelReference := "https://" + strings.Repeat("a", 64) + ".com/model"
+	longDNSHostnameReference := "https://" + strings.Join([]string{
+		strings.Repeat("a", 63), strings.Repeat("b", 63), strings.Repeat("c", 63), strings.Repeat("d", 63),
+	}, ".") + "/model"
+	legacyColumn := `source_reference TEXT NOT NULL DEFAULT '' CHECK (
+		source_reference = '' OR
+		(lower(substr(source_reference, 1, 7)) = 'http://' AND length(source_reference) > 7 AND substr(source_reference, 8, 1) <> '/') OR
+		(lower(substr(source_reference, 1, 8)) = 'https://' AND length(source_reference) > 8 AND substr(source_reference, 9, 1) <> '/'))`
+	tables := []string{
+		"llm_model_catalog_bindings",
+		"llm_model_capabilities",
+		"llm_model_capability_fields",
+	}
+	for _, table := range tables {
+		if err := db.Exec(fmt.Sprintf("CREATE TABLE %s (id TEXT PRIMARY KEY, %s)", table, legacyColumn)).Error; err != nil {
+			t.Fatalf("criar schema legado %s: %v", table, err)
+		}
+		if err := db.Exec(fmt.Sprintf("INSERT INTO %s (id, source_reference) VALUES (?, ?)", table), "legacy", "https://localhost/old-reference").Error; err != nil {
+			t.Fatalf("semear fato legado %s: %v", table, err)
+		}
+	}
+
+	version33 := migration{Version: 33, Name: "llm_model_capabilities", Phase: phasePostAutoMigrate}
+	version34 := migration{Version: 34, Name: "llm_model_source_reference_guards", Phase: phasePostAutoMigrate, Run: migrateLLMModelSourceReferenceGuards}
+	if err := ensureSchemaMigrationsTable(db); err != nil {
+		t.Fatal(err)
+	}
+	if err := recordMigration(db, version33); err != nil {
+		t.Fatalf("marcar v33 existente: %v", err)
+	}
+	if err := runMigrationList(db, phasePostAutoMigrate, []migration{version33, version34}); err != nil {
+		t.Fatalf("aplicar v34 em schema v33: %v", err)
+	}
+	if err := runMigrationList(db, phasePostAutoMigrate, []migration{version33, version34}); err != nil {
+		t.Fatalf("repetir v34: %v", err)
+	}
+
+	for _, table := range tables {
+		var reference string
+		if err := db.Table(table).Select("source_reference").Where("id = ?", "legacy").Scan(&reference).Error; err != nil {
+			t.Fatalf("ler fato histórico %s: %v", table, err)
+		}
+		if reference != "https://localhost/old-reference" {
+			t.Errorf("migração alterou referência histórica em %s: %q", table, reference)
+		}
+		invalidReferences := []struct {
+			name  string
+			value string
+		}{
+			{name: "invalid-port", value: "https://docs.example.com:abc/model"},
+			{name: "space-in-host", value: "https://bad host.example.com/model"},
+			{name: "invalid-percent-escape", value: "https://bad%zz.example.com/model"},
+			{name: "bracketed-non-ip-host", value: "https://[bad.example.com]/model"},
+			{name: "long-dns-label", value: longDNSLabelReference},
+			{name: "long-dns-hostname", value: longDNSHostnameReference},
+		}
+		for _, invalid := range invalidReferences {
+			insertID := "new-" + invalid.name
+			if err := db.Exec(fmt.Sprintf("INSERT INTO %s (id, source_reference) VALUES (?, ?)", table), insertID, invalid.value).Error; err == nil {
+				t.Errorf("v34 aceitou INSERT de referência inválida em %s: %s", table, invalid.name)
+			}
+			if err := db.Exec(fmt.Sprintf("UPDATE %s SET source_reference = ? WHERE id = ?", table), invalid.value, "legacy").Error; err == nil {
+				t.Errorf("v34 aceitou UPDATE com referência inválida em %s: %s", table, invalid.name)
+			}
+		}
+		if err := db.Exec(fmt.Sprintf("INSERT INTO %s (id, source_reference) VALUES (?, CAST(? AS BLOB))", table), "binary", "https://docs.example.com/model").Error; err == nil {
+			t.Errorf("v34 aceitou source_reference que não é TEXT em %s", table)
+		}
 	}
 }
 
@@ -178,6 +253,14 @@ func TestLLMModelCapabilityRepositoryRequiresCapturedRevisionAndSafeReferences(t
 	if err := repository.RecordCapability(ctx, &future); !errors.Is(err, llmcapabilities.ErrInvalidAssertion) {
 		t.Fatalf("observação futura deveria ser recusada: %v", err)
 	}
+	oversizedUnicodeReference := "https://docs.example.com/" + strings.Repeat("é", 1024)
+	longDNSLabelReference := "https://" + strings.Repeat("a", 64) + ".com/models"
+	longDNSHostnameReference := "https://" + strings.Join([]string{
+		strings.Repeat("a", 63), strings.Repeat("b", 63), strings.Repeat("c", 63), strings.Repeat("d", 63),
+	}, ".") + "/models"
+	maxDNSHostname := strings.Join([]string{
+		strings.Repeat("a", 63), strings.Repeat("b", 63), strings.Repeat("c", 63), strings.Repeat("d", 61),
+	}, ".")
 	for _, reference := range []string{
 		"https://user:secret@example.test/catalog",
 		"https://example.test/catalog?token=secret",
@@ -205,6 +288,22 @@ func TestLLMModelCapabilityRepositoryRequiresCapturedRevisionAndSafeReferences(t
 		"https://docs.provider.local/models",
 		"https://localhost.localdomain/models",
 		"https://docs.provider.test/models",
+		"https://docs.例/models",
+		"https://docs.123a/models",
+		"https://docs.local../models",
+		"https://bad host.example.com/models",
+		"https://bad\u00a0host.example.com/models",
+		"https://bad%zz.example.com/models",
+		"https://[bad.example.com]/models",
+		longDNSLabelReference,
+		longDNSHostnameReference,
+		"https://docs.example.com:abc/models",
+		"https://docs.example.com:/models",
+		"https://docs.example.com/models\u00a0",
+		"https://docs.example.com/a\vb",
+		"https://docs.example.com/a\fb",
+		"https://docs.example.com/a\x7fb",
+		oversizedUnicodeReference,
 	} {
 		claim := base
 		claim.SourceReference = reference
@@ -212,7 +311,7 @@ func TestLLMModelCapabilityRepositoryRequiresCapturedRevisionAndSafeReferences(t
 			t.Errorf("referência insegura %q aceita: %v", reference, err)
 		}
 	}
-	for _, reference := range []string{"https://docs.example.com/models/model-x", "HTTPS://Docs.Example.com/models/model-x", "https://8.8.8.8/catalog"} {
+	for _, reference := range []string{"https://docs.example.com/models/model-x", "HTTPS://Docs.Example.com/models/model-x", "https://docs.example.com:443/catalog", "https://" + maxDNSHostname + "/catalog"} {
 		claim := base
 		claim.SourceReference = reference
 		if err := repository.RecordCapability(ctx, &claim); err != nil {
@@ -221,6 +320,64 @@ func TestLLMModelCapabilityRepositoryRequiresCapturedRevisionAndSafeReferences(t
 	}
 	if err := db.Exec(`INSERT INTO llm_model_capabilities (id, model_id, capability_key, support_state, source, scope, provider_compatibility_revision, observed_at, source_reference, created_at, updated_at) VALUES ('raw-reference', ?, 'chat', 'unsupported', 'execution_observation', 'connection', 1, ?, 'https://docs.example.com/models?token=secret', ?, ?)`, model.ID, now, now, now).Error; err == nil {
 		t.Fatal("SQLite aceitou query string com potencial segredo em source_reference")
+	}
+	for _, reference := range []struct {
+		name  string
+		value string
+	}{
+		{name: "loopback", value: "http://127.0.0.1/models"},
+		{name: "private-ip", value: "http://10.0.0.1/models"},
+		{name: "localhost", value: "https://localhost/models"},
+		{name: "unicode-only-suffix", value: "https://docs.例/models"},
+		{name: "numeric-suffix", value: "https://docs.123a/models"},
+		{name: "multiple-trailing-dots", value: "https://docs.local../models"},
+		{name: "space-in-host", value: "https://bad host.example.com/models"},
+		{name: "nonbreaking-space-in-host", value: "https://bad\u00a0host.example.com/models"},
+		{name: "invalid-percent-escape-in-host", value: "https://bad%zz.example.com/models"},
+		{name: "bracketed-non-ip-host", value: "https://[bad.example.com]/models"},
+		{name: "long-dns-label", value: longDNSLabelReference},
+		{name: "long-dns-hostname", value: longDNSHostnameReference},
+		{name: "invalid-port", value: "https://docs.example.com:abc/models"},
+		{name: "empty-port", value: "https://docs.example.com:/models"},
+		{name: "unicode-trailing-whitespace", value: "https://docs.example.com/models\u00a0"},
+		{name: "vertical-tab", value: "https://docs.example.com/a\vb"},
+		{name: "form-feed", value: "https://docs.example.com/a\fb"},
+		{name: "delete-control", value: "https://docs.example.com/a\x7fb"},
+		{name: "unicode-byte-limit", value: oversizedUnicodeReference},
+	} {
+		for _, tc := range []struct {
+			name  string
+			query string
+			args  []any
+		}{
+			{
+				name: "binding",
+				query: `INSERT INTO llm_model_catalog_bindings
+					(id, model_id, provider_compatibility_revision, source, external_provider_id, external_model_id, verified_at, source_reference, created_at, updated_at)
+					VALUES ('raw-private-binding', ?, 1, 'third_party_catalog', 'catalog', 'model-x', ?, ?, ?, ?)`,
+				args: []any{model.ID, now, reference.value, now, now},
+			},
+			{
+				name: "capability",
+				query: `INSERT INTO llm_model_capabilities
+					(id, model_id, capability_key, support_state, source, scope, provider_compatibility_revision, observed_at, source_reference, created_at, updated_at)
+					VALUES ('raw-private-capability', ?, 'chat', 'unsupported', 'execution_observation', 'connection', 1, ?, ?, ?, ?)`,
+				args: []any{model.ID, now, reference.value, now, now},
+			},
+			{
+				name: "field",
+				query: `INSERT INTO llm_model_capability_fields
+					(id, model_id, capability_key, field_key, support_state, source, scope, provider_compatibility_revision, observed_at, source_reference, created_at, updated_at)
+					VALUES ('raw-private-field', ?, 'chat', 'temperature', 'unsupported', 'execution_observation', 'connection', 1, ?, ?, ?, ?)`,
+				args: []any{model.ID, now, reference.value, now, now},
+			},
+		} {
+			t.Run(tc.name+"/"+reference.name, func(t *testing.T) {
+				if err := db.Exec(tc.query, tc.args...).Error; err == nil {
+					t.Fatalf("SQLite aceitou referência inválida em %s: %s", tc.name, reference.name)
+				}
+			})
+		}
 	}
 }
 

@@ -3,6 +3,7 @@ package database
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"assistente/internal/llmcapabilities"
 	"gorm.io/gorm"
@@ -56,6 +57,96 @@ func MigrateLLMModelCapabilities(db *gorm.DB) error {
 	})
 }
 
+// migrateLLMModelSourceReferenceGuards also covers installations that already
+// recorded v33 with the earlier table CHECKs. Insert/update triggers tighten
+// those schemas without rebuilding tables or rewriting historical references.
+func migrateLLMModelSourceReferenceGuards(db *gorm.DB) error {
+	if db == nil {
+		return errors.New("banco inválido para os guards de referência de modelo")
+	}
+	return db.Transaction(func(tx *gorm.DB) error {
+		for _, table := range []string{
+			"llm_model_catalog_bindings",
+			"llm_model_capabilities",
+			"llm_model_capability_fields",
+		} {
+			for _, operation := range []struct {
+				name  string
+				event string
+			}{
+				{name: "insert", event: "INSERT"},
+				{name: "update", event: "UPDATE OF source_reference"},
+			} {
+				triggerName := "trg_" + table + "_source_reference_guard_" + operation.name
+				statement := fmt.Sprintf(`CREATE TRIGGER IF NOT EXISTS %s
+				BEFORE %s ON %s
+				WHEN NOT (%s)
+				BEGIN SELECT RAISE(ABORT, 'invalid model source reference'); END`,
+					triggerName, operation.event, table, publicDNSReferenceCheckSQL("NEW.source_reference"))
+				if err := tx.Exec(statement).Error; err != nil {
+					return fmt.Errorf("criar guard SQL de referência em %s (%s): %w", table, operation.name, err)
+				}
+			}
+		}
+		return nil
+	})
+}
+
+func publicDNSReferenceCheckSQL(referenceColumn string) string {
+	controlChecks := make([]string, 0, 33)
+	for code := 0; code <= 31; code++ {
+		controlChecks = append(controlChecks, fmt.Sprintf("instr({{column}}, char(%d)) = 0", code))
+	}
+	controlChecks = append(controlChecks, "instr({{column}}, char(127)) = 0")
+	controls := strings.ReplaceAll(strings.Join(controlChecks, " AND "), "{{column}}", referenceColumn)
+	remainder := `(CASE WHEN lower(substr({{column}}, 1, 7)) = 'http://' THEN substr({{column}}, 8) ELSE substr({{column}}, 9) END)`
+	remainder = strings.ReplaceAll(remainder, "{{column}}", referenceColumn)
+	authority := `substr({{remainder}}, 1, instr({{remainder}} || '/', '/') - 1)`
+	authority = strings.ReplaceAll(authority, "{{remainder}}", remainder)
+	hostPort := `substr({{authority}}, 1, instr({{authority}} || ':', ':') - 1)`
+	hostPort = strings.ReplaceAll(hostPort, "{{authority}}", authority)
+	rawHost := `lower({{hostport}})`
+	rawHost = strings.ReplaceAll(rawHost, "{{hostport}}", hostPort)
+	host := `(CASE WHEN substr({{host}}, -1, 1) = '.' THEN substr({{host}}, 1, length({{host}}) - 1) ELSE {{host}} END)`
+	host = strings.ReplaceAll(host, "{{host}}", rawHost)
+	tooLongLabel := "*" + strings.Repeat("[a-z0-9-]", 64) + "*"
+	validHostLength := strings.NewReplacer("{{host}}", host).Replace(
+		"length({{host}}) <= 253 AND {{host}} NOT GLOB '" + tooLongLabel + "'",
+	)
+	port := `substr({{authority}}, instr({{authority}}, ':') + 1)`
+	port = strings.ReplaceAll(port, "{{authority}}", authority)
+	validPort := `(instr({{authority}}, ':') = 0 OR (length({{port}}) > 0 AND {{port}} NOT GLOB '*[^0-9]*'))`
+	validPort = strings.NewReplacer("{{authority}}", authority, "{{port}}", port).Replace(validPort)
+
+	check := `typeof({{column}}) = 'text' AND length(CAST({{column}} AS BLOB)) <= 2048 AND trim({{column}}) = {{column}} AND
+		COALESCE(unicode(substr({{column}}, 1, 1)), 0) NOT IN (9, 10, 11, 12, 13, 32, 133, 160, 5760, 8192, 8193, 8194, 8195, 8196, 8197, 8198, 8199, 8200, 8201, 8202, 8232, 8233, 8239, 8287, 12288) AND
+		COALESCE(unicode(substr({{column}}, -1, 1)), 0) NOT IN (9, 10, 11, 12, 13, 32, 133, 160, 5760, 8192, 8193, 8194, 8195, 8196, 8197, 8198, 8199, 8200, 8201, 8202, 8232, 8233, 8239, 8287, 12288) AND
+		{{controls}} AND
+		instr({{column}}, '?') = 0 AND instr({{column}}, '#') = 0 AND instr({{column}}, '@') = 0 AND
+		({{column}} = '' OR (
+			((lower(substr({{column}}, 1, 7)) = 'http://' AND length({{column}}) > 7) OR
+			 (lower(substr({{column}}, 1, 8)) = 'https://' AND length({{column}}) > 8)) AND
+			{{valid-port}} AND
+			{{host-length}} AND {{host}} NOT GLOB '*[^a-z0-9.-]*' AND {{host}} NOT LIKE '.%' AND {{host}} NOT LIKE '%..%' AND
+			{{host}} NOT LIKE '-%' AND {{host}} NOT LIKE '%-' AND {{host}} NOT LIKE '%.-%' AND {{host}} NOT LIKE '%-.%' AND
+			{{host}} NOT LIKE '%.' AND instr({{host}}, '.') > 0 AND {{host}} GLOB '*.[a-z]*' AND
+			{{host}} NOT IN ('localhost', 'localdomain', 'local', 'internal', 'lan', 'home', 'home.arpa', 'test', 'invalid', 'example', 'onion', 'private', 'corp') AND
+			{{host}} NOT LIKE '%.localhost' AND {{host}} NOT LIKE '%.localdomain' AND
+			{{host}} NOT LIKE '%.local' AND {{host}} NOT LIKE '%.internal' AND
+			{{host}} NOT LIKE '%.lan' AND {{host}} NOT LIKE '%.home' AND
+			{{host}} NOT LIKE '%.home.arpa' AND {{host}} NOT LIKE '%.test' AND
+			{{host}} NOT LIKE '%.invalid' AND {{host}} NOT LIKE '%.example' AND
+			{{host}} NOT LIKE '%.onion' AND {{host}} NOT LIKE '%.private' AND
+			{{host}} NOT LIKE '%.corp'))`
+	return strings.NewReplacer(
+		"{{column}}", referenceColumn,
+		"{{host-length}}", validHostLength,
+		"{{host}}", host,
+		"{{valid-port}}", validPort,
+		"{{controls}}", controls,
+	).Replace(check)
+}
+
 var llmModelCapabilitiesDDL = []string{
 	`CREATE TABLE IF NOT EXISTS llm_models (
 		id TEXT NOT NULL PRIMARY KEY,
@@ -92,13 +183,7 @@ var llmModelCapabilitiesDDL = []string{
 		external_model_id TEXT NOT NULL COLLATE BINARY CHECK (length(external_model_id) > 0 AND trim(external_model_id) = external_model_id AND instr(external_model_id, char(0)) = 0),
 		verified_at DATETIME NOT NULL,
 		valid_until DATETIME,
-		source_reference TEXT NOT NULL DEFAULT '' CHECK (
-			length(source_reference) <= 2048 AND trim(source_reference) = source_reference AND
-			instr(source_reference, char(0)) = 0 AND instr(source_reference, char(9)) = 0 AND
-			instr(source_reference, char(10)) = 0 AND instr(source_reference, char(13)) = 0 AND
-			instr(source_reference, '?') = 0 AND instr(source_reference, '#') = 0 AND instr(source_reference, '@') = 0 AND
-			(source_reference = '' OR (lower(substr(source_reference, 1, 7)) = 'http://' AND length(source_reference) > 7 AND substr(source_reference, 8, 1) <> '/') OR
-			 (lower(substr(source_reference, 1, 8)) = 'https://' AND length(source_reference) > 8 AND substr(source_reference, 9, 1) <> '/'))),
+		source_reference TEXT NOT NULL DEFAULT '' CHECK (` + publicDNSReferenceCheckSQL("source_reference") + `),
 		created_at DATETIME NOT NULL,
 		updated_at DATETIME NOT NULL,
 		CONSTRAINT fk_llm_catalog_binding_model FOREIGN KEY (model_id) REFERENCES llm_models(id) ON UPDATE CASCADE ON DELETE CASCADE,
@@ -117,13 +202,7 @@ var llmModelCapabilitiesDDL = []string{
 		binding_id TEXT,
 		observed_at DATETIME NOT NULL,
 		valid_until DATETIME,
-		source_reference TEXT NOT NULL DEFAULT '' CHECK (
-			length(source_reference) <= 2048 AND trim(source_reference) = source_reference AND
-			instr(source_reference, char(0)) = 0 AND instr(source_reference, char(9)) = 0 AND
-			instr(source_reference, char(10)) = 0 AND instr(source_reference, char(13)) = 0 AND
-			instr(source_reference, '?') = 0 AND instr(source_reference, '#') = 0 AND instr(source_reference, '@') = 0 AND
-			(source_reference = '' OR (lower(substr(source_reference, 1, 7)) = 'http://' AND length(source_reference) > 7 AND substr(source_reference, 8, 1) <> '/') OR
-			 (lower(substr(source_reference, 1, 8)) = 'https://' AND length(source_reference) > 8 AND substr(source_reference, 9, 1) <> '/'))),
+		source_reference TEXT NOT NULL DEFAULT '' CHECK (` + publicDNSReferenceCheckSQL("source_reference") + `),
 		created_at DATETIME NOT NULL,
 		updated_at DATETIME NOT NULL,
 		CONSTRAINT fk_llm_model_capability_model FOREIGN KEY (model_id) REFERENCES llm_models(id) ON UPDATE CASCADE ON DELETE CASCADE,
@@ -149,13 +228,7 @@ var llmModelCapabilitiesDDL = []string{
 		step REAL,
 		observed_at DATETIME NOT NULL,
 		valid_until DATETIME,
-		source_reference TEXT NOT NULL DEFAULT '' CHECK (
-			length(source_reference) <= 2048 AND trim(source_reference) = source_reference AND
-			instr(source_reference, char(0)) = 0 AND instr(source_reference, char(9)) = 0 AND
-			instr(source_reference, char(10)) = 0 AND instr(source_reference, char(13)) = 0 AND
-			instr(source_reference, '?') = 0 AND instr(source_reference, '#') = 0 AND instr(source_reference, '@') = 0 AND
-			(source_reference = '' OR (lower(substr(source_reference, 1, 7)) = 'http://' AND length(source_reference) > 7 AND substr(source_reference, 8, 1) <> '/') OR
-			 (lower(substr(source_reference, 1, 8)) = 'https://' AND length(source_reference) > 8 AND substr(source_reference, 9, 1) <> '/'))),
+		source_reference TEXT NOT NULL DEFAULT '' CHECK (` + publicDNSReferenceCheckSQL("source_reference") + `),
 		created_at DATETIME NOT NULL,
 		updated_at DATETIME NOT NULL,
 		CONSTRAINT fk_llm_model_capability_field_model FOREIGN KEY (model_id) REFERENCES llm_models(id) ON UPDATE CASCADE ON DELETE CASCADE,

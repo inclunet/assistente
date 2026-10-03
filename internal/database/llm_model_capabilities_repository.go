@@ -13,27 +13,6 @@ import (
 	"gorm.io/gorm"
 )
 
-var nonPublicSourceReferencePrefixes = []netip.Prefix{
-	netip.MustParsePrefix("0.0.0.0/8"),
-	netip.MustParsePrefix("100.64.0.0/10"),
-	netip.MustParsePrefix("192.0.0.0/24"),
-	netip.MustParsePrefix("192.0.2.0/24"),
-	netip.MustParsePrefix("192.88.99.0/24"),
-	netip.MustParsePrefix("198.18.0.0/15"),
-	netip.MustParsePrefix("198.51.100.0/24"),
-	netip.MustParsePrefix("203.0.113.0/24"),
-	netip.MustParsePrefix("240.0.0.0/4"),
-	netip.MustParsePrefix("64:ff9b::/96"),
-	netip.MustParsePrefix("64:ff9b:1::/48"),
-	netip.MustParsePrefix("100::/64"),
-	netip.MustParsePrefix("2001::/23"),
-	netip.MustParsePrefix("2001:db8::/32"),
-	netip.MustParsePrefix("2002::/16"),
-	netip.MustParsePrefix("3fff::/20"),
-	netip.MustParsePrefix("5f00::/16"),
-	netip.MustParsePrefix("::/96"),
-}
-
 var (
 	ErrLLMModelNotFound                     = errors.New("modelo LLM não encontrado")
 	ErrStaleCompatibility                   = errors.New("fato de capability pertence a uma revisão antiga do provedor")
@@ -408,8 +387,10 @@ func (r *LLMModelCapabilitiesRepository) providerRevisionForWrite(ctx context.Co
 	return provider.CompatibilityRevision, nil
 }
 
-// Referências são URLs públicas sem credenciais, query string ou fragmento.
-// Dados de proveniência não podem virar um canal acidental para segredos.
+// Referências usam hostname DNS ASCII (nomes internacionalizados em punycode),
+// com labels de até 63 bytes e host de até 253 bytes. IP literal e hostname
+// local/reservado não são aceitos; credenciais, query string e fragmento também
+// são proibidos. O SQLite aplica os mesmos limites para escritas SQL diretas.
 func validSourceReference(reference string) bool {
 	if reference == "" {
 		return true
@@ -423,33 +404,59 @@ func validSourceReference(reference string) bool {
 		parsed.Hostname() == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.ForceQuery || parsed.Fragment != "" {
 		return false
 	}
+	if !validReferenceAuthorityPort(parsed.Host) {
+		return false
+	}
 	return isPublicReferenceHost(parsed.Hostname())
 }
 
-func isPublicReferenceHost(host string) bool {
-	host = strings.TrimSuffix(strings.ToLower(host), ".")
-	if host == "" {
+func validReferenceAuthorityPort(authority string) bool {
+	separator := strings.LastIndex(authority, ":")
+	if separator < 0 {
+		return true
+	}
+	port := authority[separator+1:]
+	if port == "" {
 		return false
 	}
-	if address, err := netip.ParseAddr(host); err == nil {
-		address = address.Unmap()
-		if !address.IsGlobalUnicast() || address.IsPrivate() || address.IsLoopback() || address.IsLinkLocalUnicast() ||
-			address.IsLinkLocalMulticast() || address.IsUnspecified() || address.IsMulticast() || address.Zone() != "" {
+	for _, digit := range port {
+		if digit < '0' || digit > '9' {
 			return false
 		}
-		for _, prefix := range nonPublicSourceReferencePrefixes {
-			if prefix.Contains(address) {
-				return false
-			}
+	}
+	return true
+}
+
+func isPublicReferenceHost(host string) bool {
+	if !hasASCIIHostnameCharacters(host) {
+		return false
+	}
+	host = strings.ToLower(host)
+	if strings.HasSuffix(host, "..") {
+		return false
+	}
+	host = strings.TrimSuffix(host, ".")
+	if host == "" || len(host) > 253 || strings.HasPrefix(host, ".") || strings.Contains(host, "..") ||
+		strings.HasPrefix(host, "-") || strings.HasSuffix(host, "-") ||
+		strings.Contains(host, ".-") || strings.Contains(host, "-.") {
+		return false
+	}
+	for _, label := range strings.Split(host, ".") {
+		if len(label) > 63 {
+			return false
 		}
-		return true
+	}
+	if _, err := netip.ParseAddr(host); err == nil {
+		// Provenance references require a DNS hostname so the SQL CHECK can
+		// enforce the same public-host boundary without a network lookup.
+		return false
 	}
 	if looksLikeNumericIP(host) {
 		// Reject non-canonical numeric IPv4 spellings such as 127.1 and
 		// 0x7f.0.0.1. Some URL clients interpret these as IPs when netip does not.
 		return false
 	}
-	if !strings.Contains(host, ".") {
+	if !hasASCIIAlphaAfterDot(host) {
 		return false
 	}
 	for _, suffix := range []string{".localhost", ".localdomain", ".local", ".internal", ".lan", ".home", ".home.arpa", ".test", ".invalid", ".example", ".onion", ".private", ".corp"} {
@@ -458,6 +465,27 @@ func isPublicReferenceHost(host string) bool {
 		}
 	}
 	return true
+}
+
+func hasASCIIHostnameCharacters(host string) bool {
+	for index := 0; index < len(host); index++ {
+		character := host[index]
+		if (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') ||
+			(character >= '0' && character <= '9') || character == '.' || character == '-' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func hasASCIIAlphaAfterDot(host string) bool {
+	for index := 0; index+1 < len(host); index++ {
+		if host[index] == '.' && host[index+1] >= 'a' && host[index+1] <= 'z' {
+			return true
+		}
+	}
+	return false
 }
 
 func looksLikeNumericIP(host string) bool {

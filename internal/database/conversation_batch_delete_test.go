@@ -48,6 +48,17 @@ func setupConversationBatchDeleteDB(t *testing.T) (*gorm.DB, context.Context, co
 	); err != nil {
 		t.Fatal(err)
 	}
+	if err := testDB.Create([]*User{
+		{UUIDModel: UUIDModel{ID: "delete-owner"}, Username: "delete-owner", PasswordHash: "test", Role: UserRoleUser, IsActive: true},
+		{UUIDModel: UUIDModel{ID: "delete-other"}, Username: "delete-other", PasswordHash: "test", Role: UserRoleUser, IsActive: true},
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := testDB.Create(&ToolCatalog{
+		UUIDModel: UUIDModel{ID: "tool"}, Name: "test-tool", DisplayName: "Test tool", Origin: "builtin",
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
 	db, dbPath = testDB, path
 	t.Cleanup(func() {
 		_ = sqlDB.Close()
