@@ -4,6 +4,15 @@
 
 ## Dependências
 
+Continuação AEP-0112 (Slack): o bloco opcional cifrado também transporta a
+credencial estática composta de bot/app token numa única entrada lógica
+`channel:slack:connection`. Não transporta IDs locais de usuário/consumidor:
+a restauração cria o vínculo local atomicamente, mantém novos canais desativados
+e exige decisão de conflito para sobrescrever uma conexão existente. Não exporta
+configurações/contatos de canais. Os papéis ficam exclusivamente no blob protegido
+por senha; `TestStaticConnectionPasswordBackupRoundTripAndConflict` cobre opção,
+senha, ausência de plaintext, isolamento e restauração sem par de linhas.
+
 Continuação AEP-0112: novos cadastros OAuth de backups canônicos e arquivos
 históricos são restaurados desativados, com conexão automática desligada e
 aviso de recuperação. Metadados e credenciais presentes são preservados, sem

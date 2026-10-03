@@ -65,8 +65,11 @@ export default function ChannelsPage() {
   useGridPageLandmarks({ pageClass: 'channels-page' });
   const defaultChannelProfile = 'canais-comunicacao';
   const requestConfirm = useConfirm();
-  const getErrorMessage = (error: unknown) =>
-    error instanceof Error ? error.message : String(error ?? '');
+  const getErrorMessage = (error: unknown) => {
+    const message = error instanceof Error ? error.message : String(error ?? '');
+    return message.includes('credential_connection_unavailable')
+      ? t('channels.slack.credentialUnavailable') : message;
+  };
 
   const channelCredentialPattern = useCallback((channel: string, key: string) => `channel:${channel}:${key}`, []);
 
@@ -94,7 +97,7 @@ export default function ChannelsPage() {
   const [credentialSummaries, setCredentialSummaries] = useState<Record<string, CredentialSummary>>({});
   const [telegramUseVault, setTelegramUseVault] = useState(true);
   const [signalUseVault, setSignalUseVault] = useState(true);
-  const [slackUseVault, setSlackUseVault] = useState(true);
+  const [slackConfig, setSlackConfig] = useState<channels.ChannelConfig | null>(null);
 
   const signalController = useSignalChannelController({
     signalForm,
@@ -196,6 +199,7 @@ export default function ChannelsPage() {
           maxContacts: signalCfg.max_contacts || 1,
         });
       }
+      setSlackConfig(slackCfg ?? null);
       if (slackCfg) {
         setSlackForm({
           enabled: slackEnabled,
@@ -217,18 +221,12 @@ export default function ChannelsPage() {
 
       const telegramPattern = channelCredentialPattern('telegram', 'bot_token');
       const signalTokenPattern = channelCredentialPattern('signal', 'api_token');
-      const slackBotPattern = channelCredentialPattern('slack', 'bot_token');
-      const slackAppPattern = channelCredentialPattern('slack', 'app_token');
 
       const telegramStored = Boolean(summaryMap[telegramPattern] || telegramCfg?.bot_token_ref);
       const signalStored = Boolean(summaryMap[signalTokenPattern] || signalCfg?.api_token_ref);
-      const slackStored = Boolean(
-        summaryMap[slackBotPattern] || summaryMap[slackAppPattern] || slackCfg?.bot_token_ref || slackCfg?.app_token_ref
-      );
 
       setTelegramUseVault(telegramStored || !telegramCfg?.bot_token);
       setSignalUseVault(signalStored || !signalCfg?.api_token);
-      setSlackUseVault(slackStored || (!slackCfg?.bot_token && !slackCfg?.app_token));
 
       const labelFor = (slug: string, cfg: { display_name?: string; type?: string } | undefined) =>
         cfg?.display_name || cfg?.type || slug;
@@ -385,40 +383,18 @@ export default function ChannelsPage() {
           max_contacts: signalForm.maxContacts,
         }));
       } else if (channelName === 'slack') {
-        const botPattern = channelCredentialPattern('slack', 'bot_token');
-        const appPattern = channelCredentialPattern('slack', 'app_token');
         const botToken = slackForm.botToken.trim();
         const appToken = slackForm.appToken.trim();
-        const storedBot = credentialSummaries[botPattern];
-        const storedApp = credentialSummaries[appPattern];
-
-        if (slackUseVault) {
-          if (botToken) {
-            await UpsertCredential(apidto.CredentialInput.createFrom({source: "static",
-              pattern: botPattern,
-              type: 'secret',
-              token: botToken,
-            }));
-          }
-          if (appToken) {
-            await UpsertCredential(apidto.CredentialInput.createFrom({source: "static",
-              pattern: appPattern,
-              type: 'secret',
-              token: appToken,
-            }));
-          }
-
-          if (slackForm.enabled && ((!storedBot && !botToken) || (!storedApp && !appToken))) {
-            throw new Error(t('channels.error.slackTokensRequired'));
-          }
+        const storedBot = slackConfig?.bot_token_ref;
+        const storedApp = slackConfig?.app_token_ref;
+        if (slackForm.enabled && ((!storedBot && !botToken) || (!storedApp && !appToken))) {
+          throw new Error(t('channels.error.slackTokensRequired'));
         }
 
         await SaveChannelConfig('slack', channels.ChannelConfig.createFrom({
           enabled: slackForm.enabled,
-          bot_token: slackUseVault ? '' : botToken,
-          bot_token_ref: slackUseVault ? botPattern : '',
-          app_token: slackUseVault ? '' : appToken,
-          app_token_ref: slackUseVault ? appPattern : '',
+          bot_token: botToken,
+          app_token: appToken,
           profile: slackForm.profile,
           max_history: slackForm.maxHistory,
           max_contacts: slackForm.maxContacts,
@@ -485,14 +461,24 @@ export default function ChannelsPage() {
     if (!shouldRemove) return;
 
     try {
-      await DeleteCredential(pattern);
+      if (pattern === channelCredentialPattern('slack', 'bot_token') || pattern === channelCredentialPattern('slack', 'app_token')) {
+        if (!slackConfig) throw new Error(t('channels.error.removeCredentialFailed'));
+        await SaveChannelConfig('slack', channels.ChannelConfig.createFrom({
+          ...slackConfig, enabled: false,
+          conversations: undefined, reply_chat_ids: undefined,
+          remove_bot_token: pattern.endsWith(':bot_token'),
+          remove_app_token: pattern.endsWith(':app_token'),
+        }));
+      } else {
+        await DeleteCredential(pattern);
+      }
       addToast(t('channels.toast.credentialRemoved'), 'success', undefined, undefined, { suppressAnnounce: true });
       announce(t('channels.announce.credentialRemoved'));
       await loadAll();
     } catch (error: unknown) {
       addToast(getErrorMessage(error) || t('channels.error.removeCredentialFailed'), 'error');
     }
-  }, [addToast, announce, loadAll, requestConfirm, t]);
+  }, [addToast, announce, channelCredentialPattern, loadAll, requestConfirm, slackConfig, t]);
 
   // ── Grid columns ─────────────────────────────────────────────────
 
@@ -651,12 +637,10 @@ export default function ChannelsPage() {
       form={slackForm}
       onChange={setSlackForm}
       onAnnounce={announce}
-      vaultEnabled={slackUseVault}
-      onToggleVault={setSlackUseVault}
-      botTokenStored={Boolean(credentialSummaries[channelCredentialPattern('slack', 'bot_token')])}
-      botTokenMasked={credentialSummaries[channelCredentialPattern('slack', 'bot_token')]?.masked || ''}
-      appTokenStored={Boolean(credentialSummaries[channelCredentialPattern('slack', 'app_token')])}
-      appTokenMasked={credentialSummaries[channelCredentialPattern('slack', 'app_token')]?.masked || ''}
+      botTokenStored={Boolean(slackConfig?.bot_token_ref)}
+      botTokenMasked=""
+      appTokenStored={Boolean(slackConfig?.app_token_ref)}
+      appTokenMasked=""
       onRemoveBotToken={() => handleRemoveCredential(channelCredentialPattern('slack', 'bot_token'), t('channels.slack.botToken'))}
       onRemoveAppToken={() => handleRemoveCredential(channelCredentialPattern('slack', 'app_token'), t('channels.slack.appToken'))}
     />

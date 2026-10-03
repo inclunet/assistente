@@ -1131,7 +1131,26 @@ func exportCredentials(ctx context.Context, credMgr *credentials.Manager) ([]Cre
 			ClientSecret: entry.Auth.ClientSecret,
 		})
 	}
-	return result, nil
+	connections, err := exportStaticConnections(ctx, credMgr)
+	if err != nil {
+		return nil, err
+	}
+	// The two reads can straddle a migration. Prefer the authoritative composed
+	// snapshot over canonical legacy roles captured earlier from the cache.
+	for _, connection := range connections {
+		if connection.Pattern != slackConnectionBackupPattern {
+			continue
+		}
+		kept := result[:0]
+		for _, entry := range result {
+			if entry.Pattern != "channel:slack:bot_token" && entry.Pattern != "channel:slack:app_token" {
+				kept = append(kept, entry)
+			}
+		}
+		result = kept
+		break
+	}
+	return append(result, connections...), nil
 }
 
 func importCredentials(
@@ -1160,6 +1179,7 @@ func importCredentials(
 		}
 		identifier := credentialConflictIdentifier(cred)
 		credentialID := strings.TrimSpace(cred.ID)
+		allowOverwrite := false
 		if _, hasConflict := conflictIdentifiers[identifier]; hasConflict {
 			resolution, hasResolution := resolutionMap.lookup("credential", identifier)
 			if !hasResolution || resolution.Strategy == ConflictResolutionSkip {
@@ -1174,6 +1194,14 @@ func importCredentials(
 				)
 			}
 			credentialID = ""
+			allowOverwrite = true
+		}
+		if cred.AuthType == credentials.StaticConnectionType {
+			if err := importStaticConnection(ctx, credMgr, cred, allowOverwrite); err != nil {
+				return imported, skipped, err
+			}
+			imported++
+			continue
 		}
 		auth := &credentials.AuthConfig{Source: cred.Source, SourceConfig: cred.SourceConfig,
 			Type:         cred.AuthType,
@@ -1205,6 +1233,9 @@ func isPortableCredentialPattern(pattern string) bool {
 }
 
 func validatePortableCredentialExport(cred CredentialExport) error {
+	if cred.AuthType == credentials.StaticConnectionType || cred.StaticComponents != nil || cred.Pattern == slackConnectionBackupPattern {
+		return validateStaticConnectionExport(cred)
+	}
 	if err := credentials.ValidateSource(&credentials.AuthConfig{Source: cred.Source, SourceConfig: cred.SourceConfig}); err != nil {
 		return err
 	}
@@ -1371,7 +1402,7 @@ func decodeCredentialExports(blob *CredentialCipher, credentialPassword string) 
 	if err := DecryptCredentialsPayload(credentialPassword, blob, &creds); err != nil {
 		return nil, fmt.Errorf("erro ao descriptografar credenciais do arquivo: %w", err)
 	}
-	return creds, nil
+	return normalizeStaticConnectionExports(creds)
 }
 
 func loadExistingCredentialIdentifiers(ctx context.Context) (map[string]struct{}, map[string]struct{}, error) {
@@ -1385,6 +1416,9 @@ func loadExistingCredentialIdentifiers(ctx context.Context) (map[string]struct{}
 	patterns := make(map[string]struct{}, len(entries))
 	for _, entry := range entries {
 		if pattern := strings.TrimSpace(entry.Pattern); pattern != "" {
+			if pattern == "channel:slack:bot_token" || pattern == "channel:slack:app_token" {
+				patterns[slackConnectionBackupPattern] = struct{}{}
+			}
 			if !isPortableCredentialPattern(pattern) {
 				continue
 			}
@@ -1392,6 +1426,15 @@ func loadExistingCredentialIdentifiers(ctx context.Context) (map[string]struct{}
 		}
 		if id := strings.TrimSpace(entry.ID); id != "" {
 			ids[id] = struct{}{}
+		}
+	}
+	if database.DB().Migrator().HasColumn(&database.Channel{}, "CredentialID") {
+		var count int64
+		if err := database.ScopeByUser(ctx, database.DB(), "user_id").Model(&database.Channel{}).Where("slug = ?", "slack").Count(&count).Error; err != nil {
+			return nil, nil, err
+		}
+		if count > 0 {
+			patterns[slackConnectionBackupPattern] = struct{}{}
 		}
 	}
 	return ids, patterns, nil

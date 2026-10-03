@@ -837,6 +837,7 @@ const en = {
         },
         credential: {
           vaultUnavailableForImport: 'The credential vault is unavailable for the import.',
+          connectionUnavailable: 'The Slack credential could not be restored. Check the vault and use a complete backup to recover a missing or unreadable entry. Previous data has been preserved.',
           vaultUnavailableForAnalysis: 'The current credential vault is not available to analyze credential conflicts.',
           passwordRequiredForAnalysis: 'Enter the export password to analyze credential conflicts.',
           analysisFailed: 'The credentials could not be analyzed with the password provided.',
@@ -1292,6 +1293,8 @@ const en = {
         appToken: 'App Token (Socket Mode)',
         appTokenPlaceholder: 'xapp-...',
         saveVault: 'Save tokens in credentials vault',
+        composedVaultHint: 'Bot and app tokens are stored together in the vault with separate roles. Leave a field empty to keep its current token. Removing a token disables the connection.',
+        credentialUnavailable: 'The Slack credential could not be accessed. Check the vault and enter any missing or unreadable tokens again. Previous data has been preserved.',
         vaultHint: 'When enabled, the tokens are encrypted and not saved in the channel file.',
         botTokenStored: 'Bot Token saved in vault',
         appTokenStored: 'App Token saved in vault',
