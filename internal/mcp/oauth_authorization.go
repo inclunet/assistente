@@ -11,6 +11,7 @@ import (
 
 	"assistente/internal/database"
 	"assistente/internal/oauthflow"
+	"assistente/internal/oauthintegrations"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
@@ -258,6 +259,9 @@ func (m *Manager) managedOAuth(ctx context.Context, cfg ServerConfig) (oauthflow
 		return nil, r, nil, err
 	}
 	service, err := oauthflow.NewConfigured(r, m.authorizeOAuthNetwork)
+	if err == nil {
+		service.HTTP = oauthintegrations.MCPHTTPClient(service.HTTP, r.Resource)
+	}
 	return store, r, service, err
 }
 func (m *Manager) projectManagedOAuth(cfg *ServerConfig) (*ServerConfig, error) {
