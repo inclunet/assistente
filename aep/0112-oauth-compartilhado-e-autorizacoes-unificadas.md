@@ -10,8 +10,11 @@ e implementar a source `oauth` com um serviço compartilhado de registro,
 autorização e renovação. MCP, provedores LLM e canais consomem credenciais sem
 implementar novamente esse ciclo. A primeira entrega habilita o uso oficial da
 conta ChatGPT no Assistente; entregas seguintes migram MCP para a mesma base.
-A primeira entrega implementa a base OAuth e o consumidor ChatGPT. Novos cadastros OAuth no editor MCP já consomem essa base. A migração dos
-cadastros MCP legados e a convergência Slack continuam nas fases seguintes.
+A primeira entrega implementa a base OAuth e o consumidor ChatGPT. Novos cadastros
+OAuth no editor MCP já consomem essa base. Client Credentials legado dispõe de
+conversão e PKCE incompleto migra por reconexão explícita. Slack já possui
+credencial composta estática e backup cifrado. Permanecem a retirada final do
+runtime MCP legado e os aceites funcionais registrados nas fases abaixo.
 
 ## Motivação
 
@@ -249,6 +252,15 @@ local anterior; o provedor pode invalidar tokens antigos, algo que um snapshot
 local não consegue desfazer. A conversão direta continua exigindo todos os
 metadados e não pode inferir método, escopos ou callback histórico.
 
+Para os formatos PKCE históricos incompletos, **Reconectar e migrar** é o caminho
+de migração aprovado. Não há uma entrega adicional de conversão offline desses
+grants nem formulário para reconstruir metadados antigos por suposição. Preservar
+o cadastro de cliente e o snapshot recuperável; obter os metadados efetivos na
+nova autorização. A reconexão exige ação do usuário, nunca consentimento silencioso.
+Essa decisão encerra a pendência de conversão offline incompleta, sem dispensar
+o cutover e a retirada do runtime legado. Uma conversão direta, se aplicável a
+outro formato completo, continua sujeita às exigências de integridade acima.
+
 A porta efetiva do novo grant é preservada sem alterar a política de callback:
 clientes manuais efêmeros continuam escolhendo uma porta a cada autorização;
 clientes fixos e cadastros DCR mantêm a política que exige a URI registrada.
@@ -315,6 +327,8 @@ e índice para In Progress; marcar Done somente após os critérios de todo o es
    conversão e retirada do legado permanecem pendentes.
 4. [ ] Convergência de canais: migrar componentes estáticos Slack para uma entrada por
    conexão e referências por papel, sem alterar protocolo nem exigir OAuth inexistente.
+   Implementação e testes automatizados descritos na evidência da fase 4 abaixo;
+   validação funcional de API/Socket Mode com conta real permanece pendente.
 
 ### Evidências da primeira entrega
 
@@ -1285,10 +1299,10 @@ concorrência entre instâncias, cancelamento, falha de commit e idempotência),
 `TestReconnectRejectsChangedSnapshotBeforeAuthorization`,
 `TestMCPOAuthSnapshotsRequireSession` e `McpOAuthSnapshots.test.tsx`.
 
-A conversão offline de grants PKCE continua pendente: o formato histórico não
-registra todos os metadados necessários. Não há conversão silenciosa nem exigência
-de reconexão para continuar usando um cadastro legado. Retirada do runtime/campos
-legados e convergência de Slack também continuam pendentes.
+A conversão offline dos grants PKCE incompletos foi substituída pelo caminho
+aprovado de reconexão acima: o formato histórico não registra todos os metadados
+necessários. Não há conversão silenciosa. Durante a transição, o runtime legado
+ainda existe; sua retirada e a convergência de Slack continuam pendentes.
 
 ### Fase 3 — importação externa sem criar novas autorizações legadas
 
@@ -1321,8 +1335,9 @@ idempotência, reinício e isolamento), `TestExternalMCPOAuthFailureLeavesNoPart
 `TestExternalMCPOAuthSkipsExistingLegacyWithoutVault`,
 `TestImportFromMCPJSON_CursorFormat` e
 `TestImportFromMCPJSONReportsLockedVaultAndLoadsSuccessfulEntries`.
-Conversão offline PKCE, cutover dos backups históricos, retirada do runtime e
-campos legados, convergência Slack e aceites funcionais continuam pendentes.
+O caminho para PKCE incompleto é Reconectar e migrar, conforme decisão acima.
+Cutover dos backups históricos, retirada do runtime e campos legados,
+convergência Slack e aceites funcionais continuam pendentes.
 
 ### Fase 3 — restauração histórica em estado de recuperação
 
@@ -1359,3 +1374,43 @@ autenticação e não são apresentados para outro usuário. Evidências adicion
 `TestHistoricalMCPOAuthPreservesStdioActivation`,
 `TestHistoricalMCPOAuthLoginSummaryPreservesLocalizedRecovery` e
 `useLegacyImportSummaryListener.test.tsx`.
+
+### Fase 4 — credencial composta estática do Slack
+
+Status: **In Progress**. Slack persiste bot token e app token como componentes
+tipados de uma entrada `static_components`, cifrada com a DEK existente. Não
+cria grant OAuth nem renovador para esses tokens. A resolução exige usuário,
+integração e consumidor e lê ambos os papéis no mesmo snapshot. O editor genérico
+e o resolvedor HTTP não expõem o documento composto como se fosse um token.
+
+Salvar, criar por template e importar configuração histórica usam uma transação
+para gravar a entrada, vincular o canal e remover o par canônico anterior. A
+migração ocorre ao salvar ou conectar; canais desativados podem permanecer como
+origem histórica até a próxima edição. Atualização de um campo preserva o outro;
+remoção é explícita e desativa o canal. Referências compartilhadas/não canônicas
+não são apagadas. Tokens antigos ausentes/ilegíveis só podem ser substituídos ou
+removidos explicitamente; a tentativa de preservá-los falha sem alterar o estado.
+Gravações genéricas preservam o vínculo e escritores tardios não recriam o par.
+
+A opção existente de backup com credenciais e senha exporta uma entrada lógica
+composta, dentro do bloco Argon2id/AES-GCM. Sem essa opção não exporta segredos;
+sem senha não produz o backup. Restauração vincula a credencial ao usuário local,
+com IDs locais e uma conexão nova desativada. Conflitos usam a decisão existente
+de ignorar/sobrescrever; não recriam duas linhas. Configurações e contatos do canal
+não passam a fazer parte desse backup de credenciais. O formato composto exige
+uma versão do Assistente que suporte esta entrega.
+
+Evidências: `TestStaticConnectionMigratesAtomicRolesAndPreservesIsolation`,
+`TestStaticConnectionPartialUpdateAndRemoval`,
+`TestStaticConnectionRepairsLegacyOnlyWithExplicitChange`,
+`TestStaticConnectionConcurrentReadKeepsPairTogether`,
+`TestSlackComposedCredentialSaveMigrationAndPartialUpdate`,
+`TestSlackComposedCredentialRollbackPreservesPairAndConfiguration`,
+`TestSlackTemplateUsesAtomicVaultAndPreservesBinding`,
+`TestStaticConnectionPasswordBackupRoundTripAndConflict`,
+`TestStaticConnectionBackupRejectsAmbiguousPayload`, `ChannelsPage.test.tsx`
+e `ChannelsSlackSection.test.tsx`.
+
+Permanecem: cutover final do runtime MCP legado, atualização dos contratos
+correspondentes e aceites funcionais com provedores reais. PKCE histórico
+incompleto migra por reconexão aprovada, sem pendência de conversão offline.

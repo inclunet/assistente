@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 
+	"assistente/internal/credentials"
 	"assistente/internal/database"
 	"assistente/internal/logging"
 
@@ -247,6 +248,17 @@ func saveToDB(slug string, cfg *ChannelConfig) error {
 		existing, err := findChannelRowForUser(tx, slug, userID)
 		if err != nil {
 			return err
+		}
+		// Generic writes may update channel settings, never vault ownership or
+		// role references. Credentials are changed only by the atomic vault path.
+		if existing != nil && existing.CredentialID != "" {
+			if cfg.BotToken != "" || cfg.AppToken != "" || cfg.RemoveBotToken || cfg.RemoveAppToken {
+				return credentials.ErrStaticConnection
+			}
+			cfg.CredentialID = existing.CredentialID
+			cfg.BotTokenRef, cfg.AppTokenRef = existing.BotTokenRef, existing.AppTokenRef
+		} else if cfg.CredentialID != "" {
+			return credentials.ErrStaticConnection
 		}
 		// UI/partial Save: preservar mapas runtime se o caller não enviou.
 		preserveConversations := cfg.Conversations == nil

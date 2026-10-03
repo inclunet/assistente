@@ -1295,6 +1295,8 @@ const es = {
         appToken: 'App Token (Socket Mode)',
         appTokenPlaceholder: 'xapp-...',
         saveVault: 'Guardar tokens en la bóveda de credenciales',
+        composedVaultHint: 'Los tokens del bot y de la aplicación se guardan juntos en la bóveda con funciones separadas. Deje un campo vacío para conservar el token actual. Eliminar un token desactiva la conexión.',
+        credentialUnavailable: 'No se pudo acceder a la credencial de Slack. Revise la bóveda e introduzca de nuevo los tokens ausentes o ilegibles. Los datos anteriores se han conservado.',
         vaultHint: 'Cuando está habilitado, los tokens se cifran y no se guardan en el archivo del canal.',
         botTokenStored: 'Bot Token guardado en la bóveda',
         appTokenStored: 'App Token guardado en la bóveda',

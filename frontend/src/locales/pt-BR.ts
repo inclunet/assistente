@@ -1293,6 +1293,8 @@ const ptBR = {
         appToken: 'App Token (Socket Mode)',
         appTokenPlaceholder: 'xapp-...',
         saveVault: 'Salvar tokens no cofre de credenciais',
+        composedVaultHint: 'Os tokens do bot e do aplicativo são guardados juntos no cofre, com papéis separados. Deixe um campo vazio para manter o token atual. Remover um token desativa a conexão.',
+        credentialUnavailable: 'Não foi possível acessar a credencial do Slack. Verifique o cofre e informe novamente os tokens ausentes ou ilegíveis. Os dados anteriores foram preservados.',
         vaultHint: 'Quando habilitado, os tokens ficam criptografados e não são salvos no arquivo do canal.',
         botTokenStored: 'Bot Token salvo no cofre',
         appTokenStored: 'App Token salvo no cofre',

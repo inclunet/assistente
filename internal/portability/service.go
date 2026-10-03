@@ -1131,7 +1131,11 @@ func exportCredentials(ctx context.Context, credMgr *credentials.Manager) ([]Cre
 			ClientSecret: entry.Auth.ClientSecret,
 		})
 	}
-	return result, nil
+	connections, err := exportStaticConnections(ctx, credMgr)
+	if err != nil {
+		return nil, err
+	}
+	return append(result, connections...), nil
 }
 
 func importCredentials(
@@ -1160,6 +1164,7 @@ func importCredentials(
 		}
 		identifier := credentialConflictIdentifier(cred)
 		credentialID := strings.TrimSpace(cred.ID)
+		allowOverwrite := false
 		if _, hasConflict := conflictIdentifiers[identifier]; hasConflict {
 			resolution, hasResolution := resolutionMap.lookup("credential", identifier)
 			if !hasResolution || resolution.Strategy == ConflictResolutionSkip {
@@ -1174,6 +1179,14 @@ func importCredentials(
 				)
 			}
 			credentialID = ""
+			allowOverwrite = true
+		}
+		if cred.AuthType == credentials.StaticConnectionType {
+			if err := importStaticConnection(ctx, credMgr, cred, allowOverwrite); err != nil {
+				return imported, skipped, err
+			}
+			imported++
+			continue
 		}
 		auth := &credentials.AuthConfig{Source: cred.Source, SourceConfig: cred.SourceConfig,
 			Type:         cred.AuthType,
@@ -1205,6 +1218,9 @@ func isPortableCredentialPattern(pattern string) bool {
 }
 
 func validatePortableCredentialExport(cred CredentialExport) error {
+	if cred.AuthType == credentials.StaticConnectionType || cred.StaticComponents != nil || cred.Pattern == slackConnectionBackupPattern {
+		return validateStaticConnectionExport(cred)
+	}
 	if err := credentials.ValidateSource(&credentials.AuthConfig{Source: cred.Source, SourceConfig: cred.SourceConfig}); err != nil {
 		return err
 	}
@@ -1392,6 +1408,15 @@ func loadExistingCredentialIdentifiers(ctx context.Context) (map[string]struct{}
 		}
 		if id := strings.TrimSpace(entry.ID); id != "" {
 			ids[id] = struct{}{}
+		}
+	}
+	if database.DB().Migrator().HasColumn(&database.Channel{}, "CredentialID") {
+		var count int64
+		if err := database.ScopeByUser(ctx, database.DB(), "user_id").Model(&database.Channel{}).Where("slug = ?", "slack").Count(&count).Error; err != nil {
+			return nil, nil, err
+		}
+		if count > 0 {
+			patterns[slackConnectionBackupPattern] = struct{}{}
 		}
 	}
 	return ids, patterns, nil

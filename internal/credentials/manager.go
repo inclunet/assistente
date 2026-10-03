@@ -794,6 +794,7 @@ func (m *Manager) decrypt(ciphertext string) (string, error) {
 // managedPrefixes contém prefixos de patterns gerenciados automaticamente pelo sistema.
 // Credenciais com esses prefixos não devem ser editáveis pelo usuário.
 var managedPrefixes = []string{
+	"connection:",
 	"oauth:",
 	"mcp-client:",
 	"mcp-tokens:",

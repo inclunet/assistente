@@ -76,6 +76,9 @@ func ValidateSource(auth *AuthConfig) error {
 
 // ResolveSource materializes a snapshot. It never persists the resolved secret.
 func ResolveSource(ctx context.Context, auth *AuthConfig) (*AuthConfig, error) {
+	if auth != nil && auth.Type == StaticConnectionType {
+		return nil, ErrStaticConnection
+	}
 	if err := ValidateSource(auth); err != nil {
 		return nil, err
 	}

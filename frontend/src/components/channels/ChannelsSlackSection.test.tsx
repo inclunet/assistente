@@ -14,6 +14,7 @@ vi.mock('react-i18next', () => ({
         'channels.slack.appToken': 'App Token (Socket Mode)',
         'channels.slack.appTokenPlaceholder': 'xapp-...',
         'channels.slack.saveVault': 'Salvar tokens no cofre de credenciais',
+        'channels.slack.composedVaultHint': 'Os tokens do bot e do aplicativo são guardados juntos no cofre.',
         'channels.slack.vaultHint':
           'Quando habilitado, os tokens ficam criptografados e não são salvos no arquivo do canal.',
         'channels.slack.botTokenStored': 'Bot Token salvo no cofre',
@@ -59,7 +60,6 @@ vi.mock('../pickers/ProfilePicker', () => ({
 describe('ChannelsSlackSection', () => {
   const mockOnChange = vi.fn();
   const mockOnAnnounce = vi.fn();
-  const mockOnToggleVault = vi.fn();
   const mockOnRemoveBotToken = vi.fn();
   const mockOnRemoveAppToken = vi.fn();
 
@@ -78,8 +78,6 @@ describe('ChannelsSlackSection', () => {
         form={defaultForm}
         onChange={mockOnChange}
         onAnnounce={mockOnAnnounce}
-        vaultEnabled={true}
-        onToggleVault={mockOnToggleVault}
         botTokenStored={false}
         botTokenMasked=""
         appTokenStored={false}
@@ -98,8 +96,6 @@ describe('ChannelsSlackSection', () => {
         form={defaultForm}
         onChange={mockOnChange}
         onAnnounce={mockOnAnnounce}
-        vaultEnabled={true}
-        onToggleVault={mockOnToggleVault}
         botTokenStored={false}
         botTokenMasked=""
         appTokenStored={false}
@@ -118,8 +114,6 @@ describe('ChannelsSlackSection', () => {
         form={{ ...defaultForm, enabled: true }}
         onChange={mockOnChange}
         onAnnounce={mockOnAnnounce}
-        vaultEnabled={true}
-        onToggleVault={mockOnToggleVault}
         botTokenStored={false}
         botTokenMasked=""
         appTokenStored={false}
@@ -146,8 +140,6 @@ describe('ChannelsSlackSection', () => {
         form={defaultForm}
         onChange={mockOnChange}
         onAnnounce={mockOnAnnounce}
-        vaultEnabled={true}
-        onToggleVault={mockOnToggleVault}
         botTokenStored={false}
         botTokenMasked=""
         appTokenStored={false}
@@ -173,8 +165,6 @@ describe('ChannelsSlackSection', () => {
         form={{ ...defaultForm, enabled: true }}
         onChange={mockOnChange}
         onAnnounce={mockOnAnnounce}
-        vaultEnabled={true}
-        onToggleVault={mockOnToggleVault}
         botTokenStored={false}
         botTokenMasked=""
         appTokenStored={false}
@@ -194,14 +184,12 @@ describe('ChannelsSlackSection', () => {
     );
   });
 
-  it('mostra opção de salvar no cofre quando habilitado', () => {
+  it('explica o cofre composto obrigatório quando habilitado', () => {
     render(
       <ChannelsSlackSection
         form={{ ...defaultForm, enabled: true }}
         onChange={mockOnChange}
         onAnnounce={mockOnAnnounce}
-        vaultEnabled={true}
-        onToggleVault={mockOnToggleVault}
         botTokenStored={false}
         botTokenMasked=""
         appTokenStored={false}
@@ -211,6 +199,7 @@ describe('ChannelsSlackSection', () => {
       />
     );
 
-    expect(screen.getByLabelText('Salvar tokens no cofre de credenciais')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Salvar tokens no cofre de credenciais')).not.toBeInTheDocument();
+    expect(screen.getByText(/Os tokens do bot e do aplicativo são guardados juntos/)).toBeInTheDocument();
   });
 });

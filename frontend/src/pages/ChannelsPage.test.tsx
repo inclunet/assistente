@@ -10,6 +10,7 @@ const mockListCredentials = vi.fn();
 const mockSaveChannelConfig = vi.fn();
 const mockRestartChannel = vi.fn();
 const mockDeleteCredential = vi.fn();
+const mockUpsertCredential = vi.fn();
 const mockAddToast = vi.fn();
 const mockAnnounce = vi.fn();
 
@@ -59,7 +60,7 @@ vi.mock('@wailsjs/go/wailsapi/Messaging', () => ({
 vi.mock('@wailsjs/go/wailsapi/Credentials', () => ({
   ListCredentials: () => mockListCredentials(),
   DeleteCredential: (pattern: string) => mockDeleteCredential(pattern),
-  UpsertCredential: vi.fn(),
+  UpsertCredential: (...args: unknown[]) => mockUpsertCredential(...args),
 }));
 
 vi.mock('@wailsjs/go/models', () => ({
@@ -219,7 +220,17 @@ vi.mock('../components', () => ({
 vi.mock('../components/channels', () => ({
   ChannelsTelegramSection: () => <div>TelegramForm</div>,
   ChannelsSignalSection: () => <div>SignalForm</div>,
-  ChannelsSlackSection: () => <div>SlackForm</div>,
+  ChannelsSlackSection: ({ form, onChange, onRemoveBotToken, botTokenStored, appTokenStored }: {
+    form: { botToken: string; appToken: string };
+    onChange: (value: unknown) => void;
+    onRemoveBotToken: () => void;
+    botTokenStored: boolean; appTokenStored: boolean;
+  }) => <div>
+    SlackForm
+    <span>{botTokenStored && appTokenStored ? 'both-stored' : 'missing-role'}</span>
+    <button onClick={() => onChange({ ...form, botToken: 'replacement-bot' })}>replace-bot</button>
+    <button onClick={onRemoveBotToken}>remove-bot</button>
+  </div>,
 }));
 
 vi.mock('../components/menu', () => ({
@@ -254,6 +265,9 @@ import ChannelsPage from './ChannelsPage';
 
 describe('ChannelsPage', () => {
   beforeEach(() => {
+    mockSaveChannelConfig.mockReset();
+    mockDeleteCredential.mockReset();
+    mockUpsertCredential.mockReset();
     mockGetAllChannelConfigs.mockReset();
     mockGetAllChannelConfigs.mockResolvedValue({
       telegram: {
@@ -286,6 +300,32 @@ describe('ChannelsPage', () => {
     });
     expect(screen.queryByText('Telegram')).not.toBeInTheDocument();
     expect(screen.queryByText('Signal')).not.toBeInTheDocument();
+  });
+
+  it('salva Slack em uma operação e preserva o token não editado', async () => {
+    const user = userEvent.setup();
+    mockGetAllChannelConfigs.mockResolvedValue({ slack: { enabled: true, display_name: 'Slack', credential_id: 'credential', bot_token_ref: 'connection:credential', app_token_ref: 'connection:credential' } });
+    render(<ChannelsPage />);
+    await screen.findByText('Slack');
+    await user.click(screen.getAllByRole('button', { name: 'Editar' }).find((button) => !button.hasAttribute('disabled'))!);
+    expect(await screen.findByText('both-stored')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'replace-bot' }));
+    await user.click(screen.getByRole('button', { name: 'common.save' }));
+    await waitFor(() => expect(mockSaveChannelConfig).toHaveBeenCalledTimes(1));
+    expect(mockSaveChannelConfig).toHaveBeenCalledWith('slack', expect.objectContaining({ bot_token: 'replacement-bot', app_token: '' }));
+    expect(mockUpsertCredential).not.toHaveBeenCalled();
+    expect(mockDeleteCredential).not.toHaveBeenCalled();
+  });
+
+  it('remove apenas o papel escolhido e desativa Slack atomicamente', async () => {
+    const user = userEvent.setup();
+    mockGetAllChannelConfigs.mockResolvedValue({ slack: { enabled: true, display_name: 'Slack', credential_id: 'credential', bot_token_ref: 'connection:credential', app_token_ref: 'connection:credential' } });
+    render(<ChannelsPage />);
+    await screen.findByText('Slack');
+    await user.click(screen.getAllByRole('button', { name: 'Editar' }).find((button) => !button.hasAttribute('disabled'))!);
+    await user.click(await screen.findByRole('button', { name: 'remove-bot' }));
+    await waitFor(() => expect(mockSaveChannelConfig).toHaveBeenCalledWith('slack', expect.objectContaining({ enabled: false, remove_bot_token: true, remove_app_token: false })));
+    expect(mockDeleteCredential).not.toHaveBeenCalled();
   });
 
   it('cria canal via Novo e abre o editor', async () => {
