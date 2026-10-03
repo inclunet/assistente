@@ -465,6 +465,7 @@ func (a *App) wireExportImport() {
 	)
 	wailsapi.AttachCommandImport(a.exportImportAPI, a.importCommandLayers)
 	wailsapi.AttachCommandExport(a.exportImportAPI, a.exportCommandLayers)
+	wailsapi.AttachMCPImportReload(a.exportImportAPI, a.reloadMCPAfterImport)
 }
 
 // wireLegacyCleanup associa o bind Wails de cleanup de JSON legado (AEP-0088).

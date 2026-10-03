@@ -134,6 +134,9 @@ func ImportMCPServerWithContext(ctx context.Context, server MCPServerExport) (bo
 }
 
 func importMCPServerWithCredentials(ctx context.Context, credMgr *credentials.Manager, server MCPServerExport) (bool, error) {
+	if server.externalOAuth {
+		return importExternalMCPOAuth(ctx, credMgr, server)
+	}
 	imported, err := ImportMCPServerWithContext(ctx, server)
 	if err != nil || !imported {
 		return imported, err
@@ -364,6 +367,7 @@ func parseExternalMCPServers(data []byte) ([]MCPServerExport, bool, error) {
 			server.BearerToken = token
 		}
 		server = normalizeMCPServerExport(server)
+		server.externalOAuth = server.AuthType == "oauth2_pkce"
 		result = append(result, server)
 	}
 	return result, true, nil
@@ -413,6 +417,13 @@ func ImportMCPServersJSONWithContext(ctx context.Context, data []byte, credMgr *
 		}
 	}
 	return result, nil
+}
+
+// HasMCPServers identifies the canonical and external forms using the same
+// parser as import, so runtime publication is limited to MCP imports.
+func HasMCPServers(data string) bool {
+	file, _, err := parseExportFile(data)
+	return err == nil && file != nil && len(file.Resources.MCPServers) > 0
 }
 
 // ImportLegacyMCPServersWithContext imports read-only legacy JSON config files

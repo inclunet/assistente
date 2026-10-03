@@ -4,6 +4,13 @@
 
 ## Dependências
 
+Integração AEP-0112: JSON externo Cursor/Claude com MCP HTTP sem Bearer explícito
+cria servidor e autorização OAuth pendente atomicamente no cofre compartilhado.
+A importação não abre consentimento e desativa a conexão automática inicial.
+STDIO/Bearer e backups históricos mantêm os contratos anteriores; detalhes e
+testes estão na seção de importação externa do AEP-0112. O status deste AEP
+permanece In Progress pelas pendências de acessibilidade já registradas.
+
 Continuação AEP-0103 (17/09/2026, seção 45): a exportação comum de camadas
 está disponível no painel de Dados. Usa o envelope v2 exclusivo de comandos,
 sem valores de credenciais e sem fallback de backup parcial. A fachada delega

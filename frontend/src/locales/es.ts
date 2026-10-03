@@ -810,6 +810,7 @@ const es = {
           credentialMissing: 'El provider "{{providerId}}" pasa la credencial "{{pattern}}" al agente por la variable {{variable}}, y esa entrada no está en la bóveda de esta máquina. Regístrela en las credenciales o quite la variable del provider.',
         },
         mcpServer: {
+		  runtimeReloadFailed: 'Los datos se importaron, pero no se pudo actualizar la lista MCP. Vuelva a iniciar sesión para recargarla.',
           missingSlug: 'Un servidor MCP del archivo no tiene slug y no se puede importar.',
           stdioMissingCommand: 'El servidor MCP {{slug}} usa el transport stdio, pero no trae command.',
           missingUrl: 'El servidor MCP {{slug}} usa el transport {{transport}}, pero no trae url.',

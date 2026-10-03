@@ -16,6 +16,30 @@ import (
 	"assistente/internal/portability"
 )
 
+func TestExportImportReloadFailurePreservesCommittedResult(t *testing.T) {
+	api := NewExportImport()
+	released := false
+	AttachExportImport(api, stubSession{ctx: context.Background()}, nil, func() ports.SystemDialogPort { return nil }, "dev", func(context.Context) (func([]string), error) {
+		return func([]string) { released = true }, nil
+	})
+	imports, reloads := 0, 0
+	api.importConversations = func(context.Context, string, *credentials.Manager, string, []portability.ImportResolution, func([]string)) (*portability.ImportResult, error) {
+		imports++
+		return &portability.ImportResult{Success: true, Imported: 1}, nil
+	}
+	AttachMCPImportReload(api, func(context.Context) error {
+		if !released {
+			t.Fatal("runtime publication preceded restoration cleanup")
+		}
+		reloads++
+		return errors.New("private runtime detail")
+	})
+	result, err := api.ImportData(`{"mcpServers":{"remote":{"url":"https://resource.example/mcp"}}}`, "")
+	if err != nil || !result.Success || result.Imported != 1 || imports != 1 || reloads != 1 || len(result.Warnings) != 1 || result.Warnings[0].Code != "mcpServer.runtimeReloadFailed" || strings.Contains(result.Warnings[0].Message, "private") {
+		t.Fatalf("publication failure lost commit or exposed detail: %v %+v", err, result)
+	}
+}
+
 func TestExportImportNotWired(t *testing.T) {
 	t.Parallel()
 	api := NewExportImport()
