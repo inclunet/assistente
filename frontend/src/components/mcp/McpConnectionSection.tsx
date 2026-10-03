@@ -422,8 +422,12 @@ export function McpConnectionSection({
                   </>
                 )}
 
-                {discoveredNoDCR && authType === 'oauth2_pkce' && (
-                  <p className="mcp-hint">{t('mcp.connection.browserAuthHintBrief')}</p>
+                {discoveredNoDCR && (authType === 'oauth2_pkce' || authType === 'oauth2_client_credentials') && (
+                  !oauthManaged ? (
+                    <p className="mcp-hint" role="note">{t('mcp.error.migrationRequired')}</p>
+                  ) : authType === 'oauth2_pkce' ? (
+                    <p className="mcp-hint">{t('mcp.connection.browserAuthHintBrief')}</p>
+                  ) : null
                 )}
 
                 {authType !== 'none' && (

@@ -438,7 +438,7 @@ describe('McpPage — oauth2_callback_host', () => {
     await userEvent.selectOptions(screen.getByLabelText('Auth Type'), 'oauth2_pkce');
     await userEvent.click(screen.getByText('Salvar'));
     await waitFor(() => expect(mockSave).toHaveBeenCalledWith('legacy', expect.objectContaining({
-      auth_type: 'oauth2_pkce', oauth2_client_id: 'company-client',
+      auth_type: 'oauth2_pkce', oauth_managed: false, oauth2_client_id: 'company-client',
       oauth2_auth_url: 'https://auth.example/authorize', oauth2_token_url: 'https://auth.example/token',
       oauth2_scopes: ['sql', 'offline_access'],
     })));

@@ -156,6 +156,18 @@ describe('McpConnectionSection — Discovery states', () => {
     expect(change).toHaveBeenCalledWith('oauth2_pkce');
   });
 
+  it.each(['oauth2_pkce', 'oauth2_client_credentials'] as const)('sem DCR: orienta migração de cadastro legado %s', (authType) => {
+    renderWith({ discoveryStatus: 'found', authType, oauthManaged: false });
+    expect(screen.getByText(/Abra Diagnóstico OAuth, crie um snapshot/)).toBeInTheDocument();
+    expect(screen.queryByText(/browser abrirá/)).not.toBeInTheDocument();
+  });
+
+  it('sem DCR: orienta navegador somente para PKCE gerenciado', () => {
+    renderWith({ discoveryStatus: 'found', authType: 'oauth2_pkce', oauthManaged: true });
+    expect(screen.getByText(/browser abrirá/)).toBeInTheDocument();
+    expect(screen.queryByText(/Abra Diagnóstico OAuth, crie um snapshot/)).not.toBeInTheDocument();
+  });
+
   it('discovery falhou: exibe configuração manual completa', () => {
     renderWith({ discoveryStatus: 'not_found' });
     expect(screen.getByLabelText('Tipo de autenticação')).toBeInTheDocument();

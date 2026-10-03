@@ -314,8 +314,10 @@ a forma compacta anterior para servidores sem DCR; servidores com DCR mantêm a
 apresentação compacta existente.
 
 Valores manuais e o fluxo já escolhido são preservados. A troca de Client
-Credentials para PKCE é explícita; o aviso de abertura do navegador e os campos
-de callback só aparecem para PKCE. A descoberta não inventa Client ID, segredo
+Credentials para PKCE é explícita; os campos de callback só aparecem para PKCE.
+O aviso de navegador exige PKCE gerenciado; cadastros OAuth legados recebem a
+orientação existente de snapshot e migração no Diagnóstico OAuth. Salvar outro
+tipo não converte automaticamente a autorização. A descoberta não inventa Client ID, segredo
 nem callback do aplicativo privado.
 
 Evidências: `McpConnectionSection.test.tsx` cobre visibilidade, edição do fluxo

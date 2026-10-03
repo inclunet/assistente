@@ -1703,7 +1703,8 @@ correção da resposta OAuth. Isso não comprova os demais cenários de aceite.
 No editor MCP, a descoberta sem DCR agora apresenta os campos autocompletados e
 o fluxo efetivo, conforme a evolução do AEP-0033. As regressões em
 `McpConnectionSection.test.tsx` e `McpPage.test.tsx` cobrem a apresentação e o
-salvamento após troca explícita para PKCE. O login real do Databricks permanece
+salvamento após troca explícita para PKCE, mantendo o estado legado e indicando
+a migração pelo diagnóstico antes de conectar. O login real do Databricks permanece
 pendente de conferir o cadastro do aplicativo e seu callback; os metadados
 públicos não fornecem esses dados privados. Os demais aceites reais permanecem
 pendentes, sem alteração dos contratos de armazenamento ou migração.
