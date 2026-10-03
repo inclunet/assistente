@@ -24,6 +24,11 @@ func MigrateLLMModelCapabilities(db *gorm.DB) error {
 				return fmt.Errorf("adicionar revisão de compatibilidade do provedor: %w", err)
 			}
 		}
+		if !tx.Migrator().HasColumn(&LLMProvider{}, "ConfigRevision") {
+			if err := tx.Exec(`ALTER TABLE llm_providers ADD COLUMN config_revision INTEGER NOT NULL DEFAULT 1 CHECK (config_revision > 0)`).Error; err != nil {
+				return fmt.Errorf("adicionar revisão de configuração do provedor: %w", err)
+			}
+		}
 		for _, ddl := range llmModelCapabilitiesDDL {
 			if err := tx.Exec(ddl).Error; err != nil {
 				return err
@@ -32,6 +37,13 @@ func MigrateLLMModelCapabilities(db *gorm.DB) error {
 		for _, ddl := range llmModelCapabilitiesIndexes {
 			if err := tx.Exec(ddl).Error; err != nil {
 				return err
+			}
+		}
+		if tx.Migrator().HasTable(&CredentialEntry{}) {
+			for _, ddl := range llmCredentialCompatibilityTriggers {
+				if err := tx.Exec(ddl).Error; err != nil {
+					return fmt.Errorf("criar trigger de revisão de credenciais: %w", err)
+				}
 			}
 		}
 		if err := seedLLMCapabilityCatalog(tx); err != nil {
@@ -168,6 +180,7 @@ var llmModelCapabilitiesDDL = []string{
 }
 
 var llmModelCapabilitiesIndexes = []string{
+	`CREATE INDEX IF NOT EXISTS idx_llm_providers_user_credential_pattern ON llm_providers(user_id, credential_pattern)`,
 	`CREATE INDEX IF NOT EXISTS idx_llm_model_capabilities_resolve ON llm_model_capabilities(model_id, provider_compatibility_revision, capability_key, observed_at)`,
 	`CREATE INDEX IF NOT EXISTS idx_llm_model_capability_fields_resolve ON llm_model_capability_fields(model_id, provider_compatibility_revision, capability_key, field_key, observed_at)`,
 	`CREATE INDEX IF NOT EXISTS idx_llm_model_catalog_bindings_revision ON llm_model_catalog_bindings(model_id, provider_compatibility_revision, valid_until)`,
@@ -267,6 +280,41 @@ var llmModelCapabilitiesIndexes = []string{
 	    WHERE claim.id = NEW.assertion_id AND claim.support_state = 'supported' AND field.value_type = 'enum'
 	 )
 	 BEGIN SELECT RAISE(ABORT, 'llm_model_capability_field_options requires a supported enum field'); END`,
+}
+
+// As alterações do cofre e a invalidação dos fatos compartilham a mesma
+// transação SQLite. Isso cobre tanto as rotas LLM quanto outros consumidores
+// do mesmo pattern, sem publicar uma revisão antes da nova credencial existir.
+var llmCredentialCompatibilityTriggers = []string{
+	`CREATE TRIGGER IF NOT EXISTS trg_credential_entries_provider_revision_insert
+	 AFTER INSERT ON credential_entries
+	 WHEN NEW.pattern NOT LIKE 'oauth:%'
+	 BEGIN
+	   UPDATE llm_providers
+	      SET compatibility_revision = compatibility_revision + 1
+	    WHERE user_id = NEW.user_id AND credential_pattern = NEW.pattern;
+	 END`,
+	`CREATE TRIGGER IF NOT EXISTS trg_credential_entries_provider_revision_update
+	 AFTER UPDATE ON credential_entries
+	 BEGIN
+	   UPDATE llm_providers
+	      SET compatibility_revision = compatibility_revision + 1
+	    WHERE user_id = OLD.user_id AND credential_pattern = OLD.pattern
+	      AND OLD.pattern NOT LIKE 'oauth:%';
+	   UPDATE llm_providers
+	      SET compatibility_revision = compatibility_revision + 1
+	    WHERE user_id = NEW.user_id AND credential_pattern = NEW.pattern
+	      AND NEW.pattern NOT LIKE 'oauth:%'
+	      AND (NEW.user_id IS NOT OLD.user_id OR NEW.pattern IS NOT OLD.pattern);
+	 END`,
+	`CREATE TRIGGER IF NOT EXISTS trg_credential_entries_provider_revision_delete
+	 AFTER DELETE ON credential_entries
+	 WHEN OLD.pattern NOT LIKE 'oauth:%'
+	 BEGIN
+	   UPDATE llm_providers
+	      SET compatibility_revision = compatibility_revision + 1
+	    WHERE user_id = OLD.user_id AND credential_pattern = OLD.pattern;
+	 END`,
 }
 
 func seedLLMCapabilityCatalog(db *gorm.DB) error {

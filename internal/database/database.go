@@ -347,6 +347,21 @@ func AdoptLegacyData(userID string) error {
 			if !tx.Migrator().HasTable(table) {
 				continue
 			}
+			if table == "llm_providers" &&
+				tx.Migrator().HasColumn(&LLMProvider{}, "CompatibilityRevision") &&
+				tx.Migrator().HasColumn(&LLMProvider{}, "ConfigRevision") {
+				if err := tx.Exec(
+					`UPDATE llm_providers
+					 SET user_id = ?,
+					     compatibility_revision = COALESCE(compatibility_revision, 1) + 1,
+					     config_revision = COALESCE(config_revision, 1) + 1
+				 WHERE user_id IS NULL OR user_id = ''`,
+					userID,
+				).Error; err != nil {
+					return err
+				}
+				continue
+			}
 			if err := tx.Exec(
 				fmt.Sprintf("UPDATE %s SET user_id = ? WHERE user_id IS NULL OR user_id = ''", table),
 				userID,

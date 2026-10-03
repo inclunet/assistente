@@ -15,6 +15,12 @@ import (
 	"gorm.io/gorm"
 )
 
+type credentialRevisionCallback func(context.Context, string) error
+
+func (callback credentialRevisionCallback) RefreshCredentialPatternRevisions(ctx context.Context, pattern string) error {
+	return callback(ctx, pattern)
+}
+
 func legacyOperationFixture(t *testing.T) (*Manager, *Manager, *gorm.DB, context.Context, string) {
 	t.Helper()
 	dsn := filepath.Join(t.TempDir(), "legacy.db") + "?_pragma=busy_timeout(100)&_pragma=journal_mode(WAL)"
@@ -305,6 +311,46 @@ func TestLegacyOAuthExpiredCrashMarkerSurvivesRestart(t *testing.T) {
 	}
 	if err := op.Commit(ctx, &AuthConfig{Source: "static", Type: "oauth2", Token: "late"}); !errors.Is(err, oauthflow.ErrConflict) {
 		t.Fatalf("deleted grant resurrected: %v", err)
+	}
+}
+
+func TestClearLegacyOAuthRefreshesCredentialRevisionsAfterCommitAndUnlock(t *testing.T) {
+	manager, _, db, ctx, id := legacyOperationFixture(t)
+	if err := manager.RegisterPatternWithContext(ctx, "shared.example.test", &AuthConfig{Source: "static", Type: "bearer", Token: "shared"}); err != nil {
+		t.Fatal(err)
+	}
+	var patterns []string
+	manager.SetCredentialRevisionRefresher(credentialRevisionCallback(func(callbackCtx context.Context, pattern string) error {
+		// This read lock would deadlock if ClearLegacyOAuthWithConsumer called
+		// the refresher while still holding the manager's write lock.
+		if !manager.CanPersist() {
+			t.Error("manager deixou de persistir durante o refresh")
+		}
+		var count int64
+		if err := db.WithContext(callbackCtx).Model(&database.CredentialEntry{}).Where("user_id = ? AND pattern = ?", "owner", pattern).Count(&count).Error; err != nil {
+			return err
+		}
+		if count != 0 {
+			t.Errorf("pattern %q ainda existia quando a revisão foi sincronizada", pattern)
+		}
+		patterns = append(patterns, pattern)
+		return nil
+	}))
+
+	done := make(chan error, 1)
+	go func() {
+		done <- manager.ClearLegacyOAuthWithConsumer(ctx, "legacy", id, "shared.example.test", nil, nil)
+	}()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("limpar credenciais: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("refresh de revisões bloqueou enquanto o manager mantinha o lock")
+	}
+	if len(patterns) != 3 {
+		t.Fatalf("esperava sincronização dos três patterns removidos, recebeu %v", patterns)
 	}
 }
 

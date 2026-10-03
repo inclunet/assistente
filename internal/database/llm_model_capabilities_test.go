@@ -12,7 +12,7 @@ import (
 
 func TestMigrateLLMModelCapabilitiesCreatesStrictCatalogIdempotently(t *testing.T) {
 	db := newMigratorTestDB(t)
-	if err := db.AutoMigrate(&LLMProvider{}); err != nil {
+	if err := db.AutoMigrate(&LLMProvider{}, &CredentialEntry{}); err != nil {
 		t.Fatal(err)
 	}
 	if err := MigrateLLMModelCapabilities(db); err != nil {
@@ -46,6 +46,9 @@ func TestMigrateLLMModelCapabilitiesCreatesStrictCatalogIdempotently(t *testing.
 	}
 	if !db.Migrator().HasColumn(&LLMProvider{}, "CompatibilityRevision") {
 		t.Fatal("revisão de compatibilidade não foi adicionada ao provider")
+	}
+	if !db.Migrator().HasColumn(&LLMProvider{}, "ConfigRevision") {
+		t.Fatal("revisão de configuração não foi adicionada ao provider")
 	}
 	if err := db.Exec(`INSERT INTO llm_capabilities(key) VALUES ('arbitrary_capability')`).Error; err == nil {
 		t.Fatal("SQLite aceitou capability fora do vocabulário controlado")
@@ -616,19 +619,191 @@ func TestProviderCompatibilityRevisionChangesWithOnlyConnectionIdentity(t *testi
 	}
 }
 
+func TestBumpCompatibilityRevisionsForCredentialPatternIsUserScoped(t *testing.T) {
+	db := newMigratorTestDB(t)
+	if err := db.AutoMigrate(&LLMProvider{}); err != nil {
+		t.Fatal(err)
+	}
+	providers := []LLMProvider{
+		{ID: "provider-a1", UserID: "owner-a", Name: "A1", Type: "custom", BaseURL: "https://one.example/v1", CredentialPattern: "shared-pattern"},
+		{ID: "provider-a2", UserID: "owner-a", Name: "A2", Type: "custom", BaseURL: "https://two.example/v1", CredentialPattern: "shared-pattern"},
+		{ID: "provider-a3", UserID: "owner-a", Name: "A3", Type: "custom", BaseURL: "https://three.example/v1", CredentialPattern: "other-pattern"},
+		{ID: "provider-b1", UserID: "owner-b", Name: "B1", Type: "custom", BaseURL: "https://four.example/v1", CredentialPattern: "shared-pattern"},
+		{ID: "provider-bootstrap", UserID: "", Name: "Bootstrap", Type: "custom", BaseURL: "https://bootstrap.example/v1", CredentialPattern: "shared-pattern"},
+	}
+	if err := db.Create(&providers).Error; err != nil {
+		t.Fatal(err)
+	}
+	repository := NewProviderRepository(db)
+	revisions, err := repository.BumpCompatibilityRevisionsForCredentialPattern(WithUserID(context.Background(), "owner-a"), "shared-pattern")
+	if err != nil {
+		t.Fatalf("avançar revisão dos consumidores do pattern: %v", err)
+	}
+	if len(revisions) != 2 || revisions["provider-a1"] != 2 || revisions["provider-a2"] != 2 {
+		t.Fatalf("revisões retornadas incorretas: %v", revisions)
+	}
+	for id, want := range map[string]int{"provider-a1": 2, "provider-a2": 2, "provider-a3": 1} {
+		provider, err := repository.GetLLMProvider(WithUserID(context.Background(), "owner-a"), id)
+		if err != nil {
+			t.Errorf("provedor %s: erro ao ler revisão esperada %d: %v", id, want, err)
+			continue
+		}
+		if provider.CompatibilityRevision != want {
+			t.Errorf("provedor %s: revisão=%d, esperada %d", id, provider.CompatibilityRevision, want)
+		}
+	}
+	foreign, err := repository.GetLLMProvider(WithUserID(context.Background(), "owner-b"), "provider-b1")
+	if err != nil {
+		t.Fatalf("ler provedor de outro usuário: %v", err)
+	}
+	if foreign.CompatibilityRevision != 1 {
+		t.Fatalf("invalidação escapou ao usuário dono: revision=%d", foreign.CompatibilityRevision)
+	}
+	bootstrapRevisions, err := repository.BumpCompatibilityRevisionsForCredentialPattern(WithBootstrap(context.Background()), "shared-pattern")
+	if err != nil {
+		t.Fatalf("invalidação no escopo bootstrap: %v", err)
+	}
+	if len(bootstrapRevisions) != 1 || bootstrapRevisions["provider-bootstrap"] != 2 {
+		t.Fatalf("bootstrap deveria invalidar apenas providers órfãos: %v", bootstrapRevisions)
+	}
+	if _, err := repository.BumpCompatibilityRevisionsForCredentialPattern(context.Background(), "shared-pattern"); !errors.Is(err, ErrUserScopeRequired) {
+		t.Fatalf("invalidação sem usuário deveria falhar fechada: %v", err)
+	}
+}
+
 func llmModelCapabilitiesTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	db := newMigratorTestDB(t)
 	if err := db.Exec("PRAGMA foreign_keys = ON").Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&LLMProvider{}); err != nil {
+	if err := db.AutoMigrate(&LLMProvider{}, &CredentialEntry{}); err != nil {
 		t.Fatal(err)
 	}
 	if err := MigrateLLMModelCapabilities(db); err != nil {
 		t.Fatal(err)
 	}
 	return db
+}
+
+func TestCredentialEntryTriggersAdvanceOnlyMatchingProviderRevisions(t *testing.T) {
+	db := llmModelCapabilitiesTestDB(t)
+	repository := NewProviderRepository(db)
+	ownerA := WithUserID(context.Background(), "owner-a")
+	ownerB := WithUserID(context.Background(), "owner-b")
+	for _, provider := range []*LLMProvider{
+		{ID: "owner-a-1", Name: "A1", Type: "custom", APIFormat: "openai", BaseURL: "https://one.example.test/v1", CredentialPattern: "shared-pattern"},
+		{ID: "owner-a-2", Name: "A2", Type: "custom", APIFormat: "openai", BaseURL: "https://two.example.test/v1", CredentialPattern: "shared-pattern"},
+		{ID: "owner-a-other", Name: "A other", Type: "custom", APIFormat: "openai", BaseURL: "https://other.example.test/v1", CredentialPattern: "other-pattern"},
+		{ID: "owner-a-oauth", Name: "A OAuth", Type: "chatgpt", APIFormat: "openai_responses", BaseURL: "https://api.openai.com/v1", CredentialPattern: "oauth:grant"},
+		{ID: "owner-b-1", Name: "B1", Type: "custom", APIFormat: "openai", BaseURL: "https://one.example.test/v1", CredentialPattern: "shared-pattern"},
+	} {
+		ctx := ownerA
+		if provider.ID == "owner-b-1" {
+			ctx = ownerB
+		}
+		if err := repository.SaveLLMProvider(ctx, provider); err != nil {
+			t.Fatalf("criar provedor %s: %v", provider.ID, err)
+		}
+	}
+
+	credential := CredentialEntry{
+		UUIDModel: UUIDModel{ID: "credential-a"},
+		UserID:    "owner-a", Pattern: "shared-pattern", TokenEnc: "ciphertext-one",
+	}
+	if err := db.Create(&credential).Error; err != nil {
+		t.Fatalf("inserir credencial: %v", err)
+	}
+
+	assertRevisions := func(stage string, expected map[string]int) {
+		t.Helper()
+		for id, want := range expected {
+			provider, err := repository.GetLLMProvider(ownerA, id)
+			if id == "owner-b-1" {
+				provider, err = repository.GetLLMProvider(ownerB, id)
+			}
+			if err != nil {
+				t.Errorf("%s: ler %s: %v", stage, id, err)
+				continue
+			}
+			if provider.CompatibilityRevision != want {
+				t.Errorf("%s: %s revision=%d, esperado %d", stage, id, provider.CompatibilityRevision, want)
+			}
+		}
+	}
+	assertRevisions("insert", map[string]int{"owner-a-1": 2, "owner-a-2": 2, "owner-a-other": 1, "owner-b-1": 1})
+
+	if err := db.Model(&CredentialEntry{}).Where("id = ?", credential.ID).Update("token_enc", "ciphertext-two").Error; err != nil {
+		t.Fatalf("atualizar credencial: %v", err)
+	}
+	assertRevisions("update", map[string]int{"owner-a-1": 3, "owner-a-2": 3, "owner-a-other": 1, "owner-b-1": 1})
+
+	if err := db.Where("id = ?", credential.ID).Delete(&CredentialEntry{}).Error; err != nil {
+		t.Fatalf("excluir credencial: %v", err)
+	}
+	assertRevisions("delete", map[string]int{"owner-a-1": 4, "owner-a-2": 4, "owner-a-other": 1, "owner-b-1": 1})
+
+	oauthCredential := CredentialEntry{
+		UUIDModel: UUIDModel{ID: "oauth-credential"},
+		UserID:    "owner-a", Pattern: "oauth:grant", TokenEnc: "oauth-token-one",
+	}
+	if err := db.Create(&oauthCredential).Error; err != nil {
+		t.Fatalf("inserir token OAuth: %v", err)
+	}
+	assertRevisions("oauth insert", map[string]int{"owner-a-oauth": 1})
+	if err := db.Model(&CredentialEntry{}).Where("id = ?", oauthCredential.ID).Update("token_enc", "oauth-token-two").Error; err != nil {
+		t.Fatalf("rotacionar token OAuth: %v", err)
+	}
+	assertRevisions("oauth token rotation", map[string]int{"owner-a-oauth": 1})
+	if err := db.Where("id = ?", oauthCredential.ID).Delete(&CredentialEntry{}).Error; err != nil {
+		t.Fatalf("excluir token OAuth: %v", err)
+	}
+	assertRevisions("oauth delete", map[string]int{"owner-a-oauth": 1})
+}
+
+func TestSetDefaultProviderAdvancesConfigRevisionsAtomically(t *testing.T) {
+	db := llmModelCapabilitiesTestDB(t)
+	repository := NewProviderRepository(db)
+	ctx := WithUserID(context.Background(), "owner-a")
+	providers := []*LLMProvider{
+		{ID: "default-a", Name: "A", Type: "custom", APIFormat: "openai", BaseURL: "https://a.example/v1", IsDefault: true},
+		{ID: "default-b", Name: "B", Type: "custom", APIFormat: "openai", BaseURL: "https://b.example/v1"},
+	}
+	for _, provider := range providers {
+		if err := repository.SaveLLMProvider(ctx, provider); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := repository.SetDefaultProvider(ctx, "default-b"); err != nil {
+		t.Fatal(err)
+	}
+	first, err := repository.GetLLMProvider(ctx, "default-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := repository.GetLLMProvider(ctx, "default-b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.IsDefault || first.ConfigRevision != 2 || !second.IsDefault || second.ConfigRevision != 2 {
+		t.Fatalf("revisions after default switch: previous=%+v next=%+v", first, second)
+	}
+
+	if err := repository.SetDefaultProvider(ctx, "default-b"); err != nil {
+		t.Fatal(err)
+	}
+	second, err = repository.GetLLMProvider(ctx, "default-b")
+	if err != nil || second.ConfigRevision != 2 {
+		t.Fatalf("idempotent set changed config revision: provider=%+v err=%v", second, err)
+	}
+	if err := repository.SetDefaultProvider(ctx, "missing"); !errors.Is(err, gorm.ErrRecordNotFound) {
+		t.Fatalf("missing provider error = %v", err)
+	}
+	second, err = repository.GetLLMProvider(ctx, "default-b")
+	if err != nil || !second.IsDefault || second.ConfigRevision != 2 {
+		t.Fatalf("failed default switch changed state: provider=%+v err=%v", second, err)
+	}
 }
 
 func floatPtr(value float64) *float64 { return &value }

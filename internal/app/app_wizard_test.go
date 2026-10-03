@@ -39,15 +39,27 @@ func setupWizardTestDB(t *testing.T) *gorm.DB {
 	if err := db.AutoMigrate(&database.LLMProvider{}, &database.CredentialEntry{}); err != nil {
 		t.Fatalf("falha ao migrar tabelas: %v", err)
 	}
+	if err := database.MigrateLLMModelCapabilities(db); err != nil {
+		t.Fatalf("falha ao migrar capabilities: %v", err)
+	}
 	database.SetDB(db)
 	return db
 }
 
 func setupWizardTestApp(t *testing.T) *App {
+	return setupWizardTestAppWithCredentialPersistence(t, true)
+}
+
+func setupWizardTestAppWithCredentialPersistence(t *testing.T, persist bool) *App {
 	t.Helper()
 	_ = setupWizardTestDB(t)
 
-	credMgr := credentials.NewManager([]byte("test-key-exactly-32-bytes-long!!"))
+	var credMgr *credentials.Manager
+	if persist {
+		credMgr = credentials.NewManagerWithStoreAndPersistence([]byte("test-key-exactly-32-bytes-long!!"), credentials.NewDBStore(), true)
+	} else {
+		credMgr = credentials.NewManager([]byte("test-key-exactly-32-bytes-long!!"))
+	}
 	llmRegistry := llm.NewProviderRegistry()
 	svc := providers.NewService(providers.ServiceConfig{
 		Registry: llmRegistry,
@@ -56,7 +68,7 @@ func setupWizardTestApp(t *testing.T) *App {
 	})
 
 	a := &App{
-		ctx:           context.Background(),
+		ctx:           wizardTestCtx(),
 		credMgr:       credMgr,
 		llmRegistry:   llmRegistry,
 		providerSvc:   svc,
@@ -71,7 +83,6 @@ func setupWizardTestApp(t *testing.T) *App {
 		CredMgr:          credMgr,
 		ProviderSvc:      svc,
 		LLMRegistry:      llmRegistry,
-		SaveLLMProviders: func() error { return svc.Save(a.internalBootstrapCtx()) },
 	})
 	return a
 }
@@ -113,7 +124,7 @@ func setupWizardTestAppWithProfiles(t *testing.T) (*App, *profiles.Manager) {
 	})
 
 	a := &App{
-		ctx:            context.Background(),
+		ctx:            wizardTestCtx(),
 		credMgr:        credMgr,
 		llmRegistry:    llmRegistry,
 		profileManager: pm,
@@ -129,7 +140,6 @@ func setupWizardTestAppWithProfiles(t *testing.T) (*App, *profiles.Manager) {
 		CredMgr:          credMgr,
 		ProviderSvc:      svc,
 		LLMRegistry:      llmRegistry,
-		SaveLLMProviders: func() error { return svc.Save(a.internalBootstrapCtx()) },
 	})
 	return a, pm
 }
@@ -201,6 +211,30 @@ func TestGetWizardProviderInfo_IDsMatchCreateDefaultLLMProvider(t *testing.T) {
 	}
 }
 
+func TestCreateDefaultLLMProviderSupportsBootstrapCredentialInvalidation(t *testing.T) {
+	app := setupWizardTestAppWithCredentialPersistence(t, false)
+	app.currentUserID = ""
+	app.ctx = context.Background()
+
+	if err := app.createDefaultLLMProvider("openai", "sk-bootstrap"); err != nil {
+		t.Fatalf("createDefaultLLMProvider: %v", err)
+	}
+	var stored database.LLMProvider
+	if err := database.DB().Where("id = ?", "openai-default").Take(&stored).Error; err != nil {
+		t.Fatalf("ler provider do bootstrap: %v", err)
+	}
+	if stored.UserID != "" {
+		t.Fatalf("provider pré-login deveria permanecer órfão até adoção: user_id=%q", stored.UserID)
+	}
+	auth, err := app.credMgr.GetByPattern("api.openai.com")
+	if err != nil {
+		t.Fatalf("ler credencial do bootstrap: %v", err)
+	}
+	if auth == nil || auth.Token != "sk-bootstrap" {
+		t.Fatalf("credencial do bootstrap não persistida: %#v", auth)
+	}
+}
+
 func TestGetWizardProviderInfo_APIFormats(t *testing.T) {
 	tests := []struct {
 		choice  string
@@ -256,7 +290,7 @@ func TestCreateWizardProvider_OpenAI(t *testing.T) {
 	}
 
 	// Credential must be stored
-	auth, err := app.credMgr.GetByPattern("api.openai.com")
+	auth, err := app.credMgr.GetByPatternWithContext(wizardTestCtx(), "api.openai.com")
 	if err != nil {
 		t.Fatalf("GetByPattern: %v", err)
 	}
@@ -334,7 +368,7 @@ func TestCreateWizardProvider_DeepSeek(t *testing.T) {
 			provider.ReasoningContentMode, llm.ReasoningContentReplayWithTools)
 	}
 
-	auth, err := app.credMgr.GetByPattern("api.deepseek.com")
+	auth, err := app.credMgr.GetByPatternWithContext(wizardTestCtx(), "api.deepseek.com")
 	if err != nil {
 		t.Fatalf("GetByPattern: %v", err)
 	}
@@ -390,14 +424,22 @@ func TestCreateWizardProvider_CustomURL(t *testing.T) {
 
 func TestCreateWizardProvider_OverwritesExisting(t *testing.T) {
 	app := setupWizardTestApp(t)
+	existing, err := app.providerSvc.Create(wizardTestCtx(), providers.CreateRequest{
+		ID: "shared-openai-consumer", Name: "Shared OpenAI", Type: string(llm.ProviderCustom),
+		APIFormat: string(llm.APIFormatOpenAI), BaseURL: "https://api.openai.com/v1",
+	})
+	if err != nil {
+		t.Fatalf("create shared consumer: %v", err)
+	}
+	previousRevision := existing.Provider.CompatibilityRevision
 
-	_, err := app.createWizardProvider("OpenAI", "https://api.openai.com/v1", "sk-old", "gpt-3.5-turbo")
+	_, err = app.welcomeCtrl.CreateWizardProvider(wizardTestCtx(), "OpenAI", "https://api.openai.com/v1", "sk-old", "gpt-3.5-turbo")
 	if err != nil {
 		t.Fatalf("first createWizardProvider: %v", err)
 	}
 
 	// Re-run overwrites existing
-	_, err = app.createWizardProvider("OpenAI", "https://api.openai.com/v1", "sk-new", "gpt-4o")
+	_, err = app.welcomeCtrl.CreateWizardProvider(wizardTestCtx(), "OpenAI", "https://api.openai.com/v1", "sk-new", "gpt-4o")
 	if err != nil {
 		t.Fatalf("second createWizardProvider: %v", err)
 	}
@@ -409,8 +451,11 @@ func TestCreateWizardProvider_OverwritesExisting(t *testing.T) {
 	if provider.Model != "gpt-4o" {
 		t.Errorf("Model after overwrite: got %s, want gpt-4o", provider.Model)
 	}
+	if app.llmRegistry.Get("shared-openai-consumer").CompatibilityRevision <= previousRevision {
+		t.Fatal("wizard não avançou a revisão do provider que compartilha a credencial")
+	}
 
-	auth, err := app.credMgr.GetByPattern("api.openai.com")
+	auth, err := app.credMgr.GetByPatternWithContext(wizardTestCtx(), "api.openai.com")
 	if err != nil {
 		t.Fatalf("GetByPattern after overwrite: %v", err)
 	}
@@ -510,7 +555,7 @@ func TestWizardIntegration_ProviderMarkedAsDefault(t *testing.T) {
 	}
 
 	// Credential should exist for the provider's pattern
-	auth, err := app.credMgr.GetByPattern(provider.CredentialPattern)
+	auth, err := app.credMgr.GetByPatternWithContext(wizardTestCtx(), provider.CredentialPattern)
 	if err != nil {
 		t.Fatalf("credential not found for pattern %s: %v", provider.CredentialPattern, err)
 	}

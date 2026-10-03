@@ -28,8 +28,10 @@ const (
 	// Shared OAuth grants/callbacks remove 15 legacy formats, including codes and authorization URLs.
 	// Legacy OAuth now propagates a sanitized persistence error instead of
 	// logging the raw storage failure and reporting successful renewal.
-	expectedLegacyFormatCount  = 750
-	expectedLegacyFormatDigest = "a9b995559c6852950c8426d1678e83eea833941cd7fa2c82eee7865050b50487"
+	// The welcome wizard no longer pre-registers a temporary credential before
+	// CreateWizardProvider, removing the duplicate error format.
+	expectedLegacyFormatCount  = 749
+	expectedLegacyFormatDigest = "119d8aa4d66e6dd21011a7f5a03749a4f797bdf2f9da332533257f6e6f009a98"
 )
 
 // TestLegacyLoggingInventory mantém reproduzível o inventário da issue #675.

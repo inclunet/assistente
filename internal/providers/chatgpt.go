@@ -250,6 +250,7 @@ func persistChatGPTAuthorization(ctx context.Context, store oauthflow.Store, r o
 				"api_format":             string(p.APIFormat),
 				"auth_mode":              string(p.AuthMode),
 				"compatibility_revision": gorm.Expr("compatibility_revision + 1"),
+				"config_revision":        gorm.Expr("config_revision + 1"),
 			}
 			result := database.ScopeByUser(ctx, tx.Model(&database.LLMProvider{}), "user_id").Where("id = ? AND credential_pattern = ?", p.ID, *expectedPattern).Updates(fields)
 			if result.Error != nil {
@@ -274,6 +275,7 @@ func persistChatGPTAuthorization(ctx context.Context, store oauthflow.Store, r o
 			return err
 		}
 		p.CompatibilityRevision = dbProvider.CompatibilityRevision
+		p.ConfigRevision = dbProvider.ConfigRevision
 		return nil
 	})
 }
@@ -292,7 +294,8 @@ func (s *Service) setChatGPTDefaultModel(ctx context.Context, store oauthflow.St
 	}
 	var updated *llm.ProviderConfig
 	err := transaction.WithAuthorization(ctx, authorizationID, func(tx *gorm.DB) error {
-		current, err := database.NewProviderRepository(tx).GetLLMProvider(ctx, provider.ID)
+		repository := database.NewProviderRepository(tx)
+		current, err := repository.GetLLMProvider(ctx, provider.ID)
 		if err != nil {
 			return err
 		}
@@ -300,14 +303,20 @@ func (s *Service) setChatGPTDefaultModel(ctx context.Context, store oauthflow.St
 			return oauthflow.ErrConflict
 		}
 		if current.DefaultModel == "" {
-			result := database.ScopeByUser(ctx, tx.Model(&database.LLMProvider{}), "user_id").Where("id = ? AND credential_pattern = ? AND default_model = ?", provider.ID, current.CredentialPattern, "").Update("default_model", model)
+			result := database.ScopeByUser(ctx, tx.Model(&database.LLMProvider{}), "user_id").Where("id = ? AND credential_pattern = ? AND default_model = ?", provider.ID, current.CredentialPattern, "").Updates(map[string]any{
+				"default_model":   model,
+				"config_revision": gorm.Expr("config_revision + 1"),
+			})
 			if result.Error != nil {
 				return result.Error
 			}
 			if result.RowsAffected != 1 {
 				return oauthflow.ErrConflict
 			}
-			current.DefaultModel = model
+			current, err = repository.GetLLMProvider(ctx, provider.ID)
+			if err != nil {
+				return err
+			}
 		}
 		updated, err = fromDBModel(current)
 		return err

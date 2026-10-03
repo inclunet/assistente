@@ -114,8 +114,8 @@ func TestDBStore_SavePublishesCompatibilityRevisionsOnlyAfterCommit(t *testing.T
 	if err := store.Save(ctx, []*llm.ProviderConfig{first, protected}); err != nil {
 		t.Fatalf("criar provedores iniciais: %v", err)
 	}
-	if first.CompatibilityRevision != 1 || protected.CompatibilityRevision != 1 {
-		t.Fatalf("revisões iniciais incorretas: first=%d protected=%d", first.CompatibilityRevision, protected.CompatibilityRevision)
+	if first.CompatibilityRevision != 1 || protected.CompatibilityRevision != 1 || first.ConfigRevision != 1 || protected.ConfigRevision != 1 {
+		t.Fatalf("revisões iniciais incorretas: first=(compat=%d config=%d) protected=(compat=%d config=%d)", first.CompatibilityRevision, first.ConfigRevision, protected.CompatibilityRevision, protected.ConfigRevision)
 	}
 
 	firstUpdate := &llm.ProviderConfig{ID: first.ID, Name: first.Name, Type: first.Type, APIFormat: first.APIFormat, BaseURL: "https://two.example/v1", CompatibilityRevision: first.CompatibilityRevision}
@@ -123,8 +123,8 @@ func TestDBStore_SavePublishesCompatibilityRevisionsOnlyAfterCommit(t *testing.T
 	if err := store.Save(ctx, []*llm.ProviderConfig{firstUpdate, protectedUpdate}); !errors.Is(err, oauthflow.ErrConflict) {
 		t.Fatalf("alteração protegida deveria abortar a transação: %v", err)
 	}
-	if firstUpdate.CompatibilityRevision != 1 {
-		t.Fatalf("rollback publicou revisão não commitada no snapshot: %d", firstUpdate.CompatibilityRevision)
+	if firstUpdate.CompatibilityRevision != 1 || firstUpdate.ConfigRevision != 0 {
+		t.Fatalf("rollback publicou revisões não commitadas no snapshot: compat=%d config=%d", firstUpdate.CompatibilityRevision, firstUpdate.ConfigRevision)
 	}
 	var persisted database.LLMProvider
 	if err := db.First(&persisted, "id = ?", first.ID).Error; err != nil {
@@ -132,5 +132,13 @@ func TestDBStore_SavePublishesCompatibilityRevisionsOnlyAfterCommit(t *testing.T
 	}
 	if persisted.CompatibilityRevision != 1 || persisted.BaseURL != first.BaseURL {
 		t.Fatalf("rollback alterou o provedor persistido: %+v", persisted)
+	}
+	modelUpdate := *first
+	modelUpdate.Model = "model-only-change"
+	if err := store.Save(ctx, []*llm.ProviderConfig{&modelUpdate}); err != nil {
+		t.Fatalf("salvar alteração apenas de modelo: %v", err)
+	}
+	if modelUpdate.ConfigRevision != first.ConfigRevision+1 || modelUpdate.CompatibilityRevision != first.CompatibilityRevision {
+		t.Fatalf("alteração de modelo deve avançar só config_revision: compat=%d config=%d", modelUpdate.CompatibilityRevision, modelUpdate.ConfigRevision)
 	}
 }

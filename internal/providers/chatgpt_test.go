@@ -263,6 +263,37 @@ func TestChatGPTDefaultModelSaveFailurePreservesConnection(t *testing.T) {
 	}
 }
 
+func TestChatGPTDefaultModelPublishesUpdatedConfigRevision(t *testing.T) {
+	s, mgr, ctx := chatGPTTestService(t)
+	created, err := s.CreateChatGPTConnection(ctx, "Connected")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := mgr.OAuthStore(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	authorization, err := store.Load(ctx, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	authorization.State = "connected"
+	authorization.Revision++
+	if err = store.CompareAndSwap(ctx, authorization, authorization.Revision-1); err != nil {
+		t.Fatal(err)
+	}
+
+	s.setChatGPTDefaultModel(ctx, store, created.ID, s.registry.Get(created.ID), "account-model", s.registry.Generation())
+	saved, err := database.GetLLMProviderWithContext(ctx, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	published := s.registry.Get(created.ID)
+	if published == nil || published.DefaultModel != saved.DefaultModel || published.ConfigRevision != saved.ConfigRevision {
+		t.Fatalf("registry snapshot=%+v, database provider=%+v", published, saved)
+	}
+}
+
 func TestChatGPTDeleteRejectsActiveReauthorization(t *testing.T) {
 	s, mgr, ctx := chatGPTTestService(t)
 	created, err := s.CreateChatGPTConnection(ctx, "Reauthorizing")
@@ -322,6 +353,38 @@ func TestFirstChatGPTProviderBecomesDefault(t *testing.T) {
 	persisted, err := s.store.Get(other, created.ID)
 	if err != nil || !persisted.IsDefault {
 		t.Fatalf("other default: %v", err)
+	}
+}
+
+func TestSetDefaultRefreshesRegistryRevisionsAndRejectsStaleSnapshot(t *testing.T) {
+	s, _, ctx := chatGPTTestService(t)
+	first, err := s.CreateChatGPTConnection(ctx, "First")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := s.CreateChatGPTConnection(ctx, "Second")
+	if err != nil {
+		t.Fatal(err)
+	}
+	staleFirst := s.registry.Get(first.ID)
+	if err := s.SetDefault(ctx, second.ID); err != nil {
+		t.Fatal(err)
+	}
+	for id, wantDefault := range map[string]bool{first.ID: false, second.ID: true} {
+		persisted, err := s.store.Get(ctx, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		registered := s.registry.Get(id)
+		if registered == nil || registered.IsDefault != wantDefault || registered.ConfigRevision != persisted.ConfigRevision {
+			t.Fatalf("default snapshot mismatch for %s: registry=%+v database=%+v", id, registered, persisted)
+		}
+	}
+	if err := s.registry.Register(staleFirst); !errors.Is(err, llm.ErrStaleProviderSnapshot) {
+		t.Fatalf("stale default snapshot accepted: %v", err)
+	}
+	if s.registry.Get(first.ID).IsDefault {
+		t.Fatal("stale snapshot restored previous default in registry")
 	}
 }
 
@@ -500,11 +563,15 @@ func TestChatGPTDefaultModelUsesCurrentConsumer(t *testing.T) {
 			case "delete":
 				err = database.DB().Delete(current).Error
 			case "rename":
-				err = database.DB().Model(current).Update("name", "Imported name").Error
+				err = database.DB().Model(current).Updates(map[string]any{"name": "Imported name", "config_revision": current.ConfigRevision + 1}).Error
 			case "rebind":
-				err = database.DB().Model(current).Update("credential_pattern", "oauth:another-grant").Error
+				err = database.DB().Model(current).Updates(map[string]any{
+					"credential_pattern":     "oauth:another-grant",
+					"compatibility_revision": current.CompatibilityRevision + 1,
+					"config_revision":        current.ConfigRevision + 1,
+				}).Error
 			case "chosen_model":
-				err = database.DB().Model(current).Update("default_model", "chosen-model").Error
+				err = database.DB().Model(current).Updates(map[string]any{"default_model": "chosen-model", "config_revision": current.ConfigRevision + 1}).Error
 			case "disconnect":
 				r.State = "disconnected"
 				r.Revision++
@@ -552,7 +619,10 @@ func TestChatGPTRecoveryPreservesConcurrentProviderEdits(t *testing.T) {
 		t.Fatal(err)
 	}
 	stale := s.registry.Get(imported.ID)
-	edits := map[string]any{"name": "Concurrent name", "default_model": "selected-model", "timeout": 145, "is_default": true}
+	edits := map[string]any{
+		"name": "Concurrent name", "default_model": "selected-model", "timeout": 145,
+		"is_default": true, "config_revision": stale.ConfigRevision + 1,
+	}
 	if err := database.DB().Model(&database.LLMProvider{}).Where("id = ?", imported.ID).Updates(edits).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -598,7 +668,15 @@ func TestStaleGenericRegistryCannotDetachOAuthConsumer(t *testing.T) {
 			if err := store.CompareAndSwap(ctx, grant, grant.Revision-1); err != nil {
 				t.Fatal(err)
 			}
-			stale := &llm.ProviderConfig{ID: created.ID, Name: "Old generic", Type: llm.ProviderOpenAI, BaseURL: "https://api.openai.com/v1", APIFormat: llm.APIFormatOpenAI, AuthMode: llm.AuthModeRequired}
+			// Keep the current revision while deliberately corrupting the cached
+			// provider kind; the test exercises OAuth-store conflict guards, not
+			// rejection of a genuinely older compatibility snapshot.
+			stale := &llm.ProviderConfig{
+				ID: created.ID, Name: "Old generic", Type: llm.ProviderOpenAI,
+				BaseURL: "https://api.openai.com/v1", APIFormat: llm.APIFormatOpenAI,
+				AuthMode: llm.AuthModeRequired, CompatibilityRevision: original.CompatibilityRevision,
+				ConfigRevision: original.ConfigRevision + 1,
+			}
 			if err := service.registry.Register(stale); err != nil {
 				t.Fatal(err)
 			}

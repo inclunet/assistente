@@ -224,10 +224,6 @@ func (s *Service) CreateFromTemplate(ctx context.Context, providerType, apiKey s
 		return err
 	}
 
-	if err := s.registry.Register(p); err != nil {
-		return fmt.Errorf("erro ao registrar provedor: %w", err)
-	}
-
 	if apiKey != "" && p.CredentialPattern != "" {
 		if err := s.credMgr.RegisterPatternWithContext(ctx, p.CredentialPattern, &credentials.AuthConfig{Source: "static",
 			Type:  "bearer",
@@ -235,10 +231,24 @@ func (s *Service) CreateFromTemplate(ctx context.Context, providerType, apiKey s
 		}); err != nil {
 			return fmt.Errorf("erro ao salvar credencial: %w", err)
 		}
+		if err := s.credentialPatternChanged(ctx, p.CredentialPattern); err != nil {
+			return fmt.Errorf("erro ao atualizar revisão dos provedores que usam a credencial: %w", err)
+		}
 	}
 
-	if err := s.Save(ctx); err != nil {
+	// Persistir o template explicitamente: a sincronização da credencial pode
+	// marcar snapshots stale e removê-los de Registry.List, então Save (que
+	// salva apenas a lista visível) não é suficiente para criar este provider.
+	if err := s.store.Save(ctx, []*llm.ProviderConfig{p}); err != nil {
 		return fmt.Errorf("erro ao salvar provedor: %w", err)
+	}
+	if p.CredentialPattern != "" {
+		if err := s.RefreshCredentialPatternRevisions(ctx, p.CredentialPattern); err != nil {
+			return fmt.Errorf("erro ao sincronizar provedores que usam a credencial %q: %w", p.CredentialPattern, err)
+		}
+	}
+	if _, err := s.registerAuthoritativeProvider(ctx, p); err != nil {
+		return fmt.Errorf("erro ao registrar snapshot persistido do provedor: %w", err)
 	}
 
 	logging.Infof(ctx, "providers.defaults", "[providers] Provedor '%s' criado a partir do template", p.ID)

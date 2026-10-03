@@ -24,6 +24,16 @@ func (s *DBStore) BumpCompatibilityRevision(ctx context.Context, id string) erro
 	return database.NewProviderRepository(database.DB()).BumpCompatibilityRevision(ctx, id)
 }
 
+func (s *DBStore) BumpCompatibilityRevisionsForCredentialPattern(ctx context.Context, pattern string) (map[string]int, error) {
+	return database.NewProviderRepository(database.DB()).BumpCompatibilityRevisionsForCredentialPattern(ctx, pattern)
+}
+
+func (s *DBStore) GetCompatibilityRevisionsForCredentialPattern(ctx context.Context, pattern string) (map[string]int, error) {
+	return database.NewProviderRepository(database.DB()).GetCompatibilityRevisionsForCredentialPattern(ctx, pattern)
+}
+
+func (*DBStore) CredentialMutationsBumpCompatibilityRevisionsAtomically() bool { return true }
+
 // Save persiste todos os provedores fornecidos no banco.
 // Usa GORM Save (upsert por primary key).
 //
@@ -41,7 +51,8 @@ func (s *DBStore) Save(ctx context.Context, providers []*llm.ProviderConfig) err
 	if err := database.RequireUserIDOrBootstrap(ctx); err != nil {
 		return err
 	}
-	revisions := make([]int, len(providers))
+	compatibilityRevisions := make([]int, len(providers))
+	configRevisions := make([]int, len(providers))
 	err := database.DB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		repository := database.NewProviderRepository(tx)
 		for i, p := range providers {
@@ -63,7 +74,8 @@ func (s *DBStore) Save(ctx context.Context, providers []*llm.ProviderConfig) err
 			if err := repository.SaveLLMProvider(ctx, dbProvider); err != nil {
 				return err
 			}
-			revisions[i] = dbProvider.CompatibilityRevision
+			compatibilityRevisions[i] = dbProvider.CompatibilityRevision
+			configRevisions[i] = dbProvider.ConfigRevision
 		}
 		return nil
 	})
@@ -71,7 +83,8 @@ func (s *DBStore) Save(ctx context.Context, providers []*llm.ProviderConfig) err
 		return err
 	}
 	for i, p := range providers {
-		p.CompatibilityRevision = revisions[i]
+		p.CompatibilityRevision = compatibilityRevisions[i]
+		p.ConfigRevision = configRevisions[i]
 	}
 	return nil
 }
@@ -152,6 +165,7 @@ func toDBModel(p *llm.ProviderConfig) *database.LLMProvider {
 		Name:                     p.Name,
 		Type:                     string(p.Type),
 		CompatibilityRevision:    p.CompatibilityRevision,
+		ConfigRevision:           p.ConfigRevision,
 		APIFormat:                string(p.APIFormat),
 		BaseURL:                  p.BaseURL,
 		Model:                    p.Model,
@@ -188,6 +202,7 @@ func fromDBModel(dbP *database.LLMProvider) (*llm.ProviderConfig, error) {
 		Name:                     dbP.Name,
 		Type:                     llm.ProviderType(dbP.Type),
 		CompatibilityRevision:    dbP.CompatibilityRevision,
+		ConfigRevision:           dbP.ConfigRevision,
 		APIFormat:                llm.APIFormat(dbP.APIFormat),
 		BaseURL:                  dbP.BaseURL,
 		Model:                    dbP.Model,

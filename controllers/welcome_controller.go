@@ -113,7 +113,6 @@ type WelcomeControllerConfig struct {
 	// Callbacks para operações que pertencem à camada App (infra).
 	ConfigureCredentialManager func(dek []byte, persist bool)
 	InitLLMClient              func()
-	SaveLLMProviders           func() error
 }
 
 // WelcomeController expõe o wizard de boas-vindas e verificações iniciais.
@@ -125,7 +124,6 @@ type WelcomeController struct {
 	updaterCtrl                *UpdaterController
 	configureCredentialManager func(dek []byte, persist bool)
 	initLLMClient              func()
-	saveLLMProviders           func() error
 }
 
 // NewWelcomeController cria um WelcomeController com as dependências fornecidas.
@@ -138,7 +136,6 @@ func NewWelcomeController(cfg WelcomeControllerConfig) *WelcomeController {
 		updaterCtrl:                cfg.UpdaterCtrl,
 		configureCredentialManager: cfg.ConfigureCredentialManager,
 		initLLMClient:              cfg.InitLLMClient,
-		saveLLMProviders:           cfg.SaveLLMProviders,
 	}
 }
 
@@ -362,18 +359,6 @@ func (c *WelcomeController) RunWelcomeWizard(ctx context.Context) (bool, error) 
 				defaultModel = manualResp.Answers["defaultModel"].(string)
 			}
 
-			// Registra credencial temporária para o CreateWizardProvider
-			wizardHostname, _ := providers.ExtractHostname(baseURL)
-			if apiKey != "" && wizardHostname != "" {
-				wizardAuth := &credentials.AuthConfig{Source: "static",
-					Type:  "bearer",
-					Token: apiKey,
-				}
-				if err := c.credMgr.RegisterPatternWithContext(ctx, wizardHostname, wizardAuth); err != nil {
-					logging.Errorf(ctx, "controllers.welcome-controller", "[Wizard] Erro ao registrar credencial temporária: %v", err)
-				}
-			}
-
 			providerID, err := c.CreateWizardProvider(ctx, provider, baseURL, apiKey, defaultModel)
 			if err != nil {
 				return false, fmt.Errorf("erro ao criar provedor: %w", err)
@@ -457,10 +442,6 @@ func (c *WelcomeController) CreateWizardProvider(ctx context.Context, providerCh
 		ReasoningContentMode: info.ReasoningContentMode,
 	}
 
-	if err := c.llmRegistry.Register(provider); err != nil {
-		return "", fmt.Errorf("erro ao registrar provedor: %w", err)
-	}
-
 	if apiKey != "" && hostname != "" {
 		authCfg := &credentials.AuthConfig{Source: "static",
 			Type:  "bearer",
@@ -471,10 +452,14 @@ func (c *WelcomeController) CreateWizardProvider(ctx context.Context, providerCh
 		}
 	}
 
-	if c.saveLLMProviders != nil {
-		if err := c.saveLLMProviders(); err != nil {
-			return "", fmt.Errorf("erro ao persistir provedor: %w", err)
-		}
+	// Uma credencial pode ser compartilhada com provedores já registrados.
+	// Salve-a primeiro; depois persista o provider e confirme sua publicação
+	// autoritativa, pois uma sincronização concorrente pode manter o pattern stale.
+	if current := c.llmRegistry.Get(provider.ID); current != nil {
+		provider.CompatibilityRevision = current.CompatibilityRevision
+	}
+	if _, err := c.providerSvc.SaveAndRegister(ctx, provider); err != nil {
+		return "", fmt.Errorf("erro ao persistir e registrar provedor: %w", err)
 	}
 
 	if err := c.providerSvc.SetDefault(ctx, info.ID); err != nil {

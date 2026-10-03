@@ -49,78 +49,88 @@ func (m *Manager) ClearLegacyOAuth(ctx context.Context, slug, consumerID, hostna
 // updates its consumer. Publish runs only after commit, under the vault lock.
 func (m *Manager) ClearLegacyOAuthWithConsumer(ctx context.Context, slug, consumerID, hostname string, update func(*gorm.DB) error, publish func()) error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-	user, err := database.RequireUserID(ctx)
-	if err != nil {
-		return err
-	}
-	store, ok := m.store.(*DBStore)
-	if !ok || !m.persist {
-		return oauthflow.ErrResource
-	}
 	patterns := []string{"mcp-client:" + slug, "mcp-tokens:" + slug}
 	if hostname != "" {
 		patterns = append(patterns, hostname)
 	}
-	err = database.WithSQLiteImmediateTransactionOnce(ctx, time.Time{}, store.db, "credentials.legacy_oauth.clear", func(tx *gorm.DB) error {
-		var consumer database.MCPServer
-		if err := tx.Where("id = ? AND user_id = ? AND slug = ?", consumerID, user, slug).First(&consumer).Error; err != nil {
-			return oauthflow.ErrConflict
-		}
-		if consumer.OAuthManaged || consumer.OAuthAuthorizationID != "" {
-			return oauthflow.ErrConflict
-		}
-		var row database.CredentialEntry
-		readErr := tx.Where("user_id = ? AND pattern = ?", user, "mcp-tokens:"+slug).First(&row).Error
-		if readErr != nil && !errors.Is(readErr, gorm.ErrRecordNotFound) {
-			return readErr
-		}
-		if row.LegacyOAuthControlEnc != "" {
-			data, err := m.decrypt(row.LegacyOAuthControlEnc)
-			if err != nil {
-				return oauthflow.ErrConflict
-			}
-			var control legacyOAuthControl
-			if json.Unmarshal([]byte(data), &control) != nil || control.Version != 1 || control.ConsumerID != consumerID {
-				return oauthflow.ErrConflict
-			}
-			if time.Now().Before(control.Until) {
-				return oauthflow.ErrTransient
-			}
-		}
-		if err := tx.Where("user_id = ? AND pattern IN ?", user, patterns).Delete(&database.CredentialEntry{}).Error; err != nil {
+	err := func() error {
+		defer m.mu.Unlock()
+		user, err := database.RequireUserID(ctx)
+		if err != nil {
 			return err
 		}
-		if update != nil {
-			return update(tx)
+		store, ok := m.store.(*DBStore)
+		if !ok || !m.persist {
+			return oauthflow.ErrResource
+		}
+		err = database.WithSQLiteImmediateTransactionOnce(ctx, time.Time{}, store.db, "credentials.legacy_oauth.clear", func(tx *gorm.DB) error {
+			var consumer database.MCPServer
+			if err := tx.Where("id = ? AND user_id = ? AND slug = ?", consumerID, user, slug).First(&consumer).Error; err != nil {
+				return oauthflow.ErrConflict
+			}
+			if consumer.OAuthManaged || consumer.OAuthAuthorizationID != "" {
+				return oauthflow.ErrConflict
+			}
+			var row database.CredentialEntry
+			readErr := tx.Where("user_id = ? AND pattern = ?", user, "mcp-tokens:"+slug).First(&row).Error
+			if readErr != nil && !errors.Is(readErr, gorm.ErrRecordNotFound) {
+				return readErr
+			}
+			if row.LegacyOAuthControlEnc != "" {
+				data, err := m.decrypt(row.LegacyOAuthControlEnc)
+				if err != nil {
+					return oauthflow.ErrConflict
+				}
+				var control legacyOAuthControl
+				if json.Unmarshal([]byte(data), &control) != nil || control.Version != 1 || control.ConsumerID != consumerID {
+					return oauthflow.ErrConflict
+				}
+				if time.Now().Before(control.Until) {
+					return oauthflow.ErrTransient
+				}
+			}
+			if err := tx.Where("user_id = ? AND pattern IN ?", user, patterns).Delete(&database.CredentialEntry{}).Error; err != nil {
+				return err
+			}
+			if update != nil {
+				return update(tx)
+			}
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+		kept := make([]*DomainCredential, 0, len(m.credentials))
+		for _, entry := range m.credentials {
+			remove := false
+			for _, pattern := range patterns {
+				if entry.UserID == user && entry.Pattern == pattern {
+					remove = true
+				}
+			}
+			if !remove {
+				kept = append(kept, entry)
+			} else {
+				for _, cancel := range m.oauthRequests[entry.ID] {
+					cancel()
+				}
+				entry.invalidateCommandCache()
+			}
+		}
+		m.credentials = kept
+		if publish != nil {
+			publish()
 		}
 		return nil
-	})
+	}()
 	if err != nil {
 		return err
 	}
-	kept := make([]*DomainCredential, 0, len(m.credentials))
-	for _, entry := range m.credentials {
-		remove := false
-		for _, pattern := range patterns {
-			if entry.UserID == user && entry.Pattern == pattern {
-				remove = true
-			}
-		}
-		if !remove {
-			kept = append(kept, entry)
-		} else {
-			for _, cancel := range m.oauthRequests[entry.ID] {
-				cancel()
-			}
-			entry.invalidateCommandCache()
-		}
+	var syncErr error
+	for _, pattern := range patterns {
+		syncErr = errors.Join(syncErr, m.notifyCredentialPatternMutation(ctx, pattern))
 	}
-	m.credentials = kept
-	if publish != nil {
-		publish()
-	}
-	return nil
+	return syncErr
 }
 
 // Context permits only writes belonging to this exact durable attempt.

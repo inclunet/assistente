@@ -343,6 +343,9 @@ func TestTestLLMProviderUsesExistingCredential(t *testing.T) {
 	}
 	_ = app.llmRegistry.Register(provider)
 	credCtx := database.WithUserID(context.Background(), "test-user")
+	if err := app.providerSvc.Save(credCtx); err != nil {
+		t.Fatalf("persistir provider de teste antes de salvar sua credencial: %v", err)
+	}
 	_ = app.credMgr.RegisterPatternWithContext(credCtx, hostname, &credentials.AuthConfig{Source: "static",
 		Type:  "bearer",
 		Token: "sk-existing-secret",

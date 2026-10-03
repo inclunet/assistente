@@ -31,8 +31,20 @@ type ProviderStore interface {
 	Count(ctx context.Context) (int, error)
 }
 
-// CredentialIdentityRevisionStore invalida fatos de compatibilidade antes de
-// trocar uma credencial cujo identificador de referência não mudou.
-type CredentialIdentityRevisionStore interface {
-	BumpCompatibilityRevision(ctx context.Context, id string) error
+// CredentialPatternRevisionStore invalida todos os provedores que compartilham
+// um pattern antes de a credencial armazenada sob ele ser alterada/removida.
+type CredentialPatternRevisionStore interface {
+	BumpCompatibilityRevisionsForCredentialPattern(ctx context.Context, pattern string) (map[string]int, error)
+}
+
+// CredentialPatternRevisionReader lê a revisão efetiva depois que o store do
+// cofre confirmou a mutação transacional.
+type CredentialPatternRevisionReader interface {
+	GetCompatibilityRevisionsForCredentialPattern(ctx context.Context, pattern string) (map[string]int, error)
+}
+
+// AtomicCredentialPatternRevisionStore indica que mutações persistidas do
+// cofre avançam revisões na mesma transação SQLite.
+type AtomicCredentialPatternRevisionStore interface {
+	CredentialMutationsBumpCompatibilityRevisionsAtomically() bool
 }
