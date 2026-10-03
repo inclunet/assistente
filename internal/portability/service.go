@@ -448,6 +448,9 @@ func ImportConversationsWithRestoreHook(
 		}
 		if imported {
 			result.Imported++
+			if historicalMCPOAuth(server) {
+				result.Warnings = append(result.Warnings, historicalMCPOAuthWarning(server))
+			}
 		} else {
 			result.Skipped++
 			result.SkippedMCPServerConflict++

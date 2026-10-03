@@ -4,6 +4,12 @@
 
 ## Dependências
 
+Continuação AEP-0112: novos cadastros OAuth de backups canônicos e arquivos
+históricos são restaurados desativados, com conexão automática desligada e
+aviso de recuperação. Metadados e credenciais presentes são preservados, sem
+invenção de grant nem conversão silenciosa. Slugs existentes não são alterados.
+A criação e os flags de recuperação são atômicos; STDIO/Bearer não mudam.
+
 Integração AEP-0112: JSON externo Cursor/Claude com MCP HTTP sem Bearer explícito
 cria servidor e autorização OAuth pendente atomicamente no cofre compartilhado.
 A importação não abre consentimento e desativa a conexão automática inicial.
