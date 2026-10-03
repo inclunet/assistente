@@ -11,6 +11,13 @@ type StoredCredential struct {
 	Unreadable bool
 }
 
+// CredentialPatternMutation identifies a provider-credential scope removed by
+// maintenance so consumers can refresh their in-memory identity snapshots.
+type CredentialPatternMutation struct {
+	UserID  string
+	Pattern string
+}
+
 // KeyWrap contém a DEK embrulhada com senha mestre ou recovery key.
 //
 // `DekID` é a `DEKIdentity(dek)` da DEK que está embrulhada em `WrappedDEK`.

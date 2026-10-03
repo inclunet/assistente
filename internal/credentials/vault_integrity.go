@@ -1,9 +1,11 @@
 package credentials
 
 import (
+	"assistente/internal/database"
 	"assistente/internal/logging"
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 )
 
@@ -248,7 +250,14 @@ func (m *Manager) PurgeUnreadableCredentials(ctx context.Context) (int, error) {
 	if len(status.UnreadableCredentialIDs) == 0 {
 		return 0, nil
 	}
-	removed, err := purger.DeleteCredentialsByID(ctx, status.UnreadableCredentialIDs)
+	var removed int
+	var mutations []CredentialPatternMutation
+	var err error
+	if extended, ok := m.store.(unreadableCredentialPurgerWithPatterns); ok {
+		removed, mutations, err = extended.DeleteCredentialsByIDWithPatterns(ctx, status.UnreadableCredentialIDs)
+	} else {
+		removed, err = purger.DeleteCredentialsByID(ctx, status.UnreadableCredentialIDs)
+	}
 	if err != nil {
 		return removed, err
 	}
@@ -271,12 +280,46 @@ func (m *Manager) PurgeUnreadableCredentials(ctx context.Context) (int, error) {
 	}
 	m.mu.Unlock()
 
-	// Atualiza status zerando IDs purgados.
+	// Atualiza status zerando IDs purgados antes de callbacks: o purge já foi
+	// commitado e não deve ser repetido se uma sincronização do registry falhar.
 	status.UnreadableCredentialIDs = nil
 	m.integrity.set(status)
+	var refreshErr error
+	activeUserID, hasActiveUser := database.UserIDFromContext(ctx)
+	for _, mutation := range mutations {
+		mutationCtx := ctx
+		if mutation.UserID == "" {
+			// O registry contém somente os providers do usuário ativo. Um
+			// provider órfão só pode ser sincronizado no contexto explícito de
+			// bootstrap; tentar publicar revisões órfãs no registry autenticado
+			// deixaria stale um provider de outro escopo com o mesmo pattern.
+			if hasActiveUser {
+				continue
+			}
+			mutationCtx = database.WithBootstrap(ctx)
+		} else {
+			// O inventário de integridade pode conter credenciais de vários
+			// usuários, mas o registry carregado pertence à sessão atual. Só
+			// atualizamos snapshots do dono dessa sessão.
+			if !hasActiveUser || mutation.UserID != activeUserID {
+				continue
+			}
+			mutationCtx = database.WithUserID(ctx, mutation.UserID)
+		}
+		if err := m.notifyCredentialPatternMutation(mutationCtx, mutation.Pattern); err != nil && refreshErr == nil {
+			refreshErr = err
+		}
+	}
+	if refreshErr != nil {
+		return removed, fmt.Errorf("credenciais removidas, mas falhou a sincronização dos providers afetados: %w", refreshErr)
+	}
 	return removed, nil
 }
 
 type unreadableCredentialPurger interface {
 	DeleteCredentialsByID(ctx context.Context, ids []string) (int, error)
+}
+
+type unreadableCredentialPurgerWithPatterns interface {
+	DeleteCredentialsByIDWithPatterns(ctx context.Context, ids []string) (int, []CredentialPatternMutation, error)
 }
