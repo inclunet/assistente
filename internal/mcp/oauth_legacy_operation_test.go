@@ -297,15 +297,15 @@ func TestLegacyNativeFallbackDoesNotReuseDeletedHostname(t *testing.T) {
 	}
 	c := nativeMCPCandidate{slug: "legacy", url: cfg.URL, authType: AuthOAuth2PKCE, managedConfig: cfg}
 	token, ok := a.resolveNativeAuthToken(ctx, c)
-	if !ok || token != "" {
-		t.Fatal("fallback reused deleted cache")
+	if ok || token != "" {
+		t.Fatal("historical OAuth allowed anonymous fallback after deletion")
 	}
 	if err := b.credMgr.RegisterPatternWithContext(ctx, "fallback.example", &credentials.AuthConfig{Source: "static", Type: "bearer", Token: "replacement"}); err != nil {
 		t.Fatal(err)
 	}
 	token, ok = a.resolveNativeAuthToken(ctx, c)
-	if !ok || token != "replacement" {
-		t.Fatal("fallback did not read replacement")
+	if ok || token != "" {
+		t.Fatal("historical OAuth adopted a replacement hostname token")
 	}
 }
 
@@ -929,7 +929,7 @@ func TestLegacyDCRRollsBackClientWhenConfigSaveFails(t *testing.T) {
 	}
 }
 
-func TestLegacyNativeHostnameFallbackRequiresAbsentTokenRow(t *testing.T) {
+func TestLegacyNativeRefusesHostnameWithOrWithoutTokenRow(t *testing.T) {
 	a, _, ctx, cfg := legacyWALManagers(t, "https://example.com")
 	candidate := nativeMCPCandidate{managedConfig: cfg, slug: "legacy", url: cfg.URL, authType: AuthOAuth2PKCE}
 	if err := a.credMgr.RegisterPatternWithContext(ctx, "example.com", &credentials.AuthConfig{Source: "static", Type: "bearer", Token: "host-token"}); err != nil {
@@ -947,14 +947,14 @@ func TestLegacyNativeHostnameFallbackRequiresAbsentTokenRow(t *testing.T) {
 		t.Fatal(err)
 	}
 	token, ok := a.resolveNativeAuthToken(ctx, candidate)
-	if !ok || token != "host-token" {
-		t.Fatalf("missing hostname fallback: ok=%v", ok)
+	if ok || token != "" {
+		t.Fatalf("historical OAuth adopted hostname without grant: ok=%v", ok)
 	}
 	if err := a.credMgr.DeletePattern(ctx, "example.com"); err != nil {
 		t.Fatal(err)
 	}
-	if token, ok := a.resolveNativeAuthToken(ctx, candidate); !ok || token != "" {
-		t.Fatal("missing anonymous fallback")
+	if token, ok := a.resolveNativeAuthToken(ctx, candidate); ok || token != "" {
+		t.Fatal("historical OAuth allowed anonymous fallback")
 	}
 }
 
@@ -988,7 +988,7 @@ func TestLegacyRefreshConsentPrecedesDurableAttempt(t *testing.T) {
 	}
 }
 
-func TestLegacyNativeRefreshUsesFreshClientWithoutBootstrapOverwrite(t *testing.T) {
+func TestManagedNativeRefreshUsesFreshClientWithoutBootstrapOverwrite(t *testing.T) {
 	var requests atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)
@@ -997,26 +997,46 @@ func TestLegacyNativeRefreshUsesFreshClientWithoutBootstrapOverwrite(t *testing.
 			t.Error("lost client secret through stale cache")
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, `{"access_token":"fresh","refresh_token":"rotated","expires_in":3600}`)
+		_, _ = io.WriteString(w, `{"access_token":"fresh","refresh_token":"rotated","expires_in":3600,"token_type":"Bearer"}`)
 	}))
 	defer server.Close()
-	a, b, ctx, cfg := legacyWALManagers(t, server.URL)
-	if err := a.SaveServerAuth("legacy", "oauth2_pkce", "", "", "", "current-secret"); err != nil {
+	// Both managers use the same durable vault, but the second retains the
+	// projected configuration from before the first manager replaces the secret.
+	a, b, ctx, _ := legacyWALManagers(t, server.URL)
+	cfg := managedConfig(server.URL)
+	cfg.OAuth2TokenAuthMethod = "client_secret_basic"
+	if err := a.SaveConfigWithOAuthSecret("composed", cfg, "old-secret"); err != nil {
 		t.Fatal(err)
 	}
-	if err := a.credMgr.RegisterPatternWithContext(ctx, userTokensPattern("legacy"), &credentials.AuthConfig{Source: "static", Type: "oauth2", Token: "near-expiry", RefreshURL: "refresh", ExpiresAt: time.Now().Add(time.Minute).Unix()}); err != nil {
+	if err := b.LoadConfigs(); err != nil {
 		t.Fatal(err)
 	}
-	token, ok := b.resolveNativeAuthToken(ctx, nativeMCPCandidate{managedConfig: cfg, slug: "legacy", authType: AuthOAuth2PKCE})
+	captured, _, _ := loadManaged(t, b, ctx, "composed")
+	if err := a.SaveConfigWithOAuthSecret("composed", captured, "current-secret"); err != nil {
+		t.Fatal(err)
+	}
+	_, store, record := loadManaged(t, a, ctx, "composed")
+	record.State = "connected"
+	record.Tokens = oauthflow.Tokens{Access: "near-expiry", Refresh: "refresh", Type: "Bearer", ExpiresAt: time.Now().Add(time.Minute)}
+	record.Revision++
+	if err := store.CompareAndSwap(ctx, record, record.Revision-1); err != nil {
+		t.Fatal(err)
+	}
+	candidate := nativeMCPCandidate{managedConfig: captured, slug: "composed", authType: AuthOAuth2PKCE}
+	token, ok := b.resolveNativeAuthToken(ctx, candidate)
 	if !ok || token != "fresh" || requests.Load() != 1 {
 		t.Fatalf("native refresh: ok=%v requests=%d", ok, requests.Load())
 	}
-	op, _, err := a.credMgr.BeginLegacyOAuth(ctx, "legacy", cfg.ID, false, false, nil)
-	if err != nil {
+	_, store, record = loadManaged(t, a, ctx, "composed")
+	if record.Client.Secret != "current-secret" || record.Tokens.Refresh != "rotated" {
+		t.Fatal("refresh overwrote the current client or lost rotation")
+	}
+	record.RefreshPending = true
+	record.Revision++
+	if err := store.CompareAndSwap(ctx, record, record.Revision-1); err != nil {
 		t.Fatal(err)
 	}
-	op.End()
-	if _, ok := b.resolveNativeAuthToken(ctx, nativeMCPCandidate{managedConfig: cfg, slug: "legacy", authType: AuthOAuth2PKCE}); ok || requests.Load() != 1 {
+	if token, ok := b.resolveNativeAuthToken(ctx, candidate); ok || token != "" || requests.Load() != 1 {
 		t.Fatal("native reused uncertain grant")
 	}
 }
