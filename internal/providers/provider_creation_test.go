@@ -329,3 +329,43 @@ func TestProviderReservationRollbackPreservesConcurrentModelFacts(t *testing.T) 
 		})
 	}
 }
+
+func TestProviderReservationRollbackPreservesChangedCompatibilityRevision(t *testing.T) {
+	for _, bootstrap := range []bool{false, true} {
+		name := "user"
+		if bootstrap {
+			name = "bootstrap"
+		}
+		t.Run(name, func(t *testing.T) {
+			db := acpTestDB(t)
+			if err := database.MigrateLLMModelCapabilities(db); err != nil {
+				t.Fatal(err)
+			}
+			ctx := database.WithUserID(context.Background(), "owner")
+			if bootstrap {
+				ctx = database.WithBootstrap(context.Background())
+			}
+			store := NewDBStore()
+			provider := &llm.ProviderConfig{ID: "changed-compatibility", Name: "Pending", Type: llm.ProviderOpenAI, BaseURL: "https://example.com/v1", CredentialPattern: "example.com"}
+			if err := store.Create(ctx, provider); err != nil {
+				t.Fatal(err)
+			}
+			// A credential commit can advance compatibility without changing the
+			// provider configuration or creating any model. The original receipt
+			// must not delete that identity if a later credential read fails.
+			if err := db.Exec("UPDATE llm_providers SET compatibility_revision = compatibility_revision + 1 WHERE id = ?", provider.ID).Error; err != nil {
+				t.Fatal(err)
+			}
+			if err := store.RollbackCreate(ctx, provider); err == nil {
+				t.Fatal("rollback apagou provedor com revisão de compatibilidade alterada")
+			}
+			var preserved database.LLMProvider
+			if err := db.Where("id = ?", provider.ID).First(&preserved).Error; err != nil {
+				t.Fatalf("identidade perdida: %v", err)
+			}
+			if preserved.ConfigRevision != provider.ConfigRevision || preserved.CompatibilityRevision != provider.CompatibilityRevision+1 {
+				t.Fatalf("revisões alteradas: %+v", preserved)
+			}
+		})
+	}
+}

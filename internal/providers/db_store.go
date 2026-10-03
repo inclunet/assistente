@@ -326,11 +326,11 @@ func (s *DBStore) RollbackCreate(ctx context.Context, provider *llm.ProviderConf
 	if err := database.RequireUserIDOrBootstrap(ctx); err != nil {
 		return err
 	}
-	if provider == nil || provider.ConfigRevision < 1 || provider.Type == llm.ProviderChatGPT || strings.HasPrefix(provider.CredentialPattern, "oauth:") {
+	if provider == nil || provider.ConfigRevision < 1 || provider.CompatibilityRevision < 1 || provider.Type == llm.ProviderChatGPT || strings.HasPrefix(provider.CredentialPattern, "oauth:") {
 		return errors.New("reserva de criação inválida")
 	}
 	owner, _ := database.UserIDFromContext(ctx)
-	result := database.DB().WithContext(ctx).Where("id = ? AND user_id = ? AND config_revision = ? AND type = ? AND credential_pattern = ?", provider.ID, owner, provider.ConfigRevision, string(provider.Type), provider.CredentialPattern).Where("NOT EXISTS (SELECT 1 FROM llm_models WHERE llm_models.provider_id = llm_providers.id)").Delete(&database.LLMProvider{})
+	result := database.DB().WithContext(ctx).Where("id = ? AND user_id = ? AND config_revision = ? AND compatibility_revision = ? AND type = ? AND credential_pattern = ?", provider.ID, owner, provider.ConfigRevision, provider.CompatibilityRevision, string(provider.Type), provider.CredentialPattern).Where("NOT EXISTS (SELECT 1 FROM llm_models WHERE llm_models.provider_id = llm_providers.id)").Delete(&database.LLMProvider{})
 	if result.Error != nil {
 		return result.Error
 	}
