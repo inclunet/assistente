@@ -1480,6 +1480,7 @@ const es = {
         authorizationChanged: 'La autorización cambió o está en uso. Espere a que termine la operación e inténtelo de nuevo.',
         requestNotReplayable: 'El cuerpo de la solicitud no se puede reenviar automáticamente. Intente conectarse de nuevo.',
         migrationRequired: 'Esta autorización OAuth antigua debe migrarse antes de conectar. Abra Diagnóstico OAuth, cree una instantánea y use Convertir para Client Credentials o Reconectar y migrar para PKCE. Se conservaron la configuración y los tokens anteriores.',
+        authenticationSelectionRequired: 'Esta configuración antigua no permite determinar la autenticación necesaria. Si el servicio es público, edite el servidor y elija Ninguna en Autenticación. Si requiere OAuth, abra Diagnóstico OAuth, cree un snapshot y use Reconectar y migrar. Las credenciales se conservaron hasta su decisión.',
         legacyPersistenceFailed: 'No se pudo guardar la credencial OAuth. La operación se detuvo para no indicar que la renovación terminó sin guardar el token. Compruebe el acceso a la bóveda antes de volver a intentarlo.',
         authorizationRequired: 'Este servidor necesita autorización. Use Conectar o Reautorizar para continuar.',
         publicClientSecret: "Este cliente DCR es público y no acepta un secreto manual. Use otro ID de cliente para configurar autenticación con secreto.",

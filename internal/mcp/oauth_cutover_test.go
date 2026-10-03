@@ -10,8 +10,10 @@ import (
 	"testing"
 	"time"
 
+	"assistente/internal/credentials"
 	"assistente/internal/database"
 	"assistente/internal/oauthflow"
+	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // Runtime regressions seed the current composed format directly. Migration
@@ -156,4 +158,84 @@ func TestRecoveryStdioIgnoresResidualLegacyOAuth(t *testing.T) {
 		t.Fatalf("STDIO changed preserved OAuth token: %v", err)
 	}
 	m.CloseAll()
+}
+
+func TestHistoricalURLOnlyAuthenticationRequiresExplicitChoice(t *testing.T) {
+	for _, hasGrant := range []bool{false, true} {
+		t.Run(map[bool]string{false: "public", true: "discovery_grant"}[hasGrant], func(t *testing.T) {
+			m, repo, ctx := managedFixture(t)
+			var requests atomic.Int32
+			server := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "public", Version: "1"}, nil)
+			handler := mcpsdk.NewStreamableHTTPHandler(func(*http.Request) *mcpsdk.Server { return server }, nil)
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				requests.Add(1)
+				if r.Header.Get("Authorization") != "" {
+					t.Error("public connection sent credentials")
+				}
+				handler.ServeHTTP(w, r)
+			}))
+			defer srv.Close()
+			defer m.CloseAll()
+			cfg := ServerConfig{Slug: "historical", URL: srv.URL, Enabled: true, AutoConnect: true, DisableSSE: true}
+			if err := repo.SaveServer(ctx, &cfg); err != nil {
+				t.Fatal(err)
+			}
+			// Historical URL-only storage, before LoadConfigs inferred PKCE.
+			if err := repo.db.Model(&database.MCPServer{}).Where("id = ?", cfg.ID).Update("auth_type", "").Error; err != nil {
+				t.Fatal(err)
+			}
+			if hasGrant {
+				if err := m.credMgr.RegisterPatternWithContext(ctx, userTokensPattern(cfg.Slug), &credentials.AuthConfig{Source: "static", Type: "oauth2", Token: "old", RefreshURL: "refresh"}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := m.LoadConfigs(); err != nil {
+				t.Fatal(err)
+			}
+			before, err := m.GetConfig(cfg.Slug)
+			if err != nil || before.AuthType != AuthOAuth2PKCE {
+				t.Fatalf("historical inference fixture: %v", err)
+			}
+			var rowsBefore, rowsAfter []database.CredentialEntry
+			if err := repo.db.Order("id").Find(&rowsBefore).Error; err != nil {
+				t.Fatal(err)
+			}
+			if err := m.Connect(cfg.Slug); !errors.Is(err, errOAuthAuthenticationSelection) {
+				t.Fatalf("ambiguous record offered impossible migration: %v", err)
+			}
+			m.AutoConnectAll(ctx)
+			after, err := m.GetConfig(cfg.Slug)
+			if err != nil || !reflect.DeepEqual(before, after) {
+				t.Fatal("authentication inferred destructively")
+			}
+			if err := repo.db.Order("id").Find(&rowsAfter).Error; err != nil {
+				t.Fatal(err)
+			}
+			if requests.Load() != 0 || !reflect.DeepEqual(rowsBefore, rowsAfter) {
+				t.Fatal("ambiguous configuration used or changed credentials")
+			}
+			if hasGrant {
+				return
+			}
+			// The existing editor's explicit None choice enables a public server
+			// without requiring a snapshot or an OAuth provider that does not exist.
+			after.AuthType = AuthNone
+			if err := m.SaveConfig(cfg.Slug, *after); err != nil {
+				t.Fatal(err)
+			}
+			if err := m.LoadConfigs(); err != nil {
+				t.Fatal(err)
+			}
+			if err := m.Connect(cfg.Slug); err != nil {
+				t.Fatal(err)
+			}
+			if requests.Load() == 0 {
+				t.Fatal("public server never connected")
+			}
+			persisted, err := repo.GetServer(ctx, cfg.Slug)
+			if err != nil || persisted.AuthType != AuthNone || persisted.OAuthAuthorizationID != "" {
+				t.Fatal("public choice did not survive reload")
+			}
+		})
+	}
 }

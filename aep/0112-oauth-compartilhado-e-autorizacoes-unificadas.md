@@ -1471,6 +1471,13 @@ nem os aceites com serviços reais concluídos.
 
 A recuperação ignora campos OAuth residuais em STDIO e revalida a configuração
 no próprio helper de renovação; esse helper não contém mais o refresh legado.
+Cadastros PKCE sem metadados OAuth explícitos recebem
+`oauth_authentication_selection_required`: inferência histórica por URL também
+atingia serviços públicos. A UI orienta a escolha explícita de nenhuma autenticação
+para públicos ou a migração para OAuth; não deduz ausência de grant pela falta de
+endpoints. `TestHistoricalURLOnlyAuthenticationRequiresExplicitChoice` cobre
+reload do cadastro histórico, credenciais discovery-only preservadas e conexão
+HTTP MCP pública real após escolher nenhuma autenticação, sem exigir migração.
 `TestRecoveryStdioIgnoresResidualLegacyOAuth` prova reconexão STDIO sem HTTP e
 sem alterar o token antigo. Testes de refresh/recovery do Manager usam o registro
 composto, incluindo rejeição definitiva e barreira após resposta ambígua.
