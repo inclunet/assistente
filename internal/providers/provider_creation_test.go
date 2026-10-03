@@ -208,7 +208,9 @@ func TestCredentialFailureRollsBackUnpublishedProviderReservation(t *testing.T) 
 				t.Run(name, func(t *testing.T) {
 					var store ProviderStore = NewMemoryStore()
 					if useDB {
-						acpTestDB(t)
+						if err := database.MigrateLLMModelCapabilities(acpTestDB(t)); err != nil {
+							t.Fatal(err)
+						}
 						store = NewDBStore()
 					}
 					ctx := database.WithUserID(context.Background(), "owner")
@@ -251,7 +253,9 @@ func TestProviderReservationRollbackPreservesChangedConfiguration(t *testing.T) 
 		t.Run(name, func(t *testing.T) {
 			var store ProviderStore = NewMemoryStore()
 			if useDB {
-				acpTestDB(t)
+				if err := database.MigrateLLMModelCapabilities(acpTestDB(t)); err != nil {
+					t.Fatal(err)
+				}
 				store = NewDBStore()
 			}
 			ctx := database.WithUserID(context.Background(), "owner")
@@ -270,6 +274,57 @@ func TestProviderReservationRollbackPreservesChangedConfiguration(t *testing.T) 
 			saved, err := store.Get(ctx, provider.ID)
 			if err != nil || saved.Name != changed.Name {
 				t.Fatalf("configuração perdida: %v", err)
+			}
+		})
+	}
+}
+
+func TestProviderReservationRollbackPreservesConcurrentModelFacts(t *testing.T) {
+	for _, bootstrap := range []bool{false, true} {
+		name := "user"
+		if bootstrap {
+			name = "bootstrap"
+		}
+		t.Run(name, func(t *testing.T) {
+			db := acpTestDB(t)
+			if err := database.MigrateLLMModelCapabilities(db); err != nil {
+				t.Fatal(err)
+			}
+			if err := db.Exec("PRAGMA foreign_keys = ON").Error; err != nil {
+				t.Fatal(err)
+			}
+			ctx := database.WithUserID(context.Background(), "owner")
+			if bootstrap {
+				ctx = database.WithBootstrap(context.Background())
+			}
+			store := NewDBStore()
+			provider := &llm.ProviderConfig{ID: "concurrent-catalog", Name: "Pending", Type: llm.ProviderOpenAI, BaseURL: "https://example.com/v1"}
+			if err := store.Create(ctx, provider); err != nil {
+				t.Fatal(err)
+			}
+			repository := database.NewLLMModelCapabilitiesRepository(db)
+			model, err := repository.SaveModel(ctx, provider.ID, "model", "Model")
+			if err != nil {
+				t.Fatal(err)
+			}
+			fact := &database.LLMModelCapabilityField{ModelID: model.ID, CapabilityKey: "chat", FieldKey: "temperature", SupportState: "unsupported", Source: "execution_observation", Scope: "connection", ProviderCompatibilityRevision: provider.CompatibilityRevision, ObservedAt: time.Now().Add(-time.Second)}
+			if err := repository.RecordField(ctx, fact, nil); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.RollbackCreate(ctx, provider); err == nil {
+				t.Fatal("rollback apagou reserva que já possuía modelo")
+			}
+			var preserved database.LLMProvider
+			if err := db.Where("id = ?", provider.ID).First(&preserved).Error; err != nil {
+				t.Fatalf("provedor perdido: %v", err)
+			}
+			readCtx := ctx
+			if bootstrap {
+				readCtx = database.WithUserID(context.Background(), "reader")
+			}
+			resolution, err := repository.Resolve(readCtx, model.ID, time.Now())
+			if err != nil || resolution.Fields["chat"]["temperature"].State != "unsupported" {
+				t.Fatalf("fatos concorrentes perdidos: %+v %v", resolution, err)
 			}
 		})
 	}
