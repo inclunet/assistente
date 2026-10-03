@@ -208,9 +208,11 @@ func (r *LLMModelCapabilitiesRepository) RecordField(ctx context.Context, assert
 			options[i].AssertionID = assertion.ID
 		}
 		if len(options) > 0 {
-			return tx.Create(&options).Error
+			if err := tx.Create(&options).Error; err != nil {
+				return err
+			}
 		}
-		return nil
+		return tx.Exec("INSERT INTO llm_model_capability_field_seals (assertion_id) VALUES (?)", assertion.ID).Error
 	})
 }
 
@@ -239,7 +241,7 @@ func (r *LLMModelCapabilitiesRepository) Resolve(ctx context.Context, modelID st
 			return err
 		}
 		var fieldRows []LLMModelCapabilityField
-		if err := tx.Where("model_id = ? AND provider_compatibility_revision = ?", model.ID, revision).Find(&fieldRows).Error; err != nil {
+		if err := tx.Where("model_id = ? AND provider_compatibility_revision = ? AND EXISTS (SELECT 1 FROM llm_model_capability_field_seals AS s WHERE s.assertion_id = llm_model_capability_fields.id)", model.ID, revision).Find(&fieldRows).Error; err != nil {
 			return err
 		}
 		bindingIDs := make([]string, 0)

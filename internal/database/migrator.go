@@ -401,6 +401,12 @@ var schemaMigrations = []migration{
 		Phase:   phasePostAutoMigrate,
 		Run:     migrateLLMModelHistoryInsertGuards,
 	},
+	{
+		Version: 38,
+		Name:    "llm_model_identity_and_option_seals",
+		Phase:   phasePostAutoMigrate,
+		Run:     migrateLLMModelIdentityAndOptionSeals,
+	},
 }
 
 // runMigrations aplica, na ordem de Version, todas as migrações da fase
