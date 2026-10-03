@@ -499,6 +499,14 @@ func (m *Manager) RestoreLegacyOAuthSnapshot(ctx context.Context, directory, id 
 // Hostname recovery is an explicit restoration of copied secrets, not a grant
 // conversion. Do not change consumers or infer ownership of a shared pattern.
 func (m *Manager) restoreHostnameSnapshot(ctx context.Context, s *snapshotSession, p *legacySnapshot) error {
+	pattern := p.HostnameCredential.Entry.Pattern
+	if err := m.restoreHostnameSnapshotAndCache(ctx, s, p); err != nil {
+		return err
+	}
+	return m.notifyCredentialPatternMutation(ctx, pattern)
+}
+
+func (m *Manager) restoreHostnameSnapshotAndCache(ctx context.Context, s *snapshotSession, p *legacySnapshot) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if err := s.store.check(ctx); err != nil {

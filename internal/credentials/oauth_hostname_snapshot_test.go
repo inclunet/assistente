@@ -102,6 +102,60 @@ func TestHostnameSnapshotRestoresSecretsWithoutChangingConsumers(t *testing.T) {
 	}
 }
 
+func TestHostnameSnapshotRestorationRefreshesCredentialRevisionsAfterCommitAndUnlock(t *testing.T) {
+	manager, _, db, ctx, _ := legacyOperationFixture(t)
+	if err := manager.RegisterPatternWithContext(ctx, "shared.example", &AuthConfig{Source: "static", Type: "bearer", Token: "saved"}); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(t.TempDir(), "recovery")
+	info, err := manager.CreateLegacyOAuthSnapshot(ctx, dir, "credential:shared.example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.DeletePattern(ctx, "shared.example"); err != nil {
+		t.Fatal(err)
+	}
+
+	refreshed := make(chan string, 1)
+	manager.SetCredentialRevisionRefresher(credentialRevisionCallback(func(callbackCtx context.Context, pattern string) error {
+		var count int64
+		if err := db.WithContext(callbackCtx).Model(&database.CredentialEntry{}).Where("user_id = ? AND pattern = ?", "owner", pattern).Count(&count).Error; err != nil {
+			return err
+		}
+		if count != 1 {
+			return errors.New("a credencial restaurada não estava commitada durante a sincronização")
+		}
+		auth, err := manager.GetByPatternWithContext(callbackCtx, pattern)
+		if err != nil {
+			return err
+		}
+		if auth == nil || auth.Token != "saved" {
+			return errors.New("o cache não continha a credencial restaurada durante a sincronização")
+		}
+		refreshed <- pattern
+		return nil
+	}))
+
+	done := make(chan error, 1)
+	go func() { done <- manager.RestoreLegacyOAuthSnapshot(ctx, dir, info.ID, nil) }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("restaurar snapshot: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("a sincronização bloqueou enquanto o manager mantinha o lock")
+	}
+	select {
+	case pattern := <-refreshed:
+		if pattern != "shared.example" {
+			t.Fatalf("pattern sincronizado = %q, esperado shared.example", pattern)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("restauração não sincronizou a revisão do pattern")
+	}
+}
+
 func TestHostnameSnapshotRecoveryFailureIsAtomic(t *testing.T) {
 	for _, failure := range []string{"unreadable", "rollback", "replacement", "wrong_key", "wrong_user", "expired"} {
 		t.Run(failure, func(t *testing.T) {
