@@ -14,8 +14,10 @@ A primeira entrega implementa a base OAuth e o consumidor ChatGPT. Novos cadastr
 OAuth no editor MCP já consomem essa base. Client Credentials legado dispõe de
 conversão e PKCE incompleto migra por reconexão explícita. Slack já possui
 credencial composta estática e backup cifrado. O transporte, os escritores e as
-APIs operacionais do runtime MCP legado foram removidos. Permanecem os aceites
-funcionais e a conclusão das validações de entrega registrados nas fases abaixo.
+APIs operacionais do runtime MCP legado foram removidos. Os testes automatizados
+cobrem também a recusa de identidades OIDC não confiáveis. Permanecem os aceites
+funcionais com contas reais registrados abaixo. A validação de cada entrega é
+registrada no respectivo PR.
 As entradas operacionais de conexão, recuperação e MCP nativo já exigem
 autorização composta; o legado permanece disponível para snapshot e migração.
 
@@ -308,7 +310,7 @@ e índice para In Progress; marcar Done somente após os critérios de todo o es
    conforme o critério ChatGPT funcional abaixo.
 2. [ ] Paridade MCP: extrair/adaptar discovery, DCR, Device Flow, client credentials,
    callback manual/fixo e reautorização; adicionar consumidores do serviço compartilhado.
-   **Em andamento:** discovery e registro RFC 7591 foram extraídos para
+   **Implementação e testes automatizados entregues:** discovery e registro RFC 7591 foram extraídos para
    `internal/oauthflow`, consumidos pela tela e pelo runtime MCP. Device Flow,
    client credentials, cache/serialização de renovação e listener de callback
    também foram extraídos. Novos cadastros OAuth no editor MCP já usam registro
@@ -332,7 +334,8 @@ e índice para In Progress; marcar Done somente após os critérios de todo o es
    entradas operacionais legadas encerradas e temporizador próprio removido.
    Runtime, transportes, escritores e APIs operacionais antigos removidos;
    leitores históricos e snapshots permanecem somente para recuperação.
-   Permanecem a validação integral da entrega e os aceites funcionais.
+   A retirada física passou pelo CI/review no PR #897. Permanecem os aceites
+   funcionais; a seção de consolidação abaixo distingue as provas automatizadas.
 4. [ ] Convergência de canais: migrar componentes estáticos Slack para uma entrada por
    conexão e referências por papel, sem alterar protocolo nem exigir OAuth inexistente.
    Implementação e testes automatizados descritos na evidência da fase 4 abaixo;
@@ -434,29 +437,34 @@ e índice para In Progress; marcar Done somente após os critérios de todo o es
 
 ## Critérios de aceitação
 
-- [ ] Uma entrada por autorização, sem pares MCP de cadastro/token após conversão.
+- [x] Uma entrada por autorização, sem pares MCP de cadastro/token após conversão.
 - [ ] ChatGPT funcional na primeira entrega, incluindo refresh, troca de conta, catálogo,
   ferramentas locais, limites do plano e falhas durante streaming.
 - [x] OAuth genérico não depende de MCP/LLM/channels nem contém regras ChatGPT.
-- [ ] Client secret opcional, registro manual/DCR/extensão e autorização pendente cobertos.
-- [ ] Callbacks fixos, registrados e dinâmicos testados; colisão não muda cliente manual;
+- [x] Client secret opcional, registro manual/DCR/extensão e autorização pendente cobertos.
+- [x] Callbacks fixos, registrados e dinâmicos testados; colisão não muda cliente manual;
   novo DCR malsucedido preserva a autorização anterior.
 - [x] Falha de persistência após rotação e queda antes do commit exigem recuperação
   explícita, sem reutilizar refresh token potencialmente consumido após reinício.
 - [x] Retenção protegida de ID token e reconexão com `id_token_hint` testadas;
   refresh respeita `earliest_refresh_at` e atualiza o limite com tokens rotacionados.
-- [ ] PKCE/state/nonce/identidade nos fluxos aplicáveis, Device Flow sem callback
+- [x] PKCE/state/nonce/identidade nos fluxos aplicáveis, Device Flow sem callback
   e client credentials sem consentimento interativo cobertos por testes;
   cancelamento, revogação e rotação também cobertos;
   refresh concorrente único, logout/edição/exclusão impedem gravação tardia.
-- [ ] MCP preserva discovery, Device Flow, client credentials, PKCE, native e bridge;
+- [x] MCP preserva discovery, Device Flow, client credentials, PKCE, native e bridge;
   reautorização explícita, sem navegador inesperado nem renovadores duplicados.
+  Evidência automatizada; a homologação com serviços reais permanece separada abaixo.
+- [ ] Aceite funcional com MCP Slack/Atlassian: autorização, ferramenta, reinício,
+  renovação e reautorização explícita, respeitando callback e cadastro do serviço.
 - [x] Novos cadastros OAuth no editor MCP usam uma autorização composta, sem
   persistência dupla nem renovador próprio; testes de PKCE/DCR/Device, Client
   Credentials, reinício, isolamento, cancelamento e fallback listados abaixo.
-- [ ] Migração idempotente/atômica provada com registros completos, parciais, ilegíveis,
+- [x] Migração idempotente/atômica provada com registros completos, parciais, ilegíveis,
   usuários diferentes e interrupção; restore documentado e segredos preservados.
-- [ ] Slack Channels mantém bot/app token por papel numa entrada, sem OAuth artificial.
+- [x] Slack Channels mantém bot/app token por papel numa entrada, sem OAuth artificial.
+  Evidência automatizada de persistência, resolução, migração e backup.
+- [ ] Aceite funcional de Slack Channels com API e Socket Mode após migração e reinício.
 - [ ] Configuração/segredos não vazam em DTO, logs, erros ou exportação; UI acessível,
   i18n nos três idiomas e documentação de usuário acompanham cada entrega.
 - [ ] Validação local, revisão independente, CI e revisão remota sem pendências por PR.
@@ -1600,3 +1608,65 @@ Esta seção substitui as pendências de remoção física das entregas anterior
 O AEP permanece In Progress até a validação integral de entrega e os aceites
 reais pendentes de ChatGPT, MCP Slack/Atlassian e Slack Channels. O login ChatGPT
 confirmado pelo mantenedor não comprova sozinho catálogo, envio, reinício e refresh.
+
+### Consolidação das provas automatizadas e aceites funcionais
+
+Status: **In Progress**. O PR #897 concluiu a remoção física com CI completo
+verde no commit `6ead700ea`: quatro rodadas de revisão independente local e duas
+remotas, último review sem achados e zero threads abertas. Esta continuação cobre
+identidade negativa e consolida o aceite, sem alterar o protocolo de produção.
+
+As marcações de critérios automatizados acima se apoiam nas seguintes provas:
+
+- Entrada única, conversão e reconexão: `TestClientConversionAtomicIdempotentAndRestart`,
+  `TestPublishedClientConversionPreservesHistoricalSecrets`,
+  `TestReconnectMigrationSuccessFailureAndRetry` e
+  `TestPublishedPKCEReconnectKeepsClientAndReplacesGrant`.
+- Cliente, DCR e callback: `TestManagedOAuthPKCEDCRPersistsCallbackAndRefreshAfterRestart`,
+  `TestAuthorizePKCEReregistersWhenFixedCallbackPortIsBusy`,
+  `TestDCRPersistsCallbackPort`, `TestDCRDoesNotOverwriteFixedPort`,
+  `TestDeviceDCRNeverRequiresCallbackPort` e
+  `TestConfiguredRefusedCandidateKeepsOriginalRefreshBinding`.
+- Identidade: `TestAuthorizationRejectsUntrustedIdentityWithoutReplacingGrant`
+  percorre autorização, callback, troca PKCE e JWKS reais de teste. Aceita o JWT
+  confiável e recusa nonce divergente/ausente, emissor ou audiência incorretos,
+  assinatura de chave não confiável com o mesmo `kid`, token expirado e sujeito
+  divergente/ausente. Confere o vínculo S256 do verifier, preserva grant/identidade
+  anteriores, libera a tentativa e devolve somente o código de erro seguro.
+  Complementa `TestAuthorizePKCECallbackAndValidatedIdentity`, a recusa de state
+  inválido, os testes de callback e os cenários de Device Flow/Client Credentials.
+- Concorrência e sessão: `TestRefreshSerializedAndRotationPersisted`,
+  `TestAuthorizationLeaseOwnershipAndRecovery`,
+  `TestDisconnectCoordinatesCrossServiceRefresh`,
+  `TestChatGPTPublicationCannotSurviveLogout`,
+  `TestReconnectSessionChangeCannotCommitGrant` e
+  `TestComposedClientGrantChecksBindingAfterNetworkConsent`.
+- Runtime MCP: `TestManagedOAuthDeviceAndStartupNeverOpenBrowserImplicitly`,
+  `TestManagedPollingDCRPersistsCallbackForReauthorization`,
+  `TestLegacyOAuthRuntimeRequiresExplicitMigration`,
+  `TestHistoricalURLOnlyAuthenticationRequiresExplicitChoice` e as regressões
+  de native em `internal/mcp/reauth_test.go`.
+- Recuperação: `TestPublishedOAuthRecovery` cobre os quatro formatos publicados;
+  `TestReconnectCrashPreservesPendingAndRecoversMissingTokenRow`,
+  `TestClientConversionRollsBackAndKeepsSnapshot`,
+  `TestOAuthSnapshotRestoreIsAtomicAndRejectsEdits` e
+  `TestOAuthSnapshotRecoveryNeverReplaysStoredRefresh` comprovam as recusas e
+  a preservação necessárias para restore/reconexão.
+- Slack: `TestStaticConnectionMigratesAtomicRolesAndPreservesIsolation`,
+  `TestStaticConnectionConcurrentReadKeepsPairTogether`,
+  `TestSlackComposedCredentialRollbackPreservesPairAndConfiguration` e
+  `TestStaticConnectionPasswordBackupRoundTripAndConflict`.
+
+São provas delimitadas, não homologação de provedores externos. Os testes de
+cofre verificam criptografia/isolamento e os testes de componentes verificam
+mensagens, foco e anúncios nos casos cobertos; não substituem a observação da
+interface com teclado/NVDA e dos diagnósticos da instalação real. Permanecem
+abertos os critérios correspondentes de aceites reais, segurança/UI e fechamento
+da série de entregas. Nenhum resultado real além do login ChatGPT foi presumido.
+
+O roteiro em `docs/content/configuracao/OAUTH_ACCEPTANCE.md` registra os cenários
+e o resultado esperado para ChatGPT, MCP Slack/Atlassian e Slack Channels.
+Resultados devem identificar versão/commit, plataforma e cenário; não incluir
+tokens, client secrets, códigos, URLs completas de autorização ou backups. Um
+cenário não executado permanece pendente. Atualizar este documento e o índice
+para Done somente após registrar evidências de todos os critérios aceitos.

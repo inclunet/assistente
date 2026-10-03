@@ -79,8 +79,10 @@ configurações do ChatGPT. O cadastro e o ID token validado permanecem cifrados
 para reconectar à mesma conta; access token e refresh token são removidos.
 Excluir o provedor após desconectar remove também esse cadastro local. Antes de
 excluir esse provedor do Assistente, conclua ou cancele qualquer autorização em
-andamento e desconecte a conta. A migração das autorizações
-MCP e dos tokens de canais Slack será entregue separadamente.
+andamento e desconecte a conta. A migração de autorizações MCP usa o diagnóstico
+OAuth; o canal Slack reúne seus componentes ao salvar ou conectar.
+Consulte [Validar autorizações e migração](../OAUTH_ACCEPTANCE/) para conferir
+os cenários da sua instalação e registrar o que foi efetivamente testado.
 
 Falhas de resposta incompleta, conexão interrompida, autorização e limite do plano
 são apresentadas no idioma da interface. Ao atingir o limite, consulte o uso pelo

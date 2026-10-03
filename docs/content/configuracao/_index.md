@@ -19,3 +19,7 @@ Guias de configuração de provedores, voz, integrações e ferramentas.
 | [Skills — Templates](SKILL_TEMPLATE_CONTEXT/) | Contexto para criação de templates de skills |
 
 Consulte [Fontes de credenciais](CREDENTIAL_SOURCES/) para usar env, keyring ou comando sem inserir tokens estáticos.
+
+Depois de configurar ou migrar uma conexão, consulte o roteiro
+[Validar autorizações e migração](OAUTH_ACCEPTANCE/) para conferir ChatGPT, MCP
+Slack/Atlassian e Slack Channels, incluindo reinício, renovação e acessibilidade.
