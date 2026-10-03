@@ -540,6 +540,9 @@ func TestImportLegacyMCPServersIsReusableAndIdempotent(t *testing.T) {
 	if result.Imported != 1 || result.Skipped != 0 {
 		t.Fatalf("first result = %#v", result)
 	}
+	if len(result.WarningMessages) != 1 || result.WarningMessages[0].Code != "mcpServer.oauthRecoveryRequired" {
+		t.Fatal("missing OAuth recovery warning")
+	}
 	if string(source.data["github.json"]) != original {
 		t.Fatal("legacy source should remain untouched")
 	}
@@ -559,6 +562,9 @@ func TestImportLegacyMCPServersIsReusableAndIdempotent(t *testing.T) {
 	}
 	if row.Name != "GitHub" || row.URL != "https://github.example/mcp" {
 		t.Fatalf("legacy import overwrote existing server: %#v", row)
+	}
+	if row.Enabled || row.AutoConnect {
+		t.Fatal("historical OAuth activated automatically")
 	}
 }
 

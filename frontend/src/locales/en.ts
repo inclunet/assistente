@@ -807,6 +807,7 @@ const en = {
           credentialMissing: 'Provider "{{providerId}}" passes credential "{{pattern}}" to the agent through variable {{variable}}, and that entry is not in this machine\'s vault. Register it under credentials or remove the variable from the provider.',
         },
         mcpServer: {
+		  oauthRecoveryRequired: 'MCP {{slug}} was imported disabled for OAuth recovery. Create a snapshot in OAuth diagnostics and use Convert or Reconnect and migrate before enabling it.',
 		  runtimeReloadFailed: 'The data was imported, but the MCP list could not be refreshed. Sign in again to reload it.',
           missingSlug: 'An MCP server in the file has no slug and cannot be imported.',
           stdioMissingCommand: 'MCP server {{slug}} uses the stdio transport but has no command.',
