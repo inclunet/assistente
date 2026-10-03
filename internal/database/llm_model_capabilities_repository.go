@@ -404,6 +404,12 @@ func validSourceReference(reference string) bool {
 		parsed.Hostname() == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.ForceQuery || parsed.Fragment != "" {
 		return false
 	}
+	// net/url strips brackets from Hostname even when they enclose a non-IP
+	// DNS name. The SQL guard rejects those brackets, so reject them here too
+	// and return the domain validation error before reaching the database.
+	if strings.ContainsAny(parsed.Host, "[]") {
+		return false
+	}
 	if !validReferenceAuthorityPort(parsed.Host) {
 		return false
 	}
