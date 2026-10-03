@@ -514,8 +514,9 @@ endpoint final de registro, sem um redirecionamento intermediário.
 
 Se aparecer a mensagem de falha ao registrar o cliente OAuth, confira esse endpoint
 e a URL de callback. O diagnóstico omite o corpo remoto para proteger segredos.
-As conexões já cadastradas continuam usando suas credenciais; esta etapa não exige
-novo login nem converte os registros existentes no cofre.
+O diagnóstico de registro não converte credenciais. Cadastros OAuth históricos
+continuam disponíveis para recuperação e exigem a migração descrita abaixo antes
+de conectar; autorizações compostas reutilizam seu cadastro quando válido.
 
 ### Serviços corporativos e destinos internos
 
@@ -581,8 +582,8 @@ ou `[::1]`; nunca um endereço de rede externa.
 Recusas, códigos expirados, falhas de troca de código e portas indisponíveis têm
 mensagens próprias. Não é necessário apagar as credenciais para tentar uma nova
 autorização. Client Credentials continua obtendo e reutilizando tokens sem abrir
-o navegador. Esta atualização preserva as credenciais MCP existentes; a conversão
-para um único registro por autorização será feita em uma etapa posterior.
+o navegador. Esses fluxos usam a autorização composta. Para cadastros históricos,
+use o diagnóstico OAuth para migrar antes de conectar, preservando o snapshot.
 
 ### Novos cadastros com autorização unificada
 
@@ -608,8 +609,10 @@ Após alterações, feche e reabra o diagnóstico para consultar novamente.
 
 Ao criar um servidor OAuth no editor MCP, o Assistente guarda cliente, segredo
 opcional, tokens e configuração OAuth em uma única entrada cifrada do cofre.
-Conexões existentes e importadas continuam funcionando no formato anterior;
-não é necessário apagá-las ou cadastrá-las novamente.
+Cadastros históricos preservam seus dados para snapshot e migração explícita;
+não é necessário apagá-los. Importações externas Cursor/Claude de servidores
+HTTP sem Bearer explícito criam uma autorização composta pendente; use
+**Conectar** para autorizar. STDIO e Bearer mantêm seus caminhos próprios.
 
 Use **Conectar** para autorizar um novo servidor ou **Reautorizar** para repetir
 o consentimento. Iniciar o aplicativo, listar ferramentas ou enviar mensagens
@@ -630,9 +633,12 @@ ou renovação ativa, aguarde a conclusão antes de editar ou excluir. Falhas na
 gravação são reportadas; uma resposta ambígua de refresh rotativo exige nova
 autorização, evitando reenviar um refresh token que pode já ter sido consumido.
 
-A migração de cadastros existentes e a portabilidade do registro composto serão
-entregues separadamente. Duplicar um cadastro não compartilha seus tokens ou
+A migração de cadastros existentes está disponível nos fluxos de conversão e
+reconexão descritos abaixo. Duplicar um cadastro não compartilha seus tokens ou
 client secret: configure o segredo, se necessário, e autorize a nova conexão.
+
+Depois de migrar, use o roteiro [Validar autorizações e migração](../OAUTH_ACCEPTANCE/)
+para conferir a conexão, o reinício e a renovação com seu serviço.
 
 
 Se Client Credentials retornar permissões insuficientes, corrija os escopos na
