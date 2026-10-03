@@ -137,6 +137,14 @@ func TestManagedOAuthLegacyIsNotMigratedOrUsedAsFallback(t *testing.T) {
 }
 
 func TestManagedOAuthPKCEDCRPersistsCallbackAndRefreshAfterRestart(t *testing.T) {
+	testManagedDCRCallbackPersistence(t, 0)
+}
+
+// Also used by the historical dynamic/fixed-port regression cases. It runs
+// real DCR, rejects initial consent, reloads the checkpoint, authorizes again
+// without another registration and verifies renewal after recreating Manager.
+func testManagedDCRCallbackPersistence(t *testing.T, callbackPort int) {
+	t.Helper()
 	m, repo, ctx := managedFixture(t)
 	var tokenCalls, registrations atomic.Int32
 	denied := true
@@ -179,6 +187,7 @@ func TestManagedOAuthPKCEDCRPersistsCallbackAndRefreshAfterRestart(t *testing.T)
 	cfg.OAuth2ClientID = ""
 	cfg.OAuth2TokenAuthMethod = "client_secret_basic"
 	cfg.OAuth2RegistrationURL = srv.URL + "/register"
+	cfg.OAuth2CallbackPort = callbackPort
 	if err := m.SaveConfig("new", cfg); err != nil {
 		t.Fatal(err)
 	}
@@ -207,6 +216,21 @@ func TestManagedOAuthPKCEDCRPersistsCallbackAndRefreshAfterRestart(t *testing.T)
 	if checkpoint.PendingRegistration == nil || checkpoint.PendingRegistration.Client.ID != "registered" || checkpoint.PendingRegistration.Callback.Port == 0 || checkpoint.Tokens.Access != "" || checkpoint.AuthorizationActive() {
 		t.Fatal("registration checkpoint lost")
 	}
+	registeredPort := checkpoint.PendingRegistration.Callback.Port
+	if callbackPort != 0 && registeredPort != callbackPort {
+		t.Fatalf("fixed callback changed: got %d want %d", registeredPort, callbackPort)
+	}
+	registeredURI, err := url.Parse(redirect)
+	if err != nil || registeredURI.Port() != fmt.Sprint(registeredPort) {
+		t.Fatalf("checkpoint callback differs from DCR: %v", err)
+	}
+	if err := m.LoadConfigs(); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _, checkpoint = loadManaged(t, m, ctx, "new")
+	if checkpoint.PendingRegistration == nil || checkpoint.PendingRegistration.Callback.Port != registeredPort {
+		t.Fatal("callback checkpoint lost on configuration reload")
+	}
 	denied = false
 	if err := m.authorizeManagedOAuth(ctx, "new", cfg); err != nil {
 		t.Fatal(err)
@@ -214,6 +238,9 @@ func TestManagedOAuthPKCEDCRPersistsCallbackAndRefreshAfterRestart(t *testing.T)
 	cfg, _, r := loadManaged(t, m, ctx, "new")
 	if r.Client.ID != "registered" || r.Tokens.Refresh != "REFRESH" || r.Callback.Port == 0 || r.State != "connected" {
 		t.Fatalf("grant not persisted: %s", r.State)
+	}
+	if r.Callback.Port != registeredPort {
+		t.Fatalf("grant changed registered callback: got %d want %d", r.Callback.Port, registeredPort)
 	}
 	if r.Client.AuthMethod != "none" || r.Client.Secret != "" {
 		t.Fatal("DCR persisted non-public authentication")

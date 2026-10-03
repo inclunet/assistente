@@ -315,7 +315,7 @@ type mcpRuntimeOAuthStore struct {
 func (s mcpRuntimeOAuthStore) CompareAndSwap(ctx context.Context, r oauthflow.Record, revision uint64) error {
 	// Resolve may wait for another request or for human network consent. Bind
 	// the lease and token publication to the consumer in the same transaction.
-	return s.CompareAndSwapWithConsumer(ctx, r, revision, func(tx *gorm.DB) error {
+	err := s.CompareAndSwapWithConsumer(ctx, r, revision, func(tx *gorm.DB) error {
 		var row database.MCPServer
 		if err := tx.Where("id = ? AND user_id = ? AND slug = ?", s.cfg.ID, s.cfg.UserID, s.cfg.Slug).First(&row).Error; err != nil {
 			return oauthflow.ErrConflict
@@ -326,7 +326,23 @@ func (s mcpRuntimeOAuthStore) CompareAndSwap(ctx context.Context, r oauthflow.Re
 		}
 		return nil
 	})
+	if errors.Is(err, oauthflow.ErrConflict) {
+		// A concurrent edit is an expected authorization conflict, not a vault
+		// failure. Return only its safe code, never a wrapped storage diagnostic.
+		return oauthflow.ErrConflict
+	}
+	if err != nil {
+		return &oauthPersistenceError{cause: err}
+	}
+	return nil
 }
+
+// Storage errors may contain private payloads. Preserve classification for the
+// caller without presenting the underlying diagnostic in runtime/UI errors.
+type oauthPersistenceError struct{ cause error }
+
+func (*oauthPersistenceError) Error() string     { return errOAuthPersistence.Error() }
+func (e *oauthPersistenceError) Unwrap() []error { return []error{errOAuthPersistence, e.cause} }
 
 // A transport may outlive a configuration published by another instance.
 // Check the persisted consumer before renewal and again before using its token.
@@ -399,11 +415,10 @@ func (m *Manager) authorizeOAuthWithStore(ctx context.Context, slug string, cfg 
 	_, err := service.AuthorizeUsingCheckpoint(ctx, store, cfg.OAuthAuthorizationID, func(flowCtx context.Context, r oauthflow.Record, checkpoint func(oauthflow.Record) (oauthflow.Record, error)) (oauthflow.Record, error) {
 		// This adapter runs only the existing protocol choreography. It has no vault,
 		// config writer or live connection: only the shared service commits its result.
-		rt := &pkceRoundTripper{
-			cfg: projectOAuthConfiguration(cfg, r), protocolOnly: true, serverSlug: slug, emitEvent: m.emitEvent,
+		rt := &oauthProtocol{
+			cfg: projectOAuthConfiguration(cfg, r), serverSlug: slug, emitEvent: m.emitEvent,
 			resolvedClientID: r.Client.ID, resolvedClientSecret: r.Client.Secret, clientGrantType: r.Client.GrantType,
 			clientAuthMethod: r.Client.AuthMethod, resourceURL: r.Audience, networkAuthorizer: m.authorizeOAuthNetwork,
-			authCtxProvider: func() context.Context { return flowCtx }, lifetimeCtx: flowCtx,
 		}
 		rt.registrationCheckpoint = func() error {
 			candidate := r
@@ -504,14 +519,19 @@ func (t *managedOAuthTransport) RoundTrip(req *http.Request) (*http.Response, er
 			cleanup()
 			return nil, refreshErr
 		}
-		if fresh.Tokens.Access != r.Tokens.Access && (req.Body == nil || req.Body == http.NoBody || req.GetBody != nil) {
+		if fresh.Tokens.Access != r.Tokens.Access {
+			if req.Body != nil && req.Body != http.NoBody && req.GetBody == nil {
+				_ = response.Body.Close()
+				cleanup()
+				return nil, errors.New("oauth_request_not_replayable")
+			}
 			retry := req.Clone(ctx)
 			if req.GetBody != nil {
 				retry.Body, err = req.GetBody()
 				if err != nil {
 					_ = response.Body.Close()
 					cleanup()
-					return nil, err
+					return nil, errors.New("oauth_request_not_replayable")
 				}
 			}
 			if err == nil {

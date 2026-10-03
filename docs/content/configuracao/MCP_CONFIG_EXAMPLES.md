@@ -794,6 +794,12 @@ o envio de ferramentas pelo MCP nativo. Mesmo que exista um token antigo salvo
 para o hostname, ele não substitui a migração OAuth. A ausência de token também
 não transforma esse cadastro OAuth em uma conexão anônima.
 
+Após a migração, cliente, tokens e callback ficam na mesma autorização cifrada.
+Se uma renovação falhar ao salvar o token novo, o Assistente interrompe o envio
+e exige recuperação explícita quando o refresh anterior puder ter sido consumido.
+Ele não tenta usar novamente esse refresh após reiniciar. Uma requisição cujo
+conteúdo não possa ser recriado também não é reenviada automaticamente após 401.
+
 Em **Diagnóstico OAuth**, crie um snapshot e siga a conversão de Client
 Credentials ou a reconexão de PKCE abaixo. Após a migração, bridge local e MCP
 nativo usam a mesma autorização composta. A renovação ocorre quando o token é

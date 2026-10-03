@@ -1,7 +1,6 @@
 package mcp
 
 import (
-	"assistente/internal/credentials"
 	"assistente/internal/oauthflow"
 	"context"
 	"encoding/json"
@@ -58,13 +57,13 @@ func TestDeviceDCRNeverRequiresCallbackPort(t *testing.T) {
 	previous := browserOpen
 	browserOpen = func(string) error { return nil }
 	defer func() { browserOpen = previous }()
-	rt := &pkceRoundTripper{cfg: ServerConfig{URL: srv.URL, OAuth2RegistrationURL: srv.URL + "/register", OAuth2DeviceAuthURL: srv.URL + "/device", OAuth2TokenURL: srv.URL + "/token", OAuth2AuthURL: srv.URL + "/authorize", OAuth2CallbackPort: occupied.Addr().(*net.TCPAddr).Port}}
+	rt := &oauthProtocol{cfg: ServerConfig{URL: srv.URL, OAuth2RegistrationURL: srv.URL + "/register", OAuth2DeviceAuthURL: srv.URL + "/device", OAuth2TokenURL: srv.URL + "/token", OAuth2AuthURL: srv.URL + "/authorize", OAuth2CallbackPort: occupied.Addr().(*net.TCPAddr).Port}}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := rt.authorize(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if registrations.Load() != 2 || polls.Load() != 2 || rt.callback != nil || rt.tokenSource == nil {
+	if registrations.Load() != 2 || polls.Load() != 2 || rt.callback != nil || rt.issuedToken == nil {
 		t.Fatalf("registration=%d polls=%d callback=%v", registrations.Load(), polls.Load(), rt.callback)
 	}
 	if rt.cfg.OAuth2CallbackPort != occupied.Addr().(*net.TCPAddr).Port {
@@ -80,7 +79,7 @@ func TestManualPKCEPortCollisionDoesNotOpenBrowser(t *testing.T) {
 	previous := browserOpen
 	browserOpen = func(string) error { t.Error("browser opened without reserved callback"); return nil }
 	defer func() { browserOpen = previous }()
-	rt := &pkceRoundTripper{cfg: ServerConfig{OAuth2ClientID: "manual", OAuth2CallbackPort: occupied.Addr().(*net.TCPAddr).Port}}
+	rt := &oauthProtocol{cfg: ServerConfig{OAuth2ClientID: "manual", OAuth2CallbackPort: occupied.Addr().(*net.TCPAddr).Port}}
 	if err := rt.authorizePKCE(context.Background()); !errors.Is(err, oauthflow.ErrCallbackPort) {
 		t.Fatal(err)
 	}
@@ -105,13 +104,13 @@ func TestDeviceRefusalNeverFallsBackToPKCE(t *testing.T) {
 			previous := browserOpen
 			browserOpen = func(string) error { browserCalls.Add(1); return nil }
 			defer func() { browserOpen = previous }()
-			rt := &pkceRoundTripper{cfg: ServerConfig{URL: srv.URL, OAuth2ClientID: "client", OAuth2DeviceAuthURL: srv.URL + "/device", OAuth2TokenURL: srv.URL + "/token", OAuth2AuthURL: srv.URL + "/authorize"}}
+			rt := &oauthProtocol{cfg: ServerConfig{URL: srv.URL, OAuth2ClientID: "client", OAuth2DeviceAuthURL: srv.URL + "/device", OAuth2TokenURL: srv.URL + "/token", OAuth2AuthURL: srv.URL + "/authorize"}}
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			if err := rt.authorize(ctx); oauthflow.DeviceGrantErrorCode(err) != code {
 				t.Fatal(err)
 			}
-			if browserCalls.Load() != 1 || rt.tokenSource != nil {
+			if browserCalls.Load() != 1 || rt.issuedToken != nil {
 				t.Fatalf("browser=%d", browserCalls.Load())
 			}
 		})
@@ -168,19 +167,36 @@ func TestPKCEFallbackRespectsClientRegistrationGrant(t *testing.T) {
 				}
 			}))
 			defer srv.Close()
-			manager := credentials.NewManager(nil)
+			manager, _, userCtx := managedFixture(t)
 			grant := ""
 			if mode != "manual" {
 				grant = "urn:ietf:params:oauth:grant-type:device_code"
 			}
-			if err := manager.RegisterPatternWithContext(context.Background(), clientCredPattern("test"), &credentials.AuthConfig{Source: "static", Type: "oauth2", ClientID: "existing", ClientGrantType: grant}); err != nil {
+			cfg := managedConfig(srv.URL)
+			cfg.OAuth2ClientID = "existing"
+			cfg.OAuth2DeviceAuthURL = srv.URL + "/device"
+			cfg.OAuth2RegistrationURL = srv.URL + "/register"
+			cfg.OAuth2CallbackHost = "127.0.0.1"
+			cfg.OAuth2TokenAuthMethod = "none"
+			if err := manager.SaveConfig("test", cfg); err != nil {
 				t.Fatal(err)
 			}
-			cfg := ServerConfig{URL: srv.URL, OAuth2ClientID: "existing", OAuth2DeviceAuthURL: srv.URL + "/device", OAuth2RegistrationURL: srv.URL + "/register", OAuth2TokenURL: srv.URL + "/token", OAuth2AuthURL: srv.URL + "/authorize", OAuth2CallbackHost: "127.0.0.1"}
+			cfg, store, record := loadManaged(t, manager, userCtx, "test")
+			record.Client.GrantType = grant
+			if grant != "" {
+				record.Client.Method = "dcr"
+			}
+			record.Revision++
+			if err := store.CompareAndSwap(userCtx, record, record.Revision-1); err != nil {
+				t.Fatal(err)
+			}
 			if mode == "manual-replacement" {
 				cfg.OAuth2ClientID = "manual-new"
+				if err := manager.SaveConfig("test", cfg); err != nil {
+					t.Fatal(err)
+				}
 			}
-			rt := buildPKCERoundTripper(cfg, manager, nil, "test", nil, nil, nil, nil)
+			cfg, _, _ = loadManaged(t, manager, userCtx, "test")
 			previous := browserOpen
 			browserOpen = func(raw string) error {
 				u, err := url.Parse(raw)
@@ -194,9 +210,9 @@ func TestPKCEFallbackRespectsClientRegistrationGrant(t *testing.T) {
 				return err
 			}
 			defer func() { browserOpen = previous }()
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			ctx, cancel := context.WithTimeout(userCtx, 5*time.Second)
 			defer cancel()
-			if err := rt.authorize(ctx); err != nil {
+			if err := manager.authorizeManagedOAuth(ctx, "test", cfg); err != nil {
 				t.Fatal(err)
 			}
 			want := int32(0)
@@ -206,8 +222,12 @@ func TestPKCEFallbackRespectsClientRegistrationGrant(t *testing.T) {
 			if registrations.Load() != want {
 				t.Fatalf("DCR=%d want=%d", registrations.Load(), want)
 			}
-			if rt.effectiveClientID() != expectedClient {
+			_, _, persisted := loadManaged(t, manager, userCtx, "test")
+			if persisted.Client.ID != expectedClient {
 				t.Fatal("wrong client persisted")
+			}
+			if persisted.State != "connected" || persisted.Tokens.Access != "token" || persisted.Callback.Port == 0 {
+				t.Fatal("grant and effective callback were not persisted together")
 			}
 		})
 	}

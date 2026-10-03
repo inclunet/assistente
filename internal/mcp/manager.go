@@ -59,9 +59,6 @@ const (
 
 	// maxRetryDelay é o delay máximo entre retries (usado no modo lento)
 	maxRetryDelay = 5 * time.Minute
-
-	// tokenRefreshThreshold é a antecedência mínima para forçar refresh antes da expiração
-	tokenRefreshThreshold = 2 * time.Minute
 )
 
 // emitFunc é a callback para emitir eventos Wails
@@ -1320,26 +1317,6 @@ func (m *Manager) reconnectWithContext(ctx context.Context, slug string) error {
 	return m.connectWithContext(ctx, slug)
 }
 
-// buildPKCERoundTripperForServer monta o pkceRoundTripper de um servidor
-// reutilizando a infra de OAuth PKCE (discovery, DCR, device/PKCE flow) com o
-// callback de persistência de config e o ctx user-scoped do Manager.
-func (m *Manager) buildPKCERoundTripperForServer(ctx context.Context, slug string, cfg ServerConfig) *pkceRoundTripper {
-	writer, ok := ctx.Value(legacyOAuthWriterContextKey{}).(*legacyOAuthWriter)
-	if !ok {
-		writer = m.newLegacyOAuthWriter(cfg)
-	}
-	var rt *pkceRoundTripper
-	onConfigUpdate := func(updated ServerConfig) {
-		if err := writer.WriteWithContext(rt.persistenceCtx(), updated); err != nil {
-			rt.configPersistenceError = err
-			logging.Errorf(context.Background(), "mcp.manager", "[MCP:%s] Erro ao persistir config após atualização OAuth: %v", slug, err)
-		}
-	}
-	rt = buildPKCERoundTripper(cfg, m.credMgr, m.emitEvent, slug, onConfigUpdate, m.credentialContext, m.authorizeOAuthNetwork, ctx)
-	rt.persistRegistration = writer.WriteRegistration
-	return rt
-}
-
 // ReauthorizeServer força o fluxo OAuth interativo (abre o browser) de um
 // servidor MCP, independentemente de ele estar em modo nativo ou bridge e sem
 // depender de um 401 incidental (AEP-0105). O lifecycle compartilhado persiste
@@ -1742,12 +1719,7 @@ func (m *Manager) buildAuthHTTPClient(ctx context.Context, slug string, cfg Serv
 		return m.managedHTTPClient(ctx, cfg)
 	}
 	switch cfg.AuthType {
-	case AuthOAuth2PKCE:
-		rt := m.buildPKCERoundTripperForServer(ctx, slug, cfg)
-		logging.Infof(context.Background(), "mcp.manager", "[MCP:%s] HTTP client configurado com OAuth2 PKCE", slug)
-		return oauthflow.NewResourceHTTPClient(cfg.URL, rt)
-
-	case AuthOAuth2ClientCredentials:
+	case AuthOAuth2PKCE, AuthOAuth2ClientCredentials:
 		return oauthflow.NewResourceHTTPClient(cfg.URL, oauthErrorTransport{errOAuthMigrationRequired})
 
 	case AuthBearer:

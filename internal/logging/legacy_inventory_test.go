@@ -31,8 +31,10 @@ const (
 	// O cutover MCP remove sete formatos do refresh/reautorização legado;
 	// a renovação composta usa os eventos normalizados de oauthflow.
 	// A retirada do transporte antigo de Client Credentials remove dois formatos.
-	expectedLegacyFormatCount  = 741
-	expectedLegacyFormatDigest = "c4d7938e5427d243cf6d8f6c85e4d27feb24efcb35def7bb7bf0f4e2fdf078fc"
+	// A retirada física do runtime PKCE remove oito formatos: dois do manager
+	// e seis do transporte/persistência antigos. O lifecycle compartilhado permanece.
+	expectedLegacyFormatCount  = 733
+	expectedLegacyFormatDigest = "41d4d4005c941537fabe1a1325c05bc5ff74a1669d09c394594f007b257ae124"
 )
 
 // TestLegacyLoggingInventory mantém reproduzível o inventário da issue #675.

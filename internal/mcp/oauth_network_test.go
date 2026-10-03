@@ -58,7 +58,7 @@ func TestDeviceVerificationPrivateDestinationRequiresConsent(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"device_code": "code", "user_code": "user", "verification_uri": target.URL + "/verify", "expires_in": 300})
 	}))
 	defer source.Close()
-	rt := &pkceRoundTripper{cfg: ServerConfig{URL: source.URL, OAuth2DeviceAuthURL: source.URL + "/device", OAuth2TokenURL: source.URL + "/token"}, resolvedClientID: "client", networkAuthorizer: func(ctx context.Context, _ oauthflow.NetworkDestination) ([]net.IP, bool, error) {
+	rt := &oauthProtocol{cfg: ServerConfig{URL: source.URL, OAuth2DeviceAuthURL: source.URL + "/device", OAuth2TokenURL: source.URL + "/token"}, resolvedClientID: "client", networkAuthorizer: func(ctx context.Context, _ oauthflow.NetworkDestination) ([]net.IP, bool, error) {
 		if user, err := database.RequireUserID(ctx); err != nil || user != "device-user" {
 			t.Errorf("device context lost: %q %v", user, err)
 		}
@@ -74,17 +74,19 @@ func TestPersistedExpiredTokenUsesNetworkGuardFromConstruction(t *testing.T) {
 	var prompts, posts atomic.Int32
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { posts.Add(1); w.WriteHeader(500) }))
 	defer target.Close()
-	m := newTestManagerWithEmit(func(string, any) {})
-	storeUserToken(t, m, "srv", "expired", "refresh", time.Now().Add(-time.Hour).Unix())
+	m, _, ctx := managedFixture(t)
+	cfg := managedConfig("https://192.0.2.1/mcp")
+	cfg.OAuth2TokenURL, cfg.OAuth2TokenAuthMethod = target.URL, "none"
+	if err := m.SaveConfig("srv", cfg); err != nil {
+		t.Fatal(err)
+	}
+	seedManagedRuntime(t, m, ctx, "srv", "expired", "refresh", time.Now().Add(-time.Hour))
+	cfg, _, _ = loadManaged(t, m, ctx, "srv")
 	m.SetOAuthNetworkAuthorizer(func(context.Context, oauthflow.NetworkDestination) ([]net.IP, bool, error) {
 		prompts.Add(1)
 		return nil, false, nil
 	})
-	rt := m.buildPKCERoundTripperForServer(context.Background(), "srv", ServerConfig{URL: "https://192.0.2.1/mcp", OAuth2ClientID: "client", OAuth2TokenURL: target.URL})
-	if rt.tokenSource == nil {
-		t.Fatal("stored token not loaded")
-	}
-	_, err := rt.tokenSource.Token()
+	err := clientGrantGet(m.managedHTTPClient(ctx, cfg), cfg.URL)
 	if !errors.Is(err, oauthflow.ErrNetworkAuthorization) || prompts.Load() != 1 || posts.Load() != 0 {
 		t.Fatalf("stored refresh bypassed consent: %v prompts=%d posts=%d", err, prompts.Load(), posts.Load())
 	}

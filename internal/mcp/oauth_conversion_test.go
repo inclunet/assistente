@@ -203,11 +203,7 @@ func TestClientConversionRefusesChangedIncompleteAndActiveRecords(t *testing.T) 
 				cfg.URL = "https://different.example"
 				err = b.SaveConfig(cfg.Slug, cfg)
 			case "active":
-				op, _, beginErr := b.credMgr.BeginLegacyClientGrant(ctx, cfg.Slug, cfg.ID, nil)
-				if beginErr != nil {
-					t.Fatal(beginErr)
-				}
-				defer op.End()
+				seedHistoricalControl(t, b, cfg, time.Now().Add(time.Minute), false)
 			case "invalid_method":
 				method = ""
 			case "other_user":

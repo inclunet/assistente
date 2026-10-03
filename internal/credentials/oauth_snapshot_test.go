@@ -256,8 +256,8 @@ func TestOAuthSnapshotRecoveryNeverReplaysStoredRefresh(t *testing.T) {
 	if published.ID != id || published.AutoConnect || published.Enabled {
 		t.Fatal("restore enabled remote connection")
 	}
-	if _, err := a.ReadLegacyOAuthToken(ctx, "legacy", id, nil); !errors.Is(err, oauthflow.ErrReauthorize) {
-		t.Fatalf("old refresh became usable: %v", err)
+	if control := readLegacyControlFixture(t, a, ctx, "legacy"); !control.Pending || control.ConsumerID != id {
+		t.Fatal("old refresh became usable without reconnection")
 	}
 	var tokens database.CredentialEntry
 	if err := db.Where("pattern = ?", "mcp-tokens:legacy").First(&tokens).Error; err != nil {
@@ -283,14 +283,11 @@ func TestOAuthSnapshotRecoveryNeverReplaysStoredRefresh(t *testing.T) {
 func TestOAuthSnapshotRejectsActiveOperationsSourcesAndWrongKey(t *testing.T) {
 	a, b, _, ctx, id := legacyOperationFixture(t)
 	dir := filepath.Join(t.TempDir(), "recovery")
-	op, _, err := a.BeginLegacyOAuth(ctx, "legacy", id, false, false, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	seedLegacyControlFixture(t, a, ctx, "legacy", id, time.Now().Add(time.Minute), true)
 	if _, err := b.CreateLegacyOAuthSnapshot(ctx, dir, id); !errors.Is(err, oauthflow.ErrTransient) {
 		t.Fatalf("captured active operation: %v", err)
 	}
-	op.End()
+	seedLegacyControlFixture(t, a, ctx, "legacy", id, time.Now().Add(-time.Minute), true)
 	info, err := a.CreateLegacyOAuthSnapshot(ctx, dir, id)
 	if err != nil {
 		t.Fatal(err)

@@ -61,19 +61,6 @@ func newTestManagerWithEmit(emit emitFunc) *Manager {
 	return NewManager(tools.NewRegistry(), credentials.NewManager(nil), emit)
 }
 
-func storeUserToken(t *testing.T, m *Manager, slug, access, refresh string, expiresAt int64) {
-	t.Helper()
-	auth := &credentials.AuthConfig{Source: "static",
-		Type:       "oauth2",
-		Token:      access,
-		RefreshURL: refresh,
-		ExpiresAt:  expiresAt,
-	}
-	if err := m.credMgr.RegisterPatternWithContext(context.Background(), userTokensPattern(slug), auth); err != nil {
-		t.Fatalf("RegisterPatternWithContext: %v", err)
-	}
-}
-
 // ============ GetEligibleNativeMCPServers: token expirado ============
 
 func TestGetEligibleNativeMCPServers_ExpiredWithoutRefreshSignalsReauthAndSkips(t *testing.T) {
