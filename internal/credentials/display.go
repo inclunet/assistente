@@ -68,7 +68,7 @@ func SummarizeAuth(auth *AuthConfig) string {
 // ResolveSecretFromAuth extrai o valor secreto principal de uma AuthConfig.
 // Retorna o primeiro campo não-vazio dentre Token, Password, primeiro Header.
 func ResolveSecretFromAuth(auth *AuthConfig) string {
-	if auth == nil {
+	if auth == nil || auth.Type == StaticConnectionType {
 		return ""
 	}
 	if auth.Token != "" {

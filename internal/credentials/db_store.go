@@ -94,6 +94,9 @@ func (s *DBStore) SaveCredential(ctx context.Context, cred StoredCredential) err
 	}
 
 	return database.WithSQLiteImmediateTransaction(ctx, db, "credentials.save", func(tx *gorm.DB) error {
+		if strings.HasPrefix(cred.Pattern, "connection:") || cred.Auth.Type == StaticConnectionType {
+			return ErrStaticConnection
+		}
 		if err := checkMCPConsumer(ctx, tx); err != nil {
 			return err
 		}
@@ -103,6 +106,9 @@ func (s *DBStore) SaveCredential(ctx context.Context, cred StoredCredential) err
 		if err := guardLegacyMCPOAuthWrite(tx, userID, cred.Pattern); err != nil {
 			return err
 		}
+		if err := guardLegacySlackWrite(tx, userID, cred.Pattern); err != nil {
+			return err
+		}
 		if cred.ID != "" {
 			var previous database.CredentialEntry
 			readErr := tx.Where("id = ?", cred.ID).First(&previous).Error
@@ -110,8 +116,14 @@ func (s *DBStore) SaveCredential(ctx context.Context, cred StoredCredential) err
 				return readErr
 			}
 			if readErr == nil {
+				if strings.HasPrefix(previous.Pattern, "connection:") || previous.AuthType == StaticConnectionType {
+					return ErrStaticConnection
+				}
 				if previous.UserID != userID {
 					return oauthflow.ErrConflict
+				}
+				if err := guardLegacySlackWrite(tx, userID, previous.Pattern); err != nil {
+					return err
 				}
 				if err := guardLegacyMCPOAuthWrite(tx, userID, previous.Pattern); err != nil {
 					return err

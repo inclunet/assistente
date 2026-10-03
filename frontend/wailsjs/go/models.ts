@@ -3135,6 +3135,10 @@ export namespace app {
 export namespace channels {
 	
 	export class ChannelConfig {
+	    id?: string;
+	    credential_id?: string;
+	    remove_bot_token?: boolean;
+	    remove_app_token?: boolean;
 	    enabled: boolean;
 	    bot_token?: string;
 	    bot_token_ref?: string;
@@ -3159,6 +3163,10 @@ export namespace channels {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.credential_id = source["credential_id"];
+	        this.remove_bot_token = source["remove_bot_token"];
+	        this.remove_app_token = source["remove_app_token"];
 	        this.enabled = source["enabled"];
 	        this.bot_token = source["bot_token"];
 	        this.bot_token_ref = source["bot_token_ref"];

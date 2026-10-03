@@ -18,6 +18,11 @@ O DTO público `channels.ChannelConfig` permanece estável para Wails/gateway. A
 
 Tokens e segredos **nunca** são gravados em plaintext nas tabelas: apenas refs de pattern do CredManager (`channel:{slug}:bot_token|app_token|api_token`). App id/secret futuros usam `channel:{slug}:app` com `ClientID`+`ClientSecret` (como `mcp-client:{slug}`) — documentados aqui; sem UI Teams nesta AEP.
 
+O AEP-0112 evolui esse contrato para Slack: bot/app token passam a componentes
+de uma única entrada cifrada, com `credential_id` no canal e referências por
+papel para a mesma entrada. O par `channel:slack:*` é somente origem histórica
+de migração. Os demais canais mantêm o contrato desta entrega.
+
 Arquivos legados **não** são apagados. A importação pós-login é idempotente (skip se `(user_id, slug)` já existir).
 
 **Entrega:** implementada e mergeada em `main` pelo PR #400 (`feat/channels-database-migration`).

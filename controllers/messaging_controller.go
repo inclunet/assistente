@@ -352,6 +352,13 @@ func (c *MessagingController) GetChannelConfig(channelName string) (*channels.Ch
 
 // SaveChannelConfig salva a configuração de um canal e reconecta automaticamente.
 func (c *MessagingController) SaveChannelConfig(channelName string, cfg *channels.ChannelConfig) error {
+	if channelName == "slack" {
+		if err := channels.SaveSlackWithCredentials(c.credentialContext(), cfg, c.credMgr); err != nil {
+			return err
+		}
+		c.restartChannel(channelName, cfg)
+		return nil
+	}
 	if err := c.persistChannelCredentials(channelName, cfg); err != nil {
 		return err
 	}
@@ -397,7 +404,16 @@ func (c *MessagingController) GetChannelTemplates() []channels.ChannelTemplate {
 // CreateChannelFromTemplate cria um novo canal a partir de um template.
 // templateType: "telegram", "signal", "whatsapp", "slack", "teams", "email"
 func (c *MessagingController) CreateChannelFromTemplate(templateType string, values map[string]interface{}) error {
-	if err := channels.CreateFromTemplate(templateType, values); err != nil {
+	cfg, err := channels.ConfigFromTemplate(templateType, values)
+	if err != nil {
+		return err
+	}
+	if templateType == "slack" {
+		err = channels.SaveSlackWithCredentials(c.credentialContext(), cfg, c.credMgr)
+	} else {
+		err = channels.Save(templateType, cfg)
+	}
+	if err != nil {
 		return err
 	}
 	c.emitter.Emit("channel:created", map[string]string{"type": templateType})
@@ -566,30 +582,7 @@ func (c *MessagingController) persistChannelCredentials(channelName string, cfg 
 			cfg.BotToken = ""
 		}
 	case "slack":
-		if cfg.BotTokenRef == "" && cfg.BotToken != "" {
-			cfg.BotTokenRef = fmt.Sprintf("channel:%s:bot_token", channelName)
-		}
-		if cfg.AppTokenRef == "" && cfg.AppToken != "" {
-			cfg.AppTokenRef = fmt.Sprintf("channel:%s:app_token", channelName)
-		}
-		if cfg.BotTokenRef != "" && cfg.BotToken != "" {
-			if err := c.credMgr.RegisterPatternWithContext(ctx, cfg.BotTokenRef, &credentials.AuthConfig{Source: "static",
-				Type:  "secret",
-				Token: cfg.BotToken,
-			}); err != nil {
-				return err
-			}
-			cfg.BotToken = ""
-		}
-		if cfg.AppTokenRef != "" && cfg.AppToken != "" {
-			if err := c.credMgr.RegisterPatternWithContext(ctx, cfg.AppTokenRef, &credentials.AuthConfig{Source: "static",
-				Type:  "secret",
-				Token: cfg.AppToken,
-			}); err != nil {
-				return err
-			}
-			cfg.AppToken = ""
-		}
+		return credentials.ErrStaticConnection // Slack saves config and components together.
 	case "signal":
 		if cfg.APITokenRef == "" && cfg.APIToken != "" {
 			cfg.APITokenRef = fmt.Sprintf("channel:%s:api_token", channelName)
@@ -651,16 +644,9 @@ func (c *MessagingController) connectSignal(cfg *channels.ChannelConfig) {
 }
 
 // connectSlack cria e registra o adapter do Slack (Socket Mode).
-// BotToken/AppToken: plaintext ou *TokenRef via resolveCredentialRef (user-scoped).
+// BotToken/AppToken are separate roles in the same user/consumer-scoped record.
 func (c *MessagingController) connectSlack(cfg *channels.ChannelConfig) {
-	botToken := cfg.BotToken
-	appToken := cfg.AppToken
-	if botToken == "" && cfg.BotTokenRef != "" {
-		botToken = c.resolveCredentialRef(cfg.BotTokenRef)
-	}
-	if appToken == "" && cfg.AppTokenRef != "" {
-		appToken = c.resolveCredentialRef(cfg.AppTokenRef)
-	}
+	botToken, appToken := c.slackCredentialComponents(cfg)
 	if botToken == "" || appToken == "" {
 		logging.Errorf(context.Background(), "controllers.messaging-controller", "[Messaging] Slack não configurado (bot/app token ausente)")
 		return
@@ -673,6 +659,23 @@ func (c *MessagingController) connectSlack(cfg *channels.ChannelConfig) {
 		}
 	}()
 	logging.Infof(context.Background(), "controllers.messaging-controller", "[Messaging] Slack conectado")
+}
+
+func (c *MessagingController) slackCredentialComponents(cfg *channels.ChannelConfig) (string, string) {
+	if cfg == nil || c.credMgr == nil {
+		return "", ""
+	}
+	ctx := c.credentialContext()
+	if cfg.CredentialID == "" {
+		if err := channels.SaveSlackWithCredentials(ctx, cfg, c.credMgr); err != nil {
+			return "", ""
+		}
+	}
+	components, err := c.credMgr.ResolveStaticComponents(ctx, cfg.CredentialID, "slack", cfg.ID, credentials.RoleBotToken, credentials.RoleAppToken)
+	if err != nil {
+		return "", ""
+	}
+	return components[credentials.RoleBotToken], components[credentials.RoleAppToken]
 }
 
 // getSupportedChannelTypes retorna os tipos de canais suportados.

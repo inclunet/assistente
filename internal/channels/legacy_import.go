@@ -186,10 +186,16 @@ func ImportLegacyChannelsWithContext(ctx context.Context, credMgr *credentials.M
 					"[Channels] pulando %s: OwnerUserID=%s difere do usuário autenticado", item.Slug, owner)
 				return false, nil
 			}
-			if err := MigrateChannelSecrets(ctx, item.Slug, cfg, credMgr); err != nil {
-				return false, err
+			var saveErr error
+			if item.Slug == "slack" {
+				saveErr = SaveSlackWithCredentials(ctx, cfg, credMgr)
+			} else {
+				if err := MigrateChannelSecrets(ctx, item.Slug, cfg, credMgr); err != nil {
+					return false, err
+				}
+				saveErr = Save(item.Slug, cfg)
 			}
-			if err := Save(item.Slug, cfg); err != nil {
+			if err := saveErr; err != nil {
 				// Config legado aponta para uma conversa já deletada: é um vínculo
 				// obsoleto, não uma falha de importação. Pula o canal (skip) em vez
 				// de emitir ERROR ruidoso a cada startup — mesmo tratamento benigno

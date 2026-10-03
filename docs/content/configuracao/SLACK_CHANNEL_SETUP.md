@@ -56,6 +56,35 @@ Este guia explica como criar e configurar um bot Slack para uso no Assistente.
    - App Token: xapp-...
 3. Habilite o canal
 
+Os dois tokens são guardados juntos no cofre do Assistente, em uma credencial
+da conexão. O Bot Token continua sendo usado pela API e o App Token pelo Socket
+Mode; não há login OAuth ou renovação automática para esses tokens estáticos.
+
+Ao editar, deixe um campo vazio para manter seu token atual. É possível trocar
+somente um dos tokens sem perder o outro. Remover um token desativa o canal e
+preserva o outro componente; informe novamente o token removido antes de habilitar.
+Os valores armazenados não são enviados de volta ao formulário.
+
+Cadastros antigos com as duas referências padrão são reunidos atomicamente ao
+salvar ou conectar. Se a conversão falhar, a configuração e os segredos anteriores
+permanecem intactos. Referências personalizadas ou compartilhadas exigem revisão
+manual; o Assistente não apaga credenciais que podem atender outra conexão.
+
+Para guardar uma cópia recuperável, use a exportação de Dados, marque a opção
+de incluir credenciais e informe uma senha. Os tokens ficam juntos dentro do
+bloco cifrado; uma exportação sem essa opção não os inclui. Guarde a senha para
+restaurar o arquivo em uma versão compatível com credenciais compostas.
+Na restauração, uma conexão nova começa desativada. Se já houver um Slack
+cadastrado, escolha explicitamente se deseja sobrescrever a credencial.
+Esse backup de credenciais não inclui os contatos e as demais configurações do
+canal; revise-os e reconecte o Slack após restaurar.
+
+Backups antigos com tokens separados também podem ser restaurados: o Assistente
+os reúne na credencial da conexão após a decisão de conflito. Se o backup trouxer
+apenas um token, o outro é preservado. Caso a entrada atual tenha sido perdida
+ou esteja ilegível, use um backup completo ou informe novamente os dois tokens
+no editor; uma alteração parcial não consegue recuperar um segredo perdido.
+
 ## 6) O que são xoxb- e xapp-
 - xoxb-: Bot Token do Slack (token do bot da app)
 - xapp-: App‑Level Token para Socket Mode (recebimento de eventos)
