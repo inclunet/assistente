@@ -28,8 +28,10 @@ const (
 	// Shared OAuth grants/callbacks remove 15 legacy formats, including codes and authorization URLs.
 	// Legacy OAuth now propagates a sanitized persistence error instead of
 	// logging the raw storage failure and reporting successful renewal.
-	expectedLegacyFormatCount  = 750
-	expectedLegacyFormatDigest = "a9b995559c6852950c8426d1678e83eea833941cd7fa2c82eee7865050b50487"
+	// O cutover MCP remove sete formatos do refresh/reautorização legado;
+	// a renovação composta usa os eventos normalizados de oauthflow.
+	expectedLegacyFormatCount  = 743
+	expectedLegacyFormatDigest = "4d5500c0f5482d5f65b4ba5ef396b97911817622224340c4b1598b6739a8b141"
 )
 
 // TestLegacyLoggingInventory mantém reproduzível o inventário da issue #675.
