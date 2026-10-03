@@ -56,7 +56,10 @@ func MigrateLLMModelCapabilities(db *gorm.DB) error {
 		if err := migrateLLMModelHistoryInsertGuards(tx); err != nil {
 			return err
 		}
-		return migrateLLMModelIdentityAndOptionSeals(tx)
+		if err := migrateLLMModelIdentityAndOptionSeals(tx); err != nil {
+			return err
+		}
+		return migrateLLMProviderAndCatalogGuards(tx)
 	})
 }
 
@@ -435,12 +438,12 @@ var llmCredentialCompatibilityTriggers = []string{
 
 func seedLLMCapabilityCatalog(db *gorm.DB) error {
 	for _, capability := range llmcapabilities.Capabilities() {
-		if err := db.Exec(`INSERT INTO llm_capabilities(key) VALUES (?) ON CONFLICT(key) DO NOTHING`, string(capability)).Error; err != nil {
+		if err := db.Exec(`INSERT INTO llm_capabilities(key) SELECT ? WHERE NOT EXISTS (SELECT 1 FROM llm_capabilities WHERE key = ?)`, string(capability), string(capability)).Error; err != nil {
 			return err
 		}
 	}
 	for _, field := range llmcapabilities.Fields() {
-		if err := db.Exec(`INSERT INTO llm_capability_fields(capability_key, key, value_type, unit) VALUES (?, ?, ?, ?) ON CONFLICT(capability_key, key) DO NOTHING`, string(field.Capability), string(field.Key), string(field.ValueType), field.Unit).Error; err != nil {
+		if err := db.Exec(`INSERT INTO llm_capability_fields(capability_key, key, value_type, unit) SELECT ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM llm_capability_fields WHERE capability_key = ? AND key = ?)`, string(field.Capability), string(field.Key), string(field.ValueType), field.Unit, string(field.Capability), string(field.Key)).Error; err != nil {
 			return err
 		}
 	}

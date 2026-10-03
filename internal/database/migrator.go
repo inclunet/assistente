@@ -407,6 +407,12 @@ var schemaMigrations = []migration{
 		Phase:   phasePostAutoMigrate,
 		Run:     migrateLLMModelIdentityAndOptionSeals,
 	},
+	{
+		Version: 39,
+		Name:    "llm_provider_and_canonical_catalog_guards",
+		Phase:   phasePostAutoMigrate,
+		Run:     migrateLLMProviderAndCatalogGuards,
+	},
 }
 
 // runMigrations aplica, na ordem de Version, todas as migrações da fase
