@@ -2736,6 +2736,9 @@ func (m *Manager) ImportFromMCPJSON(data []byte) (int, error) {
 			return result.Imported, loadErr
 		}
 	}
+	if result.Failed > 0 {
+		return result.Imported, errors.New(strings.Join(result.Errors, "; "))
+	}
 	return result.Imported, nil
 }
 

@@ -406,7 +406,8 @@ func TestImportMCPServersJSONContinuesAfterInvalidServer(t *testing.T) {
 	ctx := portabilityTestCtx()
 	payload := []byte(`{"mcpServers":{"good":{"url":"https://good.example/mcp"},"broken":{"name":"Broken"}}}`)
 
-	result, err := ImportMCPServersJSONWithContext(ctx, payload, nil)
+	manager := credentials.NewManagerWithStoreAndPersistence([]byte("01234567890123456789012345678901"), credentials.NewDBStore(), true)
+	result, err := ImportMCPServersJSONWithContext(ctx, payload, manager)
 	if err != nil {
 		t.Fatalf("ImportMCPServersJSONWithContext: %v", err)
 	}

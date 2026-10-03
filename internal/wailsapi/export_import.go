@@ -41,6 +41,7 @@ type ExportImport struct {
 	importConversations        importConversationsFunc
 	importCommandLayers        commandImportFunc
 	commandExport              commandExportFunc
+	reloadMCP                  func(context.Context) error
 }
 
 // NewExportImport cria o bind vazio; AttachExportImport preenche deps no startup.
@@ -50,11 +51,38 @@ func NewExportImport() *ExportImport {
 
 func (api *ExportImport) importer() importConversationsFunc {
 	api.mu.RLock()
-	defer api.mu.RUnlock()
-	if api.importConversations == nil {
-		return portability.ImportConversationsWithRestoreHook
+	importFn := api.importConversations
+	api.mu.RUnlock()
+	if importFn == nil {
+		importFn = portability.ImportConversationsWithRestoreHook
 	}
-	return api.importConversations
+	return importFn
+}
+
+func (api *ExportImport) publishImport(ctx context.Context, data string, result *portability.ImportResult) {
+	api.mu.RLock()
+	reload := api.reloadMCP
+	api.mu.RUnlock()
+	if result != nil && result.Imported > 0 && reload != nil && portability.HasMCPServers(data) {
+		if reloadErr := reload(ctx); reloadErr != nil {
+			// The import already committed. Preserve its result and never retry
+			// persistence just because runtime publication failed.
+			result.Warnings = append(result.Warnings, portability.LocalizedMessage{
+				Code:    "mcpServer.runtimeReloadFailed",
+				Message: "Os dados foram importados, mas a lista MCP não pôde ser atualizada. Entre novamente para recarregá-la.",
+			})
+		}
+	}
+}
+
+// AttachMCPImportReload wires local runtime publication without adding a Wails method.
+func AttachMCPImportReload(api *ExportImport, reload func(context.Context) error) {
+	if api == nil {
+		return
+	}
+	api.mu.Lock()
+	defer api.mu.Unlock()
+	api.reloadMCP = reload
 }
 
 func (api *ExportImport) commandImporter() commandImportFunc {
@@ -328,9 +356,11 @@ func (api *ExportImport) ImportConversations(jsonData string) (*portability.Impo
 		if portability.HasCommandLayers(jsonData) {
 			return api.dispatchCommandImport(ctx, portability.ImportRequest{JSONData: jsonData})
 		}
-		return withPreparedConversationRestore(ctx, prepareRestore, func(finalize func([]string)) (*portability.ImportResult, error) {
+		result, err := withPreparedConversationRestore(ctx, prepareRestore, func(finalize func([]string)) (*portability.ImportResult, error) {
 			return api.importer()(ctx, jsonData, credMgr, "", nil, finalize)
 		})
+		api.publishImport(ctx, jsonData, result)
+		return result, err
 	})
 }
 
@@ -347,9 +377,11 @@ func (api *ExportImport) ImportData(jsonData string, credentialExportPassword st
 				CredentialExportPassword: credentialExportPassword,
 			})
 		}
-		return withPreparedConversationRestore(ctx, prepareRestore, func(finalize func([]string)) (*portability.ImportResult, error) {
+		result, err := withPreparedConversationRestore(ctx, prepareRestore, func(finalize func([]string)) (*portability.ImportResult, error) {
 			return api.importer()(ctx, jsonData, credMgr, credentialExportPassword, nil, finalize)
 		})
+		api.publishImport(ctx, jsonData, result)
+		return result, err
 	})
 }
 
@@ -363,7 +395,7 @@ func (api *ExportImport) ImportDataWithResolutions(req portability.ImportRequest
 		if portability.HasCommandLayers(req.JSONData) {
 			return api.dispatchCommandImport(ctx, req)
 		}
-		return withPreparedConversationRestore(ctx, prepareRestore, func(finalize func([]string)) (*portability.ImportResult, error) {
+		result, err := withPreparedConversationRestore(ctx, prepareRestore, func(finalize func([]string)) (*portability.ImportResult, error) {
 			return api.importer()(
 				ctx,
 				req.JSONData,
@@ -373,6 +405,8 @@ func (api *ExportImport) ImportDataWithResolutions(req portability.ImportRequest
 				finalize,
 			)
 		})
+		api.publishImport(ctx, req.JSONData, result)
+		return result, err
 	})
 }
 
