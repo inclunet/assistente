@@ -1477,7 +1477,7 @@ const en = {
         authorizationChanged: 'The authorization changed or is in use. Wait for the operation to finish and try again.',
         requestNotReplayable: 'The request body cannot be resent automatically. Try connecting again.',
         migrationRequired: 'This legacy OAuth authorization must be migrated before connecting. Open OAuth diagnostics, create a snapshot, then use Convert for Client Credentials or Reconnect and migrate for PKCE. The previous configuration and tokens have been preserved.',
-        authenticationSelectionRequired: 'This old configuration does not identify the required authentication. If the service is public, edit the server and select None under Authentication. If it requires OAuth, open OAuth diagnostics, create a snapshot and use Reconnect and migrate. Credentials have been preserved until your decision.',
+        authenticationSelectionRequired: 'This old configuration does not identify the required authentication. If the service is public, edit the server and select None under Authentication. If it requires OAuth, confirm OAuth2 Authorization Code (PKCE) in the editor and save first; then open OAuth diagnostics, create a snapshot and use Reconnect and migrate. Credentials have been preserved until your decision.',
         legacyPersistenceFailed: 'The OAuth credential could not be saved. The operation stopped so a renewal is not reported as complete without saving the token. Check vault access before trying again.',
         authorizationRequired: 'This server needs authorization. Use Connect or Reauthorize to continue.',
         publicClientSecret: "This DCR client is public and does not accept a manual secret. Use a different client ID to configure secret-based authentication.",

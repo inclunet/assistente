@@ -2,9 +2,12 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"reflect"
 	"sync/atomic"
 	"testing"
@@ -163,20 +166,48 @@ func TestRecoveryStdioIgnoresResidualLegacyOAuth(t *testing.T) {
 func TestHistoricalURLOnlyAuthenticationRequiresExplicitChoice(t *testing.T) {
 	for _, hasGrant := range []bool{false, true} {
 		t.Run(map[bool]string{false: "public", true: "discovery_grant"}[hasGrant], func(t *testing.T) {
-			m, repo, ctx := managedFixture(t)
 			var requests atomic.Int32
+			var endpoint string
 			server := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "public", Version: "1"}, nil)
 			handler := mcpsdk.NewStreamableHTTPHandler(func(*http.Request) *mcpsdk.Server { return server }, nil)
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				requests.Add(1)
+				if hasGrant {
+					w.Header().Set("Content-Type", "application/json")
+					switch r.URL.Path {
+					case "/.well-known/oauth-protected-resource":
+						_ = json.NewEncoder(w).Encode(map[string]any{"resource": endpoint, "authorization_servers": []string{endpoint}})
+					case "/.well-known/oauth-authorization-server", "/.well-known/openid-configuration":
+						_ = json.NewEncoder(w).Encode(map[string]any{"issuer": endpoint, "authorization_endpoint": endpoint + "/authorize", "token_endpoint": endpoint + "/token", "registration_endpoint": endpoint + "/register", "code_challenge_methods_supported": []string{"S256"}})
+					case "/register":
+						_ = json.NewEncoder(w).Encode(map[string]any{"client_id": "discovered-client"})
+					case "/token":
+						_ = r.ParseForm()
+						if r.Form.Get("grant_type") != "authorization_code" || r.Form.Get("client_id") != "discovered-client" {
+							t.Error("wrong migration grant")
+						}
+						_ = json.NewEncoder(w).Encode(map[string]any{"access_token": "migrated", "refresh_token": "migrated-refresh", "token_type": "Bearer", "expires_in": 3600})
+					default:
+						w.WriteHeader(http.StatusUnauthorized)
+					}
+					return
+				}
 				if r.Header.Get("Authorization") != "" {
 					t.Error("public connection sent credentials")
 				}
 				handler.ServeHTTP(w, r)
 			}))
+			endpoint = srv.URL
+			m, _, ctx, _ := legacyWALManagers(t, srv.URL)
+			repo := m.repository().(*DBRepository)
 			defer srv.Close()
 			defer m.CloseAll()
-			cfg := ServerConfig{Slug: "historical", URL: srv.URL, Enabled: true, AutoConnect: true, DisableSSE: true}
+			cfg := ServerConfig{Slug: "legacy", URL: srv.URL, Enabled: true, AutoConnect: true, DisableSSE: true}
+			if !hasGrant {
+				if err := m.credMgr.DeletePattern(ctx, userTokensPattern(cfg.Slug)); err != nil {
+					t.Fatal(err)
+				}
+			}
 			if err := repo.SaveServer(ctx, &cfg); err != nil {
 				t.Fatal(err)
 			}
@@ -215,6 +246,59 @@ func TestHistoricalURLOnlyAuthenticationRequiresExplicitChoice(t *testing.T) {
 				t.Fatal("ambiguous configuration used or changed credentials")
 			}
 			if hasGrant {
+				// Confirming and saving PKCE makes the persisted format eligible
+				// for inventory/snapshots without changing the old grant.
+				if err := m.SaveConfig(cfg.Slug, *after); err != nil {
+					t.Fatal(err)
+				}
+				if err := repo.db.Order("id").Find(&rowsAfter).Error; err != nil {
+					t.Fatal(err)
+				}
+				if !reflect.DeepEqual(rowsBefore, rowsAfter) || requests.Load() != 0 {
+					t.Fatal("confirmation modified the grant")
+				}
+				items, err := m.InspectOAuthInventory(ctx)
+				if err != nil {
+					t.Fatal(err)
+				}
+				found := false
+				for _, item := range items {
+					if item.ID == cfg.ID {
+						found = true
+					}
+				}
+				if !found {
+					t.Fatal("confirmed PKCE missing in diagnostic")
+				}
+				m.snapshotRoot = t.TempDir()
+				snapshot, err := m.CreateOAuthSnapshot(ctx, cfg.ID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				m.SetOAuthNetworkAuthorizer(func(_ context.Context, d oauthflow.NetworkDestination) ([]net.IP, bool, error) {
+					return d.IPs, true, nil
+				})
+				oldBrowser := browserOpen
+				defer func() { browserOpen = oldBrowser }()
+				browserOpen = func(raw string) error {
+					u, err := url.Parse(raw)
+					if err != nil {
+						return err
+					}
+					q := u.Query()
+					response, err := http.Get(q.Get("redirect_uri") + "?code=ok&state=" + url.QueryEscape(q.Get("state")))
+					if err != nil {
+						return err
+					}
+					return response.Body.Close()
+				}
+				if err := m.ReconnectOAuthSnapshot(ctx, snapshot.ID, "none"); err != nil {
+					t.Fatal(err)
+				}
+				_, _, record := loadManaged(t, m, ctx, cfg.Slug)
+				if record.Tokens.Access != "migrated" || record.Client.ID != "discovered-client" {
+					t.Fatal("discovery-only grant did not migrate")
+				}
 				return
 			}
 			// The existing editor's explicit None choice enables a public server

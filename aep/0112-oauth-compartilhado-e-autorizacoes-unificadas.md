@@ -1478,6 +1478,10 @@ para públicos ou a migração para OAuth; não deduz ausência de grant pela fa
 endpoints. `TestHistoricalURLOnlyAuthenticationRequiresExplicitChoice` cobre
 reload do cadastro histórico, credenciais discovery-only preservadas e conexão
 HTTP MCP pública real após escolher nenhuma autenticação, sem exigir migração.
+Para OAuth por descoberta com tipo persistido vazio, a orientação exige confirmar
+e salvar PKCE antes do diagnóstico. O mesmo teste comprova credenciais intactas
+ao salvar, presença no inventário, snapshot e reconexão migratória completa via
+discovery/DCR, sem reconstruir metadados históricos nem reutilizar o grant antigo.
 `TestRecoveryStdioIgnoresResidualLegacyOAuth` prova reconexão STDIO sem HTTP e
 sem alterar o token antigo. Testes de refresh/recovery do Manager usam o registro
 composto, incluindo rejeição definitiva e barreira após resposta ambígua.

@@ -780,7 +780,10 @@ Alguns cadastros antigos contendo apenas a URL receberam o tipo PKCE por
 inferência, inclusive serviços públicos. Nesses casos o app pede que você
 confirme a autenticação: se o serviço é público, edite o servidor e escolha
 **Nenhuma** em **Autenticação**; não é necessário migrar para OAuth. Se o serviço
-exige OAuth por descoberta, siga o diagnóstico e a migração abaixo. A ausência
+exige OAuth por descoberta, confirme **OAuth2 Authorization Code (PKCE)** no
+editor e salve primeiro, preservando as credenciais. Depois abra o diagnóstico
+e siga a migração abaixo. Essa confirmação grava o tipo que antes podia existir
+somente por inferência em memória e torna o cadastro elegível ao snapshot. A ausência
 de endpoints no cadastro não prova que o serviço seja público. Até essa decisão,
 o Assistente mantém as credenciais e não tenta conectar ou renovar tokens.
 

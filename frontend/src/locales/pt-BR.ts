@@ -1478,7 +1478,7 @@ const ptBR = {
         authorizationChanged: 'A autorização mudou ou está em uso. Aguarde a operação terminar e tente novamente.',
         requestNotReplayable: 'O corpo da requisição não pode ser reenviado automaticamente. Tente conectar novamente.',
         migrationRequired: 'Esta autorização OAuth antiga precisa ser migrada antes de conectar. Abra Diagnóstico OAuth, crie um snapshot e use Converter para Client Credentials ou Reconectar e migrar para PKCE. O cadastro e os tokens anteriores foram preservados.',
-        authenticationSelectionRequired: 'Este cadastro antigo não permite determinar a autenticação necessária. Se o serviço é público, edite o servidor e escolha Nenhuma em Autenticação. Se exige OAuth, abra Diagnóstico OAuth, crie um snapshot e use Reconectar e migrar. As credenciais foram preservadas até sua decisão.',
+        authenticationSelectionRequired: 'Este cadastro antigo não permite determinar a autenticação necessária. Se o serviço é público, edite o servidor e escolha Nenhuma em Autenticação. Se exige OAuth, confirme OAuth2 Authorization Code (PKCE) no editor e salve primeiro; depois abra Diagnóstico OAuth, crie um snapshot e use Reconectar e migrar. As credenciais foram preservadas até sua decisão.',
         legacyPersistenceFailed: 'Não foi possível salvar a credencial OAuth. A operação foi interrompida para não informar uma renovação como concluída sem salvar o token. Verifique o acesso ao cofre antes de tentar novamente.',
         authorizationRequired: 'Este servidor precisa de autorização. Use Conectar ou Reautorizar para continuar.',
         publicClientSecret: "Este cliente DCR é público e não aceita segredo manual. Use outro ID de cliente para configurar autenticação com segredo.",
