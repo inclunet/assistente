@@ -41,7 +41,9 @@ func (r *LLMModelCapabilitiesRepository) SaveModel(ctx context.Context, provider
 		return nil, errors.New("identidade de modelo inválida")
 	}
 	var model LLMModel
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	// Adquire o writer antes do lookup para que descobertas concorrentes
+	// releiam a identidade já publicada, sem promover um snapshot antigo.
+	err := WithSQLiteImmediateTransactionOnce(ctx, time.Now().Add(sqliteBusyRetryMaxWait), r.db, "llm_models.save", func(tx *gorm.DB) error {
 		if _, err := r.providerRevisionForWrite(ctx, tx, providerID); err != nil {
 			return err
 		}
@@ -96,7 +98,7 @@ func (r *LLMModelCapabilitiesRepository) BindCatalogModel(ctx context.Context, b
 	if binding.Source != string(llmcapabilities.SourceAppCuration) && binding.Source != string(llmcapabilities.SourceOfficialCatalog) && binding.Source != string(llmcapabilities.SourceThirdPartyCatalog) {
 		return ErrInvalidCatalogBinding
 	}
-	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return WithSQLiteImmediateTransactionOnce(ctx, time.Now().Add(sqliteBusyRetryMaxWait), r.db, "llm_models.bind_catalog", func(tx *gorm.DB) error {
 		revision, model, err := r.modelAndProviderRevision(ctx, tx, binding.ModelID)
 		if err != nil {
 			return err

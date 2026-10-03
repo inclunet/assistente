@@ -316,6 +316,12 @@ depender de uma fase ainda aberta deve ser empilhado sobre ela.
   `TestProviderImportDefaultSwitchAdvancesPreviousConfigRevision` e
   `TestProviderImportAdvancesOnlyRelevantRevisions` e `TestMigration36VersionsDirectProviderUpdatesWithoutDoubleIncrement` (v36 cobre alterações diretas de endpoint, pattern, formato e modelo; não duplica avanços do repositório e preserva rollback). `TestProviderCreationRefusesPersistedIDsAbsentFromRegistry` e `TestDBStoreCreateRequiresScopeAndPreservesDuplicateIdentity` cobrem a inserção exclusiva nos fluxos de criação; `TestConcurrentProviderCreationReservesIDBeforeWritingCredentials` força preflights concorrentes e preserva a chave do vencedor, e `TestCredentialFailureRollsBackUnpublishedProviderReservation`/`TestProviderReservationRollbackPreservesChangedConfiguration` cobrem reversão da reserva sem remover alterações concorrentes. `TestProviderReservationRollbackPreservesChangedCompatibilityRevision` comprova que a revisão de compatibilidade também integra o predicado atômico do rollback, preservando a identidade após uma alteração concorrente de credencial sem mudança de configuração. `TestProviderReservationRollbackPreservesConcurrentModelFacts` comprova que a condição SQL atômica também preserva modelos e fatos já cadastrados para a reserva, inclusive em provedores de sistema. A v39 recusa substituição de provedores por ID e protege o catálogo canônico contra UPDATE/DELETE/REPLACE; mudanças futuras exigem migração transacional que remova/reinstale os guards junto da definição Go. Verificado por `TestMigration39PreventsReplacingProvidersAndPreservesModelHistory`, `TestMigration39CanonicalCatalogIsImmutableAndMigrationRemainsIdempotent` e `TestMigration39RefusesLegacyCatalogDivergenceBeforeInstallingGuards`. A captura e validação
   dessas versões no runtime pertencem à fase 2.
+- [x] Descobertas concorrentes de um mesmo modelo ou vínculo retornam a
+  identidade existente sem duplicar registros. `SaveModel` e `BindCatalogModel`
+  adquirem a escrita SQLite antes do lookup, com espera limitada e cancelável;
+  o retry se limita à aquisição da transação. Verificado por
+  `TestLLMModelCatalogConcurrentDiscoveryIsIdempotent`, em WAL com duas conexões
+  concorrentes e outro writer ativo (falha reproduzida antes da correção).
 - [x] Vínculos, afirmações e opções de campo não podem ser atualizados ou
   excluídos diretamente enquanto seu modelo existir; apagar um modelo ou
   provedor remove os fatos dependentes em cascata. Verificado por
