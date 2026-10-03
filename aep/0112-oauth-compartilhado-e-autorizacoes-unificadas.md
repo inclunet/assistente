@@ -1492,3 +1492,56 @@ mesmo quando o servidor encerra o stream com EOF após observar o cancelamento.
 bytes parciais e prazo; `TestCancelBodyPreservesLiveResponse` mantém EOF/erros
 originais enquanto o contexto está ativo. O teste de streaming com consentimento
 corporativo mantém sua exigência de `context.Canceled` após cancelar.
+
+### Fase 3 — retirada do transporte legado de Client Credentials
+
+Status: **In Progress**. Foram removidos `legacyClientGrantTransport`, seu cache
+local e os construtores MCP de client/token-source para Client Credentials.
+O construtor HTTP recusa cadastros históricos com `oauth_migration_required`;
+autorizações compostas usam exclusivamente o lifecycle compartilhado.
+
+Os testes de concorrência entre Managers, edição durante emissão, troca de
+segredo, logout, falha transitória saneada e consentimento antes do lease agora
+executam o registro composto após conversão explícita de uma fixture histórica.
+As verificações de audiência, redirects e streaming SSE/Streamable também usam
+o transporte composto. Nenhum cenário de teste foi excluído.
+
+A resolução relê o consumidor persistido antes da renovação e antes de entregar
+o token: uma instância com configuração antiga não pode continuar usando a
+autorização após troca de vínculo no banco. Evidências:
+`TestComposedClientGrantRelatesCacheToCurrentClientAndOwner`,
+`TestComposedClientGrantRechecksConsumerAfterIssuance` e
+`TestLegacyClientCredentialsHTTPRequiresMigration`.
+
+A aquisição do lease e a publicação do token também validam o vínculo dentro
+da mesma transação CAS do cofre. Assim, uma troca durante a espera pelo gate ou
+pelo consentimento de rede é recusada antes de emitir o token; o serviço OAuth
+continua genérico e recebe um store adaptado pelo consumidor MCP. Evidência:
+`TestComposedClientGrantChecksBindingAfterNetworkConsent` exige zero chamadas
+ao endpoint de token/recurso e nenhuma alteração na revisão após a recusa.
+
+Permanecem a retirada do runtime privado PKCE e das APIs operacionais legadas
+do cofre, incluindo o lease antigo de Client Credentials ainda referenciado por
+fixtures de concorrência/migração. Leitura, snapshots e recuperação históricos
+continuam necessários; os aceites com provedores reais permanecem pendentes.
+
+### Fase 3 — retirada dos fallbacks PKCE do MCP nativo
+
+Status: **In Progress**. O resolvedor nativo não instancia mais o transporte
+PKCE antigo, não renova grants históricos e não usa hostname para contornar a
+recusa de OAuth legado. A ausência de ID persistido ou de cofre também não libera
+uma tentativa anônima. O ramo de persistência antiga durante o fallback SSE da
+conexão foi removido: o polling composto conserva seu caminho compartilhado.
+
+O teste de segredo atualizado entre duas instâncias usa agora uma autorização
+composta e verifica o refresh com o segredo atual, a persistência da rotação e a
+recusa após um refresh ambíguo. Evidências:
+`TestManagedNativeRefreshUsesFreshClientWithoutBootstrapOverwrite`,
+`TestLegacyNativeFallbackDoesNotReuseDeletedHostname`,
+`TestLegacyNativeRefusesHostnameWithOrWithoutTokenRow` e
+`TestLegacyOAuthRuntimeRequiresExplicitMigration` (inclui o resolvedor privado).
+Os cenários de fallback histórico passam a exigir recusa, conforme o cutover;
+a recuperação dos tokens continua nos snapshots, sem apagamento em runtime.
+
+A retirada completa do transporte privado PKCE, dos escritores e das APIs
+operacionais do cofre ainda está pendente, assim como os aceites funcionais.

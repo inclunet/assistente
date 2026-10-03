@@ -697,11 +697,6 @@ func (m *Manager) connectWithContext(parentCtx context.Context, slug string) err
 
 	// Probe SSE: para Streamable HTTP, verifica se o servidor suporta SSE
 	// antes de conectar, evitando esperar timeouts longos em 5 retries do SDK.
-	if cfg.AuthType == AuthOAuth2PKCE && !cfg.OAuthManaged && cfg.OAuthAuthorizationID == "" {
-		// All transports in this connection share the persisted baseline captured
-		// before a probe adapts DisableSSE in its local transport configuration.
-		sessionCtx = context.WithValue(sessionCtx, legacyOAuthWriterContextKey{}, m.newLegacyOAuthWriter(cfg))
-	}
 	if cfg.Transport == TransportStreamable && !cfg.DisableSSE && cfg.URL != "" {
 		httpClient := m.buildAuthHTTPClient(sessionCtx, slug, cfg)
 		probeCtx, probeCancel := context.WithCancel(sessionCtx)
@@ -759,28 +754,16 @@ func (m *Manager) connectWithContext(parentCtx context.Context, slug string) err
 			!cfg.DisableSSE && cfg.Transport == TransportStreamable &&
 			strings.Contains(err.Error(), "standalone SSE") {
 			logging.Infof(context.Background(), "mcp.manager", "[MCP:%s] SSE falhou — tentando reconectar sem SSE (polling)", slug)
-			if writer, ok := sessionCtx.Value(legacyOAuthWriterContextKey{}).(*legacyOAuthWriter); ok {
-				cfg, err = writer.EnablePolling()
-				if err != nil {
-					sessionCancel()
-					m.setError(slug, errOAuthPersistence.Error())
-					if errors.Is(err, oauthflow.ErrConflict) {
-						return errors.Join(errOAuthPersistence, oauthflow.ErrConflict)
-					}
-					return errOAuthPersistence
-				}
+			cfg.DisableSSE = true
+			m.mu.Lock()
+			if s, ok := m.servers[slug]; ok {
+				s.Config.DisableSSE = true
+			}
+			m.mu.Unlock()
+			if cfg.OAuthAuthorizationID != "" {
+				_ = m.persistManagedPolling(sessionCtx, cfg)
 			} else {
-				cfg.DisableSSE = true
-				m.mu.Lock()
-				if s, ok := m.servers[slug]; ok {
-					s.Config.DisableSSE = true
-				}
-				m.mu.Unlock()
-				if cfg.OAuthAuthorizationID != "" {
-					_ = m.persistManagedPolling(sessionCtx, cfg)
-				} else {
-					_ = m.SaveConfig(slug, cfg)
-				}
+				_ = m.SaveConfig(slug, cfg)
 			}
 
 			client = mcpsdk.NewClient(&mcpsdk.Implementation{Name: "assistente", Version: "1.0.0"}, nil)
@@ -1765,20 +1748,7 @@ func (m *Manager) buildAuthHTTPClient(ctx context.Context, slug string, cfg Serv
 		return oauthflow.NewResourceHTTPClient(cfg.URL, rt)
 
 	case AuthOAuth2ClientCredentials:
-		if _, persisted := m.repository().(*DBRepository); persisted && cfg.ID != "" && cfg.UserID != "" {
-			return m.legacyClientGrantHTTPClient(ctx, cfg)
-		}
-		clientID, clientSecret := loadClientCreds(m.credentialContext(), m.credMgr, slug)
-		if cfg.OAuth2ClientID == "" {
-			cfg.OAuth2ClientID = clientID
-		}
-		if clientSecret != "" {
-			client := buildClientCredentialsHTTPClient(ctx, cfg, clientSecret, m.authorizeOAuthNetwork)
-			logging.Infof(context.Background(), "mcp.manager", "[MCP:%s] HTTP client configurado com OAuth2 Client Credentials", slug)
-			return client
-		}
-		logging.Infof(context.Background(), "mcp.manager", "[MCP:%s] OAuth2 Client Credentials configurado mas sem client_secret no credential manager (mcp-client:%s)", slug, slug)
-		return nil
+		return oauthflow.NewResourceHTTPClient(cfg.URL, oauthErrorTransport{errOAuthMigrationRequired})
 
 	case AuthBearer:
 		if m.credMgr != nil && cfg.URL != "" {
@@ -2752,23 +2722,9 @@ func (m *Manager) GetEligibleNativeMCPServers() []NativeMCPServer {
 	return result
 }
 
-// nativeTokenExpiredOrNear informa se um token OAuth (com expiração conhecida)
-// está expirado ou perto de expirar. ExpiresAt==0 (expiração desconhecida) é
-// tratado de forma conservadora como "não force" — mantém o comportamento
-// histórico de entregar o token como está.
-func nativeTokenExpiredOrNear(expiresAt int64) bool {
-	if expiresAt == 0 {
-		return false
-	}
-	return time.Until(time.Unix(expiresAt, 0)) <= tokenRefreshThreshold
-}
-
-// resolveNativeAuthToken resolve, FORA do lock do Manager, o Bearer a usar no
-// passthrough nativo do servidor candidato. Retorna ok=false apenas quando o
-// servidor exige OAuth, o token está expirado e não foi possível renová-lo — o
-// caller então NÃO deve incluir o servidor no caminho nativo. Para servidores
-// sem token (ex.: AuthNone) retorna ("", true), preservando o comportamento
-// anterior de entregar sem Bearer.
+// resolveNativeAuthToken resolve o Bearer fora do lock do Manager. OAuth exige
+// uma autorização composta; referências inválidas e grants históricos nunca
+// liberam fallback por slug/hostname nem uma tentativa anônima.
 func (m *Manager) resolveNativeAuthToken(ctx context.Context, c nativeMCPCandidate) (string, bool) {
 	if c.managedConfig.OAuthAuthorizationID != "" {
 		r, err := m.resolveManagedOAuth(ctx, c.managedConfig, "")
@@ -2797,62 +2753,16 @@ func (m *Manager) resolveNativeAuthToken(ctx context.Context, c nativeMCPCandida
 		return r.Tokens.Access, true
 	}
 
-	// Legacy CC has only a transport-local token cache. Never expose the generic
-	// hostname/token-row fallback to native providers. The local bridge remains
-	// available; managed CC already resolves through the shared lifecycle above.
-	if c.authType == AuthOAuth2ClientCredentials && c.managedConfig.ID != "" && c.managedConfig.UserID != "" {
-		if _, persisted := m.repository().(*DBRepository); persisted {
-			return "", false
-		}
+	if c.managedConfig.OAuthManaged || c.authType == AuthOAuth2PKCE || c.authType == AuthOAuth2ClientCredentials ||
+		c.managedConfig.AuthType == AuthOAuth2PKCE || c.managedConfig.AuthType == AuthOAuth2ClientCredentials {
+		return "", false
 	}
 	if m.credMgr == nil {
 		return "", true
 	}
-	if c.authType == AuthOAuth2PKCE && c.managedConfig.ID != "" {
-		rt := m.buildPKCERoundTripperForServer(ctx, c.slug, c.managedConfig)
-		if rt.oauthCfg == nil {
-			m.signalNeedsReauth(c.slug, c.name, "oauth_reauthorization_required")
-			return "", false
-		}
-		token, err := rt.resolveLegacyTokenWithValidity(ctx, rt.oauthCfg, false, tokenRefreshThreshold)
-		if err != nil {
-			if errors.Is(err, oauthflow.ErrNotFound) {
-				auth, hostErr := m.credMgr.ReadLegacyHostnameToken(ctx, c.slug, hostnameFromURL(c.url), rt.validateLegacyConsumer)
-				if hostErr != nil {
-					return "", false
-				}
-				if auth != nil {
-					return auth.Token, true
-				}
-				return "", true
-			}
-			if errors.Is(err, oauthflow.ErrReauthorize) {
-				m.signalNeedsReauth(c.slug, c.name, "oauth_reauthorization_required")
-			}
-			return "", false
-		}
-		m.clearNeedsReauth(c.slug)
-		return token.AccessToken, true
-	}
 
 	auth, err := m.credMgr.GetByPatternWithContext(ctx, userTokensPattern(c.slug))
 	if err == nil && auth != nil && auth.Token != "" {
-		if c.authType == AuthOAuth2PKCE && nativeTokenExpiredOrNear(auth.ExpiresAt) {
-			refreshed, rerr := m.refreshOAuthTokenBestEffort(ctx, c.slug, true)
-			if !refreshed {
-				m.signalNeedsReauth(c.slug, c.name, reauthReasonFromError(rerr))
-				return "", false
-			}
-			fresh, ferr := m.credMgr.GetByPatternWithContext(ctx, userTokensPattern(c.slug))
-			if ferr != nil || fresh == nil || fresh.Token == "" {
-				m.signalNeedsReauth(c.slug, c.name, "token renovado mas indisponível no cofre")
-				return "", false
-			}
-			m.clearNeedsReauth(c.slug)
-			logging.Infof(context.Background(), "mcp.manager", "[MCP] servidor %q: token OAuth renovado antes do MCP nativo (novo expires=%d)",
-				c.slug, fresh.ExpiresAt)
-			return fresh.Token, true
-		}
 		m.clearNeedsReauth(c.slug)
 		logging.Infof(context.Background(), "mcp.manager", "[MCP] servidor %q: token OAuth resolvido (pattern=%s, len=%d, expires=%d)",
 			c.slug, userTokensPattern(c.slug), len(auth.Token), auth.ExpiresAt)
@@ -2876,15 +2786,6 @@ func (m *Manager) resolveNativeHostnameToken(ctx context.Context, c nativeMCPCan
 	logging.Infof(context.Background(), "mcp.manager", "[MCP] servidor %q: NENHUM token encontrado (oauth=%s, sem hostname)",
 		c.slug, userTokensPattern(c.slug))
 	return "", true
-}
-
-// reauthReasonFromError deriva uma razão legível para o sinal de reauth a partir
-// do erro do refresh forçado (nil quando não havia refresh_token utilizável).
-func reauthReasonFromError(err error) string {
-	if err == nil {
-		return "refresh_token ausente ou inválido"
-	}
-	return fmt.Sprintf("falha ao renovar token: %v", err)
 }
 
 func sortMCPBridges(bridges []*MCPToolBridge) {

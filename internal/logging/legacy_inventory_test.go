@@ -28,14 +28,11 @@ const (
 	// Shared OAuth grants/callbacks remove 15 legacy formats, including codes and authorization URLs.
 	// Legacy OAuth now propagates a sanitized persistence error instead of
 	// logging the raw storage failure and reporting successful renewal.
-	// The welcome wizard no longer pre-registers a temporary credential before
-	// CreateWizardProvider, removing the duplicate error format.
-	// Provider creation now uses the shared default recovery path instead of a
-	// separate warning when marking the first provider as default.
 	// O cutover MCP remove sete formatos do refresh/reautorização legado;
 	// a renovação composta usa os eventos normalizados de oauthflow.
+	// A retirada do transporte antigo de Client Credentials remove dois formatos.
 	expectedLegacyFormatCount  = 741
-	expectedLegacyFormatDigest = "ef4aa89f869f6293e53d5696435a2b23b9b6a361b7db665d74573ed0801925e3"
+	expectedLegacyFormatDigest = "c4d7938e5427d243cf6d8f6c85e4d27feb24efcb35def7bb7bf0f4e2fdf078fc"
 )
 
 // TestLegacyLoggingInventory mantém reproduzível o inventário da issue #675.
@@ -53,7 +50,7 @@ func TestLegacyLoggingInventory(t *testing.T) {
 		}
 		if entry.IsDir() {
 			switch entry.Name() {
-			case ".git", "node_modules", "dist", "build":
+			case ".git", "node_modules", "dist":
 				return filepath.SkipDir
 			}
 			return nil

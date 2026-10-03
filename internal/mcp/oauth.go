@@ -142,21 +142,6 @@ func (rt *pkceRoundTripper) trySilentRefresh(ctx context.Context, rejected ...st
 	return nil
 }
 
-// buildClientCredentialsHTTPClient cria um *http.Client que obtém tokens
-// via OAuth2 Client Credentials Grant (machine-to-machine).
-func buildClientCredentialsHTTPClient(ctx context.Context, cfg ServerConfig, clientSecret string, authorize oauthflow.NetworkAuthorizer) *http.Client {
-	return oauthflow.NewResourceHTTPClient(cfg.URL, &oauth2.Transport{
-		Source: buildClientCredentialsTokenSource(ctx, cfg, clientSecret, authorize),
-		Base:   oauthflow.NewResourceTransport(cfg.URL, authorize),
-	})
-}
-
-func buildClientCredentialsTokenSource(ctx context.Context, cfg ServerConfig, clientSecret string, authorize oauthflow.NetworkAuthorizer) oauth2.TokenSource {
-	return oauthflow.ClientCredentialsTokenSource(ctx, oauthflow.ClientCredentialsConfig{
-		Resource: cfg.URL, ClientID: cfg.OAuth2ClientID, ClientSecret: clientSecret, TokenEndpoint: cfg.OAuth2TokenURL, Scopes: cfg.OAuth2Scopes,
-	}, authorize)
-}
-
 // ============ OAuth Discovery (uses discovery.go infrastructure) ============
 
 type OAuthDiscovery = oauthflow.DiscoveryEndpoints
