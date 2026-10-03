@@ -724,6 +724,10 @@ func TestLLMModelCapabilityHistoryIsAppendOnlyAndCascadesWithProvider(t *testing
 		query string
 		args  []any
 	}{
+		{"substituir vínculo", "INSERT OR REPLACE INTO llm_model_catalog_bindings SELECT * FROM llm_model_catalog_bindings WHERE id = ?", []any{binding.ID}},
+		{"substituir capability", "INSERT OR REPLACE INTO llm_model_capabilities SELECT * FROM llm_model_capabilities WHERE id = ?", []any{capability.ID}},
+		{"substituir campo", "INSERT OR REPLACE INTO llm_model_capability_fields SELECT * FROM llm_model_capability_fields WHERE id = ?", []any{field.ID}},
+		{"substituir opção", "INSERT OR REPLACE INTO llm_model_capability_field_options (assertion_id,value,label,support_state) VALUES (?,?,?,?)", []any{field.ID, "alloy", "Changed", "unsupported"}},
 		{"alterar opção", "UPDATE llm_model_capability_field_options SET label = ? WHERE assertion_id = ? AND value = ?", []any{"Changed", field.ID, "alloy"}},
 		{"apagar opção", "DELETE FROM llm_model_capability_field_options WHERE assertion_id = ? AND value = ?", []any{field.ID, "alloy"}},
 		{"apagar campo", "DELETE FROM llm_model_capability_fields WHERE id = ?", []any{field.ID}},
@@ -732,6 +736,22 @@ func TestLLMModelCapabilityHistoryIsAppendOnlyAndCascadesWithProvider(t *testing
 	} {
 		if err := db.Exec(mutation.query, mutation.args...).Error; err == nil {
 			t.Errorf("SQLite permitiu %s enquanto o modelo existe", mutation.name)
+		}
+	}
+	// Outra PK não pode substituir a verificação através da chave natural.
+	if err := db.Exec(`INSERT OR REPLACE INTO llm_model_catalog_bindings
+		(id,model_id,provider_compatibility_revision,source,external_provider_id,external_model_id,verified_at,valid_until,source_reference,created_at,updated_at)
+		SELECT 'replacement-binding',model_id,provider_compatibility_revision,source,external_provider_id,external_model_id,verified_at,valid_until,source_reference,created_at,updated_at
+		FROM llm_model_catalog_bindings WHERE id = ?`, binding.ID).Error; err == nil {
+		t.Fatal("SQLite permitiu reutilizar a identidade histórica com outro ID")
+	}
+	var originalOption LLMModelCapabilityFieldOption
+	if err := db.Where("assertion_id = ? AND value = ?", field.ID, "alloy").First(&originalOption).Error; err != nil || originalOption.Label != "Alloy" || originalOption.SupportState != "supported" {
+		t.Fatalf("tentativa de substituição alterou a opção original: %+v %v", originalOption, err)
+	}
+	for range 2 {
+		if err := migrateLLMModelHistoryInsertGuards(db); err != nil {
+			t.Fatal(err)
 		}
 	}
 	if err := db.Exec("DELETE FROM llm_models WHERE id = ?", model.ID).Error; err != nil {
@@ -1101,5 +1121,55 @@ func TestLLMModelFieldOptionsDomainAndSQLiteAgreeOnCharacterBounds(t *testing.T)
 				t.Fatal("direct SQL bypassed option bounds")
 			}
 		})
+	}
+}
+
+func TestMigration37PreventsReplacingUnreferencedBinding(t *testing.T) {
+	db := llmModelCapabilitiesTestDB(t)
+	ctx := WithUserID(context.Background(), "owner")
+	if err := db.Exec("PRAGMA recursive_triggers = OFF").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&LLMProvider{ID: "history-provider", UserID: "owner", Name: "History", Type: "custom", APIFormat: "openai", BaseURL: "https://api.example.com"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	repository := NewLLMModelCapabilitiesRepository(db)
+	model, err := repository.SaveModel(ctx, "history-provider", "remote", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding := &LLMModelCatalogBinding{ModelID: model.ID, ProviderCompatibilityRevision: 1, Source: "official_catalog", ExternalProviderID: "vendor", ExternalModelID: "remote", VerifiedAt: time.Now().UTC().Add(-time.Minute)}
+	if err := repository.BindCatalogModel(ctx, binding); err != nil {
+		t.Fatal(err)
+	}
+	replaceSameID := "INSERT OR REPLACE INTO llm_model_catalog_bindings SELECT * FROM llm_model_catalog_bindings WHERE id = ?"
+	replaceNaturalKey := `INSERT OR REPLACE INTO llm_model_catalog_bindings
+        (id,model_id,provider_compatibility_revision,source,external_provider_id,external_model_id,verified_at,valid_until,source_reference,created_at,updated_at)
+        SELECT 'replacement-binding',model_id,provider_compatibility_revision,source,external_provider_id,external_model_id,verified_at,valid_until,source_reference,created_at,updated_at
+        FROM llm_model_catalog_bindings WHERE id = ?`
+	for _, query := range []string{replaceSameID, replaceNaturalKey} {
+		if err := db.Exec(query, binding.ID).Error; err == nil || !strings.Contains(err.Error(), "model history cannot be replaced") {
+			t.Fatalf("guard did not reject unreferenced binding: %v", err)
+		}
+	}
+	// Sem o guard, este vetor realmente passa: nenhuma FK dependente mascara
+	// a regressão. Reinstalar a migração também cobre bancos que já estão em v33.
+	if err := db.Exec("DROP TRIGGER trg_llm_model_catalog_bindings_no_replace").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec(replaceSameID, binding.ID).Error; err != nil {
+		t.Fatalf("fixture still rejects REPLACE without guard: %v", err)
+	}
+	for range 2 {
+		if err := migrateLLMModelHistoryInsertGuards(db); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.Exec(replaceNaturalKey, binding.ID).Error; err == nil || !strings.Contains(err.Error(), "model history cannot be replaced") {
+		t.Fatalf("legacy installation did not restore guard: %v", err)
+	}
+	var count int64
+	if err := db.Model(&LLMModelCatalogBinding{}).Where("id = ?", binding.ID).Count(&count).Error; err != nil || count != 1 {
+		t.Fatalf("original binding disappeared: %d %v", count, err)
 	}
 }

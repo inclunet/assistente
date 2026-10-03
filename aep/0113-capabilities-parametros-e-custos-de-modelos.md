@@ -234,7 +234,7 @@ resolução projeta um fato efetivo sem apagar afirmações concorrentes.
 | Fase / PR planejado | Entrega | Limite da fase |
 |---|---|---|
 | 0 — PR de documentação (concluída no PR #887) | Registrar e revisar esta arquitetura e a sequência de entrega. | Sem migração ou mudança de runtime. |
-| 1 — Persistência e resolução local (implementada no PR #889; em revisão) | Migrações v33/v34/v35/v36, modelos por provedor, catálogo controlado, afirmações e vínculos históricos, limites/opções tipados e resolver local determinístico. Revisões da conexão são persistidas e invalidadas transacionalmente no banco, inclusive em atualizações SQL diretas; criação usa inserção exclusiva e recusa IDs persistidos ausentes do registry; testes cobrem isolamento, precedência, expiração, rollback, proveniência e integridade SQL. | Sem integração com envio/perfil, sincronização do registry, alterações no cofre/OAuth ou mudanças no wizard. |
+| 1 — Persistência e resolução local (implementada no PR #889; em revisão) | Migrações v33/v34/v35/v36/v37, modelos por provedor, catálogo controlado, afirmações e vínculos históricos, limites/opções tipados e resolver local determinístico. Revisões da conexão são persistidas e invalidadas transacionalmente no banco, inclusive em atualizações SQL diretas; criação usa inserção exclusiva e recusa IDs persistidos ausentes do registry; testes cobrem isolamento, precedência, expiração, rollback, proveniência e integridade SQL. | Sem integração com envio/perfil, sincronização do registry, alterações no cofre/OAuth ou mudanças no wizard. |
 | 2 — Compatibilidade no envio | Integrar a projeção local e a revisão efetiva da conexão ao pipeline; traduzir campos canônicos, omitir incompatibilidades conhecidas e aprender rejeições precisas com no máximo um retry seguro. | Reutilizar o pipeline backend e os contratos vigentes de provedores/credenciais; invalidar fatos antes de usar uma conexão alterada. |
 | 3 — Profile Manager e vozes | Filtrar opções usando fatos locais; persistir/reutilizar listas de vozes por provedor/modelo e estados de desconhecimento. | Abrir a tela não espera por API externa. |
 | 4 — Fontes e jobs | Criar interface de importadores e uma operação de sincronização reutilizada pela chamada manual e pelos jobs, com validação, atualização idempotente, proveniência e vínculos explícitos de identidade; começar por fontes cuja cobertura e licença sejam adequadas. | Fatos externos só governam conexão com identidade de provedor/modelo explicitamente verificada. |
@@ -319,7 +319,7 @@ depender de uma fase ainda aberta deve ser empilhado sobre ela.
 - [x] Vínculos, afirmações e opções de campo não podem ser atualizados ou
   excluídos diretamente enquanto seu modelo existir; apagar um modelo ou
   provedor remove os fatos dependentes em cascata. Verificado por
-  `TestLLMModelCapabilityHistoryIsAppendOnlyAndCascadesWithProvider`.
+  `TestLLMModelCapabilityHistoryIsAppendOnlyAndCascadesWithProvider`, e `TestMigration37PreventsReplacingUnreferencedBinding` (sem FKs dependentes mascarando o guard), incluindo tentativas de `INSERT OR REPLACE` com triggers recursivos desligados. A v37 instala guards de INSERT que recusam IDs históricos já existentes, a chave natural de vínculos e o par afirmação/opção, preservando exclusões em cascata e idempotência.
 - [x] Escritas em provedores de sistema exigem contexto interno de bootstrap;
   usuários autenticados podem consultar os fatos compartilhados, mas não
   publicar afirmações globais. A validação de domínio rejeita timestamps

@@ -53,7 +53,7 @@ func MigrateLLMModelCapabilities(db *gorm.DB) error {
 		if err := validateLLMCapabilityCatalog(tx); err != nil {
 			return err
 		}
-		return nil
+		return migrateLLMModelHistoryInsertGuards(tx)
 	})
 }
 
