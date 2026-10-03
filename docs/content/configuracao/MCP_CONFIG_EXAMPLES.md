@@ -29,6 +29,23 @@ STDIO e Bearer explícito continuam com seu comportamento anterior. Backups do
 Assistente e arquivos históricos usam o fluxo de recuperação e migração descrito
 adiante; não são convertidos silenciosamente por este importador externo.
 
+### Restaurar OAuth de um backup antigo
+
+Um servidor OAuth restaurado de um backup do Assistente ou arquivo histórico
+fica **desativado**, com conexão automática desligada. O relatório informa que
+ele precisa de recuperação. Cliente, endpoints, callback e credenciais que
+existem no backup são preservados; informações que o backup não contém não
+podem ser recuperadas automaticamente.
+
+Abra o diagnóstico OAuth do MCP e crie um snapshot. Para Client Credentials,
+use **Converter**; para PKCE com metadados incompletos, use **Reconectar e migrar**.
+Depois da migração, habilite o servidor e configure a conexão automática se
+desejar. A reconexão pede uma nova autorização ao provedor. O cadastro original
+e os arquivos de origem continuam disponíveis conforme as regras de recuperação.
+
+Importar novamente não desativa nem sobrescreve um servidor já existente.
+Servidores STDIO e credenciais Bearer explícitas mantêm o comportamento anterior.
+
 ## Transporte e MCP Nativo
 
 A forma como o Assistente consome um servidor MCP depende de três dimensões: o

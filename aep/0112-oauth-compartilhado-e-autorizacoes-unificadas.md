@@ -1323,3 +1323,29 @@ idempotência, reinício e isolamento), `TestExternalMCPOAuthFailureLeavesNoPart
 `TestImportFromMCPJSONReportsLockedVaultAndLoadsSuccessfulEntries`.
 Conversão offline PKCE, cutover dos backups históricos, retirada do runtime e
 campos legados, convergência Slack e aceites funcionais continuam pendentes.
+
+### Fase 3 — restauração histórica em estado de recuperação
+
+Status: **In Progress**. Cadastros OAuth PKCE/Client Credentials novos, vindos
+de backups canônicos ou arquivos JSON históricos, entram com `enabled=false`
+e `auto_connect=false`. A criação e o desligamento desses flags são uma única
+transação: falhar ao aplicar os flags desfaz o cadastro. Slugs já existentes
+são ignorados e não têm seus flags ou credenciais alterados pela reimportação.
+
+O importador preserva cliente, endpoints, callback, scopes e os segredos que o
+formato de origem efetivamente contém. Não completa metadados ausentes nem
+considera os tokens uma autorização composta validada. A importação das
+credenciais portáteis mantém suas regras de senha, isolamento e conflitos.
+Fontes históricas permanecem intactas. Um aviso orienta criar o snapshot no
+diagnóstico OAuth e executar Converter (Client Credentials) ou Reconectar e
+migrar (PKCE). A tela Dados publica o cadastro desativado sem reinício.
+
+STDIO, Bearer explícito e importação externa Cursor/Claude mantêm seus contratos.
+Este incremento prepara o cutover dos backups: não remove o leitor/runtime
+legado nem impede uma ativação manual posterior. A retirada exige encerrar
+as conversões e comprovar os caminhos de recuperação; continua pendente.
+
+Evidências: `TestHistoricalMCPOAuthImportsForRecoveryWithoutLosingSecrets`,
+`TestHistoricalMCPOAuthDisableFailureRollsBackImport`,
+`TestImportLegacyMCPServersIsReusableAndIdempotent` e
+`TestMCPImportPublishesDataFacadeWithoutRestart/historical`.

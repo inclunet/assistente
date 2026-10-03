@@ -808,6 +808,7 @@ const ptBR = {
           credentialMissing: 'O provider "{{providerId}}" passa a credencial "{{pattern}}" ao agente pela variável {{variable}}, e essa entrada não está no cofre desta máquina. Cadastre-a nas credenciais ou tire a variável do provider.',
         },
         mcpServer: {
+		  oauthRecoveryRequired: 'O MCP {{slug}} foi importado desativado para recuperação OAuth. Crie um snapshot no diagnóstico OAuth e use Converter ou Reconectar e migrar antes de habilitá-lo.',
 		  runtimeReloadFailed: 'Os dados foram importados, mas a lista MCP não pôde ser atualizada. Entre novamente para recarregá-la.',
           missingSlug: 'Um servidor MCP do arquivo não tem slug e não pode ser importado.',
           stdioMissingCommand: 'O servidor MCP {{slug}} usa transport stdio, mas não traz command.',
