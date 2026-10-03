@@ -55,9 +55,8 @@ O projeto já tem contratos que esta proposta deve preservar:
    de credenciais que representam a conexão. A rotação de tokens no namespace
    `oauth:` não altera por si só a identidade da conta; vincular ou trocar a
    conta OAuth continua sendo uma mudança explícita no provedor. Após o commit,
-   o manager sincroniza o registry; a limpeza do OAuth MCP legado também passa
-   por essa sincronização quando remove uma credencial de hostname
-   compartilhada. O registry mantém watermarks mesmo quando a revisão chega
+   o manager sincroniza o registry; operações que removem ou restauram uma
+   credencial de hostname compartilhada também sincronizam o registry. O registry mantém watermarks mesmo quando a revisão chega
    antes do primeiro registro do provedor; publicações atrasadas preservam a
    revisão máxima, e um snapshot abaixo dela é rejeitado e recarregado do store
    antes de republicar todos os campos. Refreshes são versionados por pattern;
@@ -252,7 +251,7 @@ resolução projeta um fato efetivo sem apagar afirmações concorrentes.
 | Fase / PR planejado | Entrega | Limite da fase |
 |---|---|---|
 | 0 — PR de documentação (concluída no PR #887) | Registrar e revisar esta arquitetura e a sequência de entrega. | Sem migração ou mudança de runtime. |
-| 1 — Persistência e resolução local (concluída neste PR) | Migração v33 cria revisões separadas de compatibilidade e configuração, modelos por provedor, vocabulário controlado, vínculos externos verificados e versionados por verificação, afirmações append-only com origem, limites/opções tipados e resolver local determinístico; v34 instala guards SQL de proveniência para bancos que já aplicaram v33, preservando fatos históricos; v35 rejeita em SQLite timestamps de verificação/observação futuros em vínculos e afirmações, também para schemas anteriores. Alterações em credenciais de conexão compartilhadas invalidam todos os provedores consumidores; adoção de provider legado muda sua identidade de compatibilidade; rotação de token OAuth não é confundida com troca de conta, e a limpeza/restauração de OAuth MCP legado sincroniza a remoção/restauração do hostname compartilhado. Falha no refresh oculta snapshots afetados até recuperação. Instantes são normalizados para UTC, snapshots de autorização/fatos são consistentes e o registry só recebe revisões após commit ou atualização do cache em memória, recusando snapshots de configuração atrasados, inclusive quando a seleção do provedor padrão muda. O wizard persiste provider e credencial em contexto autenticado. Testes cobrem escopo, precedência, expiração, proveniência imutável, offsets, rollback, renovação, invalidação por revisão e troca versionada do provedor padrão. | Sem consultas externas e sem alterar o envio. |
+| 1 — Persistência e resolução local (concluída neste PR) | Migração v33 cria revisões separadas de compatibilidade e configuração, modelos por provedor, vocabulário controlado, vínculos externos verificados e versionados por verificação, afirmações append-only com origem, limites/opções tipados e resolver local determinístico; v34 instala guards SQL de proveniência para bancos que já aplicaram v33, preservando fatos históricos; v35 rejeita em SQLite timestamps de verificação/observação futuros em vínculos e afirmações, também para schemas anteriores. Alterações em credenciais de conexão compartilhadas invalidam todos os provedores consumidores; adoção de provider legado muda sua identidade de compatibilidade; rotação de token OAuth não é confundida com troca de conta, e operações que removem/restauram uma credencial de hostname compartilhada sincronizam o registry. Falha no refresh oculta snapshots afetados até recuperação. Instantes são normalizados para UTC, snapshots de autorização/fatos são consistentes e o registry só recebe revisões após commit ou atualização do cache em memória, recusando snapshots de configuração atrasados, inclusive quando a seleção do provedor padrão muda. O wizard persiste provider e credencial em contexto autenticado. Testes cobrem escopo, precedência, expiração, proveniência imutável, offsets, rollback, renovação, invalidação por revisão e troca versionada do provedor padrão. | Sem consultas externas e sem alterar o envio. |
 | 2 — Compatibilidade no envio | Traduzir campos canônicos, omitir incompatibilidades conhecidas e aprender rejeições precisas com no máximo um retry seguro. | Integrar ao pipeline backend existente; sem caminho paralelo de mensagem. |
 | 3 — Profile Manager e vozes | Filtrar opções usando fatos locais; persistir/reutilizar listas de vozes por provedor/modelo e estados de desconhecimento. | Abrir a tela não espera por API externa. |
 | 4 — Fontes e jobs | Criar interface de importadores e uma operação de sincronização reutilizada pela chamada manual e pelos jobs, com validação, atualização idempotente, proveniência e vínculos explícitos de identidade; começar por fontes cuja cobertura e licença sejam adequadas. | Fatos externos só governam conexão com identidade de provedor/modelo explicitamente verificada. |
@@ -299,8 +298,8 @@ depender de uma fase ainda aberta deve ser empilhado sobre ela.
   usam o pattern, sem afetar outros patterns ou usuários. Rotação/inserção/
   exclusão de credenciais `oauth:` não altera a revisão de compatibilidade;
   rebind explícito de conta continua avançando a revisão no fluxo do provedor.
-  A limpeza e a restauração de snapshot de OAuth MCP legado sincronizam também
-  o pattern de hostname após o commit/cache. Se a sincronização falha, snapshots atingidos são ocultados até uma
+  Operações que removem ou restauram uma credencial de hostname compartilhada
+  sincronizam também o pattern após o commit/cache. Se a sincronização falha, snapshots atingidos são ocultados até uma
   leitura bem-sucedida. Para credenciais mantidas só em memória, a revisão
   avança após atualizar o cache local. Verificado por
   `TestProviderCompatibilityRevisionChangesWithOnlyConnectionIdentity`,
