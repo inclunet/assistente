@@ -1392,6 +1392,11 @@ não são apagadas. Tokens antigos ausentes/ilegíveis só podem ser substituíd
 removidos explicitamente; a tentativa de preservá-los falha sem alterar o estado.
 Gravações genéricas preservam o vínculo e escritores tardios não recriam o par.
 
+Se a entrada composta desaparecer ou ficar ilegível, o editor/restore só a
+reconstrói quando todos os papéis tiverem substituição ou remoção explícita;
+identidade incompatível continua recusada. A remoção por UI omite mapas runtime
+para preservar conversas/destinos atualizados depois da abertura do editor.
+
 A opção existente de backup com credenciais e senha exporta uma entrada lógica
 composta, dentro do bloco Argon2id/AES-GCM. Sem essa opção não exporta segredos;
 sem senha não produz o backup. Restauração vincula a credencial ao usuário local,
@@ -1399,6 +1404,12 @@ com IDs locais e uma conexão nova desativada. Conflitos usam a decisão existen
 de ignorar/sobrescrever; não recriam duas linhas. Configurações e contatos do canal
 não passam a fazer parte desse backup de credenciais. O formato composto exige
 uma versão do Assistente que suporte esta entrega.
+
+Backups históricos com o par canônico são normalizados antes da análise de
+conflitos e restaurados pela mesma transação composta. Um backup parcial não
+apaga o papel omitido; se esse papel estiver perdido, a restauração é recusada.
+Pares canônicos órfãos também entram no conflito e são removidos no commit,
+depois da verificação de compartilhamento. Não se libera escrita genérica legada.
 
 Evidências: `TestStaticConnectionMigratesAtomicRolesAndPreservesIsolation`,
 `TestStaticConnectionPartialUpdateAndRemoval`,
@@ -1410,6 +1421,12 @@ Evidências: `TestStaticConnectionMigratesAtomicRolesAndPreservesIsolation`,
 `TestStaticConnectionPasswordBackupRoundTripAndConflict`,
 `TestStaticConnectionBackupRejectsAmbiguousPayload`, `ChannelsPage.test.tsx`
 e `ChannelsSlackSection.test.tsx`.
+
+Recuperação e restauração histórica: `TestSlackComposedCredentialExplicitReconstruction`,
+`TestHistoricalSlackBackupRestoresOverComposedConnection` e
+`TestStaticConnectionRestoreConsolidatesUnreferencedLegacyPair`. O round trip de
+backup também cobre entrada composta removida/ilegível. A remoção testa mapas
+atualizados após carregar o formulário, com omissão no DTO e preservação no banco.
 
 Permanecem: cutover final do runtime MCP legado, atualização dos contratos
 correspondentes e aceites funcionais com provedores reais. PKCE histórico

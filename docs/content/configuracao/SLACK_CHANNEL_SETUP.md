@@ -79,6 +79,12 @@ cadastrado, escolha explicitamente se deseja sobrescrever a credencial.
 Esse backup de credenciais não inclui os contatos e as demais configurações do
 canal; revise-os e reconecte o Slack após restaurar.
 
+Backups antigos com tokens separados também podem ser restaurados: o Assistente
+os reúne na credencial da conexão após a decisão de conflito. Se o backup trouxer
+apenas um token, o outro é preservado. Caso a entrada atual tenha sido perdida
+ou esteja ilegível, use um backup completo ou informe novamente os dois tokens
+no editor; uma alteração parcial não consegue recuperar um segredo perdido.
+
 ## 6) O que são xoxb- e xapp-
 - xoxb-: Bot Token do Slack (token do bot da app)
 - xapp-: App‑Level Token para Socket Mode (recebimento de eventos)

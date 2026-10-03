@@ -1387,7 +1387,7 @@ func decodeCredentialExports(blob *CredentialCipher, credentialPassword string) 
 	if err := DecryptCredentialsPayload(credentialPassword, blob, &creds); err != nil {
 		return nil, fmt.Errorf("erro ao descriptografar credenciais do arquivo: %w", err)
 	}
-	return creds, nil
+	return normalizeStaticConnectionExports(creds)
 }
 
 func loadExistingCredentialIdentifiers(ctx context.Context) (map[string]struct{}, map[string]struct{}, error) {
@@ -1401,6 +1401,9 @@ func loadExistingCredentialIdentifiers(ctx context.Context) (map[string]struct{}
 	patterns := make(map[string]struct{}, len(entries))
 	for _, entry := range entries {
 		if pattern := strings.TrimSpace(entry.Pattern); pattern != "" {
+			if pattern == "channel:slack:bot_token" || pattern == "channel:slack:app_token" {
+				patterns[slackConnectionBackupPattern] = struct{}{}
+			}
 			if !isPortableCredentialPattern(pattern) {
 				continue
 			}

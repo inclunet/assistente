@@ -319,13 +319,16 @@ describe('ChannelsPage', () => {
 
   it('remove apenas o papel escolhido e desativa Slack atomicamente', async () => {
     const user = userEvent.setup();
-    mockGetAllChannelConfigs.mockResolvedValue({ slack: { enabled: true, display_name: 'Slack', credential_id: 'credential', bot_token_ref: 'connection:credential', app_token_ref: 'connection:credential' } });
+    mockGetAllChannelConfigs.mockResolvedValue({ slack: { enabled: true, display_name: 'Slack', credential_id: 'credential', bot_token_ref: 'connection:credential', app_token_ref: 'connection:credential', conversations: { old: 'old-conversation' }, reply_chat_ids: { old: 'old-destination' } } });
     render(<ChannelsPage />);
     await screen.findByText('Slack');
     await user.click(screen.getAllByRole('button', { name: 'Editar' }).find((button) => !button.hasAttribute('disabled'))!);
     await user.click(await screen.findByRole('button', { name: 'remove-bot' }));
     await waitFor(() => expect(mockSaveChannelConfig).toHaveBeenCalledWith('slack', expect.objectContaining({ enabled: false, remove_bot_token: true, remove_app_token: false })));
     expect(mockDeleteCredential).not.toHaveBeenCalled();
+    const submitted = mockSaveChannelConfig.mock.calls[0][1];
+    expect(submitted.conversations).toBeUndefined();
+    expect(submitted.reply_chat_ids).toBeUndefined();
   });
 
   it('cria canal via Novo e abre o editor', async () => {

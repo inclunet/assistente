@@ -840,6 +840,7 @@ const es = {
         },
         credential: {
           vaultUnavailableForImport: 'La bóveda de credenciales no está disponible para la importación.',
+          connectionUnavailable: 'No se pudo restaurar la credencial de Slack. Revise la bóveda y use una copia completa para recuperar una entrada ausente o ilegible. Los datos anteriores se han conservado.',
           vaultUnavailableForAnalysis: 'La bóveda de credenciales actual no está disponible para analizar conflictos de credenciales.',
           passwordRequiredForAnalysis: 'Indique la contraseña de exportación para analizar conflictos de credenciales.',
           analysisFailed: 'No se pudieron analizar las credenciales con la contraseña indicada.',

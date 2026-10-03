@@ -465,6 +465,7 @@ export default function ChannelsPage() {
         if (!slackConfig) throw new Error(t('channels.error.removeCredentialFailed'));
         await SaveChannelConfig('slack', channels.ChannelConfig.createFrom({
           ...slackConfig, enabled: false,
+          conversations: undefined, reply_chat_ids: undefined,
           remove_bot_token: pattern.endsWith(':bot_token'),
           remove_app_token: pattern.endsWith(':app_token'),
         }));

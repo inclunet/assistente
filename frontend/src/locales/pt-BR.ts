@@ -838,6 +838,7 @@ const ptBR = {
         },
         credential: {
           vaultUnavailableForImport: 'O cofre de credenciais está indisponível para a importação.',
+          connectionUnavailable: 'Não foi possível restaurar a credencial do Slack. Verifique o cofre e use um backup completo para recuperar uma entrada perdida ou ilegível. Os dados anteriores foram preservados.',
           vaultUnavailableForAnalysis: 'O cofre de credenciais atual não está disponível para analisar conflitos de credenciais.',
           passwordRequiredForAnalysis: 'Informe a senha de exportação para analisar conflitos de credenciais.',
           analysisFailed: 'Não foi possível analisar as credenciais com a senha informada.',

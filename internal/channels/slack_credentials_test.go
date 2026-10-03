@@ -4,12 +4,58 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"assistente/internal/credentials"
 	"assistente/internal/database"
 	"gorm.io/gorm"
 )
+
+func TestSlackComposedCredentialExplicitReconstruction(t *testing.T) {
+	for _, missing := range []bool{false, true} {
+		t.Run(fmt.Sprintf("missing=%v", missing), func(t *testing.T) {
+			db := setupChannelsDB(t)
+			if err := db.AutoMigrate(&database.CredentialEntry{}); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(database.SetDB(db))
+			mgr := credentials.NewManagerWithStore(bytes.Repeat([]byte{7}, 32), credentials.NewDBStore(), true)
+			ctx := database.WithUserID(context.Background(), "user-ana")
+			cfg := &ChannelConfig{OwnerUserID: "user-ana", BotToken: "old-bot", AppToken: "old-app"}
+			if err := SaveSlackWithCredentials(ctx, cfg, mgr); err != nil {
+				t.Fatal(err)
+			}
+			id := cfg.CredentialID
+			if missing {
+				if err := db.Delete(&database.CredentialEntry{}, "id = ?", id).Error; err != nil {
+					t.Fatal(err)
+				}
+			} else if err := db.Model(&database.CredentialEntry{}).Where("id = ?", id).Update("token_enc", "unreadable").Error; err != nil {
+				t.Fatal(err)
+			}
+			cfg.BotToken = "replacement-bot"
+			if err := SaveSlackWithCredentials(ctx, cfg, mgr); err == nil {
+				t.Fatal("partial reconstruction discarded lost app token")
+			}
+			cfg.AppToken = "replacement-app"
+			if err := SaveSlackWithCredentials(database.WithUserID(context.Background(), "other"), cfg, mgr); err == nil {
+				t.Fatal("foreign reconstruction accepted")
+			}
+			if err := SaveSlackWithCredentials(ctx, cfg, mgr); err != nil {
+				t.Fatal(err)
+			}
+			pair, err := mgr.ResolveStaticComponents(ctx, id, "slack", cfg.ID)
+			if err != nil || pair[credentials.RoleBotToken] != "replacement-bot" || pair[credentials.RoleAppToken] != "replacement-app" || cfg.CredentialID != id {
+				t.Fatal("reconstruction failed", err)
+			}
+			var count int64
+			if err := db.Model(&database.CredentialEntry{}).Count(&count).Error; err != nil || count != 1 {
+				t.Fatal("reconstruction created duplicate", err)
+			}
+		})
+	}
+}
 
 func TestSlackComposedCredentialSaveMigrationAndPartialUpdate(t *testing.T) {
 	db := setupChannelsDB(t)
@@ -60,6 +106,13 @@ func TestSlackComposedCredentialSaveMigrationAndPartialUpdate(t *testing.T) {
 		t.Fatal("legacy pair remains", err)
 	}
 	// An explicit component removal preserves the other token.
+	if err := SaveConversationID("slack", "new-contact", "conv-2"); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveReplyChatID("slack", "new-contact", "new-destination"); err != nil {
+		t.Fatal(err)
+	}
+	loaded.Conversations, loaded.ReplyChatIDs = nil, nil
 	loaded.Enabled, loaded.RemoveBotToken = false, true
 	if err := SaveSlackWithCredentials(ctx, loaded, mgr); err != nil {
 		t.Fatal(err)
@@ -69,6 +122,10 @@ func TestSlackComposedCredentialSaveMigrationAndPartialUpdate(t *testing.T) {
 	}
 	if got, err := mgr.ResolveStaticComponent(ctx, id, "slack", loaded.ID, credentials.RoleAppToken); err != nil || got != "old-app" {
 		t.Fatal("app removed with bot", err)
+	}
+	fresh, err := Load("slack")
+	if err != nil || fresh.Conversations["new-contact"] != "conv-2" || fresh.ReplyChatIDs["new-contact"] != "new-destination" {
+		t.Fatal("removal erased concurrent runtime maps", err)
 	}
 }
 

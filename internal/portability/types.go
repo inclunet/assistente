@@ -266,6 +266,7 @@ type MemoryRecordExport struct {
 }
 
 type CredentialExport struct {
+	staticPartial    bool                              // historical per-role backup: omitted roles are preserved
 	StaticComponents map[credentials.SecretRole]string `json:"staticComponents,omitempty"`
 	Source           string                            `json:"source"`
 	SourceConfig     *credentials.SourceConfig         `json:"sourceConfig,omitempty"`

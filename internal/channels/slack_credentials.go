@@ -101,7 +101,7 @@ func SaveSlackWithCredentials(ctx context.Context, cfg *ChannelConfig, manager *
 		} else if app != "" {
 			changes[credentials.RoleAppToken] = &app
 		}
-		return credentials.StaticConnectionUpdate{ID: candidate.CredentialID, Integration: "slack", ConsumerID: candidate.ID, Changes: changes, Legacy: legacy,
+		return credentials.StaticConnectionUpdate{ID: candidate.CredentialID, Integration: "slack", ConsumerID: candidate.ID, Changes: changes, Legacy: legacy, RecoveryRoles: []credentials.SecretRole{credentials.RoleBotToken, credentials.RoleAppToken},
 			Commit: func(tx *gorm.DB, id string, present map[credentials.SecretRole]bool) error {
 				candidate.CredentialID = id
 				candidate.BotToken, candidate.AppToken = "", ""

@@ -837,6 +837,7 @@ const en = {
         },
         credential: {
           vaultUnavailableForImport: 'The credential vault is unavailable for the import.',
+          connectionUnavailable: 'The Slack credential could not be restored. Check the vault and use a complete backup to recover a missing or unreadable entry. Previous data has been preserved.',
           vaultUnavailableForAnalysis: 'The current credential vault is not available to analyze credential conflicts.',
           passwordRequiredForAnalysis: 'Enter the export password to analyze credential conflicts.',
           analysisFailed: 'The credentials could not be analyzed with the password provided.',

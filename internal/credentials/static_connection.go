@@ -18,6 +18,9 @@ const StaticConnectionType = "static_components"
 
 var ErrStaticConnection = errors.New("credential_connection_unavailable")
 
+var errStaticConnectionMissing = errors.New("static connection missing")
+var errStaticConnectionUnreadable = errors.New("static connection unreadable")
+
 type SecretRole string
 
 const (
@@ -43,8 +46,11 @@ type StaticConnectionUpdate struct {
 	Integration string
 	ConsumerID  string
 	Changes     map[SecretRole]*string
-	Legacy      map[SecretRole]string
-	Commit      func(*gorm.DB, string, map[SecretRole]bool) error
+	// RecoveryRoles is the consumer's complete role contract. Reconstruction
+	// requires an explicit replacement/removal of every role, never preservation.
+	RecoveryRoles []SecretRole
+	Legacy        map[SecretRole]string
+	Commit        func(*gorm.DB, string, map[SecretRole]bool) error
 }
 
 func StaticConnectionPattern(id string) string { return "connection:" + id }
@@ -99,6 +105,7 @@ func (m *Manager) UpdateStaticConnection(ctx context.Context, prepare func(*gorm
 			return ErrStaticConnection
 		}
 		r := staticConnectionRecord{Version: 1, ID: u.ID, UserID: s.userID, Integration: u.Integration, ConsumerID: u.ConsumerID, Components: map[SecretRole]string{}}
+		createRecord := u.ID == ""
 		if u.ID == "" {
 			r.ID = uuid.NewString()
 			for role, ref := range u.Legacy {
@@ -131,9 +138,19 @@ func (m *Manager) UpdateStaticConnection(ctx context.Context, prepare func(*gorm
 			if len(u.Legacy) != 0 {
 				return ErrStaticConnection
 			}
-			r, err = m.loadStaticConnection(tx, s.userID, u.ID, u.Integration, u.ConsumerID)
-			if err != nil {
-				return err
+			loaded, loadErr := m.loadStaticConnection(tx, s.userID, u.ID, u.Integration, u.ConsumerID)
+			if loadErr == nil {
+				r = loaded
+			} else {
+				if (!errors.Is(loadErr, errStaticConnectionMissing) && !errors.Is(loadErr, errStaticConnectionUnreadable)) || len(u.RecoveryRoles) == 0 {
+					return ErrStaticConnection
+				}
+				for _, role := range u.RecoveryRoles {
+					if role == "" || u.Changes[role] == nil {
+						return ErrStaticConnection
+					}
+				}
+				createRecord = errors.Is(loadErr, errStaticConnectionMissing)
 			}
 		}
 		for role, value := range u.Changes {
@@ -158,7 +175,7 @@ func (m *Manager) UpdateStaticConnection(ctx context.Context, prepare func(*gorm
 			return ErrStaticConnection
 		}
 		saved = database.CredentialEntry{UUIDModel: database.UUIDModel{ID: r.ID}, UserID: s.userID, Pattern: StaticConnectionPattern(r.ID), Source: "static", AuthType: StaticConnectionType, TokenEnc: enc}
-		if u.ID == "" {
+		if createRecord {
 			err = tx.Create(&saved).Error
 		} else {
 			err = tx.Model(&database.CredentialEntry{}).Where("id = ? AND user_id = ?", r.ID, s.userID).Update("token_enc", enc).Error
@@ -198,11 +215,20 @@ func (m *Manager) UpdateStaticConnection(ctx context.Context, prepare func(*gorm
 func (m *Manager) loadStaticConnection(tx *gorm.DB, userID, id, integration, consumerID string) (staticConnectionRecord, error) {
 	var row database.CredentialEntry
 	var r staticConnectionRecord
-	if err := tx.Where("id = ? AND user_id = ? AND pattern = ? AND source = ? AND auth_type = ?", id, userID, StaticConnectionPattern(id), "static", StaticConnectionType).First(&row).Error; err != nil {
+	if err := tx.Where("id = ?", id).First(&row).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return r, errStaticConnectionMissing
+		}
+		return r, ErrStaticConnection
+	}
+	if row.UserID != userID || row.Pattern != StaticConnectionPattern(id) || row.Source != "static" || row.AuthType != StaticConnectionType {
 		return r, ErrStaticConnection
 	}
 	plain, err := m.decrypt(row.TokenEnc)
-	if err != nil || json.Unmarshal([]byte(plain), &r) != nil || r.Version != 1 || r.ID != id || r.UserID != userID || r.Integration != integration || r.ConsumerID != consumerID || r.Components == nil {
+	if err != nil || json.Unmarshal([]byte(plain), &r) != nil {
+		return staticConnectionRecord{}, errStaticConnectionUnreadable
+	}
+	if r.Version != 1 || r.ID != id || r.UserID != userID || r.Integration != integration || r.ConsumerID != consumerID || r.Components == nil {
 		return staticConnectionRecord{}, ErrStaticConnection
 	}
 	return r, nil

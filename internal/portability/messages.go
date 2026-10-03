@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+
+	"assistente/internal/credentials"
 )
 
 // LocalizedMessage é como aviso, erro e motivo de conflito saem da
@@ -82,6 +84,7 @@ const (
 	CodeCredentialAnalysisFailed         = "credential.analysisFailed"
 	CodeCredentialManagedNotImportable   = "credential.managedNotImportable"
 	CodeCredentialStrategyUnsupported    = "credential.strategyUnsupported"
+	CodeCredentialConnectionUnavailable  = "credential.connectionUnavailable"
 
 	CodeConflictMCPServerSlug     = "conflict.mcpServerSlug"
 	CodeConflictCredentialPattern = "conflict.credentialPattern"
@@ -150,6 +153,9 @@ func codedErrorf(code string, msgParams map[string]string, format string, args .
 func messageFromError(err error) LocalizedMessage {
 	if err == nil {
 		return LocalizedMessage{}
+	}
+	if errors.Is(err, credentials.ErrStaticConnection) {
+		return newMessage(CodeCredentialConnectionUnavailable, nil, "Não foi possível restaurar a credencial do Slack. Verifique o cofre e use um backup completo para recuperar uma entrada perdida ou ilegível. Os dados anteriores foram preservados.")
 	}
 	var coded *CodedError
 	if errors.As(err, &coded) {

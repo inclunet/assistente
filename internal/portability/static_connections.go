@@ -15,6 +15,46 @@ import (
 // gated by IncludeCredentials in BuildExportFileWithContext.
 const slackConnectionBackupPattern = "channel:slack:connection"
 
+// Normalize historical pairs before both conflict analysis and import. The
+// normalized entry has no source UUID, so it cannot bypass the target conflict.
+func normalizeStaticConnectionExports(items []CredentialExport) ([]CredentialExport, error) {
+	result := make([]CredentialExport, 0, len(items))
+	components := map[credentials.SecretRole]string{}
+	composed := false
+	for _, item := range items {
+		var role credentials.SecretRole
+		switch item.Pattern {
+		case "channel:slack:bot_token":
+			role = credentials.RoleBotToken
+		case "channel:slack:app_token":
+			role = credentials.RoleAppToken
+		case slackConnectionBackupPattern:
+			if composed {
+				return nil, credentials.ErrStaticConnection
+			}
+			composed = true
+		}
+		if role == "" {
+			result = append(result, item)
+			continue
+		}
+		if (item.Source != "" && item.Source != "static") || item.AuthType != "secret" || item.SourceConfig != nil || item.Username != "" || item.Password != "" || len(item.Headers) != 0 || item.ClientID != "" || item.ClientSecret != "" || item.RefreshURL != "" || item.ExpiresAt != 0 || item.StaticComponents != nil {
+			return nil, credentials.ErrStaticConnection
+		}
+		if _, duplicate := components[role]; duplicate {
+			return nil, credentials.ErrStaticConnection
+		}
+		components[role] = item.Token
+	}
+	if len(components) != 0 {
+		if composed {
+			return nil, credentials.ErrStaticConnection
+		}
+		result = append(result, CredentialExport{Pattern: slackConnectionBackupPattern, Source: "static", AuthType: credentials.StaticConnectionType, StaticComponents: components, staticPartial: true})
+	}
+	return result, nil
+}
+
 func exportStaticConnections(ctx context.Context, manager *credentials.Manager) ([]CredentialExport, error) {
 	if !database.DB().Migrator().HasColumn(&database.Channel{}, "CredentialID") {
 		return nil, nil
@@ -71,7 +111,17 @@ func importStaticConnection(ctx context.Context, manager *credentials.Manager, c
 		if row.CredentialID == "" {
 			for role, ref := range map[credentials.SecretRole]string{credentials.RoleBotToken: row.BotTokenRef, credentials.RoleAppToken: row.AppTokenRef} {
 				if ref == "" {
-					continue
+					ref = "channel:slack:" + string(role)
+					var count int64
+					if err := tx.Model(&database.CredentialEntry{}).Where("user_id = ? AND pattern = ?", user, ref).Count(&count).Error; err != nil {
+						return credentials.StaticConnectionUpdate{}, err
+					}
+					if count == 0 {
+						continue
+					}
+				}
+				if !allowOverwrite {
+					return credentials.StaticConnectionUpdate{}, credentials.ErrStaticConnection
 				}
 				if ref != "channel:slack:"+string(role) {
 					return credentials.StaticConnectionUpdate{}, credentials.ErrStaticConnection
@@ -87,7 +137,15 @@ func importStaticConnection(ctx context.Context, manager *credentials.Manager, c
 			}
 		}
 		bot, app := cred.StaticComponents[credentials.RoleBotToken], cred.StaticComponents[credentials.RoleAppToken]
-		return credentials.StaticConnectionUpdate{ID: row.CredentialID, Integration: "slack", ConsumerID: row.ID, Legacy: legacy, Changes: map[credentials.SecretRole]*string{credentials.RoleBotToken: &bot, credentials.RoleAppToken: &app}, Commit: func(tx *gorm.DB, id string, present map[credentials.SecretRole]bool) error {
+		changes := map[credentials.SecretRole]*string{credentials.RoleBotToken: &bot, credentials.RoleAppToken: &app}
+		if cred.staticPartial {
+			for role := range changes {
+				if _, provided := cred.StaticComponents[role]; !provided {
+					delete(changes, role)
+				}
+			}
+		}
+		return credentials.StaticConnectionUpdate{ID: row.CredentialID, Integration: "slack", ConsumerID: row.ID, Legacy: legacy, Changes: changes, RecoveryRoles: []credentials.SecretRole{credentials.RoleBotToken, credentials.RoleAppToken}, Commit: func(tx *gorm.DB, id string, present map[credentials.SecretRole]bool) error {
 			row.CredentialID = id
 			row.BotTokenRef, row.AppTokenRef = "", ""
 			if present[credentials.RoleBotToken] {
