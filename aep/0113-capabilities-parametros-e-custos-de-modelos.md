@@ -91,7 +91,13 @@ O projeto já tem contratos que esta proposta deve preservar:
     conhecida e referência externa não sensível. Fatos de execução recebem a
     revisão capturada pelo snapshot da configuração usado na requisição; uma
     revisão ausente ou obsoleta é recusada. Observações futuras são inelegíveis
-    e não podem ser gravadas.
+    e não podem ser gravadas. `observed_at`, `valid_until` e os instantes de
+    verificação são normalizados para UTC antes da validação/persistência.
+    Vínculos, afirmações e opções de campo são append-only: correções publicam
+    uma nova versão, sem editar proveniência, opções ou janelas de validade
+    históricas. SQL direto não pode atualizar nem excluir esses registros
+    enquanto o modelo existir; excluir o modelo ou seu provedor remove todo o
+    histórico dependente em cascata.
     Os escopos distinguem conexão+revisão+modelo da aplicação, identidade de
     provedor e modelo verificada por um adaptador, e informação genérica de
     referência.
@@ -214,7 +220,7 @@ resolução projeta um fato efetivo sem apagar afirmações concorrentes.
 | Fase / PR planejado | Entrega | Limite da fase |
 |---|---|---|
 | 0 — PR de documentação (concluída no PR #887) | Registrar e revisar esta arquitetura e a sequência de entrega. | Sem migração ou mudança de runtime. |
-| 1 — Persistência e resolução local (concluída neste PR) | Migração v33 cria a revisão de compatibilidade, modelos por provedor, vocabulário controlado, vínculos externos verificados e versionados por verificação, afirmações com origem, limites/opções tipados e resolver local determinístico. Leituras de autorização e fatos usam um snapshot consistente. Testes cobrem escopo, precedência, expiração, conflito, renovação imutável e invalidação por revisão. | Sem consultas externas e sem alterar o envio. |
+| 1 — Persistência e resolução local (concluída neste PR) | Migração v33 cria a revisão de compatibilidade, modelos por provedor, vocabulário controlado, vínculos externos verificados e versionados por verificação, afirmações append-only com origem, limites/opções tipados e resolver local determinístico. Instantes são normalizados para UTC, snapshots de autorização/fatos são consistentes e o registry só recebe revisão depois do commit. Testes cobrem escopo, precedência, expiração, proveniência imutável, offsets, rollback, renovação e invalidação por revisão. | Sem consultas externas e sem alterar o envio. |
 | 2 — Compatibilidade no envio | Traduzir campos canônicos, omitir incompatibilidades conhecidas e aprender rejeições precisas com no máximo um retry seguro. | Integrar ao pipeline backend existente; sem caminho paralelo de mensagem. |
 | 3 — Profile Manager e vozes | Filtrar opções usando fatos locais; persistir/reutilizar listas de vozes por provedor/modelo e estados de desconhecimento. | Abrir a tela não espera por API externa. |
 | 4 — Fontes e jobs | Criar interface de importadores e uma operação de sincronização reutilizada pela chamada manual e pelos jobs, com validação, atualização idempotente, proveniência e vínculos explícitos de identidade; começar por fontes cuja cobertura e licença sejam adequadas. | Fatos externos só governam conexão com identidade de provedor/modelo explicitamente verificada. |
@@ -274,6 +280,16 @@ depender de uma fase ainda aberta deve ser empilhado sobre ela.
   validade ou referência diferente é recusado. Listagem/resolução mantêm
   autorização e fatos no mesmo snapshot. Verificado por
   `TestLLMModelCatalogBindingRenewalPreservesVerifiedHistory` e testes de escopo.
+- [x] Atualizações SQL não podem reescrever a proveniência de afirmações; os
+  instantes de observação e validade são normalizados para UTC antes dos
+  `CHECK`s do SQLite. O `ProviderConfig` só recebe a revisão persistida depois
+  de a transação confirmar. Verificado por
+  `TestLLMModelCapabilityAssertionsNormalizeTimesToUTC` e
+  `TestDBStore_SavePublishesCompatibilityRevisionsOnlyAfterCommit`.
+- [x] Vínculos, afirmações e opções de campo não podem ser atualizados ou
+  excluídos diretamente enquanto seu modelo existir; apagar um modelo ou
+  provedor remove os fatos dependentes em cascata. Verificado por
+  `TestLLMModelCapabilityHistoryIsAppendOnlyAndCascadesWithProvider`.
 - [x] Escritas em provedores de sistema exigem contexto interno de bootstrap;
   usuários autenticados podem consultar os fatos compartilhados, mas não
   publicar afirmações globais. Timestamps futuros e referências de proveniência

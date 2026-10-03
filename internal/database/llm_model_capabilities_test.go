@@ -321,6 +321,21 @@ func TestLLMModelCatalogBindingRenewalPreservesVerifiedHistory(t *testing.T) {
 	if err := repository.RecordCapability(ctx, claim); err != nil {
 		t.Fatalf("registrar fato observado durante validade inicial: %v", err)
 	}
+	fieldClaim := &LLMModelCapabilityField{
+		ModelID: model.ID, CapabilityKey: string(llmcapabilities.CapabilityChat), FieldKey: string(llmcapabilities.FieldTemperature),
+		SupportState: string(llmcapabilities.Supported), Source: string(llmcapabilities.SourceOfficialCatalog),
+		Scope: string(llmcapabilities.ScopeExternalBinding), ProviderCompatibilityRevision: 1,
+		BindingID: &oldBinding.ID, ObservedAt: oldVerifiedAt.Add(time.Hour),
+	}
+	if err := repository.RecordField(ctx, fieldClaim, nil); err != nil {
+		t.Fatalf("registrar campo vinculado: %v", err)
+	}
+	if err := db.Exec("UPDATE llm_model_capabilities SET source = ? WHERE id = ?", string(llmcapabilities.SourceThirdPartyCatalog), claim.ID).Error; err == nil {
+		t.Fatal("SQLite permitiu alterar a proveniência de uma afirmação de capability")
+	}
+	if err := db.Exec("UPDATE llm_model_capability_fields SET source = ? WHERE id = ?", string(llmcapabilities.SourceThirdPartyCatalog), fieldClaim.ID).Error; err == nil {
+		t.Fatal("SQLite permitiu alterar a proveniência de uma afirmação de campo")
+	}
 
 	renewedVerifiedAt := base.Add(-2 * time.Hour)
 	renewedValidUntil := base.Add(2 * time.Hour)
@@ -374,6 +389,153 @@ func TestLLMModelCatalogBindingRenewalPreservesVerifiedHistory(t *testing.T) {
 	}
 	if err := repository.BindCatalogModel(ctx, duplicateVerification); !errors.Is(err, ErrInvalidCatalogBinding) {
 		t.Fatalf("mesmo instante de verificação permitiu alterar validade: %v", err)
+	}
+}
+
+func TestLLMModelCapabilityAssertionsNormalizeTimesToUTC(t *testing.T) {
+	db := llmModelCapabilitiesTestDB(t)
+	ctx := WithUserID(context.Background(), "owner-a")
+	if err := db.Create(&LLMProvider{ID: "provider-a", UserID: "owner-a", Name: "A", Type: "custom", APIFormat: "openai", BaseURL: "https://one.example/v1"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	repository := NewLLMModelCapabilitiesRepository(db)
+	model, err := repository.SaveModel(ctx, "provider-a", "remote-model", "Remote")
+	if err != nil {
+		t.Fatal(err)
+	}
+	observedUTC := time.Now().UTC().Add(-3 * time.Hour).Truncate(time.Second)
+	validUntilUTC := observedUTC.Add(90 * time.Minute)
+	observedAt := observedUTC.In(time.FixedZone("offset-plus-two", 2*60*60))
+	validUntil := validUntilUTC.In(time.FixedZone("offset-minus-five", -5*60*60))
+	capability := &LLMModelCapability{
+		ModelID: model.ID, CapabilityKey: string(llmcapabilities.CapabilityChat), SupportState: string(llmcapabilities.Supported),
+		Source: string(llmcapabilities.SourceEndpointDiscovery), Scope: string(llmcapabilities.ScopeConnection),
+		ProviderCompatibilityRevision: 1, ObservedAt: observedAt, ValidUntil: &validUntil,
+	}
+	if err := repository.RecordCapability(ctx, capability); err != nil {
+		t.Fatalf("persistir timestamps equivalentes em offsets diferentes: %v", err)
+	}
+	if capability.ObservedAt.Location() != time.UTC || capability.ValidUntil.Location() != time.UTC || !capability.ObservedAt.Equal(observedUTC) || !capability.ValidUntil.Equal(validUntilUTC) {
+		t.Fatalf("timestamps de capability não foram normalizados: observed=%v validUntil=%v", capability.ObservedAt, capability.ValidUntil)
+	}
+	field := &LLMModelCapabilityField{
+		ModelID: model.ID, CapabilityKey: string(llmcapabilities.CapabilityChat), FieldKey: string(llmcapabilities.FieldTemperature),
+		SupportState: string(llmcapabilities.Supported), Source: string(llmcapabilities.SourceEndpointDiscovery),
+		Scope: string(llmcapabilities.ScopeConnection), ProviderCompatibilityRevision: 1,
+		ObservedAt: observedAt, ValidUntil: &validUntil,
+	}
+	if err := repository.RecordField(ctx, field, nil); err != nil {
+		t.Fatalf("persistir timestamps do campo: %v", err)
+	}
+	if field.ObservedAt.Location() != time.UTC || field.ValidUntil.Location() != time.UTC || !field.ObservedAt.Equal(observedUTC) || !field.ValidUntil.Equal(validUntilUTC) {
+		t.Fatalf("timestamps do campo não foram normalizados: observed=%v validUntil=%v", field.ObservedAt, field.ValidUntil)
+	}
+}
+
+func TestLLMModelCapabilityHistoryIsAppendOnlyAndCascadesWithProvider(t *testing.T) {
+	db := llmModelCapabilitiesTestDB(t)
+	ctx := WithUserID(context.Background(), "owner-a")
+	if err := db.Create(&LLMProvider{ID: "provider-a", UserID: "owner-a", Name: "A", Type: "custom", APIFormat: "openai", BaseURL: "https://one.example/v1"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	repository := NewLLMModelCapabilitiesRepository(db)
+	model, err := repository.SaveModel(ctx, "provider-a", "remote-model", "Remote")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC().Truncate(time.Second)
+	binding := &LLMModelCatalogBinding{
+		ModelID: model.ID, ProviderCompatibilityRevision: 1, Source: string(llmcapabilities.SourceOfficialCatalog),
+		ExternalProviderID: "vendor", ExternalModelID: "remote-model", VerifiedAt: now.Add(-time.Minute),
+	}
+	if err := repository.BindCatalogModel(ctx, binding); err != nil {
+		t.Fatalf("registrar vínculo: %v", err)
+	}
+	capability := &LLMModelCapability{
+		ModelID: model.ID, CapabilityKey: string(llmcapabilities.CapabilityChat), SupportState: string(llmcapabilities.Supported),
+		Source: binding.Source, Scope: string(llmcapabilities.ScopeExternalBinding), ProviderCompatibilityRevision: 1,
+		BindingID: &binding.ID, ObservedAt: now,
+	}
+	if err := repository.RecordCapability(ctx, capability); err != nil {
+		t.Fatalf("registrar capability: %v", err)
+	}
+	field := &LLMModelCapabilityField{
+		ModelID: model.ID, CapabilityKey: string(llmcapabilities.CapabilityTTS), FieldKey: string(llmcapabilities.FieldVoice),
+		SupportState: string(llmcapabilities.Supported), Source: binding.Source, Scope: string(llmcapabilities.ScopeExternalBinding),
+		ProviderCompatibilityRevision: 1, BindingID: &binding.ID, ObservedAt: now,
+	}
+	if err := repository.RecordField(ctx, field, []LLMModelCapabilityFieldOption{{Value: "alloy", Label: "Alloy", SupportState: string(llmcapabilities.Supported)}}); err != nil {
+		t.Fatalf("registrar campo e opção: %v", err)
+	}
+
+	for _, mutation := range []struct {
+		name  string
+		query string
+		args  []any
+	}{
+		{"alterar opção", "UPDATE llm_model_capability_field_options SET label = ? WHERE assertion_id = ? AND value = ?", []any{"Changed", field.ID, "alloy"}},
+		{"apagar opção", "DELETE FROM llm_model_capability_field_options WHERE assertion_id = ? AND value = ?", []any{field.ID, "alloy"}},
+		{"apagar campo", "DELETE FROM llm_model_capability_fields WHERE id = ?", []any{field.ID}},
+		{"apagar capability", "DELETE FROM llm_model_capabilities WHERE id = ?", []any{capability.ID}},
+		{"apagar vínculo", "DELETE FROM llm_model_catalog_bindings WHERE id = ?", []any{binding.ID}},
+	} {
+		if err := db.Exec(mutation.query, mutation.args...).Error; err == nil {
+			t.Errorf("SQLite permitiu %s enquanto o modelo existe", mutation.name)
+		}
+	}
+	if err := db.Exec("DELETE FROM llm_models WHERE id = ?", model.ID).Error; err != nil {
+		t.Fatalf("excluir modelo deveria remover fatos em cascata: %v", err)
+	}
+	for _, table := range []string{"llm_model_catalog_bindings", "llm_model_capabilities", "llm_model_capability_fields", "llm_model_capability_field_options"} {
+		var count int64
+		if err := db.Table(table).Count(&count).Error; err != nil {
+			t.Fatal(err)
+		}
+		if count != 0 {
+			t.Errorf("excluir modelo deixou %d linhas em %s", count, table)
+		}
+	}
+
+	// Também cobre o caminho de exclusão do provedor com fatos ainda presentes.
+	secondModel, err := repository.SaveModel(ctx, "provider-a", "remote-model-2", "Remote 2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondBinding := &LLMModelCatalogBinding{
+		ModelID: secondModel.ID, ProviderCompatibilityRevision: 1, Source: string(llmcapabilities.SourceOfficialCatalog),
+		ExternalProviderID: "vendor", ExternalModelID: "remote-model-2", VerifiedAt: now.Add(-time.Minute),
+	}
+	if err := repository.BindCatalogModel(ctx, secondBinding); err != nil {
+		t.Fatalf("registrar segundo vínculo: %v", err)
+	}
+	secondCapability := &LLMModelCapability{
+		ModelID: secondModel.ID, CapabilityKey: string(llmcapabilities.CapabilityChat), SupportState: string(llmcapabilities.Supported),
+		Source: secondBinding.Source, Scope: string(llmcapabilities.ScopeExternalBinding), ProviderCompatibilityRevision: 1,
+		BindingID: &secondBinding.ID, ObservedAt: now,
+	}
+	if err := repository.RecordCapability(ctx, secondCapability); err != nil {
+		t.Fatalf("registrar segunda capability: %v", err)
+	}
+	secondField := &LLMModelCapabilityField{
+		ModelID: secondModel.ID, CapabilityKey: string(llmcapabilities.CapabilityTTS), FieldKey: string(llmcapabilities.FieldVoice),
+		SupportState: string(llmcapabilities.Supported), Source: secondBinding.Source, Scope: string(llmcapabilities.ScopeExternalBinding),
+		ProviderCompatibilityRevision: 1, BindingID: &secondBinding.ID, ObservedAt: now,
+	}
+	if err := repository.RecordField(ctx, secondField, []LLMModelCapabilityFieldOption{{Value: "alloy", Label: "Alloy", SupportState: string(llmcapabilities.Supported)}}); err != nil {
+		t.Fatalf("registrar segundo campo e opção: %v", err)
+	}
+
+	if err := db.Exec("DELETE FROM llm_providers WHERE id = ?", "provider-a").Error; err != nil {
+		t.Fatalf("excluir provedor deveria remover modelo e fatos em cascata: %v", err)
+	}
+	for _, table := range []string{"llm_models", "llm_model_catalog_bindings", "llm_model_capabilities", "llm_model_capability_fields", "llm_model_capability_field_options"} {
+		var count int64
+		if err := db.Table(table).Count(&count).Error; err != nil {
+			t.Fatal(err)
+		}
+		if count != 0 {
+			t.Errorf("excluir provedor deixou %d linhas em %s", count, table)
+		}
 	}
 }
 

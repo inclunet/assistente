@@ -41,9 +41,10 @@ func (s *DBStore) Save(ctx context.Context, providers []*llm.ProviderConfig) err
 	if err := database.RequireUserIDOrBootstrap(ctx); err != nil {
 		return err
 	}
-	return database.DB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	revisions := make([]int, len(providers))
+	err := database.DB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		repository := database.NewProviderRepository(tx)
-		for _, p := range providers {
+		for i, p := range providers {
 			var current database.LLMProvider
 			err := tx.Where("id = ?", p.ID).First(&current).Error
 			if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
@@ -62,10 +63,17 @@ func (s *DBStore) Save(ctx context.Context, providers []*llm.ProviderConfig) err
 			if err := repository.SaveLLMProvider(ctx, dbProvider); err != nil {
 				return err
 			}
-			p.CompatibilityRevision = dbProvider.CompatibilityRevision
+			revisions[i] = dbProvider.CompatibilityRevision
 		}
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+	for i, p := range providers {
+		p.CompatibilityRevision = revisions[i]
+	}
+	return nil
 }
 
 // Load retorna todos os provedores do banco convertidos para ProviderConfig.

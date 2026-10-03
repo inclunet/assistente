@@ -174,6 +174,31 @@ var llmModelCapabilitiesIndexes = []string{
 	`CREATE TRIGGER IF NOT EXISTS trg_llm_model_catalog_bindings_immutable
 	 BEFORE UPDATE ON llm_model_catalog_bindings
 	 BEGIN SELECT RAISE(ABORT, 'llm_model_catalog_bindings are immutable; insert a new verification'); END`,
+	`CREATE TRIGGER IF NOT EXISTS trg_llm_model_catalog_bindings_append_only
+	 BEFORE DELETE ON llm_model_catalog_bindings
+	 WHEN EXISTS (SELECT 1 FROM llm_models model WHERE model.id = OLD.model_id)
+	 BEGIN SELECT RAISE(ABORT, 'llm_model_catalog_bindings are append-only while the model exists'); END`,
+	`CREATE TRIGGER IF NOT EXISTS trg_llm_model_capabilities_immutable
+	 BEFORE UPDATE ON llm_model_capabilities
+	 BEGIN SELECT RAISE(ABORT, 'llm_model_capabilities are immutable; insert a new assertion'); END`,
+	`CREATE TRIGGER IF NOT EXISTS trg_llm_model_capabilities_append_only
+	 BEFORE DELETE ON llm_model_capabilities
+	 WHEN EXISTS (SELECT 1 FROM llm_models model WHERE model.id = OLD.model_id)
+	 BEGIN SELECT RAISE(ABORT, 'llm_model_capabilities are append-only while the model exists'); END`,
+	`CREATE TRIGGER IF NOT EXISTS trg_llm_model_capability_fields_immutable
+	 BEFORE UPDATE ON llm_model_capability_fields
+	 BEGIN SELECT RAISE(ABORT, 'llm_model_capability_fields are immutable; insert a new assertion'); END`,
+	`CREATE TRIGGER IF NOT EXISTS trg_llm_model_capability_fields_append_only
+	 BEFORE DELETE ON llm_model_capability_fields
+	 WHEN EXISTS (SELECT 1 FROM llm_models model WHERE model.id = OLD.model_id)
+	 BEGIN SELECT RAISE(ABORT, 'llm_model_capability_fields are append-only while the model exists'); END`,
+	`CREATE TRIGGER IF NOT EXISTS trg_llm_model_capability_field_options_immutable
+	 BEFORE UPDATE ON llm_model_capability_field_options
+	 BEGIN SELECT RAISE(ABORT, 'llm_model_capability_field_options are immutable; insert a new assertion'); END`,
+	`CREATE TRIGGER IF NOT EXISTS trg_llm_model_capability_field_options_append_only
+	 BEFORE DELETE ON llm_model_capability_field_options
+	 WHEN EXISTS (SELECT 1 FROM llm_model_capability_fields assertion WHERE assertion.id = OLD.assertion_id)
+	 BEGIN SELECT RAISE(ABORT, 'llm_model_capability_field_options are append-only while the assertion exists'); END`,
 	`CREATE TRIGGER IF NOT EXISTS trg_llm_model_capability_binding_insert
 	 BEFORE INSERT ON llm_model_capabilities
 	 WHEN NEW.scope = 'external_binding' AND NOT EXISTS (

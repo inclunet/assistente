@@ -132,6 +132,7 @@ func (r *LLMModelCapabilitiesRepository) RecordCapability(ctx context.Context, a
 	if err := RequireUserIDOrBootstrap(ctx); err != nil {
 		return err
 	}
+	normalizeAssertionTimes(&assertion.ObservedAt, &assertion.ValidUntil)
 	if !validSourceReference(assertion.SourceReference) || assertion.ObservedAt.After(time.Now()) {
 		return llmcapabilities.ErrInvalidAssertion
 	}
@@ -168,6 +169,7 @@ func (r *LLMModelCapabilitiesRepository) RecordField(ctx context.Context, assert
 	if err := RequireUserIDOrBootstrap(ctx); err != nil {
 		return err
 	}
+	normalizeAssertionTimes(&assertion.ObservedAt, &assertion.ValidUntil)
 	if !validSourceReference(assertion.SourceReference) || assertion.ObservedAt.After(time.Now()) {
 		return llmcapabilities.ErrInvalidAssertion
 	}
@@ -209,6 +211,14 @@ func (r *LLMModelCapabilitiesRepository) RecordField(ctx context.Context, assert
 		}
 		return nil
 	})
+}
+
+func normalizeAssertionTimes(observedAt *time.Time, validUntil **time.Time) {
+	*observedAt = observedAt.UTC()
+	if *validUntil != nil {
+		validUntilUTC := (*validUntil).UTC()
+		*validUntil = &validUntilUTC
+	}
 }
 
 // Resolve carrega apenas facts do modelo solicitado e delega a decisão ao
