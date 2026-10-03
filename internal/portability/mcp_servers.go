@@ -440,7 +440,7 @@ func HasMCPServers(data string) bool {
 // into the canonical portability model. Existing DB slugs are skipped by
 // ImportMCPServerWithContext, keeping repeated startup imports idempotent.
 func ImportLegacyMCPServersWithContext(ctx context.Context, source LegacyImportSource, credMgr *credentials.Manager) (LegacyImportResult, error) {
-	var warnings []string
+	var warnings []LocalizedMessage
 	result, err := ImportLegacyResourcesWithContext(ctx, LegacyImportRequest[MCPServerExport]{
 		ResourceType: "servidor MCP",
 		Source:       source,
@@ -449,18 +449,19 @@ func ImportLegacyMCPServersWithContext(ctx context.Context, source LegacyImportS
 		Import: func(ctx context.Context, server MCPServerExport) (bool, error) {
 			imported, err := importMCPServerWithCredentials(ctx, credMgr, server)
 			if err == nil && imported && historicalMCPOAuth(server) {
-				warnings = append(warnings, historicalMCPOAuthWarning(server).Message)
+				warnings = append(warnings, historicalMCPOAuthWarning(server))
 			}
 			return imported, err
 		},
 	})
-	result.Warnings = append(result.Warnings, warnings...)
+	result.WarningMessages = append(result.WarningMessages, warnings...)
 	return result, err
 }
 
 func historicalMCPOAuth(server MCPServerExport) bool {
 	server = normalizeMCPServerExport(server)
-	return !server.externalOAuth && (server.AuthType == "oauth2_pkce" || server.AuthType == "oauth2_client_credentials")
+	return !server.externalOAuth && (server.Transport == "sse" || server.Transport == "streamable") &&
+		(server.AuthType == "oauth2_pkce" || server.AuthType == "oauth2_client_credentials")
 }
 
 func historicalMCPOAuthWarning(server MCPServerExport) LocalizedMessage {

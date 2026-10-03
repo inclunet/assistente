@@ -37,6 +37,10 @@ ele precisa de recuperação. Cliente, endpoints, callback e credenciais que
 existem no backup são preservados; informações que o backup não contém não
 podem ser recuperadas automaticamente.
 
+Se o arquivo histórico for importado automaticamente ao entrar no Assistente,
+o resumo após o login também mostra e anuncia as instruções de recuperação
+no idioma selecionado.
+
 Abra o diagnóstico OAuth do MCP e crie um snapshot. Para Client Credentials,
 use **Converter**; para PKCE com metadados incompletos, use **Reconectar e migrar**.
 Depois da migração, habilite o servidor e configure a conexão automática se

@@ -1349,3 +1349,13 @@ Evidências: `TestHistoricalMCPOAuthImportsForRecoveryWithoutLosingSecrets`,
 `TestHistoricalMCPOAuthDisableFailureRollsBackImport`,
 `TestImportLegacyMCPServersIsReusableAndIdempotent` e
 `TestMCPImportPublishesDataFacadeWithoutRestart/historical`.
+
+O filtro se restringe a transportes SSE/streamable; metadados OAuth residuais
+não desativam STDIO. Na importação automática pós-login, o evento mantém os
+avisos estruturados (`entries[].warningMessages`, com código/parâmetros),
+contabilizados em `warningCount`. A UI traduz as instruções junto do resumo
+e as anuncia pelo toast global. Eventos recebidos durante login aguardam a
+autenticação e não são apresentados para outro usuário. Evidências adicionais:
+`TestHistoricalMCPOAuthPreservesStdioActivation`,
+`TestHistoricalMCPOAuthLoginSummaryPreservesLocalizedRecovery` e
+`useLegacyImportSummaryListener.test.tsx`.

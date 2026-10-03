@@ -1,6 +1,7 @@
 package portability
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"testing"
@@ -9,6 +10,64 @@ import (
 	"assistente/internal/database"
 	"gorm.io/gorm"
 )
+
+func TestHistoricalMCPOAuthPreservesStdioActivation(t *testing.T) {
+	for _, authType := range []string{"", "oauth2_pkce", "oauth2_client_credentials"} {
+		t.Run(authType, func(t *testing.T) {
+			setupPortabilityTestDB(t)
+			server := MCPServerExport{Slug: "local", Command: "local-server", AuthType: authType, OAuth2ClientID: "residual", Enabled: true, AutoConnect: true}
+			raw, err := json.Marshal(ExportFile{Version: ExportVersion, Resources: ExportResources{MCPServers: []MCPServerExport{server}}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			result, err := ImportConversationsWithContext(portabilityTestCtx(), string(raw), nil, "")
+			if err != nil || result.Imported != 1 || len(result.Warnings) != 0 {
+				t.Fatalf("import: %v %+v", err, result)
+			}
+			var row database.MCPServer
+			if err := database.DB().First(&row, "slug = ?", "local").Error; err != nil {
+				t.Fatal(err)
+			}
+			if !row.Enabled || !row.AutoConnect || row.Transport != "stdio" {
+				t.Fatal("STDIO activation changed")
+			}
+		})
+	}
+}
+
+func TestHistoricalMCPOAuthLoginSummaryPreservesLocalizedRecovery(t *testing.T) {
+	setupPortabilityTestDB(t)
+	source := &memoryLegacyImportSource{
+		files: []LegacyImportFile{{Name: "historical", Filename: "historical.json"}},
+		data:  map[string][]byte{"historical.json": []byte(`{"transport":"sse","url":"https://example.org/mcp","auth_type":"oauth2_pkce","enabled":true,"auto_connect":true}`)},
+	}
+	service := NewLegacyImportService()
+	if err := service.Register("MCP", func(ctx context.Context) (LegacyImportResult, error) {
+		return ImportLegacyMCPServersWithContext(ctx, source, nil)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	summary := service.Run(portabilityTestCtx())
+	if summary.Imported != 1 || summary.WarningCount != 1 || len(summary.Entries) != 1 {
+		t.Fatalf("summary: %+v", summary)
+	}
+	encoded, err := json.Marshal(summary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload struct {
+		Entries []struct {
+			WarningMessages []LocalizedMessage `json:"warningMessages"`
+		} `json:"entries"`
+	}
+	if err := json.Unmarshal(encoded, &payload); err != nil {
+		t.Fatal(err)
+	}
+	warnings := payload.Entries[0].WarningMessages
+	if len(warnings) != 1 || warnings[0].Code != "mcpServer.oauthRecoveryRequired" || warnings[0].Params["slug"] != "historical" {
+		t.Fatalf("localized recovery lost: %s", encoded)
+	}
+}
 
 func TestHistoricalMCPOAuthImportsForRecoveryWithoutLosingSecrets(t *testing.T) {
 	for _, authType := range []string{"oauth2_pkce", "oauth2_client_credentials"} {

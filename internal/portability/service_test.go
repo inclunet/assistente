@@ -540,7 +540,7 @@ func TestImportLegacyMCPServersIsReusableAndIdempotent(t *testing.T) {
 	if result.Imported != 1 || result.Skipped != 0 {
 		t.Fatalf("first result = %#v", result)
 	}
-	if len(result.Warnings) != 1 {
+	if len(result.WarningMessages) != 1 || result.WarningMessages[0].Code != "mcpServer.oauthRecoveryRequired" {
 		t.Fatal("missing OAuth recovery warning")
 	}
 	if string(source.data["github.json"]) != original {
