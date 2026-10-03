@@ -40,6 +40,23 @@ func legacyClientFixture(t *testing.T, endpoint string) (*Manager, *Manager, con
 	return a, b, ctx, cfg
 }
 
+// Runtime tests migrate the persisted historical fixture explicitly, then exercise
+// only the composed store. The legacy fixture remains useful to conversion tests.
+func composedClientFixture(t *testing.T, endpoint string) (*Manager, *Manager, context.Context, ServerConfig) {
+	t.Helper()
+	a, b, ctx, cfg := legacyClientFixture(t, endpoint)
+	a.snapshotRoot = t.TempDir()
+	info, err := a.CreateOAuthSnapshot(ctx, cfg.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := a.ConvertOAuthClientSnapshot(ctx, info.ID, "client_secret_post"); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _, _ = loadManaged(t, a, ctx, cfg.Slug)
+	return a, b, ctx, cfg
+}
+
 func clientGrantGet(client *http.Client, url string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -51,7 +68,7 @@ func clientGrantGet(client *http.Client, url string) error {
 	return err
 }
 
-func TestLegacyClientGrantCoordinatesProcessesAndMutations(t *testing.T) {
+func TestComposedClientGrantCoordinatesProcessesAndMutations(t *testing.T) {
 	started, release := make(chan struct{}), make(chan struct{})
 	var once sync.Once
 	unblock := func() { once.Do(func() { close(release) }) }
@@ -77,7 +94,7 @@ func TestLegacyClientGrantCoordinatesProcessesAndMutations(t *testing.T) {
 	}))
 	defer server.Close()
 	defer unblock()
-	a, b, ctx, cfg := legacyClientFixture(t, server.URL)
+	a, b, ctx, cfg := composedClientFixture(t, server.URL)
 	a.snapshotRoot = t.TempDir()
 	client := a.buildAuthHTTPClient(ctx, "legacy", cfg)
 	other := b.buildAuthHTTPClient(ctx, "legacy", cfg)
@@ -88,13 +105,17 @@ func TestLegacyClientGrantCoordinatesProcessesAndMutations(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("grant not started")
 	}
-	if err := clientGrantGet(other, cfg.URL); !errors.Is(err, oauthflow.ErrTransient) {
+	waitingCtx, cancelWaiting := context.WithTimeout(ctx, 100*time.Millisecond)
+	defer cancelWaiting()
+	waitingRequest, _ := http.NewRequestWithContext(waitingCtx, http.MethodGet, cfg.URL, nil)
+	if _, err := other.Do(waitingRequest); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatal("parallel grant allowed", err)
 	}
-	if _, err := a.CreateOAuthSnapshot(ctx, cfg.ID); err == nil {
-		t.Fatal("active grant captured")
+	_, store, active := loadManaged(t, a, ctx, cfg.Slug)
+	if !active.RefreshActive() || grants.Load() != 1 {
+		t.Fatal("grant lease or exclusion missing")
 	}
-	if err := b.credMgr.RegisterPatternWithContext(ctx, clientCredPattern("legacy"), &credentials.AuthConfig{Source: "static", Type: "oauth2", ClientID: "client", ClientSecret: "changed"}); err == nil {
+	if err := b.SaveConfigWithOAuthSecret(cfg.Slug, cfg, "changed"); err == nil {
 		t.Fatal("client edited during grant")
 	}
 	if err := a.DeleteServerAuth("legacy"); err == nil {
@@ -115,8 +136,9 @@ func TestLegacyClientGrantCoordinatesProcessesAndMutations(t *testing.T) {
 	if grants.Load() != 1 || resources.Load() != 2 {
 		t.Fatal("cache or coordination failed", grants.Load(), resources.Load())
 	}
-	if _, err := a.CreateOAuthSnapshot(ctx, cfg.ID); err != nil {
-		t.Fatal("finished lease not released", err)
+	finished, err := store.Load(ctx, cfg.OAuthAuthorizationID)
+	if err != nil || finished.RefreshPending || finished.RefreshActive() || finished.Tokens.Access != "issued" {
+		t.Fatal("finished grant not committed/released", err)
 	}
 	if err := a.DeleteServerAuth("legacy"); err != nil {
 		t.Fatal(err)
@@ -129,7 +151,7 @@ func TestLegacyClientGrantCoordinatesProcessesAndMutations(t *testing.T) {
 	}
 }
 
-func TestLegacyClientGrantRelatesCacheToCurrentClientAndOwner(t *testing.T) {
+func TestComposedClientGrantRelatesCacheToCurrentClientAndOwner(t *testing.T) {
 	var grants, resources atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/token" {
@@ -141,12 +163,12 @@ func TestLegacyClientGrantRelatesCacheToCurrentClientAndOwner(t *testing.T) {
 		resources.Add(1)
 	}))
 	defer server.Close()
-	a, b, ctx, cfg := legacyClientFixture(t, server.URL)
+	a, b, ctx, cfg := composedClientFixture(t, server.URL)
 	client := a.buildAuthHTTPClient(ctx, "legacy", cfg)
 	if err := clientGrantGet(client, cfg.URL); err != nil {
 		t.Fatal(err)
 	}
-	if err := b.credMgr.RegisterPatternWithContext(ctx, clientCredPattern("legacy"), &credentials.AuthConfig{Source: "static", Type: "oauth2", ClientID: "client", ClientSecret: "replacement"}); err != nil {
+	if err := b.SaveConfigWithOAuthSecret(cfg.Slug, cfg, "replacement"); err != nil {
 		t.Fatal(err)
 	}
 	if err := clientGrantGet(client, cfg.URL); err != nil {
@@ -168,7 +190,7 @@ func TestLegacyClientGrantRelatesCacheToCurrentClientAndOwner(t *testing.T) {
 	}
 }
 
-func TestLegacyClientGrantSessionEndDoesNotPublishToken(t *testing.T) {
+func TestComposedClientGrantSessionEndDoesNotPublishToken(t *testing.T) {
 	started, release := make(chan struct{}), make(chan struct{})
 	var resources atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -187,7 +209,7 @@ func TestLegacyClientGrantSessionEndDoesNotPublishToken(t *testing.T) {
 	}))
 	defer server.Close()
 	defer close(release)
-	a, _, ctx, cfg := legacyClientFixture(t, server.URL)
+	a, _, ctx, cfg := composedClientFixture(t, server.URL)
 	client := a.buildAuthHTTPClient(ctx, "legacy", cfg)
 	done := make(chan error, 1)
 	go func() { done <- clientGrantGet(client, cfg.URL) }()
@@ -205,7 +227,53 @@ func TestLegacyClientGrantSessionEndDoesNotPublishToken(t *testing.T) {
 	}
 }
 
-func TestLegacyClientGrantFailedIssuanceCanRetryWithoutLeakingBody(t *testing.T) {
+func TestComposedClientGrantRechecksConsumerAfterIssuance(t *testing.T) {
+	started, release := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	unblock := func() { once.Do(func() { close(release) }) }
+	var grants, resources atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/token" {
+			grants.Add(1)
+			close(started)
+			select {
+			case <-release:
+			case <-r.Context().Done():
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"access_token":"issued","token_type":"Bearer","expires_in":3600}`)
+			return
+		}
+		resources.Add(1)
+	}))
+	defer server.Close()
+	defer unblock()
+	a, b, ctx, cfg := composedClientFixture(t, server.URL)
+	client := a.buildAuthHTTPClient(ctx, cfg.Slug, cfg)
+	done := make(chan error, 1)
+	go func() { done <- clientGrantGet(client, cfg.URL) }()
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("grant not started")
+	}
+	if err := b.repository().(*DBRepository).db.Model(&database.MCPServer{}).Where("id = ?", cfg.ID).Update("oauth_authorization_id", "replacement").Error; err != nil {
+		t.Fatal(err)
+	}
+	unblock()
+	if err := <-done; !errors.Is(err, oauthflow.ErrConflict) {
+		t.Fatal("token escaped after consumer changed during issuance", err)
+	}
+	if _, ok := a.resolveNativeAuthToken(ctx, nativeMCPCandidate{slug: cfg.Slug, managedConfig: cfg}); ok {
+		t.Fatal("stale authorization escaped through native resolution")
+	}
+	if grants.Load() != 1 || resources.Load() != 0 {
+		t.Fatal("changed consumer caused another grant or resource call")
+	}
+}
+
+func TestComposedClientGrantFailedIssuanceCanRetryWithoutLeakingBody(t *testing.T) {
 	var failing atomic.Bool
 	failing.Store(true)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -219,7 +287,7 @@ func TestLegacyClientGrantFailedIssuanceCanRetryWithoutLeakingBody(t *testing.T)
 		}
 	}))
 	defer server.Close()
-	a, _, ctx, cfg := legacyClientFixture(t, server.URL)
+	a, _, ctx, cfg := composedClientFixture(t, server.URL)
 	client := a.buildAuthHTTPClient(ctx, "legacy", cfg)
 	err := clientGrantGet(client, cfg.URL)
 	if !errors.Is(err, oauthflow.ErrTransient) || strings.Contains(err.Error(), "provider-secret") {
@@ -231,7 +299,7 @@ func TestLegacyClientGrantFailedIssuanceCanRetryWithoutLeakingBody(t *testing.T)
 	}
 }
 
-func TestLegacyClientGrantReusesConsentBeforeLeaseAcrossOrigins(t *testing.T) {
+func TestComposedClientGrantReusesConsentBeforeLeaseAcrossOrigins(t *testing.T) {
 	var grants, prompts atomic.Int32
 	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		grants.Add(1)
@@ -241,18 +309,15 @@ func TestLegacyClientGrantReusesConsentBeforeLeaseAcrossOrigins(t *testing.T) {
 	defer tokenServer.Close()
 	resource := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 	defer resource.Close()
-	a, _, ctx, cfg := legacyClientFixture(t, resource.URL)
+	a, _, ctx, cfg := composedClientFixture(t, resource.URL)
 	cfg.OAuth2TokenURL = tokenServer.URL + "/token"
-	if err := a.SaveConfig("legacy", cfg); err != nil {
+	if err := a.SaveConfigWithOAuthSecret("legacy", cfg, "secret"); err != nil {
 		t.Fatal(err)
 	}
 	a.SetOAuthNetworkAuthorizer(func(_ context.Context, d oauthflow.NetworkDestination) ([]net.IP, bool, error) {
 		prompts.Add(1)
-		var active int64
-		if err := a.repository().(*DBRepository).db.Model(&database.CredentialEntry{}).Where("pattern = ? AND legacy_oauth_control_enc <> ''", userTokensPattern("legacy")).Count(&active).Error; err != nil {
-			t.Error(err)
-		}
-		if active != 0 {
+		_, _, active := loadManaged(t, a, ctx, cfg.Slug)
+		if active.RefreshActive() {
 			t.Error("consent requested inside durable lease")
 		}
 		return d.IPs, true, nil
@@ -286,5 +351,32 @@ func TestLegacyClientGrantNativeNeverUsesCachedHostnameAfterCutover(t *testing.T
 	}
 	if token, ok := a.resolveNativeAuthToken(ctx, c); ok || token != "" {
 		t.Fatal("cached native token survived ownership change")
+	}
+}
+
+func TestLegacyClientCredentialsHTTPRequiresMigration(t *testing.T) {
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer server.Close()
+	m, _, ctx, cfg := legacyClientFixture(t, server.URL)
+	for _, persisted := range []bool{true, false} {
+		candidate := cfg
+		if !persisted {
+			candidate.ID, candidate.UserID = "", ""
+		}
+		client := m.buildAuthHTTPClient(ctx, cfg.Slug, candidate)
+		if err := clientGrantGet(client, cfg.URL); !errors.Is(err, errOAuthMigrationRequired) {
+			t.Fatalf("legacy HTTP helper did not require migration (persisted=%v): %v", persisted, err)
+		}
+	}
+	if requests.Load() != 0 {
+		t.Fatal("legacy HTTP helper contacted provider")
+	}
+	stored, err := m.credMgr.GetByPatternWithContext(ctx, clientCredPattern(cfg.Slug))
+	if err != nil || stored == nil || stored.ClientID != "client" || stored.ClientSecret != "secret" {
+		t.Fatal("migration refusal changed recoverable credentials", err)
 	}
 }

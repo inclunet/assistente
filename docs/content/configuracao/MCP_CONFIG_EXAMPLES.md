@@ -798,6 +798,11 @@ nativo usam a mesma autorização composta. A renovação ocorre quando o token 
 necessário; não há um temporizador de renovação por conexão MCP. Continue
 evitando o uso simultâneo do mesmo banco em versões antigas do Assistente.
 
+Client Credentials usa exclusivamente esse serviço compartilhado: trocar o
+cliente ou o segredo invalida o token anterior. Se outra instância substituir
+o vínculo da autorização, a conexão antiga deixa de enviar esse token; recarregue
+o cadastro e conecte usando a autorização atual.
+
 ### Converter Client Credentials para autorização unificada
 
 No diagnóstico OAuth, crie um snapshot do servidor Client Credentials e, na
