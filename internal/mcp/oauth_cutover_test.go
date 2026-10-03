@@ -95,6 +95,22 @@ func TestLegacyOAuthRuntimeRequiresExplicitMigration(t *testing.T) {
 			if len(m.GetEligibleNativeMCPServers()) != 0 {
 				t.Fatal("legacy authorization exposed to native provider")
 			}
+			// The resolver itself must refuse the historical grant, including a
+			// candidate without a persisted ID or an unavailable credential manager.
+			for _, persisted := range []bool{true, false} {
+				candidateConfig := *before
+				if !persisted {
+					candidateConfig.ID, candidateConfig.UserID = "", ""
+				}
+				candidate := nativeMCPCandidate{slug: "legacy", url: cfg.URL, authType: authType, managedConfig: candidateConfig}
+				if token, ok := m.resolveNativeAuthToken(ctx, candidate); ok || token != "" {
+					t.Fatal("native resolver reused historical grant")
+				}
+				withoutVault := &Manager{}
+				if token, ok := withoutVault.resolveNativeAuthToken(ctx, candidate); ok || token != "" {
+					t.Fatal("missing vault enabled anonymous OAuth fallback")
+				}
+			}
 			if requests.Load() != 0 || browsers.Load() != 0 {
 				t.Fatal("legacy runtime contacted OAuth or resource")
 			}

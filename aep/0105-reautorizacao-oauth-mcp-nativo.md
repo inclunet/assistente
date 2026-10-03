@@ -97,7 +97,7 @@ código necessária aqui** — apenas registro da decisão e dos testes existent
 
 - **F1 — Guarda nativa + sinalização (backend).** ✅ Concluída.
   `collectNativeMCPCandidates`, `resolveNativeAuthToken`,
-  `nativeTokenExpiredOrNear`, `signalNeedsReauth`/`clearNeedsReauth`, campos
+  validação de validade pelo serviço compartilhado, `signalNeedsReauth`/`clearNeedsReauth`, campos
   `NeedsReauth`/`AuthType` e evento `MCPServerReauthEvent`.
 - **F2 — Reautorização interativa (backend + binding).** ✅ Concluída.
   `ReauthorizeServer`, `buildPKCERoundTripperForServer`,
@@ -163,3 +163,9 @@ Evidências: `TestManagedOAuthPKCEDCRPersistsCallbackAndRefreshAfterRestart`,
 `TestManagedOAuthDeviceAndStartupNeverOpenBrowserImplicitly` e
 `TestManagedOAuthDisconnectCancelsRefreshPreflight` em
 `internal/mcp/oauth_authorization_test.go`.
+
+A retirada do fallback nativo antigo (AEP-0112) elimina a leitura/renovação PKCE
+pelo transporte legado. A garantia de validade é coberta pelo lifecycle composto;
+`TestManagedNativeRefreshUsesFreshClientWithoutBootstrapOverwrite` prova segredo
+atual entre instâncias, rotação persistida e recusa de grant incerto. Credenciais
+históricas permanecem recuperáveis, mas não autorizam fallback por hostname.

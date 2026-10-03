@@ -790,7 +790,9 @@ o Assistente mantém as credenciais e não tenta conectar ou renovar tokens.
 Conectar, reconectar e inicializar um servidor OAuth antigo agora informa que
 a autorização precisa ser migrada. O Assistente preserva as credenciais e não
 abre o navegador nem renova tokens antigos automaticamente. O mesmo vale para
-o envio de ferramentas pelo MCP nativo.
+o envio de ferramentas pelo MCP nativo. Mesmo que exista um token antigo salvo
+para o hostname, ele não substitui a migração OAuth. A ausência de token também
+não transforma esse cadastro OAuth em uma conexão anônima.
 
 Em **Diagnóstico OAuth**, crie um snapshot e siga a conversão de Client
 Credentials ou a reconexão de PKCE abaixo. Após a migração, bridge local e MCP

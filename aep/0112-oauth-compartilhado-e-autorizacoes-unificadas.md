@@ -1524,3 +1524,24 @@ Permanecem a retirada do runtime privado PKCE e das APIs operacionais legadas
 do cofre, incluindo o lease antigo de Client Credentials ainda referenciado por
 fixtures de concorrência/migração. Leitura, snapshots e recuperação históricos
 continuam necessários; os aceites com provedores reais permanecem pendentes.
+
+### Fase 3 — retirada dos fallbacks PKCE do MCP nativo
+
+Status: **In Progress**. O resolvedor nativo não instancia mais o transporte
+PKCE antigo, não renova grants históricos e não usa hostname para contornar a
+recusa de OAuth legado. A ausência de ID persistido ou de cofre também não libera
+uma tentativa anônima. O ramo de persistência antiga durante o fallback SSE da
+conexão foi removido: o polling composto conserva seu caminho compartilhado.
+
+O teste de segredo atualizado entre duas instâncias usa agora uma autorização
+composta e verifica o refresh com o segredo atual, a persistência da rotação e a
+recusa após um refresh ambíguo. Evidências:
+`TestManagedNativeRefreshUsesFreshClientWithoutBootstrapOverwrite`,
+`TestLegacyNativeFallbackDoesNotReuseDeletedHostname`,
+`TestLegacyNativeRefusesHostnameWithOrWithoutTokenRow` e
+`TestLegacyOAuthRuntimeRequiresExplicitMigration` (inclui o resolvedor privado).
+Os cenários de fallback histórico passam a exigir recusa, conforme o cutover;
+a recuperação dos tokens continua nos snapshots, sem apagamento em runtime.
+
+A retirada completa do transporte privado PKCE, dos escritores e das APIs
+operacionais do cofre ainda está pendente, assim como os aceites funcionais.
