@@ -1485,3 +1485,10 @@ discovery/DCR, sem reconstruir metadados históricos nem reutilizar o grant anti
 `TestRecoveryStdioIgnoresResidualLegacyOAuth` prova reconexão STDIO sem HTTP e
 sem alterar o token antigo. Testes de refresh/recovery do Manager usam o registro
 composto, incluindo rejeição definitiva e barreira após resposta ambígua.
+
+O corpo HTTP compartilhado preserva o erro de cancelamento/prazo da requisição
+mesmo quando o servidor encerra o stream com EOF após observar o cancelamento.
+`TestCancelBodyPreservesRequestError` cobre cancelamento antes/durante leitura,
+bytes parciais e prazo; `TestCancelBodyPreservesLiveResponse` mantém EOF/erros
+originais enquanto o contexto está ativo. O teste de streaming com consentimento
+corporativo mantém sua exigência de `context.Canceled` após cancelar.
