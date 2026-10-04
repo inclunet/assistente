@@ -1830,3 +1830,8 @@ edição; nova carga bem-sucedida, manual ou por evento, libera o mesmo pedido.
 Cargas concorrentes usam geração de requisição: resposta antiga, com sucesso ou
 falha, não substitui a lista nem libera a prontidão da carga atual. Testes com
 respostas adiadas em ambas as ordens cobrem essa recusa.
+
+O hook compartilhado distingue chegada do pedido e espera pelos dados: pedidos
+recebidos dentro do prazo de navegação continuam válidos durante carga/retry.
+Cancelamento, substituição ou desmontagem descartam essa recepção; pedidos já
+expirados ao chegar continuam recusados. Regressões cobrem espera acima de 5 s.

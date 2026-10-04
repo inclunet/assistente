@@ -286,10 +286,12 @@ describe('McpPage — oauth2_callback_host', () => {
     rerender(<McpPage />);
     expect(useNavigationStore.getState().pendingEdit?.id).toBe('retry');
     expect(mockGetConfig).not.toHaveBeenCalled();
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 6000);
     mockServers = [{ id: 'server-id', slug: 'retry', name: 'Recuperado', transport: 'streamable', status: 'disconnected', tools: [] }];
     await act(async () => mockLoadServers());
     rerender(<McpPage />);
     expect(await screen.findByLabelText('Nome')).toHaveValue('Recuperado');
+    clock.mockRestore();
     expect(useNavigationStore.getState().pendingEdit).toBeNull();
   });
 
