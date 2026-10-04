@@ -1758,6 +1758,10 @@ O transporte Bearer/Basic delega ao `CredentialTransport`: env/keyring são lido
 por requisição e command compartilha cache/renovação após 401. Destino de SSE e
 redirects ficam restritos à origem configurada, com validação antes de resolver
 fontes. Logout/troca de usuário e credencial ausente recusam o envio.
+O tipo Bearer/Basic legado restringe o snapshot aplicado pelo transporte; entradas
+incompatíveis não são enviadas. Prefixos Bearer preservam caixa e removem espaços
+externos, como no transporte anterior (`TestMCPCredentialRejectsIncompatibleScheme`
+e `TestMCPCredentialPreservesBearerNormalization`).
 
 Nenhuma migração de dados é necessária neste incremento. OAuth composto já limpa
 os campos persistidos no servidor (`clearOAuthConfiguration`) e projeta a edição

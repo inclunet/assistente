@@ -14,7 +14,7 @@ import (
 // and command rejection/cache handling belong to the shared CredentialTransport.
 func (m *Manager) credentialHTTPClient(cfg ServerConfig) *http.Client {
 	owner, _ := database.UserIDFromContext(m.credentialContext())
-	transport := &mcpCredentialTransport{manager: m, owner: owner, resource: cfg.URL, base: newMCPTransport()}
+	transport := &mcpCredentialTransport{manager: m, owner: owner, resource: cfg.URL, expectedType: string(cfg.AuthType), base: newMCPTransport()}
 	return &http.Client{Transport: transport, CheckRedirect: func(req *http.Request, via []*http.Request) error {
 		if len(via) >= 10 || !sameCredentialOrigin(cfg.URL, req.URL) {
 			return credentials.ErrCredentialResolution
@@ -24,10 +24,11 @@ func (m *Manager) credentialHTTPClient(cfg ServerConfig) *http.Client {
 }
 
 type mcpCredentialTransport struct {
-	manager  *Manager
-	owner    string
-	resource string
-	base     http.RoundTripper
+	manager      *Manager
+	owner        string
+	resource     string
+	expectedType string
+	base         http.RoundTripper
 }
 
 func sameCredentialOrigin(resource string, target *url.URL) bool {
@@ -63,6 +64,7 @@ func (t *mcpCredentialTransport) RoundTrip(req *http.Request) (*http.Response, e
 	// All requests, including retries and SSE endpoint requests, resolve centrally.
 	transport := credentials.NewCredentialTransport(t.manager.credMgr, pattern)
 	transport.Base = t.base
+	transport.ExpectedType = t.expectedType
 	return transport.RoundTrip(req.Clone(ctx))
 }
 

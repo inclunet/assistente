@@ -186,3 +186,61 @@ func TestMCPCredentialRedirectKeepsOrigin(t *testing.T) {
 		t.Fatalf("redirect: %v", err)
 	}
 }
+
+func TestMCPCredentialRejectsIncompatibleScheme(t *testing.T) {
+	for _, scheme := range []AuthType{AuthBearer, AuthBasic} {
+		t.Run(string(scheme), func(t *testing.T) {
+			manager := &Manager{credMgr: newTestCredMgr()}
+			calls := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls++; w.WriteHeader(http.StatusOK) }))
+			defer server.Close()
+			client := manager.buildAuthHTTPClient(context.Background(), "test", ServerConfig{URL: server.URL, AuthType: scheme})
+			for _, actual := range []string{"bearer", "basic", "custom"} {
+				if err := manager.credMgr.RegisterPattern("127.0.0.1", &credentials.AuthConfig{Source: "static", Type: actual, Token: "secret", Username: "user", Password: "secret", Headers: map[string]string{"X-Key": "secret"}}); err != nil {
+					t.Fatal(err)
+				}
+				before := calls
+				response, err := client.Get(server.URL)
+				if actual == string(scheme) {
+					if err != nil {
+						t.Fatal(err)
+					}
+					_ = response.Body.Close()
+					if calls != before+1 {
+						t.Fatal("compatible credential was not sent")
+					}
+				} else if !errors.Is(err, credentials.ErrCredentialResolution) || calls != before {
+					t.Fatalf("scheme %s sent for %s: calls=%d err=%v", actual, scheme, calls-before, err)
+				}
+			}
+		})
+	}
+}
+
+func TestMCPCredentialPreservesBearerNormalization(t *testing.T) {
+	for _, value := range []string{" token ", " Bearer token ", " bearer token ", " bEaReR token "} {
+		t.Run(value, func(t *testing.T) {
+			manager := &Manager{credMgr: newTestCredMgr()}
+			if err := manager.credMgr.RegisterPattern("example.com", &credentials.AuthConfig{Source: "static", Type: "bearer", Token: value}); err != nil {
+				t.Fatal(err)
+			}
+			client := manager.buildAuthHTTPClient(context.Background(), "test", ServerConfig{URL: "https://example.com/mcp", AuthType: AuthBearer})
+			calls := 0
+			client.Transport.(*mcpCredentialTransport).base = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				calls++
+				if !strings.EqualFold(req.Header.Get("Authorization"), "Bearer token") {
+					t.Fatalf("unexpected Authorization %q", req.Header.Get("Authorization"))
+				}
+				return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody, Header: make(http.Header)}, nil
+			})
+			response, err := client.Get("https://example.com/mcp")
+			if err != nil {
+				t.Fatal(err)
+			}
+			_ = response.Body.Close()
+			if calls != 1 {
+				t.Fatal("request not sent")
+			}
+		})
+	}
+}
