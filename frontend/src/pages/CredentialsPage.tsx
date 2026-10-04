@@ -1,12 +1,11 @@
-import { apidto } from '@wailsjs/go/models';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { DeleteOutlined, EditOutlined, EyeOutlined, PlusOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
-import { ListCredentials, UpsertCredential, DeleteCredential, ListExternalSources } from '@wailsjs/go/wailsapi/Credentials';
+import { ListCredentials, UpsertCredential, DeleteCredential } from '@wailsjs/go/wailsapi/Credentials';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
 import { MenuButton } from '../components/layout/MenuButton';
 import { Toolbar } from '../components/ui/Toolbar';
-import { Button, Input, Select } from '../components';
+import { Button, Input } from '../components';
 import { Modal } from '../components/ui/Modal';
 import { DialogActions } from '../components/ui/DialogActions';
 import { EditorPanelFooter } from '../components/ui/EditorPanel';
@@ -14,47 +13,16 @@ import { useGridFocus } from '../hooks/useGridFocus';
 import { useGridPageLandmarks } from '../hooks/useGridPageLandmarks';
 import { useEditableList } from '../hooks/useEditableList';
 import { useResourceEditRequest } from '../hooks/useResourceEditRequest';
-import { useAnnouncer } from '../hooks/useAnnouncer';
 import { useActivePanelNewShortcut } from '../hooks/useActivePanelShortcut';
 import './CredentialsPage.css';
-
-interface CredentialRow {
-  id: string;
-  pattern: string;
-  type: string;
-  source: string;
-  command?: string;
-  argsText?: string;
-  timeoutSeconds?: number;
-  keyringService?: string;
-  keyringUser?: string;
-  masked: string;
-  managed: boolean;
-  token?: string;
-  username?: string;
-  password?: string;
-  headerName?: string;
-  headerValue?: string;
-  [key: string]: unknown;
-}
+import { CredentialFields } from '../components/credentials/CredentialFields';
+import { credentialFromSummary, credentialInput, newCredential, validateCredential, type CredentialDraft as CredentialRow } from '../components/credentials/credentialDraft';
 
 export default function CredentialsPage() {
   const { t } = useTranslation();
-  const { announce } = useAnnouncer();
   const { handleGridReady } = useGridFocus();
   useGridPageLandmarks({ pageClass: 'credentials-page' });
   const [focusedRow, setFocusedRow] = useState<CredentialRow | null>(null);
-  const [suggestions, setSuggestions] = useState<Array<{value: string; label: string}>>([]);
-  const [showSuggestions, setShowSuggestions] = useState(false);
-  const [activeIndex, setActiveIndex] = useState(-1);
-  const allSuggestionsRef = useRef<Array<{value: string; label: string}>>([]);
-  const loadedPrefixRef = useRef<string | null>(null);
-  const sourcesPromiseRef = useRef<{ prefix: string; epoch: number; promise: Promise<Array<{value: string; label: string}>> } | null>(null);
-  const cacheEpochRef = useRef(0);
-  const listboxRef = useRef<HTMLUListElement>(null);
-  const latestTokenRef = useRef<string>('');
-  const prevShowSuggestionsRef = useRef(false);
-
   const typeOptions = [
     { value: 'bearer', label: t('credentials.types.bearer') },
     { value: 'basic', label: t('credentials.types.basic') },
@@ -83,67 +51,15 @@ export default function CredentialsPage() {
       loadItem: async (id) => {
         const list = await ListCredentials();
         const found = (list || []).find((c) => c.pattern === id);
-        return {
-          id: String(id),
-          pattern: found?.pattern || String(id),
-          type: found?.type || 'bearer',
-          source: found?.source || 'static',
-          command: found?.sourceConfig?.command || '',
-          argsText: JSON.stringify(found?.sourceConfig?.args || []),
-          timeoutSeconds: found?.sourceConfig?.timeoutSeconds || 30,
-          keyringService: found?.sourceConfig?.keyringService || '',
-          keyringUser: found?.sourceConfig?.keyringUser || '',
-          masked: found?.masked || '',
-          managed: found?.managed ?? false,
-          token: found?.sourceConfig?.env || found?.sourceConfig?.keyringTarget || '',
-          username: found?.username || '',
-          password: '',
-          headerName: found?.headerName || '',
-          headerValue: '',
-        };
+        if (!found || found.managed) throw new Error(t('credentials.sourceFields.loadError'));
+        return credentialFromSummary(found);
       },
       createItem: async (data) => {
-        await UpsertCredential(apidto.CredentialInput.createFrom({
-          pattern: data.pattern,
-          type: data.type,
-          source: data.source,
-          sourceConfig: data.source === 'static' ? undefined : {
-            env: data.source === 'env' ? data.token : undefined,
-            keyringTarget: data.source === 'keyring' ? data.token : undefined,
-            keyringService: data.source === 'keyring' ? data.keyringService : undefined,
-            keyringUser: data.source === 'keyring' ? data.keyringUser : undefined,
-            command: data.source === 'command' ? data.command : undefined,
-            args: data.source === 'command' ? JSON.parse(data.argsText || '[]') : undefined,
-            timeoutSeconds: data.source === 'command' ? data.timeoutSeconds : undefined,
-          },
-          token: data.source === 'static' ? data.token : undefined,
-          username: data.username,
-          password: data.password,
-          headerName: data.headerName,
-          headerValue: data.headerValue,
-        }));
+        await UpsertCredential(credentialInput(data));
         return data.pattern;
       },
       updateItem: async (_id, data) => {
-        await UpsertCredential(apidto.CredentialInput.createFrom({
-          pattern: data.pattern,
-          type: data.type,
-          source: data.source,
-          sourceConfig: data.source === 'static' ? undefined : {
-            env: data.source === 'env' ? data.token : undefined,
-            keyringTarget: data.source === 'keyring' ? data.token : undefined,
-            keyringService: data.source === 'keyring' ? data.keyringService : undefined,
-            keyringUser: data.source === 'keyring' ? data.keyringUser : undefined,
-            command: data.source === 'command' ? data.command : undefined,
-            args: data.source === 'command' ? JSON.parse(data.argsText || '[]') : undefined,
-            timeoutSeconds: data.source === 'command' ? data.timeoutSeconds : undefined,
-          },
-          token: data.source === 'static' ? data.token : undefined,
-          username: data.username,
-          password: data.password,
-          headerName: data.headerName,
-          headerValue: data.headerValue,
-        }));
+        await UpsertCredential(credentialInput(data));
       },
       deleteItem: async (id) => {
         await DeleteCredential(String(id));
@@ -158,42 +74,8 @@ export default function CredentialsPage() {
         deleteSuccess: t('credentials.sourceFields.deleteSuccess'),
         deleteConfirm: (item) => t('credentials.sourceFields.deleteConfirm', { pattern: item.pattern }),
       },
-      createDefault: () => ({
-        id: '',
-        pattern: '',
-        type: 'bearer',
-        source: 'static',
-        argsText: '[]',
-        timeoutSeconds: 30,
-        masked: '',
-        managed: false,
-        token: '',
-        username: '',
-        password: '',
-        headerName: '',
-        headerValue: '',
-      }),
-      validate: (item) => {
-        if (!item.pattern?.trim() || !item.type) return t('credentials.sourceFields.required');
-        if (item.source === 'oauth') return t('credentials.sourceFields.oauthUnavailable');
-        if (item.source === 'command') {
-          if (!item.command?.trim()) return t('credentials.sourceFields.required');
-          try {
-            const args: unknown = JSON.parse(item.argsText || '[]');
-            if (!Array.isArray(args) || !args.every(a => typeof a === 'string')) return t('credentials.sourceFields.invalidArgs');
-          } catch { return t('credentials.sourceFields.invalidArgs'); }
-          if (!item.timeoutSeconds || item.timeoutSeconds < 1 || item.timeoutSeconds > 300) return t('credentials.sourceFields.invalidTimeout');
-        }
-        if (item.source === 'env' && !item.token?.trim()) return t('credentials.sourceFields.required');
-        if (item.source === 'keyring' && !item.token?.trim() && (!item.keyringService || !item.keyringUser)) return t('credentials.sourceFields.required');
-        if (item.type === 'basic' && !item.username) return t('credentials.sourceFields.required');
-        if (item.type === 'custom' && !item.headerName) return t('credentials.sourceFields.required');
-        if (item.source === 'static') {
-          const value = item.type === 'basic' ? item.password : item.type === 'custom' ? item.headerValue : item.token;
-          if (!value) return t('credentials.sourceFields.required');
-        }
-        return null;
-      },
+      createDefault: () => newCredential(),
+      validate: (item) => validateCredential(item, t),
     }
   );
 
@@ -221,144 +103,6 @@ export default function CredentialsPage() {
   });
 
   useActivePanelNewShortcut(crud.openNew);
-
-  const invalidateSuggestionCache = useCallback(() => {
-    cacheEpochRef.current += 1;
-    sourcesPromiseRef.current = null;
-    allSuggestionsRef.current = [];
-    loadedPrefixRef.current = null;
-  }, []);
-
-  const loadExternalSources = useCallback((prefix: string) => {
-    if (loadedPrefixRef.current === prefix) return Promise.resolve(allSuggestionsRef.current);
-
-    const epoch = cacheEpochRef.current;
-    const pending = sourcesPromiseRef.current;
-    if (pending && pending.prefix === prefix && pending.epoch === epoch) return pending.promise;
-
-    const promise = (async () => {
-      let items: Array<{value: string; label: string}> = [];
-      try {
-        const results = await ListExternalSources(prefix);
-        items = (results || []).map(r => ({ value: r.value, label: r.label }));
-      } catch {
-        items = [];
-      }
-      // Descarta resultado tardio se o cache foi invalidado (reset/close/limpeza) durante a requisição.
-      if (cacheEpochRef.current === epoch) {
-        allSuggestionsRef.current = items;
-        loadedPrefixRef.current = prefix;
-        if (sourcesPromiseRef.current?.epoch === epoch && sourcesPromiseRef.current?.prefix === prefix) {
-          sourcesPromiseRef.current = null;
-        }
-      }
-      return items;
-    })();
-
-    sourcesPromiseRef.current = { prefix, epoch, promise };
-    return promise;
-  }, []);
-
-  const handleTokenChange = async (value: string) => {
-    crud.updateField('token', value);
-    setActiveIndex(-1);
-    latestTokenRef.current = value;
-
-    const prefix = crud.editingItem?.source === 'keyring' || crud.editingItem?.source === 'env' ? crud.editingItem.source : null;
-
-    if (!prefix) {
-      // Só limpa/invalida se o autocomplete chegou a ser ativado (evita renders e
-      // incremento de epoch a cada tecla quando o token nunca foi uma referência).
-      if (loadedPrefixRef.current !== null || showSuggestions) {
-        setShowSuggestions(false);
-        setSuggestions([]);
-        invalidateSuggestionCache();
-      }
-      return;
-    }
-
-    const epoch = cacheEpochRef.current;
-    const items = await loadExternalSources(prefix);
-    if (cacheEpochRef.current !== epoch || latestTokenRef.current !== value) return;
-
-    const search = value.toLowerCase();
-    const filtered = search === ''
-      ? items
-      : items.filter(s => s.label.toLowerCase().includes(search));
-    setSuggestions(filtered);
-    setShowSuggestions(filtered.length > 0);
-  };
-
-  const handleTokenKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (!showSuggestions || suggestions.length === 0) return;
-
-    switch (e.key) {
-      case 'ArrowDown':
-        e.preventDefault();
-        setActiveIndex(prev => {
-          const next = prev < suggestions.length - 1 ? prev + 1 : 0;
-          requestAnimationFrame(() => {
-            listboxRef.current?.querySelector(`#token-suggestion-${next}`)
-              ?.scrollIntoView({ block: 'nearest' });
-          });
-          return next;
-        });
-        break;
-      case 'ArrowUp':
-        e.preventDefault();
-        setActiveIndex(prev => {
-          const next = prev > 0 ? prev - 1 : suggestions.length - 1;
-          requestAnimationFrame(() => {
-            listboxRef.current?.querySelector(`#token-suggestion-${next}`)
-              ?.scrollIntoView({ block: 'nearest' });
-          });
-          return next;
-        });
-        break;
-      case 'Enter':
-        if (activeIndex >= 0 && activeIndex < suggestions.length) {
-          e.preventDefault();
-          const selected = suggestions[activeIndex].value;
-          latestTokenRef.current = selected;
-          crud.updateField('token', selected);
-          setShowSuggestions(false);
-          setActiveIndex(-1);
-        }
-        break;
-      case 'Escape':
-        e.stopPropagation();
-        latestTokenRef.current = '';
-        setShowSuggestions(false);
-        setActiveIndex(-1);
-        break;
-    }
-  }, [showSuggestions, suggestions, activeIndex, crud]);
-
-  const resetSuggestions = useCallback(() => {
-    latestTokenRef.current = '';
-    setSuggestions([]);
-    setShowSuggestions(false);
-    setActiveIndex(-1);
-    invalidateSuggestionCache();
-  }, [invalidateSuggestionCache]);
-
-  const isEditorOpen = Boolean(crud.editingItem);
-  useEffect(() => {
-    if (!isEditorOpen) resetSuggestions();
-  }, [isEditorOpen, resetSuggestions]);
-
-  // Anuncia as sugestões apenas na TRANSIÇÃO de visibilidade do dropdown
-  // (fechado→aberto), não a cada tecla — evita "spam" de announcements no leitor
-  // de tela enquanto o usuário digita e a lista é apenas refiltrada. O ref é
-  // mantido em sincronia por este efeito independentemente de onde showSuggestions
-  // muda (seleção, Escape, blur, reset).
-  useEffect(() => {
-    if (showSuggestions === prevShowSuggestionsRef.current) return;
-    prevShowSuggestionsRef.current = showSuggestions;
-    if (showSuggestions) {
-      announce(t('credentials.aria.suggestionsAvailable', { count: suggestions.length }));
-    }
-  }, [showSuggestions, suggestions.length, announce, t]);
 
   const [viewingManaged, setViewingManaged] = useState<CredentialRow | null>(null);
 
@@ -479,7 +223,7 @@ export default function CredentialsPage() {
 
       <Modal
         isOpen={Boolean(crud.editingItem)}
-        onClose={() => { resetSuggestions(); crud.closeEditor(); }}
+        onClose={() => { crud.closeEditor(); }}
         title={crud.isNew ? t('credentials.modal.newTitle') : t('credentials.modal.editTitle')}
         size="md"
       >
@@ -493,111 +237,7 @@ export default function CredentialsPage() {
               fullWidth
               disabled={!crud.isNew}
             />
-            <Select
-              label={t('credentials.sourceFields.source')}
-              value={crud.editingItem.source}
-              options={['static', 'env', 'keyring', 'command', 'oauth'].map(value => ({ value, label: t(`credentials.sourceFields.${value}`) }))}
-              onChange={(e) => { resetSuggestions(); crud.updateField('source', e.target.value); crud.updateField('token', ''); if (e.target.value === 'oauth') announce(t('credentials.sourceFields.oauthUnavailable')); }}
-              fullWidth
-            />
-            <Select
-              label={t('credentials.labels.type')}
-              value={crud.editingItem.type}
-              options={typeOptions}
-              onChange={(e) => crud.updateField('type', e.target.value)}
-              fullWidth
-            />
-
-            {(crud.editingItem.source === 'env' || crud.editingItem.source === 'keyring' || (crud.editingItem.source === 'static' && (crud.editingItem.type === 'bearer' || crud.editingItem.type === 'secret'))) && (() => {
-              const tokenIsRef = crud.editingItem.source === 'env' || crud.editingItem.source === 'keyring';
-              const hasSuggestions = showSuggestions && suggestions.length > 0;
-              return (
-              <div className="credentials-page__token-field">
-                <Input
-                  label={tokenIsRef ? t(`credentials.sourceFields.${crud.editingItem.source}Name`) : t('credentials.labels.token')}
-                  type={tokenIsRef ? 'text' : 'password'}
-                  value={crud.editingItem.token || ''}
-                  onChange={(e) => handleTokenChange(e.target.value)}
-                  onKeyDown={handleTokenKeyDown}
-                  onBlur={() => { latestTokenRef.current = ''; setShowSuggestions(false); setActiveIndex(-1); }}
-                  onFocus={() => { if (tokenIsRef) void handleTokenChange(crud.editingItem?.token || ''); }}
-                  fullWidth
-                  autoComplete="off"
-                  role={tokenIsRef ? 'combobox' : undefined}
-                  aria-haspopup={tokenIsRef ? 'listbox' : undefined}
-                  aria-expanded={tokenIsRef ? hasSuggestions : undefined}
-                  aria-controls={tokenIsRef && hasSuggestions ? 'token-suggestions' : undefined}
-                  aria-activedescendant={tokenIsRef && activeIndex >= 0 ? `token-suggestion-${activeIndex}` : undefined}
-                  aria-autocomplete={tokenIsRef ? 'list' : undefined}
-                />
-                {tokenIsRef && hasSuggestions && (
-                  <ul
-                    id="token-suggestions"
-                    ref={listboxRef}
-                    className="credentials-page__suggestions"
-                    role="listbox"
-                    aria-label={t('credentials.aria.suggestions')}
-                  >
-                    {suggestions.map((s, index) => (
-                      <li
-                        key={s.value}
-                        id={`token-suggestion-${index}`}
-                        role="option"
-                        aria-selected={index === activeIndex}
-                        className={`credentials-page__suggestion${index === activeIndex ? ' credentials-page__suggestion--active' : ''}`}
-                        onMouseDown={(e) => {
-                          e.preventDefault();
-                          latestTokenRef.current = s.value;
-                          crud.updateField('token', s.value);
-                          setShowSuggestions(false);
-                          setActiveIndex(-1);
-                        }}
-                      >
-                        {s.label}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-              );
-            })()}
-
-            {crud.editingItem.source === 'keyring' && <>
-              <Input label={t('credentials.sourceFields.keyringService')} value={crud.editingItem.keyringService || ''} onChange={e => crud.updateField('keyringService', e.target.value)} fullWidth />
-              <Input label={t('credentials.sourceFields.keyringUser')} value={crud.editingItem.keyringUser || ''} onChange={e => crud.updateField('keyringUser', e.target.value)} fullWidth />
-            </>}
-            {crud.editingItem.source === 'command' && <>
-              <p>{t('credentials.sourceFields.cacheHint')}</p>
-              <Input label={t('credentials.sourceFields.commandName')} value={crud.editingItem.command || ''} onChange={e => crud.updateField('command', e.target.value)} fullWidth />
-              <Input label={t('credentials.sourceFields.args')} value={crud.editingItem.argsText ?? '[]'} onChange={e => crud.updateField('argsText', e.target.value)} fullWidth />
-              <Input label={t('credentials.sourceFields.timeout')} type="number" min={1} max={300} value={crud.editingItem.timeoutSeconds ?? 30} onChange={e => crud.updateField('timeoutSeconds', Number(e.target.value))} fullWidth />
-            </>}
-            {crud.editingItem.source === 'oauth' && <p>{t('credentials.sourceFields.oauthUnavailable')}</p>}
-            {crud.editingItem.type === 'basic' && <>
-              <Input label={t('credentials.labels.username')} value={crud.editingItem.username || ''} onChange={e => crud.updateField('username', e.target.value)} fullWidth />
-              {crud.editingItem.source === 'static' && <Input label={t('credentials.labels.password')} type="password" value={crud.editingItem.password || ''} onChange={e => crud.updateField('password', e.target.value)} fullWidth />}
-            </>}
-            {crud.editingItem.type === 'custom' && (
-              <div className="credentials-page__row">
-                <Input
-                  label={t('credentials.labels.header')}
-                  value={crud.editingItem.headerName || ''}
-                  onChange={(e) => crud.updateField('headerName', e.target.value)}
-                  fullWidth
-                />
-                {crud.editingItem.source === 'static' && <Input
-                  label={t('credentials.labels.value')}
-                  type="password"
-                  value={crud.editingItem.headerValue || ''}
-                  onChange={(e) => crud.updateField('headerValue', e.target.value)}
-                  fullWidth
-                />}
-              </div>
-            )}
-
-            <p className="credentials-page__hint">
-              {t('credentials.hint.sensitive')}
-            </p>
+            <CredentialFields value={crud.editingItem} onChange={crud.updateField} />
           </div>
         )}
         <EditorPanelFooter>
@@ -620,7 +260,7 @@ export default function CredentialsPage() {
               </Button>
             }
             secondary={
-              <Button variant="ghost" onClick={() => { resetSuggestions(); crud.closeEditor(); }}>
+              <Button variant="ghost" onClick={() => { crud.closeEditor(); }}>
                 {t('common.cancel')}
               </Button>
             }

@@ -1099,7 +1099,11 @@ func TestImportFromMCPJSON_InvalidJSON(t *testing.T) {
 
 func TestBearerRoundTripperDoesNotDuplicateBearerPrefix(t *testing.T) {
 	var gotAuth string
-	rt := &bearerRoundTripper{
+	manager := &Manager{credMgr: newTestCredMgr()}
+	if err := manager.credMgr.RegisterPattern("example.com", &credentials.AuthConfig{Source: "static", Type: "bearer", Token: "Bearer already-prefixed"}); err != nil {
+		t.Fatal(err)
+	}
+	rt := &mcpCredentialTransport{manager: manager, resource: "https://example.com/mcp",
 		base: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 			gotAuth = req.Header.Get("Authorization")
 			return &http.Response{
@@ -1109,7 +1113,6 @@ func TestBearerRoundTripperDoesNotDuplicateBearerPrefix(t *testing.T) {
 				Request:    req,
 			}, nil
 		}),
-		token: "Bearer already-prefixed",
 	}
 
 	req, err := http.NewRequest(http.MethodGet, "https://example.com/mcp", nil)
@@ -1132,7 +1135,7 @@ func TestBearerRoundTripperDoesNotDuplicateBearerPrefix(t *testing.T) {
 // avaliado em runtime (não na hora do startup); se o usuário fizer logout
 // enquanto um servidor MCP está ativo, a próxima resolução de credencial
 // chega com ctx sem userID. O comportamento esperado é degradação limpa
-// (cliente sem auth, sem panic, sem corrupção de estado), nunca
+// (recusa antes da rede, sem panic, sem corrupção de estado), nunca
 // reaproveitamento de credencial de outro usuário.
 func TestBuildAuthHTTPClient_LogoutMidFlightDegrades(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1165,8 +1168,10 @@ func TestBuildAuthHTTPClient_LogoutMidFlightDegrades(t *testing.T) {
 		URL:      srv.URL,
 		AuthType: AuthBearer,
 	})
-	if clientLoggedOut != nil {
-		t.Fatalf("logout-mid-flight should not return an authenticated client (got %T)", clientLoggedOut)
+	for _, client := range []*http.Client{clientLoggedIn, clientLoggedOut} {
+		if _, err := client.Get(srv.URL); !errors.Is(err, credentials.ErrCredentialResolution) {
+			t.Fatalf("logout-mid-flight reused credentials: %v", err)
+		}
 	}
 }
 

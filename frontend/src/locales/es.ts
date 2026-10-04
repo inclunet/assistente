@@ -2343,7 +2343,15 @@ const es = {
     },
 
     credentials: {
-      sourceFields: {"cacheHint": "El token se reutiliza en memoria hasta que el servidor lo rechaza (401). Guardar la credencial o cerrar la sesión borra la caché. No hay renovación periódica.", "unconfigured": "Reconfigure la fuente", "source": "Fuente", "static": "Valor guardado", "env": "Variable de entorno", "keyring": "Keyring del sistema", "command": "Comando", "oauth": "OAuth (próximamente)", "envName": "Nombre de variable", "keyringName": "Target de Windows (o complete servicio y usuario)", "keyringService": "Servicio de keyring (alternativa al target)", "keyringUser": "Usuario de keyring", "commandName": "Ejecutable", "args": "Argumentos (array JSON de strings)", "timeout": "Timeout en segundos", "oauthUnavailable": "OAuth aún no está disponible como fuente de credencial.", "required": "Complete los campos obligatorios.", "invalidArgs": "Ingrese un array JSON de strings para los argumentos.", "invalidTimeout": "Timeout debe estar entre 1 y 300 segundos.", "entity": "Credencial", "loadError": "Error al cargar credenciales", "createSuccess": "¡Credencial creada!", "updateSuccess": "¡Credencial actualizada!", "deleteSuccess": "¡Credencial eliminada!", "deleteConfirm": "¿Eliminar credencial {{pattern}}?"},
+    mcp: {
+      binding: 'Entrada de la bóveda: {{pattern}}',
+      destination: 'Credencial para {{hostname}}',
+      sharedHint: 'Usa el editor del gestor de credenciales. Los cambios afectan a los consumidores de este destino. Sin cambios, se conserva la credencial actual.',
+      configure: 'Configurar credencial',
+      keepExisting: 'Conservar credencial actual',
+    },
+      sourceFields: {
+      keyringChoice: 'Indique el destino de Windows o el par servicio y usuario, no ambos.',"cacheHint": "El token se reutiliza en memoria hasta que el servidor lo rechaza (401). Guardar la credencial o cerrar la sesión borra la caché. No hay renovación periódica.", "unconfigured": "Reconfigure la fuente", "source": "Fuente", "static": "Valor guardado", "env": "Variable de entorno", "keyring": "Keyring del sistema", "command": "Comando", "oauth": "OAuth administrado", "envName": "Nombre de variable", "keyringName": "Target de Windows (o complete servicio y usuario)", "keyringService": "Servicio de keyring (alternativa al target)", "keyringUser": "Usuario de keyring", "commandName": "Ejecutable", "args": "Argumentos (array JSON de strings)", "timeout": "Timeout en segundos", "oauthUnavailable": "Configure OAuth desde la integración (MCP o proveedor). La autorización se guarda en la misma bóveda; los tokens no se introducen manualmente.", "required": "Complete los campos obligatorios.", "invalidArgs": "Ingrese un array JSON de strings para los argumentos.", "invalidTimeout": "Timeout debe estar entre 1 y 300 segundos.", "entity": "Credencial", "loadError": "Error al cargar credenciales", "createSuccess": "¡Credencial creada!", "updateSuccess": "¡Credencial actualizada!", "deleteSuccess": "¡Credencial eliminada!", "deleteConfirm": "¿Eliminar credencial {{pattern}}?"},
       types: { bearer: 'Bearer token', basic: 'Basic (usuario/contraseña)', custom: 'Header personalizado', secret: 'Secreto (uso interno)' },
       pageTitle: 'Credenciales',
       buttons: { new: 'Nueva', delete: 'Eliminar', create: 'Crear', view: 'Ver', edit: 'Editar' },

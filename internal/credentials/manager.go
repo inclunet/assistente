@@ -206,35 +206,51 @@ func (m *Manager) ResolveForURLWithContext(ctx context.Context, urlStr string) (
 	if err != nil {
 		return nil, fmt.Errorf("URL inválida: %w", err)
 	}
-
-	domain := strings.ToLower(u.Hostname())
-
 	m.mu.RLock()
-	locked := true
-	defer func() {
-		if locked {
-			m.mu.RUnlock()
-		}
-	}()
-
-	userID := ""
-	if scopedUser, ok := database.UserIDFromContext(ctx); ok {
-		userID = scopedUser
+	selected, err := m.matchURLLocked(ctx, u.Hostname())
+	if err != nil || selected == nil {
+		m.mu.RUnlock()
+		return nil, err
 	}
-	// Procura em ordem (primeira match vence)
+	auth, err := m.decryptAuth(selected.Auth)
+	id := selected.ID
+	m.mu.RUnlock()
+	if err != nil {
+		return nil, fmt.Errorf("erro ao descriptografar credenciais: %w", err)
+	}
+	return ResolveSource(withDirectCommandDiagnostic(ctx, id), auth)
+}
+
+// PatternForURLWithContext selects the existing URL binding without resolving
+// its source. Editors and HTTP transports never execute commands during lookup.
+func (m *Manager) PatternForURLWithContext(ctx context.Context, urlStr string) (string, error) {
+	u, err := url.Parse(urlStr)
+	if err != nil {
+		return "", err
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	selected, err := m.matchURLLocked(ctx, u.Hostname())
+	if err != nil || selected == nil {
+		return "", err
+	}
+	return selected.Pattern, nil
+}
+
+// Caller holds m.mu for reading. Keep identical precedence and ambiguity
+// handling for direct resolution and the shared credential transport.
+func (m *Manager) matchURLLocked(ctx context.Context, hostname string) (*DomainCredential, error) {
+	domain := strings.ToLower(hostname)
+	userID, _ := database.UserIDFromContext(ctx)
 	var selected *DomainCredential
 	var matchedPatterns []string
 	for _, dc := range m.credentials {
-		if userID != "" && dc.UserID != userID {
-			continue
-		}
-		if userID == "" && dc.UserID != "" {
+		if dc.UserID != userID {
 			continue
 		}
 		if dc.regex != nil && dc.Auth.Source != "oauth" && dc.regex.MatchString(domain) {
 			for _, pattern := range matchedPatterns {
 				if strings.EqualFold(pattern, dc.Pattern) {
-					// Never choose a token or execute a source for ambiguous identities.
 					return nil, fmt.Errorf("credential_hostname_ambiguous")
 				}
 			}
@@ -244,17 +260,7 @@ func (m *Manager) ResolveForURLWithContext(ctx context.Context, urlStr string) (
 			}
 		}
 	}
-	if selected != nil {
-		auth, err := m.decryptAuth(selected.Auth)
-		if err != nil {
-			return nil, fmt.Errorf("erro ao descriptografar credenciais: %w", err)
-		}
-		m.mu.RUnlock()
-		locked = false
-		return ResolveSource(withDirectCommandDiagnostic(ctx, selected.ID), auth)
-	}
-
-	return nil, nil // sem credenciais para este domínio
+	return selected, nil
 }
 
 // ListPatterns retorna padrões registrados (sem credenciais sensíveis)

@@ -4,6 +4,8 @@ import {apidto} from '../models';
 
 export function DeleteCredential(arg1:string):Promise<void>;
 
+export function GetCredentialForURL(arg1:string):Promise<apidto.CredentialSummary>;
+
 export function ListCredentials():Promise<Array<apidto.CredentialSummary>>;
 
 export function ListExternalSources(arg1:string):Promise<Array<apidto.ExternalSourceSuggestion>>;
