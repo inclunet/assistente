@@ -8,11 +8,11 @@ import { DialogActions } from '../ui/DialogActions';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { McpOAuthSnapshots } from './McpOAuthSnapshots';
 
-export function McpOAuthInventory({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
+export function McpOAuthInventory({ isOpen, onClose, onInventoryChanged }: { isOpen: boolean; onClose: () => void; onInventoryChanged?: () => void }) {
   const { t } = useTranslation();
   return (
     <Modal isOpen={isOpen} onClose={onClose} title={t('mcp.inventory.title')} size="lg">
-      {isOpen && <OAuthInventoryContent />}
+      {isOpen && <OAuthInventoryContent onInventoryChanged={onInventoryChanged} />}
       <DialogActions primary={<Button onClick={onClose}>{t('common.close')}</Button>} />
     </Modal>
   );
@@ -20,7 +20,7 @@ export function McpOAuthInventory({ isOpen, onClose }: { isOpen: boolean; onClos
 
 // Only the query content is mounted per opening. Modal stays mounted so its
 // true -> false transition restores the page's registered default focus.
-function OAuthInventoryContent() {
+function OAuthInventoryContent({ onInventoryChanged }: { onInventoryChanged?: () => void }) {
   const { t } = useTranslation();
   const { announce } = useAnnouncer();
   const [items, setItems] = useState<mcp.OAuthInventoryItem[] | null>(null);
@@ -67,8 +67,12 @@ function OAuthInventoryContent() {
         </ul>
       )}
       {items !== null && <McpOAuthSnapshots consumers={items} onConverted={async () => {
-        const result = await InspectMCPOAuthInventory();
-        if (mounted.current) { request.current = Promise.resolve(result); setItems(result); }
+        try {
+          const result = await InspectMCPOAuthInventory();
+          if (mounted.current) { request.current = Promise.resolve(result); setItems(result); }
+        } finally {
+          if (mounted.current) onInventoryChanged?.();
+        }
       }} />}
     </>
   );

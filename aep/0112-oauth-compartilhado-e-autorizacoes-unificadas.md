@@ -1721,3 +1721,23 @@ isolado se não há scopes configurados (teste PKCE
 `TestAuthorizePKCEScopeParameterPreservesEmptyAndExplicitScopes`). Continua recusando grants com scopes
 insuficientes. Cadastros e snapshots antigos não são reescritos silenciosamente.
 Os aceites reais pendentes deste AEP, incluindo Databricks, não são presumidos.
+
+
+### Ação de migração contextual no MCP
+
+Status: **In Progress**. A ação principal de migrar autorizações antigas aparece
+somente quando o inventário local identifica MCP PKCE legado ou Client Credentials
+legado. Credenciais por hostname, entradas órfãs e autorizações já compostas não
+são confundidas com migrações de servidor pendentes. A consulta apenas lê
+metadados: não conecta, executa fontes ou renova tokens. Falha ou carregamento
+não são anunciados como migração concluída; o diagnóstico permanece acessível
+em **Opções avançadas de autenticação → Diagnóstico OAuth**, junto aos snapshots.
+
+Mudança da lista de servidores, conclusão de migração e fechamento do diagnóstico
+atualizam a disponibilidade. Troca de usuário/sessão descarta consultas antigas
+e fecha o diálogo. `McpOAuthActions.test.tsx` cobre elegibilidade, conclusão,
+reconsulta, falha, sessão e acesso por teclado; os testes do inventário mantêm
+as provas de acessibilidade e restauração de foco. Não altera protocolo OAuth nem
+antecipa os demais aceites reais deste AEP. O mantenedor confirmou o funcionamento
+do Databricks após a correção de escopos, sem afirmar todos os cenários de ciclo
+de vida ainda pendentes.
