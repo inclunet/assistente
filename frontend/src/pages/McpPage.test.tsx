@@ -61,6 +61,7 @@ vi.mock('../hooks/useGridFocus', () => ({
 }));
 
 vi.mock('../hooks/useAnnouncer', () => ({
+  announce: vi.fn(),
   useAnnouncer: () => ({
     announce: vi.fn(),
   }),
@@ -234,6 +235,7 @@ vi.mock('../components/mcp/McpConnectionSection', () => ({
 }));
 
 import McpPage from './McpPage';
+import { executeDeepLink } from '../lib/deepLinks';
 
 describe('McpPage — oauth2_callback_host', () => {
   beforeEach(() => {
@@ -252,6 +254,15 @@ describe('McpPage — oauth2_callback_host', () => {
       expect(screen.getByRole('dialog')).toBeInTheDocument();
     });
   }
+
+  it('abre o primeiro cadastro pelo caminho de criação do CredManager', async () => {
+    const navigate = vi.fn();
+    await executeDeepLink({ type: 'resource:new', resource: 'mcp' }, { navigate });
+    render(<McpPage />);
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+    expect(screen.getByLabelText('Nome')).toHaveValue('');
+    expect(navigate).toHaveBeenCalledWith('/settings/mcp');
+  });
 
   it('salva command pelo mesmo contrato do CredManager sem gravar um token estático', async () => {
     await openNewServerForm();

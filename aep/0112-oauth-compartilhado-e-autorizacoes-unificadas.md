@@ -1788,3 +1788,29 @@ CredManager (`SaveWithConsumer`), com publicação em memória somente após com
 Troca de OAuth reutiliza as mesmas guardas de revisão/lease da remoção composta.
 `TestMCPCredentialSaveAtomicFailure` injeta falhas no cofre e no consumidor em
 criação, edição e troca de OAuth, preservando cadastro, ciphertext e cache.
+
+
+### Acesso às autorizações pelo CredManager (04/10/2026)
+
+Status: **In Progress**. A tela de credenciais reúne fontes editáveis e
+metadados das autorizações compostas OAuth/Slack. A projeção exige usuário,
+filtra registros antes da decriptação e não inclui tokens, componentes, client
+secret ou endpoints. Registro ilegível mantém um diagnóstico local sem impedir
+a listagem dos demais. A consulta não resolve fontes nem renova autorizações.
+
+Configurar uma autorização confirma a referência atual e abre o fluxo existente
+do consumidor: MCP pelo ID/slug atual, ChatGPT pela referência à autorização e
+Slack pelo ID da conexão/canal. A edição continua pelo escritor transacional do
+CredManager. Não é permitido editar/remover esses registros pelo CRUD genérico.
+Fechamento ou troca de sessão descarta aberturas assíncronas pendentes. Novos
+cadastros OAuth encaminham para MCP ou para as ações OAuth em Provedores.
+Campos de cliente e callback foram extraídos para componentes de credenciais,
+sem alterar discovery, DCR, segredos ou persistência.
+
+Não há migração de dados neste incremento: entradas compostas já são a fonte de
+verdade. Legados seguem o inventário, snapshot e migração aprovados. Evidências:
+`TestManagedSummaryIsScopedRedactedAndNonResolving`,
+`managedCredential.test.ts`, `CredentialsPage.test.tsx`,
+`McpConnectionSection.test.tsx` e o primeiro cadastro via deep link em
+`McpPage.test.tsx`. Permanecem os aceites reais de ciclo de vida registrados
+neste AEP; a projeção não certifica validade de tokens ou conexão remota.

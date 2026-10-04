@@ -1,9 +1,17 @@
 import type { ChangeEvent, ReactNode, KeyboardEventHandler, FocusEventHandler } from 'react';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 const mockList = vi.fn();
+let mockLanguage = 'pt-BR';
+const mockManagedList = vi.fn();
+const mockNavigate = vi.fn();
+const mockManagedAction = vi.fn();
+const mockExecuteDeepLink = vi.fn();
+vi.mock('react-router-dom', async (importOriginal) => ({ ...await importOriginal<typeof import('react-router-dom')>(), useNavigate: () => mockNavigate }));
+vi.mock('../lib/deepLinks', () => ({ executeDeepLink: (...args: unknown[]) => mockExecuteDeepLink(...args) }));
+vi.mock('../components/credentials/managedCredential', () => ({ managedCredentialAction: (...args: unknown[]) => mockManagedAction(...args) }));
 const mockUpsert = vi.fn();
 const mockDelete = vi.fn();
 const mockListExternalSources = vi.fn();
@@ -18,6 +26,7 @@ vi.mock('react-i18next', () => ({
   initReactI18next: { type: '3rdParty', init: () => {} },
   useTranslation: () => ({
     t: (key: string, opts?: Record<string, unknown>) => {
+      if (key === 'credentials.workflow.stored') return mockLanguage === 'pt-BR' ? 'Registro armazenado' : 'Stored record';
       const value =
       ({
         'credentials.pageTitle': 'Credenciais',
@@ -70,6 +79,7 @@ vi.mock('react-i18next', () => ({
 
 vi.mock('@wailsjs/go/wailsapi/Credentials', () => ({
   ListCredentials: () => mockList(),
+ ListManagedCredentials: () => mockManagedList(),
   UpsertCredential: (payload: unknown) => mockUpsert(payload),
   DeleteCredential: (pattern: string) => mockDelete(pattern),
   ListExternalSources: (prefix: string) => mockListExternalSources(prefix),
@@ -164,6 +174,7 @@ vi.mock('../components', () => ({
 }));
 
 import CredentialsPage from './CredentialsPage';
+import { useAuthStore } from '../store/authStore';
 import { useNavigationStore } from '../store/navigationStore';
 
 describe('CredentialsPage', () => {
@@ -173,6 +184,7 @@ describe('CredentialsPage', () => {
     ]);
     mockUpsert.mockResolvedValue(undefined);
     mockDelete.mockResolvedValue(undefined);
+    mockManagedList.mockResolvedValue([]);
     mockListExternalSources.mockResolvedValue([]);
     mockAnnounce.mockClear();
     mockConfirm.mockReset();
@@ -469,5 +481,79 @@ describe('CredentialsPage', () => {
       expect(tokenInput.type).toBe('text');
       expect(tokenInput.value).toBe('github-token');
     });
+  });
+});
+
+
+describe('autorizações compostas', () => {
+  const authorization = { id: 'auth-id', pattern: 'oauth:auth-id', source: 'oauth', integration: 'mcp', consumerId: 'server', state: 'connected', unreadable: false };
+  beforeEach(() => {
+    mockList.mockResolvedValue([]);
+    mockManagedList.mockResolvedValue([authorization]);
+    mockManagedAction.mockReset();
+    mockExecuteDeepLink.mockReset();
+    mockUpsert.mockClear();
+    mockDelete.mockClear();
+  });
+  it('atualiza a tradução do estado sem reconsultar', async () => {
+    mockLanguage = 'pt-BR';
+    const { rerender } = render(<CredentialsPage />);
+    await userEvent.click(await screen.findByText('oauth:auth-id'));
+    expect(screen.getByLabelText('Valor')).toHaveValue('Registro armazenado');
+    const calls = mockManagedList.mock.calls.length;
+    mockLanguage = 'en';
+    rerender(<CredentialsPage />);
+    expect(screen.getByLabelText('Valor')).toHaveValue('Stored record');
+    expect(mockManagedList).toHaveBeenCalledTimes(calls);
+    mockLanguage = 'pt-BR';
+  });
+  it('descarta navegação quando a sessão muda', async () => {
+    let resolve!: (value: unknown) => void;
+    mockManagedAction.mockReturnValue(new Promise((done) => { resolve = done; }));
+    render(<CredentialsPage />);
+    await userEvent.click(await screen.findByText('oauth:auth-id'));
+    await userEvent.click(screen.getByText('credentials.workflow.configure'));
+    act(() => useAuthStore.setState({ user: { userId: 'other', sessionId: 'other-session', role: 'user' } }));
+    await act(async () => resolve({ type: 'resource:edit', resource: 'mcp', resourceId: 'slack' }));
+    expect(mockExecuteDeepLink).not.toHaveBeenCalled();
+    act(() => useAuthStore.setState({ user: null }));
+  });
+  it('criação OAuth encaminha para MCP sem persistir uma credencial vazia', async () => {
+    render(<CredentialsPage />);
+    await userEvent.click(screen.getByText('Nova'));
+    await userEvent.selectOptions(screen.getByLabelText('Fonte'), 'oauth');
+    await userEvent.click(screen.getByText('credentials.workflow.newMcp'));
+    expect(mockExecuteDeepLink).toHaveBeenCalledWith({ type: 'resource:new', resource: 'mcp' }, { navigate: mockNavigate });
+    expect(mockUpsert).not.toHaveBeenCalled();
+  });
+  it('abre o fluxo vinculado sem usar o CRUD genérico', async () => {
+    const action = { type: 'resource:edit', resource: 'mcp', resourceId: 'slack' };
+    mockManagedAction.mockResolvedValue(action);
+    render(<CredentialsPage />);
+    await userEvent.click(await screen.findByText('oauth:auth-id'));
+    await userEvent.click(screen.getByText('credentials.workflow.configure'));
+    await waitFor(() => expect(mockExecuteDeepLink).toHaveBeenCalledWith(action, { navigate: mockNavigate }));
+    expect(mockUpsert).not.toHaveBeenCalled();
+    expect(mockDelete).not.toHaveBeenCalled();
+  });
+  it('mostra erro seguro se o vínculo deixou de existir', async () => {
+    mockManagedAction.mockRejectedValue(new Error('private backend error'));
+    render(<CredentialsPage />);
+    await userEvent.click(await screen.findByText('oauth:auth-id'));
+    await userEvent.click(screen.getByText('credentials.workflow.configure'));
+    expect(await screen.findByText('credentials.workflow.unavailable')).toBeInTheDocument();
+    expect(screen.queryByText('private backend error')).not.toBeInTheDocument();
+    expect(mockExecuteDeepLink).not.toHaveBeenCalled();
+  });
+  it('descarta abertura pendente após fechar', async () => {
+    let resolve!: (value: unknown) => void;
+    mockManagedAction.mockReturnValue(new Promise((done) => { resolve = done; }));
+    render(<CredentialsPage />);
+    await userEvent.click(await screen.findByText('oauth:auth-id'));
+    await userEvent.click(screen.getByText('credentials.workflow.configure'));
+    await userEvent.click(screen.getByText('Fechar'));
+    resolve({ type: 'resource:edit', resource: 'mcp', resourceId: 'slack' });
+    await waitFor(() => expect(screen.queryByText('credentials.workflow.configure')).not.toBeInTheDocument());
+    expect(mockExecuteDeepLink).not.toHaveBeenCalled();
   });
 });

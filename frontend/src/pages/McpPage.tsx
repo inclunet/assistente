@@ -295,7 +295,7 @@ export default function McpPage() {
       if (found) handleEdit(found);
     },
     onNew: () => handleNew(),
-    ready: !isLoading && rows.length > 0,
+    ready: !isLoading,
   });
 
   useActivePanelNewShortcut(handleNew);

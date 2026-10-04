@@ -4317,6 +4317,30 @@ export namespace controllers {
 
 export namespace credentials {
 	
+	export class ManagedCredentialSummary {
+	    id: string;
+	    pattern: string;
+	    source: string;
+	    integration: string;
+	    consumerId: string;
+	    state: string;
+	    unreadable: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new ManagedCredentialSummary(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.pattern = source["pattern"];
+	        this.source = source["source"];
+	        this.integration = source["integration"];
+	        this.consumerId = source["consumerId"];
+	        this.state = source["state"];
+	        this.unreadable = source["unreadable"];
+	    }
+	}
 	export class OAuthSnapshotInfo {
 	    id: string;
 	    consumerId: string;

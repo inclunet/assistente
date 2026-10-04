@@ -141,6 +141,7 @@ func TestCredentialsCRUDMethodsNotOnUnauthAllowlist(t *testing.T) {
 	t.Parallel()
 	for _, name := range []string{
 		"ListCredentials",
+		"ListManagedCredentials",
 		"GetCredentialForURL",
 		"UpsertCredential",
 		"DeleteCredential",

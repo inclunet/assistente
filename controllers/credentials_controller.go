@@ -288,3 +288,14 @@ func parseCredentialInput(input CredentialInput) (string, *credentials.AuthConfi
 	}
 	return pattern, auth, nil
 }
+
+// ListManagedCredentials exposes only metadata of composed authorizations.
+func (c *CredentialsController) ListManagedCredentials(ctx context.Context) ([]credentials.ManagedCredentialSummary, error) {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return nil, err
+	}
+	if c.credMgr == nil {
+		return []credentials.ManagedCredentialSummary{}, nil
+	}
+	return c.credMgr.ListManagedCredentials(ctx)
+}
