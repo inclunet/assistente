@@ -3,15 +3,16 @@ import { StrictMode, useState } from 'react';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import axe from 'axe-core';
 import { McpOAuthInventory } from './McpOAuthInventory';
-import { InspectMCPOAuthInventory } from '@wailsjs/go/wailsapi/MCP';
-import type { mcp } from '../../../wailsjs/go/models';
+import { InspectMCPOAuthInventory, ListMCPOAuthSnapshots, ReconnectMCPOAuthSnapshot } from '@wailsjs/go/wailsapi/MCP';
+import type { mcp, credentials } from '../../../wailsjs/go/models';
 import { registerDefaultFocus, unregisterDefaultFocus } from '../../hooks/useDefaultFocus';
 
 const { announce } = vi.hoisted(() => ({ announce: vi.fn() }));
-vi.mock('@wailsjs/go/wailsapi/MCP', () => ({ InspectMCPOAuthInventory: vi.fn(), ListMCPOAuthSnapshots: vi.fn(async () => []), CreateMCPOAuthSnapshot: vi.fn(), RestoreMCPOAuthSnapshot: vi.fn(), DiscardMCPOAuthSnapshot: vi.fn() }));
+vi.mock('@wailsjs/go/wailsapi/MCP', () => ({ InspectMCPOAuthInventory: vi.fn(), ListMCPOAuthSnapshots: vi.fn(async () => []), CreateMCPOAuthSnapshot: vi.fn(), RestoreMCPOAuthSnapshot: vi.fn(), DiscardMCPOAuthSnapshot: vi.fn(), ReconnectMCPOAuthSnapshot: vi.fn() }));
+vi.mock('../../hooks/useConfirm', () => ({ useConfirm: () => vi.fn(async () => true) }));
 vi.mock('../../hooks/useAnnouncer', () => ({ useAnnouncer: () => ({ announce }) }));
 
-afterEach(() => { cleanup(); vi.clearAllMocks(); });
+afterEach(() => { cleanup(); vi.clearAllMocks(); vi.mocked(ListMCPOAuthSnapshots).mockResolvedValue([]); });
 
 describe('McpOAuthInventory', () => {
   it('apresenta os diagnósticos com semântica de formulário e fecha por botão', async () => {
@@ -30,6 +31,24 @@ describe('McpOAuthInventory', () => {
     fireEvent.click(screen.getByRole('button', { name: 'common.close' }));
     expect(close).toHaveBeenCalledOnce();
     expect(InspectMCPOAuthInventory).toHaveBeenCalledOnce();
+  });
+
+  it.each([false, true])('notifica migração concluída mesmo se a atualização falhar: %s', async (failReload) => {
+    vi.mocked(InspectMCPOAuthInventory).mockResolvedValueOnce([
+      { id: 'legacy', name: 'Legado', kind: 'legacy', issues: [] } as mcp.OAuthInventoryItem,
+    ]).mockResolvedValue([{ id: 'legacy', name: 'Legado', kind: 'managed', issues: [] } as mcp.OAuthInventoryItem]);
+    if (failReload) vi.mocked(InspectMCPOAuthInventory).mockRejectedValue(new Error('Falha na leitura'));
+    vi.mocked(ListMCPOAuthSnapshots).mockResolvedValue([{
+      id: 'snapshot', consumerId: 'legacy', name: 'Legado', createdAt: '2026-10-03', retainUntil: '2026-11-03', expired: false, location: '/snapshot',
+    } as credentials.OAuthSnapshotInfo]);
+    vi.mocked(ReconnectMCPOAuthSnapshot).mockResolvedValue();
+    const changed = vi.fn();
+    render(<McpOAuthInventory isOpen onClose={vi.fn()} onInventoryChanged={changed} />);
+    await screen.findByLabelText('mcp.connection.tokenAuthMethod');
+    fireEvent.change(screen.getByLabelText('mcp.connection.tokenAuthMethod'), { target: { value: 'none' } });
+    fireEvent.click(screen.getByRole('button', { name: 'mcp.snapshots.reconnectNamed' }));
+    await waitFor(() => expect(changed).toHaveBeenCalledOnce());
+    expect(InspectMCPOAuthInventory).toHaveBeenCalledTimes(2);
   });
 
   it('não mostra detalhes internos em falhas de leitura', async () => {

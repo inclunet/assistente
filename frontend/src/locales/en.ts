@@ -1420,6 +1420,8 @@ const en = {
         "discarded": "Snapshot discarded."
       },
       inventory: {
+        migrate: 'Migrate legacy authorizations',
+        advancedActions: 'Advanced authentication options',
         "title": "OAuth diagnostics",
         "description": "This inventory reads local data for the current user. It does not connect servers, refresh tokens or change credentials. It prepares migration; it does not confirm token validity.",
         "loaded": "OAuth inventory loaded.",

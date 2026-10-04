@@ -1421,6 +1421,8 @@ const ptBR = {
         "discarded": "Snapshot descartado."
       },
       inventory: {
+        migrate: 'Migrar autorizações antigas',
+        advancedActions: 'Opções avançadas de autenticação',
         "title": "Diagnóstico OAuth",
         "description": "Este inventário consulta os dados locais do usuário atual. Não conecta servidores, renova tokens ou altera credenciais. É uma preparação para a migração; não confirma a validade dos tokens.",
         "loaded": "Inventário OAuth carregado.",
