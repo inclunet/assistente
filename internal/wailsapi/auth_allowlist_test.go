@@ -141,6 +141,7 @@ func TestCredentialsCRUDMethodsNotOnUnauthAllowlist(t *testing.T) {
 	t.Parallel()
 	for _, name := range []string{
 		"ListCredentials",
+		"GetCredentialForURL",
 		"UpsertCredential",
 		"DeleteCredential",
 		"ListExternalSources",
@@ -211,6 +212,7 @@ func TestMCPMethodsNotOnUnauthAllowlist(t *testing.T) {
 		"ReauthorizeMCPServer",
 		"SaveMCPServer",
 		"SaveMCPServerWithOAuthSecret",
+		"SaveMCPServerWithCredential",
 		"InspectMCPOAuthInventory",
 		"DuplicateMCPServer",
 		"DeleteMCPServer",

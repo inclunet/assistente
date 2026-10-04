@@ -1,7 +1,7 @@
 /** @vitest-environment jsdom */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { mcp } from '@wailsjs/go/models';
-import { ConnectMCPServer, SaveMCPServer, SaveMCPServerWithOAuthSecret } from '@wailsjs/go/wailsapi/MCP';
+import { ConnectMCPServer, SaveMCPServer, SaveMCPServerWithOAuthSecret, SaveMCPServerWithCredential } from '@wailsjs/go/wailsapi/MCP';
 import { useMCPStore } from './mcpStore';
 
 const mockListMCPServers = vi.fn();
@@ -15,6 +15,7 @@ vi.mock('@wailsjs/go/wailsapi/MCP', () => ({
   ReauthorizeMCPServer: (slug: string) => mockReauthorizeMCPServer(slug),
   SaveMCPServer: vi.fn(),
   SaveMCPServerWithOAuthSecret: vi.fn(),
+  SaveMCPServerWithCredential: vi.fn(),
   DeleteMCPServer: vi.fn(),
   GetMCPServerTools: vi.fn(),
   GetMCPServerConfig: vi.fn(),
@@ -90,4 +91,17 @@ it('propaga recusa OAuth ao handler e recarrega o estado após conectar', async 
  vi.mocked(ConnectMCPServer).mockRejectedValueOnce(new Error('oauth_consent_declined'));
  await expect(useMCPStore.getState().connect('managed')).rejects.toThrow('oauth_consent_declined');
  expect(mockListMCPServers).toHaveBeenCalled();
+});
+
+it('commits an edited credential and MCP config through one operation without fallback',async()=>{
+ const cfg={slug:'test',auth_type:'bearer',transport:'streamable',url:'https://example.com'} as Parameters<typeof SaveMCPServer>[1];
+ const input={pattern:'example.com',source:'static',type:'bearer',token:'secret'} as Parameters<typeof SaveMCPServerWithCredential>[2];
+ vi.mocked(SaveMCPServer).mockClear();
+ vi.mocked(SaveMCPServerWithCredential).mockResolvedValueOnce(undefined);
+ await useMCPStore.getState().save('test',cfg,undefined,input);
+ expect(SaveMCPServerWithCredential).toHaveBeenCalledWith('test',cfg,input);
+ expect(SaveMCPServer).not.toHaveBeenCalled();
+ vi.mocked(SaveMCPServerWithCredential).mockRejectedValueOnce(new Error('vault unavailable'));
+ await expect(useMCPStore.getState().save('test',cfg,undefined,input)).rejects.toThrow('vault unavailable');
+ expect(SaveMCPServer).not.toHaveBeenCalled();
 });

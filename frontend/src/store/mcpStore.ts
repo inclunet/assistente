@@ -8,12 +8,13 @@ import {
   ReauthorizeMCPServer,
   SaveMCPServer,
   SaveMCPServerWithOAuthSecret,
+  SaveMCPServerWithCredential,
   DeleteMCPServer,
   GetMCPServerTools,
   GetMCPServerConfig,
 } from '@wailsjs/go/wailsapi/MCP';
 import { EventsOn } from '@wailsjs/runtime/runtime';
-import { mcp } from '../../wailsjs/go/models';
+import { mcp, apidto } from '../../wailsjs/go/models';
 
 type ServerInfo = mcp.ServerInfo;
 type ServerConfig = mcp.ServerConfig;
@@ -31,7 +32,7 @@ interface MCPState {
   disconnect: (slug: string) => Promise<void>;
   reconnect: (slug: string) => Promise<void>;
   reauthorize: (slug: string) => Promise<void>;
-  save: (slug: string, config: ServerConfig, oauthSecret?: string) => Promise<void>;
+  save: (slug: string, config: ServerConfig, oauthSecret?: string, credential?: apidto.CredentialInput) => Promise<void>;
   remove: (slug: string) => Promise<void>;
   getTools: (slug: string) => Promise<MCPToolInfo[]>;
   getConfig: (slug: string) => Promise<ServerConfig | null>;
@@ -100,9 +101,11 @@ export const useMCPStore = create<MCPState>((set, get) => ({
     }
   },
 
-  save: async (slug: string, config: ServerConfig, oauthSecret?: string) => {
+  save: async (slug: string, config: ServerConfig, oauthSecret?: string, credential?: apidto.CredentialInput) => {
     try {
-      if (config.oauth_managed && oauthSecret !== undefined) {
+      if (credential) {
+        await SaveMCPServerWithCredential(slug, config, credential);
+      } else if (config.oauth_managed && oauthSecret !== undefined) {
         await SaveMCPServerWithOAuthSecret(slug, config, oauthSecret);
       } else {
         await SaveMCPServer(slug, config);

@@ -1,3 +1,4 @@
+import { GetCredentialForURL, UpsertCredential } from '@wailsjs/go/wailsapi/Credentials';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { act, type ReactNode } from 'react';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
@@ -42,6 +43,8 @@ vi.mock('../store/mcpStore', () => ({
     setupEventListeners: () => () => {},
   }),
 }));
+
+vi.mock('@wailsjs/go/wailsapi/Credentials', () => ({ GetCredentialForURL: vi.fn(async () => null), UpsertCredential: vi.fn(async () => {}), ListExternalSources: vi.fn(async () => []) }));
 
 vi.mock('@wailsjs/go/wailsapi/MCP', () => ({
   SaveMCPServerAuth: vi.fn(() => Promise.resolve()),
@@ -152,6 +155,7 @@ vi.mock('../components/mcp/McpGeneralSection', () => ({
 vi.mock('../components/mcp/McpConnectionSection', () => ({
   McpConnectionSection: (props: {
     url: string;
+    credentialEditor: ReactNode;
     oauth2AuthUrl: string;
     oauth2TokenUrl: string;
     oauth2Scopes: string;
@@ -176,6 +180,7 @@ vi.mock('../components/mcp/McpConnectionSection', () => ({
     onManualOverride: () => void;
   }) => (
     <div data-testid="connection-section">
+      {['bearer', 'basic'].includes(props.authType) && props.credentialEditor}
       <input aria-label="Client ID" value={props.oauth2ClientId} onChange={(e) => props.onOAuth2ClientIdChange(e.target.value)} />
       <span data-testid="dcr-registered">{String(props.oauthDCRRegistered)}</span>
       <input aria-label="Client Secret" value={props.oauth2ClientSecret} onChange={(e) => props.onOAuth2ClientSecretChange(e.target.value)} />
@@ -195,6 +200,8 @@ vi.mock('../components/mcp/McpConnectionSection', () => ({
           onChange={(e) => props.onAuthTypeChange(e.target.value)}
         >
           <option value="none">None</option>
+          <option value="bearer">Bearer</option>
+          <option value="basic">Basic</option>
           <option value="oauth2_pkce">PKCE</option>
           <option value="oauth2_client_credentials">Client Credentials</option>
         </select>
@@ -235,6 +242,7 @@ describe('McpPage — oauth2_callback_host', () => {
     mockLoadServers.mockResolvedValue(undefined);
     mockDiscover.mockResolvedValue({ found: false });
     mockServers = [];
+    vi.mocked(GetCredentialForURL).mockResolvedValue(null as unknown as Awaited<ReturnType<typeof GetCredentialForURL>>);
   });
 
   async function openNewServerForm() {
@@ -244,6 +252,61 @@ describe('McpPage — oauth2_callback_host', () => {
       expect(screen.getByRole('dialog')).toBeInTheDocument();
     });
   }
+
+  it('salva command pelo mesmo contrato do CredManager sem gravar um token estático', async () => {
+    await openNewServerForm();
+    fireEvent.change(screen.getByLabelText('Nome'), {target:{value:'Command MCP'}});
+    await userEvent.selectOptions(screen.getByLabelText('Tipo'), 'streamable');
+    fireEvent.change(screen.getByLabelText('Server URL'), {target:{value:'https://mcp.example.com/tools'}});
+    await userEvent.selectOptions(screen.getByLabelText('Auth Type'), 'bearer');
+    await waitFor(() => expect(screen.getByRole('button', {name:'credentials.mcp.configure'})).toBeEnabled());
+    expect(UpsertCredential).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole('button', {name:'credentials.mcp.configure'}));
+    await userEvent.selectOptions(screen.getByLabelText('credentials.sourceFields.source'), 'command');
+    fireEvent.change(screen.getByLabelText('credentials.sourceFields.commandName'), {target:{value:'wsl.exe'}});
+    fireEvent.change(screen.getByLabelText('credentials.sourceFields.args'), {target:{value:'["bash","-ic","nu genai api-gateway token"]'}});
+    await userEvent.click(screen.getByText('Salvar'));
+    await waitFor(() => expect(mockSave).toHaveBeenCalledWith(expect.any(String),expect.anything(),undefined,expect.objectContaining({pattern:'mcp.example.com',type:'bearer',source:'command',sourceConfig:expect.objectContaining({command:'wsl.exe',args:['bash','-ic','nu genai api-gateway token'],timeoutSeconds:30})})));
+    expect(SaveMCPServerAuth).not.toHaveBeenCalled();
+    expect(mockSave.mock.calls[0][3].token).toBeUndefined();
+    expect(UpsertCredential).not.toHaveBeenCalled();
+  });
+
+  it('recusa comando inválido antes de salvar servidor e descarta edição ao mudar destino', async () => {
+    await openNewServerForm();
+    fireEvent.change(screen.getByLabelText('Nome'), {target:{value:'Test'}});
+    await userEvent.selectOptions(screen.getByLabelText('Tipo'), 'streamable');
+    fireEvent.change(screen.getByLabelText('Server URL'), {target:{value:'https://first.example/tools'}});
+    await userEvent.selectOptions(screen.getByLabelText('Auth Type'), 'bearer');
+    await waitFor(() => expect(screen.getByRole('button', {name:'credentials.mcp.configure'})).toBeEnabled());
+    await userEvent.click(screen.getByRole('button', {name:'credentials.mcp.configure'}));
+    await userEvent.selectOptions(screen.getByLabelText('credentials.sourceFields.source'), 'command');
+    fireEvent.change(screen.getByLabelText('credentials.sourceFields.commandName'), {target:{value:'tool'}});
+    fireEvent.change(screen.getByLabelText('credentials.sourceFields.args'), {target:{value:'[1]'}});
+    await userEvent.click(screen.getByText('Salvar'));
+    expect(mockSave).not.toHaveBeenCalled();
+    expect(UpsertCredential).not.toHaveBeenCalled();
+    expect(mockToast).toHaveBeenCalledWith('credentials.sourceFields.invalidArgs', 'error');
+    fireEvent.change(screen.getByLabelText('Server URL'), {target:{value:'https://second.example/tools'}});
+    await userEvent.click(screen.getByText('Salvar'));
+    await waitFor(() => expect(mockSave).toHaveBeenCalled());
+    expect(UpsertCredential).not.toHaveBeenCalled();
+  });
+
+  it('preserva credencial externa existente ao editar apenas o nome do MCP', async () => {
+    mockServers = [{slug:'existing',name:'Existing',transport:'streamable',status:'disconnected',enabled:true}];
+    mockGetConfig.mockResolvedValue({name:'Existing',transport:'streamable',url:'https://example.com/tools',auth_type:'bearer'});
+    vi.mocked(GetCredentialForURL).mockResolvedValue({pattern:'example.com',type:'bearer',source:'env',sourceConfig:{env:'EXISTING_TOKEN'},masked:'env',managed:false} as Awaited<ReturnType<typeof GetCredentialForURL>>);
+    render(<McpPage />);
+    const row = screen.getByText('Existing').closest('div')!;
+    await userEvent.click(within(row).getByRole('button', {name:'mcp.actions.edit'}));
+    await screen.findByLabelText('Nome');
+    fireEvent.change(screen.getByLabelText('Nome'), {target:{value:'Renamed'}});
+    await userEvent.click(screen.getByText('Salvar'));
+    await waitFor(() => expect(mockSave).toHaveBeenCalled());
+    expect(UpsertCredential).not.toHaveBeenCalled();
+    expect(SaveMCPServerAuth).not.toHaveBeenCalled();
+  });
 
   it.each([false, true])('preserva método público no rename e usa Post ao trocar para Client Credentials (%s)', async (clientCredentials) => {
     mockServers = [{slug: 'public', name: 'Public', transport: 'streamable', status: 'disconnected', enabled: true}];

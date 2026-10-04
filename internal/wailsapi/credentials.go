@@ -90,3 +90,14 @@ func (c *Credentials) ListExternalSources(prefix string) ([]apidto.ExternalSourc
 		return ctrl.ListExternalSources(prefix)
 	})
 }
+
+// GetCredentialForURL projects the effective user-scoped binding without materializing it.
+func (c *Credentials) GetCredentialForURL(resource string) (*apidto.CredentialSummary, error) {
+	session, ctrl, err := c.deps()
+	if err != nil {
+		return nil, err
+	}
+	return WithUser(session, func(ctx context.Context) (*apidto.CredentialSummary, error) {
+		return ctrl.GetCredentialForURL(ctx, resource)
+	})
+}

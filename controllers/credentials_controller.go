@@ -3,6 +3,7 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"os"
 	"sort"
 	"strings"
@@ -84,6 +85,40 @@ func (c *CredentialsController) ListCredentialsWithContext(ctx context.Context) 
 	return result, nil
 }
 
+// GetCredentialForURL returns the actual binding used by the URL resolver.
+// It reads configuration only: no keyring/env lookup, command or OAuth refresh.
+func (c *CredentialsController) GetCredentialForURL(ctx context.Context, resource string) (*CredentialSummary, error) {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return nil, err
+	}
+	if c.credMgr == nil {
+		return nil, fmt.Errorf("credential manager não inicializado")
+	}
+	parsed, err := url.Parse(resource)
+	if err != nil || parsed.Hostname() == "" || parsed.User != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return nil, fmt.Errorf("credential_resource_invalid")
+	}
+	pattern, err := c.credMgr.PatternForURLWithContext(ctx, resource)
+	if err != nil {
+		return nil, err
+	}
+	if pattern == "" {
+		// A new editor draft uses the same hostname representation as runtime,
+		// including IPv6 and IDN. This does not create a stored credential.
+		return &CredentialSummary{Pattern: parsed.Hostname(), Type: "bearer", Source: "static"}, nil
+	}
+	summaries, err := c.ListCredentialsWithContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, summary := range summaries {
+		if summary.Pattern == pattern {
+			return &summary, nil
+		}
+	}
+	return nil, fmt.Errorf("credential_binding_changed")
+}
+
 // UpsertCredential cria ou atualiza uma credencial no credential manager.
 func (c *CredentialsController) UpsertCredential(ctx context.Context, input CredentialInput) error {
 	return c.UpsertCredentialWithContext(ctx, input)
@@ -100,46 +135,9 @@ func (c *CredentialsController) UpsertCredentialWithContext(ctx context.Context,
 		return fmt.Errorf("cofre de credenciais indisponível: configure a senha mestre")
 	}
 
-	pattern := strings.TrimSpace(input.Pattern)
-	if pattern == "" {
-		return fmt.Errorf("pattern é obrigatório")
-	}
-
-	if credentials.IsManagedPattern(pattern) {
-		return fmt.Errorf("credencial '%s' é gerenciada pelo sistema e não pode ser editada manualmente", pattern)
-	}
-
-	auth := &credentials.AuthConfig{Source: input.Source, SourceConfig: input.SourceConfig, Type: strings.TrimSpace(input.Type)}
-	if err := credentials.ValidateSource(auth); err != nil {
+	pattern, auth, err := parseCredentialInput(input)
+	if err != nil {
 		return err
-	}
-	switch auth.Type {
-	case "bearer", "secret":
-		if auth.Source == "static" && strings.TrimSpace(input.Token) == "" {
-			return fmt.Errorf("token é obrigatório")
-		}
-		auth.Token = input.Token
-	case "basic":
-		if strings.TrimSpace(input.Username) == "" || (auth.Source == "static" && strings.TrimSpace(input.Password) == "") {
-			return fmt.Errorf("usuário e senha são obrigatórios")
-		}
-		auth.Username = input.Username
-		auth.Password = input.Password
-	case "custom":
-		if strings.TrimSpace(input.HeaderName) == "" || (auth.Source == "static" && strings.TrimSpace(input.HeaderValue) == "") {
-			return fmt.Errorf("header e valor são obrigatórios")
-		}
-		auth.Headers = map[string]string{input.HeaderName: input.HeaderValue}
-	default:
-		return fmt.Errorf("tipo de credencial inválido")
-	}
-
-	if auth.Source != "static" {
-		auth.Token = ""
-		auth.Password = ""
-		for k := range auth.Headers {
-			auth.Headers[k] = ""
-		}
 	}
 	return c.credMgr.RegisterPatternWithContext(ctx, pattern, auth)
 }
@@ -243,4 +241,50 @@ func (c *CredentialsController) listKeyringEntries() ([]ExternalSourceSuggestion
 		})
 	}
 	return suggestions, nil
+}
+
+// Shared validation for standalone and transactional consumer writes.
+func parseCredentialInput(input CredentialInput) (string, *credentials.AuthConfig, error) {
+	pattern := strings.TrimSpace(input.Pattern)
+	if pattern == "" {
+		return "", nil, fmt.Errorf("pattern é obrigatório")
+	}
+
+	if credentials.IsManagedPattern(pattern) {
+		return "", nil, fmt.Errorf("credencial '%s' é gerenciada pelo sistema e não pode ser editada manualmente", pattern)
+	}
+
+	auth := &credentials.AuthConfig{Source: input.Source, SourceConfig: input.SourceConfig, Type: strings.TrimSpace(input.Type)}
+	if err := credentials.ValidateSource(auth); err != nil {
+		return "", nil, err
+	}
+	switch auth.Type {
+	case "bearer", "secret":
+		if auth.Source == "static" && strings.TrimSpace(input.Token) == "" {
+			return "", nil, fmt.Errorf("token é obrigatório")
+		}
+		auth.Token = input.Token
+	case "basic":
+		if strings.TrimSpace(input.Username) == "" || (auth.Source == "static" && strings.TrimSpace(input.Password) == "") {
+			return "", nil, fmt.Errorf("usuário e senha são obrigatórios")
+		}
+		auth.Username = input.Username
+		auth.Password = input.Password
+	case "custom":
+		if strings.TrimSpace(input.HeaderName) == "" || (auth.Source == "static" && strings.TrimSpace(input.HeaderValue) == "") {
+			return "", nil, fmt.Errorf("header e valor são obrigatórios")
+		}
+		auth.Headers = map[string]string{input.HeaderName: input.HeaderValue}
+	default:
+		return "", nil, fmt.Errorf("tipo de credencial inválido")
+	}
+
+	if auth.Source != "static" {
+		auth.Token = ""
+		auth.Password = ""
+		for k := range auth.Headers {
+			auth.Headers[k] = ""
+		}
+	}
+	return pattern, auth, nil
 }

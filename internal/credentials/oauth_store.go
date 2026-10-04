@@ -335,37 +335,8 @@ func (m *Manager) deleteOAuthAuthorization(ctx context.Context, id string, expec
 		return err
 	}
 	err = db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var entry database.CredentialEntry
-		scoped := database.ScopeByUser(ctx, tx, "user_id")
-		err := scoped.Where("id = ? AND source = ?", id, "oauth").First(&entry).Error
-		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		if err := m.deleteOAuthEntryTx(ctx, tx, user, id, expected); err != nil {
 			return err
-		}
-		if errors.Is(err, gorm.ErrRecordNotFound) && expected != nil {
-			return oauthflow.ErrConflict
-		}
-		if err == nil {
-			if !m.persist {
-				return errors.New("oauth_vault_persistence_required")
-			}
-			data, err := m.decrypt(entry.OAuthEnc)
-			if err != nil {
-				return err
-			}
-			var record oauthflow.Record
-			if err = json.Unmarshal([]byte(data), &record); err != nil {
-				return err
-			}
-			if record.Version != 1 || record.ID != id || record.UserID != user || record.AuthorizationActive() || record.RefreshActive() || (expected == nil && (record.State != "disconnected" || record.RefreshPending)) || (expected != nil && record.Revision != *expected) {
-				return oauthflow.ErrConflict
-			}
-			result := database.ScopeByUser(ctx, tx, "user_id").Where("id = ? AND source = ? AND oauth_enc = ?", id, "oauth", entry.OAuthEnc).Delete(&database.CredentialEntry{})
-			if result.Error != nil {
-				return result.Error
-			}
-			if result.RowsAffected != 1 {
-				return oauthflow.ErrConflict
-			}
 		}
 		// Imported providers without a local grant can be removed with a locked vault.
 		// Read and consumer deletion share the transaction, so a concurrent grant
@@ -427,4 +398,42 @@ func (s *oauthStore) WithSession(ctx context.Context, publish func() error) erro
 		return err
 	}
 	return publish()
+}
+
+// Caller holds the vault lock and owns the transaction.
+func (m *Manager) deleteOAuthEntryTx(ctx context.Context, tx *gorm.DB, user, id string, expected *uint64) error {
+	var entry database.CredentialEntry
+	scoped := database.ScopeByUser(ctx, tx, "user_id")
+	err := scoped.Where("id = ? AND source = ?", id, "oauth").First(&entry).Error
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return err
+	}
+	if errors.Is(err, gorm.ErrRecordNotFound) && expected != nil {
+		return oauthflow.ErrConflict
+	}
+	if err == nil {
+		if !m.persist {
+			return errors.New("oauth_vault_persistence_required")
+		}
+		data, err := m.decrypt(entry.OAuthEnc)
+		if err != nil {
+			return err
+		}
+		var record oauthflow.Record
+		if err = json.Unmarshal([]byte(data), &record); err != nil {
+			return err
+		}
+		if record.Version != 1 || record.ID != id || record.UserID != user || record.AuthorizationActive() || record.RefreshActive() || (expected == nil && (record.State != "disconnected" || record.RefreshPending)) || (expected != nil && record.Revision != *expected) {
+			return oauthflow.ErrConflict
+		}
+		result := database.ScopeByUser(ctx, tx, "user_id").Where("id = ? AND source = ? AND oauth_enc = ?", id, "oauth", entry.OAuthEnc).Delete(&database.CredentialEntry{})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			return oauthflow.ErrConflict
+		}
+	}
+
+	return nil
 }
