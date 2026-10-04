@@ -332,6 +332,19 @@ O resultado mostrado no formulário pode ser:
 - **Não detectado**: use a configuração manual, se o servidor exigir
   autenticação.
 
+O preenchimento de **Scopes** usa as permissões publicadas pelo recurso MCP,
+sem acrescentar o catálogo inteiro do servidor de autorização. Quando há scopes
+do recurso, `offline_access` também é incluído se o emissor anuncia suporte à
+renovação. Se o recurso não informa scopes, o campo continua vazio; configure
+os scopes exigidos pelo provedor quando necessário.
+
+Cadastros preenchidos por versões anteriores não são alterados automaticamente.
+Para refazer esse preenchimento, limpe **Scopes**, salve e reabra o editor. A
+descoberta será executada novamente e preencherá o campo vazio; revise e salve.
+Se estiver migrando um cadastro antigo, crie um novo snapshot após salvar;
+o anterior representa a configuração antiga. Valores definidos manualmente e a
+validação das permissões concedidas pelo provedor são preservados.
+
 O discovery nunca substitui valores OAuth que você já preencheu. Falha parcial
 ou total também não impede salvar o servidor. Desafios HTTP e erros de discovery
 são tratados com limites e saneamento; tokens, cookies e credenciais não são
