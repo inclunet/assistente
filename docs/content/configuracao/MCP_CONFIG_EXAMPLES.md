@@ -929,3 +929,17 @@ snapshot não reverte essa invalidação. A migração exige uma ação explíci
 o Assistente não abre um login só porque o formato mudou, mas o cadastro antigo
 precisa ser migrado antes de voltar a conectar. PKCE com metadados históricos
 incompletos usa **Reconectar e migrar**, preservando o cliente e o snapshot.
+
+
+### Acesso à migração, diagnóstico e recuperação
+
+A ação **Migrar autorizações antigas** aparece na barra da página MCP somente
+quando há servidores OAuth legados para migrar. Ao terminar a última migração,
+a ação desaparece. Ela reaparece se um cadastro legado voltar a existir.
+
+O inventário e os snapshots continuam disponíveis em **Opções avançadas de
+autenticação → Diagnóstico OAuth**, inclusive após todas as migrações. Esse
+caminho permite consultar inconsistências, restaurar configurações ou descartar
+snapshots. A consulta que controla a ação não conecta servidores nem testa tokens.
+Se a consulta falhar, abra o diagnóstico pelo menu avançado; a ausência da ação,
+isoladamente, não comprova a validade das autorizações.
