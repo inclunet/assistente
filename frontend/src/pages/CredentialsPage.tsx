@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { DeleteOutlined, EditOutlined, EyeOutlined, PlusOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
-import { ListCredentials, UpsertCredential, DeleteCredential } from '@wailsjs/go/wailsapi/Credentials';
+import { ListCredentials, ListManagedCredentials, UpsertCredential, DeleteCredential } from '@wailsjs/go/wailsapi/Credentials';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
 import { MenuButton } from '../components/layout/MenuButton';
 import { Toolbar } from '../components/ui/Toolbar';
@@ -16,10 +16,30 @@ import { useResourceEditRequest } from '../hooks/useResourceEditRequest';
 import { useActivePanelNewShortcut } from '../hooks/useActivePanelShortcut';
 import './CredentialsPage.css';
 import { CredentialFields } from '../components/credentials/CredentialFields';
-import { credentialFromSummary, credentialInput, newCredential, validateCredential, type CredentialDraft as CredentialRow } from '../components/credentials/credentialDraft';
+import { credentialFromSummary, credentialInput, newCredential, validateCredential, type CredentialDraft } from '../components/credentials/credentialDraft';
+
+import { useNavigate } from 'react-router-dom';
+import { useAnnouncer } from '../hooks/useAnnouncer';
+import { useAuthStore } from '../store/authStore';
+import { executeDeepLink } from '../lib/deepLinks';
+import { managedCredentialAction } from '../components/credentials/managedCredential';
+import type { credentials } from '@wailsjs/go/models';
+
+type CredentialRow = CredentialDraft & { authorization?: credentials.ManagedCredentialSummary };
 
 export default function CredentialsPage() {
+  const owner = useAuthStore((state) => state.user);
+  return <SessionCredentialsPage key={`${owner?.userId ?? ''}:${owner?.sessionId ?? ''}`} />;
+}
+
+function SessionCredentialsPage() {
   const { t } = useTranslation();
+  const navigate = useNavigate();
+  const { announce } = useAnnouncer();
+  const sessionId = useAuthStore((state) => state.user?.sessionId);
+  const actionEpoch = useRef(0);
+  const [openingManaged, setOpeningManaged] = useState(false);
+  const [managedError, setManagedError] = useState(false);
   const { handleGridReady } = useGridFocus();
   useGridPageLandmarks({ pageClass: 'credentials-page' });
   const [focusedRow, setFocusedRow] = useState<CredentialRow | null>(null);
@@ -33,8 +53,8 @@ export default function CredentialsPage() {
   const crud = useEditableList<CredentialRow, CredentialRow, CredentialRow>(
     {
       loadItems: async () => {
-        const list = await ListCredentials();
-        return (list || []).map((c) => ({
+        const [list, managed] = await Promise.all([ListCredentials(), ListManagedCredentials()]);
+        return [...(list || []).map((c) => ({
           id: c.pattern,
           pattern: c.pattern,
           type: c.type,
@@ -46,7 +66,11 @@ export default function CredentialsPage() {
           password: '',
           headerName: '',
           headerValue: '',
-        }));
+        })), ...(managed || []).map((authorization) => ({
+          ...newCredential(authorization.pattern, authorization.integration || (authorization.source === 'oauth' ? 'oauth' : 'static_components')),
+          managed: true, source: authorization.source, authorization,
+          masked: '',
+        }))];
       },
       loadItem: async (id) => {
         const list = await ListCredentials();
@@ -105,6 +129,39 @@ export default function CredentialsPage() {
   useActivePanelNewShortcut(crud.openNew);
 
   const [viewingManaged, setViewingManaged] = useState<CredentialRow | null>(null);
+  useEffect(() => {
+    actionEpoch.current++;
+    setViewingManaged(null);
+    setOpeningManaged(false);
+    setManagedError(false);
+    return () => { actionEpoch.current++; };
+  }, [sessionId]);
+
+  const closeManaged = () => {
+    actionEpoch.current++;
+    setViewingManaged(null);
+    setOpeningManaged(false);
+    setManagedError(false);
+  };
+  const configureManaged = async () => {
+    if (!viewingManaged?.authorization || openingManaged) return;
+    const epoch = ++actionEpoch.current;
+    const session = useAuthStore.getState().user?.sessionId;
+    setOpeningManaged(true);
+    setManagedError(false);
+    try {
+      const action = await managedCredentialAction(viewingManaged.authorization);
+      if (epoch !== actionEpoch.current || session !== useAuthStore.getState().user?.sessionId) return;
+      closeManaged();
+      await executeDeepLink(action, { navigate });
+    } catch {
+      if (epoch !== actionEpoch.current || session !== useAuthStore.getState().user?.sessionId) return;
+      setManagedError(true);
+      announce(t('credentials.workflow.unavailable'));
+    } finally {
+      if (epoch === actionEpoch.current) setOpeningManaged(false);
+    }
+  };
 
   const getRowId = useCallback((row: CredentialRow) => row.id, []);
   const handleActivateRow = useCallback(
@@ -126,8 +183,8 @@ export default function CredentialsPage() {
     { key: 'pattern', label: t('credentials.labels.pattern'), width: '260px', truncate: true },
     { key: 'source', label: t('credentials.sourceFields.source'), width: '120px',
       format: (value) => value ? t(`credentials.sourceFields.${value}`) : t('credentials.sourceFields.unconfigured') },
-    { key: 'type', label: t('credentials.labels.type'), width: '120px' },
-    { key: 'masked', label: t('credentials.labels.value'), truncate: true },
+    { key: 'type', label: t('credentials.labels.type'), width: '120px', format: (_value, row) => credentialType(row) },
+    { key: 'masked', label: t('credentials.labels.value'), truncate: true, format: (_value, row) => credentialStatus(row) },
     {
       key: 'managed',
       label: t('credentials.labels.origin', 'Origem'),
@@ -146,6 +203,14 @@ export default function CredentialsPage() {
       ),
     },
   ];
+
+  function credentialType(row: CredentialRow) {
+    return row.type === 'static_components' ? t('credentials.workflow.staticConnection') : row.type;
+  }
+
+  function credentialStatus(row: CredentialRow) {
+    return row.authorization ? t(row.authorization.unreadable ? 'credentials.workflow.unreadable' : 'credentials.workflow.stored') : row.masked;
+  }
 
   function getCredentialRowActions(row: CredentialRow) {
     if (row.managed) {
@@ -238,6 +303,13 @@ export default function CredentialsPage() {
               disabled={!crud.isNew}
             />
             <CredentialFields value={crud.editingItem} onChange={crud.updateField} />
+            {crud.isNew && crud.editingItem.source === 'oauth' && (
+              <div>
+                <p>{t('credentials.workflow.newHint')}</p>
+                <Button onClick={() => { crud.closeEditor(); void executeDeepLink({ type: 'resource:new', resource: 'mcp' }, { navigate }); }}>{t('credentials.workflow.newMcp')}</Button>
+                <Button onClick={() => { crud.closeEditor(); void executeDeepLink({ type: 'navigate', route: 'settings/providers' }, { navigate }); }}>{t('credentials.workflow.newProvider')}</Button>
+              </div>
+            )}
           </div>
         )}
         <EditorPanelFooter>
@@ -270,7 +342,7 @@ export default function CredentialsPage() {
 
       <Modal
         isOpen={Boolean(viewingManaged)}
-        onClose={() => setViewingManaged(null)}
+        onClose={closeManaged}
         title={t('credentials.modal.viewTitle', 'Credencial do sistema')}
         size="md"
       >
@@ -281,7 +353,7 @@ export default function CredentialsPage() {
                 {t('credentials.managed.badge', 'Gerenciada pelo sistema')}
               </p>
               <p className="credentials-page__managed-desc">
-                {t('credentials.managed.description', 'Esta credencial é gerenciada automaticamente pelo Assistente (ex: OAuth MCP). Não pode ser editada ou removida manualmente.')}
+                {t('credentials.workflow.description')}
               </p>
             </div>
 
@@ -295,7 +367,7 @@ export default function CredentialsPage() {
             />
             <Input
               label={t('credentials.labels.type')}
-              value={viewingManaged.type}
+              value={credentialType(viewingManaged)}
               onChange={() => {}}
               readOnly
               fullWidth
@@ -303,7 +375,7 @@ export default function CredentialsPage() {
             />
             <Input
               label={t('credentials.labels.value')}
-              value={viewingManaged.masked}
+              value={credentialStatus(viewingManaged)}
               onChange={() => {}}
               readOnly
               fullWidth
@@ -312,9 +384,13 @@ export default function CredentialsPage() {
           </div>
         )}
         <EditorPanelFooter>
-          <Button variant="ghost" onClick={() => setViewingManaged(null)}>
-            {t('common.close', 'Fechar')}
-          </Button>
+          {managedError && <p>{t('credentials.workflow.unavailable')}</p>}
+          <DialogActions
+            primary={viewingManaged?.authorization && !viewingManaged.authorization.unreadable ? (
+              <Button onClick={() => void configureManaged()} loading={openingManaged}>{t('credentials.workflow.configure')}</Button>
+            ) : undefined}
+            secondary={<Button variant="ghost" onClick={closeManaged}>{t('common.close', 'Fechar')}</Button>}
+          />
         </EditorPanelFooter>
       </Modal>
     </div>
