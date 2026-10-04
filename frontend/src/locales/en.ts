@@ -2340,6 +2340,7 @@ const en = {
     },
 
     credentials: {
+    workflow: {"staticConnection": "Composed static connection", "newHint": "Choose where to use the authorization. The configuration requests the integration-specific details and stores the authorization in CredManager.", "newMcp": "Create authorization for MCP", "newProvider": "Open provider authorizations", "description": "The authorization is stored in CredManager. Configure the client, permissions and reconnection through its linked configuration; tokens remain protected in the vault.", "configure": "Configure authorization", "unavailable": "The linked configuration is unavailable. Refresh the list and try again.", "unreadable": "Unreadable record", "stored": "Stored record; validity not checked"},
     mcp: {
       binding: 'Vault entry: {{pattern}}',
       destination: 'Credential for {{hostname}}',

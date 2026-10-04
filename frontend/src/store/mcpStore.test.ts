@@ -43,7 +43,7 @@ describe('mcpStore reautorização', () => {
     mockReauthorizeMCPServer.mockReset();
     for (const key of Object.keys(eventHandlers)) delete eventHandlers[key];
     mockListMCPServers.mockResolvedValue([]);
-    useMCPStore.setState({ servers: [], isLoading: false, activeServerSlug: null, editingConfig: null });
+    useMCPStore.setState({ servers: [], isLoading: false, loadRevision: 0, activeServerSlug: null, editingConfig: null });
   });
 
   it('reautoriza um servidor chamando o binding e recarregando a lista', async () => {
@@ -104,4 +104,53 @@ it('commits an edited credential and MCP config through one operation without fa
  vi.mocked(SaveMCPServerWithCredential).mockRejectedValueOnce(new Error('vault unavailable'));
  await expect(useMCPStore.getState().save('test',cfg,undefined,input)).rejects.toThrow('vault unavailable');
  expect(SaveMCPServer).not.toHaveBeenCalled();
+});
+
+
+it('só publica revisão de carga após sucesso e mantém falha recuperável por retry', async () => {
+  useMCPStore.setState({ servers: [], isLoading: false, loadRevision: 0 });
+  mockListMCPServers.mockRejectedValueOnce(new Error('list unavailable'));
+  await useMCPStore.getState().loadServers();
+  expect(useMCPStore.getState().loadRevision).toBe(0);
+  expect(useMCPStore.getState().isLoading).toBe(false);
+  mockListMCPServers.mockResolvedValueOnce([]);
+  await useMCPStore.getState().loadServers();
+  expect(useMCPStore.getState().loadRevision).toBe(1);
+  expect(useMCPStore.getState().servers).toEqual([]);
+});
+
+
+it.each(['success', 'failure'])('uma carga antiga com %s não libera prontidão enquanto a nova está pendente', async (outcome) => {
+  useMCPStore.setState({ servers: [], isLoading: false, loadRevision: 0 });
+  let resolveOld!: (servers: mcp.ServerInfo[]) => void;
+  let rejectOld!: (reason: Error) => void;
+  let resolveCurrent!: (servers: mcp.ServerInfo[]) => void;
+  mockListMCPServers.mockReturnValueOnce(new Promise<mcp.ServerInfo[]>((resolve, reject) => { resolveOld = resolve; rejectOld = reject; }));
+  mockListMCPServers.mockReturnValueOnce(new Promise<mcp.ServerInfo[]>((resolve) => { resolveCurrent = resolve; }));
+  const oldLoad = useMCPStore.getState().loadServers();
+  const currentLoad = useMCPStore.getState().loadServers();
+  if (outcome === 'success') resolveOld([]); else rejectOld(new Error('old request'));
+  await oldLoad;
+  expect(useMCPStore.getState().isLoading).toBe(true);
+  expect(useMCPStore.getState().loadRevision).toBe(0);
+  const current = [new mcp.ServerInfo({ slug: 'current', name: 'Current' })];
+  resolveCurrent(current);
+  await currentLoad;
+  expect(useMCPStore.getState().servers).toEqual(current);
+  expect(useMCPStore.getState().isLoading).toBe(false);
+  expect(useMCPStore.getState().loadRevision).toBe(1);
+});
+
+it('resposta antiga após o sucesso atual não sobrescreve servidores nem publica outra revisão', async () => {
+  useMCPStore.setState({ servers: [], isLoading: false, loadRevision: 0 });
+  let finishOld!: (servers: mcp.ServerInfo[]) => void;
+  mockListMCPServers.mockReturnValueOnce(new Promise<mcp.ServerInfo[]>((resolve) => { finishOld = resolve; }));
+  const current = [new mcp.ServerInfo({ slug: 'current', name: 'Current' })];
+  mockListMCPServers.mockResolvedValueOnce(current);
+  const oldLoad = useMCPStore.getState().loadServers();
+  await useMCPStore.getState().loadServers();
+  finishOld([]);
+  await oldLoad;
+  expect(useMCPStore.getState().servers).toEqual(current);
+  expect(useMCPStore.getState().loadRevision).toBe(1);
 });

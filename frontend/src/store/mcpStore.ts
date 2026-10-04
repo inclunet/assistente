@@ -23,6 +23,8 @@ type MCPToolInfo = mcp.MCPToolInfo;
 interface MCPState {
   servers: ServerInfo[];
   isLoading: boolean;
+  // Advances only after a successful list response, including an empty list.
+  loadRevision: number;
   activeServerSlug: string | null;
   editingConfig: ServerConfig | null;
 
@@ -41,18 +43,25 @@ interface MCPState {
   setupEventListeners: () => () => void;
 }
 
+// Only the latest list request may publish data/readiness.
+let loadRequestGeneration = 0;
+
 export const useMCPStore = create<MCPState>((set, get) => ({
   servers: [],
   isLoading: false,
+  loadRevision: 0,
   activeServerSlug: null,
   editingConfig: null,
 
   loadServers: async () => {
+    const requestGeneration = ++loadRequestGeneration;
     set({ isLoading: true });
     try {
       const servers = await ListMCPServers();
-      set({ servers: servers || [], isLoading: false });
+      if (requestGeneration !== loadRequestGeneration) return;
+      set((state) => ({ servers: servers || [], isLoading: false, loadRevision: state.loadRevision + 1 }));
     } catch (err) {
+      if (requestGeneration !== loadRequestGeneration) return;
       logger.error('[MCP] Erro ao carregar servidores:', err);
       set({ isLoading: false });
     }

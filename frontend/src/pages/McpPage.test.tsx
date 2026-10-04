@@ -1,3 +1,4 @@
+import { mcp } from '@wailsjs/go/models';
 import { GetCredentialForURL, UpsertCredential } from '@wailsjs/go/wailsapi/Credentials';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { act, type ReactNode } from 'react';
@@ -10,6 +11,8 @@ const mockConnect = vi.fn();
 const mockToast = vi.fn();
 const mockGetConfig = vi.fn();
 const mockLoadServers = vi.fn();
+const mockSetupEventListeners = vi.fn(() => () => {});
+let mockLoadRevision = 0;
 const mockDuplicate = vi.fn();
 const mockDiscover = vi.hoisted(() =>
   vi.fn(async (_url?: string): Promise<Record<string, unknown>> => ({ found: false }))
@@ -33,6 +36,7 @@ vi.mock('../store/mcpStore', () => ({
   useMCPStore: () => ({
     servers: mockServers,
     isLoading: false,
+    loadRevision: mockLoadRevision,
     loadServers: mockLoadServers,
     connect: mockConnect,
     disconnect: vi.fn(),
@@ -40,7 +44,7 @@ vi.mock('../store/mcpStore', () => ({
     save: mockSave,
     remove: vi.fn(),
     getConfig: mockGetConfig,
-    setupEventListeners: () => () => {},
+    setupEventListeners: mockSetupEventListeners,
   }),
 }));
 
@@ -61,6 +65,7 @@ vi.mock('../hooks/useGridFocus', () => ({
 }));
 
 vi.mock('../hooks/useAnnouncer', () => ({
+  announce: vi.fn(),
   useAnnouncer: () => ({
     announce: vi.fn(),
   }),
@@ -234,12 +239,15 @@ vi.mock('../components/mcp/McpConnectionSection', () => ({
 }));
 
 import McpPage from './McpPage';
+import { executeDeepLink } from '../lib/deepLinks';
+import { useNavigationStore } from '../store/navigationStore';
 
 describe('McpPage — oauth2_callback_host', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockSave.mockResolvedValue(undefined);
-    mockLoadServers.mockResolvedValue(undefined);
+    mockLoadRevision = 0;
+    mockLoadServers.mockImplementation(async () => { mockLoadRevision++; });
     mockDiscover.mockResolvedValue({ found: false });
     mockServers = [];
     vi.mocked(GetCredentialForURL).mockResolvedValue(null as unknown as Awaited<ReturnType<typeof GetCredentialForURL>>);
@@ -252,6 +260,51 @@ describe('McpPage — oauth2_callback_host', () => {
       expect(screen.getByRole('dialog')).toBeInTheDocument();
     });
   }
+
+  it('preserva edição por deep link até concluir a primeira carga do store vazio', async () => {
+    let finish!: () => void;
+    mockLoadServers.mockReturnValue(new Promise<void>((resolve) => { finish = resolve; }));
+    mockGetConfig.mockResolvedValue(new mcp.ServerConfig({ name: 'Servidor vinculado', transport: 'streamable', url: 'https://mcp.example.com', auth_type: 'none' }));
+    await executeDeepLink({ type: 'resource:edit', resource: 'mcp', resourceId: 'bound' }, { navigate: vi.fn() });
+    const { rerender } = render(<McpPage />);
+    expect(useNavigationStore.getState().pendingEdit?.id).toBe('bound');
+    expect(mockGetConfig).not.toHaveBeenCalled();
+    mockServers = [{ id: 'server-id', slug: 'bound', name: 'Servidor vinculado', transport: 'streamable', status: 'disconnected', tools: [] }];
+    await act(async () => { mockLoadRevision++; finish(); });
+    rerender(<McpPage />);
+    await waitFor(() => expect(mockGetConfig).toHaveBeenCalledWith('bound'));
+    expect(await screen.findByLabelText('Nome')).toHaveValue('Servidor vinculado');
+    expect(useNavigationStore.getState().pendingEdit).toBeNull();
+  });
+
+  it('mantém edição pendente após falha de carga e abre após retry bem-sucedido', async () => {
+    mockLoadServers.mockResolvedValueOnce(undefined); // The store catches a rejected list without advancing its revision.
+    mockGetConfig.mockResolvedValue(new mcp.ServerConfig({ name: 'Recuperado', transport: 'streamable', url: 'https://mcp.example.com', auth_type: 'none' }));
+    await executeDeepLink({ type: 'resource:edit', resource: 'mcp', resourceId: 'retry' }, { navigate: vi.fn() });
+    const { rerender } = render(<McpPage />);
+    await act(async () => {});
+    rerender(<McpPage />);
+    expect(useNavigationStore.getState().pendingEdit?.id).toBe('retry');
+    expect(mockGetConfig).not.toHaveBeenCalled();
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 6000);
+    mockServers = [{ id: 'server-id', slug: 'retry', name: 'Recuperado', transport: 'streamable', status: 'disconnected', tools: [] }];
+    await act(async () => mockLoadServers());
+    rerender(<McpPage />);
+    expect(await screen.findByLabelText('Nome')).toHaveValue('Recuperado');
+    clock.mockRestore();
+    expect(useNavigationStore.getState().pendingEdit).toBeNull();
+  });
+
+  it('abre o primeiro cadastro pelo caminho de criação do CredManager', async () => {
+    const navigate = vi.fn();
+    await executeDeepLink({ type: 'resource:new', resource: 'mcp' }, { navigate });
+    const { rerender } = render(<McpPage />);
+    await act(async () => {});
+    rerender(<McpPage />);
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+    expect(screen.getByLabelText('Nome')).toHaveValue('');
+    expect(navigate).toHaveBeenCalledWith('/settings/mcp');
+  });
 
   it('salva command pelo mesmo contrato do CredManager sem gravar um token estático', async () => {
     await openNewServerForm();
