@@ -1423,6 +1423,8 @@ const es = {
         "discarded": "Snapshot descartado."
       },
       inventory: {
+        migrate: 'Migrar autorizaciones antiguas',
+        advancedActions: 'Opciones avanzadas de autenticación',
         "title": "Diagnóstico OAuth",
         "description": "Este inventario consulta datos locales del usuario actual. No conecta servidores, renueva tokens ni modifica credenciales. Prepara la migración; no confirma la validez de los tokens.",
         "loaded": "Inventario OAuth cargado.",
