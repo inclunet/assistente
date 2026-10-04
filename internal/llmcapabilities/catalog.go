@@ -255,9 +255,14 @@ func ValidateFieldAssertion(a FieldAssertion) error {
 		return fmt.Errorf("%w: mínimo maior que máximo", ErrInvalidAssertion)
 	}
 	if spec.ValueType == TypeInteger {
+		// float64 arredonda MaxInt64 para 2^63, portanto o teto é exclusivo.
+		const integerUpperBound = float64(1 << 63)
 		for _, value := range []*float64{a.Minimum, a.Maximum, a.Step} {
 			if value != nil && math.Trunc(*value) != *value {
 				return fmt.Errorf("%w: campo inteiro recebeu limite fracionário", ErrInvalidAssertion)
+			}
+			if value != nil && (*value < -integerUpperBound || *value >= integerUpperBound) {
+				return fmt.Errorf("%w: limite fora do intervalo de inteiro de 64 bits", ErrInvalidAssertion)
 			}
 		}
 	}
