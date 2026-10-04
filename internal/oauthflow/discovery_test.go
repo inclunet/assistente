@@ -316,33 +316,63 @@ func TestDiscoverOAuthInfersClientCredentialsWithoutGrantList(t *testing.T) {
 	}
 }
 
-func TestDiscoverOAuthMergesResourceAndAuthorizationServerScopes(t *testing.T) {
-	var serverURL string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/.well-known/oauth-protected-resource/mcp":
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"resource":              serverURL + "/mcp",
-				"authorization_servers": []string{serverURL},
-				"scopes_supported":      []string{"files:read", "shared"},
-			})
-		case "/.well-known/oauth-authorization-server":
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"issuer":           serverURL,
-				"token_endpoint":   serverURL + "/token",
-				"scopes_supported": []string{"shared", "offline_access"},
-			})
-		default:
-			http.NotFound(w, r)
-		}
-	}))
-	defer server.Close()
-	serverURL = server.URL
-
-	result := DiscoverOAuth(server.URL + "/mcp")
-	want := []string{"files:read", "shared", "offline_access"}
-	if !result.Found || !slices.Equal(result.Scopes, want) {
-		t.Fatalf("scopes não foram unidos e deduplicados: got=%v want=%v", result.Scopes, want)
+func TestDiscoverOAuthSelectsResourceScopesWithoutServerCatalog(t *testing.T) {
+	for _, tt := range []struct {
+		name           string
+		resourceScopes []string
+		serverScopes   []string
+		noResource     bool
+		want           []string
+	}{
+		{"resource-and-refresh", []string{"sql"}, []string{"sql", "offline_access", "all-apis", "secrets", "clusters"}, false, []string{"sql", "offline_access"}},
+		{"deduplicate-preserve-order", []string{"files:read", "shared", "files:read"}, []string{"shared", "offline_access", "admin"}, false, []string{"files:read", "shared", "offline_access"}},
+		{"refresh-already-on-resource", []string{"sql", "offline_access"}, []string{"offline_access", "admin"}, false, []string{"sql", "offline_access"}},
+		{"no-refresh-support", []string{"sql"}, []string{"admin"}, false, []string{"sql"}},
+		{"case-sensitive-refresh", []string{"sql"}, []string{"OFFLINE_ACCESS"}, false, []string{"sql"}},
+		{"resource-without-scopes", nil, []string{"sql", "offline_access", "admin"}, false, nil},
+		{"resource-empty-scopes", []string{}, []string{"sql", "offline_access", "admin"}, false, nil},
+		{"authorization-server-only", nil, []string{"sql", "offline_access", "admin"}, true, nil},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var serverURL string
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/.well-known/oauth-protected-resource/mcp":
+					if tt.noResource {
+						http.NotFound(w, r)
+						return
+					}
+					_ = json.NewEncoder(w).Encode(map[string]any{
+						"resource": serverURL + "/mcp", "authorization_servers": []string{serverURL},
+						"scopes_supported": tt.resourceScopes,
+					})
+				case "/.well-known/oauth-authorization-server":
+					_ = json.NewEncoder(w).Encode(map[string]any{
+						"issuer": serverURL, "token_endpoint": serverURL + "/token",
+						"scopes_supported": tt.serverScopes,
+					})
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			defer server.Close()
+			serverURL = server.URL
+			result := DiscoverOAuth(server.URL + "/mcp")
+			if !result.Found || !slices.Equal(result.Scopes, tt.want) {
+				t.Fatalf("discovery scopes=%v want=%v found=%v", result.Scopes, tt.want, result.Found)
+			}
+			// The protocol still needs advertised capabilities (not suggestions)
+			// to negotiate refresh support for explicitly configured scopes.
+			runtime, err := DiscoverEndpoints(context.Background(), server.URL+"/mcp")
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, scope := range tt.serverScopes {
+				if !slices.Contains(runtime.ScopesSupported, scope) {
+					t.Fatalf("runtime lost capability %q", scope)
+				}
+			}
+		})
 	}
 }
 
