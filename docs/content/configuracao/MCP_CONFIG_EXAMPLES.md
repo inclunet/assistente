@@ -966,3 +966,7 @@ Redirects e endpoints SSE de outra origem não recebem a credencial.
 Esta atualização não pede nova migração nem login dos servidores já configurados.
 OAuth continua no serviço compartilhado e no mesmo cofre; credenciais legadas,
 quando presentes, usam o diagnóstico e o procedimento de migração existentes.
+
+Ao salvar uma credencial junto do servidor, as duas alterações são confirmadas
+em conjunto. Se o cofre ou o cadastro falhar, a configuração anterior permanece
+intacta; o formulário fica aberto para correção.

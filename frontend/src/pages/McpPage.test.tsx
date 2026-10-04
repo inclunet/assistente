@@ -266,9 +266,10 @@ describe('McpPage — oauth2_callback_host', () => {
     fireEvent.change(screen.getByLabelText('credentials.sourceFields.commandName'), {target:{value:'wsl.exe'}});
     fireEvent.change(screen.getByLabelText('credentials.sourceFields.args'), {target:{value:'["bash","-ic","nu genai api-gateway token"]'}});
     await userEvent.click(screen.getByText('Salvar'));
-    await waitFor(() => expect(UpsertCredential).toHaveBeenCalledWith(expect.objectContaining({pattern:'mcp.example.com',type:'bearer',source:'command',sourceConfig:expect.objectContaining({command:'wsl.exe',args:['bash','-ic','nu genai api-gateway token'],timeoutSeconds:30})})));
+    await waitFor(() => expect(mockSave).toHaveBeenCalledWith(expect.any(String),expect.anything(),undefined,expect.objectContaining({pattern:'mcp.example.com',type:'bearer',source:'command',sourceConfig:expect.objectContaining({command:'wsl.exe',args:['bash','-ic','nu genai api-gateway token'],timeoutSeconds:30})})));
     expect(SaveMCPServerAuth).not.toHaveBeenCalled();
-    expect(vi.mocked(UpsertCredential).mock.calls[0][0].token).toBeUndefined();
+    expect(mockSave.mock.calls[0][3].token).toBeUndefined();
+    expect(UpsertCredential).not.toHaveBeenCalled();
   });
 
   it('recusa comando inválido antes de salvar servidor e descarta edição ao mudar destino', async () => {

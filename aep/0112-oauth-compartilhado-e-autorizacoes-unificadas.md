@@ -1782,3 +1782,9 @@ cobrem materialização, cache, renovação e limites de destino/usuário.
 Próximo incremento: consolidar o acesso às autorizações gerenciadas e os campos
 OAuth pelo mesmo caminho de edição, mantendo o serviço compartilhado como escritor
 único e sem expor tokens em DTOs de formulário.
+
+Edição conjunta Bearer/Basic confirma servidor e credencial em uma transação do
+CredManager (`SaveWithConsumer`), com publicação em memória somente após commit.
+Troca de OAuth reutiliza as mesmas guardas de revisão/lease da remoção composta.
+`TestMCPCredentialSaveAtomicFailure` injeta falhas no cofre e no consumidor em
+criação, edição e troca de OAuth, preservando cadastro, ciphertext e cache.

@@ -361,3 +361,14 @@ func (m *MCP) SaveMCPServerWithOAuthSecret(slug string, cfg mcpmgr.ServerConfig,
 	})
 	return err
 }
+
+func (m *MCP) SaveMCPServerWithCredential(slug string, cfg mcpmgr.ServerConfig, input apidto.CredentialInput) error {
+	session, ctrl, err := m.deps()
+	if err != nil {
+		return err
+	}
+	_, err = WithUser(session, func(ctx context.Context) (struct{}, error) {
+		return struct{}{}, ctrl.SaveMCPServerWithCredential(ctx, slug, cfg, input)
+	})
+	return err
+}

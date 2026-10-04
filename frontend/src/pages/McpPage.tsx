@@ -1,4 +1,3 @@
-import { UpsertCredential } from '@wailsjs/go/wailsapi/Credentials';
 import { McpCredentialEditor } from '../components/credentials/McpCredentialEditor';
 import { credentialInput, validateCredential, type CredentialDraft } from '../components/credentials/credentialDraft';
 import { mcpOAuthErrorMessage } from '../lib/mcpOAuthErrors';
@@ -481,7 +480,9 @@ export default function McpPage() {
     }
     setSaving(true);
     try {
-      if (config.oauth_managed && formOAuth2ClientSecret.trim()) {
+      if (isHTTP && ['bearer', 'basic'].includes(formAuthType) && credentialDraft) {
+        await save(slug, config, undefined, credentialInput(credentialDraft));
+      } else if (config.oauth_managed && formOAuth2ClientSecret.trim()) {
         await save(slug, config, formOAuth2ClientSecret.trim());
       } else {
         await save(slug, config);
@@ -497,8 +498,6 @@ export default function McpPage() {
           if (formOAuth2ClientSecret.trim()) {
             await SaveMCPServerAuth(slug, formAuthType, '', '', '', formOAuth2ClientSecret.trim());
           }
-        } else if (credentialDraft) {
-          await UpsertCredential(credentialInput(credentialDraft));
         }
       }
 
