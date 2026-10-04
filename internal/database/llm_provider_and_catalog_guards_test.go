@@ -47,6 +47,12 @@ func TestMigration39PreventsReplacingProvidersAndPreservesModelHistory(t *testin
 			if err == nil || !strings.Contains(err.Error(), "provider identity cannot be replaced") {
 				t.Fatalf("provider replacement accepted or wrong guard: %v", err)
 			}
+			if err := db.Exec("UPDATE llm_providers SET id = ? WHERE id = ?", "renamed", provider.ID).Error; err == nil || !strings.Contains(err.Error(), "provider identity is immutable") {
+				t.Fatalf("provider rename accepted or wrong guard: %v", err)
+			}
+			if err := db.Exec("UPDATE llm_providers SET id = id WHERE id = ?", provider.ID).Error; err != nil {
+				t.Fatalf("unchanged provider identity blocked: %v", err)
+			}
 			var saved LLMProvider
 			if err := db.First(&saved, "id = ?", provider.ID).Error; err != nil {
 				t.Fatal(err)

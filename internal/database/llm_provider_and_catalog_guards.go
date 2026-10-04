@@ -30,6 +30,12 @@ func migrateLLMProviderAndCatalogGuards(db *gorm.DB) error {
    BEGIN SELECT RAISE(ABORT, 'provider identity cannot be replaced'); END`).Error; err != nil {
 			return err
 		}
+		if err := tx.Exec(`CREATE TRIGGER IF NOT EXISTS trg_llm_providers_identity_immutable
+   BEFORE UPDATE OF id ON llm_providers
+   WHEN NEW.id IS NOT OLD.id
+   BEGIN SELECT RAISE(ABORT, 'provider identity is immutable'); END`).Error; err != nil {
+			return err
+		}
 		for _, catalog := range []struct{ table, identity string }{
 			{"llm_capabilities", "key = NEW.key"},
 			{"llm_capability_fields", "capability_key = NEW.capability_key AND key = NEW.key"},
