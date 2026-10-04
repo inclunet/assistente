@@ -316,6 +316,16 @@ depender de uma fase ainda aberta deve ser empilhado sobre ela.
   `TestProviderImportDefaultSwitchAdvancesPreviousConfigRevision` e
   `TestProviderImportAdvancesOnlyRelevantRevisions` e `TestMigration36VersionsDirectProviderUpdatesWithoutDoubleIncrement` (v36 cobre alterações diretas de endpoint, pattern, formato e modelo; não duplica avanços do repositório e preserva rollback). `TestProviderCreationRefusesPersistedIDsAbsentFromRegistry` e `TestDBStoreCreateRequiresScopeAndPreservesDuplicateIdentity` cobrem a inserção exclusiva nos fluxos de criação; `TestConcurrentProviderCreationReservesIDBeforeWritingCredentials` força preflights concorrentes e preserva a chave do vencedor, e `TestCredentialFailureRollsBackUnpublishedProviderReservation`/`TestProviderReservationRollbackPreservesChangedConfiguration` cobrem reversão da reserva sem remover alterações concorrentes. `TestProviderReservationRollbackPreservesChangedCompatibilityRevision` comprova que a revisão de compatibilidade também integra o predicado atômico do rollback, preservando a identidade após uma alteração concorrente de credencial sem mudança de configuração. `TestProviderReservationRollbackPreservesConcurrentModelFacts` comprova que a condição SQL atômica também preserva modelos e fatos já cadastrados para a reserva, inclusive em provedores de sistema. A v39 recusa substituição de provedores por ID e protege o catálogo canônico contra UPDATE/DELETE/REPLACE; mudanças futuras exigem migração transacional que remova/reinstale os guards junto da definição Go. Verificado por `TestMigration39PreventsReplacingProvidersAndPreservesModelHistory`, `TestMigration39CanonicalCatalogIsImmutableAndMigrationRemainsIdempotent` e `TestMigration39RefusesLegacyCatalogDivergenceBeforeInstallingGuards`. A captura e validação
   dessas versões no runtime pertencem à fase 2.
+- [x] Opções enum compostas só por Unicode whitespace são recusadas pelo
+  domínio e pelo SQL, incluindo TAB/NBSP. A v39 protege schemas anteriores e
+  recusa opções legadas divergentes sem reescrever o histórico. O teste de
+  limites de opções usa um campo SQL aberto, com inserção válida de controle,
+  para comprovar a validação sem recusa incidental pelo selo.
+- [x] Restrições de campos inteiros respeitam o intervalo representável de
+  64 bits: mínimo inclusivo `-2^63` e teto exclusivo `2^63` em `float64`.
+  `TestLLMModelIntegerBoundsAgreeWithSQLite` comprova a concordância entre
+  domínio, SQL direto e repositório para mínimo, máximo e passo, incluindo
+  extremos representáveis, overflow e frações; falha reproduzida antes do ajuste.
 - [x] A identidade da raiz `llm_providers.id` é imutável, inclusive antes de
   cadastrar modelos. A v39 bloqueia alteração direta do ID e permite escrever
   o mesmo valor; `TestMigration39PreventsReplacingProvidersAndPreservesModelHistory`

@@ -9,6 +9,9 @@ import (
 	"gorm.io/gorm"
 )
 
+// Mesmo conjunto de Unicode White_Space usado por strings.TrimSpace no domínio.
+const llmOptionWhitespaceSQL = "char(9,10,11,12,13,32,133,160,5760,8192,8193,8194,8195,8196,8197,8198,8199,8200,8201,8202,8232,8233,8239,8287,12288)"
+
 // MigrateLLMModelCapabilities cria o armazenamento estrito da AEP-0113 e
 // semeia o vocabulário controlado pela aplicação. É idempotente para retomar
 // com segurança após interrupção do boot.
@@ -290,7 +293,7 @@ var llmModelCapabilitiesDDL = []string{
 	)`,
 	`CREATE TABLE IF NOT EXISTS llm_model_capability_field_options (
 		assertion_id TEXT NOT NULL,
-		value TEXT NOT NULL COLLATE BINARY CHECK (length(value) > 0 AND length(value) <= 512 AND trim(value) = value AND instr(value, char(0)) = 0),
+		value TEXT NOT NULL COLLATE BINARY CHECK (length(trim(value, ` + llmOptionWhitespaceSQL + `)) > 0 AND length(value) <= 512 AND trim(value) = value AND instr(value, char(0)) = 0),
 		label TEXT NOT NULL DEFAULT '' CHECK (length(label) <= 512 AND instr(label, char(0)) = 0),
 		support_state TEXT NOT NULL CHECK (support_state IN ('supported','unsupported','unknown')),
 		PRIMARY KEY (assertion_id, value),

@@ -1106,6 +1106,10 @@ func TestLLMModelFieldOptionsDomainAndSQLiteAgreeOnCharacterBounds(t *testing.T)
 	for _, test := range []struct{ name, value, label string }{
 		{"leading space", " alloy", "Alloy"},
 		{"trailing space", "alloy ", "Alloy"},
+		{"only TAB", "\t", "Voice"},
+		{"only NBSP", "\u00a0", "Voice"},
+		{"only Unicode whitespace", "\u0085\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000", "Voice"},
+		{"mixed whitespace", "\t\n\v\f\r \u00a0", "Voice"},
 		{"oversized Unicode value", strings.Repeat("é", 513), "Voice"},
 		{"oversized Unicode label", "alloy", strings.Repeat("🎵", 513)},
 	} {
@@ -1116,9 +1120,19 @@ func TestLLMModelFieldOptionsDomainAndSQLiteAgreeOnCharacterBounds(t *testing.T)
 			if err := repository.RecordField(ctx, &field, []LLMModelCapabilityFieldOption{option}); !errors.Is(err, llmcapabilities.ErrInvalidAssertion) {
 				t.Fatalf("domain error = %v", err)
 			}
-			option.AssertionID = validField.ID
+			// O campo SQL precisa estar aberto para que o teste exercite a
+			// validação do valor, sem recusa incidental pelo selo de opções.
+			directField := *validField
+			directField.UUIDModel = UUIDModel{}
+			if err := db.Create(&directField).Error; err != nil {
+				t.Fatal(err)
+			}
+			option.AssertionID = directField.ID
 			if err := db.Create(&option).Error; err == nil {
 				t.Fatal("direct SQL bypassed option bounds")
+			}
+			if err := db.Create(&LLMModelCapabilityFieldOption{AssertionID: directField.ID, Value: "valid", SupportState: "supported"}).Error; err != nil {
+				t.Fatalf("valid option blocked in open SQL field: %v", err)
 			}
 		})
 	}

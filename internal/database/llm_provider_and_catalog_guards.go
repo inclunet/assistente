@@ -16,12 +16,25 @@ func migrateLLMProviderAndCatalogGuards(db *gorm.DB) error {
 		return errors.New("banco inválido para guards de provedor e catálogo")
 	}
 	return db.Transaction(func(tx *gorm.DB) error {
-		for _, table := range []string{"llm_providers", "llm_capabilities", "llm_capability_fields"} {
+		for _, table := range []string{"llm_providers", "llm_capabilities", "llm_capability_fields", "llm_model_capability_field_options"} {
 			if !tx.Migrator().HasTable(table) {
 				return errMigrationDeferred
 			}
 		}
 		if err := validateLLMCapabilityCatalog(tx); err != nil {
+			return err
+		}
+		var invalidOptions int64
+		if err := tx.Table("llm_model_capability_field_options").Where("length(trim(value, " + llmOptionWhitespaceSQL + ")) = 0").Count(&invalidOptions).Error; err != nil {
+			return err
+		}
+		if invalidOptions != 0 {
+			return errors.New("opção de capability legada contém somente whitespace")
+		}
+		if err := tx.Exec(`CREATE TRIGGER IF NOT EXISTS trg_llm_model_options_non_whitespace
+   BEFORE INSERT ON llm_model_capability_field_options
+   WHEN length(trim(NEW.value, ` + llmOptionWhitespaceSQL + `)) = 0
+   BEGIN SELECT RAISE(ABORT, 'enum option requires a non-whitespace value'); END`).Error; err != nil {
 			return err
 		}
 		if err := tx.Exec(`CREATE TRIGGER IF NOT EXISTS trg_llm_providers_no_replace
