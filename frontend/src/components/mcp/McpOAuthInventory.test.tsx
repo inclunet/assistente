@@ -33,10 +33,11 @@ describe('McpOAuthInventory', () => {
     expect(InspectMCPOAuthInventory).toHaveBeenCalledOnce();
   });
 
-  it('notifica a ação principal após concluir migração e atualizar inventário', async () => {
+  it.each([false, true])('notifica migração concluída mesmo se a atualização falhar: %s', async (failReload) => {
     vi.mocked(InspectMCPOAuthInventory).mockResolvedValueOnce([
       { id: 'legacy', name: 'Legado', kind: 'legacy', issues: [] } as mcp.OAuthInventoryItem,
     ]).mockResolvedValue([{ id: 'legacy', name: 'Legado', kind: 'managed', issues: [] } as mcp.OAuthInventoryItem]);
+    if (failReload) vi.mocked(InspectMCPOAuthInventory).mockRejectedValue(new Error('Falha na leitura'));
     vi.mocked(ListMCPOAuthSnapshots).mockResolvedValue([{
       id: 'snapshot', consumerId: 'legacy', name: 'Legado', createdAt: '2026-10-03', retainUntil: '2026-11-03', expired: false, location: '/snapshot',
     } as credentials.OAuthSnapshotInfo]);

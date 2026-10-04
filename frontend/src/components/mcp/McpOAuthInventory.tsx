@@ -67,8 +67,12 @@ function OAuthInventoryContent({ onInventoryChanged }: { onInventoryChanged?: ()
         </ul>
       )}
       {items !== null && <McpOAuthSnapshots consumers={items} onConverted={async () => {
-        const result = await InspectMCPOAuthInventory();
-        if (mounted.current) { request.current = Promise.resolve(result); setItems(result); onInventoryChanged?.(); }
+        try {
+          const result = await InspectMCPOAuthInventory();
+          if (mounted.current) { request.current = Promise.resolve(result); setItems(result); }
+        } finally {
+          if (mounted.current) onInventoryChanged?.();
+        }
       }} />}
     </>
   );
