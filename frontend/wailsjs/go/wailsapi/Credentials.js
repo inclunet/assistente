@@ -18,6 +18,10 @@ export function ListExternalSources(arg1) {
   return window['go']['wailsapi']['Credentials']['ListExternalSources'](arg1);
 }
 
+export function ListManagedCredentials() {
+  return window['go']['wailsapi']['Credentials']['ListManagedCredentials']();
+}
+
 export function UpsertCredential(arg1) {
   return window['go']['wailsapi']['Credentials']['UpsertCredential'](arg1);
 }

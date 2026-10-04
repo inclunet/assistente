@@ -112,6 +112,7 @@ export default function McpPage() {
   const {
     servers,
     isLoading,
+    loadRevision,
     loadServers,
     connect,
     disconnect,
@@ -122,6 +123,7 @@ export default function McpPage() {
     getConfig,
     setupEventListeners,
   } = useMCPStore();
+  const initialLoadRevision = useRef(loadRevision);
 
   // Editor state
   const [editing, setEditing] = useState<ServerConfig | null>(null);
@@ -172,7 +174,7 @@ export default function McpPage() {
   const wasEditingRef = useRef(false);
 
   useEffect(() => {
-    loadServers();
+    void loadServers();
     const cleanup = setupEventListeners();
     return cleanup;
   }, [loadServers, setupEventListeners]);
@@ -295,7 +297,7 @@ export default function McpPage() {
       if (found) handleEdit(found);
     },
     onNew: () => handleNew(),
-    ready: !isLoading && rows.length > 0,
+    ready: loadRevision > initialLoadRevision.current && !isLoading,
   });
 
   useActivePanelNewShortcut(handleNew);
