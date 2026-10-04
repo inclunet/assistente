@@ -943,3 +943,26 @@ caminho permite consultar inconsistências, restaurar configurações ou descart
 snapshots. A consulta que controla a ação não conecta servidores nem testa tokens.
 Se a consulta falhar, abra o diagnóstico pelo menu avançado; a ausência da ação,
 isoladamente, não comprova a validade das autorizações.
+
+
+## Credenciais pelo editor compartilhado
+
+Na autenticação Bearer ou Basic, use **Configurar credencial** para abrir os mesmos
+campos do gerenciador de credenciais. Escolha valor salvo, variável de ambiente,
+keyring do sistema ou comando. Basic mantém o usuário separado da fonte da senha.
+Keyring aceita o target Windows ou o par serviço/usuário; comando recebe executável,
+argumentos como array JSON e timeout.
+
+O editor mostra o padrão efetivamente escolhido pelo CredManager para a URL,
+inclusive quando a entrada usa curinga. Alterá-lo afeta todos os consumidores
+que usam essa entrada. **Manter credencial atual**, ou salvar sem configurar a
+credencial, preserva o material salvo. Mudar a URL descarta a edição da credencial
+para não aplicá-la ao novo destino. Listar e editar não executa o comando.
+
+Em MCP HTTP, o token de comando é reutilizado até rejeição 401, com uma renovação
+controlada pelo CredManager; env e keyring são consultados a cada requisição.
+Redirects e endpoints SSE de outra origem não recebem a credencial.
+
+Esta atualização não pede nova migração nem login dos servidores já configurados.
+OAuth continua no serviço compartilhado e no mesmo cofre; credenciais legadas,
+quando presentes, usam o diagnóstico e o procedimento de migração existentes.

@@ -3,6 +3,7 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"os"
 	"sort"
 	"strings"
@@ -82,6 +83,40 @@ func (c *CredentialsController) ListCredentialsWithContext(ctx context.Context) 
 		})
 	}
 	return result, nil
+}
+
+// GetCredentialForURL returns the actual binding used by the URL resolver.
+// It reads configuration only: no keyring/env lookup, command or OAuth refresh.
+func (c *CredentialsController) GetCredentialForURL(ctx context.Context, resource string) (*CredentialSummary, error) {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return nil, err
+	}
+	if c.credMgr == nil {
+		return nil, fmt.Errorf("credential manager não inicializado")
+	}
+	parsed, err := url.Parse(resource)
+	if err != nil || parsed.Hostname() == "" || parsed.User != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return nil, fmt.Errorf("credential_resource_invalid")
+	}
+	pattern, err := c.credMgr.PatternForURLWithContext(ctx, resource)
+	if err != nil {
+		return nil, err
+	}
+	if pattern == "" {
+		// A new editor draft uses the same hostname representation as runtime,
+		// including IPv6 and IDN. This does not create a stored credential.
+		return &CredentialSummary{Pattern: parsed.Hostname(), Type: "bearer", Source: "static"}, nil
+	}
+	summaries, err := c.ListCredentialsWithContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, summary := range summaries {
+		if summary.Pattern == pattern {
+			return &summary, nil
+		}
+	}
+	return nil, fmt.Errorf("credential_binding_changed")
 }
 
 // UpsertCredential cria ou atualiza uma credencial no credential manager.

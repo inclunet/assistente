@@ -1741,3 +1741,37 @@ as provas de acessibilidade e restauração de foco. Não altera protocolo OAuth
 antecipa os demais aceites reais deste AEP. O mantenedor confirmou o funcionamento
 do Databricks após a correção de escopos, sem afirmar todos os cenários de ciclo
 de vida ainda pendentes.
+
+
+### Editor compartilhado de fontes no MCP (04/10/2026)
+
+Status: **In Progress**. `CredentialFields` e `credentialDraft` concentram campos,
+autocomplete, validação e serialização utilizados pelo CredManager e pelo MCP.
+Bearer/Basic oferecem static, env, keyring e command. Abrir o editor consulta só
+metadados; salvar o servidor sem editar a credencial preserva o registro existente.
+Troca de destino/tipo descarta o rascunho. A UI informa o compartilhamento pelo
+padrão de destino; não copia material secreto para a configuração MCP.
+`GetCredentialForURL` reutiliza a seleção do runtime, preservando curinga, caixa
+e hostname IPv6/IDN sem materializar a fonte (`credentials_binding_test.go`).
+
+O transporte Bearer/Basic delega ao `CredentialTransport`: env/keyring são lidos
+por requisição e command compartilha cache/renovação após 401. Destino de SSE e
+redirects ficam restritos à origem configurada, com validação antes de resolver
+fontes. Logout/troca de usuário e credencial ausente recusam o envio.
+
+Nenhuma migração de dados é necessária neste incremento. OAuth composto já limpa
+os campos persistidos no servidor (`clearOAuthConfiguration`) e projeta a edição
+a partir do registro do cofre (`projectOAuthConfiguration`). As referências e os
+tokens permanecem intactos. Legados continuam usando inventário, snapshot e
+conversão existentes, conforme decisão reafirmada pelo mantenedor.
+
+Evidências: `McpPage.test.tsx` cobre command pelo contrato comum, recusa de entrada
+inválida antes de salvar, troca de destino e preservação de credencial externa;
+`McpCredentialEditor.test.tsx` cobre leitura sem gravação, acessibilidade e falha;
+`TestMCPCredentialTransportResolvesEnvPerRequest`,
+`TestMCPCredentialCommandCacheAndOrigin` e `TestMCPCredentialRedirectKeepsOrigin`
+cobrem materialização, cache, renovação e limites de destino/usuário.
+
+Próximo incremento: consolidar o acesso às autorizações gerenciadas e os campos
+OAuth pelo mesmo caminho de edição, mantendo o serviço compartilhado como escritor
+único e sem expor tokens em DTOs de formulário.

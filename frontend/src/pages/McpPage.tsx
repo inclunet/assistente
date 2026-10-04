@@ -1,3 +1,6 @@
+import { UpsertCredential } from '@wailsjs/go/wailsapi/Credentials';
+import { McpCredentialEditor } from '../components/credentials/McpCredentialEditor';
+import { credentialInput, validateCredential, type CredentialDraft } from '../components/credentials/credentialDraft';
 import { mcpOAuthErrorMessage } from '../lib/mcpOAuthErrors';
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -141,9 +144,7 @@ export default function McpPage() {
 
   // Auth fields (armazenados no credential manager, não no config JSON)
   const [formAuthType, setFormAuthType] = useState('none');
-  const [formAuthToken, setFormAuthToken] = useState('');
-  const [formAuthUsername, setFormAuthUsername] = useState('');
-  const [formAuthPassword, setFormAuthPassword] = useState('');
+  const [credentialDraft, setCredentialDraft] = useState<CredentialDraft | null>(null);
   const [hasExistingAuth, setHasExistingAuth] = useState(false);
 
   // OAuth2 fields (config JSON para não-sensíveis, credential manager para secrets)
@@ -210,9 +211,7 @@ export default function McpPage() {
     setFormAutoConnect(config?.auto_connect ?? true);
     setFormPreferBridge(config?.prefer_bridge ?? false);
 
-    setFormAuthToken('');
-    setFormAuthUsername('');
-    setFormAuthPassword('');
+    setCredentialDraft(null);
     setFormAuthType(config?.auth_type || 'none');
     setHasExistingAuth(false);
 
@@ -372,6 +371,7 @@ export default function McpPage() {
     setDiscoveryRegistrationUrl('');
     setDiscoveryResourceName('');
     setDiscoveryStatus('idle');
+    setCredentialDraft(null);
     setFormUrl(value);
   }, []);
 
@@ -475,6 +475,10 @@ export default function McpPage() {
         : undefined,
     });
 
+    if (isHTTP && ['bearer', 'basic'].includes(formAuthType) && credentialDraft) {
+      const validation = validateCredential(credentialDraft, t);
+      if (validation) { addToast(validation, 'error'); return; }
+    }
     setSaving(true);
     try {
       if (config.oauth_managed && formOAuth2ClientSecret.trim()) {
@@ -493,19 +497,8 @@ export default function McpPage() {
           if (formOAuth2ClientSecret.trim()) {
             await SaveMCPServerAuth(slug, formAuthType, '', '', '', formOAuth2ClientSecret.trim());
           }
-        } else {
-          const hasNewCredentials =
-            formAuthToken.trim() || formAuthUsername.trim() || formAuthPassword.trim();
-          if (hasNewCredentials) {
-            await SaveMCPServerAuth(
-              slug,
-              formAuthType,
-              formAuthToken.trim(),
-              formAuthUsername.trim(),
-              formAuthPassword.trim(),
-              '',
-            );
-          }
+        } else if (credentialDraft) {
+          await UpsertCredential(credentialInput(credentialDraft));
         }
       }
 
@@ -519,7 +512,7 @@ export default function McpPage() {
     } finally {
       setSaving(false);
     }
-  }, [isNew, editingSlug, formName, formDescription, formTransport, formCommand, formArgs, formEnvText, formUrl, formEnabled, formAutoConnect, formPreferBridge, formAuthType, formAuthToken, formAuthUsername, formAuthPassword, formOAuthManaged, formOAuthDeviceUrl, formOAuthTokenAuthMethod, formOAuth2ClientId, formOAuth2ClientSecret, formOAuth2TokenUrl, formOAuth2AuthUrl, formOAuth2Scopes, formOAuth2CallbackPort, formOAuth2CallbackHost, discoveryRegistrationUrl, manualRegistrationUrl, loadedResourceUrl, save, addToast, announce, handleCloseEditor, t]);
+  }, [isNew, editingSlug, formName, formDescription, formTransport, formCommand, formArgs, formEnvText, formUrl, formEnabled, formAutoConnect, formPreferBridge, formAuthType, credentialDraft, formOAuthManaged, formOAuthDeviceUrl, formOAuthTokenAuthMethod, formOAuth2ClientId, formOAuth2ClientSecret, formOAuth2TokenUrl, formOAuth2AuthUrl, formOAuth2Scopes, formOAuth2CallbackPort, formOAuth2CallbackHost, discoveryRegistrationUrl, manualRegistrationUrl, loadedResourceUrl, save, addToast, announce, handleCloseEditor, t]);
 
   const handleDelete = useCallback(async (slug: string, name: string) => {
     const shouldDelete = await confirm({
@@ -860,7 +853,7 @@ export default function McpPage() {
               transport={formTransport}
               onNameChange={setFormName}
               onDescriptionChange={setFormDescription}
-              onTransportChange={setFormTransport}
+              onTransportChange={(value) => { setCredentialDraft(null); setFormTransport(value); }}
             />
 
             <McpConnectionSection
@@ -873,9 +866,7 @@ export default function McpPage() {
               autoConnect={formAutoConnect}
               preferBridge={formPreferBridge}
               authType={formAuthType}
-              authToken={formAuthToken}
-              authUsername={formAuthUsername}
-              authPassword={formAuthPassword}
+              credentialEditor={<McpCredentialEditor key={`${editingSlug}:${formTransport}:${formUrl}:${formAuthType}`} url={formUrl} type={formAuthType} onChange={setCredentialDraft} />}
               hasExistingAuth={hasExistingAuth}
               oauthManaged={isNew || formOAuthManaged}
               oauthDCRRegistered={!!registeredDCRClientId && formOAuth2ClientId.trim() === registeredDCRClientId}
@@ -900,12 +891,10 @@ export default function McpPage() {
               onAutoConnectChange={setFormAutoConnect}
               onPreferBridgeChange={setFormPreferBridge}
               onAuthTypeChange={(value) => {
+                setCredentialDraft(null);
                 setFormAuthType(value);
                 if (value === 'oauth2_client_credentials' && formOAuthTokenAuthMethod === 'none') setFormOAuthTokenAuthMethod('client_secret_post');
               }}
-              onAuthTokenChange={setFormAuthToken}
-              onAuthUsernameChange={setFormAuthUsername}
-              onAuthPasswordChange={setFormAuthPassword}
               onOAuth2ClientIdChange={setFormOAuth2ClientId}
               onOAuth2ClientSecretChange={setFormOAuth2ClientSecret}
               onOAuth2TokenUrlChange={setFormOAuth2TokenUrl}

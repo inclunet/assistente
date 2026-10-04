@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef } from 'react';
+import { useEffect, useId, useMemo, useRef, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Checkbox, Input, Textarea } from '../index';
 import { Select } from '../index';
@@ -23,9 +23,7 @@ interface McpConnectionSectionProps {
   autoConnect: boolean;
   preferBridge: boolean;
   authType: string;
-  authToken: string;
-  authUsername: string;
-  authPassword: string;
+  credentialEditor?: ReactNode;
   hasExistingAuth: boolean;
   oauth2ClientId: string;
   oauth2ClientSecret: string;
@@ -45,9 +43,6 @@ interface McpConnectionSectionProps {
   onAutoConnectChange: (value: boolean) => void;
   onPreferBridgeChange: (value: boolean) => void;
   onAuthTypeChange: (value: string) => void;
-  onAuthTokenChange: (value: string) => void;
-  onAuthUsernameChange: (value: string) => void;
-  onAuthPasswordChange: (value: string) => void;
   onOAuth2ClientIdChange: (value: string) => void;
   onOAuth2ClientSecretChange: (value: string) => void;
   onOAuth2TokenUrlChange: (value: string) => void;
@@ -76,9 +71,7 @@ export function McpConnectionSection({
   autoConnect,
   preferBridge,
   authType,
-  authToken,
-  authUsername,
-  authPassword,
+  credentialEditor,
   hasExistingAuth,
   oauth2ClientId,
   oauth2ClientSecret,
@@ -98,9 +91,6 @@ export function McpConnectionSection({
   onAutoConnectChange,
   onPreferBridgeChange,
   onAuthTypeChange,
-  onAuthTokenChange,
-  onAuthUsernameChange,
-  onAuthPasswordChange,
   onOAuth2ClientIdChange,
   onOAuth2ClientSecretChange,
   onOAuth2TokenUrlChange,
@@ -267,48 +257,7 @@ export function McpConnectionSection({
                   </p>
                 )}
 
-                {authType === 'bearer' && (
-                  <Input
-                    label={t('mcp.connection.token')}
-                    type="password"
-                    value={authToken}
-                    onChange={(e) => onAuthTokenChange(e.target.value)}
-                    placeholder={
-                      hasExistingAuth
-                        ? t('mcp.connection.passwordMask')
-                        : t('mcp.connection.tokenExample')
-                    }
-                    autoComplete="off"
-                    fullWidth
-                  />
-                )}
-
-                {authType === 'basic' && (
-                  <>
-                    <Input
-                      label={t('mcp.connection.username')}
-                      type="text"
-                      value={authUsername}
-                      onChange={(e) => onAuthUsernameChange(e.target.value)}
-                      placeholder={t('mcp.connection.inputUsernamePlaceholder')}
-                      autoComplete="username"
-                      fullWidth
-                    />
-                    <Input
-                      label={t('mcp.connection.password')}
-                      type="password"
-                      value={authPassword}
-                      onChange={(e) => onAuthPasswordChange(e.target.value)}
-                      placeholder={
-                        hasExistingAuth
-                          ? t('mcp.connection.passwordMask')
-                          : t('mcp.connection.inputPasswordPlaceholder')
-                      }
-                      autoComplete="off"
-                      fullWidth
-                    />
-                  </>
-                )}
+                {(authType === 'bearer' || authType === 'basic') && credentialEditor}
 
                 {authType === 'oauth2_client_credentials' && (
                   <>

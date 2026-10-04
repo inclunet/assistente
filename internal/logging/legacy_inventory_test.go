@@ -33,8 +33,10 @@ const (
 	// A retirada do transporte antigo de Client Credentials remove dois formatos.
 	// A retirada física do runtime PKCE remove oito formatos: dois do manager
 	// e seis do transporte/persistência antigos. O lifecycle compartilhado permanece.
-	expectedLegacyFormatCount  = 733
-	expectedLegacyFormatDigest = "41d4d4005c941537fabe1a1325c05bc5ff74a1669d09c394594f007b257ae124"
+	// O transporte compartilhado Bearer/Basic remove quatro formatos de captura
+	// antecipada de credenciais; resolução e falhas pertencem ao CredentialTransport.
+	expectedLegacyFormatCount  = 729
+	expectedLegacyFormatDigest = "459fd59cb04409f8d128069d5d05b85db5fca26181b8481e44381ad6ebae6af5"
 )
 
 // TestLegacyLoggingInventory mantém reproduzível o inventário da issue #675.

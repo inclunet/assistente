@@ -2340,7 +2340,15 @@ const en = {
     },
 
     credentials: {
-      sourceFields: {"cacheHint": "The token is reused in memory until the server rejects it (401). Saving the credential or ending the session clears the cache. There is no periodic refresh.", "unconfigured": "Reconfigure source", "source": "Source", "static": "Stored value", "env": "Environment variable", "keyring": "System keyring", "command": "Command", "oauth": "OAuth (coming soon)", "envName": "Variable name", "keyringName": "Windows target (or fill service and user)", "keyringService": "Keyring service (alternative to target)", "keyringUser": "Keyring user", "commandName": "Executable", "args": "Arguments (JSON array of strings)", "timeout": "Timeout in seconds", "oauthUnavailable": "OAuth is not available as a credential source yet.", "required": "Fill in the required fields.", "invalidArgs": "Enter a JSON array of strings for arguments.", "invalidTimeout": "Timeout must be between 1 and 300 seconds.", "entity": "Credential", "loadError": "Could not load credentials", "createSuccess": "Credential created!", "updateSuccess": "Credential updated!", "deleteSuccess": "Credential removed!", "deleteConfirm": "Remove credential {{pattern}}?"},
+    mcp: {
+      binding: 'Vault entry: {{pattern}}',
+      destination: 'Credential for {{hostname}}',
+      sharedHint: 'Uses the credential manager editor. Changes affect consumers using this destination. Without changes, the current credential is preserved.',
+      configure: 'Configure credential',
+      keepExisting: 'Keep current credential',
+    },
+      sourceFields: {
+      keyringChoice: 'Enter a Windows target or a service and user pair, not both.',"cacheHint": "The token is reused in memory until the server rejects it (401). Saving the credential or ending the session clears the cache. There is no periodic refresh.", "unconfigured": "Reconfigure source", "source": "Source", "static": "Stored value", "env": "Environment variable", "keyring": "System keyring", "command": "Command", "oauth": "Managed OAuth", "envName": "Variable name", "keyringName": "Windows target (or fill service and user)", "keyringService": "Keyring service (alternative to target)", "keyringUser": "Keyring user", "commandName": "Executable", "args": "Arguments (JSON array of strings)", "timeout": "Timeout in seconds", "oauthUnavailable": "Configure OAuth through the integration (MCP or provider). Authorization stays in the same vault; tokens are not entered manually.", "required": "Fill in the required fields.", "invalidArgs": "Enter a JSON array of strings for arguments.", "invalidTimeout": "Timeout must be between 1 and 300 seconds.", "entity": "Credential", "loadError": "Could not load credentials", "createSuccess": "Credential created!", "updateSuccess": "Credential updated!", "deleteSuccess": "Credential removed!", "deleteConfirm": "Remove credential {{pattern}}?"},
       types: { bearer: 'Bearer token', basic: 'Basic (username/password)', custom: 'Custom header', secret: 'Secret (internal use)' },
       pageTitle: 'Credentials',
       buttons: { new: 'New', delete: 'Delete', create: 'Create', view: 'View', edit: 'Edit' },
