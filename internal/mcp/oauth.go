@@ -174,11 +174,13 @@ func (rt *oauthProtocol) effectiveClientSecret() string {
 // não está configurado — sem isso, provedores como o Atlassian NÃO emitem
 // refresh_token e o usuário precisa reautenticar a cada expiração (issue #193).
 //
+// Sem scopes configurados, preservamos a ausência do parâmetro scope para não
+// substituir os defaults do provedor por apenas offline_access.
 // Só adicionamos quando o servidor declara suporte para evitar invalid_scope em
 // servidores que não conhecem o scope (ex.: alguns que usam access_type=offline).
 func (rt *oauthProtocol) effectiveScopes() []string {
 	scopes := append([]string(nil), rt.cfg.OAuth2Scopes...)
-	if containsFold(scopes, "offline_access") {
+	if len(scopes) == 0 || containsFold(scopes, "offline_access") {
 		return scopes
 	}
 	if rt.discovery != nil && containsFold(rt.discovery.ScopesSupported, "offline_access") {

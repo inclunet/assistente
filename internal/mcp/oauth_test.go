@@ -1254,6 +1254,61 @@ func TestEffectiveScopes_AddsOfflineAccessWhenSupported(t *testing.T) {
 	}
 }
 
+func TestAuthorizePKCEScopeParameterPreservesEmptyAndExplicitScopes(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		scopes []string
+		want   string
+	}{
+		{"empty", nil, ""},
+		{"resource", []string{"sql"}, "sql offline_access"},
+		{"explicit-refresh-only", []string{"offline_access"}, "offline_access"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/token" {
+					http.NotFound(w, r)
+					return
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = io.WriteString(w, `{"access_token":"test-access","token_type":"Bearer"}`)
+			}))
+			defer server.Close()
+			opened := false
+			previous := browserOpen
+			browserOpen = func(raw string) error {
+				opened = true
+				u, err := url.Parse(raw)
+				if err != nil {
+					return err
+				}
+				if u.Query().Get("scope") != tt.want || (tt.want == "" && u.Query().Has("scope")) {
+					t.Errorf("scope sent=%q want=%q", u.Query().Get("scope"), tt.want)
+				}
+				resp, err := http.Get(u.Query().Get("redirect_uri") + "?code=test&state=" + url.QueryEscape(u.Query().Get("state")))
+				if err != nil {
+					return err
+				}
+				_ = resp.Body.Close()
+				return nil
+			}
+			defer func() { browserOpen = previous }()
+			rt := &oauthProtocol{
+				cfg:       ServerConfig{URL: server.URL, OAuth2ClientID: "client", OAuth2AuthURL: server.URL + "/authorize", OAuth2TokenURL: server.URL + "/token", OAuth2Scopes: tt.scopes},
+				discovery: &OAuthDiscovery{ScopesSupported: []string{"offline_access", "admin"}},
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := rt.authorizePKCE(ctx); err != nil {
+				t.Fatal(err)
+			}
+			if !opened || rt.issuedToken == nil {
+				t.Fatal("PKCE flow did not complete")
+			}
+		})
+	}
+}
+
 func TestEffectiveScopes_NotAddedWhenUnsupported(t *testing.T) {
 	rt := &oauthProtocol{
 		cfg:       ServerConfig{OAuth2Scopes: []string{"read"}},

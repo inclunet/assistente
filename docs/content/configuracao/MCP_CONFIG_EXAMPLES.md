@@ -336,7 +336,8 @@ O preenchimento de **Scopes** usa as permissões publicadas pelo recurso MCP,
 sem acrescentar o catálogo inteiro do servidor de autorização. Quando há scopes
 do recurso, `offline_access` também é incluído se o emissor anuncia suporte à
 renovação. Se o recurso não informa scopes, o campo continua vazio; configure
-os scopes exigidos pelo provedor quando necessário.
+os scopes exigidos pelo provedor quando necessário. Se o campo permanecer vazio,
+a autorização omite o parâmetro `scope`, sem pedir `offline_access` isoladamente.
 
 Cadastros preenchidos por versões anteriores não são alterados automaticamente.
 Para refazer esse preenchimento, limpe **Scopes**, salve e reabra o editor. A

@@ -1716,6 +1716,8 @@ Status: **In Progress**. O preenchimento compartilhado segue a correção do
 AEP-0033: usa scopes PRM e suporte anunciado a `offline_access`, sem promover o
 catálogo ASM inteiro a requisito de autorização. As provas HTTP estão em
 `TestDiscoverOAuthSelectsResourceScopesWithoutServerCatalog`. O runtime mantém
-as capacidades anunciadas para renovação e continua recusando grants com scopes
+as capacidades anunciadas para renovação, mas não acrescenta `offline_access`
+isolado se não há scopes configurados (teste PKCE
+`TestAuthorizePKCEScopeParameterPreservesEmptyAndExplicitScopes`). Continua recusando grants com scopes
 insuficientes. Cadastros e snapshots antigos não são reescritos silenciosamente.
 Os aceites reais pendentes deste AEP, incluindo Databricks, não são presumidos.

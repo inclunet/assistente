@@ -337,10 +337,14 @@ Metadata parcial conserva apenas os scopes PRM. Ausência de scopes do recurso
 não autoriza inferir o catálogo ASM nem solicitar apenas `offline_access`.
 `DiscoverEndpoints.ScopesSupported` continua representando capacidades publicadas
 para o runtime, não sugestões de preenchimento; a autorização usa a configuração
-escolhida, com a negociação de renovação já existente.
+escolhida. O runtime só acrescenta `offline_access` quando há scopes
+configurados; um campo vazio mantém o parâmetro `scope` ausente. A escolha
+manual de `offline_access` isolado é preservada.
 
 `TestDiscoverOAuthSelectsResourceScopesWithoutServerCatalog` verifica os dois
 percursos HTTP, catálogo amplo, duplicação, renovação e ausência de PRM/scopes.
+`TestAuthorizePKCEScopeParameterPreservesEmptyAndExplicitScopes` verifica a URL
+real de consentimento, callback e troca de código com scopes vazios ou explícitos.
 Cadastros existentes e a validação de scopes concedidos permanecem preservados.
 Para corrigir um preenchimento antigo, limpar Scopes, salvar e reabrir o editor
 para repetir a descoberta; revisar e salvar antes de recriar o snapshot.
