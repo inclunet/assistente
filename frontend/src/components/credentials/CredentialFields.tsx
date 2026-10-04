@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState, type Ref } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ListExternalSources } from '@wailsjs/go/wailsapi/Credentials';
 import { Input } from '../ui/Input';
@@ -12,11 +12,13 @@ export function CredentialFields({
   onChange,
   fixedType = false,
   allowOAuth = true,
+  sourceRef,
 }: {
   value: CredentialDraft;
   onChange: (field: keyof CredentialDraft, value: unknown) => void;
   fixedType?: boolean;
   allowOAuth?: boolean;
+  sourceRef?: Ref<HTMLSelectElement>;
 }) {
   const { t } = useTranslation();
   const { announce } = useAnnouncer();
@@ -192,6 +194,7 @@ export function CredentialFields({
   return (
     <div className="credential-fields">
       <Select
+        ref={sourceRef}
         label={t('credentials.sourceFields.source')}
         value={value.source}
         options={(allowOAuth

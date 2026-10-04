@@ -1761,7 +1761,10 @@ fontes. Logout/troca de usuário e credencial ausente recusam o envio.
 O tipo Bearer/Basic legado restringe o snapshot aplicado pelo transporte; entradas
 incompatíveis não são enviadas. Prefixos Bearer preservam caixa e removem espaços
 externos, como no transporte anterior (`TestMCPCredentialRejectsIncompatibleScheme`
-e `TestMCPCredentialPreservesBearerNormalization`).
+e `TestMCPCredentialPreservesBearerNormalization`). Portas padrão explícitas e
+implícitas são equivalentes, sem aceitar mudança de esquema/host/porta efetiva
+(`TestMCPCredentialOriginDefaultPorts`). O editor move/restaura foco ao alternar
+campos e recusa valores compostos só por espaços antes de persistir o servidor.
 
 Nenhuma migração de dados é necessária neste incremento. OAuth composto já limpa
 os campos persistidos no servidor (`clearOAuthConfiguration`) e projeta a edição

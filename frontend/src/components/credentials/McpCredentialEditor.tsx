@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { GetCredentialForURL } from '@wailsjs/go/wailsapi/Credentials';
 import { Button } from '../ui/Button';
@@ -28,6 +28,14 @@ export function McpCredentialEditor({
   }
   const [draft, setDraft] = useState(() => newCredential(hostname, type));
   const [editing, setEditing] = useState(false);
+  const sourceRef = useRef<HTMLSelectElement>(null);
+  const configureRef = useRef<HTMLButtonElement>(null);
+  const wasEditing = useRef(false);
+  useEffect(() => {
+    if (editing) sourceRef.current?.focus();
+    else if (wasEditing.current) configureRef.current?.focus();
+    wasEditing.current = editing;
+  }, [editing]);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
   useEffect(() => {
@@ -61,6 +69,7 @@ export function McpCredentialEditor({
       {failed && <p>{t('credentials.sourceFields.loadError')}</p>}
       {!editing ? (
         <Button
+          ref={configureRef}
           disabled={loading || failed || !hostname}
           onClick={() => {
             setEditing(true);
@@ -72,6 +81,7 @@ export function McpCredentialEditor({
         <>
           <CredentialFields
             value={draft}
+            sourceRef={sourceRef}
             fixedType
             allowOAuth={false}
             onChange={(field, value) => {

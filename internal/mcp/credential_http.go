@@ -35,7 +35,18 @@ func sameCredentialOrigin(resource string, target *url.URL) bool {
 	origin, err := url.Parse(resource)
 	return err == nil && target != nil && origin.User == nil && target.User == nil &&
 		(origin.Scheme == "https" || origin.Scheme == "http") &&
-		strings.EqualFold(origin.Scheme, target.Scheme) && strings.EqualFold(origin.Host, target.Host)
+		strings.EqualFold(origin.Scheme, target.Scheme) && strings.EqualFold(origin.Hostname(), target.Hostname()) &&
+		credentialOriginPort(origin) == credentialOriginPort(target)
+}
+
+func credentialOriginPort(u *url.URL) string {
+	if port := u.Port(); port != "" {
+		return port
+	}
+	if strings.EqualFold(u.Scheme, "https") {
+		return "443"
+	}
+	return "80"
 }
 
 func (t *mcpCredentialTransport) RoundTrip(req *http.Request) (*http.Response, error) {

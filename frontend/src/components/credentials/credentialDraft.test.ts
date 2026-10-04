@@ -39,3 +39,25 @@ describe('shared credential draft', () => {
     ).toBe('credentials.sourceFields.invalidTimeout');
   });
 });
+
+it.each([
+  { type: 'bearer', token: '   ' },
+  { type: 'secret', token: '\t' },
+  { type: 'basic', username: '   ', password: 'secret' },
+  { type: 'basic', username: 'user', password: '   ' },
+  { type: 'custom', headerName: '   ', headerValue: 'secret' },
+  { type: 'custom', headerName: 'X-Key', headerValue: '   ' },
+])('rejects whitespace-only required fields like the controller: %j', (fields) => {
+  expect(validateCredential({ ...newCredential('example.com'), ...fields }, t)).toBe(
+    'credentials.sourceFields.required'
+  );
+});
+it('validates presence without changing secret bytes', () => {
+  const draft = {
+    ...newCredential('example.com', 'basic'),
+    username: ' user ',
+    password: ' secret ',
+  };
+  expect(validateCredential(draft, t)).toBeNull();
+  expect(credentialInput(draft).password).toBe(' secret ');
+});

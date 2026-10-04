@@ -244,3 +244,37 @@ func TestMCPCredentialPreservesBearerNormalization(t *testing.T) {
 		})
 	}
 }
+
+func TestMCPCredentialOriginDefaultPorts(t *testing.T) {
+	for _, origin := range []string{"https://example.com", "https://example.com:443", "http://example.com", "http://example.com:80"} {
+		manager := &Manager{credMgr: newTestCredMgr()}
+		if err := manager.credMgr.RegisterPattern("example.com", &credentials.AuthConfig{Source: "static", Type: "bearer", Token: "secret"}); err != nil {
+			t.Fatal(err)
+		}
+		client := manager.buildAuthHTTPClient(context.Background(), "test", ServerConfig{URL: origin, AuthType: AuthBearer})
+		for _, target := range []string{"https://EXAMPLE.com:443/sse", "https://example.com/endpoint", "http://EXAMPLE.com:80/sse", "http://example.com/endpoint", "https://example.com:444", "http://example.com:81", "https://other.example.com", "https://user@example.com"} {
+			req, _ := http.NewRequest(http.MethodGet, target, nil)
+			allowed := strings.HasPrefix(origin, "https:") && (target == "https://EXAMPLE.com:443/sse" || target == "https://example.com/endpoint") || strings.HasPrefix(origin, "http:") && (target == "http://EXAMPLE.com:80/sse" || target == "http://example.com/endpoint")
+			if got := client.CheckRedirect(req, nil) == nil; got != allowed {
+				t.Fatalf("redirect %s -> %s = %v", origin, target, got)
+			}
+			calls := 0
+			client.Transport.(*mcpCredentialTransport).base = roundTripFunc(func(*http.Request) (*http.Response, error) {
+				calls++
+				return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody}, nil
+			})
+			response, err := client.Transport.RoundTrip(req)
+			if allowed {
+				if err != nil {
+					t.Fatal(err)
+				}
+				_ = response.Body.Close()
+			} else if !errors.Is(err, credentials.ErrCredentialResolution) {
+				t.Fatalf("destination error: %v", err)
+			}
+			if (calls == 1) != allowed {
+				t.Fatalf("request escaped origin: %s -> %s", origin, target)
+			}
+		}
+	}
+}

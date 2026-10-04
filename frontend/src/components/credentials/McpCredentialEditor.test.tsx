@@ -28,11 +28,15 @@ describe('McpCredentialEditor', () => {
     await waitFor(() => expect(screen.getByRole('button')).toBeEnabled());
     expect(changed).toHaveBeenLastCalledWith(null);
     expect(UpsertCredential).not.toHaveBeenCalled();
+    screen.getByRole('button', { name: 'credentials.mcp.configure' }).focus();
     fireEvent.click(screen.getByRole('button', { name: 'credentials.mcp.configure' }));
+    expect(screen.getByLabelText('credentials.sourceFields.source')).toHaveFocus();
     expect(screen.getByLabelText('credentials.sourceFields.envName')).toHaveValue('PASSWORD_VAR');
     expect(screen.getByLabelText('credentials.labels.username')).toHaveValue('alice');
     expect((await axe.run(document.body)).violations.filter((v) => v.id !== 'region')).toEqual([]);
+    screen.getByRole('button', { name: 'credentials.mcp.keepExisting' }).focus();
     fireEvent.click(screen.getByRole('button', { name: 'credentials.mcp.keepExisting' }));
+    expect(screen.getByRole('button', { name: 'credentials.mcp.configure' })).toHaveFocus();
     expect(changed).toHaveBeenLastCalledWith(null);
     expect(UpsertCredential).not.toHaveBeenCalled();
   });

@@ -111,8 +111,10 @@ export function validateCredential(
     if ((!target && !pair) || (target && (item.keyringService?.trim() || item.keyringUser?.trim())))
       return t('credentials.sourceFields.keyringChoice');
   }
-  if (item.type === 'basic' && !item.username) return t('credentials.sourceFields.required');
-  if (item.type === 'custom' && !item.headerName) return t('credentials.sourceFields.required');
+  if (item.type === 'basic' && !item.username?.trim())
+    return t('credentials.sourceFields.required');
+  if (item.type === 'custom' && !item.headerName?.trim())
+    return t('credentials.sourceFields.required');
   if (item.source === 'static') {
     const value =
       item.type === 'basic'
@@ -120,7 +122,7 @@ export function validateCredential(
         : item.type === 'custom'
           ? item.headerValue
           : item.token;
-    if (!value) return t('credentials.sourceFields.required');
+    if (!value?.trim()) return t('credentials.sourceFields.required');
   }
   return null;
 }
