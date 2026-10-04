@@ -257,7 +257,7 @@ func discoverOAuthWithBudget(serverURL string, budget *discoveryBudget) Discover
 			Status:                   status,
 			ProtectedResourceFound:   protectedResourceFound,
 			ManualCompletionRequired: true,
-			Scopes:                   resourceScopes,
+			Scopes:                   suggestedResourceScopes(resourceScopes, nil),
 			ResourceName:             resourceName,
 			ResponseHints:            hints,
 			Error:                    err.Error(),
@@ -266,12 +266,7 @@ func discoverOAuthWithBudget(serverURL string, budget *discoveryBudget) Discover
 
 	logging.Infof(budget.ctx, "oauthflow.discovery", "[OAuth:discovery] Authorization Server Metadata encontrado (%s)", metadataType)
 
-	scopes := append([]string(nil), resourceScopes...)
-	for _, scope := range asm.ScopesSupported {
-		if !slices.Contains(scopes, scope) {
-			scopes = append(scopes, scope)
-		}
-	}
+	scopes := suggestedResourceScopes(resourceScopes, asm.ScopesSupported)
 
 	supportsPKCE := slices.Contains(asm.CodeChallengeMethodsSupported, "S256")
 
@@ -297,6 +292,22 @@ func discoverOAuthWithBudget(serverURL string, budget *discoveryBudget) Discover
 		SupportsPKCE:             supportsPKCE,
 		ResponseHints:            hints,
 	}
+}
+
+// suggestedResourceScopes selects permissions for this resource, not the
+// authorization server's entire catalog. Without resource scopes, do not guess
+// permissions or request offline_access alone in place of provider defaults.
+func suggestedResourceScopes(resourceScopes, serverScopes []string) []string {
+	var scopes []string
+	for _, scope := range resourceScopes {
+		if scope != "" && !slices.Contains(scopes, scope) {
+			scopes = append(scopes, scope)
+		}
+	}
+	if len(scopes) > 0 && slices.Contains(serverScopes, "offline_access") && !slices.Contains(scopes, "offline_access") {
+		scopes = append(scopes, "offline_access")
+	}
+	return scopes
 }
 
 // protectedResourceMetadata representa a resposta de
