@@ -82,6 +82,18 @@ describe('McpOAuthActions', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
+  it('invalida pendência anterior quando a reconsulta falha', async () => {
+    vi.mocked(InspectMCPOAuthInventory).mockResolvedValueOnce(items('legacy')).mockRejectedValue(new Error('PRIVATE'));
+    const view = render(page());
+    await screen.findByRole('button', { name: 'mcp.inventory.migrate' });
+    state.servers = [{}];
+    view.rerender(page());
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'mcp.inventory.migrate' })).not.toBeInTheDocument());
+    expect(InspectMCPOAuthInventory).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole('button', { name: 'mcp.inventory.advancedActions' })).toBeInTheDocument();
+    expect(screen.queryByText(/PRIVATE/)).not.toBeInTheDocument();
+  });
+
   it('mantém acesso avançado se a consulta falhar sem expor detalhes', async () => {
     vi.mocked(InspectMCPOAuthInventory).mockRejectedValue(new Error('PRIVATE'));
     render(page());

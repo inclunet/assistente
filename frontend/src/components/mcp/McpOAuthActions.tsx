@@ -29,6 +29,7 @@ function SessionOAuthActions() {
     void request.current.promise.then((items) => {
       if (active) setPending((items || []).some((item) => item.kind === 'legacy' || item.kind === 'client_credentials'));
     }).catch(() => {
+      if (active) setPending(false);
       // Unknown is not proof of completion. The advanced diagnostic stays
       // available and presents its existing safe error and retry-on-reopen.
     });
