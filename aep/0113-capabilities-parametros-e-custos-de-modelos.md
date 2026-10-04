@@ -1,265 +1,261 @@
-# AEP-0113 — Capabilities, parâmetros e custos por modelo e provedor
+# AEP-0113 — Compatibilidade de parâmetros por modelo e provedor
 
-Status: In Progress — arquitetura registrada; implementação dividida em PRs
+Status: In Progress — escopo revisado; implementação do PR #889 a retificar
 
 ## Resumo
 
-Esta AEP propõe um catálogo local e extensível dos modelos oferecidos por cada
-configuração de provedor, das capabilities de cada modelo, dos campos aceitos
-por capability e de seus limites ou opções. Também define como aprender uma
-restrição a partir de uma rejeição explícita da API, atualizar o perfil e
-repetir uma requisição com segurança.
+Esta AEP define o aprendizado de parâmetros não suportados pelo modelo de uma
+conexão: reconhecer uma rejeição explícita da API, guardar a restrição atual e
+repetir a requisição uma única vez sem o parâmetro, quando for seguro. Envios
+seguintes já omitem esse parâmetro e o Profile Manager oculta o campo
+identificado como não suportado.
 
-O catálogo não é um inventário global obrigatório de todos os modelos. Ele
-registra fatos com escopo e origem; valores desconhecidos continuam distintos
-de suporte e de não suporte. Consultas externas e preços entram em fases
-próprias e não serão dependência do caminho de envio nem da abertura do perfil.
+O armazenamento é de estado atual, não de afirmações históricas concorrentes.
+Não há auditoria, histórico imutável, reconciliador de fontes, importadores de
+catálogos ou jobs de atualização. Tarifas e custos estão fora deste AEP.
+
+Disponibilizar vozes compatíveis com modelos TTS em um select amigável continua
+como objetivo da última fase, a rediscutir. A obtenção e validação dessas vozes
+não estão definidas e não condicionam as primeiras entregas.
 
 ## Motivação
 
-Hoje o perfil pode enviar ao endpoint um parâmetro que o modelo selecionado não
-aceita, como `temperature`, `top_p` ou um limite de saída. A mesma intenção
-semântica pode ainda usar nomes de wire diferentes conforme o formato da API,
-como `max_tokens` e `max_completion_tokens`. Uma resposta HTTP 400 genérica não
-é prova suficiente para remover qualquer configuração: somente uma rejeição
-explícita e identificável de um campo permite aprender essa restrição.
+Um perfil pode enviar ao endpoint um parâmetro que o modelo não aceita, como
+`temperature` ou `top_p`. Repetir o mesmo erro exige intervenção desnecessária.
+O aplicativo deve aprender a restrição naquele provedor/modelo, recuperar a
+requisição quando seguro e não oferecer na UI um campo já incompatível.
 
-O problema também existe fora do chat. TTS, STT, reasoning, entrada e saída de
-áudio, imagem e vídeo, geração de imagens ou música têm capacidades e opções
-variáveis por modelo e endpoint. Catálogos públicos ajudam em alguns casos, mas
-não cobrem uniformemente os modelos e podem divergir do endpoint configurado.
-O usuário precisa ver opções compatíveis no Profile Manager e a aplicação deve
-deixar de enviar, sem intervenção recorrente, aquilo que o endpoint já recusou.
+Uma rejeição de parâmetro não equivale a uma rejeição de valor. HTTP 400
+genérico, autenticação, limite de uso, valor fora da faixa ou uma voz inválida
+não provam que o parâmetro inteiro é incompatível.
 
-O projeto já tem contratos que esta proposta deve preservar:
+A proposta original, registrada no PR #887 e iniciada no PR #889, ampliava esse
+problema para um catálogo de evidências com histórico, precedência de fontes,
+vínculos externos e preços. Esses requisitos foram retirados por decisão do
+mantenedor. Esta revisão substitui esse desenho, sem declarar a implementação
+existente como concluída.
 
-- o formato de API é propriedade de `llm_providers`, conforme o AEP-0037;
-- TTS separa modelo e voz, e `GetTTSVoices(providerID, modelID)` já define o
-  escopo da descoberta, conforme o AEP-0038;
-- `reasoning_content_mode` do AEP-0097 é uma extensão opcional de wire protocol
-  do provedor. Ele não substitui a informação de que um modelo oferece
-  reasoning como capacidade de produto;
-- envio e retry continuam no pipeline backend-driven do AEP-0040.
+Contratos preservados:
+
+- [AEP-0037](0037-sdk-migration-chat-provider.md): o formato de API pertence ao
+  provedor e o adaptador traduz parâmetros para o protocolo utilizado.
+- [AEP-0038](0038-voice-model-refactor.md): modelo e voz TTS são seleções
+  diferentes; um contrato de consulta não implica descoberta automática
+  disponível para todos os modelos.
+- [AEP-0097](0097-capabilities-de-protocolo-por-provedor.md): extensões de wire
+  protocol do provedor não se confundem com suporte de parâmetros do modelo.
+- [AEP-0040](0040-backend-driven-messaging.md): envio e retry continuam no
+  pipeline backend-driven existente.
 
 ## Decisões
 
-1. **O provedor existente continua sendo a raiz.** `llm_providers` mantém
-   identidade da conexão, endpoint, credenciais, `api_format` e opções de
-   protocolo. A identidade de compatibilidade da conexão tem revisão própria,
-   alterada quando mudarem endpoint, formato de API, adaptador ou identidade da
-   credencial/conta efetiva. Segredos não são armazenados nem hasheados para
-   formar essa revisão. `api_format` não será copiado para `llm_models`: um
-   modelo não define o protocolo usado para alcançá-lo.
+### 1. Escopo local e estado atual
 
-2. **O modelo pertence ao registro do provedor.** `llm_models` referencia um
-   `llm_providers.id` e guarda o identificador pelo qual aquele endpoint
-   conhece o modelo. Não terá `user_id` próprio: acesso e ciclo de vida vêm do
-   provedor, que pode ser configurado por usuário ou ser um provedor de sistema.
-   O mesmo ID remoto em duas configurações de provedor representa registros
-   distintos, pois endpoints OpenAI-compatible podem oferecer contratos
-   diferentes. Fatos aprendidos e vínculos externos também incluem a revisão
-   de compatibilidade do provedor; alterar essa identidade torna observações
-   anteriores inelegíveis para a resolução atual, mas preserva seu histórico.
+A restrição pertence ao provedor configurado, ao ID remoto do modelo e ao
+campo canônico no contexto da operação/capability. Um ID textual de modelo
+igual em dois endpoints não compartilha aprendizado. Campos homônimos de
+operações diferentes não compartilham restrições automaticamente.
 
-3. **Capabilities são fatos por modelo.** Um modelo pode ter várias
-   capabilities, cada uma com estado `supported`, `unsupported` ou `unknown`.
-   A lista inicial deve cobrir os casos já usados pelo produto — chat/texto,
-   reasoning, tools, entrada e saída multimodal, TTS, STT, geração de imagens e
-   geração de música — sem pressupor que todo provedor suporte todas elas.
-   Novos identificadores são adicionados a um catálogo controlado pela
-   aplicação, não aceitos como texto arbitrário vindo de uma resposta externa.
+O registro guarda apenas o estado atual necessário, a origem do aprendizado,
+o instante de atualização e a revisão de compatibilidade da conexão. A escrita
+é idempotente por identidade lógica; repetir a rejeição não acumula versões.
+Ausência de informação é `unknown`, nunca `unsupported`. Sucesso de uma
+requisição não prova suporte a todos os parâmetros que o endpoint pode ter
+ignorado, nem deve limpar indiscriminadamente restrições existentes.
 
-4. **Campos e limites também são fatos por modelo e capability.** Cada campo
-    canônico, como `temperature`, `top_p`, limite de saída, `voice` ou formato de
-    áudio, possui tipo conhecido e estado de suporte. Restrições são tipadas:
-    mínimo, máximo, passo, unidade e/ou opções permitidas. Opções enumeradas —
-    por exemplo, IDs de voz — são armazenadas como itens relacionados ao campo,
-    podendo carregar rótulo e metadados necessários pela UI. A identidade do
-    campo inclui a capability: `voice` de TTS e `voice` de Realtime são fatos
-    distintos.
+O domínio conhece e valida os campos que realmente consome. Não se constrói
+um catálogo de modalidades futuras nem se persiste texto arbitrário de erros
+como novo identificador. Não são exigidas tabelas duplicando o vocabulário
+estático do código, um grafo de capabilities ou um schema genérico de limites
+e opções para executar as fases 1–3.
 
-5. **O banco não recebe JSON livre para esses fatos.** As tabelas e o domínio
-   validam IDs de capability/campo e os tipos e limites definidos. Uma futura
-   fonte que traga formato novo precisa de normalizador versionado e validação
-   explícita antes de persistir. Schemas de tools continuam no contrato próprio
-   de tools; não são reutilizados como um depósito genérico para capabilities.
+O schema físico será definido na implementação mínima de persistência. Deve
+garantir unicidade, autorização e vínculo com o provedor; não exige tabelas de
+afirmações, vínculos externos, selos de opções ou triggers para proteger
+histórico. Origem e data são metadados operacionais, não auditoria. Logs e
+registros não armazenam credenciais nem o corpo bruto sensível da API.
 
-6. **A origem e o escopo fazem parte de cada afirmação.** O armazenamento
-    conceitual mantém origem (observação de execução, descoberta consultada no
-    endpoint, curadoria versionada pela aplicação, documentação/catálogo oficial
-    ou catálogo de terceiros), escopo, instante da observação, validade quando
-    conhecida e referência externa não sensível.
-    Os escopos distinguem conexão+revisão+modelo da aplicação, identidade de
-    provedor e modelo verificada por um adaptador, e informação genérica de
-    referência.
-    Uma fonte genérica só pode afetar envio ou ocultação na UI depois de haver
-    vínculo explícito e validado entre sua identidade de provedor/modelo e a
-    conexão selecionada. Só fatos vinculados entram nas afirmações efetivas do
-    modelo; fatos sem vínculo podem permanecer como referência de importação,
-    mas não alteram envio nem perfil. Duas fontes para o mesmo
-    modelo/capability/campo são afirmações distintas; uma não apaga
-    silenciosamente a outra.
+### 2. Identidade, invalidação e concorrência
 
-7. **A resolução de fatos é determinística e respeita o escopo.** Evidência da
-    revisão exata da conexão prevalece sobre dados importados de uma identidade
-    externa explicitamente verificada e vinculada à mesma revisão. Afirmações
-    com revisão anterior, genéricas ou sem vínculo nunca
-    omitem parâmetros nem ocultam controles, ainda que usem o mesmo ID textual
-    de modelo. Entre fatos aplicáveis, a ordem é:
-    1. observação direta de execução no endpoint;
-    2. descoberta consultada diretamente no endpoint — inclusive endpoint de
-       API oficial consultado para essa conexão;
-    3. curadoria versionada pela aplicação com vínculo exato;
-    4. documentação ou catálogo oficial importado com vínculo verificado;
-    5. catálogo de terceiros importado com vínculo verificado.
-    Dentro da mesma classe e escopo, prevalece a afirmação ativa mais recente;
-    empate ou conflito sem vencedor confiável resulta em `unknown`.
-    Uma afirmação expirada não governa envio nem ocultação. A precedência é
-    coberta por testes. A resolução é local e cacheável em memória; não consulta
-    a rede durante envio ou abertura do Profile Manager.
+O provedor existente continua sendo a raiz de configuração e autorização.
+`api_format` não é duplicado no modelo. Leitura e escrita respeitam usuário e
+escopo do provedor; uma requisição de usuário não pode publicar restrições
+globais em provedores de sistema sem a autorização correspondente.
 
-8. **O runtime traduz campos canônicos para o wire format.** O domínio trabalha
-   com intenção semântica (`max_output_tokens`, por exemplo); o adaptador do
-   formato de API converte para os nomes e estruturas de transporte. A escolha
-   do nome wire considera o contrato efetivo do provedor e o suporte conhecido
-   do modelo. Valores incompatíveis conhecidos são omitidos antes do envio.
+Uma revisão não secreta de compatibilidade muda quando mudam endpoint, formato,
+adaptador ou identidade efetiva de conta/credencial. Trocar apenas nome ou modelo
+padrão não invalida restrições de outros modelos. Renovação de token na mesma
+conta não é, por si só, troca de identidade. Segredos não são armazenados ou
+hasheados para compor a revisão.
 
-9. **Retry aprendido só ocorre diante de rejeição precisa de campo.** O runtime
-    registra o campo como não suportado somente quando o erro classifica
-    explicitamente o parâmetro como desconhecido ou não aceito. A chave do fato
-    inclui conexão, modelo, capability e campo canônico. Um erro de faixa ou
-    valor inválido não prova que o campo não é suportado: se identificar uma
-    opção enumerada inválida, pode marcar apenas aquela opção; se fornecer
-    limites explícitos e inequívocos, pode atualizar a restrição; caso
-    contrário, o fato permanece inconclusivo. Rejeição de valor não autoriza
-    retry removendo o campo. Para uma rejeição explícita de campo, o runtime
-    tenta uma única vez sem ele somente se a primeira tentativa falhou antes de
-    produzir conteúdo ou efeito externo. HTTP 400 genérico, erro de
-    autenticação, erro transitório, resposta parcial ou rejeição ambígua não
-    autoriza remoção nem retry automático.
+A requisição captura a revisão da configuração efetivamente usada, não uma
+versão possivelmente desatualizada do registry. Mudanças de identidade
+invalidam o estado aplicável e qualquer cache antes do próximo uso; uma resposta
+atrasada da revisão anterior não pode repovoá-los. A comparação da revisão e a
+gravação devem ser atômicas. Registros invalidados podem ser removidos ou
+substituídos, sem obrigação de preservar histórico.
 
-10. **A UI filtra apenas fatos conhecidos.** Ao selecionar um modelo, o Profile
-    Manager oculta opções conhecidas como não suportadas e restringe campos
-    enumerados às opções disponíveis conhecidas. `unknown` não significa
-    `unsupported`: falta de catálogo ou lista vazia não pode, por si só, ocultar
-    uma configuração válida. Configurações persistidas no perfil podem ser
-    preservadas ao trocar de modelo, mas o runtime nunca as envia quando a
-    resolução local as marca como não suportadas.
+### 3. Classificação explícita e tradução de parâmetros
 
-11. **Catálogos externos são importadores opcionais.** Cada fonte futura entra
-   por um adaptador que normaliza, valida, registra proveniência e faz
-   atualização idempotente. Uma operação de sincronização invocável
-   manualmente e os jobs agendados chamam o mesmo serviço; não há dois fluxos
-   de importação. Falha de sincronização preserva o último dado válido e
-   registra o resultado. O fluxo de aprendizado pela API funciona sem fontes
-   externas. Listas de vozes já consultadas pelo contrato do AEP-0038 podem ser
-   armazenadas localmente no escopo de provedor/modelo e reutilizadas pela UI.
+O adaptador identifica rejeições explícitas de parâmetro desconhecido ou não
+suportado e mapeia o nome de transporte para um campo canônico conhecido da
+operação. Só se aprende sobre um parâmetro efetivamente enviado na tentativa.
+Não há interpretação livre por LLM nem classificador genérico baseado apenas
+em HTTP 400 ou palavras isoladas da mensagem.
 
-12. **Preço é dado de cobrança separado de capability.** A fase de preços usa
-    registros por modelo e provedor, com unidade de cobrança, direção ou
-    modalidade, moeda, valor preciso, origem e vigência. Deve comportar tokens
-    de entrada/saída e cache, além de unidades como caracteres, segundos de
-    áudio ou imagens quando aplicável. Preços importados de terceiros são
-    estimativas identificadas como tal; atualizar uma tarifa não pode recalcular
-    silenciosamente o custo histórico já registrado.
+O domínio preserva a intenção semântica; a tradução para nomes como
+`max_tokens` ou `max_completion_tokens` permanece no adaptador existente.
+Rejeitar um alias de transporte não prova que todas as representações da mesma
+intenção são inválidas. Só registrar não suporte do campo canônico quando o
+adaptador puder estabelecer essa correspondência sem ambiguidade.
 
-13. **A entrega será incremental, com PRs verticais de tamanho moderado.** Cada
-    PR implementa um resultado observável, inclui testes do contrato alterado e
-    atualiza fases/critério deste AEP no mesmo PR. O PR desta AEP é somente
-    documental; nenhum schema ou comportamento de runtime é introduzido nele.
+Erros de faixa, enum, autenticação, permissão, cota, rede e rejeições ambíguas
+mantêm seu tratamento normal. A primeira entrega não infere automaticamente
+limites nem listas de opções a partir de mensagens de erro. Rejeitar uma voz
+não marca o parâmetro `voice` inteiro como não suportado.
 
-### Esquema conceitual
+### 4. Aprendizado e retry no pipeline existente
 
-Os nomes abaixo descrevem entidades e relações; colunas finais e índices serão
-fechados na fase de persistência, com migração e testes. A estrutura não guarda
-um blob de capabilities sem validação:
+Uma rejeição elegível grava a restrição atual e permite no máximo um retry de
+compatibilidade por envio, sem o parâmetro rejeitado. O orçamento é compartilhado
+entre os adaptadores participantes do envio: outro erro na segunda tentativa
+não inicia uma cadeia de remoções ou retries.
 
-| Entidade | Conteúdo e relação |
-|---|---|
-| `llm_providers` | Tabela existente. Configuração do endpoint, protocolo, credenciais, escopo e revisão não secreta de compatibilidade. |
-| `llm_models` | Modelo anunciado pelo provedor; FK para `llm_providers`, ID remoto e metadados estáveis. Sem `user_id` e sem `api_format`. |
-| `llm_model_catalog_bindings` | Vínculo explícito e verificável entre um modelo local, a revisão compatível da conexão e a identidade provedor/modelo de uma fonte externa; igualdade textual do ID, marca ou formato compatível não basta. |
-| `llm_capabilities` | Vocabulário controlado pela aplicação para capacidades como `tts`, `stt`, chat, entrada de imagem ou geração de áudio. |
-| `llm_model_capabilities` | Afirmações `supported`/`unsupported`/`unknown` de uma capability para um modelo, com origem, escopo e instante de observação. Mais de uma origem pode afirmar sobre o mesmo par. |
-| `llm_capability_fields` | Vocabulário dos campos canônicos, seus tipos, unidade e capability a que pertencem; a chave inclui capability para evitar colisões semânticas. |
-| `llm_model_capability_fields` | Afirmações de suporte do campo para aquela capability/modelo e restrições escalares tipadas, como mínimo, máximo e passo. A chave do aprendizado inclui conexão, modelo, capability e campo. |
-| `llm_model_capability_field_options` | Opções enumeradas relacionadas a uma afirmação de campo, com suporte/origem próprios quando necessário; por exemplo, IDs e rótulos de vozes sem misturar listas de fontes diferentes. |
-| `llm_model_prices` | Tarifas versionadas por provedor/modelo, unidade, modalidade/direção, moeda, origem e período de vigência; separadas do grafo de capabilities. |
+O retry só ocorre antes de conteúdo parcial, raciocínio exposto, tool calls ou
+qualquer efeito externo. Não reexecuta tools, não reinicia um turno que já
+produziu efeitos e não cria mensagens, placeholders ou caminhos de envio
+paralelos. Mantém identidade da mensagem, cancelamento, eventos e contrato de
+erro do pipeline backend-driven; `RetryMessage` continua sendo o retry explícito
+do usuário. O cancelamento impede nova tentativa.
 
-As tabelas de afirmações preservam origem e escopo em vez de impor unicidade
-apenas por `(modelo, capability)` ou `(modelo, campo)`. Opções enumeradas
-pertencem à afirmação que as fornece, para duas fontes não se misturarem. A
-resolução projeta um fato efetivo sem apagar afirmações concorrentes.
+A remoção deve ser segura para o campo conhecido pelo adaptador. Se o parâmetro
+for obrigatório ou sua ausência violar uma condição essencial da operação,
+apresenta-se erro em vez de degradar silenciosamente a requisição. Essa regra
+também vale para envios posteriores que encontrem a restrição já registrada.
+
+O retry usa o mesmo snapshot da conexão. Se a revisão tiver mudado, não grava
+o aprendizado antigo nem reaplica automaticamente a tentativa em outra conta
+ou endpoint. Falha de persistência não pode ser reportada como aprendizado
+concluído: preservar o erro e não iniciar o retry de compatibilidade nessa
+situação. Uma restrição validamente registrada permanece mesmo se o retry
+falhar por outra causa.
+
+### 5. Envio e interface consomem o mesmo estado
+
+Envios seguintes omitem parâmetros opcionais identificados como não suportados.
+O Profile Manager oculta os campos correspondentes para aquele provedor/modelo,
+usando a mesma informação do backend, sem catálogo ou heurística paralelos no
+frontend. Campos desconhecidos continuam disponíveis.
+
+Ocultar não apaga o valor salvo no perfil. Trocar de modelo/conexão reavalia a
+visibilidade e o envio; uma restrição de um modelo não contamina outro. Abrir a
+tela não depende de rede externa. Atualizações preservam foco e acesso por
+teclado/leitor de telas, sem deixar foco num controle removido.
+
+Limpar ou gerenciar restrições nas configurações é uma melhoria posterior,
+não requisito da primeira entrega. Nas fases 1–3 não há expiração periódica,
+job ou sondagem automática: a restrição permanece enquanto a identidade da
+conexão for a mesma, até remoção explícita ou futura política aprovada. O risco
+de suporte do endpoint evoluir sem mudança de identidade é aceito inicialmente.
+
+### 6. Vozes TTS: objetivo futuro, mecanismo ainda não aprovado
+
+A última fase pretende oferecer IDs e nomes amigáveis de vozes compatíveis com
+o modelo TTS em um select acessível, respeitando a separação modelo/voz do
+AEP-0038. Não se presume descoberta automática disponível atualmente.
+
+Antes de implementar, rediscutir como obter, validar e atualizar a lista. Busca
+assistida por modelo ou uma lista de vozes conhecidas com testes de síntese são
+possibilidades, não decisões aprovadas. Informação encontrada pode estar errada;
+testes podem gerar custo e uma falha pode ter causa diferente da voz. Não se
+autoriza busca, sondagem ou cobrança automática por esta AEP.
+
+Essa fase deverá distinguir lista completa, lista parcial e rejeição de um
+valor específico, sem transformar ausência numa lista em não suporte. O schema,
+a estratégia de atualização e os critérios detalhados serão definidos quando
+a fase for retomada. Não se antecipa infraestrutura de opções nas fases 1–3.
+
+### 7. Escopo retirado e relação com o PR #889
+
+Ficam substituídos os requisitos anteriores de afirmações concorrentes,
+auditoria imutável, resolução por precedência de fontes, vínculos de catálogos,
+histórico de verificações e selagem de opções. As antigas fases de fontes/jobs
+e tarifas/custos foram retiradas, não permanecem como entregas pendentes.
+Se houver necessidade futura de custos, será discutida separadamente.
+
+Este PR é exclusivamente documental. Após seu merge pelo mantenedor, o PR #889
+deve incorporar a `main` revisada e retificar persistência, migrações e testes
+para este contrato antes de ser considerado pronto. O mantenedor confirmou
+que a branch não foi executada em instalações; suas migrações inéditas podem
+ser consolidadas sem suportar estados intermediários daquela branch. Isso não
+autoriza renumerar ou remover migrações já publicadas na `main`.
 
 ## Fases
 
-| Fase / PR planejado | Entrega | Limite da fase |
-|---|---|---|
-| 0 — PR de documentação | Registrar e revisar esta arquitetura e a sequência de entrega. | Sem migração ou mudança de runtime. |
-| 1 — Persistência e resolução local | Adicionar revisão de compatibilidade do provedor, modelos por provedor, catálogo controlado de capabilities/campos, afirmações com origem, limites/opções tipados e resolver determinístico/cacheável. | Sem consultas externas e sem alterar o envio. |
-| 2 — Compatibilidade no envio | Traduzir campos canônicos, omitir incompatibilidades conhecidas e aprender rejeições precisas com no máximo um retry seguro. | Integrar ao pipeline backend existente; sem caminho paralelo de mensagem. |
-| 3 — Profile Manager e vozes | Filtrar opções usando fatos locais; persistir/reutilizar listas de vozes por provedor/modelo e estados de desconhecimento. | Abrir a tela não espera por API externa. |
-| 4 — Fontes e jobs | Criar interface de importadores e uma operação de sincronização reutilizada pela chamada manual e pelos jobs, com validação, atualização idempotente, proveniência e vínculos explícitos de identidade; começar por fontes cuja cobertura e licença sejam adequadas. | Fatos externos só governam conexão com identidade de provedor/modelo explicitamente verificada. |
-| 5 — Tarifas e custo | Persistir tabelas de preço versionadas por unidade e origem e usá-las em estimativas sem reescrever histórico. | Não misturar tarifas com campos/capabilities nem prometer precisão quando a fonte for estimada. |
+0. **Revisão documental — registrada neste documento.** Substituir a direção
+   original do PR #887, alinhar o índice e orientar a retificação do #889.
+   Nenhuma alteração de schema ou comportamento é entregue nesta revisão.
+1. **Persistência mínima — pendente; PR #889 a retificar.** Estado atual de
+   restrições por provedor/modelo/operação/campo, unicidade, autorização,
+   revisão de conexão e recusa de gravações obsoletas. Sem histórico,
+   catálogos externos, jobs ou infraestrutura de vozes.
+2. **Envio, aprendizado e retry — pendente.** Integrar o estado ao pipeline,
+   capturar a revisão efetiva, classificar rejeições explícitas, persistir e
+   repetir uma vez com segurança; envios seguintes respeitam o aprendizado.
+3. **Profile Manager — pendente.** Ocultar campos não suportados, manter
+   desconhecidos disponíveis e preservar valores salvos e acessibilidade.
+4. **Vozes TTS — futura, a rediscutir.** Objetivo de seleção amigável, sem
+   mecanismo de descoberta, schema ou automação aprovados. Não bloqueia a
+   entrega das fases 1–3 e não autoriza implementação antecipada.
 
-As fases 1–3 entregam o benefício central sem depender de serviço externo. As
-fases 4–5 podem avançar depois, respeitando as interfaces e o escopo definidos
-nas fases anteriores. A ordem de merge dos PRs acompanha a tabela; PR que
-depender de uma fase ainda aberta deve ser empilhado sobre ela.
+PRs seguem essa ordem; dependências ainda abertas exigem empilhamento. O status
+permanece `In Progress` enquanto as fases 1–3 estiverem pendentes. Concluídas
+essas fases, documento e índice podem marcar `Done` para o escopo aprovado,
+mantendo explícito que a fase 4 é uma proposta futura que exige nova decisão.
 
 ## Riscos
 
-- **Falso não suporte:** gateways variam e mensagens de erro são inconsistentes.
-  Exigir identificação explícita, restringir o escopo à conexão e manter estado
-  desconhecido reduz a chance de desabilitar uma opção válida.
-- **Retry duplicado ou perda de conteúdo:** repetir depois de streaming parcial
-  pode duplicar efeitos. O retry aprendido é único e permitido somente antes de
-  conteúdo/efeito externo.
-- **Fontes divergentes ou desatualizadas:** persistir origem, escopo e
-  atualidade; fatos de endpoint customizado não são generalizados pelo nome do
-  provedor/modelo, fontes sem identidade verificada são informativas e uma
-  alteração de conexão invalida observações da revisão anterior.
-- **Esquema rígido demais:** capabilities e tipos evoluem. A lista controlada e
-  os normalizadores versionados permitem extensão sem aceitar JSON inválido ou
-  texto arbitrário como contrato.
-- **Custo de resolução:** a resolução não depende de rede e usa projeção/cache
-  local por versão do catálogo; atualizações invalidam o cache sem bloquear a
-  interface.
-- **Preço estimado confundido com cobrança real:** guardar origem, unidade,
-  vigência e grau de precisão e preservar a tarifa aplicável ao uso histórico.
+- **Falso não suporte:** classificação específica do adaptador, parâmetro
+  realmente enviado e identificação inequívoca são obrigatórios. Um erro de
+  valor não elimina o campo inteiro.
+- **Repetição com efeitos:** limitar o retry e recusar saída parcial, tools,
+  cancelamento e mudança de revisão evita repetir operações já executadas.
+- **Estado obsoleto:** verificar a revisão efetivamente usada e invalidar
+  caches evita transportar restrições entre endpoints ou contas. Evolução do
+  modelo na mesma conexão pode exigir limpeza manual futura; não há promessa
+  de atualização automática nesta entrega.
+- **UI e runtime divergentes:** ambos consomem o estado do backend. Testes
+  devem cobrir troca de modelo e campos ocultos com valores ainda persistidos.
+- **Retorno da complexidade retirada:** a implementação não deve reintroduzir
+  histórico, reconciliação de múltiplas fontes ou schema de modalidades futuras sob outros
+  nomes. Extensões precisam de um consumidor e de uma necessidade concreta.
+- **Vozes incorretas ou testes pagos:** aquisição e validação serão revistas
+  antes da fase 4; as primeiras entregas não fazem essas consultas ou testes.
 
 ## Critérios de aceitação
 
-- [ ] `llm_models` é ligado a `llm_providers` e não contém `user_id` nem
-  `api_format`; IDs iguais em endpoints distintos não compartilham fatos
-  aprendidos automaticamente.
-- [ ] Aprendizados e vínculos importados incluem a revisão não secreta da
-  identidade de compatibilidade; mudar endpoint, formato, adaptador ou escopo da
-  conta invalida fatos efetivos anteriores sem apagar o histórico nem armazenar
-  hash/segredo da credencial.
-- [ ] Suporte de capability e de campo tem os estados suportado, não suportado
-  e desconhecido, com origem e instante de observação.
-- [ ] Campos, limites e opções enumeradas são validados por tipos e restrições
-  conhecidos; dado externo arbitrário não entra em coluna JSON sem schema
-  versionado e validação.
-- [ ] Múltiplas afirmações para o mesmo modelo/campo permanecem auditáveis e a
-  resolução efetiva é determinística, local e coberta por testes, inclusive a
-  precedência da curadoria versionada.
-- [ ] A resolução nunca usa fato genérico para omitir campo ou ocultar controle
-  sem vínculo validado da identidade externa de provedor/modelo à conexão.
-- [ ] Parâmetros canônicos são convertidos para o formato de wire correto e
-  fatos de não suporte da conexão/modelo impedem envio futuro do campo.
-- [ ] Somente uma rejeição precisa de campo incompatível produz aprendizado e
-  retry único antes de saída parcial; outros erros mantêm o comportamento de
-  erro original. Rejeições de valor não desabilitam o campo e a identidade do
-  fato aprendido inclui capability e campo.
-- [ ] O Profile Manager oculta o campo/valor comprovadamente incompatível para
-  o modelo selecionado, mantém estado desconhecido distinto e não espera uma
-  chamada externa para abrir.
-- [ ] Sincronizadores validam e importam fatos idempotentemente em segundo
-  plano, preservando dados válidos quando uma fonte falha.
-- [ ] Preços têm escopo provedor/modelo, unidade, moeda, origem e vigência; a
-  mudança de tarifa não altera custo histórico.
-- [ ] Cada fase implementada atualiza esta AEP e `aep/README.md` com status e
-  evidências no mesmo PR; até concluir todas as fases, o status permanece
-  `In Progress`.
+- [x] Revisão documental explicita o novo escopo, substitui as exigências de
+  histórico e remove fontes/jobs e custos; índice usa o mesmo título/status.
+- [ ] Restrições persistem entre sessões, isoladas por provedor, modelo e
+  operação/campo; repetir a mesma rejeição não acumula registros históricos.
+- [ ] Ausência de restrição não omite parâmetros nem oculta campos.
+- [ ] Autorização impede acesso entre usuários e publicação global indevida;
+  exclusão do provedor remove o estado dependente.
+- [ ] Troca de identidade invalida restrições e caches; uma resposta atrasada
+  não grava na nova revisão. Testar também concorrência entre troca e gravação.
+- [ ] O snapshot da requisição corresponde à revisão efetiva da conexão,
+  incluindo mudanças de credencial/conta, sem armazenar segredos no estado.
+- [ ] Rejeição explícita de parâmetro enviado e conhecido gera restrição e um
+  retry seguro; o próximo envio omite o parâmetro sem repetir o erro.
+- [ ] Testes negativos cobrem HTTP 400 genérico, autenticação, erro transitório,
+  valor/faixa/voz inválidos, alias ambíguo, campo não enviado e obrigatório.
+- [ ] Não há segundo retry de compatibilidade, repetição de tools ou nova
+  mensagem; saída parcial, cancelamento, falha de persistência e revisão
+  alterada impedem a repetição automática.
+- [ ] O Profile Manager oculta campos não suportados usando o estado do backend,
+  preserva valores salvos, reavalia ao trocar de modelo e mantém foco acessível.
+- [ ] Fases implementadas atualizam este documento, o índice e a documentação
+  de usuário correspondente com testes e evidências no mesmo PR.
+
+A fase de vozes requer nova discussão e critérios próprios antes de sua
+implementação; não integra os critérios de conclusão das fases 1–3.
