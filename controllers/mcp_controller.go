@@ -255,3 +255,14 @@ func (c *MCPController) SaveMCPServerWithOAuthSecret(slug string, cfg mcpmgr.Ser
 	}
 	return c.mcpMgr.SaveConfigWithOAuthSecret(slug, cfg, secret)
 }
+
+func (c *MCPController) SaveMCPServerWithCredential(ctx context.Context, slug string, cfg mcpmgr.ServerConfig, input apidto.CredentialInput) error {
+	if err := c.guardMgr(); err != nil {
+		return err
+	}
+	pattern, auth, err := parseCredentialInput(input)
+	if err != nil {
+		return err
+	}
+	return c.mcpMgr.SaveConfigWithCredential(ctx, slug, cfg, pattern, auth)
+}

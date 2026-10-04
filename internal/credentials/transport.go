@@ -42,6 +42,8 @@ const (
 // nos requests HTTP. Projetado para uso com SDKs oficiais (openai-go, etc)
 // que aceitam http.Client customizado.
 type CredentialTransport struct {
+	// ExpectedType optionally constrains the resolved snapshot for legacy consumers.
+	ExpectedType        string
 	DisableCommandCache bool // SDKs que capturam uma chave fora deste transport
 	Base                http.RoundTripper
 	CredMgr             *Manager
@@ -123,6 +125,12 @@ func (t *CredentialTransport) RoundTrip(req *http.Request) (*http.Response, erro
 		}
 		return nil, fmt.Errorf("%w: %w", ErrCredentialResolution, err)
 	}
+	if t.ExpectedType != "" && (auth == nil || auth.Type != t.ExpectedType) {
+		if req.Body != nil {
+			_ = req.Body.Close()
+		}
+		return nil, fmt.Errorf("%w: credential_scheme_mismatch", ErrCredentialResolution)
+	}
 	if auth == nil {
 		if t.AuthMode == AuthOptional {
 			stripManagedPlaceholder(req)
@@ -157,7 +165,7 @@ func (t *CredentialTransport) RoundTrip(req *http.Request) (*http.Response, erro
 		_ = response.Body.Close()
 		return nil, fmt.Errorf("%w: %w", ErrCredentialResolution, err)
 	}
-	if fresh == nil || fresh.commandEntry != auth.commandEntry {
+	if fresh == nil || fresh.commandEntry != auth.commandEntry || (t.ExpectedType != "" && fresh.Type != t.ExpectedType) {
 		return response, nil
 	}
 	if sameHTTPAuth(auth, fresh) {
@@ -280,8 +288,8 @@ func ApplyAuth(req *http.Request, auth *AuthConfig) error {
 		if strings.TrimSpace(auth.Token) == "" {
 			return fmt.Errorf("token de credencial vazio")
 		}
-		token := auth.Token
-		if !strings.HasPrefix(token, "Bearer ") {
+		token := strings.TrimSpace(auth.Token)
+		if !strings.HasPrefix(strings.ToLower(token), "bearer ") {
 			token = "Bearer " + token
 		}
 		req.Header.Set("Authorization", token)

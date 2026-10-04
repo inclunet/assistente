@@ -1722,38 +1722,8 @@ func (m *Manager) buildAuthHTTPClient(ctx context.Context, slug string, cfg Serv
 	case AuthOAuth2PKCE, AuthOAuth2ClientCredentials:
 		return oauthflow.NewResourceHTTPClient(cfg.URL, oauthErrorTransport{errOAuthMigrationRequired})
 
-	case AuthBearer:
-		if m.credMgr != nil && cfg.URL != "" {
-			if auth, err := m.credMgr.ResolveForURLWithContext(m.credentialContext(), cfg.URL); err == nil && auth != nil && auth.Token != "" {
-				client := &http.Client{
-					Transport: &bearerRoundTripper{
-						base:  newMCPTransport(),
-						token: auth.Token,
-					},
-				}
-				logging.Infof(context.Background(), "mcp.manager", "[MCP:%s] HTTP client configurado com Bearer token", slug)
-				return client
-			}
-		}
-		logging.Infof(context.Background(), "mcp.manager", "[MCP:%s] Bearer auth configurado mas sem token no credential manager", slug)
-		return nil
-
-	case AuthBasic:
-		if m.credMgr != nil && cfg.URL != "" {
-			if auth, err := m.credMgr.ResolveForURLWithContext(m.credentialContext(), cfg.URL); err == nil && auth != nil && auth.Username != "" {
-				client := &http.Client{
-					Transport: &basicAuthRoundTripper{
-						base:     newMCPTransport(),
-						username: auth.Username,
-						password: auth.Password,
-					},
-				}
-				logging.Infof(context.Background(), "mcp.manager", "[MCP:%s] HTTP client configurado com Basic auth", slug)
-				return client
-			}
-		}
-		logging.Warnf(context.Background(), "mcp.manager", "[MCP:%s] Basic auth configurado mas sem credenciais no credential manager", slug)
-		return nil
+	case AuthBearer, AuthBasic:
+		return m.credentialHTTPClient(cfg)
 
 	default:
 		return nil
@@ -1848,31 +1818,6 @@ func probeSSESupport(parentCtx context.Context, mcpURL string, authClient *http.
 		logging.Debugf(context.Background(), "mcp.manager", "[MCP:probe] SSE probe: HTTP %d, Content-Type: %s", resp.StatusCode, ct)
 		return true, "", nil // ambiguous — assume supported, let SDK handle it
 	}
-}
-
-// bearerRoundTripper injeta Authorization: Bearer em todas as requisições.
-type bearerRoundTripper struct {
-	base  http.RoundTripper
-	token string
-}
-
-func (rt *bearerRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
-	cloned := req.Clone(req.Context())
-	cloned.Header.Set("Authorization", bearerAuthorizationHeader(rt.token))
-	return rt.base.RoundTrip(cloned)
-}
-
-// basicAuthRoundTripper injeta Authorization: Basic em todas as requisições.
-type basicAuthRoundTripper struct {
-	base     http.RoundTripper
-	username string
-	password string
-}
-
-func (rt *basicAuthRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
-	cloned := req.Clone(req.Context())
-	cloned.SetBasicAuth(rt.username, rt.password)
-	return rt.base.RoundTrip(cloned)
 }
 
 // setError atualiza o status de um servidor para erro.

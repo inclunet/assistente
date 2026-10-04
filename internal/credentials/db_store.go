@@ -40,6 +40,11 @@ func (s *DBStore) ensureDB() (*gorm.DB, error) {
 }
 
 func (s *DBStore) SaveCredential(ctx context.Context, cred StoredCredential) error {
+	return s.saveCredential(ctx, cred, false)
+}
+
+// inTransaction is reserved for vault operations already holding the SQLite writer.
+func (s *DBStore) saveCredential(ctx context.Context, cred StoredCredential, inTransaction bool) error {
 	db, err := s.ensureDB()
 	if err != nil {
 		return err
@@ -93,7 +98,7 @@ func (s *DBStore) SaveCredential(ctx context.Context, cred StoredCredential) err
 		ClientSecretEnc: cred.Auth.ClientSecret,
 	}
 
-	return database.WithSQLiteImmediateTransaction(ctx, db, "credentials.save", func(tx *gorm.DB) error {
+	write := func(tx *gorm.DB) error {
 		if strings.HasPrefix(cred.Pattern, "connection:") || cred.Auth.Type == StaticConnectionType {
 			return ErrStaticConnection
 		}
@@ -139,7 +144,11 @@ func (s *DBStore) SaveCredential(ctx context.Context, cred StoredCredential) err
 			Columns:   []clause.Column{{Name: "user_id"}, {Name: "pattern"}},
 			UpdateAll: true,
 		}).Create(&entry).Error
-	})
+	}
+	if inTransaction {
+		return write(db.WithContext(ctx))
+	}
+	return database.WithSQLiteImmediateTransaction(ctx, db, "credentials.save", write)
 }
 
 func guardLegacyMCPOAuthWrite(tx *gorm.DB, userID, pattern string) error {

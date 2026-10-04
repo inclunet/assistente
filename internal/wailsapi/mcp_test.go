@@ -2,6 +2,8 @@ package wailsapi
 
 import (
 	"assistente/controllers"
+	"assistente/internal/apidto"
+	mcpmgr "assistente/internal/mcp"
 	"errors"
 	"os"
 	"path/filepath"
@@ -13,6 +15,9 @@ import (
 func TestMCPNotWired(t *testing.T) {
 	t.Parallel()
 	api := NewMCP()
+	if err := api.SaveMCPServerWithCredential("test", mcpmgr.ServerConfig{}, apidto.CredentialInput{}); !errors.Is(err, ErrMCPNotWired) {
+		t.Fatalf("SaveMCPServerWithCredential: %v", err)
+	}
 	if _, err := api.InspectMCPOAuthInventory(); !errors.Is(err, ErrMCPNotWired) {
 		t.Fatalf("InspectMCPOAuthInventory: got %v", err)
 	}
@@ -79,5 +84,14 @@ func TestMCPUsesWithUserNotRequireAuth(t *testing.T) {
 	}
 	if !strings.Contains(body, "WithUser(") {
 		t.Fatal("mcp.go deve chamar WithUser(")
+	}
+}
+
+func TestMCPCredentialSaveRequiresSession(t *testing.T) {
+	want := errors.New("no session")
+	api := NewMCP()
+	AttachMCP(api, stubSession{err: want}, controllers.NewMCPController(nil, nil, nil))
+	if err := api.SaveMCPServerWithCredential("test", mcpmgr.ServerConfig{}, apidto.CredentialInput{}); !errors.Is(err, want) {
+		t.Fatalf("got %v", err)
 	}
 }

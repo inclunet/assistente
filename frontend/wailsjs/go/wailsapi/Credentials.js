@@ -6,6 +6,10 @@ export function DeleteCredential(arg1) {
   return window['go']['wailsapi']['Credentials']['DeleteCredential'](arg1);
 }
 
+export function GetCredentialForURL(arg1) {
+  return window['go']['wailsapi']['Credentials']['GetCredentialForURL'](arg1);
+}
+
 export function ListCredentials() {
   return window['go']['wailsapi']['Credentials']['ListCredentials']();
 }
