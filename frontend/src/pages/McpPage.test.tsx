@@ -11,6 +11,8 @@ const mockConnect = vi.fn();
 const mockToast = vi.fn();
 const mockGetConfig = vi.fn();
 const mockLoadServers = vi.fn();
+const mockSetupEventListeners = vi.fn(() => () => {});
+let mockLoadRevision = 0;
 const mockDuplicate = vi.fn();
 const mockDiscover = vi.hoisted(() =>
   vi.fn(async (_url?: string): Promise<Record<string, unknown>> => ({ found: false }))
@@ -34,6 +36,7 @@ vi.mock('../store/mcpStore', () => ({
   useMCPStore: () => ({
     servers: mockServers,
     isLoading: false,
+    loadRevision: mockLoadRevision,
     loadServers: mockLoadServers,
     connect: mockConnect,
     disconnect: vi.fn(),
@@ -41,7 +44,7 @@ vi.mock('../store/mcpStore', () => ({
     save: mockSave,
     remove: vi.fn(),
     getConfig: mockGetConfig,
-    setupEventListeners: () => () => {},
+    setupEventListeners: mockSetupEventListeners,
   }),
 }));
 
@@ -243,7 +246,8 @@ describe('McpPage — oauth2_callback_host', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockSave.mockResolvedValue(undefined);
-    mockLoadServers.mockResolvedValue(undefined);
+    mockLoadRevision = 0;
+    mockLoadServers.mockImplementation(async () => { mockLoadRevision++; });
     mockDiscover.mockResolvedValue({ found: false });
     mockServers = [];
     vi.mocked(GetCredentialForURL).mockResolvedValue(null as unknown as Awaited<ReturnType<typeof GetCredentialForURL>>);
@@ -262,20 +266,39 @@ describe('McpPage — oauth2_callback_host', () => {
     mockLoadServers.mockReturnValue(new Promise<void>((resolve) => { finish = resolve; }));
     mockGetConfig.mockResolvedValue(new mcp.ServerConfig({ name: 'Servidor vinculado', transport: 'streamable', url: 'https://mcp.example.com', auth_type: 'none' }));
     await executeDeepLink({ type: 'resource:edit', resource: 'mcp', resourceId: 'bound' }, { navigate: vi.fn() });
-    render(<McpPage />);
+    const { rerender } = render(<McpPage />);
     expect(useNavigationStore.getState().pendingEdit?.id).toBe('bound');
     expect(mockGetConfig).not.toHaveBeenCalled();
     mockServers = [{ id: 'server-id', slug: 'bound', name: 'Servidor vinculado', transport: 'streamable', status: 'disconnected', tools: [] }];
-    await act(async () => finish());
+    await act(async () => { mockLoadRevision++; finish(); });
+    rerender(<McpPage />);
     await waitFor(() => expect(mockGetConfig).toHaveBeenCalledWith('bound'));
     expect(await screen.findByLabelText('Nome')).toHaveValue('Servidor vinculado');
+    expect(useNavigationStore.getState().pendingEdit).toBeNull();
+  });
+
+  it('mantém edição pendente após falha de carga e abre após retry bem-sucedido', async () => {
+    mockLoadServers.mockResolvedValueOnce(undefined); // The store catches a rejected list without advancing its revision.
+    mockGetConfig.mockResolvedValue(new mcp.ServerConfig({ name: 'Recuperado', transport: 'streamable', url: 'https://mcp.example.com', auth_type: 'none' }));
+    await executeDeepLink({ type: 'resource:edit', resource: 'mcp', resourceId: 'retry' }, { navigate: vi.fn() });
+    const { rerender } = render(<McpPage />);
+    await act(async () => {});
+    rerender(<McpPage />);
+    expect(useNavigationStore.getState().pendingEdit?.id).toBe('retry');
+    expect(mockGetConfig).not.toHaveBeenCalled();
+    mockServers = [{ id: 'server-id', slug: 'retry', name: 'Recuperado', transport: 'streamable', status: 'disconnected', tools: [] }];
+    await act(async () => mockLoadServers());
+    rerender(<McpPage />);
+    expect(await screen.findByLabelText('Nome')).toHaveValue('Recuperado');
     expect(useNavigationStore.getState().pendingEdit).toBeNull();
   });
 
   it('abre o primeiro cadastro pelo caminho de criação do CredManager', async () => {
     const navigate = vi.fn();
     await executeDeepLink({ type: 'resource:new', resource: 'mcp' }, { navigate });
-    render(<McpPage />);
+    const { rerender } = render(<McpPage />);
+    await act(async () => {});
+    rerender(<McpPage />);
     expect(await screen.findByRole('dialog')).toBeInTheDocument();
     expect(screen.getByLabelText('Nome')).toHaveValue('');
     expect(navigate).toHaveBeenCalledWith('/settings/mcp');

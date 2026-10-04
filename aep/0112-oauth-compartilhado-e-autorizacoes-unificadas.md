@@ -1821,3 +1821,12 @@ quando o store inicia com `isLoading=false`, sem perder o pedido de deep link.
 Criação continua disponível após uma carga vazia. Conexão estática ilegível é
 apresentada como conexão composta, sem inferir OAuth ou uma integração ausente.
 Os dois cenários têm regressões nas respectivas páginas.
+
+A prontidão usa a revisão de carga publicada pelo store somente após uma resposta
+bem-sucedida (inclusive lista vazia). Uma falha capturada não consome o pedido de
+edição; nova carga bem-sucedida, manual ou por evento, libera o mesmo pedido.
+`mcpStore.test.ts` e `McpPage.test.tsx` cobrem rejeição seguida de retry.
+
+Cargas concorrentes usam geração de requisição: resposta antiga, com sucesso ou
+falha, não substitui a lista nem libera a prontidão da carga atual. Testes com
+respostas adiadas em ambas as ordens cobrem essa recusa.
