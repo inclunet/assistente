@@ -1814,3 +1814,10 @@ verdade. Legados seguem o inventário, snapshot e migração aprovados. Evidênc
 `McpConnectionSection.test.tsx` e o primeiro cadastro via deep link em
 `McpPage.test.tsx`. Permanecem os aceites reais de ciclo de vida registrados
 neste AEP; a projeção não certifica validade de tokens ou conexão remota.
+
+
+Revisão da navegação: a edição MCP aguarda a conclusão da primeira carga, mesmo
+quando o store inicia com `isLoading=false`, sem perder o pedido de deep link.
+Criação continua disponível após uma carga vazia. Conexão estática ilegível é
+apresentada como conexão composta, sem inferir OAuth ou uma integração ausente.
+Os dois cenários têm regressões nas respectivas páginas.

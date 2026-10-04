@@ -2343,7 +2343,7 @@ const es = {
     },
 
     credentials: {
-    workflow: {"newHint": "Elija dónde utilizar la autorización. El registro solicita los datos necesarios para la integración y guarda la autorización en CredManager.", "newMcp": "Crear autorización para MCP", "newProvider": "Abrir autorizaciones de proveedores", "description": "La autorización está en CredManager. Configure el cliente, los permisos y la reconexión mediante el registro vinculado; los tokens permanecen protegidos en la bóveda.", "configure": "Configurar autorización", "unavailable": "El registro vinculado no está disponible. Actualice la lista e inténtelo de nuevo.", "unreadable": "Registro ilegible", "stored": "Registro almacenado; validez no comprobada"},
+    workflow: {"staticConnection": "Conexión estática compuesta", "newHint": "Elija dónde utilizar la autorización. El registro solicita los datos necesarios para la integración y guarda la autorización en CredManager.", "newMcp": "Crear autorización para MCP", "newProvider": "Abrir autorizaciones de proveedores", "description": "La autorización está en CredManager. Configure el cliente, los permisos y la reconexión mediante el registro vinculado; los tokens permanecen protegidos en la bóveda.", "configure": "Configurar autorización", "unavailable": "El registro vinculado no está disponible. Actualice la lista e inténtelo de nuevo.", "unreadable": "Registro ilegible", "stored": "Registro almacenado; validez no comprobada"},
     mcp: {
       binding: 'Entrada de la bóveda: {{pattern}}',
       destination: 'Credencial para {{hostname}}',

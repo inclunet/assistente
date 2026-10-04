@@ -526,6 +526,13 @@ describe('autorizações compostas', () => {
     expect(mockExecuteDeepLink).toHaveBeenCalledWith({ type: 'resource:new', resource: 'mcp' }, { navigate: mockNavigate });
     expect(mockUpsert).not.toHaveBeenCalled();
   });
+  it('identifica conexão estática ilegível sem inventar uma integração OAuth', async () => {
+    mockManagedList.mockResolvedValue([{ ...authorization, pattern: 'connection:broken', source: 'static', integration: '', consumerId: '', unreadable: true }]);
+    render(<CredentialsPage />);
+    await userEvent.click(await screen.findByText('connection:broken'));
+    expect(screen.getByLabelText('Tipo')).toHaveValue('credentials.workflow.staticConnection');
+    expect(screen.queryByText('credentials.workflow.configure')).not.toBeInTheDocument();
+  });
   it('abre o fluxo vinculado sem usar o CRUD genérico', async () => {
     const action = { type: 'resource:edit', resource: 'mcp', resourceId: 'slack' };
     mockManagedAction.mockResolvedValue(action);

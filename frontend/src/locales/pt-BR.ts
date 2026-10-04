@@ -2341,7 +2341,7 @@ const ptBR = {
     },
 
     credentials: {
-    workflow: {"newHint": "Escolha onde usar a autorização. O cadastro solicita os dados exigidos pela integração e guarda a autorização no CredManager.", "newMcp": "Criar autorização para MCP", "newProvider": "Abrir autorizações de provedores", "description": "A autorização está no CredManager. Configure cliente, permissões e reconexão pelo cadastro vinculado; os tokens permanecem protegidos no cofre.", "configure": "Configurar autorização", "unavailable": "O cadastro vinculado não está disponível. Atualize a lista e tente novamente.", "unreadable": "Registro ilegível", "stored": "Registro armazenado; validade não verificada"},
+    workflow: {"staticConnection": "Conexão estática composta", "newHint": "Escolha onde usar a autorização. O cadastro solicita os dados exigidos pela integração e guarda a autorização no CredManager.", "newMcp": "Criar autorização para MCP", "newProvider": "Abrir autorizações de provedores", "description": "A autorização está no CredManager. Configure cliente, permissões e reconexão pelo cadastro vinculado; os tokens permanecem protegidos no cofre.", "configure": "Configurar autorização", "unavailable": "O cadastro vinculado não está disponível. Atualize a lista e tente novamente.", "unreadable": "Registro ilegível", "stored": "Registro armazenado; validade não verificada"},
     mcp: {
       binding: 'Entrada do cofre: {{pattern}}',
       destination: 'Credencial para {{hostname}}',

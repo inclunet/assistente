@@ -106,6 +106,7 @@ export default function McpPage() {
   const confirm = useConfirm();
 
   const [searchTerm, setSearchTerm] = useState('');
+  const [initialLoadComplete, setInitialLoadComplete] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string | number>>(new Set());
   const [focusedRow, setFocusedRow] = useState<ServerRow | null>(null);
 
@@ -172,9 +173,12 @@ export default function McpPage() {
   const wasEditingRef = useRef(false);
 
   useEffect(() => {
-    loadServers();
+    let active = true;
+    void loadServers().then(() => {
+      if (active) setInitialLoadComplete(true);
+    });
     const cleanup = setupEventListeners();
-    return cleanup;
+    return () => { active = false; cleanup(); };
   }, [loadServers, setupEventListeners]);
 
   // Convert servers to rows (memoizado para evitar re-renders em cascata no DataGrid)
@@ -295,7 +299,7 @@ export default function McpPage() {
       if (found) handleEdit(found);
     },
     onNew: () => handleNew(),
-    ready: !isLoading,
+    ready: initialLoadComplete && !isLoading,
   });
 
   useActivePanelNewShortcut(handleNew);

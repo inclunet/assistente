@@ -1,3 +1,4 @@
+import { mcp } from '@wailsjs/go/models';
 import { GetCredentialForURL, UpsertCredential } from '@wailsjs/go/wailsapi/Credentials';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { act, type ReactNode } from 'react';
@@ -236,6 +237,7 @@ vi.mock('../components/mcp/McpConnectionSection', () => ({
 
 import McpPage from './McpPage';
 import { executeDeepLink } from '../lib/deepLinks';
+import { useNavigationStore } from '../store/navigationStore';
 
 describe('McpPage — oauth2_callback_host', () => {
   beforeEach(() => {
@@ -254,6 +256,21 @@ describe('McpPage — oauth2_callback_host', () => {
       expect(screen.getByRole('dialog')).toBeInTheDocument();
     });
   }
+
+  it('preserva edição por deep link até concluir a primeira carga do store vazio', async () => {
+    let finish!: () => void;
+    mockLoadServers.mockReturnValue(new Promise<void>((resolve) => { finish = resolve; }));
+    mockGetConfig.mockResolvedValue(new mcp.ServerConfig({ name: 'Servidor vinculado', transport: 'streamable', url: 'https://mcp.example.com', auth_type: 'none' }));
+    await executeDeepLink({ type: 'resource:edit', resource: 'mcp', resourceId: 'bound' }, { navigate: vi.fn() });
+    render(<McpPage />);
+    expect(useNavigationStore.getState().pendingEdit?.id).toBe('bound');
+    expect(mockGetConfig).not.toHaveBeenCalled();
+    mockServers = [{ id: 'server-id', slug: 'bound', name: 'Servidor vinculado', transport: 'streamable', status: 'disconnected', tools: [] }];
+    await act(async () => finish());
+    await waitFor(() => expect(mockGetConfig).toHaveBeenCalledWith('bound'));
+    expect(await screen.findByLabelText('Nome')).toHaveValue('Servidor vinculado');
+    expect(useNavigationStore.getState().pendingEdit).toBeNull();
+  });
 
   it('abre o primeiro cadastro pelo caminho de criação do CredManager', async () => {
     const navigate = vi.fn();

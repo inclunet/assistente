@@ -67,7 +67,7 @@ function SessionCredentialsPage() {
           headerName: '',
           headerValue: '',
         })), ...(managed || []).map((authorization) => ({
-          ...newCredential(authorization.pattern, authorization.integration || 'oauth'),
+          ...newCredential(authorization.pattern, authorization.integration || (authorization.source === 'oauth' ? 'oauth' : 'static_components')),
           managed: true, source: authorization.source, authorization,
           masked: '',
         }))];
@@ -183,7 +183,7 @@ function SessionCredentialsPage() {
     { key: 'pattern', label: t('credentials.labels.pattern'), width: '260px', truncate: true },
     { key: 'source', label: t('credentials.sourceFields.source'), width: '120px',
       format: (value) => value ? t(`credentials.sourceFields.${value}`) : t('credentials.sourceFields.unconfigured') },
-    { key: 'type', label: t('credentials.labels.type'), width: '120px' },
+    { key: 'type', label: t('credentials.labels.type'), width: '120px', format: (_value, row) => credentialType(row) },
     { key: 'masked', label: t('credentials.labels.value'), truncate: true, format: (_value, row) => credentialStatus(row) },
     {
       key: 'managed',
@@ -203,6 +203,10 @@ function SessionCredentialsPage() {
       ),
     },
   ];
+
+  function credentialType(row: CredentialRow) {
+    return row.type === 'static_components' ? t('credentials.workflow.staticConnection') : row.type;
+  }
 
   function credentialStatus(row: CredentialRow) {
     return row.authorization ? t(row.authorization.unreadable ? 'credentials.workflow.unreadable' : 'credentials.workflow.stored') : row.masked;
@@ -363,7 +367,7 @@ function SessionCredentialsPage() {
             />
             <Input
               label={t('credentials.labels.type')}
-              value={viewingManaged.type}
+              value={credentialType(viewingManaged)}
               onChange={() => {}}
               readOnly
               fullWidth
