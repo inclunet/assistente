@@ -97,11 +97,26 @@ substituídos, sem obrigação de preservar histórico.
 
 ### 3. Classificação explícita e tradução de parâmetros
 
-O adaptador identifica rejeições explícitas de parâmetro desconhecido ou não
-suportado e mapeia o nome de transporte para um campo canônico conhecido da
-operação. Só se aprende sobre um parâmetro efetivamente enviado na tentativa.
-Não há interpretação livre por LLM nem classificador genérico baseado apenas
-em HTTP 400 ou palavras isoladas da mensagem.
+Cada provedor/formato de API tem um reconhecedor implementado pelo adaptador,
+baseado nas assinaturas de erro documentadas pelo provedor. Ele interpreta os
+campos estruturados e, quando a documentação só oferece mensagem textual,
+apenas padrões exatos e documentados; código HTTP isolado, texto genérico ou
+correspondência por palavras soltas não bastam. O resultado normalizado distingue
+pelo menos parâmetro não suportado, valor inválido, autenticação/permissão,
+cota/limite, falha transitória e erro não reconhecido, com campo canônico quando
+identificável. Esse resultado pode alimentar tanto a política de retry quanto
+mensagens legíveis ao usuário; classificar um erro, por si só, não autoriza retry
+nem aprendizado.
+
+Para classificar uma rejeição como não suporte de parâmetro, o reconhecedor
+precisa identificar sem ambiguidade o nome rejeitado e mapeá-lo para um campo
+canônico conhecido da operação. O campo deve ter sido efetivamente enviado na
+tentativa. Se a resposta não identifica um campo, o reconhecedor não pode
+concluir que se trata de não suporte de parâmetro: não aprende e não faz retry
+de compatibilidade. Isso não impede classificar outras categorias reconhecidas,
+como autenticação, cota ou falha transitória, que não exigem um campo. Cada
+assinatura aceita tem fixtures de teste positivas e negativas no adaptador
+correspondente.
 
 O domínio preserva a intenção semântica; a tradução para nomes como
 `max_tokens` ou `max_completion_tokens` permanece no adaptador existente.
@@ -110,9 +125,25 @@ intenção são inválidas. Só registrar não suporte do campo canônico quando
 adaptador puder estabelecer essa correspondência sem ambiguidade.
 
 Erros de faixa, enum, autenticação, permissão, cota, rede e rejeições ambíguas
-mantêm seu tratamento normal. A primeira entrega não infere automaticamente
-limites nem listas de opções a partir de mensagens de erro. Rejeitar uma voz
-não marca o parâmetro `voice` inteiro como não suportado.
+mantêm seu tratamento normal, mas podem receber uma classificação normalizada
+para diagnóstico e apresentação. A primeira entrega não infere nem persiste
+valores rejeitados, limites ou listas de opções a partir de mensagens de erro.
+Uma rejeição de valor não remove o campo, não gera retry removendo-o e não marca
+o parâmetro `voice` inteiro como não suportado. Restrições aprendidas sobre um
+valor específico exigem contrato futuro separado.
+
+Erros não reconhecidos podem gerar diagnóstico local limitado à família do
+provedor/formato configurada, status HTTP, versão do reconhecedor, categoria e
+um identificador estável de assinatura atribuído pelo próprio reconhecedor. Esse
+identificador representa um padrão documentado ou a forma sanitizada do envelope;
+nunca copia conteúdo livre da resposta. `code` e `type` só são registrados quando
+o par exato está allowlisted para aquele provedor/formato. `param` só é registrado
+quando corresponde a um alias conhecido de um campo realmente enviado. Outros
+campos e valores livres são descartados. Os registros seguem os limites, rotação
+e retenção dos logs normais. Não registrar payload ou mensagem bruta, prompts,
+valores dos parâmetros, credenciais ou outros segredos; não enviar telemetria
+automaticamente. Assinaturas novas devem ser incorporadas a partir de documentação
+ou reprodução revisada, acompanhadas de fixtures e testes.
 
 ### 4. Aprendizado e retry no pipeline existente
 
@@ -146,6 +177,11 @@ Envios seguintes omitem parâmetros opcionais identificados como não suportados
 O Profile Manager oculta os campos correspondentes para aquele provedor/modelo,
 usando a mesma informação do backend, sem catálogo ou heurística paralelos no
 frontend. Campos desconhecidos continuam disponíveis.
+
+A classificação normalizada também pode orientar mensagens de erro claras e
+localizadas, sem exibir diretamente o payload bruto do provedor. Erros de valor
+podem indicar ao usuário o campo rejeitado quando identificado; isso não altera
+o valor salvo nem habilita aprendizado ou retry automático nesta entrega.
 
 Ocultar não apaga o valor salvo no perfil. Trocar de modelo/conexão reavalia a
 visibilidade e o envio; uma restrição de um modelo não contamina outro. Abrir a
@@ -247,6 +283,15 @@ mantendo explícito que a fase 4 é uma proposta futura que exige nova decisão.
   incluindo mudanças de credencial/conta, sem armazenar segredos no estado.
 - [ ] Rejeição explícita de parâmetro enviado e conhecido gera restrição e um
   retry seguro; o próximo envio omite o parâmetro sem repetir o erro.
+- [ ] Reconhecedores por provedor/formato aceitam apenas assinaturas
+  documentadas; fixtures positivas extraem e mapeiam o campo enviado correto,
+  e casos desconhecidos/ambíguos não geram aprendizado nem retry.
+- [ ] Erros de valor são distintos de não suporte do campo: podem produzir
+  diagnóstico legível, mas não removem o campo, não repetem o envio sem ele e
+  não persistem valores/restrições nesta entrega.
+- [ ] Diagnósticos locais de erros não reconhecidos são estruturados e limitados;
+  não persistem payload/mensagem bruta, prompts, valores ou credenciais e não
+  enviam telemetria automaticamente.
 - [ ] Testes negativos cobrem HTTP 400 genérico, autenticação, erro transitório,
   valor/faixa/voz inválidos, alias ambíguo, campo não enviado e obrigatório.
 - [ ] Não há segundo retry de compatibilidade, repetição de tools ou nova
