@@ -22,7 +22,11 @@ func TestLLMModelCatalogConcurrentDiscoveryIsIdempotent(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer sqlDB.Close()
+			defer func() {
+				if err := sqlDB.Close(); err != nil {
+					t.Errorf("fechar banco: %v", err)
+				}
+			}()
 			configureSQLitePool(sqlDB)
 			if err := db.Exec("PRAGMA journal_mode=WAL").Error; err != nil {
 				t.Fatal(err)
@@ -51,11 +55,22 @@ func TestLLMModelCatalogConcurrentDiscoveryIsIdempotent(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer writer.Close()
+			defer func() {
+				if err := writer.Close(); err != nil {
+					t.Errorf("fechar conexão writer: %v", err)
+				}
+			}()
 			if _, err := writer.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
 				t.Fatal(err)
 			}
-			defer writer.ExecContext(context.Background(), "ROLLBACK")
+			committed := false
+			defer func() {
+				if !committed {
+					if _, err := writer.ExecContext(context.Background(), "ROLLBACK"); err != nil {
+						t.Errorf("rollback do writer: %v", err)
+					}
+				}
+			}()
 			if _, err := writer.ExecContext(ctx, "UPDATE llm_providers SET name = 'Atualizado' WHERE id = 'provider'"); err != nil {
 				t.Fatal(err)
 			}
@@ -118,6 +133,7 @@ func TestLLMModelCatalogConcurrentDiscoveryIsIdempotent(t *testing.T) {
 			if commitErr != nil {
 				t.Fatal(commitErr)
 			}
+			committed = true
 			first, second := <-results, <-results
 			if first.err != nil || second.err != nil {
 				t.Fatalf("descobertas concorrentes falharam: %v / %v", first.err, second.err)
