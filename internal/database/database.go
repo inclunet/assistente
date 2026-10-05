@@ -353,7 +353,6 @@ func AdoptLegacyData(userID string) error {
 				if err := tx.Exec(
 					`UPDATE llm_providers
 					 SET user_id = ?,
-					     compatibility_revision = COALESCE(compatibility_revision, 1) + 1,
 					     config_revision = COALESCE(config_revision, 1) + 1
 				 WHERE user_id IS NULL OR user_id = ''`,
 					userID,

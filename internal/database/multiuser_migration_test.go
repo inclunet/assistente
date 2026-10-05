@@ -100,6 +100,22 @@ func TestAdoptLegacyDataAssignsBlankOwners(t *testing.T) {
 	if err := db.Create(provider).Error; err != nil {
 		t.Fatalf("create provider: %v", err)
 	}
+	model := &LLMModel{ProviderID: provider.ID, RemoteID: "gpt-test", DisplayName: "Test model"}
+	if err := db.Create(model).Error; err != nil {
+		t.Fatalf("create legacy model: %v", err)
+	}
+	capability := &LLMModelCapability{ModelID: model.ID, CapabilityCode: "chat.completions"}
+	if err := db.Create(capability).Error; err != nil {
+		t.Fatalf("create legacy capability: %v", err)
+	}
+	field := &LLMModelCapabilityField{
+		CapabilityID: capability.ID, FieldCode: "temperature",
+		CompatibilityRevision: provider.CompatibilityRevision,
+		RecognizerID: "openai.chat.unsupported_parameter",
+	}
+	if err := db.Create(field).Error; err != nil {
+		t.Fatalf("create legacy field restriction: %v", err)
+	}
 	if err := db.Create(&Conversation{Title: "legacy"}).Error; err != nil {
 		t.Fatalf("create conversation: %v", err)
 	}
@@ -126,8 +142,15 @@ func TestAdoptLegacyDataAssignsBlankOwners(t *testing.T) {
 	if err := db.First(&adopted, "id = ?", provider.ID).Error; err != nil {
 		t.Fatal(err)
 	}
-	if adopted.CompatibilityRevision != provider.CompatibilityRevision+1 || adopted.ConfigRevision != provider.ConfigRevision+1 {
-		t.Fatalf("ownership adoption did not advance provider revisions: before=%+v after=%+v", provider, adopted)
+	if adopted.CompatibilityRevision != provider.CompatibilityRevision || adopted.ConfigRevision != provider.ConfigRevision+1 {
+		t.Fatalf("ownership adoption changed provider revisions unexpectedly: before=%+v after=%+v", provider, adopted)
+	}
+	var preservedField LLMModelCapabilityField
+	if err := db.First(&preservedField, "capability_id = ? AND field_code = ?", capability.ID, field.FieldCode).Error; err != nil {
+		t.Fatalf("legacy field restriction was lost during ownership adoption: %v", err)
+	}
+	if preservedField.CompatibilityRevision != provider.CompatibilityRevision {
+		t.Fatalf("adoption changed the compatibility revision of the saved restriction: %+v", preservedField)
 	}
 }
 
