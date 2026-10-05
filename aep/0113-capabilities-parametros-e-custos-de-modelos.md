@@ -1,6 +1,6 @@
 # AEP-0113 — Compatibilidade de parâmetros por modelo e provedor
 
-Status: In Progress — escopo revisado; fase 1 implementada no PR #889, validação final pendente
+Status: In Progress — fase 1 implementada e validada no PR #889; fases 2–3 pendentes
 
 ## Resumo
 
@@ -256,18 +256,17 @@ na `main`.
 0. **Revisão documental — registrada neste documento.** Substituir a direção
    original do PR #887, alinhar o índice e orientar a retificação do #889.
    Nenhuma alteração de schema ou comportamento é entregue nesta revisão.
-1. **Persistência mínima — implementação no PR #889; validação final pendente.**
-   Hierarquia provedor → modelo → capability/operação → campo, com estado atual
-   de restrições, unicidade, autorização, revisão de conexão e recusa de
-   gravações obsoletas; identidade de capability é imutável e não pode ser
-   substituída via `INSERT OR REPLACE`. Sem histórico, catálogos externos, jobs
-   ou infraestrutura de vozes. Evidência local: os testes focados iniciais de
-   persistência, isolamento entre usuários, cascata, invalidação por revisão,
-   rejeição de gravação obsoleta, idempotência, concorrência, bootstrap e
-   revisão de configuração passaram nos pacotes afetados. As correções finais
-   de integridade de capability e gravação/compensação de credencial têm testes
-   direcionados adicionados; build e vet dos pacotes alterados passaram. A
-   validação remota do commit atual ainda está pendente para concluir a fase.
+1. **Persistência mínima — concluída no PR #889.** Hierarquia provedor →
+   modelo → capability/operação → campo, com estado atual de restrições,
+   unicidade, autorização, revisão de conexão e recusa de gravações obsoletas;
+   identidade de capability é imutável e não pode ser substituída via
+   `INSERT OR REPLACE`. Sem histórico, catálogos externos, jobs ou infraestrutura
+   de vozes. Evidência: o commit `739757d6c` passou pelos 25 checks do CI e a
+   review automática do Copilot encerrou sem threads pendentes. A revisão local
+   independente do diff final não encontrou pendências. Os testes focados
+   adicionados nesta rodada foram executados pelo CI remoto; nenhum teste local
+   foi executado nesta rodada por orientação de Infosec.
+
 2. **Envio, aprendizado e retry — pendente.** Integrar o estado ao pipeline,
    capturar a revisão efetiva, classificar rejeições explícitas, persistir e
    repetir uma vez com segurança; envios seguintes respeitam o aprendizado.
