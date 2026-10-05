@@ -1,6 +1,6 @@
 # AEP-0113 — Compatibilidade de parâmetros por modelo e provedor
 
-Status: In Progress — escopo revisado; implementação do PR #889 a retificar
+Status: In Progress — escopo revisado; fase 1 implementada no PR #889, validação final pendente
 
 ## Resumo
 
@@ -256,15 +256,18 @@ na `main`.
 0. **Revisão documental — registrada neste documento.** Substituir a direção
    original do PR #887, alinhar o índice e orientar a retificação do #889.
    Nenhuma alteração de schema ou comportamento é entregue nesta revisão.
-1. **Persistência mínima — implementação no PR #889; checks completos pendentes.**
+1. **Persistência mínima — implementação no PR #889; validação final pendente.**
    Hierarquia provedor → modelo → capability/operação → campo, com estado atual
    de restrições, unicidade, autorização, revisão de conexão e recusa de
-   gravações obsoletas. Sem histórico, catálogos externos, jobs ou infraestrutura
-   de vozes. Evidência local: testes focados de persistência, isolamento entre
-   usuários, cascata, invalidação por revisão, rejeição de gravação obsoleta,
-   idempotência, concorrência, guards de identidade, bootstrap e renovação de
-   segredo sem mudança de revisão passaram nos pacotes afetados. A suíte completa
-   e os checks do PR ainda precisam passar para concluir a fase.
+   gravações obsoletas; identidade de capability é imutável e não pode ser
+   substituída via `INSERT OR REPLACE`. Sem histórico, catálogos externos, jobs
+   ou infraestrutura de vozes. Evidência local: os testes focados iniciais de
+   persistência, isolamento entre usuários, cascata, invalidação por revisão,
+   rejeição de gravação obsoleta, idempotência, concorrência, bootstrap e
+   revisão de configuração passaram nos pacotes afetados. As correções finais
+   de integridade de capability e gravação/compensação de credencial têm testes
+   direcionados adicionados; build e vet dos pacotes alterados passaram. A
+   validação remota do commit atual ainda está pendente para concluir a fase.
 2. **Envio, aprendizado e retry — pendente.** Integrar o estado ao pipeline,
    capturar a revisão efetiva, classificar rejeições explícitas, persistir e
    repetir uma vez com segurança; envios seguintes respeitam o aprendizado.
