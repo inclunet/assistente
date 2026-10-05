@@ -37,9 +37,11 @@ func mcpFailureRecoverablyHandled(failure *MCPAttemptFailure, emittedNonRetryabl
 }
 
 type mcpStreamAttemptResult struct {
-	done       bool
-	retry      bool
-	mcpFailure *MCPAttemptFailure
+	done               bool
+	retry              bool
+	compatibilityRetry bool
+	compatibilityError string
+	mcpFailure         *MCPAttemptFailure
 	// nativeMCPUnsupported indica que a request falhou porque o modelo/endpoint
 	// rejeita tools type:"mcp" (ver looksLikeNativeMCPUnsupported). Dispara a
 	// degradação nativo→adapter no mesmo turno + auto-ajuste persistido do perfil.

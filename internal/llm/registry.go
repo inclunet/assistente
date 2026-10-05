@@ -76,6 +76,38 @@ func (r *ProviderRegistry) Get(id string) *ProviderConfig {
 	return r.providers[id]
 }
 
+// GetSnapshot returns an isolated provider configuration copied while the
+// registry read lock is held. Streaming requests use it to pin the exact
+// compatibility revision that created their adapter.
+func (r *ProviderRegistry) GetSnapshot(id string) *ProviderConfig {
+	if r == nil {
+		return nil
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	registered := r.providers[id]
+	if registered == nil {
+		return nil
+	}
+	snapshot := *registered
+	snapshot.Headers = cloneProviderStringMap(registered.Headers)
+	snapshot.ACPArgs = append([]string(nil), registered.ACPArgs...)
+	snapshot.ACPEnv = cloneProviderStringMap(registered.ACPEnv)
+	snapshot.ACPCredentialEnv = cloneProviderStringMap(registered.ACPCredentialEnv)
+	return &snapshot
+}
+
+func cloneProviderStringMap(source map[string]string) map[string]string {
+	if source == nil {
+		return nil
+	}
+	clone := make(map[string]string, len(source))
+	for key, value := range source {
+		clone[key] = value
+	}
+	return clone
+}
+
 // List retorna todos os providers (ordenados por ID)
 func (r *ProviderRegistry) List() []*ProviderConfig {
 	if r == nil {

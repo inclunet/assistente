@@ -112,7 +112,12 @@ func (p *AnthropicProvider) SendChat(ctx context.Context, messages []Message, pa
 
 	msg, err := p.client.Messages.New(ctx, sdkParams)
 	if err != nil {
-		return "", fmt.Errorf("erro ao enviar mensagem: %w", err)
+		providerError, recognized := RecognizeProviderError(p.provider, err)
+		if !recognized {
+			providerError = ProviderErrorDiagnostic(p.provider, err)
+		}
+		logging.Errorf(ctx, "llm.anthropic-provider", "provider API error signature=%s category=%s status=%d type=%s", providerError.Recognizer, providerError.Category, providerError.StatusCode, providerError.Type)
+		return "", fmt.Errorf("erro ao enviar mensagem: %s", providerError.DisplayMessage())
 	}
 
 	var sb strings.Builder
@@ -665,7 +670,15 @@ func (p *AnthropicProvider) doStreamBeta(ctx context.Context, params anthropic.B
 	wd.Stop()
 	if err := stream.Err(); err != nil {
 		errStr := err.Error()
-		logging.Errorf(ctx, "llm.anthropic-provider", "[AnthropicProvider] Beta stream error: %s", errStr)
+		providerError, recognizedProviderError := RecognizeProviderError(p.provider, err)
+		if !recognizedProviderError {
+			providerError = ProviderErrorDiagnostic(p.provider, err)
+		}
+		if recognizedProviderError {
+			logging.Errorf(ctx, "llm.anthropic-provider", "provider API error signature=%s category=%s status=%d type=%s", providerError.Recognizer, providerError.Category, providerError.StatusCode, providerError.Type)
+		} else {
+			logging.Errorf(ctx, "llm.anthropic-provider", "provider beta stream error signature=%s category=%s", providerError.Recognizer, providerError.Category)
+		}
 
 		// Cancelamento do usuário (contexto pai): nunca retentar.
 		if ctx.Err() != nil {
@@ -705,7 +718,7 @@ func (p *AnthropicProvider) doStreamBeta(ctx context.Context, params anthropic.B
 		if emittedNonRetryableEffect {
 			markErrorNotRetryable(handler)
 		}
-		handler.OnError(errStr)
+		handler.OnError(providerError.DisplayMessage())
 		return mcpStreamAttemptResult{done: true}
 	}
 
@@ -982,7 +995,15 @@ func (p *AnthropicProvider) doStream(ctx context.Context, params anthropic.Messa
 	wd.Stop()
 	if err := stream.Err(); err != nil {
 		errStr := err.Error()
-		logging.Errorf(ctx, "llm.anthropic-provider", "[AnthropicProvider] Stream error: %s", errStr)
+		providerError, recognizedProviderError := RecognizeProviderError(p.provider, err)
+		if !recognizedProviderError {
+			providerError = ProviderErrorDiagnostic(p.provider, err)
+		}
+		if recognizedProviderError {
+			logging.Errorf(ctx, "llm.anthropic-provider", "provider API error signature=%s category=%s status=%d type=%s", providerError.Recognizer, providerError.Category, providerError.StatusCode, providerError.Type)
+		} else {
+			logging.Errorf(ctx, "llm.anthropic-provider", "provider stream error signature=%s category=%s", providerError.Recognizer, providerError.Category)
+		}
 
 		// Cancelamento do usuário (contexto pai): nunca retentar.
 		if ctx.Err() != nil {
@@ -1016,7 +1037,7 @@ func (p *AnthropicProvider) doStream(ctx context.Context, params anthropic.Messa
 		if emittedNonRetryableEffect {
 			markErrorNotRetryable(handler)
 		}
-		handler.OnError(errStr)
+		handler.OnError(providerError.DisplayMessage())
 		return true
 	}
 

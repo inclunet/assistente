@@ -150,6 +150,14 @@ Rejeitar um alias de transporte não prova que todas as representações da mesm
 intenção são inválidas. Só registrar não suporte do campo canônico quando o
 adaptador puder estabelecer essa correspondência sem ambiguidade.
 
+Na Chat Completions, `max_tokens` e `max_completion_tokens` são aliases de
+transporte para a mesma intenção. A rejeição de qualquer um deles pode ser
+classificada e mostrada com o nome exato recebido, mas não aprende nem suprime o
+campo semântico `max_output_tokens`, porque isso também descartaria o outro
+alias sem evidência. A Responses API só aprende `max_output_tokens` quando esse
+nome exato foi enviado. Supressão persistente específica por alias exige uma
+decisão futura de schema e não é inferida nesta fase.
+
 Erros de faixa, enum, autenticação, permissão, cota, rede e rejeições ambíguas
 mantêm seu tratamento normal, mas podem receber uma classificação normalizada
 para diagnóstico e apresentação. A primeira entrega não infere nem persiste
@@ -268,8 +276,10 @@ na `main`.
    foi executado nesta rodada por orientação de Infosec.
 
 2. **Envio, aprendizado e retry — pendente.** Integrar o estado ao pipeline,
-   capturar a revisão efetiva, classificar rejeições explícitas, persistir e
-   repetir uma vez com segurança; envios seguintes respeitam o aprendizado.
+  capturar a revisão efetiva, classificar rejeições explícitas, persistir e
+  repetir uma vez com segurança; envios seguintes respeitam o aprendizado.
+  Aliases ambíguos de saída em Chat Completions não aprendem nem fazem retry de
+  compatibilidade nesta fase.
 3. **Profile Manager — pendente.** Ocultar campos não suportados, manter
    desconhecidos disponíveis e preservar valores salvos e acessibilidade.
 4. **Vozes TTS — futura, a rediscutir.** Objetivo de seleção amigável, sem
