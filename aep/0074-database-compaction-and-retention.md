@@ -217,6 +217,14 @@ verifica que nenhuma consulta ao catálogo ocorre antes da aquisição do lock;
 
 `Init` passa a executar `PRAGMA auto_vacuum=INCREMENTAL` **antes** do `AutoMigrate`. Para bancos criados do zero isso ativa o modo incremental imediatamente (o modo só pode ser definido antes de qualquer tabela existir, ou via `VACUUM`). No modo incremental, páginas livres vão para uma freelist e podem ser devolvidas ao SO sob demanda com `PRAGMA incremental_vacuum`, sem o custo de reescrever o arquivo inteiro.
 
+No startup, o modo atual é consultado antes do setter. Um banco já incremental
+não regrava esse metadado nem dispara uma transação de escrita apenas para
+reafirmá-lo. Erros de consulta/configuração são propagados. Os caminhos de banco
+novo, legado e FULL preservam o comportamento anterior. Evidência:
+`internal/database/startup_vacuum_test.go`, incluindo banco incremental com
+`query_only=ON` e WAL sem novas páginas. Isso não dispensa a recuperação de WAL
+que o SQLite eventualmente precise executar ao abrir um banco.
+
 ### D2 — `VACUUM` completo oportunista para bancos legados
 
 Bancos existentes nascem em `auto_vacuum=none` e o pragma sozinho não converte o modo. A função de manutenção detecta o modo atual; se for diferente de incremental **e** houver espaço livre relevante (ou compactação forçada), executa um `VACUUM` completo. Esse `VACUUM`:

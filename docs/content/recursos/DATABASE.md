@@ -10,6 +10,13 @@ importação de dados e a manutenção do armazenamento do Assistente. O roteiro
 abaixo trata da exportação e importação de camadas de comandos; a seção de
 manutenção explica o banco SQLite, suas migrações e sua compactação.
 
+## Inicialização
+
+Bancos já configurados para compactação incremental não regravam essa
+configuração a cada abertura. A tela aguarda a inicialização e verifica a sessão
+automaticamente, sem exigir cliques em tentar novamente. Bancos grandes ou que
+precisem recuperar alterações do WAL ainda podem levar mais tempo para abrir.
+
 ## Exportar camadas de comandos
 
 No painel **Exportar camadas de comandos**, a exportação comum gera um arquivo
