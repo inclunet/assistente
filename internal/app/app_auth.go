@@ -99,6 +99,9 @@ func (a *App) configureSessionService() {
 const sessionPurgeRetention = 30 * 24 * time.Hour
 
 func (a *App) GetAuthStatus() (AuthStatus, error) {
+	if err := a.startupResult.wait(); err != nil {
+		return AuthStatus{}, err
+	}
 	if err := a.ensureAuthCoreServices(); err != nil {
 		return AuthStatus{}, err
 	}

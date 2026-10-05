@@ -51,6 +51,22 @@ func sqliteDSN(path string) string {
 	return u.String()
 }
 
+// configureInitialAutoVacuum evita regravar o metadado de bancos que já estão
+// no modo incremental. Reaplicar o setter gera uma transação de escrita mesmo
+// sem mudar o modo e pode provocar checkpoint do WAL no caminho crítico do boot.
+// Bancos novos continuam configurados antes de criar tabelas e habilitar WAL;
+// bancos legados mantêm a conversão no VACUUM da manutenção (AEP-0074).
+func configureInitialAutoVacuum(gdb *gorm.DB) error {
+	var mode int
+	if err := gdb.Raw("PRAGMA auto_vacuum").Scan(&mode).Error; err != nil {
+		return err
+	}
+	if mode == autoVacuumIncremental {
+		return nil
+	}
+	return gdb.Exec("PRAGMA auto_vacuum=INCREMENTAL").Error
+}
+
 // configureSQLitePool mantém algumas conexões para leitores em WAL sem abrir
 // concorrência excessiva de writers num app desktop local.
 func configureSQLitePool(sqlDB *sql.DB) {

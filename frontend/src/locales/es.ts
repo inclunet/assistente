@@ -5082,7 +5082,7 @@ const es = {
         signIn: 'Entrar',
       },
       descriptions: {
-        loading: 'Comprobando el estado de la bóveda y de la sesión.',
+        loading: 'Esperando a que Assistente se inicie para comprobar la bóveda y la sesión. Continuarás automáticamente.',
         unavailable: 'No se pudo cargar el estado de la bóveda.',
         setup: 'Define una contraseña maestra para proteger la DEK de la bóveda.',
         unlock: 'Ingresa la contraseña maestra para desbloquear la bóveda local.',

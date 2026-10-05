@@ -1055,7 +1055,7 @@ de cancelamento de release na dependência; o AEP permanece **In Progress**.
 | [0049](0049-mcp-database-migration.md) | Migração de MCP Servers para Banco de Dados | 🚧 In Progress |
 | [0050](0050-profiles-database-migration.md) | Migração de Profiles para Banco de Dados (adiada) | 📝 Draft |
 | [0051](0051-skills-database-migration.md) | Migração de Skills para Banco de Dados | 📝 Draft |
-| [0052](0052-multi-user-accounts.md) | Sistema de Contas de Usuário | 🚧 In Progress |
+| [0052](0052-multi-user-accounts.md) | Sistema de Contas de Usuário — autenticação aguarda startup no desktop | 🚧 In Progress |
 | [0053](0053-mcp-graceful-degradation.md) | Degradação graciosa de MCP nativo no chat | 🚧 In Progress |
 | [0056](0056-workspace-self-contained-tabs.md) | Workspace com Abas Autocontidas | ✅ Done |
 | [0057](0057-chat-session-identity.md) | Sessões de Superfície e Timeline de Chat — fan-out e rascunho PR3 | ✅ Done |
@@ -1076,7 +1076,7 @@ de cancelamento de release na dependência; o AEP permanece **In Progress**.
 | [0072](0072-skill-catalog-and-loading.md) | Skill Loading Runtime | ✅ Done |
 | [0073](0073-tasklist-conversation-linking.md) | Vínculo de Tasks e Tasklists a Conversas | ✅ Done |
 | [0074-A](0074-prompt-cache-e-contexto-dinamico.md) | Prompt Cache, Custo de LLM e Layout da Request ⚠️ | 🚧 In Progress |
-| [0074-B](0074-database-compaction-and-retention.md) | Compactação e Retenção do Banco de Dados ⚠️ | ✅ Done |
+| [0074-B](0074-database-compaction-and-retention.md) | Compactação e Retenção do Banco de Dados ⚠️ — startup evita regravar modo incremental | ✅ Done |
 | [0075](0075-context-providers.md) | Context Providers | ✅ Done |
 | [0076](0076-schema-versioning-migrations.md) | Versionamento de Schema do Banco (schema_migrations) | ✅ Done |
 | [0077](0077-tool-planner-and-tools-subsystem-evolution.md) | ToolPlanner e Evolução do Subsistema de Tools | ✅ Done |
