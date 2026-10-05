@@ -160,6 +160,17 @@ describe('ProfileChatSection', () => {
     expect(screen.getByLabelText('Max Tokens')).toBeInTheDocument();
   });
 
+  it('desabilita temporariamente parâmetros de geração durante a consulta de compatibilidade', () => {
+    render(<ProfileChatSection {...defaultProps} compatibilityLoading />);
+
+    expect(screen.getByLabelText('Temperatura')).toBeDisabled();
+    expect(screen.getByLabelText('Top P')).toBeDisabled();
+    expect(screen.getByLabelText('Raciocínio (Reasoning)')).toBeDisabled();
+    expect(screen.getByLabelText('Max Tokens')).toBeDisabled();
+    expect(screen.getByTestId('profile-chat-section').querySelector('fieldset[aria-busy="true"]')).toBeInTheDocument();
+    expect(screen.getByTestId('llm-provider-picker-mock').querySelector('button')).not.toBeDisabled();
+  });
+
   it('renderiza o ModelPicker com label correto', () => {
     render(<ProfileChatSection {...defaultProps} />);
     

@@ -74,6 +74,7 @@ export interface ProfileChatSectionProps {
    */
   agentProvider?: boolean;
   unsupportedFields?: readonly string[];
+  compatibilityLoading?: boolean;
 }
 
 const RATE_LIMIT_MIN = 0;
@@ -119,6 +120,7 @@ export function ProfileChatSection({
   disabled = false,
   agentProvider = false,
   unsupportedFields = [],
+  compatibilityLoading = false,
 }: ProfileChatSectionProps) {
   const { t } = useTranslation();
   const temperatureValue = temperature ?? 0.7;
@@ -149,6 +151,7 @@ export function ProfileChatSection({
   const showReasoning = !unsupported.has('reasoning_effort');
   const showMaxOutputTokens = !unsupported.has('max_output_tokens');
   const showGenerationFields = showTemperature || showTopP || showReasoning || showMaxOutputTokens;
+  const generationDisabled = disabled || compatibilityLoading;
 
   const handlePromptCacheEnabledChange = (enabled: boolean) => {
     if (!enabled) {
@@ -230,7 +233,7 @@ export function ProfileChatSection({
       {!agentProvider && (
         <>
       {/* ── Parâmetros de Geração ── */}
-      {showGenerationFields && <fieldset className="profiles-field-group">
+      {showGenerationFields && <fieldset className="profiles-field-group" aria-busy={compatibilityLoading}>
         <legend className="profiles-field-group__title">
           {t('profiles.chatSection.groupGeneration')}
         </legend>
@@ -245,7 +248,7 @@ export function ProfileChatSection({
             step={0.05}
             onChange={(value) => onChange('temperature', value)}
             formatValue={(value) => value.toFixed(2)}
-            disabled={disabled}
+            disabled={generationDisabled}
           />
         </div>}
 
@@ -259,7 +262,7 @@ export function ProfileChatSection({
             step={0.05}
             onChange={(value) => onChange('top_p', value)}
             formatValue={(value) => value.toFixed(2)}
-            disabled={disabled}
+            disabled={generationDisabled}
           />
         </div>}
 
@@ -272,7 +275,7 @@ export function ProfileChatSection({
             className="profiles-field__select"
             value={reasoningValue}
             onChange={(e) => onChange('reasoning_effort', e.target.value === 'off' ? '' : e.target.value)}
-            disabled={disabled}
+            disabled={generationDisabled}
           >
             <option value="ollama">{t('profiles.chatSection.reasoningOllama')}</option>
             <option value="off">{t('profiles.chatSection.reasoningOff')}</option>
@@ -299,7 +302,7 @@ export function ProfileChatSection({
             max={128000}
             value={maxTokensValue}
             onChange={(e) => onChange('max_tokens', parseInt(e.target.value) || 4096)}
-            disabled={disabled}
+            disabled={generationDisabled}
           />
         </div>}
 
@@ -312,7 +315,7 @@ export function ProfileChatSection({
             className="profiles-field__select"
             value={maxTokensModeValue}
             onChange={(e) => onChange('max_tokens_mode', e.target.value)}
-            disabled={disabled}
+            disabled={generationDisabled}
           >
             <option value="legacy">{t('profiles.chatSection.maxTokensLegacy')}</option>
             <option value="completion_tokens">{t('profiles.chatSection.maxTokensCompletion')}</option>

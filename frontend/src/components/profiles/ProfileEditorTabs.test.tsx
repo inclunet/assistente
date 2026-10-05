@@ -57,8 +57,10 @@ vi.mock('./ProfileGeneralSection', () => ({
 }));
 
 vi.mock('./ProfileChatSection', () => ({
-  ProfileChatSection: ({ unsupportedFields }: { unsupportedFields?: string[] }) => (
-    <button data-testid="chat-section" data-unsupported-fields={unsupportedFields?.join(',') ?? ''}>Chat</button>
+  ProfileChatSection: ({ unsupportedFields, compatibilityLoading }: { unsupportedFields?: string[]; compatibilityLoading?: boolean }) => (
+    <div data-testid="chat-section" data-unsupported-fields={unsupportedFields?.join(',') ?? ''} data-compatibility-loading={String(Boolean(compatibilityLoading))}>
+      <button data-testid="temperature-field" disabled={compatibilityLoading} hidden={unsupportedFields?.includes('temperature')}>Temperature</button>
+    </div>
   ),
 }));
 
@@ -149,10 +151,13 @@ describe('ProfileEditorTabs', () => {
 
     rerender(<ProfileEditorTabs {...propsCom(profile('current-model'))} initialTab="models" />);
     expect(compatibilitySpy).toHaveBeenNthCalledWith(2, 'openai', 'current-model');
-    resolveCurrent(['top_p']);
-    await waitFor(() => expect(screen.getByTestId('chat-section')).toHaveAttribute('data-unsupported-fields', 'top_p'));
+    expect(screen.getByTestId('chat-section')).toHaveAttribute('data-compatibility-loading', 'true');
+    expect(screen.getByTestId('temperature-field')).toBeDisabled();
+    resolveCurrent(['temperature']);
+    await waitFor(() => expect(screen.getByTestId('chat-section')).toHaveAttribute('data-unsupported-fields', 'temperature'));
+    expect(screen.queryByTestId('temperature-field')).not.toBeInTheDocument();
     resolveOld(['temperature']);
-    await waitFor(() => expect(screen.getByTestId('chat-section')).toHaveAttribute('data-unsupported-fields', 'top_p'));
+    await waitFor(() => expect(screen.getByTestId('chat-section')).toHaveAttribute('data-unsupported-fields', 'temperature'));
   });
 
   it('renderiza 6 abas', () => {
