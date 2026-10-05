@@ -128,6 +128,13 @@ func TestRecordUnsupportedFieldUpdatesCurrentStateAndRejectsUnknownData(t *testi
 	if err != nil || len(second) != 1 || second[0].RecognizerID != "litellm.chat.unsupported_parameter" {
 		t.Fatalf("repetição acumulou histórico em vez de atualizar: %+v, %v", second, err)
 	}
+	if err := repository.RecordUnsupportedField(ctx, model.ID, llmcapabilities.CapabilityChatCompletions, llmcapabilities.FieldTopP, provider.CompatibilityRevision, "openai.chat.unsupported_parameter"); err != nil {
+		t.Fatalf("segundo campo na mesma capability: %v", err)
+	}
+	third, err := repository.ListUnsupportedFields(ctx, model.ID)
+	if err != nil || len(third) != 2 {
+		t.Fatalf("segundo campo não reutilizou a capability: %+v, %v", third, err)
+	}
 	for _, test := range []struct {
 		capability llmcapabilities.Capability
 		field      llmcapabilities.FieldKey
@@ -304,6 +311,31 @@ func TestModelAndProviderIdentityGuardsRejectUpdateAndReplace(t *testing.T) {
 	model, err := NewLLMModelCapabilitiesRepository(db).SaveModel(ctx, provider.ID, "remote-model", "Model")
 	if err != nil {
 		t.Fatal(err)
+	}
+	modelRepository := NewLLMModelCapabilitiesRepository(db)
+	if err := modelRepository.RecordUnsupportedField(ctx, model.ID, llmcapabilities.CapabilityChatCompletions, llmcapabilities.FieldTemperature, provider.CompatibilityRevision, "openai.chat.unsupported_parameter"); err != nil {
+		t.Fatal(err)
+	}
+	var capability LLMModelCapability
+	if err := db.Where("model_id = ? AND capability_code = ?", model.ID, llmcapabilities.CapabilityChatCompletions).First(&capability).Error; err != nil {
+		t.Fatal(err)
+	}
+	for _, update := range []struct {
+		column string
+		value  string
+	}{
+		{column: "model_id", value: "another-model"},
+		{column: "capability_code", value: string(llmcapabilities.CapabilityTextToSpeech)},
+	} {
+		if err := db.Model(&LLMModelCapability{}).Where("id = ?", capability.ID).Update(update.column, update.value).Error; err == nil {
+			t.Fatalf("alteração direta de %s transportou restrições para outra capability", update.column)
+		}
+	}
+	if err := db.Exec(`INSERT OR REPLACE INTO llm_model_capabilities
+		(id, model_id, capability_code, created_at, updated_at)
+		SELECT id, model_id, capability_code, created_at, updated_at
+		FROM llm_model_capabilities WHERE id = ?`, capability.ID).Error; err == nil {
+		t.Fatal("INSERT OR REPLACE apagou a capability e suas restrições filhas")
 	}
 	if err := db.Exec("UPDATE llm_models SET remote_id = ? WHERE id = ?", "replacement-model", model.ID).Error; err == nil {
 		t.Fatal("alteração direta substituiu a identidade do modelo")

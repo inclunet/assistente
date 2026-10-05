@@ -149,8 +149,11 @@ func (m *Manager) RegisterStoredCredentialWithContext(ctx context.Context, cred 
 
 	persistedID := cred.ID
 	userID := cred.UserID
-	if userID == "" {
-		if scopedUserID, ok := database.UserIDFromContext(ctx); ok {
+	if scopedUserID, ok := database.UserIDFromContext(ctx); ok {
+		if userID != "" && userID != scopedUserID {
+			return ErrCredentialUserScopeMismatch
+		}
+		if userID == "" {
 			userID = scopedUserID
 		}
 	}
@@ -158,24 +161,52 @@ func (m *Manager) RegisterStoredCredentialWithContext(ctx context.Context, cred 
 		return database.ErrUserScopeRequired
 	}
 	if m.persist && m.store != nil {
-		if err := m.store.SaveCredential(ctx, StoredCredential{ID: cred.ID, UserID: userID, Pattern: pattern, Auth: encAuth}); err != nil {
-			return err
-		}
 		if cred.ID == "" {
+			toSave := StoredCredential{ID: cred.ID, UserID: userID, Pattern: pattern, Auth: encAuth}
 			persisted, err := m.lookupPersistedByScope(ctx, userID)
 			if err != nil {
-				return fmt.Errorf("listar credenciais persistidas após salvar: %w", err)
+				return fmt.Errorf("listar credenciais antes de salvar pattern %q: %w", pattern, err)
 			}
-			for _, entry := range persisted {
-				if entry.Pattern == pattern && entry.UserID == userID && entry.ID != "" {
-					persistedID = entry.ID
-					userID = entry.UserID
+			var previous *StoredCredential
+			for i := range persisted {
+				if persisted[i].Pattern == pattern && persisted[i].UserID == userID && persisted[i].ID != "" {
+					previous = &persisted[i]
 					break
 				}
 			}
-			if persistedID == "" {
-				return fmt.Errorf("id da credencial persistida não encontrado após salvar pattern %q", pattern)
+			if idWriter, ok := m.store.(credentialIDWriter); ok {
+				id, err := idWriter.SaveCredentialAndGetID(database.WithUserID(ctx, userID), toSave)
+				if err != nil {
+					return err
+				}
+				if id == "" {
+					writeErr := errors.New("store de credenciais retornou ID vazio após salvar")
+					return errors.Join(writeErr, m.compensateCredentialWrite(ctx, userID, pattern, previous))
+				}
+				persistedID = id
+			} else {
+				if err := m.store.SaveCredential(ctx, toSave); err != nil {
+					return err
+				}
+				persisted, err = m.lookupPersistedByScope(ctx, userID)
+				if err != nil {
+					lookupErr := fmt.Errorf("listar credenciais persistidas após salvar: %w", err)
+					return errors.Join(lookupErr, m.compensateCredentialWrite(ctx, userID, pattern, previous))
+				}
+				for _, entry := range persisted {
+					if entry.Pattern == pattern && entry.UserID == userID && entry.ID != "" {
+						persistedID = entry.ID
+						userID = entry.UserID
+						break
+					}
+				}
+				if persistedID == "" {
+					lookupErr := fmt.Errorf("id da credencial persistida não encontrado após salvar pattern %q", pattern)
+					return errors.Join(lookupErr, m.compensateCredentialWrite(ctx, userID, pattern, previous))
+				}
 			}
+		} else if err := m.store.SaveCredential(ctx, StoredCredential{ID: cred.ID, UserID: userID, Pattern: pattern, Auth: encAuth}); err != nil {
+			return err
 		}
 	}
 
@@ -193,6 +224,13 @@ func (m *Manager) RegisterStoredCredentialWithContext(ctx context.Context, cred 
 	m.credentials = append(m.credentials, &DomainCredential{ID: persistedID, UserID: userID, Pattern: pattern, regex: regex, Auth: encAuth})
 
 	return nil
+}
+
+func (m *Manager) compensateCredentialWrite(ctx context.Context, userID, pattern string, previous *StoredCredential) error {
+	if previous != nil {
+		return m.store.SaveCredential(database.WithUserID(ctx, userID), *previous)
+	}
+	return m.store.DeleteCredential(database.WithUserID(ctx, userID), pattern)
 }
 
 // ResolveForURL resolve credenciais para uma URL

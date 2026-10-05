@@ -126,19 +126,14 @@ func (r *LLMModelCapabilitiesRepository) RecordUnsupportedField(
 			return ErrStaleCompatibility
 		}
 
-		capabilityRow := LLMModelCapability{
-			ModelID:        model.ID,
-			CapabilityCode: string(capability),
-		}
-		err = tx.Clauses(clause.OnConflict{
-			Columns:   []clause.Column{{Name: "model_id"}, {Name: "capability_code"}},
-			DoNothing: true,
-		}).Create(&capabilityRow).Error
-		if err != nil {
-			return err
-		}
-		capabilityRow.ID = ""
-		if err := tx.Where("model_id = ? AND capability_code = ?", model.ID, capability).Take(&capabilityRow).Error; err != nil {
+		var capabilityRow LLMModelCapability
+		err = tx.Where("model_id = ? AND capability_code = ?", model.ID, capability).Take(&capabilityRow).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			capabilityRow = LLMModelCapability{ModelID: model.ID, CapabilityCode: string(capability)}
+			if err := tx.Create(&capabilityRow).Error; err != nil {
+				return err
+			}
+		} else if err != nil {
 			return err
 		}
 

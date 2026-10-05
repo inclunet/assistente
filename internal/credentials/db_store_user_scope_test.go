@@ -71,6 +71,38 @@ func TestDBStoreScopesCredentialsByContextUser(t *testing.T) {
 	}
 }
 
+func TestDBStoreSaveCredentialAndGetIDReturnsCommittedIdentity(t *testing.T) {
+	setupScopedCredentialStoreTestDB(t)
+	store := NewDBStore()
+	ctx := database.WithUserID(context.Background(), "user-1")
+	cred := StoredCredential{Pattern: "api.example.com", Auth: &AuthConfig{Source: "static", Type: "bearer", Token: "encrypted-token"}}
+
+	id, err := store.SaveCredentialAndGetID(ctx, cred)
+	if err != nil {
+		t.Fatalf("SaveCredentialAndGetID() error = %v", err)
+	}
+	if id == "" {
+		t.Fatal("SaveCredentialAndGetID() returned an empty ID")
+	}
+	rows, err := store.ListCredentials(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].ID != id {
+		t.Fatalf("persisted identity = %+v, returned ID = %q", rows, id)
+	}
+
+	updated := cred
+	updated.Auth = &AuthConfig{Source: "static", Type: "bearer", Token: "rotated-token"}
+	updatedID, err := store.SaveCredentialAndGetID(ctx, updated)
+	if err != nil {
+		t.Fatalf("SaveCredentialAndGetID() on replacement error = %v", err)
+	}
+	if updatedID != id {
+		t.Fatalf("pattern replacement changed credential ID: old=%q new=%q", id, updatedID)
+	}
+}
+
 func TestClientRegistrationGrantSurvivesReload(t *testing.T) {
 	setupScopedCredentialStoreTestDB(t)
 	ctx := database.WithUserID(context.Background(), "user")

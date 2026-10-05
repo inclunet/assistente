@@ -77,6 +77,15 @@ var llmModelCapabilityDDL = []string{
 		CONSTRAINT fk_llm_model_capability_fields_capability FOREIGN KEY (capability_id)
 			REFERENCES llm_model_capabilities(id) ON UPDATE CASCADE ON DELETE CASCADE
 	)`,
+	`CREATE TRIGGER IF NOT EXISTS trg_llm_model_capabilities_identity_immutable
+		BEFORE UPDATE OF model_id, capability_code ON llm_model_capabilities
+		WHEN NEW.model_id IS NOT OLD.model_id OR NEW.capability_code IS NOT OLD.capability_code
+		BEGIN SELECT RAISE(ABORT, 'llm model capability identity is immutable'); END`,
+	`CREATE TRIGGER IF NOT EXISTS trg_llm_model_capabilities_no_replace
+		BEFORE INSERT ON llm_model_capabilities
+		WHEN EXISTS (SELECT 1 FROM llm_model_capabilities WHERE id = NEW.id
+			OR (model_id = NEW.model_id AND capability_code = NEW.capability_code))
+		BEGIN SELECT RAISE(ABORT, 'llm model capability cannot be replaced'); END`,
 	`CREATE TRIGGER IF NOT EXISTS trg_llm_providers_no_replace
 		BEFORE INSERT ON llm_providers
 		WHEN EXISTS (SELECT 1 FROM llm_providers WHERE id = NEW.id)

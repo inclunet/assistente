@@ -1,6 +1,11 @@
 package credentials
 
-import "context"
+import (
+	"context"
+	"errors"
+)
+
+var ErrCredentialUserScopeMismatch = errors.New("credential user does not match authenticated user")
 
 // StoredCredential representa credenciais já criptografadas para persistência.
 type StoredCredential struct {
@@ -40,6 +45,10 @@ type Store interface {
 	SaveKeyWrap(ctx context.Context, wrap KeyWrap) error
 	GetKeyWrap(ctx context.Context, kind string) (*KeyWrap, error)
 	HasKeyWrap(ctx context.Context, kind string) (bool, error)
+}
+
+type credentialIDWriter interface {
+	SaveCredentialAndGetID(ctx context.Context, cred StoredCredential) (string, error)
 }
 
 type credentialPresenceStore interface {

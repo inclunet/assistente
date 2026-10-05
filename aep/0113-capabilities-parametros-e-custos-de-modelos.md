@@ -71,6 +71,9 @@ llm_model_capabilities → llm_model_capability_fields`:
   `api_format`.
 - `llm_model_capabilities` delimita o contexto funcional em que os campos são
   enviados. Seu código é fechado e validado pelo domínio, não é texto livre.
+  O modelo e o código da capability formam sua identidade persistida e não
+  podem ser alterados depois da criação, para que restrições filhas não sejam
+  reinterpretadas em outro modelo ou contexto.
   Quando operações do mesmo tipo funcional aceitam parâmetros diferentes,
   recebem códigos de contexto distintos. A linha não afirma, por si só, que o
   modelo suporta uma capability; ela organiza a compatibilidade dos campos.
