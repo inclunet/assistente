@@ -1,6 +1,7 @@
 # AEP-0112 — OAuth compartilhado e autorizações unificadas
 
-**Status:** In Progress
+**Status:** Done
+**Concluído em:** 2026-10-05
 **Data:** 2026-09-30
 
 ## Resumo
@@ -15,11 +16,74 @@ OAuth no editor MCP já consomem essa base. Client Credentials legado dispõe de
 conversão e PKCE incompleto migra por reconexão explícita. Slack já possui
 credencial composta estática e backup cifrado. O transporte, os escritores e as
 APIs operacionais do runtime MCP legado foram removidos. Os testes automatizados
-cobrem também a recusa de identidades OIDC não confiáveis. Permanecem os aceites
-funcionais com contas reais registrados abaixo. A validação de cada entrega é
+cobrem também a recusa de identidades OIDC não confiáveis. Os aceites funcionais com contas reais foram confirmados pelo mantenedor
+em 05/10/2026, conforme o registro de encerramento abaixo. A validação de cada entrega é
 registrada no respectivo PR.
 As entradas operacionais de conexão, recuperação e MCP nativo já exigem
 autorização composta; o legado permanece disponível para snapshot e migração.
+
+## Encerramento e aceite do mantenedor — 05/10/2026
+
+O mantenedor confirmou que a migração, conexão e login dos MCPs funcionam,
+que a autenticação OpenAI/ChatGPT funciona e que a inicialização ficou mais
+rápida. Na confirmação complementar, aceitou explicitamente o canal Slack
+(API e Socket Mode após reinício), catálogo/envio/ferramenta local/reconexão
+ChatGPT e navegação/anúncios com NVDA. Pediu concluir este AEP e relatar
+separadamente a insatisfação com a experiência de conexão OpenAI.
+
+**Referência do código auditado:** `main` em `b3bda2e1f`, após o merge do
+[PR #907](https://github.com/inclunet/assistente/pull/907). Plataforma de aceite:
+Windows, instalação do mantenedor. A referência identifica o código auditado;
+não atribui ao executável uma versão extraída do log, nem representa benchmark.
+
+A conclusão combina evidência automatizada e aceite funcional, sem presumir
+que todo cenário negativo foi provocado em uma conta real:
+
+- **ChatGPT e OAuth compartilhado:** aceite funcional acima; refresh, isolamento
+  de identidade/conta, limites do plano e terminais de streaming permanecem
+  comprovados pelos testes `oauthflow/service_test.go`,
+  `oauthflow/identity_acceptance_test.go`, `oauthintegrations/chatgpt_test.go` e
+  `llm/chatgpt_test.go`. O aceite não afirma esgotamento real de cota nem troca
+  real entre duas contas quando esse cenário não foi individualmente relatado.
+- **MCP, callbacks e cutover:** aceite do mantenedor, incluindo as correções de
+  Slack e Databricks; fixtures históricas, callback/DCR, reinício, native/bridge,
+  renovação e recuperação têm as provas enumeradas em “Consolidação das provas
+  automatizadas e aceites funcionais”. Os PRs #893, #895, #896 e #897 encerraram
+  as entradas operacionais e retiraram os escritores/runtime históricos.
+  Leitores e snapshots de recuperação preservados não são um runtime alternativo.
+- **Slack Channels:** aceite explícito de API/Socket Mode após reinício,
+  complementando os testes de migração atômica, papéis, isolamento e backup do
+  [PR #892](https://github.com/inclunet/assistente/pull/892).
+- **CredManager, proteção e interface:** PRs #904 e #905 centralizaram editor e
+  acesso às autorizações; testes de cofre, DTOs redigidos, exportação, componentes
+  e locales são complementados pelo aceite de teclado/NVDA. A comprovação de
+  identidade negativa foi consolidada no PR #898. Não se afirma ausência
+  universal de segredos em qualquer conteúdo produzido por integrações externas.
+- **Entrega:** consulta ao GitHub em 05/10/2026 confirmou os PRs #891, #892, #893,
+  #895, #896, #897, #898, #899, #900, #901, #902, #904, #905, #906 e #907 mergeados,
+  cada um com 25 checks aprovados e zero threads não resolvidas. As evidências de
+  testes e revisões locais permanecem nos respectivos PRs e registros históricos.
+  O PR #907 registrou 6.450 testes frontend passando, suíte Go local com exceção
+  dos executáveis ACP bloqueados pelo antivírus (cobertos no CI Linux), três
+  rodadas locais e duas rodadas Copilot, a última sem achados.
+
+**Leitura dos logs:** o arquivo consultado no worktree principal contém uma
+abertura às 11:38 de 05/10, anterior ao merge do PR #907, conexões MCP e dois
+`oauth_refresh` com `outcome=success`. Também contém `SQLITE_BUSY` em jobs/banco,
+timeouts de health check e `Unauthorized` do `staging-mcp`. Esses registros não
+são um certificado de funcionamento de todas as integrações nem uma medição da
+nova inicialização. A validação atual de funcionamento e melhora de abertura é
+o relato explícito do mantenedor. Os eventos ficam como diagnóstico operacional;
+não foram apagados nem classificados como corrigidos por este fechamento.
+
+Não resta implementação aceita neste AEP. A melhoria da experiência de conectar
+OpenAI será relatada pelo mantenedor como bug separado, conforme sua decisão
+explícita; este encerramento não a apresenta como resolvida. O roteiro de
+`docs/content/configuracao/OAUTH_ACCEPTANCE.md` continua disponível para regressões.
+
+As seções históricas abaixo preservam os estados e pendências **na época de cada
+entrega**. Expressões como “In Progress” ou “permanece pendente” nesses relatos
+não substituem o status atual nem o registro de aceite deste encerramento.
 
 ## Motivação
 
@@ -324,15 +388,15 @@ Cada fase tem PRs revisáveis, testes e documentação; não entregar somente um
 infraestrutura sem consumidor utilizável. Ao iniciar implementação, mudar este AEP
 e índice para In Progress; marcar Done somente após os critérios de todo o escopo.
 
-1. [ ] Base mínima reutilizável + ChatGPT funcional: entrada composta/source OAuth,
+1. [x] Base mínima reutilizável + ChatGPT funcional: entrada composta/source OAuth,
    PKCE/OIDC, callback, extensão de registro ChatGPT, refresh coordenado, UI de conexão,
    catálogo, Responses e ferramentas locais. Se dividida em PRs, infraestrutura e
    integração formam uma entrega funcional conjunta, sem anunciar suporte antes disso.
    **Implementação e testes automatizados entregues; conexão com conta real validada
-   pelo mantenedor em 01/10/2026.** Permanecem sem confirmação funcional reconexão,
-   catálogo e envio de mensagem pelo usuário,
-   conforme o critério ChatGPT funcional abaixo.
-2. [ ] Paridade MCP: extrair/adaptar discovery, DCR, Device Flow, client credentials,
+   pelo mantenedor em 01/10/2026, com aceite complementar de catálogo, envio,
+   ferramenta local e reconexão em 05/10/2026.** Ver o registro de encerramento
+   para a distinção entre provas automatizadas e testes reais.
+2. [x] Paridade MCP: extrair/adaptar discovery, DCR, Device Flow, client credentials,
    callback manual/fixo e reautorização; adicionar consumidores do serviço compartilhado.
    **Implementação e testes automatizados entregues:** discovery e registro RFC 7591 foram extraídos para
    `internal/oauthflow`, consumidos pela tela e pelo runtime MCP. Device Flow,
@@ -342,13 +406,13 @@ e índice para In Progress; marcar Done somente após os critérios de todo o es
    em native/bridge. A seção de evidências do consumidor MCP registra os testes.
    Cadastros legados e backups históricos preservam dados para recuperação,
    mas exigem migração explícita antes da conexão (fase 3).
-   O aceite com provedores reais permanece pendente.
+   O mantenedor confirmou o aceite funcional dos MCPs em 05/10/2026.
    O transporte local do recurso MCP em PKCE/Client Credentials também aplica
    isolamento por origem, TLS e guard de rede compartilhado, preservando streams.
    A migração de credenciais continua exclusiva da fase 3.
    Importações externas Cursor/Claude já criam autorização composta pendente,
    sem discovery/login durante a importação e sem conexão automática inicial.
-3. [ ] Cutover MCP: migrar registros e referências, comprovar reinício/refresh/native/bridge,
+3. [x] Cutover MCP: migrar registros e referências, comprovar reinício/refresh/native/bridge,
    remover persistência dupla, configurações OAuth duplicadas e ciclo próprio de renovação.
    O inventário local preparatório está entregue (seção de evidências da fase 3);
    snapshots recuperáveis de PKCE e Client Credentials estão entregues;
@@ -358,12 +422,12 @@ e índice para In Progress; marcar Done somente após os critérios de todo o es
    entradas operacionais legadas encerradas e temporizador próprio removido.
    Runtime, transportes, escritores e APIs operacionais antigos removidos;
    leitores históricos e snapshots permanecem somente para recuperação.
-   A retirada física passou pelo CI/review no PR #897. Permanecem os aceites
-   funcionais; a seção de consolidação abaixo distingue as provas automatizadas.
-4. [ ] Convergência de canais: migrar componentes estáticos Slack para uma entrada por
+   A retirada física passou pelo CI/review no PR #897. O aceite funcional foi
+   confirmado em 05/10/2026; o encerramento distingue as provas automatizadas.
+4. [x] Convergência de canais: migrar componentes estáticos Slack para uma entrada por
    conexão e referências por papel, sem alterar protocolo nem exigir OAuth inexistente.
    Implementação e testes automatizados descritos na evidência da fase 4 abaixo;
-   validação funcional de API/Socket Mode com conta real permanece pendente.
+   validação funcional de API/Socket Mode após reinício confirmada em 05/10/2026.
 
 ### Evidências da primeira entrega
 
@@ -462,7 +526,7 @@ e índice para In Progress; marcar Done somente após os critérios de todo o es
 ## Critérios de aceitação
 
 - [x] Uma entrada por autorização, sem pares MCP de cadastro/token após conversão.
-- [ ] ChatGPT funcional na primeira entrega, incluindo refresh, troca de conta, catálogo,
+- [x] ChatGPT funcional na primeira entrega, incluindo refresh, troca de conta, catálogo,
   ferramentas locais, limites do plano e falhas durante streaming.
 - [x] OAuth genérico não depende de MCP/LLM/channels nem contém regras ChatGPT.
 - [x] Client secret opcional, registro manual/DCR/extensão e autorização pendente cobertos.
@@ -478,8 +542,8 @@ e índice para In Progress; marcar Done somente após os critérios de todo o es
   refresh concorrente único, logout/edição/exclusão impedem gravação tardia.
 - [x] MCP preserva discovery, Device Flow, client credentials, PKCE, native e bridge;
   reautorização explícita, sem navegador inesperado nem renovadores duplicados.
-  Evidência automatizada; a homologação com serviços reais permanece separada abaixo.
-- [ ] Aceite funcional com MCP Slack/Atlassian: autorização, ferramenta, reinício,
+  Evidência automatizada complementada pelo aceite funcional registrado no encerramento.
+- [x] Aceite funcional com MCP Slack/Atlassian: autorização, ferramenta, reinício,
   renovação e reautorização explícita, respeitando callback e cadastro do serviço.
 - [x] Novos cadastros OAuth no editor MCP usam uma autorização composta, sem
   persistência dupla nem renovador próprio; testes de PKCE/DCR/Device, Client
@@ -488,10 +552,10 @@ e índice para In Progress; marcar Done somente após os critérios de todo o es
   usuários diferentes e interrupção; restore documentado e segredos preservados.
 - [x] Slack Channels mantém bot/app token por papel numa entrada, sem OAuth artificial.
   Evidência automatizada de persistência, resolução, migração e backup.
-- [ ] Aceite funcional de Slack Channels com API e Socket Mode após migração e reinício.
-- [ ] Configuração/segredos não vazam em DTO, logs, erros ou exportação; UI acessível,
+- [x] Aceite funcional de Slack Channels com API e Socket Mode após migração e reinício.
+- [x] Configuração/segredos não vazam em DTO, logs, erros ou exportação; UI acessível,
   i18n nos três idiomas e documentação de usuário acompanham cada entrega.
-- [ ] Validação local, revisão independente, CI e revisão remota sem pendências por PR.
+- [x] Validação local, revisão independente, CI e revisão remota sem pendências por PR.
 
 ## Referências
 
