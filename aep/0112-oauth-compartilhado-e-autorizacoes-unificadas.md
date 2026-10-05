@@ -1835,3 +1835,24 @@ O hook compartilhado distingue chegada do pedido e espera pelos dados: pedidos
 recebidos dentro do prazo de navegação continuam válidos durante carga/retry.
 Cancelamento, substituição ou desmontagem descartam essa recepção; pedidos já
 expirados ao chegar continuam recusados. Regressões cobrem espera acima de 5 s.
+
+### Reconexão silenciosa e contenção na persistência (05/10/2026)
+
+Status: **In Progress**. O retry de conexão MCP usa o caminho não interativo.
+Falhas transitórias continuam em backoff; erros que exigem reautorização,
+permissões ou configuração do cliente encerram esse retry. PKCE sinaliza
+`NeedsReauth`; Client Credentials apresenta erro de configuração/permissões,
+sem oferecer consentimento no navegador. Conectar/reautorizar explicitamente continua permitindo consentimento.
+A correção cumpre D4; o mantenedor confirmou corrigir essa divergência do código.
+
+O CAS OAuth repete apenas gravações locais diante de SQLITE_BUSY/LOCKED, usando
+a política limitada e cancelável do banco. A variante com consumidor adquire o
+writer antes da transação. Revisão, escopo do usuário e ciphertext anterior
+continuam protegendo o commit; cache e publicação só mudam após sucesso.
+Nenhuma troca de código ou refresh remoto é repetida por esse retry. Esgotamento
+da espera continua sendo erro, nunca confirmação de persistência.
+
+Evidências: `TestManagedOAuthBackgroundRetryNeverOpensBrowser` percorre o retry
+real sem abrir navegador, marca reautorização e encerra o ciclo;
+`TestOAuthCASRetriesLocalContention` usa duas conexões SQLite/WAL, verifica os
+tokens após reabrir o cofre e mantém recusas de revisão antiga/cancelamento.

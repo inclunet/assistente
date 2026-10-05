@@ -6,6 +6,7 @@ import (
 	"errors"
 	"gorm.io/gorm"
 	"strings"
+	"time"
 
 	"assistente/internal/database"
 	"assistente/internal/oauthflow"
@@ -175,7 +176,7 @@ func (s *oauthStore) CompareAndSwapWithConsumerAndPublish(ctx context.Context, r
 		if dbErr != nil {
 			return dbErr
 		}
-		err = db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		err = database.WithSQLiteImmediateTransactionOnce(ctx, time.Now().Add(4*time.Second), db, "credentials.oauth_compare_swap", func(tx *gorm.DB) error {
 			result := tx.Model(&database.CredentialEntry{}).Where("id = ? AND user_id = ? AND source = ? AND oauth_enc = ?", r.ID, s.userID, "oauth", enc).Update("oauth_enc", next)
 			if result.Error != nil {
 				return result.Error
@@ -274,14 +275,17 @@ func (s *DBStore) SwapOAuth(ctx context.Context, id, before, after string) error
 	if err != nil {
 		return err
 	}
-	result := database.ScopeByUser(ctx, db.WithContext(ctx).Model(&database.CredentialEntry{}), "user_id").Where("id = ? AND source = ? AND oauth_enc = ?", id, "oauth", before).Update("oauth_enc", after)
-	if result.Error != nil {
-		return result.Error
-	}
-	if result.RowsAffected != 1 {
-		return oauthflow.ErrConflict
-	}
-	return nil
+	// Retry only the local CAS, never the remote OAuth exchange.
+	return database.WithSQLiteBusyRetry(ctx, "credentials.oauth_swap", func() error {
+		result := database.ScopeByUser(ctx, db.WithContext(ctx).Model(&database.CredentialEntry{}), "user_id").Where("id = ? AND source = ? AND oauth_enc = ?", id, "oauth", before).Update("oauth_enc", after)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			return oauthflow.ErrConflict
+		}
+		return nil
+	})
 }
 
 // Called with Manager.mu held, for logout, account switch and DEK reset.

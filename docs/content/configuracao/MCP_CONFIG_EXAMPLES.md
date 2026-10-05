@@ -354,6 +354,20 @@ ser tentado novamente para a mesma URL depois de resultado parcial ou falha.
 Escolher **Configurar manualmente** apenas abre os campos completos; isso não
 transforma uma descoberta bem-sucedida em mensagem de falha.
 
+### Reconexão automática e salvamento da autorização
+
+Quedas de rede e falhas temporárias continuam com reconexão automática. Esse
+ciclo não abre o navegador: quando PKCE exige novo consentimento, o servidor fica
+sinalizado para reautorizar e aguarda sua ação. Para Client Credentials, erros de
+permissão ou configuração pedem corrigir o cadastro e conectar novamente, sem
+oferecer login no navegador. A renovação por refresh token continua silenciosa
+quando possível.
+
+Após autorizar, bloqueios transitórios do banco local têm novas tentativas
+limitadas de gravação, sem repetir o login nem a troca remota do token. Se o
+bloqueio persistir, a operação informa falha; consentimento concluído no navegador
+não significa que o Assistente conseguiu salvar a autorização.
+
 ### Reautorização OAuth (token expirado)
 
 O token de acesso OAuth de servidores como o Atlassian expira periodicamente. O
