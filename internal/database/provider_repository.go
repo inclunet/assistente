@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"assistente/internal/llm"
+	"assistente/internal/llmcompat"
 
 	"gorm.io/gorm"
 )
@@ -163,24 +163,18 @@ func providerCompatibilityChanged(current, next *LLMProvider) bool {
 
 // As funções abaixo usam as mesmas regras efetivas do runtime para evitar
 // invalidar evidências só porque um default foi materializado no banco.
-func effectiveProviderAPIFormat(provider *LLMProvider) llm.APIFormat {
+func effectiveProviderAPIFormat(provider *LLMProvider) string {
 	if provider == nil {
 		return ""
 	}
-	return (&llm.ProviderConfig{
-		Type:      llm.ProviderType(provider.Type),
-		APIFormat: llm.APIFormat(provider.APIFormat),
-		BaseURL:   provider.BaseURL,
-	}).GetAPIFormat()
+	return llmcompat.EffectiveAPIFormat(provider.Type, provider.APIFormat, provider.BaseURL)
 }
 
-func effectiveProviderReasoningContentMode(provider *LLMProvider) llm.ReasoningContentMode {
+func effectiveProviderReasoningContentMode(provider *LLMProvider) string {
 	if provider == nil {
 		return ""
 	}
-	return (&llm.ProviderConfig{
-		ReasoningContentMode: llm.ReasoningContentMode(provider.ReasoningContentMode),
-	}).EffectiveReasoningContentMode()
+	return llmcompat.EffectiveReasoningContentMode(provider.ReasoningContentMode)
 }
 
 // GetLLMProvidersWithContext é a fachada de transição sobre a global db.

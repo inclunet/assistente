@@ -42,12 +42,12 @@ func migrateLLMProviderRevisionGuards(db *gorm.DB) error {
         (CASE
             WHEN NEW.api_format <> '' THEN CASE WHEN NEW.type IN ('localai', 'ollama', 'llamacpp') AND NEW.api_format = 'openai_responses' THEN 'openai' ELSE NEW.api_format END
             WHEN NEW.type IN ('localai', 'ollama', 'llamacpp') THEN 'openai'
-            WHEN lower(rtrim(NEW.base_url, '/')) LIKE '%%api.openai.com%%' THEN 'openai_responses'
+            WHEN lower(CASE WHEN substr(NEW.base_url, -1, 1) = '/' THEN substr(NEW.base_url, 1, length(NEW.base_url) - 1) ELSE NEW.base_url END) LIKE '%%api.openai.com%%' THEN 'openai_responses'
             ELSE 'openai'
         END) <> (CASE
             WHEN OLD.api_format <> '' THEN CASE WHEN OLD.type IN ('localai', 'ollama', 'llamacpp') AND OLD.api_format = 'openai_responses' THEN 'openai' ELSE OLD.api_format END
             WHEN OLD.type IN ('localai', 'ollama', 'llamacpp') THEN 'openai'
-            WHEN lower(rtrim(OLD.base_url, '/')) LIKE '%%api.openai.com%%' THEN 'openai_responses'
+            WHEN lower(CASE WHEN substr(OLD.base_url, -1, 1) = '/' THEN substr(OLD.base_url, 1, length(OLD.base_url) - 1) ELSE OLD.base_url END) LIKE '%%api.openai.com%%' THEN 'openai_responses'
             ELSE 'openai'
         END) OR
         NEW.base_url IS NOT OLD.base_url OR

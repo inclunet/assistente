@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+
+	"assistente/internal/llmcompat"
 )
 
 // ProviderType representa o tipo de provedor LLM (label de marca).
@@ -240,10 +242,10 @@ func (p *ProviderConfig) EffectiveAuthMode() AuthMode {
 
 // EffectiveReasoningContentMode aplica o default seguro para providers antigos.
 func (p *ProviderConfig) EffectiveReasoningContentMode() ReasoningContentMode {
-	if p != nil && p.ReasoningContentMode == ReasoningContentReplayWithTools {
-		return ReasoningContentReplayWithTools
+	if p == nil {
+		return ReasoningContentDisabled
 	}
-	return ReasoningContentDisabled
+	return ReasoningContentMode(llmcompat.EffectiveReasoningContentMode(string(p.ReasoningContentMode)))
 }
 
 // AssistantPrefillCapability descreve, de forma explícita, até onde um
@@ -338,29 +340,10 @@ func isAnthropicOfficialURL(baseURL string) bool {
 // da introdução de api_format usem automaticamente a Responses API,
 // sem exigir migração manual de configs existentes.
 func (p *ProviderConfig) GetAPIFormat() APIFormat {
-	if p.APIFormat != "" {
-		switch p.Type {
-		case ProviderLocalAI, ProviderOllama, ProviderLlamaCPP:
-			if p.APIFormat == APIFormatOpenAIResponses {
-				return APIFormatOpenAI
-			}
-		}
-		return p.APIFormat
-	}
-	switch p.Type {
-	case ProviderLocalAI, ProviderOllama, ProviderLlamaCPP:
+	if p == nil {
 		return APIFormatOpenAI
 	}
-	if isOpenAIRealURL(p.BaseURL) {
-		return APIFormatOpenAIResponses
-	}
-	return APIFormatOpenAI
-}
-
-// isOpenAIRealURL retorna true se a URL aponta para a API oficial da OpenAI.
-func isOpenAIRealURL(baseURL string) bool {
-	normalized := strings.ToLower(strings.TrimSuffix(baseURL, "/"))
-	return strings.Contains(normalized, "api.openai.com")
+	return APIFormat(llmcompat.EffectiveAPIFormat(string(p.Type), string(p.APIFormat), p.BaseURL))
 }
 
 // Validate verifica se o ProviderConfig é válido
