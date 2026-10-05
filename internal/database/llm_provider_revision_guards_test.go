@@ -8,7 +8,7 @@ import (
 	"gorm.io/gorm"
 )
 
-func TestMigration36VersionsDirectProviderUpdatesWithoutDoubleIncrement(t *testing.T) {
+func TestProviderRevisionGuardsVersionDirectUpdatesWithoutDoubleIncrement(t *testing.T) {
 	db := newMigratorTestDB(t)
 	if err := db.AutoMigrate(&LLMProvider{}); err != nil {
 		t.Fatal(err)
@@ -38,18 +38,30 @@ func TestMigration36VersionsDirectProviderUpdatesWithoutDoubleIncrement(t *testi
 			t.Fatalf("revisões = %d/%d; esperadas %d/%d", row.CompatibilityRevision, row.ConfigRevision, compatibility, configuration)
 		}
 	}
-	if err := db.Model(&LLMProvider{}).Where("id = ?", provider.ID).Updates(map[string]any{"credential_pattern": "replacement.example.com", "base_url": "https://new.example.com/v1", "api_format": "openai_responses", "auth_mode": "required"}).Error; err != nil {
+	if err := db.Model(&LLMProvider{}).Where("id = ?", provider.ID).Update("credential_pattern", "replacement.example.com").Error; err != nil {
 		t.Fatal(err)
 	}
-	assertRevision(2, 2)
+	assertRevision(1, 2)
+	if err := db.First(provider, "id = ?", provider.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	provider.CredentialPattern = "repository-replacement.example.com"
+	if err := repo.SaveLLMProvider(ctx, provider); err != nil {
+		t.Fatal(err)
+	}
+	assertRevision(1, 3)
+	if err := db.Model(&LLMProvider{}).Where("id = ?", provider.ID).Updates(map[string]any{"base_url": "https://new.example.com/v1", "api_format": "openai_responses", "auth_mode": "required"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	assertRevision(2, 4)
 	if err := db.Model(&LLMProvider{}).Where("id = ?", provider.ID).Update("default_model", "new-model").Error; err != nil {
 		t.Fatal(err)
 	}
-	assertRevision(2, 3)
+	assertRevision(2, 5)
 	if err := db.Model(&LLMProvider{}).Where("id = ?", provider.ID).Update("default_model", "new-model").Error; err != nil {
 		t.Fatal(err)
 	}
-	assertRevision(2, 3)
+	assertRevision(2, 5)
 	if err := db.First(provider, "id = ?", provider.ID).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -57,7 +69,7 @@ func TestMigration36VersionsDirectProviderUpdatesWithoutDoubleIncrement(t *testi
 	if err := repo.SaveLLMProvider(ctx, provider); err != nil {
 		t.Fatal(err)
 	}
-	assertRevision(3, 4)
+	assertRevision(3, 6)
 	rollback := errors.New("rollback")
 	if err := db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Model(&LLMProvider{}).Where("id = ?", provider.ID).Update("credential_pattern", "rollback.example.com").Error; err != nil {
@@ -67,11 +79,11 @@ func TestMigration36VersionsDirectProviderUpdatesWithoutDoubleIncrement(t *testi
 	}); !errors.Is(err, rollback) {
 		t.Fatalf("rollback: %v", err)
 	}
-	assertRevision(3, 4)
+	assertRevision(3, 6)
 	for _, column := range []string{"compatibility_revision", "config_revision"} {
 		if err := db.Model(&LLMProvider{}).Where("id = ?", provider.ID).UpdateColumn(column, 1).Error; err == nil {
 			t.Fatalf("permitiu regressão de %s", column)
 		}
 	}
-	assertRevision(3, 4)
+	assertRevision(3, 6)
 }

@@ -113,9 +113,7 @@ type LLMProvider struct {
 	UpdatedAt  time.Time
 }
 
-// LLMModel é um modelo remoto oferecido por uma configuração de provedor.
-// O ID remoto só é único dentro do provider: gateways distintos podem expor
-// o mesmo nome com contratos diferentes.
+// LLMModel é a identidade remota de um modelo dentro de um provedor.
 type LLMModel struct {
 	UUIDModel
 	ProviderID  string       `gorm:"type:text;not null;uniqueIndex:ux_llm_models_provider_remote" json:"providerId"`
@@ -124,80 +122,22 @@ type LLMModel struct {
 	Provider    *LLMProvider `gorm:"foreignKey:ProviderID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE" json:"-"`
 }
 
-// LLMCapability registra um identificador pertencente ao vocabulário
-// controlado pela aplicação.
-type LLMCapability struct {
-	Key string `gorm:"type:text;primaryKey" json:"key"`
-}
-
-// LLMCapabilityField descreve um campo canônico dentro de uma capability.
-// A chave composta impede colisões como voice em TTS e em áudio Realtime.
-type LLMCapabilityField struct {
-	CapabilityKey string `gorm:"type:text;primaryKey" json:"capabilityKey"`
-	Key           string `gorm:"type:text;primaryKey" json:"key"`
-	ValueType     string `gorm:"type:text;not null" json:"valueType"`
-	Unit          string `gorm:"type:text;not null;default:''" json:"unit,omitempty"`
-}
-
-// LLMModelCapability é uma afirmação com origem e escopo, não o estado
-// efetivo resolvido. Múltiplas afirmações concorrentes são preservadas.
+// LLMModelCapability delimita a operação/capability de um modelo.
 type LLMModelCapability struct {
 	UUIDModel
-	ModelID                       string     `gorm:"type:text;not null;index" json:"modelId"`
-	CapabilityKey                 string     `gorm:"type:text;not null;index" json:"capabilityKey"`
-	SupportState                  string     `gorm:"type:text;not null" json:"supportState"`
-	Source                        string     `gorm:"type:text;not null" json:"source"`
-	Scope                         string     `gorm:"type:text;not null" json:"scope"`
-	ProviderCompatibilityRevision int        `gorm:"not null" json:"providerCompatibilityRevision"`
-	BindingID                     *string    `gorm:"type:text" json:"bindingId,omitempty"`
-	ObservedAt                    time.Time  `gorm:"not null;index" json:"observedAt"`
-	ValidUntil                    *time.Time `json:"validUntil,omitempty"`
-	SourceReference               string     `gorm:"type:text;not null;default:''" json:"sourceReference,omitempty"`
+	ModelID        string `gorm:"type:text;not null;uniqueIndex:ux_llm_model_capabilities_model_code" json:"modelId"`
+	CapabilityCode string `gorm:"type:text;not null;uniqueIndex:ux_llm_model_capabilities_model_code" json:"capabilityCode"`
 }
 
-// LLMModelCapabilityField é uma afirmação tipada de suporte e restrições
-// escalares. Opções enumeradas ficam em LLMModelCapabilityFieldOption.
+// LLMModelCapabilityField registra uma restrição atual de campo.
+// A presença da linha significa "não suportado" na revisão indicada.
 type LLMModelCapabilityField struct {
-	UUIDModel
-	ModelID                       string     `gorm:"type:text;not null;index" json:"modelId"`
-	CapabilityKey                 string     `gorm:"type:text;not null" json:"capabilityKey"`
-	FieldKey                      string     `gorm:"type:text;not null" json:"fieldKey"`
-	SupportState                  string     `gorm:"type:text;not null" json:"supportState"`
-	Source                        string     `gorm:"type:text;not null" json:"source"`
-	Scope                         string     `gorm:"type:text;not null" json:"scope"`
-	ProviderCompatibilityRevision int        `gorm:"not null" json:"providerCompatibilityRevision"`
-	BindingID                     *string    `gorm:"type:text" json:"bindingId,omitempty"`
-	Minimum                       *float64   `json:"minimum,omitempty"`
-	Maximum                       *float64   `json:"maximum,omitempty"`
-	Step                          *float64   `json:"step,omitempty"`
-	ObservedAt                    time.Time  `gorm:"not null;index" json:"observedAt"`
-	ValidUntil                    *time.Time `json:"validUntil,omitempty"`
-	SourceReference               string     `gorm:"type:text;not null;default:''" json:"sourceReference,omitempty"`
+	CapabilityID          string    `gorm:"type:text;primaryKey" json:"capabilityId"`
+	FieldCode             string    `gorm:"type:text;primaryKey" json:"fieldCode"`
+	CompatibilityRevision int       `gorm:"not null" json:"compatibilityRevision"`
+	RecognizerID          string    `gorm:"type:text;not null" json:"recognizerId"`
+	UpdatedAt             time.Time `gorm:"not null" json:"updatedAt"`
 }
-
-// LLMModelCapabilityFieldOption pertence à afirmação que publicou a lista,
-// evitando misturar vozes ou opções de fontes distintas.
-type LLMModelCapabilityFieldOption struct {
-	AssertionID  string `gorm:"type:text;primaryKey" json:"assertionId"`
-	Value        string `gorm:"type:text;primaryKey" json:"value"`
-	Label        string `gorm:"type:text;not null;default:''" json:"label,omitempty"`
-	SupportState string `gorm:"type:text;not null" json:"supportState"`
-}
-
-// LLMModelCatalogBinding associa explicitamente uma identidade de catálogo
-// externo à configuração local e revisão para a qual ela foi verificada.
-type LLMModelCatalogBinding struct {
-	UUIDModel
-	ModelID                       string     `gorm:"type:text;not null;index" json:"modelId"`
-	ProviderCompatibilityRevision int        `gorm:"not null" json:"providerCompatibilityRevision"`
-	Source                        string     `gorm:"type:text;not null" json:"source"`
-	ExternalProviderID            string     `gorm:"type:text;not null" json:"externalProviderId"`
-	ExternalModelID               string     `gorm:"type:text;not null" json:"externalModelId"`
-	VerifiedAt                    time.Time  `gorm:"not null" json:"verifiedAt"`
-	ValidUntil                    *time.Time `json:"validUntil,omitempty"`
-	SourceReference               string     `gorm:"type:text;not null;default:''" json:"sourceReference,omitempty"`
-}
-
 // ACPSession vincula uma conversa do app à sessão que o agente de código mantém
 // do lado dele (AEP-0084 D4). É o registro que faz a conversa sobreviver ao
 // restart: com um agente ACP o histórico vive na sessão dele, não em mensagens

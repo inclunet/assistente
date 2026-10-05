@@ -71,7 +71,7 @@ func (r *ProviderRepository) SaveLLMProvider(ctx context.Context, provider *LLMP
 			if provider.CompatibilityRevision < 1 {
 				provider.CompatibilityRevision = 1
 			}
-			if providerCompatibilityIdentityChanged(&existing, provider) {
+			if providerCompatibilityChanged(&existing, provider) {
 				provider.CompatibilityRevision++
 			}
 			provider.ConfigRevision = existing.ConfigRevision
@@ -139,114 +139,12 @@ func providerConfigurationChanged(current, next *LLMProvider) bool {
 		current.ACPCredentialEnv != next.ACPCredentialEnv || current.ACPAgentID != next.ACPAgentID
 }
 
-func providerCompatibilityIdentityChanged(current, next *LLMProvider) bool {
+func providerCompatibilityChanged(current, next *LLMProvider) bool {
 	if current == nil || next == nil {
 		return true
 	}
-	return current.UserID != next.UserID || current.Type != next.Type || current.APIFormat != next.APIFormat || current.BaseURL != next.BaseURL ||
-		current.CredentialPattern != next.CredentialPattern || current.AuthMode != next.AuthMode ||
-		current.ReasoningContentMode != next.ReasoningContentMode ||
-		current.ACPCommand != next.ACPCommand || current.ACPArgs != next.ACPArgs || current.ACPEnv != next.ACPEnv ||
-		current.ACPCredentialEnv != next.ACPCredentialEnv || current.ACPAgentID != next.ACPAgentID
-}
-
-// BumpCompatibilityRevision registra a troca da credencial efetiva sem
-// persistir ou derivar qualquer dado do segredo. É usado antes de substituir
-// uma chave no cofre quando a referência da credencial continua igual.
-func (r *ProviderRepository) BumpCompatibilityRevision(ctx context.Context, id string) error {
-	if _, err := RequireUserID(ctx); err != nil {
-		return err
-	}
-	result := ScopeByUser(ctx, r.db.WithContext(ctx).Model(&LLMProvider{}), "user_id").
-		Where("id = ?", id).
-		UpdateColumn("compatibility_revision", gorm.Expr("compatibility_revision + 1"))
-	if result.Error != nil {
-		return result.Error
-	}
-	if result.RowsAffected != 1 {
-		return gorm.ErrRecordNotFound
-	}
-	return nil
-}
-
-// BumpCompatibilityRevisionsForCredentialPattern invalida todos os provedores
-// do usuário que consomem a credencial compartilhada. A atualização e a
-// leitura das novas revisões pertencem ao mesmo snapshot transacional.
-func (r *ProviderRepository) BumpCompatibilityRevisionsForCredentialPattern(ctx context.Context, pattern string) (map[string]int, error) {
-	if pattern == "" {
-		return nil, errors.New("credential pattern vazio")
-	}
-	if err := RequireUserIDOrBootstrap(ctx); err != nil {
-		return nil, err
-	}
-	userID, hasUser := UserIDFromContext(ctx)
-	scope := func(query *gorm.DB) *gorm.DB {
-		if hasUser {
-			return query.Where("user_id = ?", userID)
-		}
-		// O único escopo sem usuário aceito é o bootstrap explícito: providers
-		// órfãos ainda não adotados pelo primeiro usuário.
-		return query.Where("user_id = ?", "")
-	}
-	type providerRevision struct {
-		ID                    string
-		CompatibilityRevision int
-	}
-	var rows []providerRevision
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := scope(tx.Model(&LLMProvider{})).
-			Where("credential_pattern = ?", pattern).
-			UpdateColumn("compatibility_revision", gorm.Expr("compatibility_revision + 1")).Error; err != nil {
-			return err
-		}
-		return scope(tx.Model(&LLMProvider{})).
-			Select("id", "compatibility_revision").
-			Where("credential_pattern = ?", pattern).
-			Order("id COLLATE BINARY").
-			Find(&rows).Error
-	})
-	if err != nil {
-		return nil, err
-	}
-	revisions := make(map[string]int, len(rows))
-	for _, row := range rows {
-		revisions[row.ID] = row.CompatibilityRevision
-	}
-	return revisions, nil
-}
-
-// GetCompatibilityRevisionsForCredentialPattern lê as revisões atuais dos
-// provedores que compartilham o pattern, sem alterá-las. Usado após o commit
-// do cofre para publicar snapshots no registry.
-func (r *ProviderRepository) GetCompatibilityRevisionsForCredentialPattern(ctx context.Context, pattern string) (map[string]int, error) {
-	if pattern == "" {
-		return nil, errors.New("credential pattern vazio")
-	}
-	if err := RequireUserIDOrBootstrap(ctx); err != nil {
-		return nil, err
-	}
-	userID, hasUser := UserIDFromContext(ctx)
-	query := r.db.WithContext(ctx).Model(&LLMProvider{})
-	if hasUser {
-		query = query.Where("user_id = ?", userID)
-	} else {
-		query = query.Where("user_id = ?", "")
-	}
-	type providerRevision struct {
-		ID                    string
-		CompatibilityRevision int
-	}
-	var rows []providerRevision
-	if err := query.Select("id", "compatibility_revision").
-		Where("credential_pattern = ?", pattern).
-		Order("id COLLATE BINARY").Find(&rows).Error; err != nil {
-		return nil, err
-	}
-	revisions := make(map[string]int, len(rows))
-	for _, row := range rows {
-		revisions[row.ID] = row.CompatibilityRevision
-	}
-	return revisions, nil
+	return current.Type != next.Type || current.APIFormat != next.APIFormat || current.BaseURL != next.BaseURL ||
+		current.ReasoningContentMode != next.ReasoningContentMode
 }
 
 // GetLLMProvidersWithContext é a fachada de transição sobre a global db.

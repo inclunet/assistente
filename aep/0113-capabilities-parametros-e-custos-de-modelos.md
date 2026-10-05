@@ -104,11 +104,12 @@ O provedor existente continua sendo a raiz de configuração e autorização.
 escopo do provedor; uma requisição de usuário não pode publicar restrições
 globais em provedores de sistema sem a autorização correspondente.
 
-Uma revisão não secreta de compatibilidade muda quando mudam endpoint, formato,
-adaptador ou identidade efetiva de conta/credencial. Trocar apenas nome ou modelo
-padrão não invalida restrições de outros modelos. Renovação de token na mesma
-conta não é, por si só, troca de identidade. Segredos não são armazenados ou
-hasheados para compor a revisão.
+Uma revisão não secreta de compatibilidade muda quando mudam endpoint, formato
+de API, adaptador ou modo de protocolo do provedor. O aprendizado pertence à
+relação entre provedor configurado, modelo remoto, capability/operação e campo.
+Referências e conteúdo de credenciais não participam dessa relação. Trocar nome,
+modelo padrão ou configuração de credencial não invalida restrições de outros
+modelos. Segredos não são armazenados ou hasheados para compor a revisão.
 
 A requisição captura a revisão da configuração efetivamente usada, não uma
 versão possivelmente desatualizada do registry. Mudanças de identidade
@@ -241,22 +242,26 @@ histórico de verificações e selagem de opções. As antigas fases de fontes/j
 e tarifas/custos foram retiradas, não permanecem como entregas pendentes.
 Se houver necessidade futura de custos, será discutida separadamente.
 
-Este PR é exclusivamente documental. Após seu merge pelo mantenedor, o PR #889
-deve incorporar a `main` revisada e retificar persistência, migrações e testes
-para este contrato antes de ser considerado pronto. O mantenedor confirmou
-que a branch não foi executada em instalações; suas migrações inéditas podem
-ser consolidadas sem suportar estados intermediários daquela branch. Isso não
-autoriza renumerar ou remover migrações já publicadas na `main`.
+O PR #889 retifica persistência, migrações e testes para este contrato. O
+mantenedor confirmou que a branch não foi executada em instalações; suas
+migrações inéditas podem ser consolidadas sem suportar estados intermediários
+daquela branch. Isso não autoriza renumerar ou remover migrações já publicadas
+na `main`.
 
 ## Fases
 
 0. **Revisão documental — registrada neste documento.** Substituir a direção
    original do PR #887, alinhar o índice e orientar a retificação do #889.
    Nenhuma alteração de schema ou comportamento é entregue nesta revisão.
-1. **Persistência mínima — pendente; PR #889 a retificar.** Hierarquia
-   provedor → modelo → capability/operação → campo, com estado atual de
-   restrições, unicidade, autorização, revisão de conexão e recusa de gravações
-   obsoletas. Sem histórico, catálogos externos, jobs ou infraestrutura de vozes.
+1. **Persistência mínima — implementação no PR #889; checks completos pendentes.**
+   Hierarquia provedor → modelo → capability/operação → campo, com estado atual
+   de restrições, unicidade, autorização, revisão de conexão e recusa de
+   gravações obsoletas. Sem histórico, catálogos externos, jobs ou infraestrutura
+   de vozes. Evidência local: testes focados de persistência, isolamento entre
+   usuários, cascata, invalidação por revisão, rejeição de gravação obsoleta,
+   idempotência, concorrência, guards de identidade, bootstrap e renovação de
+   segredo sem mudança de revisão passaram nos pacotes afetados. A suíte completa
+   e os checks do PR ainda precisam passar para concluir a fase.
 2. **Envio, aprendizado e retry — pendente.** Integrar o estado ao pipeline,
    capturar a revisão efetiva, classificar rejeições explícitas, persistir e
    repetir uma vez com segurança; envios seguintes respeitam o aprendizado.
@@ -294,16 +299,21 @@ mantendo explícito que a fase 4 é uma proposta futura que exige nova decisão.
 
 - [x] Revisão documental explicita o novo escopo, substitui as exigências de
   histórico e remove fontes/jobs e custos; índice usa o mesmo título/status.
-- [ ] Restrições persistem entre sessões na hierarquia
+- [x] Restrições persistem entre sessões na hierarquia
   provedor/modelo/capability/operação/campo; repetir a rejeição atualiza a
-  mesma linha e não acumula histórico.
+  mesma linha e não acumula histórico. `llm_model_capabilities_test.go` valida
+  hierarquia, idempotência, isolamento e concorrência no PR #889.
 - [ ] Ausência de restrição não omite parâmetros nem oculta campos.
-- [ ] Autorização impede acesso entre usuários e publicação global indevida;
-  exclusão do provedor remove o estado dependente.
-- [ ] Troca de identidade invalida restrições e caches; uma resposta atrasada
-  não grava na nova revisão. Testar também concorrência entre troca e gravação.
-- [ ] O snapshot da requisição corresponde à revisão efetiva da conexão,
-  incluindo mudanças de credencial/conta, sem armazenar segredos no estado.
+- [x] Autorização impede acesso entre usuários e publicação global indevida;
+  exclusão do provedor remove o estado dependente. Coberto pelos testes focados
+  de escopo e cascata no PR #889.
+- [x] Troca de revisão invalida restrições e uma resposta atrasada não grava na
+  revisão nova. O teste focado cobre gravação obsoleta e invalidação; integração
+  da revisão ao snapshot efetivo do envio permanece na fase 2.
+- [x] A revisão de compatibilidade acompanha apenas endpoint, formato de API,
+  adaptador e modo de protocolo. Alterar a referência de credencial atualiza a
+  revisão de configuração, mas não invalida campos aprendidos.
+  `llm_provider_revision_guards_test.go` cobre a separação entre as revisões.
 - [ ] Rejeição explícita de parâmetro enviado e conhecido gera restrição e um
   retry seguro; o próximo envio omite o parâmetro sem repetir o erro.
 - [ ] Reconhecedores por provedor/formato aceitam apenas assinaturas

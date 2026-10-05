@@ -9,6 +9,7 @@ import (
 	"assistente/internal/credentials"
 	"assistente/internal/database"
 	"assistente/internal/llm"
+	"assistente/internal/llmcapabilities"
 )
 
 // O mock de falha continua cobrindo a mesma recusa de publicação, agora pela
@@ -307,8 +308,7 @@ func TestProviderReservationRollbackPreservesConcurrentModelFacts(t *testing.T) 
 			if err != nil {
 				t.Fatal(err)
 			}
-			fact := &database.LLMModelCapabilityField{ModelID: model.ID, CapabilityKey: "chat", FieldKey: "temperature", SupportState: "unsupported", Source: "execution_observation", Scope: "connection", ProviderCompatibilityRevision: provider.CompatibilityRevision, ObservedAt: time.Now().Add(-time.Second)}
-			if err := repository.RecordField(ctx, fact, nil); err != nil {
+			if err := repository.RecordUnsupportedField(ctx, model.ID, llmcapabilities.CapabilityChatCompletions, llmcapabilities.FieldTemperature, provider.CompatibilityRevision, "test.chat.unsupported_parameter"); err != nil {
 				t.Fatal(err)
 			}
 			if err := store.RollbackCreate(ctx, provider); err == nil {
@@ -322,9 +322,9 @@ func TestProviderReservationRollbackPreservesConcurrentModelFacts(t *testing.T) 
 			if bootstrap {
 				readCtx = database.WithUserID(context.Background(), "reader")
 			}
-			resolution, err := repository.Resolve(readCtx, model.ID, time.Now())
-			if err != nil || resolution.Fields["chat"]["temperature"].State != "unsupported" {
-				t.Fatalf("fatos concorrentes perdidos: %+v %v", resolution, err)
+			fields, err := repository.ListUnsupportedFields(readCtx, model.ID)
+			if err != nil || len(fields) != 1 || fields[0].FieldCode != string(llmcapabilities.FieldTemperature) {
+				t.Fatalf("restrição concorrente perdida: %+v %v", fields, err)
 			}
 		})
 	}
