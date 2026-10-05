@@ -91,6 +91,9 @@ func TestCredentialEntriesUniquePerUserPattern(t *testing.T) {
 
 func TestAdoptLegacyDataAssignsBlankOwners(t *testing.T) {
 	setupMultiUserTestDB(t)
+	if err := MigrateLLMModelCapabilities(db); err != nil {
+		t.Fatalf("migrate model capabilities: %v", err)
+	}
 
 	user := &User{Username: "admin", PasswordHash: "hash", Role: UserRoleAdmin, IsActive: true}
 	if err := db.Create(user).Error; err != nil {
