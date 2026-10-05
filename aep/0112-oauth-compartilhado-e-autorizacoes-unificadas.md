@@ -31,6 +31,13 @@ rápida. Na confirmação complementar, aceitou explicitamente o canal Slack
 ChatGPT e navegação/anúncios com NVDA. Pediu concluir este AEP e relatar
 separadamente a insatisfação com a experiência de conexão OpenAI.
 
+Na confirmação final, após pergunta específica sobre Slack e Atlassian, o
+mantenedor confirmou ferramentas após reinício, renovação automática e reconexão
+explícita. Informou que os testes abrangeram todos os servidores MCP da sua
+instalação e que todos funcionam agora, inclusive servidores que antes não
+funcionavam. Esse relato fecha o aceite funcional Slack/Atlassian abaixo; não
+é uma inferência a partir de testes automatizados ou dos logs históricos.
+
 **Referência do código auditado:** `main` em `b3bda2e1f`, após o merge do
 [PR #907](https://github.com/inclunet/assistente/pull/907). Plataforma de aceite:
 Windows, instalação do mantenedor. A referência identifica o código auditado;
@@ -45,8 +52,9 @@ que todo cenário negativo foi provocado em uma conta real:
   `oauthflow/identity_acceptance_test.go`, `oauthintegrations/chatgpt_test.go` e
   `llm/chatgpt_test.go`. O aceite não afirma esgotamento real de cota nem troca
   real entre duas contas quando esse cenário não foi individualmente relatado.
-- **MCP, callbacks e cutover:** aceite do mantenedor, incluindo as correções de
-  Slack e Databricks; fixtures históricas, callback/DCR, reinício, native/bridge,
+- **MCP, callbacks e cutover:** aceite funcional explícito de todos os servidores MCP
+  instalados, incluindo Slack e Atlassian nos percursos registrados acima e as
+  correções de Databricks; fixtures históricas, callback/DCR, reinício, native/bridge,
   renovação e recuperação têm as provas enumeradas em “Consolidação das provas
   automatizadas e aceites funcionais”. Os PRs #893, #895, #896 e #897 encerraram
   as entradas operacionais e retiraram os escritores/runtime históricos.
