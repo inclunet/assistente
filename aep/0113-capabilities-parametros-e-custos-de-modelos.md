@@ -1,6 +1,6 @@
 # AEP-0113 — Compatibilidade de parâmetros por modelo e provedor
 
-Status: In Progress — fase 1 concluída no PR #889; fase 2 em implementação e validação no PR #909; fase 3 pendente
+Status: In Progress — fase 1 concluída no PR #889; fase 2 em implementação e validação no PR #909; fase 3 em implementação em branch empilhada sobre #909
 
 ## Resumo
 
@@ -351,8 +351,14 @@ na `main`.
   não foram executados localmente por orientação de Infosec. CI, revisão local
   independente e review remota destas correções ainda precisam terminar antes
   da conclusão da fase.
-3. **Profile Manager — pendente.** Ocultar campos não suportados, manter
-   desconhecidos disponíveis e preservar valores salvos e acessibilidade.
+3. **Profile Manager — In Progress.** O editor consulta as restrições do
+   backend ao trocar provedor/modelo, oculta somente campos de geração já
+   reconhecidos como incompatíveis e mantém campos desconhecidos disponíveis.
+   Valores existentes são preservados; enquanto a consulta está pendente, os
+   campos de geração ficam desabilitados para evitar que o foco salte quando
+   campos forem ocultados. Testes de `ProfileChatSection` e `ProfileEditorTabs`
+   cobrem a renderização, a troca de seleção e a guarda de foco; CI e review
+   remota do PR empilhado ainda precisam validar esta fase.
 4. **Vozes TTS — futura, a rediscutir.** Objetivo de seleção amigável, sem
    mecanismo de descoberta, schema ou automação aprovados. Não bloqueia a
    entrega das fases 1–3 e não autoriza implementação antecipada.
@@ -434,6 +440,8 @@ mantendo explícito que a fase 4 é uma proposta futura que exige nova decisão.
   persistência e ausência de retry ou gravação na nova revisão.
 - [ ] O Profile Manager oculta campos não suportados usando o estado do backend,
   preserva valores salvos, reavalia ao trocar de modelo e mantém foco acessível.
+  A implementação está em andamento na branch empilhada sobre o PR #909; os
+  testes focados e checks remotos ainda precisam passar antes de marcar aceite.
 - [ ] Fases implementadas atualizam este documento, o índice e a documentação
   de usuário correspondente com testes e evidências no mesmo PR.
 
