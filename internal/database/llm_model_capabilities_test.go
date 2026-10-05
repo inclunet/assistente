@@ -398,6 +398,28 @@ func TestCreateLLMProviderRejectsForeignUserPayload(t *testing.T) {
 	}
 }
 
+func TestSaveLLMProviderRejectsForeignUserPayload(t *testing.T) {
+	db := llmModelCapabilitiesTestDB(t)
+	ctx := WithUserID(context.Background(), "owner-a")
+	provider := &LLMProvider{ID: "owned-provider", UserID: "owner-a", Name: "Owned", Type: "custom", BaseURL: "https://provider.example/v1"}
+	repository := NewProviderRepository(db)
+	if err := repository.CreateLLMProvider(ctx, provider); err != nil {
+		t.Fatalf("CreateLLMProvider(): %v", err)
+	}
+
+	provider.UserID = "owner-b"
+	if err := repository.SaveLLMProvider(ctx, provider); !errors.Is(err, ErrProviderUserScopeMismatch) {
+		t.Fatalf("SaveLLMProvider() error = %v, want ErrProviderUserScopeMismatch", err)
+	}
+	var stored LLMProvider
+	if err := db.First(&stored, "id = ?", provider.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if stored.UserID != "owner-a" {
+		t.Fatalf("provider mudou de proprietário: user_id=%q", stored.UserID)
+	}
+}
+
 func llmModelCapabilitiesTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	db := newMigratorTestDB(t)
