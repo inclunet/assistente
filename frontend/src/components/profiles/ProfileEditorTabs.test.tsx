@@ -7,9 +7,14 @@ import { ProfileEditorTabs } from './ProfileEditorTabs';
 
 const mockAnnounce = vi.fn();
 const providersSpy = vi.fn();
+const compatibilitySpy = vi.fn();
 
 vi.mock('@wailsjs/go/wailsapi/LLMProviders', () => ({
   GetLLMProvidersWithStatus: () => providersSpy(),
+}));
+
+vi.mock('@wailsjs/go/wailsapi/LLMModels', () => ({
+  GetUnsupportedProfileChatFields: (...args: unknown[]) => compatibilitySpy(...args),
 }));
 
 beforeEach(() => {
@@ -19,6 +24,8 @@ beforeEach(() => {
     { id: 'openai', api_format: 'openai', is_default: true },
     { id: 'cursor', api_format: 'acp' },
   ]);
+  compatibilitySpy.mockReset();
+  compatibilitySpy.mockResolvedValue([]);
 });
 
 vi.mock('react-i18next', () => ({
@@ -50,7 +57,9 @@ vi.mock('./ProfileGeneralSection', () => ({
 }));
 
 vi.mock('./ProfileChatSection', () => ({
-  ProfileChatSection: () => <button data-testid="chat-section">Chat</button>,
+  ProfileChatSection: ({ unsupportedFields }: { unsupportedFields?: string[] }) => (
+    <button data-testid="chat-section" data-unsupported-fields={unsupportedFields?.join(',') ?? ''}>Chat</button>
+  ),
 }));
 
 vi.mock('./ProfileSkillsSection', () => ({
@@ -125,6 +134,27 @@ function perfilCom(provider: string) {
 /* ── Testes ─────────────────────────────────────────────── */
 
 describe('ProfileEditorTabs', () => {
+  it('busca restrições para o provedor e modelo atuais e descarta resposta atrasada de outro modelo', async () => {
+    let resolveOld!: (fields: string[]) => void;
+    let resolveCurrent!: (fields: string[]) => void;
+    compatibilitySpy
+      .mockImplementationOnce(() => new Promise<string[]>((resolve) => { resolveOld = resolve; }))
+      .mockImplementationOnce(() => new Promise<string[]>((resolve) => { resolveCurrent = resolve; }));
+    const profile = (model: string) => ({
+      ...defaultProfile,
+      chat: { ...defaultProfile.chat, llm_provider: 'openai', model },
+    });
+    const { rerender } = render(<ProfileEditorTabs {...propsCom(profile('old-model'))} initialTab="models" />);
+    expect(compatibilitySpy).toHaveBeenNthCalledWith(1, 'openai', 'old-model');
+
+    rerender(<ProfileEditorTabs {...propsCom(profile('current-model'))} initialTab="models" />);
+    expect(compatibilitySpy).toHaveBeenNthCalledWith(2, 'openai', 'current-model');
+    resolveCurrent(['top_p']);
+    await waitFor(() => expect(screen.getByTestId('chat-section')).toHaveAttribute('data-unsupported-fields', 'top_p'));
+    resolveOld(['temperature']);
+    await waitFor(() => expect(screen.getByTestId('chat-section')).toHaveAttribute('data-unsupported-fields', 'top_p'));
+  });
+
   it('renderiza 6 abas', () => {
     renderTabs();
     const tabs = screen.getAllByRole('tab');

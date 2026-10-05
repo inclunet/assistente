@@ -131,6 +131,35 @@ describe('ProfileChatSection', () => {
     expect(screen.getByTestId('profile-chat-section')).toBeInTheDocument();
   });
 
+  it('oculta apenas campos aprendidos sem alterar os valores recebidos do perfil', () => {
+    const onChange = vi.fn();
+    const profileValues = { temperature: 1.25, topP: 0.8, maxTokens: 2048, reasoningEffort: 'high' };
+    render(
+      <ProfileChatSection
+        {...defaultProps}
+        {...profileValues}
+        unsupportedFields={['temperature', 'max_output_tokens']}
+        onChange={onChange}
+      />,
+    );
+
+    expect(screen.queryByLabelText('Temperatura')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Max Tokens')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Formato do parâmetro max_tokens')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Top P')).toBeInTheDocument();
+    expect(screen.getByLabelText('Raciocínio (Reasoning)')).toBeInTheDocument();
+    expect(profileValues).toEqual({ temperature: 1.25, topP: 0.8, maxTokens: 2048, reasoningEffort: 'high' });
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it('mantém os campos disponíveis quando a resposta não contém restrições', () => {
+    render(<ProfileChatSection {...defaultProps} unsupportedFields={[]} />);
+
+    expect(screen.getByLabelText('Temperatura')).toBeInTheDocument();
+    expect(screen.getByLabelText('Top P')).toBeInTheDocument();
+    expect(screen.getByLabelText('Max Tokens')).toBeInTheDocument();
+  });
+
   it('renderiza o ModelPicker com label correto', () => {
     render(<ProfileChatSection {...defaultProps} />);
     
