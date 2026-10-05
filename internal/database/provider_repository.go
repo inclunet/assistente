@@ -19,6 +19,10 @@ var ErrProviderCrossUser = errors.New("llm provider pertence a outro usuário")
 // criado. CreateLLMProvider nunca faz upsert.
 var ErrLLMProviderAlreadyExists = errors.New("llm provider já existe")
 
+// ErrProviderUserScopeMismatch indica que o payload tenta criar o provedor
+// no escopo de uma conta diferente da autenticada.
+var ErrProviderUserScopeMismatch = errors.New("llm provider user scope does not match authenticated user")
+
 // ProviderRepository encapsula a persistência de LLMProvider com um *gorm.DB
 // injetado, permitindo reuso em transações e testes sem depender da global db.
 type ProviderRepository struct {
@@ -103,6 +107,9 @@ func (r *ProviderRepository) CreateLLMProvider(ctx context.Context, provider *LL
 	}
 	if provider == nil {
 		return errors.New("llm provider inválido")
+	}
+	if userID, ok := UserIDFromContext(ctx); ok && provider.UserID != "" && provider.UserID != userID {
+		return ErrProviderUserScopeMismatch
 	}
 	if provider.UserID == "" {
 		if userID, ok := UserIDFromContext(ctx); ok {

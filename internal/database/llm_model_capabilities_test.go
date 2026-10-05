@@ -381,6 +381,23 @@ func TestSystemProviderCompatibilityWritesRequireBootstrap(t *testing.T) {
 	}
 }
 
+func TestCreateLLMProviderRejectsForeignUserPayload(t *testing.T) {
+	db := llmModelCapabilitiesTestDB(t)
+	ctx := WithUserID(context.Background(), "owner-a")
+	provider := &LLMProvider{ID: "foreign-provider", UserID: "owner-b", Name: "Foreign", Type: "custom", BaseURL: "https://provider.example/v1"}
+
+	if err := NewProviderRepository(db).CreateLLMProvider(ctx, provider); !errors.Is(err, ErrProviderUserScopeMismatch) {
+		t.Fatalf("CreateLLMProvider() error = %v, want ErrProviderUserScopeMismatch", err)
+	}
+	var count int64
+	if err := db.Model(&LLMProvider{}).Where("id = ?", provider.ID).Count(&count).Error; err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("provider foi gravado no escopo de outro usuário: count=%d", count)
+	}
+}
+
 func llmModelCapabilitiesTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	db := newMigratorTestDB(t)
