@@ -701,7 +701,7 @@ responseEvents:
 			if providerError == nil {
 				providerError = &ProviderError{Category: ProviderErrorUnrecognized, Recognizer: "provider-error:openai:responses:v1"}
 			}
-			diagnosticError := providerError.SanitizedForSentField(openAIResponsesProviderErrorParamWasSent(respParams, providerError))
+			diagnosticError := providerError.SanitizedForSentField(openAIResponsesProviderErrorParamWasSent(params, *providerError))
 			logging.Errorf(ctx, "llm.openai-responses", "provider API error signature=%s category=%s status=%d code=%s type=%s param=%s", diagnosticError.Recognizer, diagnosticError.Category, diagnosticError.StatusCode, diagnosticError.Code, diagnosticError.Type, diagnosticError.Param)
 			if len(mcpServers) > 0 && !emittedNonRetryableEffect && looksLikeNativeMCPUnsupported(errMsg) {
 				return mcpStreamAttemptResult{nativeMCPUnsupported: true}
@@ -714,9 +714,9 @@ responseEvents:
 				return mcpStreamAttemptResult{mcpFailure: failure}
 			}
 			if providerError != nil && providerError.Category == ProviderErrorUnsupportedParameter && providerError.Field != "" {
-				if !emittedNonRetryableEffect && fullReasoning.Len() == 0 && len(activeFuncCalls) == 0 && len(finishedToolCalls) == 0 && params.Compatibility != nil &&
-					openAIResponsesFieldWasSent(respParams, providerError.Field) &&
-					params.Compatibility.LearnAndClaimRetry(ctx, llmcapabilities.CapabilityResponses, providerError.Field, providerError.Recognizer) {
+				if !emittedNonRetryableEffect && fullReasoning.Len() == 0 && len(activeFuncCalls) == 0 && len(finishedToolCalls) == 0 && chatParams.Compatibility != nil &&
+					openAIResponsesFieldWasSent(params, providerError.Field) &&
+					chatParams.Compatibility.LearnAndClaimRetry(ctx, llmcapabilities.CapabilityResponses, providerError.Field, providerError.Recognizer) {
 					return mcpStreamAttemptResult{compatibilityRetry: true, compatibilityError: providerError.DisplayMessage()}
 				}
 				markErrorNotRetryable(handler)
@@ -767,7 +767,7 @@ responseEvents:
 		if !recognizedProviderError {
 			providerError = ProviderErrorDiagnostic(p.provider, err)
 		}
-		diagnosticError := providerError.SanitizedForSentField(openAIResponsesFieldWasSent(respParams, providerError.Field))
+		diagnosticError := providerError.SanitizedForSentField(openAIResponsesFieldWasSent(params, providerError.Field))
 
 		// Classifica ANTES de logar: uma falha de handshake/listagem MCP
 		// recuperável é tratada pela degradação (retry_without_server) logo
@@ -825,9 +825,9 @@ responseEvents:
 			return mcpStreamAttemptResult{retry: true}
 		}
 		if recognizedProviderError && providerError.Category == ProviderErrorUnsupportedParameter && providerError.Field != "" {
-			if !emittedNonRetryableEffect && fullReasoning.Len() == 0 && len(activeFuncCalls) == 0 && len(finishedToolCalls) == 0 && params.Compatibility != nil &&
-				openAIResponsesCompatibilityFieldWasSent(respParams, providerError) &&
-				params.Compatibility.LearnAndClaimRetry(ctx, llmcapabilities.CapabilityResponses, providerError.Field, providerError.Recognizer) {
+			if !emittedNonRetryableEffect && fullReasoning.Len() == 0 && len(activeFuncCalls) == 0 && len(finishedToolCalls) == 0 && chatParams.Compatibility != nil &&
+				openAIResponsesCompatibilityFieldWasSent(params, *providerError) &&
+				chatParams.Compatibility.LearnAndClaimRetry(ctx, llmcapabilities.CapabilityResponses, providerError.Field, providerError.Recognizer) {
 				return mcpStreamAttemptResult{compatibilityRetry: true, compatibilityError: providerError.DisplayMessage()}
 			}
 			markErrorNotRetryable(handler)

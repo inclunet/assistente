@@ -122,7 +122,7 @@ func (p *OpenAIProvider) streamChatCompletions(ctx context.Context, model string
 		default:
 		}
 
-		res := p.doStream(ctx, sdkParams, handler, &sdkParams, params.OnPromptCacheHintUnsupported, params.PromptCacheHintFallback)
+		res := p.doStream(ctx, sdkParams, handler, &sdkParams, params, params.OnPromptCacheHintUnsupported, params.PromptCacheHintFallback)
 		if res.done {
 			return
 		}
@@ -167,7 +167,7 @@ type chatStreamAttempt struct {
 }
 
 // doStream executa uma tentativa de streaming.
-func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatCompletionNewParams, handler StreamHandler, origParams *openai.ChatCompletionNewParams, onPromptCacheHintUnsupported func(), promptCacheFallback *PromptCacheHintFallback) chatStreamAttempt {
+func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatCompletionNewParams, handler StreamHandler, origParams *openai.ChatCompletionNewParams, chatParams ChatParams, onPromptCacheHintUnsupported func(), promptCacheFallback *PromptCacheHintFallback) chatStreamAttempt {
 	// Watchdog de ociosidade: se o servidor parar de enviar sem fechar a
 	// conexão, cancela a leitura e transforma em erro retryable (quando nada
 	// visível foi emitido). Cada evento recebido reinicia a contagem.
@@ -366,9 +366,9 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 
 		if !emittedVisibleContent {
 			if recognizedProviderError && providerError.Category == ProviderErrorUnsupportedParameter && providerError.Field != "" {
-				if len(finishedToolCalls) == 0 && fullReasoning.Len() == 0 && params.Compatibility != nil &&
+				if len(finishedToolCalls) == 0 && fullReasoning.Len() == 0 && chatParams.Compatibility != nil &&
 					openAIChatCompatibilityFieldWasSent(origParams, providerError) &&
-					params.Compatibility.LearnAndClaimRetry(ctx, llmcapabilities.CapabilityChatCompletions, providerError.Field, providerError.Recognizer) {
+					chatParams.Compatibility.LearnAndClaimRetry(ctx, llmcapabilities.CapabilityChatCompletions, providerError.Field, providerError.Recognizer) {
 					clearOpenAIChatField(origParams, providerError.Field)
 					return chatStreamAttempt{compatibilityRetry: true, compatibilityError: providerError.DisplayMessage()}
 				}
