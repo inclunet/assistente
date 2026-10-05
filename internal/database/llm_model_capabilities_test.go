@@ -352,6 +352,54 @@ func TestModelAndProviderIdentityGuardsRejectUpdateAndReplace(t *testing.T) {
 	}
 }
 
+func TestCapabilityFieldIdentityGuardRejectsUpdate(t *testing.T) {
+	db := llmModelCapabilitiesTestDB(t)
+	ctx := WithUserID(context.Background(), "owner")
+	provider := &LLMProvider{ID: "provider", UserID: "owner", Name: "Provider", Type: "custom", BaseURL: "https://provider.example/v1"}
+	if err := NewProviderRepository(db).CreateLLMProvider(ctx, provider); err != nil {
+		t.Fatal(err)
+	}
+	repository := NewLLMModelCapabilitiesRepository(db)
+	firstModel, err := repository.SaveModel(ctx, provider.ID, "first-model", "First")
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondModel, err := repository.SaveModel(ctx, provider.ID, "second-model", "Second")
+	if err != nil {
+		t.Fatal(err)
+	}
+	field := llmcapabilities.FieldTemperature
+	if err := repository.RecordUnsupportedField(ctx, firstModel.ID, llmcapabilities.CapabilityChatCompletions, field, provider.CompatibilityRevision, "openai.chat.unsupported_parameter"); err != nil {
+		t.Fatal(err)
+	}
+	targetField := llmcapabilities.FieldTopP
+	if err := repository.RecordUnsupportedField(ctx, secondModel.ID, llmcapabilities.CapabilityChatCompletions, targetField, provider.CompatibilityRevision, "openai.chat.unsupported_parameter"); err != nil {
+		t.Fatal(err)
+	}
+	var firstCapability, secondCapability LLMModelCapability
+	if err := db.Where("model_id = ? AND capability_code = ?", firstModel.ID, llmcapabilities.CapabilityChatCompletions).First(&firstCapability).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Where("model_id = ? AND capability_code = ?", secondModel.ID, llmcapabilities.CapabilityChatCompletions).First(&secondCapability).Error; err != nil {
+		t.Fatal(err)
+	}
+	for _, update := range []struct {
+		column string
+		value  string
+	}{
+		{column: "capability_id", value: secondCapability.ID},
+		{column: "field_code", value: string(targetField)},
+	} {
+		if err := db.Model(&LLMModelCapabilityField{}).Where("capability_id = ? AND field_code = ?", firstCapability.ID, field).Update(update.column, update.value).Error; err == nil {
+			t.Fatalf("alteração direta de %s transportou a restrição aprendida", update.column)
+		}
+	}
+	var stored LLMModelCapabilityField
+	if err := db.Where("capability_id = ? AND field_code = ?", firstCapability.ID, field).First(&stored).Error; err != nil {
+		t.Fatalf("restrição original foi removida: %v", err)
+	}
+}
+
 func TestSystemProviderCompatibilityWritesRequireBootstrap(t *testing.T) {
 	db := llmModelCapabilitiesTestDB(t)
 	userCtx := WithUserID(context.Background(), "owner")

@@ -109,6 +109,10 @@ var llmModelCapabilityDDL = []string{
 			)
 		)
 		BEGIN SELECT RAISE(ABORT, 'unknown model capability field'); END`,
+	`CREATE TRIGGER IF NOT EXISTS trg_llm_model_capability_fields_identity_immutable
+		BEFORE UPDATE OF capability_id, field_code ON llm_model_capability_fields
+		WHEN NEW.capability_id IS NOT OLD.capability_id OR NEW.field_code IS NOT OLD.field_code
+		BEGIN SELECT RAISE(ABORT, 'llm model capability field identity is immutable'); END`,
 	`CREATE TRIGGER IF NOT EXISTS trg_llm_model_capability_fields_field_update
 		BEFORE UPDATE OF capability_id, field_code ON llm_model_capability_fields
 		WHEN NOT EXISTS (
