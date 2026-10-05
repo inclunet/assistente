@@ -594,12 +594,14 @@ func TestUpdateExistingPattern(t *testing.T) {
 }
 
 type reentrantCredentialStore struct {
-	manager           *Manager
-	saved             StoredCredential
-	listErr           error
-	failListAfterSave bool
-	saveCount         int
-	noID              bool
+	manager             *Manager
+	saved               StoredCredential
+	listErr             error
+	failListAfterSave   bool
+	saveCount           int
+	noID                bool
+	cancelAfterSaveList context.CancelFunc
+	deleteContextErr    error
 }
 
 func (s *reentrantCredentialStore) SaveCredential(_ context.Context, cred StoredCredential) error {
@@ -613,6 +615,10 @@ func (s *reentrantCredentialStore) ListCredentials(context.Context) ([]StoredCre
 	if s.saved.Pattern == "" {
 		return nil, nil
 	}
+	if s.cancelAfterSaveList != nil && s.saveCount > 0 {
+		s.cancelAfterSaveList()
+		return nil, context.Canceled
+	}
 	cred := s.saved
 	if s.listErr != nil && (!s.failListAfterSave || s.saveCount > 0) {
 		return nil, s.listErr
@@ -623,7 +629,8 @@ func (s *reentrantCredentialStore) ListCredentials(context.Context) ([]StoredCre
 	return []StoredCredential{cred}, nil
 }
 
-func (s *reentrantCredentialStore) DeleteCredential(context.Context, string) error {
+func (s *reentrantCredentialStore) DeleteCredential(ctx context.Context, _ string) error {
+	s.deleteContextErr = ctx.Err()
 	s.saved = StoredCredential{}
 	return nil
 }
@@ -774,6 +781,28 @@ func TestRegisterStoredCredentialCompensatesPostSaveLookupFailure(t *testing.T) 
 			t.Fatalf("previous credential was not restored: %+v", store.saved)
 		}
 	})
+}
+
+func TestRegisterStoredCredentialCompensatesCanceledPostSaveLookup(t *testing.T) {
+	ctx, cancel := context.WithCancel(database.WithUserID(context.Background(), "user-1"))
+	defer cancel()
+	store := &reentrantCredentialStore{cancelAfterSaveList: cancel}
+	mgr := NewManagerWithStoreAndPersistence([]byte("test-key-exactly-32-bytes-long!!"), store, true)
+	store.manager = mgr
+
+	err := mgr.RegisterStoredCredentialWithContext(ctx, StoredCredential{
+		Pattern: "api.example.com",
+		Auth:    &AuthConfig{Source: "static", Type: "bearer", Token: "secret"},
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("RegisterStoredCredentialWithContext() error = %v, want context.Canceled", err)
+	}
+	if store.deleteContextErr != nil {
+		t.Fatalf("compensação recebeu contexto cancelado: %v", store.deleteContextErr)
+	}
+	if store.saved.Pattern != "" {
+		t.Fatalf("credencial permaneceu persistida após falha de releitura: %+v", store.saved)
+	}
 }
 
 func TestRegisterStoredCredentialRejectsDifferentAuthenticatedUser(t *testing.T) {

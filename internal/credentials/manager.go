@@ -231,10 +231,11 @@ func (m *Manager) RegisterStoredCredentialWithContext(ctx context.Context, cred 
 }
 
 func (m *Manager) compensateCredentialWrite(ctx context.Context, userID, pattern string, previous *StoredCredential) error {
+	compensationCtx := context.WithoutCancel(database.WithUserID(ctx, userID))
 	if previous != nil {
-		return m.store.SaveCredential(database.WithUserID(ctx, userID), *previous)
+		return m.store.SaveCredential(compensationCtx, *previous)
 	}
-	return m.store.DeleteCredential(database.WithUserID(ctx, userID), pattern)
+	return m.store.DeleteCredential(compensationCtx, pattern)
 }
 
 // ResolveForURL resolve credenciais para uma URL
