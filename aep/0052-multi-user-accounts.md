@@ -638,7 +638,7 @@ Etapa 6: Modelo                           ← SEM MUDANÇA
 | Scoping por `user_id` | Implementado com fail-closed nos dados user-scoped, contexto autenticado no app, canais, import/export, mensagens, providers, conversas, credenciais, task lists, tasks por hierarquia e `task_notes`. |
 | Credenciais | Credenciais de usuário exigem contexto autenticado; segredos de instância `internal-auth:*` e `internal-tls:*` ficam com `user_id=''`; MCP exige contexto de usuário para tokens/inline auth. |
 | Constraints multiusuário | Implementado para providers/credenciais já existentes e ajustado para `task_lists.slug` e `task_notes` externos por usuário. |
-| Frontend | `AuthGate` só renderiza a aplicação com sessão autenticada e usuário válido; refresh inválido não abre a UI; chamadas concorrentes de status são deduplicadas. |
+| Frontend | `AuthGate` só renderiza a aplicação com sessão autenticada e usuário válido; refresh inválido não abre a UI; chamadas concorrentes de status são deduplicadas. No desktop, `GetAuthStatus` aguarda o resultado do startup completo antes de ler serviços ou permitir refresh; falhas de startup e encerramento liberam a espera com erro. Evidências: `internal/app/startup_readiness_test.go` e `AuthGate.test.tsx` (continuação automática sem clique). |
 | Legados em arquivo | Permanecem como escopo explícito de AEPs seguintes (`profiles`, `skills`, allowlists). MCP/jobs/canais já migraram (canais/contatos via **AEP-0083** / PR #400). Este PR impede que credenciais/tokens associados sejam usados sem contexto de usuário. |
 
 ---

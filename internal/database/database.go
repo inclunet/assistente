@@ -182,7 +182,9 @@ func InitPath(path string) error {
 	// não escrever páginas que fixem o modo none). Em bancos legados o pragma é
 	// no-op aqui; a conversão ocorre no primeiro VACUUM da manutenção
 	// (maintenance.go, AEP-0074).
-	db.Exec("PRAGMA auto_vacuum=INCREMENTAL")
+	if err := configureInitialAutoVacuum(db); err != nil {
+		return fmt.Errorf("configurar auto_vacuum inicial: %w", err)
+	}
 	// Ativa modo WAL para melhor performance com arquivos grandes
 	db.Exec("PRAGMA journal_mode=WAL")
 	db.Exec("PRAGMA synchronous=NORMAL")

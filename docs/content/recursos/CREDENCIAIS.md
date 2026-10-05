@@ -8,6 +8,14 @@ weight: 16
 Chaves de provedores ficam no cofre criptografado (DEK + pepper), isoladas por usuário. A perda de credenciais é defensiva: sem DEK o cofre não abre e o app pede novo login sem expor segredos. Gerencie em **Configurações → Provedores**.
 
 
+## Abertura do aplicativo
+
+Enquanto o Assistente inicializa o banco e os serviços, a tela de autenticação
+mostra uma espera e continua automaticamente quando a inicialização termina.
+Não é necessário clicar repetidamente para entrar. A sessão salva é verificada
+normalmente; uma sessão inválida ainda exige login. Se a inicialização falhar,
+a interface informa a indisponibilidade, sem abrir o aplicativo parcialmente.
+
 ## Fontes e autorizações
 
 Em **Configurações → Credenciais**, cadastre valores salvos ou fontes externas

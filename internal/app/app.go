@@ -78,7 +78,8 @@ type UpdateLLMProviderRequest = apidto.UpdateLLMProviderRequest
 
 // App struct
 type App struct {
-	desktopDatabasePath string // fixado antes do startup, sob a reserva desktop
+	startupResult       *startupResult // publicado antes de expor os bindings
+	desktopDatabasePath string         // fixado antes do startup, sob a reserva desktop
 	ctx                 context.Context
 	cancel              context.CancelFunc    // cancela o ctx raiz no Shutdown
 	bgWG                sync.WaitGroup        // join das goroutines de background no Shutdown
@@ -429,6 +430,7 @@ type StreamEvent = events.StreamEvent
 // NewApp creates a new App application struct
 func NewApp() *App {
 	return &App{
+		startupResult:  newStartupResult(),
 		profileManager: profiles.NewManager(),
 		llmRegistry:    llm.NewProviderRegistry(),
 	}
@@ -930,7 +932,8 @@ func AuthenticatedContext(a *App) (context.Context, error) {
 
 // StartupWithAdapters inicializa o app com os adapters fornecidos.
 // Reutilizado pelo Wails (main.go na raiz) e pelo CLI (cmd/asst/).
-func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, window ports.WindowPort, dialog ports.SystemDialogPort) error {
+func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, window ports.WindowPort, dialog ports.SystemDialogPort) (startupErr error) {
+	defer func() { a.startupResult.finish(startupErr) }()
 	// Deriva um contexto cancelável: Shutdown chama a.cancel() para sinalizar o
 	// encerramento às goroutines de background. WithCancel preserva os values do
 	// ctx pai (ex.: userID), então Context() continua válido para os consumidores.
@@ -1352,6 +1355,7 @@ func (a *App) waitBackground(timeout time.Duration) {
 
 // Shutdown encerra todos os serviços do app.
 func (a *App) Shutdown() {
+	a.startupResult.finish(context.Canceled)
 	// Publica inclusive o estado terminal quando nenhum vínculo foi criado:
 	// uma admissão concorrente não pode montar uma registry viva após o shutdown.
 	a.ensureExternalUIConnections().Close()

@@ -5077,7 +5077,7 @@ const ptBR = {
         signIn: 'Entrar',
       },
       descriptions: {
-        loading: 'Verificando o estado do cofre e da sessão.',
+        loading: 'Aguardando a inicialização do Assistente para verificar o cofre e a sessão. Você continuará automaticamente.',
         unavailable: 'Não foi possível carregar o estado do cofre.',
         setup: 'Configure uma senha mestre para proteger a DEK do cofre.',
         unlock: 'Digite a senha mestre para desbloquear o cofre local.',

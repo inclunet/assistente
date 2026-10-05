@@ -5076,7 +5076,7 @@ const en = {
         signIn: 'Sign in',
       },
       descriptions: {
-        loading: 'Checking vault and session state.',
+        loading: 'Waiting for Assistente to start before checking the vault and session. You will continue automatically.',
         unavailable: 'Could not load the vault state.',
         setup: 'Set a master password to protect the vault DEK.',
         unlock: 'Enter the master password to unlock the local vault.',
