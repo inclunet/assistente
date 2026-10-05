@@ -63,17 +63,39 @@ Ausência de informação é `unknown`, nunca `unsupported`. Sucesso de uma
 requisição não prova suporte a todos os parâmetros que o endpoint pode ter
 ignorado, nem deve limpar indiscriminadamente restrições existentes.
 
-O domínio conhece e valida os campos que realmente consome. Não se constrói
-um catálogo de modalidades futuras nem se persiste texto arbitrário de erros
-como novo identificador. Não são exigidas tabelas duplicando o vocabulário
-estático do código, um grafo de capabilities ou um schema genérico de limites
-e opções para executar as fases 1–3.
+A persistência segue a hierarquia `llm_providers → llm_models →
+llm_model_capabilities → llm_model_capability_fields`:
 
-O schema físico será definido na implementação mínima de persistência. Deve
-garantir unicidade, autorização e vínculo com o provedor; não exige tabelas de
-afirmações, vínculos externos, selos de opções ou triggers para proteger
-histórico. Origem e data são metadados operacionais, não auditoria. Logs e
-registros não armazenam credenciais nem o corpo bruto sensível da API.
+- `llm_models` identifica o modelo remoto dentro do provedor. A identidade é
+  única por provedor e ID remoto; o modelo não duplica `user_id` nem
+  `api_format`.
+- `llm_model_capabilities` delimita o contexto funcional em que os campos são
+  enviados. Seu código é fechado e validado pelo domínio, não é texto livre.
+  Quando operações do mesmo tipo funcional aceitam parâmetros diferentes,
+  recebem códigos de contexto distintos. A linha não afirma, por si só, que o
+  modelo suporta uma capability; ela organiza a compatibilidade dos campos.
+- `llm_model_capability_fields` registra somente campos canônicos atualmente
+  identificados como não suportados naquele modelo e contexto. A ausência de
+  linha significa `unknown`. Os campos conhecidos são validados no domínio;
+  não se persiste um catálogo de campos arbitrários.
+
+O nó de capability pode ser criado junto da primeira restrição de campo, sem
+inventário externo ou sondagem do modelo. A linha de campo guarda a revisão de
+compatibilidade observada, o identificador estável do reconhecedor que aprendeu
+a restrição e o instante da última atualização. A revisão atual fica junto à
+configuração do provedor e muda quando sua identidade de compatibilidade muda.
+A chave lógica do campo é modelo + contexto de capability/operação + campo; a
+repetição atualiza a mesma linha, sem histórico. Exclusão do provedor propaga-se
+pela hierarquia.
+
+O domínio não constrói catálogo de modalidades futuras nem persiste texto
+arbitrário de erros, valores rejeitados, limites ou opções inferidos. O schema
+físico e os tipos concretos serão definidos na implementação, preservando esta
+hierarquia, a unicidade, a autorização e o vínculo com o provedor. Não são
+requisitos histórico imutável, vínculos externos, selos de opções ou triggers
+para preservar afirmações concorrentes. Origem e data são metadados operacionais,
+não auditoria. Logs e registros não armazenam credenciais nem o corpo bruto
+sensível da API.
 
 ### 2. Identidade, invalidação e concorrência
 
@@ -231,10 +253,10 @@ autoriza renumerar ou remover migrações já publicadas na `main`.
 0. **Revisão documental — registrada neste documento.** Substituir a direção
    original do PR #887, alinhar o índice e orientar a retificação do #889.
    Nenhuma alteração de schema ou comportamento é entregue nesta revisão.
-1. **Persistência mínima — pendente; PR #889 a retificar.** Estado atual de
-   restrições por provedor/modelo/operação/campo, unicidade, autorização,
-   revisão de conexão e recusa de gravações obsoletas. Sem histórico,
-   catálogos externos, jobs ou infraestrutura de vozes.
+1. **Persistência mínima — pendente; PR #889 a retificar.** Hierarquia
+   provedor → modelo → capability/operação → campo, com estado atual de
+   restrições, unicidade, autorização, revisão de conexão e recusa de gravações
+   obsoletas. Sem histórico, catálogos externos, jobs ou infraestrutura de vozes.
 2. **Envio, aprendizado e retry — pendente.** Integrar o estado ao pipeline,
    capturar a revisão efetiva, classificar rejeições explícitas, persistir e
    repetir uma vez com segurança; envios seguintes respeitam o aprendizado.
@@ -272,8 +294,9 @@ mantendo explícito que a fase 4 é uma proposta futura que exige nova decisão.
 
 - [x] Revisão documental explicita o novo escopo, substitui as exigências de
   histórico e remove fontes/jobs e custos; índice usa o mesmo título/status.
-- [ ] Restrições persistem entre sessões, isoladas por provedor, modelo e
-  operação/campo; repetir a mesma rejeição não acumula registros históricos.
+- [ ] Restrições persistem entre sessões na hierarquia
+  provedor/modelo/capability/operação/campo; repetir a rejeição atualiza a
+  mesma linha e não acumula histórico.
 - [ ] Ausência de restrição não omite parâmetros nem oculta campos.
 - [ ] Autorização impede acesso entre usuários e publicação global indevida;
   exclusão do provedor remove o estado dependente.
