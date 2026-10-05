@@ -1389,7 +1389,7 @@ func (m *Manager) signalNeedsReauth(slug, name, reason string) {
 	if !changed {
 		return
 	}
-	logging.Warnf(context.Background(), "mcp.manager", "[MCP:%s] Token OAuth expirado e não renovável — reautorização necessária: %s", slug, reason)
+	logging.Warnf(context.Background(), "mcp.manager", "[MCP:%s] Reautorização OAuth necessária: %s", slug, reason)
 	m.logEvent(slug, "needs_reauth", reason, nil)
 	m.emit("mcp:server_needs_reauth", MCPServerReauthEvent{
 		Slug:   slug,
@@ -2518,7 +2518,7 @@ type NativeMCPServer struct {
 }
 
 // MCPServerReauthEvent é o payload tipado do evento mcp:server_needs_reauth,
-// emitido quando o token OAuth de um servidor expira e não pode ser renovado
+// emitido quando a autorização OAuth de um servidor exige ação explícita
 // silenciosamente (AEP-0105). O frontend tipa o payload à mão (espelho deste
 // struct), conforme a regra de eventos do AGENTS.md.
 type MCPServerReauthEvent struct {
