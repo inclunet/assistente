@@ -532,7 +532,12 @@ func (m *Manager) AutoConnectAll(ctx context.Context) {
 }
 
 // Connect conecta a um servidor MCP pelo slug.
-func (m *Manager) Connect(slug string) (connectErr error) {
+func (m *Manager) Connect(slug string) error {
+	return m.connect(slug, true)
+}
+
+// allowConsent is granted only by explicit user actions, never background retry.
+func (m *Manager) connect(slug string, allowConsent bool) (connectErr error) {
 	cfg, err := m.GetConfig(slug)
 	if err != nil {
 		return err
@@ -541,7 +546,7 @@ func (m *Manager) Connect(slug string) (connectErr error) {
 		m.setError(slug, err.Error())
 		return err
 	}
-	if cfg.OAuthAuthorizationID != "" && cfg.AuthType == AuthOAuth2PKCE && cfg.Enabled {
+	if cfg.OAuthAuthorizationID != "" && cfg.Enabled && (cfg.AuthType == AuthOAuth2PKCE || (!allowConsent && cfg.AuthType == AuthOAuth2ClientCredentials)) {
 		m.mu.RLock()
 		_, connected := m.connections[slug]
 		m.mu.RUnlock()
@@ -572,7 +577,7 @@ func (m *Manager) Connect(slug string) (connectErr error) {
 			}
 		}()
 		if _, err = m.resolveManagedOAuth(ctx, *cfg, ""); err != nil {
-			if !errors.Is(err, oauthflow.ErrReauthorize) {
+			if !allowConsent || !errors.Is(err, oauthflow.ErrReauthorize) {
 				return err
 			}
 			if err = m.authorizeManagedOAuthInAttempt(ctx, slug, *cfg); err != nil {
@@ -2223,9 +2228,26 @@ func (m *Manager) reconnectWithRetry(slug string) {
 		m.mu.RUnlock()
 
 		_ = m.Disconnect(slug)
-
-		if err := m.Connect(slug); err != nil {
+		// Resolve before the SDK wraps errors, preserving the typed OAuth reason.
+		// Background recovery never receives permission to open consent.
+		if err := m.connect(slug, false); err != nil {
 			logging.Errorf(context.Background(), "mcp.manager", "[MCP] Falha ao reconectar '%s': %v", slug, err)
+			if errors.Is(err, oauthflow.ErrReauthorize) || errors.Is(err, oauthflow.ErrPermission) || errors.Is(err, oauthflow.ErrClientConfiguration) {
+				m.mu.RLock()
+				name, clientCredentials := slug, false
+				if current, exists := m.servers[slug]; exists {
+					name = current.Config.Name
+					clientCredentials = current.Config.AuthType == AuthOAuth2ClientCredentials
+				}
+				m.mu.RUnlock()
+				if clientCredentials {
+					// This grant needs configuration, not browser consent.
+					m.clearNeedsReauth(slug)
+				} else {
+					m.signalNeedsReauth(slug, name, err.Error())
+				}
+				return
+			}
 			continue
 		}
 
