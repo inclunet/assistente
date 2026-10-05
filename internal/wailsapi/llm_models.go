@@ -4,7 +4,9 @@ import (
 	"context"
 	"sync"
 
+	"assistente/internal/database"
 	"assistente/internal/llm"
+	"assistente/internal/llmcapabilities"
 	"assistente/internal/profiles"
 	"assistente/internal/providers"
 )
@@ -25,11 +27,12 @@ type LLMModelsHooks struct {
 // modelos, refresh e cancel de streaming. CRUD de provedores fica em LLMProviders.
 // Auth só via WithUser.
 type LLMModels struct {
-	mu          sync.RWMutex
-	session     Session
-	providerSvc *providers.Service
-	profileMgr  *profiles.Manager
-	hooks       LLMModelsHooks
+	mu           sync.RWMutex
+	session      Session
+	providerSvc  *providers.Service
+	profileMgr   *profiles.Manager
+	capabilities *database.LLMModelCapabilitiesRepository
+	hooks        LLMModelsHooks
 }
 
 // NewLLMModels cria o bind vazio; AttachLLMModels preenche deps no startup.
@@ -45,6 +48,7 @@ func AttachLLMModels(
 	providerSvc *providers.Service,
 	profileMgr *profiles.Manager,
 	hooks LLMModelsHooks,
+	capabilities *database.LLMModelCapabilitiesRepository,
 ) {
 	if api == nil {
 		return
@@ -54,6 +58,7 @@ func AttachLLMModels(
 	api.session = session
 	api.providerSvc = providerSvc
 	api.profileMgr = profileMgr
+	api.capabilities = capabilities
 	api.hooks = hooks
 }
 
@@ -120,6 +125,40 @@ func (m *LLMModels) GetModelCatalogByProvider(providerID string) (llm.ModelCatal
 	}
 	return WithUser(session, func(ctx context.Context) (llm.ModelCatalog, error) {
 		return providerSvc.GetModelCatalogByProvider(ctx, providerID)
+	})
+}
+
+// GetUnsupportedProfileChatFields retorna somente restrições aprendidas para
+// o modelo remoto e o formato de chat atual do provedor autenticado.
+func (m *LLMModels) GetUnsupportedProfileChatFields(providerID, remoteModelID string) ([]string, error) {
+	session, providerSvc, _, _, err := m.deps()
+	if err != nil {
+		return nil, err
+	}
+	m.mu.RLock()
+	capabilities := m.capabilities
+	m.mu.RUnlock()
+	if capabilities == nil {
+		return nil, ErrLLMModelsNotWired
+	}
+	return WithUser(session, func(ctx context.Context) ([]string, error) {
+		_, provider, err := providerSvc.GetChatProviderWithConfigSnapshot(ctx, providerID)
+		if err != nil {
+			return nil, err
+		}
+		if provider == nil {
+			return nil, ErrLLMModelsNotWired
+		}
+		var capability llmcapabilities.Capability
+		switch provider.GetAPIFormat() {
+		case llm.APIFormatOpenAI:
+			capability = llmcapabilities.CapabilityChatCompletions
+		case llm.APIFormatOpenAIResponses:
+			capability = llmcapabilities.CapabilityResponses
+		default:
+			return []string{}, nil
+		}
+		return capabilities.ListUnsupportedFieldCodesForProviderModel(ctx, providerID, remoteModelID, capability, provider.CompatibilityRevision)
 	})
 }
 

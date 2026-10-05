@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"assistente/internal/database"
 	"assistente/internal/profiles"
 	"assistente/internal/providers"
 )
@@ -32,6 +33,9 @@ func TestLLMModelsNotWired(t *testing.T) {
 	if _, err := api.GetModelCatalogByProvider("x"); !errors.Is(err, ErrLLMModelsNotWired) {
 		t.Fatalf("GetModelCatalogByProvider: got %v", err)
 	}
+	if _, err := api.GetUnsupportedProfileChatFields("provider", "model"); !errors.Is(err, ErrLLMModelsNotWired) {
+		t.Fatalf("GetUnsupportedProfileChatFields: got %v", err)
+	}
 	if _, err := api.RefreshModelCatalogByProvider("x"); !errors.Is(err, ErrLLMModelsNotWired) {
 		t.Fatalf("RefreshModelCatalogByProvider: got %v", err)
 	}
@@ -52,6 +56,7 @@ func TestLLMModelsCancelStreamingRequiresHook(t *testing.T) {
 		providers.NewService(providers.ServiceConfig{}),
 		profiles.NewManager(),
 		LLMModelsHooks{}, // CancelStreaming nil
+		nil,
 	)
 	if err := api.CancelStreamingForConversation("c1"); !errors.Is(err, ErrLLMModelsNotWired) {
 		t.Fatalf("CancelStreaming sem hook: got %v, quer ErrLLMModelsNotWired", err)
@@ -84,7 +89,7 @@ func TestLLMModelsCancelExecutionRequiresHook(t *testing.T) {
 		providers.NewService(providers.ServiceConfig{}), profiles.NewManager(),
 		LLMModelsHooks{CancelStreaming: func(string) {
 			t.Fatal("cancelamento identificado não deve usar o hook da conversa")
-		}})
+		}}, nil)
 	if err := api.CancelStreamingExecution("c1", "execution-1"); !errors.Is(err, ErrLLMModelsNotWired) {
 		t.Fatalf("CancelExecution sem hook: got %v, quer ErrLLMModelsNotWired", err)
 	}
@@ -104,7 +109,7 @@ func TestLLMModelsCancelExecutionForwardsIdentity(t *testing.T) {
 					t.Fatalf("identidade recebida = (%q, %q)", conversationID, executionID)
 				}
 			},
-		})
+		}, nil)
 	if err := api.CancelStreamingExecution("c1", "execution-2"); err != nil {
 		t.Fatal(err)
 	}
@@ -126,6 +131,7 @@ func TestLLMModelsAuthRejectsWhenSessionFails(t *testing.T) {
 			CancelStreaming: func(string) { t.Error("hook executado sem autenticação") },
 			CancelExecution: func(string, string) { t.Error("hook identificado executado sem autenticação") },
 		},
+		database.NewLLMModelCapabilitiesRepository(nil),
 	)
 
 	casos := []struct {
@@ -150,6 +156,10 @@ func TestLLMModelsAuthRejectsWhenSessionFails(t *testing.T) {
 		}},
 		{"GetModelCatalogByProvider", func() error {
 			_, err := api.GetModelCatalogByProvider("x")
+			return err
+		}},
+		{"GetUnsupportedProfileChatFields", func() error {
+			_, err := api.GetUnsupportedProfileChatFields("provider", "model")
 			return err
 		}},
 		{"RefreshModelCatalogByProvider", func() error {

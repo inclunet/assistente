@@ -73,6 +73,7 @@ export interface ProfileChatSectionProps {
    * gravado continua no perfil, esperando um provedor que o use.
    */
   agentProvider?: boolean;
+  unsupportedFields?: readonly string[];
 }
 
 const RATE_LIMIT_MIN = 0;
@@ -117,6 +118,7 @@ export function ProfileChatSection({
   onMultiChange,
   disabled = false,
   agentProvider = false,
+  unsupportedFields = [],
 }: ProfileChatSectionProps) {
   const { t } = useTranslation();
   const temperatureValue = temperature ?? 0.7;
@@ -141,6 +143,12 @@ export function ProfileChatSection({
   const streamingRecoveryEnabledValue = streamingRecoveryEnabled ?? true;
   const streamingRecoveryMaxAttemptsValue = streamingRecoveryMaxAttempts ?? 3;
   const streamingRecoveryShowContinueValue = streamingRecoveryShowContinue ?? true;
+  const unsupported = new Set(unsupportedFields);
+  const showTemperature = !unsupported.has('temperature');
+  const showTopP = !unsupported.has('top_p');
+  const showReasoning = !unsupported.has('reasoning_effort');
+  const showMaxOutputTokens = !unsupported.has('max_output_tokens');
+  const showGenerationFields = showTemperature || showTopP || showReasoning || showMaxOutputTokens;
 
   const handlePromptCacheEnabledChange = (enabled: boolean) => {
     if (!enabled) {
@@ -187,10 +195,7 @@ export function ProfileChatSection({
             value={llmProvider || ''}
             onChange={(value) => {
               if (onMultiChange) {
-                onMultiChange({
-                  llm_provider: value,
-                  model: '',
-                });
+                onMultiChange({ llm_provider: value, model: '' });
               } else {
                 onChange('llm_provider', value);
                 onChange('model', '');
@@ -205,9 +210,7 @@ export function ProfileChatSection({
         <div className="profiles-field">
           <ModelPicker
             value={model || ''}
-            onChange={(value) => {
-              onChange('model', value);
-            }}
+            onChange={(value) => onChange('model', value)}
             label={t('profiles.chatSection.model')}
             placeholder={t('profiles.chatSection.filterModels')}
             variant="form"
@@ -227,12 +230,12 @@ export function ProfileChatSection({
       {!agentProvider && (
         <>
       {/* ── Parâmetros de Geração ── */}
-      <fieldset className="profiles-field-group">
+      {showGenerationFields && <fieldset className="profiles-field-group">
         <legend className="profiles-field-group__title">
           {t('profiles.chatSection.groupGeneration')}
         </legend>
 
-        <div className="profiles-field">
+        {showTemperature && <div className="profiles-field">
           <RangeSlider
             id="chat-temperature"
             label={t('profiles.chatSection.temperature')}
@@ -244,9 +247,9 @@ export function ProfileChatSection({
             formatValue={(value) => value.toFixed(2)}
             disabled={disabled}
           />
-        </div>
+        </div>}
 
-        <div className="profiles-field">
+        {showTopP && <div className="profiles-field">
           <RangeSlider
             id="chat-top-p"
             label={t('profiles.chatSection.topP')}
@@ -258,9 +261,9 @@ export function ProfileChatSection({
             formatValue={(value) => value.toFixed(2)}
             disabled={disabled}
           />
-        </div>
+        </div>}
 
-        <div className="profiles-field">
+        {showReasoning && <div className="profiles-field">
           <label htmlFor="chat-reasoning" className="profiles-field__label">
             {t('profiles.chatSection.reasoning')}
           </label>
@@ -282,9 +285,9 @@ export function ProfileChatSection({
           <span className="profiles-field__hint">
             {t('profiles.chatSection.reasoningHint')}
           </span>
-        </div>
+        </div>}
 
-        <div className="profiles-field">
+        {showMaxOutputTokens && <div className="profiles-field">
           <label htmlFor="chat-max-tokens" className="profiles-field__label">
             {t('profiles.chatSection.maxTokens')}
           </label>
@@ -298,9 +301,9 @@ export function ProfileChatSection({
             onChange={(e) => onChange('max_tokens', parseInt(e.target.value) || 4096)}
             disabled={disabled}
           />
-        </div>
+        </div>}
 
-        <div className="profiles-field">
+        {showMaxOutputTokens && <div className="profiles-field">
           <label htmlFor="chat-max-tokens-mode" className="profiles-field__label">
             {t('profiles.chatSection.maxTokensFormat')}
           </label>
@@ -317,8 +320,8 @@ export function ProfileChatSection({
           <span className="profiles-field__hint">
             {t('profiles.chatSection.maxTokensHint')}
           </span>
-        </div>
-      </fieldset>
+        </div>}
+      </fieldset>}
 
       {/* ── Prompt Cache ── */}
       <fieldset className="profiles-field-group">
