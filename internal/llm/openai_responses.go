@@ -826,7 +826,7 @@ responseEvents:
 		}
 		if recognizedProviderError && providerError.Category == ProviderErrorUnsupportedParameter && providerError.Field != "" {
 			if !emittedNonRetryableEffect && fullReasoning.Len() == 0 && len(activeFuncCalls) == 0 && len(finishedToolCalls) == 0 && chatParams.Compatibility != nil &&
-				openAIResponsesCompatibilityFieldWasSent(params, *providerError) &&
+				openAIResponsesCompatibilityFieldWasSent(params, providerError) &&
 				chatParams.Compatibility.LearnAndClaimRetry(ctx, llmcapabilities.CapabilityResponses, providerError.Field, providerError.Recognizer) {
 				return mcpStreamAttemptResult{compatibilityRetry: true, compatibilityError: providerError.DisplayMessage()}
 			}
