@@ -1173,19 +1173,20 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	a.wireDatabase()
 
 	a.chatCtrl = controllers.NewChatController(controllers.ChatControllerConfig{
-		Emitter:          a.emitter,
-		ChatInteractor:   a.chatInteractor,
-		ToolRegistry:     a.toolRegistry,
-		ProviderSvc:      a.providerSvc,
-		MCPMgr:           a.mcpMgr,
-		AgentSvc:         a.agentSvc,
-		StreamMgr:        a.streamMgr,
-		SpeechSvc:        a.speechSvc,
-		ConvRepo:         a.convSvc,
-		MsgGateway:       a.msgGateway,
-		ResponseNotifier: a.responseNotifier,
-		OnSpeechRequest:  speechDispatcher,
-		OpenEditorPaths:  a.workspaceMgr.OpenEditorFilePaths,
+		Emitter:           a.emitter,
+		ChatInteractor:    a.chatInteractor,
+		ToolRegistry:      a.toolRegistry,
+		ProviderSvc:       a.providerSvc,
+		ModelCapabilities: database.NewLLMModelCapabilitiesRepository(database.DB()),
+		MCPMgr:            a.mcpMgr,
+		AgentSvc:          a.agentSvc,
+		StreamMgr:         a.streamMgr,
+		SpeechSvc:         a.speechSvc,
+		ConvRepo:          a.convSvc,
+		MsgGateway:        a.msgGateway,
+		ResponseNotifier:  a.responseNotifier,
+		OnSpeechRequest:   speechDispatcher,
+		OpenEditorPaths:   a.workspaceMgr.OpenEditorFilePaths,
 	})
 	a.wireChat()
 	// Conecta adapters de canal só agora — SendMessageFromChannel precisa de chatCtrl.

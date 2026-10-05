@@ -9,6 +9,12 @@ weight: 1
 
 O Assistente suporta múltiplos provedores de LLM, tanto comerciais (cloud) quanto locais. Basta adicionar um provedor nas configurações (`Alt + 2`) e informar uma chave de API ou usar uma credencial já cadastrada para o domínio.
 
+Durante o envio, o Assistente reconhece algumas assinaturas documentadas de
+erro por provedor. Quando a resposta identifica um parâmetro opcional que o
+modelo não aceita, ele pode repetir uma vez sem esse parâmetro e memorizar a
+restrição para aquela conexão e modelo. Erros genéricos ou valores inválidos
+não removem parâmetros nem alteram o perfil salvo.
+
 A criação pelo formulário ou por um template recusa um identificador já
 cadastrado, inclusive quando o registro ainda não aparece na lista carregada.
 Para alterar um provedor cadastrado, abra sua edição. Uma tentativa recusada por

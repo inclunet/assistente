@@ -6,6 +6,7 @@ import (
 	"assistente/internal/core/ports"
 	"assistente/internal/database"
 	"assistente/internal/llm"
+	"assistente/internal/llmcapabilities"
 	"assistente/internal/logging"
 	mcpmgr "assistente/internal/mcp"
 	"assistente/internal/profiles"
@@ -63,14 +64,15 @@ func resolveStreamingRecoverySettings(activeProfile *profiles.Profile) (enabled 
 
 // SendMessageConfig agrupa as dependências do SendMessageUseCase.
 type SendMessageConfig struct {
-	ChatInteractor  *chat.Interactor
-	ToolRegistry    *tools.Registry
-	LoadedToolStore *tools.LoadedToolStore
-	ProviderSvc     *providers.Service
-	MCPMgr          *mcpmgr.Manager
-	AgentSvc        *agent.Service
-	StreamMgr       *chat.StreamingManager
-	SpeechSvc       *speech.Service
+	ChatInteractor    *chat.Interactor
+	ToolRegistry      *tools.Registry
+	LoadedToolStore   *tools.LoadedToolStore
+	ProviderSvc       *providers.Service
+	ModelCapabilities *database.LLMModelCapabilitiesRepository
+	MCPMgr            *mcpmgr.Manager
+	AgentSvc          *agent.Service
+	StreamMgr         *chat.StreamingManager
+	SpeechSvc         *speech.Service
 	// Transcribe permite substituir STT em testes; produção usa SpeechSvc.
 	Transcribe chat.TranscribeFunc
 	Emitter    ports.Emitter
@@ -84,18 +86,19 @@ type SendMessageConfig struct {
 // SendMessageUseCase orquestra o pipeline completo de envio de mensagem ao LLM.
 // É agnóstico de framework: zero imports de Wails, CLI ou HTTP.
 type SendMessageUseCase struct {
-	chatInteractor  *chat.Interactor
-	toolRegistry    *tools.Registry
-	loadedToolStore *tools.LoadedToolStore
-	providerSvc     *providers.Service
-	mcpMgr          *mcpmgr.Manager
-	agentSvc        *agent.Service
-	streamMgr       *chat.StreamingManager
-	speechSvc       *speech.Service
-	transcribe      chat.TranscribeFunc
-	emitter         ports.Emitter
-	onSpeechRequest func(conversationID string, messageID string, role, text, origin, profileSlug string, interrupt bool)
-	openEditorPaths func() []string
+	chatInteractor    *chat.Interactor
+	toolRegistry      *tools.Registry
+	loadedToolStore   *tools.LoadedToolStore
+	providerSvc       *providers.Service
+	modelCapabilities *database.LLMModelCapabilitiesRepository
+	mcpMgr            *mcpmgr.Manager
+	agentSvc          *agent.Service
+	streamMgr         *chat.StreamingManager
+	speechSvc         *speech.Service
+	transcribe        chat.TranscribeFunc
+	emitter           ports.Emitter
+	onSpeechRequest   func(conversationID string, messageID string, role, text, origin, profileSlug string, interrupt bool)
+	openEditorPaths   func() []string
 }
 
 // NewSendMessageUseCase cria um SendMessageUseCase com todas as dependências.
@@ -109,18 +112,19 @@ func NewSendMessageUseCase(cfg SendMessageConfig) *SendMessageUseCase {
 		streamMgr = chat.NewStreamingManager(nil)
 	}
 	return &SendMessageUseCase{
-		chatInteractor:  cfg.ChatInteractor,
-		toolRegistry:    cfg.ToolRegistry,
-		loadedToolStore: loadedToolStore,
-		providerSvc:     cfg.ProviderSvc,
-		mcpMgr:          cfg.MCPMgr,
-		agentSvc:        cfg.AgentSvc,
-		streamMgr:       streamMgr,
-		speechSvc:       cfg.SpeechSvc,
-		transcribe:      cfg.Transcribe,
-		emitter:         cfg.Emitter,
-		onSpeechRequest: cfg.OnSpeechRequest,
-		openEditorPaths: cfg.OpenEditorPaths,
+		chatInteractor:    cfg.ChatInteractor,
+		toolRegistry:      cfg.ToolRegistry,
+		loadedToolStore:   loadedToolStore,
+		providerSvc:       cfg.ProviderSvc,
+		modelCapabilities: cfg.ModelCapabilities,
+		mcpMgr:            cfg.MCPMgr,
+		agentSvc:          cfg.AgentSvc,
+		streamMgr:         streamMgr,
+		speechSvc:         cfg.SpeechSvc,
+		transcribe:        cfg.Transcribe,
+		emitter:           cfg.Emitter,
+		onSpeechRequest:   cfg.OnSpeechRequest,
+		openEditorPaths:   cfg.OpenEditorPaths,
 	}
 }
 
@@ -583,13 +587,14 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 		return "", fmt.Errorf("%s", errMsg)
 	}
 
-	requestStreamer, err := uc.providerSvc.GetChatProvider(ctx, activeProfile.Chat.LLMProvider)
+	requestStreamer, providerConfig, err := uc.providerSvc.GetChatProviderWithConfigSnapshot(ctx, activeProfile.Chat.LLMProvider)
 	if err != nil {
 		errMsg := fmt.Sprintf("Provedor LLM não disponível: %v", err)
 		logging.Errorf(ctx, "core.usecases.send-message", "[SendMessage] ERRO: %s", errMsg)
 		uc.emitter.Emit("chat:error", ports.ErrorEvent{ConversationID: req.ConversationID, Error: errMsg})
 		return "", fmt.Errorf("%s", errMsg)
 	}
+	params.Compatibility = uc.loadCompatibilityState(ctx, providerConfig, params.Model)
 	logging.Infof(ctx, "core.usecases.send-message", "[SendMessage] ChatProvider resolvido para provedor: %s", activeProfile.Chat.LLMProvider)
 
 	// MCP nativo: configura servidores MCP HTTP no provider e remove suas tools da lista padrão.
@@ -728,6 +733,57 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 		}()
 	}
 	return req.ConversationID, nil
+}
+
+func (uc *SendMessageUseCase) loadCompatibilityState(ctx context.Context, provider *llm.ProviderConfig, requestedModel string) *llm.CompatibilityState {
+	if uc.modelCapabilities == nil || provider == nil || provider.CompatibilityRevision < 1 {
+		return nil
+	}
+	var capability llmcapabilities.Capability
+	switch provider.GetAPIFormat() {
+	case llm.APIFormatOpenAI:
+		capability = llmcapabilities.CapabilityChatCompletions
+	case llm.APIFormatOpenAIResponses:
+		capability = llmcapabilities.CapabilityResponses
+	default:
+		return nil
+	}
+	modelID := requestedModel
+	if modelID == "" {
+		modelID = provider.Model
+	}
+	if modelID == "" {
+		modelID = provider.DefaultModel
+	}
+	if modelID == "" {
+		return nil
+	}
+	model, err := uc.modelCapabilities.SaveModel(ctx, provider.ID, modelID, modelID)
+	if err != nil {
+		logging.Warnf(ctx, "core.usecases.send-message", "não foi possível preparar o estado de compatibilidade do modelo")
+		return nil
+	}
+	unsupported, err := uc.modelCapabilities.ListUnsupportedFieldsForRevision(ctx, model.ID, provider.CompatibilityRevision)
+	if err != nil {
+		logging.Warnf(ctx, "core.usecases.send-message", "não foi possível carregar o estado de compatibilidade do modelo")
+		return nil
+	}
+	fields := make([]llm.CompatibilityField, 0, len(unsupported))
+	for _, field := range unsupported {
+		if llmcapabilities.Capability(field.CapabilityCode) == capability {
+			fields = append(fields, llm.CompatibilityField{
+				Capability: capability,
+				Field:      llmcapabilities.FieldKey(field.FieldCode),
+			})
+		}
+	}
+	return llm.NewCompatibilityState(model.ID, provider.CompatibilityRevision, fields, func(ctx context.Context, op llmcapabilities.Capability, field llmcapabilities.FieldKey, recognizerID string) error {
+		err := uc.modelCapabilities.RecordUnsupportedField(ctx, model.ID, op, field, provider.CompatibilityRevision, recognizerID)
+		if err != nil {
+			logging.Warnf(ctx, "core.usecases.send-message", "compatibility evidence persistence failed; compatibility retry suppressed")
+		}
+		return err
+	})
 }
 
 func loadedToolChangeNames(changes []tools.LoadedToolChange) []string {

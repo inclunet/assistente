@@ -156,6 +156,19 @@ func (r *LLMModelCapabilitiesRepository) RecordUnsupportedField(
 // ListUnsupportedFields retorna só as restrições da revisão efetiva. Campos
 // sem linha permanecem desconhecidos e não são interpretados como suportados.
 func (r *LLMModelCapabilitiesRepository) ListUnsupportedFields(ctx context.Context, modelID string) ([]UnsupportedField, error) {
+	return r.listUnsupportedFields(ctx, modelID, 0)
+}
+
+// ListUnsupportedFieldsForRevision recusa um snapshot que não corresponde à
+// revisão capturada pelo envio, evitando usar aprendizado de outra conexão.
+func (r *LLMModelCapabilitiesRepository) ListUnsupportedFieldsForRevision(ctx context.Context, modelID string, compatibilityRevision int) ([]UnsupportedField, error) {
+	if compatibilityRevision < 1 {
+		return nil, ErrStaleCompatibility
+	}
+	return r.listUnsupportedFields(ctx, modelID, compatibilityRevision)
+}
+
+func (r *LLMModelCapabilitiesRepository) listUnsupportedFields(ctx context.Context, modelID string, expectedRevision int) ([]UnsupportedField, error) {
 	if _, err := RequireUserID(ctx); err != nil {
 		return nil, err
 	}
@@ -164,6 +177,9 @@ func (r *LLMModelCapabilitiesRepository) ListUnsupportedFields(ctx context.Conte
 		revision, model, err := r.modelAndProviderRevision(ctx, tx, modelID)
 		if err != nil {
 			return err
+		}
+		if expectedRevision > 0 && revision != expectedRevision {
+			return ErrStaleCompatibility
 		}
 		return tx.Table("llm_model_capability_fields AS f").
 			Select("c.capability_code, f.field_code, f.compatibility_revision, f.recognizer_id, f.updated_at").

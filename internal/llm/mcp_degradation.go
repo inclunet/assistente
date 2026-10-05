@@ -37,9 +37,11 @@ func mcpFailureRecoverablyHandled(failure *MCPAttemptFailure, emittedNonRetryabl
 }
 
 type mcpStreamAttemptResult struct {
-	done       bool
-	retry      bool
-	mcpFailure *MCPAttemptFailure
+	done               bool
+	retry              bool
+	compatibilityRetry bool
+	compatibilityError string
+	mcpFailure         *MCPAttemptFailure
 	// nativeMCPUnsupported indica que a request falhou porque o modelo/endpoint
 	// rejeita tools type:"mcp" (ver looksLikeNativeMCPUnsupported). Dispara a
 	// degradação nativo→adapter no mesmo turno + auto-ajuste persistido do perfil.
@@ -67,14 +69,15 @@ func cloneMCPServers(servers []MCPServerConfig) []MCPServerConfig {
 }
 
 func inferMCPFailure(stage MCPFailureStage, message, rawJSON, fallbackServer string, servers []MCPServerConfig) *MCPAttemptFailure {
+	detectionText := strings.TrimSpace(message + " " + rawJSON)
 	server := fallbackServer
 	if server == "" {
 		server = extractServerLabelFromRawJSON(rawJSON)
 	}
 	if server == "" {
-		server = matchMCPServerInText(strings.ToLower(message+" "+rawJSON), servers)
+		server = matchMCPServerInText(strings.ToLower(detectionText), servers)
 	}
-	if server == "" && len(servers) == 1 && looksLikeMCPFailure(message+" "+rawJSON) {
+	if server == "" && len(servers) == 1 && looksLikeMCPFailure(detectionText) {
 		server = servers[0].Name
 	}
 	if server == "" {
@@ -86,17 +89,14 @@ func inferMCPFailure(stage MCPFailureStage, message, rawJSON, fallbackServer str
 		return nil
 	}
 
-	fullMessage := strings.TrimSpace(message)
-	if fullMessage == "" {
-		fullMessage = formatMCPFailureUserMessage(matched.Name, stage)
-	}
+	userMessage := formatMCPFailureUserMessage(matched.Name, stage)
 
 	return &MCPAttemptFailure{
 		ServerName:  matched.Name,
 		ServerSlug:  matched.Slug,
 		Stage:       stage,
-		Message:     strings.TrimSpace(fullMessage),
-		Recoverable: looksRecoverableMCPFailure(fullMessage),
+		Message:     userMessage,
+		Recoverable: looksRecoverableMCPFailure(detectionText),
 		Degradable:  true,
 	}
 }

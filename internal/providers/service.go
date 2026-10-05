@@ -934,22 +934,31 @@ func (s *Service) ListModels(ctx context.Context, req TestRequest) ([]string, er
 // GetChatProvider returns a ready-to-use ChatProvider for the given provider ID.
 // Looks up the provider config in the registry and wraps it with the credential manager.
 func (s *Service) GetChatProvider(ctx context.Context, providerID string) (llm.ChatProvider, error) {
+	provider, _, err := s.GetChatProviderWithConfigSnapshot(ctx, providerID)
+	return provider, err
+}
+
+// GetChatProviderWithConfigSnapshot devolve o adapter e a configuração exata
+// usada para construí-lo. A cópia impede que uma atualização concorrente altere
+// a revisão que será associada a evidências deste turno.
+func (s *Service) GetChatProviderWithConfigSnapshot(ctx context.Context, providerID string) (llm.ChatProvider, *llm.ProviderConfig, error) {
 	if s.registry == nil {
-		return nil, fmt.Errorf("registro de provedores não inicializado")
+		return nil, nil, fmt.Errorf("registro de provedores não inicializado")
 	}
-	provider := s.registry.Get(providerID)
+	provider := s.registry.GetSnapshot(providerID)
 	if provider == nil {
-		return nil, fmt.Errorf("provedor LLM não encontrado: %s", providerID)
+		return nil, nil, fmt.Errorf("provedor LLM não encontrado: %s", providerID)
 	}
 	cm, _ := s.credMgr.(*credentials.Manager)
 	// Aplica rate limiting por usuário de forma central (Issue #27). Quando
 	// rateLimiter é nil, NewRateLimitedProvider devolve o provider inalterado.
-	return llm.NewRateLimitedProviderWithResolver(
+	chatProvider := llm.NewRateLimitedProviderWithResolver(
 		llm.NewChatProvider(provider, cm, s.acpMgr),
 		s.rateLimiter,
 		s.rateLimitKeyFunc,
 		s.rateLimitPolicy,
-	), nil
+	)
+	return chatProvider, provider, nil
 }
 
 // ListModelsRawRequest contém os parâmetros para listagem de modelos via credenciais ad-hoc.
