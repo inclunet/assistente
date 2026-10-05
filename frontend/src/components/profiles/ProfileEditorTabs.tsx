@@ -95,7 +95,6 @@ export function ProfileEditorTabs({
 
   useEffect(() => {
     let current = true;
-    setUnsupportedChatFields({ key: compatibilityKey, fields: [] });
     if (!chatProviderID || !chatModelID) return () => { current = false; };
 
     GetUnsupportedProfileChatFields(chatProviderID, chatModelID)
@@ -112,6 +111,7 @@ export function ProfileEditorTabs({
   const unsupportedFields = unsupportedChatFields.key === compatibilityKey
     ? unsupportedChatFields.fields
     : [];
+  const compatibilityLoading = Boolean(chatProviderID && chatModelID && unsupportedChatFields.key !== compatibilityKey);
 
   useLayoutEffect(() => {
     if (initialTab === 'voice') {
@@ -293,6 +293,7 @@ export function ProfileEditorTabs({
             llmProvider={editingProfile.chat?.llm_provider || ''}
             model={editingProfile.chat?.model || ''}
             unsupportedFields={unsupportedFields}
+            compatibilityLoading={compatibilityLoading}
             temperature={editingProfile.chat?.temperature ?? 0.7}
             maxTokens={editingProfile.chat?.max_tokens ?? 4096}
             maxTokensMode={editingProfile.chat?.max_tokens_mode || 'legacy'}
