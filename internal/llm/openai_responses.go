@@ -709,7 +709,7 @@ responseEvents:
 			if !emittedNonRetryableEffect && looksLikePromptCacheHintUnsupported(errMsg) {
 				return mcpStreamAttemptResult{promptCacheHintUnsupported: true}
 			}
-			if failure := inferMCPFailure(MCPFailureStageHandshake, errMsg, ev.RawJSON(), "", mcpServers); failure != nil && !emittedNonRetryableEffect {
+			if failure := inferMCPFailure(MCPFailureStageHandshake, "", errMsg+" "+ev.RawJSON(), "", mcpServers); failure != nil && !emittedNonRetryableEffect {
 				reportCurrentDiagnostics()
 				return mcpStreamAttemptResult{mcpFailure: failure}
 			}
@@ -995,15 +995,16 @@ func rawJSONDump(raw string) any {
 
 func recognizeResponsesFailure(provider *ProviderConfig, raw string) *ProviderError {
 	var envelope struct {
-		Code   string `json:"code"`
-		Type   string `json:"type"`
-		Param  string `json:"param"`
-		Status int    `json:"status"`
+		Code    string `json:"code"`
+		Type    string `json:"type"`
+		Param   string `json:"param"`
+		Message string `json:"message"`
+		Status  int    `json:"status"`
 	}
 	if json.Unmarshal([]byte(raw), &envelope) != nil || provider == nil {
 		return nil
 	}
-	result, ok := recognizeOpenAIError(provider, envelope.Status, envelope.Code, envelope.Type, envelope.Param)
+	result, ok := recognizeOpenAIError(provider, envelope.Status, envelope.Code, envelope.Type, envelope.Param, envelope.Message)
 	if !ok {
 		return nil
 	}

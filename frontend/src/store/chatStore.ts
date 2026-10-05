@@ -20,6 +20,7 @@ import { llm } from '../../wailsjs/go/models';
 import { announce } from '../hooks/useAnnouncer';
 import { logger } from '../utils/logger';
 import i18next from 'i18next';
+import { translateProviderErrorMessage } from '../lib/providerErrorMessage';
 import { playSendSound } from '../services/audioFeedback';
 import { isChatConversationActive } from '../services/chatArbitration';
 import {
@@ -772,7 +773,8 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           controller.handleSendCancellation();
           throw new ChatMessagingStaleError();
         }
-        const errorMessage = getErrorMessage(error);
+        const rawErrorMessage = getErrorMessage(error);
+        const errorMessage = translateProviderErrorMessage(rawErrorMessage) ?? rawErrorMessage;
         if (submitted) {
           // A Wails rejection may be pre-effect (denied/stale) or uncertain
           // after persistence. Surface it without offering replay; the command

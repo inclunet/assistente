@@ -60,12 +60,12 @@ func RecognizeProviderError(provider *ProviderConfig, err error) (ProviderError,
 	case APIFormatOpenAI:
 		var apiErr *openai.Error
 		if errors.As(err, &apiErr) {
-			return recognizeOpenAIError(provider, apiErr.StatusCode, apiErr.Code, apiErr.Type, apiErr.Param)
+			return recognizeOpenAIError(provider, apiErr.StatusCode, apiErr.Code, apiErr.Type, apiErr.Param, apiErr.Message)
 		}
 	case APIFormatOpenAIResponses:
 		var apiErr *openai.Error
 		if errors.As(err, &apiErr) {
-			return recognizeOpenAIError(provider, apiErr.StatusCode, apiErr.Code, apiErr.Type, apiErr.Param)
+			return recognizeOpenAIError(provider, apiErr.StatusCode, apiErr.Code, apiErr.Type, apiErr.Param, apiErr.Message)
 		}
 	case APIFormatAnthropic:
 		var apiErr *anthropic.Error
@@ -109,17 +109,21 @@ func providerErrorFormat(provider *ProviderConfig) string {
 	return "unknown"
 }
 
-func recognizeOpenAIError(provider *ProviderConfig, status int, code, errorType, param string) (ProviderError, bool) {
+func recognizeOpenAIError(provider *ProviderConfig, status int, code, errorType, param, message string) (ProviderError, bool) {
 	family := openAIErrorFamily(provider.Type)
 	format := string(provider.GetAPIFormat())
 	recognizer := "provider-error:" + family + ":" + format + ":v1"
 	code = strings.ToLower(strings.TrimSpace(code))
 	errorType = strings.ToLower(strings.TrimSpace(errorType))
+	if family == "litellm" && (errorType == "unsupportedparamserror" ||
+		(errorType == "" && strings.HasPrefix(strings.ToLower(strings.TrimSpace(message)), "litellm.unsupportedparamserror:"))) {
+		errorType = "unsupportedparamserror"
+	}
 	field := canonicalParameterField(provider.GetAPIFormat(), param)
 	result := ProviderError{StatusCode: status, Recognizer: recognizer}
 
 	switch {
-	case code == "unsupported_parameter" && (family == "openai" || family == "xai") &&
+	case code == "unsupported_parameter" && family == "openai" &&
 		(status == 0 || status == http.StatusBadRequest) &&
 		(errorType == "" || errorType == "invalid_request_error"):
 		result.Category = ProviderErrorUnsupportedParameter
@@ -129,7 +133,7 @@ func recognizeOpenAIError(provider *ProviderConfig, status int, code, errorType,
 		(status == 0 || status == http.StatusBadRequest) && (code == "" || code == "400"):
 		result.Category = ProviderErrorUnsupportedParameter
 		result.Type = "unsupportedparamserror"
-	case (family == "openai" || family == "xai" || family == "litellm") && (status == 0 || status == http.StatusBadRequest) && (code == "unsupported_value" || code == "invalid_value"):
+	case (family == "openai" || family == "litellm") && (status == 0 || status == http.StatusBadRequest) && (code == "unsupported_value" || code == "invalid_value"):
 		result.Category = ProviderErrorInvalidValue
 		result.Code = code
 	case code == "invalid_api_key" || errorType == "authentication_error":
@@ -320,7 +324,7 @@ func allowlistedProviderErrorPair(family string, status int, code, errorType str
 	code = strings.ToLower(strings.TrimSpace(code))
 	errorType = strings.ToLower(strings.TrimSpace(errorType))
 	switch {
-	case (family == "openai" || family == "xai") && code == "unsupported_parameter" && (status == 0 || status == http.StatusBadRequest) && (errorType == "" || errorType == "invalid_request_error"):
+	case family == "openai" && code == "unsupported_parameter" && (status == 0 || status == http.StatusBadRequest) && (errorType == "" || errorType == "invalid_request_error"):
 		return code, errorType
 	case family == "litellm" && errorType == "unsupportedparamserror" && (code == "" || code == "400"):
 		return "", errorType
@@ -353,7 +357,7 @@ func allowlistedProviderCode(family, code string) string {
 	}
 	switch code {
 	case "unsupported_parameter", "unsupported_value", "invalid_value":
-		if family == "openai" || family == "xai" || family == "litellm" {
+		if family == "openai" || family == "litellm" {
 			return code
 		}
 	case "invalid_api_key", "insufficient_quota", "rate_limit_exceeded", "model_not_found", "server_error":
@@ -383,39 +387,25 @@ func allowlistedAnthropicType(errorType string) bool {
 // DisplayMessage devolve uma mensagem estável sem expor mensagem, payload,
 // prompt, valor rejeitado ou outro texto livre do provedor.
 func (e ProviderError) DisplayMessage() string {
-	message := "O provedor retornou um erro não reconhecido. Confira a configuração do provedor e tente novamente."
-	switch e.Category {
-	case ProviderErrorUnsupportedParameter:
-		if e.Field != "" {
-			fieldName := string(e.Field)
-			if e.Param != "" {
-				fieldName = e.Param
-			}
-			message = fmt.Sprintf("O provedor não aceita o parâmetro %s para este modelo. Confira os parâmetros configurados.", fieldName)
-		} else {
-			message = "O provedor recusou um parâmetro, mas não identificou um campo que possa ser omitido com segurança."
+	// A interface traduz este marcador via i18n. Ele contém apenas valores
+	// allowlisted, nunca texto livre recebido do provedor.
+	field := string(e.Field)
+	if e.Category == ProviderErrorUnsupportedParameter {
+		if param := safeProviderParam(e.Param); param != "" {
+			field = param
 		}
-	case ProviderErrorInvalidValue:
-		if e.Field != "" {
-			message = fmt.Sprintf("O provedor recusou o valor configurado para %s. O campo e o valor salvos foram mantidos.", e.Field)
-		} else {
-			message = "O provedor recusou um valor da configuração. Confira os parâmetros do modelo."
-		}
-	case ProviderErrorInvalidRequest:
-		message = "O provedor recusou a solicitação. Confira o modelo e os parâmetros enviados."
-	case ProviderErrorAuthentication:
-		message = "O provedor recusou a autenticação. Confira a credencial configurada."
-	case ProviderErrorPermission:
-		message = "A credencial não tem permissão para realizar esta solicitação no provedor."
-	case ProviderErrorQuota:
-		message = "O limite ou a cota do provedor foi atingido. Aguarde ou confira o plano e os limites da conta."
-	case ProviderErrorTransient:
-		message = "O provedor está temporariamente indisponível. Tente novamente em alguns instantes."
-	case ProviderErrorNotFound:
-		message = "O modelo ou recurso solicitado não foi encontrado no provedor."
 	}
-	if e.StatusCode > 0 {
-		message += fmt.Sprintf(" (HTTP %d)", e.StatusCode)
+	if e.StatusCode < 100 || e.StatusCode > 599 {
+		return fmt.Sprintf("provider_error:v1:%s:%s", e.Category, field)
 	}
-	return message
+	return fmt.Sprintf("provider_error:v1:%s:%s:%d", e.Category, field, e.StatusCode)
+}
+
+func safeProviderParam(param string) string {
+	switch strings.ToLower(strings.TrimSpace(param)) {
+	case "max_tokens", "max_completion_tokens", "max_output_tokens", "temperature", "top_p", "reasoning_effort", "reasoning.effort", "frequency_penalty", "presence_penalty", "seed", "max_reasoning_tokens", "parallel_tool_calls", "voice", "speed", "audio_format", "language":
+		return strings.ToLower(strings.TrimSpace(param))
+	default:
+		return ""
+	}
 }

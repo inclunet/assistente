@@ -1,10 +1,14 @@
 package llm
 
 import (
+	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"assistente/internal/credentials"
+	"assistente/internal/llmcapabilities"
 
 	"github.com/openai/openai-go"
 )
@@ -36,6 +40,54 @@ func TestOpenAICompatible_WithMCPServers_NoOp(t *testing.T) {
 	result := provider.WithMCPServers(servers)
 	if result != provider {
 		t.Error("Chat Completions provider.WithMCPServers should return same provider (no-op)")
+	}
+}
+
+func TestOpenAIChatCompletionsRetriesAfterPersistingUnsupportedField(t *testing.T) {
+	var attempts int
+	var temperatureSent []bool
+	compatibility := NewCompatibilityState("model-1", 7, nil, func(_ context.Context, capability llmcapabilities.Capability, field llmcapabilities.FieldKey, recognizer string) error {
+		if capability != llmcapabilities.CapabilityChatCompletions || field != llmcapabilities.FieldTemperature || recognizer != "provider-error:openai:openai:v1:unsupported_parameter" {
+			t.Fatalf("persistência incompatível: capability=%s field=%s recognizer=%q", capability, field, recognizer)
+		}
+		return nil
+	})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decodificar request: %v", err)
+		}
+		_, sent := body["temperature"]
+		temperatureSent = append(temperatureSent, sent)
+		if attempts == 1 {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":{"message":"temperature is not supported","type":"invalid_request_error","param":"temperature","code":"unsupported_parameter"}}`))
+			return
+		}
+		if !compatibility.IsUnsupported(llmcapabilities.CapabilityChatCompletions, llmcapabilities.FieldTemperature) {
+			t.Errorf("retry iniciado antes da persistência da restrição")
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: {\"id\":\"chatcmpl-1\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"gpt-test\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}\n\n" + "data: [DONE]\n\n"))
+	}))
+	defer server.Close()
+
+	provider := NewOpenAIProvider(&ProviderConfig{
+		ID: "chat-compatibility", Name: "Chat Compatibility", Type: ProviderOpenAI,
+		BaseURL: server.URL + "/v1", APIFormat: APIFormatOpenAI, AuthMode: AuthModeNone, DefaultModel: "gpt-test",
+	}, credentials.NewManager(nil))
+	handler := &providerRetryHandler{}
+	provider.StreamChat(t.Context(), []Message{{Role: "user", Content: "oi"}}, ChatParams{
+		Temperature: 0.4, Compatibility: compatibility,
+	}, handler)
+
+	if attempts != 2 || len(temperatureSent) != 2 || !temperatureSent[0] || temperatureSent[1] {
+		t.Fatalf("tentativas=%d temperatureSent=%v; esperado [true false]", attempts, temperatureSent)
+	}
+	if len(handler.errors) != 0 || handler.done != 1 {
+		t.Fatalf("erros=%v done=%d; esperado retry concluído", handler.errors, handler.done)
 	}
 }
 

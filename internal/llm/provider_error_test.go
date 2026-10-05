@@ -3,7 +3,6 @@ package llm
 import (
 	"encoding/json"
 	"errors"
-	"strings"
 	"testing"
 
 	"assistente/internal/llmcapabilities"
@@ -35,13 +34,11 @@ func TestRecognizeProviderErrorRequiresExplicitSupportedSignature(t *testing.T) 
 			wantType:     "invalid_request_error",
 		},
 		{
-			name:         "xAI OpenAI-compatible signature",
+			name:         "xAI 400 does not use OpenAI-only unsupported signature",
 			providerType: ProviderGrok,
 			format:       APIFormatOpenAI,
 			apiErr:       &openai.Error{StatusCode: 400, Code: "unsupported_parameter", Param: "temperature"},
-			wantCategory: ProviderErrorUnsupportedParameter,
-			wantField:    llmcapabilities.FieldTemperature,
-			wantCode:     "unsupported_parameter",
+			wantCategory: ProviderErrorInvalidRequest,
 		},
 		{
 			name:         "contradictory authentication type rejects unsupported parameter code",
@@ -72,10 +69,27 @@ func TestRecognizeProviderErrorRequiresExplicitSupportedSignature(t *testing.T) 
 			name:         "LiteLLM explicit error type",
 			providerType: ProviderType("litellm"),
 			format:       APIFormatOpenAI,
-			apiErr:       &openai.Error{StatusCode: 400, Type: "UnsupportedParamsError", Param: "parallel_tool_calls"},
+			apiErr:       &openai.Error{StatusCode: 400, Type: "UnsupportedParamsError", Param: "temperature"},
 			wantCategory: ProviderErrorUnsupportedParameter,
-			wantField:    llmcapabilities.FieldParallelToolCalls,
+			wantField:    llmcapabilities.FieldTemperature,
 			wantType:     "unsupportedparamserror",
+		},
+		{
+			name:         "LiteLLM documented exception name in JSON message",
+			providerType: ProviderType("litellm"),
+			format:       APIFormatOpenAI,
+			apiErr:       &openai.Error{StatusCode: 400, Code: "400", Param: "temperature", Message: "litellm.UnsupportedParamsError: unsupported parameter"},
+			wantCategory: ProviderErrorUnsupportedParameter,
+			wantField:    llmcapabilities.FieldTemperature,
+			wantType:     "unsupportedparamserror",
+		},
+		{
+			name:         "LiteLLM message prefix cannot override a conflicting error type",
+			providerType: ProviderType("litellm"),
+			format:       APIFormatOpenAI,
+			apiErr:       &openai.Error{StatusCode: 400, Param: "temperature", Type: "authentication_error", Message: "litellm.UnsupportedParamsError: unsupported parameter"},
+			wantCategory: ProviderErrorAuthentication,
+			wantType:     "authentication_error",
 		},
 		{
 			name:         "LiteLLM unsupported type with conflicting code is not learned",
@@ -176,8 +190,8 @@ func TestRecognizeProviderErrorRequiresExplicitSupportedSignature(t *testing.T) 
 }
 
 func TestChatCompletionOutputTokenAliasesAreComparedExactlyAndNeverPersistedBroadly(t *testing.T) {
-	legacy := openai.ChatCompletionNewParams{MaxTokens: param.Opt[int64]{Value: 64, Valid: true}}
-	completion := openai.ChatCompletionNewParams{MaxCompletionTokens: param.Opt[int64]{Value: 64, Valid: true}}
+	legacy := openai.ChatCompletionNewParams{MaxTokens: param.NewOpt(int64(64))}
+	completion := openai.ChatCompletionNewParams{MaxCompletionTokens: param.NewOpt(int64(64))}
 	legacyError := ProviderError{Field: llmcapabilities.FieldMaxOutputTokens, Param: "max_tokens"}
 	completionError := ProviderError{Field: llmcapabilities.FieldMaxOutputTokens, Param: "max_completion_tokens"}
 
@@ -198,8 +212,15 @@ func TestProviderErrorDisplayNamesExactSentAlias(t *testing.T) {
 		Field:    llmcapabilities.FieldMaxOutputTokens,
 		Param:    "max_completion_tokens",
 	}
-	if message := err.DisplayMessage(); !strings.Contains(message, "max_completion_tokens") {
-		t.Fatalf("DisplayMessage() = %q, want the exact rejected alias", message)
+	if message := err.DisplayMessage(); message != "provider_error:v1:unsupported_parameter:max_completion_tokens" {
+		t.Fatalf("DisplayMessage() = %q, want a stable, sanitized translation marker", message)
+	}
+}
+
+func TestProviderErrorDisplayMessageOmitsUnknownParameterAndBoundsStatus(t *testing.T) {
+	err := ProviderError{Category: ProviderErrorUnsupportedParameter, Param: "customer_secret", StatusCode: 700}
+	if got, want := err.DisplayMessage(), "provider_error:v1:unsupported_parameter:"; got != want {
+		t.Fatalf("DisplayMessage() = %q, want %q", got, want)
 	}
 }
 

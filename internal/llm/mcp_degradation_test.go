@@ -81,6 +81,18 @@ func TestInferMCPFailure_UsesRawServerLabel(t *testing.T) {
 	}
 }
 
+func TestInferMCPFailure_DoesNotExposeProviderErrorText(t *testing.T) {
+	const providerText = "secret provider detail: rejected credential pattern"
+	servers := []MCPServerConfig{{Name: "Atlassian", Slug: "atlassian", URL: "https://mcp.atlassian.com/v1/sse"}}
+	failure := inferMCPFailure(MCPFailureStageHandshake, providerText, `{"server_label":"Atlassian"}`, "", servers)
+	if failure == nil {
+		t.Fatal("esperava falha MCP classificada")
+	}
+	if strings.Contains(failure.Message, providerText) || strings.Contains(failure.Message, "credential pattern") {
+		t.Fatalf("mensagem expôs texto livre do provedor: %q", failure.Message)
+	}
+}
+
 func TestInferMCPFailure_MatchesServerFromMessage(t *testing.T) {
 	servers := []MCPServerConfig{
 		{Name: "Atlassian", Slug: "atlassian", URL: "https://mcp.atlassian.com/v1/sse"},

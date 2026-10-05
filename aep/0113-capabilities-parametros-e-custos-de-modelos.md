@@ -1,6 +1,6 @@
 # AEP-0113 — Compatibilidade de parâmetros por modelo e provedor
 
-Status: In Progress — fase 1 implementada e validada no PR #889; fases 2–3 pendentes
+Status: In Progress — fase 1 validada no PR #889; fase 2 em implementação e revisão; fase 3 pendente
 
 ## Resumo
 
@@ -144,6 +144,36 @@ como autenticação, cota ou falha transitória, que não exigem um campo. Cada
 assinatura aceita tem fixtures de teste positivas e negativas no adaptador
 correspondente.
 
+O suporte é explícito por assinatura, não herdado apenas por compatibilidade
+com o formato OpenAI:
+
+- OpenAI: `code=unsupported_parameter` com `error.param` conhecido pode ensinar
+  o campo; `invalid_request_error` ou HTTP 400 genérico não ensina. A
+  documentação orienta a inspecionar códigos e `param` em erros estruturados,
+  mas a aplicação só aprende com a assinatura exata allowlisted
+  ([guia de erros](https://developers.openai.com/api/docs/guides/error-codes)).
+- LiteLLM: reconhece o tipo `UnsupportedParamsError` ou o prefixo exato
+  `litellm.UnsupportedParamsError:` no campo `error.message`, formato
+  documentado do gateway; o `error.param` ainda precisa mapear para campo
+  conhecido e enviado ([mapeamento de exceções](https://docs.litellm.ai/docs/exception_mapping),
+  [formato de erros do gateway](https://docs.litellm.ai/docs/proxy/error_reference)).
+- xAI: erros são reconhecidos por categorias/status do envelope OpenAI
+  compatível, mas HTTP 400 indica argumento inválido de forma ampla; não ensina
+  nem suprime campo até haver uma assinatura oficial mais específica
+  ([depuração de erros](https://docs.x.ai/developers/debugging)).
+- LocalAI, OpenRouter e Z.ai: envelopes OpenAI compatíveis podem alimentar
+  categorias gerais quando seus campos estruturados correspondem ao contrato
+  conhecido. HTTP 400, `invalid_request_error` ou códigos numéricos sem
+  semântica específica nunca provam não suporte de campo. Não há aprendizado
+  até uma assinatura inequívoca e documentada ser adicionada com fixtures.
+- Anthropic e Google: a classificação atual cobre categorias gerais dos
+  formatos próprios; não há aprendizado de campos nesta entrega.
+
+Uma família sem assinatura de não suporte continua recebendo mensagem
+normalizada e diagnóstico sanitizado quando o envelope permite. Uma resposta
+desconhecida pode ser adicionada gradualmente ao reconhecedor depois de revisão
+da documentação ou de reprodução segura; seu texto bruto não é gravado.
+
 O domínio preserva a intenção semântica; a tradução para nomes como
 `max_tokens` ou `max_completion_tokens` permanece no adaptador existente.
 Rejeitar um alias de transporte não prova que todas as representações da mesma
@@ -275,11 +305,17 @@ na `main`.
    adicionados nesta rodada foram executados pelo CI remoto; nenhum teste local
    foi executado nesta rodada por orientação de Infosec.
 
-2. **Envio, aprendizado e retry — pendente.** Integrar o estado ao pipeline,
+2. **Envio, aprendizado e retry — In Progress.** Integrar o estado ao pipeline,
   capturar a revisão efetiva, classificar rejeições explícitas, persistir e
   repetir uma vez com segurança; envios seguintes respeitam o aprendizado.
   Aliases ambíguos de saída em Chat Completions não aprendem nem fazem retry de
-  compatibilidade nesta fase.
+  compatibilidade nesta fase. As assinaturas de aprendizado atualmente
+  implementadas são OpenAI `unsupported_parameter` e LiteLLM
+  `UnsupportedParamsError`; as demais famílias têm classificação geral sem
+  aprendizado de campo. Ainda faltam testes de adaptação ponta a ponta que
+  verifiquem payload da primeira tentativa, persistência antes do retry e
+  supressão do campo na segunda tentativa, além da confirmação dos checks
+  remotos.
 3. **Profile Manager — pendente.** Ocultar campos não suportados, manter
    desconhecidos disponíveis e preservar valores salvos e acessibilidade.
 4. **Vozes TTS — futura, a rediscutir.** Objetivo de seleção amigável, sem
@@ -318,33 +354,41 @@ mantendo explícito que a fase 4 é uma proposta futura que exige nova decisão.
   provedor/modelo/capability/operação/campo; repetir a rejeição atualiza a
   mesma linha e não acumula histórico. `llm_model_capabilities_test.go` valida
   hierarquia, idempotência, isolamento e concorrência no PR #889.
-- [ ] Ausência de restrição não omite parâmetros nem oculta campos.
+- [x] Ausência de restrição não omite parâmetros nem oculta campos; a consulta
+  inicial é vazia e os adaptadores só suprimem campos persistidos no estado da
+  requisição (`internal/llm/compatibility_state.go`).
 - [x] Autorização impede acesso entre usuários e publicação global indevida;
   exclusão do provedor remove o estado dependente. Coberto pelos testes focados
   de escopo e cascata no PR #889.
 - [x] Troca de revisão invalida restrições e uma resposta atrasada não grava na
-  revisão nova. O teste focado cobre gravação obsoleta e invalidação; integração
-  da revisão ao snapshot efetivo do envio permanece na fase 2.
+  revisão nova. O teste focado cobre gravação obsoleta e invalidação; a fase 2
+  integrou a revisão ao snapshot efetivo, com validação ponta a ponta pendente.
 - [x] A revisão de compatibilidade acompanha apenas endpoint, formato de API,
   adaptador e modo de protocolo. Alterar a referência de credencial atualiza a
   revisão de configuração, mas não invalida campos aprendidos.
   `llm_provider_revision_guards_test.go` cobre a separação entre as revisões.
 - [ ] Rejeição explícita de parâmetro enviado e conhecido gera restrição e um
-  retry seguro; o próximo envio omite o parâmetro sem repetir o erro.
+  retry seguro; o próximo envio omite o parâmetro sem repetir o erro. Falta
+  comprovar o fluxo completo nos adaptadores Chat Completions e Responses.
 - [ ] Reconhecedores por provedor/formato aceitam apenas assinaturas
   documentadas; fixtures positivas extraem e mapeiam o campo enviado correto,
-  e casos desconhecidos/ambíguos não geram aprendizado nem retry.
+  e casos desconhecidos/ambíguos não geram aprendizado nem retry. Falta provar
+  o fluxo completo de adaptação e retry nos dois adaptadores.
 - [ ] Erros de valor são distintos de não suporte do campo: podem produzir
   diagnóstico legível, mas não removem o campo, não repetem o envio sem ele e
-  não persistem valores/restrições nesta entrega.
+  não persistem valores/restrições nesta entrega. Falta validar também as
+  mensagens localizadas no consumidor de chat.
 - [ ] Diagnósticos locais de erros não reconhecidos são estruturados e limitados;
   não persistem payload/mensagem bruta, prompts, valores ou credenciais e não
-  enviam telemetria automaticamente.
+  enviam telemetria automaticamente. Foi removido o repasse do texto livre de
+  erro MCP e iniciado o uso de marcador allowlisted para tradução; a revisão do
+  diff e CI remoto ainda precisam confirmar os caminhos completos.
 - [ ] Testes negativos cobrem HTTP 400 genérico, autenticação, erro transitório,
   valor/faixa/voz inválidos, alias ambíguo, campo não enviado e obrigatório.
 - [ ] Não há segundo retry de compatibilidade, repetição de tools ou nova
   mensagem; saída parcial, cancelamento, falha de persistência e revisão
-  alterada impedem a repetição automática.
+  alterada impedem a repetição automática. A cobertura de unidade do orçamento
+  precisa ser complementada pelos testes de adaptação ponta a ponta.
 - [ ] O Profile Manager oculta campos não suportados usando o estado do backend,
   preserva valores salvos, reavalia ao trocar de modelo e mantém foco acessível.
 - [ ] Fases implementadas atualizam este documento, o índice e a documentação
