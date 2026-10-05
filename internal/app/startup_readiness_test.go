@@ -85,7 +85,7 @@ func TestStartupReadinessCancellationWinsOverLateCompletion(t *testing.T) {
 	a := NewApp()
 	done := make(chan error, 1)
 	go func() { _, err := a.GetAuthStatus(); done <- err }()
-	a.startupResult.finish(context.Canceled)
+	a.Shutdown()
 	a.startupResult.finish(nil)
 	select {
 	case err := <-done:
