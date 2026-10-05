@@ -39,53 +39,8 @@ func (s *DBStore) ensureDB() (*gorm.DB, error) {
 	return s.db, nil
 }
 
-func credentialUserScope(ctx context.Context, cred StoredCredential) (string, error) {
-	userID := cred.UserID
-	if scopedUserID, ok := database.UserIDFromContext(ctx); ok {
-		if userID != "" && userID != scopedUserID {
-			return "", ErrCredentialUserScopeMismatch
-		}
-		if userID == "" {
-			userID = scopedUserID
-		}
-	}
-	if IsInstanceSecretPattern(cred.Pattern) {
-		userID = ""
-	}
-	if userID == "" && !IsInstanceSecretPattern(cred.Pattern) {
-		return "", database.ErrUserScopeRequired
-	}
-	return userID, nil
-}
-
 func (s *DBStore) SaveCredential(ctx context.Context, cred StoredCredential) error {
 	return s.saveCredential(ctx, cred, false)
-}
-
-func (s *DBStore) SaveCredentialAndGetID(ctx context.Context, cred StoredCredential) (string, error) {
-	db, err := s.ensureDB()
-	if err != nil {
-		return "", err
-	}
-	userID, err := credentialUserScope(ctx, cred)
-	if err != nil {
-		return "", err
-	}
-
-	var id string
-	err = database.WithSQLiteImmediateTransaction(ctx, db, "credentials.save", func(tx *gorm.DB) error {
-		if err := s.saveCredentialWithDB(ctx, tx, cred, true); err != nil {
-			return err
-		}
-		query := tx.WithContext(ctx).Model(&database.CredentialEntry{}).Where("pattern = ? AND user_id = ?", cred.Pattern, userID)
-		var row database.CredentialEntry
-		if err := query.Select("id").First(&row).Error; err != nil {
-			return err
-		}
-		id = row.ID
-		return nil
-	})
-	return id, err
 }
 
 // inTransaction is reserved for vault operations already holding the SQLite writer.
@@ -94,10 +49,6 @@ func (s *DBStore) saveCredential(ctx context.Context, cred StoredCredential, inT
 	if err != nil {
 		return err
 	}
-	return s.saveCredentialWithDB(ctx, db, cred, inTransaction)
-}
-
-func (s *DBStore) saveCredentialWithDB(ctx context.Context, db *gorm.DB, cred StoredCredential, inTransaction bool) error {
 	if cred.Auth == nil {
 		return errors.New("auth não pode ser nil")
 	}
@@ -113,9 +64,17 @@ func (s *DBStore) saveCredentialWithDB(ctx context.Context, db *gorm.DB, cred St
 		}
 		headersJSON = string(data)
 	}
-	userID, err := credentialUserScope(ctx, cred)
-	if err != nil {
-		return err
+	userID := cred.UserID
+	if userID == "" {
+		if scopedUserID, ok := database.UserIDFromContext(ctx); ok {
+			userID = scopedUserID
+		}
+	}
+	if IsInstanceSecretPattern(cred.Pattern) {
+		userID = ""
+	}
+	if userID == "" && !IsInstanceSecretPattern(cred.Pattern) {
+		return database.ErrUserScopeRequired
 	}
 
 	entry := database.CredentialEntry{

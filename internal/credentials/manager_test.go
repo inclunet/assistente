@@ -594,20 +594,14 @@ func TestUpdateExistingPattern(t *testing.T) {
 }
 
 type reentrantCredentialStore struct {
-	manager             *Manager
-	saved               StoredCredential
-	listErr             error
-	failListAfterSave   bool
-	saveCount           int
-	noID                bool
-	cancelAfterSaveList context.CancelFunc
-	deleteContextErr    error
-	deleteCount         int
+	manager *Manager
+	saved   StoredCredential
+	listErr error
+	noID    bool
 }
 
 func (s *reentrantCredentialStore) SaveCredential(_ context.Context, cred StoredCredential) error {
 	s.saved = cred
-	s.saveCount++
 	_ = s.manager.ListPatterns()
 	return nil
 }
@@ -616,12 +610,8 @@ func (s *reentrantCredentialStore) ListCredentials(context.Context) ([]StoredCre
 	if s.saved.Pattern == "" {
 		return nil, nil
 	}
-	if s.cancelAfterSaveList != nil && s.saveCount > 0 {
-		s.cancelAfterSaveList()
-		return nil, context.Canceled
-	}
 	cred := s.saved
-	if s.listErr != nil && (!s.failListAfterSave || s.saveCount > 0) {
+	if s.listErr != nil {
 		return nil, s.listErr
 	}
 	if cred.ID == "" && !s.noID {
@@ -630,10 +620,7 @@ func (s *reentrantCredentialStore) ListCredentials(context.Context) ([]StoredCre
 	return []StoredCredential{cred}, nil
 }
 
-func (s *reentrantCredentialStore) DeleteCredential(ctx context.Context, _ string) error {
-	s.deleteContextErr = ctx.Err()
-	s.deleteCount++
-	s.saved = StoredCredential{}
+func (s *reentrantCredentialStore) DeleteCredential(context.Context, string) error {
 	return nil
 }
 
@@ -647,17 +634,6 @@ func (s *reentrantCredentialStore) GetKeyWrap(context.Context, string) (*KeyWrap
 
 func (s *reentrantCredentialStore) HasKeyWrap(context.Context, string) (bool, error) {
 	return false, nil
-}
-
-type emptyIDCredentialStore struct {
-	*reentrantCredentialStore
-}
-
-func (s emptyIDCredentialStore) SaveCredentialAndGetID(ctx context.Context, cred StoredCredential) (string, error) {
-	if err := s.SaveCredential(ctx, cred); err != nil {
-		return "", err
-	}
-	return "", nil
 }
 
 func TestRegisterStoredCredentialDoesNotHoldLockDuringStoreIO(t *testing.T) {
@@ -691,31 +667,6 @@ func TestRegisterStoredCredentialDoesNotHoldLockDuringStoreIO(t *testing.T) {
 	}
 }
 
-func TestRegisterStoredCredentialRequiresInstanceScopeForPersistentInstanceSecrets(t *testing.T) {
-	store := &reentrantCredentialStore{}
-	mgr := NewManagerWithStoreAndPersistence([]byte("test-key-exactly-32-bytes-long!!"), store, true)
-	store.manager = mgr
-	ctx := database.WithUserID(context.Background(), "authenticated-user")
-	credential := StoredCredential{
-		UserID:  "authenticated-user",
-		Pattern: InstanceSecretAuthRefreshToken,
-		Auth:    &AuthConfig{Source: "static", Type: "secret", Token: "instance-token"},
-	}
-
-	if err := mgr.RegisterStoredCredentialWithContext(ctx, credential); !errors.Is(err, ErrInstanceSecretRequiresInstanceScope) {
-		t.Fatalf("RegisterStoredCredentialWithContext() error = %v, want ErrInstanceSecretRequiresInstanceScope", err)
-	}
-	if store.saveCount != 0 || len(mgr.ListPatterns()) != 0 {
-		t.Fatal("registro genérico persistiu ou publicou segredo de instância com escopo de usuário")
-	}
-	if err := mgr.DeletePattern(ctx, InstanceSecretAuthRefreshToken); !errors.Is(err, ErrInstanceSecretRequiresInstanceScope) {
-		t.Fatalf("DeletePattern() error = %v, want ErrInstanceSecretRequiresInstanceScope", err)
-	}
-	if store.deleteCount != 0 {
-		t.Fatalf("DeletePattern() removeu segredo de instância sem escopo de instância: %d", store.deleteCount)
-	}
-}
-
 func TestRegisterStoredCredentialReturnsListCredentialsError(t *testing.T) {
 	store := &reentrantCredentialStore{listErr: errors.New("store unavailable")}
 	mgr := NewManagerWithStoreAndPersistence([]byte("test-key-exactly-32-bytes-long!!"), store, true)
@@ -730,118 +681,6 @@ func TestRegisterStoredCredentialReturnsListCredentialsError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "listar credenciais persistidas após salvar") {
 		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestRegisterStoredCredentialCompensatesPostSaveLookupFailure(t *testing.T) {
-	ctx := database.WithUserID(context.Background(), "user-1")
-	t.Run("remove nova credencial", func(t *testing.T) {
-		store := &reentrantCredentialStore{listErr: errors.New("store unavailable"), failListAfterSave: true}
-		mgr := NewManagerWithStoreAndPersistence([]byte("test-key-exactly-32-bytes-long!!"), store, true)
-		store.manager = mgr
-
-		err := mgr.RegisterStoredCredentialWithContext(ctx, StoredCredential{
-			Pattern: "api.example.com",
-			Auth:    &AuthConfig{Source: "static", Type: "bearer", Token: "new-secret"},
-		})
-		if err == nil {
-			t.Fatal("expected post-save lookup error")
-		}
-		if store.saved.Pattern != "" {
-			t.Fatalf("credential remained persisted after failed registration: %+v", store.saved)
-		}
-		if got := mgr.ListPatterns(); len(got) != 0 {
-			t.Fatalf("credential was published to memory after failed registration: %+v", got)
-		}
-	})
-
-	t.Run("restaura credencial anterior", func(t *testing.T) {
-		previous := StoredCredential{
-			ID:      "existing-id",
-			UserID:  "user-1",
-			Pattern: "api.example.com",
-			Auth:    &AuthConfig{Source: "static", Type: "bearer", Token: "old-ciphertext"},
-		}
-		store := &reentrantCredentialStore{
-			saved:             previous,
-			listErr:           errors.New("store unavailable"),
-			failListAfterSave: true,
-		}
-		mgr := NewManagerWithStoreAndPersistence([]byte("test-key-exactly-32-bytes-long!!"), store, true)
-		store.manager = mgr
-
-		err := mgr.RegisterStoredCredentialWithContext(ctx, StoredCredential{
-			Pattern: "api.example.com",
-			Auth:    &AuthConfig{Source: "static", Type: "bearer", Token: "new-secret"},
-		})
-		if err == nil {
-			t.Fatal("expected post-save lookup error")
-		}
-		if store.saved.ID != previous.ID || store.saved.Auth.Token != previous.Auth.Token {
-			t.Fatalf("previous credential was not restored: %+v", store.saved)
-		}
-	})
-}
-
-func TestRegisterStoredCredentialCompensatesCanceledPostSaveLookup(t *testing.T) {
-	ctx, cancel := context.WithCancel(database.WithUserID(context.Background(), "user-1"))
-	defer cancel()
-	store := &reentrantCredentialStore{cancelAfterSaveList: cancel}
-	mgr := NewManagerWithStoreAndPersistence([]byte("test-key-exactly-32-bytes-long!!"), store, true)
-	store.manager = mgr
-
-	err := mgr.RegisterStoredCredentialWithContext(ctx, StoredCredential{
-		Pattern: "api.example.com",
-		Auth:    &AuthConfig{Source: "static", Type: "bearer", Token: "secret"},
-	})
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("RegisterStoredCredentialWithContext() error = %v, want context.Canceled", err)
-	}
-	if store.deleteContextErr != nil {
-		t.Fatalf("compensação recebeu contexto cancelado: %v", store.deleteContextErr)
-	}
-	if store.saved.Pattern != "" {
-		t.Fatalf("credencial permaneceu persistida após falha de releitura: %+v", store.saved)
-	}
-}
-
-func TestRegisterStoredCredentialRejectsDifferentAuthenticatedUser(t *testing.T) {
-	store := &reentrantCredentialStore{}
-	mgr := NewManagerWithStoreAndPersistence([]byte("test-key-exactly-32-bytes-long!!"), store, true)
-	store.manager = mgr
-
-	err := mgr.RegisterStoredCredentialWithContext(database.WithUserID(context.Background(), "authenticated-user"), StoredCredential{
-		ID:      "credential-id",
-		UserID:  "different-user",
-		Pattern: "api.example.com",
-		Auth:    &AuthConfig{Source: "static", Type: "bearer", Token: "secret"},
-	})
-	if !errors.Is(err, ErrCredentialUserScopeMismatch) {
-		t.Fatalf("error = %v, want ErrCredentialUserScopeMismatch", err)
-	}
-	if store.saveCount != 0 {
-		t.Fatalf("scope mismatch performed %d credential writes", store.saveCount)
-	}
-}
-
-func TestRegisterStoredCredentialCompensatesEmptyIDWriterResult(t *testing.T) {
-	inner := &reentrantCredentialStore{}
-	store := emptyIDCredentialStore{reentrantCredentialStore: inner}
-	mgr := NewManagerWithStoreAndPersistence([]byte("test-key-exactly-32-bytes-long!!"), store, true)
-	inner.manager = mgr
-
-	err := mgr.RegisterStoredCredentialWithContext(database.WithUserID(context.Background(), "user-1"), StoredCredential{
-		Pattern: "api.example.com",
-		Auth:    &AuthConfig{Source: "static", Type: "bearer", Token: "secret"},
-	})
-	if err == nil || !strings.Contains(err.Error(), "ID vazio") {
-		t.Fatalf("error = %v, want empty-ID error", err)
-	}
-	if inner.saved.Pattern != "" {
-		t.Fatalf("credential persisted after empty-ID result: %+v", inner.saved)
-	}
-	if got := mgr.ListPatterns(); len(got) != 0 {
-		t.Fatalf("credential was published without an ID: %+v", got)
 	}
 }
 
