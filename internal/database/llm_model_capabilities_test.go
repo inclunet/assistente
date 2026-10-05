@@ -337,6 +337,17 @@ func TestModelAndProviderIdentityGuardsRejectUpdateAndReplace(t *testing.T) {
 		FROM llm_model_capabilities WHERE id = ?`, capability.ID).Error; err == nil {
 		t.Fatal("INSERT OR REPLACE apagou a capability e suas restrições filhas")
 	}
+	if err := db.Exec("DROP TRIGGER IF EXISTS trg_llm_models_identity_immutable").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec(`CREATE TRIGGER trg_llm_models_identity_immutable
+		BEFORE UPDATE OF provider_id, remote_id ON llm_models
+		BEGIN SELECT RAISE(ABORT, 'llm model identity is immutable'); END`).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := MigrateLLMModelCapabilities(db); err != nil {
+		t.Fatalf("migração não atualizou o gatilho legado: %v", err)
+	}
 	if err := db.Exec("UPDATE llm_models SET remote_id = ? WHERE id = ?", "replacement-model", model.ID).Error; err == nil {
 		t.Fatal("alteração direta substituiu a identidade do modelo")
 	}
@@ -345,6 +356,20 @@ func TestModelAndProviderIdentityGuardsRejectUpdateAndReplace(t *testing.T) {
 		SELECT id, provider_id, remote_id, display_name, created_at, updated_at
 		FROM llm_models WHERE id = ?`, model.ID).Error; err == nil {
 		t.Fatal("INSERT OR REPLACE substituiu o modelo")
+	}
+	if err := db.Model(&LLMModel{}).Where("id = ?", model.ID).Updates(map[string]any{
+		"provider_id":  provider.ID,
+		"remote_id":    "remote-model",
+		"display_name": "Renamed model",
+	}).Error; err != nil {
+		t.Fatalf("atualização repetindo identidade imutável falhou: %v", err)
+	}
+	var renamed LLMModel
+	if err := db.First(&renamed, "id = ?", model.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if renamed.ProviderID != provider.ID || renamed.RemoteID != "remote-model" || renamed.DisplayName != "Renamed model" {
+		t.Fatalf("atualização de display name alterou identidade ou não foi aplicada: %+v", renamed)
 	}
 	var count int64
 	if err := db.Model(&LLMModel{}).Where("id = ?", model.ID).Count(&count).Error; err != nil || count != 1 {

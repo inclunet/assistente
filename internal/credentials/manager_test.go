@@ -682,6 +682,33 @@ func TestRegisterStoredCredentialDoesNotHoldLockDuringStoreIO(t *testing.T) {
 	}
 }
 
+func TestRegisterInstanceSecretWithAuthenticatedContextKeepsInstanceScope(t *testing.T) {
+	setupScopedCredentialStoreTestDB(t)
+	store := NewDBStore()
+	mgr := NewManagerWithStoreAndPersistence([]byte("test-key-exactly-32-bytes-long!!"), store, true)
+	ctx := database.WithUserID(context.Background(), "authenticated-user")
+
+	err := mgr.RegisterStoredCredentialWithContext(ctx, StoredCredential{
+		Pattern: InstanceSecretAuthRefreshToken,
+		Auth:    &AuthConfig{Source: "static", Type: "secret", Token: "instance-token"},
+	})
+	if err != nil {
+		t.Fatalf("RegisterStoredCredentialWithContext() error = %v", err)
+	}
+
+	instanceCredentials, err := store.ListInstanceCredentials(ctx)
+	if err != nil {
+		t.Fatalf("ListInstanceCredentials() error = %v", err)
+	}
+	if len(instanceCredentials) != 1 || instanceCredentials[0].UserID != "" || instanceCredentials[0].Pattern != InstanceSecretAuthRefreshToken {
+		t.Fatalf("instance secret persisted with wrong scope: %+v", instanceCredentials)
+	}
+	value, ok, err := mgr.GetInstanceSecret(InstanceSecretAuthRefreshToken)
+	if err != nil || !ok || value != "instance-token" {
+		t.Fatalf("GetInstanceSecret() = (%q, %v, %v), want instance token", value, ok, err)
+	}
+}
+
 func TestRegisterStoredCredentialReturnsListCredentialsError(t *testing.T) {
 	store := &reentrantCredentialStore{listErr: errors.New("store unavailable")}
 	mgr := NewManagerWithStoreAndPersistence([]byte("test-key-exactly-32-bytes-long!!"), store, true)

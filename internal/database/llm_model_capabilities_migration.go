@@ -144,8 +144,10 @@ var llmModelCapabilityDDL = []string{
 			WHERE c.id = NEW.capability_id
 		), 0)
 		BEGIN SELECT RAISE(ABORT, 'stale model compatibility revision'); END`,
-	`CREATE TRIGGER IF NOT EXISTS trg_llm_models_identity_immutable
+	`DROP TRIGGER IF EXISTS trg_llm_models_identity_immutable`,
+	`CREATE TRIGGER trg_llm_models_identity_immutable
 		BEFORE UPDATE OF provider_id, remote_id ON llm_models
+		WHEN NEW.provider_id IS NOT OLD.provider_id OR NEW.remote_id IS NOT OLD.remote_id
 		BEGIN SELECT RAISE(ABORT, 'llm model identity is immutable'); END`,
 	`CREATE TRIGGER IF NOT EXISTS trg_llm_models_identity_no_replace
 		BEFORE INSERT ON llm_models

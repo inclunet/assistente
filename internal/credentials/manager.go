@@ -157,13 +157,17 @@ func (m *Manager) RegisterStoredCredentialWithContext(ctx context.Context, cred 
 			userID = scopedUserID
 		}
 	}
+	if IsInstanceSecretPattern(pattern) {
+		userID = ""
+	}
+	storeCtx := database.WithUserID(ctx, userID)
 	if userID == "" && !IsInstanceSecretPattern(pattern) && m.persist {
 		return database.ErrUserScopeRequired
 	}
 	if m.persist && m.store != nil {
 		if cred.ID == "" {
 			toSave := StoredCredential{ID: cred.ID, UserID: userID, Pattern: pattern, Auth: encAuth}
-			persisted, err := m.lookupPersistedByScope(ctx, userID)
+			persisted, err := m.lookupPersistedByScope(storeCtx, userID)
 			if err != nil {
 				return fmt.Errorf("listar credenciais antes de salvar pattern %q: %w", pattern, err)
 			}
@@ -175,7 +179,7 @@ func (m *Manager) RegisterStoredCredentialWithContext(ctx context.Context, cred 
 				}
 			}
 			if idWriter, ok := m.store.(credentialIDWriter); ok {
-				id, err := idWriter.SaveCredentialAndGetID(database.WithUserID(ctx, userID), toSave)
+				id, err := idWriter.SaveCredentialAndGetID(storeCtx, toSave)
 				if err != nil {
 					return err
 				}
@@ -185,10 +189,10 @@ func (m *Manager) RegisterStoredCredentialWithContext(ctx context.Context, cred 
 				}
 				persistedID = id
 			} else {
-				if err := m.store.SaveCredential(ctx, toSave); err != nil {
+				if err := m.store.SaveCredential(storeCtx, toSave); err != nil {
 					return err
 				}
-				persisted, err = m.lookupPersistedByScope(ctx, userID)
+				persisted, err = m.lookupPersistedByScope(storeCtx, userID)
 				if err != nil {
 					lookupErr := fmt.Errorf("listar credenciais persistidas após salvar: %w", err)
 					return errors.Join(lookupErr, m.compensateCredentialWrite(ctx, userID, pattern, previous))
@@ -205,7 +209,7 @@ func (m *Manager) RegisterStoredCredentialWithContext(ctx context.Context, cred 
 					return errors.Join(lookupErr, m.compensateCredentialWrite(ctx, userID, pattern, previous))
 				}
 			}
-		} else if err := m.store.SaveCredential(ctx, StoredCredential{ID: cred.ID, UserID: userID, Pattern: pattern, Auth: encAuth}); err != nil {
+		} else if err := m.store.SaveCredential(storeCtx, StoredCredential{ID: cred.ID, UserID: userID, Pattern: pattern, Auth: encAuth}); err != nil {
 			return err
 		}
 	}
@@ -430,11 +434,15 @@ func (m *Manager) DeletePattern(ctx context.Context, pattern string) error {
 	if scopedUserID, ok := database.UserIDFromContext(ctx); ok {
 		userID = scopedUserID
 	}
+	if IsInstanceSecretPattern(pattern) {
+		userID = ""
+	}
+	storeCtx := database.WithUserID(ctx, userID)
 	if userID == "" && !IsInstanceSecretPattern(pattern) && m.persist {
 		return database.ErrUserScopeRequired
 	}
 	if m.persist && m.store != nil {
-		if err := m.store.DeleteCredential(ctx, pattern); err != nil {
+		if err := m.store.DeleteCredential(storeCtx, pattern); err != nil {
 			return err
 		}
 	}
