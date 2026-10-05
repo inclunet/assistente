@@ -602,6 +602,7 @@ type reentrantCredentialStore struct {
 	noID                bool
 	cancelAfterSaveList context.CancelFunc
 	deleteContextErr    error
+	deleteCount         int
 }
 
 func (s *reentrantCredentialStore) SaveCredential(_ context.Context, cred StoredCredential) error {
@@ -631,6 +632,7 @@ func (s *reentrantCredentialStore) ListCredentials(context.Context) ([]StoredCre
 
 func (s *reentrantCredentialStore) DeleteCredential(ctx context.Context, _ string) error {
 	s.deleteContextErr = ctx.Err()
+	s.deleteCount++
 	s.saved = StoredCredential{}
 	return nil
 }
@@ -689,30 +691,28 @@ func TestRegisterStoredCredentialDoesNotHoldLockDuringStoreIO(t *testing.T) {
 	}
 }
 
-func TestRegisterInstanceSecretWithAuthenticatedContextKeepsInstanceScope(t *testing.T) {
-	setupScopedCredentialStoreTestDB(t)
-	store := NewDBStore()
+func TestRegisterStoredCredentialRequiresInstanceScopeForPersistentInstanceSecrets(t *testing.T) {
+	store := &reentrantCredentialStore{}
 	mgr := NewManagerWithStoreAndPersistence([]byte("test-key-exactly-32-bytes-long!!"), store, true)
+	store.manager = mgr
 	ctx := database.WithUserID(context.Background(), "authenticated-user")
-
-	err := mgr.RegisterStoredCredentialWithContext(ctx, StoredCredential{
+	credential := StoredCredential{
+		UserID:  "authenticated-user",
 		Pattern: InstanceSecretAuthRefreshToken,
 		Auth:    &AuthConfig{Source: "static", Type: "secret", Token: "instance-token"},
-	})
-	if err != nil {
-		t.Fatalf("RegisterStoredCredentialWithContext() error = %v", err)
 	}
 
-	instanceCredentials, err := store.ListInstanceCredentials(ctx)
-	if err != nil {
-		t.Fatalf("ListInstanceCredentials() error = %v", err)
+	if err := mgr.RegisterStoredCredentialWithContext(ctx, credential); !errors.Is(err, ErrInstanceSecretRequiresInstanceScope) {
+		t.Fatalf("RegisterStoredCredentialWithContext() error = %v, want ErrInstanceSecretRequiresInstanceScope", err)
 	}
-	if len(instanceCredentials) != 1 || instanceCredentials[0].UserID != "" || instanceCredentials[0].Pattern != InstanceSecretAuthRefreshToken {
-		t.Fatalf("instance secret persisted with wrong scope: %+v", instanceCredentials)
+	if store.saveCount != 0 || len(mgr.ListPatterns()) != 0 {
+		t.Fatal("registro genérico persistiu ou publicou segredo de instância com escopo de usuário")
 	}
-	value, ok, err := mgr.GetInstanceSecret(InstanceSecretAuthRefreshToken)
-	if err != nil || !ok || value != "instance-token" {
-		t.Fatalf("GetInstanceSecret() = (%q, %v, %v), want instance token", value, ok, err)
+	if err := mgr.DeletePattern(ctx, InstanceSecretAuthRefreshToken); !errors.Is(err, ErrInstanceSecretRequiresInstanceScope) {
+		t.Fatalf("DeletePattern() error = %v, want ErrInstanceSecretRequiresInstanceScope", err)
+	}
+	if store.deleteCount != 0 {
+		t.Fatalf("DeletePattern() removeu segredo de instância sem escopo de instância: %d", store.deleteCount)
 	}
 }
 

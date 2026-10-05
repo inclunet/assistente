@@ -7,6 +7,8 @@ import (
 	"strings"
 )
 
+var ErrInstanceSecretRequiresInstanceScope = errors.New("instance secret operations require an instance-scoped API")
+
 const (
 	InstanceSecretJWTSigningKey      = "internal-auth:jwt-signing-key"
 	InstanceSecretAuthRefreshToken   = "internal-auth:refresh-token"

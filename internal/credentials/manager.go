@@ -157,8 +157,8 @@ func (m *Manager) RegisterStoredCredentialWithContext(ctx context.Context, cred 
 			userID = scopedUserID
 		}
 	}
-	if IsInstanceSecretPattern(pattern) {
-		userID = ""
+	if IsInstanceSecretPattern(pattern) && userID != "" && m.persist {
+		return ErrInstanceSecretRequiresInstanceScope
 	}
 	storeCtx := database.WithUserID(ctx, userID)
 	if userID == "" && !IsInstanceSecretPattern(pattern) && m.persist {
@@ -435,8 +435,8 @@ func (m *Manager) DeletePattern(ctx context.Context, pattern string) error {
 	if scopedUserID, ok := database.UserIDFromContext(ctx); ok {
 		userID = scopedUserID
 	}
-	if IsInstanceSecretPattern(pattern) {
-		userID = ""
+	if IsInstanceSecretPattern(pattern) && userID != "" && m.persist {
+		return ErrInstanceSecretRequiresInstanceScope
 	}
 	storeCtx := database.WithUserID(ctx, userID)
 	if userID == "" && !IsInstanceSecretPattern(pattern) && m.persist {
