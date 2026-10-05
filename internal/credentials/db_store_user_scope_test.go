@@ -2,6 +2,7 @@ package credentials
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"assistente/internal/database"
@@ -68,6 +69,32 @@ func TestDBStoreScopesCredentialsByContextUser(t *testing.T) {
 	}
 	if len(leoCredentials) != 1 || leoCredentials[0].UserID != "user-leo" {
 		t.Fatalf("expected leo credential to remain, got %+v", leoCredentials)
+	}
+}
+
+func TestDBStoreRejectsCredentialOutsideAuthenticatedUserScope(t *testing.T) {
+	setupScopedCredentialStoreTestDB(t)
+	store := NewDBStore()
+	ctx := database.WithUserID(context.Background(), "user-a")
+	cred := StoredCredential{
+		UserID:  "user-b",
+		Pattern: "api.example.com",
+		Auth:    &AuthConfig{Source: "static", Type: "bearer", Token: "encrypted-token"},
+	}
+
+	if err := store.SaveCredential(ctx, cred); !errors.Is(err, ErrCredentialUserScopeMismatch) {
+		t.Fatalf("SaveCredential() error = %v, want ErrCredentialUserScopeMismatch", err)
+	}
+	if _, err := store.SaveCredentialAndGetID(ctx, cred); !errors.Is(err, ErrCredentialUserScopeMismatch) {
+		t.Fatalf("SaveCredentialAndGetID() error = %v, want ErrCredentialUserScopeMismatch", err)
+	}
+
+	rows, err := store.ListCredentials(database.WithUserID(context.Background(), "user-b"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 0 {
+		t.Fatalf("credential for another user was persisted: %+v", rows)
 	}
 }
 

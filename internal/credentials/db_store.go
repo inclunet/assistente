@@ -39,6 +39,25 @@ func (s *DBStore) ensureDB() (*gorm.DB, error) {
 	return s.db, nil
 }
 
+func credentialUserScope(ctx context.Context, cred StoredCredential) (string, error) {
+	userID := cred.UserID
+	if scopedUserID, ok := database.UserIDFromContext(ctx); ok {
+		if userID != "" && userID != scopedUserID {
+			return "", ErrCredentialUserScopeMismatch
+		}
+		if userID == "" {
+			userID = scopedUserID
+		}
+	}
+	if IsInstanceSecretPattern(cred.Pattern) {
+		userID = ""
+	}
+	if userID == "" && !IsInstanceSecretPattern(cred.Pattern) {
+		return "", database.ErrUserScopeRequired
+	}
+	return userID, nil
+}
+
 func (s *DBStore) SaveCredential(ctx context.Context, cred StoredCredential) error {
 	return s.saveCredential(ctx, cred, false)
 }
@@ -48,17 +67,9 @@ func (s *DBStore) SaveCredentialAndGetID(ctx context.Context, cred StoredCredent
 	if err != nil {
 		return "", err
 	}
-	userID := cred.UserID
-	if userID == "" {
-		if scopedUserID, ok := database.UserIDFromContext(ctx); ok {
-			userID = scopedUserID
-		}
-	}
-	if IsInstanceSecretPattern(cred.Pattern) {
-		userID = ""
-	}
-	if userID == "" && !IsInstanceSecretPattern(cred.Pattern) {
-		return "", database.ErrUserScopeRequired
+	userID, err := credentialUserScope(ctx, cred)
+	if err != nil {
+		return "", err
 	}
 
 	var id string
@@ -102,17 +113,9 @@ func (s *DBStore) saveCredentialWithDB(ctx context.Context, db *gorm.DB, cred St
 		}
 		headersJSON = string(data)
 	}
-	userID := cred.UserID
-	if userID == "" {
-		if scopedUserID, ok := database.UserIDFromContext(ctx); ok {
-			userID = scopedUserID
-		}
-	}
-	if IsInstanceSecretPattern(cred.Pattern) {
-		userID = ""
-	}
-	if userID == "" && !IsInstanceSecretPattern(cred.Pattern) {
-		return database.ErrUserScopeRequired
+	userID, err := credentialUserScope(ctx, cred)
+	if err != nil {
+		return err
 	}
 
 	entry := database.CredentialEntry{
