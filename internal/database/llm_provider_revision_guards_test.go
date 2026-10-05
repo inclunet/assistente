@@ -87,3 +87,50 @@ func TestProviderRevisionGuardsVersionDirectUpdatesWithoutDoubleIncrement(t *tes
 	}
 	assertRevision(3, 6)
 }
+
+func TestProviderCompatibilityRevisionUsesEffectiveDefaults(t *testing.T) {
+	db := newMigratorTestDB(t)
+	if err := db.AutoMigrate(&LLMProvider{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := migrateLLMProviderRevisionGuards(db); err != nil {
+		t.Fatal(err)
+	}
+	provider := &LLMProvider{
+		ID: "effective-defaults", UserID: "owner", Type: "openai",
+		BaseURL: "https://api.openai.com/v1",
+	}
+	if err := NewProviderRepository(db).CreateLLMProvider(WithUserID(context.Background(), "owner"), provider); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&LLMProvider{}).Where("id = ?", provider.ID).Updates(map[string]any{
+		"api_format": "openai_responses", "reasoning_content_mode": "disabled",
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	var stored LLMProvider
+	if err := db.First(&stored, "id = ?", provider.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if stored.CompatibilityRevision != 1 {
+		t.Fatalf("representações explícitas dos padrões avançaram compatibilidade: %d", stored.CompatibilityRevision)
+	}
+	if err := db.Model(&LLMProvider{}).Where("id = ?", provider.ID).Update("api_format", "openai").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.First(&stored, "id = ?", provider.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if stored.CompatibilityRevision != 2 {
+		t.Fatalf("mudança de formato efetivo não avançou compatibilidade: %d", stored.CompatibilityRevision)
+	}
+	if err := db.Model(&LLMProvider{}).Where("id = ?", provider.ID).Update("reasoning_content_mode", "replay_with_tools").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.First(&stored, "id = ?", provider.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if stored.CompatibilityRevision != 3 {
+		t.Fatalf("mudança de modo de reasoning efetivo não avançou compatibilidade: %d", stored.CompatibilityRevision)
+	}
+}
