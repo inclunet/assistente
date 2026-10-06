@@ -126,7 +126,7 @@ corporativo; o CI Linux cobre esses pacotes. A execução completa Vitest teve
 172 testes, incluindo esses três e as regressões adicionais, passou.
 Bindings foram regenerados pelo Wails. O inventário de AEPs está sincronizado.
 
-Revisor independente local: Codex `review_credential_sources`, onze rodadas
+Revisor independente local: Codex `review_credential_sources`, treze rodadas
 de código e uma conferência documental final, sem pendências. CI/review remota
 e ordem de merge estão nos PRs da pilha: #910, #911 e o PR de CredManager.
 O aceite manual de NVDA desta nova experiência continua disponível ao mantenedor;
@@ -194,3 +194,15 @@ Presets locais sem referência usam o hostname para a primeira credencial;
 a prévia não apaga o padrão efetivo com uma referência vazia antiga.
 A décima primeira revisão independente terminou sem pendências.
 Testes de autenticação, provedores e recarga em internal/app também passaram (40 s).
+
+O CI identificou a mudança incidental do inventário de logs ao extrair o helper.
+O helper permanece em service.go com o aviso legado original, preservando o
+contrato sem alterar a baseline de TestLegacyLoggingInventory.
+
+Sétima rodada remota: captureCredentialSave recebe a geração original de
+Create/Update e recusa transição anterior à captura do escopo. Uma renomeação
+ou edição de preferências preserva o modo efetivo legado quando destino,
+protocolo, tipo e autenticação não mudam. Regressões cobrem o intervalo
+anterior ao escopo e comprovam que renomear não envia Authorization mesmo
+com token disponível no domínio. A revisão local 13 terminou sem pendências;
+providers/controllers/wailsapi/logging passaram.

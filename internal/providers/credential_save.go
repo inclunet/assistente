@@ -4,7 +4,6 @@ import (
 	"assistente/internal/credentials"
 	"assistente/internal/database"
 	"assistente/internal/llm"
-	"assistente/internal/logging"
 	"assistente/internal/oauthflow"
 	"context"
 	"errors"
@@ -97,7 +96,7 @@ type credentialSaveScope struct {
 }
 
 // Capture session identity at operation entry, before any consumer or vault reads.
-func (s *Service) captureCredentialSave(ctx context.Context, draft *CredentialSpec) (*credentialSaveScope, error) {
+func (s *Service) captureCredentialSave(ctx context.Context, draft *CredentialSpec, generation uint64) (*credentialSaveScope, error) {
 	if draft == nil {
 		return nil, nil
 	}
@@ -111,7 +110,9 @@ func (s *Service) captureCredentialSave(ctx context.Context, draft *CredentialSp
 	if _, ok := s.store.(*DBStore); !ok {
 		return nil, credentials.ErrStoreNotReady
 	}
-	generation := s.registry.Generation()
+	if generation != s.registry.Generation() {
+		return nil, oauthflow.ErrConflict
+	}
 	captured, err := mgr.OAuthStore(ctx)
 	if err != nil {
 		return nil, err
@@ -210,31 +211,4 @@ func (s *Service) credentialSourceProvider(ctx context.Context, target *llm.Prov
 		}
 	}
 	return source, nil
-}
-
-// Keep the same session reservation for existing references and legacy API keys.
-// The APIKey compatibility path still uses separate vault/consumer writes.
-func (s *Service) saveWithoutCredentialDraft(ctx context.Context, p *llm.ProviderConfig, generation uint64, apiKey string, makeDefault bool) error {
-	return s.registry.WithGeneration(generation, func() error {
-		if apiKey != "" {
-			if credentials.IsManagedPattern(p.CredentialPattern) {
-				return oauthflow.ErrConflict
-			}
-			if err := s.credMgr.RegisterPatternWithContext(ctx, p.CredentialPattern, &credentials.AuthConfig{Source: "static", Type: "bearer", Token: apiKey}); err != nil {
-				return err
-			}
-		}
-		if err := s.store.Save(ctx, []*llm.ProviderConfig{p}); err != nil {
-			return err
-		}
-		if err := s.registry.RegisterGeneration(p, generation); err != nil {
-			return err
-		}
-		if makeDefault {
-			if err := s.store.SetDefault(ctx, p.ID); err != nil {
-				logging.Warnf(ctx, "providers.service", "erro ao marcar provedor como default: %v", err)
-			}
-		}
-		return nil
-	})
 }

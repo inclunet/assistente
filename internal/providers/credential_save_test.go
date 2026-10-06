@@ -316,7 +316,7 @@ func TestProviderCredentialCommitPublicationSerializesMutations(t *testing.T) {
 			next := *expected
 			next.Name = "Committed"
 			draft := &CredentialSpec{Pattern: "example.com", Auth: &credentials.AuthConfig{Source: "static", Type: "bearer", Token: "new"}}
-			scope, err := service.captureCredentialSave(ctx, draft)
+			scope, err := service.captureCredentialSave(ctx, draft, service.registry.Generation())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -802,5 +802,63 @@ func TestProviderLocalPresetPreviewKeepsEffectiveCredential(t *testing.T) {
 	}
 	if service.registry.Get(p.ID).CredentialPattern != "" {
 		t.Fatal("preview modified original")
+	}
+}
+
+func TestProviderCredentialScopeRejectsGenerationChangedBeforeCapture(t *testing.T) {
+	service, mgr, ctx := chatGPTTestService(t)
+	generation := service.registry.Generation() // captured by Create/Update at entry
+	service.registry.Clear()                    // session transition before scope capture
+	draft := &CredentialSpec{Pattern: "example.com", Auth: &credentials.AuthConfig{Source: "static", Type: "bearer", Token: "old-session-token"}}
+	scope, err := service.captureCredentialSave(ctx, draft, generation)
+	if err == nil || scope != nil {
+		t.Fatal("recaptured new generation for an old request")
+	}
+	if entries, err := mgr.ListVisibleCredentialsWithContext(ctx); err != nil || len(entries) != 0 {
+		t.Fatal("scope capture wrote credential")
+	}
+	if count, err := service.store.Count(ctx); err != nil || count != 0 {
+		t.Fatal("scope capture wrote consumer")
+	}
+}
+func TestProviderRenamePreservesLegacyInferredNoAuth(t *testing.T) {
+	for _, kind := range []llm.ProviderType{llm.ProviderCustom, llm.ProviderOpenAI} {
+		t.Run(string(kind), func(t *testing.T) {
+			service, mgr, ctx := chatGPTTestService(t)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Header.Get("Authorization") != "" {
+					t.Error("rename enabled authentication")
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"data":[{"id":"model"}]}`))
+			}))
+			defer server.Close()
+			p := &llm.ProviderConfig{ID: "legacy", Name: "Legacy", Type: kind, APIFormat: llm.APIFormatOpenAI, BaseURL: server.URL}
+			if p.EffectiveAuthMode() != llm.AuthModeNone {
+				t.Fatal("invalid legacy fixture")
+			}
+			if err := service.store.Save(ctx, []*llm.ProviderConfig{p}); err != nil {
+				t.Fatal(err)
+			}
+			if err := service.registry.Register(p); err != nil {
+				t.Fatal(err)
+			}
+			pattern, _ := ExtractHostname(server.URL)
+			if err := mgr.RegisterPatternWithContext(ctx, pattern, &credentials.AuthConfig{Source: "static", Type: "bearer", Token: "must-not-send"}); err != nil {
+				t.Fatal(err)
+			}
+			got, err := service.Update(ctx, p.ID, UpdateRequest{Name: "Renamed"})
+			if err != nil || got.Provider.EffectiveAuthMode() != llm.AuthModeNone {
+				t.Fatalf("rename changed auth: %v %v", got, err)
+			}
+			saved, err := service.store.Get(ctx, p.ID)
+			if err != nil || saved.EffectiveAuthMode() != llm.AuthModeNone {
+				t.Fatal("persisted auth changed")
+			}
+			models, err := service.ListModelsRaw(ctx, ListModelsRawRequest{ProviderID: p.ID, Type: string(kind), APIFormat: "openai", BaseURL: server.URL})
+			if err != nil || len(models) != 1 {
+				t.Fatalf("renamed provider preview: %v %v", models, err)
+			}
+		})
 	}
 }

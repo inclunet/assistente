@@ -339,7 +339,7 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*CreateResult,
 	if req.CredentialFromProviderID != "" && (req.Credential != nil || req.APIKey != "") {
 		return nil, credentials.ErrCredentialResolution
 	}
-	scope, err := s.captureCredentialSave(ctx, req.Credential)
+	scope, err := s.captureCredentialSave(ctx, req.Credential, generation)
 	if err != nil {
 		return nil, err
 	}
@@ -507,7 +507,7 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Up
 			s.publicationMu.Unlock()
 		}
 	}()
-	scope, err := s.captureCredentialSave(ctx, req.Credential)
+	scope, err := s.captureCredentialSave(ctx, req.Credential, generation)
 	if err != nil {
 		return nil, err
 	}
@@ -618,6 +618,12 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Up
 	}
 	if req.AuthMode != "" {
 		updated.AuthMode = llm.AuthMode(req.AuthMode)
+	} else if req.Credential == nil && req.APIKey == "" && !existing.IsACP() &&
+		updated.Type == existing.Type && updated.GetAPIFormat() == existing.GetAPIFormat() &&
+		sameCredentialOrigin(updated.BaseURL, existing.BaseURL) {
+		// Partial preference edits must preserve legacy inferred no-auth semantics
+		// before a missing credential reference is filled from the hostname.
+		updated.AuthMode = existing.EffectiveAuthMode()
 	}
 	normalizeProviderRuntimeDefaults(updated)
 	if updated.IsACP() && (req.APIKey != "" || req.Credential != nil || req.AuthMode != "") {
@@ -1379,4 +1385,31 @@ func (s *Service) applyProbeAuth(ctx context.Context, req TestRequest, target *h
 		return nil
 	}
 	return credentials.ApplyAuth(target, auth)
+}
+
+// Keep the same session reservation for existing references and legacy API keys.
+// The APIKey compatibility path still uses separate vault/consumer writes.
+func (s *Service) saveWithoutCredentialDraft(ctx context.Context, p *llm.ProviderConfig, generation uint64, apiKey string, makeDefault bool) error {
+	return s.registry.WithGeneration(generation, func() error {
+		if apiKey != "" {
+			if credentials.IsManagedPattern(p.CredentialPattern) {
+				return oauthflow.ErrConflict
+			}
+			if err := s.credMgr.RegisterPatternWithContext(ctx, p.CredentialPattern, &credentials.AuthConfig{Source: "static", Type: "bearer", Token: apiKey}); err != nil {
+				return err
+			}
+		}
+		if err := s.store.Save(ctx, []*llm.ProviderConfig{p}); err != nil {
+			return err
+		}
+		if err := s.registry.RegisterGeneration(p, generation); err != nil {
+			return err
+		}
+		if makeDefault {
+			if err := s.store.SetDefault(ctx, p.ID); err != nil {
+				logging.Warnf(ctx, "providers.service", "[providers] Aviso: erro ao marcar como default: %v", err)
+			}
+		}
+		return nil
+	})
 }
