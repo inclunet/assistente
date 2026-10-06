@@ -9,9 +9,28 @@ weight: 1
 
 O Assistente suporta múltiplos provedores de LLM, tanto comerciais (cloud) quanto locais. Basta adicionar um provedor nas configurações (`Alt + 2`) e informar uma chave de API ou usar uma credencial já cadastrada para o domínio.
 
+## Novo provedor
+
+Na barra da página **Provedores**, abra **Novo provedor** e escolha:
+
+- **Conectar conta ChatGPT** para autorizar sua conta no navegador.
+- **Serviço ACP** para selecionar ou instalar um agente e configurar comando,
+  argumentos e ambiente.
+- **Provedor API** para configurar URL e um protocolo HTTP.
+
+Na página Provedores, **Ctrl+N** abre o mesmo menu pelo mapa de comandos.
+Use as setas para escolher, Enter para abrir e Escape para cancelar e voltar
+ao botão. O atalho respeita suas personalizações e não abre atrás de outro
+diálogo. No workspace, as sequências de criação de abas continuam disponíveis.
+As três ações também aparecem na paleta quando a página está ativa.
+
+Ao editar, API e ACP mantêm seus respectivos formulários. Para outro tipo de
+conexão, crie outro provedor. Os cadastros existentes continuam funcionando;
+esta reorganização não exige migração nem nova autenticação.
+
 ## Conectar sua conta ChatGPT
 
-Na página **Provedores**, escolha **Conectar ChatGPT**, dê um nome à autorização
+Na página **Provedores**, escolha **Novo provedor → Conectar conta ChatGPT**, dê um nome à autorização
 (por exemplo, “ChatGPT pessoal”) e acione **Continuar com ChatGPT**. Autorize no
 navegador o uso do plano de uma conta elegível. Retorne ao Assistente para conferir
 o estado **Conectado** e selecione esse provedor no perfil de chat. O primeiro
@@ -48,7 +67,7 @@ A listagem de provedores só incorpora importações e sobrescritas após o rein
 O ChatGPT importado aparece desconectado: edite esse provedor e
 acione **Continuar com ChatGPT** para criar sua autorização local, sem copiar
 tokens da máquina anterior. Em outros tipos de provedor, referências OAuth
-do arquivo são removidas; configure uma credencial compatível normalmente. A ação **Conectar ChatGPT** da barra cria outro
+do arquivo são removidas; configure uma credencial compatível normalmente. A ação **Conectar conta ChatGPT** do menu Novo provedor cria outro
 provedor e não é necessária para reparar o item importado. Um item importado sem
 autorização local pode ser excluído mesmo se o cofre estiver indisponível. Se houver
 uma autorização cifrada local, recupere o acesso ao cofre para desconectar e excluir.

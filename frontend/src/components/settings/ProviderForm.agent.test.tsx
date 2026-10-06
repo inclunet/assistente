@@ -177,8 +177,8 @@ describe('ProviderForm — provedor de agente de código', () => {
     detectMock.mockResolvedValue(detected);
     const user = userEvent.setup();
 
-    render(<ProviderForm onCancel={() => {}} onSave={() => {}} />);
-    expect(screen.getByLabelText(/base url/i)).toBeInTheDocument();
+    render(<ProviderForm kind="acp" onCancel={() => {}} onSave={() => {}} />);
+    expect(screen.queryByLabelText(/base url/i)).not.toBeInTheDocument();
 
     await abrirFormularioDeAgente(user);
 
@@ -198,7 +198,7 @@ describe('ProviderForm — provedor de agente de código', () => {
     const onSave = vi.fn();
     const user = userEvent.setup();
 
-    render(<ProviderForm onCancel={() => {}} onSave={onSave} />);
+    render(<ProviderForm kind="acp" onCancel={() => {}} onSave={onSave} />);
     await abrirFormularioDeAgente(user);
     await waitFor(() => {
       expect(screen.getByLabelText(/comando do agente/i)).toHaveValue(detected.command);
@@ -242,7 +242,7 @@ describe('ProviderForm — provedor de agente de código', () => {
     detectMock.mockResolvedValue(claudeCode);
     const user = userEvent.setup();
 
-    render(<ProviderForm onCancel={() => {}} onSave={() => {}} />);
+    render(<ProviderForm kind="acp" onCancel={() => {}} onSave={() => {}} />);
     await abrirFormularioDeAgente(user, 'Claude Code local', 'Claude Code', 'claude-acp');
     await waitFor(() => {
       expect(screen.getByLabelText(/comando do agente/i)).toHaveValue(claudeCode.command);
@@ -268,7 +268,7 @@ describe('ProviderForm — provedor de agente de código', () => {
     detectMock.mockResolvedValue(detected);
     const user = userEvent.setup();
 
-    render(<ProviderForm onCancel={() => {}} onSave={() => {}} />);
+    render(<ProviderForm kind="acp" onCancel={() => {}} onSave={() => {}} />);
     await abrirFormularioDeAgente(user);
 
     await waitFor(() => {
@@ -281,7 +281,7 @@ describe('ProviderForm — provedor de agente de código', () => {
     const onSave = vi.fn();
     const user = userEvent.setup();
 
-    render(<ProviderForm onCancel={() => {}} onSave={onSave} />);
+    render(<ProviderForm kind="acp" onCancel={() => {}} onSave={onSave} />);
     await abrirFormularioDeAgente(user);
     await screen.findByText(/agente não encontrado nesta máquina/i);
 
@@ -292,7 +292,7 @@ describe('ProviderForm — provedor de agente de código', () => {
     expect(onSave).not.toHaveBeenCalled();
   });
 
-  it('trocar o tipo de um agente salvo devolve o formulário à forma HTTP', async () => {
+  it('edição de agente não oferece API e preserva comando e argumentos', async () => {
     // O tipo é editável na edição, e o formato é quem decide a forma do
     // formulário e o caminho de gravação: se ele não acompanhasse a troca, a
     // pessoa continuaria vendo campos de agente e gravaria um provedor HTTP
@@ -320,26 +320,19 @@ describe('ProviderForm — provedor de agente de código', () => {
     );
     await screen.findByLabelText(/comando do agente/i);
 
-    await user.selectOptions(screen.getByLabelText(/tipo de provedor/i), 'ollama');
-
-    expect(screen.queryByLabelText(/comando do agente/i)).not.toBeInTheDocument();
-    expect(screen.getByLabelText(/base url/i)).toHaveValue('http://localhost:11434');
-    // Agente não guardou credencial, então o campo aparece para preencher em vez
-    // do botão que diria que já existe uma chave configurada.
-    expect(screen.getByLabelText(/api key/i)).toBeInTheDocument();
-
-    await user.click(screen.getByRole('button', { name: /carregar modelos/i }));
-    await waitFor(() => expect(screen.getByRole('button', { name: /atualizar/i })).toBeEnabled());
+    expect(screen.queryByRole('option', { name: /ollama/i })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/base url/i)).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: /atualizar/i }));
-
     await waitFor(() => expect(updateMock).toHaveBeenCalled());
-    const payload = updateMock.mock.calls[0][1] as Record<string, unknown>;
-    expect(payload).toMatchObject({ type: 'ollama', base_url: 'http://localhost:11434' });
-    expect(payload.api_format).not.toBe('acp');
-    expect(payload.acp_command).toBeUndefined();
+    expect(updateMock.mock.calls[0][1]).toMatchObject({
+      type: 'acp', api_format: 'acp', acp_command: '/opt/cursor/agente', acp_args: ['acp'],
+    });
+    expect(updateMock.mock.calls[0][1]).not.toHaveProperty('base_url');
+    expect(updateMock.mock.calls[0][1]).not.toHaveProperty('api_key');
+
   });
 
-  it('trocar um provedor HTTP salvo para agente troca a forma e o caminho de gravação', async () => {
+  it('edição HTTP não oferece ACP e mantém o caminho de gravação API', async () => {
     detectMock.mockResolvedValue(detected);
     listModelsMock.mockResolvedValue(['gpt-4o']);
     const user = userEvent.setup();
@@ -360,30 +353,22 @@ describe('ProviderForm — provedor de agente de código', () => {
     );
     await screen.findByLabelText(/base url/i);
 
-    await user.selectOptions(screen.getByLabelText(/tipo de provedor/i), 'acp');
-    await escolherAgente(user, 'Cursor', 'cursor');
-
-    // O agente escolhido à mão não tem comando salvo, então a detecção preenche.
-    await waitFor(() => expect(screen.getByLabelText(/comando do agente/i)).toHaveValue(detected.command));
-    expect(screen.queryByLabelText(/base url/i)).not.toBeInTheDocument();
-    expect(screen.queryByLabelText(/api key/i)).not.toBeInTheDocument();
-
+    expect(screen.queryByRole('option', { name: /agente de código/i })).not.toBeInTheDocument();
+    await user.selectOptions(screen.getByLabelText(/tipo de provedor/i), 'ollama');
+    expect(screen.queryByLabelText(/comando do agente/i)).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /carregar modelos/i }));
+    await waitFor(() => expect(screen.getByRole('button', { name: /atualizar/i })).toBeEnabled());
     await user.click(screen.getByRole('button', { name: /atualizar/i }));
-
     await waitFor(() => expect(updateMock).toHaveBeenCalled());
-    const payload = updateMock.mock.calls[0][1] as Record<string, unknown>;
-    expect(payload).toMatchObject({
-      type: 'acp',
-      acp_agent_id: 'cursor',
-      api_format: 'acp',
-      acp_command: detected.command,
-      acp_args: detected.args,
+    expect(updateMock.mock.calls[0][1]).toMatchObject({
+      type: 'ollama', api_format: 'openai', base_url: 'http://localhost:11434',
     });
-    expect(payload.base_url).toBeUndefined();
-    expect(payload.api_key).toBeUndefined();
+    expect(updateMock.mock.calls[0][1]).not.toHaveProperty('acp_command');
+    expect(updateMock.mock.calls[0][1]).not.toHaveProperty('acp_args');
+
   });
 
-  it('voltar ao tipo salvo devolve o agente, o comando e os argumentos que estavam salvos', async () => {
+  it('reselecionar ACP mantém o agente, o comando e os argumentos salvos', async () => {
     // Trocar o tipo e desistir não pode custar a configuração: nada além do
     // banco sabe qual comando está gravado, e a detecção acha outro.
     detectMock.mockResolvedValue(detected);
@@ -409,7 +394,7 @@ describe('ProviderForm — provedor de agente de código', () => {
     );
     await screen.findByLabelText(/comando do agente/i);
 
-    await user.selectOptions(screen.getByLabelText(/tipo de provedor/i), 'ollama');
+    expect(screen.queryByRole('option', { name: /ollama/i })).not.toBeInTheDocument();
     await user.selectOptions(screen.getByLabelText(/tipo de provedor/i), 'acp');
 
     // Sem escolher agente nem clicar em detectar: o que reaparece é o que está
@@ -474,7 +459,7 @@ describe('ProviderForm — provedor de agente de código', () => {
     detectMock.mockResolvedValue(detected);
     const user = userEvent.setup();
 
-    render(<ProviderForm onCancel={() => {}} onSave={() => {}} />);
+    render(<ProviderForm kind="acp" onCancel={() => {}} onSave={() => {}} />);
     await abrirFormularioDeAgente(user);
 
     await user.type(await screen.findByLabelText(/variável de ambiente/i), 'OPENAI_API_KEY');
@@ -532,7 +517,7 @@ describe('ProviderForm — provedor de agente de código', () => {
     detectMock.mockResolvedValue({ detectable: false, found: false, searched: [] });
     const user = userEvent.setup();
 
-    render(<ProviderForm onCancel={() => {}} onSave={() => {}} />);
+    render(<ProviderForm kind="acp" onCancel={() => {}} onSave={() => {}} />);
     await user.selectOptions(screen.getByLabelText(/tipo de provedor/i), 'acp');
     expect(screen.getByRole('button', { name: /agente acp/i })).toBeInTheDocument();
 

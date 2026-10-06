@@ -280,6 +280,7 @@ const WORKSPACE_SURFACE_TYPES = new Set(['chat', 'editor', 'terminal', 'tasklist
 
 function appPageAllowsSurfaceType(page: import('./commandAppPage').AppPage, surfaceType: string): boolean {
   switch (page) {
+    case 'settings': return surfaceType === 'toolbar' || surfaceType === 'providers';
     case 'profiles': return surfaceType === 'profiles';
     case 'tasklists': return surfaceType === 'tasklists';
     case 'history': return surfaceType === 'history';
@@ -328,7 +329,7 @@ function validateContextualEntry(raw: unknown, allowProfiles: boolean, workspace
   if (allowProfiles && raw.byProfile !== undefined) {
     if (!isRecord(raw.byProfile) || Object.keys(raw.byProfile).length === 0 ||
         Object.keys(bySurface).some((surface) => !WORKSPACE_SURFACE_TYPES.has(surface) &&
-          !(allowRoutePageSurfaces && ['toolbar', 'profiles', 'tasklists', 'history'].includes(surface)))) return null;
+          !(allowRoutePageSurfaces && ['toolbar', 'profiles', 'tasklists', 'history', 'providers'].includes(surface)))) return null;
   }
   if (raw.bySurfaceId !== undefined) {
     if (!isRecord(raw.bySurfaceId)) return null;

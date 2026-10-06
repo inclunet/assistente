@@ -4,6 +4,11 @@ import "assistente/internal/commandcatalog"
 
 // These commands only present existing controls; process and CRUD effects are excluded.
 var commandProductPagePresentation = []commandUINavigation{
+	{id: "providers.create.open", route: "ui/providers/create/open", uiAction: true, ptName: "Novo provedor", ptDesc: "Novo provedor", enName: "New provider", enDesc: "New provider", esName: "Nuevo proveedor", esDesc: "Nuevo proveedor"},
+	{id: "providers.api.create.open", route: "ui/providers/api/create/open", uiAction: true, ptName: "Provedor API", ptDesc: "Provedor API", enName: "API provider", enDesc: "API provider", esName: "Proveedor API", esDesc: "Proveedor API"},
+	{id: "providers.acp.create.open", route: "ui/providers/acp/create/open", uiAction: true, ptName: "Serviço ACP", ptDesc: "Serviço ACP", enName: "ACP service", enDesc: "ACP service", esName: "Servicio ACP", esDesc: "Servicio ACP"},
+	{id: "providers.chatgpt.create.open", route: "ui/providers/chatgpt/create/open", uiAction: true, ptName: "Conectar conta ChatGPT", ptDesc: "Conectar conta ChatGPT", enName: "Connect ChatGPT account", enDesc: "Connect ChatGPT account", esName: "Conectar cuenta ChatGPT", esDesc: "Conectar cuenta ChatGPT"},
+
 	{id: "tasklist.task.create.open", route: "ui/tasklist/task/create/open", uiAction: true, ptName: "Abrir criação de tarefa na lista", ptDesc: "Abrir formulário de tarefa na lista ativa do workspace", enName: "Open new task form in list", enDesc: "Open a task form in the active workspace list", esName: "Abrir creación de tarea en la lista", esDesc: "Abrir formulario de tarea en la lista activa del espacio de trabajo"},
 	{id: "tasklists.create.open", route: "ui/tasklists/create/open", uiAction: true, ptName: "Abrir criação de lista de tarefas", ptDesc: "Abrir criação de lista de tarefas", enName: "Open new task list form", enDesc: "Open new task list form", esName: "Abrir formulario de lista de tareas", esDesc: "Abrir formulario de lista de tareas"},
 	{id: "tasklists.edit.open", route: "ui/tasklists/edit/open", uiAction: true, ptName: "Editar lista de tarefas selecionada", ptDesc: "Editar lista de tarefas selecionada", enName: "Edit selected task list", enDesc: "Edit selected task list", esName: "Editar lista de tareas seleccionada", esDesc: "Editar lista de tareas seleccionada"},

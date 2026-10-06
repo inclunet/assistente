@@ -2855,6 +2855,7 @@ const es = {
     },
 
     providers: {
+    creation: { cancelLoading: 'Cancelar carga', title: 'Nuevo proveedor', chatgpt: 'Conectar cuenta ChatGPT', acp: 'Servicio ACP', api: 'Proveedor API' },
       pageTitle: 'Proveedores LLM',
       search: 'Buscar proveedores...',
       loading: 'Cargando...',
