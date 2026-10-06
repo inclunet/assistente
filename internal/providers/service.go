@@ -331,6 +331,7 @@ func normalizeProviderRuntimeDefaults(p *llm.ProviderConfig) {
 
 // Create cria e registra um novo provedor LLM.
 func (s *Service) Create(ctx context.Context, req CreateRequest) (*CreateResult, error) {
+	generation := s.registry.Generation()
 	if req.Credential == nil {
 		s.publicationMu.Lock()
 		defer s.publicationMu.Unlock()
@@ -394,16 +395,7 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*CreateResult,
 	if req.APIKey != "" && req.Credential != nil {
 		return nil, credentials.ErrCredentialResolution
 	}
-	credConfigured := false
-	if req.APIKey != "" {
-		if err := s.credMgr.RegisterPatternWithContext(ctx, hostname, &credentials.AuthConfig{Source: "static",
-			Type:  "bearer",
-			Token: req.APIKey,
-		}); err != nil {
-			return nil, fmt.Errorf("erro ao salvar credencial: %w", err)
-		}
-		credConfigured = true
-	}
+	credConfigured := req.APIKey != ""
 
 	isFirst := len(s.registry.List()) == 0
 	provider := &llm.ProviderConfig{
@@ -448,16 +440,8 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*CreateResult,
 		}
 		return &CreateResult{Provider: provider, CredentialPattern: provider.CredentialPattern, CredentialConfigured: true}, nil
 	}
-	if err := s.store.Save(ctx, []*llm.ProviderConfig{provider}); err != nil {
+	if err := s.saveWithoutCredentialDraft(ctx, provider, generation, req.APIKey, isFirst); err != nil {
 		return nil, err
-	}
-	if err := s.registry.Register(provider); err != nil {
-		return nil, fmt.Errorf("erro ao registrar provider: %w", err)
-	}
-	if isFirst {
-		if err := s.store.SetDefault(ctx, req.ID); err != nil {
-			logging.Warnf(ctx, "providers.service", "[providers] Aviso: erro ao marcar como default: %v", err)
-		}
 	}
 
 	if isACP {
@@ -511,6 +495,7 @@ type UpdateResult struct {
 
 // Update atualiza um provedor LLM existente.
 func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*UpdateResult, error) {
+	generation := s.registry.Generation()
 	// Draft saves acquire this lock around their transaction after preflight.
 	// Other edits must serialize their entire snapshot/read/write/publication.
 	locked := req.Credential == nil
@@ -582,7 +567,7 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Up
 			return nil, fmt.Errorf("erro ao extrair hostname: %w", err)
 		}
 		updated.BaseURL = baseURL
-		if !sameCredentialOrigin(baseURL, existing.BaseURL) {
+		if existing.CredentialPattern == "" || !sameCredentialOrigin(baseURL, existing.BaseURL) {
 			updated.CredentialPattern = hostname
 		}
 	}
@@ -657,28 +642,13 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Up
 		}
 		return &UpdateResult{Provider: updated, CredentialConfigured: true}, nil
 	}
-	credConfigured := false
-	if req.APIKey != "" {
-		if strings.HasPrefix(updated.CredentialPattern, "oauth:") {
-			return nil, oauthflow.ErrConflict
-		}
-		if err := s.credMgr.RegisterPatternWithContext(ctx, updated.CredentialPattern, &credentials.AuthConfig{Source: "static",
-			Type:  "bearer",
-			Token: req.APIKey,
-		}); err != nil {
-			return nil, fmt.Errorf("erro ao atualizar credencial: %w", err)
-		}
-		credConfigured = true
-	} else if updated.CredentialPattern != "" {
+	credConfigured := req.APIKey != ""
+	if req.APIKey == "" && updated.CredentialPattern != "" {
 		auth, err := s.credentialConfig(ctx, updated.CredentialPattern)
 		credConfigured = err == nil && auth != nil && auth.Source != ""
 	}
-
-	if err := s.store.Save(ctx, []*llm.ProviderConfig{updated}); err != nil {
+	if err := s.saveWithoutCredentialDraft(ctx, updated, generation, req.APIKey, false); err != nil {
 		return nil, err
-	}
-	if err := s.registry.Register(updated); err != nil {
-		return nil, fmt.Errorf("erro ao atualizar provider: %w", err)
 	}
 
 	logging.Infof(ctx, "providers.service", "[providers] Provider '%s' atualizado", id)
@@ -1114,9 +1084,6 @@ func (s *Service) ListModelsRaw(ctx context.Context, req ListModelsRawRequest) (
 	} else if existingProvider != nil {
 		if tempProvider.EffectiveAuthMode() != llm.AuthModeNone && !sameCredentialOrigin(req.BaseURL, existingProvider.BaseURL) {
 			return nil, fmt.Errorf("URL alterada: informe uma credencial para testar o novo destino")
-		}
-		if sameCredentialOrigin(req.BaseURL, existingProvider.BaseURL) {
-			tempProvider.CredentialPattern = existingProvider.CredentialPattern
 		}
 	}
 

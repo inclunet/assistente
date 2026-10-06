@@ -126,7 +126,7 @@ corporativo; o CI Linux cobre esses pacotes. A execução completa Vitest teve
 172 testes, incluindo esses três e as regressões adicionais, passou.
 Bindings foram regenerados pelo Wails. O inventário de AEPs está sincronizado.
 
-Revisor independente local: Codex `review_credential_sources`, dez rodadas
+Revisor independente local: Codex `review_credential_sources`, onze rodadas
 de código e uma conferência documental final, sem pendências. CI/review remota
 e ordem de merge estão nos PRs da pilha: #910, #911 e o PR de CredManager.
 O aceite manual de NVDA desta nova experiência continua disponível ao mantenedor;
@@ -185,3 +185,12 @@ retornava hostname novo com maiúsculas. A correção e o teste integrado
 GetCredentialForURL → ListModelsRaw → Create → duplicação por alias foram
 validados na décima revisão, sem pendências. Suítes providers/controllers/
 wailsapi, 48 testes frontend, E2E Chromium, tsc/eslint e build/vet/lint aprovados.
+
+Sexta rodada remota: criação/edição sem rascunho também capturam a geração
+antes das leituras e a reservam durante escrita/publicação. Isso inclui a chave
+legada, mantendo seu contrato de gravações separadas. Testes intercalam Clear
+antes de salvar e entre Save e RegisterGeneration, para os dois métodos.
+Presets locais sem referência usam o hostname para a primeira credencial;
+a prévia não apaga o padrão efetivo com uma referência vazia antiga.
+A décima primeira revisão independente terminou sem pendências.
+Testes de autenticação, provedores e recarga em internal/app também passaram (40 s).

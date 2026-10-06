@@ -4,6 +4,7 @@ import (
 	"assistente/internal/credentials"
 	"assistente/internal/database"
 	"assistente/internal/llm"
+	"assistente/internal/logging"
 	"assistente/internal/oauthflow"
 	"context"
 	"errors"
@@ -51,6 +52,13 @@ func (s *Service) prepareCredential(ctx context.Context, p, existing *llm.Provid
 	}
 	if p.IsACP() {
 		return nil
+	}
+	if p.CredentialPattern == "" {
+		hostname, err := ExtractHostname(p.BaseURL)
+		if err != nil {
+			return err
+		}
+		p.CredentialPattern = hostname
 	}
 	if existing != nil && sameCredentialOrigin(p.BaseURL, existing.BaseURL) && existing.CredentialPattern != "" {
 		p.CredentialPattern = existing.CredentialPattern
@@ -202,4 +210,31 @@ func (s *Service) credentialSourceProvider(ctx context.Context, target *llm.Prov
 		}
 	}
 	return source, nil
+}
+
+// Keep the same session reservation for existing references and legacy API keys.
+// The APIKey compatibility path still uses separate vault/consumer writes.
+func (s *Service) saveWithoutCredentialDraft(ctx context.Context, p *llm.ProviderConfig, generation uint64, apiKey string, makeDefault bool) error {
+	return s.registry.WithGeneration(generation, func() error {
+		if apiKey != "" {
+			if credentials.IsManagedPattern(p.CredentialPattern) {
+				return oauthflow.ErrConflict
+			}
+			if err := s.credMgr.RegisterPatternWithContext(ctx, p.CredentialPattern, &credentials.AuthConfig{Source: "static", Type: "bearer", Token: apiKey}); err != nil {
+				return err
+			}
+		}
+		if err := s.store.Save(ctx, []*llm.ProviderConfig{p}); err != nil {
+			return err
+		}
+		if err := s.registry.RegisterGeneration(p, generation); err != nil {
+			return err
+		}
+		if makeDefault {
+			if err := s.store.SetDefault(ctx, p.ID); err != nil {
+				logging.Warnf(ctx, "providers.service", "erro ao marcar provedor como default: %v", err)
+			}
+		}
+		return nil
+	})
 }

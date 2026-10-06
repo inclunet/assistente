@@ -644,3 +644,163 @@ func TestProviderCredentialCanonicalHostnamePreviewAndSave(t *testing.T) {
 		t.Fatalf("missing canonical credential: %v", err)
 	}
 }
+
+type pausedProviderStore struct {
+	ProviderStore
+	committed chan struct{}
+	release   chan struct{}
+}
+
+func (s *pausedProviderStore) Save(ctx context.Context, p []*llm.ProviderConfig) error {
+	if err := s.ProviderStore.Save(ctx, p); err != nil {
+		return err
+	}
+	close(s.committed)
+	<-s.release
+	return nil
+}
+func TestProviderExistingCredentialPublicationReservesSession(t *testing.T) {
+	for _, action := range []string{"create", "update"} {
+		t.Run(action, func(t *testing.T) {
+			service, _, ctx := chatGPTTestService(t)
+			req := CreateRequest{ID: "api", Name: "API", Type: "custom", APIFormat: "openai", BaseURL: "https://example.com"}
+			if action == "update" {
+				if _, err := service.Create(ctx, req); err != nil {
+					t.Fatal(err)
+				}
+			}
+			paused := &pausedProviderStore{ProviderStore: service.store, committed: make(chan struct{}), release: make(chan struct{})}
+			service.store = paused
+			var once sync.Once
+			release := func() { once.Do(func() { close(paused.release) }) }
+			defer release()
+			saved := make(chan error, 1)
+			go func() {
+				var err error
+				if action == "create" {
+					_, err = service.Create(ctx, req)
+				} else {
+					_, err = service.Update(ctx, "api", UpdateRequest{Name: "Updated"})
+				}
+				saved <- err
+			}()
+			select {
+			case <-paused.committed:
+			case <-time.After(10 * time.Second):
+				t.Fatal("save not reached")
+			}
+			cleared := make(chan struct{})
+			started := make(chan struct{})
+			go func() { close(started); service.registry.Clear(); close(cleared) }()
+			<-started
+			select {
+			case <-cleared:
+				t.Fatal("clear crossed save/publication")
+			case <-time.After(30 * time.Millisecond):
+			}
+			release()
+			if err := <-saved; err != nil {
+				t.Fatalf("error after save: %v", err)
+			}
+			<-cleared
+			if service.registry.Get("api") != nil {
+				t.Fatal("old session published into cleared registry")
+			}
+			if _, err := paused.Get(ctx, "api"); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+type sessionChangingCredentialManager struct {
+	CredentialManager
+	clear func()
+}
+
+func (m *sessionChangingCredentialManager) GetConfigByPatternWithContext(ctx context.Context, pattern string) (*credentials.AuthConfig, error) {
+	m.clear()
+	return m.CredentialManager.GetConfigByPatternWithContext(ctx, pattern)
+}
+func TestProviderExistingCredentialRejectsSessionChangeBeforeSave(t *testing.T) {
+	for _, action := range []string{"create", "update"} {
+		t.Run(action, func(t *testing.T) {
+			service, mgr, ctx := chatGPTTestService(t)
+			req := CreateRequest{ID: "api", Name: "Original", Type: "custom", BaseURL: "https://example.com"}
+			if action == "update" {
+				if _, err := service.Create(ctx, req); err != nil {
+					t.Fatal(err)
+				}
+			}
+			service.credMgr = &sessionChangingCredentialManager{CredentialManager: mgr, clear: service.registry.Clear}
+			var err error
+			if action == "create" {
+				_, err = service.Create(ctx, req)
+			} else {
+				_, err = service.Update(ctx, "api", UpdateRequest{Name: "Stale"})
+			}
+			if err == nil {
+				t.Fatal("stale session accepted")
+			}
+			if service.registry.Get("api") != nil {
+				t.Fatal("stale publication")
+			}
+			got, err := service.store.Get(ctx, "api")
+			if action == "create" {
+				if !errors.Is(err, gorm.ErrRecordNotFound) {
+					t.Fatal("stale create persisted")
+				}
+			} else if err != nil || got.Name != "Original" {
+				t.Fatal("stale update persisted")
+			}
+		})
+	}
+}
+func TestProviderLocalPresetCanConfigureFirstCredential(t *testing.T) {
+	for _, sendURL := range []bool{false, true} {
+		t.Run(fmt.Sprint(sendURL), func(t *testing.T) {
+			service, _, ctx := chatGPTTestService(t)
+			p := &llm.ProviderConfig{ID: "local", Name: "Local", Type: llm.ProviderType("localai"), APIFormat: llm.APIFormatOpenAI, BaseURL: "http://localhost:8080", AuthMode: llm.AuthModeNone}
+			if err := service.store.Save(ctx, []*llm.ProviderConfig{p}); err != nil {
+				t.Fatal(err)
+			}
+			if err := service.registry.Register(p); err != nil {
+				t.Fatal(err)
+			}
+			req := UpdateRequest{AuthMode: "required", Credential: &CredentialSpec{Pattern: "localhost", Auth: &credentials.AuthConfig{Source: "env", Type: "bearer", SourceConfig: &credentials.SourceConfig{Env: "UNSET_LOCAL_API_TOKEN"}}}}
+			if sendURL {
+				req.BaseURL = p.BaseURL
+			}
+			got, err := service.Update(ctx, "local", req)
+			if err != nil || got.Provider.CredentialPattern != "localhost" {
+				t.Fatalf("local update: %v %v", got, err)
+			}
+		})
+	}
+}
+func TestProviderLocalPresetPreviewKeepsEffectiveCredential(t *testing.T) {
+	service, mgr, ctx := chatGPTTestService(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer saved" {
+			t.Error("preview lost effective credential")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"id":"model"}]}`))
+	}))
+	defer server.Close()
+	p := &llm.ProviderConfig{ID: "local", Name: "Local", Type: llm.ProviderType("localai"), APIFormat: llm.APIFormatOpenAI, BaseURL: server.URL, AuthMode: llm.AuthModeNone}
+	if err := service.registry.Register(p); err != nil {
+		t.Fatal(err)
+	}
+	pattern, _ := ExtractHostname(server.URL)
+	if err := mgr.RegisterPatternWithContext(ctx, pattern, &credentials.AuthConfig{Source: "static", Type: "bearer", Token: "saved"}); err != nil {
+		t.Fatal(err)
+	}
+	models, err := service.ListModelsRaw(ctx, ListModelsRawRequest{ProviderID: p.ID, Type: "localai", APIFormat: "openai", BaseURL: server.URL, AuthMode: "required"})
+	if err != nil || len(models) != 1 {
+		t.Fatalf("preview: %v %v", models, err)
+	}
+	if service.registry.Get(p.ID).CredentialPattern != "" {
+		t.Fatal("preview modified original")
+	}
+}
