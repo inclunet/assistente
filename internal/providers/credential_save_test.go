@@ -7,10 +7,12 @@ import (
 	"assistente/internal/oauthflow"
 	"context"
 	"errors"
+	"fmt"
 	"gorm.io/gorm"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -488,5 +490,38 @@ func TestProviderCredentialDefaultPortsPreserveAlias(t *testing.T) {
 		if sameCredentialOrigin("https://example.com", other) {
 			t.Fatalf("different origin accepted: %s", other)
 		}
+	}
+}
+
+func TestProviderPreviewCommandHelper(t *testing.T) {
+	if os.Getenv("ASSISTENTE_PROVIDER_PREVIEW_HELPER") != "1" {
+		return
+	}
+	time.Sleep(16 * time.Second)
+	fmt.Print("preview-command-token")
+	os.Exit(0)
+}
+func TestProviderCredentialPreviewAllowsSlowCommand(t *testing.T) {
+	service, _, ctx := chatGPTTestService(t)
+	t.Setenv("ASSISTENTE_PROVIDER_PREVIEW_HELPER", "1")
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer preview-command-token" {
+			t.Error("unexpected command token")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"id":"model"}]}`))
+	}))
+	defer server.Close()
+	pattern, _ := ExtractHostname(server.URL)
+	models, err := service.ListModelsRaw(ctx, ListModelsRawRequest{Type: "custom", BaseURL: server.URL, APIFormat: "openai", AuthMode: "required",
+		Credential: &CredentialSpec{Pattern: pattern, Auth: &credentials.AuthConfig{Type: "bearer", Source: "command", SourceConfig: &credentials.SourceConfig{
+			Command: exe, Args: []string{"-test.run=^TestProviderPreviewCommandHelper$"}, TimeoutSeconds: 30,
+		}}}})
+	if err != nil || len(models) != 1 {
+		t.Fatalf("slow command preview: %v %v", models, err)
 	}
 }

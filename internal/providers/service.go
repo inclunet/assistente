@@ -1118,9 +1118,27 @@ func (s *Service) ListModelsRaw(ctx context.Context, req ListModelsRawRequest) (
 	if tempProvider.IsACP() || tempProvider.Type == llm.ProviderChatGPT {
 		return nil, credentials.ErrCredentialResolution
 	}
+	// One total deadline covers source resolution, SDK and HTTP fallback.
+	budget := 30 * time.Second
+	if tempProvider.EffectiveAuthMode() != llm.AuthModeNone && cm != nil {
+		auth, err := cm.GetConfigByPatternWithContext(ctx, tempProvider.CredentialPattern)
+		if err == nil && auth != nil && auth.Source == "command" {
+			seconds := 30
+			if auth.SourceConfig != nil && auth.SourceConfig.TimeoutSeconds > 0 {
+				seconds = auth.SourceConfig.TimeoutSeconds
+			}
+			if seconds > 300 {
+				seconds = 300
+			}
+			budget += time.Duration(seconds) * time.Second
+		}
+	}
+	tempProvider.Timeout = int(budget / time.Second)
+	previewCtx, cancel := context.WithTimeout(ctx, budget)
+	defer cancel()
 	// Sem agente: esta rota exige base_url e só atende provedor HTTP.
 	cp := llm.NewChatProvider(tempProvider, cm, nil)
-	return cp.GetModels(ctx)
+	return cp.GetModels(previewCtx)
 }
 
 // GetModels retorna os modelos disponíveis para o provedor do perfil ativo.

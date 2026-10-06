@@ -4,7 +4,7 @@ import { ListExternalSources } from '@wailsjs/go/wailsapi/Credentials';
 import { Input } from '../ui/Input';
 import { Select } from '../ui/Select';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
-import type { CredentialDraft } from './credentialDraft';
+import type { CredentialDraft, CredentialValidation } from './credentialDraft';
 import './CredentialFields.css';
 
 export function CredentialFields({
@@ -14,6 +14,7 @@ export function CredentialFields({
   allowedTypes,
   allowOAuth = true,
   sourceRef,
+  validation,
 }: {
   value: CredentialDraft;
   onChange: (field: keyof CredentialDraft, value: unknown) => void;
@@ -21,11 +22,16 @@ export function CredentialFields({
   allowedTypes?: string[];
   allowOAuth?: boolean;
   sourceRef?: Ref<HTMLSelectElement>;
+  validation?: CredentialValidation & { descriptionId: string };
 }) {
   const { t } = useTranslation();
   const { announce } = useAnnouncer();
   const uid = useId();
   const updateField = onChange;
+  const fieldAria = (field: keyof CredentialDraft) => ({
+    'aria-invalid': validation?.fields.includes(field) || undefined,
+    'aria-describedby': validation?.fields.includes(field) ? validation.descriptionId : undefined,
+  });
   const [suggestions, setSuggestions] = useState<Array<{ value: string; label: string }>>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
@@ -197,6 +203,7 @@ export function CredentialFields({
     <div className="credential-fields">
       <Select
         ref={sourceRef}
+        {...fieldAria('source')}
         label={t('credentials.sourceFields.source')}
         value={value.source}
         options={(allowOAuth
@@ -213,6 +220,7 @@ export function CredentialFields({
       />
       {!fixedType && (
         <Select
+          {...fieldAria('type')}
           label={t('credentials.labels.type')}
           value={value.type}
           options={typeOptions}
@@ -235,6 +243,7 @@ export function CredentialFields({
                     ? t(`credentials.sourceFields.${value.source}Name`)
                     : t('credentials.labels.token')
                 }
+                {...fieldAria('token')}
                 type={tokenIsRef ? 'text' : 'password'}
                 value={value.token || ''}
                 onChange={(e) => handleTokenChange(e.target.value)}
@@ -293,12 +302,14 @@ export function CredentialFields({
       {value.source === 'keyring' && (
         <>
           <Input
+            {...fieldAria('keyringService')}
             label={t('credentials.sourceFields.keyringService')}
             value={value.keyringService || ''}
             onChange={(e) => updateField('keyringService', e.target.value)}
             fullWidth
           />
           <Input
+            {...fieldAria('keyringUser')}
             label={t('credentials.sourceFields.keyringUser')}
             value={value.keyringUser || ''}
             onChange={(e) => updateField('keyringUser', e.target.value)}
@@ -310,18 +321,21 @@ export function CredentialFields({
         <>
           <p>{t('credentials.sourceFields.cacheHint')}</p>
           <Input
+            {...fieldAria('command')}
             label={t('credentials.sourceFields.commandName')}
             value={value.command || ''}
             onChange={(e) => updateField('command', e.target.value)}
             fullWidth
           />
           <Input
+            {...fieldAria('argsText')}
             label={t('credentials.sourceFields.args')}
             value={value.argsText ?? '[]'}
             onChange={(e) => updateField('argsText', e.target.value)}
             fullWidth
           />
           <Input
+            {...fieldAria('timeoutSeconds')}
             label={t('credentials.sourceFields.timeout')}
             type="number"
             min={1}
@@ -336,6 +350,7 @@ export function CredentialFields({
       {value.type === 'basic' && (
         <>
           <Input
+            {...fieldAria('username')}
             label={t('credentials.labels.username')}
             value={value.username || ''}
             onChange={(e) => updateField('username', e.target.value)}
@@ -343,7 +358,8 @@ export function CredentialFields({
           />
           {value.source === 'static' && (
             <Input
-              label={t('credentials.labels.password')}
+              {...fieldAria('password')}
+            label={t('credentials.labels.password')}
               type="password"
               value={value.password || ''}
               onChange={(e) => updateField('password', e.target.value)}
@@ -355,6 +371,7 @@ export function CredentialFields({
       {value.type === 'custom' && (
         <div className="credentials-page__row">
           <Input
+            {...fieldAria('headerName')}
             label={t('credentials.labels.header')}
             value={value.headerName || ''}
             onChange={(e) => updateField('headerName', e.target.value)}
@@ -362,7 +379,8 @@ export function CredentialFields({
           />
           {value.source === 'static' && (
             <Input
-              label={t('credentials.labels.value')}
+              {...fieldAria('headerValue')}
+            label={t('credentials.labels.value')}
               type="password"
               value={value.headerValue || ''}
               onChange={(e) => updateField('headerValue', e.target.value)}

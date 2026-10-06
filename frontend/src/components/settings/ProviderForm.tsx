@@ -19,14 +19,6 @@ const HTTP_CREDENTIAL_TYPES = ['bearer', 'basic', 'custom'];
 const defaultAuthMode = (type: string) => ['ollama', 'llamacpp'].includes(type) ? 'none' : type === 'localai' ? 'optional' : 'required';
 const sameOrigin = (a: string, b: string) => { try { return new URL(a).origin === new URL(b).origin; } catch { return false; } };
 
-// Wrapper com timeout para operações que podem travar
-const withTimeout = async <T,>(promise: Promise<T>, timeoutMs: number, operationName: string): Promise<T> => {
-  const timeoutPromise = new Promise<never>((_, reject) => {
-    setTimeout(() => reject(new Error(`Timeout após ${timeoutMs/1000}s em ${operationName}`)), timeoutMs);
-  });
-  return Promise.race([promise, timeoutPromise]);
-};
-
 export interface ProviderFormData {
   id?: string;
   name: string;
@@ -237,18 +229,14 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
     });
 
     try {
-      const result = await withTimeout(
-        ListModelsRaw(apidto.TestLLMProviderRequest.createFrom({
+      const result = await ListModelsRaw(apidto.TestLLMProviderRequest.createFrom({
           type: data.type,
           base_url: canonicalUrl,
           credential: credentialDraft ? credentialInput(credentialDraft) : undefined,
           auth_mode: data.auth_mode || defaultAuthMode(data.type),
           api_format: data.api_format || undefined,
           provider_id: data.id || undefined,
-        })),
-        15000,
-        'ListModelsRaw'
-      );
+        }));
 
       if (sequence !== loadSequence.current) return;
       setModels(result || []);
@@ -741,8 +729,6 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
           url={getCanonicalUrl(formData.type)} pattern={boundPattern} type="bearer"
           allowedTypes={formData.api_format === 'google' ? undefined : HTTP_CREDENTIAL_TYPES}
           onChange={handleCredentialChange} />
-        {(errors.credential || (credentialDraft && validateCredential(credentialDraft, t))) &&
-          <p className="provider-form__error">{errors.credential || validateCredential(credentialDraft!, t)}</p>}
       </>}
 
       {/* Default Model — loads models list which also validates the provider */}

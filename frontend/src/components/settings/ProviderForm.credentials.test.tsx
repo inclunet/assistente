@@ -5,7 +5,8 @@ import { ProviderForm } from './ProviderForm';
 import { CreateLLMProvider, ListModelsRaw } from '@wailsjs/go/wailsapi/LLMProviders';
 import { GetCredentialForURL, UpsertCredential } from '@wailsjs/go/wailsapi/Credentials';
 vi.mock('react-i18next', () => ({ initReactI18next: { type: '3rdParty', init: () => {} }, useTranslation: () => ({ t: (key: string) => key, i18n: { language: 'en' } }) }));
-vi.mock('../../hooks/useAnnouncer', () => ({ useAnnouncer: () => ({ announce: vi.fn() }) }));
+const { announce } = vi.hoisted(() => ({ announce: vi.fn() }));
+vi.mock('../../hooks/useAnnouncer', () => ({ useAnnouncer: () => ({ announce }) }));
 vi.mock('@wailsjs/go/wailsapi/LLMProviders', () => ({ ListModelsRaw: vi.fn(), CreateLLMProvider: vi.fn(), UpdateLLMProvider: vi.fn() }));
 vi.mock('@wailsjs/go/wailsapi/Credentials', () => ({ GetCredentialForURL: vi.fn(), ListCredentials: vi.fn(async () => []), ListExternalSources: vi.fn(async () => []), UpsertCredential: vi.fn() }));
 beforeEach(() => {
@@ -51,6 +52,62 @@ describe('ProviderForm shared credentials', () => {
   await userEvent.click(screen.getByRole('button', { name: 'credentials.mcp.keepExisting' }));
   expect(submitted).not.toHaveBeenCalled();
   expect(CreateLLMProvider).not.toHaveBeenCalled();
+ });
+ it('keeps a valid preview when closed-editor metadata arrives late', async () => {
+  let metadata!: (value: Awaited<ReturnType<typeof GetCredentialForURL>>) => void;
+  vi.mocked(GetCredentialForURL).mockReturnValue(new Promise(resolve => { metadata = resolve; }));
+  render(<ProviderForm onSave={() => {}} onCancel={() => {}} />);
+  await set('providerForm.name', 'API');
+  await userEvent.click(screen.getByRole('button', { name: 'providerForm.loadModels' }));
+  await screen.findByText('providerForm.connected');
+  await act(async () => metadata({ pattern: 'api.openai.com', type: 'bearer', source: 'env', sourceConfig: { env: 'SAVED_TOKEN' } } as Awaited<ReturnType<typeof GetCredentialForURL>>));
+  expect(screen.getByText('providerForm.connected')).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'common.create' })).toBeEnabled();
+ });
+ it.each(['env', 'keyring'])('keeps a valid preview when returning focus to %s', async source => {
+  render(<ProviderForm onSave={() => {}} onCancel={() => {}} />);
+  await set('providerForm.name', 'API');
+  await configure();
+  await set('credentials.sourceFields.source', source);
+  await set('credentials.sourceFields.' + source + 'Name', 'SAVED_TOKEN');
+  await userEvent.click(screen.getByRole('button', { name: 'providerForm.loadModels' }));
+  await screen.findByText('providerForm.connected');
+  await userEvent.click(screen.getByLabelText('credentials.sourceFields.' + source + 'Name'));
+  expect(screen.getByText('providerForm.connected')).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'common.create' })).toBeEnabled();
+ });
+ it('announces validation once and associates the invalid credential field', async () => {
+  render(<ProviderForm onSave={() => {}} onCancel={() => {}} />);
+  await configure();
+  const token = screen.getByLabelText('credentials.labels.token');
+  expect(token).toHaveAttribute('aria-invalid', 'true');
+  expect(document.getElementById(token.getAttribute('aria-describedby')!)).toHaveTextContent('credentials.sourceFields.required');
+  expect(announce.mock.calls.filter(call => call[0] === 'credentials.sourceFields.required')).toHaveLength(1);
+  await set('credentials.labels.token', 'valid');
+  expect(token).not.toHaveAttribute('aria-invalid');
+  await set('credentials.sourceFields.source', 'command');
+  await set('credentials.sourceFields.commandName', 'token-command');
+  await set('credentials.sourceFields.args', '{invalid');
+  const args = screen.getByLabelText('credentials.sourceFields.args');
+  expect(args).toHaveAttribute('aria-invalid', 'true');
+  expect(document.getElementById(args.getAttribute('aria-describedby')!)).toHaveTextContent('credentials.sourceFields.invalidArgs');
+  await userEvent.click(args);
+  expect(announce.mock.calls.filter(call => call[0] === 'credentials.sourceFields.invalidArgs')).toHaveLength(1);
+ });
+ it('waits for the backend preview beyond fifteen seconds', async () => {
+  vi.useFakeTimers();
+  try {
+   let complete!: (value: string[]) => void;
+   vi.mocked(ListModelsRaw).mockReturnValue(new Promise(resolve => { complete = resolve; }));
+   render(<ProviderForm onSave={() => {}} onCancel={() => {}} />);
+   await act(async () => {});
+   fireEvent.click(screen.getByRole('button', { name: 'providerForm.loadModels' }));
+   await act(async () => { await vi.advanceTimersByTimeAsync(20000); });
+   expect(screen.getByRole('button', { name: 'providerForm.loadModels' })).toBeDisabled();
+   expect(screen.getByRole('button', { name: 'providerForm.loadModels' })).toHaveTextContent('providerForm.loadingModels');
+   await act(async () => complete(['model']));
+   expect(screen.getByText('providerForm.connected')).toBeInTheDocument();
+  } finally { vi.useRealTimers(); }
  });
  it('invalidates testing on source changes and discards a late result after URL change', async () => {
   let resolve!: (models: string[]) => void;

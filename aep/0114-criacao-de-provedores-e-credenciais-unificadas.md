@@ -126,7 +126,7 @@ corporativo; o CI Linux cobre esses pacotes. A execução completa Vitest teve
 172 testes, incluindo esses três e as regressões adicionais, passou.
 Bindings foram regenerados pelo Wails. O inventário de AEPs está sincronizado.
 
-Revisor independente local: Codex `review_credential_sources`, cinco rodadas
+Revisor independente local: Codex `review_credential_sources`, seis rodadas
 de código e uma conferência documental final, sem pendências. CI/review remota
 e ordem de merge estão nos PRs da pilha: #910, #911 e o PR de CredManager.
 O aceite manual de NVDA desta nova experiência continua disponível ao mantenedor;
@@ -143,3 +143,16 @@ Os sete comentários da rodada foram tratados juntos no PR #912.
 Validação da rodada remota: suítes providers/llm/controllers, testes de
 autenticação/recarga/provedores em app, 35 testes frontend e E2E aprovados.
 A revisão independente do delta consolidado terminou sem pendências.
+
+Segunda rodada remota: metadados atrasados com editor fechado e foco em
+env/keyring sem alteração não invalidam o preview. A validação compartilhada
+associa aria-invalid/aria-describedby e anuncia a mudança uma única vez.
+A prévia tem um teto total no backend (timeout command + 30 s, máximo 330 s);
+frontend e fallback HTTP respeitam esse orçamento. Regressões incluem comando
+real de 16 s, fallback HTTP, foco, metadados tardios e anúncios dos erros.
+A sexta revisão local independente terminou sem pendências. As suítes
+providers/llm/controllers e os 141 testes focados frontend foram validados
+(incluindo reexecução do teste de espera após ajustar um seletor ambíguo).
+O teste específico de fallback passou; a limpeza do executável pelo Go encontrou
+um arquivo em uso no Windows, sem falha nas asserções. Artefatos permanecem sob
+build/bin; o CI Linux reexecuta o cenário.

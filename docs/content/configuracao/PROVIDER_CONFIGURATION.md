@@ -220,6 +220,12 @@ origem da URL, configure explicitamente a credencial para o novo destino antes
 de testar. Cadastros existentes não exigem migração nem nova autenticação por
 causa desta mudança de interface.
 
+Ao carregar modelos, o limite total considera o prazo configurado da fonte
+Comando mais 30 segundos para a consulta HTTP (máximo de 330 segundos).
+O comando continua sujeito ao seu próprio limite. Erros dos campos são
+anunciados e associados ao campo inválido para leitores de tela; voltar o
+foco a um campo sem alterar o valor mantém o teste de conexão válido.
+
 ## Configurações Avançadas
 
 Cada provedor possui:
