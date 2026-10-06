@@ -1486,3 +1486,10 @@ O valor da sonda não se esgota: quando o Cursor mudar o formato de `session/new
   AEP-0040 (messaging backend-driven), AEP-0064 (cancelamento), AEP-0068
   (subagentes e dados não confiáveis), AEP-0076 (migrações), AEP-0077
   (ToolPlanner), AEP-0081 (política de tools por perfil)
+
+## Evolução da criação de provedores
+
+O AEP-0114 separa a entrada de criação em Novo provedor → Serviço ACP.
+O formulário de agente preserva detecção, instalação, comando, argumentos e
+referências de credenciais; API fica em outra opção do menu. Esta mudança de
+apresentação não altera o contrato de execução ACP nem exige migração.

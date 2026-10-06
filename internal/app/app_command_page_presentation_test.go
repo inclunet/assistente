@@ -63,7 +63,7 @@ func TestCommandPagePresentationClosedLocalCatalog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(p.registry.List()) != 151 || len(view.LocalPaletteCommands) != 62 {
+	if len(p.registry.List()) != 155 || len(view.LocalPaletteCommands) != 66 {
 		t.Fatal("catalog counts")
 	}
 	for _, item := range commandProductPagePresentation {
@@ -140,10 +140,13 @@ func TestCommandPagePresentationCtrlNProjection(t *testing.T) {
 				continue
 			}
 			for _, bySurface := range pageBinding.BySurface {
-				if bySurface != nil && bySurface.CommandID == "command_settings.create.open" {
+				if bySurface != nil && (bySurface.CommandID == "command_settings.create.open" || bySurface.CommandID == "providers.create.open") {
 					t.Fatalf("settings create leaked into app.page=%q: %+v", page, entry.ByPage[page])
 				}
 			}
+		}
+		if binding := entry.ByPage["settings"].BySurface["providers"]; binding == nil || binding.CommandID != "providers.create.open" {
+			t.Fatalf("providers Ctrl+N missing: %+v", entry)
 		}
 		cloned := cloneContextualKeyboardBindings([]LocalCommandKeyboardContextualBinding{entry})
 		if cloned[0].ByPage["workspace"] == nil || !cloned[0].ByPage["workspace"].FallbackToSequences {
@@ -161,5 +164,42 @@ func TestCommandPagePresentationCtrlNProjection(t *testing.T) {
 	}
 	if sequences != 4 {
 		t.Fatalf("workspace sequences=%d", sequences)
+	}
+}
+
+func TestCommandProvidersCtrlNSuppression(t *testing.T) {
+	a, decisions := settingsSecurityFixture(t)
+	for _, suppressed := range []bool{true, false} {
+		settingsActivationSecurityConfirmed(t, a, decisions, func() (CommandSettingsMutation, error) {
+			return a.SetDefaultCommandSuppressed("builtin.keyboard.ctrl-n.providers.create.open", suppressed)
+		})
+		view, err := a.GetLocalCommandKeyboardMap()
+		if err != nil {
+			t.Fatal(err)
+		}
+		found := false
+		for _, entry := range view.ContextualBindings {
+			if entry.Shortcut.Code != "KeyN" {
+				continue
+			}
+			found = true
+			settings := entry.ByPage["settings"]
+			if settings == nil {
+				t.Fatal("settings branch missing")
+			}
+			binding := settings.BySurface["providers"]
+			if suppressed && binding != nil {
+				t.Fatalf("suppressed provider command or fallback published: %+v", binding)
+			}
+			if !suppressed && (binding == nil || binding.CommandID != "providers.create.open") {
+				t.Fatalf("provider command not restored: %+v", binding)
+			}
+			if binding := settings.BySurface["toolbar"]; binding == nil || binding.CommandID != "command_settings.create.open" {
+				t.Fatal("settings manager changed")
+			}
+		}
+		if !found {
+			t.Fatal("contextual Ctrl+N missing")
+		}
 	}
 }

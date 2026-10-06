@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -54,6 +54,22 @@ vi.mock('@wailsjs/go/wailsapi/LLMProviders', () => ({
 
 vi.mock('@wailsjs/go/wailsapi/LLMModels', () => ({
   GetModelsByProvider: vi.fn().mockResolvedValue(['account-model']),
+}));
+
+vi.mock('react-router-dom', async importOriginal => ({ ...await importOriginal<typeof import('react-router-dom')>(), useLocation: () => ({ pathname: '/settings/providers' }) }));
+vi.mock('../lib/commandShortcutHints', () => ({ useCommandShortcutHint: () => 'Ctrl+N' }));
+// Page tests exercise its forms; the real command/menu pipeline has its own integration tests.
+vi.mock('../lib/providerCreationCommands', () => ({
+  useProviderCreationCommands: ({ open }: { open: (kind: 'chatgpt' | 'acp' | 'api') => void }) => {
+    const [shown, show] = useState(false);
+    return {
+      buttonRef: { current: null }, requestOpen: () => show(true),
+      menu: shown ? <div role="menu">{(['chatgpt', 'acp', 'api'] as const).map(kind =>
+        <button role="menuitem" key={kind} onClick={() => { show(false); open(kind); }}>
+          {kind === 'chatgpt' ? 'chatgpt.add' : 'providers.creation.' + kind}
+        </button>)}</div> : null,
+    };
+  },
 }));
 
 vi.mock('../hooks/useGridFocus', () => ({
@@ -155,11 +171,13 @@ vi.mock('../components/settings/ProviderForm', () => ({
 }));
 
 import ProvidersPage from './ProvidersPage';
+import { useNavigationStore } from '../store/navigationStore';
 
 describe('ProvidersPage', () => {
   let nowSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
+    useNavigationStore.getState().clearPendingEdit();
     nowSpy = vi.spyOn(Date, 'now');
     mockGetConnection.mockReset().mockResolvedValue({ id: 'chatgpt', state: 'connected' });
     mockDisconnectChatGPT.mockReset();
@@ -200,6 +218,23 @@ describe('ProvidersPage', () => {
     nowSpy.mockRestore();
   });
 
+  it('preserva edição pendente quando a carga de provedores falha', async () => {
+    mockGetProviders.mockRejectedValueOnce(new Error('offline'));
+    useNavigationStore.getState().requestResourceEdit('providers', 'openai-1');
+    render(<ProvidersPage />);
+    await waitFor(() => expect(mockAddToast).toHaveBeenCalledWith('Erro ao carregar provedores', 'error'));
+    expect(useNavigationStore.getState().pendingEdit?.id).toBe('openai-1');
+    expect(screen.queryByTestId('form-acp-command')).not.toBeInTheDocument();
+  });
+
+  it('abre criação pedida por navegação mesmo com lista vazia', async () => {
+    mockGetProviders.mockResolvedValueOnce([]);
+    useNavigationStore.getState().requestResourceEdit('providers', '', 'new');
+    render(<ProvidersPage />);
+    await screen.findByRole('menu');
+    expect(useNavigationStore.getState().pendingEdit).toBeNull();
+  });
+
   it('blocks closing and disconnecting while account preferences are being saved', async () => {
     let complete!: () => void;
     mockUpdateProvider.mockReturnValueOnce(new Promise<void>(resolve => { complete = resolve; }));
@@ -223,7 +258,8 @@ describe('ProvidersPage', () => {
     const user = userEvent.setup();
     render(<ProvidersPage />);
     await screen.findByText('OpenAI');
-    await user.click(screen.getByRole('button', { name: 'chatgpt.add' }));
+    await user.click(screen.getByTestId('toolbar-action-add'));
+    await user.click(screen.getByRole('menuitem', { name: 'chatgpt.add' }));
     await user.type(screen.getByLabelText('chatgpt.label'), 'Account');
     await user.click(screen.getByRole('button', { name: 'chatgpt.connect' }));
     const close = screen.getByRole('button', { name: 'modal-close' });

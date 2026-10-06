@@ -385,7 +385,11 @@ nem altera a contagem **83 I / 1 P / 0 N**.
 **Contexto de rota no teclado local — seção166 (25/09/2026):** o ingresso Go
 aceita a surface da toolbar somente com o par canônico de página: `profiles`,
 `tasklists` e `history` mantêm seus tipos de superfície legados; as demais
-rotas usam `toolbar`. Abas de workspace continuam exigindo correspondência com
+rotas usam `toolbar`. A evolução do AEP-0114 acrescenta `providers` em
+`app.page=settings` para a rota de provedores, mantendo `toolbar` nas
+demais configurações. Seu Ctrl+N apresenta o menu local de criação; os três
+destinos também são comandos locais no catálogo. A escolha usa o mesmo
+registro de apresentação e não cria bindings paralelos. Abas de workspace continuam exigindo correspondência com
 o snapshot ativo, e não podem declarar página de rota. Na resolução, o tipo de
 superfície de rota vem desse frame canônico; para abas, vem do snapshot. Isso
 corrige o desacordo entre captura e projeção sem ampliar a projeção durável para

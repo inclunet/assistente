@@ -2852,6 +2852,7 @@ const ptBR = {
     },
 
     providers: {
+    creation: { cancelLoading: 'Cancelar carregamento', title: 'Novo provedor', chatgpt: 'Conectar conta ChatGPT', acp: 'Serviço ACP', api: 'Provedor API' },
       pageTitle: 'Provedores LLM',
       search: 'Buscar provedores...',
       loading: 'Carregando...',

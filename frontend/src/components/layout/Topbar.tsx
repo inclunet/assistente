@@ -161,7 +161,8 @@ const ROUTE_IDS: Record<string, string> = {
 
 // Some standalone pages already had a route-specific local-shortcut surface;
 // keep that dimension alongside app.page rather than replacing it with route.
-function keyboardSurfaceForPage(page: AppPage): string {
+function keyboardSurfaceForPage(page: AppPage, pathname: string): string {
+  if (page === 'settings' && pathname === '/settings/providers') return 'providers';
   if (page === 'profiles' || page === 'tasklists' || page === 'history') return page;
   return 'toolbar';
 }
@@ -248,7 +249,7 @@ export function Topbar() {
   );
   const shortcutsHelpOpen = useShortcutsHelpStore((s) => s.isOpen);
   const shortcutSurface = pathname === '/' ? workspace?.tabs.find(tab => tab.id === workspace.activeTabId)?.type
-    : pathname === '/tasklists' ? 'tasklists' : pathname === '/profiles' ? 'profiles' : pathname === '/history' ? 'history' : 'toolbar';
+    : pathname === '/settings/providers' ? 'providers' : pathname === '/tasklists' ? 'tasklists' : pathname === '/profiles' ? 'profiles' : pathname === '/history' ? 'history' : 'toolbar';
   const shortcutHint = useCommandShortcutHints(shortcutSurface, resolveAppPage(pathname) ?? undefined);
   const shortcutHintRef = useRef(shortcutHint);
   shortcutHintRef.current = shortcutHint;
@@ -1885,7 +1886,7 @@ export function Topbar() {
         const element = document.activeElement;
         const modalGeneration = getModalRegistrySnapshot().generation;
         const profile = owned.frame.profile?.slug;
-        const keyboardSurfaceType = keyboardSurfaceForPage(page);
+        const keyboardSurfaceType = keyboardSurfaceForPage(page, pathnameRef.current);
         return {
           surfaceId: surface.surfaceId,
           surfaceType: keyboardSurfaceType,
@@ -2005,7 +2006,7 @@ export function Topbar() {
         if (pathnameRef.current !== '/') {
           const owned = trustedSession.readOwnedCommandContextFrame(COMMAND_TOOLBAR_SURFACE_ID);
           const page = owned?.frame.appPage;
-          return page ? keyboardSurfaceForPage(page) : undefined;
+          return page ? keyboardSurfaceForPage(page, pathnameRef.current) : undefined;
         }
         const activeID = useWorkspaceStore.getState().workspace?.activeTabId;
         const context = activeID ? trustedSession.readSurfaceContext(activeID) : undefined;

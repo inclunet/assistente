@@ -2851,6 +2851,7 @@ const en = {
     },
 
     providers: {
+    creation: { cancelLoading: 'Cancel loading', title: 'New provider', chatgpt: 'Connect ChatGPT account', acp: 'ACP service', api: 'API provider' },
       pageTitle: 'LLM Providers',
       search: 'Search providers...',
       loading: 'Loading...',

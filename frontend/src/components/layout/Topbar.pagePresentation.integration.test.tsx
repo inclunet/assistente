@@ -20,6 +20,7 @@ import {
 } from '../../lib/commandPagePresentation';
 
 const ids = [
+  'providers.create.open', 'providers.api.create.open', 'providers.acp.create.open', 'providers.chatgpt.create.open',
   'tasklist.task.create.open',
   'tasklists.create.open', 'tasklists.edit.open', 'tasklists.search.focus',
   'profiles.create.open', 'profiles.edit.open', 'profiles.search.focus',
@@ -28,6 +29,10 @@ const ids = [
 const palettePreferencesKey = 'assistente.command-palette.v1.user-a.workspace-a';
 const shortcuts: Record<PagePresentationCommandID, string> = {
   'command_settings.create.open': 'Ctrl+N',
+  'providers.create.open': 'Ctrl+N',
+  'providers.api.create.open': '',
+  'providers.acp.create.open': '',
+  'providers.chatgpt.create.open': '',
   'tasklist.task.create.open': 'Ctrl+Shift+N',
   'tasklists.create.open': 'Ctrl+Shift+L, Ctrl+N',
   'tasklists.edit.open': 'Ctrl+Shift+I',
@@ -40,9 +45,9 @@ const shortcuts: Record<PagePresentationCommandID, string> = {
   'terminal.focus.history': 'Ctrl+Shift+H',
 };
 const paletteOptionName = (id: PagePresentationCommandID, unavailable = false) =>
-  [id, shortcuts[id], ...(unavailable ? ['commandPalette.unavailable'] : [])].join('. ');
+  [id, ...(shortcuts[id] ? [shortcuts[id]] : []), ...(unavailable ? ['commandPalette.unavailable'] : [])].join('. ');
 
-const pathFor = (id: PagePresentationCommandID) => id.startsWith('terminal.') || id === 'tasklist.task.create.open' ? '/' : `/${id.split('.')[0]}`;
+const pathFor = (id: PagePresentationCommandID) => id.startsWith('providers.') ? '/settings/providers' : id.startsWith('terminal.') || id === 'tasklist.task.create.open' ? '/' : `/${id.split('.')[0]}`;
 
 const state = vi.hoisted(() => ({
   pathname: '/profiles',
@@ -157,7 +162,9 @@ vi.mock('../../lib/commandLocalKeyboardWails', () => ({
           fallbackToSequences: true,
           ...(state.pathname === '/settings' || state.pathname.startsWith('/settings/') ? { bySurface: {}, fallbackToSequences: false, byPage: { settings: {
             shortcut: { version: 1, code: 'KeyN', modifiers: ['Control'] },
-            bySurface: { toolbar: state.settingsSuppressed ? null : {
+            bySurface: { providers: state.settingsSuppressed ? null : {
+              shortcut: { version: 1, code: 'KeyN', modifiers: ['Control'] }, commandId: 'providers.create.open', handler: 'local_ui',
+            }, toolbar: state.settingsSuppressed ? null : {
               shortcut: { version: 1, code: 'KeyN', modifiers: ['Control'] },
               commandId: COMMAND_SETTINGS_CREATE_COMMAND_ID, handler: 'local_ui',
             } }, fallback: null,
@@ -187,7 +194,7 @@ function PresentationSurface({ api }: SurfaceProps) {
     tabId: state.pathname === '/' ? 'tab-a' : undefined,
     allowedCommands: ids,
     readTarget: () => target.current,
-    isCurrent: () => state.pathname === '/profiles' || state.pathname === '/tasklists' || state.pathname === '/',
+    isCurrent: () => state.pathname === '/settings/providers' || state.pathname === '/profiles' || state.pathname === '/tasklists' || state.pathname === '/',
     canOpen: (id) => !state.presentationUnavailable && pathFor(id) === state.pathname,
     open: (id) => {
       state.actions.push(id);
@@ -339,6 +346,28 @@ describe('Topbar + registry real de apresentação contextual', () => {
       }
     },
   );
+  it.each(['allowed', 'suppressed', 'modal', 'ime', 'repeat', 'logout', 'stale-session', 'unavailable'] as const)(
+    'Ctrl+N de provedores passa pelo mapa e respeita %s', async reason => {
+      state.pathname = '/settings/providers';
+      state.settingsSuppressed = reason === 'suppressed';
+      mount(); await ready();
+      const overlay = document.createElement('div'); overlay.className = 'modal-overlay';
+      if (reason === 'modal') { document.body.append(overlay); registerOpenModal('providers-blocker'); }
+      if (reason === 'logout') auth.isAuthenticated = false;
+      if (reason === 'stale-session') auth.user.sessionId = 'new-session';
+      if (reason === 'unavailable') state.presentationUnavailable = true;
+      try {
+        fireEvent.keyDown(document.activeElement!, { key: 'n', code: 'KeyN', ctrlKey: true,
+          repeat: reason === 'repeat', isComposing: reason === 'ime' });
+        expect(state.actions).toEqual(reason === 'allowed' ? ['providers.create.open'] : []);
+        noTransport();
+      } finally {
+        fireEvent.keyUp(window, { key: 'n', code: 'KeyN' });
+        unregisterOpenModal('providers-blocker'); overlay.remove();
+      }
+    },
+  );
+
   it('pedido do botão de navegação usa dispatcher local e recusa modal', async () => {
     state.pathname = '/history'; mount(); await ready();
     expect(requestCommandNavigation('navigation.workspace.open')).toBe(true);

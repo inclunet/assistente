@@ -906,6 +906,17 @@
             ]
           },
           "bySurface": {
+            "providers": {
+              "shortcut": {
+                "version": 1,
+                "code": "KeyN",
+                "modifiers": [
+                  "Control"
+                ]
+              },
+              "commandId": "providers.create.open",
+              "handler": "local_ui"
+            },
             "toolbar": {
               "shortcut": {
                 "version": 1,
@@ -1033,6 +1044,10 @@
     "profiles.create.open",
     "profiles.edit.open",
     "profiles.search.focus",
+    "providers.acp.create.open",
+    "providers.api.create.open",
+    "providers.chatgpt.create.open",
+    "providers.create.open",
     "tasklist.task.create.open",
     "tasklists.create.open",
     "tasklists.edit.open",

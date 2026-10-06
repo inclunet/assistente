@@ -54,6 +54,7 @@ export interface ProviderFormData {
 
 export interface ProviderFormProps {
   provider?: ProviderFormData;
+  kind?: 'api' | 'acp';
   onSave: () => void;
   onCancel: () => void;
 }
@@ -62,8 +63,8 @@ export interface ProviderFormProps {
 // ProviderPreset type is used internally via PROVIDER_CONFIG
 
 // Generate provider types for dropdown
-const providerTypes = (t: TFunction) =>
-  Object.entries(PROVIDER_CONFIG).map(([key, config]) => ({
+const providerTypes = (t: TFunction, agent: boolean) =>
+  Object.entries(PROVIDER_CONFIG).filter(([, config]) => (config.apiFormat === AGENT_API_FORMAT) === agent).map(([key, config]) => ({
     value: key,
     label: config.labelKey ? t(config.labelKey, config.label) : config.label,
   }));
@@ -92,17 +93,22 @@ const reasoningContentModeOptions = (t: TFunction) => [
 const isAgentForm = (data: Pick<ProviderFormData, 'type' | 'api_format'>): boolean =>
   (data.api_format || PROVIDER_CONFIG[data.type]?.apiFormat || '') === AGENT_API_FORMAT;
 
-export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) => {
+// Mirror normalizeProviderACP: historical/custom types with ACP format use the
+// single ACP preset, preserving their command, arguments and vault references.
+const canonicalFormType = (data: Pick<ProviderFormData, 'type' | 'api_format'>) =>
+  isAgentForm(data) ? 'acp' : data.type;
+
+export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider) ? 'acp' : 'api', onSave, onCancel }: ProviderFormProps) => {
   const { t, i18n } = useTranslation();
   const { announce } = useAnnouncer();
   // i18n.language garante recomputo ao trocar de idioma
-  const tiposDeProvedor = useMemo(() => providerTypes(t), [t, i18n.language]);
+  const tiposDeProvedor = useMemo(() => providerTypes(t, kind === 'acp'), [t, i18n.language, kind]);
   const [formData, setFormData] = useState<ProviderFormData>({
     name: '',
-    type: 'openai',
+    type: kind === 'acp' ? 'acp' : 'openai',
     base_url: '',
     api_key: '',
-    api_format: PROVIDER_CONFIG.openai.apiFormat || '',
+    api_format: kind === 'acp' ? AGENT_API_FORMAT : PROVIDER_CONFIG.openai.apiFormat || '',
     reasoning_content_mode: PROVIDER_CONFIG.openai.reasoningContentMode || 'disabled',
   });
   const [useSavedCredential, setUseSavedCredential] = useState(false);
@@ -265,7 +271,7 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
       setFormData({
         id: provider.id,
         name: provider.name,
-        type: provider.type,
+        type: canonicalFormType(provider),
         base_url: provider.base_url,
         api_key: '',
         default_model: provider.default_model || '',
@@ -286,7 +292,7 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
       setModelsLoaded(false);
       setEndpointNotSupported(false);
     } else {
-      const defaultType = 'openai';
+      const defaultType = kind === 'acp' ? 'acp' : 'openai';
       const config = PROVIDER_CONFIG[defaultType] || PROVIDER_CONFIG.custom;
       setFormData({
         name: '',
@@ -308,7 +314,7 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
       setModelsLoaded(false);
       setEndpointNotSupported(false);
     }
-  }, [provider]);
+  }, [provider, kind]);
 
   // Auto-foca no campo de token quando clica "Alterar Chave"
   useEffect(() => {
@@ -329,13 +335,13 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
     if (provider && !modelsLoaded && !loadingModels) {
       loadModels({
         id: provider.id,
-        type: provider.type,
+        type: canonicalFormType(provider),
         base_url: provider.base_url,
         default_model: provider.default_model,
         api_format: provider.api_format,
       });
     }
-  }, [provider]);
+  }, [provider, kind]);
 
   /**
    * Recoloca no formulário a configuração do provedor salvo, como a carga
@@ -348,7 +354,7 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
     const savedConfig = PROVIDER_CONFIG[provider.type] || PROVIDER_CONFIG.custom;
     setFormData((prev) => ({
       ...prev,
-      type: provider.type,
+      type: canonicalFormType(provider),
       api_format: provider.api_format ?? savedConfig.apiFormat ?? '',
       reasoning_content_mode: provider.reasoning_content_mode
         ?? savedConfig.reasoningContentMode
@@ -391,7 +397,7 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
     const nextIsAgent = (config.apiFormat || '') === AGENT_API_FORMAT;
     const leavingAgent = isAgent && !nextIsAgent;
 
-    if (provider && nextType === provider.type) {
+    if (provider && nextType === canonicalFormType(provider)) {
       restoreSavedProvider();
       return;
     }
