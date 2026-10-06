@@ -2515,6 +2515,8 @@ const ptBR = {
     },
 
     providerForm: {
+    authMode: 'Autenticação',
+    authModes: { required: 'Obrigatória', optional: 'Opcional', none: 'Sem autenticação' },
       useSavedCredential: "Usar credencial já cadastrada para este domínio",
       savedCredentialHelp: "Configure a fonte em Credenciais usando o hostname da URL base como padrão. Deixe a chave vazia para usar essa credencial.",
       name: 'Nome',

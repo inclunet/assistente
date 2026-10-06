@@ -45,4 +45,20 @@ test('Novo provedor compartilha menu por botão e Ctrl+N, separa API e restaura 
   await page.keyboard.press('Control+n');
   await expect(page.getByRole('menu')).toHaveCount(0);
   await expect(page.locator('.provider-form')).toBeVisible();
+  await wails.setResponse('GetCredentialForURL', null);
+  await wails.setResponse('ListModelsRaw', ['test-model']);
+  await page.getByLabel(/^Nome/).fill('API via ambiente');
+  await page.getByRole('button', { name: 'Configurar credencial', exact: true }).click();
+  await page.getByLabel('Fonte', { exact: true }).selectOption('env');
+  await page.getByLabel('Nome da variável', { exact: true }).fill('PROVIDER_API_TOKEN');
+  await page.getByRole('button', { name: 'Carregar modelos do provedor', exact: true }).click();
+  await page.getByRole('button', { name: 'Criar', exact: true }).click();
+  await expect(page.locator('.provider-form')).toHaveCount(0);
+  const calls = await wails.getCallLog();
+  const create = calls.find(call => call.fn.endsWith('CreateLLMProvider'));
+  expect(create?.args[0]).toMatchObject({ name: 'API via ambiente', credential: {
+    pattern: 'api.openai.com', type: 'bearer', source: 'env', sourceConfig: { env: 'PROVIDER_API_TOKEN' },
+  }});
+  expect(calls.some(call => call.fn.endsWith('UpsertCredential'))).toBe(false);
+
 });

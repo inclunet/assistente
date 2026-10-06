@@ -81,48 +81,42 @@ export function credentialInput(data: CredentialDraft): apidto.CredentialInput {
   });
 }
 
-export function validateCredential(
-  item: CredentialDraft,
-  t: (key: string) => string
-): string | null {
-  if (!item.pattern?.trim() || !item.type) return t('credentials.sourceFields.required');
-  if (item.source === 'oauth') return t('credentials.sourceFields.oauthUnavailable');
+export interface CredentialValidation {
+  message: string;
+  fields: Array<keyof CredentialDraft>;
+}
+
+export function credentialValidation(item: CredentialDraft, t: (key: string) => string): CredentialValidation | null {
+  const error = (key: string, ...fields: Array<keyof CredentialDraft>) => ({ message: t(key), fields });
+  const required = (...fields: Array<keyof CredentialDraft>) => error('credentials.sourceFields.required', ...fields);
+  if (!item.pattern?.trim() || !item.type) return required(!item.pattern?.trim() ? 'pattern' : 'type');
+  if (item.source === 'oauth') return error('credentials.sourceFields.oauthUnavailable', 'source');
   if (item.source === 'command') {
-    if (!item.command?.trim()) return t('credentials.sourceFields.required');
+    if (!item.command?.trim()) return required('command');
     try {
       const args: unknown = JSON.parse(item.argsText || '[]');
-      if (!Array.isArray(args) || !args.every((a) => typeof a === 'string'))
-        return t('credentials.sourceFields.invalidArgs');
-    } catch {
-      return t('credentials.sourceFields.invalidArgs');
-    }
-    if (
-      !Number.isInteger(item.timeoutSeconds) ||
-      !item.timeoutSeconds ||
-      item.timeoutSeconds < 1 ||
-      item.timeoutSeconds > 300
-    )
-      return t('credentials.sourceFields.invalidTimeout');
+      if (!Array.isArray(args) || !args.every(a => typeof a === 'string'))
+        return error('credentials.sourceFields.invalidArgs', 'argsText');
+    } catch { return error('credentials.sourceFields.invalidArgs', 'argsText'); }
+    if (!Number.isInteger(item.timeoutSeconds) || !item.timeoutSeconds || item.timeoutSeconds < 1 || item.timeoutSeconds > 300)
+      return error('credentials.sourceFields.invalidTimeout', 'timeoutSeconds');
   }
-  if (item.source === 'env' && !item.token?.trim()) return t('credentials.sourceFields.required');
+  if (item.source === 'env' && !item.token?.trim()) return required('token');
   if (item.source === 'keyring') {
     const target = Boolean(item.token?.trim());
     const pair = Boolean(item.keyringService?.trim() && item.keyringUser?.trim());
     if ((!target && !pair) || (target && (item.keyringService?.trim() || item.keyringUser?.trim())))
-      return t('credentials.sourceFields.keyringChoice');
+      return error('credentials.sourceFields.keyringChoice', 'token', 'keyringService', 'keyringUser');
   }
-  if (item.type === 'basic' && !item.username?.trim())
-    return t('credentials.sourceFields.required');
-  if (item.type === 'custom' && !item.headerName?.trim())
-    return t('credentials.sourceFields.required');
+  if (item.type === 'basic' && !item.username?.trim()) return required('username');
+  if (item.type === 'custom' && !item.headerName?.trim()) return required('headerName');
   if (item.source === 'static') {
-    const value =
-      item.type === 'basic'
-        ? item.password
-        : item.type === 'custom'
-          ? item.headerValue
-          : item.token;
-    if (!value?.trim()) return t('credentials.sourceFields.required');
+    const field = item.type === 'basic' ? 'password' : item.type === 'custom' ? 'headerValue' : 'token';
+    if (!item[field]?.trim()) return required(field);
   }
   return null;
+}
+
+export function validateCredential(item: CredentialDraft, t: (key: string) => string): string | null {
+  return credentialValidation(item, t)?.message ?? null;
 }

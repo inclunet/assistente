@@ -1,5 +1,6 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { EyeOutlined, EyeInvisibleOutlined, WarningOutlined } from '@ant-design/icons';
+import { apidto } from '@wailsjs/go/models';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react';
+import { WarningOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { CreateLLMProvider, UpdateLLMProvider, ListModelsRaw } from '@wailsjs/go/wailsapi/LLMProviders';
@@ -11,15 +12,12 @@ import type { CatalogAgent } from './ACPAgentCatalog';
 import { AgentPicker } from './AgentPicker';
 import { AgentProviderFields } from './AgentProviderFields';
 export { PROVIDER_CONFIG } from '../../config/providers';
+import { ResourceCredentialEditor } from '../credentials/ResourceCredentialEditor';
+import { credentialInput, validateCredential, type CredentialDraft } from '../credentials/credentialDraft';
 import './ProviderForm.css';
-
-// Wrapper com timeout para operações que podem travar
-const withTimeout = async <T,>(promise: Promise<T>, timeoutMs: number, operationName: string): Promise<T> => {
-  const timeoutPromise = new Promise<never>((_, reject) => {
-    setTimeout(() => reject(new Error(`Timeout após ${timeoutMs/1000}s em ${operationName}`)), timeoutMs);
-  });
-  return Promise.race([promise, timeoutPromise]);
-};
+const HTTP_CREDENTIAL_TYPES = ['bearer', 'basic', 'custom'];
+const defaultAuthMode = (type: string) => ['ollama', 'llamacpp'].includes(type) ? 'none' : type === 'localai' ? 'optional' : 'required';
+const sameOrigin = (a: string, b: string) => { try { return new URL(a).origin === new URL(b).origin; } catch { return false; } };
 
 export interface ProviderFormData {
   id?: string;
@@ -27,6 +25,8 @@ export interface ProviderFormData {
   type: string;
   base_url: string;
   api_key: string;
+  auth_mode?: string;
+  credential_pattern?: string;
   default_model?: string;
   api_format?: string;
   reasoning_content_mode?: string;
@@ -57,6 +57,7 @@ export interface ProviderFormProps {
   kind?: 'api' | 'acp';
   onSave: () => void;
   onCancel: () => void;
+  onBusyChange?: (busy: boolean) => void;
 }
 
 // Provider configuration is imported from '../../config/providers'
@@ -98,7 +99,7 @@ const isAgentForm = (data: Pick<ProviderFormData, 'type' | 'api_format'>): boole
 const canonicalFormType = (data: Pick<ProviderFormData, 'type' | 'api_format'>) =>
   isAgentForm(data) ? 'acp' : data.type;
 
-export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider) ? 'acp' : 'api', onSave, onCancel }: ProviderFormProps) => {
+export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider) ? 'acp' : 'api', onSave, onCancel, onBusyChange }: ProviderFormProps) => {
   const { t, i18n } = useTranslation();
   const { announce } = useAnnouncer();
   // i18n.language garante recomputo ao trocar de idioma
@@ -111,14 +112,36 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
     api_format: kind === 'acp' ? AGENT_API_FORMAT : PROVIDER_CONFIG.openai.apiFormat || '',
     reasoning_content_mode: PROVIDER_CONFIG.openai.reasoningContentMode || 'disabled',
   });
-  const [useSavedCredential, setUseSavedCredential] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
-  const [showApiKeyField, setShowApiKeyField] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
+  const savingStatus = useRef<HTMLParagraphElement>(null);
+  const saveReturnFocus = useRef<HTMLElement | null>(null);
+  const wasSaving = useRef(false);
+  useLayoutEffect(() => {
+    if (saving) savingStatus.current?.focus();
+    else if (wasSaving.current && saveReturnFocus.current?.isConnected && !saveReturnFocus.current.matches(':disabled')) saveReturnFocus.current.focus();
+    wasSaving.current = saving;
+  }, [saving]);
   const [apiTested, setApiTested] = useState(false);
-  const [apiKeyChangedInThisSession, setApiKeyChangedInThisSession] = useState(false);
-  const apiKeyInputRef = useRef<HTMLInputElement>(null);
+
+  const [credentialDraft, setCredentialDraft] = useState<CredentialDraft | null>(null);
+  const loadSequence = useRef(0);
+  const formSequence = useRef(0);
+  const busyCallback = useRef(onBusyChange);
+  busyCallback.current = onBusyChange;
+  useEffect(() => { busyCallback.current?.(saving); }, [saving]);
+  useEffect(() => () => { loadSequence.current++; formSequence.current++; busyCallback.current?.(false); }, []);
+  const invalidatePreview = useCallback(() => {
+    loadSequence.current++;
+    setApiTested(false);
+    setLoadingModels(false);
+    setModelsLoaded(false);
+    setModels([]);
+  }, []);
+  const handleCredentialChange = useCallback((draft: CredentialDraft | null) => {
+    setCredentialDraft(draft);
+    invalidatePreview();
+  }, [invalidatePreview]);
 
   // Model loading states
   const [models, setModels] = useState<string[]>([]);
@@ -203,6 +226,7 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
     if (isAgentForm(data)) return;
     if (!canonicalUrl.trim()) return;
 
+    const sequence = ++loadSequence.current;
     setLoadingModels(true);
     setEndpointNotSupported(false);
     setModels([]);
@@ -216,17 +240,16 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
     });
 
     try {
-      const result = await withTimeout(
-        ListModelsRaw({
+      const result = await ListModelsRaw(apidto.TestLLMProviderRequest.createFrom({
           type: data.type,
           base_url: canonicalUrl,
-          api_key: data.api_key || undefined,
+          credential: credentialDraft ? credentialInput(credentialDraft) : undefined,
+          auth_mode: data.auth_mode || defaultAuthMode(data.type),
+          api_format: data.api_format || undefined,
           provider_id: data.id || undefined,
-        }),
-        15000,
-        'ListModelsRaw'
-      );
+        }));
 
+      if (sequence !== loadSequence.current) return;
       setModels(result || []);
       setModelsLoaded(true);
       setApiTested(true);
@@ -239,6 +262,7 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
         }
       }
     } catch (error: unknown) {
+      if (sequence !== loadSequence.current) return;
       const err = error as { message?: unknown } | null;
       const errorMsg = String(err?.message || error || '');
 
@@ -259,13 +283,17 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
         }));
       }
     } finally {
-      setLoadingModels(false);
+      if (sequence === loadSequence.current) setLoadingModels(false);
     }
-  }, [formData, t]);
+  }, [formData, credentialDraft, t]);
 
   useEffect(() => {
     setAgentSelectionToken(0);
-    setUseSavedCredential(false);
+    formSequence.current++;
+    setSaving(false);
+    loadSequence.current++;
+    setCredentialDraft(null);
+    setLoadingModels(false);
     if (provider) {
       const provConfig = PROVIDER_CONFIG[provider.type] || PROVIDER_CONFIG.custom;
       setFormData({
@@ -274,6 +302,8 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
         type: canonicalFormType(provider),
         base_url: provider.base_url,
         api_key: '',
+        auth_mode: provider.auth_mode || defaultAuthMode(provider.type),
+        credential_pattern: provider.credential_pattern,
         default_model: provider.default_model || '',
         api_format: provider.api_format ?? provConfig.apiFormat ?? '',
         reasoning_content_mode: provider.reasoning_content_mode
@@ -286,8 +316,6 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
         acp_credential_env: provider.acp_credential_env || {},
       });
       setApiTested(false);
-      setShowApiKeyField(false);
-      setApiKeyChangedInThisSession(false);
       setModels([]);
       setModelsLoaded(false);
       setEndpointNotSupported(false);
@@ -300,6 +328,7 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
         base_url: config.defaultUrl,
         api_key: '',
         api_format: config.apiFormat || '',
+        auth_mode: defaultAuthMode(defaultType),
         reasoning_content_mode: config.reasoningContentMode || 'disabled',
         acp_command: '',
         acp_args: [],
@@ -308,46 +337,17 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
         acp_credential_env: {},
       });
       setApiTested(false);
-      setShowApiKeyField(true);
-      setApiKeyChangedInThisSession(false);
       setModels([]);
       setModelsLoaded(false);
       setEndpointNotSupported(false);
     }
   }, [provider, kind]);
 
-  // Auto-foca no campo de token quando clica "Alterar Chave"
-  useEffect(() => {
-    if (showApiKeyField && apiKeyInputRef.current) {
-      // Pequeno delay para garantir que o DOM foi atualizado
-      setTimeout(() => {
-        apiKeyInputRef.current?.focus();
-        // Seleciona todo o texto se já existe algo
-        if (apiKeyInputRef.current?.value) {
-          apiKeyInputRef.current?.select();
-        }
-      }, 0);
-    }
-  }, [showApiKeyField]);
-
-  // Auto-carrega modelos ao abrir provider existente (edição)
-  useEffect(() => {
-    if (provider && !modelsLoaded && !loadingModels) {
-      loadModels({
-        id: provider.id,
-        type: canonicalFormType(provider),
-        base_url: provider.base_url,
-        default_model: provider.default_model,
-        api_format: provider.api_format,
-      });
-    }
-  }, [provider, kind]);
-
   /**
    * Recoloca no formulário a configuração do provedor salvo, como a carga
    * inicial faz. O nome fica como está — quem renomeou não pediu para desfazer
-   * isso — e a chave digitada nesta sessão também, porque é o único dado do
-   * formulário que ainda não existe em lugar nenhum.
+   * isso. O rascunho da credencial é descartado para não transportar uma
+   * edição feita para outro destino.
    */
   const restoreSavedProvider = () => {
     if (!provider) return;
@@ -361,7 +361,9 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
         ?? 'disabled',
       base_url: provider.base_url,
       default_model: provider.default_model || '',
-      api_key: apiKeyChangedInThisSession ? prev.api_key : '',
+      api_key: '',
+      auth_mode: provider.auth_mode || defaultAuthMode(provider.type),
+      credential_pattern: provider.credential_pattern,
       acp_command: provider.acp_command || '',
       acp_args: provider.acp_args || [],
       acp_agent_id: provider.acp_agent_id || '',
@@ -372,7 +374,7 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
     setModels([]);
     setModelsLoaded(false);
     setEndpointNotSupported(false);
-    setShowApiKeyField(apiKeyChangedInThisSession);
+    handleCredentialChange(null);
   };
 
   /**
@@ -394,8 +396,8 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
    */
   const handleTypeChange = (nextType: string) => {
     const config = PROVIDER_CONFIG[nextType] || PROVIDER_CONFIG.custom;
-    const nextIsAgent = (config.apiFormat || '') === AGENT_API_FORMAT;
-    const leavingAgent = isAgent && !nextIsAgent;
+
+
 
     if (provider && nextType === canonicalFormType(provider)) {
       restoreSavedProvider();
@@ -411,7 +413,9 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
       default_model: '',
       // O que não pertence ao novo tipo não fica pendurado: agente não tem
       // credencial no app, e provedor HTTP não tem comando para subir.
-      api_key: nextIsAgent ? '' : prev.api_key,
+      api_key: '',
+      auth_mode: defaultAuthMode(nextType),
+      credential_pattern: undefined,
       acp_command: '',
       acp_args: [],
       acp_agent_id: '',
@@ -424,12 +428,7 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
     setModels([]);
     setModelsLoaded(false);
     setEndpointNotSupported(false);
-    if (leavingAgent) {
-      // Um agente não guardou credencial nenhuma, então o botão "alterar chave"
-      // mentiria dizendo que já existe uma configurada.
-      setShowApiKeyField(true);
-      setApiKeyChangedInThisSession(false);
-    }
+    handleCredentialChange(null);
   };
 
   // Retorna a URL canônica que será REALMENTE salva no banco
@@ -447,27 +446,19 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
   };
 
   const handleChange = (field: keyof ProviderFormData, value: string) => {
-    setFormData((prev) => ({ ...prev, [field]: value }));
+    if (['base_url', 'api_format'].includes(field)) handleCredentialChange(null);
+    if (field === 'auth_mode') {
+      if (value === 'none' || (formData.auth_mode || defaultAuthMode(formData.type)) === 'none') handleCredentialChange(null);
+      else invalidatePreview();
+    }
+    setFormData((prev) => ({ ...prev, [field]: value, ...(field === 'api_format' && value === 'google' ? { auth_mode: 'required' } : {}) }));
     // Limpa erro do campo
     if (errors[field]) {
       setErrors((prev) => ({ ...prev, [field]: '' }));
     }
   };
 
-  const handleApiKeyChange = (value: string) => {
-    // Trim defensivo: copy/paste de chaves frequentemente arrasta
-    // espaco/quebra-de-linha invisível no inicio ou fim, o que quebra
-    // o header Authorization no upstream e gera 400 sem motivo claro.
-    handleChange('api_key', value.trim());
-    setApiKeyChangedInThisSession(true);
-    setApiTested(false);
-    setModels([]);
-    setModelsLoaded(false);
-    setEndpointNotSupported(false);
-  };
-
   const handleLoadModels = async () => {
-    const config = PROVIDER_CONFIG[formData.type] || PROVIDER_CONFIG.custom;
     const canonicalUrl = getCanonicalUrl(formData.type);
 
     // Validar URL antes de carregar
@@ -486,44 +477,16 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
       return;
     }
 
-    // Se requer key, está criando (ou alterou a key), e a key está vazia → erro
-    const isEditingWithExistingKey = !!formData.id && !apiKeyChangedInThisSession;
-    if (config.testRequiresApiKey && !formData.api_key.trim() && !isEditingWithExistingKey && !useSavedCredential) {
-      setErrors((prev) => ({
-        ...prev,
-        api_key: t('providerForm.error.apiKeyRequiredTest'),
-      }));
-      return;
+    if (credentialDraft) {
+      const error = validateCredential(credentialDraft, t);
+      if (error) { setErrors(prev => ({ ...prev, credential: error })); return; }
     }
 
     await loadModels();
   };
 
-  const handleApiKeyBlur = async () => {
-    const config = PROVIDER_CONFIG[formData.type] || PROVIDER_CONFIG.custom;
-    const canonicalUrl = getCanonicalUrl(formData.type);
-    
-    if (!canonicalUrl.trim()) return;
-
-    // Se não requer key e a key está vazia, carrega modelos mesmo assim (ex: Ollama)
-    if (!config.apiKeyRequired && !formData.api_key.trim()) {
-      await handleLoadModels();
-      return;
-    }
-
-    // Se requer key, está criando, e key está vazia → não auto-carrega
-    const isEditingWithExistingKey = !!formData.id && !apiKeyChangedInThisSession;
-    if (config.testRequiresApiKey && !formData.api_key.trim() && !isEditingWithExistingKey && !useSavedCredential) {
-      return;
-    }
-
-    await handleLoadModels();
-  };
-
   const validate = (): boolean => {
     const newErrors: Record<string, string> = {};
-    const config = PROVIDER_CONFIG[formData.type] || PROVIDER_CONFIG.custom;
-
     if (!formData.name.trim()) {
       newErrors.name = t('providerForm.error.nameRequired');
     }
@@ -552,11 +515,9 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
       }
     }
 
-    // API key - validação conforme configuração do provider
-    // Na edição, a key já está salva no credential manager, não precisa re-informar
-    const isEditing = !!formData.id;
-    if (config && config.apiKeyRequired && !formData.api_key.trim() && !isEditing && !useSavedCredential) {
-      newErrors.api_key = t('providerForm.error.apiKeyRequired') + ` ${config.label}`;
+    if (credentialDraft) {
+      const error = validateCredential(credentialDraft, t);
+      if (error) newErrors.credential = error;
     }
 
     // Exige carregamento de modelos (que valida a conexão)
@@ -582,8 +543,7 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
     // (VT_ACP_* etc.) o backend aplica sozinho a partir do installed.json
     // quando há acp_agent_id.
     if (formData.id) {
-      await withTimeout(
-        UpdateLLMProvider(formData.id, {
+      await UpdateLLMProvider(formData.id, apidto.UpdateLLMProviderRequest.createFrom({
           name: formData.name,
           type: formData.type,
           api_format: AGENT_API_FORMAT,
@@ -594,14 +554,10 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
           // passagem, e omiti-lo seria pedir para não mexer — quem tirou o
           // último par continuaria com a credencial indo para o agente.
           acp_credential_env: credentialEnv,
-        }),
-        15000,
-        'UpdateLLMProvider'
-      );
+        }));
       return;
     }
-    await withTimeout(
-      CreateLLMProvider({
+    await CreateLLMProvider(apidto.CreateLLMProviderRequest.createFrom({
         // O identificador começa pelo agente quando há um: um provedor chamado
         // `acp-...` não diria qual agente é, e quem olha a lista de provedores
         // ou um log precisa disso.
@@ -614,17 +570,16 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
         acp_args: args,
         acp_agent_id: agentId,
         acp_credential_env: credentialEnv,
-      }),
-      15000,
-      'CreateLLMProvider'
-    );
+      }));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!validate()) return;
+    if (saving || !validate()) return;
+    const sequence = formSequence.current;
 
+    saveReturnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setSaving(true);
     try {
       // IMPORTANTE: Sempre usa a URL canônica ao salvar
@@ -633,71 +588,61 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
 
       if (isAgent) {
         await saveAgentProvider();
-        onSave();
+        if (sequence === formSequence.current) onSave();
         return;
       }
 
       if (formData.id) {
         // Update
-        await withTimeout(
-          UpdateLLMProvider(formData.id, {
+        await UpdateLLMProvider(formData.id, apidto.UpdateLLMProviderRequest.createFrom({
             name: formData.name,
             type: formData.type,
             base_url: canonicalUrl,
-            api_key: formData.api_key || undefined,
+            credential: credentialDraft ? credentialInput(credentialDraft) : undefined,
+            auth_mode: formData.auth_mode || defaultAuthMode(formData.type),
             default_model: formData.default_model || undefined,
             api_format: formData.api_format || undefined,
             reasoning_content_mode: formData.reasoning_content_mode || 'disabled',
-          }),
-          15000,
-          'UpdateLLMProvider'
-        );
+        }));
       } else {
         // Create - gera ID único
         const suggestedDefault = PROVIDER_CONFIG[formData.type]?.defaultModel;
-        await withTimeout(
-          CreateLLMProvider({
+        await CreateLLMProvider(apidto.CreateLLMProviderRequest.createFrom({
             id: `${formData.type}-${Date.now()}`,
             name: formData.name,
             type: formData.type,
             base_url: canonicalUrl,
-            api_key: formData.api_key || undefined,
+            credential: credentialDraft ? credentialInput(credentialDraft) : undefined,
+            auth_mode: formData.auth_mode || defaultAuthMode(formData.type),
             default_model: formData.default_model || suggestedDefault || undefined,
             api_format: formData.api_format || undefined,
             reasoning_content_mode: formData.reasoning_content_mode || 'disabled',
-          }),
-          15000,
-          'CreateLLMProvider'
-        );
+      }));
       }
 
-      onSave();
+      if (sequence === formSequence.current) onSave();
     } catch (error: unknown) {
+      if (sequence !== formSequence.current) return;
       const err = error as { message?: unknown; toString?: () => string } | null;
       const message = String(err?.message || err?.toString?.() || error || t('providerForm.error.saveError'));
       setErrors({ submit: message });
       announce(message, 'assertive');
     } finally {
-      setSaving(false);
+      if (sequence === formSequence.current) setSaving(false);
     }
   };
 
   const config = PROVIDER_CONFIG[formData.type] || PROVIDER_CONFIG.custom;
   const isUrlReadonly = !config.urlEditable;
-  const requiresApiKey = config.apiKeyRequired;
-  const testRequiresApiKey = config.testRequiresApiKey;
-  const canLoadModels = (() => {
-    const canonicalUrl = getCanonicalUrl(formData.type);
-    if (!canonicalUrl.trim()) return false;
-    if (testRequiresApiKey && !formData.api_key.trim() && !useSavedCredential) {
-      // Permitir quando editando com credencial existente
-      return !!formData.id && !apiKeyChangedInThisSession;
-    }
-    return true;
-  })();
+  const authMode = formData.auth_mode || defaultAuthMode(formData.type);
+  const canLoadModels = Boolean(getCanonicalUrl(formData.type).trim()) &&
+    (!credentialDraft || !validateCredential(credentialDraft, t));
+  const boundPattern = provider && sameOrigin(getCanonicalUrl(formData.type), provider.base_url)
+    ? provider.credential_pattern : undefined;
 
   return (
     <form className="provider-form" onSubmit={handleSubmit}>
+      <fieldset className="provider-form__fields" disabled={saving}>
       <FormField
         label={t('providerForm.name')}
         required
@@ -748,7 +693,7 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
         <Select
           options={API_FORMAT_OPTIONS}
           value={formData.api_format || ''}
-          onChange={(e) => setFormData(prev => ({ ...prev, api_format: e.target.value }))}
+          onChange={(e) => handleChange('api_format', e.target.value)}
           fullWidth
         />
       </FormField>
@@ -790,107 +735,17 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
         )}
       </FormField>
 
-      <label htmlFor="provider-use-saved-credential">
-        <input id="provider-use-saved-credential" type="checkbox" checked={useSavedCredential}
-          onChange={e => { setUseSavedCredential(e.target.checked); handleApiKeyChange(''); }} />
-        {t('providerForm.useSavedCredential')}
-      </label>
-      {useSavedCredential && <p>{t('providerForm.savedCredentialHelp')}</p>}
-      {/* API Key Field */}
-      {!useSavedCredential && (requiresApiKey ? (
-        <FormField
-          label={t('providerForm.apiKey')}
-          required
-          error={errors.api_key}
-          description={
-            formData.id && !showApiKeyField
-              ? t('providerForm.keyConfigured')
-              : formData.id && showApiKeyField
-              ? t('providerForm.keepCurrent')
-              : t('providerForm.keySaved')
-          }
-        >
-          {formData.id && !showApiKeyField ? (
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={() => setShowApiKeyField(true)}
-              className="provider-form__change-key-button"
-              aria-label={t('providerForm.changeKey')}
-            >
-              {t('providerForm.changeKeyBtn')}
-            </Button>
-          ) : (
-          <div className="provider-form__password-field">
-            <Input
-              ref={apiKeyInputRef}
-              type={showPassword ? 'text' : 'password'}
-              value={formData.api_key}
-              onChange={(e) => handleApiKeyChange(e.target.value)}
-              onBlur={handleApiKeyBlur}
-              placeholder={formData.id ? '••••••••' : 'sk-...'}
-              fullWidth
-              aria-label={t('providerForm.apiKey')}
-            />
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={() => setShowPassword(!showPassword)}
-              className="provider-form__toggle-password"
-              aria-label={showPassword ? t('providerForm.hideKey') : t('providerForm.showKey')}
-              aria-pressed={showPassword}
-            >
-              <span aria-hidden="true">{showPassword ? <EyeInvisibleOutlined /> : <EyeOutlined />}</span>
-            </Button>
-          </div>
-          )}
-        </FormField>
-      ) : (
-        <FormField
-          label={t('providerForm.apiKeyOptional')}
-          error={errors.api_key}
-          description={
-            formData.id && !showApiKeyField
-              ? t('providerForm.keyConfiguredOptional')
-              : t('providerForm.noKeyNeeded')
-          }
-        >
-          {formData.id && !showApiKeyField ? (
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={() => setShowApiKeyField(true)}
-              className="provider-form__change-key-button"
-              aria-label={t('providerForm.changeKey')}
-            >
-              {t('providerForm.changeKeyBtn')}
-            </Button>
-          ) : (
-          <div className="provider-form__password-field">
-            <Input
-              ref={apiKeyInputRef}
-              type={showPassword ? 'text' : 'password'}
-              value={formData.api_key}
-              onChange={(e) => handleApiKeyChange(e.target.value)}
-              onBlur={handleApiKeyBlur}
-              placeholder={t('providerForm.leaveEmpty')}
-              fullWidth
-              aria-label={t('providerForm.apiKeyOptional')}
-            />
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={() => setShowPassword(!showPassword)}
-              className="provider-form__toggle-password"
-              aria-label={showPassword ? t('providerForm.hideKey') : t('providerForm.showKey')}
-              aria-pressed={showPassword}
-            >
-              <span aria-hidden="true">{showPassword ? <EyeInvisibleOutlined /> : <EyeOutlined />}</span>
-            </Button>
-          </div>
-          )}
-        </FormField>
-      ))}
+      <FormField label={t('providerForm.authMode')}>
+        <Select value={authMode} fullWidth onChange={e => handleChange('auth_mode', e.target.value)}
+          options={['required', 'optional', 'none'].map(value => ({ value, label: t('providerForm.authModes.' + value), disabled: formData.api_format === 'google' && value !== 'required' }))} />
+      </FormField>
+      {authMode !== 'none' && <>
+        <ResourceCredentialEditor
+          key={[provider?.id, formData.type, getCanonicalUrl(formData.type), formData.api_format, boundPattern].join(':')}
+          url={getCanonicalUrl(formData.type)} pattern={boundPattern} type="bearer"
+          allowedTypes={formData.api_format === 'google' ? undefined : HTTP_CREDENTIAL_TYPES}
+          onChange={handleCredentialChange} />
+      </>}
 
       {/* Default Model — loads models list which also validates the provider */}
       <FormField
@@ -934,11 +789,7 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
             >
               {loadingModels ? t('providerForm.loadingModels') : t('providerForm.loadModelsBtn')}
             </Button>
-            {testRequiresApiKey && !formData.api_key.trim() && showApiKeyField && !formData.id && (
-              <span className="provider-form__hint">
-                {t('providerForm.fillApiKey')}
-              </span>
-            )}
+
           </div>
         )}
       </FormField>
@@ -951,6 +802,8 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
         </div>
       )}
 
+      </fieldset>
+      {saving && <p ref={savingStatus} tabIndex={0}>{t('common.saving')}</p>}
       <DialogActions
         className="provider-form__actions"
         primary={
@@ -968,7 +821,7 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
           </Button>
         }
         secondary={
-          <Button type="button" variant="secondary" onClick={onCancel}>
+          <Button type="button" variant="secondary" onClick={onCancel} disabled={saving}>
             {t('common.cancel')}
           </Button>
         }

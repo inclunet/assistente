@@ -1,3 +1,4 @@
+import { apidto } from '@wailsjs/go/models';
 import { ChatGPTConnection } from '../components/settings/ChatGPTConnection';
 import { logger } from '../utils/logger';
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
@@ -15,7 +16,6 @@ import {
   CanRemoveACPAgent,
   RemoveACPAgent,
 } from '@wailsjs/go/wailsapi/ACPInstall';
-import type { apidto } from '@wailsjs/go/models';
 import {
   GetLLMProvidersWithStatus,
   CreateLLMProvider,
@@ -42,6 +42,9 @@ import { useCommandShortcutHint } from '../lib/commandShortcutHints';
 import './ProvidersPage.css';
 
 interface Provider {
+  auth_mode?: string;
+  credential_pattern?: string;
+  reasoning_content_mode?: string;
   id: string;
   name: string;
   type: string;
@@ -97,6 +100,7 @@ export default function ProvidersPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string | number>>(new Set());
   const [isEditing, setIsEditing] = useState(false);
+  const [providerSaving, setProviderSaving] = useState(false);
   const [oauthCloseBlocked, setOAuthCloseBlocked] = useState(false);
   const [oauthDialog, setOAuthDialog] = useState<{ id?: string } | null>(null);
   const [editingProvider, setEditingProvider] = useState<ProviderFormData | undefined>(undefined);
@@ -192,6 +196,9 @@ export default function ProvidersPage() {
       type: provider.type,
       base_url: provider.base_url,
       api_key: '',
+      auth_mode: provider.auth_mode,
+      credential_pattern: provider.credential_pattern,
+      reasoning_content_mode: provider.reasoning_content_mode,
       default_model: (provider as Provider).default_model || '',
       api_format: (provider as Provider).api_format || '',
       acp_command: provider.acp_command || '',
@@ -231,12 +238,14 @@ export default function ProvidersPage() {
  if (provider.type === 'chatgpt') { setOAuthDialog({}); return; }
     try {
       const name = getDuplicateName(provider.name);
-      await CreateLLMProvider({
+      await CreateLLMProvider(apidto.CreateLLMProviderRequest.createFrom({
         id: `${provider.type}-${Date.now()}`,
         name,
+        credential_from_provider_id: provider.api_format === AGENT_API_FORMAT ? undefined : provider.id,
         type: provider.type,
         base_url: provider.base_url,
         api_format: (provider as Provider).api_format || undefined,
+        auth_mode: provider.api_format === AGENT_API_FORMAT ? undefined : provider.auth_mode,
         // A cópia de um agente precisa subir o mesmo agente: o backend recusa o
         // formato acp sem comando, e sem argumentos o processo subiria em outro
         // modo que não o do original.
@@ -251,7 +260,7 @@ export default function ProvidersPage() {
         // o mesmo agente e precisa da mesma chave, e o segredo continua onde
         // sempre esteve, no cofre.
         acp_credential_env: provider.acp_credential_env || undefined,
-      });
+      }));
       addToast(t('providers.toast.duplicated'), 'success', undefined, undefined, { suppressAnnounce: true });
       announce(t('providers.toast.duplicated'));
       await loadProviders();
@@ -528,7 +537,8 @@ export default function ProvidersPage() {
 
           <Modal
             isOpen={isEditing}
-            onClose={handleCancelEdit}
+            allowClose={!providerSaving}
+            onClose={() => { if (!providerSaving) handleCancelEdit(); }}
             title={editingProvider?.id
               ? t('providers.modal.editTitle', 'Editar Provedor')
               : t('providers.modal.newTitle', 'Novo Provedor')}
@@ -538,6 +548,7 @@ export default function ProvidersPage() {
               <ProviderForm
                 provider={editingProvider}
                 kind={creationKind}
+                onBusyChange={setProviderSaving}
                 onSave={handleSaveSuccess}
                 onCancel={handleCancelEdit}
               />

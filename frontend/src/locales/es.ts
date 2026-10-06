@@ -2517,6 +2517,8 @@ const es = {
     },
 
     providerForm: {
+    authMode: 'Autenticación',
+    authModes: { required: 'Obligatoria', optional: 'Opcional', none: 'Sin autenticación' },
       useSavedCredential: "Usar la credencial existente para este dominio",
       savedCredentialHelp: "Configure la fuente en Credenciales usando el hostname de la URL base como patrón. Deje la clave vacía para usar esa credencial.",
       name: 'Nombre',

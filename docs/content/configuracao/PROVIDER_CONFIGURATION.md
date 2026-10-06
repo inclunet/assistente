@@ -28,6 +28,13 @@ Ao editar, API e ACP mantêm seus respectivos formulários. Para outro tipo de
 conexão, crie outro provedor. Os cadastros existentes continuam funcionando;
 esta reorganização não exige migração nem nova autenticação.
 
+Ao duplicar um provedor API, a cópia reutiliza a referência da credencial do
+original, incluindo aliases que não correspondem ao hostname. O segredo
+continua no mesmo registro do CredManager. No editor, **Manter credencial
+existente** descarta as alterações ainda não salvas; reabrir restaura os
+metadados salvos, sem exibir segredos estáticos.
+
+
 ## Conectar sua conta ChatGPT
 
 Na página **Provedores**, escolha **Novo provedor → Conectar conta ChatGPT**, dê um nome à autorização
@@ -167,13 +174,18 @@ minutos, quando a reserva da tentativa expira.
 
 ## Adicionando um Provedor
 
-1. Acesse **Configurações** (`Alt + 2`)
-2. Na seção **Provedores**, clique em **Adicionar Provedor**
-3. Escolha o **tipo** do provedor
-4. O nome e URL são preenchidos automaticamente
-5. Informe a **API Key** (se necessário)
-6. O sistema testa a conexão automaticamente
-7. Clique em **Salvar**
+1. Acesse **Configurações** (`Alt + 2`) e abra **Provedores**.
+2. Abra **Novo provedor** e escolha **Provedor API**.
+3. Escolha o tipo, informe o nome e confira URL/protocolo.
+4. Escolha autenticação obrigatória, opcional ou sem autenticação, conforme o serviço.
+5. Mantenha a entrada já vinculada ou use **Configurar credencial** para editar a fonte.
+6. Acione **Carregar modelos** para testar explicitamente e escolher o modelo padrão.
+7. Clique em **Criar** ou **Atualizar** e aguarde a gravação.
+
+Abrir ou editar os campos não executa comandos de token. Alterar URL, protocolo,
+autenticação ou credencial exige um novo teste. Respostas de testes anteriores
+não validam uma configuração que mudou. Durante a gravação, o formulário e o
+fechamento ficam bloqueados até o resultado.
 
 ## Atualizando agentes de código ACP
 
@@ -190,13 +202,36 @@ que não são ACP e quando não há atualização disponível.
 
 ## Credenciais
 
-As chaves de API são armazenadas de forma segura no gerenciador de credenciais do sistema operacional (Keychain no macOS, Credential Manager no Windows, libsecret no Linux).
+API e MCP compartilham o editor do CredManager. O provedor guarda a referência;
+o valor ou a configuração da fonte ficam cifrados no cofre do Assistente.
+As fontes disponíveis são **Valor salvo**, **Variável de ambiente**, **Keyring do
+sistema** e **Comando**. Keyring é uma fonte externa consultada no sistema
+operacional, não o destino obrigatório de todas as chaves.
 
-O sistema também detecta automaticamente credenciais em variáveis de ambiente comuns:
-- `OPENAI_API_KEY`
-- `ANTHROPIC_API_KEY`
-- `GROQ_API_KEY`
-- Entre outras
+O editor mostra o destino e a entrada efetiva do cofre, preservando referências
+existentes e padrões compartilhados. **Configurar credencial** abre os mesmos
+campos do gerenciador; **Manter credencial existente** descarta o rascunho.
+Atenção ao aviso de compartilhamento: editar a entrada também afeta quem já a usa.
+Segredos salvos não são recuperados para preencher o formulário; para substituir
+um valor estático, informe o novo valor.
+
+APIs HTTP podem usar Bearer, Basic ou cabeçalho personalizado. O adaptador Gemini
+usa token e exige autenticação. Para fontes externas, informe o nome da variável,
+o destino/serviço do keyring ou executável e argumentos, sem prefixos mágicos.
+OAuth continua pelo caminho **Conectar conta ChatGPT**, com ciclo de vida próprio
+no mesmo cofre; tokens OAuth não são cadastrados manualmente neste formulário.
+
+O teste usa uma configuração efêmera, sem gravar o cofre. Provedor e novo rascunho
+de credencial são salvos juntos: uma falha impede gravação parcial. Ao trocar a
+origem da URL, configure explicitamente a credencial para o novo destino antes
+de testar. Cadastros existentes não exigem migração nem nova autenticação por
+causa desta mudança de interface.
+
+Ao carregar modelos, o limite total considera o prazo configurado da fonte
+Comando mais 30 segundos para a consulta HTTP (máximo de 330 segundos).
+O comando continua sujeito ao seu próprio limite. Erros dos campos são
+anunciados e associados ao campo inválido para leitores de tela; voltar o
+foco a um campo sem alterar o valor mantém o teste de conexão válido.
 
 ## Configurações Avançadas
 
@@ -244,7 +279,7 @@ Apenas providers com suporte real a MCP nativo podem resolver MCP servers direta
 
 ### Frontend
 
-Adicione a configuração em `frontend/src/components/settings/ProviderForm.tsx`:
+Adicione a configuração em `frontend/src/config/providers.ts`:
 
 ```typescript
 seuProvedor: {
@@ -287,11 +322,20 @@ Uma autorização local existente continua protegida contra desvinculação acid
 
 ### Falha ao salvar um provedor com API key
 
-No cadastro genérico com API key, a chave e a configuração do provedor ainda
-são gravadas separadamente. Se o salvamento falhar, confira a credencial do
-hostname no gerenciador antes de tentar novamente: ela pode ter sido alterada,
-inclusive para outros provedores que usam o mesmo hostname. A melhoria é
-acompanhada na [issue #872](https://github.com/inclunet/assistente/issues/872).
+No formulário de API, a credencial e a configuração do provedor são gravadas
+juntas. Se houver falha ou conflito de sessão/configuração, a transação é
+revertida; recarregue a configuração antes de tentar novamente. A interface
+aguarda o término da gravação e não anuncia um timeout enquanto ela continua.
+O foco permanece no aviso de gravação; em caso de falha, retorna ao controle
+anterior para permitir a correção. Alternar autenticação obrigatória/opcional
+preserva a credencial digitada, mas exige testar novamente. Escolher sem
+autenticação descarta o rascunho ainda não salvo.
+
+Chamadas antigas que enviam diretamente o campo `api_key`, fora do editor
+compartilhado, conservam o contrato anterior de gravações separadas. Nesse
+caminho de compatibilidade, uma falha pode deixar a credencial do hostname
+alterada; a cobertura restante é acompanhada na
+[issue #872](https://github.com/inclunet/assistente/issues/872).
 A conexão ChatGPT usa o fluxo OAuth dedicado; uma API key estática não pode
 substituir seu registro OAuth pela edição genérica.
 

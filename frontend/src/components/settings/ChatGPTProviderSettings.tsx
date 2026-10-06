@@ -1,3 +1,4 @@
+import { apidto } from '@wailsjs/go/models';
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { GetLLMProvider, SetDefaultProvider, UpdateLLMProvider } from '@wailsjs/go/wailsapi/LLMProviders';
@@ -62,7 +63,7 @@ export function ChatGPTProviderSettings({ providerId, connected, disabled, onBus
         if (current !== generation.current) return;
         setIsDefault(true);
       } else {
-        await UpdateLLMProvider(providerId, { name: name.trim(), default_model: model || undefined });
+        await UpdateLLMProvider(providerId, apidto.UpdateLLMProviderRequest.createFrom({ name: name.trim(), default_model: model || undefined }));
         if (current !== generation.current) return;
       }
       announce(t(makeDefault ? 'chatgpt.defaultSaved' : 'chatgpt.preferencesSaved'));
