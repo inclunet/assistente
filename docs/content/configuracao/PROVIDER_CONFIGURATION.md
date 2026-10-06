@@ -19,6 +19,13 @@ modelo listado pela conta será o padrão quando o catálogo estiver disponível
 você pode selecionar outro modelo no perfil. Se o catálogo falhar temporariamente,
 recarregue a lista de modelos no perfil e escolha um explicitamente. Se esta for
 a primeira conexão da sua conta local, ela também se torna o provedor padrão.
+
+Para mudar o padrão, edite a conta na página Provedores. Em **Configuração do
+provedor**, escolha o **Modelo Padrão** do catálogo da conta e use **Salvar
+configuração**. O nome do provedor também pode ser editado. **Tornar Padrão**
+define a conta como padrão do aplicativo; quando já selecionada, a tela informa
+essa condição. Essas alterações preservam a autorização e não abrem o navegador.
+Uma escolha explícita no perfil continua prevalecendo sobre os padrões.
 Durante a gravação inicial, aguarde a liberação do botão de fechar; depois disso,
 você pode cancelar a espera pelo navegador.
 

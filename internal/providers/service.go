@@ -58,6 +58,7 @@ type ServiceConfig struct {
 // Service encapsula a lógica de negócio de gerenciamento de provedores LLM.
 // Não depende de Wails — é testável de forma isolada.
 type Service struct {
+	publicationMu    sync.Mutex
 	oauth            *oauthflow.Service
 	oauthMu          sync.Mutex
 	oauthAttempts    map[string]context.CancelFunc
@@ -482,7 +483,7 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Up
 	}
 
 	if existing.Type == llm.ProviderChatGPT {
-		return nil, fmt.Errorf("chatgpt_use_oauth_connection")
+		return s.updateChatGPTPreferences(ctx, id, req)
 	}
 
 	updated := &llm.ProviderConfig{
@@ -669,14 +670,17 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 
 // SetDefault marca um provedor como padrão do sistema.
 func (s *Service) SetDefault(ctx context.Context, id string) error {
+	s.publicationMu.Lock()
+	defer s.publicationMu.Unlock()
+	generation := s.registry.Generation()
 	if s.registry.Get(id) == nil {
 		return fmt.Errorf("provider '%s' não encontrado", id)
 	}
 	if err := s.store.SetDefault(ctx, id); err != nil {
 		return fmt.Errorf("erro ao definir provider default: %w", err)
 	}
-	for _, p := range s.registry.List() {
-		p.IsDefault = (p.ID == id)
+	if err := s.registry.SetDefaultGeneration(id, generation); err != nil {
+		return err
 	}
 	logging.Infof(ctx, "providers.service", "[providers] Provider '%s' definido como default", id)
 	return nil

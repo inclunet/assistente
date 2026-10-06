@@ -315,7 +315,85 @@ func (s *Service) publishChatGPT(ctx context.Context, store oauthflow.Store, pro
 	if !ok {
 		return errors.New("oauth_store_not_supported")
 	}
+	s.publicationMu.Lock()
+	defer s.publicationMu.Unlock()
 	return session.WithSession(ctx, func() error {
-		return s.registry.RegisterGeneration(provider, generation)
+		// The consumer may have changed after the authorization transaction.
+		// Publish current persisted preferences, never the caller's old snapshot.
+		current, err := s.chatGPTProvider(ctx, provider.ID)
+		if err != nil {
+			return err
+		}
+		if current.CredentialPattern != provider.CredentialPattern {
+			return oauthflow.ErrConflict
+		}
+		return s.registry.RegisterGeneration(current, generation)
 	})
+}
+
+// updateChatGPTPreferences edits only consumer preferences. Authorization, client
+// registration and tokens remain owned by the shared OAuth lifecycle.
+func (s *Service) updateChatGPTPreferences(ctx context.Context, id string, req UpdateRequest) (*UpdateResult, error) {
+	if req.Type != "" || req.APIFormat != "" || req.BaseURL != "" || req.APIKey != "" ||
+		req.ReasoningContentMode != "" || req.ACPCommand != "" || req.ACPArgs != nil ||
+		req.ACPEnv != nil || req.ACPCredentialEnv != nil || req.ACPAgentID != nil {
+		return nil, errors.New("chatgpt_use_oauth_connection")
+	}
+	if (req.Name != "" && (strings.TrimSpace(req.Name) == "" || utf8.RuneCountInString(strings.TrimSpace(req.Name)) > 100)) ||
+		(req.DefaultModel != "" && (strings.TrimSpace(req.DefaultModel) != req.DefaultModel || len(req.DefaultModel) > 256)) {
+		return nil, errors.New("chatgpt_invalid_preferences")
+	}
+	generation := s.registry.Generation()
+	provider, err := s.chatGPTProvider(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	store, err := s.oauthStore(ctx)
+	if err != nil {
+		return nil, err
+	}
+	authorizationID := credentials.OAuthCredentialID(provider.CredentialPattern)
+	transaction, ok := store.(interface {
+		WithAuthorization(context.Context, string, func(*gorm.DB) error) error
+	})
+	if !ok {
+		return nil, errors.New("oauth_store_not_supported")
+	}
+	var updated *llm.ProviderConfig
+	err = transaction.WithAuthorization(ctx, authorizationID, func(tx *gorm.DB) error {
+		current, err := database.NewProviderRepository(tx).GetLLMProvider(ctx, id)
+		if err != nil {
+			return err
+		}
+		if current.Type != string(llm.ProviderChatGPT) || current.CredentialPattern != provider.CredentialPattern {
+			return oauthflow.ErrConflict
+		}
+		fields := map[string]any{}
+		if req.Name != "" {
+			current.Name = strings.TrimSpace(req.Name)
+			fields["name"] = current.Name
+		}
+		if req.DefaultModel != "" {
+			current.DefaultModel = req.DefaultModel
+			fields["default_model"] = current.DefaultModel
+		}
+		if len(fields) > 0 {
+			result := database.ScopeByUser(ctx, tx.Model(&database.LLMProvider{}), "user_id").Where("id = ? AND credential_pattern = ?", id, provider.CredentialPattern).Updates(fields)
+			if result.Error != nil {
+				return result.Error
+			}
+			if result.RowsAffected != 1 {
+				return oauthflow.ErrConflict
+			}
+		}
+		updated, err = fromDBModel(current)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	if err = s.publishChatGPT(ctx, store, updated, generation); err != nil {
+		return nil, err
+	}
+	return &UpdateResult{Provider: updated, CredentialConfigured: true}, nil
 }

@@ -1,6 +1,17 @@
 const ptBR = {
   translation: {
  chatgpt: {
+    providerSettings: "Configuração do provedor",
+    providerName: "Nome do provedor",
+    chooseModel: "Escolha um modelo",
+    loadingModels: "Carregando modelos da conta…",
+    savePreferences: "Salvar configuração",
+    preferencesSaved: "Configuração do provedor salva.",
+    defaultSaved: "Provedor definido como padrão.",
+    preferencesLoadError: "Não foi possível carregar a configuração do provedor.",
+    modelsLoadError: "Não foi possível carregar os modelos desta conta.",
+    preferencesSaveError: "Não foi possível salvar. Confira a configuração e tente novamente.",
+
     operationPending: 'Aguarde a conclusão desta operação antes de fechar a janela.',
     vaultUnavailable: 'O cofre de credenciais está indisponível. Recupere ou desbloqueie o cofre antes de desconectar e excluir este provedor.',
     authorizationChanged: 'A conexão foi alterada ou está em uso por outra autorização. Aguarde, recarregue a lista e tente excluir novamente.',
