@@ -194,3 +194,24 @@ it('contains focus in the real modal during save and restores it on failure', as
   expect(close).not.toHaveBeenCalled();
  } finally { visibility.mockRestore(); }
 });
+
+it('discards visual credentials when switching types with the same URL and protocol', async () => {
+ render(<ProviderForm onSave={() => {}} onCancel={() => {}} />);
+ await set('providerForm.name', 'API');
+ await set('providerForm.providerType', 'custom');
+ await set('Base URL', 'http://localhost:8080');
+ await set('providerForm.apiProtocol', 'openai');
+ await configure();
+ await set('credentials.labels.token', 'discarded-token');
+ await set('providerForm.providerType', 'localai');
+ expect(screen.queryByLabelText('credentials.labels.token')).not.toBeInTheDocument();
+ await configure();
+ expect(screen.getByLabelText('credentials.labels.token')).toHaveValue('');
+ await set('credentials.labels.token', 'new-token');
+ await userEvent.click(screen.getByRole('button', { name: 'providerForm.loadModels' }));
+ await screen.findByText('providerForm.connected');
+ expect(vi.mocked(ListModelsRaw).mock.calls[0][0].credential?.token).toBe('new-token');
+ await userEvent.click(screen.getByRole('button', { name: 'common.create' }));
+ await waitFor(() => expect(CreateLLMProvider).toHaveBeenCalledOnce());
+ expect(vi.mocked(CreateLLMProvider).mock.calls[0][0].credential?.token).toBe('new-token');
+});

@@ -741,7 +741,7 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
       </FormField>
       {authMode !== 'none' && <>
         <ResourceCredentialEditor
-          key={[provider?.id, getCanonicalUrl(formData.type), formData.api_format, boundPattern].join(':')}
+          key={[provider?.id, formData.type, getCanonicalUrl(formData.type), formData.api_format, boundPattern].join(':')}
           url={getCanonicalUrl(formData.type)} pattern={boundPattern} type="bearer"
           allowedTypes={formData.api_format === 'google' ? undefined : HTTP_CREDENTIAL_TYPES}
           onChange={handleCredentialChange} />

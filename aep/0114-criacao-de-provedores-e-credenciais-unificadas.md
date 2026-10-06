@@ -126,7 +126,7 @@ corporativo; o CI Linux cobre esses pacotes. A execução completa Vitest teve
 172 testes, incluindo esses três e as regressões adicionais, passou.
 Bindings foram regenerados pelo Wails. O inventário de AEPs está sincronizado.
 
-Revisor independente local: Codex `review_credential_sources`, sete rodadas
+Revisor independente local: Codex `review_credential_sources`, oito rodadas
 de código e uma conferência documental final, sem pendências. CI/review remota
 e ordem de merge estão nos PRs da pilha: #910, #911 e o PR de CredManager.
 O aceite manual de NVDA desta nova experiência continua disponível ao mantenedor;
@@ -166,3 +166,7 @@ fonte. Alternar required/optional preserva o rascunho e invalida somente a
 prévia. Durante a gravação, o foco fica no estado de progresso dentro do
 Modal, que exclui controles desabilitados por fieldset; em falha, retorna
 ao controle anterior. A sétima revisão local independente não deixou achados.
+
+Quarta rodada remota: trocar o tipo de provedor remonta o editor mesmo quando
+URL e protocolo coincidem. A regressão Custom/LocalAI comprova que a credencial
+visual descartada não reaparece e que o novo rascunho segue no teste e na gravação.
