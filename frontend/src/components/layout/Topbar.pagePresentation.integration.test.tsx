@@ -194,8 +194,10 @@ function PresentationSurface({ api }: SurfaceProps) {
     tabId: state.pathname === '/' ? 'tab-a' : undefined,
     allowedCommands: ids,
     readTarget: () => target.current,
-    isCurrent: () => state.pathname === '/settings/providers' || state.pathname === '/profiles' || state.pathname === '/tasklists' || state.pathname === '/',
-    canOpen: (id) => !state.presentationUnavailable && pathFor(id) === state.pathname,
+    isCurrent: () => ['/settings', '/settings/', '/settings/providers', '/settings/providers/'].includes(state.pathname) || state.pathname === '/profiles' || state.pathname === '/tasklists' || state.pathname === '/',
+    canOpen: (id) => !state.presentationUnavailable && (id.startsWith('providers.')
+      ? ['/settings', '/settings/', '/settings/providers', '/settings/providers/'].includes(state.pathname)
+      : pathFor(id) === state.pathname),
     open: (id) => {
       state.actions.push(id);
       if (id === 'profiles.search.focus' || id === 'tasklists.search.focus') root.current?.querySelector<HTMLInputElement>('[data-search]')?.focus();
@@ -346,9 +348,10 @@ describe('Topbar + registry real de apresentação contextual', () => {
       }
     },
   );
+  describe.each(['/settings', '/settings/', '/settings/providers', '/settings/providers/'])('rota %s', path => {
   it.each(['allowed', 'suppressed', 'modal', 'ime', 'repeat', 'logout', 'stale-session', 'unavailable'] as const)(
     'Ctrl+N de provedores passa pelo mapa e respeita %s', async reason => {
-      state.pathname = '/settings/providers';
+      state.pathname = path;
       state.settingsSuppressed = reason === 'suppressed';
       mount(); await ready();
       const overlay = document.createElement('div'); overlay.className = 'modal-overlay';
@@ -367,6 +370,8 @@ describe('Topbar + registry real de apresentação contextual', () => {
       }
     },
   );
+
+  });
 
   it('pedido do botão de navegação usa dispatcher local e recusa modal', async () => {
     state.pathname = '/history'; mount(); await ready();

@@ -206,3 +206,26 @@ protocolo, tipo e autenticação não mudam. Regressões cobrem o intervalo
 anterior ao escopo e comprovam que renomear não envia Authorization mesmo
 com token disponível no domínio. A revisão local 13 terminou sem pendências;
 providers/controllers/wailsapi/logging passaram.
+
+
+### Correção de menus após aceite (06/10/2026)
+
+A rota `/settings` abre Provedores por padrão. Ela e `/settings/providers`,
+incluindo a barra final, compartilham o contexto de apresentação e o resolvedor
+Ctrl+N. Clique, Enter e Espaço no botão usam o mesmo dispatcher, sem fallback
+quando o mapa está ausente/suprimido e sem relaxar sessão, modal ou IME.
+A toolbar oferece Novo provedor seguido de Ações, reutilizando as ações da
+linha em foco. Sem alvo visível, editar/duplicar/excluir ficam indisponíveis;
+mudanças de alvo, filtro e estado invalidam opções já abertas.
+Regressões: `providerCreationCommands.test.tsx`,
+`Topbar.pagePresentation.integration.test.tsx`, `ProvidersPage.test.tsx` e
+`providers-creation.spec.ts` (rota padrão, quatro formas de abertura, foco,
+edição e duplicação). O status permanece Done; esta entrega corrige o contrato
+já aceito e uniformiza a toolbar, sem migração de credenciais.
+
+Menus sem ações habilitadas focam o contêiner, preservando Escape/Tab sem
+executar itens desabilitados (`Menu.test.tsx` e E2E da lista filtrada).
+
+Revisão independente desta correção: Codex `review_credential_sources`, duas
+rodadas e conferências finais, sem pendências. Frontend completo: 505 arquivos,
+6.564 testes aprovados; após o ajuste de foco, 67 regressões e dois E2E aprovados.

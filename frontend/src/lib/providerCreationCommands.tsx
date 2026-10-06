@@ -1,5 +1,6 @@
 import { useEffect, useRef, type RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
+import { isProviderSettingsPath } from './commandAppPage';
 import { Menu } from '../components/menu';
 import { useAnchoredContextMenu } from '../hooks/useAnchoredContextMenu';
 import { useAnnouncer } from '../hooks/useAnnouncer';
@@ -37,7 +38,7 @@ export function useProviderCreationCommands(options: {
     const workspace = useWorkspaceStore.getState().workspace;
     const modal = getModalRegistrySnapshot();
     if (!auth.isAuthenticated || !auth.user || !workspace || modal.topID ||
-        !latest.current.ready || latest.current.pathname !== '/settings/providers' ||
+        !latest.current.ready || !isProviderSettingsPath(latest.current.pathname) ||
         !latest.current.root.current?.isConnected || !document.hasFocus()) return undefined;
     return JSON.stringify([auth.user.userId, auth.user.sessionId, workspace.id,
       workspace.activeTabId, latest.current.pathname, modal.generation]);

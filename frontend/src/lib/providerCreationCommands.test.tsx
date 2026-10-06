@@ -37,6 +37,12 @@ afterEach(() => {
   cleanup(); vi.useRealTimers(); vi.restoreAllMocks();
 });
 describe('Provider creation menu with real presentation registry', () => {
+  it.each(['/settings', '/settings/', '/settings/providers', '/settings/providers/'])('opens through the settings route %s', async path => {
+    route = path;
+    render(<Harness />);
+    await userEvent.click(screen.getByRole('button', { name: 'New provider' }));
+    expect(await screen.findByRole('menuitem', { name: 'providers.api.create.open' })).toBeInTheDocument();
+  });
   it.each(['chatgpt', 'acp', 'api'] as const)('opens the selected %s flow by keyboard', async kind => {
     const user = userEvent.setup(); render(<Harness />);
     await user.click(screen.getByRole('button', { name: 'New provider' }));

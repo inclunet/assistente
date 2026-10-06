@@ -1,3 +1,4 @@
+import { isProviderSettingsPath } from '../../lib/commandAppPage';
 import { logger } from '../../utils/logger';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -162,7 +163,7 @@ const ROUTE_IDS: Record<string, string> = {
 // Some standalone pages already had a route-specific local-shortcut surface;
 // keep that dimension alongside app.page rather than replacing it with route.
 function keyboardSurfaceForPage(page: AppPage, pathname: string): string {
-  if (page === 'settings' && pathname === '/settings/providers') return 'providers';
+  if (page === 'settings' && isProviderSettingsPath(pathname)) return 'providers';
   if (page === 'profiles' || page === 'tasklists' || page === 'history') return page;
   return 'toolbar';
 }
@@ -249,7 +250,7 @@ export function Topbar() {
   );
   const shortcutsHelpOpen = useShortcutsHelpStore((s) => s.isOpen);
   const shortcutSurface = pathname === '/' ? workspace?.tabs.find(tab => tab.id === workspace.activeTabId)?.type
-    : pathname === '/settings/providers' ? 'providers' : pathname === '/tasklists' ? 'tasklists' : pathname === '/profiles' ? 'profiles' : pathname === '/history' ? 'history' : 'toolbar';
+    : isProviderSettingsPath(pathname) ? 'providers' : pathname === '/tasklists' ? 'tasklists' : pathname === '/profiles' ? 'profiles' : pathname === '/history' ? 'history' : 'toolbar';
   const shortcutHint = useCommandShortcutHints(shortcutSurface, resolveAppPage(pathname) ?? undefined);
   const shortcutHintRef = useRef(shortcutHint);
   shortcutHintRef.current = shortcutHint;

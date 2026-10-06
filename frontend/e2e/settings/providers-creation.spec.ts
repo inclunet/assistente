@@ -14,12 +14,19 @@ test('Novo provedor compartilha menu por botão e Ctrl+N, separa API e restaura 
     { id: 'providers.api.create.open', name: 'Provedor API', available: true },
   ]);
   await wails.waitForApp();
-  await page.goto('/#/settings/providers');
+  await page.goto('/#/settings');
   const trigger = page.getByRole('button', { name: /^Novo provedor(?:, Ctrl\+N)?$/ });
   await expect(trigger).toBeVisible();
+  for (const activation of ['click', 'Enter', 'Space', 'Control+n']) {
+    await trigger.focus();
+    if (activation === 'click') await trigger.click();
+    else await page.keyboard.press(activation);
+    await expect(page.getByRole('menuitem', { name: 'Conectar conta ChatGPT', exact: true })).toBeFocused();
+    await expect(page.getByRole('menuitem')).toHaveCount(3);
+    await page.keyboard.press('Escape');
+    await expect(trigger).toBeFocused();
+  }
   await trigger.click();
-  await expect(page.getByRole('menuitem', { name: 'Conectar conta ChatGPT', exact: true })).toBeFocused();
-  await expect(page.getByRole('menuitem')).toHaveCount(3);
   await page.keyboard.press('Escape');
   await expect(trigger).toBeFocused();
   await trigger.click();
@@ -61,4 +68,41 @@ test('Novo provedor compartilha menu por botão e Ctrl+N, separa API e restaura 
   }});
   expect(calls.some(call => call.fn.endsWith('UpsertCredential'))).toBe(false);
 
+});
+
+
+test('Ações da toolbar reutiliza o menu da linha e permite editar e duplicar por teclado', async ({ page, wails }) => {
+  await wails.setResponse('GetLLMProvidersWithStatus', [{
+    id: 'api-provider', name: 'API de teste', type: 'openai',
+    base_url: 'https://api.openai.com/v1', credential_status: 'configured', auth_mode: 'required',
+  }]);
+  await wails.waitForApp();
+  await page.goto('/#/settings/providers');
+  const toolbar = page.locator('.providers-page').getByRole('toolbar');
+  const actions = toolbar.getByRole('button', { name: 'Ações', exact: true });
+  await expect(toolbar.getByRole('button')).toHaveCount(2);
+  await page.getByRole('gridcell', { name: 'API de teste', exact: true }).click();
+  await actions.focus();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('menuitem', { name: 'Editar', exact: true })).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.provider-form')).toBeVisible();
+  await expect(page.getByLabel(/^Nome/)).toHaveValue('API de teste');
+  await page.getByRole('button', { name: 'Cancelar', exact: true }).click();
+  await actions.focus();
+  await page.keyboard.press('Space');
+  await expect(page.getByRole('menuitem', { name: 'Editar', exact: true })).toBeFocused();
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('ArrowDown');
+  await expect(page.getByRole('menuitem', { name: 'Duplicar', exact: true })).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect.poll(async () => (await wails.getCallLog()).filter(call => call.fn.endsWith('CreateLLMProvider')).length).toBe(1);
+  const create = (await wails.getCallLog()).find(call => call.fn.endsWith('CreateLLMProvider'));
+  expect(create?.args[0]).toMatchObject({ credential_from_provider_id: 'api-provider' });
+  await page.getByRole('textbox', { name: 'Buscar provedores...' }).fill('sem correspondência');
+  await actions.click();
+  await expect(page.getByRole('menuitem', { name: 'Editar', exact: true })).toBeDisabled();
+  await expect(page.getByRole('menuitem', { name: 'Duplicar', exact: true })).toBeDisabled();
+  await page.keyboard.press('Escape');
+  await expect(actions).toBeFocused();
 });

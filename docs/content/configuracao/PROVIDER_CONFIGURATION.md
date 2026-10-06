@@ -9,6 +9,14 @@ weight: 1
 
 O Assistente suporta múltiplos provedores de LLM, tanto comerciais (cloud) quanto locais. Basta adicionar um provedor nas configurações (`Alt + 2`) e informar uma chave de API ou usar uma credencial já cadastrada para o domínio.
 
+A tela inicial de **Configurações** já mostra Provedores. **Novo provedor**
+abre por clique, Enter, Espaço ou pelo comando contextual **Ctrl+N**.
+Ao focar um provedor na lista, o menu **Ações**, à direita de Novo provedor,
+oferece as mesmas operações do menu da linha: editar, tornar padrão, duplicar,
+atualizar agente (quando disponível) e excluir. Use setas para escolher,
+Enter para executar e Escape para fechar e retornar ao botão. Sem provedor
+em foco na lista filtrada, as ações de edição ficam indisponíveis.
+
 ## Novo provedor
 
 Na barra da página **Provedores**, abra **Novo provedor** e escolha:

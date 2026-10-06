@@ -26,3 +26,8 @@ export function resolveAppPage(pathname: unknown): AppPage | null {
     default: return null;
   }
 }
+
+/** Settings opens on providers even when the optional tab is absent. */
+export function isProviderSettingsPath(pathname: string): boolean {
+  return /^\/settings(?:\/providers)?\/*$/.test(pathname);
+}
