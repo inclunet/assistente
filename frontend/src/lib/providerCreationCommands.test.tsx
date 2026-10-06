@@ -1,5 +1,5 @@
 import { useRef } from 'react';
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, createEvent, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useProviderCreationCommands, PROVIDER_CREATION_COMMANDS } from './providerCreationCommands';
@@ -15,7 +15,7 @@ let route = '/settings/providers';
 function Harness() {
   const root = useRef<HTMLDivElement>(null);
   const creation = useProviderCreationCommands({ root, pathname: route, ready: true, open: mocks.open });
-  return <div ref={root}><button ref={creation.buttonRef} onClick={creation.requestOpen}>New provider</button>
+  return <div ref={root}><button>Previous</button><button ref={creation.buttonRef} onClick={creation.requestOpen}>New provider</button>
     <input aria-label="Other" />{creation.menu}</div>;
 }
 const dispatch = (event: Event) => {
@@ -54,6 +54,19 @@ describe('Provider creation menu with real presentation registry', () => {
     expect(trigger).toHaveFocus();
     await user.keyboard('{Enter}');
     expect(await screen.findByRole('menu')).toBeInTheDocument();
+    expect(mocks.open).not.toHaveBeenCalled();
+  });
+  it.each([false, true])('Tab dismisses from the anchor without preventing browser navigation (reverse=%s)', async reverse => {
+    const user = userEvent.setup(); render(<Harness />);
+    await user.click(screen.getByRole('button', { name: 'New provider' }));
+    await screen.findByRole('menuitem', { name: 'providers.api.create.open' });
+    // user-event computes Tab from the original (now removed) event target;
+    // Chromium's default navigation is covered by providers-creation.spec.ts.
+    const event = createEvent.keyDown(document.activeElement!, { key: 'Tab', shiftKey: reverse });
+    fireEvent(document.activeElement!, event);
+    expect(event.defaultPrevented).toBe(false);
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'New provider' })).toHaveFocus();
     expect(mocks.open).not.toHaveBeenCalled();
   });
   it('keeps unavailable catalog actions disabled', async () => {

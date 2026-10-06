@@ -133,7 +133,13 @@ export function useProviderCreationCommands(options: {
     buttonRef,
     isOpen: menu.visible,
     requestOpen: () => request('providers.create.open'),
-    menu: <div ref={menuHost}><Menu key={menu.items[0]?.id === 'loading' ? 'loading' : 'choices'} {...menu} restoreFocusOnClose={false} onSelect={onSelectItem}
+    menu: <div ref={menuHost} onKeyDownCapture={event => {
+      if (event.key !== 'Tab' || !menu.visible) return;
+      // Native menu dismissal: restore the anchor before the browser advances
+      // focus, without canceling Tab or Shift+Tab. No application shortcut.
+      event.stopPropagation();
+      cancel(true);
+    }}><Menu key={menu.items[0]?.id === 'loading' ? 'loading' : 'choices'} {...menu} restoreFocusOnClose={false} onSelect={onSelectItem}
       onClose={() => cancel(true)} /></div>,
   };
 }
