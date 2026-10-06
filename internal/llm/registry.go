@@ -122,3 +122,21 @@ func (r *ProviderRegistry) Remove(id string) error {
 	delete(r.providers, id)
 	return nil
 }
+
+// SetDefaultGeneration replaces snapshots instead of mutating pointers held by readers.
+func (r *ProviderRegistry) SetDefaultGeneration(id string, generation uint64) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if generation != r.generation {
+		return fmt.Errorf("provider registry session changed")
+	}
+	if r.providers[id] == nil {
+		return fmt.Errorf("provider not found: %s", id)
+	}
+	for key, provider := range r.providers {
+		updated := *provider
+		updated.IsDefault = key == id
+		r.providers[key] = &updated
+	}
+	return nil
+}

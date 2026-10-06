@@ -5,6 +5,7 @@ import userEvent from '@testing-library/user-event';
 
 const mockGetProviders = vi.fn();
 const mockCreateProvider = vi.fn();
+const mockUpdateProvider = vi.fn();
 const mockDeleteProvider = vi.fn();
 const mockCanRemoveAgent = vi.fn();
 const mockRemoveAgent = vi.fn();
@@ -39,6 +40,8 @@ vi.mock('@wailsjs/go/wailsapi/ACPInstall', () => ({
 
 vi.mock('@wailsjs/go/wailsapi/LLMProviders', () => ({
   GetLLMProvidersWithStatus: () => mockGetProviders(),
+  GetLLMProvider: vi.fn().mockResolvedValue({ name: 'ChatGPT', default_model: 'account-model', is_default: false }),
+  UpdateLLMProvider: (...args: unknown[]) => mockUpdateProvider(...args),
   CreateLLMProvider: (payload: unknown) => mockCreateProvider(payload),
   DeleteLLMProvider: (id: string) => mockDeleteProvider(id),
   SetDefaultProvider: vi.fn(),
@@ -47,6 +50,10 @@ vi.mock('@wailsjs/go/wailsapi/LLMProviders', () => ({
   CreateChatGPTConnection: (...args: unknown[]) => mockCreateChatGPT(...args),
   AuthorizeChatGPT: (...args: unknown[]) => mockAuthorizeChatGPT(...args),
   CancelChatGPT: (...args: unknown[]) => mockCancelChatGPT(...args),
+}));
+
+vi.mock('@wailsjs/go/wailsapi/LLMModels', () => ({
+  GetModelsByProvider: vi.fn().mockResolvedValue(['account-model']),
 }));
 
 vi.mock('../hooks/useGridFocus', () => ({
@@ -169,6 +176,7 @@ describe('ProvidersPage', () => {
         credential_status: 'configured',
       },
     ]);
+    mockUpdateProvider.mockReset().mockResolvedValue({});
     mockCreateProvider.mockReset();
     mockDeleteProvider.mockReset();
     mockCanRemoveAgent.mockReset();
@@ -190,6 +198,23 @@ describe('ProvidersPage', () => {
 
   afterEach(() => {
     nowSpy.mockRestore();
+  });
+
+  it('blocks closing and disconnecting while account preferences are being saved', async () => {
+    let complete!: () => void;
+    mockUpdateProvider.mockReturnValueOnce(new Promise<void>(resolve => { complete = resolve; }));
+    mockGetProviders.mockResolvedValue([{ id: 'chatgpt', name: 'Account', type: 'chatgpt',
+      base_url: '', credential_required: true, credential_status: 'configured' }]);
+    const user = userEvent.setup();
+    render(<ProvidersPage />);
+    await screen.findByText('Account');
+    await user.click(screen.getAllByRole<HTMLButtonElement>('button', { name: 'Editar' }).find(button => !button.disabled)!);
+    await screen.findByDisplayValue('ChatGPT');
+    await user.click(screen.getByRole('button', { name: 'chatgpt.savePreferences' }));
+    expect(screen.getByRole('button', { name: 'modal-close' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'chatgpt.disconnect' })).toBeDisabled();
+    await act(async () => { complete(); });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'modal-close' })).toBeEnabled());
   });
 
   it('blocks the modal close control until the connection record is created', async () => {
@@ -537,3 +562,4 @@ describe('ProvidersPage', () => {
     }));
   });
 });
+

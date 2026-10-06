@@ -1,6 +1,17 @@
 const es = {
   translation: {
  chatgpt: {
+    providerSettings: "Configuración del proveedor",
+    providerName: "Nombre del proveedor",
+    chooseModel: "Elige un modelo",
+    loadingModels: "Cargando modelos de la cuenta…",
+    savePreferences: "Guardar configuración",
+    preferencesSaved: "Configuración del proveedor guardada.",
+    defaultSaved: "Proveedor establecido como predeterminado.",
+    preferencesLoadError: "No se pudo cargar la configuración del proveedor.",
+    modelsLoadError: "No se pudieron cargar los modelos de esta cuenta.",
+    preferencesSaveError: "No se pudo guardar. Revisa la configuración e inténtalo de nuevo.",
+
     operationPending: 'Espera a que termine esta operación antes de cerrar la ventana.',
     vaultUnavailable: 'El almacén de credenciales no está disponible. Recupera o desbloquea el almacén antes de desconectar y eliminar este proveedor.',
     authorizationChanged: 'La conexión cambió o está en uso por otra autorización. Espera, vuelve a cargar la lista e intenta eliminarla de nuevo.',

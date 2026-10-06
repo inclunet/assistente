@@ -1,6 +1,17 @@
 const en = {
   translation: {
  chatgpt: {
+    providerSettings: "Provider settings",
+    providerName: "Provider name",
+    chooseModel: "Choose a model",
+    loadingModels: "Loading account models…",
+    savePreferences: "Save settings",
+    preferencesSaved: "Provider settings saved.",
+    defaultSaved: "Provider set as default.",
+    preferencesLoadError: "Could not load provider settings.",
+    modelsLoadError: "Could not load models for this account.",
+    preferencesSaveError: "Could not save. Check the settings and try again.",
+
     operationPending: 'Wait for this operation to finish before closing the dialog.',
     vaultUnavailable: 'The credential vault is unavailable. Recover or unlock the vault before disconnecting and deleting this provider.',
     authorizationChanged: 'The connection changed or is in use by another authorization. Wait, reload the list, and try deleting it again.',

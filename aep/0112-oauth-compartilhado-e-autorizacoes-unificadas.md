@@ -1928,3 +1928,10 @@ Evidências: `TestManagedOAuthBackgroundRetryNeverOpensBrowser` percorre o retry
 real sem abrir navegador, marca reautorização e encerra o ciclo;
 `TestOAuthCASRetriesLocalContention` usa duas conexões SQLite/WAL, verifica os
 tokens após reabrir o cofre e mantém recusas de revisão antiga/cancelamento.
+
+## Evolução da experiência de provedores
+
+O AEP-0114 acompanha a edição de preferências ChatGPT e a unificação da criação
+e das credenciais de provedores. Mantém o contrato deste AEP: uma autorização
+no CredManager, com registro e tokens preservados ao editar nome/modelo.
+A migração e os aceites deste AEP permanecem concluídos.
