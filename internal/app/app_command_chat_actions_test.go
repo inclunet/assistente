@@ -260,7 +260,7 @@ func TestCommandChatCancelGenerationAndSerializationAbsence(t *testing.T) {
 
 func TestCommandChatActionsContracts(t *testing.T) {
 	a, _, _ := chatActionFixture(t)
-	if len(a.commandProduct.Load().registry.List()) != 151 {
+	if len(a.commandProduct.Load().registry.List()) != 155 {
 		t.Fatal("catalog count")
 	}
 	for _, id := range []string{commandChatSendID, commandChatRetryID, commandChatCancelID} {

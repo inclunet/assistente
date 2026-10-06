@@ -252,7 +252,7 @@ func commandBootstrapAssertReady(t *testing.T, a *App) {
 	a.commandCatalogAPI = wailsapi.NewCommandCatalog()
 	a.wireCommandCatalog()
 	items, err := a.commandCatalogAPI.ListCommands(apidto.CommandCatalogFilter{Source: "palette", Locale: "pt-BR"})
-	if err != nil || len(items) != 151 {
+	if err != nil || len(items) != 155 {
 		t.Fatalf("catálogo=%+v err=%v", items, err)
 	}
 	layerActions := 0
