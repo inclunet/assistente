@@ -9,10 +9,6 @@ weight: 1
 
 O Assistente suporta múltiplos provedores de LLM, tanto comerciais (cloud) quanto locais. Basta adicionar um provedor nas configurações (`Alt + 2`) e informar uma chave de API ou usar uma credencial já cadastrada para o domínio.
 
-A criação pelo formulário ou por um template recusa um identificador já
-cadastrado, inclusive quando o registro ainda não aparece na lista carregada.
-Para alterar um provedor cadastrado, abra sua edição. Uma tentativa recusada por
-identificador existente preserva o cadastro e as credenciais configuradas.
 ## Conectar sua conta ChatGPT
 
 Na página **Provedores**, escolha **Conectar ChatGPT**, dê um nome à autorização

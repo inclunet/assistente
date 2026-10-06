@@ -1,6 +1,6 @@
 # AEP-0113 — Compatibilidade de parâmetros por modelo e provedor
 
-Status: In Progress — fase 1 implementada e validada no PR #889; fases 2–3 pendentes
+Status: In Progress — fase 1 em revalidação no PR #889 após auditoria de escopo; fases 2–3 pendentes
 
 ## Resumo
 
@@ -256,16 +256,17 @@ na `main`.
 0. **Revisão documental — registrada neste documento.** Substituir a direção
    original do PR #887, alinhar o índice e orientar a retificação do #889.
    Nenhuma alteração de schema ou comportamento é entregue nesta revisão.
-1. **Persistência mínima — concluída no PR #889.** Hierarquia provedor →
+1. **Persistência mínima — em revalidação no PR #889.** Hierarquia provedor →
    modelo → capability/operação → campo, com estado atual de restrições,
    unicidade, autorização, revisão de conexão e recusa de gravações obsoletas;
    identidade de capability é imutável e não pode ser substituída via
    `INSERT OR REPLACE`. Sem histórico, catálogos externos, jobs ou infraestrutura
-   de vozes. Evidência: o commit `739757d6c` passou pelos 25 checks do CI e a
-   review automática do Copilot encerrou sem threads pendentes. A revisão local
-   independente do diff final não encontrou pendências. Os testes focados
-   adicionados nesta rodada foram executados pelo CI remoto; nenhum teste local
-   foi executado nesta rodada por orientação de Infosec.
+   de vozes. O escopo em revisão foi limitado à persistência de capabilities,
+   fields e invalidação pela revisão de compatibilidade; criação/reserva/rollback
+   de provedores e revisão genérica de configuração foram removidos por não
+   pertencerem a esta fase. A validação do head atual e a review automática
+   precisam ser renovadas. Nenhum teste ACP será executado localmente, conforme
+   orientação de Infosec.
 
 2. **Envio, aprendizado e retry — pendente.** Integrar o estado ao pipeline,
    capturar a revisão efetiva, classificar rejeições explícitas, persistir e
@@ -316,9 +317,10 @@ mantendo explícito que a fase 4 é uma proposta futura que exige nova decisão.
   revisão nova. O teste focado cobre gravação obsoleta e invalidação; integração
   da revisão ao snapshot efetivo do envio permanece na fase 2.
 - [x] A revisão de compatibilidade acompanha apenas endpoint, formato de API,
-  adaptador e modo de protocolo. Alterar a referência de credencial atualiza a
-  revisão de configuração, mas não invalida campos aprendidos.
-  `llm_provider_revision_guards_test.go` cobre a separação entre as revisões.
+  adaptador e modo de protocolo. Alterar a referência de credencial ou opções
+  gerais do provedor não avança essa revisão nem invalida campos aprendidos;
+  uma revisão genérica de configuração está fora da fase 1.
+  `llm_provider_revision_guards_test.go` cobre essas recusas de invalidação.
 - [ ] Rejeição explícita de parâmetro enviado e conhecido gera restrição e um
   retry seguro; o próximo envio omite o parâmetro sem repetir o erro.
 - [ ] Reconhecedores por provedor/formato aceitam apenas assinaturas

@@ -145,8 +145,8 @@ func TestAdoptLegacyDataAssignsBlankOwners(t *testing.T) {
 	if err := db.First(&adopted, "id = ?", provider.ID).Error; err != nil {
 		t.Fatal(err)
 	}
-	if adopted.CompatibilityRevision != provider.CompatibilityRevision || adopted.ConfigRevision != provider.ConfigRevision+1 {
-		t.Fatalf("ownership adoption changed provider revisions unexpectedly: before=%+v after=%+v", provider, adopted)
+	if adopted.CompatibilityRevision != provider.CompatibilityRevision {
+		t.Fatalf("ownership adoption changed compatibility revision unexpectedly: before=%d after=%d", provider.CompatibilityRevision, adopted.CompatibilityRevision)
 	}
 	var preservedField LLMModelCapabilityField
 	if err := db.First(&preservedField, "capability_id = ? AND field_code = ?", capability.ID, field.FieldCode).Error; err != nil {

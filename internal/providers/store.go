@@ -9,15 +9,6 @@ import (
 // ProviderStore abstrai operações de persistência de provedores LLM.
 // Implementado por database.LLMProviderStore; pode ser mockado em testes.
 type ProviderStore interface {
-	// Create insere um provedor e recusa qualquer ID já persistido.
-	Create(ctx context.Context, provider *llm.ProviderConfig) error
-
-	// RollbackCreate remove uma reserva não publicada, se a configuração não mudou.
-	RollbackCreate(ctx context.Context, provider *llm.ProviderConfig) error
-
-	// Exists consulta a identidade persistida antes dos efeitos da criação.
-	Exists(ctx context.Context, id string) (bool, error)
-
 	// Delete removes a generic provider, refusing OAuth consumers.
 	Delete(ctx context.Context, id string) error
 

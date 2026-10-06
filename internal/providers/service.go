@@ -365,11 +365,6 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*CreateResult,
 	if s.registry.Get(req.ID) != nil {
 		return nil, fmt.Errorf("provider com ID '%s' já existe", req.ID)
 	}
-	if exists, err := s.store.Exists(ctx, req.ID); err != nil {
-		return nil, err
-	} else if exists {
-		return nil, database.ErrLLMProviderAlreadyExists
-	}
 
 	// O agente não tem host: o que o endereça é o comando.
 	hostname := ""
@@ -382,6 +377,15 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*CreateResult,
 	}
 
 	credConfigured := false
+	if req.APIKey != "" {
+		if err := s.credMgr.RegisterPatternWithContext(ctx, hostname, &credentials.AuthConfig{Source: "static",
+			Type:  "bearer",
+			Token: req.APIKey,
+		}); err != nil {
+			return nil, fmt.Errorf("erro ao salvar credencial: %w", err)
+		}
+		credConfigured = true
+	}
 
 	if req.APIKey == "" && !isACP {
 		auth, err := s.credentialConfig(ctx, hostname)
@@ -411,17 +415,8 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*CreateResult,
 	if err := provider.Validate(); err != nil {
 		return nil, err
 	}
-	if err := s.store.Create(ctx, provider); err != nil {
+	if err := s.store.Save(ctx, []*llm.ProviderConfig{provider}); err != nil {
 		return nil, err
-	}
-	if req.APIKey != "" {
-		if err := s.credMgr.RegisterPatternWithContext(ctx, hostname, &credentials.AuthConfig{Source: "static",
-			Type:  "bearer",
-			Token: req.APIKey,
-		}); err != nil {
-			return nil, errors.Join(fmt.Errorf("erro ao salvar credencial: %w", err), s.store.RollbackCreate(ctx, provider))
-		}
-		credConfigured = true
 	}
 	if err := s.registry.Register(provider); err != nil {
 		return nil, fmt.Errorf("erro ao registrar provider: %w", err)

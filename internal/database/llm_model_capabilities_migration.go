@@ -22,11 +22,6 @@ func MigrateLLMModelCapabilities(db *gorm.DB) error {
 				return fmt.Errorf("adicionar revisão de compatibilidade do provedor: %w", err)
 			}
 		}
-		if !tx.Migrator().HasColumn(&LLMProvider{}, "ConfigRevision") {
-			if err := tx.Exec(`ALTER TABLE llm_providers ADD COLUMN config_revision INTEGER NOT NULL DEFAULT 1 CHECK (config_revision > 0)`).Error; err != nil {
-				return fmt.Errorf("adicionar revisão de configuração do provedor: %w", err)
-			}
-		}
 		for _, statement := range llmModelCapabilityDDL {
 			if err := tx.Exec(statement).Error; err != nil {
 				return err

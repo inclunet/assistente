@@ -17,10 +17,6 @@ import (
 // (UPSERT por PK).
 var ErrProviderCrossUser = errors.New("llm provider pertence a outro usuário")
 
-// ErrLLMProviderAlreadyExists indica que um provider com o mesmo ID já foi
-// criado. CreateLLMProvider nunca faz upsert.
-var ErrLLMProviderAlreadyExists = errors.New("llm provider já existe")
-
 // ErrProviderUserScopeMismatch indica que o payload tenta criar ou atualizar
 // o provedor no escopo de uma conta diferente da autenticada.
 var ErrProviderUserScopeMismatch = errors.New("llm provider user scope does not match authenticated user")
@@ -83,72 +79,15 @@ func (r *ProviderRepository) SaveLLMProvider(ctx context.Context, provider *LLMP
 			if providerCompatibilityChanged(&existing, provider) {
 				provider.CompatibilityRevision++
 			}
-			provider.ConfigRevision = existing.ConfigRevision
-			if provider.ConfigRevision < 1 {
-				provider.ConfigRevision = 1
-			}
-			if providerConfigurationChanged(&existing, provider) {
-				provider.ConfigRevision++
-			}
 		case errors.Is(err, gorm.ErrRecordNotFound):
 			if provider.CompatibilityRevision < 1 {
 				provider.CompatibilityRevision = 1
-			}
-			if provider.ConfigRevision < 1 {
-				provider.ConfigRevision = 1
 			}
 		default:
 			return err
 		}
 		return tx.Save(provider).Error
 	})
-}
-
-// CreateLLMProvider insere um provider sem sobrescrever um ID existente.
-// A consulta após conflito evita expor qualquer dado do registro que colidiu.
-func (r *ProviderRepository) CreateLLMProvider(ctx context.Context, provider *LLMProvider) error {
-	if err := RequireUserIDOrBootstrap(ctx); err != nil {
-		return err
-	}
-	if provider == nil {
-		return errors.New("llm provider inválido")
-	}
-	if userID, ok := UserIDFromContext(ctx); ok && provider.UserID != "" && provider.UserID != userID {
-		return ErrProviderUserScopeMismatch
-	}
-	if provider.UserID == "" {
-		if userID, ok := UserIDFromContext(ctx); ok {
-			provider.UserID = userID
-		}
-	}
-	if provider.CompatibilityRevision < 1 {
-		provider.CompatibilityRevision = 1
-	}
-	if provider.ConfigRevision < 1 {
-		provider.ConfigRevision = 1
-	}
-	if err := r.db.WithContext(ctx).Create(provider).Error; err != nil {
-		var count int64
-		if lookupErr := r.db.WithContext(ctx).Model(&LLMProvider{}).Where("id = ?", provider.ID).Count(&count).Error; lookupErr == nil && count > 0 {
-			return ErrLLMProviderAlreadyExists
-		}
-		return err
-	}
-	return nil
-}
-
-func providerConfigurationChanged(current, next *LLMProvider) bool {
-	if current == nil || next == nil {
-		return true
-	}
-	return current.UserID != next.UserID || current.Name != next.Name || current.Type != next.Type || current.IsDefault != next.IsDefault ||
-		current.APIFormat != next.APIFormat || current.BaseURL != next.BaseURL || current.Model != next.Model ||
-		current.DefaultModel != next.DefaultModel || current.Timeout != next.Timeout ||
-		current.StreamIdleTimeoutSeconds != next.StreamIdleTimeoutSeconds ||
-		current.CredentialPattern != next.CredentialPattern || current.AuthMode != next.AuthMode ||
-		current.ReasoningContentMode != next.ReasoningContentMode || current.ACPCommand != next.ACPCommand ||
-		current.ACPArgs != next.ACPArgs || current.ACPEnv != next.ACPEnv ||
-		current.ACPCredentialEnv != next.ACPCredentialEnv || current.ACPAgentID != next.ACPAgentID
 }
 
 func providerCompatibilityChanged(current, next *LLMProvider) bool {
@@ -296,23 +235,10 @@ func (r *ProviderRepository) SetDefaultProvider(ctx context.Context, id string) 
 		scope := func(query *gorm.DB) *gorm.DB {
 			return ScopeByUser(ctx, query, "user_id")
 		}
-		var target LLMProvider
-		if err := scope(tx).Where("id = ?", id).Take(&target).Error; err != nil {
+		if err := scope(tx.Model(&LLMProvider{})).Where("is_default = ?", true).Update("is_default", false).Error; err != nil {
 			return err
 		}
-		if err := scope(tx.Model(&LLMProvider{})).Where("is_default = ? AND id <> ?", true, id).Updates(map[string]any{
-			"is_default":      false,
-			"config_revision": gorm.Expr("config_revision + 1"),
-		}).Error; err != nil {
-			return err
-		}
-		if target.IsDefault {
-			return nil
-		}
-		return scope(tx.Model(&LLMProvider{})).Where("id = ? AND is_default = ?", id, false).Updates(map[string]any{
-			"is_default":      true,
-			"config_revision": gorm.Expr("config_revision + 1"),
-		}).Error
+		return scope(tx.Model(&LLMProvider{})).Where("id = ?", id).Update("is_default", true).Error
 	})
 }
 
