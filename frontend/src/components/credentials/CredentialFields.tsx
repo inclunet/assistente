@@ -11,12 +11,14 @@ export function CredentialFields({
   value,
   onChange,
   fixedType = false,
+  allowedTypes,
   allowOAuth = true,
   sourceRef,
 }: {
   value: CredentialDraft;
   onChange: (field: keyof CredentialDraft, value: unknown) => void;
   fixedType?: boolean;
+  allowedTypes?: string[];
   allowOAuth?: boolean;
   sourceRef?: Ref<HTMLSelectElement>;
 }) {
@@ -44,7 +46,7 @@ export function CredentialFields({
     { value: 'basic', label: t('credentials.types.basic') },
     { value: 'custom', label: t('credentials.types.custom') },
     { value: 'secret', label: t('credentials.types.secret') },
-  ];
+  ].filter(item => !allowedTypes || allowedTypes.includes(item.value));
 
   const invalidateSuggestionCache = useCallback(() => {
     cacheEpochRef.current += 1;

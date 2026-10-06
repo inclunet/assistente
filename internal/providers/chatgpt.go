@@ -334,7 +334,7 @@ func (s *Service) publishChatGPT(ctx context.Context, store oauthflow.Store, pro
 // updateChatGPTPreferences edits only consumer preferences. Authorization, client
 // registration and tokens remain owned by the shared OAuth lifecycle.
 func (s *Service) updateChatGPTPreferences(ctx context.Context, id string, req UpdateRequest) (*UpdateResult, error) {
-	if req.Type != "" || req.APIFormat != "" || req.BaseURL != "" || req.APIKey != "" ||
+	if req.Credential != nil || req.AuthMode != "" || req.Type != "" || req.APIFormat != "" || req.BaseURL != "" || req.APIKey != "" ||
 		req.ReasoningContentMode != "" || req.ACPCommand != "" || req.ACPArgs != nil ||
 		req.ACPEnv != nil || req.ACPCredentialEnv != nil || req.ACPAgentID != nil {
 		return nil, errors.New("chatgpt_use_oauth_connection")

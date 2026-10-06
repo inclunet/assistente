@@ -1,3 +1,7 @@
+vi.mock('@wailsjs/go/wailsapi/Credentials', () => ({
+ GetCredentialForURL: vi.fn(async () => null), ListCredentials: vi.fn(async () => []),
+ ListExternalSources: vi.fn(async () => []), UpsertCredential: vi.fn(),
+}));
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -324,8 +328,8 @@ describe('ProviderForm — provedor de agente de código', () => {
     expect(updateMock.mock.calls[0][1]).toMatchObject({
       type: 'acp', api_format: 'acp', acp_command: '/opt/cursor/agente', acp_args: ['acp'],
     });
-    expect(updateMock.mock.calls[0][1]).not.toHaveProperty('base_url');
-    expect(updateMock.mock.calls[0][1]).not.toHaveProperty('api_key');
+    expect(JSON.parse(JSON.stringify(updateMock.mock.calls[0][1]))).not.toHaveProperty('base_url');
+    expect(JSON.parse(JSON.stringify(updateMock.mock.calls[0][1]))).not.toHaveProperty('api_key');
 
   });
 
@@ -360,8 +364,8 @@ describe('ProviderForm — provedor de agente de código', () => {
     expect(updateMock.mock.calls[0][1]).toMatchObject({
       type: 'ollama', api_format: 'openai', base_url: 'http://localhost:11434',
     });
-    expect(updateMock.mock.calls[0][1]).not.toHaveProperty('acp_command');
-    expect(updateMock.mock.calls[0][1]).not.toHaveProperty('acp_args');
+    expect(JSON.parse(JSON.stringify(updateMock.mock.calls[0][1]))).not.toHaveProperty('acp_command');
+    expect(JSON.parse(JSON.stringify(updateMock.mock.calls[0][1]))).not.toHaveProperty('acp_args');
 
   });
 
@@ -409,7 +413,7 @@ describe('ProviderForm — provedor de agente de código', () => {
       acp_command: '/opt/cursor/agente',
       acp_args: ['acp', '--forcar'],
     });
-    expect(updateMock.mock.calls[0][1]).not.toHaveProperty('acp_env');
+    expect(JSON.parse(JSON.stringify(updateMock.mock.calls[0][1]))).not.toHaveProperty('acp_env');
   });
 
   it('trocar de agente limpa o comando do anterior e deixa a detecção do novo preencher', async () => {

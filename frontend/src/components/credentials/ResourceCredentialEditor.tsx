@@ -1,19 +1,23 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { GetCredentialForURL } from '@wailsjs/go/wailsapi/Credentials';
+import { GetCredentialForURL, ListCredentials } from '@wailsjs/go/wailsapi/Credentials';
 import { Button } from '../ui/Button';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { CredentialFields } from './CredentialFields';
 import { credentialFromSummary, newCredential, type CredentialDraft } from './credentialDraft';
 
 // Keyed by resource/type/consumer by its caller: edits never move to another destination.
-export function McpCredentialEditor({
+export function ResourceCredentialEditor({
   url,
   type,
+  pattern,
+  allowedTypes,
   onChange,
 }: {
   url: string;
   type: string;
+  pattern?: string;
+  allowedTypes?: string[];
   onChange: (draft: CredentialDraft | null) => void;
 }) {
   const { t } = useTranslation();
@@ -40,10 +44,16 @@ export function McpCredentialEditor({
   const [failed, setFailed] = useState(false);
   useEffect(() => {
     let active = true;
-    void GetCredentialForURL(url)
+    void Promise.resolve().then(async () => {
+      if (!pattern) return GetCredentialForURL(url);
+      return (await ListCredentials()).find(item => item.pattern === pattern);
+    })
       .then((existing) => {
         if (!active) return;
-        if (existing && !existing.managed) setDraft({ ...credentialFromSummary(existing), type });
+        if (existing?.managed) { setFailed(true); return; }
+        if (existing) setDraft({ ...credentialFromSummary(existing),
+          type: allowedTypes?.includes(existing.type) ? existing.type : type });
+        else if (pattern) setDraft(newCredential(pattern, type));
       })
       .catch(() => {
         if (active) setFailed(true);
@@ -54,7 +64,7 @@ export function McpCredentialEditor({
     return () => {
       active = false;
     };
-  }, [url, type]);
+  }, [url, type, pattern, allowedTypes]);
   useEffect(() => {
     if (failed) announce(t('credentials.sourceFields.loadError'), 'assertive');
   }, [failed, announce, t]);
@@ -82,7 +92,8 @@ export function McpCredentialEditor({
           <CredentialFields
             value={draft}
             sourceRef={sourceRef}
-            fixedType
+            fixedType={!allowedTypes}
+            allowedTypes={allowedTypes}
             allowOAuth={false}
             onChange={(field, value) => {
               setDraft((current) => ({ ...current, [field]: value }));

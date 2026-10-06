@@ -869,40 +869,6 @@ export namespace apidto {
 	        this.summarizing_in_progress = source["summarizing_in_progress"];
 	    }
 	}
-	export class CreateLLMProviderRequest {
-	    id: string;
-	    name: string;
-	    type: string;
-	    base_url: string;
-	    api_key?: string;
-	    default_model?: string;
-	    api_format?: string;
-	    reasoning_content_mode?: string;
-	    acp_command?: string;
-	    acp_args?: string[];
-	    acp_agent_id?: string;
-	    acp_credential_env?: Record<string, string>;
-	
-	    static createFrom(source: any = {}) {
-	        return new CreateLLMProviderRequest(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	        this.name = source["name"];
-	        this.type = source["type"];
-	        this.base_url = source["base_url"];
-	        this.api_key = source["api_key"];
-	        this.default_model = source["default_model"];
-	        this.api_format = source["api_format"];
-	        this.reasoning_content_mode = source["reasoning_content_mode"];
-	        this.acp_command = source["acp_command"];
-	        this.acp_args = source["acp_args"];
-	        this.acp_agent_id = source["acp_agent_id"];
-	        this.acp_credential_env = source["acp_credential_env"];
-	    }
-	}
 	export class CredentialInput {
 	    source: string;
 	    sourceConfig?: credentials.SourceConfig;
@@ -949,6 +915,63 @@ export namespace apidto {
 		    return a;
 		}
 	}
+	export class CreateLLMProviderRequest {
+	    credential?: CredentialInput;
+	    auth_mode?: string;
+	    id: string;
+	    name: string;
+	    type: string;
+	    base_url: string;
+	    api_key?: string;
+	    default_model?: string;
+	    api_format?: string;
+	    reasoning_content_mode?: string;
+	    acp_command?: string;
+	    acp_args?: string[];
+	    acp_agent_id?: string;
+	    acp_credential_env?: Record<string, string>;
+	
+	    static createFrom(source: any = {}) {
+	        return new CreateLLMProviderRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.credential = this.convertValues(source["credential"], CredentialInput);
+	        this.auth_mode = source["auth_mode"];
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.type = source["type"];
+	        this.base_url = source["base_url"];
+	        this.api_key = source["api_key"];
+	        this.default_model = source["default_model"];
+	        this.api_format = source["api_format"];
+	        this.reasoning_content_mode = source["reasoning_content_mode"];
+	        this.acp_command = source["acp_command"];
+	        this.acp_args = source["acp_args"];
+	        this.acp_agent_id = source["acp_agent_id"];
+	        this.acp_credential_env = source["acp_credential_env"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
 	export class CredentialSummary {
 	    username?: string;
 	    headerName?: string;
@@ -1591,6 +1614,9 @@ export namespace apidto {
 	    }
 	}
 	export class TestLLMProviderRequest {
+	    credential?: CredentialInput;
+	    auth_mode?: string;
+	    api_format?: string;
 	    type: string;
 	    base_url: string;
 	    api_key?: string;
@@ -1602,11 +1628,32 @@ export namespace apidto {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.credential = this.convertValues(source["credential"], CredentialInput);
+	        this.auth_mode = source["auth_mode"];
+	        this.api_format = source["api_format"];
 	        this.type = source["type"];
 	        this.base_url = source["base_url"];
 	        this.api_key = source["api_key"];
 	        this.provider_id = source["provider_id"];
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class ToolUsageBreakdown {
 	    toolName: string;
@@ -1736,6 +1783,8 @@ export namespace apidto {
 	}
 	
 	export class UpdateLLMProviderRequest {
+	    credential?: CredentialInput;
+	    auth_mode?: string;
 	    name?: string;
 	    type?: string;
 	    base_url?: string;
@@ -1754,6 +1803,8 @@ export namespace apidto {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.credential = this.convertValues(source["credential"], CredentialInput);
+	        this.auth_mode = source["auth_mode"];
 	        this.name = source["name"];
 	        this.type = source["type"];
 	        this.base_url = source["base_url"];
@@ -1766,6 +1817,24 @@ export namespace apidto {
 	        this.acp_agent_id = source["acp_agent_id"];
 	        this.acp_credential_env = source["acp_credential_env"];
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 
 }

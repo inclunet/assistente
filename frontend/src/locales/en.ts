@@ -2514,6 +2514,8 @@ const en = {
     },
 
     providerForm: {
+    authMode: 'Authentication',
+    authModes: { required: 'Required', optional: 'Optional', none: 'No authentication' },
       useSavedCredential: "Use the existing credential for this domain",
       savedCredentialHelp: "Configure the source in Credentials using the base URL hostname as the pattern. Leave the key empty to use that credential.",
       name: 'Name',

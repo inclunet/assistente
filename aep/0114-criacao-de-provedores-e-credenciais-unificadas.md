@@ -1,6 +1,6 @@
 # AEP-0114 — Criação de provedores e credenciais unificadas
 
-**Status:** In Progress
+**Status:** Done
 **Data:** 2026-10-05
 
 ## Resumo
@@ -45,7 +45,7 @@ separada do editor compartilhado usado por MCP.
 
 - [x] 1. Preferências e padrão ChatGPT, testes e documentação.
 - [x] 2. Menu de criação, separação API/ACP e comandos contextuais.
-- [ ] 3. Credenciais API pelo caminho compartilhado do CredManager.
+- [x] 3. Credenciais API pelo caminho compartilhado do CredManager.
 
 As entregas são PRs pequenos empilhados se necessário, com testes, revisão
 independente e CI/review remota sem pendências. O mantenedor faz o merge.
@@ -67,9 +67,9 @@ preservação de todos os consumidores quando editadas.
 - [x] Binding → resolvedor → apresentação/ação testado, incluindo recusas em
   outra página, sessão inválida, IME e modal superior.
 - [x] Formulário API não oferece ACP; edição de ACP preserva instalação/ambiente.
-- [ ] Fontes de credencial suportadas ficam no editor compartilhado, sem cópia
+- [x] Fontes de credencial suportadas ficam no editor compartilhado, sem cópia
   de token/configuração para o provedor nem alteração implícita de consumidores.
-- [ ] Documentação, testes locais e CI correspondem ao escopo; reviews zeradas.
+- [x] Documentação, testes locais e CI correspondem ao escopo; reviews zeradas.
 
 ## Evidências
 
@@ -94,5 +94,40 @@ Testes em `providerCreationCommands.test.tsx`, integração do Topbar,
 `app_command_page_presentation_test.go` e `ProviderForm.agent.test.tsx`
 cobrem os percursos e recusas. CI e revisão registrados no PR da fase.
 
-Fase 3 permanece pendente. AEP-0112 permanece Done: esta é uma evolução
-de experiência e configuração, não reabertura da migração OAuth.
+Fase 3: API e MCP usam `ResourceCredentialEditor` e os campos do CredManager.
+Fontes static, env, keyring e command são configuradas sem resolução ao salvar.
+HTTP aceita bearer/basic/custom; o SDK Google recebe somente token bearer.
+O modo required/optional/none é explícito e preservado também na duplicação.
+A consulta de modelos é solicitada pela pessoa e usa um manager efêmero para
+rascunhos, sem gravar no cofre. Salvar reaproveita `SaveWithConsumer` para
+persistir consumidor e credencial na mesma transação, com geração de sessão,
+snapshot e referência efetiva (incluindo aliases e wildcards) preservados.
+O modal bloqueia fechamento durante a gravação; respostas de URL, fonte ou
+consumidor anteriores são descartadas.
+
+Evidências: `credential_save_test.go` cobre fontes, rollback de ambos os lados,
+mudança de sessão, conflito de snapshot, preview sem persistência e troca de
+origem com autenticação desativada. `ProviderForm.credentials.test.tsx`,
+`ResourceCredentialEditor.test.tsx` e `ProvidersPage.test.tsx` cobrem o caminho
+compartilhado, aliases, duplicação e respostas tardias. O E2E
+`providers-creation.spec.ts` percorre menu, Ctrl+N, Tab/Shift+Tab, separação
+API/ACP e criação com fonte de ambiente. A documentação de configuração foi
+atualizada. Validação completa e revisão final são registradas no PR da fase.
+
+AEP-0112 permanece Done: esta é uma evolução de experiência e configuração,
+não reabertura da migração OAuth. Nenhuma nova migração ou reconexão é exigida.
+
+
+Validação local da fase 3: build/vet, 129 pacotes Go (incluindo app, 753 s),
+golangci-lint, TypeScript, ESLint, Stylelint e E2E Chromium aprovados.
+ACP/ACPRegistry não foram executados localmente por bloqueio do antivírus
+corporativo; o CI Linux cobre esses pacotes. A execução completa Vitest teve
+6.507 sucessos e três falhas temporais de comandos sob carga; o recheck de
+172 testes, incluindo esses três e as regressões adicionais, passou.
+Bindings foram regenerados pelo Wails. O inventário de AEPs está sincronizado.
+
+Revisor independente local: Codex `review_credential_sources`, quatro rodadas
+de código e uma conferência documental final, sem pendências. CI/review remota
+e ordem de merge estão nos PRs da pilha: #910, #911 e o PR de CredManager.
+O aceite manual de NVDA desta nova experiência continua disponível ao mantenedor;
+os percursos de teclado, foco e semântica possuem testes automatizados.

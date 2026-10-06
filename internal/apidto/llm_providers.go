@@ -3,14 +3,16 @@ package apidto
 // APIKey é exclusivamente valor static; fontes externas são configuradas no cofre.
 // CreateLLMProviderRequest é o payload Wails para criar um provedor LLM.
 type CreateLLMProviderRequest struct {
-	ID                   string `json:"id"`
-	Name                 string `json:"name"`
-	Type                 string `json:"type"`
-	BaseURL              string `json:"base_url"`
-	APIKey               string `json:"api_key,omitempty"`
-	DefaultModel         string `json:"default_model,omitempty"`
-	APIFormat            string `json:"api_format,omitempty"`
-	ReasoningContentMode string `json:"reasoning_content_mode,omitempty"`
+	Credential           *CredentialInput `json:"credential,omitempty"`
+	AuthMode             string           `json:"auth_mode,omitempty"`
+	ID                   string           `json:"id"`
+	Name                 string           `json:"name"`
+	Type                 string           `json:"type"`
+	BaseURL              string           `json:"base_url"`
+	APIKey               string           `json:"api_key,omitempty"`
+	DefaultModel         string           `json:"default_model,omitempty"`
+	APIFormat            string           `json:"api_format,omitempty"`
+	ReasoningContentMode string           `json:"reasoning_content_mode,omitempty"`
 	// ACPCommand e ACPArgs endereçam o agente de código quando APIFormat é
 	// acp: é o que substitui BaseURL e APIKey, que ali não existem
 	// (AEP-0084 D12).
@@ -34,21 +36,26 @@ type CreateLLMProviderRequest struct {
 
 // TestLLMProviderRequest é o payload Wails para testar um provedor LLM.
 type TestLLMProviderRequest struct {
-	Type       string `json:"type"`
-	BaseURL    string `json:"base_url"`
-	APIKey     string `json:"api_key,omitempty"`
-	ProviderID string `json:"provider_id,omitempty"`
+	Credential *CredentialInput `json:"credential,omitempty"`
+	AuthMode   string           `json:"auth_mode,omitempty"`
+	APIFormat  string           `json:"api_format,omitempty"`
+	Type       string           `json:"type"`
+	BaseURL    string           `json:"base_url"`
+	APIKey     string           `json:"api_key,omitempty"`
+	ProviderID string           `json:"provider_id,omitempty"`
 }
 
 // UpdateLLMProviderRequest é o payload Wails para atualizar um provedor LLM.
 type UpdateLLMProviderRequest struct {
-	Name                 string `json:"name,omitempty"`
-	Type                 string `json:"type,omitempty"`
-	BaseURL              string `json:"base_url,omitempty"`
-	APIKey               string `json:"api_key,omitempty"`
-	DefaultModel         string `json:"default_model,omitempty"`
-	APIFormat            string `json:"api_format,omitempty"`
-	ReasoningContentMode string `json:"reasoning_content_mode,omitempty"`
+	Credential           *CredentialInput `json:"credential,omitempty"`
+	AuthMode             string           `json:"auth_mode,omitempty"`
+	Name                 string           `json:"name,omitempty"`
+	Type                 string           `json:"type,omitempty"`
+	BaseURL              string           `json:"base_url,omitempty"`
+	APIKey               string           `json:"api_key,omitempty"`
+	DefaultModel         string           `json:"default_model,omitempty"`
+	APIFormat            string           `json:"api_format,omitempty"`
+	ReasoningContentMode string           `json:"reasoning_content_mode,omitempty"`
 	// ACPCommand segue a convenção dos demais campos daqui: vazio é "não
 	// mexer".
 	ACPCommand string `json:"acp_command,omitempty"`

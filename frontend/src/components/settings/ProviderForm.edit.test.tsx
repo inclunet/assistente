@@ -1,3 +1,7 @@
+vi.mock('@wailsjs/go/wailsapi/Credentials', () => ({
+ GetCredentialForURL: vi.fn(async () => null), ListCredentials: vi.fn(async () => []),
+ ListExternalSources: vi.fn(async () => []), UpsertCredential: vi.fn(),
+}));
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -82,8 +86,8 @@ describe("ProviderForm - Edição de API Key", () => {
       />
     );
 
-    expect(screen.getByText(/🔓 Alterar Chave/i)).toBeInTheDocument();
-    const apiKeyButtons = screen.getAllByRole("button").filter(btn => btn.textContent?.includes("Alterar"));
+    expect(screen.getByText('credentials.mcp.configure')).toBeInTheDocument();
+    const apiKeyButtons = screen.getAllByRole("button").filter(btn => btn.textContent?.includes("credentials.mcp.configure"));
     expect(apiKeyButtons.length).toBeGreaterThan(0);
   });
 
@@ -102,10 +106,10 @@ describe("ProviderForm - Edição de API Key", () => {
       />
     );
 
-    expect(screen.getByText(/🔑 Chave configurada no gerenciador de credenciais/i)).toBeInTheDocument();
+    expect(screen.getByText('credentials.mcp.sharedHint')).toBeInTheDocument();
   });
 
-  it("deve auto-carregar modelos ao abrir modo edição com provider_id", async () => {
+  it("deve carregar modelos somente sob pedido, com provider_id", async () => {
     render(
       <ProviderForm
         provider={{
@@ -120,6 +124,8 @@ describe("ProviderForm - Edição de API Key", () => {
       />
     );
 
+    expect(App.ListModelsRaw).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole('button', { name: /carregar modelos/i }));
     await waitFor(() => {
       expect(App.ListModelsRaw).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -150,14 +156,15 @@ describe("ProviderForm - Edição de API Key", () => {
       />
     );
 
-    const changeButton = screen.getByText(/🔓 Alterar Chave/i);
+    const changeButton = screen.getByText('credentials.mcp.configure');
+    await waitFor(() => expect(changeButton).toBeEnabled());
     await user.click(changeButton);
 
-    expect(screen.getByLabelText(/api key/i)).toBeInTheDocument();
-    expect(screen.queryByText(/🔓 Alterar Chave/i)).not.toBeInTheDocument();
+    expect(screen.getByLabelText('credentials.labels.token')).toBeInTheDocument();
+    expect(screen.queryByText('credentials.mcp.configure')).not.toBeInTheDocument();
   });
 
-  it("deve exibir campo de API Key imediatamente ao criar novo provedor", () => {
+  it("deve oferecer o editor compartilhado ao criar novo provedor", () => {
     render(
       <ProviderForm
         onCancel={() => {}}
@@ -165,8 +172,8 @@ describe("ProviderForm - Edição de API Key", () => {
       />
     );
 
-    expect(screen.getByLabelText(/api key/i)).toBeInTheDocument();
-    expect(screen.queryByText(/🔓 Alterar Chave/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('credentials.labels.token')).not.toBeInTheDocument();
+    expect(screen.getByText('credentials.mcp.configure')).toBeInTheDocument();
   });
 
   it("deve mostrar botão 'Alterar Chave' para provedores com key opcional", () => {
@@ -175,7 +182,7 @@ describe("ProviderForm - Edição de API Key", () => {
         provider={{
           id: "ollama-123",
           name: "Ollama Local",
-          type: "ollama",
+          type: "localai",
           base_url: "http://localhost:11434",
           api_key: "",
         }}
@@ -184,7 +191,7 @@ describe("ProviderForm - Edição de API Key", () => {
       />
     );
 
-    expect(screen.getByText(/🔓 Alterar Chave/i)).toBeInTheDocument();
+    expect(screen.getByText('credentials.mcp.configure')).toBeInTheDocument();
   });
 
   it("deve manter key oculta após alterar tipo de provedor se já estava em modo edição", async () => {
@@ -204,14 +211,14 @@ describe("ProviderForm - Edição de API Key", () => {
     );
 
     // Inicialmente mostra botão
-    expect(screen.getByText(/🔓 Alterar Chave/i)).toBeInTheDocument();
+    expect(screen.getByText('credentials.mcp.configure')).toBeInTheDocument();
 
     // Alterar tipo (não deve mostrar campo automaticamente)
     const typeSelect = screen.getByLabelText(/tipo/i);
     await user.selectOptions(typeSelect, "anthropic");
 
     // Ainda deve mostrar botão (não expôr campo automaticamente)
-    expect(screen.getByText(/🔓 Alterar Chave/i)).toBeInTheDocument();
+    expect(screen.getByText('credentials.mcp.configure')).toBeInTheDocument();
     // O input do tipo password não deve estar visível
     const passwordInputs = screen.queryAllByDisplayValue("");
     const apiKeyInput = passwordInputs.find(input => (input as HTMLInputElement).type === "password");
@@ -401,6 +408,7 @@ describe("ProviderForm - Ida e volta no tipo do provedor", () => {
         onSave={() => {}}
       />
     );
+    await user.click(screen.getByRole("button", { name: /carregar modelos/i }));
     await waitFor(() => expect(App.ListModelsRaw).toHaveBeenCalled());
 
     const typeSelect = screen.getByLabelText(/tipo/i);

@@ -322,6 +322,16 @@ describe('ProvidersPage', () => {
     });
   });
 
+  it.each([['custom', 'none'], ['ollama', 'required']])('preserva auth_mode ao duplicar %s/%s', async (type, auth_mode) => {
+    mockGetProviders.mockResolvedValue([{ id: 'api', name: 'API original', type, auth_mode,
+      api_format: 'openai', base_url: 'https://example.com', credential_status: 'configured' }]);
+    const user = userEvent.setup();
+    render(<ProvidersPage />);
+    await screen.findByText('API original');
+    await user.click(screen.getAllByRole('button', { name: 'Duplicar' }).find(button => !button.hasAttribute('disabled'))!);
+    await waitFor(() => expect(mockCreateProvider).toHaveBeenCalledWith(expect.objectContaining({ type, auth_mode })));
+  });
+
   it('leva o comando salvo do agente ao formulario de edicao', async () => {
     // Um provedor de agente é endereçado pelo comando, e não por URL: sem ele o
     // formulário mostraria menos do que está salvo e a validação barraria até
