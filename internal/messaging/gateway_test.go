@@ -67,6 +67,13 @@ func TestMain(m *testing.M) {
 	if err := database.Init(); err != nil {
 		panic(err)
 	}
+	if err := database.DB().Create(&database.User{
+		UUIDModel:    database.UUIDModel{ID: "test-owner"},
+		Username:     "test-owner",
+		PasswordHash: "test-only",
+	}).Error; err != nil {
+		panic(err)
+	}
 	channels.UseDatabase(database.DB())
 	contacts.UseDatabase(database.DB())
 
@@ -76,6 +83,43 @@ func TestMain(m *testing.M) {
 	_ = os.Chdir(oldWd)
 	_ = os.RemoveAll(tempDir)
 	os.Exit(code)
+}
+
+func seedLegacyChannelWithoutOwner(t *testing.T) {
+	t.Helper()
+	sqlDB, err := database.DB().DB()
+	if err != nil {
+		t.Fatalf("abrir pool do banco: %v", err)
+	}
+	connection, err := sqlDB.Conn(context.Background())
+	if err != nil {
+		t.Fatalf("reservar conexão do banco: %v", err)
+	}
+	foreignKeysDisabled := false
+	defer func() {
+		if foreignKeysDisabled {
+			_, _ = connection.ExecContext(context.Background(), "PRAGMA foreign_keys = ON")
+		}
+		_ = connection.Close()
+	}()
+	if _, err := connection.ExecContext(context.Background(), "PRAGMA foreign_keys = OFF"); err != nil {
+		t.Fatalf("preparar fixture legado: %v", err)
+	}
+	foreignKeysDisabled = true
+	now := time.Now().UTC()
+	if _, err := connection.ExecContext(context.Background(), `
+		INSERT INTO channels (
+			id, created_at, updated_at, user_id, type, slug, display_name, enabled,
+			profile, max_history, max_contacts, settings, bot_token_ref, app_token_ref, api_token_ref
+		) VALUES ('legacy-without-owner', ?, ?, '', 'telegram', 'telegram', 'Telegram', 1, '', 0, 1, '{}', '', '', '')
+	`, now, now); err != nil {
+		t.Fatalf("criar fixture de canal legado: %v", err)
+	}
+	if _, err := connection.ExecContext(context.Background(), "PRAGMA foreign_keys = ON"); err != nil {
+		t.Fatalf("restaurar foreign_keys após fixture: %v", err)
+	}
+	foreignKeysDisabled = false
+	channels.ClearOwnerCache()
 }
 
 func resetState(t *testing.T) {
@@ -330,12 +374,21 @@ func TestGateway_ReplyChatIDUsedForOutbound(t *testing.T) {
 // depois; até lá, falhar fechado é melhor que vazar para órfão.
 func TestGateway_LegacyChannelWithoutOwnerRejectsMessage(t *testing.T) {
 	resetState(t)
-
-	if err := channels.Save("telegram", &channels.ChannelConfig{Enabled: true, MaxContacts: 1}); err != nil {
-		t.Fatalf("erro ao salvar channel config: %v", err)
+	seedLegacyChannelWithoutOwner(t)
+	channelID, _, err := channels.ChannelIDBySlug("telegram")
+	if err != nil {
+		t.Fatalf("erro ao localizar canal legado: %v", err)
 	}
-	if err := contacts.Authorize("telegram", "123", "Fulano", "user", 1); err != nil {
-		t.Fatalf("erro ao autorizar contato: %v", err)
+	authorizedAt := time.Now().UTC()
+	if err := database.DB().Create(&database.ChannelContact{
+		UserID:       "test-owner",
+		ChannelID:    channelID,
+		ExternalID:   "123",
+		DisplayName:  "Fulano",
+		Username:     "user",
+		AuthorizedAt: &authorizedAt,
+	}).Error; err != nil {
+		t.Fatalf("erro ao criar contato fixture: %v", err)
 	}
 
 	called := 0
@@ -784,6 +837,13 @@ func TestGateway_ChannelOwnerScopesConversation(t *testing.T) {
 	resetState(t)
 
 	const ownerID = "user-ana"
+	if err := database.DB().Create(&database.User{
+		UUIDModel:    database.UUIDModel{ID: ownerID},
+		Username:     ownerID,
+		PasswordHash: "test-only",
+	}).Error; err != nil {
+		t.Fatalf("erro ao criar owner do teste: %v", err)
+	}
 	if err := channels.Save("telegram", &channels.ChannelConfig{
 		Enabled:     true,
 		MaxContacts: 1,

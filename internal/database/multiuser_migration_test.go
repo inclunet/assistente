@@ -91,13 +91,33 @@ func TestCredentialEntriesUniquePerUserPattern(t *testing.T) {
 
 func TestAdoptLegacyDataAssignsBlankOwners(t *testing.T) {
 	setupMultiUserTestDB(t)
+	if err := MigrateLLMModelCapabilities(db); err != nil {
+		t.Fatalf("migrate model capabilities: %v", err)
+	}
 
 	user := &User{Username: "admin", PasswordHash: "hash", Role: UserRoleAdmin, IsActive: true}
 	if err := db.Create(user).Error; err != nil {
 		t.Fatalf("create user: %v", err)
 	}
-	if err := db.Create(&LLMProvider{ID: "openai", Name: "OpenAI", Type: "openai", BaseURL: "https://api.openai.com/v1"}).Error; err != nil {
+	provider := &LLMProvider{ID: "openai", Name: "OpenAI", Type: "openai", BaseURL: "https://api.openai.com/v1"}
+	if err := db.Create(provider).Error; err != nil {
 		t.Fatalf("create provider: %v", err)
+	}
+	model := &LLMModel{ProviderID: provider.ID, RemoteID: "gpt-test", DisplayName: "Test model"}
+	if err := db.Create(model).Error; err != nil {
+		t.Fatalf("create legacy model: %v", err)
+	}
+	capability := &LLMModelCapability{ModelID: model.ID, CapabilityCode: "chat.completions"}
+	if err := db.Create(capability).Error; err != nil {
+		t.Fatalf("create legacy capability: %v", err)
+	}
+	field := &LLMModelCapabilityField{
+		CapabilityID: capability.ID, FieldCode: "temperature",
+		CompatibilityRevision: provider.CompatibilityRevision,
+		RecognizerID: "openai.chat.unsupported_parameter",
+	}
+	if err := db.Create(field).Error; err != nil {
+		t.Fatalf("create legacy field restriction: %v", err)
 	}
 	if err := db.Create(&Conversation{Title: "legacy"}).Error; err != nil {
 		t.Fatalf("create conversation: %v", err)
@@ -120,6 +140,21 @@ func TestAdoptLegacyDataAssignsBlankOwners(t *testing.T) {
 	assertOwnedRows(t, "conversations", user.ID)
 	assertOwnedRows(t, "credential_entries", user.ID)
 	assertOwnedRows(t, "task_lists", user.ID)
+
+	var adopted LLMProvider
+	if err := db.First(&adopted, "id = ?", provider.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if adopted.CompatibilityRevision != provider.CompatibilityRevision {
+		t.Fatalf("ownership adoption changed compatibility revision unexpectedly: before=%d after=%d", provider.CompatibilityRevision, adopted.CompatibilityRevision)
+	}
+	var preservedField LLMModelCapabilityField
+	if err := db.First(&preservedField, "capability_id = ? AND field_code = ?", capability.ID, field.FieldCode).Error; err != nil {
+		t.Fatalf("legacy field restriction was lost during ownership adoption: %v", err)
+	}
+	if preservedField.CompatibilityRevision != provider.CompatibilityRevision {
+		t.Fatalf("adoption changed the compatibility revision of the saved restriction: %+v", preservedField)
+	}
 }
 
 // TestAdoptLegacyData_OrphanWithExistingClaim cobre o cenário que travou

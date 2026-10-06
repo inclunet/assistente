@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 
+	"assistente/internal/llmcompat"
+
 	"gorm.io/gorm"
 )
 
@@ -14,6 +16,10 @@ import (
 // fechado (AEP-0052) para impedir hijack cross-user via reuso de ID no Save
 // (UPSERT por PK).
 var ErrProviderCrossUser = errors.New("llm provider pertence a outro usuário")
+
+// ErrProviderUserScopeMismatch indica que o payload tenta criar ou atualizar
+// o provedor no escopo de uma conta diferente da autenticada.
+var ErrProviderUserScopeMismatch = errors.New("llm provider user scope does not match authenticated user")
 
 // ProviderRepository encapsula a persistência de LLMProvider com um *gorm.DB
 // injetado, permitindo reuso em transações e testes sem depender da global db.
@@ -45,31 +51,69 @@ func (r *ProviderRepository) SaveLLMProvider(ctx context.Context, provider *LLMP
 	if err := RequireUserIDOrBootstrap(ctx); err != nil {
 		return err
 	}
-	if provider != nil && provider.UserID == "" {
+	if provider == nil {
+		return errors.New("llm provider inválido")
+	}
+	if userID, ok := UserIDFromContext(ctx); ok && provider.UserID != "" && provider.UserID != userID {
+		return ErrProviderUserScopeMismatch
+	}
+	if provider.UserID == "" {
 		if userID, ok := UserIDFromContext(ctx); ok {
 			provider.UserID = userID
 		}
 	}
-	// SECURITY (AEP-0052 / fail-closed): em contexto autenticado, impedir que o
-	// Save (UPSERT por PK) sobrescreva um provider existente pertencente a OUTRO
-	// usuário ao reutilizar seu ID — vetor de hijack cross-user. Registros órfãos
-	// (user_id="") permanecem adotáveis (AdoptLegacyData). O caminho bootstrap
-	// (sem userID no ctx) não dispara esta checagem.
-	if userID, ok := UserIDFromContext(ctx); ok && provider != nil && provider.ID != "" {
+	return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var existing LLMProvider
-		err := db.WithContext(ctx).Select("id", "user_id").First(&existing, "id = ?", provider.ID).Error
+		err := tx.First(&existing, "id = ?", provider.ID).Error
 		switch {
 		case err == nil:
-			if existing.UserID != "" && existing.UserID != userID {
+			// SECURITY (AEP-0052 / fail-closed): impedir que o Save (UPSERT por
+			// PK) sobrescreva provider de outro usuário ao reutilizar seu ID.
+			if userID, ok := UserIDFromContext(ctx); ok && existing.UserID != "" && existing.UserID != userID {
 				return ErrProviderCrossUser
 			}
+			provider.CompatibilityRevision = existing.CompatibilityRevision
+			if provider.CompatibilityRevision < 1 {
+				provider.CompatibilityRevision = 1
+			}
+			if providerCompatibilityChanged(&existing, provider) {
+				provider.CompatibilityRevision++
+			}
 		case errors.Is(err, gorm.ErrRecordNotFound):
-			// Sem registro pré-existente: criação normal.
+			if provider.CompatibilityRevision < 1 {
+				provider.CompatibilityRevision = 1
+			}
 		default:
 			return err
 		}
+		return tx.Save(provider).Error
+	})
+}
+
+func providerCompatibilityChanged(current, next *LLMProvider) bool {
+	if current == nil || next == nil {
+		return true
 	}
-	return db.WithContext(ctx).Save(provider).Error
+	return current.Type != next.Type ||
+		effectiveProviderAPIFormat(current) != effectiveProviderAPIFormat(next) ||
+		current.BaseURL != next.BaseURL ||
+		effectiveProviderReasoningContentMode(current) != effectiveProviderReasoningContentMode(next)
+}
+
+// As funções abaixo usam as mesmas regras efetivas do runtime para evitar
+// invalidar evidências só porque um default foi materializado no banco.
+func effectiveProviderAPIFormat(provider *LLMProvider) string {
+	if provider == nil {
+		return ""
+	}
+	return llmcompat.EffectiveAPIFormat(provider.Type, provider.APIFormat, provider.BaseURL)
+}
+
+func effectiveProviderReasoningContentMode(provider *LLMProvider) string {
+	if provider == nil {
+		return ""
+	}
+	return llmcompat.EffectiveReasoningContentMode(provider.ReasoningContentMode)
 }
 
 // GetLLMProvidersWithContext é a fachada de transição sobre a global db.
@@ -188,11 +232,13 @@ func (r *ProviderRepository) SetDefaultProvider(ctx context.Context, id string) 
 		return err
 	}
 	return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		scoped := ScopeByUser(ctx, tx.Model(&LLMProvider{}), "user_id")
-		if err := scoped.Where("is_default = ?", true).Update("is_default", false).Error; err != nil {
+		scope := func(query *gorm.DB) *gorm.DB {
+			return ScopeByUser(ctx, query, "user_id")
+		}
+		if err := scope(tx.Model(&LLMProvider{})).Where("is_default = ?", true).Update("is_default", false).Error; err != nil {
 			return err
 		}
-		return ScopeByUser(ctx, tx.Model(&LLMProvider{}), "user_id").Where("id = ?", id).Update("is_default", true).Error
+		return scope(tx.Model(&LLMProvider{})).Where("id = ?", id).Update("is_default", true).Error
 	})
 }
 

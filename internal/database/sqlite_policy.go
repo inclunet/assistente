@@ -46,6 +46,7 @@ func sqliteDSN(path string) string {
 	}
 	u := url.URL{Scheme: "file", Path: normalized}
 	q := url.Values{}
+	q.Add("_pragma", "foreign_keys(1)")
 	q.Add("_pragma", fmt.Sprintf("busy_timeout(%d)", sqliteBusyTimeout.Milliseconds()))
 	u.RawQuery = q.Encode()
 	return u.String()

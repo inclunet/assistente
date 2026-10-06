@@ -1,6 +1,6 @@
 # AEP-0113 — Compatibilidade de parâmetros por modelo e provedor
 
-Status: In Progress — escopo revisado; implementação do PR #889 a retificar
+Status: In Progress — fase 1 em revalidação no PR #889 após auditoria de escopo; fases 2–3 pendentes
 
 ## Resumo
 
@@ -71,6 +71,9 @@ llm_model_capabilities → llm_model_capability_fields`:
   `api_format`.
 - `llm_model_capabilities` delimita o contexto funcional em que os campos são
   enviados. Seu código é fechado e validado pelo domínio, não é texto livre.
+  O modelo e o código da capability formam sua identidade persistida e não
+  podem ser alterados depois da criação, para que restrições filhas não sejam
+  reinterpretadas em outro modelo ou contexto.
   Quando operações do mesmo tipo funcional aceitam parâmetros diferentes,
   recebem códigos de contexto distintos. A linha não afirma, por si só, que o
   modelo suporta uma capability; ela organiza a compatibilidade dos campos.
@@ -104,11 +107,12 @@ O provedor existente continua sendo a raiz de configuração e autorização.
 escopo do provedor; uma requisição de usuário não pode publicar restrições
 globais em provedores de sistema sem a autorização correspondente.
 
-Uma revisão não secreta de compatibilidade muda quando mudam endpoint, formato,
-adaptador ou identidade efetiva de conta/credencial. Trocar apenas nome ou modelo
-padrão não invalida restrições de outros modelos. Renovação de token na mesma
-conta não é, por si só, troca de identidade. Segredos não são armazenados ou
-hasheados para compor a revisão.
+Uma revisão não secreta de compatibilidade muda quando mudam endpoint, formato
+de API, adaptador ou modo de protocolo do provedor. O aprendizado pertence à
+relação entre provedor configurado, modelo remoto, capability/operação e campo.
+Referências e conteúdo de credenciais não participam dessa relação. Trocar nome,
+modelo padrão ou configuração de credencial não invalida restrições de outros
+modelos. Segredos não são armazenados ou hasheados para compor a revisão.
 
 A requisição captura a revisão da configuração efetivamente usada, não uma
 versão possivelmente desatualizada do registry. Mudanças de identidade
@@ -241,22 +245,29 @@ histórico de verificações e selagem de opções. As antigas fases de fontes/j
 e tarifas/custos foram retiradas, não permanecem como entregas pendentes.
 Se houver necessidade futura de custos, será discutida separadamente.
 
-Este PR é exclusivamente documental. Após seu merge pelo mantenedor, o PR #889
-deve incorporar a `main` revisada e retificar persistência, migrações e testes
-para este contrato antes de ser considerado pronto. O mantenedor confirmou
-que a branch não foi executada em instalações; suas migrações inéditas podem
-ser consolidadas sem suportar estados intermediários daquela branch. Isso não
-autoriza renumerar ou remover migrações já publicadas na `main`.
+O PR #889 retifica persistência, migrações e testes para este contrato. O
+mantenedor confirmou que a branch não foi executada em instalações; suas
+migrações inéditas podem ser consolidadas sem suportar estados intermediários
+daquela branch. Isso não autoriza renumerar ou remover migrações já publicadas
+na `main`.
 
 ## Fases
 
 0. **Revisão documental — registrada neste documento.** Substituir a direção
    original do PR #887, alinhar o índice e orientar a retificação do #889.
    Nenhuma alteração de schema ou comportamento é entregue nesta revisão.
-1. **Persistência mínima — pendente; PR #889 a retificar.** Hierarquia
-   provedor → modelo → capability/operação → campo, com estado atual de
-   restrições, unicidade, autorização, revisão de conexão e recusa de gravações
-   obsoletas. Sem histórico, catálogos externos, jobs ou infraestrutura de vozes.
+1. **Persistência mínima — em revalidação no PR #889.** Hierarquia provedor →
+   modelo → capability/operação → campo, com estado atual de restrições,
+   unicidade, autorização, revisão de conexão e recusa de gravações obsoletas;
+   identidade de capability é imutável e não pode ser substituída via
+   `INSERT OR REPLACE`. Sem histórico, catálogos externos, jobs ou infraestrutura
+   de vozes. O escopo em revisão foi limitado à persistência de capabilities,
+   fields e invalidação pela revisão de compatibilidade; criação/reserva/rollback
+   de provedores e revisão genérica de configuração foram removidos por não
+   pertencerem a esta fase. A validação do head atual e a review automática
+   precisam ser renovadas. Nenhum teste ACP será executado localmente, conforme
+   orientação de Infosec.
+
 2. **Envio, aprendizado e retry — pendente.** Integrar o estado ao pipeline,
    capturar a revisão efetiva, classificar rejeições explícitas, persistir e
    repetir uma vez com segurança; envios seguintes respeitam o aprendizado.
@@ -294,16 +305,22 @@ mantendo explícito que a fase 4 é uma proposta futura que exige nova decisão.
 
 - [x] Revisão documental explicita o novo escopo, substitui as exigências de
   histórico e remove fontes/jobs e custos; índice usa o mesmo título/status.
-- [ ] Restrições persistem entre sessões na hierarquia
+- [x] Restrições persistem entre sessões na hierarquia
   provedor/modelo/capability/operação/campo; repetir a rejeição atualiza a
-  mesma linha e não acumula histórico.
+  mesma linha e não acumula histórico. `llm_model_capabilities_test.go` valida
+  hierarquia, idempotência, isolamento e concorrência no PR #889.
 - [ ] Ausência de restrição não omite parâmetros nem oculta campos.
-- [ ] Autorização impede acesso entre usuários e publicação global indevida;
-  exclusão do provedor remove o estado dependente.
-- [ ] Troca de identidade invalida restrições e caches; uma resposta atrasada
-  não grava na nova revisão. Testar também concorrência entre troca e gravação.
-- [ ] O snapshot da requisição corresponde à revisão efetiva da conexão,
-  incluindo mudanças de credencial/conta, sem armazenar segredos no estado.
+- [x] Autorização impede acesso entre usuários e publicação global indevida;
+  exclusão do provedor remove o estado dependente. Coberto pelos testes focados
+  de escopo e cascata no PR #889.
+- [x] Troca de revisão invalida restrições e uma resposta atrasada não grava na
+  revisão nova. O teste focado cobre gravação obsoleta e invalidação; integração
+  da revisão ao snapshot efetivo do envio permanece na fase 2.
+- [x] A revisão de compatibilidade acompanha apenas endpoint, formato de API,
+  adaptador e modo de protocolo. Alterar a referência de credencial ou opções
+  gerais do provedor não avança essa revisão nem invalida campos aprendidos;
+  uma revisão genérica de configuração está fora da fase 1.
+  `llm_provider_revision_guards_test.go` cobre essas recusas de invalidação.
 - [ ] Rejeição explícita de parâmetro enviado e conhecido gera restrição e um
   retry seguro; o próximo envio omite o parâmetro sem repetir o erro.
 - [ ] Reconhecedores por provedor/formato aceitam apenas assinaturas
