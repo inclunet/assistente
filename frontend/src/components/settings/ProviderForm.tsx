@@ -1,5 +1,5 @@
 import { apidto } from '@wailsjs/go/models';
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react';
 import { WarningOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
@@ -114,6 +114,14 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
+  const savingStatus = useRef<HTMLParagraphElement>(null);
+  const saveReturnFocus = useRef<HTMLElement | null>(null);
+  const wasSaving = useRef(false);
+  useLayoutEffect(() => {
+    if (saving) savingStatus.current?.focus();
+    else if (wasSaving.current && saveReturnFocus.current?.isConnected && !saveReturnFocus.current.matches(':disabled')) saveReturnFocus.current.focus();
+    wasSaving.current = saving;
+  }, [saving]);
   const [apiTested, setApiTested] = useState(false);
 
   const [credentialDraft, setCredentialDraft] = useState<CredentialDraft | null>(null);
@@ -123,14 +131,17 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
   busyCallback.current = onBusyChange;
   useEffect(() => { busyCallback.current?.(saving); }, [saving]);
   useEffect(() => () => { loadSequence.current++; formSequence.current++; busyCallback.current?.(false); }, []);
-  const handleCredentialChange = useCallback((draft: CredentialDraft | null) => {
+  const invalidatePreview = useCallback(() => {
     loadSequence.current++;
-    setCredentialDraft(draft);
     setApiTested(false);
     setLoadingModels(false);
     setModelsLoaded(false);
     setModels([]);
   }, []);
+  const handleCredentialChange = useCallback((draft: CredentialDraft | null) => {
+    setCredentialDraft(draft);
+    invalidatePreview();
+  }, [invalidatePreview]);
 
   // Model loading states
   const [models, setModels] = useState<string[]>([]);
@@ -435,7 +446,11 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
   };
 
   const handleChange = (field: keyof ProviderFormData, value: string) => {
-    if (['base_url', 'api_format', 'auth_mode'].includes(field)) handleCredentialChange(null);
+    if (['base_url', 'api_format'].includes(field)) handleCredentialChange(null);
+    if (field === 'auth_mode') {
+      if (value === 'none' || (formData.auth_mode || defaultAuthMode(formData.type)) === 'none') handleCredentialChange(null);
+      else invalidatePreview();
+    }
     setFormData((prev) => ({ ...prev, [field]: value, ...(field === 'api_format' && value === 'google' ? { auth_mode: 'required' } : {}) }));
     // Limpa erro do campo
     if (errors[field]) {
@@ -564,6 +579,7 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
     if (saving || !validate()) return;
     const sequence = formSequence.current;
 
+    saveReturnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setSaving(true);
     try {
       // IMPORTANTE: Sempre usa a URL canônica ao salvar
@@ -725,7 +741,7 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
       </FormField>
       {authMode !== 'none' && <>
         <ResourceCredentialEditor
-          key={[provider?.id, getCanonicalUrl(formData.type), formData.api_format, authMode, boundPattern].join(':')}
+          key={[provider?.id, getCanonicalUrl(formData.type), formData.api_format, boundPattern].join(':')}
           url={getCanonicalUrl(formData.type)} pattern={boundPattern} type="bearer"
           allowedTypes={formData.api_format === 'google' ? undefined : HTTP_CREDENTIAL_TYPES}
           onChange={handleCredentialChange} />
@@ -787,6 +803,7 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
       )}
 
       </fieldset>
+      {saving && <p ref={savingStatus} tabIndex={0}>{t('common.saving')}</p>}
       <DialogActions
         className="provider-form__actions"
         primary={

@@ -6,7 +6,6 @@ import (
 	"assistente/internal/llm"
 	"context"
 	"sync"
-	"time"
 )
 
 // LLMProvidersHooks agrupa side effects do App que o bind não deve conhecer
@@ -122,9 +121,8 @@ func (p *LLMProviders) ListModelsRaw(req apidto.TestLLMProviderRequest) ([]strin
 		return nil, err
 	}
 	return WithUser(session, func(authCtx context.Context) ([]string, error) {
-		ctx, cancel := context.WithTimeout(authCtx, 15*time.Second)
-		defer cancel()
-		return ctrl.ListModelsRaw(ctx, req)
+		// The service budgets credential resolution and the model request together.
+		return ctrl.ListModelsRaw(authCtx, req)
 	})
 }
 

@@ -126,7 +126,7 @@ corporativo; o CI Linux cobre esses pacotes. A execução completa Vitest teve
 172 testes, incluindo esses três e as regressões adicionais, passou.
 Bindings foram regenerados pelo Wails. O inventário de AEPs está sincronizado.
 
-Revisor independente local: Codex `review_credential_sources`, seis rodadas
+Revisor independente local: Codex `review_credential_sources`, sete rodadas
 de código e uma conferência documental final, sem pendências. CI/review remota
 e ordem de merge estão nos PRs da pilha: #910, #911 e o PR de CredManager.
 O aceite manual de NVDA desta nova experiência continua disponível ao mantenedor;
@@ -156,3 +156,13 @@ providers/llm/controllers e os 141 testes focados frontend foram validados
 O teste específico de fallback passou; a limpeza do executável pelo Go encontrou
 um arquivo em uso no Windows, sem falha nas asserções. Artefatos permanecem sob
 build/bin; o CI Linux reexecuta o cenário.
+
+
+Terceira rodada remota: a troca de origem com APIKey explícita preserva o
+wildcard compartilhado; o bind Wails delega o prazo ao serviço, comprovado
+pelo percurso real Wails/controller/serviço com comando de 16 segundos.
+Google valida o tipo da credencial efetivamente referenciada sem executar a
+fonte. Alternar required/optional preserva o rascunho e invalida somente a
+prévia. Durante a gravação, o foco fica no estado de progresso dentro do
+Modal, que exclui controles desabilitados por fieldset; em falha, retorna
+ao controle anterior. A sétima revisão local independente não deixou achados.

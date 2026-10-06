@@ -319,6 +319,10 @@ No formulário de API, a credencial e a configuração do provedor são gravadas
 juntas. Se houver falha ou conflito de sessão/configuração, a transação é
 revertida; recarregue a configuração antes de tentar novamente. A interface
 aguarda o término da gravação e não anuncia um timeout enquanto ela continua.
+O foco permanece no aviso de gravação; em caso de falha, retorna ao controle
+anterior para permitir a correção. Alternar autenticação obrigatória/opcional
+preserva a credencial digitada, mas exige testar novamente. Escolher sem
+autenticação descarta o rascunho ainda não salvo.
 
 Chamadas antigas que enviam diretamente o campo `api_key`, fora do editor
 compartilhado, conservam o contrato anterior de gravações separadas. Nesse

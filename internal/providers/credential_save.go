@@ -45,7 +45,7 @@ func validateCredentialMode(p *llm.ProviderConfig, draft *CredentialSpec) error 
 
 // Resolve metadata only. An explicit existing reference wins on the same origin;
 // new destinations use the manager's effective pattern, including wildcards.
-func (s *Service) prepareCredential(ctx context.Context, p, existing *llm.ProviderConfig, draft *CredentialSpec) error {
+func (s *Service) prepareCredential(ctx context.Context, p, existing *llm.ProviderConfig, draft *CredentialSpec, explicitKey bool) error {
 	if err := validateCredentialMode(p, draft); err != nil {
 		return err
 	}
@@ -54,7 +54,7 @@ func (s *Service) prepareCredential(ctx context.Context, p, existing *llm.Provid
 	}
 	if existing != nil && sameCredentialOrigin(p.BaseURL, existing.BaseURL) && existing.CredentialPattern != "" {
 		p.CredentialPattern = existing.CredentialPattern
-	} else if mgr, ok := s.credMgr.(*credentials.Manager); ok {
+	} else if mgr, ok := s.credMgr.(*credentials.Manager); ok && !explicitKey {
 		pattern, err := mgr.PatternForURLWithContext(ctx, p.BaseURL)
 		if err != nil {
 			return err
@@ -65,6 +65,15 @@ func (s *Service) prepareCredential(ctx context.Context, p, existing *llm.Provid
 	}
 	if draft != nil && (draft.Pattern != p.CredentialPattern || credentials.IsManagedPattern(p.CredentialPattern) || (existing != nil && credentials.IsManagedPattern(existing.CredentialPattern))) {
 		return credentials.ErrCredentialResolution
+	}
+	if draft == nil && !explicitKey && p.GetAPIFormat() == llm.APIFormatGoogle {
+		auth, err := s.credentialConfig(ctx, p.CredentialPattern)
+		if err != nil {
+			return err
+		}
+		if auth != nil && auth.Type != "bearer" {
+			return credentials.ErrCredentialResolution
+		}
 	}
 	return nil
 }

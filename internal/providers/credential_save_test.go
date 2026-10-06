@@ -525,3 +525,53 @@ func TestProviderCredentialPreviewAllowsSlowCommand(t *testing.T) {
 		t.Fatalf("slow command preview: %v %v", models, err)
 	}
 }
+
+func TestProviderUpdateExplicitKeyPreservesSharedWildcard(t *testing.T) {
+	service, mgr, ctx := chatGPTTestService(t)
+	_, err := service.Create(ctx, CreateRequest{ID: "api", Name: "API", Type: "custom", BaseURL: "https://old.example.net/v1", APIKey: "old-key"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := mgr.RegisterPatternWithContext(ctx, "*.example.com", &credentials.AuthConfig{Source: "static", Type: "bearer", Token: "shared-key"}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := service.Update(ctx, "api", UpdateRequest{BaseURL: "https://new.example.com/v1", APIKey: "new-key"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Provider.CredentialPattern != "new.example.com" {
+		t.Fatalf("wrong reference: %s", got.Provider.CredentialPattern)
+	}
+	for pattern, token := range map[string]string{"*.example.com": "shared-key", "new.example.com": "new-key", "old.example.net": "old-key"} {
+		auth, err := mgr.GetByPatternWithContext(ctx, pattern)
+		if err != nil || auth.Token != token {
+			t.Fatalf("changed credential %s: %v", pattern, err)
+		}
+	}
+}
+
+func TestGoogleRejectsIncompatibleReferencedCredentialWithoutResolution(t *testing.T) {
+	for _, scheme := range []string{"basic", "custom"} {
+		t.Run(scheme, func(t *testing.T) {
+			service, mgr, ctx := chatGPTTestService(t)
+			auth := &credentials.AuthConfig{Source: "env", Type: scheme, Username: "user", Headers: map[string]string{"X-Key": "placeholder"}, SourceConfig: &credentials.SourceConfig{Env: "UNSET_GOOGLE_TEST_TOKEN"}}
+			if err := mgr.RegisterPatternWithContext(ctx, "*.googleapis.com", auth); err != nil {
+				t.Fatal(err)
+			}
+			req := CreateRequest{ID: "google", Name: "Google", Type: "google", BaseURL: "https://generativelanguage.googleapis.com", APIFormat: "google", AuthMode: "required"}
+			if _, err := service.Create(ctx, req); !errors.Is(err, credentials.ErrCredentialResolution) {
+				t.Fatalf("incompatible reference accepted: %v", err)
+			}
+			req.APIKey = "explicit-key"
+			if _, err := service.Create(ctx, req); err != nil {
+				t.Fatalf("explicit replacement rejected: %v", err)
+			}
+			req.ID = "google-draft"
+			req.APIKey = ""
+			req.Credential = &CredentialSpec{Pattern: "*.googleapis.com", Auth: &credentials.AuthConfig{Source: "env", Type: "bearer", SourceConfig: &credentials.SourceConfig{Env: "UNSET_GOOGLE_TEST_TOKEN"}}}
+			if _, err := service.Create(ctx, req); err != nil {
+				t.Fatalf("compatible draft rejected: %v", err)
+			}
+		})
+	}
+}

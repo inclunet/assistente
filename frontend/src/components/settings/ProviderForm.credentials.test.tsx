@@ -1,3 +1,5 @@
+import { useState } from 'react';
+import { Modal } from '../ui/Modal';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -144,4 +146,51 @@ describe('ProviderForm shared credentials', () => {
   expect(saved).toHaveBeenCalledOnce();
   expect(busy).toHaveBeenLastCalledWith(false);
  });
+});
+
+it('preserves a typed credential across required/optional and clears it for none', async () => {
+ render(<ProviderForm onSave={() => {}} onCancel={() => {}} />);
+ await configure();
+ await set('credentials.labels.token', 'unsaved-token');
+ for (const mode of ['optional', 'required']) {
+  await userEvent.click(screen.getByRole('button', { name: 'providerForm.loadModels' }));
+  await screen.findByText('providerForm.connected');
+  await set('providerForm.authMode', mode);
+  expect(screen.getByLabelText('credentials.labels.token')).toHaveValue('unsaved-token');
+  expect(screen.queryByText('providerForm.connected')).not.toBeInTheDocument();
+ }
+ await set('providerForm.authMode', 'none');
+ expect(screen.queryByLabelText('credentials.labels.token')).not.toBeInTheDocument();
+ await set('providerForm.authMode', 'required');
+ await configure();
+ expect(screen.getByLabelText('credentials.labels.token')).toHaveValue('');
+});
+
+it('contains focus in the real modal during save and restores it on failure', async () => {
+ const visibility = vi.spyOn(HTMLElement.prototype, 'offsetParent', 'get').mockReturnValue(document.body);
+ let reject!: (reason: Error) => void;
+ vi.mocked(CreateLLMProvider).mockReturnValue(new Promise((_, fail) => { reject = fail; }));
+ const close = vi.fn();
+ function Harness() {
+  const [busy, setBusy] = useState(false);
+  return <Modal isOpen title="Provider" onClose={close} allowClose={!busy}><ProviderForm onSave={() => {}} onCancel={close} onBusyChange={setBusy} /></Modal>;
+ }
+ try {
+  render(<Harness />);
+  await set('providerForm.name', 'API');
+  await userEvent.click(screen.getByRole('button', { name: 'providerForm.loadModels' }));
+  await screen.findByText('providerForm.connected');
+  const save = screen.getByRole('button', { name: 'common.create' });
+  await userEvent.click(save);
+  const status = screen.getAllByText('common.saving').find(el => el.tagName === 'P')!;
+  await waitFor(() => expect(status).toHaveFocus());
+  await userEvent.tab();
+  expect(status).toHaveFocus();
+  await userEvent.tab({ shift: true });
+  expect(status).toHaveFocus();
+  await act(async () => reject(new Error('save failed')));
+  await waitFor(() => expect(save).toHaveFocus());
+  expect(screen.getByLabelText(/providerForm.name/)).toBeEnabled();
+  expect(close).not.toHaveBeenCalled();
+ } finally { visibility.mockRestore(); }
 });

@@ -421,7 +421,7 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*CreateResult,
 	}
 	provider.AuthMode = llm.AuthMode(req.AuthMode)
 	normalizeProviderRuntimeDefaults(provider)
-	if err := s.prepareCredential(ctx, provider, nil, req.Credential); err != nil {
+	if err := s.prepareCredential(ctx, provider, nil, req.Credential, req.APIKey != ""); err != nil {
 		return nil, err
 	}
 	if req.APIKey != "" {
@@ -633,7 +633,7 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Up
 	if req.APIKey != "" && req.Credential != nil {
 		return nil, credentials.ErrCredentialResolution
 	}
-	if err := s.prepareCredential(ctx, updated, existing, req.Credential); err != nil {
+	if err := s.prepareCredential(ctx, updated, existing, req.Credential, req.APIKey != ""); err != nil {
 		return nil, err
 	}
 	// Conferir antes de mexer no registro: a troca é remover e registrar de
@@ -1084,7 +1084,7 @@ func (s *Service) ListModelsRaw(ctx context.Context, req ListModelsRawRequest) (
 
 	hostname := parsedURL.Hostname()
 	tempProvider := buildTempProviderForListModels(req, hostname, existingProvider)
-	if err := s.prepareCredential(ctx, tempProvider, existingProvider, req.Credential); err != nil {
+	if err := s.prepareCredential(ctx, tempProvider, existingProvider, req.Credential, req.APIKey != ""); err != nil {
 		return nil, err
 	}
 	cm, _ := s.credMgr.(*credentials.Manager)
