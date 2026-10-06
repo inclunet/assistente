@@ -1,3 +1,4 @@
+import { isProviderSettingsPath } from './commandAppPage';
 import { describe, expect, it } from 'vitest';
 import { APP_PAGES, isAppPage, resolveAppPage } from './commandAppPage';
 
@@ -24,5 +25,15 @@ describe('trusted application-page enum', () => {
     for (const invalidPage of [undefined, null, '', 'chat', 'tasklist', 'Settings', 'settings.commands', 'unknown']) {
       expect(isAppPage(invalidPage)).toBe(false);
     }
+  });
+});
+
+
+describe('provider settings route', () => {
+  it.each(['/settings', '/settings/', '/settings/providers', '/settings/providers/'])('accepts %s', path => {
+    expect(isProviderSettingsPath(path)).toBe(true);
+  });
+  it.each(['/', '/settings/data', '/settings/commands', '/settings/providers/extra', '/settings?tab=providers'])('rejects %s', path => {
+    expect(isProviderSettingsPath(path)).toBe(false);
   });
 });

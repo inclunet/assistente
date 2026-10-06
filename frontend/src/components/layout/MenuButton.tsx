@@ -85,6 +85,7 @@ export const MenuButton = forwardRef<MenuButtonRef, MenuButtonProps>(
     menu,
     openForTrigger,
     closeMenu,
+    closeMenuForTab,
     onSelectItem,
   } = useAnchoredContextMenu({
     onAfterSelect: () => {
@@ -133,7 +134,13 @@ export const MenuButton = forwardRef<MenuButtonRef, MenuButtonProps>(
   }));
 
   return (
-    <div className="menu-wrapper">
+    <div className="menu-wrapper" onKeyDownCapture={event => {
+      if (event.key !== 'Tab' || !menu.visible) return;
+      // Restaura a âncora antes de o navegador calcular Tab/Shift+Tab.
+      // Não cancela o gesto nem agenda foco que desfaça a navegação nativa.
+      event.stopPropagation();
+      closeMenuForTab();
+    }}>
       <button
         ref={menuButtonRef}
         type="button"

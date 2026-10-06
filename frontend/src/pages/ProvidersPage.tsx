@@ -426,32 +426,32 @@ export default function ProvidersPage() {
       {
         id: 'edit',
         label: t('providers.actions.edit', 'Editar'),
-        icon: <EditOutlined />,
+        icon: <EditOutlined aria-hidden="true" />,
         onClick: () => handleEditProvider(item),
       },
       ...((item as Provider).is_default ? [] : [{
         id: 'setDefault',
         label: t('providers.actions.setDefault', 'Tornar Padrão'),
-        icon: <StarOutlined />,
+        icon: <StarOutlined aria-hidden="true" />,
         onClick: () => handleSetDefault(item),
       }]),
       {
         id: 'duplicate',
         label: t('providers.actions.duplicate', 'Duplicar'),
-        icon: <CopyOutlined />,
+        icon: <CopyOutlined aria-hidden="true" />,
         onClick: () => handleDuplicateProvider(item),
       },
       {
         id: 'updateAgent',
         label: t('providers.actions.updateAgent', 'Atualizar agente'),
-        icon: <ReloadOutlined />,
+        icon: <ReloadOutlined aria-hidden="true" />,
         onClick: () => handleUpdateAgent(item),
         disabled: !canUpdate,
       },
       {
         id: 'delete',
         label: t('providers.actions.delete', 'Excluir'),
-        icon: <DeleteOutlined />,
+        icon: <DeleteOutlined aria-hidden="true" />,
         onClick: () => handleDeleteProvider(item),
         danger: true,
       },
@@ -471,6 +471,8 @@ export default function ProvidersPage() {
     [providers, searchTerm]
   );
 
+  const actionTarget = filteredRows.find(row => row.id === focusedRow?.id);
+
   const getRowId = useCallback((item: ProviderRow) => item.id, []);
   const handleFocusChange = useCallback((item: ProviderRow | null) => setFocusedRow(item), []);
 
@@ -488,6 +490,17 @@ export default function ProvidersPage() {
             searchPlaceholder={t('providers.search', 'Buscar provedores...')}
             searchValue={searchTerm}
             onSearchChange={setSearchTerm}
+            rightEnd={<MenuButton
+              buttonLabel={t('providers.actions.actions', 'Ações')}
+              contextKey={JSON.stringify([actionTarget, updatePlans, searchTerm])}
+              items={actionTarget
+                ? getProviderRowActions(actionTarget)
+                : [
+                  { id: 'edit', label: t('providers.actions.edit', 'Editar'), disabled: true },
+                  { id: 'duplicate', label: t('providers.actions.duplicate', 'Duplicar'), disabled: true },
+                  { id: 'delete', label: t('providers.actions.delete', 'Excluir'), disabled: true },
+                ]}
+            />}
             actions={[
               {
                 key: 'add',
@@ -498,25 +511,6 @@ export default function ProvidersPage() {
                 'aria-haspopup': 'menu',
                 'aria-expanded': creation.isOpen,
                 variant: 'primary',
-              },
-              {
-                key: 'edit',
-                label: t('providers.actions.edit', 'Editar'),
-                onClick: () => focusedRow && handleEditProvider(focusedRow),
-                disabled: !focusedRow,
-              },
-              {
-                key: 'duplicate',
-                label: t('providers.actions.duplicate', 'Duplicar'),
-                onClick: () => focusedRow && handleDuplicateProvider(focusedRow),
-                disabled: !focusedRow,
-              },
-              {
-                key: 'delete',
-                label: t('providers.actions.delete', 'Excluir'),
-                onClick: () => focusedRow && handleDeleteProvider(focusedRow),
-                disabled: !focusedRow,
-                variant: 'danger',
               },
             ]}
           />

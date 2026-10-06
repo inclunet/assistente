@@ -97,7 +97,7 @@ vi.mock('../hooks/useConfirm', () => ({
 }));
 
 vi.mock('../components/ui/Toolbar', () => ({
-  Toolbar: ({ left, actions }: { left?: ReactNode; actions?: Array<{ key: string; label: string; onClick?: () => void; disabled?: boolean }> }) => (
+  Toolbar: ({ left, actions, rightEnd }: { left?: ReactNode; rightEnd?: ReactNode; actions?: Array<{ key: string; label: string; onClick?: () => void; disabled?: boolean }> }) => (
     <div>
       {left}
       {actions?.map((action) => (
@@ -110,6 +110,7 @@ vi.mock('../components/ui/Toolbar', () => ({
           {action.label}
         </button>
       ))}
+      {rightEnd}
     </div>
   ),
 }));
@@ -282,7 +283,8 @@ describe('ProvidersPage', () => {
     render(<ProvidersPage />);
     await screen.findByText('ChatGPT');
     await user.click(screen.getByRole('button', { name: 'focus-first' }));
-    await user.click(screen.getByTestId('toolbar-action-edit'));
+    await user.click(screen.getByRole('button', { name: 'Ações' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Editar' }));
     await screen.findByRole('button', { name: 'chatgpt.reconnect' });
     await user.click(screen.getByRole('button', { name: 'chatgpt.disconnect' }));
     expect(screen.getByRole('button', { name: 'modal-close' })).toBeDisabled();
@@ -409,7 +411,8 @@ describe('ProvidersPage', () => {
     render(<ProvidersPage />);
     await screen.findByText('OpenAI');
     await user.click(screen.getByRole('button', { name: 'focus-first' }));
-    await user.click(screen.getByTestId('toolbar-action-delete'));
+    await user.click(screen.getByRole('button', { name: 'Ações' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Excluir' }));
     await waitFor(() => expect(mockAddToast).toHaveBeenCalledWith(key, 'error'));
   });
 
@@ -421,11 +424,13 @@ describe('ProvidersPage', () => {
       expect(screen.getByText('OpenAI')).toBeInTheDocument();
     });
 
-    const deleteButton = screen.getByTestId('toolbar-action-delete');
-    expect(deleteButton).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: 'Ações' }));
+    expect(screen.getByRole('menuitem', { name: 'Excluir' })).toBeDisabled();
+    await user.keyboard('{Escape}');
 
     await user.click(screen.getByRole('button', { name: 'focus-first' }));
-    await user.click(deleteButton);
+    await user.click(screen.getByRole('button', { name: 'Ações' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Excluir' }));
 
     await waitFor(() => {
       expect(mockDeleteProvider).toHaveBeenCalledWith('openai-1');
