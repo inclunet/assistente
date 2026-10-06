@@ -105,4 +105,23 @@ test('Ações da toolbar reutiliza o menu da linha e permite editar e duplicar p
   await expect(page.getByRole('menuitem', { name: 'Duplicar', exact: true })).toBeDisabled();
   await page.keyboard.press('Escape');
   await expect(actions).toBeFocused();
+  const search = page.getByRole('textbox', { name: 'Buscar provedores...' });
+  // Grave os destinos nativos com o menu fechado; compare ambos os sentidos.
+  for (const key of ['Tab', 'Shift+Tab']) {
+    await actions.focus();
+    await page.keyboard.press(key);
+    const expected = await page.evaluate(() => {
+      const el = document.activeElement;
+      return el?.outerHTML;
+    });
+    await actions.click();
+    await expect(page.getByRole('menu')).toBeFocused();
+    await page.keyboard.press(key);
+    await expect(page.getByRole('menu')).toHaveCount(0);
+    await expect.poll(() => page.evaluate(() => document.activeElement?.outerHTML)).toBe(expected);
+    // Uma restauração atrasada não pode roubar o foco após a navegação.
+    await search.focus();
+    await page.keyboard.press('x');
+    await expect(search).toBeFocused();
+  }
 });

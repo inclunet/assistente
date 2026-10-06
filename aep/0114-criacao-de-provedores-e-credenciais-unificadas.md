@@ -229,3 +229,10 @@ executar itens desabilitados (`Menu.test.tsx` e E2E da lista filtrada).
 Revisão independente desta correção: Codex `review_credential_sources`, duas
 rodadas e conferências finais, sem pendências. Frontend completo: 505 arquivos,
 6.564 testes aprovados; após o ajuste de foco, 67 regressões e dois E2E aprovados.
+
+Revisão remota: `MenuButton` fecha Tab/Shift+Tab na captura, restaura a
+âncora sincronicamente e deixa o navegador avançar, sem restauração atrasada.
+Regressão E2E compara os destinos com o Tab nativo do botão fechado.
+
+Terceira rodada de revisão independente, após o comentário remoto sobre Tab:
+zero pendências. TypeScript/ESLint, 69 regressões e os dois E2E aprovados.
