@@ -112,7 +112,7 @@ export function useProviderCreationCommands(options: {
       };
       clearTimeout(timer.current);
       timer.current = setTimeout(fail, 5000);
-      void listCommandCatalog({ locale: presentation.current.locale, source: 'palette' }).then(catalog => {
+      void Promise.resolve().then(() => listCommandCatalog({ locale: presentation.current.locale, source: 'palette' })).then(catalog => {
         if (!valid()) return;
         clearTimeout(timer.current);
         if ((document.activeElement !== focus && !menuHost.current?.contains(document.activeElement)) || !buttonRef.current) { cancel(); return; }

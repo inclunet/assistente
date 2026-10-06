@@ -106,6 +106,7 @@ export function buildWailsMockScript(): string {
     // responsible for deciding whether a presentation is available now.
     localPaletteCommands: [
       'command_settings.create.open',
+      'providers.create.open', 'providers.api.create.open', 'providers.acp.create.open', 'providers.chatgpt.create.open',
       'tasklists.create.open',
       'tasklists.edit.open',
       'tasklists.search.focus',
@@ -994,6 +995,7 @@ export function buildWailsMockScript(): string {
       App: makeProxy('main.App'),
     },
     wailsapi: {
+      CommandCatalog: makeProxy('wailsapi.CommandCatalog'),
       Probe: makeProxy('wailsapi.Probe'),
       Tokens: makeProxy('wailsapi.Tokens'),
       Skills: makeProxy('wailsapi.Skills'),

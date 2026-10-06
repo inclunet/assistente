@@ -93,6 +93,11 @@ const reasoningContentModeOptions = (t: TFunction) => [
 const isAgentForm = (data: Pick<ProviderFormData, 'type' | 'api_format'>): boolean =>
   (data.api_format || PROVIDER_CONFIG[data.type]?.apiFormat || '') === AGENT_API_FORMAT;
 
+// Mirror normalizeProviderACP: historical/custom types with ACP format use the
+// single ACP preset, preserving their command, arguments and vault references.
+const canonicalFormType = (data: Pick<ProviderFormData, 'type' | 'api_format'>) =>
+  isAgentForm(data) ? 'acp' : data.type;
+
 export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider) ? 'acp' : 'api', onSave, onCancel }: ProviderFormProps) => {
   const { t, i18n } = useTranslation();
   const { announce } = useAnnouncer();
@@ -266,7 +271,7 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
       setFormData({
         id: provider.id,
         name: provider.name,
-        type: provider.type,
+        type: canonicalFormType(provider),
         base_url: provider.base_url,
         api_key: '',
         default_model: provider.default_model || '',
@@ -330,7 +335,7 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
     if (provider && !modelsLoaded && !loadingModels) {
       loadModels({
         id: provider.id,
-        type: provider.type,
+        type: canonicalFormType(provider),
         base_url: provider.base_url,
         default_model: provider.default_model,
         api_format: provider.api_format,
@@ -349,7 +354,7 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
     const savedConfig = PROVIDER_CONFIG[provider.type] || PROVIDER_CONFIG.custom;
     setFormData((prev) => ({
       ...prev,
-      type: provider.type,
+      type: canonicalFormType(provider),
       api_format: provider.api_format ?? savedConfig.apiFormat ?? '',
       reasoning_content_mode: provider.reasoning_content_mode
         ?? savedConfig.reasoningContentMode
@@ -392,7 +397,7 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
     const nextIsAgent = (config.apiFormat || '') === AGENT_API_FORMAT;
     const leavingAgent = isAgent && !nextIsAgent;
 
-    if (provider && nextType === provider.type) {
+    if (provider && nextType === canonicalFormType(provider)) {
       restoreSavedProvider();
       return;
     }

@@ -292,11 +292,7 @@ describe('ProviderForm — provedor de agente de código', () => {
     expect(onSave).not.toHaveBeenCalled();
   });
 
-  it('edição de agente não oferece API e preserva comando e argumentos', async () => {
-    // O tipo é editável na edição, e o formato é quem decide a forma do
-    // formulário e o caminho de gravação: se ele não acompanhasse a troca, a
-    // pessoa continuaria vendo campos de agente e gravaria um provedor HTTP
-    // pelo pipeline do agente.
+  it.each(['acp', 'custom'])('edição de agente %s normaliza o preset e preserva comando e argumentos', async type => {
     detectMock.mockResolvedValue(detected);
     listModelsMock.mockResolvedValue(['llama3']);
     const user = userEvent.setup();
@@ -306,7 +302,7 @@ describe('ProviderForm — provedor de agente de código', () => {
         provider={{
           id: 'cursor-1',
           name: 'Cursor local',
-          type: 'acp',
+          type,
           base_url: '',
           api_key: '',
           api_format: 'acp',
@@ -320,6 +316,7 @@ describe('ProviderForm — provedor de agente de código', () => {
     );
     await screen.findByLabelText(/comando do agente/i);
 
+    expect(screen.getByLabelText(/tipo/i)).toHaveValue('acp');
     expect(screen.queryByRole('option', { name: /ollama/i })).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/base url/i)).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: /atualizar/i }));

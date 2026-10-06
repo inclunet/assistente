@@ -108,8 +108,9 @@ describe('Provider creation menu with real presentation registry', () => {
     expect(mocks.announce).toHaveBeenCalledWith('commandPalette.error', 'assertive');
   });
 
-  it('announces catalog failure without opening or executing a choice', async () => {
-    mocks.catalog.mockRejectedValue(new Error('unavailable'));
+  it.each(['rejection', 'synchronous'])('announces catalog failure without executing a choice (%s)', async failure => {
+    if (failure === 'synchronous') mocks.catalog.mockImplementation(() => { throw new Error('unavailable'); });
+    else mocks.catalog.mockRejectedValue(new Error('unavailable'));
     render(<Harness />); await userEvent.click(screen.getByRole('button', { name: 'New provider' }));
     await waitFor(() => expect(mocks.announce).toHaveBeenCalledWith('commandPalette.error', 'assertive'));
     expect(screen.queryByRole('menu')).not.toBeInTheDocument();
