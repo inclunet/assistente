@@ -575,3 +575,72 @@ func TestGoogleRejectsIncompatibleReferencedCredentialWithoutResolution(t *testi
 		})
 	}
 }
+
+func TestProviderDuplicatePreservesScopedAliasWithoutRewritingCredential(t *testing.T) {
+	service, mgr, ctx := chatGPTTestService(t)
+	source := &llm.ProviderConfig{ID: "original", Name: "Original", Type: llm.ProviderCustom, APIFormat: llm.APIFormatOpenAI, BaseURL: "https://example.com/v1", AuthMode: llm.AuthModeRequired, CredentialPattern: "shared-alias"}
+	if err := service.store.Save(ctx, []*llm.ProviderConfig{source}); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.registry.Register(source); err != nil {
+		t.Fatal(err)
+	}
+	auth := &credentials.AuthConfig{Source: "command", Type: "bearer", SourceConfig: &credentials.SourceConfig{Command: "must-not-execute", TimeoutSeconds: 30}}
+	if err := mgr.RegisterPatternWithContext(ctx, source.CredentialPattern, auth); err != nil {
+		t.Fatal(err)
+	}
+	req := CreateRequest{ID: "copy", Name: "Copy", Type: "custom", APIFormat: "openai", BaseURL: source.BaseURL, AuthMode: "required", CredentialFromProviderID: source.ID}
+	got, err := service.Create(ctx, req)
+	if err != nil || got.Provider.CredentialPattern != "shared-alias" || !got.CredentialConfigured {
+		t.Fatalf("duplicate: %v %v", got, err)
+	}
+	config, err := mgr.GetConfigByPatternWithContext(ctx, "shared-alias")
+	if err != nil || config.Source != "command" || config.SourceConfig.Command != "must-not-execute" {
+		t.Fatalf("credential changed: %v", err)
+	}
+	if _, err := service.Create(database.WithUserID(ctx, "another-user"), CreateRequest{ID: "foreign", Name: "Foreign", Type: "custom", APIFormat: "openai", BaseURL: source.BaseURL, CredentialFromProviderID: source.ID}); err == nil {
+		t.Fatal("foreign source accepted")
+	}
+	for _, change := range []func(*CreateRequest){
+		func(r *CreateRequest) { r.BaseURL = "https://other.example/v1" },
+		func(r *CreateRequest) { r.Type = "google" },
+		func(r *CreateRequest) { r.APIFormat = "anthropic" },
+		func(r *CreateRequest) { r.APIKey = "must-not-write" },
+		func(r *CreateRequest) {
+			r.Credential = &CredentialSpec{Pattern: "shared-alias", Auth: &credentials.AuthConfig{Source: "static", Type: "bearer", Token: "must-not-write"}}
+		},
+	} {
+		attempt := req
+		attempt.ID = "invalid"
+		change(&attempt)
+		if _, err := service.Create(ctx, attempt); err == nil {
+			t.Fatal("invalid credential source accepted")
+		}
+	}
+}
+
+func TestProviderCredentialCanonicalHostnamePreviewAndSave(t *testing.T) {
+	service, mgr, ctx := chatGPTTestService(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer token" {
+			t.Error("missing draft token")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"id":"model"}]}`))
+	}))
+	defer server.Close()
+	base := strings.Replace(server.URL, "127.0.0.1", "LOCALHOST", 1)
+	draft := &CredentialSpec{Pattern: "localhost", Auth: &credentials.AuthConfig{Source: "static", Type: "bearer", Token: "token"}}
+	models, err := service.ListModelsRaw(ctx, ListModelsRawRequest{Type: "custom", APIFormat: "openai", BaseURL: base, Credential: draft})
+	if err != nil || len(models) != 1 {
+		t.Fatalf("preview: %v %v", models, err)
+	}
+	got, err := service.Create(ctx, CreateRequest{ID: "mixed-case", Name: "Mixed", Type: "custom", APIFormat: "openai", BaseURL: base, Credential: draft})
+	if err != nil || got.CredentialPattern != "localhost" {
+		t.Fatalf("save: %v %v", got, err)
+	}
+	stored, err := mgr.GetConfigByPatternWithContext(ctx, "localhost")
+	if err != nil || stored == nil {
+		t.Fatalf("missing canonical credential: %v", err)
+	}
+}

@@ -126,7 +126,7 @@ corporativo; o CI Linux cobre esses pacotes. A execução completa Vitest teve
 172 testes, incluindo esses três e as regressões adicionais, passou.
 Bindings foram regenerados pelo Wails. O inventário de AEPs está sincronizado.
 
-Revisor independente local: Codex `review_credential_sources`, oito rodadas
+Revisor independente local: Codex `review_credential_sources`, dez rodadas
 de código e uma conferência documental final, sem pendências. CI/review remota
 e ordem de merge estão nos PRs da pilha: #910, #911 e o PR de CredManager.
 O aceite manual de NVDA desta nova experiência continua disponível ao mantenedor;
@@ -170,3 +170,18 @@ ao controle anterior. A sétima revisão local independente não deixou achados.
 Quarta rodada remota: trocar o tipo de provedor remonta o editor mesmo quando
 URL e protocolo coincidem. A regressão Custom/LocalAI comprova que a credencial
 visual descartada não reaparece e que o novo rascunho segue no teste e na gravação.
+
+Quinta rodada remota: o editor restaura os metadados salvos ao escolher manter
+a credencial, apagando segredos estáticos digitados e descartados. Hostnames
+novos derivados de URL são normalizados para minúsculas em criação e prévia,
+sem renomear aliases/padrões existentes. A duplicação informa o ID do provedor
+de origem; o backend relê esse consumidor no escopo do usuário e exige mesmo
+tipo, protocolo e origem antes de preservar sua referência, sem regravar segredo.
+O apontamento sobre o rótulo Bearer foi refutado: os três locales já usam
+Bearer token, agora também cobertos por asserções. Bindings regenerados pelo Wails.
+
+Na nona revisão local, o revisor detectou que o endpoint de metadados ainda
+retornava hostname novo com maiúsculas. A correção e o teste integrado
+GetCredentialForURL → ListModelsRaw → Create → duplicação por alias foram
+validados na décima revisão, sem pendências. Suítes providers/controllers/
+wailsapi, 48 testes frontend, E2E Chromium, tsc/eslint e build/vet/lint aprovados.

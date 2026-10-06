@@ -1,3 +1,6 @@
+import ptBR from '../../locales/pt-BR';
+import en from '../../locales/en';
+import es from '../../locales/es';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import axe from 'axe-core';
@@ -99,4 +102,26 @@ describe('ResourceCredentialEditor', () => {
     expect(screen.getByRole('button')).toBeDisabled();
     expect(changed).toHaveBeenLastCalledWith(null);
   });
+});
+
+it.each([ptBR, en, es])('names Bearer explicitly in each supported locale', locale => {
+ expect(locale.translation.credentials.types.bearer).toMatch(/Bearer/);
+});
+it.each(['env', 'static'])('restores saved %s metadata after keeping the existing credential', async source => {
+ vi.mocked(GetCredentialForURL).mockResolvedValue({ pattern: 'example.com', type: 'bearer', source,
+  sourceConfig: source === 'env' ? { env: 'SAVED_TOKEN' } : undefined, masked: '******',
+ } as Awaited<ReturnType<typeof GetCredentialForURL>>);
+ const changed = vi.fn();
+ render(<ResourceCredentialEditor url="https://example.com" type="bearer" onChange={changed} />);
+ const open = screen.getByRole('button', { name: 'credentials.mcp.configure' });
+ await waitFor(() => expect(open).toBeEnabled());
+ fireEvent.click(open);
+ const label = source === 'env' ? 'credentials.sourceFields.envName' : 'credentials.labels.token';
+ fireEvent.change(screen.getByLabelText(label), { target: { value: 'DISCARDED_TOKEN' } });
+ fireEvent.click(screen.getByRole('button', { name: 'credentials.mcp.keepExisting' }));
+ expect(changed).toHaveBeenLastCalledWith(null);
+ fireEvent.click(screen.getByRole('button', { name: 'credentials.mcp.configure' }));
+ expect(screen.getByLabelText(label)).toHaveValue(source === 'env' ? 'SAVED_TOKEN' : '');
+ expect(changed).toHaveBeenLastCalledWith(expect.objectContaining({ token: source === 'env' ? 'SAVED_TOKEN' : '' }));
+ expect(UpsertCredential).not.toHaveBeenCalled();
 });

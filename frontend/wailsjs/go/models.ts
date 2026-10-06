@@ -916,6 +916,7 @@ export namespace apidto {
 		}
 	}
 	export class CreateLLMProviderRequest {
+	    credential_from_provider_id?: string;
 	    credential?: CredentialInput;
 	    auth_mode?: string;
 	    id: string;
@@ -937,6 +938,7 @@ export namespace apidto {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.credential_from_provider_id = source["credential_from_provider_id"];
 	        this.credential = this.convertValues(source["credential"], CredentialInput);
 	        this.auth_mode = source["auth_mode"];
 	        this.id = source["id"];

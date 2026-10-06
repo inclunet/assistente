@@ -107,7 +107,7 @@ func ExtractHostname(baseURL string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("base_url inválido: %w", err)
 	}
-	host := parsed.Hostname()
+	host := strings.ToLower(parsed.Hostname())
 	if host == "" {
 		return "", fmt.Errorf("host não encontrado no base_url")
 	}
@@ -203,16 +203,17 @@ func (s *Service) EnsureDefault(ctx context.Context) {
 
 // CreateRequest contém os dados para criar um provedor.
 type CreateRequest struct {
-	Credential           *CredentialSpec
-	AuthMode             string
-	ID                   string
-	Name                 string
-	Type                 string
-	APIFormat            string
-	BaseURL              string
-	APIKey               string
-	DefaultModel         string
-	ReasoningContentMode string
+	CredentialFromProviderID string
+	Credential               *CredentialSpec
+	AuthMode                 string
+	ID                       string
+	Name                     string
+	Type                     string
+	APIFormat                string
+	BaseURL                  string
+	APIKey                   string
+	DefaultModel             string
+	ReasoningContentMode     string
 	// ACPCommand, ACPArgs e ACPEnv valem quando APIFormat é acp: é assim que
 	// o agente de código é endereçado, no lugar de BaseURL e APIKey.
 	ACPCommand string
@@ -334,6 +335,9 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*CreateResult,
 		s.publicationMu.Lock()
 		defer s.publicationMu.Unlock()
 	}
+	if req.CredentialFromProviderID != "" && (req.Credential != nil || req.APIKey != "") {
+		return nil, credentials.ErrCredentialResolution
+	}
 	scope, err := s.captureCredentialSave(ctx, req.Credential)
 	if err != nil {
 		return nil, err
@@ -421,7 +425,11 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*CreateResult,
 	}
 	provider.AuthMode = llm.AuthMode(req.AuthMode)
 	normalizeProviderRuntimeDefaults(provider)
-	if err := s.prepareCredential(ctx, provider, nil, req.Credential, req.APIKey != ""); err != nil {
+	source, err := s.credentialSourceProvider(ctx, provider, req.CredentialFromProviderID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.prepareCredential(ctx, provider, source, req.Credential, req.APIKey != ""); err != nil {
 		return nil, err
 	}
 	if req.APIKey != "" {
@@ -1082,7 +1090,7 @@ func (s *Service) ListModelsRaw(ctx context.Context, req ListModelsRawRequest) (
 		existingProvider = s.registry.Get(req.ProviderID)
 	}
 
-	hostname := parsedURL.Hostname()
+	hostname := strings.ToLower(parsedURL.Hostname())
 	tempProvider := buildTempProviderForListModels(req, hostname, existingProvider)
 	if err := s.prepareCredential(ctx, tempProvider, existingProvider, req.Credential, req.APIKey != ""); err != nil {
 		return nil, err

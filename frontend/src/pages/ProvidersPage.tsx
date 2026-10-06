@@ -241,6 +241,7 @@ export default function ProvidersPage() {
       await CreateLLMProvider(apidto.CreateLLMProviderRequest.createFrom({
         id: `${provider.type}-${Date.now()}`,
         name,
+        credential_from_provider_id: provider.api_format === AGENT_API_FORMAT ? undefined : provider.id,
         type: provider.type,
         base_url: provider.base_url,
         api_format: (provider as Provider).api_format || undefined,

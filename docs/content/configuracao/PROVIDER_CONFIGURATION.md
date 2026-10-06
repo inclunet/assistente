@@ -28,6 +28,13 @@ Ao editar, API e ACP mantêm seus respectivos formulários. Para outro tipo de
 conexão, crie outro provedor. Os cadastros existentes continuam funcionando;
 esta reorganização não exige migração nem nova autenticação.
 
+Ao duplicar um provedor API, a cópia reutiliza a referência da credencial do
+original, incluindo aliases que não correspondem ao hostname. O segredo
+continua no mesmo registro do CredManager. No editor, **Manter credencial
+existente** descarta as alterações ainda não salvas; reabrir restaura os
+metadados salvos, sem exibir segredos estáticos.
+
+
 ## Conectar sua conta ChatGPT
 
 Na página **Provedores**, escolha **Novo provedor → Conectar conta ChatGPT**, dê um nome à autorização

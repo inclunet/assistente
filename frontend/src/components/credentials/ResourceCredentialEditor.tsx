@@ -33,6 +33,7 @@ export function ResourceCredentialEditor({
     /* Incomplete URL. */
   }
   const [draft, setDraft] = useState(() => newCredential(hostname, type));
+  const savedDraft = useRef(draft);
   const [editing, setEditing] = useState(false);
   const sourceRef = useRef<HTMLSelectElement>(null);
   const configureRef = useRef<HTMLButtonElement>(null);
@@ -53,9 +54,10 @@ export function ResourceCredentialEditor({
       .then((existing) => {
         if (!active) return;
         if (existing?.managed) { setFailed(true); return; }
-        if (existing) setDraft({ ...credentialFromSummary(existing),
-          type: allowedTypes?.includes(existing.type) ? existing.type : type });
-        else if (pattern) setDraft(newCredential(pattern, type));
+        const metadata = existing ? { ...credentialFromSummary(existing),
+          type: allowedTypes?.includes(existing.type) ? existing.type : type } : newCredential(pattern || hostname, type);
+        savedDraft.current = metadata;
+        setDraft(metadata);
       })
       .catch(() => {
         if (active) setFailed(true);
@@ -66,7 +68,7 @@ export function ResourceCredentialEditor({
     return () => {
       active = false;
     };
-  }, [url, type, pattern, allowedTypes]);
+  }, [url, hostname, type, pattern, allowedTypes]);
   useEffect(() => {
     if (failed) announce(t('credentials.sourceFields.loadError'), 'assertive');
   }, [failed, announce, t]);
@@ -116,6 +118,7 @@ export function ResourceCredentialEditor({
           type="button"
             variant="ghost"
             onClick={() => {
+              setDraft(savedDraft.current);
               setEditing(false);
             }}
           >

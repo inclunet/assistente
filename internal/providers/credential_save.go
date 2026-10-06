@@ -174,3 +174,32 @@ func (s *Service) saveWithCredential(ctx context.Context, p, expected *llm.Provi
 	}
 	return publishErr
 }
+
+// Duplication accepts a scoped consumer ID, never an arbitrary credential alias.
+func (s *Service) credentialSourceProvider(ctx context.Context, target *llm.ProviderConfig, sourceID string) (*llm.ProviderConfig, error) {
+	if sourceID == "" {
+		return nil, nil
+	}
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return nil, err
+	}
+	source, err := s.store.Get(ctx, sourceID)
+	if err != nil {
+		return nil, err
+	}
+	if source == nil || source.IsACP() || target.IsACP() || source.Type == llm.ProviderChatGPT ||
+		source.Type != target.Type || source.GetAPIFormat() != target.GetAPIFormat() ||
+		!sameCredentialOrigin(source.BaseURL, target.BaseURL) || credentials.IsManagedPattern(source.CredentialPattern) {
+		return nil, credentials.ErrCredentialResolution
+	}
+	if source.CredentialPattern != "" {
+		auth, err := s.credentialConfig(ctx, source.CredentialPattern)
+		if err != nil {
+			return nil, err
+		}
+		if auth != nil && auth.Source == "oauth" {
+			return nil, credentials.ErrCredentialResolution
+		}
+	}
+	return source, nil
+}

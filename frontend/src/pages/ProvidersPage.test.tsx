@@ -324,12 +324,12 @@ describe('ProvidersPage', () => {
 
   it.each([['custom', 'none'], ['ollama', 'required']])('preserva auth_mode ao duplicar %s/%s', async (type, auth_mode) => {
     mockGetProviders.mockResolvedValue([{ id: 'api', name: 'API original', type, auth_mode,
-      api_format: 'openai', base_url: 'https://example.com', credential_status: 'configured' }]);
+      api_format: 'openai', base_url: 'https://example.com', credential_pattern: 'shared-alias', credential_status: 'configured' }]);
     const user = userEvent.setup();
     render(<ProvidersPage />);
     await screen.findByText('API original');
     await user.click(screen.getAllByRole('button', { name: 'Duplicar' }).find(button => !button.hasAttribute('disabled'))!);
-    await waitFor(() => expect(mockCreateProvider).toHaveBeenCalledWith(expect.objectContaining({ type, auth_mode })));
+    await waitFor(() => expect(mockCreateProvider).toHaveBeenCalledWith(expect.objectContaining({ type, auth_mode, credential_from_provider_id: 'api' })));
   });
 
   it('leva o comando salvo do agente ao formulario de edicao', async () => {

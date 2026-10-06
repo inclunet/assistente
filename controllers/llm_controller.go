@@ -170,7 +170,8 @@ func (c *LLMController) CreateLLMProvider(ctx context.Context, req CreateLLMProv
 		return nil, err
 	}
 	res, err := c.providerSvc.Create(ctx, providers.CreateRequest{
-		Credential: credential, AuthMode: req.AuthMode,
+		CredentialFromProviderID: req.CredentialFromProviderID,
+		Credential:               credential, AuthMode: req.AuthMode,
 		ID:                   req.ID,
 		Name:                 req.Name,
 		Type:                 req.Type,
