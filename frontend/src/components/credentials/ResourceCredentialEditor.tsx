@@ -79,6 +79,7 @@ export function ResourceCredentialEditor({
       {failed && <p>{t('credentials.sourceFields.loadError')}</p>}
       {!editing ? (
         <Button
+          type="button"
           ref={configureRef}
           disabled={loading || failed || !hostname}
           onClick={() => {
@@ -100,6 +101,7 @@ export function ResourceCredentialEditor({
             }}
           />
           <Button
+          type="button"
             variant="ghost"
             onClick={() => {
               setEditing(false);

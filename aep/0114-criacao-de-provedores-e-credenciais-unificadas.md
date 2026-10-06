@@ -126,8 +126,20 @@ corporativo; o CI Linux cobre esses pacotes. A execução completa Vitest teve
 172 testes, incluindo esses três e as regressões adicionais, passou.
 Bindings foram regenerados pelo Wails. O inventário de AEPs está sincronizado.
 
-Revisor independente local: Codex `review_credential_sources`, quatro rodadas
+Revisor independente local: Codex `review_credential_sources`, cinco rodadas
 de código e uma conferência documental final, sem pendências. CI/review remota
 e ordem de merge estão nos PRs da pilha: #910, #911 e o PR de CredManager.
 O aceite manual de NVDA desta nova experiência continua disponível ao mantenedor;
 os percursos de teclado, foco e semântica possuem testes automatizados.
+
+Revisão remota da fase 3: o backend também recusa modos não obrigatórios no SDK
+Google; referências de APIKey explícita e status seguem a entrada efetiva,
+e portas HTTP/HTTPS padrão são equivalentes na comparação de origem.
+Botões do editor não submetem o formulário. A reserva de geração do registry
+coordena Clear até commit/publicação; edições e exclusão genéricas compartilham
+a trava de publicação. Testes controlam o intervalo posterior ao commit e
+comprovam ausência de erro tardio, ressurgimento ou sobrescrita de consumidor.
+Os sete comentários da rodada foram tratados juntos no PR #912.
+Validação da rodada remota: suítes providers/llm/controllers, testes de
+autenticação/recarga/provedores em app, 35 testes frontend e E2E aprovados.
+A revisão independente do delta consolidado terminou sem pendências.

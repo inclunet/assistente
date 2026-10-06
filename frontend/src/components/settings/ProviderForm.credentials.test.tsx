@@ -43,6 +43,15 @@ describe('ProviderForm shared credentials', () => {
   expect(vi.mocked(CreateLLMProvider).mock.calls[0][0].credential).toEqual(preview.credential);
   expect(UpsertCredential).not.toHaveBeenCalled();
  });
+ it('does not submit when configuring or keeping a credential', async () => {
+  const submitted = vi.fn();
+  const { container } = render(<ProviderForm onSave={() => {}} onCancel={() => {}} />);
+  container.querySelector('form')!.addEventListener('submit', submitted);
+  await configure();
+  await userEvent.click(screen.getByRole('button', { name: 'credentials.mcp.keepExisting' }));
+  expect(submitted).not.toHaveBeenCalled();
+  expect(CreateLLMProvider).not.toHaveBeenCalled();
+ });
  it('invalidates testing on source changes and discards a late result after URL change', async () => {
   let resolve!: (models: string[]) => void;
   vi.mocked(ListModelsRaw).mockReturnValue(new Promise(done => { resolve = done; }));

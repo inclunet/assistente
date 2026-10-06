@@ -330,6 +330,10 @@ func normalizeProviderRuntimeDefaults(p *llm.ProviderConfig) {
 
 // Create cria e registra um novo provedor LLM.
 func (s *Service) Create(ctx context.Context, req CreateRequest) (*CreateResult, error) {
+	if req.Credential == nil {
+		s.publicationMu.Lock()
+		defer s.publicationMu.Unlock()
+	}
 	scope, err := s.captureCredentialSave(ctx, req.Credential)
 	if err != nil {
 		return nil, err
@@ -397,11 +401,6 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*CreateResult,
 		credConfigured = true
 	}
 
-	if req.APIKey == "" && !isACP {
-		auth, err := s.credentialConfig(ctx, hostname)
-		credConfigured = err == nil && auth != nil && auth.Source != ""
-	}
-
 	isFirst := len(s.registry.List()) == 0
 	provider := &llm.ProviderConfig{
 		ID:                   req.ID,
@@ -424,6 +423,12 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*CreateResult,
 	normalizeProviderRuntimeDefaults(provider)
 	if err := s.prepareCredential(ctx, provider, nil, req.Credential); err != nil {
 		return nil, err
+	}
+	if req.APIKey != "" {
+		provider.CredentialPattern = hostname
+	} else if !isACP && req.Credential == nil {
+		auth, err := s.credentialConfig(ctx, provider.CredentialPattern)
+		credConfigured = err == nil && auth != nil && auth.Source != ""
 	}
 
 	if err := provider.Validate(); err != nil {
@@ -498,6 +503,17 @@ type UpdateResult struct {
 
 // Update atualiza um provedor LLM existente.
 func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*UpdateResult, error) {
+	// Draft saves acquire this lock around their transaction after preflight.
+	// Other edits must serialize their entire snapshot/read/write/publication.
+	locked := req.Credential == nil
+	if locked {
+		s.publicationMu.Lock()
+	}
+	defer func() {
+		if locked {
+			s.publicationMu.Unlock()
+		}
+	}()
 	scope, err := s.captureCredentialSave(ctx, req.Credential)
 	if err != nil {
 		return nil, err
@@ -508,6 +524,10 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Up
 	}
 
 	if existing.Type == llm.ProviderChatGPT {
+		if locked {
+			s.publicationMu.Unlock()
+			locked = false
+		}
 		return s.updateChatGPTPreferences(ctx, id, req)
 	}
 
@@ -659,6 +679,8 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Up
 
 // Delete remove um provedor do registry.
 func (s *Service) Delete(ctx context.Context, id string) error {
+	s.publicationMu.Lock()
+	defer s.publicationMu.Unlock()
 	provider := s.registry.Get(id)
 	if provider == nil {
 		return fmt.Errorf("provider '%s' não encontrado", id)
@@ -1293,7 +1315,20 @@ func sameCredentialOrigin(a, b string) bool {
 	if err != nil {
 		return false
 	}
-	return strings.EqualFold(u.Scheme, v.Scheme) && strings.EqualFold(u.Host, v.Host)
+	port := func(u *url.URL) string {
+		if p := u.Port(); p != "" {
+			return p
+		}
+		switch strings.ToLower(u.Scheme) {
+		case "https":
+			return "443"
+		case "http":
+			return "80"
+		default:
+			return ""
+		}
+	}
+	return strings.EqualFold(u.Scheme, v.Scheme) && strings.EqualFold(u.Hostname(), v.Hostname()) && port(u) == port(v)
 }
 
 func (s *Service) applyProbeAuth(ctx context.Context, req TestRequest, target *http.Request) error {

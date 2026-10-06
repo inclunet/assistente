@@ -4,13 +4,17 @@ import (
 	"assistente/internal/credentials"
 	"assistente/internal/database"
 	"assistente/internal/llm"
+	"assistente/internal/oauthflow"
 	"context"
 	"errors"
 	"gorm.io/gorm"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 )
 
 func vaultProviderRequest(auth *credentials.AuthConfig) CreateRequest {
@@ -281,5 +285,208 @@ func TestProviderCredentialLegacyAPIKeyPreviewWithAliasOrWildcard(t *testing.T) 
 				t.Fatal("preview changed reference")
 			}
 		})
+	}
+}
+
+type pausedCredentialStore struct {
+	inner     credentialConsumerStore
+	committed chan struct{}
+	release   chan struct{}
+}
+
+func (s *pausedCredentialStore) SaveWithConsumer(ctx context.Context, pattern string, auth *credentials.AuthConfig, retire *oauthflow.Record, update func(*gorm.DB) error, publish func()) error {
+	return s.inner.SaveWithConsumer(ctx, pattern, auth, retire, update, func() {
+		close(s.committed)
+		<-s.release
+		publish()
+	})
+}
+
+func TestProviderCredentialCommitPublicationSerializesMutations(t *testing.T) {
+	for _, mutation := range []string{"clear", "update", "delete"} {
+		t.Run(mutation, func(t *testing.T) {
+			service, mgr, ctx := chatGPTTestService(t)
+			req := vaultProviderRequest(&credentials.AuthConfig{Source: "static", Type: "bearer", Token: "old"})
+			if _, err := service.Create(ctx, req); err != nil {
+				t.Fatal(err)
+			}
+			expected := service.registry.Get("api")
+			next := *expected
+			next.Name = "Committed"
+			draft := &CredentialSpec{Pattern: "example.com", Auth: &credentials.AuthConfig{Source: "static", Type: "bearer", Token: "new"}}
+			scope, err := service.captureCredentialSave(ctx, draft)
+			if err != nil {
+				t.Fatal(err)
+			}
+			paused := &pausedCredentialStore{inner: scope.store, committed: make(chan struct{}), release: make(chan struct{})}
+			scope.store = paused
+			var once sync.Once
+			release := func() { once.Do(func() { close(paused.release) }) }
+			defer release()
+			saved := make(chan error, 1)
+			go func() { saved <- service.saveWithCredential(ctx, &next, expected, draft, scope) }()
+			select {
+			case <-paused.committed:
+			case <-time.After(10 * time.Second):
+				t.Fatal("commit not reached")
+			}
+			changed := make(chan error, 1)
+			started := make(chan struct{})
+			go func() {
+				close(started)
+				switch mutation {
+				case "clear":
+					service.registry.Clear()
+					changed <- nil
+				case "update":
+					_, err := service.Update(ctx, "api", UpdateRequest{DefaultModel: "concurrent-model"})
+					changed <- err
+				case "delete":
+					changed <- service.Delete(ctx, "api")
+				}
+			}()
+			<-started
+			select {
+			case err := <-changed:
+				t.Fatalf("mutation crossed commit/publication boundary: %v", err)
+			case <-time.After(30 * time.Millisecond):
+			}
+			release()
+			if err := <-saved; err != nil {
+				t.Fatalf("save reported error after commit: %v", err)
+			}
+			if err := <-changed; err != nil {
+				t.Fatal(err)
+			}
+			auth, err := mgr.GetByPatternWithContext(ctx, "example.com")
+			if err != nil || auth.Token != "new" {
+				t.Fatal("credential not committed")
+			}
+			stored, err := service.store.Get(ctx, "api")
+			switch mutation {
+			case "clear":
+				if err != nil || stored.Name != "Committed" || service.registry.Get("api") != nil {
+					t.Fatal("late publication into cleared registry")
+				}
+			case "update":
+				published := service.registry.Get("api")
+				if err != nil || published == nil || stored.Name != "Committed" || stored.DefaultModel != "concurrent-model" || published.DefaultModel != stored.DefaultModel {
+					t.Fatal("lost newer state")
+				}
+			case "delete":
+				if !errors.Is(err, gorm.ErrRecordNotFound) || service.registry.Get("api") != nil {
+					t.Fatal("resurrected deleted consumer")
+				}
+			}
+		})
+	}
+}
+
+func TestProviderCredentialGoogleRejectsNonRequiredMode(t *testing.T) {
+	for _, mode := range []string{"none", "optional"} {
+		t.Run(mode, func(t *testing.T) {
+			service, _, ctx := chatGPTTestService(t)
+			req := vaultProviderRequest(&credentials.AuthConfig{Source: "env", Type: "bearer", SourceConfig: &credentials.SourceConfig{Env: "MUST_NOT_RESOLVE_GOOGLE"}})
+			req.APIFormat = "google"
+			if _, err := service.Create(ctx, req); err != nil {
+				t.Fatal(err)
+			}
+			req.ID = "invalid"
+			req.Credential = nil
+			req.AuthMode = mode
+			if _, err := service.Create(ctx, req); !errors.Is(err, credentials.ErrCredentialResolution) {
+				t.Fatalf("create: %v", err)
+			}
+			if _, err := service.Update(ctx, "api", UpdateRequest{AuthMode: mode}); !errors.Is(err, credentials.ErrCredentialResolution) {
+				t.Fatalf("update: %v", err)
+			}
+			if _, err := service.ListModelsRaw(ctx, ListModelsRawRequest{ProviderID: "api", Type: "custom", BaseURL: req.BaseURL, APIFormat: "google", AuthMode: mode}); !errors.Is(err, credentials.ErrCredentialResolution) {
+				t.Fatalf("preview resolved source: %v", err)
+			}
+			if service.registry.Get("api").AuthMode != llm.AuthModeRequired {
+				t.Fatal("changed saved mode")
+			}
+		})
+	}
+}
+
+func TestProviderCredentialCreateUsesEffectiveReference(t *testing.T) {
+	for _, key := range []string{"", "explicit-key"} {
+		t.Run(key, func(t *testing.T) {
+			service, mgr, ctx := chatGPTTestService(t)
+			if err := mgr.RegisterPatternWithContext(ctx, "*.example.com", &credentials.AuthConfig{Source: "env", Type: "bearer", SourceConfig: &credentials.SourceConfig{Env: "MUST_NOT_RESOLVE_WILDCARD"}}); err != nil {
+				t.Fatal(err)
+			}
+			got, err := service.Create(ctx, CreateRequest{ID: "api", Name: "API", Type: "custom", BaseURL: "https://api.example.com/v1", APIKey: key})
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := "*.example.com"
+			if key != "" {
+				want = "api.example.com"
+			}
+			if got.CredentialPattern != want || !got.CredentialConfigured {
+				t.Fatalf("reference/status: %+v", got)
+			}
+			if key != "" {
+				auth, err := mgr.GetByPatternWithContext(ctx, want)
+				if err != nil || auth.Token != key {
+					t.Fatal("did not bind the explicit key")
+				}
+			}
+		})
+	}
+}
+
+func TestProviderCredentialDefaultPortsPreserveAlias(t *testing.T) {
+	service, mgr, ctx := chatGPTTestService(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer alias-token" {
+			t.Error("lost alias credential")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"id":"model"}]}`))
+	}))
+	defer server.Close()
+	original := http.DefaultTransport
+	transport := original.(*http.Transport).Clone()
+	transport.Proxy = nil
+	transport.DialContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
+		return (&net.Dialer{}).DialContext(ctx, network, server.Listener.Addr().String())
+	}
+	http.DefaultTransport = transport
+	t.Cleanup(func() { http.DefaultTransport = original; transport.CloseIdleConnections() })
+	for _, scheme := range []string{"http", "https"} {
+		id := scheme
+		port := "80"
+		if scheme == "https" {
+			port = "443"
+		}
+		p := &llm.ProviderConfig{ID: id, Name: id, Type: llm.ProviderCustom, APIFormat: llm.APIFormatOpenAI, BaseURL: scheme + "://example.com/v1", CredentialPattern: "alias-" + id, AuthMode: llm.AuthModeRequired}
+		if err := service.store.Save(ctx, []*llm.ProviderConfig{p}); err != nil {
+			t.Fatal(err)
+		}
+		if err := service.registry.Register(p); err != nil {
+			t.Fatal(err)
+		}
+		if err := mgr.RegisterPatternWithContext(ctx, p.CredentialPattern, &credentials.AuthConfig{Source: "static", Type: "bearer", Token: "alias-token"}); err != nil {
+			t.Fatal(err)
+		}
+		target := scheme + "://example.com:" + port + "/v1"
+		if scheme == "http" {
+			models, err := service.ListModelsRaw(ctx, ListModelsRawRequest{ProviderID: id, Type: "custom", BaseURL: target})
+			if err != nil || len(models) != 1 {
+				t.Fatalf("preview: %v %v", models, err)
+			}
+		}
+		got, err := service.Update(ctx, id, UpdateRequest{BaseURL: target, Credential: &CredentialSpec{Pattern: p.CredentialPattern, Auth: &credentials.AuthConfig{Source: "static", Type: "bearer", Token: "alias-token"}}})
+		if err != nil || got.Provider.CredentialPattern != p.CredentialPattern {
+			t.Fatalf("save: %v", err)
+		}
+	}
+	for _, other := range []string{"http://example.com:443", "https://example.com:444", "http://example.com"} {
+		if sameCredentialOrigin("https://example.com", other) {
+			t.Fatalf("different origin accepted: %s", other)
+		}
 	}
 }

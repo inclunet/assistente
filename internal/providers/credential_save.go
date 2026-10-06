@@ -23,6 +23,9 @@ func validateCredentialMode(p *llm.ProviderConfig, draft *CredentialSpec) error 
 	default:
 		return credentials.ErrCredentialResolution
 	}
+	if p.GetAPIFormat() == llm.APIFormatGoogle && p.EffectiveAuthMode() != llm.AuthModeRequired {
+		return credentials.ErrCredentialResolution
+	}
 	if draft == nil {
 		return nil
 	}
@@ -132,29 +135,31 @@ func (s *Service) saveWithCredential(ctx context.Context, p, expected *llm.Provi
 		}
 	}
 	var publishErr error
-	err = atomicStore.SaveWithConsumer(ctx, draft.Pattern, draft.Auth, nil, func(tx *gorm.DB) error {
-		if generation != s.registry.Generation() {
-			return oauthflow.ErrConflict
-		}
-		repo := database.NewProviderRepository(tx)
-		current, loadErr := repo.GetLLMProvider(ctx, p.ID)
-		if expected == nil {
-			if !errors.Is(loadErr, gorm.ErrRecordNotFound) {
+	err = s.registry.WithGeneration(generation, func() error {
+		return atomicStore.SaveWithConsumer(ctx, draft.Pattern, draft.Auth, nil, func(tx *gorm.DB) error {
+			if generation != s.registry.Generation() {
 				return oauthflow.ErrConflict
 			}
-			count, err := repo.CountLLMProviders(ctx)
-			if err != nil {
-				return err
+			repo := database.NewProviderRepository(tx)
+			current, loadErr := repo.GetLLMProvider(ctx, p.ID)
+			if expected == nil {
+				if !errors.Is(loadErr, gorm.ErrRecordNotFound) {
+					return oauthflow.ErrConflict
+				}
+				count, err := repo.CountLLMProviders(ctx)
+				if err != nil {
+					return err
+				}
+				p.IsDefault = count == 0
+			} else {
+				if loadErr != nil || !current.UpdatedAt.Equal(baseline.UpdatedAt) || current.Type != baseline.Type || current.CredentialPattern != baseline.CredentialPattern {
+					return oauthflow.ErrConflict
+				}
+				p.IsDefault = current.IsDefault
 			}
-			p.IsDefault = count == 0
-		} else {
-			if loadErr != nil || !current.UpdatedAt.Equal(baseline.UpdatedAt) || current.Type != baseline.Type || current.CredentialPattern != baseline.CredentialPattern {
-				return oauthflow.ErrConflict
-			}
-			p.IsDefault = current.IsDefault
-		}
-		return repo.SaveLLMProvider(ctx, toDBModel(p))
-	}, func() { publishErr = s.registry.RegisterGeneration(p, generation) })
+			return repo.SaveLLMProvider(ctx, toDBModel(p))
+		}, func() { publishErr = s.registry.RegisterGeneration(p, generation) })
+	})
 	if err != nil {
 		return err
 	}
