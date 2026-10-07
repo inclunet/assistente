@@ -1,5 +1,12 @@
 # AEP — Assistente Enhancement Proposals
 
+**AEP-0103 / AEP-0106 — renovação e contenção (07/10/2026): In Progress.**
+Renovação de ownership prepara o mapa substituto sem retirar o vigente;
+invalidações autoritativas e expiração continuam bloqueando imediatamente.
+Persistência incremental dos jobs adquire o writer antes da leitura do run.
+Reteste sob carga e foco default após criar abas permanecem pendentes; sem
+promoção de critérios ou gates.
+
 **AEP-0103 — reteste de leitura ao vivo (30/09/2026): In Progress.** Enter na
 última mensagem concluída foi confirmado pelo mantenedor após atualização.
 Leitura durante streaming reconhece o alvo transitório da superfície ativa e

@@ -1855,7 +1855,9 @@ export function Topbar() {
     });
     const globalOwnership = acquireGlobalCommandOwnership({
       subscribe: (listener) => EventsOn('command:global-ownership', listener),
-      onChange: () => { void localCommandKeyboardRef.current?.refresh(); },
+      // Ownership nativo é consultado em cada tecla; sua atualização não
+      // revoga configuração/sessão. Mudanças autoritativas usam refresh abaixo.
+      onChange: () => { void localCommandKeyboardRef.current?.renew(); },
     });
     // Observe transitions, not just the final slug: A -> B -> A invalidates
     // an outstanding keyboard lease without rebuilding the command map.

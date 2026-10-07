@@ -22,6 +22,17 @@ O mantenedor não precisa memorizar códigos.
 
 ## Confirmações adicionais do mantenedor — 29/09/2026
 
+### Pendências reportadas em 07/10/2026
+
+- [ ] Comandos/atalhos ainda apresentam desabilitações intermitentes. O log
+  confirma falhas de reconstrução `stale` e contenção SQLite em jobs. Retestar
+  continuidade e recuperação sob carga após as correções; não considerar
+  testes automatizados como aceite manual nem como prova de ausência de locks.
+- [ ] Criar chat, terminal, editor ou tasklist não leva o foco à área default.
+  O aceite de foco de 30/09 continua pendente; problema fora do lote de renovação.
+
+### Aceites preservados
+
 - [x] Enter abre a edição de camadas, acionadores e regras nos gerenciadores.
 - [x] Salvar a edição mantém a lista do gerenciador aberta.
 - [x] Organização final da toolbar e paridade com os menus de contexto.

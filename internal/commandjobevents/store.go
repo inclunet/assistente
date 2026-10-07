@@ -71,7 +71,11 @@ func (s *Store) Ready(ctx context.Context) bool {
 	if ctx == nil || ctx.Err() != nil {
 		return false
 	}
-	if !s.Available() {
+	if s == nil || s.db == nil {
+		return false
+	}
+	db := s.db.WithContext(ctx)
+	if !db.Migrator().HasTable(&ActivationOutbox{}) || !db.Migrator().HasTable(&ReplayPolicyEpoch{}) {
 		return false
 	}
 	var epoch ReplayPolicyEpoch
