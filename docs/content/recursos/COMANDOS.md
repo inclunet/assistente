@@ -305,6 +305,11 @@ campo de mensagem do chat, editor, terminal ou painel da lista de tarefas.
 Se você mudar de tela, aba ou controle enquanto a criação estiver em andamento,
 o aplicativo não deve puxar o foco de volta quando ela terminar.
 
+A atualização do mapa de comandos não deve impedir a confirmação de uma
+criação já concluída. O aplicativo ainda exige a mesma sessão e ambiente
+desbloqueado para consultar esse resultado. O reteste de foco no ambiente
+real está acompanhado no [checklist manual](../../guias/VALIDACAO_MANUAL_COMANDOS/).
+
 ## Limites atuais de Ctrl+N
 
 Nas páginas de credenciais, provedores, MCP, skills, allowlist e canais,

@@ -20,6 +20,26 @@ em sessões diferentes. Na conversa, apresentar somente **cinco testes por vez,
 numerados de 1 a 5**; o responsável associa as respostas aos IDs abaixo.
 O mantenedor não precisa memorizar códigos.
 
+## Reteste de foco das novas abas — 07/10/2026
+
+O mantenedor relatou que criar chat, editor, terminal ou lista de tarefas não
+leva o foco à área padrão, mesmo quando os comandos funcionam. Este registro
+não reabre os aceites dos gerenciadores abaixo e não considera a correção
+validada apenas pela suíte automatizada.
+
+- [ ] Pelo menu **Nova aba** aberto com Ctrl+N, criar cada um dos quatro tipos:
+  foco no campo de mensagem do chat, editor, entrada do terminal e área
+  principal da lista, respectivamente. Resultado: ________.
+- [ ] Repetir pelo botão **Nova aba**, escolhendo por setas/Enter e por clique.
+  O foco não deve permanecer no botão nem na aba anterior. Resultado: ________.
+- [ ] Durante carregamento mais demorado, mover voluntariamente o foco para
+  outro controle ou abrir um modal: a conclusão não deve roubar esse foco.
+  Resultado: ________.
+- [ ] Sair da janela ou trocar de aba/tela enquanto a criação está pendente:
+  não deve ocorrer foco tardio no painel criado. Resultado: ________.
+
+Todos os itens permanecem **NÃO TESTADOS** até confirmação do mantenedor.
+
 ## Confirmações adicionais do mantenedor — 29/09/2026
 
 ### Pendências reportadas em 07/10/2026
