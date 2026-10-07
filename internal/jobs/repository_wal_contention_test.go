@@ -140,7 +140,7 @@ func TestPersistRunStateAcquiresWriterBeforeFirstRunRead(t *testing.T) {
 			competingWrites.Add(1)
 			return
 		}
-		tx.AddError(fmt.Errorf("competing writer failed unexpectedly: %w", writeErr))
+		_ = tx.AddError(fmt.Errorf("competing writer failed unexpectedly: %w", writeErr))
 	}); err != nil {
 		t.Fatalf("register query synchronization callback: %v", err)
 	}
@@ -189,7 +189,11 @@ func TestPersistRunStateCancellationAndOutboxFailureAreAtomic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer lockConn.Close()
+	defer func() {
+		if err := lockConn.Close(); err != nil {
+			t.Errorf("close writer connection: %v", err)
+		}
+	}()
 	if _, err := lockConn.ExecContext(context.Background(), "BEGIN IMMEDIATE"); err != nil {
 		t.Fatalf("hold writer lock: %v", err)
 	}
