@@ -2,6 +2,8 @@ package jobs
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"sync"
@@ -169,6 +171,71 @@ func TestPersistRunStateAcquiresWriterBeforeFirstRunRead(t *testing.T) {
 	}
 	if runs != 1 || events != 1 || outbox != 1 {
 		t.Fatalf("atomic result counts = run/event/outbox %d/%d/%d, want 1/1/1", runs, events, outbox)
+	}
+}
+
+func TestPersistRunStateBoundsSaturatedPoolAndRecovers(t *testing.T) {
+	for _, durable := range []bool{false, true} {
+		t.Run(fmt.Sprintf("durable=%v", durable), func(t *testing.T) {
+			repo, userCtx := setupJobsWALRepositoryTest(t)
+			job := testRepositoryJob("pool-contention", "Pool contention")
+			if err := repo.SaveJob(userCtx, job); err != nil {
+				t.Fatal(err)
+			}
+			root, err := repo.db.DB()
+			if err != nil {
+				t.Fatal(err)
+			}
+			var held []*sql.Conn
+			release := func() {
+				for _, conn := range held {
+					if err := conn.Close(); err != nil {
+						t.Errorf("release pool connection: %v", err)
+					}
+				}
+				held = nil
+			}
+			defer release()
+			for range 4 {
+				conn, err := root.Conn(userCtx)
+				if err != nil {
+					t.Fatal(err)
+				}
+				held = append(held, conn)
+			}
+			ctx, cancel := context.WithTimeout(userCtx, 50*time.Millisecond)
+			defer cancel()
+			if durable {
+				ctx = context.WithoutCancel(ctx)
+				cancel() // Como no executor: o contexto durável não herda este cancelamento.
+			}
+			run := &RunLog{RunID: "run_pool_wait", JobID: job.ID, Status: RunStatusQueued, QueuedAt: time.Now().UTC()}
+			event := &RunEvent{ID: uuid7ForTest(t), RunID: run.RunID, Sequence: 1, Timestamp: time.Now().UTC(), Type: RunStatusQueued}
+			done := make(chan error, 1)
+			started := time.Now()
+			go func() { done <- repo.PersistRunState(ctx, run, event) }()
+			select {
+			case err := <-done:
+				if !errors.Is(err, context.DeadlineExceeded) {
+					t.Fatalf("saturated pool: %v", err)
+				}
+			case <-time.After(runStatePersistenceTimeout + 2*time.Second):
+				release()
+				<-done // Não deixar goroutine acessando o banco após o cleanup.
+				t.Fatal("pool wait exceeded persistence budget")
+			}
+			if !durable && time.Since(started) >= runStatePersistenceTimeout {
+				t.Fatal("shorter caller deadline was not preserved")
+			}
+			release()
+			var count int64
+			if err := repo.db.Model(&database.JobRun{}).Where("id = ?", run.RunID).Count(&count).Error; err != nil || count != 0 {
+				t.Fatalf("failed pool acquisition persisted a run: count=%d err=%v", count, err)
+			}
+			if err := repo.PersistRunState(userCtx, run, event); err != nil {
+				t.Fatalf("persist after releasing pool: %v", err)
+			}
+		})
 	}
 }
 

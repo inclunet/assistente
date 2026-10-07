@@ -1028,6 +1028,10 @@ func (r *DBRepository) LogRun(ctx context.Context, rl *RunLog) error {
 	})
 }
 
+// Mesmo orçamento máximo da política de contenção SQLite. Inclui o preflight
+// e a espera por conexão, inclusive para contextos duráveis WithoutCancel.
+const runStatePersistenceTimeout = 4 * time.Second
+
 // PersistRunState grava uma transição incremental do runtime. O run e o
 // job_run_event são escritos na mesma transação; quando a transição é elegível
 // para ativação contextual, o fato normalizado e sua outbox entram nessa mesma
@@ -1044,6 +1048,9 @@ func (r *DBRepository) PersistRunState(ctx context.Context, rl *RunLog, event *R
 	if strings.TrimSpace(rl.RunID) == "" || strings.TrimSpace(rl.JobID) == "" {
 		return fmt.Errorf("run/job id são obrigatórios")
 	}
+	ctx, cancel := context.WithTimeout(ctx, runStatePersistenceTimeout)
+	defer cancel()
+	deadline, _ := ctx.Deadline()
 	jobRow, err := r.jobRowBySlug(ctx, rl.JobID)
 	if err != nil {
 		return err
@@ -1100,7 +1107,7 @@ func (r *DBRepository) PersistRunState(ctx context.Context, rl *RunLog, event *R
 	}
 	outboxReady := r.commandEvents != nil && r.commandEvents.Ready(ctx)
 
-	return database.WithSQLiteImmediateTransactionOnce(ctx, time.Time{}, r.db, "jobs.persist_run_state", func(tx *gorm.DB) error {
+	return database.WithSQLiteImmediateTransactionOnce(ctx, deadline, r.db, "jobs.persist_run_state", func(tx *gorm.DB) error {
 		var row database.JobRun
 		err := tx.Where("user_id = ? AND id = ?", userID, strings.TrimSpace(rl.RunID)).First(&row).Error
 		if errors.Is(err, gorm.ErrRecordNotFound) {

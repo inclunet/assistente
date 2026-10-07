@@ -17,7 +17,12 @@ A operação passa a usar `WithSQLiteImmediateTransactionOnce`: obtém o writer
 antes da leitura, com retry limitado somente da aquisição; callback e commit
 não são repetidos. Estado do run, evento incremental e outbox permanecem na
 mesma transação; falha/cancelamento não publica persistência parcial.
-Não altera o limite de concorrência, timeouts, schemas ou banco do usuário.
+Não aumenta o limite de concorrência, timeouts ou retries, nem altera schemas
+ou banco do usuário. A persistência recebe orçamento total de quatro segundos,
+alinhado à política SQLite, incluindo preflight e espera por conexão do pool.
+Prazos menores do chamador são preservados; contextos duráveis `WithoutCancel`
+também ficam limitados. Saturação do pool retorna erro sem iniciar a escrita;
+uma nova tentativa após liberar conexões pode persistir normalmente.
 
 Regressões ficam em `internal/jobs/repository_wal_contention_test.go`, com WAL
 real descartável, writers concorrentes, cancelamento e rollback de outbox.

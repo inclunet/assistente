@@ -47,6 +47,42 @@ func testFact(t *testing.T, now time.Time) Fact {
 	}
 }
 
+func TestReadySchemaCheckHonorsDeadlineWithSaturatedPool(t *testing.T) {
+	store := testStore(t)
+	pool, err := store.DB().DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn, err := pool.Conn(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if conn != nil {
+			if err := conn.Close(); err != nil {
+				t.Error(err)
+			}
+		}
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	done := make(chan bool, 1)
+	go func() { done <- store.Ready(ctx) }()
+	select {
+	case ready := <-done:
+		if ready || !errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			t.Fatalf("schema check must honor deadline: ready=%v err=%v", ready, ctx.Err())
+		}
+	case <-time.After(2 * time.Second):
+		if err := conn.Close(); err != nil {
+			t.Error(err)
+		}
+		conn = nil
+		<-done
+		t.Fatal("schema check ignored context while waiting for pool")
+	}
+}
+
 func insertTestFact(t *testing.T, store *Store, fact Fact) {
 	t.Helper()
 	if err := store.DB().Transaction(func(tx *gorm.DB) error { return store.InsertFactTx(tx, fact) }); err != nil {

@@ -26,7 +26,8 @@ Veja também [Comandos e acionadores](../COMANDOS/).
 O registro incremental de execução reserva a escrita no SQLite antes de ler
 o estado que vai atualizar. Estado, evento e encaminhamento para ativações de
 comandos são gravados juntos, sem repetir a execução da ferramenta. A espera
-pelo banco continua limitada e cancelável: um writer externo mantido por muito
+pelo banco inclui as consultas iniciais e a obtenção de conexão, com orçamento
+total de até quatro segundos (ou o prazo menor do chamador). Um writer externo mantido por muito
 tempo ainda pode produzir erro no log; a correção não elimina toda contenção.
 
 ## Conceito
