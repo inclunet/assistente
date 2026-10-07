@@ -2,6 +2,24 @@
 
 Status: In Progress — evidências e aceites pendentes conforme os registros abaixo
 
+**Resultado e foco após criação (07/10/2026): In Progress.** A consulta
+`GetUICommandResult` aplica I04.5 sem exigir reconstrução/publicação do mapa:
+retirada ou obsolescência da projeção não apaga o resultado de uma execução
+admitida. Continuam obrigatórios usuário/sessão revalidados, runtime e
+dependências originais, ticket retido/não expirado, cofre e sessão do SO
+desbloqueados. A identidade e segurança são verificadas antes e depois da
+espera do resultado. Begin/Take/Commit mantêm os gates completos; consultar
+não reexecuta nem habilita comandos.
+
+Uma regressão reproduziu criação confirmada de chat/editor/tasklist seguida
+de resultado inacessível após retirada do mapa. Isso impede a apresentação
+de foco que exige sucesso confirmado. O E2E do frontend com transporte Wails
+simulado cobre Ctrl+N com letra e setas/Enter, origem no input e na lista de
+abas, e permanência do foco no textarea de um chat novo. Esses percursos
+passavam mesmo antes da correção backend; não comprovam a causa exclusiva
+no ambiente do mantenedor. O reteste real/NVDA permanece pendente no checklist
+manual. Não há promoção de critérios ou gates.
+
 **Renovação sem revogação (07/10/2026): In Progress.** O mantenedor autorizou
 separar renovação comum de retirada autoritativa do mapa. `renew()` prepara e
 valida o substituto sem apagar a publicação vigente; falha de transporte mantém

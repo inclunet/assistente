@@ -1,5 +1,12 @@
 # AEP — Assistente Enhancement Proposals
 
+**AEP-0103 — resultado e foco após criação (07/10/2026): In Progress.**
+Consulta de resultado retido independe da projeção do mapa (I04.5), preservando
+identidade, runtime, cofre e sessão do SO. Begin/Take/Commit não mudam.
+Regressão de resultado inacessível após criação/retirada do mapa e E2E de
+Ctrl+N por letra/setas; causa exclusiva no ambiente real e aceite NVDA ainda
+não confirmados. Sem promoção de critérios ou gates.
+
 **AEP-0103 / AEP-0106 — renovação e contenção (07/10/2026): In Progress.**
 Renovação de ownership prepara o mapa substituto sem retirar o vigente;
 invalidações autoritativas e expiração continuam bloqueando imediatamente.
