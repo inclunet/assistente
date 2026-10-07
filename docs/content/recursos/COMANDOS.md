@@ -22,6 +22,12 @@ contexto do gerenciador; não é executada ao navegar para outra página.
 
 ## Diagnosticar falhas de carregamento
 
+A atualização das reservas de teclas globais não apaga o mapa local enquanto
+seu substituto está carregando. O mapa vigente só permanece disponível enquanto
+não tiver sido invalidado ou expirado; teclas reservadas globalmente continuam
+excluídas imediatamente. Isso não mantém permissões antigas após uma mudança
+autoritativa de configuração, bloqueio ou troca de sessão.
+
 O carregamento do mapa e das configurações tem um orçamento de cinco segundos.
 A espera pela reconstrução ou pela coordenação de segurança pode ser cancelada;
 se o recurso continuar ocupado, a leitura retorna erro e pode ser tentada novamente

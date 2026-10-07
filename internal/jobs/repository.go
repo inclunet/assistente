@@ -1100,97 +1100,95 @@ func (r *DBRepository) PersistRunState(ctx context.Context, rl *RunLog, event *R
 	}
 	outboxReady := r.commandEvents != nil && r.commandEvents.Ready(ctx)
 
-	return r.retry(ctx, "persist_run_state", func() error {
-		return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-			var row database.JobRun
-			err := tx.Where("user_id = ? AND id = ?", userID, strings.TrimSpace(rl.RunID)).First(&row).Error
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				if event.Type != RunStatusQueued || rl.Status != RunStatusQueued {
-					return fmt.Errorf("run incremental deve nascer em queued")
-				}
-				row = database.JobRun{
-					UUIDModel: database.UUIDModel{ID: strings.TrimSpace(rl.RunID)}, UserID: userID,
-					JobID: jobRow.ID, TriggerID: "", Status: RunStatusQueued, QueuedAt: rl.QueuedAt,
-					TriggerData: triggerData, EventsEmitted: eventsEmitted, IsDryRun: rl.IsDryRun,
-					RootOriginType: rl.RootOriginType, RootOriginID: rl.RootOriginID, Provenance: provenance,
-				}
-				row.TriggerID = triggerID
-				// started_at precisa ser NULL na fila; map insert evita que o zero
-				// value de time.Time vire uma data sentinela no SQLite.
-				values := map[string]any{
-					"id": row.ID, "user_id": row.UserID, "job_id": row.JobID, "trigger_id": row.TriggerID,
-					"status": row.Status, "queued_at": row.QueuedAt, "started_at": nil,
-					"trigger_data": row.TriggerData, "events_emitted": row.EventsEmitted, "is_dry_run": row.IsDryRun,
-					"root_origin_type": row.RootOriginType, "root_origin_id": row.RootOriginID, "provenance": row.Provenance,
-				}
-				if err := tx.Table("job_runs").Create(values).Error; err != nil {
+	return database.WithSQLiteImmediateTransactionOnce(ctx, time.Time{}, r.db, "jobs.persist_run_state", func(tx *gorm.DB) error {
+		var row database.JobRun
+		err := tx.Where("user_id = ? AND id = ?", userID, strings.TrimSpace(rl.RunID)).First(&row).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			if event.Type != RunStatusQueued || rl.Status != RunStatusQueued {
+				return fmt.Errorf("run incremental deve nascer em queued")
+			}
+			row = database.JobRun{
+				UUIDModel: database.UUIDModel{ID: strings.TrimSpace(rl.RunID)}, UserID: userID,
+				JobID: jobRow.ID, TriggerID: "", Status: RunStatusQueued, QueuedAt: rl.QueuedAt,
+				TriggerData: triggerData, EventsEmitted: eventsEmitted, IsDryRun: rl.IsDryRun,
+				RootOriginType: rl.RootOriginType, RootOriginID: rl.RootOriginID, Provenance: provenance,
+			}
+			row.TriggerID = triggerID
+			// started_at precisa ser NULL na fila; map insert evita que o zero
+			// value de time.Time vire uma data sentinela no SQLite.
+			values := map[string]any{
+				"id": row.ID, "user_id": row.UserID, "job_id": row.JobID, "trigger_id": row.TriggerID,
+				"status": row.Status, "queued_at": row.QueuedAt, "started_at": nil,
+				"trigger_data": row.TriggerData, "events_emitted": row.EventsEmitted, "is_dry_run": row.IsDryRun,
+				"root_origin_type": row.RootOriginType, "root_origin_id": row.RootOriginID, "provenance": row.Provenance,
+			}
+			if err := tx.Table("job_runs").Create(values).Error; err != nil {
+				return err
+			}
+		} else if err != nil {
+			return err
+		} else if row.UserID != userID || row.JobID != jobRow.ID {
+			return gorm.ErrRecordNotFound
+		}
+		if rl.RootOriginType == "" && rl.RootOriginID == "" && row.RootOriginType != "" && row.RootOriginID != "" {
+			rl.RootOriginType, rl.RootOriginID = row.RootOriginType, row.RootOriginID
+			_ = unmarshalJSON(row.Provenance, &rl.Provenance)
+		}
+		provenance, err = marshalJSON(rl.Provenance)
+		if err != nil {
+			return err
+		}
+
+		updates := map[string]any{
+			"status": rl.Status, "queued_at": rl.QueuedAt, "completed_at": nullableTime(rl.CompletedAt),
+			"duration_ms": durationMillis(rl.StartedAt, rl.CompletedAt), "error": rl.Error,
+			"retry_count": rl.RetryCount, "is_dry_run": rl.IsDryRun, "trigger_data": triggerData,
+			"events_emitted": eventsEmitted,
+		}
+		if rl.RootOriginType != "" && rl.RootOriginID != "" {
+			updates["root_origin_type"], updates["root_origin_id"], updates["provenance"] = rl.RootOriginType, rl.RootOriginID, provenance
+		}
+		if rl.StartedAt.IsZero() {
+			updates["started_at"] = nil
+		} else {
+			updates["started_at"] = rl.StartedAt
+		}
+		if err := tx.Model(&database.JobRun{}).Where("user_id = ? AND id = ?", userID, rl.RunID).Updates(updates).Error; err != nil {
+			return err
+		}
+
+		var existing database.JobRunEvent
+		err = tx.Where("user_id = ? AND id = ?", userID, event.ID).First(&existing).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			sequence := event.Sequence
+			if sequence <= 0 {
+				if err := tx.Model(&database.JobRunEvent{}).Where("user_id = ? AND job_run_id = ?", userID, rl.RunID).Select("COALESCE(MAX(sequence), 0)").Scan(&sequence).Error; err != nil {
 					return err
 				}
-			} else if err != nil {
-				return err
-			} else if row.UserID != userID || row.JobID != jobRow.ID {
-				return gorm.ErrRecordNotFound
+				sequence++
 			}
-			if rl.RootOriginType == "" && rl.RootOriginID == "" && row.RootOriginType != "" && row.RootOriginID != "" {
-				rl.RootOriginType, rl.RootOriginID = row.RootOriginType, row.RootOriginID
-				_ = unmarshalJSON(row.Provenance, &rl.Provenance)
-			}
-			provenance, err = marshalJSON(rl.Provenance)
-			if err != nil {
+			existing = database.JobRunEvent{UUIDModel: database.UUIDModel{ID: event.ID}, UserID: userID, JobRunID: rl.RunID, Sequence: sequence, OccurredAt: event.Timestamp, Type: event.Type, Message: event.Message, Data: data, RootOriginType: rl.RootOriginType, RootOriginID: rl.RootOriginID, Provenance: provenance}
+			if err := tx.Create(&existing).Error; err != nil {
 				return err
 			}
+		} else if err != nil {
+			return err
+		} else if existing.UserID != userID || existing.JobRunID != rl.RunID || existing.Sequence != event.Sequence && event.Sequence > 0 || existing.Type != event.Type || existing.Message != event.Message || existing.Data != data {
+			return fmt.Errorf("run event %s: %w", event.ID, commandjobevents.ErrFingerprintConflict)
+		}
+		event.ID, event.Sequence = existing.ID, existing.Sequence
+		event.RootOriginType, event.RootOriginID = existing.RootOriginType, existing.RootOriginID
+		_ = unmarshalJSON(existing.Provenance, &event.Provenance)
+		if err := persistDomainEventsTx(ctx, tx, userID, jobRow, rl.RunID, rl.DomainEvents); err != nil {
+			return err
+		}
 
-			updates := map[string]any{
-				"status": rl.Status, "queued_at": rl.QueuedAt, "completed_at": nullableTime(rl.CompletedAt),
-				"duration_ms": durationMillis(rl.StartedAt, rl.CompletedAt), "error": rl.Error,
-				"retry_count": rl.RetryCount, "is_dry_run": rl.IsDryRun, "trigger_data": triggerData,
-				"events_emitted": eventsEmitted,
-			}
-			if rl.RootOriginType != "" && rl.RootOriginID != "" {
-				updates["root_origin_type"], updates["root_origin_id"], updates["provenance"] = rl.RootOriginType, rl.RootOriginID, provenance
-			}
-			if rl.StartedAt.IsZero() {
-				updates["started_at"] = nil
-			} else {
-				updates["started_at"] = rl.StartedAt
-			}
-			if err := tx.Model(&database.JobRun{}).Where("user_id = ? AND id = ?", userID, rl.RunID).Updates(updates).Error; err != nil {
+		if fact, ok := commandJobFact(userID, *jobRow, rl, event); ok && outboxReady {
+			if err := r.commandEvents.InsertFactTx(tx, fact); err != nil {
 				return err
 			}
-
-			var existing database.JobRunEvent
-			err = tx.Where("user_id = ? AND id = ?", userID, event.ID).First(&existing).Error
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				sequence := event.Sequence
-				if sequence <= 0 {
-					if err := tx.Model(&database.JobRunEvent{}).Where("user_id = ? AND job_run_id = ?", userID, rl.RunID).Select("COALESCE(MAX(sequence), 0)").Scan(&sequence).Error; err != nil {
-						return err
-					}
-					sequence++
-				}
-				existing = database.JobRunEvent{UUIDModel: database.UUIDModel{ID: event.ID}, UserID: userID, JobRunID: rl.RunID, Sequence: sequence, OccurredAt: event.Timestamp, Type: event.Type, Message: event.Message, Data: data, RootOriginType: rl.RootOriginType, RootOriginID: rl.RootOriginID, Provenance: provenance}
-				if err := tx.Create(&existing).Error; err != nil {
-					return err
-				}
-			} else if err != nil {
-				return err
-			} else if existing.UserID != userID || existing.JobRunID != rl.RunID || existing.Sequence != event.Sequence && event.Sequence > 0 || existing.Type != event.Type || existing.Message != event.Message || existing.Data != data {
-				return fmt.Errorf("run event %s: %w", event.ID, commandjobevents.ErrFingerprintConflict)
-			}
-			event.ID, event.Sequence = existing.ID, existing.Sequence
-			event.RootOriginType, event.RootOriginID = existing.RootOriginType, existing.RootOriginID
-			_ = unmarshalJSON(existing.Provenance, &event.Provenance)
-			if err := persistDomainEventsTx(ctx, tx, userID, jobRow, rl.RunID, rl.DomainEvents); err != nil {
-				return err
-			}
-
-			if fact, ok := commandJobFact(userID, *jobRow, rl, event); ok && outboxReady {
-				if err := r.commandEvents.InsertFactTx(tx, fact); err != nil {
-					return err
-				}
-			}
-			return nil
-		})
+		}
+		return nil
 	})
 }
 

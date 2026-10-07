@@ -4,6 +4,26 @@
 - **Autor**: Leonardo Gleison Ferreira
 - **Data**: 2026-09-16
 
+## Correção incremental — 07/10/2026 (In Progress)
+
+O log do mantenedor ainda apresenta `SQLITE_BUSY` em `jobs.persist_run_state`
+após seis tentativas, simultâneo a reconstruções `stale` do mapa de comandos.
+Não se considera atendido o aceite de redução sob carga nem se atribui todo
+`stale` ao banco apenas por essa coincidência temporal.
+
+`PersistRunState` lia o run em transação deferred antes de escrever. Em WAL,
+outro writer pode tornar esse snapshot impróprio para promoção à escrita.
+A operação passa a usar `WithSQLiteImmediateTransactionOnce`: obtém o writer
+antes da leitura, com retry limitado somente da aquisição; callback e commit
+não são repetidos. Estado do run, evento incremental e outbox permanecem na
+mesma transação; falha/cancelamento não publica persistência parcial.
+Não altera o limite de concorrência, timeouts, schemas ou banco do usuário.
+
+Regressões ficam em `internal/jobs/repository_wal_contention_test.go`, com WAL
+real descartável, writers concorrentes, cancelamento e rollback de outbox.
+Reteste da instalação carregada permanece pendente. Foco default de novas abas
+é uma pendência distinta registrada no checklist do AEP-0103.
+
 ## Resumo
 
 O pipeline de jobs (scheduler + cadeias de evento) dispara execuções sem

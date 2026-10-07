@@ -2,6 +2,29 @@
 
 Status: In Progress — evidências e aceites pendentes conforme os registros abaixo
 
+**Renovação sem revogação (07/10/2026): In Progress.** O mantenedor autorizou
+separar renovação comum de retirada autoritativa do mapa. `renew()` prepara e
+valida o substituto sem apagar a publicação vigente; falha de transporte mantém
+apenas o mapa ainda não invalidado/expirado. A troca ocorre sem estado vazio
+intermediário e não reseta uma geração reaproveitada pelo backend. O timer de
+expiração não é prorrogado por uma tentativa, e respostas anteriores a reset,
+blur, dispose ou uma leitura mais recente são descartadas.
+
+O ingresso habilitado para renovação é a atualização de ownership nativo: sua
+exclusão já é consultada sincronicamente em cada tecla e não altera a autorização
+do catálogo. Eventos `command:keyboard-map-changed` continuam autoritativos e
+usam `refresh()` com retirada imediata; não se infere continuidade de permissão
+de um erro `stale`/`not_ready`. Logout, troca de sessão/workspace, expiração e
+mapa recusado/malformado permanecem fail-closed. Não há fallback por atalho,
+nova consulta por tecla nem execução com uma autorização vencida.
+
+O log de 07/10 mostrou reconstruções `stale` sucessivas entre 10:07:22 e 10:08:05,
+além de contenção em `jobs.persist_run_state`. Esta correção não certifica a
+eliminação de toda reconstrução obsoleta: a frente SQLite está no AEP-0106 e
+requer reteste sob carga. O mantenedor também reportou que o foco de novas abas
+não chega à área default; essa pendência permanece aberta, fora deste lote.
+Não há promoção de critérios/gates nem novo aceite manual.
+
 **Reteste de leitura ao vivo (30/09/2026): In Progress.** Após atualizar e
 recompilar, o mantenedor confirmou Enter na última mensagem concluída. A
 variante durante streaming ainda falhou e recebe correção exclusiva; não se
