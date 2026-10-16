@@ -342,6 +342,75 @@ describe('AgentOptionsPickers', () => {
     expect(screen.getByRole('button', { name: 'Modo, chat.agentOptions.mode.plan' })).toBeInTheDocument();
   });
 
+  it('anuncia uma troca confirmada por snapshot antes da resposta atrasada', async () => {
+    let reads = 0;
+    getOptions.mockImplementation(() => Promise.resolve(
+      opcoesDoAgente(++reads > 2 ? 'modelo-b' : 'modelo-a'),
+    ));
+    let resolveChange!: (value: unknown) => void;
+    setOption.mockImplementation(() => new Promise((resolve) => { resolveChange = resolve; }));
+
+    render(<AgentOptionsPickers conversationId="conversa-1" />);
+    await userEvent.click(await screen.findByRole('button', { name: /Modelo/ }));
+    await userEvent.click(await screen.findByRole('option', { name: 'Modelo B' }));
+    await waitFor(() => expect(setOption).toHaveBeenCalledWith('conversa-1', 'model', 'modelo-b'));
+
+    // O agente publica o estado confirmado primeiro. O backend não anuncia
+    // este eco, e a resposta posterior ainda pode trazer o snapshot antigo.
+    act(() => {
+      emitAgentOptions?.({
+        conversationId: 'conversa-1',
+        options: opcoesDoAgente('modelo-b').options,
+        snapshot: true,
+        modelChanged: false,
+        modeChanged: false,
+        announce: false,
+      });
+    });
+    await act(async () => {
+      resolveChange(opcoesDoAgente('modelo-a'));
+    });
+
+    expect(screen.getByRole('button', { name: 'Modelo, Modelo B' })).toBeInTheDocument();
+    expect(announce.mock.calls.some(([message]) => String(message).includes('chat.agentOptions.modelChanged'))).toBe(true);
+  });
+
+  it('usa o estado relido quando a resposta contradiz o snapshot coincidente', async () => {
+    const opcoesComModeloC = () => {
+      const state = opcoesDoAgente('modelo-c');
+      state.options[0].values.push({ value: 'modelo-c', name: 'Modelo C' });
+      return state;
+    };
+    let reads = 0;
+    getOptions.mockImplementation(() => Promise.resolve(
+      ++reads > 2 ? opcoesComModeloC() : opcoesDoAgente(),
+    ));
+    let resolveChange!: (value: unknown) => void;
+    setOption.mockImplementation(() => new Promise((resolve) => { resolveChange = resolve; }));
+
+    render(<AgentOptionsPickers conversationId="conversa-1" />);
+    await userEvent.click(await screen.findByRole('button', { name: /Modelo/ }));
+    await userEvent.click(await screen.findByRole('option', { name: 'Modelo B' }));
+    await waitFor(() => expect(setOption).toHaveBeenCalledWith('conversa-1', 'model', 'modelo-b'));
+
+    act(() => {
+      emitAgentOptions?.({
+        conversationId: 'conversa-1',
+        options: opcoesDoAgente('modelo-b').options,
+        snapshot: true,
+        modelChanged: false,
+        modeChanged: false,
+        announce: false,
+      });
+    });
+    await act(async () => {
+      resolveChange(opcoesComModeloC());
+    });
+
+    expect(await screen.findByRole('button', { name: 'Modelo, Modelo C' })).toBeInTheDocument();
+    expect(announce.mock.calls.some(([message]) => String(message).includes('Modelo C'))).toBe(true);
+  });
+
   it('anuncia o modelo que o agente aplicou quando ele acomoda o pedido em outro', async () => {
     getOptions.mockResolvedValue(opcoesDoAgente());
     // O agente aceita a troca, mas em outro valor — fallback de limite de uso,

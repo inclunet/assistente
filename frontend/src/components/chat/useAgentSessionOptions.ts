@@ -232,12 +232,79 @@ export function useAgentSessionOptions(
       // A conversa da tela pode ter mudado enquanto o agente respondia. Escrever
       // agora poria o modelo de uma conversa no seletor de outra.
       if (conversationRef.current !== requested) return null;
-      // Um evento posterior pode já ter publicado um snapshot mais novo do
-      // agente enquanto a chamada de alteração ainda estava em andamento.
-      if (snapshotVersionRef.current !== requestVersion) return null;
-      // Avisos legados trazem somente o modelo ou modo atual. Eles só tornam
-      // obsoleta uma resposta que altera a mesma categoria.
-      if ((categoryVersionsRef.current.get(requestedCategory) ?? 0) !== requestCategoryVersion) return null;
+      // Um evento pode confirmar a troca antes da resposta da chamada. O
+      // backend suprime o anúncio do eco, então retornar null aqui deixaria a
+      // troca bem-sucedida sem confirmação acessível. A releitura abaixo obtém
+      // o estado efetivo quando o evento e a resposta divergem.
+      const snapshotChanged = snapshotVersionRef.current !== requestVersion;
+      const categoryChanged =
+        (categoryVersionsRef.current.get(requestedCategory) ?? 0) !== requestCategoryVersion;
+      if (snapshotChanged || categoryChanged) {
+        const current = optionsRef.current.find((option) => option.id === optionId);
+        const appliedOption = applied.find((option) => option.id === optionId);
+        const valueOf = (option: AgentConfigOption | undefined): string | undefined => {
+          if (!option) return undefined;
+          if (option.kind === 'boolean') {
+            return option.currentBool === undefined ? undefined : String(option.currentBool);
+          }
+          return option.currentValue;
+        };
+        const currentValue = valueOf(current);
+        const startingValue = valueOf(requestedOption);
+        const appliedValue = valueOf(appliedOption);
+        const currentMoved = currentValue !== undefined && currentValue !== startingValue;
+
+        if (currentValue === value && appliedOption && appliedValue !== value) {
+          // O eco do agente pode confirmar a seleção, mas um resultado
+          // acomodado da chamada pode contradizê-lo. Uma releitura após a
+          // resposta resolve pelo estado atual da sessão antes do anúncio.
+          const snapshotVersionBeforeRefresh = snapshotVersionRef.current;
+          const categoryVersionsBeforeRefresh = new Map(categoryVersionsRef.current);
+          let refreshed: Awaited<ReturnType<typeof GetAgentSessionOptions>>;
+          try {
+            refreshed = await GetAgentSessionOptions(requested);
+          } catch (error: unknown) {
+            logger.warn('[AgentOptions] não foi possível confirmar a troca após atualização concorrente:', error);
+            announceRef.current(tRef.current('chat.agentOptions.changeUnknownState'));
+            return null;
+          }
+          if (conversationRef.current !== requested) return null;
+          if (snapshotVersionRef.current !== snapshotVersionBeforeRefresh) {
+            return optionsRef.current.some((option) => option.id === optionId)
+              ? optionsRef.current
+              : null;
+          }
+          const fresh = refreshed?.options ?? [];
+          if (fresh.length === 0) return null;
+          // Mudanças de outras categorias durante a chamada continuam valendo.
+          // Para a categoria pedida, a releitura substitui o evento anterior;
+          // somente eventos ainda mais novos, durante a própria releitura,
+          // prevalecem.
+          const beforeRefresh = new Map(requestCategoryVersions);
+          beforeRefresh.set(
+            requestedCategory,
+            categoryVersionsBeforeRefresh.get(requestedCategory) ?? 0,
+          );
+          const reconciled = preserveChangedCategories(
+            fresh,
+            optionsRef.current,
+            beforeRefresh,
+            categoryVersionsRef.current,
+          );
+          optionsVersionRef.current += 1;
+          snapshotVersionRef.current += 1;
+          optionsRef.current = reconciled;
+          setOptions(reconciled);
+          return reconciled.some((option) => option.id === optionId) ? reconciled : null;
+        }
+
+        // Um snapshot que mudou a própria opção é mais novo que uma resposta
+        // atrasada que não confirma o valor pedido; mantém-se e anuncia-se o
+        // estado que o agente publicou.
+        if (snapshotChanged && currentMoved) {
+          return current ? optionsRef.current : null;
+        }
+      }
       if (applied.length === 0) {
         // Conjunto vazio não descreve seletor nenhum: escrevê-lo faria os
         // controles sumirem no meio da conversa. E como o agente não disse em
