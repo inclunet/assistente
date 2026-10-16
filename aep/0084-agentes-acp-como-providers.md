@@ -1437,7 +1437,7 @@ testes.
 - [x] Propagar snapshots de opções vazios até o frontend para remover controles obsoletos (`TestSnapshotVazioDeOpcoesChegaATela`; teste Vitest correspondente). Avisos legados sem lista continuam preservando os seletores conhecidos.
 - [x] Retomar com `session/resume` quando anunciado, com fallback para `session/load` (`TestRetomaSessaoSemReplayQuandoAgenteAnunciaResume`).
 - [x] Avisar uma vez por turno quando a resposta ACP contém bloco não textual que o chat ainda não renderiza (`TestRespostaACPComBlocoNaoTextualGeraAtualizacaoDeSaidaNaoRenderizada`; teste Vitest de aviso).
-- [x] Projetar janela/custo de `usage_update` no painel de tokens e avisar uma vez por turno ao cruzar 80%/95% (`TestAtualizacaoACPDeUsoMapeiaJanelaECusto`, `TestTurnoACPAtualizaUsoEAnunciaCadaFaixaUmaVez` e teste Vitest do `TokenStatsModal`).
+- [x] Projetar janela/custo de `usage_update` no painel de tokens e avisar uma vez por turno ao cruzar 80%/95%, limitando o percentual anunciado a 100% (`TestAtualizacaoACPDeUsoMapeiaJanelaECusto`, `TestTurnoACPAtualizaUsoEAnunciaCadaFaixaUmaVez`, `TestTurnoACPLimitaPercentualDeAvisoAoLimiteDoContexto` e teste Vitest do `TokenStatsModal`).
 - [ ] Cobrir uso/custo, metadados de sessão, notices/compaction, conteúdo
   multimodal, elicitation, sessões externas e raízes adicionais, com testes e
   revisão de acessibilidade/privacidade.

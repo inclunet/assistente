@@ -468,6 +468,9 @@ func (t *acpTurn) update(update acp.Update) {
 		}
 		reportACPUsage(t.handler, usage)
 		percentage := float64(update.ContextUsed) * 100 / float64(update.ContextSize)
+		if percentage > 100 {
+			percentage = 100
+		}
 		if percentage >= 95 && t.contextWarningLevel < 2 {
 			t.contextWarningLevel = 2
 			notifyTurn(t.handler, TurnNotice{

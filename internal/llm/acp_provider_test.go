@@ -356,6 +356,22 @@ func TestTurnoACPAtualizaUsoEAnunciaCadaFaixaUmaVez(t *testing.T) {
 	}
 }
 
+func TestTurnoACPLimitaPercentualDeAvisoAoLimiteDoContexto(t *testing.T) {
+	handler := &espiao{}
+	turn := &acpTurn{handler: handler}
+	turn.update(acp.Update{Kind: acp.UpdateUsage, ContextUsed: 1200, ContextSize: 1000})
+
+	if len(handler.avisos) != 1 || handler.avisos[0].Kind != TurnNoticeAgentContextCritical {
+		t.Fatalf("avisos de limite = %+v", handler.avisos)
+	}
+	if got := handler.avisos[0].Percentage; got != 100 {
+		t.Fatalf("percentual do aviso = %v; queria 100", got)
+	}
+	if got := handler.avisos[0].ContextTokens; got != 1200 {
+		t.Fatalf("tokens usados no aviso = %d; queria preservar 1200", got)
+	}
+}
+
 // espiaoSurdo é um handler que não sabe receber atividade de agente: o turno
 // precisa seguir entregando texto para ele.
 type espiaoSurdo struct {
