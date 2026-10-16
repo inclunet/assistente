@@ -487,13 +487,17 @@ func TestBlocosDoPromptIgnoramConteudoVazio(t *testing.T) {
 	if _, err := promptBlocks([]Content{AudioContent("ZmFrZQ==", "")}); err == nil {
 		t.Error("áudio sem tipo MIME deveria falhar aqui, e não no agente")
 	}
+	if _, err := promptBlocks([]Content{EmbeddedResourceContent("nota.pdf", "ZmFrZQ==", "")}); err == nil {
+		t.Error("recurso sem tipo MIME deveria falhar aqui, e não no agente")
+	}
 	blocos, err := promptBlocks([]Content{
 		TextContent("oi"), ImageContent("ZmFrZQ==", "image/png"), AudioContent("ZmFrZQ==", "audio/wav"),
+		EmbeddedResourceContent("nota.pdf", "ZmFrZQ==", "application/pdf"),
 	})
 	if err != nil {
 		t.Fatalf("blocos válidos: %v", err)
 	}
-	if len(blocos) != 3 || blocos[0].Text == nil || blocos[1].Image == nil || blocos[2].Audio == nil {
+	if len(blocos) != 4 || blocos[0].Text == nil || blocos[1].Image == nil || blocos[2].Audio == nil || blocos[3].Resource == nil {
 		t.Fatalf("blocos inesperados: %+v", blocos)
 	}
 }

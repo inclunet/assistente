@@ -269,6 +269,7 @@ func (p *ACPChatProvider) promptContent(ctx context.Context, conv *acp.Conversat
 		content, notSent := turnContent(messages[i],
 			func() bool { return p.acceptsImage(ctx, conv) },
 			func() bool { return p.acceptsAudio(ctx, conv) },
+			func() bool { return p.acceptsEmbeddedContext(ctx, conv) },
 		)
 		if len(content) == 0 {
 			if notSent > 0 {
@@ -304,6 +305,17 @@ func (p *ACPChatProvider) acceptsAudio(ctx context.Context, conv *acp.Conversati
 		return false
 	}
 	return caps.PromptAudio
+}
+
+// acceptsEmbeddedContext diz se o agente recebe conteúdo de arquivo embutido.
+func (p *ACPChatProvider) acceptsEmbeddedContext(ctx context.Context, conv *acp.Conversation) bool {
+	caps, err := conv.Capabilities(ctx)
+	if err != nil {
+		logging.Warnf(ctx, acpProviderComponent,
+			"[ACP] capacidades do agente indisponíveis; anexos ficam de fora deste turno: %v", err)
+		return false
+	}
+	return caps.PromptEmbeddedContext
 }
 
 // turnAccepted diz se o pedido chegou a sair para o agente. A definição é

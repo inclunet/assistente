@@ -1,6 +1,8 @@
 package acp
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"math"
 	"strings"
@@ -581,6 +583,18 @@ func promptBlocks(content []Content) ([]sdk.ContentBlock, error) {
 				return nil, errors.New("anexo de áudio sem tipo MIME")
 			}
 			blocks = append(blocks, sdk.AudioBlock(item.AudioData, item.AudioMIME))
+		case item.ResourceData != "":
+			if strings.TrimSpace(item.ResourceMIME) == "" {
+				return nil, errors.New("recurso embutido sem tipo MIME")
+			}
+			mime := strings.TrimSpace(item.ResourceMIME)
+			digest := sha256.Sum256([]byte(item.ResourceName + "\x00" + mime + "\x00" + item.ResourceData))
+			uri := "urn:assistente:attachment:" + hex.EncodeToString(digest[:])
+			blocks = append(blocks, sdk.ResourceBlock(sdk.EmbeddedResourceResource{
+				BlobResourceContents: &sdk.BlobResourceContents{
+					Blob: item.ResourceData, MimeType: &mime, Uri: uri,
+				},
+			}))
 		case item.ImageData != "":
 			// Imagem sem tipo viraria um mimeType vazio no fio, e o agente
 			// falharia de um jeito difícil de ligar de volta ao anexo.

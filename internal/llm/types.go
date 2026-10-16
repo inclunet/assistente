@@ -88,12 +88,20 @@ type ContentPart struct {
 	Text       string      `json:"text,omitempty"`
 	ImageURL   *ImageURL   `json:"image_url,omitempty"`
 	InputAudio *InputAudio `json:"input_audio,omitempty"`
+	File       *InputFile  `json:"file,omitempty"`
 }
 
 // InputAudio guarda o payload base64 no formato de entrada comum do chat.
 type InputAudio struct {
 	Data   string `json:"data"`
 	Format string `json:"format"`
+}
+
+// InputFile guarda um anexo textual ou binário já persistido como base64.
+type InputFile struct {
+	Filename string `json:"filename"`
+	Data     string `json:"data"`
+	MIMEType string `json:"mime_type"`
 }
 
 // ImageURL representa uma imagem em base64 ou URL

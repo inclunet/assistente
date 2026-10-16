@@ -396,6 +396,11 @@ type Content struct {
 	// AudioData e AudioMIME são o áudio em base64 e o tipo MIME correspondente.
 	AudioData string
 	AudioMIME string
+	// Resource guarda conteúdo binário embutido, enviado só com a capability
+	// promptCapabilities.embeddedContext.
+	ResourceName string
+	ResourceData string
+	ResourceMIME string
 }
 
 // TextContent cria um bloco de texto.
@@ -409,6 +414,11 @@ func ImageContent(base64Data, mimeType string) Content {
 // AudioContent cria um bloco de áudio a partir de dados base64.
 func AudioContent(base64Data, mimeType string) Content {
 	return Content{AudioData: base64Data, AudioMIME: mimeType}
+}
+
+// EmbeddedResourceContent cria um recurso binário de contexto para o prompt.
+func EmbeddedResourceContent(name, base64Data, mimeType string) Content {
+	return Content{ResourceName: name, ResourceData: base64Data, ResourceMIME: mimeType}
 }
 
 // StopReason é o motivo pelo qual o agente encerrou o turno.

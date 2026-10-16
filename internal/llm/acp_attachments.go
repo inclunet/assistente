@@ -8,7 +8,7 @@ import (
 
 // Anexos no turno do agente (AEP-0084). A mensagem da pessoa pode ser
 // multimodal e o session/prompt recebe uma lista de blocos, então o mapeamento
-// mantém a ordem: texto, imagens inline e áudio anunciado pelo agente.
+// mantém a ordem: texto, imagens, áudio e recursos embutidos aceitos.
 //
 // O que o agente aceita vem do initialize. Anexo que ele não aceita não é
 // descartado em silêncio: o turno segue com o texto e a pessoa é avisada do que
@@ -28,9 +28,10 @@ const (
 //
 // As funções de capability são avaliadas apenas quando a mensagem contém aquele
 // tipo de anexo, evitando consultas e avisos em turnos de texto puro.
-func turnContent(msg Message, acceptsImage, acceptsAudio func() bool) (content []acp.Content, notSent int) {
+func turnContent(msg Message, acceptsImage, acceptsAudio, acceptsEmbedded func() bool) (content []acp.Content, notSent int) {
 	imageAccepted, imageAsked := false, false
 	audioAccepted, audioAsked := false, false
+	embeddedAccepted, embeddedAsked := false, false
 	for _, part := range messageParts(msg) {
 		switch part.Type {
 		case "":
@@ -61,6 +62,16 @@ func turnContent(msg Message, acceptsImage, acceptsAudio func() bool) (content [
 				continue
 			}
 			content = append(content, acp.AudioContent(data, mime))
+		case "file":
+			if !embeddedAsked {
+				embeddedAccepted, embeddedAsked = acceptsEmbedded(), true
+			}
+			name, data, mime, valid := inlineFile(part)
+			if !embeddedAccepted || !valid {
+				notSent++
+				continue
+			}
+			content = append(content, acp.EmbeddedResourceContent(name, data, mime))
 		default:
 			// Documento, vídeo e tipos desconhecidos seguem fora do contrato ACP.
 			notSent++
@@ -103,6 +114,15 @@ func messageParts(msg Message) []ContentPart {
 					part.InputAudio = &InputAudio{Data: data, Format: format}
 				}
 				out = append(out, part)
+			case "file":
+				part := ContentPart{Type: kind}
+				if file, ok := partMap["file"].(map[string]interface{}); ok {
+					name, _ := file["filename"].(string)
+					data, _ := file["data"].(string)
+					mime, _ := file["mime_type"].(string)
+					part.File = &InputFile{Filename: name, Data: data, MIMEType: mime}
+				}
+				out = append(out, part)
 			default:
 				// Preservar o tipo para que o contador informe anexos ignorados.
 				out = append(out, ContentPart{Type: kind})
@@ -113,6 +133,25 @@ func messageParts(msg Message) []ContentPart {
 		// Conteúdo simples: o turno inteiro é uma parte de texto.
 		return []ContentPart{{Type: "text", Text: msg.GetContentAsString()}}
 	}
+}
+
+// inlineFile aceita apenas PDFs e arquivos de texto persistidos em base64.
+func inlineFile(part ContentPart) (name, data, mime string, ok bool) {
+	if part.File == nil || strings.TrimSpace(part.File.Data) == "" {
+		return "", "", "", false
+	}
+	mime = strings.ToLower(strings.TrimSpace(part.File.MIMEType))
+	if mime != "application/pdf" && !strings.HasPrefix(mime, "text/") {
+		return "", "", "", false
+	}
+	name = strings.TrimSpace(strings.ReplaceAll(part.File.Filename, "\\", "/"))
+	if separator := strings.LastIndex(name, "/"); separator >= 0 {
+		name = name[separator+1:]
+	}
+	if name == "" || name == "." || name == ".." {
+		name = "anexo"
+	}
+	return name, part.File.Data, mime, true
 }
 
 // inlineAudio converte os formatos de entrada que o pipeline mantém em base64.
