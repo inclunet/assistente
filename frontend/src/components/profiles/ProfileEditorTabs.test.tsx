@@ -59,7 +59,7 @@ vi.mock('./ProfileGeneralSection', () => ({
 vi.mock('./ProfileChatSection', () => ({
   ProfileChatSection: ({ unsupportedFields, compatibilityLoading }: { unsupportedFields?: string[]; compatibilityLoading?: boolean }) => (
     <div data-testid="chat-section" data-unsupported-fields={unsupportedFields?.join(',') ?? ''} data-compatibility-loading={String(Boolean(compatibilityLoading))}>
-      <button data-testid="temperature-field" disabled={compatibilityLoading} hidden={unsupportedFields?.includes('temperature')}>Temperature</button>
+      {!unsupportedFields?.includes('temperature') && <button data-testid="temperature-field" disabled={compatibilityLoading}>Temperature</button>}
     </div>
   ),
 }));
@@ -146,10 +146,10 @@ describe('ProfileEditorTabs', () => {
       ...defaultProfile,
       chat: { ...defaultProfile.chat, llm_provider: 'openai', model },
     });
-    const { rerender } = render(<ProfileEditorTabs {...propsCom(profile('old-model'))} initialTab="models" />);
+    const { rerender } = render(<ProfileEditorTabs {...propsCom(profile('old-model'))} />);
     expect(compatibilitySpy).toHaveBeenNthCalledWith(1, 'openai', 'old-model');
 
-    rerender(<ProfileEditorTabs {...propsCom(profile('current-model'))} initialTab="models" />);
+    rerender(<ProfileEditorTabs {...propsCom(profile('current-model'))} />);
     expect(compatibilitySpy).toHaveBeenNthCalledWith(2, 'openai', 'current-model');
     expect(screen.getByTestId('chat-section')).toHaveAttribute('data-compatibility-loading', 'true');
     expect(screen.getByTestId('temperature-field')).toBeDisabled();
@@ -315,12 +315,13 @@ describe('ProfileEditorTabs', () => {
   });
 
   it.each([
-    ['Ctrl+Tab', { key: 'Tab', ctrlKey: true }, 'chat-section'],
+    ['Ctrl+Tab', { key: 'Tab', ctrlKey: true }, 'temperature-field'],
     ['Ctrl+Shift+Tab', { key: 'Tab', ctrlKey: true, shiftKey: true }, 'audio-tab'],
-    ['Ctrl+PageDown', { key: 'PageDown', ctrlKey: true }, 'chat-section'],
+    ['Ctrl+PageDown', { key: 'PageDown', ctrlKey: true }, 'temperature-field'],
     ['Ctrl+PageUp', { key: 'PageUp', ctrlKey: true }, 'audio-tab'],
   ])('%s restaura foco para o conteúdo da aba destino', async (_label, init, defaultTarget) => {
     renderTabs();
+    await waitFor(() => expect(screen.getByTestId('chat-section')).toHaveAttribute('data-compatibility-loading', 'false'));
 
     const generalTab = screen.getAllByRole('tab').find(t => t.getAttribute('data-tab-value') === 'general')!;
     generalTab.focus();
