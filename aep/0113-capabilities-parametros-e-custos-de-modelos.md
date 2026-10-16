@@ -315,7 +315,9 @@ mantendo explícito que a fase 4 é uma proposta futura que exige nova decisão.
   de escopo e cascata no PR #889.
 - [x] Troca de revisão invalida restrições e uma resposta atrasada não grava na
   revisão nova. O teste focado cobre gravação obsoleta e invalidação; integração
-  da revisão ao snapshot efetivo do envio permanece na fase 2.
+  da revisão ao snapshot efetivo do envio permanece na fase 2. A atualização do
+  provider com credencial publica a revisão persistida no registry apenas após
+  o commit, coberta por `credential_save_test.go`.
 - [x] A revisão de compatibilidade acompanha apenas endpoint, formato de API,
   adaptador e modo de protocolo. Alterar a referência de credencial ou opções
   gerais do provedor não avança essa revisão nem invalida campos aprendidos;
