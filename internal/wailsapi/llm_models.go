@@ -142,6 +142,13 @@ func (m *LLMModels) GetUnsupportedProfileChatFields(providerID, remoteModelID st
 		return nil, ErrLLMModelsNotWired
 	}
 	return WithUser(session, func(ctx context.Context) ([]string, error) {
+		resolvedProfile := providerSvc.ResolveProfileDefaults(ctx, &profiles.Profile{
+			Chat: profiles.ChatConfig{LLMProvider: providerID, Model: remoteModelID},
+		})
+		if resolvedProfile != nil {
+			providerID = resolvedProfile.Chat.LLMProvider
+			remoteModelID = resolvedProfile.Chat.Model
+		}
 		_, provider, err := providerSvc.GetChatProviderWithConfigSnapshot(ctx, providerID)
 		if err != nil {
 			return nil, err

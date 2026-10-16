@@ -77,7 +77,14 @@ export function ProfileEditorTabs({
   const chatProviderID = editingProfile.chat?.llm_provider || '';
   const chatModelID = editingProfile.chat?.model || '';
   const compatibilityKey = `${chatProviderID}\u0000${chatModelID}`;
-  const [unsupportedChatFields, setUnsupportedChatFields] = useState<{ key: string; fields: string[] }>({ key: '', fields: [] });
+  const [unsupportedChatFields, setUnsupportedChatFields] = useState<{ key: string; fields: string[]; loading: boolean }>({ key: '', fields: [], loading: false });
+  if (unsupportedChatFields.key !== compatibilityKey) {
+    setUnsupportedChatFields({
+      key: compatibilityKey,
+      fields: [],
+      loading: Boolean(chatProviderID && chatModelID),
+    });
+  }
   const containerRef = useRef<HTMLDivElement>(null);
   const pendingShortcutFocusRef = useRef<EditorTabId | null>(null);
   const { isAgent: agentProvider, resolved: agentProviderResolved } = useAgentProvider(
@@ -99,10 +106,10 @@ export function ProfileEditorTabs({
 
     GetUnsupportedProfileChatFields(chatProviderID, chatModelID)
       .then((fields) => {
-        if (current) setUnsupportedChatFields({ key: compatibilityKey, fields: fields || [] });
+        if (current) setUnsupportedChatFields({ key: compatibilityKey, fields: fields || [], loading: false });
       })
       .catch(() => {
-        if (current) setUnsupportedChatFields({ key: compatibilityKey, fields: [] });
+        if (current) setUnsupportedChatFields({ key: compatibilityKey, fields: [], loading: false });
       });
 
     return () => { current = false; };
@@ -111,7 +118,9 @@ export function ProfileEditorTabs({
   const unsupportedFields = unsupportedChatFields.key === compatibilityKey
     ? unsupportedChatFields.fields
     : [];
-  const compatibilityLoading = Boolean(chatProviderID && chatModelID && unsupportedChatFields.key !== compatibilityKey);
+  const compatibilityLoading = Boolean(chatProviderID && chatModelID && (
+    unsupportedChatFields.key !== compatibilityKey || unsupportedChatFields.loading
+  ));
 
   useLayoutEffect(() => {
     if (initialTab === 'voice') {
