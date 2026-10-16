@@ -179,7 +179,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
   const profilePickerRef = useRef<ProfilePickerRef>(null);
   const toolbarRef = useRef<HTMLDivElement>(null);
   const cancelQueuedTurnButtonRef = useRef<HTMLButtonElement>(null);
-  const clearConversationButtonRef = useRef<HTMLButtonElement>(null);
+  const pinnedMessagesButtonRef = useRef<HTMLButtonElement>(null);
   const restoreFocusAfterQueueCancelRef = useRef(false);
   const historyContainerRef = useRef<HTMLDivElement>(null);
   const profileContainerRef = useRef<HTMLDivElement>(null);
@@ -193,7 +193,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
   useEffect(() => {
     if (!restoreFocusAfterQueueCancelRef.current || queuedTurnCount > 0) return;
     restoreFocusAfterQueueCancelRef.current = false;
-    clearConversationButtonRef.current?.focus();
+    pinnedMessagesButtonRef.current?.focus();
   }, [queuedTurnCount]);
   const shortcutHint = useCommandShortcutHints('chat');
   const clearShortcut = shortcutHint(CHAT_CLEAR_COMMAND);
@@ -625,7 +625,6 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
               />
             )}
             <ToolbarButton
-              ref={clearConversationButtonRef}
               label={t('chat.clearBtn')}
               icon={<ClearOutlined />}
               shortcut={clearShortcut}
@@ -653,6 +652,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
             <ToolbarSeparator />
 
             <ToolbarButton
+              ref={pinnedMessagesButtonRef}
               label={t('chat.pins.button')}
               icon="📌"
               title={t('chat.pins.buttonDescription')}

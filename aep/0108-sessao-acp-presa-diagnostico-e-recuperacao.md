@@ -126,7 +126,9 @@ recuperação e proibição de `assistant` vazio em erro.
    individual na fila (`chatTurnQueue`); `chatTurnQueue.test.ts` cobre
    cancelamento sem iniciar a chamada, continuidade do turno ativo e exclusão
    de entradas invalidadas por limpeza; `ChatToolbar.test.tsx` cobre controle,
-   anúncio e restauração de foco ao cancelar o último item.
+   anúncio e restauração de foco ao cancelar o último item, inclusive durante
+   um turno ativo: o foco retorna ao botão de mensagens fixadas, que permanece
+   habilitado quando a ação de limpar está desabilitada.
    `chatStore.validation.test.ts` cobre que cancelamento de envio/retry
    auditado na fila resulta em comando cancelado, sem envio ao backend.
    Eventos externos continuam serializados e não são canceláveis pela toolbar.
@@ -154,7 +156,8 @@ recuperação e proibição de `assistant` vazio em erro.
 - [x] Turno ACP sem resposta gera log de espera.
 - [x] Envio manual enfileirado tem estado acessível por conversa e o próximo pendente
       pode ser cancelado sem cancelar o turno ativo; anúncio global confirma a
-      operação. Evidências: `chatTurnQueue` Vitest e `ChatToolbar` Vitest.
+      operação. Evidências: `chatTurnQueue` Vitest e `ChatToolbar` Vitest,
+      incluindo restauração de foco durante `isLoading`.
 - [x] Agente vivo sem resposta vira `ErrCancelNotConfirmed` via watchdog de
       inatividade (nunca `markDead`, que é por `conn`).
 - [ ] Estratégia validada detecta processo/agente morto com sessão ociosa sem

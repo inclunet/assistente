@@ -470,7 +470,22 @@ describe('ChatToolbar fila de envios', () => {
     queuedTurnCountRef.current = 0;
     view.rerender(<MemoryRouter><ChatToolbar /></MemoryRouter>);
 
-    expect(screen.getByRole('button', { name: 'chat.clearBtn' })).toHaveFocus();
+    expect(screen.getByRole('button', { name: 'chat.pins.button' })).toHaveFocus();
+  });
+
+  it('restaura o foco para um controle habilitado enquanto o turno ativo continua', () => {
+    queuedTurnCountRef.current = 1;
+    isLoadingRef.current = true;
+    const view = renderToolbar();
+    const cancelButton = screen.getByRole('button', { name: 'chat.queue.cancelNextDescription' });
+    cancelButton.focus();
+
+    fireEvent.click(cancelButton);
+    queuedTurnCountRef.current = 0;
+    view.rerender(<MemoryRouter><ChatToolbar /></MemoryRouter>);
+
+    expect(screen.getByRole('button', { name: 'chat.clearBtn' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'chat.pins.button' })).toHaveFocus();
   });
 });
 
