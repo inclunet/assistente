@@ -390,17 +390,34 @@ func (r *DBRepository) CleanOldChat(ctx context.Context, maxAge time.Duration) (
 		return 0, nil
 	}
 	cutoff := r.now().Add(-maxAge)
-	var tx *gorm.DB
+	deleted := 0
 	err := r.retry(ctx, "clean_old_chat", func() error {
-		tx = database.ScopeByUser(ctx, r.db.WithContext(ctx), "user_id").
-			Where("queued_at < ? AND origin_type = ?", cutoff, OriginChat).
-			Delete(&database.ToolInvocation{})
-		return tx.Error
+		var deletedThisAttempt int64
+		err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			oldIDs := database.ScopeByUser(ctx, tx.Model(&database.ToolInvocation{}).Select("tool_invocations.id"), "user_id").
+				Where("queued_at < ? AND origin_type = ?", cutoff, OriginChat)
+			children := database.ScopeByUser(ctx, tx.Model(&database.ToolInvocation{}), "user_id").
+				Where("parent_invocation_id IN (?)", oldIDs)
+			if err := children.Update("parent_invocation_id", nil).Error; err != nil {
+				return err
+			}
+			result := database.ScopeByUser(ctx, tx.Model(&database.ToolInvocation{}), "user_id").
+				Where("id IN (?)", oldIDs).Delete(&database.ToolInvocation{})
+			if result.Error != nil {
+				return result.Error
+			}
+			deletedThisAttempt = result.RowsAffected
+			return nil
+		})
+		if err == nil {
+			deleted = int(deletedThisAttempt)
+		}
+		return err
 	})
-	if tx == nil {
+	if err != nil {
 		return 0, err
 	}
-	return int(tx.RowsAffected), err
+	return deleted, nil
 }
 
 // CleanOrphanChat remove invocações de chat cujo turno/mensagem de origem não
