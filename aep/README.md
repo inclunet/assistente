@@ -1,5 +1,11 @@
 # AEP — Assistente Enhancement Proposals
 
+**AEP-0103 — apresentação de destinos de aba (16/10/2026): In Progress.**
+Nome e ícone automáticos no Stream Deck para destinos de aba; prévia no
+editor substitui a personalização desses comandos. A seleção específica
+continua por ID, sem busca por título. Ausência/ambiguidade não preserva
+ícone ou imagem antiga. Aceite físico/NVDA pendente, sem promoção de critérios.
+
 **AEP-0103 — resultado e foco após criação (07/10/2026): In Progress.**
 Consulta de resultado retido independe da projeção do mapa (I04.5), preservando
 identidade, runtime, cofre e sessão do SO. Begin/Take/Commit não mudam.

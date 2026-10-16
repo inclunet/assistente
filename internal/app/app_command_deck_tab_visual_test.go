@@ -137,9 +137,9 @@ func TestWorkspaceTabDeckMixedConditionsKeepCombinedPresentation(t *testing.T) {
 		{CommandID: commandWorkspaceTabFirstID, BySurface: map[string]bool{"chat": true}},
 		{CommandID: "navigation.settings.open", BySurface: map[string]bool{"chat": true}},
 	}
-	base := commandDeckVisual{title: "First tab / Settings"}
+	base := commandDeckVisual{title: "First tab / Settings", icon: "custom-settings", imageRef: "settings-image"}
 	got, _ := applyWorkspaceTabDeckVisual(nil, nil, "", []string{"binding"}, conditions, nil, active, "en", base, nil, "")
-	if got.title != "First tab / Settings — Chat one" || got.icon != "workspace-tab-chat" {
+	if got.title != "First tab / Settings — Chat one" || got.icon != "custom-settings" || got.imageRef != "settings-image" {
 		t.Fatalf("mixed contextual presentation must retain the combination and identify the tab target: %+v", got)
 	}
 }
@@ -183,7 +183,7 @@ func TestWorkspaceTabDeckVisualSelectsOnlyLivePageBranchAndStaysNeutralWithoutPa
 	}
 }
 
-func TestWorkspaceTabDeckAmbiguousTargetSuffixPreservesCustomTitles(t *testing.T) {
+func TestWorkspaceTabDeckAmbiguousTargetOverridesLegacyPresentation(t *testing.T) {
 	candidate := commandbindings.Candidate{ID: "binding", Trigger: "streamdeck.key:DECK:key:0", CommandID: commandWorkspaceTabGoToID, ArgumentsKey: `{}`, ExecutionScopeKey: "global", Scope: commandbindings.Global, Enabled: true, LayerActive: true}
 	configuration, err := commandbindings.NewConfiguration(nil, nil, []commandbindings.Candidate{candidate})
 	if err != nil {
@@ -213,12 +213,11 @@ func TestWorkspaceTabDeckAmbiguousTargetSuffixPreservesCustomTitles(t *testing.T
 	base := commandDeckVisual{title: "Pinned Context-dependent destination note", icon: "star"}
 	variants := map[string]commandDeckVisual{"running": {title: "Running title with Context-dependent destination nearby", icon: "running-icon"}}
 	base, variants = applyWorkspaceTabDeckVisual(configuration, nil, "", []string{candidate.ID}, []LocalCommandPaletteCondition{condition}, nil, active, "en", base, variants, "")
-	const suffix = " — Context-dependent destination"
-	if base.title != "Pinned Context-dependent destination note"+suffix || base.icon != "star" {
-		t.Fatalf("ambiguous marker must suffix, not replace, the custom title: %+v", base)
+	if base.title != "Context-dependent destination" || base.icon != "" || base.imageRef != "" {
+		t.Fatalf("ambiguous destination must discard legacy presentation: %+v", base)
 	}
-	if variants["running"].title != "Running title with Context-dependent destination nearby"+suffix || variants["running"].icon != "running-icon" {
-		t.Fatalf("state-specific custom title/fields must survive ambiguity: %+v", variants["running"])
+	if variants["running"].title != "Context-dependent destination" || variants["running"].icon != "" || variants["running"].imageRef != "" {
+		t.Fatalf("state-specific legacy presentation must be discarded: %+v", variants["running"])
 	}
 }
 
@@ -257,7 +256,7 @@ func mustDeckTabArguments(t *testing.T, raw string) map[string]any {
 	return arguments
 }
 
-func TestWorkspaceTabDeckVisualPreservesCustomFieldsAndStateOverrides(t *testing.T) {
+func TestWorkspaceTabDeckVisualOverridesLegacyCustomFieldsAndStateOverrides(t *testing.T) {
 	candidate := commandbindings.Candidate{ID: "binding", Trigger: "streamdeck.key:DECK:key:0", CommandID: commandWorkspaceTabGoToID, ArgumentsKey: `{}`, ExecutionScopeKey: "global", Scope: commandbindings.Global, Enabled: true, LayerActive: true}
 	configuration, err := commandbindings.NewConfiguration(nil, nil, []commandbindings.Candidate{candidate})
 	if err != nil {
@@ -278,19 +277,19 @@ func TestWorkspaceTabDeckVisualPreservesCustomFieldsAndStateOverrides(t *testing
 	base := commandDeckVisual{title: "Pinned title", icon: "star", imageRef: "custom-image"}
 	variants := map[string]commandDeckVisual{"running": {title: "Running title", icon: "stop", imageRef: "custom-image"}, "succeeded": {title: "Pinned title", icon: "star", imageRef: "custom-image"}}
 	base, variants = applyWorkspaceTabDeckVisual(configuration, nil, "", []string{candidate.ID}, nil, args, active, "en", base, variants, commandWorkspaceTabGoToID)
-	if base.title != "Pinned title" || base.icon != "star" || base.imageRef != "custom-image" {
-		t.Fatalf("base override was not preserved fieldwise: %+v", base)
+	if base.title != "live.md" || base.icon != "workspace-tab-editor" || base.imageRef != "" {
+		t.Fatalf("automatic base presentation did not replace overrides: %+v", base)
 	}
-	if variants["running"].title != "Running title" || variants["running"].icon != "stop" || variants["running"].imageRef != "custom-image" {
-		t.Fatalf("state override was not preserved: %+v", variants["running"])
+	if variants["running"].title != "live.md" || variants["running"].icon != "workspace-tab-editor" || variants["running"].imageRef != "" {
+		t.Fatalf("state override was not replaced: %+v", variants["running"])
 	}
-	if variants["succeeded"].title != "Pinned title" || variants["succeeded"].icon != "star" || variants["succeeded"].imageRef != "custom-image" {
-		t.Fatalf("inherited fields were not preserved: %+v", variants["succeeded"])
+	if variants["succeeded"].title != "live.md" || variants["succeeded"].icon != "workspace-tab-editor" || variants["succeeded"].imageRef != "" {
+		t.Fatalf("inherited fields were not replaced: %+v", variants["succeeded"])
 	}
 	closed := &workspace.Workspace{ID: "workspace-a"}
 	base, _ = applyWorkspaceTabDeckVisual(configuration, nil, "", []string{candidate.ID}, nil, args, closed, "en", base, variants, commandWorkspaceTabGoToID)
-	if base.title != "Pinned title — Tab unavailable" || base.icon != "star" || base.imageRef != "custom-image" {
-		t.Fatalf("unavailable status should retain custom fields and remain explicit: %+v", base)
+	if base.title != "Tab unavailable" || base.icon != "" || base.imageRef != "" {
+		t.Fatalf("unavailable target must clear stale presentation: %+v", base)
 	}
 }
 
@@ -318,11 +317,11 @@ func TestWorkspaceTabDeckCustomPresentationRequiresEffectiveConsensus(t *testing
 	base := commandDeckVisual{title: "Custom base", icon: "star"}
 	variants := map[string]commandDeckVisual{"running": {title: "Custom base", icon: "star"}}
 	base, variants = applyWorkspaceTabDeckVisual(configuration, nil, "", ids, nil, []byte(`{"workspace_id":"workspace-a","target_mode":"position","position":1}`), active, "en", base, variants, commandWorkspaceTabGoToID)
-	if base.title != "Custom base" || base.icon != "star" {
-		t.Fatalf("unanimous base presentation should be preserved: %+v", base)
+	if base.title != "Current tab" || base.icon != "workspace-tab-editor" {
+		t.Fatalf("unanimous custom presentation must yield to automatic target: %+v", base)
 	}
-	if variants["running"].title != "Custom base" || variants["running"].icon != "star" {
-		t.Fatalf("explicit state values matching the inherited presentation should be preserved: %+v", variants["running"])
+	if variants["running"].title != "Current tab" || variants["running"].icon != "workspace-tab-editor" {
+		t.Fatalf("state presentation must yield to automatic target: %+v", variants["running"])
 	}
 
 	configuration = configuration.WithPresentation(commandbindings.NewPresentationSnapshot(map[string]commandbindings.BindingPresentation{
@@ -353,8 +352,8 @@ func TestWorkspaceTabDeckCustomPresentationRequiresEffectiveConsensus(t *testing
 	}))
 	variants = map[string]commandDeckVisual{"running": {title: "Custom base", icon: "star"}}
 	_, variants = applyWorkspaceTabDeckVisual(configuration, nil, "", ids, nil, []byte(`{"workspace_id":"workspace-a","target_mode":"position","position":1}`), active, "en", commandDeckVisual{title: "Custom base", icon: "star"}, variants, commandWorkspaceTabGoToID)
-	if variants["running"].title != "Current tab" || variants["running"].icon != "star" {
-		t.Fatalf("explicitly empty state title must fall back automatically while the inherited icon remains unanimous: %+v", variants["running"])
+	if variants["running"].title != "Current tab" || variants["running"].icon != "workspace-tab-editor" {
+		t.Fatalf("explicitly empty state presentation must use automatic target: %+v", variants["running"])
 	}
 
 	configuration = configuration.WithPresentation(commandbindings.NewPresentationSnapshot(map[string]commandbindings.BindingPresentation{
@@ -371,8 +370,8 @@ func TestWorkspaceTabDeckCustomPresentationRequiresEffectiveConsensus(t *testing
 		"binding-b": {TitleByLocale: map[string]string{"en": "Custom B"}, Icon: "star"},
 	}))
 	base, _ = applyWorkspaceTabDeckVisual(configuration, nil, "", ids, nil, []byte(`{"workspace_id":"workspace-a","target_mode":"position","position":1}`), active, "en", commandDeckVisual{title: "Go to tab", icon: "star"}, nil, commandWorkspaceTabGoToID)
-	if base.title != "Current tab" || base.icon != "star" {
-		t.Fatalf("divergent titles must not suppress automatic target: %+v", base)
+	if base.title != "Current tab" || base.icon != "workspace-tab-editor" {
+		t.Fatalf("divergent titles and icons must not suppress automatic target: %+v", base)
 	}
 }
 
