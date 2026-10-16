@@ -232,13 +232,11 @@ func (r *ProviderRepository) SetDefaultProvider(ctx context.Context, id string) 
 		return err
 	}
 	return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		scope := func(query *gorm.DB) *gorm.DB {
-			return ScopeByUser(ctx, query, "user_id")
-		}
-		if err := scope(tx.Model(&LLMProvider{})).Where("is_default = ?", true).Update("is_default", false).Error; err != nil {
+		scoped := ScopeByUser(ctx, tx.Model(&LLMProvider{}), "user_id")
+		if err := scoped.Where("is_default = ?", true).Update("is_default", false).Error; err != nil {
 			return err
 		}
-		return scope(tx.Model(&LLMProvider{})).Where("id = ?", id).Update("is_default", true).Error
+		return ScopeByUser(ctx, tx.Model(&LLMProvider{}), "user_id").Where("id = ?", id).Update("is_default", true).Error
 	})
 }
 
