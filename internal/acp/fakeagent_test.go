@@ -423,8 +423,11 @@ func (a *fakeAgent) handle(msg rpcMessage) {
 				case <-a.optionSecondReceived:
 				case <-time.After(time.Second):
 				}
-				a.reply(*msg.ID, map[string]any{"configOptions": []any{fakeModelOption(params.Value)}})
+				// Fecha antes de publicar a resposta: o cliente só libera a segunda
+				// escrita depois de receber o primeiro reply, e o marcador deve
+				// representar a serialização antes desse ponto observável.
 				close(a.optionFirstReply)
+				a.reply(*msg.ID, map[string]any{"configOptions": []any{fakeModelOption(params.Value)}})
 			} else {
 				overlapped := false
 				select {
