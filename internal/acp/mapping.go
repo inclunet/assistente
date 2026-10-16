@@ -588,7 +588,16 @@ func promptBlocks(content []Content) ([]sdk.ContentBlock, error) {
 				return nil, errors.New("recurso embutido sem tipo MIME")
 			}
 			mime := strings.TrimSpace(item.ResourceMIME)
-			digest := sha256.Sum256([]byte(item.ResourceName + "\x00" + mime + "\x00" + item.ResourceData))
+			name := strings.TrimSpace(strings.ReplaceAll(item.ResourceName, "\\", "/"))
+			if separator := strings.LastIndex(name, "/"); separator >= 0 {
+				name = name[separator+1:]
+			}
+			name = SanitizeLabel(name)
+			if name == "" || name == "." || name == ".." {
+				name = "anexo"
+			}
+			blocks = append(blocks, sdk.TextBlock("[Arquivo anexado: "+name+"]"))
+			digest := sha256.Sum256([]byte(name + "\x00" + mime + "\x00" + item.ResourceData))
 			uri := "urn:assistente:attachment:" + hex.EncodeToString(digest[:])
 			blocks = append(blocks, sdk.ResourceBlock(sdk.EmbeddedResourceResource{
 				BlobResourceContents: &sdk.BlobResourceContents{

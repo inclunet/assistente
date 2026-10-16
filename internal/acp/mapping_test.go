@@ -497,8 +497,29 @@ func TestBlocosDoPromptIgnoramConteudoVazio(t *testing.T) {
 	if err != nil {
 		t.Fatalf("blocos válidos: %v", err)
 	}
-	if len(blocos) != 4 || blocos[0].Text == nil || blocos[1].Image == nil || blocos[2].Audio == nil || blocos[3].Resource == nil {
+	if len(blocos) != 5 || blocos[0].Text == nil || blocos[1].Image == nil || blocos[2].Audio == nil ||
+		blocos[3].Text == nil || blocos[4].Resource == nil {
 		t.Fatalf("blocos inesperados: %+v", blocos)
+	}
+}
+
+func TestPromptBlocksAssociamNomeBaseAoRecursoEmbutido(t *testing.T) {
+	blocks, err := promptBlocks([]Content{
+		EmbeddedResourceContent(`C:\privado\relatorio.pdf`, "cGRmMQ==", "application/pdf"),
+		EmbeddedResourceContent("/home/pessoa/notas.txt", "dGV4dG8=", "text/plain"),
+	})
+	if err != nil {
+		t.Fatalf("promptBlocks: %v", err)
+	}
+	if len(blocks) != 4 || blocks[0].Text == nil || blocks[1].Resource == nil ||
+		blocks[2].Text == nil || blocks[3].Resource == nil {
+		t.Fatalf("blocos de anexo não mantiveram nome antes do recurso: %+v", blocks)
+	}
+	if blocks[0].Text.Text != "[Arquivo anexado: relatorio.pdf]" || blocks[2].Text.Text != "[Arquivo anexado: notas.txt]" {
+		t.Fatalf("nomes de anexo inesperados: %q, %q", blocks[0].Text.Text, blocks[2].Text.Text)
+	}
+	if strings.Contains(blocks[0].Text.Text, `C:\`) || strings.Contains(blocks[2].Text.Text, "/home/") {
+		t.Fatalf("caminho local foi incluído no prompt: %q, %q", blocks[0].Text.Text, blocks[2].Text.Text)
 	}
 }
 

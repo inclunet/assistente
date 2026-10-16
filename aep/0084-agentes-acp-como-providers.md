@@ -442,7 +442,11 @@ estado recebido depois que o pedido saiu; uma resposta atrasada não pode
 reverter um snapshot mais novo nem divergir da consulta seguinte. A cobertura
 de transporte real inclui `TestNotificacaoMaisNovaPrevaleceSobreRespostaAtrasadaDaTroca`
 e `TestTrocasConcorrentesDaMesmaOpcaoSaoSerializadas`; a reconciliação entre
-opções da categoria `other` está em `session_options_test.go`.
+opções da categoria `other` está em `session_options_test.go`. Uma resposta
+atrasada preserva opções novas que o agente só apresentou ao atender a troca,
+sem ressuscitar IDs conhecidos removidos pelo snapshot. Se o snapshot remover
+o controle focado, a barra de ferramentas devolve o foco a outro controle que
+permaneceu disponível.
 
 ### D7. As tool calls do agente são informativas, não executáveis
 
@@ -875,7 +879,7 @@ AEPs relacionados.
 | MCP enviado em `session/new`/`session/load` | **Intencionalmente vazio** | O app não injeta servidores MCP próprios; o agente usa sua configuração local (D1). Generalizar essa passagem exigiria decisão de credenciais, escopo e isolamento. |
 | Texto em prompts e respostas | **Implementado** | Blocos de texto são encaminhados para o provider e para a superfície comum de chat. |
 | Imagem inline em prompt | **Parcial** | Só é enviada quando o agente anuncia `promptCapabilities.image`; URLs e formatos não embutidos não são convertidos em blocos ACP. Anexos não enviados geram aviso. |
-| Áudio e recurso/contexto embutido em prompt | **Parcial** | Áudio WAV/MP3 inline é enviado quando o agente anuncia `promptCapabilities.audio`, inclusive junto da transcrição preservada no histórico; PDF e texto são enviados como recurso ACP quando anuncia `embeddedContext`. Formatos desconhecidos ou agentes sem suporte geram aviso. Outros tipos de arquivo ainda ficam de fora. |
+| Áudio e recurso/contexto embutido em prompt | **Parcial** | Áudio WAV/MP3 inline é enviado quando o agente anuncia `promptCapabilities.audio`, inclusive junto da transcrição preservada no histórico; PDF e texto são enviados como recurso ACP quando anuncia `embeddedContext`, precedidos pelo nome base do arquivo em texto. O caminho local não é incluído. Formatos desconhecidos ou agentes sem suporte geram aviso. Outros tipos de arquivo ainda ficam de fora. |
 | Blocos não textuais nas respostas do agente | **Parcial** | Blocos `text` são projetados; imagem, áudio e recursos não são renderizados e agora geram um aviso acessível por turno. Se o turno terminar sem texto, a resposta final recebe o fallback terminal existente para evitar mensagem vazia. O contrato `ChatParams` não transporta o idioma da interface, então esse fallback permanece em pt-BR até uma decisão transversal de localização. Renderização multimodal continua pendente. |
 | Texto, raciocínio, início/progresso de ferramenta, opções, modo, título e comandos em `session/update` | **Implementado** | Esse é o conjunto atualmente mapeado em `internal/acp/mapping.go`. |
 | Mensagem de usuário reproduzida durante `session/load` | **Ignorada deliberadamente na apresentação** | A conversa do app vem do histórico local, evitando duplicar mensagens ACP reproduzidas. Uma futura sincronização cruzada precisará resolver divergência de histórico antes de apresentar esses eventos. |
@@ -883,7 +887,7 @@ AEPs relacionados.
 | Detalhes de ferramenta (`name`, conteúdo, diff, locais, entrada/saída bruta) | **Parcial** | A atividade recebe essencialmente categoria, título e estado. Resultado, diff e localização de arquivo não chegam ao registro. Conteúdo bruto exige decisão explícita de privacidade, saneamento e retenção antes de qualquer captura. |
 | Uso/contexto (`usage_update`) | **Parcial** | Snapshot de janela e custo do agente chegam ao painel de tokens enquanto o modal está aberto; avisos são emitidos uma vez por turno ao cruzar 80%/95%. Não entram no ledger local nem persistem entre carregamentos; a extensão do SDK é instável. |
 | Atualizações de aviso e compactação (`notice`, `compaction_update`, `compaction_summary_chunk`) | **Não anunciadas/não renderizadas** | O handshake não declara `ClientSessionCapabilities.notices` nem `.compaction`; o app não tem projeção para esses três updates. Não habilitá-las sem definir apresentação, replay e acessibilidade. |
-| Opções de configuração | **Parcial** | Seletores, modos, modelos e toggles booleanos são expostos. Snapshot vazio remove opções obsoletas. Opções ACP de tipos ainda não modelados seguem pendentes. |
+| Opções de configuração | **Parcial** | Seletores, modos, modelos e toggles booleanos são expostos. Snapshot vazio remove opções obsoletas e restaura o foco na barra se remover o controle focado; respostas atrasadas preservam IDs novos e não ressuscitam IDs removidos. Opções ACP de tipos ainda não modelados seguem pendentes. |
 | Elicitation ACP (`elicitation/create` e `elicitation/complete`, modos form/URL) | **Não implementado** | Questionários e extensões bloqueantes específicas não equivalem ao contrato genérico de elicitation. Não há handlers, anúncio de capacidade nem renderer para os modos ACP. |
 | Filesystem e terminal oferecidos pelo cliente ao agente | **Intencionalmente desativado** | O handshake envia ambos como não suportados. O agente usa ferramentas próprias no `cwd`; oferecer ferramentas do app seria outra decisão de segurança e produto. |
 | Aprovação (`session/request_permission`) e extensões Cursor documentadas | **Implementado** | Usa arbitragem/questionário existentes, com recusa segura e cancelamento. Extensões não padronizadas de outros agentes dependem de handlers específicos. |
@@ -1450,6 +1454,14 @@ testes.
 - [x] Ao chegar snapshot durante troca pendente, preservar mudanças de outras
   opções e remoções ao aplicar a resposta da opção pedida
   (`AgentOptionsPickers`: "preserva outras mudanças e remoções do snapshot ao aplicar resposta atrasada").
+- [x] Preservar IDs de opção novos incluídos na resposta atrasada quando o
+  snapshot só atualiza opções já conhecidas (`AgentOptionsPickers`: "preserva uma
+  opção nova na resposta quando o snapshot só atualiza outra opção").
+- [x] Ao remover por snapshot o controle que contém o foco, restaurá-lo em outro
+  controle habilitado da mesma barra; cobrir remoção parcial e snapshot vazio
+  (`AgentOptionsPickers`: "restaura o foco na barra quando um snapshot ... remove a opção focada").
+- [x] Associar PDF/texto ACP ao nome base do arquivo antes do recurso, sem
+  incluir caminho local (`TestPromptBlocksAssociamNomeBaseAoRecursoEmbutido`).
 - [x] Mapear, apresentar e alterar opções booleanas em ACP (`TestOpcaoBooleanaPodeSerConsultadaEAlterada`; teste Vitest de `AgentOptionsPickers`).
 - [x] Anunciar o estado booleano que o agente confirmou, inclusive quando ele
   difere do pedido (`AgentOptionsPickers`: "anuncia o estado booleano que o agente confirmou, mesmo se diferir do pedido").
