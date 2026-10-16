@@ -121,8 +121,7 @@ Concluído nesta sessão:
 
 Pendente para próxima evolução:
 
-- UI de criação de provider expor o seletor de `AuthMode` (hoje vem
-  apenas dos templates).
+- Seletor de `AuthMode` entregue na evolução [AEP-0114](0114-criacao-de-provedores-e-credenciais-unificadas.md), com preservação na edição e duplicação.
 - Sinalizar no picker quando a auto-cura intervir (toast
   informativo "X perfis estavam ativos; mantido o mais recente").
 

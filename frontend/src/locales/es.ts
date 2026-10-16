@@ -1,6 +1,17 @@
 const es = {
   translation: {
  chatgpt: {
+    providerSettings: "Configuración del proveedor",
+    providerName: "Nombre del proveedor",
+    chooseModel: "Elige un modelo",
+    loadingModels: "Cargando modelos de la cuenta…",
+    savePreferences: "Guardar configuración",
+    preferencesSaved: "Configuración del proveedor guardada.",
+    defaultSaved: "Proveedor establecido como predeterminado.",
+    preferencesLoadError: "No se pudo cargar la configuración del proveedor.",
+    modelsLoadError: "No se pudieron cargar los modelos de esta cuenta.",
+    preferencesSaveError: "No se pudo guardar. Revisa la configuración e inténtalo de nuevo.",
+
     operationPending: 'Espera a que termine esta operación antes de cerrar la ventana.',
     vaultUnavailable: 'El almacén de credenciales no está disponible. Recupera o desbloquea el almacén antes de desconectar y eliminar este proveedor.',
     authorizationChanged: 'La conexión cambió o está en uso por otra autorización. Espera, vuelve a cargar la lista e intenta eliminarla de nuevo.',
@@ -2506,6 +2517,8 @@ const es = {
     },
 
     providerForm: {
+    authMode: 'Autenticación',
+    authModes: { required: 'Obligatoria', optional: 'Opcional', none: 'Sin autenticación' },
       useSavedCredential: "Usar la credencial existente para este dominio",
       savedCredentialHelp: "Configure la fuente en Credenciales usando el hostname de la URL base como patrón. Deje la clave vacía para usar esa credencial.",
       name: 'Nombre',
@@ -2844,6 +2857,7 @@ const es = {
     },
 
     providers: {
+    creation: { cancelLoading: 'Cancelar carga', title: 'Nuevo proveedor', chatgpt: 'Conectar cuenta ChatGPT', acp: 'Servicio ACP', api: 'Proveedor API' },
       pageTitle: 'Proveedores LLM',
       search: 'Buscar proveedores...',
       loading: 'Cargando...',

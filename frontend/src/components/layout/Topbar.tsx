@@ -1,3 +1,4 @@
+import { isProviderSettingsPath } from '../../lib/commandAppPage';
 import { logger } from '../../utils/logger';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -161,7 +162,8 @@ const ROUTE_IDS: Record<string, string> = {
 
 // Some standalone pages already had a route-specific local-shortcut surface;
 // keep that dimension alongside app.page rather than replacing it with route.
-function keyboardSurfaceForPage(page: AppPage): string {
+function keyboardSurfaceForPage(page: AppPage, pathname: string): string {
+  if (page === 'settings' && isProviderSettingsPath(pathname)) return 'providers';
   if (page === 'profiles' || page === 'tasklists' || page === 'history') return page;
   return 'toolbar';
 }
@@ -248,7 +250,7 @@ export function Topbar() {
   );
   const shortcutsHelpOpen = useShortcutsHelpStore((s) => s.isOpen);
   const shortcutSurface = pathname === '/' ? workspace?.tabs.find(tab => tab.id === workspace.activeTabId)?.type
-    : pathname === '/tasklists' ? 'tasklists' : pathname === '/profiles' ? 'profiles' : pathname === '/history' ? 'history' : 'toolbar';
+    : isProviderSettingsPath(pathname) ? 'providers' : pathname === '/tasklists' ? 'tasklists' : pathname === '/profiles' ? 'profiles' : pathname === '/history' ? 'history' : 'toolbar';
   const shortcutHint = useCommandShortcutHints(shortcutSurface, resolveAppPage(pathname) ?? undefined);
   const shortcutHintRef = useRef(shortcutHint);
   shortcutHintRef.current = shortcutHint;
@@ -1853,7 +1855,9 @@ export function Topbar() {
     });
     const globalOwnership = acquireGlobalCommandOwnership({
       subscribe: (listener) => EventsOn('command:global-ownership', listener),
-      onChange: () => { void localCommandKeyboardRef.current?.refresh(); },
+      // Ownership nativo é consultado em cada tecla; sua atualização não
+      // revoga configuração/sessão. Mudanças autoritativas usam refresh abaixo.
+      onChange: () => { void localCommandKeyboardRef.current?.renew(); },
     });
     // Observe transitions, not just the final slug: A -> B -> A invalidates
     // an outstanding keyboard lease without rebuilding the command map.
@@ -1885,7 +1889,7 @@ export function Topbar() {
         const element = document.activeElement;
         const modalGeneration = getModalRegistrySnapshot().generation;
         const profile = owned.frame.profile?.slug;
-        const keyboardSurfaceType = keyboardSurfaceForPage(page);
+        const keyboardSurfaceType = keyboardSurfaceForPage(page, pathnameRef.current);
         return {
           surfaceId: surface.surfaceId,
           surfaceType: keyboardSurfaceType,
@@ -2005,7 +2009,7 @@ export function Topbar() {
         if (pathnameRef.current !== '/') {
           const owned = trustedSession.readOwnedCommandContextFrame(COMMAND_TOOLBAR_SURFACE_ID);
           const page = owned?.frame.appPage;
-          return page ? keyboardSurfaceForPage(page) : undefined;
+          return page ? keyboardSurfaceForPage(page, pathnameRef.current) : undefined;
         }
         const activeID = useWorkspaceStore.getState().workspace?.activeTabId;
         const context = activeID ? trustedSession.readSurfaceContext(activeID) : undefined;

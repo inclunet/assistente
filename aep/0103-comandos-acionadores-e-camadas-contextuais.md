@@ -2,6 +2,47 @@
 
 Status: In Progress — evidências e aceites pendentes conforme os registros abaixo
 
+**Resultado e foco após criação (07/10/2026): In Progress.** A consulta
+`GetUICommandResult` aplica I04.5 sem exigir reconstrução/publicação do mapa:
+retirada ou obsolescência da projeção não apaga o resultado de uma execução
+admitida. Continuam obrigatórios usuário/sessão revalidados, runtime e
+dependências originais, ticket retido/não expirado, cofre e sessão do SO
+desbloqueados. A identidade e segurança são verificadas antes e depois da
+espera do resultado. Begin/Take/Commit mantêm os gates completos; consultar
+não reexecuta nem habilita comandos.
+
+Uma regressão reproduziu criação confirmada de chat/editor/tasklist seguida
+de resultado inacessível após retirada do mapa. Isso impede a apresentação
+de foco que exige sucesso confirmado. O E2E do frontend com transporte Wails
+simulado cobre Ctrl+N com letra e setas/Enter, origem no input e na lista de
+abas, e permanência do foco no textarea de um chat novo. Esses percursos
+passavam mesmo antes da correção backend; não comprovam a causa exclusiva
+no ambiente do mantenedor. O reteste real/NVDA permanece pendente no checklist
+manual. Não há promoção de critérios ou gates.
+
+**Renovação sem revogação (07/10/2026): In Progress.** O mantenedor autorizou
+separar renovação comum de retirada autoritativa do mapa. `renew()` prepara e
+valida o substituto sem apagar a publicação vigente; falha de transporte mantém
+apenas o mapa ainda não invalidado/expirado. A troca ocorre sem estado vazio
+intermediário e não reseta uma geração reaproveitada pelo backend. O timer de
+expiração não é prorrogado por uma tentativa, e respostas anteriores a reset,
+blur, dispose ou uma leitura mais recente são descartadas.
+
+O ingresso habilitado para renovação é a atualização de ownership nativo: sua
+exclusão já é consultada sincronicamente em cada tecla e não altera a autorização
+do catálogo. Eventos `command:keyboard-map-changed` continuam autoritativos e
+usam `refresh()` com retirada imediata; não se infere continuidade de permissão
+de um erro `stale`/`not_ready`. Logout, troca de sessão/workspace, expiração e
+mapa recusado/malformado permanecem fail-closed. Não há fallback por atalho,
+nova consulta por tecla nem execução com uma autorização vencida.
+
+O log de 07/10 mostrou reconstruções `stale` sucessivas entre 10:07:22 e 10:08:05,
+além de contenção em `jobs.persist_run_state`. Esta correção não certifica a
+eliminação de toda reconstrução obsoleta: a frente SQLite está no AEP-0106 e
+requer reteste sob carga. O mantenedor também reportou que o foco de novas abas
+não chega à área default; essa pendência permanece aberta, fora deste lote.
+Não há promoção de critérios/gates nem novo aceite manual.
+
 **Reteste de leitura ao vivo (30/09/2026): In Progress.** Após atualizar e
 recompilar, o mantenedor confirmou Enter na última mensagem concluída. A
 variante durante streaming ainda falhou e recebe correção exclusiva; não se
@@ -385,7 +426,11 @@ nem altera a contagem **83 I / 1 P / 0 N**.
 **Contexto de rota no teclado local — seção166 (25/09/2026):** o ingresso Go
 aceita a surface da toolbar somente com o par canônico de página: `profiles`,
 `tasklists` e `history` mantêm seus tipos de superfície legados; as demais
-rotas usam `toolbar`. Abas de workspace continuam exigindo correspondência com
+rotas usam `toolbar`. A evolução do AEP-0114 acrescenta `providers` em
+`app.page=settings` para a rota de provedores, mantendo `toolbar` nas
+demais configurações. Seu Ctrl+N apresenta o menu local de criação; os três
+destinos também são comandos locais no catálogo. A escolha usa o mesmo
+registro de apresentação e não cria bindings paralelos. Abas de workspace continuam exigindo correspondência com
 o snapshot ativo, e não podem declarar página de rota. Na resolução, o tipo de
 superfície de rota vem desse frame canônico; para abas, vem do snapshot. Isso
 corrige o desacordo entre captura e projeção sem ampliar a projeção durável para

@@ -9,6 +9,7 @@ export const COMMAND_SETTINGS_CREATE_COMMAND_ID = 'command_settings.create.open'
 
 export const PAGE_PRESENTATION_COMMAND_IDS = [
   COMMAND_SETTINGS_CREATE_COMMAND_ID,
+  'providers.create.open', 'providers.api.create.open', 'providers.acp.create.open', 'providers.chatgpt.create.open',
   'tasklists.create.open', 'tasklists.edit.open', 'tasklists.search.focus',
   'tasklist.task.create.open',
   'profiles.create.open', 'profiles.edit.open', 'profiles.search.focus',

@@ -505,7 +505,7 @@ func (a *App) captureLocalKeyboardContext(observed LocalCommandKeyboardContext) 
 		return nil, commandexecution.ErrDenied
 	}
 	routeSurface, knownPage := localKeyboardRouteSurface(observed.AppPage)
-	routePageContext := observed.SurfaceID == "command-toolbar" && knownPage && observed.SurfaceType == routeSurface
+	routePageContext := observed.SurfaceID == "command-toolbar" && knownPage && (observed.SurfaceType == routeSurface || observed.AppPage == "settings" && observed.SurfaceType == "providers")
 	workspaceTabContext := observed.SurfaceID != "" && observed.SurfaceID != "command-toolbar" && localKeyboardWorkspaceSurface(observed.SurfaceType)
 	if !routePageContext && !workspaceTabContext {
 		return nil, commandexecution.ErrDenied
@@ -666,6 +666,9 @@ func contextualKeyboardBinding(ctx context.Context, configuration *commandbindin
 				}
 			} else if routeSurface, ok := localKeyboardRouteSurface(appPage); ok {
 				branchValues = []string{routeSurface}
+				if appPage == "settings" {
+					branchValues = append(branchValues, "providers")
+				}
 			}
 		}
 		entry, ok := contextualKeyboardBindingForProfile(ctx, configuration, registry, identity, shortcut, branchValues, fallbackProfile, len(profiles) != 0, appPage)

@@ -3,7 +3,10 @@ import { LOCAL_UI_COMMAND_IDS, isLocalUICommand } from './commandLocalUI';
 
 describe('local_ui command projection', () => {
   it('mantém a allowlist fechada de navegação e efeitos locais', () => {
-    expect(LOCAL_UI_COMMAND_IDS).toHaveLength(63);
+    expect(LOCAL_UI_COMMAND_IDS).toHaveLength(67);
+    for (const id of ['providers.create.open', 'providers.chatgpt.create.open', 'providers.acp.create.open', 'providers.api.create.open']) {
+      expect(isLocalUICommand(id)).toBe(true);
+    }
     expect(isLocalUICommand('command_settings.create.open')).toBe(true);
     expect(isLocalUICommand('workspace.tab.go_to')).toBe(true);
     expect(isLocalUICommand('tasklist.task.create.open')).toBe(true);

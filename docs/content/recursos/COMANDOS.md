@@ -22,6 +22,12 @@ contexto do gerenciador; não é executada ao navegar para outra página.
 
 ## Diagnosticar falhas de carregamento
 
+A atualização das reservas de teclas globais não apaga o mapa local enquanto
+seu substituto está carregando. O mapa vigente só permanece disponível enquanto
+não tiver sido invalidado ou expirado; teclas reservadas globalmente continuam
+excluídas imediatamente. Isso não mantém permissões antigas após uma mudança
+autoritativa de configuração, bloqueio ou troca de sessão.
+
 O carregamento do mapa e das configurações tem um orçamento de cinco segundos.
 A espera pela reconstrução ou pela coordenação de segurança pode ser cancelada;
 se o recurso continuar ocupado, a leitura retorna erro e pode ser tentada novamente
@@ -298,6 +304,11 @@ Após criar uma aba pelo menu **Nova aba**, o foco vai para sua área principal:
 campo de mensagem do chat, editor, terminal ou painel da lista de tarefas.
 Se você mudar de tela, aba ou controle enquanto a criação estiver em andamento,
 o aplicativo não deve puxar o foco de volta quando ela terminar.
+
+A atualização do mapa de comandos não deve impedir a confirmação de uma
+criação já concluída. O aplicativo ainda exige a mesma sessão e ambiente
+desbloqueado para consultar esse resultado. O reteste de foco no ambiente
+real está acompanhado no [checklist manual](../../guias/VALIDACAO_MANUAL_COMANDOS/).
 
 ## Limites atuais de Ctrl+N
 

@@ -244,3 +244,14 @@ Revisão remota do diagnóstico: getters diretos do Manager preservam credential
 sem inventar cache_ref (`TestCommandDiagnosticsDirectManagerPreservesCredentialID`).
 A documentação distingue eventos INFO do destino: arquivo exige `--log-file`,
 sem prometer criação automática de assistente.log.
+
+## Evolução: editor compartilhado de provedores (AEP-0114)
+
+API e MCP reutilizam o editor de metadados e campos do CredManager. A edição
+de fonte conserva os contratos de static/env/keyring/command; o provedor
+persiste apenas sua referência. A consulta explícita de modelos pode resolver
+um rascunho em manager efêmero. Salvar não executa comando nem consulta fonte
+externa: usa a transação de consumidor do cofre, com isolamento de sessão,
+rollback e preservação da referência efetiva. Não há novo cache, renovador,
+armazenamento de segredos ou migração. Os testes de `credential_save_test.go`
+e `ProviderForm.credentials.test.tsx` verificam esses limites.

@@ -86,3 +86,33 @@ func TestRegistryGenerationRejectsLatePublication(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+func TestDefaultPublicationPreservesSnapshotsAndRejectsOldSession(t *testing.T) {
+	r := NewProviderRegistry()
+	old := &ProviderConfig{ID: "first", Name: "First", Type: ProviderOpenAI, BaseURL: "https://example.test/v1", IsDefault: true}
+	other := &ProviderConfig{ID: "second", Name: "Second", Type: ProviderOpenAI, BaseURL: "https://example.test/v1"}
+	for _, p := range []*ProviderConfig{old, other} {
+		if err := r.Register(p); err != nil {
+			t.Fatal(err)
+		}
+	}
+	generation := r.Generation()
+	if err := r.SetDefaultGeneration(other.ID, generation); err != nil {
+		t.Fatal(err)
+	}
+	if !old.IsDefault || other.IsDefault {
+		t.Fatal("mutated snapshots held by readers")
+	}
+	if r.Get(old.ID).IsDefault || !r.Get(other.ID).IsDefault {
+		t.Fatal("default not switched atomically")
+	}
+	r.Clear()
+	if err := r.Register(old); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.SetDefaultGeneration(old.ID, generation); err == nil {
+		t.Fatal("accepted previous session")
+	}
+	if r.Get(old.ID) != old {
+		t.Fatal("old session changed current registry")
+	}
+}

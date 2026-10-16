@@ -1,5 +1,5 @@
 import { expect, it, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { createEvent, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MenuButton } from './MenuButton';
 
@@ -24,5 +24,18 @@ it('não troca nem desfoca o gatilho fechado quando o contexto muda', () => {
   trigger.focus();
   rerender(<MenuButton buttonLabel="Ações" contextKey="two" items={[]} />);
   expect(screen.getByRole('button', { name: 'Ações' })).toBe(trigger);
+  expect(trigger).toHaveFocus();
+});
+
+
+it.each([false, true])('Tab fecha menu desabilitado sem cancelar navegação nativa (reverse=%s)', async reverse => {
+  render(<MenuButton buttonLabel="Ações" items={[{ id: 'edit', label: 'Editar', disabled: true }]} />);
+  const trigger = screen.getByRole('button', { name: 'Ações' });
+  await userEvent.click(trigger);
+  expect(screen.getByRole('menu')).toHaveFocus();
+  const event = createEvent.keyDown(document.activeElement!, { key: 'Tab', shiftKey: reverse });
+  fireEvent(document.activeElement!, event);
+  expect(event.defaultPrevented).toBe(false);
+  expect(screen.queryByRole('menu')).not.toBeInTheDocument();
   expect(trigger).toHaveFocus();
 });

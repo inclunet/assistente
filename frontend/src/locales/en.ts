@@ -1,6 +1,17 @@
 const en = {
   translation: {
  chatgpt: {
+    providerSettings: "Provider settings",
+    providerName: "Provider name",
+    chooseModel: "Choose a model",
+    loadingModels: "Loading account models…",
+    savePreferences: "Save settings",
+    preferencesSaved: "Provider settings saved.",
+    defaultSaved: "Provider set as default.",
+    preferencesLoadError: "Could not load provider settings.",
+    modelsLoadError: "Could not load models for this account.",
+    preferencesSaveError: "Could not save. Check the settings and try again.",
+
     operationPending: 'Wait for this operation to finish before closing the dialog.',
     vaultUnavailable: 'The credential vault is unavailable. Recover or unlock the vault before disconnecting and deleting this provider.',
     authorizationChanged: 'The connection changed or is in use by another authorization. Wait, reload the list, and try deleting it again.',
@@ -2503,6 +2514,8 @@ const en = {
     },
 
     providerForm: {
+    authMode: 'Authentication',
+    authModes: { required: 'Required', optional: 'Optional', none: 'No authentication' },
       useSavedCredential: "Use the existing credential for this domain",
       savedCredentialHelp: "Configure the source in Credentials using the base URL hostname as the pattern. Leave the key empty to use that credential.",
       name: 'Name',
@@ -2840,6 +2853,7 @@ const en = {
     },
 
     providers: {
+    creation: { cancelLoading: 'Cancel loading', title: 'New provider', chatgpt: 'Connect ChatGPT account', acp: 'ACP service', api: 'API provider' },
       pageTitle: 'LLM Providers',
       search: 'Search providers...',
       loading: 'Loading...',

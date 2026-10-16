@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -831,5 +832,153 @@ func TestGenericAPIKeyCannotOverwriteOAuthEnvelope(t *testing.T) {
 	persisted, err := s.store.Get(ctx, p.ID)
 	if err != nil || persisted.CredentialPattern != p.CredentialPattern || s.registry.Get(p.ID).CredentialPattern != p.CredentialPattern {
 		t.Fatal("consumer mutated")
+	}
+}
+
+func TestChatGPTPreferencesPreserveAuthorizationAndDefault(t *testing.T) {
+	s, _, ctx := chatGPTTestService(t)
+	created, err := s.CreateChatGPTConnection(ctx, "Original")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := s.oauthStore(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, err := store.Load(ctx, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record.State = "connected"
+	record.Revision++
+	if err = store.CompareAndSwap(ctx, record, record.Revision-1); err != nil {
+		t.Fatal(err)
+	}
+	before, err := store.Load(ctx, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := s.Update(ctx, created.ID, UpdateRequest{Name: "Renamed", DefaultModel: "account-model"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved, err := s.store.Get(ctx, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, err := store.Load(ctx, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(before, after) {
+		t.Fatal("preferences changed authorization")
+	}
+	if saved.Name != "Renamed" || saved.DefaultModel != "account-model" || !saved.IsDefault ||
+		result.Provider.CredentialPattern != "oauth:"+created.ID || s.registry.Get(created.ID).DefaultModel != saved.DefaultModel {
+		t.Fatal("preferences not published or consumer changed")
+	}
+	if _, err = s.Update(database.WithUserID(context.Background(), "other"), created.ID, UpdateRequest{Name: "Foreign"}); err == nil {
+		t.Fatal("foreign user changed preferences")
+	}
+	if _, err = s.Update(context.Background(), created.ID, UpdateRequest{Name: "Anonymous"}); err == nil {
+		t.Fatal("anonymous update accepted")
+	}
+}
+
+func TestChatGPTPreferencesRejectConnectionMutations(t *testing.T) {
+	for name, req := range map[string]UpdateRequest{
+		"type": {Type: "openai"}, "url": {BaseURL: "https://other.test"},
+		"format": {APIFormat: "openai"}, "key": {APIKey: "secret"},
+		"reasoning": {ReasoningContentMode: "enabled"}, "command": {ACPCommand: "agent"},
+		"args": {ACPArgs: new([]string)}, "env": {ACPEnv: new(map[string]string)},
+		"credential": {ACPCredentialEnv: new(map[string]string)}, "agent": {ACPAgentID: new(string)},
+		"blank-name": {Name: "   "}, "long-name": {Name: strings.Repeat("a", 101)},
+		"blank-model": {DefaultModel: " "},
+	} {
+		t.Run(name, func(t *testing.T) {
+			s, _, ctx := chatGPTTestService(t)
+			created, err := s.CreateChatGPTConnection(ctx, "Original")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err = s.Update(ctx, created.ID, req); err == nil {
+				t.Fatal("invalid edit accepted")
+			}
+			saved, err := s.store.Get(ctx, created.ID)
+			if err != nil || saved.Name != "Original" || saved.DefaultModel != "" {
+				t.Fatal("invalid edit mutated provider")
+			}
+		})
+	}
+}
+
+func TestChatGPTPreferencesFailClosed(t *testing.T) {
+	for _, state := range []string{"pending", "disconnected", "refreshing", "connected"} {
+		t.Run(state, func(t *testing.T) {
+			s, mgr, ctx := chatGPTTestService(t)
+			created, err := s.CreateChatGPTConnection(ctx, "Original")
+			if err != nil {
+				t.Fatal(err)
+			}
+			store, _ := mgr.OAuthStore(ctx)
+			record, _ := store.Load(ctx, created.ID)
+			record.State = state
+			record.Revision++
+			if err = store.CompareAndSwap(ctx, record, record.Revision-1); err != nil {
+				t.Fatal(err)
+			}
+			if state == "connected" {
+				if err = database.DB().Exec("CREATE TRIGGER reject_preferences BEFORE UPDATE ON llm_providers BEGIN SELECT RAISE(ABORT, 'write denied'); END").Error; err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err = s.Update(ctx, created.ID, UpdateRequest{Name: "Changed", DefaultModel: "new"}); err == nil {
+				t.Fatal("unsafe update accepted")
+			}
+			saved, err := s.store.Get(ctx, created.ID)
+			if err != nil || saved.Name != "Original" || s.registry.Get(created.ID).Name != "Original" {
+				t.Fatal("failed update was published")
+			}
+		})
+	}
+}
+func TestChatGPTDelayedPublicationPreservesLatestPreferencesAndDefault(t *testing.T) {
+	s, _, ctx := chatGPTTestService(t)
+	first, err := s.CreateChatGPTConnection(ctx, "First")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := s.CreateChatGPTConnection(ctx, "Second")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := s.oauthStore(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, err := store.Load(ctx, first.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record.State = "connected"
+	record.Revision++
+	if err = store.CompareAndSwap(ctx, record, record.Revision-1); err != nil {
+		t.Fatal(err)
+	}
+	stale := *s.registry.Get(first.ID)
+	generation := s.registry.Generation()
+	if _, err = s.Update(ctx, first.ID, UpdateRequest{Name: "Newest", DefaultModel: "new-model"}); err != nil {
+		t.Fatal(err)
+	}
+	if err = s.SetDefault(ctx, second.ID); err != nil {
+		t.Fatal(err)
+	}
+	// A previously committed edit resumes publication after a newer edit/default change.
+	if err = s.publishChatGPT(ctx, store, &stale, generation); err != nil {
+		t.Fatal(err)
+	}
+	current := s.registry.Get(first.ID)
+	if current.Name != "Newest" || current.DefaultModel != "new-model" || current.IsDefault || !s.registry.Get(second.ID).IsDefault {
+		t.Fatal("delayed publication restored stale preferences or default")
 	}
 }

@@ -3,7 +3,15 @@ package controllers
 import (
 	"assistente/internal/credentials"
 	"assistente/internal/database"
+	"assistente/internal/llm"
+	"assistente/internal/providers"
+	"bytes"
 	"context"
+	"github.com/glebarez/sqlite"
+	"gorm.io/gorm"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -68,5 +76,70 @@ func TestCredentialForURLNewDraftUsesRuntimeHostname(t *testing.T) {
 	entries, err := ctrl.ListCredentials(ctx)
 	if err != nil || len(entries) != 0 {
 		t.Fatal("draft lookup created credential")
+	}
+}
+
+func TestCredentialMetadataFlowsThroughProviderPreviewCreateAndDuplicate(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = db.AutoMigrate(&database.LLMProvider{}, &database.CredentialEntry{}); err != nil {
+		t.Fatal(err)
+	}
+	previous := database.DB()
+	database.SetDB(db)
+	t.Cleanup(func() { database.SetDB(previous); sqlDB, _ := db.DB(); _ = sqlDB.Close() })
+	ctx := database.WithUserID(context.Background(), "owner")
+	mgr := credentials.NewManagerWithStore(bytes.Repeat([]byte{4}, 32), credentials.NewDBStore(), true)
+	registry := llm.NewProviderRegistry()
+	store := providers.NewDBStore()
+	service := providers.NewService(providers.ServiceConfig{Registry: registry, CredMgr: mgr, Store: store})
+	consumer := NewLLMController(LLMControllerConfig{LLMRegistry: registry, ProviderSvc: service})
+	vault := NewCredentialsController(CredentialsControllerConfig{CredMgr: mgr})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer token" {
+			t.Error("missing credential")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"id":"model"}]}`))
+	}))
+	defer server.Close()
+	resource := strings.Replace(server.URL, "127.0.0.1", "LOCALHOST", 1)
+	summary, err := vault.GetCredentialForURL(ctx, resource)
+	if err != nil || summary.Pattern != "localhost" {
+		t.Fatalf("metadata: %v %v", summary, err)
+	}
+	input := &CredentialInput{Pattern: summary.Pattern, Type: summary.Type, Source: summary.Source, Token: "token"}
+	models, err := consumer.ListModelsRaw(ctx, TestLLMProviderRequest{Type: "custom", APIFormat: "openai", BaseURL: resource, Credential: input})
+	if err != nil || len(models) != 1 {
+		t.Fatalf("preview: %v %v", models, err)
+	}
+	created, err := consumer.CreateLLMProvider(ctx, CreateLLMProviderRequest{ID: "original", Name: "Original", Type: "custom", APIFormat: "openai", BaseURL: resource, Credential: input})
+	if err != nil || created["credential_pattern"] != "localhost" {
+		t.Fatalf("create: %v %v", created, err)
+	}
+	// Move the fixture to a non-hostname alias, then duplicate through the DTO/controller.
+	original, err := store.Get(ctx, "original")
+	if err != nil {
+		t.Fatal(err)
+	}
+	original.CredentialPattern = "shared-alias"
+	if err := mgr.RegisterPatternWithContext(ctx, "shared-alias", &credentials.AuthConfig{Source: "static", Type: "bearer", Token: "alias-secret"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Save(ctx, []*llm.ProviderConfig{original}); err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.Register(original); err != nil {
+		t.Fatal(err)
+	}
+	copied, err := consumer.CreateLLMProvider(ctx, CreateLLMProviderRequest{ID: "copy", Name: "Copy", Type: "custom", APIFormat: "openai", BaseURL: resource, CredentialFromProviderID: "original"})
+	if err != nil || copied["credential_pattern"] != "shared-alias" {
+		t.Fatalf("copy: %v %v", copied, err)
+	}
+	auth, err := mgr.GetByPatternWithContext(ctx, "shared-alias")
+	if err != nil || auth.Token != "alias-secret" {
+		t.Fatal("duplicate rewrote credential")
 	}
 }

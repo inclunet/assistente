@@ -1,11 +1,15 @@
+import ptBR from '../../locales/pt-BR';
+import en from '../../locales/en';
+import es from '../../locales/es';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import axe from 'axe-core';
-import { GetCredentialForURL, UpsertCredential } from '@wailsjs/go/wailsapi/Credentials';
-import { McpCredentialEditor } from './McpCredentialEditor';
+import { GetCredentialForURL, ListCredentials, UpsertCredential } from '@wailsjs/go/wailsapi/Credentials';
+import { ResourceCredentialEditor } from './ResourceCredentialEditor';
 vi.mock('@wailsjs/go/wailsapi/Credentials', () => ({
   GetCredentialForURL: vi.fn(async () => null),
   UpsertCredential: vi.fn(),
+  ListCredentials: vi.fn(async () => []),
   ListExternalSources: vi.fn(async () => []),
 }));
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
@@ -14,7 +18,7 @@ afterEach(() => {
   cleanup();
   vi.clearAllMocks();
 });
-describe('McpCredentialEditor', () => {
+describe('ResourceCredentialEditor', () => {
   it('loads metadata only, preserves existing credential and exposes accessible fields on demand', async () => {
     vi.mocked(GetCredentialForURL).mockResolvedValue({
       pattern: 'example.com',
@@ -24,7 +28,7 @@ describe('McpCredentialEditor', () => {
       username: 'alice',
     } as Awaited<ReturnType<typeof GetCredentialForURL>>);
     const changed = vi.fn();
-    render(<McpCredentialEditor url="https://example.com/mcp" type="basic" onChange={changed} />);
+    render(<ResourceCredentialEditor url="https://example.com/mcp" type="basic" onChange={changed} />);
     await waitFor(() => expect(screen.getByRole('button')).toBeEnabled());
     expect(changed).toHaveBeenLastCalledWith(null);
     expect(UpsertCredential).not.toHaveBeenCalled();
@@ -51,7 +55,7 @@ describe('McpCredentialEditor', () => {
       } as Awaited<ReturnType<typeof GetCredentialForURL>>);
       const changed = vi.fn();
       render(
-        <McpCredentialEditor url="https://example.com/mcp" type="bearer" onChange={changed} />
+        <ResourceCredentialEditor url="https://example.com/mcp" type="bearer" onChange={changed} />
       );
       await waitFor(() => expect(screen.getByRole('button')).toBeEnabled());
       fireEvent.click(screen.getByRole('button'));
@@ -63,12 +67,27 @@ describe('McpCredentialEditor', () => {
       );
     }
   );
+  it('uses explicit alias metadata instead of resolving by URL', async () => {
+    vi.mocked(ListCredentials).mockResolvedValue([{ pattern: 'shared-alias', type: 'basic',
+      source: 'env', sourceConfig: { env: 'ALIAS_PASSWORD' }, username: 'alice' }] as Awaited<ReturnType<typeof ListCredentials>>);
+    const changed = vi.fn();
+    render(<ResourceCredentialEditor url="https://example.com/v1" pattern="shared-alias"
+      type="bearer" allowedTypes={['bearer', 'basic', 'custom']} onChange={changed} />);
+    await waitFor(() => expect(screen.getByRole('button')).toBeEnabled());
+    expect(GetCredentialForURL).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button'));
+    expect(screen.getByLabelText('credentials.labels.username')).toHaveValue('alice');
+    fireEvent.change(screen.getByLabelText('credentials.sourceFields.envName'), { target: { value: 'UPDATED_PASSWORD' } });
+    expect(changed).toHaveBeenLastCalledWith(expect.objectContaining({
+      pattern: 'shared-alias', type: 'basic', token: 'UPDATED_PASSWORD' }));
+    expect(UpsertCredential).not.toHaveBeenCalled();
+  });
   it('normalizes IPv6 patterns like the Go resolver', async () => {
     vi.mocked(GetCredentialForURL).mockResolvedValue(
       null as unknown as Awaited<ReturnType<typeof GetCredentialForURL>>
     );
     const changed = vi.fn();
-    render(<McpCredentialEditor url="http://[::1]:3000/mcp" type="bearer" onChange={changed} />);
+    render(<ResourceCredentialEditor url="http://[::1]:3000/mcp" type="bearer" onChange={changed} />);
     await waitFor(() => expect(screen.getByRole('button')).toBeEnabled());
     fireEvent.click(screen.getByRole('button'));
     expect(changed).toHaveBeenLastCalledWith(expect.objectContaining({ pattern: '::1' }));
@@ -76,11 +95,33 @@ describe('McpCredentialEditor', () => {
   it('does not overwrite metadata when listing fails', async () => {
     vi.mocked(GetCredentialForURL).mockRejectedValue(new Error('PRIVATE'));
     const changed = vi.fn();
-    render(<McpCredentialEditor url="https://example.com/mcp" type="bearer" onChange={changed} />);
+    render(<ResourceCredentialEditor url="https://example.com/mcp" type="bearer" onChange={changed} />);
     await screen.findByText('credentials.sourceFields.loadError');
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(screen.queryByText('PRIVATE')).not.toBeInTheDocument();
     expect(screen.getByRole('button')).toBeDisabled();
     expect(changed).toHaveBeenLastCalledWith(null);
   });
+});
+
+it.each([ptBR, en, es])('names Bearer explicitly in each supported locale', locale => {
+ expect(locale.translation.credentials.types.bearer).toMatch(/Bearer/);
+});
+it.each(['env', 'static'])('restores saved %s metadata after keeping the existing credential', async source => {
+ vi.mocked(GetCredentialForURL).mockResolvedValue({ pattern: 'example.com', type: 'bearer', source,
+  sourceConfig: source === 'env' ? { env: 'SAVED_TOKEN' } : undefined, masked: '******',
+ } as Awaited<ReturnType<typeof GetCredentialForURL>>);
+ const changed = vi.fn();
+ render(<ResourceCredentialEditor url="https://example.com" type="bearer" onChange={changed} />);
+ const open = screen.getByRole('button', { name: 'credentials.mcp.configure' });
+ await waitFor(() => expect(open).toBeEnabled());
+ fireEvent.click(open);
+ const label = source === 'env' ? 'credentials.sourceFields.envName' : 'credentials.labels.token';
+ fireEvent.change(screen.getByLabelText(label), { target: { value: 'DISCARDED_TOKEN' } });
+ fireEvent.click(screen.getByRole('button', { name: 'credentials.mcp.keepExisting' }));
+ expect(changed).toHaveBeenLastCalledWith(null);
+ fireEvent.click(screen.getByRole('button', { name: 'credentials.mcp.configure' }));
+ expect(screen.getByLabelText(label)).toHaveValue(source === 'env' ? 'SAVED_TOKEN' : '');
+ expect(changed).toHaveBeenLastCalledWith(expect.objectContaining({ token: source === 'env' ? 'SAVED_TOKEN' : '' }));
+ expect(UpsertCredential).not.toHaveBeenCalled();
 });

@@ -1,4 +1,4 @@
-import { McpCredentialEditor } from '../components/credentials/McpCredentialEditor';
+import { ResourceCredentialEditor } from '../components/credentials/ResourceCredentialEditor';
 import { credentialInput, validateCredential, type CredentialDraft } from '../components/credentials/credentialDraft';
 import { mcpOAuthErrorMessage } from '../lib/mcpOAuthErrors';
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
@@ -867,7 +867,7 @@ export default function McpPage() {
               autoConnect={formAutoConnect}
               preferBridge={formPreferBridge}
               authType={formAuthType}
-              credentialEditor={<McpCredentialEditor key={`${editingSlug}:${formTransport}:${formUrl}:${formAuthType}`} url={formUrl} type={formAuthType} onChange={setCredentialDraft} />}
+              credentialEditor={<ResourceCredentialEditor key={`${editingSlug}:${formTransport}:${formUrl}:${formAuthType}`} url={formUrl} type={formAuthType} onChange={setCredentialDraft} />}
               hasExistingAuth={hasExistingAuth}
               oauthManaged={isNew || formOAuthManaged}
               oauthDCRRegistered={!!registeredDCRClientId && formOAuth2ClientId.trim() === registeredDCRClientId}

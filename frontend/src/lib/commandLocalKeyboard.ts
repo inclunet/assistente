@@ -119,7 +119,10 @@ export interface LocalCommandKeyboardOptions {
 export type CommandSequenceCancelReason = 'timeout' | 'escape' | 'unexpected' | 'menu-navigation' | 'blocked' | 'ime' | 'altgraph' | 'blur' | 'refresh' | 'dispose';
 
 export interface LocalCommandKeyboardController {
+  /** Revogação/mudança autoritativa: descarta o mapa antes de recarregar. */
   refresh(): Promise<void>;
+  /** Renovação sem revogação: prepara o substituto mantendo o mapa ainda válido. */
+  renew(): Promise<void>;
   cancelSequence(): void;
   dispose(): void;
 }
@@ -280,6 +283,7 @@ const WORKSPACE_SURFACE_TYPES = new Set(['chat', 'editor', 'terminal', 'tasklist
 
 function appPageAllowsSurfaceType(page: import('./commandAppPage').AppPage, surfaceType: string): boolean {
   switch (page) {
+    case 'settings': return surfaceType === 'toolbar' || surfaceType === 'providers';
     case 'profiles': return surfaceType === 'profiles';
     case 'tasklists': return surfaceType === 'tasklists';
     case 'history': return surfaceType === 'history';
@@ -328,7 +332,7 @@ function validateContextualEntry(raw: unknown, allowProfiles: boolean, workspace
   if (allowProfiles && raw.byProfile !== undefined) {
     if (!isRecord(raw.byProfile) || Object.keys(raw.byProfile).length === 0 ||
         Object.keys(bySurface).some((surface) => !WORKSPACE_SURFACE_TYPES.has(surface) &&
-          !(allowRoutePageSurfaces && ['toolbar', 'profiles', 'tasklists', 'history'].includes(surface)))) return null;
+          !(allowRoutePageSurfaces && ['toolbar', 'profiles', 'tasklists', 'history', 'providers'].includes(surface)))) return null;
   }
   if (raw.bySurfaceId !== undefined) {
     if (!isRecord(raw.bySurfaceId)) return null;
@@ -514,13 +518,13 @@ export function createLocalCommandKeyboard(options: LocalCommandKeyboardOptions)
     if (resetBackoff) loadRetryDelayMs = MAP_LOAD_RETRY_INITIAL_MS;
   };
 
-  const scheduleLoadRetry = (id: number): void => {
+  const scheduleLoadRetry = (id: number, renewal: boolean): void => {
     if (disposed || id !== refreshId || loadRetryTimer !== undefined) return;
     const delay = loadRetryDelayMs;
     loadRetryDelayMs = Math.min(MAP_LOAD_RETRY_MAX_MS, loadRetryDelayMs * 2);
     loadRetryTimer = setTimeout(() => {
       loadRetryTimer = undefined;
-      void performRefresh(true);
+      void performRefresh(true, renewal);
     }, delay);
   };
 
@@ -934,13 +938,17 @@ export function createLocalCommandKeyboard(options: LocalCommandKeyboardOptions)
   options.target.addEventListener('keyup', onKeyUp, true);
   options.target.addEventListener('blur', onBlur, true);
 
-  async function performRefresh(retryAttempt: boolean): Promise<void> {
+  async function performRefresh(retryAttempt: boolean, renewal = false): Promise<void> {
     if (disposed) return;
     if (!retryAttempt) cancelLoadRetry(true);
     const id = ++refreshId;
     const oldGeneration = generation;
     try {
-      await clearState(oldGeneration, true);
+      // Uma renovação não é uma revogação. Não retire a publicação nem resete
+      // sua geração no backend enquanto o substituto ainda está sendo lido.
+      // O timer de validade permanece ativo e pode invalidar esta leitura.
+      if (renewal) await resetTail;
+      else await clearState(oldGeneration, true);
     } catch {
       // Falha na invalidação/reset não é erro de transporte do mapa.
       return;
@@ -950,8 +958,9 @@ export function createLocalCommandKeyboard(options: LocalCommandKeyboardOptions)
     try {
       map = await options.loadMap();
     } catch {
-      // Rejeição de transporte mantém o mapa vazio e tenta novamente com backoff.
-      if (!disposed && id === refreshId) scheduleLoadRetry(id);
+      // Na renovação, erro de transporte não revoga o mapa. Expiração, blur e
+      // refresh autoritativo continuam descartando-o e invalidando esta resposta.
+      if (!disposed && id === refreshId) scheduleLoadRetry(id, renewal);
       return;
     }
     if (disposed || id !== refreshId) return;
@@ -964,23 +973,33 @@ export function createLocalCommandKeyboard(options: LocalCommandKeyboardOptions)
         (!options.acceptMap || options.acceptMap(map));
     } catch {
       // Mapa malformado, callback de aceitação com erro ou recusa não é falha de transporte.
-      try { options.onMapInvalidated?.(); } catch { /* callback isolado */ }
+      try { await clearState(generation, true); } catch { /* callback isolado */ }
       return;
     }
     if (!accepted || !next) {
-      try { options.onMapInvalidated?.(); } catch { /* callback isolado */ }
+      try { await clearState(generation, true); } catch { /* callback isolado */ }
       return;
     }
 
+    clearTimeout(expiryTimer);
+    expiryTimer = undefined;
+    if (generation !== map.generation) {
+      cancelSequence('refresh');
+      pressed.clear();
+      modifiers.clear();
+    }
     generation = map.generation;
     validUntil = map.validUntil ?? 0;
     bindings = next;
     loadRetryDelayMs = MAP_LOAD_RETRY_INITIAL_MS;
     try { options.onMapAccepted?.(map); } catch { /* callback isolado */ }
     if (validUntil > 0) expiryTimer = setTimeout(() => { void performRefresh(false); }, Math.min(2_147_483_647, Math.max(0, validUntil - Date.now())));
+    // Reset é escopado à geração: nunca apaga o mapa reaproveitado pelo host.
+    if (renewal && oldGeneration !== generation) void queueReset(oldGeneration);
   }
 
   const refresh = (): Promise<void> => performRefresh(false);
+  const renew = (): Promise<void> => performRefresh(false, true);
 
   const dispose = (): void => {
     if (disposed) return;
@@ -1007,5 +1026,5 @@ export function createLocalCommandKeyboard(options: LocalCommandKeyboardOptions)
     pendingSequence = null;
   }
 
-  return { refresh, cancelSequence: () => cancelSequence('unexpected'), dispose };
+  return { refresh, renew, cancelSequence: () => cancelSequence('unexpected'), dispose };
 }

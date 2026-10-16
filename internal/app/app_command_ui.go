@@ -735,13 +735,13 @@ func (a *App) GetUICommandResult(ticket string) (CommandExecutionResult, error) 
 	return run.result, run.err
 }
 
-// Consultar o resultado não admite efeitos. Uma mutação de perfil pode ter
-// retirado o mapa por segurança; ainda assim seu dono autenticado deve poder
-// conhecer o resultado, inclusive outcome_unknown. Demais comandos mantêm o
-// gate de readiness; nenhum Begin/Take/Commit usa esta exceção.
+// Consultar o resultado não admite efeitos nem exige a projeção que admitiu a
+// execução: a própria mutação pode torná-la obsoleta. A leitura conserva a
+// identidade, a segurança local e o runtime dono do ticket, sem reconstruir
+// mapas ou habilitar Begin/Take/Commit (AEP-0103, I04.5).
 func (a *App) commandUIResultRun(ticket string) (*commandProductRuntime, *commandUIRun, error) {
-	if p, run, err := a.commandUIRun(ticket); err == nil {
-		return p, run, nil
+	if a == nil {
+		return nil, nil, commandexecution.ErrDenied
 	}
 	p := a.commandProduct.Load()
 	if p == nil || !p.dependenciesMatch(a) {
@@ -755,11 +755,15 @@ func (a *App) commandUIResultRun(ticket string) (*commandProductRuntime, *comman
 	if err != nil || current != principal || !a.commandPrincipalMatches(p.sessionSvc, p.credMgr, principal) {
 		return nil, nil, commandexecution.ErrDenied
 	}
+	ready, err := p.host.SourceSecurityReady(a.commandBridgeContext())
+	if err != nil || !ready {
+		return nil, nil, commandexecution.ErrDenied
+	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.expireUIResultsLocked(time.Now())
 	run := p.uiRuns[ticket]
-	if p.closed || a.commandProduct.Load() != p || run == nil || !isProfileMutationCommand(run.reservation.CommandID) {
+	if p.closed || a.commandProduct.Load() != p || run == nil {
 		return nil, nil, commandexecution.ErrDenied
 	}
 	return p, run, nil
