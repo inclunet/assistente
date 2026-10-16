@@ -2,6 +2,30 @@
 
 Status: In Progress — evidências e aceites pendentes conforme os registros abaixo
 
+**Apresentação de destinos de aba (16/10/2026): In Progress.** Por decisão do
+mantenedor, os comandos `workspace.tab.go_to` e primeira…nona aba passam a ter
+apresentação derivada obrigatória no Stream Deck. O editor mostra uma prévia
+em vez de solicitar títulos, ícones, imagens e variantes para esses comandos.
+Personalizações antigas não têm precedência sobre o destino atual. A aba
+específica continua vinculada por ID, embora seja escolhida pelo nome; não se
+introduz busca por texto nem redirecionamento para outra aba de mesmo título.
+Renomeação e reordenação atualizam a apresentação. Destinos ausentes ou
+ambíguos não conservam ícones ou imagens de um destino anterior. Demais
+comandos mantêm a personalização existente. Aceite físico/NVDA pendente;
+esta mudança não promove critérios nem altera execução ou autorização.
+Combinações contextuais com comandos de outros tipos conservam a apresentação
+combinada; a prévia do editor descreve o binding, não promete exclusividade
+na tecla física quando outros bindings também participam da resolução.
+Evidências backend: `TestWorkspaceTabDeck*`, `TestCommandDeckPresentation*`,
+`TestCommandDeckPagePresentation*` e testes de estado do Deck passam;
+`go build ./internal/app` e `go vet ./internal/app` também passam. Os testes
+exercitam substituição de personalizações legadas e variantes, além de
+atualização do frame renderizado após renomeação e fechamento.
+Frontend: 141 testes passam nos arquivos de prévia, editor de apresentação e
+página de configuração, incluindo salvamento de personalização legada e
+axe (contraste não avaliado em jsdom). TypeScript e ESLint dos arquivos
+alterados passam. A validação física do Stream Deck e com NVDA continua manual.
+
 **Resultado e foco após criação (07/10/2026): In Progress.** A consulta
 `GetUICommandResult` aplica I04.5 sem exigir reconstrução/publicação do mapa:
 retirada ou obsolescência da projeção não apaga o resultado de uma execução
@@ -353,16 +377,16 @@ O aceite físico/NVDA permanece pendente: **83 I / 1 P / 0 N**.
 **Apresentação automática de abas — seção165 da tasklist:** o Stream Deck
 deriva título e ícone do tipo da aba-alvo para `workspace.tab.go_to` e
 `workspace.tab.first`…`ninth`, acompanhando renomeação, ordem e fechamento.
-Campos personalizados e variantes de estado continuam tendo precedência.
+Desde a revisão de 16/10/2026, a derivação tem precedência sobre campos
+personalizados e variantes de estado nesses comandos de destino de aba.
 Destino ausente ou de outro workspace é apresentado como indisponível, sem
 redirecionamento. A derivação visual não concede autorização, altera o
 despacho nem acrescenta auditoria por tecla. Evidências automatizadas e
 limitações de integração ficam na tasklist. O título visível é abreviado para
 caber na tecla quando necessário, enquanto o anúncio mantém o título completo;
 aceite físico/NVDA segue pendente.
-O aviso de indisponibilidade/ambiguidade permanece explícito em títulos
-personalizados: texto semelhante no meio do nome não substitui o sufixo de
-estado; um sufixo completo já presente não é duplicado.
+O aviso de indisponibilidade/ambiguidade permanece explícito, sem imagem ou
+ícone personalizado que possa sugerir um destino disponível.
 
 **Destino parametrizado de abas — seção164 da tasklist:** `workspace.tab.go_to`
 é um único `local_ui` com binding vinculado a `workspace_id` e alvo por
@@ -4015,6 +4039,10 @@ O estado visual de uma tecla é apresentação do binding efetivo. Pode ter tít
 ícone padrão, imagem escolhida pelo usuário e variantes como ligado, desligado,
 executando, concluído e erro. Texto, anúncio e estado não podem depender apenas
 de imagem ou cor.
+
+Exceção de apresentação derivada: nos comandos de destino de aba descritos
+acima, nome e ícone vêm da aba-alvo e não são editáveis. Títulos, ícones e
+imagens personalizados de base ou estado não substituem essa informação.
 
 Apresentações builtin usam `title_key` e `status_label_keys` existentes em
 pt-BR, en e es. Conteúdo personalizado pode fornecer `title_by_locale`; locale

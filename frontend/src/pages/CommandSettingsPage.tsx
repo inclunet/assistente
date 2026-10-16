@@ -24,6 +24,7 @@ import { CommandConditionEditor } from '../components/commands/CommandConditionE
 import { CommandObjectFieldsEditor } from '../components/commands/CommandObjectFieldsEditor';
 import { CommandLayerActionFields } from '../components/commands/CommandLayerActionFields';
 import { CommandWorkspaceTabTargetFields } from '../components/commands/CommandWorkspaceTabTargetFields';
+import { CommandWorkspaceTabPresentationPreview, usesAutomaticWorkspaceTabPresentation } from '../components/commands/CommandWorkspaceTabPresentationPreview';
 import {
   CommandPresentationEditor,
   isCommandPresentationValid,
@@ -144,6 +145,7 @@ export default function CommandSettingsPage() {
   const vaultUnlocked = useAuthStore((state) => state.status?.vaultUnlocked ?? false);
   const workspaceId = useWorkspaceStore((state) => state.workspace?.id ?? '');
   const workspaceName = useWorkspaceStore((state) => state.workspace?.name ?? '');
+  const workspaceData = useWorkspaceStore((state) => state.workspace);
   const workspaceTabs = useWorkspaceStore((state) => state.workspace?.tabs);
   const [scope, setScope] = useState<CommandSettingsScope>('global');
   const [deckStatusSnapshot, setDeckStatusSnapshot] = useState<{ identity: string; value: CommandDeckStatusEvent } | null>(null);
@@ -1595,12 +1597,20 @@ export default function CommandSettingsPage() {
                       onCapture={() => void beginCapture()}
                       onCancel={() => cancelCapture()}
                     />
-                    <CommandPresentationEditor
-                      value={editor.value.presentation}
-                      disabled={busy}
-                      onBusyChange={setPresentationBusy}
-                      onChange={(presentation) => updateBindingField({ presentation })}
-                    />
+                    {usesAutomaticWorkspaceTabPresentation(editor.value.commandId) ? (
+                      <CommandWorkspaceTabPresentationPreview
+                        commandID={editor.value.commandId}
+                        argumentsValue={editor.value.arguments}
+                        workspace={workspaceData}
+                      />
+                    ) : (
+                      <CommandPresentationEditor
+                        value={editor.value.presentation}
+                        disabled={busy}
+                        onBusyChange={setPresentationBusy}
+                        onChange={(presentation) => updateBindingField({ presentation })}
+                      />
+                    )}
                   </>
                 ) : (
                   <p>{t('commandSettings.form.paletteInfo')}</p>

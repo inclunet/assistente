@@ -2857,8 +2857,30 @@ destino voltar a existir no workspace vinculado. Em ramos condicionais, a tecla
 mostra um alvo somente quando os ramos possíveis concordam; divergência é
 identificada como dependente do contexto. Essas informações são apresentação:
 não alteram o destino, não selecionam uma aba substituta e não adicionam
-auditoria por tecla. Personalizações de título, ícone e imagem continuam tendo
-precedência campo a campo, inclusive nas variantes de estado.
+auditoria por tecla.
+
+Para esses comandos, o editor apresenta uma **prévia automática da tecla**,
+sem pedir nome, ícone ou imagem. As personalizações antigas não substituem
+mais a apresentação da aba, inclusive nas variantes de estado. Ao renomear
+a aba, não é necessário editar a tecla. A escolha de uma aba específica pelo
+nome mantém o vínculo com aquela aba, não com qualquer aba de mesmo título.
+Os demais comandos continuam oferecendo personalização de apresentação.
+Se a mesma tecla puder executar também comandos de outro tipo conforme o
+contexto, a apresentação combinada continua identificando essa combinação,
+em vez de prometer que a tecla sempre leva à aba da prévia do binding.
+
+Validação manual da apresentação automática:
+
+- [ ] Editar uma tecla **Ir para aba** por posição e conferir a prévia sem
+  campos de personalização. Salvar e comparar com o Stream Deck.
+- [ ] Renomear e reordenar abas; conferir que a tecla por posição acompanha
+  a aba que ocupa a posição, enquanto a tecla específica acompanha a mesma aba.
+- [ ] Fechar a aba específica ou trocar de workspace: conferir a indicação
+  de indisponibilidade, sem ícone/imagem da aba anterior.
+- [ ] Reabrir uma configuração antiga com título ou imagem personalizados:
+  conferir que o nome e ícone da aba prevalecem.
+- [ ] Conferir a prévia com NVDA e verificar que outros comandos continuam
+  permitindo personalizar sua apresentação.
 
 ### Ações de camada condicionadas na paleta
 
