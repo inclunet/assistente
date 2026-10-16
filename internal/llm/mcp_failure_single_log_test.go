@@ -76,7 +76,7 @@ func TestResponses_MCPFailure_ErroUnico_OrdemFailedAntesDoDone(t *testing.T) {
 		"event: response.completed\n" +
 		`data: {"type":"response.completed","sequence_number":4,"response":{"id":"resp_1","object":"response","created_at":1,"status":"completed","model":"gpt-test","output":[]}}` + "\n\n"
 
-	recs := streamResponsesForLog(t, stream).records
+	recs := streamResponsesForLog(t, stream).snapshot()
 
 	if got := countLogs(recs, slog.LevelError, "FAILED"); got != 1 {
 		t.Fatalf("esperado exatamente 1 ERRO de falha MCP, obtido %d", got)
@@ -101,7 +101,7 @@ func TestResponses_MCPFailure_ErroUnico_SemOutputItemDone(t *testing.T) {
 		"event: response.completed\n" +
 		`data: {"type":"response.completed","sequence_number":3,"response":{"id":"resp_1","object":"response","created_at":1,"status":"completed","model":"gpt-test","output":[]}}` + "\n\n"
 
-	recs := streamResponsesForLog(t, stream).records
+	recs := streamResponsesForLog(t, stream).snapshot()
 
 	if got := countLogs(recs, slog.LevelError, "FAILED"); got != 1 {
 		t.Fatalf("esperado exatamente 1 ERRO de falha MCP (fallback pós-stream), obtido %d", got)

@@ -22,6 +22,10 @@ export function GetModelsByProvider(arg1) {
   return window['go']['wailsapi']['LLMModels']['GetModelsByProvider'](arg1);
 }
 
+export function GetUnsupportedProfileChatFields(arg1, arg2) {
+  return window['go']['wailsapi']['LLMModels']['GetUnsupportedProfileChatFields'](arg1, arg2);
+}
+
 export function RefreshModelCatalogByProvider(arg1) {
   return window['go']['wailsapi']['LLMModels']['RefreshModelCatalogByProvider'](arg1);
 }

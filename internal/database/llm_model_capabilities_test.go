@@ -215,6 +215,24 @@ func TestRecordUnsupportedFieldUpdatesCurrentStateAndRejectsUnknownData(t *testi
 	if err != nil || len(third) != 2 {
 		t.Fatalf("segundo campo não reutilizou a capability: %+v, %v", third, err)
 	}
+	codes, err := repository.ListUnsupportedFieldCodesForProviderModel(ctx, provider.ID, "remote-model", llmcapabilities.CapabilityChatCompletions, provider.CompatibilityRevision)
+	if err != nil || len(codes) != 2 || codes[0] != string(llmcapabilities.FieldTemperature) || codes[1] != string(llmcapabilities.FieldTopP) {
+		t.Fatalf("consulta de campos do Profile Manager divergiu: %v, %v", codes, err)
+	}
+	unknown, err := repository.ListUnsupportedFieldCodesForProviderModel(ctx, provider.ID, "unknown-model", llmcapabilities.CapabilityChatCompletions, provider.CompatibilityRevision)
+	if err != nil || len(unknown) != 0 {
+		t.Fatalf("modelo sem aprendizado deveria permanecer desconhecido: %v, %v", unknown, err)
+	}
+	otherCapability, err := repository.ListUnsupportedFieldCodesForProviderModel(ctx, provider.ID, "remote-model", llmcapabilities.CapabilityResponses, provider.CompatibilityRevision)
+	if err != nil || len(otherCapability) != 0 {
+		t.Fatalf("restrições de operações diferentes não podem vazar: %v, %v", otherCapability, err)
+	}
+	if _, err := repository.ListUnsupportedFieldCodesForProviderModel(WithUserID(context.Background(), "other-user"), provider.ID, "remote-model", llmcapabilities.CapabilityChatCompletions, provider.CompatibilityRevision); !errors.Is(err, gorm.ErrRecordNotFound) {
+		t.Fatalf("consulta de outro usuário não foi recusada: %v", err)
+	}
+	if _, err := repository.ListUnsupportedFieldCodesForProviderModel(ctx, provider.ID, "remote-model", llmcapabilities.CapabilityChatCompletions, provider.CompatibilityRevision+1); !errors.Is(err, ErrStaleCompatibility) {
+		t.Fatalf("consulta com revisão desatualizada não foi recusada: %v", err)
+	}
 	for _, test := range []struct {
 		capability llmcapabilities.Capability
 		field      llmcapabilities.FieldKey

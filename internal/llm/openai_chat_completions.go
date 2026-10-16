@@ -372,6 +372,14 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 		}
 
 		if !emittedNonRetryableEffect {
+			if recognizedProviderError && providerError.Category == ProviderErrorInvalidValue {
+				finishThinking()
+				reportCurrentDiagnostics()
+				markErrorNotRetryable(handler)
+				handler.OnError(providerError.DisplayMessage())
+				return chatStreamAttempt{done: true}
+			}
+
 			if recognizedProviderError && providerError.Category == ProviderErrorUnsupportedParameter && providerError.Field != "" {
 				if len(finishedToolCalls) == 0 && fullReasoning.Len() == 0 && chatParams.Compatibility != nil &&
 					openAIChatCompatibilityFieldWasSent(origParams, providerError) &&

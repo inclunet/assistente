@@ -7,9 +7,14 @@ import { ProfileEditorTabs } from './ProfileEditorTabs';
 
 const mockAnnounce = vi.fn();
 const providersSpy = vi.fn();
+const compatibilitySpy = vi.fn();
 
 vi.mock('@wailsjs/go/wailsapi/LLMProviders', () => ({
   GetLLMProvidersWithStatus: () => providersSpy(),
+}));
+
+vi.mock('@wailsjs/go/wailsapi/LLMModels', () => ({
+  GetUnsupportedProfileChatFields: (...args: unknown[]) => compatibilitySpy(...args),
 }));
 
 beforeEach(() => {
@@ -19,6 +24,8 @@ beforeEach(() => {
     { id: 'openai', api_format: 'openai', is_default: true },
     { id: 'cursor', api_format: 'acp' },
   ]);
+  compatibilitySpy.mockReset();
+  compatibilitySpy.mockResolvedValue([]);
 });
 
 vi.mock('react-i18next', () => ({
@@ -50,7 +57,11 @@ vi.mock('./ProfileGeneralSection', () => ({
 }));
 
 vi.mock('./ProfileChatSection', () => ({
-  ProfileChatSection: () => <button data-testid="chat-section">Chat</button>,
+  ProfileChatSection: ({ unsupportedFields, compatibilityLoading }: { unsupportedFields?: string[]; compatibilityLoading?: boolean }) => (
+    <div data-testid="chat-section" data-unsupported-fields={unsupportedFields?.join(',') ?? ''} data-compatibility-loading={String(Boolean(compatibilityLoading))}>
+      {!unsupportedFields?.includes('temperature') && <button data-testid="temperature-field" disabled={compatibilityLoading}>Temperature</button>}
+    </div>
+  ),
 }));
 
 vi.mock('./ProfileSkillsSection', () => ({
@@ -125,6 +136,60 @@ function perfilCom(provider: string) {
 /* ── Testes ─────────────────────────────────────────────── */
 
 describe('ProfileEditorTabs', () => {
+  it('busca restrições para o provedor e modelo atuais e descarta resposta atrasada de outro modelo', async () => {
+    let resolveOld!: (fields: string[]) => void;
+    let resolveCurrent!: (fields: string[]) => void;
+    compatibilitySpy
+      .mockImplementationOnce(() => new Promise<string[]>((resolve) => { resolveOld = resolve; }))
+      .mockImplementationOnce(() => new Promise<string[]>((resolve) => { resolveCurrent = resolve; }));
+    const profile = (model: string) => ({
+      ...defaultProfile,
+      chat: { ...defaultProfile.chat, llm_provider: 'openai', model },
+    });
+    const { rerender } = render(<ProfileEditorTabs {...propsCom(profile('old-model'))} />);
+    expect(compatibilitySpy).toHaveBeenNthCalledWith(1, 'openai', 'old-model');
+
+    rerender(<ProfileEditorTabs {...propsCom(profile('current-model'))} />);
+    expect(compatibilitySpy).toHaveBeenNthCalledWith(2, 'openai', 'current-model');
+    expect(screen.getByTestId('chat-section')).toHaveAttribute('data-compatibility-loading', 'true');
+    expect(screen.getByTestId('temperature-field')).toBeDisabled();
+    resolveCurrent(['temperature']);
+    await waitFor(() => expect(screen.getByTestId('chat-section')).toHaveAttribute('data-unsupported-fields', 'temperature'));
+    expect(screen.queryByTestId('temperature-field')).not.toBeInTheDocument();
+    resolveOld(['temperature']);
+    await waitFor(() => expect(screen.getByTestId('chat-section')).toHaveAttribute('data-unsupported-fields', 'temperature'));
+  });
+
+  it('invalida restrições antigas ao voltar ao mesmo provedor e modelo enquanto consulta novamente', async () => {
+    let resolveFirst!: (fields: string[]) => void;
+    let resolveSecond!: (fields: string[]) => void;
+    let resolveReturn!: (fields: string[]) => void;
+    compatibilitySpy
+      .mockImplementationOnce(() => new Promise<string[]>((resolve) => { resolveFirst = resolve; }))
+      .mockImplementationOnce(() => new Promise<string[]>((resolve) => { resolveSecond = resolve; }))
+      .mockImplementationOnce(() => new Promise<string[]>((resolve) => { resolveReturn = resolve; }));
+    const profile = (model: string) => ({
+      ...defaultProfile,
+      chat: { ...defaultProfile.chat, llm_provider: 'openai', model },
+    });
+    const { rerender } = render(<ProfileEditorTabs {...propsCom(profile('model-a'))} />);
+
+    resolveFirst(['temperature']);
+    await waitFor(() => expect(screen.queryByTestId('temperature-field')).not.toBeInTheDocument());
+
+    rerender(<ProfileEditorTabs {...propsCom(profile('model-b'))} />);
+    rerender(<ProfileEditorTabs {...propsCom(profile('model-a'))} />);
+
+    await waitFor(() => expect(compatibilitySpy).toHaveBeenCalledTimes(3));
+    expect(screen.getByTestId('chat-section')).toHaveAttribute('data-compatibility-loading', 'true');
+    expect(screen.getByTestId('temperature-field')).toBeDisabled();
+
+    resolveReturn(['temperature']);
+    await waitFor(() => expect(screen.queryByTestId('temperature-field')).not.toBeInTheDocument());
+    resolveSecond([]);
+    await waitFor(() => expect(screen.queryByTestId('temperature-field')).not.toBeInTheDocument());
+  });
+
   it('renderiza 6 abas', () => {
     renderTabs();
     const tabs = screen.getAllByRole('tab');
@@ -280,12 +345,13 @@ describe('ProfileEditorTabs', () => {
   });
 
   it.each([
-    ['Ctrl+Tab', { key: 'Tab', ctrlKey: true }, 'chat-section'],
+    ['Ctrl+Tab', { key: 'Tab', ctrlKey: true }, 'temperature-field'],
     ['Ctrl+Shift+Tab', { key: 'Tab', ctrlKey: true, shiftKey: true }, 'audio-tab'],
-    ['Ctrl+PageDown', { key: 'PageDown', ctrlKey: true }, 'chat-section'],
+    ['Ctrl+PageDown', { key: 'PageDown', ctrlKey: true }, 'temperature-field'],
     ['Ctrl+PageUp', { key: 'PageUp', ctrlKey: true }, 'audio-tab'],
   ])('%s restaura foco para o conteúdo da aba destino', async (_label, init, defaultTarget) => {
     renderTabs();
+    await waitFor(() => expect(screen.getByTestId('chat-section')).toHaveAttribute('data-compatibility-loading', 'false'));
 
     const generalTab = screen.getAllByRole('tab').find(t => t.getAttribute('data-tab-value') === 'general')!;
     generalTab.focus();
