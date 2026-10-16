@@ -19,23 +19,32 @@ const supportedFields = new Set([
   'parallel_tool_calls', 'voice', 'speed', 'audio_format', 'language',
 ]);
 
-export function translateProviderErrorMessage(message: string): string | null {
+function translationFunction(language?: string) {
+  const normalized = language?.trim().toLowerCase();
+  if (normalized?.startsWith('pt')) return i18next.getFixedT('pt-BR');
+  if (normalized?.startsWith('es')) return i18next.getFixedT('es');
+  if (normalized?.startsWith('en')) return i18next.getFixedT('en');
+  return i18next.t.bind(i18next);
+}
+
+export function translateProviderErrorMessage(message: string, language?: string): string | null {
   const match = /^provider_error:v1:([a-z_]+):([a-z_.]*)(?::([1-5][0-9]{2}))?$/.exec(message);
   if (!match) return null;
 
   const [, category, rawField, status = ''] = match;
+  const t = translationFunction(language);
   const categoryKey = categoryKeys[category];
   if (!categoryKey) return null;
   const field = supportedFields.has(rawField) ? rawField : '';
   const statusLabel = status ? ` (HTTP ${status})` : '';
   if (category === 'unsupported_parameter' && !field) {
-    return i18next.t('chat.errors.providerErrors.unsupportedParameterUnknown', { statusLabel });
+    return t('chat.errors.providerErrors.unsupportedParameterUnknown', { statusLabel });
   }
   if (category === 'invalid_value' && !field) {
-    return i18next.t('chat.errors.providerErrors.invalidValueUnknown', { statusLabel });
+    return t('chat.errors.providerErrors.invalidValueUnknown', { statusLabel });
   }
 
-  return i18next.t(`chat.errors.providerErrors.${categoryKey}`, { field, statusLabel });
+  return t(`chat.errors.providerErrors.${categoryKey}`, { field, statusLabel });
 }
 
 const mcpStages: Record<string, string> = {
@@ -45,10 +54,10 @@ const mcpStages: Record<string, string> = {
   unknown: 'chat.errors.mcpStages.unknown',
 };
 
-export function translateErrorMarkers(text: string): string {
+export function translateErrorMarkers(text: string, language?: string): string {
   const withProviderErrors = text.replace(
     /provider_error:v1:[a-z_]+:[a-z_.]*(?::[1-5][0-9]{2})?/g,
-    (marker) => translateProviderErrorMessage(marker) ?? marker,
+    (marker) => translateProviderErrorMessage(marker, language) ?? marker,
   );
   return withProviderErrors.replace(/mcp_error:v1:([^:\s]+):(list_tools|call|handshake|unknown)/g, (marker, encodedServer: string, stage: string) => {
     const stageKey = mcpStages[stage];
@@ -59,24 +68,26 @@ export function translateErrorMarkers(text: string): string {
     } catch {
       return marker;
     }
-    return i18next.t('chat.errors.mcpFailure', { server, stage: i18next.t(stageKey) });
+    const t = translationFunction(language);
+    return t('chat.errors.mcpFailure', { server, stage: t(stageKey) });
   });
 }
 
 // Chat history stores backend diagnostics in a small set of explicit formats.
 // Restricting translation here prevents marker-like text in user messages or
 // assistant code samples from being rewritten during Markdown rendering.
-export function translateBackendErrorDiagnostic(text: string): string {
+export function translateBackendErrorDiagnostic(text: string, language?: string): string {
   const providerDiagnostic = /^Falha na resposta do agente: (provider_error:v1:[a-z_]+:[a-z_.]*(?::[1-5][0-9]{2})?)$/.exec(text);
   if (providerDiagnostic) {
-    return `${i18next.t('chat.errors.agentResponseFailed')} ${translateProviderErrorMessage(providerDiagnostic[1]) ?? providerDiagnostic[1]}`;
+    const t = translationFunction(language);
+    return `${t('chat.errors.agentResponseFailed')} ${translateProviderErrorMessage(providerDiagnostic[1], language) ?? providerDiagnostic[1]}`;
   }
   if (/^mcp_error:v1:[^:\s]+:(list_tools|call|handshake|unknown)$/.test(text)) {
-    return translateErrorMarkers(text);
+    return translateErrorMarkers(text, language);
   }
   const prefixedMcpDiagnostic = /^Falha na resposta do agente: (mcp_error:v1:[^:\s]+:(?:list_tools|call|handshake|unknown))$/.exec(text);
   if (prefixedMcpDiagnostic) {
-    return translateErrorMarkers(prefixedMcpDiagnostic[1]);
+    return translateErrorMarkers(prefixedMcpDiagnostic[1], language);
   }
   return text;
 }

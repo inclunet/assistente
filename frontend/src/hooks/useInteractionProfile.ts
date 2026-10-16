@@ -553,6 +553,7 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
         providerId: resolveProviderId(voice),
         voiceId: voice?.voice_id || '',
         model: voice?.model || '',
+        language: getInputConfig(activeProfile)?.language || '',
         selectionMode: normalizeSelectionMode(voice?.selection_mode),
         rate: voice?.rate || 1.0,
         pitch: voice?.pitch || 1.0,

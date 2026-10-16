@@ -105,8 +105,8 @@ func TestChatCompletions_ThinkingSemConclusaoEDescartado(t *testing.T) {
 	if got, want := h.thinking, []string{"descartado", "done:"}; !slicesEqual(got, want) {
 		t.Fatalf("thinking descartado=%v, esperado %v", got, want)
 	}
-	if h.nonRetryable {
-		t.Fatal("thinking isolado não deve bloquear recuperação externa")
+	if !h.nonRetryable {
+		t.Fatal("thinking exposto deve bloquear novas tentativas")
 	}
 	if h.err != "streaming_interrupted" || h.done != "" {
 		t.Fatalf("desfecho inválido: err=%q done=%q", h.err, h.done)
@@ -203,8 +203,8 @@ func TestResponses_ThinkingSemConclusaoEDescartado(t *testing.T) {
 	if got, want := h.thinking, []string{"descartado", "done:"}; !slicesEqual(got, want) {
 		t.Fatalf("thinking descartado=%v, esperado %v", got, want)
 	}
-	if h.nonRetryable {
-		t.Fatal("thinking isolado não deve bloquear recuperação externa")
+	if !h.nonRetryable {
+		t.Fatal("thinking exposto deve bloquear novas tentativas")
 	}
 	if h.err != "streaming_interrupted" || h.done != "" {
 		t.Fatalf("desfecho Responses inválido: err=%q done=%q", h.err, h.done)
