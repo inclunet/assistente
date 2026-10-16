@@ -126,6 +126,8 @@ recuperação e proibição de `assistant` vazio em erro.
    individual na fila (`chatTurnQueue`); `chatTurnQueue.test.ts` cobre
    cancelamento sem iniciar a chamada e continuidade do turno ativo;
    `ChatToolbar.test.tsx` cobre o controle, chamada de cancelamento e anúncio.
+   `chatStore.validation.test.ts` cobre que cancelamento de envio/retry
+   auditado na fila resulta em comando cancelado, sem envio ao backend.
    Eventos externos continuam serializados e não são canceláveis pela toolbar.
    A fila backend ACP (`turnSlot`) continua serializada; sondagem ociosa é a
    pendência separada da Fase 5.

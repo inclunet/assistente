@@ -1474,7 +1474,11 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           markAccepted(result.accepted);
           await result.controller?.done;
         }, queuedBehindActiveTurn ? () => adjustQueuedTurnCount(conversationId, -1, sessionKey) : undefined).catch((error) => {
-          if (options?.command) rejectAccepted(isConversationTurnQueueClearedError(error) ? new ChatMessagingStaleError() : error);
+          if (options?.command) rejectAccepted(
+            isConversationTurnQueueClearedError(error) || isConversationTurnQueueCancelledError(error)
+              ? new ChatMessagingStaleError()
+              : error,
+          );
           else markAccepted(false);
           if (!isConversationTurnQueueClearedError(error) && !isConversationTurnQueueCancelledError(error)) {
             logger.error('[Chat] falha inesperada na fila do turno', error);
@@ -1505,7 +1509,11 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           markAccepted(result.accepted);
           await result.controller?.done;
         }, queuedBehindActiveTurn ? () => adjustQueuedTurnCount(conversationId, -1, sessionKey) : undefined).catch((error) => {
-          if (options?.command) rejectAccepted(isConversationTurnQueueClearedError(error) ? new ChatMessagingStaleError() : error);
+          if (options?.command) rejectAccepted(
+            isConversationTurnQueueClearedError(error) || isConversationTurnQueueCancelledError(error)
+              ? new ChatMessagingStaleError()
+              : error,
+          );
           else markAccepted(false);
           if (!isConversationTurnQueueClearedError(error) && !isConversationTurnQueueCancelledError(error)) {
             logger.error('[Chat] falha inesperada na fila de retry', error);

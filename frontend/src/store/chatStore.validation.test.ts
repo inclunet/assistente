@@ -2143,6 +2143,34 @@ describe('chatStore validation', () => {
     expect(useChatStore.getState().sessionsByConversationId[defaultConversationId]?.queuedTurnCount).toBe(0);
   });
 
+  it.each(['envio', 'retry'] as const)(
+    'tratamento de comando converte cancelamento de %s enfileirado em stale',
+    async (operation) => {
+      const firstSend = deferred<void>();
+      mockSendMessage.mockImplementationOnce(() => firstSend.promise);
+      const first = useChatStore.getState().sendMessageToConversation(defaultConversationId, 'primeira');
+      await flushMicrotasks();
+
+      const command = {
+        handoff: { ticket: `ticket-${operation}`, handoffId: `handoff-${operation}` },
+        isCurrent: () => true,
+      };
+      const queued = operation === 'envio'
+        ? useChatStore.getState().sendMessageToConversation(defaultConversationId, 'comando', undefined, undefined, { command })
+        : useChatStore.getState().retryMessageToConversation(defaultConversationId, 'persisted-message', undefined, { command });
+      await flushMicrotasks();
+
+      expect(useChatStore.getState().cancelNextQueuedTurn(defaultConversationId)).toBe(true);
+      await expect(queued).rejects.toThrow('chat-messaging-stale');
+
+      firstSend.resolve();
+      emitEvent('chat:done', { conversationId: defaultConversationId });
+      await first;
+      expect(mockSendMessage).toHaveBeenCalledTimes(1);
+      expect(mockRetryMessage).not.toHaveBeenCalled();
+    },
+  );
+
   it('serializa retry atrás de envio ativo da mesma conversa', async () => {
     const firstSend = deferred<void>();
     mockSendMessage.mockImplementationOnce(() => firstSend.promise);
