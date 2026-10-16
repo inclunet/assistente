@@ -1759,9 +1759,9 @@ func (r *DBRepository) deleteRunDependenciesByIDsTx(ctx context.Context, tx *gor
 		// tool_invocations: remove execuções técnicas associadas aos runs purgados.
 		// Best-effort: pode não existir em migrações parciais.
 		if hasToolInvocations {
-			if err := database.ScopeByUser(ctx, tx.WithContext(ctx).Model(&database.ToolInvocation{}), "user_id").
-				Where("origin_type = ? AND origin_id IN ?", toolinvocations.OriginJobRun, batch).
-				Delete(&database.ToolInvocation{}).Error; err != nil {
+			target := database.ScopeByUser(ctx, tx.WithContext(ctx).Model(&database.ToolInvocation{}), "user_id").
+				Where("origin_type = ? AND origin_id IN ?", toolinvocations.OriginJobRun, batch)
+			if _, err := database.DeleteToolInvocationsWithChildrenDetachedTx(ctx, tx, target); err != nil {
 				return err
 			}
 		}

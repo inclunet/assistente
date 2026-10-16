@@ -433,11 +433,12 @@ func (r *DBRepository) CleanOrphanChat(ctx context.Context) (int, error) {
 	}
 	// Vínculos canônicos usam conversation_id/turn_id. origin_id só permanece
 	// para linhas pré-v18 que ainda não receberam o backfill aditivo.
-	var tx *gorm.DB
+	deleted := int64(0)
 	err := r.retry(ctx, "clean_orphan_chat", func() error {
-		tx = database.ScopeByUser(ctx, r.db.WithContext(ctx), "user_id").
-			Where("origin_type = ?", OriginChat).
-			Where(`(
+		return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			target := database.ScopeByUser(ctx, tx.Model(&database.ToolInvocation{}), "user_id").
+				Where("origin_type = ?", OriginChat).
+				Where(`(
 				tool_invocations.conversation_id IS NOT NULL
 				AND (
 					NOT EXISTS (
@@ -460,14 +461,16 @@ func (r *DBRepository) CleanOrphanChat(ctx context.Context) (int, error) {
 					SELECT 1 FROM chat_messages
 					WHERE chat_messages.id = tool_invocations.origin_id
 				)
-			)`).
-			Delete(&database.ToolInvocation{})
-		return tx.Error
+			)`)
+			var err error
+			deleted, err = database.DeleteToolInvocationsWithChildrenDetachedTx(ctx, tx, target)
+			return err
+		})
 	})
-	if tx == nil {
+	if err != nil {
 		return 0, err
 	}
-	return int(tx.RowsAffected), err
+	return int(deleted), nil
 }
 
 func (r *DBRepository) ResolveToolCatalogID(ctx context.Context, toolName string) (string, error) {

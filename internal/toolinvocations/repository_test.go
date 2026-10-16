@@ -753,6 +753,100 @@ func TestRepositoryCleanOrphanChat(t *testing.T) {
 	}
 }
 
+func TestRepositoryCleanOrphanChatDetachesSurvivingChildrenAtomicallyWithForeignKeys(t *testing.T) {
+	path, err := filepath.Abs(filepath.Join(t.TempDir(), "clean-orphan-chat.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	restoreDB := database.SetDB(database.DB())
+	var initializedDB *gorm.DB
+	t.Cleanup(func() {
+		if initializedDB != nil {
+			if sqlDB, err := initializedDB.DB(); err == nil {
+				_ = sqlDB.Close()
+			}
+		}
+		restoreDB()
+	})
+	if err := database.InitPath(path); err != nil {
+		initializedDB = database.DB()
+		t.Fatalf("InitPath: %v", err)
+	}
+	db := database.DB()
+	initializedDB = db
+	if err := db.Create(&database.User{
+		UUIDModel: database.UUIDModel{ID: "orphan-owner"}, Username: "orphan-owner", PasswordHash: "test",
+		Role: database.UserRoleUser, IsActive: true,
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	tool := database.ToolCatalog{
+		UUIDModel: database.UUIDModel{ID: "orphan-tool"}, Name: "orphan-tool", DisplayName: "Orphan tool",
+		Origin: tools.ToolOriginBuiltin, AvailabilityStatus: tools.ToolAvailabilityAvailable,
+	}
+	if err := db.Create(&tool).Error; err != nil {
+		t.Fatal(err)
+	}
+	ctx := database.WithUserID(context.Background(), "orphan-owner")
+	conversation, err := database.CreateConversationWithContext(ctx, "live", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	message, err := database.CreateMessageWithContext(ctx, database.MessageOptions{
+		ConversationID: conversation.ID, Role: "assistant", Content: "still live",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	child := database.ToolInvocation{
+		UUIDModel: database.UUIDModel{ID: "orphan-child"}, UserID: "orphan-owner", ToolCatalogID: tool.ID,
+		OriginType: OriginChat, OriginID: message.ID, ConversationID: &conversation.ID,
+		Status: StatusSucceeded, QueuedAt: time.Now(),
+	}
+	parent := database.ToolInvocation{
+		UUIDModel: database.UUIDModel{ID: "orphan-parent"}, UserID: "orphan-owner", ToolCatalogID: tool.ID,
+		OriginType: OriginChat, OriginID: "missing-message", Status: StatusSucceeded, QueuedAt: time.Now(),
+	}
+	if err := db.Create(&parent).Error; err != nil {
+		t.Fatal(err)
+	}
+	child.ParentInvocationID = &parent.ID
+	if err := db.Create(&child).Error; err != nil {
+		t.Fatal(err)
+	}
+	repo := NewDBRepository(db)
+	if err := db.Exec(`CREATE TRIGGER reject_orphan_parent_delete BEFORE DELETE ON tool_invocations
+		WHEN OLD.id = 'orphan-parent' BEGIN SELECT RAISE(ABORT, 'reject orphan parent delete'); END`).Error; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.CleanOrphanChat(ctx); err == nil {
+		t.Fatal("CleanOrphanChat deveria falhar com trigger de regressão")
+	}
+	var storedChild database.ToolInvocation
+	if err := db.First(&storedChild, "id = ?", child.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if storedChild.ParentInvocationID == nil || *storedChild.ParentInvocationID != parent.ID {
+		t.Fatalf("falha parcial desassociou a filha: parent=%v", storedChild.ParentInvocationID)
+	}
+	if err := db.Exec("DROP TRIGGER reject_orphan_parent_delete").Error; err != nil {
+		t.Fatal(err)
+	}
+	deleted, err := repo.CleanOrphanChat(ctx)
+	if err != nil {
+		t.Fatalf("CleanOrphanChat: %v", err)
+	}
+	if deleted != 1 {
+		t.Fatalf("CleanOrphanChat deleted=%d, want 1", deleted)
+	}
+	if err := db.First(&storedChild, "id = ?", child.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if storedChild.ParentInvocationID != nil {
+		t.Fatalf("filha viva continua vinculada ao pai órfão: %v", *storedChild.ParentInvocationID)
+	}
+}
+
 // TestResolveToolCatalogID_UsaCacheComTTL prova que uma resolução positiva é
 // servida do cache em memória (sem tocar o banco) dentro do TTL e volta a
 // consultar o banco depois que a entrada expira. O efeito é observável: após a
