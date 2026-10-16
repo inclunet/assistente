@@ -1,5 +1,18 @@
 # AEP — Assistente Enhancement Proposals
 
+**Proposta de migração experimental do driver, associada à AEP-0074
+(16/10/2026): Deprecated.** O AEP de retenção não foi abandonado.
+Abandonada por decisão do mantenedor após falha de integridade no adaptador
+GORM candidato. Glebarez permanece, sem fork nem emendas em dependências.
+Otimizações de contenção continuam separadamente.
+
+**AEP-0103 / extensão AEP-0074 — retenção sob carga (16/10/2026): In Progress.**
+Seleção por idade/count-cap usa conjuntos protegidos por usuário, sem
+subqueries correlacionadas por run; mantém replay, leases e atomicidade.
+Plano SQL e isolamento cobertos, com aceite de sessão longa ainda pendente.
+Cancelamento no driver permanece investigação separada, sem garantia rígida
+de prazo. O Done do AEP-0074 continua restrito ao escopo legado.
+
 **AEP-0103 — apresentação de destinos de aba (16/10/2026): In Progress.**
 Nome e ícone automáticos no Stream Deck para destinos de aba; prévia no
 editor substitui a personalização desses comandos. A seleção específica
