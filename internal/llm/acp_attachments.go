@@ -165,9 +165,9 @@ func inlineAudio(part ContentPart) (data, mime string, ok bool) {
 		return "", "", false
 	}
 	switch strings.ToLower(strings.TrimSpace(part.InputAudio.Format)) {
-	case "wav":
+	case "wav", "wave", "x-wav":
 		return part.InputAudio.Data, "audio/wav", true
-	case "mp3":
+	case "mp3", "mpeg", "mpga":
 		return part.InputAudio.Data, "audio/mp3", true
 	default:
 		return "", "", false

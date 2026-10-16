@@ -316,6 +316,28 @@ func TestAudioACPOriginalAcompanhaTranscricaoNoPrompt(t *testing.T) {
 	}
 }
 
+func TestAudioACPOriginalNormalizaAliasesMIMEDoHistorico(t *testing.T) {
+	tests := []struct {
+		format   string
+		wantMIME string
+	}{
+		{format: "mpeg", wantMIME: "audio/mp3"},
+		{format: "x-wav", wantMIME: "audio/wav"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.format, func(t *testing.T) {
+			content, notSent := turnContent(Message{
+				Content:          "transcrição do áudio",
+				ACPOriginalAudio: []InputAudio{{Data: "QUJD", Format: tt.format}},
+			}, aceitaImagem, func() bool { return true }, func() bool { return false })
+
+			if notSent != 0 || len(content) != 2 || content[1].AudioData != "QUJD" || content[1].AudioMIME != tt.wantMIME {
+				t.Fatalf("áudio %q deveria acompanhar a transcrição: content=%+v notSent=%d", tt.format, content, notSent)
+			}
+		})
+	}
+}
+
 func TestArquivoEmbutidoDependeDaCapabilityESoAceitaPDFOuTexto(t *testing.T) {
 	msg := Message{Role: "user", Content: []interface{}{
 		map[string]interface{}{"type": "text", "text": "resuma"},
