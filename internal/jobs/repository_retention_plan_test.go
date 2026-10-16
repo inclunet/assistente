@@ -68,9 +68,10 @@ func TestRetentionQueryPlans(t *testing.T) {
 			owner = userB
 		}
 		state := commandjobevents.DeliveryDelivered
-		if i%8 == 0 {
+		switch i % 8 {
+		case 0:
 			state = commandjobevents.DeliveryPending
-		} else if i%8 == 1 {
+		case 1:
 			state = commandjobevents.DeliveryProcessing
 		}
 		runID := fmt.Sprintf("outbox-unrelated-run-%05d", i)
@@ -358,9 +359,10 @@ func seedRetentionPlanScaleFixture(b *testing.B, runCount int) (*gorm.DB, *DBRep
 	for _, owner := range []string{userA, userB} {
 		for i := 0; i < outboxPerUser; i++ {
 			state := commandjobevents.DeliveryDelivered
-			if i%8 == 0 {
+			switch i % 8 {
+			case 0:
 				state = commandjobevents.DeliveryPending
-			} else if i%8 == 1 {
+			case 1:
 				state = commandjobevents.DeliveryProcessing
 			}
 			runID := fmt.Sprintf("scale-unrelated-%s-%06d", owner, i)
@@ -582,7 +584,11 @@ func runRetentionPlanDiagnostic(t testing.TB, db *gorm.DB, sql string, args []an
 	if err != nil {
 		t.Fatalf("execute retention diagnostic query: %v", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if err := rows.Close(); err != nil {
+			t.Errorf("close retention diagnostic rows: %v", err)
+		}
+	}()
 	for rows.Next() {
 		var id string
 		if err := rows.Scan(&id); err != nil {
