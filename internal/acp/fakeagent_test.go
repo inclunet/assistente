@@ -68,6 +68,7 @@ const (
 	scriptComandos       = "comandos"
 	scriptBooleanOptions = "boolean-options"
 	scriptResume         = "resume"
+	scriptResumeFallback = "resume-fallback"
 
 	fakeSessionID = "sess-falsa-1"
 	// fakeMuteValue faz o agente aceitar a troca e responder com um conjunto de
@@ -218,7 +219,7 @@ func (a *fakeAgent) handle(msg rpcMessage) {
 			return
 		}
 		sessionCapabilities := map[string]any{"close": map[string]any{}}
-		if a.script == scriptResume {
+		if a.script == scriptResume || a.script == scriptResumeFallback {
 			sessionCapabilities["resume"] = map[string]any{}
 		}
 		a.reply(*msg.ID, map[string]any{
@@ -337,6 +338,10 @@ func (a *fakeAgent) handle(msg rpcMessage) {
 		a.reply(*msg.ID, map[string]any{"configOptions": []any{fakeModelOption("modelo-b")}})
 
 	case "session/resume":
+		if a.script == scriptResumeFallback {
+			a.replyError(*msg.ID, -32000, "retomada indisponível")
+			return
+		}
 		if a.script != scriptResume {
 			a.replyError(*msg.ID, -32601, "método desconhecido: "+msg.Method)
 			return

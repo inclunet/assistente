@@ -170,12 +170,15 @@ func (p *ACPChatProvider) StreamChat(ctx context.Context, messages []Message, pa
 	}
 
 	response := turn.response()
-	if notice, empty := stopWithoutAnswer(stop, response); empty &&
-		!(stop == acp.StopEndTurn && turn.outputNoticeSent) {
+	if notice, empty := stopWithoutAnswer(stop, response); empty {
 		// O desfecho vai como resposta, e não como erro: recusa e limite são
 		// o turno terminando, não o transporte falhando. Como erro, o texto
 		// não seria salvo nem falado — e a auto-recuperação ainda repetiria
-		// para o agente um pedido que ele já aceitou.
+		// para o agente um pedido que ele já aceitou. O aviso de conteúdo ACP
+		// não renderizado é complementar; ainda precisamos persistir um desfecho
+		// textual para respostas compostas só por blocos que a UI não exibe.
+		// ChatParams ainda não transporta o locale da interface, então mantemos o
+		// fallback terminal existente até uma decisão transversal de localização.
 		response = notice
 	}
 	if stop != acp.StopEndTurn {

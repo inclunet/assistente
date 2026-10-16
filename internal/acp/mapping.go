@@ -498,7 +498,7 @@ func withKnownLegacy(fresh, known []ConfigOption) []ConfigOption {
 		if hasCategory(fresh, category) {
 			continue
 		}
-		if option, ok := OptionByCategory(known, category); ok {
+		if option, ok := OptionByCategory(known, category); ok && option.Kind == "" {
 			fresh = append(fresh, option)
 		}
 	}

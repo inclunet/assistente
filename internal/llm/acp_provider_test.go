@@ -342,6 +342,26 @@ func TestTurnoACPAnunciaUmaVezConteudoNaoTextualNaoRenderizado(t *testing.T) {
 	}
 }
 
+func TestTurnoACPComSomenteConteudoNaoTextualFinalizaComRespostaPersistivel(t *testing.T) {
+	sessao := &agenteFalso{updates: []acp.Update{{Kind: acp.UpdateUnsupportedOutput}}}
+	provider := providerDeAgente(t, sessao)
+	handler := &espiao{}
+
+	provider.StreamChat(t.Context(),
+		[]Message{{Role: "user", Content: "analise este anexo"}},
+		ChatParams{ConversationID: "conversa-1"}, handler)
+
+	if handler.erro != "" {
+		t.Fatalf("turno falhou: %s", handler.erro)
+	}
+	if len(handler.avisos) != 1 || handler.avisos[0].Kind != TurnNoticeAgentOutputNotDisplayed {
+		t.Fatalf("aviso de conteúdo não renderizado = %+v", handler.avisos)
+	}
+	if handler.respostaFim == "" || handler.respostaFim != "O agente terminou o turno sem escrever resposta." {
+		t.Fatalf("resposta final vazia ou inesperada: %q", handler.respostaFim)
+	}
+}
+
 func TestTurnoACPAtualizaUsoEAnunciaCadaFaixaUmaVez(t *testing.T) {
 	handler := &espiao{}
 	turn := &acpTurn{handler: handler}

@@ -860,13 +860,13 @@ AEPs relacionados.
 |---|---|---|
 | Transporte JSON-RPC sobre stdio, `initialize`, `session/new`, `session/prompt`, `session/cancel`, `session/load` e `session/close` | **Implementado** | Um processo por provider e sessões multiplexadas. O fechamento remoto é condicionado à capability anunciada pelo agente. A recuperação de sessão presa segue AEP-0108. |
 | `session/list` e `session/delete` | **Não implementado** | O app não importa nem navega sessões criadas fora do Assistente. Conversas e histórico do app continuam sendo a fonte de apresentação; avaliar descoberta cruzada apenas se houver demanda. |
-| `session/resume` | **Implementado** | Quando anunciado, é preferido a `session/load` para retomar sem replay; agentes que só anunciam `loadSession` continuam usando `session/load`. |
+| `session/resume` | **Implementado** | Quando anunciado, é preferido a `session/load` para retomar sem replay; se falhar e o agente também anunciar `loadSession`, tenta `session/load` antes de desistir. Agentes que só anunciam `loadSession` usam esse método diretamente. |
 | `sessionCapabilities.additionalDirectories` | **Não implementado** | Cada conversa usa um `cwd` primário; não há seleção de múltiplas raízes adicionais. |
 | MCP enviado em `session/new`/`session/load` | **Intencionalmente vazio** | O app não injeta servidores MCP próprios; o agente usa sua configuração local (D1). Generalizar essa passagem exigiria decisão de credenciais, escopo e isolamento. |
 | Texto em prompts e respostas | **Implementado** | Blocos de texto são encaminhados para o provider e para a superfície comum de chat. |
 | Imagem inline em prompt | **Parcial** | Só é enviada quando o agente anuncia `promptCapabilities.image`; URLs e formatos não embutidos não são convertidos em blocos ACP. Anexos não enviados geram aviso. |
 | Áudio e recurso/contexto embutido em prompt | **Parcial** | Áudio WAV/MP3 inline é enviado quando o agente anuncia `promptCapabilities.audio`; PDF e texto são enviados como recurso ACP quando anuncia `embeddedContext`. Formatos desconhecidos ou agentes sem suporte geram aviso. Outros tipos de arquivo ainda ficam de fora. |
-| Blocos não textuais nas respostas do agente | **Parcial** | Blocos `text` são projetados; imagem, áudio e recursos não são renderizados e agora geram um aviso acessível por turno. Renderização multimodal continua pendente. |
+| Blocos não textuais nas respostas do agente | **Parcial** | Blocos `text` são projetados; imagem, áudio e recursos não são renderizados e agora geram um aviso acessível por turno. Se o turno terminar sem texto, a resposta final recebe o fallback terminal existente para evitar mensagem vazia. O contrato `ChatParams` não transporta o idioma da interface, então esse fallback permanece em pt-BR até uma decisão transversal de localização. Renderização multimodal continua pendente. |
 | Texto, raciocínio, início/progresso de ferramenta, opções, modo, título e comandos em `session/update` | **Implementado** | Esse é o conjunto atualmente mapeado em `internal/acp/mapping.go`. |
 | Mensagem de usuário reproduzida durante `session/load` | **Ignorada deliberadamente na apresentação** | A conversa do app vem do histórico local, evitando duplicar mensagens ACP reproduzidas. Uma futura sincronização cruzada precisará resolver divergência de histórico antes de apresentar esses eventos. |
 | Plano do agente (`sessionUpdate: plan`) | **Não implementado** | Atualizações de plano são ignoradas; planos poderiam mostrar etapas e progresso sem confundi-los com tools executáveis. |
@@ -879,7 +879,7 @@ AEPs relacionados.
 | Aprovação (`session/request_permission`) e extensões Cursor documentadas | **Implementado** | Usa arbitragem/questionário existentes, com recusa segura e cancelamento. Extensões não padronizadas de outros agentes dependem de handlers específicos. |
 | Autenticação ACP (`authenticate`, `logout`) | **Intencionalmente externalizada** | O app não executa autenticação ACP nem logout do agente. Login local e passagem opcional de credencial do cofre seguem AEP-0086 D12; falta de login é diagnosticada e instruída pela UI. |
 | Autenticação interativa no terminal pelo cliente | **Não oferecido** | O login permanece no mecanismo do agente; o app explica o método e pode passar credencial do cofre quando explicitamente configurado (AEP-0086 D12). Não há terminal interativo ACP do lado do cliente. |
-| Metadados da sessão | **Parcial** | Título não vazio renomeia a conversa; `title: null` restaura o rótulo padrão quando o nome atual ainda é automático e preserva nomes escolhidos pela pessoa. `updatedAt` e `_meta` não são projetados. |
+| Metadados da sessão | **Parcial** | Título não vazio renomeia a conversa; `title: null` restaura o rótulo padrão quando o nome atual é automático ou foi gerado pelo agente nesta execução, preservando títulos definidos manualmente. `updatedAt` e `_meta` não são projetados. A origem do título gerado não persiste após reiniciar o app. |
 | Compatibilidade de agentes e versões | **Parcialmente verificada** | Existem sondas, testes com agente falso e matriz para contratos legados de modelo (D16), mas não uma matriz atual por versão/distribuição cobrindo recursos ACP nem execução registrada do Compatibility Test Kit oficial. |
 
 #### Pendências ordenadas para decisão posterior
@@ -1435,8 +1435,8 @@ testes.
 - [x] Mapear, apresentar e alterar opções booleanas em ACP (`TestOpcaoBooleanaPodeSerConsultadaEAlterada`; teste Vitest de `AgentOptionsPickers`).
 - [x] Apresentar e alterar opções seletoras de categorias adicionais (`thought_level` etc.) em controle acessível, com rótulos e anúncios internacionalizados.
 - [x] Propagar snapshots de opções vazios até o frontend para remover controles obsoletos (`TestSnapshotVazioDeOpcoesChegaATela`; teste Vitest correspondente). Avisos legados sem lista continuam preservando os seletores conhecidos.
-- [x] Retomar com `session/resume` quando anunciado, com fallback para `session/load` (`TestRetomaSessaoSemReplayQuandoAgenteAnunciaResume`).
-- [x] Avisar uma vez por turno quando a resposta ACP contém bloco não textual que o chat ainda não renderiza (`TestRespostaACPComBlocoNaoTextualGeraAtualizacaoDeSaidaNaoRenderizada`; teste Vitest de aviso).
+- [x] Retomar com `session/resume` quando anunciado, usando `session/load` como fallback se ambos forem anunciados e a retomada falhar (`TestRetomaSessaoSemReplayQuandoAgenteAnunciaResume`, `TestRetomaSessaoUsaLoadQuandoResumeFalha`).
+- [x] Avisar uma vez por turno quando a resposta ACP contém bloco não textual que o chat ainda não renderiza e ainda finalizar uma resposta textual persistível quando nenhum texto veio (`TestRespostaACPComBlocoNaoTextualGeraAtualizacaoDeSaidaNaoRenderizada`; teste Vitest de aviso; `TestTurnoACPComSomenteConteudoNaoTextualFinalizaComRespostaPersistivel`).
 - [x] Projetar janela/custo de `usage_update` no painel de tokens e avisar uma vez por turno ao cruzar 80%/95%, limitando o percentual anunciado a 100% (`TestAtualizacaoACPDeUsoMapeiaJanelaECusto`, `TestTurnoACPAtualizaUsoEAnunciaCadaFaixaUmaVez`, `TestTurnoACPLimitaPercentualDeAvisoAoLimiteDoContexto` e teste Vitest do `TokenStatsModal`).
 - [ ] Cobrir uso/custo, metadados de sessão, notices/compaction, conteúdo
   multimodal, elicitation, sessões externas e raízes adicionais, com testes e
@@ -1444,6 +1444,10 @@ testes.
 - [x] Completar estado acessível e cancelamento individual do próximo envio
   manual pendente na fila da conversa (AEP-0108 D1); eventos externos seguem
   serializados e não entram na contagem cancelável.
+- [x] Não ressuscitar opções ACP modernas removidas por snapshot legado sem
+  opções; `TestSnapshotNaoReinscreveOpcaoModernaRemovida`.
+- [x] Permitir `title: null` limpar título ACP gerado nesta execução e preservar
+  renomeação manual subsequente; testes em `internal/chat/rename_test.go`.
 - [ ] Validar estratégia segura de detecção de agente morto com sessão ociosa
   (AEP-0108 D2, cobertura a).
 - [ ] Revisar compatibilidade de SDK/schema e matriz de agentes; não declarar

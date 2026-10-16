@@ -228,6 +228,17 @@ func (c *client) LoadSession(ctx context.Context, sessionID, cwd string) (Sessio
 		err = resumeErr
 		if err == nil {
 			options = withModeOption(configOptionsFrom(resp.ConfigOptions), resp.Modes)
+		} else if cn.caps.LoadSession && ctx.Err() == nil {
+			// Alguns agentes anunciam ambos os métodos, mas o método preferido
+			// pode falhar para uma sessão ainda recuperável por session/load.
+			// Não tente o fallback quando o chamador já cancelou o contexto.
+			loadResp, loadErr := sdk.SendRequest[loadSessionResponse](cn.rpc, ctx, sdk.AgentMethodSessionLoad, sdk.LoadSessionRequest{
+				SessionId: sdk.SessionId(sessionID), Cwd: dir, McpServers: []sdk.McpServer{},
+			})
+			err = loadErr
+			if err == nil {
+				options = withModelOption(withModeOption(configOptionsFrom(loadResp.ConfigOptions), loadResp.Modes), loadResp.Models)
+			}
 		}
 	} else {
 		resp, loadErr := sdk.SendRequest[loadSessionResponse](cn.rpc, ctx, sdk.AgentMethodSessionLoad, sdk.LoadSessionRequest{

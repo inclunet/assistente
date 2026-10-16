@@ -598,3 +598,19 @@ func TestOQueVeioPeloFormatoAnteriorSobreviveAoConjuntoSeguinte(t *testing.T) {
 		t.Errorf("sem conjunto novo, nada a preservar: %+v", got)
 	}
 }
+
+func TestSnapshotNaoReinscreveOpcaoModernaRemovida(t *testing.T) {
+	known := []ConfigOption{
+		{ID: "model", Category: CategoryModel, Kind: "select", CurrentValue: "modelo-a"},
+		{ID: "mode", Category: modeCategory, CurrentValue: "agent"},
+	}
+	fresh := []ConfigOption{{ID: "verbosity", Category: "other", Kind: "select", CurrentValue: "high"}}
+
+	got := withKnownLegacy(fresh, known)
+	if len(got) != 2 {
+		t.Fatalf("snapshot reinstalou opção moderna removida: %+v", got)
+	}
+	if got[0].ID != "verbosity" || got[1].ID != "mode" {
+		t.Fatalf("snapshot ou opção legada incorretos: %+v", got)
+	}
+}

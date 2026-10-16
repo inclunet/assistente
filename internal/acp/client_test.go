@@ -1426,6 +1426,22 @@ func TestRetomaSessaoSemReplayQuandoAgenteAnunciaResume(t *testing.T) {
 	}
 }
 
+func TestRetomaSessaoUsaLoadQuandoResumeFalha(t *testing.T) {
+	ctx := testContext(t)
+	client := newTestClient(t, scriptResumeFallback, nil)
+
+	sess, err := client.LoadSession(ctx, fakeSessionID, t.TempDir())
+	if err != nil {
+		t.Fatalf("retomar sessão pelo fallback session/load: %v", err)
+	}
+	if sess.ID() != fakeSessionID {
+		t.Fatalf("sessão retomada = %q", sess.ID())
+	}
+	if option := findOption(sess.ConfigOptions(), CategoryModel); option == nil || option.CurrentValue != "modelo-b" {
+		t.Fatalf("opções da sessão carregada pelo fallback: %+v", sess.ConfigOptions())
+	}
+}
+
 // Reabrir uma conversa tem de devolver os modelos do mesmo jeito que abrir uma
 // nova. Ler o formato de antes só na abertura deixaria o seletor sumir de toda
 // conversa retomada, que é a maioria delas.

@@ -57,6 +57,8 @@ func (i *Interactor) RenameFromAgent(ctx context.Context, conversationID, turnMe
 	if conversationID == "" {
 		return nil
 	}
+	i.agentTitleMutationMu.Lock()
+	defer i.agentTitleMutationMu.Unlock()
 	if title == "" {
 		// ACP title:null restaura o rótulo padrão. A guarda abaixo continua
 		// preservando qualquer nome escolhido pela pessoa.
@@ -77,7 +79,7 @@ func (i *Interactor) RenameFromAgent(ctx context.Context, conversationID, turnMe
 	if conv.Title == title {
 		return nil
 	}
-	if !i.titleIsAutomatic(ctx, conversationID, turnMessageID, conv.Title) {
+	if !i.isAgentTitle(conversationID, conv.Title) && !i.titleIsAutomatic(ctx, conversationID, turnMessageID, conv.Title) {
 		logging.Debugf(ctx, renameComponent,
 			"[ACP] título do agente ignorado na conversa %s: o nome atual foi escolhido", conversationID)
 		return nil
@@ -85,6 +87,11 @@ func (i *Interactor) RenameFromAgent(ctx context.Context, conversationID, turnMe
 
 	if err := i.convRepo.UpdateConversation(ctx, conversationID, title, ""); err != nil {
 		return err
+	}
+	if title == DefaultConversationTitle {
+		i.ForgetAgentTitle(conversationID)
+	} else {
+		i.rememberAgentTitle(conversationID, title)
 	}
 	i.emitter.Emit("conversation:renamed", ports.ConversationRenamedEvent{
 		ConversationID: conversationID,
