@@ -86,6 +86,7 @@ export const AgentOptionsPickers: React.FC<AgentOptionsPickersProps> = ({
   }, [announce, change, t]);
 
   const handleBooleanChange = useCallback(async (option: AgentConfigOption, value: boolean) => {
+    if (disabled || changing) return;
     if (value === !!option.currentBool) return;
     const applied = await change(option.id, String(value));
     if (!applied) return;
@@ -95,7 +96,7 @@ export const AgentOptionsPickers: React.FC<AgentOptionsPickersProps> = ({
       option: current.name || t('chat.agentOptions.booleanLabel'),
       value: t(current.currentBool ? 'chat.agentOptions.booleanEnabled' : 'chat.agentOptions.booleanDisabled'),
     }));
-  }, [announce, change, t]);
+  }, [announce, change, changing, disabled, t]);
 
   if (!model && !mode && additionalSelects.length === 0 && booleans.length === 0) return null;
 
@@ -153,7 +154,8 @@ export const AgentOptionsPickers: React.FC<AgentOptionsPickersProps> = ({
           label={option.name || t('chat.agentOptions.booleanLabel')}
           checked={!!option.currentBool}
           onChange={(event) => handleBooleanChange(option, event.currentTarget.checked)}
-          disabled={disabled || changing}
+          aria-disabled={disabled || changing}
+          disabled={disabled}
         />
       ))}
     </>

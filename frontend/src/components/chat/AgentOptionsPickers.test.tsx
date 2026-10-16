@@ -144,6 +144,34 @@ describe('AgentOptionsPickers', () => {
     ));
   });
 
+  it('mantém foco no checkbox enquanto a alteração está em andamento', async () => {
+    getOptions.mockResolvedValue({
+      conversationId: 'conversa-1', available: true,
+      options: [{ id: 'telemetria', name: 'Telemetria', kind: 'boolean', currentBool: true, values: [] }],
+    });
+    let resolveChange!: (value: unknown) => void;
+    setOption.mockImplementation(() => new Promise((resolve) => { resolveChange = resolve; }));
+
+    render(<AgentOptionsPickers conversationId="conversa-1" />);
+    const checkbox = await screen.findByRole('checkbox', { name: 'Telemetria' });
+    checkbox.focus();
+    await userEvent.keyboard(' ');
+
+    await waitFor(() => expect(setOption).toHaveBeenCalledWith('conversa-1', 'telemetria', 'false'));
+    expect(checkbox).toHaveAttribute('aria-disabled', 'true');
+    expect(checkbox).not.toBeDisabled();
+    expect(document.activeElement).toBe(checkbox);
+
+    await act(async () => {
+      resolveChange({
+        conversationId: 'conversa-1', available: true,
+        options: [{ id: 'telemetria', name: 'Telemetria', kind: 'boolean', currentBool: false, values: [] }],
+      });
+    });
+    await waitFor(() => expect(checkbox).toHaveAttribute('aria-disabled', 'false'));
+    expect(document.activeElement).toBe(checkbox);
+  });
+
   it('mostra e altera seletores ACP de categorias adicionais', async () => {
     getOptions.mockResolvedValue({
       conversationId: 'conversa-1',
