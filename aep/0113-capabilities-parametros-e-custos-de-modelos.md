@@ -327,13 +327,24 @@ na `main`.
   iterações posteriores após efeitos, trata falhas de resolução de credencial
   encapsuladas, persiste a família explícita do provedor e invalida a revisão
   tanto no repositório quanto no trigger SQLite. A migração 34 atualiza o
-  trigger em bancos que já aplicaram a migração 33. O template Gemini permanece
+  trigger em bancos que já aplicaram a migração 33; a migração 35 materializa
+  uma única vez a família dos provedores legados do wizard, somente quando o
+  tipo atual ainda corresponde ao formato original. Leituras posteriores não
+  inferem família pelo ID, evitando reclassificar como específica uma conexão
+  editada para ser genérica. O template Gemini permanece
   sem família de erros específica até existir um reconhecedor correspondente.
   A leitura de compatibilidade cria o modelo sem sobrescrever seu nome de
   exibição; falhas MCP mantêm a mensagem e o JSON estruturado separados para
   identificar o servidor sem ambiguidade. Erros estruturados de provedor e MCP
-  são traduzidos em eventos, histórico e erros de sumarização. Os testes
-  Go focados, `go build ./...` e `go vet ./...` passaram localmente; testes ACP
+  são traduzidos em eventos, histórico e erros de sumarização. A tradução do
+  histórico limita-se aos formatos explícitos de diagnóstico do backend,
+  preservando marcadores literais em mensagens do usuário e código. Nomes de
+  servidores MCP com `:` são escapados antes de formar o marcador. Testes dos
+  dois adaptadores confirmam que erros de valor não removem campo nem repetem o
+  envio; casos de alias ambíguo e campo não enviado também não aprendem nem
+  repetem. Diagnósticos desconhecidos mantêm apenas campos allowlisted e não
+  carregam texto ou payload livre. Os testes Go focados, `go build ./...` e
+  `go vet ./...` passaram localmente; testes ACP
   não foram executados localmente por orientação de Infosec. CI, revisão local
   independente e review remota destas correções ainda precisam terminar antes
   da conclusão da fase.
@@ -393,20 +404,22 @@ mantendo explícito que a fase 4 é uma proposta futura que exige nova decisão.
   retry seguro; o próximo envio omite o parâmetro sem repetir o erro. O teste
   `TestCompatibilityLearningPersistsBeforeRetryAndNextSend` comprova o fluxo
   com persistência SQLite nos adaptadores Chat Completions e Responses.
-- [ ] Reconhecedores por provedor/formato aceitam apenas assinaturas
+- [x] Reconhecedores por provedor/formato aceitam apenas assinaturas
   documentadas; fixtures positivas extraem e mapeiam o campo enviado correto,
-  e casos desconhecidos/ambíguos não geram aprendizado nem retry. Falta provar
-  o fluxo completo de adaptação e retry nos dois adaptadores.
-- [ ] Erros de valor são distintos de não suporte do campo: podem produzir
+  e casos desconhecidos/ambíguos não geram aprendizado nem retry. O fluxo de
+  persistência e retry está coberto nos adaptadores Chat Completions e Responses;
+  testes negativos verificam alias ambíguo e parâmetros não enviados.
+- [x] Erros de valor são distintos de não suporte do campo: podem produzir
   diagnóstico legível, mas não removem o campo, não repetem o envio sem ele e
-  não persistem valores/restrições nesta entrega. Falta validar também as
-  mensagens localizadas no consumidor de chat.
-- [ ] Diagnósticos locais de erros não reconhecidos são estruturados e limitados;
+  não persistem valores/restrições nesta entrega. Ambos os adaptadores e o
+  histórico do chat têm testes para preservar o campo e exibir o diagnóstico
+  localizado.
+- [x] Diagnósticos locais de erros não reconhecidos são estruturados e limitados;
   não persistem payload/mensagem bruta, prompts, valores ou credenciais e não
   enviam telemetria automaticamente. Foi removido o repasse do texto livre de
-  erro MCP e iniciado o uso de marcador allowlisted para tradução; a revisão do
-  diff e CI remoto ainda precisam confirmar os caminhos completos.
-- [ ] Testes negativos cobrem HTTP 400 genérico, autenticação, erro transitório,
+  erro MCP; marcadores allowlisted são traduzidos nos consumidores. Testes
+  verificam o descarte de campos desconhecidos e mensagens/payloads livres.
+- [x] Testes negativos cobrem HTTP 400 genérico, autenticação, erro transitório,
   valor/faixa/voz inválidos, alias ambíguo, campo não enviado e obrigatório.
 - [ ] Não há segundo retry de compatibilidade, repetição de tools ou nova
   mensagem; saída parcial, cancelamento, falha de persistência e revisão

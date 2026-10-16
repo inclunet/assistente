@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"assistente/internal/credentials"
@@ -88,6 +89,115 @@ func TestOpenAIChatCompletionsRetriesAfterPersistingUnsupportedField(t *testing.
 	}
 	if len(handler.errors) != 0 || handler.done != 1 {
 		t.Fatalf("erros=%v done=%d; esperado retry concluído", handler.errors, handler.done)
+	}
+}
+
+func TestOpenAIChatCompletionsDoesNotRetryUnsupportedValue(t *testing.T) {
+	attempts := 0
+	persistCalls := 0
+	compatibility := NewCompatibilityState("model-1", 7, nil, func(context.Context, llmcapabilities.Capability, llmcapabilities.FieldKey, string) error {
+		persistCalls++
+		return nil
+	})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decodificar payload: %v", err)
+		}
+		if _, sent := body["temperature"]; !sent {
+			t.Error("a requisição deveria manter o campo recusado por valor")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":{"message":"temperature value is outside the allowed range","type":"invalid_request_error","param":"temperature","code":"unsupported_value"}}`))
+	}))
+	defer server.Close()
+
+	provider := NewOpenAIProvider(&ProviderConfig{
+		ID: "chat-invalid-value", Name: "OpenAI", Type: ProviderOpenAI, ErrorFamily: ProviderErrorFamilyOpenAI,
+		BaseURL: server.URL + "/v1", APIFormat: APIFormatOpenAI, AuthMode: AuthModeNone, DefaultModel: "gpt-test",
+	}, credentials.NewManager(nil))
+	handler := &providerRetryHandler{}
+	provider.StreamChat(t.Context(), []Message{{Role: "user", Content: "oi"}}, ChatParams{
+		Temperature: 0.4, Compatibility: compatibility,
+	}, handler)
+
+	if attempts != 1 || persistCalls != 0 || compatibility.IsUnsupported(llmcapabilities.CapabilityChatCompletions, llmcapabilities.FieldTemperature) {
+		t.Fatalf("tentativas=%d persistências=%d campoSuprimido=%v", attempts, persistCalls, compatibility.IsUnsupported(llmcapabilities.CapabilityChatCompletions, llmcapabilities.FieldTemperature))
+	}
+	if len(handler.errors) != 1 || !strings.Contains(handler.errors[0], "provider_error:v1:invalid_value:temperature") {
+		t.Fatalf("diagnóstico de valor recusado = %v", handler.errors)
+	}
+}
+
+func TestOpenAIChatCompletionsDoesNotLearnUnsupportedUnsentField(t *testing.T) {
+	attempts := 0
+	persistCalls := 0
+	compatibility := NewCompatibilityState("model-1", 7, nil, func(context.Context, llmcapabilities.Capability, llmcapabilities.FieldKey, string) error {
+		persistCalls++
+		return nil
+	})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decodificar payload: %v", err)
+		}
+		if _, sent := body["top_p"]; sent {
+			t.Error("top_p default não deveria ter sido enviado")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":{"type":"invalid_request_error","param":"top_p","code":"unsupported_parameter"}}`))
+	}))
+	defer server.Close()
+
+	provider := NewOpenAIProvider(&ProviderConfig{
+		ID: "chat-unsent-field", Name: "OpenAI", Type: ProviderOpenAI, ErrorFamily: ProviderErrorFamilyOpenAI,
+		BaseURL: server.URL + "/v1", APIFormat: APIFormatOpenAI, AuthMode: AuthModeNone, DefaultModel: "gpt-test",
+	}, credentials.NewManager(nil))
+	handler := &providerRetryHandler{}
+	provider.StreamChat(t.Context(), []Message{{Role: "user", Content: "oi"}}, ChatParams{Compatibility: compatibility}, handler)
+
+	if attempts != 1 || persistCalls != 0 || compatibility.IsUnsupported(llmcapabilities.CapabilityChatCompletions, llmcapabilities.FieldTopP) {
+		t.Fatalf("tentativas=%d persistências=%d campoSuprimido=%v", attempts, persistCalls, compatibility.IsUnsupported(llmcapabilities.CapabilityChatCompletions, llmcapabilities.FieldTopP))
+	}
+}
+
+func TestOpenAIChatCompletionsDoesNotRetryAmbiguousOutputTokenAlias(t *testing.T) {
+	attempts := 0
+	persistCalls := 0
+	compatibility := NewCompatibilityState("model-1", 7, nil, func(context.Context, llmcapabilities.Capability, llmcapabilities.FieldKey, string) error {
+		persistCalls++
+		return nil
+	})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decodificar payload: %v", err)
+		}
+		if _, sent := body["max_tokens"]; !sent {
+			t.Error("fixture exige o alias max_tokens na primeira tentativa")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":{"type":"invalid_request_error","param":"max_tokens","code":"unsupported_parameter"}}`))
+	}))
+	defer server.Close()
+
+	provider := NewOpenAIProvider(&ProviderConfig{
+		ID: "chat-ambiguous-alias", Name: "OpenAI", Type: ProviderOpenAI, ErrorFamily: ProviderErrorFamilyOpenAI,
+		BaseURL: server.URL + "/v1", APIFormat: APIFormatOpenAI, AuthMode: AuthModeNone, DefaultModel: "gpt-test",
+	}, credentials.NewManager(nil))
+	handler := &providerRetryHandler{}
+	provider.StreamChat(t.Context(), []Message{{Role: "user", Content: "oi"}}, ChatParams{
+		MaxTokens: 32, MaxTokensMode: "max_tokens", Compatibility: compatibility,
+	}, handler)
+
+	if attempts != 1 || persistCalls != 0 || compatibility.IsUnsupported(llmcapabilities.CapabilityChatCompletions, llmcapabilities.FieldMaxOutputTokens) {
+		t.Fatalf("tentativas=%d persistências=%d campoSuprimido=%v", attempts, persistCalls, compatibility.IsUnsupported(llmcapabilities.CapabilityChatCompletions, llmcapabilities.FieldMaxOutputTokens))
 	}
 }
 

@@ -7,17 +7,19 @@ import (
 	"assistente/internal/llm"
 )
 
-func TestFromDBModelPreservesExplicitErrorFamilyForWizardProviders(t *testing.T) {
+func TestFromDBModelDoesNotInferErrorFamilyFromWizardID(t *testing.T) {
 	tests := []struct {
 		id          string
 		typeName    string
 		errorFamily string
 		want        llm.ProviderErrorFamily
 	}{
-		{id: "openai-default", typeName: "openai", want: llm.ProviderErrorFamilyOpenAI},
-		{id: "openrouter-default", typeName: "openai", want: llm.ProviderErrorFamilyOpenRouter},
-		{id: "litellm", typeName: "openai", want: llm.ProviderErrorFamilyLiteLLM},
+		{id: "openai-default", typeName: "openai", want: ""},
+		{id: "openrouter-default", typeName: "openai", want: ""},
+		{id: "litellm", typeName: "openai", want: ""},
+		{id: "openai-default", typeName: "custom", want: ""},
 		{id: "custom-provider", typeName: "openai", want: ""},
+		{id: "explicit-openai", typeName: "custom", errorFamily: "openai", want: llm.ProviderErrorFamilyOpenAI},
 		{id: "typed-litellm", typeName: "litellm", want: llm.ProviderErrorFamilyLiteLLM},
 	}
 	for _, test := range tests {

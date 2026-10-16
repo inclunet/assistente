@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import i18n from './i18n';
-import { translateErrorMarkers, translateProviderErrorMessage } from './providerErrorMessage';
+import { translateBackendErrorDiagnostic, translateErrorMarkers, translateProviderErrorMessage } from './providerErrorMessage';
 
 describe('translateProviderErrorMessage', () => {
   it('localiza marcadores permitidos e mantém o alias informado pelo provedor', async () => {
@@ -17,6 +17,8 @@ describe('translateProviderErrorMessage', () => {
       .toBe('O provedor recusou um parâmetro, mas não identificou um campo que possa ser omitido com segurança.');
     expect(translateProviderErrorMessage('provider_error:v1:invalid_value:'))
       .toBe('O provedor recusou um valor da configuração. Confira os parâmetros do modelo.');
+    expect(translateProviderErrorMessage('provider_error:v1:invalid_value:temperature:400'))
+      .toContain('temperature');
     expect(translateProviderErrorMessage('provider_error:v1:unknown:temperature')).toBeNull();
     expect(translateProviderErrorMessage('provider_error:v1:invalid_value:temperature:999')).toBeNull();
   });
@@ -39,5 +41,15 @@ describe('translateErrorMarkers', () => {
     await i18n.changeLanguage('es');
     expect(translateErrorMarkers('mcp_error:v1:Servidor%20A:handshake'))
       .toBe('El servidor MCP Servidor A falló durante la conexión. Inténtalo de nuevo o comprueba sus credenciales y conexión.');
+  });
+
+  it('decodifica dois-pontos escapados e preserva marcadores literais', async () => {
+    await i18n.changeLanguage('pt-BR');
+    expect(translateErrorMarkers('mcp_error:v1:Equipe%3A%20Produ%C3%A7%C3%A3o:call'))
+      .toContain('Equipe: Produção');
+    const code = 'const diagnostic = "provider_error:v1:authentication:";';
+    expect(translateBackendErrorDiagnostic(code)).toBe(code);
+    expect(translateBackendErrorDiagnostic('Falha na resposta do agente: provider_error:v1:authentication:'))
+      .toContain('O provedor recusou a autenticação.');
   });
 });

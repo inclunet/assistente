@@ -81,6 +81,12 @@ func TestInferMCPFailure_UsesRawServerLabel(t *testing.T) {
 	}
 }
 
+func TestFormatMCPFailureUserMessageEscapesDelimiterInServerName(t *testing.T) {
+	if got, want := formatMCPFailureUserMessage("Equipe: Produção", MCPFailureStageCall), "mcp_error:v1:Equipe%3A%20Produ%C3%A7%C3%A3o:call"; got != want {
+		t.Fatalf("marcador = %q, want %q", got, want)
+	}
+}
+
 func TestInferMCPFailurePrefersStructuredLabelWhenMessageMentionsAnotherServer(t *testing.T) {
 	servers := []MCPServerConfig{
 		{Name: "Atlassian", Slug: "atlassian", URL: "https://mcp.atlassian.com/v1/sse"},

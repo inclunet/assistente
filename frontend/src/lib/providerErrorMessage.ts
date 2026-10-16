@@ -62,3 +62,17 @@ export function translateErrorMarkers(text: string): string {
     return i18next.t('chat.errors.mcpFailure', { server, stage: i18next.t(stageKey) });
   });
 }
+
+// Chat history stores backend diagnostics in a small set of explicit formats.
+// Restricting translation here prevents marker-like text in user messages or
+// assistant code samples from being rewritten during Markdown rendering.
+export function translateBackendErrorDiagnostic(text: string): string {
+  const providerDiagnostic = /^Falha na resposta do agente: (provider_error:v1:[a-z_]+:[a-z_.]*(?::[1-5][0-9]{2})?)$/.exec(text);
+  if (providerDiagnostic) {
+    return `Falha na resposta do agente: ${translateProviderErrorMessage(providerDiagnostic[1]) ?? providerDiagnostic[1]}`;
+  }
+  if (/^mcp_error:v1:[^:\s]+:(list_tools|call|handshake|unknown)$/.test(text)) {
+    return translateErrorMarkers(text);
+  }
+  return text;
+}

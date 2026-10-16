@@ -88,14 +88,23 @@ func (r *LLMModelCapabilitiesRepository) GetOrCreateModel(ctx context.Context, p
 
 	var model LLMModel
 	err := WithSQLiteImmediateTransactionOnce(ctx, time.Now().Add(sqliteBusyRetryMaxWait), r.db, "llm_models.get_or_create", func(tx *gorm.DB) error {
-		if _, err := r.providerRevisionForWrite(ctx, tx, providerID); err != nil {
+		var err error
+		if IsBootstrap(ctx) {
+			_, err = r.providerRevisionForWrite(ctx, tx, providerID)
+		} else {
+			_, err = r.providerRevisionForUser(ctx, tx, providerID)
+		}
+		if err != nil {
 			return err
 		}
-		err := tx.Where("provider_id = ? AND remote_id = ?", providerID, remoteID).Take(&model).Error
+		err = tx.Where("provider_id = ? AND remote_id = ?", providerID, remoteID).Take(&model).Error
 		switch {
 		case err == nil:
 			return nil
 		case !errors.Is(err, gorm.ErrRecordNotFound):
+			return err
+		}
+		if _, err := r.providerRevisionForWrite(ctx, tx, providerID); err != nil {
 			return err
 		}
 		model = LLMModel{

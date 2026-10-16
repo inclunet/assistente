@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/url"
+	"strings"
 	"testing"
 
 	"assistente/internal/credentials"
@@ -127,6 +128,25 @@ func TestRecognizeProviderErrorRequiresExplicitSupportedSignature(t *testing.T) 
 			apiErr:       &openai.Error{StatusCode: 403, Code: "unsupported_value", Param: "temperature"},
 			wantCategory: ProviderErrorPermission,
 			wantCode:     "unsupported_value",
+		},
+		{
+			name:         "invalid voice value remains a value diagnostic without suppressible field",
+			providerType: ProviderOpenAI,
+			errorFamily:  ProviderErrorFamilyOpenAI,
+			format:       APIFormatOpenAI,
+			apiErr:       &openai.Error{StatusCode: 400, Code: "invalid_value", Param: "voice"},
+			wantCategory: ProviderErrorInvalidValue,
+			wantCode:     "invalid_value",
+		},
+		{
+			name:         "required model field is not a suppressible capability field",
+			providerType: ProviderOpenAI,
+			errorFamily:  ProviderErrorFamilyOpenAI,
+			format:       APIFormatOpenAI,
+			apiErr:       &openai.Error{StatusCode: 400, Code: "unsupported_parameter", Param: "model"},
+			wantCategory: ProviderErrorUnsupportedParameter,
+			wantCode:     "unsupported_parameter",
+			wantType:     "",
 		},
 		{
 			name:         "generic HTTP 400 never learns",
@@ -295,5 +315,25 @@ func TestProviderErrorDiagnosticKeepsCredentialResolutionOutOfTransientCategory(
 	}
 	if got, want := diagnostic.DisplayMessage(), "provider_error:v1:authentication:"; got != want {
 		t.Fatalf("mensagem sanitizada = %q, want %q", got, want)
+	}
+}
+
+func TestProviderErrorDiagnosticDropsUnknownPayloadFieldsAndMessage(t *testing.T) {
+	secret := "customer secret payload"
+	err := &openai.Error{
+		StatusCode: 400,
+		Code:       secret,
+		Type:       "private_type_" + secret,
+		Param:      secret,
+		Message:    secret,
+	}
+	diagnostic := ProviderErrorDiagnostic(&ProviderConfig{
+		Type: ProviderOpenAI, ErrorFamily: ProviderErrorFamilyOpenAI, APIFormat: APIFormatOpenAI,
+	}, err)
+	if diagnostic.Category != ProviderErrorInvalidRequest || diagnostic.Code != "" || diagnostic.Type != "" || diagnostic.Param != "" || diagnostic.Field != "" {
+		t.Fatalf("diagnóstico não allowlisted: %#v", diagnostic)
+	}
+	if got := diagnostic.DisplayMessage(); strings.Contains(got, secret) || strings.Contains(got, "private_type") {
+		t.Fatalf("diagnóstico de UI expôs payload: %q", got)
 	}
 }

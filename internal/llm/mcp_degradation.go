@@ -176,7 +176,8 @@ func formatMCPFailureUserMessage(serverName string, stage MCPFailureStage) strin
 	if stage != MCPFailureStageListTools && stage != MCPFailureStageCall && stage != MCPFailureStageHandshake {
 		stage = MCPFailureStageUnknown
 	}
-	return "mcp_error:v1:" + url.PathEscape(serverName) + ":" + string(stage)
+	encodedServer := strings.ReplaceAll(url.PathEscape(serverName), ":", "%3A")
+	return "mcp_error:v1:" + encodedServer + ":" + string(stage)
 }
 
 func extractServerLabelFromRawJSON(raw string) string {

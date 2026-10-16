@@ -383,6 +383,12 @@ var schemaMigrations = []migration{
 		Phase:   phasePostAutoMigrate,
 		Run:     MigrateLLMProviderErrorFamilyRevisionGuard,
 	},
+	{
+		Version: 35,
+		Name:    "llm_provider_legacy_error_families",
+		Phase:   phasePostAutoMigrate,
+		Run:     MigrateLLMProviderLegacyErrorFamilies,
+	},
 }
 
 // runMigrations aplica, na ordem de Version, todas as migrações da fase
