@@ -2,6 +2,17 @@
 
 Status: In Progress — evidências e aceites pendentes conforme os registros abaixo
 
+**Retenção sob carga (16/10/2026): In Progress.** A seleção de runs elegíveis
+calcula os conjuntos de fontes pendentes e leases vivas uma vez por usuário,
+sem subqueries correlacionadas por run. Idade, count-cap, isolamento, proteção
+de replay e a transação de seleção/exclusão permanecem inalterados. Evidências
+de plano e proteção ficam em `repository_retention_plan_test.go` e na matriz
+`command_activation_retention_matrix_test.go`. O log de 15/10 registra retenção
+com orçamento de 5 s ultrapassado e contenção real; isso não demonstra a causa
+exclusiva da queda de comandos. Cancelamento efetivo de consultas lentas no
+driver SQLite é uma investigação separada; não se promete prazo rígido nem
+se promove aceite manual de sessão longa com esta otimização.
+
 **Apresentação de destinos de aba (16/10/2026): In Progress.** Por decisão do
 mantenedor, os comandos `workspace.tab.go_to` e primeira…nona aba passam a ter
 apresentação derivada obrigatória no Stream Deck. O editor mostra uma prévia

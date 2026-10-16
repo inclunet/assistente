@@ -147,6 +147,14 @@ CLI ou executáveis de teste e não substituem o relatório do app.
 
 ## Manutenção e retenção
 
+A limpeza do histórico de jobs trabalha em lotes e preserva execuções ainda
+necessárias para eventos pendentes ou ativações válidas de comandos. A seleção
+agrupa essas proteções por usuário para evitar buscas repetidas em históricos
+grandes. Isso não muda os prazos configurados nem permite apagar dados de outro
+usuário. Os limites de tempo continuam cooperativos: a otimização não garante
+que toda consulta termine em cinco segundos, nem substitui a investigação de
+quedas de comandos em sessões longas.
+
 Na implementação AEP-0103, a manutenção de comandos é montada antes do início
 dos jobs quando o armazenamento de comandos está pronto. Ela compartilha o
 timer existente: verifica leases e outbox antes de reter jobs e compactar.
