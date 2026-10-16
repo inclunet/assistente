@@ -196,6 +196,13 @@ func TestMessageRepositoryEnforcesUserScopeByMessageID(t *testing.T) {
 	if got.Content != "leo" {
 		t.Fatalf("leo message was modified across user boundary: %q", got.Content)
 	}
+	content, role, err := GetMessageContentAndRoleWithContext(leoCtx, leoMsg.ID)
+	if err != nil || content != "leo" || role != "user" {
+		t.Fatalf("scoped content and role = %q/%q, err=%v; want leo/user", content, role, err)
+	}
+	if _, _, err := GetMessageContentAndRoleWithContext(anaCtx, leoMsg.ID); err == nil {
+		t.Fatal("ana should not read content or role of leo message")
+	}
 	counts, err := CountChildrenWithContext(anaCtx, []string{anaMsg.ID, leoMsg.ID})
 	if err != nil {
 		t.Fatalf("count children: %v", err)
@@ -282,4 +289,3 @@ func TestClearAllConversationsWithContext_ScopedByUser(t *testing.T) {
 		t.Fatalf("leo messages were affected by ana ClearMessages: %+v", leoMsgs)
 	}
 }
-

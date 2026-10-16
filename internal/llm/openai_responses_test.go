@@ -218,6 +218,195 @@ data: {"type":"response.completed","sequence_number":1,"response":{"id":"resp_2"
 	}
 }
 
+func TestOpenAIResponsesAllowsOnlyOneCompatibilityRetry(t *testing.T) {
+	attempts := 0
+	persistCalls := 0
+	compatibility := NewCompatibilityState("model-1", 7, nil, func(context.Context, llmcapabilities.Capability, llmcapabilities.FieldKey, string) error {
+		persistCalls++
+		return nil
+	})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("event: response.failed\ndata: {\"type\":\"response.failed\",\"sequence_number\":1,\"response\":{\"id\":\"resp_failed\",\"object\":\"response\",\"status\":\"failed\",\"error\":{\"code\":\"unsupported_parameter\",\"message\":\"temperature is not supported\",\"param\":\"temperature\",\"type\":\"invalid_request_error\"}}}\n\n"))
+	}))
+	defer server.Close()
+
+	provider := NewOpenAIResponsesProvider(&ProviderConfig{
+		ID: "responses-one-retry", Name: "OpenAI", Type: ProviderOpenAI, ErrorFamily: ProviderErrorFamilyOpenAI,
+		BaseURL: server.URL + "/v1", APIFormat: APIFormatOpenAIResponses, AuthMode: AuthModeNone, DefaultModel: "gpt-test",
+	}, credentials.NewManager(nil))
+	handler := &providerRetryHandler{}
+	provider.StreamChat(t.Context(), []Message{{Role: "user", Content: "oi"}}, ChatParams{Model: "gpt-test", Temperature: 0.4, Compatibility: compatibility}, handler)
+
+	if attempts != 2 || persistCalls != 1 || !compatibility.IsUnsupported(llmcapabilities.CapabilityResponses, llmcapabilities.FieldTemperature) || len(handler.errors) != 1 {
+		t.Fatalf("tentativas=%d persistências=%d campoSuprimido=%v erros=%v; esperado uma única repetição", attempts, persistCalls, compatibility.IsUnsupported(llmcapabilities.CapabilityResponses, llmcapabilities.FieldTemperature), handler.errors)
+	}
+}
+
+func TestOpenAIResponsesDoesNotRetryAfterToolEffectAcrossIterations(t *testing.T) {
+	attempts := 0
+	persistCalls := 0
+	var temperatureSent []bool
+	compatibility := NewCompatibilityState("model-1", 7, nil, func(context.Context, llmcapabilities.Capability, llmcapabilities.FieldKey, string) error {
+		persistCalls++
+		return nil
+	})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		var body map[string]json.RawMessage
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decodificar payload: %v", err)
+		}
+		_, sent := body["temperature"]
+		temperatureSent = append(temperatureSent, sent)
+		w.Header().Set("Content-Type", "text/event-stream")
+		if attempts == 1 {
+			_, _ = w.Write([]byte("event: response.output_item.added\ndata: {\"type\":\"response.output_item.added\",\"sequence_number\":1,\"output_index\":0,\"item\":{\"id\":\"fc_1\",\"type\":\"function_call\",\"status\":\"in_progress\",\"call_id\":\"call_1\",\"name\":\"lookup\",\"arguments\":\"\"}}\n\nevent: response.function_call_arguments.done\ndata: {\"type\":\"response.function_call_arguments.done\",\"sequence_number\":2,\"item_id\":\"fc_1\",\"output_index\":0,\"arguments\":\"{}\"}\n\nevent: response.completed\ndata: {\"type\":\"response.completed\",\"sequence_number\":3,\"response\":{\"id\":\"resp_tool\",\"object\":\"response\",\"status\":\"completed\",\"model\":\"gpt-test\",\"output\":[]}}\n\n"))
+			return
+		}
+		_, _ = w.Write([]byte("event: response.failed\ndata: {\"type\":\"response.failed\",\"sequence_number\":1,\"response\":{\"id\":\"resp_failed\",\"object\":\"response\",\"status\":\"failed\",\"error\":{\"code\":\"unsupported_parameter\",\"message\":\"temperature is not supported\",\"param\":\"temperature\",\"type\":\"invalid_request_error\"}}}\n\n"))
+	}))
+	defer server.Close()
+
+	provider := NewOpenAIResponsesProvider(&ProviderConfig{
+		ID: "responses-tool-effect", Name: "OpenAI", Type: ProviderOpenAI, ErrorFamily: ProviderErrorFamilyOpenAI,
+		BaseURL: server.URL + "/v1", APIFormat: APIFormatOpenAIResponses, AuthMode: AuthModeNone, DefaultModel: "gpt-test",
+	}, credentials.NewManager(nil))
+	handler := &providerRetryHandler{}
+	params := ChatParams{Model: "gpt-test", Temperature: 0.4, Compatibility: compatibility}
+	tool := ToolDefinition{Type: "function", Function: FunctionDefinition{Name: "lookup", Parameters: json.RawMessage(`{"type":"object"}`)}}
+	provider.StreamChat(t.Context(), []Message{{Role: "user", Content: "oi"}}, params, handler, tool)
+	provider.StreamChat(t.Context(), []Message{{Role: "user", Content: "resultado de lookup"}}, params, handler, tool)
+
+	if attempts != 2 || persistCalls != 0 || compatibility.IsUnsupported(llmcapabilities.CapabilityResponses, llmcapabilities.FieldTemperature) {
+		t.Fatalf("tentativas=%d persistências=%d campoSuprimido=%v", attempts, persistCalls, compatibility.IsUnsupported(llmcapabilities.CapabilityResponses, llmcapabilities.FieldTemperature))
+	}
+	if handler.tools != 1 || len(handler.errors) != 1 || len(temperatureSent) != 2 || !temperatureSent[0] || !temperatureSent[1] {
+		t.Fatalf("tools=%d erros=%v temperatureSent=%v; esperado tool executada e parâmetro mantido sem retry", handler.tools, handler.errors, temperatureSent)
+	}
+}
+
+func TestOpenAIResponsesDoesNotRetryAfterVisibleContentAcrossIterations(t *testing.T) {
+	attempts := 0
+	persistCalls := 0
+	compatibility := NewCompatibilityState("model-1", 7, nil, func(context.Context, llmcapabilities.Capability, llmcapabilities.FieldKey, string) error {
+		persistCalls++
+		return nil
+	})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		w.Header().Set("Content-Type", "text/event-stream")
+		if attempts == 1 {
+			_, _ = w.Write([]byte("event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"sequence_number\":1,\"item_id\":\"msg_1\",\"output_index\":0,\"content_index\":0,\"delta\":\"partial\"}\n\nevent: response.completed\ndata: {\"type\":\"response.completed\",\"sequence_number\":2,\"response\":{\"id\":\"resp_content\",\"object\":\"response\",\"status\":\"completed\",\"model\":\"gpt-test\",\"output\":[]}}\n\n"))
+			return
+		}
+		_, _ = w.Write([]byte("event: response.failed\ndata: {\"type\":\"response.failed\",\"sequence_number\":1,\"response\":{\"id\":\"resp_failed\",\"object\":\"response\",\"status\":\"failed\",\"error\":{\"code\":\"unsupported_parameter\",\"message\":\"temperature is not supported\",\"param\":\"temperature\",\"type\":\"invalid_request_error\"}}}\n\n"))
+	}))
+	defer server.Close()
+
+	provider := NewOpenAIResponsesProvider(&ProviderConfig{
+		ID: "responses-content-effect", Name: "OpenAI", Type: ProviderOpenAI, ErrorFamily: ProviderErrorFamilyOpenAI,
+		BaseURL: server.URL + "/v1", APIFormat: APIFormatOpenAIResponses, AuthMode: AuthModeNone, DefaultModel: "gpt-test",
+	}, credentials.NewManager(nil))
+	handler := &providerRetryHandler{}
+	params := ChatParams{Model: "gpt-test", Temperature: 0.4, Compatibility: compatibility}
+	provider.StreamChat(t.Context(), []Message{{Role: "user", Content: "oi"}}, params, handler)
+	provider.StreamChat(t.Context(), []Message{{Role: "user", Content: "continuação"}}, params, handler)
+
+	if attempts != 2 || persistCalls != 0 || compatibility.IsUnsupported(llmcapabilities.CapabilityResponses, llmcapabilities.FieldTemperature) {
+		t.Fatalf("tentativas=%d persistências=%d campoSuprimido=%v", attempts, persistCalls, compatibility.IsUnsupported(llmcapabilities.CapabilityResponses, llmcapabilities.FieldTemperature))
+	}
+	if handler.chunks.String() != "partial" || len(handler.errors) != 1 {
+		t.Fatalf("conteúdo=%q erros=%v; esperado conteúdo parcial e erro sem retry", handler.chunks.String(), handler.errors)
+	}
+}
+
+func TestOpenAIResponsesDoesNotRetryAfterReasoningAcrossIterations(t *testing.T) {
+	attempts := 0
+	compatibility := NewCompatibilityState("model-1", 7, nil, func(context.Context, llmcapabilities.Capability, llmcapabilities.FieldKey, string) error {
+		t.Fatal("reasoning exposto não deve persistir restrição nem repetir")
+		return nil
+	})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		w.Header().Set("Content-Type", "text/event-stream")
+		if attempts == 1 {
+			_, _ = w.Write([]byte("event: response.reasoning_summary_text.delta\ndata: {\"type\":\"response.reasoning_summary_text.delta\",\"sequence_number\":1,\"item_id\":\"reasoning_1\",\"output_index\":0,\"summary_index\":0,\"delta\":\"reasoning\"}\n\nevent: response.completed\ndata: {\"type\":\"response.completed\",\"sequence_number\":2,\"response\":{\"id\":\"resp_reasoning\",\"object\":\"response\",\"status\":\"completed\",\"model\":\"gpt-test\",\"output\":[]}}\n\n"))
+			return
+		}
+		_, _ = w.Write([]byte("event: response.failed\ndata: {\"type\":\"response.failed\",\"sequence_number\":1,\"response\":{\"id\":\"resp_failed\",\"object\":\"response\",\"status\":\"failed\",\"error\":{\"code\":\"unsupported_parameter\",\"message\":\"temperature is not supported\",\"param\":\"temperature\",\"type\":\"invalid_request_error\"}}}\n\n"))
+	}))
+	defer server.Close()
+
+	provider := NewOpenAIResponsesProvider(&ProviderConfig{
+		ID: "responses-reasoning-effect", Name: "OpenAI", Type: ProviderOpenAI, ErrorFamily: ProviderErrorFamilyOpenAI,
+		BaseURL: server.URL + "/v1", APIFormat: APIFormatOpenAIResponses, AuthMode: AuthModeNone, DefaultModel: "gpt-test",
+	}, credentials.NewManager(nil))
+	handler := &providerRetryHandler{}
+	params := ChatParams{Model: "gpt-test", Temperature: 0.4, Compatibility: compatibility}
+	provider.StreamChat(t.Context(), []Message{{Role: "user", Content: "oi"}}, params, handler)
+	provider.StreamChat(t.Context(), []Message{{Role: "user", Content: "continuação"}}, params, handler)
+
+	if attempts != 2 || compatibility.IsUnsupported(llmcapabilities.CapabilityResponses, llmcapabilities.FieldTemperature) {
+		t.Fatalf("tentativas=%d campoSuprimido=%v", attempts, compatibility.IsUnsupported(llmcapabilities.CapabilityResponses, llmcapabilities.FieldTemperature))
+	}
+	if handler.thinking.String() != "reasoning" || len(handler.errors) != 1 {
+		t.Fatalf("reasoning=%q erros=%v; esperado reasoning entregue e erro sem retry", handler.thinking.String(), handler.errors)
+	}
+}
+
+func TestOpenAIResponsesDoesNotRetryWhenPersistingRestrictionFails(t *testing.T) {
+	attempts := 0
+	persistCalls := 0
+	compatibility := NewCompatibilityState("model-1", 7, nil, func(context.Context, llmcapabilities.Capability, llmcapabilities.FieldKey, string) error {
+		persistCalls++
+		return context.Canceled
+	})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("event: response.failed\ndata: {\"type\":\"response.failed\",\"sequence_number\":1,\"response\":{\"id\":\"resp_failed\",\"object\":\"response\",\"status\":\"failed\",\"error\":{\"code\":\"unsupported_parameter\",\"message\":\"temperature is not supported\",\"param\":\"temperature\",\"type\":\"invalid_request_error\"}}}\n\n"))
+	}))
+	defer server.Close()
+
+	provider := NewOpenAIResponsesProvider(&ProviderConfig{
+		ID: "responses-persist-failure", Name: "OpenAI", Type: ProviderOpenAI, ErrorFamily: ProviderErrorFamilyOpenAI,
+		BaseURL: server.URL + "/v1", APIFormat: APIFormatOpenAIResponses, AuthMode: AuthModeNone, DefaultModel: "gpt-test",
+	}, credentials.NewManager(nil))
+	handler := &providerRetryHandler{}
+	provider.StreamChat(t.Context(), []Message{{Role: "user", Content: "oi"}}, ChatParams{Model: "gpt-test", Temperature: 0.4, Compatibility: compatibility}, handler)
+
+	if attempts != 1 || persistCalls != 1 || compatibility.IsUnsupported(llmcapabilities.CapabilityResponses, llmcapabilities.FieldTemperature) {
+		t.Fatalf("tentativas=%d persistências=%d campoSuprimido=%v", attempts, persistCalls, compatibility.IsUnsupported(llmcapabilities.CapabilityResponses, llmcapabilities.FieldTemperature))
+	}
+}
+
+func TestOpenAIResponsesCancellationDoesNotRetryAfterPartialOutput(t *testing.T) {
+	attempts := 0
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"sequence_number\":1,\"item_id\":\"msg_1\",\"output_index\":0,\"content_index\":0,\"delta\":\"partial\"}\n\n"))
+		w.(http.Flusher).Flush()
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+
+	provider := NewOpenAIResponsesProvider(&ProviderConfig{
+		ID: "responses-cancel-after-content", Name: "OpenAI", Type: ProviderOpenAI, ErrorFamily: ProviderErrorFamilyOpenAI,
+		BaseURL: server.URL + "/v1", APIFormat: APIFormatOpenAIResponses, AuthMode: AuthModeNone, DefaultModel: "gpt-test",
+	}, credentials.NewManager(nil))
+	handler := &cancelOnChunkRetryHandler{cancel: cancel}
+	provider.StreamChat(ctx, []Message{{Role: "user", Content: "oi"}}, ChatParams{Model: "gpt-test"}, handler)
+
+	if attempts != 1 || len(handler.errors) != 1 || !strings.Contains(handler.errors[0], "cancelado") || handler.chunks.String() != "partial" {
+		t.Fatalf("tentativas=%d erros=%v conteúdo=%q; cancelamento deve encerrar sem retry", attempts, handler.errors, handler.chunks.String())
+	}
+}
+
 func TestOpenAIResponsesDoesNotRetryOrPersistUnsupportedValue(t *testing.T) {
 	attempts := 0
 	persistCalls := 0

@@ -424,10 +424,14 @@ mantendo explícito que a fase 4 é uma proposta futura que exige nova decisão.
   verificam o descarte de campos desconhecidos e mensagens/payloads livres.
 - [x] Testes negativos cobrem HTTP 400 genérico, autenticação, erro transitório,
   valor/faixa/voz inválidos, alias ambíguo, campo não enviado e obrigatório.
-- [ ] Não há segundo retry de compatibilidade, repetição de tools ou nova
+- [x] Não há segundo retry de compatibilidade, repetição de tools ou nova
   mensagem; saída parcial, cancelamento, falha de persistência e revisão
-  alterada impedem a repetição automática. A cobertura de unidade do orçamento
-  precisa ser complementada pelos testes de adaptação ponta a ponta.
+  alterada impedem a repetição automática. Chat Completions e Responses têm
+  testes ponta a ponta para retry único, tool, conteúdo e reasoning expostos
+  entre iterações, timeout após reasoning, cancelamento após conteúdo e falha
+  de persistência. `TestCompatibilityLearningPersistsBeforeRetryAndNextSend`
+  cobre ambos os formatos no SQLite, incluindo revisão alterada antes da
+  persistência e ausência de retry ou gravação na nova revisão.
 - [ ] O Profile Manager oculta campos não suportados usando o estado do backend,
   preserva valores salvos, reavalia ao trocar de modelo e mantém foco acessível.
 - [ ] Fases implementadas atualizam este documento, o índice e a documentação

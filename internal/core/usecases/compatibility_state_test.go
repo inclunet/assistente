@@ -18,12 +18,15 @@ import (
 
 func TestCompatibilityLearningPersistsBeforeRetryAndNextSend(t *testing.T) {
 	tests := []struct {
-		name   string
-		format llm.APIFormat
-		field  llmcapabilities.Capability
+		name          string
+		format        llm.APIFormat
+		field         llmcapabilities.Capability
+		staleRevision bool
 	}{
 		{name: "chat completions", format: llm.APIFormatOpenAI, field: llmcapabilities.CapabilityChatCompletions},
 		{name: "responses", format: llm.APIFormatOpenAIResponses, field: llmcapabilities.CapabilityResponses},
+		{name: "chat completions stale revision", format: llm.APIFormatOpenAI, field: llmcapabilities.CapabilityChatCompletions, staleRevision: true},
+		{name: "responses stale revision", format: llm.APIFormatOpenAIResponses, field: llmcapabilities.CapabilityResponses, staleRevision: true},
 	}
 
 	for _, test := range tests {
@@ -57,6 +60,11 @@ func TestCompatibilityLearningPersistsBeforeRetryAndNextSend(t *testing.T) {
 
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				attempts++
+				if test.staleRevision {
+					if err := db.Model(&database.LLMProvider{}).Where("id = ?", "phase2-provider").Update("base_url", "https://changed.example/v1").Error; err != nil {
+						t.Errorf("alterar revisão antes da persistência: %v", err)
+					}
+				}
 				var payload map[string]json.RawMessage
 				if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 					t.Errorf("decodificar payload da tentativa %d: %v", attempts, err)
@@ -137,6 +145,24 @@ func TestCompatibilityLearningPersistsBeforeRetryAndNextSend(t *testing.T) {
 			}
 
 			first, err := provider.SendChat(ctx, []llm.Message{{Role: "user", Content: "oi"}}, params)
+			if test.staleRevision {
+				if err == nil || attempts != 1 || len(temperatureSent) != 1 || !temperatureSent[0] ||
+					params.Compatibility.IsUnsupported(test.field, llmcapabilities.FieldTemperature) {
+					t.Fatalf("revisão obsoleta: resposta=%q erro=%v tentativas=%d parâmetros=%v", first, err, attempts, temperatureSent)
+				}
+				var updatedProvider database.LLMProvider
+				if err := db.First(&updatedProvider, "id = ?", providerRow.ID).Error; err != nil {
+					t.Fatal(err)
+				}
+				if updatedProvider.CompatibilityRevision != compatibilityRevision+1 {
+					t.Fatalf("revisão atual = %d, esperada %d", updatedProvider.CompatibilityRevision, compatibilityRevision+1)
+				}
+				fields, err := repository.ListUnsupportedFieldsForRevision(ctx, modelID, updatedProvider.CompatibilityRevision)
+				if err != nil || len(fields) != 0 {
+					t.Fatalf("gravação obsoleta contaminou a revisão nova: campos=%+v err=%v", fields, err)
+				}
+				return
+			}
 			if err != nil || first != "ok" {
 				t.Fatalf("primeiro envio = %q, %v", first, err)
 			}

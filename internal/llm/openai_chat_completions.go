@@ -184,6 +184,7 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 	var isThinking bool
 	var thinkingBuffer strings.Builder
 	var emittedVisibleContent bool
+	var emittedNonRetryableEffect bool
 	captureReasoningContent := p.ReplaysReasoningContent()
 	thinkingFinished := false
 	finishThinking := func() {
@@ -253,7 +254,7 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 			return chatStreamAttempt{done: true}
 		}
 		if wd.TimedOut() {
-			if !emittedVisibleContent {
+			if !emittedNonRetryableEffect {
 				reportCurrentDiagnostics()
 				return chatStreamAttempt{plainRetry: true}
 			}
@@ -287,9 +288,8 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 		if captureReasoningContent {
 			if reasoning := chatCompletionReasoningContent(delta); reasoning != "" {
 				fullReasoning.WriteString(reasoning)
-				// Thinking não bloqueia retry: o caminho por tags segue o mesmo
-				// contrato. Só conteúdo visível entregue por OnChunk torna uma
-				// nova tentativa insegura por poder duplicar a resposta.
+				emittedNonRetryableEffect = true
+				chatParams.Compatibility.MarkNonRetryableEffect()
 				handler.OnThinking(reasoning)
 				if ctx.Err() != nil {
 					finishThinking()
@@ -301,7 +301,12 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 		if delta.Content != "" {
 			content := delta.Content
 
+			reasoningLength := fullReasoning.Len()
 			content = processThinkingTags(content, &isThinking, &thinkingBuffer, &fullReasoning, handler)
+			if fullReasoning.Len() > reasoningLength {
+				emittedNonRetryableEffect = true
+				chatParams.Compatibility.MarkNonRetryableEffect()
+			}
 
 			if content != "" {
 				select {
@@ -311,7 +316,7 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 				default:
 				}
 				if wd.TimedOut() {
-					if !emittedVisibleContent {
+					if !emittedNonRetryableEffect {
 						reportCurrentDiagnostics()
 						return chatStreamAttempt{plainRetry: true}
 					}
@@ -323,6 +328,8 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 				}
 				fullResponse.WriteString(content)
 				emittedVisibleContent = true
+				emittedNonRetryableEffect = true
+				chatParams.Compatibility.MarkNonRetryableEffect()
 				handler.OnChunk(content)
 			}
 		}
@@ -350,10 +357,10 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 			return chatStreamAttempt{done: true}
 		}
 
-		// Watchdog de ociosidade estourou. Sem conteúdo visível, a tentativa
-		// é descartável; com conteúdo já entregue, repetir duplicaria a resposta.
+		// Watchdog de ociosidade estourou. Sem efeito exposto, a tentativa pode
+		// ser repetida; após conteúdo ou reasoning, isso duplicaria a resposta.
 		if wd.TimedOut() {
-			if !emittedVisibleContent {
+			if !emittedNonRetryableEffect {
 				reportCurrentDiagnostics()
 				return chatStreamAttempt{plainRetry: true}
 			}
@@ -364,7 +371,7 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 			return chatStreamAttempt{done: true}
 		}
 
-		if !emittedVisibleContent {
+		if !emittedNonRetryableEffect {
 			if recognizedProviderError && providerError.Category == ProviderErrorUnsupportedParameter && providerError.Field != "" {
 				if len(finishedToolCalls) == 0 && fullReasoning.Len() == 0 && chatParams.Compatibility != nil &&
 					openAIChatCompatibilityFieldWasSent(origParams, providerError) &&
@@ -373,6 +380,10 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 					return chatStreamAttempt{compatibilityRetry: true, compatibilityError: providerError.DisplayMessage()}
 				}
 				markErrorNotRetryable(handler)
+				finishThinking()
+				reportCurrentDiagnostics()
+				handler.OnError(providerError.DisplayMessage())
+				return chatStreamAttempt{done: true}
 			}
 
 			// tool_choice downgrade
@@ -408,7 +419,7 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 
 		finishThinking()
 		reportCurrentDiagnostics()
-		if emittedVisibleContent {
+		if emittedNonRetryableEffect {
 			markErrorNotRetryable(handler)
 		}
 		handler.OnError(providerError.DisplayMessage())
@@ -425,7 +436,7 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 			"stream encerrou junto com timeout de inatividade",
 			"partial_bytes", fullResponse.Len(),
 		)
-		if !emittedVisibleContent {
+		if !emittedNonRetryableEffect {
 			reportCurrentDiagnostics()
 			return chatStreamAttempt{plainRetry: true}
 		}
@@ -480,7 +491,7 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 	ReportFinishReason(handler, finish)
 
 	if finish.Reason == "" && len(finishedToolCalls) == 0 {
-		if emittedVisibleContent {
+		if emittedNonRetryableEffect {
 			markErrorNotRetryable(handler)
 		}
 		handler.OnError("streaming_interrupted")
@@ -488,6 +499,7 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 	}
 
 	if len(finishedToolCalls) > 0 {
+		chatParams.Compatibility.MarkNonRetryableEffect()
 		handler.OnToolCalls(finishedToolCalls, fullResponse.String(), usage, model)
 		return chatStreamAttempt{done: true}
 	}

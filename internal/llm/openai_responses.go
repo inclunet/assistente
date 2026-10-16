@@ -308,8 +308,8 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 	completed := false
 	var fullResponse strings.Builder
 	var fullReasoning strings.Builder
-	// Texto visível e eventos MCP impedem retry automático porque seriam
-	// duplicados. Thinking é descartável e não entra nesta barreira.
+	// Conteúdo visível, reasoning e eventos MCP impedem retries automáticos
+	// posteriores porque já foram expostos ou executados nesta conversa.
 	var emittedNonRetryableEffect bool
 	var lastUsage Usage
 	var lastUsageRaw any
@@ -414,7 +414,12 @@ responseEvents:
 		case "response.output_text.delta":
 			ev := event.AsResponseOutputTextDelta()
 			if ev.Delta != "" {
+				reasoningLength := fullReasoning.Len()
 				content := processThinkingTags(ev.Delta, &isThinking, &thinkingBuffer, &fullReasoning, handler)
+				if fullReasoning.Len() > reasoningLength {
+					chatParams.Compatibility.MarkNonRetryableEffect()
+					emittedNonRetryableEffect = true
+				}
 				if content != "" {
 					select {
 					case <-ctx.Done():
@@ -435,6 +440,7 @@ responseEvents:
 					}
 					fullResponse.WriteString(content)
 					emittedNonRetryableEffect = true
+					chatParams.Compatibility.MarkNonRetryableEffect()
 					handler.OnChunk(content)
 				}
 			}
@@ -461,6 +467,8 @@ responseEvents:
 					return mcpStreamAttemptResult{done: true}
 				}
 				fullReasoning.WriteString(ev.Delta)
+				chatParams.Compatibility.MarkNonRetryableEffect()
+				emittedNonRetryableEffect = true
 				handler.OnThinking(ev.Delta)
 				if ctx.Err() != nil {
 					cancelStream()
@@ -489,6 +497,7 @@ responseEvents:
 				}
 				activeMCPCalls[ev.Item.ID] = mc
 				emittedNonRetryableEffect = true
+				chatParams.Compatibility.MarkNonRetryableEffect()
 				handler.OnMCPToolEvent(MCPToolEvent{
 					ID:          mc.ID,
 					Name:        mc.Name,
@@ -509,6 +518,7 @@ responseEvents:
 					args = ev.Item.Arguments
 				}
 				emittedNonRetryableEffect = true
+				chatParams.Compatibility.MarkNonRetryableEffect()
 				// O output item de um mcp_call carrega o motivo real da falha em
 				// Error (além de server_label/name/output). Este é o ERRO único e
 				// correlacionado (conv/turn/user) da falha; response.mcp_call.failed
@@ -933,7 +943,9 @@ responseEvents:
 	lastModel = diagnosticModel
 	finish = finishInfoWithDiagnostics(finish, p.provider, diagnosticModel, chatParams.MaxTokens, fullResponse.Len())
 	reportUsage(handler, lastUsage)
-	if finish.Reason == "" && len(finishedToolCalls) == 0 && !emittedNonRetryableEffect {
+	if finish.Reason == "" && len(finishedToolCalls) == 0 && (fullResponse.Len() > 0 || len(activeMCPCalls) > 0) {
+		finishThinking()
+	} else if finish.Reason == "" && len(finishedToolCalls) == 0 {
 		discardThinking()
 	} else {
 		finishThinking()
@@ -959,6 +971,7 @@ responseEvents:
 	}
 
 	if len(finishedToolCalls) > 0 {
+		chatParams.Compatibility.MarkNonRetryableEffect()
 		dumpLLMResponse(dumpHandle, chatParams, map[string]any{
 			"content":    fullResponse.String(),
 			"reasoning":  fullReasoning.String(),

@@ -21,9 +21,5 @@ func (s *DBAudioStore) SaveMessageAudio(ctx context.Context, messageID string, a
 }
 
 func (s *DBAudioStore) GetMessageContent(ctx context.Context, messageID string) (string, string, error) {
-	message, err := database.GetMessageWithContext(ctx, messageID)
-	if err != nil {
-		return "", "", err
-	}
-	return message.Content, message.Role, nil
+	return database.GetMessageContentAndRoleWithContext(ctx, messageID)
 }
