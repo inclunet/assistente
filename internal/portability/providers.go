@@ -219,7 +219,7 @@ func persistProvider(ctx context.Context, tx *gorm.DB, provider ProviderExport, 
 	existing.ACPAgentID = provider.ACPAgentID
 	existing.CreatedAt = createdAt
 	existing.UpdatedAt = updatedAt
-	return tx.Save(existing).Error
+	return database.NewProviderRepository(tx).SaveLLMProvider(ctx, existing)
 }
 
 func validateProviderExport(provider ProviderExport) (ProviderExport, error) {

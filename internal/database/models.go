@@ -82,6 +82,9 @@ type LLMProvider struct {
 	// ReasoningContentMode é capability explícita do wire protocol
 	// (disabled/replay_with_tools), nunca inferida do endpoint.
 	ReasoningContentMode string
+	// CompatibilityRevision invalida fatos de capabilities quando muda a
+	// identidade efetiva da conexão. Não deriva nem persiste dados de segredo.
+	CompatibilityRevision int `gorm:"not null;default:1;check:compatibility_revision > 0"`
 	// ACPCommand, ACPArgs e ACPEnv guardam como subir o agente de código
 	// quando o formato é acp. Mesmo formato de armazenamento do servidor MCP
 	// stdio, que tem o mesmo problema: JSON em texto, porque SQLite não tem
@@ -105,6 +108,32 @@ type LLMProvider struct {
 	ACPAgentID string `gorm:"type:text"`
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
+}
+
+// LLMModel é a identidade remota de um modelo dentro de um provedor.
+type LLMModel struct {
+	UUIDModel
+	ProviderID  string       `gorm:"type:text;not null;uniqueIndex:ux_llm_models_provider_remote" json:"providerId"`
+	RemoteID    string       `gorm:"type:text;not null;uniqueIndex:ux_llm_models_provider_remote" json:"remoteId"`
+	DisplayName string       `gorm:"type:text;not null;default:''" json:"displayName,omitempty"`
+	Provider    *LLMProvider `gorm:"foreignKey:ProviderID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE" json:"-"`
+}
+
+// LLMModelCapability delimita a operação/capability de um modelo.
+type LLMModelCapability struct {
+	UUIDModel
+	ModelID        string `gorm:"type:text;not null;uniqueIndex:ux_llm_model_capabilities_model_code" json:"modelId"`
+	CapabilityCode string `gorm:"type:text;not null;uniqueIndex:ux_llm_model_capabilities_model_code" json:"capabilityCode"`
+}
+
+// LLMModelCapabilityField registra uma restrição atual de campo.
+// A presença da linha significa "não suportado" na revisão indicada.
+type LLMModelCapabilityField struct {
+	CapabilityID          string    `gorm:"type:text;primaryKey" json:"capabilityId"`
+	FieldCode             string    `gorm:"type:text;primaryKey" json:"fieldCode"`
+	CompatibilityRevision int       `gorm:"not null" json:"compatibilityRevision"`
+	RecognizerID          string    `gorm:"type:text;not null" json:"recognizerId"`
+	UpdatedAt             time.Time `gorm:"not null" json:"updatedAt"`
 }
 
 // ACPSession vincula uma conversa do app à sessão que o agente de código mantém

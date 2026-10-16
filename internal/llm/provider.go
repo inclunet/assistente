@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+
+	"assistente/internal/llmcompat"
 )
 
 // ProviderType representa o tipo de provedor LLM (label de marca).
@@ -139,15 +141,18 @@ const (
 // ProviderConfig descreve um provedor LLM
 // Usado pelo ProviderRegistry para inicialização do cliente.
 type ProviderConfig struct {
-	ID           string       `json:"id"`
-	Name         string       `json:"name"`
-	Type         ProviderType `json:"type"`
-	APIFormat    APIFormat    `json:"api_format,omitempty"`
-	BaseURL      string       `json:"base_url"`
-	Model        string       `json:"model,omitempty"`
-	DefaultModel string       `json:"default_model,omitempty"`
-	IsDefault    bool         `json:"is_default,omitempty"`
-	Timeout      int          `json:"timeout,omitempty"`
+	ID   string       `json:"id"`
+	Name string       `json:"name"`
+	Type ProviderType `json:"type"`
+	// CompatibilityRevision identifica o snapshot da conexão carregado do banco.
+	// Requisições em andamento preservam esta revisão ao registrar evidências.
+	CompatibilityRevision int       `json:"-"`
+	APIFormat             APIFormat `json:"api_format,omitempty"`
+	BaseURL               string    `json:"base_url"`
+	Model                 string    `json:"model,omitempty"`
+	DefaultModel          string    `json:"default_model,omitempty"`
+	IsDefault             bool      `json:"is_default,omitempty"`
+	Timeout               int       `json:"timeout,omitempty"`
 	// StreamIdleTimeoutSeconds limita quanto tempo um streaming SSE pode ficar
 	// sem eventos. Zero usa o padrão de 60s; cada evento reinicia a contagem.
 	// O valor é preservado por DB e portabilidade para compatibilidade; a UI
@@ -235,10 +240,10 @@ func (p *ProviderConfig) EffectiveAuthMode() AuthMode {
 
 // EffectiveReasoningContentMode aplica o default seguro para providers antigos.
 func (p *ProviderConfig) EffectiveReasoningContentMode() ReasoningContentMode {
-	if p != nil && p.ReasoningContentMode == ReasoningContentReplayWithTools {
-		return ReasoningContentReplayWithTools
+	if p == nil {
+		return ReasoningContentDisabled
 	}
-	return ReasoningContentDisabled
+	return ReasoningContentMode(llmcompat.EffectiveReasoningContentMode(string(p.ReasoningContentMode)))
 }
 
 // AssistantPrefillCapability descreve, de forma explícita, até onde um
@@ -333,29 +338,10 @@ func isAnthropicOfficialURL(baseURL string) bool {
 // da introdução de api_format usem automaticamente a Responses API,
 // sem exigir migração manual de configs existentes.
 func (p *ProviderConfig) GetAPIFormat() APIFormat {
-	if p.APIFormat != "" {
-		switch p.Type {
-		case ProviderLocalAI, ProviderOllama, ProviderLlamaCPP:
-			if p.APIFormat == APIFormatOpenAIResponses {
-				return APIFormatOpenAI
-			}
-		}
-		return p.APIFormat
-	}
-	switch p.Type {
-	case ProviderLocalAI, ProviderOllama, ProviderLlamaCPP:
+	if p == nil {
 		return APIFormatOpenAI
 	}
-	if isOpenAIRealURL(p.BaseURL) {
-		return APIFormatOpenAIResponses
-	}
-	return APIFormatOpenAI
-}
-
-// isOpenAIRealURL retorna true se a URL aponta para a API oficial da OpenAI.
-func isOpenAIRealURL(baseURL string) bool {
-	normalized := strings.ToLower(strings.TrimSuffix(baseURL, "/"))
-	return strings.Contains(normalized, "api.openai.com")
+	return APIFormat(llmcompat.EffectiveAPIFormat(string(p.Type), string(p.APIFormat), p.BaseURL))
 }
 
 // Validate verifica se o ProviderConfig é válido
