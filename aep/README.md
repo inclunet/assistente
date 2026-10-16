@@ -173,6 +173,14 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 
 ## Índice
 
+**ACP (16/10/2026):** AEP-0084 permanece **Done** no escopo original e agora
+registra a matriz de cobertura do ACP v1, incluindo recursos não apresentados e
+capacidades intencionalmente desativadas. AEP-0086 permanece **Done** para
+descoberta/instalação, com limite explícito entre instalar um agente e integrar
+todos os recursos dele. AEP-0108 permanece **In Progress**: fila visível e
+cancelamento restrito ao turno correto, além de uma sondagem ociosa segura,
+continuam pendentes. A implementação dessas lacunas fica para PRs posteriores.
+
 AEP-0103, seção168 (26/09/2026): toolbar de Novo/Editar/Apagar nos gerenciadores,
 menus de contexto equivalentes, Enter para editar e continuidade da lista após salvar,
 e Ctrl+N pelo catálogo/resolvedor, com apresentação restrita ao contexto e ao

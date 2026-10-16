@@ -1,7 +1,8 @@
 # AEP-0108 — Sessão ACP presa: diagnóstico e recuperação
 
-**Status:** In Progress — Fases 1–3 implementadas; pendentes estado na UI com
-Cancelar (D1, parte visual) e sonda em sessão ociosa (D2, cobertura a).
+**Status:** In Progress — observabilidade, watchdog de turno e recuperação
+implementados; pendentes apresentação/cancelamento correto da fila (D1) e
+estratégia segura para detectar agente morto com sessão ociosa (D2, cobertura a).
 
 ## Resumo
 
@@ -33,8 +34,16 @@ recuperação e proibição de `assistant` vazio em erro.
   tomado via `turnInFlight`) e quando sai da fila (admitido, `ErrCancelNotConfirmed`,
   `ErrSessionLost`, `ErrSessionClosed`, cancelamento do contexto).
 - UI: estado "aguardando turno anterior" por conversa, com ação Cancelar
-  (`session/cancel`), anunciado via `useAnnouncer` (nunca só-cor; announcer único,
-  AEP-0058).
+  anunciado via `useAnnouncer` (nunca só-cor; announcer único, AEP-0058).
+- **Semântica da ação:** cancelar uma chamada que ainda espera `turnSlot` deve
+  cancelar apenas o contexto/registro daquela chamada enfileirada. Não se deve
+  enviar `session/cancel` nesse caso, pois esse método cancela o turno ativo da
+  sessão, que pode ser outra mensagem. `session/cancel` é enviado quando a ação
+  explícita é parar o turno ativo. A UI deve distinguir os dois estados e
+  anunciar qual operação foi cancelada.
+- O estado observado pelo frontend precisa ser correlacionado ao turno e à
+  conversa; fila ACP não é um estado global do provider, que pode multiplexar
+  outras sessões.
 
 ### D2. Heartbeat com fail-fast
 
@@ -106,6 +115,15 @@ recuperação e proibição de `assistant` vazio em erro.
    `agent_session_recovered` (3 locales + vitest). ✅ Implementada (teste
    `TestSessaoPerdidaInvalidaEAvisaSessaoNova`; retomada já coberta por
    `TestDepoisDeInvalidarOProximoTurnoTentaRetomarAMesmaSessao`).
+4. **Fase 4 — Estado de fila acessível (D1):** publicar estado por conversa e
+   por turno; oferecer cancelar a chamada em espera sem cancelar o turno ativo;
+   anunciar entrada, saída, cancelamento e recusa de fila. **Pendente.** Exige
+   cobertura de teclado/leitor de tela e corrida entre admissão e cancelamento.
+5. **Fase 5 — Sessão ACP ociosa (D2, cobertura a):** definir se existe uma
+   verificação segura com prazo que não possa bloquear `Write` nem derrubar
+   sessões saudáveis compartilhadas. **Pendente de decisão técnica.** Até lá,
+   morte com pipe fechado continua detectada pelo watcher; sem evidência de
+   morte não marcar a conexão como morta.
 
 ## Riscos
 
@@ -120,12 +138,13 @@ recuperação e proibição de `assistant` vazio em erro.
 
 ## Critérios de aceitação
 
-- [x] Turno ACP sem resposta gera log de espera (estado visível com Cancelar
-      pendente — parte visual do D1).
+- [x] Turno ACP sem resposta gera log de espera.
+- [ ] Turno enfileirado tem estado acessível por conversa e pode ser cancelado
+      sem cancelar o turno ACP ativo; leitor de tela anuncia os desfechos.
 - [x] Agente vivo sem resposta vira `ErrCancelNotConfirmed` via watchdog de
       inatividade (nunca `markDead`, que é por `conn`).
-- [ ] Processo ACP morto sem fechar pipe com sessão ociosa (sonda da cobertura
-      a — adiada, ver D2).
+- [ ] Estratégia validada detecta processo/agente morto com sessão ociosa sem
+      bloquear escrita nem encerrar outras sessões saudáveis (cobertura a, ver D2).
 - [x] `ErrSessionLost` não aceito invalida a sessão e avisa (`agent_session_recovered`);
       a tentativa seguinte retoma/abre nova.
 - [x] Nenhum caminho de erro do loop simples persiste `assistant` vazio
