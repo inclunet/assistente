@@ -58,6 +58,7 @@ type ServiceConfig struct {
 // Service encapsula a lógica de negócio de gerenciamento de provedores LLM.
 // Não depende de Wails — é testável de forma isolada.
 type Service struct {
+	publicationMu    sync.Mutex
 	oauth            *oauthflow.Service
 	oauthMu          sync.Mutex
 	oauthAttempts    map[string]context.CancelFunc
@@ -106,7 +107,7 @@ func ExtractHostname(baseURL string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("base_url inválido: %w", err)
 	}
-	host := parsed.Hostname()
+	host := strings.ToLower(parsed.Hostname())
 	if host == "" {
 		return "", fmt.Errorf("host não encontrado no base_url")
 	}
@@ -202,14 +203,17 @@ func (s *Service) EnsureDefault(ctx context.Context) {
 
 // CreateRequest contém os dados para criar um provedor.
 type CreateRequest struct {
-	ID                   string
-	Name                 string
-	Type                 string
-	APIFormat            string
-	BaseURL              string
-	APIKey               string
-	DefaultModel         string
-	ReasoningContentMode string
+	CredentialFromProviderID string
+	Credential               *CredentialSpec
+	AuthMode                 string
+	ID                       string
+	Name                     string
+	Type                     string
+	APIFormat                string
+	BaseURL                  string
+	APIKey                   string
+	DefaultModel             string
+	ReasoningContentMode     string
 	// ACPCommand, ACPArgs e ACPEnv valem quando APIFormat é acp: é assim que
 	// o agente de código é endereçado, no lugar de BaseURL e APIKey.
 	ACPCommand string
@@ -327,6 +331,18 @@ func normalizeProviderRuntimeDefaults(p *llm.ProviderConfig) {
 
 // Create cria e registra um novo provedor LLM.
 func (s *Service) Create(ctx context.Context, req CreateRequest) (*CreateResult, error) {
+	generation := s.registry.Generation()
+	if req.Credential == nil {
+		s.publicationMu.Lock()
+		defer s.publicationMu.Unlock()
+	}
+	if req.CredentialFromProviderID != "" && (req.Credential != nil || req.APIKey != "") {
+		return nil, credentials.ErrCredentialResolution
+	}
+	scope, err := s.captureCredentialSave(ctx, req.Credential, generation)
+	if err != nil {
+		return nil, err
+	}
 	// O formato e a URL chegam de formulário e de linha de comando, onde
 	// espaço nas pontas é acidente comum. Aparar antes de decidir evita que
 	// " acp " caia no caminho HTTP e a pessoa receba uma cobrança de URL que
@@ -347,7 +363,7 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*CreateResult,
 		// Recusar em vez de ignorar: quem mandou uma chave espera que ela
 		// autentique alguma coisa, e aqui ela não autenticaria nada — o login
 		// do agente é feito no CLI dele, na máquina.
-		if req.APIKey != "" {
+		if req.APIKey != "" || req.Credential != nil || req.AuthMode != "" {
 			return nil, fmt.Errorf("provedor acp não guarda credencial no app; autentique o agente pelo CLI dele")
 		}
 	} else {
@@ -365,11 +381,6 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*CreateResult,
 	if s.registry.Get(req.ID) != nil {
 		return nil, fmt.Errorf("provider com ID '%s' já existe", req.ID)
 	}
-	if exists, err := s.store.Exists(ctx, req.ID); err != nil {
-		return nil, err
-	} else if exists {
-		return nil, database.ErrLLMProviderAlreadyExists
-	}
 
 	// O agente não tem host: o que o endereça é o comando.
 	hostname := ""
@@ -381,12 +392,10 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*CreateResult,
 		hostname = extracted
 	}
 
-	credConfigured := false
-
-	if req.APIKey == "" && !isACP {
-		auth, err := s.credentialConfig(ctx, hostname)
-		credConfigured = err == nil && auth != nil && auth.Source != ""
+	if req.APIKey != "" && req.Credential != nil {
+		return nil, credentials.ErrCredentialResolution
 	}
+	credConfigured := req.APIKey != ""
 
 	isFirst := len(s.registry.List()) == 0
 	provider := &llm.ProviderConfig{
@@ -406,30 +415,33 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*CreateResult,
 		ACPCredentialEnv:     copyStringMap(req.ACPCredentialEnv),
 		ACPAgentID:           strings.TrimSpace(req.ACPAgentID),
 	}
+	provider.AuthMode = llm.AuthMode(req.AuthMode)
 	normalizeProviderRuntimeDefaults(provider)
+	source, err := s.credentialSourceProvider(ctx, provider, req.CredentialFromProviderID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.prepareCredential(ctx, provider, source, req.Credential, req.APIKey != ""); err != nil {
+		return nil, err
+	}
+	if req.APIKey != "" {
+		provider.CredentialPattern = hostname
+	} else if !isACP && req.Credential == nil {
+		auth, err := s.credentialConfig(ctx, provider.CredentialPattern)
+		credConfigured = err == nil && auth != nil && auth.Source != ""
+	}
 
 	if err := provider.Validate(); err != nil {
 		return nil, err
 	}
-	if err := s.store.Create(ctx, provider); err != nil {
+	if req.Credential != nil {
+		if err := s.saveWithCredential(ctx, provider, nil, req.Credential, scope); err != nil {
+			return nil, err
+		}
+		return &CreateResult{Provider: provider, CredentialPattern: provider.CredentialPattern, CredentialConfigured: true}, nil
+	}
+	if err := s.saveWithoutCredentialDraft(ctx, provider, generation, req.APIKey, isFirst); err != nil {
 		return nil, err
-	}
-	if req.APIKey != "" {
-		if err := s.credMgr.RegisterPatternWithContext(ctx, hostname, &credentials.AuthConfig{Source: "static",
-			Type:  "bearer",
-			Token: req.APIKey,
-		}); err != nil {
-			return nil, errors.Join(fmt.Errorf("erro ao salvar credencial: %w", err), s.store.RollbackCreate(ctx, provider))
-		}
-		credConfigured = true
-	}
-	if err := s.registry.Register(provider); err != nil {
-		return nil, fmt.Errorf("erro ao registrar provider: %w", err)
-	}
-	if isFirst {
-		if err := s.store.SetDefault(ctx, req.ID); err != nil {
-			logging.Warnf(ctx, "providers.service", "[providers] Aviso: erro ao marcar como default: %v", err)
-		}
 	}
 
 	if isACP {
@@ -439,13 +451,15 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*CreateResult,
 	}
 	return &CreateResult{
 		Provider:             provider,
-		CredentialPattern:    hostname,
+		CredentialPattern:    provider.CredentialPattern,
 		CredentialConfigured: credConfigured,
 	}, nil
 }
 
 // UpdateRequest contém os campos opcionais para atualizar um provedor.
 type UpdateRequest struct {
+	Credential           *CredentialSpec
+	AuthMode             string
 	Name                 string
 	Type                 string
 	APIFormat            string
@@ -481,13 +495,33 @@ type UpdateResult struct {
 
 // Update atualiza um provedor LLM existente.
 func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*UpdateResult, error) {
+	generation := s.registry.Generation()
+	// Draft saves acquire this lock around their transaction after preflight.
+	// Other edits must serialize their entire snapshot/read/write/publication.
+	locked := req.Credential == nil
+	if locked {
+		s.publicationMu.Lock()
+	}
+	defer func() {
+		if locked {
+			s.publicationMu.Unlock()
+		}
+	}()
+	scope, err := s.captureCredentialSave(ctx, req.Credential, generation)
+	if err != nil {
+		return nil, err
+	}
 	existing := s.registry.Get(id)
 	if existing == nil {
 		return nil, fmt.Errorf("provider '%s' não encontrado", id)
 	}
 
 	if existing.Type == llm.ProviderChatGPT {
-		return nil, fmt.Errorf("chatgpt_use_oauth_connection")
+		if locked {
+			s.publicationMu.Unlock()
+			locked = false
+		}
+		return s.updateChatGPTPreferences(ctx, id, req)
 	}
 
 	updated := &llm.ProviderConfig{
@@ -514,7 +548,7 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Up
 	if req.Name != "" {
 		updated.Name = req.Name
 	}
-	if req.Type != "" {
+	if req.Type != "" && req.Type != string(existing.Type) {
 		updated.Type = llm.ProviderType(req.Type)
 		updated.AuthMode = defaultAuthModeForProviderType(updated.Type)
 	}
@@ -533,7 +567,9 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Up
 			return nil, fmt.Errorf("erro ao extrair hostname: %w", err)
 		}
 		updated.BaseURL = baseURL
-		updated.CredentialPattern = hostname
+		if existing.CredentialPattern == "" || !sameCredentialOrigin(baseURL, existing.BaseURL) {
+			updated.CredentialPattern = hostname
+		}
 	}
 	// Aparado uma vez e usado nas duas decisões — aplicar e recusar —, como no
 	// Create: um valor só de espaços não é edição, e não pode virar nem
@@ -580,9 +616,24 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Up
 			updated.AuthMode = defaultAuthModeForProviderType(updated.Type)
 		}
 	}
+	if req.AuthMode != "" {
+		updated.AuthMode = llm.AuthMode(req.AuthMode)
+	} else if req.Credential == nil && req.APIKey == "" && !existing.IsACP() &&
+		updated.Type == existing.Type && updated.GetAPIFormat() == existing.GetAPIFormat() &&
+		sameCredentialOrigin(updated.BaseURL, existing.BaseURL) {
+		// Partial preference edits must preserve legacy inferred no-auth semantics
+		// before a missing credential reference is filled from the hostname.
+		updated.AuthMode = existing.EffectiveAuthMode()
+	}
 	normalizeProviderRuntimeDefaults(updated)
-	if updated.IsACP() && req.APIKey != "" {
+	if updated.IsACP() && (req.APIKey != "" || req.Credential != nil || req.AuthMode != "") {
 		return nil, fmt.Errorf("provedor acp não guarda credencial no app; autentique o agente pelo CLI dele")
+	}
+	if req.APIKey != "" && req.Credential != nil {
+		return nil, credentials.ErrCredentialResolution
+	}
+	if err := s.prepareCredential(ctx, updated, existing, req.Credential, req.APIKey != ""); err != nil {
+		return nil, err
 	}
 	// Conferir antes de mexer no registro: a troca é remover e registrar de
 	// novo, e uma edição inválida — virar acp sem informar o comando, por
@@ -591,28 +642,19 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Up
 		return nil, fmt.Errorf("provider '%s' inválido após a edição: %w", id, err)
 	}
 
-	credConfigured := false
-	if req.APIKey != "" {
-		if strings.HasPrefix(updated.CredentialPattern, "oauth:") {
-			return nil, oauthflow.ErrConflict
+	if req.Credential != nil {
+		if err := s.saveWithCredential(ctx, updated, existing, req.Credential, scope); err != nil {
+			return nil, err
 		}
-		if err := s.credMgr.RegisterPatternWithContext(ctx, updated.CredentialPattern, &credentials.AuthConfig{Source: "static",
-			Type:  "bearer",
-			Token: req.APIKey,
-		}); err != nil {
-			return nil, fmt.Errorf("erro ao atualizar credencial: %w", err)
-		}
-		credConfigured = true
-	} else if updated.CredentialPattern != "" {
+		return &UpdateResult{Provider: updated, CredentialConfigured: true}, nil
+	}
+	credConfigured := req.APIKey != ""
+	if req.APIKey == "" && updated.CredentialPattern != "" {
 		auth, err := s.credentialConfig(ctx, updated.CredentialPattern)
 		credConfigured = err == nil && auth != nil && auth.Source != ""
 	}
-
-	if err := s.store.Save(ctx, []*llm.ProviderConfig{updated}); err != nil {
+	if err := s.saveWithoutCredentialDraft(ctx, updated, generation, req.APIKey, false); err != nil {
 		return nil, err
-	}
-	if err := s.registry.Register(updated); err != nil {
-		return nil, fmt.Errorf("erro ao atualizar provider: %w", err)
 	}
 
 	logging.Infof(ctx, "providers.service", "[providers] Provider '%s' atualizado", id)
@@ -621,6 +663,8 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Up
 
 // Delete remove um provedor do registry.
 func (s *Service) Delete(ctx context.Context, id string) error {
+	s.publicationMu.Lock()
+	defer s.publicationMu.Unlock()
 	provider := s.registry.Get(id)
 	if provider == nil {
 		return fmt.Errorf("provider '%s' não encontrado", id)
@@ -674,14 +718,17 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 
 // SetDefault marca um provedor como padrão do sistema.
 func (s *Service) SetDefault(ctx context.Context, id string) error {
+	s.publicationMu.Lock()
+	defer s.publicationMu.Unlock()
+	generation := s.registry.Generation()
 	if s.registry.Get(id) == nil {
 		return fmt.Errorf("provider '%s' não encontrado", id)
 	}
 	if err := s.store.SetDefault(ctx, id); err != nil {
 		return fmt.Errorf("erro ao definir provider default: %w", err)
 	}
-	for _, p := range s.registry.List() {
-		p.IsDefault = (p.ID == id)
+	if err := s.registry.SetDefaultGeneration(id, generation); err != nil {
+		return err
 	}
 	logging.Infof(ctx, "providers.service", "[providers] Provider '%s' definido como default", id)
 	return nil
@@ -963,6 +1010,9 @@ func (s *Service) GetChatProviderWithConfigSnapshot(ctx context.Context, provide
 
 // ListModelsRawRequest contém os parâmetros para listagem de modelos via credenciais ad-hoc.
 type ListModelsRawRequest struct {
+	Credential *CredentialSpec
+	AuthMode   string
+	APIFormat  string
 	Type       string
 	BaseURL    string
 	APIKey     string // se vazio e ProviderID preenchido, busca credencial existente
@@ -991,6 +1041,13 @@ func buildTempProviderForListModels(req ListModelsRawRequest, hostname string, e
 		temp.APIFormat = existing.APIFormat
 		temp.AuthMode = existing.EffectiveAuthMode()
 	}
+	if req.APIFormat != "" {
+		temp.APIFormat = llm.APIFormat(req.APIFormat)
+	}
+	if req.AuthMode != "" {
+		temp.AuthMode = llm.AuthMode(req.AuthMode)
+	}
+	normalizeProviderRuntimeDefaults(temp)
 	return temp
 }
 
@@ -1018,25 +1075,60 @@ func (s *Service) ListModelsRaw(ctx context.Context, req ListModelsRawRequest) (
 		existingProvider = s.registry.Get(req.ProviderID)
 	}
 
-	hostname := parsedURL.Hostname()
+	hostname := strings.ToLower(parsedURL.Hostname())
 	tempProvider := buildTempProviderForListModels(req, hostname, existingProvider)
+	if err := s.prepareCredential(ctx, tempProvider, existingProvider, req.Credential, req.APIKey != ""); err != nil {
+		return nil, err
+	}
 	cm, _ := s.credMgr.(*credentials.Manager)
-	if apiKey != "" {
+	if req.Credential != nil && apiKey != "" {
+		return nil, credentials.ErrCredentialResolution
+	}
+	if req.Credential != nil {
+		cm = credentials.NewManager(nil)
+		if err := cm.RegisterPatternWithContext(ctx, tempProvider.CredentialPattern, req.Credential.Auth); err != nil {
+			return nil, err
+		}
+	} else if apiKey != "" {
 		// Never write an ad-hoc key into the persistent manager.
+		tempProvider.CredentialPattern = hostname
 		cm = credentials.NewManager(nil)
 		if err := cm.RegisterPatternWithContext(ctx, hostname, &credentials.AuthConfig{Source: "static", Type: "bearer", Token: apiKey}); err != nil {
 			return nil, err
 		}
 	} else if existingProvider != nil {
-		if existingProvider.EffectiveAuthMode() != llm.AuthModeNone && !sameCredentialOrigin(req.BaseURL, existingProvider.BaseURL) {
+		if tempProvider.EffectiveAuthMode() != llm.AuthModeNone && !sameCredentialOrigin(req.BaseURL, existingProvider.BaseURL) {
 			return nil, fmt.Errorf("URL alterada: informe uma credencial para testar o novo destino")
 		}
-		tempProvider.CredentialPattern = existingProvider.CredentialPattern
 	}
 
+	if err := validateCredentialMode(tempProvider, req.Credential); err != nil {
+		return nil, err
+	}
+	if tempProvider.IsACP() || tempProvider.Type == llm.ProviderChatGPT {
+		return nil, credentials.ErrCredentialResolution
+	}
+	// One total deadline covers source resolution, SDK and HTTP fallback.
+	budget := 30 * time.Second
+	if tempProvider.EffectiveAuthMode() != llm.AuthModeNone && cm != nil {
+		auth, err := cm.GetConfigByPatternWithContext(ctx, tempProvider.CredentialPattern)
+		if err == nil && auth != nil && auth.Source == "command" {
+			seconds := 30
+			if auth.SourceConfig != nil && auth.SourceConfig.TimeoutSeconds > 0 {
+				seconds = auth.SourceConfig.TimeoutSeconds
+			}
+			if seconds > 300 {
+				seconds = 300
+			}
+			budget += time.Duration(seconds) * time.Second
+		}
+	}
+	tempProvider.Timeout = int(budget / time.Second)
+	previewCtx, cancel := context.WithTimeout(ctx, budget)
+	defer cancel()
 	// Sem agente: esta rota exige base_url e só atende provedor HTTP.
 	cp := llm.NewChatProvider(tempProvider, cm, nil)
-	return cp.GetModels(ctx)
+	return cp.GetModels(previewCtx)
 }
 
 // GetModels retorna os modelos disponíveis para o provedor do perfil ativo.
@@ -1231,7 +1323,20 @@ func sameCredentialOrigin(a, b string) bool {
 	if err != nil {
 		return false
 	}
-	return strings.EqualFold(u.Scheme, v.Scheme) && strings.EqualFold(u.Host, v.Host)
+	port := func(u *url.URL) string {
+		if p := u.Port(); p != "" {
+			return p
+		}
+		switch strings.ToLower(u.Scheme) {
+		case "https":
+			return "443"
+		case "http":
+			return "80"
+		default:
+			return ""
+		}
+	}
+	return strings.EqualFold(u.Scheme, v.Scheme) && strings.EqualFold(u.Hostname(), v.Hostname()) && port(u) == port(v)
 }
 
 func (s *Service) applyProbeAuth(ctx context.Context, req TestRequest, target *http.Request) error {
@@ -1289,4 +1394,31 @@ func (s *Service) applyProbeAuth(ctx context.Context, req TestRequest, target *h
 		return nil
 	}
 	return credentials.ApplyAuth(target, auth)
+}
+
+// Keep the same session reservation for existing references and legacy API keys.
+// The APIKey compatibility path still uses separate vault/consumer writes.
+func (s *Service) saveWithoutCredentialDraft(ctx context.Context, p *llm.ProviderConfig, generation uint64, apiKey string, makeDefault bool) error {
+	return s.registry.WithGeneration(generation, func() error {
+		if apiKey != "" {
+			if credentials.IsManagedPattern(p.CredentialPattern) {
+				return oauthflow.ErrConflict
+			}
+			if err := s.credMgr.RegisterPatternWithContext(ctx, p.CredentialPattern, &credentials.AuthConfig{Source: "static", Type: "bearer", Token: apiKey}); err != nil {
+				return err
+			}
+		}
+		if err := s.store.Save(ctx, []*llm.ProviderConfig{p}); err != nil {
+			return err
+		}
+		if err := s.registry.RegisterGeneration(p, generation); err != nil {
+			return err
+		}
+		if makeDefault {
+			if err := s.store.SetDefault(ctx, p.ID); err != nil {
+				logging.Warnf(ctx, "providers.service", "[providers] Aviso: erro ao marcar como default: %v", err)
+			}
+		}
+		return nil
+	})
 }

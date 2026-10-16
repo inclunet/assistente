@@ -11,6 +11,18 @@ const buildItems = (): MenuItem[] => [
 ];
 
 describe('Menu', () => {
+  it.each(['{Escape}', '{Tab}'])('mantém fechamento por %s quando todas as ações estão desabilitadas', async key => {
+    const close = vi.fn();
+    const action = vi.fn();
+    render(<Menu visible restoreFocusOnClose={false} onClose={close}
+      items={[{ id: 'disabled-action', label: 'Editar', disabled: true, action }]} />);
+    expect(screen.getByRole('menu')).toHaveFocus();
+    await userEvent.keyboard('{Enter} ');
+    expect(action).not.toHaveBeenCalled();
+    await userEvent.keyboard(key);
+    expect(close).toHaveBeenCalledOnce();
+  });
+
   it('busca metadados sem mudar o nome acessível e executa somente o resultado escolhido', () => {
     const action = vi.fn();
     render(<Menu visible searchable items={[

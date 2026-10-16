@@ -139,6 +139,9 @@ export const Menu: React.FC<MenuProps> = ({
         const firstButton = menuRef.current.querySelector('button:not([disabled])');
         if (firstButton instanceof HTMLElement) {
           firstButton.focus();
+        } else {
+          // Sem ação habilitada, o contêiner mantém Escape/Tab acessíveis.
+          menuRef.current.focus();
         }
       }
     }
@@ -168,7 +171,7 @@ export const Menu: React.FC<MenuProps> = ({
       const currentFocusIndex = focusStack[focusStack.length - 1] || 0;
       const targetItem = focusableItems[currentFocusIndex];
 
-      if (targetItem) {
+      if (targetItem && !targetItem.disabled) {
         const button = menuRef.current.querySelector(`button#${CSS.escape(targetItem.id)}`);
         if (button instanceof HTMLElement) {
           button.focus();
@@ -332,7 +335,7 @@ export const Menu: React.FC<MenuProps> = ({
 
       const hasSubmenu = item.submenu && item.submenu.length > 0;
       const isSubmenuOpen = submenuStack[level] === item.id;
-      const isFocused = isCurrentLevel && index === currentLevelFocus;
+      const isFocused = !item.disabled && isCurrentLevel && index === currentLevelFocus;
 
       const buttonElement = (
           <button
@@ -425,7 +428,7 @@ export const Menu: React.FC<MenuProps> = ({
 
   const currentItems = getCurrentItems();
   const currentFocusIndex = getCurrentFocusIndex();
-  const activeItemId = currentItems[currentFocusIndex]?.id;
+  const activeItemId = currentItems[currentFocusIndex]?.disabled ? undefined : currentItems[currentFocusIndex]?.id;
 
   return (
     <>

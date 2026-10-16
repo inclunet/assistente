@@ -16,7 +16,7 @@ const cancelCapture = vi.fn();
 const getProfiles = vi.fn();
 const announce = vi.fn();
 let user = { userId: 'user-1', sessionId: 'session-1' };
-let workspaceTabs: { id: string; type: string; title: string }[] = [];
+let workspaceTabs: { id: string; type: string; title: string; position?: number }[] = [];
 const runtime = vi.hoisted(() => ({
   eventsOn: vi.fn(),
   requestGridFocus: vi.fn(),
@@ -925,6 +925,69 @@ describe('CommandSettingsPage', () => {
       operation: 'binding_create',
       scope: 'global',
       binding: expect.objectContaining({ triggerSpec: '{"version":1,"device":"SERIAL-MAX","key":255}' }),
+    })));
+  });
+
+  it('salva binding automático com personalização legada válida, preservando os dados ignorados', async () => {
+    workspaceTabs = [{ id: 'tab-1', type: 'chat', title: 'Conversa atual', position: 0 }];
+    const legacyPresentation = {
+      version: 1,
+      icon: 'star',
+      title_by_locale: { en: 'Saved title' },
+      states: { on: { icon: 'play', title_by_locale: { 'pt-BR': 'Título antigo do estado' } } },
+    };
+    getSettings.mockResolvedValue({
+      ...snapshot,
+      commands: [{ id: 'workspace.tab.first', name: 'Primeira aba', description: '', allowedSources: ['streamdeck.key'] }],
+      bindings: [{ ...snapshot.bindings[0], layerId: 'user', readOnly: false, defaultId: undefined,
+        commandId: 'workspace.tab.first', triggerType: 'streamdeck.key', triggerSpec: '{"version":1,"device":"DEVICE","key":0}', presentation: legacyPresentation }],
+    });
+    render(<CommandSettingsPage />);
+    fireEvent.click(await screen.findByText('Minha camada'));
+    fireEvent.click(await bindingAction('commandSettings.actions.editBinding'));
+
+    expect(screen.getByText('commandSettings.automaticPresentation.help')).toBeInTheDocument();
+    expect(screen.getByText('workspace.tabType.chat: Conversa atual')).toBeInTheDocument();
+    expect(screen.queryByLabelText('commandSettings.presentation.locales.en')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'common.save' })).toBeEnabled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'common.save' }));
+    await waitFor(() => expect(mutateSettings).toHaveBeenCalledWith(expect.objectContaining({
+      operation: 'binding_update',
+      binding: expect.objectContaining({ presentation: legacyPresentation }),
+    })));
+  });
+
+  it('permite recuperar personalização inválida ao trocar para apresentação automática', async () => {
+    workspaceTabs = [{ id: 'tab-1', type: 'chat', title: 'Atual', position: 0 }];
+    getSettings.mockResolvedValue({
+      ...snapshot,
+      commands: [
+        { ...snapshot.commands[0], allowedSources: ['streamdeck.key'] },
+        { id: 'workspace.tab.first', name: 'Primeira aba', description: '', allowedSources: ['streamdeck.key'] },
+      ],
+      bindings: [{ ...snapshot.bindings[0], layerId: 'user', readOnly: false, defaultId: undefined,
+        commandId: 'cmd.new', triggerType: 'streamdeck.key', triggerSpec: '{"version":1,"device":"DEVICE","key":0}' }],
+    });
+    render(<CommandSettingsPage />);
+    fireEvent.click(await screen.findByText('Minha camada'));
+    fireEvent.click(await bindingAction('commandSettings.actions.editBinding'));
+    const tooLong = 'x'.repeat(257);
+    fireEvent.change(screen.getByLabelText('commandSettings.presentation.locales.en'), { target: { value: tooLong } });
+    fireEvent.change(screen.getByLabelText('commandSettings.form.command'), { target: { value: 'workspace.tab.first' } });
+    expect(screen.getByText('commandSettings.automaticPresentation.invalidDraft')).toBeInTheDocument();
+    expect(announce).toHaveBeenCalledWith('commandSettings.automaticPresentation.invalidDraft');
+    expect(screen.getByRole('button', { name: 'common.save' })).toBeDisabled();
+    fireEvent.change(screen.getByLabelText('commandSettings.form.command'), { target: { value: 'cmd.new' } });
+    expect(screen.getByLabelText('commandSettings.presentation.locales.en')).toHaveValue(tooLong);
+    fireEvent.change(screen.getByLabelText('commandSettings.form.command'), { target: { value: 'workspace.tab.first' } });
+    await userEvent.click(screen.getByRole('button', { name: 'commandSettings.automaticPresentation.discardInvalid' }));
+    expect(screen.getByRole('document', { name: 'commandSettings.automaticPresentation.title' })).toHaveFocus();
+    expect(screen.queryByText('commandSettings.automaticPresentation.invalidDraft')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'common.save' })).toBeEnabled();
+    fireEvent.click(screen.getByRole('button', { name: 'common.save' }));
+    await waitFor(() => expect(mutateSettings).toHaveBeenCalledWith(expect.objectContaining({
+      binding: expect.objectContaining({ commandId: 'workspace.tab.first', presentation: undefined }),
     })));
   });
 

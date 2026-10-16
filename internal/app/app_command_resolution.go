@@ -113,6 +113,7 @@ var commandKeyboardDefaultSpecs = []commandKeyboardDefaultSpec{
 	{ID: "builtin.keyboard.ctrl-n.profiles.create.open", Code: "KeyN", CommandID: "profiles.create.open", Prefix: "Control+", Condition: commandbindings.Facts{commandbindings.SurfaceType: "profiles"}, Scope: commandbindings.Surface, Contextual: true},
 	{ID: "builtin.keyboard.ctrl-n.command-settings.create.open", Code: "KeyN", CommandID: "command_settings.create.open", Prefix: "Control+", Condition: commandbindings.Facts{commandbindings.AppPage: "settings"}, Scope: commandbindings.Surface, Contextual: true},
 	{ID: "builtin.keyboard.ctrl-n.history.workspace.open", Code: "KeyN", CommandID: "navigation.workspace.open", Prefix: "Control+", Condition: commandbindings.Facts{commandbindings.SurfaceType: "history"}, Scope: commandbindings.Surface, Contextual: true},
+	{ID: "builtin.keyboard.ctrl-n.providers.create.open", Code: "KeyN", CommandID: "providers.create.open", Prefix: "Control+", Condition: commandbindings.Facts{commandbindings.AppPage: "settings", commandbindings.SurfaceType: "providers"}, Scope: commandbindings.Surface, Contextual: true},
 }
 
 func commandPaletteCandidate(invocationID, correlationID, selection string, arguments json.RawMessage) (commandexecution.EnvelopeCandidate, error) {

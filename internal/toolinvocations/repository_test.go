@@ -588,6 +588,107 @@ func TestRepositoryCleanOldChat(t *testing.T) {
 	}
 }
 
+func TestRepositoryCleanOldChatDetachesRecentChildrenAtomicallyWithForeignKeys(t *testing.T) {
+	path, err := filepath.Abs(filepath.Join(t.TempDir(), "clean-old-chat.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	restoreDB := database.SetDB(database.DB())
+	var initializedDB *gorm.DB
+	t.Cleanup(func() {
+		if initializedDB != nil {
+			if sqlDB, err := initializedDB.DB(); err == nil {
+				_ = sqlDB.Close()
+			}
+		}
+		restoreDB()
+	})
+	if err := database.InitPath(path); err != nil {
+		initializedDB = database.DB()
+		t.Fatalf("InitPath: %v", err)
+	}
+	db := database.DB()
+	initializedDB = db
+	var foreignKeys int
+	if err := db.Raw("PRAGMA foreign_keys").Scan(&foreignKeys).Error; err != nil {
+		t.Fatal(err)
+	}
+	if foreignKeys != 1 {
+		t.Fatalf("InitPath foreign_keys=%d, want 1", foreignKeys)
+	}
+	if err := db.Create(&database.User{
+		UUIDModel: database.UUIDModel{ID: "retention-owner"}, Username: "retention-owner", PasswordHash: "test",
+		Role: database.UserRoleUser, IsActive: true,
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	tool := database.ToolCatalog{
+		UUIDModel:          database.UUIDModel{ID: "retention-tool"},
+		Name:               "retention-tool",
+		DisplayName:        "Retention Tool",
+		Origin:             tools.ToolOriginBuiltin,
+		AvailabilityStatus: tools.ToolAvailabilityAvailable,
+	}
+	if err := db.Create(&tool).Error; err != nil {
+		t.Fatal(err)
+	}
+	fixedNow := time.Date(2026, 10, 16, 10, 0, 0, 0, time.UTC)
+	old := fixedNow.Add(-48 * time.Hour)
+	recent := fixedNow.Add(-2 * time.Hour)
+	parent := database.ToolInvocation{
+		UUIDModel: database.UUIDModel{ID: "parent-old"}, UserID: "retention-owner", ToolCatalogID: tool.ID,
+		OriginType: OriginChat, Status: StatusQueued, QueuedAt: old,
+	}
+	if err := db.Create(&parent).Error; err != nil {
+		t.Fatalf("criar invocação antiga: %v", err)
+	}
+	child := database.ToolInvocation{
+		UUIDModel: database.UUIDModel{ID: "child-recent"}, UserID: "retention-owner", ToolCatalogID: tool.ID,
+		OriginType: OriginChat, Status: StatusQueued, QueuedAt: recent, ParentInvocationID: &parent.ID,
+	}
+	if err := db.Create(&child).Error; err != nil {
+		t.Fatalf("criar invocação recente filha: %v", err)
+	}
+	repo := NewDBRepository(db)
+	repo.now = func() time.Time { return fixedNow }
+	if err := db.Exec(`CREATE TRIGGER reject_old_invocation_delete BEFORE DELETE ON tool_invocations
+		WHEN OLD.id = 'parent-old' BEGIN SELECT RAISE(ABORT, 'reject old invocation delete'); END`).Error; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.CleanOldChat(database.WithUserID(context.Background(), "retention-owner"), 24*time.Hour); err == nil {
+		t.Fatal("CleanOldChat deveria falhar com trigger de regressão")
+	}
+	var storedParent, storedChild database.ToolInvocation
+	if err := db.First(&storedParent, "id = ?", parent.ID).Error; err != nil {
+		t.Fatalf("falha parcial removeu invocação pai: %v", err)
+	}
+	if err := db.First(&storedChild, "id = ?", child.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if storedChild.ParentInvocationID == nil || *storedChild.ParentInvocationID != parent.ID {
+		t.Fatalf("falha parcial desassociou filha recente: parent=%v", storedChild.ParentInvocationID)
+	}
+	if err := db.Exec("DROP TRIGGER reject_old_invocation_delete").Error; err != nil {
+		t.Fatal(err)
+	}
+	deleted, err := repo.CleanOldChat(database.WithUserID(context.Background(), "retention-owner"), 24*time.Hour)
+	if err != nil {
+		t.Fatalf("CleanOldChat: %v", err)
+	}
+	if deleted != 1 {
+		t.Fatalf("CleanOldChat deleted=%d, want 1", deleted)
+	}
+	if err := db.First(&storedChild, "id = ?", child.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if storedChild.ParentInvocationID != nil {
+		t.Fatalf("filha recente continua vinculada ao pai removido: %v", *storedChild.ParentInvocationID)
+	}
+	if err := db.First(&storedParent, "id = ?", parent.ID).Error; err == nil {
+		t.Fatal("invocação antiga permaneceu após limpeza")
+	}
+}
+
 // CleanOrphanChat remove invocações de chat cuja mensagem de origem não existe
 // mais; preserva as que ainda têm mensagem viva (AEP-0074).
 func TestRepositoryCleanOrphanChat(t *testing.T) {
@@ -649,6 +750,100 @@ func TestRepositoryCleanOrphanChat(t *testing.T) {
 	}
 	if _, ok := remaining["chat-orphan"]; ok {
 		t.Fatalf("chat-orphan deveria ter sido removido, got %#v", remaining)
+	}
+}
+
+func TestRepositoryCleanOrphanChatDetachesSurvivingChildrenAtomicallyWithForeignKeys(t *testing.T) {
+	path, err := filepath.Abs(filepath.Join(t.TempDir(), "clean-orphan-chat.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	restoreDB := database.SetDB(database.DB())
+	var initializedDB *gorm.DB
+	t.Cleanup(func() {
+		if initializedDB != nil {
+			if sqlDB, err := initializedDB.DB(); err == nil {
+				_ = sqlDB.Close()
+			}
+		}
+		restoreDB()
+	})
+	if err := database.InitPath(path); err != nil {
+		initializedDB = database.DB()
+		t.Fatalf("InitPath: %v", err)
+	}
+	db := database.DB()
+	initializedDB = db
+	if err := db.Create(&database.User{
+		UUIDModel: database.UUIDModel{ID: "orphan-owner"}, Username: "orphan-owner", PasswordHash: "test",
+		Role: database.UserRoleUser, IsActive: true,
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	tool := database.ToolCatalog{
+		UUIDModel: database.UUIDModel{ID: "orphan-tool"}, Name: "orphan-tool", DisplayName: "Orphan tool",
+		Origin: tools.ToolOriginBuiltin, AvailabilityStatus: tools.ToolAvailabilityAvailable,
+	}
+	if err := db.Create(&tool).Error; err != nil {
+		t.Fatal(err)
+	}
+	ctx := database.WithUserID(context.Background(), "orphan-owner")
+	conversation, err := database.CreateConversationWithContext(ctx, "live", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	message, err := database.CreateMessageWithContext(ctx, database.MessageOptions{
+		ConversationID: conversation.ID, Role: "assistant", Content: "still live",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	child := database.ToolInvocation{
+		UUIDModel: database.UUIDModel{ID: "orphan-child"}, UserID: "orphan-owner", ToolCatalogID: tool.ID,
+		OriginType: OriginChat, OriginID: message.ID, ConversationID: &conversation.ID,
+		Status: StatusSucceeded, QueuedAt: time.Now(),
+	}
+	parent := database.ToolInvocation{
+		UUIDModel: database.UUIDModel{ID: "orphan-parent"}, UserID: "orphan-owner", ToolCatalogID: tool.ID,
+		OriginType: OriginChat, OriginID: "missing-message", Status: StatusSucceeded, QueuedAt: time.Now(),
+	}
+	if err := db.Create(&parent).Error; err != nil {
+		t.Fatal(err)
+	}
+	child.ParentInvocationID = &parent.ID
+	if err := db.Create(&child).Error; err != nil {
+		t.Fatal(err)
+	}
+	repo := NewDBRepository(db)
+	if err := db.Exec(`CREATE TRIGGER reject_orphan_parent_delete BEFORE DELETE ON tool_invocations
+		WHEN OLD.id = 'orphan-parent' BEGIN SELECT RAISE(ABORT, 'reject orphan parent delete'); END`).Error; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.CleanOrphanChat(ctx); err == nil {
+		t.Fatal("CleanOrphanChat deveria falhar com trigger de regressão")
+	}
+	var storedChild database.ToolInvocation
+	if err := db.First(&storedChild, "id = ?", child.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if storedChild.ParentInvocationID == nil || *storedChild.ParentInvocationID != parent.ID {
+		t.Fatalf("falha parcial desassociou a filha: parent=%v", storedChild.ParentInvocationID)
+	}
+	if err := db.Exec("DROP TRIGGER reject_orphan_parent_delete").Error; err != nil {
+		t.Fatal(err)
+	}
+	deleted, err := repo.CleanOrphanChat(ctx)
+	if err != nil {
+		t.Fatalf("CleanOrphanChat: %v", err)
+	}
+	if deleted != 1 {
+		t.Fatalf("CleanOrphanChat deleted=%d, want 1", deleted)
+	}
+	if err := db.First(&storedChild, "id = ?", child.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if storedChild.ParentInvocationID != nil {
+		t.Fatalf("filha viva continua vinculada ao pai órfão: %v", *storedChild.ParentInvocationID)
 	}
 }
 

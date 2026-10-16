@@ -1,6 +1,17 @@
 const en = {
   translation: {
  chatgpt: {
+    providerSettings: "Provider settings",
+    providerName: "Provider name",
+    chooseModel: "Choose a model",
+    loadingModels: "Loading account models…",
+    savePreferences: "Save settings",
+    preferencesSaved: "Provider settings saved.",
+    defaultSaved: "Provider set as default.",
+    preferencesLoadError: "Could not load provider settings.",
+    modelsLoadError: "Could not load models for this account.",
+    preferencesSaveError: "Could not save. Check the settings and try again.",
+
     operationPending: 'Wait for this operation to finish before closing the dialog.',
     vaultUnavailable: 'The credential vault is unavailable. Recover or unlock the vault before disconnecting and deleting this provider.',
     authorizationChanged: 'The connection changed or is in use by another authorization. Wait, reload the list, and try deleting it again.',
@@ -653,6 +664,7 @@ const en = {
       presentationStates: { label: 'Key state', hint: 'Choose the default presentation or customize a state.', default: 'Default', on: 'On', off: 'Off', waiting: 'Waiting', running: 'Running', succeeded: 'Succeeded', failed: 'Failed', denied: 'Denied', cancelled: 'Cancelled', timed_out: 'Timed out', outcome_unknown: 'Outcome unknown', inheritance: 'Fields without an override inherit from the default presentation.', inherit: 'Inherit default', unavailableIcon: 'Icon unavailable' },
       specificTab: 'Specific tab',
       tabTarget: { title: 'Tab destination', workspace: 'Linked to workspace: {{name}}', noWorkspace: 'Open a workspace to configure this destination.', mode: 'Destination type', chooseMode: 'Choose a destination type', byPosition: 'By position', bySpecificTab: 'Specific tab', position: 'Tab position', specificTab: 'Tab', chooseTab: 'Choose a tab', unavailableTab: 'Unavailable tab (retained)', otherWorkspace: 'This destination is linked to another workspace; select a new destination to link it to this workspace.' },
+      automaticPresentation: { title: 'Automatic Stream Deck preview', help: 'The title and icon follow the current destination; saved customizations are ignored.', unavailable: 'Tab unavailable', invalidDraft: 'The previously entered customization is invalid and prevents saving. Discard it or return to the previous command to correct it.', discardInvalid: 'Discard invalid customization' },
       layerActionTarget: 'Layer and activation rule',
       layerActionCompleted: 'Layer action completed.',
       layerActionChoose: 'Choose the target',
@@ -2516,6 +2528,8 @@ const en = {
     },
 
     providerForm: {
+    authMode: 'Authentication',
+    authModes: { required: 'Required', optional: 'Optional', none: 'No authentication' },
       useSavedCredential: "Use the existing credential for this domain",
       savedCredentialHelp: "Configure the source in Credentials using the base URL hostname as the pattern. Leave the key empty to use that credential.",
       name: 'Name',
@@ -2853,6 +2867,7 @@ const en = {
     },
 
     providers: {
+    creation: { cancelLoading: 'Cancel loading', title: 'New provider', chatgpt: 'Connect ChatGPT account', acp: 'ACP service', api: 'API provider' },
       pageTitle: 'LLM Providers',
       search: 'Search providers...',
       loading: 'Loading...',

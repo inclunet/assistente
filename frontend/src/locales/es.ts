@@ -1,6 +1,17 @@
 const es = {
   translation: {
  chatgpt: {
+    providerSettings: "Configuración del proveedor",
+    providerName: "Nombre del proveedor",
+    chooseModel: "Elige un modelo",
+    loadingModels: "Cargando modelos de la cuenta…",
+    savePreferences: "Guardar configuración",
+    preferencesSaved: "Configuración del proveedor guardada.",
+    defaultSaved: "Proveedor establecido como predeterminado.",
+    preferencesLoadError: "No se pudo cargar la configuración del proveedor.",
+    modelsLoadError: "No se pudieron cargar los modelos de esta cuenta.",
+    preferencesSaveError: "No se pudo guardar. Revisa la configuración e inténtalo de nuevo.",
+
     operationPending: 'Espera a que termine esta operación antes de cerrar la ventana.',
     vaultUnavailable: 'El almacén de credenciales no está disponible. Recupera o desbloquea el almacén antes de desconectar y eliminar este proveedor.',
     authorizationChanged: 'La conexión cambió o está en uso por otra autorización. Espera, vuelve a cargar la lista e intenta eliminarla de nuevo.',
@@ -652,6 +663,7 @@ const es = {
       presentationStates: { label: 'Estado de la tecla', hint: 'Elige la presentación predeterminada o personaliza un estado.', default: 'Predeterminado', on: 'Activado', off: 'Desactivado', waiting: 'En espera', running: 'En ejecución', succeeded: 'Completado', failed: 'Error', denied: 'Denegado', cancelled: 'Cancelado', timed_out: 'Tiempo agotado', outcome_unknown: 'Resultado desconocido', inheritance: 'Los campos sin una sustitución heredan de la presentación predeterminada.', inherit: 'Heredar valor predeterminado', unavailableIcon: 'Icono no disponible' },
       specificTab: 'Pestaña específica',
       tabTarget: { title: 'Destino de pestaña', workspace: 'Vinculado al espacio de trabajo: {{name}}', noWorkspace: 'Abre un espacio de trabajo para configurar este destino.', mode: 'Tipo de destino', chooseMode: 'Elige un tipo de destino', byPosition: 'Por posición', bySpecificTab: 'Pestaña específica', position: 'Posición de la pestaña', specificTab: 'Pestaña', chooseTab: 'Elige una pestaña', unavailableTab: 'Pestaña no disponible (conservada)', otherWorkspace: 'Este destino está vinculado a otro espacio de trabajo; selecciona un destino nuevo para vincularlo a este espacio de trabajo.' },
+      automaticPresentation: { title: 'Vista previa automática de Stream Deck', help: 'El título y el icono siguen el destino actual; se ignoran las personalizaciones guardadas.', unavailable: 'Pestaña no disponible', invalidDraft: 'La personalización introducida anteriormente no es válida e impide guardar. Descártela o vuelva al comando anterior para corregirla.', discardInvalid: 'Descartar personalización no válida' },
       layerActionTarget: 'Capa y regla de activación',
       layerActionCompleted: 'Acción de capa completada.',
       layerActionChoose: 'Elige el destino',
@@ -2519,6 +2531,8 @@ const es = {
     },
 
     providerForm: {
+    authMode: 'Autenticación',
+    authModes: { required: 'Obligatoria', optional: 'Opcional', none: 'Sin autenticación' },
       useSavedCredential: "Usar la credencial existente para este dominio",
       savedCredentialHelp: "Configure la fuente en Credenciales usando el hostname de la URL base como patrón. Deje la clave vacía para usar esa credencial.",
       name: 'Nombre',
@@ -2857,6 +2871,7 @@ const es = {
     },
 
     providers: {
+    creation: { cancelLoading: 'Cancelar carga', title: 'Nuevo proveedor', chatgpt: 'Conectar cuenta ChatGPT', acp: 'Servicio ACP', api: 'Proveedor API' },
       pageTitle: 'Proveedores LLM',
       search: 'Buscar proveedores...',
       loading: 'Cargando...',

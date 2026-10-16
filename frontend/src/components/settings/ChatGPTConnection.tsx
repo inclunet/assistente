@@ -1,3 +1,4 @@
+import { ChatGPTProviderSettings } from './ChatGPTProviderSettings';
 import { useAuthStore } from '../../store/authStore';
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -33,6 +34,7 @@ export function ChatGPTConnection({ id, onChanged, onClose, onCloseBlockedChange
   const [name, setName] = useState('');
   const [closeBlocked, setCloseBlocked] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [settingsBusy, setSettingsBusy] = useState(false);
   const [state, setState] = useState('pending');
   const [email, setEmail] = useState('');
   const [error, setError] = useState('');
@@ -92,7 +94,7 @@ export function ChatGPTConnection({ id, onChanged, onClose, onCloseBlockedChange
     }
   };
   const close = () => {
-    if (closeBlocked) return;
+    if (closeBlocked || settingsBusy) return;
     if (currentID.current) void CancelChatGPT(currentID.current).catch(() => undefined);
     onClose(); onChanged();
   };
@@ -111,10 +113,13 @@ export function ChatGPTConnection({ id, onChanged, onClose, onCloseBlockedChange
     {busy && <p>{t(closeBlocked ? 'chatgpt.operationPending' : 'chatgpt.waiting')}</p>}
     {error && <p>{error}</p>}
     <p><a href="https://chatgpt.com/settings/usage" target="_blank" rel="noopener noreferrer">{t('chatgpt.usage')}</a></p>
+    {currentID.current && <ChatGPTProviderSettings key={currentID.current} providerId={currentID.current}
+      connected={state === 'connected'} disabled={busy}
+      onBusyChange={value => { setSettingsBusy(value); onCloseBlockedChange?.(value); }} onChanged={onChanged} />}
     <DialogActions primary={
-      <Button ref={connectButton} variant="primary" disabled={busy || (!currentID.current && !name.trim())} onClick={() => void connect()}>{t(state === 'connected' ? 'chatgpt.reconnect' : 'chatgpt.connect')}</Button>} secondary={<>
-      {currentID.current && <Button disabled={busy || state === 'disconnected'} onClick={() => void disconnect()}>{t('chatgpt.disconnect')}</Button>}
-      <Button disabled={closeBlocked} onClick={close}>{t(busy ? 'common.cancel' : 'common.close')}</Button>
+      <Button ref={connectButton} variant="primary" disabled={busy || settingsBusy || (!currentID.current && !name.trim())} onClick={() => void connect()}>{t(state === 'connected' ? 'chatgpt.reconnect' : 'chatgpt.connect')}</Button>} secondary={<>
+      {currentID.current && <Button disabled={busy || settingsBusy || state === 'disconnected'} onClick={() => void disconnect()}>{t('chatgpt.disconnect')}</Button>}
+      <Button disabled={closeBlocked || settingsBusy} onClick={close}>{t(busy ? 'common.cancel' : 'common.close')}</Button>
     </>} />
   </div>;
 }

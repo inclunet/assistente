@@ -2,6 +2,76 @@
 
 Status: In Progress — evidências e aceites pendentes conforme os registros abaixo
 
+**Apresentação de destinos de aba (16/10/2026): In Progress.** Por decisão do
+mantenedor, os comandos `workspace.tab.go_to` e primeira…nona aba passam a ter
+apresentação derivada obrigatória no Stream Deck. O editor mostra uma prévia
+em vez de solicitar títulos, ícones, imagens e variantes para esses comandos.
+Personalizações antigas não têm precedência sobre o destino atual. A aba
+específica continua vinculada por ID, embora seja escolhida pelo nome; não se
+introduz busca por texto nem redirecionamento para outra aba de mesmo título.
+Renomeação e reordenação atualizam a apresentação. Destinos ausentes ou
+ambíguos não conservam ícones ou imagens de um destino anterior. Demais
+comandos mantêm a personalização existente. Aceite físico/NVDA pendente;
+esta mudança não promove critérios nem altera execução ou autorização.
+Combinações contextuais com comandos de outros tipos conservam a apresentação
+combinada; a prévia do editor descreve o binding, não promete exclusividade
+na tecla física quando outros bindings também participam da resolução.
+Evidências backend: `TestWorkspaceTabDeck*`, `TestCommandDeckPresentation*`,
+`TestCommandDeckPagePresentation*` e testes de estado do Deck passam;
+`go build ./internal/app` e `go vet ./internal/app` também passam. Os testes
+exercitam substituição de personalizações legadas e variantes, além de
+atualização do frame renderizado após renomeação e fechamento.
+Frontend: 144 testes passam nos arquivos de prévia, editor de apresentação e
+página de configuração, incluindo salvamento de personalização legada e
+axe (contraste não avaliado em jsdom). TypeScript e ESLint dos arquivos
+alterados passam. A validação física do Stream Deck e com NVDA continua manual.
+A prévia é uma região de leitura focável dentro do formulário. Trocar de
+comando com uma personalização ainda inválida mostra a causa do bloqueio de
+Salvar e permite descartar explicitamente esse rascunho, ou voltar ao comando
+anterior para corrigi-lo; dados válidos não são descartados automaticamente.
+O aviso usa o anunciador central do AEP-0058, sem criar uma live region local.
+
+**Resultado e foco após criação (07/10/2026): In Progress.** A consulta
+`GetUICommandResult` aplica I04.5 sem exigir reconstrução/publicação do mapa:
+retirada ou obsolescência da projeção não apaga o resultado de uma execução
+admitida. Continuam obrigatórios usuário/sessão revalidados, runtime e
+dependências originais, ticket retido/não expirado, cofre e sessão do SO
+desbloqueados. A identidade e segurança são verificadas antes e depois da
+espera do resultado. Begin/Take/Commit mantêm os gates completos; consultar
+não reexecuta nem habilita comandos.
+
+Uma regressão reproduziu criação confirmada de chat/editor/tasklist seguida
+de resultado inacessível após retirada do mapa. Isso impede a apresentação
+de foco que exige sucesso confirmado. O E2E do frontend com transporte Wails
+simulado cobre Ctrl+N com letra e setas/Enter, origem no input e na lista de
+abas, e permanência do foco no textarea de um chat novo. Esses percursos
+passavam mesmo antes da correção backend; não comprovam a causa exclusiva
+no ambiente do mantenedor. O reteste real/NVDA permanece pendente no checklist
+manual. Não há promoção de critérios ou gates.
+
+**Renovação sem revogação (07/10/2026): In Progress.** O mantenedor autorizou
+separar renovação comum de retirada autoritativa do mapa. `renew()` prepara e
+valida o substituto sem apagar a publicação vigente; falha de transporte mantém
+apenas o mapa ainda não invalidado/expirado. A troca ocorre sem estado vazio
+intermediário e não reseta uma geração reaproveitada pelo backend. O timer de
+expiração não é prorrogado por uma tentativa, e respostas anteriores a reset,
+blur, dispose ou uma leitura mais recente são descartadas.
+
+O ingresso habilitado para renovação é a atualização de ownership nativo: sua
+exclusão já é consultada sincronicamente em cada tecla e não altera a autorização
+do catálogo. Eventos `command:keyboard-map-changed` continuam autoritativos e
+usam `refresh()` com retirada imediata; não se infere continuidade de permissão
+de um erro `stale`/`not_ready`. Logout, troca de sessão/workspace, expiração e
+mapa recusado/malformado permanecem fail-closed. Não há fallback por atalho,
+nova consulta por tecla nem execução com uma autorização vencida.
+
+O log de 07/10 mostrou reconstruções `stale` sucessivas entre 10:07:22 e 10:08:05,
+além de contenção em `jobs.persist_run_state`. Esta correção não certifica a
+eliminação de toda reconstrução obsoleta: a frente SQLite está no AEP-0106 e
+requer reteste sob carga. O mantenedor também reportou que o foco de novas abas
+não chega à área default; essa pendência permanece aberta, fora deste lote.
+Não há promoção de critérios/gates nem novo aceite manual.
+
 **Reteste de leitura ao vivo (30/09/2026): In Progress.** Após atualizar e
 recompilar, o mantenedor confirmou Enter na última mensagem concluída. A
 variante durante streaming ainda falhou e recebe correção exclusiva; não se
@@ -312,16 +382,16 @@ O aceite físico/NVDA permanece pendente: **83 I / 1 P / 0 N**.
 **Apresentação automática de abas — seção165 da tasklist:** o Stream Deck
 deriva título e ícone do tipo da aba-alvo para `workspace.tab.go_to` e
 `workspace.tab.first`…`ninth`, acompanhando renomeação, ordem e fechamento.
-Campos personalizados e variantes de estado continuam tendo precedência.
+Desde a revisão de 16/10/2026, a derivação tem precedência sobre campos
+personalizados e variantes de estado nesses comandos de destino de aba.
 Destino ausente ou de outro workspace é apresentado como indisponível, sem
 redirecionamento. A derivação visual não concede autorização, altera o
 despacho nem acrescenta auditoria por tecla. Evidências automatizadas e
 limitações de integração ficam na tasklist. O título visível é abreviado para
 caber na tecla quando necessário, enquanto o anúncio mantém o título completo;
 aceite físico/NVDA segue pendente.
-O aviso de indisponibilidade/ambiguidade permanece explícito em títulos
-personalizados: texto semelhante no meio do nome não substitui o sufixo de
-estado; um sufixo completo já presente não é duplicado.
+O aviso de indisponibilidade/ambiguidade permanece explícito, sem imagem ou
+ícone personalizado que possa sugerir um destino disponível.
 
 **Destino parametrizado de abas — seção164 da tasklist:** `workspace.tab.go_to`
 é um único `local_ui` com binding vinculado a `workspace_id` e alvo por
@@ -385,7 +455,11 @@ nem altera a contagem **83 I / 1 P / 0 N**.
 **Contexto de rota no teclado local — seção166 (25/09/2026):** o ingresso Go
 aceita a surface da toolbar somente com o par canônico de página: `profiles`,
 `tasklists` e `history` mantêm seus tipos de superfície legados; as demais
-rotas usam `toolbar`. Abas de workspace continuam exigindo correspondência com
+rotas usam `toolbar`. A evolução do AEP-0114 acrescenta `providers` em
+`app.page=settings` para a rota de provedores, mantendo `toolbar` nas
+demais configurações. Seu Ctrl+N apresenta o menu local de criação; os três
+destinos também são comandos locais no catálogo. A escolha usa o mesmo
+registro de apresentação e não cria bindings paralelos. Abas de workspace continuam exigindo correspondência com
 o snapshot ativo, e não podem declarar página de rota. Na resolução, o tipo de
 superfície de rota vem desse frame canônico; para abas, vem do snapshot. Isso
 corrige o desacordo entre captura e projeção sem ampliar a projeção durável para
@@ -3970,6 +4044,10 @@ O estado visual de uma tecla é apresentação do binding efetivo. Pode ter tít
 ícone padrão, imagem escolhida pelo usuário e variantes como ligado, desligado,
 executando, concluído e erro. Texto, anúncio e estado não podem depender apenas
 de imagem ou cor.
+
+Exceção de apresentação derivada: nos comandos de destino de aba descritos
+acima, nome e ícone vêm da aba-alvo e não são editáveis. Títulos, ícones e
+imagens personalizados de base ou estado não substituem essa informação.
 
 Apresentações builtin usam `title_key` e `status_label_keys` existentes em
 pt-BR, en e es. Conteúdo personalizado pode fornecer `title_by_locale`; locale

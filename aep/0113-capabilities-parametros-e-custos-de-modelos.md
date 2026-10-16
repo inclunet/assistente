@@ -1,6 +1,6 @@
 # AEP-0113 — Compatibilidade de parâmetros por modelo e provedor
 
-Status: In Progress — fase 1 validada no PR #889; fase 2 em implementação e revisão; fase 3 pendente
+Status: In Progress — fase 1 concluída no PR #889; fase 2 em implementação e validação no PR #909; fase 3 pendente
 
 ## Resumo
 
@@ -299,7 +299,7 @@ na `main`.
    unicidade, autorização, revisão de conexão e recusa de gravações obsoletas;
    identidade de capability é imutável e não pode ser substituída via
    `INSERT OR REPLACE`. Sem histórico, catálogos externos, jobs ou infraestrutura
-   de vozes. Evidência: o commit `739757d6c` passou pelos 25 checks do CI e a
+   de vozes. Evidência: o merge commit `20544967f` passou pelos 25 checks do CI e a
    review automática do Copilot encerrou sem threads pendentes. A revisão local
    independente do diff final não encontrou pendências. Os testes focados
    adicionados nesta rodada foram executados pelo CI remoto; nenhum teste local

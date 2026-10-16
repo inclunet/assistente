@@ -36,6 +36,9 @@ it('instala o mapa Go completo, preserva paleta e despacha Ctrl+Tab, Alt+M e Ctr
     expect(onDown).toHaveBeenLastCalledWith(expect.objectContaining({ commandId: 'navigation.menu.open' }));
     press('KeyN', { ctrlKey: true });
     expect(onDown).toHaveBeenLastCalledWith(expect.objectContaining({ commandId: 'command_settings.create.open' }));
+    context.surfaceType = 'providers';
+    press('KeyN', { ctrlKey: true });
+    expect(onDown).toHaveBeenLastCalledWith(expect.objectContaining({ commandId: 'providers.create.open' }));
     const before = onDown.mock.calls.length;
     context.appPage = 'workspace';
     press('KeyN', { ctrlKey: true });

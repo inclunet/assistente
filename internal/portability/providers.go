@@ -164,10 +164,7 @@ func persistProvider(ctx context.Context, tx *gorm.DB, provider ProviderExport, 
 	if provider.IsDefault {
 		if err := database.ScopeByUser(ctx, tx.Model(&database.LLMProvider{}), "user_id").
 			Where("is_default = ? AND id <> ?", true, strings.TrimSpace(provider.ID)).
-			Updates(map[string]any{
-				"is_default":      false,
-				"config_revision": gorm.Expr("config_revision + 1"),
-			}).Error; err != nil {
+			Update("is_default", false).Error; err != nil {
 			return err
 		}
 	}
@@ -222,10 +219,6 @@ func persistProvider(ctx context.Context, tx *gorm.DB, provider ProviderExport, 
 	existing.ACPAgentID = provider.ACPAgentID
 	existing.CreatedAt = createdAt
 	existing.UpdatedAt = updatedAt
-	// Keep both provider revisions in sync with imported configuration. The
-	// repository compares this candidate with the row inside the transaction,
-	// advancing compatibility only when the effective connection identity
-	// changes and config revision for any runtime configuration change.
 	return database.NewProviderRepository(tx).SaveLLMProvider(ctx, existing)
 }
 

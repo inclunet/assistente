@@ -42,6 +42,8 @@ export interface UseAnchoredContextMenuResult {
   openForTrigger: (trigger: HTMLElement, ariaLabel: string, items: MenuItem[]) => void;
   openAtPoint: (x: number, y: number, ariaLabel: string, items: MenuItem[], trigger?: HTMLElement | null) => void;
   closeMenu: () => void;
+  /** Fecha antes da navegação nativa de Tab, sem restauração de foco atrasada. */
+  closeMenuForTab: () => void;
   onSelectItem: (item: MenuItem) => void;
 }
 
@@ -129,12 +131,19 @@ export function useAnchoredContextMenu(options: UseAnchoredContextMenuOptions = 
     }, 10);
   }, [onAfterDismiss, onAfterSelect, restoreTriggerFocusOnDismiss, restoreTriggerFocusOnSelect]);
 
+  const closeMenuForTab = useCallback(() => {
+    closeReasonRef.current = 'dismiss';
+    setMenu(prev => prev.visible ? { ...prev, visible: false } : prev);
+    triggerElementRef.current?.focus();
+  }, []);
+
   return {
     menu,
     triggerElementRef,
     openForTrigger,
     openAtPoint,
     closeMenu,
+    closeMenuForTab,
     onSelectItem,
   };
 }

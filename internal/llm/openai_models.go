@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"sort"
 	"strings"
-	"time"
 )
 
 func (p *OpenAIProvider) GetModels(ctx context.Context) ([]string, error) {
@@ -73,7 +72,6 @@ func (p *OpenAIProvider) getModelsHTTP(ctx context.Context) ([]string, error) {
 	}
 
 	client := newHTTPClientForProvider(p.provider, p.credMgr)
-	client.Timeout = 15 * time.Second
 
 	resp, err := client.Do(req)
 	if err != nil {

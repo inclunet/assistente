@@ -1,5 +1,25 @@
 # AEP — Assistente Enhancement Proposals
 
+**AEP-0103 — apresentação de destinos de aba (16/10/2026): In Progress.**
+Nome e ícone automáticos no Stream Deck para destinos de aba; prévia no
+editor substitui a personalização desses comandos. A seleção específica
+continua por ID, sem busca por título. Ausência/ambiguidade não preserva
+ícone ou imagem antiga. Aceite físico/NVDA pendente, sem promoção de critérios.
+
+**AEP-0103 — resultado e foco após criação (07/10/2026): In Progress.**
+Consulta de resultado retido independe da projeção do mapa (I04.5), preservando
+identidade, runtime, cofre e sessão do SO. Begin/Take/Commit não mudam.
+Regressão de resultado inacessível após criação/retirada do mapa e E2E de
+Ctrl+N por letra/setas; causa exclusiva no ambiente real e aceite NVDA ainda
+não confirmados. Sem promoção de critérios ou gates.
+
+**AEP-0103 / AEP-0106 — renovação e contenção (07/10/2026): In Progress.**
+Renovação de ownership prepara o mapa substituto sem retirar o vigente;
+invalidações autoritativas e expiração continuam bloqueando imediatamente.
+Persistência incremental dos jobs adquire o writer antes da leitura do run.
+Reteste sob carga e foco default após criar abas permanecem pendentes; sem
+promoção de critérios ou gates.
+
 **AEP-0103 — reteste de leitura ao vivo (30/09/2026): In Progress.** Enter na
 última mensagem concluída foi confirmado pelo mantenedor após atualização.
 Leitura durante streaming reconhece o alvo transitório da superfície ativa e
@@ -129,8 +149,8 @@ Propostas de melhoria para o Assistente, inspiradas nos PEPs (Python) e RFCs.
 Este diretório é o **repositório único** de decisões arquiteturais do projeto
 (ver `CLAUDE.md`). Não criar outro diretório para AEPs — tudo fica em `aep/`.
 
-> **Inventário (2026-10-02):** este índice contém **112 documentos principais
-> para 111 números ocupados**. A diferença é a colisão histórica 0074, representada
+> **Inventário (2026-10-06):** este índice contém **113 documentos principais
+> para 112 números ocupados**. A diferença é a colisão histórica 0074, representada
 > temporariamente como 0074-A e 0074-B até sua renumeração. Séries multi-arquivo
 > têm o principal listado na tabela e os demais em
 > [Apêndices por AEP](#apêndices-por-aep). Convenção em
@@ -1114,8 +1134,9 @@ de cancelamento de release na dependência; o AEP permanece **In Progress**.
 | [0109](0109-concorrencia-na-configuracao-da-tasklist.md) | Controle de concorrência na configuração da tasklist (workflow e custom actions) | ✅ Done |
 | [0110](0110-fontes-explicitas-de-credenciais.md) | Fontes explícitas de credenciais | ✅ Done |
 | [0111](0111-inicializacao-desktop-exclusiva.md) | Inicialização desktop exclusiva | 🚧 In Progress |
-| [0112](0112-oauth-compartilhado-e-autorizacoes-unificadas.md) | OAuth compartilhado e autorizações unificadas: ChatGPT, MCP composto, recuperação/migração e Slack por conexão implementados; runtime legado removido; recusa de identidades OIDC e provas automatizadas consolidadas; login ChatGPT confirmado; reconexão do MCP Slack confirmada; dados descobertos visíveis sem DCR e scopes do recurso; Databricks confirmado e migração contextual; demais aceites reais pendentes; fontes Bearer/Basic usam editor, transporte e gravação atômica compartilhados; autorizações compostas acessíveis pelo CredManager e edição OAuth pelo fluxo vinculado; retry MCP silencioso e CAS OAuth tolerante a contenção transitória | 🚧 In Progress |
-| [0113](0113-capabilities-parametros-e-custos-de-modelos.md) | Compatibilidade de parâmetros por modelo e provedor: fase 1 validada no PR #889; fase 2 em implementação e revisão; fase 3 pendente | 🚧 In Progress |
+| [0112](0112-oauth-compartilhado-e-autorizacoes-unificadas.md) | OAuth compartilhado e autorizações unificadas — ChatGPT, MCP, recuperação/migração, Slack por conexão e CredManager; aceites funcionais confirmados em 05/10/2026 | ✅ Done |
+| [0113](0113-capabilities-parametros-e-custos-de-modelos.md) | Compatibilidade de parâmetros por modelo e provedor: fase 1 concluída no PR #889; fase 2 em implementação e validação no PR #909; fase 3 pendente | 🚧 In Progress |
+| [0114](0114-criacao-de-provedores-e-credenciais-unificadas.md) | Criação de provedores e credenciais unificadas | ✅ Done — preferências ChatGPT, menu API/ACP, comandos e CredManager compartilhado; rota padrão e menu Ações corrigidos |
 
 Correções paralelas posteriores à revisão da AEP-0103 estão registradas nas seções 10 e 11 da tasklist de conclusão: bridge, importação, restore, outbox, lifecycle e a primeira rodada real de produto. O executor desktop usa `newCommandDesktopExecutor` e `commandconfig.ProjectComplete`; autenticação é por sessão local sem JWT, a bridge é assíncrona com shutdown/join, e recovery é preflight somente leitura fail-closed sem reconciliação interprocesso. A limitação inicial de entrega somente de resumo/status foi resolvida na seção 14: `workspace.list` entrega resultado efêmero no picker compartilhado. A seção 15 liga a seleção da paleta à resolução de configuração persistida, supressão e recusa sem fallback, inclusive na bridge. A falha histórica de `internal/acpregistry` não reapareceu nas suítes completas das seções 12–14, mas sua causa não foi certificada. Providers/transporte de UI, origens físicas, recovery R04 e o aceite BASE-PRONTA permanecem pendentes.
 

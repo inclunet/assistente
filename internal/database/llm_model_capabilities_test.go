@@ -34,7 +34,7 @@ func TestMigrateLLMModelCompatibilityStateIsMinimalAndIdempotent(t *testing.T) {
 			t.Errorf("llm_models não pode duplicar %s", column)
 		}
 	}
-	for _, column := range []string{"compatibility_revision", "config_revision"} {
+	for _, column := range []string{"compatibility_revision"} {
 		if !db.Migrator().HasColumn("llm_providers", column) {
 			t.Errorf("revisão ausente no provedor: %s", column)
 		}
@@ -55,7 +55,7 @@ func TestLLMModelRepositoryScopesIdentityAndList(t *testing.T) {
 		{ID: "provider-b", UserID: "owner-b", Name: "B", Type: "custom", BaseURL: "https://b.example/v1"},
 	}
 	for _, provider := range providers {
-		if err := NewProviderRepository(db).CreateLLMProvider(WithUserID(context.Background(), provider.UserID), provider); err != nil {
+		if err := NewProviderRepository(db).SaveLLMProvider(WithUserID(context.Background(), provider.UserID), provider); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -96,7 +96,7 @@ func TestRecordUnsupportedFieldUpdatesCurrentStateAndRejectsUnknownData(t *testi
 	db := llmModelCapabilitiesTestDB(t)
 	ctx := WithUserID(context.Background(), "owner")
 	provider := &LLMProvider{ID: "provider", UserID: "owner", Name: "Provider", Type: "custom", BaseURL: "https://provider.example/v1"}
-	if err := NewProviderRepository(db).CreateLLMProvider(ctx, provider); err != nil {
+	if err := NewProviderRepository(db).SaveLLMProvider(ctx, provider); err != nil {
 		t.Fatal(err)
 	}
 	repository := NewLLMModelCapabilitiesRepository(db)
@@ -155,7 +155,7 @@ func TestCompatibilityRevisionInvalidatesFieldsAndRejectsStaleWrite(t *testing.T
 	ctx := WithUserID(context.Background(), "owner")
 	provider := &LLMProvider{ID: "provider", UserID: "owner", Name: "Provider", Type: "custom", APIFormat: "openai", BaseURL: "https://one.example/v1"}
 	providerRepository := NewProviderRepository(db)
-	if err := providerRepository.CreateLLMProvider(ctx, provider); err != nil {
+	if err := providerRepository.SaveLLMProvider(ctx, provider); err != nil {
 		t.Fatal(err)
 	}
 	modelRepository := NewLLMModelCapabilitiesRepository(db)
@@ -188,7 +188,7 @@ func TestModelCompatibilityStateIsolatedAndCascadesWithProvider(t *testing.T) {
 	ctx := WithUserID(context.Background(), "owner-a")
 	otherCtx := WithUserID(context.Background(), "owner-b")
 	provider := &LLMProvider{ID: "provider", UserID: "owner-a", Name: "Provider", Type: "custom", BaseURL: "https://provider.example/v1"}
-	if err := NewProviderRepository(db).CreateLLMProvider(ctx, provider); err != nil {
+	if err := NewProviderRepository(db).SaveLLMProvider(ctx, provider); err != nil {
 		t.Fatal(err)
 	}
 	repository := NewLLMModelCapabilitiesRepository(db)
@@ -220,7 +220,7 @@ func TestConcurrentUnsupportedFieldLearningUpsertsOneCurrentRow(t *testing.T) {
 	db := llmModelCapabilitiesTestDB(t)
 	ctx := WithUserID(context.Background(), "owner")
 	provider := &LLMProvider{ID: "provider", UserID: "owner", Name: "Provider", Type: "custom", BaseURL: "https://provider.example/v1"}
-	if err := NewProviderRepository(db).CreateLLMProvider(ctx, provider); err != nil {
+	if err := NewProviderRepository(db).SaveLLMProvider(ctx, provider); err != nil {
 		t.Fatal(err)
 	}
 	repository := NewLLMModelCapabilitiesRepository(db)
@@ -255,7 +255,7 @@ func TestConcurrentModelCreationKeepsOneProviderRemoteIdentity(t *testing.T) {
 	db := llmModelCapabilitiesTestDB(t)
 	ctx := WithUserID(context.Background(), "owner")
 	provider := &LLMProvider{ID: "provider", UserID: "owner", Name: "Provider", Type: "custom", BaseURL: "https://provider.example/v1"}
-	if err := NewProviderRepository(db).CreateLLMProvider(ctx, provider); err != nil {
+	if err := NewProviderRepository(db).SaveLLMProvider(ctx, provider); err != nil {
 		t.Fatal(err)
 	}
 	repository := NewLLMModelCapabilitiesRepository(db)
@@ -299,7 +299,7 @@ func TestModelAndProviderIdentityGuardsRejectUpdateAndReplace(t *testing.T) {
 	db := llmModelCapabilitiesTestDB(t)
 	ctx := WithUserID(context.Background(), "owner")
 	provider := &LLMProvider{ID: "provider", UserID: "owner", Name: "Provider", Type: "custom", BaseURL: "https://provider.example/v1"}
-	if err := NewProviderRepository(db).CreateLLMProvider(ctx, provider); err != nil {
+	if err := NewProviderRepository(db).SaveLLMProvider(ctx, provider); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Exec("UPDATE llm_providers SET id = ? WHERE id = ?", "replacement-provider", provider.ID).Error; err == nil {
@@ -381,7 +381,7 @@ func TestCapabilityFieldIdentityGuardRejectsUpdate(t *testing.T) {
 	db := llmModelCapabilitiesTestDB(t)
 	ctx := WithUserID(context.Background(), "owner")
 	provider := &LLMProvider{ID: "provider", UserID: "owner", Name: "Provider", Type: "custom", BaseURL: "https://provider.example/v1"}
-	if err := NewProviderRepository(db).CreateLLMProvider(ctx, provider); err != nil {
+	if err := NewProviderRepository(db).SaveLLMProvider(ctx, provider); err != nil {
 		t.Fatal(err)
 	}
 	repository := NewLLMModelCapabilitiesRepository(db)
@@ -430,7 +430,7 @@ func TestSystemProviderCompatibilityWritesRequireBootstrap(t *testing.T) {
 	userCtx := WithUserID(context.Background(), "owner")
 	bootstrapCtx := WithBootstrap(context.Background())
 	provider := &LLMProvider{ID: "system-provider", UserID: "", Name: "System", Type: "custom", BaseURL: "https://provider.example/v1"}
-	if err := NewProviderRepository(db).CreateLLMProvider(bootstrapCtx, provider); err != nil {
+	if err := NewProviderRepository(db).SaveLLMProvider(bootstrapCtx, provider); err != nil {
 		t.Fatal(err)
 	}
 	repository := NewLLMModelCapabilitiesRepository(db)
@@ -454,13 +454,13 @@ func TestSystemProviderCompatibilityWritesRequireBootstrap(t *testing.T) {
 	}
 }
 
-func TestCreateLLMProviderRejectsForeignUserPayload(t *testing.T) {
+func TestSaveLLMProviderRejectsNewForeignUserPayload(t *testing.T) {
 	db := llmModelCapabilitiesTestDB(t)
 	ctx := WithUserID(context.Background(), "owner-a")
 	provider := &LLMProvider{ID: "foreign-provider", UserID: "owner-b", Name: "Foreign", Type: "custom", BaseURL: "https://provider.example/v1"}
 
-	if err := NewProviderRepository(db).CreateLLMProvider(ctx, provider); !errors.Is(err, ErrProviderUserScopeMismatch) {
-		t.Fatalf("CreateLLMProvider() error = %v, want ErrProviderUserScopeMismatch", err)
+	if err := NewProviderRepository(db).SaveLLMProvider(ctx, provider); !errors.Is(err, ErrProviderUserScopeMismatch) {
+		t.Fatalf("SaveLLMProvider() error = %v, want ErrProviderUserScopeMismatch", err)
 	}
 	var count int64
 	if err := db.Model(&LLMProvider{}).Where("id = ?", provider.ID).Count(&count).Error; err != nil {
@@ -476,8 +476,8 @@ func TestSaveLLMProviderRejectsForeignUserPayload(t *testing.T) {
 	ctx := WithUserID(context.Background(), "owner-a")
 	provider := &LLMProvider{ID: "owned-provider", UserID: "owner-a", Name: "Owned", Type: "custom", BaseURL: "https://provider.example/v1"}
 	repository := NewProviderRepository(db)
-	if err := repository.CreateLLMProvider(ctx, provider); err != nil {
-		t.Fatalf("CreateLLMProvider(): %v", err)
+	if err := repository.SaveLLMProvider(ctx, provider); err != nil {
+		t.Fatalf("SaveLLMProvider(): %v", err)
 	}
 
 	provider.UserID = "owner-b"

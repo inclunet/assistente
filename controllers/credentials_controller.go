@@ -105,7 +105,7 @@ func (c *CredentialsController) GetCredentialForURL(ctx context.Context, resourc
 	if pattern == "" {
 		// A new editor draft uses the same hostname representation as runtime,
 		// including IPv6 and IDN. This does not create a stored credential.
-		return &CredentialSummary{Pattern: parsed.Hostname(), Type: "bearer", Source: "static"}, nil
+		return &CredentialSummary{Pattern: strings.ToLower(parsed.Hostname()), Type: "bearer", Source: "static"}, nil
 	}
 	summaries, err := c.ListCredentialsWithContext(ctx)
 	if err != nil {

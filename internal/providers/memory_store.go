@@ -3,10 +3,8 @@ package providers
 import (
 	"context"
 	"fmt"
-	"reflect"
 	"sync"
 
-	"assistente/internal/database"
 	"assistente/internal/llm"
 )
 
@@ -95,43 +93,6 @@ func (s *MemoryStore) Delete(_ context.Context, id string) error {
 	defer s.mu.Unlock()
 	delete(s.providers, id)
 	if s.defaultID == id {
-		s.defaultID = ""
-	}
-	return nil
-}
-
-func (s *MemoryStore) Create(_ context.Context, provider *llm.ProviderConfig) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if provider == nil {
-		return fmt.Errorf("provedor inválido")
-	}
-	if _, exists := s.providers[provider.ID]; exists {
-		return database.ErrLLMProviderAlreadyExists
-	}
-	clone := *provider
-	s.providers[provider.ID] = &clone
-	return nil
-}
-
-func (s *MemoryStore) Exists(_ context.Context, id string) (bool, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	_, exists := s.providers[id]
-	return exists, nil
-}
-
-func (s *MemoryStore) RollbackCreate(_ context.Context, provider *llm.ProviderConfig) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if provider == nil {
-		return fmt.Errorf("reserva de criação inválida")
-	}
-	if !reflect.DeepEqual(s.providers[provider.ID], provider) {
-		return fmt.Errorf("configuração do provedor mudou durante a criação")
-	}
-	delete(s.providers, provider.ID)
-	if s.defaultID == provider.ID {
 		s.defaultID = ""
 	}
 	return nil

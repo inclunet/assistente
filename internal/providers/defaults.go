@@ -2,13 +2,11 @@ package providers
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"slices"
 
 	"assistente/internal/acp"
 	"assistente/internal/credentials"
-	"assistente/internal/database"
 	"assistente/internal/llm"
 	"assistente/internal/logging"
 )
@@ -226,29 +224,21 @@ func (s *Service) CreateFromTemplate(ctx context.Context, providerType, apiKey s
 		return err
 	}
 
-	if exists, err := s.store.Exists(ctx, p.ID); err != nil {
-		return err
-	} else if exists || s.registry.Get(p.ID) != nil {
-		return database.ErrLLMProviderAlreadyExists
+	if err := s.registry.Register(p); err != nil {
+		return fmt.Errorf("erro ao registrar provedor: %w", err)
 	}
 
-	if err := p.Validate(); err != nil {
-		return err
-	}
-	if err := s.store.Create(ctx, p); err != nil {
-		return fmt.Errorf("erro ao salvar provedor: %w", err)
-	}
 	if apiKey != "" && p.CredentialPattern != "" {
 		if err := s.credMgr.RegisterPatternWithContext(ctx, p.CredentialPattern, &credentials.AuthConfig{Source: "static",
 			Type:  "bearer",
 			Token: apiKey,
 		}); err != nil {
-			return errors.Join(fmt.Errorf("erro ao salvar credencial: %w", err), s.store.RollbackCreate(ctx, p))
+			return fmt.Errorf("erro ao salvar credencial: %w", err)
 		}
 	}
 
-	if err := s.registry.Register(p); err != nil {
-		return fmt.Errorf("erro ao registrar provedor: %w", err)
+	if err := s.Save(ctx); err != nil {
+		return fmt.Errorf("erro ao salvar provedor: %w", err)
 	}
 
 	logging.Infof(ctx, "providers.defaults", "[providers] Provedor '%s' criado a partir do template", p.ID)

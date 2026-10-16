@@ -22,6 +22,12 @@ contexto do gerenciador; não é executada ao navegar para outra página.
 
 ## Diagnosticar falhas de carregamento
 
+A atualização das reservas de teclas globais não apaga o mapa local enquanto
+seu substituto está carregando. O mapa vigente só permanece disponível enquanto
+não tiver sido invalidado ou expirado; teclas reservadas globalmente continuam
+excluídas imediatamente. Isso não mantém permissões antigas após uma mudança
+autoritativa de configuração, bloqueio ou troca de sessão.
+
 O carregamento do mapa e das configurações tem um orçamento de cinco segundos.
 A espera pela reconstrução ou pela coordenação de segurança pode ser cancelada;
 se o recurso continuar ocupado, a leitura retorna erro e pode ser tentada novamente
@@ -298,6 +304,11 @@ Após criar uma aba pelo menu **Nova aba**, o foco vai para sua área principal:
 campo de mensagem do chat, editor, terminal ou painel da lista de tarefas.
 Se você mudar de tela, aba ou controle enquanto a criação estiver em andamento,
 o aplicativo não deve puxar o foco de volta quando ela terminar.
+
+A atualização do mapa de comandos não deve impedir a confirmação de uma
+criação já concluída. O aplicativo ainda exige a mesma sessão e ambiente
+desbloqueado para consultar esse resultado. O reteste de foco no ambiente
+real está acompanhado no [checklist manual](../../guias/VALIDACAO_MANUAL_COMANDOS/).
 
 ## Limites atuais de Ctrl+N
 
@@ -2846,8 +2857,34 @@ destino voltar a existir no workspace vinculado. Em ramos condicionais, a tecla
 mostra um alvo somente quando os ramos possíveis concordam; divergência é
 identificada como dependente do contexto. Essas informações são apresentação:
 não alteram o destino, não selecionam uma aba substituta e não adicionam
-auditoria por tecla. Personalizações de título, ícone e imagem continuam tendo
-precedência campo a campo, inclusive nas variantes de estado.
+auditoria por tecla.
+
+Para esses comandos, o editor apresenta uma **prévia automática da tecla**,
+sem pedir nome, ícone ou imagem. As personalizações antigas não substituem
+mais a apresentação da aba, inclusive nas variantes de estado. Ao renomear
+a aba, não é necessário editar a tecla. A escolha de uma aba específica pelo
+nome mantém o vínculo com aquela aba, não com qualquer aba de mesmo título.
+Os demais comandos continuam oferecendo personalização de apresentação.
+A prévia pode ser alcançada com Tab e lida pelo leitor de telas. Se você
+digitar uma personalização inválida e depois escolher uma ação automática,
+um aviso explica o bloqueio de Salvar: volte ao comando anterior para corrigir
+ou use **Descartar personalização inválida**.
+Se a mesma tecla puder executar também comandos de outro tipo conforme o
+contexto, a apresentação combinada continua identificando essa combinação,
+em vez de prometer que a tecla sempre leva à aba da prévia do binding.
+
+Validação manual da apresentação automática:
+
+- [ ] Editar uma tecla **Ir para aba** por posição e conferir a prévia sem
+  campos de personalização. Salvar e comparar com o Stream Deck.
+- [ ] Renomear e reordenar abas; conferir que a tecla por posição acompanha
+  a aba que ocupa a posição, enquanto a tecla específica acompanha a mesma aba.
+- [ ] Fechar a aba específica ou trocar de workspace: conferir a indicação
+  de indisponibilidade, sem ícone/imagem da aba anterior.
+- [ ] Reabrir uma configuração antiga com título ou imagem personalizados:
+  conferir que o nome e ícone da aba prevalecem.
+- [ ] Conferir a prévia com NVDA e verificar que outros comandos continuam
+  permitindo personalizar sua apresentação.
 
 ### Ações de camada condicionadas na paleta
 

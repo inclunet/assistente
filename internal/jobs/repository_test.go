@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -1196,6 +1197,124 @@ func TestDBRepositoryCleanRunsExceedingCount(t *testing.T) {
 	// keep <= 0 desativa o cap.
 	if d0, err := repo.CleanRunsExceedingCount(userA, 0); err != nil || d0 != 0 {
 		t.Fatalf("keep=0 deveria ser noop: deleted=%d err=%v", d0, err)
+	}
+}
+
+func TestRunRetentionDetachesSurvivingToolInvocationChildrenWithForeignKeys(t *testing.T) {
+	for _, mode := range []string{"age", "count"} {
+		t.Run(mode, func(t *testing.T) {
+			path, err := filepath.Abs(filepath.Join(t.TempDir(), "job-retention.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			restoreDB := database.SetDB(database.DB())
+			var initializedDB *gorm.DB
+			t.Cleanup(func() {
+				if initializedDB != nil {
+					if sqlDB, err := initializedDB.DB(); err == nil {
+						_ = sqlDB.Close()
+					}
+				}
+				restoreDB()
+			})
+			if err := database.InitPath(path); err != nil {
+				initializedDB = database.DB()
+				t.Fatalf("InitPath: %v", err)
+			}
+			db := database.DB()
+			initializedDB = db
+			ctx := database.WithUserID(context.Background(), "retention-owner")
+			if err := db.Create(&database.User{
+				UUIDModel: database.UUIDModel{ID: "retention-owner"}, Username: "retention-owner", PasswordHash: "test",
+				Role: database.UserRoleUser, IsActive: true,
+			}).Error; err != nil {
+				t.Fatal(err)
+			}
+			tool := database.ToolCatalog{
+				UUIDModel: database.UUIDModel{ID: "retention-tool"}, Name: "test_tool", DisplayName: "Retention tool",
+				Origin: tools.ToolOriginBuiltin, AvailabilityStatus: tools.ToolAvailabilityAvailable,
+			}
+			if err := db.Create(&tool).Error; err != nil {
+				t.Fatal(err)
+			}
+			repo := NewDBRepository(db)
+			now := time.Now().UTC()
+			repo.now = func() time.Time { return now }
+			if err := repo.SaveJob(ctx, testRepositoryJob("retention-job", "Retention job")); err != nil {
+				t.Fatalf("save job: %v", err)
+			}
+			logRun := func(runID string, startedAt time.Time) {
+				t.Helper()
+				if err := repo.LogRun(ctx, &RunLog{
+					RunID: runID, JobID: "retention-job", Trigger: TriggerInfo{Type: TriggerManual},
+					Status: RunStatusCompleted, QueuedAt: startedAt, StartedAt: startedAt,
+					CompletedAt: startedAt.Add(time.Minute),
+				}); err != nil {
+					t.Fatalf("log run %s: %v", runID, err)
+				}
+			}
+			oldRunID := "retention-old-run"
+			logRun(oldRunID, now.Add(-48*time.Hour))
+			if mode == "count" {
+				logRun("retention-new-run", now.Add(-time.Hour))
+			}
+			parent := database.ToolInvocation{
+				UUIDModel: database.UUIDModel{ID: "retention-parent"}, UserID: "retention-owner", ToolCatalogID: tool.ID,
+				OriginType: toolinvocations.OriginJobRun, OriginID: oldRunID, Status: toolinvocations.StatusSucceeded,
+				QueuedAt: now.Add(-48 * time.Hour),
+			}
+			if err := db.Create(&parent).Error; err != nil {
+				t.Fatal(err)
+			}
+			child := database.ToolInvocation{
+				UUIDModel: database.UUIDModel{ID: "retention-child"}, UserID: "retention-owner", ToolCatalogID: tool.ID,
+				OriginType: toolinvocations.OriginChat, OriginID: "surviving-subagent", ParentInvocationID: &parent.ID,
+				Status: toolinvocations.StatusSucceeded, QueuedAt: now.Add(-time.Hour),
+			}
+			if err := db.Create(&child).Error; err != nil {
+				t.Fatal(err)
+			}
+			if err := db.Exec(`CREATE TRIGGER reject_retention_parent_delete BEFORE DELETE ON tool_invocations
+				WHEN OLD.id = 'retention-parent' BEGIN SELECT RAISE(ABORT, 'reject retention parent delete'); END`).Error; err != nil {
+				t.Fatal(err)
+			}
+			clean := func() (int, error) {
+				if mode == "age" {
+					return repo.CleanOldRuns(ctx, 24*time.Hour)
+				}
+				return repo.CleanRunsExceedingCount(ctx, 1)
+			}
+			if _, err := clean(); err == nil {
+				t.Fatal("retenção deveria falhar com trigger de regressão")
+			}
+			var storedChild database.ToolInvocation
+			if err := db.First(&storedChild, "id = ?", child.ID).Error; err != nil {
+				t.Fatal(err)
+			}
+			if storedChild.ParentInvocationID == nil || *storedChild.ParentInvocationID != parent.ID {
+				t.Fatalf("rollback alterou o vínculo da filha: parent=%v", storedChild.ParentInvocationID)
+			}
+			var run database.JobRun
+			if err := db.First(&run, "id = ?", oldRunID).Error; err != nil {
+				t.Fatalf("rollback removeu o run: %v", err)
+			}
+			if err := db.Exec("DROP TRIGGER reject_retention_parent_delete").Error; err != nil {
+				t.Fatal(err)
+			}
+			deleted, err := clean()
+			if err != nil {
+				t.Fatalf("retenção: %v", err)
+			}
+			if deleted != 1 {
+				t.Fatalf("runs deleted=%d, want 1", deleted)
+			}
+			if err := db.First(&storedChild, "id = ?", child.ID).Error; err != nil {
+				t.Fatal(err)
+			}
+			if storedChild.ParentInvocationID != nil {
+				t.Fatalf("filha sobrevivente ainda vinculada ao pai removido: %v", *storedChild.ParentInvocationID)
+			}
+		})
 	}
 }
 

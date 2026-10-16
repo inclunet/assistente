@@ -68,6 +68,7 @@ const FOCUSABLE_SELECTOR =
   'textarea:not([disabled]), [tabindex]:not([tabindex="-1"]), [contenteditable]';
 
 function isVisibleFocusableElement(el: HTMLElement): boolean {
+  if (el.matches(':disabled')) return false;
   if (el.closest('[hidden], [aria-hidden="true"]')) return false;
   return el.offsetParent !== null || el.getClientRects().length > 0;
 }
@@ -307,7 +308,11 @@ export function Modal({
       if (e.key !== 'Tab') return;
 
       const focusableElements = getFocusableElements();
-      if (focusableElements.length === 0) return;
+      if (focusableElements.length === 0) {
+        e.preventDefault();
+        modalRef.current?.focus();
+        return;
+      }
 
       const firstElement = focusableElements[0];
       const lastElement = focusableElements[focusableElements.length - 1];

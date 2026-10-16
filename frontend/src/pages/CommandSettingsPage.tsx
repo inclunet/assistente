@@ -24,6 +24,7 @@ import { CommandConditionEditor } from '../components/commands/CommandConditionE
 import { CommandObjectFieldsEditor } from '../components/commands/CommandObjectFieldsEditor';
 import { CommandLayerActionFields } from '../components/commands/CommandLayerActionFields';
 import { CommandWorkspaceTabTargetFields } from '../components/commands/CommandWorkspaceTabTargetFields';
+import { CommandWorkspaceTabPresentationPreview, usesAutomaticWorkspaceTabPresentation } from '../components/commands/CommandWorkspaceTabPresentationPreview';
 import {
   CommandPresentationEditor,
   isCommandPresentationValid,
@@ -144,6 +145,8 @@ export default function CommandSettingsPage() {
   const vaultUnlocked = useAuthStore((state) => state.status?.vaultUnlocked ?? false);
   const workspaceId = useWorkspaceStore((state) => state.workspace?.id ?? '');
   const workspaceName = useWorkspaceStore((state) => state.workspace?.name ?? '');
+  const workspaceData = useWorkspaceStore((state) => state.workspace);
+  const automaticPresentationRef = useRef<HTMLDivElement>(null);
   const workspaceTabs = useWorkspaceStore((state) => state.workspace?.tabs);
   const [scope, setScope] = useState<CommandSettingsScope>('global');
   const [deckStatusSnapshot, setDeckStatusSnapshot] = useState<{ identity: string; value: CommandDeckStatusEvent } | null>(null);
@@ -196,6 +199,13 @@ export default function CommandSettingsPage() {
   const reloadButton = useRef<HTMLButtonElement>(null);
   const [consentTarget, setConsentTarget] = useState<HTMLDivElement | null>(null);
   const [editor, setEditor] = useState<Editor>(null);
+  const invalidAutomaticPresentation = editor?.kind === 'binding' &&
+    editor.value.triggerType === 'streamdeck.key' && editor.value.effect !== 'suppress' &&
+    usesAutomaticWorkspaceTabPresentation(editor.value.commandId) &&
+    !isCommandPresentationValid(editor.value.presentation);
+  useEffect(() => {
+    if (invalidAutomaticPresentation) announce(t('commandSettings.automaticPresentation.invalidDraft'));
+  }, [announce, invalidAutomaticPresentation, t]);
   const [advancedOptionsOpen, setAdvancedOptionsOpen] = useState(false);
   const [argumentsValid, setArgumentsValid] = useState(true);
   const editorConditionFields = useMemo(() => {
@@ -1595,12 +1605,33 @@ export default function CommandSettingsPage() {
                       onCapture={() => void beginCapture()}
                       onCancel={() => cancelCapture()}
                     />
-                    <CommandPresentationEditor
-                      value={editor.value.presentation}
-                      disabled={busy}
-                      onBusyChange={setPresentationBusy}
-                      onChange={(presentation) => updateBindingField({ presentation })}
-                    />
+                    {usesAutomaticWorkspaceTabPresentation(editor.value.commandId) ? (
+                      <div ref={automaticPresentationRef}>
+                        <CommandWorkspaceTabPresentationPreview
+                          commandID={editor.value.commandId}
+                          argumentsValue={editor.value.arguments}
+                          workspace={workspaceData}
+                        />
+                        {invalidAutomaticPresentation && <>
+                          <p id="command-presentation-invalid-draft">{t('commandSettings.automaticPresentation.invalidDraft')}</p>
+                          <Button type="button" variant="secondary" disabled={busy}
+                            aria-describedby="command-presentation-invalid-draft"
+                            onClick={() => {
+                              automaticPresentationRef.current?.querySelector<HTMLElement>('[role="document"]')?.focus();
+                              updateBindingField({ presentation: undefined });
+                            }}>
+                            {t('commandSettings.automaticPresentation.discardInvalid')}
+                          </Button>
+                        </>}
+                      </div>
+                    ) : (
+                      <CommandPresentationEditor
+                        value={editor.value.presentation}
+                        disabled={busy}
+                        onBusyChange={setPresentationBusy}
+                        onChange={(presentation) => updateBindingField({ presentation })}
+                      />
+                    )}
                   </>
                 ) : (
                   <p>{t('commandSettings.form.paletteInfo')}</p>

@@ -1,3 +1,7 @@
+vi.mock('@wailsjs/go/wailsapi/Credentials', () => ({
+ GetCredentialForURL: vi.fn(async () => null), ListCredentials: vi.fn(async () => []),
+ ListExternalSources: vi.fn(async () => []), UpsertCredential: vi.fn(),
+}));
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -151,7 +155,7 @@ describe("ProviderForm - Renderização", () => {
     expect(urlInput.value).toBe("http://localhost:11434");
   });
 
-  it("deve exigir API Key para OpenAI", () => {
+  it("deve exigir autenticação para OpenAI", () => {
     render(
       <ProviderForm
         onCancel={() => {}}
@@ -159,13 +163,11 @@ describe("ProviderForm - Renderização", () => {
       />
     );
 
-    expect(screen.getByLabelText(/api key/i)).toBeInTheDocument();
-    const allLabels = screen.getAllByText(/api key/i);
-    const apiKeyLabel = allLabels.find(el => el.tagName === "LABEL");
-    expect(apiKeyLabel).toHaveTextContent("*");
+    expect(screen.getByLabelText('providerForm.authMode')).toHaveValue('required');
+    expect(screen.getByRole('button', { name: 'credentials.mcp.configure' })).toBeInTheDocument();
   });
 
-  it("deve ter API Key opcional para Ollama", async () => {
+  it("Ollama inicia sem autenticação e permite optar por credencial", async () => {
     const user = userEvent.setup();
     render(
       <ProviderForm
@@ -177,8 +179,10 @@ describe("ProviderForm - Renderização", () => {
     const typeSelect = screen.getByLabelText(/tipo/i);
     await user.selectOptions(typeSelect, "ollama");
 
-    const apiKeyLabel = screen.getByText(/api key/i).closest("label");
-    expect(apiKeyLabel).not.toHaveTextContent("*");
+    expect(screen.getByLabelText('providerForm.authMode')).toHaveValue('none');
+    expect(screen.queryByRole('button', { name: 'credentials.mcp.configure' })).not.toBeInTheDocument();
+    await user.selectOptions(screen.getByLabelText('providerForm.authMode'), 'optional');
+    expect(screen.getByRole('button', { name: 'credentials.mcp.configure' })).toBeInTheDocument();
   });
 });
 
@@ -260,9 +264,10 @@ describe("ProviderForm - Validação", () => {
     const nameInput = screen.getByLabelText(/nome/i);
     await user.type(nameInput, "My OpenAI");
 
-    const allLabels = screen.getAllByText(/api key/i);
-    const apiKeyLabel = allLabels.find(el => el.tagName === "LABEL");
-    expect(apiKeyLabel).toHaveTextContent("*");
+    await waitFor(() => expect(screen.getByRole('button', { name: 'credentials.mcp.configure' })).toBeEnabled());
+    await user.click(screen.getByRole('button', { name: 'credentials.mcp.configure' }));
+    expect(screen.getByText('credentials.sourceFields.required')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /carregar modelos/i })).toBeDisabled();
   });
 });
 
@@ -445,7 +450,9 @@ describe("ProviderForm - Salvar", () => {
       />
     );
 
-    // Auto-carregamento de modelos roda automaticamente ao abrir edição
+    // Testar é explícito: abrir edição não executa a fonte command.
+    expect(App.ListModelsRaw).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: /carregar modelos/i }));
     await waitFor(() => {
       expect(screen.getByText(/conectado/i)).toBeInTheDocument();
     });
@@ -546,23 +553,28 @@ it('permite criar provedor usando a credencial de source cadastrada no cofre', a
   vi.clearAllMocks();
   render(<ProviderForm onCancel={() => {}} onSave={() => {}} />);
   await userEvent.type(screen.getByLabelText(/nome/i), 'Gateway');
-  await userEvent.click(screen.getByLabelText('providerForm.useSavedCredential'));
+
   expect(screen.queryByLabelText(/^API Key$/i)).not.toBeInTheDocument();
   await userEvent.click(screen.getByRole('button', { name: /carregar modelos/i }));
-  await waitFor(() => expect(App.ListModelsRaw).toHaveBeenCalledWith(expect.objectContaining({ api_key: undefined })));
+  await waitFor(() => expect(App.ListModelsRaw).toHaveBeenCalledWith(expect.objectContaining({ credential: undefined })));
   await userEvent.click(screen.getByRole('button', { name: 'Criar' }));
-  await waitFor(() => expect(App.CreateLLMProvider).toHaveBeenCalledWith(expect.objectContaining({ name: 'Gateway', api_key: undefined })));
+  await waitFor(() => expect(App.CreateLLMProvider).toHaveBeenCalledWith(expect.objectContaining({ name: 'Gateway', credential: undefined })));
 });
 
-it('limpa a escolha de credencial salva ao trocar de provedor e voltar para criação', async () => {
+it('descarta o rascunho ao trocar de provedor e voltar para criação', async () => {
  const onSave = vi.fn(); const onCancel = vi.fn();
  const { rerender } = render(<ProviderForm onSave={onSave} onCancel={onCancel} />);
- await userEvent.click(screen.getByLabelText('providerForm.useSavedCredential'));
+ const configure = () => screen.getByRole('button', { name: 'credentials.mcp.configure' });
+ await waitFor(() => expect(configure()).toBeEnabled());
+ await userEvent.click(configure());
+ await userEvent.type(screen.getByLabelText('credentials.labels.token'), 'private-draft');
  const provider = { id: 'saved', name: 'Saved', type: 'openai', base_url: 'https://api.openai.com/v1', api_key: '' };
  rerender(<ProviderForm provider={provider} onSave={onSave} onCancel={onCancel} />);
- expect(screen.getByLabelText('providerForm.useSavedCredential')).not.toBeChecked();
- await userEvent.click(screen.getByLabelText('providerForm.useSavedCredential'));
+ expect(screen.queryByDisplayValue('private-draft')).not.toBeInTheDocument();
+ await waitFor(() => expect(configure()).toBeEnabled());
+ await userEvent.click(configure());
+ expect(screen.getByLabelText('credentials.labels.token')).toHaveValue('');
  rerender(<ProviderForm onSave={onSave} onCancel={onCancel} />);
- expect(screen.getByLabelText('providerForm.useSavedCredential')).not.toBeChecked();
- expect(screen.getByLabelText(/^API Key$/i)).toBeInTheDocument();
+ expect(screen.queryByLabelText('credentials.labels.token')).not.toBeInTheDocument();
+ expect(App.ListModelsRaw).not.toHaveBeenCalled();
 });

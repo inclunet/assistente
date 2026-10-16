@@ -91,6 +91,10 @@ func (c *LLMController) TestLLMProvider(ctx context.Context, req TestLLMProvider
 			retErr = fmt.Errorf("erro interno ao testar provider: %v", r)
 		}
 	}()
+	if req.Credential != nil || req.AuthMode != "" || req.APIFormat != "" {
+		_, err := c.ListModelsRaw(ctx, req)
+		return err == nil, err
+	}
 	return c.providerSvc.TestConnection(ctx, providers.TestRequest{
 		BaseURL:    req.BaseURL,
 		APIKey:     req.APIKey,
@@ -105,7 +109,12 @@ func (c *LLMController) ListModelsRaw(ctx context.Context, req TestLLMProviderRe
 			retErr = fmt.Errorf("erro interno ao listar modelos: %v", r)
 		}
 	}()
+	credential, err := providerCredentialInput(req.Credential)
+	if err != nil {
+		return nil, err
+	}
 	return c.providerSvc.ListModelsRaw(ctx, providers.ListModelsRawRequest{
+		Credential: credential, AuthMode: req.AuthMode, APIFormat: req.APIFormat,
 		Type:       req.Type,
 		BaseURL:    req.BaseURL,
 		APIKey:     req.APIKey,
@@ -156,7 +165,13 @@ func providerToMap(p *llm.ProviderConfig, credentialPattern string, credentialCo
 }
 
 func (c *LLMController) CreateLLMProvider(ctx context.Context, req CreateLLMProviderRequest) (map[string]interface{}, error) {
+	credential, err := providerCredentialInput(req.Credential)
+	if err != nil {
+		return nil, err
+	}
 	res, err := c.providerSvc.Create(ctx, providers.CreateRequest{
+		CredentialFromProviderID: req.CredentialFromProviderID,
+		Credential:               credential, AuthMode: req.AuthMode,
 		ID:                   req.ID,
 		Name:                 req.Name,
 		Type:                 req.Type,
@@ -178,7 +193,12 @@ func (c *LLMController) CreateLLMProvider(ctx context.Context, req CreateLLMProv
 }
 
 func (c *LLMController) UpdateLLMProvider(ctx context.Context, id string, req UpdateLLMProviderRequest) (map[string]interface{}, error) {
+	credential, err := providerCredentialInput(req.Credential)
+	if err != nil {
+		return nil, err
+	}
 	res, err := c.providerSvc.Update(ctx, id, providers.UpdateRequest{
+		Credential: credential, AuthMode: req.AuthMode,
 		Name:                 req.Name,
 		Type:                 req.Type,
 		APIFormat:            req.APIFormat,
@@ -220,4 +240,16 @@ func (c *LLMController) GetLLMProvidersWithStatus(ctx context.Context) []map[str
 		result = append(result, providerToMap(s.Provider, s.Provider.CredentialPattern, s.CredentialConfigured))
 	}
 	return result
+}
+
+// Reuse the CredManager parser: no provider-specific interpretation of secrets.
+func providerCredentialInput(input *apidto.CredentialInput) (*providers.CredentialSpec, error) {
+	if input == nil {
+		return nil, nil
+	}
+	pattern, auth, err := parseCredentialInput(*input)
+	if err != nil {
+		return nil, err
+	}
+	return &providers.CredentialSpec{Pattern: pattern, Auth: auth}, nil
 }

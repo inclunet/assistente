@@ -3,6 +3,7 @@ package llm
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -314,4 +315,25 @@ func TestGetModelsNoContentType(t *testing.T) {
 
 	models, err := cp.GetModels(ctx)
 	t.Logf("models=%v err=%v", models, err)
+}
+
+type modelListingTimeoutTransport struct{ t *testing.T }
+
+func (tr modelListingTimeoutTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	deadline, ok := req.Context().Deadline()
+	remaining := time.Until(deadline)
+	if !ok || remaining <= 30*time.Second || remaining > 45*time.Second {
+		tr.t.Errorf("configured timeout lost: %v %v", ok, remaining)
+	}
+	return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"data":[{"id":"model"}]}`)), Request: req}, nil
+}
+func TestGetModelsHTTPPreservesConfiguredTimeout(t *testing.T) {
+	original := http.DefaultTransport
+	http.DefaultTransport = modelListingTimeoutTransport{t: t}
+	t.Cleanup(func() { http.DefaultTransport = original })
+	p := &OpenAIProvider{provider: &ProviderConfig{ID: "preview", Name: "Preview", Type: ProviderCustom, BaseURL: "https://example.com/v1", AuthMode: AuthModeNone, Timeout: 45}}
+	models, err := p.getModelsHTTP(context.Background())
+	if err != nil || len(models) != 1 {
+		t.Fatalf("fallback: %v %v", models, err)
+	}
 }

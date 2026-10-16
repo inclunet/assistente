@@ -85,9 +85,6 @@ type LLMProvider struct {
 	// CompatibilityRevision invalida fatos de capabilities quando muda a
 	// identidade efetiva da conexão. Não deriva nem persiste dados de segredo.
 	CompatibilityRevision int `gorm:"not null;default:1;check:compatibility_revision > 0"`
-	// ConfigRevision protege o registry contra snapshots de configuração
-	// atrasados sem invalidar fatos de capabilities ao trocar só opções/modelo.
-	ConfigRevision int `gorm:"not null;default:1;check:config_revision > 0"`
 	// ACPCommand, ACPArgs e ACPEnv guardam como subir o agente de código
 	// quando o formato é acp. Mesmo formato de armazenamento do servidor MCP
 	// stdio, que tem o mesmo problema: JSON em texto, porque SQLite não tem
@@ -138,6 +135,7 @@ type LLMModelCapabilityField struct {
 	RecognizerID          string    `gorm:"type:text;not null" json:"recognizerId"`
 	UpdatedAt             time.Time `gorm:"not null" json:"updatedAt"`
 }
+
 // ACPSession vincula uma conversa do app à sessão que o agente de código mantém
 // do lado dele (AEP-0084 D4). É o registro que faz a conversa sobreviver ao
 // restart: com um agente ACP o histórico vive na sessão dele, não em mensagens

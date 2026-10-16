@@ -1,6 +1,17 @@
 const ptBR = {
   translation: {
  chatgpt: {
+    providerSettings: "Configuração do provedor",
+    providerName: "Nome do provedor",
+    chooseModel: "Escolha um modelo",
+    loadingModels: "Carregando modelos da conta…",
+    savePreferences: "Salvar configuração",
+    preferencesSaved: "Configuração do provedor salva.",
+    defaultSaved: "Provedor definido como padrão.",
+    preferencesLoadError: "Não foi possível carregar a configuração do provedor.",
+    modelsLoadError: "Não foi possível carregar os modelos desta conta.",
+    preferencesSaveError: "Não foi possível salvar. Confira a configuração e tente novamente.",
+
     operationPending: 'Aguarde a conclusão desta operação antes de fechar a janela.',
     vaultUnavailable: 'O cofre de credenciais está indisponível. Recupere ou desbloqueie o cofre antes de desconectar e excluir este provedor.',
     authorizationChanged: 'A conexão foi alterada ou está em uso por outra autorização. Aguarde, recarregue a lista e tente excluir novamente.',
@@ -652,6 +663,7 @@ const ptBR = {
       deepLinkNotFound: 'Não há acionador configurado para {{command}} neste escopo.',
       specificTab: 'Aba específica',
       tabTarget: { title: 'Destino da aba', workspace: 'Vinculado ao workspace: {{name}}', noWorkspace: 'Abra um workspace para configurar este destino.', mode: 'Tipo de destino', chooseMode: 'Escolha o tipo de destino', byPosition: 'Por posição', bySpecificTab: 'Aba específica', position: 'Posição da aba', specificTab: 'Aba', chooseTab: 'Escolha uma aba', unavailableTab: 'Aba indisponível (mantida)', otherWorkspace: 'Este destino está vinculado a outro workspace; selecione um novo destino para vinculá-lo a este workspace.' },
+      automaticPresentation: { title: 'Prévia automática do Stream Deck', help: 'O título e o ícone acompanham o destino atual; personalizações salvas são ignoradas.', unavailable: 'Aba indisponível', invalidDraft: 'A personalização digitada anteriormente é inválida e impede salvar. Descarte-a ou volte ao comando anterior para corrigi-la.', discardInvalid: 'Descartar personalização inválida' },
       layerActionTarget: 'Camada e regra de ativação',
       layerActionCompleted: 'Ação de camada concluída.',
       layerActionChoose: 'Escolha o destino',
@@ -2517,6 +2529,8 @@ const ptBR = {
     },
 
     providerForm: {
+    authMode: 'Autenticação',
+    authModes: { required: 'Obrigatória', optional: 'Opcional', none: 'Sem autenticação' },
       useSavedCredential: "Usar credencial já cadastrada para este domínio",
       savedCredentialHelp: "Configure a fonte em Credenciais usando o hostname da URL base como padrão. Deixe a chave vazia para usar essa credencial.",
       name: 'Nome',
@@ -2854,6 +2868,7 @@ const ptBR = {
     },
 
     providers: {
+    creation: { cancelLoading: 'Cancelar carregamento', title: 'Novo provedor', chatgpt: 'Conectar conta ChatGPT', acp: 'Serviço ACP', api: 'Provedor API' },
       pageTitle: 'Provedores LLM',
       search: 'Buscar provedores...',
       loading: 'Carregando...',
