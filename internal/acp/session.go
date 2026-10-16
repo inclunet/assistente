@@ -55,6 +55,9 @@ type session struct {
 	// pediu desiste de esperar —, porque dois session/prompt no mesmo
 	// sessionId se atropelariam do lado do agente (AEP-0084 D10).
 	turnSlot chan struct{}
+	// optionWriteSlot serializa escritas de configuração na mesma sessão; as
+	// notificações do agente continuam livres para atualizar options via mu.
+	optionWriteSlot chan struct{}
 
 	// grace é o prazo de confirmação do cancelamento; campo, e não constante,
 	// para que o teste possa encurtá-lo sem esperar meio minuto.
@@ -125,6 +128,7 @@ func newSession(id, cwd string, cn *conn, options []ConfigOption) *session {
 		cwd:             cwd,
 		cn:              cn,
 		turnSlot:        make(chan struct{}, 1),
+		optionWriteSlot: make(chan struct{}, 1),
 		grace:           cancelGrace,
 		closeWait:       closeTimeout,
 		stallTimeout:    stallTimeout,
@@ -137,6 +141,7 @@ func newSession(id, cwd string, cn *conn, options []ConfigOption) *session {
 		lastActivity:    time.Now(),
 	}
 	s.turnSlot <- struct{}{}
+	s.optionWriteSlot <- struct{}{}
 	return s
 }
 
@@ -208,13 +213,13 @@ func (s *session) optionRevisionSnapshot() map[string]uint64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	snapshot := make(map[string]uint64, len(s.optionRevisions))
-	for category, revision := range s.optionRevisions {
-		snapshot[category] = revision
+	for optionID, revision := range s.optionRevisions {
+		snapshot[optionID] = revision
 	}
 	return snapshot
 }
 
-// reconcileConfigOptionResponse aceita a resposta da escrita nas categorias
+// reconcileConfigOptionResponse aceita a resposta da escrita nas opções
 // que não mudaram desde o pedido e mantém a versão mais recente das demais.
 // O agente pode notificar a troca antes de devolver o estado completo do pedido.
 func (s *session) reconcileConfigOptionResponse(fresh []ConfigOption, id, value string, before map[string]uint64) ([]ConfigOption, bool) {
@@ -224,8 +229,8 @@ func (s *session) reconcileConfigOptionResponse(fresh []ConfigOption, id, value 
 	latest := copyOptions(s.options)
 	merged := withKnownLegacy(fresh, latest)
 	if len(merged) == 0 {
-		category := optionRevisionKeyForID(latest, id)
-		if s.optionRevisions[category] != before[category] {
+		optionID := optionRevisionKeyForID(id)
+		if s.optionRevisions[optionID] != before[optionID] {
 			return latest, true
 		}
 		updated, ok := setOptionValue(latest, id, value)
@@ -235,13 +240,13 @@ func (s *session) reconcileConfigOptionResponse(fresh []ConfigOption, id, value 
 		merged = updated
 	} else {
 		changed := make(map[string]bool)
-		for category, revision := range s.optionRevisions {
-			if revision != before[category] {
-				changed[category] = true
+		for optionID, revision := range s.optionRevisions {
+			if revision != before[optionID] {
+				changed[optionID] = true
 			}
 		}
 		if len(changed) > 0 {
-			merged = preserveOptionCategories(merged, latest, changed)
+			merged = preserveChangedOptions(merged, latest, changed)
 		}
 	}
 	s.bumpOptionRevisionsLocked(latest, merged)
@@ -253,52 +258,44 @@ func (s *session) bumpOptionRevisionsLocked(before, after []ConfigOption) {
 	if s.optionRevisions == nil {
 		s.optionRevisions = make(map[string]uint64)
 	}
-	groupByCategory := func(options []ConfigOption) map[string][]ConfigOption {
+	groupByOption := func(options []ConfigOption) map[string][]ConfigOption {
 		grouped := make(map[string][]ConfigOption)
 		for _, option := range options {
-			category := optionRevisionKey(option)
-			grouped[category] = append(grouped[category], option)
+			optionKey := optionRevisionKey(option)
+			grouped[optionKey] = append(grouped[optionKey], option)
 		}
-		for category := range grouped {
-			sort.Slice(grouped[category], func(i, j int) bool {
-				return grouped[category][i].ID < grouped[category][j].ID
+		for optionKey := range grouped {
+			sort.Slice(grouped[optionKey], func(i, j int) bool {
+				return grouped[optionKey][i].ID < grouped[optionKey][j].ID
 			})
 		}
 		return grouped
 	}
-	previous := groupByCategory(before)
-	current := groupByCategory(after)
+	previous := groupByOption(before)
+	current := groupByOption(after)
 	changed := make(map[string]bool, len(previous)+len(current))
-	for category := range previous {
-		changed[category] = true
+	for optionKey := range previous {
+		changed[optionKey] = true
 	}
-	for category := range current {
-		changed[category] = true
+	for optionKey := range current {
+		changed[optionKey] = true
 	}
-	for category := range changed {
-		if !reflect.DeepEqual(previous[category], current[category]) {
-			s.optionRevisions[category]++
+	for optionKey := range changed {
+		if !reflect.DeepEqual(previous[optionKey], current[optionKey]) {
+			s.optionRevisions[optionKey]++
 		}
 	}
 }
 
 func optionRevisionKey(option ConfigOption) string {
-	if option.Category != "" {
-		return option.Category
-	}
-	return "option:" + option.ID
+	return optionRevisionKeyForID(option.ID)
 }
 
-func optionRevisionKeyForID(options []ConfigOption, id string) string {
-	for _, option := range options {
-		if option.ID == id {
-			return optionRevisionKey(option)
-		}
-	}
+func optionRevisionKeyForID(id string) string {
 	return "option:" + id
 }
 
-func preserveOptionCategories(base, latest []ConfigOption, changed map[string]bool) []ConfigOption {
+func preserveChangedOptions(base, latest []ConfigOption, changed map[string]bool) []ConfigOption {
 	out := make([]ConfigOption, 0, len(base)+len(latest))
 	for _, option := range base {
 		if !changed[optionRevisionKey(option)] {
@@ -939,6 +936,19 @@ func (s *session) farewell(ctx context.Context) error {
 }
 
 func (s *session) SetConfigOption(ctx context.Context, id, value string) ([]ConfigOption, error) {
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-s.closedSig:
+		return nil, ErrSessionClosed
+	case <-s.optionWriteSlot:
+	}
+	if err := ctx.Err(); err != nil {
+		s.optionWriteSlot <- struct{}{}
+		return nil, err
+	}
+	defer func() { s.optionWriteSlot <- struct{}{} }()
+
 	// Conversa encerrada não troca de modelo: quem ainda segura a sessão não
 	// deve conseguir falar com o agente sobre ela.
 	if s.isClosed() {

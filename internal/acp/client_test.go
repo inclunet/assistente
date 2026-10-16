@@ -988,6 +988,52 @@ func TestNotificacaoMaisNovaPrevaleceSobreRespostaAtrasadaDaTroca(t *testing.T) 
 	}
 }
 
+func TestTrocasConcorrentesDaMesmaOpcaoSaoSerializadas(t *testing.T) {
+	ctx := testContext(t)
+	client := newTestClient(t, scriptOptionSerial, nil)
+	sess := startSession(t, client, ctx)
+	updates := make(chan Update, 1)
+	sess.(*session).setSink(func(update Update) {
+		if update.Kind == UpdateMode || update.Kind == UpdateTitle {
+			updates <- update
+		}
+	})
+
+	firstDone := make(chan error, 1)
+	go func() {
+		_, err := sess.SetConfigOption(ctx, "model", "modelo-b")
+		firstDone <- err
+	}()
+	select {
+	case <-updates: // Confirma que o agente recebeu a primeira escrita.
+	case <-ctx.Done():
+		t.Fatal("a primeira troca não iniciou antes do prazo")
+	}
+
+	secondDone := make(chan error, 1)
+	go func() {
+		_, err := sess.SetConfigOption(ctx, "model", "modelo-c")
+		secondDone <- err
+	}()
+	if err := <-firstDone; err != nil {
+		t.Fatalf("primeira troca: %v", err)
+	}
+	if err := <-secondDone; err != nil {
+		t.Fatalf("segunda troca: %v", err)
+	}
+	select {
+	case update := <-updates:
+		if update.Kind != UpdateTitle || update.Title != "serializada" {
+			t.Fatalf("a segunda escrita chegou antes da resposta da primeira: %+v", update)
+		}
+	case <-ctx.Done():
+		t.Fatal("o agente não confirmou a ordem das escritas")
+	}
+	if got := findOption(sess.ConfigOptions(), CategoryModel); got == nil || got.CurrentValue != "modelo-c" {
+		t.Fatalf("resposta da primeira troca sobrescreveu a segunda: %+v", sess.ConfigOptions())
+	}
+}
+
 // Trocar de modelo no meio da resposta é previsto no ACP — "whether the Agent
 // is idle or generating a response" — e é o caso real de quem percebe, ouvindo,
 // que pediu ao modelo errado. Enfileirar isso atrás do turno faria a troca só

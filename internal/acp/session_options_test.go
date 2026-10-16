@@ -41,6 +41,34 @@ func TestAtualizacaoDeModoNaoDescartaRespostaDeModeloEmAndamento(t *testing.T) {
 	}
 }
 
+func TestAtualizacaoDeOutraOpcaoNaoDescartaRespostaNaCategoriaOther(t *testing.T) {
+	sess := &session{options: []ConfigOption{
+		{ID: "effort", Category: "other", CurrentValue: "low"},
+		{ID: "verbosity", Category: "other", CurrentValue: "concise"},
+	}}
+	antes := sess.optionRevisionSnapshot()
+	updated := sess.replaceConfigOptions([]ConfigOption{
+		{ID: "effort", Category: "other", CurrentValue: "low"},
+		{ID: "verbosity", Category: "other", CurrentValue: "detailed"},
+	})
+	if got := findOption(updated, "verbosity"); got == nil || got.CurrentValue != "detailed" {
+		t.Fatalf("snapshot de verbosity não foi aplicado: %+v", updated)
+	}
+	options, ok := sess.reconcileConfigOptionResponse([]ConfigOption{
+		{ID: "effort", Category: "other", CurrentValue: "high"},
+		{ID: "verbosity", Category: "other", CurrentValue: "concise"},
+	}, "effort", "high", antes)
+	if !ok {
+		t.Fatal("resposta de effort não foi reconciliada")
+	}
+	if got := findOption(options, "effort"); got == nil || got.CurrentValue != "high" {
+		t.Fatalf("outra opção de other descartou a troca de effort: %+v", options)
+	}
+	if got := findOption(options, "verbosity"); got == nil || got.CurrentValue != "detailed" {
+		t.Fatalf("a notificação de verbosity foi revertida: %+v", options)
+	}
+}
+
 func TestOpcaoBooleanaPodeSerConsultadaEAlterada(t *testing.T) {
 	ctx := testContext(t)
 	client := newTestClient(t, scriptBooleanOptions, nil)

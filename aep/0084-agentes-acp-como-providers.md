@@ -435,11 +435,14 @@ notifica via `config_option_update`. Isso vira um evento para a UI refletir o
 modelo corrente — a pessoa precisa saber com quem está falando.
 
 Resposta de `session/set_config_option` e `config_option_update` podem chegar
-fora de ordem por canais diferentes. A sessão versiona as categorias alteradas
-e reconcilia a resposta remota com o estado recebido depois que o pedido saiu;
-uma resposta atrasada não pode reverter um snapshot mais novo nem divergir da
-consulta seguinte. A cobertura de transporte real é
-`TestNotificacaoMaisNovaPrevaleceSobreRespostaAtrasadaDaTroca`.
+fora de ordem por canais diferentes. A sessão serializa escritas concorrentes e
+versiona cada opção pelo identificador, sem fazer uma notificação de outra
+opção invalidar a resposta válida. A resposta remota é reconciliada com o
+estado recebido depois que o pedido saiu; uma resposta atrasada não pode
+reverter um snapshot mais novo nem divergir da consulta seguinte. A cobertura
+de transporte real inclui `TestNotificacaoMaisNovaPrevaleceSobreRespostaAtrasadaDaTroca`
+e `TestTrocasConcorrentesDaMesmaOpcaoSaoSerializadas`; a reconciliação entre
+opções da categoria `other` está em `session_options_test.go`.
 
 ### D7. As tool calls do agente são informativas, não executáveis
 
