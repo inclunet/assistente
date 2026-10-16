@@ -25,6 +25,12 @@ func TestTranslateBackendErrorForSpeech(t *testing.T) {
 			want:     "MCP server Equipe: Produção failed while running a tool. Try again or check its credentials and connection.",
 		},
 		{
+			name:     "prefixed MCP diagnostic is translated",
+			input:    "Falha na resposta do agente: mcp_error:v1:Servidor%20A:handshake",
+			language: "es-ES",
+			want:     "El servidor MCP Servidor A falló durante la conexión. Inténtalo de nuevo o comprueba sus credenciales y conexión.",
+		},
+		{
 			name:     "ordinary text remains unchanged",
 			input:    "provider_error:v1:authentication:",
 			language: "pt-BR",
@@ -46,6 +52,9 @@ func TestSpeakMessageRecognizesOnlyPersistedDiagnostics(t *testing.T) {
 	}
 	if !isBackendErrorDiagnostic("mcp_error:v1:server:list_tools") {
 		t.Fatal("diagnóstico de MCP deve ser reconhecido")
+	}
+	if !isBackendErrorDiagnostic("Falha na resposta do agente: mcp_error:v1:server:handshake") {
+		t.Fatal("diagnóstico MCP prefixado deve ser reconhecido")
 	}
 	for _, content := range []string{
 		"provider_error:v1:authentication:",

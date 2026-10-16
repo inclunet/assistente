@@ -44,6 +44,8 @@ describe('translateErrorMarkers', () => {
     await i18n.changeLanguage('es');
     expect(translateErrorMarkers('mcp_error:v1:Servidor%20A:handshake'))
       .toBe('El servidor MCP Servidor A falló durante la conexión. Inténtalo de nuevo o comprueba sus credenciales y conexión.');
+    expect(translateBackendErrorDiagnostic('Falha na resposta do agente: mcp_error:v1:Servidor%20A:handshake'))
+      .toBe('El servidor MCP Servidor A falló durante la conexión. Inténtalo de nuevo o comprueba sus credenciales y conexión.');
   });
 
   it('decodifica dois-pontos escapados e preserva marcadores literais', async () => {

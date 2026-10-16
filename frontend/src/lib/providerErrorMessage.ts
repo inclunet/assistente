@@ -74,5 +74,9 @@ export function translateBackendErrorDiagnostic(text: string): string {
   if (/^mcp_error:v1:[^:\s]+:(list_tools|call|handshake|unknown)$/.test(text)) {
     return translateErrorMarkers(text);
   }
+  const prefixedMcpDiagnostic = /^Falha na resposta do agente: (mcp_error:v1:[^:\s]+:(?:list_tools|call|handshake|unknown))$/.exec(text);
+  if (prefixedMcpDiagnostic) {
+    return translateErrorMarkers(prefixedMcpDiagnostic[1]);
+  }
   return text;
 }

@@ -8,9 +8,10 @@ import (
 )
 
 var (
-	providerDiagnosticPattern = regexp.MustCompile(`^Falha na resposta do agente: (provider_error:v1:[a-z_]+:[a-z_.]*(?::[1-5][0-9]{2})?)$`)
-	mcpDiagnosticPattern      = regexp.MustCompile(`^mcp_error:v1:([^:\s]+):(list_tools|call|handshake|unknown)$`)
-	providerMarkerPattern     = regexp.MustCompile(`^provider_error:v1:([a-z_]+):([a-z_.]*)(?::([1-5][0-9]{2}))?$`)
+	providerDiagnosticPattern    = regexp.MustCompile(`^Falha na resposta do agente: (provider_error:v1:[a-z_]+:[a-z_.]*(?::[1-5][0-9]{2})?)$`)
+	mcpDiagnosticPattern         = regexp.MustCompile(`^mcp_error:v1:([^:\s]+):(list_tools|call|handshake|unknown)$`)
+	prefixedMCPDiagnosticPattern = regexp.MustCompile(`^Falha na resposta do agente: (mcp_error:v1:[^:\s]+:(?:list_tools|call|handshake|unknown))$`)
+	providerMarkerPattern        = regexp.MustCompile(`^provider_error:v1:([a-z_]+):([a-z_.]*)(?::([1-5][0-9]{2}))?$`)
 )
 
 var speechErrorFields = map[string]string{
@@ -21,7 +22,7 @@ var speechErrorFields = map[string]string{
 }
 
 func isBackendErrorDiagnostic(text string) bool {
-	return providerDiagnosticPattern.MatchString(text) || mcpDiagnosticPattern.MatchString(text)
+	return providerDiagnosticPattern.MatchString(text) || mcpDiagnosticPattern.MatchString(text) || prefixedMCPDiagnosticPattern.MatchString(text)
 }
 
 // translateBackendErrorForSpeech traduz somente os formatos de diagnóstico que
@@ -35,7 +36,11 @@ func translateBackendErrorForSpeech(text, language string) string {
 		}
 		return text
 	}
-	if match := mcpDiagnosticPattern.FindStringSubmatch(text); match != nil {
+	mcpMarker := text
+	if match := prefixedMCPDiagnosticPattern.FindStringSubmatch(text); match != nil {
+		mcpMarker = match[1]
+	}
+	if match := mcpDiagnosticPattern.FindStringSubmatch(mcpMarker); match != nil {
 		server, err := url.PathUnescape(match[1])
 		if err != nil {
 			return text
