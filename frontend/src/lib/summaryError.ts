@@ -1,4 +1,5 @@
 import type { TFunction } from 'i18next';
+import { translateErrorMarkers } from './providerErrorMessage';
 
 /** Motivos de recusa que a interface sabe traduzir (backend: SummaryErrorCode*). */
 export const SUMMARY_ERROR_AGENT_PROVIDER = 'agent_provider';
@@ -22,5 +23,5 @@ export function summaryErrorMessage(t: TFunction, event: SummaryErrorEvent): str
   if (key) {
     return t(key);
   }
-  return t('app.summary.error', { error: event.error || '' });
+  return t('app.summary.error', { error: translateErrorMarkers(event.error || '') });
 }

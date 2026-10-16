@@ -811,6 +811,7 @@ type providerRetryHandler struct {
 	captureHandler
 	errors []string
 	done   int
+	tools  int
 }
 
 func (h *providerRetryHandler) OnError(err string) {
@@ -819,6 +820,20 @@ func (h *providerRetryHandler) OnError(err string) {
 
 func (h *providerRetryHandler) OnDone(fullResponse string, usage Usage, model string) {
 	h.done++
+}
+
+func (h *providerRetryHandler) OnToolCalls(calls []ToolCall, fullResponse string, usage Usage, model string) {
+	h.tools += len(calls)
+}
+
+type cancelOnChunkRetryHandler struct {
+	providerRetryHandler
+	cancel context.CancelFunc
+}
+
+func (h *cancelOnChunkRetryHandler) OnChunk(content string) {
+	h.providerRetryHandler.OnChunk(content)
+	h.cancel()
 }
 
 func TestAnthropicProvider_StreamChatWithMCP_DegradesFailedMCPServer(t *testing.T) {

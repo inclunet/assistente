@@ -1654,6 +1654,45 @@ func TestBuildExportFileIncludesProviders(t *testing.T) {
 	}
 }
 
+func TestProviderErrorFamilySurvivesExportAndImport(t *testing.T) {
+	setupPortabilityTestDB(t)
+	ctx := portabilityTestCtx()
+	provider := createPortableProviderFixture(t)
+	provider.ErrorFamily = "litellm"
+	if err := database.SaveLLMProviderWithContext(ctx, provider); err != nil {
+		t.Fatalf("save provider error family: %v", err)
+	}
+	file, err := BuildExportFileWithContext(ctx, nil, []string{provider.ID}, nil, nil, ExportRequest{}, "test")
+	if err != nil {
+		t.Fatalf("BuildExportFileWithContext: %v", err)
+	}
+	raw, err := json.Marshal(file.Resources.Providers[0])
+	if err != nil {
+		t.Fatalf("marshal provider export: %v", err)
+	}
+	var exported ProviderExport
+	if err := json.Unmarshal(raw, &exported); err != nil {
+		t.Fatalf("unmarshal provider export: %v", err)
+	}
+	if exported.ErrorFamily != "litellm" {
+		t.Fatalf("exported error family = %q, want litellm", exported.ErrorFamily)
+	}
+	if err := database.DB().WithContext(ctx).Where("id = ?", provider.ID).Delete(&database.LLMProvider{}).Error; err != nil {
+		t.Fatalf("delete provider before clean import: %v", err)
+	}
+	created, err := importProvider(ctx, exported)
+	if err != nil || !created {
+		t.Fatalf("importProvider = created %v, err %v; want newly imported provider", created, err)
+	}
+	imported, err := database.GetLLMProviderWithContext(ctx, provider.ID)
+	if err != nil {
+		t.Fatalf("load imported provider: %v", err)
+	}
+	if imported.ErrorFamily != "litellm" {
+		t.Fatalf("imported error family = %q, want litellm", imported.ErrorFamily)
+	}
+}
+
 func TestAnalyzeImportDataDetectsProviderConflicts(t *testing.T) {
 	setupPortabilityTestDB(t)
 

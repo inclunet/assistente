@@ -86,6 +86,34 @@ func TestRegistryGenerationRejectsLatePublication(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestProviderRegistryGetSnapshotIsIsolated(t *testing.T) {
+	r := NewProviderRegistry()
+	provider := &ProviderConfig{
+		ID: "snapshot", Name: "Snapshot", Type: ProviderOpenAI, APIFormat: APIFormatACP,
+		ACPCommand: "test-agent", Headers: map[string]string{"X-Test": "before"},
+		ACPArgs: []string{"before"}, ACPEnv: map[string]string{"ENV": "before"},
+		ACPCredentialEnv: map[string]string{"TOKEN": "pattern"}, CompatibilityRevision: 3,
+	}
+	if err := r.Register(provider); err != nil {
+		t.Fatal(err)
+	}
+
+	snapshot := r.GetSnapshot(provider.ID)
+	if snapshot == nil || snapshot.CompatibilityRevision != 3 {
+		t.Fatalf("snapshot = %#v", snapshot)
+	}
+	snapshot.Headers["X-Test"] = "after"
+	snapshot.ACPArgs[0] = "after"
+	snapshot.ACPEnv["ENV"] = "after"
+	snapshot.ACPCredentialEnv["TOKEN"] = "after"
+
+	if provider.Headers["X-Test"] != "before" || provider.ACPArgs[0] != "before" ||
+		provider.ACPEnv["ENV"] != "before" || provider.ACPCredentialEnv["TOKEN"] != "pattern" {
+		t.Fatalf("snapshot mutation reached registered config: %#v", provider)
+	}
+}
+
 func TestDefaultPublicationPreservesSnapshotsAndRejectsOldSession(t *testing.T) {
 	r := NewProviderRegistry()
 	old := &ProviderConfig{ID: "first", Name: "First", Type: ProviderOpenAI, BaseURL: "https://example.test/v1", IsDefault: true}

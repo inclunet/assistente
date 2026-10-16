@@ -113,6 +113,11 @@ func TestDatabaseFunctionsRejectUnauthenticatedContext(t *testing.T) {
 			t.Fatalf("want ErrUserScopeRequired, got %v", err)
 		}
 	})
+	t.Run("GetMessageContentAndRoleWithContext", func(t *testing.T) {
+		if _, _, err := GetMessageContentAndRoleWithContext(bg, "x"); !errors.Is(err, ErrUserScopeRequired) {
+			t.Fatalf("want ErrUserScopeRequired, got %v", err)
+		}
+	})
 	t.Run("GetMessageAudioWithContext", func(t *testing.T) {
 		if _, _, err := GetMessageAudioWithContext(bg, "x"); !errors.Is(err, ErrUserScopeRequired) {
 			t.Fatalf("want ErrUserScopeRequired, got %v", err)

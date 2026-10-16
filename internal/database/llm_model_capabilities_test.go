@@ -92,6 +92,86 @@ func TestLLMModelRepositoryScopesIdentityAndList(t *testing.T) {
 	}
 }
 
+func TestLLMModelRepositoryGetOrCreatePreservesDisplayName(t *testing.T) {
+	db := llmModelCapabilitiesTestDB(t)
+	ctx := WithUserID(context.Background(), "owner")
+	provider := &LLMProvider{ID: "provider-get-or-create", UserID: "owner", Name: "Provider", Type: "custom", BaseURL: "https://provider.example/v1"}
+	if err := NewProviderRepository(db).SaveLLMProvider(ctx, provider); err != nil {
+		t.Fatal(err)
+	}
+	repository := NewLLMModelCapabilitiesRepository(db)
+	created, err := repository.GetOrCreateModel(ctx, provider.ID, "remote-model", "Readable model name")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reloaded, err := repository.GetOrCreateModel(ctx, provider.ID, "remote-model", "remote-model")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reloaded.ID != created.ID || reloaded.DisplayName != "Readable model name" {
+		t.Fatalf("consulta sobrescreveu a identidade/nome existente: criado=%+v recarregado=%+v", created, reloaded)
+	}
+	newModel, err := repository.GetOrCreateModel(ctx, provider.ID, "new-model", "new-model")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if newModel.RemoteID != "new-model" || newModel.DisplayName != "new-model" {
+		t.Fatalf("nome fallback para modelo novo = %+v", newModel)
+	}
+}
+
+func TestGetOrCreateModelCanReadExistingSystemModelWithoutGlobalWriteAccess(t *testing.T) {
+	db := llmModelCapabilitiesTestDB(t)
+	bootstrap := WithBootstrap(context.Background())
+	provider := &LLMProvider{ID: "system-provider", Name: "System", Type: "custom", BaseURL: "https://system.example/v1"}
+	if err := NewProviderRepository(db).SaveLLMProvider(bootstrap, provider); err != nil {
+		t.Fatal(err)
+	}
+	repository := NewLLMModelCapabilitiesRepository(db)
+	if _, err := repository.GetOrCreateModel(bootstrap, provider.ID, "model", "Model"); err != nil {
+		t.Fatal(err)
+	}
+	userCtx := WithUserID(context.Background(), "user-a")
+	if _, err := repository.GetOrCreateModel(userCtx, provider.ID, "model", "Model"); err != nil {
+		t.Fatalf("leitura do modelo de sistema deveria funcionar: %v", err)
+	}
+	if _, err := repository.GetOrCreateModel(userCtx, provider.ID, "new-model", "New model"); !errors.Is(err, ErrSystemProviderWriteRequiresBootstrap) {
+		t.Fatalf("criação global por usuário deveria ser recusada, erro=%v", err)
+	}
+}
+
+func TestMigrateLLMProviderLegacyErrorFamiliesOnlyClassifiesOriginalWizardTypes(t *testing.T) {
+	db := llmModelCapabilitiesTestDB(t)
+	ctx := WithUserID(context.Background(), "owner")
+	providers := []*LLMProvider{
+		{ID: "openai-default", UserID: "owner", Name: "OpenAI", Type: "openai", BaseURL: "https://api.openai.com/v1"},
+		{ID: "openrouter-default", UserID: "owner", Name: "Custom now", Type: "custom", BaseURL: "https://example.com/v1"},
+		{ID: "litellm", UserID: "owner", Name: "LiteLLM", Type: "openai", BaseURL: "https://litellm.example/v1"},
+	}
+	for _, provider := range providers {
+		if err := NewProviderRepository(db).SaveLLMProvider(ctx, provider); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := MigrateLLMProviderLegacyErrorFamilies(db); err != nil {
+		t.Fatal(err)
+	}
+	if err := MigrateLLMProviderLegacyErrorFamilies(db); err != nil {
+		t.Fatal(err)
+	}
+	got := make(map[string]string)
+	var rows []struct{ ID, ErrorFamily string }
+	if err := db.Model(&LLMProvider{}).Select("id, error_family").Find(&rows).Error; err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range rows {
+		got[row.ID] = row.ErrorFamily
+	}
+	if got["openai-default"] != "openai" || got["litellm"] != "litellm" || got["openrouter-default"] != "" {
+		t.Fatalf("famílias após migração = %#v", got)
+	}
+}
+
 func TestRecordUnsupportedFieldUpdatesCurrentStateAndRejectsUnknownData(t *testing.T) {
 	db := llmModelCapabilitiesTestDB(t)
 	ctx := WithUserID(context.Background(), "owner")

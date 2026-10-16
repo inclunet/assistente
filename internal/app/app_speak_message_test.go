@@ -2,6 +2,9 @@ package app
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 
 	"assistente/internal/events"
 	"assistente/internal/llm"
@@ -36,11 +39,11 @@ func (m *mockAudioRepo) SaveMessageAudio(_ context.Context, id string, base64, m
 	return nil
 }
 
-func (m *mockAudioRepo) GetMessageContent(_ context.Context, id string) (string, error) {
+func (m *mockAudioRepo) GetMessageContent(_ context.Context, id string) (string, string, error) {
 	if c, ok := m.content[id]; ok {
-		return c, nil
+		return c, "assistant", nil
 	}
-	return "", nil
+	return "", "", nil
 }
 
 // testProfileProvider implementa speech.ProfileProvider para testes.
@@ -162,6 +165,45 @@ func TestSpeakMessage_CacheHitSkipsGeneration(t *testing.T) {
 	}
 	if result.Audio != "audio_data" || !result.Cached {
 		t.Errorf("esperava o mesmo áudio em cache, obteve %+v", result)
+	}
+}
+
+func TestSpeakMessageTranslatesHistoricalDiagnosticBeforeBackendSynthesis(t *testing.T) {
+	repo := newMockAudioRepo()
+	repo.content["diagnostic"] = "Falha na resposta do agente: provider_error:v1:authentication:"
+	repo.audio["diagnostic"] = struct{ base64, mime string }{"old-technical-audio", "audio/mpeg"}
+	var spokenText string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var payload struct {
+			Input string `json:"input"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Errorf("decode TTS request: %v", err)
+		}
+		spokenText = payload.Input
+		w.Header().Set("Content-Type", "audio/mpeg")
+		_, _ = w.Write([]byte("translated-audio"))
+	}))
+	defer server.Close()
+
+	registry := llm.NewProviderRegistry()
+	if err := registry.Register(&llm.ProviderConfig{ID: "tts-test", Name: "TTS test", Type: llm.ProviderOpenAI, BaseURL: server.URL}); err != nil {
+		t.Fatalf("register TTS provider: %v", err)
+	}
+	service := newTestSpeechSvc(repo, registry)
+	result, err := service.SpeakMessage(context.Background(), "diagnostic", "tts-test", "tts-1", "nova", 1, "pt-BR")
+	if err != nil {
+		t.Fatalf("SpeakMessage: %v", err)
+	}
+	want := "Falha na resposta do agente: O provedor recusou a autenticação. Confira a credencial configurada."
+	if spokenText != want {
+		t.Errorf("síntese recebeu %q, want %q", spokenText, want)
+	}
+	if result.Cached {
+		t.Error("áudio localizado de diagnóstico não deve ser cacheado por mensagem")
+	}
+	if repo.audio["diagnostic"].base64 != "old-technical-audio" {
+		t.Error("a síntese localizada não deve substituir o cache compartilhado antigo")
 	}
 }
 

@@ -21,6 +21,7 @@ type WizardProviderInfo struct {
 	ID                   string
 	Name                 string
 	Type                 llm.ProviderType
+	ErrorFamily          llm.ProviderErrorFamily
 	APIFormat            llm.APIFormat
 	DefaultModel         string
 	ReasoningContentMode llm.ReasoningContentMode
@@ -63,13 +64,13 @@ func WizardLabelToProviderType(label string) string {
 func GetWizardProviderInfo(providerChoice string) WizardProviderInfo {
 	switch providerChoice {
 	case "OpenAI":
-		return WizardProviderInfo{ID: "openai-default", Name: "OpenAI", Type: llm.ProviderOpenAI, APIFormat: llm.APIFormatOpenAIResponses, DefaultModel: "gpt-4o-mini"}
+		return WizardProviderInfo{ID: "openai-default", Name: "OpenAI", Type: llm.ProviderOpenAI, ErrorFamily: llm.ProviderErrorFamilyOpenAI, APIFormat: llm.APIFormatOpenAIResponses, DefaultModel: "gpt-4o-mini"}
 	case "Anthropic (Claude)":
 		return WizardProviderInfo{ID: "anthropic-claude", Name: "Claude (Anthropic)", Type: llm.ProviderClaude, APIFormat: llm.APIFormatAnthropic, DefaultModel: "claude-sonnet-4-20250514"}
 	case "Google (Gemini)":
 		return WizardProviderInfo{ID: "google-gemini", Name: "Google (Gemini)", Type: llm.ProviderOpenAI, DefaultModel: "gemini-2.0-flash"}
 	case "OpenRouter":
-		return WizardProviderInfo{ID: "openrouter-default", Name: "OpenRouter", Type: llm.ProviderOpenAI}
+		return WizardProviderInfo{ID: "openrouter-default", Name: "OpenRouter", Type: llm.ProviderOpenAI, ErrorFamily: llm.ProviderErrorFamilyOpenRouter}
 	case "Mistral AI":
 		return WizardProviderInfo{ID: "mistral-default", Name: "Mistral AI", Type: llm.ProviderMistral, DefaultModel: "mistral-small-latest"}
 	case "Groq":
@@ -92,7 +93,7 @@ func GetWizardProviderInfo(providerChoice string) WizardProviderInfo {
 	case "Ollama (Local)":
 		return WizardProviderInfo{ID: "ollama-local", Name: "Ollama (Local)", Type: llm.ProviderOllama}
 	case "LiteLLM":
-		return WizardProviderInfo{ID: "litellm", Name: "LiteLLM", Type: llm.ProviderOpenAI}
+		return WizardProviderInfo{ID: "litellm", Name: "LiteLLM", Type: llm.ProviderOpenAI, ErrorFamily: llm.ProviderErrorFamilyLiteLLM}
 	default:
 		return WizardProviderInfo{ID: "custom", Name: "Custom Provider", Type: llm.ProviderCustom}
 	}
@@ -447,6 +448,7 @@ func (c *WelcomeController) CreateWizardProvider(ctx context.Context, providerCh
 		ID:                   info.ID,
 		Name:                 info.Name,
 		Type:                 info.Type,
+		ErrorFamily:          info.ErrorFamily,
 		APIFormat:            info.APIFormat,
 		BaseURL:              baseURL,
 		Model:                model,

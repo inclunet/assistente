@@ -421,17 +421,28 @@ func GetMessageContentWithContext(ctx context.Context, messageID string) (string
 }
 
 func (r *MessageRepository) GetMessageContentWithContext(ctx context.Context, messageID string) (string, error) {
+	content, _, err := r.GetMessageContentAndRoleWithContext(ctx, messageID)
+	return content, err
+}
+
+// GetMessageContentAndRoleWithContext retorna somente o conteúdo e o papel da
+// mensagem pertencente ao usuário do contexto, sem carregar anexos ou áudio.
+func GetMessageContentAndRoleWithContext(ctx context.Context, messageID string) (string, string, error) {
+	return NewMessageRepository(db).GetMessageContentAndRoleWithContext(ctx, messageID)
+}
+
+func (r *MessageRepository) GetMessageContentAndRoleWithContext(ctx context.Context, messageID string) (string, string, error) {
 	db := r.db
 	if _, err := RequireUserID(ctx); err != nil {
-		return "", err
+		return "", "", err
 	}
 	var msg ChatMessage
 	if err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).
-		Select("chat_messages.content").
+		Select("chat_messages.content", "chat_messages.role").
 		First(&msg, "chat_messages.id = ?", messageID).Error; err != nil {
-		return "", err
+		return "", "", err
 	}
-	return msg.Content, nil
+	return msg.Content, msg.Role, nil
 }
 
 // GetMessageWithContext retorna a mensagem completa pelo ID, restrita ao

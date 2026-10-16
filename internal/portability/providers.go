@@ -43,6 +43,7 @@ func exportProvider(provider *database.LLMProvider) (ProviderExport, error) {
 		ID:                       provider.ID,
 		Name:                     provider.Name,
 		Type:                     provider.Type,
+		ErrorFamily:              provider.ErrorFamily,
 		APIFormat:                provider.APIFormat,
 		BaseURL:                  provider.BaseURL,
 		Model:                    provider.Model,
@@ -174,6 +175,7 @@ func persistProvider(ctx context.Context, tx *gorm.DB, provider ProviderExport, 
 			ID:                       strings.TrimSpace(provider.ID),
 			Name:                     provider.Name,
 			Type:                     provider.Type,
+			ErrorFamily:              provider.ErrorFamily,
 			APIFormat:                provider.APIFormat,
 			BaseURL:                  provider.BaseURL,
 			Model:                    provider.Model,
@@ -204,6 +206,7 @@ func persistProvider(ctx context.Context, tx *gorm.DB, provider ProviderExport, 
 	}
 	existing.Name = provider.Name
 	existing.Type = provider.Type
+	existing.ErrorFamily = provider.ErrorFamily
 	existing.APIFormat = provider.APIFormat
 	existing.BaseURL = provider.BaseURL
 	existing.Model = provider.Model
@@ -227,6 +230,7 @@ func validateProviderExport(provider ProviderExport) (ProviderExport, error) {
 	normalized.ID = strings.TrimSpace(provider.ID)
 	normalized.Name = strings.TrimSpace(provider.Name)
 	normalized.Type = strings.TrimSpace(provider.Type)
+	normalized.ErrorFamily = strings.TrimSpace(provider.ErrorFamily)
 	normalized.APIFormat = strings.TrimSpace(provider.APIFormat)
 	normalized.BaseURL = strings.TrimSpace(provider.BaseURL)
 	normalized.Model = strings.TrimSpace(provider.Model)

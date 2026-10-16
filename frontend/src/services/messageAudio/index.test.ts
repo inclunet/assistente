@@ -41,7 +41,7 @@ describe('messageAudioService', () => {
 
   describe('speakMessage (backend-driven)', () => {
     it('reproduz audio retornado pelo backend', async () => {
-      speakMessageMock.mockResolvedValue({ audio: 'QUFB', mimeType: 'audio/mpeg' });
+      speakMessageMock.mockResolvedValue({ audio: 'QUFB', mimeType: 'audio/mpeg', cached: true });
 
       const result = await messageAudioService.speakMessage("42", 0.8, backendProvider);
 
@@ -88,7 +88,7 @@ describe('messageAudioService', () => {
     });
 
     it('passa provider params ao backend', async () => {
-      speakMessageMock.mockResolvedValue({ audio: 'QUFB', mimeType: 'audio/mpeg' });
+      speakMessageMock.mockResolvedValue({ audio: 'QUFB', mimeType: 'audio/mpeg', cached: true });
 
       await messageAudioService.speakMessage("42", 1.0, {
         providerId: 'openai',
@@ -112,7 +112,7 @@ describe('messageAudioService', () => {
 
   describe('cache em memória', () => {
     it('segunda chamada usa cache sem chamar backend', async () => {
-      speakMessageMock.mockResolvedValue({ audio: 'QUFB', mimeType: 'audio/mpeg' });
+      speakMessageMock.mockResolvedValue({ audio: 'QUFB', mimeType: 'audio/mpeg', cached: true });
 
       await messageAudioService.speakMessage("100", 1.0, backendProvider);
       expect(speakMessageMock).toHaveBeenCalledTimes(1);
@@ -122,7 +122,7 @@ describe('messageAudioService', () => {
     });
 
     it('mensagens diferentes usam caches separados', async () => {
-      speakMessageMock.mockResolvedValue({ audio: 'QUFB', mimeType: 'audio/mpeg' });
+      speakMessageMock.mockResolvedValue({ audio: 'QUFB', mimeType: 'audio/mpeg', cached: true });
 
       await messageAudioService.speakMessage("100", 1.0, backendProvider);
       await messageAudioService.speakMessage("200", 1.0, backendProvider);
@@ -134,8 +134,20 @@ describe('messageAudioService', () => {
       expect(speakMessageMock).toHaveBeenCalledTimes(2);
     });
 
+    it('não reutiliza diagnóstico de fala entre idiomas diferentes', async () => {
+      speakMessageMock
+        .mockResolvedValueOnce({ audio: 'QUFB', mimeType: 'audio/mpeg', cached: false })
+        .mockResolvedValueOnce({ audio: 'QUFB', mimeType: 'audio/mpeg', cached: false });
+
+      await messageAudioService.speakMessage('diagnostic', 1, { ...backendProvider, language: 'pt-BR' });
+      await messageAudioService.speakMessage('diagnostic', 1, { ...backendProvider, language: 'es-ES' });
+
+      expect(speakMessageMock).toHaveBeenCalledTimes(2);
+      expect(speakMessageMock.mock.calls.map((call) => call[5])).toEqual(['pt-BR', 'es-ES']);
+    });
+
     it('clearMemoryCache limpa o cache', async () => {
-      speakMessageMock.mockResolvedValue({ audio: 'QUFB', mimeType: 'audio/mpeg' });
+      speakMessageMock.mockResolvedValue({ audio: 'QUFB', mimeType: 'audio/mpeg', cached: true });
 
       await messageAudioService.speakMessage("100", 1.0, backendProvider);
       expect(speakMessageMock).toHaveBeenCalledTimes(1);
@@ -147,7 +159,7 @@ describe('messageAudioService', () => {
     });
 
     it('getMessageAudioBlob também usa cache', async () => {
-      speakMessageMock.mockResolvedValue({ audio: 'QUFB', mimeType: 'audio/mpeg' });
+      speakMessageMock.mockResolvedValue({ audio: 'QUFB', mimeType: 'audio/mpeg', cached: true });
 
       // Popula cache via speakMessage
       await messageAudioService.speakMessage("100", 1.0, backendProvider);
@@ -165,7 +177,7 @@ describe('messageAudioService', () => {
       await messageAudioService.speakMessage("100", 1.0, backendProvider);
       expect(speakMessageMock).toHaveBeenCalledTimes(1);
 
-      speakMessageMock.mockResolvedValue({ audio: 'QUFB', mimeType: 'audio/mpeg' });
+      speakMessageMock.mockResolvedValue({ audio: 'QUFB', mimeType: 'audio/mpeg', cached: true });
       await messageAudioService.speakMessage("100", 1.0, backendProvider);
       expect(speakMessageMock).toHaveBeenCalledTimes(2); // Tentou de novo
     });
@@ -173,12 +185,26 @@ describe('messageAudioService', () => {
 
   describe('getMessageAudioBlob', () => {
     it('retorna blob quando backend retorna audio', async () => {
-      speakMessageMock.mockResolvedValue({ audio: 'QUFB', mimeType: 'audio/mpeg' });
+      speakMessageMock.mockResolvedValue({ audio: 'QUFB', mimeType: 'audio/mpeg', cached: true });
 
       const blob = await messageAudioService.getMessageAudioBlob("42", backendProvider);
 
       expect(blob).toBeInstanceOf(Blob);
       expect(blob!.type).toBe('audio/mpeg');
+    });
+
+    it('não reutiliza diagnóstico baixado entre idiomas diferentes', async () => {
+      speakMessageMock
+        .mockResolvedValueOnce({ audio: 'QUFB', mimeType: 'audio/mpeg', cached: false })
+        .mockResolvedValueOnce({ audio: 'QUFB', mimeType: 'audio/mpeg', cached: false });
+
+      const portuguese = await messageAudioService.getMessageAudioBlob('diagnostic', { ...backendProvider, language: 'pt-BR' });
+      const spanish = await messageAudioService.getMessageAudioBlob('diagnostic', { ...backendProvider, language: 'es-ES' });
+
+      expect(portuguese).toBeInstanceOf(Blob);
+      expect(spanish).toBeInstanceOf(Blob);
+      expect(speakMessageMock).toHaveBeenCalledTimes(2);
+      expect(speakMessageMock.mock.calls.map((call) => call[5])).toEqual(['pt-BR', 'es-ES']);
     });
 
     it('retorna null quando backend falha', async () => {
