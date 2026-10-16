@@ -138,10 +138,6 @@ export function useMessageActions(options: UseMessageActionsOptions = {}) {
       if (!message.content || !message.id) return;
 
       const role: VoiceRole = message.role === 'user' ? 'user' : 'assistant';
-      const speechContent = message.role === 'assistant'
-        ? translateBackendErrorDiagnostic(message.content)
-        : message.content;
-      const plain = stripMarkdown(speechContent);
       const prefix =
         message.role === 'user'
           ? i18next.t('chat.you')
@@ -150,6 +146,10 @@ export function useMessageActions(options: UseMessageActionsOptions = {}) {
             : i18next.t('chat.assistant');
 
       const voiceCtx = ttsService.getVoiceContext(role);
+      const speechContent = message.role === 'assistant'
+        ? translateBackendErrorDiagnostic(message.content, voiceCtx?.language)
+        : message.content;
+      const plain = stripMarkdown(speechContent);
       if (!voiceCtx) {
         onAnnounce?.(`${prefix}: ${plain}`);
         onStarted?.();

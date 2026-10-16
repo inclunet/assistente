@@ -48,6 +48,13 @@ describe('translateErrorMarkers', () => {
       .toBe('El servidor MCP Servidor A falló durante la conexión. Inténtalo de nuevo o comprueba sus credenciales y conexión.');
   });
 
+  it('usa o idioma do perfil para diagnósticos MCP sem alterar o idioma da interface', async () => {
+    await i18n.changeLanguage('pt-BR');
+    expect(translateBackendErrorDiagnostic('Falha na resposta do agente: mcp_error:v1:Servidor%20A:call', 'es-ES'))
+      .toBe('El servidor MCP Servidor A falló al ejecutar una herramienta. Inténtalo de nuevo o comprueba sus credenciales y conexión.');
+    expect(i18n.language).toBe('pt-BR');
+  });
+
   it('decodifica dois-pontos escapados e preserva marcadores literais', async () => {
     await i18n.changeLanguage('pt-BR');
     expect(translateErrorMarkers('mcp_error:v1:Equipe%3A%20Produ%C3%A7%C3%A3o:call'))

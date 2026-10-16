@@ -356,6 +356,37 @@ func TestOpenAIResponsesDoesNotRetryAfterReasoningAcrossIterations(t *testing.T)
 	}
 }
 
+func TestOpenAIResponsesDoesNotRetryAfterReasoningOnIdleTimeout(t *testing.T) {
+	attempts := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		w.Header().Set("Content-Type", "text/event-stream")
+		if attempts > 1 {
+			_, _ = w.Write([]byte("event: response.completed\ndata: {\"type\":\"response.completed\",\"sequence_number\":1,\"response\":{\"id\":\"resp_retried\",\"object\":\"response\",\"status\":\"completed\",\"model\":\"gpt-test\",\"output\":[]}}\n\n"))
+			return
+		}
+		_, _ = w.Write([]byte("event: response.reasoning_summary_text.delta\ndata: {\"type\":\"response.reasoning_summary_text.delta\",\"sequence_number\":1,\"item_id\":\"reasoning_1\",\"output_index\":0,\"summary_index\":0,\"delta\":\"reasoning parcial\"}\n\n"))
+		w.(http.Flusher).Flush()
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+
+	provider := NewOpenAIResponsesProvider(&ProviderConfig{
+		ID: "responses-reasoning-timeout", Name: "OpenAI", Type: ProviderOpenAI, ErrorFamily: ProviderErrorFamilyOpenAI,
+		BaseURL: server.URL + "/v1", APIFormat: APIFormatOpenAIResponses, AuthMode: AuthModeNone, DefaultModel: "gpt-test",
+		StreamIdleTimeoutSeconds: 1,
+	}, credentials.NewManager(nil))
+	handler := &providerRetryHandler{}
+	provider.StreamChat(t.Context(), []Message{{Role: "user", Content: "oi"}}, ChatParams{Model: "gpt-test"}, handler)
+
+	if attempts != 1 || handler.thinking.String() != "reasoning parcial" || handler.chunks.Len() != 0 {
+		t.Fatalf("tentativas=%d reasoning=%q conteúdo=%q; esperado uma tentativa sem retry", attempts, handler.thinking.String(), handler.chunks.String())
+	}
+	if len(handler.errors) != 1 {
+		t.Fatalf("erros=%v; esperado erro de timeout após reasoning", handler.errors)
+	}
+}
+
 func TestOpenAIResponsesDoesNotRetryWhenPersistingRestrictionFails(t *testing.T) {
 	attempts := 0
 	persistCalls := 0
