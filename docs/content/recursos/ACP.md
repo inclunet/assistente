@@ -10,7 +10,7 @@ O Assistente pode usar **agentes de código locais** como provedores de IA, via 
 ## O que é
 
 - **Transporte**: JSON-RPC sobre `stdio` (`coder/acp-go-sdk`). Um processo por provedor, sessões multiplexadas por conversa.
-- **Sessão = conversa**: o histórico fica no agente; retomar conversa tenta `session/load`, falhando cria nova sessão com aviso.
+- **Sessão = conversa**: o histórico fica no agente; retomar conversa usa `session/resume` quando anunciado, ou `session/load` como fallback. Se ambos falharem, cria nova sessão com aviso.
 - **Sem persona/skills do app**: o turno leva só a mensagem do usuário e anexos compatíveis.
 
 ## Instalar via catálogo
@@ -26,6 +26,11 @@ Informe `comando` (ex.: `node`, `powershell -File agent.ps1 acp`), `args` e `env
 ## Modelos e opções
 
 Modelos vêm da sessão de descoberta do agente (cache por provider). A troca usa `set_config_option`/`set_model` conforme o agente.
+
+Na conversa, o Assistente também mostra modos, opções booleanas e outros
+seletores que o agente oferecer (por exemplo, nível de raciocínio). A lista é
+atualizada pelos snapshots ACP; quando o agente remove todas as opções, os
+controles antigos desaparecem. Os rótulos e valores apresentados vêm do agente.
 
 O Assistente mantém os formatos ACP anteriores enquanto qualquer agente
 suportado ou publicado no catálogo depender deles. O payload `models` e o
@@ -66,4 +71,4 @@ pode impedir o registro de uma atividade ainda em andamento.
 - Conteúdo enviado ao agente inclui texto e imagem inline quando aceita. Áudio e recursos embutidos não são enviados; imagens, áudio ou recursos recebidos na resposta também não são exibidos.
 - O catálogo instala e inicia agentes, mas não garante que todos os recursos opcionais do ACP estejam integrados.
 - O Assistente não lista sessões que o agente conhece fora das conversas locais, nem oferece várias raízes de workspace na mesma sessão.
-- Chamadas que aguardam outro turno da mesma sessão ainda não têm um estado acessível com ação para cancelar apenas a chamada em espera.
+- Envios manuais que aguardam a vez aparecem como pendentes na barra; **Cancelar próximo envio** remove o próximo envio manual que ainda não começou e anuncia o resultado. Mensagens recebidas por canais continuam na fila, e o turno ativo segue normalmente.

@@ -491,6 +491,8 @@ export namespace apidto {
 	    name?: string;
 	    category?: string;
 	    currentValue: string;
+	    kind: string;
+	    currentBool?: boolean;
 	    values: AgentConfigValue[];
 	
 	    static createFrom(source: any = {}) {
@@ -503,6 +505,8 @@ export namespace apidto {
 	        this.name = source["name"];
 	        this.category = source["category"];
 	        this.currentValue = source["currentValue"];
+	        this.kind = source["kind"];
+	        this.currentBool = source["currentBool"];
 	        this.values = this.convertValues(source["values"], AgentConfigValue);
 	    }
 	

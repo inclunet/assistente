@@ -34,6 +34,7 @@ import {
 import { handleExternalChatIncoming } from '../services/externalChatController';
 import {
   createConversationTurnQueue,
+  isConversationTurnQueueCancelledError,
   isConversationTurnQueueClearedError,
 } from '../services/chatTurnQueue';
 import {
@@ -191,6 +192,7 @@ interface ChatStore {
   getMessagingPipelineRevision: (conversationId: string) => number;
   getDraftRevision: (sessionKey: string) => number;
   cancelConversationTurn: (conversationId: string) => void;
+  cancelNextQueuedTurn: (conversationId: string) => boolean;
 
   getConversationMessages: (conversationId: string) => Message[];
   getConversationThreadedMessages: (conversationId: string) => MessageNode[] | undefined;
@@ -1469,10 +1471,10 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           const result = await sendMessageInternal(conversationId, content, mediaFiles, paramsOverride, undefined, options);
           markAccepted(result.accepted);
           await result.controller?.done;
-        }).catch((error) => {
+        }, queuedBehindActiveTurn ? () => adjustQueuedTurnCount(conversationId, -1, sessionKey) : undefined).catch((error) => {
           if (options?.command) rejectAccepted(isConversationTurnQueueClearedError(error) ? new ChatMessagingStaleError() : error);
           else markAccepted(false);
-          if (!isConversationTurnQueueClearedError(error)) {
+          if (!isConversationTurnQueueClearedError(error) && !isConversationTurnQueueCancelledError(error)) {
             logger.error('[Chat] falha inesperada na fila do turno', error);
           }
         });
@@ -1500,10 +1502,10 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           const result = await sendMessageInternal(conversationId, '', undefined, paramsOverride, messageId, options);
           markAccepted(result.accepted);
           await result.controller?.done;
-        }).catch((error) => {
+        }, queuedBehindActiveTurn ? () => adjustQueuedTurnCount(conversationId, -1, sessionKey) : undefined).catch((error) => {
           if (options?.command) rejectAccepted(isConversationTurnQueueClearedError(error) ? new ChatMessagingStaleError() : error);
           else markAccepted(false);
-          if (!isConversationTurnQueueClearedError(error)) {
+          if (!isConversationTurnQueueClearedError(error) && !isConversationTurnQueueCancelledError(error)) {
             logger.error('[Chat] falha inesperada na fila de retry', error);
           }
         });
@@ -1570,6 +1572,8 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       setConversationLoading(conversationId, false);
       resetQueuedTurnCount(conversationId);
     },
+
+    cancelNextQueuedTurn: (conversationId) => turnQueue.cancelNext(conversationId),
 
     getConversationMessages: (conversationId) => (
       flattenThreadedMessages(getConversationTimeline(get(), conversationId)?.threadedMessages)
@@ -1744,12 +1748,12 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       void handleExternalChatIncoming(data, {
         hasConversationSession: (conversationId) => !!getConversationTimeline(get(), conversationId),
         loadConversationSession: (conversationId) => get().loadConversationSession(conversationId),
-        enqueueExternalTurn: async (conversationId, sessionKey, task) => {
-          const queuedBehindActiveTurn = turnQueue.isQueued(conversationId);
-          if (queuedBehindActiveTurn) adjustQueuedTurnCount(conversationId, 1, sessionKey);
+        // Mensagens recebidas por canal não são envios da toolbar e não podem
+        // ser descartadas pela ação local de cancelar o próximo turno. Elas
+        // continuam serializadas, mas não entram na contagem cancelável da UI.
+        enqueueExternalTurn: async (conversationId, _sessionKey, task) => {
           try {
             await turnQueue.enqueue(conversationId, async () => {
-              if (queuedBehindActiveTurn) adjustQueuedTurnCount(conversationId, -1, sessionKey);
               await task();
             });
           } catch (error) {

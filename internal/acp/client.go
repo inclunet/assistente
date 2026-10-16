@@ -206,7 +206,7 @@ func (c *client) LoadSession(ctx context.Context, sessionID, cwd string) (Sessio
 	if err != nil {
 		return nil, err
 	}
-	if !cn.caps.LoadSession {
+	if !cn.caps.LoadSession && !cn.caps.ResumeSession {
 		return nil, fmt.Errorf("agente %s não suporta retomar sessões", describeAgent(c.cfg))
 	}
 	dir, err := absoluteDir(cwd)
@@ -219,17 +219,30 @@ func (c *client) LoadSession(ctx context.Context, sessionID, cwd string) (Sessio
 	// e uma sessão desconhecida faria o transporte descartá-las.
 	sess := cn.registerSession(sessionID, dir, nil)
 
-	resp, err := sdk.SendRequest[loadSessionResponse](cn.rpc, ctx, sdk.AgentMethodSessionLoad, sdk.LoadSessionRequest{
-		SessionId:  sdk.SessionId(sessionID),
-		Cwd:        dir,
-		McpServers: []sdk.McpServer{},
-	})
+	var options []ConfigOption
+	if cn.caps.ResumeSession {
+		resp, resumeErr := sdk.SendRequest[sdk.ResumeSessionResponse](cn.rpc, ctx, sdk.AgentMethodSessionResume, sdk.ResumeSessionRequest{
+			SessionId: sdk.SessionId(sessionID), Cwd: dir, McpServers: []sdk.McpServer{},
+		})
+		err = resumeErr
+		if err == nil {
+			options = withModeOption(configOptionsFrom(resp.ConfigOptions), resp.Modes)
+		}
+	} else {
+		resp, loadErr := sdk.SendRequest[loadSessionResponse](cn.rpc, ctx, sdk.AgentMethodSessionLoad, sdk.LoadSessionRequest{
+			SessionId: sdk.SessionId(sessionID), Cwd: dir, McpServers: []sdk.McpServer{},
+		})
+		err = loadErr
+		if err == nil {
+			options = withModelOption(withModeOption(configOptionsFrom(resp.ConfigOptions), resp.Modes), resp.Models)
+		}
+	}
 	if err != nil {
 		cn.removeSession(sessionID)
 		return nil, wrapCallError("retomar sessão no agente ACP", err)
 	}
 
-	sess.setConfigOptions(withModelOption(withModeOption(configOptionsFrom(resp.ConfigOptions), resp.Modes), resp.Models))
+	sess.setConfigOptions(options)
 	return sess, nil
 }
 

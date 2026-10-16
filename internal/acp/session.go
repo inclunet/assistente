@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"sync"
 	"time"
 
@@ -160,6 +161,22 @@ func (s *session) setConfigOptions(options []ConfigOption) {
 	s.options = copyOptions(options)
 }
 
+// replaceConfigOptions aplica o snapshot completo de config_option_update.
+// Diferente do estado inicial ou da resposta legada a uma troca, uma lista
+// vazia aqui é informação: o agente deixou de oferecer as opções conhecidas.
+func (s *session) replaceConfigOptions(options []ConfigOption) []ConfigOption {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(options) > 0 {
+		// Agentes com campos legados de modelo/modo não os repetem em todo
+		// config_option_update. Preservá-los mantém esses controles enquanto
+		// opções modernas adicionais mudam; snapshot vazio ainda os remove.
+		options = withKnownLegacy(options, s.options)
+	}
+	s.options = copyOptions(options)
+	return copyOptions(s.options)
+}
+
 // mergeConfigOptions funde o conjunto que o agente mandou com o que a sessão já
 // conhecia, guarda o resultado e devolve a cópia dele — tudo sob a mesma trava.
 // Ler, fundir e gravar em passos separados abriria janela entre dois caminhos
@@ -233,7 +250,13 @@ func (s *session) setCurrentValue(id, value string) ([]ConfigOption, bool) {
 	defer s.mu.Unlock()
 	for i := range s.options {
 		if s.options[i].ID == id {
-			s.options[i].CurrentValue = value
+			if s.options[i].Kind == "boolean" {
+				if parsed, err := strconv.ParseBool(value); err == nil {
+					s.options[i].CurrentBool = parsed
+				}
+			} else {
+				s.options[i].CurrentValue = value
+			}
 			return copyOptions(s.options), true
 		}
 	}
@@ -258,21 +281,18 @@ func (s *session) deliver(update Update) {
 	s.noteActivity()
 	switch update.Kind {
 	case UpdateConfigOptions:
-		// Quem escuta recebe o mesmo conjunto que passamos a guardar, e não o
-		// que veio do agente. O evento se anuncia como o conjunto completo, e
-		// um agente que manda só os modelos faria a UI esconder o seletor de
-		// modo no meio da conversa — enquanto o estado da sessão ainda diria
-		// que o modo existe.
-		update.ConfigOptions, _ = s.mergeConfigOptions(update.ConfigOptions)
+		// A notificação ACP é o snapshot completo. Não mesclar deixa de
+		// ressuscitar seletores obsoletos quando o agente os remove.
+		update.ConfigOptions = s.replaceConfigOptions(update.ConfigOptions)
 		// O agente trocou de modelo por conta própria — fallback de limite, por
 		// exemplo. A lista que a tela de configurações guarda descreve um estado
 		// que acabou de mudar, e servir a antiga mostraria opções que já não são
 		// as dele (AEP-0084 D6).
 		s.cn.invalidateOptions()
-		s.cn.announceOptions(s.id, update.ConfigOptions)
+		s.cn.announceOptions(s.id, update.ConfigOptions, true)
 	case UpdateMode:
 		s.setCurrentMode(update.Mode)
-		s.cn.announceOptions(s.id, s.ConfigOptions())
+		s.cn.announceOptions(s.id, s.ConfigOptions(), false)
 	case UpdateCommands:
 		// A lista chega fora de turno — o agente a manda assim que a sessão
 		// abre —, então quem escuta é o canal próprio, e não o sink, que só
@@ -809,14 +829,22 @@ func (s *session) SetConfigOption(ctx context.Context, id, value string) ([]Conf
 	if s.cn.isDead() {
 		return nil, ErrSessionLost
 	}
+	request := sdk.SetSessionConfigOptionRequest{ValueId: &sdk.SetSessionConfigOptionValueId{
+		SessionId: sdk.SessionId(s.id),
+		ConfigId:  sdk.SessionConfigId(id),
+		Value:     sdk.SessionConfigValueId(value),
+	}}
+	if s.optionKind(id) == "boolean" {
+		parsed, parseErr := strconv.ParseBool(value)
+		if parseErr != nil {
+			return nil, fmt.Errorf("valor booleano inválido para a opção %q", id)
+		}
+		request = sdk.SetSessionConfigOptionRequest{Boolean: &sdk.SetSessionConfigOptionBoolean{
+			SessionId: sdk.SessionId(s.id), ConfigId: sdk.SessionConfigId(id), Value: parsed,
+		}}
+	}
 	resp, err := sdk.SendRequest[sdk.SetSessionConfigOptionResponse](s.cn.rpc, ctx,
-		sdk.AgentMethodSessionSetConfigOption, sdk.SetSessionConfigOptionRequest{
-			ValueId: &sdk.SetSessionConfigOptionValueId{
-				SessionId: sdk.SessionId(s.id),
-				ConfigId:  sdk.SessionConfigId(id),
-				Value:     sdk.SessionConfigValueId(value),
-			},
-		})
+		sdk.AgentMethodSessionSetConfigOption, request)
 	if err != nil {
 		if !isMethodNotFound(err) {
 			return nil, wrapCallError(fmt.Sprintf("trocar a opção %q da sessão", id), err)
@@ -906,6 +934,17 @@ func (s *session) categoryOf(id string) string {
 		}
 	}
 	return ""
+}
+
+func (s *session) optionKind(id string) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, option := range s.options {
+		if option.ID == id {
+			return option.Kind
+		}
+	}
+	return "select"
 }
 
 // isMethodNotFound distingue o agente que não conhece o método do agente que

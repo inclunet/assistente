@@ -10,6 +10,7 @@ import (
 func capabilitiesFrom(resp sdk.InitializeResponse) Capabilities {
 	caps := Capabilities{
 		LoadSession:           resp.AgentCapabilities.LoadSession,
+		ResumeSession:         resp.AgentCapabilities.SessionCapabilities.Resume != nil,
 		CloseSession:          resp.AgentCapabilities.SessionCapabilities.Close != nil,
 		PromptImage:           resp.AgentCapabilities.PromptCapabilities.Image,
 		PromptAudio:           resp.AgentCapabilities.PromptCapabilities.Audio,
@@ -202,13 +203,9 @@ func updateFrom(update sdk.SessionUpdate) (Update, bool) {
 
 	case update.ConfigOptionUpdate != nil:
 		options := configOptionsFrom(update.ConfigOptionUpdate.ConfigOptions)
-		// Este evento é o conjunto completo, então um conjunto vazio diz "não
-		// há mais opção nenhuma". Nada mapeado não significa isso: significa
-		// que o agente só mandou coisas que ainda não consumimos. Entregar o
-		// vazio faria o seletor de modelo desaparecer da tela sem motivo.
-		if len(options) == 0 {
-			return Update{}, false
-		}
+		// A notificação contém o conjunto completo. Vazio (inclusive quando
+		// só vieram variantes ainda não representadas) precisa chegar ao estado
+		// da sessão para não manter seletores que o agente já retirou.
 		return Update{Kind: UpdateConfigOptions, ConfigOptions: options}, true
 
 	case update.CurrentModeUpdate != nil:
@@ -315,21 +312,27 @@ func toolCallFromUpdate(call sdk.ToolCallUpdate) ToolCall {
 func configOptionsFrom(options []sdk.SessionConfigOption) []ConfigOption {
 	var out []ConfigOption
 	for _, option := range options {
-		// Opções booleanas ainda não têm uso no app; mapear só o seletor evita
-		// inventar semântica para algo que ninguém consome.
-		if option.Select == nil {
-			continue
+		switch {
+		case option.Select != nil:
+			converted := ConfigOption{
+				ID: string(option.Select.Id), Name: option.Select.Name,
+				CurrentValue: string(option.Select.CurrentValue),
+				Kind:         "select", Values: configValuesFrom(option.Select.Options),
+			}
+			if option.Select.Category != nil {
+				converted.Category = string(*option.Select.Category)
+			}
+			out = append(out, converted)
+		case option.Boolean != nil:
+			converted := ConfigOption{
+				ID: string(option.Boolean.Id), Name: option.Boolean.Name,
+				Kind: "boolean", CurrentBool: option.Boolean.CurrentValue,
+			}
+			if option.Boolean.Category != nil {
+				converted.Category = string(*option.Boolean.Category)
+			}
+			out = append(out, converted)
 		}
-		converted := ConfigOption{
-			ID:           string(option.Select.Id),
-			Name:         option.Select.Name,
-			CurrentValue: string(option.Select.CurrentValue),
-			Values:       configValuesFrom(option.Select.Options),
-		}
-		if option.Select.Category != nil {
-			converted.Category = string(*option.Select.Category)
-		}
-		out = append(out, converted)
 	}
 	return out
 }

@@ -36,10 +36,7 @@ func TestDecisaoQueJaChegouVenceOFimDoPrazo(t *testing.T) {
 	}
 }
 
-// O evento de opções é o conjunto completo, então entregar vazio significa "não
-// há mais opção nenhuma" — e o seletor de modelo sumiria da tela. Agente que só
-// manda o que ainda não consumimos não está dizendo isso.
-func TestConjuntoDeOpcoesSemNadaMapeavelNaoViraEventoVazio(t *testing.T) {
+func TestMapeiaOpcaoBooleanaEAtualizacaoVazia(t *testing.T) {
 	soBooleana := sdk.SessionUpdate{
 		ConfigOptionUpdate: &sdk.SessionConfigOptionUpdate{
 			ConfigOptions: []sdk.SessionConfigOption{
@@ -47,8 +44,13 @@ func TestConjuntoDeOpcoesSemNadaMapeavelNaoViraEventoVazio(t *testing.T) {
 			},
 		},
 	}
-	if update, ok := updateFrom(soBooleana); ok {
-		t.Errorf("opção que não sabemos mapear virou conjunto vazio: %+v", update)
+	if update, ok := updateFrom(soBooleana); !ok || update.Kind != UpdateConfigOptions || len(update.ConfigOptions) != 1 || update.ConfigOptions[0].Kind != "boolean" || !update.ConfigOptions[0].CurrentBool {
+		t.Fatalf("opção booleana não foi mapeada: %+v, ok=%v", update, ok)
+	}
+
+	vazia := sdk.SessionUpdate{ConfigOptionUpdate: &sdk.SessionConfigOptionUpdate{ConfigOptions: []sdk.SessionConfigOption{}}}
+	if update, ok := updateFrom(vazia); !ok || update.Kind != UpdateConfigOptions || len(update.ConfigOptions) != 0 {
+		t.Fatalf("snapshot vazio não foi preservado: %+v, ok=%v", update, ok)
 	}
 
 	// Com algo mapeável, o evento sai normalmente.

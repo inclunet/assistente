@@ -97,7 +97,7 @@ type Config struct {
 	// Roda na goroutine de entrega do transporte, então precisa retornar rápido
 	// e não pode conversar com o agente: enquanto ela não volta, o protocolo
 	// fica parado.
-	OnConfigOptions func(sessionID string, options []ConfigOption)
+	OnConfigOptions func(sessionID string, options []ConfigOption, snapshot bool)
 
 	// OnCommands é avisado quando o agente conta quais comandos a sessão
 	// oferece. Ele manda isso logo depois de abrir a sessão, fora de qualquer
@@ -123,8 +123,8 @@ type Client interface {
 	// NewSession abre uma sessão nova com o diretório de trabalho informado.
 	NewSession(ctx context.Context, cwd string) (Session, error)
 
-	// LoadSession retoma uma sessão que o agente já conhece. Só funciona quando
-	// Capabilities().LoadSession é verdadeiro.
+	// LoadSession retoma uma sessão que o agente já conhece, usando session/resume
+	// quando anunciado e session/load como fallback.
 	LoadSession(ctx context.Context, sessionID, cwd string) (Session, error)
 
 	// Capabilities devolve o que o agente anunciou no handshake, iniciando o
@@ -212,6 +212,8 @@ type Capabilities struct {
 
 	// LoadSession indica suporte a retomar sessões por ID.
 	LoadSession bool
+	// ResumeSession permite retomar sem replay do histórico ACP.
+	ResumeSession bool
 
 	// CloseSession indica suporte a encerrar sessões pelo protocolo. Sem ele,
 	// o app só consegue esquecer a sessão do lado de cá.
@@ -505,6 +507,8 @@ type ConfigOption struct {
 	Name         string
 	Category     string
 	CurrentValue string
+	Kind         string
+	CurrentBool  bool
 	Values       []ConfigValue
 }
 

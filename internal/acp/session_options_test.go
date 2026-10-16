@@ -5,6 +5,41 @@ import (
 	"testing"
 )
 
+func TestSnapshotDeOpcoesVazioRemoveEstadoAnterior(t *testing.T) {
+	sess := &session{options: []ConfigOption{{ID: "model", CurrentValue: "modelo-a"}}}
+	got := sess.replaceConfigOptions(nil)
+	if len(got) != 0 || len(sess.ConfigOptions()) != 0 {
+		t.Fatalf("opções antigas sobreviveram ao snapshot vazio: retornadas=%+v estado=%+v", got, sess.ConfigOptions())
+	}
+}
+
+func TestOpcaoBooleanaPodeSerConsultadaEAlterada(t *testing.T) {
+	ctx := testContext(t)
+	client := newTestClient(t, scriptBooleanOptions, nil)
+	sess := startSession(t, client, ctx)
+
+	initial := sess.ConfigOptions()
+	if len(initial) < 2 {
+		t.Fatalf("opção booleana ausente: %+v", initial)
+	}
+	option := &initial[1]
+	if option.ID != "telemetria" || option.Kind != "boolean" || !option.CurrentBool {
+		t.Fatalf("opção booleana inicial inesperada: %+v", option)
+	}
+
+	options, err := sess.SetConfigOption(ctx, "telemetria", "false")
+	if err != nil {
+		t.Fatalf("alterar opção booleana: %v", err)
+	}
+	if len(options) < 2 {
+		t.Fatalf("opção booleana sumiu depois da troca: %+v", options)
+	}
+	option = &options[1]
+	if option.ID != "telemetria" || option.Kind != "boolean" || option.CurrentBool {
+		t.Fatalf("valor booleano não foi atualizado: %+v", option)
+	}
+}
+
 func TestTrocaDeModeloValeParaOTurnoSeguinte(t *testing.T) {
 	ctx := testContext(t)
 	client := newTestClient(t, scriptModelo, nil)

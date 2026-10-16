@@ -19,12 +19,15 @@ export interface AgentConfigOption {
   name?: string;
   category?: string;
   currentValue: string;
+  kind?: string;
+  currentBool?: boolean;
   values: AgentConfigValue[];
 }
 
 export interface AgentSessionOptionsEvent {
   conversationId: string;
   options: AgentConfigOption[];
+  snapshot?: boolean;
   model?: string;
   mode?: string;
   modelChanged: boolean;
@@ -81,6 +84,12 @@ export function useAgentSessionOptions(
   // fora do render e precisa desta lista para achar o rótulo do valor novo
   // quando ele conta a troca sem repetir as opções.
   const optionsRef = useRef<AgentConfigOption[]>([]);
+  // Versão de qualquer mudança de estado; protege leituras completas antigas.
+  const optionsVersionRef = useRef(0);
+  // Versão apenas dos snapshots; um aviso parcial de outra categoria não torna
+  // obsoleta a resposta da opção alterada pela pessoa.
+  const snapshotVersionRef = useRef(0);
+  const categoryVersionsRef = useRef(new Map<string, number>());
 
   useEffect(() => {
     announceRef.current = announce;
@@ -93,6 +102,9 @@ export function useAgentSessionOptions(
 
   useEffect(() => {
     conversationRef.current = conversationId ?? '';
+    optionsVersionRef.current += 1;
+    snapshotVersionRef.current += 1;
+    categoryVersionsRef.current.clear();
     // Trocar de conversa zera o "trocando": o pedido em voo é da conversa
     // anterior, e deixar a marca de pé travaria os seletores desta.
     setChanging(false);
@@ -101,9 +113,10 @@ export function useAgentSessionOptions(
       return;
     }
     let current = true;
+    const requestVersion = optionsVersionRef.current;
     GetAgentSessionOptions(conversationId)
       .then((state) => {
-        if (!current) return;
+        if (!current || optionsVersionRef.current !== requestVersion) return;
         const fresh = state?.options ?? [];
         // A resposta pode chegar fora de ordem: um evento do agente ou o
         // refetch de fim de turno podem ter trazido opções enquanto esta
@@ -113,7 +126,7 @@ export function useAgentSessionOptions(
         setOptions(fresh);
       })
       .catch((error: unknown) => {
-        if (!current) return;
+        if (!current || optionsVersionRef.current !== requestVersion) return;
         // Conversa que não é de agente é o caso comum, não uma falha: some com
         // os seletores em silêncio em vez de gritar num chat que nunca teve
         // modelo para escolher.
@@ -135,9 +148,10 @@ export function useAgentSessionOptions(
     if (!conversationId || !sessionSettled) return;
     if (optionsRef.current.length > 0) return;
     let current = true;
+    const requestVersion = optionsVersionRef.current;
     GetAgentSessionOptions(conversationId)
       .then((state) => {
-        if (!current) return;
+        if (!current || optionsVersionRef.current !== requestVersion) return;
         const fresh = state?.options ?? [];
         if (fresh.length > 0) setOptions(fresh);
       })
@@ -154,12 +168,21 @@ export function useAgentSessionOptions(
     return EventsOn('chat:agent_options', (event: AgentSessionOptionsEvent) => {
       if (!event || event.conversationId !== conversationId) return;
       const fresh = event.options ?? [];
-      // Aviso sem opção alguma não descreve seletor: o agente pode contar a
-      // troca sem repetir a lista. Escrever o vazio faria os controles sumirem
-      // no meio da conversa, então o que a tela já tem continua valendo — com o
-      // valor novo anotado, que é o que a pessoa precisa ver.
-      const options = fresh.length > 0 ? fresh : withAgentValues(optionsRef.current, event);
-      setOptions(options);
+      if (event.snapshot || fresh.length > 0) {
+        snapshotVersionRef.current += 1;
+      }
+      optionsVersionRef.current += 1;
+      if (!event.snapshot && fresh.length === 0) {
+        if (event.model) bumpCategoryVersion(categoryVersionsRef.current, AGENT_OPTION_MODEL);
+        if (event.mode) bumpCategoryVersion(categoryVersionsRef.current, AGENT_OPTION_MODE);
+      }
+      // config_option_update é um snapshot completo; avisos legados podem só
+      // atualizar o modelo ou modo e manter a lista de opções já conhecida.
+      const updated = event.snapshot || fresh.length > 0
+        ? fresh
+        : withAgentValues(optionsRef.current, event);
+      optionsRef.current = updated;
+      setOptions(updated);
       if (!event.announce) return;
       // A pessoa precisa saber com quem está falando: o agente troca de modelo
       // por conta própria quando bate num limite de uso, e descobrir isso pela
@@ -169,7 +192,7 @@ export function useAgentSessionOptions(
         // `claude-sonnet-4-5-20250929` é ilegível. Esta troca é a que mais
         // depende do anúncio — a pessoa não a viu acontecer.
         announceRef.current(tRef.current('chat.agentOptions.modelChangedByAgent', {
-          model: labelOfValue(optionByCategory(options, AGENT_OPTION_MODEL), event.model),
+          model: labelOfValue(optionByCategory(updated, AGENT_OPTION_MODEL), event.model),
         }));
       }
       if (event.modeChanged && event.mode) {
@@ -178,7 +201,7 @@ export function useAgentSessionOptions(
         // inglês no meio do português.
         announceRef.current(tRef.current('chat.agentOptions.modeChangedByAgent', {
           mode: labelOfValue(
-            optionByCategory(options, AGENT_OPTION_MODE),
+            optionByCategory(updated, AGENT_OPTION_MODE),
             event.mode,
             (value) => agentModeLabel(tRef.current, value),
           ),
@@ -193,6 +216,14 @@ export function useAgentSessionOptions(
   ): Promise<AgentConfigOption[] | null> => {
     if (!conversationId) return null;
     const requested = conversationId;
+    const requestVersion = snapshotVersionRef.current;
+    const requestedOption = optionsRef.current.find((option) => option.id === optionId);
+    const requestedCategory = requestedOption
+      ? isCategory(requestedOption, AGENT_OPTION_MODEL)
+        ? AGENT_OPTION_MODEL
+        : isCategory(requestedOption, AGENT_OPTION_MODE) ? AGENT_OPTION_MODE : optionId
+      : optionId;
+    const requestCategoryVersion = categoryVersionsRef.current.get(requestedCategory) ?? 0;
     setChanging(true);
     try {
       const state = await SetAgentSessionOption(requested, optionId, value);
@@ -200,6 +231,12 @@ export function useAgentSessionOptions(
       // A conversa da tela pode ter mudado enquanto o agente respondia. Escrever
       // agora poria o modelo de uma conversa no seletor de outra.
       if (conversationRef.current !== requested) return null;
+      // Um evento posterior pode já ter publicado um snapshot mais novo do
+      // agente enquanto a chamada de alteração ainda estava em andamento.
+      if (snapshotVersionRef.current !== requestVersion) return null;
+      // Avisos legados trazem somente o modelo ou modo atual. Eles só tornam
+      // obsoleta uma resposta que altera a mesma categoria.
+      if ((categoryVersionsRef.current.get(requestedCategory) ?? 0) !== requestCategoryVersion) return null;
       if (applied.length === 0) {
         // Conjunto vazio não descreve seletor nenhum: escrevê-lo faria os
         // controles sumirem no meio da conversa. E como o agente não disse em
@@ -212,6 +249,9 @@ export function useAgentSessionOptions(
         announceRef.current(tRef.current('chat.agentOptions.changeUnknownState'));
         return null;
       }
+      optionsVersionRef.current += 1;
+      snapshotVersionRef.current += 1;
+      optionsRef.current = applied;
       setOptions(applied);
       return applied;
     } catch (error: unknown) {
@@ -230,6 +270,24 @@ export function useAgentSessionOptions(
   return useMemo(() => ({ options, changing, change }), [options, changing, change]);
 }
 
+/** Mantém as opções conhecidas quando o agente só anuncia um valor corrente. */
+function withAgentValues(
+  options: AgentConfigOption[],
+  event: AgentSessionOptionsEvent,
+): AgentConfigOption[] {
+  if (options.length === 0) return options;
+  return options.map((option) => {
+    const value = isCategory(option, AGENT_OPTION_MODEL)
+      ? event.model
+      : isCategory(option, AGENT_OPTION_MODE) ? event.mode : '';
+    return value ? { ...option, currentValue: valueAsListed(option, value) } : option;
+  });
+}
+
+function bumpCategoryVersion(versions: Map<string, number>, category: string): void {
+  versions.set(category, (versions.get(category) ?? 0) + 1);
+}
+
 /**
  * isCategory diz se a opção é da categoria pedida. A comparação some com a caixa
  * porque a categoria vem do agente pelo fio; ela mora aqui para que todo mundo
@@ -246,24 +304,6 @@ export function optionByCategory(
   category: string,
 ): AgentConfigOption | undefined {
   return options.find((option) => isCategory(option, category));
-}
-
-/**
- * withAgentValues anota na lista que a tela mostra o valor corrente que o agente
- * contou. Serve ao aviso que traz a troca sem trazer as opções: a lista de
- * valores continua sendo a que se conhecia, e só o valor corrente muda.
- */
-function withAgentValues(
-  options: AgentConfigOption[],
-  event: AgentSessionOptionsEvent,
-): AgentConfigOption[] {
-  if (options.length === 0) return options;
-  return options.map((option) => {
-    const value = isCategory(option, AGENT_OPTION_MODEL)
-      ? event.model
-      : isCategory(option, AGENT_OPTION_MODE) ? event.mode : '';
-    return value ? { ...option, currentValue: valueAsListed(option, value) } : option;
-  });
 }
 
 /**

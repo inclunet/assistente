@@ -2,7 +2,8 @@ import { logger } from '../../utils/logger';
 import React, { useEffect, useCallback, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { ClearOutlined, EditOutlined, SettingOutlined } from '@ant-design/icons';
+import { ClearOutlined, CloseOutlined, EditOutlined, SettingOutlined } from '@ant-design/icons';
+import { useChatStore } from '../../store/chatStore';
 import { useNavigationStore } from '../../store/navigationStore';
 import { CHAT_CLEAR_COMMAND, registerChatClearSurface, requestChatClear } from '../../lib/commandChatClear';
 import { GetActiveProfileSlug, GetProfile } from '@wailsjs/go/wailsapi/Profiles';
@@ -144,11 +145,17 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
   const effectiveConversationId = sessionConversationId || conversationId || null;
   const queuedTurnCount = session?.queuedTurnCount ?? 0;
   const { announce, announceRequest } = useAnnouncer();
+  const cancelNextQueuedTurn = useChatStore((s) => s.cancelNextQueuedTurn);
   const announceRequestRef = useRef(announceRequest);
   const conversationTitle = activeConversation?.title || t('chat.newConversation');
   const isInsideModal = useIsInsideModal();
   const isModalTopmost = useModalIsTopmost();
   const modalId = useModalId();
+
+  const handleCancelQueuedTurn = useCallback(() => {
+    if (!effectiveConversationId || !cancelNextQueuedTurn(effectiveConversationId)) return;
+    announce(t('chat.queue.cancelledNext'));
+  }, [announce, cancelNextQueuedTurn, effectiveConversationId, t]);
 
   const workspace = useWorkspaceStore((s) => s.workspace);
   const updateWsTab = useWorkspaceStore((s) => s.updateTab);
@@ -592,6 +599,15 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
         }
         right={
           <>
+            {queuedTurnCount > 0 && (
+              <ToolbarButton
+                label={t('chat.queue.cancelNext')}
+                icon={<CloseOutlined />}
+                title={t('chat.queue.cancelNextDescription')}
+                onClick={handleCancelQueuedTurn}
+                aria-label={t('chat.queue.cancelNextDescription')}
+              />
+            )}
             <ToolbarButton
               label={t('chat.clearBtn')}
               icon={<ClearOutlined />}

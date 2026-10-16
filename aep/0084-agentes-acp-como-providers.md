@@ -1,9 +1,10 @@
 # AEP-0084 — Agentes de código ACP como providers LLM
 
-**Status:** ✅ Done
+**Status:** In Progress — cobertura ACP v1 em ampliação; o escopo original continua entregue.
 
-**Nota de escopo (16/10/2026):** o escopo original foi entregue; a auditoria de
-cobertura ACP v1 e as capacidades ainda não integradas estão registradas abaixo.
+**Nota de escopo (16/10/2026):** o escopo original foi entregue. Por solicitação
+do mantenedor, as lacunas da auditoria ACP v1 estão autorizadas para
+implementação, exceto a apresentação de planos, reservada para discussão.
 
 ## Resumo
 
@@ -850,15 +851,16 @@ específicos do agente sejam apresentados pelo Assistente.
 Legenda: **implementado** está coberto pelo transporte/integração atual;
 **parcial** funciona com perda conhecida de informação; **intencionalmente
 desativado** é uma fronteira de segurança ou produto já decidida; **não
-implementado** é capacidade ACP sem fluxo correspondente no app. Os itens são
-registro e backlog para priorização posterior; este PR documental não autoriza
-implementá-los em conjunto nem altera as decisões de segurança.
+implementado** é capacidade ACP sem fluxo correspondente no app. Os itens
+abaixo formam o backlog de implementação autorizado em 16/10/2026. Capacidades
+de execução continuam obrigadas aos contratos de segurança e acessibilidade dos
+AEPs relacionados.
 
 | Área ACP v1 | Estado no Assistente | Lacuna ou limite registrado |
 |---|---|---|
 | Transporte JSON-RPC sobre stdio, `initialize`, `session/new`, `session/prompt`, `session/cancel`, `session/load` e `session/close` | **Implementado** | Um processo por provider e sessões multiplexadas. O fechamento remoto é condicionado à capability anunciada pelo agente. A recuperação de sessão presa segue AEP-0108. |
 | `session/list` e `session/delete` | **Não implementado** | O app não importa nem navega sessões criadas fora do Assistente. Conversas e histórico do app continuam sendo a fonte de apresentação; avaliar descoberta cruzada apenas se houver demanda. |
-| `session/resume` | **Não implementado** | O app usa `session/load` quando anunciado. Retomar sem replay é capacidade distinta e deve ser avaliada com agentes que a publiquem. |
+| `session/resume` | **Implementado** | Quando anunciado, é preferido a `session/load` para retomar sem replay; agentes que só anunciam `loadSession` continuam usando `session/load`. |
 | `sessionCapabilities.additionalDirectories` | **Não implementado** | Cada conversa usa um `cwd` primário; não há seleção de múltiplas raízes adicionais. |
 | MCP enviado em `session/new`/`session/load` | **Intencionalmente vazio** | O app não injeta servidores MCP próprios; o agente usa sua configuração local (D1). Generalizar essa passagem exigiria decisão de credenciais, escopo e isolamento. |
 | Texto em prompts e respostas | **Implementado** | Blocos de texto são encaminhados para o provider e para a superfície comum de chat. |
@@ -871,7 +873,7 @@ implementá-los em conjunto nem altera as decisões de segurança.
 | Detalhes de ferramenta (`name`, conteúdo, diff, locais, entrada/saída bruta) | **Parcial** | A atividade recebe essencialmente categoria, título e estado. Resultado, diff e localização de arquivo não chegam ao registro. Conteúdo bruto exige decisão explícita de privacidade, saneamento e retenção antes de qualquer captura. |
 | Uso/contexto (`usage_update`) | **Não implementado** | O ACP v1 atual pode reportar janela utilizada e custo acumulado; o app ainda mostra uso indisponível e não usa esses dados para avisos. |
 | Atualizações de aviso e compactação (`notice`, `compaction_update`, `compaction_summary_chunk`) | **Não anunciadas/não renderizadas** | O handshake não declara `ClientSessionCapabilities.notices` nem `.compaction`; o app não tem projeção para esses três updates. Não habilitá-las sem definir apresentação, replay e acessibilidade. |
-| Opções de configuração | **Parcial** | Modelo, modo e categorias representadas são expostos; outras categorias ficam fora do seletor. Opções booleanas não são anunciadas/suportadas pelo cliente. Atualização vazia/sem opções reconhecíveis não é distinguida de “nenhuma opção”, podendo preservar opções obsoletas. |
+| Opções de configuração | **Parcial** | Seletores, modos, modelos e toggles booleanos são expostos. Snapshot vazio remove opções obsoletas. Opções ACP de tipos ainda não modelados seguem pendentes. |
 | Elicitation ACP (`elicitation/create` e `elicitation/complete`, modos form/URL) | **Não implementado** | Questionários e extensões bloqueantes específicas não equivalem ao contrato genérico de elicitation. Não há handlers, anúncio de capacidade nem renderer para os modos ACP. |
 | Filesystem e terminal oferecidos pelo cliente ao agente | **Intencionalmente desativado** | O handshake envia ambos como não suportados. O agente usa ferramentas próprias no `cwd`; oferecer ferramentas do app seria outra decisão de segurança e produto. |
 | Aprovação (`session/request_permission`) e extensões Cursor documentadas | **Implementado** | Usa arbitragem/questionário existentes, com recusa segura e cancelamento. Extensões não padronizadas de outros agentes dependem de handlers específicos. |
@@ -896,10 +898,12 @@ implementá-los em conjunto nem altera as decisões de segurança.
    com ACP v1, manter fixtures para variantes conhecidas e criar uma matriz de
    agentes/distribuições. A execução do kit oficial depende da compatibilidade
    com stdio e deve ser investigada antes de virar gate obrigatório.
-5. **Capacidades ampliadas:** decidir se descoberta de sessões, resume,
-   múltiplas raízes, notices, compaction, áudio, recursos embutidos, uso/custo ou
-   filesystem/terminal do cliente resolvem necessidades reais. Capacidades
-   explicitamente desativadas continuam assim até decisão arquitetural própria.
+5. **Capacidades ampliadas:** implementar descoberta/resume de sessões,
+   múltiplas raízes, notices, compaction, áudio, recursos embutidos, uso/custo e
+   filesystem/terminal do cliente. A decisão de produto de 16/10/2026 autoriza
+   esses itens, exceto apresentação de planos ACP, reservada para discussão
+   posterior. Execução privilegiada permanece sujeita aos contratos de
+   permissão e confirmação dos AEPs.
 
 #### Referências consultadas em 16/10/2026
 
@@ -1424,6 +1428,31 @@ testes.
   aparece como comportamento errático.
 
 ## Critérios de aceitação
+
+### Ampliação ACP v1 autorizada em 16/10/2026
+
+- [x] Atualização completa de opções, inclusive conjunto vazio, substitui o
+  snapshot da sessão e remove opções obsoletas (`TestSnapshotDeOpcoesVazioRemoveEstadoAnterior`).
+- [x] Mapear, apresentar e alterar opções booleanas em ACP (`TestOpcaoBooleanaPodeSerConsultadaEAlterada`; teste Vitest de `AgentOptionsPickers`).
+- [x] Apresentar e alterar opções seletoras de categorias adicionais (`thought_level` etc.) em controle acessível, com rótulos e anúncios internacionalizados.
+- [x] Propagar snapshots de opções vazios até o frontend para remover controles obsoletos (`TestSnapshotVazioDeOpcoesChegaATela`; teste Vitest correspondente). Avisos legados sem lista continuam preservando os seletores conhecidos.
+- [x] Retomar com `session/resume` quando anunciado, com fallback para `session/load` (`TestRetomaSessaoSemReplayQuandoAgenteAnunciaResume`).
+- [ ] Cobrir uso/custo, metadados de sessão, notices/compaction, conteúdo
+  multimodal, elicitation, sessões externas e raízes adicionais, com testes e
+  revisão de acessibilidade/privacidade.
+- [x] Completar estado acessível e cancelamento individual do próximo envio
+  manual pendente na fila da conversa (AEP-0108 D1); eventos externos seguem
+  serializados e não entram na contagem cancelável.
+- [ ] Validar estratégia segura de detecção de agente morto com sessão ociosa
+  (AEP-0108 D2, cobertura a).
+- [ ] Revisar compatibilidade de SDK/schema e matriz de agentes; não declarar
+  conformidade pelo TCK experimental sem evidência registrada.
+- [ ] Manter filesystem/terminal do cliente sob confirmação/permissão; não
+  expor execução privilegiada sem respeitar AEP-0091 e a política de tools.
+- [ ] Implementar os métodos ACP de autenticação e logout com consentimento
+  explícito, sem exibir nem registrar segredos fora do cofre.
+- [ ] Apresentação de planos ACP fica fora deste escopo e requer discussão e
+  decisão posteriores.
 
 - Um perfil apontando para um provider ACP conversa na superfície de chat comum,
   com streaming de texto e de raciocínio, sem fluxo de envio alternativo.

@@ -105,6 +105,100 @@ describe('AgentOptionsPickers', () => {
     expect(container.firstChild).toBeNull();
   });
 
+  it('mostra opções booleanas e envia o valor alterado ao agente', async () => {
+    getOptions.mockResolvedValue({
+      conversationId: 'conversa-1',
+      available: true,
+      options: [{ id: 'telemetria', name: 'Telemetria', kind: 'boolean', currentBool: true, values: [] }],
+    });
+    setOption.mockResolvedValue({ conversationId: 'conversa-1', available: true, options: [] });
+
+    render(<AgentOptionsPickers conversationId="conversa-1" />);
+    const checkbox = await screen.findByRole('checkbox', { name: 'Telemetria' });
+    expect(checkbox).toBeChecked();
+    await userEvent.click(checkbox);
+    await waitFor(() => expect(setOption).toHaveBeenCalledWith('conversa-1', 'telemetria', 'false'));
+  });
+
+  it('mostra e altera seletores ACP de categorias adicionais', async () => {
+    getOptions.mockResolvedValue({
+      conversationId: 'conversa-1',
+      available: true,
+      options: [{
+        id: 'effort', name: 'Nível de raciocínio', category: 'thought_level', kind: 'select',
+        currentValue: 'low', values: [{ value: 'low', name: 'Baixo' }, { value: 'high', name: 'Alto' }],
+      }],
+    });
+    setOption.mockResolvedValue({
+      conversationId: 'conversa-1', available: true,
+      options: [{
+        id: 'effort', name: 'Nível de raciocínio', category: 'thought_level', kind: 'select',
+        currentValue: 'high', values: [{ value: 'low', name: 'Baixo' }, { value: 'high', name: 'Alto' }],
+      }],
+    });
+
+    render(<AgentOptionsPickers conversationId="conversa-1" />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Nível de raciocínio, Baixo' }));
+    await userEvent.click(await screen.findByRole('option', { name: 'Alto' }));
+
+    await waitFor(() => expect(setOption).toHaveBeenCalledWith('conversa-1', 'effort', 'high'));
+    expect(await screen.findByRole('button', { name: 'Nível de raciocínio, Alto' })).toBeInTheDocument();
+    expect(announce).toHaveBeenCalledWith(expect.stringContaining('Nível de raciocínio'));
+  });
+
+  it('remove opções antigas quando o agente publica um snapshot vazio', async () => {
+    getOptions.mockResolvedValue(opcoesDoAgente());
+    render(<AgentOptionsPickers conversationId="conversa-1" />);
+    expect(await screen.findByRole('button', { name: /Modelo/ })).toBeInTheDocument();
+
+    act(() => {
+      emitAgentOptions?.({ conversationId: 'conversa-1', options: [], snapshot: true, announce: false });
+    });
+
+    await waitFor(() => expect(screen.queryByRole('button', { name: /Modelo/ })).not.toBeInTheDocument());
+  });
+
+  it('não restaura opções por uma leitura inicial antiga após snapshot vazio', async () => {
+    let resolveInitial!: (value: unknown) => void;
+    getOptions.mockImplementationOnce(() => new Promise((resolve) => { resolveInitial = resolve; }));
+    render(<AgentOptionsPickers conversationId="conversa-1" disabled />);
+    await waitFor(() => expect(getOptions).toHaveBeenCalledOnce());
+
+    act(() => {
+      emitAgentOptions?.({ conversationId: 'conversa-1', options: [], snapshot: true, announce: false });
+    });
+    expect(screen.queryByRole('button', { name: /Modelo/ })).not.toBeInTheDocument();
+
+    await act(async () => {
+      resolveInitial(opcoesDoAgente());
+    });
+    expect(screen.queryByRole('button', { name: /Modelo/ })).not.toBeInTheDocument();
+  });
+
+  it('falha de leitura inicial antiga não apaga opções que chegaram por evento', async () => {
+    let rejectInitial!: (reason: unknown) => void;
+    getOptions.mockImplementationOnce(() => new Promise((_, reject) => { rejectInitial = reject; }));
+    render(<AgentOptionsPickers conversationId="conversa-1" disabled />);
+    await waitFor(() => expect(getOptions).toHaveBeenCalledOnce());
+
+    act(() => {
+      emitAgentOptions?.({
+        conversationId: 'conversa-1',
+        options: opcoesDoAgente().options,
+        model: 'modelo-a',
+        modelChanged: false,
+        modeChanged: false,
+        announce: false,
+      });
+    });
+    expect(await screen.findByText('Modelo A')).toBeInTheDocument();
+
+    await act(async () => {
+      rejectInitial(new Error('leitura antiga falhou'));
+    });
+    expect(screen.getByText('Modelo A')).toBeInTheDocument();
+  });
+
   // O fetch inicial roda antes da sessão do agente existir (ela nasce com o
   // primeiro turno) e devolve vazio. Terminado o turno, perguntar de novo é o
   // que faz os seletores aparecerem — mesmo que o evento do backend tenha se
@@ -193,6 +287,59 @@ describe('AgentOptionsPickers', () => {
     const anunciado = anuncioDaTroca();
     expect(anunciado).toContain('Modelo B');
     expect(anunciado).not.toContain('modelo-b');
+  });
+
+  it('não substitui um snapshot novo pelo resultado atrasado da troca de opção', async () => {
+    getOptions.mockResolvedValue(opcoesDoAgente());
+    let resolveChange!: (value: unknown) => void;
+    setOption.mockImplementation(() => new Promise((resolve) => { resolveChange = resolve; }));
+
+    render(<AgentOptionsPickers conversationId="conversa-1" />);
+    await userEvent.click(await screen.findByRole('button', { name: /Modelo/ }));
+    await userEvent.click(await screen.findByRole('option', { name: 'Modelo B' }));
+    await waitFor(() => expect(setOption).toHaveBeenCalledWith('conversa-1', 'model', 'modelo-b'));
+
+    const snapshotNovo = opcoesDoAgente('modelo-a');
+    snapshotNovo.options[0].values.push({ value: 'modelo-c', name: 'Modelo C' });
+    snapshotNovo.options[0].currentValue = 'modelo-c';
+    act(() => {
+      emitAgentOptions?.({
+        conversationId: 'conversa-1',
+        options: snapshotNovo.options,
+        snapshot: true,
+        model: 'modelo-c',
+        modelChanged: true,
+        modeChanged: false,
+        announce: false,
+      });
+    });
+    expect(await screen.findByText('Modelo C')).toBeInTheDocument();
+
+    await act(async () => {
+      resolveChange(opcoesDoAgente('modelo-b'));
+    });
+    expect(screen.getByRole('button', { name: 'Modelo, Modelo C' })).toBeInTheDocument();
+  });
+
+  it('aplica a resposta da opção mesmo quando chega aviso parcial de outra categoria', async () => {
+    getOptions.mockResolvedValue(opcoesDoAgente());
+    let resolveChange!: (value: unknown) => void;
+    setOption.mockImplementation(() => new Promise((resolve) => { resolveChange = resolve; }));
+
+    render(<AgentOptionsPickers conversationId="conversa-1" />);
+    await userEvent.click(await screen.findByRole('button', { name: /Modelo/ }));
+    await userEvent.click(await screen.findByRole('option', { name: 'Modelo B' }));
+    await waitFor(() => expect(setOption).toHaveBeenCalledWith('conversa-1', 'model', 'modelo-b'));
+
+    act(() => {
+      emitAgentOptions?.({ conversationId: 'conversa-1', options: [], mode: 'plan', modeChanged: true, announce: false });
+    });
+    await act(async () => {
+      resolveChange(opcoesDoAgente('modelo-b'));
+    });
+
+    expect(screen.getByRole('button', { name: 'Modelo, Modelo B' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Modo, chat.agentOptions.mode.plan' })).toBeInTheDocument();
   });
 
   it('anuncia o modelo que o agente aplicou quando ele acomoda o pedido em outro', async () => {

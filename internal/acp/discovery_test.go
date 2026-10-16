@@ -178,7 +178,7 @@ func TestAgenteAvisaAsOpcoesDaSessaoParaQuemCuidaDoApp(t *testing.T) {
 
 	avisos := make(chan []ConfigOption, 8)
 	cfg := fakeConfig(t, scriptTurn)
-	cfg.OnConfigOptions = func(_ string, options []ConfigOption) {
+	cfg.OnConfigOptions = func(_ string, options []ConfigOption, _ bool) {
 		select {
 		case avisos <- options:
 		default:

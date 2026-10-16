@@ -65,7 +65,9 @@ const (
 	// scriptComandos anuncia os comandos que oferece assim que a sessão abre,
 	// fora de qualquer turno, e refaz a lista durante o turno — que é como o
 	// available_commands_update chega de verdade (AEP-0084 D8).
-	scriptComandos = "comandos"
+	scriptComandos       = "comandos"
+	scriptBooleanOptions = "boolean-options"
+	scriptResume         = "resume"
 
 	fakeSessionID = "sess-falsa-1"
 	// fakeMuteValue faz o agente aceitar a troca e responder com um conjunto de
@@ -215,13 +217,17 @@ func (a *fakeAgent) handle(msg rpcMessage) {
 		if a.script == scriptStall {
 			return
 		}
+		sessionCapabilities := map[string]any{"close": map[string]any{}}
+		if a.script == scriptResume {
+			sessionCapabilities["resume"] = map[string]any{}
+		}
 		a.reply(*msg.ID, map[string]any{
 			"protocolVersion": 1,
 			"agentInfo":       map[string]any{"name": "agente-falso", "version": "0.1.0"},
 			"agentCapabilities": map[string]any{
-				"loadSession":         true,
+				"loadSession":         a.script != scriptResume,
 				"promptCapabilities":  map[string]any{"image": true, "audio": false, "embeddedContext": false},
-				"sessionCapabilities": map[string]any{"close": map[string]any{}},
+				"sessionCapabilities": sessionCapabilities,
 			},
 			"authMethods": a.authMethods(),
 		})
@@ -236,6 +242,15 @@ func (a *fakeAgent) handle(msg rpcMessage) {
 			return
 		}
 		option := fakeModelOption(a.startModel(sid))
+		if a.script == scriptBooleanOptions {
+			a.reply(*msg.ID, map[string]any{
+				"sessionId": sid,
+				"configOptions": []any{option, map[string]any{
+					"type": "boolean", "id": "telemetria", "name": "Telemetria", "currentValue": true,
+				}},
+			})
+			return
+		}
 		if a.script == scriptDescoberta {
 			// O nome carrega a escrituração do agente: quantas sessões ele
 			// abriu e quantas foram fechadas. É o único jeito de o teste, que
@@ -321,6 +336,13 @@ func (a *fakeAgent) handle(msg rpcMessage) {
 		}
 		a.reply(*msg.ID, map[string]any{"configOptions": []any{fakeModelOption("modelo-b")}})
 
+	case "session/resume":
+		if a.script != scriptResume {
+			a.replyError(*msg.ID, -32601, "método desconhecido: "+msg.Method)
+			return
+		}
+		a.reply(*msg.ID, map[string]any{"configOptions": []any{fakeModelOption("modelo-b")}})
+
 	case "session/set_config_option":
 		if a.script == scriptLegado || a.script == scriptSoLegado {
 			// Agente anterior ao formato estável: só conhece os seletores de
@@ -332,8 +354,23 @@ func (a *fakeAgent) handle(msg rpcMessage) {
 			SessionId string `json:"sessionId"`
 			ConfigId  string `json:"configId"`
 			Value     string `json:"value"`
+			Type      string `json:"type"`
 		}
 		_ = json.Unmarshal(msg.Params, &params)
+		if a.script == scriptBooleanOptions {
+			var booleanParams struct {
+				Value bool `json:"value"`
+			}
+			_ = json.Unmarshal(msg.Params, &booleanParams)
+			if params.SessionId != fakeSessionID || params.ConfigId != "telemetria" || params.Type != "boolean" || booleanParams.Value {
+				a.replyError(*msg.ID, -32602, "parâmetros booleanos inesperados: "+string(msg.Params))
+				return
+			}
+			a.reply(*msg.ID, map[string]any{"configOptions": []any{fakeModelOption("modelo-a"), map[string]any{
+				"type": "boolean", "id": "telemetria", "name": "Telemetria", "currentValue": false,
+			}}})
+			return
+		}
 		if a.script == scriptModelo {
 			if params.SessionId == "" || params.ConfigId != "model" || params.Value == "" {
 				a.replyError(*msg.ID, -32602, "parâmetros inesperados: "+string(msg.Params))

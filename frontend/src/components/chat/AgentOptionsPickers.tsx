@@ -1,6 +1,7 @@
 import React, { useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { BasePicker } from '../pickers/BasePicker';
+import { Checkbox } from '../ui/Checkbox';
 import type { ComboboxItem } from '../pickers/Combobox';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import {
@@ -40,6 +41,12 @@ export const AgentOptionsPickers: React.FC<AgentOptionsPickersProps> = ({
 
   const model = optionByCategory(options, AGENT_OPTION_MODEL);
   const mode = optionByCategory(options, AGENT_OPTION_MODE);
+  const booleans = options.filter((option) => option.kind === 'boolean');
+  const additionalSelects = options.filter((option) =>
+    option.kind === 'select'
+      && option.category !== AGENT_OPTION_MODEL
+      && option.category !== AGENT_OPTION_MODE,
+  );
 
   const handleModelChange = useCallback(async (value: string) => {
     if (!model || value === model.currentValue) return;
@@ -67,7 +74,23 @@ export const AgentOptionsPickers: React.FC<AgentOptionsPickersProps> = ({
     }));
   }, [announce, change, mode, t]);
 
-  if (!model && !mode) return null;
+  const handleAdditionalChange = useCallback(async (option: AgentConfigOption, value: string) => {
+    if (value === option.currentValue) return;
+    const applied = await change(option.id, value);
+    if (!applied) return;
+    const current = applied.find((candidate) => candidate.id === option.id) ?? option;
+    announce(t('chat.agentOptions.optionChanged', {
+      option: current.name || t('chat.agentOptions.settingLabel'),
+      value: labelOfValue(current, current.currentValue || value),
+    }));
+  }, [announce, change, t]);
+
+  const handleBooleanChange = useCallback((option: AgentConfigOption, value: boolean) => {
+    if (value === !!option.currentBool) return;
+    void change(option.id, String(value));
+  }, [change]);
+
+  if (!model && !mode && additionalSelects.length === 0 && booleans.length === 0) return null;
 
   return (
     <>
@@ -102,6 +125,30 @@ export const AgentOptionsPickers: React.FC<AgentOptionsPickersProps> = ({
           showEmptyState={false}
         />
       )}
+      {additionalSelects.map((option) => (
+        <BasePicker
+          key={option.id}
+          variant="toolbar"
+          items={itemsOf(option)}
+          selected={option.currentValue}
+          onSelect={(value) => void handleAdditionalChange(option, value)}
+          label={option.name || t('chat.agentOptions.settingLabel')}
+          description={t('chat.agentOptions.settingDescription')}
+          maxWidth="180px"
+          disabled={disabled || changing}
+          onAnnounce={announce}
+          showEmptyState={false}
+        />
+      ))}
+      {booleans.map((option) => (
+        <Checkbox
+          key={option.id}
+          label={option.name || t('chat.agentOptions.booleanLabel')}
+          checked={!!option.currentBool}
+          onChange={(event) => handleBooleanChange(option, event.currentTarget.checked)}
+          disabled={disabled || changing}
+        />
+      ))}
     </>
   );
 };
