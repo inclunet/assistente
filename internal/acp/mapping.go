@@ -2,6 +2,7 @@ package acp
 
 import (
 	"errors"
+	"math"
 	"strings"
 
 	sdk "github.com/coder/acp-go-sdk"
@@ -232,9 +233,38 @@ func updateFrom(update sdk.SessionUpdate) (Update, bool) {
 			return Update{}, false
 		}
 		return Update{Kind: UpdateTitle, Title: title}, true
+
+	case update.UsageUpdate != nil:
+		usage := update.UsageUpdate
+		mapped := Update{
+			Kind:                UpdateUsage,
+			ContextUsed:         max(0, usage.Used),
+			ContextSize:         max(0, usage.Size),
+			SessionCostCurrency: "",
+		}
+		if usage.Cost != nil && usage.Cost.Amount >= 0 && !math.IsNaN(usage.Cost.Amount) &&
+			!math.IsInf(usage.Cost.Amount, 0) && validCurrencyCode(usage.Cost.Currency) {
+			amount := usage.Cost.Amount
+			mapped.SessionCostAmount = &amount
+			mapped.SessionCostCurrency = strings.ToUpper(strings.TrimSpace(usage.Cost.Currency))
+		}
+		return mapped, true
 	}
 
 	return Update{}, false
+}
+
+func validCurrencyCode(value string) bool {
+	value = strings.TrimSpace(value)
+	if len(value) != 3 {
+		return false
+	}
+	for _, char := range strings.ToUpper(value) {
+		if char < 'A' || char > 'Z' {
+			return false
+		}
+	}
+	return true
 }
 
 // commandsFrom traduz os comandos que o agente oferece. Nome e descrição vão

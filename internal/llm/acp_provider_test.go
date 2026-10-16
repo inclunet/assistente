@@ -260,6 +260,7 @@ type espiao struct {
 	naoRetentavel bool
 	ferramentas   []AgentToolEvent
 	avisos        []TurnNotice
+	usosACP       []ACPUsageUpdate
 	titulos       []string
 	segmentos     int
 	pronto        bool
@@ -320,6 +321,7 @@ func (e *espiao) OnTurnNotice(notice TurnNotice) {
 	e.avisos = append(e.avisos, notice)
 	e.ordem = append(e.ordem, "notice_"+string(notice.Kind))
 }
+func (e *espiao) OnACPUsage(update ACPUsageUpdate) { e.usosACP = append(e.usosACP, update) }
 
 // E o nome que o agente deu à sessão, que vira o título da conversa.
 func (e *espiao) OnAgentTitle(title string) {
@@ -337,6 +339,20 @@ func TestTurnoACPAnunciaUmaVezConteudoNaoTextualNaoRenderizado(t *testing.T) {
 
 	if len(handler.avisos) != 1 || handler.avisos[0].Kind != TurnNoticeAgentOutputNotDisplayed {
 		t.Fatalf("avisos = %+v; queria um aviso de resposta não textual", handler.avisos)
+	}
+}
+
+func TestTurnoACPAtualizaUsoEAnunciaCadaFaixaUmaVez(t *testing.T) {
+	handler := &espiao{}
+	turn := &acpTurn{handler: handler}
+	for _, used := range []int{700, 820, 900, 960, 980} {
+		turn.update(acp.Update{Kind: acp.UpdateUsage, ContextUsed: used, ContextSize: 1000})
+	}
+	if len(handler.usosACP) != 5 || handler.usosACP[4].ContextTokens != 980 {
+		t.Fatalf("snapshots de uso = %+v", handler.usosACP)
+	}
+	if len(handler.avisos) != 2 || handler.avisos[0].Kind != TurnNoticeAgentContextNearLimit || handler.avisos[1].Kind != TurnNoticeAgentContextCritical {
+		t.Fatalf("avisos de limite = %+v", handler.avisos)
 	}
 }
 

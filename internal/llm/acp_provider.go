@@ -385,8 +385,9 @@ type acpTurn struct {
 	// lastAnonymous é a chave da última chamada sem identificador ainda aberta,
 	// e é por ela que uma atualização sem identificador nem classe encontra o
 	// começo dela.
-	lastAnonymous    string
-	outputNoticeSent bool
+	lastAnonymous       string
+	outputNoticeSent    bool
+	contextWarningLevel int
 }
 
 // agentToolState é o que o app precisa lembrar de uma chamada entre o começo e
@@ -425,6 +426,31 @@ func (t *acpTurn) update(update acp.Update) {
 		if !t.outputNoticeSent {
 			t.outputNoticeSent = true
 			notifyTurn(t.handler, TurnNotice{Kind: TurnNoticeAgentOutputNotDisplayed})
+		}
+	case acp.UpdateUsage:
+		if update.ContextSize <= 0 || update.ContextUsed < 0 {
+			return
+		}
+		usage := ACPUsageUpdate{
+			ContextTokens: update.ContextUsed,
+			ContextLimit:  update.ContextSize,
+			CostAmount:    update.SessionCostAmount,
+			CostCurrency:  update.SessionCostCurrency,
+		}
+		reportACPUsage(t.handler, usage)
+		percentage := float64(update.ContextUsed) * 100 / float64(update.ContextSize)
+		if percentage >= 95 && t.contextWarningLevel < 2 {
+			t.contextWarningLevel = 2
+			notifyTurn(t.handler, TurnNotice{
+				Kind: TurnNoticeAgentContextCritical, Percentage: percentage,
+				ContextTokens: update.ContextUsed, ContextLimit: update.ContextSize,
+			})
+		} else if percentage >= 80 && t.contextWarningLevel < 1 {
+			t.contextWarningLevel = 1
+			notifyTurn(t.handler, TurnNotice{
+				Kind: TurnNoticeAgentContextNearLimit, Percentage: percentage,
+				ContextTokens: update.ContextUsed, ContextLimit: update.ContextSize,
+			})
 		}
 	}
 }

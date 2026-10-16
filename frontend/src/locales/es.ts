@@ -571,6 +571,7 @@ const es = {
       input: 'Entrada',
       output: 'Salida',
       totalEstimated: 'Total estimado',
+      acpReportedCost: 'Costo acumulado informado por el agente ACP: {{amount}} {{currency}}.',
       costDisclaimer: '* Valores aproximados basados en GPT-4',
       costDisclaimerWithCache: '* Valores aproximados basados en GPT-4; los tokens leídos del cache se restan de la entrada estimada.',
       managementTips: 'Consejos de gestión',
@@ -4783,6 +4784,8 @@ const es = {
       },
       chatNotice: {
         agentOutputNotDisplayed: 'El agente envió contenido no textual que todavía no se puede mostrar en esta conversación.',
+        agentContextNearLimit: 'El agente ACP informa un uso de contexto del {{percentage}}% ({{contextTokens}} de {{contextLimit}} tokens).',
+        agentContextCritical: 'El agente ACP informa un contexto crítico: {{percentage}}% ({{contextTokens}} de {{contextLimit}} tokens).',
         attachmentsNotSent_one: '{{count}} adjunto no fue enviado: este proveedor no lo recibe o no se pudo incrustar en la solicitud. El turno siguió solo con el texto.',
         attachmentsNotSent_other: '{{count}} adjuntos no fueron enviados: este proveedor no los recibe o no se pudieron incrustar en la solicitud. El turno siguió solo con el texto.',
         permissionNoWatcher: 'El agente pidió permiso para {{action}} en esta conversación, pero no había nadie para responder. La acción fue denegada.',

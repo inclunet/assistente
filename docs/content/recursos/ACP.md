@@ -69,6 +69,7 @@ pode impedir o registro de uma atividade ainda em andamento.
 - Cancelamento é serial (1 turno/sessão por vez).
 - O agente pode enviar planos e detalhes ricos de execução, mas o chat ainda não os apresenta; as atividades mostram classe, resumo e estado básico.
 - Conteúdo enviado ao agente inclui texto e imagem inline quando aceita. Áudio e recursos embutidos não são enviados; imagens, áudio ou recursos recebidos na resposta ainda não são exibidos, e a conversa anuncia essa limitação.
+- Se o agente reportar uso ACP, o painel de tokens mostra a ocupação atual e o custo acumulado da sessão enquanto a janela está aberta; avisos aparecem ao atingir 80% e 95%. Esses números vêm do próprio agente e não são salvos como contabilidade local.
 - O catálogo instala e inicia agentes, mas não garante que todos os recursos opcionais do ACP estejam integrados.
 - O Assistente não lista sessões que o agente conhece fora das conversas locais, nem oferece várias raízes de workspace na mesma sessão.
 - Envios manuais que aguardam a vez aparecem como pendentes na barra; **Cancelar próximo envio** remove o próximo envio manual que ainda não começou e anuncia o resultado. Mensagens recebidas por canais continuam na fila, e o turno ativo segue normalmente.

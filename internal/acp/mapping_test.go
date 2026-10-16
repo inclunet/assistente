@@ -84,6 +84,30 @@ func TestRespostaACPComBlocoNaoTextualGeraAtualizacaoDeSaidaNaoRenderizada(t *te
 	}
 }
 
+func TestAtualizacaoACPDeUsoMapeiaJanelaECusto(t *testing.T) {
+	cost := 0.013
+	update, ok := updateFrom(sdk.SessionUpdate{
+		UsageUpdate: &sdk.SessionUsageUpdate{
+			Used: 2400,
+			Size: 8000,
+			Cost: &sdk.Cost{Amount: cost, Currency: "usd"},
+		},
+	})
+	if !ok || update.Kind != UpdateUsage || update.ContextUsed != 2400 || update.ContextSize != 8000 {
+		t.Fatalf("snapshot de uso = %+v, ok=%v", update, ok)
+	}
+	if update.SessionCostAmount == nil || *update.SessionCostAmount != cost || update.SessionCostCurrency != "USD" {
+		t.Fatalf("custo de sessão não foi normalizado: %+v", update)
+	}
+	semMoeda := sdk.SessionUpdate{UsageUpdate: &sdk.SessionUsageUpdate{
+		Used: 1, Size: 10, Cost: &sdk.Cost{Amount: cost, Currency: "<USD>"},
+	}}
+	update, ok = updateFrom(semMoeda)
+	if !ok || update.SessionCostAmount != nil || update.SessionCostCurrency != "" {
+		t.Fatalf("moeda inválida chegou à interface: %+v, ok=%v", update, ok)
+	}
+}
+
 // Uma linha gigante no stderr do agente não pode calar o leitor: é justamente
 // quando o agente despeja um stack trace que o diagnóstico seguinte importa.
 func TestLinhaGiganteNoStderrNaoCalaODiagnosticoSeguinte(t *testing.T) {

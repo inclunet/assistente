@@ -86,6 +86,11 @@ const TurnNoticeAttachmentsNotSent TurnNoticeKind = "attachments_not_sent"
 // não textual que a superfície comum de chat ainda não apresenta.
 const TurnNoticeAgentOutputNotDisplayed TurnNoticeKind = "agent_output_not_displayed"
 
+const (
+	TurnNoticeAgentContextNearLimit TurnNoticeKind = "agent_context_near_limit"
+	TurnNoticeAgentContextCritical  TurnNoticeKind = "agent_context_critical"
+)
+
 // O modelo escolhido no perfil não pôde valer neste turno (AEP-0084 D6). O turno
 // segue no modelo em que o agente está, porque uma resposta do modelo errado é
 // melhor do que resposta nenhuma — mas quem escolheu precisa saber, senão lê a
@@ -120,7 +125,10 @@ type TurnNotice struct {
 	// Model é o modelo de que o aviso fala — o que de fato atendeu ao turno,
 	// quando o pedido não pôde valer. Vai como identificador do provedor, que é
 	// o mesmo texto que a pessoa vê no seletor.
-	Model string
+	Model         string
+	Percentage    float64
+	ContextTokens int
+	ContextLimit  int
 }
 
 // TurnNoticeSink é o canal por onde o provider avisa a pessoa de algo que
@@ -129,6 +137,26 @@ type TurnNotice struct {
 // É opcional — o provider descobre com type assertion sobre o StreamHandler.
 type TurnNoticeSink interface {
 	OnTurnNotice(notice TurnNotice)
+}
+
+// ACPUsageUpdate contém o uso atual da janela e o custo acumulado que o agente
+// reporta para a sessão. Esses campos não viram contabilidade local.
+type ACPUsageUpdate struct {
+	ContextTokens int
+	ContextLimit  int
+	CostAmount    *float64
+	CostCurrency  string
+}
+
+// ACPUsageSink recebe atualizações ACP sem tratá-las como billing do app.
+type ACPUsageSink interface {
+	OnACPUsage(update ACPUsageUpdate)
+}
+
+func reportACPUsage(handler StreamHandler, update ACPUsageUpdate) {
+	if sink, ok := handler.(ACPUsageSink); ok {
+		sink.OnACPUsage(update)
+	}
 }
 
 // StreamAttemptResetSink descarta o estado transitório de uma tentativa que

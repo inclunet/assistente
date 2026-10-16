@@ -440,6 +440,8 @@ const (
 	// UpdateUnsupportedOutput avisa que a resposta contém bloco não textual que
 	// a superfície comum de chat não consegue renderizar.
 	UpdateUnsupportedOutput UpdateKind = "unsupported_output"
+	// UpdateUsage atualiza a janela de contexto e o custo acumulado da sessão.
+	UpdateUsage UpdateKind = "usage"
 )
 
 // Update é um evento do turno. Tipos de notificação que este pacote ainda não
@@ -462,6 +464,12 @@ type Update struct {
 
 	// Commands vale para UpdateCommands.
 	Commands []Command
+
+	// ContextUsed, ContextSize e custo valem para UpdateUsage.
+	ContextUsed         int
+	ContextSize         int
+	SessionCostAmount   *float64
+	SessionCostCurrency string
 }
 
 // Command é um comando que o agente oferece para a sessão — o que ele chama de

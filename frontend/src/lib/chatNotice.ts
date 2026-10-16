@@ -5,6 +5,8 @@ import { agentActionClassName, agentActionKey } from './agentAction';
 /** Motivos de aviso de turno que a interface sabe traduzir (backend: ChatNoticeKind*). */
 export const CHAT_NOTICE_ATTACHMENTS_NOT_SENT = 'attachments_not_sent';
 export const CHAT_NOTICE_AGENT_OUTPUT_NOT_DISPLAYED = 'agent_output_not_displayed';
+export const CHAT_NOTICE_AGENT_CONTEXT_NEAR_LIMIT = 'agent_context_near_limit';
+export const CHAT_NOTICE_AGENT_CONTEXT_CRITICAL = 'agent_context_critical';
 export const CHAT_NOTICE_PERMISSION_NO_WATCHER = 'permission_denied_no_watcher';
 export const CHAT_NOTICE_PERMISSION_TIMEOUT = 'permission_denied_timeout';
 export const CHAT_NOTICE_PERMISSION_UNAVAILABLE = 'permission_denied_unavailable';
@@ -27,6 +29,8 @@ export const CHAT_NOTICE_STREAM_RETRY = 'stream_retry';
 const KIND_KEYS: Record<string, string> = {
   [CHAT_NOTICE_ATTACHMENTS_NOT_SENT]: 'app.chatNotice.attachmentsNotSent',
   [CHAT_NOTICE_AGENT_OUTPUT_NOT_DISPLAYED]: 'app.chatNotice.agentOutputNotDisplayed',
+  [CHAT_NOTICE_AGENT_CONTEXT_NEAR_LIMIT]: 'app.chatNotice.agentContextNearLimit',
+  [CHAT_NOTICE_AGENT_CONTEXT_CRITICAL]: 'app.chatNotice.agentContextCritical',
   [CHAT_NOTICE_PERMISSION_NO_WATCHER]: 'app.chatNotice.permissionNoWatcher',
   [CHAT_NOTICE_PERMISSION_TIMEOUT]: 'app.chatNotice.permissionTimeout',
   [CHAT_NOTICE_PERMISSION_UNAVAILABLE]: 'app.chatNotice.permissionUnavailable',
@@ -69,6 +73,9 @@ export interface ChatNoticeEvent {
   model?: string;
   /** Modo do agente de que o aviso fala, já nomeado como o seletor o nomeia. */
   mode?: string;
+  percentage?: number;
+  contextTokens?: number;
+  contextLimit?: number;
 }
 
 /**
@@ -86,6 +93,9 @@ export function chatNoticeMessage(t: TFunction, event: ChatNoticeEvent): string 
     count: event.count ?? 0,
     model: event.model ?? '',
     mode: event.mode ?? '',
+    percentage: (event.percentage ?? 0).toFixed(1),
+    contextTokens: (event.contextTokens ?? 0).toLocaleString(),
+    contextLimit: (event.contextLimit ?? 0).toLocaleString(),
     // As duas formas de nomear a mesma classe: dentro da frase e como item de
     // lista. Cada aviso usa a que couber na sua frase, e nenhum precisa saber
     // qual foi a classe para escolher.

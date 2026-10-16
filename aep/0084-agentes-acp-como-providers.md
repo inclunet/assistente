@@ -871,7 +871,7 @@ AEPs relacionados.
 | Mensagem de usuário reproduzida durante `session/load` | **Ignorada deliberadamente na apresentação** | A conversa do app vem do histórico local, evitando duplicar mensagens ACP reproduzidas. Uma futura sincronização cruzada precisará resolver divergência de histórico antes de apresentar esses eventos. |
 | Plano do agente (`sessionUpdate: plan`) | **Não implementado** | Atualizações de plano são ignoradas; planos poderiam mostrar etapas e progresso sem confundi-los com tools executáveis. |
 | Detalhes de ferramenta (`name`, conteúdo, diff, locais, entrada/saída bruta) | **Parcial** | A atividade recebe essencialmente categoria, título e estado. Resultado, diff e localização de arquivo não chegam ao registro. Conteúdo bruto exige decisão explícita de privacidade, saneamento e retenção antes de qualquer captura. |
-| Uso/contexto (`usage_update`) | **Não implementado** | O ACP v1 atual pode reportar janela utilizada e custo acumulado; o app ainda mostra uso indisponível e não usa esses dados para avisos. |
+| Uso/contexto (`usage_update`) | **Parcial** | Snapshot de janela e custo do agente chegam ao painel de tokens enquanto o modal está aberto; avisos são emitidos uma vez por turno ao cruzar 80%/95%. Não entram no ledger local nem persistem entre carregamentos; a extensão do SDK é instável. |
 | Atualizações de aviso e compactação (`notice`, `compaction_update`, `compaction_summary_chunk`) | **Não anunciadas/não renderizadas** | O handshake não declara `ClientSessionCapabilities.notices` nem `.compaction`; o app não tem projeção para esses três updates. Não habilitá-las sem definir apresentação, replay e acessibilidade. |
 | Opções de configuração | **Parcial** | Seletores, modos, modelos e toggles booleanos são expostos. Snapshot vazio remove opções obsoletas. Opções ACP de tipos ainda não modelados seguem pendentes. |
 | Elicitation ACP (`elicitation/create` e `elicitation/complete`, modos form/URL) | **Não implementado** | Questionários e extensões bloqueantes específicas não equivalem ao contrato genérico de elicitation. Não há handlers, anúncio de capacidade nem renderer para os modos ACP. |
@@ -1438,6 +1438,7 @@ testes.
 - [x] Propagar snapshots de opções vazios até o frontend para remover controles obsoletos (`TestSnapshotVazioDeOpcoesChegaATela`; teste Vitest correspondente). Avisos legados sem lista continuam preservando os seletores conhecidos.
 - [x] Retomar com `session/resume` quando anunciado, com fallback para `session/load` (`TestRetomaSessaoSemReplayQuandoAgenteAnunciaResume`).
 - [x] Avisar uma vez por turno quando a resposta ACP contém bloco não textual que o chat ainda não renderiza (`TestRespostaACPComBlocoNaoTextualGeraAtualizacaoDeSaidaNaoRenderizada`; teste Vitest de aviso).
+- [x] Projetar janela/custo de `usage_update` no painel de tokens e avisar uma vez por turno ao cruzar 80%/95% (`TestAtualizacaoACPDeUsoMapeiaJanelaECusto`, `TestTurnoACPAtualizaUsoEAnunciaCadaFaixaUmaVez` e teste Vitest do `TokenStatsModal`).
 - [ ] Cobrir uso/custo, metadados de sessão, notices/compaction, conteúdo
   multimodal, elicitation, sessões externas e raízes adicionais, com testes e
   revisão de acessibilidade/privacidade.

@@ -42,6 +42,8 @@ interface TokenStats {
   messagesOutOfContextCount: number;
   toolsUsedCount: number;
   toolBreakdown: ToolBreakdownEntry[];
+  acpSessionCostAmount?: number;
+  acpSessionCostCurrency?: string;
 }
 
 interface TokenStatsModalProps {
@@ -77,12 +79,14 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState('overview');
   const pendingFinalStatsRef = useRef<(Partial<TokenStats> & { conversationId: string }) | null>(null);
+  const pendingACPUsageRef = useRef<(Partial<TokenStats> & { conversationId: string }) | null>(null);
 
   useEffect(() => {
     if (!isOpen || !conversationId) {
       return;
     }
     pendingFinalStatsRef.current = null;
+    pendingACPUsageRef.current = null;
     let current = true;
     setStats(null);
 
@@ -94,9 +98,17 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
         const result = await GetConversationTokenStats(conversationId);
         if (!current) return;
         const pendingFinalStats = pendingFinalStatsRef.current;
+        const pendingACPUsage = pendingACPUsageRef.current;
         if (pendingFinalStats?.conversationId === conversationId) {
-          setStats(mergeRealtimeTokenStats(result, pendingFinalStats));
+          const withFinal = mergeRealtimeTokenStats(result, pendingFinalStats);
+          setStats(pendingACPUsage?.conversationId === conversationId
+            ? mergeRealtimeTokenStats(withFinal, pendingACPUsage)
+            : withFinal);
           pendingFinalStatsRef.current = null;
+          pendingACPUsageRef.current = null;
+        } else if (pendingACPUsage?.conversationId === conversationId) {
+          setStats(mergeRealtimeTokenStats(result, pendingACPUsage));
+          pendingACPUsageRef.current = null;
         } else {
           setStats(result);
         }
@@ -130,10 +142,36 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
       }
     });
 
+    const unsubscribeACPUsage = EventsOn('chat:acp_usage_update', (data: {
+      conversationId: string;
+      contextTokens: number;
+      contextLimit: number;
+      contextUsage: number;
+      isNearLimit: boolean;
+      isCritical: boolean;
+      costAmount?: number;
+      costCurrency?: string;
+    }) => {
+      if (!current || data.conversationId !== conversationId) return;
+      const update: Partial<TokenStats> & { conversationId: string } = {
+        ...data,
+      };
+      if (data.costAmount !== undefined) update.acpSessionCostAmount = data.costAmount;
+      if (data.costCurrency !== undefined) update.acpSessionCostCurrency = data.costCurrency;
+      setStats((currentStats) => {
+        if (currentStats) return mergeRealtimeTokenStats(currentStats, update);
+        pendingACPUsageRef.current = pendingACPUsageRef.current
+          ? { ...pendingACPUsageRef.current, ...update }
+          : update;
+        return currentStats;
+      });
+    });
+
     return () => {
       current = false;
       unsubscribe();
       unsubscribeRealtime();
+      unsubscribeACPUsage();
     };
   }, [conversationId, isOpen, t]);
 
@@ -179,7 +217,7 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
     return t('tokenStats.cacheUnavailableNote');
   };
 
-  const roundedContextUsage = stats ? Number(stats.contextUsage.toFixed(1)) : 0;
+  const roundedContextUsage = stats ? Number(Math.min(100, Math.max(0, stats.contextUsage)).toFixed(1)) : 0;
   const contextUsageText = `${roundedContextUsage.toFixed(1)}%`;
   const modelCallCount = stats?.modelCallCount ?? 0;
   const hasCacheReadTokens = (stats?.cacheReadTokens ?? 0) > 0;
@@ -308,6 +346,14 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
               {estimatedCost && (
                 <section className="token-stats-section">
                   <h3>{t('tokenStats.costEstimate')}</h3>
+                  {stats.acpSessionCostAmount !== undefined && (
+                    <p className="token-stats-cost__note">
+                      {t('tokenStats.acpReportedCost', {
+                        amount: stats.acpSessionCostAmount.toFixed(4),
+                        currency: stats.acpSessionCostCurrency || '',
+                      })}
+                    </p>
+                  )}
                   <table className="token-stats-table token-stats-table--cost">
                     <thead>
                       <tr>
