@@ -53,7 +53,7 @@ export function CommandWorkspaceTabPresentationPreview({ commandID, argumentsVal
   const target = resolved && resolved.id && knownType ? resolved : undefined;
   if (!target) {
     return (
-      <section aria-label={t('commandSettings.automaticPresentation.title')}>
+      <section role="document" tabIndex={0} aria-label={t('commandSettings.automaticPresentation.title')}>
         <h3>{t('commandSettings.automaticPresentation.title')}</h3>
         <p>{t('commandSettings.automaticPresentation.help')}</p>
         <p>{t('commandSettings.automaticPresentation.unavailable')}</p>
@@ -64,7 +64,7 @@ export function CommandWorkspaceTabPresentationPreview({ commandID, argumentsVal
   const Icon = ICONS[target.type as keyof typeof ICONS];
   const title = target.title.trim() || t(`workspace.tabType.${target.type}`);
   return (
-    <section aria-label={t('commandSettings.automaticPresentation.title')}>
+    <section role="document" tabIndex={0} aria-label={t('commandSettings.automaticPresentation.title')}>
       <h3>{t('commandSettings.automaticPresentation.title')}</h3>
       <p>{t('commandSettings.automaticPresentation.help')}</p>
       <p>

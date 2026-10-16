@@ -146,6 +146,7 @@ export default function CommandSettingsPage() {
   const workspaceId = useWorkspaceStore((state) => state.workspace?.id ?? '');
   const workspaceName = useWorkspaceStore((state) => state.workspace?.name ?? '');
   const workspaceData = useWorkspaceStore((state) => state.workspace);
+  const automaticPresentationRef = useRef<HTMLDivElement>(null);
   const workspaceTabs = useWorkspaceStore((state) => state.workspace?.tabs);
   const [scope, setScope] = useState<CommandSettingsScope>('global');
   const [deckStatusSnapshot, setDeckStatusSnapshot] = useState<{ identity: string; value: CommandDeckStatusEvent } | null>(null);
@@ -1598,11 +1599,24 @@ export default function CommandSettingsPage() {
                       onCancel={() => cancelCapture()}
                     />
                     {usesAutomaticWorkspaceTabPresentation(editor.value.commandId) ? (
-                      <CommandWorkspaceTabPresentationPreview
-                        commandID={editor.value.commandId}
-                        argumentsValue={editor.value.arguments}
-                        workspace={workspaceData}
-                      />
+                      <div ref={automaticPresentationRef}>
+                        <CommandWorkspaceTabPresentationPreview
+                          commandID={editor.value.commandId}
+                          argumentsValue={editor.value.arguments}
+                          workspace={workspaceData}
+                        />
+                        {!isCommandPresentationValid(editor.value.presentation) && <>
+                          <p role="alert" id="command-presentation-invalid-draft">{t('commandSettings.automaticPresentation.invalidDraft')}</p>
+                          <Button type="button" variant="secondary" disabled={busy}
+                            aria-describedby="command-presentation-invalid-draft"
+                            onClick={() => {
+                              automaticPresentationRef.current?.querySelector<HTMLElement>('[role="document"]')?.focus();
+                              updateBindingField({ presentation: undefined });
+                            }}>
+                            {t('commandSettings.automaticPresentation.discardInvalid')}
+                          </Button>
+                        </>}
+                      </div>
                     ) : (
                       <CommandPresentationEditor
                         value={editor.value.presentation}

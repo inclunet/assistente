@@ -1,4 +1,5 @@
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import { axe } from 'vitest-axe';
 import { CommandWorkspaceTabPresentationPreview } from './CommandWorkspaceTabPresentationPreview';
@@ -79,5 +80,24 @@ describe('CommandWorkspaceTabPresentationPreview', () => {
 
     rerender(<CommandWorkspaceTabPresentationPreview commandID="workspace.tab.next" workspace={workspace(tabs)} />);
     expect(container.querySelector('section')).toBeNull();
+  });
+
+  it('alcança a prévia disponível por Tab', async () => {
+    const user = userEvent.setup();
+    render(<CommandWorkspaceTabPresentationPreview commandID="workspace.tab.first"
+      workspace={workspace([{ id: 'tab-a', type: 'chat', title: 'Conversa', position: 0 }])} />);
+
+    await user.tab();
+    expect(screen.getByRole('document', { name: 'commandSettings.automaticPresentation.title' })).toHaveFocus();
+  });
+
+  it('alcança a prévia indisponível por Tab', async () => {
+    const user = userEvent.setup();
+    render(<CommandWorkspaceTabPresentationPreview commandID="workspace.tab.go_to"
+      argumentsValue={{ workspace_id: 'workspace-a', target_mode: 'specific', tab_id: 'closed-tab' }}
+      workspace={workspace([])} />);
+
+    await user.tab();
+    expect(screen.getByRole('document', { name: 'commandSettings.automaticPresentation.title' })).toHaveFocus();
   });
 });

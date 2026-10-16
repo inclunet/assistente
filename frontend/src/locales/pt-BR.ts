@@ -650,7 +650,7 @@ const ptBR = {
       deepLinkNotFound: 'Não há acionador configurado para {{command}} neste escopo.',
       specificTab: 'Aba específica',
       tabTarget: { title: 'Destino da aba', workspace: 'Vinculado ao workspace: {{name}}', noWorkspace: 'Abra um workspace para configurar este destino.', mode: 'Tipo de destino', chooseMode: 'Escolha o tipo de destino', byPosition: 'Por posição', bySpecificTab: 'Aba específica', position: 'Posição da aba', specificTab: 'Aba', chooseTab: 'Escolha uma aba', unavailableTab: 'Aba indisponível (mantida)', otherWorkspace: 'Este destino está vinculado a outro workspace; selecione um novo destino para vinculá-lo a este workspace.' },
-      automaticPresentation: { title: 'Prévia automática do Stream Deck', help: 'O título e o ícone acompanham o destino atual; personalizações salvas são ignoradas.', unavailable: 'Aba indisponível' },
+      automaticPresentation: { title: 'Prévia automática do Stream Deck', help: 'O título e o ícone acompanham o destino atual; personalizações salvas são ignoradas.', unavailable: 'Aba indisponível', invalidDraft: 'A personalização digitada anteriormente é inválida e impede salvar. Descarte-a ou volte ao comando anterior para corrigi-la.', discardInvalid: 'Descartar personalização inválida' },
       layerActionTarget: 'Camada e regra de ativação',
       layerActionCompleted: 'Ação de camada concluída.',
       layerActionChoose: 'Escolha o destino',

@@ -21,10 +21,14 @@ Evidências backend: `TestWorkspaceTabDeck*`, `TestCommandDeckPresentation*`,
 `go build ./internal/app` e `go vet ./internal/app` também passam. Os testes
 exercitam substituição de personalizações legadas e variantes, além de
 atualização do frame renderizado após renomeação e fechamento.
-Frontend: 141 testes passam nos arquivos de prévia, editor de apresentação e
+Frontend: 144 testes passam nos arquivos de prévia, editor de apresentação e
 página de configuração, incluindo salvamento de personalização legada e
 axe (contraste não avaliado em jsdom). TypeScript e ESLint dos arquivos
 alterados passam. A validação física do Stream Deck e com NVDA continua manual.
+A prévia é uma região de leitura focável dentro do formulário. Trocar de
+comando com uma personalização ainda inválida mostra a causa do bloqueio de
+Salvar e permite descartar explicitamente esse rascunho, ou voltar ao comando
+anterior para corrigi-lo; dados válidos não são descartados automaticamente.
 
 **Resultado e foco após criação (07/10/2026): In Progress.** A consulta
 `GetUICommandResult` aplica I04.5 sem exigir reconstrução/publicação do mapa:

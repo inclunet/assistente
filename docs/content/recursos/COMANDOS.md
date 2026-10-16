@@ -2865,6 +2865,10 @@ mais a apresentação da aba, inclusive nas variantes de estado. Ao renomear
 a aba, não é necessário editar a tecla. A escolha de uma aba específica pelo
 nome mantém o vínculo com aquela aba, não com qualquer aba de mesmo título.
 Os demais comandos continuam oferecendo personalização de apresentação.
+A prévia pode ser alcançada com Tab e lida pelo leitor de telas. Se você
+digitar uma personalização inválida e depois escolher uma ação automática,
+um aviso explica o bloqueio de Salvar: volte ao comando anterior para corrigir
+ou use **Descartar personalização inválida**.
 Se a mesma tecla puder executar também comandos de outro tipo conforme o
 contexto, a apresentação combinada continua identificando essa combinação,
 em vez de prometer que a tecla sempre leva à aba da prévia do binding.

@@ -958,6 +958,38 @@ describe('CommandSettingsPage', () => {
     })));
   });
 
+  it('permite recuperar personalização inválida ao trocar para apresentação automática', async () => {
+    workspaceTabs = [{ id: 'tab-1', type: 'chat', title: 'Atual', position: 0 }];
+    getSettings.mockResolvedValue({
+      ...snapshot,
+      commands: [
+        { ...snapshot.commands[0], allowedSources: ['streamdeck.key'] },
+        { id: 'workspace.tab.first', name: 'Primeira aba', description: '', allowedSources: ['streamdeck.key'] },
+      ],
+      bindings: [{ ...snapshot.bindings[0], layerId: 'user', readOnly: false, defaultId: undefined,
+        commandId: 'cmd.new', triggerType: 'streamdeck.key', triggerSpec: '{"version":1,"device":"DEVICE","key":0}' }],
+    });
+    render(<CommandSettingsPage />);
+    fireEvent.click(await screen.findByText('Minha camada'));
+    fireEvent.click(await bindingAction('commandSettings.actions.editBinding'));
+    const tooLong = 'x'.repeat(257);
+    fireEvent.change(screen.getByLabelText('commandSettings.presentation.locales.en'), { target: { value: tooLong } });
+    fireEvent.change(screen.getByLabelText('commandSettings.form.command'), { target: { value: 'workspace.tab.first' } });
+    expect(screen.getByText('commandSettings.automaticPresentation.invalidDraft')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'common.save' })).toBeDisabled();
+    fireEvent.change(screen.getByLabelText('commandSettings.form.command'), { target: { value: 'cmd.new' } });
+    expect(screen.getByLabelText('commandSettings.presentation.locales.en')).toHaveValue(tooLong);
+    fireEvent.change(screen.getByLabelText('commandSettings.form.command'), { target: { value: 'workspace.tab.first' } });
+    await userEvent.click(screen.getByRole('button', { name: 'commandSettings.automaticPresentation.discardInvalid' }));
+    expect(screen.getByRole('document', { name: 'commandSettings.automaticPresentation.title' })).toHaveFocus();
+    expect(screen.queryByText('commandSettings.automaticPresentation.invalidDraft')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'common.save' })).toBeEnabled();
+    fireEvent.click(screen.getByRole('button', { name: 'common.save' }));
+    await waitFor(() => expect(mutateSettings).toHaveBeenCalledWith(expect.objectContaining({
+      binding: expect.objectContaining({ commandId: 'workspace.tab.first', presentation: undefined }),
+    })));
+  });
+
   it('cancela captura sem apagar binding anterior e ignora evento obsoleto', async () => {
     mutateSettings.mockResolvedValue({ committed: true, published: true, id: 'binding' });
     getSettings.mockResolvedValue({
