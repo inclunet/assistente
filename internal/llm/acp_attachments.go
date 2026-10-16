@@ -8,8 +8,7 @@ import (
 
 // Anexos no turno do agente (AEP-0084). A mensagem da pessoa pode ser
 // multimodal e o session/prompt recebe uma lista de blocos, então o mapeamento
-// é direto: cada parte de texto vira bloco de texto, cada imagem vira bloco de
-// imagem, na ordem original.
+// mantém a ordem: texto, imagens inline e áudio anunciado pelo agente.
 //
 // O que o agente aceita vem do initialize. Anexo que ele não aceita não é
 // descartado em silêncio: o turno segue com o texto e a pessoa é avisada do que
@@ -27,11 +26,11 @@ const (
 // turnContent monta os blocos da mensagem da pessoa e devolve quantos anexos
 // ficaram de fora.
 //
-// acceptsImage é função porque a resposta vem do agente: perguntar num turno de
-// texto puro seria conversa à toa, e uma falha nela viraria aviso de anexo numa
-// mensagem que não tem anexo nenhum.
-func turnContent(msg Message, acceptsImage func() bool) (content []acp.Content, notSent int) {
-	accepts, asked := false, false
+// As funções de capability são avaliadas apenas quando a mensagem contém aquele
+// tipo de anexo, evitando consultas e avisos em turnos de texto puro.
+func turnContent(msg Message, acceptsImage, acceptsAudio func() bool) (content []acp.Content, notSent int) {
+	imageAccepted, imageAsked := false, false
+	audioAccepted, audioAsked := false, false
 	for _, part := range messageParts(msg) {
 		switch part.Type {
 		case "":
@@ -43,20 +42,27 @@ func turnContent(msg Message, acceptsImage func() bool) (content []acp.Content, 
 				content = append(content, acp.TextContent(text))
 			}
 		case "image_url":
-			if !asked {
-				accepts, asked = acceptsImage(), true
+			if !imageAsked {
+				imageAccepted, imageAsked = acceptsImage(), true
 			}
 			data, mime, inline := inlineImage(part)
-			if !accepts || !inline {
+			if !imageAccepted || !inline {
 				notSent++
 				continue
 			}
 			content = append(content, acp.ImageContent(data, mime))
+		case "input_audio":
+			if !audioAsked {
+				audioAccepted, audioAsked = acceptsAudio(), true
+			}
+			data, mime, inline := inlineAudio(part)
+			if !audioAccepted || !inline {
+				notSent++
+				continue
+			}
+			content = append(content, acp.AudioContent(data, mime))
 		default:
-			// Áudio, documento e vídeo chegam aqui: o pipeline os monta quando
-			// o modelo os recebe nativamente, e o bloco do ACP só carrega texto
-			// e imagem. Some deles em silêncio e a pessoa espera uma resposta
-			// sobre o que o agente nunca recebeu.
+			// Documento, vídeo e tipos desconhecidos seguem fora do contrato ACP.
 			notSent++
 		}
 	}
@@ -89,10 +95,16 @@ func messageParts(msg Message) []ContentPart {
 					part.ImageURL = &ImageURL{URL: url}
 				}
 				out = append(out, part)
+			case "input_audio":
+				part := ContentPart{Type: kind}
+				if audio, ok := partMap["input_audio"].(map[string]interface{}); ok {
+					data, _ := audio["data"].(string)
+					format, _ := audio["format"].(string)
+					part.InputAudio = &InputAudio{Data: data, Format: format}
+				}
+				out = append(out, part)
 			default:
-				// O tipo desconhecido aqui é anexo que o app monta para outros
-				// modelos (áudio, documento, vídeo). Filtrá-lo nesta passagem o
-				// esconderia de quem conta o que não foi enviado.
+				// Preservar o tipo para que o contador informe anexos ignorados.
 				out = append(out, ContentPart{Type: kind})
 			}
 		}
@@ -100,6 +112,21 @@ func messageParts(msg Message) []ContentPart {
 	default:
 		// Conteúdo simples: o turno inteiro é uma parte de texto.
 		return []ContentPart{{Type: "text", Text: msg.GetContentAsString()}}
+	}
+}
+
+// inlineAudio converte os formatos de entrada que o pipeline mantém em base64.
+func inlineAudio(part ContentPart) (data, mime string, ok bool) {
+	if part.InputAudio == nil || strings.TrimSpace(part.InputAudio.Data) == "" {
+		return "", "", false
+	}
+	switch strings.ToLower(strings.TrimSpace(part.InputAudio.Format)) {
+	case "wav":
+		return part.InputAudio.Data, "audio/wav", true
+	case "mp3":
+		return part.InputAudio.Data, "audio/mp3", true
+	default:
+		return "", "", false
 	}
 }
 

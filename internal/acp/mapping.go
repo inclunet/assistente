@@ -576,6 +576,11 @@ func promptBlocks(content []Content) ([]sdk.ContentBlock, error) {
 	blocks := make([]sdk.ContentBlock, 0, len(content))
 	for _, item := range content {
 		switch {
+		case item.AudioData != "":
+			if strings.TrimSpace(item.AudioMIME) == "" {
+				return nil, errors.New("anexo de áudio sem tipo MIME")
+			}
+			blocks = append(blocks, sdk.AudioBlock(item.AudioData, item.AudioMIME))
 		case item.ImageData != "":
 			// Imagem sem tipo viraria um mimeType vazio no fio, e o agente
 			// falharia de um jeito difícil de ligar de volta ao anexo.

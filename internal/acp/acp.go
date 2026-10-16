@@ -393,6 +393,9 @@ type Content struct {
 	// preenchidos, o bloco é de imagem e Text é ignorado.
 	ImageData string
 	ImageMIME string
+	// AudioData e AudioMIME são o áudio em base64 e o tipo MIME correspondente.
+	AudioData string
+	AudioMIME string
 }
 
 // TextContent cria um bloco de texto.
@@ -401,6 +404,11 @@ func TextContent(text string) Content { return Content{Text: text} }
 // ImageContent cria um bloco de imagem a partir de dados em base64.
 func ImageContent(base64Data, mimeType string) Content {
 	return Content{ImageData: base64Data, ImageMIME: mimeType}
+}
+
+// AudioContent cria um bloco de áudio a partir de dados base64.
+func AudioContent(base64Data, mimeType string) Content {
+	return Content{AudioData: base64Data, AudioMIME: mimeType}
 }
 
 // StopReason é o motivo pelo qual o agente encerrou o turno.

@@ -84,9 +84,16 @@ type FunctionDefinition struct {
 
 // ContentPart representa uma parte do conteúdo multimodal
 type ContentPart struct {
-	Type     string    `json:"type"` // "text" ou "image_url"
-	Text     string    `json:"text,omitempty"`
-	ImageURL *ImageURL `json:"image_url,omitempty"`
+	Type       string      `json:"type"` // "text", "image_url" ou "input_audio"
+	Text       string      `json:"text,omitempty"`
+	ImageURL   *ImageURL   `json:"image_url,omitempty"`
+	InputAudio *InputAudio `json:"input_audio,omitempty"`
+}
+
+// InputAudio guarda o payload base64 no formato de entrada comum do chat.
+type InputAudio struct {
+	Data   string `json:"data"`
+	Format string `json:"format"`
 }
 
 // ImageURL representa uma imagem em base64 ou URL
