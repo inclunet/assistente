@@ -19,6 +19,11 @@ atualizar agente (quando disponível) e excluir. Use setas para escolher,
 Enter para executar e Escape para fechar e retornar ao botão. Sem provedor
 em foco na lista filtrada, as ações de edição ficam indisponíveis.
 
+Ao editar um perfil, os campos de geração reconhecidos como incompatíveis com
+o provedor e o modelo selecionados ficam ocultos após a consulta ao estado salvo
+localmente. Os valores permanecem no perfil e voltam a aparecer quando outro
+modelo ou provedor não tiver essa restrição.
+
 ## Novo provedor
 
 Na barra da página **Provedores**, abra **Novo provedor** e escolha:

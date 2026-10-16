@@ -12,6 +12,7 @@ import { ProfileContextProvidersSection } from './ProfileContextProvidersSection
 import { ProfileToolsSection } from './ProfileToolsSection';
 import { ProfileAudioTab } from './ProfileAudioTab';
 import type { ProfileEditSection } from '../../store/navigationStore';
+import { GetUnsupportedProfileChatFields } from '@wailsjs/go/wailsapi/LLMModels';
 import './ProfileEditorTabs.css';
 
 const EDITOR_TABS = ['general', 'models', 'skills', 'contextProviders', 'tools', 'audio'] as const;
@@ -73,6 +74,17 @@ export function ProfileEditorTabs({
   const [activeTab, setActiveTab] = useState<EditorTabId>(
     initialTab === 'voice' ? 'audio' : 'general',
   );
+  const chatProviderID = editingProfile.chat?.llm_provider || '';
+  const chatModelID = editingProfile.chat?.model || '';
+  const compatibilityKey = `${chatProviderID}\u0000${chatModelID}`;
+  const [unsupportedChatFields, setUnsupportedChatFields] = useState<{ key: string; fields: string[]; loading: boolean }>({ key: '', fields: [], loading: false });
+  if (unsupportedChatFields.key !== compatibilityKey) {
+    setUnsupportedChatFields({
+      key: compatibilityKey,
+      fields: [],
+      loading: Boolean(chatProviderID && chatModelID),
+    });
+  }
   const containerRef = useRef<HTMLDivElement>(null);
   const pendingShortcutFocusRef = useRef<EditorTabId | null>(null);
   const { isAgent: agentProvider, resolved: agentProviderResolved } = useAgentProvider(
@@ -87,6 +99,28 @@ export function ProfileEditorTabs({
     editingProfile.chat?.disable_skills ?? false,
     editingProfile.chat?.disable_on_demand_skills ?? false,
   );
+
+  useEffect(() => {
+    let current = true;
+    if (!chatProviderID || !chatModelID) return () => { current = false; };
+
+    GetUnsupportedProfileChatFields(chatProviderID, chatModelID)
+      .then((fields) => {
+        if (current) setUnsupportedChatFields({ key: compatibilityKey, fields: fields || [], loading: false });
+      })
+      .catch(() => {
+        if (current) setUnsupportedChatFields({ key: compatibilityKey, fields: [], loading: false });
+      });
+
+    return () => { current = false; };
+  }, [chatProviderID, chatModelID, compatibilityKey]);
+
+  const unsupportedFields = unsupportedChatFields.key === compatibilityKey
+    ? unsupportedChatFields.fields
+    : [];
+  const compatibilityLoading = Boolean(chatProviderID && chatModelID && (
+    unsupportedChatFields.key !== compatibilityKey || unsupportedChatFields.loading
+  ));
 
   useLayoutEffect(() => {
     if (initialTab === 'voice') {
@@ -267,6 +301,8 @@ export function ProfileEditorTabs({
           <ProfileChatSection
             llmProvider={editingProfile.chat?.llm_provider || ''}
             model={editingProfile.chat?.model || ''}
+            unsupportedFields={unsupportedFields}
+            compatibilityLoading={compatibilityLoading}
             temperature={editingProfile.chat?.temperature ?? 0.7}
             maxTokens={editingProfile.chat?.max_tokens ?? 4096}
             maxTokensMode={editingProfile.chat?.max_tokens_mode || 'legacy'}

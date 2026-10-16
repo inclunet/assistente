@@ -741,6 +741,13 @@ responseEvents:
 				handler.OnError(streamTokenRateLimitError)
 				return mcpStreamAttemptResult{done: true}
 			}
+			if !emittedNonRetryableEffect && providerError != nil && providerError.Category == ProviderErrorInvalidValue {
+				finishThinking()
+				reportCurrentDiagnostics()
+				markErrorNotRetryable(handler)
+				handler.OnError(providerError.DisplayMessage())
+				return mcpStreamAttemptResult{done: true}
+			}
 			if !emittedNonRetryableEffect && isRetryableError(errMsg) {
 				reportCurrentDiagnostics()
 				return mcpStreamAttemptResult{retry: true}
@@ -828,6 +835,13 @@ responseEvents:
 			reportCurrentDiagnostics()
 			markErrorNotRetryable(handler)
 			handler.OnError(streamTokenRateLimitError)
+			return mcpStreamAttemptResult{done: true}
+		}
+		if !emittedNonRetryableEffect && recognizedProviderError && providerError.Category == ProviderErrorInvalidValue {
+			finishThinking()
+			reportCurrentDiagnostics()
+			markErrorNotRetryable(handler)
+			handler.OnError(providerError.DisplayMessage())
 			return mcpStreamAttemptResult{done: true}
 		}
 		if !emittedNonRetryableEffect && isRetryableError(errStr) {
