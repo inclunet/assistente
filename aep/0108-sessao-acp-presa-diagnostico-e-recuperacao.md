@@ -131,7 +131,13 @@ recuperação e proibição de `assistant` vazio em erro.
    habilitado quando a ação de limpar está desabilitada.
    `chatStore.validation.test.ts` cobre que cancelamento de envio/retry
    auditado na fila resulta em comando cancelado, sem envio ao backend.
-   Eventos externos continuam serializados e não são canceláveis pela toolbar.
+   A barreira de admissão dos comandos da interface também é contada e
+   cancelável enquanto aguarda a fila (`waitForMessagingAdmission`), e o
+   protocolo termina cancelado sem reservar comando
+   (`commandChatMessaging.protocol.test.ts`). A validação store-level cobre
+   contagem, cancelamento e continuidade do turno ativo
+   (`chatStore.validation.test.ts`). Barreiras internas e eventos externos
+   continuam fora da contagem/cancelamento.
    A fila backend ACP (`turnSlot`) continua serializada; sondagem ociosa é a
    pendência separada da Fase 5.
 5. **Fase 5 — Sessão ACP ociosa (D2, cobertura a):** definir se existe uma
@@ -157,7 +163,10 @@ recuperação e proibição de `assistant` vazio em erro.
 - [x] Envio manual enfileirado tem estado acessível por conversa e o próximo pendente
       pode ser cancelado sem cancelar o turno ativo; anúncio global confirma a
       operação. Evidências: `chatTurnQueue` Vitest e `ChatToolbar` Vitest,
-      incluindo restauração de foco durante `isLoading`.
+      incluindo restauração de foco durante `isLoading`. A espera de admissão
+      de comando também é contada/cancelável e não reserva o comando depois do
+      cancelamento (`chatStore.validation.test.ts`,
+      `commandChatMessaging.protocol.test.ts`).
 - [x] Agente vivo sem resposta vira `ErrCancelNotConfirmed` via watchdog de
       inatividade (nunca `markDead`, que é por `conn`).
 - [ ] Estratégia validada detecta processo/agente morto com sessão ociosa sem

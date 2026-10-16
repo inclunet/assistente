@@ -164,6 +164,14 @@ describe('protocolo auditado do envio de chat', () => {
     expect(port.beginUICommand).not.toHaveBeenCalled();
   });
 
+  it('comando cancelado enquanto aguarda admissão não reserva nem executa', async () => {
+    const { port, target } = setup();
+    target.waitForAdmission = vi.fn(async () => { throw new ChatMessagingStaleError(); });
+    expect(await executeChatMessaging(port, target)).toBe('cancelled');
+    expect(port.beginUICommand).not.toHaveBeenCalled();
+    expect(target.execute).not.toHaveBeenCalled();
+  });
+
   it('contexto perdido durante Begin cancela a reserva sem executar', async () => {
     const { port, target } = setup();
     vi.mocked(target.isCurrent).mockReturnValueOnce(true).mockReturnValue(false);

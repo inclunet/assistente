@@ -1,5 +1,5 @@
 export interface ConversationTurnQueue {
-  enqueue: <T>(conversationId: string, task: () => Promise<T>, onCancel?: () => void) => Promise<T>;
+  enqueue: <T>(conversationId: string, task: () => Promise<T>, onCancel?: () => void, onStart?: () => void) => Promise<T>;
   clear: (conversationId: string) => void;
   clearAll: () => void;
   isQueued: (conversationId: string) => boolean;
@@ -12,6 +12,7 @@ interface QueueEntry {
   cancelable: boolean;
   reject: (error: unknown) => void;
   onCancel?: () => void;
+  onStart?: () => void;
 }
 
 interface ConversationQueueState {
@@ -45,7 +46,7 @@ export function isConversationTurnQueueCancelledError(error: unknown): error is 
 export function createConversationTurnQueue(): ConversationTurnQueue {
   const tails = new Map<string, ConversationQueueState>();
 
-  const enqueue = <T,>(conversationId: string, task: () => Promise<T>, onCancel?: () => void): Promise<T> => {
+  const enqueue = <T,>(conversationId: string, task: () => Promise<T>, onCancel?: () => void, onStart?: () => void): Promise<T> => {
     let state = tails.get(conversationId);
     if (!state) {
       state = { generation: 0, tail: Promise.resolve(), entries: [] };
@@ -66,6 +67,7 @@ export function createConversationTurnQueue(): ConversationTurnQueue {
       cancelable: Boolean(onCancel),
       reject: rejectResult,
       onCancel,
+      onStart,
     };
     state.entries.push(entry);
 
@@ -77,6 +79,11 @@ export function createConversationTurnQueue(): ConversationTurnQueue {
         }
         if (entry.cancelled) throw new ConversationTurnQueueCancelledError(conversationId);
         entry.started = true;
+        try {
+          entry.onStart?.();
+        } catch {
+          // Uma falha no estado visual não pode impedir a execução do turno.
+        }
         return task();
       });
 

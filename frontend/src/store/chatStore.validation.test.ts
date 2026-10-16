@@ -2194,6 +2194,64 @@ describe('chatStore validation', () => {
     expect(useChatStore.getState().sessionsByConversationId[defaultConversationId]?.queuedTurnCount).toBe(0);
   });
 
+  it('conta e cancela envio de comando enquanto aguarda admissão', async () => {
+    const firstSend = deferred<void>();
+    mockSendMessage.mockImplementationOnce(() => firstSend.promise);
+
+    const first = useChatStore.getState().sendMessageToConversation(defaultConversationId, 'primeira');
+    await flushMicrotasks();
+    expect(mockSendMessage).toHaveBeenCalledTimes(1);
+
+    const admission = useChatStore.getState().waitForMessagingAdmission(defaultConversationId);
+    await flushMicrotasks();
+    expect(useChatStore.getState().sessionsByConversationId[defaultConversationId]?.queuedTurnCount).toBe(1);
+    expect(useChatStore.getState().cancelNextQueuedTurn(defaultConversationId)).toBe(true);
+    await expect(admission).rejects.toThrow('chat-messaging-stale');
+    expect(useChatStore.getState().sessionsByConversationId[defaultConversationId]?.queuedTurnCount).toBe(0);
+    expect(mockSendMessage).toHaveBeenCalledTimes(1);
+
+    firstSend.resolve();
+    await first;
+    emitEvent('chat:done', { conversationId: defaultConversationId });
+  });
+
+  it('limpeza de admissão antiga não subtrai a contagem de uma nova entrada', async () => {
+    const firstSend = deferred<void>();
+    const secondSend = deferred<void>();
+    const thirdSend = deferred<void>();
+    mockSendMessage
+      .mockImplementationOnce(() => firstSend.promise)
+      .mockImplementationOnce(() => secondSend.promise)
+      .mockImplementationOnce(() => thirdSend.promise);
+    const first = useChatStore.getState().sendMessageToConversation(defaultConversationId, 'primeira');
+    await flushMicrotasks();
+
+    const oldAdmission = useChatStore.getState().waitForMessagingAdmission(defaultConversationId);
+    await flushMicrotasks();
+    useChatStore.getState().cancelConversationTurn(defaultConversationId);
+    const second = useChatStore.getState().sendMessageToConversation(defaultConversationId, 'segunda');
+    const third = useChatStore.getState().sendMessageToConversation(defaultConversationId, 'terceira');
+    expect(useChatStore.getState().sessionsByConversationId[defaultConversationId]?.queuedTurnCount).toBe(2);
+
+    firstSend.resolve();
+    emitEvent('chat:done', { conversationId: defaultConversationId });
+    await first;
+    await expect(oldAdmission).rejects.toThrow('chat-messaging-stale');
+    await flushMicrotasks();
+    expect(mockSendMessage).toHaveBeenCalledTimes(2);
+    expect(useChatStore.getState().sessionsByConversationId[defaultConversationId]?.queuedTurnCount).toBe(1);
+
+    secondSend.resolve();
+    emitEvent('chat:done', { conversationId: defaultConversationId });
+    await second;
+    await flushMicrotasks();
+    expect(useChatStore.getState().sessionsByConversationId[defaultConversationId]?.queuedTurnCount).toBe(1);
+    thirdSend.resolve();
+    emitEvent('chat:done', { conversationId: defaultConversationId });
+    await third;
+    expect(useChatStore.getState().sessionsByConversationId[defaultConversationId]?.queuedTurnCount).toBe(0);
+  });
+
   it('resposta tardia do cancelamento não limpa o controller do próximo envio', async () => {
     const cancellation = deferred<void>();
     mockCancelStreaming.mockImplementationOnce(() => cancellation.promise);

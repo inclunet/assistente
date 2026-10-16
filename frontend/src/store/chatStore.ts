@@ -188,7 +188,7 @@ interface ChatStore {
     options?: { origin?: ChatSurfaceOrigin; command?: ChatMessagingExecution },
   ) => Promise<boolean>;
   cancelStreaming: (conversationId: string, options?: { origin?: ChatSurfaceOrigin }) => Promise<void>;
-  waitForMessagingAdmission: (conversationId: string) => Promise<void>;
+  waitForMessagingAdmission: (conversationId: string, sessionKey?: string) => Promise<void>;
   finishCommandCancellation: (conversationId: string, sessionKey: string | undefined, pipelineRevision: number, announceCancelled?: boolean) => void;
   getMessagingPipelineRevision: (conversationId: string) => number;
   getDraftRevision: (sessionKey: string) => number;
@@ -301,12 +301,26 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     });
   };
 
+  const queuedTurnCountGenerations = new Map<string, number>();
   const adjustQueuedTurnCount = (conversationId: string, delta: number, sessionKey?: string) => {
     set((state) => {
       const session = getSession(state, conversationId, sessionKey);
       const queuedTurnCount = Math.max(0, (session.queuedTurnCount ?? 0) + delta);
       return patchSession(state, conversationId, { queuedTurnCount }, sessionKey);
     });
+  };
+
+  const countQueuedTurn = (conversationId: string, sessionKey?: string) => {
+    const generation = queuedTurnCountGenerations.get(conversationId) ?? 0;
+    adjustQueuedTurnCount(conversationId, 1, sessionKey);
+    let counted = true;
+    return () => {
+      if (!counted) return;
+      counted = false;
+      if ((queuedTurnCountGenerations.get(conversationId) ?? 0) === generation) {
+        adjustQueuedTurnCount(conversationId, -1, sessionKey);
+      }
+    };
   };
 
   const mergeConversationNodes = (existing: MessageNode[], incoming: MessageNode[]): MessageNode[] => {
@@ -506,6 +520,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
   };
 
   const resetQueuedTurnCount = (conversationId: string) => {
+    queuedTurnCountGenerations.set(conversationId, (queuedTurnCountGenerations.get(conversationId) ?? 0) + 1);
     set((state) => {
       const patches = patchSession(state, conversationId, { queuedTurnCount: 0 });
       const surfaceSessionsByKey = { ...(patches.surfaceSessionsByKey ?? state.surfaceSessionsByKey) };
@@ -1464,16 +1479,16 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       }
       const sessionKey = options?.origin?.sessionKey;
       const queuedBehindActiveTurn = turnQueue.isQueued(conversationId);
-      if (queuedBehindActiveTurn) adjustQueuedTurnCount(conversationId, 1, sessionKey);
+      const settleQueuedCount = queuedBehindActiveTurn ? countQueuedTurn(conversationId, sessionKey) : undefined;
       let markAccepted!: (accepted: boolean) => void;
       let rejectAccepted!: (error: unknown) => void;
       const accepted = new Promise<boolean>((resolve, reject) => { markAccepted = resolve; rejectAccepted = reject; });
       void turnQueue.enqueue(conversationId, async () => {
-          if (queuedBehindActiveTurn) adjustQueuedTurnCount(conversationId, -1, sessionKey);
+          settleQueuedCount?.();
           const result = await sendMessageInternal(conversationId, content, mediaFiles, paramsOverride, undefined, options);
           markAccepted(result.accepted);
           await result.controller?.done;
-        }, queuedBehindActiveTurn ? () => adjustQueuedTurnCount(conversationId, -1, sessionKey) : undefined).catch((error) => {
+        }, settleQueuedCount, settleQueuedCount).catch((error) => {
           if (options?.command) rejectAccepted(
             isConversationTurnQueueClearedError(error) || isConversationTurnQueueCancelledError(error)
               ? new ChatMessagingStaleError()
@@ -1499,16 +1514,16 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       }
       const sessionKey = options?.origin?.sessionKey;
       const queuedBehindActiveTurn = turnQueue.isQueued(conversationId);
-      if (queuedBehindActiveTurn) adjustQueuedTurnCount(conversationId, 1, sessionKey);
+      const settleQueuedCount = queuedBehindActiveTurn ? countQueuedTurn(conversationId, sessionKey) : undefined;
       let markAccepted!: (accepted: boolean) => void;
       let rejectAccepted!: (error: unknown) => void;
       const accepted = new Promise<boolean>((resolve, reject) => { markAccepted = resolve; rejectAccepted = reject; });
       void turnQueue.enqueue(conversationId, async () => {
-          if (queuedBehindActiveTurn) adjustQueuedTurnCount(conversationId, -1, sessionKey);
+          settleQueuedCount?.();
           const result = await sendMessageInternal(conversationId, '', undefined, paramsOverride, messageId, options);
           markAccepted(result.accepted);
           await result.controller?.done;
-        }, queuedBehindActiveTurn ? () => adjustQueuedTurnCount(conversationId, -1, sessionKey) : undefined).catch((error) => {
+        }, settleQueuedCount, settleQueuedCount).catch((error) => {
           if (options?.command) rejectAccepted(
             isConversationTurnQueueClearedError(error) || isConversationTurnQueueCancelledError(error)
               ? new ChatMessagingStaleError()
@@ -1522,8 +1537,23 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       return accepted;
     },
 
-    waitForMessagingAdmission: async (conversationId) => {
-      await turnQueue.enqueue(conversationId, async () => {});
+    waitForMessagingAdmission: async (conversationId, sessionKey) => {
+      const queuedBehindActiveTurn = turnQueue.isQueued(conversationId);
+      const settleCount = queuedBehindActiveTurn ? countQueuedTurn(conversationId, sessionKey) : undefined;
+      try {
+        await turnQueue.enqueue(
+          conversationId,
+          async () => {},
+          settleCount,
+          settleCount,
+        );
+      } catch (error) {
+        settleCount?.();
+        if (isConversationTurnQueueCancelledError(error) || isConversationTurnQueueClearedError(error)) {
+          throw new ChatMessagingStaleError();
+        }
+        throw error;
+      }
     },
     getMessagingPipelineRevision: conversationId => pipelineRevisions.get(conversationId) ?? 0,
     getDraftRevision: sessionKey => draftRevisions.get(sessionKey) ?? 0,
