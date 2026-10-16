@@ -434,6 +434,13 @@ O agente também troca de modelo sozinho (fallback de rate limit, por exemplo) e
 notifica via `config_option_update`. Isso vira um evento para a UI refletir o
 modelo corrente — a pessoa precisa saber com quem está falando.
 
+Resposta de `session/set_config_option` e `config_option_update` podem chegar
+fora de ordem por canais diferentes. A sessão versiona as categorias alteradas
+e reconcilia a resposta remota com o estado recebido depois que o pedido saiu;
+uma resposta atrasada não pode reverter um snapshot mais novo nem divergir da
+consulta seguinte. A cobertura de transporte real é
+`TestNotificacaoMaisNovaPrevaleceSobreRespostaAtrasadaDaTroca`.
+
 ### D7. As tool calls do agente são informativas, não executáveis
 
 `tool_call` e `tool_call_update` do ACP descrevem o que o agente **já está
@@ -1487,7 +1494,9 @@ testes.
   agente.
 - Lista de modelos e troca de modelo funcionam com o Cursor, pelos dois formatos
   de seleção, e com os demais agentes pelo formato que cada um fala — inclusive
-  com quem só fala o legado.
+  com quem só fala o legado; resposta atrasada não reverte atualização posterior
+  (`TestNotificacaoMaisNovaPrevaleceSobreRespostaAtrasadaDaTroca`, agente ACP em
+  processo separado).
 - Payload `models` e seletor `session/set_model` permanecem enquanto qualquer
   agente suportado/publicado depender de cada um; depois do último consumidor,
   a matriz completa sem consumidor nem resultado desconhecido permite propor

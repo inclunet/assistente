@@ -56,12 +56,13 @@ const (
 	// scriptModelo responde ao turno dizendo em que modelo ele está, que é como
 	// o teste confere que a troca valeu para o turno seguinte.
 	scriptModelo        = "modelo"
-	scriptEcho          = "echo"    // devolve o que recebeu no prompt
-	scriptStall         = "stall"   // sobe, mas nunca responde ao handshake
-	scriptStuck         = "stuck"   // aceita o turno e nunca responde, nem ao cancelamento
-	scriptTeimoso       = "teimoso" // ignora o cancelamento e segue falando para sempre
-	scriptDuasConversas = "duas"    // fala em pedaços, assinando cada um com a conversa
-	scriptIDSujo        = "idsujo"  // abre a conversa com identificador cheio de sujeira
+	scriptOptionRace    = "option-race" // notifica um modelo novo antes da resposta atrasada da troca
+	scriptEcho          = "echo"        // devolve o que recebeu no prompt
+	scriptStall         = "stall"       // sobe, mas nunca responde ao handshake
+	scriptStuck         = "stuck"       // aceita o turno e nunca responde, nem ao cancelamento
+	scriptTeimoso       = "teimoso"     // ignora o cancelamento e segue falando para sempre
+	scriptDuasConversas = "duas"        // fala em pedaços, assinando cada um com a conversa
+	scriptIDSujo        = "idsujo"      // abre a conversa com identificador cheio de sujeira
 	// scriptComandos anuncia os comandos que oferece assim que a sessão abre,
 	// fora de qualquer turno, e refaz a lista durante o turno — que é como o
 	// available_commands_update chega de verdade (AEP-0084 D8).
@@ -374,6 +375,22 @@ func (a *fakeAgent) handle(msg rpcMessage) {
 			a.reply(*msg.ID, map[string]any{"configOptions": []any{fakeModelOption("modelo-a"), map[string]any{
 				"type": "boolean", "id": "telemetria", "name": "Telemetria", "currentValue": false,
 			}}})
+			return
+		}
+		if a.script == scriptOptionRace {
+			if params.SessionId != fakeSessionID || params.ConfigId != "model" || params.Value == "" {
+				a.replyError(*msg.ID, -32602, "parâmetros inesperados: "+string(msg.Params))
+				return
+			}
+			// O evento é a versão mais nova do estado. A resposta desta escrita
+			// chega depois com um snapshot antigo, como pode ocorrer em agentes
+			// que notificam por outro canal antes de responder ao JSON-RPC.
+			a.updateFor(params.SessionId, map[string]any{
+				"sessionUpdate": "config_option_update",
+				"configOptions": []any{fakeModelOption("modelo-c")},
+			})
+			time.Sleep(40 * time.Millisecond)
+			a.reply(*msg.ID, map[string]any{"configOptions": []any{fakeModelOption("modelo-b")}})
 			return
 		}
 		if a.script == scriptModelo {

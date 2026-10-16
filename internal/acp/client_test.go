@@ -971,6 +971,23 @@ func TestTrocaConfirmadaComRespostaIlegivelAindaVale(t *testing.T) {
 	}
 }
 
+func TestNotificacaoMaisNovaPrevaleceSobreRespostaAtrasadaDaTroca(t *testing.T) {
+	ctx := testContext(t)
+	client := newTestClient(t, scriptOptionRace, nil)
+	sess := startSession(t, client, ctx)
+
+	options, err := sess.SetConfigOption(ctx, "model", "modelo-b")
+	if err != nil {
+		t.Fatalf("trocar modelo: %v", err)
+	}
+	if model := findOption(options, CategoryModel); model == nil || model.CurrentValue != "modelo-c" {
+		t.Fatalf("a resposta atrasada reverteu a notificação mais nova: %+v", options)
+	}
+	if model := findOption(sess.ConfigOptions(), CategoryModel); model == nil || model.CurrentValue != "modelo-c" {
+		t.Fatalf("a consulta da sessão não compartilha o estado reconciliado: %+v", sess.ConfigOptions())
+	}
+}
+
 // Trocar de modelo no meio da resposta é previsto no ACP — "whether the Agent
 // is idle or generating a response" — e é o caso real de quem percebe, ouvindo,
 // que pediu ao modelo errado. Enfileirar isso atrás do turno faria a troca só

@@ -13,6 +13,34 @@ func TestSnapshotDeOpcoesVazioRemoveEstadoAnterior(t *testing.T) {
 	}
 }
 
+func TestAtualizacaoDeModoNaoDescartaRespostaDeModeloEmAndamento(t *testing.T) {
+	sess := &session{options: []ConfigOption{
+		{ID: "model", Category: CategoryModel, CurrentValue: "modelo-a"},
+		{ID: "mode", Category: modeCategory, CurrentValue: "agent"},
+	}}
+	antes := sess.optionRevisionSnapshot()
+
+	// A notificação parcial de modo chega enquanto a troca de modelo aguarda
+	// resposta. Ela só deve invalidar a categoria mode.
+	if _, changed := sess.mergeConfigOptions([]ConfigOption{{
+		ID: "mode", Category: modeCategory, CurrentValue: "plan",
+	}}); !changed {
+		t.Fatal("atualização parcial de modo não foi aplicada")
+	}
+	options, ok := sess.reconcileConfigOptionResponse([]ConfigOption{
+		{ID: "model", Category: CategoryModel, CurrentValue: "modelo-b"},
+	}, "model", "modelo-b", antes)
+	if !ok {
+		t.Fatal("resposta de modelo não foi reconciliada")
+	}
+	if got := findOption(options, CategoryModel); got == nil || got.CurrentValue != "modelo-b" {
+		t.Fatalf("atualização de modo descartou a troca de modelo: %+v", options)
+	}
+	if got := findOption(options, modeCategory); got == nil || got.CurrentValue != "plan" {
+		t.Fatalf("resposta atrasada reverteu o modo: %+v", options)
+	}
+}
+
 func TestOpcaoBooleanaPodeSerConsultadaEAlterada(t *testing.T) {
 	ctx := testContext(t)
 	client := newTestClient(t, scriptBooleanOptions, nil)
