@@ -123,9 +123,10 @@ recuperação e proibição de `assistant` vazio em erro.
 4. **Fase 4 — Estado de fila acessível (D1):** contagem por conversa, ação
    acessível para cancelar o próximo envio manual ainda pendente, sem cancelar o ativo,
    e anúncio explícito do desfecho. Implementada no frontend com cancelamento
-   individual na fila (`chatTurnQueue`); testes Vitest cobrem cancelamento sem
-   iniciar a chamada, continuidade do turno ativo e controle na toolbar. Eventos
-   externos continuam serializados e não são canceláveis pela toolbar.
+   individual na fila (`chatTurnQueue`); `chatTurnQueue.test.ts` cobre
+   cancelamento sem iniciar a chamada e continuidade do turno ativo;
+   `ChatToolbar.test.tsx` cobre o controle, chamada de cancelamento e anúncio.
+   Eventos externos continuam serializados e não são canceláveis pela toolbar.
    A fila backend ACP (`turnSlot`) continua serializada; sondagem ociosa é a
    pendência separada da Fase 5.
 5. **Fase 5 — Sessão ACP ociosa (D2, cobertura a):** definir se existe uma
