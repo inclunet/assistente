@@ -218,42 +218,60 @@ func CloneTaskListWithContext(ctx context.Context, id string, newTitle string) (
 // ClearTaskListWithContext remove todas as tasks de uma tasklist do usuário
 // do contexto, mantendo a lista e o workflow.
 func ClearTaskListWithContext(ctx context.Context, id string) error {
-	taskIDs := taskQuery(ctx, db.Model(&Task{}).Select("tasks.id").Where("tasks.task_list_id = ?", id))
-	// Deleta notas de todas as tasks da lista
-	if err := db.WithContext(ctx).Where("task_id IN (?)", taskIDs).
-		Delete(&TaskNote{}).Error; err != nil {
-		return err
-	}
-	if err := db.WithContext(ctx).Where("id IN (?)", taskIDs).Delete(&Task{}).Error; err != nil {
-		return err
-	}
-	return nil
+	return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var taskIDs []string
+		if err := taskQuery(ctx, tx.Model(&Task{}).Select("tasks.id").Where("tasks.task_list_id = ?", id)).Pluck("tasks.id", &taskIDs).Error; err != nil {
+			return err
+		}
+		var rootIDs []string
+		if err := taskQuery(ctx, tx.Model(&Task{}).Select("tasks.id").Where("tasks.task_list_id = ? AND tasks.parent_id IS NULL", id)).Pluck("tasks.id", &rootIDs).Error; err != nil {
+			return err
+		}
+		levels, err := taskDescendantLevelsWithContext(ctx, tx, rootIDs, taskIDs, id)
+		if err != nil {
+			return err
+		}
+		if len(taskIDs) > 0 {
+			noteIDs := taskNoteQuery(ctx, tx.Model(&TaskNote{}).Select("task_notes.id").Where("task_notes.task_id IN ?", taskIDs))
+			if err := tx.Where("id IN (?)", noteIDs).Delete(&TaskNote{}).Error; err != nil {
+				return err
+			}
+		}
+		return deleteTaskLevels(tx, ctx, levels)
+	})
 }
 
 // DeleteTaskListWithContext deleta uma tasklist do usuário do contexto e
 // todas suas tasks.
 func DeleteTaskListWithContext(ctx context.Context, id string) error {
-	taskIDs := taskQuery(ctx, db.Model(&Task{}).Select("tasks.id").Where("tasks.task_list_id = ?", id))
-	// Deleta notas de todas as tasks da lista
-	if err := db.WithContext(ctx).Where("task_id IN (?)", taskIDs).
-		Delete(&TaskNote{}).Error; err != nil {
-		return err
-	}
-
-	// Deleta tasks
-	if err := db.WithContext(ctx).Where("id IN (?)", taskIDs).Delete(&Task{}).Error; err != nil {
-		return err
-	}
-
-	// Deleta workflow
-	if err := db.WithContext(ctx).Where("task_list_id IN (?)",
-		ScopeByUser(ctx, db.WithContext(ctx).Model(&TaskList{}).Select("id").Where("id = ?", id), "user_id"),
-	).Delete(&TaskListWorkflow{}).Error; err != nil {
-		return err
-	}
-
-	// Deleta tasklist
-	return ScopeByUser(ctx, db.WithContext(ctx), "user_id").Where("id = ?", id).Delete(&TaskList{}).Error
+	return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var taskIDs []string
+		if err := taskQuery(ctx, tx.Model(&Task{}).Select("tasks.id").Where("tasks.task_list_id = ?", id)).Pluck("tasks.id", &taskIDs).Error; err != nil {
+			return err
+		}
+		var rootIDs []string
+		if err := taskQuery(ctx, tx.Model(&Task{}).Select("tasks.id").Where("tasks.task_list_id = ? AND tasks.parent_id IS NULL", id)).Pluck("tasks.id", &rootIDs).Error; err != nil {
+			return err
+		}
+		levels, err := taskDescendantLevelsWithContext(ctx, tx, rootIDs, taskIDs, id)
+		if err != nil {
+			return err
+		}
+		if len(taskIDs) > 0 {
+			noteIDs := taskNoteQuery(ctx, tx.Model(&TaskNote{}).Select("task_notes.id").Where("task_notes.task_id IN ?", taskIDs))
+			if err := tx.Where("id IN (?)", noteIDs).Delete(&TaskNote{}).Error; err != nil {
+				return err
+			}
+		}
+		if err := deleteTaskLevels(tx, ctx, levels); err != nil {
+			return err
+		}
+		listIDs := ScopeByUser(ctx, tx.Model(&TaskList{}).Select("id").Where("id = ?", id), "user_id")
+		if err := tx.Where("task_list_id IN (?)", listIDs).Delete(&TaskListWorkflow{}).Error; err != nil {
+			return err
+		}
+		return ScopeByUser(ctx, tx, "user_id").Where("id = ?", id).Delete(&TaskList{}).Error
+	})
 }
 
 // ==================== Workflow Operations ====================
@@ -1075,9 +1093,83 @@ func DemoteTaskWithContext(ctx context.Context, id string, parentID string) erro
 	return db.WithContext(ctx).Model(&Task{}).Where("id = ?", id).Where("id IN (?)", taskIDs).Update("parent_id", parentID).Error
 }
 
-// MoveTaskToListWithContext move uma task do usuário do contexto (e suas
-// subtasks) para outra tasklist do mesmo usuário. Reseta status para o
-// inicial do workflow destino, limpa parent e recalcula order.
+// taskDescendantLevelsWithContext percorre uma árvore sob o escopo do usuário
+// e retorna seus níveis em ordem raiz→folhas. expectedIDs exige correspondência
+// exata com o conjunto de tarefas da operação; expectedTaskListID impede que
+// uma exclusão atravesse listas por causa de relações legadas inconsistentes.
+func taskDescendantLevelsWithContext(ctx context.Context, tx *gorm.DB, rootIDs, expectedIDs []string, expectedTaskListID string) ([][]string, error) {
+	if len(rootIDs) == 0 {
+		if len(expectedIDs) > 0 {
+			return nil, errors.New("árvore de tarefas inconsistente: raízes ausentes")
+		}
+		return nil, nil
+	}
+	levels := [][]string{append([]string(nil), rootIDs...)}
+	seen := make(map[string]struct{}, len(rootIDs))
+	for _, id := range rootIDs {
+		seen[id] = struct{}{}
+	}
+	for levelIndex := 0; levelIndex < len(levels); levelIndex++ {
+		var children []string
+		if err := taskQuery(ctx, tx.Model(&Task{}).Select("tasks.id")).
+			Where("tasks.parent_id IN ?", levels[levelIndex]).Pluck("tasks.id", &children).Error; err != nil {
+			return nil, err
+		}
+		next := make([]string, 0, len(children))
+		for _, id := range children {
+			if _, exists := seen[id]; exists {
+				continue
+			}
+			seen[id] = struct{}{}
+			next = append(next, id)
+		}
+		if len(next) > 0 {
+			levels = append(levels, next)
+		}
+	}
+	if expectedIDs != nil {
+		expected := make(map[string]struct{}, len(expectedIDs))
+		for _, id := range expectedIDs {
+			expected[id] = struct{}{}
+		}
+		if len(seen) != len(expected) {
+			return nil, fmt.Errorf("árvore de tarefas inconsistente: alcançadas %d de %d tarefas", len(seen), len(expected))
+		}
+		for id := range seen {
+			if _, exists := expected[id]; !exists {
+				return nil, fmt.Errorf("árvore de tarefas inconsistente: tarefa %s está fora do escopo da operação", id)
+			}
+		}
+	}
+	if expectedTaskListID != "" {
+		var crossListCount int64
+		ids := make([]string, 0, len(seen))
+		for id := range seen {
+			ids = append(ids, id)
+		}
+		if err := taskQuery(ctx, tx.Model(&Task{})).Where("tasks.id IN ? AND tasks.task_list_id <> ?", ids, expectedTaskListID).Count(&crossListCount).Error; err != nil {
+			return nil, err
+		}
+		if crossListCount != 0 {
+			return nil, fmt.Errorf("árvore de tarefas inconsistente: %d tarefas pertencem a outra lista", crossListCount)
+		}
+	}
+	return levels, nil
+}
+
+func deleteTaskLevels(tx *gorm.DB, ctx context.Context, levels [][]string) error {
+	for levelIndex := len(levels) - 1; levelIndex >= 0; levelIndex-- {
+		ids := taskQuery(ctx, tx.Model(&Task{}).Select("tasks.id").Where("tasks.id IN ?", levels[levelIndex]))
+		if err := tx.Where("id IN (?)", ids).Delete(&Task{}).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// MoveTaskToListWithContext move uma task do usuário do contexto e toda sua
+// descendência para outra tasklist do mesmo usuário. Reseta status para o
+// inicial do workflow destino, limpa o parent da raiz e recalcula sua order.
 func MoveTaskToListWithContext(ctx context.Context, taskID string, targetTaskListID string) (*Task, error) {
 	task, err := GetTaskWithContext(ctx, taskID)
 	if err != nil {
@@ -1100,31 +1192,45 @@ func MoveTaskToListWithContext(ctx context.Context, taskID string, targetTaskLis
 		return nil, fmt.Errorf("workflow da lista destino %s não encontrado: %w", targetTaskListID, err)
 	}
 
-	var maxOrder int
-	taskQuery(ctx, db.Model(&Task{})).
-		Where("tasks.task_list_id = ? AND tasks.parent_id IS NULL", targetTaskListID).
-		Select(`COALESCE(MAX(tasks."order"), -1)`).
-		Scan(&maxOrder)
-
-	updates := map[string]interface{}{
-		"task_list_id": targetTaskListID,
-		"status_id":    workflow.InitialStatusID,
-		"parent_id":    nil,
-		"order":        maxOrder + 1,
-		"completed_at": nil,
-	}
-	taskIDs := taskQuery(ctx, db.Model(&Task{}).Select("tasks.id").Where("tasks.id = ?", taskID))
-	if err := db.WithContext(ctx).Model(&Task{}).Where("id = ?", taskID).Where("id IN (?)", taskIDs).Updates(updates).Error; err != nil {
+	err = db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		levels, err := taskDescendantLevelsWithContext(ctx, tx, []string{taskID}, nil, "")
+		if err != nil {
+			return err
+		}
+		var maxOrder int
+		if err := taskQuery(ctx, tx.Model(&Task{})).
+			Where("tasks.task_list_id = ? AND tasks.parent_id IS NULL", targetTaskListID).
+			Select(`COALESCE(MAX(tasks."order"), -1)`).Scan(&maxOrder).Error; err != nil {
+			return err
+		}
+		rootUpdates := map[string]interface{}{
+			"task_list_id": targetTaskListID,
+			"status_id":    workflow.InitialStatusID,
+			"parent_id":    nil,
+			"order":        maxOrder + 1,
+			"completed_at": nil,
+		}
+		rootIDs := taskQuery(ctx, tx.Model(&Task{}).Select("tasks.id").Where("tasks.id = ?", taskID))
+		if err := tx.Model(&Task{}).Where("id IN (?)", rootIDs).Updates(rootUpdates).Error; err != nil {
+			return err
+		}
+		var descendantIDs []string
+		for _, level := range levels[1:] {
+			descendantIDs = append(descendantIDs, level...)
+		}
+		if len(descendantIDs) == 0 {
+			return nil
+		}
+		ids := taskQuery(ctx, tx.Model(&Task{}).Select("tasks.id").Where("tasks.id IN ?", descendantIDs))
+		return tx.Model(&Task{}).Where("id IN (?)", ids).Updates(map[string]interface{}{
+			"task_list_id": targetTaskListID,
+			"status_id":    workflow.InitialStatusID,
+			"completed_at": nil,
+		}).Error
+	})
+	if err != nil {
 		return nil, err
 	}
-
-	// Subtasks acompanham a task pai
-	subtaskIDs := taskQuery(ctx, db.Model(&Task{}).Select("tasks.id").Where("tasks.parent_id = ?", taskID))
-	db.WithContext(ctx).Model(&Task{}).Where("id IN (?)", subtaskIDs).Updates(map[string]interface{}{
-		"task_list_id": targetTaskListID,
-		"status_id":    workflow.InitialStatusID,
-		"completed_at": nil,
-	})
 
 	return GetTaskWithContext(ctx, taskID)
 }
@@ -1148,31 +1254,15 @@ func DeleteTaskWithContext(ctx context.Context, id string) error {
 			return err
 		}
 
-		// Percorre toda a descendência em níveis, sempre sob o escopo do usuário.
-		// Guardar os níveis permite excluir folhas antes dos pais, pois a relação
-		// ParentID não tem ON DELETE CASCADE.
-		levels := [][]string{{root.ID}}
-		allIDs := []string{root.ID}
-		seen := map[string]struct{}{root.ID: {}}
-		for levelIndex := 0; levelIndex < len(levels); levelIndex++ {
-			var children []string
-			if err := taskQuery(ctx, tx.Model(&Task{})).
-				Where("tasks.parent_id IN ?", levels[levelIndex]).
-				Pluck("tasks.id", &children).Error; err != nil {
-				return err
-			}
-			nextLevel := make([]string, 0, len(children))
-			for _, childID := range children {
-				if _, exists := seen[childID]; exists {
-					continue
-				}
-				seen[childID] = struct{}{}
-				nextLevel = append(nextLevel, childID)
-				allIDs = append(allIDs, childID)
-			}
-			if len(nextLevel) > 0 {
-				levels = append(levels, nextLevel)
-			}
+		// A relação ParentID não tem ON DELETE CASCADE; remover folhas antes
+		// dos pais também evita deixar dados parciais em caso de falha.
+		levels, err := taskDescendantLevelsWithContext(ctx, tx, []string{root.ID}, nil, root.TaskListID)
+		if err != nil {
+			return err
+		}
+		var allIDs []string
+		for _, level := range levels {
+			allIDs = append(allIDs, level...)
 		}
 
 		noteIDs := taskNoteQuery(ctx, tx.Model(&TaskNote{}).Select("task_notes.id").Where("task_notes.task_id IN ?", allIDs))
@@ -1180,13 +1270,7 @@ func DeleteTaskWithContext(ctx context.Context, id string) error {
 			return err
 		}
 
-		for levelIndex := len(levels) - 1; levelIndex >= 0; levelIndex-- {
-			taskIDs := taskQuery(ctx, tx.Model(&Task{}).Select("tasks.id").Where("tasks.id IN ?", levels[levelIndex]))
-			if err := tx.Where("id IN (?)", taskIDs).Delete(&Task{}).Error; err != nil {
-				return err
-			}
-		}
-		return nil
+		return deleteTaskLevels(tx, ctx, levels)
 	})
 }
 
