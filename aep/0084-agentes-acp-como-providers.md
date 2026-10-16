@@ -884,13 +884,11 @@ AEPs relacionados.
 
 #### Pendências ordenadas para decisão posterior
 
-1. **Confiabilidade e acessibilidade (AEP-0108):** apresentar estado de fila,
-   permitir cancelar somente a chamada que está esperando e distinguir isso de
-   cancelar o turno ativo. Sondagem de processo ocioso permanece uma questão
-   técnica em aberto; não deve bloquear nem derrubar uma conexão compartilhada.
-2. **Fidelidade da atividade:** representar plano ACP, detalhes estruturados de
-   tool call e metadados de sessão, definindo saneamento, privacidade e
-   persistência antes de expor payloads.
+1. **Confiabilidade (AEP-0108):** investigar a sondagem de processo ocioso; ela
+   não deve bloquear nem derrubar uma conexão compartilhada.
+2. **Fidelidade da atividade:** ampliar detalhes estruturados de tool call e
+   metadados de sessão, definindo saneamento, privacidade e persistência antes
+   de expor payloads. Apresentação de planos ACP fica reservada para discussão.
 3. **Compatibilidade funcional:** projetar `updatedAt` e metadados adicionais
    de sessão; avaliar elicitation e conteúdo adicional conforme os agentes
    suportados e os componentes acessíveis disponíveis. Atualizações vazias de
@@ -899,12 +897,12 @@ AEPs relacionados.
    com ACP v1, manter fixtures para variantes conhecidas e criar uma matriz de
    agentes/distribuições. A execução do kit oficial depende da compatibilidade
    com stdio e deve ser investigada antes de virar gate obrigatório.
-5. **Capacidades ampliadas:** implementar descoberta/resume de sessões,
-   múltiplas raízes, notices, compaction, áudio, recursos embutidos, uso/custo e
-   filesystem/terminal do cliente. A decisão de produto de 16/10/2026 autoriza
-   esses itens, exceto apresentação de planos ACP, reservada para discussão
-   posterior. Execução privilegiada permanece sujeita aos contratos de
-   permissão e confirmação dos AEPs.
+5. **Capacidades ampliadas:** implementar descoberta/exclusão de sessões,
+   múltiplas raízes, notices e compaction. `session/resume` já está implementado;
+   áudio WAV/MP3, recursos PDF/texto e uso/custo em tempo real têm suporte parcial
+   conforme a matriz. Filesystem/terminal seguem sujeitos aos contratos de permissão e
+   confirmação dos AEPs; planos ACP ficam fora desta implementação até decisão
+   posterior.
 
 #### Referências consultadas em 16/10/2026
 
