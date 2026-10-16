@@ -1432,6 +1432,11 @@ testes.
 
 - [x] Atualização completa de opções, inclusive conjunto vazio, substitui o
   snapshot da sessão e remove opções obsoletas (`TestSnapshotDeOpcoesVazioRemoveEstadoAnterior`).
+- [x] Respostas atrasadas de troca não ressuscitam opções removidas por snapshot;
+  snapshots booleanos com `false` omitido pelo DTO são reconhecidos na
+  reconciliação e a releitura confirma o estado efetivo
+  (`AgentOptionsPickers`: "não restaura opção removida por uma resposta atrasada"
+  e "releitura resolve boolean false omitido no snapshot durante troca em voo").
 - [x] Mapear, apresentar e alterar opções booleanas em ACP (`TestOpcaoBooleanaPodeSerConsultadaEAlterada`; teste Vitest de `AgentOptionsPickers`).
 - [x] Apresentar e alterar opções seletoras de categorias adicionais (`thought_level` etc.) em controle acessível, com rótulos e anúncios internacionalizados.
 - [x] Propagar snapshots de opções vazios até o frontend para remover controles obsoletos (`TestSnapshotVazioDeOpcoesChegaATela`; teste Vitest correspondente). Avisos legados sem lista continuam preservando os seletores conhecidos.

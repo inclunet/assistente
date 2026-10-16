@@ -321,6 +321,66 @@ describe('AgentOptionsPickers', () => {
     expect(screen.getByRole('button', { name: 'Modelo, Modelo C' })).toBeInTheDocument();
   });
 
+  it('não restaura opção removida por uma resposta atrasada', async () => {
+    getOptions.mockResolvedValue(opcoesDoAgente());
+    let resolveChange!: (value: unknown) => void;
+    setOption.mockImplementation(() => new Promise((resolve) => { resolveChange = resolve; }));
+
+    const { container } = render(<AgentOptionsPickers conversationId="conversa-1" />);
+    await userEvent.click(await screen.findByRole('button', { name: /Modelo/ }));
+    await userEvent.click(await screen.findByRole('option', { name: 'Modelo B' }));
+    await waitFor(() => expect(setOption).toHaveBeenCalledWith('conversa-1', 'model', 'modelo-b'));
+
+    act(() => {
+      emitAgentOptions?.({
+        conversationId: 'conversa-1', options: [], snapshot: true,
+        modelChanged: false, modeChanged: false, announce: false,
+      });
+    });
+    await waitFor(() => expect(container.firstChild).toBeNull());
+
+    await act(async () => {
+      resolveChange(opcoesDoAgente('modelo-b'));
+    });
+    expect(container.firstChild).toBeNull();
+  });
+
+  it('releitura resolve boolean false omitido no snapshot durante troca em voo', async () => {
+    getOptions.mockResolvedValue({
+      conversationId: 'conversa-1', available: true,
+      // A releitura após a resposta confirma true como estado efetivo,
+      // apesar do snapshot intermediário sem currentBool.
+      options: [{ id: 'telemetria', name: 'Telemetria', kind: 'boolean', currentBool: true, values: [] }],
+    });
+    let resolveChange!: (value: unknown) => void;
+    setOption.mockImplementation(() => new Promise((resolve) => { resolveChange = resolve; }));
+
+    render(<AgentOptionsPickers conversationId="conversa-1" />);
+    const checkbox = await screen.findByRole('checkbox', { name: 'Telemetria' });
+    expect(checkbox).toBeChecked();
+    await userEvent.click(checkbox);
+    await waitFor(() => expect(setOption).toHaveBeenCalledWith('conversa-1', 'telemetria', 'false'));
+
+    // O DTO Go omite currentBool quando false por causa de omitempty.
+    act(() => {
+      emitAgentOptions?.({
+        conversationId: 'conversa-1',
+        options: [{ id: 'telemetria', name: 'Telemetria', kind: 'boolean', values: [] }],
+        snapshot: true, modelChanged: false, modeChanged: false, announce: false,
+      });
+    });
+    expect(screen.getByRole('checkbox', { name: 'Telemetria' })).not.toBeChecked();
+
+    await act(async () => {
+      resolveChange({
+        conversationId: 'conversa-1', available: true,
+        options: [{ id: 'telemetria', name: 'Telemetria', kind: 'boolean', currentBool: true, values: [] }],
+      });
+    });
+    await waitFor(() => expect(getOptions).toHaveBeenCalledTimes(3));
+    expect(screen.getByRole('checkbox', { name: 'Telemetria' })).toBeChecked();
+  });
+
   it('aplica a resposta da opção mesmo quando chega aviso parcial de outra categoria', async () => {
     getOptions.mockResolvedValue(opcoesDoAgente());
     let resolveChange!: (value: unknown) => void;

@@ -245,7 +245,9 @@ export function useAgentSessionOptions(
         const valueOf = (option: AgentConfigOption | undefined): string | undefined => {
           if (!option) return undefined;
           if (option.kind === 'boolean') {
-            return option.currentBool === undefined ? undefined : String(option.currentBool);
+            // currentBool usa omitempty no DTO Go; false chega sem a chave e
+            // corresponde ao mesmo estado desmarcado que a Checkbox renderiza.
+            return String(!!option.currentBool);
           }
           return option.currentValue;
         };
@@ -253,6 +255,10 @@ export function useAgentSessionOptions(
         const startingValue = valueOf(requestedOption);
         const appliedValue = valueOf(appliedOption);
         const currentMoved = currentValue !== undefined && currentValue !== startingValue;
+
+        // Um snapshot completo pode retirar a opção enquanto a troca está em
+        // voo. A resposta atrasada não pode ressuscitar um controle removido.
+        if (snapshotChanged && !current) return null;
 
         if (currentValue === value && appliedOption && appliedValue !== value) {
           // O eco do agente pode confirmar a seleção, mas um resultado
