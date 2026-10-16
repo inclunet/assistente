@@ -127,7 +127,8 @@ recuperação e proibição de `assistant` vazio em erro.
    cancelamento sem iniciar a chamada, continuidade do turno ativo e exclusão
    de entradas invalidadas por limpeza; `ChatToolbar.test.tsx` cobre controle,
    anúncio e restauração de foco ao cancelar o último item, inclusive durante
-   um turno ativo: o foco retorna ao botão de mensagens fixadas, que permanece
+   um turno ativo ou quando o turno anterior admite o envio automaticamente: o
+   foco retorna ao botão de mensagens fixadas, que permanece
    habilitado quando a ação de limpar está desabilitada.
    `chatStore.validation.test.ts` cobre que cancelamento de envio/retry
    auditado na fila resulta em comando cancelado, sem envio ao backend.
@@ -163,7 +164,9 @@ recuperação e proibição de `assistant` vazio em erro.
 - [x] Envio manual enfileirado tem estado acessível por conversa e o próximo pendente
       pode ser cancelado sem cancelar o turno ativo; anúncio global confirma a
       operação. Evidências: `chatTurnQueue` Vitest e `ChatToolbar` Vitest,
-      incluindo restauração de foco durante `isLoading`. A espera de admissão
+      incluindo restauração de foco durante `isLoading` e ao admitir
+      automaticamente o último item. O nome acessível do botão contém o rótulo
+      visível `chat.queue.cancelNext`. A espera de admissão
       de comando também é contada/cancelável e não reserva o comando depois do
       cancelamento (`chatStore.validation.test.ts`,
       `commandChatMessaging.protocol.test.ts`).

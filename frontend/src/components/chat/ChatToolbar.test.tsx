@@ -443,7 +443,7 @@ describe('ChatToolbar fila de envios', () => {
     queuedTurnCountRef.current = 1;
     renderToolbar();
 
-    fireEvent.click(screen.getByRole('button', { name: 'chat.queue.cancelNextDescription' }));
+    fireEvent.click(screen.getByRole('button', { name: 'chat.queue.cancelNext' }));
 
     expect(cancelNextQueuedTurnMock).toHaveBeenCalledWith('conversation-1');
     expect(announceMock).toHaveBeenCalledWith('chat.queue.cancelledNext');
@@ -454,7 +454,7 @@ describe('ChatToolbar fila de envios', () => {
     cancelNextQueuedTurnMock.mockReturnValue(false);
     renderToolbar();
 
-    fireEvent.click(screen.getByRole('button', { name: 'chat.queue.cancelNextDescription' }));
+    fireEvent.click(screen.getByRole('button', { name: 'chat.queue.cancelNext' }));
 
     expect(cancelNextQueuedTurnMock).toHaveBeenCalledWith('conversation-1');
     expect(announceMock).not.toHaveBeenCalledWith('chat.queue.cancelledNext');
@@ -463,7 +463,7 @@ describe('ChatToolbar fila de envios', () => {
   it('move o foco para um controle estável quando o último item cancela', () => {
     queuedTurnCountRef.current = 1;
     const view = renderToolbar();
-    const cancelButton = screen.getByRole('button', { name: 'chat.queue.cancelNextDescription' });
+    const cancelButton = screen.getByRole('button', { name: 'chat.queue.cancelNext' });
     cancelButton.focus();
 
     fireEvent.click(cancelButton);
@@ -477,7 +477,7 @@ describe('ChatToolbar fila de envios', () => {
     queuedTurnCountRef.current = 1;
     isLoadingRef.current = true;
     const view = renderToolbar();
-    const cancelButton = screen.getByRole('button', { name: 'chat.queue.cancelNextDescription' });
+    const cancelButton = screen.getByRole('button', { name: 'chat.queue.cancelNext' });
     cancelButton.focus();
 
     fireEvent.click(cancelButton);
@@ -486,6 +486,36 @@ describe('ChatToolbar fila de envios', () => {
 
     expect(screen.getByRole('button', { name: 'chat.clearBtn' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'chat.pins.button' })).toHaveFocus();
+  });
+
+  it('restaura o foco quando a admissão automática remove o último envio pendente', () => {
+    queuedTurnCountRef.current = 1;
+    isLoadingRef.current = true;
+    const view = renderToolbar();
+    screen.getByRole('button', { name: 'chat.queue.cancelNext' }).focus();
+
+    queuedTurnCountRef.current = 0;
+    isLoadingRef.current = false;
+    view.rerender(<MemoryRouter><ChatToolbar /></MemoryRouter>);
+
+    expect(screen.getByRole('button', { name: 'chat.pins.button' })).toHaveFocus();
+    expect(cancelNextQueuedTurnMock).not.toHaveBeenCalled();
+  });
+
+  it('não mantém restauração armada quando a fila cresce e o foco muda', () => {
+    queuedTurnCountRef.current = 1;
+    const view = renderToolbar();
+    screen.getByRole('button', { name: 'chat.queue.cancelNext' }).focus();
+
+    queuedTurnCountRef.current = 2;
+    view.rerender(<MemoryRouter><ChatToolbar /></MemoryRouter>);
+    const clearButton = screen.getByRole('button', { name: 'chat.clearBtn' });
+    clearButton.focus();
+
+    queuedTurnCountRef.current = 0;
+    view.rerender(<MemoryRouter><ChatToolbar /></MemoryRouter>);
+
+    expect(clearButton).toHaveFocus();
   });
 });
 

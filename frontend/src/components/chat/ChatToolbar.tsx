@@ -1,5 +1,5 @@
 import { logger } from '../../utils/logger';
-import React, { useEffect, useCallback, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useCallback, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { ClearOutlined, CloseOutlined, EditOutlined, SettingOutlined } from '@ant-design/icons';
@@ -181,6 +181,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
   const cancelQueuedTurnButtonRef = useRef<HTMLButtonElement>(null);
   const pinnedMessagesButtonRef = useRef<HTMLButtonElement>(null);
   const restoreFocusAfterQueueCancelRef = useRef(false);
+  const queueFocusConversationIdRef = useRef<string | null>(null);
   const historyContainerRef = useRef<HTMLDivElement>(null);
   const profileContainerRef = useRef<HTMLDivElement>(null);
   const modelPickerContainerRef = useRef<HTMLDivElement>(null);
@@ -189,6 +190,23 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
   );
   const previousQueueConversationIdRef = useRef<string | null | undefined>(undefined);
   const previousQueuedTurnCountRef = useRef<number | null>(null);
+
+  useLayoutEffect(() => {
+    if (queueFocusConversationIdRef.current !== effectiveConversationId) {
+      restoreFocusAfterQueueCancelRef.current = false;
+      queueFocusConversationIdRef.current = effectiveConversationId;
+    }
+    // Se a contagem ainda é positiva, o botão continua montado. Desarma uma
+    // captura de cleanup anterior (por exemplo, ao passar de 1 para 2 itens).
+    if (queuedTurnCount > 0) restoreFocusAfterQueueCancelRef.current = false;
+    return () => {
+      // Captura antes da remoção do botão: ao terminar o turno ativo, o próximo
+      // envio pode ser admitido automaticamente sem passar pelo handler de cancelar.
+      if (queuedTurnCount === 1 && document.activeElement === cancelQueuedTurnButtonRef.current) {
+        restoreFocusAfterQueueCancelRef.current = true;
+      }
+    };
+  }, [effectiveConversationId, queuedTurnCount]);
 
   useEffect(() => {
     if (!restoreFocusAfterQueueCancelRef.current || queuedTurnCount > 0) return;
@@ -621,7 +639,6 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
                 icon={<CloseOutlined />}
                 title={t('chat.queue.cancelNextDescription')}
                 onClick={handleCancelQueuedTurn}
-                aria-label={t('chat.queue.cancelNextDescription')}
               />
             )}
             <ToolbarButton
