@@ -52,6 +52,8 @@ interface TokenStatsModalProps {
   onClose: () => void;
 }
 
+type ACPUsageEvent = Partial<TokenStats> & { conversationId: string };
+
 const mergeRealtimeTokenStats = (
   current: TokenStats,
   update: Partial<TokenStats> & { conversationId: string },
@@ -68,6 +70,20 @@ const mergeRealtimeTokenStats = (
   return merged;
 };
 
+const mergeACPUsage = (current: TokenStats, update: ACPUsageEvent | null): TokenStats => {
+  if (!update) return current;
+  return {
+    ...current,
+    contextTokens: update.contextTokens ?? current.contextTokens,
+    contextLimit: update.contextLimit ?? current.contextLimit,
+    contextUsage: update.contextUsage ?? current.contextUsage,
+    isNearLimit: update.isNearLimit ?? current.isNearLimit,
+    isCritical: update.isCritical ?? current.isCritical,
+    acpSessionCostAmount: update.acpSessionCostAmount ?? current.acpSessionCostAmount,
+    acpSessionCostCurrency: update.acpSessionCostCurrency ?? current.acpSessionCostCurrency,
+  };
+};
+
 export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
   conversationId,
   isOpen,
@@ -79,14 +95,14 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState('overview');
   const pendingFinalStatsRef = useRef<(Partial<TokenStats> & { conversationId: string }) | null>(null);
-  const pendingACPUsageRef = useRef<(Partial<TokenStats> & { conversationId: string }) | null>(null);
+  const latestACPUsageRef = useRef<ACPUsageEvent | null>(null);
 
   useEffect(() => {
     if (!isOpen || !conversationId) {
       return;
     }
     pendingFinalStatsRef.current = null;
-    pendingACPUsageRef.current = null;
+    latestACPUsageRef.current = null;
     let current = true;
     setStats(null);
 
@@ -98,17 +114,13 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
         const result = await GetConversationTokenStats(conversationId);
         if (!current) return;
         const pendingFinalStats = pendingFinalStatsRef.current;
-        const pendingACPUsage = pendingACPUsageRef.current;
+        const latestACPUsage = latestACPUsageRef.current;
         if (pendingFinalStats?.conversationId === conversationId) {
           const withFinal = mergeRealtimeTokenStats(result, pendingFinalStats);
-          setStats(pendingACPUsage?.conversationId === conversationId
-            ? mergeRealtimeTokenStats(withFinal, pendingACPUsage)
-            : withFinal);
+          setStats(mergeACPUsage(withFinal, latestACPUsage?.conversationId === conversationId ? latestACPUsage : null));
           pendingFinalStatsRef.current = null;
-          pendingACPUsageRef.current = null;
-        } else if (pendingACPUsage?.conversationId === conversationId) {
-          setStats(mergeRealtimeTokenStats(result, pendingACPUsage));
-          pendingACPUsageRef.current = null;
+        } else if (latestACPUsage?.conversationId === conversationId) {
+          setStats(mergeACPUsage(result, latestACPUsage));
         } else {
           setStats(result);
         }
@@ -128,7 +140,7 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
       if (current && data.conversationId === conversationId) {
         setStats((current) => {
           if (current) {
-            return mergeRealtimeTokenStats(current, data);
+            return mergeACPUsage(mergeRealtimeTokenStats(current, data), latestACPUsageRef.current);
           }
           pendingFinalStatsRef.current = data;
           return current;
@@ -138,7 +150,9 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
 
     const unsubscribeRealtime = EventsOn('chat:token_stats_update', (data: Partial<TokenStats> & { conversationId: string }) => {
       if (current && data.conversationId === conversationId) {
-        setStats((current) => current ? mergeRealtimeTokenStats(current, data) : current);
+        setStats((current) => current
+          ? mergeACPUsage(mergeRealtimeTokenStats(current, data), latestACPUsageRef.current)
+          : current);
       }
     });
 
@@ -158,11 +172,11 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
       };
       if (data.costAmount !== undefined) update.acpSessionCostAmount = data.costAmount;
       if (data.costCurrency !== undefined) update.acpSessionCostCurrency = data.costCurrency;
+      latestACPUsageRef.current = latestACPUsageRef.current
+        ? { ...latestACPUsageRef.current, ...update }
+        : update;
       setStats((currentStats) => {
-        if (currentStats) return mergeRealtimeTokenStats(currentStats, update);
-        pendingACPUsageRef.current = pendingACPUsageRef.current
-          ? { ...pendingACPUsageRef.current, ...update }
-          : update;
+        if (currentStats) return mergeACPUsage(mergeRealtimeTokenStats(currentStats, update), latestACPUsageRef.current);
         return currentStats;
       });
     });

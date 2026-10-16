@@ -118,6 +118,10 @@ export function createConversationTurnQueue(): ConversationTurnQueue {
     const state = tails.get(conversationId);
     if (state) {
       state.generation += 1;
+      // Entradas pendentes desta geração continuam na cauda para receber o
+      // erro de limpeza, mas deixam de participar do cancelamento individual.
+      // Assim cancelNext só pode atingir envios aceitos depois do clear.
+      state.entries = state.entries.filter((entry) => entry.started);
       const generation = state.generation;
       const tail = state.tail
         .catch(() => undefined)

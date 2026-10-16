@@ -153,9 +153,15 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
   const modalId = useModalId();
 
   const handleCancelQueuedTurn = useCallback(() => {
-    if (!effectiveConversationId || !cancelNextQueuedTurn(effectiveConversationId)) return;
+    if (!effectiveConversationId) return;
+    restoreFocusAfterQueueCancelRef.current = queuedTurnCount === 1
+      && document.activeElement === cancelQueuedTurnButtonRef.current;
+    if (!cancelNextQueuedTurn(effectiveConversationId)) {
+      restoreFocusAfterQueueCancelRef.current = false;
+      return;
+    }
     announce(t('chat.queue.cancelledNext'));
-  }, [announce, cancelNextQueuedTurn, effectiveConversationId, t]);
+  }, [announce, cancelNextQueuedTurn, effectiveConversationId, queuedTurnCount, t]);
 
   const workspace = useWorkspaceStore((s) => s.workspace);
   const updateWsTab = useWorkspaceStore((s) => s.updateTab);
@@ -172,6 +178,9 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
   const historyPickerRef = useRef<HistoryPickerRef>(null);
   const profilePickerRef = useRef<ProfilePickerRef>(null);
   const toolbarRef = useRef<HTMLDivElement>(null);
+  const cancelQueuedTurnButtonRef = useRef<HTMLButtonElement>(null);
+  const clearConversationButtonRef = useRef<HTMLButtonElement>(null);
+  const restoreFocusAfterQueueCancelRef = useRef(false);
   const historyContainerRef = useRef<HTMLDivElement>(null);
   const profileContainerRef = useRef<HTMLDivElement>(null);
   const modelPickerContainerRef = useRef<HTMLDivElement>(null);
@@ -180,6 +189,12 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
   );
   const previousQueueConversationIdRef = useRef<string | null | undefined>(undefined);
   const previousQueuedTurnCountRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!restoreFocusAfterQueueCancelRef.current || queuedTurnCount > 0) return;
+    restoreFocusAfterQueueCancelRef.current = false;
+    clearConversationButtonRef.current?.focus();
+  }, [queuedTurnCount]);
   const shortcutHint = useCommandShortcutHints('chat');
   const clearShortcut = shortcutHint(CHAT_CLEAR_COMMAND);
   const historyShortcut = shortcutHint('chat.history.open');
@@ -601,6 +616,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
           <>
             {queuedTurnCount > 0 && (
               <ToolbarButton
+                ref={cancelQueuedTurnButtonRef}
                 label={t('chat.queue.cancelNext')}
                 icon={<CloseOutlined />}
                 title={t('chat.queue.cancelNextDescription')}
@@ -609,6 +625,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
               />
             )}
             <ToolbarButton
+              ref={clearConversationButtonRef}
               label={t('chat.clearBtn')}
               icon={<ClearOutlined />}
               shortcut={clearShortcut}

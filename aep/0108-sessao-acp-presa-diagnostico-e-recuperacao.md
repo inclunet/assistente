@@ -124,8 +124,9 @@ recuperação e proibição de `assistant` vazio em erro.
    acessível para cancelar o próximo envio manual ainda pendente, sem cancelar o ativo,
    e anúncio explícito do desfecho. Implementada no frontend com cancelamento
    individual na fila (`chatTurnQueue`); `chatTurnQueue.test.ts` cobre
-   cancelamento sem iniciar a chamada e continuidade do turno ativo;
-   `ChatToolbar.test.tsx` cobre o controle, chamada de cancelamento e anúncio.
+   cancelamento sem iniciar a chamada, continuidade do turno ativo e exclusão
+   de entradas invalidadas por limpeza; `ChatToolbar.test.tsx` cobre controle,
+   anúncio e restauração de foco ao cancelar o último item.
    `chatStore.validation.test.ts` cobre que cancelamento de envio/retry
    auditado na fila resulta em comando cancelado, sem envio ao backend.
    Eventos externos continuam serializados e não são canceláveis pela toolbar.

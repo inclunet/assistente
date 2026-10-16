@@ -190,6 +190,35 @@ describe('chatTurnQueue', () => {
     expect(queue.isQueued('conversation-1')).toBe(false);
   });
 
+  it('cancelNext ignora pendentes invalidados por clear', async () => {
+    const queue = createConversationTurnQueue();
+    const active = deferred<void>();
+    const calls: string[] = [];
+    const activeRun = queue.enqueue('conversation-1', async () => {
+      calls.push('active:start');
+      await active.promise;
+      calls.push('active:end');
+    });
+    const invalidated = queue.enqueue('conversation-1', async () => {
+      calls.push('invalidated');
+    });
+
+    await flushMicrotasks();
+    queue.clear('conversation-1');
+    const current = queue.enqueue('conversation-1', async () => {
+      calls.push('current');
+    }, () => calls.push('current:cancelled'));
+
+    expect(queue.cancelNext('conversation-1')).toBe(true);
+    await expect(current).rejects.toBeInstanceOf(ConversationTurnQueueCancelledError);
+    expect(calls).toContain('current:cancelled');
+
+    active.resolve();
+    await activeRun;
+    await expect(invalidated).rejects.toBeInstanceOf(ConversationTurnQueueClearedError);
+    expect(calls).toEqual(['active:start', 'current:cancelled', 'active:end']);
+  });
+
   it('invalida pendentes de todas as conversas', async () => {
     const queue = createConversationTurnQueue();
     const first = deferred<void>();

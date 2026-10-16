@@ -217,6 +217,7 @@ export function useAgentSessionOptions(
     if (!conversationId) return null;
     const requested = conversationId;
     const requestVersion = snapshotVersionRef.current;
+    const requestCategoryVersions = new Map(categoryVersionsRef.current);
     const requestedOption = optionsRef.current.find((option) => option.id === optionId);
     const requestedCategory = requestedOption
       ? isCategory(requestedOption, AGENT_OPTION_MODEL)
@@ -249,11 +250,17 @@ export function useAgentSessionOptions(
         announceRef.current(tRef.current('chat.agentOptions.changeUnknownState'));
         return null;
       }
+      const reconciled = preserveChangedCategories(
+        applied,
+        optionsRef.current,
+        requestCategoryVersions,
+        categoryVersionsRef.current,
+      );
       optionsVersionRef.current += 1;
       snapshotVersionRef.current += 1;
-      optionsRef.current = applied;
-      setOptions(applied);
-      return applied;
+      optionsRef.current = reconciled;
+      setOptions(reconciled);
+      return reconciled;
     } catch (error: unknown) {
       logger.error('[AgentOptions] falha ao trocar a opção do agente:', error);
       if (conversationRef.current !== requested) return null;
@@ -286,6 +293,24 @@ function withAgentValues(
 
 function bumpCategoryVersion(versions: Map<string, number>, category: string): void {
   versions.set(category, (versions.get(category) ?? 0) + 1);
+}
+
+function preserveChangedCategories(
+  response: AgentConfigOption[],
+  latest: AgentConfigOption[],
+  before: Map<string, number>,
+  after: Map<string, number>,
+): AgentConfigOption[] {
+  const reconciled = [...response];
+  for (const [category, version] of after) {
+    if (version === (before.get(category) ?? 0)) continue;
+    const current = latest.find((option) => isCategory(option, category));
+    if (!current) continue;
+    const index = reconciled.findIndex((option) => isCategory(option, category));
+    if (index === -1) reconciled.push(current);
+    else reconciled[index] = current;
+  }
+  return reconciled;
 }
 
 /**

@@ -459,6 +459,19 @@ describe('ChatToolbar fila de envios', () => {
     expect(cancelNextQueuedTurnMock).toHaveBeenCalledWith('conversation-1');
     expect(announceMock).not.toHaveBeenCalledWith('chat.queue.cancelledNext');
   });
+
+  it('move o foco para um controle estável quando o último item cancela', () => {
+    queuedTurnCountRef.current = 1;
+    const view = renderToolbar();
+    const cancelButton = screen.getByRole('button', { name: 'chat.queue.cancelNextDescription' });
+    cancelButton.focus();
+
+    fireEvent.click(cancelButton);
+    queuedTurnCountRef.current = 0;
+    view.rerender(<MemoryRouter><ChatToolbar /></MemoryRouter>);
+
+    expect(screen.getByRole('button', { name: 'chat.clearBtn' })).toHaveFocus();
+  });
 });
 
 describe('ChatToolbar apresentação pinned/tokens', () => {
