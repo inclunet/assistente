@@ -2,6 +2,16 @@
 
 **Status:** Done
 
+**Extensão de contenção (16/10/2026): In Progress.** Falhas de retenção ou
+compactação no coordenador adiam somente a limpeza por 30s, 60s, 120s, 240s
+e no máximo 5min, contados após a operação retornar. Heartbeat, outbox e
+recuperação permanecem na mesma goroutine e cadência; não há timer, flag ou
+driver novo. A pausa preserva os cursores e impede compactação; a passagem
+completa bem-sucedida reinicia o recuo. O relatório/log informa a pausa.
+Regressões: `retention_backoff_test.go` e `command_maintenance_backoff_test.go`.
+Isso reduz repetição sob falha, não limita rigidamente a duração de um SQL
+nem certifica resolução de toda contenção. Aceite no banco carregado pendente.
+
 **Migração experimental do driver (16/10/2026): Deprecated.** Por decisão
 do mantenedor, a proposta `ncruces/go-sqlite3` + `gormlite` foi abandonada
 após a qualificação reproduzir perda de conteúdo em reconstrução de tabela

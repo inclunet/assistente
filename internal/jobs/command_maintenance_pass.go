@@ -48,6 +48,9 @@ func (m *Manager) runCommandMaintenance(ctx context.Context) time.Duration {
 	report, err := m.cfg.MaintenanceCoordinator.Run(passCtx, policy)
 	if err != nil {
 		logging.Errorf(ctx, "jobs.manager", "instance maintenance failed: stage=%s elapsed_ms=%d budget_ms=%d heartbeat=%d outbox_requeued=%d outbox_purged=%d recovered=%d jobs_deleted=%d tools_deleted=%d invocations_deleted=%d activations_deleted=%d: %v", report.Stage, time.Since(started).Milliseconds(), commandMaintenancePassBudget(policy.LeaseDuration).Milliseconds(), report.HeartbeatProcessed, report.OutboxRequeued, report.OutboxPurged, report.Recovered, report.JobsDeleted, report.ToolsDeleted, report.InvocationsDeleted, report.ActivationsDeleted, err)
+		if report.RetentionRetryAfter > 0 {
+			logging.Warnf(ctx, "jobs.manager", "instance retention deferred after failure: stage=%s retry_after_ms=%d", report.Stage, report.RetentionRetryAfter.Milliseconds())
+		}
 	}
 	return commandMaintenanceDelay(policy, report, err)
 }
@@ -62,7 +65,10 @@ func commandMaintenanceDelay(policy commandmaintenance.Policy, report commandmai
 	if delay > time.Minute {
 		delay = time.Minute
 	}
-	if (runErr != nil || report.MoreHeartbeat || report.MoreOutbox || report.MoreRecovery || report.MoreRetention) && delay > time.Second {
+	if report.RetentionRetryAfter > 0 {
+		delay = min(delay, report.RetentionRetryAfter)
+	}
+	if (report.MoreHeartbeat || report.MoreOutbox || report.MoreRecovery || ((runErr != nil || report.MoreRetention) && report.RetentionRetryAfter <= 0)) && delay > time.Second {
 		delay = time.Second
 	}
 	return delay

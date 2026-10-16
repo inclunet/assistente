@@ -2,6 +2,17 @@
 
 Status: In Progress — evidências e aceites pendentes conforme os registros abaixo
 
+**Contenção ao configurar comandos (16/10/2026): In Progress.** O coordenador
+aplica recuo de 30s até 5min após falha na retenção/compactação, sem atrasar
+heartbeat, outbox ou recuperação. A pausa não muda autorização, proteção de
+replay, política de exclusão ou cursores. Uma passagem completa sem falha
+reinicia o recuo. Testes determinísticos verificam pausa, retomada e cadência
+crítica; aceite sob carga real continua pendente. Não há troca de driver.
+O salvamento distingue SQLite ocupado de configuração inválida e registra
+operação/etapa com classificação redigida de erro. O contrato de commit
+confirmado permanece: retorna Committed=true mesmo se Published=false, sem
+repetir a mutação. Erros de preparação também são diagnosticados.
+
 **Retenção sob carga (16/10/2026): In Progress.** A seleção de runs elegíveis
 calcula os conjuntos de fontes pendentes e leases vivas uma vez por usuário,
 sem subqueries correlacionadas por run. Idade, count-cap, isolamento, proteção

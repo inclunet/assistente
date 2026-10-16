@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	"assistente/internal/commandexecution"
 	"assistente/internal/commandjson"
 	"assistente/internal/database"
+	"assistente/internal/logging"
 	"gorm.io/gorm"
 )
 
@@ -142,6 +144,8 @@ type CommandSettingsMutation struct {
 const commandSettingsDefaultCondition = `{"version":1,"clauses":[]}`
 const commandSettingsDefaultArguments = `{}`
 const commandSettingsDefaultPresentation = `{"version":1}`
+
+var errCommandSettingsStorageBusy = errors.New("command settings storage temporarily busy")
 
 // GetCommandSettings retorna somente a configuração global persistida e os
 // defaults reais do catálogo. A atividade de user layers vem exclusivamente
@@ -276,10 +280,12 @@ func (a *App) applyCommandSettingsMutation(intent commandconfig.MutationIntent) 
 	ctx := a.commandBridgeContext()
 	p, err := a.authenticatedCommandProduct()
 	if err != nil {
+		logCommandSettingsMutationFailure(ctx, intent.Operation, "prepare_product", err)
 		return CommandSettingsMutation{}, err
 	}
 	inputs, err := a.commandDesktopMutationInputs(p, ctx)
 	if err != nil {
+		logCommandSettingsMutationFailure(ctx, intent.Operation, "prepare_inputs", err)
 		return CommandSettingsMutation{}, err
 	}
 	baseHook := inputs.OnMutationTx
@@ -291,10 +297,18 @@ func (a *App) applyCommandSettingsMutation(intent commandconfig.MutationIntent) 
 	}
 	applier, err := a.newCommandDesktopMutationApplier(inputs)
 	if err != nil {
+		logCommandSettingsMutationFailure(ctx, intent.Operation, "prepare_applier", err)
 		return CommandSettingsMutation{}, err
 	}
 	result, applyErr := applier.Apply(ctx, "", intent)
 	out := CommandSettingsMutation{Committed: result.Committed, Published: result.Rebuilt, ID: commandSettingsResourceID(intent, result.Diff)}
+	if applyErr != nil {
+		phase := "apply"
+		if result.Committed {
+			phase = "post_commit_publish"
+		}
+		logCommandSettingsMutationFailure(ctx, intent.Operation, phase, applyErr)
+	}
 	if result.Committed {
 		// Commit confirmado não é repetível, mesmo se a publicação falhar.
 		return out, nil
@@ -759,6 +773,12 @@ func safeCommandSettingsError(err error) error {
 	if err == nil {
 		return nil
 	}
+	if database.IsSQLiteBusyError(err) {
+		return errCommandSettingsStorageBusy
+	}
+	if errors.Is(err, errCommandSettingsStorageBusy) {
+		return errCommandSettingsStorageBusy
+	}
 	known := []error{errChatConversationUnavailable, context.Canceled, context.DeadlineExceeded, commandexecution.ErrDenied, commandexecution.ErrStale, commandexecution.ErrInvalidRequest, commandexecution.ErrInvalidConfiguration, commandconfig.ErrInvalid, commandconfig.ErrStale}
 	for _, sentinel := range known {
 		if errors.Is(err, sentinel) {
@@ -766,4 +786,45 @@ func safeCommandSettingsError(err error) error {
 		}
 	}
 	return commandexecution.ErrInvalidConfiguration
+}
+
+func logCommandSettingsMutationFailure(ctx context.Context, operation commandconfig.Operation, phase string, err error) {
+	if phase != "post_commit_publish" && !database.IsSQLiteBusyError(err) && isExpectedCommandSettingsError(err) {
+		return
+	}
+	logging.Errorf(ctx, "command.settings", "falha ao salvar configuração: operation=%s phase=%s error=%s", operation, phase, commandSettingsSafeErrorLabel(err))
+}
+
+func isExpectedCommandSettingsError(err error) bool {
+	for _, sentinel := range []error{
+		context.Canceled,
+		commandexecution.ErrDenied, commandexecution.ErrStale, commandexecution.ErrInvalidRequest,
+		commandexecution.ErrInvalidConfiguration, commandconfig.ErrInvalid, commandconfig.ErrStale,
+	} {
+		if errors.Is(err, sentinel) {
+			return true
+		}
+	}
+	return false
+}
+
+// Logs only allowlisted error labels: database/ORM errors can contain SQL or
+// bound command data, so their raw messages must never enter this log site.
+func commandSettingsSafeErrorLabel(err error) string {
+	switch {
+	case database.IsSQLiteBusyError(err):
+		return "sqlite_busy_or_locked"
+	case errors.Is(err, context.Canceled):
+		return "canceled"
+	case errors.Is(err, context.DeadlineExceeded):
+		return "deadline_exceeded"
+	case errors.Is(err, commandexecution.ErrDenied):
+		return "denied"
+	case errors.Is(err, commandexecution.ErrStale), errors.Is(err, commandconfig.ErrStale):
+		return "stale"
+	case errors.Is(err, commandexecution.ErrInvalidRequest), errors.Is(err, commandexecution.ErrInvalidConfiguration), errors.Is(err, commandconfig.ErrInvalid):
+		return "invalid"
+	default:
+		return fmt.Sprintf("internal_error:%T", err)
+	}
 }

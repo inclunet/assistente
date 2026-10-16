@@ -1,5 +1,11 @@
 # AEP — Assistente Enhancement Proposals
 
+**AEP-0103 / extensão AEP-0074 — recuo sob contenção (16/10/2026): In Progress.**
+Falhas na limpeza/compactação adiam somente a retenção por 30s até 5min,
+preservando heartbeat, outbox e recuperação. Regressões determinísticas em
+`retention_backoff_test.go` e `command_maintenance_backoff_test.go`; aceite
+no banco real pendente. AEP-0074 legado permanece Done.
+
 **Proposta de migração experimental do driver, associada à AEP-0074
 (16/10/2026): Deprecated.** O AEP de retenção não foi abandonado.
 Abandonada por decisão do mantenedor após falha de integridade no adaptador

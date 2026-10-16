@@ -240,8 +240,15 @@ func (a *App) PrepareManualCommandLayerForScope(scopeName, layerID string) (Comm
 }
 
 func (a *App) MutateCommandSettings(req CommandSettingsMutationRequest) (result CommandSettingsMutation, err error) {
-	defer func() { err = safeCommandSettingsError(err) }()
 	ctx := a.commandBridgeContext()
+	logOperation := commandconfig.Operation("settings_mutation")
+	logPhase := "prepare"
+	defer func() {
+		if err != nil {
+			logCommandSettingsMutationFailure(ctx, logOperation, logPhase, err)
+		}
+		err = safeCommandSettingsError(err)
+	}()
 	if ctx == nil || req.ExpectedRevision < 1 || strings.TrimSpace(req.ExpectedFingerprint) == "" {
 		return CommandSettingsMutation{}, commandexecution.ErrInvalidRequest
 	}
@@ -277,6 +284,9 @@ func (a *App) MutateCommandSettings(req CommandSettingsMutationRequest) (result 
 	if err != nil {
 		return CommandSettingsMutation{}, err
 	}
+	// Only a validated intent may contribute its operation to diagnostics.
+	logOperation = intent.Operation
+	logPhase = "prepare_applier"
 	inputs, err := a.commandDesktopMutationInputs(p, ctx)
 	if err != nil {
 		return CommandSettingsMutation{}, err
@@ -312,6 +322,7 @@ func (a *App) MutateCommandSettings(req CommandSettingsMutationRequest) (result 
 	if err != nil {
 		return CommandSettingsMutation{}, err
 	}
+	logPhase = "apply"
 	var applied commandMutationResult
 	switch operation {
 	case commandconfig.DefaultUpgrade:
@@ -337,6 +348,7 @@ func (a *App) MutateCommandSettings(req CommandSettingsMutationRequest) (result 
 	if err != nil {
 		terminal := CommandSettingsMutation{Committed: applied.Committed, Published: false, ID: commandSettingsResourceID(intent, applied.Diff)}
 		if applied.Committed {
+			logCommandSettingsMutationFailure(ctx, intent.Operation, "post_commit_publish", err)
 			return terminal, nil
 		}
 		return CommandSettingsMutation{}, err
