@@ -15,6 +15,7 @@ type CompatibilityState struct {
 	revision    int
 	unsupported map[llmcapabilities.Capability]map[llmcapabilities.FieldKey]struct{}
 	retryUsed   bool
+	effectSeen  bool
 	persist     func(context.Context, llmcapabilities.Capability, llmcapabilities.FieldKey, string) error
 }
 
@@ -47,6 +48,17 @@ func (s *CompatibilityState) IsUnsupported(capability llmcapabilities.Capability
 	return ok
 }
 
+// MarkNonRetryableEffect permanently blocks compatibility retry for this turn
+// after content, reasoning, or tool activity has already been exposed.
+func (s *CompatibilityState) MarkNonRetryableEffect() {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	s.effectSeen = true
+	s.mu.Unlock()
+}
+
 // LearnAndClaimRetry persists the restriction before permitting one retry.
 // The shared budget is consumed even if persistence fails, preventing loops.
 func (s *CompatibilityState) LearnAndClaimRetry(ctx context.Context, capability llmcapabilities.Capability, field llmcapabilities.FieldKey, recognizerID string) bool {
@@ -55,7 +67,7 @@ func (s *CompatibilityState) LearnAndClaimRetry(ctx context.Context, capability 
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.retryUsed {
+	if s.retryUsed || s.effectSeen {
 		return false
 	}
 	s.retryUsed = true

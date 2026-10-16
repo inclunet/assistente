@@ -37,3 +37,28 @@ export function translateProviderErrorMessage(message: string): string | null {
 
   return i18next.t(`chat.errors.providerErrors.${categoryKey}`, { field, statusLabel });
 }
+
+const mcpStages: Record<string, string> = {
+  list_tools: 'chat.errors.mcpStages.listTools',
+  call: 'chat.errors.mcpStages.call',
+  handshake: 'chat.errors.mcpStages.handshake',
+  unknown: 'chat.errors.mcpStages.unknown',
+};
+
+export function translateErrorMarkers(text: string): string {
+  const withProviderErrors = text.replace(
+    /provider_error:v1:[a-z_]+:[a-z_.]*(?::[1-5][0-9]{2})?/g,
+    (marker) => translateProviderErrorMessage(marker) ?? marker,
+  );
+  return withProviderErrors.replace(/mcp_error:v1:([^:\s]+):(list_tools|call|handshake|unknown)/g, (marker, encodedServer: string, stage: string) => {
+    const stageKey = mcpStages[stage];
+    if (!stageKey) return marker;
+    let server = encodedServer;
+    try {
+      server = decodeURIComponent(encodedServer);
+    } catch {
+      return marker;
+    }
+    return i18next.t('chat.errors.mcpFailure', { server, stage: i18next.t(stageKey) });
+  });
+}

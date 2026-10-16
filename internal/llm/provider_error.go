@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 
+	"assistente/internal/credentials"
 	"assistente/internal/llmcapabilities"
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/openai/openai-go"
@@ -90,7 +91,10 @@ func ProviderErrorDiagnostic(provider *ProviderConfig, err error) ProviderError 
 	format := providerErrorFormat(provider)
 	category := ProviderErrorUnrecognized
 	var networkError net.Error
-	if errors.Is(err, context.DeadlineExceeded) || errors.As(err, &networkError) {
+	switch {
+	case errors.Is(err, credentials.ErrCredentialResolution):
+		category = ProviderErrorAuthentication
+	case errors.Is(err, context.DeadlineExceeded) || errors.As(err, &networkError):
 		category = ProviderErrorTransient
 	}
 	return ProviderError{
@@ -110,7 +114,7 @@ func providerErrorFormat(provider *ProviderConfig) string {
 }
 
 func recognizeOpenAIError(provider *ProviderConfig, status int, code, errorType, param, message string) (ProviderError, bool) {
-	family := openAIErrorFamily(provider.Type)
+	family := openAIErrorFamily(provider.ErrorFamily)
 	format := string(provider.GetAPIFormat())
 	recognizer := "provider-error:" + family + ":" + format + ":v1"
 	code = strings.ToLower(strings.TrimSpace(code))
@@ -285,36 +289,10 @@ func canonicalParameterField(format APIFormat, param string) llmcapabilities.Fie
 	}
 }
 
-func openAIErrorFamily(providerType ProviderType) string {
-	switch strings.ToLower(strings.TrimSpace(string(providerType))) {
-	case "openai", "chatgpt":
-		return "openai"
-	case "grok", "xai", "x.ai":
-		return "xai"
-	case "litellm":
-		return "litellm"
-	case "openrouter":
-		return "openrouter"
-	case "localai":
-		return "localai"
-	case "zai", "z.ai", "zhipu":
-		return "zai"
-	case "ollama":
-		return "ollama"
-	case "llamacpp", "llama.cpp":
-		return "llamacpp"
-	case "groq":
-		return "groq"
-	case "mistral":
-		return "mistral"
-	case "together":
-		return "together"
-	case "fireworks":
-		return "fireworks"
-	case "perplexity":
-		return "perplexity"
-	case "deepseek":
-		return "deepseek"
+func openAIErrorFamily(errorFamily ProviderErrorFamily) string {
+	switch errorFamily {
+	case ProviderErrorFamilyOpenAI, ProviderErrorFamilyLiteLLM, ProviderErrorFamilyOpenRouter:
+		return string(errorFamily)
 	default:
 		return "openai-compatible"
 	}

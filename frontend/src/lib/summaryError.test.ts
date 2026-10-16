@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { TFunction } from 'i18next';
 
+import i18n from './i18n';
 import { summaryErrorMessage, SUMMARY_ERROR_AGENT_PROVIDER } from './summaryError';
 
 // Mock de TFunction: ecoa a chave + os args interpolados.
@@ -27,5 +28,12 @@ describe('summaryErrorMessage', () => {
     expect(summaryErrorMessage(t, { code: 'motivo_novo', error: 'algo' })).toBe(
       'app.summary.error|{"error":"algo"}',
     );
+  });
+
+  it('traduz marcador sanitizado em erro síncrono de sumarização', async () => {
+    await i18n.changeLanguage('es');
+    expect(summaryErrorMessage(t, {
+      error: 'Provider request failed: provider_error:v1:authentication:',
+    })).toContain('El proveedor rechazó la autenticación. Comprueba la credencial configurada.');
   });
 });

@@ -3,8 +3,10 @@ package llm
 import (
 	"encoding/json"
 	"errors"
+	"net/url"
 	"testing"
 
+	"assistente/internal/credentials"
 	"assistente/internal/llmcapabilities"
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/openai/openai-go"
@@ -16,6 +18,7 @@ func TestRecognizeProviderErrorRequiresExplicitSupportedSignature(t *testing.T) 
 	tests := []struct {
 		name         string
 		providerType ProviderType
+		errorFamily  ProviderErrorFamily
 		format       APIFormat
 		apiErr       error
 		wantCategory ProviderErrorCategory
@@ -26,6 +29,7 @@ func TestRecognizeProviderErrorRequiresExplicitSupportedSignature(t *testing.T) 
 		{
 			name:         "OpenAI explicit unsupported parameter",
 			providerType: ProviderOpenAI,
+			errorFamily:  ProviderErrorFamilyOpenAI,
 			format:       APIFormatOpenAI,
 			apiErr:       &openai.Error{StatusCode: 400, Code: "unsupported_parameter", Type: "invalid_request_error", Param: "max_completion_tokens"},
 			wantCategory: ProviderErrorUnsupportedParameter,
@@ -43,6 +47,7 @@ func TestRecognizeProviderErrorRequiresExplicitSupportedSignature(t *testing.T) 
 		{
 			name:         "contradictory authentication type rejects unsupported parameter code",
 			providerType: ProviderOpenAI,
+			errorFamily:  ProviderErrorFamilyOpenAI,
 			format:       APIFormatOpenAI,
 			apiErr:       &openai.Error{StatusCode: 400, Code: "unsupported_parameter", Type: "authentication_error", Param: "temperature"},
 			wantCategory: ProviderErrorAuthentication,
@@ -50,6 +55,7 @@ func TestRecognizeProviderErrorRequiresExplicitSupportedSignature(t *testing.T) 
 		{
 			name:         "Responses API uses its exact output token parameter",
 			providerType: ProviderOpenAI,
+			errorFamily:  ProviderErrorFamilyOpenAI,
 			format:       APIFormatOpenAIResponses,
 			apiErr:       &openai.Error{StatusCode: 400, Code: "unsupported_parameter", Type: "invalid_request_error", Param: "max_output_tokens"},
 			wantCategory: ProviderErrorUnsupportedParameter,
@@ -60,6 +66,7 @@ func TestRecognizeProviderErrorRequiresExplicitSupportedSignature(t *testing.T) 
 		{
 			name:         "Responses API does not infer output field from chat alias",
 			providerType: ProviderOpenAI,
+			errorFamily:  ProviderErrorFamilyOpenAI,
 			format:       APIFormatOpenAIResponses,
 			apiErr:       &openai.Error{StatusCode: 400, Code: "unsupported_parameter", Param: "max_tokens"},
 			wantCategory: ProviderErrorUnsupportedParameter,
@@ -68,6 +75,7 @@ func TestRecognizeProviderErrorRequiresExplicitSupportedSignature(t *testing.T) 
 		{
 			name:         "LiteLLM explicit error type",
 			providerType: ProviderType("litellm"),
+			errorFamily:  ProviderErrorFamilyLiteLLM,
 			format:       APIFormatOpenAI,
 			apiErr:       &openai.Error{StatusCode: 400, Type: "UnsupportedParamsError", Param: "temperature"},
 			wantCategory: ProviderErrorUnsupportedParameter,
@@ -77,6 +85,7 @@ func TestRecognizeProviderErrorRequiresExplicitSupportedSignature(t *testing.T) 
 		{
 			name:         "LiteLLM documented exception name in JSON message",
 			providerType: ProviderType("litellm"),
+			errorFamily:  ProviderErrorFamilyLiteLLM,
 			format:       APIFormatOpenAI,
 			apiErr:       &openai.Error{StatusCode: 400, Code: "400", Param: "temperature", Message: "litellm.UnsupportedParamsError: unsupported parameter"},
 			wantCategory: ProviderErrorUnsupportedParameter,
@@ -86,6 +95,7 @@ func TestRecognizeProviderErrorRequiresExplicitSupportedSignature(t *testing.T) 
 		{
 			name:         "LiteLLM message prefix cannot override a conflicting error type",
 			providerType: ProviderType("litellm"),
+			errorFamily:  ProviderErrorFamilyLiteLLM,
 			format:       APIFormatOpenAI,
 			apiErr:       &openai.Error{StatusCode: 400, Param: "temperature", Type: "authentication_error", Message: "litellm.UnsupportedParamsError: unsupported parameter"},
 			wantCategory: ProviderErrorAuthentication,
@@ -94,6 +104,7 @@ func TestRecognizeProviderErrorRequiresExplicitSupportedSignature(t *testing.T) 
 		{
 			name:         "LiteLLM unsupported type with conflicting code is not learned",
 			providerType: ProviderType("litellm"),
+			errorFamily:  ProviderErrorFamilyLiteLLM,
 			format:       APIFormatOpenAI,
 			apiErr:       &openai.Error{StatusCode: 400, Code: "invalid_api_key", Type: "UnsupportedParamsError", Param: "temperature"},
 			wantCategory: ProviderErrorAuthentication,
@@ -101,6 +112,7 @@ func TestRecognizeProviderErrorRequiresExplicitSupportedSignature(t *testing.T) 
 		{
 			name:         "unsupported value is not field support",
 			providerType: ProviderOpenAI,
+			errorFamily:  ProviderErrorFamilyOpenAI,
 			format:       APIFormatOpenAI,
 			apiErr:       &openai.Error{StatusCode: 400, Code: "unsupported_value", Param: "temperature"},
 			wantCategory: ProviderErrorInvalidValue,
@@ -110,6 +122,7 @@ func TestRecognizeProviderErrorRequiresExplicitSupportedSignature(t *testing.T) 
 		{
 			name:         "permission response is not an invalid value",
 			providerType: ProviderOpenAI,
+			errorFamily:  ProviderErrorFamilyOpenAI,
 			format:       APIFormatOpenAI,
 			apiErr:       &openai.Error{StatusCode: 403, Code: "unsupported_value", Param: "temperature"},
 			wantCategory: ProviderErrorPermission,
@@ -126,6 +139,7 @@ func TestRecognizeProviderErrorRequiresExplicitSupportedSignature(t *testing.T) 
 		{
 			name:         "unknown param is discarded",
 			providerType: ProviderOpenAI,
+			errorFamily:  ProviderErrorFamilyOpenAI,
 			format:       APIFormatOpenAI,
 			apiErr:       &openai.Error{StatusCode: 400, Code: "unsupported_parameter", Param: "customer_secret"},
 			wantCategory: ProviderErrorUnsupportedParameter,
@@ -157,10 +171,26 @@ func TestRecognizeProviderErrorRequiresExplicitSupportedSignature(t *testing.T) 
 		{
 			name:         "OpenRouter generic 400 remains ambiguous",
 			providerType: ProviderType("openrouter"),
+			errorFamily:  ProviderErrorFamilyOpenRouter,
 			format:       APIFormatOpenAI,
 			apiErr:       &openai.Error{StatusCode: 400, Code: "400", Type: "invalid_request_error"},
 			wantCategory: ProviderErrorInvalidRequest,
 			wantType:     "invalid_request_error",
+		},
+		{
+			name:         "OpenRouter does not inherit OpenAI unsupported signature",
+			providerType: ProviderOpenAI,
+			errorFamily:  ProviderErrorFamilyOpenRouter,
+			format:       APIFormatOpenAI,
+			apiErr:       &openai.Error{StatusCode: 400, Code: "unsupported_parameter", Param: "temperature"},
+			wantCategory: ProviderErrorInvalidRequest,
+		},
+		{
+			name:         "missing explicit family disables provider-specific learning",
+			providerType: ProviderOpenAI,
+			format:       APIFormatOpenAI,
+			apiErr:       &openai.Error{StatusCode: 400, Code: "unsupported_parameter", Param: "temperature"},
+			wantCategory: ProviderErrorInvalidRequest,
 		},
 		{
 			name:         "model missing is not a generic invalid request",
@@ -174,7 +204,7 @@ func TestRecognizeProviderErrorRequiresExplicitSupportedSignature(t *testing.T) 
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			provider := &ProviderConfig{Type: test.providerType, APIFormat: test.format, BaseURL: "https://provider.invalid/v1"}
+			provider := &ProviderConfig{Type: test.providerType, ErrorFamily: test.errorFamily, APIFormat: test.format, BaseURL: "https://provider.invalid/v1"}
 			got, ok := RecognizeProviderError(provider, test.apiErr)
 			if !ok {
 				t.Fatal("RecognizeProviderError() did not recognize the typed API envelope")
@@ -254,5 +284,16 @@ func TestRecognizeProviderErrorRejectsUnknownFormatsAndUnstructuredErrors(t *tes
 	}
 	if got, ok := RecognizeProviderError(nil, &openai.Error{StatusCode: 400}); ok || got.Category != "" {
 		t.Fatalf("nil-provider classification = %#v, recognized=%v", got, ok)
+	}
+}
+
+func TestProviderErrorDiagnosticKeepsCredentialResolutionOutOfTransientCategory(t *testing.T) {
+	err := &url.Error{Op: "Get", URL: "https://provider.invalid/v1/models", Err: credentials.ErrCredentialResolution}
+	diagnostic := ProviderErrorDiagnostic(&ProviderConfig{Type: ProviderOpenAI, APIFormat: APIFormatOpenAI}, err)
+	if diagnostic.Category != ProviderErrorAuthentication {
+		t.Fatalf("credencial encapsulada foi classificada como %q", diagnostic.Category)
+	}
+	if got, want := diagnostic.DisplayMessage(), "provider_error:v1:authentication:"; got != want {
+		t.Fatalf("mensagem sanitizada = %q, want %q", got, want)
 	}
 }

@@ -52,3 +52,18 @@ func TestCompatibilityStatePublishesOnlyPersistedKnownFields(t *testing.T) {
 		t.Fatalf("persistence called %d times, want 1", calls)
 	}
 }
+
+func TestCompatibilityStateBlocksRetryAfterNonRetryableEffect(t *testing.T) {
+	calls := 0
+	state := NewCompatibilityState("model-1", 4, nil, func(context.Context, llmcapabilities.Capability, llmcapabilities.FieldKey, string) error {
+		calls++
+		return nil
+	})
+	state.MarkNonRetryableEffect()
+	if state.LearnAndClaimRetry(context.Background(), llmcapabilities.CapabilityChatCompletions, llmcapabilities.FieldTemperature, "openai.chat.unsupported_parameter") {
+		t.Fatal("retry was permitted after a prior iteration produced an effect")
+	}
+	if calls != 0 {
+		t.Fatalf("persist called %d times after an irreversible effect", calls)
+	}
+}

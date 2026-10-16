@@ -37,8 +37,10 @@ const (
 	// antecipada de credenciais; resolução e falhas pertencem ao CredentialTransport.
 	// Reautorização MCP também cobre permissões: um formato deixa de presumir
 	// expiração, mantendo os mesmos call sites e a contagem do inventário.
-	expectedLegacyFormatCount  = 729
-	expectedLegacyFormatDigest = "eea131465a7b1a887ea29a2fc565405eb0406bb2a71922d729853230fa84a6d2"
+	// O AEP-0113 substitui sete formatos com texto livre de provedor por
+	// diagnósticos estruturados e sanitizados.
+	expectedLegacyFormatCount  = 722
+	expectedLegacyFormatDigest = "a70029b230fd4060a10359f6edb3c1a3fb4674d4687534b7b34c98167f172087"
 )
 
 // TestLegacyLoggingInventory mantém reproduzível o inventário da issue #675.

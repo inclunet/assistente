@@ -404,6 +404,13 @@ const ptBR = {
           notFound: 'O modelo ou recurso solicitado não foi encontrado no provedor.{{statusLabel}}',
           unrecognized: 'O provedor retornou um erro não reconhecido. Confira a configuração do provedor e tente novamente.{{statusLabel}}',
         },
+        mcpFailure: 'O servidor MCP {{server}} falhou {{stage}}. Tente novamente ou verifique as credenciais e a conexão.',
+        mcpStages: {
+          listTools: 'ao listar ferramentas',
+          call: 'ao executar uma ferramenta',
+          handshake: 'durante a conexão',
+          unknown: 'durante a comunicação',
+        },
       },
       stopReading: 'Parar leitura',
       stopReadingLabel: 'Parar leitura de texto',

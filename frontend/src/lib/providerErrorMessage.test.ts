@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import i18n from './i18n';
-import { translateProviderErrorMessage } from './providerErrorMessage';
+import { translateErrorMarkers, translateProviderErrorMessage } from './providerErrorMessage';
 
 describe('translateProviderErrorMessage', () => {
   it('localiza marcadores permitidos e mantém o alias informado pelo provedor', async () => {
@@ -19,5 +19,25 @@ describe('translateProviderErrorMessage', () => {
       .toBe('O provedor recusou um valor da configuração. Confira os parâmetros do modelo.');
     expect(translateProviderErrorMessage('provider_error:v1:unknown:temperature')).toBeNull();
     expect(translateProviderErrorMessage('provider_error:v1:invalid_value:temperature:999')).toBeNull();
+  });
+});
+
+describe('translateErrorMarkers', () => {
+  it('traduz marcadores dentro de erros persistidos com prefixo', async () => {
+    await i18n.changeLanguage('pt-BR');
+    expect(translateErrorMarkers('Falha na resposta do agente: provider_error:v1:authentication:'))
+      .toBe('Falha na resposta do agente: O provedor recusou a autenticação. Confira a credencial configurada.');
+  });
+
+  it('traduz falhas MCP por servidor e etapa em cada idioma', async () => {
+    await i18n.changeLanguage('pt-BR');
+    expect(translateErrorMarkers('mcp_error:v1:Servidor%20A:list_tools'))
+      .toBe('O servidor MCP Servidor A falhou ao listar ferramentas. Tente novamente ou verifique as credenciais e a conexão.');
+    await i18n.changeLanguage('en');
+    expect(translateErrorMarkers('mcp_error:v1:Servidor%20A:call'))
+      .toBe('MCP server Servidor A failed while running a tool. Try again or check its credentials and connection.');
+    await i18n.changeLanguage('es');
+    expect(translateErrorMarkers('mcp_error:v1:Servidor%20A:handshake'))
+      .toBe('El servidor MCP Servidor A falló durante la conexión. Inténtalo de nuevo o comprueba sus credenciales y conexión.');
   });
 });

@@ -108,7 +108,7 @@ escopo do provedor; uma requisição de usuário não pode publicar restrições
 globais em provedores de sistema sem a autorização correspondente.
 
 Uma revisão não secreta de compatibilidade muda quando mudam endpoint, formato
-de API, adaptador ou modo de protocolo do provedor. O aprendizado pertence à
+de API, família explícita do provedor, adaptador ou modo de protocolo. O aprendizado pertence à
 relação entre provedor configurado, modelo remoto, capability/operação e campo.
 Referências e conteúdo de credenciais não participam dessa relação. Trocar nome,
 modelo padrão ou configuração de credencial não invalida restrições de outros
@@ -133,6 +133,14 @@ cota/limite, falha transitória e erro não reconhecido, com campo canônico qua
 identificável. Esse resultado pode alimentar tanto a política de retry quanto
 mensagens legíveis ao usuário; classificar um erro, por si só, não autoriza retry
 nem aprendizado.
+
+A família usada pelo reconhecedor é metadado explícito da conexão e persiste
+separada do rótulo de marca (`type`) e do formato de protocolo (`api_format`).
+Criação pelo wizard grava essa família; os IDs estáveis dos provedores OpenAI,
+LiteLLM e OpenRouter já criados pelo wizard preservam a escolha ao carregar
+bancos anteriores à coluna. Uma configuração sem família identificável recebe
+somente classificação geral e não pode aprender campos específicos de OpenAI
+ou LiteLLM. Alterar a família incrementa a revisão de compatibilidade.
 
 Para classificar uma rejeição como não suporte de parâmetro, o reconhecedor
 precisa identificar sem ambiguidade o nome rejeitado e mapeá-lo para um campo
@@ -315,8 +323,20 @@ na `main`.
   aprendizado de campo. `internal/core/usecases/compatibility_state_test.go`
   percorre os adaptadores Chat Completions e Responses com SQLite real e
   comprova o payload inicial, a persistência antes do retry e a supressão do
-  campo no retry e no envio seguinte. A confirmação dos checks remotos ainda
-  está pendente no PR #909.
+  campo no retry e no envio seguinte. Esta rodada também protege retries em
+  iterações posteriores após efeitos, trata falhas de resolução de credencial
+  encapsuladas, persiste a família explícita do provedor e invalida a revisão
+  tanto no repositório quanto no trigger SQLite. A migração 34 atualiza o
+  trigger em bancos que já aplicaram a migração 33. O template Gemini permanece
+  sem família de erros específica até existir um reconhecedor correspondente.
+  A leitura de compatibilidade cria o modelo sem sobrescrever seu nome de
+  exibição; falhas MCP mantêm a mensagem e o JSON estruturado separados para
+  identificar o servidor sem ambiguidade. Erros estruturados de provedor e MCP
+  são traduzidos em eventos, histórico e erros de sumarização. Os testes
+  Go focados, `go build ./...` e `go vet ./...` passaram localmente; testes ACP
+  não foram executados localmente por orientação de Infosec. CI, revisão local
+  independente e review remota destas correções ainda precisam terminar antes
+  da conclusão da fase.
 3. **Profile Manager — pendente.** Ocultar campos não suportados, manter
    desconhecidos disponíveis e preservar valores salvos e acessibilidade.
 4. **Vozes TTS — futura, a rediscutir.** Objetivo de seleção amigável, sem
@@ -364,10 +384,11 @@ mantendo explícito que a fase 4 é uma proposta futura que exige nova decisão.
 - [x] Troca de revisão invalida restrições e uma resposta atrasada não grava na
   revisão nova. O teste focado cobre gravação obsoleta e invalidação; a fase 2
   integrou a revisão ao snapshot efetivo, com validação ponta a ponta pendente.
-- [x] A revisão de compatibilidade acompanha apenas endpoint, formato de API,
-  adaptador e modo de protocolo. Alterar a referência de credencial atualiza a
-  revisão de configuração, mas não invalida campos aprendidos.
-  `llm_provider_revision_guards_test.go` cobre a separação entre as revisões.
+- [x] A revisão de compatibilidade acompanha endpoint, formato de API, família
+  explícita de erros, adaptador e modo de protocolo. Alterar a referência de
+  credencial atualiza a revisão de configuração, mas não invalida campos
+  aprendidos. `llm_provider_revision_guards_test.go` cobre a separação entre as
+  revisões e a invalidação ao mudar a família.
 - [x] Rejeição explícita de parâmetro enviado e conhecido gera restrição e um
   retry seguro; o próximo envio omite o parâmetro sem repetir o erro. O teste
   `TestCompatibilityLearningPersistsBeforeRetryAndNextSend` comprova o fluxo

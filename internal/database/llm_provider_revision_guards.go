@@ -25,6 +25,7 @@ func migrateLLMProviderRevisionGuards(db *gorm.DB) error {
 			fmt.Sprintf(`CREATE TRIGGER trg_llm_providers_compatibility_revision_update AFTER UPDATE ON llm_providers
     WHEN NEW.compatibility_revision = OLD.compatibility_revision AND (
         NEW.type IS NOT OLD.type OR
+        NEW.error_family IS NOT OLD.error_family OR
         (CASE
             WHEN NEW.api_format <> '' THEN CASE WHEN NEW.type IN ('localai', 'ollama', 'llamacpp') AND NEW.api_format = 'openai_responses' THEN 'openai' ELSE NEW.api_format END
             WHEN NEW.type IN ('localai', 'ollama', 'llamacpp') THEN 'openai'

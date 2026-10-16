@@ -92,6 +92,34 @@ func TestLLMModelRepositoryScopesIdentityAndList(t *testing.T) {
 	}
 }
 
+func TestLLMModelRepositoryGetOrCreatePreservesDisplayName(t *testing.T) {
+	db := llmModelCapabilitiesTestDB(t)
+	ctx := WithUserID(context.Background(), "owner")
+	provider := &LLMProvider{ID: "provider-get-or-create", UserID: "owner", Name: "Provider", Type: "custom", BaseURL: "https://provider.example/v1"}
+	if err := NewProviderRepository(db).SaveLLMProvider(ctx, provider); err != nil {
+		t.Fatal(err)
+	}
+	repository := NewLLMModelCapabilitiesRepository(db)
+	created, err := repository.GetOrCreateModel(ctx, provider.ID, "remote-model", "Readable model name")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reloaded, err := repository.GetOrCreateModel(ctx, provider.ID, "remote-model", "remote-model")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reloaded.ID != created.ID || reloaded.DisplayName != "Readable model name" {
+		t.Fatalf("consulta sobrescreveu a identidade/nome existente: criado=%+v recarregado=%+v", created, reloaded)
+	}
+	newModel, err := repository.GetOrCreateModel(ctx, provider.ID, "new-model", "new-model")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if newModel.RemoteID != "new-model" || newModel.DisplayName != "new-model" {
+		t.Fatalf("nome fallback para modelo novo = %+v", newModel)
+	}
+}
+
 func TestRecordUnsupportedFieldUpdatesCurrentStateAndRejectsUnknownData(t *testing.T) {
 	db := llmModelCapabilitiesTestDB(t)
 	ctx := WithUserID(context.Background(), "owner")

@@ -403,6 +403,13 @@ const es = {
           notFound: 'No se encontró el modelo o recurso solicitado en el proveedor.{{statusLabel}}',
           unrecognized: 'El proveedor devolvió un error no reconocido. Comprueba su configuración e inténtalo de nuevo.{{statusLabel}}',
         },
+        mcpFailure: 'El servidor MCP {{server}} falló {{stage}}. Inténtalo de nuevo o comprueba sus credenciales y conexión.',
+        mcpStages: {
+          listTools: 'al listar herramientas',
+          call: 'al ejecutar una herramienta',
+          handshake: 'durante la conexión',
+          unknown: 'durante la comunicación',
+        },
       },
       stopReading: 'Detener lectura',
       stopReadingLabel: 'Detener lectura de texto',

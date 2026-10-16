@@ -404,6 +404,13 @@ const en = {
           notFound: 'The requested model or resource was not found at the provider.{{statusLabel}}',
           unrecognized: 'The provider returned an unrecognized error. Check the provider configuration and try again.{{statusLabel}}',
         },
+        mcpFailure: 'MCP server {{server}} failed {{stage}}. Try again or check its credentials and connection.',
+        mcpStages: {
+          listTools: 'while listing tools',
+          call: 'while running a tool',
+          handshake: 'during connection setup',
+          unknown: 'during communication',
+        },
       },
       stopReading: 'Stop reading',
       stopReadingLabel: 'Stop text reading',

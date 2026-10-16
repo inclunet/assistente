@@ -75,7 +75,7 @@ func TestOpenAIChatCompletionsRetriesAfterPersistingUnsupportedField(t *testing.
 	defer server.Close()
 
 	provider := NewOpenAIProvider(&ProviderConfig{
-		ID: "chat-compatibility", Name: "Chat Compatibility", Type: ProviderOpenAI,
+		ID: "chat-compatibility", Name: "Chat Compatibility", Type: ProviderOpenAI, ErrorFamily: ProviderErrorFamilyOpenAI,
 		BaseURL: server.URL + "/v1", APIFormat: APIFormatOpenAI, AuthMode: AuthModeNone, DefaultModel: "gpt-test",
 	}, credentials.NewManager(nil))
 	handler := &providerRetryHandler{}

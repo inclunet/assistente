@@ -709,7 +709,7 @@ responseEvents:
 			if !emittedNonRetryableEffect && looksLikePromptCacheHintUnsupported(errMsg) {
 				return mcpStreamAttemptResult{promptCacheHintUnsupported: true}
 			}
-			if failure := inferMCPFailure(MCPFailureStageHandshake, "", errMsg+" "+ev.RawJSON(), "", mcpServers); failure != nil && !emittedNonRetryableEffect {
+			if failure := inferMCPFailure(MCPFailureStageHandshake, errMsg, ev.RawJSON(), "", mcpServers); failure != nil && !emittedNonRetryableEffect {
 				reportCurrentDiagnostics()
 				return mcpStreamAttemptResult{mcpFailure: failure}
 			}

@@ -758,7 +758,7 @@ func (uc *SendMessageUseCase) loadCompatibilityState(ctx context.Context, provid
 	if modelID == "" {
 		return nil
 	}
-	model, err := uc.modelCapabilities.SaveModel(ctx, provider.ID, modelID, modelID)
+	model, err := uc.modelCapabilities.GetOrCreateModel(ctx, provider.ID, modelID, modelID)
 	if err != nil {
 		logging.Warnf(ctx, "core.usecases.send-message", "não foi possível preparar o estado de compatibilidade do modelo")
 		return nil

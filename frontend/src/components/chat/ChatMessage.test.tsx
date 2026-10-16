@@ -3,6 +3,7 @@ import { act, createEvent, fireEvent, render, screen } from '@testing-library/re
 import { chat } from '../../../wailsjs/go/models';
 import { ChatMessage } from './ChatMessage';
 import { MessageNode } from './MessageNode';
+import i18n from '../../lib/i18n';
 import type { SendToEditorPayload } from '../../lib/editorSendMenu';
 
 const conversationId = '01926b90-7a5a-7c4e-8d3f-000000000001';
@@ -112,6 +113,18 @@ vi.mock('./ToolCallsSection', () => ({
 }));
 
 describe('ChatMessage', () => {
+  it('traduz marcadores de erro em mensagens recuperadas do histórico', async () => {
+    await i18n.changeLanguage('pt-BR');
+    const message = new chat.EnrichedMessage({
+      id: 'history-error', conversationId, role: 'assistant',
+      content: 'Falha na resposta do agente: provider_error:v1:authentication:',
+    });
+    render(<ChatMessage message={message} />);
+    const lastProps = markdownRendererSpy.mock.calls[markdownRendererSpy.mock.calls.length - 1][0] as { content: string };
+    expect(lastProps.content).toContain('O provedor recusou a autenticação. Confira a credencial configurada.');
+    expect(lastProps.content).not.toContain('provider_error:v1');
+  });
+
   it('mantém a origem do callback de bloco capturada antes de trocar a mensagem', () => {
     const message = new chat.EnrichedMessage({ id: 'source-a', conversationId, role: 'assistant', content: 'Mensagem integral A' });
     const onSendToEditor = vi.fn();

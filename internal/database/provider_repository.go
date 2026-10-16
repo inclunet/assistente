@@ -94,7 +94,7 @@ func providerCompatibilityChanged(current, next *LLMProvider) bool {
 	if current == nil || next == nil {
 		return true
 	}
-	return current.Type != next.Type ||
+	return current.Type != next.Type || current.ErrorFamily != next.ErrorFamily ||
 		effectiveProviderAPIFormat(current) != effectiveProviderAPIFormat(next) ||
 		current.BaseURL != next.BaseURL ||
 		effectiveProviderReasoningContentMode(current) != effectiveProviderReasoningContentMode(next)

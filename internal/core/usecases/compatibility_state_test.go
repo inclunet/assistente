@@ -99,7 +99,8 @@ func TestCompatibilityLearningPersistsBeforeRetryAndNextSend(t *testing.T) {
 
 			providerRow := &database.LLMProvider{
 				ID: "phase2-provider", UserID: "owner", Name: "OpenAI", Type: string(llm.ProviderOpenAI),
-				BaseURL: server.URL + "/v1", APIFormat: string(test.format),
+				ErrorFamily: string(llm.ProviderErrorFamilyOpenAI),
+				BaseURL:     server.URL + "/v1", APIFormat: string(test.format),
 				CompatibilityRevision: compatibilityRevision,
 			}
 			if err := database.NewProviderRepository(db).SaveLLMProvider(ctx, providerRow); err != nil {
@@ -115,7 +116,8 @@ func TestCompatibilityLearningPersistsBeforeRetryAndNextSend(t *testing.T) {
 			uc := NewSendMessageUseCase(SendMessageConfig{ModelCapabilities: repository})
 			providerConfig := &llm.ProviderConfig{
 				ID: providerRow.ID, Name: providerRow.Name, Type: llm.ProviderOpenAI,
-				BaseURL: providerRow.BaseURL, APIFormat: test.format, AuthMode: llm.AuthModeNone,
+				ErrorFamily: llm.ProviderErrorFamilyOpenAI,
+				BaseURL:     providerRow.BaseURL, APIFormat: test.format, AuthMode: llm.AuthModeNone,
 				DefaultModel: "gpt-test", CompatibilityRevision: compatibilityRevision,
 			}
 			var provider llm.ChatProvider
@@ -128,6 +130,10 @@ func TestCompatibilityLearningPersistsBeforeRetryAndNextSend(t *testing.T) {
 			params.Compatibility = uc.loadCompatibilityState(ctx, providerConfig, params.Model)
 			if params.Compatibility == nil {
 				t.Fatal("o use case não criou estado de compatibilidade")
+			}
+			models, err := repository.ListModels(ctx, providerRow.ID)
+			if err != nil || len(models) != 1 || models[0].DisplayName != "GPT Test" {
+				t.Fatalf("carregar compatibilidade alterou nome do modelo: %+v, %v", models, err)
 			}
 
 			first, err := provider.SendChat(ctx, []llm.Message{{Role: "user", Content: "oi"}}, params)

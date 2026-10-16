@@ -173,16 +173,10 @@ func findMCPServer(servers []MCPServerConfig, nameOrSlug string) (MCPServerConfi
 }
 
 func formatMCPFailureUserMessage(serverName string, stage MCPFailureStage) string {
-	stageText := "durante a comunicação"
-	switch stage {
-	case MCPFailureStageListTools:
-		stageText = "durante a listagem de ferramentas"
-	case MCPFailureStageCall:
-		stageText = "durante a execução de uma ferramenta"
-	case MCPFailureStageHandshake:
-		stageText = "durante a conexão"
+	if stage != MCPFailureStageListTools && stage != MCPFailureStageCall && stage != MCPFailureStageHandshake {
+		stage = MCPFailureStageUnknown
 	}
-	return `Falha no servidor MCP "` + serverName + `" ` + stageText + `. Tente novamente ou verifique as credenciais e a conexão.`
+	return "mcp_error:v1:" + url.PathEscape(serverName) + ":" + string(stage)
 }
 
 func extractServerLabelFromRawJSON(raw string) string {

@@ -322,6 +322,9 @@ func copyStringMap(values map[string]string) map[string]string {
 }
 
 func normalizeProviderRuntimeDefaults(p *llm.ProviderConfig) {
+	if p != nil && p.ErrorFamily == "" {
+		p.ErrorFamily = llm.ExplicitProviderErrorFamilyFromType(p.Type)
+	}
 	normalizeProviderAuthMode(p)
 	normalizeProviderAPIFormat(p)
 	// Por último: o modo de autenticação do agente não se decide pela marca
@@ -528,6 +531,7 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Up
 		ID:                       existing.ID,
 		Name:                     existing.Name,
 		Type:                     existing.Type,
+		ErrorFamily:              existing.ErrorFamily,
 		APIFormat:                existing.APIFormat,
 		BaseURL:                  existing.BaseURL,
 		Model:                    existing.Model,
@@ -550,6 +554,7 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Up
 	}
 	if req.Type != "" && req.Type != string(existing.Type) {
 		updated.Type = llm.ProviderType(req.Type)
+		updated.ErrorFamily = llm.ExplicitProviderErrorFamilyFromType(updated.Type)
 		updated.AuthMode = defaultAuthModeForProviderType(updated.Type)
 	}
 	if apiFormat := strings.TrimSpace(req.APIFormat); apiFormat != "" {
