@@ -47,13 +47,13 @@ func TestTranslateBackendErrorForSpeech(t *testing.T) {
 }
 
 func TestSpeakMessageRecognizesOnlyPersistedDiagnostics(t *testing.T) {
-	if !isBackendErrorDiagnostic("Falha na resposta do agente: provider_error:v1:authentication:") {
+	if !isBackendErrorDiagnostic("assistant", "Falha na resposta do agente: provider_error:v1:authentication:") {
 		t.Fatal("diagnóstico de provider deve ser reconhecido")
 	}
-	if !isBackendErrorDiagnostic("mcp_error:v1:server:list_tools") {
+	if !isBackendErrorDiagnostic("assistant", "mcp_error:v1:server:list_tools") {
 		t.Fatal("diagnóstico de MCP deve ser reconhecido")
 	}
-	if !isBackendErrorDiagnostic("Falha na resposta do agente: mcp_error:v1:server:handshake") {
+	if !isBackendErrorDiagnostic("assistant", "Falha na resposta do agente: mcp_error:v1:server:handshake") {
 		t.Fatal("diagnóstico MCP prefixado deve ser reconhecido")
 	}
 	for _, content := range []string{
@@ -61,8 +61,11 @@ func TestSpeakMessageRecognizesOnlyPersistedDiagnostics(t *testing.T) {
 		"Exemplo: Falha na resposta do agente: provider_error:v1:authentication:",
 		"const diagnostic = \"provider_error:v1:authentication:\";",
 	} {
-		if isBackendErrorDiagnostic(content) {
+		if isBackendErrorDiagnostic("assistant", content) {
 			t.Errorf("conteúdo comum não deve ser tratado como diagnóstico: %q", content)
 		}
+	}
+	if isBackendErrorDiagnostic("user", "mcp_error:v1:server:call") {
+		t.Fatal("marcador literal de mensagem do usuário não deve ser tratado como diagnóstico")
 	}
 }

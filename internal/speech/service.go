@@ -144,8 +144,8 @@ func (s *Service) SpeakMessage(ctx context.Context, messageID string, providerID
 	// 1. Busca o conteúdo primeiro para reconhecer diagnósticos históricos.
 	// Áudio desses marcadores não é reutilizado: pode conter o texto técnico
 	// antigo ou estar em outro idioma.
-	content, contentErr := s.audioRepo.GetMessageContent(ctx, messageID)
-	isDiagnostic := contentErr == nil && isBackendErrorDiagnostic(content)
+	content, role, contentErr := s.audioRepo.GetMessageContent(ctx, messageID)
+	isDiagnostic := contentErr == nil && isBackendErrorDiagnostic(role, content)
 
 	// 2. Checa cache no DB para mensagens comuns. O cache é por mensagem e, por decisão anterior a
 	// este parâmetro, ignora provider, voz, rate e idioma: existe um único

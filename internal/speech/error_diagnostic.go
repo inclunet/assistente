@@ -21,7 +21,10 @@ var speechErrorFields = map[string]string{
 	"parallel_tool_calls": "parallel tool calls", "voice": "voice", "speed": "speed", "audio_format": "audio format", "language": "language",
 }
 
-func isBackendErrorDiagnostic(text string) bool {
+func isBackendErrorDiagnostic(role, text string) bool {
+	if role != "assistant" {
+		return false
+	}
 	return providerDiagnosticPattern.MatchString(text) || mcpDiagnosticPattern.MatchString(text) || prefixedMCPDiagnosticPattern.MatchString(text)
 }
 

@@ -39,11 +39,11 @@ func (m *mockAudioRepo) SaveMessageAudio(_ context.Context, id string, base64, m
 	return nil
 }
 
-func (m *mockAudioRepo) GetMessageContent(_ context.Context, id string) (string, error) {
+func (m *mockAudioRepo) GetMessageContent(_ context.Context, id string) (string, string, error) {
 	if c, ok := m.content[id]; ok {
-		return c, nil
+		return c, "assistant", nil
 	}
-	return "", nil
+	return "", "", nil
 }
 
 // testProfileProvider implementa speech.ProfileProvider para testes.
