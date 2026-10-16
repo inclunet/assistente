@@ -90,8 +90,8 @@ func TestRegistryGenerationRejectsLatePublication(t *testing.T) {
 func TestProviderRegistryGetSnapshotIsIsolated(t *testing.T) {
 	r := NewProviderRegistry()
 	provider := &ProviderConfig{
-		ID: "snapshot", Name: "Snapshot", Type: ProviderOpenAI,
-		BaseURL: "https://api.openai.com/v1", Headers: map[string]string{"X-Test": "before"},
+		ID: "snapshot", Name: "Snapshot", Type: ProviderOpenAI, APIFormat: APIFormatACP,
+		ACPCommand: "test-agent", Headers: map[string]string{"X-Test": "before"},
 		ACPArgs: []string{"before"}, ACPEnv: map[string]string{"ENV": "before"},
 		ACPCredentialEnv: map[string]string{"TOKEN": "pattern"}, CompatibilityRevision: 3,
 	}

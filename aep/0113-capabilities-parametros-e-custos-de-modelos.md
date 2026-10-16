@@ -312,10 +312,11 @@ na `main`.
   compatibilidade nesta fase. As assinaturas de aprendizado atualmente
   implementadas são OpenAI `unsupported_parameter` e LiteLLM
   `UnsupportedParamsError`; as demais famílias têm classificação geral sem
-  aprendizado de campo. Ainda faltam testes de adaptação ponta a ponta que
-  verifiquem payload da primeira tentativa, persistência antes do retry e
-  supressão do campo na segunda tentativa, além da confirmação dos checks
-  remotos.
+  aprendizado de campo. `internal/core/usecases/compatibility_state_test.go`
+  percorre os adaptadores Chat Completions e Responses com SQLite real e
+  comprova o payload inicial, a persistência antes do retry e a supressão do
+  campo no retry e no envio seguinte. A confirmação dos checks remotos ainda
+  está pendente no PR #909.
 3. **Profile Manager — pendente.** Ocultar campos não suportados, manter
    desconhecidos disponíveis e preservar valores salvos e acessibilidade.
 4. **Vozes TTS — futura, a rediscutir.** Objetivo de seleção amigável, sem
@@ -367,9 +368,10 @@ mantendo explícito que a fase 4 é uma proposta futura que exige nova decisão.
   adaptador e modo de protocolo. Alterar a referência de credencial atualiza a
   revisão de configuração, mas não invalida campos aprendidos.
   `llm_provider_revision_guards_test.go` cobre a separação entre as revisões.
-- [ ] Rejeição explícita de parâmetro enviado e conhecido gera restrição e um
-  retry seguro; o próximo envio omite o parâmetro sem repetir o erro. Falta
-  comprovar o fluxo completo nos adaptadores Chat Completions e Responses.
+- [x] Rejeição explícita de parâmetro enviado e conhecido gera restrição e um
+  retry seguro; o próximo envio omite o parâmetro sem repetir o erro. O teste
+  `TestCompatibilityLearningPersistsBeforeRetryAndNextSend` comprova o fluxo
+  com persistência SQLite nos adaptadores Chat Completions e Responses.
 - [ ] Reconhecedores por provedor/formato aceitam apenas assinaturas
   documentadas; fixtures positivas extraem e mapeiam o campo enviado correto,
   e casos desconhecidos/ambíguos não geram aprendizado nem retry. Falta provar
