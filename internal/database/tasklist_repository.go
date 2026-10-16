@@ -1142,28 +1142,52 @@ func GetSubtasksWithContext(ctx context.Context, parentID string) ([]Task, error
 // DeleteTaskWithContext deleta uma task do usuário do contexto, suas notas e
 // todas suas subtasks.
 func DeleteTaskWithContext(ctx context.Context, id string) error {
-	if _, err := GetTaskWithContext(ctx, id); err != nil {
-		return err
-	}
+	return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var root Task
+		if err := taskQuery(ctx, tx.Model(&Task{})).Where("tasks.id = ?", id).First(&root).Error; err != nil {
+			return err
+		}
 
-	// Deleta notas das subtasks e da task
-	var subtaskIDs []string
-	taskQuery(ctx, db.Model(&Task{})).Where("tasks.parent_id = ?", id).Pluck("tasks.id", &subtaskIDs)
-	allIDs := append(subtaskIDs, id)
-	noteIDs := taskNoteQuery(ctx, db.Model(&TaskNote{}).Select("task_notes.id").Where("task_notes.task_id IN ?", allIDs))
-	if err := db.WithContext(ctx).Where("id IN (?)", noteIDs).Delete(&TaskNote{}).Error; err != nil {
-		return err
-	}
+		// Percorre toda a descendência em níveis, sempre sob o escopo do usuário.
+		// Guardar os níveis permite excluir folhas antes dos pais, pois a relação
+		// ParentID não tem ON DELETE CASCADE.
+		levels := [][]string{{root.ID}}
+		allIDs := []string{root.ID}
+		seen := map[string]struct{}{root.ID: {}}
+		for levelIndex := 0; levelIndex < len(levels); levelIndex++ {
+			var children []string
+			if err := taskQuery(ctx, tx.Model(&Task{})).
+				Where("tasks.parent_id IN ?", levels[levelIndex]).
+				Pluck("tasks.id", &children).Error; err != nil {
+				return err
+			}
+			nextLevel := make([]string, 0, len(children))
+			for _, childID := range children {
+				if _, exists := seen[childID]; exists {
+					continue
+				}
+				seen[childID] = struct{}{}
+				nextLevel = append(nextLevel, childID)
+				allIDs = append(allIDs, childID)
+			}
+			if len(nextLevel) > 0 {
+				levels = append(levels, nextLevel)
+			}
+		}
 
-	// Deleta subtasks
-	subtaskQuery := taskQuery(ctx, db.Model(&Task{}).Select("tasks.id").Where("tasks.parent_id = ?", id))
-	if err := db.WithContext(ctx).Where("id IN (?)", subtaskQuery).Delete(&Task{}).Error; err != nil {
-		return err
-	}
+		noteIDs := taskNoteQuery(ctx, tx.Model(&TaskNote{}).Select("task_notes.id").Where("task_notes.task_id IN ?", allIDs))
+		if err := tx.Where("id IN (?)", noteIDs).Delete(&TaskNote{}).Error; err != nil {
+			return err
+		}
 
-	// Deleta task
-	taskIDs := taskQuery(ctx, db.Model(&Task{}).Select("tasks.id").Where("tasks.id = ?", id))
-	return db.WithContext(ctx).Where("id IN (?)", taskIDs).Delete(&Task{}).Error
+		for levelIndex := len(levels) - 1; levelIndex >= 0; levelIndex-- {
+			taskIDs := taskQuery(ctx, tx.Model(&Task{}).Select("tasks.id").Where("tasks.id IN ?", levels[levelIndex]))
+			if err := tx.Where("id IN (?)", taskIDs).Delete(&Task{}).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 // ==================== TaskNote Operations ====================
