@@ -62,3 +62,8 @@ pode impedir o registro de uma atividade ainda em andamento.
 - Não leva persona/skills/memória do app; não exporta tools MCP.
 - Não gerencia credenciais HTTP; `acp_credential_env` injeta segredos do cofre se necessário.
 - Cancelamento é serial (1 turno/sessão por vez).
+- O agente pode enviar planos e detalhes ricos de execução, mas o chat ainda não os apresenta; as atividades mostram classe, resumo e estado básico.
+- Conteúdo enviado ao agente inclui texto e imagem inline quando aceita. Áudio e recursos embutidos não são enviados; imagens, áudio ou recursos recebidos na resposta também não são exibidos.
+- O catálogo instala e inicia agentes, mas não garante que todos os recursos opcionais do ACP estejam integrados.
+- O Assistente não lista sessões que o agente conhece fora das conversas locais, nem oferece várias raízes de workspace na mesma sessão.
+- Chamadas que aguardam outro turno da mesma sessão ainda não têm um estado acessível com ação para cancelar apenas a chamada em espera.

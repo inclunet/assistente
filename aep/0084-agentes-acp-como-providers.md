@@ -2,6 +2,9 @@
 
 **Status:** ✅ Done
 
+**Nota de escopo (16/10/2026):** o escopo original foi entregue; a auditoria de
+cobertura ACP v1 e as capacidades ainda não integradas estão registradas abaixo.
+
 ## Resumo
 
 Agentes de codificação que falam **ACP (Agent Client Protocol)** — Cursor CLI
@@ -515,9 +518,13 @@ nativo (AEP-0104); não existe implementação ACP paralela de gravação.
 | `session_info_update.title` | `conversation:renamed` | Fase 6 |
 | `available_commands_update` | lista de comandos da sessão | slash commands do agente no menu da barra, Fase 6 |
 
-O ACP não reporta consumo de tokens: `Usage` vai zerada e o painel de tokens
-mostra "indisponível" para providers ACP, em vez de zero — zero seria mentira.
-O custo é cobrado na conta do agente, fora do app.
+O desenho original foi feito com agentes que não reportavam consumo. A
+especificação ACP v1 atual define `usage_update`, que pode trazer tokens usados,
+tamanho da janela e custo acumulado. O transporte e o provider ainda não mapeiam
+essa atualização: `Usage` continua indisponível no painel ACP, em vez de zero —
+zero seria mentira. Custo cobrado na conta do agente pode continuar fora do app;
+exibir dados reportados pelo agente requer saneamento, moeda, atualização e
+replay definidos nesta auditoria.
 
 ### D9. Permissões passam pelo `questionnaire`, com allowlist por perfil
 
@@ -830,6 +837,81 @@ Na sonda da Fase 9 (`@github/copilot` 1.0.78) e na auditoria #664, o GitHub
 Copilot CLI dependia do payload `models`; essa evidência mantém fechado o gate de
 consumidor até uma matriz posterior provar sua migração. A situação de
 `session/set_model` é avaliada separadamente pela mesma matriz.
+
+### Auditoria de cobertura do ACP v1 (16/10/2026)
+
+Esta auditoria compara o transporte e a experiência de provider existentes com
+as páginas oficiais do ACP v1 consultadas em 16/10/2026. Ela não muda o escopo
+original já entregue nem afirma conformidade integral com todas as capacidades
+opcionais do protocolo. “Instalável pelo registro” em AEP-0086 significa que o
+processo pode ser instalado e iniciado; não garante que todos os recursos
+específicos do agente sejam apresentados pelo Assistente.
+
+Legenda: **implementado** está coberto pelo transporte/integração atual;
+**parcial** funciona com perda conhecida de informação; **intencionalmente
+desativado** é uma fronteira de segurança ou produto já decidida; **não
+implementado** é capacidade ACP sem fluxo correspondente no app. Os itens são
+registro e backlog para priorização posterior; este PR documental não autoriza
+implementá-los em conjunto nem altera as decisões de segurança.
+
+| Área ACP v1 | Estado no Assistente | Lacuna ou limite registrado |
+|---|---|---|
+| Transporte JSON-RPC sobre stdio, `initialize`, `session/new`, `session/prompt`, `session/cancel`, `session/load` e `session/close` | **Implementado** | Um processo por provider e sessões multiplexadas. O fechamento remoto é condicionado à capability anunciada pelo agente. A recuperação de sessão presa segue AEP-0108. |
+| `session/list` e `session/delete` | **Não implementado** | O app não importa nem navega sessões criadas fora do Assistente. Conversas e histórico do app continuam sendo a fonte de apresentação; avaliar descoberta cruzada apenas se houver demanda. |
+| `session/resume` | **Não implementado** | O app usa `session/load` quando anunciado. Retomar sem replay é capacidade distinta e deve ser avaliada com agentes que a publiquem. |
+| `sessionCapabilities.additionalDirectories` | **Não implementado** | Cada conversa usa um `cwd` primário; não há seleção de múltiplas raízes adicionais. |
+| MCP enviado em `session/new`/`session/load` | **Intencionalmente vazio** | O app não injeta servidores MCP próprios; o agente usa sua configuração local (D1). Generalizar essa passagem exigiria decisão de credenciais, escopo e isolamento. |
+| Texto em prompts e respostas | **Implementado** | Blocos de texto são encaminhados para o provider e para a superfície comum de chat. |
+| Imagem inline em prompt | **Parcial** | Só é enviada quando o agente anuncia `promptCapabilities.image`; URLs e formatos não embutidos não são convertidos em blocos ACP. Anexos não enviados geram aviso. |
+| Áudio e recurso/contexto embutido em prompt | **Não implementado** | `audio` e `embeddedContext` não são convertidos pelo provider. Anexos não suportados são informados; não há tradução ACP para áudio nem `ResourceLink`/`Resource`. |
+| Blocos não textuais nas respostas do agente | **Não implementado** | `agent_message_chunk` e `agent_thought_chunk` só projetam blocos `text`; imagem, áudio e recurso na saída são ignorados, sem aviso específico na conversa. |
+| Texto, raciocínio, início/progresso de ferramenta, opções, modo, título e comandos em `session/update` | **Implementado** | Esse é o conjunto atualmente mapeado em `internal/acp/mapping.go`. |
+| Mensagem de usuário reproduzida durante `session/load` | **Ignorada deliberadamente na apresentação** | A conversa do app vem do histórico local, evitando duplicar mensagens ACP reproduzidas. Uma futura sincronização cruzada precisará resolver divergência de histórico antes de apresentar esses eventos. |
+| Plano do agente (`sessionUpdate: plan`) | **Não implementado** | Atualizações de plano são ignoradas; planos poderiam mostrar etapas e progresso sem confundi-los com tools executáveis. |
+| Detalhes de ferramenta (`name`, conteúdo, diff, locais, entrada/saída bruta) | **Parcial** | A atividade recebe essencialmente categoria, título e estado. Resultado, diff e localização de arquivo não chegam ao registro. Conteúdo bruto exige decisão explícita de privacidade, saneamento e retenção antes de qualquer captura. |
+| Uso/contexto (`usage_update`) | **Não implementado** | O ACP v1 atual pode reportar janela utilizada e custo acumulado; o app ainda mostra uso indisponível e não usa esses dados para avisos. |
+| Atualizações de aviso e compactação (`notice`, `compaction_update`, `compaction_summary_chunk`) | **Não anunciadas/não renderizadas** | O handshake não declara `ClientSessionCapabilities.notices` nem `.compaction`; o app não tem projeção para esses três updates. Não habilitá-las sem definir apresentação, replay e acessibilidade. |
+| Opções de configuração | **Parcial** | Modelo, modo e categorias representadas são expostos; outras categorias ficam fora do seletor. Opções booleanas não são anunciadas/suportadas pelo cliente. Atualização vazia/sem opções reconhecíveis não é distinguida de “nenhuma opção”, podendo preservar opções obsoletas. |
+| Elicitation ACP (`elicitation/create` e `elicitation/complete`, modos form/URL) | **Não implementado** | Questionários e extensões bloqueantes específicas não equivalem ao contrato genérico de elicitation. Não há handlers, anúncio de capacidade nem renderer para os modos ACP. |
+| Filesystem e terminal oferecidos pelo cliente ao agente | **Intencionalmente desativado** | O handshake envia ambos como não suportados. O agente usa ferramentas próprias no `cwd`; oferecer ferramentas do app seria outra decisão de segurança e produto. |
+| Aprovação (`session/request_permission`) e extensões Cursor documentadas | **Implementado** | Usa arbitragem/questionário existentes, com recusa segura e cancelamento. Extensões não padronizadas de outros agentes dependem de handlers específicos. |
+| Autenticação ACP (`authenticate`, `logout`) | **Intencionalmente externalizada** | O app não executa autenticação ACP nem logout do agente. Login local e passagem opcional de credencial do cofre seguem AEP-0086 D12; falta de login é diagnosticada e instruída pela UI. |
+| Autenticação interativa no terminal pelo cliente | **Não oferecido** | O login permanece no mecanismo do agente; o app explica o método e pode passar credencial do cofre quando explicitamente configurado (AEP-0086 D12). Não há terminal interativo ACP do lado do cliente. |
+| Metadados da sessão | **Parcial** | Título não vazio renomeia a conversa. A limpeza de título (`null`) e os demais campos de `session_info_update` não são projetados. |
+| Compatibilidade de agentes e versões | **Parcialmente verificada** | Existem sondas, testes com agente falso e matriz para contratos legados de modelo (D16), mas não uma matriz atual por versão/distribuição cobrindo recursos ACP nem execução registrada do Compatibility Test Kit oficial. |
+
+#### Pendências ordenadas para decisão posterior
+
+1. **Confiabilidade e acessibilidade (AEP-0108):** apresentar estado de fila,
+   permitir cancelar somente a chamada que está esperando e distinguir isso de
+   cancelar o turno ativo. Sondagem de processo ocioso permanece uma questão
+   técnica em aberto; não deve bloquear nem derrubar uma conexão compartilhada.
+2. **Fidelidade da atividade:** representar plano ACP, detalhes estruturados de
+   tool call e metadados de sessão, definindo saneamento, privacidade e
+   persistência antes de expor payloads.
+3. **Compatibilidade funcional:** tratar corretamente atualizações vazias de
+   opções e limpeza de título; avaliar elicitation e conteúdo adicional conforme
+   os agentes suportados e os componentes acessíveis disponíveis.
+4. **Cobertura de protocolo:** registrar a versão do SDK/schema e sua relação
+   com ACP v1, manter fixtures para variantes conhecidas e criar uma matriz de
+   agentes/distribuições. A execução do kit oficial depende da compatibilidade
+   com stdio e deve ser investigada antes de virar gate obrigatório.
+5. **Capacidades ampliadas:** decidir se descoberta de sessões, resume,
+   múltiplas raízes, notices, compaction, áudio, recursos embutidos, uso/custo ou
+   filesystem/terminal do cliente resolvem necessidades reais. Capacidades
+   explicitamente desativadas continuam assim até decisão arquitetural própria.
+
+#### Referências consultadas em 16/10/2026
+
+- [Visão geral ACP v1](https://agentclientprotocol.com/protocol/v1/overview)
+- [Inicialização e capacidades](https://agentclientprotocol.com/protocol/v1/initialization)
+- [Sessões](https://agentclientprotocol.com/protocol/v1/session-setup)
+- [Lista de sessões](https://agentclientprotocol.com/protocol/v1/session-list)
+- [Prompt e atualizações](https://agentclientprotocol.com/protocol/v1/prompt-turn)
+- [Conteúdo](https://agentclientprotocol.com/protocol/v1/content)
+- [Tool calls](https://agentclientprotocol.com/protocol/v1/tool-calls)
+- [Planos](https://agentclientprotocol.com/protocol/v1/agent-plan)
+- [Schema ACP](https://agentclientprotocol.com/protocol/v1/schema)
 
 ## Fases
 
