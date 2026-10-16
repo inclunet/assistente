@@ -976,6 +976,7 @@ describe('CommandSettingsPage', () => {
     fireEvent.change(screen.getByLabelText('commandSettings.presentation.locales.en'), { target: { value: tooLong } });
     fireEvent.change(screen.getByLabelText('commandSettings.form.command'), { target: { value: 'workspace.tab.first' } });
     expect(screen.getByText('commandSettings.automaticPresentation.invalidDraft')).toBeInTheDocument();
+    expect(announce).toHaveBeenCalledWith('commandSettings.automaticPresentation.invalidDraft');
     expect(screen.getByRole('button', { name: 'common.save' })).toBeDisabled();
     fireEvent.change(screen.getByLabelText('commandSettings.form.command'), { target: { value: 'cmd.new' } });
     expect(screen.getByLabelText('commandSettings.presentation.locales.en')).toHaveValue(tooLong);

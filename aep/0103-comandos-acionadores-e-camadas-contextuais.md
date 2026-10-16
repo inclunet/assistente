@@ -29,6 +29,7 @@ A prévia é uma região de leitura focável dentro do formulário. Trocar de
 comando com uma personalização ainda inválida mostra a causa do bloqueio de
 Salvar e permite descartar explicitamente esse rascunho, ou voltar ao comando
 anterior para corrigi-lo; dados válidos não são descartados automaticamente.
+O aviso usa o anunciador central do AEP-0058, sem criar uma live region local.
 
 **Resultado e foco após criação (07/10/2026): In Progress.** A consulta
 `GetUICommandResult` aplica I04.5 sem exigir reconstrução/publicação do mapa:

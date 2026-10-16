@@ -199,6 +199,13 @@ export default function CommandSettingsPage() {
   const reloadButton = useRef<HTMLButtonElement>(null);
   const [consentTarget, setConsentTarget] = useState<HTMLDivElement | null>(null);
   const [editor, setEditor] = useState<Editor>(null);
+  const invalidAutomaticPresentation = editor?.kind === 'binding' &&
+    editor.value.triggerType === 'streamdeck.key' && editor.value.effect !== 'suppress' &&
+    usesAutomaticWorkspaceTabPresentation(editor.value.commandId) &&
+    !isCommandPresentationValid(editor.value.presentation);
+  useEffect(() => {
+    if (invalidAutomaticPresentation) announce(t('commandSettings.automaticPresentation.invalidDraft'));
+  }, [announce, invalidAutomaticPresentation, t]);
   const [advancedOptionsOpen, setAdvancedOptionsOpen] = useState(false);
   const [argumentsValid, setArgumentsValid] = useState(true);
   const editorConditionFields = useMemo(() => {
@@ -1605,8 +1612,8 @@ export default function CommandSettingsPage() {
                           argumentsValue={editor.value.arguments}
                           workspace={workspaceData}
                         />
-                        {!isCommandPresentationValid(editor.value.presentation) && <>
-                          <p role="alert" id="command-presentation-invalid-draft">{t('commandSettings.automaticPresentation.invalidDraft')}</p>
+                        {invalidAutomaticPresentation && <>
+                          <p id="command-presentation-invalid-draft">{t('commandSettings.automaticPresentation.invalidDraft')}</p>
                           <Button type="button" variant="secondary" disabled={busy}
                             aria-describedby="command-presentation-invalid-draft"
                             onClick={() => {
