@@ -181,8 +181,12 @@ export function useAgentSessionOptions(
       const updated = event.snapshot || fresh.length > 0
         ? fresh
         : withAgentValues(optionsRef.current, event);
+      const focusedOption = event.snapshot ? focusedOptionRemovedBySnapshot(updated) : null;
       optionsRef.current = updated;
       setOptions(updated);
+      if (focusedOption) {
+        requestAnimationFrame(() => restoreToolbarFocus(focusedOption.toolbar, focusedOption.id));
+      }
       if (!event.announce) return;
       // A pessoa precisa saber com quem está falando: o agente troca de modelo
       // por conta própria quando bate num limite de uso, e descobrir isso pela
@@ -354,6 +358,37 @@ export function useAgentSessionOptions(
   return useMemo(() => ({ options, changing, change }), [options, changing, change]);
 }
 
+/** Mantém o foco dentro da barra quando um snapshot remove o controle focado. */
+function focusedOptionRemovedBySnapshot(
+  updated: AgentConfigOption[],
+): { id: string; toolbar: HTMLElement } | null {
+  if (typeof document === 'undefined') return null;
+  const active = document.activeElement;
+  if (!(active instanceof HTMLElement)) return null;
+  const option = active.closest<HTMLElement>('[data-agent-option-id]');
+  if (!option) return null;
+  const id = option.dataset.agentOptionId;
+  const toolbar = option.closest<HTMLElement>('[role="toolbar"]');
+  return id && toolbar && !updated.some((candidate) => candidate.id === id) ? { id, toolbar } : null;
+}
+
+function restoreToolbarFocus(toolbar: HTMLElement, removedOptionId: string): void {
+  if (!toolbar.isConnected) return;
+  // O foco pode ter sido movido manualmente entre a atualização do snapshot e
+  // este callback. Só repor quando a remoção deixou o documento sem foco útil.
+  if (document.activeElement !== document.body && document.activeElement !== document.documentElement) return;
+  const candidates = toolbar.querySelectorAll<HTMLElement>(
+    'button:not(:disabled), input:not(:disabled), select:not(:disabled), [tabindex]:not([tabindex="-1"])',
+  );
+  const fallback = Array.from(candidates).find((candidate) => {
+    const option = candidate.closest<HTMLElement>('[data-agent-option-id]');
+    return option?.dataset.agentOptionId !== removedOptionId
+      && candidate.getAttribute('aria-disabled') !== 'true'
+      && !candidate.hasAttribute('disabled');
+  });
+  fallback?.focus();
+}
+
 /** Mantém mudanças e remoções de opções publicadas por snapshot após o pedido. */
 function reconcileSnapshotResponse(
   response: AgentConfigOption[],
@@ -361,9 +396,12 @@ function reconcileSnapshotResponse(
   latest: AgentConfigOption[],
 ): AgentConfigOption[] {
   const reconciled = response.filter((option) => {
-    // Snapshot completo é a fonte atual de membership: a resposta atrasada não
-    // pode reintroduzir nenhuma opção que ele deixou de publicar.
-    return latest.some((candidate) => candidate.id === option.id);
+    // Opção conhecida antes da chamada e ausente no snapshot foi removida; a
+    // resposta atrasada não pode reinscrevê-la. IDs novos da resposta continuam
+    // válidos, pois o agente pode oferecer controles adicionais ao acomodar a
+    // alteração pedida.
+    return !before.some((candidate) => candidate.id === option.id) ||
+      latest.some((candidate) => candidate.id === option.id);
   });
 
   for (const current of latest) {

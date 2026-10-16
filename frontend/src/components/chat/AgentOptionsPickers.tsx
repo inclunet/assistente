@@ -103,7 +103,7 @@ export const AgentOptionsPickers: React.FC<AgentOptionsPickersProps> = ({
   return (
     <>
       {model && (
-        <div data-chat-picker="model" style={{ display: 'contents' }}>
+        <div data-chat-picker="model" data-agent-option-id={model.id} style={{ display: 'contents' }}>
           <BasePicker
             variant="toolbar"
             items={itemsOf(model)}
@@ -120,43 +120,47 @@ export const AgentOptionsPickers: React.FC<AgentOptionsPickersProps> = ({
         </div>
       )}
       {mode && (
-        <BasePicker
-          variant="toolbar"
-          items={itemsOf(mode, (value) => agentModeLabel(t, value))}
-          selected={mode.currentValue}
-          onSelect={(value) => void handleModeChange(value)}
-          label={mode.name || t('chat.agentOptions.modeLabel')}
-          description={t('chat.agentOptions.modeDescription')}
-          maxWidth="140px"
-          disabled={disabled || changing}
-          onAnnounce={announce}
-          showEmptyState={false}
-        />
+        <div data-agent-option-id={mode.id} style={{ display: 'contents' }}>
+          <BasePicker
+            variant="toolbar"
+            items={itemsOf(mode, (value) => agentModeLabel(t, value))}
+            selected={mode.currentValue}
+            onSelect={(value) => void handleModeChange(value)}
+            label={mode.name || t('chat.agentOptions.modeLabel')}
+            description={t('chat.agentOptions.modeDescription')}
+            maxWidth="140px"
+            disabled={disabled || changing}
+            onAnnounce={announce}
+            showEmptyState={false}
+          />
+        </div>
       )}
       {additionalSelects.map((option) => (
-        <BasePicker
-          key={option.id}
-          variant="toolbar"
-          items={itemsOf(option)}
-          selected={option.currentValue}
-          onSelect={(value) => void handleAdditionalChange(option, value)}
-          label={option.name || t('chat.agentOptions.settingLabel')}
-          description={t('chat.agentOptions.settingDescription')}
-          maxWidth="180px"
-          disabled={disabled || changing}
-          onAnnounce={announce}
-          showEmptyState={false}
-        />
+        <div key={option.id} data-agent-option-id={option.id} style={{ display: 'contents' }}>
+          <BasePicker
+            variant="toolbar"
+            items={itemsOf(option)}
+            selected={option.currentValue}
+            onSelect={(value) => void handleAdditionalChange(option, value)}
+            label={option.name || t('chat.agentOptions.settingLabel')}
+            description={t('chat.agentOptions.settingDescription')}
+            maxWidth="180px"
+            disabled={disabled || changing}
+            onAnnounce={announce}
+            showEmptyState={false}
+          />
+        </div>
       ))}
       {booleans.map((option) => (
-        <Checkbox
-          key={option.id}
-          label={option.name || t('chat.agentOptions.booleanLabel')}
-          checked={!!option.currentBool}
-          onChange={(event) => handleBooleanChange(option, event.currentTarget.checked)}
-          aria-disabled={disabled || changing}
-          disabled={disabled}
-        />
+        <div key={option.id} data-agent-option-id={option.id} style={{ display: 'contents' }}>
+          <Checkbox
+            label={option.name || t('chat.agentOptions.booleanLabel')}
+            checked={!!option.currentBool}
+            onChange={(event) => handleBooleanChange(option, event.currentTarget.checked)}
+            aria-disabled={disabled || changing}
+            disabled={disabled}
+          />
+        </div>
       ))}
     </>
   );

@@ -496,6 +496,110 @@ describe('AgentOptionsPickers', () => {
     expect(screen.getByRole('button', { name: 'Modo, chat.agentOptions.mode.plan' })).toBeInTheDocument();
   });
 
+  it('preserva uma opção nova na resposta quando o snapshot só atualiza outra opção', async () => {
+    const options = (model: string, verbosity: string, includeEffort = false) => ({
+      conversationId: 'conversa-1', available: true,
+      options: [
+        {
+          id: 'model', name: 'Modelo', category: 'model', currentValue: model,
+          values: [{ value: 'modelo-a', name: 'Modelo A' }, { value: 'modelo-b', name: 'Modelo B' }],
+        },
+        {
+          id: 'verbosity', name: 'Verbosity', category: 'other', currentValue: verbosity,
+          values: [{ value: 'concise', name: 'Concisa' }, { value: 'detailed', name: 'Detalhada' }],
+        },
+        ...(includeEffort ? [{
+          id: 'effort', name: 'Esforço', category: 'other', currentValue: 'high',
+          values: [{ value: 'high', name: 'Alto' }],
+        }] : []),
+      ],
+    });
+    getOptions.mockResolvedValue(options('modelo-a', 'concise'));
+    let resolveChange!: (value: unknown) => void;
+    setOption.mockImplementation(() => new Promise((resolve) => { resolveChange = resolve; }));
+
+    render(<AgentOptionsPickers conversationId="conversa-1" />);
+    await userEvent.click(await screen.findByRole('button', { name: /Modelo/ }));
+    await userEvent.click(await screen.findByRole('option', { name: 'Modelo B' }));
+    await waitFor(() => expect(setOption).toHaveBeenCalledWith('conversa-1', 'model', 'modelo-b'));
+
+    act(() => {
+      emitAgentOptions?.({
+        conversationId: 'conversa-1',
+        options: options('modelo-a', 'detailed').options,
+        snapshot: true, modelChanged: false, modeChanged: false, announce: false,
+      });
+    });
+    await act(async () => {
+      resolveChange(options('modelo-b', 'concise', true));
+    });
+
+    expect(screen.getByRole('button', { name: 'Modelo, Modelo B' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Verbosity, Detalhada' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Esforço, Alto' })).toBeInTheDocument();
+  });
+
+  it.each([
+    ['parcial', [{ id: 'outra', name: 'Outra', kind: 'boolean', currentBool: true, values: [] }]],
+    ['vazio', []],
+  ])('restaura o foco na barra quando um snapshot %s remove a opção focada', async (_label, nextOptions) => {
+    getOptions.mockResolvedValue({
+      conversationId: 'conversa-1', available: true,
+      options: [
+        { id: 'removida', name: 'Removida', kind: 'boolean', currentBool: true, values: [] },
+        { id: 'outra', name: 'Outra', kind: 'boolean', currentBool: true, values: [] },
+      ],
+    });
+
+    render(
+      <div role="toolbar" aria-label="Barra de teste">
+        <button type="button">Controle estável</button>
+        <AgentOptionsPickers conversationId="conversa-1" />
+      </div>,
+    );
+    const focused = await screen.findByRole('checkbox', { name: 'Removida' });
+    focused.focus();
+
+    act(() => {
+      emitAgentOptions?.({
+        conversationId: 'conversa-1', options: nextOptions,
+        snapshot: true, modelChanged: false, modeChanged: false, announce: false,
+      });
+    });
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Controle estável' })).toHaveFocus());
+  });
+
+  it('não rouba o foco se a pessoa mudar de controle após a remoção por snapshot', async () => {
+    getOptions.mockResolvedValue({
+      conversationId: 'conversa-1', available: true,
+      options: [{ id: 'removida', name: 'Removida', kind: 'boolean', currentBool: true, values: [] }],
+    });
+    render(
+      <>
+        <div role="toolbar" aria-label="Barra de teste">
+          <button type="button">Controle estável</button>
+          <AgentOptionsPickers conversationId="conversa-1" />
+        </div>
+        <button type="button">Controle externo</button>
+      </>,
+    );
+    const checkbox = await screen.findByRole('checkbox', { name: 'Removida' });
+    checkbox.focus();
+
+    act(() => {
+      emitAgentOptions?.({
+        conversationId: 'conversa-1', options: [],
+        snapshot: true, modelChanged: false, modeChanged: false, announce: false,
+      });
+    });
+    const outside = screen.getByRole('button', { name: 'Controle externo' });
+    outside.focus();
+    await act(async () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
+
+    expect(outside).toHaveFocus();
+  });
+
   it('anuncia uma troca confirmada por snapshot antes da resposta atrasada', async () => {
     let reads = 0;
     getOptions.mockImplementation(() => Promise.resolve(

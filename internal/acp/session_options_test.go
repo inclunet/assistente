@@ -51,7 +51,7 @@ func TestAtualizacaoDeOutraOpcaoNaoDescartaRespostaNaCategoriaOther(t *testing.T
 		{ID: "effort", Category: "other", CurrentValue: "low"},
 		{ID: "verbosity", Category: "other", CurrentValue: "detailed"},
 	})
-	if got := findOption(updated, "verbosity"); got == nil || got.CurrentValue != "detailed" {
+	if got := findOptionByID(updated, "verbosity"); got == nil || got.CurrentValue != "detailed" {
 		t.Fatalf("snapshot de verbosity não foi aplicado: %+v", updated)
 	}
 	options, ok := sess.reconcileConfigOptionResponse([]ConfigOption{
@@ -61,12 +61,21 @@ func TestAtualizacaoDeOutraOpcaoNaoDescartaRespostaNaCategoriaOther(t *testing.T
 	if !ok {
 		t.Fatal("resposta de effort não foi reconciliada")
 	}
-	if got := findOption(options, "effort"); got == nil || got.CurrentValue != "high" {
+	if got := findOptionByID(options, "effort"); got == nil || got.CurrentValue != "high" {
 		t.Fatalf("outra opção de other descartou a troca de effort: %+v", options)
 	}
-	if got := findOption(options, "verbosity"); got == nil || got.CurrentValue != "detailed" {
+	if got := findOptionByID(options, "verbosity"); got == nil || got.CurrentValue != "detailed" {
 		t.Fatalf("a notificação de verbosity foi revertida: %+v", options)
 	}
+}
+
+func findOptionByID(options []ConfigOption, id string) *ConfigOption {
+	for i := range options {
+		if options[i].ID == id {
+			return &options[i]
+		}
+	}
+	return nil
 }
 
 func TestOpcaoBooleanaPodeSerConsultadaEAlterada(t *testing.T) {
