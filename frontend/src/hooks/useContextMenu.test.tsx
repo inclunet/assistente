@@ -13,7 +13,7 @@ const consumeSkipFocusRestoreMock = vi.hoisted(() => vi.fn());
 const ttsServiceMock = vi.hoisted(() => ({
   getVolume: vi.fn(() => 0.75),
   hasVoiceConfig: vi.fn(() => true),
-  getVoiceContext: vi.fn(() => ({
+  getVoiceContext: vi.fn((): { providerId: string; voiceId: string; model: string; rate: number; language?: string } => ({
     providerId: 'test-provider',
     voiceId: 'test-voice',
     model: 'tts-1',
@@ -195,9 +195,31 @@ describe('useContextMenu', () => {
 describe('useMessageActions', () => {
   beforeAll(async () => {
     // The hook now translates feedback; keep this fixture's original UX assertion.
-    await i18next.init({ lng: 'pt-BR', resources: { 'pt-BR': { translation: {
-      chat: { contentCopied: 'Mensagem copiada.', copyFailed: 'Erro ao copiar mensagem.' },
-    } } } });
+    await i18next.init({
+      lng: 'pt-BR',
+      resources: {
+        'pt-BR': { translation: {
+          chat: {
+            contentCopied: 'Mensagem copiada.',
+            copyFailed: 'Erro ao copiar mensagem.',
+            errors: {
+              agentResponseFailed: 'Falha na resposta do agente:',
+              providerErrors: {
+                authentication: 'O provedor recusou a autenticação. Confira a credencial configurada.',
+              },
+            },
+          },
+        } },
+        es: { translation: {
+          chat: { errors: {
+            agentResponseFailed: 'Falló la respuesta del agente:',
+            providerErrors: {
+              authentication: 'El proveedor rechazó la autenticación. Comprueba la credencial configurada.',
+            },
+          } },
+        } },
+      },
+    });
   });
   beforeEach(() => {
     vi.clearAllMocks();
@@ -258,6 +280,26 @@ describe('useMessageActions', () => {
     });
 
     expect(ttsServiceMock.speakAsRole).toHaveBeenCalledWith('Teste', 'assistant', undefined, undefined);
+  });
+
+  it('fala o diagnóstico do provider traduzido no fallback WebSpeech', async () => {
+    messageAudioServiceMock.speakMessage.mockResolvedValue(false);
+    ttsServiceMock.getVoiceContext.mockReturnValue({ providerId: 'test-provider', voiceId: 'voice', model: 'tts-1', rate: 1, language: 'es-ES' });
+    await i18next.changeLanguage('pt-BR');
+    const { result } = renderHook(() => useMessageActions());
+
+    await act(async () => {
+      await result.current.speakMessage({
+        id: '1712345678901-diagnostic',
+        content: 'Falha na resposta do agente: provider_error:v1:authentication:',
+        role: 'assistant',
+      } as never);
+    });
+
+    expect(ttsServiceMock.speakAsRole).toHaveBeenCalledWith(
+      'Falló la respuesta del agente: El proveedor rechazó la autenticación. Comprueba la credencial configurada.',
+      'assistant', undefined, undefined,
+    );
   });
 
   it('não reproduz quando sem config de voz', async () => {

@@ -20,6 +20,6 @@ func (s *DBAudioStore) SaveMessageAudio(ctx context.Context, messageID string, a
 	return database.SaveMessageAudioWithContext(ctx, messageID, audioBase64, mimeType)
 }
 
-func (s *DBAudioStore) GetMessageContent(ctx context.Context, messageID string) (string, error) {
-	return database.GetMessageContentWithContext(ctx, messageID)
+func (s *DBAudioStore) GetMessageContent(ctx context.Context, messageID string) (string, string, error) {
+	return database.GetMessageContentAndRoleWithContext(ctx, messageID)
 }

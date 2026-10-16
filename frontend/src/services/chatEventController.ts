@@ -30,8 +30,12 @@ import { createChatProgressAnnouncer } from './chatProgressAnnouncer';
 import type { ChatSurfaceOrigin, MessageWindowState } from './chatSessionRegistry';
 import { clearChatTurnRoutes, createChatTurnEventRouter } from './chatEventHub';
 import { invalidateToolInvocationDetails } from './toolInvocationDetailsCache';
+import { translateErrorMarkers } from '../lib/providerErrorMessage';
 
 const translateBackendChatError = (message: string) => {
+  const translatedError = translateErrorMarkers(message);
+  if (translatedError !== message) return translatedError;
+
   const chatGPTKey = chatGPTErrorKey(message);
   if (chatGPTKey) return i18next.t(chatGPTKey);
 

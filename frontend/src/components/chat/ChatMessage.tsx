@@ -18,6 +18,7 @@ import { formatRelativeTime } from '../../lib/dateUtils';
 import { buildChatMessageAriaLabel } from '../../lib/chatMessageAriaLabel';
 import type { ChatSendToEditorPayload, EditorSendTargetOption, SendToEditorPayload } from '../../lib/editorSendMenu';
 import { formatToolPresentation, presentTool } from '../../lib/toolPresentation';
+import { translateBackendErrorDiagnostic } from '../../lib/providerErrorMessage';
 import './ChatMessage.css';
 
 const HEAVY_MARKDOWN_CONTENT_LENGTH = 8_000;
@@ -113,6 +114,9 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
   const effectiveToolCalls = liveToolCalls.length > 0 ? liveToolCalls : activeToolCalls;
 
   const effectiveContent = liveContent !== null ? liveContent : content;
+  const localizedEffectiveContent = message.role === 'assistant'
+    ? translateBackendErrorDiagnostic(effectiveContent)
+    : effectiveContent;
   const effectiveIsStreaming = liveIsStreaming !== null ? liveIsStreaming : isStreaming;
   const effectiveReasoning = liveReasoning !== null ? liveReasoning : reasoning;
   const renderedTabNavigation = isReading ? 'enabled' : 'disabled';
@@ -134,7 +138,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
   // placeholder de apresentação; nenhum ChatMessage técnico é fabricado.
   const isToolOnlyTurn = !effectiveIsStreaming && !effectiveContent.trim() &&
     rawTurnSegments.some((segment) => (segment.toolInvocations?.length ?? 0) > 0 || (segment.toolCalls?.length ?? 0) > 0);
-  const placeholderContent = isToolOnlyTurn ? t('chat.toolOnlyTurnPlaceholder') : effectiveContent;
+  const placeholderContent = isToolOnlyTurn ? t('chat.toolOnlyTurnPlaceholder') : localizedEffectiveContent;
   const displaySegments = rawTurnSegments;
 
   // Issues #160/#163: em turnos agênticos (texto → tools → … → texto final) o
@@ -158,7 +162,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
   //
   // A cadeia completa continua acessível via browse mode (segmentos navegáveis)
   // e pelo modo de leitura (Enter), independente deste valor.
-  const conclusionContent = useMemo(() => {
+  const conclusionSource = useMemo(() => {
     if (effectiveIsStreaming && effectiveContent && effectiveContent.trim()) {
       return effectiveContent;
     }
@@ -173,6 +177,9 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
     }
     return placeholderContent || '';
   }, [effectiveIsStreaming, effectiveContent, content, displaySegments, placeholderContent]);
+  const conclusionContent = message.role === 'assistant'
+    ? translateBackendErrorDiagnostic(conclusionSource)
+    : conclusionSource;
 
   // O backend determina a cronologia. Separar somente a conclusão que já está
   // no fim mantém sua posição ao recolher a atividade; texto seguido de tools
@@ -186,12 +193,12 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
   const lastVisibleSegment = displaySegments[lastVisibleSegmentIndex];
   const hasTrailingConclusion = !effectiveIsStreaming
     && lastVisibleSegment?.type === 'text'
-    && lastVisibleSegment.content === conclusionContent;
+    && lastVisibleSegment.content === conclusionSource;
   const chainSegments = hasTrailingConclusion
     ? displaySegments.slice(0, lastVisibleSegmentIndex)
     : displaySegments;
   const hasConclusionInChain = chainSegments.some((segment) =>
-    segment.type === 'text' && segment.content === conclusionContent);
+    segment.type === 'text' && segment.content === conclusionSource);
   const showConclusionAfterChain = !effectiveIsStreaming && !!conclusionContent
     && (hasTrailingConclusion || !hasConclusionInChain || !isChainExpanded);
 
@@ -606,7 +613,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
                   {seg.type === 'text' && seg.content && (
                     <div className="chat-message__text chat-message__text--segment">
                       <MarkdownRenderer
-                        content={seg.content}
+                        content={message.role === 'assistant' ? translateBackendErrorDiagnostic(seg.content) : seg.content}
                         tabNavigation={renderedTabNavigation}
                         interactiveButtons={!!onSendToEditor}
                         enableSendToEditorButtons={!!onSendToEditor}

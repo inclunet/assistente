@@ -74,6 +74,52 @@ func (r *LLMModelCapabilitiesRepository) SaveModel(ctx context.Context, provider
 	return &model, nil
 }
 
+// GetOrCreateModel preserva o nome de exibição existente. O caminho de envio
+// usa o ID remoto como fallback somente quando ainda não há registro local.
+func (r *LLMModelCapabilitiesRepository) GetOrCreateModel(ctx context.Context, providerID, remoteID, fallbackDisplayName string) (*LLMModel, error) {
+	if err := RequireUserIDOrBootstrap(ctx); err != nil {
+		return nil, err
+	}
+	if providerID == "" || remoteID == "" || strings.TrimSpace(remoteID) != remoteID || len(remoteID) > 512 ||
+		strings.ContainsRune(remoteID, 0) || strings.ContainsRune(fallbackDisplayName, 0) ||
+		len(fallbackDisplayName) > 512 {
+		return nil, errors.New("identidade de modelo inválida")
+	}
+
+	var model LLMModel
+	err := WithSQLiteImmediateTransactionOnce(ctx, time.Now().Add(sqliteBusyRetryMaxWait), r.db, "llm_models.get_or_create", func(tx *gorm.DB) error {
+		var err error
+		if IsBootstrap(ctx) {
+			_, err = r.providerRevisionForWrite(ctx, tx, providerID)
+		} else {
+			_, err = r.providerRevisionForUser(ctx, tx, providerID)
+		}
+		if err != nil {
+			return err
+		}
+		err = tx.Where("provider_id = ? AND remote_id = ?", providerID, remoteID).Take(&model).Error
+		switch {
+		case err == nil:
+			return nil
+		case !errors.Is(err, gorm.ErrRecordNotFound):
+			return err
+		}
+		if _, err := r.providerRevisionForWrite(ctx, tx, providerID); err != nil {
+			return err
+		}
+		model = LLMModel{
+			ProviderID:  providerID,
+			RemoteID:    remoteID,
+			DisplayName: fallbackDisplayName,
+		}
+		return tx.Create(&model).Error
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &model, nil
+}
+
 // ListModels lista modelos somente quando o chamador pode ler o provedor.
 func (r *LLMModelCapabilitiesRepository) ListModels(ctx context.Context, providerID string) ([]LLMModel, error) {
 	if _, err := RequireUserID(ctx); err != nil {
@@ -156,6 +202,19 @@ func (r *LLMModelCapabilitiesRepository) RecordUnsupportedField(
 // ListUnsupportedFields retorna só as restrições da revisão efetiva. Campos
 // sem linha permanecem desconhecidos e não são interpretados como suportados.
 func (r *LLMModelCapabilitiesRepository) ListUnsupportedFields(ctx context.Context, modelID string) ([]UnsupportedField, error) {
+	return r.listUnsupportedFields(ctx, modelID, 0)
+}
+
+// ListUnsupportedFieldsForRevision recusa um snapshot que não corresponde à
+// revisão capturada pelo envio, evitando usar aprendizado de outra conexão.
+func (r *LLMModelCapabilitiesRepository) ListUnsupportedFieldsForRevision(ctx context.Context, modelID string, compatibilityRevision int) ([]UnsupportedField, error) {
+	if compatibilityRevision < 1 {
+		return nil, ErrStaleCompatibility
+	}
+	return r.listUnsupportedFields(ctx, modelID, compatibilityRevision)
+}
+
+func (r *LLMModelCapabilitiesRepository) listUnsupportedFields(ctx context.Context, modelID string, expectedRevision int) ([]UnsupportedField, error) {
 	if _, err := RequireUserID(ctx); err != nil {
 		return nil, err
 	}
@@ -164,6 +223,9 @@ func (r *LLMModelCapabilitiesRepository) ListUnsupportedFields(ctx context.Conte
 		revision, model, err := r.modelAndProviderRevision(ctx, tx, modelID)
 		if err != nil {
 			return err
+		}
+		if expectedRevision > 0 && revision != expectedRevision {
+			return ErrStaleCompatibility
 		}
 		return tx.Table("llm_model_capability_fields AS f").
 			Select("c.capability_code, f.field_code, f.compatibility_revision, f.recognizer_id, f.updated_at").

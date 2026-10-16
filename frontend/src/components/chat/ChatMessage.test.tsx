@@ -3,6 +3,7 @@ import { act, createEvent, fireEvent, render, screen } from '@testing-library/re
 import { chat } from '../../../wailsjs/go/models';
 import { ChatMessage } from './ChatMessage';
 import { MessageNode } from './MessageNode';
+import i18n from '../../lib/i18n';
 import type { SendToEditorPayload } from '../../lib/editorSendMenu';
 
 const conversationId = '01926b90-7a5a-7c4e-8d3f-000000000001';
@@ -36,7 +37,8 @@ const toolInvocation = (callId: string, name: string, overrides: Record<string, 
   ...overrides,
 });
 
-vi.mock('react-i18next', () => ({
+vi.mock('react-i18next', async importOriginal => ({
+  ...await importOriginal<typeof import('react-i18next')>(),
   useTranslation: () => ({ t: (key: string) => key }),
 }));
 
@@ -112,6 +114,60 @@ vi.mock('./ToolCallsSection', () => ({
 }));
 
 describe('ChatMessage', () => {
+  it('traduz marcadores de erro em mensagens recuperadas do histórico', async () => {
+    await i18n.changeLanguage('pt-BR');
+    const message = new chat.EnrichedMessage({
+      id: 'history-error', conversationId, role: 'assistant',
+      content: 'Falha na resposta do agente: provider_error:v1:authentication:',
+    });
+    render(<ChatMessage message={message} />);
+    const lastProps = markdownRendererSpy.mock.calls[markdownRendererSpy.mock.calls.length - 1][0] as { content: string };
+    expect(lastProps.content).toContain('O provedor recusou a autenticação. Confira a credencial configurada.');
+    expect(lastProps.content).not.toContain('provider_error:v1');
+  });
+
+  it('preserva marcadores literais em mensagens do usuário e exemplos de código', async () => {
+    await i18n.changeLanguage('pt-BR');
+    const userText = 'provider_error:v1:authentication:';
+    render(<ChatMessage message={new chat.EnrichedMessage({ id: 'user-marker', conversationId, role: 'user', content: userText })} />);
+    expect(screen.getByText(userText)).toBeInTheDocument();
+
+    const userMcpMarker = 'mcp_error:v1:Equipe%3A%20Produ%C3%A7%C3%A3o:call';
+    render(<ChatMessage message={new chat.EnrichedMessage({ id: 'user-mcp-marker', conversationId, role: 'user', content: userMcpMarker })} />);
+    expect(screen.getByText(userMcpMarker)).toBeInTheDocument();
+
+    const codeSample = 'const diagnostic = "provider_error:v1:authentication:";';
+    render(<ChatMessage message={new chat.EnrichedMessage({ id: 'assistant-code', conversationId, role: 'assistant', content: codeSample })} />);
+    const lastProps = markdownRendererSpy.mock.calls[markdownRendererSpy.mock.calls.length - 1][0] as { content: string };
+    expect(lastProps.content).toBe(codeSample);
+  });
+
+  it('localiza o diagnóstico histórico de valor recusado sem sugerir remoção do campo', async () => {
+    await i18n.changeLanguage('pt-BR');
+    const message = new chat.EnrichedMessage({
+      id: 'history-invalid-value', conversationId, role: 'assistant',
+      content: 'Falha na resposta do agente: provider_error:v1:invalid_value:temperature:400',
+    });
+    render(<ChatMessage message={message} />);
+    const lastProps = markdownRendererSpy.mock.calls[markdownRendererSpy.mock.calls.length - 1][0] as { content: string };
+    expect(lastProps.content).toContain('O provedor recusou o valor configurado para temperature. O campo e o valor salvos foram mantidos.');
+    expect(lastProps.content).not.toContain('provider_error:v1');
+  });
+
+  it('traduz uma conclusão diagnóstica compartilhada pelo conteúdo e pelo segmento final', async () => {
+    await i18n.changeLanguage('pt-BR');
+    const diagnostic = 'Falha na resposta do agente: provider_error:v1:authentication:';
+    const message = new chat.EnrichedMessage({
+      id: 'history-diagnostic-chain', conversationId, role: 'assistant', content: diagnostic,
+      turnSegments: [{ type: 'text', content: diagnostic }],
+    });
+    render(<ChatMessage message={message} />);
+    const rendered = markdownRendererSpy.mock.calls.map(([props]) => (props as { content: string }).content);
+    expect(rendered).toHaveLength(1);
+    expect(rendered[0]).toContain('O provedor recusou a autenticação. Confira a credencial configurada.');
+    expect(rendered[0]).not.toContain('provider_error:v1');
+  });
+
   it('mantém a origem do callback de bloco capturada antes de trocar a mensagem', () => {
     const message = new chat.EnrichedMessage({ id: 'source-a', conversationId, role: 'assistant', content: 'Mensagem integral A' });
     const onSendToEditor = vi.fn();

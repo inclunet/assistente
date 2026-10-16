@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"assistente/internal/llmcapabilities"
 	"assistente/internal/logging"
 	"context"
 	"encoding/json"
@@ -31,10 +32,14 @@ func (p *OpenAIProvider) sendChatResponses(ctx context.Context, model string, me
 		},
 	}
 	if params.Temperature > 0 {
-		respParams.Temperature = param.NewOpt(params.Temperature)
+		if !params.Compatibility.IsUnsupported(llmcapabilities.CapabilityResponses, llmcapabilities.FieldTemperature) {
+			respParams.Temperature = param.NewOpt(params.Temperature)
+		}
 	}
 	if params.MaxTokens > 0 {
-		respParams.MaxOutputTokens = param.NewOpt(int64(params.MaxTokens))
+		if !params.Compatibility.IsUnsupported(llmcapabilities.CapabilityResponses, llmcapabilities.FieldMaxOutputTokens) {
+			respParams.MaxOutputTokens = param.NewOpt(int64(params.MaxTokens))
+		}
 	}
 	applyPromptCacheKeyToResponses(&respParams, params)
 	dumpHandle := dumpLLMRequest(p.provider, model, params, respParams)
@@ -50,7 +55,18 @@ func (p *OpenAIProvider) sendChatResponses(ctx context.Context, model string, me
 			params.PromptCacheKey = ""
 			return p.sendChatResponses(ctx, model, messages, params)
 		}
-		return "", fmt.Errorf("erro ao enviar mensagem: %w", err)
+		providerError, recognized := RecognizeProviderError(p.provider, err)
+		if !recognized {
+			providerError = ProviderErrorDiagnostic(p.provider, err)
+		}
+		diagnosticError := providerError.SanitizedForSentField(openAIResponsesProviderErrorParamWasSent(respParams, providerError))
+		logging.Errorf(ctx, "llm.openai-responses", "provider API error signature=%s category=%s status=%d code=%s type=%s param=%s", diagnosticError.Recognizer, diagnosticError.Category, diagnosticError.StatusCode, diagnosticError.Code, diagnosticError.Type, diagnosticError.Param)
+		if recognized && providerError.Category == ProviderErrorUnsupportedParameter && providerError.Field != "" &&
+			params.Compatibility != nil && openAIResponsesCompatibilityFieldWasSent(respParams, providerError) &&
+			params.Compatibility.LearnAndClaimRetry(ctx, llmcapabilities.CapabilityResponses, providerError.Field, providerError.Recognizer) {
+			return p.sendChatResponses(ctx, model, messages, params)
+		}
+		return "", fmt.Errorf("erro ao enviar mensagem: %s", providerError.DisplayMessage())
 	}
 	dumpLLMResponse(dumpHandle, params, map[string]any{
 		"content":   resp.OutputText(),
@@ -118,6 +134,15 @@ func (p *OpenAIProvider) streamChatResponses(
 		pruneDebugDumpHandle(dumpHandle)
 		if result.done {
 			return
+		}
+		if result.compatibilityRetry {
+			if attempt >= maxAttempts {
+				discardStreamReasoning(handler)
+				handler.OnError(result.compatibilityError)
+				return
+			}
+			resetStreamAttempt(handler)
+			continue
 		}
 		if result.nativeMCPUnsupported {
 			// O modelo/endpoint rejeitou type:"mcp". Dispara o auto-ajuste persistido
@@ -203,22 +228,24 @@ func (p *OpenAIProvider) buildResponsesParams(
 		},
 	}
 
-	if params.Temperature > 0 {
+	if params.Temperature > 0 && !params.Compatibility.IsUnsupported(llmcapabilities.CapabilityResponses, llmcapabilities.FieldTemperature) {
 		respParams.Temperature = param.NewOpt(params.Temperature)
 	}
-	if params.MaxTokens > 0 {
+	if params.MaxTokens > 0 && !params.Compatibility.IsUnsupported(llmcapabilities.CapabilityResponses, llmcapabilities.FieldMaxOutputTokens) {
 		respParams.MaxOutputTokens = param.NewOpt(int64(params.MaxTokens))
 	}
-	if params.TopP > 0 && params.TopP != 1.0 {
+	if params.TopP > 0 && params.TopP != 1.0 && !params.Compatibility.IsUnsupported(llmcapabilities.CapabilityResponses, llmcapabilities.FieldTopP) {
 		respParams.TopP = param.NewOpt(params.TopP)
 	}
 	applyPromptCacheKeyToResponses(&respParams, params)
 
 	switch params.ReasoningEffort {
 	case "low", "medium", "high":
-		respParams.Reasoning = shared.ReasoningParam{
-			Effort:  shared.ReasoningEffort(params.ReasoningEffort),
-			Summary: shared.ReasoningSummaryAuto,
+		if !params.Compatibility.IsUnsupported(llmcapabilities.CapabilityResponses, llmcapabilities.FieldReasoningEffort) {
+			respParams.Reasoning = shared.ReasoningParam{
+				Effort:  shared.ReasoningEffort(params.ReasoningEffort),
+				Summary: shared.ReasoningSummaryAuto,
+			}
 		}
 	}
 
@@ -281,8 +308,8 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 	completed := false
 	var fullResponse strings.Builder
 	var fullReasoning strings.Builder
-	// Texto visível e eventos MCP impedem retry automático porque seriam
-	// duplicados. Thinking é descartável e não entra nesta barreira.
+	// Conteúdo visível, reasoning e eventos MCP impedem retries automáticos
+	// posteriores porque já foram expostos ou executados nesta conversa.
 	var emittedNonRetryableEffect bool
 	var lastUsage Usage
 	var lastUsageRaw any
@@ -387,7 +414,12 @@ responseEvents:
 		case "response.output_text.delta":
 			ev := event.AsResponseOutputTextDelta()
 			if ev.Delta != "" {
+				reasoningLength := fullReasoning.Len()
 				content := processThinkingTags(ev.Delta, &isThinking, &thinkingBuffer, &fullReasoning, handler)
+				if fullReasoning.Len() > reasoningLength {
+					chatParams.Compatibility.MarkNonRetryableEffect()
+					emittedNonRetryableEffect = true
+				}
 				if content != "" {
 					select {
 					case <-ctx.Done():
@@ -408,6 +440,7 @@ responseEvents:
 					}
 					fullResponse.WriteString(content)
 					emittedNonRetryableEffect = true
+					chatParams.Compatibility.MarkNonRetryableEffect()
 					handler.OnChunk(content)
 				}
 			}
@@ -434,6 +467,8 @@ responseEvents:
 					return mcpStreamAttemptResult{done: true}
 				}
 				fullReasoning.WriteString(ev.Delta)
+				chatParams.Compatibility.MarkNonRetryableEffect()
+				emittedNonRetryableEffect = true
 				handler.OnThinking(ev.Delta)
 				if ctx.Err() != nil {
 					cancelStream()
@@ -462,6 +497,7 @@ responseEvents:
 				}
 				activeMCPCalls[ev.Item.ID] = mc
 				emittedNonRetryableEffect = true
+				chatParams.Compatibility.MarkNonRetryableEffect()
 				handler.OnMCPToolEvent(MCPToolEvent{
 					ID:          mc.ID,
 					Name:        mc.Name,
@@ -482,6 +518,7 @@ responseEvents:
 					args = ev.Item.Arguments
 				}
 				emittedNonRetryableEffect = true
+				chatParams.Compatibility.MarkNonRetryableEffect()
 				// O output item de um mcp_call carrega o motivo real da falha em
 				// Error (além de server_label/name/output). Este é o ERRO único e
 				// correlacionado (conv/turn/user) da falha; response.mcp_call.failed
@@ -670,7 +707,12 @@ responseEvents:
 			if ev.Response.Error.Message != "" {
 				errMsg = ev.Response.Error.Message
 			}
-			logging.Errorf(ctx, "llm.openai-responses", "[OpenAIProvider] Response FAILED: %s", errMsg)
+			providerError := recognizeResponsesFailure(p.provider, ev.Response.Error.RawJSON())
+			if providerError == nil {
+				providerError = &ProviderError{Category: ProviderErrorUnrecognized, Recognizer: "provider-error:openai:responses:v1"}
+			}
+			diagnosticError := providerError.SanitizedForSentField(openAIResponsesProviderErrorParamWasSent(params, *providerError))
+			logging.Errorf(ctx, "llm.openai-responses", "provider API error signature=%s category=%s status=%d code=%s type=%s param=%s", diagnosticError.Recognizer, diagnosticError.Category, diagnosticError.StatusCode, diagnosticError.Code, diagnosticError.Type, diagnosticError.Param)
 			if len(mcpServers) > 0 && !emittedNonRetryableEffect && looksLikeNativeMCPUnsupported(errMsg) {
 				return mcpStreamAttemptResult{nativeMCPUnsupported: true}
 			}
@@ -680,6 +722,17 @@ responseEvents:
 			if failure := inferMCPFailure(MCPFailureStageHandshake, errMsg, ev.RawJSON(), "", mcpServers); failure != nil && !emittedNonRetryableEffect {
 				reportCurrentDiagnostics()
 				return mcpStreamAttemptResult{mcpFailure: failure}
+			}
+			if providerError != nil && providerError.Category == ProviderErrorUnsupportedParameter && providerError.Field != "" {
+				if !emittedNonRetryableEffect && fullReasoning.Len() == 0 && len(activeFuncCalls) == 0 && len(finishedToolCalls) == 0 && chatParams.Compatibility != nil &&
+					openAIResponsesFieldWasSent(params, providerError.Field) &&
+					chatParams.Compatibility.LearnAndClaimRetry(ctx, llmcapabilities.CapabilityResponses, providerError.Field, providerError.Recognizer) {
+					return mcpStreamAttemptResult{compatibilityRetry: true, compatibilityError: providerError.DisplayMessage()}
+				}
+				markErrorNotRetryable(handler)
+				reportCurrentDiagnostics()
+				handler.OnError(providerError.DisplayMessage())
+				return mcpStreamAttemptResult{done: true}
 			}
 			if !emittedNonRetryableEffect && looksLikeTokenRateLimit(errMsg) {
 				finishThinking()
@@ -697,7 +750,11 @@ responseEvents:
 			if emittedNonRetryableEffect {
 				markErrorNotRetryable(handler)
 			}
-			handler.OnError(errMsg)
+			if providerError != nil {
+				handler.OnError(providerError.DisplayMessage())
+			} else {
+				handler.OnError(errMsg)
+			}
 			return mcpStreamAttemptResult{done: true}
 
 		default:
@@ -716,15 +773,22 @@ responseEvents:
 			return mcpStreamAttemptResult{done: true}
 		}
 		errStr := err.Error()
+		providerError, recognizedProviderError := RecognizeProviderError(p.provider, err)
+		if !recognizedProviderError {
+			providerError = ProviderErrorDiagnostic(p.provider, err)
+		}
+		diagnosticError := providerError.SanitizedForSentField(openAIResponsesFieldWasSent(params, providerError.Field))
 
 		// Classifica ANTES de logar: uma falha de handshake/listagem MCP
 		// recuperável é tratada pela degradação (retry_without_server) logo
 		// abaixo, e o ERRO seria falso-positivo quando o turno se recupera.
 		mcpHandshakeFailure := inferMCPFailure(MCPFailureStageHandshake, errStr, "", "", mcpServers)
 		if mcpFailureRecoverablyHandled(mcpHandshakeFailure, emittedNonRetryableEffect) {
-			logging.Warnf(ctx, "llm.openai-responses", "[OpenAIProvider] Responses stream error (recuperável via degradação MCP): %s", errStr)
+			logging.Warnf(ctx, "llm.openai-responses", "Responses stream error recuperável via degradação MCP")
+		} else if recognizedProviderError {
+			logging.Errorf(ctx, "llm.openai-responses", "provider API error signature=%s category=%s status=%d code=%s type=%s param=%s", diagnosticError.Recognizer, diagnosticError.Category, diagnosticError.StatusCode, diagnosticError.Code, diagnosticError.Type, diagnosticError.Param)
 		} else {
-			logging.Errorf(ctx, "llm.openai-responses", "[OpenAIProvider] Responses stream error: %s", errStr)
+			logging.Errorf(ctx, "llm.openai-responses", "provider Responses stream error signature=%s category=%s", diagnosticError.Recognizer, diagnosticError.Category)
 		}
 
 		// Cancelamento do usuário (contexto pai): nunca retentar.
@@ -770,12 +834,20 @@ responseEvents:
 			reportCurrentDiagnostics()
 			return mcpStreamAttemptResult{retry: true}
 		}
-		finishThinking()
-		reportCurrentDiagnostics()
-		if emittedNonRetryableEffect {
+		if recognizedProviderError && providerError.Category == ProviderErrorUnsupportedParameter && providerError.Field != "" {
+			if !emittedNonRetryableEffect && fullReasoning.Len() == 0 && len(activeFuncCalls) == 0 && len(finishedToolCalls) == 0 && chatParams.Compatibility != nil &&
+				openAIResponsesCompatibilityFieldWasSent(params, providerError) &&
+				chatParams.Compatibility.LearnAndClaimRetry(ctx, llmcapabilities.CapabilityResponses, providerError.Field, providerError.Recognizer) {
+				return mcpStreamAttemptResult{compatibilityRetry: true, compatibilityError: providerError.DisplayMessage()}
+			}
 			markErrorNotRetryable(handler)
 		}
-		handler.OnError(errStr)
+		finishThinking()
+		reportCurrentDiagnostics()
+		if emittedNonRetryableEffect || (recognizedProviderError && providerError.Category == ProviderErrorUnsupportedParameter) {
+			markErrorNotRetryable(handler)
+		}
+		handler.OnError(providerError.DisplayMessage())
 		return mcpStreamAttemptResult{done: true}
 	}
 
@@ -871,7 +943,9 @@ responseEvents:
 	lastModel = diagnosticModel
 	finish = finishInfoWithDiagnostics(finish, p.provider, diagnosticModel, chatParams.MaxTokens, fullResponse.Len())
 	reportUsage(handler, lastUsage)
-	if finish.Reason == "" && len(finishedToolCalls) == 0 && !emittedNonRetryableEffect {
+	if finish.Reason == "" && len(finishedToolCalls) == 0 && (fullResponse.Len() > 0 || len(activeMCPCalls) > 0) {
+		finishThinking()
+	} else if finish.Reason == "" && len(finishedToolCalls) == 0 {
 		discardThinking()
 	} else {
 		finishThinking()
@@ -897,6 +971,7 @@ responseEvents:
 	}
 
 	if len(finishedToolCalls) > 0 {
+		chatParams.Compatibility.MarkNonRetryableEffect()
 		dumpLLMResponse(dumpHandle, chatParams, map[string]any{
 			"content":    fullResponse.String(),
 			"reasoning":  fullReasoning.String(),
@@ -929,4 +1004,48 @@ func rawJSONDump(raw string) any {
 		return raw
 	}
 	return json.RawMessage(raw)
+}
+
+func recognizeResponsesFailure(provider *ProviderConfig, raw string) *ProviderError {
+	var envelope struct {
+		Code    string `json:"code"`
+		Type    string `json:"type"`
+		Param   string `json:"param"`
+		Message string `json:"message"`
+		Status  int    `json:"status"`
+	}
+	if json.Unmarshal([]byte(raw), &envelope) != nil || provider == nil {
+		return nil
+	}
+	result, ok := recognizeOpenAIError(provider, envelope.Status, envelope.Code, envelope.Type, envelope.Param, envelope.Message)
+	if !ok {
+		return nil
+	}
+	return &result
+}
+
+func openAIResponsesFieldWasSent(params responses.ResponseNewParams, field llmcapabilities.FieldKey) bool {
+	switch field {
+	case llmcapabilities.FieldMaxOutputTokens:
+		return params.MaxOutputTokens.Valid()
+	case llmcapabilities.FieldTemperature:
+		return params.Temperature.Valid()
+	case llmcapabilities.FieldTopP:
+		return params.TopP.Valid()
+	case llmcapabilities.FieldReasoningEffort:
+		return params.Reasoning.Effort != ""
+	default:
+		return false
+	}
+}
+
+func openAIResponsesProviderErrorParamWasSent(params responses.ResponseNewParams, providerError ProviderError) bool {
+	if providerError.Field == llmcapabilities.FieldMaxOutputTokens && providerError.Param != "max_output_tokens" {
+		return false
+	}
+	return openAIResponsesFieldWasSent(params, providerError.Field)
+}
+
+func openAIResponsesCompatibilityFieldWasSent(params responses.ResponseNewParams, providerError ProviderError) bool {
+	return openAIResponsesProviderErrorParamWasSent(params, providerError)
 }

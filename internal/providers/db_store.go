@@ -147,6 +147,7 @@ func toDBModel(p *llm.ProviderConfig) *database.LLMProvider {
 		ID:                       p.ID,
 		Name:                     p.Name,
 		Type:                     string(p.Type),
+		ErrorFamily:              string(p.ErrorFamily),
 		CompatibilityRevision:    p.CompatibilityRevision,
 		APIFormat:                string(p.APIFormat),
 		BaseURL:                  p.BaseURL,
@@ -183,6 +184,7 @@ func fromDBModel(dbP *database.LLMProvider) (*llm.ProviderConfig, error) {
 		ID:                       dbP.ID,
 		Name:                     dbP.Name,
 		Type:                     llm.ProviderType(dbP.Type),
+		ErrorFamily:              llm.ProviderErrorFamily(dbP.ErrorFamily),
 		CompatibilityRevision:    dbP.CompatibilityRevision,
 		APIFormat:                llm.APIFormat(dbP.APIFormat),
 		BaseURL:                  dbP.BaseURL,
@@ -199,6 +201,9 @@ func fromDBModel(dbP *database.LLMProvider) (*llm.ProviderConfig, error) {
 		ACPEnv:                   env,
 		ACPCredentialEnv:         credentialEnv,
 		ACPAgentID:               dbP.ACPAgentID,
+	}
+	if p.ErrorFamily == "" {
+		p.ErrorFamily = llm.ExplicitProviderErrorFamilyFromType(p.Type)
 	}
 	normalizeProviderRuntimeDefaults(p)
 	return p, nil

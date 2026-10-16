@@ -131,4 +131,56 @@ func TestProviderCompatibilityRevisionUsesEffectiveDefaults(t *testing.T) {
 	if stored.CompatibilityRevision != 3 {
 		t.Fatalf("mudança de modo de reasoning efetivo não avançou compatibilidade: %d", stored.CompatibilityRevision)
 	}
+	if err := db.Model(&LLMProvider{}).Where("id = ?", provider.ID).Update("error_family", "openai").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.First(&stored, "id = ?", provider.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if stored.CompatibilityRevision != 4 {
+		t.Fatalf("mudança da família de erros não avançou compatibilidade: %d", stored.CompatibilityRevision)
+	}
+}
+
+func TestMigration34RefreshesExistingProviderRevisionTrigger(t *testing.T) {
+	db := newMigratorTestDB(t)
+	if err := db.AutoMigrate(&LLMProvider{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec(`CREATE TRIGGER trg_llm_providers_compatibility_revision_update AFTER UPDATE ON llm_providers
+    WHEN NEW.compatibility_revision = OLD.compatibility_revision AND NEW.base_url IS NOT OLD.base_url
+    BEGIN UPDATE llm_providers SET compatibility_revision = compatibility_revision + 1 WHERE id = NEW.id; END`).Error; err != nil {
+		t.Fatal(err)
+	}
+	provider := &LLMProvider{
+		ID: "migration-34", UserID: "owner", Name: "OpenAI", Type: "openai",
+		BaseURL: "https://api.example.com/v1", CompatibilityRevision: 1,
+	}
+	if err := NewProviderRepository(db).SaveLLMProvider(WithUserID(context.Background(), "owner"), provider); err != nil {
+		t.Fatal(err)
+	}
+
+	var refresh migration
+	for _, candidate := range schemaMigrations {
+		if candidate.Version == 34 {
+			refresh = candidate
+			break
+		}
+	}
+	if refresh.Run == nil {
+		t.Fatal("migração 34 da revisão de família não está registrada")
+	}
+	if err := refresh.Run(db); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&LLMProvider{}).Where("id = ?", provider.ID).Update("error_family", "openai").Error; err != nil {
+		t.Fatal(err)
+	}
+	var stored LLMProvider
+	if err := db.First(&stored, "id = ?", provider.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if stored.CompatibilityRevision != 2 {
+		t.Fatalf("migração 34 deixou o trigger antigo ativo: revisão=%d", stored.CompatibilityRevision)
+	}
 }

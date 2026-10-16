@@ -7,7 +7,9 @@ weight: 1
 
 > **Em 2 linhas:** o Assistente não vem com IA própria. Você escolhe um serviço de IA (como OpenAI, Groq ou Ollama local), configura uma credencial (valor salvo, variável de ambiente, keyring ou comando), e o chat passa a responder com aquele serviço. Sem provedor, o app funciona offline como workspace.
 
-O Assistente suporta múltiplos provedores de LLM, tanto comerciais (cloud) quanto locais. Basta adicionar um provedor nas configurações (`Alt + 2`) e informar uma chave de API ou usar uma credencial já cadastrada para o domínio.
+O Assistente suporta múltiplos provedores de LLM, tanto comerciais (cloud) quanto locais.
+
+Durante o envio, o Assistente reconhece algumas assinaturas documentadas de erro por provedor. Quando a resposta identifica um parâmetro opcional que o modelo não aceita, ele pode repetir uma vez sem esse parâmetro e memorizar a restrição para aquela conexão e modelo. Erros genéricos ou valores inválidos não removem parâmetros nem alteram o perfil salvo. Basta adicionar um provedor nas configurações (`Alt + 2`) e informar uma chave de API ou usar uma credencial já cadastrada para o domínio.
 
 A tela inicial de **Configurações** já mostra Provedores. **Novo provedor**
 abre por clique, Enter, Espaço ou pelo comando contextual **Ctrl+N**.

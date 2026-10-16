@@ -232,6 +232,11 @@ func (r *agenticLoopRunner) streamIteration(ctx context.Context, iteration int) 
 			continue
 		}
 		result = handler.Result()
+		if compatibility := r.params.Compatibility; compatibility != nil &&
+			(strings.TrimSpace(result.FullResponse) != "" || strings.TrimSpace(result.Reasoning) != "" ||
+				len(result.ToolCalls) > 0 || len(result.NativeMCPEvents) > 0) {
+			compatibility.MarkNonRetryableEffect()
+		}
 		if ctx.Err() != nil {
 			if finisher, ok := handler.(interface{ FinishThinkingIfActive() }); ok {
 				finisher.FinishThinkingIfActive()

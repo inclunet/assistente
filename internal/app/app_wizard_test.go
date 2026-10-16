@@ -177,6 +177,24 @@ func TestGetWizardProviderInfo_AllProviders(t *testing.T) {
 	}
 }
 
+func TestGetWizardProviderInfoSetsExplicitErrorFamilies(t *testing.T) {
+	tests := []struct {
+		choice string
+		family llm.ProviderErrorFamily
+	}{
+		{"OpenAI", llm.ProviderErrorFamilyOpenAI},
+		{"LiteLLM", llm.ProviderErrorFamilyLiteLLM},
+		{"OpenRouter", llm.ProviderErrorFamilyOpenRouter},
+		{"Azure OpenAI", ""},
+		{"Outro (URL personalizada)", ""},
+	}
+	for _, test := range tests {
+		if got := getWizardProviderInfo(test.choice).ErrorFamily; got != test.family {
+			t.Errorf("%s error family = %q, want %q", test.choice, got, test.family)
+		}
+	}
+}
+
 func TestGetWizardProviderInfo_IDsMatchCreateDefaultLLMProvider(t *testing.T) {
 	// IDs do wizard devem ser consistentes com CreateDefaultLLMProvider
 	mapping := map[string]string{

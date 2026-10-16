@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"assistente/internal/llmcapabilities"
 	"assistente/internal/logging"
 	"context"
 	"encoding/json"
@@ -22,12 +23,12 @@ func (p *OpenAIProvider) sendChatCompletions(ctx context.Context, model string, 
 		Model:    shared.ChatModel(model),
 		Messages: convertMessages(messages),
 	}
-	if params.Temperature > 0 {
+	if params.Temperature > 0 && !params.Compatibility.IsUnsupported(llmcapabilities.CapabilityChatCompletions, llmcapabilities.FieldTemperature) {
 		sdkParams.Temperature = param.NewOpt(params.Temperature)
 	}
-	if params.MaxTokensMode == "completion_tokens" && params.MaxTokens > 0 {
+	if params.MaxTokensMode == "completion_tokens" && params.MaxTokens > 0 && !params.Compatibility.IsUnsupported(llmcapabilities.CapabilityChatCompletions, llmcapabilities.FieldMaxOutputTokens) {
 		sdkParams.MaxCompletionTokens = param.NewOpt(int64(params.MaxTokens))
-	} else if params.MaxTokens > 0 {
+	} else if params.MaxTokens > 0 && !params.Compatibility.IsUnsupported(llmcapabilities.CapabilityChatCompletions, llmcapabilities.FieldMaxOutputTokens) {
 		sdkParams.MaxTokens = param.NewOpt(int64(params.MaxTokens))
 	}
 	applyPromptCacheKeyToChatCompletions(&sdkParams, params)
@@ -42,7 +43,19 @@ func (p *OpenAIProvider) sendChatCompletions(ctx context.Context, model string, 
 			params.PromptCacheKey = ""
 			return p.sendChatCompletions(ctx, model, messages, params)
 		}
-		return "", fmt.Errorf("erro ao enviar mensagem: %w", err)
+		providerError, recognized := RecognizeProviderError(p.provider, err)
+		if !recognized {
+			providerError = ProviderErrorDiagnostic(p.provider, err)
+		}
+		diagnosticError := providerError.SanitizedForSentField(openAIChatProviderErrorParamWasSent(&sdkParams, providerError))
+		logging.Errorf(ctx, "llm.openai-chat-completions", "provider API error signature=%s category=%s status=%d code=%s type=%s param=%s", diagnosticError.Recognizer, diagnosticError.Category, diagnosticError.StatusCode, diagnosticError.Code, diagnosticError.Type, diagnosticError.Param)
+		if recognized && providerError.Category == ProviderErrorUnsupportedParameter && providerError.Field != "" &&
+			params.Compatibility != nil && openAIChatCompatibilityFieldWasSent(&sdkParams, providerError) &&
+			params.Compatibility.LearnAndClaimRetry(ctx, llmcapabilities.CapabilityChatCompletions, providerError.Field, providerError.Recognizer) {
+			clearOpenAIChatField(&sdkParams, providerError.Field)
+			return p.sendChatCompletions(ctx, model, messages, params)
+		}
+		return "", fmt.Errorf("erro ao enviar mensagem: %s", providerError.DisplayMessage())
 	}
 	if len(completion.Choices) == 0 {
 		return "", fmt.Errorf("nenhuma resposta recebida")
@@ -64,24 +77,26 @@ func (p *OpenAIProvider) streamChatCompletions(ctx context.Context, model string
 		},
 	}
 
-	if params.Temperature > 0 {
+	if params.Temperature > 0 && !params.Compatibility.IsUnsupported(llmcapabilities.CapabilityChatCompletions, llmcapabilities.FieldTemperature) {
 		sdkParams.Temperature = param.NewOpt(params.Temperature)
 	}
 
-	if params.MaxTokensMode == "completion_tokens" && params.MaxTokens > 0 {
+	if params.MaxTokensMode == "completion_tokens" && params.MaxTokens > 0 && !params.Compatibility.IsUnsupported(llmcapabilities.CapabilityChatCompletions, llmcapabilities.FieldMaxOutputTokens) {
 		sdkParams.MaxCompletionTokens = param.NewOpt(int64(params.MaxTokens))
-	} else if params.MaxTokens > 0 {
+	} else if params.MaxTokens > 0 && !params.Compatibility.IsUnsupported(llmcapabilities.CapabilityChatCompletions, llmcapabilities.FieldMaxOutputTokens) {
 		sdkParams.MaxTokens = param.NewOpt(int64(params.MaxTokens))
 	}
 	applyPromptCacheKeyToChatCompletions(&sdkParams, params)
 
-	if params.TopP > 0 && params.TopP != 1.0 {
+	if params.TopP > 0 && params.TopP != 1.0 && !params.Compatibility.IsUnsupported(llmcapabilities.CapabilityChatCompletions, llmcapabilities.FieldTopP) {
 		sdkParams.TopP = param.NewOpt(params.TopP)
 	}
 
 	switch params.ReasoningEffort {
 	case "low", "medium", "high":
-		sdkParams.ReasoningEffort = shared.ReasoningEffort(params.ReasoningEffort)
+		if !params.Compatibility.IsUnsupported(llmcapabilities.CapabilityChatCompletions, llmcapabilities.FieldReasoningEffort) {
+			sdkParams.ReasoningEffort = shared.ReasoningEffort(params.ReasoningEffort)
+		}
 	}
 
 	if len(tools) > 0 {
@@ -107,9 +122,18 @@ func (p *OpenAIProvider) streamChatCompletions(ctx context.Context, model string
 		default:
 		}
 
-		res := p.doStream(ctx, sdkParams, handler, &sdkParams, params.OnPromptCacheHintUnsupported, params.PromptCacheHintFallback)
+		res := p.doStream(ctx, sdkParams, handler, &sdkParams, params, params.OnPromptCacheHintUnsupported, params.PromptCacheHintFallback)
 		if res.done {
 			return
+		}
+		if res.compatibilityRetry {
+			if attempt >= maxAttempts {
+				discardStreamReasoning(handler)
+				handler.OnError(res.compatibilityError)
+				return
+			}
+			resetStreamAttempt(handler)
+			continue
 		}
 
 		if attempt < maxAttempts {
@@ -136,12 +160,14 @@ func (p *OpenAIProvider) streamChatCompletions(ctx context.Context, model string
 // e avisa quem assiste. Nem done nem plainRetry = auto-ajuste de parâmetros,
 // que retenta sem aviso de falha.
 type chatStreamAttempt struct {
-	done       bool
-	plainRetry bool
+	done               bool
+	plainRetry         bool
+	compatibilityRetry bool
+	compatibilityError string
 }
 
 // doStream executa uma tentativa de streaming.
-func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatCompletionNewParams, handler StreamHandler, origParams *openai.ChatCompletionNewParams, onPromptCacheHintUnsupported func(), promptCacheFallback *PromptCacheHintFallback) chatStreamAttempt {
+func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatCompletionNewParams, handler StreamHandler, origParams *openai.ChatCompletionNewParams, chatParams ChatParams, onPromptCacheHintUnsupported func(), promptCacheFallback *PromptCacheHintFallback) chatStreamAttempt {
 	// Watchdog de ociosidade: se o servidor parar de enviar sem fechar a
 	// conexão, cancela a leitura e transforma em erro retryable (quando nada
 	// visível foi emitido). Cada evento recebido reinicia a contagem.
@@ -158,6 +184,7 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 	var isThinking bool
 	var thinkingBuffer strings.Builder
 	var emittedVisibleContent bool
+	var emittedNonRetryableEffect bool
 	captureReasoningContent := p.ReplaysReasoningContent()
 	thinkingFinished := false
 	finishThinking := func() {
@@ -227,7 +254,7 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 			return chatStreamAttempt{done: true}
 		}
 		if wd.TimedOut() {
-			if !emittedVisibleContent {
+			if !emittedNonRetryableEffect {
 				reportCurrentDiagnostics()
 				return chatStreamAttempt{plainRetry: true}
 			}
@@ -261,9 +288,8 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 		if captureReasoningContent {
 			if reasoning := chatCompletionReasoningContent(delta); reasoning != "" {
 				fullReasoning.WriteString(reasoning)
-				// Thinking não bloqueia retry: o caminho por tags segue o mesmo
-				// contrato. Só conteúdo visível entregue por OnChunk torna uma
-				// nova tentativa insegura por poder duplicar a resposta.
+				emittedNonRetryableEffect = true
+				chatParams.Compatibility.MarkNonRetryableEffect()
 				handler.OnThinking(reasoning)
 				if ctx.Err() != nil {
 					finishThinking()
@@ -275,7 +301,12 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 		if delta.Content != "" {
 			content := delta.Content
 
+			reasoningLength := fullReasoning.Len()
 			content = processThinkingTags(content, &isThinking, &thinkingBuffer, &fullReasoning, handler)
+			if fullReasoning.Len() > reasoningLength {
+				emittedNonRetryableEffect = true
+				chatParams.Compatibility.MarkNonRetryableEffect()
+			}
 
 			if content != "" {
 				select {
@@ -285,7 +316,7 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 				default:
 				}
 				if wd.TimedOut() {
-					if !emittedVisibleContent {
+					if !emittedNonRetryableEffect {
 						reportCurrentDiagnostics()
 						return chatStreamAttempt{plainRetry: true}
 					}
@@ -297,6 +328,8 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 				}
 				fullResponse.WriteString(content)
 				emittedVisibleContent = true
+				emittedNonRetryableEffect = true
+				chatParams.Compatibility.MarkNonRetryableEffect()
 				handler.OnChunk(content)
 			}
 		}
@@ -305,7 +338,16 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 	wd.Stop()
 	if err := stream.Err(); err != nil {
 		errStr := err.Error()
-		logging.Errorf(ctx, "llm.openai-chat-completions", "[OpenAIProvider] Stream error: %s", errStr)
+		providerError, recognizedProviderError := RecognizeProviderError(p.provider, err)
+		if !recognizedProviderError {
+			providerError = ProviderErrorDiagnostic(p.provider, err)
+		}
+		diagnosticError := providerError.SanitizedForSentField(openAIChatProviderErrorParamWasSent(origParams, providerError))
+		if recognizedProviderError {
+			logging.Errorf(ctx, "llm.openai-chat-completions", "provider API error signature=%s category=%s status=%d code=%s type=%s param=%s", diagnosticError.Recognizer, diagnosticError.Category, diagnosticError.StatusCode, diagnosticError.Code, diagnosticError.Type, diagnosticError.Param)
+		} else {
+			logging.Errorf(ctx, "llm.openai-chat-completions", "provider stream error signature=%s category=%s", diagnosticError.Recognizer, diagnosticError.Category)
+		}
 
 		// Cancelamento do usuário (contexto pai): nunca retentar.
 		if ctx.Err() != nil {
@@ -315,10 +357,10 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 			return chatStreamAttempt{done: true}
 		}
 
-		// Watchdog de ociosidade estourou. Sem conteúdo visível, a tentativa
-		// é descartável; com conteúdo já entregue, repetir duplicaria a resposta.
+		// Watchdog de ociosidade estourou. Sem efeito exposto, a tentativa pode
+		// ser repetida; após conteúdo ou reasoning, isso duplicaria a resposta.
 		if wd.TimedOut() {
-			if !emittedVisibleContent {
+			if !emittedNonRetryableEffect {
 				reportCurrentDiagnostics()
 				return chatStreamAttempt{plainRetry: true}
 			}
@@ -329,7 +371,21 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 			return chatStreamAttempt{done: true}
 		}
 
-		if !emittedVisibleContent {
+		if !emittedNonRetryableEffect {
+			if recognizedProviderError && providerError.Category == ProviderErrorUnsupportedParameter && providerError.Field != "" {
+				if len(finishedToolCalls) == 0 && fullReasoning.Len() == 0 && chatParams.Compatibility != nil &&
+					openAIChatCompatibilityFieldWasSent(origParams, providerError) &&
+					chatParams.Compatibility.LearnAndClaimRetry(ctx, llmcapabilities.CapabilityChatCompletions, providerError.Field, providerError.Recognizer) {
+					clearOpenAIChatField(origParams, providerError.Field)
+					return chatStreamAttempt{compatibilityRetry: true, compatibilityError: providerError.DisplayMessage()}
+				}
+				markErrorNotRetryable(handler)
+				finishThinking()
+				reportCurrentDiagnostics()
+				handler.OnError(providerError.DisplayMessage())
+				return chatStreamAttempt{done: true}
+			}
+
 			// tool_choice downgrade
 			if origParams.ToolChoice.OfAuto.Valid() && origParams.ToolChoice.OfAuto.Value == "required" {
 				if strings.Contains(strings.ToLower(errStr), "tool_choice") || strings.Contains(strings.ToLower(errStr), "tool choice") {
@@ -363,10 +419,10 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 
 		finishThinking()
 		reportCurrentDiagnostics()
-		if emittedVisibleContent {
+		if emittedNonRetryableEffect {
 			markErrorNotRetryable(handler)
 		}
-		handler.OnError(errStr)
+		handler.OnError(providerError.DisplayMessage())
 		return chatStreamAttempt{done: true}
 	}
 
@@ -380,7 +436,7 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 			"stream encerrou junto com timeout de inatividade",
 			"partial_bytes", fullResponse.Len(),
 		)
-		if !emittedVisibleContent {
+		if !emittedNonRetryableEffect {
 			reportCurrentDiagnostics()
 			return chatStreamAttempt{plainRetry: true}
 		}
@@ -435,7 +491,7 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 	ReportFinishReason(handler, finish)
 
 	if finish.Reason == "" && len(finishedToolCalls) == 0 {
-		if emittedVisibleContent {
+		if emittedNonRetryableEffect {
 			markErrorNotRetryable(handler)
 		}
 		handler.OnError("streaming_interrupted")
@@ -443,12 +499,72 @@ func (p *OpenAIProvider) doStream(ctx context.Context, params openai.ChatComplet
 	}
 
 	if len(finishedToolCalls) > 0 {
+		chatParams.Compatibility.MarkNonRetryableEffect()
 		handler.OnToolCalls(finishedToolCalls, fullResponse.String(), usage, model)
 		return chatStreamAttempt{done: true}
 	}
 
 	handler.OnDone(fullResponse.String(), usage, model)
 	return chatStreamAttempt{done: true}
+}
+
+func openAIChatFieldWasSent(params *openai.ChatCompletionNewParams, field llmcapabilities.FieldKey) bool {
+	if params == nil {
+		return false
+	}
+	switch field {
+	case llmcapabilities.FieldMaxOutputTokens:
+		return params.MaxTokens.Valid() || params.MaxCompletionTokens.Valid()
+	case llmcapabilities.FieldTemperature:
+		return params.Temperature.Valid()
+	case llmcapabilities.FieldTopP:
+		return params.TopP.Valid()
+	case llmcapabilities.FieldReasoningEffort:
+		return params.ReasoningEffort != ""
+	default:
+		return false
+	}
+}
+
+func openAIChatProviderErrorParamWasSent(params *openai.ChatCompletionNewParams, providerError ProviderError) bool {
+	if providerError.Field == llmcapabilities.FieldMaxOutputTokens {
+		if params == nil {
+			return false
+		}
+		switch providerError.Param {
+		case "max_tokens":
+			return params.MaxTokens.Valid()
+		case "max_completion_tokens":
+			return params.MaxCompletionTokens.Valid()
+		default:
+			return false
+		}
+	}
+	return openAIChatFieldWasSent(params, providerError.Field)
+}
+
+func openAIChatCompatibilityFieldWasSent(params *openai.ChatCompletionNewParams, providerError ProviderError) bool {
+	if providerError.Field == llmcapabilities.FieldMaxOutputTokens {
+		return false
+	}
+	return openAIChatProviderErrorParamWasSent(params, providerError)
+}
+
+func clearOpenAIChatField(params *openai.ChatCompletionNewParams, field llmcapabilities.FieldKey) {
+	if params == nil {
+		return
+	}
+	switch field {
+	case llmcapabilities.FieldMaxOutputTokens:
+		params.MaxTokens = param.Opt[int64]{}
+		params.MaxCompletionTokens = param.Opt[int64]{}
+	case llmcapabilities.FieldTemperature:
+		params.Temperature = param.Opt[float64]{}
+	case llmcapabilities.FieldTopP:
+		params.TopP = param.Opt[float64]{}
+	case llmcapabilities.FieldReasoningEffort:
+		params.ReasoningEffort = ""
+	}
 }
 
 // chatCompletionReasoningContent lê a extensão reasoning_content do JSON bruto.

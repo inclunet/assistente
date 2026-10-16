@@ -62,11 +62,12 @@ type Session struct {
 
 // LLMProvider armazena configuração de provedor LLM
 type LLMProvider struct {
-	ID        string `gorm:"primaryKey"`
-	UserID    string `json:"userId,omitempty" gorm:"index"`
-	Name      string `gorm:"not null"`
-	Type      string `gorm:"not null"` // openai, claude, ollama, etc
-	APIFormat string // openai, anthropic, google, acp (SDK/protocolo)
+	ID          string `gorm:"primaryKey"`
+	UserID      string `json:"userId,omitempty" gorm:"index"`
+	Name        string `gorm:"not null"`
+	Type        string `gorm:"not null"` // openai, claude, ollama, etc
+	ErrorFamily string // explicit upstream family for documented error recognition
+	APIFormat   string // openai, anthropic, google, acp (SDK/protocolo)
 	// BaseURL segue NOT NULL: um provedor acp (AEP-0084) não tem endereço e
 	// grava string vazia, que a coluna aceita. Recriar a tabela só para
 	// trocar vazio por NULL custaria o procedimento mais arriscado do banco

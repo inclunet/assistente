@@ -14,9 +14,22 @@ import (
 // e compatibilidade com configs.
 type ProviderType string
 
+// ProviderErrorFamily identifies the upstream implementation family used by
+// documented error recognizers. It is explicit connection metadata, separate
+// from the branding label in ProviderType and the wire protocol in APIFormat.
+type ProviderErrorFamily string
+
+const (
+	ProviderErrorFamilyOpenAI     ProviderErrorFamily = "openai"
+	ProviderErrorFamilyLiteLLM    ProviderErrorFamily = "litellm"
+	ProviderErrorFamilyOpenRouter ProviderErrorFamily = "openrouter"
+)
+
 const (
 	ProviderChatGPT    ProviderType = "chatgpt"
 	ProviderOpenAI     ProviderType = "openai"
+	ProviderLiteLLM    ProviderType = "litellm"
+	ProviderOpenRouter ProviderType = "openrouter"
 	ProviderClaude     ProviderType = "claude"
 	ProviderGrok       ProviderType = "grok"
 	ProviderDeepSeek   ProviderType = "deepseek"
@@ -40,6 +53,20 @@ const (
 	// procurá-los no disco, e isso é resposta de uma pergunta feita para todos.
 	ProviderACP ProviderType = "acp"
 )
+
+// ExplicitProviderErrorFamilyFromType maps provider types that unambiguously
+// name an upstream implementation. Generic `openai` stays unset because it is
+// also used for OpenRouter and other OpenAI-compatible services.
+func ExplicitProviderErrorFamilyFromType(providerType ProviderType) ProviderErrorFamily {
+	switch providerType {
+	case ProviderLiteLLM:
+		return ProviderErrorFamilyLiteLLM
+	case ProviderOpenRouter:
+		return ProviderErrorFamilyOpenRouter
+	default:
+		return ""
+	}
+}
 
 // AuthMode descreve o tratamento de autenticação para o provedor.
 //
@@ -144,6 +171,9 @@ type ProviderConfig struct {
 	ID   string       `json:"id"`
 	Name string       `json:"name"`
 	Type ProviderType `json:"type"`
+	// ErrorFamily is explicit upstream identity for provider-specific error
+	// recognition. Empty means only generic classification is safe.
+	ErrorFamily ProviderErrorFamily `json:"-"`
 	// CompatibilityRevision identifica o snapshot da conexão carregado do banco.
 	// Requisições em andamento preservam esta revisão ao registrar evidências.
 	CompatibilityRevision int       `json:"-"`
