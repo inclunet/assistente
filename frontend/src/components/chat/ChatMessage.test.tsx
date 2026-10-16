@@ -130,17 +130,15 @@ describe('ChatMessage', () => {
     await i18n.changeLanguage('pt-BR');
     const userText = 'provider_error:v1:authentication:';
     render(<ChatMessage message={new chat.EnrichedMessage({ id: 'user-marker', conversationId, role: 'user', content: userText })} />);
-    let lastProps = markdownRendererSpy.mock.calls[markdownRendererSpy.mock.calls.length - 1][0] as { content: string };
-    expect(lastProps.content).toBe(userText);
+    expect(screen.getByText(userText)).toBeInTheDocument();
 
     const userMcpMarker = 'mcp_error:v1:Equipe%3A%20Produ%C3%A7%C3%A3o:call';
     render(<ChatMessage message={new chat.EnrichedMessage({ id: 'user-mcp-marker', conversationId, role: 'user', content: userMcpMarker })} />);
-    lastProps = markdownRendererSpy.mock.calls[markdownRendererSpy.mock.calls.length - 1][0] as { content: string };
-    expect(lastProps.content).toBe(userMcpMarker);
+    expect(screen.getByText(userMcpMarker)).toBeInTheDocument();
 
     const codeSample = 'const diagnostic = "provider_error:v1:authentication:";';
     render(<ChatMessage message={new chat.EnrichedMessage({ id: 'assistant-code', conversationId, role: 'assistant', content: codeSample })} />);
-    lastProps = markdownRendererSpy.mock.calls[markdownRendererSpy.mock.calls.length - 1][0] as { content: string };
+    const lastProps = markdownRendererSpy.mock.calls[markdownRendererSpy.mock.calls.length - 1][0] as { content: string };
     expect(lastProps.content).toBe(codeSample);
   });
 
