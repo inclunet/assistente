@@ -54,8 +54,13 @@ func automaticTitle(content string) string {
 func (i *Interactor) RenameFromAgent(ctx context.Context, conversationID, turnMessageID, title string) error {
 	conversationID = strings.TrimSpace(conversationID)
 	title = strings.TrimSpace(title)
-	if conversationID == "" || title == "" {
+	if conversationID == "" {
 		return nil
+	}
+	if title == "" {
+		// ACP title:null restaura o rótulo padrão. A guarda abaixo continua
+		// preservando qualquer nome escolhido pela pessoa.
+		title = DefaultConversationTitle
 	}
 	if i.convRepo == nil {
 		return errors.New("sem repositório de conversas para renomear")

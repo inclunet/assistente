@@ -68,6 +68,7 @@ pode impedir o registro de uma atividade ainda em andamento.
 - Não gerencia credenciais HTTP; `acp_credential_env` injeta segredos do cofre se necessário.
 - Cancelamento é serial (1 turno/sessão por vez).
 - O agente pode enviar planos e detalhes ricos de execução, mas o chat ainda não os apresenta; as atividades mostram classe, resumo e estado básico.
+- O título ACP pode renomear uma conversa; quando o agente o limpa, o app restaura o título padrão se o nome ainda for automático e mantém títulos escolhidos pela pessoa.
 - Conteúdo enviado ao agente inclui texto e imagem inline; áudio WAV/MP3 e arquivos PDF/texto são enviados quando o agente anuncia suporte. Formatos e arquivos não suportados não são enviados; imagens, áudio ou recursos recebidos na resposta ainda não são exibidos, e a conversa anuncia essa limitação.
 - Se o agente reportar uso ACP, o painel de tokens mostra a ocupação atual e o custo acumulado da sessão enquanto a janela está aberta; avisos aparecem ao atingir 80% e 95%. Esses números vêm do próprio agente e não são salvos como contabilidade local.
 - O catálogo instala e inicia agentes, mas não garante que todos os recursos opcionais do ACP estejam integrados.

@@ -2,6 +2,7 @@ package acp
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -635,7 +636,7 @@ func (c *conn) handleInbound(ctx context.Context, method string, params json.Raw
 			logging.Warnf(ctx, logComponent, "[ACP] notificação de sessão ilegível: %v", err)
 			return nil, sdk.NewInvalidParams(map[string]any{"error": err.Error()})
 		}
-		c.dispatchUpdate(ctx, notification)
+		c.dispatchUpdate(ctx, notification, sessionTitleCleared(params))
 		return nil, nil
 
 	case sdk.ClientMethodSessionRequestPermission:
@@ -646,9 +647,12 @@ func (c *conn) handleInbound(ctx context.Context, method string, params json.Raw
 	}
 }
 
-func (c *conn) dispatchUpdate(ctx context.Context, notification sdk.SessionNotification) {
+func (c *conn) dispatchUpdate(ctx context.Context, notification sdk.SessionNotification, titleCleared bool) {
 	id := string(notification.SessionId)
 	update, ok := updateFrom(notification.Update)
+	if titleCleared {
+		update, ok = Update{Kind: UpdateTitle, TitleCleared: true}, true
+	}
 	if !ok {
 		return
 	}
@@ -663,6 +667,27 @@ func (c *conn) dispatchUpdate(ctx context.Context, notification sdk.SessionNotif
 		return
 	}
 	logging.Debugf(ctx, logComponent, "[ACP] atualização de sessão desconhecida (%q) descartada", id)
+}
+
+// sessionTitleCleared recovers title:null before the SDK's *string field maps
+// both explicit null and an omitted field to nil.
+func sessionTitleCleared(params json.RawMessage) bool {
+	var envelope struct {
+		Update json.RawMessage `json:"update"`
+	}
+	if err := json.Unmarshal(params, &envelope); err != nil || len(envelope.Update) == 0 {
+		return false
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(envelope.Update, &fields); err != nil {
+		return false
+	}
+	var kind string
+	if err := json.Unmarshal(fields["sessionUpdate"], &kind); err != nil || kind != "session_info_update" {
+		return false
+	}
+	title, exists := fields["title"]
+	return exists && bytes.Equal(bytes.TrimSpace(title), []byte("null"))
 }
 
 func (c *conn) requestPermission(ctx context.Context, params json.RawMessage) (any, *sdk.RequestError) {

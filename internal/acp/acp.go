@@ -479,6 +479,8 @@ type Update struct {
 	// Mode vale para UpdateMode e Title para UpdateTitle.
 	Mode  string
 	Title string
+	// TitleCleared sinaliza que o agente enviou explicitamente title: null.
+	TitleCleared bool
 
 	// Commands vale para UpdateCommands.
 	Commands []Command

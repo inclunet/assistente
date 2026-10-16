@@ -879,7 +879,7 @@ AEPs relacionados.
 | Aprovação (`session/request_permission`) e extensões Cursor documentadas | **Implementado** | Usa arbitragem/questionário existentes, com recusa segura e cancelamento. Extensões não padronizadas de outros agentes dependem de handlers específicos. |
 | Autenticação ACP (`authenticate`, `logout`) | **Intencionalmente externalizada** | O app não executa autenticação ACP nem logout do agente. Login local e passagem opcional de credencial do cofre seguem AEP-0086 D12; falta de login é diagnosticada e instruída pela UI. |
 | Autenticação interativa no terminal pelo cliente | **Não oferecido** | O login permanece no mecanismo do agente; o app explica o método e pode passar credencial do cofre quando explicitamente configurado (AEP-0086 D12). Não há terminal interativo ACP do lado do cliente. |
-| Metadados da sessão | **Parcial** | Título não vazio renomeia a conversa. A limpeza de título (`null`) e os demais campos de `session_info_update` não são projetados. |
+| Metadados da sessão | **Parcial** | Título não vazio renomeia a conversa; `title: null` restaura o rótulo padrão quando o nome atual ainda é automático e preserva nomes escolhidos pela pessoa. `updatedAt` e `_meta` não são projetados. |
 | Compatibilidade de agentes e versões | **Parcialmente verificada** | Existem sondas, testes com agente falso e matriz para contratos legados de modelo (D16), mas não uma matriz atual por versão/distribuição cobrindo recursos ACP nem execução registrada do Compatibility Test Kit oficial. |
 
 #### Pendências ordenadas para decisão posterior
@@ -891,9 +891,10 @@ AEPs relacionados.
 2. **Fidelidade da atividade:** representar plano ACP, detalhes estruturados de
    tool call e metadados de sessão, definindo saneamento, privacidade e
    persistência antes de expor payloads.
-3. **Compatibilidade funcional:** tratar corretamente atualizações vazias de
-   opções e limpeza de título; avaliar elicitation e conteúdo adicional conforme
-   os agentes suportados e os componentes acessíveis disponíveis.
+3. **Compatibilidade funcional:** projetar `updatedAt` e metadados adicionais
+   de sessão; avaliar elicitation e conteúdo adicional conforme os agentes
+   suportados e os componentes acessíveis disponíveis. Atualizações vazias de
+   opções e `title: null` já têm tratamento definido.
 4. **Cobertura de protocolo:** registrar a versão do SDK/schema e sua relação
    com ACP v1, manter fixtures para variantes conhecidas e criar uma matriz de
    agentes/distribuições. A execução do kit oficial depende da compatibilidade

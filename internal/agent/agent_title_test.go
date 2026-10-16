@@ -68,16 +68,15 @@ func TestFalhaAoRenomearNaoDerrubaOTurno(t *testing.T) {
 	}
 }
 
-// Título vazio não vira pedido nenhum: renomear para nada deixaria a aba sem
-// rótulo para o leitor de telas anunciar.
-func TestTituloVazioNaoPedeRenome(t *testing.T) {
+// Título vazio é o sinal ACP para restaurar o rótulo automático do app.
+func TestTituloVazioPedeRestaurarRotuloAutomatico(t *testing.T) {
 	var pedidos []pedidoDeRenome
 	handler := handlerComRenome(t, nil, &pedidos)
 
 	handler.OnAgentTitle("   ")
 
-	if len(pedidos) != 0 {
-		t.Fatalf("pediu renome com título vazio: %+v", pedidos)
+	if len(pedidos) != 1 || pedidos[0].title != "" {
+		t.Fatalf("limpeza do título não chegou ao interactor: %+v", pedidos)
 	}
 }
 

@@ -401,7 +401,8 @@ type acpTurn struct {
 	thinking  bool
 	// title é o nome que o agente deu à sessão, já saneado. Entregue depois do
 	// turno, e não durante: ver o comentário em update.
-	title string
+	title      string
+	titleClear bool
 	// segmentPending diz que há texto escrito depois do último corte, e é o que
 	// impede um segmento vazio quando o agente emenda uma ferramenta na outra.
 	segmentPending bool
@@ -448,6 +449,7 @@ func (t *acpTurn) update(update acp.Update) {
 		// roda na goroutine de entrega do transporte — enquanto ele não volta, o
 		// protocolo do agente fica parado (AEP-0084 D8). O último título vale,
 		// porque o agente refina o dele conforme o turno avança.
+		t.titleClear = update.TitleCleared
 		t.title = acp.SanitizeLabel(update.Title)
 	case acp.UpdateUnsupportedOutput:
 		if !t.outputNoticeSent {
@@ -639,7 +641,7 @@ func (t *acpTurn) response() string {
 // entrega as atualizações do protocolo. Handler que não sabe receber título
 // simplesmente não recebe: renomear é conveniência, e nenhum turno depende dela.
 func (t *acpTurn) deliverTitle() {
-	if strings.TrimSpace(t.title) == "" {
+	if strings.TrimSpace(t.title) == "" && !t.titleClear {
 		return
 	}
 	if sink, ok := t.handler.(AgentTitleSink); ok {

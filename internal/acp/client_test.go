@@ -66,6 +66,26 @@ func findOption(options []ConfigOption, category string) *ConfigOption {
 	return nil
 }
 
+func TestSessionTitleClearedDistinguishesNullFromOmitted(t *testing.T) {
+	casos := []struct {
+		nome string
+		json string
+		want bool
+	}{
+		{nome: "null explícito", json: `{"sessionId":"s","update":{"sessionUpdate":"session_info_update","title":null}}`, want: true},
+		{nome: "campo ausente", json: `{"sessionId":"s","update":{"sessionUpdate":"session_info_update"}}`},
+		{nome: "título preenchido", json: `{"sessionId":"s","update":{"sessionUpdate":"session_info_update","title":"Plano"}}`},
+		{nome: "outra atualização", json: `{"sessionId":"s","update":{"sessionUpdate":"agent_message_chunk","title":null}}`},
+	}
+	for _, caso := range casos {
+		t.Run(caso.nome, func(t *testing.T) {
+			if got := sessionTitleCleared(json.RawMessage(caso.json)); got != caso.want {
+				t.Errorf("sessionTitleCleared = %t, quer %t", got, caso.want)
+			}
+		})
+	}
+}
+
 type scriptedHandler struct {
 	mu       sync.Mutex
 	requests []PermissionRequest
