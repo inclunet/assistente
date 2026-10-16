@@ -6,6 +6,7 @@ import (
 	"assistente/internal/commandcatalog"
 	"assistente/internal/commandruntime"
 	"assistente/internal/core/ports"
+	"assistente/internal/database"
 	"assistente/internal/logging"
 	"assistente/internal/wailsapi"
 	"assistente/internal/workspace"
@@ -571,6 +572,7 @@ func (a *App) wireLLMModels() {
 				}
 			},
 		},
+		database.NewLLMModelCapabilitiesRepository(database.DB()),
 	)
 }
 

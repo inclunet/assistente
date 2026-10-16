@@ -214,6 +214,49 @@ func (r *LLMModelCapabilitiesRepository) ListUnsupportedFieldsForRevision(ctx co
 	return r.listUnsupportedFields(ctx, modelID, compatibilityRevision)
 }
 
+// ListUnsupportedFieldCodesForProviderModel busca restrições atuais por
+// provedor e ID remoto sem criar um registro para um modelo ainda não usado.
+// A autorização do provedor e a revisão são verificadas na mesma transação.
+func (r *LLMModelCapabilitiesRepository) ListUnsupportedFieldCodesForProviderModel(
+	ctx context.Context,
+	providerID string,
+	remoteModelID string,
+	capability llmcapabilities.Capability,
+	expectedRevision int,
+) ([]string, error) {
+	if _, err := RequireUserID(ctx); err != nil {
+		return nil, err
+	}
+	if providerID == "" || remoteModelID == "" || expectedRevision < 1 || !llmcapabilities.HasCapability(capability) {
+		return nil, errors.New("consulta de compatibilidade inválida")
+	}
+	var fields []string
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		revision, err := r.providerRevisionForUser(ctx, tx, providerID)
+		if err != nil {
+			return err
+		}
+		if revision != expectedRevision {
+			return ErrStaleCompatibility
+		}
+		var model LLMModel
+		err = tx.Where("provider_id = ? AND remote_id = ?", providerID, remoteModelID).Take(&model).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			fields = []string{}
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		return tx.Table("llm_model_capability_fields AS f").
+			Joins("JOIN llm_model_capabilities AS c ON c.id = f.capability_id").
+			Where("c.model_id = ? AND c.capability_code = ? AND f.compatibility_revision = ?", model.ID, capability, revision).
+			Order("f.field_code COLLATE BINARY").
+			Pluck("f.field_code", &fields).Error
+	})
+	return fields, err
+}
+
 func (r *LLMModelCapabilitiesRepository) listUnsupportedFields(ctx context.Context, modelID string, expectedRevision int) ([]UnsupportedField, error) {
 	if _, err := RequireUserID(ctx); err != nil {
 		return nil, err

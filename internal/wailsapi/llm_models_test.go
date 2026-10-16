@@ -9,8 +9,13 @@ import (
 	"strings"
 	"testing"
 
+	"assistente/internal/database"
+	"assistente/internal/llm"
+	"assistente/internal/llmcapabilities"
 	"assistente/internal/profiles"
 	"assistente/internal/providers"
+	"github.com/glebarez/sqlite"
+	"gorm.io/gorm"
 )
 
 func TestLLMModelsNotWired(t *testing.T) {
@@ -32,6 +37,9 @@ func TestLLMModelsNotWired(t *testing.T) {
 	if _, err := api.GetModelCatalogByProvider("x"); !errors.Is(err, ErrLLMModelsNotWired) {
 		t.Fatalf("GetModelCatalogByProvider: got %v", err)
 	}
+	if _, err := api.GetUnsupportedProfileChatFields("provider", "model"); !errors.Is(err, ErrLLMModelsNotWired) {
+		t.Fatalf("GetUnsupportedProfileChatFields: got %v", err)
+	}
 	if _, err := api.RefreshModelCatalogByProvider("x"); !errors.Is(err, ErrLLMModelsNotWired) {
 		t.Fatalf("RefreshModelCatalogByProvider: got %v", err)
 	}
@@ -40,6 +48,76 @@ func TestLLMModelsNotWired(t *testing.T) {
 	}
 	if err := api.CancelStreamingExecution("c1", "execution-1"); !errors.Is(err, ErrLLMModelsNotWired) {
 		t.Fatalf("CancelStreamingExecution: got %v", err)
+	}
+}
+
+func TestGetUnsupportedProfileChatFieldsResolvesDefaultSelections(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file:"+strings.ReplaceAll(t.Name(), "/", "_")+"?mode=memory&cache=shared"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&database.LLMProvider{}, &database.CredentialEntry{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.MigrateLLMModelCapabilities(db); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx := database.WithUserID(context.Background(), "owner")
+	providerConfigs := []*llm.ProviderConfig{
+		{ID: "default-provider", Name: "Default", Type: llm.ProviderOpenAI, BaseURL: "https://api.openai.com/v1", APIFormat: llm.APIFormatOpenAI, DefaultModel: "default-model", CompatibilityRevision: 1},
+		{ID: "selected-provider", Name: "Selected", Type: llm.ProviderOpenAI, BaseURL: "https://selected.example/v1", APIFormat: llm.APIFormatOpenAI, DefaultModel: "selected-model", CompatibilityRevision: 1},
+	}
+	registry := llm.NewProviderRegistry()
+	store := providers.NewMemoryStore()
+	if err := store.Save(ctx, providerConfigs); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetDefault(ctx, "default-provider"); err != nil {
+		t.Fatal(err)
+	}
+	for _, config := range providerConfigs {
+		if err := registry.Register(config); err != nil {
+			t.Fatal(err)
+		}
+		provider := &database.LLMProvider{
+			ID: config.ID, UserID: "owner", Name: config.Name, Type: string(config.Type),
+			BaseURL: config.BaseURL, APIFormat: string(config.APIFormat), DefaultModel: config.DefaultModel,
+			CompatibilityRevision: 1,
+		}
+		if err := database.NewProviderRepository(db).SaveLLMProvider(ctx, provider); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	capabilities := database.NewLLMModelCapabilitiesRepository(db)
+	for _, item := range []struct{ providerID, modelID string }{
+		{"default-provider", "default-model"},
+		{"selected-provider", "selected-model"},
+	} {
+		model, err := capabilities.SaveModel(ctx, item.providerID, item.modelID, item.modelID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := capabilities.RecordUnsupportedField(ctx, model.ID, llmcapabilities.CapabilityChatCompletions, llmcapabilities.FieldTemperature, 1, "openai.chat.invalid_request:v1"); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	api := NewLLMModels()
+	AttachLLMModels(api, stubSession{ctx: ctx}, providers.NewService(providers.ServiceConfig{Registry: registry, Store: store}), profiles.NewManager(), LLMModelsHooks{}, capabilities)
+	for _, selection := range []struct{ providerID, modelID string }{
+		{profiles.DefaultProviderSentinel, "default-model"},
+		{"selected-provider", profiles.DefaultProviderSentinel},
+		{profiles.DefaultProviderSentinel, profiles.DefaultProviderSentinel},
+	} {
+		fields, err := api.GetUnsupportedProfileChatFields(selection.providerID, selection.modelID)
+		if err != nil {
+			t.Fatalf("seleção (%q, %q): %v", selection.providerID, selection.modelID, err)
+		}
+		if len(fields) != 1 || fields[0] != string(llmcapabilities.FieldTemperature) {
+			t.Fatalf("seleção (%q, %q): campos = %v; esperado temperature", selection.providerID, selection.modelID, fields)
+		}
 	}
 }
 
@@ -52,6 +130,7 @@ func TestLLMModelsCancelStreamingRequiresHook(t *testing.T) {
 		providers.NewService(providers.ServiceConfig{}),
 		profiles.NewManager(),
 		LLMModelsHooks{}, // CancelStreaming nil
+		nil,
 	)
 	if err := api.CancelStreamingForConversation("c1"); !errors.Is(err, ErrLLMModelsNotWired) {
 		t.Fatalf("CancelStreaming sem hook: got %v, quer ErrLLMModelsNotWired", err)
@@ -84,7 +163,7 @@ func TestLLMModelsCancelExecutionRequiresHook(t *testing.T) {
 		providers.NewService(providers.ServiceConfig{}), profiles.NewManager(),
 		LLMModelsHooks{CancelStreaming: func(string) {
 			t.Fatal("cancelamento identificado não deve usar o hook da conversa")
-		}})
+		}}, nil)
 	if err := api.CancelStreamingExecution("c1", "execution-1"); !errors.Is(err, ErrLLMModelsNotWired) {
 		t.Fatalf("CancelExecution sem hook: got %v, quer ErrLLMModelsNotWired", err)
 	}
@@ -104,7 +183,7 @@ func TestLLMModelsCancelExecutionForwardsIdentity(t *testing.T) {
 					t.Fatalf("identidade recebida = (%q, %q)", conversationID, executionID)
 				}
 			},
-		})
+		}, nil)
 	if err := api.CancelStreamingExecution("c1", "execution-2"); err != nil {
 		t.Fatal(err)
 	}
@@ -126,6 +205,7 @@ func TestLLMModelsAuthRejectsWhenSessionFails(t *testing.T) {
 			CancelStreaming: func(string) { t.Error("hook executado sem autenticação") },
 			CancelExecution: func(string, string) { t.Error("hook identificado executado sem autenticação") },
 		},
+		database.NewLLMModelCapabilitiesRepository(nil),
 	)
 
 	casos := []struct {
@@ -150,6 +230,10 @@ func TestLLMModelsAuthRejectsWhenSessionFails(t *testing.T) {
 		}},
 		{"GetModelCatalogByProvider", func() error {
 			_, err := api.GetModelCatalogByProvider("x")
+			return err
+		}},
+		{"GetUnsupportedProfileChatFields", func() error {
+			_, err := api.GetUnsupportedProfileChatFields("provider", "model")
 			return err
 		}},
 		{"RefreshModelCatalogByProvider", func() error {
