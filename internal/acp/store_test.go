@@ -2,6 +2,7 @@ package acp
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"assistente/internal/database"
@@ -16,8 +17,21 @@ func bancoDeTeste(t *testing.T) *gorm.DB {
 	if err != nil {
 		t.Fatalf("abrir banco: %v", err)
 	}
-	if err := db.AutoMigrate(&database.User{}, &database.ACPSession{}); err != nil {
+	if err := db.AutoMigrate(&database.User{}, &database.Conversation{}, &database.ACPSession{}); err != nil {
 		t.Fatalf("automigrate: %v", err)
+	}
+	for id, userID := range map[string]string{
+		"conv-1":   "user-ana",
+		"conv-2":   "user-ana",
+		"conv-leo": "user-leo",
+	} {
+		if err := db.Create(&database.Conversation{
+			UUIDModel: database.UUIDModel{ID: id},
+			UserID:    userID,
+			Title:     id,
+		}).Error; err != nil {
+			t.Fatalf("seed conversation %s: %v", id, err)
+		}
 	}
 	return db
 }
@@ -147,6 +161,21 @@ func TestVinculoDaSessaoSobreviveAoIdaEVoltaDoBanco(t *testing.T) {
 	}
 }
 
+func TestSessaoNaoEhGravadaParaConversaExcluida(t *testing.T) {
+	store, db, ana, _ := setupStoreTest(t)
+	if err := db.Delete(&database.Conversation{}, "id = ?", "conv-1").Error; err != nil {
+		t.Fatal(err)
+	}
+	err := store.Save(ana, StoredSession{
+		ConversationID: "conv-1",
+		ProviderID:     "cursor",
+		SessionID:      "sess-órfã",
+	})
+	if !errors.Is(err, database.ErrConversationDeleted) {
+		t.Fatalf("erro=%v, esperado conversa deletada", err)
+	}
+}
+
 func TestConversaSemSessaoRegistradaNaoEhErro(t *testing.T) {
 	store, _, ana, _ := setupStoreTest(t)
 
@@ -178,15 +207,22 @@ func TestSessaoDeUmUsuarioNaoApareceParaOutro(t *testing.T) {
 	if got != nil {
 		t.Fatalf("sessão da ana vazou para o leo: %+v", *got)
 	}
-
-	// E o mesmo par conversa+provider pode existir para os dois.
 	if err := store.Save(leo, StoredSession{
 		ConversationID: "conv-1",
+		ProviderID:     "cursor",
+		SessionID:      "sess-inválida",
+	}); !errors.Is(err, database.ErrConversationDeleted) {
+		t.Fatalf("gravação cross-user: erro=%v", err)
+	}
+
+	// Cada usuário grava apenas na própria conversa.
+	if err := store.Save(leo, StoredSession{
+		ConversationID: "conv-leo",
 		ProviderID:     "cursor",
 		SessionID:      "sess-do-leo",
 		WorkDir:        "/projeto",
 	}); err != nil {
-		t.Fatalf("gravar leo: %v", err)
+		t.Fatalf("gravar conversa do leo: %v", err)
 	}
 	daAna, err := store.Load(ana, "conv-1", "cursor")
 	if err != nil || daAna == nil {
@@ -233,7 +269,7 @@ func TestLimparTudoNaoPassaPorCimaDasSessoesDeOutroUsuario(t *testing.T) {
 		}
 	}
 	if err := store.Save(leo, StoredSession{
-		ConversationID: "conv-1",
+		ConversationID: "conv-leo",
 		ProviderID:     "cursor",
 		SessionID:      "sess-do-leo",
 		WorkDir:        "/projeto",
@@ -254,7 +290,7 @@ func TestLimparTudoNaoPassaPorCimaDasSessoesDeOutroUsuario(t *testing.T) {
 			t.Fatalf("sessão de %s sobreviveu à limpeza geral", conversa)
 		}
 	}
-	doLeo, err := store.Load(leo, "conv-1", "cursor")
+	doLeo, err := store.Load(leo, "conv-leo", "cursor")
 	if err != nil || doLeo == nil {
 		t.Fatalf("a limpeza de uma pessoa levou junto a sessão da outra: %v", err)
 	}

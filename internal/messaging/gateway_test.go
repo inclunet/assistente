@@ -67,6 +67,13 @@ func TestMain(m *testing.M) {
 	if err := database.Init(); err != nil {
 		panic(err)
 	}
+	if err := database.DB().Create(&database.User{
+		UUIDModel:    database.UUIDModel{ID: "test-owner"},
+		Username:     "test-owner",
+		PasswordHash: "test-only",
+	}).Error; err != nil {
+		panic(err)
+	}
 	channels.UseDatabase(database.DB())
 	contacts.UseDatabase(database.DB())
 
@@ -76,6 +83,43 @@ func TestMain(m *testing.M) {
 	_ = os.Chdir(oldWd)
 	_ = os.RemoveAll(tempDir)
 	os.Exit(code)
+}
+
+func seedLegacyChannelWithoutOwner(t *testing.T) {
+	t.Helper()
+	sqlDB, err := database.DB().DB()
+	if err != nil {
+		t.Fatalf("abrir pool do banco: %v", err)
+	}
+	connection, err := sqlDB.Conn(context.Background())
+	if err != nil {
+		t.Fatalf("reservar conexão do banco: %v", err)
+	}
+	foreignKeysDisabled := false
+	defer func() {
+		if foreignKeysDisabled {
+			_, _ = connection.ExecContext(context.Background(), "PRAGMA foreign_keys = ON")
+		}
+		_ = connection.Close()
+	}()
+	if _, err := connection.ExecContext(context.Background(), "PRAGMA foreign_keys = OFF"); err != nil {
+		t.Fatalf("preparar fixture legado: %v", err)
+	}
+	foreignKeysDisabled = true
+	now := time.Now().UTC()
+	if _, err := connection.ExecContext(context.Background(), `
+		INSERT INTO channels (
+			id, created_at, updated_at, user_id, type, slug, display_name, enabled,
+			profile, max_history, max_contacts, settings, bot_token_ref, app_token_ref, api_token_ref
+		) VALUES ('legacy-without-owner', ?, ?, '', 'telegram', 'telegram', 'Telegram', 1, '', 0, 1, '{}', '', '', '')
+	`, now, now); err != nil {
+		t.Fatalf("criar fixture de canal legado: %v", err)
+	}
+	if _, err := connection.ExecContext(context.Background(), "PRAGMA foreign_keys = ON"); err != nil {
+		t.Fatalf("restaurar foreign_keys após fixture: %v", err)
+	}
+	foreignKeysDisabled = false
+	channels.ClearOwnerCache()
 }
 
 func resetState(t *testing.T) {
@@ -330,12 +374,21 @@ func TestGateway_ReplyChatIDUsedForOutbound(t *testing.T) {
 // depois; até lá, falhar fechado é melhor que vazar para órfão.
 func TestGateway_LegacyChannelWithoutOwnerRejectsMessage(t *testing.T) {
 	resetState(t)
-
-	if err := channels.Save("telegram", &channels.ChannelConfig{Enabled: true, MaxContacts: 1}); err != nil {
-		t.Fatalf("erro ao salvar channel config: %v", err)
+	seedLegacyChannelWithoutOwner(t)
+	channelID, _, err := channels.ChannelIDBySlug("telegram")
+	if err != nil {
+		t.Fatalf("erro ao localizar canal legado: %v", err)
 	}
-	if err := contacts.Authorize("telegram", "123", "Fulano", "user", 1); err != nil {
-		t.Fatalf("erro ao autorizar contato: %v", err)
+	authorizedAt := time.Now().UTC()
+	if err := database.DB().Create(&database.ChannelContact{
+		UserID:       "test-owner",
+		ChannelID:    channelID,
+		ExternalID:   "123",
+		DisplayName:  "Fulano",
+		Username:     "user",
+		AuthorizedAt: &authorizedAt,
+	}).Error; err != nil {
+		t.Fatalf("erro ao criar contato fixture: %v", err)
 	}
 
 	called := 0
@@ -417,10 +470,15 @@ func TestGateway_SendMessageErrorCancelsCallback(t *testing.T) {
 	defer notifier.Stop()
 
 	fake := &fakeMessenger{name: "telegram", status: StatusConnected, sentCh: make(chan OutgoingMessage, 1)}
+	var correlatedError map[string]any
 
 	gateway := NewGateway(notifier, func(ctx context.Context, conversationID string, content, media string, params llm.ChatParams, source string) (string, error) {
 		return conversationID, fmt.Errorf("falha simulada")
-	}, nil, nil, nil, nil)
+	}, func(event string, data any) {
+		if event == "chat:error" {
+			correlatedError, _ = data.(map[string]any)
+		}
+	}, nil, nil, nil)
 	gateway.Register("telegram", fake)
 
 	gateway.handleIncoming(context.Background(), IncomingMessage{
@@ -439,6 +497,10 @@ func TestGateway_SendMessageErrorCancelsCallback(t *testing.T) {
 
 	if notifier.PendingCount() != 0 {
 		t.Fatalf("callback não cancelado após erro de sendMessage — leak (pending=%d)", notifier.PendingCount())
+	}
+	origin, _ := correlatedError["surfaceOrigin"].(map[string]any)
+	if correlatedError["conversationId"] == "" || origin["executionId"] == "" || origin["surfaceId"] != "external:telegram:123" || origin["surfaceType"] != "external" {
+		t.Fatalf("chat:error sem origem externa correlacionada: %+v", correlatedError)
 	}
 }
 
@@ -775,6 +837,13 @@ func TestGateway_ChannelOwnerScopesConversation(t *testing.T) {
 	resetState(t)
 
 	const ownerID = "user-ana"
+	if err := database.DB().Create(&database.User{
+		UUIDModel:    database.UUIDModel{ID: ownerID},
+		Username:     ownerID,
+		PasswordHash: "test-only",
+	}).Error; err != nil {
+		t.Fatalf("erro ao criar owner do teste: %v", err)
+	}
 	if err := channels.Save("telegram", &channels.ChannelConfig{
 		Enabled:     true,
 		MaxContacts: 1,
@@ -955,10 +1024,15 @@ func TestGateway_MaxHistoryOverridesContextMessages(t *testing.T) {
 	defer notifier.Stop()
 
 	var gotParams llm.ChatParams
+	var incomingEvent map[string]any
 	gateway := NewGateway(notifier, func(ctx context.Context, conversationID string, content, media string, params llm.ChatParams, source string) (string, error) {
 		gotParams = params
 		return conversationID, nil
-	}, nil, nil, nil, nil)
+	}, func(event string, data any) {
+		if event == "messaging:incoming" {
+			incomingEvent, _ = data.(map[string]any)
+		}
+	}, nil, nil, nil)
 	fake := &fakeMessenger{name: "telegram", status: StatusConnected}
 	gateway.Register("telegram", fake)
 
@@ -970,5 +1044,11 @@ func TestGateway_MaxHistoryOverridesContextMessages(t *testing.T) {
 
 	if gotParams.MaxContextMessages != 17 {
 		t.Fatalf("MaxContextMessages = %d, want 17 (max_history do canal)", gotParams.MaxContextMessages)
+	}
+	if gotParams.SurfaceExecutionID == "" || gotParams.SurfaceExecutionID != incomingEvent["traceId"] {
+		t.Fatalf("SurfaceExecutionID = %q, evento traceId = %v", gotParams.SurfaceExecutionID, incomingEvent["traceId"])
+	}
+	if gotParams.SurfaceID != "external:telegram:123" || gotParams.SurfaceSessionKey != "external:telegram:123:"+incomingEvent["conversationId"].(string) || gotParams.SurfaceType != "external" {
+		t.Fatalf("origem externa inválida: %+v", gotParams)
 	}
 }

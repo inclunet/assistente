@@ -9,10 +9,17 @@ import (
 	"net/http"
 	"sort"
 	"strings"
-	"time"
 )
 
 func (p *OpenAIProvider) GetModels(ctx context.Context) ([]string, error) {
+	if p.provider.Type == ProviderChatGPT {
+		options, err := p.chatGPTModels(ctx)
+		ids := make([]string, 0, len(options))
+		for _, m := range options {
+			ids = append(ids, m.Value)
+		}
+		return ids, err
+	}
 	// Tenta via SDK primeiro
 	models, err := p.getModelsSDK(ctx)
 	if err == nil {
@@ -65,7 +72,6 @@ func (p *OpenAIProvider) getModelsHTTP(ctx context.Context) ([]string, error) {
 	}
 
 	client := newHTTPClientForProvider(p.provider, p.credMgr)
-	client.Timeout = 15 * time.Second
 
 	resp, err := client.Do(req)
 	if err != nil {

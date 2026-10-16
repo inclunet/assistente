@@ -46,12 +46,10 @@ const chatStoreState = {
   updateConversationMessage: vi.fn(),
   clearConversationMessages: vi.fn(),
   startConversationEditing: vi.fn(),
-  startConversationReading: vi.fn(),
   setConversationDraftMessage: setConversationDraftMessageMock,
   setConversationDraftMediaFiles: setConversationDraftMediaFilesMock,
   clearConversationDraft: vi.fn(),
   setConversationEditingMessageId: vi.fn(),
-  setConversationReadingMessageId: vi.fn(),
   toggleConversationThreadExpanded: vi.fn(),
   toggleConversationReasoningExpanded: vi.fn(),
   isConversationReasoningExpanded: vi.fn(() => false),
@@ -245,7 +243,6 @@ describe('ChatSessionProvider', () => {
         expandedThreads: new Set(),
         expandedReasonings: new Set(),
         editingMessageId: null,
-        readingMessageId: null,
         skipFocusRestore: false,
       },
     };
@@ -344,7 +341,6 @@ describe('ChatSessionProvider', () => {
         expandedThreads: new Set(),
         expandedReasonings: new Set(),
         editingMessageId: null,
-        readingMessageId: null,
         skipFocusRestore: false,
       },
     };
@@ -387,7 +383,6 @@ describe('ChatSessionProvider', () => {
         expandedThreads: new Set(),
         expandedReasonings: new Set(),
         editingMessageId: null,
-        readingMessageId: null,
         skipFocusRestore: false,
       },
       [`editor-b:${currentConversationId}`]: {
@@ -410,7 +405,6 @@ describe('ChatSessionProvider', () => {
         expandedThreads: new Set(),
         expandedReasonings: new Set(),
         editingMessageId: null,
-        readingMessageId: null,
         skipFocusRestore: false,
       },
     };

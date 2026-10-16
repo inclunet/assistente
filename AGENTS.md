@@ -17,11 +17,12 @@ Toda feature ou correção não-trivial segue este fluxo, sem exceções:
 2. **Isole o trabalho**: crie um git worktree próprio com branch descritiva a partir de `origin/main` (ex.: `git worktree add ../assistente-wt-<tema> -b <tipo>/<tema> origin/main`). Não trabalhe direto na `main`.
 3. **Commits temáticos em português**, um assunto por commit.
 4. **Valide localmente antes do push**: backend `go build ./...`, `go vet ./...`, `go test ./...` (e `golangci-lint run` se disponível); frontend `tsc --noEmit`, eslint, stylelint e `npm test` (vitest).
-5. **Abra um PR para `main`** com título e corpo em português (motivação, mudanças, testes). Um PR por assunto; prefira PRs pequenos. Se um PR depende de outro ainda aberto, empilhe (base = branch do PR dependido) e informe a ordem de merge no corpo.
-6. **Acompanhe o CI até ficar verde** (`gh pr checks <n> --watch`). Corrija falhas e repita.
-7. **Loop de review até zerar**: a review do Copilot é solicitada automaticamente (ruleset do repositório, incluindo novos pushes). Se não houver review automática, solicite via `gh api repos/<owner>/<repo>/pulls/<n>/requested_reviewers -X POST -f "reviewers[]=copilot-pull-request-reviewer[bot]"`. Para cada comentário: corrija (ou justifique tecnicamente se for falso positivo — de preferência com teste que prove), responda a thread e marque como resolvida. Repita até **zero threads não resolvidas com CI verde**.
-8. **Nunca faça merge do PR.** O merge é decisão do dono do projeto.
-9. Ao final, reporte: número/URL do PR, o que mudou, resultado de testes/checks e rodadas de review.
+5. **Zere o review local do Bugbot ou recurso equivalente antes do primeiro push**: rode o Bugbot ou um revisor independente equivalente sobre o diff completo (por exemplo, outro agente que não implementou as mudanças), corrija ou justifique tecnicamente todos os achados e repita até não haver pendências. Registre qual revisor foi usado, as rodadas e o resultado. A revisão não substitui os testes. Não abra o PR nem acione review remota enquanto houver pendências locais.
+6. **Abra um PR para `main`** com título e corpo em português (motivação, mudanças, testes). Um PR por assunto; prefira PRs pequenos. Se um PR depende de outro ainda aberto, empilhe (base = branch do PR dependido) e informe a ordem de merge no corpo.
+7. **Acompanhe o CI até ficar verde** (`gh pr checks <n> --watch`). Corrija falhas e repita.
+8. **Loop de review até zerar, preservando a cota remota**: a review do Copilot é solicitada automaticamente pelo ruleset, inclusive após novos pushes. Para cada rodada, reúna todos os comentários, corrija ou justifique tecnicamente cada um (de preferência com teste que prove), valide localmente e zere novamente o Bugbot ou recurso equivalente **antes de fazer um único push consolidado**. Responda e resolva todas as threads e acompanhe o novo CI até ficar verde. Só solicite review manual via `gh api repos/<owner>/<repo>/pulls/<n>/requested_reviewers -X POST -f "reviewers[]=copilot-pull-request-reviewer[bot]"` quando não houver review automática após o push; nunca use commits vazios nem pedidos repetidos apenas para disparar review. Encerre somente com **zero threads não resolvidas e CI verde**.
+9. **Nunca faça merge do PR.** O merge é decisão do dono do projeto.
+10. Ao final, reporte: número/URL do PR, o que mudou, resultado de testes/checks e rodadas do revisor local (Bugbot ou equivalente, identificado) e review remota.
 
 ## Testes (não deixar feature descoberta)
 - Sempre verificar se a mudança/feature está coberta por testes.
@@ -33,6 +34,42 @@ Toda feature ou correção não-trivial segue este fluxo, sem exceções:
 ### Regras rígidas
 - Nunca deletar testes para "resolver" falhas.
 - Nunca simplificar testes para facilitar aprovação; corrigir o código é sempre o caminho.
+
+## Executáveis e diretórios de build (OBRIGATÓRIO)
+
+- **NUNCA** direcione executáveis, binários de teste, bibliotecas carregáveis ou
+  scripts executáveis para pastas temporárias do sistema (`%TEMP%`, `%TMP%`,
+  `AppData/Local/Temp`, `/tmp`, `/var/tmp` ou equivalentes), nem os execute dali.
+  Isso inclui saídas intermediárias e executáveis criados automaticamente por
+  compiladores, geradores, testes e ferramentas auxiliares.
+- Use diretórios de build dentro do worktree ativo, sob `build/bin/` (já ignorado
+  pelo Git). Não versione artefatos nem altere a configuração global da máquina.
+- **Antes** de comandos que possam compilar ou executar artefatos (`go build`,
+  `go test`, `go run`, `go vet`, Wails, linters e geradores), configure os diretórios
+  no ambiente do processo e dos filhos. Go exige `GOTMPDIR` e `GOCACHE` fora da
+  pasta temporária do sistema; apenas `go test -o` não controla os intermediários.
+- Configure também `TEMP`, `TMP` e `TMPDIR` para um diretório de trabalho sob
+  `build/bin/`, para cobrir subprocessos e helpers que usam o diretório temporário
+  padrão. Reaplique as variáveis em cada shell novo; não presuma persistência.
+- Em PowerShell, a partir da raiz do worktree:
+
+  ```powershell
+  $agentBuildRoot = Join-Path (Get-Location).Path 'build/bin/agent-build'
+  'go-work', 'go-cache', 'scratch' | ForEach-Object {
+      New-Item -ItemType Directory -Force -Path (Join-Path $agentBuildRoot $_) | Out-Null
+  }
+  $env:GOTMPDIR = Join-Path $agentBuildRoot 'go-work'
+  $env:GOCACHE = Join-Path $agentBuildRoot 'go-cache'
+  $env:TEMP = $env:TMP = $env:TMPDIR = Join-Path $agentBuildRoot 'scratch'
+  ```
+
+- Em outros shells, aplique as mesmas variáveis com caminhos absolutos no worktree.
+  Confira os caminhos efetivos antes de compilar; saídas explícitas de binários
+  (`-o`) e intermediários executáveis de geradores também ficam sob `build/bin/`.
+  Código-fonte gerado e versionado mantém seu destino contratual, como
+  `frontend/wailsjs/`. Se uma ferramenta ignorar a configuração dos executáveis,
+  corrija seu destino antes de executá-la; não use a pasta temporária do sistema
+  como fallback.
 
 ## Logs (performance + ruído)
 - Evite adicionar `console.log` em código de produção.
@@ -86,6 +123,21 @@ de telas.
 - Ao adicionar cores, sempre verificar contraste suficiente
 
 ### Navegação por teclado
+
+- **Atalhos de comandos do aplicativo passam pelo AEP-0103**: registrar comando,
+  fontes e binding padrão no catálogo/resolvedor; conectar a ação ao executor
+  ou registro de apresentação existente. Não criar `keydown` global, `onKeyDown`
+  de página ou hook paralelo que compare uma combinação e execute a ação.
+- Ctrl+N em gerenciadores cria o item do contexto ativo pelo mapa de comandos;
+  não criar fallback hardcoded se o mapa não estiver pronto, for suprimido ou
+  negar o comando. Preservar usuário/sessão, IME, foco e ownership do modal.
+- Gestos nativos de componentes (Tab, setas, Escape, edição/captura de texto)
+  não são automaticamente comandos do aplicativo. Reutilizar componentes;
+  qualquer exceção de atalho exige contrato e justificativa no AEP, mais teste.
+- Ao adicionar atalho, provar o percurso binding → resolvedor → ação e as
+  recusas fora do contexto/atrás de modal. Não remover essas guardas ou testes
+  para habilitar um atalho. A regra também vale para código gerado por agentes.
+
 - Todo elemento interativo DEVE ser acessível por Tab
 - Menus: setas para navegar, Enter para selecionar, ESC para fechar
 - Foco DEVE ser restaurado ao fechar modais/menus

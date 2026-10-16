@@ -37,7 +37,18 @@ type EffectiveToolPolicy struct {
 	unavailable bool
 }
 
+// ResolveEffectiveToolPolicy resolve a política efetiva de tools do perfil e, por
+// cima dela, aplica o escopo do skill invocado no turno (allowlist/denylist), que é
+// a mesma fonte de verdade do gate do executor. Assim, tools bloqueadas pelo skill
+// não são anunciadas ao modelo em NENHUM dos pontos que consultam esta política
+// (defs iniciais, expansão dinâmica, catálogo e control-plane).
 func (p *ToolSelectionPolicy) ResolveEffectiveToolPolicy(cfg ProfileToolConfig) EffectiveToolPolicy {
+	policy := p.resolveProfileToolPolicy(cfg)
+	policy.applySkillScope(cfg.SkillAllowedTools, cfg.SkillDeniedTools)
+	return policy
+}
+
+func (p *ToolSelectionPolicy) resolveProfileToolPolicy(cfg ProfileToolConfig) EffectiveToolPolicy {
 	policy := EffectiveToolPolicy{
 		states:   map[string]ToolPolicyState{},
 		registry: p.registry,
@@ -121,6 +132,58 @@ func (p *ToolSelectionPolicy) applyLegacyAllowlist(policy *EffectiveToolPolicy, 
 	}
 	allowRuntime := hasExplicitAuthorization && p.registry.Has(tools.ToolCatalogName)
 	policy.applyRuntimeTools(cfg.RuntimeTools, allowRuntime)
+}
+
+// applySkillScope rebaixa para disabled toda tool que o skill invocado bloqueia:
+// presente na denylist, ou — quando a allowlist é não-vazia — ausente dela. É a
+// contraparte, na seleção de tools anunciadas, do gate de execução
+// (tools.validateExecutionContextToolAccess), usando exatamente as mesmas listas.
+// Sem allowlist nem denylist o método é no-op, preservando o comportamento legado.
+func (p *EffectiveToolPolicy) applySkillScope(allowed, denied []string) {
+	if len(allowed) == 0 && len(denied) == 0 {
+		return
+	}
+	if p.disabled || p.unavailable {
+		return
+	}
+	var allowSet map[string]struct{}
+	if len(allowed) > 0 {
+		allowSet = make(map[string]struct{}, len(allowed))
+		for _, name := range allowed {
+			if name = strings.TrimSpace(name); name != "" {
+				allowSet[name] = struct{}{}
+			}
+		}
+	}
+	deniedSet := make(map[string]struct{}, len(denied))
+	for _, name := range denied {
+		if name = strings.TrimSpace(name); name != "" {
+			deniedSet[name] = struct{}{}
+		}
+	}
+	for name := range p.states {
+		// Deny explícito da skill vence tudo, inclusive o conjunto base
+		// protegido: se o dono da skill negou a tool por nome, ela sai.
+		if _, isDenied := deniedSet[name]; isDenied {
+			p.states[name] = ToolPolicyDisabled
+			continue
+		}
+		// O conjunto base protegido (mesma fonte de verdade do gate de execução,
+		// tools.IsProtectedBaseTool) é isento do narrowing IMPLÍCITO da
+		// allowlist da skill. Assim, control-plane (tool_catalog, load_skill) e
+		// base de runtime seguem anunciados/carregáveis mesmo quando a skill
+		// declara uma allowlist focada no seu domínio, mantendo prompt↔defs
+		// coerentes (inclusive no caminho catalog-first). Só não elevamos nada:
+		// o estado disabled do perfil (AEP-0081 D2) permanece intocado.
+		if tools.IsProtectedBaseTool(name) {
+			continue
+		}
+		if allowSet != nil {
+			if _, ok := allowSet[name]; !ok {
+				p.states[name] = ToolPolicyDisabled
+			}
+		}
+	}
 }
 
 func (p EffectiveToolPolicy) State(name string) ToolPolicyState {

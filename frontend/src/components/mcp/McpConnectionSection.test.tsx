@@ -56,9 +56,6 @@ const baseProps: ComponentProps<typeof McpConnectionSection> = {
   autoConnect: true,
   preferBridge: false,
   authType: 'oauth2_pkce',
-  authToken: '',
-  authUsername: '',
-  authPassword: '',
   hasExistingAuth: false,
   oauth2ClientId: 'my-client',
   oauth2ClientSecret: '',
@@ -78,9 +75,6 @@ const baseProps: ComponentProps<typeof McpConnectionSection> = {
   onAutoConnectChange: noop,
   onPreferBridgeChange: noop,
   onAuthTypeChange: noop,
-  onAuthTokenChange: noop,
-  onAuthUsernameChange: noop,
-  onAuthPasswordChange: noop,
   onOAuth2ClientIdChange: noop,
   onOAuth2ClientSecretChange: noop,
   onOAuth2TokenUrlChange: noop,
@@ -133,14 +127,39 @@ describe('McpConnectionSection — Discovery states', () => {
     expect(screen.getByText(/Client ID será registrado via DCR/)).toBeInTheDocument();
   });
 
-  it('sem DCR: exibe campos Client ID e Client Secret', () => {
+  it('sem DCR: exibe dados autocompletados e o fluxo efetivo sem abrir modo manual', () => {
     renderWith({
       discoveryStatus: 'found',
       discoveryRegistrationUrl: '',
     });
     expect(screen.getByLabelText(/Client ID/)).toBeInTheDocument();
     expect(screen.getByLabelText(/Client Secret/)).toBeInTheDocument();
-    expect(screen.queryByLabelText('Tipo de autenticação')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Tipo de autenticação')).toHaveValue('oauth2_pkce');
+    expect(screen.getByLabelText(/Authorization URL/)).toHaveValue(baseProps.oauth2AuthUrl);
+    expect(screen.getByLabelText(/Token URL/)).toHaveValue(baseProps.oauth2TokenUrl);
+    expect(screen.getByLabelText(/Scopes/)).toHaveValue(baseProps.oauth2Scopes);
+  });
+
+  it('sem DCR: permite corrigir Client Credentials e não promete login no navegador nesse fluxo', async () => {
+    const change = vi.fn();
+    renderWith({ discoveryStatus: 'found', authType: 'oauth2_client_credentials', onAuthTypeChange: change });
+    expect(screen.getByLabelText('Tipo de autenticação')).toHaveValue('oauth2_client_credentials');
+    expect(screen.queryByText(/browser abrirá/)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/Callback Host/)).not.toBeInTheDocument();
+    await userEvent.selectOptions(screen.getByLabelText('Tipo de autenticação'), 'oauth2_pkce');
+    expect(change).toHaveBeenCalledWith('oauth2_pkce');
+  });
+
+  it.each(['oauth2_pkce', 'oauth2_client_credentials'] as const)('sem DCR: orienta migração de cadastro legado %s', (authType) => {
+    renderWith({ discoveryStatus: 'found', authType, oauthManaged: false });
+    expect(screen.getByText(/Abra Diagnóstico OAuth, crie um snapshot/)).toBeInTheDocument();
+    expect(screen.queryByText(/browser abrirá/)).not.toBeInTheDocument();
+  });
+
+  it('sem DCR: orienta navegador somente para PKCE gerenciado', () => {
+    renderWith({ discoveryStatus: 'found', authType: 'oauth2_pkce', oauthManaged: true });
+    expect(screen.getByText(/browser abrirá/)).toBeInTheDocument();
+    expect(screen.queryByText(/Abra Diagnóstico OAuth, crie um snapshot/)).not.toBeInTheDocument();
   });
 
   it('discovery falhou: exibe configuração manual completa', () => {
@@ -353,4 +372,32 @@ describe('McpConnectionSection — Callback Host (discovered, no DCR)', () => {
     });
     expect(screen.getByLabelText('Callback Host')).toBeInTheDocument();
   });
+});
+
+describe('McpConnectionSection — autenticação do cliente no OAuth compartilhado', () => {
+  it('mostra e preserva o método público de um cliente PKCE manual', () => {
+    renderWith({oauthManaged: true, oauth2TokenAuthMethod: 'none'});
+    expect(screen.getByLabelText('Autenticação do cliente OAuth')).toHaveValue('none');
+    expect(screen.getByRole('option', {name: 'Cliente público (sem segredo)'})).toBeInTheDocument();
+  });
+  it('permite escolher HTTP Basic pelo seletor rotulado', async () => {
+    const onChange = vi.fn();
+    renderWith({ oauthManaged: true, oauth2TokenAuthMethod: 'client_secret_post', onOAuth2TokenAuthMethodChange: onChange });
+    await userEvent.selectOptions(screen.getByLabelText('Autenticação do cliente OAuth'), 'client_secret_basic');
+    expect(onChange).toHaveBeenCalledWith('client_secret_basic');
+  });
+  it('preserva o formulário legado sem expor uma opção não aplicada', () => {
+    renderWith({ oauthManaged: false });
+    expect(screen.queryByLabelText('Autenticação do cliente OAuth')).not.toBeInTheDocument();
+  });
+});
+
+it('oculta Basic/Post quando o discovery seleciona DCR público', () => {
+ renderWith({oauthManaged:true, discoveryStatus:'found', discoveryRegistrationUrl:'https://issuer.example/register'});
+ expect(screen.queryByLabelText('Autenticação do cliente OAuth')).not.toBeInTheDocument();
+});
+
+it.each(['manual', 'not_found'] as const)('mantém seletor oculto para DCR salvo no estado %s', (discoveryStatus) => {
+ renderWith({oauthManaged:true, oauthDCRRegistered:true, discoveryStatus, discoveryRegistrationUrl:'https://issuer.example/register'});
+ expect(screen.queryByLabelText('Autenticação do cliente OAuth')).not.toBeInTheDocument();
 });

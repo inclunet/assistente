@@ -5,12 +5,15 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 	"unsafe"
 
 	"assistente/internal/allowlist"
 	"assistente/internal/terminal"
+	"assistente/internal/tools"
+	"assistente/internal/userctx"
 )
 
 // ========== TESTES DE VALIDAÇÃO (sem Manager) ==========
@@ -180,14 +183,16 @@ func TestParameters(t *testing.T) {
 
 // MockSessionManager implementa SessionManager para testes
 type MockSessionManager struct {
-	acquireCalls       int
-	releaseCalls       int
-	closeCalls         int
-	runCommandCalls    int
-	runEphemeralCalls  int
-	runSessionID       string
-	liveSessions       map[string]bool
-	sessionCWD         map[string]string
+	acquireCalls      int
+	releaseCalls      int
+	closeCalls        int
+	runCommandCalls   int
+	runEphemeralCalls int
+	runSessionID      string
+	runCommandText    string
+	runTimeout        time.Duration
+	liveSessions      map[string]bool
+	sessionCWD        map[string]string
 
 	// Controladores de behavior
 	fakeSession *terminal.Session
@@ -221,6 +226,8 @@ func (m *MockSessionManager) Acquire(ctx context.Context, workDir string) (*term
 func (m *MockSessionManager) RunCommand(ctx context.Context, sessionID string, command string, timeout time.Duration, requesterID string) (*terminal.HistoryEntry, error) {
 	m.runCommandCalls++
 	m.runSessionID = sessionID
+	m.runCommandText = command
+	m.runTimeout = timeout
 	if m.fakeRunErr != nil {
 		return m.fakeEntry, m.fakeRunErr
 	}
@@ -253,6 +260,8 @@ func (m *MockSessionManager) Close(sessionID string) error {
 
 func (m *MockSessionManager) RunEphemeral(ctx context.Context, workDir, command string, timeout time.Duration, source string) (*terminal.HistoryEntry, error) {
 	m.runEphemeralCalls++
+	m.runCommandText = command
+	m.runTimeout = timeout
 	if m.fakeRunErr != nil {
 		// Se há entry configurado, devolve junto do erro (caso timeout com output parcial);
 		// senão, devolve só o erro — espelha o Manager real que sempre retorna entry preenchida no sucesso.
@@ -304,6 +313,29 @@ func TestSuccessfulExecution(t *testing.T) {
 	}
 	if mgr.acquireCalls != 0 {
 		t.Errorf("não esperado Acquire em modo efêmero, got %d", mgr.acquireCalls)
+	}
+}
+
+func TestRunCommandPreservesOriginalPipelineAndUsesDefaultTimeout(t *testing.T) {
+	const command = `Get-ChildItem | Select-Object Name | Format-Table`
+	mgr := &MockSessionManager{fakeEntry: &terminal.HistoryEntry{
+		ID: "cmd-pipeline", Command: command, Output: "Name\n----\nfile.txt", ExitCode: 0,
+	}}
+	al := &allowlist.Allowlist{AutoApprove: []string{"*"}, DefaultAction: "approve"}
+	rc := NewRunCommand(mgr, nil, func() *allowlist.Allowlist { return al }, ".")
+
+	result, err := rc.Execute(context.Background(), json.RawMessage(`{"command":"Get-ChildItem | Select-Object Name | Format-Table"}`))
+	if err != nil || result.IsError {
+		t.Fatalf("execução inesperada: err=%v result=%+v", err, result)
+	}
+	if mgr.runCommandText != command {
+		t.Fatalf("comando foi reescrito:\n got: %q\nwant: %q", mgr.runCommandText, command)
+	}
+	if strings.Contains(mgr.runCommandText, "-AutoSize") {
+		t.Fatalf("comando recebeu -AutoSize indevidamente: %q", mgr.runCommandText)
+	}
+	if mgr.runTimeout != 15*time.Second {
+		t.Fatalf("timeout padrão = %s, esperado 15s", mgr.runTimeout)
 	}
 }
 
@@ -527,6 +559,33 @@ func TestTimeoutWithPartialOutput(t *testing.T) {
 	}
 }
 
+func TestGenericErrorWithLargePartialOutputIsRecoverable(t *testing.T) {
+	output := strings.Repeat("erro-parcial-", maxOutputForLLM)
+	mgr := &MockSessionManager{
+		fakeRunErr: errors.New("sessão interrompida"),
+		fakeEntry: &terminal.HistoryEntry{
+			ID: "cmd-generic-error", Command: "failing-command",
+			Output: output, ExitCode: 1,
+		},
+	}
+	al := &allowlist.Allowlist{AutoApprove: []string{"failing-command"}, DefaultAction: "deny"}
+	rc := NewRunCommand(mgr, nil, func() *allowlist.Allowlist { return al }, ".")
+	ctx := userctx.WithUserID(context.Background(), "shell-error-test")
+
+	result, err := rc.Execute(ctx, json.RawMessage(`{"command":"failing-command"}`))
+	if err != nil || !result.IsError {
+		t.Fatalf("erro genérico inesperado: err=%v result=%+v", err, result)
+	}
+	if result.Annotations == nil || result.Annotations.OutputWindow == nil ||
+		!result.Annotations.OutputWindow.HasMore ||
+		result.Annotations.OutputWindow.ResultID == "" {
+		t.Fatalf("output parcial grande não ficou retomável: %+v", result.Annotations)
+	}
+	if strings.Contains(result.Content, output[:maxOutputForLLM]) {
+		t.Fatal("output parcial grande escapou integralmente")
+	}
+}
+
 // TestTimeoutWithoutOutput valida timeout sem output
 func TestTimeoutWithoutOutput(t *testing.T) {
 	mgr := &MockSessionManager{
@@ -630,7 +689,7 @@ func TestOutputTruncation(t *testing.T) {
 	}
 
 	rc := NewRunCommand(mgr, nil, func() *allowlist.Allowlist { return al }, ".")
-	result, err := rc.Execute(context.Background(), json.RawMessage(`{"command":"big-output"}`))
+	result, err := rc.Execute(userctx.WithUserID(context.Background(), "shell-test"), json.RawMessage(`{"command":"big-output"}`))
 
 	if err != nil {
 		t.Fatalf("esperado nil error, got %v", err)
@@ -638,11 +697,42 @@ func TestOutputTruncation(t *testing.T) {
 	if result.IsError {
 		t.Fatalf("esperado sucesso, got: %s", result.Content)
 	}
-	if !contains(result.Content, "TRUNCADO") {
-		t.Errorf("esperado truncation message, got %q", result.Content)
+	if contains(strings.ToUpper(result.Content), "TRUNCAD") {
+		t.Errorf("aviso não deve contaminar output: %q", result.Content)
 	}
-	if len(result.Content) > 52*1024 { // 50KB + mensagem + margem
-		t.Errorf("esperado output truncado, got %d bytes (max ~52KB)", len(result.Content))
+	if len(result.Content) > maxOutputForLLM || result.Annotations == nil ||
+		result.Annotations.OutputWindow == nil || result.Annotations.OutputWindow.ResultID == "" {
+		t.Errorf("esperada prévia retomável, got %d bytes annotations=%+v", len(result.Content), result.Annotations)
+	}
+}
+
+func TestRunCommandUsesLargerExecutorBudgetForJobs(t *testing.T) {
+	largeOutput := strings.Repeat("x", 60_000)
+	mgr := &MockSessionManager{fakeEntry: &terminal.HistoryEntry{
+		ID: "cmd-job", Command: "big-output", Output: largeOutput, ExitCode: 0,
+	}}
+	al := &allowlist.Allowlist{AutoApprove: []string{"*"}, DefaultAction: "deny"}
+	ctx := tools.WithMaxResultSize(context.Background(), 10*1024*1024)
+	result, err := NewRunCommand(mgr, nil, func() *allowlist.Allowlist { return al }, ".").
+		Execute(ctx, json.RawMessage(`{"command":"big-output"}`))
+	if err != nil || result.IsError || result.Content != largeOutput {
+		t.Fatalf("budget de job não preservou output: err=%v bytes=%d result=%+v", err, len(result.Content), result)
+	}
+	if result.Annotations != nil {
+		t.Fatalf("job recebeu prévia desnecessária: %+v", result.Annotations)
+	}
+}
+
+func TestRunCommandDoesNotCutValidJSON(t *testing.T) {
+	jsonOutput := `{"value":"` + strings.Repeat("x", maxOutputForLLM) + `"}`
+	mgr := &MockSessionManager{fakeEntry: &terminal.HistoryEntry{
+		ID: "cmd-json", Command: "json-output", Output: jsonOutput, ExitCode: 0,
+	}}
+	al := &allowlist.Allowlist{AutoApprove: []string{"*"}, DefaultAction: "deny"}
+	result, err := NewRunCommand(mgr, nil, func() *allowlist.Allowlist { return al }, ".").
+		Execute(context.Background(), json.RawMessage(`{"command":"json-output"}`))
+	if err != nil || result.IsError || !result.Structured || result.Content != jsonOutput {
+		t.Fatalf("JSON de comando foi alterado: err=%v result=%+v", err, result)
 	}
 }
 

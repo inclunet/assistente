@@ -233,7 +233,7 @@ func TestVerifyDEKConsistency_DetectaDivergenciaERevogaPersistencia(t *testing.T
 
 	// Cred cifrada com DEK_X, persistida no store
 	encoder := NewManager(dekX)
-	encAuth, err := encoder.encryptAuth(&AuthConfig{Type: "bearer", Token: "sk-orphan"})
+	encAuth, err := encoder.encryptAuth(&AuthConfig{Source: "static", Type: "bearer", Token: "sk-orphan"})
 	if err != nil {
 		t.Fatalf("encrypt auth: %v", err)
 	}
@@ -311,10 +311,10 @@ func TestPurgeUnreadableCredentials_RemoveOrfãsEDeixaResto(t *testing.T) {
 	dekOrfa := []byte("OROROROROROROROROROROROROROROROR")
 
 	encoderOrfa := NewManager(dekOrfa)
-	encOrfa, _ := encoderOrfa.encryptAuth(&AuthConfig{Type: "bearer", Token: "sk-orphan"})
+	encOrfa, _ := encoderOrfa.encryptAuth(&AuthConfig{Source: "static", Type: "bearer", Token: "sk-orphan"})
 
 	encoderOK := NewManager(dekKeychain)
-	encOK, _ := encoderOK.encryptAuth(&AuthConfig{Type: "bearer", Token: "sk-ok"})
+	encOK, _ := encoderOK.encryptAuth(&AuthConfig{Source: "static", Type: "bearer", Token: "sk-ok"})
 
 	store.credentials = []StoredCredential{
 		{ID: "orphan-1", UserID: "user-1", Pattern: "old.example.com", Auth: encOrfa},
@@ -370,5 +370,41 @@ func TestSetupMasterKey_RecusaSobrescreverDEKExistente(t *testing.T) {
 	}
 	if saveCalls != 0 {
 		t.Fatalf("saveKeyring foi chamado mesmo recusando — defesa ineficaz")
+	}
+}
+
+func TestIntegrityDetectsAndPurgesOrphanOAuthEnvelope(t *testing.T) {
+	store := newMemoryConsistencyStore()
+	key := []byte("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX")
+	other := []byte("YYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYY")
+	encoder := NewManager(other)
+	orphan, err := encoder.encrypt(`{"version":1,"id":"orphan-oauth"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	healthyEncoder := NewManager(key)
+	healthy, err := healthyEncoder.encrypt(`{"version":1,"id":"healthy-oauth"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.credentials = []StoredCredential{
+		{ID: "orphan-oauth", UserID: "user-1", Pattern: "oauth:orphan-oauth", Auth: &AuthConfig{Source: "oauth", OAuthEnc: orphan}},
+		{ID: "healthy-oauth", UserID: "user-1", Pattern: "oauth:healthy-oauth", Auth: &AuthConfig{Source: "oauth", OAuthEnc: healthy}},
+	}
+	store.wraps[KeyWrapKindMaster] = KeyWrap{Kind: KeyWrapKindMaster, DekID: DEKIdentity(other)}
+	mgr := NewManagerWithStore(key, store, true)
+	if err = mgr.LoadInstanceSecrets(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	ids := mgr.IntegrityStatus().UnreadableCredentialIDs
+	if len(ids) != 1 || ids[0] != "orphan-oauth" {
+		t.Fatalf("unreadable=%v", ids)
+	}
+	removed, err := mgr.PurgeUnreadableCredentials(context.Background())
+	if err != nil || removed != 1 {
+		t.Fatalf("purge=%d %v", removed, err)
+	}
+	if len(store.credentials) != 1 || store.credentials[0].ID != "healthy-oauth" {
+		t.Fatal("healthy envelope not preserved")
 	}
 }

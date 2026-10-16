@@ -28,7 +28,7 @@ func newTestManager(t *testing.T) *Manager {
 
 func TestTransport_BearerTokenInjected(t *testing.T) {
 	mgr := newTestManager(t)
-	if err := mgr.RegisterPattern("api.openai.com", &AuthConfig{
+	if err := mgr.RegisterPattern("api.openai.com", &AuthConfig{Source: "static",
 		Type:  "bearer",
 		Token: "sk-real-key-12345",
 	}); err != nil {
@@ -59,7 +59,7 @@ func TestTransport_BearerTokenInjected(t *testing.T) {
 
 func TestTransport_PlaceholderReplacedNotSent(t *testing.T) {
 	mgr := newTestManager(t)
-	if err := mgr.RegisterPattern("llm.inclunet.com.br", &AuthConfig{
+	if err := mgr.RegisterPattern("llm.inclunet.com.br", &AuthConfig{Source: "static",
 		Type:  "bearer",
 		Token: "sk-litellm-key",
 	}); err != nil {
@@ -94,13 +94,13 @@ func TestTransport_UsesRequestContextUserScope(t *testing.T) {
 	mgr := newTestManager(t)
 	userCtx := database.WithUserID(t.Context(), "user-1")
 	otherCtx := database.WithUserID(t.Context(), "user-2")
-	if err := mgr.RegisterPatternWithContext(userCtx, "llm.inclunet.com.br", &AuthConfig{
+	if err := mgr.RegisterPatternWithContext(userCtx, "llm.inclunet.com.br", &AuthConfig{Source: "static",
 		Type:  "bearer",
 		Token: "sk-user-1",
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := mgr.RegisterPatternWithContext(otherCtx, "llm.inclunet.com.br", &AuthConfig{
+	if err := mgr.RegisterPatternWithContext(otherCtx, "llm.inclunet.com.br", &AuthConfig{Source: "static",
 		Type:  "bearer",
 		Token: "sk-user-2",
 	}); err != nil {
@@ -130,7 +130,7 @@ func TestTransport_UsesRequestContextUserScope(t *testing.T) {
 
 func TestTransport_BasicAuth(t *testing.T) {
 	mgr := newTestManager(t)
-	if err := mgr.RegisterPattern("basic.example.com", &AuthConfig{
+	if err := mgr.RegisterPattern("basic.example.com", &AuthConfig{Source: "static",
 		Type:     "basic",
 		Username: "user",
 		Password: "pass",
@@ -162,7 +162,7 @@ func TestTransport_BasicAuth(t *testing.T) {
 
 func TestTransport_CustomHeaders(t *testing.T) {
 	mgr := newTestManager(t)
-	if err := mgr.RegisterPattern("custom.example.com", &AuthConfig{
+	if err := mgr.RegisterPattern("custom.example.com", &AuthConfig{Source: "static",
 		Type: "custom",
 		Headers: map[string]string{
 			"X-Api-Key":     "key123",
@@ -267,7 +267,7 @@ func TestTransport_NilManagerFallthrough(t *testing.T) {
 
 func TestTransport_EmptyTokenNotInjected(t *testing.T) {
 	mgr := newTestManager(t)
-	if err := mgr.RegisterPattern("empty.example.com", &AuthConfig{
+	if err := mgr.RegisterPattern("empty.example.com", &AuthConfig{Source: "static",
 		Type:  "bearer",
 		Token: "", // token vazio — não deve sobrescrever
 	}); err != nil {
@@ -298,7 +298,7 @@ func TestTransport_EmptyTokenNotInjected(t *testing.T) {
 
 func TestTransport_BearerPrefixNotDuplicated(t *testing.T) {
 	mgr := newTestManager(t)
-	if err := mgr.RegisterPattern("prefixed.example.com", &AuthConfig{
+	if err := mgr.RegisterPattern("prefixed.example.com", &AuthConfig{Source: "static",
 		Type:  "bearer",
 		Token: "Bearer already-prefixed",
 	}); err != nil {

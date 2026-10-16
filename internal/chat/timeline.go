@@ -1,582 +1,245 @@
 package chat
 
 import (
-	"assistente/internal/logging"
-	"context"
-	"encoding/json"
-	"fmt"
 	"sort"
 	"strings"
-	"sync"
+	"unicode/utf8"
 
 	"assistente/internal/database"
 )
 
-// ToolOnlyTurnPlaceholderSource marks a synthetic assistant placeholder for
-// turns that only persisted tool result messages and have no assistant response.
-const ToolOnlyTurnPlaceholderSource = "tool_only_turn_placeholder"
-
-const invalidToolCallsLogLimit = 512
-
-var invalidToolCallsLogState = struct {
-	sync.Mutex
-	seen  map[string]struct{}
-	order []string
-}{
-	seen: make(map[string]struct{}),
-}
-
-// MessageHasToolCalls indica se uma mensagem assistant carrega tool calls.
-// A detecção é puramente pela string persistida para evitar parse redundante
-// durante a montagem dos segmentos de timeline.
-func MessageHasToolCalls(m Message) bool {
-	switch strings.TrimSpace(m.ToolCalls) {
-	case "", "[]", "null":
-		return false
-	default:
-		return true
-	}
-}
-
-func shouldLogInvalidToolCalls(messageID string) bool {
-	invalidToolCallsLogState.Lock()
-	defer invalidToolCallsLogState.Unlock()
-	if _, ok := invalidToolCallsLogState.seen[messageID]; ok {
-		return false
-	}
-	if len(invalidToolCallsLogState.order) >= invalidToolCallsLogLimit {
-		oldest := invalidToolCallsLogState.order[0]
-		invalidToolCallsLogState.order[0] = ""
-		invalidToolCallsLogState.order = invalidToolCallsLogState.order[1:]
-		delete(invalidToolCallsLogState.seen, oldest)
-	}
-	invalidToolCallsLogState.seen[messageID] = struct{}{}
-	invalidToolCallsLogState.order = append(invalidToolCallsLogState.order, messageID)
-	return true
-}
-
-func ParseToolCalls(messageID string, raw string) []map[string]interface{} {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return nil
-	}
-	var calls []map[string]interface{}
-	arrayErr := json.Unmarshal([]byte(raw), &calls)
-	if arrayErr == nil {
-		return calls
-	}
-	var call map[string]interface{}
-	singleErr := json.Unmarshal([]byte(raw), &call)
-	if singleErr == nil {
-		return []map[string]interface{}{call}
-	}
-	if shouldLogInvalidToolCalls(messageID) {
-		logging.Infof(context.Background(), "chat.timeline", "[Chat] tool_calls JSON inválido descartado message_id=%s: array=%v object=%v", messageID, arrayErr, singleErr)
-	}
-	return nil
-}
-
-// ConsolidatedTurnResult agrega o representante do turno (uma única ChatMessage
-// canônica para a timeline) e os segmentos cronológicos do turno (Issue #150).
+// ConsolidatedTurnResult agrega a mensagem representante e seus segmentos
+// canônicos. Invocações vêm exclusivamente do ledger.
 type ConsolidatedTurnResult struct {
 	Message  Message
 	Segments []TurnSegment
 }
 
-func toolCallToTurnSegmentToolCall(call map[string]interface{}) TurnSegmentToolCall {
-	id, _ := call["id"].(string)
-	tipo, _ := call["type"].(string)
-	if tipo == "" {
-		tipo = "function"
+func normalizeInvocationSummary(call TurnSegmentToolCall) TurnSegmentToolCall {
+	call.InvocationID = strings.TrimSpace(call.InvocationID)
+	call.ID = strings.TrimSpace(call.ID)
+	call.Name = strings.TrimSpace(call.Name)
+	call.Status = strings.TrimSpace(call.Status)
+	if call.Name == "" {
+		call.Name = "tool"
 	}
-	name := ""
-	args := ""
-	if fn, ok := call["function"].(map[string]interface{}); ok {
-		if v, ok := fn["name"].(string); ok {
-			name = v
-		}
-		if v, ok := fn["arguments"].(string); ok {
-			args = v
-		}
+	if call.Status == "" {
+		call.Status = "succeeded"
 	}
-	if name == "" {
-		if v, ok := call["name"].(string); ok {
-			name = v
-		}
+	if call.ResultAvailability == "" {
+		call.ResultAvailability = "missing"
 	}
-	if args == "" {
-		if v, ok := call["arguments"].(string); ok {
-			args = v
-		}
-	}
-	result := ""
-	if v, ok := call["result"].(string); ok {
-		result = v
-	}
-	origin, _ := call["origin"].(string)
-	serverLabel, _ := call["server_label"].(string)
-	iteration := intFromToolCallField(call["iteration"])
-	durationMs := int64FromToolCallField(call["duration_ms"])
-	return TurnSegmentToolCall{
-		ID:          id,
-		Type:        tipo,
-		Function:    TurnSegmentToolFunction{Name: name, Arguments: args},
-		Result:      result,
-		Origin:      origin,
-		ServerLabel: serverLabel,
-		Iteration:   iteration,
-		DurationMs:  durationMs,
-	}
+	return call
 }
 
-func intFromToolCallField(value interface{}) int {
-	switch v := value.(type) {
-	case int:
-		return v
-	case int64:
-		return int(v)
-	case float64:
-		return int(v)
-	case json.Number:
-		n, _ := v.Int64()
-		return int(n)
-	default:
-		return 0
-	}
+type canonicalInvocationGroup struct {
+	iteration int
+	calls     []TurnSegmentToolCall
 }
 
-func int64FromToolCallField(value interface{}) int64 {
-	switch v := value.(type) {
-	case int:
-		return int64(v)
-	case int64:
-		return v
-	case float64:
-		return int64(v)
-	case json.Number:
-		n, _ := v.Int64()
-		return n
-	default:
-		return 0
+func groupCanonicalInvocations(calls []TurnSegmentToolCall) []canonicalInvocationGroup {
+	byIteration := make(map[int][]TurnSegmentToolCall)
+	for _, raw := range calls {
+		call := normalizeInvocationSummary(raw)
+		byIteration[call.Iteration] = append(byIteration[call.Iteration], call)
 	}
-}
-
-func turnSegmentToolCallToMap(call TurnSegmentToolCall) map[string]interface{} {
-	tipo := strings.TrimSpace(call.Type)
-	if tipo == "" {
-		tipo = "function"
+	groups := make([]canonicalInvocationGroup, 0, len(byIteration))
+	for iteration, calls := range byIteration {
+		groups = append(groups, canonicalInvocationGroup{iteration: iteration, calls: calls})
 	}
-	name := strings.TrimSpace(call.Function.Name)
-	if name == "" {
-		name = "tool_result"
-	}
-	out := map[string]interface{}{
-		"id":   call.ID,
-		"type": tipo,
-		"function": map[string]interface{}{
-			"name":      name,
-			"arguments": call.Function.Arguments,
-		},
-	}
-	if strings.TrimSpace(call.Result) != "" {
-		out["result"] = call.Result
-	}
-	if strings.TrimSpace(call.Origin) != "" {
-		out["origin"] = call.Origin
-	}
-	if strings.TrimSpace(call.ServerLabel) != "" {
-		out["server_label"] = call.ServerLabel
-	}
-	if call.Iteration != 0 {
-		out["iteration"] = call.Iteration
-	}
-	if call.DurationMs != 0 {
-		out["duration_ms"] = call.DurationMs
-	}
-	return out
-}
-
-func normalizeInvocationToolCalls(calls []TurnSegmentToolCall, toolResults map[string]string) []TurnSegmentToolCall {
-	normalized := make([]TurnSegmentToolCall, 0, len(calls))
-	seen := map[string]int{}
-	for _, call := range calls {
-		call.ID = strings.TrimSpace(call.ID)
-		if call.ID == "" {
-			continue
-		}
-		if call.Type == "" {
-			call.Type = "function"
-		}
-		if call.Function.Name == "" {
-			call.Function.Name = "tool_result"
-		}
-		if result, ok := toolResults[call.ID]; ok && strings.TrimSpace(result) != "" {
-			call.Result = result
-		}
-		if idx, ok := seen[call.ID]; ok {
-			normalized[idx] = call
-			continue
-		}
-		seen[call.ID] = len(normalized)
-		normalized = append(normalized, call)
-	}
-	sort.SliceStable(normalized, func(i, j int) bool {
-		return normalized[i].Iteration < normalized[j].Iteration
-	})
-	return normalized
-}
-
-func appendMissingFallbackToolCalls(calls []TurnSegmentToolCall, toolResults map[string]string) []TurnSegmentToolCall {
-	if len(toolResults) == 0 {
-		return calls
-	}
-	seen := map[string]struct{}{}
-	for _, call := range calls {
-		callID := strings.TrimSpace(call.ID)
-		if callID != "" {
-			seen[callID] = struct{}{}
-		}
-	}
-	missingIDs := make([]string, 0)
-	for callID, result := range toolResults {
-		callID = strings.TrimSpace(callID)
-		if callID == "" || strings.TrimSpace(result) == "" {
-			continue
-		}
-		if _, ok := seen[callID]; ok {
-			continue
-		}
-		missingIDs = append(missingIDs, callID)
-	}
-	sort.Strings(missingIDs)
-	for _, callID := range missingIDs {
-		calls = append(calls, TurnSegmentToolCall{
-			ID:       callID,
-			Type:     "function",
-			Function: TurnSegmentToolFunction{Name: "tool_result", Arguments: ""},
-			Result:   toolResults[callID],
-		})
-	}
-	return calls
-}
-
-func groupInvocationToolCallsByIteration(calls []TurnSegmentToolCall) [][]TurnSegmentToolCall {
-	if len(calls) == 0 {
-		return nil
-	}
-	groups := make([][]TurnSegmentToolCall, 0)
-	currentIteration := calls[0].Iteration
-	current := make([]TurnSegmentToolCall, 0)
-	for _, call := range calls {
-		if len(current) > 0 && call.Iteration != currentIteration {
-			groups = append(groups, current)
-			current = make([]TurnSegmentToolCall, 0)
-			currentIteration = call.Iteration
-		}
-		current = append(current, call)
-	}
-	if len(current) > 0 {
-		groups = append(groups, current)
-	}
+	// Iterações são numéricas e começam em zero. Dentro da rodada, preservar
+	// a ordem queued_at,id da projeção; call IDs do provedor são opacos.
+	sort.Slice(groups, func(i, j int) bool { return groups[i].iteration < groups[j].iteration })
 	return groups
 }
 
-func groupInvocationToolCallsByAssistantID(calls []TurnSegmentToolCall) map[string][]TurnSegmentToolCall {
-	out := map[string][]TurnSegmentToolCall{}
-	for _, call := range calls {
-		assistantID := strings.TrimSpace(call.AssistantMessageID)
-		if assistantID == "" {
-			continue
-		}
-		out[assistantID] = append(out[assistantID], call)
+func timelineMessageWrittenAfter(left, right Message) bool {
+	leftTime, rightTime := left.CreatedAt, right.CreatedAt
+	if left.UpdatedAt.After(leftTime) {
+		leftTime = left.UpdatedAt
 	}
-	return out
-}
-
-func invocationGroupHasUnseenCall(group []TurnSegmentToolCall, seenToolCallIDs map[string]struct{}) bool {
-	for _, call := range group {
-		if _, seen := seenToolCallIDs[call.ID]; !seen {
-			return true
-		}
+	if right.UpdatedAt.After(rightTime) {
+		rightTime = right.UpdatedAt
 	}
-	return false
+	if !leftTime.Equal(rightTime) {
+		return leftTime.After(rightTime)
+	}
+	if (left.TotalTokens > 0) != (right.TotalTokens > 0) {
+		return left.TotalTokens > 0
+	}
+	if !left.CreatedAt.Equal(right.CreatedAt) {
+		return left.CreatedAt.After(right.CreatedAt)
+	}
+	return left.ID > right.ID
 }
 
-func ConsolidateTimelineTurnMessages(messages []Message, invocationToolResults map[string]string) Message {
-	return ConsolidateTimelineTurn(messages, invocationToolResults, nil).Message
-}
-
-// ConsolidateTimelineTurn produz a representação canônica de um turno do
-// assistente para o timeline do chat: uma Message representativa e a lista
-// cronológica de segmentos usada pelo frontend acessível.
-func ConsolidateTimelineTurn(messages []Message, invocationToolResults map[string]string, invocationToolCallsArg ...[]TurnSegmentToolCall) ConsolidatedTurnResult {
+// ConsolidateTimelineTurn constrói a timeline apenas com mensagens
+// conversacionais e resumos leves do ledger.
+func ConsolidateTimelineTurn(messages []Message, invocationToolCalls []TurnSegmentToolCall) ConsolidatedTurnResult {
 	if len(messages) == 0 {
 		return ConsolidatedTurnResult{}
 	}
-	var invocationToolCalls []TurnSegmentToolCall
-	if len(invocationToolCallsArg) > 0 {
-		invocationToolCalls = invocationToolCallsArg[0]
-	}
-	messages = append([]Message(nil), messages...)
-	sort.SliceStable(messages, func(i, j int) bool {
-		if !messages[i].CreatedAt.Equal(messages[j].CreatedAt) {
-			return messages[i].CreatedAt.Before(messages[j].CreatedAt)
+	ordered := append([]Message(nil), messages...)
+	sort.SliceStable(ordered, func(i, j int) bool {
+		if ordered[i].CreatedAt.Equal(ordered[j].CreatedAt) {
+			return ordered[i].ID < ordered[j].ID
 		}
-		return messages[i].ID < messages[j].ID
+		return ordered[i].CreatedAt.Before(ordered[j].CreatedAt)
 	})
-	toolResults := make(map[string]string)
-	for _, message := range messages {
-		if message.Role == "tool" && message.ToolCallID != "" {
-			toolResults[message.ToolCallID] = message.Content
+
+	// A fala que originou tools locais é intermediária. Não promovê-la a
+	// conclusão se uma edição posterior atualizar seu timestamp. MCP nativo
+	// pode apontar para o próprio registro final e não é esse marcador.
+	intermediateIDs := make(map[string]bool)
+	for _, call := range invocationToolCalls {
+		if id := strings.TrimSpace(call.AssistantMessageID); id != "" && call.Origin != "mcp_native" && (call.Origin != "acp_agent" || call.ACPTextOffset == nil) {
+			intermediateIDs[id] = true
 		}
 	}
-	// tool_invocations é o caminho canônico novo; usa como fallback quando
-	// não existe mais mensagem role=tool persistida.
-	for callID, result := range invocationToolResults {
-		if callID == "" {
-			continue
-		}
-		if existing, ok := toolResults[callID]; ok && existing != "" {
-			continue
-		}
-		toolResults[callID] = result
-	}
-	invocationToolCalls = appendMissingFallbackToolCalls(normalizeInvocationToolCalls(invocationToolCalls, toolResults), toolResults)
-	invocationGroups := groupInvocationToolCallsByIteration(invocationToolCalls)
-	invocationCallsByAssistantID := groupInvocationToolCallsByAssistantID(invocationToolCalls)
-	nextInvocationGroup := 0
-
-	consolidated := messages[0]
-	hasAssistant := false
-	finalContent := ""
-	finalReasoning := ""
-	allToolCalls := make([]map[string]interface{}, 0)
-	seenToolCallIDs := make(map[string]struct{})
-	segments := make([]TurnSegment, 0)
-	assistantCount := 0
-
-	hasToolBearingAssistant := false
-	for _, message := range messages {
-		if message.Role == "assistant" && MessageHasToolCalls(message) {
-			hasToolBearingAssistant = true
+	hasFinalCandidate := false
+	for _, message := range ordered {
+		if message.Role == "assistant" && !intermediateIDs[message.ID] {
+			hasFinalCandidate = true
 			break
 		}
 	}
-	if !hasToolBearingAssistant && len(invocationToolCalls) > 0 {
-		hasToolBearingAssistant = true
-	}
-	finalMsgIdx := -1
-	if hasToolBearingAssistant {
-		firstAssistantIdx := -1
-		firstFinalCandidateIdx := -1
-		lastFinalCandidateIdx := -1
-		for i, message := range messages {
-			if message.Role == "assistant" && firstAssistantIdx < 0 {
-				firstAssistantIdx = i
+	representative := ordered[0]
+	hasAssistant := false
+	for _, message := range ordered {
+		if message.Role == "assistant" && (!hasFinalCandidate || !intermediateIDs[message.ID]) {
+			// O registro final pode ser criado antes das rodadas e atualizado
+			// no encerramento. Usar a escrita, não só criação ou usage.
+			if !hasAssistant || timelineMessageWrittenAfter(message, representative) {
+				representative = message
 			}
-			if message.Role == "assistant" && strings.TrimSpace(message.Content) != "" && !MessageHasToolCalls(message) && len(invocationCallsByAssistantID[message.ID]) == 0 {
-				if firstFinalCandidateIdx < 0 {
-					firstFinalCandidateIdx = i
-				}
-				lastFinalCandidateIdx = i
-			}
-		}
-		finalMsgIdx = lastFinalCandidateIdx
-		if firstFinalCandidateIdx == firstAssistantIdx {
-			finalMsgIdx = firstFinalCandidateIdx
+			hasAssistant = true
 		}
 	}
-	var finalTextSegment *TurnSegment
-	for i, message := range messages {
+
+	if segments, ok := consolidateACPTextPositions(ordered, invocationToolCalls); ok {
+		return ConsolidatedTurnResult{Message: representative, Segments: segments}
+	}
+	groups := groupCanonicalInvocations(invocationToolCalls)
+	segments := make([]TurnSegment, 0, len(ordered)+len(groups))
+	messageGroup := make(map[string]int)
+	finalHasLocalCalls := false
+	for index, group := range groups {
+		for _, call := range group.calls {
+			id := strings.TrimSpace(call.AssistantMessageID)
+			if id == "" {
+				continue
+			}
+			if _, found := messageGroup[id]; !found {
+				messageGroup[id] = index
+			}
+			if id == representative.ID && call.Origin != "mcp_native" {
+				finalHasLocalCalls = true
+			}
+		}
+	}
+	appendText := func(message Message) {
+		if strings.TrimSpace(message.Content) != "" {
+			segments = append(segments, TurnSegment{Type: "text", Content: message.Content})
+		}
+	}
+	// Vínculos do ledger colocam a fala antes das tools da própria rodada.
+	// Texto antigo sem vínculo preserva sua ordem antes da próxima fala ligada;
+	// sem nenhum vínculo disponível, mantém-se texto → tools, sem inventar IDs.
+	textBuckets := make([][]Message, len(groups)+1)
+	messageBuckets := make([]int, len(ordered))
+	nextBucket := len(groups)
+	if len(messageGroup) == 0 {
+		nextBucket = 0
+	}
+	for index := len(ordered) - 1; index >= 0; index-- {
+		message := ordered[index]
+		if message.ID == representative.ID && !finalHasLocalCalls {
+			continue
+		}
+		if bucket, found := messageGroup[message.ID]; found {
+			nextBucket = bucket
+		}
+		messageBuckets[index] = nextBucket
+	}
+	for index, message := range ordered {
+		if message.Role == "assistant" && (message.ID != representative.ID || finalHasLocalCalls) {
+			bucket := messageBuckets[index]
+			textBuckets[bucket] = append(textBuckets[bucket], message)
+		}
+	}
+	for index, texts := range textBuckets {
+		for _, message := range texts {
+			appendText(message)
+		}
+		if index < len(groups) {
+			segments = append(segments, TurnSegment{Type: "tool_calls", ToolCalls: groups[index].calls})
+		}
+	}
+	if hasAssistant && !finalHasLocalCalls {
+		appendText(representative)
+	}
+	if len(invocationToolCalls) == 0 && len(ordered) <= 1 {
+		segments = nil
+	}
+	return ConsolidatedTurnResult{Message: representative, Segments: segments}
+}
+
+// ACP mantém a resposta integral numa mensagem. As posições observadas no
+// início das tools permitem reconstruir texto → atividade sem duplicar texto
+// no ledger. Dados antigos/inválidos seguem a consolidação genérica.
+func consolidateACPTextPositions(messages []Message, calls []TurnSegmentToolCall) ([]TurnSegment, bool) {
+	if len(calls) == 0 {
+		return nil, false
+	}
+	texts := make(map[string]string)
+	for _, message := range messages {
+		if message.Role == "assistant" {
+			texts[message.ID] = message.Content
+		}
+	}
+	byMessage := make(map[string][]TurnSegmentToolCall)
+	for _, call := range calls {
+		text, exists := texts[call.AssistantMessageID]
+		if call.Origin != "acp_agent" || call.ACPTextOffset == nil || !exists {
+			return nil, false
+		}
+		offset := *call.ACPTextOffset
+		if offset < 0 || offset > len(text) || (offset < len(text) && !utf8.RuneStart(text[offset])) {
+			return nil, false
+		}
+		byMessage[call.AssistantMessageID] = append(byMessage[call.AssistantMessageID], normalizeInvocationSummary(call))
+	}
+	var segments []TurnSegment
+	for _, message := range messages {
 		if message.Role != "assistant" {
 			continue
 		}
-		hasAssistant = true
-		assistantCount++
-		consolidated = message
-		if message.Content != "" && (!hasToolBearingAssistant || MessageHasToolCalls(message)) {
-			finalContent = message.Content
-		}
-		if message.Reasoning != "" && (!hasToolBearingAssistant || MessageHasToolCalls(message)) {
-			finalReasoning = message.Reasoning
-		}
-		if strings.TrimSpace(message.Content) != "" {
-			if i == finalMsgIdx {
-				finalTextSegment = &TurnSegment{Type: "text", Content: message.Content}
+		activity := byMessage[message.ID]
+		sort.SliceStable(activity, func(i, j int) bool { return *activity[i].ACPTextOffset < *activity[j].ACPTextOffset })
+		position := 0
+		for _, call := range activity {
+			offset := *call.ACPTextOffset
+			if offset > position {
+				segments = append(segments, TurnSegment{Type: "text", Content: message.Content[position:offset]})
+			}
+			if len(segments) > 0 && segments[len(segments)-1].Type == "tool_calls" {
+				last := &segments[len(segments)-1]
+				last.ToolCalls = append(last.ToolCalls, call)
 			} else {
-				segments = append(segments, TurnSegment{
-					Type:    "text",
-					Content: message.Content,
-				})
+				segments = append(segments, TurnSegment{Type: "tool_calls", ToolCalls: []TurnSegmentToolCall{call}})
 			}
+			position = offset
 		}
-		iterationCalls := make([]TurnSegmentToolCall, 0)
-		parsedToolCalls := ParseToolCalls(message.ID, message.ToolCalls)
-		for _, call := range parsedToolCalls {
-			callID, _ := call["id"].(string)
-			if callID != "" {
-				if _, seen := seenToolCallIDs[callID]; seen {
-					continue
-				}
-				seenToolCallIDs[callID] = struct{}{}
-				if existing, ok := call["result"].(string); ok {
-					if strings.TrimSpace(existing) != "" {
-						allToolCalls = append(allToolCalls, call)
-						iterationCalls = append(iterationCalls, toolCallToTurnSegmentToolCall(call))
-						continue
-					}
-				}
-				if result, ok := toolResults[callID]; ok {
-					call["result"] = result
-				}
-			}
-			allToolCalls = append(allToolCalls, call)
-			iterationCalls = append(iterationCalls, toolCallToTurnSegmentToolCall(call))
-		}
-		if len(parsedToolCalls) == 0 {
-			for _, call := range invocationCallsByAssistantID[message.ID] {
-				if _, seen := seenToolCallIDs[call.ID]; seen {
-					continue
-				}
-				seenToolCallIDs[call.ID] = struct{}{}
-				allToolCalls = append(allToolCalls, turnSegmentToolCallToMap(call))
-				iterationCalls = append(iterationCalls, call)
-			}
-		}
-		for nextInvocationGroup < len(invocationGroups) && !invocationGroupHasUnseenCall(invocationGroups[nextInvocationGroup], seenToolCallIDs) {
-			nextInvocationGroup++
-		}
-		if len(parsedToolCalls) == 0 && len(iterationCalls) == 0 && strings.TrimSpace(message.Content) != "" && len(invocationGroups) > 0 && i != finalMsgIdx && nextInvocationGroup < len(invocationGroups) {
-			for _, call := range invocationGroups[nextInvocationGroup] {
-				if _, seen := seenToolCallIDs[call.ID]; seen {
-					continue
-				}
-				seenToolCallIDs[call.ID] = struct{}{}
-				allToolCalls = append(allToolCalls, turnSegmentToolCallToMap(call))
-				iterationCalls = append(iterationCalls, call)
-			}
-			nextInvocationGroup++
-		}
-		if len(iterationCalls) > 0 {
-			segments = append(segments, TurnSegment{
-				Type:      "tool_calls",
-				ToolCalls: iterationCalls,
-			})
+		if position < len(message.Content) {
+			segments = append(segments, TurnSegment{Type: "text", Content: message.Content[position:]})
 		}
 	}
-	for nextInvocationGroup < len(invocationGroups) {
-		if !invocationGroupHasUnseenCall(invocationGroups[nextInvocationGroup], seenToolCallIDs) {
-			nextInvocationGroup++
-			continue
-		}
-		iterationCalls := make([]TurnSegmentToolCall, 0, len(invocationGroups[nextInvocationGroup]))
-		for _, call := range invocationGroups[nextInvocationGroup] {
-			if _, seen := seenToolCallIDs[call.ID]; seen {
-				continue
-			}
-			seenToolCallIDs[call.ID] = struct{}{}
-			allToolCalls = append(allToolCalls, turnSegmentToolCallToMap(call))
-			iterationCalls = append(iterationCalls, call)
-		}
-		if len(iterationCalls) > 0 {
-			segments = append(segments, TurnSegment{
-				Type:      "tool_calls",
-				ToolCalls: iterationCalls,
-			})
-		}
-		nextInvocationGroup++
-	}
-	if finalMsgIdx >= 0 {
-		finalContent = messages[finalMsgIdx].Content
-		finalReasoning = messages[finalMsgIdx].Reasoning
-		consolidated.PromptTokens = messages[finalMsgIdx].PromptTokens
-		consolidated.CompletionTokens = messages[finalMsgIdx].CompletionTokens
-		consolidated.TotalTokens = messages[finalMsgIdx].TotalTokens
-		consolidated.Model = messages[finalMsgIdx].Model
-	}
-	if finalTextSegment != nil {
-		segments = append(segments, *finalTextSegment)
-	}
-	if !hasAssistant {
-		// Keep the persisted tool message ID as representative so backend pagination anchors
-		// still resolve to a real row.
-		consolidated.Role = "assistant"
-		consolidated.Content = ""
-		consolidated.Reasoning = ""
-		consolidated.ToolCallID = ""
-		consolidated.Source = ToolOnlyTurnPlaceholderSource
-		placeholderCalls := make([]map[string]interface{}, 0, len(toolResults)+len(invocationToolCalls))
-		segmentToolCalls := make([]TurnSegmentToolCall, 0, len(toolResults)+len(invocationToolCalls))
-		invocationCallIDs := make(map[string]struct{}, len(invocationToolCalls))
-		for _, call := range invocationToolCalls {
-			placeholderCalls = append(placeholderCalls, turnSegmentToolCallToMap(call))
-			if callID := strings.TrimSpace(call.ID); callID != "" {
-				invocationCallIDs[callID] = struct{}{}
-			}
-		}
-		for callID, result := range toolResults {
-			if callID == "" {
-				continue
-			}
-			if _, alreadyIncluded := invocationCallIDs[callID]; alreadyIncluded {
-				continue
-			}
-			placeholderCalls = append(placeholderCalls, map[string]interface{}{
-				"id":       callID,
-				"type":     "function",
-				"function": map[string]interface{}{"name": "tool_result", "arguments": ""},
-				"result":   result,
-			})
-		}
-		sort.Slice(placeholderCalls, func(i, j int) bool {
-			leftIteration := intFromToolCallField(placeholderCalls[i]["iteration"])
-			rightIteration := intFromToolCallField(placeholderCalls[j]["iteration"])
-			if leftIteration != rightIteration {
-				return leftIteration < rightIteration
-			}
-			left, _ := placeholderCalls[i]["id"].(string)
-			right, _ := placeholderCalls[j]["id"].(string)
-			return fmt.Sprint(left) < fmt.Sprint(right)
-		})
-		for _, call := range placeholderCalls {
-			segmentToolCalls = append(segmentToolCalls, toolCallToTurnSegmentToolCall(call))
-		}
-		if len(placeholderCalls) > 0 {
-			if encoded, err := json.Marshal(placeholderCalls); err == nil {
-				consolidated.ToolCalls = string(encoded)
-			}
-		} else {
-			consolidated.ToolCalls = ""
-		}
-		var placeholderSegments []TurnSegment
-		if len(segmentToolCalls) > 0 {
-			placeholderSegments = []TurnSegment{{
-				Type:      "tool_calls",
-				ToolCalls: segmentToolCalls,
-			}}
-		}
-		return ConsolidatedTurnResult{Message: consolidated, Segments: placeholderSegments}
-	}
-	consolidated.Content = finalContent
-	consolidated.Reasoning = finalReasoning
-	if len(allToolCalls) > 0 {
-		if encoded, err := json.Marshal(allToolCalls); err == nil {
-			consolidated.ToolCalls = string(encoded)
-		}
-	} else {
-		consolidated.ToolCalls = ""
-	}
-	if assistantCount <= 1 && len(allToolCalls) == 0 {
-		return ConsolidatedTurnResult{Message: consolidated, Segments: nil}
-	}
-	return ConsolidatedTurnResult{Message: consolidated, Segments: segments}
+	return segments, true
 }
 
 func MessageTimelineItemKey(message Message) string {
-	// Produces the canonical key shared with frontend getTimelineNodeKey.
-	// User messages stay standalone even if bad data carries TurnID.
-	if message.Role != "user" && message.TurnID != nil && *message.TurnID != "" {
-		return "turn:" + *message.TurnID
+	if message.Role != "user" && message.TurnID != nil && strings.TrimSpace(*message.TurnID) != "" {
+		return "turn:" + strings.TrimSpace(*message.TurnID)
 	}
 	return "message:" + message.ID
 }
@@ -589,129 +252,109 @@ func timelineWindowItemKey(item database.MessageWindowItem) string {
 }
 
 func assignMessageNodeTurnSegments(nodes []MessageNode, segmentsByID map[string][]TurnSegment) []MessageNode {
-	if len(segmentsByID) == 0 {
-		return nodes
-	}
-	for i := range nodes {
-		if segments, ok := segmentsByID[nodes[i].Message.ID]; ok && len(segments) > 0 {
-			nodes[i].Message.TurnSegments = segments
+	for index := range nodes {
+		if segments := segmentsByID[nodes[index].Message.ID]; len(segments) > 0 {
+			nodes[index].Message.TurnSegments = segments
 		}
-		if len(nodes[i].Children) > 0 {
-			nodes[i].Children = assignMessageNodeTurnSegments(nodes[i].Children, segmentsByID)
+		if len(nodes[index].Children) > 0 {
+			nodes[index].Children = assignMessageNodeTurnSegments(nodes[index].Children, segmentsByID)
 		}
 	}
 	return nodes
 }
 
 func assignMessageNodeOriginalIndexes(nodes []MessageNode, indexesByID map[string]int) []MessageNode {
-	if len(indexesByID) == 0 {
-		return nodes
-	}
-	for i := range nodes {
-		if index, ok := indexesByID[nodes[i].Message.ID]; ok {
-			value := index
-			nodes[i].OriginalIndex = &value
+	for index := range nodes {
+		if original, ok := indexesByID[nodes[index].Message.ID]; ok {
+			value := original
+			nodes[index].OriginalIndex = &value
 		}
-		if len(nodes[i].Children) > 0 {
-			nodes[i].Children = assignMessageNodeOriginalIndexes(nodes[i].Children, indexesByID)
+		if len(nodes[index].Children) > 0 {
+			nodes[index].Children = assignMessageNodeOriginalIndexes(nodes[index].Children, indexesByID)
 		}
 	}
 	return nodes
 }
 
-// BuildNodesWithTimelineConsolidation groups persisted messages into canonical
-// timeline items and returns nodes ready for rendering.
-func BuildNodesWithTimelineConsolidation(messages []Message, parentID *string, childCounts map[string]int, invocationToolResults map[string]map[string]string, invocationToolCalls map[string][]TurnSegmentToolCall) []MessageNode {
-	if len(messages) == 0 {
-		return []MessageNode{}
-	}
-
+func BuildNodesWithTimelineConsolidation(
+	messages []Message,
+	parentID *string,
+	childCounts map[string]int,
+	invocationToolCalls map[string][]TurnSegmentToolCall,
+) []MessageNode {
 	grouped := make(map[string][]Message)
 	order := make([]string, 0, len(messages))
-	seenKey := map[string]struct{}{}
-	for _, msg := range messages {
-		key := MessageTimelineItemKey(msg)
-		grouped[key] = append(grouped[key], msg)
-		if _, ok := seenKey[key]; !ok {
-			seenKey[key] = struct{}{}
+	for _, message := range messages {
+		key := MessageTimelineItemKey(message)
+		if _, found := grouped[key]; !found {
 			order = append(order, key)
 		}
+		grouped[key] = append(grouped[key], message)
 	}
-
 	representatives := make([]Message, 0, len(order))
 	segmentsByMessageID := make(map[string][]TurnSegment)
 	for _, key := range order {
 		itemMessages := grouped[key]
-		if len(itemMessages) == 0 {
-			continue
-		}
 		representative := itemMessages[0]
-		if strings.HasPrefix(key, "turn:") && representative.TurnID != nil {
-			turnID := strings.TrimSpace(*representative.TurnID)
-			result := ConsolidateTimelineTurn(itemMessages, invocationToolResults[turnID], invocationToolCalls[turnID])
+		if strings.HasPrefix(key, "turn:") {
+			turnID := strings.TrimPrefix(key, "turn:")
+			result := ConsolidateTimelineTurn(itemMessages, invocationToolCalls[turnID])
 			representative = result.Message
-			if len(result.Segments) > 0 {
-				segmentsByMessageID[representative.ID] = result.Segments
-			}
+			segmentsByMessageID[representative.ID] = result.Segments
 		}
 		representatives = append(representatives, representative)
 	}
 	return assignMessageNodeTurnSegments(BuildMessageNodes(representatives, childCounts, parentID), segmentsByMessageID)
 }
 
-// BuildTimelineMessageNodes materializes repository timeline items into message
-// nodes, preserving original item indexes returned by the canonical window query.
-func BuildTimelineMessageNodes(items []database.MessageWindowItem, messages []Message, parentID *string, childCounts map[string]int, invocationToolResults map[string]map[string]string, invocationToolCalls map[string][]TurnSegmentToolCall) []MessageNode {
-	messagesByItemKey := make(map[string][]Message)
+func BuildTimelineMessageNodes(
+	items []database.MessageWindowItem,
+	messages []Message,
+	parentID *string,
+	childCounts map[string]int,
+	invocationToolCalls map[string][]TurnSegmentToolCall,
+) []MessageNode {
+	messagesByKey := make(map[string][]Message)
 	for _, message := range messages {
 		key := MessageTimelineItemKey(message)
-		messagesByItemKey[key] = append(messagesByItemKey[key], message)
+		messagesByKey[key] = append(messagesByKey[key], message)
 	}
 	representatives := make([]Message, 0, len(items))
-	originalIndexesByMessageID := make(map[string]int, len(items))
-	segmentsByMessageID := make(map[string][]TurnSegment)
+	indexes := make(map[string]int, len(items))
+	segments := make(map[string][]TurnSegment)
 	for _, item := range items {
-		itemMessages := messagesByItemKey[timelineWindowItemKey(item)]
+		itemMessages := messagesByKey[timelineWindowItemKey(item)]
 		if len(itemMessages) == 0 {
 			continue
 		}
 		representative := itemMessages[0]
 		if item.Kind == database.MessageWindowItemKindTurn {
-			turnID := strings.TrimSpace(item.TurnID)
-			result := ConsolidateTimelineTurn(itemMessages, invocationToolResults[turnID], invocationToolCalls[turnID])
+			result := ConsolidateTimelineTurn(itemMessages, invocationToolCalls[item.TurnID])
 			representative = result.Message
-			if len(result.Segments) > 0 {
-				segmentsByMessageID[representative.ID] = result.Segments
-			}
+			segments[representative.ID] = result.Segments
 		}
 		representatives = append(representatives, representative)
-		originalIndexesByMessageID[representative.ID] = item.OriginalIndex
+		indexes[representative.ID] = item.OriginalIndex
 	}
-	nodes := assignMessageNodeOriginalIndexes(BuildMessageNodes(representatives, childCounts, parentID), originalIndexesByMessageID)
-	return assignMessageNodeTurnSegments(nodes, segmentsByMessageID)
+	nodes := BuildMessageNodes(representatives, childCounts, parentID)
+	return assignMessageNodeTurnSegments(assignMessageNodeOriginalIndexes(nodes, indexes), segments)
 }
 
 func CollectTurnIDsWithToolCalls(messages []Message) []string {
 	turnIDs := make([]string, 0)
-	seen := map[string]struct{}{}
-	for _, msg := range messages {
-		if msg.TurnID == nil {
+	seen := make(map[string]struct{})
+	for _, message := range messages {
+		if message.Role == "user" || message.TurnID == nil {
 			continue
 		}
-		// Assistant/tool turns without legacy tool_calls are still candidates for
-		// hydration from tool_invocations in the L3-free message path.
-		if msg.Role == "user" || msg.Role == "system" {
-			continue
-		}
-		turnID := strings.TrimSpace(*msg.TurnID)
+		turnID := strings.TrimSpace(*message.TurnID)
 		if turnID == "" {
 			continue
 		}
-		if _, ok := seen[turnID]; ok {
-			continue
+		if _, found := seen[turnID]; !found {
+			seen[turnID] = struct{}{}
+			turnIDs = append(turnIDs, turnID)
 		}
-		seen[turnID] = struct{}{}
-		turnIDs = append(turnIDs, turnID)
 	}
 	return turnIDs
 }

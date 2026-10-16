@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"sync"
 	"testing"
@@ -106,12 +105,6 @@ func (r *mockMessageRepo) GetRecentMessagesTokenCount(_ context.Context, convers
 func (r *mockMessageRepo) GetTurnTokenStats(_ context.Context, conversationID string, turnID string) (*database.TokenStats, error) {
 	return &database.TokenStats{}, nil
 }
-func (r *mockMessageRepo) AddAssistantToolMessage(_ context.Context, conversationID, turnID string, content, toolCalls, reasoning, model string) (*database.ChatMessage, error) {
-	return nil, nil
-}
-func (r *mockMessageRepo) AddToolResultMessage(_ context.Context, conversationID, turnID string, content, toolCallID string) (*database.ChatMessage, error) {
-	return nil, nil
-}
 func (r *mockMessageRepo) SearchMessages(_ context.Context, query string, limit int) ([]database.MessageSearchResult, error) {
 	return nil, nil
 }
@@ -136,20 +129,6 @@ func userMsg(id string, content string) database.ChatMessage {
 // assistantMsg cria um ChatMessage com role=assistant.
 func assistantMsg(id string, content string) database.ChatMessage {
 	return database.ChatMessage{UUIDModel: database.UUIDModel{ID: id}, Role: "assistant", Content: content}
-}
-
-// toolMsg cria um ChatMessage com role=tool.
-func toolMsg(id string, toolCallID string) database.ChatMessage {
-	return database.ChatMessage{UUIDModel: database.UUIDModel{ID: id}, Role: "tool", ToolCallID: toolCallID, Content: "resultado"}
-}
-
-// assistantWithToolCalls cria um ChatMessage assistant com ToolCalls e sem conteúdo textual.
-func assistantWithToolCalls(id string, toolCallID string) database.ChatMessage {
-	toolCalls := []map[string]interface{}{
-		{"id": toolCallID, "type": "function", "function": map[string]interface{}{"name": "test", "arguments": "{}"}},
-	}
-	b, _ := json.Marshal(toolCalls)
-	return database.ChatMessage{UUIDModel: database.UUIDModel{ID: id}, Role: "assistant", Content: "", ToolCalls: string(b)}
 }
 
 // ==================== extractAudioFromMedia ====================
@@ -466,52 +445,6 @@ func TestLoadConversationHistory_SimpleTextMessages(t *testing.T) {
 	}
 	if msgs[1].Role != "assistant" {
 		t.Errorf("segunda mensagem deveria ser assistant, obteve %q", msgs[1].Role)
-	}
-}
-
-func TestLoadConversationHistory_SkipsToolMessages(t *testing.T) {
-	app := newMinimalApp()
-	app.msgRepo = &mockMessageRepo{
-		messages: []database.ChatMessage{
-			userMsg("1", "busque algo"),
-			assistantWithToolCalls("2", "call_abc"),
-			toolMsg("3", "call_abc"),
-			assistantMsg("4", "encontrei o resultado"),
-		},
-	}
-
-	msgs, _, err := app.loadConversationHistory("1", nil)
-	if err != nil {
-		t.Fatalf("erro inesperado: %v", err)
-	}
-
-	for _, m := range msgs {
-		if m.Role == "tool" {
-			t.Error("mensagem com role=tool não deveria estar no histórico para o LLM")
-		}
-	}
-}
-
-func TestLoadConversationHistory_SkipsEmptyAssistantWithToolCalls(t *testing.T) {
-	app := newMinimalApp()
-	app.msgRepo = &mockMessageRepo{
-		messages: []database.ChatMessage{
-			userMsg("1", "faça algo"),
-			assistantWithToolCalls("2", "call_xyz"), // assistant vazio com tool_calls
-			toolMsg("3", "call_xyz"),
-			assistantMsg("4", "feito!"),
-		},
-	}
-
-	msgs, _, err := app.loadConversationHistory("1", nil)
-	if err != nil {
-		t.Fatalf("erro inesperado: %v", err)
-	}
-
-	for _, m := range msgs {
-		if m.Role == "assistant" && m.Content == "" {
-			t.Error("assistant vazio com tool_calls não deveria aparecer no histórico")
-		}
 	}
 }
 

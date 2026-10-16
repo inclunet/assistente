@@ -6,10 +6,8 @@ import { dispatchKey, expectGlobalShortcutIgnoredWhileModalOpen } from '../test/
 /*
  * Demonstração do helper `expectGlobalShortcutIgnoredWhileModalOpen`.
  *
- * Os atalhos de TROCA/NAVEGAÇÃO de aba (Ctrl+1..9, Ctrl+Tab) respeitam
- * `isModalOpen()`: com um modal aberto, eles previnem o default do browser
- * mas NÃO trocam de aba (não chamam `setActiveTab`). Validamos exatamente
- * esse contrato reusando a infraestrutura real de `Modal`.
+ * Os atalhos de troca/navegação de aba pertencem ao Topbar local_ui.
+ * Este hook legado não os intercepta nem altera a aba ativa.
  */
 
 const setActiveTab = vi.fn();
@@ -62,43 +60,53 @@ describe('useWorkspaceKeyboardShortcuts — atalhos globais respeitam o modal', 
     createWorkspaceTab.mockResolvedValue('terminal-tab');
   });
 
-  it('Ctrl+2 (ir para aba) é ignorado enquanto um Modal está aberto', () => {
+  it('Ctrl+2 não é interceptado pelo hook legado enquanto um Modal está aberto', () => {
     renderHook(() => useWorkspaceKeyboardShortcuts());
 
     expectGlobalShortcutIgnoredWhileModalOpen({
       backgroundAction: setActiveTab,
-      expectPreventDefault: true,
+      expectPreventDefault: false,
       dispatch: () => dispatchKey({ key: '2', ctrlKey: true }),
     });
   });
 
-  it('Ctrl+Tab (próxima aba) é ignorado enquanto um Modal está aberto', () => {
+  it('Ctrl+Tab não é interceptado pelo hook legado enquanto um Modal está aberto', () => {
     renderHook(() => useWorkspaceKeyboardShortcuts());
 
     expectGlobalShortcutIgnoredWhileModalOpen({
       backgroundAction: setActiveTab,
-      expectPreventDefault: true,
+      expectPreventDefault: false,
       dispatch: () => dispatchKey({ key: 'Tab', ctrlKey: true }),
     });
   });
 
-  it('controle: sem modal aberto, Ctrl+2 troca de aba normalmente', () => {
+  it('controle: sem modal aberto, Ctrl+2 fica para o Topbar local_ui', () => {
     renderHook(() => useWorkspaceKeyboardShortcuts());
 
-    dispatchKey({ key: '2', ctrlKey: true });
+    const event = dispatchKey({ key: '2', ctrlKey: true });
 
-    expect(setActiveTab).toHaveBeenCalledWith('t2');
+    expect(event.defaultPrevented).toBe(false);
+    expect(setActiveTab).not.toHaveBeenCalled();
   });
 
-  it('Ctrl+N, R cria uma aba de terminal conectada pelo fluxo de domínio', async () => {
+  it('Ctrl+N não executa mais o chord legado nem chama createWorkspaceTab', async () => {
     renderHook(() => useWorkspaceKeyboardShortcuts());
 
-    dispatchKey({ key: 'n', ctrlKey: true });
+    const prefix = dispatchKey({ key: 'n', ctrlKey: true });
     dispatchKey({ key: 'r' });
 
-    await waitFor(() => {
-      expect(createWorkspaceTab).toHaveBeenCalledWith('terminal', expect.any(String));
-    });
+    await waitFor(() => expect(createWorkspaceTab).not.toHaveBeenCalled());
+    expect(prefix.defaultPrevented).toBe(false);
+    expect(addTab).not.toHaveBeenCalled();
+  });
+
+  it('Ctrl+Shift+N não cria workspace pelo hook legado', () => {
+    renderHook(() => useWorkspaceKeyboardShortcuts());
+
+    const event = dispatchKey({ key: 'N', code: 'KeyN', ctrlKey: true, shiftKey: true });
+
+    expect(event.defaultPrevented).toBe(false);
+    expect(createWorkspace).not.toHaveBeenCalled();
     expect(addTab).not.toHaveBeenCalled();
   });
 });

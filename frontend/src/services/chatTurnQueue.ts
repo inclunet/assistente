@@ -42,11 +42,15 @@ export function createConversationTurnQueue(): ConversationTurnQueue {
         return task();
       });
 
-    const tail = run.finally(() => {
+    const tail = run.catch(() => undefined).finally(() => {
       if (tails.get(conversationId) === state && state.tail === tail && state.generation === generation) {
         tails.delete(conversationId);
       }
     });
+    // A cauda serve apenas à ordenação e pode ficar sem sucessor. Observar
+    // sua rejeição evita um unhandled rejection; o caller ainda recebe a
+    // rejeição original de run, sem transformar a operação em sucesso.
+    void tail.catch(() => undefined);
     state.tail = tail;
 
     return run;

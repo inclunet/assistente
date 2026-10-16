@@ -1,7 +1,9 @@
 package filesystem
 
 import (
+	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,6 +12,37 @@ import (
 
 	"assistente/internal/docextract"
 )
+
+func TestStreamLineReadersHonorCancellation(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		read func(context.Context, *bufio.Reader) error
+	}{
+		{
+			name: "skip",
+			read: func(ctx context.Context, reader *bufio.Reader) error {
+				_, err := skipStreamLine(ctx, reader)
+				return err
+			},
+		},
+		{
+			name: "selected",
+			read: func(ctx context.Context, reader *bufio.Reader) error {
+				_, _, err := readStreamLine(ctx, reader)
+				return err
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			cancel()
+			err := tc.read(ctx, bufio.NewReader(strings.NewReader(strings.Repeat("x", streamBufferBytes*2))))
+			if !errors.Is(err, context.Canceled) {
+				t.Fatalf("cancelamento não propagado: %v", err)
+			}
+		})
+	}
+}
 
 // writeLinesFile grava um arquivo de texto com nLines linhas numeradas.
 func writeLinesFile(t *testing.T, path string, nLines int, pad string) {
@@ -31,6 +64,28 @@ func writeLinesFile(t *testing.T, path string, nLines int, pad string) {
 	}
 	if _, err := f.WriteString(w.String()); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestScanTextLinesMatchesStringsSplitAtEOF(t *testing.T) {
+	for _, content := range []string{"", "a", "a\n", "a\n\n"} {
+		t.Run(fmt.Sprintf("%q", content), func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "linhas.txt")
+			if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			var got []string
+			if err := scanTextLines(context.Background(), path, func(_ int, line string) bool {
+				got = append(got, line)
+				return true
+			}); err != nil {
+				t.Fatal(err)
+			}
+			want := strings.Split(content, "\n")
+			if fmt.Sprintf("%q", got) != fmt.Sprintf("%q", want) {
+				t.Fatalf("linhas=%q, want=%q", got, want)
+			}
+		})
 	}
 }
 
@@ -144,6 +199,136 @@ func TestReadFileStreamRejectsNulByteBeyondPrefix(t *testing.T) {
 	}
 }
 
+func TestReadFileRawForwardIgnoresNULBeforeRequestedRange(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "nul-anterior.txt")
+	if err := os.WriteFile(path, []byte{'x', 0, '\n', 'v', 'a', 'l', 'i', 'd', 'o'}, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	offset := 2
+	result, handled := readTextSliceStreamingForward(
+		context.Background(), path, "nul-anterior.txt", streamTextMinBytes,
+		&offset, nil, true, readModelMaxBytes,
+	)
+	if !handled || result.IsError || !result.RawExact || result.Content != "valido" {
+		t.Fatalf("NUL anterior afetou recorte raw: handled=%v result=%+v", handled, result)
+	}
+}
+
+func TestReadFileRawStreamingUsesEffectiveLineCount(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "poucas-linhas-no-fim.txt")
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString(strings.Repeat("x", streamTextMinBytes) + "\n"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString("um\ndois\ntres"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	offset, limit := 2, 5_000
+	result, handled := readTextSliceStreamingForward(
+		context.Background(), path, "poucas-linhas-no-fim.txt", streamTextMinBytes,
+		&offset, &limit, true, readModelMaxBytes,
+	)
+	if !handled || result.IsError || result.Content != "um\ndois\ntres" {
+		t.Fatalf("limit nominal rejeitou trecho efetivo pequeno: handled=%v result=%+v", handled, result)
+	}
+}
+
+func TestReadFileRawStreamingIgnoresHugeLineOutsideRange(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "linha-gigante-anterior.txt")
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString(strings.Repeat("x", maxStreamLineBytes+1) + "\nvalido"); err != nil {
+		_ = f.Close()
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, offset := range []int{2, -1} {
+		result, handled := readTextSliceStreaming(
+			context.Background(), path, "linha-gigante-anterior.txt", streamTextMinBytes,
+			&offset, intPtr(1), docextract.ModeAuto, true,
+		)
+		if !handled || result.IsError || !result.RawExact || result.Content != "valido" {
+			t.Fatalf("offset %d foi afetado por linha fora do recorte: handled=%v result=%+v", offset, handled, result)
+		}
+		if result.Metadata["total_lines"] != 2 {
+			t.Fatalf("offset %d perdeu total de linhas: %+v", offset, result.Metadata)
+		}
+	}
+
+	offset := 2
+	result, handled := readTextSliceStreaming(
+		context.Background(), path, "linha-gigante-anterior.txt", streamTextMinBytes,
+		&offset, nil, docextract.ModeAuto, true,
+	)
+	if !handled || result.IsError || !result.RawExact || result.Content != "valido" {
+		t.Fatalf("raw sem limit foi afetado por linha anterior: handled=%v result=%+v", handled, result)
+	}
+}
+
+func TestReadFileRawStreamingCountsTrailingSeparatorInBudget(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "separador.txt")
+	if err := os.WriteFile(path, []byte("abc\nseguinte"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	offset, limit := 1, 1
+	result, handled := readTextSliceStreamingForward(
+		context.Background(), path, "separador.txt", streamTextMinBytes,
+		&offset, &limit, true, len("abc"),
+	)
+	if !handled || !result.IsError || result.Failure == nil ||
+		result.Failure.Code != "raw_result_too_large" {
+		t.Fatalf("separador escapou do budget: handled=%v result=%+v", handled, result)
+	}
+}
+
+func TestReadFileStreamRejectsInvalidUTF8InNormalSelectedRange(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "utf8-invalido.log")
+	writeLinesFile(t, path, 80_000, strings.Repeat("x", 60))
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.Write(append([]byte("segredo-"), 0xff, '\n')); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, tc := range []struct {
+		name   string
+		offset int
+	}{
+		{name: "offset positivo", offset: 80_001},
+		{name: "offset negativo", offset: -2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			res, err := NewReadFile(dir).Execute(context.Background(), mustJSON(t, map[string]any{
+				"path": "utf8-invalido.log", "offset": tc.offset, "limit": 1,
+			}))
+			if err != nil || !res.IsError || res.Failure == nil ||
+				res.Failure.Code != "text_invalid_utf8" {
+				t.Fatalf("texto inválido não falhou de modo estável: err=%v result=%+v", err, res)
+			}
+			if strings.Contains(res.Content, "segredo") || !strings.Contains(res.Content, "UTF-8") {
+				t.Fatalf("falha expôs conteúdo ou perdeu diagnóstico: %q", res.Content)
+			}
+		})
+	}
+}
+
 // Offset negativo conta do fim também no caminho em streaming.
 func TestReadFileStreamsNegativeOffset(t *testing.T) {
 	dir := t.TempDir()
@@ -217,12 +402,51 @@ func TestStreamingSliceMatchesFullRead(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	streamed, handled := readTextSliceStreaming(small, "pequeno.log", streamTextMinBytes, intPtr(5), intPtr(4), docextract.ModeAuto)
+	streamed, handled := readTextSliceStreaming(context.Background(), small, "pequeno.log", streamTextMinBytes, intPtr(5), intPtr(4), docextract.ModeAuto, false)
 	if !handled {
 		t.Skip("classificação não considerou o arquivo como texto")
 	}
 	if streamed.Content != full.Content {
 		t.Fatalf("streaming difere:\n%q\n%q", streamed.Content, full.Content)
+	}
+}
+
+func TestStreamingSkipsSmallFiles(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "pequeno.txt")
+	if err := os.WriteFile(path, []byte("a\nb"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, handled := readTextSliceStreaming(context.Background(), path, "pequeno.txt", 3, nil, nil, docextract.ModeAuto, false); handled {
+		t.Fatal("arquivo pequeno sofreu varredura completa de streaming")
+	}
+}
+
+func TestStreamingRawPagePreservesTrailingSeparator(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "pagina.txt")
+	if err := os.WriteFile(path, []byte("a\r\nb"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	result, handled := readTextSliceStreaming(
+		context.Background(), path, "pagina.txt", streamTextMinBytes,
+		intPtr(1), intPtr(1), docextract.ModeAuto, true,
+	)
+	if !handled || result.IsError || result.Content != "a\r\n" {
+		t.Fatalf("página raw streaming não preservou CRLF: handled=%v result=%+v", handled, result)
+	}
+}
+
+func TestStreamingHugeLimitDoesNotOverflow(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "limite.txt")
+	if err := os.WriteFile(path, []byte("a\nb"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	maxInt := int(^uint(0) >> 1)
+	result, handled := readTextSliceStreaming(
+		context.Background(), path, "limite.txt", streamTextMinBytes,
+		intPtr(1), &maxInt, docextract.ModeAuto, false,
+	)
+	if !handled || result.IsError || !strings.Contains(result.Content, "a") {
+		t.Fatalf("limit máximo streaming transbordou: handled=%v result=%+v", handled, result)
 	}
 }
 

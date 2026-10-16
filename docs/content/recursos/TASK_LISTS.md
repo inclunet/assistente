@@ -23,26 +23,72 @@ Cada lista de tarefas possui:
 | Ação | Descrição |
 |---|---|
 | **Criar** | Nova lista com título e descrição |
-| **Editar** | Alterar título e descrição |
-| **Clonar** | Duplicar lista com workflow e tarefas |
-| **Deletar** | Remover lista completamente |
+| **Editar** | Alterar título e descrição (menu Configurações da lista) |
+| **Clonar** | Duplicar lista com workflow e tarefas (menu Configurações) |
+| **Deletar** | Remover lista completamente (menu Configurações) |
+
+### Configurações da lista
+
+Ao criar uma lista, uma disputa transitória pelo banco pode causar uma breve
+espera enquanto outra gravação termina. A lista e seu workflow são salvos juntos;
+uma falha não deve deixar uma lista criada pela metade. O limite de listas e a
+unicidade do slug também são conferidos durante essa gravação.
+
+O botão **Configurações** na toolbar da lista reúne as ações administrativas:
+editar a lista, editar o workflow, ações customizadas, duplicar, limpar e
+apagar. O vínculo da lista com uma conversa é automático, via chat embutido
+da aba.
+
+O botão informa ao leitor de telas que abre um menu e se ele está expandido.
+Com o foco no botão, use Enter ou Espaço para abrir as opções.
+Se a edição da lista falhar, o formulário permanece aberto com os dados
+digitados e a interface informa o erro, sem confirmar o salvamento.
 
 ### Tarefas
 
 | Ação | Descrição |
 |---|---|
 | **Criar tarefa** | Com título, descrição e tarefa-pai (subtarefas) |
-| **Atualizar status** | Mover tarefa entre status (validado pelo workflow) |
+| **Atualizar status** | Mover tarefa entre status (validado pelo workflow), no Kanban ou no seletor de status dos detalhes do card |
 | **Reordenar** | Arrastar tarefas dentro de um status |
 | **Subtarefas** | Criar tarefas filhas para quebrar em partes menores |
+
+### Copiar o código de um card
+
+Nos detalhes do card, o código de referência externa aparece como um botão,
+separado do status. Clique nele ou use Tab e Enter/Espaço para copiar o código
+para a área de transferência. A confirmação é exibida e anunciada pelo leitor
+de telas. Se a cópia falhar, uma mensagem permite identificar a falha e tentar
+novamente. Quando há um link cadastrado, use **Abrir link do card** ao lado do
+código para acessar o sistema de origem.
 
 ### Workflow
 
 Cada lista tem seu próprio workflow com:
 
 - **Status**: Lista de status possíveis (ex: A Fazer, Em Progresso, Concluído)
-- **Transições**: Regras de quais status podem avançar para quais
-- **Reordenação**: Status podem ser reordenados
+- **Transições**: Regras de quais status podem avançar para quais (configuradas no detalhe de cada status)
+- **Reordenação**: Status podem ser reordenados (Alt+Setas no grid)
+
+### Editar workflow e ações customizadas
+
+As telas **Editar Workflow** e **Ações customizadas** (menu Configurações)
+salvam cada alteração na hora: criar, editar, apagar ou reordenar já persiste,
+sem botão Salvar. Ao abrir, o foco fica no grid.
+
+- **Ctrl+N** cria um novo status ou uma nova ação customizada.
+- **Enter** no grid abre a edição do item focado; **Aplicar** salva e volta ao grid.
+- **Esc** fecha a tela (ou só o formulário do item, se ele estiver aberto).
+- Ao apagar um status que ainda tem tarefas, o Assistente pergunta para qual
+  status movê-las antes de remover.
+- Se o salvamento falhar, a mensagem de erro aparece e a tela volta ao último
+  estado salvo; no formulário do item, o que foi digitado é mantido para tentar
+  de novo.
+- Se o workflow ou as ações forem alterados em outro lugar enquanto a tela está
+  aberta (em outra aba ou pelo agente), o Assistente não sobrescreve essa
+  alteração. Ele avisa, atualiza a tela com a versão atual e mantém o que você
+  digitou no formulário, para você conferir e aplicar de novo. Se o item que você
+  editava foi apagado, o aviso diz isso e o formulário fecha.
 
 ## Modos de Visualização
 
@@ -50,6 +96,28 @@ Cada lista tem seu próprio workflow com:
 - **Kanban**: Colunas por status, com drag-and-drop
 
 Alterne entre modos via botão na toolbar.
+
+### Listas grandes
+
+A tela carrega até 100 tarefas principais por vez, preservando a ordem visual e
+as subtarefas de cada item. Na visualização em lista, use **Carregar mais
+tarefas** para buscar a página seguinte. No Kanban, as páginas restantes são
+carregadas automaticamente, em sequência, até que todas as colunas estejam
+completas. O quadro já pode ser navegado assim que os primeiros cards aparecem;
+as páginas seguintes entram em segundo plano sem retirar o foco do card atual.
+O progresso fica visível e é anunciado de forma discreta. Se uma página falhar,
+os cards disponíveis continuam utilizáveis e a tela oferece uma ação para
+tentar novamente.
+
+Essa paginação evita que abrir ou atualizar um quadro grande dispare todas as
+consultas ao mesmo tempo. Ela não remove nem reordena tarefas: cada página
+continua exatamente do cursor anterior.
+
+A tela de listas carrega primeiro apenas os dados do catálogo e as contagens,
+sem baixar os cards de todas as listas. Os cards da lista escolhida aparecem em
+páginas; subtarefas em qualquer profundidade acompanham a tarefa principal. Se
+você sair do Kanban durante uma página lenta, o carregamento para antes da
+próxima página e pode continuar normalmente ao voltar.
 
 ## Integração com IA
 

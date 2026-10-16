@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useJobStore } from '../store/jobStore';
+import { isJobProfileAuthorizationError, useJobStore } from '../store/jobStore';
 import { Modal } from '../components/ui/Modal';
 import { Toolbar } from '../components/ui/Toolbar';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
@@ -76,7 +76,10 @@ export default function JobsPage() {
   const isLoading = useJobStore((s) => s.isLoading);
   const runLogs = useJobStore((s) => s.runLogs);
   const events = useJobStore((s) => s.events);
-  const { fetchJobs, toggleJob, runJob, fetchJobRuns, fetchJobEvents, fetchJobDetail, deleteJob } = useJobStore();
+  const {
+    fetchJobs, toggleJob, runJob, fetchJobRuns, getJobRunDetail,
+    fetchJobEvents, fetchJobDetail, deleteJob,
+  } = useJobStore();
 
   const [searchTerm, setSearchTerm] = useState('');
   const [focusedJob, setFocusedJob] = useState<jobs.JobInfo | null>(null);
@@ -164,8 +167,12 @@ export default function JobsPage() {
         await toggleJob(job.id, !job.enabled);
         addToast(t('jobs.toggleSuccess'), 'success', undefined, undefined, { suppressAnnounce: true });
         announce(t('jobs.toggleSuccess'));
-      } catch {
-        addToast(t('common.error', 'Error'), 'error');
+      } catch (error) {
+        const message = isJobProfileAuthorizationError(error)
+          ? t('jobs.builder.enableRequiresAuthorizedProfile')
+          : t('common.error', 'Error');
+        addToast(message, 'error', undefined, undefined, { suppressAnnounce: true });
+        announce(message, 'assertive');
       } finally {
         restoreJobFocus(job.id, rowIndex);
       }
@@ -498,7 +505,12 @@ export default function JobsPage() {
         title={`${t('jobs.logsTitle')} — ${logsJobId || ''}`}
         returnFocusOnClose={false}
       >
-        <RunLogViewer logs={runLogs} onReplay={handleReplay} onRerun={handleRerun} />
+        <RunLogViewer
+          logs={runLogs}
+          onLoadDetail={getJobRunDetail}
+          onReplay={handleReplay}
+          onRerun={handleRerun}
+        />
       </Modal>
 
       <Modal
@@ -529,7 +541,7 @@ export default function JobsPage() {
             setBuilderOpen(false);
             restoreJobFocus(focusedJob?.id);
           }}
-          onSaved={() => fetchJobs().then(() => restoreJobFocus(focusedJob?.id))}
+          onSaved={() => fetchJobs()}
         />
       </Modal>
     </div>

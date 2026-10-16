@@ -1,6 +1,11 @@
 package portability
 
-import "time"
+import (
+	"assistente/internal/credentials"
+	"time"
+
+	"assistente/internal/commandportability"
+)
 
 const (
 	FormatJSON     = "json"
@@ -45,8 +50,6 @@ type MessageExport struct {
 	Media            string    `json:"media,omitempty"`
 	Audio            string    `json:"audio,omitempty"`
 	AudioMimeType    string    `json:"audioMimeType,omitempty"`
-	ToolCalls        string    `json:"toolCalls,omitempty"`
-	ToolCallID       string    `json:"toolCallId,omitempty"`
 	PromptTokens     int       `json:"promptTokens,omitempty"`
 	CompletionTokens int       `json:"completionTokens,omitempty"`
 	TotalTokens      int       `json:"totalTokens,omitempty"`
@@ -58,30 +61,72 @@ type MessageExport struct {
 	TurnID           string    `json:"turnId,omitempty"`
 	ParentIndex      *int      `json:"parentIndex,omitempty"`
 	TurnIndex        *int      `json:"turnIndex,omitempty"`
+	// ToolInvocationDetails é uma projeção transitória usada apenas pelos
+	// renderizadores ricos; o arquivo canônico mantém invocações no ledger da
+	// conversa, nunca dentro da mensagem.
+	ToolInvocationDetails string `json:"-"`
 }
 
 type ConversationExport struct {
-	ID        string          `json:"id"`
-	Title     string          `json:"title"`
-	Channel   string          `json:"channel,omitempty"`
-	ContactID string          `json:"contactId,omitempty"`
-	Summary   string          `json:"summary,omitempty"`
-	CreatedAt time.Time       `json:"createdAt"`
-	Messages  []MessageExport `json:"messages"`
+	ID              string                 `json:"id"`
+	Title           string                 `json:"title"`
+	Channel         string                 `json:"channel,omitempty"`
+	ContactID       string                 `json:"contactId,omitempty"`
+	Summary         string                 `json:"summary,omitempty"`
+	CreatedAt       time.Time              `json:"createdAt"`
+	Messages        []MessageExport        `json:"messages"`
+	ToolInvocations []ToolInvocationExport `json:"toolInvocations,omitempty"`
+}
+
+type ToolInvocationExport struct {
+	ID                 string     `json:"id"`
+	CreatedAt          time.Time  `json:"createdAt"`
+	UpdatedAt          time.Time  `json:"updatedAt"`
+	TurnID             string     `json:"turnId"`
+	ToolCallID         string     `json:"toolCallId"`
+	Attempt            int        `json:"attempt"`
+	Status             string     `json:"status"`
+	DryRun             bool       `json:"dryRun,omitempty"`
+	ToolName           string     `json:"toolName"`
+	ToolDisplayName    string     `json:"toolDisplayName,omitempty"`
+	ToolOrigin         string     `json:"toolOrigin,omitempty"`
+	Input              string     `json:"input,omitempty"`
+	Output             string     `json:"output,omitempty"`
+	Metadata           string     `json:"metadata,omitempty"`
+	ModelIteration     int        `json:"modelIteration,omitempty"`
+	External           bool       `json:"external,omitempty"`
+	DisplayName        string     `json:"displayName,omitempty"`
+	InputPreview       string     `json:"inputPreview,omitempty"`
+	OutputPreview      string     `json:"outputPreview,omitempty"`
+	InputBytes         int64      `json:"inputBytes,omitempty"`
+	OutputBytes        int64      `json:"outputBytes,omitempty"`
+	InputHash          string     `json:"inputHash,omitempty"`
+	OutputHash         string     `json:"outputHash,omitempty"`
+	ResultAvailability string     `json:"resultAvailability,omitempty"`
+	ErrorKind          string     `json:"errorKind,omitempty"`
+	ErrorCode          string     `json:"errorCode,omitempty"`
+	ErrorMessage       string     `json:"errorMessage,omitempty"`
+	Retryable          bool       `json:"retryable,omitempty"`
+	RetryabilityKnown  bool       `json:"retryabilityKnown,omitempty"`
+	QueuedAt           time.Time  `json:"queuedAt"`
+	StartedAt          *time.Time `json:"startedAt,omitempty"`
+	CompletedAt        *time.Time `json:"completedAt,omitempty"`
+	DurationMs         int64      `json:"durationMs,omitempty"`
 }
 
 type ProviderExport struct {
-	ID                string    `json:"id"`
-	Name              string    `json:"name"`
-	Type              string    `json:"type"`
-	APIFormat         string    `json:"apiFormat,omitempty"`
-	BaseURL           string    `json:"baseUrl"`
-	Model             string    `json:"model,omitempty"`
-	DefaultModel      string    `json:"defaultModel,omitempty"`
-	IsDefault         bool      `json:"isDefault,omitempty"`
-	Timeout           int       `json:"timeout,omitempty"`
-	CredentialPattern string    `json:"credentialPattern,omitempty"`
-	CreatedAt         time.Time `json:"createdAt"`
+	ID                       string    `json:"id"`
+	Name                     string    `json:"name"`
+	Type                     string    `json:"type"`
+	APIFormat                string    `json:"apiFormat,omitempty"`
+	BaseURL                  string    `json:"baseUrl"`
+	Model                    string    `json:"model,omitempty"`
+	DefaultModel             string    `json:"defaultModel,omitempty"`
+	IsDefault                bool      `json:"isDefault,omitempty"`
+	Timeout                  int       `json:"timeout,omitempty"`
+	StreamIdleTimeoutSeconds int       `json:"streamIdleTimeoutSeconds,omitempty"`
+	CredentialPattern        string    `json:"credentialPattern,omitempty"`
+	CreatedAt                time.Time `json:"createdAt"`
 	// ACPCommand e ACPArgs endereçam o agente de código quando o provider é
 	// ACP (AEP-0084): é o que substitui a URL. Caminho de binário é da
 	// máquina, então a importação avisa quando o comando não existe aqui.
@@ -109,6 +154,9 @@ type ProviderExport struct {
 }
 
 type MCPServerExport struct {
+	// Only the external Cursor/Claude adapter sets this; historical backups still
+	// require the explicit snapshot migration, including any existing credentials.
+	externalOAuth         bool
 	ID                    string            `json:"id,omitempty"`
 	Slug                  string            `json:"slug"`
 	Name                  string            `json:"name"`
@@ -218,26 +266,31 @@ type MemoryRecordExport struct {
 }
 
 type CredentialExport struct {
-	ID           string            `json:"id,omitempty"`
-	Pattern      string            `json:"pattern"`
-	AuthType     string            `json:"authType"`
-	Token        string            `json:"token,omitempty"`
-	Username     string            `json:"username,omitempty"`
-	Password     string            `json:"password,omitempty"`
-	Headers      map[string]string `json:"headers,omitempty"`
-	ExpiresAt    int64             `json:"expiresAt,omitempty"`
-	RefreshURL   string            `json:"refreshUrl,omitempty"`
-	ClientID     string            `json:"clientId,omitempty"`
-	ClientSecret string            `json:"clientSecret,omitempty"`
+	staticPartial    bool                              // historical per-role backup: omitted roles are preserved
+	StaticComponents map[credentials.SecretRole]string `json:"staticComponents,omitempty"`
+	Source           string                            `json:"source"`
+	SourceConfig     *credentials.SourceConfig         `json:"sourceConfig,omitempty"`
+	ID               string                            `json:"id,omitempty"`
+	Pattern          string                            `json:"pattern"`
+	AuthType         string                            `json:"authType"`
+	Token            string                            `json:"token,omitempty"`
+	Username         string                            `json:"username,omitempty"`
+	Password         string                            `json:"password,omitempty"`
+	Headers          map[string]string                 `json:"headers,omitempty"`
+	ExpiresAt        int64                             `json:"expiresAt,omitempty"`
+	RefreshURL       string                            `json:"refreshUrl,omitempty"`
+	ClientID         string                            `json:"clientId,omitempty"`
+	ClientSecret     string                            `json:"clientSecret,omitempty"`
 }
 
 type ExportResources struct {
-	Conversations []ConversationExport `json:"conversations,omitempty"`
-	Providers     []ProviderExport     `json:"providers,omitempty"`
-	MCPServers    []MCPServerExport    `json:"mcpServers,omitempty"`
-	TaskLists     []TaskListExport     `json:"taskLists,omitempty"`
-	MemoryRecords []MemoryRecordExport `json:"memoryRecords,omitempty"`
-	Credentials   *CredentialCipher    `json:"credentials,omitempty"`
+	Conversations []ConversationExport             `json:"conversations,omitempty"`
+	Providers     []ProviderExport                 `json:"providers,omitempty"`
+	MCPServers    []MCPServerExport                `json:"mcpServers,omitempty"`
+	TaskLists     []TaskListExport                 `json:"taskLists,omitempty"`
+	MemoryRecords []MemoryRecordExport             `json:"memoryRecords,omitempty"`
+	CommandLayers []commandportability.LayerExport `json:"commandLayers,omitempty"`
+	Credentials   *CredentialCipher                `json:"credentials,omitempty"`
 }
 
 type ExportFile struct {
@@ -260,9 +313,11 @@ type ExportRequest struct {
 	JobIDs                   []string `json:"jobIds,omitempty"`
 	TaskListIDs              []string `json:"taskListIds,omitempty"`
 	MemoryRecordIDs          []string `json:"memoryRecordIds,omitempty"`
+	CommandLayerIDs          []string `json:"commandLayerIds,omitempty"`
 	ChannelNames             []string `json:"channelNames,omitempty"`
 	IncludeContacts          bool     `json:"includeContacts"`
 	IncludeWorkspace         bool     `json:"includeWorkspace"`
+	IncludeCommandLayers     bool     `json:"includeCommandLayers"`
 	IncludeAudio             bool     `json:"includeAudio"`
 	IncludeCredentials       bool     `json:"includeCredentials"`
 	CredentialExportPassword string   `json:"credentialExportPassword,omitempty"`
@@ -338,6 +393,7 @@ type ImportAnalysis struct {
 	TaskCount                  int                `json:"taskCount"`
 	TaskNoteCount              int                `json:"taskNoteCount"`
 	MemoryRecordCount          int                `json:"memoryRecordCount"`
+	CommandLayerCount          int                `json:"commandLayerCount"`
 	IncludesCredentials        bool               `json:"includesCredentials"`
 	RequiresCredentialPassword bool               `json:"requiresCredentialPassword"`
 	CredentialCount            int                `json:"credentialCount"`

@@ -2,6 +2,125 @@
 
 **Status:** Done
 
+**Extensão coordenada, recuperação sob contenção (29/09/2026): In Progress.**
+A passagem AEP-0103 usa contexto com timeout de `min(TTL/3, 5s)` e cancelamento
+propagado ao SQL. Continua na mesma goroutine, sem scheduler adicional.
+Retenção de jobs passa a limitar a seleção de registros por operação e usuário
+ao BatchSize; o cursor só avança quando esse usuário termina, e continuação
+impede compactação. Cascatas de dependências de um run não recebem limite de
+linhas separado; o deadline é cooperativo, não uma promessa de prazo rígido.
+Falhas preservam contagens de commits anteriores e retomam na próxima passagem.
+Os métodos legados continuam completando a limpeza em chamadas sucessivas.
+Critérios de idade/quantidade, isolamento por usuário e proteção de outbox/leases
+não mudam. Evidências: testes de retenção em `internal/jobs/repository_test.go`,
+adapters e `command_maintenance_pass_test.go`. Qualificação no banco real ainda
+pendente; Done permanece restrito ao escopo legado já entregue.
+
+**Ajuste de inicialização (28/09/2026):** com o coordenador AEP-0103 montado,
+limpeza de tool calls órfãs e cap de idade deixam de executar sincronamente no
+reload de login. Permanecem na passagem inicial e periódica do Manager, após
+publicação dos comandos. Sem armazenamento/coordenador de comandos, o caminho
+legado preserva a passagem inicial síncrona de `Manager.Start`; essa exceção
+não recebe a garantia de login sem retenção síncrona. Não há timer extra, remoção de política
+ou alteração da recuperação obrigatória. Contenção WAL na outbox repete apenas
+transações puramente locais já revertidas, com o retry SQLite central cancelável;
+nenhuma entrega/ativação externa é repetida por esse mecanismo.
+Na partida legada, falhas de limpeza de chat (órfãos/cap) são agregadas em
+`InitialChatRetentionError()` e preservam o aviso `runtime:partial-init` do
+subsistema `tool_invocations`, sem falhar Start nem interromper jobs ativos.
+Uma nova partida após Stop limpa o diagnóstico anterior; Start já ativo não
+repete a limpeza. Passagens periódicas continuam apenas registrando logs e o
+caminho coordenado não aguarda esse diagnóstico. Cobertura:
+`TestChatStartupRetentionLegacyReportsFailuresWithoutFailingJobs`.
+Evidências: `TestChatStartupRetentionCoordinatedAndLegacyPaths` verifica
+registros reais com cap ligado/desligado nos dois modos; `sqlite_snapshot_retry_test.go`
+reproduz conflito WAL e cobre cancelamento, esgotamento e rollback sem
+contagem de resultados não confirmados. Validação no banco real permanece
+pendente; não foi realizada limpeza no banco pessoal para estes testes.
+
+**Extensão AEP-0103, 17/09/2026 — seção 27:** cada passagem do coordenador
+publica a fotografia validada de MaintenanceSettings no contexto interno.
+Criação/renovação de leases e retenção de ativações usam a mesma fotografia,
+sem alterar durações compartilhadas nem reabrir deadlines persistidos. A
+próxima passagem observa novos settings. O App permite recuperação de claims
+sem fonte mesmo sem workspace/UI disponível, mas não permite ativação ou
+renovação nesse estado. Erros de transação continuam erros, não ausência de
+contexto. O diagnóstico de falhas inclui etapa e contadores confirmados.
+Aceites e limites estão na tasklist; o gate integrado de restart de todos os
+domínios ainda não está certificado. Done acima continua restrito ao legado.
+
+**Atualização da extensão AEP-0103, seção 26 (16/09/2026):** a composição real
+está ligada no App antes de jobs.Start quando o armazenamento de comandos está
+pronto. Usa o timer existente, recuperação vinculada ao mesmo banco, heartbeat,
+outbox/purga bounded, retenções de comandos e adapters legados de jobs/tools e
+compactação. Falha de montagem impede Start; não instala fallback silencioso.
+Shutdown cancela e aguarda a passagem antes de liberar a instância. R04.1 está
+aceito; atualização dinâmica dos settings do Consumer e gate integrado de
+recuperação multiusuário/system permanecem pendentes. As notas abaixo são
+históricas; Done continua limitado ao escopo legado.
+
+**Extensão AEP-0103, 16/09/2026 — In Progress:** com o coordenador configurado,
+a passagem inicial agora pertence à única goroutine cancelável de manutenção,
+sem executar portas sob os locks de `Manager.Start`. Stop também drena essa
+primeira passagem. Heartbeat retoma o prefixo confirmado após falha; erros
+transitórios não viram rejeição definitiva e retenção sinaliza continuação
+após rollback. A composição completa do Consumer e a chamada produtiva de
+ConfigureCommandMaintenance ainda faltam. O recovery de restart registrado
+já está ligado ao bootstrap (seção 24 da tasklist AEP-0103); isso não habilita
+a cadência periódica completa. Done acima permanece restrito ao escopo legado.
+
+**Rodada de quinze pacotes AEP-0103 (15/09/2026), extensão In Progress:**
+`commanddecision.CoordinatorRecovery` pagina receipts de todos os owners,
+exclusivamente com prova opaca de gerações drenadas no processo atual, e usa o
+mesmo CAS/evento da recuperação por sessão. Cancelamento e rollback preservam
+commits anteriores e cursor. Teste do coordinator compõe recuperação real de
+decisões e invocações em SQLite e impede compactação durante continuação;
+os demais domínios desse teste são spies. Prova de restart e montagem automática
+de todos os domínios no App continuam pendentes; idade não prova exclusão.
+
+**Rodada de dez frentes AEP-0103 (15/09/2026), extensão In Progress:** o
+coordinator agora recebe heartbeat antes da outbox, com a mesma política lida
+na passagem. O adapter concreto percorre leases em lotes de até 100 e não
+ressuscita leases vencidas. Continuação/erro impede retenção e compactação;
+continuação do heartbeat não impede avançar outbox e recuperação.
+`Manager.ConfigureCommandMaintenance` permite montagem interna antes de Start,
+com os adapters reais de jobs/tools/compactação do próprio Manager. Quando
+configurado, seu único timer de retenção usa TTL/3 (máximo um minuto) e retoma
+trabalho pendente mais cedo. Sem coordinator, o caminho legado é preservado.
+Stop cancela e aguarda a passagem fora dos locks do Manager antes de destruir
+seus componentes; Start/remontagem são recusados durante essa espera. A espera
+depende de cooperação das portas, sem promessa de prazo rígido. Erro de leitura
+ou política usa nova tentativa em um minuto, sem limpeza com defaults substitutos.
+
+O adapter de invocações pagina toda a instância e só recupera gerações presentes
+na prova real de drenagem do core atual, incluindo escopos local/system. Usa o
+writer existente e preserva progresso confirmado em erro; outro core vivo não é
+alterado. Isso não resolve a prova de restart nem monta automaticamente todos
+os domínios de recuperação no startup produtivo. I12 permanece parcial.
+
+**Ligação do core, extensão In Progress (15/09/2026):** o encerramento real dos
+executores no processo atual agora produz prova para o writer existente do ledger.
+Isso não cobre restart. Adapters concretos de outbox/reconciliação usam lotes,
+continuação e reinício do cursor ao terminar cada ciclo. O coordinator conserva
+contagens confirmadas quando uma porta falha e não compacta após erro. Ainda falta
+montar a cadência única produtiva com heartbeat e todos os domínios de recuperação.
+
+**Continuação AEP-0103 (15/09/2026):** os adapters de jobs/tools agora paginam
+usuários, com cursor em memória por operação, reinício ao mudar política,
+continuação e contagem confirmada em cancelamento/erro. Passagens concorrentes
+no mesmo owner são recusadas. O limite é de usuários, não linhas de cada limpeza;
+More de tools também impede compactação. Consumo e heartbeat são passagens sem
+timer, ainda dependentes de montagem na cadência produtiva única.
+
+**Extensão AEP-0103, ainda In Progress (15/09/2026):** adapters concretos de
+jobs/tools preservam as limpezas existentes por usuário; compactação reutiliza
+o throttle do Manager e propaga falhas. Retenção de ativações e invocações protege
+estado ativo e prazos de ledger. Trabalho restante (`More`) e cancelamento impedem
+compactação da passagem. A política de ativações tem lote máximo 128; o adapter
+legado percorre todos os usuários sem paginação. Os adapters ainda não substituem
+a cadência produtiva e não constituem prova de geração encerrada. O status Done
+acima refere-se ao escopo legado, não ao aceite de I12 da AEP-0103.
+
 ## Dependências
 
 - **AEP-0048** (Migração de Jobs para Banco de Dados): definiu a retenção por idade (30 dias) de `job_runs`, `job_events` e `job_run_events` via goroutine no Manager. Esta AEP **substitui** essa janela por uma retenção curta, configurável em horas (padrão 24h), por dados de jobs serem efêmeros.
@@ -12,6 +131,7 @@
 - **AEP-0052** (Multi-user accounts): toda retenção é escopada por `user_id`. A compactação física (`VACUUM`) é global ao arquivo `.db`.
 - **Issue #195** (DB: crescimento excessivo das tabelas de jobs/execução): motivação direta.
 - **Issue #292** (Contenção SQLite): restringe como/quando rodar `VACUUM`, pois é operação exclusiva.
+- **Issue #738** (Contenção no boot do catálogo): aplica a política central de retry às escritas de sincronização de `tool_catalog`.
 
 ## Resumo
 
@@ -23,7 +143,7 @@ Esta AEP define uma política de **compactação física** combinada a um **refo
 2. Para bancos legados (criados em `auto_vacuum=none`), um `VACUUM` completo único e oportunista, gated por limiar de páginas livres, que também converte o banco para o modo incremental dali em diante.
 3. `PRAGMA wal_checkpoint(TRUNCATE)` após grandes deleções para limitar o crescimento do arquivo `-wal`.
 4. Retenção de **dados de jobs por categoria**: janela por **idade curta e configurável** (padrão 24h) somada a um teto por **contagem** (últimos N runs por job), para conter jobs de alta frequência.
-5. **Tool calls de chat seguem o ciclo de vida da conversa**: não expiram por tempo por padrão; saem em cascata quando a conversa/mensagem é removida, com uma varredura de órfãos como rede de segurança. Um cap de idade opcional (em dias) pode ser configurado. Dry-runs operacionais (job/tool_catalog) são limpos por idade no loop periódico.
+5. **Tool calls de chat seguem o ciclo de vida da conversa**: não expiram por tempo por padrão; saem em cascata quando a conversa/mensagem é removida, com uma varredura de órfãos como rede de segurança. Um cap de idade opcional (em dias) pode ser configurado. A AEP-0104 torna esse vínculo explícito por `conversation_id`, eliminando inferência por mensagem/JSON. Dry-runs operacionais (job/tool_catalog) são limpos por idade no loop periódico.
 6. **Toda a política vive no `config.json`** (seção `maintenance`), editável na tela de Configurações. **Não há variáveis de ambiente.**
 
 ## Motivação
@@ -32,30 +152,78 @@ Esta AEP define uma política de **compactação física** combinada a um **refo
 
 2. **Janela de 30 dias é insuficiente para alta frequência**: um job disparando a cada minuto gera ~43k runs antes de qualquer purga por idade. Cada run carrega colunas TEXT volumosas (`inputs`, `output`, `trigger_data`, `events_emitted`) e ainda gera `job_run_events`/`job_events` e `tool_invocations`. Falta um teto por contagem.
 
-3. **`tool_invocations` só limpa no login**: a limpeza por idade dessa tabela (AEP-0063) é disparada apenas em `reloadUserScopedRuntime` (login/refresh). Sessões longas (app aberto por dias) nunca disparam a purga.
+3. **Limitação anterior à AEP: `tool_invocations` só limpava no login**. A limpeza por idade da AEP-0063 dependia de `reloadUserScopedRuntime`, deixando sessões longas sem purga. A implementação atual mantém manutenção inicial e periódica; a passagem inicial é assíncrona após readiness no caminho coordenado AEP-0103 e síncrona em `Manager.Start` no legado sem coordenador.
 
 4. **Contenção (issue #292)**: `VACUUM` completo adquire lock exclusivo e pode levar segundos em bancos grandes, agravando `SQLITE_BUSY`. A estratégia precisa ser oportunista (momento ocioso), throttled e proteger leituras interativas.
 
 ## Estado implementado
 
+Adendo AEP-0103 (15/09/2026, atualizado I11–I15): a outbox de ativação é
+independente das cascatas de runs e preserva o deadline original de replay.
+O consumidor transacional e a lease própria de claim existem, mas worker e
+heartbeat reais continuam desabilitados. A retenção de runs preserva um run
+não terminal somente quando existe claim ativa correspondente e lease viva;
+lease de entrega da outbox não substitui essa prova.
+
+`commandmaintenance.Coordinator` implementa uma passagem sem loop próprio,
+com outbox e recuperação antes da limpeza de jobs, limpezas legadas de tools,
+auditorias e compactação. Todas as portas e uma política completa são exigidas
+antes de efeitos; recovery com mais lotes impede a limpeza nesta passagem.
+O Manager só usa esse caminho quando montado pelo bootstrap; caso contrário
+preserva a cadência legada. Não há coordenador global produtivo ainda.
+
+Permanecem em I12/I14: prova de encerramento/drenagem das gerações antigas,
+adapters de manutenção para toda a instância,
+política/retenção de `command_invocation` e montagem única no App. O status
+Done desta AEP descreve a retenção legada entregue, não encerra a extensão
+AEP-0103. Não foram migrados bancos pessoais para validar esta rodada.
+
+Adendo de fechamento de gaps (15/09/2026): os seis campos D11 da AEP-0103
+agora possuem defaults, persistência, UI nos três idiomas e documentação.
+O caminho opcional do Manager relê MaintenanceSettings a cada passagem e
+converte durações com verificação de overflow; não conserva uma política
+estática paralela no bootstrap. Arquivo ausente recebe defaults, mas erro de
+leitura/JSON impede a passagem desse coordenador. Lotes pendentes da outbox ou
+recuperação impedem retenção e compactação. Esses testes integram Manager e
+coordenador com portas controladas; a montagem produtiva all-users/system e
+o heartbeat consumidor do TTL ainda não foram habilitados. O requeue de leases
+também é limitado a 128 linhas por chamada, com seleção e atualização na mesma
+transação; requeue ou drain com continuação impedem a limpeza da passagem.
+
 | Mecanismo | Onde | Comportamento |
 |---|---|---|
 | Retenção runs/eventos (24h, configurável) | `internal/jobs/manager.go` (`runRetention`, loop 24h + `Start`) | Remove `job_runs`/`job_events`/`job_run_events` por idade; cascata em `tool_invocations` (`origin_type=job_run`) |
-| Tool calls de chat | ciclo de vida da conversa + `CleanOrphanChat` (login e loop) | Sem expiração por tempo por padrão; cap de idade opcional |
+| Tool calls de chat | ciclo de vida da conversa + `CleanOrphanChat` (manutenção após prontidão e loop) | Sem expiração por tempo por padrão; cap de idade opcional |
 | Dry-runs operacionais | `CleanOldDryRuns` no `runRetention` | Idade curta de jobs |
 | Guardas de volume na escrita | budget 10 MiB por resultado; truncamento de input/output | Limita tamanho por linha, não o total |
 | Pragmas | `internal/database/database.go` (`Init`) | `journal_mode=WAL`, `synchronous=NORMAL`, `auto_vacuum=INCREMENTAL`, `busy_timeout` |
-| `VACUUM` / `auto_vacuum` | `internal/database/maintenance.go` | Compactação incremental; `VACUUM` completo gated para bancos legados |
+| Sincronização do catálogo | `internal/toolcatalog/repository.go` | Upsert e indisponibilização repetem somente `SQLITE_BUSY` transitório com backoff central cancelável; erros permanentes retornam sem retry |
+| `VACUUM` / `auto_vacuum` | `internal/database/maintenance.go` | Compactação incremental; `VACUUM` completo gated para bancos legados; gate compartilhado com exclusão transacional de conversas |
 
 Testes de compactação, conversão de bancos legados e retenção ficam em
 `internal/database/maintenance_test.go`, `sqlite_policy_test.go`,
 `internal/toolinvocations/repository_test.go` e testes de retenção de jobs.
+
+O upsert do catálogo usa `WithSQLiteImmediateTransaction`: obtém o writer lock
+antes de consultar a linha existente, evitando a promoção de um snapshot WAL
+obsoleto (`SQLITE_BUSY_SNAPSHOT`) durante boots concorrentes. O retry permanece
+centralizado e cancelável. A regressão `TestDBRepositoryUpsertToolRetriesTransientSQLiteBusy`
+verifica que nenhuma consulta ao catálogo ocorre antes da aquisição do lock;
+`TestServiceRepeatedBootCatalogSyncWithThreeMCPServers` mantém dez boots concorrentes.
 
 ## Decisões
 
 ### D1 — `auto_vacuum=INCREMENTAL` para bancos novos
 
 `Init` passa a executar `PRAGMA auto_vacuum=INCREMENTAL` **antes** do `AutoMigrate`. Para bancos criados do zero isso ativa o modo incremental imediatamente (o modo só pode ser definido antes de qualquer tabela existir, ou via `VACUUM`). No modo incremental, páginas livres vão para uma freelist e podem ser devolvidas ao SO sob demanda com `PRAGMA incremental_vacuum`, sem o custo de reescrever o arquivo inteiro.
+
+No startup, o modo atual é consultado antes do setter. Um banco já incremental
+não regrava esse metadado nem dispara uma transação de escrita apenas para
+reafirmá-lo. Erros de consulta/configuração são propagados. Os caminhos de banco
+novo, legado e FULL preservam o comportamento anterior. Evidência:
+`internal/database/startup_vacuum_test.go`, incluindo banco incremental com
+`query_only=ON` e WAL sem novas páginas. Isso não dispensa a recuperação de WAL
+que o SQLite eventualmente precise executar ao abrir um banco.
 
 ### D2 — `VACUUM` completo oportunista para bancos legados
 
@@ -68,7 +236,16 @@ O `VACUUM` completo é **gated** por um limiar de páginas livres (`PRAGMA freel
 
 ### D3 — Compactação throttled e em momento ocioso
 
-A compactação roda a partir do `runRetention` do Manager (em `Start`, logo após o login, e a cada 24h), mas com **throttle global** (no máximo 1× por intervalo de retenção) para não competir com a UI. `wal_checkpoint(TRUNCATE)` roda junto para limitar o `-wal`. `PRAGMA busy_timeout` é configurado para que a compactação aguarde locks transitórios em vez de falhar imediatamente — alinhado (sem antecipar) com a investigação da issue #292.
+A compactação roda a partir do `runRetention` do Manager (em `Start`, logo após o login, e a cada 24h), mas com **throttle global** (no máximo 1× por intervalo de retenção) para não competir com a UI. `wal_checkpoint(TRUNCATE)` roda junto para limitar o `-wal`. `PRAGMA busy_timeout` é configurado para que a compactação aguarde locks transitórios em vez de falhar imediatamente.
+
+A exclusão de conversas, inclusive em lote, compartilha um gate cancelável com compactação e importação. Assim, `VACUUM`, restauração de conversas e a transação destrutiva `BEGIN IMMEDIATE` do delete nunca disputam o arquivo entre si. Criadores de conversa — comum, reciclagem, subagente e canal — também entram nesse gate para tornar o clear-all linearizável. Os demais writers de dados associados usam a transação/retry canônicos e revalidam vínculos sob o writer lock; eles não mantêm o maintenance gate global durante toda escrita. O “Limpar mensagens” delega ao pipeline batch do Histórico e, se um criador alterar seu snapshot antes de o gate fechar, refaz o snapshot antes de qualquer mutação. Conversas com run de subagente, entrega terminal ao pai, pipeline/stream LLM, callback de canal ou reconcile/retry reservado/ativo são recusadas sem cancelar o trabalho antes do commit. Toda mutação de pendência conta como operação ativa até `Upsert`, `Delete` ou `DeleteIfTrace` terminar. O write gate dos subagentes permanece fechado até o desfecho da transação. Em sucesso, os gates runtime são convertidos no commit em tombstones temporários, normalizados e podados após a janela de callbacks; chamadas bloqueadas são recusadas, enquanto os mutexes globais são liberados antes da limpeza pós-commit. Um gate de ciclo de vida permanece até o fim dos efeitos pós-commit e impede que uma importação do mesmo ID seja seguida por um evento tardio de exclusão. A importação adquire os gates na mesma ordem da exclusão e, após cada commit, remove tombstones somente dos IDs efetivamente restaurados; em falha, libera os gates sem invalidá-los. Em rollback, nenhum tombstone permanece. A ordem de aquisição antecede o lock SQLite e é estável, evitando deadlock. Evidências: `internal/database/conversation_batch_delete_test.go`, `internal/app/conversation_deletion_test.go`, `internal/subagent/manager_test.go`, `internal/chat/streaming_manager_test.go` e `internal/messaging/notifier_test.go`.
+
+O snapshot inicial do “Limpar mensagens” também roda sob o maintenance gate e
+busy retry; a revalidação sob o mesmo gate descarta snapshots obsoletos antes
+do batch. O retry é limitado a oito tentativas e respeita cancelamento para não
+prender a limpeza sob criação contínua. As esperas dos gates de exclusão e
+restauração de subagentes também observam o contexto. Há testes determinísticos
+do retry, da ausência de efeitos em erro e dos três entrypoints de importação.
 
 A compactação é **best-effort**: qualquer erro é logado e não interrompe o boot nem a retenção.
 
@@ -78,7 +255,7 @@ Dados de jobs são **operacionais e descartáveis**, sem valor histórico. A jan
 
 ### D5 — Tool calls de chat seguem o ciclo de vida da conversa
 
-Diferentemente dos dados de jobs, tool calls de **chat** fazem parte do histórico da conversa. Por isso **não expiram por tempo por padrão**: só são removidas quando a conversa/mensagem de origem é deletada (cascata já existente). Como rede de segurança, `CleanOrphanChat` remove invocações de chat cujo `origin_id` não existe mais em `chat_messages` — roda no login e no loop periódico.
+Diferentemente dos dados de jobs, tool calls de **chat** fazem parte do histórico da conversa. Por isso **não expiram por tempo por padrão**: só são removidas quando a conversa/mensagem de origem é deletada (cascata já existente). Como rede de segurança, `CleanOrphanChat` remove invocações de chat órfãs — roda na manutenção inicial e no loop periódico. Com coordenador AEP-0103, a passagem inicial é assíncrona após prontidão; sem ele, permanece síncrona em `Manager.Start`, inclusive quando chamado pelo reload/login legado.
 
 Um **cap de idade opcional** (`chat_tool_calls_retention_days`, padrão `0` = sem limite) permite ao usuário forçar a remoção de tool calls de chat mais antigas que X dias, via `CleanOldChat`.
 
@@ -123,6 +300,7 @@ Aproveitando a reforma do `config`, os fallbacks de modelo que liam `config.Defa
 ## Critérios de aceitação
 
 - [x] `Init` define `auto_vacuum=INCREMENTAL` e `busy_timeout`; bancos novos nascem no modo incremental.
+- [x] A sincronização de `tool_catalog` usa o retry SQLite central, respeita cancelamento e não repete erros permanentes; há regressão com writer lock real e simulação concorrente de dez boots com três MCPs.
 - [x] Existe `database.Compact(ctx, force, minFreeBytes)` que: roda `wal_checkpoint(TRUNCATE)`; usa `incremental_vacuum` no modo incremental; faz `VACUUM` completo gated em bancos legados, convertendo-os para incremental.
 - [x] O arquivo `.db` encolhe após retenção + compactação (validado por teste com tamanho total antes/depois e `freelist_count`).
 - [x] `CleanRunsExceedingCount` mantém os últimos N runs por job, removendo em cascata `tool_invocations`/`job_run_events`/`job_events`.
@@ -135,4 +313,4 @@ Aproveitando a reforma do `config`, os fallbacks de modelo que liam `config.Defa
 ## Follow-up (fora do escopo desta fatia)
 
 - Teardown completo dos campos legados do `config.json` (welcome wizard, tokens controller, `App.tsx`, bindings) — issue #299.
-- Reconciliar com a estratégia de concorrência da issue #292 (pooling, retries em `SQLITE_BUSY`).
+- Pooling e retries de `SQLITE_BUSY` foram centralizados em `sqlite_policy.go`; a coordenação entre compactação e exclusão de conversas foi concluída pela issue #725, e a sincronização de `tool_catalog` passou a consumir essa política na issue #738.

@@ -276,6 +276,15 @@ func GetSupportedTemplates() []ChannelTemplate {
 // CreateFromTemplate cria um arquivo de configuração a partir de um template.
 // values é um mapa campo → valor fornecido pelo usuário.
 func CreateFromTemplate(templateType string, values map[string]interface{}) error {
+	cfg, err := ConfigFromTemplate(templateType, values)
+	if err != nil {
+		return err
+	}
+	return Save(templateType, cfg)
+}
+
+// ConfigFromTemplate validates input without writing secrets or consumer state.
+func ConfigFromTemplate(templateType string, values map[string]interface{}) (*ChannelConfig, error) {
 	templates := GetAvailableTemplates()
 	var template *ChannelTemplate
 
@@ -287,14 +296,14 @@ func CreateFromTemplate(templateType string, values map[string]interface{}) erro
 	}
 
 	if template == nil {
-		return fmt.Errorf("template de canal '%s' não encontrado", templateType)
+		return nil, fmt.Errorf("template de canal '%s' não encontrado", templateType)
 	}
 
 	// Valida campos obrigatórios
 	for _, field := range template.Fields {
 		if field.Required {
 			if val, ok := values[field.Key]; !ok || val == nil || val == "" {
-				return fmt.Errorf("campo obrigatório '%s' não fornecido", field.Label)
+				return nil, fmt.Errorf("campo obrigatório '%s' não fornecido", field.Label)
 			}
 		}
 	}
@@ -355,8 +364,7 @@ func CreateFromTemplate(templateType string, values map[string]interface{}) erro
 		}
 	}
 
-	// Salva o arquivo
-	return Save(templateType, cfg)
+	return cfg, nil
 }
 
 // GetChannelConfigAsMap retorna a configuração de um canal como mapa para exibição na UI.

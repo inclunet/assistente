@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -16,6 +17,7 @@ import (
 	"time"
 
 	"assistente/internal/credentials"
+	"assistente/internal/oauthflow"
 
 	"golang.org/x/oauth2"
 )
@@ -29,15 +31,6 @@ type oauth2Token struct {
 	AccessToken  string
 	RefreshToken string
 	Expiry       time.Time
-}
-
-func toOAuth2Token(t *oauth2Token) *oauth2.Token {
-	return &oauth2.Token{
-		AccessToken:  t.AccessToken,
-		RefreshToken: t.RefreshToken,
-		TokenType:    "Bearer",
-		Expiry:       t.Expiry,
-	}
 }
 
 func newTestCredMgr() *credentials.Manager {
@@ -181,184 +174,144 @@ func TestRedirectURLFormat(t *testing.T) {
 }
 
 func TestDCRPersistsCallbackPort(t *testing.T) {
-	var mu sync.Mutex
-	var savedConfig *ServerConfig
+	// Preserve the dynamic-port regression through real DCR/checkpoint/reload,
+	// instead of duplicating the removed writer's if statement in this test.
+	testManagedDCRCallbackPersistence(t, 0)
+}
 
-	rt := &pkceRoundTripper{
-		cfg: ServerConfig{
-			OAuth2CallbackPort: 0,
-		},
-		serverSlug: "test",
-		onConfigUpdate: func(cfg ServerConfig) {
-			mu.Lock()
-			defer mu.Unlock()
-			c := cfg
-			savedConfig = &c
-		},
-	}
-
-	// Simula o que acontece após DCR: porta aleatória é alocada
+func TestDCRDoesNotOverwriteFixedPort(t *testing.T) {
+	// Select an available port, then configure it as fixed. The shared scenario
+	// asserts the same port in DCR, checkpoint, final grant and after restart.
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("net.Listen failed: %v", err)
 	}
 	port := listener.Addr().(*net.TCPAddr).Port
 	_ = listener.Close()
-
-	// Simula a lógica de persistência de porta pós-DCR
-	if rt.cfg.OAuth2CallbackPort == 0 {
-		rt.cfg.OAuth2CallbackPort = port
-		if rt.onConfigUpdate != nil {
-			rt.onConfigUpdate(rt.cfg)
-		}
-	}
-
-	mu.Lock()
-	defer mu.Unlock()
-
-	if savedConfig == nil {
-		t.Fatal("onConfigUpdate não foi chamado")
-	}
-	if savedConfig.OAuth2CallbackPort != port {
-		t.Errorf("porta persistida: got %d, want %d", savedConfig.OAuth2CallbackPort, port)
-	}
-}
-
-func TestDCRDoesNotOverwriteFixedPort(t *testing.T) {
-	called := false
-
-	rt := &pkceRoundTripper{
-		cfg: ServerConfig{
-			OAuth2CallbackPort: 3118,
-		},
-		serverSlug: "test",
-		onConfigUpdate: func(cfg ServerConfig) {
-			called = true
-		},
-	}
-
-	// Simula a lógica: porta fixa já existe, não deve sobrescrever
-	if rt.cfg.OAuth2CallbackPort == 0 {
-		rt.cfg.OAuth2CallbackPort = 9999
-		if rt.onConfigUpdate != nil {
-			rt.onConfigUpdate(rt.cfg)
-		}
-	}
-
-	if called {
-		t.Error("onConfigUpdate não deveria ter sido chamado quando porta fixa já existe")
-	}
-	if rt.cfg.OAuth2CallbackPort != 3118 {
-		t.Errorf("porta não deveria mudar: got %d, want 3118", rt.cfg.OAuth2CallbackPort)
-	}
+	testManagedDCRCallbackPersistence(t, port)
 }
 
 func TestAuthorizePKCEReregistersWhenFixedCallbackPortIsBusy(t *testing.T) {
-	occupied, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("net.Listen failed: %v", err)
-	}
-	defer func() { _ = occupied.Close() }()
-	occupiedPort := occupied.Addr().(*net.TCPAddr).Port
-
-	var (
-		mu                 sync.Mutex
-		registeredRedirect string
-		savedConfig        *ServerConfig
-	)
-
-	authServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/register":
-			var req dcrRequest
-			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-				t.Errorf("DCR body inválido: %v", err)
-				w.WriteHeader(http.StatusBadRequest)
-				return
+	for _, initialClient := range []string{"old-client", ""} {
+		t.Run("client="+initialClient, func(t *testing.T) {
+			occupied, err := net.Listen("tcp", "127.0.0.1:0")
+			if err != nil {
+				t.Fatalf("net.Listen failed: %v", err)
 			}
-			if len(req.RedirectURIs) != 1 {
-				t.Errorf("redirect_uris: got %v, want 1 item", req.RedirectURIs)
-				w.WriteHeader(http.StatusBadRequest)
-				return
-			}
-			mu.Lock()
-			registeredRedirect = req.RedirectURIs[0]
-			mu.Unlock()
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = fmt.Fprint(w, `{"client_id":"new-client"}`)
-		case "/token":
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = fmt.Fprint(w, `{"access_token":"access","token_type":"Bearer","expires_in":3600}`)
-		default:
-			w.WriteHeader(http.StatusNotFound)
-		}
-	}))
-	defer authServer.Close()
+			defer func() { _ = occupied.Close() }()
+			occupiedPort := occupied.Addr().(*net.TCPAddr).Port
 
-	oldBrowserOpen := browserOpen
-	browserOpen = func(rawURL string) error {
-		u, err := url.Parse(rawURL)
-		if err != nil {
-			return err
-		}
-		redirectURI := u.Query().Get("redirect_uri")
-		state := u.Query().Get("state")
-		go func() {
-			resp, err := http.Get(redirectURI + "?code=ok&state=" + url.QueryEscape(state))
-			if err == nil {
+			var (
+				mu                 sync.Mutex
+				registeredRedirect string
+				savedConfig        *ServerConfig
+			)
+
+			authServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/register":
+					var req oauthflow.RegistrationRequest
+					if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+						t.Errorf("DCR body inválido: %v", err)
+						w.WriteHeader(http.StatusBadRequest)
+						return
+					}
+					if len(req.RedirectURIs) != 1 {
+						t.Errorf("redirect_uris: got %v, want 1 item", req.RedirectURIs)
+						w.WriteHeader(http.StatusBadRequest)
+						return
+					}
+					mu.Lock()
+					registeredRedirect = req.RedirectURIs[0]
+					mu.Unlock()
+					w.Header().Set("Content-Type", "application/json")
+					_, _ = fmt.Fprint(w, `{"client_id":"new-client"}`)
+				case "/token":
+					w.Header().Set("Content-Type", "application/json")
+					_, _ = fmt.Fprint(w, `{"access_token":"access","token_type":"Bearer","expires_in":3600}`)
+				default:
+					w.WriteHeader(http.StatusNotFound)
+				}
+			}))
+			defer authServer.Close()
+
+			oldBrowserOpen := browserOpen
+			browserOpen = func(rawURL string) error {
+				u, err := url.Parse(rawURL)
+				if err != nil {
+					return err
+				}
+				redirectURI := u.Query().Get("redirect_uri")
+				state := u.Query().Get("state")
+				resp, err := http.Get(redirectURI + "?code=ok&state=" + url.QueryEscape(state))
+				if err != nil {
+					return err
+				}
+				body, err := io.ReadAll(resp.Body)
 				_ = resp.Body.Close()
+				if err != nil {
+					return err
+				}
+				_, nonceHTML, found := strings.Cut(string(body), `<style nonce="`)
+				nonce, _, closed := strings.Cut(nonceHTML, `"`)
+				policy := resp.Header.Get("Content-Security-Policy")
+				if !found || !closed || len(nonce) < 32 || !strings.Contains(string(body), `<script nonce="`+nonce+`">`) || !strings.Contains(policy, "style-src 'nonce-"+nonce+"'") || !strings.Contains(policy, "script-src 'nonce-"+nonce+"'") || strings.Contains(string(body), "style=") {
+					t.Error("MCP callback assets do not match the restricted CSP")
+				}
+				return nil
 			}
-		}()
-		return nil
-	}
-	defer func() { browserOpen = oldBrowserOpen }()
+			defer func() { browserOpen = oldBrowserOpen }()
 
-	rt := &pkceRoundTripper{
-		base: http.DefaultTransport,
-		cfg: ServerConfig{
-			OAuth2ClientID:        "old-client",
-			OAuth2AuthURL:         authServer.URL + "/authorize",
-			OAuth2TokenURL:        authServer.URL + "/token",
-			OAuth2CallbackPort:    occupiedPort,
-			OAuth2CallbackHost:    "127.0.0.1",
-			OAuth2RegistrationURL: authServer.URL + "/register",
-		},
-		serverSlug: "test",
-		onConfigUpdate: func(cfg ServerConfig) {
+			var rt *oauthProtocol
+			rt = &oauthProtocol{
+				cfg: ServerConfig{
+					URL:                   authServer.URL,
+					OAuth2ClientID:        initialClient,
+					OAuth2AuthURL:         authServer.URL + "/authorize",
+					OAuth2TokenURL:        authServer.URL + "/token",
+					OAuth2CallbackPort:    occupiedPort,
+					OAuth2CallbackHost:    "127.0.0.1",
+					OAuth2RegistrationURL: authServer.URL + "/register",
+				},
+				serverSlug: "test",
+				registrationCheckpoint: func() error {
+					mu.Lock()
+					defer mu.Unlock()
+					c := rt.cfg
+					savedConfig = &c
+					return nil
+				},
+			}
+
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := rt.authorize(ctx); err != nil {
+				t.Fatalf("authorizePKCE failed: %v", err)
+			}
+
+			if rt.cfg.OAuth2ClientID != "new-client" {
+				t.Fatalf("client_id: got %q, want new-client", rt.cfg.OAuth2ClientID)
+			}
+			if rt.cfg.OAuth2CallbackPort == 0 || rt.cfg.OAuth2CallbackPort == occupiedPort {
+				t.Fatalf("callback port não foi substituída: got %d, busy %d", rt.cfg.OAuth2CallbackPort, occupiedPort)
+			}
+
 			mu.Lock()
 			defer mu.Unlock()
-			c := cfg
-			savedConfig = &c
-		},
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if err := rt.authorizePKCE(ctx); err != nil {
-		t.Fatalf("authorizePKCE failed: %v", err)
-	}
-
-	if rt.cfg.OAuth2ClientID != "new-client" {
-		t.Fatalf("client_id: got %q, want new-client", rt.cfg.OAuth2ClientID)
-	}
-	if rt.cfg.OAuth2CallbackPort == 0 || rt.cfg.OAuth2CallbackPort == occupiedPort {
-		t.Fatalf("callback port não foi substituída: got %d, busy %d", rt.cfg.OAuth2CallbackPort, occupiedPort)
-	}
-
-	mu.Lock()
-	defer mu.Unlock()
-	if savedConfig == nil {
-		t.Fatal("onConfigUpdate não foi chamado")
-	}
-	if savedConfig.OAuth2CallbackPort != rt.cfg.OAuth2CallbackPort {
-		t.Fatalf("porta persistida: got %d, want %d", savedConfig.OAuth2CallbackPort, rt.cfg.OAuth2CallbackPort)
-	}
-	redirectURL, err := url.Parse(registeredRedirect)
-	if err != nil {
-		t.Fatalf("redirect_uri registrado inválido: %q: %v", registeredRedirect, err)
-	}
-	if redirectURL.Port() == "" || redirectURL.Port() == fmt.Sprint(occupiedPort) {
-		t.Fatalf("redirect_uri registrado usou porta inválida: %q", registeredRedirect)
+			if savedConfig == nil {
+				t.Fatal("checkpoint de registro não foi chamado")
+			}
+			if savedConfig.OAuth2CallbackPort != rt.cfg.OAuth2CallbackPort {
+				t.Fatalf("porta persistida: got %d, want %d", savedConfig.OAuth2CallbackPort, rt.cfg.OAuth2CallbackPort)
+			}
+			redirectURL, err := url.Parse(registeredRedirect)
+			if err != nil {
+				t.Fatalf("redirect_uri registrado inválido: %q: %v", registeredRedirect, err)
+			}
+			if redirectURL.Port() == "" || redirectURL.Port() == fmt.Sprint(occupiedPort) {
+				t.Fatalf("redirect_uri registrado usou porta inválida: %q", registeredRedirect)
+			}
+		})
 	}
 }
 
@@ -454,28 +407,31 @@ func TestClientCredPatternFormat(t *testing.T) {
 }
 
 func TestPersistAndLoadClientCreds(t *testing.T) {
-	credMgr := newTestCredMgr()
-
-	rt := &pkceRoundTripper{
-		credMgr:    credMgr,
-		serverSlug: "test-server",
+	m, _, ctx := managedFixture(t)
+	cfg := managedConfig("https://resource.example")
+	cfg.OAuth2ClientID = "my-client-id"
+	if err := m.SaveConfigWithOAuthSecret("test-server", cfg, "my-client-secret"); err != nil {
+		t.Fatal(err)
 	}
-
-	ctx := context.Background()
-	rt.persistClientCreds("my-client-id", "my-client-secret")
-
-	cid, csec := loadClientCreds(ctx, credMgr, "test-server")
+	if err := m.LoadConfigs(); err != nil {
+		t.Fatal(err)
+	}
+	_, _, record := loadManaged(t, m, ctx, "test-server")
+	cid, csec := record.Client.ID, record.Client.Secret
 	if cid != "my-client-id" {
 		t.Errorf("ClientID: got %q, want %q", cid, "my-client-id")
 	}
 	if csec != "my-client-secret" {
 		t.Errorf("ClientSecret: got %q, want %q", csec, "my-client-secret")
 	}
+	if legacyID, _ := loadClientCreds(ctx, m.credMgr, "test-server"); legacyID != "" {
+		t.Fatal("composed creation wrote a legacy client row")
+	}
 }
 
-func TestBuildPKCEHTTPClient_AutoImportsClientIDFromConfig(t *testing.T) {
-	credMgr := newTestCredMgr()
-	ctx := context.Background()
+func TestManagedCreationStoresClientIDFromConfig(t *testing.T) {
+	m, _, ctx := managedFixture(t)
+	credMgr := m.credMgr
 
 	cid, _ := loadClientCreds(ctx, credMgr, "slack")
 	if cid != "" {
@@ -483,16 +439,28 @@ func TestBuildPKCEHTTPClient_AutoImportsClientIDFromConfig(t *testing.T) {
 	}
 
 	cfg := ServerConfig{
+		Transport:      TransportStreamable,
+		AuthType:       AuthOAuth2PKCE,
+		OAuthManaged:   true,
 		URL:            "https://mcp.slack.com/mcp",
 		OAuth2ClientID: "pre-registered-id",
 		OAuth2AuthURL:  "https://slack.com/oauth/v2_user/authorize",
 		OAuth2TokenURL: "https://slack.com/api/oauth.v2.user.access",
 	}
-	_ = buildPKCEHTTPClient(cfg, credMgr, nil, "slack", nil, nil)
+	if err := m.SaveConfig("slack", cfg); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.LoadConfigs(); err != nil {
+		t.Fatal(err)
+	}
 
-	cid, _ = loadClientCreds(ctx, credMgr, "slack")
+	_, _, record := loadManaged(t, m, ctx, "slack")
+	cid = record.Client.ID
 	if cid != "pre-registered-id" {
-		t.Errorf("expected client_id to be auto-imported, got %q", cid)
+		t.Errorf("expected client_id in explicitly created authorization, got %q", cid)
+	}
+	if legacyID, _ := loadClientCreds(ctx, credMgr, "slack"); legacyID != "" {
+		t.Fatal("explicit creation produced a legacy client row")
 	}
 }
 
@@ -500,16 +468,22 @@ func TestBuildPKCEHTTPClient_DoesNotOverwriteExistingCreds(t *testing.T) {
 	credMgr := newTestCredMgr()
 	ctx := context.Background()
 
-	rt := &pkceRoundTripper{credMgr: credMgr, serverSlug: "test"}
-	rt.persistClientCreds("existing-id", "existing-secret")
+	if err := credMgr.RegisterPatternWithContext(ctx, clientCredPattern("test"), &credentials.AuthConfig{Source: "static", Type: "oauth2", ClientID: "existing-id", ClientSecret: "existing-secret"}); err != nil {
+		t.Fatal(err)
+	}
 
 	cfg := ServerConfig{
+		AuthType:       AuthOAuth2PKCE,
 		URL:            "https://example.com/mcp",
 		OAuth2ClientID: "config-id-should-be-ignored",
 		OAuth2AuthURL:  "https://example.com/auth",
 		OAuth2TokenURL: "https://example.com/token",
 	}
-	_ = buildPKCEHTTPClient(cfg, credMgr, nil, "test", nil, nil)
+	m := &Manager{credMgr: credMgr}
+	client := m.buildAuthHTTPClient(ctx, "test", cfg)
+	if err := clientGrantGet(client, cfg.URL); !errors.Is(err, errOAuthMigrationRequired) {
+		t.Fatalf("legacy transport was allowed: %v", err)
+	}
 
 	cid, csec := loadClientCreds(ctx, credMgr, "test")
 	if cid != "existing-id" {
@@ -521,29 +495,39 @@ func TestBuildPKCEHTTPClient_DoesNotOverwriteExistingCreds(t *testing.T) {
 }
 
 func TestPersistAndLoadUserTokens(t *testing.T) {
-	credMgr := newTestCredMgr()
-
-	rt := &pkceRoundTripper{
-		credMgr:    credMgr,
-		serverSlug: "test-server",
+	m, _, ctx := managedFixture(t)
+	if err := m.SaveConfig("test-server", managedConfig("https://resource.example")); err != nil {
+		t.Fatal(err)
 	}
 
 	token := &oauth2Token{
 		AccessToken:  "access-123",
 		RefreshToken: "refresh-456",
 	}
-	ctx := context.Background()
-	rt.persistTokens(toOAuth2Token(token))
+	cfg, store, _ := loadManaged(t, m, ctx, "test-server")
+	_, _, service, err := m.managedOAuth(ctx, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.AuthorizeUsing(ctx, store, cfg.OAuthAuthorizationID, func(_ context.Context, r oauthflow.Record) (oauthflow.Record, error) {
+		r.Tokens = oauthflow.Tokens{Access: token.AccessToken, Refresh: token.RefreshToken, Type: "Bearer"}
+		return r, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
 
-	loaded := loadUserTokens(ctx, credMgr, "test-server")
-	if loaded == nil {
-		t.Fatal("loadUserTokens retornou nil")
+	if err := m.LoadConfigs(); err != nil {
+		t.Fatal(err)
 	}
-	if loaded.AccessToken != "access-123" {
-		t.Errorf("AccessToken: got %q, want %q", loaded.AccessToken, "access-123")
+	_, _, record := loadManaged(t, m, ctx, "test-server")
+	if record.Tokens.Access != "access-123" {
+		t.Errorf("AccessToken: got %q, want %q", record.Tokens.Access, "access-123")
 	}
-	if loaded.RefreshToken != "refresh-456" {
-		t.Errorf("RefreshToken: got %q, want %q", loaded.RefreshToken, "refresh-456")
+	if record.Tokens.Refresh != "refresh-456" {
+		t.Errorf("RefreshToken: got %q, want %q", record.Tokens.Refresh, "refresh-456")
+	}
+	if legacy := loadUserTokens(ctx, m.credMgr, "test-server"); legacy != nil {
+		t.Fatal("composed authorization produced a legacy token row")
 	}
 }
 
@@ -570,7 +554,7 @@ func TestLoadUserTokens_NoEntry(t *testing.T) {
 }
 
 func TestEffectiveClientID(t *testing.T) {
-	rt := &pkceRoundTripper{
+	rt := &oauthProtocol{
 		cfg:              ServerConfig{OAuth2ClientID: "config-id"},
 		resolvedClientID: "resolved-id",
 	}
@@ -585,7 +569,7 @@ func TestEffectiveClientID(t *testing.T) {
 }
 
 func TestEffectiveClientSecret(t *testing.T) {
-	rt := &pkceRoundTripper{
+	rt := &oauthProtocol{
 		resolvedClientSecret: "the-secret",
 	}
 	if got := rt.effectiveClientSecret(); got != "the-secret" {
@@ -659,13 +643,15 @@ func TestIsSessionExpiredStatus(t *testing.T) {
 // ============ Discovery Tests ============
 
 func TestDiscoverOAuthEndpoints(t *testing.T) {
+	var prmURL string
 	asSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/.well-known/oauth-authorization-server" {
 			_ = json.NewEncoder(w).Encode(map[string]any{
-				"authorization_endpoint":        "https://auth.example.com/authorize",
-				"token_endpoint":                "https://auth.example.com/token",
-				"registration_endpoint":         "https://auth.example.com/register",
-				"device_authorization_endpoint": "https://auth.example.com/device/authorize",
+				"issuer":                        prmURL,
+				"authorization_endpoint":        prmURL + "/authorize",
+				"token_endpoint":                prmURL + "/token",
+				"registration_endpoint":         prmURL + "/register",
+				"device_authorization_endpoint": prmURL + "/device/authorize",
 				"grant_types_supported":         []string{"authorization_code", "urn:ietf:params:oauth:grant-type:device_code"},
 			})
 			return
@@ -674,16 +660,15 @@ func TestDiscoverOAuthEndpoints(t *testing.T) {
 	}))
 	defer asSrv.Close()
 
-	var prmURL string
 	prmSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/.well-known/oauth-protected-resource" {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"resource":              prmURL + "/mcp",
-				"authorization_servers": []string{asSrv.URL},
+				"authorization_servers": []string{prmURL},
 			})
 			return
 		}
-		http.NotFound(w, r)
+		asSrv.Config.Handler.ServeHTTP(w, r)
 	}))
 	defer prmSrv.Close()
 	prmURL = prmSrv.URL
@@ -693,16 +678,16 @@ func TestDiscoverOAuthEndpoints(t *testing.T) {
 		t.Fatalf("discoverOAuthEndpoints failed: %v", err)
 	}
 
-	if disc.AuthorizationEndpoint != "https://auth.example.com/authorize" {
+	if disc.AuthorizationEndpoint != prmURL+"/authorize" {
 		t.Errorf("AuthorizationEndpoint: got %q", disc.AuthorizationEndpoint)
 	}
-	if disc.TokenEndpoint != "https://auth.example.com/token" {
+	if disc.TokenEndpoint != prmURL+"/token" {
 		t.Errorf("TokenEndpoint: got %q", disc.TokenEndpoint)
 	}
-	if disc.RegistrationEndpoint != "https://auth.example.com/register" {
+	if disc.RegistrationEndpoint != prmURL+"/register" {
 		t.Errorf("RegistrationEndpoint: got %q", disc.RegistrationEndpoint)
 	}
-	if disc.DeviceAuthorizationEndpoint != "https://auth.example.com/device/authorize" {
+	if disc.DeviceAuthorizationEndpoint != prmURL+"/device/authorize" {
 		t.Errorf("DeviceAuthorizationEndpoint: got %q", disc.DeviceAuthorizationEndpoint)
 	}
 	if !strings.HasSuffix(disc.Resource, "/mcp") {
@@ -722,7 +707,7 @@ func TestDiscoverOAuthEndpoints_Fallback(t *testing.T) {
 	}
 
 	// Config manual should still work (tested through authorize chain)
-	rt := &pkceRoundTripper{
+	rt := &oauthProtocol{
 		cfg: ServerConfig{
 			URL:            srv.URL + "/mcp",
 			OAuth2AuthURL:  "https://manual.example.com/authorize",
@@ -741,99 +726,6 @@ func TestDiscoverOAuthEndpoints_Fallback(t *testing.T) {
 
 // ============ Discovery Fallback Tests ============
 
-func TestBuildPRMCandidates(t *testing.T) {
-	tests := []struct {
-		name      string
-		mcpURL    string
-		wantCount int
-		wantFirst string
-		wantLast  string
-	}{
-		{
-			name:      "URL with path tries RFC 9728 and compatibility locations for each ancestor",
-			mcpURL:    "https://example.com/mcp/default",
-			wantCount: 5,
-			wantFirst: "https://example.com/.well-known/oauth-protected-resource/mcp/default",
-			wantLast:  "https://example.com/.well-known/oauth-protected-resource",
-		},
-		{
-			name:      "URL at root only tries origin",
-			mcpURL:    "https://example.com",
-			wantCount: 1,
-			wantFirst: "https://example.com/.well-known/oauth-protected-resource",
-			wantLast:  "https://example.com/.well-known/oauth-protected-resource",
-		},
-		{
-			name:      "URL with single path segment",
-			mcpURL:    "https://example.com/mcp",
-			wantCount: 3,
-			wantFirst: "https://example.com/.well-known/oauth-protected-resource/mcp",
-			wantLast:  "https://example.com/.well-known/oauth-protected-resource",
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			candidates := buildPRMCandidates(tc.mcpURL)
-			if len(candidates) != tc.wantCount {
-				t.Fatalf("got %d candidates, want %d: %v", len(candidates), tc.wantCount, candidates)
-			}
-			if candidates[0] != tc.wantFirst {
-				t.Errorf("first candidate: got %q, want %q", candidates[0], tc.wantFirst)
-			}
-			if candidates[len(candidates)-1] != tc.wantLast {
-				t.Errorf("last candidate: got %q, want %q", candidates[len(candidates)-1], tc.wantLast)
-			}
-		})
-	}
-}
-
-func TestBuildASMCandidates(t *testing.T) {
-	tests := []struct {
-		name      string
-		base      string
-		wantCount int
-		wantURLs  []string
-	}{
-		{
-			name:      "auth server at origin has 2 candidates",
-			base:      "https://example.com",
-			wantCount: 2,
-			wantURLs: []string{
-				"https://example.com/.well-known/oauth-authorization-server",
-				"https://example.com/.well-known/openid-configuration",
-			},
-		},
-		{
-			name:      "auth server with path generates 6 candidates",
-			base:      "https://example.com/oauth",
-			wantCount: 6,
-			wantURLs: []string{
-				"https://example.com/.well-known/oauth-authorization-server/oauth",
-				"https://example.com/oauth/.well-known/openid-configuration",
-				"https://example.com/oauth/.well-known/oauth-authorization-server",
-				"https://example.com/.well-known/openid-configuration/oauth",
-				"https://example.com/.well-known/oauth-authorization-server",
-				"https://example.com/.well-known/openid-configuration",
-			},
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			candidates := buildASMCandidates(tc.base)
-			if len(candidates) != tc.wantCount {
-				t.Fatalf("got %d candidates, want %d: %v", len(candidates), tc.wantCount, candidates)
-			}
-			for i, want := range tc.wantURLs {
-				if candidates[i] != want {
-					t.Errorf("candidate[%d]: got %q, want %q", i, candidates[i], want)
-				}
-			}
-		})
-	}
-}
-
 func TestDiscoverOAuth_AuthServerWithPath_FallbackToOriginRoot(t *testing.T) {
 	// PRM aponta para auth server em /oauth,
 	// mas ASM está publicado na raiz do origin.
@@ -842,7 +734,7 @@ func TestDiscoverOAuth_AuthServerWithPath_FallbackToOriginRoot(t *testing.T) {
 		switch r.URL.Path {
 		case "/.well-known/oauth-protected-resource":
 			_ = json.NewEncoder(w).Encode(map[string]any{
-				"resource":              "https://example.com",
+				"resource":              srvURL + "/mcp/default",
 				"resource_name":         "TestService",
 				"authorization_servers": []string{srvURL + "/oauth"},
 			})
@@ -884,12 +776,14 @@ func TestDiscoverOAuth_AuthServerWithPath_FallbackToOriginRoot(t *testing.T) {
 }
 
 func TestDiscoverOAuth_PRMOnlyAtOrigin(t *testing.T) {
+	var prmSrvURL string
 	// PRM não existe em /mcp/.well-known/..., só no origin root.
 	asSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/.well-known/oauth-authorization-server" {
 			_ = json.NewEncoder(w).Encode(map[string]any{
-				"authorization_endpoint":           "https://auth.test.com/authorize",
-				"token_endpoint":                   "https://auth.test.com/token",
+				"issuer":                           prmSrvURL,
+				"authorization_endpoint":           prmSrvURL + "/authorize",
+				"token_endpoint":                   prmSrvURL + "/token",
 				"code_challenge_methods_supported": []string{"S256"},
 			})
 			return
@@ -898,16 +792,15 @@ func TestDiscoverOAuth_PRMOnlyAtOrigin(t *testing.T) {
 	}))
 	defer asSrv.Close()
 
-	var prmSrvURL string
 	prmSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/.well-known/oauth-protected-resource" {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"resource":              prmSrvURL + "/mcp",
-				"authorization_servers": []string{asSrv.URL},
+				"authorization_servers": []string{prmSrvURL},
 			})
 			return
 		}
-		http.NotFound(w, r)
+		asSrv.Config.Handler.ServeHTTP(w, r)
 	}))
 	defer prmSrv.Close()
 	prmSrvURL = prmSrv.URL
@@ -916,21 +809,23 @@ func TestDiscoverOAuth_PRMOnlyAtOrigin(t *testing.T) {
 	if !result.Found {
 		t.Fatalf("expected discovery to succeed, got error: %s", result.Error)
 	}
-	if result.AuthURL != "https://auth.test.com/authorize" {
+	if result.AuthURL != prmSrvURL+"/authorize" {
 		t.Errorf("AuthURL: got %q", result.AuthURL)
 	}
-	if result.TokenURL != "https://auth.test.com/token" {
+	if result.TokenURL != prmSrvURL+"/token" {
 		t.Errorf("TokenURL: got %q", result.TokenURL)
 	}
 }
 
 func TestDiscoverOAuth_PRMAtResourcePath(t *testing.T) {
+	var srvURL string
 	// PRM existe no path do recurso (ex: /api/.well-known/oauth-protected-resource)
 	asSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/.well-known/oauth-authorization-server" {
 			_ = json.NewEncoder(w).Encode(map[string]any{
-				"authorization_endpoint": "https://auth.path.com/authorize",
-				"token_endpoint":         "https://auth.path.com/token",
+				"issuer":                 srvURL,
+				"authorization_endpoint": srvURL + "/authorize",
+				"token_endpoint":         srvURL + "/token",
 			})
 			return
 		}
@@ -938,16 +833,15 @@ func TestDiscoverOAuth_PRMAtResourcePath(t *testing.T) {
 	}))
 	defer asSrv.Close()
 
-	var srvURL string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/.well-known/oauth-protected-resource" {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"resource":              srvURL + "/api",
-				"authorization_servers": []string{asSrv.URL},
+				"authorization_servers": []string{srvURL},
 			})
 			return
 		}
-		http.NotFound(w, r)
+		asSrv.Config.Handler.ServeHTTP(w, r)
 	}))
 	defer srv.Close()
 	srvURL = srv.URL
@@ -956,7 +850,7 @@ func TestDiscoverOAuth_PRMAtResourcePath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected discovery to succeed: %v", err)
 	}
-	if disc.AuthorizationEndpoint != "https://auth.path.com/authorize" {
+	if disc.AuthorizationEndpoint != srvURL+"/authorize" {
 		t.Errorf("AuthorizationEndpoint: got %q", disc.AuthorizationEndpoint)
 	}
 }
@@ -1051,13 +945,16 @@ func TestDiscoverOAuth_ASMDirectAtBase(t *testing.T) {
 
 func TestAuthorizeDeviceFlow_Success(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.RawQuery != "" {
+			t.Errorf("verification code sent before browser: %s", r.URL.RequestURI())
+		}
 		switch r.URL.Path {
 		case "/device/authorize":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"device_code":               "DEV-CODE-123",
 				"user_code":                 "ABCD-1234",
-				"verification_uri":          "https://auth.example.com/verify",
-				"verification_uri_complete": "https://auth.example.com/verify?user_code=ABCD-1234",
+				"verification_uri":          "http://" + r.Host + "/verify",
+				"verification_uri_complete": "http://" + r.Host + "/verify?user_code=ABCD-1234",
 				"expires_in":                300,
 				"interval":                  1,
 			})
@@ -1074,13 +971,13 @@ func TestAuthorizeDeviceFlow_Success(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	rt := &pkceRoundTripper{
+	rt := &oauthProtocol{
 		cfg: ServerConfig{
+			URL:                 srv.URL,
 			OAuth2DeviceAuthURL: srv.URL + "/device/authorize",
 			OAuth2TokenURL:      srv.URL + "/token",
 			OAuth2AuthURL:       "https://auth.example.com/authorize",
 		},
-		credMgr:          credentials.NewManager(nil),
 		serverSlug:       "test-device",
 		resolvedClientID: "test-client",
 		resourceURL:      "https://mcp.example.com/mcp",
@@ -1094,8 +991,8 @@ func TestAuthorizeDeviceFlow_Success(t *testing.T) {
 		t.Fatalf("authorizeDeviceFlow failed: %v", err)
 	}
 
-	if rt.tokenSource == nil {
-		t.Error("tokenSource should be set after successful device flow")
+	if rt.issuedToken == nil {
+		t.Error("issuedToken should be set after successful device flow")
 	}
 	if rt.oauthCfg == nil {
 		t.Error("oauthCfg should be set after successful device flow")
@@ -1110,7 +1007,7 @@ func TestAuthorizeDeviceFlow_SlowDown(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"device_code":      "DEV-CODE",
 				"user_code":        "SLOW-1234",
-				"verification_uri": "https://example.com/verify",
+				"verification_uri": "http://" + r.Host + "/verify",
 				"expires_in":       300,
 				"interval":         1,
 			})
@@ -1129,13 +1026,13 @@ func TestAuthorizeDeviceFlow_SlowDown(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	rt := &pkceRoundTripper{
+	rt := &oauthProtocol{
 		cfg: ServerConfig{
+			URL:                 srv.URL,
 			OAuth2DeviceAuthURL: srv.URL + "/device/authorize",
 			OAuth2TokenURL:      srv.URL + "/token",
 			OAuth2AuthURL:       "https://example.com/authorize",
 		},
-		credMgr:          credentials.NewManager(nil),
 		serverSlug:       "test-slow",
 		resolvedClientID: "test-client",
 	}
@@ -1160,7 +1057,7 @@ func TestAuthorizeDeviceFlow_Timeout(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"device_code":      "DEV-TIMEOUT",
 				"user_code":        "TIMEOUT-1",
-				"verification_uri": "https://example.com/verify",
+				"verification_uri": "http://" + r.Host + "/verify",
 				"expires_in":       2,
 				"interval":         1,
 			})
@@ -1170,13 +1067,13 @@ func TestAuthorizeDeviceFlow_Timeout(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	rt := &pkceRoundTripper{
+	rt := &oauthProtocol{
 		cfg: ServerConfig{
+			URL:                 srv.URL,
 			OAuth2DeviceAuthURL: srv.URL + "/device/authorize",
 			OAuth2TokenURL:      srv.URL + "/token",
 			OAuth2AuthURL:       "https://example.com/authorize",
 		},
-		credMgr:          credentials.NewManager(nil),
 		serverSlug:       "test-timeout",
 		resolvedClientID: "test-client",
 	}
@@ -1188,7 +1085,7 @@ func TestAuthorizeDeviceFlow_Timeout(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected timeout error")
 	}
-	if !strings.Contains(err.Error(), "timed out") {
+	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Errorf("expected timeout error, got: %v", err)
 	}
 }
@@ -1212,9 +1109,10 @@ func TestDCRIncludesDeviceCodeGrant(t *testing.T) {
 	defer srv.Close()
 
 	cfg := ServerConfig{
+		URL:                   srv.URL,
 		OAuth2RegistrationURL: srv.URL + "/register",
 	}
-	_, err := registerDynamicClient(cfg, "http://localhost:9999/callback", nil)
+	_, err := registerDynamicClient(context.Background(), cfg, "http://localhost:9999/callback", nil)
 	if err != nil {
 		t.Fatalf("registerDynamicClient failed: %v", err)
 	}
@@ -1234,7 +1132,7 @@ func TestDCRIncludesDeviceCodeGrant(t *testing.T) {
 // ============ Resource Param Tests ============
 
 func TestResourceParamInAuthURL(t *testing.T) {
-	rt := &pkceRoundTripper{
+	rt := &oauthProtocol{
 		cfg: ServerConfig{
 			OAuth2AuthURL:  "https://auth.example.com/authorize",
 			OAuth2TokenURL: "https://auth.example.com/token",
@@ -1269,7 +1167,7 @@ func TestResourceParamInAuthURL(t *testing.T) {
 // ============ MergeDiscovery Tests ============
 
 func TestMergeDiscovery_FillsEmpty(t *testing.T) {
-	rt := &pkceRoundTripper{
+	rt := &oauthProtocol{
 		cfg: ServerConfig{},
 		discovery: &OAuthDiscovery{
 			Resource:                    "https://mcp.example.com/mcp",
@@ -1300,7 +1198,7 @@ func TestMergeDiscovery_FillsEmpty(t *testing.T) {
 }
 
 func TestMergeDiscovery_ManualHasPriority(t *testing.T) {
-	rt := &pkceRoundTripper{
+	rt := &oauthProtocol{
 		cfg: ServerConfig{
 			OAuth2AuthURL:  "https://manual.example.com/authorize",
 			OAuth2TokenURL: "https://manual.example.com/token",
@@ -1315,8 +1213,10 @@ func TestMergeDiscovery_ManualHasPriority(t *testing.T) {
 
 	rt.mergeDiscovery()
 
-	if rt.resourceURL != "https://manual-resource.example.com/mcp" {
-		t.Errorf("manual resourceURL should not be overwritten: got %q", rt.resourceURL)
+	// The shared protocol retains manually configured endpoints, but binds the
+	// grant audience to the resource declared by protected-resource discovery.
+	if rt.resourceURL != "https://discovered.example.com/mcp" {
+		t.Errorf("discovered audience was not adopted: got %q", rt.resourceURL)
 	}
 	if rt.cfg.OAuth2AuthURL != "https://manual.example.com/authorize" {
 		t.Errorf("manual OAuth2AuthURL should not be overwritten: got %q", rt.cfg.OAuth2AuthURL)
@@ -1327,7 +1227,7 @@ func TestMergeDiscovery_ManualHasPriority(t *testing.T) {
 }
 
 func TestMergeDiscovery_NilDiscovery(t *testing.T) {
-	rt := &pkceRoundTripper{
+	rt := &oauthProtocol{
 		cfg: ServerConfig{
 			OAuth2AuthURL: "https://existing.example.com/authorize",
 		},
@@ -1343,7 +1243,7 @@ func TestMergeDiscovery_NilDiscovery(t *testing.T) {
 // ============ offline_access / scopes (#193) ============
 
 func TestEffectiveScopes_AddsOfflineAccessWhenSupported(t *testing.T) {
-	rt := &pkceRoundTripper{
+	rt := &oauthProtocol{
 		serverSlug: "atlassian",
 		cfg:        ServerConfig{OAuth2Scopes: []string{"read:jira-work"}},
 		discovery:  &OAuthDiscovery{ScopesSupported: []string{"read:jira-work", "offline_access"}},
@@ -1354,8 +1254,63 @@ func TestEffectiveScopes_AddsOfflineAccessWhenSupported(t *testing.T) {
 	}
 }
 
+func TestAuthorizePKCEScopeParameterPreservesEmptyAndExplicitScopes(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		scopes []string
+		want   string
+	}{
+		{"empty", nil, ""},
+		{"resource", []string{"sql"}, "sql offline_access"},
+		{"explicit-refresh-only", []string{"offline_access"}, "offline_access"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/token" {
+					http.NotFound(w, r)
+					return
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = io.WriteString(w, `{"access_token":"test-access","token_type":"Bearer"}`)
+			}))
+			defer server.Close()
+			opened := false
+			previous := browserOpen
+			browserOpen = func(raw string) error {
+				opened = true
+				u, err := url.Parse(raw)
+				if err != nil {
+					return err
+				}
+				if u.Query().Get("scope") != tt.want || (tt.want == "" && u.Query().Has("scope")) {
+					t.Errorf("scope sent=%q want=%q", u.Query().Get("scope"), tt.want)
+				}
+				resp, err := http.Get(u.Query().Get("redirect_uri") + "?code=test&state=" + url.QueryEscape(u.Query().Get("state")))
+				if err != nil {
+					return err
+				}
+				_ = resp.Body.Close()
+				return nil
+			}
+			defer func() { browserOpen = previous }()
+			rt := &oauthProtocol{
+				cfg:       ServerConfig{URL: server.URL, OAuth2ClientID: "client", OAuth2AuthURL: server.URL + "/authorize", OAuth2TokenURL: server.URL + "/token", OAuth2Scopes: tt.scopes},
+				discovery: &OAuthDiscovery{ScopesSupported: []string{"offline_access", "admin"}},
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := rt.authorizePKCE(ctx); err != nil {
+				t.Fatal(err)
+			}
+			if !opened || rt.issuedToken == nil {
+				t.Fatal("PKCE flow did not complete")
+			}
+		})
+	}
+}
+
 func TestEffectiveScopes_NotAddedWhenUnsupported(t *testing.T) {
-	rt := &pkceRoundTripper{
+	rt := &oauthProtocol{
 		cfg:       ServerConfig{OAuth2Scopes: []string{"read"}},
 		discovery: &OAuthDiscovery{ScopesSupported: []string{"read", "write"}},
 	}
@@ -1365,14 +1320,14 @@ func TestEffectiveScopes_NotAddedWhenUnsupported(t *testing.T) {
 }
 
 func TestEffectiveScopes_NoDiscoveryDoesNotAdd(t *testing.T) {
-	rt := &pkceRoundTripper{cfg: ServerConfig{OAuth2Scopes: []string{"read"}}}
+	rt := &oauthProtocol{cfg: ServerConfig{OAuth2Scopes: []string{"read"}}}
 	if containsFold(rt.effectiveScopes(), "offline_access") {
 		t.Error("sem discovery (config manual) não deve adicionar offline_access")
 	}
 }
 
 func TestEffectiveScopes_NoDuplicateWhenAlreadyConfigured(t *testing.T) {
-	rt := &pkceRoundTripper{
+	rt := &oauthProtocol{
 		cfg:       ServerConfig{OAuth2Scopes: []string{"offline_access", "read"}},
 		discovery: &OAuthDiscovery{ScopesSupported: []string{"offline_access"}},
 	}
@@ -1390,15 +1345,22 @@ func TestEffectiveScopes_NoDuplicateWhenAlreadyConfigured(t *testing.T) {
 // ============ persistTokens robustez (#193) ============
 
 func TestPersistTokens_PreservesRefreshTokenWhenEmpty(t *testing.T) {
-	credMgr := newTestCredMgr()
-	rt := &pkceRoundTripper{credMgr: credMgr, serverSlug: "srv"}
-	ctx := context.Background()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		if r.Form.Get("refresh_token") != "r1" {
+			t.Error("refresh did not use stored token")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		// Non-rotating refresh: the server omits refresh_token.
+		_, _ = io.WriteString(w, `{"access_token":"a2","token_type":"Bearer","expires_in":3600}`)
+	}))
+	defer srv.Close()
+	m, ctx, cfg := managedTokenTestFixture(t, srv.URL, "a1", "r1", time.Now().Add(time.Hour))
+	if _, err := m.resolveManagedOAuth(ctx, cfg, "a1"); err != nil {
+		t.Fatal(err)
+	}
 
-	rt.persistTokens(&oauth2.Token{AccessToken: "a1", RefreshToken: "r1"})
-	// Refresh non-rotativo: novo access_token, refresh_token ausente na resposta.
-	rt.persistTokens(&oauth2.Token{AccessToken: "a2"})
-
-	loaded := loadUserTokens(ctx, credMgr, "srv")
+	loaded := loadManagedTestToken(t, m, ctx, "srv")
 	if loaded == nil {
 		t.Fatal("loadUserTokens retornou nil")
 	}
@@ -1411,14 +1373,21 @@ func TestPersistTokens_PreservesRefreshTokenWhenEmpty(t *testing.T) {
 }
 
 func TestPersistTokens_PersistsExpiry(t *testing.T) {
-	credMgr := newTestCredMgr()
-	rt := &pkceRoundTripper{credMgr: credMgr, serverSlug: "srv"}
-	ctx := context.Background()
+	m, ctx, cfg := managedTokenTestFixture(t, "https://resource.example", "old", "old-refresh", time.Now().Add(-time.Hour))
+	store, _, service, err := m.managedOAuth(ctx, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	exp := time.Now().Add(2 * time.Hour).Truncate(time.Second)
-	rt.persistTokens(&oauth2.Token{AccessToken: "a", RefreshToken: "r", Expiry: exp})
+	if _, err := service.AuthorizeUsing(ctx, store, cfg.OAuthAuthorizationID, func(_ context.Context, r oauthflow.Record) (oauthflow.Record, error) {
+		r.Tokens = oauthflow.Tokens{Access: "a", Refresh: "r", ExpiresAt: exp, Type: "Bearer"}
+		return r, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
 
-	loaded := loadUserTokens(ctx, credMgr, "srv")
+	loaded := loadManagedTestToken(t, m, ctx, "srv")
 	if loaded == nil {
 		t.Fatal("loadUserTokens retornou nil")
 	}
@@ -1445,25 +1414,25 @@ func TestTrySilentRefresh_UsesStoreRefreshTokenWhenMemoryLacksIt(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	credMgr := newTestCredMgr()
-	ctx := context.Background()
-	rt := &pkceRoundTripper{credMgr: credMgr, serverSlug: "srv"}
-	rt.persistTokens(&oauth2.Token{AccessToken: "old-access", RefreshToken: "stored-refresh"})
-
-	rt.oauthCfg = &oauth2.Config{
-		ClientID: "c",
-		Endpoint: oauth2.Endpoint{TokenURL: srv.URL + "/token"},
+	m, ctx, cfg := managedTokenTestFixture(t, srv.URL, "old-access", "", time.Now().Add(time.Hour))
+	previous, err := m.resolveManagedOAuth(ctx, cfg, "")
+	if err != nil || previous.Tokens.Refresh != "" {
+		t.Fatalf("expected prior in-memory grant without refresh: %v", err)
 	}
-	// Token em memória SEM refresh_token (caminho que antes retornava cedo).
-	rt.tokenSource = oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "old-access"})
-
-	if err := rt.trySilentRefresh(ctx); err != nil {
+	_, store, updated := loadManaged(t, m, ctx, "srv")
+	updated.Tokens.Refresh = "stored-refresh"
+	updated.Revision++
+	if err := store.CompareAndSwap(ctx, updated, updated.Revision-1); err != nil {
+		t.Fatal(err)
+	}
+	// A rejected token from the prior result must resolve using the fresh vault.
+	if _, err := m.resolveManagedOAuth(ctx, cfg, previous.Tokens.Access); err != nil {
 		t.Fatalf("trySilentRefresh deveria suceder usando o refresh do store: %v", err)
 	}
 	if gotRefresh != "stored-refresh" {
 		t.Errorf("deveria usar o refresh_token do store, got %q", gotRefresh)
 	}
-	loaded := loadUserTokens(ctx, credMgr, "srv")
+	loaded := loadManagedTestToken(t, m, ctx, "srv")
 	if loaded == nil || loaded.AccessToken != "new-access" {
 		t.Errorf("novo access_token deveria ser persistido, got %+v", loaded)
 	}
@@ -1494,20 +1463,16 @@ func TestStoredTokenSourceSurvivesOperationCtxCancel(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	credMgr := newTestCredMgr()
-	rt := &pkceRoundTripper{credMgr: credMgr, serverSlug: "srv"}
-	rt.persistTokens(&oauth2.Token{AccessToken: "seed", RefreshToken: "seed-ref"})
-	rt.oauthCfg = &oauth2.Config{ClientID: "c", Endpoint: oauth2.Endpoint{TokenURL: srv.URL + "/token"}}
-	rt.tokenSource = oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "seed"})
-
-	ctx, cancel := context.WithCancel(context.Background())
-	if err := rt.trySilentRefresh(ctx); err != nil {
+	m, ownerCtx, cfg := managedTokenTestFixture(t, srv.URL, "seed", "seed-ref", time.Now().Add(-time.Hour))
+	ctx, cancel := context.WithCancel(ownerCtx)
+	if _, err := m.resolveManagedOAuth(ctx, cfg, "seed"); err != nil {
 		t.Fatalf("trySilentRefresh: %v", err)
 	}
 	// Cancela o ctx da operação: o token source armazenado NÃO deve depender dele.
 	cancel()
 
-	tok, err := rt.tokenSource.Token()
+	resolved, err := m.resolveManagedOAuth(ownerCtx, cfg, "")
+	tok := &oauth2.Token{AccessToken: resolved.Tokens.Access, RefreshToken: resolved.Tokens.Refresh, Expiry: resolved.Tokens.ExpiresAt}
 	if err != nil {
 		t.Fatalf("refresh futuro falhou após cancelamento do ctx da operação: %v", err)
 	}
@@ -1522,70 +1487,147 @@ func TestStoredTokenSourceSurvivesOperationCtxCancel(t *testing.T) {
 	}
 }
 
-func TestLongLivedCtx_InjectsHTTPClientWithTimeout(t *testing.T) {
-	// longLivedCtx remove o cancelamento do ctx; precisa injetar um *http.Client
-	// com Timeout para o refresh do oauth2 não bloquear indefinidamente o RoundTrip.
-	rt := &pkceRoundTripper{serverSlug: "srv"}
-	ctx := rt.longLivedCtx()
+// Runtime fixtures create only composed authorizations. Results are reloaded
+// from the vault so persistence assertions never inspect just a returned token.
+func managedTokenTestFixture(t *testing.T, resource, access, refresh string, expiry time.Time) (*Manager, context.Context, ServerConfig) {
+	t.Helper()
+	m, _, ctx := managedFixture(t)
+	cfg := managedConfig(resource)
+	cfg.OAuth2TokenAuthMethod = "none"
+	if err := m.SaveConfig("srv", cfg); err != nil {
+		t.Fatal(err)
+	}
+	seedManagedRuntime(t, m, ctx, "srv", access, refresh, expiry)
+	cfg, _, _ = loadManaged(t, m, ctx, "srv")
+	return m, ctx, cfg
+}
 
-	if ctx.Done() != nil {
-		t.Error("longLivedCtx deveria ser não-cancelável (Done() == nil)")
+func loadManagedTestToken(t *testing.T, m *Manager, ctx context.Context, slug string) *oauth2.Token {
+	t.Helper()
+	if err := m.LoadConfigs(); err != nil {
+		t.Fatal(err)
 	}
-	v := ctx.Value(oauth2.HTTPClient)
-	client, ok := v.(*http.Client)
-	if !ok || client == nil {
-		t.Fatalf("esperava *http.Client em oauth2.HTTPClient, got %T", v)
+	_, _, r := loadManaged(t, m, ctx, slug)
+	return &oauth2.Token{AccessToken: r.Tokens.Access, RefreshToken: r.Tokens.Refresh, Expiry: r.Tokens.ExpiresAt, TokenType: r.Tokens.Type}
+}
+
+func TestLongLivedCtx_InjectsGuardedHTTPClient(t *testing.T) {
+	// O protocolo usa o mesmo transporte protegido sem destacar o cancelamento
+	// da operação. Uma renovação posterior recebe seu próprio contexto.
+	rt := &oauthProtocol{serverSlug: "srv", cfg: ServerConfig{URL: "https://resource.example"}}
+	client := rt.oauthHTTPClient(time.Second)
+	if client.Transport == nil {
+		t.Fatal("refresh sem transporte protegido e sem timeout por tentativa")
 	}
-	if client.Timeout <= 0 {
-		t.Errorf("o http.Client do refresh deveria ter Timeout > 0, got %v", client.Timeout)
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://resource.example/token", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response, err := client.Do(req); response != nil || !errors.Is(err, context.Canceled) {
+		t.Fatalf("cliente protegido perdeu cancelamento: %v", err)
 	}
 }
 
 // ============ single-flight por servidor (#194) ============
 
-// seqTokenSource devolve tokens em sequência: simula que, entre a captura do token
-// rejeitado e a reverificação pós-arbiter, OUTRO flow trocou o token.
-type seqTokenSource struct {
-	mu     sync.Mutex
-	tokens []*oauth2.Token
-	i      int
-}
-
-func (s *seqTokenSource) Token() (*oauth2.Token, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	tok := s.tokens[s.i]
-	if s.i < len(s.tokens)-1 {
-		s.i++
-	}
-	return tok, nil
-}
-
 func TestAuthorizeSkipsWhenAnotherFlowRenewedToken(t *testing.T) {
-	// Caso #194: ao adquirir o arbiter, o token foi substituído por OUTRO flow
-	// (access_token diferente do rejeitado) — authorize pula a nova janela.
-	rt := &pkceRoundTripper{
-		serverSlug: "srv",
-		tokenSource: &seqTokenSource{tokens: []*oauth2.Token{
-			{AccessToken: "old-rejected", Expiry: time.Now().Add(time.Hour)},
-			{AccessToken: "new-from-other-flow", Expiry: time.Now().Add(time.Hour)},
-		}},
+	// Caso #194: outro flow já publicou um token diferente do rejeitado.
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Error("token já renovado não deve emitir outro grant")
+	}))
+	defer srv.Close()
+	m, ctx, cfg := managedTokenTestFixture(t, srv.URL, "old-rejected", "refresh", time.Now().Add(time.Hour))
+	_, store, current := loadManaged(t, m, ctx, "srv")
+	current.Tokens.Access = "new-from-other-flow"
+	current.Revision++
+	if err := store.CompareAndSwap(ctx, current, current.Revision-1); err != nil {
+		t.Fatal(err)
 	}
-	if err := rt.authorize(context.Background()); err != nil {
-		t.Fatalf("authorize deveria pular e retornar nil quando outro flow renovou, got %v", err)
+	oldBrowser := browserOpen
+	browserOpen = func(string) error { t.Error("renovação concorrente abriu navegador"); return nil }
+	defer func() { browserOpen = oldBrowser }()
+	if r, err := m.resolveManagedOAuth(ctx, cfg, "old-rejected"); err != nil || r.Tokens.Access != "new-from-other-flow" {
+		t.Fatalf("resolução deveria aproveitar a renovação concorrente: %v", err)
 	}
 }
 
 func TestAuthorizeProceedsWhenTokenUnchanged(t *testing.T) {
-	// Token rejeitado continua o mesmo (ex.: revogado, não-expirado): NÃO pode pular
-	// — o usuário precisa reautenticar. Sem config válida, authorize deve falhar ao
-	// tentar de fato o flow (prova que não tomou o atalho do single-flight).
-	rt := &pkceRoundTripper{
-		serverSlug:  "srv",
-		tokenSource: oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "still-rejected", Expiry: time.Now().Add(time.Hour)}),
+	// Token rejeitado e sem refresh não pode ser devolvido nem iniciar login
+	// incidental; a UI recebe a necessidade explícita de reconexão.
+	m, ctx, cfg := managedTokenTestFixture(t, "https://resource.example", "still-rejected", "", time.Now().Add(time.Hour))
+	oldBrowser := browserOpen
+	browserOpen = func(string) error { t.Error("rejeição abriu navegador incidental"); return nil }
+	defer func() { browserOpen = oldBrowser }()
+	if r, err := m.resolveManagedOAuth(ctx, cfg, "still-rejected"); !errors.Is(err, oauthflow.ErrReauthorize) || r.Tokens.Access != "" {
+		t.Fatalf("token rejeitado foi aceito: %v", err)
 	}
-	err := rt.authorize(context.Background())
-	if err == nil {
-		t.Fatal("authorize não deveria pular quando o token rejeitado permanece; deveria prosseguir e falhar sem config")
+}
+
+func TestAuthorizeCanceledWhileWaitingForSharedArbiter(t *testing.T) {
+	oauthFlowArbiter.Lock()
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(oauthFlowArbiter.Unlock) }
+	defer release()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	rt := &oauthProtocol{}
+	done := make(chan error, 1)
+	go func() { done <- rt.authorize(ctx) }()
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("expected cancellation, got %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("canceled MCP authorization waited for the shared arbiter")
+	}
+	release()
+	if err := rt.authorize(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("already canceled authorization proceeded with free arbiter: %v", err)
+	}
+}
+
+func TestDeviceVerificationProbesOnlyCodeFreeEndpoint(t *testing.T) {
+	for _, mode := range []string{"reachable", "rewrite", "different_path", "missing_base", "base_query"} {
+		t.Run(mode, func(t *testing.T) {
+			var probes []string
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				probes = append(probes, r.URL.RequestURI())
+				if r.URL.RawQuery != "" {
+					t.Errorf("probe leaked code: %s", r.URL.RequestURI())
+				}
+				if mode != "reachable" && r.URL.Path == "/oauth/verify" {
+					w.WriteHeader(http.StatusUnauthorized)
+				}
+			}))
+			defer srv.Close()
+			base := srv.URL + "/oauth/verify"
+			complete := base + "?user_code=SECRET#confirm"
+			want := complete
+			wantProbes := 1
+			switch mode {
+			case "rewrite":
+				want = srv.URL + "/api/oauth/verify?user_code=SECRET#confirm"
+				wantProbes = 2
+			case "different_path":
+				complete = srv.URL + "/other?user_code=SECRET"
+				want = complete
+				wantProbes = 2
+			case "missing_base":
+				base = ""
+				wantProbes = 0
+			case "base_query":
+				base += "?code=SECRET"
+				wantProbes = 0
+			}
+			rt := &oauthProtocol{cfg: ServerConfig{URL: srv.URL}}
+			got, err := rt.deviceVerificationURL(context.Background(), oauthflow.DeviceVerification{BaseURL: base, URL: complete, UserCode: "SECRET"})
+			if err != nil || got != want || len(probes) != wantProbes {
+				t.Fatalf("got=%s err=%v probes=%v", got, err, probes)
+			}
+		})
 	}
 }

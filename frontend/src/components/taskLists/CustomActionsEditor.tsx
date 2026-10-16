@@ -1,15 +1,31 @@
-import { useEffect, useState, useCallback } from 'react';
-import { DeleteOutlined, PlusOutlined } from '@ant-design/icons';
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import { DeleteOutlined, EditOutlined, PlusOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { useTaskListStore } from '../../store/taskListStore';
 import { useUIStore } from '../../store/uiStore';
+import { useAnnouncer } from '../../hooks/useAnnouncer';
+import { useConfirm } from '../../hooks/useConfirm';
+import { useGridFocus } from '../../hooks/useGridFocus';
+import { useInitialContentFocus } from '../../hooks/useInitialContentFocus';
+import { useNewItemShortcut } from '../../hooks/useNewItemShortcut';
+import { enqueueSave, taskListCustomActionsSaveKey, whenSavesSettled } from '../../lib/serialSaveQueue';
+import { isTaskListConfigConflict } from '../../lib/taskListConfigConflict';
 import type { CustomAction, CustomActionSurface } from '../../types/tasklist';
+import { Modal } from '../ui/Modal';
+import { Button } from '../ui/Button';
+import { Toolbar } from '../ui/Toolbar';
+import { DataGrid, type DataGridColumn } from '../ui/DataGrid';
+import { MenuButton } from '../layout/MenuButton';
+import { FormField } from '../ui/FormField';
+import { Input } from '../ui/Input';
+import { Textarea } from '../ui/Textarea';
+import { Checkbox } from '../ui/Checkbox';
 import { DialogActions } from '../ui/DialogActions';
 import './CustomActionsEditor.css';
 
 interface CustomActionsEditorProps {
   taskListId: string;
-  onClose: () => void;
+  /** Chamado após cada persistência bem-sucedida. */
   onSaved?: () => void;
 }
 
@@ -20,8 +36,7 @@ const SURFACES: { value: CustomActionSurface; labelKey: string; fallback: string
 ];
 
 // EditableAction adiciona um id de UI estável (não persistido) para usar como
-// React key — evita bugs visuais de inputs controlados ao remover/reordenar
-// (com key={idx} o React reaproveita DOM/estado entre linhas).
+// React key e id de linha do grid — evita bugs visuais ao remover/reordenar.
 type EditableAction = CustomAction & { _uiId: string };
 
 function newUiId(): string {
@@ -31,8 +46,14 @@ function newUiId(): string {
   return `ca-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-function withUiId(a: CustomAction): EditableAction {
-  return { ...a, _uiId: newUiId() };
+/**
+ * Ações lidas do backend recebem id de UI; as que já estavam na tela (mesmo id
+ * persistido) mantêm o delas, para o foco e o formulário aberto seguirem
+ * apontando para a mesma ação depois de recarregar.
+ */
+function withUiIds(loaded: CustomAction[], previous: EditableAction[]): EditableAction[] {
+  const uiIdById = new Map(previous.map((a) => [a.id, a._uiId]));
+  return loaded.map((a) => ({ ...a, _uiId: uiIdById.get(a.id) ?? newUiId() }));
 }
 
 function getErrorMessage(error: unknown): string {
@@ -54,242 +75,493 @@ function emptyAction(): EditableAction {
   };
 }
 
+function surfaceLabels(t: (key: string, fallback: string) => string, surfaces?: CustomActionSurface[]): string {
+  if (!surfaces || surfaces.length === 0) return '—';
+  return surfaces
+    .map((s) => {
+      const known = SURFACES.find((k) => k.value === s);
+      return known ? t(known.labelKey, known.fallback) : s;
+    })
+    .join(', ');
+}
+
 /**
- * Editor estruturado das custom actions (AEP-0067) de uma TaskList.
- * Serializa para o JSON persistido em TaskList.CustomActions; a validação
- * forte (ids únicos, evento/link obrigatório, surfaces válidas) ocorre no
- * backend ao salvar.
+ * Editor das custom actions (AEP-0067) de uma TaskList, no padrão do sistema:
+ * Toolbar (Nova/Editar/Apagar) + DataGrid + modal de edição por ação.
+ * Cada criação, edição ou exclusão persiste na hora a lista inteira como o
+ * JSON de TaskList.CustomActions; não há rascunho nem Salvar em lote.
  */
-export default function CustomActionsEditor({ taskListId, onClose, onSaved }: CustomActionsEditorProps) {
+export default function CustomActionsEditor({ taskListId, onSaved }: CustomActionsEditorProps) {
   const { t } = useTranslation();
   const addToast = useUIStore((s) => s.addToast);
+  const { announce } = useAnnouncer();
+  const requestConfirm = useConfirm();
+  const { handleGridReady, requestGridFocus } = useGridFocus();
   const getTaskListCustomActions = useTaskListStore((s) => s.getTaskListCustomActions);
   const setTaskListCustomActions = useTaskListStore((s) => s.setTaskListCustomActions);
 
   const [actions, setActions] = useState<EditableAction[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const savingRef = useRef(false);
+  const [focused, setFocused] = useState<EditableAction | null>(null);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+
+  // Modal de edição por ação: 'create' parte do vazio, 'edit' do item focado.
+  const [itemModal, setItemModal] = useState<{ mode: 'create' } | { mode: 'edit'; uiId: string } | null>(null);
+  const [draft, setDraft] = useState<EditableAction>(emptyAction);
+  const newButtonRef = useRef<HTMLButtonElement | null>(null);
+  // Ações gravadas sobre as quais a próxima gravação é calculada; o backend
+  // recusa com conflito se o gravado já for outro.
+  const baseJSONRef = useRef('');
+  // Incrementado após um conflito para reler as ações gravadas.
+  const [reloadToken, setReloadToken] = useState(0);
+  const [reloadFailed, setReloadFailed] = useState(false);
+  // Fora das dependências da carga: o pai costuma recriar o callback a cada
+  // render, e isso não pode disparar outra leitura.
+  const onSavedRef = useRef(onSaved);
+  onSavedRef.current = onSaved;
 
   useEffect(() => {
     let cancelled = false;
-    getTaskListCustomActions(taskListId)
+    // Reaberto logo após fechar no meio de um salvamento: lê só depois dele.
+    whenSavesSettled(taskListCustomActionsSaveKey(taskListId))
+      .then(() => getTaskListCustomActions(taskListId))
       .then((res) => {
-        if (!cancelled) setActions((res.actions ?? []).map(withUiId));
+        if (cancelled) return;
+        const loaded = res.actions ?? [];
+        baseJSONRef.current = JSON.stringify({ actions: loaded });
+        setActions((prev) => withUiIds(loaded, prev));
+        // Recarga após conflito: quem mostra as ações fora do editor (o menu
+        // do quadro) também passa a ver a versão gravada.
+        if (reloadToken > 0) onSavedRef.current?.();
       })
       .catch(() => {
-        if (!cancelled) setActions([]);
+        if (cancelled) return;
+        if (reloadToken === 0) setActions([]);
+        else setReloadFailed(true);
       })
       .finally(() => {
         if (!cancelled) setIsLoading(false);
       });
     return () => { cancelled = true; };
-  }, [taskListId, getTaskListCustomActions]);
+  }, [taskListId, getTaskListCustomActions, reloadToken]);
 
-  const updateAction = useCallback((idx: number, patch: Partial<CustomAction>) => {
-    setActions((prev) => prev.map((a, i) => (i === idx ? { ...a, ...patch } : a)));
+  useEffect(() => {
+    if (!reloadFailed) return;
+    setReloadFailed(false);
+    addToast(t('common.error', 'Erro ao carregar dados'), 'error');
+  }, [reloadFailed, addToast, t]);
+
+  // Após recarregar, o item focado passa a ser a versão gravada (ou nenhum).
+  useEffect(() => {
+    setFocused((prev) => (prev ? actions.find((a) => a._uiId === prev._uiId) ?? null : null));
+  }, [actions]);
+
+  // Ao entrar na tela (dados carregados), o foco vai para o grid — ou para
+  // "Nova ação" quando a lista está vazia e não há grid.
+  useInitialContentFocus(rootRef, !isLoading, () => {
+    if (!requestGridFocus()) newButtonRef.current?.focus();
+  });
+
+  const openNewAction = useCallback(() => {
+    setDraft(emptyAction());
+    setItemModal({ mode: 'create' });
   }, []);
 
-  const toggleSurface = useCallback((idx: number, surface: CustomActionSurface) => {
-    setActions((prev) => prev.map((a, i) => {
-      if (i !== idx) return a;
-      const current = new Set(a.surfaces ?? []);
+  const openEditAction = useCallback((action: EditableAction) => {
+    setDraft({ ...action, surfaces: [...(action.surfaces ?? [])] });
+    setItemModal({ mode: 'edit', uiId: action._uiId });
+  }, []);
+
+  const closeItemModal = useCallback(() => {
+    setItemModal(null);
+    // Volta o foco ao grid para seguir editando em série por teclado.
+    requestAnimationFrame(() => { requestGridFocus(); });
+  }, [requestGridFocus]);
+
+  // X, Esc e Cancelar esperam o Aplicar em andamento: se o backend recusar,
+  // o rascunho continua no formulário para tentar de novo.
+  const cancelItemModal = useCallback(() => {
+    if (!savingRef.current) closeItemModal();
+  }, [closeItemModal]);
+
+  const patchDraft = useCallback((patch: Partial<CustomAction>) => {
+    setDraft((prev) => ({ ...prev, ...patch }));
+  }, []);
+
+  const toggleDraftSurface = useCallback((surface: CustomActionSurface) => {
+    setDraft((prev) => {
+      const current = new Set(prev.surfaces ?? []);
       if (current.has(surface)) current.delete(surface);
       else current.add(surface);
-      return { ...a, surfaces: Array.from(current) };
-    }));
+      return { ...prev, surfaces: Array.from(current) };
+    });
   }, []);
 
-  const addAction = useCallback(() => {
-    setActions((prev) => [...prev, emptyAction()]);
-  }, []);
-
-  const removeAction = useCallback((idx: number) => {
-    setActions((prev) => prev.filter((_, i) => i !== idx));
-  }, []);
-
-  const handleSave = useCallback(async () => {
+  // Cada operação persiste a lista inteira na hora; o estado local só muda
+  // depois que o backend aceita, para a tela nunca mostrar algo não salvo.
+  const persist = useCallback(async (next: EditableAction[]): Promise<boolean> => {
+    // Um salvamento por vez: cliques repetidos em Aplicar não duplicam a ação.
+    if (savingRef.current) return false;
+    savingRef.current = true;
     setIsSaving(true);
     try {
-      const cleaned = actions.map(({ _uiId, ...a }) => ({
+      const cleaned = next.map(({ _uiId, ...a }) => ({
         ...a,
         surfaces: a.surfaces && a.surfaces.length > 0 ? a.surfaces : ['card_menu'],
       }));
       // Sem ações: persiste string vazia (não `{"actions":[]}`). O backend trata
       // vazio como "sem ações" e isso mantém custom_actions limpo no round-trip/clone.
       const json = cleaned.length > 0 ? JSON.stringify({ actions: cleaned }) : '';
-      await setTaskListCustomActions(taskListId, json);
-      addToast(t('tasklist.customActions.saved', 'Ações customizadas salvas'), 'success');
+      await enqueueSave(
+        taskListCustomActionsSaveKey(taskListId),
+        () => setTaskListCustomActions(taskListId, json, baseJSONRef.current),
+      );
+      baseJSONRef.current = json;
+      setActions(next);
       onSaved?.();
-      onClose();
+      return true;
     } catch (error) {
+      if (isTaskListConfigConflict(error)) {
+        addToast(t(
+          'tasklist.customActions.conflict',
+          'As ações foram alteradas em outro lugar, por outra aba ou pelo agente. A lista foi atualizada com a versão atual; confira e refaça a alteração.',
+        ), 'warning', 10000);
+        setReloadToken((n) => n + 1);
+        return false;
+      }
       addToast(
         t('tasklist.customActions.saveError', 'Falha ao salvar ações: {{error}}', { error: getErrorMessage(error) }),
         'error',
       );
+      return false;
     } finally {
+      savingRef.current = false;
       setIsSaving(false);
     }
-  }, [actions, taskListId, setTaskListCustomActions, addToast, t, onSaved, onClose]);
+  }, [taskListId, setTaskListCustomActions, addToast, t, onSaved]);
+
+  const editingUiId = itemModal?.mode === 'edit' ? itemModal.uiId : null;
+  const editingGone = editingUiId !== null && !actions.some((a) => a._uiId === editingUiId);
+
+  const closeGoneAction = useCallback(() => {
+    const msg = t('tasklist.customActions.actionGone', 'Esta ação não existe mais: foi apagada em outro lugar.');
+    addToast(msg, 'error', undefined, undefined, { suppressAnnounce: true });
+    announce(msg);
+    closeItemModal();
+  }, [t, addToast, announce, closeItemModal]);
+
+  // Após um conflito a lista recarrega: se a ação em edição foi apagada, o
+  // formulário fecha na hora, sem esperar outro Aplicar.
+  useEffect(() => {
+    if (editingGone) closeGoneAction();
+  }, [editingGone, closeGoneAction]);
+
+  const confirmItemModal = useCallback(async () => {
+    if (editingGone) {
+      closeGoneAction();
+      return;
+    }
+    const id = draft.id.trim();
+    const label = draft.label.trim();
+    if (!id || !label) {
+      const msg = t('tasklist.customActions.requiredFields', 'Preencha ID e Rótulo da ação');
+      addToast(msg, 'error');
+      announce(msg);
+      return;
+    }
+    if (actions.some((a) => a.id === id && a._uiId !== editingUiId)) {
+      const msg = t('tasklist.customActions.duplicateId', 'Já existe uma ação com este ID');
+      addToast(msg, 'error');
+      announce(msg);
+      return;
+    }
+    const cleaned: EditableAction = { ...draft, id, label };
+    const isEdit = itemModal?.mode === 'edit';
+    const next = isEdit
+      ? actions.map((a) => (a._uiId === itemModal.uiId ? cleaned : a))
+      : [...actions, cleaned];
+    // Falha ao salvar mantém o modal aberto com o rascunho, para tentar de novo.
+    if (!(await persist(next))) return;
+    announce(isEdit
+      ? t('tasklist.customActions.updated', 'Ação atualizada')
+      : t('tasklist.customActions.added', 'Ação adicionada'));
+    setFocused(cleaned);
+    closeItemModal();
+  }, [draft, actions, itemModal, editingUiId, editingGone, closeGoneAction, t, addToast, announce, closeItemModal, persist]);
+
+  const deleteAction = useCallback(async (action: EditableAction) => {
+    const confirmed = await requestConfirm({
+      title: t('tasklist.customActions.deleteConfirmTitle', 'Apagar ação'),
+      message: t(
+        'tasklist.customActions.deleteConfirm',
+        'Apagar a ação "{{label}}"?',
+        { label: action.label || action.id },
+      ),
+    });
+    if (!confirmed) return;
+    if (!(await persist(actions.filter((a) => a._uiId !== action._uiId)))) return;
+    setFocused((prev) => (prev?._uiId === action._uiId ? null : prev));
+    announce(t('tasklist.customActions.deleted', 'Ação apagada'));
+    // A linha some e o foco cairia no body: devolve ao grid (ou ao Novo,
+    // se a lista esvaziou e o grid desmontou).
+    requestAnimationFrame(() => {
+      if (!requestGridFocus()) newButtonRef.current?.focus();
+    });
+  }, [requestConfirm, t, announce, requestGridFocus, persist, actions]);
+
+  useNewItemShortcut(openNewAction, !isSaving);
+
+  const getRowActions = useCallback((action: EditableAction) => [
+    {
+      id: 'edit',
+      label: t('tasklist.edit', 'Editar'),
+      icon: <EditOutlined aria-hidden="true" />,
+      onClick: () => openEditAction(action),
+      disabled: isSaving,
+    },
+    {
+      id: 'delete',
+      label: t('tasklist.delete', 'Deletar'),
+      icon: <DeleteOutlined aria-hidden="true" />,
+      onClick: () => void deleteAction(action),
+      danger: true,
+      disabled: isSaving,
+    },
+  ], [t, openEditAction, deleteAction, isSaving]);
+
+  const columns: DataGridColumn<EditableAction>[] = useMemo(() => [
+    {
+      key: 'label',
+      label: t('tasklist.customActions.field.label', 'Rótulo'),
+      width: '30%',
+      format: (_value, item) => (
+        <span>{item.icon ? <span aria-hidden="true">{item.icon} </span> : null}{item.label || item.id}</span>
+      ),
+    },
+    {
+      key: 'surfaces',
+      label: t('tasklist.customActions.field.surfaces', 'Onde aparece'),
+      width: '30%',
+      truncate: true,
+      format: (_value, item) => surfaceLabels((k, f) => t(k, f), item.surfaces),
+    },
+    {
+      key: 'action',
+      label: t('tasklist.customActions.action', 'Ação'),
+      width: '25%',
+      truncate: true,
+      format: (_value, item) => item.link
+        || t('tasklist.customActions.publishesEvent', 'Publica evento'),
+    },
+    {
+      key: 'danger',
+      label: t('tasklist.customActions.field.danger', 'Destrutiva'),
+      width: '10%',
+      format: (_value, item) => (item.danger ? t('common.yes', 'Sim') : t('common.no', 'Não')),
+    },
+    {
+      key: 'actions',
+      label: '',
+      width: '5%',
+      format: (_value, item) => (
+        <MenuButton
+          items={getRowActions(item)}
+          buttonLabel={t('common.actions', 'Ações')}
+        />
+      ),
+    },
+  ], [t, getRowActions]);
 
   if (isLoading) {
     return <div className="custom-actions-editor__loading">{t('tasklist.loading', 'Carregando...')}</div>;
   }
 
   return (
-    <div className="custom-actions-editor">
+    <div className="custom-actions-editor" ref={rootRef}>
       <p className="custom-actions-editor__hint">
         {t(
           'tasklist.customActions.hint',
-          'Defina ações por card ou quadro. Cada ação pode publicar um evento (que pode disparar jobs) e/ou abrir um link. Os templates têm acesso aos campos do card (.task.code, .task.link, etc.).',
+          'Defina ações por card ou quadro. Cada ação pode publicar um evento (que pode disparar jobs) e/ou abrir um link. Os templates têm acesso aos campos do card (.task.code, .task.link, etc.). As alterações são salvas automaticamente.',
         )}
       </p>
 
-      {actions.length === 0 && (
+      <Toolbar
+        ariaLabel={t('tasklist.customActions.toolbar', 'Barra de ferramentas de ações customizadas')}
+        actions={[
+          {
+            key: 'new-action',
+            label: t('tasklist.customActions.newAction', 'Nova ação'),
+            icon: <PlusOutlined aria-hidden="true" />,
+            onClick: openNewAction,
+            shortcut: 'Ctrl+N',
+            variant: 'primary',
+            buttonRef: newButtonRef,
+            disabled: isSaving,
+          },
+          {
+            key: 'edit-action',
+            label: t('tasklist.edit', 'Editar'),
+            icon: <EditOutlined aria-hidden="true" />,
+            onClick: () => focused && openEditAction(focused),
+            disabled: !focused || isSaving,
+          },
+          {
+            key: 'delete-action',
+            label: t('tasklist.delete', 'Deletar'),
+            icon: <DeleteOutlined aria-hidden="true" />,
+            onClick: () => focused && void deleteAction(focused),
+            disabled: !focused || isSaving,
+            variant: 'danger',
+          },
+        ]}
+      />
+
+      {actions.length === 0 ? (
         <p className="custom-actions-editor__empty">
           {t('tasklist.customActions.empty', 'Nenhuma ação customizada definida.')}
         </p>
+      ) : (
+        <DataGrid
+          items={actions}
+          columns={columns}
+          getItemId={(item) => item._uiId}
+          label={t('tasklist.customActions.grid', 'Lista de ações customizadas')}
+          onFocusChange={(item) => setFocused(item)}
+          onActivate={(item) => openEditAction(item)}
+          getRowActions={getRowActions}
+          onGridReady={handleGridReady}
+        />
       )}
 
-      <div className="custom-actions-editor__list">
-        {actions.map((action, idx) => (
-          <div key={action._uiId} className="custom-actions-editor__item">
-            <div className="custom-actions-editor__row">
-              <label className="custom-actions-editor__field">
-                <span>{t('tasklist.customActions.field.id', 'ID')}</span>
-                <input
-                  type="text"
-                  value={action.id}
-                  placeholder={t('tasklist.customActions.field.idPlaceholder', 'investigar')}
-                  onChange={(e) => updateAction(idx, { id: e.target.value })}
-                />
-              </label>
-              <label className="custom-actions-editor__field">
-                <span>{t('tasklist.customActions.field.label', 'Rótulo')}</span>
-                <input
-                  type="text"
-                  value={action.label}
-                  placeholder={t('tasklist.customActions.field.labelPlaceholder', 'Investigar')}
-                  onChange={(e) => updateAction(idx, { label: e.target.value })}
-                />
-              </label>
-              <label className="custom-actions-editor__field custom-actions-editor__field--narrow">
-                <span>{t('tasklist.customActions.field.icon', 'Ícone')}</span>
-                <input
-                  type="text"
-                  value={action.icon ?? ''}
-                  placeholder={t('tasklist.customActions.field.iconPlaceholder', '🔍')}
-                  onChange={(e) => updateAction(idx, { icon: e.target.value })}
-                />
-              </label>
-              <button
-                type="button"
-                className="custom-actions-editor__remove"
-                onClick={() => removeAction(idx)}
-                aria-label={t('tasklist.customActions.remove', 'Remover ação')}
-                title={t('tasklist.customActions.remove', 'Remover ação')}
-              >
-                <DeleteOutlined aria-hidden="true" />
-              </button>
-            </div>
-
-            <div className="custom-actions-editor__surfaces">
-              <span>{t('tasklist.customActions.field.surfaces', 'Onde aparece')}</span>
+      <Modal
+        isOpen={itemModal !== null}
+        onClose={cancelItemModal}
+        title={itemModal?.mode === 'edit'
+          ? t('tasklist.customActions.editActionNamed', 'Editar ação: {{label}}', {
+            label: actions.find((a) => a._uiId === itemModal.uiId)?.label
+              || actions.find((a) => a._uiId === itemModal.uiId)?.id
+              || '',
+          })
+          : t('tasklist.customActions.newAction', 'Nova ação')}
+      >
+        <div className="custom-action-form">
+          <FormField label={t('tasklist.customActions.field.id', 'ID')} required>
+            <Input
+              type="text"
+              value={draft.id}
+              placeholder={t('tasklist.customActions.field.idPlaceholder', 'investigar')}
+              onChange={(e) => patchDraft({ id: e.target.value })}
+              maxLength={128}
+            />
+          </FormField>
+          <FormField label={t('tasklist.customActions.field.label', 'Rótulo')} required>
+            <Input
+              type="text"
+              value={draft.label}
+              placeholder={t('tasklist.customActions.field.labelPlaceholder', 'Investigar')}
+              onChange={(e) => patchDraft({ label: e.target.value })}
+              maxLength={200}
+            />
+          </FormField>
+          <FormField label={t('tasklist.customActions.field.icon', 'Ícone')}>
+            <Input
+              type="text"
+              value={draft.icon ?? ''}
+              placeholder={t('tasklist.customActions.field.iconPlaceholder', '🔍')}
+              onChange={(e) => patchDraft({ icon: e.target.value })}
+              maxLength={32}
+            />
+          </FormField>
+          <FormField label={t('tasklist.customActions.field.surfaces', 'Onde aparece')}>
+            <div className="custom-action-form__surfaces">
               {SURFACES.map((s) => (
-                <label key={s.value} className="custom-actions-editor__checkbox">
-                  <input
-                    type="checkbox"
-                    checked={(action.surfaces ?? []).includes(s.value)}
-                    onChange={() => toggleSurface(idx, s.value)}
-                  />
-                  {t(s.labelKey, s.fallback)}
-                </label>
+                <Checkbox
+                  key={s.value}
+                  label={t(s.labelKey, s.fallback)}
+                  checked={(draft.surfaces ?? []).includes(s.value)}
+                  onChange={() => toggleDraftSurface(s.value)}
+                />
               ))}
             </div>
-
-            <div className="custom-actions-editor__row">
-              <label className="custom-actions-editor__field">
-                <span>{t('tasklist.customActions.field.event', 'Evento (opcional)')}</span>
-                <input
-                  type="text"
-                  value={action.event ?? ''}
-                  placeholder={t('tasklist.customActions.field.eventPlaceholder', 'tasklist.card.investigate_requested')}
-                  onChange={(e) => updateAction(idx, { event: e.target.value })}
-                />
-              </label>
-              <label className="custom-actions-editor__field">
-                <span>{t('tasklist.customActions.field.link', 'Link (opcional, template)')}</span>
-                <input
-                  type="text"
-                  value={action.link ?? ''}
-                  placeholder={t('tasklist.customActions.field.linkPlaceholder', '{{ .task.link }}')}
-                  onChange={(e) => updateAction(idx, { link: e.target.value })}
-                />
-              </label>
-            </div>
-
-            <label className="custom-actions-editor__field custom-actions-editor__field--full">
-              <span>{t('tasklist.customActions.field.payload', 'Payload template (JSON, opcional)')}</span>
-              <textarea
-                rows={2}
-                value={action.payload_template ?? ''}
-                placeholder={t(
-                  'tasklist.customActions.field.payloadPlaceholder',
-                  '{"code": {{ json .task.code }}, "title": {{ json .task.title }}}',
-                )}
-                onChange={(e) => updateAction(idx, { payload_template: e.target.value })}
-              />
-            </label>
-
-            <div className="custom-actions-editor__row">
-              <label className="custom-actions-editor__field">
-                <span>{t('tasklist.customActions.field.when', 'Condição "when" (opcional, template)')}</span>
-                <input
-                  type="text"
-                  value={action.when ?? ''}
-                  placeholder={t('tasklist.customActions.field.whenPlaceholder', '{{ ne .task.code "" }}')}
-                  onChange={(e) => updateAction(idx, { when: e.target.value })}
-                />
-              </label>
-              <label className="custom-actions-editor__field">
-                <span>{t('tasklist.customActions.field.confirm', 'Confirmação (opcional)')}</span>
-                <input
-                  type="text"
-                  value={action.confirm ?? ''}
-                  placeholder={t('tasklist.customActions.field.confirmPlaceholder', 'Confirmar esta ação?')}
-                  onChange={(e) => updateAction(idx, { confirm: e.target.value })}
-                />
-              </label>
-              <label className="custom-actions-editor__checkbox custom-actions-editor__checkbox--inline">
-                <input
-                  type="checkbox"
-                  checked={!!action.danger}
-                  onChange={(e) => updateAction(idx, { danger: e.target.checked })}
-                />
-                {t('tasklist.customActions.field.danger', 'Destrutiva')}
-              </label>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <div className="custom-actions-editor__footer">
-        <button type="button" className="custom-actions-editor__add" onClick={addAction}>
-          <PlusOutlined aria-hidden="true" /> {t('tasklist.customActions.add', 'Adicionar ação')}
-        </button>
-        <div className="custom-actions-editor__footer-spacer" />
-        <DialogActions
-          primary={
-            <button type="button" className="custom-actions-editor__save" onClick={() => void handleSave()} disabled={isSaving}>
-              {isSaving ? t('common.saving', 'Salvando...') : t('common.save', 'Salvar')}
-            </button>
-          }
-          secondary={
-            <button type="button" className="custom-actions-editor__cancel" onClick={onClose} disabled={isSaving}>
-              {t('common.cancel', 'Cancelar')}
-            </button>
-          }
-        />
-      </div>
+          </FormField>
+          <FormField
+            label={t('tasklist.customActions.field.event', 'Evento (opcional)')}
+          >
+            <Input
+              type="text"
+              value={draft.event ?? ''}
+              placeholder={t('tasklist.customActions.field.eventPlaceholder', 'tasklist.card.investigate_requested')}
+              onChange={(e) => patchDraft({ event: e.target.value })}
+              maxLength={256}
+            />
+          </FormField>
+          <FormField
+            label={t('tasklist.customActions.field.link', 'Link (opcional, template)')}
+          >
+            <Input
+              type="text"
+              value={draft.link ?? ''}
+              placeholder={t('tasklist.customActions.field.linkPlaceholder', '{{ .task.link }}')}
+              onChange={(e) => patchDraft({ link: e.target.value })}
+              maxLength={512}
+            />
+          </FormField>
+          <FormField
+            label={t('tasklist.customActions.field.payload', 'Payload template (JSON, opcional)')}
+          >
+            <Textarea
+              rows={3}
+              value={draft.payload_template ?? ''}
+              placeholder={t(
+                'tasklist.customActions.field.payloadPlaceholder',
+                '{"code": {{ json .task.code }}, "title": {{ json .task.title }}}',
+              )}
+              onChange={(e) => patchDraft({ payload_template: e.target.value })}
+            />
+          </FormField>
+          <FormField
+            label={t('tasklist.customActions.field.when', 'Condição "when" (opcional, template)')}
+          >
+            <Input
+              type="text"
+              value={draft.when ?? ''}
+              placeholder={t('tasklist.customActions.field.whenPlaceholder', '{{ ne .task.code "" }}')}
+              onChange={(e) => patchDraft({ when: e.target.value })}
+              maxLength={512}
+            />
+          </FormField>
+          <FormField
+            label={t('tasklist.customActions.field.confirm', 'Confirmação (opcional)')}
+          >
+            <Input
+              type="text"
+              value={draft.confirm ?? ''}
+              placeholder={t('tasklist.customActions.field.confirmPlaceholder', 'Confirmar esta ação?')}
+              onChange={(e) => patchDraft({ confirm: e.target.value })}
+              maxLength={512}
+            />
+          </FormField>
+          <Checkbox
+            label={t('tasklist.customActions.field.danger', 'Destrutiva')}
+            checked={!!draft.danger}
+            onChange={(e) => patchDraft({ danger: e.target.checked })}
+          />
+          <DialogActions
+            primary={
+              <Button type="button" variant="primary" onClick={() => void confirmItemModal()}>
+                {t('tasklist.customActions.apply', 'Aplicar')}
+              </Button>
+            }
+            secondary={
+              <Button type="button" variant="secondary" onClick={cancelItemModal}>
+                {t('common.cancel', 'Cancelar')}
+              </Button>
+            }
+          />
+        </div>
+      </Modal>
     </div>
   );
 }

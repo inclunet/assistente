@@ -16,6 +16,12 @@ type SearchFiles struct {
 	workDir string
 }
 
+type searchFileMatch struct {
+	display string
+	path    string
+	isDir   bool
+}
+
 // NewSearchFiles cria uma nova instância de SearchFiles.
 func NewSearchFiles(workDir string) *SearchFiles {
 	return &SearchFiles{workDir: workDir}
@@ -101,7 +107,7 @@ func (t *SearchFiles) Execute(ctx context.Context, args json.RawMessage) (tools.
 	// Detecta se é um padrão recursivo (contém **/)
 	isRecursive := strings.Contains(a.Pattern, "**/") || strings.Contains(a.Pattern, "**\\")
 
-	var matches []string
+	var matches []searchFileMatch
 	truncated := false
 	skippedBySkill := 0
 
@@ -185,7 +191,7 @@ func (t *SearchFiles) Execute(ctx context.Context, args json.RawMessage) (tools.
 				if info != nil {
 					size = info.Size()
 				}
-				matches = append(matches, fmt.Sprintf("  %s (%s)", relPath, formatSize(size)))
+				matches = append(matches, searchFileMatch{display: fmt.Sprintf("  %s (%s)", relPath, formatSize(size)), path: path})
 			}
 
 			return nil
@@ -199,11 +205,6 @@ func (t *SearchFiles) Execute(ctx context.Context, args json.RawMessage) (tools.
 		}
 
 		for _, match := range globMatches {
-			if len(matches) >= maxResults {
-				truncated = true
-				break
-			}
-
 			// Link apontando para fora do sandbox: não vazar nomes externos
 			if pathEscapesSandbox(match, t.workDir) {
 				continue
@@ -227,6 +228,10 @@ func (t *SearchFiles) Execute(ctx context.Context, args json.RawMessage) (tools.
 			if err != nil {
 				continue
 			}
+			if len(matches) >= maxResults {
+				truncated = true
+				break
+			}
 
 			prefix := "[FILE]"
 			sizeStr := formatSize(info.Size())
@@ -236,9 +241,9 @@ func (t *SearchFiles) Execute(ctx context.Context, args json.RawMessage) (tools.
 			}
 
 			if sizeStr != "" {
-				matches = append(matches, fmt.Sprintf("  %s %s (%s)", prefix, filepath.ToSlash(relPath), sizeStr))
+				matches = append(matches, searchFileMatch{display: fmt.Sprintf("  %s %s (%s)", prefix, filepath.ToSlash(relPath), sizeStr), path: match, isDir: info.IsDir()})
 			} else {
-				matches = append(matches, fmt.Sprintf("  %s %s/", prefix, filepath.ToSlash(relPath)))
+				matches = append(matches, searchFileMatch{display: fmt.Sprintf("  %s %s/", prefix, filepath.ToSlash(relPath)), path: match, isDir: info.IsDir()})
 			}
 		}
 	}
@@ -249,29 +254,45 @@ func (t *SearchFiles) Execute(ctx context.Context, args json.RawMessage) (tools.
 
 	if len(matches) == 0 {
 		return tools.ToolResult{
-			Content: fmt.Sprintf("Nenhum arquivo encontrado com o padrão '%s' em '%s'", a.Pattern, basePath),
-			Metadata: map[string]any{
-				"results": 0,
-			},
+			Content:  fmt.Sprintf("Nenhum arquivo encontrado com o padrão '%s' em '%s'", a.Pattern, basePath),
+			Metadata: searchFilesMetadata(nil, false, skippedBySkill),
 		}, nil
 	}
 
 	header := fmt.Sprintf("Busca: '%s' em '%s' — %d resultado(s)\n", a.Pattern, basePath, len(matches))
-	if truncated {
-		header += fmt.Sprintf("(TRUNCADO: limite de %d resultados atingido)\n", maxResults)
-	}
 	if skippedBySkill > 0 {
 		header += fmt.Sprintf("(%d caminho(s) omitido(s) por permissões do skill)\n", skippedBySkill)
 	}
 
-	return tools.ToolResult{
-		Content: header + strings.Join(matches, "\n"),
-		Metadata: map[string]any{
-			"results":          len(matches),
-			"truncated":        truncated,
-			"skipped_by_skill": skippedBySkill,
-		},
-	}, nil
+	display := make([]string, 0, len(matches))
+	for _, item := range matches {
+		display = append(display, item.display)
+	}
+	result := tools.ToolResult{Content: header + strings.Join(display, "\n"), Metadata: searchFilesMetadata(matches, truncated, skippedBySkill)}
+	if truncated {
+		result.Annotations = &tools.ResultAnnotations{OutputWindow: &tools.OutputWindowAnnotation{
+			HasMore: true, Unit: "results", Offset: 0, Returned: len(matches),
+		}}
+	}
+	return result, nil
+}
+
+func searchFilesMetadata(matches []searchFileMatch, truncated bool, skippedBySkill int) map[string]any {
+	items := make([]tools.SearchResultItem, 0, len(matches))
+	for _, match := range matches {
+		if match.isDir {
+			items = append(items, tools.SearchResultItem{Kind: "text", Title: filepath.Base(match.path), Snippet: "directory"})
+			continue
+		}
+		items = append(items, tools.SearchResultItem{
+			Kind: "file", Title: filepath.Base(match.path),
+			Target: &tools.SearchResultTarget{Kind: "file", Path: match.path},
+		})
+	}
+	return map[string]any{
+		"results": len(matches), "truncated": truncated, "skipped_by_skill": skippedBySkill,
+		tools.SearchResultPresentationMetadataKey: tools.SearchResultPresentation{Version: 1, Total: len(items), Truncated: truncated, Items: items},
+	}
 }
 
 func (t *SearchFiles) resolvePath(path string) (string, error) {

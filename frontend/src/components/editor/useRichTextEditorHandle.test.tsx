@@ -14,8 +14,6 @@ const TestComponent = forwardRef<RichTextEditorHandle>((_props, ref) => {
       flushNow: vi.fn(),
     },
     openLinkDialog: vi.fn(),
-    applyMermaidById: vi.fn(),
-    removeMermaidById: vi.fn(),
   });
 
   return null;

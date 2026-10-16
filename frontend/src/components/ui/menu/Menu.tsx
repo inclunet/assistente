@@ -16,6 +16,7 @@ export const Menu: React.FC<MenuProps> = ({
   initialFocusItemId,
   searchable = false,
   searchPlaceholder = 'Buscar...',
+  restoreFocusOnClose = true,
   onClose,
   onSelect,
   onItemKeyDown,
@@ -37,7 +38,7 @@ export const Menu: React.FC<MenuProps> = ({
   const [searchFocused, setSearchFocused] = useState(false);
 
   const filteredItems = searchable && searchQuery.trim()
-    ? items.filter(item => item.separator || item.label?.toLowerCase().includes(searchQuery.toLowerCase()))
+    ? items.filter(item => item.separator || [item.label, item.searchText].filter(Boolean).join(' ').toLowerCase().includes(searchQuery.trim().toLowerCase()))
     : items;
 
   // Anuncia mudanças para leitores de tela
@@ -107,7 +108,7 @@ export const Menu: React.FC<MenuProps> = ({
     const handleClickOutside = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
         onCloseRef.current?.();
-        requestAnimationFrame(() => restoreDefaultFocus());
+        if (restoreFocusOnClose) requestAnimationFrame(() => restoreDefaultFocus());
       }
     };
 
@@ -138,6 +139,9 @@ export const Menu: React.FC<MenuProps> = ({
         const firstButton = menuRef.current.querySelector('button:not([disabled])');
         if (firstButton instanceof HTMLElement) {
           firstButton.focus();
+        } else {
+          // Sem ação habilitada, o contêiner mantém Escape/Tab acessíveis.
+          menuRef.current.focus();
         }
       }
     }
@@ -167,16 +171,22 @@ export const Menu: React.FC<MenuProps> = ({
       const currentFocusIndex = focusStack[focusStack.length - 1] || 0;
       const targetItem = focusableItems[currentFocusIndex];
 
-      if (targetItem) {
+      if (targetItem && !targetItem.disabled) {
         const button = menuRef.current.querySelector(`button#${CSS.escape(targetItem.id)}`);
         if (button instanceof HTMLElement) {
           button.focus();
         }
       }
     }
-  }, [focusStack, submenuStack, visible]);
+  }, [focusStack, submenuStack, visible, searchFocused]);
 
   const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    // O campo de busca tem seu próprio contrato de teclado. Sem interromper
+    // a propagação, a mesma tecla também chega ao menu pai: ArrowDown avança
+    // duas vezes, Enter executa duas ações e espaço ativa o item focado.
+    if (['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'Escape', 'Tab', 'Enter', ' '].includes(e.key)) {
+      e.stopPropagation();
+    }
     if (e.key === 'ArrowDown') {
       e.preventDefault();
       setSearchFocused(false);
@@ -188,12 +198,12 @@ export const Menu: React.FC<MenuProps> = ({
         setSearchQuery('');
       } else {
         onClose?.();
-        requestAnimationFrame(() => restoreDefaultFocus());
+        if (restoreFocusOnClose) requestAnimationFrame(() => restoreDefaultFocus());
       }
     } else if (e.key === 'Tab') {
       e.preventDefault();
       onClose?.();
-      requestAnimationFrame(() => restoreDefaultFocus());
+      if (restoreFocusOnClose) requestAnimationFrame(() => restoreDefaultFocus());
     } else if (e.key === 'Enter') {
       e.preventDefault();
       const currentItems = getCurrentItems();
@@ -202,7 +212,7 @@ export const Menu: React.FC<MenuProps> = ({
         first.action();
         onSelect?.(first);
         onClose?.();
-        requestAnimationFrame(() => restoreDefaultFocus());
+        if (restoreFocusOnClose) requestAnimationFrame(() => restoreDefaultFocus());
       }
     }
   };
@@ -217,7 +227,7 @@ export const Menu: React.FC<MenuProps> = ({
     if (e.key === 'Tab') {
       e.preventDefault();
       onClose?.();
-      requestAnimationFrame(() => restoreDefaultFocus());
+      if (restoreFocusOnClose) requestAnimationFrame(() => restoreDefaultFocus());
       return;
     }
     const currentItems = getCurrentItems();
@@ -283,7 +293,7 @@ export const Menu: React.FC<MenuProps> = ({
           announce(t('a11y.announce.submenuClosed'));
         } else {
           onClose?.();
-          requestAnimationFrame(() => restoreDefaultFocus());
+          if (restoreFocusOnClose) requestAnimationFrame(() => restoreDefaultFocus());
         }
         break;
 
@@ -300,7 +310,7 @@ export const Menu: React.FC<MenuProps> = ({
           currentItem.action();
           onSelect?.(currentItem);
           onClose?.();
-          requestAnimationFrame(() => restoreDefaultFocus());
+          if (restoreFocusOnClose) requestAnimationFrame(() => restoreDefaultFocus());
         }
         break;
       }
@@ -325,7 +335,7 @@ export const Menu: React.FC<MenuProps> = ({
 
       const hasSubmenu = item.submenu && item.submenu.length > 0;
       const isSubmenuOpen = submenuStack[level] === item.id;
-      const isFocused = isCurrentLevel && index === currentLevelFocus;
+      const isFocused = !item.disabled && isCurrentLevel && index === currentLevelFocus;
 
       const buttonElement = (
           <button
@@ -346,10 +356,15 @@ export const Menu: React.FC<MenuProps> = ({
                 item.action?.();
                 onSelect?.(item);
                 onClose?.();
-                requestAnimationFrame(() => restoreDefaultFocus());
+          if (restoreFocusOnClose) requestAnimationFrame(() => restoreDefaultFocus());
               }
             }}
             onMouseEnter={() => {
+              // Itens disabled continuam visíveis para explicar a
+              // indisponibilidade, mas nunca podem alterar o índice navegável.
+              // Isso evita que um hover provocado por scroll deixe o estado
+              // apontando para um item que as setas não podem focar.
+              if (item.disabled) return;
               if (hasSubmenu && !item.disabled) {
                 setSubmenuStack((prev) => [...prev.slice(0, level), item.id]);
                 const submenuItems = item.submenu!.filter((subitem) => !subitem.separator);
@@ -413,7 +428,7 @@ export const Menu: React.FC<MenuProps> = ({
 
   const currentItems = getCurrentItems();
   const currentFocusIndex = getCurrentFocusIndex();
-  const activeItemId = currentItems[currentFocusIndex]?.id;
+  const activeItemId = currentItems[currentFocusIndex]?.disabled ? undefined : currentItems[currentFocusIndex]?.id;
 
   return (
     <>

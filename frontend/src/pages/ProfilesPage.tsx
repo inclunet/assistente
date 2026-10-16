@@ -1,6 +1,6 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
   CheckOutlined,
   CopyOutlined,
@@ -10,13 +10,7 @@ import {
 } from '@ant-design/icons';
 import {
   GetProfiles,
-  GetProfile,
   GetActiveProfileSlug,
-  SetActiveProfile,
-  CreateProfile,
-  UpdateProfile,
-  DeleteProfile,
-  DuplicateProfile,
   GetProfileSearchPaths,
 } from '@wailsjs/go/wailsapi/Profiles';
 import { profiles } from '../../wailsjs/go/models';
@@ -24,7 +18,7 @@ import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
 import { MenuButton } from '../components/layout/MenuButton';
 import { Toolbar } from '../components/ui/Toolbar';
 import { Button, PageLoading } from '../components';
-import { Modal, isModalOpen } from '../components/ui/Modal';
+import { Modal } from '../components/ui/Modal';
 import { EditorPanelFooter } from '../components/ui/EditorPanel';
 import { ProfileEditorTabs } from '../components/profiles/ProfileEditorTabs';
 import { useGridFocus } from '../hooks/useGridFocus';
@@ -36,12 +30,23 @@ import { useProfileDependencies } from '../hooks/useProfileDependencies';
 import { useResourceEditRequest } from '../hooks/useResourceEditRequest';
 import type { ResourceEditRequest } from '../store/navigationStore';
 import { useWorkspaceStore } from '../store/workspaceStore';
+import { useAuthStore } from '../store/authStore';
 import { useWorkspaceChatModalStore } from '../store/workspaceChatModalStore';
 import {
   buildTabChatSurfaceId,
   buildWorkspaceModalChatSurfaceId,
 } from '../services/chatSessionRegistry';
 import { profileDisplayDescription } from '../lib/profileDescription';
+import { usePagePresentationCommands, type PagePresentationCommandID } from '../lib/commandPagePresentation';
+import { getModalRegistrySnapshot } from '../lib/modalRegistry';
+import { useCommandShortcutHint } from '../lib/commandShortcutHints';
+import { readProfileCommandTarget } from '../lib/commandPageMutationWails';
+import {
+  usePageMutationCommands,
+  type PageMutationID,
+  type PageMutationRequest,
+  type PageMutationResult,
+} from '../lib/commandPageMutation';
 import './ProfilesPage.css';
 
 type ProfileInfo = profiles.ProfileInfo;
@@ -56,9 +61,44 @@ interface ProfileRow extends Profile {
   [key: string]: unknown;
 }
 
+interface ProfileEditorSnapshot {
+  slug: string | null;
+  fingerprint: string;
+  version: number;
+}
+
+interface ProfileMutationContext {
+  pathname: string;
+  ownerId: string;
+  sessionId: string;
+  workspaceId: string;
+  activeTabId: string | null;
+}
+
+interface ProfileMutationSuccessGuard {
+  context: ProfileMutationContext;
+  editorVersion?: number;
+  draftVersion?: number;
+  targetSlug?: string;
+  presentationGeneration?: number;
+  capturedTarget?: ProfileRow;
+}
+
+function cloneProfile(profile: Profile): Profile {
+  return profiles.Profile.createFrom(JSON.parse(JSON.stringify(profile))) as Profile;
+}
+
+function profileContextKey(context: ProfileMutationContext | null): string {
+  return context
+    ? `${context.pathname}|${context.ownerId}|${context.sessionId}|${context.workspaceId}|${context.activeTabId ?? ''}`
+    : '';
+}
+
 export default function ProfilesPage() {
   const { t } = useTranslation();
+  const { pathname } = useLocation();
   const navigate = useNavigate();
+  const createProfileShortcut = useCommandShortcutHint('profiles.create.open', 'profiles');
   const addToast = useUIStore((s) => s.addToast);
   const { announce } = useAnnouncer();
   const { handleGridReady } = useGridFocus();
@@ -74,6 +114,92 @@ export default function ProfilesPage() {
   const [searchPaths, setSearchPaths] = useState<string[]>([]);
   const [focusedRow, setFocusedRow] = useState<ProfileRow | null>(null);
   const [editorRequest, setEditorRequest] = useState<ResourceEditRequest | null>(null);
+  const [editorReadLoading, setEditorReadLoading] = useState(false);
+  const [mutationBusy, setMutationBusy] = useState(false);
+  const pageRef = useRef<HTMLDivElement>(null);
+  const editorRootRef = useRef<HTMLDivElement>(null);
+  const presentationTargetRef = useRef<ProfileRow | null>(null);
+  const profileLoadRequestRef = useRef(0);
+  const profileListRequestRef = useRef(0);
+  const profileRowsRef = useRef<ProfileRow[]>([]);
+  const committedProfileContextRef = useRef('');
+  const editorSnapshotRef = useRef<ProfileEditorSnapshot>({ slug: null, fingerprint: '', version: 0 });
+  const editorVersionRef = useRef(0);
+  const editorDraftVersionRef = useRef(0);
+  const editorOpenRef = useRef(false);
+  const editorReadLoadingRef = useRef(false);
+  const mutationBusyRef = useRef(false);
+  const mutationRunRef = useRef(0);
+  const inlineUpdateRef = useRef<{ row: ProfileRow; name: string } | null>(null);
+  const presentationGenerationRef = useRef(0);
+  const mountedRef = useRef(true);
+  const pathnameRef = useRef(pathname);
+  pathnameRef.current = pathname;
+
+  const setEditorReadBusy = useCallback((busy: boolean) => {
+    editorReadLoadingRef.current = busy;
+    setEditorReadLoading(busy);
+  }, []);
+
+  const setMutationBusyState = useCallback((busy: boolean) => {
+    mutationBusyRef.current = busy;
+    setMutationBusy(busy);
+  }, []);
+
+  const invalidateProfileLoad = useCallback(() => {
+    profileLoadRequestRef.current += 1;
+    profileListRequestRef.current += 1;
+  }, []);
+
+  const readProfileContext = useCallback((): ProfileMutationContext | null => {
+    const auth = useAuthStore.getState();
+    const workspace = useWorkspaceStore.getState().workspace;
+    if (!auth.isAuthenticated || !auth.user || !workspace) return null;
+    return {
+      pathname: pathnameRef.current,
+      ownerId: auth.user.userId,
+      sessionId: auth.user.sessionId,
+      workspaceId: workspace.id,
+      activeTabId: workspace.activeTabId ?? null,
+    };
+  }, []);
+
+  const isProfileContextCurrent = useCallback((expected: ProfileMutationContext) => {
+    const current = readProfileContext();
+    return mountedRef.current && current !== null &&
+      current.pathname === expected.pathname &&
+      current.ownerId === expected.ownerId &&
+      current.sessionId === expected.sessionId &&
+      current.workspaceId === expected.workspaceId &&
+      current.activeTabId === expected.activeTabId;
+  }, [readProfileContext]);
+
+  const captureProfileRow = useCallback((row: ProfileRow | null) => {
+    if (presentationTargetRef.current !== row) ++presentationGenerationRef.current;
+    presentationTargetRef.current = row;
+    setFocusedRow(row);
+  }, []);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    const unsubscribeAuth = useAuthStore.subscribe(invalidateProfileLoad);
+    const unsubscribeWorkspace = useWorkspaceStore.subscribe(invalidateProfileLoad);
+    const invalidatePresentationContext = () => invalidateProfileLoad();
+    window.addEventListener('blur', invalidatePresentationContext);
+    document.addEventListener('compositionstart', invalidatePresentationContext, true);
+    return () => {
+      mountedRef.current = false;
+      invalidateProfileLoad();
+      unsubscribeAuth();
+      unsubscribeWorkspace();
+      window.removeEventListener('blur', invalidatePresentationContext);
+      document.removeEventListener('compositionstart', invalidatePresentationContext, true);
+    };
+  }, [invalidateProfileLoad]);
+
+  useEffect(() => {
+    invalidateProfileLoad();
+  }, [pathname, invalidateProfileLoad]);
 
   const returnToCaller = useCallback((request: ResourceEditRequest | null) => {
     const caller = request?.caller;
@@ -104,14 +230,25 @@ export default function ProfilesPage() {
   const crud = useEditableList<ProfileRow, Profile, Profile>(
     {
       loadItems: async () => {
+        const requestId = ++profileListRequestRef.current;
+        const contextAtStart = readProfileContext();
+        const contextKeyAtStart = profileContextKey(contextAtStart);
         const [allProfiles, currentSlug] = await Promise.all([
           GetProfiles(),
           GetActiveProfileSlug(),
         ]);
+        const contextIsCurrent = contextAtStart !== null &&
+          requestId === profileListRequestRef.current &&
+          contextKeyAtStart === profileContextKey(readProfileContext());
+        if (!mountedRef.current || !contextIsCurrent) {
+          return contextKeyAtStart === committedProfileContextRef.current
+            ? profileRowsRef.current
+            : [];
+        }
         const resolvedSlug = currentSlug || 'padrao';
         setActiveSlug(resolvedSlug);
 
-        return (allProfiles || []).map((p: ProfileInfo) => ({
+        const rows = (allProfiles || []).map((p: ProfileInfo) => ({
           id: p.slug,
           slug: p.slug,
           name: p.name,
@@ -121,19 +258,44 @@ export default function ProfilesPage() {
           builtin: p.builtin,
           isActive: p.slug === resolvedSlug,
         })) as ProfileRow[];
+        profileRowsRef.current = rows;
+        committedProfileContextRef.current = contextKeyAtStart;
+        return rows;
       },
       loadItem: async (id) => {
-        const profile = await GetProfile(id as string);
-        const row = profiles.Profile.createFrom(profile) as ProfileRow;
+        const requestId = ++profileLoadRequestRef.current;
+        const contextAtStart = readProfileContext();
+        const targetAtStart = presentationTargetRef.current;
+        const modalGenerationAtStart = getModalRegistrySnapshot().generation;
+        const editorVersionAtStart = editorVersionRef.current;
+        const target = await readProfileCommandTarget(String(id));
+        if (
+          !mountedRef.current
+          || contextAtStart === null
+          || !isProfileContextCurrent(contextAtStart)
+          || requestId !== profileLoadRequestRef.current
+          || getModalRegistrySnapshot().generation !== modalGenerationAtStart
+          || (targetAtStart !== null && presentationTargetRef.current !== targetAtStart)
+          || editorVersionAtStart !== editorVersionRef.current
+          || !target.profile
+        ) {
+          throw new Error('stale profile presentation');
+        }
+        const profile = profiles.Profile.createFrom(target.profile) as ProfileRow;
+        editorSnapshotRef.current = {
+          slug: String(id),
+          fingerprint: target.fingerprint,
+          version: editorVersionAtStart,
+        };
+        editorDraftVersionRef.current += 1;
+        setEditorReadBusy(false);
+        const row = profile;
         row.id = String(id);
         row.slug = String(id);
-        row.source = (profile as { source?: string }).source ?? 'workdir';
+        row.source = (target.profile as { source?: string }).source ?? 'workdir';
         row.isActive = row.slug === activeSlug;
         return row;
       },
-      createItem: async (data) => await CreateProfile(data),
-      updateItem: async (id, data) => await UpdateProfile(id as string, data),
-      deleteItem: async (id) => await DeleteProfile(id as string),
     },
     {
       entityName: t('profiles.entityName', 'Perfil'),
@@ -145,8 +307,6 @@ export default function ProfilesPage() {
         updateError: t('profiles.saveError', 'Erro ao atualizar perfil'),
         deleteSuccess: t('profiles.deleted', 'Perfil excluído!'),
         deleteError: t('profiles.deleteError', 'Erro ao excluir perfil'),
-        deleteConfirm: (item) =>
-          t('profiles.confirmDelete', `Tem certeza que deseja excluir o perfil "${item.name}"?`),
       },
       validate: (item) => {
         if (!item.name?.trim()) {
@@ -234,26 +394,54 @@ export default function ProfilesPage() {
         defaultProfile.source = 'workdir';
         return defaultProfile;
       },
-      onSuccess: () => {
-        returnToCaller(editorRequest);
-        setEditorRequest(null);
-      },
+      skipBuiltInDeleteConfirm: true,
     }
   );
 
+  const startNewProfile = useCallback((request: ResourceEditRequest | null = null) => {
+    invalidateProfileLoad();
+    editorOpenRef.current = true;
+    setEditorReadBusy(true);
+    const version = ++editorVersionRef.current;
+    const contextAtStart = readProfileContext();
+    editorSnapshotRef.current = { slug: null, fingerprint: '', version };
+    editorDraftVersionRef.current += 1;
+    setEditorRequest(request);
+    crud.openNew();
+    void readProfileCommandTarget('').then((target) => {
+      if (!mountedRef.current || editorVersionRef.current !== version || !editorOpenRef.current ||
+        !contextAtStart || !isProfileContextCurrent(contextAtStart)) return;
+      editorSnapshotRef.current = { slug: null, fingerprint: target.fingerprint, version };
+      setEditorReadBusy(false);
+    }).catch((error: unknown) => {
+      if (!mountedRef.current || editorVersionRef.current !== version || !editorOpenRef.current ||
+        !contextAtStart || !isProfileContextCurrent(contextAtStart)) return;
+      setEditorReadBusy(false);
+      const message = getErrorMessage(error) || t('profiles.loadError', 'Erro ao carregar perfil');
+      addToast(message, 'error', undefined, undefined, { suppressAnnounce: true });
+    });
+  }, [addToast, crud, invalidateProfileLoad, isProfileContextCurrent, readProfileContext, setEditorReadBusy, t]);
+
   useEffect(() => {
-    crud.loadItems();
-    GetProfileSearchPaths().then((paths) => setSearchPaths(paths || []));
+    void crud.loadItems();
+    void GetProfileSearchPaths().then((paths) => {
+      if (mountedRef.current) setSearchPaths(paths || []);
+    });
   }, []);
 
   useResourceEditRequest('profiles', {
     onEdit: (slug, request) => {
+      invalidateProfileLoad();
+      editorOpenRef.current = true;
+      setEditorReadBusy(true);
+      const version = ++editorVersionRef.current;
+      editorSnapshotRef.current = { slug: String(slug), fingerprint: '', version };
+      editorDraftVersionRef.current += 1;
       setEditorRequest(request);
       void crud.openEdit({ id: slug, slug } as ProfileRow);
     },
     onNew: (request) => {
-      setEditorRequest(request);
-      crud.openNew();
+      startNewProfile(request);
     },
     ready: !crud.loading && crud.items.length > 0,
   });
@@ -261,75 +449,82 @@ export default function ProfilesPage() {
   // --- Grid actions ---
 
   const handleEditProfile = useCallback(async (row: ProfileRow) => {
+    invalidateProfileLoad();
+    editorOpenRef.current = true;
+    setEditorReadBusy(true);
+    const version = ++editorVersionRef.current;
+    editorSnapshotRef.current = { slug: row.slug, fingerprint: '', version };
+    editorDraftVersionRef.current += 1;
     setEditorRequest(null);
     await crud.openEdit(row);
-  }, [crud]);
-
-  const handleDuplicateProfile = async (row: ProfileRow) => {
-    try {
-      const newSlug = await DuplicateProfile(row.slug);
-      const successMessage = t('profiles.duplicated', 'Perfil duplicado!');
-      addToast(successMessage, 'success', undefined, undefined, { suppressAnnounce: true });
-      announce(successMessage);
-      await crud.loadItems();
-      setEditorRequest(null);
-      await crud.openEdit({ id: newSlug, slug: newSlug, name: row.name } as ProfileRow);
-    } catch (error: unknown) {
-      addToast(
-        getErrorMessage(error) || t('profiles.duplicateError', 'Erro ao duplicar perfil'),
-        'error'
-      );
+    if (mountedRef.current && editorVersionRef.current === version && editorOpenRef.current) {
+      setEditorReadBusy(false);
     }
-  };
-
-  const handleActivateProfile = async (row: ProfileRow) => {
-    try {
-      await SetActiveProfile(row.slug);
-      addToast(t('profiles.activated', `Perfil "${row.name}" ativado!`), 'success', undefined, undefined, {
-        suppressAnnounce: true,
-      });
-      announce(t('profiles.activatedAnnounce', `Perfil ${row.name} ativado`));
-      await crud.loadItems();
-    } catch (error: unknown) {
-      addToast(getErrorMessage(error) || t('profiles.activateError', 'Erro ao ativar perfil'), 'error');
-    }
-  };
+  }, [crud, invalidateProfileLoad, setEditorReadBusy]);
 
   const handleNewProfile = () => {
-    setEditorRequest(null);
-    crud.openNew();
+    startNewProfile();
   };
 
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (isModalOpen()) return;
-      if (!event.ctrlKey || event.shiftKey || event.altKey) return;
-      if (event.key !== 'n' && event.key !== 'N') return;
-      const target = event.target as HTMLElement | null;
-      const isInput =
-        target?.tagName === 'INPUT' ||
-        target?.tagName === 'TEXTAREA' ||
-        target?.isContentEditable;
-      if (isInput) return;
-      event.preventDefault();
-      handleNewProfile();
-    };
+  const pagePresentationCommands: readonly PagePresentationCommandID[] = [
+    'profiles.create.open',
+    'profiles.edit.open',
+    'profiles.search.focus',
+  ];
 
-    window.addEventListener('keydown', handleKeyDown, true);
-    return () => window.removeEventListener('keydown', handleKeyDown, true);
-  }, [handleNewProfile]);
+  const { request: requestPagePresentationCommand } = usePagePresentationCommands({
+    root: pageRef,
+    pathname,
+    allowedCommands: pagePresentationCommands,
+    readTarget: () => presentationTargetRef.current,
+    isCurrent: () => pathname === '/profiles',
+    canOpen: (id) => {
+      if (crud.editingItem) return false;
+      if (id === 'profiles.edit.open') {
+        const target = presentationTargetRef.current;
+        return target !== null && crud.items.some((item) => item === target);
+      }
+      if (id === 'profiles.search.focus') {
+        return Boolean(pageRef.current?.querySelector<HTMLInputElement>('.toolbar__search'));
+      }
+      return true;
+    },
+    open: (id) => {
+      if (crud.editingItem) return false;
+      if (id === 'profiles.create.open') {
+        handleNewProfile();
+        return true;
+      }
+      if (id === 'profiles.edit.open') {
+        const target = presentationTargetRef.current;
+        const row = target === null ? undefined : crud.items.find((item) => item === target);
+        if (!row) return false;
+        void handleEditProfile(row);
+        return true;
+      }
+      if (id === 'profiles.search.focus') {
+        const search = pageRef.current?.querySelector<HTMLInputElement>('.toolbar__search');
+        if (!search) return false;
+        search.focus();
+        return true;
+      }
+      return false;
+    },
+  });
 
-  const handleSave = async () => {
-    await crud.save();
-  };
-
-  const handleCloseEditor = () => {
-    if (saving) return;
+  const handleCloseEditor = useCallback((force = false) => {
+    invalidateProfileLoad();
+    if (!force && mutationBusyRef.current) return;
+    ++editorVersionRef.current;
+    ++editorDraftVersionRef.current;
+    editorOpenRef.current = false;
+    editorSnapshotRef.current = { slug: null, fingerprint: '', version: editorVersionRef.current };
+    setEditorReadBusy(false);
     const request = editorRequest;
     crud.closeEditor();
     setEditorRequest(null);
     returnToCaller(request);
-  };
+  }, [crud, editorRequest, invalidateProfileLoad, returnToCaller, setEditorReadBusy]);
 
   const updateFields = (updates: Record<string, unknown>) => {
     if (!crud.editingItem) return;
@@ -353,6 +548,7 @@ export default function ProfilesPage() {
       setDeepValue(updated, path, value);
     }
 
+    ++editorDraftVersionRef.current;
     const next = profiles.Profile.createFrom(updated) as ProfileRow;
     next.id = crud.editingItem.id || next.slug || String(crud.editingId || '');
     next.source = crud.editingItem.source;
@@ -363,6 +559,205 @@ export default function ProfilesPage() {
   const updateField = (path: string, value: unknown) => {
     updateFields({ [path]: value });
   };
+
+  const handlePageMutationSucceeded = useCallback(async (
+    commandId: PageMutationID,
+    result: PageMutationResult,
+    guard: ProfileMutationSuccessGuard,
+  ) => {
+    if (!isProfileContextCurrent(guard.context)) return;
+    await crud.loadItems();
+    if (!isProfileContextCurrent(guard.context)) return;
+    if (guard.editorVersion !== undefined && (
+      !editorOpenRef.current ||
+      editorVersionRef.current !== guard.editorVersion ||
+      (guard.draftVersion !== undefined && editorDraftVersionRef.current !== guard.draftVersion)
+    )) return;
+    if (guard.capturedTarget && guard.targetSlug && (
+      presentationTargetRef.current?.slug !== guard.targetSlug ||
+      guard.presentationGeneration !== presentationGenerationRef.current
+    )) return;
+
+    const successMessage = commandId === 'profiles.create'
+      ? t('profiles.created', 'Perfil criado com sucesso!')
+      : commandId === 'profiles.update'
+        ? t('profiles.updated', 'Perfil atualizado com sucesso!')
+        : commandId === 'profiles.duplicate'
+          ? t('profiles.duplicated', 'Perfil duplicado!')
+          : commandId === 'profiles.activate'
+            ? t('profiles.activated', `Perfil "${result.title}" ativado!`)
+            : t('profiles.deleted', 'Perfil excluído!');
+    addToast(successMessage, 'success', undefined, undefined, { suppressAnnounce: true });
+    announce(commandId === 'profiles.activate'
+      ? t('profiles.activatedAnnounce', `Perfil ${result.title} ativado`)
+      : successMessage);
+
+    if (commandId === 'profiles.create' || commandId === 'profiles.update' || commandId === 'profiles.delete') {
+      if (editorOpenRef.current) handleCloseEditor(true);
+    }
+    if (commandId === 'profiles.duplicate' && result.id) {
+      setEditorRequest(null);
+      await handleEditProfile({ id: result.id, slug: result.id, name: result.title } as ProfileRow);
+    }
+    if (commandId === 'profiles.delete' && guard.targetSlug && presentationTargetRef.current?.slug === guard.targetSlug) {
+      captureProfileRow(null);
+    }
+  }, [addToast, announce, captureProfileRow, crud, handleCloseEditor, handleEditProfile, isProfileContextCurrent, t]);
+
+  const { request: requestEditorPageMutation } = usePageMutationCommands({
+    root: editorRootRef,
+    pathname,
+    allowedCommands: ['profiles.create', 'profiles.update', 'profiles.activate', 'profiles.delete'],
+    canStart: (commandId) => {
+      if (!editorOpenRef.current || editorReadLoadingRef.current || mutationBusyRef.current || !crud.editingItem) return false;
+      if (commandId === 'profiles.create') return crud.isNew && Boolean(editorSnapshotRef.current.fingerprint);
+      if (commandId === 'profiles.update') return !crud.isNew && Boolean(editorSnapshotRef.current.slug && editorSnapshotRef.current.fingerprint);
+      return !crud.isNew && Boolean(crud.editingId && editorSnapshotRef.current.fingerprint) &&
+        (commandId === 'profiles.activate' ? activeSlug !== String(crud.editingId) : activeSlug !== String(crud.editingId));
+    },
+    prepare: (commandId) => {
+      const capturedEditor = crud.editingItem;
+      const capturedId = crud.editingId === null ? '' : String(crud.editingId);
+      const snapshot = { ...editorSnapshotRef.current };
+      const version = editorVersionRef.current;
+      const draftVersion = editorDraftVersionRef.current;
+      const context = readProfileContext();
+      if (!capturedEditor || !context) return undefined;
+      const profile = commandId === 'profiles.create' || commandId === 'profiles.update'
+        ? cloneProfile(capturedEditor)
+        : undefined;
+      const expectedFingerprint = snapshot.fingerprint;
+      if (commandId === 'profiles.create' && !expectedFingerprint) return undefined;
+      if (commandId !== 'profiles.create' && (!capturedId || !expectedFingerprint)) return undefined;
+      return {
+        readRequest: async (): Promise<PageMutationRequest> => {
+          if (commandId === 'profiles.create') {
+            return { targetId: '', expectedFingerprint, title: '', description: '', profile };
+          }
+          return { targetId: capturedId, expectedFingerprint, title: '', description: '', profile };
+        },
+        isCurrent: () => editorOpenRef.current &&
+          editorVersionRef.current === version &&
+          editorDraftVersionRef.current === draftVersion &&
+          crud.editingItem === capturedEditor &&
+          (commandId === 'profiles.create' ? crud.isNew : !crud.isNew && String(crud.editingId) === capturedId) &&
+          isProfileContextCurrent(context),
+        canPresent: () => editorOpenRef.current &&
+          editorVersionRef.current === version &&
+          editorDraftVersionRef.current === draftVersion &&
+          isProfileContextCurrent(context),
+        succeeded: async (result: PageMutationResult) => handlePageMutationSucceeded(commandId, result, {
+          context,
+          editorVersion: version,
+          draftVersion,
+          targetSlug: capturedId || undefined,
+        }),
+      };
+    },
+  });
+
+  const { request: requestRootPageMutation } = usePageMutationCommands({
+    root: pageRef,
+    pathname,
+    allowedCommands: ['profiles.update', 'profiles.duplicate', 'profiles.delete', 'profiles.activate'],
+    canStart: (commandId) => {
+      if (editorOpenRef.current || mutationBusyRef.current) return false;
+      const captured = presentationTargetRef.current;
+      if (!captured || !crud.items.some((item) => item === captured)) return false;
+      if (commandId === 'profiles.update') return inlineUpdateRef.current?.row === captured;
+      return commandId === 'profiles.duplicate' || !captured.isActive;
+    },
+    prepare: (commandId) => {
+      const captured = presentationTargetRef.current;
+      const context = readProfileContext();
+      if (!captured || !context) return undefined;
+      const targetSlug = captured.slug;
+      const presentationGeneration = presentationGenerationRef.current;
+      const inlineUpdate = commandId === 'profiles.update' ? inlineUpdateRef.current : null;
+      if (commandId === 'profiles.update' && (!inlineUpdate || inlineUpdate.row !== captured)) return undefined;
+      return {
+        readRequest: async (): Promise<PageMutationRequest> => {
+          const target = await readProfileCommandTarget(targetSlug);
+          const profile = commandId === 'profiles.update' && target.profile
+            ? cloneProfile(target.profile)
+            : undefined;
+          if (profile && inlineUpdate) profile.name = inlineUpdate.name;
+          return { targetId: targetSlug, expectedFingerprint: target.fingerprint, title: '', description: '', profile };
+        },
+        isCurrent: () => !editorOpenRef.current &&
+          presentationTargetRef.current === captured &&
+          presentationGenerationRef.current === presentationGeneration &&
+          crud.items.some((item) => item === captured) &&
+          (commandId !== 'profiles.update' || inlineUpdateRef.current === inlineUpdate) &&
+          isProfileContextCurrent(context),
+        canPresent: () => !editorOpenRef.current &&
+          presentationTargetRef.current?.slug === targetSlug &&
+          isProfileContextCurrent(context),
+        succeeded: async (result: PageMutationResult) => handlePageMutationSucceeded(commandId, result, {
+          context,
+          targetSlug,
+          presentationGeneration,
+          capturedTarget: captured,
+        }),
+      };
+    },
+  });
+
+  const runProfileMutation = useCallback(async (
+    commandId: PageMutationID,
+    request: (id: PageMutationID) => Promise<{ status: string }>,
+  ) => {
+    const context = readProfileContext();
+    if (!context) return;
+    const runId = ++mutationRunRef.current;
+    const outcomePromise = request(commandId);
+    // A captura acontece antes de marcar busy; marcar antes faria o próprio
+    // alvo nativo recusar a operação durante o dispatch síncrono.
+    setMutationBusyState(true);
+    try {
+      const outcome = await outcomePromise;
+      if (outcome.status !== 'succeeded' && outcome.status !== 'cancelled' && isProfileContextCurrent(context)) {
+        addToast(t('common.error', 'Erro ao alterar perfil'), 'error', undefined, undefined, {
+          suppressAnnounce: true,
+        });
+      }
+    } catch (error: unknown) {
+      if (!isProfileContextCurrent(context)) return;
+      addToast(getErrorMessage(error) || t('common.error', 'Erro ao alterar perfil'), 'error', undefined, undefined, {
+        suppressAnnounce: true,
+      });
+    } finally {
+      if (commandId === 'profiles.update') inlineUpdateRef.current = null;
+      if (mountedRef.current && mutationRunRef.current === runId) setMutationBusyState(false);
+    }
+  }, [addToast, isProfileContextCurrent, setMutationBusyState, t]);
+
+  const handleSave = useCallback(async () => {
+    if (!crud.editingItem?.name?.trim()) {
+      const message = t('profiles.nameRequired', 'Nome é obrigatório');
+      addToast(message, 'error', undefined, undefined, { suppressAnnounce: true });
+      announce(message);
+      return;
+    }
+    await runProfileMutation(crud.isNew ? 'profiles.create' : 'profiles.update', requestEditorPageMutation);
+  }, [addToast, announce, crud.editingItem, crud.isNew, requestEditorPageMutation, runProfileMutation, t]);
+
+  const handleDuplicateProfile = useCallback((row: ProfileRow) => {
+    captureProfileRow(row);
+    void runProfileMutation('profiles.duplicate', requestRootPageMutation);
+  }, [captureProfileRow, requestRootPageMutation, runProfileMutation]);
+
+  const handleActivateProfile = useCallback((row: ProfileRow) => {
+    captureProfileRow(row);
+    const request = editorOpenRef.current ? requestEditorPageMutation : requestRootPageMutation;
+    void runProfileMutation('profiles.activate', request);
+  }, [captureProfileRow, requestEditorPageMutation, requestRootPageMutation, runProfileMutation]);
+
+  const handleDeleteProfile = useCallback((row: ProfileRow) => {
+    captureProfileRow(row);
+    const request = editorOpenRef.current ? requestEditorPageMutation : requestRootPageMutation;
+    void runProfileMutation('profiles.delete', request);
+  }, [captureProfileRow, requestEditorPageMutation, requestRootPageMutation, runProfileMutation]);
 
   // --- Grid columns ---
 
@@ -438,7 +833,10 @@ export default function ProfilesPage() {
         id: 'edit',
         label: t('profiles.edit', 'Editar perfil'),
         icon: <EditOutlined />,
-        onClick: () => handleEditProfile(item),
+        onClick: () => {
+          captureProfileRow(item);
+          requestPagePresentationCommand('profiles.edit.open');
+        },
       },
       {
         id: 'duplicate',
@@ -450,7 +848,7 @@ export default function ProfilesPage() {
         id: 'delete',
         label: t('profiles.delete', 'Excluir perfil'),
         icon: <DeleteOutlined />,
-        onClick: () => crud.deleteItem(item),
+        onClick: () => handleDeleteProfile(item),
         danger: true,
         disabled: !!item.isActive,
       },
@@ -459,17 +857,9 @@ export default function ProfilesPage() {
 
   const handleCellEdit = async (item: ProfileRow, column: DataGridColumn<ProfileRow>, newValue: string) => {
     if (column.key === 'name') {
-      try {
-        const profile = await GetProfile(item.slug);
-        profile.name = newValue;
-        await UpdateProfile(item.slug, profile);
-        if (crud.editingId === item.slug && crud.editingItem) {
-          updateField('name', newValue);
-        }
-        await crud.loadItems();
-      } catch {
-        addToast(t('profiles.renameError', 'Erro ao renomear perfil'), 'error');
-      }
+      captureProfileRow(item);
+      inlineUpdateRef.current = { row: item, name: newValue };
+      await runProfileMutation('profiles.update', requestRootPageMutation);
     }
   };
 
@@ -486,15 +876,17 @@ export default function ProfilesPage() {
   );
 
   const getItemId = useCallback((item: ProfileRow) => item.id, []);
-  const handleActivateRow = useCallback(
-    (item: ProfileRow) => handleEditProfile(item),
-    [handleEditProfile]
-  );
+  const handleActivateRow = useCallback((item: ProfileRow) => {
+    captureProfileRow(item);
+    requestPagePresentationCommand('profiles.edit.open');
+  }, [captureProfileRow, requestPagePresentationCommand]);
   const handleDeleteRow = useCallback(
-    (item: ProfileRow) => crud.deleteItem(item),
-    [crud]
+    (item: ProfileRow) => handleDeleteProfile(item),
+    [handleDeleteProfile]
   );
-  const handleFocusChange = useCallback((item: ProfileRow | null) => setFocusedRow(item), []);
+  const handleFocusChange = useCallback((item: ProfileRow | null) => {
+    captureProfileRow(item);
+  }, [captureProfileRow]);
 
   // --- Loading ---
 
@@ -513,14 +905,14 @@ export default function ProfilesPage() {
   const editingProfile = crud.editingItem;
   const editingSlug = crud.editingId ? String(crud.editingId) : null;
   const isNew = crud.isNew;
-  const saving = crud.saving;
+  const saving = mutationBusy || editorReadLoading;
 
   const editorTitle = isNew
     ? t('profiles.newProfileTitle', 'Novo Perfil')
     : editingProfile?.name || '';
 
   return (
-    <div className="profiles-page">
+    <div ref={pageRef} className="profiles-page">
       <Toolbar
         left={
           <h1 className="page-toolbar__title">
@@ -535,8 +927,8 @@ export default function ProfilesPage() {
             key: 'new-profile',
             label: t('profiles.newProfile', 'Novo Perfil'),
             icon: <PlusOutlined />,
-            onClick: handleNewProfile,
-            shortcut: 'Ctrl+N',
+            onClick: () => requestPagePresentationCommand('profiles.create.open'),
+            shortcut: createProfileShortcut,
             variant: 'primary',
           },
           {
@@ -550,7 +942,11 @@ export default function ProfilesPage() {
             key: 'edit-profile',
             label: t('profiles.edit', 'Editar perfil'),
             icon: <EditOutlined />,
-            onClick: () => focusedRow && handleEditProfile(focusedRow),
+            onClick: () => {
+              if (!focusedRow) return;
+              captureProfileRow(focusedRow);
+              requestPagePresentationCommand('profiles.edit.open');
+            },
             disabled: !focusedRow,
           },
           {
@@ -564,7 +960,7 @@ export default function ProfilesPage() {
             key: 'delete-profile',
             label: t('profiles.delete', 'Excluir perfil'),
             icon: <DeleteOutlined />,
-            onClick: () => focusedRow && crud.deleteItem(focusedRow),
+            onClick: () => focusedRow && handleDeleteProfile(focusedRow),
             disabled: !focusedRow || !!focusedRow?.isActive,
             variant: 'danger',
           },
@@ -596,7 +992,7 @@ export default function ProfilesPage() {
         initialFocusSelector={editorRequest?.tab ? '[role="tab"][aria-selected="true"]' : undefined}
       >
         {editingProfile && (
-          <div className="profiles-editor">
+            <div ref={editorRootRef} className="profiles-editor">
             <ProfileEditorTabs
               editingProfile={editingProfile}
               availableTools={availableTools}
@@ -621,7 +1017,7 @@ export default function ProfilesPage() {
               <Button onClick={handleSave} loading={saving}>
                 {t('profiles.saveBtn', 'Salvar')}
               </Button>
-              <Button variant="secondary" onClick={handleCloseEditor} disabled={saving}>
+              <Button variant="secondary" onClick={() => handleCloseEditor()} disabled={saving}>
                 {t('common.cancel', 'Cancelar')}
               </Button>
               <div className="profiles-editor__footer-spacer" />
@@ -634,7 +1030,7 @@ export default function ProfilesPage() {
                     deleteTarget.slug = editingSlug;
                     deleteTarget.isActive = activeSlug === editingSlug;
                     deleteTarget.source = (editingProfile as ProfileRow).source;
-                    crud.deleteItem(deleteTarget);
+                    handleDeleteProfile(deleteTarget);
                   }}
                   aria-label={t('profiles.deleteBtnLabel', `Excluir perfil ${editingProfile.name}`)}
                 >

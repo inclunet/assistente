@@ -376,6 +376,29 @@ func TestToolRawReturnsIntegralContentAndMetadata(t *testing.T) {
 	}
 }
 
+func TestToolRawRejectsInvalidUTF8WithoutPartial(t *testing.T) {
+	response := "prefixo-" + string([]byte{0xff, 0xfe}) + "-segredo"
+	runner := &fakeRunner{result: subagent.RunResult{
+		ConversationID: "child-conv",
+		RunID:          "run-invalid-utf8",
+		Status:         subagent.StatusSucceeded,
+		Response:       response,
+	}}
+	tool := NewWithProvider(func() Runner { return runner })
+
+	res, err := tool.Execute(parentCtx(), json.RawMessage(`{"prompt":"gere bytes","raw":true}`))
+	if err != nil || !res.IsError || res.Failure == nil || res.Failure.Code != "raw_invalid_utf8" {
+		t.Fatalf("raw inválido não falhou de modo estável: result=%#v err=%v", res, err)
+	}
+	if res.RawExact || strings.Contains(res.Content, "prefixo-") || strings.Contains(res.Content, "segredo") {
+		t.Fatalf("falha raw expôs conteúdo parcial: %#v", res)
+	}
+	if res.Metadata["conversation_id"] != "child-conv" ||
+		res.Metadata["run_id"] != "run-invalid-utf8" {
+		t.Fatalf("falha raw perdeu IDs de diagnóstico: %#v", res.Metadata)
+	}
+}
+
 func TestToolRawPreservesBusinessErrorInMetadata(t *testing.T) {
 	runner := &fakeRunner{result: subagent.RunResult{
 		ConversationID: "child-conv",
@@ -464,11 +487,11 @@ func TestToolRawStillRespectsExecutorLimit(t *testing.T) {
 			Arguments: `{"prompt":"gere muito","raw":true}`,
 		},
 	})
-	if exec.Result.IsError {
-		t.Fatalf("limite textual deve truncar, não falhar: %#v", exec)
+	if !exec.Result.IsError || exec.ErrorCode != "raw_result_too_large" {
+		t.Fatalf("raw grande deve falhar explicitamente: %#v", exec)
 	}
-	if len(exec.Result.Content) > cfg.MaxResultSize || exec.Result.Metadata["truncated"] != true {
-		t.Fatalf("raw deve respeitar limite comum do executor: len=%d metadata=%#v", len(exec.Result.Content), exec.Result.Metadata)
+	if strings.Contains(exec.Result.Content, strings.Repeat("x", 32)) {
+		t.Fatalf("raw não pode conter fragmento parcial: %q", exec.Result.Content)
 	}
 }
 
@@ -648,6 +671,22 @@ func TestToolResumeBackgroundAllowedForJobOrigin(t *testing.T) {
 	}
 	if !runner.lastParams.Background || runner.lastParams.ConversationID != "c1" {
 		t.Fatalf("params não propagados no resume+background de job: %#v", runner.lastParams)
+	}
+}
+
+func TestToolJobProfileWithoutGrantFailsPermanentlyBeforeRunner(t *testing.T) {
+	runner := &fakeRunner{result: subagent.RunResult{Status: subagent.StatusSucceeded}}
+	authorizer := &fakeProfileAuthorizer{err: profileaccess.ErrAuthorizationNotGranted}
+	tool := NewWithProvider(func() Runner { return runner }, authorizer)
+	ctx := eventctx.With(context.Background(), eventctx.Provenance{Source: "job", SourceJobID: "job-1"})
+
+	res, err := tool.Execute(ctx, json.RawMessage(`{"prompt":"x","profile":"researcher"}`))
+	if err != nil {
+		t.Fatalf("Execute erro: %v", err)
+	}
+	requirePermanentFailure(t, res, "authorization_not_granted", tools.ErrorKindAuthorization)
+	if runner.lastParams.Prompt != "" {
+		t.Fatalf("runner não deveria criar conversa/run sem grant: %#v", runner.lastParams)
 	}
 }
 

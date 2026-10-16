@@ -110,6 +110,23 @@ describe('AuthGate', () => {
     expect(screen.queryByRole('heading', { name: 'auth.titles.setup' })).not.toBeInTheDocument();
   });
 
+  it('entra automaticamente quando a inicialização demorada termina, sem clicar em tentar novamente', async () => {
+    let finishStartup!: (status: { vaultConfigured: boolean; vaultUnlocked: boolean; hasUsers: boolean }) => void;
+    mockGetAuthStatus.mockImplementationOnce(() => new Promise((resolve) => { finishStartup = resolve; }));
+    mockRefreshAuth.mockResolvedValueOnce({ userId: 'admin-id', sessionId: 'session-id', role: 'admin' });
+    render(<AuthGate><div>App pronta</div></AuthGate>);
+
+    expect(screen.getByRole('heading', { name: 'auth.titles.loading' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'auth.buttons.retry' })).not.toBeInTheDocument();
+    expect(mockRefreshAuth).not.toHaveBeenCalled();
+    await act(async () => {
+      finishStartup({ vaultConfigured: true, vaultUnlocked: true, hasUsers: true });
+    });
+    expect(await screen.findByText('App pronta')).toBeInTheDocument();
+    expect(mockGetAuthStatus).toHaveBeenCalledTimes(1);
+    expect(mockRefreshAuth).toHaveBeenCalledTimes(1);
+  });
+
   it('permite tentar carregar status novamente após falha', async () => {
     mockGetAuthStatus
       .mockRejectedValueOnce(new Error('falha temporária'))

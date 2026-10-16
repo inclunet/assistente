@@ -1,6 +1,6 @@
 # AEP-0064 — Recuperação explícita de resposta interrompida (continuação) e cancelamento de geração
 
-Status: Done — cancelamento, recuperação automática e continuação explícita implementados
+Status: Done — recuperação, retry ancorado com leitura limitada e persistência terminal
 Data: 2026-05-21
 Autor: Leonardo Gleison (Inclunet) + GitHub Copilot
 
@@ -96,6 +96,42 @@ As opções ficam no perfil (guia “Modelos”), com rótulos amigáveis e i18n
   única vez em `baseContent` e depois somente deltas. O frontend não compara
   prefixos para adivinhar qual tentativa está ativa.
 
+### 8) Retry ancorado e finalização persistente (adendo PR2)
+
+- `RetryMessage` só aceita uma pergunta raiz persistida. O backend carrega o
+  histórico até a pergunta selecionada e descarta mensagens e resumo posteriores;
+  portanto, ao repetir U1 em `U1/A1/U2/A2`, o payload não reutiliza U2/A2 nem um
+  resumo que os contenha.
+- A mídia da pergunta e as políticas de contexto continuam sendo aplicadas pela
+  mesma janela/loader. A resposta do turno selecionado pode ser anexada somente
+  como candidato de continuação explícita; requests normais continuam removendo
+  `assistant` trailing antes do provider.
+- Persistir a resposta final é um gate terminal. Se a finalização falhar, o
+  backend tenta preservar o parcial no placeholder existente e emite apenas um
+  `chat:done` com `reason=error`, `errorMessage=internal_error` e o ID da
+  mensagem recuperável. Não emite sucesso para canais, `chat:stream` concluído,
+  TTS ou sumarização; o ledger de MCP nativo continua sendo persistido antes
+  da finalização como evidência de ações já executadas. Nenhuma tool é repetida
+  automaticamente. O caminho simple usa o mesmo gate compartilhado.
+
+### Leitura limitada do contexto de retry
+
+O repositório SQLite implementa `LoadHistoryWindowThroughMessageWithContext`:
+valida a conversa no escopo do usuário e a pergunta raiz, e lê somente as duas
+primeiras mensagens elegíveis e as últimas `maxMessages` até o alvo, inclusive.
+O `HistoryLoader` continua aplicando a mesma política de truncamento e limpeza;
+não há nova política de contexto nem redução silenciosa do histórico útil.
+
+As consultas usam a ordenação composta `(created_at, id)` e o índice de janela
+já existente. Resumo só participa quando sua fronteira raiz existe na mesma
+conversa e é estritamente anterior ao alvo. Autorização, fronteiras e mensagens
+são lidas em uma transação de snapshot. Repositórios sem a capacidade opcional
+continuam usando o caminho legado, que também serve como referência de paridade.
+
+O ganho esperado é na preparação local de **retry**, sobretudo em conversas
+longas. Essa mudança não altera tempo de geração do provedor, orçamento de
+recuperação, envio normal, mídia ou protocolos de eventos.
+
 ## Fases
 
 - [x] **Docs**: escrever este AEP e aplicar adendos mínimos em AEPs antigas com exemplos/contratos desatualizados.
@@ -104,12 +140,25 @@ As opções ficam no perfil (guia “Modelos”), com rótulos amigáveis e i18n
 - [x] **Persistência do assistant no início do turno**: criar/reusar placeholder do assistant no backend e garantir `messageId` consistente no `chat:stream`.
 - [x] **Auto-recuperação**: implementar retry interno até N tentativas (default 3).
 - [x] **Continuação explícita**: implementar “Continuar resposta” via `RetryMessage` em modo de continuação, atualizando a mesma mensagem do assistant. Quando o provider/modelo não suporta prefill, usar fallback por mensagem de usuário (Issue #124).
-- [x] **Testes**: Go + Vitest cobrindo cancelamento, auto-recuperação e ausência de prefill acidental.
+- [x] **Testes**: Go + Vitest cobrindo cancelamento, auto-recuperação, ausência de prefill acidental, retry ancorado e falha terminal de persistência.
 
 ### Evidências
 
 - Recuperação e continuação: `internal/agent/streaming_recovery_test.go` e
   `internal/agent/continuation_test.go`.
+- Retry ancorado e persistência terminal: `internal/chat/interactor_test.go` e
+  `internal/agent/service_stats_test.go`.
+- Leitura limitada: `internal/chat/history_retry_parity_test.go` compara o
+  loader real ao legado em 100, 500 e 1000 mensagens, com limites 2/3/10/50,
+  resumos anteriores/posteriores e empate de timestamp. As regressões em
+  `internal/database/message_retry_window_test.go` e
+  `message_retry_boundary_test.go` cobrem isolamento, raiz, cancelamento,
+  limites e plano indexado. `history_retry_window_test.go` cobre mídia e
+  mensagens com papéis irregulares.
+- Benchmark reproduzível da leitura SQLite, sem rede/provedor:
+  `go test ./internal/database -run '^$' -bench '^BenchmarkLoadHistoryWindowThroughMessageAgainstFullHistory$' -benchmem -count=3`.
+  A comparação é entre leitura integral seguida de corte e leitura ancorada;
+  não mede o pipeline completo nem o primeiro token do provedor.
 - Cancelamento e UX: `frontend/src/components/chat/ChatInput.test.tsx`,
   `ChatSessionView.test.tsx` e `frontend/src/lib/messageMenuItems.test.ts`.
 - Configuração de perfil: `frontend/src/components/profiles/ProfileChatSection.test.tsx`.

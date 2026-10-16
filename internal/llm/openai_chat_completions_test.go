@@ -145,6 +145,9 @@ func TestChatCompletionStreamUsageExtras_PreservesCacheMetrics(t *testing.T) {
 			"prompt_tokens_details": {
 				"cached_tokens": 400
 			},
+			"completion_tokens_details": {
+				"reasoning_tokens": 70
+			},
 			"cache_write_tokens": 80
 		}
 	}`
@@ -181,5 +184,8 @@ func TestChatCompletionStreamUsageExtras_PreservesCacheMetrics(t *testing.T) {
 	}
 	if usage.CacheMissTokens != 600 {
 		t.Fatalf("CacheMissTokens=%d, want 600", usage.CacheMissTokens)
+	}
+	if !usage.Reported || !usage.ReasoningTokensReported || usage.ReasoningTokens != 70 {
+		t.Fatalf("usage de reasoning não preservada: %#v", usage)
 	}
 }

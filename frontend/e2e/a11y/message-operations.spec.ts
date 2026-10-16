@@ -14,6 +14,14 @@ declare global {
   interface Window {
     __origRAF?: typeof requestAnimationFrame;
     __rafQueue?: FrameRequestCallback[];
+    __messageOperationRequests?: Array<{ commandId: string; accepted: boolean }>;
+    __messageNavigationRequests?: Array<{
+      commandID: string;
+      accepted: boolean;
+      activeMessageId: string;
+      activeExpanded: string | null;
+      documentHasFocus: boolean;
+    }>;
   }
 }
 
@@ -24,7 +32,7 @@ declare global {
  * - Delete: deleta mensagem
  * - F2: edita mensagem (apenas user)
  * - Ctrl+C: copia conteúdo
- * - Ctrl+Shift+C: copia conteúdo com role
+ * - Ctrl+Shift+C: copia conteúdo em Markdown
  * - Space: reproduz TTS (speak)
  * - R: toggle reasoning (apenas assistant com reasoning)
  * - ArrowRight: expande thread (filhos)
@@ -37,7 +45,7 @@ function messagesFixture() {
   const now = new Date().toISOString();
   return [
     {
-      message: { id: userMessageId, conversationId, role: 'user', content: 'Mensagem do usuário', createdAt: now },
+      message: { id: userMessageId, conversationId, role: 'user', content: 'Mensagem **do usuário**', createdAt: now },
       children: [],
       childCount: 0,
     },
@@ -61,7 +69,6 @@ async function setupChatWithMessages(wails: Parameters<Parameters<typeof test>[2
   const now = new Date().toISOString();
   await wails.setResponse('GetMessages', messagesFixture());
   await wails.setResponse('SendMessage', '01926b90-7a5a-7c4e-8d3f-000000000104');
-  await wails.setResponse('DeleteMessage', undefined);
   await wails.setResponse('UpdateMessage', undefined);
   await wails.setResponse('SpeakMessage', undefined);
   await wails.setResponse('EnsureConversation', {
@@ -69,6 +76,112 @@ async function setupChatWithMessages(wails: Parameters<Parameters<typeof test>[2
     messages: [], message_count: 3,
   });
   await wails.waitForApp();
+}
+
+async function installMessageCommandLedger(
+  page: import('@playwright/test').Page,
+  options: { conversationId: string; initialNodes: ReturnType<typeof messagesFixture>; removeMessageOnCommit: boolean },
+) {
+  await page.evaluate(({ conversationId, initialNodes, removeMessageOnCommit }) => {
+    let sequence = 0;
+    let currentNodes = initialNodes;
+    const invocations = new Map<string, {
+      invocationId: string;
+      commandId: string;
+      messageId?: string;
+      handoffId?: string;
+      status: string;
+    }>();
+    const setMessageWindow = () => window.__wailsMock.setResponse('GetConversationMessageWindow', () => ({
+      scope: 'conversation', conversationId, nodes: currentNodes, totalCount: currentNodes.length,
+      startIndex: 0, endIndex: currentNodes.length - 1, hasBefore: false, hasAfter: false,
+    }));
+    setMessageWindow();
+    window.__wailsMock.setResponse('GetMessages', () => currentNodes);
+    window.__wailsMock.setResponse('BeginUICommand', (commandId: string) => {
+      if (!['chat.message.copy', 'chat.message.copy_markdown', 'chat.message.delete'].includes(commandId)) {
+        throw new Error(`Unexpected message command ${commandId}`);
+      }
+      sequence += 1;
+      const uuid = (suffix: number) => `01926b90-7a5a-7c4e-8d3f-${String(suffix).padStart(12, '0')}`;
+      const ticket = uuid(100 + sequence);
+      const invocationId = uuid(200 + sequence);
+      invocations.set(ticket, { invocationId, commandId, status: 'pending' });
+      return { ticket, invocationId, commandId };
+    });
+    window.__wailsMock.setResponse('PrepareChatMessageCommand', (ticket: string, messageId: string) => {
+      const invocation = invocations.get(ticket);
+      if (!invocation || invocation.status !== 'pending' || !messageId) throw new Error('Invalid chat-message preparation');
+      invocation.messageId = messageId;
+    });
+    window.__wailsMock.setResponse('TakeUICommand', (ticket: string) => {
+      const invocation = invocations.get(ticket);
+      if (!invocation || invocation.status !== 'pending' || !invocation.messageId) throw new Error('Unprepared message command');
+      invocation.status = 'taken';
+      invocation.handoffId = `01926b90-7a5a-7c4e-8d3f-${String(300 + invocations.size).padStart(12, '0')}`;
+      return { ticket, invocationId: invocation.invocationId, commandId: invocation.commandId, handoffId: invocation.handoffId };
+    });
+    window.__wailsMock.setResponse('CompleteUICommand', (ticket: string, handoffId: string, status: string) => {
+      const invocation = invocations.get(ticket);
+      if (!invocation || invocation.status !== 'taken' || invocation.handoffId !== handoffId ||
+          invocation.commandId === 'chat.message.delete' || !['succeeded', 'failed', 'cancelled'].includes(status)) {
+        throw new Error('Invalid message UI-command completion');
+      }
+      invocation.status = status;
+    });
+    window.__wailsMock.setResponse('CommitChatMessageCommand', (ticket: string, handoffId: string) => {
+      const invocation = invocations.get(ticket);
+      if (!invocation || invocation.status !== 'taken' || invocation.handoffId !== handoffId ||
+          invocation.commandId !== 'chat.message.delete' || !invocation.messageId) {
+        throw new Error('Invalid chat-message backend commit');
+      }
+      if (removeMessageOnCommit) {
+        currentNodes = currentNodes.filter(node => node.message.id !== invocation.messageId);
+        setMessageWindow();
+      }
+      invocation.status = 'succeeded';
+    });
+    window.__wailsMock.setResponse('GetUICommandResult', (ticket: string) => {
+      const invocation = invocations.get(ticket);
+      if (!invocation) throw new Error('Unknown message command ticket');
+      return { invocationId: invocation.invocationId, status: invocation.status };
+    });
+    window.__wailsMock.setResponse('CancelUICommand', (ticket: string) => {
+      const invocation = invocations.get(ticket);
+      if (invocation?.status === 'pending') invocation.status = 'cancelled';
+    });
+  }, options);
+}
+
+async function observeMessageOperationRequests(page: import('@playwright/test').Page) {
+  await page.evaluate(() => {
+    window.__messageOperationRequests = [];
+    window.addEventListener('commands:chat-messaging', event => {
+      const detail = (event as CustomEvent<{ commandId?: unknown }>).detail;
+      if (typeof detail?.commandId === 'string') {
+        window.__messageOperationRequests?.push({ commandId: detail.commandId, accepted: event.defaultPrevented });
+      }
+    });
+  });
+}
+
+async function observeMessageNavigationRequests(page: import('@playwright/test').Page) {
+  await page.evaluate(() => {
+    window.__messageNavigationRequests = [];
+    window.addEventListener('commands:chat-navigation', event => {
+      const detail = (event as CustomEvent<{ commandID?: unknown }>).detail;
+      if (typeof detail?.commandID === 'string') {
+        const active = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        window.__messageNavigationRequests?.push({
+          commandID: detail.commandID,
+          accepted: event.defaultPrevented,
+          activeMessageId: active?.closest<HTMLElement>('.message-node')?.dataset.messageId ?? '',
+          activeExpanded: active?.classList.contains('message-node') ? active.getAttribute('aria-expanded') : null,
+          documentHasFocus: document.hasFocus(),
+        });
+      }
+    });
+  });
 }
 
 async function pauseRAF(page: import('@playwright/test').Page) {
@@ -96,24 +209,33 @@ async function resumeRAF(page: import('@playwright/test').Page) {
 }
 
 test.describe('MessageNode — Delete key', () => {
-  test('Delete em mensagem não-streaming invoca onDelete', async ({ page, wails }) => {
+  test('Delete prepara e commita a exclusão auditada da mensagem focada', async ({ page, wails }) => {
     await setupChatWithMessages(wails);
+    await installMessageCommandLedger(page, { conversationId, initialNodes: messagesFixture(), removeMessageOnCommit: true });
 
     const messages = page.locator('.message-node[data-level="0"]');
     await expect(messages).toHaveCount(3, { timeout: 5_000 });
 
     await pauseRAF(page);
+    await observeMessageOperationRequests(page);
     // Foca na primeira mensagem (user)
     await messages.first().focus();
     await expect(messages.first()).toBeFocused({ timeout: 3_000 });
 
-    // Pressiona Delete — deve chamar DeleteMessage no backend
+    // O mock representa somente o ledger/commit para a integração frontend; a autorização
+    // e as decisões de stale/cancelamento permanecem cobertas pelos testes Go do App.
     await page.keyboard.press('Delete');
 
-    // Verifica que o backend recebeu a chamada (via callLog)
+    const requests = await page.evaluate(() => window.__messageOperationRequests ?? []);
+    expect(requests).toContainEqual({ commandId: 'chat.message.delete', accepted: true });
+    await expect.poll(async () => (await wails.getCallLog()).filter(call => call.fn === 'CommitChatMessageCommand').length).toBe(1);
     const calls = await wails.getCallLog();
-    const deleteCall = calls.find(c => c.fn === 'DeleteMessage');
-    expect(deleteCall).toBeDefined();
+    expect(calls.find(call => call.fn === 'PrepareChatMessageCommand')?.args[1]).toBe(userMessageId);
+    expect(calls.find(call => call.fn === 'CommitChatMessageCommand')?.args).toHaveLength(2);
+    expect(calls.find(call => call.fn === 'GetUICommandResult')?.args).toHaveLength(1);
+    expect(calls.some(call => call.fn === 'DeleteMessage')).toBe(false);
+    await expect(page.locator(`.message-node[data-message-id="${userMessageId}"]`)).toHaveCount(0, { timeout: 5_000 });
+    await expect(page.locator('.message-node[data-level="0"]')).toHaveCount(2, { timeout: 5_000 });
     await resumeRAF(page);
   });
 });
@@ -155,37 +277,49 @@ test.describe('MessageNode — F2 edit mode', () => {
 });
 
 test.describe('MessageNode — Ctrl+C copy', () => {
-  test('Ctrl+C copia conteúdo para clipboard', async ({ page, wails, context }) => {
-    // Concede permissão de clipboard
+  test('Ctrl+C copia conteúdo da mensagem focada após admissão auditada', async ({ page, wails, context }) => {
     await context.grantPermissions(['clipboard-read', 'clipboard-write']);
     await setupChatWithMessages(wails);
+    await installMessageCommandLedger(page, { conversationId, initialNodes: messagesFixture(), removeMessageOnCommit: false });
 
     const messages = page.locator('.message-node[data-level="0"]');
     await expect(messages).toHaveCount(3, { timeout: 5_000 });
 
     await pauseRAF(page);
+    await observeMessageOperationRequests(page);
     await messages.first().focus();
     await page.keyboard.press('Control+c');
 
-    // Verifica o conteúdo do clipboard
-    const clipboardText = await page.evaluate(() => navigator.clipboard.readText());
-    expect(clipboardText).toBe('Mensagem do usuário');
+    const requests = await page.evaluate(() => window.__messageOperationRequests ?? []);
+    expect(requests).toContainEqual({ commandId: 'chat.message.copy', accepted: true });
+    await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe('Mensagem do usuário');
+    const calls = await wails.getCallLog();
+    expect(calls.find(call => call.fn === 'PrepareChatMessageCommand')?.args[1]).toBe(userMessageId);
+    expect(calls.find(call => call.fn === 'CompleteUICommand')?.args[2]).toBe('succeeded');
+    expect(calls.find(call => call.fn === 'GetUICommandResult')?.args).toHaveLength(1);
     await resumeRAF(page);
   });
 
-  test('Ctrl+Shift+C copia conteúdo com role', async ({ page, wails, context }) => {
+  test('Ctrl+Shift+C copia Markdown da mensagem focada após admissão auditada', async ({ page, wails, context }) => {
     await context.grantPermissions(['clipboard-read', 'clipboard-write']);
     await setupChatWithMessages(wails);
+    await installMessageCommandLedger(page, { conversationId, initialNodes: messagesFixture(), removeMessageOnCommit: false });
 
     const messages = page.locator('.message-node[data-level="0"]');
     await expect(messages).toHaveCount(3, { timeout: 5_000 });
 
     await pauseRAF(page);
+    await observeMessageOperationRequests(page);
     await messages.first().focus();
     await page.keyboard.press('Control+Shift+c');
 
-    const clipboardText = await page.evaluate(() => navigator.clipboard.readText());
-    expect(clipboardText).toBe('[user] Mensagem do usuário');
+    const requests = await page.evaluate(() => window.__messageOperationRequests ?? []);
+    expect(requests).toContainEqual({ commandId: 'chat.message.copy_markdown', accepted: true });
+    await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe('Mensagem **do usuário**');
+    const calls = await wails.getCallLog();
+    expect(calls.find(call => call.fn === 'PrepareChatMessageCommand')?.args[1]).toBe(userMessageId);
+    expect(calls.find(call => call.fn === 'CompleteUICommand')?.args[2]).toBe('succeeded');
+    expect(calls.find(call => call.fn === 'GetUICommandResult')?.args).toHaveLength(1);
     await resumeRAF(page);
   });
 });
@@ -343,23 +477,37 @@ test.describe('MessageNode — ArrowRight/Left thread expand/collapse', () => {
 
     const messages = page.locator('.message-node[data-level="0"]');
     await expect(messages).toHaveCount(1, { timeout: 5_000 });
+    await expect(messages.first()).toHaveAttribute('aria-expanded', 'false');
 
-    await pauseRAF(page);
+    // Keep the browser's normal focus/context publication cycle running in this test.
     await messages.first().focus();
+    await expect(messages.first()).toBeFocused({ timeout: 3_000 });
+    await observeMessageNavigationRequests(page);
 
     // Expande primeiro
     await page.keyboard.press('ArrowRight');
-    await resumeRAF(page);
+    await expect.poll(async () => page.evaluate(() => window.__messageNavigationRequests ?? []))
+      .toEqual(expect.arrayContaining([
+        expect.objectContaining({ commandID: 'chat.message.thread.expand', accepted: true }),
+      ]));
     await expect(messages.first()).toHaveAttribute('aria-expanded', 'true', { timeout: 5_000 });
+    const childMessage = page.locator(`.message-node[data-level="1"][data-message-id="${internalThreadMessageId}"]`);
+    await expect(childMessage).toBeVisible({ timeout: 5_000 });
+    await expect(childMessage).toBeFocused({ timeout: 5_000 });
 
     // Foca de volta no pai
-    await pauseRAF(page);
     await messages.first().focus();
+    await expect(messages.first()).toBeFocused({ timeout: 3_000 });
+    await observeMessageNavigationRequests(page);
 
     // ArrowLeft colapsa
     await page.keyboard.press('ArrowLeft');
-    await resumeRAF(page);
+    const requests = await page.evaluate(() => window.__messageNavigationRequests ?? []);
+    expect(requests).toEqual(expect.arrayContaining([
+      expect.objectContaining({ commandID: 'chat.message.thread.collapse', accepted: true }),
+    ]));
     await expect(messages.first()).toHaveAttribute('aria-expanded', 'false', { timeout: 5_000 });
+    await expect(messages.first()).toBeFocused({ timeout: 3_000 });
   });
 });
 

@@ -40,6 +40,7 @@ func setupSmokeEnv(t *testing.T) *gorm.DB {
 	}
 	sqlDB.SetMaxOpenConns(1)
 	if err := db.AutoMigrate(
+		&database.Conversation{},
 		&database.Channel{},
 		&database.ChannelContact{},
 		&database.ChannelContactConversation{},
@@ -64,6 +65,13 @@ func setupSmokeEnv(t *testing.T) *gorm.DB {
 // contacts → cleanup dry-run + confirm → AdoptOrphans só DB.
 func TestAEP0083_LegacySmokeAutomatic(t *testing.T) {
 	db := setupSmokeEnv(t)
+	if err := db.Create(&database.Conversation{
+		UUIDModel: database.UUIDModel{ID: "conv-legacy"},
+		UserID:    "user-smoke",
+		Title:     "legada",
+	}).Error; err != nil {
+		t.Fatalf("seed conversation: %v", err)
+	}
 
 	home := configdir.GetHomeDir()
 	channelsDir := filepath.Join(home, "channels")

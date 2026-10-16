@@ -26,12 +26,13 @@ type HTTPAuthAPIConfig struct {
 }
 
 type ExternalAuthConfig struct {
-	Issuer            string   `json:"issuer"`
-	Audience          string   `json:"audience"`
-	JWKSURL           string   `json:"jwks_url"`
-	AllowedAlgorithms []string `json:"allowed_algorithms"`
-	RequiredScopes    []string `json:"required_scopes,omitempty"`
-	RoleClaim         string   `json:"role_claim,omitempty"`
+	Issuer              string   `json:"issuer"`
+	Audience            string   `json:"audience"`
+	JWKSURL             string   `json:"jwks_url"`
+	AllowedAlgorithms   []string `json:"allowed_algorithms"`
+	RequiredScopes      []string `json:"required_scopes,omitempty"`
+	IdentityAdminScopes []string `json:"identity_admin_scopes,omitempty"`
+	RoleClaim           string   `json:"role_claim,omitempty"`
 }
 
 func DefaultAuthConfig() *AuthConfig {

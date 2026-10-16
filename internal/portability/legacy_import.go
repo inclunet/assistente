@@ -21,12 +21,13 @@ type LegacyImportFile struct {
 }
 
 type LegacyImportResult struct {
-	ResourceType string
-	Imported     int
-	Skipped      int
-	Failed       int
-	Warnings     []string
-	Errors       []string
+	ResourceType    string
+	Imported        int
+	Skipped         int
+	Failed          int
+	Warnings        []string
+	WarningMessages []LocalizedMessage
+	Errors          []string
 }
 
 type LegacyImportRequest[T any] struct {

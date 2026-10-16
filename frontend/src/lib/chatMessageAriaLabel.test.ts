@@ -2,6 +2,14 @@ import { describe, expect, it } from 'vitest';
 import { buildChatMessageAriaLabel } from './chatMessageAriaLabel';
 
 describe('buildChatMessageAriaLabel', () => {
+  const localized = {
+    responding: 'Respondendo...',
+    reasoning: 'Raciocínio',
+    textEditApplied: 'Aplicou uma alteração no texto via ferramenta.',
+    noTextContent: 'Sem conteúdo textual.',
+    playAudioHint: 'Pressione Espaço para reproduzir áudio.',
+  };
+
   it('usa "Respondendo..." durante streaming quando não há conteúdo', () => {
     const s = buildChatMessageAriaLabel({
       roleLabel: 'Assistente',
@@ -11,38 +19,42 @@ describe('buildChatMessageAriaLabel', () => {
       timePrefix: 'recebido',
       relativeTime: 'agora',
       isReasoningExpanded: false,
+      localized,
     });
 
     expect(s).toContain('Assistente: Respondendo...');
     expect(s).not.toContain('Sem conteúdo textual');
   });
 
-  it('após finalizar, descreve tool calls quando não há conteúdo textual', () => {
+  it('após finalizar, usa somente rótulos amigáveis quando não há conteúdo textual', () => {
     const s = buildChatMessageAriaLabel({
       roleLabel: 'Assistente',
       role: 'assistant',
       displayContent: '',
       isStreaming: false,
-      toolCallsRaw: JSON.stringify([{ function: { name: 'text_edit' } }, { function: { name: 'web_search' } }]),
+      toolLabels: ['Editando arquivo: notas.md', 'Buscando na web'],
       timePrefix: 'recebido',
       relativeTime: 'há 1 min',
       isReasoningExpanded: false,
+      localized,
     });
 
-    expect(s).toContain('Executou ferramentas: text_edit, web_search');
+    expect(s).toContain('Editando arquivo: notas.md. Buscando na web');
+    expect(s).not.toContain('text_edit');
   });
 
-  it('após finalizar, usa fallback de text_edit quando toolCallsRaw não parseia', () => {
+  it('após finalizar, descreve text_edit sem nomes disponíveis', () => {
     const s = buildChatMessageAriaLabel({
       roleLabel: 'Assistente',
       role: 'assistant',
       displayContent: '',
       isStreaming: false,
-      toolCallsRaw: '{invalid-json',
+      toolLabels: ['Usando uma ferramenta'],
       toolCallsHasTextEdit: true,
       timePrefix: 'recebido',
       relativeTime: 'há 1 min',
       isReasoningExpanded: false,
+      localized,
     });
 
     expect(s).toContain('Aplicou uma alteração no texto via ferramenta');
@@ -57,6 +69,7 @@ describe('buildChatMessageAriaLabel', () => {
       timePrefix: 'recebido',
       relativeTime: 'há 1 min',
       isReasoningExpanded: false,
+      localized,
     });
 
     expect(s).toContain('Sem conteúdo textual');
@@ -72,6 +85,7 @@ describe('buildChatMessageAriaLabel', () => {
       isReasoningExpanded: true,
       timePrefix: 'recebido',
       relativeTime: 'agora',
+      localized,
     });
 
     expect(s).toContain('Raciocínio: passo 1');
@@ -86,6 +100,7 @@ describe('buildChatMessageAriaLabel', () => {
       timePrefix: 'recebido',
       relativeTime: 'agora',
       isReasoningExpanded: false,
+      localized,
     });
     expect(a).toContain('Pressione Espaço para reproduzir áudio');
 
@@ -97,6 +112,7 @@ describe('buildChatMessageAriaLabel', () => {
       timePrefix: 'enviado',
       relativeTime: 'agora',
       isReasoningExpanded: false,
+      localized,
     });
     expect(u).not.toContain('Pressione Espaço para reproduzir áudio');
   });

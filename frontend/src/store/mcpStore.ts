@@ -5,13 +5,16 @@ import {
   ConnectMCPServer,
   DisconnectMCPServer,
   ReconnectMCPServer,
+  ReauthorizeMCPServer,
   SaveMCPServer,
+  SaveMCPServerWithOAuthSecret,
+  SaveMCPServerWithCredential,
   DeleteMCPServer,
   GetMCPServerTools,
   GetMCPServerConfig,
 } from '@wailsjs/go/wailsapi/MCP';
 import { EventsOn } from '@wailsjs/runtime/runtime';
-import { mcp } from '../../wailsjs/go/models';
+import { mcp, apidto } from '../../wailsjs/go/models';
 
 type ServerInfo = mcp.ServerInfo;
 type ServerConfig = mcp.ServerConfig;
@@ -20,6 +23,8 @@ type MCPToolInfo = mcp.MCPToolInfo;
 interface MCPState {
   servers: ServerInfo[];
   isLoading: boolean;
+  // Advances only after a successful list response, including an empty list.
+  loadRevision: number;
   activeServerSlug: string | null;
   editingConfig: ServerConfig | null;
 
@@ -28,7 +33,8 @@ interface MCPState {
   connect: (slug: string) => Promise<void>;
   disconnect: (slug: string) => Promise<void>;
   reconnect: (slug: string) => Promise<void>;
-  save: (slug: string, config: ServerConfig) => Promise<void>;
+  reauthorize: (slug: string) => Promise<void>;
+  save: (slug: string, config: ServerConfig, oauthSecret?: string, credential?: apidto.CredentialInput) => Promise<void>;
   remove: (slug: string) => Promise<void>;
   getTools: (slug: string) => Promise<MCPToolInfo[]>;
   getConfig: (slug: string) => Promise<ServerConfig | null>;
@@ -37,18 +43,25 @@ interface MCPState {
   setupEventListeners: () => () => void;
 }
 
+// Only the latest list request may publish data/readiness.
+let loadRequestGeneration = 0;
+
 export const useMCPStore = create<MCPState>((set, get) => ({
   servers: [],
   isLoading: false,
+  loadRevision: 0,
   activeServerSlug: null,
   editingConfig: null,
 
   loadServers: async () => {
+    const requestGeneration = ++loadRequestGeneration;
     set({ isLoading: true });
     try {
       const servers = await ListMCPServers();
-      set({ servers: servers || [], isLoading: false });
+      if (requestGeneration !== loadRequestGeneration) return;
+      set((state) => ({ servers: servers || [], isLoading: false, loadRevision: state.loadRevision + 1 }));
     } catch (err) {
+      if (requestGeneration !== loadRequestGeneration) return;
       logger.error('[MCP] Erro ao carregar servidores:', err);
       set({ isLoading: false });
     }
@@ -62,6 +75,7 @@ export const useMCPStore = create<MCPState>((set, get) => ({
     } catch (err) {
       logger.error(`[MCP] Erro ao conectar '${slug}':`, err);
       await get().loadServers();
+      throw err;
     }
   },
 
@@ -85,9 +99,26 @@ export const useMCPStore = create<MCPState>((set, get) => ({
     }
   },
 
-  save: async (slug: string, config: ServerConfig) => {
+  reauthorize: async (slug: string) => {
     try {
-      await SaveMCPServer(slug, config);
+      await ReauthorizeMCPServer(slug);
+      await get().loadServers();
+    } catch (err) {
+      logger.error(`[MCP] Erro ao reautorizar '${slug}':`, err);
+      await get().loadServers();
+      throw err;
+    }
+  },
+
+  save: async (slug: string, config: ServerConfig, oauthSecret?: string, credential?: apidto.CredentialInput) => {
+    try {
+      if (credential) {
+        await SaveMCPServerWithCredential(slug, config, credential);
+      } else if (config.oauth_managed && oauthSecret !== undefined) {
+        await SaveMCPServerWithOAuthSecret(slug, config, oauthSecret);
+      } else {
+        await SaveMCPServer(slug, config);
+      }
       await get().loadServers();
     } catch (err) {
       logger.error(`[MCP] Erro ao salvar '${slug}':`, err);
@@ -170,6 +201,16 @@ export const useMCPStore = create<MCPState>((set, get) => ({
 
     // Tools/resources/prompts mudaram (refresh periódico ou reconexão)
     unsubs.push(EventsOn('mcp:tools_changed', () => {
+      get().loadServers();
+    }));
+
+    // Token OAuth expirado sem refresh possível: precisa de reautorização (AEP-0105)
+    unsubs.push(EventsOn('mcp:server_needs_reauth', () => {
+      get().loadServers();
+    }));
+
+    // Reautorização concluída / token renovado com sucesso (AEP-0105)
+    unsubs.push(EventsOn('mcp:server_reauthorized', () => {
       get().loadServers();
     }));
 

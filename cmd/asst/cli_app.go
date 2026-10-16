@@ -191,7 +191,11 @@ func (c cliApp) SetActiveProfile(slug string) error {
 	if err != nil {
 		return err
 	}
-	return ctrl.SetActiveProfile(slug)
+	ctx, err := app.AuthenticatedContext(c.App)
+	if err != nil {
+		return err
+	}
+	return ctrl.SetActiveProfileContext(ctx, slug)
 }
 
 func (c cliApp) CreateProfile(p profiles.Profile) (string, error) {
@@ -199,7 +203,11 @@ func (c cliApp) CreateProfile(p profiles.Profile) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return ctrl.CreateProfile(p)
+	ctx, err := app.AuthenticatedContext(c.App)
+	if err != nil {
+		return "", err
+	}
+	return ctrl.CreateProfileContext(ctx, p)
 }
 
 func (c cliApp) UpdateProfile(slug string, p profiles.Profile) error {
@@ -207,7 +215,11 @@ func (c cliApp) UpdateProfile(slug string, p profiles.Profile) error {
 	if err != nil {
 		return err
 	}
-	return ctrl.UpdateProfile(slug, p)
+	ctx, err := app.AuthenticatedContext(c.App)
+	if err != nil {
+		return err
+	}
+	return ctrl.UpdateProfileContext(ctx, slug, p)
 }
 
 func (c cliApp) DuplicateProfile(slug string) (string, error) {
@@ -215,7 +227,11 @@ func (c cliApp) DuplicateProfile(slug string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return ctrl.DuplicateProfile(slug)
+	ctx, err := app.AuthenticatedContext(c.App)
+	if err != nil {
+		return "", err
+	}
+	return ctrl.DuplicateProfileContext(ctx, slug)
 }
 
 func (c cliApp) DeleteProfile(slug string) error {
@@ -223,7 +239,11 @@ func (c cliApp) DeleteProfile(slug string) error {
 	if err != nil {
 		return err
 	}
-	return ctrl.DeleteProfile(slug)
+	ctx, err := app.AuthenticatedContext(c.App)
+	if err != nil {
+		return err
+	}
+	return ctrl.DeleteProfileContext(ctx, slug)
 }
 
 func (c cliApp) ListCredentials() ([]apidto.CredentialSummary, error) {

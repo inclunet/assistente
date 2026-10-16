@@ -1,5 +1,6 @@
 /** @vitest-environment jsdom */
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
+import i18next from 'i18next';
 import { act, renderHook } from '@testing-library/react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
 
@@ -78,6 +79,41 @@ describe('useContextMenu', () => {
     expect(result.current.menuItems).toHaveLength(1);
   });
 
+  it('mantém showMenu estável e usa as ações da opção mais recente', () => {
+    const firstDelete = vi.fn();
+    const latestDelete = vi.fn();
+    const firstOptions = { onDelete: firstDelete };
+    const { result, rerender } = renderHook(
+      ({ options }) => useContextMenu(options),
+      { initialProps: { options: firstOptions } },
+    );
+    const stableShowMenu = result.current.showMenu;
+
+    rerender({ options: { onDelete: latestDelete } });
+
+    const target = document.createElement('button');
+    const event = {
+      preventDefault: vi.fn(),
+      currentTarget: target,
+      target,
+      clientX: 1,
+      clientY: 2,
+    } as unknown as ReactMouseEvent;
+    act(() => {
+      result.current.showMenu(event, { id: 1, content: 'Oi' } as never, true);
+    });
+
+    expect(result.current.showMenu).toBe(stableShowMenu);
+    expect(getMessageMenuItemsMock).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.objectContaining({ onDelete: latestDelete }),
+    );
+    expect(getMessageMenuItemsMock).not.toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.objectContaining({ onDelete: firstDelete }),
+    );
+  });
+
   it('restaura foco ao esconder menu', async () => {
     vi.useFakeTimers();
     const { result } = renderHook(() => useContextMenu({}));
@@ -138,9 +174,31 @@ describe('useContextMenu', () => {
     expect(consumeSkipFocusRestoreMock).toHaveBeenCalledWith('conversation-1', 'surface:conversation-1');
     vi.useRealTimers();
   });
+
+  it('não retira foco do documento aberto pela ação do menu após o timer', () => {
+    vi.useFakeTimers();
+    const { result } = renderHook(() => useContextMenu({}));
+    const trigger = document.createElement('button');
+    const reading = document.createElement('div');
+    reading.setAttribute('role', 'document'); reading.tabIndex = -1;
+    document.body.append(trigger, reading);
+    const event = { preventDefault: vi.fn(), currentTarget: trigger, target: trigger, clientX: 0, clientY: 0 } as unknown as ReactMouseEvent;
+    act(() => {
+      result.current.showMenu(event, { id: 1, content: 'Oi' } as never, false);
+      reading.focus(); result.current.hideMenu(); vi.runAllTimers();
+    });
+    expect(reading).toHaveFocus();
+    trigger.remove(); reading.remove(); vi.useRealTimers();
+  });
 });
 
 describe('useMessageActions', () => {
+  beforeAll(async () => {
+    // The hook now translates feedback; keep this fixture's original UX assertion.
+    await i18next.init({ lng: 'pt-BR', resources: { 'pt-BR': { translation: {
+      chat: { contentCopied: 'Mensagem copiada.', copyFailed: 'Erro ao copiar mensagem.' },
+    } } } });
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     ttsServiceMock.getVolume.mockReturnValue(0.75);
@@ -185,7 +243,7 @@ describe('useMessageActions', () => {
       voiceId: 'test-voice',
       model: 'tts-1',
       rate: 1.0,
-    });
+    }, undefined, undefined);
     expect(ttsServiceMock.speakAsRole).not.toHaveBeenCalled();
   });
 
@@ -199,7 +257,7 @@ describe('useMessageActions', () => {
       await result.current.speakMessage({ id: '01926b90-7a5a-7c4e-8d3f-00000000000b', content: 'Teste', role: 'assistant' } as never);
     });
 
-    expect(ttsServiceMock.speakAsRole).toHaveBeenCalledWith('Teste', 'assistant');
+    expect(ttsServiceMock.speakAsRole).toHaveBeenCalledWith('Teste', 'assistant', undefined, undefined);
   });
 
   it('não reproduz quando sem config de voz', async () => {
@@ -225,7 +283,7 @@ describe('useMessageActions', () => {
     });
 
     expect(messageAudioServiceMock.speakMessage).not.toHaveBeenCalled();
-    expect(ttsServiceMock.speakAsRole).toHaveBeenCalledWith('Teste', 'assistant');
+    expect(ttsServiceMock.speakAsRole).toHaveBeenCalledWith('Teste', 'assistant', undefined, undefined);
   });
 
   it('usa SpeakMessage para IDs UUID', async () => {
@@ -243,7 +301,7 @@ describe('useMessageActions', () => {
       voiceId: 'test-voice',
       model: 'tts-1',
       rate: 1.0,
-    });
+    }, undefined, undefined);
     expect(ttsServiceMock.speakAsRole).not.toHaveBeenCalled();
   });
 });

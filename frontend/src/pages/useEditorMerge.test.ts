@@ -256,7 +256,7 @@ describe('useEditorMerge', () => {
       });
     };
 
-    it('expõe opções diretas e mantém minha versão como foco seguro no host', async () => {
+    it('expõe opções diretas e deixa o host aplicar o foco global', async () => {
       vi.mocked(EditorReadFile).mockResolvedValue('conteudo externo' as never);
       const { result } = setup();
       const { pending } = await openDecision(result, { diskContent: 'conteudo externo' });

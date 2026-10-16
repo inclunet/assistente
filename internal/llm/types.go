@@ -179,12 +179,16 @@ type Delta struct {
 
 // Usage representa o uso de tokens
 type Usage struct {
-	PromptTokens     int `json:"prompt_tokens"`
-	CompletionTokens int `json:"completion_tokens"`
-	TotalTokens      int `json:"total_tokens"`
-	CacheReadTokens  int `json:"cache_read_tokens,omitempty"`
-	CacheWriteTokens int `json:"cache_write_tokens,omitempty"`
-	CacheMissTokens  int `json:"cache_miss_tokens,omitempty"`
+	PromptTokens            int  `json:"prompt_tokens"`
+	CompletionTokens        int  `json:"completion_tokens"`
+	TotalTokens             int  `json:"total_tokens"`
+	CacheReadTokens         int  `json:"cache_read_tokens,omitempty"`
+	CacheWriteTokens        int  `json:"cache_write_tokens,omitempty"`
+	CacheMissTokens         int  `json:"cache_miss_tokens,omitempty"`
+	Reported                bool `json:"-"`
+	OutputTokensReported    bool `json:"-"`
+	ReasoningTokens         int  `json:"reasoning_tokens,omitempty"`
+	ReasoningTokensReported bool `json:"-"`
 }
 
 // ChatResponse representa a resposta da API
@@ -226,15 +230,23 @@ type ModelsResponse struct {
 	Data   []Model `json:"data"`
 }
 
+// ChatCommandMetadata correlaciona o transporte com uma admissão hostside.
+// O bind remove este campo antes de entregar parâmetros ao pipeline/modelo.
+type ChatCommandMetadata struct {
+	Ticket    string `json:"ticket"`
+	HandoffID string `json:"handoffId"`
+}
+
 // ChatParams contém os parâmetros para uma requisição de chat
 type ChatParams struct {
-	Model           string  `json:"model"`
-	MaxTokens       int     `json:"maxTokens"`
-	MaxTokensMode   string  `json:"maxTokensMode,omitempty"` // "legacy" (max_tokens) ou "completion_tokens" (max_completion_tokens)
-	Temperature     float64 `json:"temperature"`
-	TopP            float64 `json:"topP,omitempty"`
-	ReasoningEffort string  `json:"reasoningEffort,omitempty"` // off, low, medium, high
-	ProfileSlug     string  `json:"profileSlug,omitempty"`     // Perfil específico (canais). Vazio = perfil ativo global
+	Command         *ChatCommandMetadata `json:"command,omitempty"`
+	Model           string               `json:"model"`
+	MaxTokens       int                  `json:"maxTokens"`
+	MaxTokensMode   string               `json:"maxTokensMode,omitempty"` // "legacy" (max_tokens) ou "completion_tokens" (max_completion_tokens)
+	Temperature     float64              `json:"temperature"`
+	TopP            float64              `json:"topP,omitempty"`
+	ReasoningEffort string               `json:"reasoningEffort,omitempty"` // off, low, medium, high
+	ProfileSlug     string               `json:"profileSlug,omitempty"`     // Perfil específico (canais). Vazio = perfil ativo global
 	// ConversationID é a conversa do turno. Provider HTTP não precisa dele —
 	// o histórico vai na request —, mas o agente ACP guarda o histórico na
 	// sessão da conversa, e é por aqui que ele encontra qual é (AEP-0084 D4).
@@ -257,7 +269,7 @@ type ChatParams struct {
 	// a continuação está habilitada no perfil mas o provider não suporta prefill.
 	// Mutuamente exclusivo com AllowAssistantPrefill.
 	ContinueViaUserMessage bool            `json:"continueViaUserMessage,omitempty"`
-	MaxAgenticIterations   int             `json:"maxAgenticIterations,omitempty"` // 0 = usar default (25), >0 = limite customizado
+	MaxAgenticIterations   int             `json:"maxAgenticIterations,omitempty"` // 0 = usar default (100), >0 = limite customizado
 	ResponseTimeout        int             `json:"responseTimeout,omitempty"`      // Timeout em segundos (2ª camada de proteção)
 	RateLimitEnabled       *bool           `json:"-"`                              // Política de rate limit resolvida do perfil; nil usa o default.
 	RateLimitRPM           int             `json:"-"`                              // Taxa sustentada resolvida do perfil.
@@ -268,6 +280,7 @@ type ChatParams struct {
 	SurfaceStateJSON       string          `json:"surfaceStateJson,omitempty"`     // Espelho serializado de WorkspaceTab.state
 	SurfaceContextJSON     string          `json:"surfaceContextJson,omitempty"`   // Contexto transitório do envio atual
 	SurfaceSessionKey      string          `json:"surfaceSessionKey,omitempty"`    // Identidade explícita da sessão visual que originou o turno
+	SurfaceExecutionID     string          `json:"surfaceExecutionId,omitempty"`   // Correlação de uma execução, distinta do turno persistido em retries
 	SurfaceID              string          `json:"surfaceId,omitempty"`            // Identidade estável da superfície de origem
 	SurfaceType            string          `json:"surfaceType,omitempty"`          // page | embedded | modal | external
 	SurfaceTabID           string          `json:"surfaceTabId,omitempty"`         // Workspace tab que hospeda a superfície, quando existir

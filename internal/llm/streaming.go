@@ -101,6 +101,12 @@ const (
 // mudou é o que o agente sabe, e só ela pode decidir o que vale recontar.
 const TurnNoticeAgentMemoryLost TurnNoticeKind = "agent_memory_lost"
 
+// TurnNoticeSessionRecovered: a sessão do agente se perdeu no meio do turno e
+// foi descartada; o turno segue numa sessão nova (AEP-0108 D3). Diferente da
+// memória perdida, aqui nada do histórico se perdeu do lado do app — o que
+// mudou foi só o identificador da sessão do lado do agente.
+const TurnNoticeSessionRecovered TurnNoticeKind = "agent_session_recovered"
+
 // TurnNotice é um aviso sobre o próprio turno: não é a resposta, não é falha e
 // não encerra nada.
 type TurnNotice struct {
@@ -121,6 +127,38 @@ type TurnNoticeSink interface {
 	OnTurnNotice(notice TurnNotice)
 }
 
+// StreamAttemptResetSink descarta o estado transitório de uma tentativa que
+// será repetida pelo mesmo provider. É opcional porque handlers externos podem
+// não acumular estado; os handlers do chat implementam a capability para que
+// thinking e timers da tentativa descartada não vazem para a próxima.
+type StreamAttemptResetSink interface {
+	ResetStreamAttempt()
+}
+
+// StreamReasoningDiscardSink limpa apenas o reasoning transitório, sem apagar
+// usage/finish já calculados para um desfecho terminal.
+type StreamReasoningDiscardSink interface {
+	DiscardStreamReasoning()
+}
+
+func discardStreamReasoning(handler StreamHandler) {
+	if sink, ok := handler.(StreamReasoningDiscardSink); ok {
+		sink.DiscardStreamReasoning()
+		return
+	}
+	// Handler externo sem estado conhecido: ao menos encerra a live region sem
+	// promover o conteúdo descartado.
+	handler.OnThinkingDone("")
+}
+
+func resetStreamAttempt(handler StreamHandler) {
+	if sink, ok := handler.(StreamAttemptResetSink); ok {
+		sink.ResetStreamAttempt()
+		return
+	}
+	discardStreamReasoning(handler)
+}
+
 // NonRetryableErrorSink recebe do provider o aviso de que o erro que vem a
 // seguir não pode ser repetido sozinho pela auto-recuperação.
 //
@@ -134,6 +172,12 @@ type TurnNoticeSink interface {
 type NonRetryableErrorSink interface {
 	// MarkErrorNotRetryable é chamado antes de OnError, e vale para ele.
 	MarkErrorNotRetryable()
+}
+
+func markErrorNotRetryable(handler StreamHandler) {
+	if sink, ok := handler.(NonRetryableErrorSink); ok {
+		sink.MarkErrorNotRetryable()
+	}
 }
 
 // FinishReason é o motivo de término normalizado entre transports (AEP-0098).
@@ -152,8 +196,12 @@ const (
 // FinishInfo preserva o motivo normalizado usado pelo harness e o valor bruto
 // para diagnóstico do adapter. Decisões de runtime nunca dependem de RawReason.
 type FinishInfo struct {
-	Reason    FinishReason
-	RawReason string
+	Reason        FinishReason
+	RawReason     string
+	Provider      string
+	Model         string
+	OutputLimit   int
+	ResponseBytes int
 }
 
 // FinishReasonSink recebe o motivo antes de OnDone/OnToolCalls. É opcional para
@@ -166,6 +214,19 @@ type FinishReasonSink interface {
 func ReportFinishReason(handler StreamHandler, info FinishInfo) {
 	if sink, ok := handler.(FinishReasonSink); ok {
 		sink.OnFinishReason(info)
+	}
+}
+
+// UsageSink recebe os contadores disponíveis antes de um desfecho terminal de
+// erro. OnDone/OnToolCalls já carregam Usage diretamente; a capability evita
+// perder o mesmo diagnóstico quando o provider precisa chamar OnError.
+type UsageSink interface {
+	OnUsage(usage Usage)
+}
+
+func reportUsage(handler StreamHandler, usage Usage) {
+	if sink, ok := handler.(UsageSink); ok {
+		sink.OnUsage(usage)
 	}
 }
 

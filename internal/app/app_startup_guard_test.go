@@ -62,6 +62,9 @@ func TestLLMModelsBindingsAreSafeBeforeStartup(t *testing.T) {
 	if err := api.CancelStreamingForConversation("c1"); !errors.Is(err, wailsapi.ErrLLMModelsNotWired) {
 		t.Fatalf("CancelStreamingForConversation() error = %v, want ErrLLMModelsNotWired", err)
 	}
+	if err := api.CancelStreamingExecution("c1", "execution-1"); !errors.Is(err, wailsapi.ErrLLMModelsNotWired) {
+		t.Fatalf("CancelStreamingExecution() error = %v, want ErrLLMModelsNotWired", err)
+	}
 }
 
 func TestChatBindingsAreSafeBeforeStartup(t *testing.T) {

@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -117,6 +118,79 @@ func TestHealthCheckNaoFechaSessaoPorCancelamentoLocal(t *testing.T) {
 		t.Fatalf("health check degradou sessão válida: status=%s failures=%d error=%q", state, failures, status.Error)
 	}
 	m.CloseAll()
+}
+
+func TestHealthCheckIgnoraEOFDeCleanupSemFalhaOuReconexao(t *testing.T) {
+	handler := &captureHandler{}
+	oldLogger := slog.Default()
+	slog.SetDefault(slog.New(handler))
+	defer slog.SetDefault(oldLogger)
+
+	m := newLifecycleManager()
+	defer m.CloseAll()
+
+	conn := &serverConnection{}
+	m.connections["cleanup"] = conn
+	m.servers["cleanup"] = &ServerStatus{
+		Slug:                      "cleanup",
+		Config:                    ServerConfig{Enabled: true},
+		Status:                    StatusConnected,
+		ConsecutiveHealthFailures: 1,
+	}
+	events := make(chan string, 8)
+	m.emitEvent = func(event string, _ any) { events <- event }
+
+	healthCtx, cancelHealth := context.WithCancel(context.Background())
+	cancelHealth()
+	m.recordHealthCheckResult(
+		healthCtx,
+		"cleanup",
+		conn,
+		fmt.Errorf("connection closed: ping: client is closing: %w", io.EOF),
+	)
+
+	status := m.servers["cleanup"]
+	if status.ConsecutiveHealthFailures != 1 {
+		t.Fatalf("falhas=%d, esperado preservar 1", status.ConsecutiveHealthFailures)
+	}
+	if status.Status != StatusConnected || status.Reconnecting {
+		t.Fatalf("cleanup normal alterou status: status=%s reconnecting=%v", status.Status, status.Reconnecting)
+	}
+	select {
+	case event := <-events:
+		t.Fatalf("cleanup normal emitiu evento indevido: %s", event)
+	default:
+	}
+	handler.mu.Lock()
+	defer handler.mu.Unlock()
+	if len(handler.records) != 0 {
+		t.Fatalf("cleanup normal gerou %d logs; esperado nenhum", len(handler.records))
+	}
+}
+
+func TestHealthCheckMantemFalhaRealComLifecycleAtivo(t *testing.T) {
+	m := newLifecycleManager()
+	defer m.CloseAll()
+
+	conn := &serverConnection{}
+	m.connections["falha-real"] = conn
+	m.servers["falha-real"] = &ServerStatus{
+		Slug:   "falha-real",
+		Config: ServerConfig{Enabled: true},
+		Status: StatusConnected,
+	}
+
+	m.recordHealthCheckResult(
+		context.Background(),
+		"falha-real",
+		conn,
+		errors.New("connection closed: ping: transport reset"),
+	)
+
+	status := m.servers["falha-real"]
+	if status.ConsecutiveHealthFailures != 1 {
+		t.Fatalf("falhas=%d, esperado 1 para erro real", status.ConsecutiveHealthFailures)
+	}
 }
 
 // TestMCPHelperProcess é reexecutado como subprocesso por
@@ -754,6 +828,33 @@ func TestReconexaoBemSucedidaUsaNivelInfo(t *testing.T) {
 		t.Fatalf("nível=%s, esperado INFO", got)
 	}
 	if !strings.Contains(handler.records[0].Message, "Reconexão bem-sucedida") {
+		t.Fatalf("mensagem inesperada: %q", handler.records[0].Message)
+	}
+}
+
+// TestStandaloneSSEDesabilitadoUsaNivelInfo garante que a desabilitação do SSE
+// standalone é reportada em INFO (estado benigno de configuração) e preserva a
+// mensagem original com o slug do servidor.
+func TestStandaloneSSEDesabilitadoUsaNivelInfo(t *testing.T) {
+	handler := &captureHandler{}
+	oldLogger := slog.Default()
+	slog.SetDefault(slog.New(handler))
+	defer slog.SetDefault(oldLogger)
+
+	logStandaloneSSEDisabled("atlassian")
+
+	handler.mu.Lock()
+	defer handler.mu.Unlock()
+	if len(handler.records) != 1 {
+		t.Fatalf("records=%d, esperado 1", len(handler.records))
+	}
+	if got := handler.records[0].Level; got != slog.LevelInfo {
+		t.Fatalf("nível=%s, esperado INFO", got)
+	}
+	// A normalização de logs remove o prefixo legado [MCP:slug] da mensagem
+	// armazenada (mesmo comportamento de logReconnectSuccess), então validamos
+	// apenas o núcleo preservado da mensagem e o nível.
+	if !strings.Contains(handler.records[0].Message, "Standalone SSE desabilitado por configuração") {
 		t.Fatalf("mensagem inesperada: %q", handler.records[0].Message)
 	}
 }

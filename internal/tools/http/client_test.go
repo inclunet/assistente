@@ -14,7 +14,7 @@ func TestClient_ApplyAuth_WithCredential(t *testing.T) {
 	mgr := credentials.NewManager(nil)
 
 	// Registrar uma credencial
-	auth := &credentials.AuthConfig{
+	auth := &credentials.AuthConfig{Source: "static",
 		Type:  "bearer",
 		Token: "secret-token-123",
 	}
@@ -53,6 +53,34 @@ func TestClient_ApplyAuth_NoCredential(t *testing.T) {
 	}
 }
 
+func TestClient_ApplyAuth_SkippedWithManualAuth(t *testing.T) {
+	mgr := credentials.NewManager(nil)
+	auth := &credentials.AuthConfig{Source: "static",
+		Type:  "bearer",
+		Token: "secret-token-123",
+	}
+	_ = mgr.RegisterPattern("api-token", auth)
+
+	client := New(&Config{
+		CredentialManager: mgr,
+	}, map[string]string{
+		"api.example.com": "api-token",
+	})
+
+	// Com auth manual declarada, o interceptor não resolve nem injeta nada —
+	// mesmo havendo credencial cadastrada para o domínio.
+	req, _ := http.NewRequest("GET", "http://api.example.com/v1/test", nil)
+	req.Header.Set("X-Custom-Key", "chave-manual")
+	client.applyAuth(WithManualAuth(context.Background()), req)
+
+	if got := req.Header.Get("Authorization"); got != "" {
+		t.Errorf("interceptor deveria pular, mas injetou Authorization: %q", got)
+	}
+	if got := req.Header.Get("X-Custom-Key"); got != "chave-manual" {
+		t.Errorf("header manual deveria ser preservado, got %q", got)
+	}
+}
+
 func TestClient_ApplyAuth_NoDomainPattern(t *testing.T) {
 	mgr := credentials.NewManager(nil)
 
@@ -72,7 +100,7 @@ func TestClient_ApplyAuth_NoDomainPattern(t *testing.T) {
 func TestClient_ApplyAuth_WildcardPattern(t *testing.T) {
 	mgr := credentials.NewManager(nil)
 
-	auth := &credentials.AuthConfig{
+	auth := &credentials.AuthConfig{Source: "static",
 		Type:  "bearer",
 		Token: "wildcard-token",
 	}
@@ -107,7 +135,7 @@ func TestClient_Do_WithServer(t *testing.T) {
 
 	mgr := credentials.NewManager(nil)
 
-	auth := &credentials.AuthConfig{
+	auth := &credentials.AuthConfig{Source: "static",
 		Type:  "bearer",
 		Token: "test-token",
 	}
@@ -134,7 +162,7 @@ func TestClient_Do_WithServer(t *testing.T) {
 func TestClient_ApplyAuth_FallbackResolveForURL(t *testing.T) {
 	mgr := credentials.NewManager(nil)
 
-	auth := &credentials.AuthConfig{
+	auth := &credentials.AuthConfig{Source: "static",
 		Type:  "bearer",
 		Token: "github-token-from-keyring",
 	}
@@ -157,7 +185,7 @@ func TestClient_ApplyAuth_FallbackResolveForURL(t *testing.T) {
 func TestClient_ApplyAuth_FallbackWildcard(t *testing.T) {
 	mgr := credentials.NewManager(nil)
 
-	auth := &credentials.AuthConfig{
+	auth := &credentials.AuthConfig{Source: "static",
 		Type:  "bearer",
 		Token: "wildcard-github-token",
 	}
@@ -179,7 +207,7 @@ func TestClient_ApplyAuth_FallbackWildcard(t *testing.T) {
 func TestClient_ApplyAuth_ExistingAuthNotOverwritten(t *testing.T) {
 	mgr := credentials.NewManager(nil)
 
-	auth := &credentials.AuthConfig{
+	auth := &credentials.AuthConfig{Source: "static",
 		Type:  "bearer",
 		Token: "from-credential-manager",
 	}

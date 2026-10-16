@@ -35,18 +35,19 @@ func ConfigToRow(slug string, cfg *ChannelConfig) database.Channel {
 	}
 	raw, _ := json.Marshal(settings)
 	return database.Channel{
-		UserID:      strings.TrimSpace(cfg.OwnerUserID),
-		Type:        typ,
-		Slug:        slug,
-		DisplayName: display,
-		Enabled:     cfg.Enabled,
-		Profile:     cfg.Profile,
-		MaxHistory:  cfg.MaxHistory,
-		MaxContacts: cfg.MaxContacts,
-		Settings:    string(raw),
-		BotTokenRef: cfg.BotTokenRef,
-		AppTokenRef: cfg.AppTokenRef,
-		APITokenRef: cfg.APITokenRef,
+		CredentialID: cfg.CredentialID,
+		UserID:       strings.TrimSpace(cfg.OwnerUserID),
+		Type:         typ,
+		Slug:         slug,
+		DisplayName:  display,
+		Enabled:      cfg.Enabled,
+		Profile:      cfg.Profile,
+		MaxHistory:   cfg.MaxHistory,
+		MaxContacts:  cfg.MaxContacts,
+		Settings:     string(raw),
+		BotTokenRef:  cfg.BotTokenRef,
+		AppTokenRef:  cfg.AppTokenRef,
+		APITokenRef:  cfg.APITokenRef,
 	}
 }
 
@@ -61,6 +62,8 @@ func RowToConfig(row *database.Channel, conversations map[string]string) *Channe
 		_ = json.Unmarshal([]byte(row.Settings), &settings)
 	}
 	cfg := &ChannelConfig{
+		ID:            row.ID,
+		CredentialID:  row.CredentialID,
 		Enabled:       row.Enabled,
 		BotTokenRef:   row.BotTokenRef,
 		AppTokenRef:   row.AppTokenRef,

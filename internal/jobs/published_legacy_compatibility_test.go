@@ -15,7 +15,7 @@ func TestAcceptedLegacyJobCorpusImportsIdempotentlyAndPreservesSources(t *testin
 	writeJobFixture(t, dir, "corpus.yaml", valid)
 	writeJobFixture(t, dir, "invalid.yaml", invalid)
 
-	manager := NewManager(ManagerConfig{BaseDir: dir, Repository: repo})
+	manager := mustNewManager(t, ManagerConfig{BaseDir: dir, Repository: repo})
 	first, err := manager.ImportLegacyDefinitions(userCtx)
 	if err != nil {
 		t.Fatalf("importação direta de jobs: %v", err)

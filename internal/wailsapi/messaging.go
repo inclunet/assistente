@@ -287,6 +287,7 @@ func (api *Messaging) CreateChannelFromTemplate(templateType string, values map[
 				return struct{}{}, errCrossUserChannel(templateType)
 			}
 		}
+		ctrl.SetCredentialUserID(userID)
 		if err := ctrl.CreateChannelFromTemplate(templateType, values); err != nil {
 			return struct{}{}, err
 		}

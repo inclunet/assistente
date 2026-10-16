@@ -1,13 +1,19 @@
 package web
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
+	"time"
+	"unicode/utf8"
 
 	"assistente/internal/credentials"
 	"assistente/internal/tools"
@@ -22,6 +28,7 @@ type HTTPRequest struct {
 	client            *httpclient.Client                                                // Cliente HTTP centralizado com auth/retry
 	allowPrivateHosts bool                                                              // Para testes (padrão: false)
 	confirmFn         func(ctx context.Context, method, url, body string) (bool, error) // Callback para confirmar operações destrutivas
+	artifacts         *httpArtifactStore
 }
 
 // NewHTTPRequest cria uma nova instância de HTTPRequest.
@@ -34,7 +41,8 @@ func NewHTTPRequest(credMgr *credentials.Manager) *HTTPRequest {
 		CredentialManager: credMgr,
 	}, map[string]string{})
 	t := &HTTPRequest{
-		client: client,
+		client:    client,
+		artifacts: newHTTPArtifactStore(),
 	}
 	// net/http segue redirects automaticamente; sem isto uma URL pública poderia
 	// redirecionar para um host privado (ex.: 127.0.0.1, 169.254.169.254) e burlar
@@ -47,6 +55,18 @@ func NewHTTPRequest(credMgr *credentials.Manager) *HTTPRequest {
 		httpclient.SetTransportGuard(bc, func() bool { return t.allowPrivateHosts })
 	}
 	return t
+}
+
+// SetArtifactDir configura a pasta exclusiva onde extract_mode=file grava
+// respostas. O diretório deve ser controlado pelo host, não pelo modelo.
+func (t *HTTPRequest) SetArtifactDir(dir string) error {
+	return t.artifacts.SetDir(dir)
+}
+
+// CleanupArtifacts remove artefatos HTTP desta instância, normalmente chamado
+// pelo host no encerramento do app.
+func (t *HTTPRequest) CleanupArtifacts() error {
+	return t.artifacts.Cleanup()
 }
 
 // SetConfirmFunc define callback para confirmar operações destrutivas (DELETE/PUT/PATCH).
@@ -69,7 +89,7 @@ func (t *HTTPRequest) CatalogMetadata() tools.CatalogMetadata {
 }
 
 func (t *HTTPRequest) Description() string {
-	return `Makes an HTTP(S) request with explicit method, headers, body, response mode, and size limit. Use for APIs or endpoints that require protocol-level control; for example {"url":"https://api.example.com/items","method":"GET","extract_mode":"json"}. Do not use to search for a URL (use web_search), read a normal page with readability extraction (use web_fetch), or parse feed entries (use feed_read). Credentials registered for the domain are applied automatically; do not place secrets in arguments. Risk: performs a network operation, and mutating methods can change remote state; PUT, PATCH, and DELETE may require user confirmation. Local/private destinations and redirects are guarded by the network policy. If unavailable, discover and load it with tool_catalog when the profile permits on-demand tools.`
+	return `Makes an HTTP(S) request with explicit method, headers, body, response mode, and size limit. Use for APIs or endpoints that require protocol-level control; for example {"url":"https://api.example.com/items","method":"GET","extract_mode":"json"}. Use extract_mode=file to stream a large response to a safe local artifact and receive only metadata, or extract_mode=jsonpath with a restricted field selector such as "$..metadata.name" to return matches from a large JSON response. Do not use to search for a URL (use web_search), read a normal page with readability extraction (use web_fetch), or parse feed entries (use feed_read). Credentials registered for the domain are applied automatically; do not place secrets in arguments. Risk: performs a network operation, and mutating methods can change remote state; PUT, PATCH, and DELETE may require user confirmation. Local/private destinations and redirects are guarded by the network policy. If unavailable, discover and load it with tool_catalog when the profile permits on-demand tools.`
 }
 
 func (t *HTTPRequest) Parameters() json.RawMessage {
@@ -101,12 +121,20 @@ func (t *HTTPRequest) Parameters() json.RawMessage {
 			},
 			"max_response_size": {
 				"type": "integer",
-				"description": "Tamanho máximo da resposta em caracteres (padrão: 50000)"
+				"description": "Tamanho máximo do payload extraído em bytes, sem header/envelope model-facing (padrão: 50000; em jobs, usa o budget do executor quando omitido)"
 			},
 			"extract_mode": {
 				"type": "string",
-				"enum": ["auto", "text", "json", "raw"],
-				"description": "Modo de processamento da resposta: 'auto' detecta automaticamente, 'text' extrai texto, 'json' formata JSON, 'raw' retorna sem processar. Padrão: auto"
+				"enum": ["auto", "text", "json", "raw", "file", "jsonpath"],
+				"description": "Modo de processamento: 'auto' detecta, 'text' extrai texto, 'json' formata JSON, 'raw' retorna sem processar, 'file' grava a resposta completa em artefato local, 'jsonpath' extrai campos com seletor restrito. Padrão: auto"
+			},
+			"output_path": {
+				"type": "string",
+				"description": "Nome do arquivo de saída para extract_mode=file. Deve ser um nome simples dentro da pasta de artefatos segura; se omitido, um nome único é gerado."
+			},
+			"jsonpath": {
+				"type": "string",
+				"description": "Seletor restrito para extract_mode=jsonpath, por exemplo '$..metadata.name'. Suporta apenas campos com ponto e descendência recursiva, sem filtros, scripts ou comandos."
 			}
 		},
 		"required": ["url"],
@@ -122,6 +150,132 @@ type httpRequestArgs struct {
 	BodyType        string            `json:"body_type,omitempty"`
 	MaxResponseSize *int              `json:"max_response_size,omitempty"`
 	ExtractMode     string            `json:"extract_mode,omitempty"`
+	OutputPath      string            `json:"output_path,omitempty"`
+	JSONPath        string            `json:"jsonpath,omitempty"`
+}
+
+// UnmarshalJSON torna o parsing de argumentos tolerante a variações comuns que
+// os modelos produzem sem quebrar o contrato canônico (AEP-0016):
+//   - max_response_size pode chegar como número (50000) OU string numérica
+//     ("50000"); strings não numéricas são rejeitadas com erro acionável.
+//   - headers pode chegar como objeto {"k":"v"} OU como string contendo o JSON
+//     serializado desse objeto; strings inválidas são rejeitadas com erro claro.
+//
+// Os demais campos mantêm a semântica original de string.
+func (a *httpRequestArgs) UnmarshalJSON(data []byte) error {
+	// rawHTTPRequestArgs espelha httpRequestArgs, mas recebe headers e
+	// max_response_size como RawMessage para permitir parsing tolerante sem
+	// recursão no UnmarshalJSON.
+	type rawHTTPRequestArgs struct {
+		URL             string          `json:"url"`
+		Method          string          `json:"method,omitempty"`
+		Headers         json.RawMessage `json:"headers,omitempty"`
+		Body            string          `json:"body,omitempty"`
+		BodyType        string          `json:"body_type,omitempty"`
+		MaxResponseSize json.RawMessage `json:"max_response_size,omitempty"`
+		ExtractMode     string          `json:"extract_mode,omitempty"`
+		OutputPath      string          `json:"output_path,omitempty"`
+		JSONPath        string          `json:"jsonpath,omitempty"`
+	}
+	var raw rawHTTPRequestArgs
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+
+	headers, err := parseTolerantHeaders(raw.Headers)
+	if err != nil {
+		return err
+	}
+	size, err := parseTolerantMaxResponseSize(raw.MaxResponseSize)
+	if err != nil {
+		return err
+	}
+
+	a.URL = raw.URL
+	a.Method = raw.Method
+	a.Headers = headers
+	a.Body = raw.Body
+	a.BodyType = raw.BodyType
+	a.MaxResponseSize = size
+	a.ExtractMode = raw.ExtractMode
+	a.OutputPath = raw.OutputPath
+	a.JSONPath = raw.JSONPath
+	return nil
+}
+
+// parseTolerantHeaders aceita um objeto {"k":"v"} ou uma string contendo o JSON
+// de um objeto. Ausência/null retornam headers nil. Entradas inválidas produzem
+// um erro acionável.
+func parseTolerantHeaders(raw json.RawMessage) (map[string]string, error) {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || string(trimmed) == "null" {
+		return nil, nil
+	}
+
+	switch trimmed[0] {
+	case '{':
+		var m map[string]string
+		if err := json.Unmarshal(trimmed, &m); err != nil {
+			return nil, fmt.Errorf("headers inválidos: esperado um objeto {\"k\":\"v\"}: %v", err)
+		}
+		return m, nil
+	case '"':
+		var s string
+		if err := json.Unmarshal(trimmed, &s); err != nil {
+			return nil, fmt.Errorf("headers inválidos: %v", err)
+		}
+		s = strings.TrimSpace(s)
+		if s == "" || s == "null" {
+			return nil, nil
+		}
+		var m map[string]string
+		if err := json.Unmarshal([]byte(s), &m); err != nil {
+			return nil, fmt.Errorf("headers como string deve conter o JSON de um objeto {\"k\":\"v\"}; recebido %q", s)
+		}
+		return m, nil
+	default:
+		return nil, fmt.Errorf("headers deve ser um objeto {\"k\":\"v\"} ou uma string com esse JSON; recebido %s", string(trimmed))
+	}
+}
+
+// parseTolerantMaxResponseSize aceita um inteiro (50000) ou uma string numérica
+// ("50000"). Ausência/null retornam nil (usa o padrão). Strings não numéricas e
+// valores não inteiros são rejeitados com erro acionável.
+func parseTolerantMaxResponseSize(raw json.RawMessage) (*int, error) {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || string(trimmed) == "null" {
+		return nil, nil
+	}
+
+	if trimmed[0] == '"' {
+		var s string
+		if err := json.Unmarshal(trimmed, &s); err != nil {
+			return nil, fmt.Errorf("max_response_size inválido: %v", err)
+		}
+		s = strings.TrimSpace(s)
+		if s == "" || s == "null" {
+			return nil, nil
+		}
+		n, err := strconv.Atoi(s)
+		if err != nil {
+			return nil, fmt.Errorf("max_response_size deve ser um inteiro (ex.: 50000) ou uma string numérica; recebido %q", s)
+		}
+		return &n, nil
+	}
+
+	// Número JSON: usa json.Number para rejeitar floats/valores não inteiros.
+	dec := json.NewDecoder(bytes.NewReader(trimmed))
+	dec.UseNumber()
+	var num json.Number
+	if err := dec.Decode(&num); err != nil {
+		return nil, fmt.Errorf("max_response_size deve ser um inteiro (ex.: 50000) ou uma string numérica; recebido %s", string(trimmed))
+	}
+	i64, err := num.Int64()
+	if err != nil {
+		return nil, fmt.Errorf("max_response_size deve ser um inteiro (ex.: 50000); recebido %s", string(trimmed))
+	}
+	n := int(i64)
+	return &n, nil
 }
 
 // Limites de segurança
@@ -194,10 +348,25 @@ func (t *HTTPRequest) Execute(ctx context.Context, args json.RawMessage) (tools.
 	if a.ExtractMode != "" {
 		extractMode = a.ExtractMode
 	}
+	if extractMode == "jsonpath" {
+		if _, err := parseRestrictedJSONPath(a.JSONPath); err != nil {
+			return tools.ToolResult{Content: err.Error(), IsError: true, Failure: &tools.ToolFailure{Code: "jsonpath_invalid", Kind: tools.ErrorKindInvalidArgs, Retryable: false}}, nil
+		}
+	}
+	if extractMode == "file" && t.artifacts == nil {
+		t.artifacts = newHTTPArtifactStore()
+	}
+	if extractMode == "file" && strings.TrimSpace(a.OutputPath) != "" {
+		if _, err := t.artifacts.resolveOutputPath(a.OutputPath); err != nil {
+			return tools.ToolResult{Content: err.Error(), IsError: true, Failure: &tools.ToolFailure{Code: "invalid_output_path", Kind: tools.ErrorKindInvalidArgs, Retryable: false}}, nil
+		}
+	}
 
 	maxLength := httpDefaultMaxLength
 	if a.MaxResponseSize != nil && *a.MaxResponseSize > 0 {
 		maxLength = *a.MaxResponseSize
+	} else if effective, explicit := tools.ExplicitMaxResultSizeFromContext(ctx); explicit {
+		maxLength = effective
 	}
 
 	// Prepara body
@@ -241,18 +410,114 @@ func (t *HTTPRequest) Execute(ctx context.Context, args json.RawMessage) (tools.
 	}
 	defer func() { _ = resp.Body.Close() }()
 
+	if extractMode == "file" {
+		// Headers são controlados pelo servidor: mesmo os permitidos têm limite.
+		if len(resp.Header.Get("Content-Type")) > 128 {
+			resp.Header.Del("Content-Type")
+		}
+		if err := t.artifacts.cleanupExpired(time.Now()); err != nil {
+			return tools.ToolResult{Content: fmt.Sprintf("Erro ao preparar limpeza de artefatos HTTP: %v", err), IsError: true}, nil
+		}
+		artifact, writeErr := t.artifacts.writeResponse(ctx, resp.Body, a.OutputPath, httpMaxResponseBody)
+		if writeErr != nil {
+			metadata := map[string]any{
+				"url": a.URL, "method": method, "status": resp.StatusCode,
+				"content_type": resp.Header.Get("Content-Type"), "truncated": artifact.Truncated,
+			}
+			if artifact.Size > 0 {
+				metadata["bytes_observed"] = artifact.Size
+			}
+			if errors.Is(writeErr, errHTTPArtifactTooLarge) {
+				return tools.ToolResult{
+					Content: fmt.Sprintf("Resposta excede o limite seguro de download de %d bytes; o artefato não foi mantido.", httpMaxResponseBody),
+					IsError: true, Metadata: metadata,
+					Annotations: &tools.ResultAnnotations{HTTPResponse: httpResponseAnnotation(a.URL, method, resp)},
+					Failure:     &tools.ToolFailure{Code: "response_body_too_large", Kind: tools.ErrorKindUnknown, Retryable: false},
+				}, nil
+			}
+			if ctx.Err() != nil {
+				return tools.ToolResult{Content: "Download do artefato HTTP cancelado pelo usuário", IsError: true, Metadata: metadata, Failure: &tools.ToolFailure{Code: "download_cancelled", Kind: tools.ErrorKindCancelled, Retryable: false}}, nil
+			}
+			return tools.ToolResult{Content: fmt.Sprintf("Erro ao materializar resposta HTTP: %v", writeErr), IsError: true, Metadata: metadata, Failure: &tools.ToolFailure{Code: "artifact_download_failed", Kind: tools.ErrorKindUnknown, Retryable: false}}, nil
+		}
+		contentType := resp.Header.Get("Content-Type")
+		metadata := map[string]any{
+			"url": a.URL, "method": method, "status": resp.StatusCode,
+			"content_type": contentType, "length": artifact.Size,
+			"artifact_path": artifact.Path, "sha256": artifact.SHA256, "truncated": false,
+		}
+		return tools.ToolResult{
+			Content: artifactSummaryContent(resp.StatusCode, http.StatusText(resp.StatusCode), contentType, relevantArtifactHeaders(resp.Header), artifact),
+			IsError: resp.StatusCode >= 400, Structured: true, Metadata: metadata,
+			Annotations: &tools.ResultAnnotations{HTTPResponse: httpResponseAnnotation(a.URL, method, resp)},
+		}, nil
+	}
+
 	// Lê resposta com limite
-	limitedReader := io.LimitReader(resp.Body, httpMaxResponseBody)
+	limitedReader := io.LimitReader(resp.Body, httpMaxResponseBody+1)
 	body, err := io.ReadAll(limitedReader)
 	if err != nil {
 		return tools.ToolResult{Content: fmt.Sprintf("Erro ao ler resposta: %v", err), IsError: true}, nil
 	}
+	if len(body) > httpMaxResponseBody {
+		contentType := resp.Header.Get("Content-Type")
+		metadata := map[string]any{
+			"url": a.URL, "method": method, "status": resp.StatusCode,
+			"content_type": contentType, "bytes_observed": len(body),
+		}
+		if resp.ContentLength >= 0 {
+			metadata["length"] = resp.ContentLength
+		}
+		return tools.ToolResult{
+			Content:  fmt.Sprintf("Resposta excede o limite seguro de download de %d bytes; o conteúdo não foi devolvido parcialmente.", httpMaxResponseBody),
+			IsError:  true,
+			Metadata: metadata,
+			Annotations: &tools.ResultAnnotations{HTTPResponse: &tools.HTTPResponseAnnotation{
+				Method: method, URL: a.URL, Status: resp.StatusCode,
+				StatusText: http.StatusText(resp.StatusCode), ContentType: contentType,
+			}},
+			Failure: &tools.ToolFailure{Code: "response_body_too_large", Kind: tools.ErrorKindUnknown, Retryable: false},
+		}, nil
+	}
 
 	contentType := resp.Header.Get("Content-Type")
+	if extractMode == "raw" && !utf8.Valid(body) {
+		return tools.ToolResult{
+			Content: "Resposta raw não é UTF-8 válida e não pode ser devolvida exatamente.",
+			IsError: true,
+			Metadata: map[string]any{
+				"url": a.URL, "method": method, "status": resp.StatusCode,
+				"content_type": contentType, "length": len(body),
+			},
+			Annotations: &tools.ResultAnnotations{HTTPResponse: &tools.HTTPResponseAnnotation{
+				Method: method, URL: a.URL, Status: resp.StatusCode,
+				StatusText: http.StatusText(resp.StatusCode), ContentType: contentType,
+			}},
+			Failure: &tools.ToolFailure{Code: "raw_invalid_utf8", Kind: tools.ErrorKindUnknown, Retryable: false},
+		}, nil
+	}
+	expectsStructured := extractMode != "raw" &&
+		(extractMode == "json" || extractMode == "jsonpath" || isJSONMediaType(contentType))
+	if expectsStructured && !utf8.Valid(body) {
+		return tools.ToolResult{
+			Content: "Resposta JSON não é UTF-8 válida e não pode ser preservada integralmente.",
+			IsError: true,
+			Metadata: map[string]any{
+				"url": a.URL, "method": method, "status": resp.StatusCode,
+				"content_type": contentType, "length": len(body),
+			},
+			Annotations: &tools.ResultAnnotations{HTTPResponse: &tools.HTTPResponseAnnotation{
+				Method: method, URL: a.URL, Status: resp.StatusCode,
+				StatusText: http.StatusText(resp.StatusCode), ContentType: contentType,
+			}},
+			Failure: &tools.ToolFailure{Code: "structured_invalid_utf8", Kind: tools.ErrorKindUnknown, Retryable: false},
+		}, nil
+	}
 	responseContent := string(body)
 
 	// Processa resposta baseado no extract_mode
 	var extracted string
+	structuredJSON := false
 	switch extractMode {
 	case "raw":
 		extracted = responseContent
@@ -265,20 +530,18 @@ func (t *HTTPRequest) Execute(ctx context.Context, args json.RawMessage) (tools.
 		}
 	case "json":
 		// Tenta formatar JSON
-		var jsonData interface{}
-		if err := json.Unmarshal([]byte(responseContent), &jsonData); err == nil {
-			formatted, _ := json.MarshalIndent(jsonData, "", "  ")
-			extracted = string(formatted)
+		if formatted, ok := formatJSONPreservingNumbers(responseContent); ok {
+			extracted = formatted
+			structuredJSON = true
 		} else {
 			extracted = responseContent
 		}
 	case "auto":
 		// Detecta automaticamente
-		if strings.Contains(contentType, "application/json") {
-			var jsonData interface{}
-			if err := json.Unmarshal([]byte(responseContent), &jsonData); err == nil {
-				formatted, _ := json.MarshalIndent(jsonData, "", "  ")
-				extracted = string(formatted)
+		if isJSONMediaType(contentType) {
+			if formatted, ok := formatJSONPreservingNumbers(responseContent); ok {
+				extracted = formatted
+				structuredJSON = true
 			} else {
 				extracted = responseContent
 			}
@@ -287,40 +550,128 @@ func (t *HTTPRequest) Execute(ctx context.Context, args json.RawMessage) (tools.
 		} else {
 			extracted = responseContent
 		}
+	case "jsonpath":
+		extracted, err = extractRestrictedJSONPath(ctx, responseContent, a.JSONPath, maxLength)
+		if err != nil {
+			return tools.ToolResult{
+				Content: err.Error(), IsError: true,
+				Metadata:    map[string]any{"url": a.URL, "method": method, "status": resp.StatusCode, "content_type": contentType, "length": len(body)},
+				Annotations: &tools.ResultAnnotations{HTTPResponse: httpResponseAnnotation(a.URL, method, resp)},
+				Failure:     &tools.ToolFailure{Code: jsonPathErrorCode(err), Kind: tools.ErrorKindInvalidArgs, Retryable: false},
+			}, nil
+		}
+		if len(extracted) > maxLength {
+			return tools.ToolResult{
+				Content:     fmt.Sprintf("resultado de jsonpath tem %d bytes, acima do limite de %d; reduza o seletor ou aumente max_response_size", len(extracted), maxLength),
+				IsError:     true,
+				Metadata:    map[string]any{"url": a.URL, "method": method, "status": resp.StatusCode, "content_type": contentType, "length": len(extracted)},
+				Annotations: &tools.ResultAnnotations{HTTPResponse: httpResponseAnnotation(a.URL, method, resp)},
+				Failure:     &tools.ToolFailure{Code: "jsonpath_result_too_large", Kind: tools.ErrorKindUnknown, Retryable: false},
+			}, nil
+		}
+		structuredJSON = true
 	default:
 		extracted = responseContent
 	}
-
-	// Trunca se necessário
-	truncated := false
-	if len(extracted) > maxLength {
-		extracted = extracted[:maxLength]
-		truncated = true
+	if !structuredJSON && extractMode != "raw" && isJSONMediaType(contentType) &&
+		tools.IsCanonicalJSON(extracted) {
+		structuredJSON = true
 	}
 
 	// Monta header informativo
 	header := fmt.Sprintf("HTTP %s %s\n", method, a.URL)
 	header += fmt.Sprintf("Status: %d %s\n", resp.StatusCode, resp.Status)
 	header += fmt.Sprintf("Content-Type: %s\n", contentType)
-	header += fmt.Sprintf("Content-Length: %d bytes | Extracted: %d chars\n", len(body), len(extracted))
-	if truncated {
-		header += fmt.Sprintf("(TRUNCADO: limite de %d caracteres)\n", maxLength)
-	}
+	header += fmt.Sprintf("Content-Length: %d bytes | Extracted: %d bytes\n", len(body), len(extracted))
 	header += "\n"
 
 	// Determina se é erro baseado no status code
 	isError := resp.StatusCode >= 400
+	var annotations *tools.ResultAnnotations
+	if isError || structuredJSON || extractMode == "raw" || len(extracted) > maxLength {
+		annotations = &tools.ResultAnnotations{HTTPResponse: &tools.HTTPResponseAnnotation{
+			Method: method, URL: a.URL, Status: resp.StatusCode,
+			StatusText: http.StatusText(resp.StatusCode), ContentType: contentType,
+		}}
+	}
 
-	return tools.ToolResult{
-		Content: header + extracted,
-		IsError: isError,
+	content := header + extracted
+	if structuredJSON || extractMode == "raw" {
+		content = extracted
+	}
+	result := tools.ToolResult{
+		Content:     content,
+		IsError:     isError,
+		Structured:  structuredJSON,
+		RawExact:    extractMode == "raw",
+		Annotations: annotations,
 		Metadata: map[string]any{
 			"url":          a.URL,
 			"method":       method,
 			"status":       resp.StatusCode,
 			"content_type": contentType,
 			"length":       len(extracted),
-			"truncated":    truncated,
 		},
-	}, nil
+	}
+	if (result.Structured || result.RawExact) && len(result.Content) > maxLength {
+		code := "result_too_large"
+		kind := "JSON estruturado"
+		if result.RawExact {
+			code = "raw_result_too_large"
+			kind = "resultado raw"
+		}
+		return tools.ToolResult{
+			Content:     fmt.Sprintf("%s tem %d bytes, acima do limite de %d; reduza o escopo da requisição ou use um header Range aceito pelo servidor.", kind, len(result.Content), maxLength),
+			IsError:     true,
+			Metadata:    result.Metadata,
+			Annotations: annotations,
+			Failure:     &tools.ToolFailure{Code: code, Kind: tools.ErrorKindUnknown, Retryable: false},
+		}, nil
+	}
+	if len(extracted) <= maxLength {
+		return result, nil
+	}
+	// max_response_size mede o payload extraído. Quando há continuação, o corpo
+	// retomável não inclui o header informativo, para que offsets sejam exatos.
+	result.Content = extracted
+	protected, ok := tools.ProtectToolResult(ctx, result, maxLength)
+	if !ok {
+		return tools.ToolResult{
+			Content: "Resposta excede a capacidade segura de preservação; reduza o escopo.",
+			IsError: true,
+			Failure: &tools.ToolFailure{Code: "result_storage_limit", Kind: tools.ErrorKindUnknown, Retryable: false},
+		}, nil
+	}
+	return protected, nil
+}
+
+func isJSONMediaType(contentType string) bool {
+	mediaType, _, err := mime.ParseMediaType(contentType)
+	if err != nil {
+		mediaType = strings.TrimSpace(strings.SplitN(contentType, ";", 2)[0])
+	}
+	mediaType = strings.ToLower(mediaType)
+	return mediaType == "application/json" || strings.HasSuffix(mediaType, "+json")
+}
+
+func formatJSONPreservingNumbers(content string) (string, bool) {
+	decoder := json.NewDecoder(strings.NewReader(content))
+	decoder.UseNumber()
+	var value any
+	if err := decoder.Decode(&value); err != nil {
+		return "", false
+	}
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
+		return "", false
+	}
+	formatted, err := json.MarshalIndent(value, "", "  ")
+	return string(formatted), err == nil
+}
+
+func httpResponseAnnotation(rawURL, method string, resp *http.Response) *tools.HTTPResponseAnnotation {
+	return &tools.HTTPResponseAnnotation{
+		Method: method, URL: rawURL, Status: resp.StatusCode,
+		StatusText: http.StatusText(resp.StatusCode), ContentType: resp.Header.Get("Content-Type"),
+	}
 }

@@ -1,4 +1,5 @@
-import { useState, useEffect, useImperativeHandle, forwardRef, type ReactNode } from 'react';
+import { chatGPTErrorKey } from '../../lib/chatgptErrors';
+import { useState, useRef, useEffect, useImperativeHandle, forwardRef, type ReactNode } from 'react';
 import { CloseCircleOutlined, ReloadOutlined, RobotOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import {
@@ -44,6 +45,7 @@ interface LoadOutcome {
     /** Message explica o que houve, já traduzida. Vazia quando deu certo. */
     message: string;
     count: number;
+    obsolete?: boolean;
 }
 
 /** ModelItem é um modelo como ele aparece na lista. */
@@ -77,7 +79,9 @@ export const ModelPicker = forwardRef<ModelPickerRef, ModelPickerProps>(({
   defaultOptionLabel,
 }, ref) => {
   const { t } = useTranslation();
+  const loadGeneration = useRef(0);
   const [models, setModels] = useState<ModelItem[]>([]);
+  const [usesChatGPTPlan, setUsesChatGPTPlan] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [endpointNotSupported, setEndpointNotSupported] = useState(false);
@@ -107,6 +111,10 @@ export const ModelPicker = forwardRef<ModelPickerRef, ModelPickerProps>(({
    * tela vive em `useState` e não está legível na volta da promessa.
    */
   const loadModels = async (refresh = false): Promise<LoadOutcome> => {
+    const generation = ++loadGeneration.current;
+    const stale = () => generation !== loadGeneration.current;
+    const obsolete: LoadOutcome = { ok: false, message: '', count: 0, obsolete: true };
+    setUsesChatGPTPlan(false);
     if (variant === 'form' && !providerID) {
       const msg = t('pickers.model.selectProvider');
       setLoading(false);
@@ -126,17 +134,21 @@ export const ModelPicker = forwardRef<ModelPickerRef, ModelPickerProps>(({
       let agent = false;
 
       const resolvedID = providerID ? await resolveProviderID(providerID) : '';
+      if (stale()) return obsolete;
       if (resolvedID) {
         const catalog = refresh
           ? await RefreshModelCatalogByProvider(resolvedID)
           : await GetModelCatalogByProvider(resolvedID);
+        if (stale()) return obsolete;
         agent = catalog?.agent ?? false;
+        setUsesChatGPTPlan(catalog?.usesChatGPTPlan ?? false);
         modelsList = (catalog?.models || []).map(({ value, label }) => ({
           value,
           label: label || value,
         }));
       } else if (!providerID) {
         const names = refresh ? await RefreshModels() : await GetModels();
+        if (stale()) return obsolete;
         modelsList = (names || []).map(name => ({ value: name, label: name }));
       }
 
@@ -158,6 +170,7 @@ export const ModelPicker = forwardRef<ModelPickerRef, ModelPickerProps>(({
       }
       return { ok: true, message: '', count: modelsList.length };
     } catch (e: unknown) {
+      if (stale()) return obsolete;
       // Só o que a falha disser de verdade entra aqui: a mensagem é lida em voz
       // alta e exibida nos três idiomas, e texto inventado neste ponto sairia em
       // português para quem usa o app em inglês ou espanhol. Nem o nome da
@@ -168,6 +181,15 @@ export const ModelPicker = forwardRef<ModelPickerRef, ModelPickerProps>(({
         : typeof e === 'string' ? e : ''
       ).trim();
       
+      const chatGPTKey = chatGPTErrorKey(errorMsg);
+      if (chatGPTKey) {
+        setUsesChatGPTPlan(true);
+        const msg = t(chatGPTKey);
+        setError(msg);
+        setEndpointNotSupported(false);
+        setModels([]);
+        return { ok: false, message: msg, count: 0 };
+      }
       // Detecta se o endpoint de modelos não é suportado (404)
       if (errorMsg.includes('models_endpoint_not_supported')) {
         setEndpointNotSupported(true);
@@ -200,12 +222,13 @@ export const ModelPicker = forwardRef<ModelPickerRef, ModelPickerProps>(({
       setModels([]);
       return { ok: false, message: msg, count: 0 };
     } finally {
-      setLoading(false);
+      if (!stale()) setLoading(false);
     }
   };
 
   useEffect(() => {
-    loadModels();
+    void loadModels();
+    return () => { loadGeneration.current++; };
   }, [providerID]); // Recarrega quando providerID muda
 
   // Quem chama reload está pedindo a lista de novo, e não a que já tínhamos.
@@ -238,7 +261,8 @@ export const ModelPicker = forwardRef<ModelPickerRef, ModelPickerProps>(({
   // prometer uma consulta que não houve faria a pessoa clicar de novo achando
   // que não funcionou (AEP-0084 D6).
   const handleRefresh = () => {
-    void loadModels(true).then(({ ok, message, count }) => {
+    void loadModels(true).then(({ ok, message, count, obsolete }) => {
+      if (obsolete) return;
       onAnnounce?.(ok
         ? t('pickers.model.refreshed', { count, defaultValue: 'Lista de modelos atualizada: {{count}}' })
         : message);
@@ -279,7 +303,8 @@ export const ModelPicker = forwardRef<ModelPickerRef, ModelPickerProps>(({
     />
   );
 
-  if (variant !== 'form') return picker;
+  const planNotice = usesChatGPTPlan ? <span>{t('chatgpt.usingPlan')} <a href="https://chatgpt.com/settings/usage" target="_blank" rel="noopener noreferrer">{t('chatgpt.usage')}</a></span> : null;
+  if (variant !== 'form') return <>{picker}{planNotice}</>;
 
   // O recarregar só existe no formulário porque é lá que a pessoa escolhe o
   // modelo do perfil. Provedor que guarda a lista — o agente de código — só
@@ -287,6 +312,7 @@ export const ModelPicker = forwardRef<ModelPickerRef, ModelPickerProps>(({
   return (
     <div className="model-picker-form__stack">
       {picker}
+      {planNotice}
       <Button
         type="button"
         variant="ghost"

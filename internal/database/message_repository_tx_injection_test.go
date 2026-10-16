@@ -67,7 +67,6 @@ func TestMessageRepository_InjectedTxRollback_NothingPersists(t *testing.T) {
 		Role:           "assistant",
 		Content:        "a1",
 		TurnID:         &turnID,
-		ToolCalls:      `[{"id":"call-1","type":"function","function":{"name":"echo","arguments":"{}"}}]`,
 	})
 	if err != nil {
 		t.Fatalf("create assistant message: %v", err)

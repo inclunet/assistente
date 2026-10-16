@@ -1,0 +1,11 @@
+.shortcut-capture {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-2);
+}
+
+.shortcut-capture-hint {
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+}

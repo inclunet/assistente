@@ -40,6 +40,7 @@ describe('i18n: chaves portability.messages.*', () => {
       'taskList.workflowWithoutStatuses',
       'memoryRecord.missingId',
       'credential.vaultUnavailableForImport',
+      'credential.connectionUnavailable',
       'conflict.mcpServerSlug',
     ]) {
       expect(reference, `pt-BR: ${code}`).toContain(code);

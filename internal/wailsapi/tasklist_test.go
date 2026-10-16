@@ -22,6 +22,9 @@ func TestTasklistNotWired(t *testing.T) {
 	if _, err := api.GetTask("id"); !errors.Is(err, ErrTasklistNotWired) {
 		t.Fatalf("GetTask: got %v", err)
 	}
+	if _, err := api.GetTaskListPage("id", ""); !errors.Is(err, ErrTasklistNotWired) {
+		t.Fatalf("GetTaskListPage: got %v", err)
+	}
 	if _, err := api.GetWorkflow("list"); !errors.Is(err, ErrTasklistNotWired) {
 		t.Fatalf("GetWorkflow: got %v", err)
 	}
@@ -87,6 +90,10 @@ func TestTasklistUsesWithUserNotRequireAuth(t *testing.T) {
 		}},
 		{"GetTask", func() error {
 			_, err := api.GetTask("id")
+			return err
+		}},
+		{"GetTaskListPage", func() error {
+			_, err := api.GetTaskListPage("id", "")
 			return err
 		}},
 		{"UpdateTaskStatus", func() error {

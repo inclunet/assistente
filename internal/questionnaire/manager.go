@@ -80,10 +80,11 @@ type RejectReasonConfig struct {
 // de edição Antes/Depois) para o host renderizar no body. Resposta em
 // Answers[AnswerActionID].
 type RequestPayload struct {
-	ID          string `json:"id"`
-	Kind        string `json:"kind,omitempty"`
-	Title       Text   `json:"title,omitzero"`
-	Description Text   `json:"description,omitzero"`
+	ID          string           `json:"id"`
+	Kind        string           `json:"kind,omitempty"`
+	Severity    DecisionSeverity `json:"severity,omitempty"`
+	Title       Text             `json:"title,omitzero"`
+	Description Text             `json:"description,omitzero"`
 	// Hint é texto traduzível secundário (ex.: match de host do skill),
 	// anexado à descrição no DecisionDialog sem misturar com Body cru.
 	Hint         Text                `json:"hint,omitzero"`
@@ -143,6 +144,7 @@ func (m *Manager) RequestQuestionnaire(ctx context.Context, payload RequestPaylo
 	req := &RequestPayload{
 		ID:           uuid.New().String()[:8],
 		Kind:         payload.Kind,
+		Severity:     payload.Severity,
 		Title:        payload.Title,
 		Description:  payload.Description,
 		Hint:         payload.Hint,
@@ -185,6 +187,9 @@ func (m *Manager) RequestQuestionnaire(ctx context.Context, payload RequestPaylo
 	// mandaria campos vazios para todo formulário, poluindo o contrato.
 	if req.Kind != "" {
 		eventData["kind"] = req.Kind
+	}
+	if req.Severity != "" {
+		eventData["severity"] = req.Severity
 	}
 	if req.Body != "" {
 		eventData["body"] = req.Body

@@ -14,6 +14,13 @@ import (
 func TestCredentialsNotWired(t *testing.T) {
 	t.Parallel()
 	api := NewCredentials()
+	if _, err := api.ListManagedCredentials(); !errors.Is(err, ErrCredentialsNotWired) {
+		t.Fatalf("ListManagedCredentials: %v", err)
+	}
+	if _, err := api.GetCredentialForURL("https://example.com"); !errors.Is(err, ErrCredentialsNotWired) {
+		t.Fatalf("GetCredentialForURL: %v", err)
+	}
+
 	if _, err := api.ListCredentials(); !errors.Is(err, ErrCredentialsNotWired) {
 		t.Fatalf("ListCredentials: got %v", err)
 	}

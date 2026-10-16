@@ -21,6 +21,8 @@ test.describe('Abas do workspace — renderização', () => {
     await wails.setResponse('GetActiveWorkspace', {
       id: 'ws-1',
       name: 'Workspace',
+      snapshot_epoch: 'e2e-workspace-epoch',
+      snapshot_sequence: '1',
       profile: '',
       created_at: now,
       last_used: now,
@@ -49,6 +51,8 @@ test.describe('Abas do workspace — múltiplas abas', () => {
   const workspaceWithTabs = {
     id: 'ws-1',
     name: 'Workspace',
+    snapshot_epoch: 'e2e-workspace-epoch',
+    snapshot_sequence: '1',
     profile: '',
     created_at: now,
     last_used: now,
@@ -80,6 +84,17 @@ test.describe('Abas do workspace — múltiplas abas', () => {
     },
   };
 
+  const workspaceAfterSelectingTab2 = {
+    ...workspaceWithTabs,
+    snapshot_sequence: '2',
+    tabs: {
+      ...workspaceWithTabs.tabs,
+      active: 'tab-2',
+      items: workspaceWithTabs.tabs.items.map(tab => tab.id === 'tab-2'
+        ? { ...tab, title: 'Conversa 2 confirmada' } : tab),
+    },
+  };
+
   test('renderiza múltiplas abas', async ({ page, wails }) => {
     await wails.setResponse('GetActiveWorkspace', workspaceWithTabs);
     await wails.waitForApp();
@@ -88,18 +103,23 @@ test.describe('Abas do workspace — múltiplas abas', () => {
     await expect(tabs).toHaveCount(3);
   });
 
-  test('clicar em outra aba chama SetActiveWorkspaceTab', async ({ page, wails }) => {
+  test('clicar em outra aba usa o RPC escopado e mantém a seleção após a confirmação', async ({ page, wails }) => {
     await wails.setResponse('GetActiveWorkspace', workspaceWithTabs);
-    await wails.setResponse('SetActiveWorkspaceTab', undefined);
+    await wails.setResponse('SetActiveWorkspaceTabForWorkspace', workspaceAfterSelectingTab2);
     await wails.waitForApp();
 
     // Clica na segunda aba
     const secondTab = page.locator('.ws-tabs__tab').nth(1);
     await secondTab.click();
 
+    await page.waitForFunction(() => window.__wailsMock.getCallLog().some(c => c.fn === 'SetActiveWorkspaceTabForWorkspace'));
     const log = await wails.getCallLog();
-    const setCalls = log.filter(c => c.fn === 'SetActiveWorkspaceTab');
-    expect(setCalls.length).toBeGreaterThanOrEqual(1);
+    const setCalls = log.filter(c => c.fn === 'SetActiveWorkspaceTabForWorkspace');
+    expect(setCalls).toHaveLength(1);
+    expect(setCalls[0].args).toEqual(['ws-1', 'tab-2']);
+    await expect(secondTab).toHaveAttribute('aria-selected', 'true');
+    // Este título só existe no ACK: a seleção otimista sozinha não basta.
+    await expect(secondTab).toContainText('Conversa 2 confirmada');
   });
 
   test('botão de fechar aba está visível quando há múltiplas abas', async ({ page, wails }) => {

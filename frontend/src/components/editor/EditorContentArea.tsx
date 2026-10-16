@@ -79,9 +79,8 @@ function normalizeRevealEditableMarkdown(markdown: string): string {
 interface RichMermaidRequestContext {
   mermaidBlockId?: string;
   insertText?: string;
+  expectedEditor?: object;
   code?: string;
-  apply: (nextCode: string) => void;
-  remove: () => void;
 }
 
 export interface RenderedReadingRequest {
@@ -545,7 +544,8 @@ export function EditorContentArea({
               onOpenMermaid(index);
             }}
             onKeyDown={(e) => {
-              if (activeTab.readOnly) return;
+              if (activeTab.readOnly || activeTab.loadError || isAsking || isModalOpen() || e.defaultPrevented || e.repeat ||
+                  e.nativeEvent.isComposing || e.keyCode === 229 || e.getModifierState('AltGraph')) return;
               const target = e.target as HTMLElement | null;
               const wrapper = target?.closest?.('.mermaid-diagram') as HTMLElement | null;
               if (!wrapper) return;
@@ -556,12 +556,14 @@ export function EditorContentArea({
 
               if (e.key === 'Enter') {
                 e.preventDefault();
+                e.stopPropagation();
                 onOpenMermaid(index);
                 return;
               }
 
               if (e.key === 'Backspace' || e.key === 'Delete') {
                 e.preventDefault();
+                e.stopPropagation();
                 onRemoveMermaid(index);
                 return;
               }
@@ -569,6 +571,7 @@ export function EditorContentArea({
               // Type-to-edit: abre o editor de Mermaid e injeta o primeiro caractere.
               if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
                 e.preventDefault();
+                e.stopPropagation();
                 onOpenMermaid(index, { insertText: e.key });
               }
             }}

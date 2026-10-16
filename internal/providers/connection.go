@@ -3,6 +3,7 @@ package providers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -10,6 +11,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"assistente/internal/credentials"
 )
 
 // ConnectionProbeResult contém o resultado detalhado de uma sondagem de conexão a um endpoint LLM.
@@ -29,6 +32,10 @@ type ConnectionProbeResult struct {
 // Classifica a resposta em URLReachable, AuthOK, ModelsAvailable e retorna modelos se disponíveis.
 // apiKey pode ser vazio — neste caso a função apenas verifica acessibilidade da URL.
 func (s *Service) ProbeConnection(ctx context.Context, baseURL, apiKey string) ConnectionProbeResult {
+	return s.probeConnection(ctx, baseURL, apiKey, nil)
+}
+
+func (s *Service) probeConnection(ctx context.Context, baseURL, apiKey string, prepare func(*http.Request, *http.Client) error) ConnectionProbeResult {
 	result := ConnectionProbeResult{}
 
 	parsedURL, err := url.Parse(baseURL)
@@ -40,6 +47,7 @@ func (s *Service) ProbeConnection(ctx context.Context, baseURL, apiKey string) C
 
 	modelsEndpoint := strings.TrimSuffix(baseURL, "/") + "/models"
 	client := &http.Client{Timeout: 15 * time.Second}
+	restrictProbeRedirect(client, baseURL)
 	defer client.CloseIdleConnections()
 
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, modelsEndpoint, nil)
@@ -53,8 +61,20 @@ func (s *Service) ProbeConnection(ctx context.Context, baseURL, apiKey string) C
 		httpReq.Header.Set("Authorization", fmt.Sprintf("Bearer %s", apiKey))
 	}
 
+	if prepare != nil {
+		if err := prepare(httpReq, client); err != nil {
+			result.ErrorType = "auth_invalid"
+			result.ErrorDetail = "Não foi possível resolver a credencial do provedor."
+			return result
+		}
+	}
 	resp, err := client.Do(httpReq)
 	if err != nil {
+		if errors.Is(err, credentials.ErrCredentialResolution) {
+			result.ErrorType = "auth_invalid"
+			result.ErrorDetail = "Não foi possível resolver a credencial do provedor."
+			return result
+		}
 		result.ErrorType = "url_unreachable"
 		result.ErrorDetail = fmt.Sprintf("Não foi possível conectar ao servidor. Verifique se a URL está correta e o servidor está ativo.\n\nDetalhes: %v", err)
 		return result
@@ -81,9 +101,9 @@ func (s *Service) ProbeConnection(ctx context.Context, baseURL, apiKey string) C
 		}
 
 	case resp.StatusCode == http.StatusUnauthorized:
-		if apiKey != "" {
+		if apiKey != "" || prepare != nil {
 			result.ErrorType = "auth_invalid"
-			result.ErrorDetail = "A API Key informada foi rejeitada pelo servidor (401 Unauthorized). Verifique se a chave está correta."
+			result.ErrorDetail = "A credencial foi rejeitada pelo servidor (401 Unauthorized). Verifique sua configuração."
 		} else {
 			result.ErrorType = "auth_required"
 			result.ErrorDetail = "Este servidor requer uma API Key para autenticação."
@@ -91,7 +111,7 @@ func (s *Service) ProbeConnection(ctx context.Context, baseURL, apiKey string) C
 
 	case resp.StatusCode == http.StatusForbidden:
 		result.ErrorType = "auth_invalid"
-		result.ErrorDetail = "Acesso negado (403 Forbidden). A API Key pode não ter permissões suficientes."
+		result.ErrorDetail = "Acesso negado (403 Forbidden). A credencial pode não ter permissões suficientes."
 
 	case resp.StatusCode == http.StatusNotFound:
 		result.AuthOK = true

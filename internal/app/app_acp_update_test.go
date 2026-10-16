@@ -11,6 +11,7 @@ import (
 
 	"assistente/internal/acpinstall"
 	"assistente/internal/credentials"
+	"assistente/internal/database"
 	"assistente/internal/llm"
 )
 
@@ -149,8 +150,23 @@ func TestRepontarPoeOProvedorNaVersaoNova(t *testing.T) {
 		t.Fatalf("erro ao registrar o provedor: %v", err)
 	}
 
-	a.repointACPProviders(context.Background(), a.acpProvidersFrom([]acpinstall.Installation{anterior}), nova)
+	ctx := database.WithUserID(context.Background(), "acp-owner")
+	if err := a.providerSvc.Save(ctx); err != nil {
+		t.Fatal(err)
+	}
+	a.repointACPProviders(ctx, a.acpProvidersFrom([]acpinstall.Installation{anterior}), nova)
 
+	persisted, err := database.GetLLMProviderWithContext(ctx, "codex-do-app")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var persistedArgs []string
+	if err = json.Unmarshal([]byte(persisted.ACPArgs), &persistedArgs); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(persistedArgs, nova.Args) {
+		t.Fatal("new arguments not persisted")
+	}
 	repontado := registro.Get("codex-do-app")
 	if repontado == nil {
 		t.Fatal("o provedor sumiu do registro")
@@ -251,8 +267,25 @@ func TestApplyInstalledBinaryEnvComEnvVazioLimpaOProvedor(t *testing.T) {
 		t.Fatalf("erro ao registrar o provedor: %v", err)
 	}
 
-	a.applyInstalledBinaryEnv(context.Background(), "codex-do-app", "codex-acp")
+	ctx := database.WithUserID(context.Background(), "acp-owner")
+	if err := a.providerSvc.Save(ctx); err != nil {
+		t.Fatal(err)
+	}
+	a.applyInstalledBinaryEnv(ctx, "codex-do-app", "codex-acp")
 
+	persisted, err := database.GetLLMProviderWithContext(ctx, "codex-do-app")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var persistedEnv map[string]string
+	if persisted.ACPEnv != "" {
+		if err = json.Unmarshal([]byte(persisted.ACPEnv), &persistedEnv); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(persistedEnv) != 0 {
+		t.Fatal("old environment persisted")
+	}
 	atual := registro.Get("codex-do-app")
 	if atual == nil {
 		t.Fatal("provedor sumiu")

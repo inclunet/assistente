@@ -1,3 +1,7 @@
+import { createInstance } from 'i18next';
+import ptBR from '../locales/pt-BR';
+import en from '../locales/en';
+import es from '../locales/es';
 import { describe, expect, it } from 'vitest';
 import type { TFunction } from 'i18next';
 import { formatPortabilityMessage, portabilityMessageKey } from './portabilityMessages';
@@ -68,4 +72,14 @@ describe('portabilityMessageKey', () => {
 
     expect(first).not.toBe(second);
   });
+});
+
+it.each(['pt-BR', 'en', 'es'])('traduz recusa de troca de tipo OAuth em %s', async (lng) => {
+  const instance = createInstance();
+  await instance.init({ lng, resources: { 'pt-BR': ptBR, en, es }, interpolation: { escapeValue: false } });
+  const message = formatPortabilityMessage({ code: 'provider.oauthTypeChange', params: { providerId: 'connected-provider' }, message: 'fallback' }, instance.t.bind(instance));
+  expect(message).toContain('connected-provider');
+  expect(message).toContain('OAuth');
+  expect(message).not.toContain('{{');
+  expect(message).not.toBe('fallback');
 });

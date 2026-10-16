@@ -23,6 +23,9 @@ interface MenuButtonProps {
   currentItemId?: string;
   buttonLabel?: string;
   tabIndex?: number;
+  onAfterSelect?: () => void;
+  /** Fecha opções capturadas de um contexto anterior, preservando o gatilho e seu foco. */
+  contextKey?: string;
 }
 
 export interface MenuButtonRef {
@@ -42,11 +45,12 @@ export interface MenuButtonRef {
  * - Tab: Fecha menu e move foco
  */
 export const MenuButton = forwardRef<MenuButtonRef, MenuButtonProps>(
-  function MenuButton({ items, currentItemId, buttonLabel, tabIndex }, ref) {
+  function MenuButton({ items, currentItemId, buttonLabel, tabIndex, onAfterSelect: onAfterSelectProp, contextKey }, ref) {
   const { t } = useTranslation();
   const resolvedButtonLabel = buttonLabel ?? t('menu.navLabel');
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const [autoTabIndex, setAutoTabIndex] = useState<number | null>(null);
+  const previousContextKey = useRef(contextKey);
 
   const mapItems = (srcItems: MenuItem[]): MenuModelItem[] =>
     srcItems.map((item) => {
@@ -81,15 +85,25 @@ export const MenuButton = forwardRef<MenuButtonRef, MenuButtonProps>(
     menu,
     openForTrigger,
     closeMenu,
+    closeMenuForTab,
     onSelectItem,
   } = useAnchoredContextMenu({
     onAfterSelect: () => {
-      requestAnimationFrame(() => restoreDefaultFocus());
+      requestAnimationFrame(() => {
+        restoreDefaultFocus();
+        onAfterSelectProp?.();
+      });
     },
     onAfterDismiss: () => {
       resolveTriggerElement()?.focus();
     },
   });
+
+  useLayoutEffect(() => {
+    if (previousContextKey.current === contextKey) return;
+    previousContextKey.current = contextKey;
+    if (menu.visible) closeMenu();
+  }, [contextKey, menu.visible, closeMenu]);
 
   const openMenu = useCallback(() => {
     const trigger = resolveTriggerElement();
@@ -120,7 +134,13 @@ export const MenuButton = forwardRef<MenuButtonRef, MenuButtonProps>(
   }));
 
   return (
-    <div className="menu-wrapper">
+    <div className="menu-wrapper" onKeyDownCapture={event => {
+      if (event.key !== 'Tab' || !menu.visible) return;
+      // Restaura a âncora antes de o navegador calcular Tab/Shift+Tab.
+      // Não cancela o gesto nem agenda foco que desfaça a navegação nativa.
+      event.stopPropagation();
+      closeMenuForTab();
+    }}>
       <button
         ref={menuButtonRef}
         type="button"
@@ -134,6 +154,7 @@ export const MenuButton = forwardRef<MenuButtonRef, MenuButtonProps>(
             resolveTriggerElement()?.focus();
           }
         }}
+        aria-haspopup="menu"
         aria-expanded={menu.visible}
         aria-label={resolvedButtonLabel}
         title={resolvedButtonLabel}

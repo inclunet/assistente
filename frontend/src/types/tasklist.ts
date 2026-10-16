@@ -15,6 +15,13 @@ export interface TaskListWorkflowStatus {
 
 export type WorkflowTransitions = Record<number, number[]>;
 
+/** Estado do workflow que o editor leu; espelha database.TaskListWorkflowSnapshot. */
+export interface TaskListWorkflowSnapshot {
+  statuses: TaskListWorkflowStatus[];
+  transitions: WorkflowTransitions;
+  initialStatusId: number;
+}
+
 export interface TaskListWorkflow {
   id: string;
   taskListId: string;
@@ -93,6 +100,8 @@ export interface TaskListValidationPolicy {
 export interface TaskList {
   id: string;
   title: string;
+  /** Total agregado sem hidratar os cards no catálogo. */
+  taskCount?: number;
   /** Slug estável (minúsculas), opcional */
   slug?: string;
   description: string;

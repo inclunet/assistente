@@ -41,6 +41,8 @@ const (
 // ServerConfig é a configuração de um servidor MCP.
 // A fonte persistida é o banco; JSON permanece como formato de import/export legado.
 type ServerConfig struct {
+	OAuth2ClientMethod    string            `json:"oauth2_client_method,omitempty" yaml:"-"` // Read-only projection of the managed registration.
+	OAuth2TokenAuthMethod string            `json:"oauth2_token_auth_method,omitempty" yaml:"oauth2_token_auth_method,omitempty"`
 	ID                    string            `json:"id,omitempty" yaml:"id,omitempty"`
 	UserID                string            `json:"user_id,omitempty" yaml:"user_id,omitempty"`
 	Slug                  string            `json:"slug,omitempty" yaml:"slug,omitempty"`
@@ -52,6 +54,8 @@ type ServerConfig struct {
 	Env                   map[string]string `json:"env,omitempty" yaml:"env,omitempty"`         // variáveis de ambiente
 	URL                   string            `json:"url,omitempty" yaml:"url,omitempty"`         // sse/streamable
 	AuthType              AuthType          `json:"auth_type,omitempty" yaml:"auth_type,omitempty"`
+	OAuthManaged          bool              `json:"oauth_managed,omitempty" yaml:"oauth_managed,omitempty"`
+	OAuthAuthorizationID  string            `json:"oauth_authorization_id,omitempty" yaml:"oauth_authorization_id,omitempty"`
 	OAuth2ClientID        string            `json:"oauth2_client_id,omitempty" yaml:"oauth2_client_id,omitempty"`
 	OAuth2AuthURL         string            `json:"oauth2_auth_url,omitempty" yaml:"oauth2_auth_url,omitempty"`
 	OAuth2TokenURL        string            `json:"oauth2_token_url,omitempty" yaml:"oauth2_token_url,omitempty"`
@@ -150,16 +154,25 @@ type ServerStatus struct {
 
 	Reconnecting              bool `json:"-"`
 	ConsecutiveHealthFailures int  `json:"-"`
+
+	// NeedsReauth indica que o token OAuth do servidor expirou e não pôde ser
+	// renovado silenciosamente (sem/refresh_token inválido, invalid_grant). Nesse
+	// estado o servidor NÃO entra no caminho MCP nativo com um Bearer morto; o
+	// usuário precisa reautorizar explicitamente (AEP-0105).
+	NeedsReauth bool `json:"-"`
 }
 
 // ServerInfo é a versão exportada para o frontend (sem campos sensíveis como env).
 type ServerInfo struct {
-	ID            string            `json:"id,omitempty"`
-	Slug          string            `json:"slug"`
-	Name          string            `json:"name"`
-	Description   string            `json:"description,omitempty"`
-	Transport     TransportType     `json:"transport"`
-	Status        ConnectionStatus  `json:"status"`
+	ID          string           `json:"id,omitempty"`
+	Slug        string           `json:"slug"`
+	Name        string           `json:"name"`
+	Description string           `json:"description,omitempty"`
+	Transport   TransportType    `json:"transport"`
+	Status      ConnectionStatus `json:"status"`
+	// AuthType expõe ao frontend o tipo de autenticação configurado, permitindo
+	// habilitar a ação de reautorização apenas para servidores OAuth2 PKCE.
+	AuthType      AuthType          `json:"authType,omitempty"`
 	Error         string            `json:"error,omitempty"`
 	ToolCount     int               `json:"toolCount"`
 	Tools         []MCPToolInfo     `json:"tools"`
@@ -169,8 +182,11 @@ type ServerInfo struct {
 	Prompts       []MCPPromptInfo   `json:"prompts"`
 	Enabled       bool              `json:"enabled"`
 	AutoConnect   bool              `json:"autoConnect"`
-	ConnectedAt   string            `json:"connectedAt,omitempty"`
-	LastPing      string            `json:"lastPing,omitempty"`
+	// NeedsReauth expõe ao frontend que o servidor precisa de reautorização OAuth
+	// interativa (token expirado sem refresh possível — AEP-0105).
+	NeedsReauth bool   `json:"needsReauth"`
+	ConnectedAt string `json:"connectedAt,omitempty"`
+	LastPing    string `json:"lastPing,omitempty"`
 	// Campos de config visíveis (sem env)
 	Command string   `json:"command,omitempty"`
 	Args    []string `json:"args,omitempty"`
@@ -231,6 +247,7 @@ func (s *ServerStatus) toServerInfo() ServerInfo {
 		Description:   s.Config.Description,
 		Transport:     s.Config.Transport,
 		Status:        s.Status,
+		AuthType:      s.Config.AuthType,
 		Error:         s.Error,
 		ToolCount:     len(s.Tools),
 		Tools:         s.Tools,
@@ -240,6 +257,7 @@ func (s *ServerStatus) toServerInfo() ServerInfo {
 		Prompts:       s.Prompts,
 		Enabled:       s.Config.Enabled,
 		AutoConnect:   s.Config.AutoConnect,
+		NeedsReauth:   s.NeedsReauth,
 		Command:       s.Config.Command,
 		Args:          s.Config.Args,
 		URL:           s.Config.URL,

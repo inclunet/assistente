@@ -80,9 +80,7 @@ export interface ChatSessionContextValue {
   updateConversationMessagePinned: ReturnType<typeof useChatStore.getState>['updateConversationMessagePinned'];
   clearConversationMessages: ReturnType<typeof useChatStore.getState>['clearConversationMessages'];
   startConversationEditing: (conversationId: string, id: string) => void;
-  startConversationReading: (conversationId: string, id: string) => void;
   setConversationEditingMessageId: (conversationId: string, id: string | null) => void;
-  setConversationReadingMessageId: (conversationId: string, id: string | null) => void;
   toggleConversationThreadExpanded: (conversationId: string, messageId: string) => void;
   toggleConversationReasoningExpanded: (conversationId: string, messageId: string) => void;
   isConversationReasoningExpanded: (conversationId: string, messageId: string) => boolean;
@@ -94,7 +92,6 @@ type ChatNodeContextValue = Pick<
   | 'conversationId'
   | 'origin'
   | 'setConversationEditingMessageId'
-  | 'setConversationReadingMessageId'
   | 'toggleConversationThreadExpanded'
   | 'toggleConversationReasoningExpanded'
 >;
@@ -157,13 +154,11 @@ export function ChatSessionProvider({
   const updateConversationMessagePinned = useChatStore((state) => state.updateConversationMessagePinned);
   const clearConversationMessages = useChatStore((state) => state.clearConversationMessages);
   const startConversationEditingBase = useChatStore((state) => state.startConversationEditing);
-  const startConversationReadingBase = useChatStore((state) => state.startConversationReading);
   const setConversationDraftMessage = useChatStore((state) => state.setConversationDraftMessage);
   const setConversationDraftMediaFiles = useChatStore((state) => state.setConversationDraftMediaFiles);
   const clearConversationDraft = useChatStore((state) => state.clearConversationDraft);
   const setConversationScrollState = useChatStore((state) => state.setConversationScrollState);
   const setConversationEditingMessageIdBase = useChatStore((state) => state.setConversationEditingMessageId);
-  const setConversationReadingMessageIdBase = useChatStore((state) => state.setConversationReadingMessageId);
   const toggleConversationThreadExpandedBase = useChatStore((state) => state.toggleConversationThreadExpanded);
   const toggleConversationReasoningExpandedBase = useChatStore((state) => state.toggleConversationReasoningExpanded);
   const isConversationReasoningExpandedBase = useChatStore((state) => state.isConversationReasoningExpanded);
@@ -269,19 +264,9 @@ export function ChatSessionProvider({
     [sessionKey, startConversationEditingBase],
   );
 
-  const startConversationReading = useCallback<ChatSessionContextValue['startConversationReading']>(
-    (targetConversationId, id) => startConversationReadingBase(targetConversationId, id, sessionKey),
-    [sessionKey, startConversationReadingBase],
-  );
-
   const setConversationEditingMessageId = useCallback<ChatSessionContextValue['setConversationEditingMessageId']>(
     (targetConversationId, id) => setConversationEditingMessageIdBase(targetConversationId, id, sessionKey),
     [sessionKey, setConversationEditingMessageIdBase],
-  );
-
-  const setConversationReadingMessageId = useCallback<ChatSessionContextValue['setConversationReadingMessageId']>(
-    (targetConversationId, id) => setConversationReadingMessageIdBase(targetConversationId, id, sessionKey),
-    [sessionKey, setConversationReadingMessageIdBase],
   );
 
   const toggleConversationThreadExpanded = useCallback<ChatSessionContextValue['toggleConversationThreadExpanded']>(
@@ -344,9 +329,7 @@ export function ChatSessionProvider({
     updateConversationMessagePinned,
     clearConversationMessages,
     startConversationEditing,
-    startConversationReading,
     setConversationEditingMessageId,
-    setConversationReadingMessageId,
     toggleConversationThreadExpanded,
     toggleConversationReasoningExpanded,
     isConversationReasoningExpanded,
@@ -379,9 +362,7 @@ export function ChatSessionProvider({
     setDraftMessage,
     setScrollState,
     setConversationEditingMessageId,
-    setConversationReadingMessageId,
     startConversationEditing,
-    startConversationReading,
     surfaceId,
     surfaceIdentity,
     threadedMessages,
@@ -394,14 +375,12 @@ export function ChatSessionProvider({
     conversationId: normalizedConversationId,
     origin,
     setConversationEditingMessageId,
-    setConversationReadingMessageId,
     toggleConversationThreadExpanded,
     toggleConversationReasoningExpanded,
   }), [
     normalizedConversationId,
     origin,
     setConversationEditingMessageId,
-    setConversationReadingMessageId,
     toggleConversationReasoningExpanded,
     toggleConversationThreadExpanded,
   ]);
@@ -437,9 +416,6 @@ export function useChatNodeSessionState(messageId: string) {
   const editingMessageId = useChatStore((state) => (
     conversationId ? getStoredNodeSession(state, conversationId, sessionKey)?.editingMessageId ?? null : null
   ));
-  const readingMessageId = useChatStore((state) => (
-    conversationId ? getStoredNodeSession(state, conversationId, sessionKey)?.readingMessageId ?? null : null
-  ));
   const streamingMessageId = useChatStore((state) => (
     conversationId ? getStoredNodeSession(state, conversationId, sessionKey)?.streamingMessageId ?? null : null
   ));
@@ -473,7 +449,7 @@ export function useChatNodeSessionState(messageId: string) {
   return {
     conversationId,
     editingMessageId,
-    readingMessageId,
+    sessionKey,
     streamingMessageId,
     streamingReasoning,
     isThinking,
@@ -482,7 +458,6 @@ export function useChatNodeSessionState(messageId: string) {
     isExpanded,
     reasoningExpanded,
     setConversationEditingMessageId: context.setConversationEditingMessageId,
-    setConversationReadingMessageId: context.setConversationReadingMessageId,
     toggleConversationThreadExpanded: context.toggleConversationThreadExpanded,
     toggleConversationReasoningExpanded: context.toggleConversationReasoningExpanded,
   };

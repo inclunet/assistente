@@ -11,6 +11,7 @@ import (
 
 	"assistente/internal/credentials"
 	"assistente/internal/tools"
+	"assistente/internal/userctx"
 )
 
 // newTestWebFetch cria um WebFetch que permite hosts privados (para httptest)
@@ -172,15 +173,200 @@ func TestWebFetch_Truncation(t *testing.T) {
 	tool := newTestWebFetch()
 	maxLen := 100
 	args, _ := json.Marshal(map[string]interface{}{"url": server.URL, "max_length": maxLen})
-	result, err := tool.Execute(context.Background(), json.RawMessage(args))
+	result, err := tool.Execute(userctx.WithUserID(context.Background(), "web-fetch-test"), json.RawMessage(args))
 	if err != nil {
 		t.Fatalf("Execute retornou erro: %v", err)
 	}
 	if result.IsError {
 		t.Fatalf("resultado é erro: %s", result.Content)
 	}
-	if !strings.Contains(result.Content, "TRUNCADO") {
-		t.Error("deve indicar truncamento")
+	if strings.Contains(strings.ToUpper(result.Content), "TRUNCAD") {
+		t.Error("aviso de truncamento não deve contaminar conteúdo")
+	}
+	if result.Annotations == nil || result.Annotations.OutputWindow == nil ||
+		!result.Annotations.OutputWindow.HasMore || result.Annotations.OutputWindow.ResultID == "" {
+		t.Fatalf("deve indicar continuação estruturada: %+v", result.Annotations)
+	}
+	if result.Annotations.HTTPResponse == nil || result.Annotations.HTTPResponse.URL != server.URL {
+		t.Fatalf("prévia perdeu contexto HTTP: %+v", result.Annotations)
+	}
+}
+
+func TestWebFetchMaxLengthCountsExtractedPayloadNotHeader(t *testing.T) {
+	body := strings.Repeat("a", 100)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		_, _ = fmt.Fprint(w, body)
+	}))
+	defer server.Close()
+	args, _ := json.Marshal(map[string]any{"url": server.URL, "max_length": len(body)})
+	result, err := newTestWebFetch().Execute(context.Background(), args)
+	if err != nil || result.IsError || result.Annotations != nil || !strings.HasSuffix(result.Content, body) {
+		t.Fatalf("header consumiu max_length: err=%v result=%+v", err, result)
+	}
+}
+
+func TestWebFetchJSONIsStructuredAndLargePayloadFailsWithoutPartial(t *testing.T) {
+	body := `{"items":["` + strings.Repeat("segredo", 100) + `"]}`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/problem+json")
+		_, _ = fmt.Fprint(w, body)
+	}))
+	defer server.Close()
+
+	args, _ := json.Marshal(map[string]any{"url": server.URL, "max_length": 100})
+	result, err := newTestWebFetch().Execute(context.Background(), args)
+	if err != nil || !result.IsError || result.Failure == nil || result.Failure.Code != "result_too_large" {
+		t.Fatalf("JSON grande não falhou integralmente: err=%v result=%+v", err, result)
+	}
+	if strings.Contains(result.Content, body[:100]) {
+		t.Fatal("falha estruturada contém JSON parcial")
+	}
+	if result.Metadata["url"] != server.URL || result.Metadata["status"] != http.StatusOK {
+		t.Fatalf("falha estruturada perdeu metadata HTTP: %+v", result.Metadata)
+	}
+	if result.Annotations == nil || result.Annotations.HTTPResponse == nil ||
+		result.Annotations.HTTPResponse.URL != server.URL {
+		t.Fatalf("falha estruturada perdeu proveniência HTTP: %+v", result.Annotations)
+	}
+}
+
+func TestWebFetchSmallStructuredJSONPreservesHTTPContext(t *testing.T) {
+	const body = `{"status":"ok"}`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/problem+json")
+		_, _ = fmt.Fprint(w, body)
+	}))
+	defer server.Close()
+
+	args, _ := json.Marshal(map[string]string{"url": server.URL})
+	result, err := newTestWebFetch().Execute(context.Background(), args)
+	if err != nil || result.IsError || !result.Structured || result.Content != body {
+		t.Fatalf("JSON pequeno inesperado: err=%v result=%+v", err, result)
+	}
+	if result.Annotations == nil || result.Annotations.HTTPResponse == nil ||
+		result.Annotations.HTTPResponse.URL != server.URL ||
+		result.Annotations.HTTPResponse.ContentType != "application/problem+json" {
+		t.Fatalf("JSON pequeno perdeu proveniência HTTP: %+v", result.Annotations)
+	}
+}
+
+func TestWebFetchRawIsExactOrFailsWithoutPartial(t *testing.T) {
+	body := "ç-exato"
+	small := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		_, _ = fmt.Fprint(w, body)
+	}))
+	defer small.Close()
+	result, err := newTestWebFetch().Execute(context.Background(), json.RawMessage(
+		fmt.Sprintf(`{"url":%q,"extract_mode":"raw"}`, small.URL),
+	))
+	if err != nil || result.IsError || result.Content != body || !result.RawExact {
+		t.Fatalf("raw pequeno não foi exato: err=%v result=%+v", err, result)
+	}
+	if result.Annotations == nil || result.Annotations.HTTPResponse == nil ||
+		result.Annotations.HTTPResponse.URL != small.URL {
+		t.Fatalf("raw pequeno perdeu proveniência HTTP: %+v", result.Annotations)
+	}
+
+	largeBody := strings.Repeat("segredo-", 1000)
+	large := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		_, _ = fmt.Fprint(w, largeBody)
+	}))
+	defer large.Close()
+	result, err = newTestWebFetch().Execute(context.Background(), json.RawMessage(
+		fmt.Sprintf(`{"url":%q,"extract_mode":"raw","max_length":100}`, large.URL),
+	))
+	if err != nil || !result.IsError || result.Failure == nil || result.Failure.Code != "raw_result_too_large" {
+		t.Fatalf("raw grande não falhou de modo estável: err=%v result=%+v", err, result)
+	}
+	if strings.Contains(result.Content, largeBody[:100]) {
+		t.Fatal("falha raw contém prefixo parcial")
+	}
+}
+
+func TestWebFetchRawRejectsInvalidUTF8(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/octet-stream")
+		_, _ = w.Write([]byte{0xff, 0xfe})
+	}))
+	defer server.Close()
+	result, err := newTestWebFetch().Execute(context.Background(), json.RawMessage(
+		fmt.Sprintf(`{"url":%q,"extract_mode":"raw"}`, server.URL),
+	))
+	if err != nil || !result.IsError || result.Failure == nil || result.Failure.Code != "raw_invalid_utf8" {
+		t.Fatalf("raw não UTF-8 não falhou explicitamente: err=%v result=%+v", err, result)
+	}
+}
+
+func TestWebFetchStructuredJSONRejectsInvalidUTF8(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/problem+json")
+		_, _ = w.Write([]byte{'{', '"', 'x', '"', ':', '"', 0xff, '"', '}'})
+	}))
+	defer server.Close()
+	args, _ := json.Marshal(map[string]string{"url": server.URL})
+	result, err := newTestWebFetch().Execute(context.Background(), args)
+	if err != nil || !result.IsError || result.Failure == nil ||
+		result.Failure.Code != "structured_invalid_utf8" || result.Structured {
+		t.Fatalf("JSON UTF-8 inválido não falhou explicitamente: err=%v result=%+v", err, result)
+	}
+	if strings.Contains(result.Content, "�") {
+		t.Fatalf("falha contém JSON corrompido: %q", result.Content)
+	}
+}
+
+func TestWebFetchOversizedDownloadPreservesHTTPContext(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		chunk := strings.Repeat("x", 64*1024)
+		for written := 0; written <= fetchMaxResponseBody; written += len(chunk) {
+			_, _ = fmt.Fprint(w, chunk)
+		}
+	}))
+	defer server.Close()
+
+	args, _ := json.Marshal(map[string]string{"url": server.URL})
+	result, err := newTestWebFetch().Execute(context.Background(), args)
+	if err != nil || !result.IsError || result.Failure == nil ||
+		result.Failure.Code != "response_body_too_large" {
+		t.Fatalf("download grande não falhou corretamente: err=%v result=%+v", err, result)
+	}
+	if result.Metadata["url"] != server.URL || result.Metadata["status"] != http.StatusOK {
+		t.Fatalf("falha perdeu metadata HTTP: %+v", result.Metadata)
+	}
+	if result.Metadata["bytes_observed"] != fetchMaxResponseBody+1 {
+		t.Fatalf("bytes observados incorretos: %+v", result.Metadata)
+	}
+	if _, misleading := result.Metadata["length"]; misleading {
+		t.Fatalf("comprimento desconhecido não deve ser apresentado como total: %+v", result.Metadata)
+	}
+	if result.Annotations == nil || result.Annotations.HTTPResponse == nil ||
+		result.Annotations.HTTPResponse.URL != server.URL ||
+		result.Annotations.HTTPResponse.ContentType != "text/plain; charset=utf-8" {
+		t.Fatalf("falha perdeu proveniência model-facing: %+v", result.Annotations)
+	}
+	if strings.Contains(result.Content, strings.Repeat("x", 100)) {
+		t.Fatal("falha contém prefixo parcial da resposta")
+	}
+}
+
+func TestWebFetchUsesExecutorBudgetWhenParameterIsOmitted(t *testing.T) {
+	payload := strings.Repeat("x", 60*1024)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		_, _ = fmt.Fprint(w, payload)
+	}))
+	defer server.Close()
+
+	args, _ := json.Marshal(map[string]string{"url": server.URL})
+	ctx := tools.WithMaxResultSize(context.Background(), 100*1024)
+	result, err := newTestWebFetch().Execute(ctx, args)
+	if err != nil || result.IsError ||
+		(result.Annotations != nil && result.Annotations.OutputWindow != nil) ||
+		!strings.Contains(result.Content, payload) {
+		t.Fatalf("budget do executor não foi respeitado: err=%v result=%+v", err, result)
 	}
 }
 

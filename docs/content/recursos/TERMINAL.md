@@ -28,8 +28,12 @@ Múltiplas sessões podem existir simultaneamente (até 10 por padrão), cada um
 | Propriedade | Valor Padrão |
 |---|---|
 | Máximo de sessões | 10 |
-| Timeout padrão | 30 segundos |
+| Timeout padrão | 15 segundos |
 | Histórico por sessão | 200 entradas |
+
+O timeout pode ser configurado em cada chamada da ferramenta. Quando ele é
+atingido, o Assistente envia `Ctrl+C`, aguarda e drena a saída restante e só
+então encerra uma sessão efêmera, evitando perder as últimas linhas do comando.
 
 ## Histórico de Comandos
 

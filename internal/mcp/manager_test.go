@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -13,8 +14,10 @@ import (
 	"assistente/internal/configdir"
 	"assistente/internal/credentials"
 	"assistente/internal/database"
+	"assistente/internal/oauthflow"
 	"assistente/internal/portability"
 	"assistente/internal/tools"
+	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // TestNewManager testa criação de novo manager
@@ -364,47 +367,38 @@ func TestCheckAndRefreshToken_SkipsWhenCredManagerIsNil(t *testing.T) {
 }
 
 func TestCheckAndRefreshToken_SkipsWhenTokenFarFromExpiry(t *testing.T) {
-	m := newTestManager()
+	m, _, userCtx := managedFixture(t)
 	m.servers["test"] = &ServerStatus{
 		Slug:   "test",
-		Config: ServerConfig{AuthType: AuthOAuth2PKCE},
+		Config: ServerConfig{Transport: TransportStreamable, URL: "https://unused.example/mcp", OAuth2ClientID: "client", OAuth2TokenURL: "https://unused.example/token", AuthType: AuthOAuth2PKCE},
 	}
 
 	farFuture := time.Now().Add(1 * time.Hour).Unix()
-	_ = m.credMgr.RegisterPatternWithContext(context.Background(), userTokensPattern("test"), &credentials.AuthConfig{
-		Type:       "oauth2",
-		Token:      "access-valid",
-		RefreshURL: "refresh-123",
-		ExpiresAt:  farFuture,
-	})
+	seedManagedRuntime(t, m, userCtx, "test", "access-valid", "refresh-123", time.Unix(farFuture, 0))
 
 	m.checkAndRefreshToken("test")
 
-	auth, _ := m.credMgr.GetByPattern(userTokensPattern("test"))
-	if auth.Token != "access-valid" {
-		t.Errorf("token should not have changed, got %q", auth.Token)
+	_, _, record := loadManaged(t, m, userCtx, "test")
+	if record.Tokens.Access != "access-valid" {
+		t.Errorf("token should not have changed, got %q", record.Tokens.Access)
 	}
 }
 
 func TestCheckAndRefreshToken_SkipsWhenNoRefreshToken(t *testing.T) {
-	m := newTestManager()
+	m, _, userCtx := managedFixture(t)
 	m.servers["test"] = &ServerStatus{
 		Slug:   "test",
-		Config: ServerConfig{AuthType: AuthOAuth2PKCE},
+		Config: ServerConfig{Transport: TransportStreamable, URL: "https://unused.example/mcp", OAuth2ClientID: "client", OAuth2TokenURL: "https://unused.example/token", AuthType: AuthOAuth2PKCE},
 	}
 
 	soonExpiry := time.Now().Add(30 * time.Second).Unix()
-	_ = m.credMgr.RegisterPatternWithContext(context.Background(), userTokensPattern("test"), &credentials.AuthConfig{
-		Type:      "oauth2",
-		Token:     "access-expiring",
-		ExpiresAt: soonExpiry,
-	})
+	seedManagedRuntime(t, m, userCtx, "test", "access-expiring", "", time.Unix(soonExpiry, 0))
 
 	m.checkAndRefreshToken("test")
 
-	auth, _ := m.credMgr.GetByPattern(userTokensPattern("test"))
-	if auth.Token != "access-expiring" {
-		t.Errorf("token should not have changed (no refresh token), got %q", auth.Token)
+	_, _, record := loadManaged(t, m, userCtx, "test")
+	if record.Tokens.Access != "access-expiring" {
+		t.Errorf("token should not have changed (no refresh token), got %q", record.Tokens.Access)
 	}
 }
 
@@ -420,36 +414,81 @@ func TestCheckAndRefreshToken_RefreshesExpiringToken(t *testing.T) {
 	}))
 	defer tokenServer.Close()
 
-	m := newTestManager()
+	m, _, userCtx := managedFixture(t)
 	m.servers["test"] = &ServerStatus{
 		Slug: "test",
 		Config: ServerConfig{
+			Transport:      TransportStreamable,
+			DisableSSE:     true,
 			AuthType:       AuthOAuth2PKCE,
 			OAuth2ClientID: "test-client",
+			URL:            tokenServer.URL + "/mcp",
 			OAuth2TokenURL: tokenServer.URL,
-			OAuth2AuthURL:  "http://unused/auth",
+			OAuth2AuthURL:  tokenServer.URL + "/authorize",
 		},
 	}
 
 	soonExpiry := time.Now().Add(30 * time.Second).Unix()
-	_ = m.credMgr.RegisterPatternWithContext(context.Background(), userTokensPattern("test"), &credentials.AuthConfig{
-		Type:       "oauth2",
-		Token:      "old-access-token",
-		RefreshURL: "old-refresh-token",
-		ExpiresAt:  soonExpiry,
-	})
+	seedManagedRuntime(t, m, userCtx, "test", "old-access-token", "old-refresh-token", time.Unix(soonExpiry, 0))
 
 	m.checkAndRefreshToken("test")
 
-	auth, err := m.credMgr.GetByPattern(userTokensPattern("test"))
-	if err != nil {
-		t.Fatalf("error reading token: %v", err)
+	_, _, record := loadManaged(t, m, userCtx, "test")
+	if record.Tokens.Access != "new-access-token" {
+		t.Errorf("expected refreshed token 'new-access-token', got %q", record.Tokens.Access)
 	}
-	if auth.Token != "new-access-token" {
-		t.Errorf("expected refreshed token 'new-access-token', got %q", auth.Token)
+	if record.Tokens.Refresh != "new-refresh-token" {
+		t.Errorf("expected refreshed refresh_token 'new-refresh-token', got %q", record.Tokens.Refresh)
 	}
-	if auth.RefreshURL != "new-refresh-token" {
-		t.Errorf("expected refreshed refresh_token 'new-refresh-token', got %q", auth.RefreshURL)
+}
+
+// TestCheckAndRefreshToken_PersistsSobContextoDoUsuario garante que o token
+// renovado é persistido no MESMO escopo de usuário usado para lê-lo. Antes, a
+// leitura usava credentialContext() (com usuário) mas a persistência derivava do
+// ctx do caller (m.ctx do loop proativo, sem usuário): o refresh lia as
+// credenciais do usuário e as gravava fora de escopo, o que no store real falha
+// com "authenticated user required" (falso ERROR observado no assistente.log).
+func TestCheckAndRefreshToken_PersistsSobContextoDoUsuario(t *testing.T) {
+	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"access_token":  "new-access-token",
+			"refresh_token": "new-refresh-token",
+			"token_type":    "Bearer",
+			"expires_in":    3600,
+		})
+	}))
+	defer tokenServer.Close()
+
+	m, _, userCtx := managedFixture(t)
+	// credentialContext() (leitura) tem usuário; m.ctx (usado pelo caller na
+	// persistência) não. A regressão só some quando leitura e persistência usam o
+	// mesmo escopo de usuário.
+	// managedFixture supplies an authenticated owner; m.ctx remains unscoped.
+	m.servers["test"] = &ServerStatus{
+		Slug: "test",
+		Config: ServerConfig{
+			Transport:      TransportStreamable,
+			DisableSSE:     true,
+			AuthType:       AuthOAuth2PKCE,
+			OAuth2ClientID: "test-client",
+			URL:            tokenServer.URL + "/mcp",
+			OAuth2TokenURL: tokenServer.URL,
+			OAuth2AuthURL:  tokenServer.URL + "/authorize",
+		},
+	}
+
+	soonExpiry := time.Now().Add(30 * time.Second).Unix()
+	// Credenciais gravadas SOB o escopo do usuário.
+	seedManagedRuntime(t, m, userCtx, "test", "old-access-token", "old-refresh-token", time.Unix(soonExpiry, 0))
+
+	m.checkAndRefreshToken("test")
+
+	// Lê no mesmo escopo do usuário: só encontra o token renovado se a
+	// persistência tiver usado o contexto do usuário.
+	_, _, record := loadManaged(t, m, userCtx, "test")
+	if record.Tokens.Access != "new-access-token" {
+		t.Errorf("token renovado deveria estar persistido no escopo do usuário; got %q", record.Tokens.Access)
 	}
 }
 
@@ -460,30 +499,28 @@ func TestCheckAndRefreshToken_HandlesRefreshFailure(t *testing.T) {
 	}))
 	defer tokenServer.Close()
 
-	m := newTestManager()
+	m, _, userCtx := managedFixture(t)
 	m.servers["test"] = &ServerStatus{
 		Slug: "test",
 		Config: ServerConfig{
+			Transport:      TransportStreamable,
+			DisableSSE:     true,
 			AuthType:       AuthOAuth2PKCE,
 			OAuth2ClientID: "test-client",
+			URL:            tokenServer.URL + "/mcp",
 			OAuth2TokenURL: tokenServer.URL,
-			OAuth2AuthURL:  "http://unused/auth",
+			OAuth2AuthURL:  tokenServer.URL + "/authorize",
 		},
 	}
 
 	soonExpiry := time.Now().Add(30 * time.Second).Unix()
-	_ = m.credMgr.RegisterPatternWithContext(context.Background(), userTokensPattern("test"), &credentials.AuthConfig{
-		Type:       "oauth2",
-		Token:      "old-access-token",
-		RefreshURL: "old-refresh-token",
-		ExpiresAt:  soonExpiry,
-	})
+	seedManagedRuntime(t, m, userCtx, "test", "old-access-token", "old-refresh-token", time.Unix(soonExpiry, 0))
 
 	m.checkAndRefreshToken("test")
 
-	auth, _ := m.credMgr.GetByPattern(userTokensPattern("test"))
-	if auth.Token != "old-access-token" {
-		t.Errorf("token should remain unchanged after failed refresh, got %q", auth.Token)
+	_, _, record := loadManaged(t, m, userCtx, "test")
+	if record.Tokens.Access != "" || record.Tokens.Refresh != "" || record.State != "reauthorization_required" {
+		t.Error("invalid_grant must invalidate the rejected grant and require reauthorization")
 	}
 }
 
@@ -501,27 +538,29 @@ func TestCheckAndRefreshToken_UsesStoredClientCreds(t *testing.T) {
 	}))
 	defer tokenServer.Close()
 
-	m := newTestManager()
+	m, _, userCtx := managedFixture(t)
 	m.servers["test"] = &ServerStatus{
 		Slug: "test",
 		Config: ServerConfig{
+			Transport:      TransportStreamable,
+			DisableSSE:     true,
 			AuthType:       AuthOAuth2PKCE,
 			OAuth2ClientID: "",
+			URL:            tokenServer.URL + "/mcp",
 			OAuth2TokenURL: tokenServer.URL,
-			OAuth2AuthURL:  "http://unused/auth",
+			OAuth2AuthURL:  tokenServer.URL + "/authorize",
 		},
 	}
 
-	rt := &pkceRoundTripper{credMgr: m.credMgr, serverSlug: "test"}
-	rt.persistClientCreds("stored-client-id", "stored-secret")
+	m.servers["test"].Config.OAuthManaged = true
+	m.servers["test"].Config.OAuth2ClientID = "stored-client-id"
+	m.servers["test"].Config.OAuth2TokenAuthMethod = "client_secret_basic"
+	if err := m.SaveConfigWithOAuthSecret("test", m.servers["test"].Config, "stored-secret"); err != nil {
+		t.Fatal(err)
+	}
 
 	soonExpiry := time.Now().Add(30 * time.Second).Unix()
-	_ = m.credMgr.RegisterPatternWithContext(context.Background(), userTokensPattern("test"), &credentials.AuthConfig{
-		Type:       "oauth2",
-		Token:      "old",
-		RefreshURL: "refresh-tok",
-		ExpiresAt:  soonExpiry,
-	})
+	seedManagedRuntime(t, m, userCtx, "test", "old", "refresh-tok", time.Unix(soonExpiry, 0))
 
 	m.checkAndRefreshToken("test")
 
@@ -529,9 +568,9 @@ func TestCheckAndRefreshToken_UsesStoredClientCreds(t *testing.T) {
 		t.Error("expected Authorization header with stored client credentials")
 	}
 
-	auth, _ := m.credMgr.GetByPattern(userTokensPattern("test"))
-	if auth.Token != "refreshed" {
-		t.Errorf("expected refreshed token, got %q", auth.Token)
+	_, _, record := loadManaged(t, m, userCtx, "test")
+	if record.Tokens.Access != "refreshed" {
+		t.Errorf("expected refreshed token, got %q", record.Tokens.Access)
 	}
 }
 
@@ -547,26 +586,24 @@ func TestRecoverServerBestEffort_RefreshesOAuthToken(t *testing.T) {
 	}))
 	defer tokenServer.Close()
 
-	m := newTestManager()
+	m, _, userCtx := managedFixture(t)
 	m.servers["test"] = &ServerStatus{
 		Slug: "test",
 		Config: ServerConfig{
+			Transport:      TransportStreamable,
+			DisableSSE:     true,
 			Enabled:        true,
 			AuthType:       AuthOAuth2PKCE,
 			OAuth2ClientID: "test-client",
+			URL:            tokenServer.URL + "/mcp",
 			OAuth2TokenURL: tokenServer.URL,
-			OAuth2AuthURL:  "http://unused/auth",
+			OAuth2AuthURL:  tokenServer.URL + "/authorize",
 		},
 		Status: StatusDisconnected,
 	}
 
 	soonExpiry := time.Now().Add(30 * time.Second).Unix()
-	_ = m.credMgr.RegisterPatternWithContext(context.Background(), userTokensPattern("test"), &credentials.AuthConfig{
-		Type:       "oauth2",
-		Token:      "old-access-token",
-		RefreshURL: "old-refresh-token",
-		ExpiresAt:  soonExpiry,
-	})
+	seedManagedRuntime(t, m, userCtx, "test", "old-access-token", "old-refresh-token", time.Unix(soonExpiry, 0))
 
 	result := m.RecoverServerBestEffort(context.Background(), "test")
 	if !result.Attempted {
@@ -576,12 +613,9 @@ func TestRecoverServerBestEffort_RefreshesOAuthToken(t *testing.T) {
 		t.Fatal("recovery deveria renovar o token")
 	}
 
-	auth, err := m.credMgr.GetByPattern(userTokensPattern("test"))
-	if err != nil {
-		t.Fatalf("erro ao ler token: %v", err)
-	}
-	if auth.Token != "recover-access-token" {
-		t.Fatalf("token = %q, want %q", auth.Token, "recover-access-token")
+	_, _, record := loadManaged(t, m, userCtx, "test")
+	if record.Tokens.Access != "recover-access-token" {
+		t.Fatalf("token = %q, want %q", record.Tokens.Access, "recover-access-token")
 	}
 }
 
@@ -597,24 +631,23 @@ func TestRecoverServerBestEffort_RefreshesOAuthTokenWithoutExpiryWhenForced(t *t
 	}))
 	defer tokenServer.Close()
 
-	m := newTestManager()
+	m, _, userCtx := managedFixture(t)
 	m.servers["test"] = &ServerStatus{
 		Slug: "test",
 		Config: ServerConfig{
+			Transport:      TransportStreamable,
+			DisableSSE:     true,
 			Enabled:        true,
 			AuthType:       AuthOAuth2PKCE,
 			OAuth2ClientID: "test-client",
+			URL:            tokenServer.URL + "/mcp",
 			OAuth2TokenURL: tokenServer.URL,
-			OAuth2AuthURL:  "http://unused/auth",
+			OAuth2AuthURL:  tokenServer.URL + "/authorize",
 		},
 		Status: StatusDisconnected,
 	}
 
-	_ = m.credMgr.RegisterPatternWithContext(context.Background(), userTokensPattern("test"), &credentials.AuthConfig{
-		Type:       "oauth2",
-		Token:      "old-access-token",
-		RefreshURL: "old-refresh-token",
-	})
+	seedManagedRuntime(t, m, userCtx, "test", "old-access-token", "old-refresh-token", time.Time{})
 
 	result := m.RecoverServerBestEffort(context.Background(), "test")
 	if !result.Attempted {
@@ -624,12 +657,9 @@ func TestRecoverServerBestEffort_RefreshesOAuthTokenWithoutExpiryWhenForced(t *t
 		t.Fatal("recovery deveria renovar o token mesmo sem expiry persistido")
 	}
 
-	auth, err := m.credMgr.GetByPattern(userTokensPattern("test"))
-	if err != nil {
-		t.Fatalf("erro ao ler token: %v", err)
-	}
-	if auth.Token != "recover-access-token" {
-		t.Fatalf("token = %q, want %q", auth.Token, "recover-access-token")
+	_, _, record := loadManaged(t, m, userCtx, "test")
+	if record.Tokens.Access != "recover-access-token" {
+		t.Fatalf("token = %q, want %q", record.Tokens.Access, "recover-access-token")
 	}
 }
 
@@ -638,7 +668,9 @@ func TestRecoverServerBestEffort_RejectsDisabledServer(t *testing.T) {
 	m.servers["disabled"] = &ServerStatus{
 		Slug: "disabled",
 		Config: ServerConfig{
-			Enabled: false,
+			Transport:  TransportStreamable,
+			DisableSSE: true,
+			Enabled:    false,
 		},
 	}
 
@@ -657,37 +689,41 @@ func TestRecoverServerBestEffort_JoinsRefreshAndReconnectErrors(t *testing.T) {
 	}))
 	defer tokenServer.Close()
 
-	m := newTestManager()
+	m, _, userCtx := managedFixture(t)
 	m.servers["test"] = &ServerStatus{
 		Slug: "test",
 		Config: ServerConfig{
+			Transport:      TransportStreamable,
+			DisableSSE:     true,
 			Enabled:        true,
 			AuthType:       AuthOAuth2PKCE,
 			OAuth2ClientID: "test-client",
+			URL:            tokenServer.URL + "/mcp",
 			OAuth2TokenURL: tokenServer.URL,
-			OAuth2AuthURL:  "http://unused/auth",
+			OAuth2AuthURL:  tokenServer.URL + "/authorize",
 		},
 		Status: StatusDisconnected,
 	}
 
 	soonExpiry := time.Now().Add(30 * time.Second).Unix()
-	_ = m.credMgr.RegisterPatternWithContext(context.Background(), userTokensPattern("test"), &credentials.AuthConfig{
-		Type:       "oauth2",
-		Token:      "old-access-token",
-		RefreshURL: "old-refresh-token",
-		ExpiresAt:  soonExpiry,
-	})
+	seedManagedRuntime(t, m, userCtx, "test", "old-access-token", "old-refresh-token", time.Unix(soonExpiry, 0))
 
+	transportCalled := false
+	m.transportFactory = func(context.Context, string, ServerConfig) (mcpsdk.Transport, error) {
+		transportCalled = true
+		return nil, errors.New("transport rejected")
+	}
 	result := m.RecoverServerBestEffort(context.Background(), "test")
 	if result.Err == nil {
 		t.Fatal("esperava erro agregado de refresh + reconnect")
 	}
 	errText := result.Err.Error()
-	if !strings.Contains(errText, "oauth2:") {
+	if !errors.Is(result.Err, oauthflow.ErrTransient) {
 		t.Fatalf("erro deveria incluir falha de refresh, got %q", errText)
 	}
-	if !strings.Contains(errText, "transport desconhecido") {
-		t.Fatalf("erro deveria incluir falha de reconnect, got %q", errText)
+	joined, ok := result.Err.(interface{ Unwrap() []error })
+	if !ok || len(joined.Unwrap()) != 2 || !errors.Is(joined.Unwrap()[0], oauthflow.ErrReauthorize) || !errors.Is(joined.Unwrap()[1], oauthflow.ErrTransient) || transportCalled {
+		t.Fatalf("refresh ambíguo deve preservar ambas as falhas e impedir transporte com grant incerto: %q", errText)
 	}
 }
 
@@ -844,6 +880,10 @@ func TestParseServerConfig_DefaultsForMinimalURL(t *testing.T) {
 
 func TestImportFromMCPJSON_CursorFormat(t *testing.T) {
 	m := newTestManagerWithTempDir(t)
+	if err := database.DB().AutoMigrate(&database.CredentialEntry{}); err != nil {
+		t.Fatal(err)
+	}
+	m.credMgr = credentials.NewManagerWithStoreAndPersistence([]byte("01234567890123456789012345678901"), credentials.NewDBStore(), true)
 
 	mcpJSON := []byte(`{
 		"mcpServers": {
@@ -899,6 +939,20 @@ func TestImportFromMCPJSONRequiresRepositoryBeforeImport(t *testing.T) {
 	}
 	if rows != 0 {
 		t.Fatalf("ImportFromMCPJSON should not write without repository, rows=%d", rows)
+	}
+}
+
+func TestImportFromMCPJSONReportsLockedVaultAndLoadsSuccessfulEntries(t *testing.T) {
+	m := newTestManagerWithTempDir(t)
+	count, err := m.ImportFromMCPJSON([]byte(`{"mcpServers":{"remote":{"url":"https://remote.example/mcp"},"local":{"command":"node"}}}`))
+	if err == nil || !strings.Contains(err.Error(), "cofre de credenciais indisponível") || count != 1 {
+		t.Fatalf("expected partial import and vault error, count=%d err=%v", count, err)
+	}
+	if _, err := m.GetConfig("local"); err != nil {
+		t.Fatal("successful entry was not loaded", err)
+	}
+	if _, err := m.GetConfig("remote"); err == nil {
+		t.Fatal("failed OAuth import left a consumer")
 	}
 }
 
@@ -1045,7 +1099,11 @@ func TestImportFromMCPJSON_InvalidJSON(t *testing.T) {
 
 func TestBearerRoundTripperDoesNotDuplicateBearerPrefix(t *testing.T) {
 	var gotAuth string
-	rt := &bearerRoundTripper{
+	manager := &Manager{credMgr: newTestCredMgr()}
+	if err := manager.credMgr.RegisterPattern("example.com", &credentials.AuthConfig{Source: "static", Type: "bearer", Token: "Bearer already-prefixed"}); err != nil {
+		t.Fatal(err)
+	}
+	rt := &mcpCredentialTransport{manager: manager, resource: "https://example.com/mcp",
 		base: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 			gotAuth = req.Header.Get("Authorization")
 			return &http.Response{
@@ -1055,7 +1113,6 @@ func TestBearerRoundTripperDoesNotDuplicateBearerPrefix(t *testing.T) {
 				Request:    req,
 			}, nil
 		}),
-		token: "Bearer already-prefixed",
 	}
 
 	req, err := http.NewRequest(http.MethodGet, "https://example.com/mcp", nil)
@@ -1078,7 +1135,7 @@ func TestBearerRoundTripperDoesNotDuplicateBearerPrefix(t *testing.T) {
 // avaliado em runtime (não na hora do startup); se o usuário fizer logout
 // enquanto um servidor MCP está ativo, a próxima resolução de credencial
 // chega com ctx sem userID. O comportamento esperado é degradação limpa
-// (cliente sem auth, sem panic, sem corrupção de estado), nunca
+// (recusa antes da rede, sem panic, sem corrupção de estado), nunca
 // reaproveitamento de credencial de outro usuário.
 func TestBuildAuthHTTPClient_LogoutMidFlightDegrades(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1090,14 +1147,14 @@ func TestBuildAuthHTTPClient_LogoutMidFlightDegrades(t *testing.T) {
 	userCtx := database.WithUserID(context.Background(), "user-1")
 	loggedInOut := userCtx
 	m.SetAuthContextProvider(func() context.Context { return loggedInOut })
-	if err := m.credMgr.RegisterPatternWithContext(userCtx, "127.0.0.1", &credentials.AuthConfig{
+	if err := m.credMgr.RegisterPatternWithContext(userCtx, "127.0.0.1", &credentials.AuthConfig{Source: "static",
 		Type:  "bearer",
 		Token: "user-token",
 	}); err != nil {
 		t.Fatalf("RegisterPatternWithContext failed: %v", err)
 	}
 
-	clientLoggedIn := m.buildAuthHTTPClient("github", ServerConfig{
+	clientLoggedIn := m.buildAuthHTTPClient(context.Background(), "github", ServerConfig{
 		URL:      srv.URL,
 		AuthType: AuthBearer,
 	})
@@ -1107,12 +1164,14 @@ func TestBuildAuthHTTPClient_LogoutMidFlightDegrades(t *testing.T) {
 
 	loggedInOut = context.Background()
 
-	clientLoggedOut := m.buildAuthHTTPClient("github", ServerConfig{
+	clientLoggedOut := m.buildAuthHTTPClient(context.Background(), "github", ServerConfig{
 		URL:      srv.URL,
 		AuthType: AuthBearer,
 	})
-	if clientLoggedOut != nil {
-		t.Fatalf("logout-mid-flight should not return an authenticated client (got %T)", clientLoggedOut)
+	for _, client := range []*http.Client{clientLoggedIn, clientLoggedOut} {
+		if _, err := client.Get(srv.URL); !errors.Is(err, credentials.ErrCredentialResolution) {
+			t.Fatalf("logout-mid-flight reused credentials: %v", err)
+		}
 	}
 }
 
@@ -1127,14 +1186,14 @@ func TestBuildAuthHTTPClientResolvesUserScopedBearer(t *testing.T) {
 	m := newTestManager()
 	userCtx := database.WithUserID(context.Background(), "user-1")
 	m.SetAuthContextProvider(func() context.Context { return userCtx })
-	if err := m.credMgr.RegisterPatternWithContext(userCtx, "127.0.0.1", &credentials.AuthConfig{
+	if err := m.credMgr.RegisterPatternWithContext(userCtx, "127.0.0.1", &credentials.AuthConfig{Source: "static",
 		Type:  "bearer",
 		Token: "user-token",
 	}); err != nil {
 		t.Fatalf("RegisterPatternWithContext failed: %v", err)
 	}
 
-	client := m.buildAuthHTTPClient("github", ServerConfig{
+	client := m.buildAuthHTTPClient(context.Background(), "github", ServerConfig{
 		URL:      srv.URL,
 		AuthType: AuthBearer,
 	})

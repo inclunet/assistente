@@ -27,6 +27,15 @@ const (
 	DecisionScopeGlobal       DecisionScope = "global"
 )
 
+// DecisionSeverity descreve a intenção do pedido, sem inferência por cor.
+type DecisionSeverity string
+
+const (
+	DecisionSeverityPermission  DecisionSeverity = "permission"
+	DecisionSeverityDestructive DecisionSeverity = "destructive"
+	DecisionSeverityInfo        DecisionSeverity = "info"
+)
+
 // DecisionAction é um botão do DecisionDialog (sem rádio + Confirmar).
 type DecisionAction struct {
 	ID       string           `json:"id"`

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"assistente/controllers"
@@ -18,6 +19,12 @@ import (
 	"assistente/internal/apidto"
 	"assistente/internal/auth"
 	"assistente/internal/chat"
+	"assistente/internal/commandbridge"
+	"assistente/internal/commandcatalog"
+	"assistente/internal/commandexecution"
+	"assistente/internal/commandruntime"
+	"assistente/internal/commandsecurity"
+	"assistente/internal/commandui"
 	"assistente/internal/connstatus"
 	"assistente/internal/contextprovider"
 	"assistente/internal/conversation"
@@ -27,12 +34,15 @@ import (
 	"assistente/internal/deeplinkprotocol"
 	"assistente/internal/events"
 	"assistente/internal/fstrust"
+	"assistente/internal/hotkey"
+	"assistente/internal/jobprofilegrant"
 	"assistente/internal/jobs"
 	"assistente/internal/llm"
 	mcpmgr "assistente/internal/mcp"
 	"assistente/internal/memory"
 	"assistente/internal/messaging"
 	"assistente/internal/nettrust"
+	"assistente/internal/profileaccess"
 	"assistente/internal/profiles"
 	"assistente/internal/prompt"
 	"assistente/internal/providers"
@@ -68,24 +78,29 @@ type UpdateLLMProviderRequest = apidto.UpdateLLMProviderRequest
 
 // App struct
 type App struct {
-	ctx               context.Context
-	cancel            context.CancelFunc    // cancela o ctx raiz no Shutdown
-	bgWG              sync.WaitGroup        // join das goroutines de background no Shutdown
-	llmRegistry       *llm.ProviderRegistry // Registro de provedores LLM
-	profileManager    *profiles.Manager
-	toolRegistry      *tools.Registry          // Registro de ferramentas disponíveis
-	toolExecutor      *tools.Executor          // Executor de ferramentas com paralelismo e timeout
-	toolInvocationSvc *toolinvocations.Service // Persistência e execução comum de tool calls
-	terminalMgr       *terminal.Manager        // Gerenciador de sessões PTY (pool compartilhado LLM + usuário)
-	questionnaireMgr  *questionnaire.Manager   // Gerenciador de questionários (coleta estruturada)
-	allowlistMgr      *allowlist.Manager       // Gerenciador de allowlists de comandos
-	netTrustMgr       *nettrust.Manager        // Allowlist de rede escopável (anti-SSRF override)
-	fsTrustMgr        *fstrust.Manager         // Allowlist de paths fora do sandbox (AEP-0092)
-	mcpMgr            *mcpmgr.Manager          // Gerenciador de servidores MCP
-	acpMgr            *acp.Manager             // Processos e sessões dos agentes ACP (AEP-0084)
-	acpTrust          *acptrust.Store          // Permissões que o perfil concedeu ao agente para sempre (AEP-0084 D9)
-	acpRegistry       *acpregistry.Service     // Catálogo de agentes do registro oficial do ACP (AEP-0086 D2)
-	skillMgr          *skills.Manager          // Gerenciador de skills
+	startupResult       *startupResult // publicado antes de expor os bindings
+	desktopDatabasePath string         // fixado antes do startup, sob a reserva desktop
+	ctx                 context.Context
+	cancel              context.CancelFunc    // cancela o ctx raiz no Shutdown
+	bgWG                sync.WaitGroup        // join das goroutines de background no Shutdown
+	llmRegistry         *llm.ProviderRegistry // Registro de provedores LLM
+	profileManager      *profiles.Manager
+	profileAccess       *profileaccess.Service
+	profileAccessOnce   sync.Once
+	jobGrantStore       *jobprofilegrant.Store
+	toolRegistry        *tools.Registry          // Registro de ferramentas disponíveis
+	toolExecutor        *tools.Executor          // Executor de ferramentas com paralelismo e timeout
+	toolInvocationSvc   *toolinvocations.Service // Persistência e execução comum de tool calls
+	terminalMgr         *terminal.Manager        // Gerenciador de sessões PTY (pool compartilhado LLM + usuário)
+	questionnaireMgr    *questionnaire.Manager   // Gerenciador de questionários (coleta estruturada)
+	allowlistMgr        *allowlist.Manager       // Gerenciador de allowlists de comandos
+	netTrustMgr         *nettrust.Manager        // Allowlist de rede escopável (anti-SSRF override)
+	fsTrustMgr          *fstrust.Manager         // Allowlist de paths fora do sandbox (AEP-0092)
+	mcpMgr              *mcpmgr.Manager          // Gerenciador de servidores MCP
+	acpMgr              *acp.Manager             // Processos e sessões dos agentes ACP (AEP-0084)
+	acpTrust            *acptrust.Store          // Permissões que o perfil concedeu ao agente para sempre (AEP-0084 D9)
+	acpRegistry         *acpregistry.Service     // Catálogo de agentes do registro oficial do ACP (AEP-0086 D2)
+	skillMgr            *skills.Manager          // Gerenciador de skills
 	// acpCatalogSvc é o catálogo do registro ACP: o serviço acima e o instalador
 	// de agentes (AEP-0086). Montado na primeira chamada que precisa dele — ver
 	// acpCatalogServices em app_acp_install.go —, porque o instalador só existe
@@ -97,19 +112,46 @@ type App struct {
 	updater          *updater.Updater            // Gerenciador de atualizações automáticas
 	wakeLock         wakelock.Manager            // Previne bloqueio/suspensão quando a janela está em foco
 
-	credMgr           *credentials.Manager
-	credStore         credentials.Store
-	vaultSvc          *auth.VaultService
-	identitySvc       *auth.IdentityService
-	sessionSvc        *auth.SessionService
-	httpAPIServer     *http.Server
-	authMu            sync.RWMutex
-	authSessionMu     sync.Mutex
-	currentUserID     string
-	currentAuthUser   *AuthUser
-	authKeyringLoad   func() (string, error)
-	authKeyringSave   func(string) error
-	authKeyringDelete func() error
+	httpResponseArtifacts interface{ CleanupArtifacts() error } // Artefatos efêmeros de http_request
+
+	credMgr                 *credentials.Manager
+	credStore               credentials.Store
+	vaultSvc                *auth.VaultService
+	identitySvc             *auth.IdentityService
+	sessionSvc              *auth.SessionService
+	httpAPIServer           *http.Server
+	authMu                  sync.RWMutex
+	authSessionMu           sync.Mutex
+	commandStartupOnce      sync.Once
+	commandStartup          chan struct{} // transição completa prepare -> bootstrap -> Start; aquisição cancelável
+	commandEpochsOnce       sync.Once
+	commandGate             *commandsecurity.DispatchGate
+	commandMaintenanceBuild sync.Mutex
+	commandMaintenance      atomic.Pointer[appCommandMaintenance]
+	commandJobAuthority     atomic.Pointer[appCommandJobAuthority]
+	commandEpochs           *commandsecurity.EpochService
+	commandEpochsErr        error
+	commandHost             *commandexecution.HostState          // protegido por authMu; bootstrap serializado
+	commandBridge           atomic.Pointer[commandbridge.Bridge] // ponte UI/backend montada pelo bootstrap confiável
+	commandExternalUI       atomic.Pointer[commandui.ExternalUIConnections]
+	commandExternalHTTP     atomic.Pointer[appExternalCommandProvider]
+	commandRegistry         *commandcatalog.Registry                  // snapshot canônico exposto para catálogo/palette; authMu
+	commandLifecycle        atomic.Pointer[commandruntime.Controller] // montagem real, sem registry global
+	commandLifecycleMount   sync.Mutex                                // serializa somente construção/publicação, nunca cleanup ou portas
+	commandLifecycleClosing bool                                      // protegido por commandLifecycleMount; shutdown é terminal para este App
+	commandProductBuild     sync.Mutex
+	commandBootstrapOnce    sync.Once
+	commandBootstrap        chan struct{} // serializa reconstruções por autenticação/cofre/SO
+	commandJobsPending      *AuthUser     // protegido por authSessionMu; iniciado só após publicar comandos
+	commandProduct          atomic.Pointer[commandProductRuntime]
+	commandStorageVersion   string // prontidão de armazenamento, NÃO de execução; authMu
+	commandStorageErr       error  // falha retida sem impedir autenticação legada; authMu
+	commandOSStarted        bool   // protegido por authMu; uma execução por App
+	currentUserID           string
+	currentAuthUser         *AuthUser
+	authKeyringLoad         func() (string, error)
+	authKeyringSave         func(string) error
+	authKeyringDelete       func() error
 
 	// Watcher de arquivos do editor (mudanças externas)
 	editorWatchMu             sync.Mutex
@@ -189,30 +231,32 @@ type App struct {
 	dialogPort ports.SystemDialogPort
 
 	// Controllers (Inbound Adapters — camada Fase 2 da migração para Clean Arch)
-	msgCtrl           *controllers.MessagingController
-	mcpCtrl           *controllers.MCPController
-	profilesCtrl      *controllers.ProfilesController
-	llmCtrl           *controllers.LLMController
-	skillsCtrl        *controllers.SkillsController
-	settingsCtrl      *controllers.SettingsController
-	chatCtrl          *controllers.ChatController
-	taskListCtrl      *controllers.TaskListController
-	conversationsCtrl *controllers.ConversationsController
-	memoryCtrl        *controllers.MemoryController
-	speechCtrl        *controllers.SpeechController
-	jobsCtrl          *controllers.JobsController
-	workspaceCtrl     *controllers.WorkspaceController
-	tokensCtrl        *controllers.TokensController
-	toolsCtrl         *controllers.ToolsController
-	updaterCtrl       *controllers.UpdaterController
-	credentialsCtrl   *controllers.CredentialsController
-	welcomeCtrl       *controllers.WelcomeController
-	terminalCtrl      *controllers.TerminalController
-	allowlistCtrl     *controllers.AllowlistController
-	signalCtrl        *controllers.SignalController
-	hotkeyCtrl        *controllers.HotkeysController
-	netTrustCtrl      *controllers.NetTrustController
-	fsTrustCtrl       *controllers.FSTrustController
+	msgCtrl               *controllers.MessagingController
+	mcpCtrl               *controllers.MCPController
+	profilesCtrl          *controllers.ProfilesController
+	llmCtrl               *controllers.LLMController
+	skillsCtrl            *controllers.SkillsController
+	settingsCtrl          *controllers.SettingsController
+	chatCtrl              *controllers.ChatController
+	taskListCtrl          *controllers.TaskListController
+	conversationsCtrl     *controllers.ConversationsController
+	memoryCtrl            *controllers.MemoryController
+	speechCtrl            *controllers.SpeechController
+	jobsCtrl              *controllers.JobsController
+	workspaceCtrl         *controllers.WorkspaceController
+	tokensCtrl            *controllers.TokensController
+	toolsCtrl             *controllers.ToolsController
+	updaterCtrl           *controllers.UpdaterController
+	credentialsCtrl       *controllers.CredentialsController
+	welcomeCtrl           *controllers.WelcomeController
+	terminalCtrl          *controllers.TerminalController
+	allowlistCtrl         *controllers.AllowlistController
+	signalCtrl            *controllers.SignalController
+	hotkeyCtrl            *controllers.HotkeysController
+	globalHotkeyOwnership *hotkey.OwnershipBarrier
+	decisionRepeatHotkeys *decisionRepeatHotkeys
+	netTrustCtrl          *controllers.NetTrustController
+	fsTrustCtrl           *controllers.FSTrustController
 
 	// tokensAPI é o bind Wails do domínio tokens (AEP-0088). Criado em main e
 	// wired após NewTokensController.
@@ -330,6 +374,14 @@ type App struct {
 	// SendMessage e RetryMessage. Criado em main e wired após NewChatController.
 	// sendMessageFromChannel permanece no *App.
 	chatAPI *wailsapi.Chat
+	// Somente o bootstrap GUI registra o bind antes do startup. A CLI cria
+	// sua fachada internamente e não recebe autoridade interativa de comandos.
+	chatDesktopIngress bool
+	commandCLIOnly     bool // entrypoint de consulta/execução, sem serviços autônomos
+
+	// commandCatalogAPI é o bind Wails de catálogo/Command Palette (AEP-0103).
+	// Criado em main e wired quando o snapshot canônico de comandos é montado.
+	commandCatalogAPI *wailsapi.CommandCatalog
 
 	// acpCommandsAPI é o bind Wails do domínio acp_commands (AEP-0088). Criado
 	// em main e wired após initACP (reusa acpMgr).
@@ -378,6 +430,7 @@ type StreamEvent = events.StreamEvent
 // NewApp creates a new App application struct
 func NewApp() *App {
 	return &App{
+		startupResult:  newStartupResult(),
 		profileManager: profiles.NewManager(),
 		llmRegistry:    llm.NewProviderRegistry(),
 	}
@@ -455,6 +508,15 @@ func SetToolsAPI(a *App, api *wailsapi.Tools) {
 		return
 	}
 	a.toolsAPI = api
+}
+
+// SetCommandCatalogAPI registra o bind Wails do catálogo de comandos antes do Run.
+// Função de pacote (não método) para não entrar na superfície Bind do Wails.
+func SetCommandCatalogAPI(a *App, api *wailsapi.CommandCatalog) {
+	if a == nil {
+		return
+	}
+	a.commandCatalogAPI = api
 }
 
 // ListAvailableTools expõe o catálogo runtime para o CLI (não entra no Bind Wails).
@@ -696,6 +758,7 @@ func SetChatAPI(a *App, api *wailsapi.Chat) {
 		return
 	}
 	a.chatAPI = api
+	a.chatDesktopIngress = api != nil
 }
 
 // ChatAPI expõe o bind de chat para a CLI (não entra no Bind Wails).
@@ -869,7 +932,8 @@ func AuthenticatedContext(a *App) (context.Context, error) {
 
 // StartupWithAdapters inicializa o app com os adapters fornecidos.
 // Reutilizado pelo Wails (main.go na raiz) e pelo CLI (cmd/asst/).
-func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, window ports.WindowPort, dialog ports.SystemDialogPort) error {
+func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, window ports.WindowPort, dialog ports.SystemDialogPort) (startupErr error) {
+	defer func() { a.startupResult.finish(startupErr) }()
 	// Deriva um contexto cancelável: Shutdown chama a.cancel() para sinalizar o
 	// encerramento às goroutines de background. WithCancel preserva os values do
 	// ctx pai (ex.: userID), então Context() continua válido para os consumidores.
@@ -879,7 +943,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	a.dialogPort = dialog
 
 	// Inicializa o banco de dados (falha crítica: sem DB nada funciona)
-	if err := InitDatabase(); err != nil {
+	if err := a.initDesktopDatabase(); err != nil {
 		return fmt.Errorf("erro ao inicializar banco de dados: %w", err)
 	}
 	// Drafts não são mais varridos por idade no boot pré-login. O cleanup
@@ -1072,6 +1136,9 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 		PromptBuilder:    a.promptBuilder,
 		ContextProviders: a.contextProviders,
 		LinkedTaskLists:  a.linkedTaskListsForConversation,
+		MutateProfiles: func(mutate func() error) error {
+			return a.profileAccessService().MutateProfiles(mutate)
+		},
 	})
 
 	// Inicializa hotkeys globais
@@ -1079,16 +1146,20 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	a.initGlobalHotkeys()
 
 	// Registra hotkeys do perfil ativo
-	a.registerActiveProfileHotkeys()
+	// A inscrição aguarda o mapa de ownership aplicado pela UI. Não bloquear
+	// OnStartup: a WebView precisa concluir o boot para confirmar esse mapa.
+	a.bgWG.Add(1)
+	go func() {
+		defer a.bgWG.Done()
+		a.registerActiveProfileHotkeys()
+	}()
 
 	// Inicializa o sistema de jobs (event-driven automation)
 	a.initJobs()
 
 	// Liga a ponte de eventos de domínio das tasklists ao EventBus de jobs (AEP-0067).
 	// O Service é criado antes do jobMgr, então o sink é injetado aqui.
-	if a.taskSvc != nil {
-		a.taskSvc.SetDomainEventSink(a.jobMgr)
-	}
+	a.wireTaskListDomainEvents()
 
 	// Inicializa o updater
 	a.initUpdater()
@@ -1122,7 +1193,9 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 		if a.msgGateway != nil {
 			a.msgGateway.SetCancelStream(a.streamMgr.Cancel)
 		}
-		a.msgCtrl.StartAdapters("")
+		if !a.commandCLIOnly {
+			a.msgCtrl.StartAdapters("")
+		}
 	}
 	// Subagent manager (AEP-0068): criado após o ChatController para reusar a
 	// MESMA SendMessageUseCase (sem fluxo alternativo de envio — AEP-0040).
@@ -1174,6 +1247,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 		MsgRepo:               a.msgRepo,
 		Emitter:               a.emitter,
 		ResetScopedState:      a.resetConversationScopedState,
+		PrepareBatchDelete:    a.prepareConversationDeletion,
 		ConfirmDeleteMessage:  a.confirmDeleteMessageQuestionnaire,
 		GetEffectiveModelFunc: a.effectiveModelFromActiveProfile,
 	})
@@ -1190,6 +1264,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	a.wireSkills()
 	a.wireAllowlist()
 	a.wireTools()
+	a.wireCommandCatalog()
 	a.wireUpdater()
 	a.wireNetTrust()
 	a.wireFSTrust()
@@ -1212,8 +1287,27 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	a.wireSignal()
 	a.wireTerminal()
 
-	if err := a.startHTTPAPI(); err != nil {
-		return err
+	if !a.commandCLIOnly {
+		if err := a.startHTTPAPI(); err != nil {
+			return err
+		}
+	}
+	// Também cobre um host de comandos instalado antes do ciclo de vida.
+	// Sem host, o bootstrap continua sem observador nem comandos ativados.
+	a.authMu.Lock()
+	a.startCommandOSSessionMonitorLocked()
+	a.authMu.Unlock()
+
+	// O startup normal ocorre antes de existir uma sessão autenticada. Quando
+	// uma sessão já foi restaurada pelo bootstrap confiável, o controller real
+	// pode executar sua cadeia; caso contrário, Login/RefreshAuth fará isso
+	// depois da transição, sempre fora dos locks de autenticação.
+	if err := a.bootstrapCommandLifecycleAtStartup(a.appContext()); err != nil {
+		return fmt.Errorf("erro ao inicializar ciclo de vida de comandos: %w", err)
+	}
+
+	if a.commandCLIOnly {
+		return nil
 	}
 
 	// Verifica atualizações no startup (não bloqueante). Rastreada em bgWG para
@@ -1261,6 +1355,49 @@ func (a *App) waitBackground(timeout time.Duration) {
 
 // Shutdown encerra todos os serviços do app.
 func (a *App) Shutdown() {
+	a.startupResult.finish(context.Canceled)
+	// Publica inclusive o estado terminal quando nenhum vínculo foi criado:
+	// uma admissão concorrente não pode montar uma registry viva após o shutdown.
+	a.ensureExternalUIConnections().Close()
+	if externalHTTP := a.commandExternalHTTP.Load(); externalHTTP != nil {
+		externalHTTP.Close()
+	}
+	if a.decisionRepeatHotkeys != nil {
+		a.decisionRepeatHotkeys.active.Store(nil)
+	}
+	if a.globalHotkeyOwnership != nil {
+		a.globalHotkeyOwnership.Close()
+	}
+	if a.decisionRepeatHotkeys != nil {
+		a.decisionRepeatHotkeys.shutdown()
+	}
+	// Desabilita e invalida entradas antes de cancelar/destruir os adapters do
+	// App. O hook não adquire authMu/authSessionMu nem é chamado sob outro lock.
+	// O timeout limita a espera do App; uma porta que ignore o contexto não pode
+	// ser forçada a parar, portanto não há promessa de encerramento forçado.
+	shutdownCtx, cancelCommandLifecycle := context.WithTimeout(context.Background(), shutdownBackgroundTimeout)
+	if err := a.shutdownCommandLifecycleIfConfigured(shutdownCtx); err != nil {
+		logging.Errorf(context.Background(), "app.app", "erro ao encerrar ciclo de vida de comandos: %v", err)
+		if _, mounted := loadCommandLifecycle(a); mounted {
+			// O worker não foi comprovadamente encerrado. Não destruir adapters,
+			// managers ou seu contexto enquanto callbacks ainda podem estar ativos;
+			// uma chamada posterior de Shutdown pode repetir a drenagem.
+			logging.Warnf(context.Background(), "app.app", "ciclo de vida de comandos ainda montado após timeout; shutdown interrompido de forma conservadora")
+			cancelCommandLifecycle()
+			return
+		}
+	}
+	if err := a.drainCommandExecutors(shutdownCtx); err != nil {
+		logging.Errorf(context.Background(), "app.app", "executores de comandos não drenados; dependências preservadas: %v", err)
+		cancelCommandLifecycle()
+		return
+	}
+	if err := a.shutdownCommandBridgeIfConfigured(shutdownCtx); err != nil {
+		logging.Errorf(context.Background(), "app.app", "ponte de comandos não drenada; dependências preservadas: %v", err)
+		cancelCommandLifecycle()
+		return
+	}
+	cancelCommandLifecycle()
 	a.wakeLock.Release()
 	// Sinaliza o cancelamento às goroutines de background e aguarda o join
 	// antes de derrubar os managers, evitando loops órfãos no encerramento.
@@ -1268,6 +1405,9 @@ func (a *App) Shutdown() {
 		a.cancel()
 	}
 	a.waitBackground(shutdownBackgroundTimeout)
+	if a.httpResponseArtifacts != nil {
+		_ = a.httpResponseArtifacts.CleanupArtifacts()
+	}
 
 	a.stopAllEditorWatches()
 	a.stopConnectionMonitor()

@@ -127,13 +127,26 @@ func ImportMCPServerWithContext(ctx context.Context, server MCPServerExport) (bo
 	if err != nil {
 		return false, err
 	}
-	if err := database.DB().WithContext(ctx).Create(&row).Error; err != nil {
+	if err := database.DB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&row).Error; err != nil {
+			return err
+		}
+		if historicalMCPOAuth(server) {
+			// Historical backups cannot prove a complete grant. Preserve their
+			// metadata for snapshot recovery without activating the legacy runtime.
+			return tx.Model(&row).Updates(map[string]any{"enabled": false, "auto_connect": false}).Error
+		}
+		return nil
+	}); err != nil {
 		return false, fmt.Errorf("erro ao importar servidor MCP %s: %w", server.Slug, err)
 	}
 	return true, nil
 }
 
 func importMCPServerWithCredentials(ctx context.Context, credMgr *credentials.Manager, server MCPServerExport) (bool, error) {
+	if server.externalOAuth {
+		return importExternalMCPOAuth(ctx, credMgr, server)
+	}
 	imported, err := ImportMCPServerWithContext(ctx, server)
 	if err != nil || !imported {
 		return imported, err
@@ -364,6 +377,7 @@ func parseExternalMCPServers(data []byte) ([]MCPServerExport, bool, error) {
 			server.BearerToken = token
 		}
 		server = normalizeMCPServerExport(server)
+		server.externalOAuth = server.AuthType == "oauth2_pkce"
 		result = append(result, server)
 	}
 	return result, true, nil
@@ -415,19 +429,44 @@ func ImportMCPServersJSONWithContext(ctx context.Context, data []byte, credMgr *
 	return result, nil
 }
 
+// HasMCPServers identifies the canonical and external forms using the same
+// parser as import, so runtime publication is limited to MCP imports.
+func HasMCPServers(data string) bool {
+	file, _, err := parseExportFile(data)
+	return err == nil && file != nil && len(file.Resources.MCPServers) > 0
+}
+
 // ImportLegacyMCPServersWithContext imports read-only legacy JSON config files
 // into the canonical portability model. Existing DB slugs are skipped by
 // ImportMCPServerWithContext, keeping repeated startup imports idempotent.
 func ImportLegacyMCPServersWithContext(ctx context.Context, source LegacyImportSource, credMgr *credentials.Manager) (LegacyImportResult, error) {
-	return ImportLegacyResourcesWithContext(ctx, LegacyImportRequest[MCPServerExport]{
+	var warnings []LocalizedMessage
+	result, err := ImportLegacyResourcesWithContext(ctx, LegacyImportRequest[MCPServerExport]{
 		ResourceType: "servidor MCP",
 		Source:       source,
 		FileSuffix:   ".json",
 		Parse:        parseLegacyMCPServerFile,
 		Import: func(ctx context.Context, server MCPServerExport) (bool, error) {
-			return importMCPServerWithCredentials(ctx, credMgr, server)
+			imported, err := importMCPServerWithCredentials(ctx, credMgr, server)
+			if err == nil && imported && historicalMCPOAuth(server) {
+				warnings = append(warnings, historicalMCPOAuthWarning(server))
+			}
+			return imported, err
 		},
 	})
+	result.WarningMessages = append(result.WarningMessages, warnings...)
+	return result, err
+}
+
+func historicalMCPOAuth(server MCPServerExport) bool {
+	server = normalizeMCPServerExport(server)
+	return !server.externalOAuth && (server.Transport == "sse" || server.Transport == "streamable") &&
+		(server.AuthType == "oauth2_pkce" || server.AuthType == "oauth2_client_credentials")
+}
+
+func historicalMCPOAuthWarning(server MCPServerExport) LocalizedMessage {
+	return newMessage("mcpServer.oauthRecoveryRequired", params("slug", server.Slug),
+		"O MCP %s foi importado desativado para recuperação OAuth. Crie um snapshot no diagnóstico OAuth e use Converter ou Reconectar e migrar antes de habilitá-lo.", server.Slug)
 }
 
 func parseLegacyMCPServerFile(file LegacyImportFile, data []byte) (MCPServerExport, error) {
@@ -573,7 +612,7 @@ func importMCPServerInlineCredential(ctx context.Context, credMgr *credentials.M
 	if hostname == "" {
 		return nil
 	}
-	return credMgr.RegisterPatternWithContext(ctx, hostname, &credentials.AuthConfig{
+	return credMgr.RegisterPatternWithContext(ctx, hostname, &credentials.AuthConfig{Source: "static",
 		Type:  "bearer",
 		Token: server.BearerToken,
 	})

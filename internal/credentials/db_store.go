@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"assistente/internal/database"
+	"assistente/internal/oauthflow"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -39,6 +40,11 @@ func (s *DBStore) ensureDB() (*gorm.DB, error) {
 }
 
 func (s *DBStore) SaveCredential(ctx context.Context, cred StoredCredential) error {
+	return s.saveCredential(ctx, cred, false)
+}
+
+// inTransaction is reserved for vault operations already holding the SQLite writer.
+func (s *DBStore) saveCredential(ctx context.Context, cred StoredCredential, inTransaction bool) error {
 	db, err := s.ensureDB()
 	if err != nil {
 		return err
@@ -78,6 +84,9 @@ func (s *DBStore) SaveCredential(ctx context.Context, cred StoredCredential) err
 		UserID:          userID,
 		Pattern:         cred.Pattern,
 		AuthType:        cred.Auth.Type,
+		OAuthEnc:        cred.Auth.OAuthEnc,
+		Source:          cred.Auth.Source,
+		SourceConfigEnc: cred.Auth.SourceConfigEnc,
 		TokenEnc:        cred.Auth.Token,
 		Username:        cred.Auth.Username,
 		PasswordEnc:     cred.Auth.Password,
@@ -85,20 +94,89 @@ func (s *DBStore) SaveCredential(ctx context.Context, cred StoredCredential) err
 		ExpiresAt:       cred.Auth.ExpiresAt,
 		RefreshTokenEnc: cred.Auth.RefreshURL,
 		ClientIDEnc:     cred.Auth.ClientID,
+		ClientGrantType: cred.Auth.ClientGrantType,
 		ClientSecretEnc: cred.Auth.ClientSecret,
 	}
 
-	if cred.ID != "" {
-		if IsInstanceSecretPattern(cred.Pattern) {
-			return db.WithContext(ctx).Where("user_id = '' AND id = ?", cred.ID).Save(&entry).Error
+	write := func(tx *gorm.DB) error {
+		if strings.HasPrefix(cred.Pattern, "connection:") || cred.Auth.Type == StaticConnectionType {
+			return ErrStaticConnection
 		}
-		return database.ScopeByUser(ctx, db.WithContext(ctx), "user_id").Save(&entry).Error
-	}
+		if err := checkMCPConsumer(ctx, tx); err != nil {
+			return err
+		}
+		// A late legacy writer must not recreate a pair after its consumer has
+		// transferred ownership to the shared OAuth service. Check and write in
+		// the same transaction, including writes that carry a persisted ID.
+		if err := guardLegacyMCPOAuthWrite(tx, userID, cred.Pattern); err != nil {
+			return err
+		}
+		if err := guardLegacySlackWrite(tx, userID, cred.Pattern); err != nil {
+			return err
+		}
+		if cred.ID != "" {
+			var previous database.CredentialEntry
+			readErr := tx.Where("id = ?", cred.ID).First(&previous).Error
+			if readErr != nil && !errors.Is(readErr, gorm.ErrRecordNotFound) {
+				return readErr
+			}
+			if readErr == nil {
+				if strings.HasPrefix(previous.Pattern, "connection:") || previous.AuthType == StaticConnectionType {
+					return ErrStaticConnection
+				}
+				if previous.UserID != userID {
+					return oauthflow.ErrConflict
+				}
+				if err := guardLegacySlackWrite(tx, userID, previous.Pattern); err != nil {
+					return err
+				}
+				if err := guardLegacyMCPOAuthWrite(tx, userID, previous.Pattern); err != nil {
+					return err
+				}
+			}
+			if IsInstanceSecretPattern(cred.Pattern) {
+				return tx.Omit("legacy_oauth_control_enc").Where("user_id = '' AND id = ?", cred.ID).Save(&entry).Error
+			}
+			return database.ScopeByUser(ctx, tx.Omit("legacy_oauth_control_enc"), "user_id").Save(&entry).Error
+		}
 
-	return db.WithContext(ctx).Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "user_id"}, {Name: "pattern"}},
-		UpdateAll: true,
-	}).Create(&entry).Error
+		return tx.Omit("legacy_oauth_control_enc").Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "user_id"}, {Name: "pattern"}},
+			UpdateAll: true,
+		}).Create(&entry).Error
+	}
+	if inTransaction {
+		return write(db.WithContext(ctx))
+	}
+	return database.WithSQLiteImmediateTransaction(ctx, db, "credentials.save", write)
+}
+
+func guardLegacyMCPOAuthWrite(tx *gorm.DB, userID, pattern string) error {
+	slug := ""
+	for _, prefix := range []string{"mcp-client:", "mcp-tokens:"} {
+		if strings.HasPrefix(pattern, prefix) {
+			slug = strings.TrimPrefix(pattern, prefix)
+			break
+		}
+	}
+	if slug == "" {
+		return nil
+	}
+	// Credential-only stores (including import tooling) can exist before the
+	// MCP schema. Once consumers exist, ownership is authoritative in the DB.
+	if !tx.Migrator().HasTable(&database.MCPServer{}) {
+		return nil
+	}
+	var count int64
+	if err := tx.Model(&database.MCPServer{}).
+		Where("user_id = ? AND slug = ? AND (oauth_managed = ? OR oauth_authorization_id <> '')", userID, slug, true).
+		Count(&count).Error; err != nil {
+		return err
+	}
+	if count != 0 {
+		return oauthflow.ErrConflict
+	}
+	return CheckLegacyOAuthMutation(tx.Statement.Context, tx, userID, slug)
 }
 
 func (s *DBStore) ListCredentials(ctx context.Context) ([]StoredCredential, error) {
@@ -123,15 +201,19 @@ func (s *DBStore) ListCredentials(ctx context.Context) ([]StoredCredential, erro
 		}
 
 		auth := &AuthConfig{
-			Type:         entry.AuthType,
-			Token:        entry.TokenEnc,
-			Username:     entry.Username,
-			Password:     entry.PasswordEnc,
-			Headers:      headers,
-			ExpiresAt:    entry.ExpiresAt,
-			RefreshURL:   entry.RefreshTokenEnc,
-			ClientID:     entry.ClientIDEnc,
-			ClientSecret: entry.ClientSecretEnc,
+			Type:            entry.AuthType,
+			Source:          entry.Source,
+			OAuthEnc:        entry.OAuthEnc,
+			SourceConfigEnc: entry.SourceConfigEnc,
+			Token:           entry.TokenEnc,
+			Username:        entry.Username,
+			Password:        entry.PasswordEnc,
+			Headers:         headers,
+			ExpiresAt:       entry.ExpiresAt,
+			RefreshURL:      entry.RefreshTokenEnc,
+			ClientID:        entry.ClientIDEnc,
+			ClientGrantType: entry.ClientGrantType,
+			ClientSecret:    entry.ClientSecretEnc,
 		}
 
 		result = append(result, StoredCredential{
@@ -172,15 +254,19 @@ func (s *DBStore) ListInstanceCredentials(ctx context.Context) ([]StoredCredenti
 			UserID:  entry.UserID,
 			Pattern: entry.Pattern,
 			Auth: &AuthConfig{
-				Type:         entry.AuthType,
-				Token:        entry.TokenEnc,
-				Username:     entry.Username,
-				Password:     entry.PasswordEnc,
-				Headers:      headers,
-				ExpiresAt:    entry.ExpiresAt,
-				RefreshURL:   entry.RefreshTokenEnc,
-				ClientID:     entry.ClientIDEnc,
-				ClientSecret: entry.ClientSecretEnc,
+				Type:            entry.AuthType,
+				Source:          entry.Source,
+				OAuthEnc:        entry.OAuthEnc,
+				SourceConfigEnc: entry.SourceConfigEnc,
+				Token:           entry.TokenEnc,
+				Username:        entry.Username,
+				Password:        entry.PasswordEnc,
+				Headers:         headers,
+				ExpiresAt:       entry.ExpiresAt,
+				RefreshURL:      entry.RefreshTokenEnc,
+				ClientID:        entry.ClientIDEnc,
+				ClientGrantType: entry.ClientGrantType,
+				ClientSecret:    entry.ClientSecretEnc,
 			},
 		})
 	}
@@ -228,15 +314,19 @@ func (s *DBStore) ListAllCredentialsIgnoringScope(ctx context.Context) ([]Stored
 			UserID:  entry.UserID,
 			Pattern: entry.Pattern,
 			Auth: &AuthConfig{
-				Type:         entry.AuthType,
-				Token:        entry.TokenEnc,
-				Username:     entry.Username,
-				Password:     entry.PasswordEnc,
-				Headers:      headers,
-				ExpiresAt:    entry.ExpiresAt,
-				RefreshURL:   entry.RefreshTokenEnc,
-				ClientID:     entry.ClientIDEnc,
-				ClientSecret: entry.ClientSecretEnc,
+				Type:            entry.AuthType,
+				Source:          entry.Source,
+				OAuthEnc:        entry.OAuthEnc,
+				SourceConfigEnc: entry.SourceConfigEnc,
+				Token:           entry.TokenEnc,
+				Username:        entry.Username,
+				Password:        entry.PasswordEnc,
+				Headers:         headers,
+				ExpiresAt:       entry.ExpiresAt,
+				RefreshURL:      entry.RefreshTokenEnc,
+				ClientID:        entry.ClientIDEnc,
+				ClientGrantType: entry.ClientGrantType,
+				ClientSecret:    entry.ClientSecretEnc,
 			},
 		})
 	}
@@ -271,15 +361,19 @@ func (s *DBStore) ListCredentialsWithRefreshTokensIgnoringScope(ctx context.Cont
 			UserID:  entry.UserID,
 			Pattern: entry.Pattern,
 			Auth: &AuthConfig{
-				Type:         entry.AuthType,
-				Token:        entry.TokenEnc,
-				Username:     entry.Username,
-				Password:     entry.PasswordEnc,
-				Headers:      headers,
-				ExpiresAt:    entry.ExpiresAt,
-				RefreshURL:   entry.RefreshTokenEnc,
-				ClientID:     entry.ClientIDEnc,
-				ClientSecret: entry.ClientSecretEnc,
+				Type:            entry.AuthType,
+				Source:          entry.Source,
+				OAuthEnc:        entry.OAuthEnc,
+				SourceConfigEnc: entry.SourceConfigEnc,
+				Token:           entry.TokenEnc,
+				Username:        entry.Username,
+				Password:        entry.PasswordEnc,
+				Headers:         headers,
+				ExpiresAt:       entry.ExpiresAt,
+				RefreshURL:      entry.RefreshTokenEnc,
+				ClientID:        entry.ClientIDEnc,
+				ClientGrantType: entry.ClientGrantType,
+				ClientSecret:    entry.ClientSecretEnc,
 			},
 		})
 	}
@@ -300,11 +394,30 @@ func (s *DBStore) DeleteCredentialsByID(ctx context.Context, ids []string) (int,
 	if err != nil {
 		return 0, err
 	}
-	res := db.WithContext(ctx).Where("id IN ?", ids).Delete(&database.CredentialEntry{})
-	if res.Error != nil {
-		return 0, res.Error
+	removed := 0
+	err = database.WithSQLiteImmediateTransaction(ctx, db, "credentials.purge", func(tx *gorm.DB) error {
+		var candidates []database.CredentialEntry
+		if err := tx.Where("id IN ?", ids).Find(&candidates).Error; err != nil {
+			return err
+		}
+		// Refuse the entire purge: the integrity cache describes all supplied IDs.
+		for _, row := range candidates {
+			for _, prefix := range []string{"mcp-client:", "mcp-tokens:"} {
+				if strings.HasPrefix(row.Pattern, prefix) {
+					if err := CheckLegacyOAuthMutation(ctx, tx, row.UserID, strings.TrimPrefix(row.Pattern, prefix)); err != nil {
+						return err
+					}
+				}
+			}
+		}
+		result := tx.Where("id IN ?", ids).Delete(&database.CredentialEntry{})
+		removed = int(result.RowsAffected)
+		return result.Error
+	})
+	if err != nil {
+		return 0, err
 	}
-	return int(res.RowsAffected), nil
+	return removed, nil
 }
 
 // UpdateRefreshTokenEncByID regrava APENAS a coluna `refresh_token_enc`
@@ -314,7 +427,9 @@ func (s *DBStore) DeleteCredentialsByID(ctx context.Context, ids []string) (int,
 // que roda no boot antes de qualquer sessão — não use em fluxos que
 // servem requests do app; o caminho canônico é SaveCredential com
 // user-scope.
-func (s *DBStore) UpdateRefreshTokenEncByID(ctx context.Context, id, value string) error {
+// The original value and absence of coordination control are checked atomically:
+// maintenance from another process must not overwrite a newly rotated token.
+func (s *DBStore) UpdateRefreshTokenEncByID(ctx context.Context, id, previous, value string) error {
 	db, err := s.ensureDB()
 	if err != nil {
 		return err
@@ -323,20 +438,35 @@ func (s *DBStore) UpdateRefreshTokenEncByID(ctx context.Context, id, value strin
 		return errors.New("id vazio não é permitido em UpdateRefreshTokenEncByID")
 	}
 	res := db.WithContext(ctx).Model(&database.CredentialEntry{}).
-		Where("id = ?", id).
+		Where("id = ? AND refresh_token_enc = ? AND COALESCE(legacy_oauth_control_enc, '') = ''", id, previous).
 		Update("refresh_token_enc", value)
 	if res.Error != nil {
 		return fmt.Errorf("atualizar refresh_token_enc da credencial %s: %w", id, res.Error)
 	}
 	if res.RowsAffected == 0 {
-		return fmt.Errorf("credencial %s não encontrada para atualizar refresh_token_enc", id)
+		return oauthflow.ErrConflict
 	}
 	return nil
 }
 
+// ReadRefreshTokenEncByID is restricted to bootstrap maintenance after a lost CAS.
+// A removed row no longer requires maintenance; coordination control defers it.
+func (s *DBStore) ReadRefreshTokenEncByID(ctx context.Context, id string) (string, bool, error) {
+	db, err := s.ensureDB()
+	if err != nil {
+		return "", false, err
+	}
+	var row database.CredentialEntry
+	err = db.WithContext(ctx).Select("refresh_token_enc", "legacy_oauth_control_enc").Where("id = ?", id).First(&row).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return "", false, nil
+	}
+	return row.RefreshTokenEnc, row.LegacyOAuthControlEnc != "", err
+}
+
 // DeleteCredential remove a credencial associada ao `pattern` exato,
 // escopada pelo usuário do contexto. Para instance secrets
-// (`internal-auth:*`/`internal-tls:*`) o escopo é `user_id = ''`.
+// (`internal-auth:*`/`internal-tls:*`) o escopo usa `user_id` vazio.
 //
 // `pattern` vazio é erro: "limpar tudo" tem que ser expressado como
 // iteração sobre a lista visível, não como uma chamada sem nome.
@@ -352,9 +482,23 @@ func (s *DBStore) DeleteCredential(ctx context.Context, pattern string) error {
 	if IsInstanceSecretPattern(pattern) {
 		return db.WithContext(ctx).Where("user_id = '' AND pattern = ?", pattern).Delete(&database.CredentialEntry{}).Error
 	}
-	return database.ScopeByUser(ctx, db.WithContext(ctx), "user_id").
-		Where("pattern = ?", pattern).
-		Delete(&database.CredentialEntry{}).Error
+	return database.WithSQLiteImmediateTransaction(ctx, db, "credentials.delete", func(tx *gorm.DB) error {
+		if err := checkMCPConsumer(ctx, tx); err != nil {
+			return err
+		}
+		user, err := database.RequireUserID(ctx)
+		if err != nil {
+			return err
+		}
+		for _, prefix := range []string{"mcp-client:", "mcp-tokens:"} {
+			if strings.HasPrefix(pattern, prefix) {
+				if err := CheckLegacyOAuthMutation(ctx, tx, user, strings.TrimPrefix(pattern, prefix)); err != nil {
+					return err
+				}
+			}
+		}
+		return database.ScopeByUser(ctx, tx, "user_id").Where("pattern = ?", pattern).Delete(&database.CredentialEntry{}).Error
+	})
 }
 
 func (s *DBStore) SaveKeyWrap(ctx context.Context, wrap KeyWrap) error {

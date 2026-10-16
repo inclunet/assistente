@@ -23,6 +23,13 @@ A ferramenta atual `web_fetch` possui limitações significativas:
 - `max_response_size`;
 - `extract_mode`.
 
+O contrato também oferece `extract_mode: "file"` para materializar o corpo
+completo em um artefato local efêmero e `extract_mode: "jsonpath"` para extrair
+campos de JSON no executor. `output_path` é opcional no modo `file` e só aceita
+um nome de arquivo dentro da pasta de artefatos configurada pelo host;
+`jsonpath` aceita apenas seletores de campos por ponto e descendência recursiva
+(por exemplo, `$..metadata.name`), sem filtros, scripts ou execução de jq.
+
 Não existem argumentos `auth_basic`, `auth_bearer` ou `timeout_seconds` no
 schema nem em `httpRequestArgs`. Credenciais são resolvidas pela URL no cliente
 central de `internal/tools/http`, que recebe o `credentials.Manager` no
@@ -34,6 +41,33 @@ reduz exposição acidental. Ela não torna o payload incapaz de carregar
 segredos: headers arbitrários, inclusive `Authorization`, são preservados, e a
 própria URL pode conter informação sensível. O contrato centralizado foi
 consolidado pelas AEPs 0018 e 0019.
+
+### Parsing de entrada tolerante (flexibilização do contrato)
+
+O schema publicado permanece canônico (`max_response_size` como `integer`,
+`headers` como `object`), mas o parsing de argumentos (`httpRequestArgs.UnmarshalJSON`)
+passou a tolerar variações que os modelos produzem na prática, sem alterar a
+semântica correta. Motivação: análise do banco de produção mostrou falhas de
+`Erro ao parsear argumentos` porque o modelo às vezes serializa esses campos
+como string:
+
+- `max_response_size`: aceita número (`50000`) **ou** string numérica
+  (`"50000"`). Strings não numéricas e valores não inteiros (ex.: `1.5`) são
+  rejeitados com erro acionável mencionando o campo. Ausência/`null` mantêm o
+  padrão (budget do executor ou `50000`).
+- `headers`: aceita objeto `{"k":"v"}` **ou** uma string contendo o JSON
+  serializado desse objeto (ex.: `"{\"Content-Type\":\"application/json\"}"`).
+  Strings que não representam um objeto JSON válido são rejeitadas com erro
+  claro. Ausência/`null`/string vazia resultam em headers ausentes.
+
+Essa tolerância é uma rede de segurança de *entrada* e **não** altera o
+comportamento de resposta: respostas HTTP não-2xx continuam reportadas como
+falha real da API remota (403/404/422 etc.), preservando a proveniência
+model-facing. Cobertura em `internal/tools/web/http_request_test.go`
+(`TestParseTolerantMaxResponseSize`, `TestParseTolerantHeaders`,
+`TestHTTPRequest_TolerantHeadersAsJSONString`,
+`TestHTTPRequest_TolerantMaxResponseSizeAsString`,
+`TestHTTPRequest_RejectsInvalidTolerantArgs`).
 
 ## Design original da tool (histórico)
 
@@ -105,7 +139,7 @@ Criar ferramenta completa para requisições HTTP que suporte:
     },
     "max_response_size": {
       "type": "integer",
-      "description": "Tamanho máximo da resposta em caracteres (padrão: 50000)",
+      "description": "Tamanho máximo da resposta extraída em bytes (padrão: 50000)",
       "default": 50000
     },
     "extract_mode": {
@@ -286,10 +320,18 @@ a.toolRegistry.MustRegister(web.NewWebSearch())
   customizados nem o caminho de aprovação de operação mutável.
 - [x] O schema publicado coincide com `httpRequestArgs` e não oferece
   `auth_basic`, `auth_bearer` ou `timeout_seconds`.
+- [x] O parsing tolera `max_response_size` como número ou string numérica e
+  `headers` como objeto ou string-JSON, rejeitando entradas inválidas com erro
+  acionável, sem mudar o reporte de respostas não-2xx.
 - [x] Credenciais e timeout são delegados ao cliente central de
   `internal/tools/http`.
 - [x] Guardrails anti-SSRF e confirmação de operações mutáveis permanecem no
   pipeline compartilhado.
+- [x] Respostas grandes podem ser baixadas em streaming para artefato local,
+  com metadados model-facing pequenos, TTL e limpeza no encerramento.
+- [x] JSON grande pode ser reduzido no executor por jsonpath restrito, com o
+  limite aplicado ao resultado extraído e erros explícitos para JSON/query
+  inválidos e resultados acima do limite.
 
 ---
 

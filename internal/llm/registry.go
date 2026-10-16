@@ -9,8 +9,10 @@ import (
 // ProviderRegistry armazena os provedores LLM disponíveis
 // Thread-safe para acesso concorrente.
 type ProviderRegistry struct {
-	mu        sync.RWMutex
-	providers map[string]*ProviderConfig
+	lifetimeMu sync.RWMutex
+	mu         sync.RWMutex
+	generation uint64
+	providers  map[string]*ProviderConfig
 }
 
 // NewProviderRegistry cria um novo registry vazio
@@ -36,6 +38,41 @@ func (r *ProviderRegistry) Register(provider *ProviderConfig) error {
 	defer r.mu.Unlock()
 
 	// Sobrescreve se existir (para permitir update)
+	r.providers[provider.ID] = provider
+	return nil
+}
+
+// Generation identifies the current registry lifetime. Clear invalidates snapshots.
+func (r *ProviderRegistry) Generation() uint64 {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.generation
+}
+
+// WithGeneration reserves the registry lifetime through a short commit/publication.
+// The callback may use registry methods, but must not call Clear or WithGeneration.
+func (r *ProviderRegistry) WithGeneration(generation uint64, commit func() error) error {
+	r.lifetimeMu.RLock()
+	defer r.lifetimeMu.RUnlock()
+	if r.Generation() != generation {
+		return fmt.Errorf("provider registry session changed")
+	}
+	return commit()
+}
+
+// RegisterGeneration publishes only into the lifetime where work started.
+func (r *ProviderRegistry) RegisterGeneration(provider *ProviderConfig, generation uint64) error {
+	if provider == nil {
+		return fmt.Errorf("provider nil")
+	}
+	if err := provider.Validate(); err != nil {
+		return err
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if generation != r.generation {
+		return fmt.Errorf("provider registry session changed")
+	}
 	r.providers[provider.ID] = provider
 	return nil
 }
@@ -76,8 +113,11 @@ func (r *ProviderRegistry) Clear() {
 	if r == nil {
 		return
 	}
+	r.lifetimeMu.Lock()
+	defer r.lifetimeMu.Unlock()
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.generation++
 	r.providers = make(map[string]*ProviderConfig)
 }
 
@@ -94,5 +134,23 @@ func (r *ProviderRegistry) Remove(id string) error {
 	}
 
 	delete(r.providers, id)
+	return nil
+}
+
+// SetDefaultGeneration replaces snapshots instead of mutating pointers held by readers.
+func (r *ProviderRegistry) SetDefaultGeneration(id string, generation uint64) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if generation != r.generation {
+		return fmt.Errorf("provider registry session changed")
+	}
+	if r.providers[id] == nil {
+		return fmt.Errorf("provider not found: %s", id)
+	}
+	for key, provider := range r.providers {
+		updated := *provider
+		updated.IsDefault = key == id
+		r.providers[key] = &updated
+	}
 	return nil
 }

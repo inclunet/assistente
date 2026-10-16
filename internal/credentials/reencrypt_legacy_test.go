@@ -76,7 +76,7 @@ func TestListCredentialsWithRefreshTokensIgnoringScopeFiltersEmptyRefresh(t *tes
 func TestUpdateRefreshTokenEncByIDReturnsErrorWhenMissing(t *testing.T) {
 	setupScopedCredentialStoreTestDB(t)
 
-	if err := NewDBStore().UpdateRefreshTokenEncByID(context.Background(), "missing-cred", "encrypted"); err == nil {
+	if err := NewDBStore().UpdateRefreshTokenEncByID(context.Background(), "missing-cred", "old", "encrypted"); err == nil {
 		t.Fatal("UpdateRefreshTokenEncByID deveria falhar quando nenhuma linha é atualizada")
 	}
 }
@@ -392,7 +392,10 @@ func TestLoadInstanceSecrets_ReencryptsLegacyRefreshTokens(t *testing.T) {
 		t.Fatalf("LoadUserCredentials: %v", err)
 	}
 	userCtx := database.WithUserID(context.Background(), "user-1")
-	auth, err := mgr.GetByPatternWithContext(userCtx, "api.example.com")
+	if _, err := mgr.GetByPatternWithContext(userCtx, "api.example.com"); err == nil {
+		t.Fatal("credencial sem source não pode ser materializada automaticamente")
+	}
+	auth, err := mgr.GetConfigByPatternWithContext(userCtx, "api.example.com")
 	if err != nil {
 		t.Fatalf("GetByPatternWithContext: %v", err)
 	}

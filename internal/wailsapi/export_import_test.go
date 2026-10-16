@@ -5,14 +5,40 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
 
 	"assistente/internal/apidto"
 	"assistente/internal/core/ports"
+	"assistente/internal/credentials"
 	"assistente/internal/portability"
 )
+
+func TestExportImportReloadFailurePreservesCommittedResult(t *testing.T) {
+	api := NewExportImport()
+	released := false
+	AttachExportImport(api, stubSession{ctx: context.Background()}, nil, func() ports.SystemDialogPort { return nil }, "dev", func(context.Context) (func([]string), error) {
+		return func([]string) { released = true }, nil
+	})
+	imports, reloads := 0, 0
+	api.importConversations = func(context.Context, string, *credentials.Manager, string, []portability.ImportResolution, func([]string)) (*portability.ImportResult, error) {
+		imports++
+		return &portability.ImportResult{Success: true, Imported: 1}, nil
+	}
+	AttachMCPImportReload(api, func(context.Context) error {
+		if !released {
+			t.Fatal("runtime publication preceded restoration cleanup")
+		}
+		reloads++
+		return errors.New("private runtime detail")
+	})
+	result, err := api.ImportData(`{"mcpServers":{"remote":{"url":"https://resource.example/mcp"}}}`, "")
+	if err != nil || !result.Success || result.Imported != 1 || imports != 1 || reloads != 1 || len(result.Warnings) != 1 || result.Warnings[0].Code != "mcpServer.runtimeReloadFailed" || strings.Contains(result.Warnings[0].Message, "private") {
+		t.Fatalf("publication failure lost commit or exposed detail: %v %+v", err, result)
+	}
+}
 
 func TestExportImportNotWired(t *testing.T) {
 	t.Parallel()
@@ -46,9 +72,95 @@ func TestExportImportNotWired(t *testing.T) {
 func TestExportImportAttachNilDialogStillNotWired(t *testing.T) {
 	t.Parallel()
 	api := NewExportImport()
-	AttachExportImport(api, stubSession{}, nil, nil, "dev")
+	AttachExportImport(api, stubSession{}, nil, nil, "dev", nil)
 	if _, err := api.ExportData(portability.ExportRequest{}); !errors.Is(err, ErrExportImportNotWired) {
 		t.Fatalf("dialog nil: got %v", err)
+	}
+}
+
+func TestWithPreparedConversationRestoreSempreLiberaGate(t *testing.T) {
+	prepared := 0
+	finalizedCalled := false
+	var finalized []string
+	expectedErr := errors.New("import failed")
+	result, err := withPreparedConversationRestore(
+		context.Background(),
+		func(context.Context) (func([]string), error) {
+			prepared++
+			return func(ids []string) {
+				finalizedCalled = true
+				finalized = append([]string(nil), ids...)
+			}, nil
+		},
+		func(func([]string)) (*portability.ImportResult, error) {
+			return nil, expectedErr
+		},
+	)
+	if result != nil || !errors.Is(err, expectedErr) {
+		t.Fatalf("resultado=%v erro=%v", result, err)
+	}
+	if prepared != 1 || !finalizedCalled || len(finalized) != 0 {
+		t.Fatalf("gate não foi liberado no erro: prepared=%d called=%t finalized=%v", prepared, finalizedCalled, finalized)
+	}
+}
+
+func TestImportEntrypointsPropagamIDsRestauradosEAlteramGate(t *testing.T) {
+	tests := []struct {
+		name string
+		call func(*ExportImport) (*portability.ImportResult, error)
+	}{
+		{"ImportConversations", func(api *ExportImport) (*portability.ImportResult, error) {
+			return api.ImportConversations("success")
+		}},
+		{"ImportData", func(api *ExportImport) (*portability.ImportResult, error) {
+			return api.ImportData("success", "")
+		}},
+		{"ImportDataWithResolutions", func(api *ExportImport) (*portability.ImportResult, error) {
+			return api.ImportDataWithResolutions(portability.ImportRequest{JSONData: "partial"})
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var restored []string
+			finalizeCalls := 0
+			api := NewExportImport()
+			AttachExportImport(
+				api,
+				stubSession{ctx: context.Background()},
+				nil,
+				func() ports.SystemDialogPort { return nil },
+				"dev",
+				func(context.Context) (func([]string), error) {
+					return func(ids []string) {
+						finalizeCalls++
+						restored = append([]string(nil), ids...)
+					}, nil
+				},
+			)
+			api.importConversations = func(
+				_ context.Context,
+				jsonData string,
+				_ *credentials.Manager,
+				_ string,
+				_ []portability.ImportResolution,
+				finalize func([]string),
+			) (*portability.ImportResult, error) {
+				finalize([]string{"restored-id"})
+				return &portability.ImportResult{
+					Success:  jsonData != "partial",
+					Imported: 1,
+					Failed:   map[bool]int{true: 1, false: 0}[jsonData == "partial"],
+				}, nil
+			}
+
+			result, err := tt.call(api)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.Imported != 1 || finalizeCalls != 1 || !reflect.DeepEqual(restored, []string{"restored-id"}) {
+				t.Fatalf("fiação incorreta: result=%+v finalizeCalls=%d restored=%v", result, finalizeCalls, restored)
+			}
+		})
 	}
 }
 
@@ -56,7 +168,7 @@ func TestExportImportUsesWithUserNotRequireAuth(t *testing.T) {
 	t.Parallel()
 	semAuth := errors.New("sessão não autenticada")
 	api := NewExportImport()
-	AttachExportImport(api, stubSession{err: semAuth}, nil, func() ports.SystemDialogPort { return nil }, "dev")
+	AttachExportImport(api, stubSession{err: semAuth}, nil, func() ports.SystemDialogPort { return nil }, "dev", nil)
 
 	casos := []struct {
 		nome string

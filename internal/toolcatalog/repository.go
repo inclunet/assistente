@@ -47,6 +47,10 @@ func NewDBRepository(db *gorm.DB) *DBRepository {
 	}
 }
 
+func (r *DBRepository) retry(ctx context.Context, operation string, fn func() error) error {
+	return database.WithSQLiteBusyRetry(ctx, "toolcatalog."+operation, fn)
+}
+
 func (r *DBRepository) UpsertTool(ctx context.Context, entry *tools.ToolCatalogEntry) error {
 	if entry == nil {
 		return fmt.Errorf("tool catalog entry nil")
@@ -59,7 +63,10 @@ func (r *DBRepository) UpsertTool(ctx context.Context, entry *tools.ToolCatalogE
 	if err != nil {
 		return err
 	}
-	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	var persistedID string
+	// Adquire o writer lock antes de ler: em WAL, promover um snapshot de
+	// leitura após outro writer commitar causa SQLITE_BUSY_SNAPSHOT.
+	err = database.WithSQLiteImmediateTransaction(ctx, r.db, "toolcatalog.upsert_tool", func(tx *gorm.DB) error {
 		var existing database.ToolCatalog
 		query := tx
 		if normalized.Origin == tools.ToolOriginBuiltin {
@@ -83,7 +90,7 @@ func (r *DBRepository) UpsertTool(ctx context.Context, entry *tools.ToolCatalogE
 					if err := tx.Model(&detached).Select("*").Omit("id", "created_at").Updates(&row).Error; err != nil {
 						return err
 					}
-					entry.ID = detached.ID
+					persistedID = detached.ID
 					return nil
 				case !errors.Is(reattachErr, gorm.ErrRecordNotFound):
 					return reattachErr
@@ -92,7 +99,7 @@ func (r *DBRepository) UpsertTool(ctx context.Context, entry *tools.ToolCatalogE
 			if err := tx.Create(&row).Error; err != nil {
 				return err
 			}
-			entry.ID = row.ID
+			persistedID = row.ID
 			return nil
 		case err != nil:
 			return err
@@ -102,10 +109,15 @@ func (r *DBRepository) UpsertTool(ctx context.Context, entry *tools.ToolCatalogE
 			if err := tx.Model(&existing).Select("*").Omit("id", "created_at").Updates(&row).Error; err != nil {
 				return err
 			}
-			entry.ID = existing.ID
+			persistedID = existing.ID
 			return nil
 		}
 	})
+	if err != nil {
+		return err
+	}
+	entry.ID = persistedID
+	return nil
 }
 
 func (r *DBRepository) ListTools(ctx context.Context, filter tools.ToolCatalogFilter) ([]tools.ToolCatalogEntry, error) {
@@ -225,8 +237,13 @@ func (r *DBRepository) MarkServerToolsUnavailable(ctx context.Context, serverID 
 		"last_unavailable_at": &now,
 	}
 	if len(seenNames) == 0 {
-		tx := base.Updates(updates)
-		return int(tx.RowsAffected), tx.Error
+		var affected int64
+		err := r.retry(ctx, "mark_server_tools_unavailable", func() error {
+			tx := base.Updates(updates)
+			affected = tx.RowsAffected
+			return tx.Error
+		})
+		return int(affected), err
 	}
 
 	var rows []database.ToolCatalog
@@ -252,15 +269,20 @@ func (r *DBRepository) MarkServerToolsUnavailable(ctx context.Context, serverID 
 		if end > len(unseen) {
 			end = len(unseen)
 		}
-		tx := r.db.WithContext(ctx).
-			Model(&database.ToolCatalog{}).
-			Where("user_id = ? AND mcp_server_id = ?", userID, serverID).
-			Where("name IN ?", unseen[start:end]).
-			Updates(updates)
-		if tx.Error != nil {
-			return int(affected), tx.Error
+		err := r.retry(ctx, "mark_server_tools_unavailable", func() error {
+			tx := r.db.WithContext(ctx).
+				Model(&database.ToolCatalog{}).
+				Where("user_id = ? AND mcp_server_id = ?", userID, serverID).
+				Where("name IN ?", unseen[start:end]).
+				Updates(updates)
+			if tx.Error == nil {
+				affected += tx.RowsAffected
+			}
+			return tx.Error
+		})
+		if err != nil {
+			return int(affected), err
 		}
-		affected += tx.RowsAffected
 	}
 	return int(affected), nil
 }

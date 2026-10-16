@@ -54,6 +54,8 @@ type agenticLoopRunner struct {
 	totalToolCallCount    int
 	toolsUsedSet          map[string]struct{}
 	lastUsage             llm.Usage
+	lastDiagnosticUsage   llm.Usage
+	lastFinish            llm.FinishInfo
 	outputLimitRepairUsed bool
 }
 
@@ -75,15 +77,21 @@ func (r *agenticLoopRunner) run(ctx context.Context) {
 		if stop {
 			return
 		}
+		r.lastFinish = result.Finish
+		r.lastDiagnosticUsage = result.Usage
 
 		// Acumula usage da última iteração (AEP-0039)
-		if result.Usage.PromptTokens > 0 || result.Usage.CompletionTokens > 0 {
+		// Usage parcial só de cache/reasoning continua no diagnóstico acima, mas
+		// não apaga os contadores legados de input/output da última chamada que
+		// efetivamente os informou.
+		if hasLegacyTokenCounters(result.Usage) {
 			r.lastUsage = result.Usage
 		}
 
 		// 2. Erro?
 		if streamErr != "" {
 			logging.Errorf(ctx, "agent.agentic-loop", "[Agent] erro na iteração %d: %s", iteration, result.Error)
+			r.persistAndAccountNativeMCP(ctx, result, iteration)
 			// chat:done é o evento terminal canônico — inclui ErrorMessage para que
 			// adapters (CLI, frontend) exibam o erro sem depender de chat:stream terminal.
 			r.svc.emitter.Emit("chat:done", r.buildErrorDoneEventWithContext(ctx, streamErr, iteration))
@@ -93,6 +101,7 @@ func (r *agenticLoopRunner) run(ctx context.Context) {
 		// 3. Limite de saída: tool calls locais são descartadas antes de qualquer
 		// efeito e podem receber uma única reformulação em chamadas menores.
 		if result.Finish.Reason == llm.FinishReasonMaxTokens {
+			r.logOutputLimit(ctx, result, iteration)
 			if r.recoverOutputLimitedToolCalls(ctx, result, iteration) {
 				continue
 			}
@@ -144,16 +153,35 @@ func (r *agenticLoopRunner) recoverOutputLimitedToolCalls(ctx context.Context, r
 			"Não repita um payload grande em uma única chamada. Ferramentas interrompidas: " + strings.Join(toolNames, ", "),
 	})
 	logging.Infof(ctx, "agent.agentic-loop",
-		"[Agent] tool calls bloqueadas por limite de saída; solicitando reformulação (iteração=%d, tools=%s)",
+		"tool calls bloqueadas por limite de saída; solicitando reformulação (iteração=%d, tools=%s)",
 		iteration, strings.Join(toolNames, ","))
 	return true
 }
 
-func (r *agenticLoopRunner) finishOutputLimit(ctx context.Context, result AgenticResult, iteration int) {
+func (r *agenticLoopRunner) logOutputLimit(ctx context.Context, result AgenticResult, iteration int) {
 	logging.Infof(ctx, "agent.agentic-loop",
-		"[Agent] geração encerrada por limite de saída (iteração=%d, raw_reason=%q, tool_calls=%d)",
-		iteration, result.Finish.RawReason, len(result.ToolCalls))
+		"provider sinalizou limite de geração (iteração=%d, finish_reason=%s, raw_reason=%q, provider=%q, model=%q, output_limit=%d, output_tokens=%v, reasoning_tokens=%v, response_bytes=%d, tool_calls=%d)",
+		iteration, result.Finish.Reason, result.Finish.RawReason, result.Finish.Provider,
+		result.Finish.Model, result.Finish.OutputLimit,
+		optionalUsageTokenCount(result.Usage.OutputTokensReported, result.Usage.CompletionTokens),
+		optionalUsageTokenCount(result.Usage.ReasoningTokensReported, result.Usage.ReasoningTokens),
+		result.Finish.ResponseBytes, len(result.ToolCalls))
+}
+
+func (r *agenticLoopRunner) finishOutputLimit(ctx context.Context, result AgenticResult, iteration int) {
 	r.finishFinalResult(ctx, result, iteration)
+}
+
+func optionalUsageTokenCount(reported bool, value int) any {
+	if !reported {
+		return "unavailable"
+	}
+	return value
+}
+
+func hasLegacyTokenCounters(usage llm.Usage) bool {
+	return usage.PromptTokens != 0 || usage.CompletionTokens != 0 ||
+		usage.TotalTokens != 0 || usage.OutputTokensReported
 }
 
 // streamIteration executa o streaming do LLM para uma iteração, com auto-retry
@@ -197,11 +225,17 @@ func (r *agenticLoopRunner) streamIteration(ctx context.Context, iteration int) 
 			if fb.ResolveToolDefs != nil {
 				r.activeResolve = fb.ResolveToolDefs
 			}
+			if resetter, ok := handler.(interface{ ResetStreamAttempt() }); ok {
+				resetter.ResetStreamAttempt()
+			}
 			attempt--
 			continue
 		}
 		result = handler.Result()
 		if ctx.Err() != nil {
+			if finisher, ok := handler.(interface{ FinishThinkingIfActive() }); ok {
+				finisher.FinishThinkingIfActive()
+			}
 			r.persistPartialFrom(ctx, handler)
 			r.svc.emitAgenticContextDone(ctx, r.conversationID, r.turnID, r.assistantMessageID, r.surfaceOrigin, iteration, r.totalToolCallCount, r.toolsUsedSet)
 			return result, "", true
@@ -214,15 +248,24 @@ func (r *agenticLoopRunner) streamIteration(ctx context.Context, iteration int) 
 		// Mesma regra do streaming simples: o que o provider marcou como não
 		// repetível não volta ao agente por conta do app (AEP-0084 D4).
 		if barrier, ok := handler.(interface{ ErrorNotRetryable() bool }); ok && barrier.ErrorNotRetryable() {
+			if finisher, ok := handler.(interface{ FinishThinkingIfActive() }); ok {
+				finisher.FinishThinkingIfActive()
+			}
 			r.persistPartialFrom(ctx, handler)
 			logging.Errorf(ctx, "agent.agentic-loop", "[Agent] streaming interrompido sem repetição possível (iteração %d): %s", iteration, result.Error)
 			break
 		}
 		if attempt == attempts {
+			if finisher, ok := handler.(interface{ FinishThinkingIfActive() }); ok {
+				finisher.FinishThinkingIfActive()
+			}
 			r.persistPartialFrom(ctx, handler)
 		}
 		if attempt < attempts {
 			logging.Errorf(ctx, "agent.agentic-loop", "[Agent] streaming interrompido (iteração %d, tentativa %d/%d): %s", iteration, attempt, attempts, result.Error)
+			if resetter, ok := handler.(interface{ ResetStreamAttempt() }); ok {
+				resetter.ResetStreamAttempt()
+			}
 			continue
 		}
 	}
@@ -284,6 +327,27 @@ func assistantMessageForToolIteration(result AgenticResult) llm.Message {
 	}
 }
 
+func reconcileToolContentsWithContracts(ctx context.Context, results []tools.ToolExecutionResult, contents []string) {
+	for i, execution := range results {
+		if i >= len(contents) {
+			return
+		}
+		original := tools.ContentForModel(execution.Result)
+		if contents[i] == original {
+			continue
+		}
+		if contents[i] == "" {
+			// Budget zero: o pre-check removeu deliberadamente a mensagem.
+			// Não recoloque nem mesmo um diagnóstico fora da contagem.
+			continue
+		}
+		// O pre-check legado calcula a quota de cada resultado. Reaplicamos essa
+		// quota ao contrato da tool para não cortar JSON/raw nem deixar
+		// output_window apontar além dos bytes realmente enviados.
+		contents[i] = tools.ContentForModelWithinLimit(ctx, execution.Result, len(contents[i]), execution.ToolName)
+	}
+}
+
 // executeToolIteration trata o caminho finish_reason="tool_calls": persiste MCP
 // nativo, executa as bridge tools (com retry), emite eventos, persiste resultados
 // e emite o segment_done da iteração. Retorna o contexto atualizado (pode ser
@@ -305,7 +369,12 @@ func (r *agenticLoopRunner) executeToolIteration(ctx context.Context, result Age
 		return ctx, true
 	}
 	r.svc.emitToolStarts(r.conversationID, r.turnID, r.assistantMessageID, result.ToolCalls, r.surfaceOrigin)
-	execBatch := r.svc.executeToolCallsWithRuntimeControls(ctx, toolCalls, toolinvocations.Origin{Type: toolinvocations.OriginChat, ID: r.turnID}, r.conversationID, r.turnID, iteration, r.surfaceOrigin)
+	execBatch := r.svc.executeToolCallsWithRuntimeControls(ctx, toolCalls, toolinvocations.Origin{
+		Type:           toolinvocations.OriginChat,
+		ID:             r.turnID,
+		ConversationID: r.conversationID,
+		TurnID:         r.turnID,
+	}, r.conversationID, r.turnID, iteration, r.surfaceOrigin)
 	ctx = execBatch.Context
 	execResults := execBatch.Executions
 
@@ -324,53 +393,43 @@ func (r *agenticLoopRunner) executeToolIteration(ctx context.Context, result Age
 		toolContents[i] = tools.ContentForModel(res.Result)
 	}
 	PreCheckContextWindow(r.params.ContextWindow, r.params.MaxTokens, r.messages, toolContents, r.replaysReasoningContent())
-	for i, res := range execResults {
-		toolContents[i] = tools.SanitizeTruncatedEnvelope(res.Result, toolContents[i])
-	}
+	reconcileToolContentsWithContracts(ctx, execResults, toolContents)
 
 	// 5f-iii. Persiste o texto intermediário do assistant. AEP-0078 depreca o L3:
 	// novas mensagens não gravam mais o JSON tool_calls; o snapshot exibível fica
 	// em tool_invocations.metadata, associado por tool_call_id.
-	assistantToolMsg, err := r.svc.msgRepo.AddAssistantToolMessage(
-		ctx,
-		r.conversationID,
-		r.turnID,
-		result.FullResponse,
-		"",
-		result.Reasoning,
-		result.Model,
-	)
-	if err != nil {
-		if errors.Is(err, chat.ErrConversationDeleted) {
-			logging.Errorf(ctx, "agent.agentic-loop", "[Agent] conversa %s deletada — abortando", r.conversationID)
-			return ctx, true
+	// A identidade da chamada ao modelo vem de (turn_id, iteration) no ledger.
+	// Só persista uma mensagem quando houver conteúdo conversacional.
+	if strings.TrimSpace(result.FullResponse) != "" || strings.TrimSpace(result.Reasoning) != "" {
+		assistantToolMsg, err := r.svc.msgRepo.CreateMessage(ctx, chat.MessageOptions{
+			ConversationID: r.conversationID,
+			TurnID:         &r.turnID,
+			Role:           "assistant",
+			Content:        result.FullResponse,
+			Reasoning:      result.Reasoning,
+			Model:          result.Model,
+		})
+		if err != nil {
+			if errors.Is(err, chat.ErrConversationDeleted) {
+				logging.Errorf(ctx, "agent.agentic-loop", "[Agent] conversa %s deletada — abortando", r.conversationID)
+				return ctx, true
+			}
+			logging.Errorf(ctx, "agent.agentic-loop", "[Agent] erro ao salvar mensagem assistant intermediária de tool invocation: %v", err)
+		} else if assistantToolMsg != nil {
+			r.svc.tagChatToolInvocationsWithAssistantMessage(ctx, r.turnID, execResults, assistantToolMsg.ID)
 		}
-		logging.Errorf(ctx, "agent.agentic-loop", "[Agent] erro ao salvar mensagem assistant intermediária de tool invocation: %v", err)
-	} else if assistantToolMsg != nil {
-		r.svc.tagChatToolInvocationsWithAssistantMessage(ctx, r.turnID, execResults, assistantToolMsg.ID)
 	}
 
-	// 5f-iv. Persiste resultados técnicos em tool_invocations e adiciona
-	// conteúdo (possivelmente truncado) apenas ao histórico enviado ao LLM.
-	// Fallback: se tool_invocations não estiver configurado, persiste como
-	// mensagens role=tool para manter o histórico completo.
+	// 5f-iv. Resultados técnicos já foram persistidos exclusivamente no ledger.
+	// O protocolo role=tool abaixo existe somente no slice em memória enviado ao
+	// LLM durante este loop.
 	for i, execResult := range execResults {
 		// O histórico do LLM recebe o envelope já medido pelo pre-check: truncado
 		// quando a janela apertou, íntegro quando coube.
 		content := toolContents[i]
-		// PersistedByCallID indica que a linha técnica foi escrita. A associação
-		// call↔result agora vem de tool_invocations.tool_call_id, então a falha de
-		// salvar a mensagem intermediária não exige fallback role=tool.
 		persisted := execBatch.PersistedByCallID[execResult.CallID]
 		if !persisted {
-			persistedContent := execResult.Result.Content
-			if _, err := r.svc.msgRepo.AddToolResultMessage(ctx, r.conversationID, r.turnID, persistedContent, execResult.CallID); err != nil {
-				if errors.Is(err, chat.ErrConversationDeleted) {
-					logging.Errorf(ctx, "agent.agentic-loop", "[Agent] conversa %s deletada durante tool execution — abortando", r.conversationID)
-					return ctx, true
-				}
-				logging.Errorf(ctx, "agent.agentic-loop", "[Agent] erro ao salvar tool result message (fallback): %v", err)
-			}
+			logging.Errorf(ctx, "agent.agentic-loop", "[Agent] tool result sem confirmação de persistência no ledger (call_id=%s)", execResult.CallID)
 		}
 		r.messages = append(r.messages, llm.Message{
 			Role:       "tool",
@@ -495,6 +554,7 @@ func (r *agenticLoopRunner) retryRetryableTools(ctx context.Context, toolCalls [
 				Name:               retryName,
 				CallID:             execResult.CallID,
 				Status:             "error",
+				ErrorKind:          string(execResult.ErrorKind),
 				Summary:            truncateString(execResult.Result.Content, MaxResultDisplaySize),
 				Origin:             retryOrigin,
 				ServerLabel:        retryServerLabel,
@@ -532,7 +592,12 @@ func (r *agenticLoopRunner) retryRetryableTools(ctx context.Context, toolCalls [
 				Attempt:            1,
 				SurfaceOrigin:      r.surfaceOrigin,
 			})
-			retried, retriedPersisted := r.svc.executeToolCall(ctx, toolCalls[i], toolinvocations.Origin{Type: toolinvocations.OriginChat, ID: r.turnID}, iteration)
+			retried, retriedPersisted := r.svc.executeToolCall(ctx, toolCalls[i], toolinvocations.Origin{
+				Type:           toolinvocations.OriginChat,
+				ID:             r.turnID,
+				ConversationID: r.conversationID,
+				TurnID:         r.turnID,
+			}, iteration)
 			execResults[i] = retried
 			persistedByCallID[retried.CallID] = retriedPersisted
 		}
@@ -563,6 +628,7 @@ func (r *agenticLoopRunner) emitToolEndsAndAccount(execResults []tools.ToolExecu
 			Name:               logicalName,
 			CallID:             execResult.CallID,
 			Status:             status,
+			ErrorKind:          string(execResult.ErrorKind),
 			Summary:            truncateString(execResult.Result.Content, MaxResultDisplaySize),
 			Origin:             origin,
 			ServerLabel:        serverLabel,
@@ -675,21 +741,36 @@ func (r *agenticLoopRunner) finishLimitReached(ctx context.Context) {
 	if r.svc.onSpeechRequest != nil {
 		r.svc.onSpeechRequest(r.conversationID, "", "system", limitReachedNotice, "system_message", r.params.ProfileSlug, true)
 	}
+	responseBytes := r.lastFinish.ResponseBytes
 	doneEvent := ports.DoneEvent{
-		ConversationID:     r.conversationID,
-		TurnID:             r.turnID,
-		AssistantMessageID: r.assistantMessageID,
-		HadToolCalls:       r.totalToolCallCount > 0,
-		Reason:             "limit_reached",
-		IterationCount:     r.maxIterations,
-		ToolCallCount:      r.totalToolCallCount,
-		ToolsUsed:          sortedToolNames(r.toolsUsedSet),
-		PromptTokens:       r.lastUsage.PromptTokens,
-		CompletionTokens:   r.lastUsage.CompletionTokens,
-		CacheReadTokens:    r.lastUsage.CacheReadTokens,
-		CacheWriteTokens:   r.lastUsage.CacheWriteTokens,
-		CacheMissTokens:    r.lastUsage.CacheMissTokens,
-		SurfaceOrigin:      r.surfaceOrigin,
+		ConversationID:       r.conversationID,
+		TurnID:               r.turnID,
+		AssistantMessageID:   r.assistantMessageID,
+		HadToolCalls:         r.totalToolCallCount > 0,
+		Reason:               "limit_reached",
+		IterationCount:       r.maxIterations,
+		ToolCallCount:        r.totalToolCallCount,
+		ToolsUsed:            sortedToolNames(r.toolsUsedSet),
+		PromptTokens:         r.lastUsage.PromptTokens,
+		CompletionTokens:     r.lastUsage.CompletionTokens,
+		CacheReadTokens:      r.lastUsage.CacheReadTokens,
+		CacheWriteTokens:     r.lastUsage.CacheWriteTokens,
+		CacheMissTokens:      r.lastUsage.CacheMissTokens,
+		FinishReason:         string(r.lastFinish.Reason),
+		RawReason:            r.lastFinish.RawReason,
+		Provider:             r.lastFinish.Provider,
+		Model:                r.lastFinish.Model,
+		EffectiveOutputLimit: r.lastFinish.OutputLimit,
+		ResponseBytes:        &responseBytes,
+		SurfaceOrigin:        r.surfaceOrigin,
+	}
+	if r.lastDiagnosticUsage.OutputTokensReported {
+		outputTokens := r.lastDiagnosticUsage.CompletionTokens
+		doneEvent.OutputTokens = &outputTokens
+	}
+	if r.lastDiagnosticUsage.ReasoningTokensReported {
+		reasoningTokens := r.lastDiagnosticUsage.ReasoningTokens
+		doneEvent.ReasoningTokens = &reasoningTokens
 	}
 	doneEvent.TurnPatch, _ = r.svc.buildTurnPatch(ctx, r.conversationID, r.turnID)
 	r.svc.emitter.Emit("chat:done", doneEvent)
@@ -697,7 +778,7 @@ func (r *agenticLoopRunner) finishLimitReached(ctx context.Context) {
 	if r.svc.triggerSummarize != nil {
 		go func() {
 			defer r.svc.recoverFromPanic(r.conversationID, "triggerSummarize")
-			r.svc.triggerSummarize(ctx, r.conversationID, r.params.ProfileSlug)
+			r.svc.triggerSummarize(context.WithoutCancel(ctx), r.conversationID, r.params.ProfileSlug)
 		}()
 	}
 }
@@ -710,21 +791,40 @@ func (r *agenticLoopRunner) buildErrorDoneEvent(errMessage string, iteration int
 
 func (r *agenticLoopRunner) buildErrorDoneEventWithContext(ctx context.Context, errMessage string, iteration int) ports.DoneEvent {
 	event := ports.DoneEvent{
-		ConversationID:     r.conversationID,
-		TurnID:             r.turnID,
-		AssistantMessageID: r.assistantMessageID,
-		SurfaceOrigin:      r.surfaceOrigin,
-		HadToolCalls:       r.totalToolCallCount > 0,
-		Reason:             "error",
-		ErrorMessage:       errMessage,
-		IterationCount:     iteration + 1,
-		ToolCallCount:      r.totalToolCallCount,
-		ToolsUsed:          sortedToolNames(r.toolsUsedSet),
-		PromptTokens:       r.lastUsage.PromptTokens,
-		CompletionTokens:   r.lastUsage.CompletionTokens,
-		CacheReadTokens:    r.lastUsage.CacheReadTokens,
-		CacheWriteTokens:   r.lastUsage.CacheWriteTokens,
-		CacheMissTokens:    r.lastUsage.CacheMissTokens,
+		ConversationID:       r.conversationID,
+		TurnID:               r.turnID,
+		AssistantMessageID:   r.assistantMessageID,
+		SurfaceOrigin:        r.surfaceOrigin,
+		HadToolCalls:         r.totalToolCallCount > 0,
+		Reason:               "error",
+		ErrorMessage:         errMessage,
+		IterationCount:       iteration + 1,
+		ToolCallCount:        r.totalToolCallCount,
+		ToolsUsed:            sortedToolNames(r.toolsUsedSet),
+		PromptTokens:         r.lastUsage.PromptTokens,
+		CompletionTokens:     r.lastUsage.CompletionTokens,
+		CacheReadTokens:      r.lastUsage.CacheReadTokens,
+		CacheWriteTokens:     r.lastUsage.CacheWriteTokens,
+		CacheMissTokens:      r.lastUsage.CacheMissTokens,
+		FinishReason:         string(r.lastFinish.Reason),
+		RawReason:            r.lastFinish.RawReason,
+		Provider:             r.lastFinish.Provider,
+		Model:                r.lastFinish.Model,
+		EffectiveOutputLimit: r.lastFinish.OutputLimit,
+	}
+	if r.lastFinish.Provider != "" || r.lastFinish.Model != "" ||
+		r.lastFinish.OutputLimit != 0 || r.lastFinish.RawReason != "" ||
+		r.lastFinish.Reason != "" || r.lastFinish.ResponseBytes != 0 {
+		responseBytes := r.lastFinish.ResponseBytes
+		event.ResponseBytes = &responseBytes
+	}
+	if r.lastDiagnosticUsage.OutputTokensReported {
+		outputTokens := r.lastDiagnosticUsage.CompletionTokens
+		event.OutputTokens = &outputTokens
+	}
+	if r.lastDiagnosticUsage.ReasoningTokensReported {
+		reasoningTokens := r.lastDiagnosticUsage.ReasoningTokens
+		event.ReasoningTokens = &reasoningTokens
 	}
 	event.TurnPatch, _ = r.svc.buildTurnPatch(ctx, r.conversationID, r.turnID)
 	return event

@@ -115,7 +115,7 @@ func MigrateChannelSecrets(ctx context.Context, slug string, cfg *ChannelConfig,
 			ref = fmt.Sprintf("channel:%s:%s", slug, f.key)
 			*f.ref = ref
 		}
-		if err := credMgr.RegisterPatternWithContext(ctx, ref, &credentials.AuthConfig{
+		if err := credMgr.RegisterPatternWithContext(ctx, ref, &credentials.AuthConfig{Source: "static",
 			Type:  "secret",
 			Token: plain,
 		}); err != nil {
@@ -186,10 +186,25 @@ func ImportLegacyChannelsWithContext(ctx context.Context, credMgr *credentials.M
 					"[Channels] pulando %s: OwnerUserID=%s difere do usuário autenticado", item.Slug, owner)
 				return false, nil
 			}
-			if err := MigrateChannelSecrets(ctx, item.Slug, cfg, credMgr); err != nil {
-				return false, err
+			var saveErr error
+			if item.Slug == "slack" {
+				saveErr = SaveSlackWithCredentials(ctx, cfg, credMgr)
+			} else {
+				if err := MigrateChannelSecrets(ctx, item.Slug, cfg, credMgr); err != nil {
+					return false, err
+				}
+				saveErr = Save(item.Slug, cfg)
 			}
-			if err := Save(item.Slug, cfg); err != nil {
+			if err := saveErr; err != nil {
+				// Config legado aponta para uma conversa já deletada: é um vínculo
+				// obsoleto, não uma falha de importação. Pula o canal (skip) em vez
+				// de emitir ERROR ruidoso a cada startup — mesmo tratamento benigno
+				// de ErrConversationDeleted feito em chat/handler.go.
+				if errors.Is(err, database.ErrConversationDeleted) {
+					logging.Warnf(ctx, "channels.legacy-import",
+						"[Channels] pulando %s: referencia conversa deletada", item.Slug)
+					return false, nil
+				}
 				return false, err
 			}
 			return true, nil

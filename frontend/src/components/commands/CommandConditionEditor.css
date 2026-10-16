@@ -1,0 +1,9 @@
+/* Classes seguem BEM, conforme o contrato de nomes das páginas. */
+/* stylelint-disable selector-class-pattern, declaration-block-single-line-max-declarations */
+.command-condition-editor { display: grid; gap: 12px; border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 16px; min-inline-size: 0; }
+.command-condition-editor__hint, .command-condition-editor__empty { color: var(--text-secondary); margin: 0; }
+.command-condition-editor__list { display: grid; gap: 12px; }
+.command-condition-editor__row { display: grid; grid-template-columns: minmax(160px, 1fr) minmax(180px, 1.4fr) auto; align-items: end; gap: 12px; }
+.command-condition-editor__row > .checkbox-wrapper { min-height: 36px; align-items: center; }
+
+@media (width <= 700px) { .command-condition-editor__row { grid-template-columns: 1fr; align-items: stretch; } }

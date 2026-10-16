@@ -62,6 +62,9 @@ func TestStartStreamWatchdogNaoEstouraQuandoPaiCancelar(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	watchCtx, wd := startStreamWatchdog(ctx, time.Hour, nil)
+	wd.mu.Lock()
+	wd.lastActivity = time.Now().Add(-2 * time.Hour)
+	wd.mu.Unlock()
 	cancel()
 	wd.Stop()
 
@@ -70,6 +73,87 @@ func TestStartStreamWatchdogNaoEstouraQuandoPaiCancelar(t *testing.T) {
 	}
 	if wd.TimedOut() {
 		t.Fatal("Stop não é estouro: TimedOut deve permanecer false")
+	}
+}
+
+func TestStreamWatchdogKickNaoRessuscitaDeadlineExpirado(t *testing.T) {
+	callbacks := 0
+	watchCtx, wd := startStreamWatchdog(context.Background(), time.Hour, func() {
+		callbacks++
+	})
+	wd.mu.Lock()
+	expiredActivity := time.Now().Add(-2 * time.Hour)
+	wd.lastActivity = expiredActivity
+	wd.mu.Unlock()
+
+	wd.Kick()
+	wd.Kick()
+	wd.Stop()
+
+	if !wd.TimedOut() {
+		t.Fatal("kick posterior ao deadline não pode ressuscitar a tentativa")
+	}
+	if watchCtx.Err() == nil {
+		t.Fatal("kick posterior ao deadline deve cancelar a tentativa imediatamente")
+	}
+	if callbacks != 1 {
+		t.Fatalf("onTimeout chamado %d vezes, esperado 1", callbacks)
+	}
+}
+
+func TestStreamWatchdogStopAntesDoDeadlineNaoViraTimeoutDepois(t *testing.T) {
+	_, wd := startStreamWatchdog(context.Background(), time.Hour, nil)
+	wd.Stop()
+	wd.mu.Lock()
+	wd.lastActivity = time.Now().Add(-2 * time.Hour)
+	wd.mu.Unlock()
+	wd.Stop()
+
+	if wd.TimedOut() {
+		t.Fatal("Stop repetido não pode reclassificar EOF normal como timeout")
+	}
+}
+
+func TestStreamWatchdogStopReconheceDeadlineJaExpirado(t *testing.T) {
+	notified := make(chan struct{}, 1)
+	_, wd := startStreamWatchdog(context.Background(), time.Hour, func() {
+		notified <- struct{}{}
+	})
+	wd.mu.Lock()
+	wd.lastActivity = time.Now().Add(-2 * time.Hour)
+	wd.mu.Unlock()
+
+	wd.Stop()
+
+	if !wd.TimedOut() {
+		t.Fatal("Stop deve preservar timeout cujo deadline venceu antes do EOF")
+	}
+	select {
+	case <-notified:
+	case <-time.After(time.Second):
+		t.Fatal("Stop reconheceu timeout, mas não chamou onTimeout")
+	}
+}
+
+func TestStreamWatchdogStopLimitaEsperaDeCallbackLento(t *testing.T) {
+	release := make(chan struct{})
+	watchCtx, wd := startStreamWatchdog(context.Background(), 10*time.Millisecond, func() {
+		<-release
+	})
+
+	select {
+	case <-watchCtx.Done():
+	case <-time.After(time.Second):
+		t.Fatal("watchdog não cancelou o contexto")
+	}
+
+	start := time.Now()
+	wd.Stop()
+	elapsed := time.Since(start)
+	close(release)
+
+	if elapsed < 1500*time.Millisecond || elapsed > 3*time.Second {
+		t.Fatalf("Stop esperou %v; deveria respeitar o teto de 2s", elapsed)
 	}
 }
 
@@ -82,6 +166,9 @@ func TestStreamIdleTimeoutForProvider(t *testing.T) {
 	}
 	if got := streamIdleTimeoutForProvider(&ProviderConfig{StreamIdleTimeoutSeconds: 15}); got != 15*time.Second {
 		t.Fatalf("override: esperava 15s, veio %v", got)
+	}
+	if got := streamIdleTimeoutForProvider(&ProviderConfig{StreamIdleTimeoutSeconds: maxStreamIdleTimeoutSeconds + 1}); got != defaultStreamIdleTimeout {
+		t.Fatalf("override fora da faixa: esperava padrão %v, veio %v", defaultStreamIdleTimeout, got)
 	}
 }
 

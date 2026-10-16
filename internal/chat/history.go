@@ -3,8 +3,8 @@ package chat
 import (
 	"assistente/internal/logging"
 	"context"
-	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 )
 
@@ -22,39 +22,6 @@ func (h *HistoryLoader) maxMessages() int {
 		return max(h.MaxMsgs, 2)
 	}
 	return DefaultMaxContextMessages
-}
-
-type historyToolCall struct {
-	ID     string  `json:"id"`
-	Result *string `json:"result,omitempty"`
-}
-
-func parseHistoryToolCalls(raw string) (calls []historyToolCall, raws []json.RawMessage, wasArray bool, ok bool) {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return nil, nil, false, false
-	}
-
-	// Primeiro tenta como array.
-	var arrRaw []json.RawMessage
-	var arrCalls []historyToolCall
-	if json.Unmarshal([]byte(raw), &arrRaw) == nil && json.Unmarshal([]byte(raw), &arrCalls) == nil {
-		if len(arrRaw) == len(arrCalls) && len(arrCalls) > 0 {
-			return arrCalls, arrRaw, true, true
-		}
-	}
-
-	// Fallback: objeto único.
-	var singleRaw json.RawMessage
-	var singleCall historyToolCall
-	if json.Unmarshal([]byte(raw), &singleRaw) == nil && json.Unmarshal([]byte(raw), &singleCall) == nil {
-		if strings.TrimSpace(singleCall.ID) == "" {
-			return nil, nil, false, false
-		}
-		return []historyToolCall{singleCall}, []json.RawMessage{singleRaw}, false, true
-	}
-
-	return nil, nil, false, false
 }
 
 // Load retorna as mensagens filtradas e o resumo da conversa.
@@ -115,6 +82,80 @@ func (h *HistoryLoader) Load(ctx context.Context, conversationID string) ([]Mess
 	return h.filter(ctx, conversationID, dbMessages, existingSummary)
 }
 
+// LoadThroughMessage carrega somente a janela até a mensagem raiz selecionada.
+// É usado por retry para que mensagens e resumo posteriores à pergunta escolhida
+// não contaminem o novo turno.
+func (h *HistoryLoader) LoadThroughMessage(ctx context.Context, conversationID, messageID string) ([]Message, string, error) {
+	if h.Repo == nil {
+		return nil, "", errors.New("repositório de mensagens indisponível")
+	}
+	if windowRepo, ok := h.Repo.(AnchoredHistoryWindowRepository); ok {
+		window, err := windowRepo.LoadHistoryWindowThroughMessage(ctx, conversationID, messageID, h.maxMessages())
+		if err != nil {
+			return nil, "", err
+		}
+		if window == nil {
+			return nil, "", errors.New("janela de histórico ancorada indisponível")
+		}
+		summary := window.Summary
+		if window.SummaryUpToMessageID == "" || !window.SummaryBoundaryAvailable {
+			summary = ""
+		}
+		return h.filter(ctx, conversationID, window.Messages, summary)
+	}
+	existingSummary, summaryUpToID, err := h.Repo.GetConversationSummary(ctx, conversationID)
+	if err != nil {
+		logging.Errorf(ctx, "chat.history", "[HISTORY] Erro ao buscar resumo da conversa %s: %v", conversationID, err)
+		existingSummary = ""
+		summaryUpToID = ""
+	}
+
+	allRootMessages, err := h.Repo.GetMessages(ctx, conversationID, nil)
+	if err != nil {
+		return nil, "", err
+	}
+
+	selectedIndex := -1
+	for index, message := range allRootMessages {
+		if message.ID == messageID {
+			selectedIndex = index
+			if message.ParentID != nil {
+				return nil, "", fmt.Errorf("mensagem %s não é uma pergunta raiz", messageID)
+			}
+			break
+		}
+	}
+	if selectedIndex < 0 {
+		return nil, "", fmt.Errorf("mensagem %s não encontrada no histórico da conversa", messageID)
+	}
+
+	// Um resumo que alcança a pergunta selecionada já pode conter mensagens
+	// posteriores ao ponto de retry. Descartá-lo evita duplicação e vazamento de
+	// contexto posterior; o próprio histórico ancorado é a fonte de verdade.
+	if summaryUpToID != "" {
+		summaryIndex := -1
+		for index, message := range allRootMessages {
+			if message.ID == summaryUpToID {
+				summaryIndex = index
+				break
+			}
+		}
+		switch {
+		case summaryIndex < 0:
+			existingSummary = ""
+		case summaryIndex < selectedIndex:
+			allRootMessages = allRootMessages[summaryIndex+1 : selectedIndex+1]
+			return h.filter(ctx, conversationID, allRootMessages, existingSummary)
+		default:
+			existingSummary = ""
+		}
+	} else {
+		existingSummary = ""
+	}
+
+	return h.filter(ctx, conversationID, allRootMessages[:selectedIndex+1], existingSummary)
+}
+
 // filter preserva a semântica histórica de truncamento e limpeza. Tanto o
 // caminho legado quanto a janela batch passam por esta única implementação.
 func (h *HistoryLoader) filter(ctx context.Context, conversationID string, dbMessages []Message, existingSummary string) ([]Message, string, error) {
@@ -151,65 +192,9 @@ func (h *HistoryLoader) filter(ctx context.Context, conversationID string, dbMes
 		dbMessages = dbMessages[1:]
 	}
 
-	// Safety net: verifica que todo tool_use tem seu tool_result e vice-versa.
-	offeredIDs := make(map[string]bool)
-	answeredIDs := make(map[string]bool)
-	for _, m := range dbMessages {
-		if m.ToolCalls != "" {
-			if tcs, _, _, ok := parseHistoryToolCalls(m.ToolCalls); ok {
-				for _, tc := range tcs {
-					id := strings.TrimSpace(tc.ID)
-					if id == "" {
-						continue
-					}
-					offeredIDs[id] = true
-					if tc.Result != nil && strings.TrimSpace(*tc.Result) != "" {
-						answeredIDs[id] = true
-					}
-				}
-			}
-		}
-		if m.Role == "tool" && m.ToolCallID != "" {
-			answeredIDs[m.ToolCallID] = true
-		}
-	}
-
-	// Pass 2: remove tool_results e tool_calls órfãos.
 	cleaned := make([]Message, 0, len(dbMessages))
 	for _, m := range dbMessages {
-		if m.Role == "tool" && m.ToolCallID != "" && !offeredIDs[m.ToolCallID] {
-			logging.Infof(ctx, "chat.history", "[History] removendo tool_result órfão: %s (conversa %s)", m.ToolCallID, conversationID)
-			continue
-		}
-		if m.ToolCalls != "" {
-			if tcsParsed, tcsRaw, wasArray, ok := parseHistoryToolCalls(m.ToolCalls); ok {
-				var kept []json.RawMessage
-				for i, tc := range tcsParsed {
-					id := strings.TrimSpace(tc.ID)
-					if id == "" {
-						continue
-					}
-					if answeredIDs[id] {
-						kept = append(kept, tcsRaw[i])
-					} else {
-						logging.Infof(ctx, "chat.history", "[History] removendo tool_use órfão: %s (conversa %s)", id, conversationID)
-					}
-				}
-				if len(kept) == 0 {
-					m.ToolCalls = ""
-				} else if wasArray {
-					if len(kept) < len(tcsRaw) {
-						if j, err := json.Marshal(kept); err == nil {
-							m.ToolCalls = string(j)
-						}
-					}
-				} else {
-					// Objeto único: mantém como objeto.
-					m.ToolCalls = string(kept[0])
-				}
-			}
-		}
-		if m.Role == "assistant" && strings.TrimSpace(m.Content) == "" && strings.TrimSpace(m.ToolCalls) == "" {
+		if m.Role == "assistant" && strings.TrimSpace(m.Content) == "" {
 			// Evita manter placeholders de tool calling sem conteúdo após limpeza,
 			// que seriam enviados ao LLM como mensagens vazias. Reasoning
 			// persistido serve à UI/exportação; a extensão de protocolo só vive

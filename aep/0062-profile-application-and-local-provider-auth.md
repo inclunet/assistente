@@ -121,8 +121,7 @@ Concluído nesta sessão:
 
 Pendente para próxima evolução:
 
-- UI de criação de provider expor o seletor de `AuthMode` (hoje vem
-  apenas dos templates).
+- Seletor de `AuthMode` entregue na evolução [AEP-0114](0114-criacao-de-provedores-e-credenciais-unificadas.md), com preservação na edição e duplicação.
 - Sinalizar no picker quando a auto-cura intervir (toast
   informativo "X perfis estavam ativos; mantido o mais recente").
 
@@ -156,3 +155,7 @@ Pendente para próxima evolução:
       (não regrediu o contrato cloud).
 - [x] Suite Go completa verde.
 - [x] `tsc --noEmit` + ESLint verdes; 1314 testes Vitest passam.
+
+## Evolução AEP-0110
+
+O contrato atual de fontes está em [AEP-0110](0110-fontes-explicitas-de-credenciais.md). Referências históricas por prefixo foram substituídas por source explícita, sem migração automática. AuthModeNone remove qualquer Authorization.

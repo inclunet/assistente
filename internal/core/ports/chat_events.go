@@ -12,6 +12,7 @@ const (
 
 // ChatSurfaceOrigin identifies the frontend surface that initiated a chat turn.
 type ChatSurfaceOrigin struct {
+	ExecutionID    string `json:"executionId,omitempty"`
 	SessionKey     string `json:"sessionKey"`
 	ConversationID string `json:"conversationId"`
 	TabID          string `json:"tabId,omitempty"`
@@ -19,17 +20,21 @@ type ChatSurfaceOrigin struct {
 	SurfaceType    string `json:"surfaceType"`
 }
 
-func NewChatSurfaceOrigin(conversationID, sessionKey, surfaceID, surfaceType, tabID string) *ChatSurfaceOrigin {
+func NewChatSurfaceOrigin(conversationID, sessionKey, surfaceID, surfaceType, tabID string, executionIDs ...string) *ChatSurfaceOrigin {
 	if sessionKey == "" || surfaceID == "" || surfaceType == "" {
 		return nil
 	}
-	return &ChatSurfaceOrigin{
+	origin := &ChatSurfaceOrigin{
 		SessionKey:     sessionKey,
 		ConversationID: conversationID,
 		TabID:          tabID,
 		SurfaceID:      surfaceID,
 		SurfaceType:    surfaceType,
 	}
+	if len(executionIDs) > 0 {
+		origin.ExecutionID = executionIDs[0]
+	}
+	return origin
 }
 
 // ThinkingEvent is the payload for chat:thinking.
@@ -56,7 +61,6 @@ type TurnPatchMessage struct {
 	TurnID           string             `json:"turnId"`
 	Content          string             `json:"content"`
 	Reasoning        string             `json:"reasoning,omitempty"`
-	ToolCalls        string             `json:"toolCalls,omitempty"`
 	PromptTokens     int                `json:"promptTokens,omitempty"`
 	CompletionTokens int                `json:"completionTokens,omitempty"`
 	TotalTokens      int                `json:"totalTokens,omitempty"`
@@ -70,25 +74,29 @@ type TurnPatchMessage struct {
 }
 
 type TurnPatchSegment struct {
-	Type      string              `json:"type"`
-	Content   string              `json:"content,omitempty"`
-	ToolCalls []TurnPatchToolCall `json:"toolCalls,omitempty"`
+	Type            string                    `json:"type"`
+	Content         string                    `json:"content,omitempty"`
+	ToolInvocations []TurnPatchToolInvocation `json:"toolInvocations,omitempty"`
 }
 
-type TurnPatchToolCall struct {
-	ID          string                `json:"id"`
-	Type        string                `json:"type"`
-	Function    TurnPatchToolFunction `json:"function"`
-	Result      string                `json:"result,omitempty"`
-	Origin      string                `json:"origin,omitempty"`
-	ServerLabel string                `json:"server_label,omitempty"`
-	Iteration   int                   `json:"iteration,omitempty"`
-	DurationMs  int64                 `json:"duration_ms,omitempty"`
-}
-
-type TurnPatchToolFunction struct {
-	Name      string `json:"name"`
-	Arguments string `json:"arguments"`
+type TurnPatchToolInvocation struct {
+	InvocationID       string `json:"invocationId,omitempty"`
+	CallID             string `json:"callId"`
+	Name               string `json:"name"`
+	Origin             string `json:"origin,omitempty"`
+	ServerLabel        string `json:"serverLabel,omitempty"`
+	Status             string `json:"status"`
+	Iteration          int    `json:"iteration,omitempty"`
+	DurationMs         int64  `json:"durationMs,omitempty"`
+	InputPreview       string `json:"inputPreview,omitempty"`
+	OutputPreview      string `json:"outputPreview,omitempty"`
+	InputBytes         int64  `json:"inputBytes,omitempty"`
+	OutputBytes        int64  `json:"outputBytes,omitempty"`
+	HasDetails         bool   `json:"hasDetails"`
+	ResultAvailability string `json:"resultAvailability"`
+	HasSearchResults   bool   `json:"hasSearchResults,omitempty"`
+	SearchResultCount  int    `json:"searchResultCount,omitempty"`
+	SecurityOutcome    string `json:"securityOutcome,omitempty"`
 }
 
 // DoneEvent is the payload for chat:done.
@@ -101,17 +109,28 @@ type DoneEvent struct {
 	// acabou. Ele substitui o reload completo pós-tools no frontend.
 	TurnPatch *TurnPatchEvent `json:"turnPatch,omitempty"`
 	// AEP-0039 Fase 2: enriched done event
-	Reason           string             `json:"reason,omitempty"` // "completed" | "limit_reached" | "output_limit" | "error" | "cancelled"
-	IterationCount   int                `json:"iterationCount,omitempty"`
-	ToolCallCount    int                `json:"toolCallCount,omitempty"`
-	ToolsUsed        []string           `json:"toolsUsed,omitempty"`
-	PromptTokens     int                `json:"promptTokens,omitempty"`
-	CompletionTokens int                `json:"completionTokens,omitempty"`
-	CacheReadTokens  int                `json:"cacheReadTokens,omitempty"`
-	CacheWriteTokens int                `json:"cacheWriteTokens,omitempty"`
-	CacheMissTokens  int                `json:"cacheMissTokens,omitempty"`
-	ErrorMessage     string             `json:"errorMessage,omitempty"`
-	SurfaceOrigin    *ChatSurfaceOrigin `json:"surfaceOrigin,omitempty"`
+	Reason           string   `json:"reason,omitempty"` // "completed" | "limit_reached" | "output_limit" | "error" | "cancelled"
+	IterationCount   int      `json:"iterationCount,omitempty"`
+	ToolCallCount    int      `json:"toolCallCount,omitempty"`
+	ToolsUsed        []string `json:"toolsUsed,omitempty"`
+	PromptTokens     int      `json:"promptTokens,omitempty"`
+	CompletionTokens int      `json:"completionTokens,omitempty"`
+	CacheReadTokens  int      `json:"cacheReadTokens,omitempty"`
+	CacheWriteTokens int      `json:"cacheWriteTokens,omitempty"`
+	CacheMissTokens  int      `json:"cacheMissTokens,omitempty"`
+	// Diagnóstico aditivo do término informado pelo transporte. Os ponteiros
+	// distinguem zero reportado de usage ausente, sem alterar consumidores
+	// antigos do evento.
+	FinishReason         string             `json:"finishReason,omitempty"`
+	RawReason            string             `json:"rawReason,omitempty"`
+	Provider             string             `json:"provider,omitempty"`
+	Model                string             `json:"model,omitempty"`
+	EffectiveOutputLimit int                `json:"effectiveOutputLimit,omitempty"`
+	OutputTokens         *int               `json:"outputTokens,omitempty"`
+	ReasoningTokens      *int               `json:"reasoningTokens,omitempty"`
+	ResponseBytes        *int               `json:"responseBytes,omitempty"`
+	ErrorMessage         string             `json:"errorMessage,omitempty"`
+	SurfaceOrigin        *ChatSurfaceOrigin `json:"surfaceOrigin,omitempty"`
 }
 
 // ErrorEvent is the payload for chat:error.
@@ -175,6 +194,7 @@ type ToolEndEvent struct {
 	Name               string             `json:"name,omitempty"`
 	CallID             string             `json:"callId"`
 	Status             string             `json:"status"`
+	ErrorKind          string             `json:"errorKind,omitempty"`
 	Summary            string             `json:"summary,omitempty"`
 	Error              string             `json:"error,omitempty"`
 	ServerLabel        string             `json:"serverLabel,omitempty"`

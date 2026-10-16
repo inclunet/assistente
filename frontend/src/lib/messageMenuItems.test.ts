@@ -16,6 +16,8 @@ vi.mock('i18next', () => ({
 }));
 import { getMessageMenuItems } from './messageMenuItems';
 import type { Message } from '../store/chatStore';
+import type { MenuItem } from '../components/menu';
+import type { ChatSendToEditorPayload } from './editorSendMenu';
 import { chat } from '../../wailsjs/go/models';
 
 vi.mock('../services/messageAudio', () => ({
@@ -38,6 +40,33 @@ vi.mock('../services/tts', () => ({
 }));
 
 describe('messageMenuItems', () => {
+  it('captura origem integral de mensagem, código, tabela e link em ambos destinos', () => {
+    const originalContent = '# Fonte\n\n```ts\nconst a = 1;\n```\n\n| A | B |\n| --- | --- |\n| 1 | 2 |\n\n[Site](https://example.com)';
+    const message = new chat.EnrichedMessage({ id: 'source-a', role: 'assistant', content: originalContent });
+    const onSendToEditor = vi.fn<(payload: ChatSendToEditorPayload & { kind: string }) => void>();
+    const items = getMessageMenuItems(message, { onSendToEditor, editorTargets: [{ id: 'doc-a', title: 'A' }] });
+    message.id = 'source-b';
+    message.content = 'alterado após abertura';
+    const visit = (entries: MenuItem[]) => entries.forEach(item => {
+      if (item.submenu) visit(item.submenu);
+      else if (item.id && /^send-(editor|code|table|link)-/.test(item.id)) item.action?.();
+    });
+    visit(items);
+    const payloads = onSendToEditor.mock.calls.map(([payload]) => payload);
+    expect(payloads.length).toBeGreaterThanOrEqual(12);
+    expect(new Set(payloads.map(payload => payload.kind))).toEqual(new Set(['message', 'code', 'table', 'link']));
+    expect(new Set(payloads.map(payload => payload.format))).toEqual(new Set(['markdown', 'plain', 'html']));
+    expect(new Set(payloads.map(payload => payload.target))).toEqual(new Set(['document', 'new_document']));
+    for (const payload of payloads) {
+      expect(payload).toMatchObject({ messageId: 'source-a', originalContent });
+      if (payload.target === 'document') expect(payload.targetDocumentId).toBe('doc-a');
+      if (payload.kind === 'message' && payload.format === 'markdown') expect(payload.content).toBe(originalContent);
+      if (payload.kind === 'code') expect(payload.content).toContain('const a = 1;');
+      if (payload.kind === 'link') expect(payload.content).toBe('[Site](https://example.com)');
+      if (payload.kind === 'table') expect(payload.content).toContain(payload.format === 'html' ? '<table' : '| A | B |');
+    }
+  });
+
   it('oferece fixar ou desafixar apenas para mensagens persistidas', () => {
     const onPin = vi.fn();
     const persisted = new chat.EnrichedMessage({

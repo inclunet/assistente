@@ -55,10 +55,17 @@ Parâmetros de query string devem ser codificados com `encodeURIComponent`.
 | URI | Ação |
 |-----|------|
 | `assistente://{recurso}/new` | Abre formulário de criação do recurso |
+| `assistente://credentials/new?pattern={domínio}&type={tipo}` | Abre criação de credencial com domínio e tipo pré-preenchidos (só falta colar o token) |
 | `assistente://{recurso}/edit/{id}` | Abre formulário de edição do recurso |
 | `assistente://profiles/edit/{slug}?tab=voice` | Edita o perfil diretamente na seção de voz |
 
 Recursos: `profiles`, `providers`, `credentials`, `allowlists`, `skills`, `mcp`, `channels`, `memories`, `tasklists`
+
+Pré-preenchimento hoje só existe para `credentials/new` (`pattern` + `type`
+bearer/basic/custom/secret; valores inválidos são ignorados e o formulário
+abre em branco). Por segurança, **segredos nunca trafegam por deep link**
+(token, senhas, valores de header vazariam para histórico de chat e logs) —
+o usuário sempre digita/cola o segredo no modal.
 
 ### Rotas Válidas para `navigate`
 
@@ -185,6 +192,9 @@ buildDeepLink({ type: 'tab:new', tabType: 'terminal', cmd: 'npm install' });
 
 buildDeepLink({ type: 'resource:new', resource: 'tasklists' });
 // → 'assistente://tasklists/new'
+buildDeepLink({ type: 'resource:new', resource: 'credentials', initial: { pattern: 'api.search.brave.com', type: 'bearer' } });
+// → 'assistente://credentials/new?pattern=api.search.brave.com&type=bearer'
+// (allowlist: só pattern/type; segredos nunca são serializados)
 ```
 
 ### `executeDeepLink(action: DeepLinkAction, deps: DeepLinkDeps): Promise<void>`
@@ -210,7 +220,7 @@ type DeepLinkAction =
   | { type: 'conversation:send'; conversationId: string; message: string }
   | { type: 'navigate'; route: string }
   | { type: 'resource:edit'; resource: EditableResource; resourceId: string; tab?: 'voice' }
-  | { type: 'resource:new'; resource: EditableResource }
+  | { type: 'resource:new'; resource: EditableResource; initial?: Record<string, string> }
   | { type: 'tab:open'; tabType: TabType; contentId: string; title?: string }
   | { type: 'tab:new'; tabType: TabType; title?: string; file?: string; cmd?: string };
 ```

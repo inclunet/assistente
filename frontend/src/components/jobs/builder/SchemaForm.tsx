@@ -63,7 +63,7 @@ function TaskListField({ value, onChange }: { value: unknown; onChange: (val: un
       setItems(lists.map((tl) => ({
         value: tl.id.toString(),
         label: tl.title || t('tasklist.noTitle'),
-        sublabel: `${tl.tasks?.length ?? 0} ${t('tasklist.kanban.tasks')}`,
+        sublabel: `${tl.task_count ?? tl.tasks?.length ?? 0} ${t('tasklist.kanban.tasks')}`,
       })));
     } catch { /* ignore */ }
   }, [t]);

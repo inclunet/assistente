@@ -69,6 +69,18 @@ func (s *DBMessageStore) LoadHistoryWindow(ctx context.Context, conversationID s
 	}, nil
 }
 
+func (s *DBMessageStore) LoadHistoryWindowThroughMessage(ctx context.Context, conversationID, messageID string, maxMessages int) (*HistoryWindow, error) {
+	window, err := database.NewMessageRepository(database.DB()).LoadHistoryWindowThroughMessageWithContext(ctx, conversationID, messageID, maxMessages)
+	if err != nil {
+		return nil, err
+	}
+	return &HistoryWindow{
+		Messages: window.Messages, Summary: window.Summary,
+		SummaryUpToMessageID:     window.SummaryUpToMessageID,
+		SummaryBoundaryAvailable: window.SummaryBoundaryAvailable,
+	}, nil
+}
+
 func (s *DBMessageStore) CreateUserMessageAndLoadHistory(ctx context.Context, opts database.MessageOptions, maxMessages int) (*database.ChatMessage, *HistoryWindow, error) {
 	if _, err := database.RequireUserID(ctx); err != nil {
 		return nil, nil, err
@@ -179,20 +191,6 @@ func (s *DBMessageStore) GetTurnTokenStats(ctx context.Context, conversationID s
 		return nil, err
 	}
 	return database.GetTurnTokenStatsWithContext(ctx, conversationID, turnID)
-}
-
-func (s *DBMessageStore) AddAssistantToolMessage(ctx context.Context, conversationID, turnID string, content, toolCalls, reasoning, model string) (*database.ChatMessage, error) {
-	if _, err := database.RequireUserID(ctx); err != nil {
-		return nil, err
-	}
-	return database.AddAssistantToolMessageWithContext(ctx, conversationID, turnID, content, toolCalls, reasoning, model)
-}
-
-func (s *DBMessageStore) AddToolResultMessage(ctx context.Context, conversationID, turnID string, content, toolCallID string) (*database.ChatMessage, error) {
-	if _, err := database.RequireUserID(ctx); err != nil {
-		return nil, err
-	}
-	return database.AddToolResultMessageWithContext(ctx, conversationID, turnID, content, toolCallID)
 }
 
 func (s *DBMessageStore) SearchMessages(ctx context.Context, query string, limit int) ([]database.MessageSearchResult, error) {

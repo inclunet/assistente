@@ -3,6 +3,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 
 import { useBackendQuestionnaire } from './useBackendQuestionnaire';
+import type { QuestionnairePayload } from '../components/ui/QuestionnaireDialog';
 
 const handlers: Record<string, (data: unknown) => void> = {};
 vi.mock('@wailsjs/runtime/runtime', () => ({
@@ -24,6 +25,16 @@ vi.mock('react-i18next', () => ({
 
 function abrir(id: string) {
   act(() => handlers['tool:questionnaire']?.({ id, title: 'Pergunta', questions: [] }));
+}
+
+function abrirDecisao(id: string) {
+  act(() => handlers['tool:questionnaire']?.({
+    id,
+    kind: 'decision',
+    title: 'Pergunta',
+    questions: [],
+    actions: [{ id: 'allow', label: 'Permitir' }],
+  } as QuestionnairePayload));
 }
 
 function fechar(id: string, reason?: string) {
@@ -76,6 +87,42 @@ describe('useBackendQuestionnaire', () => {
     fechar('pergunta-1', 'timeout');
 
     expect(result.current.data?.id).toBe('pergunta-2');
+    expect(addToastSpy).not.toHaveBeenCalled();
+  });
+
+  it('publica o scope junto à decisão e não limpa o pedido novo por close/clear atrasados', () => {
+    const { result } = renderHook(() => useBackendQuestionnaire());
+    abrirDecisao('decision-old');
+    const oldScope = result.current.scope;
+    expect(oldScope?.dialogId).toBe('decision-old');
+
+    abrirDecisao('decision-current');
+    const currentScope = result.current.scope;
+    expect(result.current.data?.id).toBe('decision-current');
+    expect(currentScope?.dialogId).toBe('decision-current');
+    fechar('decision-old', 'cancelled');
+    let staleClearResult: boolean | undefined;
+    act(() => { staleClearResult = result.current.clear('decision-old'); });
+
+    expect(staleClearResult).toBe(false);
+    expect(result.current.data?.id).toBe('decision-current');
+    expect(result.current.scope).toBe(currentScope);
+    expect(addToastSpy).not.toHaveBeenCalled();
+  });
+
+  it('mantém formulário sem scope e clear sem ID remove payload e scope (logout)', () => {
+    const { result } = renderHook(() => useBackendQuestionnaire());
+    abrir('form');
+    expect(result.current.data?.id).toBe('form');
+    expect(result.current.scope).toBeNull();
+
+    abrirDecisao('decision');
+    expect(result.current.scope?.dialogId).toBe('decision');
+    act(() => result.current.clear());
+
+    expect(result.current.data).toBeNull();
+    expect(result.current.scope).toBeNull();
+    fechar('decision', 'timeout');
     expect(addToastSpy).not.toHaveBeenCalled();
   });
 

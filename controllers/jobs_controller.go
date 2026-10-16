@@ -107,6 +107,13 @@ func (c *JobsController) GetJobRunsContext(ctx context.Context, id string, limit
 	return c.jobMgr.GetJobRunsContext(ctx, id, limit)
 }
 
+func (c *JobsController) GetJobRunDetailContext(ctx context.Context, jobID, runID string) (*jobs.RunDetail, error) {
+	if c.jobMgr == nil {
+		return nil, fmt.Errorf("job manager not initialized")
+	}
+	return c.jobMgr.GetJobRunDetailContext(ctx, jobID, runID)
+}
+
 func (c *JobsController) ReplayRun(jobID, runID string) (*jobs.TestToolResult, error) {
 	if c.jobMgr == nil {
 		return nil, fmt.Errorf("job manager not initialized")

@@ -1,0 +1,1830 @@
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { axe } from 'vitest-axe';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { CHAT_CLEAR_COMMAND } from '../lib/commandChatClear';
+import { TERMINAL_INTERRUPT_COMMAND } from '../lib/commandTerminalOperation';
+import { capturePagePresentationTarget, COMMAND_SETTINGS_CREATE_COMMAND_ID } from '../lib/commandPagePresentation';
+
+const getSettings = vi.fn();
+const mutateSettings = vi.fn();
+const prepareManual = vi.fn();
+const setActive = vi.fn();
+const applyLayerAction = vi.fn();
+const beginCapture = vi.fn();
+const cancelCapture = vi.fn();
+const getProfiles = vi.fn();
+const announce = vi.fn();
+let user = { userId: 'user-1', sessionId: 'session-1' };
+let workspaceTabs: { id: string; type: string; title: string; position?: number }[] = [];
+const runtime = vi.hoisted(() => ({
+  eventsOn: vi.fn(),
+  requestGridFocus: vi.fn(),
+}));
+
+vi.mock('../services/commandSettings', () => ({
+  getCommandSettingsForScope: (...args: unknown[]) => getSettings(...args),
+  mutateCommandSettings: (...args: unknown[]) => mutateSettings(...args),
+  prepareManualCommandLayerForScope: (...args: unknown[]) => prepareManual(...args),
+  setCommandLayerActiveForScope: (...args: unknown[]) => setActive(...args),
+  applyCommandLayerAction: (...args: unknown[]) => applyLayerAction(...args),
+}));
+vi.mock('../services/commandDeckCapture', () => ({
+  beginCommandDeckCapture: (...args: unknown[]) => beginCapture(...args),
+  cancelCommandDeckCapture: (...args: unknown[]) => cancelCapture(...args),
+}));
+vi.mock('../hooks/useAnnouncer', () => ({ useAnnouncer: () => ({ announce }) }));
+vi.mock('../hooks/useGridFocus', () => ({ useGridFocus: () => ({ handleGridReady: vi.fn(), requestGridFocus: runtime.requestGridFocus }) }));
+vi.mock('../store/authStore', () => ({
+  useAuthStore: Object.assign(
+    (selector: (state: unknown) => unknown) => selector({ user }),
+    {
+      getState: () => ({ isAuthenticated: true, user: { ...user, role: 'user' } }),
+      subscribe: () => () => undefined,
+    },
+  ),
+}));
+vi.mock('../store/workspaceStore', () => ({
+  useWorkspaceStore: Object.assign(
+    (selector: (state: unknown) => unknown) => selector({ workspace: { id: 'workspace-1', activeTabId: 'tab-1', tabs: workspaceTabs } }),
+    {
+      getState: () => ({ workspace: { id: 'workspace-1', activeTabId: 'tab-1', tabs: workspaceTabs } }),
+      subscribe: () => () => undefined,
+    },
+  ),
+}));
+vi.mock('@wailsjs/runtime/runtime', () => ({ EventsOn: runtime.eventsOn }));
+vi.mock('@wailsjs/go/wailsapi/Profiles', () => ({ GetProfiles: (...args: unknown[]) => getProfiles(...args) }));
+import CommandSettingsPage from './CommandSettingsPage';
+
+async function openManager(kind: 'commands' | 'rules') {
+  const label = kind === 'commands' ? 'commandSettings.managers.commands' : 'commandSettings.rules.title';
+  const current = screen.queryByRole('dialog', { name: label });
+  if (current) return current;
+  await closeManagerIfOpen();
+  await userEvent.click(await screen.findByRole('button', { name: 'commandSettings.managers.settings' }));
+  await userEvent.click(await screen.findByRole('menuitem', { name: label }));
+  return screen.findByRole('dialog', { name: label });
+}
+
+async function captureSettingsCreateTarget(path = () => '/settings/commands') {
+  let target: ReturnType<typeof capturePagePresentationTarget>;
+  await waitFor(() => {
+    target = capturePagePresentationTarget(path, COMMAND_SETTINGS_CREATE_COMMAND_ID);
+    expect(target).toBeDefined();
+  });
+  return target!;
+}
+
+async function closeManagerIfOpen() {
+  const current = screen.queryByRole('dialog', { name: /commandSettings\.(?:managers\.commands|rules\.title)/ });
+  if (!current) return;
+  await userEvent.click(within(current).getByRole('button', { name: 'ui.modal.close' }));
+  await waitFor(() => expect(screen.queryByRole('dialog', { name: /commandSettings\.(?:managers\.commands|rules\.title)/ })).not.toBeInTheDocument());
+}
+
+async function bindingAction(name: string) {
+  const dialog = await openManager('commands');
+  const grid = within(dialog).getByRole('grid', { name: 'commandSettings.commands' });
+  await userEvent.click(within(grid).getByRole('button', { name: 'common.actions' }));
+  return screen.findByRole('menuitem', { name });
+}
+
+async function clickBindingActions() {
+  const dialog = await openManager('commands');
+  const grid = within(dialog).getByRole('grid', { name: 'commandSettings.commands' });
+  await userEvent.click(within(grid).getByRole('button', { name: 'common.actions' }));
+}
+
+async function clickNewBinding() {
+  const dialog = await openManager('commands');
+  await userEvent.click(within(dialog).getByRole('button', { name: 'commandSettings.actions.newBinding' }));
+}
+
+async function openManagerAction(dialog: HTMLElement, name: string) {
+  await userEvent.click(within(within(dialog).getByRole('toolbar')).getByRole('button', { name: 'common.actions' }));
+  return screen.findByRole('menuitem', { name });
+}
+
+async function ruleAction(name: string) {
+  const dialog = await openManager('rules');
+  const grid = within(dialog).getByRole('grid', { name: 'commandSettings.rules.title' });
+  await userEvent.click(within(grid).getByRole('button', { name: 'common.actions' }));
+  return screen.findByRole('menuitem', { name });
+}
+
+async function selectLayer(name: string) {
+  await closeManagerIfOpen();
+  const grid = await screen.findByRole('grid', { name: 'commandSettings.layers' });
+  await userEvent.click(within(grid).getByText(name));
+  await screen.findByRole('heading', { name });
+}
+
+async function openLayerEditor(name: string, entry: 'row-menu' | 'toolbar') {
+  await selectLayer(name);
+  if (entry === 'row-menu') {
+    const grid = screen.getByRole('grid', { name: 'commandSettings.layers' });
+    const row = within(grid).getByText(name).closest('[role="row"]');
+    if (!row) throw new Error(`Missing layer row: ${name}`);
+    await userEvent.click(within(row as HTMLElement).getByRole('button', { name: 'common.actions' }));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'commandSettings.actions.editLayer' }));
+  } else {
+    const toolbar = screen.getByRole('toolbar', { name: 'commandSettings.title' });
+    await userEvent.click(within(toolbar).getByRole('button', { name: 'commandSettings.managers.settings' }));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'commandSettings.actions.editLayer' }));
+  }
+  return screen.findByRole('dialog', { name: 'commandSettings.dialog.layerTitle' });
+}
+
+const snapshot = {
+  layers: [{ id: 'builtin', name: 'Base', description: 'Base', builtin: true, enabled: true, active: true, manualReady: false, manualActive: false }, { id: 'user', name: 'Minha camada', description: 'Descrição', builtin: false, enabled: true, active: false, manualReady: false, manualActive: false }],
+  bindings: [{ id: 'default-1', layerId: 'builtin', commandId: 'cmd.new', triggerType: 'keyboard.local', triggerSpec: '{"version":1,"code":"KeyN","modifiers":["Control"]}', enabled: true, customized: false, readOnly: true, defaultId: 'default-1', reviewStatus: '' }],
+  commands: [{ id: 'cmd.new', name: 'Novo', description: 'Novo', allowedSources: ['keyboard.local', 'palette'] }],
+  keyboardOperational: false,
+};
+
+async function openBindingAdvancedOptions() {
+  fireEvent.click(await bindingAction('commandSettings.actions.editBinding'));
+  const toggle = await screen.findByRole('button', { name: 'commandSettings.advancedOptions' });
+  toggle.focus();
+  await userEvent.keyboard('{Enter}');
+  await waitFor(() => expect(toggle).toHaveAttribute('aria-expanded', 'true'));
+}
+
+async function revealAdvancedOptionsIfNeeded() {
+  const toggle = await screen.findByRole('button', { name: 'commandSettings.advancedOptions' });
+  if (toggle.getAttribute('aria-expanded') === 'false') fireEvent.click(toggle);
+}
+
+describe('CommandSettingsPage', () => {
+  it.each(['commands', 'rules'] as const)('menu da segunda camada abre %s e espelha as ações de camada da toolbar', async (kind) => {
+    render(<CommandSettingsPage />);
+    await selectLayer('Minha camada');
+    const grid = screen.getByRole('grid', { name: 'commandSettings.layers' });
+    const row = within(grid).getByText('Minha camada').closest('[role="row"]') as HTMLElement;
+    await userEvent.click(within(row).getByRole('button', { name: 'common.actions' }));
+    const names = ['commandSettings.actions.editLayer', 'commandSettings.actions.deleteLayer'];
+    for (const name of names) {
+      expect(screen.getByRole('menuitem', { name })).toBeEnabled();
+    }
+    await userEvent.keyboard('{Escape}');
+    const toolbar = screen.getByRole('toolbar', { name: 'commandSettings.title' });
+    await userEvent.click(within(toolbar).getByRole('button', { name: 'commandSettings.managers.settings' }));
+    for (const name of names) expect(screen.getByRole('menuitem', { name })).toBeEnabled();
+    const name = kind === 'commands' ? 'commandSettings.managers.commands' : 'commandSettings.rules.title';
+    await userEvent.click(screen.getByRole('menuitem', { name }));
+    expect(within(await screen.findByRole('dialog', { name })).getByText('Minha camada')).toBeInTheDocument();
+  });
+
+  it('Enter na camada abre edição e não edita a camada builtin', async () => {
+    render(<CommandSettingsPage />);
+    const grid = await screen.findByRole('grid', { name: 'commandSettings.layers' });
+    await userEvent.click(within(grid).getAllByRole('gridcell', { name: /^Base$/ })[0]);
+    await userEvent.keyboard('{Enter}');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    await userEvent.click(within(grid).getByText('Minha camada'));
+    await userEvent.keyboard('{Enter}');
+    const editor = await screen.findByRole('dialog', { name: 'commandSettings.dialog.layerTitle' });
+    expect(within(editor).getByRole('textbox', { name: /commandSettings.form.name/ })).toHaveValue('Minha camada');
+  });
+
+  it.each(['commands', 'rules'] as const)('Enter edita %s e salvar mantém segunda camada, lista e foco', async (kind) => {
+    getSettings.mockResolvedValue({
+      ...snapshot,
+      bindings: ['first-binding', 'user-binding'].map((id) => ({ ...snapshot.bindings[0], id, layerId: 'user', defaultId: undefined, readOnly: false })),
+      rules: ['first-rule', 'user-rule'].map((id) => ({ id, layerId: 'user', mode: 'manual', condition: { version: 1, clauses: [] }, lifecycle: 'persistent', enabled: true, reviewStatus: 'active' })),
+    });
+    render(<CommandSettingsPage />);
+    await selectLayer('Minha camada');
+    const manager = await openManager(kind);
+    const gridName = kind === 'commands' ? 'commandSettings.commands' : 'commandSettings.rules.title';
+    const grid = within(manager).getByRole('grid', { name: gridName });
+    await act(async () => { grid.focus(); });
+    await userEvent.keyboard('{ArrowDown}{Enter}');
+    const editorName = kind === 'commands' ? 'commandSettings.dialog.bindingTitle' : 'commandSettings.dialog.ruleTitle';
+    const editor = await screen.findByRole('dialog', { name: editorName });
+    await userEvent.click(within(editor).getByRole('button', { name: 'common.save' }));
+    await waitFor(() => expect(mutateSettings).toHaveBeenCalledWith(expect.objectContaining({
+      operation: kind === 'commands' ? 'binding_update' : 'rule_update',
+      id: kind === 'commands' ? 'user-binding' : 'user-rule',
+    })));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: editorName })).not.toBeInTheDocument());
+    await waitFor(() => {
+      const list = within(manager).getByRole('grid', { name: gridName });
+      expect(within(list).getAllByRole('row')[2].contains(document.activeElement)).toBe(true);
+      expect(within(manager).getByText('Minha camada')).toBeInTheDocument();
+    });
+    expect(getSettings).toHaveBeenCalledTimes(2);
+    await userEvent.keyboard('{Enter}');
+    const reopened = await screen.findByRole('dialog', { name: editorName });
+    await userEvent.click(within(reopened).getByRole('button', { name: 'common.save' }));
+    await waitFor(() => expect(mutateSettings).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      id: kind === 'commands' ? 'user-binding' : 'user-rule',
+    })));
+  });
+
+  it.each(['commands', 'rules'] as const)('menu de %s oferece Novo, Editar e Apagar com as ações da toolbar', async (kind) => {
+    getSettings.mockResolvedValue({
+      ...snapshot,
+      bindings: [{ ...snapshot.bindings[0], id: 'user-binding', layerId: 'user', defaultId: undefined, readOnly: false }],
+      rules: [{ id: 'user-rule', layerId: 'user', mode: 'manual', condition: { version: 1, clauses: [] }, lifecycle: 'persistent', enabled: true, reviewStatus: 'active' }],
+    });
+    render(<CommandSettingsPage />);
+    await selectLayer('Minha camada');
+    const manager = await openManager(kind);
+    const grid = within(manager).getByRole('grid');
+    await userEvent.click(within(grid).getByRole('button', { name: 'common.actions' }));
+    const names = kind === 'commands'
+      ? ['commandSettings.actions.newBinding', 'commandSettings.actions.editBinding', 'commandSettings.actions.deleteBinding']
+      : ['commandSettings.rules.new', 'commandSettings.rules.edit', 'commandSettings.rules.delete'];
+    for (const name of names) expect(screen.getByRole('menuitem', { name })).toBeEnabled();
+    const contextActions = screen.getAllByRole('menuitem').map((item) => [item.textContent?.trim(), (item as HTMLButtonElement).disabled]);
+    act(() => screen.getByRole('menuitem', { name: names[0] }).focus());
+    await userEvent.keyboard('{Escape}');
+    const toolbar = within(manager).getByRole('toolbar', { name: kind === 'commands' ? 'commandSettings.managers.commands' : 'commandSettings.rules.title' });
+    const selectedGrid = within(manager).getByRole('grid');
+    const selectedRow = within(selectedGrid).getAllByRole('row')[1];
+    await waitFor(() => expect(selectedRow.contains(document.activeElement)).toBe(true));
+    await userEvent.click(within(selectedRow).getAllByRole('gridcell')[0]);
+    expect(selectedRow).toHaveAttribute('aria-selected', 'true');
+    await userEvent.click(within(toolbar).getByRole('button', { name: 'common.actions' }));
+    const toolbarActions = (await screen.findAllByRole('menuitem')).map((item) => [item.textContent?.trim(), (item as HTMLButtonElement).disabled]);
+    expect(toolbarActions).toEqual(contextActions);
+    await userEvent.click(screen.getByRole('menuitem', { name: names[0] }));
+    expect(await screen.findByRole('dialog', { name: kind === 'commands' ? 'commandSettings.dialog.bindingTitle' : 'commandSettings.dialog.ruleTitle' })).toBeInTheDocument();
+    expect(mutateSettings).not.toHaveBeenCalled();
+  });
+
+  it.each(['commands', 'rules'] as const)('toolbar do modal de %s começa por Novo e Ações', async (kind) => {
+    render(<CommandSettingsPage />);
+    await screen.findByRole('grid', { name: 'commandSettings.layers' });
+    await selectLayer('Minha camada');
+    const manager = await openManager(kind);
+    const toolbar = within(manager).getByRole('toolbar', {
+      name: kind === 'commands' ? 'commandSettings.managers.commands' : 'commandSettings.rules.title',
+    });
+    expect(within(toolbar).getAllByRole('button').slice(0, 2).map((button) => button.getAttribute('aria-label'))).toEqual([
+      kind === 'commands' ? 'commandSettings.actions.newBinding' : 'commandSettings.rules.new',
+      'common.actions',
+    ]);
+  });
+
+  it.each(['binding-review', 'binding-inherited', 'rule-review', 'rule-inherited'] as const)('Enter mantém a recusa original para %s', async (policy) => {
+    const inherited = policy.endsWith('inherited');
+    const reviewStatus = inherited ? 'active' : 'needs_review';
+    getSettings.mockResolvedValue({
+      ...snapshot,
+      bindings: [{ ...snapshot.bindings[0], id: 'user-binding', layerId: 'user', defaultId: undefined, readOnly: false, inherited, reviewStatus }],
+      rules: [{ id: 'user-rule', layerId: 'user', mode: 'manual', condition: { version: 1, clauses: [] }, lifecycle: 'persistent', enabled: true, inherited, reviewStatus }],
+    });
+    render(<CommandSettingsPage />);
+    await selectLayer('Minha camada');
+    const kind = policy.startsWith('binding') ? 'commands' : 'rules';
+    const manager = await openManager(kind);
+    await act(async () => { within(manager).getByRole('grid').focus(); });
+    await userEvent.keyboard('{Enter}');
+    expect(screen.queryByRole('dialog', { name: /commandSettings.dialog/ })).not.toBeInTheDocument();
+    expect(mutateSettings).not.toHaveBeenCalled();
+  });
+
+  let keyboardMapChanged: (() => void) | undefined;
+  let deckStatusChanged: ((payload: unknown) => void) | undefined;
+  let deckCaptureChanged: ((payload: unknown) => void) | undefined;
+  let unsubscribeKeyboardMapChanged: ReturnType<typeof vi.fn>;
+
+  it('mantém somente a lista de camadas na página inicial', async () => {
+    render(<CommandSettingsPage />);
+    expect(await screen.findByRole('grid', { name: 'commandSettings.layers' })).toBeInTheDocument();
+    expect(screen.queryByRole('grid', { name: 'commandSettings.commands' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('grid', { name: 'commandSettings.rules.title' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'commandSettings.actions.newBinding' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'commandSettings.rules.new' })).not.toBeInTheDocument();
+
+    const toolbar = screen.getByRole('toolbar', { name: 'commandSettings.title' });
+    const toolbarButtons = within(toolbar).getAllByRole('button').map((button) => button.getAttribute('aria-label'));
+    expect(toolbarButtons).toEqual(expect.arrayContaining([
+      'commandSettings.actions.newLayer', 'commandSettings.managers.settings', 'commandSettings.manualBack',
+      'commandSettings.actions.restoreAll', 'commandSettings.actions.upgradeDefaults',
+    ]));
+    const order = [
+      'commandSettings.actions.newLayer', 'commandSettings.managers.settings', 'commandSettings.manualBack',
+      'commandSettings.actions.restoreAll', 'commandSettings.actions.upgradeDefaults',
+    ].map((name) => toolbarButtons.indexOf(name));
+    expect(order).toEqual([...order].sort((a, b) => a - b));
+    expect(within(toolbar).getByRole('button', { name: 'commandSettings.actions.newLayer' })).toBeEnabled();
+    const back = within(toolbar).getByRole('button', { name: 'commandSettings.manualBack' });
+    expect(back).toHaveAttribute('aria-describedby', 'command-manual-back-hint');
+    expect(document.getElementById(back.getAttribute('aria-describedby')!)).toHaveTextContent('commandSettings.manualBackHint');
+    expect(within(toolbar).getByRole('button', { name: 'commandSettings.actions.restoreAll' })).toBeEnabled();
+    expect(within(toolbar).getByRole('button', { name: 'commandSettings.actions.upgradeDefaults' })).toBeEnabled();
+    expect(toolbar).not.toContainElement(screen.getByLabelText('commandSettings.scope.label'));
+    const consent = await within(toolbar).findByRole('checkbox', { name: 'commandSettings.externalConnection.consent' });
+    expect(consent).not.toBeChecked();
+    const beginExternalConnection = screen.getByRole('button', { name: 'commandSettings.externalConnection.begin' });
+    expect(beginExternalConnection).toBeDisabled();
+    await userEvent.click(consent);
+    expect(consent).toBeChecked();
+    expect(beginExternalConnection).toBeDisabled();
+  });
+
+  it('edita a camada selecionada pelo menu da linha e pelo botão da toolbar', async () => {
+    render(<CommandSettingsPage />);
+    const fromRowMenu = await openLayerEditor('Minha camada', 'row-menu');
+    expect(within(fromRowMenu).getByLabelText(/commandSettings\.form\.name/)).toHaveValue('Minha camada');
+    await userEvent.click(within(fromRowMenu).getByRole('button', { name: 'common.cancel' }));
+
+    const fromToolbar = await openLayerEditor('Minha camada', 'toolbar');
+    expect(within(fromToolbar).getByLabelText(/commandSettings\.form\.name/)).toHaveValue('Minha camada');
+  });
+
+  it('mostra placeholders sem seleção e mantém ações de builtin/herdada iguais às ações contextuais', async () => {
+    getSettings.mockResolvedValue({
+      ...snapshot,
+      layers: [snapshot.layers[0], { ...snapshot.layers[1], name: 'Camada herdada', inherited: true }],
+    });
+    const page = render(<CommandSettingsPage />);
+    await screen.findByRole('grid', { name: 'commandSettings.layers' });
+    const toolbar = screen.getByRole('toolbar', { name: 'commandSettings.title' });
+    const grid = screen.getByRole('grid', { name: 'commandSettings.layers' });
+    const builtinRow = within(grid).getAllByText('Base')[0].closest('[role="row"]') as HTMLElement;
+    await userEvent.click(within(builtinRow).getByRole('button', { name: 'common.actions' }));
+    const builtinContext = screen.getAllByRole('menuitem').map((item) => item.textContent);
+    await userEvent.keyboard('{Escape}');
+    await userEvent.click(within(toolbar).getByRole('button', { name: 'commandSettings.managers.settings' }));
+    expect(screen.getAllByRole('menuitem').map((item) => item.textContent)).toEqual(builtinContext);
+    await userEvent.keyboard('{Escape}');
+    await selectLayer('Camada herdada');
+    const inheritedRow = within(grid).getByText('Camada herdada').closest('[role="row"]') as HTMLElement;
+    await userEvent.click(within(inheritedRow).getByRole('button', { name: 'common.actions' }));
+    const inheritedContext = screen.getAllByRole('menuitem').map((item) => item.textContent);
+    await userEvent.keyboard('{Escape}');
+    await userEvent.click(within(toolbar).getByRole('button', { name: 'commandSettings.managers.settings' }));
+    expect(screen.getAllByRole('menuitem').map((item) => item.textContent)).toEqual(inheritedContext);
+    await userEvent.keyboard('{Escape}');
+
+    page.unmount();
+    getSettings.mockResolvedValue({ ...snapshot, layers: [] });
+    const emptyPage = render(<CommandSettingsPage />);
+    await screen.findByText('commandSettings.noLayer');
+    const emptyToolbar = screen.getByRole('toolbar', { name: 'commandSettings.title' });
+    await userEvent.click(within(emptyToolbar).getByRole('button', { name: 'commandSettings.managers.settings' }));
+    expect(screen.getByRole('menuitem', { name: 'commandSettings.actions.editLayer' })).toBeDisabled();
+    expect(screen.getByRole('menuitem', { name: 'commandSettings.actions.deleteLayer' })).toBeDisabled();
+    emptyPage.unmount();
+  });
+
+  it('abre gerenciadores separados e preserva leitura sem conceder edição à camada builtin', async () => {
+    getSettings.mockResolvedValue({ ...snapshot, rules: [{
+      id: 'builtin-rule', layerId: 'builtin', mode: 'manual', condition: { version: 1, clauses: [] },
+      lifecycle: 'temporary', enabled: true, reviewStatus: 'active',
+    }] });
+    render(<CommandSettingsPage />);
+    await screen.findByRole('grid', { name: 'commandSettings.layers' });
+
+    const commands = await openManager('commands');
+    expect(within(commands).getByRole('grid', { name: 'commandSettings.commands' })).toBeInTheDocument();
+    expect(within(commands).queryByRole('grid', { name: 'commandSettings.rules.title' })).not.toBeInTheDocument();
+    expect(await openManagerAction(commands, 'commandSettings.actions.newBinding')).toBeDisabled();
+    expect(await axe(commands, { rules: { 'color-contrast': { enabled: false } } })).toHaveNoViolations();
+    fireEvent.click(within(commands).getByRole('button', { name: 'ui.modal.close' }));
+
+    const rules = await openManager('rules');
+    expect(within(rules).getByRole('grid', { name: 'commandSettings.rules.title' })).toBeInTheDocument();
+    expect(within(rules).queryByRole('grid', { name: 'commandSettings.commands' })).not.toBeInTheDocument();
+    expect(await openManagerAction(rules, 'commandSettings.rules.new')).toBeDisabled();
+    expect(await axe(rules, { rules: { 'color-contrast': { enabled: false } } })).toHaveNoViolations();
+  });
+
+  it('abre camada, binding e regra pelo alvo real registrado e invalida cada alvo após fechar', async () => {
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+    render(<CommandSettingsPage />);
+    const layerGrid = await screen.findByRole('grid', { name: 'commandSettings.layers' });
+    layerGrid.focus();
+
+    const layerTarget = await captureSettingsCreateTarget();
+    let opened = false;
+    act(() => { opened = layerTarget!.open(COMMAND_SETTINGS_CREATE_COMMAND_ID); });
+    expect(opened).toBe(true);
+    expect(await screen.findByRole('dialog', { name: 'commandSettings.dialog.layerTitle' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'common.cancel' }));
+    expect(layerTarget!.open(COMMAND_SETTINGS_CREATE_COMMAND_ID)).toBe(false);
+
+    await selectLayer('Minha camada');
+    const bindings = await openManager('commands');
+    within(bindings).getByRole('button', { name: 'common.actions' }).focus();
+    const bindingTarget = await captureSettingsCreateTarget();
+    act(() => { opened = bindingTarget!.open(COMMAND_SETTINGS_CREATE_COMMAND_ID); });
+    expect(opened).toBe(true);
+    expect(await screen.findByRole('dialog', { name: 'commandSettings.dialog.bindingTitle' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'common.cancel' }));
+    expect(bindingTarget!.open(COMMAND_SETTINGS_CREATE_COMMAND_ID)).toBe(false);
+    await userEvent.click(within(bindings).getByRole('button', { name: 'ui.modal.close' }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'commandSettings.managers.commands' })).not.toBeInTheDocument());
+
+    const rules = await openManager('rules');
+    within(rules).getByRole('button', { name: 'common.actions' }).focus();
+    const ruleTarget = await captureSettingsCreateTarget();
+    act(() => { opened = ruleTarget!.open(COMMAND_SETTINGS_CREATE_COMMAND_ID); });
+    expect(opened).toBe(true);
+    expect(await screen.findByRole('dialog', { name: 'commandSettings.dialog.ruleTitle' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'common.cancel' }));
+    expect(ruleTarget!.open(COMMAND_SETTINGS_CREATE_COMMAND_ID)).toBe(false);
+    await userEvent.click(within(rules).getByRole('button', { name: 'ui.modal.close' }));
+  });
+
+  it('nega o alvo real em camada builtin ou herdada e quando o foco pertence a outra rota', async () => {
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+    getSettings.mockResolvedValue({
+      ...snapshot,
+      layers: [...snapshot.layers, { ...snapshot.layers[1], id: 'inherited', name: 'Camada herdada', inherited: true }],
+    });
+    render(<CommandSettingsPage />);
+    await screen.findByRole('grid', { name: 'commandSettings.layers' });
+    await openManager('commands');
+    expect(capturePagePresentationTarget(() => '/settings/commands', COMMAND_SETTINGS_CREATE_COMMAND_ID)).toBeUndefined();
+    await closeManagerIfOpen();
+
+    await selectLayer('Camada herdada');
+    await openManager('rules');
+    expect(capturePagePresentationTarget(() => '/settings/commands', COMMAND_SETTINGS_CREATE_COMMAND_ID)).toBeUndefined();
+    expect(capturePagePresentationTarget(() => '/settings/profiles', COMMAND_SETTINGS_CREATE_COMMAND_ID)).toBeUndefined();
+  });
+
+  it('nega o alvo real enquanto uma ação está ocupada ou um diálogo filho está aberto', async () => {
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+    getSettings.mockResolvedValue({
+      ...snapshot,
+      bindings: [{ ...snapshot.bindings[0], id: 'user-binding', layerId: 'user', defaultId: undefined, readOnly: false }],
+    });
+    render(<CommandSettingsPage />);
+    await screen.findByRole('grid', { name: 'commandSettings.layers' });
+    await selectLayer('Minha camada');
+    const dialog = await openManager('commands');
+    await clickNewBinding();
+    expect(await screen.findByRole('dialog', { name: 'commandSettings.dialog.bindingTitle' })).toBeInTheDocument();
+    expect(capturePagePresentationTarget(() => '/settings/commands', COMMAND_SETTINGS_CREATE_COMMAND_ID)).toBeUndefined();
+    await userEvent.click(screen.getByRole('button', { name: 'common.cancel' }));
+
+    mutateSettings.mockReturnValue(new Promise(() => undefined));
+    const grid = within(dialog).getByRole('grid', { name: 'commandSettings.commands' });
+    fireEvent.focus(grid);
+    fireEvent.keyDown(grid, { key: ' ' });
+    const deleteAction = await openManagerAction(dialog, 'commandSettings.actions.deleteBinding');
+    await waitFor(() => expect(deleteAction).toBeEnabled());
+    await userEvent.click(deleteAction);
+    await userEvent.click(within(within(dialog).getByRole('toolbar')).getByRole('button', { name: 'common.actions' }));
+    await waitFor(() => expect(screen.getByRole('menuitem', { name: 'commandSettings.actions.deleteBinding' })).toBeDisabled());
+    expect(capturePagePresentationTarget(() => '/settings/commands', COMMAND_SETTINGS_CREATE_COMMAND_ID)).toBeUndefined();
+  });
+
+  it('habilita a toolbar de bindings por seleção de teclado e mantém as ações da linha', async () => {
+    getSettings.mockResolvedValue({
+      ...snapshot,
+      bindings: [{ ...snapshot.bindings[0], id: 'user-binding', layerId: 'user', defaultId: undefined, readOnly: false }],
+    });
+    render(<CommandSettingsPage />);
+    await screen.findByRole('grid', { name: 'commandSettings.layers' });
+    await selectLayer('Minha camada');
+    const dialog = await openManager('commands');
+    const toolbar = within(dialog).getByRole('toolbar', { name: 'commandSettings.managers.commands' });
+    const menuButton = within(toolbar).getByRole('button', { name: 'common.actions' });
+    expect(menuButton).toBeInTheDocument();
+    await userEvent.click(menuButton);
+    let edit = screen.getByRole('menuitem', { name: 'commandSettings.actions.editBinding' });
+    let remove = screen.getByRole('menuitem', { name: 'commandSettings.actions.deleteBinding' });
+    expect(edit).toBeDisabled();
+    expect(remove).toBeDisabled();
+
+    const grid = within(dialog).getByRole('grid', { name: 'commandSettings.commands' });
+    await userEvent.keyboard('{Escape}');
+    fireEvent.focus(grid);
+    fireEvent.keyDown(grid, { key: ' ' });
+    await userEvent.click(within(toolbar).getByRole('button', { name: 'common.actions' }));
+    edit = screen.getByRole('menuitem', { name: 'commandSettings.actions.editBinding' });
+    remove = screen.getByRole('menuitem', { name: 'commandSettings.actions.deleteBinding' });
+    expect(edit).toBeEnabled();
+    expect(remove).toBeEnabled();
+    await userEvent.click(edit);
+    expect(await screen.findByRole('dialog', { name: 'commandSettings.dialog.bindingTitle' })).toBeInTheDocument();
+  });
+
+  it('desabilita ações de edição quando múltiplos bindings estão selecionados', async () => {
+    getSettings.mockResolvedValue({
+      ...snapshot,
+      bindings: ['first-binding', 'second-binding'].map((id) => ({
+        ...snapshot.bindings[0], id, layerId: 'user', defaultId: undefined, readOnly: false,
+      })),
+    });
+    render(<CommandSettingsPage />);
+    await screen.findByRole('grid', { name: 'commandSettings.layers' });
+    await selectLayer('Minha camada');
+    const dialog = await openManager('commands');
+    const grid = within(dialog).getByRole('grid', { name: 'commandSettings.commands' });
+    fireEvent.focus(grid);
+    fireEvent.keyDown(grid, { key: ' ' });
+    fireEvent.keyDown(grid, { key: 'ArrowDown' });
+    fireEvent.keyDown(grid, { key: ' ', ctrlKey: true });
+    expect(within(grid).getAllByRole('row').slice(1).filter((row) => row.getAttribute('aria-selected') === 'true')).toHaveLength(2);
+    const toolbar = within(dialog).getByRole('toolbar', { name: 'commandSettings.managers.commands' });
+    await userEvent.click(within(toolbar).getByRole('button', { name: 'common.actions' }));
+    expect(screen.getByRole('menuitem', { name: 'commandSettings.actions.newBinding' })).toBeEnabled();
+    for (const name of ['commandSettings.actions.editBinding', 'commandSettings.actions.deleteBinding']) {
+      expect(screen.getByRole('menuitem', { name })).toBeDisabled();
+    }
+    expect(mutateSettings).not.toHaveBeenCalled();
+  });
+
+  it('fecha e invalida o menu de ações durante recarga do mapa e o reabilita após concluir', async () => {
+    const withUserBinding = {
+      ...snapshot,
+      bindings: [{ ...snapshot.bindings[0], id: 'user-binding', layerId: 'user', defaultId: undefined, readOnly: false }],
+    };
+    let resolveReload: (value: typeof withUserBinding) => void = () => undefined;
+    getSettings.mockResolvedValueOnce(withUserBinding)
+      .mockReturnValueOnce(new Promise<typeof withUserBinding>((resolve) => { resolveReload = resolve; }))
+      .mockResolvedValueOnce(withUserBinding);
+    render(<CommandSettingsPage />);
+    await screen.findByRole('grid', { name: 'commandSettings.layers' });
+    await selectLayer('Minha camada');
+    const dialog = await openManager('commands');
+    const grid = within(dialog).getByRole('grid', { name: 'commandSettings.commands' });
+    fireEvent.focus(grid);
+    fireEvent.keyDown(grid, { key: ' ' });
+    const toolbar = within(dialog).getByRole('toolbar', { name: 'commandSettings.managers.commands' });
+    const actionsButton = within(toolbar).getByRole('button', { name: 'common.actions' });
+    await userEvent.click(actionsButton);
+    expect(screen.getByRole('menuitem', { name: 'commandSettings.actions.editBinding' })).toBeEnabled();
+
+    act(() => keyboardMapChanged?.());
+    expect(await within(dialog).findByText('common.loading')).toBeInTheDocument();
+    expect(screen.queryByRole('menuitem')).not.toBeInTheDocument();
+    expect(actionsButton).toHaveAttribute('aria-expanded', 'false');
+    expect(actionsButton.isConnected).toBe(true);
+    await waitFor(() => expect(document.activeElement).toBe(actionsButton));
+
+    await userEvent.click(actionsButton);
+    const unavailableEdit = screen.getByRole('menuitem', { name: 'commandSettings.actions.editBinding' });
+    expect(unavailableEdit).toBeDisabled();
+    await userEvent.click(unavailableEdit);
+    expect(screen.queryByRole('dialog', { name: 'commandSettings.dialog.bindingTitle' })).not.toBeInTheDocument();
+    await userEvent.keyboard('{Escape}');
+
+    await act(async () => resolveReload(withUserBinding));
+    await waitFor(() => expect(within(dialog).queryByText('common.loading')).not.toBeInTheDocument());
+    await userEvent.click(actionsButton);
+    expect(screen.getByRole('menuitem', { name: 'commandSettings.actions.editBinding' })).toBeEnabled();
+    await userEvent.click(screen.getByRole('menuitem', { name: 'commandSettings.actions.editBinding' }));
+    expect(await screen.findByRole('dialog', { name: 'commandSettings.dialog.bindingTitle' })).toBeInTheDocument();
+  });
+
+  it('apaga o binding selecionado usando a ação original da linha', async () => {
+    getSettings.mockResolvedValue({
+      ...snapshot,
+      bindings: [{ ...snapshot.bindings[0], id: 'user-binding', layerId: 'user', defaultId: undefined, readOnly: false }],
+    });
+    render(<CommandSettingsPage />);
+    await screen.findByRole('grid', { name: 'commandSettings.layers' });
+    await selectLayer('Minha camada');
+    const dialog = await openManager('commands');
+    const grid = within(dialog).getByRole('grid', { name: 'commandSettings.commands' });
+    await userEvent.click(within(grid).getByText('Novo'));
+    const remove = await openManagerAction(dialog, 'commandSettings.actions.deleteBinding');
+    expect(remove).toBeEnabled();
+    await userEvent.click(remove);
+    await waitFor(() => expect(mutateSettings).toHaveBeenCalledWith(expect.objectContaining({
+      operation: 'binding_delete', id: 'user-binding',
+    })));
+  });
+
+  it('mantém edição de binding padrão somente leitura quando a ação original permite personalização', async () => {
+    getSettings.mockResolvedValue({
+      ...snapshot,
+      bindings: [{ ...snapshot.bindings[0], id: 'readonly-binding', layerId: 'user', defaultId: 'default-1', readOnly: true }],
+    });
+    render(<CommandSettingsPage />);
+    await screen.findByRole('grid', { name: 'commandSettings.layers' });
+    await selectLayer('Minha camada');
+    const dialog = await openManager('commands');
+    const grid = within(dialog).getByRole('grid', { name: 'commandSettings.commands' });
+    await userEvent.click(within(grid).getByText('Novo'));
+    const edit = await openManagerAction(dialog, 'commandSettings.actions.editBinding');
+    expect(edit).toBeEnabled();
+    expect(screen.queryByRole('menuitem', { name: 'commandSettings.actions.deleteBinding' })).not.toBeInTheDocument();
+    await userEvent.click(edit);
+    expect(await screen.findByRole('dialog', { name: 'commandSettings.dialog.bindingTitle' })).toBeInTheDocument();
+  });
+
+  it('preserva a diferença original entre editar e apagar binding em revisão', async () => {
+    getSettings.mockResolvedValue({
+      ...snapshot,
+      bindings: [{ ...snapshot.bindings[0], id: 'review-binding', layerId: 'user', defaultId: undefined, reviewStatus: 'needs_review' }],
+    });
+    render(<CommandSettingsPage />);
+    await screen.findByRole('grid', { name: 'commandSettings.layers' });
+    await selectLayer('Minha camada');
+    const dialog = await openManager('commands');
+    const toolbar = within(dialog).getByRole('toolbar', { name: 'commandSettings.managers.commands' });
+    const grid = within(dialog).getByRole('grid', { name: 'commandSettings.commands' });
+    await userEvent.click(within(grid).getByText('Novo'));
+    await userEvent.click(within(toolbar).getByRole('button', { name: 'common.actions' }));
+    expect(screen.getByRole('menuitem', { name: 'commandSettings.actions.editBinding' })).toBeDisabled();
+    expect(screen.getByRole('menuitem', { name: 'commandSettings.actions.deleteBinding' })).toBeEnabled();
+  });
+
+  it('aplica as mesmas guardas de revisão da linha às ações de regras', async () => {
+    getSettings.mockResolvedValue({
+      ...snapshot,
+      rules: [{
+        id: 'review-rule', layerId: 'user', mode: 'manual', condition: { version: 1, clauses: [] },
+        lifecycle: 'persistent', enabled: true, reviewStatus: 'needs_review',
+      }],
+    });
+    render(<CommandSettingsPage />);
+    await screen.findByRole('grid', { name: 'commandSettings.layers' });
+    await selectLayer('Minha camada');
+    const dialog = await openManager('rules');
+    const toolbar = within(dialog).getByRole('toolbar', { name: 'commandSettings.rules.title' });
+    const grid = within(dialog).getByRole('grid', { name: 'commandSettings.rules.title' });
+    await userEvent.click(within(toolbar).getByRole('button', { name: 'common.actions' }));
+    expect(screen.getByRole('menuitem', { name: 'commandSettings.rules.edit' })).toBeDisabled();
+    expect(screen.getByRole('menuitem', { name: 'commandSettings.rules.delete' })).toBeDisabled();
+    await userEvent.keyboard('{Escape}');
+    grid.focus();
+    fireEvent.keyDown(grid, { key: ' ' });
+    await userEvent.click(within(toolbar).getByRole('button', { name: 'common.actions' }));
+    expect(screen.getByRole('menuitem', { name: 'commandSettings.rules.edit' })).toBeDisabled();
+    expect(screen.getByRole('menuitem', { name: 'commandSettings.rules.delete' })).toBeDisabled();
+    expect(mutateSettings).not.toHaveBeenCalled();
+  });
+
+  it('habilita as ações da toolbar para regra selecionada e reutiliza edição da linha', async () => {
+    getSettings.mockResolvedValue({
+      ...snapshot,
+      rules: [{
+        id: 'active-rule', layerId: 'user', mode: 'manual', condition: { version: 1, clauses: [] },
+        lifecycle: 'persistent', enabled: true, reviewStatus: 'active',
+      }],
+    });
+    render(<CommandSettingsPage />);
+    await screen.findByRole('grid', { name: 'commandSettings.layers' });
+    await selectLayer('Minha camada');
+    const dialog = await openManager('rules');
+    const grid = within(dialog).getByRole('grid', { name: 'commandSettings.rules.title' });
+    fireEvent.focus(grid);
+    fireEvent.keyDown(grid, { key: ' ' });
+    const edit = await openManagerAction(dialog, 'commandSettings.rules.edit');
+    expect(edit).toBeEnabled();
+    expect(screen.getByRole('menuitem', { name: 'commandSettings.rules.delete' })).toBeEnabled();
+    await userEvent.click(edit);
+    expect(await screen.findByRole('dialog', { name: 'commandSettings.dialog.ruleTitle' })).toBeInTheDocument();
+  });
+
+  it('Escape fecha primeiro o editor filho e depois o gerenciador', async () => {
+    render(<CommandSettingsPage />);
+    await screen.findByRole('grid', { name: 'commandSettings.layers' });
+    const dialog = await openManager('commands');
+    const grid = within(dialog).getByRole('grid', { name: 'commandSettings.commands' });
+    fireEvent.click(within(grid).getByRole('button', { name: 'common.actions' }));
+    const edit = await screen.findByRole('menuitem', { name: 'commandSettings.actions.editBinding' });
+    fireEvent.click(edit);
+    expect(await screen.findByRole('dialog', { name: 'commandSettings.dialog.bindingTitle' })).toBeInTheDocument();
+
+    await userEvent.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog', { name: 'commandSettings.dialog.bindingTitle' })).not.toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'commandSettings.managers.commands' })).toBeInTheDocument();
+    expect(within(dialog).getByRole('grid', { name: 'commandSettings.commands' })).toBeInTheDocument();
+
+    await userEvent.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog', { name: 'commandSettings.managers.commands' })).not.toBeInTheDocument();
+    expect(screen.getByRole('grid', { name: 'commandSettings.layers' })).toBeInTheDocument();
+  });
+
+  it('ao fechar o gerenciador devolve foco à camada selecionada', async () => {
+    const requestGridFocus = runtime.requestGridFocus;
+    requestGridFocus.mockClear();
+    render(<CommandSettingsPage />);
+    await screen.findByRole('grid', { name: 'commandSettings.layers' });
+    const dialog = await openManager('commands');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'ui.modal.close' }));
+
+    await waitFor(() => expect(requestGridFocus).toHaveBeenCalledWith({ itemId: 'builtin' }));
+    expect(screen.getByRole('grid', { name: 'commandSettings.layers' })).toBeInTheDocument();
+    expect(screen.queryByRole('grid', { name: 'commandSettings.commands' })).not.toBeInTheDocument();
+  });
+
+  it.each(['session', 'scope'] as const)('fecha gerenciador quando muda o %s', async (identityChange) => {
+    const page = render(<CommandSettingsPage />);
+    await screen.findByRole('grid', { name: 'commandSettings.layers' });
+    const scopeSelect = screen.getByLabelText('commandSettings.scope.label');
+    await openManager('commands');
+
+    if (identityChange === 'session') {
+      user = { ...user, sessionId: 'session-changed' };
+      page.rerender(<CommandSettingsPage />);
+    } else {
+      await userEvent.selectOptions(scopeSelect, 'workspace');
+    }
+
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'commandSettings.managers.commands' })).not.toBeInTheDocument());
+    expect(screen.getByRole('grid', { name: 'commandSettings.layers' })).toBeInTheDocument();
+    expect(screen.queryByRole('grid', { name: 'commandSettings.commands' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('grid', { name: 'commandSettings.rules.title' })).not.toBeInTheDocument();
+  });
+
+  it('recupera snapshot ausente quando o mapa é publicado depois do bootstrap', async () => {
+    getSettings.mockRejectedValueOnce(new Error('bootstrap ainda não pronto'))
+      .mockResolvedValueOnce({ ...snapshot, keyboardOperational: true });
+    render(<CommandSettingsPage />);
+    await screen.findByText('commandSettings.errors.load');
+
+    await act(async () => keyboardMapChanged?.());
+
+    expect(await screen.findByText('commandSettings.keyboardAvailable')).toBeInTheDocument();
+    expect(getSettings).toHaveBeenCalledTimes(2);
+  });
+
+  it('drena evento recebido durante a carga inicial depois que ela termina em erro', async () => {
+    let rejectInitial: (reason: Error) => void = () => undefined;
+    getSettings
+      .mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectInitial = reject; }))
+      .mockResolvedValueOnce({ ...snapshot, keyboardOperational: true });
+    render(<CommandSettingsPage />);
+
+    await act(async () => keyboardMapChanged?.());
+    await act(async () => rejectInitial(new Error('bootstrap ainda não pronto')));
+
+    expect(await screen.findByText('commandSettings.keyboardAvailable')).toBeInTheDocument();
+    expect(getSettings).toHaveBeenCalledTimes(2);
+  });
+
+  it('não recarrega o snapshot em evento de fundo durante editor ou mutação', async () => {
+    let resolveMutation: (value: unknown) => void = () => undefined;
+    mutateSettings.mockImplementationOnce(() => new Promise((resolve) => { resolveMutation = resolve; }));
+    render(<CommandSettingsPage />);
+    await screen.findByText('Minha camada');
+
+    fireEvent.click(screen.getByRole('button', { name: 'commandSettings.actions.newLayer' }));
+    await act(async () => keyboardMapChanged?.());
+    expect(getSettings).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole('button', { name: 'common.cancel' }));
+    fireEvent.click(await bindingAction('commandSettings.actions.suppress'));
+    await act(async () => keyboardMapChanged?.());
+    expect(getSettings).toHaveBeenCalledTimes(1);
+
+    await act(async () => resolveMutation({ committed: true, published: true, id: 'default-1' }));
+  });
+
+  it('remove o listener de bootstrap ao desmontar', () => {
+    const { unmount } = render(<CommandSettingsPage />);
+    unmount();
+    expect(unsubscribeKeyboardMapChanged).toHaveBeenCalledTimes(6);
+  });
+
+  it('informa o recorte operacional quando o backend oferece teclado local', async () => {
+    getSettings.mockResolvedValue({ ...snapshot, keyboardOperational: true });
+    render(<CommandSettingsPage />);
+    expect(await screen.findByText('commandSettings.keyboardAvailable')).toBeInTheDocument();
+    expect(screen.queryByText('commandSettings.keyboardUnavailable')).not.toBeInTheDocument();
+  });
+
+  it('aplica toggle temporário à regra explícita e volta sem ruleID no escopo atual', async () => {
+    applyLayerAction.mockResolvedValue({ committed: true, published: true, id: 'activation' });
+    getSettings.mockResolvedValue({
+      ...snapshot,
+      rules: [{
+        id: 'rule-temporary', layerId: 'user', mode: 'manual', condition: { version: 1, clauses: [] },
+        lifecycle: 'temporary', enabled: true, reviewStatus: 'active',
+      }],
+    });
+    render(<CommandSettingsPage />);
+    await selectLayer('Minha camada');
+    fireEvent.click(await ruleAction('commandSettings.manualToggle'));
+    fireEvent.change(screen.getByRole('spinbutton'), { target: { value: '42' } });
+    fireEvent.click(screen.getByRole('button', { name: 'common.apply' }));
+    await waitFor(() => expect(applyLayerAction).toHaveBeenCalledWith('global', 'rule-temporary', 'toggle', 42));
+
+  });
+
+  it('envia back sem ruleID e aguarda o commit observável', async () => {
+    applyLayerAction.mockResolvedValue({ committed: true, published: true, id: 'back' });
+    getSettings.mockResolvedValue(snapshot);
+    render(<CommandSettingsPage />);
+    await screen.findByText('Minha camada');
+    fireEvent.click(screen.getByText('Minha camada'));
+    fireEvent.click(screen.getByRole('button', { name: 'commandSettings.manualBack' }));
+    await waitFor(() => expect(applyLayerAction).toHaveBeenCalledWith('global', '', 'back', 0));
+    expect(await screen.findByText('commandSettings.messages.saved')).toBeInTheDocument();
+  });
+
+  it.each(['none', 'builtin', 'inherited'] as const)('back do escopo independe da seleção %s e mantém guardas de carregamento/busy', async (selection) => {
+    getSettings.mockResolvedValue({
+      ...snapshot,
+      layers: selection === 'none' ? [] : [{ ...snapshot.layers[0], name: 'Camada do teste', builtin: selection === 'builtin', inherited: selection === 'inherited' }],
+    });
+    applyLayerAction.mockReturnValue(new Promise(() => undefined));
+    render(<CommandSettingsPage />);
+    const back = screen.getByRole('button', { name: 'commandSettings.manualBack' });
+    expect(back).toBeDisabled();
+    if (selection !== 'none') {
+      const grid = await screen.findByRole('grid', { name: 'commandSettings.layers' });
+      await userEvent.click(within(grid).getByText('Camada do teste'));
+    }
+    await waitFor(() => expect(back).toBeEnabled());
+    await userEvent.click(back);
+    await waitFor(() => expect(applyLayerAction).toHaveBeenCalledWith('global', '', 'back', 0));
+    expect(back).toBeDisabled();
+    expect(mutateSettings).not.toHaveBeenCalled();
+  });
+
+  it('desativa regra manual ativa sem solicitar duração temporária', async () => {
+    applyLayerAction.mockResolvedValue({ committed: true, published: true, id: 'activation' });
+    getSettings.mockResolvedValue({
+      ...snapshot,
+      rules: [{ id: 'rule-active', layerId: 'user', mode: 'manual', condition: { version: 1, clauses: [] }, lifecycle: 'temporary', enabled: true, manualActive: true, manualExpiresAt: Date.now() + 60000, reviewStatus: 'active' }],
+    });
+    render(<CommandSettingsPage />);
+    await selectLayer('Minha camada');
+    fireEvent.click(await ruleAction('commandSettings.manualDeactivate'));
+    await waitFor(() => expect(applyLayerAction).toHaveBeenCalledWith('global', 'rule-active', 'deactivate', 0));
+  });
+
+  it('traduz status do Stream Deck e usa fallback para valores desconhecidos', async () => {
+    render(<CommandSettingsPage />);
+    await screen.findByText('Minha camada');
+    await act(async () => deckStatusChanged?.({ status: 'connected', devices: [] }));
+    expect(screen.getByText(/commandSettings\.deck\.status/)).toBeInTheDocument();
+    const deckStatus = screen.getByRole('region', { name: /commandSettings\.deck\.status/ });
+    expect(within(deckStatus).queryByText('connected', { exact: true })).not.toBeInTheDocument();
+    await act(async () => deckStatusChanged?.({ status: 'future-state', devices: [] }));
+    expect(screen.queryByText(/future-state/)).not.toBeInTheDocument();
+  });
+
+  it('mostra estado/capacidade por dispositivo sem expor identificador ou reason bruto', async () => {
+    render(<CommandSettingsPage />);
+    await screen.findByText('Minha camada');
+    await act(async () => deckStatusChanged?.({ status: 'degraded', devices: [
+      { id: 'PRIVATE-SERIAL-01', model: 'Stream Deck XL', keyCount: 32, status: 'reconnecting', reason: 'reconnect_backoff' },
+      { id: 'PRIVATE-SERIAL-02', model: 'Stream Deck Mini', keyCount: 6, status: 'unavailable', reason: 'open_failed' },
+    ] }));
+
+    expect(screen.getByRole('heading', { name: /commandSettings\.deck\.status/ })).toBeInTheDocument();
+    expect(screen.getByText('Stream Deck XL')).toBeInTheDocument();
+    expect(screen.getByText('Stream Deck Mini')).toBeInTheDocument();
+    expect(screen.getByText('commandSettings.deck.statuses.reconnecting')).toBeInTheDocument();
+    expect(screen.getByText('commandSettings.deck.statuses.unavailable')).toBeInTheDocument();
+    expect(screen.getByText('commandSettings.deck.reasons.reconnectBackoff')).toBeInTheDocument();
+    expect(screen.getByText('commandSettings.deck.reasons.openFailed')).toBeInTheDocument();
+    expect(screen.queryByText(/PRIVATE-SERIAL/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/reconnect_backoff|open_failed/)).not.toBeInTheDocument();
+  });
+
+  it('revela prioridade/condições por teclado e deixa erros de perfil visíveis antes da expansão', async () => {
+    getProfiles.mockRejectedValue(new Error('catálogo indisponível'));
+    getSettings.mockResolvedValue({ ...snapshot,
+      bindings: [{ ...snapshot.bindings[0], layerId: 'user', readOnly: false, defaultId: undefined }],
+    });
+    render(<CommandSettingsPage />);
+    await selectLayer('Minha camada');
+    fireEvent.click(await bindingAction('commandSettings.actions.editBinding'));
+
+    expect(screen.getByText('profiles.loadError')).toBeInTheDocument();
+    const toggle = screen.getByRole('button', { name: 'commandSettings.advancedOptions' });
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByLabelText('commandSettings.form.priority')).not.toBeInTheDocument();
+
+    toggle.focus();
+    expect(toggle).toHaveFocus();
+    await userEvent.keyboard('{Enter}');
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByLabelText('commandSettings.form.priority')).toBeVisible();
+    expect(screen.getByText('profiles.loadError')).toBeInTheDocument();
+  });
+
+  it('grava acionador por captura, exibe modelo e tecla e não expõe serial', async () => {
+    const userEventSetup = userEvent.setup();
+    getSettings.mockResolvedValue({
+      ...snapshot,
+      commands: [{ ...snapshot.commands[0], allowedSources: ['streamdeck.key'] }],
+    });
+    render(<CommandSettingsPage />);
+    await screen.findByText('Minha camada');
+    await act(async () => deckStatusChanged?.({ status: 'connected', devices: [{ id: 'RUNTIME', model: 'Runtime', keyCount: 15, status: 'connected' }] }));
+    fireEvent.click(screen.getByText('Minha camada'));
+    await clickNewBinding();
+    fireEvent.change(screen.getByLabelText('commandSettings.form.source'), { target: { value: 'streamdeck.key' } });
+    fireEvent.click(screen.getByRole('button', { name: 'commandSettings.form.captureButton' }));
+    expect(beginCapture).toHaveBeenCalledWith(expect.any(String));
+    const requestId = beginCapture.mock.calls[0][0];
+    await act(async () => deckCaptureChanged?.({ requestId, status: 'captured', model: 'Stream Deck XL', key: 255, triggerSpec: '{"version":1,"device":"SERIAL-MAX","key":255}' }));
+    expect(screen.getByText('commandSettings.form.captureResult')).toBeInTheDocument();
+    expect(screen.queryByText('SERIAL-MAX')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'common.save' })).toBeEnabled();
+    await userEventSetup.click(screen.getByRole('button', { name: 'common.save' }));
+    await waitFor(() => expect(mutateSettings).toHaveBeenCalledWith(expect.objectContaining({
+      operation: 'binding_create',
+      scope: 'global',
+      binding: expect.objectContaining({ triggerSpec: '{"version":1,"device":"SERIAL-MAX","key":255}' }),
+    })));
+  });
+
+  it('salva binding automático com personalização legada válida, preservando os dados ignorados', async () => {
+    workspaceTabs = [{ id: 'tab-1', type: 'chat', title: 'Conversa atual', position: 0 }];
+    const legacyPresentation = {
+      version: 1,
+      icon: 'star',
+      title_by_locale: { en: 'Saved title' },
+      states: { on: { icon: 'play', title_by_locale: { 'pt-BR': 'Título antigo do estado' } } },
+    };
+    getSettings.mockResolvedValue({
+      ...snapshot,
+      commands: [{ id: 'workspace.tab.first', name: 'Primeira aba', description: '', allowedSources: ['streamdeck.key'] }],
+      bindings: [{ ...snapshot.bindings[0], layerId: 'user', readOnly: false, defaultId: undefined,
+        commandId: 'workspace.tab.first', triggerType: 'streamdeck.key', triggerSpec: '{"version":1,"device":"DEVICE","key":0}', presentation: legacyPresentation }],
+    });
+    render(<CommandSettingsPage />);
+    fireEvent.click(await screen.findByText('Minha camada'));
+    fireEvent.click(await bindingAction('commandSettings.actions.editBinding'));
+
+    expect(screen.getByText('commandSettings.automaticPresentation.help')).toBeInTheDocument();
+    expect(screen.getByText('workspace.tabType.chat: Conversa atual')).toBeInTheDocument();
+    expect(screen.queryByLabelText('commandSettings.presentation.locales.en')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'common.save' })).toBeEnabled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'common.save' }));
+    await waitFor(() => expect(mutateSettings).toHaveBeenCalledWith(expect.objectContaining({
+      operation: 'binding_update',
+      binding: expect.objectContaining({ presentation: legacyPresentation }),
+    })));
+  });
+
+  it('permite recuperar personalização inválida ao trocar para apresentação automática', async () => {
+    workspaceTabs = [{ id: 'tab-1', type: 'chat', title: 'Atual', position: 0 }];
+    getSettings.mockResolvedValue({
+      ...snapshot,
+      commands: [
+        { ...snapshot.commands[0], allowedSources: ['streamdeck.key'] },
+        { id: 'workspace.tab.first', name: 'Primeira aba', description: '', allowedSources: ['streamdeck.key'] },
+      ],
+      bindings: [{ ...snapshot.bindings[0], layerId: 'user', readOnly: false, defaultId: undefined,
+        commandId: 'cmd.new', triggerType: 'streamdeck.key', triggerSpec: '{"version":1,"device":"DEVICE","key":0}' }],
+    });
+    render(<CommandSettingsPage />);
+    fireEvent.click(await screen.findByText('Minha camada'));
+    fireEvent.click(await bindingAction('commandSettings.actions.editBinding'));
+    const tooLong = 'x'.repeat(257);
+    fireEvent.change(screen.getByLabelText('commandSettings.presentation.locales.en'), { target: { value: tooLong } });
+    fireEvent.change(screen.getByLabelText('commandSettings.form.command'), { target: { value: 'workspace.tab.first' } });
+    expect(screen.getByText('commandSettings.automaticPresentation.invalidDraft')).toBeInTheDocument();
+    expect(announce).toHaveBeenCalledWith('commandSettings.automaticPresentation.invalidDraft');
+    expect(screen.getByRole('button', { name: 'common.save' })).toBeDisabled();
+    fireEvent.change(screen.getByLabelText('commandSettings.form.command'), { target: { value: 'cmd.new' } });
+    expect(screen.getByLabelText('commandSettings.presentation.locales.en')).toHaveValue(tooLong);
+    fireEvent.change(screen.getByLabelText('commandSettings.form.command'), { target: { value: 'workspace.tab.first' } });
+    await userEvent.click(screen.getByRole('button', { name: 'commandSettings.automaticPresentation.discardInvalid' }));
+    expect(screen.getByRole('document', { name: 'commandSettings.automaticPresentation.title' })).toHaveFocus();
+    expect(screen.queryByText('commandSettings.automaticPresentation.invalidDraft')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'common.save' })).toBeEnabled();
+    fireEvent.click(screen.getByRole('button', { name: 'common.save' }));
+    await waitFor(() => expect(mutateSettings).toHaveBeenCalledWith(expect.objectContaining({
+      binding: expect.objectContaining({ commandId: 'workspace.tab.first', presentation: undefined }),
+    })));
+  });
+
+  it('cancela captura sem apagar binding anterior e ignora evento obsoleto', async () => {
+    mutateSettings.mockResolvedValue({ committed: true, published: true, id: 'binding' });
+    getSettings.mockResolvedValue({
+      ...snapshot,
+      commands: [{ ...snapshot.commands[0], allowedSources: ['streamdeck.key'] }],
+    });
+    render(<CommandSettingsPage />);
+    await screen.findByText('Minha camada');
+    fireEvent.click(screen.getByText('Minha camada'));
+    await clickNewBinding();
+    fireEvent.change(screen.getByLabelText('commandSettings.form.source'), { target: { value: 'streamdeck.key' } });
+    fireEvent.click(screen.getByRole('button', { name: 'commandSettings.form.captureButton' }));
+    const firstRequestId = beginCapture.mock.calls[0][0];
+    await act(async () => deckCaptureChanged?.({ requestId: firstRequestId, status: 'captured', model: 'Stream Deck', key: 4, triggerSpec: '{"version":1,"device":"FIRST","key":4}' }));
+    fireEvent.click(screen.getByRole('button', { name: 'commandSettings.form.captureButton' }));
+    const requestId = beginCapture.mock.calls[1][0];
+    fireEvent.click(screen.getByRole('button', { name: 'commandSettings.form.captureCancel' }));
+    expect(cancelCapture).toHaveBeenCalledWith(requestId);
+    await act(async () => deckCaptureChanged?.({ requestId, status: 'captured', model: 'Late', key: 1, triggerSpec: '{"version":1,"device":"LATE","key":1}' }));
+    await userEvent.setup().click(screen.getByRole('button', { name: 'common.save' }));
+    await waitFor(() => expect(mutateSettings).toHaveBeenCalledWith(expect.objectContaining({
+      operation: 'binding_create',
+      binding: expect.objectContaining({ triggerSpec: '{"version":1,"device":"FIRST","key":4}' }),
+    })));
+  });
+
+  it('mostra estados de erro da captura sem sair do editor', async () => {
+    render(<CommandSettingsPage />);
+    await screen.findByText('Minha camada');
+    fireEvent.click(screen.getByText('Minha camada'));
+    await clickNewBinding();
+    fireEvent.change(screen.getByLabelText('commandSettings.form.source'), { target: { value: 'streamdeck.key' } });
+    fireEvent.click(screen.getByRole('button', { name: 'commandSettings.form.captureButton' }));
+    const requestId = beginCapture.mock.calls[0][0];
+    await act(async () => deckCaptureChanged?.({ requestId, status: 'timeout' }));
+    expect(await screen.findByText('commandSettings.form.captureStatus.timeout')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'common.save' })).toBeDisabled();
+  });
+
+  it('aguarda o HID abrir antes de pedir a tecla e mantém no_device cancelável', async () => {
+    render(<CommandSettingsPage />);
+    await screen.findByText('Minha camada');
+    fireEvent.click(screen.getByText('Minha camada'));
+    await clickNewBinding();
+    fireEvent.change(screen.getByLabelText('commandSettings.form.source'), { target: { value: 'streamdeck.key' } });
+    fireEvent.click(screen.getByRole('button', { name: 'commandSettings.form.captureButton' }));
+    const requestId = beginCapture.mock.calls[0][0];
+    await act(async () => deckCaptureChanged?.({ requestId, status: 'starting' }));
+    expect(screen.getByText('commandSettings.form.captureStarting')).toBeInTheDocument();
+    await act(async () => deckCaptureChanged?.({ requestId, status: 'no_device' }));
+    expect(screen.getByRole('button', { name: 'commandSettings.form.captureCancel' })).toBeEnabled();
+    expect(screen.getByText('commandSettings.form.captureStatus.no_device')).toBeInTheDocument();
+    await act(async () => window.dispatchEvent(new Event('blur')));
+    expect(cancelCapture).toHaveBeenCalledWith(requestId);
+  });
+
+  it('cancela a captura tardia após desmontagem', async () => {
+    const userEvents = userEvent.setup();
+    let resolveBegin: (() => void) | undefined;
+    beginCapture.mockImplementationOnce(() => new Promise<void>((resolve) => { resolveBegin = resolve; }));
+    const { unmount } = render(<CommandSettingsPage />);
+    await screen.findByText('Minha camada');
+    await userEvents.click(screen.getByText('Minha camada'));
+    await clickNewBinding();
+    await userEvents.selectOptions(await screen.findByLabelText('commandSettings.form.source'), 'streamdeck.key');
+    await userEvents.click(screen.getByRole('button', { name: 'commandSettings.form.captureButton' }));
+    const requestId = beginCapture.mock.calls[0][0];
+    unmount();
+    await act(async () => resolveBegin?.());
+    expect(cancelCapture).toHaveBeenCalledTimes(2);
+    expect(cancelCapture).toHaveBeenLastCalledWith(requestId);
+  });
+
+  it('não exibe status de teclado enquanto o snapshot está carregando', () => {
+    getSettings.mockReturnValueOnce(new Promise(() => undefined));
+    render(<CommandSettingsPage />);
+    expect(screen.queryByText('commandSettings.keyboardAvailable')).not.toBeInTheDocument();
+    expect(screen.queryByText('commandSettings.keyboardUnavailable')).not.toBeInTheDocument();
+  });
+
+  it('não exibe status de teclado quando o carregamento falha', async () => {
+    getSettings.mockRejectedValueOnce(new Error('load failed'));
+    render(<CommandSettingsPage />);
+    expect(await screen.findByText('commandSettings.errors.load')).toBeInTheDocument();
+    expect(screen.queryByText('commandSettings.keyboardAvailable')).not.toBeInTheDocument();
+    expect(screen.queryByText('commandSettings.keyboardUnavailable')).not.toBeInTheDocument();
+  });
+
+  it('mostra o status real depois de recuperar o carregamento', async () => {
+    getSettings
+      .mockRejectedValueOnce(new Error('load failed'))
+      .mockResolvedValueOnce({ ...snapshot, keyboardOperational: true });
+    render(<CommandSettingsPage />);
+    await screen.findByText('commandSettings.errors.load');
+    fireEvent.click(screen.getByRole('button', { name: 'commandSettings.actions.reload' }));
+    expect(await screen.findByText('commandSettings.keyboardAvailable')).toBeInTheDocument();
+    expect(screen.queryByText('commandSettings.keyboardUnavailable')).not.toBeInTheDocument();
+  });
+
+  it('mantém o erro próprio de mutação após rejeição da operação', async () => {
+    mutateSettings.mockRejectedValueOnce(new Error('mutation failed'));
+    render(<CommandSettingsPage />);
+    fireEvent.click(await bindingAction('commandSettings.actions.suppress'));
+    const dialog = screen.getByRole('dialog', { name: 'commandSettings.managers.commands' });
+    expect(await within(dialog).findByText('commandSettings.errors.generic')).toBeInTheDocument();
+    expect(screen.queryByText('commandSettings.errors.load')).not.toBeInTheDocument();
+  });
+
+  it('mantém defaults globais de job somente leitura e suprime sem os argumentos nativos', async () => {
+    const globalBinding = {
+      id: 'builtin.global.job.run',
+      layerId: 'application.global_hotkeys',
+      commandId: 'job.run',
+      triggerType: 'keyboard.global',
+      triggerSpec: '{"version":1,"code":"KeyJ","modifiers":["Control","Shift"]}',
+      arguments: { job_id: 'weekly-report' },
+      enabled: true,
+      customized: false,
+      readOnly: true,
+      defaultId: 'builtin.global.job.run',
+      currentDefaultVersion: '1',
+      currentDefaultFingerprint: 'fingerprint-global-job',
+      reviewStatus: 'active',
+    };
+    const initialSnapshot = {
+      ...snapshot,
+      layers: [...snapshot.layers, {
+        id: 'application.global_hotkeys', name: 'Atalhos globais', description: '',
+        builtin: true, enabled: true, active: true, manualReady: false, manualActive: false,
+      }],
+      bindings: [globalBinding],
+      commands: [{ id: 'job.run', name: 'Executar job', description: '', allowedSources: ['keyboard.global'] }],
+    };
+    const persistedOverrideSnapshot = {
+      ...initialSnapshot,
+      bindings: [{
+        ...globalBinding,
+        id: 'persisted-global-job-override',
+        customized: true,
+        suppressed: true,
+        enabled: false,
+        effect: 'suppress',
+      }],
+    };
+    getSettings.mockResolvedValueOnce(initialSnapshot).mockResolvedValueOnce(persistedOverrideSnapshot);
+    render(<CommandSettingsPage />);
+
+    await selectLayer('Atalhos globais');
+    const dialog = await openManager('commands');
+    const grid = within(dialog).getByRole('grid', { name: 'commandSettings.commands' });
+    expect(within(grid).getByText('Control+Shift+KeyJ')).toBeInTheDocument();
+    expect(within(grid).getByText('commandSettings.sources.keyboard')).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: 'commandSettings.actions.newBinding' })).toBeDisabled();
+
+    fireEvent.click(within(grid).getByRole('button', { name: 'common.actions' }));
+    const edit = await screen.findByRole('menuitem', { name: 'commandSettings.actions.editBinding' });
+    expect(edit).toBeDisabled();
+    fireEvent.click(edit);
+    expect(screen.queryByRole('dialog', { name: 'commandSettings.dialog.bindingTitle' })).not.toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'commandSettings.managers.commands' })).toBeInTheDocument();
+
+    fireEvent.click(within(grid).getByRole('button', { name: 'common.actions' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'commandSettings.actions.suppress' }));
+    await waitFor(() => expect(mutateSettings).toHaveBeenCalledWith(expect.objectContaining({
+      operation: 'binding_create',
+      binding: expect.objectContaining({
+        layerId: 'application.global_hotkeys',
+        commandId: '',
+        triggerType: 'keyboard.global',
+        triggerSpec: globalBinding.triggerSpec,
+        arguments: {},
+        effect: 'suppress',
+        replacesDefaultId: 'builtin.global.job.run',
+        replacesDefaultVersion: '1',
+        replacesDefaultFingerprint: 'fingerprint-global-job',
+      }),
+    })));
+
+    await waitFor(() => expect(getSettings).toHaveBeenCalledTimes(2));
+    expect(within(await openManager('commands')).getByText('Atalhos globais')).toBeInTheDocument();
+    fireEvent.click(await bindingAction('commandSettings.actions.restore'));
+    await waitFor(() => expect(mutateSettings).toHaveBeenCalledTimes(2));
+    expect(mutateSettings).toHaveBeenLastCalledWith(expect.objectContaining({
+      operation: 'binding_restore',
+      id: 'persisted-global-job-override',
+    }));
+    expect(mutateSettings).not.toHaveBeenLastCalledWith(expect.objectContaining({
+      operation: 'binding_restore',
+      id: 'builtin.global.job.run',
+    }));
+  });
+
+  beforeEach(() => {
+    vi.resetAllMocks();
+    user = { userId: 'user-1', sessionId: 'session-1' };
+    workspaceTabs = [];
+    getSettings.mockResolvedValue(snapshot);
+    getProfiles.mockResolvedValue([{ name: 'Padrão', slug: 'padrao', description: '', icon: '', source: 'local', builtin: true }]);
+    prepareManual.mockResolvedValue({ committed: true, published: true, id: 'user' });
+    setActive.mockResolvedValue({ committed: true, published: true, id: 'user' });
+    mutateSettings.mockResolvedValue({ committed: true, published: true, id: 'mutation' });
+    keyboardMapChanged = undefined;
+    unsubscribeKeyboardMapChanged = vi.fn();
+    runtime.eventsOn.mockImplementation((event: string, handler: () => void) => {
+      if (event === 'command:keyboard-map-changed') keyboardMapChanged = handler;
+      if (event === 'command:deck-status') deckStatusChanged = handler as (payload: unknown) => void;
+      if (event === 'command:deck-capture') deckCaptureChanged = handler as (payload: unknown) => void;
+      return unsubscribeKeyboardMapChanged;
+    });
+  });
+
+  it('usa o deep link da paleta para abrir o binding do comando na configuração', async () => {
+    const originalURL = window.location.href;
+    const targetURL = new URL(originalURL);
+    targetURL.search = '?commandId=cmd.new';
+    window.history.replaceState(window.history.state, '', targetURL);
+    getSettings.mockResolvedValue({
+      ...snapshot,
+      bindings: [{ ...snapshot.bindings[0], layerId: 'user', readOnly: false, defaultId: undefined }],
+    });
+    const view = render(<CommandSettingsPage />);
+    try {
+      expect(await screen.findByRole('dialog', { name: 'commandSettings.dialog.bindingTitle' })).toBeInTheDocument();
+      expect(window.location.search).toBe('');
+    } finally {
+      view.unmount();
+      window.history.replaceState(window.history.state, '', originalURL);
+    }
+  });
+
+  it('mantém a seção avançada do binding alcançável por teclado', async () => {
+    getSettings.mockResolvedValue({
+      ...snapshot,
+      bindings: [{ ...snapshot.bindings[0], layerId: 'user', readOnly: false, defaultId: undefined }],
+    });
+    render(<CommandSettingsPage />);
+    await screen.findByText('Minha camada');
+    await selectLayer('Minha camada');
+    await openBindingAdvancedOptions();
+    expect(screen.getByRole('button', { name: 'commandSettings.advancedOptions' })).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('não permite persistir argumentos potencialmente sensíveis de uma execução de ferramenta', async () => {
+    const commandId = 'tool.execute.t_018f123456787abc8def012345678901';
+    getSettings.mockResolvedValue({
+      ...snapshot,
+      commands: [...snapshot.commands, { id: commandId, name: 'Executar: Pesquisa', description: '', allowedSources: ['keyboard.local'] }],
+      bindings: [{ ...snapshot.bindings[0], layerId: 'user', readOnly: false, defaultId: undefined,
+        commandId, arguments: { arguments_json: '{"token":"nao-exibir"}' } }],
+    });
+    render(<CommandSettingsPage />);
+    fireEvent.click(await screen.findByText('Minha camada'));
+    fireEvent.click(await bindingAction('commandSettings.actions.editBinding'));
+
+    expect(screen.getByText('commandSettings.toolExecution.adHocOnly')).toBeInTheDocument();
+    await waitFor(() => expect(announce).toHaveBeenCalledWith('commandSettings.toolExecution.adHocOnly'));
+    expect(screen.queryByDisplayValue(/nao-exibir/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/018f1234|tool\.execute\.t_/)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'common.save' })).toBeDisabled();
+  });
+
+  async function layerAction(name: string) {
+    const grid = await screen.findByRole('grid', { name: 'commandSettings.layers' });
+    const row = within(grid).getByText('Minha camada').closest('[role="row"]');
+    expect(row).not.toBeNull();
+    fireEvent.click(within(row as HTMLElement).getByRole('button', { name: 'common.actions' }));
+    return screen.findByRole('menuitem', { name });
+  }
+
+  it('prepara uma camada sem ativá-la automaticamente', async () => {
+    render(<CommandSettingsPage />);
+    const prepare = await layerAction('commandSettings.prepareManual');
+    fireEvent.click(prepare);
+    await waitFor(() => expect(prepareManual).toHaveBeenCalledWith('global', 'user'));
+    expect(setActive).not.toHaveBeenCalled();
+  });
+
+  it('não trata enabled como manualActive e envia true na ativação', async () => {
+    getSettings.mockResolvedValue({ ...snapshot, layers: snapshot.layers.map((layer) => layer.id === 'user' ? { ...layer, manualReady: true, enabled: true, active: false, manualActive: false } : layer) });
+    render(<CommandSettingsPage />);
+    const activate = await layerAction('commandSettings.activateManual');
+    fireEvent.click(activate);
+    await waitFor(() => expect(setActive).toHaveBeenCalledWith('global', 'user', true));
+    expect(setActive).toHaveBeenCalledTimes(1);
+  });
+
+  it('desativa a claim manual desta tela quando ela existe', async () => {
+    getSettings.mockResolvedValue({ ...snapshot, layers: snapshot.layers.map((layer) => layer.id === 'user' ? { ...layer, manualReady: true, manualActive: true, active: true } : layer) });
+    render(<CommandSettingsPage />);
+    const deactivate = await layerAction('commandSettings.deactivateManual');
+    fireEvent.click(deactivate);
+    await waitFor(() => expect(setActive).toHaveBeenCalledWith('global', 'user', false));
+  });
+
+  it('não oferece retirar a ativação que pertence somente a outra origem', async () => {
+    getSettings.mockResolvedValue({ ...snapshot, layers: snapshot.layers.map((layer) => layer.id === 'user' ? { ...layer, manualReady: true, manualActive: false, active: true } : layer) });
+    render(<CommandSettingsPage />);
+    const activate = await layerAction('commandSettings.activateManual');
+    expect(screen.queryByRole('menuitem', { name: 'commandSettings.deactivateManual' })).not.toBeInTheDocument();
+    fireEvent.click(activate);
+    await waitFor(() => expect(setActive).toHaveBeenCalledWith('global', 'user', true));
+  });
+
+  it('permite retirar a claim manual mesmo com a camada desabilitada', async () => {
+    getSettings.mockResolvedValue({ ...snapshot, layers: snapshot.layers.map((layer) => layer.id === 'user' ? { ...layer, manualReady: true, manualActive: true, enabled: false, active: false } : layer) });
+    render(<CommandSettingsPage />);
+    const deactivate = await layerAction('commandSettings.deactivateManual');
+    expect(deactivate).toBeEnabled();
+    fireEvent.click(deactivate);
+    await waitFor(() => expect(setActive).toHaveBeenCalledWith('global', 'user', false));
+  });
+
+  it('desabilita a ativação manual quando a camada está disabled', async () => {
+    getSettings.mockResolvedValue({ ...snapshot, layers: snapshot.layers.map((layer) => layer.id === 'user' ? { ...layer, manualReady: true, manualActive: false, enabled: false } : layer) });
+    render(<CommandSettingsPage />);
+    expect(await layerAction('commandSettings.activateManual')).toBeDisabled();
+    expect(setActive).not.toHaveBeenCalled();
+  });
+
+  it('mantém committedNotPublished sem repetir a ativação', async () => {
+    setActive.mockResolvedValue({ committed: true, published: false, id: 'user' });
+    getSettings.mockResolvedValue({ ...snapshot, layers: snapshot.layers.map((layer) => layer.id === 'user' ? { ...layer, manualReady: true } : layer) });
+    render(<CommandSettingsPage />);
+    fireEvent.click(await layerAction('commandSettings.activateManual'));
+    expect(await screen.findByText('commandSettings.messages.committedNotPublished')).toBeInTheDocument();
+    expect(setActive).toHaveBeenCalledTimes(1);
+  });
+
+  it('carrega camadas e oferece supressão própria para default readonly', async () => {
+    render(<CommandSettingsPage />);
+    await waitFor(() => expect(screen.getByText('Minha camada')).toBeInTheDocument());
+    await openManager('commands');
+    expect(screen.getByText('Control+KeyN')).toBeInTheDocument();
+    const suppress = await bindingAction('commandSettings.actions.suppress');
+    fireEvent.click(suppress);
+    await waitFor(() => expect(mutateSettings).toHaveBeenCalledWith(expect.objectContaining({
+      operation: 'binding_create',
+      binding: expect.objectContaining({ effect: 'suppress', replacesDefaultId: 'default-1' }),
+    })));
+  });
+
+  it('mostra a sequência padrão e permite suprimi-la sem converter para atalho simples', async () => {
+    getSettings.mockResolvedValue({
+      ...snapshot,
+      bindings: snapshot.bindings.map((binding) => ({ ...binding, triggerSpec: JSON.stringify({
+        version: 2,
+        steps: [{ code: 'KeyN', modifiers: ['Control'] }, { code: 'KeyC', modifiers: [] }],
+      }) })),
+    });
+    render(<CommandSettingsPage />);
+    await openManager('commands');
+    expect(await screen.findByText('Control+KeyN KeyC')).toBeInTheDocument();
+    fireEvent.click(await bindingAction('commandSettings.actions.suppress'));
+    await waitFor(() => expect(mutateSettings).toHaveBeenCalledWith(expect.objectContaining({
+      operation: 'binding_create',
+      binding: expect.objectContaining({ effect: 'suppress', replacesDefaultId: 'default-1' }),
+    })));
+  });
+
+  it.each([false, true])('mostra F1 sem modificadores e altera supressão (customized=%s)', async (customized) => {
+    const defaultId = 'builtin.keyboard.f1.navigation.help.open';
+    getSettings.mockResolvedValue({
+      ...snapshot,
+      commands: [{ ...snapshot.commands[0], id: 'navigation.help.open', name: 'Ajuda' }],
+      bindings: [{ ...snapshot.bindings[0], id: defaultId, defaultId,
+        commandId: 'navigation.help.open', customized, enabled: !customized,
+        triggerSpec: JSON.stringify({ version: 1, code: 'F1', modifiers: [] }),
+      }],
+    });
+    render(<CommandSettingsPage />);
+    await openManager('commands');
+    expect(await screen.findByText('F1')).toBeInTheDocument();
+    fireEvent.click(await bindingAction(customized ? 'commandSettings.actions.restore' : 'commandSettings.actions.suppress'));
+    await waitFor(() => expect(mutateSettings).toHaveBeenCalledWith(expect.objectContaining(
+      customized
+        ? { operation: 'binding_restore', id: defaultId }
+        : { operation: 'binding_create', binding: expect.objectContaining({ effect: 'suppress', replacesDefaultId: defaultId }) }
+    )));
+  });
+
+  it('bloqueia duplo disparo durante mutação', async () => {
+    let resolve: (value: unknown) => void = () => undefined;
+    mutateSettings.mockImplementation(() => new Promise((done) => { resolve = done; }));
+    render(<CommandSettingsPage />);
+    await waitFor(() => expect(screen.getByText('Minha camada')).toBeInTheDocument());
+    const suppress = await bindingAction('commandSettings.actions.suppress');
+    fireEvent.click(suppress); fireEvent.click(suppress);
+    expect(mutateSettings).toHaveBeenCalledTimes(1);
+    await act(async () => resolve({ committed: true, published: true, id: 'default-1' }));
+  });
+
+  it('não anuncia sucesso quando o backend não confirma commit', async () => {
+    mutateSettings.mockResolvedValue({ committed: false, published: false, id: 'default-1' });
+    render(<CommandSettingsPage />);
+    await waitFor(() => expect(screen.getByText('Minha camada')).toBeInTheDocument());
+    fireEvent.click(await bindingAction('commandSettings.actions.suppress'));
+    const dialog = screen.getByRole('dialog', { name: 'commandSettings.managers.commands' });
+    await within(dialog).findByText('commandSettings.errors.generic');
+    expect(announce).toHaveBeenCalledWith('commandSettings.errors.generic', 'assertive');
+    expect(announce).not.toHaveBeenCalledWith('commandSettings.messages.saved');
+    expect(getSettings).toHaveBeenCalledTimes(1);
+  });
+
+  it('restaura uma personalização sem executar exclusão genérica', async () => {
+    getSettings.mockResolvedValue({ ...snapshot, bindings: [{ ...snapshot.bindings[0], customized: true, enabled: false }] });
+    render(<CommandSettingsPage />);
+    fireEvent.click(await bindingAction('commandSettings.actions.restore'));
+    await waitFor(() => expect(mutateSettings).toHaveBeenCalledWith(expect.objectContaining({
+      operation: 'binding_restore', id: 'default-1',
+    })));
+  });
+
+  it('usa o ID persistido do delta para restaurar e rebasear um default', async () => {
+    getSettings.mockResolvedValue({
+      ...snapshot,
+      bindings: [{
+        ...snapshot.bindings[0],
+        id: 'delta-1',
+        customized: true,
+        currentDefaultVersion: '2',
+        currentDefaultFingerprint: 'current-fp',
+        replacesDefaultVersion: '1',
+        replacesDefaultFingerprint: 'old-fp',
+      }],
+    });
+    render(<CommandSettingsPage />);
+    const restore = await bindingAction('commandSettings.actions.restore');
+    fireEvent.click(restore);
+    await waitFor(() => expect(mutateSettings).toHaveBeenCalledWith(expect.objectContaining({
+      operation: 'binding_restore', id: 'delta-1',
+    })));
+
+    getSettings.mockResolvedValue({
+      ...snapshot,
+      bindings: [{
+        ...snapshot.bindings[0],
+        id: 'delta-1',
+        customized: true,
+        currentDefaultVersion: '2',
+        currentDefaultFingerprint: 'current-fp',
+      }],
+    });
+    render(<CommandSettingsPage />);
+    const rebase = await bindingAction('commandSettings.actions.rebaseDefault');
+    expect(rebase).toBeEnabled();
+    fireEvent.click(rebase);
+    await waitFor(() => expect(mutateSettings).toHaveBeenCalledWith(expect.objectContaining({
+      operation: 'default_rebase',
+      default: expect.objectContaining({
+        bindingId: 'delta-1',
+        default: { id: 'default-1', version: '2', fingerprint: 'current-fp' },
+      }),
+    })));
+  });
+
+  it('mantém aviso de commit sem publicação e não repete a operação', async () => {
+    mutateSettings.mockResolvedValue({ committed: true, published: false, id: 'default-1' });
+    render(<CommandSettingsPage />);
+    fireEvent.click(await bindingAction('commandSettings.actions.suppress'));
+    expect(await within(screen.getByRole('dialog', { name: 'commandSettings.managers.commands' })).findByText('commandSettings.messages.committedNotPublished')).toBeInTheDocument();
+    expect(announce).toHaveBeenCalledWith('commandSettings.messages.committedNotPublished');
+    expect(mutateSettings).toHaveBeenCalledTimes(1);
+  });
+
+  it('descarta resultado e erro de mutação após troca de sessão', async () => {
+    let reject: (reason: Error) => void = () => undefined;
+    mutateSettings.mockReturnValue(new Promise((_resolve, fail) => { reject = fail; }));
+    const { rerender } = render(<CommandSettingsPage />);
+    fireEvent.click(await bindingAction('commandSettings.actions.suppress'));
+    user = { ...user, sessionId: 'session-2' };
+    rerender(<CommandSettingsPage />);
+    await act(async () => reject(new Error('old session')));
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(announce).not.toHaveBeenCalledWith('commandSettings.messages.saved');
+  });
+
+  it('não mostra snapshot que chegou após troca de usuário', async () => {
+    let resolve: (value: typeof snapshot) => void = () => undefined;
+    getSettings.mockReturnValueOnce(new Promise((done) => { resolve = done; }));
+    const { rerender } = render(<CommandSettingsPage />);
+    user = { userId: 'user-2', sessionId: 'session-2' };
+    getSettings.mockResolvedValue({ ...snapshot, layers: [{ ...snapshot.layers[0], name: 'Nova conta' }] });
+    rerender(<CommandSettingsPage />);
+    await screen.findAllByText('Nova conta');
+    await act(async () => resolve(snapshot));
+    expect(screen.queryByText('Minha camada')).not.toBeInTheDocument();
+  });
+
+  it('restringe builtin, deriva seleção palette e exige combinação no teclado', async () => {
+    mutateSettings.mockResolvedValue({ committed: true, published: true, id: 'binding' });
+    render(<CommandSettingsPage />);
+    await screen.findByText('Minha camada');
+    const builtinManager = await openManager('commands');
+    expect(within(builtinManager).getByRole('button', { name: 'commandSettings.actions.newBinding' })).toBeDisabled();
+    fireEvent.click(within(builtinManager).getByRole('button', { name: 'ui.modal.close' }));
+    fireEvent.click(screen.getByText('Minha camada'));
+    const manager = await openManager('commands');
+    const create = within(manager).getByRole('button', { name: 'commandSettings.actions.newBinding' });
+    await waitFor(() => expect(create).toBeEnabled());
+    fireEvent.click(create);
+    expect(screen.getByRole('button', { name: 'common.save' })).toBeDisabled();
+    fireEvent.change(screen.getByLabelText('commandSettings.form.source'), { target: { value: 'palette' } });
+    fireEvent.click(screen.getByRole('button', { name: 'common.save' }));
+    await waitFor(() => expect(mutateSettings).toHaveBeenCalledWith(expect.objectContaining({
+      operation: 'binding_create',
+      binding: expect.objectContaining({ layerId: 'user', commandId: 'cmd.new', triggerType: 'palette', triggerSpec: '{"version":1,"selection":"cmd.new"}' }),
+    })));
+  });
+
+  it.each(['global', 'workspace'] as const)('cria, grava e salva uma sequência v2 no escopo %s', async (scope) => {
+    getSettings.mockImplementation((_locale: string, requestedScope: string) => Promise.resolve(
+      requestedScope === 'workspace'
+        ? { ...snapshot, layers: snapshot.layers.map((layer) => layer.id === 'user' ? { ...layer, workspaceId: 'workspace-1' } : layer) }
+        : snapshot
+    ));
+    render(<CommandSettingsPage />);
+    await screen.findByText('Minha camada');
+    if (scope === 'workspace') {
+      fireEvent.change(screen.getByLabelText('commandSettings.scope.label'), { target: { value: scope } });
+      await waitFor(() => expect(getSettings).toHaveBeenLastCalledWith(expect.any(String), scope));
+    }
+    fireEvent.click(screen.getByText('Minha camada'));
+    const manager = await openManager('commands');
+    const create = within(manager).getByRole('button', { name: 'commandSettings.actions.newBinding' });
+    await waitFor(() => expect(create).toBeEnabled());
+    fireEvent.click(create);
+
+    fireEvent.change(screen.getByLabelText('commandShortcutCapture.mode'), { target: { value: 'sequence' } });
+    const capture = screen.getByRole('button', { name: 'commandShortcutCapture.buttonLabel' });
+    fireEvent.click(capture);
+    fireEvent.keyDown(capture, { key: 'k', code: 'KeyK', ctrlKey: true, getModifierState: () => false });
+    fireEvent.keyUp(capture, { key: 'k', code: 'KeyK', ctrlKey: false, getModifierState: () => false });
+    fireEvent.keyDown(capture, { key: 'c', code: 'KeyC', getModifierState: () => false });
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'common.save' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: 'common.save' }));
+    await waitFor(() => expect(mutateSettings).toHaveBeenCalledWith(expect.objectContaining({
+      operation: 'binding_create',
+      scope,
+      binding: expect.objectContaining({
+        triggerSpec: '{"version":2,"steps":[{"code":"KeyK","modifiers":["Control"]},{"code":"KeyC","modifiers":[]}]}',
+      }),
+    })));
+  });
+
+  it('bloqueia salvar durante o prefixo e cancela sem alterar o atalho anterior', async () => {
+    const previous = '{"version":1,"code":"KeyN","modifiers":["Control"]}';
+    getSettings.mockResolvedValue({
+      ...snapshot,
+      bindings: [{ ...snapshot.bindings[0], layerId: 'user', readOnly: false, defaultId: undefined, triggerSpec: previous }],
+    });
+    render(<CommandSettingsPage />);
+    await screen.findByText('Minha camada');
+    fireEvent.click(screen.getByText('Minha camada'));
+    await clickBindingActions();
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'commandSettings.actions.editBinding' }));
+
+    fireEvent.change(screen.getByLabelText('commandShortcutCapture.mode'), { target: { value: 'sequence' } });
+    const capture = screen.getByRole('button', { name: 'commandShortcutCapture.buttonLabel' });
+    fireEvent.click(capture);
+    fireEvent.keyDown(capture, { key: 'k', code: 'KeyK', ctrlKey: true, getModifierState: () => false });
+    expect(screen.getByRole('button', { name: 'common.save' })).toBeDisabled();
+    expect(mutateSettings).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(capture, { key: 'Escape', code: 'Escape', getModifierState: () => false });
+    expect(capture).toHaveTextContent('Control+KeyN');
+    expect(screen.getByRole('button', { name: 'common.save' })).toBeEnabled();
+
+    fireEvent.click(capture);
+    fireEvent.keyDown(capture, { key: 'k', code: 'KeyK', ctrlKey: true, getModifierState: () => false });
+    fireEvent.change(screen.getByLabelText('commandSettings.form.source'), { target: { value: 'palette' } });
+    expect(screen.getByRole('button', { name: 'common.save' })).toBeEnabled();
+  });
+
+  it('edita uma sequência v2 preservando-a ao alterar prioridade e condições', async () => {
+    const sequence = '{"version":2,"steps":[{"code":"KeyK","modifiers":["Control"]},{"code":"KeyC","modifiers":[]}]}';
+    getSettings.mockResolvedValue({
+      ...snapshot,
+      bindings: [{ ...snapshot.bindings[0], layerId: 'user', readOnly: false, defaultId: undefined, triggerSpec: sequence }],
+    });
+    render(<CommandSettingsPage />);
+    await screen.findByText('Minha camada');
+    fireEvent.click(screen.getByText('Minha camada'));
+    await clickBindingActions();
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'commandSettings.actions.editBinding' }));
+    await revealAdvancedOptionsIfNeeded();
+    expect(screen.getByLabelText('commandShortcutCapture.mode')).toHaveValue('sequence');
+    fireEvent.change(screen.getByLabelText('commandSettings.form.priority'), { target: { value: '7' } });
+    fireEvent.click(screen.getByRole('button', { name: 'commandSettings.conditions.add' }));
+    fireEvent.click(screen.getByLabelText('commandSettings.conditions.value'));
+    fireEvent.click(screen.getByRole('button', { name: 'common.save' }));
+    await waitFor(() => expect(mutateSettings).toHaveBeenCalledWith(expect.objectContaining({
+      operation: 'binding_update',
+      scope: 'global',
+      binding: expect.objectContaining({
+        resolutionPriority: 7,
+        triggerSpec: sequence,
+        condition: { version: 1, clauses: [{ field: 'app.focused', value: true }] },
+      }),
+    })));
+  });
+
+  it('configura aba pelo nome e envia tipo e identidade sem entrada de ID opaco', async () => {
+    workspaceTabs = [{ id: 'chat-one', type: 'chat', title: 'Conversa de trabalho' }];
+    getSettings.mockResolvedValue({ ...snapshot, bindings: [{ ...snapshot.bindings[0], layerId: 'user', readOnly: false, defaultId: undefined }] });
+    render(<CommandSettingsPage />);
+    fireEvent.click(await screen.findByText('Minha camada'));
+    await clickBindingActions();
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'commandSettings.actions.editBinding' }));
+    await revealAdvancedOptionsIfNeeded();
+    fireEvent.click(screen.getByRole('button', { name: 'commandSettings.conditions.add' }));
+    fireEvent.change(screen.getByLabelText('commandSettings.conditions.field'), { target: { value: 'surface.id' } });
+    expect(screen.getByRole('option', { name: 'Conversa de trabalho' })).toBeInTheDocument();
+    expect(screen.queryByRole('textbox', { name: 'commandSettings.conditions.value' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'common.save' }));
+    await waitFor(() => expect(mutateSettings).toHaveBeenCalledWith(expect.objectContaining({ binding: expect.objectContaining({ condition: { version: 1, clauses: [{ field: 'surface.id', value: 'chat-one' }, { field: 'surface.type', value: 'chat' }] } }) })));
+  });
+
+  it.each(['chat.model.open', 'workspace.create', 'workspace.chat.open', 'workspace.tab.chat.create', 'workspace.tab.close', CHAT_CLEAR_COMMAND, TERMINAL_INTERRUPT_COMMAND, 'chat.message.copy', 'chat.message.delete', 'editor.format.bold', 'editor.file.save'])('configura condição de aba pelo nome na paleta de %s', async (commandId) => {
+    workspaceTabs = [{ id: 'chat-one', type: 'chat', title: 'Conversa de trabalho' }];
+    getSettings.mockResolvedValue({ ...snapshot,
+      commands: [{ ...snapshot.commands[0], id: commandId, allowedSources: ['palette'] }],
+      bindings: [{ ...snapshot.bindings[0], layerId: 'user', readOnly: false, defaultId: undefined,
+        commandId, triggerType: 'palette', triggerSpec: JSON.stringify({ version: 1, selection: commandId }) }],
+    });
+    render(<CommandSettingsPage />);
+    fireEvent.click(await screen.findByText('Minha camada'));
+    await clickBindingActions();
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'commandSettings.actions.editBinding' }));
+    await revealAdvancedOptionsIfNeeded();
+    fireEvent.click(screen.getByRole('button', { name: 'commandSettings.conditions.add' }));
+    fireEvent.change(screen.getByLabelText('commandSettings.conditions.field'), { target: { value: 'surface.id' } });
+    expect(screen.getByRole('option', { name: 'Conversa de trabalho' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'common.save' }));
+    await waitFor(() => expect(mutateSettings).toHaveBeenCalledWith(expect.objectContaining({
+      binding: expect.objectContaining({ commandId, triggerType: 'palette',
+        condition: { version: 1, clauses: [{ field: 'surface.id', value: 'chat-one' }, { field: 'surface.type', value: 'chat' }] } }),
+    })));
+  });
+
+  it.each(['chat.model.open', 'workspace.tab.chat.create', 'chat.message.copy', 'editor.format.bold'])('preserva seleção da paleta ao editar condição e prioridade de supressão de %s', async (commandId) => {
+    workspaceTabs = [{ id: 'chat-one', type: 'chat', title: 'Conversa de trabalho' }];
+    const triggerSpec = JSON.stringify({ version: 1, selection: commandId });
+    getSettings.mockResolvedValue({ ...snapshot,
+      commands: [{ ...snapshot.commands[0], id: commandId, allowedSources: ['palette'] }],
+      bindings: [{ ...snapshot.bindings[0], layerId: 'user', readOnly: false, defaultId: 'palette-default',
+        commandId: '', effect: 'suppress', triggerType: 'palette', triggerSpec }],
+    });
+    render(<CommandSettingsPage />);
+    fireEvent.click(await screen.findByText('Minha camada'));
+    await clickBindingActions();
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'commandSettings.actions.editBinding' }));
+    await revealAdvancedOptionsIfNeeded();
+    fireEvent.change(screen.getByLabelText('commandSettings.form.priority'), { target: { value: '7' } });
+    fireEvent.click(screen.getByRole('button', { name: 'commandSettings.conditions.add' }));
+    fireEvent.change(screen.getByLabelText('commandSettings.conditions.field'), { target: { value: 'surface.id' } });
+    fireEvent.click(screen.getByRole('button', { name: 'common.save' }));
+    await waitFor(() => expect(mutateSettings).toHaveBeenCalledWith(expect.objectContaining({
+      binding: expect.objectContaining({ effect: 'suppress', triggerSpec, resolutionPriority: 7,
+        replacesDefaultId: 'palette-default',
+        condition: { version: 1, clauses: [{ field: 'surface.id', value: 'chat-one' }, { field: 'surface.type', value: 'chat' }] } }),
+    })));
+  });
+
+  it('não oferece condições visuais na paleta para ações backend', async () => {
+    getSettings.mockResolvedValue({ ...snapshot,
+      commands: [{ ...snapshot.commands[0], id: 'workspace.list', allowedSources: ['palette'] }],
+      bindings: [{ ...snapshot.bindings[0], layerId: 'user', readOnly: false, defaultId: undefined,
+        commandId: 'workspace.list', triggerType: 'palette', triggerSpec: '{"version":1,"selection":"workspace.list"}' }],
+    });
+    render(<CommandSettingsPage />);
+    fireEvent.click(await screen.findByText('Minha camada'));
+    await clickBindingActions();
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'commandSettings.actions.editBinding' }));
+    await revealAdvancedOptionsIfNeeded();
+    fireEvent.click(screen.getByRole('button', { name: 'commandSettings.conditions.add' }));
+    const fields = within(screen.getByLabelText('commandSettings.conditions.field')).getAllByRole('option');
+    expect(fields.map(field => (field as HTMLOptionElement).value)).toEqual(['profile']);
+  });
+
+  it.each(['tasklists.duplicate', 'tasklists.delete', 'tasklists.clear', 'profiles.duplicate', 'profiles.delete', 'profiles.activate'])('salva tipo de página sem oferecer ID opaco em %s', async (commandId) => {
+    getSettings.mockResolvedValue({ ...snapshot,
+      commands: [{ ...snapshot.commands[0], id: commandId, allowedSources: ['palette'] }],
+      bindings: [{ ...snapshot.bindings[0], layerId: 'user', readOnly: false, defaultId: undefined,
+        commandId, triggerType: 'palette', triggerSpec: JSON.stringify({ version: 1, selection: commandId }) }],
+    });
+    render(<CommandSettingsPage />);
+    fireEvent.click(await screen.findByText('Minha camada'));
+    fireEvent.click(await bindingAction('commandSettings.actions.editBinding'));
+    await revealAdvancedOptionsIfNeeded();
+    fireEvent.click(screen.getByRole('button', { name: 'commandSettings.conditions.add' }));
+    const field = screen.getByLabelText('commandSettings.conditions.field');
+    expect(within(field).getAllByRole('option').map(option => (option as HTMLOptionElement).value)).toEqual(['app.focused', 'app.page', 'surface.type', 'profile']);
+    fireEvent.change(field, { target: { value: 'surface.type' } });
+    const surface = commandId.startsWith('profiles.') ? 'profiles' : 'tasklists';
+    fireEvent.change(screen.getByLabelText('commandSettings.conditions.value'), { target: { value: surface } });
+    fireEvent.click(screen.getByRole('button', { name: 'common.save' }));
+    await waitFor(() => expect(mutateSettings).toHaveBeenCalledWith(expect.objectContaining({ binding: expect.objectContaining({ commandId, condition: { version: 1, clauses: [{ field: 'surface.type', value: surface }] } }) })));
+  });
+
+  it('oferece condições visuais no Deck para ações local_ui e seleciona uma aba amigável', async () => {
+    workspaceTabs = [{ id: 'friendly-tab', type: 'chat', title: 'Aba amigável' }];
+    getSettings.mockResolvedValue({ ...snapshot,
+      commands: [{ ...snapshot.commands[0], id: 'navigation.settings.open', allowedSources: ['streamdeck.key'] }],
+      bindings: [{ ...snapshot.bindings[0], layerId: 'user', readOnly: false, defaultId: undefined,
+        commandId: 'navigation.settings.open', triggerType: 'streamdeck.key', triggerSpec: '{"version":1,"device":"SERIAL","key":0}' }],
+    });
+    render(<CommandSettingsPage />);
+    fireEvent.click(await screen.findByText('Minha camada'));
+    fireEvent.click(await bindingAction('commandSettings.actions.editBinding'));
+    await revealAdvancedOptionsIfNeeded();
+    fireEvent.click(screen.getByRole('button', { name: 'commandSettings.conditions.add' }));
+    fireEvent.change(screen.getByLabelText('commandSettings.conditions.field'), { target: { value: 'surface.id' } });
+    expect(screen.getByRole('option', { name: 'Aba amigável' })).toBeInTheDocument();
+    const conditionValues = screen.getAllByLabelText('commandSettings.conditions.value');
+    fireEvent.change(conditionValues[0], { target: { value: 'friendly-tab' } });
+    expect((conditionValues[0] as HTMLSelectElement).value).toBe('friendly-tab');
+  });
+
+  it('configura programa e dispositivo no Deck sem expor serial como texto', async () => {
+    getSettings.mockResolvedValue({ ...snapshot,
+      commands: [{ ...snapshot.commands[0], allowedSources: ['streamdeck.key'] }],
+      bindings: [{ ...snapshot.bindings[0], layerId: 'user', readOnly: false, defaultId: undefined,
+        triggerType: 'streamdeck.key', triggerSpec: '{"version":1,"device":"PRIVATE-SERIAL","key":0}' }],
+    });
+    render(<CommandSettingsPage />);
+    fireEvent.click(await screen.findByText('Minha camada'));
+    await act(async () => deckStatusChanged?.({ status: 'connected', devices: [{ id: 'PRIVATE-SERIAL', model: 'Stream Deck', keyCount: 15, status: 'connected' }] }));
+    fireEvent.click(await bindingAction('commandSettings.actions.editBinding'));
+    await revealAdvancedOptionsIfNeeded();
+    fireEvent.click(screen.getByRole('button', { name: 'commandSettings.conditions.add' }));
+    fireEvent.change(screen.getByLabelText('commandSettings.conditions.field'), { target: { value: 'foreground.process' } });
+    expect(screen.getByText('commandSettings.foregroundProcessHint')).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('commandSettings.conditions.value'), { target: { value: 'obs64.exe' } });
+    fireEvent.click(screen.getByRole('button', { name: 'commandSettings.conditions.add' }));
+    fireEvent.change(screen.getAllByLabelText('commandSettings.conditions.field')[1], { target: { value: 'device' } });
+    expect(screen.getByRole('option', { name: 'Stream Deck' })).toHaveProperty('selected', true);
+    expect(screen.queryByText('PRIVATE-SERIAL')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'common.save' }));
+    await waitFor(() => expect(mutateSettings).toHaveBeenCalledWith(expect.objectContaining({ binding: expect.objectContaining({ condition: {
+      version: 1, clauses: [{ field: 'foreground.process', value: 'obs64.exe' }, { field: 'device', value: 'PRIVATE-SERIAL' }],
+    } }) })));
+  });
+
+  it('preserva dispositivo desconectado sem substituí-lo pelo disponível', async () => {
+    const condition = { version: 1, clauses: [{ field: 'device', value: 'DISCONNECTED' }] };
+    getSettings.mockResolvedValue({ ...snapshot,
+      commands: [{ ...snapshot.commands[0], allowedSources: ['streamdeck.key'] }],
+      bindings: [{ ...snapshot.bindings[0], layerId: 'user', readOnly: false, defaultId: undefined,
+        triggerType: 'streamdeck.key', triggerSpec: '{"version":1,"device":"DISCONNECTED","key":0}', condition }],
+    });
+    render(<CommandSettingsPage />);
+    fireEvent.click(await screen.findByText('Minha camada'));
+    await act(async () => deckStatusChanged?.({ status: 'connected', devices: [{ id: 'OTHER', model: 'Stream Deck', keyCount: 15, status: 'connected' }] }));
+    fireEvent.click(await bindingAction('commandSettings.actions.editBinding'));
+    await revealAdvancedOptionsIfNeeded();
+    expect(screen.getByRole('option', { name: 'commandSettings.unavailableConditionValue' })).toHaveProperty('selected', true);
+    expect(screen.queryByText('DISCONNECTED')).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('commandSettings.form.priority'), { target: { value: '4' } });
+    fireEvent.click(screen.getByRole('button', { name: 'common.save' }));
+    await waitFor(() => expect(mutateSettings).toHaveBeenCalledWith(expect.objectContaining({ binding: expect.objectContaining({ condition }) })));
+  });
+
+  it('salva perfil por nome no binding de teclado local', async () => {
+    getProfiles.mockResolvedValue([{ name: 'Programação', slug: 'programacao', description: '', icon: '', source: 'local' }]);
+    mutateSettings.mockResolvedValue({ committed: true, published: true, id: 'binding-new' });
+    render(<CommandSettingsPage />);
+    fireEvent.click(await screen.findByText('Minha camada'));
+    await clickNewBinding();
+    await revealAdvancedOptionsIfNeeded();
+    fireEvent.change(screen.getByLabelText('commandSettings.form.command'), { target: { value: 'cmd.new' } });
+    fireEvent.click(screen.getByRole('button', { name: 'commandSettings.conditions.add' }));
+    fireEvent.change(screen.getByLabelText('commandSettings.conditions.field'), { target: { value: 'profile' } });
+    expect(screen.getByRole('option', { name: 'Programação' })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('commandSettings.conditions.value'), { target: { value: 'programacao' } });
+    const capture = screen.getByRole('button', { name: 'commandShortcutCapture.buttonLabel' });
+    fireEvent.click(capture);
+    fireEvent.keyDown(capture, { key: 'n', code: 'KeyN', ctrlKey: true, getModifierState: () => false });
+    fireEvent.click(screen.getByRole('button', { name: 'common.save' }));
+    await waitFor(() => expect(mutateSettings).toHaveBeenCalledWith(expect.objectContaining({
+      operation: 'binding_create',
+      binding: expect.objectContaining({ triggerType: 'keyboard.local', condition: { version: 1, clauses: [{ field: 'profile', value: 'programacao' }] } }),
+    })));
+  });
+
+  it('preserva perfil removido e informa erro de catálogo com retry', async () => {
+    const condition = { version: 1, clauses: [{ field: 'profile', value: 'removido' }] };
+    getProfiles.mockRejectedValue(new Error('falha de catálogo'));
+    getSettings.mockResolvedValue({ ...snapshot, bindings: [{ ...snapshot.bindings[0], layerId: 'user', readOnly: false, defaultId: undefined, condition }] });
+    render(<CommandSettingsPage />);
+    fireEvent.click(await screen.findByText('Minha camada'));
+    fireEvent.click(await bindingAction('commandSettings.actions.editBinding'));
+    expect(screen.getByRole('option', { name: 'commandSettings.unavailableConditionValue' })).toBeDisabled();
+    expect(screen.getByText('profiles.loadError')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'commandSettings.advancedOptions' })).toHaveAttribute('aria-expanded', 'true');
+    expect(announce).toHaveBeenCalledWith('profiles.loadError', 'assertive');
+    expect(screen.getByRole('button', { name: 'commandSettings.actions.reload' })).toBeEnabled();
+    fireEvent.change(screen.getByLabelText('commandSettings.form.priority'), { target: { value: '8' } });
+    fireEvent.click(screen.getByRole('button', { name: 'common.save' }));
+    await waitFor(() => expect(mutateSettings).toHaveBeenCalledWith(expect.objectContaining({ binding: expect.objectContaining({ condition }) })));
+  });
+
+  it('preserva condição de aba ausente ao editar prioridade', async () => {
+    const condition = { version: 1, clauses: [{ field: 'surface.type', value: 'chat' }, { field: 'surface.id', value: 'missing-chat' }] };
+    getSettings.mockResolvedValue({ ...snapshot, bindings: [{ ...snapshot.bindings[0], layerId: 'user', readOnly: false, defaultId: undefined, condition }] });
+    render(<CommandSettingsPage />);
+    fireEvent.click(await screen.findByText('Minha camada'));
+    await clickBindingActions();
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'commandSettings.actions.editBinding' }));
+    expect(screen.getByRole('option', { name: 'commandSettings.unavailableConditionValue' })).toHaveProperty('selected', true);
+    fireEvent.change(screen.getByLabelText('commandSettings.form.priority'), { target: { value: '9' } });
+    fireEvent.click(screen.getByRole('button', { name: 'common.save' }));
+    await waitFor(() => expect(mutateSettings).toHaveBeenCalledWith(expect.objectContaining({ binding: expect.objectContaining({ condition, resolutionPriority: 9 }) })));
+  });
+
+  it('aceita sequência v2 existente em binding do escopo global', async () => {
+    const sequence = '{"version":2,"steps":[{"code":"KeyK","modifiers":["Control"]},{"code":"KeyC","modifiers":[]}]}';
+    getSettings.mockResolvedValue({
+      ...snapshot,
+      bindings: [{ ...snapshot.bindings[0], layerId: 'user', readOnly: false, defaultId: undefined, triggerSpec: sequence }],
+    });
+    render(<CommandSettingsPage />);
+    await screen.findByText('Minha camada');
+    fireEvent.click(screen.getByText('Minha camada'));
+    await clickBindingActions();
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'commandSettings.actions.editBinding' }));
+    expect(screen.getByLabelText('commandShortcutCapture.mode')).toHaveValue('sequence');
+    expect(screen.getByRole('button', { name: 'common.save' })).toBeEnabled();
+  });
+
+  it('usa os componentes reais sem violações automáticas de acessibilidade', async () => {
+    const { container } = render(<CommandSettingsPage />);
+    await screen.findByText('Minha camada');
+    // jsdom não mede cores/layout; contraste permanece no aceite visual dos temas.
+    expect(await axe(container, { rules: { 'color-contrast': { enabled: false } } })).toHaveNoViolations();
+  });
+});

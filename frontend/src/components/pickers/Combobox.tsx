@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useLayoutEffect, useId, useCallback, useMemo, type ReactNode } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect, useId, useCallback, useMemo, useImperativeHandle, type ReactNode, type Ref } from 'react';
 import { useTranslation } from 'react-i18next';
 import { playBumpSound } from '../../services/audioFeedback';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
@@ -15,6 +15,8 @@ export interface ComboboxItem {
     disabled?: boolean;
 }
 
+export type ComboboxDismissReason = 'dismiss' | 'focus-leave';
+
 export interface ComboboxProps {
     icon?: ReactNode;
     label?: string;
@@ -27,10 +29,21 @@ export interface ComboboxProps {
     maxWidth?: string;
     onAnnounce?: (message: string) => void;
     shortcut?: string;
+    /** Indica carregamento sem bloquear o trigger nem alterar o foco. */
+    busy?: boolean;
     onOpen?: () => void;
+    triggerAriaLabel?: string;
+    /** Controlled visibility. O modo uncontrolled continua sendo usado quando omitido. */
+    open?: boolean;
+    onOpenChange?: (open: boolean) => void;
+    triggerRef?: Ref<HTMLButtonElement>;
     allowFreeInput?: boolean;
     /** Called after an item is selected and the dropdown closes. Use to customize focus restoration. */
     onAfterSelect?: () => void;
+    /** Called after dismissal cleanup; focus-leave must not restore focus to the trigger. */
+    onAfterDismiss?: (reason: ComboboxDismissReason) => void;
+    /** Ações de teclado fora das opções; recebem a opção atualmente destacada. */
+    renderActiveItemActions?: (item: ComboboxItem | null) => ReactNode;
 }
 
 export const Combobox = ({
@@ -42,27 +55,53 @@ export const Combobox = ({
     onSelect,
     placeholder,
     disabled = false,
+    busy = false,
     maxWidth = '180px',
     onAnnounce,
     shortcut,
     onOpen,
+    triggerAriaLabel,
+    open: controlledOpen,
+    onOpenChange,
+    triggerRef,
     allowFreeInput = false,
     onAfterSelect,
+    onAfterDismiss,
+    renderActiveItemActions,
 }: ComboboxProps) => {
     const { t } = useTranslation();
     const { announce: announceGlobally } = useAnnouncer();
     const effectiveLabel = label ?? t('pickers.combobox.select');
     const effectivePlaceholder = placeholder ?? t('pickers.combobox.filterPlaceholder');
-    const [isOpen, setIsOpen] = useState(false);
+    const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
     const [filter, setFilter] = useState('');
     const [highlightIndex, setHighlightIndex] = useState(0);
 
     const inputRef = useRef<HTMLInputElement>(null);
-    const buttonRef = useRef<HTMLButtonElement>(null);
+    const buttonRef = useRef<HTMLButtonElement | null>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const listboxRef = useRef<HTMLUListElement>(null);
+    const closeReasonRef = useRef<'select' | 'dismiss' | 'focus-leave' | null>(null);
+    const tabNavigationRef = useRef(false);
+    const wasOpenRef = useRef(false);
+    const focusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const onAfterSelectRef = useRef(onAfterSelect);
+    const onAfterDismissRef = useRef(onAfterDismiss);
+    const itemsRef = useRef(items);
+    const selectedRef = useRef(selected);
+    onAfterSelectRef.current = onAfterSelect;
+    onAfterDismissRef.current = onAfterDismiss;
+    itemsRef.current = items;
+    selectedRef.current = selected;
     const previousEmptyResultsAnnouncementKeyRef = useRef('');
     const uniqueId = useId();
+    const isControlled = controlledOpen !== undefined;
+    const isOpen = isControlled ? controlledOpen : uncontrolledOpen;
+
+    const setButtonRef = useCallback((node: HTMLButtonElement | null) => {
+        buttonRef.current = node;
+    }, []);
+    useImperativeHandle(triggerRef, () => buttonRef.current as HTMLButtonElement, [triggerRef, isOpen]);
 
     const filteredItems = useMemo(() => items.filter(item =>
         item.label.toLowerCase().includes(filter.toLowerCase()) ||
@@ -122,30 +161,22 @@ export const Combobox = ({
     const open = () => {
         if (disabled) return;
         onOpen?.();
-        setIsOpen(true);
+        onOpenChange?.(true);
+        if (!isControlled) setUncontrolledOpen(true);
         setFilter('');
 
         const currentIdx = items.findIndex(i => i.value === selected);
         setHighlightIndex(currentIdx >= 0 ? currentIdx : 0);
 
-        setTimeout(() => {
-            inputRef.current?.focus();
-        }, 10);
     };
 
-    const close = useCallback((reason: 'select' | 'dismiss' = 'dismiss') => {
-        setIsOpen(false);
+    const close = useCallback((reason: 'select' | 'dismiss' | 'focus-leave' = 'dismiss') => {
+        closeReasonRef.current = reason;
+        onOpenChange?.(false);
+        if (!isControlled) setUncontrolledOpen(false);
         setFilter('');
         setHighlightIndex(0);
-
-        setTimeout(() => {
-            if (reason === 'select' && onAfterSelect) {
-                onAfterSelect();
-            } else {
-                buttonRef.current?.focus();
-            }
-        }, 10);
-    }, [onAfterSelect]);
+    }, [isControlled, onOpenChange]);
 
     const selectItem = useCallback((item: ComboboxItem) => {
         if (item.disabled) {
@@ -157,6 +188,44 @@ export const Combobox = ({
     }, [onSelect, close]);
 
     // Keep highlighted option aligned with filter, controlled selection, and refreshed items.
+    useEffect(() => {
+        if (focusTimerRef.current !== null) {
+            clearTimeout(focusTimerRef.current);
+            focusTimerRef.current = null;
+        }
+        if (isOpen) {
+            wasOpenRef.current = true;
+            setFilter('');
+            const currentIdx = itemsRef.current.findIndex(i => i.value === selectedRef.current);
+            setHighlightIndex(currentIdx >= 0 ? currentIdx : 0);
+            focusTimerRef.current = setTimeout(() => {
+                inputRef.current?.focus();
+                focusTimerRef.current = null;
+            }, 10);
+            return () => {
+                if (focusTimerRef.current !== null) clearTimeout(focusTimerRef.current);
+            };
+        }
+        if (!wasOpenRef.current) return;
+        wasOpenRef.current = false;
+        const reason = closeReasonRef.current ?? 'dismiss';
+        closeReasonRef.current = null;
+        focusTimerRef.current = setTimeout(() => {
+            if (reason === 'select' && onAfterSelectRef.current) {
+                onAfterSelectRef.current();
+            } else if (reason === 'dismiss' || reason === 'focus-leave') {
+                if (onAfterDismissRef.current) onAfterDismissRef.current(reason);
+                else if (reason === 'dismiss') buttonRef.current?.focus();
+            } else {
+                buttonRef.current?.focus();
+            }
+            focusTimerRef.current = null;
+        }, 10);
+        return () => {
+            if (focusTimerRef.current !== null) clearTimeout(focusTimerRef.current);
+        };
+    }, [isOpen]);
+
     useEffect(() => {
         if (!isOpen) return;
         const currentIdx = filteredItems.findIndex(i => i.value === selected);
@@ -247,6 +316,7 @@ export const Combobox = ({
             event.stopPropagation();
             close();
         } else if (event.key === 'Tab') {
+            if (renderActiveItemActions) return;
             if (allowFreeInput && filter.trim() && filteredItems.length === 0) {
                 onSelect(filter.trim(), { value: filter.trim(), label: filter.trim() });
             }
@@ -307,6 +377,7 @@ export const Combobox = ({
     const activeDescendant = isOpen && highlightIndex >= 0 && filteredItems[highlightIndex]
         ? `${uniqueId}-option-${highlightIndex}`
         : undefined;
+    const activeItem = isOpen && highlightIndex >= 0 ? filteredItems[highlightIndex] ?? null : null;
 
     return (
         <div
@@ -316,14 +387,15 @@ export const Combobox = ({
         >
             {!isOpen ? (
                 <button
-                    ref={buttonRef}
+                    ref={setButtonRef}
                     type="button"
                     className={`picker-button${hasSelectedItem ? ' picker-button--selected' : ''}`}
                     onClick={open}
                     disabled={disabled}
-                    aria-expanded={false}
+                        aria-expanded={false}
+                        aria-busy={busy || undefined}
                     aria-haspopup="listbox"
-                    aria-label={`${effectiveLabel}, ${selectedLabel}`}
+                    aria-label={triggerAriaLabel ?? `${effectiveLabel}, ${selectedLabel}`}
                     title={`${description || `${effectiveLabel}: ${selectedLabel}`}${shortcut ? ` (${shortcut})` : ''}`}
                     data-shortcut={shortcut}
                 >
@@ -332,7 +404,20 @@ export const Combobox = ({
                     <span className="picker-arrow" aria-hidden="true">▼</span>
                 </button>
             ) : (
-                <div className="picker-dropdown">
+                <div className="picker-dropdown" onKeyDownCapture={(event) => {
+                    tabNavigationRef.current = event.key === 'Tab';
+                    if (event.key === 'Escape' && event.target !== inputRef.current) {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        close('dismiss');
+                    }
+                }} onKeyUpCapture={() => { tabNavigationRef.current = false; }} onBlurCapture={(event) => {
+                    const leavingByTab = tabNavigationRef.current;
+                    tabNavigationRef.current = false;
+                    // Tab deve sair das ações sem prender o foco. Mudanças de
+                    // foco programáticas preservam a seleção contextual capturada.
+                    if (leavingByTab && renderActiveItemActions && !event.currentTarget.contains(event.relatedTarget as Node | null)) close('focus-leave');
+                }}>
                     <input
                         ref={inputRef}
                         type="text"
@@ -348,6 +433,11 @@ export const Combobox = ({
                         aria-autocomplete="list"
                         aria-label={`${effectiveLabel} - ${t('pickers.combobox.filterLabel')}`}
                     />
+                    {renderActiveItemActions && activeItem && (
+                        <div className="picker-active-actions" aria-label={activeItem.accessibleLabel || activeItem.label}>
+                            {renderActiveItemActions(activeItem)}
+                        </div>
+                    )}
                     <ul
                         ref={listboxRef}
                         id={`${uniqueId}-listbox`}

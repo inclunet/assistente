@@ -49,6 +49,22 @@
   font-size: 1.1em;
 }
 
+.tasklist-pagination {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: var(--radius-md);
+  padding: var(--radius-md);
+  color: var(--text-secondary);
+}
+
+.tasklist-pagination-error {
+  flex-basis: 100%;
+  color: var(--color-danger);
+  text-align: center;
+}
+
 /* Empty State */
 .tasklist-empty-state {
   display: flex;

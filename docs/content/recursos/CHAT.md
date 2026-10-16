@@ -5,6 +5,25 @@ weight: 3
 
 # Chat
 
+## Ler uma mensagem pelo teclado
+
+Na lista de mensagens, foque uma mensagem e pressione **Enter** para abrir o
+modo de leitura. **Escape** sai da leitura e devolve o foco à mensagem.
+Isso também vale para respostas em streaming ou recém-concluídas: não é
+necessário trocar de aba ou recarregar a conversa para ler o texto recebido.
+Abrir a leitura não cancela a geração e não inicia leitura em voz alta (TTS).
+Durante a leitura, os novos trechos permanecem disponíveis sem esperar a resposta
+terminar, e o foco não é reiniciado a cada trecho. Escape devolve o foco à mesma
+mensagem; é possível entrar novamente enquanto a geração continua. Isso não
+ativa anúncios automáticos de cada trecho nem outra voz concorrente.
+
+## Conversa indisponível ao enviar
+
+Se uma aba aponta para uma conversa que não está disponível para o usuário atual,
+o envio informa a causa no chat e pelo leitor de tela, tanto pelo botão quanto
+pelo teclado. O rascunho permanece no campo: copie-o e abra uma nova conversa
+para enviar. O app não cria uma conversa nem reenvia o texto automaticamente.
+
 ## Fixar mensagens
 
 Para guardar uma mensagem importante dentro da conversa:
@@ -36,6 +55,124 @@ enfileirados. Conversas diferentes continuam respondendo em paralelo. Ao
 terminar um turno com ferramentas, o chat atualiza apenas a resposta daquele
 turno, preservando a posição e a janela de histórico que você estava lendo.
 
+## Retry e persistência
+
+Repetir uma mensagem usa a pergunta raiz selecionada como âncora. O histórico e
+as políticas de contexto são carregados somente até essa pergunta; mensagens,
+respostas e resumo posteriores não entram no novo payload. Mídias da pergunta
+continuam disponíveis. A resposta do turno pode ser usada para **Continuar
+resposta** quando essa ação explícita estiver habilitada; em um retry normal, o
+backend não envia `assistant` trailing acidentalmente.
+
+Em conversas longas, essa preparação busca uma janela limitada diretamente no
+banco, sem carregar a conversa inteira para repetir uma pergunta antiga. As
+regras do limite de contexto e do resumo são preservadas. Isso reduz o trabalho
+local do retry, mas não muda a velocidade de geração do provedor.
+
+Se a gravação da resposta final falhar, o chat encerra o turno com erro
+recuperável e mantém o ID da mensagem/placeholder para uma nova ação explícita.
+Não há notificação de sucesso, TTS ou sumarização nesse caso, e ferramentas não
+são repetidas automaticamente. O erro técnico fica no log; a interface recebe
+o código estável `internal_error`.
+
+## Limites e truncamentos
+
+O chat diferencia seis situações:
+
+- **Limite de geração (`output_limit`)**: o provedor informou que atingiu o
+  limite de saída solicitado. Uma resposta curta também pode consumir o limite
+  com raciocínio interno não exibido; por isso o aplicativo não tenta
+  contradizer esse sinal pela quantidade de texto visível.
+- **Limite de iterações (`limit_reached`)**: o agente esgotou o número de ciclos
+  permitidos entre modelo e ferramentas. Não significa que o provedor atingiu
+  seu limite de tokens.
+- **Saída truncada para exibição ou contexto**: previews e resultados extensos
+  de ferramentas podem ser recortados localmente. Esse recorte é identificado
+  como truncamento local e não produz `output_limit`.
+- **Stream interrompido (`streaming_interrupted`)**: um transporte OpenAI
+  encerrou sem informar motivo de finalização e sem concluir uma ferramenta.
+- **Timeout de inatividade (`streaming_idle_timeout`)**: o provedor parou de
+  enviar eventos depois que texto visível ou uma ação não repetível já tinha
+  sido apresentado; repetir poderia duplicar conteúdo ou efeitos. Nos
+  transports OpenAI, raciocínio isolado é descartado e a tentativa pode ser
+  repetida.
+- **Tentativas esgotadas (`streaming_retries_exhausted`)**: falhas transitórias
+  sucessivas impediram a conclusão mesmo após as repetições automáticas.
+
+Quando o provedor informa limite de geração, o chat preserva o texto recebido e
+oferece **Continuar resposta**. Se o provedor encerrar o stream sem motivo de
+finalização (`streaming_interrupted`) ou parar de responder no meio da geração
+(`streaming_idle_timeout`), o chat exibe erro visível traduzido, sem deixar a
+resposta congelada. Se já houver texto parcial, o aviso de erro aparece depois
+dele para deixar explícito que a resposta não foi concluída. Internamente, o
+fluxo simples entrega esses erros no campo `error` do evento `chat:stream`,
+enquanto o loop com ferramentas usa o campo `errorMessage` de `chat:done`. Os
+logs técnicos registram apenas metadados como provedor, modelo, motivo de
+término, limites e contagens; o conteúdo da resposta não é incluído nesse
+diagnóstico.
+
+O timeout de streaming é de **inatividade**, não um teto para a duração total:
+cada evento recebido reinicia a contagem. Um provedor que continue enviando
+eventos ou heartbeats pode manter uma geração longa ativa; o aplicativo não
+interrompe uma resposta saudável apenas por sua duração total.
+
+## Cancelamento e próximos envios
+
+Cancelar alcança também a preparação da resposta, inclusive a transcrição de
+áudio. O próximo envio da mesma conversa aguarda o encerramento do trabalho
+anterior; mensagens já enfileiradas são preservadas. Outras conversas continuam
+independentes. Eventos atrasados de uma execução cancelada não devem encerrar
+o novo envio ou retry iniciado pela interface.
+
+## Acompanhamento por leitor de tela
+
+O chat informa o início das ferramentas enquanto ainda estão pendentes, sem
+esperar o fim da rodada. Eventos próximos são agrupados em uma janela curta de
+250 ms: ferramentas que já terminaram são anunciadas como concluídas, não como
+se ainda estivessem executando. Os avisos identificam as ferramentas; falhas e
+novas tentativas continuam sendo anunciadas pelo serviço global.
+
+O progresso respeita a superfície ativa e a proteção de leitura existentes.
+Não há regiões de anúncio extras por mensagem nem mudança de foco. Ao cancelar
+ou encerrar a execução, avisos transitórios pendentes são descartados.
+
+## Fluidez da lista de mensagens
+
+Durante a execução, os textos intermediários e as ferramentas aparecem na
+timeline sem esperar a resposta final. A ferramenta pendente mantém seu estado
+de execução; os passos anteriores continuam disponíveis, inclusive falhas.
+Entre rodadas sem texto, a interface informa que aguarda a próxima etapa.
+O aviso de turno sem resposta é reservado ao turno encerrado, nunca à espera
+por uma ferramenta. Ao terminar, o resultado persistido substitui o estado ao
+vivo. Isso não altera a duração permitida para trabalhos longos.
+
+O turno é apresentado de cima para baixo: mensagens intermediárias, ferramentas
+da rodada, próximas etapas e resposta final. A conclusão fica depois da
+atividade, inclusive após reabrir a conversa. O controle de recolher a cadeia
+oculta os detalhes sem mover a conclusão para cima nem duplicá-la; a cadeia
+não é recolhida automaticamente ao terminar. Em turnos sem texto, o aviso de
+ausência de resposta aparece depois das ferramentas.
+
+Cada ferramenta mostra uma ação curta e seu estado. As ferramentas nativas
+prioritárias passam ao passado após o sucesso, por exemplo, “Leu arquivo”. As
+integrações MCP mantêm o texto “Consultando [nome do provedor]” mesmo depois de
+concluídas, pois o chat não deduz a ação a partir do nome da integração. Durante
+a execução, um resultado ainda incompleto é identificado sem mostrar dados
+técnicos no card.
+Use **Detalhes técnicos** para consultar os parâmetros e a saída quando precisar;
+resultados de busca estruturados continuam disponíveis no botão que informa a
+quantidade de resultados.
+
+Alguns modelos enviam poucas mensagens intermediárias. Nesses casos, o chat
+continua mostrando o estado real das ferramentas e os avisos de progresso,
+sem inventar uma descrição do que o modelo pretende fazer.
+
+Atualizações do rascunho e do estado da sessão preservam as mensagens que não
+mudaram, evitando renderizações repetidas da lista. Navegação por teclado,
+menus, foco e paginação continuam disponíveis. O conteúdo da resposta em
+andamento ainda precisa ser renderizado quando muda; esta otimização não
+altera a velocidade de geração do provedor.
+
 ## Limite do texto
 
 O texto de cada nova mensagem pode ocupar até **512 KiB em UTF-8**. Letras
@@ -45,3 +182,18 @@ mantém o rascunho e o foco para correção.
 
 Anexos não entram nessa contagem: mídia e arquivos têm validação própria. O
 limite protege a comunicação interna, a serialização e o uso de memória.
+
+## Superfícies e rascunhos
+
+Cada painel, aba ou modal de chat mantém seu próprio rascunho, anexos, foco,
+scroll e janela do histórico. Duas superfícies que apontam para a mesma
+conversa compartilham a timeline persistida, mas uma superfície que está lendo
+mensagens antigas não é reposicionada quando chega uma mensagem nova em outra.
+
+Ao enviar, o texto e os anexos são limpos imediatamente para que o compositor
+fique pronto para outra ação. Se o envio for rejeitado — por exemplo, por
+exceder o limite de 512 KiB ou o tamanho permitido de mídia — o rascunho é
+restaurado. Se você começar a digitar enquanto o envio ainda é preparado, o
+novo texto é preservado e o envio duplicado é bloqueado até a aceitação ser
+resolvida. Itens transitórios de streaming aparecem somente na superfície que
+originou o turno; as outras superfícies exibem apenas o que foi persistido.

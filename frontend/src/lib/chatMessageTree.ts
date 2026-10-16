@@ -1,16 +1,43 @@
 import { chat } from '../../wailsjs/go/models';
 import type { ToolOrigin } from '../types/chat';
 
+export interface ToolInvocationSummary {
+  invocationId?: string;
+  callId: string;
+  name: string;
+  origin?: ToolOrigin;
+  serverLabel?: string;
+  status: string;
+  iteration?: number;
+  durationMs?: number;
+  inputPreview?: string;
+  outputPreview?: string;
+  inputBytes?: number;
+  outputBytes?: number;
+  hasDetails: boolean;
+  resultAvailability: string;
+  hasSearchResults?: boolean;
+  searchResultCount?: number;
+  securityOutcome?: 'approved' | 'blocked';
+}
+
+export interface StreamingToolCall {
+  id: string;
+  type: string;
+  function: { name: string; arguments: string };
+  result?: string;
+  origin?: ToolOrigin;
+  serverLabel?: string;
+  status?: 'running' | 'done' | 'error' | 'cancelled';
+}
+
 export interface TurnSegment {
   type: 'text' | 'tool_calls';
   content?: string;
-  toolCalls?: Array<{
-    id: string;
-    type: string;
-    function: { name: string; arguments: string };
-    result?: string;
-    origin?: ToolOrigin;
-  }>;
+  /** Projeção leve persistida; detalhes são carregados sob demanda. */
+  toolInvocations?: ToolInvocationSummary[];
+  /** Estado transitório enquanto o turno ainda está em streaming. */
+  toolCalls?: StreamingToolCall[];
 }
 
 export type MessageNode = chat.MessageNode & {
@@ -79,12 +106,17 @@ function createNode(input: Partial<MessageNode> & { message: Message }): Message
 
 function cloneNode(node: MessageNode, overrides: Partial<MessageNode> = {}): MessageNode {
   const children = overrides.children ?? node.children;
+  const message = overrides.message ?? node.message;
   const cloned = createNode({
     ...node,
     ...overrides,
-    message: overrides.message ?? node.message,
+    message,
     children: [],
   });
+  // The generated Wails constructor rehydrates EnrichedMessage and changes its
+  // identity even for structural-only updates. Preserve the message reference
+  // as its version token; callers that changed message data pass a new object.
+  cloned.message = message;
   cloned.children = children;
   cloned.originalIndex = overrides.originalIndex ?? node.originalIndex;
   cloned.isExpanded = overrides.isExpanded ?? node.isExpanded;

@@ -3,6 +3,7 @@ package portability
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -293,7 +294,7 @@ func TestImportacaoAvisaQuandoAEntradaDoCofreNaoExisteAqui(t *testing.T) {
 	setupPortabilityTestDB(t)
 	credMgr := credentials.NewManagerWithStoreAndPersistence(
 		[]byte("test-key-exactly-32-bytes-long!!"), credentials.NewDBStore(), true)
-	if err := credMgr.RegisterPatternWithContext(portabilityTestCtx(), "api.anthropic.com", &credentials.AuthConfig{
+	if err := credMgr.RegisterPatternWithContext(portabilityTestCtx(), "api.anthropic.com", &credentials.AuthConfig{Source: "static",
 		Type: "bearer", Token: "sk-daqui",
 	}); err != nil {
 		t.Fatalf("registrar a credencial existente: %v", err)
@@ -633,5 +634,49 @@ func TestExportacaoFalhaComArgumentosIlegiveis(t *testing.T) {
 		ID: "cursor", Name: "Cursor", APIFormat: "acp", ACPArgs: "{quebrado",
 	}); err == nil {
 		t.Fatal("esperava falha ao exportar argumentos ilegíveis")
+	}
+}
+
+func TestPortabilityCredentialCommandHelper(t *testing.T) {
+	if os.Getenv("PORTABILITY_CREDENTIAL_HELPER") != "1" {
+		return
+	}
+	if err := os.WriteFile(os.Args[len(os.Args)-1], []byte("executed"), 0600); err != nil {
+		os.Exit(2)
+	}
+	if _, err := os.Stdout.WriteString("token"); err != nil {
+		os.Exit(3)
+	}
+	os.Exit(0)
+}
+
+func TestAvisoCredencialACPNaoExecutaSource(t *testing.T) {
+	t.Setenv("PORTABILITY_CREDENTIAL_HELPER", "1")
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(t.TempDir(), "command-executed")
+	mgr := credentials.NewManager(nil)
+	ctx := portabilityTestCtx()
+	if err := mgr.RegisterPatternWithContext(ctx, "command.example", &credentials.AuthConfig{
+		Source: "command", Type: "bearer", SourceConfig: &credentials.SourceConfig{Command: executable, Args: []string{"-test.run=^TestPortabilityCredentialCommandHelper$", "--", marker}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	warnings := acpCredentialWarnings(ctx, mgr, ProviderExport{ID: "agent", Type: "acp", APIFormat: "acp", ACPCredentialEnv: map[string]string{"TOKEN": "command.example", "MISSING": "missing.example"}})
+	if len(warnings) != 1 {
+		t.Fatalf("warnings: %v", warnings)
+	}
+	requireParam(t, findMessageByCode(t, warnings, CodeACPCredentialMissing), "pattern", "missing.example")
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("metadata lookup executed command: %v", err)
+	}
+	// Prova que o helper configurado executa de fato quando há materialização.
+	if _, err := mgr.GetByPatternWithContext(ctx, "command.example"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatal(err)
 	}
 }

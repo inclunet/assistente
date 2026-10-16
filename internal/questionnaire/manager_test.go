@@ -149,6 +149,27 @@ func TestRequestQuestionnaire_EmitsBodyLabelWithRawBody(t *testing.T) {
 	}
 }
 
+func TestRequestQuestionnaire_EmitsExplicitSeverity(t *testing.T) {
+	var mgr *Manager
+	mgr = NewManager(func(_ string, data any) {
+		dataMap := data.(map[string]any)
+		if got := dataMap["severity"]; got != DecisionSeverityDestructive {
+			t.Errorf("severity = %#v, quer %q", got, DecisionSeverityDestructive)
+		}
+		go func() {
+			_ = mgr.Respond(dataMap["id"].(string), map[string]any{}, true)
+		}()
+	})
+
+	if _, err := mgr.RequestQuestionnaire(context.Background(), RequestPayload{
+		Kind:      KindDecision,
+		Severity:  DecisionSeverityDestructive,
+		Questions: []Question{},
+	}); err != nil {
+		t.Fatalf("RequestQuestionnaire: %v", err)
+	}
+}
+
 func TestRespondQuestionnaire_NotFound(t *testing.T) {
 	mgr := NewManager(func(string, any) {})
 	if err := mgr.Respond("missing", map[string]any{}, false); err == nil {

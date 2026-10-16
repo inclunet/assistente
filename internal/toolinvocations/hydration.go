@@ -12,6 +12,7 @@ import (
 )
 
 type ChatToolInvocationDisplay struct {
+	LedgerID           string
 	ID                 string
 	Type               string
 	Name               string
@@ -23,6 +24,7 @@ type ChatToolInvocationDisplay struct {
 	Iteration          int
 	DurationMs         int64
 	AssistantMessageID string
+	CreatedAt          time.Time
 }
 
 type toolInvocationDisplayMetadata struct {
@@ -92,6 +94,22 @@ func LoadChatToolInvocationDisplaysForTurnIDsWithUser(ctx context.Context, userI
 
 	results := make(map[string][]ChatToolInvocationDisplay, len(turnIDs))
 	indexByTurnCall := make(map[string]map[string]int, len(turnIDs))
+	resolvedTurnSQL := "tool_invocations.origin_id"
+	if db.Migrator().HasTable(&database.ChatMessage{}) && db.Migrator().HasTable(&database.Conversation{}) {
+		resolvedTurnSQL = `COALESCE(
+			tool_invocations.turn_id,
+			(
+				SELECT COALESCE(legacy_message.turn_id, legacy_message.id)
+				FROM chat_messages legacy_message
+				JOIN conversations legacy_conversation
+					ON legacy_conversation.id = legacy_message.conversation_id
+					AND legacy_conversation.user_id = tool_invocations.user_id
+				WHERE legacy_message.id = tool_invocations.origin_id
+				LIMIT 1
+			),
+			tool_invocations.origin_id
+		)`
+	}
 	for start := 0; start < len(turnIDs); start += maxTurnIDsPerBatch {
 		end := start + maxTurnIDsPerBatch
 		if end > len(turnIDs) {
@@ -99,6 +117,7 @@ func LoadChatToolInvocationDisplaysForTurnIDsWithUser(ctx context.Context, userI
 		}
 		batch := turnIDs[start:end]
 
+		attemptByTurnCall := make(map[string]map[string]int)
 		var cursorQueuedAt *time.Time
 		cursorID := ""
 		for {
@@ -107,13 +126,14 @@ func LoadChatToolInvocationDisplaysForTurnIDsWithUser(ctx context.Context, userI
 				ToolName        string
 				ToolDisplayName string
 				ToolOrigin      string
+				ResolvedTurnID  string `gorm:"column:resolved_turn_id"`
 			}
 			q := db.WithContext(ctx).
 				Model(&database.ToolInvocation{}).
-				Select("tool_invocations.id, tool_invocations.origin_id, tool_invocations.tool_call_id, tool_invocations.output, tool_invocations.metadata, tool_invocations.queued_at, tool_invocations.duration_ms, tool_catalog.name AS tool_name, tool_catalog.display_name AS tool_display_name, tool_catalog.origin AS tool_origin").
+				Select("tool_invocations.id, tool_invocations.created_at, tool_invocations.origin_id, tool_invocations.tool_call_id, tool_invocations.attempt, tool_invocations.output, tool_invocations.metadata, tool_invocations.queued_at, tool_invocations.duration_ms, tool_catalog.name AS tool_name, tool_catalog.display_name AS tool_display_name, tool_catalog.origin AS tool_origin, "+resolvedTurnSQL+" AS resolved_turn_id").
 				Joins("LEFT JOIN tool_catalog ON tool_catalog.id = tool_invocations.tool_catalog_id").
 				Where(
-					"tool_invocations.user_id = ? AND tool_invocations.origin_type = ? AND tool_invocations.origin_id IN ? AND tool_invocations.tool_call_id <> '' AND (tool_invocations.completed_at IS NOT NULL OR tool_invocations.status IN (?, ?, ?, ?, ?, ?))",
+					"tool_invocations.user_id = ? AND tool_invocations.origin_type = ? AND "+resolvedTurnSQL+" IN ? AND TRIM(tool_invocations.tool_call_id) <> '' AND (tool_invocations.completed_at IS NOT NULL OR tool_invocations.status IN (?, ?, ?, ?, ?, ?))",
 					userID,
 					OriginChat,
 					batch,
@@ -138,7 +158,7 @@ func LoadChatToolInvocationDisplaysForTurnIDsWithUser(ctx context.Context, userI
 			}
 
 			for _, row := range rows {
-				turnID := strings.TrimSpace(row.OriginID)
+				turnID := strings.TrimSpace(row.ResolvedTurnID)
 				callID := strings.TrimSpace(row.ToolCallID)
 				if turnID == "" || callID == "" {
 					continue
@@ -147,15 +167,20 @@ func LoadChatToolInvocationDisplaysForTurnIDsWithUser(ctx context.Context, userI
 				if indexByCall == nil {
 					indexByCall = map[string]int{}
 					indexByTurnCall[turnID] = indexByCall
+					attemptByTurnCall[turnID] = map[string]int{}
 				}
 				display := toolInvocationRowToDisplay(row.ToolInvocation, row.ToolName, row.ToolDisplayName, row.ToolOrigin)
 				if idx, ok := indexByCall[callID]; ok {
-					// A consulta vem em ordem cronológica; retries com o mesmo tool_call_id
-					// substituem a tentativa anterior para expor o resultado mais recente.
-					results[turnID][idx] = display
+					// Attempt é autoritativo para retries; em empate (dados legados),
+					// a ordem cronológica mantém a linha mais recente.
+					if row.Attempt >= attemptByTurnCall[turnID][callID] {
+						results[turnID][idx] = display
+						attemptByTurnCall[turnID][callID] = row.Attempt
+					}
 					continue
 				}
 				indexByCall[callID] = len(results[turnID])
+				attemptByTurnCall[turnID][callID] = row.Attempt
 				results[turnID] = append(results[turnID], display)
 			}
 
@@ -199,6 +224,7 @@ func toolInvocationRowToDisplay(row database.ToolInvocation, toolName, toolDispl
 
 	result := ExtractToolInvocationResult(row.Output)
 	return ChatToolInvocationDisplay{
+		LedgerID:           row.ID,
 		ID:                 strings.TrimSpace(row.ToolCallID),
 		Type:               tipo,
 		Name:               name,
@@ -210,6 +236,7 @@ func toolInvocationRowToDisplay(row database.ToolInvocation, toolName, toolDispl
 		Iteration:          meta.Display.Iteration,
 		DurationMs:         durationMs,
 		AssistantMessageID: strings.TrimSpace(meta.Display.AssistantMessageID),
+		CreatedAt:          row.CreatedAt,
 	}
 }
 
@@ -217,10 +244,22 @@ func ExtractToolInvocationContent(raw string) string {
 	return ExtractToolInvocationResult(raw).Content
 }
 
+const persistenceOmissionSentinel = "0"
+
 func ExtractToolInvocationResult(raw string) tools.ToolResult {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return tools.ToolResult{}
+	}
+	if raw == persistenceOmissionSentinel {
+		return tools.ToolResult{
+			Content:  "[result_omitted_for_persistence]",
+			IsError:  true,
+			Metadata: map[string]any{"omitted_for_persistence": true},
+			Failure: &tools.ToolFailure{
+				Code: "result_omitted_for_persistence", Kind: tools.ErrorKindUnknown, Retryable: false,
+			},
+		}
 	}
 	var payload tools.ToolResult
 	if json.Unmarshal([]byte(raw), &payload) == nil {

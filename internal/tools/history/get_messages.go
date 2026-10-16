@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"assistente/internal/database"
+	"assistente/internal/toolinvocations"
 	"assistente/internal/tools"
 )
 
@@ -88,6 +89,11 @@ type getMessagesPayload struct {
 	Messages []getMessagePayload `json:"messages"`
 }
 
+type requestedTurn struct {
+	ConversationID string
+	TurnID         string
+}
+
 func (t *GetMessagesTool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolResult, error) {
 	var params getMessagesArgs
 	if err := json.Unmarshal(args, &params); err != nil {
@@ -99,7 +105,8 @@ func (t *GetMessagesTool) Execute(ctx context.Context, args json.RawMessage) (to
 	if len(params.IDs) > maxGetMessagesIDs {
 		return toolArgumentError("ids accepts at most %d message IDs", maxGetMessagesIDs), nil
 	}
-	if _, err := database.RequireUserID(ctx); err != nil {
+	userID, err := database.RequireUserID(ctx)
+	if err != nil {
 		return tools.ToolResult{Content: "Message access rejected: authenticated user scope is required.", IsError: true}, nil
 	}
 	if t.reader == nil {
@@ -109,6 +116,7 @@ func (t *GetMessagesTool) Execute(ctx context.Context, args json.RawMessage) (to
 	messages := make([]database.ChatMessage, 0, len(params.IDs))
 	seen := make(map[string]struct{}, len(params.IDs))
 	expandedTurns := make(map[string]struct{})
+	requestedTurns := make([]requestedTurn, 0, len(params.IDs))
 	for _, rawID := range params.IDs {
 		id := strings.TrimSpace(rawID)
 		if id == "" {
@@ -140,31 +148,20 @@ func (t *GetMessagesTool) Execute(ctx context.Context, args json.RawMessage) (to
 			if _, expanded := expandedTurns[turnKey]; expanded {
 				continue
 			}
-			turnMessages, err := t.reader.GetTurnMessagesWithContext(ctx, turnID)
-			if err != nil {
-				return tools.ToolResult{Content: "Tool results could not be read for the requested message.", IsError: true}, nil
-			}
 			expandedTurns[turnKey] = struct{}{}
-			for _, turnMsg := range turnMessages {
-				if turnMsg.Role != "tool" || turnMsg.ConversationID != msg.ConversationID {
-					continue
-				}
-				if _, duplicate := seen[turnMsg.ID]; duplicate {
-					continue
-				}
-				seen[turnMsg.ID] = struct{}{}
-				messages = append(messages, turnMsg)
-			}
+			requestedTurns = append(requestedTurns, requestedTurn{ConversationID: msg.ConversationID, TurnID: turnID})
 		}
 	}
 
 	payload := getMessagesPayload{Messages: make([]getMessagePayload, 0, len(messages))}
 	for _, msg := range messages {
-		item, err := messagePayload(msg)
-		if err != nil {
-			return tools.ToolResult{Content: fmt.Sprintf("Message %q contains invalid tool_calls JSON.", msg.ID), IsError: true}, nil
-		}
+		item, _ := messagePayload(msg)
 		payload.Messages = append(payload.Messages, item)
+	}
+	if params.IncludeToolResults {
+		if err := t.appendRequestedToolResults(ctx, userID, requestedTurns, seen, &payload); err != nil {
+			return tools.ToolResult{Content: "Tool results could not be read for the requested message.", IsError: true}, nil
+		}
 	}
 	encoded, err := json.Marshal(payload)
 	if err != nil {
@@ -181,37 +178,52 @@ func (t *GetMessagesTool) Execute(ctx context.Context, args json.RawMessage) (to
 	}, nil
 }
 
+func (t *GetMessagesTool) appendRequestedToolResults(
+	ctx context.Context,
+	userID string,
+	turns []requestedTurn,
+	seen map[string]struct{},
+	payload *getMessagesPayload,
+) error {
+	canonicalTurnIDs := make([]string, 0, len(turns))
+	for _, turn := range turns {
+		canonicalTurnIDs = append(canonicalTurnIDs, turn.TurnID)
+	}
+	displays, err := toolinvocations.LoadChatToolInvocationDisplaysForTurnIDsWithUser(ctx, userID, canonicalTurnIDs)
+	if err != nil {
+		return err
+	}
+	for _, turn := range turns {
+		for _, display := range displays[turn.TurnID] {
+			ledgerID := strings.TrimSpace(display.LedgerID)
+			if ledgerID == "" {
+				ledgerID = turn.TurnID + ":" + display.ID
+			}
+			if _, duplicate := seen[ledgerID]; duplicate {
+				continue
+			}
+			seen[ledgerID] = struct{}{}
+			payload.Messages = append(payload.Messages, getMessagePayload{
+				ID:             ledgerID,
+				ConversationID: turn.ConversationID,
+				Role:           "tool",
+				Content:        display.ModelResult,
+				ToolCallID:     display.ID,
+				CreatedAt:      display.CreatedAt.UTC().Format(time.RFC3339Nano),
+			})
+		}
+	}
+	return nil
+}
+
 func messagePayload(msg database.ChatMessage) (getMessagePayload, error) {
-	item := getMessagePayload{
+	return getMessagePayload{
 		ID:             msg.ID,
 		ConversationID: msg.ConversationID,
 		Role:           msg.Role,
 		Content:        msg.Content,
-		ToolCallID:     msg.ToolCallID,
 		CreatedAt:      msg.CreatedAt.UTC().Format(time.RFC3339Nano),
-	}
-	if toolCalls := strings.TrimSpace(msg.ToolCalls); toolCalls != "" {
-		var calls []json.RawMessage
-		if err := json.Unmarshal([]byte(toolCalls), &calls); err == nil {
-			if len(calls) > 0 {
-				item.ToolCalls = json.RawMessage(toolCalls)
-			}
-			return item, nil
-		}
-
-		// Compatibilidade com histórico legado: a timeline também aceita uma
-		// única tool call persistida como objeto e a trata como array unitário.
-		var single map[string]json.RawMessage
-		if err := json.Unmarshal([]byte(toolCalls), &single); err != nil {
-			return getMessagePayload{}, fmt.Errorf("invalid tool_calls JSON")
-		}
-		normalized, err := json.Marshal([]map[string]json.RawMessage{single})
-		if err != nil {
-			return getMessagePayload{}, fmt.Errorf("normalize legacy tool_calls: %w", err)
-		}
-		item.ToolCalls = normalized
-	}
-	return item, nil
+	}, nil
 }
 
 func toolArgumentError(format string, args ...any) tools.ToolResult {

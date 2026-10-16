@@ -20,6 +20,13 @@ async function flushMicrotasks() {
 }
 
 describe('chatTurnQueue', () => {
+  it('trata a cauda rejeitada mesmo sem outro envio para consumi-la', async () => {
+    const queue = createConversationTurnQueue();
+    await expect(queue.enqueue('c', async () => { throw new Error('falha'); })).rejects.toThrow('falha');
+    // Vitest também reprova o teste se a Promise interna ficar sem tratamento.
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(queue.isQueued('c')).toBe(false);
+  });
   it('serializa turnos da mesma conversa', async () => {
     const queue = createConversationTurnQueue();
     const first = deferred<void>();

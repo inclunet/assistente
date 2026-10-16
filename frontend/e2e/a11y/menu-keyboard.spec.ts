@@ -270,20 +270,18 @@ test.describe('Menu — keyboard opens via Shift+F10', () => {
     const messages = page.locator('.message-node[data-level="0"]');
     await expect(messages).toHaveCount(2, { timeout: 5_000 });
 
-    await pauseRAF(page);
     const firstMessage = messages.first();
 
-    // Shift+F10 abre context menu
-    await dispatchShiftF10(firstMessage);
-    await resumeRAF(page);
+    // A tecla real exige um alvo focado. Locator.press foca o nó e envia a
+    // sequência de teclado, em vez de despachar um keyup isolado.
+    await firstMessage.press('Shift+F10');
 
     const menu = page.locator('[role="menu"]');
     await expect(menu).toBeVisible({ timeout: 5_000 });
 
-    // O primeiro item do menu deve ter foco — garante explicitamente
+    // O primeiro item deve receber foco pelo comportamento de abertura do menu.
     const firstItem = menu.locator('[role="menuitem"]:not([disabled])').first();
     await expect(firstItem).toBeVisible({ timeout: 5_000 });
-    await firstItem.focus();
     await expect(firstItem).toBeFocused({ timeout: 3_000 });
   });
 });

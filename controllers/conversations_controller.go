@@ -5,9 +5,9 @@ import (
 	"assistente/internal/chat"
 	"assistente/internal/core/ports"
 	"assistente/internal/database"
-	"assistente/internal/logging"
 	"assistente/internal/toolinvocations"
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -15,30 +15,70 @@ import (
 // ConversationsController orquestra persistência de conversas/mensagens (AEP-0088).
 // Side-effects do App (reset de escopo, questionário, modelo do perfil) entram via hooks.
 type ConversationsControllerConfig struct {
-	MsgRepo               chat.MessageRepository
-	Emitter               ports.Emitter
-	ResetScopedState      func(ctx context.Context, conversationID string)
-	ConfirmDeleteMessage  func() error
-	GetEffectiveModelFunc func() (string, error)
+	MsgRepo                 chat.MessageRepository
+	Emitter                 ports.Emitter
+	ResetScopedState        func(ctx context.Context, conversationID string)
+	PrepareBatchDelete      func(ctx context.Context, conversationIDs []string) (finalize func(committed bool), err error)
+	ValidateBatchDelete     func(ctx context.Context, conversationIDs []string) ([]string, error)
+	DeleteBatch             func(ctx context.Context, conversationIDs []string) ([]string, error)
+	ListConversations       func(ctx context.Context) ([]database.Conversation, error)
+	WithMaintenance         func(ctx context.Context, fn func() error) error
+	DeleteWithinMaintenance func(ctx context.Context, conversationIDs []string) ([]string, error)
+	ConfirmDeleteMessage    func() error
+	GetEffectiveModelFunc   func() (string, error)
 }
 
 // ConversationsController é o orquestrador do domínio conversations.
 type ConversationsController struct {
-	msgRepo              chat.MessageRepository
-	emitter              ports.Emitter
-	resetScopedState     func(ctx context.Context, conversationID string)
-	confirmDeleteMessage func() error
-	getEffectiveModel    func() (string, error)
+	msgRepo                 chat.MessageRepository
+	emitter                 ports.Emitter
+	resetScopedState        func(ctx context.Context, conversationID string)
+	prepareBatchDelete      func(ctx context.Context, conversationIDs []string) (finalize func(committed bool), err error)
+	validateBatchDelete     func(ctx context.Context, conversationIDs []string) ([]string, error)
+	deleteBatch             func(ctx context.Context, conversationIDs []string) ([]string, error)
+	listConversations       func(ctx context.Context) ([]database.Conversation, error)
+	withMaintenance         func(ctx context.Context, fn func() error) error
+	deleteWithinMaintenance func(ctx context.Context, conversationIDs []string) ([]string, error)
+	confirmDeleteMessage    func() error
+	getEffectiveModel       func() (string, error)
 }
+
+var (
+	errClearConversationSnapshotChanged = errors.New("conversation snapshot changed during clear")
+	ErrClearConversationsContended      = errors.New("conversation set kept changing during clear")
+)
+
+const clearConversationsMaxAttempts = 8
 
 // NewConversationsController monta o controller a partir da config.
 func NewConversationsController(cfg ConversationsControllerConfig) *ConversationsController {
+	if cfg.ValidateBatchDelete == nil {
+		cfg.ValidateBatchDelete = database.ValidateOwnedConversationIDsWithContext
+	}
+	if cfg.DeleteBatch == nil {
+		cfg.DeleteBatch = database.DeleteConversationsWithinLifecycleWithContext
+	}
+	if cfg.ListConversations == nil {
+		cfg.ListConversations = database.GetConversationsWithContext
+	}
+	if cfg.WithMaintenance == nil {
+		cfg.WithMaintenance = database.WithSQLiteMaintenance
+	}
+	if cfg.DeleteWithinMaintenance == nil {
+		cfg.DeleteWithinMaintenance = database.DeleteConversationsWithinMaintenanceWithContext
+	}
 	return &ConversationsController{
-		msgRepo:              cfg.MsgRepo,
-		emitter:              cfg.Emitter,
-		resetScopedState:     cfg.ResetScopedState,
-		confirmDeleteMessage: cfg.ConfirmDeleteMessage,
-		getEffectiveModel:    cfg.GetEffectiveModelFunc,
+		msgRepo:                 cfg.MsgRepo,
+		emitter:                 cfg.Emitter,
+		resetScopedState:        cfg.ResetScopedState,
+		prepareBatchDelete:      cfg.PrepareBatchDelete,
+		validateBatchDelete:     cfg.ValidateBatchDelete,
+		deleteBatch:             cfg.DeleteBatch,
+		listConversations:       cfg.ListConversations,
+		withMaintenance:         cfg.WithMaintenance,
+		deleteWithinMaintenance: cfg.DeleteWithinMaintenance,
+		confirmDeleteMessage:    cfg.ConfirmDeleteMessage,
+		getEffectiveModel:       cfg.GetEffectiveModelFunc,
 	}
 }
 
@@ -117,7 +157,7 @@ func (c *ConversationsController) GetMessages(ctx context.Context, conversationI
 	if err != nil {
 		return nil, err
 	}
-	return buildMessageNodesWithInvocationFallback(ctx, messages, parentID), nil
+	return buildMessageNodesWithInvocations(ctx, messages, parentID)
 }
 
 // GetRecentMessages retorna as mensagens raiz mais recentes de uma conversa.
@@ -141,7 +181,10 @@ func (c *ConversationsController) GetRecentMessages(ctx context.Context, convers
 		if err != nil {
 			return nil, err
 		}
-		nodes := buildMessageNodesWithInvocationFallback(ctx, messages, nil)
+		nodes, buildErr := buildMessageNodesWithInvocations(ctx, messages, nil)
+		if buildErr != nil {
+			return nil, buildErr
+		}
 		lastNodes = nodes
 		if len(nodes) >= limit || len(messages) < rawLimit {
 			if len(nodes) > limit {
@@ -184,7 +227,10 @@ func (c *ConversationsController) GetMessagesBefore(ctx context.Context, convers
 		if err != nil {
 			return nil, err
 		}
-		nodes := buildMessageNodesWithInvocationFallback(ctx, messages, nil)
+		nodes, buildErr := buildMessageNodesWithInvocations(ctx, messages, nil)
+		if buildErr != nil {
+			return nil, buildErr
+		}
 		lastNodes = nodes
 		if len(nodes) >= limit || len(messages) < rawLimit {
 			if len(nodes) > limit {
@@ -290,7 +336,10 @@ func (c *ConversationsController) GetConversationMessageWindow(ctx context.Conte
 	if err != nil {
 		return nil, err
 	}
-	nodes := buildTimelineMessageNodes(ctx, window.Items, window.Messages, parentID)
+	nodes, err := buildTimelineMessageNodes(ctx, window.Items, window.Messages, parentID)
+	if err != nil {
+		return nil, err
+	}
 
 	return &chat.MessageWindow{
 		Scope:          scope,
@@ -303,6 +352,16 @@ func (c *ConversationsController) GetConversationMessageWindow(ctx context.Conte
 		HasBefore:      window.HasBefore,
 		HasAfter:       window.HasAfter,
 	}, nil
+}
+
+// GetToolInvocationDetails carrega payloads técnicos sob demanda em um único
+// lote user-scoped. A timeline recebe apenas Summary.
+func (c *ConversationsController) GetToolInvocationDetails(ctx context.Context, invocationIDs []string) ([]toolinvocations.Detail, error) {
+	userID, err := database.RequireUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return toolinvocations.LoadDetailsWithUser(ctx, userID, invocationIDs)
 }
 
 // GetConversationInfo retorna metadados da conversa (sem mensagens).
@@ -350,16 +409,143 @@ func (c *ConversationsController) UpdateConversation(ctx context.Context, id str
 	return nil
 }
 
-// DeleteConversation remove a conversa e limpa estado efêmero.
+// DeleteConversation delega ao pipeline batch canônico.
 func (c *ConversationsController) DeleteConversation(ctx context.Context, id string) error {
-	if err := database.DeleteConversationWithContext(ctx, id); err != nil {
-		return err
+	_, err := c.DeleteConversations(ctx, []string{id})
+	return err
+}
+
+// DeleteConversations remove atomicamente as conversas e só então limpa estado
+// efêmero e publica um evento por ID normalizado.
+func (c *ConversationsController) DeleteConversations(ctx context.Context, ids []string) ([]string, error) {
+	normalizedIDs, err := c.validateBatchDelete(ctx, ids)
+	if err != nil {
+		return nil, err
 	}
-	c.resetScoped(ctx, id)
-	c.emit("conversation:deleted", map[string]interface{}{
-		"conversation_id": id,
+	return c.deletePreparedConversations(ctx, normalizedIDs, c.deleteBatch)
+}
+
+// ClearConversations remove todas as conversas do usuário mantendo o gate de
+// manutenção entre o snapshot e o commit. Assim, criadores não atravessam o
+// snapshot e a operação não deixa conversas que existiam quando começou.
+func (c *ConversationsController) ClearConversations(ctx context.Context) ([]string, error) {
+	for attempt := 1; attempt <= clearConversationsMaxAttempts; attempt++ {
+		var conversations []database.Conversation
+		err := c.withMaintenance(ctx, func() error {
+			return database.WithSQLiteBusyRetry(ctx, "conversations.clear_snapshot", func() error {
+				var err error
+				conversations, err = c.listConversations(ctx)
+				return err
+			})
+		})
+		if err != nil {
+			return nil, err
+		}
+		if len(conversations) == 0 {
+			return nil, nil
+		}
+		ids := make([]string, 0, len(conversations))
+		for _, conversation := range conversations {
+			ids = append(ids, conversation.ID)
+		}
+
+		deletedIDs, err := c.deletePreparedConversations(
+			ctx,
+			ids,
+			func(ctx context.Context, snapshot []string) ([]string, error) {
+				var deleted []string
+				err := c.withMaintenance(ctx, func() error {
+					var current []database.Conversation
+					if err := database.WithSQLiteBusyRetry(ctx, "conversations.clear_revalidate", func() error {
+						var err error
+						current, err = c.listConversations(ctx)
+						return err
+					}); err != nil {
+						return err
+					}
+					if !sameConversationIDs(snapshot, current) {
+						return errClearConversationSnapshotChanged
+					}
+					deleted, err = c.deleteWithinMaintenance(ctx, snapshot)
+					return err
+				})
+				return deleted, err
+			},
+		)
+		if errors.Is(err, errClearConversationSnapshotChanged) {
+			if ctx != nil && ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			if attempt == clearConversationsMaxAttempts {
+				return nil, ErrClearConversationsContended
+			}
+			continue
+		}
+		return deletedIDs, err
+	}
+	return nil, ErrClearConversationsContended
+}
+
+func sameConversationIDs(ids []string, conversations []database.Conversation) bool {
+	if len(ids) != len(conversations) {
+		return false
+	}
+	expected := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		expected[id] = struct{}{}
+	}
+	for _, conversation := range conversations {
+		if _, ok := expected[conversation.ID]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func (c *ConversationsController) deletePreparedConversations(
+	ctx context.Context,
+	normalizedIDs []string,
+	deleteBatch func(context.Context, []string) ([]string, error),
+) ([]string, error) {
+	finalize := func(bool) {}
+	if c.prepareBatchDelete != nil {
+		var err error
+		finalize, err = c.prepareBatchDelete(ctx, normalizedIDs)
+		if err != nil {
+			return nil, err
+		}
+		if finalize == nil {
+			finalize = func(bool) {}
+		}
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			finalize(false)
+		}
+	}()
+
+	var deletedIDs []string
+	err := database.WithConversationLifecycle(ctx, func() error {
+		var err error
+		deletedIDs, err = deleteBatch(ctx, normalizedIDs)
+		if err != nil {
+			return err
+		}
+		finalize(true)
+		committed = true
+		for _, id := range deletedIDs {
+			c.resetScoped(ctx, id)
+			c.emit("conversation:deleted", map[string]interface{}{
+				"conversation_id": id,
+			})
+		}
+		return nil
 	})
-	return nil
+	if err != nil {
+		return nil, err
+	}
+	return deletedIDs, nil
 }
 
 // DeleteMessage exclui uma mensagem (com confirmação via hook) e filhas.
@@ -377,10 +563,7 @@ func (c *ConversationsController) DeleteMessage(ctx context.Context, messageID s
 	if err := database.DeleteMessageWithContext(ctx, messageID); err != nil {
 		return err
 	}
-	c.emit("message:deleted", ports.MessageDeletedEvent{
-		ConversationID: convID,
-		MessageID:      messageID,
-	})
+	c.messageDeleted(convID, messageID)
 	return nil
 }
 
@@ -397,11 +580,7 @@ func (c *ConversationsController) UpdateMessage(ctx context.Context, messageID s
 	); err != nil {
 		return err
 	}
-	c.emit("message:updated", ports.MessageUpdatedEvent{
-		ConversationID: msg.ConversationID,
-		MessageID:      messageID,
-		Content:        newContent,
-	})
+	c.messageUpdated(msg.ConversationID, messageID, newContent)
 	return nil
 }
 
@@ -411,11 +590,7 @@ func (c *ConversationsController) ToggleMessagePin(ctx context.Context, messageI
 	if err != nil {
 		return nil, err
 	}
-	c.emit("message:pin_changed", ports.MessagePinChangedEvent{
-		ConversationID: msg.ConversationID,
-		MessageID:      msg.ID,
-		Pinned:         msg.Pinned,
-	})
+	c.messagePinChanged(msg)
 	return msg, nil
 }
 
@@ -533,17 +708,72 @@ func (c *ConversationsController) RenameConversation(ctx context.Context, conver
 
 // ClearConversation apaga todas as mensagens e limpa estado efêmero.
 func (c *ConversationsController) ClearConversation(ctx context.Context, conversationID string) error {
+	return c.clearConversation(ctx, conversationID, func() error {
+		return database.ClearConversationContentWithContext(ctx, conversationID)
+	})
+}
+
+// GetConversationContentRevision captura o conteúdo antes da confirmação.
+func (c *ConversationsController) GetConversationContentRevision(ctx context.Context, conversationID string) (string, error) {
+	return database.GetConversationContentRevisionWithContext(ctx, conversationID)
+}
+
+// ClearConversationIfUnchanged compara e limpa atomicamente sob o lifecycle;
+// ErrConversationContentChanged exige nova captura/confirmação pelo caller.
+func (c *ConversationsController) ClearConversationIfUnchanged(ctx context.Context, conversationID, expectedRevision string) error {
+	return c.clearConversation(ctx, conversationID, func() error {
+		return database.ClearConversationContentIfUnchangedWithinLifecycleWithContext(ctx, conversationID, expectedRevision)
+	})
+}
+
+// ClearConversationIfUnchangedGuarded permite ao App adquirir auth/workspace
+// DEPOIS de runtime/lifecycle. O guard deve chamar commit sincronamente no máximo
+// uma vez, mantendo seus locks até retornar (incluindo os efeitos pós-commit).
+func (c *ConversationsController) ClearConversationIfUnchangedGuarded(ctx context.Context, conversationID, expectedRevision string, guard func(commit func() error) error) error {
+	if guard == nil {
+		return errors.New("conversation clear guard required")
+	}
+	return c.clearConversationGuarded(ctx, conversationID, func() error {
+		return database.ClearConversationContentIfUnchangedWithinLifecycleWithContext(ctx, conversationID, expectedRevision)
+	}, guard)
+}
+
+func (c *ConversationsController) clearConversation(ctx context.Context, conversationID string, clear func() error) error {
+	return c.clearConversationGuarded(ctx, conversationID, clear, func(commit func() error) error { return commit() })
+}
+
+func (c *ConversationsController) clearConversationGuarded(ctx context.Context, conversationID string, clear func() error, guard func(func() error) error) error {
+	// Valida ownership antes de fechar os gates runtime. Ordem igual ao delete:
+	// runtime -> lifecycle -> transação. Clear preserva a conversa, logo libera
+	// sempre com false (sem tombstone), inclusive depois de um commit bem sucedido.
 	if _, err := database.GetConversationInfoWithContext(ctx, conversationID); err != nil {
 		return err
 	}
-	if err := database.DeleteAllMessagesWithContext(ctx, conversationID); err != nil {
-		return err
+	if c.prepareBatchDelete != nil {
+		finalize, err := c.prepareBatchDelete(ctx, []string{conversationID})
+		if err != nil {
+			return err
+		}
+		if finalize != nil {
+			defer finalize(false)
+		}
 	}
+	return database.WithConversationLifecycle(ctx, func() error {
+		return guard(func() error {
+			if err := clear(); err != nil {
+				return err
+			}
+			c.conversationCleared(ctx, conversationID)
+			return nil
+		})
+	})
+}
+
+func (c *ConversationsController) conversationCleared(ctx context.Context, conversationID string) {
 	c.resetScoped(ctx, conversationID)
 	c.emit("conversation:cleared", map[string]interface{}{
 		"conversation_id": conversationID,
 	})
-	return nil
 }
 
 // DeleteMessages remove mensagens específicas de uma conversa.
@@ -607,77 +837,71 @@ func assignMessageNodeChildCounts(ctx context.Context, nodes []chat.MessageNode)
 	return nodes
 }
 
-func buildMessageNodesWithInvocationFallback(ctx context.Context, messages []database.ChatMessage, parentID *string) []chat.MessageNode {
+func buildMessageNodesWithInvocations(ctx context.Context, messages []database.ChatMessage, parentID *string) ([]chat.MessageNode, error) {
 	if len(messages) == 0 {
-		return []chat.MessageNode{}
+		return []chat.MessageNode{}, nil
 	}
 	turnIDs := chat.CollectTurnIDsWithToolCalls(messages)
-	invocationToolCalls := loadChatToolInvocationDisplaysForTurnIDs(ctx, turnIDs)
-	invocationToolResults := toolInvocationResultsFromTurnSegments(invocationToolCalls)
-	nodes := chat.BuildNodesWithTimelineConsolidation(messages, parentID, map[string]int{}, invocationToolResults, invocationToolCalls)
-	return assignMessageNodeChildCounts(ctx, nodes)
+	invocationToolCalls, err := loadChatToolInvocationDisplaysForTurnIDs(ctx, turnIDs)
+	if err != nil {
+		return nil, err
+	}
+	nodes := chat.BuildNodesWithTimelineConsolidation(messages, parentID, map[string]int{}, invocationToolCalls)
+	return assignMessageNodeChildCounts(ctx, nodes), nil
 }
 
-func buildTimelineMessageNodes(ctx context.Context, items []database.MessageWindowItem, messages []database.ChatMessage, parentID *string) []chat.MessageNode {
+func buildTimelineMessageNodes(ctx context.Context, items []database.MessageWindowItem, messages []database.ChatMessage, parentID *string) ([]chat.MessageNode, error) {
+	if len(messages) == 0 {
+		return []chat.MessageNode{}, nil
+	}
 	turnIDs := chat.CollectTurnIDsWithToolCalls(messages)
-	invocationToolCalls := loadChatToolInvocationDisplaysForTurnIDs(ctx, turnIDs)
-	invocationToolResults := toolInvocationResultsFromTurnSegments(invocationToolCalls)
-	nodes := chat.BuildTimelineMessageNodes(items, messages, parentID, map[string]int{}, invocationToolResults, invocationToolCalls)
-	return assignMessageNodeChildCounts(ctx, nodes)
+	invocationToolCalls, err := loadChatToolInvocationDisplaysForTurnIDs(ctx, turnIDs)
+	if err != nil {
+		return nil, err
+	}
+	nodes := chat.BuildTimelineMessageNodes(items, messages, parentID, map[string]int{}, invocationToolCalls)
+	return assignMessageNodeChildCounts(ctx, nodes), nil
 }
 
-func loadChatToolInvocationDisplaysForTurnIDs(ctx context.Context, turnIDs []string) map[string][]chat.TurnSegmentToolCall {
+func loadChatToolInvocationDisplaysForTurnIDs(ctx context.Context, turnIDs []string) (map[string][]chat.TurnSegmentToolCall, error) {
 	userID, err := database.RequireUserID(ctx)
 	if err != nil {
-		return map[string][]chat.TurnSegmentToolCall{}
+		return nil, err
 	}
 	if len(turnIDs) == 0 {
-		return map[string][]chat.TurnSegmentToolCall{}
+		return map[string][]chat.TurnSegmentToolCall{}, nil
 	}
-	results, err := toolinvocations.LoadChatToolInvocationDisplaysForTurnIDsWithUser(ctx, userID, turnIDs)
+	results, err := toolinvocations.LoadSummariesForTurnIDsWithUser(ctx, userID, turnIDs)
 	if err != nil {
-		logging.Errorf(ctx, "controllers.conversations", "[Chat] load tool_invocations display failed: %v", err)
-		return map[string][]chat.TurnSegmentToolCall{}
+		return nil, fmt.Errorf("erro ao carregar projeção de tool invocations: %w", err)
 	}
-	return toolInvocationDisplaysToTurnSegments(results)
+	return toolInvocationSummariesToTurnSegments(results), nil
 }
 
-func toolInvocationResultsFromTurnSegments(callsByTurn map[string][]chat.TurnSegmentToolCall) map[string]map[string]string {
-	out := make(map[string]map[string]string, len(callsByTurn))
-	for turnID, calls := range callsByTurn {
-		for _, call := range calls {
-			callID := strings.TrimSpace(call.ID)
-			if callID == "" {
-				continue
-			}
-			byCall := out[turnID]
-			if byCall == nil {
-				byCall = map[string]string{}
-				out[turnID] = byCall
-			}
-			if _, ok := byCall[callID]; ok {
-				continue
-			}
-			byCall[callID] = call.Result
-		}
-	}
-	return out
-}
-
-func toolInvocationDisplaysToTurnSegments(displays map[string][]toolinvocations.ChatToolInvocationDisplay) map[string][]chat.TurnSegmentToolCall {
-	out := make(map[string][]chat.TurnSegmentToolCall, len(displays))
-	for turnID, calls := range displays {
+func toolInvocationSummariesToTurnSegments(summaries map[string][]toolinvocations.Summary) map[string][]chat.TurnSegmentToolCall {
+	out := make(map[string][]chat.TurnSegmentToolCall, len(summaries))
+	for turnID, calls := range summaries {
 		for _, call := range calls {
 			out[turnID] = append(out[turnID], chat.TurnSegmentToolCall{
-				ID:                 call.ID,
-				Type:               call.Type,
-				Function:           chat.TurnSegmentToolFunction{Name: call.Name, Arguments: call.Arguments},
-				Result:             call.Result,
+				InvocationID:       call.InvocationID,
+				ID:                 call.CallID,
+				Name:               call.Name,
 				Origin:             call.Origin,
 				ServerLabel:        call.ServerLabel,
+				Status:             call.Status,
 				Iteration:          call.Iteration,
 				DurationMs:         call.DurationMs,
+				InputPreview:       call.InputPreview,
+				OutputPreview:      call.OutputPreview,
+				InputBytes:         call.InputBytes,
+				OutputBytes:        call.OutputBytes,
+				HasDetails:         call.HasDetails,
+				ResultAvailability: call.ResultAvailability,
+				HasSearchResults:   call.HasSearchResults,
+				SearchResultCount:  call.SearchResultCount,
+				SecurityOutcome:    call.SecurityOutcome,
 				AssistantMessageID: call.AssistantMessageID,
+				ACPTextOffset:      call.ACPTextOffset,
 			})
 		}
 	}

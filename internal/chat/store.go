@@ -34,6 +34,12 @@ type HistoryWindowRepository interface {
 	LoadHistoryWindow(ctx context.Context, conversationID string, maxMessages int) (*HistoryWindow, error)
 }
 
+// AnchoredHistoryWindowRepository limita a leitura ao alvo de retry, sem
+// perder o início do contexto nem incluir mensagens/resumos posteriores.
+type AnchoredHistoryWindowRepository interface {
+	LoadHistoryWindowThroughMessage(ctx context.Context, conversationID, messageID string, maxMessages int) (*HistoryWindow, error)
+}
+
 // UserMessageBatchRepository persiste a mensagem e carrega sua janela de
 // histórico na mesma transação. O evento messages_ready só pode ser emitido
 // depois que esta operação retornar com sucesso.
@@ -87,12 +93,6 @@ type MessageRepository interface {
 	// Retorna database.TokenStats (tipo de infraestrutura com 5 campos) — não confundir com
 	// chat.TokenStats que é o tipo enriquecido para o frontend.
 	GetTurnTokenStats(ctx context.Context, conversationID string, turnID string) (*database.TokenStats, error)
-
-	// AddAssistantToolMessage persiste mensagem de assistant com tool_calls JSON.
-	AddAssistantToolMessage(ctx context.Context, conversationID string, turnID string, content, toolCalls, reasoning, model string) (*Message, error)
-
-	// AddToolResultMessage persiste o resultado de uma tool call.
-	AddToolResultMessage(ctx context.Context, conversationID string, turnID string, content, toolCallID string) (*Message, error)
 
 	// SearchMessages busca mensagens usando full-text search (FTS5).
 	SearchMessages(ctx context.Context, query string, limit int) ([]MessageSearchResult, error)

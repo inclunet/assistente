@@ -17,6 +17,9 @@ var ErrSkillsNotWired = errors.New("wailsapi: skills bind not wired")
 // ErrToolsNotWired indica que o bind Tools ainda não recebeu controller/session.
 var ErrToolsNotWired = errors.New("wailsapi: tools bind not wired")
 
+// ErrCommandCatalogNotWired indica que o bind CommandCatalog ainda não recebeu registry/session.
+var ErrCommandCatalogNotWired = errors.New("wailsapi: command catalog bind not wired")
+
 // ErrUpdaterNotWired indica que o bind Updater ainda não recebeu controller/session.
 var ErrUpdaterNotWired = errors.New("wailsapi: updater bind not wired")
 

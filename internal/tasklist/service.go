@@ -3,6 +3,7 @@ package tasklist
 import (
 	"assistente/internal/database"
 	"context"
+	"errors"
 )
 
 // EventEmitter abstrai o envio de eventos para o frontend (Wails runtime).
@@ -26,6 +27,24 @@ type Service struct {
 	domain  DomainEventSink
 }
 
+type taskListMetadataReader interface {
+	GetTaskListMetadata(ctx context.Context, id string) (*database.TaskList, error)
+}
+
+type commandMutationStore interface {
+	ReadCommandTarget(ctx context.Context, id string) (*database.TaskList, string, error)
+	CommitCommandMutation(ctx context.Context, request database.TaskListCommandMutationRequest) (*database.TaskList, error)
+}
+
+// checkedConfigWriter é implementado pelos stores que sabem gravar a
+// configuração da lista com controle de concorrência.
+type checkedConfigWriter interface {
+	UpdateWorkflowFullChecked(ctx context.Context, taskListID string, expected database.TaskListWorkflowSnapshot, statuses []database.TaskListWorkflowStatus, transitions database.TaskListWorkflowTransitions, initialStatusID int, statusMigration map[int]int) error
+	SetTaskListCustomActionsChecked(ctx context.Context, taskListID, expectedJSON, actionsJSON string) error
+}
+
+var errCheckedWriteUnsupported = errors.New("store não suporta gravação com controle de concorrência")
+
 // NewService cria um Service com as dependências fornecidas.
 func NewService(cfg ServiceConfig) *Service {
 	return &Service{store: cfg.Store, emitter: cfg.Emitter, domain: cfg.DomainEvents}
@@ -35,6 +54,35 @@ func NewService(cfg ServiceConfig) *Service {
 // Usado pela wiring da app, onde o jobs.Manager só existe após o Service.
 func (s *Service) SetDomainEventSink(sink DomainEventSink) {
 	s.domain = sink
+}
+
+func (s *Service) getTaskListMetadata(ctx context.Context, id string) (*database.TaskList, error) {
+	if reader, ok := s.store.(taskListMetadataReader); ok {
+		return reader.GetTaskListMetadata(ctx, id)
+	}
+	// Compatibilidade com stores externos e fakes anteriores ao read model.
+	return s.store.GetTaskList(ctx, id)
+}
+
+// ReadCommandTarget lê a entidade e o fingerprint autoritativo no mesmo
+// snapshot. A UI deve usar o par retornado para abrir qualquer formulário de
+// edição, clonagem ou exclusão.
+func (s *Service) ReadCommandTarget(ctx context.Context, id string) (*database.TaskList, string, error) {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return nil, "", err
+	}
+	store, ok := s.store.(commandMutationStore)
+	if !ok {
+		return nil, "", ErrCommandMutationUnavailable
+	}
+	return store.ReadCommandTarget(ctx, id)
+}
+
+// CommandMutationSnapshot é mantido como atalho compatível. O caminho
+// produtivo deve preferir ReadCommandTarget para não separar payload e guard.
+func (s *Service) CommandMutationSnapshot(ctx context.Context, id string) (string, error) {
+	_, fingerprint, err := s.ReadCommandTarget(ctx, id)
+	return fingerprint, err
 }
 
 // ── Task List ──────────────────────────────────────────────────────────────────
@@ -75,7 +123,7 @@ func (s *Service) UpdateTaskList(ctx context.Context, id string, title, descript
 	if err := s.store.UpdateTaskList(ctx, id, title, description); err != nil {
 		return err
 	}
-	tl, _ := s.store.GetTaskList(ctx, id)
+	tl, _ := s.getTaskListMetadata(ctx, id)
 	s.emitter.Emit("taskList:updated", tl)
 	if s.wantsDomain("tasklist.list.updated") {
 		s.publishDomain(ctx, "tasklist.list.updated", s.listEventPayload(ctx, tl, id))
@@ -87,7 +135,7 @@ func (s *Service) UpdateTaskListFull(ctx context.Context, id string, title, desc
 	if err := s.store.UpdateTaskListFull(ctx, id, title, description, preferredViewMode, slug); err != nil {
 		return err
 	}
-	tl, _ := s.store.GetTaskList(ctx, id)
+	tl, _ := s.getTaskListMetadata(ctx, id)
 	// Emite taskList:updated (como os demais updates de lista): o frontend escuta
 	// esse evento para recarregar/invalidar cache; sem ele, updates via tool/job
 	// deixariam a UI com dados stale até um refresh manual.
@@ -107,7 +155,7 @@ func (s *Service) SetTaskListConversation(ctx context.Context, id string, conver
 	if err := s.store.SetTaskListConversation(ctx, id, conversationID); err != nil {
 		return err
 	}
-	tl, _ := s.store.GetTaskList(ctx, id)
+	tl, _ := s.getTaskListMetadata(ctx, id)
 	if tl != nil {
 		s.emitter.Emit("taskList:updated", tl)
 	} else {
@@ -138,7 +186,27 @@ func (s *Service) SetTaskListCustomActions(ctx context.Context, taskListID strin
 	if err := s.store.SetTaskListCustomActions(ctx, taskListID, actionsJSON); err != nil {
 		return err
 	}
-	tl, _ := s.store.GetTaskList(ctx, taskListID)
+	s.afterCustomActionsUpdate(ctx, taskListID)
+	return nil
+}
+
+// SetTaskListCustomActionsChecked grava as custom actions somente se o
+// conteúdo atual ainda for equivalente a expectedJSON; em caso contrário
+// devolve database.ErrTaskListConfigConflict e não emite eventos.
+func (s *Service) SetTaskListCustomActionsChecked(ctx context.Context, taskListID, expectedJSON, actionsJSON string) error {
+	writer, ok := s.store.(checkedConfigWriter)
+	if !ok {
+		return errCheckedWriteUnsupported
+	}
+	if err := writer.SetTaskListCustomActionsChecked(ctx, taskListID, expectedJSON, actionsJSON); err != nil {
+		return err
+	}
+	s.afterCustomActionsUpdate(ctx, taskListID)
+	return nil
+}
+
+func (s *Service) afterCustomActionsUpdate(ctx context.Context, taskListID string) {
+	tl, _ := s.getTaskListMetadata(ctx, taskListID)
 	if tl != nil {
 		s.emitter.Emit("taskList:updated", tl)
 	} else {
@@ -147,14 +215,13 @@ func (s *Service) SetTaskListCustomActions(ctx context.Context, taskListID strin
 		// objeto) e a UI ficaria sem invalidar/recarregar após salvar as ações.
 		s.emitter.Emit("taskList:updated", taskListID)
 	}
-	return nil
 }
 
 func (s *Service) SetTaskListViewMode(ctx context.Context, id string, viewMode string) error {
 	if err := s.store.SetTaskListViewMode(ctx, id, viewMode); err != nil {
 		return err
 	}
-	tl, _ := s.store.GetTaskList(ctx, id)
+	tl, _ := s.getTaskListMetadata(ctx, id)
 	s.emitter.Emit("taskList:updated", tl)
 	if s.wantsDomain("tasklist.list.updated") {
 		s.publishDomain(ctx, "tasklist.list.updated", s.listEventPayload(ctx, tl, id))
@@ -247,11 +314,40 @@ func (s *Service) UpdateWorkflowFull(ctx context.Context, taskListID string, sta
 	if err := s.store.UpdateWorkflowFull(ctx, taskListID, statuses, transitions, initialStatusID, statusMigration); err != nil {
 		return err
 	}
-	tl, _ := s.store.GetTaskList(ctx, taskListID)
+	s.afterWorkflowFullUpdate(ctx, taskListID, statusMigration)
+	return nil
+}
+
+// UpdateWorkflowFullChecked grava o workflow somente se o estado atual ainda
+// for equivalente a expected; em caso contrário devolve
+// database.ErrTaskListConfigConflict e não emite eventos.
+func (s *Service) UpdateWorkflowFullChecked(ctx context.Context, taskListID string, expected database.TaskListWorkflowSnapshot, statuses []database.TaskListWorkflowStatus, transitions database.TaskListWorkflowTransitions, initialStatusID int, statusMigration map[int]int) error {
+	writer, ok := s.store.(checkedConfigWriter)
+	if !ok {
+		return errCheckedWriteUnsupported
+	}
+	if err := writer.UpdateWorkflowFullChecked(ctx, taskListID, expected, statuses, transitions, initialStatusID, statusMigration); err != nil {
+		return err
+	}
+	s.afterWorkflowFullUpdate(ctx, taskListID, statusMigration)
+	return nil
+}
+
+func (s *Service) afterWorkflowFullUpdate(ctx context.Context, taskListID string, statusMigration map[int]int) {
+	tl, _ := s.getTaskListMetadata(ctx, taskListID)
 	if tl != nil && tl.Workflow != nil {
 		s.emitter.Emit("workflow:updated", tl.Workflow)
 	}
-	s.emitter.Emit("taskList:updated", tl)
+	// A migração pode alterar o status de muitas tarefas sem emitir um evento
+	// task:updated por linha. O ID instrui o frontend a recarregar a janela
+	// paginada já visível, evitando manter cards com status obsoleto. Sem
+	// migração as tarefas não mudam: a lista com o workflow novo basta para
+	// atualizar o cache, sem recarregar as tarefas a cada salvamento do editor.
+	if len(statusMigration) > 0 || tl == nil {
+		s.emitter.Emit("taskList:updated", taskListID)
+	} else {
+		s.emitter.Emit("taskList:updated", tl)
+	}
 	if s.wantsDomain("tasklist.workflow.updated") {
 		var wf *database.TaskListWorkflow
 		if tl != nil {
@@ -259,7 +355,6 @@ func (s *Service) UpdateWorkflowFull(ctx context.Context, taskListID string, sta
 		}
 		s.publishDomain(ctx, "tasklist.workflow.updated", s.workflowEventPayload(ctx, taskListID, wf))
 	}
-	return nil
 }
 
 func (s *Service) GetTaskCountsByStatus(ctx context.Context, taskListID string) (map[int]int64, error) {

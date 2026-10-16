@@ -149,7 +149,7 @@ func TestPhase8_CredentialAutoInjection(t *testing.T) {
 	credMgr := credentials.NewManager([]byte("test-key-exactly-32-bytes-long!!"))
 
 	// Registrar credencial para OpenAI
-	authCfg := &credentials.AuthConfig{
+	authCfg := &credentials.AuthConfig{Source: "static",
 		Type:  "bearer",
 		Token: "sk-test123456",
 	}
@@ -193,7 +193,7 @@ func TestPhase8_LegacyMigration(t *testing.T) {
 
 	// Simular registro no credMgr
 	credMgr := credentials.NewManager([]byte("test-key-exactly-32-bytes-long!!"))
-	authCfg := &credentials.AuthConfig{
+	authCfg := &credentials.AuthConfig{Source: "static",
 		Type:  "bearer",
 		Token: legacyAPIKey,
 	}

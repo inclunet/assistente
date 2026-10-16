@@ -1,4 +1,14 @@
 import { test, expect } from '../fixtures';
+import {
+  chatClearCommand,
+  chatClearHandoff,
+  chatClearMapGeneration,
+  chatClearShortcut,
+  chatClearTicket,
+  configureChatClearCommand,
+  installChatClearCommitCallback,
+  waitForChatClearCommit,
+} from '../helpers/chatClearCommand';
 
 const now = new Date().toISOString();
 const conversationId = '01926b90-0000-7000-8000-000000000001';
@@ -31,6 +41,35 @@ const userMessage = {
 };
 
 test.describe('Chat — streaming multi-segmento', () => {
+  test('mantém progresso visível antes do término de duas rodadas', async ({ page, wails }) => {
+    await wails.setResponse('GetMessages', [userMessage]);
+    await wails.setResponse('SendMessage', initialAssistantMessageId);
+    await wails.setResponse('EnsureConversation', baseConversation);
+    await wails.waitForApp();
+    const textarea = page.locator('.chat-input__textarea');
+    await expect(textarea).toBeEditable();
+    await textarea.fill('Consulte duas fontes');
+    await textarea.press('Enter');
+    await page.waitForFunction(() => window.__wailsMock.getCallLog().some((call: { fn: string }) => call.fn === 'SendMessage'));
+    const identity = { conversationId, turnId: initialUserMessageId, assistantMessageId: initialAssistantMessageId };
+    await wails.emit('chat:stream', { ...identity, messageId: initialAssistantMessageId, delta: 'Vou consultar a primeira fonte.', reset: true, sequence: 0 });
+    await wails.emit('chat:tool_start', { ...identity, name: 'fonte_um', callId: 'progress-1' });
+    await expect(page.locator('.tool-calls-section__item--running')).toBeVisible();
+    await expect(page.getByText('Vou consultar a primeira fonte.', { exact: true })).toBeVisible();
+    await expect(page.getByText(/Turno sem resposta do assistente|Turn without an assistant response/)).toHaveCount(0);
+
+    await wails.emit('chat:tool_end', { ...identity, name: 'fonte_um', callId: 'progress-1', status: 'ok' });
+    await wails.emit('chat:segment_done', { ...identity, content: 'Vou consultar a primeira fonte.', hasMore: true });
+    await expect(page.getByText(/Aguardando a próxima etapa do assistente|Waiting for the assistant’s next step/)).toBeVisible();
+    await wails.emit('chat:stream', { ...identity, messageId: initialAssistantMessageId, delta: 'Agora consulto a segunda fonte.', reset: true, sequence: 0 });
+    await wails.emit('chat:tool_start', { ...identity, name: 'fonte_dois', callId: 'progress-2' });
+    await expect(page.locator('.tool-calls-section__item--running')).toBeVisible();
+    await expect(page.getByText('Vou consultar a primeira fonte.', { exact: true })).toBeVisible();
+    await expect(page.getByText('Agora consulto a segunda fonte.', { exact: true })).toBeVisible();
+    // A ferramenta permanece pendente: nenhuma conclusão é necessária para exibir progresso.
+    await expect(page.getByText(/Turno sem resposta do assistente|Turn without an assistant response/)).toHaveCount(0);
+  });
+
   test('exibe segmentos text → tool → text em sequência', async ({ page, wails }) => {
     await wails.setResponse('GetMessages', [userMessage]);
     await wails.setResponse('SendMessage', initialAssistantMessageId);
@@ -263,6 +302,18 @@ test.describe('Chat — erro no envio', () => {
       { timeout: 5_000 },
     );
 
+    // Um terminal atrasado do envio anterior não pode encerrar o novo controller.
+    const sends = (await wails.getCallLog()).filter((call) => call.fn === 'SendMessage');
+    const previousParams = sends[0].args[3] as { surfaceExecutionId: string };
+    const currentParams = sends[1].args[3] as { surfaceExecutionId: string };
+    expect(previousParams.surfaceExecutionId).toBeTruthy();
+    expect(currentParams.surfaceExecutionId).not.toBe(previousParams.surfaceExecutionId);
+    await wails.emit('chat:done', {
+      conversationId,
+      assistantMessageId: firstFailedAssistantMessageId,
+      surfaceOrigin: { executionId: previousParams.surfaceExecutionId },
+    });
+
     await wails.emit('chat:messages_ready', {
       conversationId,
       userMessageId: secondAttemptUserMessageId,
@@ -446,23 +497,33 @@ test.describe('Chat — thinking/reasoning', () => {
 });
 
 test.describe('Chat — Ctrl+L limpar conversa', () => {
-  test('Ctrl+L chama ClearConversation', async ({ page, wails }) => {
+  test('Ctrl+L executa o protocolo e remove a conversa', async ({ page, wails }) => {
     await wails.setResponse('GetMessages', [userMessage]);
-    await wails.setResponse('ClearConversation', undefined);
-    await wails.setResponse('ClearMessages', undefined);
     await wails.setResponse('EnsureConversation', baseConversation);
+    await configureChatClearCommand(wails);
 
     await wails.waitForApp();
+    await installChatClearCommitCallback(page, conversationId);
     await page.waitForSelector('.message-node', { timeout: 5_000 });
+    const messages = page.locator('.message-node');
+    await expect(messages).toHaveCount(1);
 
     // Pressiona Ctrl+L
     await page.keyboard.press('Control+l');
+    await waitForChatClearCommit(page);
+    await expect(messages).toHaveCount(0, { timeout: 5_000 });
 
-    // Verifica que a função de clear foi chamada
     const log = await wails.getCallLog();
-    const clearCalls = log.filter(c =>
-      c.fn === 'ClearConversation' || c.fn === 'ClearMessages',
-    );
-    expect(clearCalls.length).toBeGreaterThanOrEqual(1);
+    const beginIndex = log.findIndex(c => c.fn === 'BeginLocalCommandUIKey' && c.args[0] === chatClearMapGeneration);
+    const takeIndex = log.findIndex(c => c.fn === 'TakeUICommand' && c.args[0] === chatClearTicket);
+    const commitIndex = log.findIndex(c => c.fn === 'CommitWorkspaceTabCommand' && c.args[0] === chatClearTicket);
+    const resultIndex = log.findIndex(c => c.fn === 'GetUICommandResult' && c.args[0] === chatClearTicket);
+    expect(beginIndex).toBeGreaterThanOrEqual(0);
+    expect(log[beginIndex].args[1]).toEqual(chatClearShortcut);
+    expect(log[beginIndex].args[2]).toBe(false);
+    expect(beginIndex).toBeLessThan(takeIndex);
+    expect(takeIndex).toBeLessThan(commitIndex);
+    expect(commitIndex).toBeLessThan(resultIndex);
+    expect(log.some(c => c.fn === 'ClearConversation' || c.fn === 'ClearMessages')).toBe(false);
   });
 });

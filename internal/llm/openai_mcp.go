@@ -3,11 +3,41 @@ package llm
 import (
 	"assistente/internal/logging"
 	"context"
+	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/openai/openai-go/packages/param"
 	"github.com/openai/openai-go/responses"
 )
+
+// mcpErrorLogMaxLen limita o texto de erro logado para falhas de MCP nativo,
+// evitando linhas de log gigantes quando o servidor devolve um corpo extenso.
+const mcpErrorLogMaxLen = 800
+
+// truncateMCPError normaliza e limita, de forma segura para UTF-8, o texto de
+// erro devolvido por um servidor MCP nativo, anexando um marcador quando o corte
+// ocorre. Mantém a mensagem curta o suficiente para uma linha de log.
+func truncateMCPError(errText string) string {
+	errText = strings.TrimSpace(errText)
+	if len(errText) <= mcpErrorLogMaxLen {
+		return errText
+	}
+	truncated := errText[:mcpErrorLogMaxLen]
+	// Recuar até um limite de rune válido para não cortar um caractere multibyte.
+	for len(truncated) > 0 && !utf8.ValidString(truncated) {
+		truncated = truncated[:len(truncated)-1]
+	}
+	return truncated + "… (truncado)"
+}
+
+// mcpFailureLogFields monta os campos de diagnóstico de uma falha de MCP nativo
+// (server_label, nome da tool e o erro truncado) para inclusão em logs de ERRO.
+// Assim, falhas server-side (ex.: cloudId ausente/inválido no Atlassian) passam a
+// explicar a causa sem exigir correlação manual entre o itemID e o output item.
+func mcpFailureLogFields(serverLabel, name, errText string) string {
+	return fmt.Sprintf("server=%q tool=%q error=%q", serverLabel, name, truncateMCPError(errText))
+}
 
 // pendingMCPCall acumula o estado de um item mcp_call (MCP nativo) durante o
 // streaming da Responses API, keyed por item_id.
@@ -19,6 +49,11 @@ type pendingMCPCall struct {
 	// Completed marca que recebemos response.mcp_call.completed mas ainda não
 	// finalizamos via response.output_item.done. Usado pelo fallback pós-stream.
 	Completed bool
+	// Failed marca que recebemos response.mcp_call.failed. O ERRO único e
+	// correlacionado da falha sai em response.output_item.done (que carrega o
+	// texto do erro) ou, se esse item nunca vier, no fallback de fim de stream —
+	// nunca no próprio evento .failed, que geraria log duplicado.
+	Failed bool
 }
 
 // buildNativeMCPTools converte os MCP servers configurados em tools type:"mcp"

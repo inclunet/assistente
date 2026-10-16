@@ -222,6 +222,161 @@ var schemaMigrations = []migration{
 			return deferIfErr(ensureTaskNotePaginationIndexes(database))
 		},
 	},
+	{
+		Version: 16,
+		Name:    "job_profile_grants_epochs_and_reconciliation",
+		Phase:   phasePostAutoMigrate,
+		Run: func(database *gorm.DB) error {
+			statements := []string{
+				`DROP INDEX IF EXISTS ux_job_profile_grants_exact`,
+				`CREATE UNIQUE INDEX IF NOT EXISTS ux_job_profile_grants_generation ON job_profile_grants (user_id, job_id, target_profile_slug, delegation_fingerprint, generation)`,
+				`CREATE UNIQUE INDEX IF NOT EXISTS ux_job_profile_grants_active ON job_profile_grants (user_id, job_id, target_profile_slug, delegation_fingerprint) WHERE revoked_at IS NULL`,
+				`UPDATE jobs
+				    SET enabled = 0
+				  WHERE enabled = 1
+				    AND (
+				      trim(tool_name) = 'subagent'
+				      OR (
+				        trim(tool_name) = ''
+				        AND EXISTS (
+				          SELECT 1 FROM tool_catalog
+				           WHERE tool_catalog.id = jobs.tool_catalog_id
+				             AND trim(tool_catalog.name) = 'subagent'
+				        )
+				      )
+				    )
+				    AND json_type(CASE WHEN json_valid(inputs) THEN inputs ELSE '{}' END, '$.profile') = 'text'
+				    AND trim(json_extract(CASE WHEN json_valid(inputs) THEN inputs ELSE '{}' END, '$.profile')) <> ''`,
+			}
+			for _, statement := range statements {
+				if err := database.Exec(statement).Error; err != nil {
+					return err
+				}
+			}
+			return nil
+		},
+	},
+	{
+		Version: 17,
+		Name:    "hydration_tasklist_query_indexes",
+		Phase:   phasePostAutoMigrate,
+		Run: func(database *gorm.DB) error {
+			return deferIfErr(ensureHydrationAndTaskListIndexes(database))
+		},
+	},
+	{
+		Version: 18,
+		Name:    "tool_invocations_canonical_backfill",
+		Phase:   phasePostAutoMigrate,
+		Run:     migrateToolLedgerBackfill,
+	},
+	{
+		Version: 19,
+		Name:    "tool_invocations_physical_cutover",
+		Phase:   phasePostAutoMigrate,
+		Run:     migrateToolLedgerPhysicalCutover,
+	},
+	{
+		Version: 20,
+		Name:    "tool_invocations_model_call_projection",
+		// PÓS: AutoMigrate adiciona as colunas materializadas antes do backfill
+		// e da criação dos índices parciais.
+		Phase: phasePostAutoMigrate,
+		Run:   migrateToolModelCallProjection,
+	},
+	{
+		Version: 21,
+		Name:    "command_storage_initial",
+		Phase:   phasePostAutoMigrate,
+		// O host compõe os repositories sem criar ciclo database → credentials
+		// → database. Sem essa composição, comandos permanecem indisponíveis.
+		Run: func(*gorm.DB) error { return errMigrationDeferred },
+	},
+	{
+		Version: 22,
+		Name:    "command_envelope_ownership",
+		Phase:   phasePostAutoMigrate,
+		Run:     func(*gorm.DB) error { return errMigrationDeferred },
+	},
+	{
+		Version: 23,
+		Name:    "command_config_complete",
+		Phase:   phasePostAutoMigrate,
+		Run:     func(*gorm.DB) error { return errMigrationDeferred },
+	},
+	{
+		Version: 24,
+		Name:    "command_activation_durable",
+		Phase:   phasePostAutoMigrate,
+		Run:     func(*gorm.DB) error { return errMigrationDeferred },
+	},
+	{
+		Version: 25,
+		Name:    "command_job_queued_at_backfill",
+		Phase:   phasePreAutoMigrate,
+		Run:     migrateCommandJobQueuedAt,
+	},
+	{
+		Version: 26,
+		Name:    "external_identity_mapping",
+		Phase:   phasePostAutoMigrate,
+		Run:     migrateExternalIdentityMapping,
+	},
+	{
+		Version: 27,
+		Name:    "command_job_activation_consumer",
+		Phase:   phasePostAutoMigrate,
+		Run:     func(*gorm.DB) error { return errMigrationDeferred },
+	},
+	{
+		Version: 28,
+		Name:    "command_config_import_audit",
+		Phase:   phasePostAutoMigrate,
+		Run:     func(*gorm.DB) error { return errMigrationDeferred },
+	},
+	{
+		Version: 29,
+		Name:    "command_process_generations",
+		Phase:   phasePostAutoMigrate,
+		Run:     func(*gorm.DB) error { return errMigrationDeferred },
+	},
+	{
+		Version: 30,
+		Name:    "chat_message_durable_revisions",
+		Phase:   phasePostAutoMigrate,
+		Run: func(database *gorm.DB) error {
+			// The deferred v19 cutover rebuilds chat_messages. Installing
+			// triggers before it completes would silently lose them later.
+			applied, err := appliedMigrationVersions(database)
+			if err != nil {
+				return err
+			}
+			if !applied[19] {
+				return errMigrationDeferred
+			}
+			return MigrateMessageRevisions(database)
+		},
+	},
+	{
+		Version: 31,
+		Name:    "external_identity_admin_audit",
+		Phase:   phasePostAutoMigrate,
+		Run:     MigrateExternalIdentityAdminAudit,
+	},
+	{
+		Version: 32,
+		Name:    "command_decision_external_token_context",
+		Phase:   phasePostAutoMigrate,
+		// commandbootstrap valida/reconstrói as receipts e confirma a migração
+		// pela porta transacional, depois que o host compõe os repositories.
+		Run: func(*gorm.DB) error { return errMigrationDeferred },
+	},
+	{
+		Version: 33,
+		Name:    "llm_model_compatibility_state",
+		Phase:   phasePostAutoMigrate,
+		Run:     MigrateLLMModelCapabilities,
+	},
 }
 
 // runMigrations aplica, na ordem de Version, todas as migrações da fase

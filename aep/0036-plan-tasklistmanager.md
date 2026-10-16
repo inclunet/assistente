@@ -22,6 +22,80 @@
 > - Evolução posterior (eventos de domínio + custom actions de card): ver
 >   **AEP-0067**.
 
+## Refinamento dos detalhes: referência externa copiável
+
+O campo `Task.Code` permanece a referência externa do card. Nos detalhes, ele
+é exibido em botão próprio, separado do status, e copia o valor integral para
+a área de transferência por clique, Enter ou Espaço. O link externo mantém
+uma ação separada. Sucesso e falha têm feedback visual e anúncio acessível.
+
+Evidência: `frontend/src/components/taskLists/TaskDetailModal.test.tsx` cobre
+cópia, teclado, falha e preservação do link. Esse refinamento não encerra
+as verificações manuais pendentes da AEP; o status permanece `In Progress`.
+
+## Refinamento dos detalhes: troca de status sem fechar
+
+Nos detalhes do card, o status deixa de ser um badge estático e passa a ser
+um botão que abre o `ContextMenu` ancorado (mesmo padrão do "Mover para…" do
+Kanban) com os demais status do workflow. A troca usa o `updateTaskStatus`
+com update otimista, sem fechar o modal, com toast e anúncio acessível, e a
+versão viva do cache reflete o novo status na hora.
+
+Evidência: `frontend/src/components/taskLists/TaskDetailModal.test.tsx` cobre
+troca pelo menu, toast/anúncio e filtragem do status atual.
+
+## Refinamento do editor de workflow: padrão toolbar + grid + modal
+
+A seção de status do `WorkflowEditor` (lista inline com ~15 controles por
+linha, sem nomes acessíveis) foi refeita no padrão do sistema: Toolbar
+(Novo/Editar/Apagar) + `DataGrid` (Nome, Cor, Inicial — só colunas voltadas
+ao usuário, sem ID/ícone técnico —, com reordenação por Alt+Setas e edição
+por Enter) + modal de edição por status.
+Transições permitidas e status inicial saíram das seções próprias e passaram
+a ser configurados dentro do modal do item (checkboxes por destino +
+checkbox de inicial); migração condicional segue à parte. Tudo com
+`aria-pressed`, grupos com nome e rótulos (a navegação por NVDA passou a ter
+contexto por status e estado dos toggles).
+
+Evidência: `frontend/src/components/taskLists/WorkflowEditor.test.tsx` cobre
+listagem, criação/edição/remoção, migração, reordenação, transições e inicial
+no modal, e abertura aninhada.
+
+## Refinamento do editor de workflow: salvamento automático
+
+O editor deixou de ser um formulário com Salvar/Cancelar: cada alteração
+(criar, editar, apagar, reordenar por Alt+Setas) chama `UpdateWorkflowFull`
+com o workflow completo na hora. Os salvamentos entram numa fila e saem um
+por vez, na ordem das alterações; a reordenação é otimista (o grid move a
+linha e o foco na hora) e, se o backend recusar, as alterações enfileiradas
+depois dela são descartadas e a tela volta ao último estado aceito.
+Criar/editar só aplicam no grid depois do sucesso, mantendo o
+modal do item aberto em caso de falha. A seção de migração condicional saiu:
+apagar um status com tarefas abre um `DecisionDialog` (AEP-0091) com o status
+de destino no corpo e envia a migração no mesmo salvamento. Enquanto um
+Aplicar aguarda o backend, X/Esc/Cancelar do formulário do item (e do diálogo
+de migração) ficam sem efeito, para a falha não descartar o rascunho. A tela fecha pelo X ou Esc do Modal
+(o `DataGrid` só consome Esc quando há seleção a limpar) e Ctrl+N abre Novo
+status quando o modal do editor está no topo. IDs de status nunca são
+reaproveitados na sessão, nem ao fechar e reabrir o editor (o maior ID fica
+registrado por tasklist). O editor enfileira cada alteração, no momento em que
+ela acontece, numa fila por tasklist (`frontend/src/lib/serialSaveQueue.ts`)
+que sobrevive ao fechamento do modal; ao reabrir, o `TaskListView` espera a
+fila esvaziar antes de ler o workflow e as contagens. Como agora há um
+salvamento por alteração, a lista (tarefas incluídas) só é recarregada quando
+há migração. Sem ela, `updateWorkflowFull` atualiza apenas o workflow em cache
+e o backend emite `taskList:updated` com a lista (sem tarefas) em vez do ID,
+que forçaria a recarga (`frontend/src/store/taskListStore.workflow.test.ts`,
+`internal/tasklist/domain_events_test.go`).
+
+Evidência: `frontend/src/components/taskLists/WorkflowEditor.test.tsx`
+(persiste na hora, falha mantém o modal, reordenação revertida, fila em
+ordem, migração pelo diálogo, Ctrl+N, Esc no grid e no modal do item) e
+`frontend/src/components/ui/DataGrid.test.tsx` (Esc sem seleção não é
+consumido), `frontend/src/lib/serialSaveQueue.test.ts` e
+`frontend/src/components/taskLists/TaskListView.test.tsx` (reabrir com
+salvamento em voo).
+
 ## TL;DR
 
 Implementar um **sistema de gerenciamento de TaskLists reutilizáveis** que funciona em 3 contextos:
@@ -557,7 +631,36 @@ Locales: `frontend/src/locales/{pt-BR,en,es}.ts`
 
 ### **Performance Considerations**
 
-- **Lazy loading**: Like chat, carregar apenas raízes; subtasks under demand via expand
+- **Paginação da UI (issue #739)**: a abertura carrega até 100 raízes por
+  página, em `order, id`, com cursor keyset opaco e contagem separada. A lista
+  oferece a ação acessível **Carregar mais tarefas**. O Kanban consome
+  automaticamente as páginas restantes, uma por vez e com deduplicação por
+  lista, porque distribuir somente a primeira página entre colunas produziria
+  um quadro semanticamente incompleto. O loading bloqueante termina com a
+  primeira página: o grid fica navegável imediatamente e recebe as páginas
+  seguintes incrementalmente, sem remontar cards existentes nem alterar foco
+  e seleção. Progresso e conclusão são anunciados de modo `polite`, sem repetir
+  a mesma contagem; falhas mantêm os cards já disponíveis e oferecem retry.
+  Os contratos legados de leitura completa usados por exportação e automações
+  não mudam.
+- **Catálogo e contexto (issue #764)**: listagens de tasklists retornam somente
+  metadados, workflow e `task_count` de cards raiz agregado por índice; não
+  fazem `Preload` das tasks. A página de catálogo faz uma única chamada e só
+  busca cards quando a lista é aberta. O contexto de conversa usa uma projeção
+  limitada e repartida entre as listas vinculadas, compatível com seu orçamento
+  textual, em vez de ler conteúdo que seria truncado.
+- **Índice da ordem visual**: `(task_list_id, parent_id, "order", id)` cobre
+  filtro, paginação e desempate; `EXPLAIN QUERY PLAN` é verificado por teste.
+- **Subtarefas**: cada página seleciona raízes por keyset e hidrata toda a
+  descendência delas com uma CTE recursiva única, preservando profundidade
+  arbitrária sem N+1.
+- **Cancelamento progressivo**: ao sair do Kanban, a geração ativa é cancelada
+  entre páginas lentas; uma nova abertura inicia outra geração sem reutilizar
+  uma resposta obsoleta.
+- **Eventos e validações**: usam um read model de lista+workflow sem `Tasks`;
+  o payload incremental do frontend preserva as páginas já carregadas. O
+  contrato legado completo permanece disponível apenas para consumidores que
+  realmente precisam de toda a hierarquia.
 - **Hierarchy limit**: Se >500 tasks, considerar flat view com filtering
 - **Debounce**: Edições inline debounce 500ms antes de enviar ao backend
 - **Batch updates**: LLM tool calling pode atualizar múltiplas tasks em 1 request

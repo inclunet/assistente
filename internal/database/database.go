@@ -5,8 +5,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	stdlog "log"
+	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"assistente/internal/configdir"
 
@@ -24,10 +28,62 @@ var dbPath string
 // gormLogLevel controla o nível de log do GORM. Padrão: Warn.
 // Use SetLogLevel(logger.Silent) para silenciar completamente (ex.: CLI sem --verbose).
 var gormLogLevel = logger.Warn
+var gormLogOutput io.Writer
 
 // SetLogLevel define o nível de log do GORM antes de Init().
 func SetLogLevel(level logger.LogLevel) {
 	gormLogLevel = level
+}
+
+// SetLogOutput duplica os logs do GORM no writer informado sem remover stdout.
+// Passe nil para restaurar somente a saída padrão.
+func SetLogOutput(output io.Writer) {
+	gormLogOutput = output
+}
+
+func configuredGORMLogger() logger.Interface {
+	output := io.Writer(os.Stdout)
+	if gormLogOutput != nil {
+		output = logging.DuplicateTo(output, gormLogOutput)
+	}
+	base := logger.New(
+		stdlog.New(output, "\r\n", stdlog.LstdFlags),
+		logger.Config{
+			SlowThreshold:             200 * time.Millisecond,
+			LogLevel:                  gormLogLevel,
+			IgnoreRecordNotFoundError: false,
+			// Colorful=false: o logger do GORM escreve também no arquivo de log
+			// (via gormLogOutput), e códigos ANSI de cor sujavam o arquivo.
+			Colorful: false,
+		},
+	)
+	return busyQuietLogger{Interface: base}
+}
+
+// busyQuietLogger envolve o logger do GORM para NÃO repassar erros de
+// SQLITE_BUSY/"database is locked". Esses erros são transitórios e já tratados
+// por WithSQLiteBusyRetry (que loga WARN apenas quando o lock é persistente);
+// sem esta guarda, cada tentativa retentada rendia uma linha de erro do GORM —
+// centenas por sessão sob contenção do pipeline de jobs.
+type busyQuietLogger struct {
+	logger.Interface
+}
+
+// LogMode preserva o wrapper ao trocar de nível (GORM chama LogMode em
+// db.Debug()/Session). Sem isso, a supressão se perderia.
+func (l busyQuietLogger) LogMode(level logger.LogLevel) logger.Interface {
+	return busyQuietLogger{Interface: l.Interface.LogMode(level)}
+}
+
+// Trace é onde o GORM registra a query e eventual erro. Para busy transitório,
+// repassamos com err=nil: a query só aparece se for lenta (SLOW SQL), sem a
+// linha de erro falso-positivo. Erros reais seguem inalterados.
+func (l busyQuietLogger) Trace(ctx context.Context, begin time.Time, fc func() (string, int64), err error) {
+	if IsSQLiteBusyError(err) {
+		l.Interface.Trace(ctx, begin, fc, nil)
+		return
+	}
+	l.Interface.Trace(ctx, begin, fc, err)
 }
 
 // ErrConversationDeleted é retornado quando se tenta salvar mensagem em conversa que foi deletada
@@ -43,9 +99,13 @@ func DB() *gorm.DB {
 	return db
 }
 
-// SetDB define a instância do banco de dados (usado em testes)
-func SetDB(database *gorm.DB) {
+// SetDB define a instância do banco de dados (usado em testes). O retorno
+// restaura também o caminho, caso a fixture inicialize outro banco depois.
+// Não fecha conexões: a fixture permanece responsável por sua vida útil.
+func SetDB(database *gorm.DB) func() {
+	previousDB, previousPath := db, dbPath
 	db = database
+	return func() { db, dbPath = previousDB, previousPath }
 }
 
 // Close fecha a conexão com o banco de dados
@@ -62,25 +122,50 @@ func Close() error {
 	return sqlDB.Close()
 }
 
-// Init inicializa o banco de dados
-// Resolve conversations.db nos 3 diretórios (exe > home > workdir).
-// Se não existir em nenhum, cria em ~/.assistente/
-func Init() error {
-	rootResolver := configdir.NewResolver("")
+// ResolvePath seleciona o banco sem abri-lo ou executar migrações.
+// A prioridade é workdir > home > exe; um banco novo usa o home.
+func ResolvePath() (string, error) {
+	return resolvePath(configdir.NewResolver(""), configdir.GetHomeDir())
+}
 
+func resolvePath(rootResolver interface {
+	Resolve(string) (*configdir.ResolvedFile, error)
+}, homeDir string) (string, error) {
 	resolved, err := rootResolver.Resolve("conversations.db")
-	if err != nil {
-		// Não existe em nenhum diretório — criar no home
-		if err := rootResolver.EnsureHomeDir(); err != nil {
-			return err
-		}
-		dbPath = filepath.Join(configdir.GetHomeDir(), "conversations.db")
-	} else {
-		dbPath = resolved.Path
+	if err == nil {
+		return filepath.Abs(resolved.Path)
 	}
+	if !errors.Is(err, os.ErrNotExist) {
+		return "", err
+	}
+	if homeDir == "" {
+		return "", errors.New("diretório de dados do usuário indisponível")
+	}
+	return filepath.Abs(filepath.Join(homeDir, "conversations.db"))
+}
+
+// Init preserva a resolução padrão para CLI e testes.
+func Init() error {
+	path, err := ResolvePath()
+	if err != nil {
+		return err
+	}
+	return InitPath(path)
+}
+
+// InitPath abre exatamente o banco previamente reservado pelo desktop.
+func InitPath(path string) error {
+	if !filepath.IsAbs(path) {
+		return errors.New("caminho do banco deve ser absoluto")
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		return err
+	}
+	dbPath = filepath.Clean(path)
+	var err error
 
 	db, err = gorm.Open(sqlite.Open(sqliteDSN(dbPath)), &gorm.Config{
-		Logger: logger.Default.LogMode(gormLogLevel),
+		Logger: configuredGORMLogger(),
 	})
 	if err != nil {
 		return err
@@ -97,7 +182,9 @@ func Init() error {
 	// não escrever páginas que fixem o modo none). Em bancos legados o pragma é
 	// no-op aqui; a conversão ocorre no primeiro VACUUM da manutenção
 	// (maintenance.go, AEP-0074).
-	db.Exec("PRAGMA auto_vacuum=INCREMENTAL")
+	if err := configureInitialAutoVacuum(db); err != nil {
+		return fmt.Errorf("configurar auto_vacuum inicial: %w", err)
+	}
 	// Ativa modo WAL para melhor performance com arquivos grandes
 	db.Exec("PRAGMA journal_mode=WAL")
 	db.Exec("PRAGMA synchronous=NORMAL")
@@ -139,11 +226,15 @@ func Init() error {
 		&TagAssignment{},
 		&JobPipeline{},
 		&Job{},
+		&JobProfileGrant{},
+		&JobProfileGrantEpoch{},
+		&ProfileGrantRevocationIntent{},
 		&JobTrigger{},
 		&JobRun{},
 		&JobEvent{},
 		&JobRunEvent{},
 		&ToolInvocation{},
+		&ToolLedgerMigrationState{},
 		&SubAgentRun{},
 		&ChannelResponsePending{},
 		&Channel{},
@@ -160,6 +251,22 @@ func Init() error {
 	// por banco.
 	if err := runMigrations(db, phasePostAutoMigrate); err != nil {
 		return fmt.Errorf("erro nas migrações pós-AutoMigrate: %w", err)
+	}
+	// Se a v18 concluiu mas a v19 foi adiada pelo gate, um boot posterior retoma
+	// o backfill antes de tentar novamente o cutover. Depois da v19 este caminho
+	// fica definitivamente inativo.
+	appliedMigrations, err := appliedMigrationVersions(db)
+	if err != nil {
+		return fmt.Errorf("erro ao verificar ativação do backfill contínuo: %w", err)
+	}
+	if appliedMigrations[18] && !appliedMigrations[19] {
+		if err := migrateToolLedgerBackfill(db); err != nil {
+			if errors.Is(err, errMigrationDeferred) {
+				logging.Warnf(context.Background(), "database.tool-ledger.backfill", "backfill permanece pendente; será retomado no próximo boot")
+			} else {
+				return fmt.Errorf("erro no backfill contínuo do ledger: %w", err)
+			}
+		}
 	}
 	if diagnostic, err := GetUpgradeDiagnostic(); err != nil {
 		logging.Warnf(context.Background(), "database.upgrade-diagnostic", "falha ao inspecionar migrações: %v", err)

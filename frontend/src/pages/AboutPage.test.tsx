@@ -7,7 +7,8 @@ const mockCheckForUpdates = vi.fn();
 const mockStartUpdate = vi.fn();
 const mockAddToast = vi.fn();
 
-vi.mock('react-router-dom', () => ({
+vi.mock('react-router-dom', async importOriginal => ({
+  ...await importOriginal<typeof import('react-router-dom')>(),
   useNavigate: () => vi.fn(),
 }));
 

@@ -29,6 +29,7 @@ import (
 // category/class/package/risk de todas as tools registráveis.
 var goldenBuiltinCatalogMetadata = map[string]tools.CatalogMetadata{
 	"read_file":             {Category: "filesystem", Class: "read_context", Package: "coding_readonly", Risk: "read"},
+	"read_tool_result":      {Category: "system", Class: "read_context", Package: "coding_readonly", Risk: "read"},
 	"list_directory":        {Category: "filesystem", Class: "read_context", Package: "coding_readonly", Risk: "read"},
 	"search_files":          {Category: "filesystem", Class: "read_context", Package: "coding_readonly", Risk: "read"},
 	"grep_search":           {Category: "filesystem", Class: "read_context", Package: "coding_readonly", Risk: "read"},
@@ -73,6 +74,7 @@ var goldenBuiltinCatalogMetadata = map[string]tools.CatalogMetadata{
 func builtinsUnderTest() []tools.Tool {
 	return []tools.Tool{
 		filesystem.NewReadFile("."),
+		tools.NewReadToolResult(),
 		filesystem.NewListDirectory("."),
 		filesystem.NewSearchFiles("."),
 		filesystem.NewGrepSearch("."),

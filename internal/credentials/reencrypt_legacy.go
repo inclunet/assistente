@@ -2,8 +2,10 @@ package credentials
 
 import (
 	"assistente/internal/logging"
+	"assistente/internal/oauthflow"
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -24,7 +26,8 @@ const gcmMinCiphertextLen = 12 + 16
 // correto. NUNCA use esses métodos para servir requests do app.
 type refreshTokenReencryptStore interface {
 	ListCredentialsWithRefreshTokensIgnoringScope(ctx context.Context) ([]StoredCredential, error)
-	UpdateRefreshTokenEncByID(ctx context.Context, id, value string) error
+	UpdateRefreshTokenEncByID(ctx context.Context, id, previous, value string) error
+	ReadRefreshTokenEncByID(ctx context.Context, id string) (string, bool, error)
 }
 
 // reencryptLegacyPlaintextRefreshTokens re-cifra, com a DEK atual,
@@ -76,6 +79,23 @@ func (m *Manager) reencryptLegacyPlaintextRefreshTokens(ctx context.Context) (in
 	}
 
 	reencrypted := 0
+	update := func(entry StoredCredential, value string) (bool, error) {
+		err := store.UpdateRefreshTokenEncByID(ctx, entry.ID, entry.Auth.RefreshURL, value)
+		if !errors.Is(err, oauthflow.ErrConflict) {
+			return err == nil, err
+		}
+		current, controlled, readErr := store.ReadRefreshTokenEncByID(ctx, entry.ID)
+		if readErr != nil {
+			return false, readErr
+		}
+		if controlled || current == "" {
+			return false, nil
+		}
+		if _, decryptErr := m.decrypt(strings.TrimSpace(current)); decryptErr == nil {
+			return false, nil
+		}
+		return false, err
+	}
 	orphanLogEmitted := false
 	for _, entry := range candidates {
 		if entry.Auth == nil {
@@ -84,7 +104,7 @@ func (m *Manager) reencryptLegacyPlaintextRefreshTokens(ctx context.Context) (in
 		value := entry.Auth.RefreshURL
 		normalizedValue := strings.TrimSpace(value)
 		if normalizedValue == "" {
-			if err := store.UpdateRefreshTokenEncByID(ctx, entry.ID, ""); err != nil {
+			if _, err := update(entry, ""); err != nil {
 				return reencrypted, fmt.Errorf("limpar refresh token vazio da credencial %s: %w", entry.ID, err)
 			}
 			continue
@@ -92,7 +112,7 @@ func (m *Manager) reencryptLegacyPlaintextRefreshTokens(ctx context.Context) (in
 		if _, err := m.decrypt(normalizedValue); err == nil {
 			// Caso 1: já cifrado com a DEK atual.
 			if value != normalizedValue {
-				if err := store.UpdateRefreshTokenEncByID(ctx, entry.ID, normalizedValue); err != nil {
+				if _, err := update(entry, normalizedValue); err != nil {
 					return reencrypted, fmt.Errorf("normalizar refresh token cifrado da credencial %s: %w", entry.ID, err)
 				}
 			}
@@ -118,10 +138,13 @@ func (m *Manager) reencryptLegacyPlaintextRefreshTokens(ctx context.Context) (in
 		if err != nil {
 			return reencrypted, fmt.Errorf("cifrar refresh token legado da credencial %s: %w", entry.ID, err)
 		}
-		if err := store.UpdateRefreshTokenEncByID(ctx, entry.ID, enc); err != nil {
+		changed, err := update(entry, enc)
+		if err != nil {
 			return reencrypted, fmt.Errorf("regravar refresh token cifrado da credencial %s: %w", entry.ID, err)
 		}
-		reencrypted++
+		if changed {
+			reencrypted++
+		}
 	}
 	return reencrypted, nil
 }

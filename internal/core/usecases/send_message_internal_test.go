@@ -4,8 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"assistente/internal/chat"
+	"assistente/internal/database"
+	"assistente/internal/events"
+	"assistente/internal/llm"
 	"assistente/internal/tools"
 )
 
@@ -21,6 +25,69 @@ func (t testTool) Parameters() json.RawMessage { return json.RawMessage(`{"type"
 
 func (t testTool) Execute(context.Context, json.RawMessage) (tools.ToolResult, error) {
 	return tools.ToolResult{Content: "ok"}, nil
+}
+
+func TestExecuteReservaConversaAntesDoPipeline(t *testing.T) {
+	streamMgr := chat.NewStreamingManager(nil)
+	uc := NewSendMessageUseCase(SendMessageConfig{
+		StreamMgr: streamMgr,
+		Emitter:   events.NoopEmitter{},
+	})
+	releaseDeletion, err := streamMgr.PrepareConversationDeletion([]string{"conversation-1"})
+	if err != nil {
+		t.Fatalf("PrepareConversationDeletion: %v", err)
+	}
+
+	finished := make(chan error, 1)
+	go func() {
+		_, executeErr := uc.Execute(SendMessageRequest{
+			Ctx:            database.WithUserID(context.Background(), "user-1"),
+			ConversationID: "conversation-1",
+			Params:         llm.ChatParams{AllowAssistantPrefill: true},
+		})
+		finished <- executeErr
+	}()
+	select {
+	case <-finished:
+		t.Fatal("pipeline atravessou gate de exclusão antes de reservar a conversa")
+	case <-time.After(25 * time.Millisecond):
+	}
+
+	releaseDeletion(false)
+	select {
+	case executeErr := <-finished:
+		if executeErr == nil {
+			t.Fatal("esperava erro da validação de prefill após liberar o gate")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("pipeline não prosseguiu após release")
+	}
+}
+
+func TestExecuteLiberaNovaExecucaoComContextoDeMidiaHerdado(t *testing.T) {
+	streamMgr := chat.NewStreamingManager(nil)
+	uc := NewSendMessageUseCase(SendMessageConfig{StreamMgr: streamMgr, Emitter: events.NoopEmitter{}})
+	ctx := database.WithUserID(context.Background(), "user-1")
+	ctx = context.WithValue(ctx, deferredMediaContextKey{}, true)
+	finished := 0
+	_, err := uc.Execute(SendMessageRequest{
+		Ctx: ctx, ConversationID: "child-conversation",
+		Params:     llm.ChatParams{AllowAssistantPrefill: true},
+		OnFinished: func() { finished++ },
+	})
+	if err == nil {
+		t.Fatal("esperava falha síncrona de validação")
+	}
+	if finished != 1 {
+		t.Fatalf("cleanup de recursos deve executar uma vez: %d", finished)
+	}
+	waitCtx, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
+	_, _, finish, err := streamMgr.Begin(waitCtx, "child-conversation")
+	if err != nil {
+		t.Fatalf("contexto herdado não pode impedir cleanup: %v", err)
+	}
+	finish()
 }
 
 // A expansão dinâmica do use case delega agora a chat.ToolSelectionPolicy

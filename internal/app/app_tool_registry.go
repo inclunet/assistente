@@ -3,8 +3,10 @@ package app
 import (
 	"assistente/internal/logging"
 	"context"
+	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"assistente/internal/allowlist"
@@ -13,12 +15,14 @@ import (
 	"assistente/internal/eventctx"
 	"assistente/internal/events"
 	"assistente/internal/fstrust"
+	"assistente/internal/jobprofilegrant"
 	"assistente/internal/nettrust"
 	"assistente/internal/profileaccess"
 	"assistente/internal/profiles"
 	"assistente/internal/questionnaire"
 	"assistente/internal/tasklist"
 	"assistente/internal/tools"
+	commandtool "assistente/internal/tools/command"
 	deeplinktool "assistente/internal/tools/deeplink"
 	feedtool "assistente/internal/tools/feed"
 	"assistente/internal/tools/filesystem"
@@ -76,16 +80,37 @@ func (s appProfileSwitcher) ResetConversationTools(conversationID string) {
 }
 
 func (a *App) profileAccessService() *profileaccess.Service {
-	return profileaccess.NewService(
-		a.profileManager,
-		a.questionnaireRouter(),
-		func(ctx context.Context, source, conversationID string) questionnaire.Surface {
-			return resolveProfileAccessSurface(ctx, source, conversationID, database.GetConversationInfoWithContext)
-		},
-		func(ctx context.Context, profile *profiles.Profile) bool {
-			return a.providerSvc != nil && a.providerSvc.GetActiveProviderInfo(ctx, profile).Error == ""
-		},
-	)
+	a.profileAccessOnce.Do(func() {
+		if a.jobGrantStore == nil {
+			a.jobGrantStore = jobprofilegrant.NewStore(database.DB())
+		}
+		a.profileAccess = profileaccess.NewService(
+			a.profileManager,
+			a.questionnaireRouter(),
+			func(ctx context.Context, source, conversationID string) questionnaire.Surface {
+				return resolveProfileAccessSurface(ctx, source, conversationID, database.GetConversationInfoWithContext)
+			},
+			func(ctx context.Context, profile *profiles.Profile) bool {
+				return a.providerSvc != nil && a.providerSvc.GetActiveProviderInfo(ctx, profile).Error == ""
+			},
+		).WithJobGrants(a.jobGrantStore).
+			WithSessionValidator(a.validateProfileGrantSession)
+	})
+	return a.profileAccess
+}
+
+func (a *App) validateProfileGrantSession(ctx context.Context) error {
+	expectedUserID, err := database.RequireUserID(ctx)
+	if err != nil {
+		return err
+	}
+	a.authMu.RLock()
+	currentUserID := a.currentUserID
+	a.authMu.RUnlock()
+	if currentUserID == "" || currentUserID != expectedUserID {
+		return errors.New("sessão mudou durante a autorização")
+	}
+	return nil
 }
 
 type profileConversationLookup func(context.Context, string) (*database.Conversation, error)
@@ -250,6 +275,9 @@ func (e *appDeepLinkEmitter) EmitDeepLink(uri string) {
 func (a *App) initToolRegistry() {
 	a.toolRegistry = tools.NewRegistry()
 	a.toolExecutor = tools.NewExecutor(a.toolRegistry, tools.DefaultExecutorConfig())
+	a.toolRegistry.MustRegister(tools.NewReadToolResult())
+	a.toolRegistry.MustRegister(commandtool.NewCatalog(commandAgentTools{app: a}))
+	a.toolRegistry.MustRegister(commandtool.NewConfig(commandAgentTools{app: a}))
 	profileAccess := a.profileAccessService()
 
 	// Determina diretório de trabalho para as tools de filesystem
@@ -307,6 +335,10 @@ func (a *App) initToolRegistry() {
 
 	// HTTPRequest com CredentialManager (autenticação automática por domínio)
 	httpReqTool := web.NewHTTPRequest(a.credMgr)
+	if err := httpReqTool.SetArtifactDir(filepath.Join(workDir, ".assistente-http-artifacts")); err != nil {
+		logging.Logger(context.Background(), "app.app-tool-registry").Error("Erro ao configurar artefatos HTTP", "error", err)
+	}
+	a.httpResponseArtifacts = httpReqTool
 	if netAuthorizer != nil {
 		httpReqTool.SetNetworkAuthorizer(netAuthorizer)
 	}

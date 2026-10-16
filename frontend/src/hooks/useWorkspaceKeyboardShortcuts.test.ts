@@ -1,15 +1,49 @@
-import { afterEach, describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook } from '@testing-library/react';
-import { restoreDefaultFocus } from './useDefaultFocus';
+
+type MockTab = { id: string; type: 'chat' | 'editor' | 'terminal' | 'tasklist' };
 
 const toggle = vi.fn();
 const addTab = vi.fn(() => Promise.resolve());
-const removeTab = vi.fn(() => Promise.resolve());
+// removeTab simula o backend: remove a aba e promove a sucessora na mesma
+// posição (ou a anterior, se era a última), atualizando `activeTabId`.
+const removeTab = vi.fn((tabId: string) => {
+  const ws = workspaceState.workspace;
+  const idx = ws.tabs.findIndex((tab) => tab.id === tabId);
+  if (idx !== -1) ws.tabs.splice(idx, 1);
+  if (ws.activeTabId === tabId) {
+    const nextIdx = Math.min(idx, ws.tabs.length - 1);
+    ws.activeTabId = nextIdx >= 0 ? ws.tabs[nextIdx].id : '';
+  }
+  return Promise.resolve();
+});
 const requestOpen = vi.fn(() => Promise.resolve());
 const modalOpen = vi.fn(() => false);
 const setActiveTab = vi.fn();
 const createWorkspaceTab = vi.fn((_type: unknown, _title: unknown) => Promise.resolve('tab-new'));
 const editorDocuments: Record<string, { readOnly?: boolean }> = {};
+
+function canonicalWorkspace(): { tabs: MockTab[]; activeTabId: string } {
+  return {
+    tabs: [
+      { id: 't1', type: 'editor' },
+      { id: 't2', type: 'chat' },
+    ],
+    activeTabId: 't1',
+  };
+}
+
+const workspaceState = {
+  workspace: canonicalWorkspace(),
+  addTab,
+  removeTab,
+  setActiveTab,
+  createWorkspace: vi.fn(),
+};
+
+function resetWorkspaceState() {
+  workspaceState.workspace = canonicalWorkspace();
+}
 const errorMocks = vi.hoisted(() => ({
   addToast: vi.fn(),
   logError: vi.fn(),
@@ -20,14 +54,11 @@ vi.mock('zustand/shallow', () => ({
 }));
 
 vi.mock('../store/workspaceStore', () => ({
-  useWorkspaceStore: (selector: (s: unknown) => unknown) =>
-    selector({
-      workspace: { tabs: [{ id: 't1', type: 'editor' }, { id: 't2', type: 'chat' }], activeTabId: 't1' },
-      addTab,
-      removeTab,
-      setActiveTab,
-      createWorkspace: vi.fn(),
-    }),
+  useWorkspaceStore: Object.assign(
+    (selector?: (s: typeof workspaceState) => unknown) =>
+      selector ? selector(workspaceState) : workspaceState,
+    { getState: () => workspaceState },
+  ),
 }));
 
 vi.mock('../store/editorStore', () => ({
@@ -58,10 +89,6 @@ vi.mock('./useAnnouncer', () => ({
   useAnnouncer: () => ({ announce: vi.fn() }),
 }));
 
-vi.mock('./useDefaultFocus', () => ({
-  restoreDefaultFocus: vi.fn(),
-}));
-
 vi.mock('../lib/createWorkspaceTab', () => ({
   createWorkspaceTab: (type: unknown, title: unknown) => createWorkspaceTab(type, title),
 }));
@@ -84,6 +111,7 @@ describe('useWorkspaceKeyboardShortcuts - atalho Ctrl+?', () => {
     removeTab.mockClear();
     setActiveTab.mockClear();
     modalOpen.mockReturnValue(false);
+    resetWorkspaceState();
   });
 
   it('abre o painel com Ctrl+? (caractere já reflete Shift)', () => {
@@ -125,17 +153,41 @@ describe('useWorkspaceKeyboardShortcuts - respeita isModalOpen()', () => {
     setActiveTab.mockClear();
     requestOpen.mockClear();
     delete editorDocuments.t1;
-    vi.mocked(restoreDefaultFocus).mockClear();
     modalOpen.mockReturnValue(false);
+    resetWorkspaceState();
   });
 
-  it('Ctrl+Shift+I abre o chat modal quando nenhum modal está aberto', () => {
+  it('Ctrl+Shift+I apenas reserva o default do DevTools sem fallback legado', () => {
     renderHook(() => useWorkspaceKeyboardShortcuts());
 
     const event = dispatchKey({ ctrlKey: true, shiftKey: true, key: 'I', code: 'KeyI' });
 
     expect(event.defaultPrevented).toBe(true);
-    expect(requestOpen).toHaveBeenCalledTimes(1);
+    expect(requestOpen).not.toHaveBeenCalled();
+  });
+
+  it('reserva Ctrl+Shift+I mesmo quando o editor interrompe a propagação no filho', () => {
+    renderHook(() => useWorkspaceKeyboardShortcuts());
+    const editor = document.createElement('div');
+    editor.addEventListener('keydown', (event) => event.stopPropagation());
+    document.body.appendChild(editor);
+
+    try {
+      const event = new KeyboardEvent('keydown', {
+        bubbles: true,
+        cancelable: true,
+        ctrlKey: true,
+        shiftKey: true,
+        key: 'I',
+        code: 'KeyI',
+      });
+      editor.dispatchEvent(event);
+
+      expect(event.defaultPrevented).toBe(true);
+      expect(requestOpen).not.toHaveBeenCalled();
+    } finally {
+      editor.remove();
+    }
   });
 
   it('Ctrl+Shift+I previne o default (DevTools) mas NÃO abre o chat modal com modal aberto', () => {
@@ -158,44 +210,38 @@ describe('useWorkspaceKeyboardShortcuts - respeita isModalOpen()', () => {
     expect(requestOpen).not.toHaveBeenCalled();
   });
 
-  it('com nenhum modal aberto, Ctrl+T cria aba e Ctrl+W fecha aba', async () => {
+  it('Ctrl+Shift+N não chama createWorkspace no hook legado', () => {
     renderHook(() => useWorkspaceKeyboardShortcuts());
 
-    dispatchKey({ ctrlKey: true, key: 't' });
-    dispatchKey({ ctrlKey: true, key: 'w' });
+    const event = dispatchKey({ ctrlKey: true, shiftKey: true, key: 'N', code: 'KeyN' });
 
-    expect(createWorkspaceTab).toHaveBeenCalledWith('chat', expect.any(String));
+    expect(event.defaultPrevented).toBe(false);
+    expect(workspaceState.createWorkspace).not.toHaveBeenCalled();
     expect(addTab).not.toHaveBeenCalled();
-    expect(removeTab).toHaveBeenCalledTimes(1);
-    // Fechar a aba restaura o foco depois da promessa e de um quadro, e aqui o
-    // `requestAnimationFrame` é o do jsdom. Sem esperar por isso, o teste
-    // termina com trabalho agendado, e a chamada cai num teste adiante — o do
-    // Ctrl+número, que afirma justamente que o foco não foi restaurado.
-    await vi.waitFor(() => expect(restoreDefaultFocus).toHaveBeenCalled());
   });
 
-  it('com um modal aberto (ex.: painel de atalhos), Ctrl+T e Ctrl+W não agem na UI de fundo', () => {
-    modalOpen.mockReturnValue(true);
+  it.each([
+    ['w', 'Ctrl+W'],
+    ['F4', 'Ctrl+F4'],
+  ])('%s não é mais interceptado pelo hook legado', (_key, _label) => {
     renderHook(() => useWorkspaceKeyboardShortcuts());
 
-    dispatchKey({ ctrlKey: true, key: 't' });
-    dispatchKey({ ctrlKey: true, key: 'w' });
+    const event = dispatchKey({ ctrlKey: true, key: _key });
 
     expect(createWorkspaceTab).not.toHaveBeenCalled();
     expect(addTab).not.toHaveBeenCalled();
     expect(removeTab).not.toHaveBeenCalled();
+    expect(event.defaultPrevented).toBe(false);
   });
 
-  it('Ctrl+T informa a falha de criação sem rejeição não tratada', async () => {
-    createWorkspaceTab.mockRejectedValueOnce(new Error('falha ao salvar'));
+  it('com um modal aberto (ex.: painel de atalhos), Ctrl+W não age na UI de fundo', () => {
+    modalOpen.mockReturnValue(true);
     renderHook(() => useWorkspaceKeyboardShortcuts());
 
-    dispatchKey({ ctrlKey: true, key: 't' });
+    dispatchKey({ ctrlKey: true, key: 'w' });
 
-    await vi.waitFor(() => {
-      expect(errorMocks.addToast).toHaveBeenCalledWith(expect.any(String), 'error');
-    });
-    expect(errorMocks.logError).toHaveBeenCalled();
+    expect(addTab).not.toHaveBeenCalled();
+    expect(removeTab).not.toHaveBeenCalled();
   });
 
   it('com um modal aberto, Ctrl+? ainda alterna (permite fechar o painel)', () => {
@@ -208,64 +254,21 @@ describe('useWorkspaceKeyboardShortcuts - respeita isModalOpen()', () => {
     expect(event.defaultPrevented).toBe(true);
   });
 
-  it('ao fechar o modal, os atalhos de fundo voltam a funcionar', () => {
-    modalOpen.mockReturnValue(true);
-    renderHook(() => useWorkspaceKeyboardShortcuts());
-
-    dispatchKey({ ctrlKey: true, key: 't' });
-    expect(addTab).not.toHaveBeenCalled();
-
-    modalOpen.mockReturnValue(false);
-    dispatchKey({ ctrlKey: true, key: 't' });
-    expect(createWorkspaceTab).toHaveBeenCalledTimes(1);
-  });
 });
 
-describe('useWorkspaceKeyboardShortcuts - foco apos troca global de aba', () => {
-  let originalRequestAnimationFrame: typeof window.requestAnimationFrame | undefined;
-
-  beforeEach(async () => {
-    setActiveTab.mockClear();
-    modalOpen.mockReturnValue(false);
-    originalRequestAnimationFrame = window.requestAnimationFrame;
-    window.requestAnimationFrame = ((callback: FrameRequestCallback) => {
-      callback(0);
-      return 1;
-    }) as typeof window.requestAnimationFrame;
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    vi.mocked(restoreDefaultFocus).mockClear();
-  });
-
-  afterEach(() => {
-    if (originalRequestAnimationFrame) {
-      window.requestAnimationFrame = originalRequestAnimationFrame;
-    } else {
-      Reflect.deleteProperty(window, 'requestAnimationFrame');
-    }
-  });
-
+describe('useWorkspaceKeyboardShortcuts - navegação migrada para o Topbar local_ui', () => {
   it.each([
     ['Ctrl+Tab', { ctrlKey: true, key: 'Tab' }],
     ['Ctrl+Shift+Tab', { ctrlKey: true, shiftKey: true, key: 'Tab' }],
     ['Ctrl+PageDown', { ctrlKey: true, key: 'PageDown' }],
     ['Ctrl+PageUp', { ctrlKey: true, key: 'PageUp' }],
-  ])('%s troca aba e restaura a area default', async (_label, init) => {
+    ...Array.from({ length: 9 }, (_, index) => [`Ctrl+${index + 1}`, { ctrlKey: true, key: String(index + 1) }] as [string, KeyboardEventInit]),
+  ])('%s não é interceptado pelo hook legado', (_label, init) => {
     renderHook(() => useWorkspaceKeyboardShortcuts());
 
     const event = dispatchKey(init);
 
-    expect(event.defaultPrevented).toBe(true);
-    expect(setActiveTab).toHaveBeenCalledWith('t2');
-    await vi.waitFor(() => expect(restoreDefaultFocus).toHaveBeenCalled());
-  });
-
-  it('Ctrl+numero troca diretamente sem restaurar a area default', async () => {
-    renderHook(() => useWorkspaceKeyboardShortcuts());
-
-    dispatchKey({ ctrlKey: true, key: '2' });
-
-    expect(setActiveTab).toHaveBeenCalledWith('t2');
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(restoreDefaultFocus).not.toHaveBeenCalled();
+    expect(event.defaultPrevented).toBe(false);
+    expect(setActiveTab).not.toHaveBeenCalled();
   });
 });

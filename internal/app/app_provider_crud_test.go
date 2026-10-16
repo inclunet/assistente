@@ -16,10 +16,22 @@ import (
 )
 
 func setupTestDB(t *testing.T) *gorm.DB {
+	t.Helper()
+	previous := database.DB()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("Falha ao criar banco de dados em memória: %v", err)
 	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("Falha ao obter conexão de teste: %v", err)
+	}
+	t.Cleanup(func() {
+		database.SetDB(previous)
+		if err := sqlDB.Close(); err != nil {
+			t.Errorf("Falha ao fechar banco de teste: %v", err)
+		}
+	})
 
 	// Auto-migrate
 	if err := db.AutoMigrate(&database.LLMProvider{}); err != nil {
@@ -250,6 +262,7 @@ func TestDeleteProvider(t *testing.T) {
 
 // TestListProvidersWithStatus valida listagem com status de credenciais
 func TestListProvidersWithStatus(t *testing.T) {
+	_ = setupTestDB(t)
 	credMgr := credentials.NewManager([]byte("test-key-exactly-32-bytes-long!!"))
 	llmRegistry := llm.NewProviderRegistry()
 
@@ -263,7 +276,9 @@ func TestListProvidersWithStatus(t *testing.T) {
 		BaseURL: "https://api.openai.com/v1",
 		APIKey:  "sk-has-key",
 	}
-	_, _ = app.createLLMProvider(req1)
+	if _, err := app.createLLMProvider(req1); err != nil {
+		t.Fatalf("Criar provider com credencial: %v", err)
+	}
 
 	// Criar provider SEM credencial (Ollama local)
 	req2 := CreateLLMProviderRequest{
@@ -273,7 +288,9 @@ func TestListProvidersWithStatus(t *testing.T) {
 		BaseURL: "http://localhost:11434/api",
 		APIKey:  "", // Sem credencial
 	}
-	_, _ = app.createLLMProvider(req2)
+	if _, err := app.createLLMProvider(req2); err != nil {
+		t.Fatalf("Criar provider sem credencial: %v", err)
+	}
 
 	// Listar providers
 	providers := app.getLLMProvidersWithStatus()

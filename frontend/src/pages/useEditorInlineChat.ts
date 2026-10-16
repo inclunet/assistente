@@ -51,7 +51,8 @@ const MAX_EDITOR_SELECTION_CHARACTERS = 20_000;
 
 function exceedsUnicodeCharacterLimit(text: string, max: number): boolean {
   let count = 0;
-  for (const _character of text) {
+  for (const character of text) {
+    void character;
     count += 1;
     if (count > max) return true;
   }
@@ -480,7 +481,11 @@ export function useEditorInlineChat({
         context: surfaceContext,
       });
 
-      const donePromise = waitForChatDone(expectedConversationId);
+      const doneWaitAbortController = new AbortController();
+      const donePromise = waitForChatDone(expectedConversationId, undefined, doneWaitAbortController.signal);
+      // O plano pode ser rejeitado antes de afterSend ser executado. Trate a
+      // rejeição desde a criação para que o cancelamento não vire unhandled.
+      void donePromise.catch(() => undefined);
       if (filePathBeforeToolTurn) {
         unsubscribeEditorApplyToolStart = EventsOn('chat:tool_start', (data: { conversationId?: string; name?: string; origin?: string }) => {
           if (String(data?.conversationId || '') !== expectedConversationId) return;
@@ -576,9 +581,15 @@ export function useEditorInlineChat({
           }
         },
         onSendError: (e: unknown) => {
+          doneWaitAbortController.abort();
           stopTrackingAssistedFileChange();
           logger.error('[useEditorInlineChat] inline chat error:', e);
           useWorkspaceChatModalStore.getState().setAdapterError(getErrorMessage(e) || t('editor.chatModal.requestChangeError'));
+          setIsAsking(false);
+        },
+        onSendRejected: () => {
+          doneWaitAbortController.abort();
+          stopTrackingAssistedFileChange();
           setIsAsking(false);
         },
       };

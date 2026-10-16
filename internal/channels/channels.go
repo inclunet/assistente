@@ -27,18 +27,22 @@ var mu sync.Mutex
 // Continua sendo o DTO público Wails/gateway (AEP-0083); a persistência
 // runtime é SQLite via UseDatabase.
 type ChannelConfig struct {
-	Enabled     bool   `json:"enabled"`
-	BotToken    string `json:"bot_token,omitempty"`     // Telegram: token do bot
-	BotTokenRef string `json:"bot_token_ref,omitempty"` // Referência no credential manager
-	AppToken    string `json:"app_token,omitempty"`     // Slack: app token (socket mode)
-	AppTokenRef string `json:"app_token_ref,omitempty"` // Referência no credential manager
-	APIToken    string `json:"api_token,omitempty"`     // Signal: token opcional da API
-	APITokenRef string `json:"api_token_ref,omitempty"` // Referência no credential manager
-	Account     string `json:"account,omitempty"`       // Signal: número da conta vinculada
-	APIURL      string `json:"api_url,omitempty"`       // Signal: URL da API
-	Profile     string `json:"profile,omitempty"`       // Perfil de chat (vazio = ativo)
-	MaxHistory  int    `json:"max_history,omitempty"`   // Mensagens no contexto (0 = padrão)
-	MaxContacts int    `json:"max_contacts,omitempty"`  // Máximo de contatos (0/omitido = 1; <0 = ilimitado)
+	ID             string `json:"id,omitempty"`
+	CredentialID   string `json:"credential_id,omitempty"`
+	RemoveBotToken bool   `json:"remove_bot_token,omitempty"` // input-only, explicit role removal
+	RemoveAppToken bool   `json:"remove_app_token,omitempty"` // input-only, explicit role removal
+	Enabled        bool   `json:"enabled"`
+	BotToken       string `json:"bot_token,omitempty"`     // Telegram: token do bot
+	BotTokenRef    string `json:"bot_token_ref,omitempty"` // Referência no credential manager
+	AppToken       string `json:"app_token,omitempty"`     // Slack: app token (socket mode)
+	AppTokenRef    string `json:"app_token_ref,omitempty"` // Referência no credential manager
+	APIToken       string `json:"api_token,omitempty"`     // Signal: token opcional da API
+	APITokenRef    string `json:"api_token_ref,omitempty"` // Referência no credential manager
+	Account        string `json:"account,omitempty"`       // Signal: número da conta vinculada
+	APIURL         string `json:"api_url,omitempty"`       // Signal: URL da API
+	Profile        string `json:"profile,omitempty"`       // Perfil de chat (vazio = ativo)
+	MaxHistory     int    `json:"max_history,omitempty"`   // Mensagens no contexto (0 = padrão)
+	MaxContacts    int    `json:"max_contacts,omitempty"`  // Máximo de contatos (0/omitido = 1; <0 = ilimitado)
 
 	// Type e DisplayName são persistidos na row DB (AEP-0083). Em v1, Type==Slug.
 	Type        string `json:"type,omitempty"`

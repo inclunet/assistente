@@ -729,6 +729,116 @@ export namespace apidto {
 		    return a;
 		}
 	}
+	export class CommandCatalogDetail {
+	    id: string;
+	    name: string;
+	    description: string;
+	    category: string;
+	    aliases: string[];
+	    icon: string;
+	    effect: string;
+	    risk: string;
+	    decision: string;
+	    available: boolean;
+	    availabilityStatus: string;
+	    availabilityReason: string;
+	    readinessReason?: string;
+	    allowedSources: string[];
+	    scopes: string[];
+	    presentationVersion: string;
+	    argumentsSchema?: any;
+	    resultSchema?: any;
+	    hasMutableTarget: boolean;
+	    mutatesEffectiveCapability: boolean;
+	    contextNone: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new CommandCatalogDetail(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.description = source["description"];
+	        this.category = source["category"];
+	        this.aliases = source["aliases"];
+	        this.icon = source["icon"];
+	        this.effect = source["effect"];
+	        this.risk = source["risk"];
+	        this.decision = source["decision"];
+	        this.available = source["available"];
+	        this.availabilityStatus = source["availabilityStatus"];
+	        this.availabilityReason = source["availabilityReason"];
+	        this.readinessReason = source["readinessReason"];
+	        this.allowedSources = source["allowedSources"];
+	        this.scopes = source["scopes"];
+	        this.presentationVersion = source["presentationVersion"];
+	        this.argumentsSchema = source["argumentsSchema"];
+	        this.resultSchema = source["resultSchema"];
+	        this.hasMutableTarget = source["hasMutableTarget"];
+	        this.mutatesEffectiveCapability = source["mutatesEffectiveCapability"];
+	        this.contextNone = source["contextNone"];
+	    }
+	}
+	export class CommandCatalogFilter {
+	    locale: string;
+	    query: string;
+	    source: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CommandCatalogFilter(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.locale = source["locale"];
+	        this.query = source["query"];
+	        this.source = source["source"];
+	    }
+	}
+	export class CommandCatalogItem {
+	    id: string;
+	    name: string;
+	    description: string;
+	    category: string;
+	    aliases: string[];
+	    icon: string;
+	    effect: string;
+	    risk: string;
+	    decision: string;
+	    available: boolean;
+	    availabilityStatus: string;
+	    availabilityReason: string;
+	    readinessReason?: string;
+	    allowedSources: string[];
+	    scopes: string[];
+	    presentationVersion: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CommandCatalogItem(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.description = source["description"];
+	        this.category = source["category"];
+	        this.aliases = source["aliases"];
+	        this.icon = source["icon"];
+	        this.effect = source["effect"];
+	        this.risk = source["risk"];
+	        this.decision = source["decision"];
+	        this.available = source["available"];
+	        this.availabilityStatus = source["availabilityStatus"];
+	        this.availabilityReason = source["availabilityReason"];
+	        this.readinessReason = source["readinessReason"];
+	        this.allowedSources = source["allowedSources"];
+	        this.scopes = source["scopes"];
+	        this.presentationVersion = source["presentationVersion"];
+	    }
+	}
 	export class ConversationChannel {
 	    channel: string;
 	    contactId: string;
@@ -759,7 +869,56 @@ export namespace apidto {
 	        this.summarizing_in_progress = source["summarizing_in_progress"];
 	    }
 	}
+	export class CredentialInput {
+	    source: string;
+	    sourceConfig?: credentials.SourceConfig;
+	    pattern: string;
+	    type: string;
+	    token?: string;
+	    username?: string;
+	    password?: string;
+	    headerName?: string;
+	    headerValue?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CredentialInput(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.source = source["source"];
+	        this.sourceConfig = this.convertValues(source["sourceConfig"], credentials.SourceConfig);
+	        this.pattern = source["pattern"];
+	        this.type = source["type"];
+	        this.token = source["token"];
+	        this.username = source["username"];
+	        this.password = source["password"];
+	        this.headerName = source["headerName"];
+	        this.headerValue = source["headerValue"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class CreateLLMProviderRequest {
+	    credential_from_provider_id?: string;
+	    credential?: CredentialInput;
+	    auth_mode?: string;
 	    id: string;
 	    name: string;
 	    type: string;
@@ -779,6 +938,9 @@ export namespace apidto {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.credential_from_provider_id = source["credential_from_provider_id"];
+	        this.credential = this.convertValues(source["credential"], CredentialInput);
+	        this.auth_mode = source["auth_mode"];
 	        this.id = source["id"];
 	        this.name = source["name"];
 	        this.type = source["type"];
@@ -792,32 +954,31 @@ export namespace apidto {
 	        this.acp_agent_id = source["acp_agent_id"];
 	        this.acp_credential_env = source["acp_credential_env"];
 	    }
-	}
-	export class CredentialInput {
-	    pattern: string;
-	    type: string;
-	    token?: string;
-	    username?: string;
-	    password?: string;
-	    headerName?: string;
-	    headerValue?: string;
 	
-	    static createFrom(source: any = {}) {
-	        return new CredentialInput(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.pattern = source["pattern"];
-	        this.type = source["type"];
-	        this.token = source["token"];
-	        this.username = source["username"];
-	        this.password = source["password"];
-	        this.headerName = source["headerName"];
-	        this.headerValue = source["headerValue"];
-	    }
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
+	
 	export class CredentialSummary {
+	    username?: string;
+	    headerName?: string;
+	    source: string;
+	    sourceConfig?: credentials.SourceConfig;
 	    pattern: string;
 	    type: string;
 	    masked: string;
@@ -829,11 +990,33 @@ export namespace apidto {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.username = source["username"];
+	        this.headerName = source["headerName"];
+	        this.source = source["source"];
+	        this.sourceConfig = this.convertValues(source["sourceConfig"], credentials.SourceConfig);
 	        this.pattern = source["pattern"];
 	        this.type = source["type"];
 	        this.masked = source["masked"];
 	        this.managed = source["managed"];
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class CustomActionView {
 	    id: string;
@@ -858,6 +1041,162 @@ export namespace apidto {
 	        this.hasEvent = source["hasEvent"];
 	        this.hasLink = source["hasLink"];
 	    }
+	}
+	export class EditorCommandCommitRequest {
+	    ticket: string;
+	    handoffId: string;
+	    token: string;
+	    confirmOverwrite: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new EditorCommandCommitRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.ticket = source["ticket"];
+	        this.handoffId = source["handoffId"];
+	        this.token = source["token"];
+	        this.confirmOverwrite = source["confirmOverwrite"];
+	    }
+	}
+	export class EditorCommandPreparation {
+	    token: string;
+	    path: string;
+	    cancelled: boolean;
+	    requiresOverwrite: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new EditorCommandPreparation(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.token = source["token"];
+	        this.path = source["path"];
+	        this.cancelled = source["cancelled"];
+	        this.requiresOverwrite = source["requiresOverwrite"];
+	    }
+	}
+	export class FileDialogLabels {
+	    title: string;
+	    markdownFilter: string;
+	    allFilesFilter: string;
+	    defaultFilename: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new FileDialogLabels(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.title = source["title"];
+	        this.markdownFilter = source["markdownFilter"];
+	        this.allFilesFilter = source["allFilesFilter"];
+	        this.defaultFilename = source["defaultFilename"];
+	    }
+	}
+	export class EditorCommandPrepareRequest {
+	    ticket: string;
+	    handoffId: string;
+	    content?: string;
+	    labels: FileDialogLabels;
+	    suggestedFilename?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new EditorCommandPrepareRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.ticket = source["ticket"];
+	        this.handoffId = source["handoffId"];
+	        this.content = source["content"];
+	        this.labels = this.convertValues(source["labels"], FileDialogLabels);
+	        this.suggestedFilename = source["suggestedFilename"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class EditorOpenResult {
+	    path: string;
+	    content: string;
+	    projected: boolean;
+	    format?: string;
+	    readOnly: boolean;
+	    pages?: number;
+	    warnings?: string[];
+	    warningCode?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new EditorOpenResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.path = source["path"];
+	        this.content = source["content"];
+	        this.projected = source["projected"];
+	        this.format = source["format"];
+	        this.readOnly = source["readOnly"];
+	        this.pages = source["pages"];
+	        this.warnings = source["warnings"];
+	        this.warningCode = source["warningCode"];
+	    }
+	}
+	export class EditorCommandResult {
+	    status: string;
+	    tabId: string;
+	    path: string;
+	    opened?: EditorOpenResult;
+	    written: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new EditorCommandResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.status = source["status"];
+	        this.tabId = source["tabId"];
+	        this.path = source["path"];
+	        this.opened = this.convertValues(source["opened"], EditorOpenResult);
+	        this.written = source["written"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class EditorFileInfo {
 	    path: string;
@@ -899,32 +1238,7 @@ export namespace apidto {
 	        this.createdAt = source["createdAt"];
 	    }
 	}
-	export class EditorOpenResult {
-	    path: string;
-	    content: string;
-	    projected: boolean;
-	    format?: string;
-	    readOnly: boolean;
-	    pages?: number;
-	    warnings?: string[];
-	    warningCode?: string;
 	
-	    static createFrom(source: any = {}) {
-	        return new EditorOpenResult(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.path = source["path"];
-	        this.content = source["content"];
-	        this.projected = source["projected"];
-	        this.format = source["format"];
-	        this.readOnly = source["readOnly"];
-	        this.pages = source["pages"];
-	        this.warnings = source["warnings"];
-	        this.warningCode = source["warningCode"];
-	    }
-	}
 	export class EditorState {
 	    fileModeByPath?: Record<string, string>;
 	    mergeSessionsByTabId?: Record<string, EditorMergeSession>;
@@ -971,24 +1285,7 @@ export namespace apidto {
 	        this.label = source["label"];
 	    }
 	}
-	export class FileDialogLabels {
-	    title: string;
-	    markdownFilter: string;
-	    allFilesFilter: string;
-	    defaultFilename: string;
 	
-	    static createFrom(source: any = {}) {
-	        return new FileDialogLabels(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.title = source["title"];
-	        this.markdownFilter = source["markdownFilter"];
-	        this.allFilesFilter = source["allFilesFilter"];
-	        this.defaultFilename = source["defaultFilename"];
-	    }
-	}
 	export class MCPServerAuthInfo {
 	    hasAuth: boolean;
 	    authType: string;
@@ -1319,6 +1616,9 @@ export namespace apidto {
 	    }
 	}
 	export class TestLLMProviderRequest {
+	    credential?: CredentialInput;
+	    auth_mode?: string;
+	    api_format?: string;
 	    type: string;
 	    base_url: string;
 	    api_key?: string;
@@ -1330,11 +1630,32 @@ export namespace apidto {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.credential = this.convertValues(source["credential"], CredentialInput);
+	        this.auth_mode = source["auth_mode"];
+	        this.api_format = source["api_format"];
 	        this.type = source["type"];
 	        this.base_url = source["base_url"];
 	        this.api_key = source["api_key"];
 	        this.provider_id = source["provider_id"];
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class ToolUsageBreakdown {
 	    toolName: string;
@@ -1464,6 +1785,8 @@ export namespace apidto {
 	}
 	
 	export class UpdateLLMProviderRequest {
+	    credential?: CredentialInput;
+	    auth_mode?: string;
 	    name?: string;
 	    type?: string;
 	    base_url?: string;
@@ -1482,6 +1805,8 @@ export namespace apidto {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.credential = this.convertValues(source["credential"], CredentialInput);
+	        this.auth_mode = source["auth_mode"];
 	        this.name = source["name"];
 	        this.type = source["type"];
 	        this.base_url = source["base_url"];
@@ -1494,6 +1819,24 @@ export namespace apidto {
 	        this.acp_agent_id = source["acp_agent_id"];
 	        this.acp_credential_env = source["acp_credential_env"];
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 
 }
@@ -1532,6 +1875,866 @@ export namespace app {
 	        this.role = source["role"];
 	    }
 	}
+	export class ChatEditorCommandPlan {
+	    tabId: string;
+	    draftId?: string;
+	    filePath?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ChatEditorCommandPlan(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.tabId = source["tabId"];
+	        this.draftId = source["draftId"];
+	        this.filePath = source["filePath"];
+	    }
+	}
+	export class ChatEditorCommandTarget {
+	    workspace?: workspace.Workspace;
+	    tabId: string;
+	    draftId?: string;
+	    filePath?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ChatEditorCommandTarget(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.workspace = this.convertValues(source["workspace"], workspace.Workspace);
+	        this.tabId = source["tabId"];
+	        this.draftId = source["draftId"];
+	        this.filePath = source["filePath"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class CommandBindingEdit {
+	    id: string;
+	    layerId: string;
+	    commandId: string;
+	    triggerType: string;
+	    triggerSpec: string;
+	    enabled: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new CommandBindingEdit(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.layerId = source["layerId"];
+	        this.commandId = source["commandId"];
+	        this.triggerType = source["triggerType"];
+	        this.triggerSpec = source["triggerSpec"];
+	        this.enabled = source["enabled"];
+	    }
+	}
+	export class CommandWorkspaceMetadata {
+	    id: string;
+	    name: string;
+	    profile: string;
+	    tab_count: number;
+	    is_active: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new CommandWorkspaceMetadata(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.profile = source["profile"];
+	        this.tab_count = source["tab_count"];
+	        this.is_active = source["is_active"];
+	    }
+	}
+	export class CommandOutput {
+	    kind: string;
+	    workspaces: CommandWorkspaceMetadata[];
+	
+	    static createFrom(source: any = {}) {
+	        return new CommandOutput(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.kind = source["kind"];
+	        this.workspaces = this.convertValues(source["workspaces"], CommandWorkspaceMetadata);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class CommandExecutionResult {
+	    invocationId: string;
+	    status: string;
+	    resultSummary?: string;
+	    errorCode?: string;
+	    output?: CommandOutput;
+	
+	    static createFrom(source: any = {}) {
+	        return new CommandExecutionResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.invocationId = source["invocationId"];
+	        this.status = source["status"];
+	        this.resultSummary = source["resultSummary"];
+	        this.errorCode = source["errorCode"];
+	        this.output = this.convertValues(source["output"], CommandOutput);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class CommandLayerEdit {
+	    id: string;
+	    name: string;
+	    description: string;
+	    enabled: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new CommandLayerEdit(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.description = source["description"];
+	        this.enabled = source["enabled"];
+	    }
+	}
+	
+	export class CommandPageMutationRequest {
+	    targetId: string;
+	    expectedFingerprint: string;
+	    title: string;
+	    description: string;
+	    profile?: profiles.Profile;
+	
+	    static createFrom(source: any = {}) {
+	        return new CommandPageMutationRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.targetId = source["targetId"];
+	        this.expectedFingerprint = source["expectedFingerprint"];
+	        this.title = source["title"];
+	        this.description = source["description"];
+	        this.profile = this.convertValues(source["profile"], profiles.Profile);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class CommandPageMutationResult {
+	    id: string;
+	    title: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CommandPageMutationResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.title = source["title"];
+	    }
+	}
+	export class CommandProfileTarget {
+	    profile?: profiles.Profile;
+	    fingerprint: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CommandProfileTarget(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.profile = this.convertValues(source["profile"], profiles.Profile);
+	        this.fingerprint = source["fingerprint"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class CommandSettingsAdjustment {
+	    deltaId: string;
+	    status: string;
+	    currentDefaultVersion: string;
+	    reason: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CommandSettingsAdjustment(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.deltaId = source["deltaId"];
+	        this.status = source["status"];
+	        this.currentDefaultVersion = source["currentDefaultVersion"];
+	        this.reason = source["reason"];
+	    }
+	}
+	export class CommandSettingsConditionClause {
+	    field: string;
+	    op: string;
+	    value: any;
+	
+	    static createFrom(source: any = {}) {
+	        return new CommandSettingsConditionClause(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.field = source["field"];
+	        this.op = source["op"];
+	        this.value = source["value"];
+	    }
+	}
+	export class CommandSettingsCondition {
+	    version: number;
+	    clauses: CommandSettingsConditionClause[];
+	
+	    static createFrom(source: any = {}) {
+	        return new CommandSettingsCondition(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.version = source["version"];
+	        this.clauses = this.convertValues(source["clauses"], CommandSettingsConditionClause);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class CommandSettingsBinding {
+	    id: string;
+	    layerId: string;
+	    workspaceId?: string;
+	    commandId: string;
+	    triggerType: string;
+	    triggerSpec: string;
+	    enabled: boolean;
+	    persistedEnabled: boolean;
+	    suppressed: boolean;
+	    customized: boolean;
+	    readOnly: boolean;
+	    inherited?: boolean;
+	    defaultId: string;
+	    reviewStatus: string;
+	    arguments?: Record<string, any>;
+	    presentation?: Record<string, any>;
+	    condition: CommandSettingsCondition;
+	    effect?: string;
+	    resolutionPriority: number;
+	    replacesDefaultVersion?: string;
+	    replacesDefaultFingerprint?: string;
+	    currentDefaultVersion?: string;
+	    currentDefaultFingerprint?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CommandSettingsBinding(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.layerId = source["layerId"];
+	        this.workspaceId = source["workspaceId"];
+	        this.commandId = source["commandId"];
+	        this.triggerType = source["triggerType"];
+	        this.triggerSpec = source["triggerSpec"];
+	        this.enabled = source["enabled"];
+	        this.persistedEnabled = source["persistedEnabled"];
+	        this.suppressed = source["suppressed"];
+	        this.customized = source["customized"];
+	        this.readOnly = source["readOnly"];
+	        this.inherited = source["inherited"];
+	        this.defaultId = source["defaultId"];
+	        this.reviewStatus = source["reviewStatus"];
+	        this.arguments = source["arguments"];
+	        this.presentation = source["presentation"];
+	        this.condition = this.convertValues(source["condition"], CommandSettingsCondition);
+	        this.effect = source["effect"];
+	        this.resolutionPriority = source["resolutionPriority"];
+	        this.replacesDefaultVersion = source["replacesDefaultVersion"];
+	        this.replacesDefaultFingerprint = source["replacesDefaultFingerprint"];
+	        this.currentDefaultVersion = source["currentDefaultVersion"];
+	        this.currentDefaultFingerprint = source["currentDefaultFingerprint"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class CommandSettingsBindingInput {
+	    id?: string;
+	    layerId: string;
+	    commandId?: string;
+	    triggerType: string;
+	    triggerSpec: string;
+	    arguments?: Record<string, any>;
+	    condition?: CommandSettingsCondition;
+	    effect: string;
+	    enabled: boolean;
+	    resolutionPriority: number;
+	    replacesDefaultId?: string;
+	    replacesDefaultVersion?: string;
+	    replacesDefaultFingerprint?: string;
+	    presentation?: Record<string, any>;
+	
+	    static createFrom(source: any = {}) {
+	        return new CommandSettingsBindingInput(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.layerId = source["layerId"];
+	        this.commandId = source["commandId"];
+	        this.triggerType = source["triggerType"];
+	        this.triggerSpec = source["triggerSpec"];
+	        this.arguments = source["arguments"];
+	        this.condition = this.convertValues(source["condition"], CommandSettingsCondition);
+	        this.effect = source["effect"];
+	        this.enabled = source["enabled"];
+	        this.resolutionPriority = source["resolutionPriority"];
+	        this.replacesDefaultId = source["replacesDefaultId"];
+	        this.replacesDefaultVersion = source["replacesDefaultVersion"];
+	        this.replacesDefaultFingerprint = source["replacesDefaultFingerprint"];
+	        this.presentation = source["presentation"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class CommandSettingsCommand {
+	    id: string;
+	    name: string;
+	    description: string;
+	    allowedSources: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new CommandSettingsCommand(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.description = source["description"];
+	        this.allowedSources = source["allowedSources"];
+	    }
+	}
+	
+	
+	export class CommandSettingsDefaultRef {
+	    id: string;
+	    version: string;
+	    fingerprint: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CommandSettingsDefaultRef(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.version = source["version"];
+	        this.fingerprint = source["fingerprint"];
+	    }
+	}
+	export class CommandSettingsDefaultInput {
+	    bindingId: string;
+	    default: CommandSettingsDefaultRef;
+	    condition?: CommandSettingsCondition;
+	
+	    static createFrom(source: any = {}) {
+	        return new CommandSettingsDefaultInput(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.bindingId = source["bindingId"];
+	        this.default = this.convertValues(source["default"], CommandSettingsDefaultRef);
+	        this.condition = this.convertValues(source["condition"], CommandSettingsCondition);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	export class CommandSettingsDiagnostic {
+	    code: string;
+	    severity: string;
+	    resourceId?: string;
+	    resourceIds?: string[];
+	    trigger?: string;
+	    message: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CommandSettingsDiagnostic(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.code = source["code"];
+	        this.severity = source["severity"];
+	        this.resourceId = source["resourceId"];
+	        this.resourceIds = source["resourceIds"];
+	        this.trigger = source["trigger"];
+	        this.message = source["message"];
+	    }
+	}
+	export class CommandSettingsLayer {
+	    id: string;
+	    name: string;
+	    description: string;
+	    builtin: boolean;
+	    enabled: boolean;
+	    active: boolean;
+	    manualReady: boolean;
+	    manualActive: boolean;
+	    resolutionPriority: number;
+	    workspaceId?: string;
+	    activationModes?: string[];
+	    activeKnown: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new CommandSettingsLayer(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.description = source["description"];
+	        this.builtin = source["builtin"];
+	        this.enabled = source["enabled"];
+	        this.active = source["active"];
+	        this.manualReady = source["manualReady"];
+	        this.manualActive = source["manualActive"];
+	        this.resolutionPriority = source["resolutionPriority"];
+	        this.workspaceId = source["workspaceId"];
+	        this.activationModes = source["activationModes"];
+	        this.activeKnown = source["activeKnown"];
+	    }
+	}
+	export class CommandSettingsLayerInput {
+	    id?: string;
+	    name: string;
+	    description: string;
+	    enabled: boolean;
+	    resolutionPriority: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new CommandSettingsLayerInput(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.description = source["description"];
+	        this.enabled = source["enabled"];
+	        this.resolutionPriority = source["resolutionPriority"];
+	    }
+	}
+	export class CommandSettingsMutation {
+	    committed: boolean;
+	    published: boolean;
+	    id: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CommandSettingsMutation(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.committed = source["committed"];
+	        this.published = source["published"];
+	        this.id = source["id"];
+	    }
+	}
+	export class CommandSettingsRuleInput {
+	    id?: string;
+	    layerId: string;
+	    mode: string;
+	    condition?: CommandSettingsCondition;
+	    lifecycle: string;
+	    eventName?: string;
+	    allowedInternalProducerTypes?: string;
+	    enabled: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new CommandSettingsRuleInput(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.layerId = source["layerId"];
+	        this.mode = source["mode"];
+	        this.condition = this.convertValues(source["condition"], CommandSettingsCondition);
+	        this.lifecycle = source["lifecycle"];
+	        this.eventName = source["eventName"];
+	        this.allowedInternalProducerTypes = source["allowedInternalProducerTypes"];
+	        this.enabled = source["enabled"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class CommandSettingsMutationRequest {
+	    locale?: string;
+	    scope: string;
+	    operation: string;
+	    id?: string;
+	    layerRefKind?: string;
+	    expectedRevision: number;
+	    expectedFingerprint: string;
+	    layer?: CommandSettingsLayerInput;
+	    binding?: CommandSettingsBindingInput;
+	    rule?: CommandSettingsRuleInput;
+	    default?: CommandSettingsDefaultInput;
+	
+	    static createFrom(source: any = {}) {
+	        return new CommandSettingsMutationRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.locale = source["locale"];
+	        this.scope = source["scope"];
+	        this.operation = source["operation"];
+	        this.id = source["id"];
+	        this.layerRefKind = source["layerRefKind"];
+	        this.expectedRevision = source["expectedRevision"];
+	        this.expectedFingerprint = source["expectedFingerprint"];
+	        this.layer = this.convertValues(source["layer"], CommandSettingsLayerInput);
+	        this.binding = this.convertValues(source["binding"], CommandSettingsBindingInput);
+	        this.rule = this.convertValues(source["rule"], CommandSettingsRuleInput);
+	        this.default = this.convertValues(source["default"], CommandSettingsDefaultInput);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class CommandSettingsRule {
+	    manualActive: boolean;
+	    manualExpiresAt?: number;
+	    id: string;
+	    layerId: string;
+	    workspaceId?: string;
+	    mode: string;
+	    condition: CommandSettingsCondition;
+	    lifecycle: string;
+	    eventName?: string;
+	    allowedInternalProducerTypes?: string;
+	    enabled: boolean;
+	    source: string;
+	    reviewStatus: string;
+	    grantGeneration?: number;
+	    grantFingerprint?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CommandSettingsRule(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.manualActive = source["manualActive"];
+	        this.manualExpiresAt = source["manualExpiresAt"];
+	        this.id = source["id"];
+	        this.layerId = source["layerId"];
+	        this.workspaceId = source["workspaceId"];
+	        this.mode = source["mode"];
+	        this.condition = this.convertValues(source["condition"], CommandSettingsCondition);
+	        this.lifecycle = source["lifecycle"];
+	        this.eventName = source["eventName"];
+	        this.allowedInternalProducerTypes = source["allowedInternalProducerTypes"];
+	        this.enabled = source["enabled"];
+	        this.source = source["source"];
+	        this.reviewStatus = source["reviewStatus"];
+	        this.grantGeneration = source["grantGeneration"];
+	        this.grantFingerprint = source["grantFingerprint"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	export class CommandSettingsSnapshot {
+	    scope?: string;
+	    revision?: number;
+	    fingerprint?: string;
+	    layers: CommandSettingsLayer[];
+	    bindings: CommandSettingsBinding[];
+	    rules?: CommandSettingsRule[];
+	    diagnostics?: CommandSettingsDiagnostic[];
+	    adjustments?: CommandSettingsAdjustment[];
+	    commands: CommandSettingsCommand[];
+	    keyboardOperational: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new CommandSettingsSnapshot(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.scope = source["scope"];
+	        this.revision = source["revision"];
+	        this.fingerprint = source["fingerprint"];
+	        this.layers = this.convertValues(source["layers"], CommandSettingsLayer);
+	        this.bindings = this.convertValues(source["bindings"], CommandSettingsBinding);
+	        this.rules = this.convertValues(source["rules"], CommandSettingsRule);
+	        this.diagnostics = this.convertValues(source["diagnostics"], CommandSettingsDiagnostic);
+	        this.adjustments = this.convertValues(source["adjustments"], CommandSettingsAdjustment);
+	        this.commands = this.convertValues(source["commands"], CommandSettingsCommand);
+	        this.keyboardOperational = source["keyboardOperational"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class CommandTaskListTarget {
+	    taskList?: database.TaskList;
+	    fingerprint: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CommandTaskListTarget(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.taskList = this.convertValues(source["taskList"], database.TaskList);
+	        this.fingerprint = source["fingerprint"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
 	export class CreateAdminRequest {
 	    username: string;
 	    displayName: string;
@@ -1548,6 +2751,373 @@ export namespace app {
 	        this.password = source["password"];
 	    }
 	}
+	export class ExternalUICommandAck {
+	    accepted: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new ExternalUICommandAck(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.accepted = source["accepted"];
+	    }
+	}
+	export class ExternalUICommandCompletion {
+	    owner: commandbridge.Owner;
+	    connectionId: string;
+	    generation: string;
+	    invocationId: string;
+	    receiptId: string;
+	    targetSnapshotId: string;
+	    contextVersion: string;
+	    outcome: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ExternalUICommandCompletion(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.owner = this.convertValues(source["owner"], commandbridge.Owner);
+	        this.connectionId = source["connectionId"];
+	        this.generation = source["generation"];
+	        this.invocationId = source["invocationId"];
+	        this.receiptId = source["receiptId"];
+	        this.targetSnapshotId = source["targetSnapshotId"];
+	        this.contextVersion = source["contextVersion"];
+	        this.outcome = source["outcome"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ExternalUICommandRequest {
+	    owner: commandbridge.Owner;
+	    connectionId: string;
+	    generation: string;
+	    invocationId: string;
+	    targetSnapshotId: string;
+	    contextVersion: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ExternalUICommandRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.owner = this.convertValues(source["owner"], commandbridge.Owner);
+	        this.connectionId = source["connectionId"];
+	        this.generation = source["generation"];
+	        this.invocationId = source["invocationId"];
+	        this.targetSnapshotId = source["targetSnapshotId"];
+	        this.contextVersion = source["contextVersion"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class GlobalVoiceHandoff {
+	    ticket: string;
+	    invocationId: string;
+	    commandId: string;
+	    handoffId: string;
+	    profile_slug: string;
+	    trigger_type: string;
+	    bring_to_front: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new GlobalVoiceHandoff(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.ticket = source["ticket"];
+	        this.invocationId = source["invocationId"];
+	        this.commandId = source["commandId"];
+	        this.handoffId = source["handoffId"];
+	        this.profile_slug = source["profile_slug"];
+	        this.trigger_type = source["trigger_type"];
+	        this.bring_to_front = source["bring_to_front"];
+	    }
+	}
+	export class LocalCommandShortcutStep {
+	    code: string;
+	    modifiers: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new LocalCommandShortcutStep(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.code = source["code"];
+	        this.modifiers = source["modifiers"];
+	    }
+	}
+	export class LocalCommandShortcut {
+	    version: number;
+	    code: string;
+	    modifiers: string[];
+	    steps?: LocalCommandShortcutStep[];
+	
+	    static createFrom(source: any = {}) {
+	        return new LocalCommandShortcut(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.version = source["version"];
+	        this.code = source["code"];
+	        this.modifiers = source["modifiers"];
+	        this.steps = this.convertValues(source["steps"], LocalCommandShortcutStep);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class LocalCommandKeyboardBinding {
+	    shortcut: LocalCommandShortcut;
+	    commandId: string;
+	    handler: string;
+	    arguments?: Record<string, any>;
+	
+	    static createFrom(source: any = {}) {
+	        return new LocalCommandKeyboardBinding(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.shortcut = this.convertValues(source["shortcut"], LocalCommandShortcut);
+	        this.commandId = source["commandId"];
+	        this.handler = source["handler"];
+	        this.arguments = source["arguments"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class LocalCommandKeyboardContext {
+	    surfaceId: string;
+	    surfaceType: string;
+	    profile?: string;
+	    appPage?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new LocalCommandKeyboardContext(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.surfaceId = source["surfaceId"];
+	        this.surfaceType = source["surfaceType"];
+	        this.profile = source["profile"];
+	        this.appPage = source["appPage"];
+	    }
+	}
+	export class LocalCommandKeyboardContextualBinding {
+	    fallbackToSequences?: boolean;
+	    shortcut: LocalCommandShortcut;
+	    bySurface: Record<string, LocalCommandKeyboardBinding>;
+	    bySurfaceId?: Record<string, any>;
+	    byProfile?: Record<string, LocalCommandKeyboardContextualBinding>;
+	    byPage?: Record<string, LocalCommandKeyboardContextualBinding>;
+	    sequenceFallbacks?: Record<string, any>;
+	    fallback?: LocalCommandKeyboardBinding;
+	
+	    static createFrom(source: any = {}) {
+	        return new LocalCommandKeyboardContextualBinding(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.fallbackToSequences = source["fallbackToSequences"];
+	        this.shortcut = this.convertValues(source["shortcut"], LocalCommandShortcut);
+	        this.bySurface = this.convertValues(source["bySurface"], LocalCommandKeyboardBinding, true);
+	        this.bySurfaceId = source["bySurfaceId"];
+	        this.byProfile = this.convertValues(source["byProfile"], LocalCommandKeyboardContextualBinding, true);
+	        this.byPage = this.convertValues(source["byPage"], LocalCommandKeyboardContextualBinding, true);
+	        this.sequenceFallbacks = source["sequenceFallbacks"];
+	        this.fallback = this.convertValues(source["fallback"], LocalCommandKeyboardBinding);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class LocalCommandPaletteCondition {
+	    commandId: string;
+	    bySurface: Record<string, boolean>;
+	    bySurfaceId?: Record<string, any>;
+	    fallbackArguments?: Record<string, any>;
+	    bySurfaceArguments?: Record<string, any>;
+	    bySurfaceIdArguments?: Record<string, any>;
+	    byProfile?: Record<string, LocalCommandPaletteCondition>;
+	    byPage?: Record<string, LocalCommandPaletteCondition>;
+	    fallback: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new LocalCommandPaletteCondition(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.commandId = source["commandId"];
+	        this.bySurface = source["bySurface"];
+	        this.bySurfaceId = source["bySurfaceId"];
+	        this.fallbackArguments = source["fallbackArguments"];
+	        this.bySurfaceArguments = source["bySurfaceArguments"];
+	        this.bySurfaceIdArguments = source["bySurfaceIdArguments"];
+	        this.byProfile = this.convertValues(source["byProfile"], LocalCommandPaletteCondition, true);
+	        this.byPage = this.convertValues(source["byPage"], LocalCommandPaletteCondition, true);
+	        this.fallback = source["fallback"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class LocalCommandKeyboardMap {
+	    validUntil?: number;
+	    generation: string;
+	    ownerId: string;
+	    sessionId: string;
+	    workspaceId: string;
+	    bindings: LocalCommandKeyboardBinding[];
+	    contextualBindings?: LocalCommandKeyboardContextualBinding[];
+	    localPaletteCommands: string[];
+	    localPaletteArguments?: Record<string, any>;
+	    localPaletteConditions?: LocalCommandPaletteCondition[];
+	    contextualPaletteConditions?: LocalCommandPaletteCondition[];
+	
+	    static createFrom(source: any = {}) {
+	        return new LocalCommandKeyboardMap(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.validUntil = source["validUntil"];
+	        this.generation = source["generation"];
+	        this.ownerId = source["ownerId"];
+	        this.sessionId = source["sessionId"];
+	        this.workspaceId = source["workspaceId"];
+	        this.bindings = this.convertValues(source["bindings"], LocalCommandKeyboardBinding);
+	        this.contextualBindings = this.convertValues(source["contextualBindings"], LocalCommandKeyboardContextualBinding);
+	        this.localPaletteCommands = source["localPaletteCommands"];
+	        this.localPaletteArguments = source["localPaletteArguments"];
+	        this.localPaletteConditions = this.convertValues(source["localPaletteConditions"], LocalCommandPaletteCondition);
+	        this.contextualPaletteConditions = this.convertValues(source["contextualPaletteConditions"], LocalCommandPaletteCondition);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	
+	
 	export class LoginRequest {
 	    username: string;
 	    password: string;
@@ -1636,6 +3206,10 @@ export namespace app {
 export namespace channels {
 	
 	export class ChannelConfig {
+	    id?: string;
+	    credential_id?: string;
+	    remove_bot_token?: boolean;
+	    remove_app_token?: boolean;
 	    enabled: boolean;
 	    bot_token?: string;
 	    bot_token_ref?: string;
@@ -1660,6 +3234,10 @@ export namespace channels {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.credential_id = source["credential_id"];
+	        this.remove_bot_token = source["remove_bot_token"];
+	        this.remove_app_token = source["remove_app_token"];
 	        this.enabled = source["enabled"];
 	        this.bot_token = source["bot_token"];
 	        this.bot_token_ref = source["bot_token_ref"];
@@ -1750,29 +3328,24 @@ export namespace channels {
 
 export namespace chat {
 	
-	export class TurnSegmentToolFunction {
-	    name: string;
-	    arguments: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new TurnSegmentToolFunction(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.name = source["name"];
-	        this.arguments = source["arguments"];
-	    }
-	}
 	export class TurnSegmentToolCall {
-	    id: string;
-	    type: string;
-	    function: TurnSegmentToolFunction;
-	    result?: string;
+	    invocationId?: string;
+	    callId: string;
+	    name: string;
 	    origin?: string;
-	    server_label?: string;
+	    serverLabel?: string;
+	    status: string;
 	    iteration?: number;
-	    duration_ms?: number;
+	    durationMs?: number;
+	    inputPreview?: string;
+	    outputPreview?: string;
+	    inputBytes?: number;
+	    outputBytes?: number;
+	    hasDetails: boolean;
+	    resultAvailability: string;
+	    hasSearchResults?: boolean;
+	    searchResultCount?: number;
+	    securityOutcome?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new TurnSegmentToolCall(source);
@@ -1780,38 +3353,29 @@ export namespace chat {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	        this.type = source["type"];
-	        this.function = this.convertValues(source["function"], TurnSegmentToolFunction);
-	        this.result = source["result"];
+	        this.invocationId = source["invocationId"];
+	        this.callId = source["callId"];
+	        this.name = source["name"];
 	        this.origin = source["origin"];
-	        this.server_label = source["server_label"];
+	        this.serverLabel = source["serverLabel"];
+	        this.status = source["status"];
 	        this.iteration = source["iteration"];
-	        this.duration_ms = source["duration_ms"];
+	        this.durationMs = source["durationMs"];
+	        this.inputPreview = source["inputPreview"];
+	        this.outputPreview = source["outputPreview"];
+	        this.inputBytes = source["inputBytes"];
+	        this.outputBytes = source["outputBytes"];
+	        this.hasDetails = source["hasDetails"];
+	        this.resultAvailability = source["resultAvailability"];
+	        this.hasSearchResults = source["hasSearchResults"];
+	        this.searchResultCount = source["searchResultCount"];
+	        this.securityOutcome = source["securityOutcome"];
 	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
 	}
 	export class TurnSegment {
 	    type: string;
 	    content?: string;
-	    toolCalls?: TurnSegmentToolCall[];
+	    toolInvocations?: TurnSegmentToolCall[];
 	
 	    static createFrom(source: any = {}) {
 	        return new TurnSegment(source);
@@ -1821,7 +3385,7 @@ export namespace chat {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.type = source["type"];
 	        this.content = source["content"];
-	        this.toolCalls = this.convertValues(source["toolCalls"], TurnSegmentToolCall);
+	        this.toolInvocations = this.convertValues(source["toolInvocations"], TurnSegmentToolCall);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -1851,8 +3415,6 @@ export namespace chat {
 	    content: string;
 	    reasoning?: string;
 	    media?: string;
-	    toolCalls?: string;
-	    toolCallId?: string;
 	    promptTokens?: number;
 	    completionTokens?: number;
 	    totalTokens?: number;
@@ -1883,8 +3445,6 @@ export namespace chat {
 	        this.content = source["content"];
 	        this.reasoning = source["reasoning"];
 	        this.media = source["media"];
-	        this.toolCalls = source["toolCalls"];
-	        this.toolCallId = source["toolCallId"];
 	        this.promptTokens = source["promptTokens"];
 	        this.completionTokens = source["completionTokens"];
 	        this.totalTokens = source["totalTokens"];
@@ -2064,7 +3624,639 @@ export namespace chat {
 	    }
 	}
 	
+
+}
+
+export namespace commandbridge {
 	
+	export class CancelAck {
+	    invocationId: string;
+	    accepted: boolean;
+	    reason?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CancelAck(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.invocationId = source["invocationId"];
+	        this.accepted = source["accepted"];
+	        this.reason = source["reason"];
+	    }
+	}
+	export class Owner {
+	    userId: string;
+	    sessionId: string;
+	    workspaceId: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Owner(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.userId = source["userId"];
+	        this.sessionId = source["sessionId"];
+	        this.workspaceId = source["workspaceId"];
+	    }
+	}
+	export class CancelRequest {
+	    sessionId: string;
+	    invocationId: string;
+	    generation: number;
+	    capabilityId: string;
+	    owner: Owner;
+	
+	    static createFrom(source: any = {}) {
+	        return new CancelRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.sessionId = source["sessionId"];
+	        this.invocationId = source["invocationId"];
+	        this.generation = source["generation"];
+	        this.capabilityId = source["capabilityId"];
+	        this.owner = this.convertValues(source["owner"], Owner);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class DialogProof {
+	    dialogId: string;
+	    kind: string;
+	    scopeGeneration: number;
+	    commandId: string;
+	    triggerSpec: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new DialogProof(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.dialogId = source["dialogId"];
+	        this.kind = source["kind"];
+	        this.scopeGeneration = source["scopeGeneration"];
+	        this.commandId = source["commandId"];
+	        this.triggerSpec = source["triggerSpec"];
+	    }
+	}
+	export class Invocation {
+	    sessionId: string;
+	    invocationId: string;
+	    commandId: string;
+	    generation: number;
+	    capabilityId: string;
+	    ownership: string;
+	    source: string;
+	    occurrenceId?: string;
+	    sourceEventId?: string;
+	    eventId?: string;
+	    dialogProof?: DialogProof;
+	
+	    static createFrom(source: any = {}) {
+	        return new Invocation(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.sessionId = source["sessionId"];
+	        this.invocationId = source["invocationId"];
+	        this.commandId = source["commandId"];
+	        this.generation = source["generation"];
+	        this.capabilityId = source["capabilityId"];
+	        this.ownership = source["ownership"];
+	        this.source = source["source"];
+	        this.occurrenceId = source["occurrenceId"];
+	        this.sourceEventId = source["sourceEventId"];
+	        this.eventId = source["eventId"];
+	        this.dialogProof = this.convertValues(source["dialogProof"], DialogProof);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class Input {
+	    sessionId: string;
+	    source: string;
+	    key: string;
+	    generation: number;
+	    kind: number;
+	    repeat?: boolean;
+	    invocation: Invocation;
+	    owner: Owner;
+	
+	    static createFrom(source: any = {}) {
+	        return new Input(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.sessionId = source["sessionId"];
+	        this.source = source["source"];
+	        this.key = source["key"];
+	        this.generation = source["generation"];
+	        this.kind = source["kind"];
+	        this.repeat = source["repeat"];
+	        this.invocation = this.convertValues(source["invocation"], Invocation);
+	        this.owner = this.convertValues(source["owner"], Owner);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	export class InvocationAck {
+	    invocationId: string;
+	    accepted: boolean;
+	    reason?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new InvocationAck(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.invocationId = source["invocationId"];
+	        this.accepted = source["accepted"];
+	        this.reason = source["reason"];
+	    }
+	}
+	export class LifecycleEvent {
+	    kind: number;
+	    sessionId: string;
+	    generation?: number;
+	    input?: Input;
+	
+	    static createFrom(source: any = {}) {
+	        return new LifecycleEvent(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.kind = source["kind"];
+	        this.sessionId = source["sessionId"];
+	        this.generation = source["generation"];
+	        this.input = this.convertValues(source["input"], Input);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	export class Result {
+	    sessionId: string;
+	    invocationId: string;
+	    commandId: string;
+	    generation: number;
+	    capabilityId: string;
+	    ownership: string;
+	    occurrenceId?: string;
+	    sourceEventId?: string;
+	    eventId?: string;
+	    dialogProof?: DialogProof;
+	    owner: Owner;
+	    status: string;
+	    payload?: number[];
+	
+	    static createFrom(source: any = {}) {
+	        return new Result(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.sessionId = source["sessionId"];
+	        this.invocationId = source["invocationId"];
+	        this.commandId = source["commandId"];
+	        this.generation = source["generation"];
+	        this.capabilityId = source["capabilityId"];
+	        this.ownership = source["ownership"];
+	        this.occurrenceId = source["occurrenceId"];
+	        this.sourceEventId = source["sourceEventId"];
+	        this.eventId = source["eventId"];
+	        this.dialogProof = this.convertValues(source["dialogProof"], DialogProof);
+	        this.owner = this.convertValues(source["owner"], Owner);
+	        this.status = source["status"];
+	        this.payload = source["payload"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ResultAck {
+	    invocationId: string;
+	    accepted: boolean;
+	    reason?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ResultAck(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.invocationId = source["invocationId"];
+	        this.accepted = source["accepted"];
+	        this.reason = source["reason"];
+	    }
+	}
+
+}
+
+export namespace commandui {
+	
+	export class ExternalUISurfaceContext {
+	    surfaceType: string;
+	    surfaceId: string;
+	    title?: string;
+	    mode?: string;
+	    selection?: number[];
+	    focus?: number[];
+	    content?: number[];
+	    metadata?: number[];
+	    snapshotVersion: string;
+	    // Go type: time
+	    capturedAt?: any;
+	    staleAfterMs?: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new ExternalUISurfaceContext(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.surfaceType = source["surfaceType"];
+	        this.surfaceId = source["surfaceId"];
+	        this.title = source["title"];
+	        this.mode = source["mode"];
+	        this.selection = source["selection"];
+	        this.focus = source["focus"];
+	        this.content = source["content"];
+	        this.metadata = source["metadata"];
+	        this.snapshotVersion = source["snapshotVersion"];
+	        this.capturedAt = this.convertValues(source["capturedAt"], null);
+	        this.staleAfterMs = source["staleAfterMs"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ExternalUIDestination {
+	    workspaceId: string;
+	    tabId?: string;
+	    surface: ExternalUISurfaceContext;
+	
+	    static createFrom(source: any = {}) {
+	        return new ExternalUIDestination(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.workspaceId = source["workspaceId"];
+	        this.tabId = source["tabId"];
+	        this.surface = this.convertValues(source["surface"], ExternalUISurfaceContext);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ExternalUIConnectionStatus {
+	    state: string;
+	    connectionId?: string;
+	    generation?: string;
+	    owner: commandbridge.Owner;
+	    target: ExternalUIDestination;
+	    targetSnapshotId?: string;
+	    contextVersion?: string;
+	    // Go type: time
+	    expiresAt?: any;
+	
+	    static createFrom(source: any = {}) {
+	        return new ExternalUIConnectionStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.state = source["state"];
+	        this.connectionId = source["connectionId"];
+	        this.generation = source["generation"];
+	        this.owner = this.convertValues(source["owner"], commandbridge.Owner);
+	        this.target = this.convertValues(source["target"], ExternalUIDestination);
+	        this.targetSnapshotId = source["targetSnapshotId"];
+	        this.contextVersion = source["contextVersion"];
+	        this.expiresAt = this.convertValues(source["expiresAt"], null);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ExternalUIContextPublication {
+	    owner: commandbridge.Owner;
+	    connectionId: string;
+	    generation: string;
+	    expectedTargetSnapshotId: string;
+	    expectedContextVersion: string;
+	    target: ExternalUIDestination;
+	
+	    static createFrom(source: any = {}) {
+	        return new ExternalUIContextPublication(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.owner = this.convertValues(source["owner"], commandbridge.Owner);
+	        this.connectionId = source["connectionId"];
+	        this.generation = source["generation"];
+	        this.expectedTargetSnapshotId = source["expectedTargetSnapshotId"];
+	        this.expectedContextVersion = source["expectedContextVersion"];
+	        this.target = this.convertValues(source["target"], ExternalUIDestination);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	export class ExternalUIHandoff {
+	    invocationId: string;
+	    commandId: string;
+	    arguments: number[];
+	    receiptId: string;
+	    targetSnapshotId: string;
+	    contextVersion: string;
+	    target: ExternalUIDestination;
+	
+	    static createFrom(source: any = {}) {
+	        return new ExternalUIHandoff(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.invocationId = source["invocationId"];
+	        this.commandId = source["commandId"];
+	        this.arguments = source["arguments"];
+	        this.receiptId = source["receiptId"];
+	        this.targetSnapshotId = source["targetSnapshotId"];
+	        this.contextVersion = source["contextVersion"];
+	        this.target = this.convertValues(source["target"], ExternalUIDestination);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ExternalUIInvitation {
+	    invitation: string;
+	    // Go type: time
+	    expiresAt: any;
+	
+	    static createFrom(source: any = {}) {
+	        return new ExternalUIInvitation(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.invitation = source["invitation"];
+	        this.expiresAt = this.convertValues(source["expiresAt"], null);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ExternalUILease {
+	    owner: commandbridge.Owner;
+	    connectionId: string;
+	    generation: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ExternalUILease(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.owner = this.convertValues(source["owner"], commandbridge.Owner);
+	        this.connectionId = source["connectionId"];
+	        this.generation = source["generation"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	export class Handoff {
+	    ticket: string;
+	    invocationId: string;
+	    commandId: string;
+	    handoffId: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Handoff(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.ticket = source["ticket"];
+	        this.invocationId = source["invocationId"];
+	        this.commandId = source["commandId"];
+	        this.handoffId = source["handoffId"];
+	    }
+	}
+	export class Reservation {
+	    ticket: string;
+	    invocationId: string;
+	    commandId: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Reservation(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.ticket = source["ticket"];
+	        this.invocationId = source["invocationId"];
+	        this.commandId = source["commandId"];
+	    }
+	}
 
 }
 
@@ -2075,6 +4267,12 @@ export namespace config {
 	    runs_per_job_keep: number;
 	    chat_tool_calls_retention_days: number;
 	    vacuum_min_free_bytes: number;
+	    command_invocation_retention_days: number;
+	    command_invocations_per_user_keep: number;
+	    command_invocations_system_keep: number;
+	    command_activation_terminal_retention_days: number;
+	    command_activation_terminal_keep_per_user: number;
+	    command_job_activation_lease_seconds: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new MaintenanceSettings(source);
@@ -2086,6 +4284,12 @@ export namespace config {
 	        this.runs_per_job_keep = source["runs_per_job_keep"];
 	        this.chat_tool_calls_retention_days = source["chat_tool_calls_retention_days"];
 	        this.vacuum_min_free_bytes = source["vacuum_min_free_bytes"];
+	        this.command_invocation_retention_days = source["command_invocation_retention_days"];
+	        this.command_invocations_per_user_keep = source["command_invocations_per_user_keep"];
+	        this.command_invocations_system_keep = source["command_invocations_system_keep"];
+	        this.command_activation_terminal_retention_days = source["command_activation_terminal_retention_days"];
+	        this.command_activation_terminal_keep_per_user = source["command_activation_terminal_keep_per_user"];
+	        this.command_job_activation_lease_seconds = source["command_job_activation_lease_seconds"];
 	    }
 	}
 
@@ -2184,6 +4388,134 @@ export namespace controllers {
 
 export namespace credentials {
 	
+	export class ManagedCredentialSummary {
+	    id: string;
+	    pattern: string;
+	    source: string;
+	    integration: string;
+	    consumerId: string;
+	    state: string;
+	    unreadable: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new ManagedCredentialSummary(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.pattern = source["pattern"];
+	        this.source = source["source"];
+	        this.integration = source["integration"];
+	        this.consumerId = source["consumerId"];
+	        this.state = source["state"];
+	        this.unreadable = source["unreadable"];
+	    }
+	}
+	export class OAuthSnapshotInfo {
+	    id: string;
+	    consumerId: string;
+	    name: string;
+	    // Go type: time
+	    createdAt: any;
+	    // Go type: time
+	    retainUntil: any;
+	    location: string;
+	    expired: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new OAuthSnapshotInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.consumerId = source["consumerId"];
+	        this.name = source["name"];
+	        this.createdAt = this.convertValues(source["createdAt"], null);
+	        this.retainUntil = this.convertValues(source["retainUntil"], null);
+	        this.location = source["location"];
+	        this.expired = source["expired"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class OAuthSourceConfig {
+	    issuer: string;
+	    clientId: string;
+	    scopes?: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new OAuthSourceConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.issuer = source["issuer"];
+	        this.clientId = source["clientId"];
+	        this.scopes = source["scopes"];
+	    }
+	}
+	export class SourceConfig {
+	    env?: string;
+	    keyringTarget?: string;
+	    keyringService?: string;
+	    keyringUser?: string;
+	    command?: string;
+	    args?: string[];
+	    timeoutSeconds?: number;
+	    oauth?: OAuthSourceConfig;
+	
+	    static createFrom(source: any = {}) {
+	        return new SourceConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.env = source["env"];
+	        this.keyringTarget = source["keyringTarget"];
+	        this.keyringService = source["keyringService"];
+	        this.keyringUser = source["keyringUser"];
+	        this.command = source["command"];
+	        this.args = source["args"];
+	        this.timeoutSeconds = source["timeoutSeconds"];
+	        this.oauth = this.convertValues(source["oauth"], OAuthSourceConfig);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class VaultIntegrityStatus {
 	    hasKeyringDEK: boolean;
 	    hasMasterWrap: boolean;
@@ -2228,8 +4560,6 @@ export namespace database {
 	    media?: string;
 	    audio?: string;
 	    audioMimeType?: string;
-	    toolCalls?: string;
-	    toolCallId?: string;
 	    promptTokens?: number;
 	    completionTokens?: number;
 	    totalTokens?: number;
@@ -2258,8 +4588,6 @@ export namespace database {
 	        this.media = source["media"];
 	        this.audio = source["audio"];
 	        this.audioMimeType = source["audioMimeType"];
-	        this.toolCalls = source["toolCalls"];
-	        this.toolCallId = source["toolCallId"];
 	        this.promptTokens = source["promptTokens"];
 	        this.completionTokens = source["completionTokens"];
 	        this.totalTokens = source["totalTokens"];
@@ -2742,6 +5070,7 @@ export namespace database {
 	    conversation_id?: string;
 	    workflow?: TaskListWorkflow;
 	    tasks?: Task[];
+	    task_count: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new TaskList(source);
@@ -2762,6 +5091,7 @@ export namespace database {
 	        this.conversation_id = source["conversation_id"];
 	        this.workflow = this.convertValues(source["workflow"], TaskListWorkflow);
 	        this.tasks = this.convertValues(source["tasks"], Task);
+	        this.task_count = source["task_count"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -2910,7 +5240,80 @@ export namespace database {
 	        this.icon = source["icon"];
 	    }
 	}
+	export class TaskListWorkflowSnapshot {
+	    statuses: TaskListWorkflowStatus[];
+	    transitions: Record<number, Array<number>>;
+	    initialStatusId: number;
 	
+	    static createFrom(source: any = {}) {
+	        return new TaskListWorkflowSnapshot(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.statuses = this.convertValues(source["statuses"], TaskListWorkflowStatus);
+	        this.transitions = source["transitions"];
+	        this.initialStatusId = source["initialStatusId"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	
+	export class TaskPage {
+	    task_list: TaskList;
+	    tasks: Task[];
+	    next_cursor?: string;
+	    has_more: boolean;
+	    total_count: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new TaskPage(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.task_list = this.convertValues(source["task_list"], TaskList);
+	        this.tasks = this.convertValues(source["tasks"], Task);
+	        this.next_cursor = source["next_cursor"];
+	        this.has_more = source["has_more"];
+	        this.total_count = source["total_count"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class User {
 	    id: string;
 	    // Go type: time
@@ -2938,6 +5341,105 @@ export namespace database {
 	        this.role = source["role"];
 	        this.isActive = source["isActive"];
 	        this.lastLoginAt = this.convertValues(source["lastLoginAt"], null);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+
+}
+
+export namespace hotkey {
+	
+	export class OwnershipCombination {
+	    key: number;
+	    modifiers: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new OwnershipCombination(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.key = source["key"];
+	        this.modifiers = source["modifiers"];
+	    }
+	}
+	export class OwnershipFrame {
+	    version: number;
+	    instanceId: string;
+	    revision: number;
+	    platform: string;
+	    combinations: OwnershipCombination[];
+	
+	    static createFrom(source: any = {}) {
+	        return new OwnershipFrame(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.version = source["version"];
+	        this.instanceId = source["instanceId"];
+	        this.revision = source["revision"];
+	        this.platform = source["platform"];
+	        this.combinations = this.convertValues(source["combinations"], OwnershipCombination);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+
+}
+
+export namespace jobprofilegrant {
+	
+	export class Grant {
+	    jobId: string;
+	    targetProfileSlug: string;
+	    delegationFingerprint: string;
+	    // Go type: time
+	    grantedAt: any;
+	
+	    static createFrom(source: any = {}) {
+	        return new Grant(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.jobId = source["jobId"];
+	        this.targetProfileSlug = source["targetProfileSlug"];
+	        this.delegationFingerprint = source["delegationFingerprint"];
+	        this.grantedAt = this.convertValues(source["grantedAt"], null);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -3059,6 +5561,8 @@ export namespace jobs {
 	    trigger: TriggerInfo;
 	    status: string;
 	    // Go type: time
+	    queued_at: any;
+	    // Go type: time
 	    started_at: any;
 	    // Go type: time
 	    completed_at?: any;
@@ -3083,6 +5587,7 @@ export namespace jobs {
 	        this.tool_name = source["tool_name"];
 	        this.trigger = this.convertValues(source["trigger"], TriggerInfo);
 	        this.status = source["status"];
+	        this.queued_at = this.convertValues(source["queued_at"], null);
 	        this.started_at = this.convertValues(source["started_at"], null);
 	        this.completed_at = this.convertValues(source["completed_at"], null);
 	        this.duration = source["duration"];
@@ -3519,6 +6024,76 @@ export namespace jobs {
 		    return a;
 		}
 	}
+	export class RunDetail {
+	    run_id: string;
+	    job_id: string;
+	    tool_name?: string;
+	    trigger: TriggerInfo;
+	    status: string;
+	    // Go type: time
+	    queued_at: any;
+	    // Go type: time
+	    started_at: any;
+	    // Go type: time
+	    completed_at?: any;
+	    duration?: string;
+	    resolved_inputs?: Record<string, any>;
+	    output?: Record<string, any>;
+	    output_size?: number;
+	    error?: string;
+	    retry_count?: number;
+	    events_emitted?: string[];
+	    is_dry_run?: boolean;
+	    replayable: boolean;
+	    run_events: RunEvent[];
+	    domain_events: EventEntry[];
+	
+	    static createFrom(source: any = {}) {
+	        return new RunDetail(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.run_id = source["run_id"];
+	        this.job_id = source["job_id"];
+	        this.tool_name = source["tool_name"];
+	        this.trigger = this.convertValues(source["trigger"], TriggerInfo);
+	        this.status = source["status"];
+	        this.queued_at = this.convertValues(source["queued_at"], null);
+	        this.started_at = this.convertValues(source["started_at"], null);
+	        this.completed_at = this.convertValues(source["completed_at"], null);
+	        this.duration = source["duration"];
+	        this.resolved_inputs = source["resolved_inputs"];
+	        this.output = source["output"];
+	        this.output_size = source["output_size"];
+	        this.error = source["error"];
+	        this.retry_count = source["retry_count"];
+	        this.events_emitted = source["events_emitted"];
+	        this.is_dry_run = source["is_dry_run"];
+	        this.replayable = source["replayable"];
+	        this.run_events = this.convertValues(source["run_events"], RunEvent);
+	        this.domain_events = this.convertValues(source["domain_events"], EventEntry);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
 	
 	export class TestToolResult {
 	    success: boolean;
@@ -3554,7 +6129,22 @@ export namespace jobs {
 
 export namespace llm {
 	
+	export class ChatCommandMetadata {
+	    ticket: string;
+	    handoffId: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ChatCommandMetadata(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.ticket = source["ticket"];
+	        this.handoffId = source["handoffId"];
+	    }
+	}
 	export class ChatParams {
+	    command?: ChatCommandMetadata;
 	    model: string;
 	    maxTokens: number;
 	    maxTokensMode?: string;
@@ -3573,6 +6163,7 @@ export namespace llm {
 	    surfaceStateJson?: string;
 	    surfaceContextJson?: string;
 	    surfaceSessionKey?: string;
+	    surfaceExecutionId?: string;
 	    surfaceId?: string;
 	    surfaceType?: string;
 	    surfaceTabId?: string;
@@ -3583,6 +6174,7 @@ export namespace llm {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.command = this.convertValues(source["command"], ChatCommandMetadata);
 	        this.model = source["model"];
 	        this.maxTokens = source["maxTokens"];
 	        this.maxTokensMode = source["maxTokensMode"];
@@ -3601,10 +6193,29 @@ export namespace llm {
 	        this.surfaceStateJson = source["surfaceStateJson"];
 	        this.surfaceContextJson = source["surfaceContextJson"];
 	        this.surfaceSessionKey = source["surfaceSessionKey"];
+	        this.surfaceExecutionId = source["surfaceExecutionId"];
 	        this.surfaceId = source["surfaceId"];
 	        this.surfaceType = source["surfaceType"];
 	        this.surfaceTabId = source["surfaceTabId"];
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class DebugDumpConfig {
 	    Enabled: boolean;
@@ -3661,6 +6272,7 @@ export namespace llm {
 	    }
 	}
 	export class ModelCatalog {
+	    usesChatGPTPlan: boolean;
 	    models: ModelOption[];
 	    agent: boolean;
 	
@@ -3670,6 +6282,7 @@ export namespace llm {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.usesChatGPTPlan = source["usesChatGPTPlan"];
 	        this.models = this.convertValues(source["models"], ModelOption);
 	        this.agent = source["agent"];
 	    }
@@ -4030,6 +6643,24 @@ export namespace mcp {
 		    return a;
 		}
 	}
+	export class OAuthInventoryItem {
+	    id: string;
+	    name: string;
+	    kind: string;
+	    issues: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new OAuthInventoryItem(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.kind = source["kind"];
+	        this.issues = source["issues"];
+	    }
+	}
 	export class Root {
 	    uri: string;
 	    name?: string;
@@ -4045,6 +6676,8 @@ export namespace mcp {
 	    }
 	}
 	export class ServerConfig {
+	    oauth2_client_method?: string;
+	    oauth2_token_auth_method?: string;
 	    id?: string;
 	    user_id?: string;
 	    slug?: string;
@@ -4056,6 +6689,8 @@ export namespace mcp {
 	    env?: Record<string, string>;
 	    url?: string;
 	    auth_type?: string;
+	    oauth_managed?: boolean;
+	    oauth_authorization_id?: string;
 	    oauth2_client_id?: string;
 	    oauth2_auth_url?: string;
 	    oauth2_token_url?: string;
@@ -4075,6 +6710,8 @@ export namespace mcp {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.oauth2_client_method = source["oauth2_client_method"];
+	        this.oauth2_token_auth_method = source["oauth2_token_auth_method"];
 	        this.id = source["id"];
 	        this.user_id = source["user_id"];
 	        this.slug = source["slug"];
@@ -4086,6 +6723,8 @@ export namespace mcp {
 	        this.env = source["env"];
 	        this.url = source["url"];
 	        this.auth_type = source["auth_type"];
+	        this.oauth_managed = source["oauth_managed"];
+	        this.oauth_authorization_id = source["oauth_authorization_id"];
 	        this.oauth2_client_id = source["oauth2_client_id"];
 	        this.oauth2_auth_url = source["oauth2_auth_url"];
 	        this.oauth2_token_url = source["oauth2_token_url"];
@@ -4107,6 +6746,7 @@ export namespace mcp {
 	    description?: string;
 	    transport: string;
 	    status: string;
+	    authType?: string;
 	    error?: string;
 	    toolCount: number;
 	    tools: MCPToolInfo[];
@@ -4116,6 +6756,7 @@ export namespace mcp {
 	    prompts: MCPPromptInfo[];
 	    enabled: boolean;
 	    autoConnect: boolean;
+	    needsReauth: boolean;
 	    connectedAt?: string;
 	    lastPing?: string;
 	    command?: string;
@@ -4134,6 +6775,7 @@ export namespace mcp {
 	        this.description = source["description"];
 	        this.transport = source["transport"];
 	        this.status = source["status"];
+	        this.authType = source["authType"];
 	        this.error = source["error"];
 	        this.toolCount = source["toolCount"];
 	        this.tools = this.convertValues(source["tools"], MCPToolInfo);
@@ -4143,6 +6785,7 @@ export namespace mcp {
 	        this.prompts = this.convertValues(source["prompts"], MCPPromptInfo);
 	        this.enabled = source["enabled"];
 	        this.autoConnect = source["autoConnect"];
+	        this.needsReauth = source["needsReauth"];
 	        this.connectedAt = source["connectedAt"];
 	        this.lastPing = source["lastPing"];
 	        this.command = source["command"];
@@ -4309,6 +6952,31 @@ export namespace memory {
 
 }
 
+export namespace oauthflow {
+	
+	export class Summary {
+	    id: string;
+	    integration: string;
+	    state: string;
+	    email?: string;
+	    hasRefreshToken: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new Summary(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.integration = source["integration"];
+	        this.state = source["state"];
+	        this.email = source["email"];
+	        this.hasRefreshToken = source["hasRefreshToken"];
+	    }
+	}
+
+}
+
 export namespace portability {
 	
 	export class ContentExportOptions {
@@ -4339,9 +7007,11 @@ export namespace portability {
 	    jobIds?: string[];
 	    taskListIds?: string[];
 	    memoryRecordIds?: string[];
+	    commandLayerIds?: string[];
 	    channelNames?: string[];
 	    includeContacts: boolean;
 	    includeWorkspace: boolean;
+	    includeCommandLayers: boolean;
 	    includeAudio: boolean;
 	    includeCredentials: boolean;
 	    credentialExportPassword?: string;
@@ -4367,9 +7037,11 @@ export namespace portability {
 	        this.jobIds = source["jobIds"];
 	        this.taskListIds = source["taskListIds"];
 	        this.memoryRecordIds = source["memoryRecordIds"];
+	        this.commandLayerIds = source["commandLayerIds"];
 	        this.channelNames = source["channelNames"];
 	        this.includeContacts = source["includeContacts"];
 	        this.includeWorkspace = source["includeWorkspace"];
+	        this.includeCommandLayers = source["includeCommandLayers"];
 	        this.includeAudio = source["includeAudio"];
 	        this.includeCredentials = source["includeCredentials"];
 	        this.credentialExportPassword = source["credentialExportPassword"];
@@ -4442,6 +7114,7 @@ export namespace portability {
 	    taskCount: number;
 	    taskNoteCount: number;
 	    memoryRecordCount: number;
+	    commandLayerCount: number;
 	    includesCredentials: boolean;
 	    requiresCredentialPassword: boolean;
 	    credentialCount: number;
@@ -4471,6 +7144,7 @@ export namespace portability {
 	        this.taskCount = source["taskCount"];
 	        this.taskNoteCount = source["taskNoteCount"];
 	        this.memoryRecordCount = source["memoryRecordCount"];
+	        this.commandLayerCount = source["commandLayerCount"];
 	        this.includesCredentials = source["includesCredentials"];
 	        this.requiresCredentialPassword = source["requiresCredentialPassword"];
 	        this.credentialCount = source["credentialCount"];
@@ -4595,6 +7269,53 @@ export namespace portability {
 	        this.warnings = this.convertValues(source["warnings"], LocalizedMessage);
 	        this.errors = this.convertValues(source["errors"], LocalizedMessage);
 	        this.message = source["message"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+
+}
+
+export namespace profileaccess {
+	
+	export class JobGrantState {
+	    jobId: string;
+	    jobSlug: string;
+	    jobName: string;
+	    profileExpression: string;
+	    fingerprint: string;
+	    dynamic: boolean;
+	    grants: jobprofilegrant.Grant[];
+	
+	    static createFrom(source: any = {}) {
+	        return new JobGrantState(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.jobId = source["jobId"];
+	        this.jobSlug = source["jobSlug"];
+	        this.jobName = source["jobName"];
+	        this.profileExpression = source["profileExpression"];
+	        this.fingerprint = source["fingerprint"];
+	        this.dynamic = source["dynamic"];
+	        this.grants = this.convertValues(source["grants"], jobprofilegrant.Grant);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -5988,6 +8709,92 @@ export namespace terminal {
 
 }
 
+export namespace toolinvocations {
+	
+	export class Detail {
+	    invocationId: string;
+	    callId: string;
+	    name: string;
+	    displayName?: string;
+	    origin?: string;
+	    status: string;
+	    attempt: number;
+	    dryRun: boolean;
+	    input?: string;
+	    output?: string;
+	    metadata?: string;
+	    inputBytes?: number;
+	    outputBytes?: number;
+	    inputHash?: string;
+	    outputHash?: string;
+	    resultAvailability: string;
+	    errorKind?: string;
+	    errorCode?: string;
+	    errorMessage?: string;
+	    retryable: boolean;
+	    retryabilityKnown: boolean;
+	    // Go type: time
+	    queuedAt: any;
+	    // Go type: time
+	    startedAt?: any;
+	    // Go type: time
+	    completedAt?: any;
+	    durationMs?: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new Detail(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.invocationId = source["invocationId"];
+	        this.callId = source["callId"];
+	        this.name = source["name"];
+	        this.displayName = source["displayName"];
+	        this.origin = source["origin"];
+	        this.status = source["status"];
+	        this.attempt = source["attempt"];
+	        this.dryRun = source["dryRun"];
+	        this.input = source["input"];
+	        this.output = source["output"];
+	        this.metadata = source["metadata"];
+	        this.inputBytes = source["inputBytes"];
+	        this.outputBytes = source["outputBytes"];
+	        this.inputHash = source["inputHash"];
+	        this.outputHash = source["outputHash"];
+	        this.resultAvailability = source["resultAvailability"];
+	        this.errorKind = source["errorKind"];
+	        this.errorCode = source["errorCode"];
+	        this.errorMessage = source["errorMessage"];
+	        this.retryable = source["retryable"];
+	        this.retryabilityKnown = source["retryabilityKnown"];
+	        this.queuedAt = this.convertValues(source["queuedAt"], null);
+	        this.startedAt = this.convertValues(source["startedAt"], null);
+	        this.completedAt = this.convertValues(source["completedAt"], null);
+	        this.durationMs = source["durationMs"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+
+}
+
 export namespace updater {
 	
 	export class UpdateInfo {
@@ -6029,6 +8836,26 @@ export namespace wailsapi {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.above = source["above"];
 	        this.percentage = source["percentage"];
+	    }
+	}
+	export class SaveJobResult {
+	    jobId: string;
+	    authorizationRequired: boolean;
+	    requestedEnabled: boolean;
+	    targetProfileSlug?: string;
+	    dynamicProfile: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new SaveJobResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.jobId = source["jobId"];
+	        this.authorizationRequired = source["authorizationRequired"];
+	        this.requestedEnabled = source["requestedEnabled"];
+	        this.targetProfileSlug = source["targetProfileSlug"];
+	        this.dynamicProfile = source["dynamicProfile"];
 	    }
 	}
 
@@ -6103,6 +8930,8 @@ export namespace workspace {
 	    // Go type: time
 	    last_used: any;
 	    tabs: TabsState;
+	    snapshot_epoch: string;
+	    snapshot_sequence: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new Workspace(source);
@@ -6116,6 +8945,8 @@ export namespace workspace {
 	        this.created_at = this.convertValues(source["created_at"], null);
 	        this.last_used = this.convertValues(source["last_used"], null);
 	        this.tabs = this.convertValues(source["tabs"], TabsState);
+	        this.snapshot_epoch = source["snapshot_epoch"];
+	        this.snapshot_sequence = source["snapshot_sequence"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

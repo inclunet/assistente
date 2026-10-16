@@ -135,7 +135,7 @@ func TestLoadUserTokens_RespectsUserScopedCtx(t *testing.T) {
 		true,
 	)
 	userCtx := database.WithUserID(context.Background(), "user-1")
-	if err := credMgr.RegisterPatternWithContext(userCtx, userTokensPattern("test"), &credentials.AuthConfig{
+	if err := credMgr.RegisterPatternWithContext(userCtx, userTokensPattern("test"), &credentials.AuthConfig{Source: "static",
 		Type:       "oauth2",
 		Token:      "user-1-access-token",
 		RefreshURL: "user-1-refresh",

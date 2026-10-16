@@ -19,6 +19,22 @@ func finishInfoWithToolCalls(info FinishInfo, toolCallCount int) FinishInfo {
 	return info
 }
 
+// finishInfoWithDiagnostics acrescenta metadados não sensíveis conhecidos pelo
+// transporte. OutputLimit é zero quando o request deixou o provider aplicar o
+// próprio default; ResponseBytes mede apenas o texto visível, nunca seu conteúdo.
+func finishInfoWithDiagnostics(info FinishInfo, provider *ProviderConfig, model string, outputLimit, responseBytes int) FinishInfo {
+	if provider != nil {
+		info.Provider = strings.TrimSpace(provider.ID)
+		if info.Provider == "" {
+			info.Provider = strings.TrimSpace(provider.Name)
+		}
+	}
+	info.Model = strings.TrimSpace(model)
+	info.OutputLimit = outputLimit
+	info.ResponseBytes = responseBytes
+	return info
+}
+
 func normalizeOpenAIChatFinishReason(raw string) FinishInfo {
 	switch normalized := strings.ToLower(strings.TrimSpace(raw)); normalized {
 	case "":

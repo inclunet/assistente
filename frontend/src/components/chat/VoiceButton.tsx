@@ -56,6 +56,7 @@ export const VoiceButton: React.FC<VoiceButtonProps> = ({
   const interimAnnounceTimeoutRef = useRef<number | null>(null);
   const pendingInterimMessageRef = useRef('');
   const lastAnnouncedInterimRef = useRef('');
+  const hotkeyToggleRef = useRef<(bringToFront: boolean) => void>();
 
   // Cascata de perfil: tab.profileOverride.slug → workspace.profile → null (global)
   const workspace = useWorkspaceStore((s) => s.workspace);
@@ -85,6 +86,10 @@ export const VoiceButton: React.FC<VoiceButtonProps> = ({
     isWakewordListening,
   } = useInteractionProfile({
     effectiveProfileSlug,
+    isHotkeyEligible: () => !disabled && isPanelActive,
+    onHotkeyToggle: (event) => {
+      hotkeyToggleRef.current?.(event.bringToFront);
+    },
     onTranscription: (text, _provider) => {
       finishSTTSession(voiceOrigin);
       onTranscription(text);
@@ -218,6 +223,8 @@ export const VoiceButton: React.FC<VoiceButtonProps> = ({
     if (!requestSTTStart({ origin: voiceOrigin, cancel: cancelInteraction })) return;
     toggleInteraction();
   }, [cancelInteraction, isActive, isListeningState, toggleInteraction, voiceOrigin]);
+
+  hotkeyToggleRef.current = toggleInteractionWithGate;
 
   // === Handlers para modo PTT ===
   

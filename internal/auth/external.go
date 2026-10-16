@@ -25,6 +25,7 @@ type ExternalClaims struct {
 	Issuer    string   `json:"iss"`
 	Audience  audience `json:"aud"`
 	Subject   string   `json:"sub"`
+	JTI       string   `json:"jti,omitempty"`
 	IssuedAt  int64    `json:"iat"`
 	ExpiresAt int64    `json:"exp"`
 	Scope     string   `json:"scope,omitempty"`

@@ -2,6 +2,11 @@ package llm
 
 import (
 	"context"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync"
 	"testing"
 
 	"assistente/internal/credentials"
@@ -520,5 +525,121 @@ func TestMCPToolEvent_MultipleServers(t *testing.T) {
 	}
 	if !servers["Atlassian"] || !servers["Slack"] {
 		t.Errorf("servidores rastreados: %v", servers)
+	}
+}
+
+func TestTruncateMCPError(t *testing.T) {
+	if got := truncateMCPError("  erro simples  "); got != "erro simples" {
+		t.Fatalf("truncateMCPError não normalizou espaços: %q", got)
+	}
+	long := strings.Repeat("x", mcpErrorLogMaxLen+50)
+	got := truncateMCPError(long)
+	if !strings.HasSuffix(got, "… (truncado)") {
+		t.Fatalf("erro longo deveria terminar com marcador de truncamento: %q", got)
+	}
+	// O prefixo preservado nunca deve exceder o limite configurado.
+	prefix := strings.TrimSuffix(got, "… (truncado)")
+	if len(prefix) > mcpErrorLogMaxLen {
+		t.Fatalf("prefixo truncado excedeu o limite: len=%d", len(prefix))
+	}
+}
+
+func TestMcpFailureLogFields(t *testing.T) {
+	got := mcpFailureLogFields("Atlassian", "getJiraIssue", "cloudId ausente ou inválido")
+	for _, want := range []string{`server="Atlassian"`, `tool="getJiraIssue"`, "cloudId ausente ou inválido"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("campo ausente %q em %q", want, got)
+		}
+	}
+}
+
+// logCaptureHandler captura registros slog emitidos durante o stream para
+// asserções de nível e conteúdo.
+type logCaptureHandler struct {
+	mu      sync.Mutex
+	records []slog.Record
+}
+
+func (*logCaptureHandler) Enabled(context.Context, slog.Level) bool { return true }
+func (h *logCaptureHandler) Handle(_ context.Context, r slog.Record) error {
+	h.mu.Lock()
+	h.records = append(h.records, r.Clone())
+	h.mu.Unlock()
+	return nil
+}
+func (h *logCaptureHandler) WithAttrs([]slog.Attr) slog.Handler { return h }
+func (h *logCaptureHandler) WithGroup(string) slog.Handler      { return h }
+func (h *logCaptureHandler) find(level slog.Level, substr string) *slog.Record {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for i := range h.records {
+		if h.records[i].Level == level && strings.Contains(h.records[i].Message, substr) {
+			rec := h.records[i]
+			return &rec
+		}
+	}
+	return nil
+}
+
+// TestOpenAIResponsesLogsNativeMCPCallError garante que, ao processar um
+// output item mcp_call com o campo error preenchido, o provider (1) preserva o
+// erro no MCPToolEvent e (2) o loga em ERRO com server_label, nome da tool e o
+// texto do erro — tornando a causa diagnosticável sem correlação manual.
+func TestOpenAIResponsesLogsNativeMCPCallError(t *testing.T) {
+	const stream = "event: response.output_item.added\n" +
+		`data: {"type":"response.output_item.added","sequence_number":1,"output_index":0,"item":{"id":"mcp_1","type":"mcp_call","name":"getJiraIssue","server_label":"Atlassian"}}` + "\n\n" +
+		"event: response.output_item.done\n" +
+		`data: {"type":"response.output_item.done","sequence_number":2,"output_index":0,"item":{"id":"mcp_1","type":"mcp_call","name":"getJiraIssue","server_label":"Atlassian","error":"cloudId ausente ou inválido"}}` + "\n\n" +
+		"event: response.completed\n" +
+		`data: {"type":"response.completed","sequence_number":3,"response":{"id":"resp_1","object":"response","created_at":1,"status":"completed","model":"gpt-test","output":[]}}` + "\n\n"
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(stream))
+	}))
+	defer server.Close()
+
+	logHandler := &logCaptureHandler{}
+	oldLogger := slog.Default()
+	slog.SetDefault(slog.New(logHandler))
+	defer slog.SetDefault(oldLogger)
+
+	provider := NewOpenAIResponsesProvider(&ProviderConfig{
+		ID:           "responses-mcp-error",
+		Name:         "Responses MCP Error",
+		BaseURL:      server.URL + "/v1",
+		APIFormat:    APIFormatOpenAIResponses,
+		AuthMode:     AuthModeNone,
+		DefaultModel: "gpt-test",
+	}, credentials.NewManager(nil))
+
+	handler := &mcpTrackingHandler{}
+	provider.StreamChat(t.Context(), []Message{{Role: "user", Content: "oi"}},
+		ChatParams{Model: "gpt-test"}, handler)
+
+	var completed *MCPToolEvent
+	for i := range handler.events {
+		if handler.events[i].IsCompleted {
+			completed = &handler.events[i]
+		}
+	}
+	if completed == nil {
+		t.Fatal("nenhum evento MCP concluído foi capturado")
+	}
+	if completed.Error != "cloudId ausente ou inválido" {
+		t.Fatalf("erro do output item não parseado: %q", completed.Error)
+	}
+	if completed.ServerLabel != "Atlassian" || completed.Name != "getJiraIssue" {
+		t.Fatalf("metadados do mcp_call incorretos: %+v", completed)
+	}
+
+	rec := logHandler.find(slog.LevelError, "MCP native call FAILED")
+	if rec == nil {
+		t.Fatal("log de ERRO com o motivo da falha MCP nativa não encontrado")
+	}
+	for _, want := range []string{`server="Atlassian"`, `tool="getJiraIssue"`, "cloudId ausente ou inválido"} {
+		if !strings.Contains(rec.Message, want) {
+			t.Fatalf("log de falha não contém %q: %q", want, rec.Message)
+		}
 	}
 }

@@ -6,12 +6,20 @@ export function DeleteCredential(arg1) {
   return window['go']['wailsapi']['Credentials']['DeleteCredential'](arg1);
 }
 
+export function GetCredentialForURL(arg1) {
+  return window['go']['wailsapi']['Credentials']['GetCredentialForURL'](arg1);
+}
+
 export function ListCredentials() {
   return window['go']['wailsapi']['Credentials']['ListCredentials']();
 }
 
 export function ListExternalSources(arg1) {
   return window['go']['wailsapi']['Credentials']['ListExternalSources'](arg1);
+}
+
+export function ListManagedCredentials() {
+  return window['go']['wailsapi']['Credentials']['ListManagedCredentials']();
 }
 
 export function UpsertCredential(arg1) {

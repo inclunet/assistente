@@ -109,6 +109,10 @@ func newOpenAIProviderBase(provider *ProviderConfig, credMgr *credentials.Manage
 		streamOpts = append(streamOpts, option.WithAPIKey(""))
 	}
 
+	if provider.Type == ProviderChatGPT {
+		opts = append(opts, option.WithMaxRetries(0))
+		streamOpts = append(streamOpts, option.WithMaxRetries(0))
+	}
 	client := openai.NewClient(opts...)
 	streamClient := openai.NewClient(streamOpts...)
 
@@ -126,7 +130,7 @@ func newOpenAIProviderBase(provider *ProviderConfig, credMgr *credentials.Manage
 // carrega MCP nativo no wire. Esta é a única dimensão de provider que influencia
 // MCP nativo; a decisão de USAR nativo é por perfil (ResolveNativeMCPEnabled).
 func (p *OpenAIProvider) NativeMCPCapable() bool {
-	return p.useResponses
+	return p.useResponses && p.provider.Type != ProviderChatGPT
 }
 
 // ReplaysReasoningContent informa se o histórico enviado a este provider carrega

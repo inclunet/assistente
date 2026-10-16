@@ -3,6 +3,8 @@ package config
 import (
 	"assistente/internal/configdir"
 	"encoding/json"
+	"errors"
+	"os"
 	"sync"
 )
 
@@ -16,10 +18,16 @@ const configFilename = "config.json"
 
 // Defaults da política de manutenção do banco (AEP-0074).
 const (
-	DefaultJobRetentionHours          = 24                // dados de jobs são efêmeros
-	DefaultRunsPerJobKeep             = 200               // teto de runs por job
-	DefaultChatToolCallsRetentionDays = 0                 // 0 = vinculado à conversa (sem expiração)
-	DefaultVacuumMinFreeBytes         = 16 * 1024 * 1024  // 16 MiB de freelist para VACUUM completo
+	DefaultJobRetentionHours                      = 24               // dados de jobs são efêmeros
+	DefaultRunsPerJobKeep                         = 200              // teto de runs por job
+	DefaultChatToolCallsRetentionDays             = 0                // 0 = vinculado à conversa (sem expiração)
+	DefaultVacuumMinFreeBytes                     = 16 * 1024 * 1024 // 16 MiB de freelist para VACUUM completo
+	DefaultCommandInvocationRetentionDays         = 30               // auditoria detalhada de invocações
+	DefaultCommandInvocationsPerUserKeep          = 10000            // auditoria detalhada por usuário
+	DefaultCommandInvocationsSystemKeep           = 1000             // auditoria detalhada system
+	DefaultCommandActivationTerminalRetentionDays = 30               // ativações terminais
+	DefaultCommandActivationTerminalKeepPerUser   = 10000            // ativações terminais por usuário
+	DefaultCommandJobActivationLeaseSeconds       = 180              // lease de ativação de job
 )
 
 // MaintenanceSettings controla a retenção e a compactação do banco (AEP-0074).
@@ -33,19 +41,31 @@ const (
 //     expiram por tempo (ChatToolCallsRetentionDays=0); só saem quando a conversa
 //     é deletada. Um valor > 0 ativa um cap de idade opcional.
 type MaintenanceSettings struct {
-	JobRetentionHours          int   `json:"job_retention_hours"`
-	RunsPerJobKeep             int   `json:"runs_per_job_keep"`
-	ChatToolCallsRetentionDays int   `json:"chat_tool_calls_retention_days"`
-	VacuumMinFreeBytes         int64 `json:"vacuum_min_free_bytes"`
+	JobRetentionHours                      int   `json:"job_retention_hours"`
+	RunsPerJobKeep                         int   `json:"runs_per_job_keep"`
+	ChatToolCallsRetentionDays             int   `json:"chat_tool_calls_retention_days"`
+	VacuumMinFreeBytes                     int64 `json:"vacuum_min_free_bytes"`
+	CommandInvocationRetentionDays         int   `json:"command_invocation_retention_days"`
+	CommandInvocationsPerUserKeep          int   `json:"command_invocations_per_user_keep"`
+	CommandInvocationsSystemKeep           int   `json:"command_invocations_system_keep"`
+	CommandActivationTerminalRetentionDays int   `json:"command_activation_terminal_retention_days"`
+	CommandActivationTerminalKeepPerUser   int   `json:"command_activation_terminal_keep_per_user"`
+	CommandJobActivationLeaseSeconds       int   `json:"command_job_activation_lease_seconds"`
 }
 
 // DefaultMaintenanceSettings retorna a política padrão.
 func DefaultMaintenanceSettings() MaintenanceSettings {
 	return MaintenanceSettings{
-		JobRetentionHours:          DefaultJobRetentionHours,
-		RunsPerJobKeep:             DefaultRunsPerJobKeep,
-		ChatToolCallsRetentionDays: DefaultChatToolCallsRetentionDays,
-		VacuumMinFreeBytes:         DefaultVacuumMinFreeBytes,
+		JobRetentionHours:                      DefaultJobRetentionHours,
+		RunsPerJobKeep:                         DefaultRunsPerJobKeep,
+		ChatToolCallsRetentionDays:             DefaultChatToolCallsRetentionDays,
+		VacuumMinFreeBytes:                     DefaultVacuumMinFreeBytes,
+		CommandInvocationRetentionDays:         DefaultCommandInvocationRetentionDays,
+		CommandInvocationsPerUserKeep:          DefaultCommandInvocationsPerUserKeep,
+		CommandInvocationsSystemKeep:           DefaultCommandInvocationsSystemKeep,
+		CommandActivationTerminalRetentionDays: DefaultCommandActivationTerminalRetentionDays,
+		CommandActivationTerminalKeepPerUser:   DefaultCommandActivationTerminalKeepPerUser,
+		CommandJobActivationLeaseSeconds:       DefaultCommandJobActivationLeaseSeconds,
 	}
 }
 
@@ -65,6 +85,24 @@ func (m MaintenanceSettings) normalized() MaintenanceSettings {
 	}
 	if out.VacuumMinFreeBytes < 0 {
 		out.VacuumMinFreeBytes = DefaultVacuumMinFreeBytes
+	}
+	if out.CommandInvocationRetentionDays <= 0 {
+		out.CommandInvocationRetentionDays = DefaultCommandInvocationRetentionDays
+	}
+	if out.CommandInvocationsPerUserKeep <= 0 {
+		out.CommandInvocationsPerUserKeep = DefaultCommandInvocationsPerUserKeep
+	}
+	if out.CommandInvocationsSystemKeep <= 0 {
+		out.CommandInvocationsSystemKeep = DefaultCommandInvocationsSystemKeep
+	}
+	if out.CommandActivationTerminalRetentionDays <= 0 {
+		out.CommandActivationTerminalRetentionDays = DefaultCommandActivationTerminalRetentionDays
+	}
+	if out.CommandActivationTerminalKeepPerUser <= 0 {
+		out.CommandActivationTerminalKeepPerUser = DefaultCommandActivationTerminalKeepPerUser
+	}
+	if out.CommandJobActivationLeaseSeconds <= 0 {
+		out.CommandJobActivationLeaseSeconds = DefaultCommandJobActivationLeaseSeconds
 	}
 	return out
 }
@@ -112,6 +150,9 @@ func SaveMaintenance(settings MaintenanceSettings) error {
 func GetConfigPath() (string, error) {
 	resolved, err := rootResolver.Resolve(configFilename)
 	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			return "", err
+		}
 		// Não existe em nenhum diretório — retorna o caminho no home
 		if err := rootResolver.EnsureHomeDir(); err != nil {
 			return "", err
@@ -134,6 +175,9 @@ func Load() (*Config, error) {
 func loadUnsafe() (*Config, error) {
 	data, _, err := rootResolver.Read(configFilename)
 	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			return nil, err
+		}
 		// Arquivo não existe em nenhum diretório — retorna config padrão
 		return DefaultConfig(), nil
 	}

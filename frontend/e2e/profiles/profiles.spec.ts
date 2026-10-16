@@ -18,7 +18,7 @@ test.describe('Perfis — página e listagem', () => {
       context_providers: {},
     };
     await wails.setResponse('GetProfiles', [profile]);
-    await wails.setResponse('GetProfile', profile);
+    await wails.setResponse('ReadProfileCommandTarget', { profile, fingerprint: '0123456789abcdef'.repeat(4) });
     await wails.setResponse('GetActiveProfileSlug', 'default');
     await wails.waitForApp();
 
@@ -46,6 +46,15 @@ test.describe('Perfis — página e listagem', () => {
         tts: {},
         stt: {},
       },
+      {
+        slug: 'coder',
+        name: 'Programador',
+        description: 'Perfil para codificação',
+        source: 'workdir',
+        system_prompt: '',
+        tts: {},
+        stt: {},
+      },
     ]);
     await wails.waitForApp();
 
@@ -54,6 +63,20 @@ test.describe('Perfis — página e listagem', () => {
 
     const grid = page.locator('[role="grid"]');
     await expect(grid).toBeVisible();
+
+    const layout = await page.evaluate(() => {
+      const gridElement = document.querySelector<HTMLElement>('[role="grid"]');
+      const body = gridElement?.querySelector<HTMLElement>('.datagrid-body');
+      const hint = document.querySelector<HTMLElement>('.profiles-empty');
+      return {
+        gridHeight: gridElement?.getBoundingClientRect().height ?? 0,
+        bodyHeight: body?.clientHeight ?? 0,
+        hintHeight: hint?.getBoundingClientRect().height ?? 0,
+      };
+    });
+    expect(layout.gridHeight).toBeGreaterThan(200);
+    expect(layout.bodyHeight).toBeGreaterThan(0);
+    expect(layout.hintHeight).toBeLessThan(200);
   });
 
   test('perfis são listados no grid', async ({ page, wails }) => {

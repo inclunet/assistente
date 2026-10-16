@@ -26,6 +26,8 @@ func setupIntegrationDB(t *testing.T) *gorm.DB {
 	models := []interface{}{
 		&database.Conversation{},
 		&database.ChatMessage{},
+		&database.ToolCatalog{},
+		&database.ToolInvocation{},
 		&database.LLMProvider{},
 		&database.CredentialEntry{},
 	}
@@ -144,15 +146,15 @@ func TestIntegration_CredentialsByDomain(t *testing.T) {
 
 	// Registrar credenciais por domínio
 	testCases := map[string]*credentials.AuthConfig{
-		"*.openai.com": {
+		"*.openai.com": {Source: "static",
 			Type:  "bearer",
 			Token: "sk-openai-test-123",
 		},
-		"*.anthropic.com": {
+		"*.anthropic.com": {Source: "static",
 			Type:  "bearer",
 			Token: "sk-anthropic-test-456",
 		},
-		"localhost": {
+		"localhost": {Source: "static",
 			Type: "none",
 		},
 	}

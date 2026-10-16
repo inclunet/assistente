@@ -71,16 +71,20 @@ type LLMProvider struct {
 	// grava string vazia, que a coluna aceita. Recriar a tabela só para
 	// trocar vazio por NULL custaria o procedimento mais arriscado do banco
 	// sem mudar nada de comportamento.
-	BaseURL           string `gorm:"not null"`
-	Model             string
-	DefaultModel      string
-	IsDefault         bool `gorm:"default:false"`
-	Timeout           int
-	CredentialPattern string
-	AuthMode          string
+	BaseURL                  string `gorm:"not null"`
+	Model                    string
+	DefaultModel             string
+	IsDefault                bool `gorm:"default:false"`
+	Timeout                  int
+	StreamIdleTimeoutSeconds int
+	CredentialPattern        string
+	AuthMode                 string
 	// ReasoningContentMode é capability explícita do wire protocol
 	// (disabled/replay_with_tools), nunca inferida do endpoint.
 	ReasoningContentMode string
+	// CompatibilityRevision invalida fatos de capabilities quando muda a
+	// identidade efetiva da conexão. Não deriva nem persiste dados de segredo.
+	CompatibilityRevision int `gorm:"not null;default:1;check:compatibility_revision > 0"`
 	// ACPCommand, ACPArgs e ACPEnv guardam como subir o agente de código
 	// quando o formato é acp. Mesmo formato de armazenamento do servidor MCP
 	// stdio, que tem o mesmo problema: JSON em texto, porque SQLite não tem
@@ -104,6 +108,32 @@ type LLMProvider struct {
 	ACPAgentID string `gorm:"type:text"`
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
+}
+
+// LLMModel é a identidade remota de um modelo dentro de um provedor.
+type LLMModel struct {
+	UUIDModel
+	ProviderID  string       `gorm:"type:text;not null;uniqueIndex:ux_llm_models_provider_remote" json:"providerId"`
+	RemoteID    string       `gorm:"type:text;not null;uniqueIndex:ux_llm_models_provider_remote" json:"remoteId"`
+	DisplayName string       `gorm:"type:text;not null;default:''" json:"displayName,omitempty"`
+	Provider    *LLMProvider `gorm:"foreignKey:ProviderID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE" json:"-"`
+}
+
+// LLMModelCapability delimita a operação/capability de um modelo.
+type LLMModelCapability struct {
+	UUIDModel
+	ModelID        string `gorm:"type:text;not null;uniqueIndex:ux_llm_model_capabilities_model_code" json:"modelId"`
+	CapabilityCode string `gorm:"type:text;not null;uniqueIndex:ux_llm_model_capabilities_model_code" json:"capabilityCode"`
+}
+
+// LLMModelCapabilityField registra uma restrição atual de campo.
+// A presença da linha significa "não suportado" na revisão indicada.
+type LLMModelCapabilityField struct {
+	CapabilityID          string    `gorm:"type:text;primaryKey" json:"capabilityId"`
+	FieldCode             string    `gorm:"type:text;primaryKey" json:"fieldCode"`
+	CompatibilityRevision int       `gorm:"not null" json:"compatibilityRevision"`
+	RecognizerID          string    `gorm:"type:text;not null" json:"recognizerId"`
+	UpdatedAt             time.Time `gorm:"not null" json:"updatedAt"`
 }
 
 // ACPSession vincula uma conversa do app à sessão que o agente de código mantém
@@ -186,23 +216,20 @@ type Conversation struct {
 //   - ParentID=ID_delegação: mensagem de nível 1 (agente respondendo ao orquestrador)
 //   - ParentID=ID_agente_tool: mensagem de nível 2 (tool respondendo ao agente)
 //
-// Tool Calling:
-//   - TurnID agrupa todas as mensagens de um turno (aponta para o user message que iniciou)
-//   - ToolCalls (JSON) armazena as chamadas de ferramentas solicitadas pelo assistant
-//   - ToolCallID vincula um resultado (role=tool) à chamada correspondente
+// TurnID agrupa mensagens conversacionais de um turno e aponta para a mensagem
+// user que o iniciou. Chamadas e resultados de ferramentas pertencem
+// exclusivamente a ToolInvocation.
 type ChatMessage struct {
 	UUIDModel
 	ConversationID   string  `json:"conversationId" gorm:"index"`
 	ParentID         *string `json:"parentId,omitempty" gorm:"index"` // ID da mensagem pai (define hierarquia)
 	TurnID           *string `json:"turnId,omitempty" gorm:"index"`   // Agrupa mensagens de um turno (aponta para user message)
-	Role             string  `json:"role"`                            // user, assistant, tool, system
+	Role             string  `json:"role"`                            // user, assistant, system
 	Content          string  `json:"content"`
 	Reasoning        string  `json:"reasoning,omitempty"`                         // Reasoning/thinking do modelo (DeepSeek, Claude, o1, etc)
 	Media            string  `json:"media,omitempty"`                             // JSON com mídias (imagens, áudio, etc) em base64
 	Audio            string  `json:"audio,omitempty" gorm:"type:text"`            // Áudio da mensagem em base64 (recebido ou gerado via TTS)
 	AudioMimeType    string  `json:"audioMimeType,omitempty"`                     // MIME do áudio: "audio/mpeg", "audio/aac", etc.
-	ToolCalls        string  `json:"toolCalls,omitempty"`                         // JSON: [{"id":"call_x","type":"function","function":{...}}]
-	ToolCallID       string  `json:"toolCallId,omitempty"`                        // Para role="tool": ID da chamada que este resultado responde
 	PromptTokens     int     `json:"promptTokens,omitempty"`                      // Tokens de entrada
 	CompletionTokens int     `json:"completionTokens,omitempty"`                  // Tokens de saída
 	TotalTokens      int     `json:"totalTokens,omitempty"`                       // Total de tokens
@@ -284,6 +311,11 @@ type MemoryRecord struct {
 // `dedupCredentialEntriesBeforeMigrate` antes do AutoMigrate aplicar o
 // índice (review do AEP-0052, B31).
 type CredentialEntry struct {
+	LegacyOAuthControlEnc string `json:"-" gorm:"column:legacy_oauth_control_enc;type:text"`
+	ClientGrantType       string `json:"client_grant_type,omitempty"`
+	OAuthEnc              string `json:"-" gorm:"column:oauth_enc;type:text"`
+	Source                string `json:"source"`
+	SourceConfigEnc       string `json:"source_config_enc" gorm:"type:text"`
 	UUIDModel
 	UserID          string `json:"userId,omitempty" gorm:"index;uniqueIndex:ux_credential_entries_user_pattern"`
 	Pattern         string `json:"pattern" gorm:"uniqueIndex:ux_credential_entries_user_pattern"`
@@ -363,6 +395,9 @@ type TaskList struct {
 	// Relacionamentos
 	Workflow *TaskListWorkflow `json:"workflow,omitempty" gorm:"foreignKey:TaskListID"`
 	Tasks    []Task            `json:"tasks,omitempty" gorm:"foreignKey:TaskListID"`
+	// TaskCount é uma projeção de leitura, preenchida por consultas de catálogo.
+	// Não pertence ao schema e evita hidratar Tasks apenas para exibir totais.
+	TaskCount int64 `json:"task_count" gorm:"->;-:migration"`
 }
 
 // Task representa uma tarefa dentro de uma tasklist

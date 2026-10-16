@@ -132,7 +132,7 @@ func TestGetMessagesPreservesOrderAndDeduplicates(t *testing.T) {
 	}
 }
 
-func TestGetMessagesExpandsEachTurnOnlyOnce(t *testing.T) {
+func TestGetMessagesDoesNotReadLegacyTurnMessages(t *testing.T) {
 	turnID := "user-1"
 	reader := &fakeMessageReader{
 		messages: map[string]database.ChatMessage{
@@ -158,20 +158,18 @@ func TestGetMessagesExpandsEachTurnOnlyOnce(t *testing.T) {
 	if err != nil || result.IsError {
 		t.Fatalf("unexpected result: %+v, err=%v", result, err)
 	}
-	if reader.turnCalls[turnID] != 1 {
-		t.Fatalf("turn queried %d times, want 1", reader.turnCalls[turnID])
+	if reader.turnCalls[turnID] != 0 {
+		t.Fatalf("leitura legada do turno ocorreu %d vezes", reader.turnCalls[turnID])
 	}
 }
 
-func TestMessagePayloadOmitsEmptyToolCallSentinels(t *testing.T) {
-	for _, sentinel := range []string{"", " ", "[]", " null "} {
-		item, err := messagePayload(database.ChatMessage{ToolCalls: sentinel})
-		if err != nil {
-			t.Fatalf("messagePayload(%q): %v", sentinel, err)
-		}
-		if item.ToolCalls != nil {
-			t.Errorf("messagePayload(%q) returned tool_calls=%s, want omitted", sentinel, item.ToolCalls)
-		}
+func TestMessagePayloadNeverEmbedsToolProtocol(t *testing.T) {
+	item, err := messagePayload(database.ChatMessage{Role: "assistant", Content: "ok"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if item.ToolCalls != nil || item.ToolCallID != "" {
+		t.Fatalf("mensagem conversacional expôs protocolo técnico: %+v", item)
 	}
 }
 
@@ -188,18 +186,14 @@ func TestMessagePayloadPreservesTimestampPrecision(t *testing.T) {
 	}
 }
 
-func TestMessagePayloadNormalizesLegacySingleToolCall(t *testing.T) {
+func TestMessagePayloadPreservaConteudoConversacional(t *testing.T) {
 	item, err := messagePayload(database.ChatMessage{
-		ToolCalls: `{"id":"legacy-call","type":"function","function":{"name":"search","arguments":"{}"}}`,
+		Role: "assistant", Content: "resposta",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	var calls []map[string]any
-	if err := json.Unmarshal(item.ToolCalls, &calls); err != nil {
-		t.Fatalf("normalized tool_calls is not an array: %v", err)
-	}
-	if len(calls) != 1 || calls[0]["id"] != "legacy-call" {
-		t.Fatalf("unexpected normalized tool_calls: %#v", calls)
+	if item.Role != "assistant" || item.Content != "resposta" || item.ToolCalls != nil {
+		t.Fatalf("payload inesperado: %+v", item)
 	}
 }

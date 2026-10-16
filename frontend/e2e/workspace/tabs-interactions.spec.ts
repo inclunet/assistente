@@ -3,9 +3,11 @@ import { pauseRAF, resumeRAF } from '../helpers/pauseRaf';
 
 const now = new Date().toISOString();
 
-const makeWorkspace = (tabs: Array<{ id: string; title: string; conversation_id: string; position: number }>, activeTab?: string) => ({
+const makeWorkspace = (tabs: Array<{ id: string; title: string; conversation_id: string; position: number }>, activeTab?: string, sequence = '1') => ({
   id: 'ws-1',
   name: 'Workspace',
+  snapshot_epoch: 'e2e-workspace-epoch',
+  snapshot_sequence: sequence,
   profile: '',
   created_at: now,
   last_used: now,
@@ -27,11 +29,19 @@ const threeTabWorkspace = makeWorkspace([
   { id: 'tab-3', title: 'Conversa 3', conversation_id: '01970a9e-0003-7000-8000-000000000003', position: 2 },
 ]);
 
+const threeTabWorkspaceTab2 = makeWorkspace(threeTabWorkspace.tabs.items.map((tab, position) => ({
+  id: tab.id,
+  title: tab.id === 'tab-2' ? 'Conversa 2 confirmada' : tab.title,
+  conversation_id: tab.conversation_id,
+  position,
+})), 'tab-2', '2');
+
 const fullTokenStats = {
   conversationId: '01970a9e-0001-7000-8000-000000000001',
   promptTokens: 500,
   completionTokens: 300,
   totalTokens: 800,
+  contextTokens: 12800,
   messageCount: 5,
   mostUsedModel: 'gpt-4',
   contextUsage: 10,
@@ -54,7 +64,7 @@ test.describe('Abas — fechar aba', () => {
     await wails.setResponse('RemoveWorkspaceTab', makeWorkspace([
       { id: 'tab-2', title: 'Conversa 2', conversation_id: '01970a9e-0002-7000-8000-000000000002', position: 0 },
       { id: 'tab-3', title: 'Conversa 3', conversation_id: '01970a9e-0003-7000-8000-000000000003', position: 1 },
-    ], 'tab-2'));
+    ], 'tab-2', '2'));
 
     await wails.waitForApp();
 
@@ -98,7 +108,7 @@ test.describe('Abas — fechar aba', () => {
     await wails.setResponse('RemoveWorkspaceTab', makeWorkspace([
       { id: 'tab-1', title: 'Conversa 1', conversation_id: '01970a9e-0001-7000-8000-000000000001', position: 0 },
       { id: 'tab-3', title: 'Conversa 3', conversation_id: '01970a9e-0003-7000-8000-000000000003', position: 1 },
-    ], 'tab-1'));
+    ], 'tab-1', '2'));
 
     await wails.waitForApp();
 
@@ -125,9 +135,9 @@ test.describe('Abas — fechar aba', () => {
 });
 
 test.describe('Abas — trocar aba', () => {
-  test('clicar em outra aba chama SetActiveWorkspaceTab e troca', async ({ page, wails }) => {
+  test('clicar em outra aba persiste seleção pelo RPC escopado', async ({ page, wails }) => {
     await wails.setResponse('GetActiveWorkspace', threeTabWorkspace);
-    await wails.setResponse('SetActiveWorkspaceTab', undefined);
+    await wails.setResponse('SetActiveWorkspaceTabForWorkspace', threeTabWorkspaceTab2);
     await wails.setResponse('EnsureConversation', {
       id: '01970a9e-0002-7000-8000-000000000002',
       title: 'Conversa 2',
@@ -148,14 +158,18 @@ test.describe('Abas — trocar aba', () => {
     await secondTab.click();
 
     const log = await wails.getCallLog();
-    const setCalls = log.filter(c => c.fn === 'SetActiveWorkspaceTab');
-    expect(setCalls.length).toBeGreaterThanOrEqual(1);
+    const setCalls = log.filter(c => c.fn === 'SetActiveWorkspaceTabForWorkspace');
+    expect(setCalls).toHaveLength(1);
+    expect(setCalls[0].args).toEqual(['ws-1', 'tab-2']);
+    await expect(secondTab).toHaveAttribute('aria-selected', 'true');
+    // O snapshot confirmado, não a troca otimista, fornece este título.
+    await expect(secondTab).toContainText('Conversa 2 confirmada');
   });
 
   test('atalhos de troca de aba são bloqueados quando há modal genérico aberto', async ({ page, wails }) => {
     await wails.setResponse('GetActiveWorkspace', threeTabWorkspace);
     await wails.setResponse('GetConversationTokenStats', fullTokenStats);
-    await wails.setResponse('SetActiveWorkspaceTab', undefined);
+    await wails.setResponse('SetActiveWorkspaceTabForWorkspace', threeTabWorkspaceTab2);
 
     await wails.waitForApp();
 
@@ -164,6 +178,7 @@ test.describe('Abas — trocar aba', () => {
 
     const tokenStatsButton = page.locator('.token-stats-button');
     await expect(tokenStatsButton).toBeVisible({ timeout: 5_000 });
+    await expect(tokenStatsButton).toBeEnabled({ timeout: 5_000 });
     await tokenStatsButton.click();
 
     const dialog = page.locator('.modal-overlay[role="dialog"]');
@@ -176,13 +191,13 @@ test.describe('Abas — trocar aba', () => {
     await expect(firstTab).toHaveAttribute('aria-selected', 'true');
 
     const log = await wails.getCallLog();
-    const setCalls = log.filter(c => c.fn === 'SetActiveWorkspaceTab');
+    const setCalls = log.filter(c => c.fn === 'SetActiveWorkspaceTabForWorkspace');
     expect(setCalls.length).toBe(0);
   });
 
   test('navegação por teclado (ArrowRight/Left) entre abas', async ({ page, wails }) => {
     await wails.setResponse('GetActiveWorkspace', threeTabWorkspace);
-    await wails.setResponse('SetActiveWorkspaceTab', undefined);
+    await wails.setResponse('SetActiveWorkspaceTabForWorkspace', threeTabWorkspaceTab2);
 
     await wails.waitForApp();
     await pauseRAF(page);
@@ -205,7 +220,6 @@ test.describe('Abas — trocar aba', () => {
 test.describe('Abas — renomear', () => {
   test('F2 ativa modo de edição da aba', async ({ page, wails }) => {
     await wails.setResponse('GetActiveWorkspace', threeTabWorkspace);
-    await wails.setResponse('UpdateWorkspaceTab', threeTabWorkspace);
 
     await wails.waitForApp();
 
@@ -224,7 +238,7 @@ test.describe('Abas — renomear', () => {
 
   test('Enter confirma renomeação e chama UpdateWorkspaceTab', async ({ page, wails }) => {
     await wails.setResponse('GetActiveWorkspace', threeTabWorkspace);
-    await wails.setResponse('UpdateWorkspaceTab', threeTabWorkspace);
+    await wails.setResponse('UpdateWorkspaceTab', undefined);
 
     await wails.waitForApp();
 
@@ -253,11 +267,13 @@ test.describe('Abas — renomear', () => {
     const log = await wails.getCallLog();
     const updateCalls = log.filter(c => c.fn === 'UpdateWorkspaceTab');
     expect(updateCalls.length).toBeGreaterThanOrEqual(1);
+    expect(updateCalls[0].args).toEqual(['tab-1', { title: 'Conversa Renomeada' }]);
+    await expect(page.locator('button[role="tab"]').first()).toContainText('Conversa Renomeada');
   });
 
   test('blur confirma renomeação ao clicar fora do campo', async ({ page, wails }) => {
     await wails.setResponse('GetActiveWorkspace', threeTabWorkspace);
-    await wails.setResponse('UpdateWorkspaceTab', threeTabWorkspace);
+    await wails.setResponse('UpdateWorkspaceTab', undefined);
 
     await wails.waitForApp();
 
@@ -314,30 +330,38 @@ test.describe('Abas — renomear', () => {
 
   test('renomear via context menu', async ({ page, wails }) => {
     await wails.setResponse('GetActiveWorkspace', threeTabWorkspace);
-    await wails.setResponse('UpdateWorkspaceTab', threeTabWorkspace);
+    await wails.setResponse('UpdateWorkspaceTab', undefined);
 
     await wails.waitForApp();
 
     // Right-click na primeira aba
     const firstTab = page.locator('button[role="tab"]').first();
-    await firstTab.click({ button: 'right' });
+    await firstTab.dispatchEvent('mousedown', { button: 2, buttons: 2, clientX: 16, clientY: 16 });
+    await firstTab.dispatchEvent('contextmenu', { button: 2, buttons: 2, clientX: 16, clientY: 16 });
 
     const menu = page.locator('[role="menu"]').first();
     await expect(menu).toBeVisible({ timeout: 3_000 });
     const renameItem = menu.locator('[role="menuitem"]', { hasText: /renomear|rename/i });
-    if (await renameItem.count() > 0) {
-      await renameItem.first().click();
+    await expect(renameItem).toHaveCount(1);
+    await renameItem.click();
 
-      const editInput = page.locator('.ws-tabs__tab-edit');
-      await expect(editInput).toBeVisible({ timeout: 3_000 });
-    }
+    const editInput = page.locator('.ws-tabs__tab-edit');
+    await expect(editInput).toBeVisible({ timeout: 3_000 });
+    await editInput.fill('Renomeada pelo menu');
+    await editInput.press('Enter');
+    await expect(page.locator('button[role="tab"]').first()).toContainText('Renomeada pelo menu');
+
+    const log = await wails.getCallLog();
+    const updateCalls = log.filter(c => c.fn === 'UpdateWorkspaceTab');
+    expect(updateCalls).toHaveLength(1);
+    expect(updateCalls[0].args).toEqual(['tab-1', { title: 'Renomeada pelo menu' }]);
   });
 });
 
 test.describe('Abas — reordenar com teclado', () => {
   test('Alt+Right move aba para a direita', async ({ page, wails }) => {
     await wails.setResponse('GetActiveWorkspace', threeTabWorkspace);
-    await wails.setResponse('ReorderWorkspaceTabs', threeTabWorkspace);
+    await wails.setResponse('ReorderWorkspaceTabs', undefined);
 
     await wails.waitForApp();
 
@@ -358,6 +382,10 @@ test.describe('Abas — reordenar com teclado', () => {
     const log = await wails.getCallLog();
     const reorderCalls = log.filter(c => c.fn === 'ReorderWorkspaceTabs');
     expect(reorderCalls.length).toBeGreaterThanOrEqual(1);
+    expect(reorderCalls[0].args).toEqual([['tab-2', 'tab-1', 'tab-3']]);
+    const tabs = page.locator('button[role="tab"]');
+    await expect(tabs.nth(0)).toContainText('Conversa 2');
+    await expect(tabs.nth(1)).toContainText('Conversa 1');
   });
 
   test('Alt+Left no início toca bump (não reordena)', async ({ page, wails }) => {
@@ -380,11 +408,25 @@ test.describe('Abas — reordenar com teclado', () => {
 test.describe('Abas — close others via context menu', () => {
   test('fechar outras abas mantém apenas a selecionada', async ({ page, wails }) => {
     await wails.setResponse('GetActiveWorkspace', threeTabWorkspace);
-    await wails.setResponse('RemoveWorkspaceTab', makeWorkspace([
-      { id: 'tab-1', title: 'Conversa 1', conversation_id: '01970a9e-0001-7000-8000-000000000001', position: 0 },
-    ]));
-
     await wails.waitForApp();
+    await page.evaluate((initial) => {
+      let current = initial;
+      window.__wailsMock.setResponse('RemoveWorkspaceTab', (tabId: string) => {
+        if (tabId === 'tab-1' || !current.tabs.items.some((tab) => tab.id === tabId)) {
+          throw new Error('Unexpected tab removal');
+        }
+        current = {
+          ...current,
+          snapshot_sequence: String(Number(current.snapshot_sequence) + 1),
+          tabs: {
+            active: 'tab-1',
+            items: current.tabs.items.filter((tab) => tab.id !== tabId)
+              .map((tab, position) => ({ ...tab, position })),
+          },
+        };
+        return structuredClone(current);
+      });
+    }, threeTabWorkspace);
 
     // Right-click na primeira aba
     const firstTab = page.locator('button[role="tab"]').first();
@@ -395,12 +437,13 @@ test.describe('Abas — close others via context menu', () => {
 
     // Clica em "Fechar outras"
     const closeOthersItem = menu.locator('[role="menuitem"]', { hasText: /fechar outras|close other/i });
-    if (await closeOthersItem.count() > 0) {
-      await closeOthersItem.first().click();
-
-      const log = await wails.getCallLog();
-      const removeCalls = log.filter(c => c.fn === 'RemoveWorkspaceTab');
-      expect(removeCalls.length).toBeGreaterThanOrEqual(2);
-    }
+    await expect(closeOthersItem).toHaveCount(1);
+    await closeOthersItem.click();
+    await expect(page.locator('.ws-tabs button[role="tab"]')).toHaveCount(1);
+    await expect(page.locator('.ws-tabs button[role="tab"]')).toHaveAttribute('data-tab-value', 'tab-1');
+    await expect(page.locator('.ws-tabs button[role="tab"]')).toHaveAttribute('aria-selected', 'true');
+    const log = await wails.getCallLog();
+    const removeCalls = log.filter(c => c.fn === 'RemoveWorkspaceTab');
+    expect(removeCalls.map(call => call.args)).toEqual([['tab-2'], ['tab-3']]);
   });
 });

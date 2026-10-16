@@ -1,11 +1,14 @@
 import { useState, useEffect, useCallback, type ReactNode } from 'react';
-import { CalendarOutlined, DeleteOutlined, EditOutlined, FileTextOutlined, LinkOutlined, MessageOutlined, RobotOutlined, SettingOutlined } from '@ant-design/icons';
+import { CalendarOutlined, CopyOutlined, DeleteOutlined, EditOutlined, FileTextOutlined, LinkOutlined, MessageOutlined, RobotOutlined, SettingOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
+import { Button } from '../ui/Button';
 import { Modal } from '../ui/Modal';
 import { DialogActions } from '../ui/DialogActions';
 import { MarkdownRenderer } from '../ui/MarkdownRenderer';
 import { HistoryPicker } from '../pickers/HistoryPicker';
+import { useAnchoredContextMenu } from '../../hooks/useAnchoredContextMenu';
+import { ContextMenu, type MenuItem } from '../menu';
 import { useTaskListStore } from '../../store/taskListStore';
 import { useUIStore } from '../../store/uiStore';
 import { useConfirm } from '../../hooks/useConfirm';
@@ -25,6 +28,21 @@ interface TaskDetailModalProps {
 
 // Valor sentinela do item "Nenhuma" no HistoryPicker (não pode colidir com ID de conversa).
 const CONVERSATION_NONE = '__none__';
+
+// A prop `task` chega como snapshot do momento do clique (KanbanBoard e
+// TasksTable guardam em useState); procura a versão viva no cache do store
+// para que vínculos e edições feitos com o modal aberto reflitam na hora.
+function findLiveTask(
+  taskLists: Map<string, { tasks?: Task[] }> | undefined,
+  taskId: string,
+): Task | undefined {
+  if (!taskLists) return undefined;
+  for (const taskList of taskLists.values()) {
+    const found = taskList.tasks?.find((t) => t.id === taskId);
+    if (found) return found;
+  }
+  return undefined;
+}
 
 const NOTE_TYPE_ICONS: Record<TaskNoteType, ReactNode> = {
   1: <FileTextOutlined aria-hidden="true" />,
@@ -55,7 +73,7 @@ export default function TaskDetailModal({ isOpen, onClose, task, statuses }: Tas
   const { t } = useTranslation();
   const navigate = useNavigate();
   const requestConfirm = useConfirm();
-  const { loadTaskNotes, createTaskNote, updateTaskNote, deleteTaskNote, listCardCustomActions, setTaskConversation } = useTaskListStore();
+  const { loadTaskNotes, createTaskNote, updateTaskNote, deleteTaskNote, listCardCustomActions, setTaskConversation, updateTaskStatus, taskLists } = useTaskListStore();
   const addToast = useUIStore((s) => s.addToast);
   const { announce } = useAnnouncer();
   const { runCustomAction } = useCustomActions();
@@ -67,6 +85,17 @@ export default function TaskDetailModal({ isOpen, onClose, task, statuses }: Tas
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
 
   const [conversationSaving, setConversationSaving] = useState(false);
+  const {
+    menu: statusMenu,
+    openForTrigger: openStatusMenu,
+    closeMenu: closeStatusMenu,
+    onSelectItem: onSelectStatusItem,
+  } = useAnchoredContextMenu();
+
+  // Versão viva da task: o update otimista de setTaskConversation (e outras
+  // edições) atualiza o cache do store, mas a prop continua com o snapshot.
+  const liveTask = task ? findLiveTask(taskLists, task.id) : undefined;
+  const viewTask = liveTask ?? task;
 
   // Note form state
   const [noteType, setNoteType] = useState<TaskNoteType>(TASK_NOTE_TYPES.INTERNAL);
@@ -108,13 +137,13 @@ export default function TaskDetailModal({ isOpen, onClose, task, statuses }: Tas
   }, []);
 
   const handleAddNote = useCallback(async () => {
-    if (!task || !noteContent.trim()) return;
-    const note = await createTaskNote(task.id, noteType, noteContent.trim(), noteAuthor.trim());
+    if (!viewTask || !noteContent.trim()) return;
+    const note = await createTaskNote(viewTask.id, noteType, noteContent.trim(), noteAuthor.trim());
     if (note) {
       setNotes((prev) => [...prev, note]);
       resetForm();
     }
-  }, [task, noteType, noteContent, noteAuthor, createTaskNote, resetForm]);
+  }, [viewTask, noteType, noteContent, noteAuthor, createTaskNote, resetForm]);
 
   const handleEditNote = useCallback((note: TaskNote) => {
     setEditingNoteId(note.id);
@@ -155,23 +184,41 @@ export default function TaskDetailModal({ isOpen, onClose, task, statuses }: Tas
     resetForm();
   }, [resetForm]);
 
+  const handleCopyCode = useCallback(async () => {
+    if (!viewTask?.code) return;
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error('clipboard-unavailable');
+      await navigator.clipboard.writeText(viewTask.code);
+      const message = t('tasklist.codeCopied', 'Código copiado');
+      addToast(message, 'success', undefined, undefined, { suppressAnnounce: true });
+      announce(message);
+    } catch {
+      const message = t('tasklist.codeCopyFailed', 'Não foi possível copiar o código. Tente novamente.');
+      addToast(message, 'error', undefined, undefined, { suppressAnnounce: true });
+      announce(message);
+    }
+  }, [viewTask, t, addToast, announce]);
+
   const handleLinkClick = useCallback(() => {
-    if (!task?.link) return;
-    openTaskLink(task.link, { navigate });
-  }, [task, navigate]);
+    if (!viewTask?.link) return;
+    openTaskLink(viewTask.link, { navigate });
+  }, [viewTask, navigate]);
 
   const handleConversationClick = useCallback(() => {
-    if (!task?.conversationId) return;
-    openTaskLink(`assistente://conversation/${task.conversationId}`, { navigate });
-  }, [task, navigate]);
+    if (!viewTask?.conversationId) return;
+    openTaskLink(`assistente://conversation/${viewTask.conversationId}`, { navigate });
+    // A navegação troca o contexto por trás do modal; fecha para não dar a
+    // impressão de que nada aconteceu (o Modal restaura o foco ao fechar).
+    onClose();
+  }, [viewTask, navigate, onClose]);
 
   // Aplica o vínculo imediatamente ao selecionar no HistoryPicker (id) ou ao
   // escolher "Nenhuma"/desvincular (null), espelhando a UX do picker do chat.
   const applyConversation = useCallback(async (conversationId: string | null) => {
-    if (!task) return;
+    if (!viewTask) return;
     setConversationSaving(true);
     try {
-      await setTaskConversation(task.id, conversationId);
+      await setTaskConversation(viewTask.id, conversationId);
       const msg = t('tasklist.conversationLinkSaved', 'Vínculo de conversa atualizado');
       addToast(msg, 'success', undefined, undefined, { suppressAnnounce: true });
       announce(msg);
@@ -182,92 +229,133 @@ export default function TaskDetailModal({ isOpen, onClose, task, statuses }: Tas
     } finally {
       setConversationSaving(false);
     }
-  }, [task, setTaskConversation, addToast, announce, t]);
+  }, [viewTask, setTaskConversation, addToast, announce, t]);
 
-  const status = task ? statuses.find((s) => s.id === task.statusId) : undefined;
-  const isDueDatePast = task?.dueDate && new Date(task.dueDate) < new Date();
+  const status = viewTask ? statuses.find((s) => s.id === viewTask.statusId) : undefined;
+  const isDueDatePast = viewTask?.dueDate && new Date(viewTask.dueDate) < new Date();
+
+  // Troca de status sem fechar o modal: mesmo padrão do Kanban (botão que abre
+  // menu ancorado), com o update otimista; a versão viva do cache reflete na hora.
+  const handleStatusChange = useCallback(async (statusId: number) => {
+    if (!viewTask || statusId === viewTask.statusId) return;
+    try {
+      await updateTaskStatus(viewTask.id, statusId);
+      const target = statuses.find((s) => s.id === statusId);
+      const msg = t('tasklist.statusUpdated', 'Status atualizado para {{status}}', { status: target?.label ?? '' });
+      addToast(msg, 'success', undefined, undefined, { suppressAnnounce: true });
+      announce(msg);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      addToast(msg || t('common.error', 'Erro ao salvar'), 'error');
+    }
+  }, [viewTask, statuses, updateTaskStatus, addToast, announce, t]);
+
+  const openStatusMenuFor = useCallback((trigger: HTMLElement) => {
+    if (!viewTask) return;
+    const items: MenuItem[] = statuses
+      .filter((s) => s.id !== viewTask.statusId)
+      .map((s) => ({
+        id: `move-${s.id}`,
+        label: `${s.icon} ${s.label}`,
+        action: () => void handleStatusChange(s.id),
+      }));
+    if (items.length === 0) return;
+    openStatusMenu(
+      trigger,
+      t('tasklist.changeStatus', 'Alterar status: {{status}}', { status: status?.label ?? '' }),
+      items,
+    );
+  }, [viewTask, statuses, status, openStatusMenu, handleStatusChange, t]);
 
   return (
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title={task?.title ?? ''}
+      title={viewTask?.title ?? ''}
       size="lg"
       className="task-detail-modal"
       readingMode
     >
-      {!task ? null : (
+      {!viewTask ? null : (
       <>
       {/* Badges: status, code, link, due date */}
       <div className="task-detail__header">
         {status && (
-          <span className="task-detail__badge task-detail__badge--status" style={{ borderColor: status.color }}>
+          <button
+            type="button"
+            className="task-detail__badge task-detail__badge--status task-detail__status-button"
+            style={{ borderColor: status.color }}
+            onClick={(e) => openStatusMenuFor(e.currentTarget)}
+            aria-haspopup="menu"
+            aria-expanded={statusMenu.visible}
+            aria-label={t('tasklist.changeStatus', 'Alterar status: {{status}}', { status: status.label })}
+          >
             {status.icon} {status.label}
-          </span>
+          </button>
         )}
-        {task.code && (
-          <span
-            className={`task-detail__badge task-detail__badge--code${task.link ? ' task-detail__badge--link' : ''}`}
-            onClick={task.link ? handleLinkClick : undefined}
-            role={task.link ? 'link' : undefined}
-            tabIndex={task.link ? 0 : undefined}
-            onKeyDown={task.link ? (e) => { if (e.key === 'Enter') handleLinkClick(); } : undefined}
+        {viewTask.code && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="task-detail__copy-code"
+            onClick={() => void handleCopyCode()}
+            aria-label={t('tasklist.copyCode', 'Copiar código {{code}}', { code: viewTask.code })}
           >
-            {task.code}
-            {task.link && <> <LinkOutlined aria-hidden="true" /></>}
-          </span>
+            <CopyOutlined aria-hidden="true" />
+            {viewTask.code}
+          </Button>
         )}
-        {!task.code && task.link && (
-          <span
-            className="task-detail__badge task-detail__badge--link"
+        {viewTask.link && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="task-detail__open-link"
             onClick={handleLinkClick}
-            role="link"
-            tabIndex={0}
-            onKeyDown={(e) => { if (e.key === 'Enter') handleLinkClick(); }}
           >
-            <LinkOutlined aria-hidden="true" /> Link
+            <LinkOutlined aria-hidden="true" /> {t('tasklist.openCardLink', 'Abrir link do card')}
+          </Button>
+        )}
+        {viewTask.assigneeName && (
+          <span className="task-detail__badge task-detail__badge--assignee" title={viewTask.assigneeId || undefined}>
+            👤 {viewTask.assigneeName}
           </span>
         )}
-        {task.assigneeName && (
-          <span className="task-detail__badge task-detail__badge--assignee" title={task.assigneeId || undefined}>
-            👤 {task.assigneeName}
+        {viewTask.creatorName && (
+          <span className="task-detail__badge task-detail__badge--creator" title={viewTask.creatorId || undefined}>
+            ✏️ {viewTask.creatorName}
           </span>
         )}
-        {task.creatorName && (
-          <span className="task-detail__badge task-detail__badge--creator" title={task.creatorId || undefined}>
-            ✏️ {task.creatorName}
-          </span>
-        )}
-        {task.dueDate && (
+        {viewTask.dueDate && (
           <span className={`task-detail__badge task-detail__badge--due${isDueDatePast ? ' task-detail__badge--overdue' : ''}`}>
-            <CalendarOutlined aria-hidden="true" /> {new Date(task.dueDate).toLocaleDateString()}
+            <CalendarOutlined aria-hidden="true" /> {new Date(viewTask.dueDate).toLocaleDateString()}
           </span>
         )}
-        {task.conversationId && (
-          <span
-            className="task-detail__badge task-detail__badge--link"
+        {viewTask.conversationId && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="task-detail__conversation-link"
             onClick={handleConversationClick}
-            role="link"
-            tabIndex={0}
-            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleConversationClick(); } }}
-            title={task.conversationId}
-            aria-label={t('tasklist.conversation', 'Conversa vinculada')}
+            title={viewTask.conversationId}
           >
-            <MessageOutlined aria-hidden="true" /> {t('tasklist.conversation', 'Conversa vinculada')}
-          </span>
+            <MessageOutlined aria-hidden="true" /> {t('tasklist.goToConversation', 'Ir para conversa vinculada')}
+          </Button>
         )}
       </div>
 
       {/* Conversation link editor */}
       <div className="task-detail__conversation">
         <HistoryPicker
-          value={task.conversationId}
+          value={viewTask.conversationId}
           onChange={(id) => void applyConversation(id)}
           onSelectExtra={() => void applyConversation(null)}
-          extraItems={task.conversationId
+          extraItems={viewTask.conversationId
             ? [{ value: CONVERSATION_NONE, label: t('tasklist.conversationNone', 'Nenhuma') }]
             : undefined}
-          label={task.conversationId
+          label={viewTask.conversationId
             ? t('tasklist.changeConversation', 'Alterar conversa vinculada')
             : t('tasklist.linkConversation', 'Vincular conversa')}
           description={t('tasklist.conversationDescription', 'Vincula esta tarefa a uma conversa')}
@@ -285,7 +373,7 @@ export default function TaskDetailModal({ isOpen, onClose, task, statuses }: Tas
               key={ca.id}
               type="button"
               className={`task-detail__custom-action${ca.danger ? ' task-detail__custom-action--danger' : ''}`}
-              onClick={() => { void runCustomAction(ca, task.taskListId, task.id); }}
+              onClick={() => { void runCustomAction(ca, viewTask.taskListId, viewTask.id); }}
               aria-label={ca.label}
             >
               {ca.icon ? <><span aria-hidden="true">{ca.icon}</span> {ca.label}</> : ca.label}
@@ -297,9 +385,9 @@ export default function TaskDetailModal({ isOpen, onClose, task, statuses }: Tas
       {/* Description */}
       <div className="task-detail__section">
         <p className="task-detail__section-title">{t('tasklist.description')}</p>
-        {task.description ? (
+        {viewTask.description ? (
           <div className="task-detail__description">
-            <MarkdownRenderer content={task.description} tabNavigation="enabled" />
+            <MarkdownRenderer content={viewTask.description} tabNavigation="enabled" />
           </div>
         ) : (
           <p className="task-detail__description task-detail__description--empty">
@@ -390,6 +478,7 @@ export default function TaskDetailModal({ isOpen, onClose, task, statuses }: Tas
       </div>
       </>
       )}
+      <ContextMenu {...statusMenu} onClose={closeStatusMenu} onSelect={onSelectStatusItem} />
     </Modal>
   );
 }

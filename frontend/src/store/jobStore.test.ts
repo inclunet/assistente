@@ -1,21 +1,38 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { act } from '@testing-library/react';
 import { jobs } from '@wailsjs/go/models';
-import { useJobStore } from './jobStore';
+import { JOB_PROFILE_AUTHORIZATION_REQUIRED, useJobStore } from './jobStore';
 
-const { mockGetToolCatalog, mockTestToolDryRun, mockToggleJob } = vi.hoisted(() => ({
+const {
+  mockAuthorizeJobProfile,
+  mockGetJob,
+  mockGetJobRunDetail,
+  mockGetJobs,
+  mockGetJobProfileGrantState,
+  mockGetToolCatalog,
+  mockTestToolDryRun,
+  mockToggleJob,
+} = vi.hoisted(() => ({
+  mockAuthorizeJobProfile: vi.fn(),
+  mockGetJob: vi.fn(),
+  mockGetJobRunDetail: vi.fn(),
+  mockGetJobs: vi.fn(),
+  mockGetJobProfileGrantState: vi.fn(),
   mockGetToolCatalog: vi.fn(),
   mockTestToolDryRun: vi.fn(),
   mockToggleJob: vi.fn(),
 }));
 
 vi.mock('@wailsjs/go/wailsapi/Jobs', () => ({
-  GetJobs: vi.fn(),
-  GetJob: vi.fn(),
+  GetJobs: () => mockGetJobs(),
+  GetJob: (id: string) => mockGetJob(id),
+  GetJobProfileGrantState: (id: string) => mockGetJobProfileGrantState(id),
+  AuthorizeJobProfile: (id: string, profile: string) => mockAuthorizeJobProfile(id, profile),
   ToggleJob: (id: string, enabled: boolean) => mockToggleJob(id, enabled),
   RunJob: vi.fn(),
   DryRunJob: vi.fn(),
   GetJobRuns: vi.fn(),
+  GetJobRunDetail: (jobId: string, runId: string) => mockGetJobRunDetail(jobId, runId),
   GetJobEvents: vi.fn(),
   GetJobPipelines: vi.fn(),
   GetToolCatalog: () => mockGetToolCatalog(),
@@ -53,6 +70,16 @@ beforeEach(() => {
   mockTestToolDryRun.mockResolvedValue({ success: true });
   mockToggleJob.mockReset();
   mockToggleJob.mockResolvedValue(undefined);
+  mockGetJob.mockReset();
+  mockGetJob.mockResolvedValue(undefined);
+  mockGetJobRunDetail.mockReset();
+  mockGetJobRunDetail.mockResolvedValue(null);
+  mockGetJobs.mockReset();
+  mockGetJobs.mockResolvedValue([]);
+  mockGetJobProfileGrantState.mockReset();
+  mockGetJobProfileGrantState.mockResolvedValue({ grants: [] });
+  mockAuthorizeJobProfile.mockReset();
+  mockAuthorizeJobProfile.mockResolvedValue(false);
   useJobStore.setState({
     jobs: [],
     isLoading: false,
@@ -62,6 +89,16 @@ beforeEach(() => {
     runLogs: [],
     events: [],
     pipelines: [],
+  });
+});
+
+describe('jobStore.getJobRunDetail', () => {
+  it('carrega o detalhe dedicado somente para o run solicitado', async () => {
+    const detail = { run_id: 'run-1', job_id: 'job-1' };
+    mockGetJobRunDetail.mockResolvedValue(detail);
+
+    await expect(useJobStore.getState().getJobRunDetail('job-1', 'run-1')).resolves.toBe(detail);
+    expect(mockGetJobRunDetail).toHaveBeenCalledWith('job-1', 'run-1');
   });
 });
 
@@ -94,6 +131,44 @@ describe('jobStore.toggleJob', () => {
     expect(job.enabled).toBe(true);
     expect(job.pipeline_enabled).toBe(true);
     expect(job.effective_enabled).toBe(true);
+  });
+
+  it('habilita literal com grant exato sem perguntar novamente', async () => {
+    mockGetJob.mockResolvedValue({ tool: 'subagent', inputs: { profile: 'pesquisa' } });
+    mockGetJobProfileGrantState.mockResolvedValue({
+      grants: [{ targetProfileSlug: 'pesquisa' }],
+    });
+    await useJobStore.getState().toggleJob('literal', true);
+    expect(mockAuthorizeJobProfile).not.toHaveBeenCalled();
+    expect(mockToggleJob).toHaveBeenCalledWith('literal', true);
+  });
+
+  it('solicita autorização literal antes de habilitar', async () => {
+    mockGetJob.mockResolvedValue({ tool: 'subagent', inputs: { profile: 'pesquisa' } });
+    mockAuthorizeJobProfile.mockResolvedValue(true);
+    await useJobStore.getState().toggleJob('literal', true);
+    expect(mockAuthorizeJobProfile).toHaveBeenCalledWith('literal', 'pesquisa');
+    expect(mockToggleJob).toHaveBeenCalledWith('literal', true);
+  });
+
+  it('bloqueia template dinâmico sem grant antes do backend', async () => {
+    mockGetJob.mockResolvedValue({ tool: 'subagent', inputs: { profile: '{{ .event.profile }}' } });
+    await expect(useJobStore.getState().toggleJob('dinamico', true)).rejects.toThrow(JOB_PROFILE_AUTHORIZATION_REQUIRED);
+    expect(mockAuthorizeJobProfile).not.toHaveBeenCalled();
+    expect(mockToggleJob).not.toHaveBeenCalled();
+  });
+
+  it('reconcilia lista quando backend recusa ativação', async () => {
+    mockGetJob.mockResolvedValue({ tool: 'subagent', inputs: { profile: 'pesquisa' } });
+    mockGetJobProfileGrantState.mockResolvedValue({
+      grants: [{ targetProfileSlug: 'pesquisa' }],
+    });
+    mockToggleJob.mockRejectedValue(new Error('authorization_not_granted'));
+    const disabled = jobInfo({ id: 'literal', enabled: false, effective_enabled: false });
+    mockGetJobs.mockResolvedValue([disabled]);
+    await expect(useJobStore.getState().toggleJob('literal', true)).rejects.toThrow(JOB_PROFILE_AUTHORIZATION_REQUIRED);
+    expect(useJobStore.getState().jobs).toEqual([disabled]);
+    expect(useJobStore.getState().error).toBeNull();
   });
 });
 

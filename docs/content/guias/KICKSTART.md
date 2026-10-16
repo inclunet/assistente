@@ -10,6 +10,24 @@ O Assistente é um **ambiente de trabalho desktop** (Windows, macOS, Linux) que 
 
 Configure em **Configurações → Provedores**: informe a URL e a chave do provedor. Veja [Provedores LLM](../configuracao/PROVIDER_CONFIGURATION/).
 
+## Abrir o aplicativo novamente
+
+Cada banco de dados admite uma janela desktop do Assistente por vez. Ao abrir
+novamente uma versão com essa proteção, ela solicita que a janela existente
+seja apresentada e encerra a segunda abertura, sem reiniciar jobs ou dispositivos.
+Se a primeira ainda estiver inicializando, o pedido de apresentação fica pendente.
+
+Se não for possível comunicar com a instância existente, aparece um aviso;
+nenhum processo é encerrado à força. Volte à janela já aberta e aguarde ou feche-a
+normalmente antes de tentar novamente. Não apague arquivos de reserva enquanto
+o aplicativo estiver aberto. Versões antigas não implementam essa proteção.
+
+Instalações de desenvolvimento com bancos diferentes continuam independentes;
+isso não permite compartilhar simultaneamente um Stream Deck ou o mesmo atalho global.
+Durante uma execução, o aplicativo mantém o banco selecionado na abertura,
+inclusive ao restaurar os dados pelo reset. Mudar arquivos de configuração ou
+atalhos para pastas não troca silenciosamente o banco dessa janela.
+
 ## Navegação em listas de mensagens
 
 A lista de mensagens é o centro do chat. Padrões que se repetem em todo o app:

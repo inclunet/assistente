@@ -58,6 +58,10 @@ export function GetTaskList(arg1) {
   return window['go']['wailsapi']['Tasklist']['GetTaskList'](arg1);
 }
 
+export function GetTaskListPage(arg1, arg2) {
+  return window['go']['wailsapi']['Tasklist']['GetTaskListPage'](arg1, arg2);
+}
+
 export function GetTaskListStats(arg1) {
   return window['go']['wailsapi']['Tasklist']['GetTaskListStats'](arg1);
 }
@@ -144,6 +148,10 @@ export function UpdateWorkflow(arg1, arg2, arg3) {
 
 export function UpdateWorkflowFull(arg1, arg2, arg3, arg4, arg5) {
   return window['go']['wailsapi']['Tasklist']['UpdateWorkflowFull'](arg1, arg2, arg3, arg4, arg5);
+}
+
+export function UpdateWorkflowFullChecked(arg1, arg2, arg3, arg4, arg5, arg6) {
+  return window['go']['wailsapi']['Tasklist']['UpdateWorkflowFullChecked'](arg1, arg2, arg3, arg4, arg5, arg6);
 }
 
 export function ValidateStatusTransition(arg1, arg2, arg3) {

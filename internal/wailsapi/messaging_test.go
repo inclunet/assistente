@@ -1,6 +1,7 @@
 package wailsapi
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"assistente/internal/channels"
 	"assistente/internal/configdir"
 	"assistente/internal/contacts"
+	"assistente/internal/credentials"
 	"assistente/internal/database"
 
 	"github.com/glebarez/sqlite"
@@ -218,6 +220,7 @@ func setupMessagingAPITest(t *testing.T) *Messaging {
 	}
 	channels.UseDatabase(db)
 	contacts.UseDatabase(db)
+	t.Cleanup(database.SetDB(db))
 
 	t.Cleanup(func() {
 		channels.UseDatabase(nil)
@@ -240,6 +243,44 @@ func setupMessagingAPITest(t *testing.T) *Messaging {
 	api := NewMessaging()
 	AttachMessaging(api, messagingUserSession("user-b"), newTestMessagingController(t))
 	return api
+}
+
+func TestSlackTemplateUsesAtomicVaultAndPreservesBinding(t *testing.T) {
+	api := setupMessagingAPITest(t)
+	if err := database.DB().AutoMigrate(&database.CredentialEntry{}); err != nil {
+		t.Fatal(err)
+	}
+	mgr := credentials.NewManagerWithStore(bytes.Repeat([]byte{7}, 32), credentials.NewDBStore(), true)
+	ctrl := controllers.NewMessagingController(controllers.MessagingControllerConfig{Ctx: context.Background(), CredMgr: mgr, Emitter: workspaceSelectionTestEmitter{}})
+	AttachMessaging(api, messagingUserSession("user-b"), ctrl)
+	for _, value := range []string{"first", "replacement"} {
+		if err := api.CreateChannelFromTemplate("slack", map[string]interface{}{"bot_token": value + "-bot", "app_token": value + "-app"}); err != nil {
+			t.Fatal(err)
+		}
+		cfg, err := channels.Load("slack")
+		if err != nil || cfg == nil || cfg.CredentialID == "" || cfg.OwnerUserID != "user-b" || cfg.BotToken != "" || cfg.AppToken != "" {
+			t.Fatal("template did not preserve vault binding", err)
+		}
+		pair, err := mgr.ResolveStaticComponents(database.WithUserID(context.Background(), "user-b"), cfg.CredentialID, "slack", cfg.ID, credentials.RoleBotToken, credentials.RoleAppToken)
+		if err != nil || pair[credentials.RoleBotToken] != value+"-bot" || pair[credentials.RoleAppToken] != value+"-app" {
+			t.Fatal("template lost tokens", err)
+		}
+		stale := &channels.ChannelConfig{OwnerUserID: "user-b", Type: "slack"}
+		if err := channels.Save("slack", stale); err != nil {
+			t.Fatal(err)
+		}
+		if stale.CredentialID != cfg.CredentialID || stale.BotTokenRef != cfg.BotTokenRef || stale.AppTokenRef != cfg.AppTokenRef {
+			t.Fatal("generic write cleared binding")
+		}
+	}
+	var count int64
+	if err := database.DB().Model(&database.CredentialEntry{}).Count(&count).Error; err != nil || count != 1 {
+		t.Fatal("template produced multiple entries", err)
+	}
+	AttachMessaging(api, messagingUserSession("other"), ctrl)
+	if err := api.CreateChannelFromTemplate("slack", map[string]interface{}{"bot_token": "foreign", "app_token": "foreign"}); err == nil {
+		t.Fatal("cross-user overwrite allowed")
+	}
 }
 
 func TestSaveChannelConfig_RejectsCrossUserOverwrite(t *testing.T) {

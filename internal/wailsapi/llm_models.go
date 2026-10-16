@@ -17,6 +17,8 @@ type LLMModelsHooks struct {
 	// (streamMgr.Cancel). Semântica fire-and-forget no App; o bind só propaga
 	// erro de auth/wire.
 	CancelStreaming func(conversationID string)
+	// CancelExecution cancela somente a execução identificada, inclusive em espera.
+	CancelExecution func(conversationID, executionID string)
 }
 
 // LLMModels é o bind Wails do domínio llm_models (AEP-0088): catálogo/lista de
@@ -145,6 +147,23 @@ func (m *LLMModels) CancelStreamingForConversation(conversationID string) error 
 			return struct{}{}, ErrLLMModelsNotWired
 		}
 		hooks.CancelStreaming(conversationID)
+		return struct{}{}, nil
+	})
+	return err
+}
+
+// CancelStreamingExecution cancela uma execução específica sem descartar a fila.
+// O cancelamento não retorna erro; o bind propaga apenas falhas de auth/wiring.
+func (m *LLMModels) CancelStreamingExecution(conversationID, executionID string) error {
+	session, _, _, hooks, err := m.deps()
+	if err != nil {
+		return err
+	}
+	_, err = WithUser(session, func(_ context.Context) (struct{}, error) {
+		if hooks.CancelExecution == nil {
+			return struct{}{}, ErrLLMModelsNotWired
+		}
+		hooks.CancelExecution(conversationID, executionID)
 		return struct{}{}, nil
 	})
 	return err

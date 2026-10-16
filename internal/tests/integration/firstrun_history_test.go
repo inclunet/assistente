@@ -17,7 +17,7 @@ func TestIntegration_FirstMessageHistoryPersistence(t *testing.T) {
 
 	// 1. Setup: criar conversa e primeira mensagem
 	conv := &database.Conversation{
-		Title:     "Test History",
+		Title: "Test History",
 	}
 
 	if err := db.Create(conv).Error; err != nil {
@@ -102,7 +102,7 @@ func TestIntegration_FirstMessageHistoryOrder(t *testing.T) {
 
 	// 1. Setup: criar conversa
 	conv := &database.Conversation{
-		Title:     "Order Test",
+		Title: "Order Test",
 	}
 
 	if err := db.Create(conv).Error; err != nil {
@@ -173,7 +173,7 @@ func TestIntegration_FirstMessageHistoryMultipleConversations(t *testing.T) {
 	convs := make([]*database.Conversation, 3)
 	for i := 0; i < 3; i++ {
 		conv := &database.Conversation{
-			Title:     "Conversa " + string(rune('A'+i)),
+			Title: "Conversa " + string(rune('A'+i)),
 		}
 
 		if err := db.Create(conv).Error; err != nil {
@@ -243,7 +243,7 @@ func TestIntegration_FirstMessageHistoryExpiration(t *testing.T) {
 
 	// 1. Setup: criar conversa e mensagem com timestamp antigo
 	conv := &database.Conversation{
-		Title:     "Old Conversation",
+		Title: "Old Conversation",
 	}
 
 	if err := db.Create(conv).Error; err != nil {
@@ -281,86 +281,6 @@ func TestIntegration_FirstMessageHistoryExpiration(t *testing.T) {
 	t.Logf("✓ Mensagens antigas persistem e são recuperáveis (test: msg criada há %v)", time.Since(retrieved.CreatedAt))
 }
 
-// TestIntegration_FirstMessageHistoryWithTools testa persistência de histórico com tool calls
-func TestIntegration_FirstMessageHistoryWithTools(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Utilizando -short, pulando teste de integração")
-	}
-
-	db := setupIntegrationDB(t)
-
-	// 1. Setup: criar conversa
-	conv := &database.Conversation{
-		Title:     "With Tools",
-	}
-
-	if err := db.Create(conv).Error; err != nil {
-		t.Fatalf("falha ao criar conversa: %v", err)
-	}
-
-	// 2. User message
-	userMsg := &database.ChatMessage{
-		ConversationID: conv.ID,
-		Role:           "user",
-		Content:        "Qual é a temperatura em São Paulo?",
-		Source:         "wails",
-	}
-
-	if err := db.Create(userMsg).Error; err != nil {
-		t.Fatalf("falha ao criar mensagem: %v", err)
-	}
-
-	// 3. Assistant message com tool call
-	toolCallsJSON := `[{"id":"call_123","type":"function","function":{"name":"get_weather","arguments":"{\"city\":\"São Paulo\"}"}}]`
-	assistantMsg := &database.ChatMessage{
-		ConversationID: conv.ID,
-		Role:           "assistant",
-		Content:        "Vou buscar a temperatura de São Paulo",
-		ToolCalls:      toolCallsJSON,
-		Source:         "wails",
-	}
-
-	if err := db.Create(assistantMsg).Error; err != nil {
-		t.Fatalf("falha ao criar assistant msg: %v", err)
-	}
-
-	// 4. Tool result
-	toolResultMsg := &database.ChatMessage{
-		ConversationID: conv.ID,
-		Role:           "tool",
-		Content:        "Temperature: 28°C",
-		ToolCallID:     "call_123",
-		Source:         "wails",
-	}
-
-	if err := db.Create(toolResultMsg).Error; err != nil {
-		t.Fatalf("falha ao criar tool result: %v", err)
-	}
-
-	// 5. Recarregar histórico completo
-	var allMsgs []database.ChatMessage
-	if err := db.Where("conversation_id = ?", conv.ID).Order("created_at").Find(&allMsgs).Error; err != nil {
-		t.Fatalf("falha ao carregar histórico: %v", err)
-	}
-
-	// 6. Validações
-	if len(allMsgs) != 3 {
-		t.Errorf("esperado 3 mensagens, obteve %d", len(allMsgs))
-	}
-
-	// Validar tool call foi persistido
-	if len(allMsgs) > 1 && allMsgs[1].ToolCalls == "" {
-		t.Error("ToolCalls não foi persistido")
-	}
-
-	// Validar tool result foi persistido
-	if len(allMsgs) > 2 && allMsgs[2].ToolCallID == "" {
-		t.Error("ToolCallID não foi persistido")
-	}
-
-	t.Log("✓ Histórico com tool calls persistido e recuperável")
-}
-
 // TestIntegration_FirstMessageHistoryConversationUpdate testa atualização de conversa após primeira mensagem
 func TestIntegration_FirstMessageHistoryConversationUpdate(t *testing.T) {
 	if testing.Short() {
@@ -371,7 +291,7 @@ func TestIntegration_FirstMessageHistoryConversationUpdate(t *testing.T) {
 
 	// 1. Setup: criar conversa com título genérico
 	conv := &database.Conversation{
-		Title:     "Nova conversa",
+		Title: "Nova conversa",
 	}
 
 	if err := db.Create(conv).Error; err != nil {
@@ -426,7 +346,7 @@ func TestIntegration_FirstMessageHistoryConcurrentAccess(t *testing.T) {
 
 	// 1. Setup: criar conversa
 	conv := &database.Conversation{
-		Title:     "Concurrent Test",
+		Title: "Concurrent Test",
 	}
 
 	if err := db.Create(conv).Error; err != nil {

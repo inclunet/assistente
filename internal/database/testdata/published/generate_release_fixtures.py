@@ -191,10 +191,31 @@ def seed(path: Path, release: str, output: Path) -> None:
                     "turn_id": root_message,
                     "role": "assistant",
                     "content": f"Mensagem filha {suffix}",
+                    "tool_calls": (
+                        f'[{{"id":"fixture-call-{suffix}",'
+                        '"type":"function","function":{'
+                        f'"name":"fixture_tool_{suffix}",'
+                        f'"arguments":"{{\\"query\\":\\"fixture-{suffix}\\"}}"}}}}]'
+                    ),
                     "model": "fixture-model",
                     "source": "fixture",
                 },
                 13 + offset,
+            ),
+        )
+        seeder.insert(
+            "chat_messages",
+            **common(
+                {
+                    "conversation_id": conversation,
+                    "parent_id": child_message,
+                    "turn_id": root_message,
+                    "role": "tool",
+                    "content": f"Resultado técnico sintético {suffix}",
+                    "tool_call_id": f"fixture-call-{suffix}",
+                    "source": "fixture",
+                },
+                16 + offset,
             ),
         )
         seeder.insert(

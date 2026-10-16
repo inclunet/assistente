@@ -1,169 +1,65 @@
-import { useEffect, useCallback, useRef, createContext, useContext } from 'react';
+import { useEffect, useLayoutEffect, useCallback, useRef, useId, createContext, useContext } from 'react';
+import { UNSAFE_LocationContext } from 'react-router-dom';
 import { registerDefaultFocus, unregisterDefaultFocus } from './useDefaultFocus';
-import { isModalOpen } from '../components/ui/Modal';
+import { captureLandmarkNavigationTarget, registerLandmarkNavigationSurface, requestLandmarkNavigationCommand, type NavigationLandmark } from '../lib/commandLandmarkNavigation';
 
-/**
- * When a parent component (e.g. SettingsPage) manages landmark navigation
- * for its children, it wraps them in this provider so child hooks like
- * useGridPageLandmarks automatically disable themselves.
- */
 const ParentLandmarkContext = createContext(false);
 export const ParentLandmarkProvider = ParentLandmarkContext.Provider;
 export const useHasParentLandmarks = () => useContext(ParentLandmarkContext);
-
-export interface Landmark {
-  /** Unique id for the zone (e.g. 'tabs', 'toolbar', 'grid', 'editor') */
-  id: string;
-  /** Human-readable label announced to screen readers when entering the zone */
-  label: string;
-  /** Returns true when the landmark is currently available for focus */
-  isAvailable?: () => boolean;
-  /** Attempts to focus the landmark. Returns true on success. */
-  focus: () => boolean;
-  /** Returns true when the currently active element belongs to this landmark. */
-  contains: () => boolean;
-}
-
+export type Landmark = NavigationLandmark;
 export interface UseLandmarkNavigationOptions {
-  /** Ordered list of landmarks for this page (top-to-bottom visual order). */
   landmarks: Landmark[];
-  /** Whether the hook is active. Defaults to true. */
   enabled?: boolean;
-  /** Allows a topmost modal to own F6/Escape while background landmarks stay blocked. */
   allowWhenModalOpen?: boolean;
-  /** Extra runtime guard for scoped owners such as the topmost modal. */
   shouldHandleKey?: () => boolean;
-  /**
-   * Id of the landmark that acts as the page's default focus area.
-   * Pressing Escape from any other landmark sends focus here.
-   * Also registered globally so Modal/Menu can call restoreDefaultFocus().
-   */
   defaultLandmarkId?: string;
 }
 
-/**
- * Generic hook for F6 / Shift+F6 landmark navigation + Escape-to-default.
- *
- * Follows the Visual Studio / VS Code convention where F6 cycles forward
- * through major page regions and Shift+F6 cycles backward.
- * Escape from any non-default landmark returns focus to the default area.
- *
- * Each page supplies its own ordered list of landmarks so the same hook
- * powers every page in the app.
- */
-export function useLandmarkNavigation({
-  landmarks,
-  enabled = true,
-  allowWhenModalOpen = false,
-  shouldHandleKey,
-  defaultLandmarkId,
-}: UseLandmarkNavigationOptions) {
-  const landmarksRef = useRef(landmarks);
-  landmarksRef.current = landmarks;
+export function useLandmarkNavigation({ landmarks, enabled = true, allowWhenModalOpen = false, shouldHandleKey, defaultLandmarkId }: UseLandmarkNavigationOptions) {
+  const instanceId = useId();
+  const location = useContext(UNSAFE_LocationContext);
+  const pathname = location?.location.pathname ?? window.location.pathname;
+  const live = useRef({ landmarks, enabled, allowWhenModalOpen, shouldHandleKey, defaultLandmarkId, pathname });
+  live.current = { landmarks, enabled, allowWhenModalOpen, shouldHandleKey, defaultLandmarkId, pathname };
+  const listeners = useRef(new Set<() => void>());
+  useLayoutEffect(() => { listeners.current.forEach(changed => changed()); });
+  useLayoutEffect(() => registerLandmarkNavigationSurface({
+    instanceId,
+    read: () => live.current,
+    subscribe(changed) { listeners.current.add(changed); return () => { listeners.current.delete(changed); }; },
+  }), [instanceId]);
 
-  const defaultIdRef = useRef(defaultLandmarkId);
-  defaultIdRef.current = defaultLandmarkId;
-
-  const getCurrentIndex = useCallback((): number => {
-    const lms = landmarksRef.current;
-    for (let i = 0; i < lms.length; i++) {
-      if (lms[i].contains()) return i;
-    }
-    return -1;
+  // Modal/Menu restoration is a native callback, not a command ingress.
+  const focusDefault = useCallback(() => {
+    const state = live.current;
+    const landmark = state.landmarks.find(l => l.id === state.defaultLandmarkId);
+    return state.enabled && !!landmark && landmark.isAvailable?.() !== false && landmark.focus();
   }, []);
-
-  const getAvailable = useCallback((): Landmark[] => {
-    return landmarksRef.current.filter((l) => !l.isAvailable || l.isAvailable());
-  }, []);
-
-  const focusDefault = useCallback((): boolean => {
-    const id = defaultIdRef.current;
-    if (!id) return false;
-    const lm = landmarksRef.current.find((l) => l.id === id);
-    if (!lm) return false;
-    if (lm.isAvailable && !lm.isAvailable()) return false;
-    return lm.focus();
-  }, []);
-
-  const shouldSkipKeyboardEvent = useCallback((): boolean => {
-    if (isModalOpen() && !allowWhenModalOpen) return true;
-    if (shouldHandleKey && !shouldHandleKey()) return true;
-    return false;
-  }, [allowWhenModalOpen, shouldHandleKey]);
-
-  // Register the default focus function globally so Modal/Menu/etc. can use it
   useEffect(() => {
     if (!enabled || !defaultLandmarkId) return;
     registerDefaultFocus(focusDefault);
     return () => unregisterDefaultFocus(focusDefault);
   }, [enabled, defaultLandmarkId, focusDefault]);
 
-  // F6 / Shift+F6: cycle between landmarks (capture phase)
+  // F6 belongs only to the central adapter. Escape bubbles after controls.
   useEffect(() => {
-    if (!enabled) return;
-
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== 'F6') return;
-      if (shouldSkipKeyboardEvent()) return;
-
-      e.preventDefault();
-      e.stopPropagation();
-
-      const available = getAvailable();
-      if (available.length === 0) return;
-
-      const currentIdx = getCurrentIndex();
-      const currentLandmark = currentIdx >= 0 ? landmarksRef.current[currentIdx] : null;
-
-      const availIdx = currentLandmark
-        ? available.findIndex((l) => l.id === currentLandmark.id)
-        : -1;
-
-      const dir = e.shiftKey ? -1 : 1;
-      const startIdx = availIdx >= 0 ? availIdx : (dir === 1 ? -1 : 0);
-      const len = available.length;
-
-      for (let attempt = 0; attempt < len; attempt++) {
-        const nextIdx = ((startIdx + dir * (attempt + 1)) % len + len) % len;
-        const target = available[nextIdx];
-        if (target.focus()) {
-          return;
-        }
+    const onEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.defaultPrevented || event.repeat || event.isComposing || event.keyCode === 229 ||
+        event.ctrlKey || event.altKey || event.shiftKey || event.metaKey || event.getModifierState('AltGraph')) return;
+      const state = live.current;
+      if (!state.enabled || !state.defaultLandmarkId) return;
+      const current = state.landmarks.find(l => l.contains());
+      if (!current || current.id === state.defaultLandmarkId) return;
+      const lease = captureLandmarkNavigationTarget(() => live.current.pathname, instanceId);
+      const eligible = lease?.canOpen('navigation.landmark.default');
+      lease?.dispose();
+      if (!eligible) return;
+      if (requestLandmarkNavigationCommand('navigation.landmark.default', instanceId)) {
+        event.preventDefault();
+        event.stopPropagation();
       }
     };
-
-    window.addEventListener('keydown', onKeyDown, true);
-    return () => window.removeEventListener('keydown', onKeyDown, true);
-  }, [enabled, getCurrentIndex, getAvailable, shouldSkipKeyboardEvent]);
-
-  // Escape: return to default landmark (bubbling phase — runs after
-  // component-level handlers like MessageNode that may stopPropagation)
-  useEffect(() => {
-    if (!enabled || !defaultLandmarkId) return;
-
-    const onEscape = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
-      if (e.defaultPrevented) return;
-      if (shouldSkipKeyboardEvent()) return;
-
-      const defaultLm = landmarksRef.current.find((l) => l.id === defaultIdRef.current);
-      if (!defaultLm) return;
-
-      // Already in the default area — nothing to do
-      if (defaultLm.contains()) return;
-
-      // Only act when focus is inside a known landmark
-      const currentIdx = getCurrentIndex();
-      if (currentIdx < 0) return;
-
-      e.preventDefault();
-      e.stopPropagation();
-
-      defaultLm.focus();
-    };
-
-    // Bubbling phase on window — fires after React handlers and document handlers.
     window.addEventListener('keydown', onEscape);
     return () => window.removeEventListener('keydown', onEscape);
-  }, [enabled, defaultLandmarkId, getCurrentIndex, shouldSkipKeyboardEvent]);
+  }, [instanceId]);
 }

@@ -18,17 +18,85 @@ import (
 // ExportImport é o bind Wails do domínio export_import (AEP-0088).
 // Auth só via WithUser — sem chamar o helper de auth do App no call site.
 // Tipos de request/response vêm de portability (sem apidto novo).
+type importConversationsFunc func(
+	context.Context,
+	string,
+	*credentials.Manager,
+	string,
+	[]portability.ImportResolution,
+	func([]string),
+) (*portability.ImportResult, error)
+
+type commandImportFunc func(context.Context, portability.ImportRequest) (*portability.ImportResult, error)
+
+type commandExportFunc func(context.Context, portability.ExportRequest) (string, error)
+
 type ExportImport struct {
-	mu         sync.RWMutex
-	session    Session
-	credMgr    *credentials.Manager
-	dialog     func() ports.SystemDialogPort
-	appVersion string
+	mu                         sync.RWMutex
+	session                    Session
+	credMgr                    *credentials.Manager
+	dialog                     func() ports.SystemDialogPort
+	appVersion                 string
+	prepareConversationRestore func(context.Context) (func([]string), error)
+	importConversations        importConversationsFunc
+	importCommandLayers        commandImportFunc
+	commandExport              commandExportFunc
+	reloadMCP                  func(context.Context) error
 }
 
 // NewExportImport cria o bind vazio; AttachExportImport preenche deps no startup.
 func NewExportImport() *ExportImport {
-	return &ExportImport{}
+	return &ExportImport{importConversations: portability.ImportConversationsWithRestoreHook}
+}
+
+func (api *ExportImport) importer() importConversationsFunc {
+	api.mu.RLock()
+	importFn := api.importConversations
+	api.mu.RUnlock()
+	if importFn == nil {
+		importFn = portability.ImportConversationsWithRestoreHook
+	}
+	return importFn
+}
+
+func (api *ExportImport) publishImport(ctx context.Context, data string, result *portability.ImportResult) {
+	api.mu.RLock()
+	reload := api.reloadMCP
+	api.mu.RUnlock()
+	if result != nil && result.Imported > 0 && reload != nil && portability.HasMCPServers(data) {
+		if reloadErr := reload(ctx); reloadErr != nil {
+			// The import already committed. Preserve its result and never retry
+			// persistence just because runtime publication failed.
+			result.Warnings = append(result.Warnings, portability.LocalizedMessage{
+				Code:    "mcpServer.runtimeReloadFailed",
+				Message: "Os dados foram importados, mas a lista MCP não pôde ser atualizada. Entre novamente para recarregá-la.",
+			})
+		}
+	}
+}
+
+// AttachMCPImportReload wires local runtime publication without adding a Wails method.
+func AttachMCPImportReload(api *ExportImport, reload func(context.Context) error) {
+	if api == nil {
+		return
+	}
+	api.mu.Lock()
+	defer api.mu.Unlock()
+	api.reloadMCP = reload
+}
+
+func (api *ExportImport) commandImporter() commandImportFunc {
+	api.mu.RLock()
+	defer api.mu.RUnlock()
+	return api.importCommandLayers
+}
+
+func (api *ExportImport) dispatchCommandImport(ctx context.Context, req portability.ImportRequest) (*portability.ImportResult, error) {
+	importFn := api.commandImporter()
+	if importFn == nil {
+		return nil, ErrExportImportNotWired
+	}
+	return importFn(ctx, req)
 }
 
 // AttachExportImport associa Session, credenciais, diálogo e versão após o startup.
@@ -39,6 +107,7 @@ func AttachExportImport(
 	credMgr *credentials.Manager,
 	dialog func() ports.SystemDialogPort,
 	appVersion string,
+	prepareConversationRestore func(context.Context) (func([]string), error),
 ) {
 	if api == nil {
 		return
@@ -49,20 +118,63 @@ func AttachExportImport(
 	api.credMgr = credMgr
 	api.dialog = dialog
 	api.appVersion = appVersion
+	api.prepareConversationRestore = prepareConversationRestore
 }
 
-func (api *ExportImport) deps() (Session, *credentials.Manager, func() ports.SystemDialogPort, string, error) {
+// AttachCommandImport associa o importador confiável de commandLayers ao bind.
+// Função de pacote para não entrar na superfície Bind do Wails. O callback
+// recebe o contexto já autenticado por WithUser e o ImportRequest existente;
+// o bind não conhece o writer nem cria um DTO paralelo.
+func AttachCommandImport(api *ExportImport, importFn func(context.Context, portability.ImportRequest) (*portability.ImportResult, error)) {
+	if api == nil {
+		return
+	}
+	api.mu.Lock()
+	defer api.mu.Unlock()
+	api.importCommandLayers = importFn
+}
+
+// AttachCommandExport associa o exportador confiável de commandLayers ao
+// bind. A função de pacote mantém o callback fora da superfície Bind do Wails;
+// ele recebe o contexto já autenticado por WithUser e o request validado.
+func AttachCommandExport(api *ExportImport, exportFn func(context.Context, portability.ExportRequest) (string, error)) {
+	if api == nil {
+		return
+	}
+	api.mu.Lock()
+	defer api.mu.Unlock()
+	api.commandExport = exportFn
+}
+
+func (api *ExportImport) commandExporter() commandExportFunc {
+	api.mu.RLock()
+	defer api.mu.RUnlock()
+	return api.commandExport
+}
+
+func (api *ExportImport) dispatchCommandExport(ctx context.Context, req portability.ExportRequest) (string, error) {
+	if err := portability.ValidateCommandExportRequest(req); err != nil {
+		return "", err
+	}
+	exportFn := api.commandExporter()
+	if exportFn == nil {
+		return "", ErrExportImportNotWired
+	}
+	return exportFn(ctx, req)
+}
+
+func (api *ExportImport) deps() (Session, *credentials.Manager, func() ports.SystemDialogPort, string, func(context.Context) (func([]string), error), error) {
 	api.mu.RLock()
 	defer api.mu.RUnlock()
 	if api.session == nil || api.dialog == nil {
-		return nil, nil, nil, "", ErrExportImportNotWired
+		return nil, nil, nil, "", nil, ErrExportImportNotWired
 	}
-	return api.session, api.credMgr, api.dialog, api.appVersion, nil
+	return api.session, api.credMgr, api.dialog, api.appVersion, api.prepareConversationRestore, nil
 }
 
 // ExportConversations exporta conversas selecionadas em JSON portátil.
 func (api *ExportImport) ExportConversations(ids []string) (string, error) {
-	session, credMgr, _, appVersion, err := api.deps()
+	session, credMgr, _, appVersion, _, err := api.deps()
 	if err != nil {
 		return "", err
 	}
@@ -75,11 +187,14 @@ func (api *ExportImport) ExportConversations(ids []string) (string, error) {
 
 // ExportData exporta dados portáteis conforme o request (JSON/HTML/MCP-JSON).
 func (api *ExportImport) ExportData(req portability.ExportRequest) (string, error) {
-	session, credMgr, _, appVersion, err := api.deps()
+	session, credMgr, _, appVersion, _, err := api.deps()
 	if err != nil {
 		return "", err
 	}
 	return WithUser(session, func(ctx context.Context) (string, error) {
+		if isCommandExportRequest(req) {
+			return api.dispatchCommandExport(ctx, req)
+		}
 		return exportData(ctx, credMgr, appVersion, req)
 	})
 }
@@ -88,7 +203,7 @@ func (api *ExportImport) ExportData(req portability.ExportRequest) (string, erro
 // labels deve vir já traduzido do frontend (i18n); campos vazios usam fallback pt-BR.
 // MarkdownFilter carrega o rótulo do filtro do formato (HTML/PDF/Markdown).
 func (api *ExportImport) ExportConversationsToFile(ids []string, format string, options portability.ContentExportOptions, labels apidto.FileDialogLabels) (string, error) {
-	session, credMgr, dialogFn, appVersion, err := api.deps()
+	session, credMgr, dialogFn, appVersion, _, err := api.deps()
 	if err != nil {
 		return "", err
 	}
@@ -154,7 +269,7 @@ func (api *ExportImport) ExportConversationsToFile(ids []string, format string, 
 
 // ExportDataToFile exporta dados portáteis para um caminho informado.
 func (api *ExportImport) ExportDataToFile(req portability.ExportRequest, path string) (string, error) {
-	session, credMgr, _, appVersion, err := api.deps()
+	session, credMgr, _, appVersion, _, err := api.deps()
 	if err != nil {
 		return "", err
 	}
@@ -164,6 +279,19 @@ func (api *ExportImport) ExportDataToFile(req portability.ExportRequest, path st
 		}
 		if req.OutputFormat == "" {
 			req.OutputFormat = portability.FormatJSON
+		}
+		if isCommandExportRequest(req) {
+			rendered, err := api.dispatchCommandExport(ctx, req)
+			if err != nil {
+				return "", err
+			}
+			if err := os.WriteFile(path, []byte(rendered), 0600); err != nil {
+				return "", err
+			}
+			if err := ensureExportFileMode(path); err != nil {
+				return "", err
+			}
+			return path, nil
 		}
 		originalReq := req
 		if err := validateDBOnlyExportRequest(req); err != nil {
@@ -220,52 +348,124 @@ func (api *ExportImport) ExportDataToFile(req portability.ExportRequest, path st
 
 // ImportConversations importa conversas a partir de JSON portátil.
 func (api *ExportImport) ImportConversations(jsonData string) (*portability.ImportResult, error) {
-	session, credMgr, _, _, err := api.deps()
+	session, credMgr, _, _, prepareRestore, err := api.deps()
 	if err != nil {
 		return nil, err
 	}
 	return WithUser(session, func(ctx context.Context) (*portability.ImportResult, error) {
-		return portability.ImportConversationsWithContext(ctx, jsonData, credMgr, "")
+		if portability.HasCommandLayers(jsonData) {
+			return api.dispatchCommandImport(ctx, portability.ImportRequest{JSONData: jsonData})
+		}
+		result, err := withPreparedConversationRestore(ctx, prepareRestore, func(finalize func([]string)) (*portability.ImportResult, error) {
+			return api.importer()(ctx, jsonData, credMgr, "", nil, finalize)
+		})
+		api.publishImport(ctx, jsonData, result)
+		return result, err
 	})
 }
 
 // ImportData importa dados portáteis (com senha opcional de credenciais).
 func (api *ExportImport) ImportData(jsonData string, credentialExportPassword string) (*portability.ImportResult, error) {
-	session, credMgr, _, _, err := api.deps()
+	session, credMgr, _, _, prepareRestore, err := api.deps()
 	if err != nil {
 		return nil, err
 	}
 	return WithUser(session, func(ctx context.Context) (*portability.ImportResult, error) {
-		return portability.ImportConversationsWithContext(ctx, jsonData, credMgr, credentialExportPassword)
+		if portability.HasCommandLayers(jsonData) {
+			return api.dispatchCommandImport(ctx, portability.ImportRequest{
+				JSONData:                 jsonData,
+				CredentialExportPassword: credentialExportPassword,
+			})
+		}
+		result, err := withPreparedConversationRestore(ctx, prepareRestore, func(finalize func([]string)) (*portability.ImportResult, error) {
+			return api.importer()(ctx, jsonData, credMgr, credentialExportPassword, nil, finalize)
+		})
+		api.publishImport(ctx, jsonData, result)
+		return result, err
 	})
 }
 
 // ImportDataWithResolutions importa dados aplicando resoluções de conflito.
 func (api *ExportImport) ImportDataWithResolutions(req portability.ImportRequest) (*portability.ImportResult, error) {
-	session, credMgr, _, _, err := api.deps()
+	session, credMgr, _, _, prepareRestore, err := api.deps()
 	if err != nil {
 		return nil, err
 	}
 	return WithUser(session, func(ctx context.Context) (*portability.ImportResult, error) {
-		return portability.ImportConversationsWithResolutions(
-			ctx,
-			req.JSONData,
-			credMgr,
-			req.CredentialExportPassword,
-			req.Resolutions,
-		)
+		if portability.HasCommandLayers(req.JSONData) {
+			return api.dispatchCommandImport(ctx, req)
+		}
+		result, err := withPreparedConversationRestore(ctx, prepareRestore, func(finalize func([]string)) (*portability.ImportResult, error) {
+			return api.importer()(
+				ctx,
+				req.JSONData,
+				credMgr,
+				req.CredentialExportPassword,
+				req.Resolutions,
+				finalize,
+			)
+		})
+		api.publishImport(ctx, req.JSONData, result)
+		return result, err
 	})
+}
+
+func withPreparedConversationRestore(
+	ctx context.Context,
+	prepare func(context.Context) (func([]string), error),
+	importFn func(func([]string)) (*portability.ImportResult, error),
+) (*portability.ImportResult, error) {
+	preparedFinalize := func([]string) {}
+	if prepare != nil {
+		var err error
+		preparedFinalize, err = prepare(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if preparedFinalize == nil {
+			preparedFinalize = func([]string) {}
+		}
+	}
+	var finalizeOnce sync.Once
+	finalize := func(ids []string) {
+		finalizeOnce.Do(func() { preparedFinalize(ids) })
+	}
+	defer finalize(nil)
+	var result *portability.ImportResult
+	err := database.WithConversationLifecycle(ctx, func() error {
+		var importErr error
+		result, importErr = importFn(finalize)
+		return importErr
+	})
+	return result, err
 }
 
 // AnalyzeImportData analisa um payload de importação sem aplicar mudanças.
 func (api *ExportImport) AnalyzeImportData(jsonData string, credentialExportPassword string) (*portability.ImportAnalysis, error) {
-	session, credMgr, _, _, err := api.deps()
+	session, credMgr, _, _, _, err := api.deps()
 	if err != nil {
 		return nil, err
 	}
 	return WithUser(session, func(ctx context.Context) (*portability.ImportAnalysis, error) {
+		if portability.HasCommandLayers(jsonData) {
+			layers, err := portability.ParseCommandImportEnvelope([]byte(jsonData))
+			if err != nil {
+				return nil, err
+			}
+			if credentialExportPassword != "" {
+				return nil, fmt.Errorf("senha não é suportada para importação de commandLayers")
+			}
+			return &portability.ImportAnalysis{
+				Version:           portability.ExportVersion,
+				CommandLayerCount: len(layers),
+			}, nil
+		}
 		return portability.AnalyzeImportDataWithContext(ctx, jsonData, credMgr, credentialExportPassword)
 	})
+}
+
+func isCommandExportRequest(req portability.ExportRequest) bool {
+	return req.IncludeCommandLayers || len(req.CommandLayerIDs) > 0
 }
 
 func exportData(ctx context.Context, credMgr *credentials.Manager, appVersion string, req portability.ExportRequest) (string, error) {

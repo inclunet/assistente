@@ -21,11 +21,11 @@ func TestFinalizeAssistantMessage_WithNilRepo_PreservesAssistantMessageID(t *tes
 	}
 }
 
-func TestEnsureAssistantPlaceholder_PrefersAssistantWithoutToolCalls(t *testing.T) {
+func TestEnsureAssistantPlaceholder_PrefersPrimeiroAssistantDoTurno(t *testing.T) {
 	repo := &stubRepo{
 		messages: []database.ChatMessage{
-			{UUIDModel: database.UUIDModel{ID: "assistant-placeholder"}, Role: "assistant", ToolCalls: ""},
-			{UUIDModel: database.UUIDModel{ID: "assistant-tools"}, Role: "assistant", ToolCalls: `[{"id":"call-1"}]`},
+			{UUIDModel: database.UUIDModel{ID: "assistant-placeholder"}, Role: "assistant"},
+			{UUIDModel: database.UUIDModel{ID: "assistant-intermediario"}, Role: "assistant"},
 		},
 	}
 
@@ -38,11 +38,11 @@ func TestEnsureAssistantPlaceholder_PrefersAssistantWithoutToolCalls(t *testing.
 	}
 }
 
-func TestEnsureAssistantPlaceholder_PrefersOriginalPlaceholderWhenIntermediateHasNoToolCalls(t *testing.T) {
+func TestEnsureAssistantPlaceholder_PrefersPlaceholderOriginal(t *testing.T) {
 	repo := &stubRepo{
 		messages: []database.ChatMessage{
-			{UUIDModel: database.UUIDModel{ID: "assistant-placeholder"}, Role: "assistant", ToolCalls: "", Content: "resposta final antiga"},
-			{UUIDModel: database.UUIDModel{ID: "assistant-intermediate"}, Role: "assistant", ToolCalls: "", Content: "vou buscar"},
+			{UUIDModel: database.UUIDModel{ID: "assistant-placeholder"}, Role: "assistant", Content: "resposta final antiga"},
+			{UUIDModel: database.UUIDModel{ID: "assistant-intermediate"}, Role: "assistant", Content: "vou buscar"},
 		},
 	}
 

@@ -2,25 +2,35 @@ package httpapi
 
 import (
 	"assistente/internal/logging"
+	"context"
 	"encoding/json"
 	"errors"
 	"net"
 	"net/http"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"assistente/internal/auth"
+	"assistente/internal/commandcatalog"
+	"assistente/internal/commandexecution"
 	"assistente/internal/credentials"
 )
 
 type Server struct {
-	vault    *auth.VaultService
-	ids      *auth.IdentityService
-	session  *auth.SessionService
-	sessions func() *auth.SessionService
-	mode     string
-	external *auth.ExternalAuthenticator
-	mux      *http.ServeMux
+	vault                       *auth.VaultService
+	ids                         *auth.IdentityService
+	session                     *auth.SessionService
+	sessions                    func() *auth.SessionService
+	mode                        string
+	external                    *auth.ExternalAuthenticator
+	externalIdentityAdmin       *auth.ExternalIdentityAdminService
+	externalIdentities          *auth.ExternalIdentityRepository
+	externalCommands            map[string]*commandexecution.ExternalService
+	externalCommandProvider     ExternalCommandProvider
+	externalUIConnections       ExternalUIConnectionPort
+	externalCommandWriteTimeout time.Duration
+	mux                         *http.ServeMux
 
 	// jwksCache (B20 do review) absorve picos de tráfego em
 	// /.well-known/jwks.json sem segurar lock no signer a cada request.
@@ -37,13 +47,27 @@ type Server struct {
 	jwksLimiter *rateLimiter
 }
 
+// ExternalCommandProvider resolve o executor pela projeção produtiva atual;
+// ao contrário do mapa legado, não captura o produto no startup HTTP.
+type ExternalCommandProvider interface {
+	ExternalCommandService(string) *commandexecution.ExternalService
+}
+
 type Config struct {
-	Vault    *auth.VaultService
-	IDs      *auth.IdentityService
-	Session  *auth.SessionService
-	Sessions func() *auth.SessionService
-	Mode     string
-	External *auth.ExternalAuthenticator
+	Vault                   *auth.VaultService
+	IDs                     *auth.IdentityService
+	Session                 *auth.SessionService
+	Sessions                func() *auth.SessionService
+	Mode                    string
+	External                *auth.ExternalAuthenticator
+	ExternalIdentityAdmin   *auth.ExternalIdentityAdminService
+	ExternalIdentities      *auth.ExternalIdentityRepository
+	ExternalCommands        map[string]*commandexecution.ExternalService
+	ExternalCommandProvider ExternalCommandProvider
+	ExternalUIConnections   ExternalUIConnectionPort
+	// ExternalCommandWriteTimeout amplia o deadline somente durante o handler
+	// síncrono de execução externa; zero preserva o deadline do servidor.
+	ExternalCommandWriteTimeout time.Duration
 	// AuthRate / AuthBurst e JWKSRate / JWKSBurst permitem ajustar os
 	// limites por deploy. Defaults conservadores aplicados quando não
 	// configurados — evitam que um teste/integração local "sem cargo"
@@ -55,6 +79,21 @@ type Config struct {
 }
 
 func New(cfg Config) *Server {
+	externalCommandProvider := cfg.ExternalCommandProvider
+	var externalCommands map[string]*commandexecution.ExternalService
+	if externalCommandProvider != nil && len(cfg.ExternalCommands) > 0 {
+		// Os dois mecanismos podem referenciar épocas/serviços diferentes; não
+		// há configuração produtiva que precise combiná-los. Desabilite ambos.
+		logging.Errorf(context.Background(), "httpapi.server", "[httpapi] mixed_external_command_configuration")
+		externalCommandProvider = nil
+	} else {
+		var validExternalCommands bool
+		externalCommands, validExternalCommands = copyAndValidateExternalCommands(cfg.ExternalCommands)
+		if !validExternalCommands {
+			logging.Errorf(context.Background(), "httpapi.server", "[httpapi] invalid_external_command_services")
+			externalCommands = nil
+		}
+	}
 	authRate := cfg.AuthRate
 	if authRate <= 0 {
 		authRate = 5
@@ -72,21 +111,54 @@ func New(cfg Config) *Server {
 		jwksBurst = 100
 	}
 	s := &Server{
-		vault:       cfg.Vault,
-		ids:         cfg.IDs,
-		session:     cfg.Session,
-		sessions:    cfg.Sessions,
-		mode:        cfg.Mode,
-		external:    cfg.External,
-		mux:         http.NewServeMux(),
-		authLimiter: newRateLimiter(authRate, authBurst),
-		jwksLimiter: newRateLimiter(jwksRate, jwksBurst),
+		vault:                       cfg.Vault,
+		ids:                         cfg.IDs,
+		session:                     cfg.Session,
+		sessions:                    cfg.Sessions,
+		mode:                        cfg.Mode,
+		external:                    cfg.External,
+		externalIdentityAdmin:       cfg.ExternalIdentityAdmin,
+		externalIdentities:          cfg.ExternalIdentities,
+		externalCommands:            externalCommands,
+		externalCommandProvider:     externalCommandProvider,
+		externalUIConnections:       cfg.ExternalUIConnections,
+		externalCommandWriteTimeout: cfg.ExternalCommandWriteTimeout,
+		mux:                         http.NewServeMux(),
+		authLimiter:                 newRateLimiter(authRate, authBurst),
+		jwksLimiter:                 newRateLimiter(jwksRate, jwksBurst),
 	}
 	if s.mode == "" {
 		s.mode = "local"
 	}
 	s.routes()
 	return s
+}
+
+func copyAndValidateExternalCommands(input map[string]*commandexecution.ExternalService) (map[string]*commandexecution.ExternalService, bool) {
+	if len(input) == 0 {
+		return nil, true
+	}
+	expected := map[string]commandcatalog.Source{
+		"palette": commandcatalog.Palette,
+		"ui":      commandcatalog.UI,
+		"chat":    commandcatalog.Chat,
+	}
+	copyOfServices := make(map[string]*commandexecution.ExternalService, len(input))
+	var sharedSecurity *commandexecution.ExternalService
+	for key, service := range input {
+		wantSource, ok := expected[key]
+		if !ok || service == nil || service.Source() != wantSource {
+			return nil, false
+		}
+		if sharedSecurity != nil && !sharedSecurity.SharesSecurityWith(service) {
+			return nil, false
+		}
+		if sharedSecurity == nil {
+			sharedSecurity = service
+		}
+		copyOfServices[key] = service
+	}
+	return copyOfServices, true
 }
 
 func (s *Server) sessionService() *auth.SessionService {
@@ -100,6 +172,18 @@ func (s *Server) Handler() http.Handler {
 	return s.mux
 }
 
+func (s *Server) externalCommandServiceFor(source string) *commandexecution.ExternalService {
+	if s == nil {
+		return nil
+	}
+	if s.externalCommandProvider != nil {
+		if service := s.externalCommandProvider.ExternalCommandService(source); service != nil {
+			return service
+		}
+	}
+	return s.externalCommands[source]
+}
+
 func (s *Server) routes() {
 	s.mux.HandleFunc("GET /vault/status", s.handleVaultStatus)
 	s.mux.HandleFunc("POST /vault/setup", s.handleVaultSetup)
@@ -108,6 +192,13 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /auth/refresh", s.rateLimit(s.authLimiter, "auth.refresh", s.handleRefresh))
 	s.mux.HandleFunc("POST /auth/logout", s.handleLogout)
 	s.mux.HandleFunc("GET /auth/me", s.handleMe)
+	s.mux.HandleFunc("POST /auth/external/identities/bootstrap", s.rateLimit(s.authLimiter, "auth.external.bootstrap", s.handleExternalIdentityBootstrap))
+	s.mux.HandleFunc("POST /auth/external/identities", s.rateLimit(s.authLimiter, "auth.external.identity.create", s.handleExternalIdentityCreate))
+	s.mux.Handle("POST /auth/external/identities/revoke", s.noStoreRateLimit(s.authLimiter, "auth.external.identity.revoke", s.handleExternalIdentityRevoke))
+	s.mux.Handle("POST /auth/external/ui-connections/consume", s.noStoreRateLimit(s.authLimiter, "auth.external.ui_connections.consume", s.handleExternalUIConnectionConsume))
+	s.mux.Handle("GET /auth/external/ui-connections/context", s.noStoreRateLimit(s.authLimiter, "auth.external.ui_connections.context", s.handleExternalUIConnectionContext))
+	s.mux.Handle("POST /commands/{source}/execute", s.noStoreRateLimit(s.authLimiter, "commands.execute", s.handleExternalCommandExecute))
+	s.mux.Handle("GET /commands/{source}/invocations/{id}", s.noStoreRateLimit(s.authLimiter, "commands.lookup", s.handleExternalCommandLookup))
 	s.mux.HandleFunc("GET /.well-known/jwks.json", s.rateLimit(s.jwksLimiter, "auth.jwks", s.handleJWKS))
 }
 
@@ -244,6 +335,7 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
 	principal, ok := s.requireAccess(w, r)
 	if !ok {
 		return
@@ -286,11 +378,12 @@ type principal struct {
 }
 
 func (s *Server) requireAccess(w http.ResponseWriter, r *http.Request) (*principal, bool) {
-	token := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
-	if token == "" {
+	parts := strings.Fields(r.Header.Get("Authorization"))
+	if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "access token obrigatório"})
 		return nil, false
 	}
+	token := parts[1]
 	if s.mode == "external" {
 		if s.external == nil {
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "validador externo indisponível"})
@@ -301,11 +394,27 @@ func (s *Server) requireAccess(w http.ResponseWriter, r *http.Request) (*princip
 			s.writeAuthErr(r.Context(), w, "auth.access.external", http.StatusUnauthorized, err)
 			return nil, false
 		}
+		// A adoção é fail-closed: schema e bootstrap do issuer precisam existir.
+		// Mesmo sub igual a users.id exige vínculo explícito, sem fallback legado.
+		if err := s.externalIdentities.CheckIssuerReadiness(r.Context(), claims.Issuer); err != nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "mapeamento externo indisponível"})
+			return nil, false
+		}
+		mapping, err := s.externalIdentities.Resolve(r.Context(), claims.Issuer, claims.Subject)
+		if err != nil {
+			if errors.Is(err, auth.ErrExternalIdentityNotMapped) || errors.Is(err, auth.ErrExternalIdentityRevoked) {
+				s.writeAuthErr(r.Context(), w, "auth.access.external.mapping", http.StatusUnauthorized, auth.ErrUnauthenticatedExternalCommand)
+			} else {
+				logging.Errorf(r.Context(), "httpapi.server", "[httpapi] op=auth.access.external.mapping status=503 err=%v", err)
+				writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "mapeamento externo indisponível"})
+			}
+			return nil, false
+		}
 		role := "user"
 		if len(claims.Roles) > 0 {
 			role = claims.Roles[0]
 		}
-		return &principal{UserID: claims.Subject, Role: role}, true
+		return &principal{UserID: mapping.UserID, Role: role}, true
 	}
 	session := s.sessionService()
 	if session == nil {

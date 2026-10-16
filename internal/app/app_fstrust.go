@@ -36,12 +36,27 @@ const (
 func fsDecisionActions() []questionnaire.DecisionAction {
 	out := make([]questionnaire.DecisionAction, 0, len(fsScopeOptions)*3)
 	for i, o := range fsScopeOptions {
-		out = append(out, questionnaire.DecisionAction{
+		action := questionnaire.DecisionAction{
 			ID:      string(o.scope),
 			Label:   questionnaire.Keyed(o.key, o.label),
 			Variant: "secondary",
 			Primary: i == 0,
-		})
+		}
+		// O chord universal representa as três escolhas sem colisão: tentativa,
+		// conversa e persistência neste workspace. Profile/global e pasta pai
+		// continuam com Alt+mnemônico porque coexistem no mesmo alcance temporal.
+		switch o.scope {
+		case fstrust.ScopeOnce:
+			action.Polarity = questionnaire.DecisionPolarityAffirmative
+			action.Scope = questionnaire.DecisionScopeCurrent
+		case fstrust.ScopeSession:
+			action.Polarity = questionnaire.DecisionPolarityAffirmative
+			action.Scope = questionnaire.DecisionScopeConversation
+		case fstrust.ScopeWorkspace:
+			action.Polarity = questionnaire.DecisionPolarityAffirmative
+			action.Scope = questionnaire.DecisionScopePersistent
+		}
+		out = append(out, action)
 	}
 	if len(out) > 0 {
 		out[0].Variant = "primary"
@@ -61,19 +76,30 @@ func fsDecisionActions() []questionnaire.DecisionAction {
 	// "once" permanece a ação Negar final; session também é lembrado, mas só em
 	// memória e isolado por conversa.
 	for _, o := range fsScopeOptions[1:] {
-		out = append(out, questionnaire.DecisionAction{
+		action := questionnaire.DecisionAction{
 			ID: fsActionDenyRememberPrefix + string(o.scope),
 			Label: questionnaire.Keyed(
 				"app.questionnaire.fstrust.deny."+string(o.scope),
 				fmt.Sprintf("Negar — %s", o.label),
 			),
 			Variant: "danger",
-		})
+		}
+		switch o.scope {
+		case fstrust.ScopeSession:
+			action.Polarity = questionnaire.DecisionPolarityNegative
+			action.Scope = questionnaire.DecisionScopeConversation
+		case fstrust.ScopeWorkspace:
+			action.Polarity = questionnaire.DecisionPolarityNegative
+			action.Scope = questionnaire.DecisionScopePersistent
+		}
+		out = append(out, action)
 	}
 	out = append(out, questionnaire.DecisionAction{
-		ID:      fsActionDenyPrefix,
-		Label:   questionnaire.Keyed("app.questionnaire.fstrust.cancel", "Negar"),
-		Variant: "outline",
+		ID:       fsActionDenyPrefix,
+		Label:    questionnaire.Keyed("app.questionnaire.fstrust.cancel", "Negar"),
+		Variant:  "outline",
+		Polarity: questionnaire.DecisionPolarityNegative,
+		Scope:    questionnaire.DecisionScopeCurrent,
 	})
 	return out
 }
@@ -125,7 +151,8 @@ func pathConfirmationPayload(req fstrust.PromptRequest) questionnaire.RequestPay
 	}
 
 	return questionnaire.RequestPayload{
-		Kind: questionnaire.KindDecision,
+		Kind:     questionnaire.KindDecision,
+		Severity: questionnaire.DecisionSeverityPermission,
 		Title: questionnaire.Keyed(
 			"app.questionnaire.fstrust.title",
 			"Autorizar acesso a caminho fora do workspace",

@@ -12,6 +12,25 @@ type DBStore struct{}
 // NewDBStore cria um DBStore pronto para uso.
 func NewDBStore() *DBStore { return &DBStore{} }
 
+// ReadCommandTarget lê o payload e o fingerprint no mesmo snapshot SQLite.
+// O método é separado dos reads legados para que a integração de comandos não
+// faça Get + Snapshot em duas consultas independentes.
+func (s *DBStore) ReadCommandTarget(ctx context.Context, id string) (*database.TaskList, string, error) {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return nil, "", err
+	}
+	return database.ReadTaskListCommandTargetWithContext(ctx, id)
+}
+
+// CommitCommandMutation executa o CAS e a persistência final sem retry de
+// SQLITE_BUSY; o caller pode envolver o método em seu guard de lifecycle.
+func (s *DBStore) CommitCommandMutation(ctx context.Context, request database.TaskListCommandMutationRequest) (*database.TaskList, error) {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return nil, err
+	}
+	return database.CommitTaskListCommandMutationWithContext(ctx, request)
+}
+
 // ── Task List ──────────────────────────────────────────────────────────────────
 
 func (s *DBStore) CreateTaskList(ctx context.Context, title, description string, templateWorkflow *database.TaskListWorkflow, slug string) (*database.TaskList, error) {
@@ -26,6 +45,13 @@ func (s *DBStore) GetTaskList(ctx context.Context, id string) (*database.TaskLis
 		return nil, err
 	}
 	return database.GetTaskListWithContext(ctx, id)
+}
+
+func (s *DBStore) GetTaskListMetadata(ctx context.Context, id string) (*database.TaskList, error) {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return nil, err
+	}
+	return database.GetTaskListMetadataWithContext(ctx, id)
 }
 
 func (s *DBStore) FindTaskListBySlug(ctx context.Context, slug string) (*database.TaskList, error) {
@@ -98,6 +124,13 @@ func (s *DBStore) SetTaskListCustomActions(ctx context.Context, taskListID strin
 	return database.SetTaskListCustomActionsWithContext(ctx, taskListID, actionsJSON)
 }
 
+func (s *DBStore) SetTaskListCustomActionsChecked(ctx context.Context, taskListID, expectedJSON, actionsJSON string) error {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return err
+	}
+	return database.SetTaskListCustomActionsCheckedWithContext(ctx, taskListID, expectedJSON, actionsJSON)
+}
+
 func (s *DBStore) SetTaskListViewMode(ctx context.Context, id string, viewMode string) error {
 	if _, err := database.RequireUserID(ctx); err != nil {
 		return err
@@ -161,6 +194,13 @@ func (s *DBStore) UpdateWorkflowFull(ctx context.Context, taskListID string, sta
 		return err
 	}
 	return database.UpdateWorkflowFullWithContext(ctx, taskListID, statuses, transitions, initialStatusID, statusMigration)
+}
+
+func (s *DBStore) UpdateWorkflowFullChecked(ctx context.Context, taskListID string, expected database.TaskListWorkflowSnapshot, statuses []database.TaskListWorkflowStatus, transitions database.TaskListWorkflowTransitions, initialStatusID int, statusMigration map[int]int) error {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return err
+	}
+	return database.UpdateWorkflowFullCheckedWithContext(ctx, taskListID, expected, statuses, transitions, initialStatusID, statusMigration)
 }
 
 func (s *DBStore) GetTaskCountsByStatus(ctx context.Context, taskListID string) (map[int]int64, error) {

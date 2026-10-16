@@ -210,6 +210,10 @@ com o documento de allowlist do perfil. A implementação terá AEP próprio
   induzido a aprovar um destino que não escolheu. Um host privado legítimo deve
   ser autorizado pela URL direta; requests já autorizados (com trust por-request)
   delegam a validação do redirect ao `DialContext`, que revalida o IP real.
+- **Exceção OAuth (AEP-0112 D5):** a descoberta OAuth pode apresentar o destino
+  interno de um redirect ao mesmo motor de consentimento, preservando IPs/porta,
+  categoria, escopo e cancelamento. Esta exceção não altera o `RedirectGuard`
+  das ferramentas HTTP nem permite encaminhar segredos automaticamente.
 - **Rebinding de categoria:** o match de allowlist é por host, mas se o DNS passar
   a resolver para uma categoria mais sensível (ex.: de CGNAT para o endpoint de
   metadados ou loopback), a liberação silenciosa é negada e exige novo

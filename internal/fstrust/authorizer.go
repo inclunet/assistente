@@ -81,6 +81,7 @@ func (a *Authorizer) Authorize(ctx context.Context, absPath, operation string) e
 
 	// 2) Consentimento explícito
 	if a.prompt == nil {
+		tools.RecordSecuritySignal(ctx, tools.SecuritySignal{Version: 1, Domain: "filesystem", Outcome: "blocked", Source: "no_prompter", Operation: operation})
 		return newDeniedPathError(requested, operation, "sem prompter de consentimento", false)
 	}
 
@@ -130,6 +131,7 @@ func (a *Authorizer) Authorize(ctx context.Context, absPath, operation string) e
 		}
 		logging.Infof(ctx, "fstrust.authorizer",
 			"[FsTrust] autorização negada: path=%s op=%s escopo=%s", requested, operation, scope)
+		tools.RecordSecuritySignal(ctx, tools.SecuritySignal{Version: 1, Domain: "filesystem", Outcome: "blocked", Source: "user", Scope: string(scope), Operation: operation})
 		return newDeniedPathError(requested, operation, "autorização negada pelo usuário", true)
 	}
 
@@ -176,6 +178,7 @@ func (a *Authorizer) Authorize(ctx context.Context, absPath, operation string) e
 	logging.Infof(ctx, "fstrust.authorizer",
 		"[FsTrust] autorização concedida: path=%s kind=%s op=%s escopo=%s",
 		entryPath, kind, operation, scope)
+	tools.RecordSecuritySignal(ctx, tools.SecuritySignal{Version: 1, Domain: "filesystem", Outcome: "approved", Source: "user", Scope: string(scope), Operation: operation})
 	return nil
 }
 
@@ -224,6 +227,7 @@ func (a *Authorizer) deniedResolved(ctx context.Context, requested, resolved, op
 	logging.Infof(ctx, "fstrust.authorizer",
 		"[FsTrust] bloqueado por denylist: path=%s op=%s escopo=%s",
 		resolved, operation, decision.Scope)
+	tools.RecordSecuritySignal(ctx, tools.SecuritySignal{Version: 1, Domain: "filesystem", Outcome: "blocked", Source: "denylist", Scope: string(decision.Scope), Operation: operation})
 	return newDeniedPathError(requested, operation, fmt.Sprintf("bloqueado pela denylist (escopo %s)", decision.Scope), false)
 }
 

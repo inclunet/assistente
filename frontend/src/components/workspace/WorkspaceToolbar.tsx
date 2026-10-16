@@ -1,19 +1,15 @@
 import { logger } from '../../utils/logger';
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   PlusOutlined,
   SettingOutlined,
-  MessageOutlined,
-  FileTextOutlined,
-  CodeOutlined,
-  CheckSquareOutlined,
   EditOutlined,
   ExportOutlined,
   ImportOutlined,
   FolderOutlined,
 } from '@ant-design/icons';
-import { useWorkspaceStore, type TabType } from '../../store/workspaceStore';
+import { useWorkspaceStore } from '../../store/workspaceStore';
 import { useShallow } from 'zustand/shallow';
 import { Toolbar, ToolbarButton, ToolbarSeparator } from '../ui/Toolbar';
 import { Menu, type MenuItem } from '../menu';
@@ -23,28 +19,27 @@ import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { restoreDefaultFocus } from '../../hooks/useDefaultFocus';
 import { isModalOpen } from '../ui/Modal';
 import { useUIStore } from '../../store/uiStore';
-import { createWorkspaceTab } from '../../lib/createWorkspaceTab';
+import { useWorkspaceTabCreationMenu, type WorkspaceTabCreationMenuRequest } from '../../lib/workspaceTabCreationMenu';
+import { useCommandSequencePrefixHint, useCommandShortcutHints } from '../../lib/commandShortcutHints';
+import { WORKSPACE_TAB_CREATE_COMMAND_IDS } from '../../lib/commandContextualBackendExecution';
 import './WorkspaceToolbar.css';
-
-const TAB_TYPE_OPTIONS: { type: TabType; icon: ReactNode; labelKey: string; chordKey: string }[] = [
-  { type: 'chat', icon: <MessageOutlined />, labelKey: 'workspace.newChat', chordKey: 'C' },
-  { type: 'editor', icon: <FileTextOutlined />, labelKey: 'workspace.newEditor', chordKey: 'E' },
-  { type: 'terminal', icon: <CodeOutlined />, labelKey: 'workspace.newTerminal', chordKey: 'R' },
-  { type: 'tasklist', icon: <CheckSquareOutlined />, labelKey: 'workspace.newTasklist', chordKey: 'T' },
-];
 
 export function WorkspaceToolbar() {
   const { t } = useTranslation();
+  const shortcutHint = useCommandShortcutHints();
   const { announce } = useAnnouncer();
   const addToast = useUIStore((s) => s.addToast);
-  const { workspace, workspaces, setProfile, createWorkspace, renameWorkspace } = useWorkspaceStore(
-    useShallow((s) => ({ workspace: s.workspace, workspaces: s.workspaces, setProfile: s.setProfile, createWorkspace: s.createWorkspace, renameWorkspace: s.renameWorkspace }))
+  const { workspace, setProfile, renameWorkspace } = useWorkspaceStore(
+    useShallow((s) => ({ workspace: s.workspace, setProfile: s.setProfile, renameWorkspace: s.renameWorkspace }))
   );
+  const newTabShortcut = useCommandSequencePrefixHint(WORKSPACE_TAB_CREATE_COMMAND_IDS, workspace?.tabs.find(tab => tab.id === workspace.activeTabId)?.type);
 
   const newTabButtonRef = useRef<HTMLButtonElement>(null);
+  const newTabSelectionInProgressRef = useRef(false);
   const wsMenuButtonRef = useRef<HTMLButtonElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
   const profileContainerRef = useRef<HTMLDivElement>(null);
+  const tabCreationMenu = useWorkspaceTabCreationMenu();
 
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState('');
@@ -56,8 +51,8 @@ export function WorkspaceToolbar() {
     closeMenu: closeNewTab,
     onSelectItem: onNewTabSelect,
   } = useAnchoredContextMenu({
-    onAfterSelect: () => { requestAnimationFrame(() => restoreDefaultFocus()); },
-    onAfterDismiss: () => newTabButtonRef.current?.focus(),
+    restoreTriggerFocusOnSelect: false,
+    restoreTriggerFocusOnDismiss: false,
   });
 
   // --- Workspace management menu ---
@@ -67,7 +62,13 @@ export function WorkspaceToolbar() {
     closeMenu: closeWsMenu,
     onSelectItem: onWsMenuSelect,
   } = useAnchoredContextMenu({
-    onAfterSelect: () => { requestAnimationFrame(() => restoreDefaultFocus()); },
+    onAfterSelect: () => {
+      if (tabCreationMenu) {
+        const handled = tabCreationMenu.completeWorkspaceCreate(() => wsMenuButtonRef.current?.focus());
+        if (handled) return;
+      }
+      requestAnimationFrame(() => restoreDefaultFocus());
+    },
     onAfterDismiss: () => wsMenuButtonRef.current?.focus(),
   });
 
@@ -142,12 +143,8 @@ export function WorkspaceToolbar() {
       id: 'new-workspace',
       label: t('workspace.newWorkspace'),
       icon: <PlusOutlined />,
-      shortcut: 'Ctrl+Shift+N',
-      action: () => {
-        const name = `Workspace ${workspaces.length + 1}`;
-        void createWorkspace(name);
-        announce(`${t('workspace.created')}: ${name}`);
-      },
+      shortcut: shortcutHint('workspace.create'),
+      action: () => { tabCreationMenu?.requestWorkspaceCreate(); },
     },
     {
       id: 'rename-workspace',
@@ -176,7 +173,7 @@ export function WorkspaceToolbar() {
       icon: <FolderOutlined />,
       disabled: true,
     },
-  ], [workspaces.length, createWorkspace, announce, t, startRename, handleExportWorkspace, handleImportWorkspace]);
+  ], [tabCreationMenu, announce, t, startRename, handleExportWorkspace, handleImportWorkspace, shortcutHint]);
 
   const handleOpenWsMenu = useCallback(() => {
     if (wsMenu.visible) { closeWsMenu(); return; }
@@ -185,43 +182,45 @@ export function WorkspaceToolbar() {
     }
   }, [wsMenu.visible, closeWsMenu, openWsMenu, wsMenuItems, t]);
 
-  const newTabItems = useMemo((): MenuItem[] =>
-    TAB_TYPE_OPTIONS.map(({ type, icon, labelKey, chordKey }) => ({
-      id: `tab-${type}`,
-      label: t(labelKey),
-      icon,
-      shortcut: chordKey,
-      action: () => {
-        const title = t(labelKey);
-        void createWorkspaceTab(type, title)
-          .catch((error: unknown) => {
-            logger.error('[WorkspaceToolbar] Erro ao criar aba:', error);
-            addToast(t('workspace.tabCreateFailed'), 'error');
-          });
-      },
-    })),
-  [addToast, announce, t]);
+  const tabCreationMenuHost = useMemo(() => ({
+    show: (request: WorkspaceTabCreationMenuRequest, onSelect: (commandID: string, intent: WorkspaceTabCreationMenuRequest['intent']) => void) => {
+      if (!newTabButtonRef.current) return false;
+      const items: MenuItem[] = request.items.map((item) => ({
+        id: item.commandID,
+        label: item.label,
+        icon: item.icon,
+        shortcut: item.shortcut,
+        disabled: item.disabled,
+        action: item.disabled ? undefined : () => {
+          newTabSelectionInProgressRef.current = true;
+          onSelect(item.commandID, request.intent);
+        },
+      }));
+      openNewTab(newTabButtonRef.current, t('workspace.newTabMenu'), items);
+      return true;
+    },
+    close: (options?: { restoreFocus: boolean }) => {
+      closeNewTab();
+      if (options?.restoreFocus) newTabButtonRef.current?.focus();
+    },
+    focusTrigger: () => newTabButtonRef.current?.focus(),
+    isOpen: () => newTabMenu.visible,
+  }), [closeNewTab, newTabMenu.visible, openNewTab, t]);
 
-  const handleOpenNewTab = useCallback(() => {
-    if (newTabMenu.visible) {
+  useEffect(() => {
+    if (!tabCreationMenu) return undefined;
+    return tabCreationMenu.registerHost(tabCreationMenuHost);
+  }, [tabCreationMenu, tabCreationMenuHost]);
+
+  const handleNewTabMenuClose = useCallback(() => {
+    if (newTabSelectionInProgressRef.current) {
+      newTabSelectionInProgressRef.current = false;
       closeNewTab();
       return;
     }
-    if (newTabButtonRef.current) {
-      openNewTab(newTabButtonRef.current, t('workspace.newTabMenu'), newTabItems);
-    }
-  }, [newTabMenu.visible, closeNewTab, openNewTab, newTabItems, t]);
-
-  // Ctrl+N dispatches this event to visually open the menu
-  useEffect(() => {
-    const handleEvent = () => {
-      if (newTabButtonRef.current && !newTabMenu.visible) {
-        openNewTab(newTabButtonRef.current, t('workspace.newTabMenu'), newTabItems);
-      }
-    };
-    window.addEventListener('workspace:open-new-tab-menu', handleEvent);
-    return () => window.removeEventListener('workspace:open-new-tab-menu', handleEvent);
-  }, [openNewTab, newTabItems, newTabMenu.visible, t]);
+    tabCreationMenu?.cancel('outside');
+    closeNewTab();
+  }, [closeNewTab, tabCreationMenu]);
 
   // --- Profile ---
   const handleProfileChange = useCallback(async (slug: string) => {
@@ -263,8 +262,10 @@ export function WorkspaceToolbar() {
               ref={newTabButtonRef}
               label={t('workspace.newTab')}
               icon={<PlusOutlined />}
-              shortcut="Ctrl+N"
-              onClick={handleOpenNewTab}
+              shortcut={newTabShortcut}
+              onClick={() => {
+                tabCreationMenu?.requestOpen();
+              }}
               aria-expanded={newTabMenu.visible}
             />
 
@@ -307,15 +308,29 @@ export function WorkspaceToolbar() {
         }
       />
 
-      <Menu
-        items={newTabMenu.items}
-        x={newTabMenu.x}
-        y={newTabMenu.y}
-        visible={newTabMenu.visible}
-        ariaLabel={newTabMenu.ariaLabel || t('workspace.newTabMenu')}
-        onClose={closeNewTab}
-        onSelect={onNewTabSelect}
-      />
+      <div data-workspace-tab-creation-menu onKeyDownCapture={(event) => {
+        if (event.key !== 'Tab') return;
+        event.preventDefault();
+        event.stopPropagation();
+        tabCreationMenu?.cancel('escape');
+      }}>
+        <Menu
+          items={newTabMenu.items}
+          x={newTabMenu.x}
+          y={newTabMenu.y}
+          visible={newTabMenu.visible}
+          ariaLabel={newTabMenu.ariaLabel || t('workspace.newTabMenu')}
+          restoreFocusOnClose={false}
+          onClose={handleNewTabMenuClose}
+          onSelect={onNewTabSelect}
+          onItemKeyDown={(event) => {
+            if (event.key !== 'Escape') return false;
+            event.preventDefault();
+            tabCreationMenu?.cancel('escape');
+            return true;
+          }}
+        />
+      </div>
 
       <Menu
         items={wsMenu.items}

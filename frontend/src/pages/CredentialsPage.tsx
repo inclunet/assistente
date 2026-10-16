@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { DeleteOutlined, EditOutlined, EyeOutlined, PlusOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
-import { ListCredentials, UpsertCredential, DeleteCredential, ListExternalSources } from '@wailsjs/go/wailsapi/Credentials';
+import { ListCredentials, ListManagedCredentials, UpsertCredential, DeleteCredential } from '@wailsjs/go/wailsapi/Credentials';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
 import { MenuButton } from '../components/layout/MenuButton';
 import { Toolbar } from '../components/ui/Toolbar';
-import { Button, Input, Select } from '../components';
+import { Button, Input } from '../components';
 import { Modal } from '../components/ui/Modal';
 import { DialogActions } from '../components/ui/DialogActions';
 import { EditorPanelFooter } from '../components/ui/EditorPanel';
@@ -13,41 +13,36 @@ import { useGridFocus } from '../hooks/useGridFocus';
 import { useGridPageLandmarks } from '../hooks/useGridPageLandmarks';
 import { useEditableList } from '../hooks/useEditableList';
 import { useResourceEditRequest } from '../hooks/useResourceEditRequest';
-import { useAnnouncer } from '../hooks/useAnnouncer';
 import { useActivePanelNewShortcut } from '../hooks/useActivePanelShortcut';
 import './CredentialsPage.css';
+import { CredentialFields } from '../components/credentials/CredentialFields';
+import { credentialFromSummary, credentialInput, newCredential, validateCredential, type CredentialDraft } from '../components/credentials/credentialDraft';
 
-interface CredentialRow {
-  id: string;
-  pattern: string;
-  type: string;
-  masked: string;
-  managed: boolean;
-  token?: string;
-  username?: string;
-  password?: string;
-  headerName?: string;
-  headerValue?: string;
-  [key: string]: unknown;
-}
+import { useNavigate } from 'react-router-dom';
+import { useAnnouncer } from '../hooks/useAnnouncer';
+import { useAuthStore } from '../store/authStore';
+import { executeDeepLink } from '../lib/deepLinks';
+import { managedCredentialAction } from '../components/credentials/managedCredential';
+import type { credentials } from '@wailsjs/go/models';
+
+type CredentialRow = CredentialDraft & { authorization?: credentials.ManagedCredentialSummary };
 
 export default function CredentialsPage() {
+  const owner = useAuthStore((state) => state.user);
+  return <SessionCredentialsPage key={`${owner?.userId ?? ''}:${owner?.sessionId ?? ''}`} />;
+}
+
+function SessionCredentialsPage() {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const { announce } = useAnnouncer();
+  const sessionId = useAuthStore((state) => state.user?.sessionId);
+  const actionEpoch = useRef(0);
+  const [openingManaged, setOpeningManaged] = useState(false);
+  const [managedError, setManagedError] = useState(false);
   const { handleGridReady } = useGridFocus();
   useGridPageLandmarks({ pageClass: 'credentials-page' });
   const [focusedRow, setFocusedRow] = useState<CredentialRow | null>(null);
-  const [suggestions, setSuggestions] = useState<Array<{value: string; label: string}>>([]);
-  const [showSuggestions, setShowSuggestions] = useState(false);
-  const [activeIndex, setActiveIndex] = useState(-1);
-  const allSuggestionsRef = useRef<Array<{value: string; label: string}>>([]);
-  const loadedPrefixRef = useRef<string | null>(null);
-  const sourcesPromiseRef = useRef<{ prefix: string; epoch: number; promise: Promise<Array<{value: string; label: string}>> } | null>(null);
-  const cacheEpochRef = useRef(0);
-  const listboxRef = useRef<HTMLUListElement>(null);
-  const latestTokenRef = useRef<string>('');
-  const prevShowSuggestionsRef = useRef(false);
-
   const typeOptions = [
     { value: 'bearer', label: t('credentials.types.bearer') },
     { value: 'basic', label: t('credentials.types.basic') },
@@ -58,11 +53,12 @@ export default function CredentialsPage() {
   const crud = useEditableList<CredentialRow, CredentialRow, CredentialRow>(
     {
       loadItems: async () => {
-        const list = await ListCredentials();
-        return (list || []).map((c) => ({
+        const [list, managed] = await Promise.all([ListCredentials(), ListManagedCredentials()]);
+        return [...(list || []).map((c) => ({
           id: c.pattern,
           pattern: c.pattern,
           type: c.type,
+          source: c.source,
           masked: c.masked || '',
           managed: c.managed ?? false,
           token: '',
@@ -70,96 +66,40 @@ export default function CredentialsPage() {
           password: '',
           headerName: '',
           headerValue: '',
-        }));
+        })), ...(managed || []).map((authorization) => ({
+          ...newCredential(authorization.pattern, authorization.integration || (authorization.source === 'oauth' ? 'oauth' : 'static_components')),
+          managed: true, source: authorization.source, authorization,
+          masked: '',
+        }))];
       },
       loadItem: async (id) => {
         const list = await ListCredentials();
         const found = (list || []).find((c) => c.pattern === id);
-        return {
-          id: String(id),
-          pattern: found?.pattern || String(id),
-          type: found?.type || 'bearer',
-          masked: found?.masked || '',
-          managed: found?.managed ?? false,
-          token: '',
-          username: '',
-          password: '',
-          headerName: '',
-          headerValue: '',
-        };
+        if (!found || found.managed) throw new Error(t('credentials.sourceFields.loadError'));
+        return credentialFromSummary(found);
       },
       createItem: async (data) => {
-        await UpsertCredential({
-          pattern: data.pattern,
-          type: data.type,
-          token: data.token,
-          username: data.username,
-          password: data.password,
-          headerName: data.headerName,
-          headerValue: data.headerValue,
-        });
+        await UpsertCredential(credentialInput(data));
         return data.pattern;
       },
       updateItem: async (_id, data) => {
-        await UpsertCredential({
-          pattern: data.pattern,
-          type: data.type,
-          token: data.token,
-          username: data.username,
-          password: data.password,
-          headerName: data.headerName,
-          headerValue: data.headerValue,
-        });
+        await UpsertCredential(credentialInput(data));
       },
       deleteItem: async (id) => {
         await DeleteCredential(String(id));
       },
     },
     {
-      entityName: 'Credencial',
+      entityName: t('credentials.sourceFields.entity'),
       messages: {
-        loadError: 'Erro ao carregar credenciais',
-        createSuccess: 'Credencial criada!',
-        updateSuccess: 'Credencial atualizada!',
-        deleteSuccess: 'Credencial removida!',
-        deleteConfirm: (item) => `Remover credencial ${item.pattern}?`,
+        loadError: t('credentials.sourceFields.loadError'),
+        createSuccess: t('credentials.sourceFields.createSuccess'),
+        updateSuccess: t('credentials.sourceFields.updateSuccess'),
+        deleteSuccess: t('credentials.sourceFields.deleteSuccess'),
+        deleteConfirm: (item) => t('credentials.sourceFields.deleteConfirm', { pattern: item.pattern }),
       },
-      createDefault: () => ({
-        id: '',
-        pattern: '',
-        type: 'bearer',
-        masked: '',
-        managed: false,
-        token: '',
-        username: '',
-        password: '',
-        headerName: '',
-        headerValue: '',
-      }),
-      validate: (item) => {
-        if (!item.pattern || !item.pattern.trim()) {
-          return 'Pattern é obrigatório';
-        }
-        if (!item.type) {
-          return 'Tipo é obrigatório';
-        }
-        if (item.type === 'basic') {
-          if (!item.username || !item.password) {
-            return 'Usuário e senha são obrigatórios';
-          }
-        }
-        if (item.type === 'custom') {
-          if (!item.headerName || !item.headerValue) {
-            return 'Header e valor são obrigatórios';
-          }
-        }
-        if (item.type === 'bearer' || item.type === 'oauth2' || item.type === 'secret') {
-          if (!item.token) {
-            return 'Token é obrigatório';
-          }
-        }
-        return null;
-      },
+      createDefault: () => newCredential(),
+      validate: (item) => validateCredential(item, t),
     }
   );
 
@@ -169,154 +109,59 @@ export default function CredentialsPage() {
 
   useResourceEditRequest('credentials', {
     onEdit: (pattern) => crud.openEdit({ id: pattern, pattern } as CredentialRow),
-    onNew: () => crud.openNew(),
-    ready: !crud.loading && crud.items.length > 0,
+    onNew: (request) => {
+      crud.openNew();
+      // Pré-preenchimento via deep link (allowlist: pattern/type; segredos
+      // nunca chegam aqui — ver parseResourceNewInitial). updateField é
+      // funcional, então acumula sobre o item recém-aberto com segurança.
+      const initial = request?.initial;
+      if (initial?.pattern) crud.updateField('pattern', initial.pattern);
+      if (initial?.type && typeOptions.some((o) => o.value === initial.type)) {
+        crud.updateField('type', initial.type);
+      }
+    },
+    // Só o fim do carregamento: exigir lista não-vazia deixaria o deep link
+    // morto em instalação nova (zero credenciais) — justo o cenário de
+    // primeira configuração.
+    ready: !crud.loading,
   });
 
   useActivePanelNewShortcut(crud.openNew);
 
-  const isRefValue = (value?: string): boolean =>
-    Boolean(value && (value.startsWith('keyring://') || value.startsWith('env://')));
-
-  const invalidateSuggestionCache = useCallback(() => {
-    cacheEpochRef.current += 1;
-    sourcesPromiseRef.current = null;
-    allSuggestionsRef.current = [];
-    loadedPrefixRef.current = null;
-  }, []);
-
-  const loadExternalSources = useCallback((prefix: string) => {
-    if (loadedPrefixRef.current === prefix) return Promise.resolve(allSuggestionsRef.current);
-
-    const epoch = cacheEpochRef.current;
-    const pending = sourcesPromiseRef.current;
-    if (pending && pending.prefix === prefix && pending.epoch === epoch) return pending.promise;
-
-    const promise = (async () => {
-      let items: Array<{value: string; label: string}> = [];
-      try {
-        const results = await ListExternalSources(prefix);
-        items = (results || []).map(r => ({ value: r.value, label: r.label }));
-      } catch {
-        items = [];
-      }
-      // Descarta resultado tardio se o cache foi invalidado (reset/close/limpeza) durante a requisição.
-      if (cacheEpochRef.current === epoch) {
-        allSuggestionsRef.current = items;
-        loadedPrefixRef.current = prefix;
-        if (sourcesPromiseRef.current?.epoch === epoch && sourcesPromiseRef.current?.prefix === prefix) {
-          sourcesPromiseRef.current = null;
-        }
-      }
-      return items;
-    })();
-
-    sourcesPromiseRef.current = { prefix, epoch, promise };
-    return promise;
-  }, []);
-
-  const handleTokenChange = async (value: string) => {
-    crud.updateField('token', value);
-    setActiveIndex(-1);
-    latestTokenRef.current = value;
-
-    const prefix = value.startsWith('keyring://') ? 'keyring://'
-      : value.startsWith('env://') ? 'env://' : null;
-
-    if (!prefix) {
-      // Só limpa/invalida se o autocomplete chegou a ser ativado (evita renders e
-      // incremento de epoch a cada tecla quando o token nunca foi uma referência).
-      if (loadedPrefixRef.current !== null || showSuggestions) {
-        setShowSuggestions(false);
-        setSuggestions([]);
-        invalidateSuggestionCache();
-      }
-      return;
-    }
-
-    const items = await loadExternalSources(prefix);
-    if (latestTokenRef.current !== value) return;
-
-    const search = value.slice(prefix.length).toLowerCase();
-    const filtered = search === ''
-      ? items
-      : items.filter(s => s.label.toLowerCase().includes(search));
-    setSuggestions(filtered);
-    setShowSuggestions(filtered.length > 0);
-  };
-
-  const handleTokenKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (!showSuggestions || suggestions.length === 0) return;
-
-    switch (e.key) {
-      case 'ArrowDown':
-        e.preventDefault();
-        setActiveIndex(prev => {
-          const next = prev < suggestions.length - 1 ? prev + 1 : 0;
-          requestAnimationFrame(() => {
-            listboxRef.current?.querySelector(`#token-suggestion-${next}`)
-              ?.scrollIntoView({ block: 'nearest' });
-          });
-          return next;
-        });
-        break;
-      case 'ArrowUp':
-        e.preventDefault();
-        setActiveIndex(prev => {
-          const next = prev > 0 ? prev - 1 : suggestions.length - 1;
-          requestAnimationFrame(() => {
-            listboxRef.current?.querySelector(`#token-suggestion-${next}`)
-              ?.scrollIntoView({ block: 'nearest' });
-          });
-          return next;
-        });
-        break;
-      case 'Enter':
-        if (activeIndex >= 0 && activeIndex < suggestions.length) {
-          e.preventDefault();
-          const selected = suggestions[activeIndex].value;
-          latestTokenRef.current = selected;
-          crud.updateField('token', selected);
-          setShowSuggestions(false);
-          setActiveIndex(-1);
-        }
-        break;
-      case 'Escape':
-        e.stopPropagation();
-        latestTokenRef.current = '';
-        setShowSuggestions(false);
-        setActiveIndex(-1);
-        break;
-    }
-  }, [showSuggestions, suggestions, activeIndex, crud]);
-
-  const resetSuggestions = useCallback(() => {
-    latestTokenRef.current = '';
-    setSuggestions([]);
-    setShowSuggestions(false);
-    setActiveIndex(-1);
-    invalidateSuggestionCache();
-  }, [invalidateSuggestionCache]);
-
-  const isEditorOpen = Boolean(crud.editingItem);
-  useEffect(() => {
-    if (!isEditorOpen) resetSuggestions();
-  }, [isEditorOpen, resetSuggestions]);
-
-  // Anuncia as sugestões apenas na TRANSIÇÃO de visibilidade do dropdown
-  // (fechado→aberto), não a cada tecla — evita "spam" de announcements no leitor
-  // de tela enquanto o usuário digita e a lista é apenas refiltrada. O ref é
-  // mantido em sincronia por este efeito independentemente de onde showSuggestions
-  // muda (seleção, Escape, blur, reset).
-  useEffect(() => {
-    if (showSuggestions === prevShowSuggestionsRef.current) return;
-    prevShowSuggestionsRef.current = showSuggestions;
-    if (showSuggestions) {
-      announce(t('credentials.aria.suggestionsAvailable', { count: suggestions.length }));
-    }
-  }, [showSuggestions, suggestions.length, announce, t]);
-
   const [viewingManaged, setViewingManaged] = useState<CredentialRow | null>(null);
+  useEffect(() => {
+    actionEpoch.current++;
+    setViewingManaged(null);
+    setOpeningManaged(false);
+    setManagedError(false);
+    return () => { actionEpoch.current++; };
+  }, [sessionId]);
+
+  const closeManaged = () => {
+    actionEpoch.current++;
+    setViewingManaged(null);
+    setOpeningManaged(false);
+    setManagedError(false);
+  };
+  const configureManaged = async () => {
+    if (!viewingManaged?.authorization || openingManaged) return;
+    const epoch = ++actionEpoch.current;
+    const session = useAuthStore.getState().user?.sessionId;
+    setOpeningManaged(true);
+    setManagedError(false);
+    try {
+      const action = await managedCredentialAction(viewingManaged.authorization);
+      if (epoch !== actionEpoch.current || session !== useAuthStore.getState().user?.sessionId) return;
+      closeManaged();
+      await executeDeepLink(action, { navigate });
+    } catch {
+      if (epoch !== actionEpoch.current || session !== useAuthStore.getState().user?.sessionId) return;
+      setManagedError(true);
+      announce(t('credentials.workflow.unavailable'));
+    } finally {
+      if (epoch === actionEpoch.current) setOpeningManaged(false);
+    }
+  };
 
   const getRowId = useCallback((row: CredentialRow) => row.id, []);
   const handleActivateRow = useCallback(
@@ -336,8 +181,10 @@ export default function CredentialsPage() {
 
   const columns: DataGridColumn<CredentialRow>[] = [
     { key: 'pattern', label: t('credentials.labels.pattern'), width: '260px', truncate: true },
-    { key: 'type', label: t('credentials.labels.type'), width: '120px' },
-    { key: 'masked', label: t('credentials.labels.value'), truncate: true },
+    { key: 'source', label: t('credentials.sourceFields.source'), width: '120px',
+      format: (value) => value ? t(`credentials.sourceFields.${value}`) : t('credentials.sourceFields.unconfigured') },
+    { key: 'type', label: t('credentials.labels.type'), width: '120px', format: (_value, row) => credentialType(row) },
+    { key: 'masked', label: t('credentials.labels.value'), truncate: true, format: (_value, row) => credentialStatus(row) },
     {
       key: 'managed',
       label: t('credentials.labels.origin', 'Origem'),
@@ -357,13 +204,21 @@ export default function CredentialsPage() {
     },
   ];
 
+  function credentialType(row: CredentialRow) {
+    return row.type === 'static_components' ? t('credentials.workflow.staticConnection') : row.type;
+  }
+
+  function credentialStatus(row: CredentialRow) {
+    return row.authorization ? t(row.authorization.unreadable ? 'credentials.workflow.unreadable' : 'credentials.workflow.stored') : row.masked;
+  }
+
   function getCredentialRowActions(row: CredentialRow) {
     if (row.managed) {
       return [
         {
           id: 'view',
           label: t('credentials.buttons.view', 'Visualizar'),
-          icon: <EyeOutlined />,
+          icon: <EyeOutlined aria-hidden="true" />,
           onClick: () => setViewingManaged(row),
         },
       ];
@@ -372,13 +227,13 @@ export default function CredentialsPage() {
       {
         id: 'edit',
         label: t('credentials.buttons.edit', 'Editar'),
-        icon: <EditOutlined />,
+        icon: <EditOutlined aria-hidden="true" />,
         onClick: () => crud.openEdit(row),
       },
       {
         id: 'delete',
         label: t('credentials.buttons.delete', 'Excluir'),
-        icon: <DeleteOutlined />,
+        icon: <DeleteOutlined aria-hidden="true" />,
         onClick: () => crud.deleteItem(row),
         danger: true,
       },
@@ -394,7 +249,7 @@ export default function CredentialsPage() {
           {
             key: 'new',
             label: t('credentials.buttons.new'),
-            icon: <PlusOutlined />,
+            icon: <PlusOutlined aria-hidden="true" />,
             onClick: crud.openNew,
             shortcut: 'Ctrl+N',
             variant: 'primary',
@@ -402,14 +257,14 @@ export default function CredentialsPage() {
           {
             key: 'edit',
             label: t('credentials.buttons.edit', 'Editar'),
-            icon: <EditOutlined />,
+            icon: <EditOutlined aria-hidden="true" />,
             onClick: () => focusedRow && !focusedRow.managed && crud.openEdit(focusedRow),
             disabled: !focusedRow || focusedRow.managed,
           },
           {
             key: 'delete',
             label: t('credentials.buttons.delete', 'Excluir'),
-            icon: <DeleteOutlined />,
+            icon: <DeleteOutlined aria-hidden="true" />,
             onClick: () => focusedRow && !focusedRow.managed && crud.deleteItem(focusedRow),
             disabled: !focusedRow || focusedRow.managed,
             variant: 'danger',
@@ -433,7 +288,7 @@ export default function CredentialsPage() {
 
       <Modal
         isOpen={Boolean(crud.editingItem)}
-        onClose={() => { resetSuggestions(); crud.closeEditor(); }}
+        onClose={() => { crud.closeEditor(); }}
         title={crud.isNew ? t('credentials.modal.newTitle') : t('credentials.modal.editTitle')}
         size="md"
       >
@@ -447,107 +302,14 @@ export default function CredentialsPage() {
               fullWidth
               disabled={!crud.isNew}
             />
-            <Select
-              label={t('credentials.labels.type')}
-              value={crud.editingItem.type}
-              options={typeOptions}
-              onChange={(e) => crud.updateField('type', e.target.value)}
-              fullWidth
-            />
-
-            {(crud.editingItem.type === 'bearer' || crud.editingItem.type === 'oauth2' || crud.editingItem.type === 'secret') && (() => {
-              const tokenIsRef = isRefValue(crud.editingItem.token);
-              const hasSuggestions = showSuggestions && suggestions.length > 0;
-              return (
-              <div className="credentials-page__token-field">
-                <Input
-                  label={t('credentials.labels.token')}
-                  type={tokenIsRef ? 'text' : 'password'}
-                  value={crud.editingItem.token || ''}
-                  onChange={(e) => handleTokenChange(e.target.value)}
-                  onKeyDown={handleTokenKeyDown}
-                  onBlur={() => { latestTokenRef.current = ''; setShowSuggestions(false); setActiveIndex(-1); }}
-                  placeholder={t('credentials.placeholders.token_ref')}
-                  fullWidth
-                  autoComplete="off"
-                  role={tokenIsRef ? 'combobox' : undefined}
-                  aria-haspopup={tokenIsRef ? 'listbox' : undefined}
-                  aria-expanded={tokenIsRef ? hasSuggestions : undefined}
-                  aria-controls={tokenIsRef && hasSuggestions ? 'token-suggestions' : undefined}
-                  aria-activedescendant={tokenIsRef && activeIndex >= 0 ? `token-suggestion-${activeIndex}` : undefined}
-                  aria-autocomplete={tokenIsRef ? 'list' : undefined}
-                />
-                {tokenIsRef && hasSuggestions && (
-                  <ul
-                    id="token-suggestions"
-                    ref={listboxRef}
-                    className="credentials-page__suggestions"
-                    role="listbox"
-                    aria-label={t('credentials.aria.suggestions')}
-                  >
-                    {suggestions.map((s, index) => (
-                      <li
-                        key={s.value}
-                        id={`token-suggestion-${index}`}
-                        role="option"
-                        aria-selected={index === activeIndex}
-                        className={`credentials-page__suggestion${index === activeIndex ? ' credentials-page__suggestion--active' : ''}`}
-                        onMouseDown={(e) => {
-                          e.preventDefault();
-                          latestTokenRef.current = s.value;
-                          crud.updateField('token', s.value);
-                          setShowSuggestions(false);
-                          setActiveIndex(-1);
-                        }}
-                      >
-                        {s.label}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-              );
-            })()}
-
-            {crud.editingItem.type === 'basic' && (
-              <div className="credentials-page__row">
-                <Input
-                  label={t('credentials.labels.username')}
-                  value={crud.editingItem.username || ''}
-                  onChange={(e) => crud.updateField('username', e.target.value)}
-                  fullWidth
-                />
-                <Input
-                  label={t('credentials.labels.password')}
-                  type="password"
-                  value={crud.editingItem.password || ''}
-                  onChange={(e) => crud.updateField('password', e.target.value)}
-                  fullWidth
-                />
+            <CredentialFields value={crud.editingItem} onChange={crud.updateField} />
+            {crud.isNew && crud.editingItem.source === 'oauth' && (
+              <div>
+                <p>{t('credentials.workflow.newHint')}</p>
+                <Button onClick={() => { crud.closeEditor(); void executeDeepLink({ type: 'resource:new', resource: 'mcp' }, { navigate }); }}>{t('credentials.workflow.newMcp')}</Button>
+                <Button onClick={() => { crud.closeEditor(); void executeDeepLink({ type: 'navigate', route: 'settings/providers' }, { navigate }); }}>{t('credentials.workflow.newProvider')}</Button>
               </div>
             )}
-
-            {crud.editingItem.type === 'custom' && (
-              <div className="credentials-page__row">
-                <Input
-                  label={t('credentials.labels.header')}
-                  value={crud.editingItem.headerName || ''}
-                  onChange={(e) => crud.updateField('headerName', e.target.value)}
-                  fullWidth
-                />
-                <Input
-                  label={t('credentials.labels.value')}
-                  type="password"
-                  value={crud.editingItem.headerValue || ''}
-                  onChange={(e) => crud.updateField('headerValue', e.target.value)}
-                  fullWidth
-                />
-              </div>
-            )}
-
-            <p className="credentials-page__hint">
-              {t('credentials.hint.sensitive')}
-            </p>
           </div>
         )}
         <EditorPanelFooter>
@@ -565,12 +327,12 @@ export default function CredentialsPage() {
           )}
           <DialogActions
             primary={
-              <Button onClick={crud.save} loading={crud.saving}>
+              <Button onClick={crud.save} loading={crud.saving} disabled={crud.editingItem?.source === 'oauth'}>
                 {crud.isNew ? t('credentials.buttons.create') : t('common.save')}
               </Button>
             }
             secondary={
-              <Button variant="ghost" onClick={() => { resetSuggestions(); crud.closeEditor(); }}>
+              <Button variant="ghost" onClick={() => { crud.closeEditor(); }}>
                 {t('common.cancel')}
               </Button>
             }
@@ -580,7 +342,7 @@ export default function CredentialsPage() {
 
       <Modal
         isOpen={Boolean(viewingManaged)}
-        onClose={() => setViewingManaged(null)}
+        onClose={closeManaged}
         title={t('credentials.modal.viewTitle', 'Credencial do sistema')}
         size="md"
       >
@@ -591,7 +353,7 @@ export default function CredentialsPage() {
                 {t('credentials.managed.badge', 'Gerenciada pelo sistema')}
               </p>
               <p className="credentials-page__managed-desc">
-                {t('credentials.managed.description', 'Esta credencial é gerenciada automaticamente pelo Assistente (ex: OAuth MCP). Não pode ser editada ou removida manualmente.')}
+                {t('credentials.workflow.description')}
               </p>
             </div>
 
@@ -605,7 +367,7 @@ export default function CredentialsPage() {
             />
             <Input
               label={t('credentials.labels.type')}
-              value={viewingManaged.type}
+              value={credentialType(viewingManaged)}
               onChange={() => {}}
               readOnly
               fullWidth
@@ -613,7 +375,7 @@ export default function CredentialsPage() {
             />
             <Input
               label={t('credentials.labels.value')}
-              value={viewingManaged.masked}
+              value={credentialStatus(viewingManaged)}
               onChange={() => {}}
               readOnly
               fullWidth
@@ -622,9 +384,13 @@ export default function CredentialsPage() {
           </div>
         )}
         <EditorPanelFooter>
-          <Button variant="ghost" onClick={() => setViewingManaged(null)}>
-            {t('common.close', 'Fechar')}
-          </Button>
+          {managedError && <p>{t('credentials.workflow.unavailable')}</p>}
+          <DialogActions
+            primary={viewingManaged?.authorization && !viewingManaged.authorization.unreadable ? (
+              <Button onClick={() => void configureManaged()} loading={openingManaged}>{t('credentials.workflow.configure')}</Button>
+            ) : undefined}
+            secondary={<Button variant="ghost" onClick={closeManaged}>{t('common.close', 'Fechar')}</Button>}
+          />
         </EditorPanelFooter>
       </Modal>
     </div>

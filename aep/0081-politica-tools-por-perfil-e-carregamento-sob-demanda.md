@@ -296,6 +296,31 @@ Essa matriz é contrato executável. Adicionar um novo construtor de registry ou
 um novo consumidor de seleção exige reutilizar `ToolSelectionPolicy` e cobrir
 explicitamente o caso sem catálogo.
 
+### D12. Conjunto base protegido diante da allowlist de skill
+
+A allowlist de `tools` de um skill invocado (AEP-0072 D5) faz *narrowing* das
+tools de **domínio**, mas NUNCA remove implicitamente o **conjunto base
+protegido**: control-plane (`tool_catalog`, `load_skill`) e a base de runtime
+(`memory`, `task`, `task_list`, `task_note`, `update_plan`, `read_tool_result`).
+Do contrário, um skill com allowlist focada no seu domínio amputaria o runtime —
+perderia descoberta/carga de tools, memória, planejamento e releitura de
+resultados truncados — no restante do turno.
+
+Regras:
+
+- a isenção vale **somente** contra o narrowing IMPLÍCITO da allowlist (a tool
+  não estar listada). Ela nunca eleva estado: uma tool base só é anunciada se a
+  política do perfil já a expunha;
+- o **deny explícito** do skill (`tools.denied`) vence o conjunto base: uma base
+  negada por nome é bloqueada no gate e ocultada da seleção;
+- o estado `disabled` do perfil (D2) vence o conjunto base: se o perfil desliga a
+  tool, ela permanece indisponível, base ou não. O conjunto base NÃO afeta D2;
+- a fonte única de verdade é `tools.IsProtectedBaseTool`, compartilhada pelo gate
+  de execução (`validateExecutionContextToolAccess`) e pela seleção anunciada
+  (`chat.applySkillScope`), garantindo coerência prompt↔defs. No caminho
+  catalog-first, o `tool_catalog` protegido permanece `preloaded`, refletido em
+  `TemplateData.EnabledTools`.
+
 ## Fases
 
 ### Fase 1 — AEP e contrato
@@ -379,4 +404,9 @@ explicitamente o caso sem catálogo.
   candidatas visíveis e não altera autorização.
 - Auto-search do primeiro turno é read-only, limitado, observável e nunca
   pré-carrega risco de escrita, shell, rede ou destrutivo.
+- A allowlist de um skill nunca remove o conjunto base protegido (control-plane
+  + base de runtime) por narrowing implícito, mas o deny explícito do skill e o
+  estado `disabled` do perfil (D2) continuam removendo a tool mesmo que base;
+  gate de execução e seleção anunciada usam a mesma fonte
+  (`tools.IsProtectedBaseTool`). (D12)
 - Nenhum fluxo alternativo de envio de mensagens é criado.

@@ -39,6 +39,10 @@ type ChatParams = llm.ChatParams
 type SystemPromptBuilder interface {
 	BuildWithContextBlocks(messages []llm.Message, enabledSkills []string, disableSkills bool, disableOnDemand bool, tplData any, contextBlocks []contextprovider.Block) []llm.Message
 	BuildTemplateData(activeProfile *profiles.Profile, params llm.ChatParams, conversationID string) TemplateData
+	// ApplySkillToolScope reprojeta os campos de seleção de tools do TemplateData
+	// sob a allowlist/denylist do skill invocado, para o system prompt refletir o
+	// MESMO conjunto de tools que vai nas definitions do turno.
+	ApplySkillToolScope(data TemplateData, skillAllowed, skillDenied []string) TemplateData
 }
 
 type WorkspaceProvider interface {
@@ -66,6 +70,7 @@ type InteractorConfig struct {
 	// LinkedTaskLists resolve as task lists vinculadas a uma conversa para o
 	// Context Provider tasklist. Opcional: nil produz contexto vazio.
 	LinkedTaskLists func(ctx context.Context, conversationID string) []contextprovider.LinkedTaskList
+	MutateProfiles  func(func() error) error
 }
 
 // Interactor orchestrates the core chat use cases, free of Wails dependencies.
@@ -80,6 +85,7 @@ type Interactor struct {
 	promptBuilder    SystemPromptBuilder
 	contextProviders *contextprovider.Registry
 	linkedTaskLists  func(ctx context.Context, conversationID string) []contextprovider.LinkedTaskList
+	mutateProfiles   func(func() error) error
 
 	// nativeMCPAdjustMu serializa o read-modify-write do auto-ajuste de MCP nativo
 	// do perfil (nil→false), garantindo idempotência sob concorrência (vários runs
@@ -103,6 +109,7 @@ func NewInteractor(cfg InteractorConfig) *Interactor {
 		promptBuilder:    cfg.PromptBuilder,
 		contextProviders: cfg.ContextProviders,
 		linkedTaskLists:  cfg.LinkedTaskLists,
+		mutateProfiles:   cfg.MutateProfiles,
 	}
 }
 
@@ -425,7 +432,7 @@ func (i *Interactor) HandleNativeMCPUnsupported(profileSlug, model string, overr
 
 	adapter := false
 	profile.Chat.NativeMCP = &adapter
-	if err := i.profileMgr.Update(slug, profile); err != nil {
+	if err := i.mutateProfileFiles(func() error { return i.profileMgr.Update(slug, profile) }); err != nil {
 		logging.Errorf(context.Background(), "chat.interactor", "[MCP] auto-ajuste abortado: erro ao persistir perfil %q: %v", slug, err)
 		return
 	}
@@ -463,11 +470,18 @@ func (i *Interactor) HandlePromptCacheHintUnsupported(profileSlug, model string)
 	}
 
 	profile.Chat.PromptCache.ProviderHints = false
-	if err := i.profileMgr.Update(slug, profile); err != nil {
+	if err := i.mutateProfileFiles(func() error { return i.profileMgr.Update(slug, profile) }); err != nil {
 		logging.Errorf(context.Background(), "chat.interactor", "[PromptCache] auto-ajuste abortado: erro ao persistir perfil %q: %v", slug, err)
 		return
 	}
 	logging.Infof(context.Background(), "chat.interactor", "[PromptCache] perfil %q (modelo %s) ajustado para provider_hints=false após rejeição explícita de prompt_cache_key", slug, model)
+}
+
+func (i *Interactor) mutateProfileFiles(mutate func() error) error {
+	if i.mutateProfiles != nil {
+		return i.mutateProfiles(mutate)
+	}
+	return mutate()
 }
 
 // RecordUserMessageRequest contém a entrada do usuário já processada (incluindo STT) pronta para ser persistida.
@@ -482,6 +496,10 @@ type RecordUserMessageRequest struct {
 	ActiveProfile  *profiles.Profile
 	// MaxContextMessages, se > 0, sobrescreve o limite do perfil ao carregar histórico.
 	MaxContextMessages int
+	// ExplicitContinuation distingue a ação explícita "Continuar resposta" de
+	// um retry normal. Só a continuação pode anexar o assistant canônico como
+	// prefill/fonte do fallback por mensagem de usuário.
+	ExplicitContinuation bool
 }
 
 // RecordUserMessageResponse contém a mensagem salva e o histórico da conversa carregado.
@@ -511,6 +529,9 @@ func (i *Interactor) GetRetryableUserMessage(ctx context.Context, conversationID
 	}
 	if userMsg.Role != "user" {
 		return nil, fmt.Errorf("mensagem %s não é do usuário", messageID)
+	}
+	if userMsg.ParentID != nil {
+		return nil, fmt.Errorf("mensagem %s não é uma pergunta raiz", messageID)
 	}
 	return userMsg, nil
 }
@@ -588,10 +609,50 @@ func (i *Interactor) ReuseLoadedUserMessage(ctx context.Context, req RecordUserM
 		Repo:    i.repo,
 		MaxMsgs: maxCtxMsgs,
 	}
-	messages, summary, err := loader.Load(ctx, req.ConversationID)
+	messages, summary, err := loader.LoadThroughMessage(ctx, req.ConversationID, userMsg.ID)
 	if err != nil {
 		i.emitter.Emit("chat:error", ports.ErrorEvent{ConversationID: req.ConversationID, Error: "Erro ao carregar histórico: " + err.Error()})
 		return nil, err
+	}
+
+	if !req.ExplicitContinuation {
+		return &RecordUserMessageResponse{
+			UserMsg:             userMsg,
+			Messages:            messages,
+			ConversationSummary: summary,
+		}, nil
+	}
+
+	// A resposta do turno selecionado só é necessária para continuação explícita.
+	// Ela permanece como a última mensagem candidata do payload; providers que
+	// não suportam prefill removem esse trailing assistant antes do envio.
+	turnMessages, err := i.repo.GetMessagesByTurnID(ctx, req.ConversationID, userMsg.ParentID, userMsg.ID, 100)
+	if err != nil {
+		i.emitter.Emit("chat:error", ports.ErrorEvent{ConversationID: req.ConversationID, Error: "Erro ao carregar resposta do retry: " + err.Error()})
+		return nil, err
+	}
+	// O primeiro assistant raiz do turno é o placeholder canônico, atualizado
+	// com a resposta final. Assistants posteriores são snapshots/intermediários
+	// do ciclo de tools e não podem vazar para o prefill de continuação.
+	var selectedAssistant *Message
+	for _, message := range turnMessages {
+		if message.Role != "assistant" {
+			continue
+		}
+		if message.TurnID == nil || *message.TurnID != userMsg.ID {
+			continue
+		}
+		selectedAssistant = &message
+		break
+	}
+	if selectedAssistant != nil && (strings.TrimSpace(selectedAssistant.Content) != "" ||
+		strings.TrimSpace(selectedAssistant.Media) != "" || strings.TrimSpace(selectedAssistant.Audio) != "") {
+		assistantMessages, _, formatErr := loader.format(ctx, []Message{*selectedAssistant}, "")
+		if formatErr != nil {
+			i.emitter.Emit("chat:error", ports.ErrorEvent{ConversationID: req.ConversationID, Error: "Erro ao formatar resposta do retry: " + formatErr.Error()})
+			return nil, formatErr
+		}
+		messages = append(messages, assistantMessages...)
 	}
 
 	return &RecordUserMessageResponse{
@@ -800,6 +861,25 @@ func (i *Interactor) PrepareMessages(ctx context.Context, req PrepareMessagesReq
 		invokedSkillSlug = pendingInvokedSkillSlug
 		invokedScope = pendingInvokedScope
 		invokedExecutionContext = pendingInvokedExecutionContext
+		// Alinha o system prompt ao escopo de tools do skill efetivamente ativo no
+		// turno. O escopo só é "commitado" (invokedExecutionContext) quando a skill
+		// é de fato injetada; usar essa MESMA condição garante que o protocolo
+		// catalog-first e a lista de tools anunciada no prompt reflitam exatamente
+		// as tools que vão nas definitions (send_message também usa
+		// invokedExecutionContext). Sem isso o prompt poderia instruir o uso de uma
+		// tool (ex.: tool_catalog) já removida das defs pelo applySkillScope.
+		if i.promptBuilder != nil && invokedExecutionContext != nil &&
+			(len(invokedExecutionContext.AllowedTools) > 0 || len(invokedExecutionContext.DeniedTools) > 0) {
+			scopedTplData := i.promptBuilder.ApplySkillToolScope(skillTplData, invokedExecutionContext.AllowedTools, invokedExecutionContext.DeniedTools)
+			if toolSelectionChanged(skillTplData, scopedTplData) {
+				skillTplData = scopedTplData
+				// Só o bloco tool_protocol depende da seleção de tools; os demais
+				// blocos (inclusive slash_skill) independem dela, então rebuildar
+				// aqui mantém slashSkillInjected válido e apenas reprojeta o
+				// protocolo/lista de tools conforme o escopo do skill.
+				contextBlocks = i.buildDynamicContext(ctx, skillTplData, req.UserContent, req.ConversationSummary, slashSkillContent, linkedTaskLists, taskListContextEnabled, req.ActiveProfile)
+			}
+		}
 		if strings.TrimSpace(slashSkillContent) != "" && i.emitter != nil {
 			i.emitter.Emit("chat:skill_loaded", ports.SkillLoadedEvent{
 				ConversationID: req.ConversationID,
@@ -1020,6 +1100,25 @@ func enabledSkillList(activeProfile *profiles.Profile) []string {
 		return nil
 	}
 	return activeProfile.Chat.EnabledSkills
+}
+
+// toolSelectionChanged reporta se a reprojeção sob o escopo do skill alterou a
+// seleção de tools relevante para o system prompt (lista, contagem, tool calling
+// e status de indisponibilidade). Evita rebuildar o contexto quando o escopo do
+// skill não muda nada (ex.: allowlist que já cobre todas as tools do perfil).
+func toolSelectionChanged(before, after TemplateData) bool {
+	if before.ToolCallingEnabled != after.ToolCallingEnabled ||
+		before.EnabledToolCount != after.EnabledToolCount ||
+		before.ImplicitToolSelectionUnavailable != after.ImplicitToolSelectionUnavailable ||
+		len(before.EnabledTools) != len(after.EnabledTools) {
+		return true
+	}
+	for idx := range before.EnabledTools {
+		if before.EnabledTools[idx] != after.EnabledTools[idx] {
+			return true
+		}
+	}
+	return false
 }
 
 func hasContextBlock(blocks []contextprovider.Block, provider string, name string) bool {

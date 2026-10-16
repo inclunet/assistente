@@ -1,31 +1,41 @@
-import type { MutableRefObject } from 'react';
+import { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { logger } from '../utils/logger';
-import { useEditorStore, DEFAULT_MD, type EditorDocument, type EditorMode } from '../store/editorStore';
+import { useEditorStore, type EditorDocument } from '../store/editorStore';
 import { useWorkspaceStore } from '../store/workspaceStore';
+import { useAuthStore } from '../store/authStore';
 import { useQuestionnaireUIStore } from '../store/questionnaireUIStore';
+import { requestConfirm } from '../store/confirmStore';
 import { useUIStore } from '../store/uiStore';
-import { getMaybeContent, normalizeEditorDocumentResult } from '../lib/editorContent';
+import { getMaybeContent } from '../lib/editorContent';
 import { composePreviewText, hasConflictMarkers } from '../lib/editorMergeUtils';
 import { editorFileDialogLabels } from '../lib/editorDialogLabels';
-import { basenameFromPath, normalizePathKey } from '../utils/path';
+import { basenameFromPath } from '../utils/path';
 import {
   EditorDeleteDraft,
-  EditorOpenFile,
   EditorReadDraft,
-  EditorSaveFileDialog,
-  EditorWriteFile,
 } from '@wailsjs/go/wailsapi/Editor';
 import type { UseEditorMergeResult } from './useEditorMerge';
+import type { EditorFileCommandID, EditorFilePreparation } from '../lib/commandEditorFile';
 
 interface UseEditorFileActionsArgs {
   merge: UseEditorMergeResult;
   activeTab: EditorDocument | null;
-  documents: Record<string, EditorDocument>;
-  fileModeByPathRef: MutableRefObject<Record<string, EditorMode>>;
   flushActiveRichMarkdownNow: () => void;
   focusEditorSoon: () => void;
+}
+
+interface EditorFileCommandSnapshot {
+  ownerId: string;
+  sessionId: string;
+  workspaceId: string;
+  tabId: string;
+  documentId: string;
+  filePath: string | null;
+  sentContent: string | undefined;
+  draftId: string | null;
+  mergeSession: unknown;
 }
 
 /**
@@ -36,8 +46,6 @@ interface UseEditorFileActionsArgs {
 export function useEditorFileActions({
   merge,
   activeTab,
-  documents,
-  fileModeByPathRef,
   flushActiveRichMarkdownNow,
   focusEditorSoon,
 }: UseEditorFileActionsArgs) {
@@ -45,116 +53,39 @@ export function useEditorFileActions({
   const addToast = useUIStore((s) => s.addToast);
   const requestQuestionnaire = useQuestionnaireUIStore((s) => s.request);
 
-  const createDocument = useEditorStore((s) => s.createDocument);
   const setDocMarkdown = useEditorStore((s) => s.setDocMarkdown);
-  const renameDocument = useEditorStore((s) => s.renameDocument);
-  const setDocFilePath = useEditorStore((s) => s.setDocFilePath);
   const setDocDraftId = useEditorStore((s) => s.setDocDraftId);
   const setDocDirty = useEditorStore((s) => s.setDocDirty);
-  const setDocProjection = useEditorStore((s) => s.setDocProjection);
-  const addWorkspaceTab = useWorkspaceStore((s) => s.addTab);
-  const setActiveWsTab = useWorkspaceStore((s) => s.setActiveTab);
-  const wsTabs = useWorkspaceStore((s) => s.workspace?.tabs);
+  const fileCommandSnapshots = useRef(new Map<EditorFileCommandID, EditorFileCommandSnapshot>());
+  const setDocFilePathAndTitle = (documentId: string, path: string) => {
+    const title = basenameFromPath(path);
+    useEditorStore.setState((state) => {
+      const document = state.documents[documentId];
+      if (!document) return state;
+      return {
+        documents: {
+          ...state.documents,
+          [documentId]: { ...document, filePath: path, title },
+        },
+      };
+    });
+  };
+  useEffect(() => {
+    const snapshots = fileCommandSnapshots.current;
+    return () => {
+      snapshots.clear();
+    };
+  }, []);
 
   const {
     getMergeSession,
     getCachedMarkdownForTab,
     updateLatestMarkdownForTab,
-    markSelfWrite,
     isExternalConflictLocked,
     setExternalConflictLocked,
     setDiskBaselineForTab,
-    refreshDiskInfoForTab,
     cleanupMergeSessionForTab,
-    promptResolveExternalChangeForTab,
   } = merge;
-
-  const openFile = async () => {
-    try {
-      const res = await EditorOpenFile(editorFileDialogLabels(t, 'open'));
-      const opened = normalizeEditorDocumentResult(res);
-      const path = opened.path.trim();
-      if (!path) return;
-
-      const key = normalizePathKey(path);
-      const content = opened.content;
-
-      // Se o arquivo já está aberto em outra aba, apenas ativa essa aba.
-      const existingDoc = Object.values(documents).find(
-        (tab) => tab.filePath && normalizePathKey(String(tab.filePath)) === key,
-      );
-      if (existingDoc) {
-        const wsTab = (wsTabs || []).find(
-          (tab) => tab.type === 'editor' && tab.id === existingDoc.id,
-        );
-        if (wsTab) {
-          await setActiveWsTab(wsTab.id);
-          addToast(t('editor.toast.fileAlreadyOpen'), 'info');
-          focusEditorSoon();
-          return;
-        }
-      }
-
-      const preferredMode: EditorMode = opened.readOnly
-        ? 'view'
-        : fileModeByPathRef.current[key] || (existingDoc?.mode === 'rich' ? 'rich' : 'markdown');
-      const projection = opened.projected
-        ? { format: opened.format, pages: opened.pages, warnings: opened.warnings, warningCode: opened.warningCode }
-        : null;
-      const title = basenameFromPath(path);
-
-      // Se a aba atual está "virgem" (sem arquivo, conteúdo padrão), reutiliza-a.
-      const isPristine = activeTab && !activeTab.filePath && !activeTab.isDirty && activeTab.markdown === DEFAULT_MD;
-      let id: string;
-
-      if (isPristine) {
-        id = activeTab.id;
-        renameDocument(id, title);
-        setDocMarkdown(id, content);
-        setDocProjection(id, projection);
-        useEditorStore.getState().setDocMode(id, preferredMode);
-        // filePath+title são sincronizados pelo controller do painel de editor.
-      } else {
-        const tabId = await addWorkspaceTab('editor', title, { filePath: path });
-        id = tabId;
-        createDocument({
-          id: tabId,
-          title,
-          markdown: content,
-          mode: preferredMode,
-          filePath: path,
-          readOnly: opened.readOnly,
-          projection,
-        });
-      }
-
-      setDocFilePath(id, path);
-      setDocDraftId(id, null);
-      setDocDirty(id, false);
-
-      updateLatestMarkdownForTab(id, content);
-      setDiskBaselineForTab(id, content);
-      const diskTab = {
-        id,
-        title,
-        markdown: content,
-        mode: preferredMode,
-        filePath: path,
-      };
-      void refreshDiskInfoForTab(diskTab);
-
-      if (!opened.readOnly) {
-        fileModeByPathRef.current[key] = preferredMode === 'rich' ? 'rich' : 'markdown';
-      }
-
-      EditorDeleteDraft(id).catch(() => null);
-      addToast(t('editor.toast.fileOpened'), 'success');
-      focusEditorSoon();
-    } catch (e: unknown) {
-      logger.error('[useEditorFileActions] openFile error:', e);
-      addToast(t('editor.toast.openFailed'), 'error');
-    }
-  };
 
   const abortMerge = async () => {
     if (!activeTab?.filePath) return;
@@ -210,102 +141,121 @@ export function useEditorFileActions({
     focusEditorSoon();
   };
 
-  const saveFile = async () => {
-    if (!activeTab) return;
-    if (activeTab.readOnly) {
-      addToast(t('editor.toast.documentReadOnly'), 'info');
-      return;
-    }
-    try {
-      if (activeTab.mode === 'rich') flushActiveRichMarkdownNow();
-      const content = getCachedMarkdownForTab(activeTab);
-      updateLatestMarkdownForTab(activeTab.id, content);
-
-      if (activeTab.filePath) {
-        if (isExternalConflictLocked(activeTab.id)) {
-          const mergeSession = getMergeSession(activeTab.id);
-          if (mergeSession) {
-            if (hasConflictMarkers(content)) {
-              addToast(t('editor.toast.conflictMarkersRemain'), 'warning');
-              return;
-            }
-            markSelfWrite(activeTab.filePath);
-            await EditorWriteFile(activeTab.filePath, content);
-            setDiskBaselineForTab(activeTab.id, content);
-            setDocDirty(activeTab.id, false);
-            void refreshDiskInfoForTab(activeTab);
-            setExternalConflictLocked(activeTab.id, false);
-            await cleanupMergeSessionForTab(activeTab.id);
-            addToast(t('editor.toast.conflictResolvedSaved'), 'success');
-            focusEditorSoon();
-            return;
-          }
-
-          addToast(t('editor.toast.saveLockedExternal'), 'warning');
-          void promptResolveExternalChangeForTab(activeTab.id, String(activeTab.filePath));
-          return;
-        }
-        markSelfWrite(activeTab.filePath);
-        await EditorWriteFile(activeTab.filePath, content);
-        setDiskBaselineForTab(activeTab.id, content);
-        setDocDirty(activeTab.id, false);
-        void refreshDiskInfoForTab(activeTab);
-        addToast(t('editor.toast.fileSaved'), 'success');
-        focusEditorSoon();
-        return;
+  /** Captura somente dados locais; diálogos nativos são responsabilidade do backend prepare. */
+  const prepareFileCommand = async (commandID: EditorFileCommandID): Promise<EditorFilePreparation | undefined> => {
+    if (!activeTab || (activeTab.readOnly && commandID !== 'editor.file.open') || !useWorkspaceStore.getState().workspace ||
+        useWorkspaceStore.getState().workspace?.activeTabId !== activeTab.id) return undefined;
+    if (activeTab.mode === 'rich') flushActiveRichMarkdownNow();
+    const content = commandID === 'editor.file.open' ? undefined : getCachedMarkdownForTab(activeTab);
+    if (commandID !== 'editor.file.open') {
+      if (content !== undefined && hasConflictMarkers(content)) {
+        addToast(t('editor.toast.conflictMarkersRemain'), 'warning');
+        return undefined;
       }
-
-      // Ainda não tem destino: pedir path
-      const suggested = (activeTab.title || t('editor.fallback.newDoc')) + '.md';
-      const path = String(await EditorSaveFileDialog(suggested, editorFileDialogLabels(t, 'save')) || '').trim();
-      if (!path) return;
-
-      markSelfWrite(path);
-      await EditorWriteFile(path, content);
-      setDiskBaselineForTab(activeTab.id, content);
-      const title = basenameFromPath(path);
-      setDocFilePath(activeTab.id, path);
-      renameDocument(activeTab.id, title);
-      setDocDirty(activeTab.id, false);
-
-      // filePath+title são sincronizados pelo controller do painel de editor.
-
-      void refreshDiskInfoForTab({ ...activeTab, filePath: path });
-
-      const draftId = activeTab.draftId || activeTab.id;
-      setDocDraftId(activeTab.id, null);
-      await EditorDeleteDraft(draftId);
-
-      addToast(t('editor.toast.fileSaved'), 'success');
-      focusEditorSoon();
-    } catch (e: unknown) {
-      logger.error('[useEditorFileActions] saveFile error:', e);
-      addToast(t('editor.toast.saveFailed'), 'error');
+      if (isExternalConflictLocked(activeTab.id) && !getMergeSession(activeTab.id)) {
+        addToast(t('editor.toast.saveLockedExternal'), 'warning');
+        return undefined;
+      }
     }
+    const auth = useAuthStore.getState();
+    const workspace = useWorkspaceStore.getState().workspace;
+    const user = auth.user;
+    if (!auth.isAuthenticated || !user || !workspace) return undefined;
+    fileCommandSnapshots.current.set(commandID, {
+      ownerId: user.userId,
+      sessionId: user.sessionId,
+      workspaceId: workspace.id,
+      tabId: activeTab.id,
+      documentId: activeTab.id,
+      filePath: activeTab.filePath ? String(activeTab.filePath) : null,
+      sentContent: content,
+      draftId: activeTab.draftId ? String(activeTab.draftId) : null,
+      mergeSession: commandID === 'editor.file.open' ? null : getMergeSession(activeTab.id),
+    });
+    return {
+      content,
+      labels: { ...editorFileDialogLabels(t, commandID === 'editor.file.open' ? 'open' : 'save') },
+      suggestedFilename: activeTab.filePath ? basenameFromPath(activeTab.filePath) : `${activeTab.title || t('editor.fallback.newDoc')}.md`,
+      confirmOverwrite: false,
+      path: activeTab.filePath ? String(activeTab.filePath) : undefined,
+    };
   };
 
-  const saveFileAsCopy = async () => {
-    if (!activeTab?.filePath) return;
-    if (activeTab.readOnly) {
-      addToast(t('editor.toast.documentReadOnly'), 'info');
+  const confirmOverwrite = async (path: string): Promise<boolean> => {
+    const confirmed = await requestConfirm({
+      title: t('app.questionnaire.editConfirmation.overwriteTitle'),
+      message: t('app.questionnaire.editConfirmation.overwriteDescription', { path }),
+      confirmText: t('app.questionnaire.editConfirmation.overwriteConfirm'),
+      cancelText: t('app.questionnaire.editConfirmation.overwriteCancel'),
+      variant: 'warning',
+    });
+    // confirmStore resolves before its queued focus restoration frame. Give
+    // the renderer one frame plus a macrotask so the coordinator's immediate
+    // canCommit check does not observe the just-closed dialog as still active.
+    await new Promise<void>((resolve) => {
+      requestAnimationFrame(() => setTimeout(resolve, 0));
+    });
+    return confirmed;
+  };
+
+  const applyCommittedFileCommand = (commandID: EditorFileCommandID, raw: unknown): void => {
+    if (!raw || typeof raw !== 'object') return;
+    const result = raw as { tabId?: unknown; path?: unknown; opened?: unknown; written?: unknown };
+    const snapshot = fileCommandSnapshots.current.get(commandID);
+    fileCommandSnapshots.current.delete(commandID);
+    if (!snapshot) return;
+    const auth = useAuthStore.getState();
+    const workspace = useWorkspaceStore.getState().workspace;
+    const current = useEditorStore.getState().getDocument(snapshot.documentId);
+    if (!auth.isAuthenticated || auth.user?.userId !== snapshot.ownerId || auth.user.sessionId !== snapshot.sessionId ||
+        workspace?.id !== snapshot.workspaceId || typeof result.tabId !== 'string') return;
+
+    if (commandID === 'editor.file.open') {
+      // The workspace event/loader owns creation and hydration. Never replace
+      // an already-live document here, especially one that may be dirty.
       return;
     }
-    try {
-      if (activeTab.mode === 'rich') flushActiveRichMarkdownNow();
-      const suggested = basenameFromPath(activeTab.filePath);
-      const path = String(await EditorSaveFileDialog(suggested, editorFileDialogLabels(t, 'save')) || '').trim();
-      if (!path) return;
-      const content = getCachedMarkdownForTab(activeTab);
-      updateLatestMarkdownForTab(activeTab.id, content);
-      markSelfWrite(path);
-      await EditorWriteFile(path, content);
-      addToast(t('editor.toast.copySaved'), 'success');
-      focusEditorSoon();
-    } catch (e: unknown) {
-      logger.error('[useEditorFileActions] saveAs error:', e);
-      addToast(t('editor.toast.saveAsFailed'), 'error');
+
+    if (result.tabId !== snapshot.tabId || result.written !== true || !current) return;
+    const announceSuccess = (message: string) => {
+      const active = workspace?.activeTabId === snapshot.tabId
+        && workspace.tabs.some((tab) => tab.id === snapshot.tabId && tab.type === 'editor');
+      if (active) addToast(message, 'success');
+    };
+    if (commandID === 'editor.file.save_copy') {
+      // A copy is a second file only: it never changes the source document,
+      // baseline, draft, merge lock, path, or dirty bit.
+      announceSuccess(t('editor.toast.copySaved'));
+      return;
     }
+    const resultPath = typeof result.path === 'string' ? result.path : null;
+    const currentPath = current.filePath ? String(current.filePath) : null;
+    if (currentPath !== snapshot.filePath && currentPath !== resultPath) return;
+    const currentMergeSession = getMergeSession(snapshot.documentId);
+    if (resultPath && commandID === 'editor.file.save' &&
+        (currentPath !== resultPath || current.title !== basenameFromPath(resultPath))) {
+      setDocFilePathAndTitle(snapshot.documentId, resultPath);
+    }
+    const currentContent = getCachedMarkdownForTab(current);
+    const unchanged = snapshot.sentContent !== undefined && currentContent === snapshot.sentContent;
+    // Uma nova decisão de conflito pode ter observado uma escrita posterior.
+    // Não substituir sua baseline pelo resultado atrasado desta operação.
+    if (currentMergeSession !== snapshot.mergeSession ||
+        (snapshot.mergeSession === null && isExternalConflictLocked(snapshot.documentId))) return;
+    setDiskBaselineForTab(snapshot.documentId, snapshot.sentContent ?? '');
+    if (!unchanged) return;
+
+    setDocDirty(snapshot.documentId, false);
+    if (snapshot.mergeSession !== null) {
+      setExternalConflictLocked(snapshot.documentId, false);
+      void cleanupMergeSessionForTab(snapshot.documentId).catch((error) => logger.warn('[useEditorFileActions] merge cleanup failed', error));
+    }
+    if (snapshot.draftId && current.draftId === snapshot.draftId) {
+      setDocDraftId(snapshot.documentId, null);
+      void EditorDeleteDraft(snapshot.draftId).catch((error) => logger.warn('[useEditorFileActions] draft cleanup failed', error));
+    }
+    announceSuccess(t('editor.toast.fileSaved'));
   };
 
-  return { openFile, abortMerge, saveFile, saveFileAsCopy };
+  return { abortMerge, prepareFileCommand, confirmOverwrite, applyCommittedFileCommand };
 }

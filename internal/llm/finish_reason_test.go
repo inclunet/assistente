@@ -19,6 +19,7 @@ func TestFinishReasonNormalizers(t *testing.T) {
 		{"google malformed não finge truncamento", normalizeGoogleFinishReason("MALFORMED_FUNCTION_CALL"), FinishReasonOther, "MALFORMED_FUNCTION_CALL"},
 		{"acp max tokens", normalizeACPFinishReason("max_tokens"), FinishReasonMaxTokens, "max_tokens"},
 		{"acp cancelado", normalizeACPFinishReason("cancelled"), FinishReasonCancelled, "cancelled"},
+		{"raw desconhecido permanece diagnosticável", normalizeOpenAIChatFinishReason("future_reason"), FinishReasonOther, "future_reason"},
 	}
 
 	for _, tt := range tests {
@@ -27,6 +28,16 @@ func TestFinishReasonNormalizers(t *testing.T) {
 				t.Fatalf("got=%#v, want reason=%q raw=%q", tt.got, tt.want, tt.raw)
 			}
 		})
+	}
+}
+
+func TestFinishInfoWithDiagnosticsNaoInventaLimite(t *testing.T) {
+	got := finishInfoWithDiagnostics(FinishInfo{}, &ProviderConfig{ID: "p"}, "m", 0, 0)
+	if got.Reason != "" || got.RawReason != "" || got.OutputLimit != 0 {
+		t.Fatalf("ausência/default virou motivo ou limite: %#v", got)
+	}
+	if got.Provider != "p" || got.Model != "m" || got.ResponseBytes != 0 {
+		t.Fatalf("metadados conhecidos não preservados: %#v", got)
 	}
 }
 

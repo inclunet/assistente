@@ -16,6 +16,7 @@ import {
   type EditorSendFormatOption,
   type EditorSendTargetOption,
   type SendToEditorPayload,
+  type ChatSendToEditorPayload,
 } from './editorSendMenu';
 
 export interface MenuItemsOptions {
@@ -31,7 +32,7 @@ export interface MenuItemsOptions {
   onCancelStreaming?: (message: Message) => void;
   onPin?: (message: Message) => void;
   onAnnounce?: (text: string) => void;
-  onSendToEditor?: (payload: SendToEditorPayload & {
+  onSendToEditor?: (payload: ChatSendToEditorPayload & {
     kind: 'message' | 'code' | 'table' | 'link';
     index?: number;
   }) => void;
@@ -270,7 +271,7 @@ export function getMessageMenuItems(
     onCancelStreaming,
     onPin,
     onAnnounce,
-    onSendToEditor,
+    onSendToEditor: sendToEditor,
     editorTargets = [],
     onToggleReasoning,
     isTTSDisabled = true,
@@ -280,6 +281,11 @@ export function getMessageMenuItems(
 
   const items: MenuItem[] = [];
   const content = message.content || '';
+  const messageId = message.id;
+  const onSendToEditor = sendToEditor
+    ? (payload: SendToEditorPayload & { kind: 'message' | 'code' | 'table' | 'link'; index?: number }) =>
+        sendToEditor({ ...payload, messageId, originalContent: content })
+    : undefined;
 
   // Extrai elementos do markdown
   const codeBlocks = extractCodeBlocks(content);

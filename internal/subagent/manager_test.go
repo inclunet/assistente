@@ -3,6 +3,7 @@ package subagent
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -34,10 +35,176 @@ func setupManagerTest(t *testing.T) (*DBRepository, context.Context) {
 	if err := db.AutoMigrate(&database.User{}, &database.Conversation{}, &database.ChatMessage{}, &database.SubAgentRun{}); err != nil {
 		t.Fatalf("automigrate: %v", err)
 	}
+	for _, parent := range []database.Conversation{
+		{UUIDModel: database.UUIDModel{ID: "parent-conv"}, UserID: "user-a", Title: "Parent"},
+		{UUIDModel: database.UUIDModel{ID: "parent"}, UserID: "user-a", Title: "Parent"},
+		{UUIDModel: database.UUIDModel{ID: "p"}, UserID: "user-a", Title: "Parent"},
+		{UUIDModel: database.UUIDModel{ID: "p-b"}, UserID: "user-b", Title: "Parent B"},
+		{UUIDModel: database.UUIDModel{ID: "parent-b"}, UserID: "user-b", Title: "Parent B"},
+	} {
+		if err := db.Create(&parent).Error; err != nil {
+			t.Fatalf("seed parent %s: %v", parent.ID, err)
+		}
+	}
 	previous := database.DB()
 	database.SetDB(db)
 	t.Cleanup(func() { database.SetDB(previous) })
 	return NewDBRepository(db), database.WithUserID(context.Background(), "user-a")
+}
+
+func TestPrepareConversationDeletionRejectsActiveRunWithoutCancelling(t *testing.T) {
+	ctx := database.WithUserID(context.Background(), "user-a")
+	mgr := NewManager(ManagerConfig{})
+	if err := mgr.reserveConversation("child", "parent", "user-a"); err != nil {
+		t.Fatal(err)
+	}
+	ar := &activeRun{
+		childConversationID:  "child",
+		parentConversationID: "parent",
+		userID:               "user-a",
+		cancelCh:             make(chan struct{}),
+	}
+	mgr.registerActive("run", ar)
+	if _, err := mgr.PrepareConversationDeletion(ctx, []string{"parent"}); !errors.Is(err, ErrConversationActive) {
+		t.Fatalf("erro=%v, esperado run ativo", err)
+	}
+	select {
+	case <-ar.cancelCh:
+		t.Fatal("preparação não deve cancelar run antes do commit")
+	default:
+	}
+	mgr.unregisterActive("run")
+
+	release, err := mgr.PrepareConversationDeletion(ctx, []string{"parent"})
+	if err != nil {
+		t.Fatalf("PrepareConversationDeletion sem run: %v", err)
+	}
+	if err := mgr.reserveConversation("new-child", "parent", "user-a"); !errors.Is(err, database.ErrConversationDeleted) {
+		t.Fatalf("novo run durante delete: erro=%v, esperado conversa deletada", err)
+	}
+	release(false)
+	if err := mgr.reserveConversation("new-child", "parent", "user-a"); err != nil {
+		t.Fatalf("reserva após release: %v", err)
+	}
+	mgr.releaseConversation("new-child")
+}
+
+func TestPrepareConversationDeletionMantemGateAteRelease(t *testing.T) {
+	ctx := database.WithUserID(context.Background(), "user-a")
+	mgr := NewManager(ManagerConfig{})
+	release, err := mgr.PrepareConversationDeletion(ctx, []string{"existing"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	acquired := make(chan struct{})
+	go func() {
+		mgr.deletionGate.RLock()
+		close(acquired)
+		mgr.deletionGate.RUnlock()
+	}()
+	select {
+	case <-acquired:
+		t.Fatal("novo run atravessou gate antes do release")
+	case <-time.After(25 * time.Millisecond):
+	}
+	release(false)
+	select {
+	case <-acquired:
+	case <-time.After(time.Second):
+		t.Fatal("novo run não prosseguiu após release")
+	}
+}
+
+func TestPrepareConversationGatesRespeitamCancelamento(t *testing.T) {
+	ctx := database.WithUserID(context.Background(), "user-a")
+	mgr := NewManager(ManagerConfig{})
+	mgr.deletionGate.RLock()
+	defer mgr.deletionGate.RUnlock()
+
+	for name, prepare := range map[string]func(context.Context) error{
+		"delete": func(waitCtx context.Context) error {
+			_, err := mgr.PrepareConversationDeletion(waitCtx, []string{"conversation"})
+			return err
+		},
+		"restore": func(waitCtx context.Context) error {
+			_, err := mgr.PrepareConversationRestoration(waitCtx)
+			return err
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			waitCtx, cancel := context.WithTimeout(ctx, 25*time.Millisecond)
+			defer cancel()
+			if err := prepare(waitCtx); !errors.Is(err, context.DeadlineExceeded) {
+				t.Fatalf("erro=%v, esperado deadline", err)
+			}
+		})
+	}
+}
+
+func TestPrepareConversationDeletionCommitBloqueiaRunTardioAteExpirar(t *testing.T) {
+	now := time.Now()
+	ctx := database.WithUserID(context.Background(), "user-a")
+	mgr := NewManager(ManagerConfig{Now: func() time.Time { return now }})
+	finalize, err := mgr.PrepareConversationDeletion(ctx, []string{" parent ", "parent"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	finalize(true)
+
+	if err := mgr.reserveConversation("child", "parent", "user-a"); !errors.Is(err, database.ErrConversationDeleted) {
+		t.Fatalf("run tardio após commit: erro=%v", err)
+	}
+	now = now.Add(deletionTombstoneTTL + time.Second)
+	if err := mgr.reserveConversation("child", "parent", "user-a"); err != nil {
+		t.Fatalf("tombstone expirado bloqueou run: %v", err)
+	}
+	mgr.releaseConversation("child")
+}
+
+func TestPrepareConversationRestorationRemoveTombstoneDoUsuarioEIDImportado(t *testing.T) {
+	ctx := database.WithUserID(context.Background(), "user-a")
+	mgr := NewManager(ManagerConfig{})
+	finalizeDelete, err := mgr.PrepareConversationDeletion(ctx, []string{"restored", "still-deleted"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	finalizeDelete(true)
+
+	finalizeRestore, err := mgr.PrepareConversationRestoration(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	finalizeRestore([]string{" restored "})
+	if err := mgr.reserveConversation("child-restored", "restored", "user-a"); err != nil {
+		t.Fatalf("ID restaurado continuou bloqueado: %v", err)
+	}
+	mgr.releaseConversation("child-restored")
+	if err := mgr.reserveConversation("child-deleted", "still-deleted", "user-a"); !errors.Is(err, database.ErrConversationDeleted) {
+		t.Fatalf("tombstone não importado foi removido: %v", err)
+	}
+}
+
+func TestRunNormalizaParentAntesDeConsultarTombstone(t *testing.T) {
+	repo, ctx := setupManagerTest(t)
+	notifier := messaging.NewResponseNotifier()
+	t.Cleanup(notifier.Stop)
+	mgr := NewManager(ManagerConfig{
+		Repo:     repo,
+		Notifier: notifier,
+		Send: func(context.Context, SendParams) (string, error) {
+			t.Fatal("send não deve executar para parent excluído")
+			return "", nil
+		},
+	})
+	finalize, err := mgr.PrepareConversationDeletion(ctx, []string{"parent"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	finalize(true)
+
+	if _, err := mgr.Run(ctx, RunParams{Prompt: "x", ParentConversationID: " parent "}); !errors.Is(err, database.ErrConversationDeleted) {
+		t.Fatalf("erro=%v, esperado parent excluído após normalização", err)
+	}
 }
 
 func TestManagerRunSyncSuccess(t *testing.T) {
@@ -155,13 +322,47 @@ func TestManagerFinishDoesNotRetainIntegralResponseInBackground(t *testing.T) {
 	finished := mgr.finalize(ctx, run, &result, outcome{
 		status:  StatusSucceeded,
 		summary: strings.Repeat("resposta extensa ", maxResultSummary),
-	})
+	}, false)
 
 	if finished.Response != "" {
 		t.Fatalf("background não deve reter resposta integral: %d bytes", len(finished.Response))
 	}
 	if len(finished.ResultSummary) > maxResultSummary || !utf8.ValidString(finished.ResultSummary) {
 		t.Fatalf("background deve manter apenas resumo limitado e válido: len=%d", len(finished.ResultSummary))
+	}
+}
+
+func TestFinalizeMantemReservaAteEntregaTerminal(t *testing.T) {
+	repo, ctx := setupManagerTest(t)
+	mgr := NewManager(ManagerConfig{Repo: repo})
+	run := &database.SubAgentRun{
+		UserID:               "user-a",
+		ChildConversationID:  "child-delivery",
+		ParentConversationID: "parent",
+		Status:               StatusRunning,
+		Background:           true,
+	}
+	if err := repo.Create(ctx, run); err != nil {
+		t.Fatal(err)
+	}
+	if err := mgr.reserveConversation(run.ChildConversationID, run.ParentConversationID, run.UserID); err != nil {
+		t.Fatal(err)
+	}
+	mgr.registerActive(run.ID, &activeRun{
+		childConversationID:  run.ChildConversationID,
+		parentConversationID: run.ParentConversationID,
+		userID:               run.UserID,
+	})
+
+	result := RunResult{ConversationID: run.ChildConversationID, RunID: run.ID}
+	mgr.finalize(ctx, run, &result, outcome{status: StatusSucceeded}, true)
+	if _, reserved := mgr.activeConvs[run.ChildConversationID]; !reserved {
+		t.Fatal("finalize removeu reserva antes da entrega terminal")
+	}
+
+	mgr.deliverAndUnregister(ctx, run)
+	if _, reserved := mgr.activeConvs[run.ChildConversationID]; reserved {
+		t.Fatal("reserva permaneceu após entrega terminal")
 	}
 }
 
@@ -1140,11 +1341,15 @@ func TestManagerReconcileOrphansIsInstanceWide(t *testing.T) {
 	ctxB := database.WithUserID(context.Background(), "user-b")
 
 	mkRunFor := func(userCtx context.Context, userID string) string {
-		conv, err := database.CreateSubAgentConversationWithContext(userCtx, "t", "parent")
+		parentID := "parent"
+		if userID == "user-b" {
+			parentID = "parent-b"
+		}
+		conv, err := database.CreateSubAgentConversationWithContext(userCtx, "t", parentID)
 		if err != nil {
 			t.Fatalf("criar conv (%s): %v", userID, err)
 		}
-		run := &database.SubAgentRun{UserID: userID, ParentConversationID: "parent", ChildConversationID: conv.ID, Status: StatusRunning}
+		run := &database.SubAgentRun{UserID: userID, ParentConversationID: parentID, ChildConversationID: conv.ID, Status: StatusRunning}
 		if err := repo.Create(userCtx, run); err != nil {
 			t.Fatalf("criar run (%s): %v", userID, err)
 		}

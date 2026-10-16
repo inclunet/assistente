@@ -3,6 +3,7 @@ package app
 import (
 	"assistente/internal/configdir"
 	"assistente/internal/database"
+	"assistente/internal/jobprofilegrant"
 	"assistente/internal/jobs"
 	"assistente/internal/logging"
 	"context"
@@ -48,18 +49,43 @@ func (a *App) initJobs() {
 		logging.Warnf(context.Background(), "app.app-jobs", "[Jobs] AVISO: re-normalização de slugs legados falhou: %v", err)
 	}
 
+	if a.jobGrantStore == nil {
+		a.jobGrantStore = jobprofilegrant.NewStore(database.DB())
+	}
+	if err := a.jobGrantStore.ReconcileProfileRevocations(context.Background()); err != nil {
+		logging.Logger(context.Background(), "app.app-jobs").
+			Error("Falha ao reconciliar exclusões pendentes de profiles", "error", err)
+	}
 	a.jobMgr = jobs.NewManager(jobs.ManagerConfig{
-		BaseDir:         baseDir,
-		Repository:      jobs.NewDBRepository(database.DB()),
-		ContextProvider: a.jobsAuthenticatedContext,
-		ToolRegistry:    a.toolRegistry,
-		ToolInvocations: a.toolInvocationSvc,
-		HotkeyManager:   a.hotkeyCtrl.Manager(),
-		MsgGateway:      a.msgGateway,
-		SecretStore:     &credentialSecretStore{app: a},
+		DispatchCommandHotkey:  a.dispatchCommandJobHotkey,
+		CommandRuntimeIdentity: a.captureCommandJobIdentity,
+		BaseDir:                baseDir,
+		Repository:             jobs.NewDBRepository(database.DB()),
+		ContextProvider:        a.jobsAuthenticatedContext,
+		ToolRegistry:           a.toolRegistry,
+		ToolInvocations:        a.toolInvocationSvc,
+		HotkeyManager:          a.commandGlobalHotkeyRegistrar(),
+		MsgGateway:             a.msgGateway,
+		SecretStore:            &credentialSecretStore{app: a},
+		JobProfileGrants:       a.jobGrantStore,
 		EmitEvent: func(event string, data any) {
 			a.emitter.Emit(event, data)
 		},
+	})
+	a.jobGrantStore.SetJobsDisabledCallback(func(disabled []jobprofilegrant.DisabledJob) {
+		if a.jobMgr == nil {
+			return
+		}
+		a.authMu.RLock()
+		currentUserID := a.currentUserID
+		a.authMu.RUnlock()
+		slugs := make([]string, 0, len(disabled))
+		for _, job := range disabled {
+			if job.UserID == currentUserID {
+				slugs = append(slugs, job.Slug)
+			}
+		}
+		a.jobMgr.ReconcileDisabledJobs(slugs)
 	})
 }
 

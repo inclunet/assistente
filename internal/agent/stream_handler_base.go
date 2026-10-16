@@ -7,6 +7,7 @@ import (
 
 	"assistente/internal/core/ports"
 	"assistente/internal/events"
+	"assistente/internal/llm"
 )
 
 // BaseStreamHandler contém os campos e métodos compartilhados entre
@@ -74,6 +75,21 @@ func (h *BaseStreamHandler) ErrorNotRetryable() bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return h.errorNotRetryable
+}
+
+// OnTurnNotice emite avisos de tentativa para qualquer handler de chat,
+// inclusive o agêntico. O aviso é evento próprio e nunca vira conteúdo salvo
+// como se tivesse sido escrito pelo modelo.
+func (h *BaseStreamHandler) OnTurnNotice(notice llm.TurnNotice) {
+	if h.Emitter == nil || strings.TrimSpace(string(notice.Kind)) == "" {
+		return
+	}
+	h.Emitter.Emit("chat:notice", ports.ChatNoticeEvent{
+		ConversationID: h.ConversationID,
+		Kind:           string(notice.Kind),
+		Count:          notice.Count,
+		Model:          notice.Model,
+	})
 }
 
 func (h *BaseStreamHandler) OnChunk(content string) {
@@ -244,6 +260,48 @@ func (h *BaseStreamHandler) FinishThinkingIfActive() {
 		Done:               true,
 		SurfaceOrigin:      h.SurfaceOrigin,
 	})
+}
+
+// ResetStreamAttempt encerra o thinking ainda ativo e descarta apenas o
+// raciocínio da tentativa que será repetida. O conteúdo visível não é apagado:
+// providers só podem chamar esta capability quando repetir não duplicará texto
+// nem efeitos já entregues.
+func (h *BaseStreamHandler) ResetStreamAttempt() {
+	h.DiscardStreamReasoning()
+	h.mu.Lock()
+	h.errorNotRetryable = false
+	h.mu.Unlock()
+}
+
+// DiscardStreamReasoning fecha o estado visual de thinking e apaga somente o
+// raciocínio transitório. Usage e finish pertencem aos handlers concretos e
+// permanecem intactos para o erro terminal.
+func (h *BaseStreamHandler) DiscardStreamReasoning() {
+	h.mu.Lock()
+	active := h.isThinking || h.pendingThinkingEmit || h.thinkingTimer != nil
+	hadReasoning := h.accumulatedReasoning != ""
+	if h.thinkingTimer != nil {
+		h.thinkingTimer.Stop()
+		h.thinkingTimer = nil
+	}
+	h.pendingThinkingEmit = false
+	h.isThinking = false
+	h.accumulatedReasoning = ""
+	h.lastThinkingEmitTime = time.Time{}
+	h.mu.Unlock()
+
+	if active || hadReasoning {
+		h.Emitter.Emit("chat:thinking", ports.ThinkingEvent{
+			ConversationID:     h.ConversationID,
+			TurnID:             h.TurnID,
+			AssistantMessageID: h.AssistantMessageID,
+			// Vazio fecha a live region sem promover como definitivo o
+			// raciocínio da tentativa descartada.
+			Content:       "",
+			Done:          true,
+			SurfaceOrigin: h.SurfaceOrigin,
+		})
+	}
 }
 
 // cancelPendingChunkTimer cancela o timer de throttle de chunk, se houver.

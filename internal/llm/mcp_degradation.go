@@ -27,6 +27,15 @@ type MCPAttemptFailure struct {
 	Degradable  bool
 }
 
+// mcpFailureRecoverablyHandled indica que a falha MCP será tratada pela
+// degradação (retry_without_server) e o turno tende a se recuperar. Nesse caso
+// o provider deve logar em WARN, não ERRO: o ERRO seria falso-positivo, já que
+// MCP-DEGRADE/MCP-RECOVER registram o desfecho real. Reserva-se o ERRO para
+// falhas não-recuperáveis ou quando já houve efeito não-retentável no turno.
+func mcpFailureRecoverablyHandled(failure *MCPAttemptFailure, emittedNonRetryableEffect bool) bool {
+	return failure != nil && failure.Recoverable && !emittedNonRetryableEffect
+}
+
 type mcpStreamAttemptResult struct {
 	done       bool
 	retry      bool

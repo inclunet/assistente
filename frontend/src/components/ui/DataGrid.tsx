@@ -34,6 +34,13 @@ export interface GridFocusTarget {
 
 export type GridFocusRequest = (target?: GridFocusTarget) => boolean;
 
+/**
+ * Ponto de entrada de Tab do grid: o container antes do primeiro foco, depois
+ * a célula ativa. Serve como `initialFocusSelector` de um `Modal`.
+ */
+export const DATAGRID_ENTRY_SELECTOR =
+  '[role="grid"][tabindex="0"], [role="grid"] [role="gridcell"][tabindex="0"]';
+
 export interface DataGridProps<T = unknown> {
   items: T[];
   columns: DataGridColumn<T>[];
@@ -67,7 +74,7 @@ export interface DataGridProps<T = unknown> {
 export function DataGrid<T = unknown>({
   items,
   columns,
-  label = 'Grid de dados',
+  label,
   autoFocusOnMount = true,
   getItemId = (item: T) => (item as { id?: string | number }).id ?? '',
   selectedIds,
@@ -90,6 +97,7 @@ export function DataGrid<T = unknown>({
   getRowActions,
 }: DataGridProps<T>) {
   const { t } = useTranslation();
+  const gridLabel = label ?? t('ui.dataGrid.defaultLabel');
   const { announce: announceGlobally } = useAnnouncer();
   // Foco lazy: começa em -1 (nenhuma linha focada).
   // Só inicializa quando o grid recebe foco real do usuário.
@@ -99,6 +107,7 @@ export function DataGrid<T = unknown>({
   const [editingRow, setEditingRow] = useState(-1);
   const [editingCol, setEditingCol] = useState(-1);
   const [editValue, setEditValue] = useState('');
+  const editingSessionRef = useRef<{ rowIndex: number; colIndex: number; value: string } | null>(null);
   const [localSelectedIds, setLocalSelectedIds] = useState<Set<string | number>>(new Set(selectedIds || []));
   
   const gridRef = useRef<HTMLDivElement>(null);
@@ -142,6 +151,7 @@ export function DataGrid<T = unknown>({
   const columnCount = columns.length;
 
   useEffect(() => {
+    mountedRef.current = true;
     return () => {
       mountedRef.current = false;
       if (focusTimerRef.current) {
@@ -460,7 +470,7 @@ export function DataGrid<T = unknown>({
     openContextMenuAtPoint(
       event.clientX,
       event.clientY,
-      label,
+      gridLabel,
       actions,
       cellElement ?? (event.currentTarget as HTMLElement)
     );
@@ -509,6 +519,7 @@ export function DataGrid<T = unknown>({
     clearScheduledCellFocus();
     const item = items[rowIndex];
     const value = item[col.key as keyof T];
+    editingSessionRef.current = { rowIndex, colIndex, value: String(value || '') };
     setEditingRow(rowIndex);
     setEditingCol(colIndex);
     setEditValue(String(value || ''));
@@ -516,22 +527,33 @@ export function DataGrid<T = unknown>({
   };
 
   const saveEdit = () => {
-    if (editingRow >= 0 && editingCol >= 0) {
-      const item = items[editingRow];
-      const column = columns[editingCol];
-      onCellEdit?.(item, column, editValue, editingRow, editingCol);
-      announce(t('a11y.announce.gridSaved'));
-    }
-    cancelEdit();
-  };
+    const session = editingSessionRef.current;
+    if (!session) return;
 
-  const cancelEdit = () => {
-    if (editingRow >= 0) {
-      announce(t('a11y.announce.gridEditCancelled'));
-    }
+    // Encerra a sessão antes do callback e do foco: desmontar o input pode
+    // disparar onBlur sincronamente, que então não pode salvar pela segunda vez.
+    editingSessionRef.current = null;
     setEditingRow(-1);
     setEditingCol(-1);
     setEditValue('');
+    const validRow = session.rowIndex >= 0 && session.rowIndex < items.length;
+    const validColumn = session.colIndex >= 0 && session.colIndex < columns.length;
+    if (validRow && validColumn) {
+      const item = items[session.rowIndex];
+      const column = columns[session.colIndex];
+      onCellEdit?.(item, column, session.value, session.rowIndex, session.colIndex);
+      announce(t('a11y.announce.gridSaved'));
+    }
+    gridRef.current?.focus();
+  };
+
+  const cancelEdit = () => {
+    if (!editingSessionRef.current) return;
+    editingSessionRef.current = null;
+    setEditingRow(-1);
+    setEditingCol(-1);
+    setEditValue('');
+    announce(t('a11y.announce.gridEditCancelled'));
     gridRef.current?.focus();
   };
 
@@ -634,7 +656,7 @@ export function DataGrid<T = unknown>({
             const cellKey = `${focusedRow}-${focusedCol}`;
             const cellElement = cellRefs.current.get(cellKey);
             if (cellElement) {
-              openContextMenuForTrigger(cellElement, colEnter.actionLabel || label, actions);
+              openContextMenuForTrigger(cellElement, colEnter.actionLabel || gridLabel, actions);
             }
           }
           return;
@@ -660,8 +682,10 @@ export function DataGrid<T = unknown>({
         return;
 
       case 'Escape':
-        event.preventDefault();
-        if (isMultiSelect) {
+        // Só consome o Escape quando há seleção a limpar; sem isso ele segue
+        // para quem está em volta (ex.: fechar o Modal que hospeda o grid).
+        if (isMultiSelect && localSelectedIds.size > 0) {
+          event.preventDefault();
           clearSelection();
         }
         return;
@@ -834,7 +858,7 @@ export function DataGrid<T = unknown>({
             const cellKey = `${focusedRow}-${focusedCol}`;
             const cellElement = cellRefs.current.get(cellKey);
             if (cellElement) {
-              openContextMenuForTrigger(cellElement, label, actions);
+              openContextMenuForTrigger(cellElement, gridLabel, actions);
             }
           }
         }
@@ -849,7 +873,7 @@ export function DataGrid<T = unknown>({
             const cellKey = `${focusedRow}-${focusedCol}`;
             const cellElement = cellRefs.current.get(cellKey);
             if (cellElement) {
-              openContextMenuForTrigger(cellElement, label, actions);
+              openContextMenuForTrigger(cellElement, gridLabel, actions);
             }
           }
         }
@@ -939,7 +963,11 @@ export function DataGrid<T = unknown>({
           ref={editInputRef}
           type="text"
           value={editValue}
-          onChange={(e) => setEditValue(e.target.value)}
+          onChange={(e) => {
+            const value = e.target.value;
+            if (editingSessionRef.current) editingSessionRef.current.value = value;
+            setEditValue(value);
+          }}
           onKeyDown={(e) => {
             if (e.key === 'Enter') {
               e.preventDefault();
@@ -968,6 +996,13 @@ export function DataGrid<T = unknown>({
           onClick={(e) => {
             e.stopPropagation();
             e.preventDefault();
+            if (column.key === 'actions' && getRowActions) {
+              const actions = normalizeRowActions(getRowActions(item));
+              if (actions.length > 0) {
+                openContextMenuForTrigger(e.currentTarget, column.actionLabel || gridLabel, actions);
+              }
+              return;
+            }
             onCellAction?.(item, column, rowIndex, colIndex);
           }}
         >
@@ -992,6 +1027,24 @@ export function DataGrid<T = unknown>({
   }
 
   const gridAriaRowCount = showHeader ? rowCount + 1 : rowCount;
+  const hasRowActions = !!getRowActions && items.some((item) => getRowActions(item).length > 0);
+  const enterActivates = !!onActivate || columns.some((column) =>
+    (column.key === 'actions' && hasRowActions) ||
+    ((column.action || column.keyboardAction) && !!onCellAction),
+  );
+  const instructions = [
+    `${t('ui.dataGrid.descPrefix')} ${rowCount} ${t('ui.dataGrid.descRows')} ${columnCount} ${t('ui.dataGrid.descCols')}`,
+    t('ui.dataGrid.hintArrowV'),
+    t('ui.dataGrid.hintArrowH'),
+    enterActivates ? t('ui.dataGrid.hintEnter') : null,
+    isCheckboxMode ? t('ui.dataGrid.hintSpace') : isMultiSelect ? t('ui.dataGrid.hintCtrlSpace') : null,
+    hasRowActions ? t('ui.dataGrid.hintContextMenu') : null,
+    isMultiSelect ? t('ui.dataGrid.hintCtrlA') : null,
+    onMoveItem ? t('ui.dataGrid.hintAltArrow') : null,
+    onDelete ? t('ui.dataGrid.hintDelete') : null,
+    columns.some((column) => column.editable && !column.action) ? t('ui.dataGrid.hintF2') : null,
+    isMultiSelect ? t('ui.dataGrid.hintEscape') : null,
+  ].filter((instruction): instruction is string => !!instruction).join(' ');
 
   return (
     <>
@@ -999,7 +1052,7 @@ export function DataGrid<T = unknown>({
         ref={gridRef}
         className={`datagrid-container${isCheckboxMode ? ' datagrid-container--checkbox' : ''}${className ? ` ${className}` : ''}`}
         role="grid"
-        aria-label={label}
+        aria-label={gridLabel}
         aria-rowcount={gridAriaRowCount}
         aria-colcount={columnCount}
         aria-describedby={instructionsId}
@@ -1007,7 +1060,12 @@ export function DataGrid<T = unknown>({
         onFocus={handleGridFocus}
         onBlur={handleGridBlur}
         onKeyDown={handleKeyDown}
-        onClick={() => {
+        onClick={(event) => {
+          // Clicks inside cells are handled by handleCellClick. Do not use the
+          // focusedRow captured by this render to move focus back to row 0:
+          // the cell handler may have just activated a different row in the
+          // same bubbling event while lazy focus was still uninitialized.
+          if (event.target !== event.currentTarget) return;
           if (items.length > 0 && columns.length > 0) {
             if (focusedRow < 0) {
               activateFocus(0, 0);
@@ -1017,20 +1075,7 @@ export function DataGrid<T = unknown>({
           }
         }}
       >
-      <div id={instructionsId} className="sr-only">
-        Grade de dados com {rowCount} linhas e {columnCount} colunas.
-        Use as setas verticais para navegar entre linhas.
-        Use as setas horizontais para navegar entre colunas.
-        Pressione Enter para ativar um item.
-        {isCheckboxMode
-          ? 'Pressione Espaço para marcar ou desmarcar. '
-          : 'Pressione Ctrl+Espaço para marcar ou desmarcar. '}
-        {isMultiSelect && 'Pressione Ctrl+A para selecionar todos. '}
-        {onMoveItem && 'Pressione Alt+Seta para mover o item. '}
-        {onDelete && 'Pressione Delete para remover. '}
-        Pressione F2 para editar.
-        Pressione Escape para limpar a seleção.
-      </div>
+      <div id={instructionsId} className="sr-only">{instructions}</div>
       {showHeader && (
         <div className="datagrid-header" role="row" aria-rowindex={1}>
           {columns.map((column, colIndex) => (

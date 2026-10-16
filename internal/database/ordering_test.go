@@ -488,6 +488,20 @@ func TestComputeMessageWindowHasAfter(t *testing.T) {
 	}
 }
 
+func addCanonicalTurnAssistant(t *testing.T, conversationID, turnID, content string) *ChatMessage {
+	t.Helper()
+	message, err := CreateMessageWithContext(testCtx(), MessageOptions{
+		ConversationID: conversationID,
+		TurnID:         &turnID,
+		Role:           "assistant",
+		Content:        content,
+	})
+	if err != nil {
+		t.Fatalf("create canonical assistant: %v", err)
+	}
+	return message
+}
+
 func TestGetMessageWindow_CountsTurnAsTimelineItem(t *testing.T) {
 	setupOrderingTestDB(t)
 	conv, err := CreateConversationWithContext(testCtx(), "timeline-items", "")
@@ -498,14 +512,8 @@ func TestGetMessageWindow_CountsTurnAsTimelineItem(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
-	assistant, err := AddAssistantToolMessageWithContext(testCtx(), conv.ID, user.ID, "vou buscar", `[{"id":"tool-1"}]`, "", "")
-	if err != nil {
-		t.Fatalf("create assistant: %v", err)
-	}
-	tool, err := AddToolResultMessageWithContext(testCtx(), conv.ID, user.ID, "resultado", "tool-1")
-	if err != nil {
-		t.Fatalf("create tool: %v", err)
-	}
+	assistant := addCanonicalTurnAssistant(t, conv.ID, user.ID, "vou buscar")
+	conclusion := addCanonicalTurnAssistant(t, conv.ID, user.ID, "resultado")
 	nextUser, err := AddMessageWithContext(testCtx(), conv.ID, "user", "pergunta seguinte")
 	if err != nil {
 		t.Fatalf("create next user: %v", err)
@@ -540,7 +548,7 @@ func TestGetMessageWindow_CountsTurnAsTimelineItem(t *testing.T) {
 	for _, message := range window.Messages {
 		messageIDs[message.ID] = true
 	}
-	if !messageIDs[assistant.ID] || !messageIDs[tool.ID] {
+	if !messageIDs[assistant.ID] || !messageIDs[conclusion.ID] {
 		t.Fatalf("expected selected turn messages to be fetched in batch, got ids=%v", messageIDs)
 	}
 }
@@ -594,13 +602,8 @@ func TestGetMessageWindow_AnchorInsideTurnPagesByWholeItem(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
-	assistant, err := AddAssistantToolMessageWithContext(testCtx(), conv.ID, user.ID, "vou buscar", `[{"id":"tool-1"}]`, "", "")
-	if err != nil {
-		t.Fatalf("create assistant: %v", err)
-	}
-	if _, err := AddToolResultMessageWithContext(testCtx(), conv.ID, user.ID, "resultado", "tool-1"); err != nil {
-		t.Fatalf("create tool: %v", err)
-	}
+	assistant := addCanonicalTurnAssistant(t, conv.ID, user.ID, "vou buscar")
+	addCanonicalTurnAssistant(t, conv.ID, user.ID, "resultado")
 	nextUser, err := AddMessageWithContext(testCtx(), conv.ID, "user", "pergunta seguinte")
 	if err != nil {
 		t.Fatalf("create next user: %v", err)
@@ -637,13 +640,8 @@ func TestGetMessageWindow_BeforeAnchorInsideTurnPagesBeforeWholeItem(t *testing.
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
-	assistant, err := AddAssistantToolMessageWithContext(testCtx(), conv.ID, user.ID, "vou buscar", `[{"id":"tool-1"}]`, "", "")
-	if err != nil {
-		t.Fatalf("create assistant: %v", err)
-	}
-	if _, err := AddToolResultMessageWithContext(testCtx(), conv.ID, user.ID, "resultado", "tool-1"); err != nil {
-		t.Fatalf("create tool: %v", err)
-	}
+	assistant := addCanonicalTurnAssistant(t, conv.ID, user.ID, "vou buscar")
+	addCanonicalTurnAssistant(t, conv.ID, user.ID, "resultado")
 
 	window, err := GetMessageWindowWithContext(testCtx(), MessageWindowQuery{
 		ConversationID:  conv.ID,
@@ -675,13 +673,8 @@ func TestGetMessageWindow_AroundAnchorInsideToolCentersWholeTurn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
-	if _, err := AddAssistantToolMessageWithContext(testCtx(), conv.ID, user.ID, "vou buscar", `[{"id":"tool-1"}]`, "", ""); err != nil {
-		t.Fatalf("create assistant: %v", err)
-	}
-	tool, err := AddToolResultMessageWithContext(testCtx(), conv.ID, user.ID, "resultado", "tool-1")
-	if err != nil {
-		t.Fatalf("create tool: %v", err)
-	}
+	addCanonicalTurnAssistant(t, conv.ID, user.ID, "vou buscar")
+	conclusion := addCanonicalTurnAssistant(t, conv.ID, user.ID, "resultado")
 	nextUser, err := AddMessageWithContext(testCtx(), conv.ID, "user", "pergunta seguinte")
 	if err != nil {
 		t.Fatalf("create next user: %v", err)
@@ -689,7 +682,7 @@ func TestGetMessageWindow_AroundAnchorInsideToolCentersWholeTurn(t *testing.T) {
 
 	window, err := GetMessageWindowWithContext(testCtx(), MessageWindowQuery{
 		ConversationID:  conv.ID,
-		AnchorMessageID: tool.ID,
+		AnchorMessageID: conclusion.ID,
 		Direction:       "around",
 		Limit:           3,
 	})

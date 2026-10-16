@@ -381,7 +381,36 @@ func (b *Builder) ComputeEnabledToolNames(activeProfile *profiles.Profile) []str
 	return names
 }
 
+// ApplySkillToolScope recomputa os campos de seleção de tools do TemplateData sob
+// a allowlist/denylist do skill invocado, para o system prompt (protocolo
+// catalog-first e a lista anunciada de tools) refletir exatamente o mesmo
+// conjunto que vai nas tool definitions do turno. Sem isso, um perfil
+// catalog-first poderia continuar instruindo o modelo a usar `tool_catalog`
+// enquanto o escopo do skill já removeu essa tool (e as demais preloaded) das
+// definitions, divergindo prompt↔defs. Usa a MESMA fonte de verdade do gate do
+// executor (tools.ExecutionContext.AllowedTools/DeniedTools). No-op sem escopo.
+func (b *Builder) ApplySkillToolScope(data TemplateData, skillAllowed, skillDenied []string) TemplateData {
+	if len(skillAllowed) == 0 && len(skillDenied) == 0 {
+		return data
+	}
+	names, unavailable := b.resolveToolSelectionWithSkillScope(data.Profile, skillAllowed, skillDenied)
+	data.EnabledTools = names
+	data.EnabledToolCount = len(names)
+	data.ToolCallingEnabled = len(names) > 0
+	data.ImplicitToolSelectionUnavailable = unavailable
+	return data
+}
+
 func (b *Builder) resolveToolSelection(activeProfile *profiles.Profile) ([]string, bool) {
+	return b.resolveToolSelectionWithSkillScope(activeProfile, nil, nil)
+}
+
+// resolveToolSelectionWithSkillScope resolve os nomes de tools habilitadas do
+// perfil aplicando também o escopo (allowlist/denylist) do skill invocado no
+// turno, reusando a MESMA fonte de verdade do gate do executor e da montagem das
+// tool definitions (chat.ProfileToolConfig.SkillAllowedTools/SkillDeniedTools).
+// Assim o system prompt anuncia/instrui exatamente as tools disponíveis no turno.
+func (b *Builder) resolveToolSelectionWithSkillScope(activeProfile *profiles.Profile, skillAllowed, skillDenied []string) ([]string, bool) {
 	if activeProfile == nil || b.Tools == nil {
 		return nil, false
 	}
@@ -396,6 +425,8 @@ func (b *Builder) resolveToolSelection(activeProfile *profiles.Profile) ([]strin
 		ToolPolicyDefault: activeProfile.Chat.ToolPolicyDefault,
 		DisableTools:      activeProfile.Chat.DisableTools,
 		RuntimeTools:      runtimeTools,
+		SkillAllowedTools: skillAllowed,
+		SkillDeniedTools:  skillDenied,
 	})
 	defs := b.Tools.FilterByNames(effective.PreloadedNames())
 	unavailable := effective.SelectionStatus() == chat.ToolSelectionCatalogUnavailable && len(defs) == 0

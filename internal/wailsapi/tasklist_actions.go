@@ -79,6 +79,20 @@ func (api *TasklistActions) SetTaskListCustomActions(taskListID string, actionsJ
 	return err
 }
 
+// SetTaskListCustomActionsChecked persiste as custom actions somente se o
+// conteúdo atual ainda for equivalente a expectedJSON (o que o editor leu).
+// Em conflito, o erro começa com TASKLIST_CONFIG_CONFLICT.
+func (api *TasklistActions) SetTaskListCustomActionsChecked(taskListID string, expectedJSON string, actionsJSON string) error {
+	session, ctrl, _, err := api.deps()
+	if err != nil {
+		return err
+	}
+	_, err = WithUser(session, func(ctx context.Context) (struct{}, error) {
+		return struct{}{}, ctrl.SetTaskListCustomActionsChecked(ctx, taskListID, expectedJSON, actionsJSON)
+	})
+	return err
+}
+
 // ListCardCustomActions retorna as custom actions visíveis para um card numa
 // superfície (card_menu | card_detail), avaliando o `when` server-side.
 func (api *TasklistActions) ListCardCustomActions(taskID string, surface string) ([]apidto.CustomActionView, error) {

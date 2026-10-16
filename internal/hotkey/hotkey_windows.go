@@ -8,6 +8,13 @@ import (
 	"golang.design/x/hotkey"
 )
 
+const (
+	ModCtrl  hotkey.Modifier = hotkey.ModCtrl
+	ModShift hotkey.Modifier = hotkey.ModShift
+	ModAlt   hotkey.Modifier = hotkey.ModAlt
+	ModWin   hotkey.Modifier = hotkey.ModWin
+)
+
 // parseKeyStringImpl implementação específica para Windows
 func parseKeyStringImpl(key string) (hotkey.Key, error) {
 	keyMap := map[string]hotkey.Key{

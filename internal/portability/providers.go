@@ -14,6 +14,7 @@ import (
 	"assistente/internal/credentials"
 	"assistente/internal/database"
 
+	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
@@ -39,21 +40,22 @@ func exportProvider(provider *database.LLMProvider) (ProviderExport, error) {
 		return ProviderExport{}, fmt.Errorf("erro ao decodificar credenciais do cofre do agente do provider %s: %w", provider.ID, err)
 	}
 	return ProviderExport{
-		ID:                provider.ID,
-		Name:              provider.Name,
-		Type:              provider.Type,
-		APIFormat:         provider.APIFormat,
-		BaseURL:           provider.BaseURL,
-		Model:             provider.Model,
-		DefaultModel:      provider.DefaultModel,
-		IsDefault:         provider.IsDefault,
-		Timeout:           provider.Timeout,
-		CredentialPattern: provider.CredentialPattern,
-		CreatedAt:         provider.CreatedAt,
-		ACPCommand:        provider.ACPCommand,
-		ACPArgs:           args,
-		ACPCredentialEnv:  credentialEnv,
-		ACPAgentID:        provider.ACPAgentID,
+		ID:                       provider.ID,
+		Name:                     provider.Name,
+		Type:                     provider.Type,
+		APIFormat:                provider.APIFormat,
+		BaseURL:                  provider.BaseURL,
+		Model:                    provider.Model,
+		DefaultModel:             provider.DefaultModel,
+		IsDefault:                provider.IsDefault,
+		Timeout:                  provider.Timeout,
+		StreamIdleTimeoutSeconds: provider.StreamIdleTimeoutSeconds,
+		CredentialPattern:        provider.CredentialPattern,
+		CreatedAt:                provider.CreatedAt,
+		ACPCommand:               provider.ACPCommand,
+		ACPArgs:                  args,
+		ACPCredentialEnv:         credentialEnv,
+		ACPAgentID:               provider.ACPAgentID,
 	}, nil
 }
 
@@ -103,6 +105,37 @@ func overwriteProvider(ctx context.Context, provider ProviderExport) (bool, erro
 }
 
 func persistProvider(ctx context.Context, tx *gorm.DB, provider ProviderExport, existing *database.LLMProvider) error {
+	if existing != nil {
+		// Read the trusted local association in this transaction, not the snapshot
+		// captured before a concurrent reconnection could replace its reference.
+		current, err := database.NewProviderRepository(tx).GetLLMProvider(ctx, existing.ID)
+		if err != nil {
+			return err
+		}
+		existing = current
+	}
+	linkedOAuth := existing != nil && existing.Type == "chatgpt"
+	if existing != nil && !linkedOAuth && strings.HasPrefix(existing.CredentialPattern, "oauth:") {
+		var count int64
+		err := tx.Model(&database.CredentialEntry{}).Where("id = ? AND user_id = ? AND source = ?", strings.TrimPrefix(existing.CredentialPattern, "oauth:"), existing.UserID, "oauth").Count(&count).Error
+		if err != nil {
+			return err
+		}
+		linkedOAuth = count > 0
+	}
+	if linkedOAuth && existing.Type != provider.Type {
+		return codedErrorf(CodeProviderOAuthTypeChange, params("providerId", provider.ID),
+			"O provider %q tem vínculo OAuth. Desconecte e exclua o provider antes de importar outro tipo com o mesmo ID.", provider.ID)
+	}
+	if linkedOAuth || provider.Type == "chatgpt" {
+		// Imported references cannot bind a new consumer to a local grant. Keep
+		// only the association already owned by this same local provider/type.
+		provider.CredentialPattern = "oauth:" + uuid.NewString()
+		if existing != nil && existing.Type == provider.Type && strings.HasPrefix(existing.CredentialPattern, "oauth:") {
+			provider.CredentialPattern = existing.CredentialPattern
+		}
+	}
+
 	acpArgs, err := encodeACPList(provider.ACPArgs)
 	if err != nil {
 		return fmt.Errorf("erro ao serializar argumentos do agente do provider %q: %w", provider.ID, err)
@@ -138,23 +171,27 @@ func persistProvider(ctx context.Context, tx *gorm.DB, provider ProviderExport, 
 
 	if existing == nil {
 		model := database.LLMProvider{
-			ID:                strings.TrimSpace(provider.ID),
-			Name:              provider.Name,
-			Type:              provider.Type,
-			APIFormat:         provider.APIFormat,
-			BaseURL:           provider.BaseURL,
-			Model:             provider.Model,
-			DefaultModel:      provider.DefaultModel,
-			IsDefault:         provider.IsDefault,
-			Timeout:           provider.Timeout,
-			CredentialPattern: provider.CredentialPattern,
-			ACPCommand:        provider.ACPCommand,
-			ACPArgs:           acpArgs,
-			ACPEnv:            acpEnv,
-			ACPCredentialEnv:  acpCredentialEnv,
-			ACPAgentID:        provider.ACPAgentID,
-			CreatedAt:         createdAt,
-			UpdatedAt:         updatedAt,
+			ID:                       strings.TrimSpace(provider.ID),
+			Name:                     provider.Name,
+			Type:                     provider.Type,
+			APIFormat:                provider.APIFormat,
+			BaseURL:                  provider.BaseURL,
+			Model:                    provider.Model,
+			DefaultModel:             provider.DefaultModel,
+			IsDefault:                provider.IsDefault,
+			Timeout:                  provider.Timeout,
+			StreamIdleTimeoutSeconds: provider.StreamIdleTimeoutSeconds,
+			CredentialPattern:        provider.CredentialPattern,
+			ACPCommand:               provider.ACPCommand,
+			ACPArgs:                  acpArgs,
+			ACPEnv:                   acpEnv,
+			ACPCredentialEnv:         acpCredentialEnv,
+			ACPAgentID:               provider.ACPAgentID,
+			CreatedAt:                createdAt,
+			UpdatedAt:                updatedAt,
+		}
+		if provider.Type == "chatgpt" {
+			model.AuthMode = "required"
 		}
 		if userID, ok := database.UserIDFromContext(ctx); ok {
 			model.UserID = userID
@@ -162,6 +199,9 @@ func persistProvider(ctx context.Context, tx *gorm.DB, provider ProviderExport, 
 		return tx.Create(&model).Error
 	}
 
+	if provider.Type == "chatgpt" {
+		existing.AuthMode = "required"
+	}
 	existing.Name = provider.Name
 	existing.Type = provider.Type
 	existing.APIFormat = provider.APIFormat
@@ -170,6 +210,7 @@ func persistProvider(ctx context.Context, tx *gorm.DB, provider ProviderExport, 
 	existing.DefaultModel = provider.DefaultModel
 	existing.IsDefault = provider.IsDefault
 	existing.Timeout = provider.Timeout
+	existing.StreamIdleTimeoutSeconds = provider.StreamIdleTimeoutSeconds
 	existing.CredentialPattern = provider.CredentialPattern
 	existing.ACPCommand = provider.ACPCommand
 	existing.ACPArgs = acpArgs
@@ -178,7 +219,7 @@ func persistProvider(ctx context.Context, tx *gorm.DB, provider ProviderExport, 
 	existing.ACPAgentID = provider.ACPAgentID
 	existing.CreatedAt = createdAt
 	existing.UpdatedAt = updatedAt
-	return tx.Save(existing).Error
+	return database.NewProviderRepository(tx).SaveLLMProvider(ctx, existing)
 }
 
 func validateProviderExport(provider ProviderExport) (ProviderExport, error) {
@@ -213,6 +254,15 @@ func validateProviderExport(provider ProviderExport) (ProviderExport, error) {
 			params("providerId", normalized.ID),
 			"provider %q sem type não pode ser importado", normalized.ID,
 		)
+	}
+	if normalized.Type != "chatgpt" && strings.HasPrefix(normalized.CredentialPattern, "oauth:") {
+		// Only ChatGPT currently supports restoring an imported OAuth connection.
+		normalized.CredentialPattern = ""
+	}
+	if normalized.Type == "chatgpt" {
+		// This account integration has a fixed inference endpoint and protocol.
+		normalized.BaseURL = "https://api.openai.com/v1"
+		normalized.APIFormat = "openai_responses"
 	}
 	if isACPExport(normalized) {
 		// O agente não tem endereço: o que o encontra é o comando, e é ele que
@@ -415,7 +465,7 @@ func acpCredentialWarnings(ctx context.Context, credMgr *credentials.Manager, pr
 		// Erro aqui é entrada existente e ilegível (cofre trancado, por
 		// exemplo), e não entrada ausente: quem lê o aviso não deve sair
 		// cadastrando de novo o que já está lá.
-		auth, err := credMgr.GetByPatternWithContext(ctx, pattern)
+		auth, err := credMgr.GetConfigByPatternWithContext(ctx, pattern)
 		if err != nil || auth != nil {
 			continue
 		}

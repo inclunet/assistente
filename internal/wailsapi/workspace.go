@@ -173,6 +173,18 @@ func (api *Workspace) SetActiveWorkspaceTab(tabID string) error {
 	return err
 }
 
+// SetActiveWorkspaceTabForWorkspace seleciona uma aba somente no workspace
+// explicitamente informado e retorna o snapshot carimbado para a UI.
+func (api *Workspace) SetActiveWorkspaceTabForWorkspace(workspaceID, tabID string) (*workspace.Workspace, error) {
+	session, ctrl, err := api.deps()
+	if err != nil {
+		return nil, err
+	}
+	return WithUser(session, func(ctx context.Context) (*workspace.Workspace, error) {
+		return ctrl.SetActiveWorkspaceTabForWorkspace(ctx, workspaceID, tabID)
+	})
+}
+
 // UpdateWorkspaceTab atualiza campos de uma aba.
 func (api *Workspace) UpdateWorkspaceTab(tabID string, updates map[string]any) error {
 	session, ctrl, err := api.deps()

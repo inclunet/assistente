@@ -5,6 +5,7 @@ import (
 	"assistente/internal/apidto"
 	"assistente/internal/chat"
 	"assistente/internal/database"
+	"assistente/internal/toolinvocations"
 	"context"
 	"sync"
 )
@@ -154,6 +155,17 @@ func (api *Conversations) GetConversationMessageWindow(req chat.MessageWindowReq
 	})
 }
 
+// GetToolInvocationDetails carrega no máximo 100 detalhes por lote.
+func (api *Conversations) GetToolInvocationDetails(invocationIDs []string) ([]toolinvocations.Detail, error) {
+	session, ctrl, err := api.deps()
+	if err != nil {
+		return nil, err
+	}
+	return WithUser(session, func(ctx context.Context) ([]toolinvocations.Detail, error) {
+		return ctrl.GetToolInvocationDetails(ctx, invocationIDs)
+	})
+}
+
 // GetConversationInfo retorna metadados da conversa.
 func (api *Conversations) GetConversationInfo(id string) (*database.Conversation, error) {
 	session, ctrl, err := api.deps()
@@ -199,16 +211,21 @@ func (api *Conversations) UpdateConversation(id string, title, model string) err
 	return err
 }
 
-// DeleteConversation remove a conversa.
+// DeleteConversation delega à operação batch canônica.
 func (api *Conversations) DeleteConversation(id string) error {
+	_, err := api.DeleteConversations([]string{id})
+	return err
+}
+
+// DeleteConversations remove uma ou mais conversas atomicamente.
+func (api *Conversations) DeleteConversations(ids []string) ([]string, error) {
 	session, ctrl, err := api.deps()
 	if err != nil {
-		return err
+		return nil, err
 	}
-	_, err = WithUser(session, func(ctx context.Context) (struct{}, error) {
-		return struct{}{}, ctrl.DeleteConversation(ctx, id)
+	return WithUser(session, func(ctx context.Context) ([]string, error) {
+		return ctrl.DeleteConversations(ctx, ids)
 	})
-	return err
 }
 
 // DeleteMessage exclui mensagem (com confirmação no controller).

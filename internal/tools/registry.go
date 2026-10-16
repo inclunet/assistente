@@ -13,6 +13,8 @@ type Registry struct {
 	tools             map[string]Tool
 	optIn             map[string]bool // tools que só entram no payload quando explicitamente listadas em enabled_tools
 	discoverableOptIn map[string]bool // opt-in que aparece em UI/catalogo para seleção explícita
+	generationCounter uint64
+	nameGeneration    map[string]uint64
 }
 
 // NewRegistry cria um novo registro de ferramentas vazio.
@@ -21,6 +23,7 @@ func NewRegistry() *Registry {
 		tools:             make(map[string]Tool),
 		optIn:             make(map[string]bool),
 		discoverableOptIn: make(map[string]bool),
+		nameGeneration:    make(map[string]uint64),
 	}
 }
 
@@ -29,13 +32,27 @@ func NewRegistry() *Registry {
 func (r *Registry) Register(tool Tool) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	return r.registerLocked(tool, false, false)
+}
 
+func (r *Registry) registerLocked(tool Tool, optIn, discoverableOptIn bool) error {
 	name := tool.Name()
 	if _, exists := r.tools[name]; exists {
 		return fmt.Errorf("ferramenta '%s' já registrada", name)
 	}
+	if r.generationCounter == ^uint64(0) {
+		return fmt.Errorf("geração do registry esgotada")
+	}
 
 	r.tools[name] = tool
+	r.generationCounter++
+	r.nameGeneration[name] = r.generationCounter
+	if optIn {
+		r.optIn[name] = true
+	}
+	if discoverableOptIn {
+		r.discoverableOptIn[name] = true
+	}
 	return nil
 }
 
@@ -52,26 +69,18 @@ func (r *Registry) MustRegister(tool Tool) {
 // enabled_tools é nil (todas). Útil para tools de contexto específico
 // como text_edit (editor).
 func (r *Registry) RegisterOptIn(tool Tool) error {
-	if err := r.Register(tool); err != nil {
-		return err
-	}
 	r.mu.Lock()
-	r.optIn[tool.Name()] = true
-	r.mu.Unlock()
-	return nil
+	defer r.mu.Unlock()
+	return r.registerLocked(tool, true, false)
 }
 
 // RegisterDiscoverableOptIn registra uma ferramenta opt-in que deve aparecer
 // em catálogos/listas de seleção para enabled_tools explícito, mas continua
 // fora do payload padrão quando enabled_tools é nil.
 func (r *Registry) RegisterDiscoverableOptIn(tool Tool) error {
-	if err := r.RegisterOptIn(tool); err != nil {
-		return err
-	}
 	r.mu.Lock()
-	r.discoverableOptIn[tool.Name()] = true
-	r.mu.Unlock()
-	return nil
+	defer r.mu.Unlock()
+	return r.registerLocked(tool, true, true)
 }
 
 // MustRegisterOptIn é como RegisterOptIn mas faz panic em caso de erro.
@@ -103,6 +112,28 @@ func (r *Registry) Get(name string) (Tool, bool) {
 
 	tool, ok := r.tools[name]
 	return tool, ok
+}
+
+// Generation retorna a geração vigente de uma ferramenta registrada.
+func (r *Registry) Generation(name string) (uint64, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	generation, ok := r.nameGeneration[name]
+	return generation, ok
+}
+
+// GetWithGeneration captura ferramenta e geração no mesmo RLock. O par é a
+// unidade de identidade usada pelo executor para rejeitar re-registros ABA.
+func (r *Registry) GetWithGeneration(name string) (Tool, uint64, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	tool, ok := r.tools[name]
+	if !ok {
+		return nil, 0, false
+	}
+	return tool, r.nameGeneration[name], true
 }
 
 // All retorna todas as ferramentas registradas (exceto opt-in), ordenadas por nome.
@@ -196,6 +227,7 @@ func (r *Registry) Unregister(name string) bool {
 	delete(r.tools, name)
 	delete(r.optIn, name)
 	delete(r.discoverableOptIn, name)
+	delete(r.nameGeneration, name)
 	return true
 }
 

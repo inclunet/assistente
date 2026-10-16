@@ -117,7 +117,12 @@ func TestUpsertTaskNoteByExternal_UniqueIndexRaceRetry(t *testing.T) {
 	}
 }
 
-func TestUpsertTaskNoteByExternal_WrongTaskError(t *testing.T) {
+// TestUpsertTaskNoteByExternal_JaVinculadaEmOutraTaskEhNoOp garante que, quando
+// a referência externa já está vinculada a outra task, o upsert é um no-op
+// idempotente (sem erro, created=false, sem revincular) em vez de um erro
+// retentável — evitando o loop de "job attempt failed" observado no
+// assistente.log durante o fan-out de sync de tickets.
+func TestUpsertTaskNoteByExternal_JaVinculadaEmOutraTaskEhNoOp(t *testing.T) {
 	setupTaskNoteExternalTestDB(t)
 	ctx := testCtx()
 
@@ -129,7 +134,7 @@ func TestUpsertTaskNoteByExternal_WrongTaskError(t *testing.T) {
 	t2, _ := CreateTaskWithContext(ctx, tl.ID, "B", "", "", "", nil)
 
 	typ := TaskNoteSystem
-	_, _, err = UpsertTaskNoteByExternalWithContext(ctx, UpsertTaskNoteByExternalParams{
+	first, created, err := UpsertTaskNoteByExternalWithContext(ctx, UpsertTaskNoteByExternalParams{
 		TaskID:         t1.ID,
 		Type:           &typ,
 		Content:        "x",
@@ -139,15 +144,31 @@ func TestUpsertTaskNoteByExternal_WrongTaskError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, _, err = UpsertTaskNoteByExternalWithContext(ctx, UpsertTaskNoteByExternalParams{
+	if !created {
+		t.Fatal("primeira criação deveria retornar created=true")
+	}
+
+	note, created, err := UpsertTaskNoteByExternalWithContext(ctx, UpsertTaskNoteByExternalParams{
 		TaskID:         t2.ID,
 		Type:           &typ,
 		Content:        "y",
 		ExternalSource: "jira",
 		ExternalID:     "shared",
 	})
-	if err == nil {
-		t.Fatal("expected error when external ref already on another task")
+	if err != nil {
+		t.Fatalf("upsert de referência já vinculada deveria ser no-op, não erro: %v", err)
+	}
+	if created {
+		t.Fatal("no-op não deveria reportar created=true")
+	}
+	if note == nil || note.ID != first.ID {
+		t.Fatalf("no-op deveria retornar a nota existente (id=%v), got %+v", first.ID, note)
+	}
+	if note.TaskID != t1.ID {
+		t.Fatalf("nota não deveria ser revinculada: task_id=%q, want %q", note.TaskID, t1.ID)
+	}
+	if note.Content != "x" {
+		t.Fatalf("conteúdo não deveria ser sobrescrito: %q, want \"x\"", note.Content)
 	}
 }
 

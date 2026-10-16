@@ -1,13 +1,40 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, createEvent, fireEvent, render, screen } from '@testing-library/react';
 import { chat } from '../../../wailsjs/go/models';
 import { ChatMessage } from './ChatMessage';
+import { MessageNode } from './MessageNode';
+import type { SendToEditorPayload } from '../../lib/editorSendMenu';
 
 const conversationId = '01926b90-7a5a-7c4e-8d3f-000000000001';
 const originalIntersectionObserver = globalThis.IntersectionObserver;
 const buildAriaLabelMock = vi.hoisted(() => vi.fn((_args: unknown) => 'aria-label'));
 const announceRequestMock = vi.hoisted(() => vi.fn(() => true));
 const markdownRendererSpy = vi.hoisted(() => vi.fn());
+const playback = vi.hoisted(() => ({ active: false, stopAudio: vi.fn(), stopTTS: vi.fn() }));
+
+vi.mock('../../services/messageAudio', () => ({ messageAudioService: {
+  isCurrentlyPlaying: () => playback.active, stopCurrentAudio: playback.stopAudio,
+} }));
+vi.mock('../../services/tts', () => ({ ttsService: { isSpeaking: () => false, stop: playback.stopTTS } }));
+vi.mock('../../hooks/useVirtualModal', () => ({ useVirtualModal: () => {} }));
+vi.mock('./ChatSessionContext', async importOriginal => ({
+  ...await importOriginal<typeof import('./ChatSessionContext')>(),
+  useChatNodeSessionState: () => ({
+  conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001', editingMessageId: null,
+  streamingMessageId: null, streamingReasoning: null, isThinking: false, activeToolCalls: [], completedSegments: [],
+  isExpanded: false, reasoningExpanded: false, setConversationEditingMessageId: vi.fn(),
+  toggleConversationThreadExpanded: vi.fn(), toggleConversationReasoningExpanded: vi.fn(),
+}) }));
+
+const toolInvocation = (callId: string, name: string, overrides: Record<string, unknown> = {}) => ({
+  invocationId: `inv-${callId}`,
+  callId,
+  name,
+  status: 'succeeded',
+  hasDetails: true,
+  resultAvailability: 'available',
+  ...overrides,
+});
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
@@ -32,6 +59,10 @@ vi.mock('../../store/chatStore', () => {
     activeToolCalls: [],
     tabs: [],
     liveMessageContentByConversationId: {},
+    // Esta fixture não carrega histórico canônico; MessageNode também consulta
+    // o seletor ao registrar navegação. Os testes abaixo exercitam fala, não
+    // fabricam admissão de um comando de navegação para uma mensagem ausente.
+    getConversationMessages: (): chat.EnrichedMessage[] => [],
   };
   const useChatStore = (selector?: (value: typeof state) => unknown) => (
     selector ? selector(state) : state
@@ -53,6 +84,7 @@ vi.mock('../../lib/chatMessageAriaLabel', () => ({
 }));
 
 vi.mock('../../hooks/useAnnouncer', () => ({
+  announce: vi.fn(),
   useAnnouncer: () => ({
     announceRequest: announceRequestMock,
   }),
@@ -74,13 +106,26 @@ vi.mock('./ReasoningSection', () => ({
 }));
 
 vi.mock('./ToolCallsSection', () => ({
-  ToolCallsSection: ({ toolCallsJson }: { toolCallsJson?: string }) => (
-    <div data-testid="toolcalls" data-json={toolCallsJson ?? ''} />
+  ToolCallsSection: ({ toolInvocations }: { toolInvocations?: unknown[] }) => (
+    <div data-testid="toolcalls" data-invocations={toolInvocations?.length ?? 0} />
   ),
 }));
 
 describe('ChatMessage', () => {
+  it('mantém a origem do callback de bloco capturada antes de trocar a mensagem', () => {
+    const message = new chat.EnrichedMessage({ id: 'source-a', conversationId, role: 'assistant', content: 'Mensagem integral A' });
+    const onSendToEditor = vi.fn();
+    const view = render(<ChatMessage message={message} onSendToEditor={onSendToEditor} />);
+    const captured: { onSendToEditor: (payload: SendToEditorPayload) => void } = markdownRendererSpy.mock.calls[markdownRendererSpy.mock.calls.length - 1][0];
+    message.content = 'mutação posterior';
+    view.rerender(<ChatMessage message={new chat.EnrichedMessage({ id: 'source-b', conversationId, role: 'assistant', content: 'Mensagem B' })} onSendToEditor={onSendToEditor} />);
+    const payload: SendToEditorPayload = { target: 'document', targetDocumentId: 'doc-a', content: 'bloco', title: 'Código', format: 'markdown' };
+    captured.onSendToEditor(payload);
+    expect(onSendToEditor).toHaveBeenCalledExactlyOnceWith({ ...payload, messageId: 'source-a', originalContent: 'Mensagem integral A' });
+  });
+
   afterEach(() => {
+    playback.active = false; playback.stopAudio.mockClear(); playback.stopTTS.mockClear();
     vi.useRealTimers();
     vi.unstubAllGlobals();
     buildAriaLabelMock.mockClear();
@@ -89,6 +134,57 @@ describe('ChatMessage', () => {
     if (originalIntersectionObserver) {
       vi.stubGlobal('IntersectionObserver', originalIntersectionObserver);
     }
+  });
+
+  const keyboardMessage = () => new chat.EnrichedMessage({
+    id: '01926b90-7a5a-7c4e-8d3f-000000000002', conversationId, role: 'user', content: 'Mensagem de teclado',
+    isStreaming: false, internal: false,
+  });
+
+  it('Space no ChatMessage real dentro do MessageNode executa somente uma vez', async () => {
+    const onSpeak = vi.fn(); const onOuterKeyDown = vi.fn(); const message = keyboardMessage();
+    const { container } = render(<div onKeyDown={onOuterKeyDown}>
+      <MessageNode node={new chat.MessageNode({ message, children: [], childCount: 0, level: 0 })} onSpeak={onSpeak} />
+    </div>);
+    const child = container.querySelector('.chat-message')!;
+    await act(async () => { fireEvent.keyDown(child, { key: ' ', code: 'Space' }); });
+    expect(onSpeak).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ id: message.id }));
+    expect(onOuterKeyDown).not.toHaveBeenCalled();
+    // A segunda passagem pelo pai interromperia o playback iniciado pelo filho.
+    expect(playback.stopAudio).not.toHaveBeenCalled(); expect(playback.stopTTS).not.toHaveBeenCalled();
+  });
+
+  it('Space ignora repeat, IME, 229 e defaultPrevented também na árvore real', async () => {
+    const onSpeak = vi.fn();
+    const { container } = render(<MessageNode node={new chat.MessageNode({ message: keyboardMessage(), children: [], childCount: 0, level: 0 })} onSpeak={onSpeak} />);
+    const child = container.querySelector('.chat-message')!;
+    for (const extra of [{ repeat: true }, { isComposing: true }, { keyCode: 229 }]) {
+      fireEvent.keyDown(child, { key: ' ', code: 'Space', ...extra });
+    }
+    const consumed = createEvent.keyDown(child, { key: ' ', code: 'Space' }); consumed.preventDefault(); fireEvent(child, consumed);
+    expect(onSpeak).not.toHaveBeenCalled(); expect(playback.stopAudio).not.toHaveBeenCalled();
+    await act(async () => { fireEvent.keyDown(child, { key: ' ', code: 'Space' }); });
+    expect(onSpeak).toHaveBeenCalledTimes(1);
+  });
+
+  it('primeiro Space para fala ativa, mas autorepeat não interrompe novamente', async () => {
+    playback.active = true;
+    const onSpeak = vi.fn();
+    render(<MessageNode node={new chat.MessageNode({ message: keyboardMessage(), children: [], childCount: 0, level: 0 })} onSpeak={onSpeak} />);
+    const button = screen.getByRole('button', { name: 'chat.playAudio' });
+    await act(async () => { fireEvent.keyDown(button, { key: ' ', code: 'Space' }); });
+    fireEvent.keyDown(button, { key: ' ', code: 'Space', repeat: true });
+    expect(playback.stopAudio).toHaveBeenCalledTimes(1); expect(playback.stopTTS).toHaveBeenCalledTimes(1);
+    expect(onSpeak).not.toHaveBeenCalled();
+  });
+
+  it.each(['reading', 'editing'] as const)('Space mantém comportamento nativo no modo %s', mode => {
+    const onSpeak = vi.fn();
+    const { container } = render(<ChatMessage message={keyboardMessage()} onSpeak={onSpeak}
+      isReading={mode === 'reading'} isEditing={mode === 'editing'} editContent="Texto" onEditContentChange={vi.fn()} />);
+    const target = mode === 'editing' ? screen.getByRole('textbox') : container.querySelector('.chat-message')!;
+    expect(fireEvent.keyDown(target, { key: ' ', code: 'Space' })).toBe(true);
+    expect(onSpeak).not.toHaveBeenCalled();
   });
 
   it('renderiza conteudo e botao de audio', () => {
@@ -162,6 +258,20 @@ describe('ChatMessage', () => {
     expect(screen.getByRole('button', { name: 'chat.playAudio' })).toHaveAttribute('tabindex', '0');
   });
 
+  it.each([false, true])('leitura ao vivo não mantém texto sob aria-busy (com ferramentas: %s)', agentic => {
+    const message = new chat.EnrichedMessage({
+      id: 'live-reading-busy', conversationId, role: 'assistant',
+      content: 'Texto chegando', isStreaming: true, internal: false,
+    });
+    const props = agentic ? { activeToolCalls: [{ callId: 'call', name: 'tool', status: 'running' as const }] } : {};
+    const { container, rerender } = render(<ChatMessage message={message} {...props} />);
+    expect(container.querySelector('[aria-busy="true"]')).not.toBeNull();
+    rerender(<ChatMessage message={message} {...props} isReading />);
+    expect(container.querySelector('[aria-busy="true"]')).toBeNull();
+    rerender(<ChatMessage message={message} {...props} />);
+    expect(container.querySelector('[aria-busy="true"]')).not.toBeNull();
+  });
+
   it('renderiza modo de edicao', () => {
     const message = new chat.EnrichedMessage({
       id: '1',
@@ -228,7 +338,7 @@ describe('ChatMessage', () => {
       turnSegments: [
         {
           type: 'tool_calls',
-          toolCalls: [{ id: 'tool-1', type: 'function', function: { name: 'search', arguments: '{}' } }],
+          toolInvocations: [toolInvocation('tool-1', 'search')],
         },
       ],
     });
@@ -239,7 +349,7 @@ describe('ChatMessage', () => {
         completedSegments={[
           {
             type: 'tool_calls',
-            toolCalls: [{ id: 'tool-1', type: 'function', function: { name: 'search', arguments: '{}' } }],
+            toolInvocations: [toolInvocation('tool-1', 'search')],
           },
         ]}
       />
@@ -341,20 +451,15 @@ describe('ChatMessage', () => {
     }
     vi.stubGlobal('IntersectionObserver', MockIntersectionObserver);
 
-    const toolCalls = JSON.stringify([{
-      id: 'tool-1',
-      type: 'function',
-      function: {
-        name: 'search_documents',
-        arguments: 'x'.repeat(8_100),
-      },
-    }]);
     const message = new chat.EnrichedMessage({
       id: 'tool-only',
       conversationId,
       role: 'assistant',
       content: '',
-      toolCalls,
+      turnSegments: [{
+        type: 'tool_calls',
+        toolInvocations: [toolInvocation('tool-1', 'search_documents', { inputBytes: 8_100, status: ' Succeeded ' })],
+      }],
       createdAt: new Date().toISOString(),
       timestamp: Date.now(),
       isStreaming: false,
@@ -364,7 +469,7 @@ describe('ChatMessage', () => {
     render(<ChatMessage message={message} />);
 
     expect(buildAriaLabelMock).toHaveBeenCalledWith(expect.objectContaining({
-      toolCallsRaw: JSON.stringify([{ function: { name: 'search_documents' } }]),
+      toolLabels: ['chat.toolGenericDone'],
     }));
     expect(screen.queryByTestId('toolcalls')).not.toBeInTheDocument();
   });
@@ -386,21 +491,12 @@ describe('ChatMessage', () => {
         { type: 'text', content: 'vou pesquisar' },
         {
           type: 'tool_calls',
-          toolCalls: [{
-            id: 'tool-1',
-            type: 'function',
-            function: { name: 'search', arguments: '{}' },
-            result: 'resultado da busca',
-          }],
+          toolInvocations: [toolInvocation('tool-1', 'search', { outputPreview: '{"bytes":18}' })],
         },
         { type: 'text', content: 'agora vou refinar' },
         {
           type: 'tool_calls',
-          toolCalls: [{
-            id: 'tool-2',
-            type: 'function',
-            function: { name: 'fetch', arguments: '{}' },
-          }],
+          toolInvocations: [toolInvocation('tool-2', 'fetch')],
         },
         { type: 'text', content: 'resposta final' },
       ],
@@ -422,8 +518,10 @@ describe('ChatMessage', () => {
       conversationId,
       role: 'assistant',
       content: '',
-      source: 'tool_only_turn_placeholder',
-      toolCalls: JSON.stringify([{ id: 'tool-1', type: 'function', function: { name: 'tool_result', arguments: '' }, result: 'ok' }]),
+      turnSegments: [{
+        type: 'tool_calls',
+        toolInvocations: [toolInvocation('tool-1', 'tool_result', { outputPreview: '{"bytes":2}' })],
+      }],
       createdAt: new Date().toISOString(),
       timestamp: Date.now(),
       isStreaming: false,
@@ -434,7 +532,6 @@ describe('ChatMessage', () => {
 
     expect(screen.getByText('chat.toolOnlyTurnPlaceholder')).toBeInTheDocument();
     expect(screen.getByTestId('toolcalls')).toBeInTheDocument();
-    expect(screen.queryByText('tool_only_turn_placeholder')).not.toBeInTheDocument();
     expect(buildAriaLabelMock).toHaveBeenCalledWith(expect.objectContaining({
       displayContent: 'chat.toolOnlyTurnPlaceholder',
     }));
@@ -463,12 +560,12 @@ describe('ChatMessage', () => {
         { type: 'text', content: 'vou pesquisar' },
         {
           type: 'tool_calls',
-          toolCalls: [{ id: 'tool-1', type: 'function', function: { name: 'search', arguments: '{}' }, result: 'r' }],
+          toolInvocations: [toolInvocation('tool-1', 'search')],
         },
         { type: 'text', content: 'agora vou refinar' },
         {
           type: 'tool_calls',
-          toolCalls: [{ id: 'tool-2', type: 'function', function: { name: 'fetch', arguments: '{}' } }],
+          toolInvocations: [toolInvocation('tool-2', 'fetch')],
         },
       ],
     });
@@ -500,7 +597,7 @@ describe('ChatMessage', () => {
         { type: 'text', content: 'vou pesquisar' },
         {
           type: 'tool_calls',
-          toolCalls: [{ id: 'tool-1', type: 'function', function: { name: 'search', arguments: '{}' }, result: 'r' }],
+          toolInvocations: [toolInvocation('tool-1', 'search')],
         },
         { type: 'text', content: 'resposta final' },
       ],
@@ -561,7 +658,7 @@ describe('ChatMessage', () => {
         message={second}
         completedSegments={[
           { type: 'text', content: 'parte um' },
-          { type: 'tool_calls', toolCalls: [{ id: 't', type: 'function', function: { name: 'search', arguments: '{}' } }] },
+          { type: 'tool_calls', toolInvocations: [toolInvocation('t', 'search')] },
         ]}
       />
     );
@@ -581,7 +678,6 @@ describe('ChatMessage', () => {
       conversationId,
       role: 'assistant',
       content: '',
-      source: 'tool_only_turn_placeholder',
       createdAt: new Date().toISOString(),
       timestamp: Date.now(),
       isStreaming: false,
@@ -589,7 +685,7 @@ describe('ChatMessage', () => {
       turnSegments: [
         {
           type: 'tool_calls',
-          toolCalls: [{ id: 'tool-1', type: 'function', function: { name: 'search', arguments: '{}' }, result: 'ok' }],
+          toolInvocations: [toolInvocation('tool-1', 'search')],
         },
       ],
     });
@@ -618,7 +714,7 @@ describe('ChatMessage', () => {
         { type: 'text', content: 'primeiro' },
         {
           type: 'tool_calls',
-          toolCalls: [{ id: 'tool-1', type: 'function', function: { name: 'search', arguments: '{}' } }],
+          toolInvocations: [toolInvocation('tool-1', 'search')],
         },
         { type: 'text', content: 'segundo' },
         { type: 'text', content: '   ' },
@@ -649,7 +745,7 @@ describe('ChatMessage', () => {
         { type: 'text', content: 'intermediário' },
         {
           type: 'tool_calls',
-          toolCalls: [{ id: 'tool-1', type: 'function', function: { name: 'search', arguments: '{}' } }],
+          toolInvocations: [toolInvocation('tool-1', 'search')],
         },
         { type: 'text', content: '   ' },
       ],
@@ -665,13 +761,12 @@ describe('ChatMessage', () => {
     expect(lastArgs.displayContent).not.toContain('intermediário');
   });
 
-  it('injeta placeholder textual antes das tools quando o turno tool-only tem apenas turnSegments', () => {
+  it('mostra o estado terminal depois das tools quando o turno tool-only tem apenas turnSegments', () => {
     const message = new chat.EnrichedMessage({
       id: 'tool-only-segmented',
       conversationId,
       role: 'assistant',
       content: '',
-      source: 'tool_only_turn_placeholder',
       createdAt: new Date().toISOString(),
       timestamp: Date.now(),
       isStreaming: false,
@@ -679,12 +774,7 @@ describe('ChatMessage', () => {
       turnSegments: [
         {
           type: 'tool_calls',
-          toolCalls: [{
-            id: 'tool-1',
-            type: 'function',
-            function: { name: 'search', arguments: '{}' },
-            result: 'ok',
-          }],
+          toolInvocations: [toolInvocation('tool-1', 'search')],
         },
       ],
     });
@@ -696,9 +786,9 @@ describe('ChatMessage', () => {
     expect(placeholder).toBeInTheDocument();
     expect(tools).toBeInTheDocument();
     expect(container.querySelectorAll('.chat-message')).toHaveLength(1);
-    // Placeholder precisa vir ANTES das tools na ordem do DOM para que o NVDA
-    // anuncie o contexto antes do bloco de ferramentas.
-    expect(placeholder.compareDocumentPosition(tools) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // O estado terminal descreve o resultado do turno e encerra a cronologia.
+    // O nome acessível da mensagem continua oferecendo o resumo para o NVDA.
+    expect(tools.compareDocumentPosition(placeholder) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   // Issue #163 (Parte A): a cadeia inteira do turno (segmentos de texto E tool
@@ -719,12 +809,12 @@ describe('ChatMessage', () => {
         { type: 'text', content: 'vou pesquisar' },
         {
           type: 'tool_calls',
-          toolCalls: [{ id: 'tool-1', type: 'function', function: { name: 'search', arguments: '{}' }, result: 'r' }],
+          toolInvocations: [toolInvocation('tool-1', 'search')],
         },
         { type: 'text', content: 'agora vou refinar' },
         {
           type: 'tool_calls',
-          toolCalls: [{ id: 'tool-2', type: 'function', function: { name: 'fetch', arguments: '{}' } }],
+          toolInvocations: [toolInvocation('tool-2', 'fetch')],
         },
         { type: 'text', content: 'resposta final' },
       ],
@@ -757,7 +847,7 @@ describe('ChatMessage', () => {
         { type: 'text', content: 'vou pesquisar' },
         {
           type: 'tool_calls',
-          toolCalls: [{ id: 'tool-1', type: 'function', function: { name: 'search', arguments: '{}' }, result: 'r' }],
+          toolInvocations: [toolInvocation('tool-1', 'search')],
         },
         { type: 'text', content: 'resposta final' },
       ],
@@ -805,7 +895,7 @@ describe('ChatMessage', () => {
         { type: 'text', content: 'vou pesquisar' },
         {
           type: 'tool_calls',
-          toolCalls: [{ id: 'tool-1', type: 'function', function: { name: 'search', arguments: '{}' }, result: 'r' }],
+          toolInvocations: [toolInvocation('tool-1', 'search')],
         },
         { type: 'text', content: 'resposta final' },
       ],
@@ -836,12 +926,12 @@ describe('ChatMessage', () => {
         { type: 'text', content: 'vou pesquisar' },
         {
           type: 'tool_calls',
-          toolCalls: [{ id: 'tool-1', type: 'function', function: { name: 'search', arguments: '{}' }, result: 'r' }],
+          toolInvocations: [toolInvocation('tool-1', 'search')],
         },
         { type: 'text', content: 'agora vou refinar' },
         {
           type: 'tool_calls',
-          toolCalls: [{ id: 'tool-2', type: 'function', function: { name: 'fetch', arguments: '{}' } }],
+          toolInvocations: [toolInvocation('tool-2', 'fetch')],
         },
         { type: 'text', content: 'resposta final' },
       ],
@@ -883,7 +973,7 @@ describe('ChatMessage', () => {
         { type: 'text', content: 'vou pesquisar' },
         {
           type: 'tool_calls',
-          toolCalls: [{ id: 'tool-1', type: 'function', function: { name: 'search', arguments: '{}' }, result: 'r' }],
+          toolInvocations: [toolInvocation('tool-1', 'search')],
         },
         { type: 'text', content: 'resposta final' },
       ],
@@ -925,7 +1015,7 @@ describe('ChatMessage', () => {
         { type: 'text', content: 'vou pesquisar' },
         {
           type: 'tool_calls',
-          toolCalls: [{ id: 'tool-1', type: 'function', function: { name: 'search', arguments: '{}' }, result: 'r' }],
+          toolInvocations: [toolInvocation('tool-1', 'search')],
         },
         { type: 'text', content: 'agora vou refinar' },
         { type: 'text', content: 'resposta final' },

@@ -64,11 +64,23 @@ Abas não visitadas permanecem inativas e não carregam conteúdo pesado. Ao vis
 
 Painéis inativos devem ficar fora da navegação por teclado e da árvore de leitores de tela. Eles não podem capturar foco, atalhos locais, microfone ou ações de UI que pertençam à aba ativa.
 
-Ao trocar de aba por Ctrl+Tab, Ctrl+Shift+Tab, Ctrl+PageUp ou Ctrl+PageDown, o
-shell solicita foco ao controller da superfície ativada. O controller é
+Ao trocar de aba por Ctrl+Tab, Ctrl+Shift+Tab, Ctrl+PageUp, Ctrl+PageDown ou
+Ctrl+1..9, o shell solicita foco ao controller da superfície ativada. O controller é
 responsável por escolher o alvo correto e só atende depois de seu painel estar
 ativo. No editor, isso significa Monaco em `markdown`, TipTap em `rich` e a
 ilha documental da AEP-0094 em `view`.
+
+Esse contrato de foco é **único e agnóstico de tipo**: todo painel de workspace
+(chat, terminal, editor, tasklist) registra seu handler de foco em
+`workspacePanelFocusRegistry` chaveado por `tabId` e sabe focar sua própria área
+default (input do chat/terminal, superfície do editor, board da tasklist). O
+shell nunca duplica o conhecimento de cada tipo: `routeWorkspacePanelFocus(tabId)`
+apenas invoca o handler registrado ou, quando o painel ainda não montou (lazy),
+enfileira o pedido (`queueWorkspacePanelFocus`) para refazê-lo assim que o handler
+registrar. O landmark "Área de conteúdo" (F6), o `restoreDefaultFocus` de retorno
+de modal e o roteamento ao fechar aba passam todos por esse mesmo ponto,
+delegando ao painel ativo. Não há mais trilho separado (default focus por
+heurística de DOM) para chat/terminal versus editor/tasklist.
 
 ### 4. Chat por controller de conversa/aba
 
@@ -289,3 +301,6 @@ O próximo PR fica restrito à AEP-0059 Fase 2.1: tornar o backend a fonte canô
   10.
 - Providers ACP continuam usando somente os pickers de opções da sessão do
   agente.
+- `Ctrl+1..9` troca direto para aba N e restaura foco na área padrão (via controller/`queueWorkspacePanelFocus` no editor lazy), com evidência em `frontend/src/hooks/useWorkspaceKeyboardShortcuts.test.ts` e `frontend/src/components/workspace/WorkspaceLayout.test.tsx`.
+- Ao entrar em qualquer painel de conteúdo assíncrono (editor **ou** tasklist/kanban) — seja por atalho (`Ctrl+Tab`/`Ctrl+Shift+Tab`, `Ctrl+PageUp`/`Ctrl+PageDown`, `Ctrl+1..9`) ou ao fechar uma aba cuja sucessora seja um desses painéis — o foco pousa na área default do painel assim que o conteúdo termina de carregar, sem ficar preso no `body`. O roteamento é unificado por `routeWorkspacePanelFocus` (`frontend/src/components/workspace/workspacePanelFocusRegistry.ts`): quando o painel ainda não montou, o pedido é enfileirado (`queueWorkspacePanelFocus`) e refeito ao registrar o handler; a tasklist replica o padrão nonce+"quando pronto" do editor. Evidências em `frontend/src/components/workspace/workspacePanelFocusRegistry.test.ts`, `frontend/src/components/workspace/WorkspaceLayout.test.tsx`, `frontend/src/components/taskLists/TaskListView.test.tsx` e `frontend/src/hooks/useWorkspaceKeyboardShortcuts.test.ts`.
+- O contrato de foco de painel é **único para os quatro tipos de aba** (chat, terminal, editor, tasklist): todos registram handler em `workspacePanelFocusRegistry` chaveado por `tabId`, e `routeWorkspacePanelFocus(tabId)` é agnóstico de tipo (invoca o handler ou enfileira, sem ramo por tipo). O landmark "Área de conteúdo" delega ao handler do painel ativo em vez de farejar o DOM de cada domínio, de modo que F6, `Ctrl+número`, fechar aba e o `restoreDefaultFocus` de retorno de modal seguem o mesmo caminho. Chat e terminal em variante embutida (chat sobre editor/tasklist) **não** registram handler para não sequestrar o `tabId` da aba hospedeira. Evidências em `frontend/src/components/chat/ChatSessionView.test.tsx` (variante `page` foca o input via registry; `embedded` não registra) e `frontend/src/pages/TerminalPage.test.tsx` (handler foca o input do shell), além das suítes de registry, layout e atalhos citadas acima.

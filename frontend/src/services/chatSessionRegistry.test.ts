@@ -564,6 +564,116 @@ describe('chatSessionRegistry', () => {
     expect(tabA.hasOlderMessages).toBe(false);
   });
 
+  it('cresce e mantém idempotente a janela unindexed da conversa nova', () => {
+    const nodes = [messageNode('message-0'), messageNode('message-1')];
+    const state: ChatSessionRegistryState = {
+      sessionsByConversationId: {},
+      timelinesByConversationId: {
+        'conversation-1': {
+          ...conversation('conversation-1'),
+          threadedMessages: nodes,
+        },
+      },
+      surfaceSessionsByKey: {
+        'tab-a:conversation-1': {
+          ...createEmptyChatSession('conversation-1', 'tab-a:conversation-1'),
+          visibleThreadedMessages: nodes,
+          messageWindow: {
+            scope: 'conversation',
+            conversationId: 'conversation-1',
+            totalCount: 2,
+            startIndex: 0,
+            endIndex: 1,
+            hasBefore: false,
+            hasAfter: false,
+          },
+        },
+      },
+    };
+    const applySameTimeline = (current: ChatSessionRegistryState): ChatSessionRegistryState => ({
+      ...current,
+      ...patchChatConversation(current, 'conversation-1', (timeline) => ({
+        ...timeline,
+        threadedMessages: timeline.threadedMessages,
+      })),
+    });
+
+    const once = applySameTimeline(state);
+    const twice = applySameTimeline(once);
+    const firstWindow = once.surfaceSessionsByKey!['tab-a:conversation-1'].messageWindow;
+    const secondWindow = twice.surfaceSessionsByKey!['tab-a:conversation-1'].messageWindow;
+
+    expect(firstWindow).toEqual({
+      scope: 'conversation',
+      conversationId: 'conversation-1',
+      totalCount: 2,
+      startIndex: 0,
+      endIndex: 1,
+      hasBefore: false,
+      hasAfter: false,
+    });
+    expect(secondWindow).toEqual(firstWindow);
+
+    const grownNodes = [...nodes, messageNode('message-2')];
+    const grownState: ChatSessionRegistryState = {
+      ...twice,
+      timelinesByConversationId: {
+        ...twice.timelinesByConversationId,
+        'conversation-1': {
+          ...twice.timelinesByConversationId!['conversation-1'],
+          threadedMessages: grownNodes,
+        },
+      },
+      surfaceSessionsByKey: {
+        ...twice.surfaceSessionsByKey,
+        'tab-a:conversation-1': {
+          ...twice.surfaceSessionsByKey!['tab-a:conversation-1'],
+          visibleThreadedMessages: grownNodes,
+        },
+      },
+    };
+    const grown = applySameTimeline(grownState);
+    const regrown = applySameTimeline(grown);
+    const grownWindow = grown.surfaceSessionsByKey!['tab-a:conversation-1'].messageWindow;
+    const regrownWindow = regrown.surfaceSessionsByKey!['tab-a:conversation-1'].messageWindow;
+
+    expect(grownWindow).toMatchObject({
+      totalCount: 3,
+      startIndex: 0,
+      endIndex: 2,
+      hasBefore: false,
+      hasAfter: false,
+    });
+    expect(regrownWindow).toEqual(grownWindow);
+
+    const historyState: ChatSessionRegistryState = {
+      ...grown,
+      surfaceSessionsByKey: {
+        ...grown.surfaceSessionsByKey,
+        'tab-b:conversation-1': {
+          ...createEmptyChatSession('conversation-1', 'tab-b:conversation-1'),
+          visibleThreadedMessages: grownNodes,
+          messageWindow: {
+            scope: 'conversation',
+            conversationId: 'conversation-1',
+            totalCount: 3,
+            startIndex: 0,
+            endIndex: 1,
+            hasBefore: false,
+            hasAfter: true,
+          },
+        },
+      },
+    };
+    const historyPatched = applySameTimeline(historyState);
+    expect(historyPatched.surfaceSessionsByKey!['tab-b:conversation-1'].messageWindow).toMatchObject({
+      totalCount: 3,
+      startIndex: 0,
+      endIndex: 1,
+      hasAfter: true,
+    });
+  });
+
   it('limita a superfície sem cortar o turno no início da janela visual', () => {
     const nodes = Array.from({ length: 242 }, (_, index) => messageNode(`message-${index}`, {
       turnId: index <= 2 ? 'turn-boundary' : `turn-${index}`,

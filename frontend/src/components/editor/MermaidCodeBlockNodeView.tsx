@@ -1,17 +1,17 @@
 import { NodeViewContent, NodeViewWrapper, type NodeViewProps } from '@tiptap/react';
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { MarkdownRenderer } from '../ui/MarkdownRenderer';
-import { useQuestionnaireUIStore } from '../../store/questionnaireUIStore';
-import { useUIStore } from '../../store/uiStore';
+import { requestEditorMermaidCommand } from '../../lib/commandEditorMermaid';
+import { isModalOpen } from '../../lib/modalRegistry';
+import { ReadFocusContext } from '../../lib/commandContextProviders';
 
 type MermaidRequestEditHandler = (ctx: {
   mermaidBlockId: string;
   code: string;
   insertText?: string;
-  apply: (nextCode: string) => void;
-  remove: () => void;
+  expectedEditor?: object;
 }) => void;
 
 function newMermaidBlockId(): string {
@@ -27,91 +27,63 @@ export function MermaidCodeBlockNodeView(props: NodeViewProps) {
   const { node, editor, getPos, extension } = props;
   const attrs = node.attrs as Record<string, unknown>;
   const language = String((attrs?.language as string | undefined) || '').toLowerCase();
+  const [editable, setEditable] = useState(() => editor.isEditable);
+
+  useEffect(() => {
+    const refreshEditable = () => setEditable(editor.isEditable);
+    // setEditable emits update, not transaction; a NodeView is not otherwise
+    // rerendered when only this editor option changes.
+    editor.on('update', refreshEditable);
+    refreshEditable();
+    return () => { editor.off('update', refreshEditable); };
+  }, [editor]);
 
   const mermaidBlockId = useMemo(() => {
     return String((attrs?.mermaidBlockId as string | undefined) || '').trim();
   }, [attrs]);
 
   useEffect(() => {
-    if (language !== 'mermaid') return;
+    if (language !== 'mermaid' || !editor.isEditable || editor.isDestroyed) return;
     const cur = String((attrs?.mermaidBlockId as string | undefined) || '').trim();
     if (cur) return;
 
     const pos = typeof getPos === 'function' ? (getPos() as number) : null;
-    if (pos === null) return;
+    if (typeof pos !== 'number') return;
+    const liveNode = editor.state.doc.nodeAt(pos);
+    if (!liveNode || liveNode.type !== node.type || liveNode.attrs.mermaidBlockId) return;
 
     const nextId = newMermaidBlockId();
     try {
       editor.commands.command(({ tr }) => {
-        const nextAttrs = { ...attrs, mermaidBlockId: nextId };
+        const currentNode = tr.doc.nodeAt(pos);
+        if (!currentNode || currentNode.type !== node.type || currentNode.attrs.mermaidBlockId) return false;
+        const nextAttrs = { ...currentNode.attrs, mermaidBlockId: nextId };
         tr.setNodeMarkup(pos, undefined, nextAttrs);
         return true;
       });
     } catch {
       // best-effort
     }
-  }, [language, attrs, editor, getPos]);
-
-  const requestQuestionnaire = useQuestionnaireUIStore((s) => s.request);
-  const addToast = useUIStore((s) => s.addToast);
+  }, [language, attrs, node.type, editor, editable, getPos]);
 
   const requestEdit = (extension.options as { onRequestEditMermaid?: MermaidRequestEditHandler })?.onRequestEditMermaid as
     | MermaidRequestEditHandler
     | undefined;
 
-  const apply = (nextCode: string) => {
-    const pos = typeof getPos === 'function' ? (getPos() as number) : null;
-    if (pos === null) return;
-
-    const from = pos + 1;
-    const to = pos + node.nodeSize - 1;
-
-    editor.commands.command(({ tr, state }) => {
-      tr.replaceWith(from, to, state.schema.text(nextCode));
-      return true;
-    });
+  const canRequest = () => !!mermaidBlockId && !editor.isDestroyed && editor.isEditable && !editor.view.composing &&
+    !isModalOpen() && ReadFocusContext().composition !== 'active';
+  const open = (insertText?: string) => {
+    if (!canRequest()) return;
+    requestEdit?.({ mermaidBlockId, expectedEditor: editor, code: node.textContent, ...(insertText === undefined ? {} : { insertText }) });
   };
-
   const remove = () => {
-    const pos = typeof getPos === 'function' ? (getPos() as number) : null;
-    if (pos === null) return;
-
-    editor.commands.command(({ tr }) => {
-      tr.delete(pos, pos + node.nodeSize);
-      return true;
-    });
-  };
-
-  const confirmRemove = async () => {
-    const resp = await requestQuestionnaire({
-      id: `ui-rich-mermaid-remove-${Date.now()}`,
-      title: t('editor.mermaid.removeConfirmTitle'),
-      description: t('editor.mermaid.removeConfirmMessage'),
-      submitLabel: t('editor.mermaid.removeBtn'),
-      cancelLabel: t('common.cancel'),
-      allowCancel: true,
-      questions: [
-        {
-          id: 'note',
-          type: 'readonly_code',
-          prompt: t('editor.mermaid.removeHint'),
-          content: t('editor.mermaid.removeHint'),
-        },
-      ],
-    });
-
-    if (resp.cancelled) return;
-    remove();
-    addToast(t('editor.mermaid.blockRemoved'), 'success');
+    if (!canRequest()) return;
+    requestEditorMermaidCommand('editor.mermaid.remove', { mermaidBlockId, expectedEditor: editor });
   };
 
   if (language === 'mermaid') {
     const code = node.textContent || '';
     const previewMarkdown = '\n\n```mermaid\n' + code + '\n```\n';
-
-    const ensuredId = mermaidBlockId
-      || String((attrs?.mermaidBlockId as string | undefined) || '').trim()
-      || 'mermaid-unknown';
 
     return (
       <NodeViewWrapper className="rich-mermaid-block" role="group" aria-label={t('editor.mermaid.blockLabel', 'Bloco Mermaid')}>
@@ -121,7 +93,8 @@ export function MermaidCodeBlockNodeView(props: NodeViewProps) {
             <button
               type="button"
               className="rich-mermaid-block__button"
-              onClick={() => requestEdit?.({ mermaidBlockId: ensuredId, code, apply, remove })}
+              onClick={() => open()}
+              disabled={!editor.isEditable || !mermaidBlockId}
               aria-label={t('editor.mermaid.editDiagram')}
             >
               {t('editor.mermaid.editBtn')}
@@ -129,7 +102,8 @@ export function MermaidCodeBlockNodeView(props: NodeViewProps) {
             <button
               type="button"
               className="rich-mermaid-block__button rich-mermaid-block__button--danger"
-              onClick={() => void confirmRemove()}
+              onClick={remove}
+              disabled={!editor.isEditable || !mermaidBlockId}
               aria-label={t('editor.mermaid.removeBtnLabel')}
             >
               {t('editor.mermaid.removeBtn')}
@@ -139,29 +113,22 @@ export function MermaidCodeBlockNodeView(props: NodeViewProps) {
 
         <div
           className="rich-mermaid-block__preview"
-          onDoubleClick={() => requestEdit?.({ mermaidBlockId: ensuredId, code, apply, remove })}
+          onDoubleClick={() => open()}
           onKeyDown={(e) => {
+            if (e.defaultPrevented || e.repeat || e.nativeEvent.isComposing || e.keyCode === 229 || e.getModifierState('AltGraph') || !canRequest()) return;
             // Enter/F2: editar
             if (e.key === 'Enter' || e.key === 'F2') {
               e.preventDefault();
               e.stopPropagation();
-              requestEdit?.({ mermaidBlockId: ensuredId, code, apply, remove });
+              open();
               return;
             }
 
             // Backspace/Delete: confirmar remoção
             if (e.key === 'Backspace' || e.key === 'Delete') {
-              // Shift+Delete: remove sem confirmação (power-user, opcional no plano)
-              if (e.key === 'Delete' && e.shiftKey) {
-                e.preventDefault();
-                e.stopPropagation();
-                remove();
-                addToast(t('editor.mermaid.blockRemoved'), 'success');
-                return;
-              }
               e.preventDefault();
               e.stopPropagation();
-              void confirmRemove();
+              remove();
               return;
             }
 
@@ -175,7 +142,7 @@ export function MermaidCodeBlockNodeView(props: NodeViewProps) {
             ) {
               e.preventDefault();
               e.stopPropagation();
-              requestEdit?.({ mermaidBlockId: ensuredId, code, apply, remove, insertText: e.key });
+              open(e.key);
             }
           }}
           tabIndex={0}

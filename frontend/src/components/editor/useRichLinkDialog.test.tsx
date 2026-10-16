@@ -4,40 +4,17 @@ import { render, waitFor } from '@testing-library/react';
 import type { Editor } from '@tiptap/core';
 import { useRichLinkDialog } from './useRichLinkDialog';
 
-const requestSpy = vi.fn();
-const addToastSpy = vi.fn();
+const mocks = vi.hoisted(() => ({ requestSpy: vi.fn() }));
+const { requestSpy } = mocks;
 
-vi.mock('../../store/questionnaireUIStore', () => ({
-  useQuestionnaireUIStore: (selector: (state: { request: typeof requestSpy }) => unknown) =>
-    selector({ request: requestSpy }),
-}));
-
-vi.mock('../../store/uiStore', () => ({
-  useUIStore: () => ({ addToast: addToastSpy }),
+vi.mock('../../lib/commandEditorFormatting', () => ({
+  requestEditorFormatCommand: mocks.requestSpy,
 }));
 
 describe('useRichLinkDialog', () => {
-  it('insere link quando selecao vazia', async () => {
-    requestSpy.mockResolvedValueOnce({
-      cancelled: false,
-      answers: { href: 'https://example.com', text: 'Link' },
-    });
-
-    const runSpy = vi.fn();
-    const insertContentSpy = vi.fn().mockImplementation(() => ({ run: runSpy }));
-    const editor = {
-      getAttributes: () => ({}),
-      state: {
-        selection: { empty: true, from: 1, to: 1 },
-        doc: { textBetween: () => '' },
-      },
-      chain: () => ({
-        focus: () => ({
-          insertContent: insertContentSpy,
-          run: runSpy,
-        }),
-      }),
-    } as unknown as Editor;
+  it('despacha link.set para o pipeline central', async () => {
+    requestSpy.mockReset();
+    const editor = {} as Editor;
 
     function Test() {
       const open = useRichLinkDialog({ editor, readOnly: false });
@@ -50,8 +27,19 @@ describe('useRichLinkDialog', () => {
     render(<Test />);
 
     await waitFor(() => {
-      expect(requestSpy).toHaveBeenCalled();
-      expect(insertContentSpy).toHaveBeenCalled();
+      expect(requestSpy).toHaveBeenCalledWith('editor.format.link.set', undefined, editor);
     });
+  });
+
+  it('não despacha em modo somente leitura', async () => {
+    requestSpy.mockReset();
+    const editor = {} as Editor;
+    function Test() {
+      const open = useRichLinkDialog({ editor, readOnly: true });
+      React.useEffect(() => { void open(); }, [open]);
+      return null;
+    }
+    render(<Test />);
+    await waitFor(() => expect(requestSpy).not.toHaveBeenCalled());
   });
 });

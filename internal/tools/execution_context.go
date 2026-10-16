@@ -97,3 +97,10 @@ func MaxResultSizeFromContext(ctx context.Context) int {
 	}
 	return DefaultMaxResultSize
 }
+
+// ExplicitMaxResultSizeFromContext distingue o budget injetado pelo executor
+// do fallback global usado por callers diretos.
+func ExplicitMaxResultSizeFromContext(ctx context.Context) (int, bool) {
+	v, ok := ctx.Value(maxResultSizeKey{}).(int)
+	return v, ok && v > 0
+}

@@ -50,7 +50,7 @@ func TestIntegration_FirstMessageWithCreativeProfile(t *testing.T) {
 
 	// 3. Criar conversa
 	conv := &database.Conversation{
-		Title:     "Criative Chat",
+		Title: "Criative Chat",
 	}
 
 	if err := db.Create(conv).Error; err != nil {
@@ -133,7 +133,7 @@ func TestIntegration_FirstMessageWithDeterministicProfile(t *testing.T) {
 
 	// 2. Criar conversa
 	conv := &database.Conversation{
-		Title:     "Deterministic Chat",
+		Title: "Deterministic Chat",
 	}
 
 	if err := db.Create(conv).Error; err != nil {
@@ -202,7 +202,7 @@ func TestIntegration_FirstMessageWithToolsDisabled(t *testing.T) {
 
 	// 2. Criar conversa
 	conv := &database.Conversation{
-		Title:     "No Tools Chat",
+		Title: "No Tools Chat",
 	}
 
 	if err := db.Create(conv).Error; err != nil {
@@ -226,7 +226,6 @@ func TestIntegration_FirstMessageWithToolsDisabled(t *testing.T) {
 		ConversationID: conv.ID,
 		Role:           "assistant",
 		Content:        "Desculpe, não tenho acesso a ferramentas neste perfil. Você teria que me informar a temperatura.",
-		ToolCalls:      "", // VAZIO - sem tool calls
 		Source:         "wails",
 	}
 
@@ -234,14 +233,14 @@ func TestIntegration_FirstMessageWithToolsDisabled(t *testing.T) {
 		t.Fatalf("falha ao criar resposta: %v", err)
 	}
 
-	// 5. Validar que ToolCalls está vazio
+	// 5. Validar resposta conversacional
 	var retrieved database.ChatMessage
 	if err := db.First(&retrieved, "id = ?", assistantMsg.ID).Error; err != nil {
 		t.Fatalf("falha ao recuperar resposta: %v", err)
 	}
 
-	if retrieved.ToolCalls != "" {
-		t.Errorf("ToolCalls deveria estar vazio, obteve: %s", retrieved.ToolCalls)
+	if retrieved.Content != assistantMsg.Content {
+		t.Errorf("conteúdo da resposta mudou: %q", retrieved.Content)
 	}
 
 	t.Log("✓ Perfil sem ferramentas (DisableTools=true) respeitado na primeira mensagem")
@@ -279,7 +278,7 @@ func TestIntegration_FirstMessageWithMCPDisabled(t *testing.T) {
 
 	// 2. Criar conversa
 	conv := &database.Conversation{
-		Title:     "No MCP Chat",
+		Title: "No MCP Chat",
 	}
 
 	if err := db.Create(conv).Error; err != nil {
@@ -355,7 +354,7 @@ func TestIntegration_FirstMessageDifferentModels(t *testing.T) {
 
 		// 2. Simular primeira mensagem com este modelo
 		conv := &database.Conversation{
-			Title:     "Chat with " + m.name,
+			Title: "Chat with " + m.name,
 		}
 
 		if err := db.Create(conv).Error; err != nil {
@@ -428,7 +427,7 @@ func TestIntegration_FirstMessageWithContextWindowLimit(t *testing.T) {
 
 	// 2. Criar conversa
 	conv := &database.Conversation{
-		Title:     "Limited Context Chat",
+		Title: "Limited Context Chat",
 	}
 
 	if err := db.Create(conv).Error; err != nil {
@@ -503,7 +502,7 @@ func TestIntegration_FirstMessageProfileResponseTimeout(t *testing.T) {
 
 	// 2. Criar conversa
 	conv := &database.Conversation{
-		Title:     "Quick Timeout Chat",
+		Title: "Quick Timeout Chat",
 	}
 
 	if err := db.Create(conv).Error; err != nil {
@@ -577,7 +576,7 @@ func TestIntegration_FirstMessageProfileParametersPropagation(t *testing.T) {
 
 	// 3. Criar conversa
 	conv := &database.Conversation{
-		Title:     "Params Propagation Chat",
+		Title: "Params Propagation Chat",
 	}
 
 	if err := db.Create(conv).Error; err != nil {
@@ -682,7 +681,7 @@ func TestIntegration_FirstMessageProfileToolEnabling(t *testing.T) {
 
 		// Criar conversa para este profile
 		conv := &database.Conversation{
-			Title:     "Chat with " + profileName,
+			Title: "Chat with " + profileName,
 		}
 
 		if err := db.Create(conv).Error; err != nil {
@@ -754,7 +753,7 @@ func TestIntegration_FirstMessageProfileTopP(t *testing.T) {
 
 		// Criar conversa
 		conv := &database.Conversation{
-			Title:     "Chat " + p.name,
+			Title: "Chat " + p.name,
 		}
 
 		if err := db.Create(conv).Error; err != nil {
@@ -858,7 +857,7 @@ func TestIntegration_FirstMessageProfileWithVoiceSettings(t *testing.T) {
 
 		// Criar conversa
 		conv := &database.Conversation{
-			Title:     "Chat " + profileName,
+			Title: "Chat " + profileName,
 		}
 
 		if err := db.Create(conv).Error; err != nil {
@@ -929,7 +928,7 @@ func TestIntegration_FirstMessageProfileChannelResponseMode(t *testing.T) {
 
 		// Criar conversa para cada mode
 		conv := &database.Conversation{
-			Title:     "Chat " + mode,
+			Title: "Chat " + mode,
 		}
 
 		if err := db.Create(conv).Error; err != nil {

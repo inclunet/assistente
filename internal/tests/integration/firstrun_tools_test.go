@@ -1,659 +1,285 @@
 package integration
 
 import (
-	"encoding/json"
+	"context"
+	"strings"
 	"testing"
+	"time"
 
 	"assistente/internal/database"
-	"assistente/internal/llm"
 )
 
-// ToolDefinition simula a estrutura de uma ferramenta
-type ToolDefinition struct {
-	Type     string                 `json:"type"`
-	Function map[string]interface{} `json:"function"`
-}
-
-// ToolCall simula uma chamada de ferramenta do assistente
-type ToolCall struct {
-	ID       string     `json:"id"`
-	Type     string     `json:"type"`
-	Function ToolCallFn `json:"function"`
-}
-
-// ToolCallFn detalha a função chamada
-type ToolCallFn struct {
-	Name      string `json:"name"`
-	Arguments string `json:"arguments"`
-}
-
-// TestIntegration_FirstMessageTriggersTool testa quando primeira mensagem resulta em tool call
-func TestIntegration_FirstMessageTriggersTool(t *testing.T) {
+func TestIntegration_FirstMessagePersistsToolOnlyInLedger(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Utilizando -short, pulando teste de integração")
 	}
-
-	db := setupIntegrationDB(t)
-	registry := llm.NewProviderRegistry()
-
-	// 1. Setup: provider com ferramentas disponíveis
-	provider := &llm.ProviderConfig{
-		ID:      "openai",
-		Name:    "OpenAI",
-		Type:    llm.ProviderOpenAI,
-		BaseURL: "https://api.openai.com/v1",
-		Model:   "gpt-4o",
-	}
-
-	if err := registry.Register(provider); err != nil {
-		t.Fatalf("falha ao registrar provider: %v", err)
-	}
-
-	// 2. Criar conversa
-	conv := &database.Conversation{
-		Title:     "Primeira com Ferramenta",
-	}
-
-	if err := db.Create(conv).Error; err != nil {
-		t.Fatalf("falha ao criar conversa: %v", err)
-	}
-
-	// 3. Primeira mensagem que INDUZ tool call
-	// Exemplo: "Qual é o conteúdo de main.go?" → assistente chamará read_file
-	userMsg := &database.ChatMessage{
-		ConversationID: conv.ID,
-		Role:           "user",
-		Content:        "Qual é o conteúdo do arquivo config.json?",
-		Source:         "wails",
-	}
-
-	if err := db.Create(userMsg).Error; err != nil {
-		t.Fatalf("falha ao criar primeira mensagem: %v", err)
-	}
-
-	// 4. Assistente RESPONDE com tool call
-	// Armazena ToolCalls como JSON
-	toolCalls := []ToolCall{
-		{
-			ID:   "call_tool_123",
-			Type: "function",
-			Function: ToolCallFn{
-				Name:      "read_file",
-				Arguments: `{"path":"config.json"}`,
-			},
-		},
-	}
-
-	toolCallsJSON, err := json.Marshal(toolCalls)
-	if err != nil {
-		t.Fatalf("falha ao serializar tool calls: %v", err)
-	}
-
-	assistantMsg := &database.ChatMessage{
-		ConversationID: conv.ID,
-		Role:           "assistant",
-		Content:        "Vou ler o arquivo config.json para você.",
-		ToolCalls:      string(toolCallsJSON),
-		Model:          "gpt-4o",
-		TurnID:         &userMsg.ID,
-	}
-
-	if err := db.Create(assistantMsg).Error; err != nil {
-		t.Fatalf("falha ao criar resposta com tool call: %v", err)
-	}
-
-	// 5. Validar que tool call foi persistido
-	var retrieved database.ChatMessage
-	if err := db.First(&retrieved, "id = ?", assistantMsg.ID).Error; err != nil {
-		t.Fatalf("falha ao recuperar resposta: %v", err)
-	}
-
-	if retrieved.ToolCalls == "" {
-		t.Error("ToolCalls deveria estar preenchido")
-	}
-
-	// 6. Desserializar e validar estrutura
-	var savedToolCalls []ToolCall
-	if err := json.Unmarshal([]byte(retrieved.ToolCalls), &savedToolCalls); err != nil {
-		t.Fatalf("falha ao desserializar tool calls: %v", err)
-	}
-
-	if len(savedToolCalls) != 1 {
-		t.Errorf("esperado 1 tool call, obteve %d", len(savedToolCalls))
-	}
-
-	if savedToolCalls[0].ID != "call_tool_123" {
-		t.Errorf("ID do tool call incorreto: %s", savedToolCalls[0].ID)
-	}
-
-	if savedToolCalls[0].Function.Name != "read_file" {
-		t.Errorf("nome da ferramenta incorreto: %s", savedToolCalls[0].Function.Name)
-	}
-
-	t.Log("✓ Primeira mensagem induz tool call, ToolCalls persistido corretamente")
-}
-
-// TestIntegration_FirstMessageToolExecution testa execução da ferramenta
-func TestIntegration_FirstMessageToolExecution(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Utilizando -short, pulando teste de integração")
-	}
-
 	db := setupIntegrationDB(t)
 
-	// 1. Setup: conversa, primeira mensagem, tool call
-	conv := &database.Conversation{
-		Title:     "Tool Execution",
+	conversation := &database.Conversation{Title: "Primeira com ferramenta"}
+	if err := db.Create(conversation).Error; err != nil {
+		t.Fatal(err)
 	}
-
-	if err := db.Create(conv).Error; err != nil {
-		t.Fatalf("falha ao criar conversa: %v", err)
+	user := &database.ChatMessage{ConversationID: conversation.ID, Role: "user", Content: "Leia config.json"}
+	if err := db.Create(user).Error; err != nil {
+		t.Fatal(err)
 	}
-
-	userMsg := &database.ChatMessage{
-		ConversationID: conv.ID,
-		Role:           "user",
-		Content:        "Leia o arquivo main.go para mim",
-	}
-
-	if err := db.Create(userMsg).Error; err != nil {
-		t.Fatalf("falha ao criar mensagem: %v", err)
-	}
-
-	// 2. Assistente com tool call
-	toolCalls := []ToolCall{
-		{
-			ID:   "call_read_file_001",
-			Type: "function",
-			Function: ToolCallFn{
-				Name:      "read_file",
-				Arguments: `{"path":"main.go"}`,
-			},
-		},
-	}
-
-	toolCallsJSON, _ := json.Marshal(toolCalls)
-
-	assistantMsg := &database.ChatMessage{
-		ConversationID: conv.ID,
+	assistant := &database.ChatMessage{
+		ConversationID: conversation.ID,
+		TurnID:         &user.ID,
 		Role:           "assistant",
-		Content:        "Vou ler main.go",
-		ToolCalls:      string(toolCallsJSON),
-		Model:          "gpt-4o",
-		TurnID:         &userMsg.ID,
+		Content:        "Vou ler o arquivo.",
+	}
+	if err := db.Create(assistant).Error; err != nil {
+		t.Fatal(err)
+	}
+	catalog := &database.ToolCatalog{Name: "read_file", DisplayName: "Ler arquivo", Origin: "builtin"}
+	if err := db.Create(catalog).Error; err != nil {
+		t.Fatal(err)
+	}
+	invocation := &database.ToolInvocation{
+		UserID:         "integration-user",
+		ToolCatalogID:  catalog.ID,
+		OriginType:     "chat",
+		OriginID:       user.ID,
+		ConversationID: &conversation.ID,
+		TurnID:         &user.ID,
+		ToolCallID:     "call-read-1",
+		Status:         "succeeded",
+		Input:          `{"path":"config.json"}`,
+		Output:         `{"content":"resultado"}`,
+		Metadata:       `{"display":{"version":1,"name":"read_file"}}`,
+		QueuedAt:       time.Now().UTC(),
+	}
+	if err := db.Create(invocation).Error; err != nil {
+		t.Fatal(err)
 	}
 
-	if err := db.Create(assistantMsg).Error; err != nil {
-		t.Fatalf("falha ao criar assistant message: %v", err)
+	var messages []database.ChatMessage
+	if err := db.Where("conversation_id = ?", conversation.ID).Order("created_at").Find(&messages).Error; err != nil {
+		t.Fatal(err)
 	}
-
-	// 3. Executar ferramenta (simulado)
-	// Em um cenário real, o executor lê o arquivo
-	fileContent := `package main
-
-import "fmt"
-
-func main() {
-    fmt.Println("Hello, World!")
-}`
-
-	// 4. Armazenar resultado como role="tool"
-	toolResultMsg := &database.ChatMessage{
-		ConversationID: conv.ID,
-		Role:           "tool",
-		Content:        fileContent,          // Resultado da execução
-		ToolCallID:     "call_read_file_001", // Referencia qual chamada executou
-		Source:         "wails",
+	if len(messages) != 2 {
+		t.Fatalf("chat_messages = %d, esperado somente user+assistant", len(messages))
 	}
-
-	if err := db.Create(toolResultMsg).Error; err != nil {
-		t.Fatalf("falha ao criar tool result: %v", err)
-	}
-
-	// 5. Validar resultado
-	var retrieved database.ChatMessage
-	if err := db.First(&retrieved, "id = ?", toolResultMsg.ID).Error; err != nil {
-		t.Fatalf("falha ao recuperar tool result: %v", err)
-	}
-
-	if retrieved.Role != "tool" {
-		t.Errorf("role deveria ser 'tool', foi %s", retrieved.Role)
-	}
-
-	if retrieved.ToolCallID != "call_read_file_001" {
-		t.Errorf("ToolCallID incorreto: %s", retrieved.ToolCallID)
-	}
-
-	if retrieved.Content != fileContent {
-		t.Error("conteúdo do resultado foi alterado")
-	}
-
-	t.Log("✓ Execução de ferramenta persistida como role=tool")
-}
-
-// TestIntegration_FirstMessageToolResultIncorporated testa assistente incorporando resultado da ferramenta
-func TestIntegration_FirstMessageToolResultIncorporated(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Utilizando -short, pulando teste de integração")
-	}
-
-	db := setupIntegrationDB(t)
-
-	// 1. Setup: conversa
-	conv := &database.Conversation{
-		Title:     "Tool Result Incorporated",
-	}
-
-	if err := db.Create(conv).Error; err != nil {
-		t.Fatalf("falha ao criar conversa: %v", err)
-	}
-
-	// 2. Fluxo completo: user -> tool call -> tool result -> final answer
-
-	// 2a. Primeira mensagem do usuário
-	userMsg := &database.ChatMessage{
-		ConversationID: conv.ID,
-		Role:           "user",
-		Content:        "Quanto é 2 + 2?",
-	}
-	if err := db.Create(userMsg).Error; err != nil {
-		t.Fatalf("erro ao criar user msg: %v", err)
-	}
-
-	// 2b. Assistente chama calculator tool
-	toolCalls := []ToolCall{
-		{
-			ID:   "call_calc_001",
-			Type: "function",
-			Function: ToolCallFn{
-				Name:      "calculator",
-				Arguments: `{"expression":"2+2"}`,
-			},
-		},
-	}
-	toolCallsJSON, _ := json.Marshal(toolCalls)
-
-	assistantMsgWithTool := &database.ChatMessage{
-		ConversationID: conv.ID,
-		Role:           "assistant",
-		Content:        "Vou calcular isso para você.",
-		ToolCalls:      string(toolCallsJSON),
-		TurnID:         &userMsg.ID,
-	}
-	if err := db.Create(assistantMsgWithTool).Error; err != nil {
-		t.Fatalf("erro ao criar assistant with tool: %v", err)
-	}
-
-	// 2c. Resultado da ferramenta
-	toolResult := &database.ChatMessage{
-		ConversationID: conv.ID,
-		Role:           "tool",
-		Content:        "4",
-		ToolCallID:     "call_calc_001",
-	}
-	if err := db.Create(toolResult).Error; err != nil {
-		t.Fatalf("erro ao criar tool result: %v", err)
-	}
-
-	// 2d. Assistente responde DEPOIS de ter o resultado
-	// (Iteração 2 do agentic loop - with tool result in context)
-	finalResponse := &database.ChatMessage{
-		ConversationID: conv.ID,
-		Role:           "assistant",
-		Content:        "A resposta é 4. 2 + 2 = 4.",
-		TurnID:         &userMsg.ID,
-	}
-	if err := db.Create(finalResponse).Error; err != nil {
-		t.Fatalf("erro ao criar final response: %v", err)
-	}
-
-	// 3. Validar histórico COMPLETO
-	var allMessages []database.ChatMessage
-	if err := db.Where("conversation_id = ?", conv.ID).Order("created_at").Find(&allMessages).Error; err != nil {
-		t.Fatalf("erro ao recuperar histórico: %v", err)
-	}
-
-	if len(allMessages) != 4 {
-		t.Errorf("esperado 4 mensagens (user, asst+tool, tool result, final), obteve %d", len(allMessages))
-	}
-
-	// 4. Validar sequência
-	if allMessages[0].Role != "user" || allMessages[0].Content != "Quanto é 2 + 2?" {
-		t.Error("primeira mensagem (user) incorreta")
-	}
-
-	if allMessages[1].Role != "assistant" || allMessages[1].ToolCalls == "" {
-		t.Error("segunda mensagem (assistant com tool call) incorreta")
-	}
-
-	if allMessages[2].Role != "tool" || allMessages[2].Content != "4" {
-		t.Error("terceira mensagem (tool result) incorreta")
-	}
-
-	if allMessages[3].Role != "assistant" || allMessages[3].ToolCalls != "" {
-		t.Error("quarta mensagem (final assistant) incorreta")
-	}
-
-	// 5. Validar que final response incorporou contexto
-	if !contains(allMessages[3].Content, "4") {
-		t.Error("assistente deveria mencionar o resultado da ferramenta")
-	}
-
-	t.Log("✓ Fluxo completo: user → tool call → result → final answer")
-}
-
-// TestIntegration_FirstMessageMultipleTools testa múltiplas ferramentas simultâneas
-func TestIntegration_FirstMessageMultipleTools(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Utilizando -short, pulando teste de integração")
-	}
-
-	db := setupIntegrationDB(t)
-
-	// 1. Setup: conversa
-	conv := &database.Conversation{
-		Title:     "Multiple Tools",
-	}
-
-	if err := db.Create(conv).Error; err != nil {
-		t.Fatalf("falha ao criar conversa: %v", err)
-	}
-
-	// 2. Primeira mensagem que induz MÚLTIPLAS tool calls
-	userMsg := &database.ChatMessage{
-		ConversationID: conv.ID,
-		Role:           "user",
-		Content:        "Leia config.json e main.go simultaneamente",
-	}
-
-	if err := db.Create(userMsg).Error; err != nil {
-		t.Fatalf("falha ao criar mensagem: %v", err)
-	}
-
-	// 3. Assistente chama MÚLTIPLAS ferramentas (executor executa em paralelo)
-	toolCalls := []ToolCall{
-		{
-			ID:   "call_read_1",
-			Type: "function",
-			Function: ToolCallFn{
-				Name:      "read_file",
-				Arguments: `{"path":"config.json"}`,
-			},
-		},
-		{
-			ID:   "call_read_2",
-			Type: "function",
-			Function: ToolCallFn{
-				Name:      "read_file",
-				Arguments: `{"path":"main.go"}`,
-			},
-		},
-	}
-
-	toolCallsJSON, _ := json.Marshal(toolCalls)
-
-	assistantMsg := &database.ChatMessage{
-		ConversationID: conv.ID,
-		Role:           "assistant",
-		Content:        "Vou ler ambos arquivos",
-		ToolCalls:      string(toolCallsJSON),
-		TurnID:         &userMsg.ID,
-	}
-
-	if err := db.Create(assistantMsg).Error; err != nil {
-		t.Fatalf("falha ao criar assistant msg: %v", err)
-	}
-
-	// 4. Ambos resultados armazenados
-	results := []struct {
-		toolCallID string
-		content    string
-	}{
-		{"call_read_1", `{"db":"sqlite","version":"3"}`},
-		{"call_read_2", `package main\nfunc main() {}`},
-	}
-
-	for _, result := range results {
-		toolMsg := &database.ChatMessage{
-			ConversationID: conv.ID,
-			Role:           "tool",
-			Content:        result.content,
-			ToolCallID:     result.toolCallID,
+	for _, message := range messages {
+		if strings.EqualFold(strings.TrimSpace(message.Role), "tool") {
+			t.Fatalf("chat_messages contém role=tool: %+v", message)
 		}
+	}
+	var stored database.ToolInvocation
+	if err := db.First(&stored, "id = ?", invocation.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if stored.ToolCallID != "call-read-1" || !strings.Contains(stored.Input, "config.json") ||
+		!strings.Contains(stored.Output, "resultado") {
+		t.Fatalf("invocação canônica incompleta: %+v", stored)
+	}
+}
 
-		if err := db.Create(toolMsg).Error; err != nil {
-			t.Fatalf("falha ao criar tool result: %v", err)
+func TestIntegration_ChatMessagesRejectsToolRoleAtRepositoryBoundary(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Utilizando -short, pulando teste de integração")
+	}
+	db := setupIntegrationDB(t)
+	conversation := &database.Conversation{UserID: "integration-user", Title: "Restrição de mensagens"}
+	if err := db.Create(conversation).Error; err != nil {
+		t.Fatal(err)
+	}
+	ctx := database.WithUserID(context.Background(), "integration-user")
+	_, err := database.CreateMessageWithContext(ctx, database.MessageOptions{
+		ConversationID: conversation.ID,
+		Role:           " Tool ",
+		Content:        "resultado técnico",
+	})
+	if err == nil {
+		t.Fatal("schema aceitou role=tool em chat_messages")
+	}
+}
+
+func TestIntegration_FirstMessagePersistsMultipleToolsInLedger(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Utilizando -short, pulando teste de integração")
+	}
+	db := setupIntegrationDB(t)
+	conversation := &database.Conversation{Title: "Múltiplas ferramentas"}
+	if err := db.Create(conversation).Error; err != nil {
+		t.Fatal(err)
+	}
+	user := &database.ChatMessage{ConversationID: conversation.ID, Role: "user", Content: "Leia dois arquivos"}
+	if err := db.Create(user).Error; err != nil {
+		t.Fatal(err)
+	}
+	catalog := &database.ToolCatalog{Name: "read_file", DisplayName: "Ler arquivo", Origin: "builtin"}
+	if err := db.Create(catalog).Error; err != nil {
+		t.Fatal(err)
+	}
+	for index, path := range []string{"config.json", "main.go"} {
+		invocation := &database.ToolInvocation{
+			UserID:         "integration-user",
+			ToolCatalogID:  catalog.ID,
+			OriginType:     "chat",
+			OriginID:       user.ID,
+			ConversationID: &conversation.ID,
+			TurnID:         &user.ID,
+			ToolCallID:     "call-read-" + string(rune('1'+index)),
+			Status:         "succeeded",
+			Input:          `{"path":"` + path + `"}`,
+			Output:         `{"content":"ok"}`,
+			QueuedAt:       time.Now().UTC().Add(time.Duration(index) * time.Millisecond),
+		}
+		if err := db.Create(invocation).Error; err != nil {
+			t.Fatal(err)
 		}
 	}
 
-	// 5. Validar que ambas foram persistidas
-	var toolMsgs []database.ChatMessage
-	if err := db.Where("conversation_id = ? AND role = ?", conv.ID, "tool").Find(&toolMsgs).Error; err != nil {
-		t.Fatalf("falha ao recuperar tool msgs: %v", err)
+	var invocations []database.ToolInvocation
+	if err := db.Where("conversation_id = ?", conversation.ID).Order("queued_at").Find(&invocations).Error; err != nil {
+		t.Fatal(err)
 	}
-
-	if len(toolMsgs) != 2 {
-		t.Errorf("esperado 2 tool results, obteve %d", len(toolMsgs))
+	if len(invocations) != 2 ||
+		!strings.Contains(invocations[0].Input, "config.json") ||
+		!strings.Contains(invocations[1].Input, "main.go") {
+		t.Fatalf("invocações múltiplas incompletas: %+v", invocations)
 	}
-
-	// 6. Validar que ambas têm seus ToolCallIDs corretos
-	toolCallIDs := make(map[string]bool)
-	for _, msg := range toolMsgs {
-		toolCallIDs[msg.ToolCallID] = true
-	}
-
-	if !toolCallIDs["call_read_1"] || !toolCallIDs["call_read_2"] {
-		t.Error("nem todas as tool call IDs foram persistidas")
-	}
-
-	t.Log("✓ Múltiplas ferramentas executadas em paralelo, resultados persistidos")
 }
 
-// TestIntegration_FirstMessageToolError testa tratamento de erro em ferramenta
-func TestIntegration_FirstMessageToolError(t *testing.T) {
+func TestIntegration_FirstMessageToolFailurePersistsInLedger(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Utilizando -short, pulando teste de integração")
 	}
-
 	db := setupIntegrationDB(t)
-
-	// 1. Setup: conversa
-	conv := &database.Conversation{
-		Title:     "Tool Error",
+	conversation := &database.Conversation{Title: "Falha de ferramenta"}
+	if err := db.Create(conversation).Error; err != nil {
+		t.Fatal(err)
+	}
+	user := &database.ChatMessage{ConversationID: conversation.ID, Role: "user", Content: "Leia arquivo ausente"}
+	if err := db.Create(user).Error; err != nil {
+		t.Fatal(err)
+	}
+	catalog := &database.ToolCatalog{Name: "read_file", DisplayName: "Ler arquivo", Origin: "builtin"}
+	if err := db.Create(catalog).Error; err != nil {
+		t.Fatal(err)
+	}
+	invocation := &database.ToolInvocation{
+		UserID:         "integration-user",
+		ToolCatalogID:  catalog.ID,
+		OriginType:     "chat",
+		OriginID:       user.ID,
+		ConversationID: &conversation.ID,
+		TurnID:         &user.ID,
+		ToolCallID:     "call-read-error",
+		Status:         "failed",
+		Input:          `{"path":"/ausente"}`,
+		Output:         `{"content":"file not found","is_error":true}`,
+		ErrorKind:      "tool_error",
+		ErrorMessage:   "file not found",
+		QueuedAt:       time.Now().UTC(),
+	}
+	if err := db.Create(invocation).Error; err != nil {
+		t.Fatal(err)
 	}
 
-	if err := db.Create(conv).Error; err != nil {
-		t.Fatalf("falha ao criar conversa: %v", err)
+	var stored database.ToolInvocation
+	if err := db.First(&stored, "id = ?", invocation.ID).Error; err != nil {
+		t.Fatal(err)
 	}
-
-	// 2. Primeira mensagem
-	userMsg := &database.ChatMessage{
-		ConversationID: conv.ID,
-		Role:           "user",
-		Content:        "Leia um arquivo que não existe: /nonexistent/file.txt",
+	if stored.Status != "failed" || stored.ErrorMessage == "" || !strings.Contains(stored.Output, "is_error") {
+		t.Fatalf("falha canônica incompleta: %+v", stored)
 	}
-
-	if err := db.Create(userMsg).Error; err != nil {
-		t.Fatalf("falha ao criar mensagem: %v", err)
-	}
-
-	// 3. Assistente tenta ler arquivo
-	toolCalls := []ToolCall{
-		{
-			ID:   "call_read_bad",
-			Type: "function",
-			Function: ToolCallFn{
-				Name:      "read_file",
-				Arguments: `{"path":"/nonexistent/file.txt"}`,
-			},
-		},
-	}
-
-	toolCallsJSON, _ := json.Marshal(toolCalls)
-
-	assistantMsg := &database.ChatMessage{
-		ConversationID: conv.ID,
-		Role:           "assistant",
-		Content:        "Vou tentar ler este arquivo",
-		ToolCalls:      string(toolCallsJSON),
-		TurnID:         &userMsg.ID,
-	}
-
-	if err := db.Create(assistantMsg).Error; err != nil {
-		t.Fatalf("falha ao criar assistant msg: %v", err)
-	}
-
-	// 4. Ferramenta FALHA - erro persistido como conteúdo
-	errorMsg := &database.ChatMessage{
-		ConversationID: conv.ID,
-		Role:           "tool",
-		Content:        "Error: file not found at /nonexistent/file.txt",
-		ToolCallID:     "call_read_bad",
-	}
-
-	if err := db.Create(errorMsg).Error; err != nil {
-		t.Fatalf("falha ao criar error msg: %v", err)
-	}
-
-	// 5. Assistente recebe erro e responde apropriadamente
-	recoveryMsg := &database.ChatMessage{
-		ConversationID: conv.ID,
-		Role:           "assistant",
-		Content:        "Desculpe, o arquivo /nonexistent/file.txt não foi encontrado. O arquivo não existe no sistema.",
-		TurnID:         &userMsg.ID,
-	}
-
-	if err := db.Create(recoveryMsg).Error; err != nil {
-		t.Fatalf("falha ao criar recovery msg: %v", err)
-	}
-
-	// 6. Validar sequência: user → tool call → error → recovery
-	var allMsgs []database.ChatMessage
-	if err := db.Where("conversation_id = ?", conv.ID).Order("created_at").Find(&allMsgs).Error; err != nil {
-		t.Fatalf("erro ao recuperar histórico: %v", err)
-	}
-
-	if len(allMsgs) != 4 {
-		t.Errorf("esperado 4 mensagens, obteve %d", len(allMsgs))
-	}
-
-	// 7. Validar que erro foi incorporado na resposta
-	if !contains(allMsgs[3].Content, "não foi encontrado") {
-		t.Error("assistente deveria reconhecer o erro")
-	}
-
-	t.Log("✓ Erro em ferramenta tratado graciosamente, assistente recuperado")
 }
 
-// TestIntegration_FirstMessageToolTokenUsage testa rastreamento de tokens com ferramentas
-func TestIntegration_FirstMessageToolTokenUsage(t *testing.T) {
+func TestIntegration_FirstMessageToolResultAndFinalAnswerRemainSeparated(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Utilizando -short, pulando teste de integração")
 	}
-
 	db := setupIntegrationDB(t)
-
-	// 1. Setup
-	conv := &database.Conversation{
-		Title:     "Tool Token Usage",
+	conversation := &database.Conversation{Title: "Resultado incorporado"}
+	if err := db.Create(conversation).Error; err != nil {
+		t.Fatal(err)
+	}
+	user := &database.ChatMessage{ConversationID: conversation.ID, Role: "user", Content: "Quanto é 2 + 2?"}
+	if err := db.Create(user).Error; err != nil {
+		t.Fatal(err)
+	}
+	intermediate := &database.ChatMessage{ConversationID: conversation.ID, TurnID: &user.ID, Role: "assistant", Content: "Vou calcular."}
+	final := &database.ChatMessage{ConversationID: conversation.ID, TurnID: &user.ID, Role: "assistant", Content: "A resposta é 4."}
+	if err := db.Create(intermediate).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(final).Error; err != nil {
+		t.Fatal(err)
+	}
+	catalog := &database.ToolCatalog{Name: "calculator", DisplayName: "Calculadora", Origin: "builtin"}
+	if err := db.Create(catalog).Error; err != nil {
+		t.Fatal(err)
+	}
+	invocation := &database.ToolInvocation{
+		UserID:         "integration-user",
+		ToolCatalogID:  catalog.ID,
+		OriginType:     "chat",
+		OriginID:       user.ID,
+		ConversationID: &conversation.ID,
+		TurnID:         &user.ID,
+		ToolCallID:     "call-calc-1",
+		Status:         "succeeded",
+		Input:          `{"expression":"2+2"}`,
+		Output:         `{"content":"4"}`,
+		QueuedAt:       time.Now().UTC(),
+	}
+	if err := db.Create(invocation).Error; err != nil {
+		t.Fatal(err)
 	}
 
-	if err := db.Create(conv).Error; err != nil {
-		t.Fatalf("falha ao criar conversa: %v", err)
+	var messages []database.ChatMessage
+	if err := db.Where("conversation_id = ?", conversation.ID).Order("created_at").Find(&messages).Error; err != nil {
+		t.Fatal(err)
 	}
-
-	// 2. Primeira mensagem
-	userMsg := &database.ChatMessage{
-		ConversationID: conv.ID,
-		Role:           "user",
-		Content:        "Qual é a população do Brasil?",
+	if len(messages) != 3 || !strings.Contains(messages[2].Content, "4") {
+		t.Fatalf("histórico conversacional inesperado: %+v", messages)
 	}
-
-	if err := db.Create(userMsg).Error; err != nil {
-		t.Fatalf("falha ao criar mensagem: %v", err)
+	var technicalMessages int64
+	if err := db.Model(&database.ChatMessage{}).Where("conversation_id = ? AND role = ?", conversation.ID, "tool").Count(&technicalMessages).Error; err != nil {
+		t.Fatal(err)
 	}
-
-	// 3. Assistant response com tool call - tokens PARA Iteração 1
-	toolCalls := []ToolCall{
-		{ID: "call_1", Type: "function", Function: ToolCallFn{Name: "search", Arguments: `{"q":"população brasil"}`}},
+	if technicalMessages != 0 {
+		t.Fatalf("resultado técnico duplicado em chat_messages: %d", technicalMessages)
 	}
-	toolCallsJSON, _ := json.Marshal(toolCalls)
-
-	assistantMsg1 := &database.ChatMessage{
-		ConversationID:   conv.ID,
-		Role:             "assistant",
-		Content:          "Vou buscar esta informação",
-		ToolCalls:        string(toolCallsJSON),
-		PromptTokens:     120,
-		CompletionTokens: 25,
-		TotalTokens:      145,
-		TurnID:           &userMsg.ID,
-	}
-
-	if err := db.Create(assistantMsg1).Error; err != nil {
-		t.Fatalf("falha ao criar assistant msg 1: %v", err)
-	}
-
-	// 4. Tool result
-	toolResult := &database.ChatMessage{
-		ConversationID: conv.ID,
-		Role:           "tool",
-		Content:        "A população do Brasil é aproximadamente 215 milhões",
-		ToolCallID:     "call_1",
-	}
-
-	if err := db.Create(toolResult).Error; err != nil {
-		t.Fatalf("falha ao criar tool result: %v", err)
-	}
-
-	// 5. Final response - tokens PARA Iteração 2 (com resultado da ferramenta no contexto)
-	assistantMsg2 := &database.ChatMessage{
-		ConversationID:   conv.ID,
-		Role:             "assistant",
-		Content:          "A população do Brasil é aproximadamente 215 milhões de pessoas.",
-		PromptTokens:     280, // Maior: inclui resultado da ferramenta
-		CompletionTokens: 18,
-		TotalTokens:      298,
-		TurnID:           &userMsg.ID,
-	}
-
-	if err := db.Create(assistantMsg2).Error; err != nil {
-		t.Fatalf("falha ao criar assistant msg 2: %v", err)
-	}
-
-	// 6. Validar tokens foram rastreados
-	var msg1 database.ChatMessage
-	if err := db.First(&msg1, "id = ?", assistantMsg1.ID).Error; err != nil {
-		t.Fatalf("erro ao recuperar msg1: %v", err)
-	}
-
-	if msg1.TotalTokens != 145 {
-		t.Errorf("tokens da iteração 1 incorretos: %d", msg1.TotalTokens)
-	}
-
-	var msg2 database.ChatMessage
-	if err := db.First(&msg2, "id = ?", assistantMsg2.ID).Error; err != nil {
-		t.Fatalf("erro ao recuperar msg2: %v", err)
-	}
-
-	if msg2.TotalTokens != 298 {
-		t.Errorf("tokens da iteração 2 incorretos: %d", msg2.TotalTokens)
-	}
-
-	// 7. Verificar que iteração 2 consumiu mais tokens (contexto expandido)
-	if msg2.PromptTokens <= msg1.PromptTokens {
-		t.Error("iteração 2 deveria consumir mais tokens de prompt (contexto expandido com resultado)")
-	}
-
-	t.Logf("✓ Tokens rastreados: Iter1=%d tokens, Iter2=%d tokens (expansão de contexto validada)", msg1.TotalTokens, msg2.TotalTokens)
 }
 
-// Helper: verifica se string contém substring
-func contains(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
+func TestIntegration_FirstMessageToolTokenUsageStaysOnAssistantMessages(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Utilizando -short, pulando teste de integração")
 	}
-	return false
+	db := setupIntegrationDB(t)
+	conversation := &database.Conversation{Title: "Tokens com ferramenta"}
+	if err := db.Create(conversation).Error; err != nil {
+		t.Fatal(err)
+	}
+	user := &database.ChatMessage{ConversationID: conversation.ID, Role: "user", Content: "Busque um dado"}
+	if err := db.Create(user).Error; err != nil {
+		t.Fatal(err)
+	}
+	first := &database.ChatMessage{
+		ConversationID: conversation.ID, TurnID: &user.ID, Role: "assistant", Content: "Buscando.",
+		PromptTokens: 120, CompletionTokens: 25, TotalTokens: 145,
+	}
+	second := &database.ChatMessage{
+		ConversationID: conversation.ID, TurnID: &user.ID, Role: "assistant", Content: "Resultado final.",
+		PromptTokens: 280, CompletionTokens: 18, TotalTokens: 298,
+	}
+	if err := db.Create(first).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(second).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	var assistants []database.ChatMessage
+	if err := db.Where("conversation_id = ? AND role = ?", conversation.ID, "assistant").Order("created_at").Find(&assistants).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(assistants) != 2 || assistants[0].TotalTokens != 145 || assistants[1].TotalTokens != 298 ||
+		assistants[1].PromptTokens <= assistants[0].PromptTokens {
+		t.Fatalf("tokens por iteração não preservados: %+v", assistants)
+	}
 }

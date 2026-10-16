@@ -232,6 +232,37 @@ func isRetryableError(errStr string) bool {
 		strings.Contains(lower, "429")
 }
 
+// looksLikeTokenRateLimit identifica um 429 causado por estouro de cota de
+// TOKENS por JANELA do provedor (não de requisições/RPM, nem tokens-por-minuto).
+// Esse limite reseta por janela longa (minutos a horas), então retentar em
+// backoff de poucos segundos apenas queima as tentativas internas — no
+// assistente.log, um único turno gerou ~15 chamadas que falharam todas com
+// "Limit type: tokens. Remaining: 0". Nesses casos o caminho de retry deve ser
+// curto-circuitado e a falha reportada de imediato.
+//
+// A detecção é conservadora, para NÃO capturar limites transitórios que se
+// beneficiam do retry com backoff:
+//   - exclui TPM / tokens-por-minuto (recupera em segundos);
+//   - só dispara com sinal explícito de cota por janela: "limit type: tokens"
+//     (corpo do LiteLLM) ou um horário de reset ("resets at").
+//
+// Não exige a substring "429": no fluxo response.failed da Responses API o
+// código HTTP viaja num campo separado (Error.Code) e a mensagem
+// (Error.Message) traz só o texto ("Limit type: tokens ... Limit resets at").
+// Os sinais de janela acima são específicos de rate limit de tokens e não
+// aparecem em erros comuns.
+func looksLikeTokenRateLimit(errStr string) bool {
+	lower := strings.ToLower(errStr)
+	if !strings.Contains(lower, "token") {
+		return false
+	}
+	// TPM (tokens por minuto) é transitório: mantém o retry com backoff.
+	if strings.Contains(lower, "per min") || strings.Contains(lower, "tpm") {
+		return false
+	}
+	return strings.Contains(lower, "limit type: tokens") || strings.Contains(lower, "resets at")
+}
+
 func looksLikePromptCacheHintUnsupported(errStr string) bool {
 	lower := strings.ToLower(errStr)
 	hasPromptCacheKey := strings.Contains(lower, "prompt_cache_key") ||

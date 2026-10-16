@@ -1,7 +1,8 @@
+import { chatGPTErrorKey } from '../lib/chatgptErrors';
 import { logger } from '../utils/logger';
 import i18next from 'i18next';
 import { chat } from '../../wailsjs/go/models';
-import { isAppToolEvent, type ToolCallStatus, type ToolOrigin } from '../types/chat';
+import { type ToolCallStatus, type ToolOrigin } from '../types/chat';
 import type { MediaFile } from './mediaService';
 import { announce } from '../hooks/useAnnouncer';
 import {
@@ -23,16 +24,37 @@ import {
   playChatErrorSoundIfActive,
 } from './chatArbitration';
 import { announceWithOrigin } from './voiceAccessibility/announcerBroker';
+import { formatToolPresentation, presentTool } from '../lib/toolPresentation';
 import { handleChatSpeak, type ChatSpeakEvent } from './chatSpeak';
+import { createChatProgressAnnouncer } from './chatProgressAnnouncer';
 import type { ChatSurfaceOrigin, MessageWindowState } from './chatSessionRegistry';
 import { clearChatTurnRoutes, createChatTurnEventRouter } from './chatEventHub';
+import { invalidateToolInvocationDetails } from './toolInvocationDetailsCache';
 
 const translateBackendChatError = (message: string) => {
+  const chatGPTKey = chatGPTErrorKey(message);
+  if (chatGPTKey) return i18next.t(chatGPTKey);
+
   if (message === 'assistant_placeholder_error') {
     return i18next.t('chat.errors.assistantPlaceholder');
   }
   if (message === 'internal_error') {
     return i18next.t('chat.errors.internalError');
+  }
+  if (message === 'streaming_interrupted') {
+    return i18next.t('chat.errors.streamingInterrupted');
+  }
+  if (message === 'streaming_idle_timeout') {
+    return i18next.t('chat.errors.streamingIdleTimeout');
+  }
+  if (message === 'streaming_retries_exhausted') {
+    return i18next.t('chat.errors.streamingRetriesExhausted');
+  }
+  if (message === 'streaming_prompt_cache_hint_rejected') {
+    return i18next.t('chat.errors.streamingPromptCacheHintRejected');
+  }
+  if (message === 'streaming_token_rate_limit') {
+    return i18next.t('chat.errors.streamingTokenRateLimit');
   }
   return message;
 };
@@ -53,6 +75,14 @@ interface ChatStreamEvent {
   sequence: number;
   done?: boolean;
   error?: string;
+  finishReason?: 'stop' | 'tool_calls' | 'max_tokens' | 'content_filter' | 'cancelled' | 'other';
+  rawReason?: string;
+  provider?: string;
+  model?: string;
+  effectiveOutputLimit?: number;
+  outputTokens?: number;
+  reasoningTokens?: number;
+  responseBytes?: number;
   messageId?: string;
   turnId?: string;
   surfaceOrigin?: ChatSurfaceOrigin;
@@ -76,6 +106,7 @@ interface ChatToolStartEvent {
   args?: string;
   summary?: string;
   origin?: ToolOrigin;
+  serverLabel?: string;
   turnId?: string;
   surfaceOrigin?: ChatSurfaceOrigin;
 }
@@ -86,8 +117,10 @@ interface ChatToolEndEvent {
   callId: string;
   name?: string;
   status?: string;
+  errorKind?: string;
   summary?: string;
   origin?: ToolOrigin;
+  serverLabel?: string;
   attempt?: number;
   turnId?: string;
   surfaceOrigin?: ChatSurfaceOrigin;
@@ -99,6 +132,7 @@ interface ChatToolFailureEvent {
   name: string;
   callId: string;
   origin?: ToolOrigin;
+  errorKind?: string;
   willRetry?: boolean;
   turnId?: string;
   surfaceOrigin?: ChatSurfaceOrigin;
@@ -119,6 +153,14 @@ interface ChatDoneEvent {
   turnId?: string;
   hadToolCalls?: boolean;
   reason?: 'completed' | 'limit_reached' | 'output_limit' | 'error' | 'cancelled';
+  finishReason?: 'stop' | 'tool_calls' | 'max_tokens' | 'content_filter' | 'cancelled' | 'other';
+  rawReason?: string;
+  provider?: string;
+  model?: string;
+  effectiveOutputLimit?: number;
+  outputTokens?: number;
+  reasoningTokens?: number;
+  responseBytes?: number;
   errorMessage?: string;
   surfaceOrigin?: ChatSurfaceOrigin;
   turnPatch?: ChatTurnPatch;
@@ -138,6 +180,16 @@ interface ChatMediaProcessingEvent {
   surfaceOrigin?: ChatSurfaceOrigin;
 }
 
+function terminalToolStatus(event: ChatToolEndEvent): 'done' | 'error' | 'cancelled' {
+  const status = event.status?.toLowerCase();
+  if (event.errorKind === 'cancelled' || status === 'cancelled' || status === 'canceled') return 'cancelled';
+  if (status === 'error' || status === 'failed') return 'error';
+  if (status === 'ok' || status === 'done' || status === 'completed' || status === 'succeeded' || status === 'success') return 'done';
+  // Um tool_end é terminal. Status ausente ou desconhecido não pode promover
+  // uma execução a sucesso; o snapshot canônico corrigirá o estado ao final.
+  return 'error';
+}
+
 interface ChatTurnPatch {
   message: {
     id: string;
@@ -146,7 +198,6 @@ interface ChatTurnPatch {
     turnId: string;
     content: string;
     reasoning?: string;
-    toolCalls?: string;
     promptTokens?: number;
     completionTokens?: number;
     totalTokens?: number;
@@ -202,26 +253,27 @@ interface ChatEventControllerOptions {
 export interface ChatEventControllerHandle {
   cleanup: () => void;
   handleSendCancellation: () => void;
-  handleSendFailure: (message: string) => void;
+  handleSendFailure: (message: string, provenNotSubmitted?: boolean) => void;
   done: Promise<void>;
 }
 
-const activeControllers = new Map<string, () => void>();
+const activeControllers = new Map<string, { cleanup: () => void; executionId?: string }>();
 
-/**
- * Origem já conhecida da ferramenta. O evento de fim costuma repeti-la, mas se
- * vier sem ela o anúncio não pode creditar ao app o que o agente fez.
- */
-const knownToolOrigin = (session: ChatEventSession, callId: string): ToolOrigin | undefined =>
-  session.activeToolCalls.find((tc) => tc.callId === callId)?.origin;
+export function getChatEventControllerCleanup(conversationId: string) {
+  return activeControllers.get(conversationId.toString())?.cleanup;
+}
+
+export function getChatEventControllerExecutionId(conversationId: string) {
+  return activeControllers.get(conversationId.toString())?.executionId;
+}
 
 export function stopChatEventController(conversationId: string) {
-  const cleanup = activeControllers.get(conversationId.toString());
+  const cleanup = activeControllers.get(conversationId.toString())?.cleanup;
   if (cleanup) cleanup();
 }
 
 export function stopAllChatEventControllers() {
-  activeControllers.forEach((cleanup) => cleanup());
+  activeControllers.forEach(({ cleanup }) => cleanup());
   activeControllers.clear();
   clearChatTurnRoutes();
 }
@@ -243,12 +295,15 @@ export function startChatEventController({
   // via chat:speak; o leitor de tela precisa de um aviso de conclusão próprio.
   let turnHadAssistantText = false;
   let currentTurnId: string | null = null;
+  let provisionalThinkingTurnId: string | null = null;
+  let provisionalThinkingNodeId: string | null = null;
   let streamedContent = '';
   let streamSequence = -1;
   let streamInitialized = false;
   let pendingVisualContent: string | null = null;
   let animationFrameId: number | null = null;
   let streamingCommitted = false;
+  const announcedCancellationCallIds = new Set<string>();
   let resolveDone: () => void = () => {};
   const done = new Promise<void>((resolve) => {
     resolveDone = resolve;
@@ -283,8 +338,25 @@ export function startChatEventController({
   let unsubError = noop;
   let unsubSpeak = noop;
 
-  const isActive = () => activeControllers.has(conversationIdStr);
+  const isActive = () => activeControllers.get(conversationIdStr)?.cleanup === cleanup;
   const getEventOrigin = (event: { surfaceOrigin?: ChatSurfaceOrigin }) => event.surfaceOrigin ?? origin;
+  const progressAnnouncer = createChatProgressAnnouncer({
+    announce: (groups) => {
+      const messages = groups.flatMap(({ state, tools }) => tools.map((tool) => {
+        const presentation = presentTool(tool.name, tool.origin, tool.serverLabel, tool.args);
+        const action = formatToolPresentation(presentation, (key, values) => i18next.t(key, values), state === 'done');
+        return `${action}. ${i18next.t(state === 'done' ? 'chat.toolStatusSucceeded' : 'chat.toolStatusRunning')}`;
+      }));
+      if (messages.length === 0) return;
+      const eventOrigin = groups.flatMap((group) => group.tools).find((tool) => tool.surfaceOrigin)?.surfaceOrigin ?? origin;
+      announceForActiveChatConversation(
+        conversationId,
+        messages.join('; '),
+        'polite',
+        eventOrigin,
+      );
+    },
+  });
 
   const ensureAssistantNode = (messageId?: string | null) => {
     const backendMessageId = messageId && messageId !== '' ? messageId : null;
@@ -367,6 +439,7 @@ export function startChatEventController({
     unsubDone();
     unsubError();
     unsubSpeak();
+    progressAnnouncer.dispose();
     turnEvents.unregister();
     activeControllers.delete(conversationIdStr);
     adapter.setConversationLoading(conversationId, false, origin?.sessionKey);
@@ -397,6 +470,12 @@ export function startChatEventController({
   const applyTurnPatch = (patch?: ChatTurnPatch) => {
     if (!patch?.message || patch.message.conversationId !== conversationId) return;
     if (currentTurnId && patch.message.turnId !== currentTurnId) return;
+    invalidateToolInvocationDetails(
+      (patch.message.turnSegments ?? [])
+        .flatMap((segment) => segment.toolInvocations ?? [])
+        .map((invocation) => invocation.invocationId ?? '')
+        .filter(Boolean),
+    );
     const persistedMessage = new chat.EnrichedMessage({
       ...patch.message,
       role: 'assistant',
@@ -412,19 +491,33 @@ export function startChatEventController({
       childCount: 0,
     }) as MessageNode;
     adapter.patchConversation(conversationId, (conversation) => {
-      let replaced = false;
-      const threadedMessages = conversation.threadedMessages.map((node) => {
+      const matchingNodes = conversation.threadedMessages.filter((node) => {
         const sameTurn = node.message.role === 'assistant' && node.message.turnId === patch.message.turnId;
         const sameMessage = node.message.id === patch.message.id;
-        if (!sameTurn && !sameMessage) return node;
+        return sameTurn || sameMessage;
+      });
+      const mergedChildren = Array.from(new Map(
+        matchingNodes.flatMap((node) => node.children ?? [])
+          .map((child) => [child.message.id, child]),
+      ).values());
+      const unloadedChildren = matchingNodes.reduce(
+        (total, node) => total + Math.max(0, (node.childCount ?? 0) - (node.children?.length ?? 0)),
+        0,
+      );
+      let replaced = false;
+      const threadedMessages = conversation.threadedMessages.flatMap((node) => {
+        const sameTurn = node.message.role === 'assistant' && node.message.turnId === patch.message.turnId;
+        const sameMessage = node.message.id === patch.message.id;
+        if (!sameTurn && !sameMessage) return [node];
+        if (replaced) return [];
         replaced = true;
-        return new chat.MessageNode({
+        return [new chat.MessageNode({
           message: persistedMessage,
-          children: node.children,
+          children: mergedChildren,
           level: node.level,
-          childCount: node.childCount,
+          childCount: mergedChildren.length + unloadedChildren,
           originalIndex: node.originalIndex,
-        }) as MessageNode;
+        }) as MessageNode];
       });
       return {
         ...conversation,
@@ -433,6 +526,19 @@ export function startChatEventController({
     });
     currentAssistantNodeId = patch.message.id;
     assistantNodeCreated = true;
+    if (animationFrameId !== null) {
+      cancelAnimationFrame(animationFrameId);
+      animationFrameId = null;
+    }
+    pendingVisualContent = null;
+    streamedContent = patch.message.content;
+    streamInitialized = true;
+    streamingCommitted = false;
+    turnHadAssistantText = turnHadAssistantText
+      || patch.message.content.trim().length > 0
+      || (patch.message.turnSegments ?? []).some(
+        (segment) => segment.type === 'text' && Boolean(segment.content?.trim()),
+      );
     patchCurrentSession({ completedSegments: [], streamingMessageId: patch.message.id });
   };
 
@@ -458,18 +564,23 @@ export function startChatEventController({
     return String(messages.find(m => m.id === currentAssistantNodeId)?.content || '');
   };
 
-  const updateEmptyAssistantWithError = (message: string) => {
-    if (getCurrentAssistantContent().trim()) return;
-    updateStreamingMessage(i18next.t('chat.errorPrefix', { message }));
+  const updateAssistantWithError = (message: string) => {
+    const currentContent = getCurrentAssistantContent();
+    const hasContent = currentContent.trim().length > 0;
+    const formattedError = i18next.t('chat.errorPrefix', { message });
+    updateStreamingMessage(
+      hasContent ? `${currentContent}\n\n${formattedError}` : formattedError,
+    );
   };
 
-  const existingCleanup = activeControllers.get(conversationIdStr);
+  const existingCleanup = activeControllers.get(conversationIdStr)?.cleanup;
   if (existingCleanup) existingCleanup();
 
   const turnEvents = createChatTurnEventRouter(
     conversationIdStr,
     () => currentTurnId,
     (turnId) => { currentTurnId = turnId; },
+    origin?.executionId,
   );
 
   unsubError = turnEvents.on('chat:error', (event: ChatErrorEvent) => {
@@ -509,7 +620,30 @@ export function startChatEventController({
     if (event.conversationId !== conversationId) return;
     if (!isActive()) return;
     if (!event.userMessageId) return;
-    currentTurnId = event.turnId || event.userMessageId.toString();
+    const nextTurnId = event.turnId || event.userMessageId.toString();
+    if (
+      provisionalThinkingTurnId
+      && provisionalThinkingTurnId !== nextTurnId
+    ) {
+      if (currentAssistantNodeId && provisionalThinkingNodeId === currentAssistantNodeId) {
+        const staleAssistantId = currentAssistantNodeId;
+        adapter.patchConversation(conversationId, (conversation) => ({
+          ...conversation,
+          threadedMessages: conversation.threadedMessages.filter(
+            (node) => node.message.id !== staleAssistantId,
+          ),
+        }));
+      }
+      currentAssistantNodeId = null;
+      assistantNodeCreated = false;
+      streamedContent = '';
+      streamInitialized = false;
+      pendingVisualContent = null;
+      patchCurrentSession({ streamingMessageId: null, streamingReasoning: null, isThinking: false });
+    }
+    provisionalThinkingTurnId = null;
+    provisionalThinkingNodeId = null;
+    currentTurnId = nextTurnId;
     if (hasMessageId(getCurrentSession().conversation?.threadedMessages, String(event.userMessageId))) return;
     const userMsg = new chat.EnrichedMessage({
       id: event.userMessageId.toString(),
@@ -558,7 +692,12 @@ export function startChatEventController({
         getEventOrigin(event),
       );
     } else if (event.status === 'failed') {
-      announce(i18next.t('chat.mediaProcessing.failed'), 'assertive');
+      announceWithOrigin({
+        message: i18next.t('chat.mediaProcessing.failed'),
+        origin: getChatConversationVoiceOrigin(conversationId, undefined, getEventOrigin(event)),
+        eventType: 'error',
+        announcePriority: 'assertive',
+      });
     } else if (event.status === 'cancelled') {
       announceForActiveChatConversation(
         conversationId,
@@ -615,7 +754,7 @@ export function startChatEventController({
       });
       playChatErrorSoundIfActive(conversationId, eventOrigin);
       if (hasAssistantNode) {
-        updateEmptyAssistantWithError(errorMessage);
+        updateAssistantWithError(errorMessage);
       } else {
         patchCurrentSession({ sendFailureMessage: errorMessage, sendFailureAnnounced: true, sendFailureRetryable: false });
       }
@@ -641,8 +780,18 @@ export function startChatEventController({
   unsubThinking = turnEvents.on('chat:thinking', (event: ChatThinkingEvent) => {
     if (event.conversationId !== conversationId) return;
     if (!isActive()) return;
-    currentTurnId = event.turnId || currentTurnId;
-    ensureAssistantNode(event.assistantMessageId);
+    let existingProvisionalNode = false;
+    if (!currentTurnId && event.turnId) {
+      provisionalThinkingTurnId = event.turnId;
+      existingProvisionalNode = hasMessageId(
+        getCurrentSession().conversation?.threadedMessages,
+        String(event.assistantMessageId || ''),
+      );
+      if (!existingProvisionalNode && event.assistantMessageId) {
+        provisionalThinkingNodeId = event.assistantMessageId;
+      }
+    }
+    if (!existingProvisionalNode) ensureAssistantNode(event.assistantMessageId);
     if (event.started) {
       patchCurrentSession({
         isThinking: true,
@@ -650,8 +799,10 @@ export function startChatEventController({
       });
       announceForActiveChatConversation(conversationId, i18next.t('chat.announce.modelThinking'), 'polite', getEventOrigin(event));
     } else if (event.done) {
-      patchCurrentSession({ isThinking: false });
-      if (event.content && currentAssistantNodeId) adapter.updateReasoning(conversationId, currentAssistantNodeId, event.content);
+      patchCurrentSession({ isThinking: false, streamingReasoning: '' });
+      if (currentAssistantNodeId) {
+        adapter.updateReasoning(conversationId, currentAssistantNodeId, event.content || '');
+      }
     } else {
       patchCurrentSession({ streamingReasoning: event.content || '' });
     }
@@ -668,15 +819,26 @@ export function startChatEventController({
       activeToolCalls: existing >= 0
         ? session.activeToolCalls.map((tc) =>
           tc.callId === event.callId
-            ? { ...tc, name: event.name, callId: event.callId, args: event.args ?? tc.args, status: 'running' as const, summary: event.summary, origin: event.origin ?? tc.origin }
+            ? { ...tc, name: event.name, callId: event.callId, args: event.args ?? tc.args, status: 'running' as const, summary: event.summary, origin: event.origin ?? tc.origin, serverLabel: event.serverLabel ?? tc.serverLabel }
             : tc
         )
-        : [...session.activeToolCalls, { name: event.name, callId: event.callId, args: event.args, status: 'running' as const, summary: event.summary, origin: event.origin }],
+        : [...session.activeToolCalls, { name: event.name, callId: event.callId, args: event.args, status: 'running' as const, summary: event.summary, origin: event.origin, serverLabel: event.serverLabel }],
     });
+    if (!external) {
+      progressAnnouncer.toolStarted({
+        callId: event.callId,
+        name: event.name,
+        args: event.args,
+        origin: event.origin,
+        serverLabel: event.serverLabel,
+        surfaceOrigin: getEventOrigin(event),
+      });
+    }
     if (external) {
-      const runningMessage = isAppToolEvent(event.origin ?? knownToolOrigin(session, event.callId))
-        ? i18next.t('chat.toolRunning', { name: event.name })
-        : i18next.t('chat.agentToolRunning', { name: event.name });
+      const runningMessage = `${formatToolPresentation(
+        presentTool(event.name, event.origin, event.serverLabel, event.args),
+        (key, values) => i18next.t(key, values),
+      )}. ${i18next.t('chat.toolStatusRunning')}`;
       announceForActiveChatConversation(conversationId, runningMessage, 'polite', getEventOrigin(event));
     }
   });
@@ -685,31 +847,50 @@ export function startChatEventController({
     if (event.conversationId !== conversationId) return;
     if (!isActive()) return;
     currentTurnId = event.turnId || currentTurnId;
+    const terminalStatus = terminalToolStatus(event);
+    const cancelled = terminalStatus === 'cancelled';
+    if (!external) progressAnnouncer.toolEnded(event.callId, terminalStatus === 'done' ? 'ok' : 'error');
     ensureAssistantNode(event.assistantMessageId);
     const session = getCurrentSession();
     patchCurrentSession({
       activeToolCalls: session.activeToolCalls.map((tc) =>
         tc.callId === event.callId
-          ? { ...tc, status: (event.status === 'error' ? 'error' : 'done') as 'done' | 'error', summary: event.summary, origin: event.origin ?? tc.origin }
+          ? { ...tc, status: terminalStatus, summary: event.summary, origin: event.origin ?? tc.origin, serverLabel: event.serverLabel ?? tc.serverLabel }
           : tc
       ),
     });
-    if (!external) return;
-    const fromApp = isAppToolEvent(event.origin ?? knownToolOrigin(session, event.callId));
-    if (event.status !== 'error') {
-      const doneMessage = fromApp
-        ? i18next.t('chat.toolDone', { name: event.name })
-        : i18next.t('chat.agentToolDone', { name: event.name });
+    if (!external && !cancelled) return;
+    const finishedCall = session.activeToolCalls.find((tool) => tool.callId === event.callId);
+    if (cancelled) {
+      const cancelledMessage = `${formatToolPresentation(
+        presentTool(event.name ?? finishedCall?.name ?? '', event.origin ?? finishedCall?.origin, event.serverLabel ?? finishedCall?.serverLabel, finishedCall?.args),
+        (key, values) => i18next.t(key, values),
+      )}. ${i18next.t('chat.toolStatusCancelled')}`;
+      announceForActiveChatConversation(conversationId, cancelledMessage, 'polite', getEventOrigin(event));
+      announcedCancellationCallIds.add(event.callId);
+      return;
+    }
+    if (terminalStatus === 'done') {
+      const doneMessage = `${formatToolPresentation(
+        presentTool(event.name ?? finishedCall?.name ?? '', event.origin ?? finishedCall?.origin, event.serverLabel ?? finishedCall?.serverLabel, finishedCall?.args),
+        (key, values) => i18next.t(key, values),
+        true,
+      )}. ${i18next.t('chat.toolStatusSucceeded')}`;
       announceForActiveChatConversation(conversationId, doneMessage, 'polite', getEventOrigin(event));
       return;
     }
     if (!('attempt' in event)) {
-      announce(
-        fromApp
-          ? i18next.t('chat.toolFailed', { name: event.name })
-          : i18next.t('chat.agentToolFailed', { name: event.name }),
-        'assertive',
+      const failedCall = session.activeToolCalls.find((tool) => tool.callId === event.callId);
+      const failedLabel = formatToolPresentation(
+        presentTool(event.name ?? failedCall?.name ?? '', event.origin ?? failedCall?.origin, event.serverLabel ?? failedCall?.serverLabel, failedCall?.args),
+        (key, values) => i18next.t(key, values),
       );
+      announceWithOrigin({
+        message: `${failedLabel}. ${i18next.t('chat.toolStatusFailed')}`,
+        origin: getChatConversationVoiceOrigin(conversationId, undefined, getEventOrigin(event)),
+        eventType: 'error',
+        announcePriority: 'assertive',
+      });
     }
   });
 
@@ -717,17 +898,45 @@ export function startChatEventController({
     if (event.conversationId !== conversationId) return;
     if (!isActive()) return;
     currentTurnId = event.turnId || currentTurnId;
+    if (!external) progressAnnouncer.toolFailed(event.callId, event.willRetry);
     ensureAssistantNode(event.assistantMessageId);
-    if (event.willRetry) {
-      announceForActiveChatConversation(conversationId, i18next.t('chat.toolRetrying', { name: event.name }), 'polite', getEventOrigin(event));
+    const session = getCurrentSession();
+    const failedCall = session.activeToolCalls.find((tool) => tool.callId === event.callId);
+    if (event.errorKind === 'cancelled') {
+      patchCurrentSession({
+        activeToolCalls: session.activeToolCalls.map((tool) =>
+          tool.callId === event.callId ? { ...tool, status: 'cancelled' as const } : tool
+        ),
+      });
+      if (!announcedCancellationCallIds.has(event.callId)) {
+        const cancelledLabel = formatToolPresentation(
+          presentTool(event.name ?? failedCall?.name ?? '', event.origin ?? failedCall?.origin, failedCall?.serverLabel, failedCall?.args),
+          (key, values) => i18next.t(key, values),
+        );
+        announceForActiveChatConversation(
+          conversationId,
+          `${cancelledLabel}. ${i18next.t('chat.toolStatusCancelled')}`,
+          'polite',
+          getEventOrigin(event),
+        );
+        announcedCancellationCallIds.add(event.callId);
+      }
       return;
     }
-    announce(
-      isAppToolEvent(event.origin ?? knownToolOrigin(getCurrentSession(), event.callId))
-        ? i18next.t('chat.toolFailed', { name: event.name })
-        : i18next.t('chat.agentToolFailed', { name: event.name }),
-      'assertive',
+    const failedLabel = formatToolPresentation(
+      presentTool(event.name ?? failedCall?.name ?? '', event.origin ?? failedCall?.origin, failedCall?.serverLabel, failedCall?.args),
+      (key, values) => i18next.t(key, values),
     );
+    if (event.willRetry) {
+      announceForActiveChatConversation(conversationId, `${failedLabel}. ${i18next.t('chat.toolStatusRetrying')}`, 'polite', getEventOrigin(event));
+      return;
+    }
+    announceWithOrigin({
+      message: `${failedLabel}. ${i18next.t('chat.toolStatusFailed')}`,
+      origin: getChatConversationVoiceOrigin(conversationId, undefined, getEventOrigin(event)),
+      eventType: 'error',
+      announcePriority: 'assertive',
+    });
     playChatErrorSoundIfActive(conversationId, getEventOrigin(event));
   });
 
@@ -736,12 +945,16 @@ export function startChatEventController({
     if (!isActive()) return;
     currentTurnId = event.turnId || currentTurnId;
     ensureAssistantNode(event.assistantMessageId);
+    if (!external) progressAnnouncer.finishSegment();
     if (!event.hasMore) return;
 
     const session = getCurrentSession();
     const newSegments: TurnSegment[] = [...session.completedSegments];
+    if (event.content) {
+      if (event.content.trim()) turnHadAssistantText = true;
+      newSegments.push({ type: 'text', content: event.content });
+    }
     if (session.activeToolCalls.length > 0) {
-      const toolCount = session.activeToolCalls.length;
       newSegments.push({
         type: 'tool_calls',
         toolCalls: session.activeToolCalls.map(tc => ({
@@ -750,20 +963,10 @@ export function startChatEventController({
           function: { name: tc.name, arguments: tc.args || '' },
           result: tc.summary,
           origin: tc.origin,
+          serverLabel: tc.serverLabel,
+          status: tc.status,
         })),
       });
-      if (!external) {
-        announceForActiveChatConversation(
-          conversationId,
-          toolCount === 1 ? session.activeToolCalls[0].name : `${toolCount} ferramentas`,
-          'polite',
-          getEventOrigin(event),
-        );
-      }
-    }
-    if (event.content) {
-      if (event.content.trim()) turnHadAssistantText = true;
-      newSegments.push({ type: 'text', content: event.content });
     }
     patchCurrentSession({
       completedSegments: newSegments,
@@ -781,8 +984,12 @@ export function startChatEventController({
     if (event.conversationId !== conversationId) return;
     if (!isActive()) return;
     currentTurnId = event.turnId || currentTurnId;
+    if (!external) progressAnnouncer.finishSegment();
 
     if (event.errorMessage) {
+      // O snapshot persistido contém apenas o parcial. Aplique-o antes do
+      // marcador de erro para que o patch não apague o diagnóstico terminal.
+      applyTurnPatch(event.turnPatch);
       const backendAssistantId = event.assistantMessageId && event.assistantMessageId !== '' ? event.assistantMessageId : null;
       const hasAssistantNode = ensureAssistantNode(backendAssistantId) || currentAssistantNodeId !== null;
       const errorMessage = translateBackendChatError(String(event.errorMessage || '').trim());
@@ -795,19 +1002,21 @@ export function startChatEventController({
       });
       playChatErrorSoundIfActive(conversationId, eventOrigin);
       if (hasAssistantNode) {
-        updateEmptyAssistantWithError(errorMessage);
+        updateAssistantWithError(errorMessage);
       } else {
         patchCurrentSession({ sendFailureMessage: errorMessage, sendFailureAnnounced: true, sendFailureRetryable: false });
       }
       const interruptedId = backendAssistantId || currentAssistantNodeId;
       patchCurrentSession({ lastInterruptedMessageId: interruptedId });
       finalizeStreaming(backendAssistantId, currentTurnId);
-      applyTurnPatch(event.turnPatch);
       cleanup();
       return;
     }
 
     if (event.reason === 'output_limit') {
+      // O patch é autoritativo. Aplique-o antes de decidir se precisamos do
+      // aviso visual de fallback, para que ele não apague o aviso em seguida.
+      applyTurnPatch(event.turnPatch);
       const backendAssistantId = event.assistantMessageId && event.assistantMessageId !== '' ? event.assistantMessageId : null;
       const hasAssistantNode = ensureAssistantNode(backendAssistantId) || currentAssistantNodeId !== null;
       const message = i18next.t('chat.outputLimitReached');
@@ -823,7 +1032,15 @@ export function startChatEventController({
       const interruptedId = backendAssistantId || currentAssistantNodeId;
       patchCurrentSession({ lastInterruptedMessageId: interruptedId });
       finalizeStreaming(backendAssistantId, currentTurnId);
+      cleanup();
+      return;
+    }
+
+    if (event.reason === 'cancelled' || event.finishReason === 'cancelled') {
+      const backendAssistantId = event.assistantMessageId && event.assistantMessageId !== '' ? event.assistantMessageId : null;
+      finalizeStreaming(backendAssistantId, event.turnId || currentTurnId);
       applyTurnPatch(event.turnPatch);
+      patchCurrentSession({ lastInterruptedMessageId: backendAssistantId || currentAssistantNodeId });
       cleanup();
       return;
     }
@@ -851,7 +1068,7 @@ export function startChatEventController({
     cleanup();
   });
 
-  activeControllers.set(conversationIdStr, cleanup);
+  activeControllers.set(conversationIdStr, { cleanup, executionId: origin?.executionId });
 
   return {
     cleanup,
@@ -865,7 +1082,7 @@ export function startChatEventController({
         streamingMessageId: null,
       });
     },
-    handleSendFailure: (message: string) => {
+    handleSendFailure: (message: string, provenNotSubmitted = false) => {
       if (cleanupExecuted) return;
       logger.error('[Chat] Error sending message:', message);
       playChatErrorSoundIfActive(conversationId, origin);
@@ -877,9 +1094,9 @@ export function startChatEventController({
         streamingMessageId: null,
         sendFailureMessage,
         sendFailureAnnounced: false,
-        sendFailureRetryable: true,
-        sendFailureRetryContent: initialUserContent || null,
-        sendFailureRetryMediaFiles: initialMediaFiles ?? [],
+        sendFailureRetryable: provenNotSubmitted,
+        sendFailureRetryContent: provenNotSubmitted ? initialUserContent || null : null,
+        sendFailureRetryMediaFiles: provenNotSubmitted ? initialMediaFiles ?? [] : [],
       });
     },
   };

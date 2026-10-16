@@ -7,6 +7,7 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -16,23 +17,33 @@ import (
 	"sync"
 
 	"assistente/internal/database"
+	"assistente/internal/oauthflow"
 )
 
 // AuthConfig descreve como autenticar em um domínio
 type AuthConfig struct {
-	Type         string            // "bearer", "basic", "oauth2", "custom", "none"
-	Token        string            // para bearer, oauth2
-	Username     string            // para basic auth
-	Password     string            // para basic auth
-	Headers      map[string]string // headers customizados (já com valores)
-	ExpiresAt    int64             // unix timestamp, 0 = sem expiração
-	RefreshURL   string            // para oauth2 refresh
-	ClientSecret string            // para oauth2 client credentials (criptografado)
-	ClientID     string            // para oauth2 DCR (dynamic client registration)
+	ClientGrantType   string            // grant do registro; vazio preserva clientes legados/manuais
+	OAuth             *oauthflow.Record `json:"-"`
+	OAuthEnc          string            `json:"-"`
+	commandEntry      *DomainCredential // recibo transitório; nunca serializado
+	commandGeneration uint64
+	Source            string
+	SourceConfig      *SourceConfig
+	SourceConfigEnc   string            // configuração cifrada em memória e no store
+	Type              string            // "bearer", "basic", "oauth2", "custom", "none"
+	Token             string            // para bearer, oauth2
+	Username          string            // para basic auth
+	Password          string            // para basic auth
+	Headers           map[string]string // headers customizados (já com valores)
+	ExpiresAt         int64             // unix timestamp, 0 = sem expiração
+	RefreshURL        string            // para oauth2 refresh
+	ClientSecret      string            // para oauth2 client credentials (criptografado)
+	ClientID          string            // para oauth2 DCR (dynamic client registration)
 }
 
 // DomainCredential mapeia um padrão de domínio a credenciais
 type DomainCredential struct {
+	command commandCredentialCache // protegido por Manager.mu
 	ID      string
 	UserID  string
 	Pattern string // "*.github.com", "api.example.com", etc
@@ -42,11 +53,19 @@ type DomainCredential struct {
 
 // Manager armazena e resolve credenciais por domínio.
 type Manager struct {
-	mu          sync.RWMutex
-	credentials []*DomainCredential
-	encKey      []byte // para criptografar credenciais em memória
-	store       Store
-	persist     bool
+	// mutationMu serializes store-to-cache publication with migration/reset.
+	// Store callbacks may read the manager, so store I/O must not hold mu.
+	mutationMu    sync.Mutex
+	oauthRequests map[string]map[string]context.CancelFunc
+	oauthContext  context.Context
+	oauthCancel   context.CancelFunc
+	oauthEpoch    uint64
+	oauthService  *oauthflow.Service
+	mu            sync.RWMutex
+	credentials   []*DomainCredential
+	encKey        []byte // para criptografar credenciais em memória
+	store         Store
+	persist       bool
 
 	// integrity guarda o último resultado de `verifyDEKConsistency`,
 	// consultável via `IntegrityStatus()`. Atualizado em
@@ -116,6 +135,13 @@ func (m *Manager) RegisterStoredCredentialWithContext(ctx context.Context, cred 
 	}
 
 	// Criptografar credenciais sensíveis
+	if err := ValidateSource(auth); err != nil {
+		return err
+	}
+	// Persist and publish under the same operation lock used by migration.
+	// A delayed publication must not resurrect a row removed by that migration.
+	m.mutationMu.Lock()
+	defer m.mutationMu.Unlock()
 	encAuth, err := m.encryptAuth(auth)
 	if err != nil {
 		return err
@@ -155,11 +181,11 @@ func (m *Manager) RegisterStoredCredentialWithContext(ctx context.Context, cred 
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
-
 	for i, existing := range m.credentials {
 		sameStoredCredential := persistedID != "" && existing.ID == persistedID
 		sameScopedPattern := existing.Pattern == pattern && existing.UserID == userID
 		if sameStoredCredential || sameScopedPattern {
+			existing.invalidateCommandCache()
 			m.credentials[i] = &DomainCredential{ID: persistedID, UserID: userID, Pattern: pattern, regex: regex, Auth: encAuth}
 			return nil
 		}
@@ -180,39 +206,61 @@ func (m *Manager) ResolveForURLWithContext(ctx context.Context, urlStr string) (
 	if err != nil {
 		return nil, fmt.Errorf("URL inválida: %w", err)
 	}
-
-	domain := strings.ToLower(u.Host)
-	// Remove porta se houver
-	if idx := strings.LastIndex(domain, ":"); idx >= 0 {
-		domain = domain[:idx]
+	m.mu.RLock()
+	selected, err := m.matchURLLocked(ctx, u.Hostname())
+	if err != nil || selected == nil {
+		m.mu.RUnlock()
+		return nil, err
 	}
+	auth, err := m.decryptAuth(selected.Auth)
+	id := selected.ID
+	m.mu.RUnlock()
+	if err != nil {
+		return nil, fmt.Errorf("erro ao descriptografar credenciais: %w", err)
+	}
+	return ResolveSource(withDirectCommandDiagnostic(ctx, id), auth)
+}
 
+// PatternForURLWithContext selects the existing URL binding without resolving
+// its source. Editors and HTTP transports never execute commands during lookup.
+func (m *Manager) PatternForURLWithContext(ctx context.Context, urlStr string) (string, error) {
+	u, err := url.Parse(urlStr)
+	if err != nil {
+		return "", err
+	}
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-
-	userID := ""
-	if scopedUser, ok := database.UserIDFromContext(ctx); ok {
-		userID = scopedUser
+	selected, err := m.matchURLLocked(ctx, u.Hostname())
+	if err != nil || selected == nil {
+		return "", err
 	}
-	// Procura em ordem (primeira match vence)
+	return selected.Pattern, nil
+}
+
+// Caller holds m.mu for reading. Keep identical precedence and ambiguity
+// handling for direct resolution and the shared credential transport.
+func (m *Manager) matchURLLocked(ctx context.Context, hostname string) (*DomainCredential, error) {
+	domain := strings.ToLower(hostname)
+	userID, _ := database.UserIDFromContext(ctx)
+	var selected *DomainCredential
+	var matchedPatterns []string
 	for _, dc := range m.credentials {
-		if userID != "" && dc.UserID != userID {
+		if dc.UserID != userID {
 			continue
 		}
-		if userID == "" && dc.UserID != "" {
-			continue
-		}
-		if dc.regex.MatchString(domain) {
-			// Descriptografar antes de retornar
-			auth, err := m.decryptAuth(dc.Auth)
-			if err != nil {
-				return nil, fmt.Errorf("erro ao descriptografar credenciais: %w", err)
+		if dc.regex != nil && dc.Auth.Source != "oauth" && dc.regex.MatchString(domain) {
+			for _, pattern := range matchedPatterns {
+				if strings.EqualFold(pattern, dc.Pattern) {
+					return nil, fmt.Errorf("credential_hostname_ambiguous")
+				}
 			}
-			return auth, nil
+			matchedPatterns = append(matchedPatterns, dc.Pattern)
+			if selected == nil {
+				selected = dc
+			}
 		}
 	}
-
-	return nil, nil // sem credenciais para este domínio
+	return selected, nil
 }
 
 // ListPatterns retorna padrões registrados (sem credenciais sensíveis)
@@ -228,7 +276,7 @@ func (m *Manager) ListPatterns() []string {
 }
 
 // ListCredentials retorna credenciais descriptografadas sem resolver referências externas.
-// Refs como keyring://... e env://... ficam visíveis para exibição na UI.
+// Configurações de source são retornadas sem executar comandos.
 func (m *Manager) ListCredentials() ([]StoredCredential, error) {
 	return m.ListCredentialsWithContext(context.Background())
 }
@@ -286,8 +334,18 @@ func (m *Manager) GetByPattern(pattern string) (*AuthConfig, error) {
 }
 
 func (m *Manager) GetByPatternWithContext(ctx context.Context, pattern string) (*AuthConfig, error) {
+	return m.getByPatternWithContext(ctx, pattern, false)
+}
+
+// O cache é opt-in do transport que observa rejeições de autenticação.
+func (m *Manager) getByPatternWithContext(ctx context.Context, pattern string, cacheCommand bool) (*AuthConfig, error) {
 	m.mu.RLock()
-	defer m.mu.RUnlock()
+	locked := true
+	defer func() {
+		if locked {
+			m.mu.RUnlock()
+		}
+	}()
 
 	userID := ""
 	if scopedUser, ok := database.UserIDFromContext(ctx); ok {
@@ -309,7 +367,12 @@ func (m *Manager) GetByPatternWithContext(ctx context.Context, pattern string) (
 				}
 				return nil, fmt.Errorf("credencial %q ilegível para usuário %q: %w", pattern, scope, err)
 			}
-			return auth, nil
+			m.mu.RUnlock()
+			locked = false
+			if cacheCommand {
+				return m.resolveCredentialSource(ctx, dc, auth)
+			}
+			return ResolveSource(withDirectCommandDiagnostic(ctx, dc.ID), auth)
 		}
 	}
 
@@ -332,26 +395,32 @@ func (m *Manager) DeletePattern(ctx context.Context, pattern string) error {
 	if userID == "" && !IsInstanceSecretPattern(pattern) && m.persist {
 		return database.ErrUserScopeRequired
 	}
-	filtered := m.credentials[:0]
-	for _, dc := range m.credentials {
-		if dc.Pattern != pattern || (userID != "" && dc.UserID != userID) {
-			filtered = append(filtered, dc)
-		}
-	}
-	// evita manter referências antigas
-	m.credentials = append([]*DomainCredential(nil), filtered...)
-
 	if m.persist && m.store != nil {
 		if err := m.store.DeleteCredential(ctx, pattern); err != nil {
 			return err
 		}
 	}
+	filtered := m.credentials[:0]
+	for _, dc := range m.credentials {
+		if dc.Pattern != pattern || (userID != "" && dc.UserID != userID) {
+			filtered = append(filtered, dc)
+		} else {
+			for _, cancel := range m.oauthRequests[dc.ID] {
+				cancel()
+			}
+			dc.invalidateCommandCache()
+		}
+	}
+	// evita manter referências antigas
+	m.credentials = append([]*DomainCredential(nil), filtered...)
 
 	return nil
 }
 
 // CanPersist indica se o manager está configurado para persistir credenciais.
 func (m *Manager) CanPersist() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	return m.persist && m.store != nil
 }
 
@@ -418,6 +487,9 @@ func (m *Manager) LoadInstanceSecrets(ctx context.Context) error {
 // usuário"). O ctx é usado apenas para deadline/cancel; o escopo de
 // query é construído explicitamente a partir do `userID`.
 func (m *Manager) LoadUserCredentials(ctx context.Context, userID string) error {
+	// Loading also publishes a store snapshot; serialize it with migration/reset.
+	m.mutationMu.Lock()
+	defer m.mutationMu.Unlock()
 	if m.store == nil || !m.persist {
 		return nil
 	}
@@ -459,6 +531,8 @@ func (m *Manager) lookupPersistedByScope(ctx context.Context, userID string) ([]
 
 // Reset redefine a chave de criptografia e limpa credenciais em memória.
 func (m *Manager) Reset(encryptionKey []byte, persist bool) {
+	m.mutationMu.Lock()
+	defer m.mutationMu.Unlock()
 	if len(encryptionKey) == 0 {
 		encryptionKey = make([]byte, 32)
 		rand.Read(encryptionKey)
@@ -466,7 +540,11 @@ func (m *Manager) Reset(encryptionKey []byte, persist bool) {
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.invalidateOAuthSession()
 
+	for _, dc := range m.credentials {
+		dc.invalidateCommandCache()
+	}
 	m.encKey = encryptionKey
 	m.credentials = make([]*DomainCredential, 0)
 	m.persist = persist && m.store != nil
@@ -485,12 +563,16 @@ func (m *Manager) registerEncryptedPattern(id, userID, pattern string, encAuth *
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
-
 	updated := false
 	for i, existing := range m.credentials {
 		sameStoredCredential := id != "" && existing.ID == id
 		sameScopedPattern := existing.Pattern == pattern && existing.UserID == userID
 		if sameStoredCredential || sameScopedPattern {
+			// RefreshAuth recarrega o store: bytes cifrados idênticos não são edição.
+			if sameStoredCredential && sameScopedPattern && sameStoredCommandAuth(existing.Auth, encAuth) {
+				return nil
+			}
+			existing.invalidateCommandCache()
 			m.credentials[i] = &DomainCredential{ID: id, UserID: userID, Pattern: pattern, regex: regex, Auth: encAuth}
 			updated = true
 			break
@@ -512,6 +594,28 @@ func (m *Manager) encryptAuth(auth *AuthConfig) (*AuthConfig, error) {
 	}
 
 	encrypted := *auth
+	if auth.OAuth != nil {
+		data, err := json.Marshal(auth.OAuth)
+		if err != nil {
+			return nil, err
+		}
+		encrypted.OAuthEnc, err = m.encrypt(string(data))
+		if err != nil {
+			return nil, err
+		}
+		encrypted.OAuth = nil
+	}
+	if auth.SourceConfig != nil {
+		data, err := json.Marshal(auth.SourceConfig)
+		if err != nil {
+			return nil, err
+		}
+		encrypted.SourceConfigEnc, err = m.encrypt(string(data))
+		if err != nil {
+			return nil, err
+		}
+		encrypted.SourceConfig = nil
+	}
 
 	if auth.Token != "" {
 		token, err := m.encrypt(auth.Token)
@@ -569,88 +673,38 @@ func (m *Manager) encryptAuth(auth *AuthConfig) (*AuthConfig, error) {
 
 // decryptAuth descriptografa credenciais
 func (m *Manager) decryptAuth(auth *AuthConfig) (*AuthConfig, error) {
-	if auth == nil {
-		return nil, nil
-	}
-
-	decrypted := *auth
-
-	if auth.Token != "" {
-		token, err := m.decrypt(auth.Token)
-		if err != nil {
-			return nil, err
-		}
-		token, err = ResolveExternalRef(token)
-		if err != nil {
-			return nil, fmt.Errorf("erro ao resolver referência do token: %w", err)
-		}
-		decrypted.Token = token
-	}
-
-	if auth.Password != "" {
-		pwd, err := m.decrypt(auth.Password)
-		if err != nil {
-			return nil, err
-		}
-		pwd, err = ResolveExternalRef(pwd)
-		if err != nil {
-			return nil, fmt.Errorf("erro ao resolver referência da senha: %w", err)
-		}
-		decrypted.Password = pwd
-	}
-
-	if auth.ClientID != "" {
-		cid := m.tryDecrypt(auth.ClientID)
-		cid, err := ResolveExternalRef(cid)
-		if err != nil {
-			return nil, fmt.Errorf("erro ao resolver referência do client_id: %w", err)
-		}
-		decrypted.ClientID = cid
-	}
-
-	if auth.ClientSecret != "" {
-		cs := m.tryDecrypt(auth.ClientSecret)
-		cs, err := ResolveExternalRef(cs)
-		if err != nil {
-			return nil, fmt.Errorf("erro ao resolver referência do client_secret: %w", err)
-		}
-		decrypted.ClientSecret = cs
-	}
-
-	if auth.RefreshURL != "" {
-		rt := m.tryDecrypt(auth.RefreshURL)
-		rt, err := ResolveExternalRef(rt)
-		if err != nil {
-			return nil, fmt.Errorf("erro ao resolver referência do refresh token: %w", err)
-		}
-		decrypted.RefreshURL = rt
-	}
-
-	if len(auth.Headers) > 0 {
-		decrypted.Headers = make(map[string]string)
-		for k, v := range auth.Headers {
-			decV, err := m.decrypt(v)
-			if err != nil {
-				return nil, err
-			}
-			decV, err = ResolveExternalRef(decV)
-			if err != nil {
-				return nil, fmt.Errorf("erro ao resolver referência do header %s: %w", k, err)
-			}
-			decrypted.Headers[k] = decV
-		}
-	}
-
-	return &decrypted, nil
+	return m.decryptAuthRaw(auth)
 }
 
 // decryptAuthRaw descriptografa credenciais sem resolver referências externas.
-// Usado para listagem/exibição onde queremos ver a ref original (keyring://..., env://...).
+// Usado para listagem e verificação criptográfica, sem resolver fontes.
 func (m *Manager) decryptAuthRaw(auth *AuthConfig) (*AuthConfig, error) {
 	if auth == nil {
 		return nil, nil
 	}
 	decrypted := *auth
+	if auth.OAuthEnc != "" {
+		data, err := m.decrypt(auth.OAuthEnc)
+		if err != nil {
+			return nil, err
+		}
+		decrypted.OAuth = &oauthflow.Record{}
+		if err = json.Unmarshal([]byte(data), decrypted.OAuth); err != nil {
+			return nil, err
+		}
+		decrypted.OAuthEnc = ""
+	}
+	if auth.SourceConfigEnc != "" {
+		data, err := m.decrypt(auth.SourceConfigEnc)
+		if err != nil {
+			return nil, err
+		}
+		decrypted.SourceConfig = &SourceConfig{}
+		if err := json.Unmarshal([]byte(data), decrypted.SourceConfig); err != nil {
+			return nil, err
+		}
+		decrypted.SourceConfigEnc = ""
+	}
 
 	if auth.Token != "" {
 		token, err := m.decrypt(auth.Token)
@@ -756,6 +810,8 @@ func (m *Manager) decrypt(ciphertext string) (string, error) {
 // managedPrefixes contém prefixos de patterns gerenciados automaticamente pelo sistema.
 // Credenciais com esses prefixos não devem ser editáveis pelo usuário.
 var managedPrefixes = []string{
+	"connection:",
+	"oauth:",
 	"mcp-client:",
 	"mcp-tokens:",
 	"internal-auth:",
@@ -783,9 +839,22 @@ func IsManagedPattern(pattern string) bool {
 //	"example.com" -> "^example\.com$"
 func wildcardToRegex(pattern string) string {
 	// Escape dots e outros caracteres especiais
-	escaped := regexp.QuoteMeta(pattern)
+	escaped := regexp.QuoteMeta(strings.ToLower(pattern))
 	// * se torna [^.] (qualquer coisa menos ponto) com +
 	escaped = strings.ReplaceAll(escaped, `\*`, `[^.]+`)
 	// Anchor no início e fim
 	return "^" + escaped + "$"
+}
+
+// GetConfigByPatternWithContext returns a decrypted configuration without resolving its source.
+func (m *Manager) GetConfigByPatternWithContext(ctx context.Context, pattern string) (*AuthConfig, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	userID, _ := database.UserIDFromContext(ctx)
+	for _, dc := range m.credentials {
+		if dc.UserID == userID && dc.Pattern == pattern {
+			return m.decryptAuthRaw(dc.Auth)
+		}
+	}
+	return nil, nil
 }

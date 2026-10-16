@@ -47,6 +47,7 @@ type mockMsgRepo struct {
 	turnMessagesContextErr error
 	turnMessagesParentID   *string
 	messagesByID           map[string]*chat.Message
+	updateError            error
 }
 
 func (m *mockMsgRepo) CreateMessage(_ context.Context, opts chat.MessageOptions) (*chat.Message, error) {
@@ -57,7 +58,7 @@ func (m *mockMsgRepo) CreateMessage(_ context.Context, opts chat.MessageOptions)
 }
 
 func (m *mockMsgRepo) UpdateMessageContentAndReasoning(_ context.Context, _ string, _ string, _ string, _, _, _ int, _ string) error {
-	return nil
+	return m.updateError
 }
 func (m *mockMsgRepo) GetMessage(_ context.Context, messageID string) (*chat.Message, error) {
 	if message := m.messagesByID[messageID]; message != nil {
@@ -87,14 +88,6 @@ func (m *mockMsgRepo) GetRecentMessagesTokenCount(context.Context, string, int) 
 	return 0, nil
 }
 func (m *mockMsgRepo) GetTurnTokenStats(context.Context, string, string) (*database.TokenStats, error) {
-	return nil, nil
-}
-func (m *mockMsgRepo) AddAssistantToolMessage(_ context.Context, conversationID, turnID string, content, toolCalls, reasoning, model string) (*chat.Message, error) {
-	m.nextID++
-	id := fmt.Sprintf("%d", m.nextID)
-	return &chat.Message{UUIDModel: database.UUIDModel{ID: id}, Role: "assistant", Content: content}, nil
-}
-func (m *mockMsgRepo) AddToolResultMessage(context.Context, string, string, string, string) (*chat.Message, error) {
 	return nil, nil
 }
 func (m *mockMsgRepo) SearchMessages(context.Context, string, int) ([]chat.MessageSearchResult, error) {

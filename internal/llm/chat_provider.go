@@ -101,7 +101,8 @@ type ModelOption struct {
 // respondeu: de um provedor HTTP é falta de modelo, de um agente de código é
 // ele dizendo que a escolha é dele (AEP-0084, Fase 8).
 type ModelCatalog struct {
-	Models []ModelOption `json:"models"`
+	UsesChatGPTPlan bool          `json:"usesChatGPTPlan"`
+	Models          []ModelOption `json:"models"`
 	// Agent diz que quem respondeu é um agente de código.
 	Agent bool `json:"agent"`
 }

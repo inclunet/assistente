@@ -252,7 +252,8 @@ class TTSService {
    * NÃO checa config.enabled — quem chama decide se deve reproduzir
    * (auto-read checa isAutoReadEnabled(), on-demand não checa nada).
    */
-  async speakAsRole(text: string, role: VoiceRole): Promise<void> {
+  async speakAsRole(text: string, role: VoiceRole, isCurrent?: () => boolean, onStarted?: () => void): Promise<void> {
+    if (isCurrent && !isCurrent()) throw new Error('chat-message-stale');
     const roleConfig = this.roleConfigs.get(role);
     if (!roleConfig) return;
 
@@ -263,6 +264,8 @@ class TTSService {
       pitch: roleConfig.pitch,
       volume: roleConfig.volume,
       ttsModel: roleConfig.model,
+      isCurrent,
+      onStarted,
     });
   }
   
@@ -425,7 +428,9 @@ class TTSService {
    * Para "webspeech", usa o provider frontend.
    * Para "sapi5" e providers LLM, delega ao backend via SpeakPreview.
    */
-  async speakWithOverride(text: string, options: { voiceName?: string; providerId?: string; rate?: number; pitch?: number; volume?: number; ttsModel?: string; language?: string }): Promise<void> {
+  async speakWithOverride(text: string, options: { voiceName?: string; providerId?: string; rate?: number; pitch?: number; volume?: number; ttsModel?: string; language?: string; isCurrent?: () => boolean; onStarted?: () => void }): Promise<void> {
+    const guard = () => { if (options.isCurrent && !options.isCurrent()) throw new Error('chat-message-stale'); };
+    guard();
     const voiceId = options.voiceName ? this.extractVoiceId(options.voiceName) : undefined;
 
     // Resolve o tipo de provider: webspeech ou LLM/sapi5 (backend)
@@ -441,6 +446,8 @@ class TTSService {
         options.rate ?? 1.0,
         options.volume ?? 1.0,
         options.language ?? '',
+        options.isCurrent,
+        options.onStarted,
       );
       return;
     }
@@ -450,6 +457,7 @@ class TTSService {
     if (this.overrideLock) {
       try { await this.overrideLock; } catch { /* ignorar */ }
     }
+    guard();
     
     let unlockOverride: () => void;
     this.overrideLock = new Promise<void>(resolve => { unlockOverride = resolve; });
@@ -470,6 +478,7 @@ class TTSService {
         if (options.rate !== undefined) await this.currentProvider.setRate(options.rate);
         if (options.pitch !== undefined && typeof this.currentProvider.setPitch === 'function') await this.currentProvider.setPitch(options.pitch);
         if (options.volume !== undefined) await this.currentProvider.setVolume(options.volume);
+        guard();
 
         const provider = this.currentProvider;
         const hasEvents = typeof provider.addEventListener === 'function';
@@ -479,19 +488,24 @@ class TTSService {
             const cleanup = () => {
               provider.removeEventListener?.('end', onEnd);
               provider.removeEventListener?.('error', onErr);
+              provider.removeEventListener?.('start', onStart);
               clearTimeout(timeout);
             };
             const onEnd = () => { cleanup(); resolve(); };
+            const onStart = () => { if (!options.isCurrent || options.isCurrent()) options.onStarted?.(); else { provider.stop(); cleanup(); resolve(); } };
             const onErr = () => { cleanup(); resolve(); };
             // Timeout proporcional ao tamanho do texto (60s base + 30s por 4000 chars)
             const timeoutMs = calcTTSTimeoutMs(text.length);
             const timeout = setTimeout(() => { cleanup(); resolve(); }, timeoutMs);
             provider.addEventListener?.('end', onEnd);
+            provider.addEventListener?.('start', onStart);
             provider.addEventListener?.('error', onErr);
             provider.speak(text);
           });
         } else {
-          await provider.speak(text);
+          const completion = provider.speak(text);
+          options.onStarted?.();
+          await completion;
         }
       }
     } finally {
@@ -536,7 +550,10 @@ class TTSService {
     rate: number,
     volume: number,
     language: string,
+    isCurrent?: () => boolean,
+    onStarted?: () => void,
   ): Promise<void> {
+    if (isCurrent && !isCurrent()) throw new Error('chat-message-stale');
     const speech = getWailsSpeech();
     const speakPreview = speech?.SpeakPreview as ((
       providerId: string, model: string, voiceId: string, rate: number, volume: number, language: string, text: string, sessionId: string,
@@ -575,8 +592,11 @@ class TTSService {
         const timeout = setTimeout(() => { cleanup(); streamPlayer.stop(); resolve(); }, timeoutMs);
 
         streamPlayer.startListening(sessionId, {
+          isCurrent,
           onStart: () => {
+            if (isCurrent && !isCurrent()) { streamPlayer.stop(); abort.abort(); return; }
             this.emit('speakStart');
+            onStarted?.();
           },
           onEnd: () => {
             cleanup();
@@ -593,6 +613,7 @@ class TTSService {
 
       try {
         await speakPreview(providerId, model, voiceId, rate, volume, language, text, sessionId);
+        if (isCurrent && !isCurrent()) { streamPlayer.stop(); abort.abort(); throw new Error('chat-message-stale'); }
         await streamPromise;
       } catch (error) {
         streamPlayer.stop();

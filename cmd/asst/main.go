@@ -60,6 +60,12 @@ var rootCmd = &cobra.Command{
 		}
 
 		rootApp = app.NewApp()
+		for current := cmd; current != nil; current = current.Parent() {
+			if current == commandsCmd {
+				rootApp = app.NewCommandCLIApp()
+				break
+			}
+		}
 
 		cliEmitter = cliadapter.NewEmitterAdapter(
 			cliadapter.WithVerbose(verbose),
@@ -94,16 +100,31 @@ var rootCmd = &cobra.Command{
 		return nil
 	},
 	PersistentPostRun: func(cmd *cobra.Command, args []string) {
-		if rootApp != nil {
-			rootApp.Shutdown()
-		}
-		if rootSigCh != nil {
-			signal.Stop(rootSigCh)
-		}
-		if rootCancel != nil {
-			rootCancel()
-		}
+		cleanupRootApp()
 	},
+}
+
+// Cobra não chama PersistentPostRun quando RunE falha. Recusas de comandos
+// também precisam drenar executores e liberar a instância antes de sair.
+func cleanupRootApp() {
+	if rootApp != nil {
+		rootApp.Shutdown()
+		rootApp = nil
+	}
+	if rootSigCh != nil {
+		signal.Stop(rootSigCh)
+		rootSigCh = nil
+	}
+	if rootCancel != nil {
+		rootCancel()
+		rootCancel = nil
+	}
+	cliEmitter = nil
+}
+
+func executeCLI(cmd *cobra.Command) error {
+	defer cleanupRootApp()
+	return cmd.Execute()
 }
 
 func init() {
@@ -121,6 +142,7 @@ func init() {
 	rootCmd.AddCommand(historyCmd)
 	rootCmd.AddCommand(dataCmd)
 	rootCmd.AddCommand(toolsCmd)
+	rootCmd.AddCommand(commandsCmd)
 }
 
 func silenceDefaultLogs() {
@@ -182,7 +204,7 @@ Exemplos:
 }
 
 func main() {
-	if err := rootCmd.Execute(); err != nil {
+	if err := executeCLI(rootCmd); err != nil {
 		os.Exit(1)
 	}
 }

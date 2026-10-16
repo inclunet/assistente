@@ -3,6 +3,7 @@ package controllers
 import (
 	"assistente/internal/logging"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -23,30 +24,44 @@ type SettingsControllerConfig struct {
 	ProfileMgr *profiles.Manager
 	SkillMgr   *skills.Manager
 	Emitter    ports.Emitter
+	// DatabasePath fixa o arquivo usado pelo desktop reservado. Callers legados
+	// sem esse valor usam database.ResolvePath (nunca inferem o DB pelo config.json).
+	DatabasePath string
 	// Callbacks cross-domain
-	RestartChannel func(channelName string) error
-	GetModels      func() ([]string, error)
+	RestartChannel      func(channelName string) error
+	GetModels           func() ([]string, error)
+	DeleteProfile       func(string) error
+	ClearMessages       func(context.Context) error
+	BeforeDatabaseReset func() error
 }
 
 // SettingsController é o adapter primário (Inbound) para operações de configurações globais e reset.
 type SettingsController struct {
-	credMgr        *credentials.Manager
-	profileMgr     *profiles.Manager
-	skillMgr       *skills.Manager
-	emitter        ports.Emitter
-	restartChannel func(string) error
-	getModels      func() ([]string, error)
+	credMgr             *credentials.Manager
+	profileMgr          *profiles.Manager
+	skillMgr            *skills.Manager
+	emitter             ports.Emitter
+	restartChannel      func(string) error
+	getModels           func() ([]string, error)
+	deleteProfile       func(string) error
+	clearMessages       func(context.Context) error
+	beforeDatabaseReset func() error
+	databasePath        string
 }
 
 // NewSettingsController cria um SettingsController com suas dependências.
 func NewSettingsController(cfg SettingsControllerConfig) *SettingsController {
 	return &SettingsController{
-		credMgr:        cfg.CredMgr,
-		profileMgr:     cfg.ProfileMgr,
-		skillMgr:       cfg.SkillMgr,
-		emitter:        cfg.Emitter,
-		restartChannel: cfg.RestartChannel,
-		getModels:      cfg.GetModels,
+		credMgr:             cfg.CredMgr,
+		profileMgr:          cfg.ProfileMgr,
+		skillMgr:            cfg.SkillMgr,
+		emitter:             cfg.Emitter,
+		restartChannel:      cfg.RestartChannel,
+		getModels:           cfg.GetModels,
+		deleteProfile:       cfg.DeleteProfile,
+		clearMessages:       cfg.ClearMessages,
+		beforeDatabaseReset: cfg.BeforeDatabaseReset,
+		databasePath:        cfg.DatabasePath,
 	}
 }
 
@@ -175,8 +190,14 @@ func (c *SettingsController) ClearAllProfiles() error {
 		return fmt.Errorf("erro ao listar perfis: %v", err)
 	}
 	for _, p := range list {
-		if err := c.profileMgr.Delete(p.Slug); err != nil {
-			logging.Errorf(context.Background(), "controllers.settings-controller", "[ClearAllProfiles] Erro ao deletar perfil %s: %v", p.Slug, err)
+		var deleteErr error
+		if c.deleteProfile != nil {
+			deleteErr = c.deleteProfile(p.Slug)
+		} else {
+			deleteErr = c.profileMgr.Delete(p.Slug)
+		}
+		if deleteErr != nil {
+			logging.Errorf(context.Background(), "controllers.settings-controller", "[ClearAllProfiles] Erro ao deletar perfil %s: %v", p.Slug, deleteErr)
 		}
 	}
 	logging.Println(context.Background(), "controllers.settings-controller", "[ClearAllProfiles] Perfis apagados")
@@ -214,26 +235,78 @@ func (c *SettingsController) ClearAllChannels() error {
 
 // ResetDatabase apaga o banco de dados, resetando ao estado inicial.
 func (c *SettingsController) ResetDatabase() error {
-	configPath, err := config.GetConfigPath()
-	if err != nil {
-		return fmt.Errorf("erro ao obter caminho do banco de dados: %v", err)
+	dbPath := c.databasePath
+	if dbPath == "" {
+		var err error
+		dbPath, err = database.ResolvePath()
+		if err != nil {
+			return fmt.Errorf("erro ao resolver caminho canônico do banco de dados: %w", err)
+		}
 	}
-	dbPath := filepath.Join(filepath.Dir(configPath), "conversations.db")
+	if !filepath.IsAbs(dbPath) {
+		return fmt.Errorf("caminho do banco de dados deve ser absoluto")
+	}
+	dbPath = filepath.Clean(dbPath)
+	before, err := os.Lstat(dbPath)
+	if err != nil {
+		return fmt.Errorf("erro ao inspecionar banco de dados: %w", err)
+	}
+	if !before.Mode().IsRegular() {
+		return fmt.Errorf("reset exige arquivo regular, sem link simbólico")
+	}
+	file, err := os.OpenFile(dbPath, os.O_RDWR, 0)
+	if err != nil {
+		return fmt.Errorf("erro ao abrir banco para reset: %w", err)
+	}
+	defer func() { _ = file.Close() }()
+	opened, err := file.Stat()
+	if err != nil {
+		return fmt.Errorf("erro ao validar arquivo aberto: %w", err)
+	}
+	if !opened.Mode().IsRegular() || !os.SameFile(before, opened) {
+		return fmt.Errorf("identidade do banco mudou durante abertura para reset")
+	}
+	// Só drenar comandos depois de concluir o preflight não destrutivo.
+	if c.beforeDatabaseReset != nil {
+		if err := c.beforeDatabaseReset(); err != nil {
+			return fmt.Errorf("reset do banco recusado antes do fechamento: %w", err)
+		}
+	}
+	current, err := os.Lstat(dbPath)
+	if err != nil {
+		return fmt.Errorf("erro ao revalidar caminho após drenagem: %w", err)
+	}
+	opened, err = file.Stat()
+	if err != nil {
+		return fmt.Errorf("erro ao revalidar handle após drenagem: %w", err)
+	}
+	if !current.Mode().IsRegular() || !opened.Mode().IsRegular() || !os.SameFile(before, opened) || !os.SameFile(current, opened) {
+		return fmt.Errorf("identidade do banco mudou durante drenagem")
+	}
 
 	if err := database.Close(); err != nil {
 		return fmt.Errorf("erro ao fechar banco de dados: %v", err)
 	}
 	time.Sleep(100 * time.Millisecond)
-
-	if _, err := os.Stat(dbPath); err == nil {
-		if err := os.Remove(dbPath); err != nil {
-			return fmt.Errorf("erro ao remover banco de dados: %v", err)
+	// Não apagar o conteúdo enquanto um journal antigo puder sobreviver ao
+	// reset. Uma falha também impede InitPath de reabrir esse conjunto parcial.
+	// Remover SHM primeiro preserva WAL caso a limpeza do índice compartilhado falhe.
+	for _, suffix := range []string{"-shm", "-wal"} {
+		if err := os.Remove(dbPath + suffix); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("erro ao remover journal %s: %w", suffix, err)
 		}
-		_ = os.Remove(dbPath + "-wal")
-		_ = os.Remove(dbPath + "-shm")
 	}
 
-	if err := database.Init(); err != nil {
+	// Trunca o handle validado, nunca um pathname que pode ter sido trocado.
+	// Preserva a identidade física reservada, inclusive hardlinks existentes.
+	if err := file.Truncate(0); err != nil {
+		return fmt.Errorf("erro ao truncar banco de dados: %w", err)
+	}
+	if err := file.Close(); err != nil {
+		return fmt.Errorf("erro ao fechar arquivo truncado: %w", err)
+	}
+
+	if err := database.InitPath(dbPath); err != nil {
 		return fmt.Errorf("erro ao reinicializar banco: %v", err)
 	}
 	logging.Println(context.Background(), "controllers.settings-controller", "[ResetDatabase] Banco resetado com sucesso")
@@ -241,12 +314,13 @@ func (c *SettingsController) ResetDatabase() error {
 	return nil
 }
 
-// ClearMessages apaga as mensagens e conversas pertencentes ao usuário do
-// contexto. Usa ClearAllConversationsWithContext, que respeita o escopo do
-// usuário; o caller (Wails binding) é responsável por validar autenticação
-// antes de chamar.
+// ClearMessages apaga as conversas do usuário pelo mesmo pipeline batch usado
+// no Histórico. O caller (Wails binding) valida autenticação antes de chamar.
 func (c *SettingsController) ClearMessages(ctx context.Context) error {
-	if err := database.ClearAllConversationsWithContext(ctx); err != nil {
+	if c.clearMessages == nil {
+		return fmt.Errorf("pipeline canônico de exclusão não configurado")
+	}
+	if err := c.clearMessages(ctx); err != nil {
 		return fmt.Errorf("erro ao limpar mensagens e conversas: %v", err)
 	}
 	logging.Println(ctx, "controllers.settings-controller", "[ClearMessages] Mensagens e conversas apagadas")

@@ -4,7 +4,6 @@ import {
   ChannelEnabledFields,
   ChannelLimitsProfileFields,
   ChannelStoredCredentialActions,
-  ChannelVaultFields,
 } from './ChannelCommonFields';
 import type { SlackForm } from './channelTypes';
 
@@ -12,8 +11,6 @@ interface ChannelsSlackSectionProps {
   form: SlackForm;
   onChange: (form: SlackForm) => void;
   onAnnounce: (message: string) => void;
-  vaultEnabled: boolean;
-  onToggleVault: (value: boolean) => void;
   botTokenStored: boolean;
   botTokenMasked: string;
   appTokenStored: boolean;
@@ -26,8 +23,6 @@ export function ChannelsSlackSection({
   form,
   onChange,
   onAnnounce,
-  vaultEnabled,
-  onToggleVault,
   botTokenStored,
   botTokenMasked,
   appTokenStored,
@@ -51,11 +46,8 @@ export function ChannelsSlackSection({
         placeholder={t('channels.slack.botTokenPlaceholder')}
         fullWidth
       />
-      <ChannelVaultFields
-        label={t('channels.slack.saveVault')}
-        checked={vaultEnabled}
-        onToggle={onToggleVault}
-        hint={t('channels.slack.vaultHint')}
+      <p className="channels-page__hint">{t('channels.slack.composedVaultHint')}</p>
+      <ChannelStoredCredentialActions
         credentials={[
           {
             id: 'slack-bot-token',

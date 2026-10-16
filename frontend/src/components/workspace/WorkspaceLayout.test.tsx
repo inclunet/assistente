@@ -1,17 +1,20 @@
 import { afterEach, describe, expect, it, beforeEach, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { WorkspaceLayout } from './WorkspaceLayout';
 import { restoreDefaultFocus } from '../../hooks/useDefaultFocus';
 import { useLandmarkNavigation, type Landmark } from '../../hooks/useLandmarkNavigation';
 import { registerWorkspacePanelFocus } from './workspacePanelFocusRegistry';
+import { useGridPageLandmarks } from '../../hooks/useGridPageLandmarks';
+import { useContentPageLandmarks } from '../../hooks/useContentPageLandmarks';
+import { captureLandmarkNavigationTarget } from '../../lib/commandLandmarkNavigation';
 
 type MockWorkspaceState = {
   workspace: {
     activeTabId: string;
     tabs: Array<{
       id: string;
-      type: 'chat' | 'editor';
+      type: 'chat' | 'editor' | 'tasklist';
       title: string;
       position: number;
       conversationId?: string;
@@ -20,10 +23,6 @@ type MockWorkspaceState = {
   } & Record<string, unknown>;
   setActiveTab: ReturnType<typeof vi.fn>;
 } & Record<string, unknown>;
-
-type KeyboardShortcutOptions = {
-  onTabShortcutNavigation?: (tabId: string) => void;
-};
 
 const storeMock = vi.hoisted(() => {
   let state: MockWorkspaceState;
@@ -57,13 +56,9 @@ const storeMock = vi.hoisted(() => {
 });
 
 const shortcutMock = vi.hoisted(() => {
-  let latestOptions: KeyboardShortcutOptions | undefined;
-  const useWorkspaceKeyboardShortcuts = vi.fn((options?: KeyboardShortcutOptions) => {
-    latestOptions = options;
-  });
+  const useWorkspaceKeyboardShortcuts = vi.fn();
   return {
     useWorkspaceKeyboardShortcuts,
-    getLatestOptions: () => latestOptions,
   };
 });
 
@@ -82,7 +77,10 @@ vi.mock('antd', () => ({
 }));
 
 vi.mock('../../store/workspaceStore', () => ({
-  useWorkspaceStore: (selector: (state: unknown) => unknown) => selector(storeMock.state),
+  useWorkspaceStore: Object.assign(
+    (selector: (state: unknown) => unknown) => selector(storeMock.state),
+    { getState: () => storeMock.state, subscribe: () => () => undefined },
+  ),
 }));
 
 vi.mock('../../hooks/useDocumentTitle', () => ({
@@ -97,11 +95,18 @@ vi.mock('../../hooks/useWorkspaceChatBridge', () => ({
   useWorkspaceChatBridge: vi.fn(),
 }));
 
-vi.mock('../../hooks/useLandmarkNavigation', () => ({
-  useLandmarkNavigation: vi.fn(),
-}));
+vi.mock('../../hooks/useLandmarkNavigation', async importOriginal => {
+  const actual = await importOriginal<typeof import('../../hooks/useLandmarkNavigation')>();
+  return { ...actual, useLandmarkNavigation: vi.fn(actual.useLandmarkNavigation) };
+});
 
-vi.mock('../../hooks/useDefaultFocus', () => ({
+vi.mock('../../store/authStore', () => ({ useAuthStore: {
+  getState: () => ({ isAuthenticated: true, user: { userId: 'user-a', sessionId: 'session-a' } }),
+  subscribe: () => () => undefined,
+} }));
+
+vi.mock('../../hooks/useDefaultFocus', async importOriginal => ({
+  ...await importOriginal<typeof import('../../hooks/useDefaultFocus')>(),
   restoreDefaultFocus: vi.fn(() => {
     document.querySelector<HTMLButtonElement>('[data-testid="default-focus"]')?.focus();
     return true;
@@ -175,10 +180,20 @@ function renderWorkspaceLayout() {
   );
 }
 
+function GridPage() {
+  useGridPageLandmarks({ pageClass: 'profiles-page' });
+  return <div className="profiles-page"><div role="toolbar"><button>Profile toolbar</button></div><div className="datagrid-container"><div role="grid"><div role="row"><div role="gridcell" tabIndex={0}>Profile cell</div></div></div></div></div>;
+}
+function ContentPage() {
+  useContentPageLandmarks({ pageClass: 'help-page' });
+  return <div className="help-page"><button>Help content</button></div>;
+}
+
 describe('WorkspaceLayout - foco ao navegar workspace tabs', () => {
   let requestAnimationFrameSpy: { mockRestore: () => void };
 
   beforeEach(() => {
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true);
     storeMock.state.workspace.activeTabId = 'tab-1';
     storeMock.state.workspace.tabs[1].type = 'editor';
     storeMock.setActiveTab.mockClear();
@@ -193,6 +208,7 @@ describe('WorkspaceLayout - foco ao navegar workspace tabs', () => {
 
   afterEach(() => {
     requestAnimationFrameSpy.mockRestore();
+    vi.restoreAllMocks();
   });
 
   it('setas na tablist trocam aba mantendo foco na tablist', () => {
@@ -217,110 +233,9 @@ describe('WorkspaceLayout - foco ao navegar workspace tabs', () => {
     expect(restoreDefaultFocus).not.toHaveBeenCalled();
   });
 
-  it('atalho global de aba restaura foco na area default apos troca', () => {
-    storeMock.state.workspace.tabs[1].type = 'chat';
-    const { rerender } = renderWorkspaceLayout();
-
-    shortcutMock.getLatestOptions()?.onTabShortcutNavigation?.('tab-2');
-    storeMock.state.workspace.activeTabId = 'tab-2';
-
-    rerender(
-      <MemoryRouter initialEntries={['/']}>
-        <WorkspaceLayout />
-      </MemoryRouter>,
-    );
-
-    expect(restoreDefaultFocus).toHaveBeenCalled();
-    expect(screen.getByTestId('default-focus')).toHaveFocus();
-  });
-
-  it('delega o foco ao controller da aba ativada antes do fallback genérico', () => {
+  it('a área de conteúdo delega o foco ao handler do painel ativo', () => {
     const focusPanel = vi.fn(() => true);
-    const unregister = registerWorkspacePanelFocus('tab-2', focusPanel);
-    const { rerender } = renderWorkspaceLayout();
-
-    shortcutMock.getLatestOptions()?.onTabShortcutNavigation?.('tab-2');
-    storeMock.state.workspace.activeTabId = 'tab-2';
-    rerender(
-      <MemoryRouter initialEntries={['/']}>
-        <WorkspaceLayout />
-      </MemoryRouter>,
-    );
-
-    expect(focusPanel).toHaveBeenCalledOnce();
-    expect(restoreDefaultFocus).not.toHaveBeenCalled();
-    unregister();
-  });
-
-  it('preserva o pedido até o controller lazy da aba editor registrar foco', () => {
-    const focusPanel = vi.fn(() => true);
-    const { rerender } = renderWorkspaceLayout();
-
-    shortcutMock.getLatestOptions()?.onTabShortcutNavigation?.('tab-2');
-    storeMock.state.workspace.activeTabId = 'tab-2';
-    rerender(
-      <MemoryRouter initialEntries={['/']}>
-        <WorkspaceLayout />
-      </MemoryRouter>,
-    );
-
-    expect(focusPanel).not.toHaveBeenCalled();
-    const unregister = registerWorkspacePanelFocus('tab-2', focusPanel);
-    expect(focusPanel).toHaveBeenCalledOnce();
-    expect(restoreDefaultFocus).not.toHaveBeenCalled();
-    unregister();
-  });
-
-  it('não enfileira novamente quando um controller registrado recusa foco', () => {
-    const refusedFocus = vi.fn(() => false);
-    const unregisterRefused = registerWorkspacePanelFocus('tab-2', refusedFocus);
-    const { rerender } = renderWorkspaceLayout();
-
-    shortcutMock.getLatestOptions()?.onTabShortcutNavigation?.('tab-2');
-    storeMock.state.workspace.activeTabId = 'tab-2';
-    rerender(
-      <MemoryRouter initialEntries={['/']}>
-        <WorkspaceLayout />
-      </MemoryRouter>,
-    );
-
-    expect(refusedFocus).toHaveBeenCalledOnce();
-    unregisterRefused();
-    const replacementFocus = vi.fn(() => true);
-    const unregisterReplacement = registerWorkspacePanelFocus('tab-2', replacementFocus);
-    expect(replacementFocus).not.toHaveBeenCalled();
-    unregisterReplacement();
-  });
-
-  it('restaura foco na aba anterior quando a ativação por atalho falha', () => {
-    const { rerender } = renderWorkspaceLayout();
-
-    shortcutMock.getLatestOptions()?.onTabShortcutNavigation?.('tab-2');
-    storeMock.state.workspace.activeTabId = 'tab-2';
-    rerender(
-      <MemoryRouter initialEntries={['/']}>
-        <WorkspaceLayout />
-      </MemoryRouter>,
-    );
-
-    window.dispatchEvent(new CustomEvent('workspace:tab-activation-rollback', {
-      detail: {
-        failedTabId: 'tab-2',
-        rollbackTabId: 'tab-1',
-      },
-    }));
-    storeMock.state.workspace.activeTabId = 'tab-1';
-    rerender(
-      <MemoryRouter initialEntries={['/']}>
-        <WorkspaceLayout />
-      </MemoryRouter>,
-    );
-
-    expect(restoreDefaultFocus).toHaveBeenCalled();
-    expect(screen.getByTestId('default-focus')).toHaveFocus();
-  });
-
-  it('usa o documento renderizado como foco padrão da área de conteúdo', () => {
+    const unregister = registerWorkspacePanelFocus('tab-1', focusPanel);
     renderWorkspaceLayout();
     const calls = vi.mocked(useLandmarkNavigation).mock.calls;
     const options = calls[calls.length - 1]?.[0] as {
@@ -331,6 +246,54 @@ describe('WorkspaceLayout - foco ao navegar workspace tabs', () => {
 
     expect(options.defaultLandmarkId).toBe('contentArea');
     expect(contentArea?.focus()).toBe(true);
+    // Sem duplicar o conhecimento de cada tipo: o landmark só roteia ao painel.
+    expect(focusPanel).toHaveBeenCalled();
+    unregister();
+  });
+
+  it('a área de conteúdo cai em foco genérico quando o painel ainda não registrou handler', () => {
+    renderWorkspaceLayout();
+    const calls = vi.mocked(useLandmarkNavigation).mock.calls;
+    const options = calls[calls.length - 1]?.[0] as {
+      landmarks: Landmark[];
+      defaultLandmarkId?: string;
+    };
+    const contentArea = options.landmarks.find((landmark) => landmark.id === 'contentArea');
+
+    // Sem handler para a aba ativa, o fallback foca o primeiro elemento focável
+    // do painel — sem travar a navegação por F6.
+    expect(contentArea?.focus()).toBe(true);
     expect(screen.getByRole('button', { name: 'Documento renderizado' })).toHaveFocus();
+  });
+
+  it('não restaura foco fora da rota workspace', () => {
+    render(
+      <MemoryRouter initialEntries={['/settings']}>
+        <WorkspaceLayout />
+      </MemoryRouter>,
+    );
+    vi.mocked(restoreDefaultFocus).mockClear();
+    expect(restoreDefaultFocus).not.toHaveBeenCalled();
+  });
+
+  it.each(['/history', '/jobs', '/profiles', '/memories', '/tasklists', '/help', '/about', '/update'])('não registra owner genérico para %s', path => {
+    render(<MemoryRouter initialEntries={[path]}><WorkspaceLayout /></MemoryRouter>);
+    const options = vi.mocked(useLandmarkNavigation).mock.calls[0][0];
+    expect(options.enabled).toBe(false); expect(options.defaultLandmarkId).toBeUndefined(); expect(options.landmarks).toEqual([]);
+    expect(captureLandmarkNavigationTarget(() => path)).toBeUndefined();
+  });
+
+  it.each(['/profiles', '/help'])('layout e hook real de página %s mantêm um único owner', path => {
+    render(<MemoryRouter initialEntries={[path]}><Routes><Route element={<WorkspaceLayout />}><Route path="/profiles" element={<GridPage />} /><Route path="/help" element={<ContentPage />} /></Route></Routes></MemoryRouter>);
+    const topbar = screen.getByRole('button', { name: 'Topbar' }); topbar.focus();
+    const target = captureLandmarkNavigationTarget(() => path);
+    expect(target).toBeDefined();
+    expect(target?.open('navigation.landmark.next')).toBe(true); target?.dispose();
+    expect(screen.getByRole('button', { name: path === '/profiles' ? 'Profile toolbar' : 'Help content' })).toHaveFocus();
+    if (path === '/profiles') {
+      const grid = captureLandmarkNavigationTarget(() => path);
+      expect(grid?.open('navigation.landmark.next')).toBe(true); grid?.dispose();
+      expect(screen.getByRole('gridcell')).toHaveFocus();
+    }
   });
 });

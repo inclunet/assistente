@@ -26,7 +26,7 @@ func TestManager_LoadInstanceSecrets_DoesNotLeakUserCredentials(t *testing.T) {
 
 	seedMgr := NewManagerWithStoreAndPersistence(key, store, true)
 	userCtx := database.WithUserID(context.Background(), "user-1")
-	if err := seedMgr.RegisterPatternWithContext(userCtx, "ist-prod-litellm.nullmplatform.com", &AuthConfig{
+	if err := seedMgr.RegisterPatternWithContext(userCtx, "ist-prod-litellm.nullmplatform.com", &AuthConfig{Source: "static",
 		Type:  "bearer",
 		Token: "sk-user-1",
 	}); err != nil {
@@ -82,10 +82,10 @@ func TestManager_LoadUserCredentials_HydratesAllUserCredentials(t *testing.T) {
 	}
 	seedMgr := NewManagerWithStoreAndPersistence(key, store, true)
 	for _, p := range patterns {
-		if err := seedMgr.RegisterPatternWithContext(anaCtx, p, &AuthConfig{Type: "bearer", Token: "ana-" + p}); err != nil {
+		if err := seedMgr.RegisterPatternWithContext(anaCtx, p, &AuthConfig{Source: "static", Type: "bearer", Token: "ana-" + p}); err != nil {
 			t.Fatalf("seed ana %s: %v", p, err)
 		}
-		if err := seedMgr.RegisterPatternWithContext(leoCtx, p, &AuthConfig{Type: "bearer", Token: "leo-" + p}); err != nil {
+		if err := seedMgr.RegisterPatternWithContext(leoCtx, p, &AuthConfig{Source: "static", Type: "bearer", Token: "leo-" + p}); err != nil {
 			t.Fatalf("seed leo %s: %v", p, err)
 		}
 	}

@@ -38,6 +38,38 @@ type FileDialogLabels struct {
 	DefaultFilename string `json:"defaultFilename"`
 }
 
+// EditorCommandPrepareRequest é a entrega efêmera feita após o flush da UI,
+// antes do diálogo nativo. Ticket/handoff são referências opacas ao broker.
+type EditorCommandPrepareRequest struct {
+	Ticket            string           `json:"ticket"`
+	HandoffID         string           `json:"handoffId"`
+	Content           string           `json:"content,omitempty"`
+	Labels            FileDialogLabels `json:"labels"`
+	SuggestedFilename string           `json:"suggestedFilename,omitempty"`
+}
+
+type EditorCommandPreparation struct {
+	Token             string `json:"token"`
+	Path              string `json:"path"`
+	Cancelled         bool   `json:"cancelled"`
+	RequiresOverwrite bool   `json:"requiresOverwrite"`
+}
+
+type EditorCommandCommitRequest struct {
+	Ticket           string `json:"ticket"`
+	HandoffID        string `json:"handoffId"`
+	Token            string `json:"token"`
+	ConfirmOverwrite bool   `json:"confirmOverwrite"`
+}
+
+type EditorCommandResult struct {
+	Status  string            `json:"status"`
+	TabID   string            `json:"tabId"`
+	Path    string            `json:"path"`
+	Opened  *EditorOpenResult `json:"opened,omitempty"`
+	Written bool              `json:"written"`
+}
+
 // EditorFileInfo retorna metadados simples do arquivo para detectar mudanças externas.
 type EditorFileInfo struct {
 	Path      string `json:"path"`

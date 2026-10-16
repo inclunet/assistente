@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"assistente/internal/logging"
+	"assistente/internal/oauthflow"
 	"context"
 	"crypto/tls"
 	"encoding/json"
@@ -24,7 +25,6 @@ import (
 	"assistente/internal/tools"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
-	"golang.org/x/oauth2"
 	"gorm.io/gorm"
 )
 
@@ -59,12 +59,6 @@ const (
 
 	// maxRetryDelay é o delay máximo entre retries (usado no modo lento)
 	maxRetryDelay = 5 * time.Minute
-
-	// tokenRefreshCheckInterval é o intervalo para verificar expiração de tokens OAuth2
-	tokenRefreshCheckInterval = 1 * time.Minute
-
-	// tokenRefreshThreshold é a antecedência mínima para forçar refresh antes da expiração
-	tokenRefreshThreshold = 2 * time.Minute
 )
 
 // emitFunc é a callback para emitir eventos Wails
@@ -84,50 +78,55 @@ type ToolCatalog interface {
 
 // serverConnection mantém o estado runtime de um servidor MCP conectado.
 type serverConnection struct {
-	client             *mcpsdk.Client
-	session            *mcpsdk.ClientSession
-	cancelSession      context.CancelFunc         // encerra todo o ciclo de vida da sessão
-	sessionDone        chan error                 // recebe o resultado de Wait quando a sessão termina
-	bridges            []*MCPToolBridge           // tools registradas no registry
-	cancelHealth       context.CancelFunc         // cancela health check goroutine
-	healthDone         chan struct{}              // fechado quando o health loop termina
-	cancelTokenRefresh context.CancelFunc         // cancela token refresh goroutine (OAuth2)
-	tokenRefreshDone   chan struct{}              // fechado quando o token refresh loop termina
-	logHandler         func(LogEntry)             // handler para logs do servidor
-	progressHandler    func(ProgressNotification) // handler para progresso
-	resourceSubHandler func(ResourceUpdated)      // handler para resource updates
+	oauthAuthorizationID string // immutable owner captured when the transport is built
+	client               *mcpsdk.Client
+	session              *mcpsdk.ClientSession
+	cancelSession        context.CancelFunc         // encerra todo o ciclo de vida da sessão
+	sessionDone          chan error                 // recebe o resultado de Wait quando a sessão termina
+	bridges              []*MCPToolBridge           // tools registradas no registry
+	cancelHealth         context.CancelFunc         // cancela health check goroutine
+	healthDone           chan struct{}              // fechado quando o health loop termina
+	logHandler           func(LogEntry)             // handler para logs do servidor
+	progressHandler      func(ProgressNotification) // handler para progresso
+	resourceSubHandler   func(ResourceUpdated)      // handler para resource updates
 }
 
 // connectionAttempt representa todo o Connect em andamento, não apenas a
 // chamada ao SDK. Disconnect espera done antes de retornar, impedindo que uma
 // sessão seja publicada depois de o usuário já tê-la desconectado.
 type connectionAttempt struct {
-	cancel context.CancelFunc
-	done   chan struct{}
+	oauthAuthorizationID string
+	cancel               context.CancelFunc
+	done                 chan struct{}
 }
 
 // Manager gerencia servidores MCP: configuração, conexão, discovery de tools.
 // Thread-safe para uso concorrente.
 type Manager struct {
-	mu             sync.RWMutex
-	resolver       *configdir.Resolver
-	repo           Repository
-	catalog        ToolCatalog
-	credMgr        *credentials.Manager
-	registry       *tools.Registry
-	emitEvent      emitFunc
-	llmHandler     func(context.Context, SamplingRequest) (string, error) // handler para sampling requests
-	servers        map[string]*ServerStatus                               // slug -> status
-	connections    map[string]*serverConnection                           // slug -> connection ativa
-	connectCancels map[string]*connectionAttempt                          // slug -> tentativa de Connect em andamento
-	ctx            context.Context
-	cancel         context.CancelFunc
-	bgWG           sync.WaitGroup // join de loops (health/token refresh) e reconexões no CloseAll
-	bgMu           sync.Mutex     // protege bgClosed e serializa Add(1) contra Wait (evita WaitGroup misuse)
-	bgClosed       bool           // true após CloseAll iniciar o join; bloqueia novas goroutines rastreadas
-	authContext    func() context.Context
-	roots          []Root // workspace roots globais
-	connectTimeout time.Duration
+	retiringLegacy    map[string]bool // blocks Connect until legacy cleanup effects finish
+	snapshotRoot      string          // optional test root; production stays outside exported config
+	managedAttempts   map[string]context.CancelFunc
+	mu                sync.RWMutex
+	resolver          *configdir.Resolver
+	repo              Repository
+	catalog           ToolCatalog
+	credMgr           *credentials.Manager
+	registry          *tools.Registry
+	emitEvent         emitFunc
+	llmHandler        func(context.Context, SamplingRequest) (string, error) // handler para sampling requests
+	servers           map[string]*ServerStatus                               // slug -> status
+	connections       map[string]*serverConnection                           // slug -> connection ativa
+	connectCancels    map[string]*connectionAttempt                          // slug -> tentativa de Connect em andamento
+	ctx               context.Context
+	cancel            context.CancelFunc
+	bgWG              sync.WaitGroup // join de loops (health/token refresh) e reconexões no CloseAll
+	bgMu              sync.Mutex     // protege bgClosed e serializa Add(1) contra Wait (evita WaitGroup misuse)
+	bgClosed          bool           // true após CloseAll iniciar o join; bloqueia novas goroutines rastreadas
+	authContext       func() context.Context
+	networkMu         sync.RWMutex
+	networkAuthorizer oauthflow.NetworkAuthorizer
+	roots             []Root // workspace roots globais
+	connectTimeout    time.Duration
 
 	// transportFactory existe para testes de lifecycle sem processos ou rede
 	// externa. Em produção, createTransport usa os transports oficiais.
@@ -297,8 +296,25 @@ func (m *Manager) markServerToolsUnavailable(slug, reason string) {
 		ctx = database.WithUserID(context.Background(), ownerUserID)
 	}
 	if _, err := catalog.MarkServerToolsUnavailable(ctx, serverID, nil, reason); err != nil {
-		logging.Errorf(context.Background(), "mcp.manager", "[MCP:%s] erro ao marcar tools indisponíveis no catálogo: %v", slug, err)
+		if benignCtxCancel(ctx, err) {
+			logging.Debugf(context.Background(), "mcp.manager", "[MCP:%s] marcação de tools indisponíveis cancelada (shutdown): %v", slug, err)
+		} else {
+			logging.Errorf(context.Background(), "mcp.manager", "[MCP:%s] erro ao marcar tools indisponíveis no catálogo: %v", slug, err)
+		}
 	}
+}
+
+// benignCtxCancel indica que a falha é apenas efeito de cancelamento do
+// contexto-pai (shutdown/troca de usuário/timeout de login), não uma anomalia.
+// Nesses casos logamos em Debug em vez de ERRO, para não poluir o log durante o
+// encerramento. IMPORTANTE: um context.DeadlineExceeded "solto" no erro (sem o
+// ctx-pai encerrado) NÃO é considerado benigno — é o caso de timeout real de
+// handshake MCP por conexão (connectTimeout), que deve continuar em ERRO.
+func benignCtxCancel(ctx context.Context, err error) bool {
+	if ctx != nil && ctx.Err() != nil {
+		return true
+	}
+	return errors.Is(err, context.Canceled)
 }
 
 func (m *Manager) StartLogRetention(interval, maxAge time.Duration) {
@@ -484,10 +500,8 @@ func (m *Manager) LoadConfigs() error {
 // flow OAuth interativo.
 //
 // Ordem é determinística (slug ordenado), serializada (um Connect por
-// vez) e cancela imediatamente se `ctx` for cancelado. Se algum
-// servidor precisar de OAuth interativo (refresh expirado de
-// verdade), o `oauthFlowArbiter` global mantém o serial — outras
-// conexões não-OAuth seguem.
+// vez) e cancela imediatamente se `ctx` for cancelado. Não abre autorização
+// interativa: grants expirados e cadastros legados exigem ação explícita.
 func (m *Manager) AutoConnectAll(ctx context.Context) {
 	m.mu.RLock()
 	slugs := make([]string, 0, len(m.servers))
@@ -503,24 +517,91 @@ func (m *Manager) AutoConnectAll(ctx context.Context) {
 	for _, slug := range slugs {
 		select {
 		case <-ctx.Done():
-			logging.Errorf(ctx, "mcp.manager", "[MCP] AutoConnectAll cancelado: %v", ctx.Err())
+			logging.Debugf(ctx, "mcp.manager", "[MCP] AutoConnectAll interrompido (shutdown): %v", ctx.Err())
 			return
 		default:
 		}
 		if err := m.connectWithContext(ctx, slug); err != nil {
-			logging.Errorf(ctx, "mcp.manager", "[MCP] AutoConnectAll: erro ao conectar '%s': %v", slug, err)
+			if benignCtxCancel(ctx, err) {
+				logging.Debugf(ctx, "mcp.manager", "[MCP] AutoConnectAll: conexão de '%s' cancelada (shutdown): %v", slug, err)
+			} else {
+				logging.Errorf(ctx, "mcp.manager", "[MCP] AutoConnectAll: erro ao conectar '%s': %v", slug, err)
+			}
 		}
 	}
 }
 
 // Connect conecta a um servidor MCP pelo slug.
 func (m *Manager) Connect(slug string) error {
+	return m.connect(slug, true)
+}
+
+// allowConsent is granted only by explicit user actions, never background retry.
+func (m *Manager) connect(slug string, allowConsent bool) (connectErr error) {
+	cfg, err := m.GetConfig(slug)
+	if err != nil {
+		return err
+	}
+	if err := oauthRuntimeError(*cfg); err != nil {
+		m.setError(slug, err.Error())
+		return err
+	}
+	if cfg.OAuthAuthorizationID != "" && cfg.Enabled && (cfg.AuthType == AuthOAuth2PKCE || (!allowConsent && cfg.AuthType == AuthOAuth2ClientCredentials)) {
+		m.mu.RLock()
+		_, connected := m.connections[slug]
+		m.mu.RUnlock()
+		if connected {
+			if err := m.Disconnect(slug); err != nil {
+				return err
+			}
+		}
+		ctx, done, err := m.beginManagedAttempt(m.credentialContext(), slug)
+		if err != nil {
+			return err
+		}
+		defer done()
+		defer func() {
+			if connectErr == nil {
+				return
+			}
+			if ctx.Err() != nil {
+				m.resetConnectingStatus(slug)
+				return
+			}
+			m.mu.RLock()
+			status := m.servers[slug]
+			connecting := status != nil && status.Status == StatusConnecting
+			m.mu.RUnlock()
+			if connecting {
+				m.setError(slug, connectErr.Error())
+			}
+		}()
+		if _, err = m.resolveManagedOAuth(ctx, *cfg, ""); err != nil {
+			if !allowConsent || !errors.Is(err, oauthflow.ErrReauthorize) {
+				return err
+			}
+			if err = m.authorizeManagedOAuthInAttempt(ctx, slug, *cfg); err != nil {
+				return err
+			}
+		}
+		m.clearNeedsReauth(slug)
+		return m.connectWithContext(ctx, slug)
+	}
 	return m.connectWithContext(m.ctx, slug)
 }
 
 func (m *Manager) connectWithContext(parentCtx context.Context, slug string) error {
 	if parentCtx == nil {
 		parentCtx = context.Background()
+	}
+
+	identityCtx := parentCtx
+	if _, err := database.RequireUserID(identityCtx); err != nil {
+		identityCtx = m.credentialContext()
+	}
+	sessionBase := m.ctx
+	if userID, err := database.RequireUserID(identityCtx); err == nil {
+		sessionBase = database.WithUserID(sessionBase, userID)
 	}
 
 	m.mu.Lock()
@@ -534,7 +615,16 @@ func (m *Manager) connectWithContext(parentCtx context.Context, slug string) err
 		m.mu.Unlock()
 		return fmt.Errorf("servidor MCP '%s' está desabilitado", slug)
 	}
+	if err := oauthRuntimeError(status.Config); err != nil {
+		m.mu.Unlock()
+		m.setError(slug, err.Error())
+		return err
+	}
 
+	if m.retiringLegacy[slug] {
+		m.mu.Unlock()
+		return oauthflow.ErrTransient
+	}
 	if _, connecting := m.connectCancels[slug]; connecting {
 		m.mu.Unlock()
 		return fmt.Errorf("servidor MCP '%s' já está conectando — use Desconectar para cancelar", slug)
@@ -548,6 +638,10 @@ func (m *Manager) connectWithContext(parentCtx context.Context, slug string) err
 		_ = m.Disconnect(slug)
 		m.mu.Lock()
 		status, ok = m.servers[slug]
+		if m.retiringLegacy[slug] {
+			m.mu.Unlock()
+			return oauthflow.ErrTransient
+		}
 		if !ok {
 			m.mu.Unlock()
 			return fmt.Errorf("servidor MCP '%s' não encontrado", slug)
@@ -556,14 +650,21 @@ func (m *Manager) connectWithContext(parentCtx context.Context, slug string) err
 			m.mu.Unlock()
 			return fmt.Errorf("servidor MCP '%s' está desabilitado", slug)
 		}
+		if err := oauthRuntimeError(status.Config); err != nil {
+			m.mu.Unlock()
+			m.setError(slug, err.Error())
+			return err
+		}
 	}
 
 	// O contexto entregue ao SDK governa toda a jsonrpc2.Connection. Por isso
 	// ele é persistente e só termina em Disconnect/CloseAll (ou falha da
 	// sessão), nunca no retorno desta função. O timeout do handshake é imposto
 	// separadamente em connectClientSession.
-	sessionCtx, sessionCancel := context.WithCancel(m.ctx)
-	attempt := &connectionAttempt{cancel: sessionCancel, done: make(chan struct{})}
+	sessionCtx, sessionCancel := context.WithCancel(sessionBase)
+	sessionCtx = withOAuthInteraction(sessionCtx)
+	sessionCtx = oauthflow.WithNetworkAuthorizer(sessionCtx, m.authorizeOAuthNetwork)
+	attempt := &connectionAttempt{cancel: sessionCancel, done: make(chan struct{}), oauthAuthorizationID: status.Config.OAuthAuthorizationID}
 	m.connectCancels[slug] = attempt
 	status.Status = StatusConnecting
 	status.Error = ""
@@ -599,12 +700,22 @@ func (m *Manager) connectWithContext(parentCtx context.Context, slug string) err
 	// Probe SSE: para Streamable HTTP, verifica se o servidor suporta SSE
 	// antes de conectar, evitando esperar timeouts longos em 5 retries do SDK.
 	if cfg.Transport == TransportStreamable && !cfg.DisableSSE && cfg.URL != "" {
-		httpClient := m.buildAuthHTTPClient(slug, cfg)
+		httpClient := m.buildAuthHTTPClient(sessionCtx, slug, cfg)
 		probeCtx, probeCancel := context.WithCancel(sessionCtx)
 		stopParentCancel := context.AfterFunc(parentCtx, probeCancel)
-		sseSupported, reason := probeSSESupport(probeCtx, cfg.URL, httpClient)
+		sseSupported, reason, probeErr := probeSSESupport(probeCtx, cfg.URL, httpClient)
 		stopParentCancel()
 		probeCancel()
+		if probeErr != nil {
+			sessionCancel()
+			m.setError(slug, probeErr.Error())
+			return probeErr
+		}
+		if denied := oauthflow.NetworkAuthorizationError(sessionCtx); denied != nil {
+			sessionCancel()
+			m.setError(slug, denied.Error())
+			return denied
+		}
 		if !sseSupported {
 			if err := parentCtx.Err(); err != nil {
 				sessionCancel()
@@ -651,7 +762,11 @@ func (m *Manager) connectWithContext(parentCtx context.Context, slug string) err
 				s.Config.DisableSSE = true
 			}
 			m.mu.Unlock()
-			_ = m.SaveConfig(slug, cfg)
+			if cfg.OAuthAuthorizationID != "" {
+				_ = m.persistManagedPolling(sessionCtx, cfg)
+			} else {
+				_ = m.SaveConfig(slug, cfg)
+			}
 
 			client = mcpsdk.NewClient(&mcpsdk.Implementation{Name: "assistente", Version: "1.0.0"}, nil)
 			transport2, err2 := m.createTransport(sessionCtx, slug, cfg)
@@ -714,13 +829,14 @@ func (m *Manager) connectWithContext(parentCtx context.Context, slug string) err
 
 	sessionDone := make(chan error, 1)
 	conn := &serverConnection{
-		client:             client,
-		session:            session,
-		cancelSession:      sessionCancel,
-		sessionDone:        sessionDone,
-		logHandler:         logHandler,
-		progressHandler:    progressHandler,
-		resourceSubHandler: resourceSubHandler,
+		oauthAuthorizationID: cfg.OAuthAuthorizationID,
+		client:               client,
+		session:              session,
+		cancelSession:        sessionCancel,
+		sessionDone:          sessionDone,
+		logHandler:           logHandler,
+		progressHandler:      progressHandler,
+		resourceSubHandler:   resourceSubHandler,
 	}
 
 	// Publica provisoriamente a sessão para permitir o discovery. A tentativa
@@ -767,24 +883,12 @@ func (m *Manager) connectWithContext(parentCtx context.Context, slug string) err
 
 	healthCtx, healthCancel := context.WithCancel(sessionCtx)
 	healthDone := make(chan struct{})
-	var (
-		tokenCtx    context.Context
-		tokenCancel context.CancelFunc
-		tokenDone   chan struct{}
-	)
-	if cfg.AuthType == AuthOAuth2PKCE || cfg.AuthType == AuthOAuth2ClientCredentials {
-		tokenCtx, tokenCancel = context.WithCancel(sessionCtx)
-		tokenDone = make(chan struct{})
-	}
 
 	now := time.Now()
 	m.mu.Lock()
 	if m.connections[slug] != conn || sessionCtx.Err() != nil {
 		m.mu.Unlock()
 		healthCancel()
-		if tokenCancel != nil {
-			tokenCancel()
-		}
 		m.detachConnection(slug, conn)
 		_ = closeServerConnection(slug, conn, true)
 		m.resetConnectingStatus(slug)
@@ -792,10 +896,6 @@ func (m *Manager) connectWithContext(parentCtx context.Context, slug string) err
 	}
 	conn.cancelHealth = healthCancel
 	conn.healthDone = healthDone
-	if tokenCancel != nil {
-		conn.cancelTokenRefresh = tokenCancel
-		conn.tokenRefreshDone = tokenDone
-	}
 	if s, ok := m.servers[slug]; ok {
 		s.Status = StatusConnected
 		s.Error = ""
@@ -812,14 +912,6 @@ func (m *Manager) connectWithContext(parentCtx context.Context, slug string) err
 		m.healthCheckLoop(healthCtx, slug, conn)
 	}) {
 		close(healthDone)
-	}
-	if tokenCancel != nil {
-		if !m.tryGoTracked(func() {
-			defer close(tokenDone)
-			m.tokenRefreshLoop(tokenCtx, slug)
-		}) {
-			close(tokenDone)
-		}
 	}
 
 	m.emit("mcp:server_connected", map[string]any{
@@ -895,7 +987,7 @@ func (m *Manager) connectClientSessionWithTimeout(
 	client *mcpsdk.Client,
 	transport mcpsdk.Transport,
 ) (*mcpsdk.ClientSession, error) {
-	handshakeCtx, handshakeCancel := context.WithTimeout(parentCtx, m.connectTimeout)
+	handshakeCtx, handshakeCancel := oauthHandshakeContext(parentCtx, sessionCtx, m.connectTimeout)
 	defer handshakeCancel()
 	return connectClientSession(handshakeCtx, sessionCtx, sessionCancel, client, transport)
 }
@@ -1032,12 +1124,42 @@ func (m *Manager) refreshServerOfferingsWithContextFor(parentCtx context.Context
 // Disconnect desconecta de um servidor MCP.
 // Se o servidor está em StatusConnecting, cancela a tentativa de conexão.
 func (m *Manager) Disconnect(slug string) error {
+	return m.disconnect(slug, false)
+}
+
+// After conversion only the runtime built from legacy credentials is retired.
+// Selection and cancellation share the lock so a newer managed connection wins.
+func (m *Manager) disconnect(slug string, legacyOnly bool) error {
 	m.mu.Lock()
 	conn, ok := m.connections[slug]
+	managedCancel := m.managedAttempts[slug]
 	attempt := m.connectCancels[slug]
-	if !ok && attempt == nil {
+	if legacyOnly {
+		managedCancel = nil
+		if conn != nil && conn.oauthAuthorizationID != "" {
+			conn, ok = nil, false
+		}
+		if attempt != nil && attempt.oauthAuthorizationID != "" {
+			attempt = nil
+		}
+	}
+	if managedCancel != nil {
+		managedCancel()
+	}
+	if !ok && attempt == nil && managedCancel == nil {
 		m.mu.Unlock()
 		return nil
+	}
+	if legacyOnly {
+		if m.retiringLegacy == nil {
+			m.retiringLegacy = make(map[string]bool)
+		}
+		if m.retiringLegacy[slug] {
+			m.mu.Unlock()
+			return nil
+		}
+		m.retiringLegacy[slug] = true
+		defer func() { m.mu.Lock(); delete(m.retiringLegacy, slug); m.mu.Unlock() }()
 	}
 
 	if attempt != nil {
@@ -1046,9 +1168,6 @@ func (m *Manager) Disconnect(slug string) error {
 	if conn != nil {
 		if conn.cancelHealth != nil {
 			conn.cancelHealth()
-		}
-		if conn.cancelTokenRefresh != nil {
-			conn.cancelTokenRefresh()
 		}
 		if conn.cancelSession != nil {
 			conn.cancelSession()
@@ -1126,9 +1245,6 @@ func closeServerConnection(slug string, conn *serverConnection, expected bool) e
 	if conn.cancelHealth != nil {
 		conn.cancelHealth()
 	}
-	if conn.cancelTokenRefresh != nil {
-		conn.cancelTokenRefresh()
-	}
 	if conn.cancelSession != nil {
 		conn.cancelSession()
 	}
@@ -1178,9 +1294,6 @@ func waitConnectionLoops(conn *serverConnection) {
 	if conn.healthDone != nil {
 		<-conn.healthDone
 	}
-	if conn.tokenRefreshDone != nil {
-		<-conn.tokenRefreshDone
-	}
 }
 
 func isExpectedSessionCloseError(err error, alreadyEnded bool) bool {
@@ -1207,6 +1320,97 @@ func (m *Manager) Reconnect(slug string) error {
 func (m *Manager) reconnectWithContext(ctx context.Context, slug string) error {
 	_ = m.Disconnect(slug)
 	return m.connectWithContext(ctx, slug)
+}
+
+// ReauthorizeServer força o fluxo OAuth interativo (abre o browser) de um
+// servidor MCP, independentemente de ele estar em modo nativo ou bridge e sem
+// depender de um 401 incidental (AEP-0105). O lifecycle compartilhado persiste
+// a autorização composta e o protocolo respeita o oauthFlowArbiter global.
+// Cadastros PKCE antigos precisam de migração explícita antes desta operação.
+// Ao concluir, reconecta servidores habilitados para atualizar as offerings.
+func (m *Manager) ReauthorizeServer(ctx context.Context, slug string) error {
+	if m.credMgr == nil {
+		return fmt.Errorf("gerenciador de credenciais indisponível")
+	}
+	if ctx == nil {
+		ctx = m.ctx
+	}
+
+	m.mu.RLock()
+	status, ok := m.servers[slug]
+	if !ok {
+		m.mu.RUnlock()
+		return fmt.Errorf("servidor MCP '%s' não encontrado", slug)
+	}
+	cfg := status.Config
+	m.mu.RUnlock()
+
+	if cfg.AuthType != AuthOAuth2PKCE {
+		return fmt.Errorf("reautorização interativa só é suportada em servidores OAuth2 PKCE (servidor '%s' usa auth '%s')", slug, cfg.AuthType)
+	}
+	if err := oauthRuntimeError(cfg); err != nil {
+		return err
+	}
+
+	if cfg.OAuthAuthorizationID != "" {
+		user, err := database.RequireUserID(m.credentialContext())
+		if err != nil {
+			return err
+		}
+		ctx = database.WithUserID(ctx, user)
+		if err = m.authorizeManagedOAuth(ctx, slug, cfg); err != nil {
+			return err
+		}
+		m.clearNeedsReauth(slug)
+		current, err := m.GetConfig(slug)
+		if err != nil {
+			return err
+		}
+		if !current.Enabled {
+			return nil
+		}
+		return m.reconnectWithContext(ctx, slug)
+	}
+	return oauthflow.ErrResource
+}
+
+// signalNeedsReauth marca um servidor como precisando de reautorização OAuth
+// interativa e emite o evento tipado mcp:server_needs_reauth para a UI. Emite
+// apenas na transição (false→true) para não repetir o alerta a cada turno de
+// chat (GetEligibleNativeMCPServers roda por turno). AEP-0105.
+func (m *Manager) signalNeedsReauth(slug, name, reason string) {
+	m.mu.Lock()
+	changed := false
+	if s, ok := m.servers[slug]; ok && !s.NeedsReauth {
+		s.NeedsReauth = true
+		changed = true
+	}
+	m.mu.Unlock()
+	if !changed {
+		return
+	}
+	logging.Warnf(context.Background(), "mcp.manager", "[MCP:%s] Reautorização OAuth necessária: %s", slug, reason)
+	m.logEvent(slug, "needs_reauth", reason, nil)
+	m.emit("mcp:server_needs_reauth", MCPServerReauthEvent{
+		Slug:   slug,
+		Name:   name,
+		Reason: reason,
+	})
+}
+
+// clearNeedsReauth limpa o sinal de reauth de um servidor (após renovação bem
+// sucedida ou reautorização) e emite mcp:server_reauthorized apenas na transição.
+func (m *Manager) clearNeedsReauth(slug string) {
+	m.mu.Lock()
+	changed := false
+	if s, ok := m.servers[slug]; ok && s.NeedsReauth {
+		s.NeedsReauth = false
+		changed = true
+	}
+	m.mu.Unlock()
+	if changed {
+		m.emit("mcp:server_reauthorized", map[string]string{"slug": slug})
+	}
 }
 
 // List retorna informações de todos os servidores (formato frontend-safe).
@@ -1238,14 +1442,14 @@ func (m *Manager) GetConfig(slug string) (*ServerConfig, error) {
 	if s, ok := m.servers[slug]; ok {
 		cfg := s.Config // cópia
 		m.mu.RUnlock()
-		return &cfg, nil
+		return m.projectManagedOAuth(&cfg)
 	}
 	m.mu.RUnlock()
 
 	if repo := m.repository(); repo != nil {
 		cfg, err := repo.GetServer(m.credentialContext(), slug)
 		if err == nil {
-			return cfg, nil
+			return m.projectManagedOAuth(cfg)
 		}
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, fmt.Errorf("servidor MCP '%s' não encontrado: %w", slug, err)
@@ -1270,6 +1474,23 @@ func (m *Manager) SaveConfig(slug string, cfg ServerConfig) error {
 		return err
 	}
 	cfg.Slug = slug
+	cfg.applyDefaults(slug)
+	existing, loadErr := repo.GetServer(ctx, slug)
+	if loadErr != nil && !errors.Is(loadErr, gorm.ErrRecordNotFound) {
+		return loadErr
+	}
+	if existing != nil && existing.OAuthAuthorizationID != "" {
+		if cfg.AuthType != AuthOAuth2PKCE && cfg.AuthType != AuthOAuth2ClientCredentials {
+			return m.detachManagedOAuth(ctx, slug, cfg, false)
+		}
+		cfg.OAuthManaged = true
+	}
+	if cfg.OAuthManaged || cfg.OAuthAuthorizationID != "" {
+		return m.saveManagedOAuth(slug, cfg, nil)
+	}
+	if existing != nil && cfg.AuthType == AuthNone && (existing.AuthType != AuthNone || hostnameFromURL(existing.URL) != "") {
+		return m.detachLegacyOAuth(ctx, *existing, cfg, false)
+	}
 	if err := repo.SaveServer(ctx, &cfg); err != nil {
 		return fmt.Errorf("erro ao salvar config: %w", err)
 	}
@@ -1305,6 +1526,7 @@ func (m *Manager) DuplicateConfig(slug string) (string, error) {
 	newSlug := m.nextCopySlug(slug)
 	newCfg := *cfg
 	newCfg.ID = ""
+	newCfg.OAuthAuthorizationID = ""
 	newCfg.Slug = newSlug
 	if newCfg.Name == "" {
 		newCfg.Name = slug
@@ -1359,6 +1581,17 @@ func (m *Manager) DeleteConfig(slug string) error {
 	if _, err := database.RequireUserID(ctx); err != nil {
 		return err
 	}
+	existing, loadErr := repo.GetServer(ctx, slug)
+	if loadErr != nil {
+		return loadErr
+	}
+	if existing.OAuthAuthorizationID != "" {
+		return m.detachManagedOAuth(ctx, slug, *existing, true)
+	}
+	if existing.AuthType == AuthOAuth2PKCE {
+		return m.detachLegacyOAuth(ctx, *existing, *existing, true)
+	}
+	ctx = withMCPConsumerSnapshot(ctx, *existing)
 	_ = m.Disconnect(slug)
 	if err := repo.DeleteServer(ctx, slug); err != nil {
 		return fmt.Errorf("erro ao deletar config: %w", err)
@@ -1407,6 +1640,9 @@ func (m *Manager) disconnectAllConnections(reason string) {
 	for slug := range m.connectCancels {
 		slugSet[slug] = struct{}{}
 	}
+	for slug := range m.managedAttempts {
+		slugSet[slug] = struct{}{}
+	}
 	m.mu.RUnlock()
 
 	slugs := make([]string, 0, len(slugSet))
@@ -1449,7 +1685,7 @@ func (m *Manager) createTransport(ctx context.Context, slug string, cfg ServerCo
 			return nil, fmt.Errorf("campo 'url' é obrigatório para transport sse")
 		}
 
-		httpClient := m.buildAuthHTTPClient(slug, cfg)
+		httpClient := m.buildAuthHTTPClient(ctx, slug, cfg)
 
 		return &mcpsdk.SSEClientTransport{
 			Endpoint:   cfg.URL,
@@ -1461,7 +1697,7 @@ func (m *Manager) createTransport(ctx context.Context, slug string, cfg ServerCo
 			return nil, fmt.Errorf("campo 'url' é obrigatório para transport streamable")
 		}
 
-		httpClient := m.buildAuthHTTPClient(slug, cfg)
+		httpClient := m.buildAuthHTTPClient(ctx, slug, cfg)
 
 		transport := &mcpsdk.StreamableClientTransport{
 			Endpoint:             cfg.URL,
@@ -1470,7 +1706,7 @@ func (m *Manager) createTransport(ctx context.Context, slug string, cfg ServerCo
 		}
 
 		if cfg.DisableSSE {
-			logging.Errorf(context.Background(), "mcp.manager", "[MCP:%s] Standalone SSE desabilitado por configuração", slug)
+			logStandaloneSSEDisabled(slug)
 		}
 
 		return transport, nil
@@ -1483,60 +1719,16 @@ func (m *Manager) createTransport(ctx context.Context, slug string, cfg ServerCo
 // buildAuthHTTPClient cria um *http.Client com autenticação configurada
 // com base no authType do servidor e credenciais do gerenciador.
 // Retorna nil se nenhuma autenticação estiver configurada (o SDK usará http.DefaultClient).
-func (m *Manager) buildAuthHTTPClient(slug string, cfg ServerConfig) *http.Client {
+func (m *Manager) buildAuthHTTPClient(ctx context.Context, slug string, cfg ServerConfig) *http.Client {
+	if cfg.OAuthAuthorizationID != "" {
+		return m.managedHTTPClient(ctx, cfg)
+	}
 	switch cfg.AuthType {
-	case AuthOAuth2PKCE:
-		onConfigUpdate := func(updated ServerConfig) {
-			if err := m.SaveConfig(slug, updated); err != nil {
-				logging.Errorf(context.Background(), "mcp.manager", "[MCP:%s] Erro ao persistir config após atualização OAuth: %v", slug, err)
-			}
-		}
-		client := buildPKCEHTTPClient(cfg, m.credMgr, m.emitEvent, slug, onConfigUpdate, m.credentialContext)
-		logging.Infof(context.Background(), "mcp.manager", "[MCP:%s] HTTP client configurado com OAuth2 PKCE", slug)
-		return client
+	case AuthOAuth2PKCE, AuthOAuth2ClientCredentials:
+		return oauthflow.NewResourceHTTPClient(cfg.URL, oauthErrorTransport{errOAuthMigrationRequired})
 
-	case AuthOAuth2ClientCredentials:
-		_, clientSecret := loadClientCreds(m.credentialContext(), m.credMgr, slug)
-		if clientSecret != "" {
-			client := buildClientCredentialsHTTPClient(cfg, clientSecret)
-			logging.Infof(context.Background(), "mcp.manager", "[MCP:%s] HTTP client configurado com OAuth2 Client Credentials", slug)
-			return client
-		}
-		logging.Infof(context.Background(), "mcp.manager", "[MCP:%s] OAuth2 Client Credentials configurado mas sem client_secret no credential manager (mcp-client:%s)", slug, slug)
-		return nil
-
-	case AuthBearer:
-		if m.credMgr != nil && cfg.URL != "" {
-			if auth, err := m.credMgr.ResolveForURLWithContext(m.credentialContext(), cfg.URL); err == nil && auth != nil && auth.Token != "" {
-				client := &http.Client{
-					Transport: &bearerRoundTripper{
-						base:  newMCPTransport(),
-						token: auth.Token,
-					},
-				}
-				logging.Infof(context.Background(), "mcp.manager", "[MCP:%s] HTTP client configurado com Bearer token", slug)
-				return client
-			}
-		}
-		logging.Infof(context.Background(), "mcp.manager", "[MCP:%s] Bearer auth configurado mas sem token no credential manager", slug)
-		return nil
-
-	case AuthBasic:
-		if m.credMgr != nil && cfg.URL != "" {
-			if auth, err := m.credMgr.ResolveForURLWithContext(m.credentialContext(), cfg.URL); err == nil && auth != nil && auth.Username != "" {
-				client := &http.Client{
-					Transport: &basicAuthRoundTripper{
-						base:     newMCPTransport(),
-						username: auth.Username,
-						password: auth.Password,
-					},
-				}
-				logging.Infof(context.Background(), "mcp.manager", "[MCP:%s] HTTP client configurado com Basic auth", slug)
-				return client
-			}
-		}
-		logging.Warnf(context.Background(), "mcp.manager", "[MCP:%s] Basic auth configurado mas sem credenciais no credential manager", slug)
-		return nil
+	case AuthBearer, AuthBasic:
+		return m.credentialHTTPClient(cfg)
 
 	default:
 		return nil
@@ -1589,13 +1781,13 @@ func newMCPTransport() http.RoundTripper {
 // probeSSESupport sends a quick GET with Accept: text/event-stream to the MCP
 // endpoint to check if the server supports SSE. Returns (true, "") if supported,
 // or (false, reason) if not. Uses a short timeout so this doesn't slow down connect.
-func probeSSESupport(parentCtx context.Context, mcpURL string, authClient *http.Client) (bool, string) {
-	ctx, cancel := context.WithTimeout(parentCtx, 10*time.Second)
+func probeSSESupport(parentCtx context.Context, mcpURL string, authClient *http.Client) (bool, string, error) {
+	ctx, cancel := oauthHandshakeContext(parentCtx, parentCtx, 10*time.Second)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, mcpURL, nil)
 	if err != nil {
-		return true, "" // can't probe, assume SSE is supported
+		return true, "", nil // can't probe, assume SSE is supported
 	}
 	req.Header.Set("Accept", "text/event-stream")
 	req.Header.Set("Cache-Control", "no-cache")
@@ -1607,52 +1799,30 @@ func probeSSESupport(parentCtx context.Context, mcpURL string, authClient *http.
 
 	resp, err := client.Do(req)
 	if err != nil {
-		if ctx.Err() != nil {
-			return false, "timeout — servidor não respondeu ao GET SSE"
+		if errors.Is(err, errOAuthPersistence) {
+			return false, "", err
 		}
-		return false, fmt.Sprintf("erro: %v", err)
+		if ctx.Err() != nil {
+			return false, "timeout — servidor não respondeu ao GET SSE", nil
+		}
+		return false, fmt.Sprintf("erro: %v", err), nil
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	ct := resp.Header.Get("Content-Type")
 	switch {
 	case resp.StatusCode == http.StatusMethodNotAllowed:
-		return false, "405 Method Not Allowed"
+		return false, "405 Method Not Allowed", nil
 	case resp.StatusCode == http.StatusNotFound:
-		return false, "404 Not Found"
+		return false, "404 Not Found", nil
 	case resp.StatusCode >= 400:
-		return false, fmt.Sprintf("HTTP %d", resp.StatusCode)
+		return false, fmt.Sprintf("HTTP %d", resp.StatusCode), nil
 	case strings.Contains(ct, "text/event-stream"):
-		return true, ""
+		return true, "", nil
 	default:
-		logging.Errorf(context.Background(), "mcp.manager", "[MCP:probe] SSE probe: HTTP %d, Content-Type: %s", resp.StatusCode, ct)
-		return true, "" // ambiguous — assume supported, let SDK handle it
+		logging.Debugf(context.Background(), "mcp.manager", "[MCP:probe] SSE probe: HTTP %d, Content-Type: %s", resp.StatusCode, ct)
+		return true, "", nil // ambiguous — assume supported, let SDK handle it
 	}
-}
-
-// bearerRoundTripper injeta Authorization: Bearer em todas as requisições.
-type bearerRoundTripper struct {
-	base  http.RoundTripper
-	token string
-}
-
-func (rt *bearerRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
-	cloned := req.Clone(req.Context())
-	cloned.Header.Set("Authorization", bearerAuthorizationHeader(rt.token))
-	return rt.base.RoundTrip(cloned)
-}
-
-// basicAuthRoundTripper injeta Authorization: Basic em todas as requisições.
-type basicAuthRoundTripper struct {
-	base     http.RoundTripper
-	username string
-	password string
-}
-
-func (rt *basicAuthRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
-	cloned := req.Clone(req.Context())
-	cloned.SetBasicAuth(rt.username, rt.password)
-	return rt.base.RoundTrip(cloned)
 }
 
 // setError atualiza o status de um servidor para erro.
@@ -1700,22 +1870,10 @@ func (m *Manager) logEvent(slug, eventType, message string, data map[string]any)
 		Data:      payload,
 		Timestamp: time.Now(),
 	}); err != nil {
-		logging.Errorf(context.Background(), "mcp.manager", "[MCP:%s] erro ao persistir log %s: %v", slug, eventType, err)
-	}
-}
-
-// tokenRefreshLoop verifica periodicamente a expiração de tokens OAuth2
-// e força refresh proativo antes que expirem.
-func (m *Manager) tokenRefreshLoop(ctx context.Context, slug string) {
-	ticker := time.NewTicker(tokenRefreshCheckInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			m.checkAndRefreshTokenWithContext(ctx, slug)
+		if benignCtxCancel(context.Background(), err) {
+			logging.Debugf(context.Background(), "mcp.manager", "[MCP:%s] persistência de log %s cancelada (shutdown): %v", slug, eventType, err)
+		} else {
+			logging.Errorf(context.Background(), "mcp.manager", "[MCP:%s] erro ao persistir log %s: %v", slug, eventType, err)
 		}
 	}
 }
@@ -1733,7 +1891,7 @@ func (m *Manager) checkAndRefreshTokenWithContext(ctx context.Context, slug stri
 		return
 	}
 	if refreshed {
-		logging.Errorf(context.Background(), "mcp.manager", "[MCP:%s] Token renovado proativamente", slug)
+		logging.Infof(context.Background(), "mcp.manager", "[MCP:%s] Token renovado proativamente", slug)
 	}
 }
 
@@ -1750,85 +1908,31 @@ func (m *Manager) refreshOAuthTokenBestEffort(ctx context.Context, slug string, 
 	}
 	cfg := status.Config
 	m.mu.RUnlock()
-
-	if cfg.AuthType != AuthOAuth2PKCE {
+	if cfg.Transport != TransportSSE && cfg.Transport != TransportStreamable {
 		return false, nil
 	}
-
-	authCtx := m.credentialContext()
-	auth, err := m.credMgr.GetByPatternWithContext(authCtx, userTokensPattern(slug))
-	if err != nil || auth == nil {
-		return false, nil
-	}
-
-	timeUntilExpiry := time.Duration(0)
-	if auth.ExpiresAt != 0 {
-		expiresAt := time.Unix(auth.ExpiresAt, 0)
-		timeUntilExpiry = time.Until(expiresAt)
-	}
-	if !force {
-		if auth.ExpiresAt == 0 {
-			return false, nil
-		}
-		if timeUntilExpiry > tokenRefreshThreshold {
-			return false, nil
-		}
-	}
-
-	if force {
-		logging.Infof(ctx, "mcp.manager", "[MCP:%s] Executando refresh OAuth best-effort (expiry em %v)", slug, timeUntilExpiry.Round(time.Second))
-	} else {
-		logging.Infof(ctx, "mcp.manager", "[MCP:%s] Token expira em %v — forçando refresh proativo", slug, timeUntilExpiry.Round(time.Second))
-	}
-
-	clientID, clientSecret := loadClientCreds(authCtx, m.credMgr, slug)
-	if clientID == "" {
-		clientID = cfg.OAuth2ClientID
-	}
-
-	token := loadUserTokens(authCtx, m.credMgr, slug)
-	if token == nil || token.RefreshToken == "" {
-		logging.Infof(ctx, "mcp.manager", "[MCP:%s] Sem refresh_token disponível para refresh", slug)
-		return false, nil
-	}
-
-	oauthCfg := &oauth2.Config{
-		ClientID:     clientID,
-		ClientSecret: clientSecret,
-		Endpoint: oauth2.Endpoint{
-			AuthURL:  cfg.OAuth2AuthURL,
-			TokenURL: cfg.OAuth2TokenURL,
-		},
-		Scopes: cfg.OAuth2Scopes,
-	}
-
-	expiredToken := &oauth2.Token{
-		RefreshToken: token.RefreshToken,
-		Expiry:       time.Now().Add(-1 * time.Hour),
-	}
-
-	refreshCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
-	defer cancel()
-
-	newToken, err := oauthCfg.TokenSource(refreshCtx, expiredToken).Token()
-	if err != nil {
+	if err := oauthRuntimeError(cfg); err != nil {
 		return false, err
 	}
 
-	newAuth := &credentials.AuthConfig{
-		Type:       "oauth2",
-		Token:      newToken.AccessToken,
-		RefreshURL: newToken.RefreshToken,
+	if cfg.OAuthAuthorizationID != "" {
+		user, err := database.RequireUserID(m.credentialContext())
+		if err != nil {
+			return false, err
+		}
+		ctx = database.WithUserID(ctx, user)
+		_, before, _, err := m.managedOAuth(ctx, cfg)
+		if err != nil {
+			return false, err
+		}
+		rejected := ""
+		if force {
+			rejected = before.Tokens.Access
+		}
+		after, err := m.resolveManagedOAuth(ctx, cfg, rejected)
+		return err == nil && after.Revision != before.Revision, err
 	}
-	if newToken.Expiry.After(time.Now()) {
-		newAuth.ExpiresAt = newToken.Expiry.Unix()
-	}
-	if err := m.credMgr.RegisterPatternWithContext(refreshCtx, userTokensPattern(slug), newAuth); err != nil {
-		return false, err
-	}
-
-	logging.Errorf(ctx, "mcp.manager", "[MCP:%s] Token renovado (novo expiry: %v)", slug, newToken.Expiry.Format(time.RFC3339))
-	return true, nil
+	return false, nil
 }
 
 // RecoverServerBestEffort tenta restaurar um servidor MCP para chamadas futuras do chat.
@@ -1856,11 +1960,20 @@ func (m *Manager) RecoverServerBestEffort(ctx context.Context, slug string) Reco
 		return result
 	}
 	currentStatus := status.Status
+	runtimeErr := oauthRuntimeError(status.Config)
 	m.mu.RUnlock()
+	if runtimeErr != nil {
+		result.Err = runtimeErr
+		return result
+	}
 
 	result.Attempted = true
 
 	refreshed, refreshErr := m.refreshOAuthTokenBestEffort(ctx, slug, true)
+	if terminalOAuthNetworkError(ctx, refreshErr) {
+		result.Err = refreshErr
+		return result
+	}
 	if refreshed {
 		result.Refreshed = true
 	}
@@ -1936,6 +2049,17 @@ func (m *Manager) performHealthCheckFor(parentCtx context.Context, slug string, 
 		err = m.refreshServerOfferingsWithContextFor(ctx, slug, conn)
 	}
 
+	m.recordHealthCheckResult(parentCtx, slug, conn, err)
+}
+
+// recordHealthCheckResult aplica somente resultados de uma sessão ainda ativa.
+// Erros devolvidos depois do cancelamento do próprio lifecycle não representam
+// falha de saúde e não podem alimentar o contador ou a reconexão.
+func (m *Manager) recordHealthCheckResult(parentCtx context.Context, slug string, conn *serverConnection, err error) {
+	if healthCheckEndedDuringCleanup(parentCtx, err) {
+		return
+	}
+
 	now := time.Now()
 	m.mu.Lock()
 	// A sessão pode ter sido desconectada ou substituída enquanto Ping estava
@@ -1975,6 +2099,10 @@ func (m *Manager) performHealthCheckFor(parentCtx context.Context, slug string, 
 		})
 		m.logEvent(slug, "health_fail", "Health check MCP falhou", map[string]any{"error": err.Error()})
 	}
+}
+
+func healthCheckEndedDuringCleanup(parentCtx context.Context, err error) bool {
+	return err != nil && parentCtx != nil && parentCtx.Err() != nil
 }
 
 // handleToolCallError é chamado pelo MCPToolBridge quando um tool call falha
@@ -2029,6 +2157,11 @@ func (m *Manager) reconnectWithRetry(slug string) {
 		m.mu.Unlock()
 		return
 	}
+	if err := oauthRuntimeError(status.Config); err != nil {
+		m.mu.Unlock()
+		m.setError(slug, err.Error())
+		return
+	}
 
 	if status.Reconnecting || status.Status == StatusConnecting || status.Status == StatusConnected {
 		m.mu.Unlock()
@@ -2054,7 +2187,12 @@ func (m *Manager) reconnectWithRetry(slug string) {
 			return
 		}
 		retryCount := status.RetryCount
+		runtimeErr := oauthRuntimeError(status.Config)
 		m.mu.RUnlock()
+		if runtimeErr != nil {
+			m.setError(slug, runtimeErr.Error())
+			return
+		}
 
 		var delay time.Duration
 		if retryCount >= maxRetries {
@@ -2090,9 +2228,26 @@ func (m *Manager) reconnectWithRetry(slug string) {
 		m.mu.RUnlock()
 
 		_ = m.Disconnect(slug)
-
-		if err := m.Connect(slug); err != nil {
+		// Resolve before the SDK wraps errors, preserving the typed OAuth reason.
+		// Background recovery never receives permission to open consent.
+		if err := m.connect(slug, false); err != nil {
 			logging.Errorf(context.Background(), "mcp.manager", "[MCP] Falha ao reconectar '%s': %v", slug, err)
+			if errors.Is(err, oauthflow.ErrReauthorize) || errors.Is(err, oauthflow.ErrPermission) || errors.Is(err, oauthflow.ErrClientConfiguration) {
+				m.mu.RLock()
+				name, clientCredentials := slug, false
+				if current, exists := m.servers[slug]; exists {
+					name = current.Config.Name
+					clientCredentials = current.Config.AuthType == AuthOAuth2ClientCredentials
+				}
+				m.mu.RUnlock()
+				if clientCredentials {
+					// This grant needs configuration, not browser consent.
+					m.clearNeedsReauth(slug)
+				} else {
+					m.signalNeedsReauth(slug, name, err.Error())
+				}
+				return
+			}
 			continue
 		}
 
@@ -2108,6 +2263,15 @@ func (m *Manager) reconnectWithRetry(slug string) {
 
 func logReconnectSuccess(slug string) {
 	logging.Infof(context.Background(), "mcp.manager", "[MCP] Reconexão bem-sucedida para '%s'", slug)
+}
+
+// logStandaloneSSEDisabled registra que o canal SSE standalone foi desabilitado
+// por configuração. É um estado benigno: o servidor continua conectando via HTTP
+// streamable/polling. Por isso o nível é INFO — a mensagem só documenta a
+// configuração vigente e não sinaliza falha (evita poluir o log com ~12 ERROR
+// por sessão).
+func logStandaloneSSEDisabled(slug string) {
+	logging.Infof(context.Background(), "mcp.manager", "[MCP:%s] Standalone SSE desabilitado por configuração", slug)
 }
 
 // ReadResource lê o conteúdo de um resource MCP.
@@ -2337,6 +2501,9 @@ func (m *Manager) ImportFromMCPJSON(data []byte) (int, error) {
 			return result.Imported, loadErr
 		}
 	}
+	if result.Failed > 0 {
+		return result.Imported, errors.New(strings.Join(result.Errors, "; "))
+	}
 	return result.Imported, nil
 }
 
@@ -2348,6 +2515,29 @@ type NativeMCPServer struct {
 	URL       string
 	AuthToken string
 	ToolNames []string // nomes das tools registradas (namespaced, para filtragem)
+}
+
+// MCPServerReauthEvent é o payload tipado do evento mcp:server_needs_reauth,
+// emitido quando a autorização OAuth de um servidor exige ação explícita
+// silenciosamente (AEP-0105). O frontend tipa o payload à mão (espelho deste
+// struct), conforme a regra de eventos do AGENTS.md.
+type MCPServerReauthEvent struct {
+	Slug   string `json:"slug"`
+	Name   string `json:"name"`
+	Reason string `json:"reason,omitempty"`
+}
+
+// nativeMCPCandidate é o snapshot imutável de um servidor candidato a MCP nativo,
+// coletado sob RLock. A resolução de token (que pode disparar refresh e adquirir
+// locks) acontece FORA do lock a partir deste snapshot, evitando deadlock/corrida
+// no RWMutex do Manager (AEP-0105).
+type nativeMCPCandidate struct {
+	managedConfig ServerConfig
+	slug          string
+	name          string
+	url           string
+	authType      AuthType
+	toolNames     []string
 }
 
 // RecoveryResult descreve o resultado de uma tentativa best-effort de recuperação
@@ -2374,15 +2564,15 @@ func isNativeMCPEligibleURL(rawURL string) bool {
 	return false
 }
 
-// GetEligibleNativeMCPServers retorna servidores HTTP conectados e com tools,
-// elegíveis para MCP nativo (SSE ou Streamable HTTP).
-// Servidores STDIO são excluídos — não podem ser acessados remotamente.
-// Servidores HTTP com URL insegura (HTTP em host não-local) são excluídos.
-func (m *Manager) GetEligibleNativeMCPServers() []NativeMCPServer {
+// collectNativeMCPCandidates coleta, sob RLock, o snapshot dos servidores
+// candidatos a MCP nativo (conectados, HTTP, com tools, URL segura,
+// prefer_bridge=false). A resolução de token — que pode disparar refresh e
+// adquirir locks — acontece FORA deste lock (AEP-0105), a partir do snapshot.
+func (m *Manager) collectNativeMCPCandidates() []nativeMCPCandidate {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	var result []NativeMCPServer
+	var candidates []nativeMCPCandidate
 	for slug, status := range m.servers {
 		if status.Status != StatusConnected {
 			continue
@@ -2407,42 +2597,60 @@ func (m *Manager) GetEligibleNativeMCPServers() []NativeMCPServer {
 			continue
 		}
 
-		srv := NativeMCPServer{
-			Slug: slug,
-			Name: status.Config.Name,
-			URL:  status.Config.URL,
+		c := nativeMCPCandidate{
+			managedConfig: status.Config,
+			slug:          slug,
+			name:          status.Config.Name,
+			url:           status.Config.URL,
+			authType:      status.Config.AuthType,
 		}
-
-		// Coleta nomes das tools registradas (fullName = namespaced)
 		for _, t := range status.Tools {
-			srv.ToolNames = append(srv.ToolNames, t.FullName)
+			c.toolNames = append(c.toolNames, t.FullName)
 		}
-		sort.Strings(srv.ToolNames)
+		sort.Strings(c.toolNames)
+		candidates = append(candidates, c)
+	}
+	return candidates
+}
 
-		// Resolve auth token se disponível (escopado pelo user vigente)
-		if m.credMgr != nil {
-			authCtx := m.credentialContext()
-			if auth, err := m.credMgr.GetByPatternWithContext(authCtx, userTokensPattern(slug)); err == nil && auth != nil && auth.Token != "" {
-				srv.AuthToken = auth.Token
-				logging.Infof(context.Background(), "mcp.manager", "[MCP] servidor %q: token OAuth resolvido (pattern=%s, len=%d, expires=%d)",
-					slug, userTokensPattern(slug), len(auth.Token), auth.ExpiresAt)
-			} else {
-				if hostname := hostnameFromURL(status.Config.URL); hostname != "" {
-					if auth, err := m.credMgr.GetByPatternWithContext(authCtx, hostname); err == nil && auth != nil && auth.Token != "" {
-						srv.AuthToken = auth.Token
-						logging.Infof(context.Background(), "mcp.manager", "[MCP] servidor %q: token resolvido por hostname (pattern=%s)", slug, hostname)
-					} else {
-						logging.Infof(context.Background(), "mcp.manager", "[MCP] servidor %q: NENHUM token encontrado (oauth=%s, hostname=%s)",
-							slug, userTokensPattern(slug), hostname)
-					}
-				} else {
-					logging.Infof(context.Background(), "mcp.manager", "[MCP] servidor %q: NENHUM token encontrado (oauth=%s, sem hostname)",
-						slug, userTokensPattern(slug))
-				}
+// GetEligibleNativeMCPServers retorna servidores HTTP conectados e com tools,
+// elegíveis para MCP nativo (SSE ou Streamable HTTP).
+// Servidores STDIO são excluídos — não podem ser acessados remotamente.
+// Servidores HTTP com URL insegura (HTTP em host não-local) são excluídos.
+//
+// Nunca entrega um Bearer OAuth expirado em silêncio (AEP-0105): quando o token
+// de um servidor OAuth2 PKCE está expirado/perto de expirar, tenta refresh
+// forçado; se o refresh falhar (sem/refresh_token inválido, invalid_grant), o
+// servidor é sinalizado como precisando de reautorização e EXCLUÍDO do caminho
+// nativo, em vez de mandar um token morto ao provider.
+func (m *Manager) GetEligibleNativeMCPServers() []NativeMCPServer {
+	candidates := m.collectNativeMCPCandidates()
+	ctx := m.credentialContext()
+
+	var result []NativeMCPServer
+	for _, c := range candidates {
+		if err := oauthRuntimeError(c.managedConfig); err != nil {
+			m.mu.RLock()
+			status := m.servers[c.slug]
+			unchanged := status != nil && status.Status == StatusError && status.Error == err.Error()
+			m.mu.RUnlock()
+			if !unchanged {
+				m.setError(c.slug, err.Error())
 			}
+			continue
 		}
-
-		result = append(result, srv)
+		token, ok := m.resolveNativeAuthToken(ctx, c)
+		if !ok {
+			// Reauth sinalizada; não entrega Bearer morto ao provider.
+			continue
+		}
+		result = append(result, NativeMCPServer{
+			Slug:      c.slug,
+			Name:      c.name,
+			URL:       c.url,
+			AuthToken: token,
+			ToolNames: c.toolNames,
+		})
 	}
 	sort.SliceStable(result, func(i, j int) bool {
 		if result[i].Slug != result[j].Slug {
@@ -2451,6 +2659,72 @@ func (m *Manager) GetEligibleNativeMCPServers() []NativeMCPServer {
 		return result[i].Name < result[j].Name
 	})
 	return result
+}
+
+// resolveNativeAuthToken resolve o Bearer fora do lock do Manager. OAuth exige
+// uma autorização composta; referências inválidas e grants históricos nunca
+// liberam fallback por slug/hostname nem uma tentativa anônima.
+func (m *Manager) resolveNativeAuthToken(ctx context.Context, c nativeMCPCandidate) (string, bool) {
+	if c.managedConfig.OAuthAuthorizationID != "" {
+		r, err := m.resolveManagedOAuth(ctx, c.managedConfig, "")
+		if err != nil {
+			if errors.Is(err, oauthflow.ErrReauthorize) || errors.Is(err, oauthflow.ErrPermission) || errors.Is(err, oauthflow.ErrClientConfiguration) {
+				if c.managedConfig.AuthType == AuthOAuth2ClientCredentials {
+					m.clearNeedsReauth(c.slug)
+					reason := "oauth_client_configuration_required"
+					if errors.Is(err, oauthflow.ErrPermission) {
+						reason = "oauth_permission_missing"
+					}
+					m.mu.RLock()
+					status := m.servers[c.slug]
+					unchanged := status != nil && status.Status == StatusError && status.Error == reason
+					m.mu.RUnlock()
+					if !unchanged {
+						m.setError(c.slug, reason)
+					}
+				} else {
+					m.signalNeedsReauth(c.slug, c.name, "oauth_reauthorization_required")
+				}
+			}
+			return "", false
+		}
+		m.clearNeedsReauth(c.slug)
+		return r.Tokens.Access, true
+	}
+
+	if c.managedConfig.OAuthManaged || c.authType == AuthOAuth2PKCE || c.authType == AuthOAuth2ClientCredentials ||
+		c.managedConfig.AuthType == AuthOAuth2PKCE || c.managedConfig.AuthType == AuthOAuth2ClientCredentials {
+		return "", false
+	}
+	if m.credMgr == nil {
+		return "", true
+	}
+
+	auth, err := m.credMgr.GetByPatternWithContext(ctx, userTokensPattern(c.slug))
+	if err == nil && auth != nil && auth.Token != "" {
+		m.clearNeedsReauth(c.slug)
+		logging.Infof(context.Background(), "mcp.manager", "[MCP] servidor %q: token OAuth resolvido (pattern=%s, len=%d, expires=%d)",
+			c.slug, userTokensPattern(c.slug), len(auth.Token), auth.ExpiresAt)
+		return auth.Token, true
+	}
+
+	return m.resolveNativeHostnameToken(ctx, c)
+}
+
+func (m *Manager) resolveNativeHostnameToken(ctx context.Context, c nativeMCPCandidate) (string, bool) {
+	// Only absence of an OAuth row permits this compatibility fallback.
+	if hostname := hostnameFromURL(c.url); hostname != "" {
+		if hostAuth, hostErr := m.credMgr.GetByPatternWithContext(ctx, hostname); hostErr == nil && hostAuth != nil && hostAuth.Token != "" {
+			logging.Infof(context.Background(), "mcp.manager", "[MCP] servidor %q: token resolvido por hostname (pattern=%s)", c.slug, hostname)
+			return hostAuth.Token, true
+		}
+		logging.Infof(context.Background(), "mcp.manager", "[MCP] servidor %q: NENHUM token encontrado (oauth=%s, hostname=%s)",
+			c.slug, userTokensPattern(c.slug), hostname)
+		return "", true
+	}
+	logging.Infof(context.Background(), "mcp.manager", "[MCP] servidor %q: NENHUM token encontrado (oauth=%s, sem hostname)",
+		c.slug, userTokensPattern(c.slug))
+	return "", true
 }
 
 func sortMCPBridges(bridges []*MCPToolBridge) {

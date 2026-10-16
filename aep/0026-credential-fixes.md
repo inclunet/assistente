@@ -123,3 +123,7 @@ const handleTokenKeyDown = (e: React.KeyboardEvent) => {
 
 Essas evidências cobrem os dois problemas aceitos por esta AEP; não representam
 validação manual adicional com leitor de telas.
+
+## Evolução AEP-0110
+
+O contrato atual de fontes está em [AEP-0110](0110-fontes-explicitas-de-credenciais.md). Referências históricas por prefixo foram substituídas por source explícita, sem migração automática. AuthModeNone remove qualquer Authorization.

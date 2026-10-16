@@ -4,12 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"assistente/internal/eventctx"
 	"assistente/internal/logging"
+	"assistente/internal/toolctx"
+	"assistente/internal/toolinvocations"
 	"assistente/internal/tools"
 	"assistente/internal/tools/invocationctx"
 	"assistente/internal/userctx"
@@ -129,7 +132,7 @@ func (c *eventCollector) wait(t *testing.T, timeout time.Duration) []map[string]
 func TestEmitSuccess_FanOut_MapItems_FlattenedPayload(t *testing.T) {
 	eb := NewEventBus()
 
-	executor := NewJobExecutor(ExecutorConfig{
+	executor := mustNewJobExecutor(t, ExecutorConfig{
 		EventBus:       eb,
 		CircuitBreaker: NewCircuitBreaker(),
 	})
@@ -197,7 +200,7 @@ func TestEmitSuccess_FanOut_MapItems_FlattenedPayload(t *testing.T) {
 func TestEmitSuccess_FanOut_ScalarItems_WrappedInContent(t *testing.T) {
 	eb := NewEventBus()
 
-	executor := NewJobExecutor(ExecutorConfig{
+	executor := mustNewJobExecutor(t, ExecutorConfig{
 		EventBus:       eb,
 		CircuitBreaker: NewCircuitBreaker(),
 	})
@@ -247,7 +250,7 @@ func TestEmitSuccess_FanOut_ScalarItems_WrappedInContent(t *testing.T) {
 func TestEmitSuccess_NoFanOut_SingleEvent(t *testing.T) {
 	eb := NewEventBus()
 
-	executor := NewJobExecutor(ExecutorConfig{
+	executor := mustNewJobExecutor(t, ExecutorConfig{
 		EventBus:       eb,
 		CircuitBreaker: NewCircuitBreaker(),
 	})
@@ -282,10 +285,73 @@ func TestEmitSuccess_NoFanOut_SingleEvent(t *testing.T) {
 	}
 }
 
+func TestEmitSuccess_DoesNotRecordEventWithoutEnabledConsumer(t *testing.T) {
+	eb := NewEventBus()
+	executor := mustNewJobExecutor(t, ExecutorConfig{
+		EventBus:       eb,
+		CircuitBreaker: NewCircuitBreaker(),
+	})
+	job := &Job{
+		ID:     "producer",
+		Events: EventsConfig{OnSuccess: "pipeline.card"},
+	}
+	rl := &RunLog{
+		RunID:  "run-dropped",
+		JobID:  job.ID,
+		Output: map[string]any{"id": "card-1"},
+	}
+
+	executor.emitSuccess(context.Background(), job, rl, &TriggerContext{Type: TriggerInterval})
+
+	if len(rl.EventsEmitted) != 0 {
+		t.Fatalf("run registrou evento sem consumidor como emitido: %#v", rl.EventsEmitted)
+	}
+	if len(rl.DomainEvents) != 0 {
+		t.Fatalf("timeline registrou evento sem consumidor como emitido: %#v", rl.DomainEvents)
+	}
+	if got := eb.Stats().EventsDropped; got != 1 {
+		t.Fatalf("events_dropped = %d, want 1", got)
+	}
+}
+
+func TestEmitSuccess_FanOutCountsEligibleEventsDroppedWithoutConsumer(t *testing.T) {
+	eb := NewEventBus()
+	executor := mustNewJobExecutor(t, ExecutorConfig{
+		EventBus:       eb,
+		CircuitBreaker: NewCircuitBreaker(),
+	})
+	job := &Job{
+		ID: "producer-fanout",
+		Events: EventsConfig{
+			OnSuccess: "pipeline.cards",
+			ForEach:   "cards",
+		},
+	}
+	rl := &RunLog{
+		RunID: "run-fanout-dropped",
+		JobID: job.ID,
+		Output: map[string]any{
+			"cards": []any{
+				map[string]any{"id": "TA-1"},
+				map[string]any{"id": "TA-2"},
+			},
+		},
+	}
+
+	executor.emitSuccess(context.Background(), job, rl, &TriggerContext{Type: TriggerInterval})
+
+	if len(rl.EventsEmitted) != 0 || len(rl.DomainEvents) != 0 {
+		t.Fatalf("fan-out sem consumidor foi registrado como emitido: %#v / %#v", rl.EventsEmitted, rl.DomainEvents)
+	}
+	if got := eb.Stats().EventsDropped; got != 2 {
+		t.Fatalf("events_dropped = %d, want 2", got)
+	}
+}
+
 func TestEmitSuccess_FanOut_ForEachMissing_FallsBackToSingle(t *testing.T) {
 	eb := NewEventBus()
 
-	executor := NewJobExecutor(ExecutorConfig{
+	executor := mustNewJobExecutor(t, ExecutorConfig{
 		EventBus:       eb,
 		CircuitBreaker: NewCircuitBreaker(),
 	})
@@ -320,7 +386,7 @@ func TestEmitSuccess_FanOut_ForEachMissing_FallsBackToSingle(t *testing.T) {
 
 func TestEmitSuccess_EmitWhen_ConditionMet_Emits(t *testing.T) {
 	eb := NewEventBus()
-	executor := NewJobExecutor(ExecutorConfig{
+	executor := mustNewJobExecutor(t, ExecutorConfig{
 		EventBus:       eb,
 		CircuitBreaker: NewCircuitBreaker(),
 	})
@@ -353,7 +419,7 @@ func TestEmitSuccess_EmitWhen_ConditionMet_Emits(t *testing.T) {
 
 func TestEmitSuccess_EmitWhen_ConditionNotMet_Skips(t *testing.T) {
 	eb := NewEventBus()
-	executor := NewJobExecutor(ExecutorConfig{
+	executor := mustNewJobExecutor(t, ExecutorConfig{
 		EventBus:       eb,
 		CircuitBreaker: NewCircuitBreaker(),
 	})
@@ -390,7 +456,7 @@ func TestEmitSuccess_EmitWhen_ConditionNotMet_Skips(t *testing.T) {
 
 func TestEmitSuccess_EmitWhen_AccessesEventPayload(t *testing.T) {
 	eb := NewEventBus()
-	executor := NewJobExecutor(ExecutorConfig{
+	executor := mustNewJobExecutor(t, ExecutorConfig{
 		EventBus:       eb,
 		CircuitBreaker: NewCircuitBreaker(),
 	})
@@ -425,7 +491,7 @@ func TestEmitSuccess_EmitWhen_AccessesEventPayload(t *testing.T) {
 
 func TestEmitSuccess_EmitWhen_EventMismatch_Skips(t *testing.T) {
 	eb := NewEventBus()
-	executor := NewJobExecutor(ExecutorConfig{
+	executor := mustNewJobExecutor(t, ExecutorConfig{
 		EventBus:       eb,
 		CircuitBreaker: NewCircuitBreaker(),
 	})
@@ -466,7 +532,7 @@ func TestEmitSuccess_EmitWhen_EventMismatch_Skips(t *testing.T) {
 
 func TestEmitSuccess_EmitWhen_FanOut_FiltersItems(t *testing.T) {
 	eb := NewEventBus()
-	executor := NewJobExecutor(ExecutorConfig{
+	executor := mustNewJobExecutor(t, ExecutorConfig{
 		EventBus:       eb,
 		CircuitBreaker: NewCircuitBreaker(),
 	})
@@ -514,7 +580,7 @@ func TestEmitSuccess_EmitWhen_FanOut_FiltersItems(t *testing.T) {
 
 func TestEmitSuccess_EmitWhen_FanOut_AllFiltered(t *testing.T) {
 	eb := NewEventBus()
-	executor := NewJobExecutor(ExecutorConfig{
+	executor := mustNewJobExecutor(t, ExecutorConfig{
 		EventBus:       eb,
 		CircuitBreaker: NewCircuitBreaker(),
 	})
@@ -616,13 +682,15 @@ type fakeTool struct {
 	response  string
 	callCount int
 	lastArgs  json.RawMessage
+	lastCtx   context.Context
 }
 
 func (f *fakeTool) Name() string                { return f.name }
 func (f *fakeTool) Description() string         { return "fake tool for testing" }
 func (f *fakeTool) Parameters() json.RawMessage { return f.params }
-func (f *fakeTool) Execute(_ context.Context, args json.RawMessage) (tools.ToolResult, error) {
+func (f *fakeTool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolResult, error) {
 	f.callCount++
+	f.lastCtx = ctx
 	f.lastArgs = args
 	return tools.ToolResult{Content: f.response}, nil
 }
@@ -697,7 +765,7 @@ func TestExecute_EventChainReplacesParentRunLogIdentity(t *testing.T) {
 	registry := tools.NewRegistry()
 	registry.MustRegister(&contextLoggingTool{name: "context_log"})
 	eventBus := NewEventBus()
-	executor := NewJobExecutor(ExecutorConfig{
+	executor := mustNewJobExecutor(t, ExecutorConfig{
 		ToolRegistry:   registry,
 		EventBus:       eventBus,
 		CircuitBreaker: NewCircuitBreaker(),
@@ -767,8 +835,13 @@ func TestExecute_EventChainReplacesParentRunLogIdentity(t *testing.T) {
 	assertCapturedAttrOnce(t, childToolLog.attrs, "chain_id", parentRun.RunID)
 	assertCapturedAttrOnce(t, childToolLog.attrs, "chain_depth", int64(2))
 	assertCapturedAttrOnce(t, childToolLog.attrs, "user_id", "user-1")
-	assertCapturedAttrOnce(t, childToolLog.attrs, "conversation_id", "conversation-1")
-	assertCapturedAttrOnce(t, childToolLog.attrs, "turn_id", "turn-1")
+	// Jobs mantêm identidade própria no ledger; a conversa publicadora não
+	// pode reaparecer como origem da invocação da tool descendente.
+	for _, key := range []string{"conversation_id", "turn_id"} {
+		if countCapturedAttrs(childToolLog.attrs, key) != 0 {
+			t.Fatalf("tool do job filho herdou %s da conversa publicadora", key)
+		}
+	}
 	assertCapturedAttrOnce(t, childToolLog.attrs, "request_id", "request-1")
 	if countCapturedAttrs(childToolLog.attrs, "trigger_chain_id") != 0 {
 		t.Fatal("trigger_chain_id não deve duplicar o chain_id canônico")
@@ -805,7 +878,7 @@ func TestLogSkippedUnavailableToolReplacesParentRunIdentity(t *testing.T) {
 	slog.SetDefault(slog.New(&logCaptureHandler{sink: sink}))
 	t.Cleanup(func() { slog.SetDefault(defaultLogger) })
 
-	manager := NewManager(ManagerConfig{})
+	manager := mustNewManager(t, ManagerConfig{})
 	job := &Job{ID: "child-job", Tool: "mcp_unavailable"}
 	trigCtx := &TriggerContext{
 		Type:         TriggerEvent,
@@ -905,7 +978,7 @@ func TestExecute_CapturesToolNameAndResolvedInputs(t *testing.T) {
 	}
 	registry.MustRegister(ft)
 
-	executor := NewJobExecutor(ExecutorConfig{
+	executor := mustNewJobExecutor(t, ExecutorConfig{
 		ToolRegistry:   registry,
 		EventBus:       NewEventBus(),
 		CircuitBreaker: NewCircuitBreaker(),
@@ -952,11 +1025,18 @@ func TestExecutePersistsRunThroughRepository(t *testing.T) {
 	if err := repo.SaveJob(userA, job); err != nil {
 		t.Fatalf("save job: %v", err)
 	}
-	executor := NewJobExecutor(ExecutorConfig{
-		ToolRegistry:   registry,
-		EventBus:       NewEventBus(),
-		Repository:     repo,
-		CircuitBreaker: NewCircuitBreaker(),
+	eventBus := NewEventBus()
+	eventBus.Subscribe("persist-job.done", "persist-test", func(context.Context, string, map[string]any) {})
+	invocationService := toolinvocations.NewService(
+		toolinvocations.NewDBRepository(repo.db),
+		tools.NewExecutor(registry, tools.DefaultExecutorConfig()),
+	)
+	executor := mustNewJobExecutor(t, ExecutorConfig{
+		ToolRegistry:    registry,
+		ToolInvocations: invocationService,
+		EventBus:        eventBus,
+		Repository:      repo,
+		CircuitBreaker:  NewCircuitBreaker(),
 	})
 	rl := executor.Execute(userA, job, &TriggerContext{Type: TriggerManual})
 	if rl.Status != "completed" {
@@ -1009,7 +1089,7 @@ func TestExecutePersistsRunWithCanceledExecutionContext(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(userA)
 	cancel()
-	executor := NewJobExecutor(ExecutorConfig{
+	executor := mustNewJobExecutor(t, ExecutorConfig{
 		ToolRegistry:   tools.NewRegistry(),
 		EventBus:       NewEventBus(),
 		Repository:     repo,
@@ -1026,7 +1106,7 @@ func TestExecutePersistsRunWithCanceledExecutionContext(t *testing.T) {
 }
 
 func TestExecuteRecordsSkippedTerminalRunEvent(t *testing.T) {
-	executor := NewJobExecutor(ExecutorConfig{
+	executor := mustNewJobExecutor(t, ExecutorConfig{
 		ToolRegistry:   tools.NewRegistry(),
 		EventBus:       NewEventBus(),
 		CircuitBreaker: NewCircuitBreaker(),
@@ -1055,7 +1135,7 @@ func TestExecute_CapturesResolvedInputsWithTemplates(t *testing.T) {
 	}
 	registry.MustRegister(ft)
 
-	executor := NewJobExecutor(ExecutorConfig{
+	executor := mustNewJobExecutor(t, ExecutorConfig{
 		ToolRegistry:   registry,
 		EventBus:       NewEventBus(),
 		CircuitBreaker: NewCircuitBreaker(),
@@ -1086,6 +1166,75 @@ func TestExecute_CapturesResolvedInputsWithTemplates(t *testing.T) {
 	}
 }
 
+func TestExecuteSubagentTemplateResolvingEmptyFailsBeforeFallback(t *testing.T) {
+	registry := tools.NewRegistry()
+	ft := &fakeTool{
+		name:     "subagent",
+		params:   json.RawMessage(`{"type":"object","properties":{"profile":{"type":"string"},"prompt":{"type":"string"}}}`),
+		response: `{"ok":true}`,
+	}
+	registry.MustRegister(ft)
+	executor := mustNewJobExecutor(t, ExecutorConfig{
+		ToolRegistry: registry, EventBus: NewEventBus(), CircuitBreaker: NewCircuitBreaker(),
+	})
+	job := &Job{
+		ID: "delegado", Tool: "subagent",
+		Inputs: map[string]any{
+			"profile": `{{ default .event.profile "" }}`,
+			"prompt":  "teste",
+		},
+	}
+	rl := executor.Execute(context.Background(), job, &TriggerContext{
+		Type: TriggerEvent, EventPayload: map[string]any{},
+	})
+	if rl.Status != "failed" || ft.callCount != 0 || !strings.Contains(rl.Error, "profile resolveu para vazio") {
+		t.Fatalf("template vazio deveria falhar antes da tool: status=%s calls=%d error=%q", rl.Status, ft.callCount, rl.Error)
+	}
+}
+
+func TestRunProvenanceKeepsPublicJobSlug(t *testing.T) {
+	executor := mustNewJobExecutor(t, ExecutorConfig{})
+	provenance := executor.runProvenance(
+		&Job{ID: "move-card-job", DatabaseID: "018f0000-0000-7000-8000-000000000099"},
+		&TriggerContext{},
+		&RunLog{RunID: "run-1"},
+	)
+	if provenance.SourceJobID != "move-card-job" {
+		t.Fatalf("SourceJobID público = %q, esperado slug", provenance.SourceJobID)
+	}
+}
+
+func TestExecuteDoesNotInheritConversationInvocationContext(t *testing.T) {
+	registry := tools.NewRegistry()
+	ft := &fakeTool{
+		name: "subagent", params: json.RawMessage(`{"type":"object"}`), response: `{"ok":true}`,
+	}
+	registry.MustRegister(ft)
+	executor := mustNewJobExecutor(t, ExecutorConfig{
+		ToolRegistry: registry, EventBus: NewEventBus(), CircuitBreaker: NewCircuitBreaker(),
+	})
+	parent := invocationctx.With(context.Background(), invocationctx.InvocationContext{
+		ConversationID: "conversation-parent", TurnID: "turn-parent", ProfileSlug: "pesquisa",
+	})
+	parent = toolinvocations.WithCurrentInvocationID(parent, "invocacao-publicadora")
+	parent = toolctx.WithParentInvocationID(parent, "invocacao-ancestral")
+	rl := executor.Execute(parent, &Job{
+		ID: "job-evento", Tool: "subagent", Inputs: map[string]any{"profile": "pesquisa"},
+	}, &TriggerContext{Type: TriggerEvent})
+	if rl.Status != "completed" {
+		t.Fatalf("execução falhou: %s", rl.Error)
+	}
+	if _, inherited := invocationctx.Get(ft.lastCtx); inherited {
+		t.Fatal("job herdou invocationctx da conversa que publicou o evento")
+	}
+	if current := toolinvocations.CurrentInvocationID(ft.lastCtx); current == "" || current == "invocacao-publicadora" {
+		t.Fatalf("job não recebeu identidade canônica própria: %q", current)
+	}
+	if parentID := toolctx.ParentInvocationIDFromContext(ft.lastCtx); parentID != "" {
+		t.Fatalf("job herdou invocação ancestral: %q", parentID)
+	}
+}
+
 func TestExecute_RedactsSecretResolvedInputsFromRunLog(t *testing.T) {
 	registry := tools.NewRegistry()
 	ft := &fakeTool{
@@ -1095,7 +1244,7 @@ func TestExecute_RedactsSecretResolvedInputsFromRunLog(t *testing.T) {
 	}
 	registry.MustRegister(ft)
 
-	executor := NewJobExecutor(ExecutorConfig{
+	executor := mustNewJobExecutor(t, ExecutorConfig{
 		ToolRegistry:   registry,
 		EventBus:       NewEventBus(),
 		CircuitBreaker: NewCircuitBreaker(),
@@ -1158,7 +1307,7 @@ func TestExecute_CapturesInputsEvenOnFailure(t *testing.T) {
 	ft.response = "" // force empty response to test error handling
 	registry.MustRegister(ft)
 
-	executor := NewJobExecutor(ExecutorConfig{
+	executor := mustNewJobExecutor(t, ExecutorConfig{
 		ToolRegistry:   registry,
 		EventBus:       NewEventBus(),
 		CircuitBreaker: NewCircuitBreaker(),
@@ -1291,7 +1440,7 @@ func TestExecuteDryRunNilTrigCtxNoPanic(t *testing.T) {
 		params:   json.RawMessage(`{"type":"object"}`),
 		response: `{"ok":true}`,
 	})
-	executor := NewJobExecutor(ExecutorConfig{
+	executor := mustNewJobExecutor(t, ExecutorConfig{
 		ToolRegistry:   registry,
 		EventBus:       NewEventBus(),
 		CircuitBreaker: NewCircuitBreaker(),
@@ -1310,7 +1459,7 @@ func TestExecuteDryRunNilTrigCtxNoPanic(t *testing.T) {
 // Regressão do review #171.
 func TestExecuteDryRunSuppressesDomainEvents(t *testing.T) {
 	repo, userA, _ := setupJobsRepositoryTest(t)
-	mgr := NewManager(ManagerConfig{
+	mgr := mustNewManager(t, ManagerConfig{
 		Repository:      repo,
 		ContextProvider: func() context.Context { return userA },
 	})
@@ -1329,7 +1478,7 @@ func TestExecuteDryRunSuppressesDomainEvents(t *testing.T) {
 	observed := make(chan dryRunContext, 1)
 	registry.MustRegister(&fakeDomainPublishTool{name: "domain_pub", mgr: mgr, event: evt, observed: observed})
 
-	executor := NewJobExecutor(ExecutorConfig{
+	executor := mustNewJobExecutor(t, ExecutorConfig{
 		ToolRegistry:   registry,
 		EventBus:       mgr.eventBus,
 		CircuitBreaker: NewCircuitBreaker(),

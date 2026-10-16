@@ -218,7 +218,7 @@ func (t *ApplyPatch) Execute(ctx context.Context, args json.RawMessage) (tools.T
 		return patchFileErrorResult(a.Path, "invalid_text", err), nil
 	}
 
-	finalNormalized, validationErrors := applyPatchHunks(normalized, a.Hunks)
+	finalNormalized, spans, validationErrors := applyPatchHunks(normalized, a.Hunks)
 	if len(validationErrors) > 0 {
 		return patchErrorsResult(a.Path, validationErrors), nil
 	}
@@ -231,13 +231,14 @@ func (t *ApplyPatch) Execute(ctx context.Context, args json.RawMessage) (tools.T
 	}
 
 	if resolveEditPolicy(ctx, fullPath) == policyConfirmWithDiff {
+		beforePreview, afterPreview := patchConfirmationPreview(normalized, spans)
 		confirmed, toolResult := confirmBeforeAfter(
 			ctx,
 			t.questMgr,
 			editConfirmTitle(),
 			a.Path,
-			truncateForPreview(string(original)),
-			truncateForPreview(string(finalBytes)),
+			beforePreview,
+			afterPreview,
 		)
 		if !confirmed {
 			return patchErrorResult(a.Path, applyPatchError{
@@ -385,7 +386,7 @@ func rewriteOpenFile(file *os.File, content []byte) error {
 	return file.Sync()
 }
 
-func applyPatchHunks(content string, hunks []applyPatchHunk) (string, []applyPatchError) {
+func applyPatchHunks(content string, hunks []applyPatchHunk) (string, []applyPatchSpan, []applyPatchError) {
 	spans := make([]applyPatchSpan, 0, len(hunks))
 	errs := make([]applyPatchError, 0)
 
@@ -439,7 +440,7 @@ func applyPatchHunks(content string, hunks []applyPatchHunk) (string, []applyPat
 		})
 	}
 	if len(errs) > 0 {
-		return content, errs
+		return content, nil, errs
 	}
 
 	sort.Slice(spans, func(i, j int) bool {
@@ -464,14 +465,14 @@ func applyPatchHunks(content string, hunks []applyPatchHunk) (string, []applyPat
 		}
 	}
 	if len(errs) > 0 {
-		return content, errs
+		return content, nil, errs
 	}
 
 	for index := len(spans) - 1; index >= 0; index-- {
 		span := spans[index]
 		content = content[:span.start] + span.replacement + content[span.end:]
 	}
-	return content, nil
+	return content, spans, nil
 }
 
 func normalizePatchHunkText(content string) string {

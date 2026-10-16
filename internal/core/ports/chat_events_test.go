@@ -6,15 +6,37 @@ import (
 	"testing"
 )
 
+func TestChatSurfaceOriginExecutionSurvivesSerialization(t *testing.T) {
+	origin := NewChatSurfaceOrigin("c", "session", "surface", "page", "tab", "execution-2")
+	data, err := json.Marshal(DoneEvent{ConversationID: "c", TurnID: "same-user", SurfaceOrigin: origin})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"executionId":"execution-2"`) {
+		t.Fatalf("identidade ausente: %s", data)
+	}
+}
+
 func TestStreamEventSerializaSomenteDeltaCorrelacionado(t *testing.T) {
+	outputTokens := 7
+	reasoningTokens := 5
+	responseBytes := 8
 	payload, err := json.Marshal(StreamEvent{
-		MessageID:      "assistant-1",
-		ConversationId: "conv-1",
-		TurnID:         "turn-1",
-		Delta:          "Olá 世界",
-		Reset:          true,
-		BaseContent:    "prefixo",
-		Sequence:       0,
+		MessageID:            "assistant-1",
+		ConversationId:       "conv-1",
+		TurnID:               "turn-1",
+		Delta:                "Olá 世界",
+		Reset:                true,
+		BaseContent:          "prefixo",
+		Sequence:             0,
+		FinishReason:         "max_tokens",
+		RawReason:            "length",
+		Provider:             "provider-1",
+		Model:                "modelo-1",
+		EffectiveOutputLimit: 12,
+		OutputTokens:         &outputTokens,
+		ReasoningTokens:      &reasoningTokens,
+		ResponseBytes:        &responseBytes,
 	})
 	if err != nil {
 		t.Fatalf("serializar chat:stream: %v", err)
@@ -28,6 +50,14 @@ func TestStreamEventSerializaSomenteDeltaCorrelacionado(t *testing.T) {
 		`"reset":true`,
 		`"baseContent":"prefixo"`,
 		`"sequence":0`,
+		`"finishReason":"max_tokens"`,
+		`"rawReason":"length"`,
+		`"provider":"provider-1"`,
+		`"model":"modelo-1"`,
+		`"effectiveOutputLimit":12`,
+		`"outputTokens":7`,
+		`"reasoningTokens":5`,
+		`"responseBytes":8`,
 	} {
 		if !strings.Contains(got, fragment) {
 			t.Fatalf("payload não contém %s: %s", fragment, got)
@@ -40,10 +70,21 @@ func TestStreamEventSerializaSomenteDeltaCorrelacionado(t *testing.T) {
 
 func TestDoneEventSerializaPatchMinimoDoTurno(t *testing.T) {
 	parentID := "thread-root"
+	outputTokens := 7
+	reasoningTokens := 5
+	responseBytes := 8
 	payload, err := json.Marshal(DoneEvent{
-		ConversationID: "conv-1",
-		TurnID:         "turn-1",
-		Reason:         "output_limit",
+		ConversationID:       "conv-1",
+		TurnID:               "turn-1",
+		Reason:               "output_limit",
+		FinishReason:         "max_tokens",
+		RawReason:            "length",
+		Provider:             "provider-1",
+		Model:                "modelo-1",
+		EffectiveOutputLimit: 12,
+		OutputTokens:         &outputTokens,
+		ReasoningTokens:      &reasoningTokens,
+		ResponseBytes:        &responseBytes,
 		TurnPatch: &TurnPatchEvent{Message: TurnPatchMessage{
 			ID:             "assistant-1",
 			ConversationID: "conv-1",
@@ -53,11 +94,17 @@ func TestDoneEventSerializaPatchMinimoDoTurno(t *testing.T) {
 			CreatedAt:      "2026-09-08T20:00:00Z",
 			TurnSegments: []TurnPatchSegment{{
 				Type: "tool_calls",
-				ToolCalls: []TurnPatchToolCall{{
-					ID:       "call-1",
-					Type:     "function",
-					Function: TurnPatchToolFunction{Name: "update_plan", Arguments: "{}"},
-					Result:   `{"updated":true}`,
+				ToolInvocations: []TurnPatchToolInvocation{{
+					InvocationID:       "inv-1",
+					CallID:             "call-1",
+					Name:               "update_plan",
+					Status:             "succeeded",
+					OutputPreview:      `{"updated":"[redacted]"}`,
+					HasDetails:         true,
+					ResultAvailability: "available",
+					HasSearchResults:   true,
+					SearchResultCount:  2,
+					SecurityOutcome:    "approved",
 				}},
 			}},
 		}},
@@ -71,12 +118,23 @@ func TestDoneEventSerializaPatchMinimoDoTurno(t *testing.T) {
 		`"turnId":"turn-1"`,
 		`"parentId":"thread-root"`,
 		`"reason":"output_limit"`,
+		`"finishReason":"max_tokens"`,
+		`"rawReason":"length"`,
+		`"provider":"provider-1"`,
+		`"effectiveOutputLimit":12`,
+		`"outputTokens":7`,
+		`"reasoningTokens":5`,
+		`"responseBytes":8`,
 		`"turnPatch":{"message":`,
 		`"turnSegments":[`,
+		`"invocationId":"inv-1"`,
 		`"name":"update_plan"`,
 	} {
 		if !strings.Contains(got, fragment) {
 			t.Fatalf("payload não contém %s: %s", fragment, got)
 		}
+	}
+	if strings.Contains(got, `"result"`) || strings.Contains(got, `"arguments"`) {
+		t.Fatalf("patch leve vazou payload integral: %s", got)
 	}
 }

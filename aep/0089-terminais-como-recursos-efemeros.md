@@ -136,6 +136,10 @@ Entregue:
   `terminal_test.go`.
 - [x] Deep links abrem exatamente uma sessão viva e não substituem IDs mortos,
   coberto por `frontend/src/lib/deepLinks.test.ts`.
+- [x] Cleanup de sessões efêmeras após timeout respeita a ordem interrupção,
+  término e espera do processo, drenagem do leitor e fechamento do PTY; testes
+  concorrentes em `internal/terminal/manager_lifecycle_test.go` cobrem a
+  ausência da corrida entre leitor e ConPTY.
 
 Pendente ou parcial:
 

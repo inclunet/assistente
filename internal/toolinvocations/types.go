@@ -1,9 +1,11 @@
 package toolinvocations
 
 import (
+	"context"
 	"encoding/json"
 	"time"
 
+	"assistente/internal/commandcatalog"
 	"assistente/internal/tools"
 )
 
@@ -18,6 +20,11 @@ const (
 	OriginChat        = "chat"
 	OriginJobRun      = "job_run"
 	OriginToolCatalog = "tool_catalog"
+	// OriginCommandInvocation mantém a correlação canônica entre a execução
+	// de um comando e a execução técnica da tool que ele delega.
+	OriginCommandInvocation = "command_invocation"
+
+	ToolOriginArchival = "archival"
 )
 
 type Invocation struct {
@@ -26,13 +33,26 @@ type Invocation struct {
 	ToolCatalogID      string          `json:"tool_catalog_id"`
 	OriginType         string          `json:"origin_type"`
 	OriginID           string          `json:"origin_id,omitempty"`
+	ConversationID     string          `json:"conversation_id,omitempty"`
+	TurnID             string          `json:"turn_id,omitempty"`
 	ParentInvocationID string          `json:"parent_invocation_id,omitempty"`
 	ToolCallID         string          `json:"tool_call_id,omitempty"`
+	Attempt            int             `json:"attempt"`
 	Status             string          `json:"status"`
 	DryRun             bool            `json:"dry_run,omitempty"`
 	Input              json.RawMessage `json:"input,omitempty"`
 	Output             json.RawMessage `json:"output,omitempty"`
 	Metadata           json.RawMessage `json:"metadata,omitempty"`
+	ModelIteration     int             `json:"model_iteration,omitempty"`
+	External           bool            `json:"external,omitempty"`
+	DisplayName        string          `json:"display_name,omitempty"`
+	InputPreview       string          `json:"input_preview,omitempty"`
+	OutputPreview      string          `json:"output_preview,omitempty"`
+	InputBytes         int64           `json:"input_bytes,omitempty"`
+	OutputBytes        int64           `json:"output_bytes,omitempty"`
+	InputHash          string          `json:"input_hash,omitempty"`
+	OutputHash         string          `json:"output_hash,omitempty"`
+	ResultAvailability string          `json:"result_availability,omitempty"`
 	ErrorKind          string          `json:"error_kind,omitempty"`
 	ErrorCode          string          `json:"error_code,omitempty"`
 	ErrorMessage       string          `json:"error_message,omitempty"`
@@ -47,12 +67,30 @@ type Invocation struct {
 }
 
 type Origin struct {
-	Type string
-	ID   string
+	Type           string
+	ID             string
+	ConversationID string
+	TurnID         string
 }
 
 type ExecuteRequest struct {
-	Call               tools.ToolCall
+	Call tools.ToolCall
+	// BeforeExecute é um guard privado de bootstrap. Ele roda depois que a
+	// invocação foi persistida como running e antes de entregar a tool ao
+	// executor; nunca é serializado nem substitui a policy da tool.
+	BeforeExecute func(context.Context) error
+	// ExpectedToolGeneration impede reutilizar um executor derivado após uma
+	// troca da geração de tools.
+	ExpectedToolGeneration uint64
+	// PersistedArguments substitui apenas os argumentos gravados no ledger e
+	// no snapshot de exibição. A execução continua usando Call sem alteração.
+	// Chamadores que resolvem templates secretos devem fornecer a versão
+	// explicitamente redigida.
+	PersistedArguments *string
+	// SensitivePaths são JSON Pointers declarados pelo contrato do comando. A
+	// execução recebe Call sem alteração; input/output persistidos passam por
+	// essa política além da redação genérica do ledger.
+	SensitivePaths     commandcatalog.SensitivePaths
 	Origin             Origin
 	ParentInvocationID string
 	ToolCatalogID      string
@@ -66,6 +104,16 @@ type ExecuteRequest struct {
 	// Observação: a persistência em tool_invocations pode aplicar um limite
 	// separado para evitar crescimento excessivo da tabela.
 	ExecutionMaxResultSize int
+
+	// RequireCompleteResult impede prévias retomáveis para consumidores
+	// machine-facing que processam Result.Content diretamente (ex.: jobs).
+	RequireCompleteResult bool
+
+	// RequireCanonicalToolCatalogID fecha a resolução para delegações de
+	// comandos: o ID informado deve existir, pertencer ao owner e corresponder
+	// exatamente ao nome da tool. Sem isso, o executor histórico pode resolver
+	// por nome ou criar uma entrada archival para chat/jobs.
+	RequireCanonicalToolCatalogID bool
 }
 
 type ExecuteResult struct {
@@ -73,26 +121,45 @@ type ExecuteResult struct {
 	Execution  tools.ToolExecutionResult
 
 	// Persisted indica se esta execução foi registrada com sucesso em tool_invocations.
-	// Usado por chamadores para decidir fallback de persistência (ex.: role=tool).
+	// Falha nunca autoriza cópia alternativa em chat_messages.
 	Persisted bool
 }
 
 // RecordRequest registra uma invocação já executada fora do executor comum
 // (ex.: MCP nativo), persistindo input/output/status no mesmo formato.
 type RecordRequest struct {
-	Call          tools.ToolCall
-	Origin        Origin
-	ToolCatalogID string
-	DryRun        bool
-	Iteration     int
+	// Observation contém uma atividade externa sem payload técnico disponível.
+	// O adaptador de cada protocolo fornece apenas a apresentação saneada.
+	Observation *ExternalObservation
+	Call        tools.ToolCall
+	// PersistedArguments tem a mesma semântica de ExecuteRequest: substitui
+	// somente o snapshot persistido, nunca o payload já executado.
+	PersistedArguments *string
+	SensitivePaths     commandcatalog.SensitivePaths
+	Origin             Origin
+	ParentInvocationID string
+	ToolCatalogID      string
+	DryRun             bool
+	Iteration          int
 
-	Result            tools.ToolResult
-	ErrorKind         tools.ErrorKind
-	ErrorCode         string
-	ErrorMessage      string
-	Retryable         bool
-	RetryabilityKnown bool
-	DurationMs        int64
+	Result                        tools.ToolResult
+	ErrorKind                     tools.ErrorKind
+	ErrorCode                     string
+	ErrorMessage                  string
+	Retryable                     bool
+	RetryabilityKnown             bool
+	RequireCanonicalToolCatalogID bool
+	DurationMs                    int64
+}
+
+// ExternalObservation é um snapshot de apresentação, não uma chamada executável.
+// CatalogName identifica uma entrada exclusivamente archival. DisplayMetadata
+// deve ser um objeto JSON saneado pelo adaptador, nunca o payload bruto remoto.
+type ExternalObservation struct {
+	CatalogName     string
+	Summary         string
+	StartedAt       time.Time
+	DisplayMetadata json.RawMessage
 }
 
 type Filter struct {

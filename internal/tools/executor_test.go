@@ -44,7 +44,7 @@ func TestExecuteSingle_Success(t *testing.T) {
 		},
 	}
 	e := NewExecutor(newRegistry(tool), DefaultExecutorConfig())
-	res := e.ExecuteOne(context.Background(), ToolCall{
+	res := e.ExecuteOne(largeResultTestContext(), ToolCall{
 		ID:       "c1",
 		Function: FunctionCall{Name: "ok_tool", Arguments: `{}`},
 	})
@@ -60,6 +60,118 @@ func TestExecuteSingle_Success(t *testing.T) {
 	}
 	if res.Result.Content != "hello" {
 		t.Fatalf("expected 'hello', got %q", res.Result.Content)
+	}
+}
+
+func securityOutcomes(result ToolResult) []SecuritySignal {
+	values, ok := result.Metadata[SecuritySignalsMetadataKey].([]SecuritySignal)
+	if !ok {
+		return nil
+	}
+	return values
+}
+
+func TestExecuteSingle_SecuritySignalsSurviveSuccessAndPreserveOrder(t *testing.T) {
+	tool := &mockTool{name: "signals", exec: func(ctx context.Context, _ json.RawMessage) (ToolResult, error) {
+		RecordSecuritySignal(ctx, SecuritySignal{Version: 1, Domain: "filesystem", Outcome: "approved"})
+		RecordSecuritySignal(ctx, SecuritySignal{Version: 1, Domain: "filesystem", Outcome: "blocked"})
+		return ToolResult{Content: "blocked"}, nil
+	}}
+	res := NewExecutor(newRegistry(tool), DefaultExecutorConfig()).ExecuteOne(context.Background(), ToolCall{ID: "c1", Function: FunctionCall{Name: "signals", Arguments: `{}`}})
+	signals := securityOutcomes(res.Result)
+	if len(signals) != 2 || signals[0].Outcome != "approved" || signals[1].Outcome != "blocked" {
+		t.Fatalf("sinais não preservados: %#v", res.Result.Metadata)
+	}
+}
+
+func TestExecuteSingle_SecuritySignalsSurvivePanic(t *testing.T) {
+	tool := &mockTool{name: "signal_panic", exec: func(ctx context.Context, _ json.RawMessage) (ToolResult, error) {
+		RecordSecuritySignal(ctx, SecuritySignal{Version: 1, Domain: "filesystem", Outcome: "approved"})
+		panic("boom")
+	}}
+	res := NewExecutor(newRegistry(tool), DefaultExecutorConfig()).ExecuteOne(context.Background(), ToolCall{ID: "c1", Function: FunctionCall{Name: "signal_panic", Arguments: `{}`}})
+	if got := securityOutcomes(res.Result); len(got) != 1 || got[0].Outcome != "approved" {
+		t.Fatalf("sinal perdido no panic: %#v", res.Result.Metadata)
+	}
+}
+
+func TestExecuteSingle_SecuritySignalsSurviveTimeoutAndCancellation(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		cancel bool
+	}{
+		{name: "timeout"}, {name: "cancel", cancel: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			started := make(chan struct{})
+			tool := &mockTool{name: "signal_wait", exec: func(ctx context.Context, _ json.RawMessage) (ToolResult, error) {
+				RecordSecuritySignal(ctx, SecuritySignal{Version: 1, Domain: "filesystem", Outcome: "approved"})
+				close(started)
+				<-ctx.Done()
+				return ToolResult{}, ctx.Err()
+			}}
+			cfg := DefaultExecutorConfig()
+			cfg.ToolTimeout = 20 * time.Millisecond
+			e := NewExecutor(newRegistry(tool), cfg)
+			ctx := context.Background()
+			var cancel context.CancelFunc
+			if tc.cancel {
+				ctx, cancel = context.WithCancel(ctx)
+				defer cancel()
+			}
+			resCh := make(chan ToolExecutionResult, 1)
+			go func() {
+				resCh <- e.ExecuteOne(ctx, ToolCall{ID: "c1", Function: FunctionCall{Name: "signal_wait", Arguments: `{}`}})
+			}()
+			<-started
+			if tc.cancel {
+				cancel()
+			}
+			res := <-resCh
+			if len(securityOutcomes(res.Result)) != 1 {
+				t.Fatalf("sinal perdido em %s: %#v", tc.name, res.Result.Metadata)
+			}
+		})
+	}
+}
+
+func TestExecuteSingle_SecuritySignalsSurviveExternalTerminalPath(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		cancel bool
+	}{
+		{name: "timeout"}, {name: "cancel", cancel: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			started := make(chan struct{})
+			release := make(chan struct{})
+			defer close(release)
+			tool := &mockTool{name: "signal_ignores_context", exec: func(ctx context.Context, _ json.RawMessage) (ToolResult, error) {
+				RecordSecuritySignal(ctx, SecuritySignal{Version: 1, Domain: "filesystem", Outcome: "approved"})
+				close(started)
+				<-release // mantém a worker viva depois do retorno terminal do executor
+				return ToolResult{Content: "late"}, nil
+			}}
+			cfg := DefaultExecutorConfig()
+			cfg.ToolTimeout = 20 * time.Millisecond
+			ctx := context.Background()
+			var cancel context.CancelFunc
+			if tc.cancel {
+				ctx, cancel = context.WithCancel(ctx)
+				defer cancel()
+			}
+			e := NewExecutor(newRegistry(tool), cfg)
+			go func() {
+				<-started
+				if cancel != nil {
+					cancel()
+				}
+			}()
+			res := e.ExecuteOne(ctx, ToolCall{ID: "c1", Function: FunctionCall{Name: tool.Name(), Arguments: `{}`}})
+			if len(securityOutcomes(res.Result)) != 1 {
+				t.Fatalf("sinal perdido em %s: %#v", tc.name, res.Result.Metadata)
+			}
+		})
 	}
 }
 
@@ -314,7 +426,7 @@ func TestTruncateUTF8_LargeResult(t *testing.T) {
 	cfg.MaxResultSize = 1024 // 1KB para teste rápido
 	e := NewExecutor(newRegistry(tool), cfg)
 
-	res := e.ExecuteOne(context.Background(), ToolCall{
+	res := e.ExecuteOne(largeResultTestContext(), ToolCall{
 		ID:       "c1",
 		Function: FunctionCall{Name: "big", Arguments: `{}`},
 	})
@@ -328,8 +440,13 @@ func TestTruncateUTF8_LargeResult(t *testing.T) {
 	if res.Result.Metadata["truncated"] != true {
 		t.Fatal("expected metadata.truncated=true")
 	}
-	if !strings.Contains(res.Result.Content, "[TRUNCADO:") {
-		t.Fatal("expected truncation notice in content")
+	if strings.Contains(strings.ToUpper(res.Result.Content), "TRUNCAD") {
+		t.Fatal("truncation notice must not pollute content")
+	}
+	if res.Result.Annotations == nil || res.Result.Annotations.OutputWindow == nil ||
+		!res.Result.Annotations.OutputWindow.HasMore ||
+		res.Result.Annotations.OutputWindow.ResultID == "" {
+		t.Fatalf("expected resumable output annotation: %+v", res.Result.Annotations)
 	}
 }
 
@@ -370,6 +487,33 @@ func TestStructuredResultNotTruncated(t *testing.T) {
 	}
 	if res.Error == nil {
 		t.Error("esperado Error não-nil para oversize estruturado")
+	}
+}
+
+func TestProtectErroredToolResultMaterializesFallbackFailure(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		result ToolResult
+	}{
+		{
+			name: "raw exato",
+			result: ToolResult{
+				Content: strings.Repeat("x", 4096), IsError: true, RawExact: true,
+			},
+		},
+		{
+			name: "texto sem armazenamento disponível",
+			result: ToolResult{
+				Content: strings.Repeat("x", 4096), IsError: true,
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := protectErroredToolResult(context.Background(), tc.result, 1024, "test_tool", false)
+			if got.Failure == nil || got.Failure.Code != "tool_execution_error" {
+				t.Fatalf("fallback estruturado ausente: %+v", got)
+			}
+		})
 	}
 }
 

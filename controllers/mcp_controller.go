@@ -3,6 +3,7 @@ package controllers
 import (
 	"assistente/internal/apidto"
 	"assistente/internal/core/ports"
+	"assistente/internal/credentials"
 	"assistente/internal/jobs"
 	"assistente/internal/logging"
 	mcpmgr "assistente/internal/mcp"
@@ -38,6 +39,50 @@ func (c *MCPController) ListMCPServers() []mcpmgr.ServerInfo {
 	return c.mcpMgr.List()
 }
 
+func (c *MCPController) InspectMCPOAuthInventory(ctx context.Context) ([]mcpmgr.OAuthInventoryItem, error) {
+	if err := c.guardMgr(); err != nil {
+		return nil, err
+	}
+	return c.mcpMgr.InspectOAuthInventory(ctx)
+}
+
+func (c *MCPController) CreateMCPOAuthSnapshot(ctx context.Context, id string) (credentials.OAuthSnapshotInfo, error) {
+	if err := c.guardMgr(); err != nil {
+		return credentials.OAuthSnapshotInfo{}, err
+	}
+	return c.mcpMgr.CreateOAuthSnapshot(ctx, id)
+}
+func (c *MCPController) ConvertMCPOAuthClientSnapshot(ctx context.Context, id, method string) error {
+	if err := c.guardMgr(); err != nil {
+		return err
+	}
+	return c.mcpMgr.ConvertOAuthClientSnapshot(ctx, id, method)
+}
+func (c *MCPController) ReconnectMCPOAuthSnapshot(ctx context.Context, id, method string) error {
+	if err := c.guardMgr(); err != nil {
+		return err
+	}
+	return c.mcpMgr.ReconnectOAuthSnapshot(ctx, id, method)
+}
+func (c *MCPController) ListMCPOAuthSnapshots(ctx context.Context) ([]credentials.OAuthSnapshotInfo, error) {
+	if err := c.guardMgr(); err != nil {
+		return nil, err
+	}
+	return c.mcpMgr.ListOAuthSnapshots(ctx)
+}
+func (c *MCPController) RestoreMCPOAuthSnapshot(ctx context.Context, id string) error {
+	if err := c.guardMgr(); err != nil {
+		return err
+	}
+	return c.mcpMgr.RestoreOAuthSnapshot(ctx, id)
+}
+func (c *MCPController) DiscardMCPOAuthSnapshot(ctx context.Context, id string, confirmed bool) error {
+	if err := c.guardMgr(); err != nil {
+		return err
+	}
+	return c.mcpMgr.DiscardOAuthSnapshot(ctx, id, confirmed)
+}
+
 func (c *MCPController) ConnectMCPServer(slug string) error {
 	if err := c.guardMgr(); err != nil {
 		return err
@@ -57,6 +102,15 @@ func (c *MCPController) ReconnectMCPServer(slug string) error {
 		return err
 	}
 	return c.mcpMgr.Reconnect(slug)
+}
+
+// ReauthorizeMCPServer força o fluxo OAuth interativo (browser) do servidor,
+// distinto de reconectar (AEP-0105). Só se aplica a servidores OAuth2 PKCE.
+func (c *MCPController) ReauthorizeMCPServer(ctx context.Context, slug string) error {
+	if err := c.guardMgr(); err != nil {
+		return err
+	}
+	return c.mcpMgr.ReauthorizeServer(ctx, slug)
 }
 
 func (c *MCPController) SaveMCPServer(slug string, cfg mcpmgr.ServerConfig) error {
@@ -164,8 +218,11 @@ func (c *MCPController) GetMCPServerAuthInfo(slug string) (apidto.MCPServerAuthI
 	}, nil
 }
 
-func (c *MCPController) DiscoverMCPServerAuth(serverURL string) mcpmgr.OAuthDiscoveryResult {
-	return mcpmgr.DiscoverOAuth(serverURL)
+func (c *MCPController) DiscoverMCPServerAuth(ctx context.Context, serverURL string) mcpmgr.OAuthDiscoveryResult {
+	if c.mcpMgr == nil {
+		return mcpmgr.DiscoverOAuthContext(ctx, serverURL)
+	}
+	return c.mcpMgr.DiscoverOAuth(ctx, serverURL)
 }
 
 func (c *MCPController) GetMCPServerLogs(slug string, limit int) ([]mcpmgr.MCPServerLog, error) {
@@ -190,4 +247,22 @@ func (c *MCPController) NewMCPEventEmitter() func(event string, data any) {
 			}()
 		}
 	}
+}
+
+func (c *MCPController) SaveMCPServerWithOAuthSecret(slug string, cfg mcpmgr.ServerConfig, secret string) error {
+	if err := c.guardMgr(); err != nil {
+		return err
+	}
+	return c.mcpMgr.SaveConfigWithOAuthSecret(slug, cfg, secret)
+}
+
+func (c *MCPController) SaveMCPServerWithCredential(ctx context.Context, slug string, cfg mcpmgr.ServerConfig, input apidto.CredentialInput) error {
+	if err := c.guardMgr(); err != nil {
+		return err
+	}
+	pattern, auth, err := parseCredentialInput(input)
+	if err != nil {
+		return err
+	}
+	return c.mcpMgr.SaveConfigWithCredential(ctx, slug, cfg, pattern, auth)
 }

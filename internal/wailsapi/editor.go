@@ -26,11 +26,15 @@ import (
 // e watch/unwatch. Watcher, eventos editor:fileChanged e assisted writes
 // permanecem no *App.
 type EditorHooks struct {
-	AppContext    func() context.Context
-	Dialog        func() ports.SystemDialogPort
-	MarkSelfWrite func(path string) func(bool)
-	WatchFile     func(path string) error
-	UnwatchFile   func(path string) error
+	AppContext           func() context.Context
+	Dialog               func() ports.SystemDialogPort
+	CaptureDialogSession func(context.Context) (validate func() error, err error)
+	MarkSelfWrite        func(path string) func(bool)
+	WatchFile            func(path string) error
+	UnwatchFile          func(path string) error
+	CommandTarget        func(context.Context, string, string) (operation string, path string, err error)
+	CommandPrepare       func(context.Context, apidto.EditorCommandPrepareRequest, string, string, filesystem.FileVersion, *apidto.EditorOpenResult) (string, error)
+	CommandCommit        func(context.Context, apidto.EditorCommandCommitRequest, func(context.Context, string, string, filesystem.FileVersion) error) (*apidto.EditorCommandResult, error)
 }
 
 // Editor é o bind Wails do domínio editor (AEP-0088).
@@ -1131,6 +1135,10 @@ func (api *Editor) EditorOpenFile(labels apidto.FileDialogLabels) (*apidto.Edito
 		if err := requireEditorUser(ctx); err != nil {
 			return nil, err
 		}
+		validateDialog, err := api.captureDialogSession(ctx)
+		if err != nil {
+			return nil, err
+		}
 		if hooks.AppContext() == nil {
 			return nil, fmt.Errorf("app não inicializado")
 		}
@@ -1146,10 +1154,20 @@ func (api *Editor) EditorOpenFile(labels apidto.FileDialogLabels) (*apidto.Edito
 		if err != nil {
 			return nil, err
 		}
+		if err := validateDialog(); err != nil {
+			return nil, err
+		}
 		if strings.TrimSpace(path) == "" {
 			return &apidto.EditorOpenResult{Path: "", Content: ""}, nil
 		}
-		return api.readDocument(ctx, path)
+		result, err := api.readDocument(ctx, path)
+		if err != nil {
+			return nil, err
+		}
+		if err := validateDialog(); err != nil {
+			return nil, err
+		}
+		return result, nil
 	})
 }
 
@@ -1234,7 +1252,7 @@ func (api *Editor) EditorWriteFile(path string, content string) error {
 			perm = info.Mode().Perm()
 		}
 		commit := hooks.MarkSelfWrite(p)
-		if err := filesystem.WriteFileBytes(p, []byte(content), perm); err != nil {
+		if err := filesystem.WriteFileBytesReplacing(p, []byte(content), perm); err != nil {
 			if commit != nil {
 				commit(false)
 			}
@@ -1275,6 +1293,10 @@ func (api *Editor) EditorSaveFileDialog(suggestedFilename string, labels apidto.
 		if err := requireEditorUser(ctx); err != nil {
 			return "", err
 		}
+		validateDialog, err := api.captureDialogSession(ctx)
+		if err != nil {
+			return "", err
+		}
 		if hooks.AppContext() == nil {
 			return "", fmt.Errorf("app não inicializado")
 		}
@@ -1294,8 +1316,30 @@ func (api *Editor) EditorSaveFileDialog(suggestedFilename string, labels apidto.
 		if err != nil {
 			return "", err
 		}
+		if err := validateDialog(); err != nil {
+			return "", err
+		}
 		return path, nil
 	})
+}
+
+// captureDialogSession exige a prova de sessão do wiring de produção.
+// Identidade de usuário isolada não detecta logout/login da mesma conta.
+func (api *Editor) captureDialogSession(ctx context.Context) (func() error, error) {
+	api.mu.RLock()
+	hook := api.hooks.CaptureDialogSession
+	api.mu.RUnlock()
+	if hook == nil {
+		return nil, ErrEditorNotWired
+	}
+	validate, err := hook(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if validate == nil {
+		return nil, ErrEditorNotWired
+	}
+	return validate, nil
 }
 
 // EditorWatchFile observa mudanças externas no arquivo.

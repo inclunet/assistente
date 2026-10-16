@@ -11,7 +11,6 @@ import {
   SetWorkspaceProfile,
   AddWorkspaceTab,
   RemoveWorkspaceTab,
-  SetActiveWorkspaceTab,
   UpdateWorkspaceTab,
   ReorderWorkspaceTabs,
   MoveWorkspaceTabTo,
@@ -24,6 +23,14 @@ import i18next from 'i18next';
 import { announce } from '../hooks/useAnnouncer';
 import { isModalOpen } from '../lib/modalRegistry';
 import { waitForWailsBridge } from '../lib/waitForWailsBridge';
+import { setActiveWorkspaceTabForWorkspace } from '../lib/workspaceNavigationWails';
+import { useAuthStore } from './authStore';
+import {
+  compareWorkspaceSnapshots,
+  parseWorkspaceSnapshot,
+  type ParsedWorkspaceSnapshot,
+  type WorkspaceSnapshotPayload,
+} from '../lib/workspaceSnapshot';
 
 export type TabType = 'chat' | 'editor' | 'terminal' | 'tasklist';
 
@@ -67,7 +74,7 @@ interface BackendWorkspaceTabPayload {
   state?: unknown;
 }
 
-interface BackendWorkspacePayload {
+export interface BackendWorkspacePayload extends WorkspaceSnapshotPayload {
   id: string;
   name: string;
   profile?: string;
@@ -84,11 +91,18 @@ export interface WorkspaceTabUpdatedEvent {
 }
 
 function backendTabToFrontend(bt: BackendWorkspaceTabPayload): WorkspaceTab {
+  const fallbackTitle = bt.type === 'chat'
+    ? i18next.t('chat.newConversation')
+    : bt.type === 'editor'
+      ? i18next.t('editor.fallback.newDoc')
+      : bt.type === 'tasklist'
+        ? i18next.t('workspace.newTasklist')
+        : '';
   return {
     id: bt.id,
     type: bt.type as TabType,
     conversationId: bt.conversation_id || undefined,
-    title: bt.title || (bt.type === 'chat' ? i18next.t('chat.newConversation') : ''),
+    title: bt.title || fallbackTitle,
     position: bt.position,
     profileOverride: bt.profile_override as Record<string, unknown> | undefined,
     state: bt.state as Record<string, unknown> | undefined,
@@ -139,6 +153,7 @@ interface WorkspaceStore {
   addTab: (type: TabType, title: string, initialState?: Record<string, unknown>) => Promise<string>;
   removeTab: (tabId: string) => Promise<void>;
   setActiveTab: (tabId: string) => void;
+  reconcileActiveSelection: () => Promise<boolean>;
   updateTab: (tabId: string, updates: Record<string, unknown>) => Promise<void>;
   reorderTabs: (orderedIds: string[]) => Promise<void>;
   moveTabToWorkspace: (tabId: string, targetWorkspaceId: string) => Promise<void>;
@@ -163,6 +178,62 @@ function generateTabId(): string {
 let initializingPromise: Promise<void> | null = null;
 let initializeRetryTimer: ReturnType<typeof setTimeout> | null = null;
 let activationSeqId = 0;
+let snapshotAnchor: ParsedWorkspaceSnapshot | null = null;
+let bootstrapInProgress = false;
+let listenersReady = false;
+let snapshotGeneration = 0;
+let workspaceNavigationGeneration = 0;
+let activationBusy = false;
+const activationQueue: Array<(markFailed: () => void) => Promise<void>> = [];
+let activationDrainPromise: Promise<boolean> = Promise.resolve(true);
+let resolveActivationDrain: ((result: boolean) => void) | null = null;
+let activationPumpToken = 0;
+let pendingActivation: {
+  workspaceId: string;
+  tabId: string;
+  requestId: number;
+  settled: boolean;
+} | null = null;
+
+function enqueueActivation(task: (markFailed: () => void) => Promise<void>) {
+  if (activationBusy) {
+    // Only the latest intent not yet handed to Wails is retained. The
+    // in-flight request remains untouched; intermediate key presses are UI
+    // intent, not persistence history.
+    activationQueue[0] = task;
+    return;
+  }
+  const pumpToken = ++activationPumpToken;
+  activationQueue[0] = task;
+  activationBusy = true;
+  let drainResult = true;
+  let resolveDrain: ((result: boolean) => void) | null = null;
+  activationDrainPromise = new Promise<boolean>((resolve) => {
+    resolveDrain = resolve;
+    resolveActivationDrain = resolve;
+  });
+  const pump = async () => {
+    if (pumpToken !== activationPumpToken) return;
+    const next = activationQueue.shift();
+    if (!next) {
+      if (pumpToken !== activationPumpToken) return;
+      activationBusy = false;
+      resolveDrain?.(drainResult);
+      if (resolveActivationDrain === resolveDrain) resolveActivationDrain = null;
+      return;
+    }
+    const markDrainFailed = () => { drainResult = false; };
+    try {
+      await next(markDrainFailed);
+    } catch (error) {
+      drainResult = false;
+      logger.warn('[workspaceStore] activation queue task failed:', error);
+    } finally {
+      if (pumpToken === activationPumpToken) void pump();
+    }
+  };
+  void pump();
+}
 const WAILS_BRIDGE_INIT_TIMEOUT_MS = 10000;
 const WAILS_BRIDGE_RETRY_DELAY_MS = 1000;
 
@@ -175,6 +246,28 @@ function clearInitializeRetryTimer() {
     clearTimeout(initializeRetryTimer);
     initializeRetryTimer = null;
   }
+}
+
+function resetSnapshotOrdering() {
+  snapshotGeneration += 1;
+  snapshotAnchor = null;
+  bootstrapInProgress = false;
+  pendingActivation = null;
+  workspaceNavigationGeneration += 1;
+  activationQueue.length = 0;
+  activationPumpToken += 1;
+  if (activationBusy) {
+    activationBusy = false;
+    resolveActivationDrain?.(false);
+    resolveActivationDrain = null;
+  }
+  activationDrainPromise = Promise.resolve(true);
+}
+
+function projectSnapshotAnchor(anchor: ParsedWorkspaceSnapshot | null): WorkspaceData | null {
+  return anchor
+    ? backendWorkspaceToFrontend(anchor.payload as BackendWorkspacePayload)
+    : null;
 }
 
 /**
@@ -205,7 +298,68 @@ function mergeProfileOverride(
   return Object.keys(merged).length > 0 ? merged : undefined;
 }
 
-export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
+export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => {
+  const applyWorkspaceSnapshot = (raw: unknown, trustedBootstrap = false): boolean => {
+    if (bootstrapInProgress && !trustedBootstrap) return false;
+    const incoming = parseWorkspaceSnapshot(raw);
+    if (!incoming) return false;
+    if (!snapshotAnchor) {
+      if (!trustedBootstrap) return false;
+      snapshotAnchor = incoming;
+    } else if (compareWorkspaceSnapshots(snapshotAnchor, incoming) !== 'newer') {
+      return false;
+    }
+    snapshotAnchor = incoming;
+    const nextWorkspace = backendWorkspaceToFrontend(incoming.payload as BackendWorkspacePayload);
+    if (get().workspace && get().workspace?.id !== nextWorkspace.id) {
+      workspaceNavigationGeneration += 1;
+      activationSeqId += 1;
+      pendingActivation = null;
+    }
+    const pending = pendingActivation;
+    if (pending && pending.workspaceId === nextWorkspace.id) {
+      if (!pending.settled && nextWorkspace.activeTabId !== pending.tabId
+        && nextWorkspace.tabs.some(tab => tab.id === pending.tabId)) {
+        nextWorkspace.activeTabId = pending.tabId;
+      }
+      if (pending.settled) pendingActivation = null;
+    }
+    set({ workspace: nextWorkspace });
+    return true;
+  };
+
+  const reconcileActiveWorkspace = async (expected?: {
+    generation: number;
+    navigationGeneration: number;
+    workspaceId: string | null;
+  }) => {
+    const generationAtStart = snapshotGeneration;
+    const navigationGenerationAtStart = workspaceNavigationGeneration;
+    const workspaceIdAtStart = get().workspace?.id ?? null;
+    const epochAtStart = snapshotAnchor?.epoch;
+    try {
+      const latest = await GetActiveWorkspace();
+      if (generationAtStart !== snapshotGeneration
+        || navigationGenerationAtStart !== workspaceNavigationGeneration
+        || workspaceIdAtStart !== (get().workspace?.id ?? null)
+        || epochAtStart !== snapshotAnchor?.epoch
+        || (expected && (expected.generation !== snapshotGeneration
+          || expected.navigationGeneration !== workspaceNavigationGeneration
+          || expected.workspaceId !== (get().workspace?.id ?? null)))) {
+        return false;
+      }
+      const incoming = parseWorkspaceSnapshot(latest);
+      if (!incoming || incoming.epoch !== epochAtStart
+        || (expected && incoming.payload.id !== expected.workspaceId)) return false;
+      return applyWorkspaceSnapshot(latest)
+        || (snapshotAnchor !== null && compareWorkspaceSnapshots(snapshotAnchor, incoming) === 'same');
+    } catch (error) {
+      logger.warn('[Workspace] Error reconciling active snapshot:', error);
+      return false;
+    }
+  };
+
+  return ({
   workspace: null,
   workspaces: [],
   isInitialized: false,
@@ -213,17 +367,25 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
   initialize: async () => {
     if (initializingPromise) return initializingPromise;
 
+    let runPromise: Promise<void>;
+    if (!get().workspace && !get().isInitialized) resetSnapshotOrdering();
+    const runGeneration = snapshotGeneration;
     const run = async () => {
       try {
+        bootstrapInProgress = true;
         clearInitializeRetryTimer();
         await waitForWailsBridge({ timeoutMs: WAILS_BRIDGE_INIT_TIMEOUT_MS });
         const [bws, list] = await Promise.all([
           GetActiveWorkspace(),
           ListWorkspaces(),
         ]);
+        if (runGeneration !== snapshotGeneration) return;
 
         if (bws) {
-          const ws = backendWorkspaceToFrontend(bws);
+          const snapshot = parseWorkspaceSnapshot(bws);
+          if (!snapshot) throw new Error('Invalid versioned workspace bootstrap snapshot');
+          snapshotAnchor = snapshot;
+          const ws = backendWorkspaceToFrontend(snapshot.payload as BackendWorkspacePayload);
 
           if (ws.tabs.length === 0) {
             const tab: WorkspaceTab = {
@@ -234,12 +396,12 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
             };
             const backendTab = frontendTabToBackend(tab);
             const updatedWs = await AddWorkspaceTab(backendTab);
+            if (runGeneration !== snapshotGeneration) return;
             if (updatedWs) {
-              set({
-                workspace: backendWorkspaceToFrontend(updatedWs),
-                workspaces: list || [],
-                isInitialized: true,
-              });
+              applyWorkspaceSnapshot(updatedWs, true);
+              set({ workspaces: list || [], isInitialized: true });
+              bootstrapInProgress = false;
+              if (listenersReady) await reconcileActiveWorkspace();
               return;
             }
           }
@@ -250,9 +412,14 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
             isInitialized: true,
           });
         } else {
+          resetSnapshotOrdering();
           set({ isInitialized: true, workspaces: list || [] });
         }
+        set({ isInitialized: true });
+        bootstrapInProgress = false;
+        if (listenersReady && runGeneration === snapshotGeneration) await reconcileActiveWorkspace();
       } catch (error) {
+        if (runGeneration !== snapshotGeneration) return;
         if (isWailsBridgeTimeoutError(error)) {
           logger.warn('[Workspace] Wails bridge timeout during initialize; retrying...', error);
           if (initializeRetryTimer === null) {
@@ -264,25 +431,28 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
           return;
         }
         logger.error('[Workspace] Error initializing:', error);
+        bootstrapInProgress = false;
         set({ isInitialized: true });
       } finally {
-        initializingPromise = null;
+        if (initializingPromise === runPromise) initializingPromise = null;
       }
     };
 
-    initializingPromise = run();
-    return initializingPromise;
+    runPromise = run();
+    initializingPromise = runPromise;
+    return runPromise;
   },
 
   setupEventListeners: () => {
     const unsubs: Array<() => void> = [];
+    listenersReady = true;
 
-    unsubs.push(EventsOn('workspace:switched', (bws: workspace.Workspace) => {
-      set({ workspace: backendWorkspaceToFrontend(bws) });
+    unsubs.push(EventsOn('workspace:switched', (bws: unknown) => {
+      applyWorkspaceSnapshot(bws);
     }));
 
-    unsubs.push(EventsOn('workspace:renamed', (bws: workspace.Workspace) => {
-      set({ workspace: backendWorkspaceToFrontend(bws) });
+    unsubs.push(EventsOn('workspace:renamed', (bws: unknown) => {
+      applyWorkspaceSnapshot(bws);
       get().refreshWorkspaceList();
     }));
 
@@ -294,29 +464,55 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
       get().refreshWorkspaceList();
     }));
 
-    unsubs.push(EventsOn('workspace:tab_added', (bws: workspace.Workspace) => {
-      set({ workspace: backendWorkspaceToFrontend(bws) });
+    unsubs.push(EventsOn('workspace:tab_added', (bws: unknown) => {
+      applyWorkspaceSnapshot(bws);
     }));
 
-    unsubs.push(EventsOn('workspace:tab_removed', (bws: workspace.Workspace) => {
-      set({ workspace: backendWorkspaceToFrontend(bws) });
+    unsubs.push(EventsOn('workspace:tab_removed', (bws: unknown) => {
+      applyWorkspaceSnapshot(bws);
+    }));
+
+    // Binding a contextual conversation is not a profile change or navigation.
+    unsubs.push(EventsOn('workspace:conversation_bound', (bws: unknown) => {
+      applyWorkspaceSnapshot(bws);
+    }));
+
+    unsubs.push(EventsOn('workspace:terminal_session_bound', (bws: unknown) => {
+      applyWorkspaceSnapshot(bws);
+    }));
+
+    unsubs.push(EventsOn('workspace:tab_navigated', (bws: BackendWorkspacePayload) => {
+      applyWorkspaceSnapshot(bws);
     }));
 
     unsubs.push(EventsOn('workspace:tab_updated', (event: WorkspaceTabUpdatedEvent) => {
-      set({ workspace: backendWorkspaceToFrontend(event.workspace) });
+      if (!applyWorkspaceSnapshot(event.workspace)) return;
       const profileSlug = event.profileSlug.trim();
       announce(profileSlug
         ? `${i18next.t('workspace.profileChanged')}: ${profileSlug}`
         : i18next.t('workspace.profileChanged'));
     }));
 
-    unsubs.push(EventsOn('workspace:tab_activated', (tabId: string) => {
-      if (get().workspace?.activeTabId === tabId) return;
-      set(state => ({
-        workspace: state.workspace
-          ? { ...state.workspace, activeTabId: tabId }
-          : null,
-      }));
+    unsubs.push(EventsOn('workspace:editor_mode_changed', (event: unknown) => {
+      if (!event || typeof event !== 'object') return;
+      const modeEvent = event as { workspace?: unknown; tabId?: unknown; mode?: unknown };
+      if (typeof modeEvent.tabId !== 'string' || typeof modeEvent.mode !== 'string' || !['markdown', 'rich', 'view'].includes(modeEvent.mode)) return;
+      // Snapshot versionado continua sendo a autoridade; o evento não altera
+      // documentos locais nem anuncia falsamente uma mudança de perfil.
+      applyWorkspaceSnapshot(modeEvent.workspace);
+    }));
+
+    unsubs.push(EventsOn('workspace:editor_file_changed', (event: unknown) => {
+      if (!event || typeof event !== 'object') return;
+      const fileEvent = event as { workspace?: unknown; tabId?: unknown };
+      if (typeof fileEvent.tabId !== 'string' || !fileEvent.workspace) return;
+      // Snapshot versionado é a fonte de seleção/aba; o loader hidrata apenas
+      // documentos novos. O evento não sobrescreve conteúdo de documento vivo.
+      applyWorkspaceSnapshot(fileEvent.workspace);
+    }));
+
+    unsubs.push(EventsOn('workspace:tab_activated', (bws: unknown) => {
+      applyWorkspaceSnapshot(bws);
     }));
 
     // Content rename events → update matching tab title
@@ -334,7 +530,10 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
       }
     }));
 
+    if (get().isInitialized && !bootstrapInProgress) void reconcileActiveWorkspace();
+
     return () => {
+      listenersReady = false;
       unsubs.forEach(fn => fn());
     };
   },
@@ -346,8 +545,11 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
   },
 
   switchWorkspace: async (workspaceId) => {
+    workspaceNavigationGeneration += 1;
+    activationSeqId += 1;
+    pendingActivation = null;
     const bws = await SwitchWorkspace(workspaceId);
-    set({ workspace: backendWorkspaceToFrontend(bws) });
+    applyWorkspaceSnapshot(bws);
     announce(i18next.t('workspace.announce.workspaceSwitched', { name: bws.name }));
   },
 
@@ -407,7 +609,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
     const backendTab = frontendTabToBackend(tab);
     const updatedWs = await AddWorkspaceTab(backendTab);
     if (updatedWs) {
-      set({ workspace: backendWorkspaceToFrontend(updatedWs) });
+      applyWorkspaceSnapshot(updatedWs);
     }
     announce(i18next.t('workspace.announce.tabCreated', { title }));
     return tabId;
@@ -431,13 +633,23 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
 
     const updatedWs = await RemoveWorkspaceTab(tabId);
     if (updatedWs) {
-      set({ workspace: backendWorkspaceToFrontend(updatedWs) });
+      applyWorkspaceSnapshot(updatedWs);
     }
     announce(i18next.t('workspace.announce.tabClosed'));
   },
 
+  reconcileActiveSelection: () => reconcileActiveWorkspace({
+    generation: snapshotGeneration,
+    navigationGeneration: workspaceNavigationGeneration,
+    workspaceId: get().workspace?.id ?? null,
+  }),
+
   setActiveTab: (tabId) => {
-    if (get().workspace?.activeTabId === tabId) {
+    const currentWorkspace = get().workspace;
+    if (!currentWorkspace || !currentWorkspace.tabs.some(tab => tab.id === tabId)) {
+      return;
+    }
+    if (currentWorkspace.activeTabId === tabId) {
       return;
     }
     if (isModalOpen()) {
@@ -445,9 +657,12 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
       return;
     }
     // Optimistic update: atualiza UI imediatamente, persiste em background
-    const previousTabId = get().workspace?.activeTabId ?? null;
     const currentWorkspaceId = get().workspace?.id ?? null;
     const mySeq = ++activationSeqId;
+    const requestGeneration = snapshotGeneration;
+    const requestNavigationGeneration = workspaceNavigationGeneration;
+    const requestEpoch = snapshotAnchor?.epoch;
+    pendingActivation = { workspaceId: currentWorkspaceId ?? '', tabId, requestId: mySeq, settled: false };
     set(state => ({
       workspace: state.workspace
         ? { ...state.workspace, activeTabId: tabId }
@@ -455,29 +670,103 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
     }));
     // Fire-and-forget: UI já atualizada; rollback em caso de falha.
     // A persistência no backend é assíncrona e não bloqueia callers.
-    void SetActiveWorkspaceTab(tabId).catch((err: unknown) => {
-      logger.warn('[workspaceStore] SetActiveWorkspaceTab failed:', err);
-      // Só faz rollback se nenhuma ativação mais recente ocorreu desde esta
-      // e o workspace não mudou (evita alterar activeTabId de outro workspace).
-      if (activationSeqId === mySeq && get().workspace?.id === currentWorkspaceId) {
-        const tabs = get().workspace?.tabs ?? [];
-        const rollbackId = tabs.some(t => t.id === previousTabId)
-          ? previousTabId
-          : (tabs[0]?.id ?? null);
-        set(state => ({
-          workspace: state.workspace
-            ? { ...state.workspace, activeTabId: rollbackId }
-            : null,
-        }));
-        window.dispatchEvent(new CustomEvent('workspace:tab-activation-rollback', {
-          detail: {
-            failedTabId: tabId,
-            rollbackTabId: rollbackId,
-          },
-        }));
-        announce(i18next.t('workspace.tabSwitchFailed'));
+    const persistActivation = async (markFailed: () => void) => {
+      if (requestGeneration !== snapshotGeneration
+        || requestNavigationGeneration !== workspaceNavigationGeneration
+        || currentWorkspaceId === null
+        || get().workspace?.id !== currentWorkspaceId
+        || requestEpoch !== snapshotAnchor?.epoch) {
+        return;
       }
-    });
+      try {
+        const snapshot = await setActiveWorkspaceTabForWorkspace(currentWorkspaceId, tabId);
+        if (requestGeneration !== snapshotGeneration
+          || requestNavigationGeneration !== workspaceNavigationGeneration
+          || get().workspace?.id !== currentWorkspaceId
+          || requestEpoch !== snapshotAnchor?.epoch) {
+          return;
+        }
+        // A controller emits the same stamped snapshot as the RPC result. It
+        // is valid for the event to win the race and make apply return false
+        // because this response is an already-applied duplicate.
+        const parsedResponse = parseWorkspaceSnapshot(snapshot);
+        const responseEpochMatchesRequest = parsedResponse !== null
+          && requestEpoch !== undefined
+          && parsedResponse.epoch === requestEpoch
+          && parsedResponse.epoch === snapshotAnchor?.epoch;
+        if (!parsedResponse
+          || !responseEpochMatchesRequest
+          || parsedResponse.payload.id !== currentWorkspaceId
+          || parsedResponse.payload.tabs?.active !== tabId) {
+          if (activationSeqId !== mySeq) return;
+          // An invalid acknowledgement is not persistence success. Reuse the
+          // guarded reconciliation/rollback path even if the follow-up read fails.
+          throw new Error('Invalid workspace selection acknowledgement');
+        }
+        applyWorkspaceSnapshot(snapshot);
+        const canonicalAnchor = snapshotAnchor;
+        const canonicalWorkspace = projectSnapshotAnchor(canonicalAnchor);
+        if (!canonicalWorkspace
+          || canonicalWorkspace.id !== currentWorkspaceId
+          || canonicalWorkspace.activeTabId !== tabId) {
+          if (activationSeqId !== mySeq) return;
+          markFailed();
+          if (pendingActivation?.requestId === mySeq) {
+            pendingActivation = null;
+            set({ workspace: canonicalWorkspace });
+          }
+          return;
+        }
+        if (pendingActivation?.requestId === mySeq) {
+          pendingActivation.settled = true;
+          pendingActivation = null;
+          set({ workspace: canonicalWorkspace });
+        }
+      } catch (err: unknown) {
+        logger.warn('[workspaceStore] SetActiveWorkspaceTab failed:', err);
+        if (requestGeneration !== snapshotGeneration
+          || requestNavigationGeneration !== workspaceNavigationGeneration
+          || get().workspace?.id !== currentWorkspaceId
+          || requestEpoch !== snapshotAnchor?.epoch) {
+          return;
+        }
+        markFailed();
+        const isLatestIntent = activationSeqId === mySeq;
+        if (isLatestIntent && pendingActivation?.requestId === mySeq) {
+          pendingActivation = null;
+        }
+        await reconcileActiveWorkspace({
+          generation: requestGeneration,
+          navigationGeneration: requestNavigationGeneration,
+          workspaceId: currentWorkspaceId,
+        });
+        const stillLatestIntent = activationSeqId === mySeq && pendingActivation === null;
+        if (stillLatestIntent
+          && requestGeneration === snapshotGeneration
+          && requestNavigationGeneration === workspaceNavigationGeneration
+          && get().workspace?.id === currentWorkspaceId
+          && requestEpoch === snapshotAnchor?.epoch) {
+          // Reconcile may fail, return no workspace, or return a duplicate/
+          // older snapshot. In all of those cases, remove the optimistic
+          // overlay from the newest trusted anchor. Recheck the intent after
+          // the await so a newer local selection is never overwritten.
+          const canonicalWorkspace = projectSnapshotAnchor(snapshotAnchor);
+          if (canonicalWorkspace?.id === currentWorkspaceId) {
+            set({ workspace: canonicalWorkspace });
+          }
+          const rollbackTabId = get().workspace?.activeTabId ?? null;
+          if (rollbackTabId !== tabId) {
+            window.dispatchEvent(new CustomEvent('workspace:tab-activation-rollback', {
+              detail: { failedTabId: tabId, rollbackTabId },
+            }));
+            announce(i18next.t('workspace.tabSwitchFailed'));
+          }
+        }
+      }
+    };
+    // The UI remains optimistic while only the in-flight request and the
+    // latest not-yet-submitted intent are retained.
+    enqueueActivation(persistActivation);
   },
 
   updateTab: async (tabId, updates) => {
@@ -530,7 +819,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
   moveTabToWorkspace: async (tabId, targetWorkspaceId) => {
     const updatedWs = await MoveWorkspaceTabTo(tabId, targetWorkspaceId);
     if (updatedWs) {
-      set({ workspace: backendWorkspaceToFrontend(updatedWs) });
+      applyWorkspaceSnapshot(updatedWs);
     }
     await get().refreshWorkspaceList();
   },
@@ -597,7 +886,57 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
     if (!ws) return [];
     return ws.tabs.filter(t => t.type === type);
   },
-}));
+  });
+});
+
+let authIdentity = (() => {
+  const auth = useAuthStore.getState();
+  return auth.isAuthenticated && auth.user
+    ? `${auth.user.userId}:${auth.user.sessionId}`
+    : auth.isAuthenticated ? 'authenticated-without-user' : null;
+})();
+const unsubscribeAuthStore = useAuthStore.subscribe((auth) => {
+  const nextIdentity = auth.isAuthenticated && auth.user
+    ? `${auth.user.userId}:${auth.user.sessionId}`
+    : auth.isAuthenticated ? 'authenticated-without-user' : null;
+  if (nextIdentity === authIdentity) return;
+  authIdentity = nextIdentity;
+  clearInitializeRetryTimer();
+  initializingPromise = null;
+  resetSnapshotOrdering();
+  useWorkspaceStore.setState({ workspace: null, isInitialized: false });
+});
+
+export async function flushWorkspaceNavigation(): Promise<boolean> {
+  const generationAtStart = snapshotGeneration;
+  const navigationGenerationAtStart = workspaceNavigationGeneration;
+  const workspaceIDAtStart = useWorkspaceStore.getState().workspace?.id ?? null;
+  const activeTabAtStart = useWorkspaceStore.getState().workspace?.activeTabId ?? null;
+  const wasBusy = activationBusy;
+  const drainAtStart = activationDrainPromise;
+  let result = await drainAtStart;
+  if (!wasBusy && !result && !activationBusy) {
+    // A failed selection cancels the dependent action, not every future action.
+    // A fresh attempt must first confirm the actual backend selection; merely
+    // clearing the error could target a tab saved before a lost acknowledgement.
+    result = await useWorkspaceStore.getState().reconcileActiveSelection();
+    if (result && !activationBusy && activationDrainPromise === drainAtStart) {
+      activationDrainPromise = Promise.resolve(true);
+    }
+  }
+  const currentWorkspaceID = useWorkspaceStore.getState().workspace?.id ?? null;
+  const canonicalWorkspace = projectSnapshotAnchor(snapshotAnchor);
+  const currentWorkspace = useWorkspaceStore.getState().workspace;
+  return result
+    && generationAtStart === snapshotGeneration
+    && navigationGenerationAtStart === workspaceNavigationGeneration
+    && workspaceIDAtStart === currentWorkspaceID
+    && activeTabAtStart === (currentWorkspace?.activeTabId ?? null)
+    && pendingActivation === null
+    && (canonicalWorkspace === null
+      || (canonicalWorkspace.id === currentWorkspace?.id
+        && canonicalWorkspace.activeTabId === currentWorkspace.activeTabId));
+}
 
 /**
  * Lista vazia compartilhada para quando ainda não há workspace carregado.
@@ -631,6 +970,9 @@ export function useActiveTab(): WorkspaceTab | undefined {
 // HMR: reseta estado do módulo para que o workspace reinicialize após hot reload
 if (import.meta.hot) {
   import.meta.hot.dispose(() => {
+    unsubscribeAuthStore();
+    clearInitializeRetryTimer();
+    resetSnapshotOrdering();
     initializingPromise = null;
     useWorkspaceStore.setState({ isInitialized: false, workspace: null, workspaces: [] });
   });

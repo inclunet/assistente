@@ -64,7 +64,7 @@ describe('RichTextEditor', () => {
     vi.useRealTimers();
   });
 
-  it('renderiza editor e dispara Ctrl+K', () => {
+  it('não intercepta Ctrl+K no editor rico', () => {
     render(
       <RichTextEditor
         markdown=""
@@ -75,7 +75,7 @@ describe('RichTextEditor', () => {
     const region = screen.getByRole('region', { name: 'editor.richText.label' });
     fireEvent.keyDown(region, { key: 'k', ctrlKey: true });
 
-    expect(openLinkDialogSpy).toHaveBeenCalled();
+    expect(openLinkDialogSpy).not.toHaveBeenCalled();
   });
 
   it('aplica markdown externo (troca de slide) sem emitir onMarkdownChange espúrio', () => {

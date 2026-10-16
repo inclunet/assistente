@@ -406,7 +406,8 @@ func TestImportMCPServersJSONContinuesAfterInvalidServer(t *testing.T) {
 	ctx := portabilityTestCtx()
 	payload := []byte(`{"mcpServers":{"good":{"url":"https://good.example/mcp"},"broken":{"name":"Broken"}}}`)
 
-	result, err := ImportMCPServersJSONWithContext(ctx, payload, nil)
+	manager := credentials.NewManagerWithStoreAndPersistence([]byte("01234567890123456789012345678901"), credentials.NewDBStore(), true)
+	result, err := ImportMCPServersJSONWithContext(ctx, payload, manager)
 	if err != nil {
 		t.Fatalf("ImportMCPServersJSONWithContext: %v", err)
 	}
@@ -539,6 +540,9 @@ func TestImportLegacyMCPServersIsReusableAndIdempotent(t *testing.T) {
 	if result.Imported != 1 || result.Skipped != 0 {
 		t.Fatalf("first result = %#v", result)
 	}
+	if len(result.WarningMessages) != 1 || result.WarningMessages[0].Code != "mcpServer.oauthRecoveryRequired" {
+		t.Fatal("missing OAuth recovery warning")
+	}
 	if string(source.data["github.json"]) != original {
 		t.Fatal("legacy source should remain untouched")
 	}
@@ -558,6 +562,9 @@ func TestImportLegacyMCPServersIsReusableAndIdempotent(t *testing.T) {
 	}
 	if row.Name != "GitHub" || row.URL != "https://github.example/mcp" {
 		t.Fatalf("legacy import overwrote existing server: %#v", row)
+	}
+	if row.Enabled || row.AutoConnect {
+		t.Fatal("historical OAuth activated automatically")
 	}
 }
 
@@ -681,7 +688,7 @@ func TestBuildExportFileReturnsClearErrorForMissingConversation(t *testing.T) {
 	}
 }
 
-func TestExportConversationHydratesToolCallResultsFromToolInvocations(t *testing.T) {
+func TestExportConversationExportsCanonicalToolInvocations(t *testing.T) {
 	setupPortabilityTestDB(t)
 	ctx := portabilityTestCtx()
 
@@ -697,9 +704,8 @@ func TestExportConversationHydratesToolCallResultsFromToolInvocations(t *testing
 	if err := database.DB().Create(&database.ChatMessage{UUIDModel: database.UUIDModel{ID: turnID}, ConversationID: convID, Role: "user", Content: "hi"}).Error; err != nil {
 		t.Fatalf("create turn message: %v", err)
 	}
-	toolCalls := `[{"id":"` + callID + `","type":"function","function":{"name":"x","arguments":"{}"}}]`
-	if err := database.DB().Create(&database.ChatMessage{UUIDModel: database.UUIDModel{ID: assistantID}, ConversationID: convID, Role: "assistant", Content: "", ToolCalls: toolCalls, TurnID: &turnID}).Error; err != nil {
-		t.Fatalf("create assistant tool_calls: %v", err)
+	if err := database.DB().Create(&database.ChatMessage{UUIDModel: database.UUIDModel{ID: assistantID}, ConversationID: convID, Role: "assistant", Content: "", TurnID: &turnID}).Error; err != nil {
+		t.Fatalf("create assistant: %v", err)
 	}
 	if err := database.DB().Create(&database.ToolInvocation{UserID: portabilityTestUserID, ToolCatalogID: "tool-1", OriginType: "chat", OriginID: turnID, ToolCallID: callID, Status: "succeeded", DryRun: false, Output: `{"content":"RESULT"}`}).Error; err != nil {
 		t.Fatalf("create tool invocation: %v", err)
@@ -716,19 +722,13 @@ func TestExportConversationHydratesToolCallResultsFromToolInvocations(t *testing
 	if len(msgs) != 2 {
 		t.Fatalf("expected 2 exported messages, got %d", len(msgs))
 	}
-	var decoded []map[string]any
-	if err := json.Unmarshal([]byte(msgs[1].ToolCalls), &decoded); err != nil {
-		t.Fatalf("unmarshal exported toolCalls: %v", err)
-	}
-	if len(decoded) != 1 {
-		t.Fatalf("expected 1 tool call, got %#v", decoded)
-	}
-	if got, _ := decoded[0]["result"].(string); got != "RESULT" {
-		t.Fatalf("hydrated result = %q, want RESULT", got)
+	invocations := file.Resources.Conversations[0].ToolInvocations
+	if len(invocations) != 1 || invocations[0].ToolCallID != callID || !strings.Contains(invocations[0].Output, "RESULT") {
+		t.Fatalf("invocação canônica não exportada: %+v", invocations)
 	}
 }
 
-func TestExportConversationBuildsToolCallsFromToolInvocationsWithoutMessageToolCalls(t *testing.T) {
+func TestExportConversationKeepsInvocationsOutsideMessages(t *testing.T) {
 	setupPortabilityTestDB(t)
 	ctx := portabilityTestCtx()
 
@@ -765,21 +765,14 @@ func TestExportConversationBuildsToolCallsFromToolInvocationsWithoutMessageToolC
 	if err != nil {
 		t.Fatalf("BuildExportFileWithContext: %v", err)
 	}
-	msgs := file.Resources.Conversations[0].Messages
-	var decoded []map[string]any
-	if err := json.Unmarshal([]byte(msgs[1].ToolCalls), &decoded); err != nil {
-		t.Fatalf("unmarshal synthesized toolCalls: %v", err)
-	}
-	if len(decoded) != 1 {
-		t.Fatalf("expected 1 synthesized tool call, got %#v", decoded)
-	}
-	fn, _ := decoded[0]["function"].(map[string]any)
-	if decoded[0]["id"] != callID || decoded[0]["result"] != "RESULT-NEW" || fn["name"] != "search" {
-		t.Fatalf("unexpected synthesized tool call: %#v", decoded[0])
+	exported := file.Resources.Conversations[0]
+	if len(exported.ToolInvocations) != 1 || exported.ToolInvocations[0].ToolCallID != callID ||
+		!strings.Contains(exported.ToolInvocations[0].Output, "RESULT-NEW") {
+		t.Fatalf("unexpected canonical invocation: %+v", exported.ToolInvocations)
 	}
 }
 
-func TestExportConversationBuildsToolCallsOnAssistantMessageID(t *testing.T) {
+func TestExportConversationPreservesAssistantMessageMetadata(t *testing.T) {
 	setupPortabilityTestDB(t)
 	ctx := portabilityTestCtx()
 
@@ -820,23 +813,14 @@ func TestExportConversationBuildsToolCallsOnAssistantMessageID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildExportFileWithContext: %v", err)
 	}
-	msgs := file.Resources.Conversations[0].Messages
-	if len(msgs) != 3 {
-		t.Fatalf("expected 3 messages, got %d", len(msgs))
-	}
-	if strings.TrimSpace(msgs[1].ToolCalls) != "" {
-		t.Fatalf("placeholder should not receive synthesized tool_calls, got %q", msgs[1].ToolCalls)
-	}
-	var decoded []map[string]any
-	if err := json.Unmarshal([]byte(msgs[2].ToolCalls), &decoded); err != nil {
-		t.Fatalf("unmarshal scoped toolCalls: %v", err)
-	}
-	if len(decoded) != 1 || decoded[0]["id"] != callID || decoded[0]["result"] != "RESULT-SCOPED" {
-		t.Fatalf("unexpected scoped tool call export: %#v", decoded)
+	exported := file.Resources.Conversations[0]
+	if len(exported.Messages) != 3 || len(exported.ToolInvocations) != 1 ||
+		!strings.Contains(exported.ToolInvocations[0].Metadata, iterationID) {
+		t.Fatalf("metadata de associação não preservado: %+v", exported)
 	}
 }
 
-func TestExportConversationPreservesMixedScopedAndLegacyInvocations(t *testing.T) {
+func TestExportConversationPreservesMixedCanonicalInvocations(t *testing.T) {
 	setupPortabilityTestDB(t)
 	ctx := portabilityTestCtx()
 
@@ -889,29 +873,17 @@ func TestExportConversationPreservesMixedScopedAndLegacyInvocations(t *testing.T
 	if err != nil {
 		t.Fatalf("BuildExportFileWithContext: %v", err)
 	}
-	msgs := file.Resources.Conversations[0].Messages
-	var legacyDecoded []map[string]any
-	if err := json.Unmarshal([]byte(msgs[1].ToolCalls), &legacyDecoded); err != nil {
-		t.Fatalf("unmarshal legacy toolCalls: %v", err)
-	}
-	if len(legacyDecoded) != 1 || legacyDecoded[0]["id"] != legacyCallID || legacyDecoded[0]["result"] != "RESULT-LEGACY" {
-		t.Fatalf("unexpected legacy tool call export: %#v", legacyDecoded)
-	}
-	var scopedDecoded []map[string]any
-	if err := json.Unmarshal([]byte(msgs[2].ToolCalls), &scopedDecoded); err != nil {
-		t.Fatalf("unmarshal scoped toolCalls: %v", err)
-	}
-	if len(scopedDecoded) != 1 || scopedDecoded[0]["id"] != scopedCallID || scopedDecoded[0]["result"] != "RESULT-SCOPED" {
-		t.Fatalf("unexpected scoped tool call export: %#v", scopedDecoded)
+	invocations := file.Resources.Conversations[0].ToolInvocations
+	if len(invocations) != 2 || invocations[0].ToolCallID != legacyCallID || invocations[1].ToolCallID != scopedCallID {
+		t.Fatalf("invocações canônicas mistas não preservadas: %+v", invocations)
 	}
 }
 
-func TestExportConversationBuildsToolCallsFromRoleToolFallbackWithoutInvocations(t *testing.T) {
+func TestExportConversationWithoutInvocationsDoesNotInventTechnicalData(t *testing.T) {
 	setupPortabilityTestDB(t)
 	ctx := portabilityTestCtx()
 
 	turnID := "turn-fallback"
-	callID := "call-fallback"
 	convID := "conv-fallback"
 
 	conv := &database.Conversation{UUIDModel: database.UUIDModel{ID: convID}, UserID: portabilityTestUserID, Title: "Fallback"}
@@ -924,21 +896,13 @@ func TestExportConversationBuildsToolCallsFromRoleToolFallbackWithoutInvocations
 	if err := database.DB().Create(&database.ChatMessage{UUIDModel: database.UUIDModel{ID: "assistant-fallback"}, ConversationID: convID, Role: "assistant", Content: "vou buscar", TurnID: &turnID}).Error; err != nil {
 		t.Fatalf("create assistant without tool_calls: %v", err)
 	}
-	if err := database.DB().Create(&database.ChatMessage{UUIDModel: database.UUIDModel{ID: "tool-fallback"}, ConversationID: convID, Role: "tool", Content: "FALLBACK-RESULT", TurnID: &turnID, ToolCallID: callID}).Error; err != nil {
-		t.Fatalf("create role=tool fallback: %v", err)
-	}
-
 	file, err := BuildExportFileWithContext(ctx, []string{convID}, nil, nil, nil, ExportRequest{ExplicitSelection: true, ConversationIDs: []string{convID}}, "test")
 	if err != nil {
 		t.Fatalf("BuildExportFileWithContext: %v", err)
 	}
-	msgs := file.Resources.Conversations[0].Messages
-	var decoded []map[string]any
-	if err := json.Unmarshal([]byte(msgs[1].ToolCalls), &decoded); err != nil {
-		t.Fatalf("unmarshal synthesized fallback toolCalls: %v", err)
-	}
-	if len(decoded) != 1 || decoded[0]["id"] != callID || decoded[0]["result"] != "FALLBACK-RESULT" {
-		t.Fatalf("unexpected fallback tool call export: %#v", decoded)
+	exported := file.Resources.Conversations[0]
+	if len(exported.Messages) != 2 || len(exported.ToolInvocations) != 0 {
+		t.Fatalf("export inventou dados técnicos: %+v", exported)
 	}
 }
 
@@ -959,9 +923,8 @@ func TestImportOverwriteClearsChatToolInvocationsToAvoidStaleExportHydration(t *
 	if err := database.DB().Create(&database.ChatMessage{UUIDModel: database.UUIDModel{ID: turnID}, ConversationID: convID, Role: "user", Content: "hi"}).Error; err != nil {
 		t.Fatalf("create turn message: %v", err)
 	}
-	toolCalls := `[{"id":"` + callID + `","type":"function","function":{"name":"x","arguments":"{}"}}]`
-	if err := database.DB().Create(&database.ChatMessage{UUIDModel: database.UUIDModel{ID: assistantID}, ConversationID: convID, Role: "assistant", Content: "", ToolCalls: toolCalls, TurnID: &turnID}).Error; err != nil {
-		t.Fatalf("create assistant tool_calls: %v", err)
+	if err := database.DB().Create(&database.ChatMessage{UUIDModel: database.UUIDModel{ID: assistantID}, ConversationID: convID, Role: "assistant", Content: "", TurnID: &turnID}).Error; err != nil {
+		t.Fatalf("create assistant: %v", err)
 	}
 	if err := database.DB().Create(&database.ToolInvocation{UserID: portabilityTestUserID, ToolCatalogID: "tool-1", OriginType: "chat", OriginID: turnID, ToolCallID: callID, Status: "succeeded", DryRun: false, Output: `{"content":"OLD"}`}).Error; err != nil {
 		t.Fatalf("create stale tool invocation: %v", err)
@@ -985,7 +948,6 @@ func TestImportOverwriteClearsChatToolInvocationsToAvoidStaleExportHydration(t *
 				ID:        assistantID,
 				Role:      "assistant",
 				Content:   "",
-				ToolCalls: toolCalls,
 				TurnID:    turnID,
 				CreatedAt: time.Now().UTC(),
 			}}}},
@@ -1008,17 +970,12 @@ func TestImportOverwriteClearsChatToolInvocationsToAvoidStaleExportHydration(t *
 	if err != nil {
 		t.Fatalf("BuildExportFileWithContext: %v", err)
 	}
-	msgs := file.Resources.Conversations[0].Messages
-	var decoded []map[string]any
-	if err := json.Unmarshal([]byte(msgs[1].ToolCalls), &decoded); err != nil {
-		t.Fatalf("unmarshal exported toolCalls: %v", err)
-	}
-	if got, _ := decoded[0]["result"].(string); got == "OLD" {
-		t.Fatal("export hydrated stale tool result after overwrite")
+	if len(file.Resources.Conversations[0].ToolInvocations) != 0 {
+		t.Fatal("export preservou invocação obsoleta após overwrite")
 	}
 }
 
-func TestExportConversationPrefersFallbackToolMessageOverInvocationHydration(t *testing.T) {
+func TestExportConversationUsesCanonicalInvocationAsAuthority(t *testing.T) {
 	setupPortabilityTestDB(t)
 	ctx := portabilityTestCtx()
 
@@ -1034,35 +991,25 @@ func TestExportConversationPrefersFallbackToolMessageOverInvocationHydration(t *
 	if err := database.DB().Create(&database.ChatMessage{UUIDModel: database.UUIDModel{ID: turnID}, ConversationID: convID, Role: "user", Content: "hi"}).Error; err != nil {
 		t.Fatalf("create turn message: %v", err)
 	}
-	toolCalls := `[{"id":"` + callID + `","type":"function","function":{"name":"x","arguments":"{}"}}]`
-	if err := database.DB().Create(&database.ChatMessage{UUIDModel: database.UUIDModel{ID: assistantID}, ConversationID: convID, Role: "assistant", Content: "", ToolCalls: toolCalls, TurnID: &turnID}).Error; err != nil {
-		t.Fatalf("create assistant tool_calls: %v", err)
+	if err := database.DB().Create(&database.ChatMessage{UUIDModel: database.UUIDModel{ID: assistantID}, ConversationID: convID, Role: "assistant", Content: "", TurnID: &turnID}).Error; err != nil {
+		t.Fatalf("create assistant: %v", err)
 	}
 
-	// Existe um tool_invocations "stale" (ex.: falha anterior), mas o resultado real
-	// do turno atual caiu em fallback role=tool (persistência falhou) e deve vencer.
 	if err := database.DB().Create(&database.ToolInvocation{UserID: portabilityTestUserID, ToolCatalogID: "tool-1", OriginType: "chat", OriginID: turnID, ToolCallID: callID, Status: "succeeded", DryRun: false, Output: `{"content":"STALE"}`}).Error; err != nil {
 		t.Fatalf("create tool invocation: %v", err)
-	}
-	if err := database.DB().Create(&database.ChatMessage{ConversationID: convID, Role: "tool", Content: "FALLBACK", ToolCallID: callID, TurnID: &turnID}).Error; err != nil {
-		t.Fatalf("create tool fallback message: %v", err)
 	}
 
 	file, err := BuildExportFileWithContext(ctx, []string{convID}, nil, nil, nil, ExportRequest{ExplicitSelection: true, ConversationIDs: []string{convID}}, "test")
 	if err != nil {
 		t.Fatalf("BuildExportFileWithContext: %v", err)
 	}
-	msgs := file.Resources.Conversations[0].Messages
-	var decoded []map[string]any
-	if err := json.Unmarshal([]byte(msgs[1].ToolCalls), &decoded); err != nil {
-		t.Fatalf("unmarshal exported toolCalls: %v", err)
-	}
-	if got, _ := decoded[0]["result"].(string); got != "FALLBACK" {
-		t.Fatalf("hydrated result = %q, want FALLBACK", got)
+	invocations := file.Resources.Conversations[0].ToolInvocations
+	if len(invocations) != 1 || !strings.Contains(invocations[0].Output, "STALE") {
+		t.Fatalf("ledger não foi tratado como autoridade: %+v", invocations)
 	}
 }
 
-func TestExportConversationIgnoresEmptyFallbackToolMessage(t *testing.T) {
+func TestExportConversationPreservesCanonicalResult(t *testing.T) {
 	setupPortabilityTestDB(t)
 	ctx := portabilityTestCtx()
 
@@ -1078,29 +1025,19 @@ func TestExportConversationIgnoresEmptyFallbackToolMessage(t *testing.T) {
 	if err := database.DB().Create(&database.ChatMessage{UUIDModel: database.UUIDModel{ID: turnID}, ConversationID: convID, Role: "user", Content: "hi"}).Error; err != nil {
 		t.Fatalf("create turn message: %v", err)
 	}
-	toolCalls := `[{"id":"` + callID + `","type":"function","function":{"name":"x","arguments":"{}"}}]`
-	if err := database.DB().Create(&database.ChatMessage{UUIDModel: database.UUIDModel{ID: assistantID}, ConversationID: convID, Role: "assistant", Content: "", ToolCalls: toolCalls, TurnID: &turnID}).Error; err != nil {
-		t.Fatalf("create assistant tool_calls: %v", err)
+	if err := database.DB().Create(&database.ChatMessage{UUIDModel: database.UUIDModel{ID: assistantID}, ConversationID: convID, Role: "assistant", Content: "", TurnID: &turnID}).Error; err != nil {
+		t.Fatalf("create assistant: %v", err)
 	}
 	if err := database.DB().Create(&database.ToolInvocation{UserID: portabilityTestUserID, ToolCatalogID: "tool-1", OriginType: "chat", OriginID: turnID, ToolCallID: callID, Status: "succeeded", DryRun: false, Output: `{"content":"REAL"}`}).Error; err != nil {
 		t.Fatalf("create tool invocation: %v", err)
 	}
-	// Placeholder/empty tool message deve ser ignorada.
-	if err := database.DB().Create(&database.ChatMessage{ConversationID: convID, Role: "tool", Content: "", ToolCallID: callID, TurnID: &turnID}).Error; err != nil {
-		t.Fatalf("create empty tool message: %v", err)
-	}
-
 	file, err := BuildExportFileWithContext(ctx, []string{convID}, nil, nil, nil, ExportRequest{ExplicitSelection: true, ConversationIDs: []string{convID}}, "test")
 	if err != nil {
 		t.Fatalf("BuildExportFileWithContext: %v", err)
 	}
-	msgs := file.Resources.Conversations[0].Messages
-	var decoded []map[string]any
-	if err := json.Unmarshal([]byte(msgs[1].ToolCalls), &decoded); err != nil {
-		t.Fatalf("unmarshal exported toolCalls: %v", err)
-	}
-	if got, _ := decoded[0]["result"].(string); got != "REAL" {
-		t.Fatalf("hydrated result = %q, want REAL", got)
+	invocations := file.Resources.Conversations[0].ToolInvocations
+	if len(invocations) != 1 || !strings.Contains(invocations[0].Output, "REAL") {
+		t.Fatalf("resultado canônico perdido: %+v", invocations)
 	}
 }
 
@@ -1128,6 +1065,167 @@ func setupPortabilityTestDB(t *testing.T) {
 		t.Fatalf("falha ao migrar tabelas: %v", err)
 	}
 	database.SetDB(db)
+}
+
+func TestConversationToolInvocationsCanonicalRoundTrip(t *testing.T) {
+	setupPortabilityTestDB(t)
+	if err := database.DB().AutoMigrate(&database.ToolCatalog{}, &database.ToolLedgerMigrationState{}); err != nil {
+		t.Fatal(err)
+	}
+	ctx := portabilityTestCtx()
+	conv := database.Conversation{UUIDModel: database.UUIDModel{ID: "conv-ledger-roundtrip"}, UserID: portabilityTestUserID, Title: "Ledger"}
+	if err := database.DB().Create(&conv).Error; err != nil {
+		t.Fatal(err)
+	}
+	turnID := "turn-ledger-roundtrip"
+	messages := []database.ChatMessage{
+		{UUIDModel: database.UUIDModel{ID: turnID}, ConversationID: conv.ID, Role: "user", Content: "pergunta"},
+		{UUIDModel: database.UUIDModel{ID: "assistant-ledger-roundtrip"}, ConversationID: conv.ID, TurnID: &turnID, Role: "assistant", Content: "resposta"},
+	}
+	if err := database.DB().Create(&messages).Error; err != nil {
+		t.Fatal(err)
+	}
+	catalog := database.ToolCatalog{Name: "search", DisplayName: "Search", Origin: "builtin", AvailabilityStatus: "available"}
+	if err := database.DB().Create(&catalog).Error; err != nil {
+		t.Fatal(err)
+	}
+	completed := time.Now().UTC()
+	invocation := database.ToolInvocation{
+		UUIDModel:          database.UUIDModel{ID: "inv-ledger-roundtrip"},
+		UserID:             portabilityTestUserID,
+		ToolCatalogID:      catalog.ID,
+		OriginType:         "chat",
+		OriginID:           turnID,
+		ConversationID:     &conv.ID,
+		TurnID:             &turnID,
+		ToolCallID:         "call-ledger",
+		Attempt:            2,
+		Status:             "succeeded",
+		Input:              `{"token":"integral"}`,
+		Output:             `{"content":"CANONICO"}`,
+		Metadata:           `{"display":{"name":"search","iteration":1}}`,
+		ModelIteration:     1,
+		InputHash:          "hash-input",
+		OutputHash:         "hash-output",
+		ResultAvailability: "available",
+		QueuedAt:           completed.Add(-time.Second),
+		CompletedAt:        &completed,
+	}
+	if err := database.DB().Create(&invocation).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := database.DB().Create(&database.ToolLedgerMigrationState{
+		UserID: portabilityTestUserID, ResourceType: "conversation", ResourceID: conv.ID, State: "backfilled",
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	exported, err := buildConversationExports(ctx, []string{conv.ID}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(exported) != 1 || len(exported[0].ToolInvocations) != 1 || len(exported[0].Messages) != 2 {
+		t.Fatalf("export canônico incompleto: %+v", exported)
+	}
+	if exported[0].ToolInvocations[0].Output != invocation.Output ||
+		exported[0].ToolInvocations[0].Attempt != 2 ||
+		exported[0].ToolInvocations[0].ModelIteration != 1 {
+		t.Fatalf("ledger perdeu payload/tentativa: %+v", exported[0].ToolInvocations[0])
+	}
+	for _, message := range exported[0].Messages {
+		if message.Role == "tool" {
+			t.Fatalf("export canônico reteve mensagem técnica: %+v", message)
+		}
+	}
+
+	if _, err := overwriteConversationByExisting(ctx, exported[0], false, &conv); err != nil {
+		t.Fatal(err)
+	}
+	var restored database.ToolInvocation
+	if err := database.DB().First(&restored, "id = ?", invocation.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if restored.Output != invocation.Output || restored.Input != invocation.Input ||
+		restored.Attempt != invocation.Attempt || restored.ConversationID == nil ||
+		*restored.ConversationID != conv.ID || restored.ModelIteration != 1 {
+		t.Fatalf("roundtrip alterou ledger: %+v", restored)
+	}
+	var roleToolCount int64
+	if err := database.DB().Model(&database.ChatMessage{}).
+		Where("conversation_id = ? AND role = 'tool'", conv.ID).
+		Count(&roleToolCount).Error; err != nil {
+		t.Fatal(err)
+	}
+	if roleToolCount != 0 {
+		t.Fatalf("import canônico recriou role=tool: %d", roleToolCount)
+	}
+}
+
+func TestImportedModelCallProjectionAdoptsLegacyMetadata(t *testing.T) {
+	iteration, external := importedModelCallProjection(ToolInvocationExport{
+		Metadata: `{"external":true,"display":{"iteration":9}}`,
+	})
+	if iteration != 9 || !external {
+		t.Fatalf("projeção de export legado=(%d,%v), esperado=(9,true)", iteration, external)
+	}
+}
+
+func TestParseExportFileRejeitaToolCallingEmMensagens(t *testing.T) {
+	for _, technical := range []string{
+		`{"role":"assistant","toolCalls":[]}`,
+		`{"role":"tool","toolCallId":"call-1"}`,
+	} {
+		raw := `{"version":2,"resources":{"conversations":[{"messages":[` + technical + `]}]}}`
+		if _, _, err := parseExportFile(raw); err == nil {
+			t.Fatalf("campo técnico em mensagem foi aceito: %s", technical)
+		}
+	}
+}
+
+func TestExportCanonicalResolveVinculoLegadoSemConversationID(t *testing.T) {
+	setupPortabilityTestDB(t)
+	if err := database.DB().AutoMigrate(&database.ToolCatalog{}, &database.ToolLedgerMigrationState{}); err != nil {
+		t.Fatal(err)
+	}
+	ctx := portabilityTestCtx()
+	conv := database.Conversation{UUIDModel: database.UUIDModel{ID: "conv-vinculo-legado"}, UserID: portabilityTestUserID, Title: "Vínculo"}
+	if err := database.DB().Create(&conv).Error; err != nil {
+		t.Fatal(err)
+	}
+	turnID := "turn-vinculo-legado"
+	assistantID := "assistant-vinculo-legado"
+	if err := database.DB().Create(&[]database.ChatMessage{
+		{UUIDModel: database.UUIDModel{ID: turnID}, ConversationID: conv.ID, Role: "user", Content: "pergunta"},
+		{UUIDModel: database.UUIDModel{ID: assistantID}, ConversationID: conv.ID, TurnID: &turnID, Role: "assistant", Content: "resposta"},
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	catalog := database.ToolCatalog{Name: "legacy-search", DisplayName: "Legacy Search", Origin: "builtin"}
+	if err := database.DB().Create(&catalog).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := database.DB().Create(&database.ToolInvocation{
+		UserID: portabilityTestUserID, ToolCatalogID: catalog.ID, OriginType: "chat",
+		OriginID: assistantID, ToolCallID: "call-legado", Status: "succeeded", QueuedAt: time.Now().UTC(),
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := database.DB().Create(&database.ToolLedgerMigrationState{
+		UserID: portabilityTestUserID, ResourceType: "conversation", ResourceID: conv.ID, State: "backfilled",
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	exported, err := buildConversationExports(ctx, []string{conv.ID}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(exported) != 1 || len(exported[0].ToolInvocations) != 1 {
+		t.Fatalf("export omitiu vínculo legado: %+v", exported)
+	}
+	if exported[0].ToolInvocations[0].TurnID != turnID {
+		t.Fatalf("turnId resolvido = %q", exported[0].ToolInvocations[0].TurnID)
+	}
 }
 
 // portabilityTestUserID is the implicit user-id used by the legacy/test fixtures
@@ -1290,7 +1388,7 @@ func TestAnalyzeImportDataDoesNotDetectNaturalConversationConflicts(t *testing.T
 	}
 
 	credMgr := credentials.NewManagerWithStoreAndPersistence([]byte("test-key-exactly-32-bytes-long!!"), credentials.NewDBStore(), true)
-	if err := credMgr.RegisterPatternWithContext(portabilityTestCtx(), "api.openai.com", &credentials.AuthConfig{
+	if err := credMgr.RegisterPatternWithContext(portabilityTestCtx(), "api.openai.com", &credentials.AuthConfig{Source: "static",
 		Type:  "bearer",
 		Token: "secret",
 	}); err != nil {
@@ -1322,7 +1420,7 @@ func TestAnalyzeImportDataDoesNotDetectNaturalConversationConflicts(t *testing.T
 	}
 
 	blob, err := EncryptCredentialsPayload("senha-teste", []CredentialExport{
-		{ID: existingCreds[0].ID, Pattern: "api.openai.com", AuthType: "bearer", Token: "secret"},
+		{ID: existingCreds[0].ID, Pattern: "api.openai.com", Source: "static", AuthType: "bearer", Token: "secret"},
 	})
 	if err != nil {
 		t.Fatalf("falha ao criptografar credenciais de teste: %v", err)
@@ -2344,12 +2442,43 @@ func TestGetTaskListWithHierarchyPreservesDeepHierarchy(t *testing.T) {
 func TestAnalyzeImportDataRejectsUnsupportedVersion(t *testing.T) {
 	setupPortabilityTestDB(t)
 
-	_, err := AnalyzeImportData(`{"version":1,"resources":{"conversations":[]}}`, nil, "")
+	_, err := AnalyzeImportData(`{"version":999,"resources":{"conversations":[]}}`, nil, "")
 	if err == nil {
 		t.Fatal("AnalyzeImportData() error = nil, want unsupported version error")
 	}
-	if !strings.Contains(err.Error(), "versão de exportação não suportada: 1") {
+	if !strings.Contains(err.Error(), "versão de exportação não suportada: 999") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestCanonicalVersionOneImportaEnvelopePublicadoSemAlterarIDs(t *testing.T) {
+	setupPortabilityTestDB(t)
+	raw := `{
+		"version": 1,
+		"exportedAt": "2026-09-15T12:00:00Z",
+		"appVersion": "baseline",
+		"options": {},
+		"resources": {
+			"conversations": [{
+				"id": "0198b300-0000-7000-8000-000000000901",
+				"title": "fixture-baseline",
+				"createdAt": "2026-09-15T12:00:00Z",
+				"messages": [{
+					"id": "0198b300-0000-7000-8000-000000000902",
+					"role": "user",
+					"content": "fixture",
+					"createdAt": "2026-09-15T12:00:00Z"
+				}]
+			}]
+		}
+	}`
+	result, err := ImportConversationsWithContext(portabilityTestCtx(), raw, nil, "")
+	if err != nil || !result.Success || result.Imported != 1 {
+		t.Fatalf("import version 1 não foi normalizado: result=%+v err=%v", result, err)
+	}
+	file, _, err := parseExportFile(raw)
+	if err != nil || file.Version != ExportVersion || file.Resources.Conversations[0].ID != "0198b300-0000-7000-8000-000000000901" {
+		t.Fatalf("normalização alterou envelope/ID: file=%+v err=%v", file, err)
 	}
 }
 
@@ -2403,6 +2532,57 @@ func TestImportConversationsSkipsEmptyConversations(t *testing.T) {
 	}
 }
 
+func TestImportConversationsNormalizesRestoredIDsBeforeHook(t *testing.T) {
+	setupPortabilityTestDB(t)
+
+	now := time.Now().UTC()
+	const conversationID = "01926b90-0000-7000-8000-000000000511"
+	file := &ExportFile{
+		Version:    ExportVersion,
+		ExportedAt: now,
+		Resources: ExportResources{
+			Conversations: []ConversationExport{
+				{
+					ID:        " " + conversationID + " ",
+					Title:     "Com ID normalizado",
+					CreatedAt: now,
+					Messages: []MessageExport{
+						{ID: "01926b90-0000-7000-8000-000000000512", Role: "user", Content: "Oi", CreatedAt: now},
+					},
+				},
+			},
+		},
+	}
+	raw, err := json.Marshal(file)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+
+	var restoredIDs []string
+	result, err := ImportConversationsWithRestoreHook(
+		portabilityTestCtx(),
+		string(raw),
+		nil,
+		"",
+		nil,
+		func(ids []string) { restoredIDs = append(restoredIDs, ids...) },
+	)
+	if err != nil {
+		t.Fatalf("ImportConversationsWithRestoreHook() error = %v", err)
+	}
+	if result.Imported != 1 || result.Failed != 0 {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+	if len(restoredIDs) != 1 || restoredIDs[0] != conversationID {
+		t.Fatalf("restoredIDs = %q, want [%q]", restoredIDs, conversationID)
+	}
+
+	var imported database.Conversation
+	if err := database.DB().Where("id = ?", conversationID).First(&imported).Error; err != nil {
+		t.Fatalf("conversa normalizada não foi persistida: %v", err)
+	}
+}
+
 func TestImportConversationsWarnsAboutUnsupportedResourceTypes(t *testing.T) {
 	setupPortabilityTestDB(t)
 
@@ -2450,11 +2630,11 @@ func TestImportConversationsWarnsAboutUnsupportedResourceTypes(t *testing.T) {
 func TestImportConversationsRejectsUnsupportedVersion(t *testing.T) {
 	setupPortabilityTestDB(t)
 
-	_, err := ImportConversationsWithContext(portabilityTestCtx(), `{"version":1,"resources":{"conversations":[]}}`, nil, "")
+	_, err := ImportConversationsWithContext(portabilityTestCtx(), `{"version":999,"resources":{"conversations":[]}}`, nil, "")
 	if err == nil {
 		t.Fatal("ImportConversations() error = nil, want unsupported version error")
 	}
-	if !strings.Contains(err.Error(), "versão de exportação não suportada: 1") {
+	if !strings.Contains(err.Error(), "versão de exportação não suportada: 999") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -2673,7 +2853,7 @@ func TestImportConversationsReturnsDetailedSkipBreakdown(t *testing.T) {
 	}
 
 	credMgr := credentials.NewManagerWithStoreAndPersistence([]byte("test-key-exactly-32-bytes-long!!"), credentials.NewDBStore(), true)
-	if err := credMgr.RegisterPatternWithContext(portabilityTestCtx(), "api.openai.com", &credentials.AuthConfig{
+	if err := credMgr.RegisterPatternWithContext(portabilityTestCtx(), "api.openai.com", &credentials.AuthConfig{Source: "static",
 		Type:  "bearer",
 		Token: "secret",
 	}); err != nil {
@@ -2715,7 +2895,7 @@ func TestImportConversationsReturnsDetailedSkipBreakdown(t *testing.T) {
 	}
 
 	blob, err := EncryptCredentialsPayload("senha-teste", []CredentialExport{
-		{ID: existingCreds[0].ID, Pattern: "api.openai.com", AuthType: "bearer", Token: "secret"},
+		{ID: existingCreds[0].ID, Pattern: "api.openai.com", Source: "static", AuthType: "bearer", Token: "secret"},
 	})
 	if err != nil {
 		t.Fatalf("falha ao criptografar credenciais de teste: %v", err)
@@ -2771,7 +2951,7 @@ func TestImportConversationsPropagatesContextToCredentialPersistence(t *testing.
 	}
 
 	blob, err := EncryptCredentialsPayload("senha-teste", []CredentialExport{
-		{Pattern: "api.openai.com", AuthType: "bearer", Token: "secret"},
+		{Pattern: "api.openai.com", Source: "static", AuthType: "bearer", Token: "secret"},
 	})
 	if err != nil {
 		t.Fatalf("falha ao criptografar credenciais de teste: %v", err)
@@ -2799,13 +2979,13 @@ func TestExportCredentialsSkipsManagedAndInternalSecrets(t *testing.T) {
 	setupPortabilityTestDB(t)
 
 	credMgr := credentials.NewManagerWithStoreAndPersistence([]byte("test-key-exactly-32-bytes-long!!"), credentials.NewDBStore(), true)
-	if err := credMgr.RegisterPatternWithContext(portabilityTestCtx(), "api.openai.com", &credentials.AuthConfig{
+	if err := credMgr.RegisterPatternWithContext(portabilityTestCtx(), "api.openai.com", &credentials.AuthConfig{Source: "static",
 		Type:  "bearer",
 		Token: "portable",
 	}); err != nil {
 		t.Fatalf("register portable credential: %v", err)
 	}
-	if err := credMgr.RegisterPatternWithContext(portabilityTestCtx(), "mcp-client:github", &credentials.AuthConfig{
+	if err := credMgr.RegisterPatternWithContext(portabilityTestCtx(), "mcp-client:github", &credentials.AuthConfig{Source: "static",
 		Type:         "oauth2_client_credentials",
 		ClientID:     "managed-client",
 		ClientSecret: "managed-secret",
@@ -2847,7 +3027,7 @@ func TestImportCredentialsRejectsManagedPatterns(t *testing.T) {
 		},
 	}
 	blob, err := EncryptCredentialsPayload("senha-teste", []CredentialExport{
-		{Pattern: credentials.InstanceSecretJWTSigningKey, AuthType: "bearer", Token: "jwt-secret"},
+		{Pattern: credentials.InstanceSecretJWTSigningKey, Source: "static", AuthType: "bearer", Token: "jwt-secret"},
 	})
 	if err != nil {
 		t.Fatalf("EncryptCredentialsPayload() error = %v", err)
@@ -2874,7 +3054,7 @@ func TestImportConversationsOverwritesCredentialsByID(t *testing.T) {
 	setupPortabilityTestDB(t)
 
 	credMgr := credentials.NewManagerWithStoreAndPersistence([]byte("test-key-exactly-32-bytes-long!!"), credentials.NewDBStore(), true)
-	if err := credMgr.RegisterPatternWithContext(portabilityTestCtx(), "api.openai.com", &credentials.AuthConfig{
+	if err := credMgr.RegisterPatternWithContext(portabilityTestCtx(), "api.openai.com", &credentials.AuthConfig{Source: "static",
 		Type:  "bearer",
 		Token: "token-antigo",
 	}); err != nil {
@@ -2894,7 +3074,7 @@ func TestImportConversationsOverwritesCredentialsByID(t *testing.T) {
 	}
 
 	blob, err := EncryptCredentialsPayload("senha-teste", []CredentialExport{
-		{ID: existingCreds[0].ID, Pattern: "api.openai.com", AuthType: "bearer", Token: "token-novo"},
+		{ID: existingCreds[0].ID, Pattern: "api.openai.com", Source: "static", AuthType: "bearer", Token: "token-novo"},
 	})
 	if err != nil {
 		t.Fatalf("EncryptCredentialsPayload() error = %v", err)
@@ -2927,7 +3107,7 @@ func TestImportConversationsSkipsCredentialConflictByPattern(t *testing.T) {
 	setupPortabilityTestDB(t)
 
 	credMgr := credentials.NewManagerWithStoreAndPersistence([]byte("test-key-exactly-32-bytes-long!!"), credentials.NewDBStore(), true)
-	if err := credMgr.RegisterPatternWithContext(portabilityTestCtx(), "api.openai.com", &credentials.AuthConfig{
+	if err := credMgr.RegisterPatternWithContext(portabilityTestCtx(), "api.openai.com", &credentials.AuthConfig{Source: "static",
 		Type:  "bearer",
 		Token: "token-antigo",
 	}); err != nil {
@@ -2942,7 +3122,7 @@ func TestImportConversationsSkipsCredentialConflictByPattern(t *testing.T) {
 		},
 	}
 	blob, err := EncryptCredentialsPayload("senha-teste", []CredentialExport{
-		{ID: "different-id", Pattern: "api.openai.com", AuthType: "bearer", Token: "token-novo"},
+		{ID: "different-id", Pattern: "api.openai.com", Source: "static", AuthType: "bearer", Token: "token-novo"},
 	})
 	if err != nil {
 		t.Fatalf("EncryptCredentialsPayload() error = %v", err)
@@ -2988,7 +3168,7 @@ func TestAnalyzeImportDataScopesCredentialConflictsByUser(t *testing.T) {
 	userA := database.WithUserID(context.Background(), "user-a")
 	userB := database.WithUserID(context.Background(), "user-b")
 	credMgr := credentials.NewManagerWithStoreAndPersistence([]byte("test-key-exactly-32-bytes-long!!"), credentials.NewDBStore(), true)
-	if err := credMgr.RegisterPatternWithContext(userB, "api.openai.com", &credentials.AuthConfig{
+	if err := credMgr.RegisterPatternWithContext(userB, "api.openai.com", &credentials.AuthConfig{Source: "static",
 		Type:  "bearer",
 		Token: "token-b",
 	}); err != nil {
@@ -3003,7 +3183,7 @@ func TestAnalyzeImportDataScopesCredentialConflictsByUser(t *testing.T) {
 		},
 	}
 	blob, err := EncryptCredentialsPayload("senha-teste", []CredentialExport{
-		{ID: "different-id", Pattern: "api.openai.com", AuthType: "bearer", Token: "token-importado"},
+		{ID: "different-id", Pattern: "api.openai.com", Source: "static", AuthType: "bearer", Token: "token-importado"},
 	})
 	if err != nil {
 		t.Fatalf("EncryptCredentialsPayload() error = %v", err)
@@ -3035,7 +3215,7 @@ func TestImportConversationsOverwritesCredentialConflictByPattern(t *testing.T) 
 	setupPortabilityTestDB(t)
 
 	credMgr := credentials.NewManagerWithStoreAndPersistence([]byte("test-key-exactly-32-bytes-long!!"), credentials.NewDBStore(), true)
-	if err := credMgr.RegisterPatternWithContext(portabilityTestCtx(), "api.openai.com", &credentials.AuthConfig{
+	if err := credMgr.RegisterPatternWithContext(portabilityTestCtx(), "api.openai.com", &credentials.AuthConfig{Source: "static",
 		Type:  "bearer",
 		Token: "token-antigo",
 	}); err != nil {
@@ -3050,7 +3230,7 @@ func TestImportConversationsOverwritesCredentialConflictByPattern(t *testing.T) 
 		},
 	}
 	blob, err := EncryptCredentialsPayload("senha-teste", []CredentialExport{
-		{ID: "different-id", Pattern: "api.openai.com", AuthType: "bearer", Token: "token-novo"},
+		{ID: "different-id", Pattern: "api.openai.com", Source: "static", AuthType: "bearer", Token: "token-novo"},
 	})
 	if err != nil {
 		t.Fatalf("EncryptCredentialsPayload() error = %v", err)
@@ -3090,5 +3270,47 @@ func TestImportConversationsOverwritesCredentialConflictByPattern(t *testing.T) 
 	}
 	if count != 1 {
 		t.Fatalf("credential entries with pattern = %d, want 1", count)
+	}
+}
+
+func TestCredentialSourceExportImportRoundTrip(t *testing.T) {
+	setupPortabilityTestDB(t)
+	mgr := credentials.NewManagerWithStoreAndPersistence([]byte("01234567890123456789012345678901"), credentials.NewDBStore(), true)
+	configs := map[string]*credentials.SourceConfig{
+		"env":     {Env: "NOT_DEFINED_DO_NOT_RESOLVE"},
+		"keyring": {KeyringTarget: "NOT_DEFINED_DO_NOT_RESOLVE"},
+		"command": {Command: "NOT_INSTALLED_DO_NOT_EXECUTE", Args: []string{"with spaces"}, TimeoutSeconds: 8},
+	}
+	for source, config := range configs {
+		if err := mgr.RegisterPatternWithContext(portabilityTestCtx(), source+".example", &credentials.AuthConfig{Source: source, SourceConfig: config, Type: "bearer"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	exported, err := exportCredentials(portabilityTestCtx(), mgr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	blob, err := EncryptCredentialsPayload("test-password", exported)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := credentials.NewManager(nil)
+	count, _, err := importCredentials(portabilityTestCtx(), target, blob, "test-password", nil, importResolutionMap{})
+	if err != nil || count != 3 {
+		t.Fatalf("import count=%d err=%v", count, err)
+	}
+	for source, config := range configs {
+		auth, err := target.GetConfigByPatternWithContext(portabilityTestCtx(), source+".example")
+		if err != nil || auth == nil {
+			t.Fatal(err)
+		}
+		before, _ := json.Marshal(config)
+		after, _ := json.Marshal(auth.SourceConfig)
+		if auth.Source != source || string(before) != string(after) {
+			t.Fatalf("source changed: %s", source)
+		}
+	}
+	if err := validatePortableCredentialExport(CredentialExport{Pattern: "legacy.example", AuthType: "bearer", Token: "old"}); err == nil {
+		t.Fatal("legacy import must be rejected")
 	}
 }

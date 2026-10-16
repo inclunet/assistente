@@ -487,6 +487,23 @@ não vira nome de ferramenta nem texto anunciado como se fosse rótulo do app.
 
 ### D8. Mapeamento do streaming
 
+#### Persistência da atividade externa
+
+As atividades ACP encerradas são arquivadas no ledger do AEP-0104 com
+`external=true`, origem de apresentação `acp_agent` e vínculo `chat` ao turno
+e usuário. O catálogo archival usa namespace próprio e não habilita execução.
+A escrita é serializada fora do callback do transporte, com barreira antes do
+patch terminal; cancelamento não cancela a persistência. Falha ao gravar não
+autoriza cópia técnica em mensagens nem conclusão silenciosa com sucesso.
+Sem payload técnico capturado, detalhes ficam indisponíveis. Não há backfill
+de eventos que nunca foram persistidos. Evidência de regressão:
+`TestACPAtividadePersisteNoPatchEHistorico` em `internal/agent`.
+O status deste contrato permanece **Done**.
+
+A tradução de ACP para `ExternalObservation` pertence ao adaptador do agente.
+O registro usa o mesmo núcleo de ciclo de vida das tools locais e do MCP
+nativo (AEP-0104); não existe implementação ACP paralela de gravação.
+
 | ACP | Barramento | Observação |
 |---|---|---|
 | `agent_message_chunk` | `OnChunk` | texto da resposta |
@@ -730,6 +747,12 @@ esperar por ele.
 
 O segmento final é leitura protegida (AEP-0058): os avisos de progresso do turno
 não podem atropelá-lo.
+
+A cronologia também sobrevive ao streaming: cada ferramenta registra no ledger
+a posição UTF-8 no texto integral e a mensagem correspondente (AEP-0104 D2).
+Assim, o patch terminal e a reabertura preservam texto → ferramenta → texto,
+inclusive em falha/cancelamento e quando não existe texto após a última tool.
+Evidência: `TestACPCronologiaNoTerminalEReabertura`. Status **Done** mantido.
 
 ### D14. Tarefas auxiliares não vão para o agente
 
@@ -1463,3 +1486,10 @@ O valor da sonda não se esgota: quando o Cursor mudar o formato de `session/new
   AEP-0040 (messaging backend-driven), AEP-0064 (cancelamento), AEP-0068
   (subagentes e dados não confiáveis), AEP-0076 (migrações), AEP-0077
   (ToolPlanner), AEP-0081 (política de tools por perfil)
+
+## Evolução da criação de provedores
+
+O AEP-0114 separa a entrada de criação em Novo provedor → Serviço ACP.
+O formulário de agente preserva detecção, instalação, comando, argumentos e
+referências de credenciais; API fica em outra opção do menu. Esta mudança de
+apresentação não altera o contrato de execução ACP nem exige migração.

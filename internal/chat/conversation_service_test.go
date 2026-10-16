@@ -60,7 +60,7 @@ func TestBuildMessageTree_ChildrenOrderedByCreatedAt(t *testing.T) {
 		UUIDModel:      database.UUIDModel{ID: "01970a9e-0001-7000-8000-000000000020", CreatedAt: now.Add(2 * time.Second)},
 		ConversationID: "conv-1",
 		ParentID:       &parentID,
-		Role:           "tool",
+		Role:           "assistant",
 		Content:        "child2",
 	}
 

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Spin } from 'antd';
@@ -8,25 +8,23 @@ import { useDocumentTitle } from '../../hooks/useDocumentTitle';
 import { useWorkspaceKeyboardShortcuts } from '../../hooks/useWorkspaceKeyboardShortcuts';
 import { useWorkspaceChatBridge } from '../../hooks/useWorkspaceChatBridge';
 import { useLandmarkNavigation, type Landmark } from '../../hooks/useLandmarkNavigation';
-import { restoreDefaultFocus } from '../../hooks/useDefaultFocus';
 import { useVoiceAccessibilityWorkspaceResolver } from '../../services/voiceAccessibility/workspaceResolver';
 import { ensureModalCleanup } from '../ui/Modal';
 import { Topbar } from '../layout/Topbar';
 import { WorkspaceToolbar } from './WorkspaceToolbar';
-import {
-  cancelWorkspacePanelFocus,
-  hasWorkspacePanelFocusHandler,
-  pruneWorkspacePanelFocus,
-  queueWorkspacePanelFocus,
-  requestWorkspacePanelFocus,
-} from './workspacePanelFocusRegistry';
+import { pruneWorkspacePanelFocus, requestWorkspacePanelFocus } from './workspacePanelFocusRegistry';
 import { WorkspaceTabList } from './WorkspaceTabList';
 import { WorkspaceContent } from './WorkspaceContent';
 import { WorkspaceChatModal } from './WorkspaceChatModal';
 import { useWorkspacePanelRenameHandlers } from './useWorkspacePanelRenameHandlers';
 import { useWorkspacePanelLifecycleCleanup } from './useWorkspacePanelLifecycleCleanup';
-import { WORKSPACE_TABLIST_TAB_ACTIVATED_EVENT } from './workspaceFocusEvents';
+import { WorkspaceTabCreationMenuProvider } from '../../lib/workspaceTabCreationMenu';
 import './WorkspaceLayout.css';
+
+function WorkspaceKeyboardBridge() {
+  useWorkspaceKeyboardShortcuts();
+  return null;
+}
 
 export function WorkspaceLayout() {
   useDocumentTitle();
@@ -46,45 +44,15 @@ export function WorkspaceLayout() {
     return cleanup;
   }, [setupEventListeners]);
 
-  const restoreFocusAfterTabShortcutRef = useRef<string | null>(null);
-  const restoreFocusToTablistRef = useRef<string | null>(null);
-  const lastTabShortcutTargetRef = useRef<string | null>(null);
-  const markTabShortcutNavigation = useCallback((tabId: string) => {
-    restoreFocusAfterTabShortcutRef.current = tabId;
-    lastTabShortcutTargetRef.current = tabId;
-  }, []);
-
-  useWorkspaceKeyboardShortcuts({
-    onTabShortcutNavigation: markTabShortcutNavigation,
-  });
+  const isWorkspaceRoute = pathname === '/' || pathname === '';
   useWorkspaceChatBridge();
   useWorkspacePanelRenameHandlers();
   useWorkspacePanelLifecycleCleanup();
   useVoiceAccessibilityWorkspaceResolver();
 
-  const isWorkspaceRoute = pathname === '/' || pathname === '';
-
   useEffect(() => {
     pruneWorkspacePanelFocus(new Set(workspace?.tabs.map((tab) => tab.id) ?? []));
   }, [workspace?.tabs]);
-
-  useEffect(() => {
-    if (!isWorkspaceRoute) {
-      restoreFocusToTablistRef.current = null;
-      restoreFocusAfterTabShortcutRef.current = null;
-      return;
-    }
-
-    const handleTablistActivation = (event: Event) => {
-      const tabId = (event as CustomEvent<{ tabId?: string }>).detail?.tabId;
-      if (tabId) {
-        restoreFocusToTablistRef.current = tabId;
-      }
-    };
-
-    window.addEventListener(WORKSPACE_TABLIST_TAB_ACTIVATED_EVENT, handleTablistActivation);
-    return () => window.removeEventListener(WORKSPACE_TABLIST_TAB_ACTIVATED_EVENT, handleTablistActivation);
-  }, [isWorkspaceRoute]);
 
   const landmarks = useMemo((): Landmark[] => {
     const focusTopbar = () => {
@@ -177,28 +145,7 @@ export function WorkspaceLayout() {
     }
 
     if (!isWorkspaceRoute) {
-      return [
-        {
-          id: 'topbar',
-          label: t('landmarks.topbar', 'Barra de navegação'),
-          focus: focusTopbar,
-          contains: () => !!document.activeElement?.closest?.('.topbar'),
-        },
-        {
-          id: 'pageContent',
-          label: t('landmarks.pageContent', 'Conteúdo da página'),
-          focus: () => {
-            const content = document.querySelector('.workspace-layout__config-content') as HTMLElement | null;
-            if (!content) return false;
-            const focusable = content.querySelector('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])') as HTMLElement | null;
-            if (focusable) { focusable.focus(); return true; }
-            content.setAttribute('tabindex', '-1');
-            content.focus();
-            return true;
-          },
-          contains: () => !!document.activeElement?.closest?.('.workspace-layout__config-content'),
-        },
-      ];
+      return [];
     }
 
     return [
@@ -249,7 +196,14 @@ export function WorkspaceLayout() {
         },
         contains: () => !!document.activeElement?.closest?.('.ws-content__panel[data-active="true"] .ws-content-toolbar'),
       },
-      // 4. Content Area (genérico, foco inteligente por tipo de aba)
+      // 4. Content Area — delega ao handler de foco do painel ativo.
+      //
+      // Cada tipo de aba (chat, terminal, editor, tasklist) registra seu próprio
+      // handler no workspacePanelFocusRegistry e sabe focar sua área default
+      // (input do chat/terminal, superfície do editor, board da tasklist). Aqui
+      // apenas roteamos para o painel ativo — sem duplicar o conhecimento de
+      // cada tipo. F6, Escape-para-default e restoreDefaultFocus (retorno de
+      // modal) passam todos por este mesmo ponto.
       {
         id: 'contentArea',
         label: t('landmarks.contentArea', 'Área de conteúdo'),
@@ -260,23 +214,13 @@ export function WorkspaceLayout() {
           const area = document.querySelector('.ws-content__panel[data-active="true"] .ws-content-area') as HTMLElement | null;
           if (!area) return false;
 
-          // Chat/Terminal: foca no textarea do input
-          const textarea = area.querySelector('.chat-input textarea') as HTMLElement | null;
-          if (textarea) { textarea.focus(); return true; }
+          const activeId = useWorkspaceStore.getState().workspace?.activeTabId;
+          if (activeId && requestWorkspacePanelFocus(activeId)) {
+            return true;
+          }
 
-          // Editor renderizado: a unidade de leitura é sempre a área default.
-          const renderedDocument = area.querySelector(
-            '[data-editor-rendered-document="true"]',
-          ) as HTMLElement | null;
-          if (renderedDocument) { renderedDocument.focus(); return true; }
-
-          // Editor editável: foca na superfície de edição.
-          const monaco = area.querySelector('.monaco-editor textarea') as HTMLElement | null;
-          if (monaco) { monaco.focus(); return true; }
-          const rich = area.querySelector('.rich-text-editor__content [contenteditable]') as HTMLElement | null;
-          if (rich) { rich.focus(); return true; }
-
-          // Fallback genérico (tasklist, etc.)
+          // Fallback genérico enquanto o painel ainda não registrou o handler
+          // (ex.: painel lazy montando): primeiro focável ou o próprio container.
           const focusable = area.querySelector('button, input, select, textarea, [tabindex]:not([tabindex="-1"])') as HTMLElement | null;
           if (focusable) { focusable.focus(); return true; }
 
@@ -290,73 +234,13 @@ export function WorkspaceLayout() {
   }, [t, isWorkspaceRoute, pathname]);
 
   const isSettingsRoute = pathname.startsWith('/settings');
-  const defaultLandmark = isWorkspaceRoute ? 'contentArea' : isSettingsRoute ? 'settingsContent' : 'pageContent';
+  const defaultLandmark = isWorkspaceRoute ? 'contentArea' : isSettingsRoute ? 'settingsContent' : undefined;
 
   useLandmarkNavigation({
     landmarks,
-    enabled: true,
+    enabled: isWorkspaceRoute || isSettingsRoute,
     defaultLandmarkId: defaultLandmark,
   });
-
-  const activeTabId = workspace?.activeTabId;
-  const prevActiveTabIdRef = useRef(activeTabId);
-
-  useEffect(() => {
-    const handleActivationRollback = (event: Event) => {
-      const detail = (event as CustomEvent<{
-        failedTabId?: string;
-        rollbackTabId?: string | null;
-      }>).detail;
-      const failedTabId = detail?.failedTabId;
-      const rollbackTabId = detail?.rollbackTabId;
-      if (
-        !failedTabId
-        || !rollbackTabId
-        || lastTabShortcutTargetRef.current !== failedTabId
-      ) return;
-      cancelWorkspacePanelFocus(failedTabId);
-      lastTabShortcutTargetRef.current = null;
-      restoreFocusAfterTabShortcutRef.current = rollbackTabId;
-    };
-    window.addEventListener('workspace:tab-activation-rollback', handleActivationRollback);
-    return () => window.removeEventListener('workspace:tab-activation-rollback', handleActivationRollback);
-  }, []);
-
-  useEffect(() => {
-    if (!isWorkspaceRoute || !activeTabId) return;
-    if (activeTabId === prevActiveTabIdRef.current) return;
-    prevActiveTabIdRef.current = activeTabId;
-
-    if (restoreFocusToTablistRef.current === activeTabId) {
-      restoreFocusToTablistRef.current = null;
-      restoreFocusAfterTabShortcutRef.current = null;
-      requestAnimationFrame(() => {
-        const tab = Array.from(document.querySelectorAll<HTMLElement>('.ws-tabs [role="tab"]'))
-          .find((element) => element.getAttribute('data-tab-value') === activeTabId);
-        tab?.focus();
-      });
-      return;
-    }
-
-    restoreFocusToTablistRef.current = null;
-
-    if (restoreFocusAfterTabShortcutRef.current !== activeTabId) {
-      restoreFocusAfterTabShortcutRef.current = null;
-      return;
-    }
-
-    restoreFocusAfterTabShortcutRef.current = null;
-    const activeTabType = workspace?.tabs.find((tab) => tab.id === activeTabId)?.type;
-    requestAnimationFrame(() => {
-      if (hasWorkspacePanelFocusHandler(activeTabId)) {
-        requestWorkspacePanelFocus(activeTabId);
-      } else if (activeTabType === 'editor') {
-        queueWorkspacePanelFocus(activeTabId);
-      } else {
-        restoreDefaultFocus();
-      }
-    });
-  }, [activeTabId, isWorkspaceRoute, workspace?.tabs]);
 
   useEffect(() => {
     ensureModalCleanup();
@@ -364,35 +248,44 @@ export function WorkspaceLayout() {
 
   if (!isInitialized && isWorkspaceRoute) {
     return (
-      <div className="workspace-layout">
-        <div className="workspace-layout__loading" aria-busy="true">
-          <Spin size="large" />
+      <WorkspaceTabCreationMenuProvider>
+        <WorkspaceKeyboardBridge />
+        <div className="workspace-layout">
+          <div className="workspace-layout__loading" aria-busy="true">
+            <Spin size="large" />
+          </div>
         </div>
-      </div>
+      </WorkspaceTabCreationMenuProvider>
     );
   }
 
   if (isWorkspaceRoute) {
     return (
-      <div className="workspace-layout">
-        <Topbar />
-        <WorkspaceToolbar />
-        {workspace && <WorkspaceTabList />}
-        <WorkspaceContent />
-        {/* Rota index (WorkspaceIndexRoute em router.tsx); conteúdo real vem de WorkspaceContent */}
-        <Outlet />
-        <WorkspaceChatModal />
-      </div>
+      <WorkspaceTabCreationMenuProvider>
+        <WorkspaceKeyboardBridge />
+        <div className="workspace-layout">
+          <Topbar />
+          <WorkspaceToolbar />
+          {workspace && <WorkspaceTabList />}
+          <WorkspaceContent />
+          {/* Rota index (WorkspaceIndexRoute em router.tsx); conteúdo real vem de WorkspaceContent */}
+          <Outlet />
+          <WorkspaceChatModal />
+        </div>
+      </WorkspaceTabCreationMenuProvider>
     );
   }
 
   // Sub-rotas: Topbar + conteúdo
   return (
-    <div className="workspace-layout">
-      <Topbar />
-      <main className="workspace-layout__config-content">
-        <Outlet />
-      </main>
-    </div>
+    <WorkspaceTabCreationMenuProvider>
+      <WorkspaceKeyboardBridge />
+      <div className="workspace-layout">
+        <Topbar />
+        <main className="workspace-layout__config-content">
+          <Outlet />
+        </main>
+      </div>
+    </WorkspaceTabCreationMenuProvider>
   );
 }

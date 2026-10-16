@@ -72,19 +72,21 @@ export const AgentOptionsPickers: React.FC<AgentOptionsPickersProps> = ({
   return (
     <>
       {model && (
-        <BasePicker
-          variant="toolbar"
-          items={itemsOf(model)}
-          selected={model.currentValue}
-          onSelect={(value) => void handleModelChange(value)}
-          label={model.name || t('chat.agentOptions.modelLabel')}
-          description={t('chat.agentOptions.modelDescription')}
-          maxWidth="180px"
-          disabled={disabled || changing}
-          onAnnounce={announce}
-          shortcut={modelShortcut}
-          showEmptyState={false}
-        />
+        <div data-chat-picker="model" style={{ display: 'contents' }}>
+          <BasePicker
+            variant="toolbar"
+            items={itemsOf(model)}
+            selected={model.currentValue}
+            onSelect={(value) => void handleModelChange(value)}
+            label={model.name || t('chat.agentOptions.modelLabel')}
+            description={t('chat.agentOptions.modelDescription')}
+            maxWidth="180px"
+            disabled={disabled || changing}
+            onAnnounce={announce}
+            shortcut={modelShortcut}
+            showEmptyState={false}
+          />
+        </div>
       )}
       {mode && (
         <BasePicker

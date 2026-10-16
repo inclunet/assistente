@@ -6,19 +6,20 @@ import "time"
 // (Telegram, Signal, Slack, …). Segredos ficam apenas no CredManager via refs.
 type Channel struct {
 	UUIDModel
-	UserID      string `json:"userId" gorm:"not null;default:'';index;uniqueIndex:ux_channels_user_slug"`
-	Type        string `json:"type" gorm:"not null;index"` // telegram|signal|slack
-	Slug        string `json:"slug" gorm:"not null;index;uniqueIndex:ux_channels_user_slug"`
-	DisplayName string `json:"displayName" gorm:"not null"`
-	Enabled     bool   `json:"enabled" gorm:"not null;default:false;index"`
-	Profile     string `json:"profile,omitempty"`
-	MaxHistory  int    `json:"maxHistory,omitempty"`
-	MaxContacts int    `json:"maxContacts,omitempty"`
-	Settings    string `json:"settings,omitempty" gorm:"type:text"` // JSON: api_url, account, reply_chat_ids, …
-	BotTokenRef string `json:"botTokenRef,omitempty"`
-	AppTokenRef string `json:"appTokenRef,omitempty"`
-	APITokenRef string `json:"apiTokenRef,omitempty"`
-	User        *User  `json:"-" gorm:"foreignKey:UserID"`
+	CredentialID string `json:"credentialId,omitempty"`
+	UserID       string `json:"userId" gorm:"not null;default:'';index;uniqueIndex:ux_channels_user_slug"`
+	Type         string `json:"type" gorm:"not null;index"` // telegram|signal|slack
+	Slug         string `json:"slug" gorm:"not null;index;uniqueIndex:ux_channels_user_slug"`
+	DisplayName  string `json:"displayName" gorm:"not null"`
+	Enabled      bool   `json:"enabled" gorm:"not null;default:false;index"`
+	Profile      string `json:"profile,omitempty"`
+	MaxHistory   int    `json:"maxHistory,omitempty"`
+	MaxContacts  int    `json:"maxContacts,omitempty"`
+	Settings     string `json:"settings,omitempty" gorm:"type:text"` // JSON: api_url, account, reply_chat_ids, …
+	BotTokenRef  string `json:"botTokenRef,omitempty"`
+	AppTokenRef  string `json:"appTokenRef,omitempty"`
+	APITokenRef  string `json:"apiTokenRef,omitempty"`
+	User         *User  `json:"-" gorm:"foreignKey:UserID"`
 }
 
 func (Channel) TableName() string { return "channels" }

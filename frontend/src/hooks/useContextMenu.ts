@@ -1,5 +1,5 @@
 import { logger } from '../utils/logger';
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useLayoutEffect, useRef } from 'react';
 import { Message, useChatStore } from '../store/chatStore';
 import { MenuItem } from '../components/menu';
 import { getMessageMenuItems, MenuItemsOptions } from '../lib/messageMenuItems';
@@ -25,35 +25,41 @@ export function useContextMenu(options: MenuItemsOptions): UseContextMenuResult 
   // Guarda referência ao elemento que abriu o menu para restaurar foco
   const triggerElementRef = useRef<HTMLElement | null>(null);
   const triggerConversationIdRef = useRef<string | null>(null);
+  const latestOptionsRef = useRef(options);
 
-  const showMenu = useCallback(
-    (event: React.MouseEvent, message: Message, isUser: boolean) => {
-      event.preventDefault();
-      
-      // Guarda o elemento que abriu o menu (ou o target do evento)
-      triggerElementRef.current = (event.currentTarget as HTMLElement) || (event.target as HTMLElement);
-      triggerConversationIdRef.current = String(message.conversationId || '') || null;
-      
-      // Verifica estado de expansão do reasoning no momento de mostrar o menu
-      const reasoningExpanded = options.isReasoningExpanded 
-        ? (typeof options.isReasoningExpanded === 'function' 
-            ? options.isReasoningExpanded(message.id) 
-            : options.isReasoningExpanded)
-        : false;
-      
-      const items = getMessageMenuItems(message, {
-        ...options,
-        isUser,
-        onAnnounce: options.onAnnounce,
-        isReasoningExpanded: reasoningExpanded,
-      });
+  // Mantém as ações abertas pelo menu atuais sem recriar os callbacks a cada
+  // render. A escrita acontece no layout effect para que um callback disparado
+  // depois do commit nunca leia opções de um render concorrente incompleto.
+  useLayoutEffect(() => {
+    latestOptionsRef.current = options;
+  }, [options]);
 
-      setMenuItems(items);
-      setMenuPosition({ x: event.clientX, y: event.clientY });
-      setMenuVisible(true);
-    },
-    [options]
-  );
+  const showMenu = useCallback((event: React.MouseEvent, message: Message, isUser: boolean) => {
+    event.preventDefault();
+
+    // Guarda o elemento que abriu o menu (ou o target do evento)
+    triggerElementRef.current = (event.currentTarget as HTMLElement) || (event.target as HTMLElement);
+    triggerConversationIdRef.current = String(message.conversationId || '') || null;
+
+    // Verifica estado de expansão do reasoning no momento de mostrar o menu
+    const currentOptions = latestOptionsRef.current;
+    const reasoningExpanded = currentOptions.isReasoningExpanded
+      ? (typeof currentOptions.isReasoningExpanded === 'function'
+          ? currentOptions.isReasoningExpanded(message.id)
+          : currentOptions.isReasoningExpanded)
+      : false;
+
+    const items = getMessageMenuItems(message, {
+      ...currentOptions,
+      isUser,
+      onAnnounce: currentOptions.onAnnounce,
+      isReasoningExpanded: reasoningExpanded,
+    });
+
+    setMenuItems(items);
+    setMenuPosition({ x: event.clientX, y: event.clientY });
+    setMenuVisible(true);
+  }, []);
 
   const hideMenu = useCallback(() => {
     setMenuVisible(false);
@@ -62,8 +68,9 @@ export function useContextMenu(options: MenuItemsOptions): UseContextMenuResult 
     setTimeout(() => {
       // Verifica se deve pular a restauração de foco (ex: edição iniciada)
       const conversationId = triggerConversationIdRef.current;
-      const shouldSkip = conversationId && options.sessionKey
-        ? useChatStore.getState().consumeSkipFocusRestore(conversationId, options.sessionKey)
+      const sessionKey = options.sessionKey;
+      const shouldSkip = conversationId && sessionKey
+        ? useChatStore.getState().consumeSkipFocusRestore(conversationId, sessionKey)
         : false;
       if (shouldSkip) {
         triggerElementRef.current = null;
@@ -72,7 +79,11 @@ export function useContextMenu(options: MenuItemsOptions): UseContextMenuResult 
       }
       
       if (triggerElementRef.current) {
-        triggerElementRef.current.focus();
+        // A leitura virtual já assumiu o foco; não sair do documento ao
+        // terminar o timer de fechamento do menu que abriu essa leitura.
+        const active = document.activeElement;
+        const reading = active instanceof Element && active.closest('[role="document"],.message-node--reading');
+        if (!reading && !triggerElementRef.current.closest('[inert]')) triggerElementRef.current.focus();
         triggerElementRef.current = null;
       }
       triggerConversationIdRef.current = null;
@@ -105,21 +116,24 @@ export function useMessageActions(options: UseMessageActionsOptions = {}) {
   const { onAnnounce } = options;
 
   const copyMessage = useCallback(
-    async (message: Message, asMarkdown: boolean) => {
+    async (message: Pick<Message, 'content'>, asMarkdown: boolean, isCurrent?: () => boolean) => {
+      if (isCurrent && !isCurrent()) throw new Error('chat-message-stale');
       try {
         const text = asMarkdown ? message.content : stripMarkdown(message.content || '');
         await navigator.clipboard.writeText(text);
-        onAnnounce?.('Mensagem copiada.');
+        if (!isCurrent || isCurrent()) onAnnounce?.(i18next.t('chat.contentCopied'));
       } catch (err) {
         logger.error('Erro ao copiar:', err);
-        onAnnounce?.('Erro ao copiar mensagem.');
+        if (isCurrent) throw err;
+        onAnnounce?.(i18next.t('chat.copyFailed'));
       }
     },
     [onAnnounce]
   );
 
   const speakMessage = useCallback(
-    async (message: Message) => {
+    async (message: Pick<Message, 'id' | 'content' | 'role'>, isCurrent?: () => boolean, onStarted?: () => void) => {
+      if (isCurrent && !isCurrent()) throw new Error('chat-message-stale');
       if (!message.content || !message.id) return;
 
       const role: VoiceRole = message.role === 'user' ? 'user' : 'assistant';
@@ -134,6 +148,7 @@ export function useMessageActions(options: UseMessageActionsOptions = {}) {
       const voiceCtx = ttsService.getVoiceContext(role);
       if (!voiceCtx) {
         onAnnounce?.(`${prefix}: ${plain}`);
+        onStarted?.();
         return;
       }
 
@@ -144,14 +159,16 @@ export function useMessageActions(options: UseMessageActionsOptions = {}) {
 
       if (backendId) {
         const volume = ttsService.getVolume();
-        const played = await messageAudioService.speakMessage(backendId, volume, voiceCtx);
+        const played = await messageAudioService.speakMessage(backendId, volume, voiceCtx, isCurrent, onStarted);
+        if (isCurrent && !isCurrent()) throw new Error('chat-message-stale');
         if (played) return;
       }
 
       // Fallback: speakAsRole (WebSpeech/SAPI5/SpeakPreview)
       try {
-        await ttsService.speakAsRole(plain, role);
-      } catch {
+        await ttsService.speakAsRole(plain, role, isCurrent, onStarted);
+      } catch (error) {
+        if (isCurrent) throw error;
         onAnnounce?.(`${prefix}: ${plain}`);
       }
     },

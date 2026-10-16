@@ -16,13 +16,14 @@ type LegacyImporter struct {
 }
 
 type LegacyImportSummaryEntry struct {
-	Name         string   `json:"name"`
-	ResourceType string   `json:"resourceType"`
-	Imported     int      `json:"imported"`
-	Skipped      int      `json:"skipped"`
-	Failed       int      `json:"failed"`
-	Warnings     []string `json:"warnings,omitempty"`
-	Errors       []string `json:"errors,omitempty"`
+	Name            string             `json:"name"`
+	ResourceType    string             `json:"resourceType"`
+	Imported        int                `json:"imported"`
+	Skipped         int                `json:"skipped"`
+	Failed          int                `json:"failed"`
+	Warnings        []string           `json:"warnings,omitempty"`
+	WarningMessages []LocalizedMessage `json:"warningMessages,omitempty"`
+	Errors          []string           `json:"errors,omitempty"`
 }
 
 type LegacyImportSummary struct {
@@ -71,13 +72,14 @@ func (s *LegacyImportService) Run(ctx context.Context) LegacyImportSummary {
 	for _, importer := range s.importers {
 		result, err := importer.Run(ctx)
 		entry := LegacyImportSummaryEntry{
-			Name:         importer.Name,
-			ResourceType: result.ResourceType,
-			Imported:     result.Imported,
-			Skipped:      result.Skipped,
-			Failed:       result.Failed,
-			Warnings:     append([]string(nil), result.Warnings...),
-			Errors:       append([]string(nil), result.Errors...),
+			Name:            importer.Name,
+			ResourceType:    result.ResourceType,
+			Imported:        result.Imported,
+			Skipped:         result.Skipped,
+			Failed:          result.Failed,
+			Warnings:        append([]string(nil), result.Warnings...),
+			WarningMessages: append([]LocalizedMessage(nil), result.WarningMessages...),
+			Errors:          append([]string(nil), result.Errors...),
 		}
 		if strings.TrimSpace(entry.ResourceType) == "" {
 			entry.ResourceType = importer.Name
@@ -96,6 +98,6 @@ func (s *LegacyImportSummary) add(entry LegacyImportSummaryEntry) {
 	s.Imported += entry.Imported
 	s.Skipped += entry.Skipped
 	s.Failed += entry.Failed
-	s.WarningCount += len(entry.Warnings)
+	s.WarningCount += len(entry.Warnings) + len(entry.WarningMessages)
 	s.ErrorCount += len(entry.Errors)
 }

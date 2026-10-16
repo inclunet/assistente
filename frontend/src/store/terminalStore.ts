@@ -1,5 +1,6 @@
 import { logger } from '../utils/logger';
 import { create } from 'zustand';
+import { useAuthStore } from './authStore';
 import {
   ListTerminalSessions,
   CreateTerminalSession,
@@ -18,6 +19,7 @@ import i18next from 'i18next';
 let announceTimer: ReturnType<typeof setTimeout> | null = null;
 let pendingOutput = '';
 let terminalEventListenerRefCount = 0;
+let terminalSessionReadGeneration = 0;
 let terminalEventListenerCleanup: (() => void) | null = null;
 let legacyCommandSequence = 0;
 
@@ -72,16 +74,25 @@ export const useTerminalStore = create<TerminalState>((set) => ({
   loadingHistoryBySession: {},
 
   loadSessions: async () => {
+    const request = ++terminalSessionReadGeneration;
+    const owner = useAuthStore.getState();
+    let currentOwner = true;
+    const unsubscribe = useAuthStore.subscribe(state => {
+      if (state.isAuthenticated !== owner.isAuthenticated || state.user?.userId !== owner.user?.userId ||
+          state.user?.sessionId !== owner.user?.sessionId) currentOwner = false;
+    });
     set({ isLoadingSessions: true });
     try {
       const sessions = await ListTerminalSessions();
+      if (!currentOwner || request !== terminalSessionReadGeneration) return false;
       set({ sessions: sessions || [] });
       return true;
     } catch (err) {
       logger.error('[Terminal] Erro ao carregar sessões:', err);
       return false;
     } finally {
-      set({ isLoadingSessions: false });
+      unsubscribe();
+      if (request === terminalSessionReadGeneration) set({ isLoadingSessions: false });
     }
   },
 
@@ -181,13 +192,19 @@ export const useTerminalStore = create<TerminalState>((set) => ({
 
     // Sessão criada
     unsubs.push(EventsOn('terminal:session_created', (data: SessionInfo) => {
-      set(state => ({
-        sessions: [...state.sessions, data],
-        historyBySession: {
-          ...state.historyBySession,
-          [data.id]: [],
-        },
-      }));
+      set(state => {
+        // O evento pode cruzar com loadSessions(); a sessão já conhecida é
+        // idempotente e não pode resetar histórico nem produzir uma segunda
+        // entrada visual.
+        if (state.sessions.some((session) => session.id === data.id)) return state;
+        return {
+          sessions: [...state.sessions, data],
+          historyBySession: {
+            ...state.historyBySession,
+            [data.id]: state.historyBySession[data.id] ?? [],
+          },
+        };
+      });
     }));
 
     // Sessão fechada

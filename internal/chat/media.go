@@ -103,6 +103,17 @@ func (l *MediaHistoryLoader) Load(ctx context.Context, conversationID string) ([
 	return l.format(ctx, dbMessages, existingSummary)
 }
 
+// LoadThroughMessage carrega e formata o histórico até a pergunta raiz
+// selecionada, sem incluir mensagens ou resumo posteriores.
+func (l *MediaHistoryLoader) LoadThroughMessage(ctx context.Context, conversationID, messageID string) ([]llm.Message, string, error) {
+	h := HistoryLoader{Repo: l.Repo, MaxMsgs: l.MaxMsgs}
+	dbMessages, existingSummary, err := h.LoadThroughMessage(ctx, conversationID, messageID)
+	if err != nil {
+		return nil, "", err
+	}
+	return l.format(ctx, dbMessages, existingSummary)
+}
+
 // LoadWindow reutiliza o mesmo HistoryLoader e a mesma conversão de mídia sobre
 // uma janela já carregada pela transação de persistência.
 func (l *MediaHistoryLoader) LoadWindow(ctx context.Context, conversationID string, window *HistoryWindow) ([]llm.Message, string, error) {
@@ -124,24 +135,9 @@ func (l *MediaHistoryLoader) LoadWindow(ctx context.Context, conversationID stri
 func (l *MediaHistoryLoader) format(ctx context.Context, dbMessages []Message, existingSummary string) ([]llm.Message, string, error) {
 	messages := make([]llm.Message, 0, len(dbMessages))
 	for _, m := range dbMessages {
-		// Otimização de contexto: omitir mensagens intermediárias de tool calling
-		// de turnos anteriores. O modelo já processou esses resultados e produziu
-		// uma resposta final com a informação sintetizada — reenviar a cadeia
-		// tool_call→tool_result desperdiça tokens sem valor.
-		if m.Role == "tool" {
-			continue
-		}
-		if m.Role == "assistant" && strings.TrimSpace(m.ToolCalls) != "" && strings.TrimSpace(m.Content) == "" {
-			// Tool calling de turnos anteriores não é reenviado. Reasoning
-			// persistido também não vira extensão de protocolo (AEP-0097), então
-			// mantê-lo aqui produziria uma assistant vazia no payload.
-			continue
-		}
-
 		msg := llm.Message{
-			MessageID:  m.ID,
-			Role:       m.Role,
-			ToolCallID: m.ToolCallID,
+			MessageID: m.ID,
+			Role:      m.Role,
 		}
 
 		if m.Media != "" {

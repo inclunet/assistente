@@ -3,6 +3,7 @@ package wailsapi
 import (
 	"assistente/controllers"
 	"assistente/internal/apidto"
+	"assistente/internal/credentials"
 	mcpmgr "assistente/internal/mcp"
 	"context"
 	"sync"
@@ -53,6 +54,70 @@ func (m *MCP) ListMCPServers() ([]mcpmgr.ServerInfo, error) {
 	})
 }
 
+// InspectMCPOAuthInventory diagnostica o legado sem resolver ou alterar credenciais.
+func (m *MCP) InspectMCPOAuthInventory() ([]mcpmgr.OAuthInventoryItem, error) {
+	session, ctrl, err := m.deps()
+	if err != nil {
+		return nil, err
+	}
+	return WithUser(session, ctrl.InspectMCPOAuthInventory)
+}
+
+func (m *MCP) CreateMCPOAuthSnapshot(id string) (credentials.OAuthSnapshotInfo, error) {
+	session, ctrl, err := m.deps()
+	if err != nil {
+		return credentials.OAuthSnapshotInfo{}, err
+	}
+	return WithUser(session, func(ctx context.Context) (credentials.OAuthSnapshotInfo, error) {
+		return ctrl.CreateMCPOAuthSnapshot(ctx, id)
+	})
+}
+func (m *MCP) ConvertMCPOAuthClientSnapshot(id, method string) error {
+	session, ctrl, err := m.deps()
+	if err != nil {
+		return err
+	}
+	_, err = WithUser(session, func(ctx context.Context) (struct{}, error) {
+		return struct{}{}, ctrl.ConvertMCPOAuthClientSnapshot(ctx, id, method)
+	})
+	return err
+}
+func (m *MCP) ListMCPOAuthSnapshots() ([]credentials.OAuthSnapshotInfo, error) {
+	session, ctrl, err := m.deps()
+	if err != nil {
+		return nil, err
+	}
+	return WithUser(session, ctrl.ListMCPOAuthSnapshots)
+}
+func (m *MCP) ReconnectMCPOAuthSnapshot(id, method string) error {
+	session, ctrl, err := m.deps()
+	if err != nil {
+		return err
+	}
+	_, err = WithUser(session, func(ctx context.Context) (struct{}, error) {
+		return struct{}{}, ctrl.ReconnectMCPOAuthSnapshot(ctx, id, method)
+	})
+	return err
+}
+func (m *MCP) RestoreMCPOAuthSnapshot(id string) error {
+	session, ctrl, err := m.deps()
+	if err != nil {
+		return err
+	}
+	_, err = WithUser(session, func(ctx context.Context) (struct{}, error) { return struct{}{}, ctrl.RestoreMCPOAuthSnapshot(ctx, id) })
+	return err
+}
+func (m *MCP) DiscardMCPOAuthSnapshot(id string, confirmed bool) error {
+	session, ctrl, err := m.deps()
+	if err != nil {
+		return err
+	}
+	_, err = WithUser(session, func(ctx context.Context) (struct{}, error) {
+		return struct{}{}, ctrl.DiscardMCPOAuthSnapshot(ctx, id, confirmed)
+	})
+	return err
+}
+
 // ConnectMCPServer conecta um servidor pelo slug.
 func (m *MCP) ConnectMCPServer(slug string) error {
 	session, ctrl, err := m.deps()
@@ -85,6 +150,19 @@ func (m *MCP) ReconnectMCPServer(slug string) error {
 	}
 	_, err = WithUser(session, func(ctx context.Context) (struct{}, error) {
 		return struct{}{}, ctrl.ReconnectMCPServer(slug)
+	})
+	return err
+}
+
+// ReauthorizeMCPServer força a reautorização OAuth interativa de um servidor MCP
+// (abre o browser), distinta de reconectar. Só se aplica a OAuth2 PKCE (AEP-0105).
+func (m *MCP) ReauthorizeMCPServer(slug string) error {
+	session, ctrl, err := m.deps()
+	if err != nil {
+		return err
+	}
+	_, err = WithUser(session, func(ctx context.Context) (struct{}, error) {
+		return struct{}{}, ctrl.ReauthorizeMCPServer(ctx, slug)
 	})
 	return err
 }
@@ -257,7 +335,7 @@ func (m *MCP) DiscoverMCPServerAuth(serverURL string) (mcpmgr.OAuthDiscoveryResu
 		return mcpmgr.OAuthDiscoveryResult{}, err
 	}
 	return WithUser(session, func(ctx context.Context) (mcpmgr.OAuthDiscoveryResult, error) {
-		return ctrl.DiscoverMCPServerAuth(serverURL), nil
+		return ctrl.DiscoverMCPServerAuth(ctx, serverURL), nil
 	})
 }
 
@@ -270,4 +348,27 @@ func (m *MCP) GetMCPServerLogs(slug string, limit int) ([]mcpmgr.MCPServerLog, e
 	return WithUser(session, func(ctx context.Context) ([]mcpmgr.MCPServerLog, error) {
 		return ctrl.GetMCPServerLogs(slug, limit)
 	})
+}
+
+// SaveMCPServerWithOAuthSecret saves a managed consumer and its secret atomically.
+func (m *MCP) SaveMCPServerWithOAuthSecret(slug string, cfg mcpmgr.ServerConfig, secret string) error {
+	session, ctrl, err := m.deps()
+	if err != nil {
+		return err
+	}
+	_, err = WithUser(session, func(ctx context.Context) (struct{}, error) {
+		return struct{}{}, ctrl.SaveMCPServerWithOAuthSecret(slug, cfg, secret)
+	})
+	return err
+}
+
+func (m *MCP) SaveMCPServerWithCredential(slug string, cfg mcpmgr.ServerConfig, input apidto.CredentialInput) error {
+	session, ctrl, err := m.deps()
+	if err != nil {
+		return err
+	}
+	_, err = WithUser(session, func(ctx context.Context) (struct{}, error) {
+		return struct{}{}, ctrl.SaveMCPServerWithCredential(ctx, slug, cfg, input)
+	})
+	return err
 }

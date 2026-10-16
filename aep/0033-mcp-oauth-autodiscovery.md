@@ -243,8 +243,10 @@ casos em que o PRM existia, mas a configuração ainda precisava ser completada.
    `registration_endpoint` exige conclusão manual, mas não invalida metadata
    OAuth/OIDC. Metadata com `token_endpoint`, mas sem `authorization_endpoint`,
    é tratada como Client Credentials mesmo quando a lista opcional
-   `grant_types_supported` não foi publicada. Scopes anunciados pelo PRM e pelo
-   Authorization Server são unidos e deduplicados, preservando a ordem.
+   `grant_types_supported` não foi publicada. O preenchimento usa os scopes do PRM, deduplicados em ordem, e acrescenta
+   `offline_access` somente quando anunciado pelo Authorization Server e ainda
+   ausente. O catálogo geral do Authorization Server não é convertido em
+   permissões solicitadas. Sem scopes do PRM, o campo não é preenchido.
 7. Valores manuais são soberanos: discovery preenche apenas campos vazios,
    nunca impede salvar e mantém a edição manual disponível em falha parcial ou
    total. Em resultado parcial, nome e scopes válidos do PRM continuam
@@ -293,3 +295,56 @@ casos em que o PRM existia, mas a configuração ainda precisava ser completada.
 - Campos manuais existentes permanecem intactos e o formulário continua
   salvável.
 - Backend e frontend possuem testes obrigatórios para esses comportamentos.
+
+## Implementação compartilhada (AEP-0112, fase 2)
+
+O algoritmo e seus testes de descoberta residem em `internal/oauthflow/discovery.go`
+e `discovery_test.go`. `internal/mcp/discovery.go` adapta o resultado ao DTO MCP
+existente, enquanto o runtime utiliza `oauthflow.DiscoverEndpoints`. Orçamentos,
+candidatos, hints saneados e comportamento de preenchimento manual permanecem
+inalterados. Registro dinâmico RFC 7591 também usa HTTP compartilhado; migração
+de credenciais e grants permanece no plano do AEP-0112.
+
+
+## Evolução: valores descobertos visíveis sem registro dinâmico
+
+Status: **Done**. Quando há descoberta completa sem DCR, o formulário completo
+fica visível e editável, com os endpoints e escopos preenchidos nos campos antes
+vazios e o tipo de autenticação efetivamente selecionado. Não é necessário
+acionar a configuração manual para conferir os dados. Esta apresentação substitui
+a forma compacta anterior para servidores sem DCR; servidores com DCR mantêm a
+apresentação compacta existente.
+
+Valores manuais e o fluxo já escolhido são preservados. A troca de Client
+Credentials para PKCE é explícita; os campos de callback só aparecem para PKCE.
+O aviso de navegador exige PKCE gerenciado; cadastros OAuth legados recebem a
+orientação existente de snapshot e migração no Diagnóstico OAuth. Salvar outro
+tipo não converte automaticamente a autorização. A descoberta não inventa Client ID, segredo
+nem callback do aplicativo privado.
+
+Evidências: `McpConnectionSection.test.tsx` cobre visibilidade, edição do fluxo
+e ausência de promessa de navegador em Client Credentials. `McpPage.test.tsx`
+cobre preenchimento dos campos vazios, preservação do cliente e salvamento dos
+endpoints após a escolha explícita de PKCE, além da preservação de valores manuais.
+
+
+## Correção: escopos do recurso em vez do catálogo do emissor
+
+Status: **Done**. A união anterior dos scopes PRM/ASM para preenchimento foi
+substituída pela regra da seção 6: scopes do recurso, com suporte anunciado a
+renovação, sem solicitar permissões de outros serviços do mesmo emissor.
+Metadata parcial conserva apenas os scopes PRM. Ausência de scopes do recurso
+não autoriza inferir o catálogo ASM nem solicitar apenas `offline_access`.
+`DiscoverEndpoints.ScopesSupported` continua representando capacidades publicadas
+para o runtime, não sugestões de preenchimento; a autorização usa a configuração
+escolhida. O runtime só acrescenta `offline_access` quando há scopes
+configurados; um campo vazio mantém o parâmetro `scope` ausente. A escolha
+manual de `offline_access` isolado é preservada.
+
+`TestDiscoverOAuthSelectsResourceScopesWithoutServerCatalog` verifica os dois
+percursos HTTP, catálogo amplo, duplicação, renovação e ausência de PRM/scopes.
+`TestAuthorizePKCEScopeParameterPreservesEmptyAndExplicitScopes` verifica a URL
+real de consentimento, callback e troca de código com scopes vazios ou explícitos.
+Cadastros existentes e a validação de scopes concedidos permanecem preservados.
+Para corrigir um preenchimento antigo, limpar Scopes, salvar e reabrir o editor
+para repetir a descoberta; revisar e salvar antes de recriar o snapshot.

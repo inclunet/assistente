@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { useNavigationStore, type EditableResource, type ResourceEditRequest } from '../store/navigationStore';
+import { useNavigationStore, isResourceEditRequestFresh, type EditableResource, type ResourceEditRequest } from '../store/navigationStore';
 
 /**
  * Hook for pages to consume pending resource-edit requests from deep links.
@@ -17,14 +17,23 @@ export function useResourceEditRequest(
   const consumeResourceEdit = useNavigationStore((s) => s.consumeResourceEdit);
   const pending = useNavigationStore((s) => s.pendingEdit);
   const processedRef = useRef<number>(0);
+  const receivedRef = useRef<ResourceEditRequest | null>(null);
   const ready = callbacks.ready ?? true;
 
   useEffect(() => {
+    if (!pending || pending.resource !== resource) {
+      receivedRef.current = null;
+      return;
+    }
+    // The TTL limits arrival at the destination, not its asynchronous data load.
+    // Keep the exact identity so cancellation/replacement in the store still wins.
+    if (receivedRef.current !== pending) {
+      receivedRef.current = isResourceEditRequestFresh(pending) ? pending : null;
+    }
     if (!ready) return;
-    if (!pending || pending.resource !== resource) return;
     if (pending.timestamp <= processedRef.current) return;
 
-    const request: ResourceEditRequest | null = consumeResourceEdit(resource);
+    const request: ResourceEditRequest | null = consumeResourceEdit(resource, receivedRef.current ?? undefined);
     if (!request) return;
 
     processedRef.current = request.timestamp;

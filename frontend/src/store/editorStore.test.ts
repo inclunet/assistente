@@ -7,7 +7,7 @@ import {
 } from './editorStore';
 
 function resetStore() {
-  useEditorStore.setState({ ownerUserId: null, documents: {}, pendingInsert: null });
+  useEditorStore.setState({ ownerUserId: null, documents: {} });
 }
 
 describe('editorStore — filePath lifecycle', () => {

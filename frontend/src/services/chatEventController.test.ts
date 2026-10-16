@@ -253,6 +253,109 @@ function createAdapter(initialConversationIds: string[]) {
 }
 
 describe('chatEventController', () => {
+  it('preserva texto antes das ferramentas e falhas entre duas rodadas', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+    const identity = { conversationId: 'conversation-1', turnId: 'turn-1', assistantMessageId: 'assistant-1' };
+
+    emitEvent('chat:tool_start', { ...identity, name: 'search', callId: 'call-1' });
+    expect(sessions['conversation-1'].activeToolCalls[0].status).toBe('running');
+    expect(sessions['conversation-1'].completedSegments).toEqual([]);
+    emitEvent('chat:tool_end', { ...identity, name: 'search', callId: 'call-1', status: 'error', summary: 'Indisponível' });
+    emitEvent('chat:segment_done', { ...identity, hasMore: true, content: 'Vou pesquisar.' });
+    emitEvent('chat:tool_start', { ...identity, name: 'read', callId: 'call-2' });
+    expect(sessions['conversation-1'].completedSegments.map((segment) => segment.type)).toEqual(['text', 'tool_calls']);
+    expect(sessions['conversation-1'].completedSegments[1].toolCalls?.[0].status).toBe('error');
+    emitEvent('chat:tool_end', { ...identity, name: 'read', callId: 'call-2', status: 'ok' });
+    emitEvent('chat:segment_done', { ...identity, hasMore: true, content: 'Vou consultar outra fonte.' });
+
+    expect(sessions['conversation-1'].completedSegments.map((segment) => segment.type)).toEqual(['text', 'tool_calls', 'text', 'tool_calls']);
+    expect(sessions['conversation-1'].completedSegments[3].toolCalls?.[0].status).toBe('done');
+    expect(sessions['conversation-1'].activeToolCalls).toEqual([]);
+  });
+
+  it('mantém cancelamento distinto de falha no estado ao vivo e no anúncio', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+    const identity = { conversationId: 'conversation-1', turnId: 'turn-cancel', assistantMessageId: 'assistant-cancel' };
+
+    emitEvent('chat:tool_start', { ...identity, name: 'run_command', callId: 'call-cancel', origin: 'builtin' });
+    emitEvent('chat:tool_end', {
+      ...identity,
+      name: 'run_command',
+      callId: 'call-cancel',
+      status: 'error',
+      errorKind: 'cancelled',
+      origin: 'builtin',
+    });
+
+    expect(sessions['conversation-1'].activeToolCalls[0].status).toBe('cancelled');
+    expect(mockAnnounceForActiveChatConversation).toHaveBeenCalledWith(
+      'conversation-1',
+      'chat.toolRunCommand. chat.toolStatusCancelled',
+      'polite',
+      undefined,
+    );
+    expect(mockAnnounceWithOrigin).not.toHaveBeenCalled();
+
+    emitEvent('chat:tool_failure', {
+      ...identity,
+      name: 'run_command',
+      callId: 'call-cancel',
+      errorKind: 'cancelled',
+      willRetry: false,
+      origin: 'builtin',
+    });
+    expect(mockAnnounceWithOrigin).not.toHaveBeenCalled();
+  });
+
+  it('anuncia cancelamento recebido somente como tool_failure uma única vez', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+    const identity = { conversationId: 'conversation-1', turnId: 'turn-cancel', assistantMessageId: 'assistant-cancel' };
+    emitEvent('chat:tool_start', { ...identity, name: 'run_command', callId: 'call-cancel-only', origin: 'builtin' });
+
+    emitEvent('chat:tool_failure', {
+      ...identity,
+      name: 'run_command',
+      callId: 'call-cancel-only',
+      errorKind: 'cancelled',
+      willRetry: false,
+      origin: 'builtin',
+    });
+    emitEvent('chat:tool_failure', {
+      ...identity,
+      name: 'run_command',
+      callId: 'call-cancel-only',
+      errorKind: 'cancelled',
+      willRetry: false,
+      origin: 'builtin',
+    });
+
+    expect(sessions['conversation-1'].activeToolCalls[0].status).toBe('cancelled');
+    expect(mockAnnounceForActiveChatConversation).toHaveBeenCalledTimes(1);
+    expect(mockAnnounceForActiveChatConversation).toHaveBeenCalledWith(
+      'conversation-1',
+      'chat.toolRunCommand. chat.toolStatusCancelled',
+      'polite',
+      undefined,
+    );
+  });
+
+  it('não promove status terminal legado ou desconhecido a sucesso', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+    const identity = { conversationId: 'conversation-1', turnId: 'turn-status', assistantMessageId: 'assistant-status' };
+
+    emitEvent('chat:tool_start', { ...identity, name: 'run_command', callId: 'call-legacy', origin: 'builtin' });
+    emitEvent('chat:tool_end', { ...identity, name: 'run_command', callId: 'call-legacy', status: 'cancelled', origin: 'builtin' });
+    expect(sessions['conversation-1'].activeToolCalls[0].status).toBe('cancelled');
+
+    emitEvent('chat:tool_start', { ...identity, name: 'run_command', callId: 'call-unknown', origin: 'builtin' });
+    emitEvent('chat:tool_end', { ...identity, name: 'run_command', callId: 'call-unknown', status: 'mystery', origin: 'builtin' });
+    expect(sessions['conversation-1'].activeToolCalls[1].status).toBe('error');
+  });
+
   beforeEach(() => {
     vi.useFakeTimers();
     resetChatEventHubForTests();
@@ -637,7 +740,7 @@ describe('chatEventController', () => {
 
     const messages = sessions['conversation-1'].conversation?.threadedMessages ?? [];
     expect(messages[1].message.id).toBe('assistant-db-1');
-    expect(messages[1].message.content).toBe('parcial');
+    expect(messages[1].message.content).toBe('parcial\n\nErro: boom');
     expect(sessions['conversation-1'].lastInterruptedMessageId).toBe('assistant-db-1');
   });
 
@@ -697,6 +800,39 @@ describe('chatEventController', () => {
     const messages = sessions['conversation-1'].conversation?.threadedMessages ?? [];
     expect(messages[1].message.content).toBe('chat.outputLimitReached');
     expect(messages[1].message.content).not.toContain('Erro:');
+  });
+
+  it('preserva o aviso de limite quando o patch persistido está vazio', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+    emitEvent('chat:messages_ready', {
+      conversationId: 'conversation-1',
+      userMessageId: 'user-1',
+      userContent: 'pergunta',
+      turnId: 'user-1',
+    });
+
+    emitEvent('chat:done', {
+      conversationId: 'conversation-1',
+      reason: 'output_limit',
+      turnId: 'user-1',
+      assistantMessageId: 'assistant-limit-patch',
+      turnPatch: {
+        message: {
+          id: 'assistant-limit-patch',
+          conversationId: 'conversation-1',
+          turnId: 'user-1',
+          content: '',
+          createdAt: '2026-09-19T10:00:00Z',
+          timestamp: 1,
+        },
+      },
+    });
+
+    const message = sessions['conversation-1'].conversation?.threadedMessages[1].message;
+    expect(message?.content).toBe('chat.outputLimitReached');
+    expect(message?.isStreaming).toBe(false);
+    expect(sessions['conversation-1'].lastInterruptedMessageId).toBe('assistant-limit-patch');
   });
 
   it('em erro no chat:stream usa messageId persistido para interrupção', () => {
@@ -844,6 +980,191 @@ describe('chatEventController', () => {
       callId: 'call-1',
       status: 'running',
     });
+  });
+
+  it('anuncia progresso interno pendente antes de uma ferramenta longa terminar', () => {
+    const { adapter } = createAdapter(['conversation-1']);
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+
+    emitEvent('chat:tool_start', {
+      conversationId: 'conversation-1',
+      turnId: 'turn-1',
+      name: 'buscar',
+      callId: 'call-1',
+      origin: 'builtin',
+    });
+
+    expect(mockAnnounceForActiveChatConversation).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(249);
+    expect(mockAnnounceForActiveChatConversation).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+
+    expect(mockAnnounceForActiveChatConversation).toHaveBeenCalledWith(
+      'conversation-1',
+      'chat.toolGeneric. chat.toolStatusRunning',
+      'polite',
+      undefined,
+    );
+    emitEvent('chat:tool_end', {
+      conversationId: 'conversation-1',
+      turnId: 'turn-1',
+      name: 'buscar',
+      callId: 'call-1',
+      status: 'ok',
+      origin: 'builtin',
+    });
+    vi.advanceTimersByTime(250);
+    expect(mockAnnounceForActiveChatConversation).toHaveBeenCalledTimes(2);
+    expect(mockAnnounceForActiveChatConversation).toHaveBeenLastCalledWith(
+      'conversation-1',
+      'chat.toolGenericDone. chat.toolStatusSucceeded',
+      'polite',
+      undefined,
+    );
+  });
+
+  it('agrupa ferramentas internas rápidas no primeiro tool_end sem duplicar a rajada', () => {
+    const { adapter } = createAdapter(['conversation-1']);
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+
+    for (const [callId, name] of [['call-1', 'buscar'], ['call-2', 'ler arquivo']]) {
+      emitEvent('chat:tool_start', {
+        conversationId: 'conversation-1',
+        turnId: 'turn-1',
+        name,
+        callId,
+        origin: 'builtin',
+      });
+    }
+    emitEvent('chat:tool_end', {
+      conversationId: 'conversation-1',
+      turnId: 'turn-1',
+      name: 'buscar',
+      callId: 'call-1',
+      status: 'ok',
+      origin: 'builtin',
+    });
+    emitEvent('chat:tool_end', {
+      conversationId: 'conversation-1',
+      turnId: 'turn-1',
+      name: 'ler arquivo',
+      callId: 'call-2',
+      status: 'ok',
+      origin: 'builtin',
+    });
+    vi.advanceTimersByTime(250);
+
+    expect(mockAnnounceForActiveChatConversation).toHaveBeenCalledTimes(1);
+    expect(mockAnnounceForActiveChatConversation).toHaveBeenCalledWith(
+      'conversation-1',
+      'chat.toolGenericDone. chat.toolStatusSucceeded; chat.toolGenericDone. chat.toolStatusSucceeded',
+      'polite',
+      undefined,
+    );
+  });
+
+  it('cancela progresso pendente ao desmontar e preserva a origem da superfície', () => {
+    const { adapter } = createAdapter(['conversation-1']);
+    const surfaceOrigin = {
+      tabId: 'tab-1',
+      surfaceId: 'tab-1',
+      sessionKey: 'tab-1:conversation-1',
+      conversationId: 'conversation-1',
+      surfaceType: 'page' as const,
+    };
+    const handle = startChatEventController({ conversationId: 'conversation-1', origin: surfaceOrigin, adapter });
+
+    emitEvent('chat:tool_start', {
+      conversationId: 'conversation-1',
+      turnId: 'turn-1',
+      name: 'buscar',
+      callId: 'call-1',
+      origin: 'builtin',
+      surfaceOrigin,
+    });
+    handle.cleanup();
+    vi.advanceTimersByTime(250);
+
+    expect(mockAnnounceForActiveChatConversation).not.toHaveBeenCalled();
+  });
+
+  it('isola o anúncio de progresso entre conversas mesmo quando uma termina', () => {
+    const { adapter } = createAdapter(['conversation-1', 'conversation-2']);
+    const first = startChatEventController({ conversationId: 'conversation-1', adapter });
+    startChatEventController({ conversationId: 'conversation-2', adapter });
+
+    emitEvent('chat:tool_start', {
+      conversationId: 'conversation-1',
+      name: 'primeira',
+      callId: 'call-1',
+      origin: 'builtin',
+    });
+    emitEvent('chat:tool_start', {
+      conversationId: 'conversation-2',
+      name: 'segunda',
+      callId: 'call-2',
+      origin: 'builtin',
+    });
+    first.cleanup();
+    vi.advanceTimersByTime(250);
+
+    expect(mockAnnounceForActiveChatConversation).toHaveBeenCalledTimes(1);
+    expect(mockAnnounceForActiveChatConversation).toHaveBeenCalledWith(
+      'conversation-2',
+      'chat.toolGeneric. chat.toolStatusRunning',
+      'polite',
+      undefined,
+    );
+  });
+
+  it('anuncia retry/falha uma vez e não repete progresso do mesmo callId', () => {
+    const { adapter } = createAdapter(['conversation-1']);
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+
+    emitEvent('chat:tool_start', {
+      conversationId: 'conversation-1',
+      name: 'buscar',
+      callId: 'call-1',
+      origin: 'builtin',
+    });
+    emitEvent('chat:tool_failure', {
+      conversationId: 'conversation-1',
+      name: 'buscar',
+      callId: 'call-1',
+      origin: 'builtin',
+      willRetry: true,
+    });
+    emitEvent('chat:tool_start', {
+      conversationId: 'conversation-1',
+      name: 'buscar',
+      callId: 'call-1',
+      origin: 'builtin',
+    });
+    vi.advanceTimersByTime(250);
+
+    expect(mockAnnounceForActiveChatConversation).toHaveBeenCalledTimes(2);
+    expect(mockAnnounceForActiveChatConversation).toHaveBeenCalledWith(
+      'conversation-1',
+      'chat.toolGeneric. chat.toolStatusRetrying',
+      'polite',
+      undefined,
+    );
+
+    emitEvent('chat:tool_failure', {
+      conversationId: 'conversation-1',
+      name: 'buscar',
+      callId: 'call-1',
+      origin: 'builtin',
+      willRetry: false,
+    });
+    expect(mockAnnounceWithOrigin).toHaveBeenCalledTimes(1);
+    expect(mockAnnounceForActiveChatConversation).toHaveBeenCalledTimes(2);
+    expect(mockAnnounceForActiveChatConversation).toHaveBeenLastCalledWith(
+      'conversation-1',
+      'chat.toolGeneric. chat.toolStatusRunning',
+      'polite',
+      undefined,
+    );
   });
 
   it('guarda a origem da ferramenta do agente para a UI não creditá-la ao app', () => {
@@ -1187,7 +1508,7 @@ describe('chatEventController', () => {
     expect(mockAnnounce).toHaveBeenCalledWith('Maria via telegram: olá externo');
   });
 
-  it('anuncia a ferramenta do agente como dele mesmo quando o fim não repete a origem', () => {
+  it('anuncia a ferramenta do agente sem expor seu nome técnico quando o fim não repete a origem', () => {
     const { adapter } = createAdapter(['conversation-1']);
 
     startChatEventController({
@@ -1215,20 +1536,50 @@ describe('chatEventController', () => {
 
     expect(mockAnnounceForActiveChatConversation).toHaveBeenCalledWith(
       'conversation-1',
-      'chat.agentToolDone',
+      'chat.toolGenericDone. chat.toolStatusSucceeded',
       'polite',
       undefined,
     );
+  });
+
+  it('preserva o provedor MCP no anúncio amigável de falha mesmo quando a falha omite a origem', () => {
+    const { adapter } = createAdapter(['conversation-1']);
+    startChatEventController({
+      conversationId: 'conversation-1',
+      external: { channel: 'telegram', from: 'Maria', text: 'fallback externo' },
+      adapter,
+    });
+
+    emitEvent('chat:tool_start', {
+      conversationId: 'conversation-1',
+      name: 'crm_internal_lookup_v2',
+      callId: 'call-mcp',
+      origin: 'mcp_native',
+      serverLabel: 'CRM Exemplo',
+    });
+    emitEvent('chat:tool_failure', {
+      conversationId: 'conversation-1',
+      name: 'crm_internal_lookup_v2',
+      callId: 'call-mcp',
+      willRetry: false,
+    });
+
+    expect(mockAnnounceWithOrigin).toHaveBeenCalledWith(expect.objectContaining({
+      message: 'chat.toolMcpProvider. chat.toolStatusFailed',
+    }));
   });
 
   it('aplica patch canônico multi-segmento sem recarregar snapshot completo', () => {
     const { adapter, sessions } = createAdapter(['conversation-1']);
     const transientAssistant = createMessage('backend-assistant', 'assistant', 'temporária');
     transientAssistant.turnId = 'turn-1';
+    const duplicateAssistant = createMessage('assistant-iteration-2', 'assistant', 'outra iteração');
+    duplicateAssistant.turnId = 'turn-1';
     const legacyTool = createMessage('legacy-tool', 'tool', 'resultado legado');
     legacyTool.turnId = 'turn-1';
     sessions['conversation-1'].conversation!.threadedMessages = [
       createNode(transientAssistant),
+      createNode(duplicateAssistant),
       createNode(legacyTool),
     ];
 
@@ -1259,11 +1610,13 @@ describe('chatEventController', () => {
             { type: 'text', content: 'vou consultar' },
             {
               type: 'tool_calls',
-              toolCalls: [{
-                id: 'call-1',
-                type: 'function',
-                function: { name: 'update_plan', arguments: '{}' },
-                result: '{"updated":true}',
+              toolInvocations: [{
+                invocationId: 'inv-1',
+                callId: 'call-1',
+                name: 'update_plan',
+                status: 'succeeded',
+                hasDetails: true,
+                resultAvailability: 'available',
               }],
             },
             { type: 'text', content: 'resposta final' },
@@ -1340,6 +1693,63 @@ describe('chatEventController', () => {
     );
   });
 
+  it('não anuncia conclusão quando o turno termina cancelado', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+
+    emitEvent('chat:done', {
+      conversationId: 'conversation-1',
+      turnId: 'turn-cancelled',
+      assistantMessageId: 'assistant-cancelled',
+      hadToolCalls: true,
+      reason: 'cancelled',
+    });
+
+    expect(sessions['conversation-1'].lastInterruptedMessageId).toBe('assistant-cancelled');
+    expect(mockAnnounceForActiveChatConversation).not.toHaveBeenCalledWith(
+      'conversation-1',
+      'chat.progressLabel',
+      'polite',
+      undefined,
+    );
+    expect(mockAnnounceChatBackgroundResponseDone).not.toHaveBeenCalled();
+  });
+
+  it('aplica o patch autoritativo ao terminar cancelado', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+    emitEvent('chat:stream', {
+      conversationId: 'conversation-1',
+      turnId: 'turn-cancelled',
+      messageId: 'assistant-cancelled',
+      content: 'conteúdo transitório',
+      done: false,
+    });
+
+    emitEvent('chat:done', {
+      conversationId: 'conversation-1',
+      turnId: 'turn-cancelled',
+      assistantMessageId: 'assistant-cancelled',
+      reason: 'cancelled',
+      turnPatch: {
+        message: {
+          id: 'assistant-cancelled',
+          conversationId: 'conversation-1',
+          turnId: 'turn-cancelled',
+          content: 'parcial persistido',
+          createdAt: '2026-09-19T10:00:00Z',
+          timestamp: 1,
+        },
+      },
+    });
+
+    const messages = sessions['conversation-1'].conversation?.threadedMessages ?? [];
+    expect(messages).toHaveLength(1);
+    expect(messages[0].message.content).toBe('parcial persistido');
+    expect(messages[0].message.isStreaming).toBe(false);
+    expect(sessions['conversation-1'].lastInterruptedMessageId).toBe('assistant-cancelled');
+  });
+
   it('cobre superfície inativa com o anúncio de resposta em segundo plano', () => {
     const { adapter } = createAdapter(['conversation-1']);
     startChatEventController({ conversationId: 'conversation-1', adapter });
@@ -1407,7 +1817,11 @@ describe('chatEventController', () => {
       'polite',
       undefined,
     );
-    expect(mockAnnounce).toHaveBeenCalledWith('chat.mediaProcessing.failed', 'assertive');
+    expect(mockAnnounceWithOrigin).toHaveBeenCalledWith(expect.objectContaining({
+      message: 'chat.mediaProcessing.failed',
+      eventType: 'error',
+      announcePriority: 'assertive',
+    }));
     expect(mockAnnounceForActiveChatConversation).toHaveBeenCalledWith(
       'conversation-1',
       'chat.mediaProcessing.cancelled',
@@ -1445,5 +1859,245 @@ describe('chatEventController', () => {
       'polite',
       undefined,
     );
+  });
+
+  it('traduz streaming_interrupted', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+    emitEvent('chat:stream', {
+      conversationId: 'conversation-1',
+      error: 'streaming_interrupted',
+      turnId: 't1',
+      messageId: 'a1',
+    });
+    expect(
+      sessions['conversation-1'].conversation?.threadedMessages[0].message.content,
+    ).toBe('Erro: chat.errors.streamingInterrupted');
+  });
+
+  it('traduz streaming_interrupted em chat:done sem perder o parcial do turnPatch', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+    emitEvent('chat:messages_ready', {
+      conversationId: 'conversation-1',
+      userMessageId: 'user-1',
+      userContent: 'pergunta',
+      turnId: 't1',
+    });
+    emitEvent('chat:stream', {
+      conversationId: 'conversation-1',
+      delta: 'texto transmitido incompleto',
+      reset: true,
+      sequence: 0,
+      turnId: 't1',
+      messageId: 'a1',
+    });
+    emitEvent('chat:done', {
+      conversationId: 'conversation-1',
+      errorMessage: 'streaming_interrupted',
+      turnId: 't1',
+      assistantMessageId: 'a1',
+      hadToolCalls: false,
+      turnPatch: {
+        message: {
+          id: 'a1',
+          conversationId: 'conversation-1',
+          turnId: 't1',
+          content: 'resposta parcial',
+          createdAt: '2026-09-11T18:00:00Z',
+          timestamp: 1,
+        },
+      },
+    });
+
+    expect(
+      sessions['conversation-1'].conversation?.threadedMessages[1].message.content,
+    ).toBe('resposta parcial\n\nErro: chat.errors.streamingInterrupted');
+  });
+
+  it('traduz streaming_idle_timeout', () => {
+    const { adapter, sessions } = createAdapter(['conversation-2']);
+    startChatEventController({ conversationId: 'conversation-2', adapter });
+    emitEvent('chat:stream', {
+      conversationId: 'conversation-2',
+      error: 'streaming_idle_timeout',
+      turnId: 't1',
+      messageId: 'a1',
+    });
+    expect(
+      sessions['conversation-2'].conversation?.threadedMessages[0].message.content,
+    ).toBe('Erro: chat.errors.streamingIdleTimeout');
+  });
+
+  it('traduz streaming_retries_exhausted', () => {
+    const { adapter, sessions } = createAdapter(['conversation-2']);
+    startChatEventController({ conversationId: 'conversation-2', adapter });
+    emitEvent('chat:stream', {
+      conversationId: 'conversation-2',
+      error: 'streaming_retries_exhausted',
+      turnId: 't1',
+      messageId: 'a1',
+    });
+    expect(
+      sessions['conversation-2'].conversation?.threadedMessages[0].message.content,
+    ).toBe('Erro: chat.errors.streamingRetriesExhausted');
+  });
+
+  it('traduz streaming_prompt_cache_hint_rejected', () => {
+    const { adapter, sessions } = createAdapter(['conversation-2']);
+    startChatEventController({ conversationId: 'conversation-2', adapter });
+    emitEvent('chat:stream', {
+      conversationId: 'conversation-2',
+      error: 'streaming_prompt_cache_hint_rejected',
+      turnId: 't1',
+      messageId: 'a1',
+    });
+    expect(
+      sessions['conversation-2'].conversation?.threadedMessages[0].message.content,
+    ).toBe('Erro: chat.errors.streamingPromptCacheHintRejected');
+  });
+
+  it.each([
+    ['chatgpt_response_incomplete', 'incomplete'], ['chatgpt_stream_interrupted', 'interrupted'],
+    ['chatgpt_plan_limit', 'planLimit'], ['chatgpt_model_unavailable', 'modelUnavailable'],
+    ['chatgpt_reauthorization_required', 'reauthorize'], ['chatgpt_permission_required', 'permission'],
+    ['chatgpt_temporarily_unavailable', 'temporary'], ['chatgpt_rate_limit', 'rateLimit'], ['chatgpt_request_cancelled', 'cancelled'], ['chatgpt_request_failed', 'failed'],
+  ])('traduz falha ChatGPT %s', (error, key) => {
+    const { adapter, sessions } = createAdapter(['conversation-2']);
+    startChatEventController({ conversationId: 'conversation-2', adapter });
+    emitEvent('chat:stream', { conversationId: 'conversation-2', error, turnId: 't1', messageId: 'a1' });
+    expect(sessions['conversation-2'].conversation?.threadedMessages[0].message.content).toBe(`Erro: chatgpt.errors.${key}`);
+  });
+
+  it('traduz streaming_token_rate_limit', () => {
+    const { adapter, sessions } = createAdapter(['conversation-2']);
+    startChatEventController({ conversationId: 'conversation-2', adapter });
+    emitEvent('chat:stream', {
+      conversationId: 'conversation-2',
+      error: 'streaming_token_rate_limit',
+      turnId: 't1',
+      messageId: 'a1',
+    });
+    expect(
+      sessions['conversation-2'].conversation?.threadedMessages[0].message.content,
+    ).toBe('Erro: chat.errors.streamingTokenRateLimit');
+  });
+
+  it('preserva conteúdo parcial e acrescenta erro terminal de chat:stream', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+    emitEvent('chat:stream', {
+      conversationId: 'conversation-1',
+      delta: 'resposta parcial  \n',
+      reset: true,
+      sequence: 0,
+      turnId: 't1',
+      messageId: 'a1',
+    });
+    vi.runOnlyPendingTimers();
+    emitEvent('chat:stream', {
+      conversationId: 'conversation-1',
+      error: 'streaming_idle_timeout',
+      sequence: 1,
+      turnId: 't1',
+      messageId: 'a1',
+    });
+
+    expect(
+      sessions['conversation-1'].conversation?.threadedMessages[0].message.content,
+    ).toBe('resposta parcial  \n\n\nErro: chat.errors.streamingIdleTimeout');
+  });
+
+  it('preserva conteúdo parcial e acrescenta erro terminal de chat:done', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+    emitEvent('chat:stream', {
+      conversationId: 'conversation-1',
+      delta: 'resposta parcial',
+      reset: true,
+      sequence: 0,
+      turnId: 't1',
+      messageId: 'a1',
+    });
+    vi.runOnlyPendingTimers();
+    emitEvent('chat:done', {
+      conversationId: 'conversation-1',
+      errorMessage: 'streaming_interrupted',
+      turnId: 't1',
+      assistantMessageId: 'a1',
+      hadToolCalls: false,
+    });
+
+    expect(
+      sessions['conversation-1'].conversation?.threadedMessages[0].message.content,
+    ).toBe('resposta parcial\n\nErro: chat.errors.streamingInterrupted');
+  });
+
+  it('limpa o reasoning visual quando uma tentativa é descartada', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+    emitEvent('chat:thinking', {
+      conversationId: 'conversation-1',
+      assistantMessageId: 'a1',
+      turnId: 't1',
+      started: true,
+      content: 'raciocínio descartado',
+    });
+    adapter.updateReasoning('conversation-1', 'a1', 'raciocínio já salvo');
+    emitEvent('chat:thinking', {
+      conversationId: 'conversation-1',
+      assistantMessageId: 'a1',
+      turnId: 't1',
+      done: true,
+      content: '',
+    });
+
+    expect(sessions['conversation-1'].isThinking).toBe(false);
+    expect(sessions['conversation-1'].streamingReasoning).toBe('');
+    expect(
+      sessions['conversation-1'].conversation?.threadedMessages[0].message.reasoning,
+    ).toBe('');
+  });
+
+  it('não vincula o controller por thinking atrasado antes de messages_ready', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+    sessions['conversation-1'].conversation!.threadedMessages = [
+      createNode(createMessage('assistant-antigo', 'assistant', 'resposta persistida')),
+    ];
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+
+    emitEvent('chat:thinking', {
+      conversationId: 'conversation-1',
+      assistantMessageId: 'assistant-antigo',
+      turnId: 'turn-antigo',
+      started: true,
+      content: 'atrasado',
+    });
+    emitEvent('chat:messages_ready', {
+      conversationId: 'conversation-1',
+      userMessageId: 'user-novo',
+      userContent: 'pergunta nova',
+      turnId: 'turn-novo',
+    });
+    emitEvent('chat:stream', {
+      conversationId: 'conversation-1',
+      messageId: 'assistant-novo',
+      turnId: 'turn-novo',
+      delta: 'resposta nova',
+      reset: true,
+      sequence: 0,
+    });
+    vi.runOnlyPendingTimers();
+
+    const messages = sessions['conversation-1'].conversation?.threadedMessages ?? [];
+    expect(messages.map((node) => node.message.id)).toEqual([
+      'assistant-antigo',
+      'user-novo',
+      'assistant-novo',
+    ]);
+    expect(messages[0].message.content).toBe('resposta persistida');
+    expect(messages[0].message.isStreaming).toBe(false);
+    expect(messages[0].message.reasoning).toBeUndefined();
+    expect(messages[2].message.content).toBe('resposta nova');
   });
 });

@@ -306,6 +306,22 @@ item transitório sem snapshot completo.
 
 #### 2.4 `chat:done` carrega o patch autoritativo mínimo do turno
 
+Durante streaming, os segmentos transitórios da execução corrente têm
+precedência sobre um snapshot persistido anterior da mesma mensagem. Texto
+corrente e ferramentas pendentes são renderizados antes do término; o aviso
+de turno sem resposta só se aplica ao estado terminal. Segmentos concluídos
+preservam texto antes das ferramentas da rodada e o status observado de cada
+chamada. `chat:done.turnPatch` retoma a autoridade ao encerrar o turno.
+Regressões: `ChatMessage.liveProgress.test.tsx` e
+`chatEventController.test.ts`. O contrato permanece **Accepted**.
+
+A apresentação concluída preserva a ordem dos segmentos canônicos: atividade
+antes da resposta final. A conclusão terminal fica fora da região recolhível,
+depois dela, sem duplicação ao expandir/recolher; textos seguidos de ferramentas
+não são promovidos artificialmente a resposta final. O aviso tool-only encerra
+o turno visual. Não há recolhimento automático nem novos anúncios de conteúdo.
+Regressões: `ChatMessage.chronology.test.tsx` e `chat-chronology.spec.ts`.
+
 ```go
 type ChatDoneEvent struct {
     ChatEventEnvelope
@@ -611,6 +627,16 @@ Estas regras são permanentes e devem ser respeitadas por qualquer mudança futu
 - **Controllers filtram eventos por conversa.** Um controller de aba/conversa só processa eventos do seu `conversationId`; isso permite respostas simultâneas em abas diferentes sem uma conversa bloquear a outra.
 
 ### Serviços globais da interface
+
+O controller do turno agrupa anúncios de ferramentas internas em janelas de
+250 ms e publica um resumo do estado corrente no announcer global. Início de
+ferramenta longa é anunciado antes de sua conclusão; ferramentas rápidas são
+anunciadas como concluídas. Nomes e estados são preservados, sem anúncios por
+token. Falhas mantêm a origem estruturada para arbitragem; cleanup descarta
+timers do controller encerrado. Isso não cria outra região live nem altera o
+protocolo backend. O contrato permanece **Accepted**.
+Evidências: `chatProgressAnnouncer.test.ts`, `chatEventController.test.ts` e
+`e2e/chat/chat-live-announcements.spec.ts`.
 - **Announcer é global e único.** Não há múltiplas live regions por aba. Controllers solicitam anúncios a uma política central, que anuncia progresso normal apenas para a aba ativa e eventos relevantes de abas inativas com contexto de aba/conversa.
 - **TTS é globalmente exclusivo.** Duas abas podem responder em paralelo, mas não podem falar ao mesmo tempo. A arbitragem usa a configuração/perfil efetivo da aba que originou a fala, ou da aba ativa quando a ação for iniciada manualmente.
 - **STT local só funciona na aba ativa.** Abas inativas em keep-alive não podem ouvir microfone, transcrever nem enviar mensagens por captura local. Entradas de canais externos, como Telegram, Slack ou Signal, seguem o fluxo backend-driven de canais e independem da aba ativa da interface.
@@ -618,6 +644,29 @@ Estas regras são permanentes e devem ser respeitadas por qualquer mudança futu
 ---
 
 ## Referências
+
+### Evidência de isolamento do ciclo de execução
+
+- O contrato continua **Accepted**: `StreamingManager.Begin` registra cancelamento
+  antes da preparação e mantém exclusividade por conversa até o worker sair.
+  Cancelar não libera antecipadamente o próximo envio nem descarta a fila.
+- Envios/retries da interface propagam `surfaceExecutionId` em `ChatParams` e
+  `surfaceOrigin.executionId` nos eventos. Esse identificador correlaciona uma
+  execução; não é ID de mensagem. Retries preservam o `turnId` persistido.
+- O hub rejeita terminais de outra execução antes de vincular o turno. O retorno
+  atrasado de uma chamada de cancelamento não limpa um controller substituto.
+  `LLMModels.CancelStreamingExecution` cancela também uma execução identificada
+  que ainda aguarda a anterior; a API por conversa permanece para canais legados.
+  Rotas externas sem identidade de execução continuam compatíveis; fala sem
+  origem permanece sob arbitragem global.
+- Evidências: `internal/chat/execution_test.go`, teste de cancelamento durante
+  preparação em `internal/core/usecases/send_message_test.go`,
+  `frontend/src/services/chatEventHub.test.ts`, `chatTurnQueue.test.ts` e
+  teste de retorno tardio do cancelamento em `chatStore.validation.test.ts`.
+- Recursos do chamador são liberados uma única vez em `OnFinished`, antes de
+  liberar a próxima execução. O bridge Wails→canal remove apenas seu trace
+  remanescente após cancelamento/falha; sucesso já o consumiu no notifier.
+
 - AEP-0010: Streaming Architecture
 - AEP-0006: Chat Architecture Fix
 - AEP-0039: Tool Calling Revamp (Fase 1 complementar)

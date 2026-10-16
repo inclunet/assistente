@@ -18,6 +18,7 @@ export const CHAT_NOTICE_PLAN_UNAVAILABLE = 'plan_rejected_unavailable';
 export const CHAT_NOTICE_MODEL_NOT_OFFERED = 'model_not_offered';
 export const CHAT_NOTICE_MODEL_NOT_APPLIED = 'model_not_applied';
 export const CHAT_NOTICE_AGENT_MEMORY_LOST = 'agent_memory_lost';
+export const CHAT_NOTICE_AGENT_SESSION_RECOVERED = 'agent_session_recovered';
 export const CHAT_NOTICE_MODE_SKIPS_PERMISSION = 'agent_mode_skips_permission';
 export const CHAT_NOTICE_MODE_ASKS_PERMISSION = 'agent_mode_asks_permission';
 export const CHAT_NOTICE_STREAM_RETRY = 'stream_retry';
@@ -38,6 +39,7 @@ const KIND_KEYS: Record<string, string> = {
   [CHAT_NOTICE_MODEL_NOT_OFFERED]: 'app.chatNotice.modelNotOffered',
   [CHAT_NOTICE_MODEL_NOT_APPLIED]: 'app.chatNotice.modelNotApplied',
   [CHAT_NOTICE_AGENT_MEMORY_LOST]: 'app.chatNotice.agentMemoryLost',
+  [CHAT_NOTICE_AGENT_SESSION_RECOVERED]: 'app.chatNotice.agentSessionRecovered',
   [CHAT_NOTICE_MODE_SKIPS_PERMISSION]: 'app.chatNotice.modeSkipsPermission',
   [CHAT_NOTICE_MODE_ASKS_PERMISSION]: 'app.chatNotice.modeAsksPermission',
   [CHAT_NOTICE_STREAM_RETRY]: 'app.chatNotice.streamRetry',

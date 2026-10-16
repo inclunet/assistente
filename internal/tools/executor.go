@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"strings"
 	"sync"
 	"time"
 	"unicode/utf8"
@@ -22,17 +24,31 @@ const (
 	DefaultMaxResultSize = 100 * 1024
 
 	// DefaultMaxIterations é o número máximo de iterações do agentic loop
-	DefaultMaxIterations = 25
+	DefaultMaxIterations = 100
 )
 
 // ExecutorConfig contém configurações do executor de ferramentas.
 type ExecutorConfig struct {
+	// ExpectedToolGeneration, quando diferente de zero, fixa a identidade da
+	// tool capturada pelo chamador. Zero preserva o comportamento legado.
+	ExpectedToolGeneration uint64
+
 	// ToolTimeout é o timeout para execução de cada ferramenta individual
 	ToolTimeout time.Duration
 
-	// MaxResultSize é o tamanho máximo em bytes do resultado de uma tool.
-	// Resultados maiores são truncados com aviso.
+	// MaxResultSize é o teto model-facing em bytes: texto recebe prévia
+	// retomável; Structured/RawExact falham explicitamente sem corte.
 	MaxResultSize int
+
+	// RequireCompleteResult atende consumidores machine-facing (jobs), que não
+	// conseguem seguir read_tool_result. Acima do teto, qualquer saída falha.
+	RequireCompleteResult bool
+
+	// PersistedResultRedactor redige somente a cópia colocada no store de
+	// resultados grandes. O resultado retornado ao chamador continua íntegro em
+	// memória; isso permite que o chamador faça seu próprio adapter sem gravar
+	// segredos no armazenamento retomável.
+	PersistedResultRedactor func(ToolResult) ToolResult
 
 	// MaxIterations é o número máximo de iterações do agentic loop
 	MaxIterations int
@@ -108,7 +124,7 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 	}
 
 	// Busca a ferramenta no registry
-	tool, ok := e.registry.Get(toolName)
+	tool, generation, ok := e.registry.GetWithGeneration(toolName)
 	if !ok {
 		return ToolExecutionResult{
 			CallID:   call.ID,
@@ -119,6 +135,23 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 			},
 			Error:             fmt.Errorf("ferramenta '%s' não encontrada", toolName),
 			ErrorKind:         ErrorKindNotFound,
+			Retryable:         false,
+			RetryabilityKnown: true,
+			DurationMs:        time.Since(start).Milliseconds(),
+		}
+	}
+	if e.config.ExpectedToolGeneration != 0 && generation != e.config.ExpectedToolGeneration {
+		err := fmt.Errorf("geração da ferramenta '%s' mudou: esperada %d, atual %d", toolName, e.config.ExpectedToolGeneration, generation)
+		return ToolExecutionResult{
+			CallID:   call.ID,
+			ToolName: toolName,
+			Result: ToolResult{
+				Content: err.Error(),
+				IsError: true,
+				Failure: &ToolFailure{Code: "tool_generation_mismatch", Kind: ErrorKindAuthorization, Retryable: false},
+			},
+			Error:             err,
+			ErrorKind:         ErrorKindAuthorization,
 			Retryable:         false,
 			RetryabilityKnown: true,
 			DurationMs:        time.Since(start).Milliseconds(),
@@ -148,11 +181,16 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 	defer cancel()
 
 	// Executa com recover para capturar panics
+	// O coletor pertence à execução, e não à goroutine: assim sinais emitidos
+	// antes de timeout/cancelamento também podem ser anexados ao resultado que
+	// o executor devolve imediatamente.
+	collector := &securitySignalCollector{}
+	execCtx := withSecuritySignalCollector(WithMaxResultSize(toolCtx, e.config.MaxResultSize), collector)
 	resultCh := make(chan ToolExecutionResult, 1)
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				resultCh <- ToolExecutionResult{
+				panicResult := ToolExecutionResult{
 					CallID:   call.ID,
 					ToolName: toolName,
 					Result: ToolResult{
@@ -165,14 +203,16 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 					RetryabilityKnown: true,
 					DurationMs:        time.Since(start).Milliseconds(),
 				}
+				attachSecuritySignals(&panicResult.Result, collector)
+				resultCh <- panicResult
 			}
 		}()
 
 		// Expõe à tool o limite efetivo de resultado deste executor, para que
 		// tools com saída estruturada possam falhar de forma controlada em vez de
 		// serem truncadas (o que invalidaria, p.ex., um JSON canônico).
-		execCtx := WithMaxResultSize(toolCtx, e.config.MaxResultSize)
 		result, err := tool.Execute(execCtx, args)
+		attachSecuritySignals(&result, collector)
 		if err != nil {
 			errKind := ErrorKindUnknown
 			retryable := false
@@ -194,6 +234,9 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 				result.Content = fmt.Sprintf("Erro ao executar '%s': %v", toolName, err)
 			}
 			result.IsError = true
+			result = protectErroredToolResult(
+				execCtx, result, e.config.MaxResultSize, toolName, e.config.RequireCompleteResult,
+			)
 			resultCh <- ToolExecutionResult{
 				CallID:            call.ID,
 				ToolName:          toolName,
@@ -211,49 +254,84 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 			result.IsError = true
 		}
 
-		// Aplica o limite de tamanho. Política canônica (centralizada aqui, antes
-		// duplicada em cada tool): saídas estruturadas (JSON canônico) não podem ser
-		// truncadas — truncar corromperia o JSON e quebraria consumidores. Nesse
-		// caso falhamos de forma explícita; caso contrário, truncamos (UTF-8 safe).
+		// Última barreira de tamanho. Structured e RawExact são integrais ou
+		// falham; texto comum é preservado no store controlado e recebe apenas uma
+		// prévia, com continuação estruturada nas anotações.
 		var execErr error
 		execKind := ErrorKindNone
-		if len(result.Content) > e.config.MaxResultSize {
-			if result.Structured {
+		modelBytes := len(ContentForModel(result))
+		outputWindow := outputWindowOf(result)
+		incompleteMachineResult := e.config.RequireCompleteResult && outputWindow != nil && outputWindow.HasMore
+		if modelBytes > e.config.MaxResultSize || incompleteMachineResult {
+			// json.Valid varre o payload inteiro; só precisamos inferir JSON
+			// canônico quando a barreira realmente precisaria cortá-lo.
+			structured := result.Structured
+			hasWindow := outputWindow != nil
+			if !structured && !result.RawExact && !hasWindow {
+				structured = IsCanonicalJSON(result.Content)
+			}
+			mcpBridge := isMCPBridgeToolName(toolName)
+			if e.config.RequireCompleteResult || ((structured || result.RawExact) && !mcpBridge) {
 				// Falha classificada do executor (AEP-0039): preenche Error/ErrorKind
 				// para que agent/service.go emita tool_failure e persista o error_kind.
-				origSize := len(result.Content)
-				result = ToolResult{
-					Content: fmt.Sprintf(
-						"Resultado estruturado tem %d bytes, acima do limite de %d. Reduza o escopo da chamada (ex.: max_results/max_items) para obter um payload menor.",
-						origSize, e.config.MaxResultSize,
-					),
-					IsError: true,
+				code := "result_too_large"
+				label := "estruturado"
+				guidance := "Reduza o escopo da chamada (ex.: max_results/max_items) para obter um payload menor."
+				if result.RawExact {
+					code = "raw_result_too_large"
+					label = "raw"
+					guidance = "Reduza o escopo da chamada ou use a paginação suportada pela própria tool; conteúdo raw é exato e nunca é devolvido parcialmente."
+				} else if e.config.RequireCompleteResult {
+					label = "machine-facing"
+					guidance = "Reduza o escopo da chamada; este consumidor exige o resultado integral."
+				}
+				message := fmt.Sprintf("Resultado %s tem %d bytes, acima do limite de %d. %s",
+					label, modelBytes, e.config.MaxResultSize, guidance)
+				if incompleteMachineResult {
+					message = "Resultado machine-facing está incompleto. " + guidance
+				}
+				result = boundFailureResult(ToolResult{
+					Content:     message,
+					IsError:     true,
+					Metadata:    metadataForFailure(result.Metadata),
+					Annotations: annotationsForFailure(result.Annotations),
 					Failure: &ToolFailure{
-						Code:      "result_too_large",
+						Code:      code,
 						Kind:      ErrorKindUnknown,
 						Retryable: false,
 					},
+				}, e.config.MaxResultSize)
+				if incompleteMachineResult {
+					execErr = fmt.Errorf("saída machine-facing incompleta de '%s'", toolName)
+				} else {
+					execErr = fmt.Errorf("saída %s de '%s' tem %d bytes model-facing, acima do limite de %d", label, toolName, modelBytes, e.config.MaxResultSize)
 				}
-				execErr = fmt.Errorf("saída estruturada de '%s' tem %d bytes, acima do limite de %d", toolName, origSize, e.config.MaxResultSize)
 				execKind = ErrorKindUnknown
 			} else {
-				origSize := len(result.Content)
-				// Reserva bytes para o aviso, garantindo Content final ≤ MaxResultSize.
-				warning := fmt.Sprintf(
-					"\n\n[TRUNCADO: resultado original tinha %d bytes, limite é %d bytes]",
-					origSize, e.config.MaxResultSize,
-				)
-				contentBudget := e.config.MaxResultSize - len(warning)
-				if contentBudget >= 1 {
-					result.Content = truncateUTF8(result.Content, contentBudget) + warning
+				var protected ToolResult
+				var stored bool
+				if mcpBridge {
+					protected, stored = ProtectExternalModelResultWithRedactor(execCtx, result, e.config.MaxResultSize, e.config.PersistedResultRedactor)
 				} else {
-					// Warning não cabe — trunca sem aviso para respeitar o limite.
-					result.Content = truncateUTF8(result.Content, e.config.MaxResultSize)
+					protected, stored = ProtectModelResultWithRedactor(execCtx, result, e.config.MaxResultSize, e.config.PersistedResultRedactor)
 				}
-				if result.Metadata == nil {
-					result.Metadata = make(map[string]any)
+				if !stored {
+					message := fmt.Sprintf(
+						"Resultado tem %d bytes model-facing e excede a capacidade segura de preservação. Reduza o escopo da chamada.",
+						modelBytes,
+					)
+					result = boundFailureResult(ToolResult{
+						Content:     message,
+						IsError:     true,
+						Metadata:    metadataForFailure(result.Metadata),
+						Annotations: annotationsForFailure(result.Annotations),
+						Failure:     &ToolFailure{Code: "result_storage_limit", Kind: ErrorKindUnknown, Retryable: false},
+					}, e.config.MaxResultSize)
+					execErr = fmt.Errorf("saída de '%s' excede armazenamento seguro: %d bytes model-facing", toolName, modelBytes)
+					execKind = ErrorKindUnknown
+				} else {
+					result = protected
 				}
-				result.Metadata["truncated"] = true
 			}
 		}
 
@@ -297,7 +375,7 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 		elapsed := time.Since(start).Milliseconds()
 		if ctx.Err() != nil {
 			// Contexto pai cancelado (usuário cancelou) — não é timeout
-			return ToolExecutionResult{
+			cancelled := ToolExecutionResult{
 				CallID:   call.ID,
 				ToolName: toolName,
 				Result: ToolResult{
@@ -310,9 +388,11 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 				RetryabilityKnown: true,
 				DurationMs:        elapsed,
 			}
+			attachSecuritySignals(&cancelled.Result, collector)
+			return cancelled
 		}
 		// Timeout da tool
-		return ToolExecutionResult{
+		timedOut := ToolExecutionResult{
 			CallID:   call.ID,
 			ToolName: toolName,
 			Result: ToolResult{
@@ -325,7 +405,240 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 			RetryabilityKnown: true,
 			DurationMs:        elapsed,
 		}
+		attachSecuritySignals(&timedOut.Result, collector)
+		return timedOut
 	}
+}
+
+func attachSecuritySignals(result *ToolResult, collector *securitySignalCollector) {
+	if result == nil || collector == nil {
+		return
+	}
+	signals := collector.snapshot()
+	if len(signals) == 0 {
+		return
+	}
+	if result.Metadata == nil {
+		result.Metadata = make(map[string]any)
+	}
+	result.Metadata[SecuritySignalsMetadataKey] = signals
+}
+
+func outputWindowOf(result ToolResult) *OutputWindowAnnotation {
+	if result.Annotations == nil {
+		return nil
+	}
+	return result.Annotations.OutputWindow
+}
+
+func annotationsForFailure(annotations *ResultAnnotations) *ResultAnnotations {
+	if annotations == nil {
+		return nil
+	}
+	cloned := &ResultAnnotations{}
+	if projection := annotations.DocumentProjection; projection != nil {
+		projectionCopy := *projection
+		projectionCopy.Source = truncateUTF8(projectionCopy.Source, failureAnnotationStringLimit)
+		projectionCopy.Format = truncateUTF8(projectionCopy.Format, failureAnnotationStringLimit)
+		if len(projectionCopy.Warnings) > failureAnnotationWarningsLimit {
+			projectionCopy.Warnings = projectionCopy.Warnings[:failureAnnotationWarningsLimit]
+		}
+		projectionCopy.Warnings = append([]string(nil), projectionCopy.Warnings...)
+		for index := range projectionCopy.Warnings {
+			projectionCopy.Warnings[index] = truncateUTF8(
+				projectionCopy.Warnings[index], failureAnnotationStringLimit,
+			)
+		}
+		cloned.DocumentProjection = &projectionCopy
+	}
+	if response := annotations.HTTPResponse; response != nil {
+		responseCopy := *response
+		responseCopy.Method = truncateUTF8(responseCopy.Method, failureAnnotationStringLimit)
+		responseCopy.URL = truncateUTF8(responseCopy.URL, failureAnnotationStringLimit)
+		responseCopy.StatusText = truncateUTF8(responseCopy.StatusText, failureAnnotationStringLimit)
+		responseCopy.ContentType = truncateUTF8(responseCopy.ContentType, failureAnnotationStringLimit)
+		cloned.HTTPResponse = &responseCopy
+	}
+	if cloned.DocumentProjection == nil && cloned.HTTPResponse == nil {
+		return nil
+	}
+	return cloned
+}
+
+const (
+	failureAnnotationStringLimit   = 256
+	failureAnnotationWarningsLimit = 4
+)
+
+// boundFailureResult reaplica o orçamento depois de serializar as anotações.
+// Campos de contexto são preservados em ordem de utilidade enquanto couberem;
+// nenhum envelope de falha pode ultrapassar o limite model-facing.
+func boundFailureResult(result ToolResult, maxBytes int) ToolResult {
+	result.Annotations = annotationsForFailure(result.Annotations)
+	if maxBytes <= 0 {
+		result.Content = ""
+		result.Annotations = nil
+		return result
+	}
+
+	message := result.Content
+	code := failureCode(result)
+	for {
+		overhead := ContentForModelSize(0, result.Annotations, false)
+		if overhead < maxBytes {
+			result.Content = boundedFailureContent(message, code, maxBytes-overhead)
+			if len(ContentForModel(result)) <= maxBytes {
+				return result
+			}
+		}
+
+		switch {
+		case result.Annotations != nil &&
+			result.Annotations.DocumentProjection != nil &&
+			len(result.Annotations.DocumentProjection.Warnings) > 0:
+			result.Annotations.DocumentProjection.Warnings = nil
+		case result.Annotations != nil && result.Annotations.DocumentProjection != nil:
+			result.Annotations.DocumentProjection = nil
+		case result.Annotations != nil && result.Annotations.HTTPResponse != nil:
+			result.Annotations.HTTPResponse = nil
+		default:
+			result.Annotations = nil
+			result.Content = boundedFailureContent(message, code, maxBytes)
+			return result
+		}
+		if result.Annotations != nil &&
+			result.Annotations.DocumentProjection == nil &&
+			result.Annotations.HTTPResponse == nil {
+			result.Annotations = nil
+		}
+	}
+}
+
+func metadataForFailure(metadata map[string]any) map[string]any {
+	if metadata == nil {
+		return nil
+	}
+	cloned := make(map[string]any, len(metadata))
+	for key, value := range metadata {
+		if key != "result_id" && key != "truncated" {
+			cloned[key] = value
+		}
+	}
+	return cloned
+}
+
+// protectErroredToolResult aplica a mesma barreira final quando a tool devolve
+// simultaneamente ToolResult e erro Go. A classificação e retryability do erro
+// original continuam sendo definidas pelo chamador.
+func protectErroredToolResult(ctx context.Context, result ToolResult, maxBytes int, toolName string, requireComplete bool) ToolResult {
+	if window := outputWindowOf(result); requireComplete && window != nil && window.HasMore {
+		return boundFailureResult(ToolResult{
+			Content:     "Resultado machine-facing está incompleto. Reduza o escopo da chamada; este consumidor exige o resultado integral.",
+			IsError:     true,
+			Metadata:    metadataForFailure(result.Metadata),
+			Annotations: annotationsForFailure(result.Annotations),
+			Failure: &ToolFailure{
+				Code: "result_too_large", Kind: ErrorKindUnknown, Retryable: false,
+			},
+		}, maxBytes)
+	}
+	if len(ContentForModel(result)) <= maxBytes && maxBytes > 0 {
+		return result
+	}
+	hasWindow := outputWindowOf(result) != nil
+	exact := result.RawExact || result.Structured ||
+		(!hasWindow && IsCanonicalJSON(result.Content))
+	mcpBridge := isMCPBridgeToolName(toolName)
+	if exact && !mcpBridge {
+		code := failureCode(result)
+		if code == "" {
+			code = "tool_execution_error"
+		}
+		failure := result.Failure
+		if failure == nil {
+			failure = &ToolFailure{Code: code, Kind: ErrorKindUnknown, Retryable: false}
+		}
+		return boundFailureResult(ToolResult{
+			Content:     "Saída integral do erro excede o limite seguro e foi omitida; reduza o escopo da chamada.",
+			IsError:     true,
+			Metadata:    metadataForFailure(result.Metadata),
+			Annotations: annotationsForFailure(result.Annotations),
+			Failure:     failure,
+		}, maxBytes)
+	}
+	var (
+		protected ToolResult
+		ok        bool
+	)
+	if mcpBridge {
+		protected, ok = ProtectExternalModelResult(ctx, result, maxBytes)
+	} else {
+		protected, ok = ProtectModelResult(ctx, result, maxBytes)
+	}
+	if ok {
+		protected.IsError = true
+		protected.Failure = result.Failure
+		return protected
+	}
+	code := failureCode(result)
+	if code == "" {
+		code = "tool_execution_error"
+	}
+	failure := result.Failure
+	if failure == nil {
+		failure = &ToolFailure{Code: code, Kind: ErrorKindUnknown, Retryable: false}
+	}
+	return boundFailureResult(ToolResult{
+		Content:     "Saída do erro excede a capacidade segura de preservação; reduza o escopo da chamada.",
+		IsError:     true,
+		Metadata:    metadataForFailure(result.Metadata),
+		Annotations: annotationsForFailure(result.Annotations),
+		Failure:     failure,
+	}, maxBytes)
+}
+
+// IsCanonicalJSON valida um único valor JSON sem criar uma cópia []byte
+// inicial do resultado potencialmente grande.
+func IsCanonicalJSON(content string) bool {
+	trimmed := strings.TrimSpace(content)
+	if trimmed == "" {
+		return false
+	}
+	switch trimmed[0] {
+	case '{', '[', '"', '-', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 't', 'f', 'n':
+	default:
+		return false
+	}
+	decoder := json.NewDecoder(strings.NewReader(trimmed))
+	var value json.RawMessage
+	if err := decoder.Decode(&value); err != nil {
+		return false
+	}
+	var extra json.RawMessage
+	return errors.Is(decoder.Decode(&extra), io.EOF)
+}
+
+func boundedFailureContent(message, code string, maxBytes int) string {
+	if maxBytes <= 0 {
+		return ""
+	}
+	if len(message) <= maxBytes {
+		return message
+	}
+	compact := "[" + code + "]"
+	if len(compact) <= maxBytes {
+		return compact
+	}
+	return truncateUTF8(compact, maxBytes)
+}
+
+func isMCPBridgeToolName(name string) bool {
+	if !strings.HasPrefix(name, "mcp_") {
+		return false
+	}
+	rest := strings.TrimPrefix(name, "mcp_")
+	parts := strings.SplitN(rest, "__", 2)
+	return len(parts) == 2 && strings.TrimSpace(parts[0]) != "" && strings.TrimSpace(parts[1]) != ""
 }
 
 func failureCode(result ToolResult) string {
@@ -360,8 +673,17 @@ func validateExecutionContextToolAccess(ctx context.Context, toolName string) er
 	if !ok {
 		return nil
 	}
+	// Deny explícito vence tudo, inclusive o conjunto base protegido: se o dono
+	// da skill negou a tool por nome, respeitamos.
 	if containsString(ec.DeniedTools, toolName) {
 		return fmt.Errorf("tool '%s' bloqueada pela denylist do skill '%s'", toolName, ec.InvokedSkillSlug)
+	}
+	// O conjunto base protegido (control-plane + base de runtime) é isento do
+	// narrowing IMPLÍCITO da allowlist da skill. Sem isso, uma skill com
+	// allowlist focada no seu domínio amputaria o runtime (perderia memory,
+	// tool_catalog, load_skill, etc.) no restante do turno.
+	if IsProtectedBaseTool(toolName) {
+		return nil
 	}
 	if len(ec.AllowedTools) > 0 && !containsString(ec.AllowedTools, toolName) {
 		return fmt.Errorf("skill '%s' não permite uso da tool '%s'", ec.InvokedSkillSlug, toolName)

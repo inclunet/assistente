@@ -160,7 +160,7 @@ test.describe('Histórico — abrir conversa', () => {
 test.describe('Histórico — exclusão com confirmação', () => {
   test('deletar conversa pede confirmação e remove do grid', async ({ page, wails }) => {
     await wails.setResponse('GetConversations', sampleConversations);
-    await wails.setResponse('DeleteConversation', undefined);
+    await wails.setResponse('DeleteConversations', (ids: string[]) => ids);
 
     await wails.waitForApp();
     await page.goto('/#/history');
@@ -185,9 +185,9 @@ test.describe('Histórico — exclusão com confirmação', () => {
     // Diálogo fecha
     await expect(confirmDialog).not.toBeVisible({ timeout: 3_000 });
 
-    // Verifica que DeleteConversation foi chamado
+    // Verifica que o batch canônico foi chamado uma vez
     const log = await wails.getCallLog();
-    const deleteCalls = log.filter(c => c.fn === 'DeleteConversation');
+    const deleteCalls = log.filter(c => c.fn === 'DeleteConversations');
     expect(deleteCalls.length).toBe(1);
   });
 
@@ -212,15 +212,15 @@ test.describe('Histórico — exclusão com confirmação', () => {
 
     await expect(confirmDialog).not.toBeVisible({ timeout: 3_000 });
 
-    // Verifica que DeleteConversation NÃO foi chamado
+    // Verifica que o batch canônico NÃO foi chamado
     const log = await wails.getCallLog();
-    const deleteCalls = log.filter(c => c.fn === 'DeleteConversation');
+    const deleteCalls = log.filter(c => c.fn === 'DeleteConversations');
     expect(deleteCalls.length).toBe(0);
   });
 
   test('deletar via botão da toolbar com linha selecionada', async ({ page, wails }) => {
     await wails.setResponse('GetConversations', sampleConversations);
-    await wails.setResponse('DeleteConversation', undefined);
+    await wails.setResponse('DeleteConversations', (ids: string[]) => ids);
 
     await wails.waitForApp();
     await page.goto('/#/history');
@@ -244,7 +244,7 @@ test.describe('Histórico — exclusão com confirmação', () => {
       await confirmBtn.click();
 
       const log = await wails.getCallLog();
-      const deleteCalls = log.filter(c => c.fn === 'DeleteConversation');
+      const deleteCalls = log.filter(c => c.fn === 'DeleteConversations');
       expect(deleteCalls.length).toBe(1);
     }
   });

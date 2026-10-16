@@ -3,7 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
-	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -62,27 +62,11 @@ func (h *testIterationHandler) Result() AgenticResult { return h.res }
 
 type toolMsgRepo struct {
 	mockMsgRepo
-	conversationID     string
-	assistantErr       error
-	toolResultCount    int
-	lastToolResultCall string
+	conversationID string
 }
 
 func (m *toolMsgRepo) GetMessage(_ context.Context, messageID string) (*chat.Message, error) {
 	return &chat.Message{UUIDModel: database.UUIDModel{ID: messageID}, ConversationID: m.conversationID}, nil
-}
-
-func (m *toolMsgRepo) AddAssistantToolMessage(ctx context.Context, conversationID, turnID string, content, toolCalls, reasoning, model string) (*chat.Message, error) {
-	if m.assistantErr != nil {
-		return nil, m.assistantErr
-	}
-	return m.mockMsgRepo.AddAssistantToolMessage(ctx, conversationID, turnID, content, toolCalls, reasoning, model)
-}
-
-func (m *toolMsgRepo) AddToolResultMessage(_ context.Context, _ string, _ string, _ string, toolCallID string) (*chat.Message, error) {
-	m.toolResultCount++
-	m.lastToolResultCall = toolCallID
-	return &chat.Message{UUIDModel: database.UUIDModel{ID: "tool-1"}, Role: "tool", ToolCallID: toolCallID}, nil
 }
 
 type okTool struct{}
@@ -94,11 +78,25 @@ func (okTool) Execute(context.Context, json.RawMessage) (tools.ToolResult, error
 	return tools.ToolResult{Content: "ok"}, nil
 }
 
+type largeTextTool struct{}
+
+func (largeTextTool) Name() string                { return "large_text_tool" }
+func (largeTextTool) Description() string         { return "large" }
+func (largeTextTool) Parameters() json.RawMessage { return json.RawMessage(`{"type":"object"}`) }
+func (largeTextTool) Execute(context.Context, json.RawMessage) (tools.ToolResult, error) {
+	return tools.ToolResult{Content: strings.Repeat("resultado-", 2_000)}, nil
+}
+
 func setupAgenticToolCallDB(t *testing.T) (*gorm.DB, func()) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("sql db: %v", err)
+	}
+	sqlDB.SetMaxOpenConns(1)
 	if err := db.AutoMigrate(
 		&database.User{},
 		&database.Conversation{},
@@ -114,7 +112,7 @@ func setupAgenticToolCallDB(t *testing.T) (*gorm.DB, func()) {
 	return db, cleanup
 }
 
-func TestRunAgenticLoop_ToolCalls_SuppressesRoleToolOnSuccessfulPersistence(t *testing.T) {
+func TestRunAgenticLoop_ToolCalls_PersisteSomenteNoLedger(t *testing.T) {
 	db, cleanup := setupAgenticToolCallDB(t)
 	t.Cleanup(cleanup)
 
@@ -157,66 +155,19 @@ func TestRunAgenticLoop_ToolCalls_SuppressesRoleToolOnSuccessfulPersistence(t *t
 		return &testIterationHandler{}
 	}, nil, false, 0)
 
-	if msgRepo.toolResultCount != 0 {
-		t.Fatalf("expected no role=tool messages, got=%d", msgRepo.toolResultCount)
-	}
-}
-
-func TestRunAgenticLoop_ToolCalls_NoFallbackRoleToolWhenInvocationPersistenceSucceeds(t *testing.T) {
-	db, cleanup := setupAgenticToolCallDB(t)
-	t.Cleanup(cleanup)
-
-	ctx := database.WithUserID(context.Background(), "user-1")
-	conv, err := database.CreateConversationWithContext(ctx, "t", "")
-	if err != nil {
-		t.Fatalf("create conv: %v", err)
-	}
-	turn, err := database.AddMessageWithContext(ctx, conv.ID, "user", "hi")
-	if err != nil {
-		t.Fatalf("create turn msg: %v", err)
-	}
-
-	if err := db.Create(&database.ToolCatalog{
-		Name:               "ok_tool",
-		DisplayName:        "ok_tool",
-		Origin:             tools.ToolOriginBuiltin,
-		AvailabilityStatus: tools.ToolAvailabilityAvailable,
-	}).Error; err != nil {
-		t.Fatalf("seed tool catalog: %v", err)
-	}
-
-	repo := toolinvocations.NewDBRepository(db)
-	reg := tools.NewRegistry()
-	reg.MustRegister(okTool{})
-	exec := tools.NewExecutor(reg, tools.DefaultExecutorConfig())
-	inv := toolinvocations.NewService(repo, exec)
-
-	msgRepo := &toolMsgRepo{conversationID: conv.ID, assistantErr: errors.New("boom")}
-	svc := NewService(ServiceConfig{
-		Emitter:         events.NoopEmitter{},
-		MsgRepo:         msgRepo,
-		ToolExecutor:    exec,
-		ToolInvocations: inv,
-	})
-
-	streamer := &scriptedStreamer{call: llm.ToolCall{ID: "call-1", Type: "function", Function: llm.FunctionCall{Name: "ok_tool", Arguments: `{}`}}}
-	svc.RunAgenticLoop(ctx, []llm.Message{{Role: "user", Content: "hi"}}, llm.ChatParams{MaxAgenticIterations: 2}, conv.ID, turn.ID, nil, streamer, nil, func(string, int) IterationHandler {
-		return &testIterationHandler{}
-	}, nil, false, 0)
-
-	if msgRepo.toolResultCount != 0 {
-		t.Fatalf("expected no fallback role=tool message when tool_invocations persisted, got=%d", msgRepo.toolResultCount)
-	}
 	rows, err := repo.List(ctx, toolinvocations.Filter{OriginType: toolinvocations.OriginChat, OriginID: turn.ID, Limit: 10})
 	if err != nil {
-		t.Fatalf("list invocations: %v", err)
+		t.Fatal(err)
 	}
-	if len(rows) != 1 || rows[0].ToolCallID != "call-1" {
-		t.Fatalf("expected persisted invocation for call-1, got %+v", rows)
+	if len(rows) != 1 {
+		t.Fatalf("invocação não foi ligada ao marcador da chamada do modelo: %+v", rows)
+	}
+	if strings.Contains(string(rows[0].Metadata), "assistant_message_id") {
+		t.Fatalf("invocação sem texto ainda depende de marcador assistant: %s", rows[0].Metadata)
 	}
 }
 
-func TestRunAgenticLoop_ToolCalls_FallbackRoleToolWhenInvocationPersistenceFails(t *testing.T) {
+func TestRunAgenticLoop_ToolCalls_CriaCatalogoArchival(t *testing.T) {
 	_, cleanup := setupAgenticToolCallDB(t)
 	t.Cleanup(cleanup)
 
@@ -230,7 +181,8 @@ func TestRunAgenticLoop_ToolCalls_FallbackRoleToolWhenInvocationPersistenceFails
 		t.Fatalf("create turn msg: %v", err)
 	}
 
-	// Não semeia tool_catalog => ResolveToolCatalogID falha => Persisted=false => fallback role=tool.
+	// Não semeia tool_catalog: o runtime deve criar entrada archival e manter
+	// tool_invocations como única escrita técnica.
 	repo := toolinvocations.NewDBRepository(database.DB())
 	reg := tools.NewRegistry()
 	reg.MustRegister(okTool{})
@@ -250,8 +202,64 @@ func TestRunAgenticLoop_ToolCalls_FallbackRoleToolWhenInvocationPersistenceFails
 		return &testIterationHandler{}
 	}, nil, false, 0)
 
-	if msgRepo.toolResultCount != 1 {
-		t.Fatalf("expected 1 fallback role=tool message, got=%d", msgRepo.toolResultCount)
+	var count int64
+	if err := database.DB().Model(&database.ToolInvocation{}).Where("user_id = ? AND tool_call_id = ?", "user-1", "call-1").Count(&count).Error; err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("invocação archival=%d, esperado 1", count)
+	}
+}
+
+func TestRunAgenticLoop_ToolCalls_ResultLargeFicaSomenteNoLedger(t *testing.T) {
+	_, cleanup := setupAgenticToolCallDB(t)
+	t.Cleanup(cleanup)
+
+	ctx := database.WithUserID(context.Background(), "user-large-fallback")
+	conv, err := database.CreateConversationWithContext(ctx, "t", "")
+	if err != nil {
+		t.Fatalf("create conv: %v", err)
+	}
+	turn, err := database.AddMessageWithContext(ctx, conv.ID, "user", "hi")
+	if err != nil {
+		t.Fatalf("create turn msg: %v", err)
+	}
+
+	// Sem catálogo, cria entrada archival; o resultado limitado continua apenas
+	// no ledger.
+	repo := toolinvocations.NewDBRepository(database.DB())
+	reg := tools.NewRegistry()
+	reg.MustRegister(largeTextTool{})
+	cfg := tools.DefaultExecutorConfig()
+	cfg.MaxResultSize = 1024
+	exec := tools.NewExecutor(reg, cfg)
+	inv := toolinvocations.NewService(repo, exec)
+
+	msgRepo := &toolMsgRepo{conversationID: conv.ID}
+	svc := NewService(ServiceConfig{
+		Emitter: events.NoopEmitter{}, MsgRepo: msgRepo,
+		ToolExecutor: exec, ToolInvocations: inv,
+	})
+	streamer := &scriptedStreamer{call: llm.ToolCall{
+		ID: "call-large", Type: "function",
+		Function: llm.FunctionCall{Name: "large_text_tool", Arguments: `{}`},
+	}}
+	svc.RunAgenticLoop(ctx, []llm.Message{{Role: "user", Content: "hi"}},
+		llm.ChatParams{MaxAgenticIterations: 2}, conv.ID, turn.ID, nil, streamer, nil,
+		func(string, int) IterationHandler { return &testIterationHandler{} },
+		nil, false, 0)
+
+	var invocation database.ToolInvocation
+	if err := database.DB().Where("user_id = ? AND tool_call_id = ?", "user-large-fallback", "call-large").First(&invocation).Error; err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(invocation.Output, "result_omitted_for_persistence") ||
+		strings.Contains(invocation.Output, `"result_id"`) ||
+		strings.Contains(invocation.Output, "resultado-resultado-") {
+		t.Fatalf("ledger persistiu prévia ou ID efêmero: %q", invocation.Output)
+	}
+	if len(invocation.Output) > cfg.MaxResultSize*2 {
+		t.Fatalf("ledger persistiu envelope muito acima do limite: %d", len(invocation.Output))
 	}
 }
 

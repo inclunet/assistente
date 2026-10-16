@@ -81,7 +81,8 @@ quanto os jobs o acionam pelo mesmo caminho.
   a resposta integral recebida do sub-agente, sem envelope JSON e sem passar
   pelo corte de 16 KiB de `result_summary`; IDs e status permanecem em
   `ToolResult.Metadata`. O limite geral de saída do executor continua valendo,
-  conforme a AEP-0071.
+  mas, desde a AEP-0102, `raw` é exato-ou-erro: exceder o limite produz
+  `raw_result_too_large`, nunca uma resposta parcial.
 - `clear` (bool, default `false`): reseta o histórico da sub-conversa **e envia** a
   nova mensagem na mesma chamada (requer `conversation_id` **e** `prompt`; não é
   válido em consultas de `status`).
@@ -321,8 +322,9 @@ da anterior.
 - `background:false` retorna o resultado inline; `background:true` permite consultar
   status e injeta o aviso de conclusão pelo lado do assistente, com auto-wake.
 - `raw:true` em envio síncrono retorna a resposta integral sem envelope, mantém
-  os IDs em metadata e não altera o contrato default; combinações com
-  background/status/cancel falham antes da execução.
+  os IDs em metadata e não altera o contrato default; se não couber no budget,
+  falha explicitamente sem parcial; combinações com background/status/cancel
+  falham antes da execução.
 - Passar um `conversation_id` reabre a sub-conversa preservando o contexto; `clear:true`
   reseta antes de enviar.
 - `profile=<slug>` faz o sub-agente rodar com modelo/comportamento do profile indicado.

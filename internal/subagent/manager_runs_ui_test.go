@@ -67,7 +67,7 @@ func TestManagerConcurrencyLimitGlobal(t *testing.T) {
 	}
 
 	// user-b tem vaga individual sobrando (0 de 4), mas o teto global já estourou.
-	_, err = mgr.Run(ctxB, RunParams{Prompt: "deve falhar", Background: true, ParentConversationID: "p"})
+	_, err = mgr.Run(ctxB, RunParams{Prompt: "deve falhar", Background: true, ParentConversationID: "p-b"})
 	if err == nil {
 		t.Fatal("esperava erro de limite global no run de outro usuário")
 	}
@@ -82,7 +82,7 @@ func TestManagerConcurrencyLimitGlobal(t *testing.T) {
 	deadline := time.Now().Add(2 * time.Second)
 	var lastErr error
 	for time.Now().Before(deadline) {
-		_, lastErr = mgr.Run(ctxB, RunParams{Prompt: "agora vai", Background: true, ParentConversationID: "p"})
+		_, lastErr = mgr.Run(ctxB, RunParams{Prompt: "agora vai", Background: true, ParentConversationID: "p-b"})
 		if lastErr == nil {
 			break
 		}

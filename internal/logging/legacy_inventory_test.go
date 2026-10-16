@@ -16,8 +16,29 @@ import (
 )
 
 const (
-	expectedLegacyFormatCount  = 770
-	expectedLegacyFormatDigest = "1d576b31a88d1ec46d5ba979d59f6bb2b19d7c68063e0b0774607ccbe8507cb8"
+	// A integração do AEP-0103 altera a baseline da main em +12 formatos:
+	// hotkeys controller +1, profiles controller -1, app +2, httpapi +6,
+	// jobs manager +9 e profiles manager -5. Logs movidos sem mudar formato
+	// se cancelam; o lifecycle unificado continua usando formatos normalizados.
+	// A retenção saiu do reload síncrono: quatro formatos desse bloco foram
+	// removidos. Os logs da manutenção existente continuam no jobs.Manager.
+	// Provider CRUD now propagates persistence failures before publishing: three
+	// obsolete creation/update/removal warning formats were removed.
+	// OAuth discovery moved to oauthflow; the DCR URL/redirect diagnostic was removed.
+	// Shared OAuth grants/callbacks remove 15 legacy formats, including codes and authorization URLs.
+	// Legacy OAuth now propagates a sanitized persistence error instead of
+	// logging the raw storage failure and reporting successful renewal.
+	// O cutover MCP remove sete formatos do refresh/reautorização legado;
+	// a renovação composta usa os eventos normalizados de oauthflow.
+	// A retirada do transporte antigo de Client Credentials remove dois formatos.
+	// A retirada física do runtime PKCE remove oito formatos: dois do manager
+	// e seis do transporte/persistência antigos. O lifecycle compartilhado permanece.
+	// O transporte compartilhado Bearer/Basic remove quatro formatos de captura
+	// antecipada de credenciais; resolução e falhas pertencem ao CredentialTransport.
+	// Reautorização MCP também cobre permissões: um formato deixa de presumir
+	// expiração, mantendo os mesmos call sites e a contagem do inventário.
+	expectedLegacyFormatCount  = 729
+	expectedLegacyFormatDigest = "eea131465a7b1a887ea29a2fc565405eb0406bb2a71922d729853230fa84a6d2"
 )
 
 // TestLegacyLoggingInventory mantém reproduzível o inventário da issue #675.

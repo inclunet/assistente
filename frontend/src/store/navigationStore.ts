@@ -29,11 +29,22 @@ export interface ResourceEditRequest {
   tab?: ProfileEditSection;
   caller?: WorkspaceNavigationCaller;
   timestamp: number;
+  /**
+   * Valores iniciais para pré-preencher o formulário de criação.
+   * Restrito a campos não-sensíveis (ex.: pattern/type de credencial) —
+   * segredos (token, senhas) nunca trafegam aqui.
+   */
+  initial?: Record<string, string>;
 }
 
 export interface ResourceEditOptions {
   tab?: ProfileEditSection;
   caller?: WorkspaceNavigationCaller;
+  initial?: Record<string, string>;
+}
+
+export function isResourceEditRequestFresh(request: ResourceEditRequest): boolean {
+  return Date.now() - request.timestamp <= 5000;
 }
 
 interface NavigationState {
@@ -44,7 +55,8 @@ interface NavigationState {
     action?: 'edit' | 'new',
     options?: ResourceEditOptions,
   ) => void;
-  consumeResourceEdit: (resource: EditableResource) => ResourceEditRequest | null;
+  // An already received request may wait for page data beyond its arrival TTL.
+  consumeResourceEdit: (resource: EditableResource, receivedRequest?: ResourceEditRequest) => ResourceEditRequest | null;
   clearPendingEdit: () => void;
 }
 
@@ -59,16 +71,16 @@ export const useNavigationStore = create<NavigationState>((set, get) => ({
         action,
         ...(options?.tab ? { tab: options.tab } : {}),
         ...(options?.caller ? { caller: options.caller } : {}),
+        ...(options?.initial ? { initial: options.initial } : {}),
         timestamp: Date.now(),
       },
     });
   },
 
-  consumeResourceEdit: (resource) => {
+  consumeResourceEdit: (resource, receivedRequest) => {
     const { pendingEdit } = get();
     if (!pendingEdit || pendingEdit.resource !== resource) return null;
-    const staleMs = 5000;
-    if (Date.now() - pendingEdit.timestamp > staleMs) {
+    if (receivedRequest !== pendingEdit && !isResourceEditRequestFresh(pendingEdit)) {
       set({ pendingEdit: null });
       return null;
     }

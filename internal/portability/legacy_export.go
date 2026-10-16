@@ -132,6 +132,13 @@ func parseLegacyConversationsExport(raw []byte) (*ExportFile, bool, error) {
 			Messages:  make([]MessageExport, 0, len(legacyConversation.Messages)),
 		}
 		for _, legacyMessage := range legacyConversation.Messages {
+			if strings.EqualFold(strings.TrimSpace(legacyMessage.Role), "tool") ||
+				strings.TrimSpace(legacyMessage.ToolCalls) != "" ||
+				strings.TrimSpace(legacyMessage.ToolCallID) != "" {
+				return nil, true, fmt.Errorf(
+					"export legado contém tool calling embutido em chat_messages; migre a base de origem antes de exportar",
+				)
+			}
 			message := MessageExport{
 				ID:               messageIDs[legacyMessage.ID],
 				ConversationID:   conversationID,
@@ -141,8 +148,6 @@ func parseLegacyConversationsExport(raw []byte) (*ExportFile, bool, error) {
 				Media:            legacyMessage.Media,
 				Audio:            legacyMessage.Audio,
 				AudioMimeType:    legacyMessage.AudioMimeType,
-				ToolCalls:        legacyMessage.ToolCalls,
-				ToolCallID:       legacyMessage.ToolCallID,
 				PromptTokens:     legacyMessage.PromptTokens,
 				CompletionTokens: legacyMessage.CompletionTokens,
 				TotalTokens:      legacyMessage.TotalTokens,

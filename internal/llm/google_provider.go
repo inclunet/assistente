@@ -2,9 +2,11 @@ package llm
 
 import (
 	"assistente/internal/logging"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"sort"
 	"strings"
@@ -45,7 +47,7 @@ func (p *GoogleProvider) WithMCPServers(_ []MCPServerConfig) ChatProvider {
 // newStreamingClient cria o client Gemini para streaming: http.Client sem
 // Timeout global (que cortava streams longos no meio), com timeouts
 // granulares de conexÃƒÂ£o/cabeÃƒÂ§alho. O teto ÃƒÂ© o contexto da request.
-func (p *GoogleProvider) newStreamingClient(ctx context.Context) (*genai.Client, error) {
+func (p *GoogleProvider) newStreamingClient(ctx context.Context) (*genai.Client, *googleUsagePresenceTracker, error) {
 	apiKey := ""
 	if p.credMgr != nil && p.provider.CredentialPattern != "" {
 		if auth, err := p.credMgr.GetByPatternWithContext(ctx, p.provider.CredentialPattern); err == nil && auth != nil && auth.Token != "" {
@@ -53,16 +55,93 @@ func (p *GoogleProvider) newStreamingClient(ctx context.Context) (*genai.Client,
 		}
 	}
 
+	tracker := &googleUsagePresenceTracker{}
+	httpClient := newStreamingHTTPClientForProvider(p.provider, p.credMgr)
+	// Gemini captura X-Goog-Api-Key na construção do SDK. Não cachear uma
+	// segunda credencial bearer que não controla esse header.
+	if ct, ok := httpClient.Transport.(*credentials.CredentialTransport); ok {
+		ct.DisableCommandCache = true
+	}
+	transport := httpClient.Transport
+	if transport == nil {
+		transport = http.DefaultTransport
+	}
+	httpClient.Transport = googleUsagePresenceTransport{base: transport, tracker: tracker}
 	cc := &genai.ClientConfig{
 		APIKey:     apiKey,
 		Backend:    genai.BackendGeminiAPI,
-		HTTPClient: newStreamingHTTPClientForProvider(p.provider, p.credMgr),
+		HTTPClient: httpClient,
 	}
 	if u := strings.TrimSpace(p.provider.BaseURL); u != "" {
 		cc.HTTPOptions.BaseURL = strings.TrimSuffix(u, "/")
 	}
 
-	return genai.NewClient(ctx, cc)
+	client, err := genai.NewClient(ctx, cc)
+	return client, tracker, err
+}
+
+type googleUsagePresenceTracker struct {
+	line              []byte
+	reasoningReported bool
+	outputReported    bool
+}
+
+func (t *googleUsagePresenceTracker) reset() {
+	t.line = t.line[:0]
+	t.reasoningReported = false
+	t.outputReported = false
+}
+
+func (t *googleUsagePresenceTracker) observe(chunk []byte) {
+	for _, b := range chunk {
+		if b != '\n' {
+			t.line = append(t.line, b)
+			continue
+		}
+		line := bytes.TrimSpace(t.line)
+		t.line = t.line[:0]
+		if !bytes.HasPrefix(line, []byte("data:")) {
+			continue
+		}
+		rawBytes := bytes.TrimSpace(bytes.TrimPrefix(line, []byte("data:")))
+		if !bytes.Contains(rawBytes, []byte(`"usageMetadata"`)) &&
+			!bytes.Contains(rawBytes, []byte(`"usage_metadata"`)) {
+			continue
+		}
+		raw := string(rawBytes)
+		if jsonUsageHasAnyKey(raw, "thoughtsTokenCount", "thoughts_token_count") {
+			t.reasoningReported = true
+		}
+		if jsonUsageHasAnyKey(raw, "candidatesTokenCount", "candidates_token_count") {
+			t.outputReported = true
+		}
+	}
+}
+
+type googleUsagePresenceTransport struct {
+	base    http.RoundTripper
+	tracker *googleUsagePresenceTracker
+}
+
+func (t googleUsagePresenceTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	resp, err := t.base.RoundTrip(req)
+	if err == nil && resp != nil && resp.Body != nil {
+		resp.Body = &observingReadCloser{ReadCloser: resp.Body, observe: t.tracker.observe}
+	}
+	return resp, err
+}
+
+type observingReadCloser struct {
+	io.ReadCloser
+	observe func([]byte)
+}
+
+func (r *observingReadCloser) Read(p []byte) (int, error) {
+	n, err := r.ReadCloser.Read(p)
+	if n > 0 {
+		r.observe(p[:n])
+	}
+	return n, err
 }
 
 func (p *GoogleProvider) newClient(ctx context.Context) (*genai.Client, error) {
@@ -77,7 +156,8 @@ func (p *GoogleProvider) newClient(ctx context.Context) (*genai.Client, error) {
 		APIKey:  apiKey,
 		Backend: genai.BackendGeminiAPI,
 		HTTPClient: &http.Client{
-			Timeout: providerTimeout(p.provider),
+			CheckRedirect: credentials.SameOriginRedirect,
+			Timeout:       providerTimeout(p.provider),
 		},
 	}
 	if u := strings.TrimSpace(p.provider.BaseURL); u != "" {
@@ -172,7 +252,7 @@ func (p *GoogleProvider) StreamChat(ctx context.Context, messages []Message, par
 		return
 	}
 
-	client, err := p.newStreamingClient(ctx)
+	client, usagePresence, err := p.newStreamingClient(ctx)
 	if err != nil {
 		handler.OnError("Erro ao criar cliente Google: " + err.Error())
 		return
@@ -223,7 +303,8 @@ func (p *GoogleProvider) StreamChat(ctx context.Context, messages []Message, par
 		default:
 		}
 
-		done := p.doStream(ctx, client, model, contents, config, handler)
+		usagePresence.reset()
+		done := p.doStream(ctx, client, usagePresence, model, contents, config, handler)
 		if done {
 			return
 		}
@@ -231,16 +312,18 @@ func (p *GoogleProvider) StreamChat(ctx context.Context, messages []Message, par
 		if attempt < maxAttempts {
 			// Visibilidade: nunca deixar a pessoa no silÃƒÂªncio do backoff.
 			notifyTurnNotice(handler, TurnNotice{Kind: TurnNoticeStreamRetry, Count: attempt})
+			resetStreamAttempt(handler)
 			sleepWithJitter(ctx, bk)
 			bk = nextBackoff(bk, maxBk)
 			continue
 		}
 
-		handler.OnError("MÃƒÆ’Ã‚Â¡ximo de tentativas de streaming excedido")
+		discardStreamReasoning(handler)
+		handler.OnError(streamRetriesExhaustedError)
 	}
 }
 
-func (p *GoogleProvider) doStream(ctx context.Context, client *genai.Client, model string, contents []*genai.Content, config *genai.GenerateContentConfig, handler StreamHandler) bool {
+func (p *GoogleProvider) doStream(ctx context.Context, client *genai.Client, usagePresence *googleUsagePresenceTracker, model string, contents []*genai.Content, config *genai.GenerateContentConfig, handler StreamHandler) bool {
 	// Watchdog de ociosidade (ver stream_watchdog.go): servidor que para de
 	// enviar sem fechar a conexÃƒÂ£o nÃƒÂ£o pode prender a leitura atÃƒÂ© o timeout.
 	watchCtx, wd := startStreamWatchdog(ctx, streamIdleTimeoutForProvider(p.provider), nil)
@@ -248,19 +331,48 @@ func (p *GoogleProvider) doStream(ctx context.Context, client *genai.Client, mod
 
 	var fullResponse strings.Builder
 	var fullReasoning strings.Builder
-	var emittedAnything bool
+	var emittedNonRetryableEffect bool
 	var lastUsage Usage
 	var functionCalls []ToolCall
 	var finish FinishInfo
+	reportCurrentDiagnostics := func() {
+		currentFinish := finishInfoWithToolCalls(finish, len(functionCalls))
+		currentFinish = finishInfoWithDiagnostics(
+			currentFinish, p.provider, model, int(config.MaxOutputTokens), fullResponse.Len(),
+		)
+		reportUsage(handler, lastUsage)
+		ReportFinishReason(handler, currentFinish)
+	}
 
 	for resp, err := range client.Models.GenerateContentStream(watchCtx, model, contents, config) {
 		wd.Kick()
+		if ctx.Err() != nil {
+			if fullReasoning.Len() > 0 {
+				handler.OnThinkingDone(fullReasoning.String())
+			}
+			return true
+		}
+		if wd.TimedOut() {
+			if !emittedNonRetryableEffect {
+				reportCurrentDiagnostics()
+				return false
+			}
+			reportCurrentDiagnostics()
+			markErrorNotRetryable(handler)
+			handler.OnError(streamIdleErrorMessage)
+			return true
+		}
 		if err != nil {
+			wd.Stop()
 			errStr := err.Error()
 			logging.Errorf(ctx, "llm.google-provider", "[GoogleProvider] Stream error: %s", errStr)
 
 			// Cancelamento do usuÃƒÂ¡rio (contexto pai): nunca retentar.
 			if ctx.Err() != nil {
+				if fullReasoning.Len() > 0 {
+					handler.OnThinkingDone(fullReasoning.String())
+				}
+				reportCurrentDiagnostics()
 				handler.OnError("Streaming cancelado: " + ctx.Err().Error())
 				return true
 			}
@@ -268,27 +380,50 @@ func (p *GoogleProvider) doStream(ctx context.Context, client *genai.Client, mod
 			// Watchdog de ociosidade estourou. Sem conteÃƒÂºdo emitido, a tentativa
 			// ÃƒÂ© descartÃƒÂ¡vel; com conteÃƒÂºdo jÃƒÂ¡ entregue, repetir duplicaria a resposta.
 			if wd.TimedOut() {
-				if !emittedAnything {
+				if !emittedNonRetryableEffect {
+					reportCurrentDiagnostics()
 					return false
 				}
+				reportCurrentDiagnostics()
+				markErrorNotRetryable(handler)
 				handler.OnError(streamIdleErrorMessage)
 				return true
 			}
 
-			if !emittedAnything && isRetryableError(errStr) {
+			if !emittedNonRetryableEffect && isRetryableError(errStr) {
+				reportCurrentDiagnostics()
 				return false
 			}
 
+			reportCurrentDiagnostics()
+			if emittedNonRetryableEffect {
+				markErrorNotRetryable(handler)
+			}
 			handler.OnError(errStr)
 			return true
 		}
 
 		if resp.UsageMetadata != nil {
-			lastUsage = UsageFromGemini(
+			reasoningReported := resp.UsageMetadata.ThoughtsTokenCount > 0
+			outputReported := resp.UsageMetadata.CandidatesTokenCount > 0
+			if resp.SDKHTTPResponse != nil {
+				reasoningReported = reasoningReported || jsonUsageHasAnyKey(
+					resp.SDKHTTPResponse.Body, "thoughtsTokenCount", "thoughts_token_count")
+				outputReported = outputReported || jsonUsageHasAnyKey(
+					resp.SDKHTTPResponse.Body, "candidatesTokenCount", "candidates_token_count")
+			}
+			if usagePresence != nil {
+				reasoningReported = reasoningReported || usagePresence.reasoningReported
+				outputReported = outputReported || usagePresence.outputReported
+			}
+			lastUsage = usageFromGeminiWithPresence(
 				int(resp.UsageMetadata.PromptTokenCount),
 				int(resp.UsageMetadata.CandidatesTokenCount),
 				int(resp.UsageMetadata.TotalTokenCount),
 				int(resp.UsageMetadata.CachedContentTokenCount),
+				int(resp.UsageMetadata.ThoughtsTokenCount),
+				reasoningReported,
+				outputReported,
 			)
 		}
 
@@ -306,15 +441,50 @@ func (p *GoogleProvider) doStream(ctx context.Context, client *genai.Client, mod
 
 		for _, part := range candidate.Content.Parts {
 			if part.Thought && part.Text != "" {
+				if ctx.Err() != nil {
+					if fullReasoning.Len() > 0 {
+						handler.OnThinkingDone(fullReasoning.String())
+					}
+					return true
+				}
+				if wd.TimedOut() {
+					if !emittedNonRetryableEffect {
+						reportCurrentDiagnostics()
+						return false
+					}
+					reportCurrentDiagnostics()
+					markErrorNotRetryable(handler)
+					handler.OnError(streamIdleErrorMessage)
+					return true
+				}
 				fullReasoning.WriteString(part.Text)
-				emittedAnything = true
 				handler.OnThinking(part.Text)
+				if ctx.Err() != nil {
+					handler.OnThinkingDone(fullReasoning.String())
+					return true
+				}
 				continue
 			}
 
 			if part.Text != "" {
+				if ctx.Err() != nil {
+					if fullReasoning.Len() > 0 {
+						handler.OnThinkingDone(fullReasoning.String())
+					}
+					return true
+				}
+				if wd.TimedOut() {
+					if !emittedNonRetryableEffect {
+						reportCurrentDiagnostics()
+						return false
+					}
+					reportCurrentDiagnostics()
+					markErrorNotRetryable(handler)
+					handler.OnError(streamIdleErrorMessage)
+					return true
+				}
 				fullResponse.WriteString(part.Text)
-				emittedAnything = true
+				emittedNonRetryableEffect = true
 				handler.OnChunk(part.Text)
 			}
 
@@ -339,12 +509,22 @@ func (p *GoogleProvider) doStream(ctx context.Context, client *genai.Client, mod
 	// Guarda de corrida: o watchdog pode estourar exatamente quando o
 	// servidor fecha a conexão, deixando o iterador terminar sem erro com
 	// resposta truncada. Nesse caso não há conclusão válida a entregar.
+	wd.Stop()
 	if wd.TimedOut() {
 		logging.Errorf(ctx, "llm.google-provider", "[GoogleProvider] Stream encerrou junto com timeout de inatividade: %d bytes parciais", fullResponse.Len())
-		if !emittedAnything {
+		if !emittedNonRetryableEffect {
+			reportCurrentDiagnostics()
 			return false
 		}
+		reportCurrentDiagnostics()
+		markErrorNotRetryable(handler)
 		handler.OnError(streamIdleErrorMessage)
+		return true
+	}
+	if ctx.Err() != nil {
+		if fullReasoning.Len() > 0 {
+			handler.OnThinkingDone(fullReasoning.String())
+		}
 		return true
 	}
 
@@ -352,6 +532,7 @@ func (p *GoogleProvider) doStream(ctx context.Context, client *genai.Client, mod
 		handler.OnThinkingDone(fullReasoning.String())
 	}
 	finish = finishInfoWithToolCalls(finish, len(functionCalls))
+	finish = finishInfoWithDiagnostics(finish, p.provider, model, int(config.MaxOutputTokens), fullResponse.Len())
 	ReportFinishReason(handler, finish)
 
 	if len(functionCalls) > 0 {

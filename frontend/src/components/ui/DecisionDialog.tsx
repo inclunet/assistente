@@ -1,14 +1,7 @@
-import {
-  type ReactNode,
-  useEffect,
-  useId,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
+import { type ReactNode, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button, type ButtonProps } from './Button';
-import { Modal, useModalIsTopmost } from './Modal';
+import { Modal, useModalId, useModalIsTopmost } from './Modal';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { playSound, SOUND_TYPES } from '../../services/audioFeedback';
 import { useSettingsStore } from '../../store/settingsStore';
@@ -25,10 +18,12 @@ import {
   type DecisionActionScope,
   type ResolvedDecisionShortcuts,
 } from '../../lib/decisionShortcuts';
+import type { DialogCommandScope } from '../../lib/commandBridge';
 import {
-  DocumentReadingRegion,
-  DocumentReadingRegionGroup,
-} from './DocumentReadingRegion';
+  ownsDecisionRepeatNatively,
+  registerDecisionRepeatHotkey,
+} from '../../lib/decisionRepeatHotkey';
+import { DocumentReadingRegion, DocumentReadingRegionGroup } from './DocumentReadingRegion';
 import './DecisionDialog.css';
 
 export type DecisionSeverity = 'destructive' | 'permission' | 'info';
@@ -75,14 +70,12 @@ export interface DecisionDialogProps {
   readingRegions?: readonly DecisionReadingRegion[];
   /** Pelo menos uma ação (confirm/cancel, allow/deny, etc.). */
   actions: [DecisionAction, ...DecisionAction[]];
-  /** Afeta foco inicial (AEP-0091 D7). Default: info. */
+  /** Intenção explícita para apresentação; não governa foco inicial. */
   severity?: DecisionSeverity;
   onAction: (actionId: string, extras?: Record<string, unknown>) => void;
   /** ESC / Fechar (X) / clique fora — não autoriza. */
   onCancel: (extras?: Record<string, unknown>) => void;
   className?: string;
-  /** id da ação segura para foco destrutivo; default = última ação. */
-  safeActionId?: string;
   /**
    * Se false, o chamador restaura o foco (ex.: confirmStore).
    * Default true — restaura via Modal ao fechar.
@@ -97,11 +90,8 @@ export interface DecisionDialogProps {
   rejectReason?: DecisionRejectReason;
   /** Tamanho do Modal; default sm. */
   size?: 'sm' | 'md' | 'lg' | 'xl';
-  /**
-   * Sobrescreve o seletor de foco inicial (ex.: cancelar em AgentInstall
-   * não verificado). Quando omitido, usa a regra de severity (D7).
-   */
-  initialFocusSelector?: string;
+  /** Restrição de comandos UI desta decisão no modal topmost. */
+  dialogCommandScope?: DialogCommandScope;
 }
 
 function MnemonicLabel({ label, mnemonic }: { label: string; mnemonic: string }) {
@@ -124,7 +114,7 @@ function buildAnnouncement(
   title: string,
   description: string,
   bodyHint?: string,
-  shortcutsHint?: string,
+  shortcutsHint?: string
 ): string {
   return [title, description, bodyHint, shortcutsHint].filter(Boolean).join('. ');
 }
@@ -133,11 +123,7 @@ function isRejectLikeAction(_action: DecisionAction | undefined, actionId: strin
   // Só IDs semânticos de rejeição/cancelamento — não usar variant outline,
   // que também marca ações seguras como "Mais tarde" / "Negar" genéricas
   // em diálogos sem rejectReason.
-  return (
-    actionId === 'reject' ||
-    actionId === 'cancel' ||
-    actionId === 'deny'
-  );
+  return actionId === 'reject' || actionId === 'cancel' || actionId === 'deny';
 }
 
 /** Atalhos precisam viver DENTRO do Modal para `useModalIsTopmost` funcionar. */
@@ -155,6 +141,17 @@ function DecisionDialogHotkeys({
   onRepeat: () => void;
 }) {
   const isTopmost = useModalIsTopmost();
+  const modalId = useModalId();
+  const onRepeatRef = useRef(onRepeat);
+
+  useEffect(() => {
+    onRepeatRef.current = onRepeat;
+  }, [onRepeat]);
+
+  useEffect(() => {
+    if (!modalId) return undefined;
+    return registerDecisionRepeatHotkey(modalId, () => onRepeatRef.current());
+  }, [modalId]);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -162,7 +159,12 @@ function DecisionDialogHotkeys({
       if (e.isComposing || e.keyCode === 229) return;
 
       if (e.ctrlKey && e.shiftKey && !e.altKey && !e.metaKey && e.key.toLowerCase() === 'r') {
-        if (isEditableKeyboardTarget(e.target)) return;
+        if (e.repeat || isEditableKeyboardTarget(e.target)) return;
+        if (ownsDecisionRepeatNatively(e)) {
+          e.preventDefault();
+          e.stopPropagation();
+          return;
+        }
         e.preventDefault();
         e.stopPropagation();
         onRepeat();
@@ -212,12 +214,11 @@ export function DecisionDialog({
   onAction,
   onCancel,
   className,
-  safeActionId,
   returnFocusOnClose = true,
   allowClose = true,
   rejectReason,
   size = 'sm',
-  initialFocusSelector: initialFocusOverride,
+  dialogCommandScope,
 }: DecisionDialogProps) {
   const { t } = useTranslation();
   const descriptionId = useId();
@@ -228,39 +229,28 @@ export function DecisionDialog({
   const announcementRef = useRef('');
   const openedForIdRef = useRef<string | null>(null);
   const actionInFlightRef = useRef(false);
-  const actionUnlockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null,
-  );
+  const actionUnlockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [rejectReasonText, setRejectReasonText] = useState('');
 
   const mnemonics = useMemo(() => assignMnemonics(actions), [actions]);
-  const semanticShortcuts = useMemo(
-    () => resolveDecisionShortcuts(actions),
-    [actions],
-  );
+  const semanticShortcuts = useMemo(() => resolveDecisionShortcuts(actions), [actions]);
 
   useEffect(() => {
     for (const collision of semanticShortcuts.collisions) {
       // eslint-disable-next-line no-console -- colisão é defeito de contrato
-      console.error(
-        `[DecisionDialog] atalho semântico omitido por colisão (${collision})`,
-      );
+      console.error(`[DecisionDialog] atalho semântico omitido por colisão (${collision})`);
     }
   }, [semanticShortcuts]);
 
   const describedBy = body ? `${descriptionId} ${bodyId}` : descriptionId;
   const hasReadingRegions = readingRegions.length > 0;
 
-  const resolvedSafeId = safeActionId ?? actions[actions.length - 1]?.id ?? '';
-
-  const bodyHint = body || hasReadingRegions
-    ? t('ui.decisionDialog.bodyHint')
-    : undefined;
+  const bodyHint = body || hasReadingRegions ? t('ui.decisionDialog.bodyHint') : undefined;
   const shortcutsHint = useMemo(() => {
     const entries = actions.flatMap((action) => {
       const label = parseMnemonicMarker(action.label).displayLabel;
       return (semanticShortcuts.byActionId.get(action.id) ?? []).map(
-        (shortcut) => `${label}: ${shortcut.display}`,
+        (shortcut) => `${label}: ${shortcut.display}`
       );
     });
     if (entries.length === 0) return undefined;
@@ -286,29 +276,15 @@ export function DecisionDialog({
     };
   }, [actions]);
 
-  const severityFocusSelector = useMemo(() => {
-    if (severity === 'destructive') {
-      return `[data-decision-action="${CSS.escape(resolvedSafeId)}"]`;
+  const initialFocusSelector = useMemo(() => {
+    const preferredRegion = readingRegions.find((region) => region.autoFocus) ?? readingRegions[0];
+    if (preferredRegion) {
+      return `[data-document-reading-anchor="${CSS.escape(preferredRegion.id)}"]`;
     }
-    if (severity === 'permission') {
-      // D7: body readonly se houver; senão a ação segura (não “sempre”).
-      const preferredRegion = readingRegions.find((region) => region.autoFocus)
-        ?? readingRegions[0];
-      if (preferredRegion) {
-        return `[data-document-reading-anchor="${CSS.escape(preferredRegion.id)}"]`;
-      }
-      if (body) return '[data-decision-body]';
-      return resolvedSafeId
-        ? `[data-decision-action="${CSS.escape(resolvedSafeId)}"]`
-        : undefined;
-    }
+    if (body != null) return '[data-decision-body]';
     const primary = actions.find((a) => a.primary) ?? actions[0];
-    return primary
-      ? `[data-decision-action="${CSS.escape(primary.id)}"]`
-      : undefined;
-  }, [severity, resolvedSafeId, body, actions, readingRegions]);
-
-  const initialFocusSelector = initialFocusOverride ?? severityFocusSelector;
+    return primary ? `[data-decision-action="${CSS.escape(primary.id)}"]` : undefined;
+  }, [body, actions, readingRegions]);
 
   const extrasForAction = (actionId: string): Record<string, unknown> | undefined => {
     if (!rejectReason) return undefined;
@@ -374,12 +350,7 @@ export function DecisionDialog({
     if (openedForIdRef.current === openKey) return;
     openedForIdRef.current = openKey;
 
-    const message = buildAnnouncement(
-      title,
-      description,
-      bodyHint,
-      shortcutsHint,
-    );
+    const message = buildAnnouncement(title, description, bodyHint, shortcutsHint);
     announcementRef.current = message;
 
     announceRequest({
@@ -410,7 +381,7 @@ export function DecisionDialog({
         clearTimeout(actionUnlockTimerRef.current);
       }
     },
-    [],
+    []
   );
 
   const variantClass = `decision-dialog-modal--${severity}`;
@@ -418,12 +389,15 @@ export function DecisionDialog({
 
   const renderActionButton = (action: DecisionAction, indexInActions: number) => {
     const mnemonic = mnemonics[indexInActions] ?? '';
-    const actionSemanticShortcuts =
-      semanticShortcuts.byActionId.get(action.id) ?? [];
+    const actionSemanticShortcuts = semanticShortcuts.byActionId.get(action.id) ?? [];
     const { displayLabel } = parseMnemonicMarker(action.label);
     const buttonVariant =
       action.variant ??
-      (action.primary ? 'primary' : indexInActions === actions.length - 1 ? 'outline' : 'secondary');
+      (action.primary
+        ? 'primary'
+        : indexInActions === actions.length - 1
+          ? 'outline'
+          : 'secondary');
 
     return (
       <Button
@@ -433,18 +407,16 @@ export function DecisionDialog({
         data-decision-action={action.id}
         onClick={() => fireAction(action.id)}
         aria-label={displayLabel}
-        aria-keyshortcuts={[
-          ...actionSemanticShortcuts.map((shortcut) => shortcut.aria),
-          ...(mnemonic ? [`Alt+${mnemonic.toUpperCase()}`] : []),
-        ].join(' ') || undefined}
+        aria-keyshortcuts={
+          [
+            ...actionSemanticShortcuts.map((shortcut) => shortcut.aria),
+            ...(mnemonic ? [`Alt+${mnemonic.toUpperCase()}`] : []),
+          ].join(' ') || undefined
+        }
       >
         <MnemonicLabel label={action.label} mnemonic={mnemonic} />
         {actionSemanticShortcuts.map((shortcut) => (
-          <span
-            key={shortcut.aria}
-            className="decision-dialog__shortcut"
-            aria-hidden="true"
-          >
+          <span key={shortcut.aria} className="decision-dialog__shortcut" aria-hidden="true">
             {shortcut.display}
           </span>
         ))}
@@ -452,8 +424,7 @@ export function DecisionDialog({
     );
   };
 
-  const actionIndex = (action: DecisionAction) =>
-    actions.findIndex((a) => a.id === action.id);
+  const actionIndex = (action: DecisionAction) => actions.findIndex((a) => a.id === action.id);
 
   return (
     <Modal
@@ -467,6 +438,7 @@ export function DecisionDialog({
       returnFocusOnClose={returnFocusOnClose}
       allowClose={allowClose}
       initialFocusSelector={initialFocusSelector}
+      dialogCommandScope={dialogCommandScope}
     >
       <DecisionDialogHotkeys
         actions={actions}
@@ -481,12 +453,7 @@ export function DecisionDialog({
           {description}
         </p>
         {body != null && (
-          <div
-            id={bodyId}
-            className="decision-dialog__extra"
-            data-decision-body=""
-            tabIndex={-1}
-          >
+          <div id={bodyId} className="decision-dialog__extra" data-decision-body="" tabIndex={-1}>
             {body}
           </div>
         )}
@@ -532,9 +499,7 @@ export function DecisionDialog({
                 value={rejectReasonText}
                 placeholder={rejectReason.placeholder}
                 maxLength={
-                  rejectReason.maxLen && rejectReason.maxLen > 0
-                    ? rejectReason.maxLen
-                    : undefined
+                  rejectReason.maxLen && rejectReason.maxLen > 0 ? rejectReason.maxLen : undefined
                 }
                 onChange={(e) => setRejectReasonText(e.target.value)}
               />

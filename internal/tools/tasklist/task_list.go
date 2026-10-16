@@ -405,7 +405,7 @@ func (t *TaskListTool) listAll(ctx context.Context) (tools.ToolResult, error) {
 		ID        string `json:"id"`
 		Title     string `json:"title"`
 		Slug      string `json:"slug,omitempty"`
-		TaskCount int    `json:"task_count"`
+		TaskCount int64  `json:"task_count"`
 	}
 
 	summaries := make([]taskListSummary, len(taskLists))
@@ -414,7 +414,7 @@ func (t *TaskListTool) listAll(ctx context.Context) (tools.ToolResult, error) {
 			ID:        tl.ID,
 			Title:     tl.Title,
 			Slug:      tl.Slug,
-			TaskCount: len(tl.Tasks),
+			TaskCount: tl.TaskCount,
 		}
 	}
 

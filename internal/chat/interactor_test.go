@@ -18,9 +18,45 @@ import (
 	"assistente/internal/skills"
 	"assistente/internal/slashskill"
 	"assistente/internal/tasklist"
+	"assistente/internal/tools"
 	"assistente/internal/workspace"
 	"gorm.io/gorm"
 )
+
+// fakeToolProtocolProvider espelha toolprotocol.catalogFirstActive sem importar
+// o pacote toolprotocol (que importa chat e criaria ciclo no teste interno):
+// emite o bloco de protocolo catalog-first apenas quando somente tool_catalog
+// (+load_skill) está habilitado. Assim os testes exercitam a coerência entre o
+// prompt e as tools efetivamente disponíveis no turno.
+type fakeToolProtocolProvider struct{}
+
+func (fakeToolProtocolProvider) Name() string { return "tool_protocol" }
+
+func (fakeToolProtocolProvider) Build(_ context.Context, req contextprovider.BuildRequest) ([]contextprovider.Block, error) {
+	if !req.ToolCallingEnabled {
+		return nil, nil
+	}
+	hasCatalog := false
+	for _, name := range req.EnabledTools {
+		switch name {
+		case tools.ToolCatalogName:
+			hasCatalog = true
+		case tools.LoadSkillName:
+		default:
+			return nil, nil
+		}
+	}
+	if !hasCatalog {
+		return nil, nil
+	}
+	return []contextprovider.Block{{
+		Provider:   "tool_protocol",
+		Name:       "tool_selection_protocol",
+		Volatility: contextprovider.VolatilityStable,
+		Priority:   8,
+		Content:    "<tool_selection_protocol>use tool_catalog</tool_selection_protocol>",
+	}}, nil
+}
 
 // spyEmitter captures emitted events for assertions.
 type spyEmitter struct {
@@ -112,7 +148,11 @@ func TestBuildDynamicContextPropagatesTypedToolSelectionStatus(t *testing.T) {
 }
 
 type retryMessageRepoStub struct {
-	getMessage func(messageID string) (*database.ChatMessage, error)
+	getMessage    func(messageID string) (*database.ChatMessage, error)
+	messages      []Message
+	turnMessages  []Message
+	summary       string
+	summaryUpToID string
 }
 
 type staticWorkspaceProvider struct {
@@ -164,6 +204,11 @@ func (failingSkillRuntimeManager) GetAllSkillsFull() ([]skills.Skill, error) {
 type capturingPromptBuilder struct {
 	contextBlocks []contextprovider.Block
 	messages      []llm.Message
+	// baseEnabledTools/baseToolCallingEnabled permitem simular um perfil com
+	// seleção de tools (ex.: catalog-first) sem depender do registry real. Zero
+	// value preserva o comportamento legado (sem tools) dos demais testes.
+	baseEnabledTools       []string
+	baseToolCallingEnabled bool
 }
 
 func (b *capturingPromptBuilder) Build(messages []llm.Message, _ []string, _ bool, _ any, _ string, _ string, _ ...string) []llm.Message {
@@ -176,8 +221,54 @@ func (b *capturingPromptBuilder) BuildWithContextBlocks(messages []llm.Message, 
 	return messages
 }
 
+func (b *capturingPromptBuilder) ApplySkillToolScope(data TemplateData, skillAllowed, skillDenied []string) TemplateData {
+	if len(skillAllowed) == 0 && len(skillDenied) == 0 {
+		return data
+	}
+	denied := make(map[string]struct{}, len(skillDenied))
+	for _, name := range skillDenied {
+		denied[name] = struct{}{}
+	}
+	var allow map[string]struct{}
+	if len(skillAllowed) > 0 {
+		allow = make(map[string]struct{}, len(skillAllowed))
+		for _, name := range skillAllowed {
+			allow[name] = struct{}{}
+		}
+	}
+	filtered := make([]string, 0, len(data.EnabledTools))
+	for _, name := range data.EnabledTools {
+		if _, blocked := denied[name]; blocked {
+			continue
+		}
+		// Espelha a produção (chat.applySkillScope): o conjunto base protegido é
+		// isento do narrowing IMPLÍCITO da allowlist. Mantém o duplo coerente com
+		// tools.IsProtectedBaseTool para os testes não afirmarem comportamento
+		// que a produção não tem.
+		if tools.IsProtectedBaseTool(name) {
+			filtered = append(filtered, name)
+			continue
+		}
+		if allow != nil {
+			if _, ok := allow[name]; !ok {
+				continue
+			}
+		}
+		filtered = append(filtered, name)
+	}
+	data.EnabledTools = filtered
+	data.EnabledToolCount = len(filtered)
+	data.ToolCallingEnabled = len(filtered) > 0
+	return data
+}
+
 func (b *capturingPromptBuilder) BuildTemplateData(_ *profiles.Profile, params llm.ChatParams, conversationID string) TemplateData {
-	data := TemplateData{ConversationID: conversationID}
+	data := TemplateData{
+		ConversationID:     conversationID,
+		EnabledTools:       append([]string(nil), b.baseEnabledTools...),
+		EnabledToolCount:   len(b.baseEnabledTools),
+		ToolCallingEnabled: b.baseToolCallingEnabled,
+	}
 	surfaceState := DecodeSurfaceJSONMap(params.SurfaceStateJSON, "[test] surface state json")
 	surfaceContext := DecodeSurfaceJSONMap(params.SurfaceContextJSON, "[test] surface context json")
 	if strings.TrimSpace(params.TabType) != "" || surfaceState != nil || surfaceContext != nil {
@@ -215,15 +306,15 @@ func (r *retryMessageRepoStub) GetMessage(_ context.Context, messageID string) (
 }
 
 func (r *retryMessageRepoStub) GetMessages(_ context.Context, _ string, _ *string) ([]Message, error) {
-	return nil, nil
+	return r.messages, nil
 }
 
 func (r *retryMessageRepoStub) GetMessagesByTurnID(_ context.Context, _ string, _ *string, _ string, _ int) ([]Message, error) {
-	return nil, nil
+	return r.turnMessages, nil
 }
 
 func (r *retryMessageRepoStub) GetConversationSummary(_ context.Context, _ string) (string, string, error) {
-	return "", "", nil
+	return r.summary, r.summaryUpToID, nil
 }
 
 func (r *retryMessageRepoStub) GetDetailedTokenStats(_ context.Context, _ string, _ string) (*DetailedTokenStats, error) {
@@ -239,14 +330,6 @@ func (r *retryMessageRepoStub) GetRecentMessagesTokenCount(_ context.Context, _ 
 }
 
 func (r *retryMessageRepoStub) GetTurnTokenStats(_ context.Context, _ string, _ string) (*database.TokenStats, error) {
-	return nil, nil
-}
-
-func (r *retryMessageRepoStub) AddAssistantToolMessage(_ context.Context, _ string, _ string, _, _, _, _ string) (*Message, error) {
-	return nil, nil
-}
-
-func (r *retryMessageRepoStub) AddToolResultMessage(_ context.Context, _ string, _ string, _, _ string) (*Message, error) {
 	return nil, nil
 }
 
@@ -445,6 +528,86 @@ func TestGetRetryableUserMessage_ReturnsErrorWhenRepositoryIsUnavailable(t *test
 	}
 	if err.Error() != "repositório de mensagens indisponível" {
 		t.Fatalf("expected repository unavailable error, got %v", err)
+	}
+}
+
+func TestGetRetryableUserMessage_RejectsThreadUser(t *testing.T) {
+	parentID := "root-1"
+	interactor := NewInteractor(InteractorConfig{
+		Repo: &retryMessageRepoStub{
+			getMessage: func(_ string) (*database.ChatMessage, error) {
+				return &database.ChatMessage{
+					UUIDModel:      database.UUIDModel{ID: "thread-user"},
+					ConversationID: "conv-1",
+					Role:           "user",
+					ParentID:       &parentID,
+				}, nil
+			},
+		},
+	})
+
+	msg, err := interactor.GetRetryableUserMessage(context.Background(), "conv-1", "thread-user")
+	if msg != nil {
+		t.Fatalf("expected nil message, got %+v", msg)
+	}
+	if err == nil || err.Error() != "mensagem thread-user não é uma pergunta raiz" {
+		t.Fatalf("expected root-question validation error, got %v", err)
+	}
+}
+
+func TestReuseLoadedUserMessage_AnchorsRetryAtSelectedTurnAndPreservesExplicitContinuation(t *testing.T) {
+	turnOne := "u-1"
+	turnTwo := "u-2"
+	repo := &retryMessageRepoStub{
+		messages: []Message{
+			{UUIDModel: database.UUIDModel{ID: "u-1"}, ConversationID: "conv-1", Role: "user", Content: "pergunta 1", Media: `[{"type":"image/png","data":"abc"}]`, TurnID: &turnOne},
+			{UUIDModel: database.UUIDModel{ID: "a-1"}, ConversationID: "conv-1", Role: "assistant", Content: "resposta 1", TurnID: &turnOne},
+			{UUIDModel: database.UUIDModel{ID: "u-2"}, ConversationID: "conv-1", Role: "user", Content: "pergunta 2", TurnID: &turnTwo},
+			{UUIDModel: database.UUIDModel{ID: "a-2"}, ConversationID: "conv-1", Role: "assistant", Content: "resposta 2", TurnID: &turnTwo},
+		},
+		turnMessages: []Message{
+			{UUIDModel: database.UUIDModel{ID: "a-1"}, ConversationID: "conv-1", Role: "assistant", Content: "resposta 1", TurnID: &turnOne},
+			{UUIDModel: database.UUIDModel{ID: "a-1-tool-snapshot"}, ConversationID: "conv-1", Role: "assistant", Content: "snapshot intermediário de tool", TurnID: &turnOne},
+			{UUIDModel: database.UUIDModel{ID: "a-2"}, ConversationID: "conv-1", Role: "assistant", Content: "resposta 2", TurnID: &turnTwo},
+		},
+		summary:       "resumo que inclui a pergunta 2",
+		summaryUpToID: "a-2",
+	}
+	interactor := NewInteractor(InteractorConfig{Emitter: &spyEmitter{}, Repo: repo})
+	selected := repo.messages[0]
+
+	response, err := interactor.ReuseLoadedUserMessage(context.Background(), RecordUserMessageRequest{
+		ConversationID:       "conv-1",
+		MaxContextMessages:   50,
+		ExplicitContinuation: true,
+	}, &selected)
+	if err != nil {
+		t.Fatalf("reuse retry: %v", err)
+	}
+	if response.ConversationSummary != "" {
+		t.Fatalf("posterior summary leaked into retry payload: %q", response.ConversationSummary)
+	}
+	if got := len(response.Messages); got != 2 {
+		t.Fatalf("expected selected user plus its assistant continuation candidate, got %d messages", got)
+	}
+	if response.Messages[0].MessageID != "u-1" || response.Messages[1].MessageID != "a-1" {
+		t.Fatalf("unexpected effective retry payload ids: %+v", response.Messages)
+	}
+	if response.Messages[0].Role != "user" || response.Messages[1].Role != "assistant" {
+		t.Fatalf("unexpected retry roles: %+v", response.Messages)
+	}
+	if _, ok := response.Messages[0].Content.([]interface{}); !ok {
+		t.Fatalf("user media was not preserved in retry payload: %#v", response.Messages[0].Content)
+	}
+
+	normalRetry, err := interactor.ReuseLoadedUserMessage(context.Background(), RecordUserMessageRequest{
+		ConversationID: "conv-1",
+	}, &selected)
+	if err != nil {
+		t.Fatalf("reuse normal retry: %v", err)
+	}
+	if len(normalRetry.Messages) != 1 || normalRetry.Messages[0].MessageID != "u-1" {
+		t.Fatalf("retry normal não deve anexar assistant: %+v", normalRetry.Messages)
 	}
 }
 
@@ -1124,6 +1287,144 @@ func TestPrepareMessagesDoesNotReportSlashSkillLoadedWhenProviderDisabled(t *tes
 	if content := promptBuilder.slashSkillContent(); content != "" {
 		t.Fatalf("slash skill block should be omitted when provider is disabled: %q", content)
 	}
+}
+
+func TestPrepareMessagesDropsCatalogProtocolWhenSkillDeniesCatalog(t *testing.T) {
+	skill := &skills.Skill{
+		SkillMetadata: skills.SkillMetadata{Name: "helper", DisplayName: "Helper", Description: "Help"},
+		Slug:          "helper",
+		Content:       "help instructions",
+	}
+	// tool_catalog é base protegido: só sai por deny EXPLÍCITO da skill (uma
+	// allowlist que apenas o omitisse não o removeria). Aqui a denylist o remove,
+	// então o protocolo catalog-first também deve cair.
+	skill.Tools = &skills.ToolPermissions{Allowed: []string{"read_file"}, Denied: []string{tools.ToolCatalogName}}
+	promptBuilder := &capturingPromptBuilder{
+		baseEnabledTools:       []string{tools.ToolCatalogName},
+		baseToolCallingEnabled: true,
+	}
+	interactor := NewInteractor(InteractorConfig{
+		PromptBuilder: promptBuilder,
+		ContextProviders: contextprovider.NewRegistry(
+			slashskill.NewContextProvider(),
+			fakeToolProtocolProvider{},
+		),
+		SkillMgr: staticSkillRuntimeManager{
+			skills: map[string]*skills.Skill{"helper": skill},
+		},
+	})
+	profile := &profiles.Profile{}
+	profile.Chat.EnabledSkills = []string{"helper"}
+
+	result := interactor.PrepareMessages(context.Background(), PrepareMessagesRequest{
+		Messages:       []llm.Message{{Role: "user", Content: "/helper"}},
+		UserContent:    "/helper",
+		ConversationID: "conv-1",
+		ActiveProfile:  profile,
+	})
+
+	if result.Err != nil {
+		t.Fatalf("PrepareMessages returned error: %v", result.Err)
+	}
+	if result.InvokedExecutionContext == nil || !containsSkillTool(result.InvokedExecutionContext.AllowedTools, "read_file") {
+		t.Fatalf("esperava execution context com allowlist do skill, got %+v", result.InvokedExecutionContext)
+	}
+	if hasContextBlock(promptBuilder.contextBlocks, "tool_protocol", "tool_selection_protocol") {
+		t.Fatal("prompt não deve instruir catalog-first quando o skill nega explicitamente tool_catalog")
+	}
+}
+
+// Allowlist que OMITE tool_catalog não o remove (base protegido): o protocolo
+// catalog-first permanece coerente com as tools disponíveis no turno. Trava a
+// regressão do bug em que a allowlist da skill amputava o control-plane.
+func TestPrepareMessagesKeepsCatalogProtocolWhenAllowlistOmitsProtectedCatalog(t *testing.T) {
+	skill := &skills.Skill{
+		SkillMetadata: skills.SkillMetadata{Name: "helper", DisplayName: "Helper", Description: "Help"},
+		Slug:          "helper",
+		Content:       "help instructions",
+	}
+	// Allowlist focada no domínio, sem tool_catalog: por ser base protegido, ele
+	// permanece disponível e o protocolo catalog-first continua no prompt.
+	skill.Tools = &skills.ToolPermissions{Allowed: []string{"read_file"}}
+	promptBuilder := &capturingPromptBuilder{
+		baseEnabledTools:       []string{tools.ToolCatalogName},
+		baseToolCallingEnabled: true,
+	}
+	interactor := NewInteractor(InteractorConfig{
+		PromptBuilder: promptBuilder,
+		ContextProviders: contextprovider.NewRegistry(
+			slashskill.NewContextProvider(),
+			fakeToolProtocolProvider{},
+		),
+		SkillMgr: staticSkillRuntimeManager{
+			skills: map[string]*skills.Skill{"helper": skill},
+		},
+	})
+	profile := &profiles.Profile{}
+	profile.Chat.EnabledSkills = []string{"helper"}
+
+	result := interactor.PrepareMessages(context.Background(), PrepareMessagesRequest{
+		Messages:       []llm.Message{{Role: "user", Content: "/helper"}},
+		UserContent:    "/helper",
+		ConversationID: "conv-1",
+		ActiveProfile:  profile,
+	})
+
+	if result.Err != nil {
+		t.Fatalf("PrepareMessages returned error: %v", result.Err)
+	}
+	if !hasContextBlock(promptBuilder.contextBlocks, "tool_protocol", "tool_selection_protocol") {
+		t.Fatal("prompt deve manter catalog-first quando a allowlist apenas omite o tool_catalog protegido")
+	}
+}
+
+func TestPrepareMessagesKeepsCatalogProtocolWhenSkillAllowsCatalog(t *testing.T) {
+	skill := &skills.Skill{
+		SkillMetadata: skills.SkillMetadata{Name: "helper", DisplayName: "Helper", Description: "Help"},
+		Slug:          "helper",
+		Content:       "help instructions",
+	}
+	// Allowlist inclui tool_catalog: catalog-first permanece coerente.
+	skill.Tools = &skills.ToolPermissions{Allowed: []string{tools.ToolCatalogName, "read_file"}}
+	promptBuilder := &capturingPromptBuilder{
+		baseEnabledTools:       []string{tools.ToolCatalogName},
+		baseToolCallingEnabled: true,
+	}
+	interactor := NewInteractor(InteractorConfig{
+		PromptBuilder: promptBuilder,
+		ContextProviders: contextprovider.NewRegistry(
+			slashskill.NewContextProvider(),
+			fakeToolProtocolProvider{},
+		),
+		SkillMgr: staticSkillRuntimeManager{
+			skills: map[string]*skills.Skill{"helper": skill},
+		},
+	})
+	profile := &profiles.Profile{}
+	profile.Chat.EnabledSkills = []string{"helper"}
+
+	result := interactor.PrepareMessages(context.Background(), PrepareMessagesRequest{
+		Messages:       []llm.Message{{Role: "user", Content: "/helper"}},
+		UserContent:    "/helper",
+		ConversationID: "conv-1",
+		ActiveProfile:  profile,
+	})
+
+	if result.Err != nil {
+		t.Fatalf("PrepareMessages returned error: %v", result.Err)
+	}
+	if !hasContextBlock(promptBuilder.contextBlocks, "tool_protocol", "tool_selection_protocol") {
+		t.Fatal("prompt deve manter o protocolo catalog-first quando o skill permite tool_catalog")
+	}
+}
+
+func containsSkillTool(list []string, name string) bool {
+	for _, item := range list {
+		if item == name {
+			return true
+		}
+	}
+	return false
 }
 
 func TestPrepareMessagesDoesNotReportSlashSkillLoadedWithoutPromptBuilder(t *testing.T) {

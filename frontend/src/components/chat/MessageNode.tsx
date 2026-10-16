@@ -1,20 +1,23 @@
 import { logger } from '../../utils/logger';
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useLayoutEffect, useId } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChatMessage } from './ChatMessage';
-import { MessageNode as MessageNodeType, Message } from '../../store/chatStore';
+import { MessageNode as MessageNodeType, Message, useChatStore } from '../../store/chatStore';
 import { useChatNodeSessionState } from './ChatSessionContext';
 import { playBumpSound } from '../../services/audioFeedback';
-import { UpdateMessage } from '@wailsjs/go/wailsapi/Conversations';
+import { getChatEventControllerExecutionId } from '../../services/chatEventController';
+import { useChatMessageEditDraft } from './useChatMessageEditDraft';
 import { announce } from '../../hooks/useAnnouncer';
 import { useVirtualModal } from '../../hooks/useVirtualModal';
-import { handleError, ErrorSeverity } from '../../utils/errorHandler';
 import { messageAudioService } from '../../services/messageAudio';
-import type { EditorSendTargetOption, SendToEditorPayload } from '../../lib/editorSendMenu';
+import type { EditorSendTargetOption, ChatSendToEditorPayload } from '../../lib/editorSendMenu';
 import { ttsService } from '../../services/tts';
+import { useAuthStore } from '../../store/authStore';
+import { useWorkspaceStore } from '../../store/workspaceStore';
+import { useOptionalWorkspacePanel } from '../workspace/WorkspacePanelContext';
+import { useModalId } from '../ui/Modal';
+import { captureChatNavigationTarget, registerChatNavigationSurface, requestChatNavigationCommand, type ChatNavigationCommandID, type ChatNavigationTarget } from '../../lib/commandChatNavigation';
 import './MessageNode.css';
-
-const TOOL_ONLY_TURN_PLACEHOLDER_SOURCE = 'tool_only_turn_placeholder';
 
 export interface MessageNodeProps {
   node: MessageNodeType;
@@ -36,9 +39,13 @@ export interface MessageNodeProps {
   onJumpToEnd?: () => void | Promise<void>;
   onContextMenu?: (e: React.MouseEvent, message: Message) => void;
   onSpeak?: (message: Message) => void;
+  onCopy?: (message: Message, markdown: boolean) => void;
+  onEdit?: (message: Message) => void;
+  onSaveEdit?: (message: Message) => void;
+  commandPathname?: string;
   onDelete?: (message: Message) => void;
   editorTargets?: EditorSendTargetOption[];
-  onSendToEditor?: (payload: SendToEditorPayload) => void;
+  onSendToEditor?: (payload: ChatSendToEditorPayload) => void;
 }
 
 export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
@@ -55,6 +62,10 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
   onJumpToEnd,
   onContextMenu,
   onSpeak,
+  onCopy,
+  onEdit,
+  onSaveEdit,
+  commandPathname,
   onDelete,
   editorTargets,
   onSendToEditor,
@@ -67,8 +78,8 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
   const messageId = node.message.id;
   const {
     conversationId,
+    sessionKey,
     editingMessageId,
-    readingMessageId,
     streamingMessageId,
     streamingReasoning,
     isThinking: isThinkingGlobal,
@@ -77,14 +88,20 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
     isExpanded,
     reasoningExpanded,
     setConversationEditingMessageId,
-    setConversationReadingMessageId,
     toggleConversationThreadExpanded,
     toggleConversationReasoningExpanded,
   } = useChatNodeSessionState(messageId);
+  const canonicalMessage = useChatStore(state => conversationId
+    ? state.getConversationMessages(conversationId).find(message => message.id === node.message.id)
+    : undefined);
+  const canonicalBinding = React.useRef<{ renderedMessage: Message; canonicalMessage: Message | undefined } | null>(null);
+  if (!canonicalBinding.current || canonicalBinding.current.renderedMessage !== node.message) {
+    canonicalBinding.current = { renderedMessage: node.message, canonicalMessage };
+  }
   
   const [isLoading, setIsLoading] = useState(false);
-  const [isEditing, setIsEditing] = useState(false);
-  const [editContent, setEditContent] = useState(node.message.content);
+  const editDraft = useChatMessageEditDraft(nodeRef, node.message, conversationId, sessionKey, commandPathname);
+  const { isEditing, editContent } = editDraft;
   const [isReading, setIsReading] = useState(false);
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
 
@@ -104,26 +121,12 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
   // - Não precisamos de estado local duplicado
   const children = node.children || [];
 
-  // Detecta modo leitura acionado externamente (pelo menu de contexto)
-  useEffect(() => {
-    if (readingMessageId === node.message.id && !isReading) {
-      if (!node.message.internal) {
-        setIsReading(true);
-      }
-      // Limpa o estado na store
-      if (conversationId) {
-        setConversationReadingMessageId(conversationId, null);
-      }
-    }
-  }, [conversationId, readingMessageId, node.message.id, node.message.internal, isReading, setConversationReadingMessageId]);
-
   // Detecta edição acionada externamente (pelo menu de contexto)
   useEffect(() => {
     if (editingMessageId === node.message.id && !isEditing) {
       // Só permite editar mensagens do usuário
       if (node.message.role === 'user' && !node.message.internal && !node.message.isStreaming) {
-        setIsEditing(true);
-        setEditContent(node.message.content);
+        editDraft.open();
         announce(t('chat.editingMessage'));
       }
       // Limpa o estado na store
@@ -154,62 +157,178 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
 
   const hasChildren = node.childCount > 0 || children.length > 0;
 
-  const handleToggle = useCallback(async () => {
-    if (!hasChildren) return;
+  const navigationInstanceId = useId();
+  const panel = useOptionalWorkspacePanel();
+  const modalId = useModalId();
+  const owner = useAuthStore(state => state.user);
+  const navigationLive = React.useRef({ node, conversationId, sessionKey, commandPathname, panel, isReading, isEditing, onContextMenu, onLoadChildren, streamingMessageId, streamingReasoning });
+  navigationLive.current = { node, conversationId, sessionKey, commandPathname, panel, isReading, isEditing, onContextMenu, onLoadChildren, streamingMessageId, streamingReasoning };
+  const navigationListeners = React.useRef(new Set<() => void>());
+  const mounted = React.useRef(false);
+  const pendingExpansion = React.useRef<{ lease: ChatNavigationTarget; root: HTMLElement; ready: boolean; focusChild: boolean } | null>(null);
+  const loadingRef = React.useRef(false);
 
-    const wasExpanded = isExpanded;
-    
-    // Alterna expansão na store
-    if (!conversationId) return;
-    toggleConversationThreadExpanded(conversationId, node.message.id);
-    
-    // Aguarda um tick para garantir atualização do estado
-    await new Promise(resolve => setTimeout(resolve, 0));
-    
-    // Se estava fechado e tem filhos para carregar (childCount > 0 mas children.length === 0)
-    // Isso acontece quando os filhos ainda não foram carregados do banco
-    if (!wasExpanded && children.length === 0 && node.childCount > 0 && onLoadChildren) {
+  const requestNavigation = (id: ChatNavigationCommandID) => requestChatNavigationCommand(id, navigationInstanceId);
+  const startThreadExpansion = () => {
+    const live = navigationLive.current;
+    const root = nodeRef.current;
+    if (!root || !live.conversationId || loadingRef.current) return false;
+    // This separate lease belongs to the asynchronous child-load lifetime,
+    // not to the central dispatcher's synchronous presentation effect.
+    const lease = captureChatNavigationTarget(() => navigationLive.current.commandPathname ?? '', 'chat.message.thread.expand', navigationInstanceId);
+    if (!lease) return false;
+    pendingExpansion.current?.lease.dispose();
+    const pending = { lease, root, ready: (live.node.children?.length ?? 0) > 0, focusChild: document.activeElement === root };
+    pendingExpansion.current = pending;
+    if (!lease.isCurrent()) { lease.dispose(); pendingExpansion.current = null; return false; }
+    if (!pending.ready && live.onLoadChildren) {
+      loadingRef.current = true;
       setIsLoading(true);
-      try {
-        // onLoadChildren atualiza node.children na store, causando re-render automático
-        await onLoadChildren(node.message.id);
-      } catch (error) {
-        logger.error('[MessageNode] Error loading children:', error);
-      } finally {
-        setIsLoading(false);
-      }
     }
-  }, [conversationId, hasChildren, isExpanded, toggleConversationThreadExpanded, node.message.id, node.childCount, children.length, onLoadChildren]);
+    toggleConversationThreadExpanded(live.conversationId, live.node.message.id);
+    if (!pending.ready && live.onLoadChildren) {
+      void (async () => {
+        try {
+          if (!lease.isCurrent()) return;
+          await live.onLoadChildren!(live.node.message.id);
+          if (lease.isCurrent()) pending.ready = true;
+        } catch (error) {
+          if (lease.isCurrent()) logger.error('[MessageNode] Error loading children:', error);
+          lease.dispose();
+        } finally {
+          if (mounted.current && pendingExpansion.current === pending) {
+            loadingRef.current = false;
+            setIsLoading(false);
+          }
+        }
+      })();
+    }
+    return true;
+  };
+
+  useLayoutEffect(() => {
+    navigationListeners.current.forEach(changed => changed());
+    const pending = pendingExpansion.current;
+    if (!pending) return;
+    if (!pending.lease.isCurrent()) {
+      pending.lease.dispose();
+      pendingExpansion.current = null;
+      if (loadingRef.current) { loadingRef.current = false; setIsLoading(false); }
+      return;
+    }
+    if (!pending.ready) return;
+    if (pending.focusChild && document.activeElement === pending.root) {
+      pending.root.querySelector<HTMLElement>(':scope > .message-node__children > .message-node')?.focus();
+    }
+    pending.lease.dispose();
+    pendingExpansion.current = null;
+  });
+  useLayoutEffect(() => {
+    const root = nodeRef.current;
+    const workspace = useWorkspaceStore.getState().workspace;
+    if (!root || !owner || !workspace || !panel || !conversationId || !sessionKey || !commandPathname) return;
+    mounted.current = true;
+    const containsMessageReference = (nodes: MessageNodeType[] | undefined, message: Message): boolean => (
+      !!nodes?.some(item => item.message === message || containsMessageReference(item.children, message))
+    );
+    const current = () => {
+      const live = navigationLive.current;
+      const binding = canonicalBinding.current;
+      const state = useChatStore.getState();
+      const currentCanonicalMessage = state.getConversationMessages(conversationId)
+        .find(message => message.id === live.node.message.id);
+      const surfaceSession = state.surfaceSessionsByKey?.[sessionKey];
+      const visibleNodes = surfaceSession?.visibleThreadedMessages;
+      const belongsToCurrentProjection = visibleNodes
+        ? containsMessageReference(visibleNodes, live.node.message)
+        : currentCanonicalMessage === live.node.message;
+      const executionId = getChatEventControllerExecutionId(conversationId);
+      const isActiveSurfaceStream = !!executionId && surfaceSession?.surfaceOrigin?.executionId === executionId &&
+        surfaceSession.conversationId === conversationId &&
+        surfaceSession.streamingMessageId === live.node.message.id && live.node.message.isStreaming &&
+        binding?.canonicalMessage == null && currentCanonicalMessage == null && belongsToCurrentProjection;
+      return mounted.current && nodeRef.current === root && live.panel?.isActive === true &&
+        live.panel.tab.id === panel.tab.id && live.conversationId === conversationId && live.sessionKey === sessionKey &&
+        surfaceSession?.conversationId === conversationId &&
+        binding?.renderedMessage === live.node.message &&
+        ((binding.canonicalMessage != null && currentCanonicalMessage === binding.canonicalMessage) || isActiveSurfaceStream) &&
+        belongsToCurrentProjection;
+    };
+    const off = registerChatNavigationSurface({
+      root, instanceId: navigationInstanceId,
+      allowedCommands: ['chat.message.read.open', 'chat.message.menu.open', 'chat.message.reasoning.toggle', 'chat.message.thread.expand', 'chat.message.thread.collapse'],
+      readContext: () => ({ pathname: navigationLive.current.commandPathname ?? '', ownerId: owner.userId, sessionId: owner.sessionId,
+        workspaceId: workspace.id, tabId: panel.tab.id, conversationId, chatSessionKey: sessionKey, modalId: modalId ?? undefined,
+        messageId: navigationLive.current.node.message.id, message: navigationLive.current.node.message }),
+      isCurrent: current,
+      subscribe(changed) {
+        navigationListeners.current.add(changed);
+        const unsubscribe = useChatStore.subscribe(changed);
+        return () => { navigationListeners.current.delete(changed); unsubscribe(); };
+      },
+      canOpen(id, target) {
+        const live = navigationLive.current;
+        const message = live.node.message;
+        if (!current() || live.isReading || live.isEditing ||
+          target instanceof Element && target !== root && !!target.closest('input,textarea,select,[contenteditable="true"]')) return false;
+        const state = useChatStore.getState();
+        const isTransientSurfaceStream = message.isStreaming &&
+          state.surfaceSessionsByKey?.[sessionKey]?.streamingMessageId === message.id &&
+          state.getConversationMessages(conversationId).every(candidate => candidate.id !== message.id);
+        if (isTransientSurfaceStream) return id === 'chat.message.read.open' && !message.internal;
+        const expanded = useChatStore.getState().isConversationThreadExpanded(conversationId, message.id, sessionKey);
+        if (id === 'chat.message.read.open') return !message.internal;
+        if (id === 'chat.message.menu.open') return !message.internal && !!live.onContextMenu;
+        if (id === 'chat.message.reasoning.toggle') return message.role === 'assistant' &&
+          (!!message.reasoning || message.id === live.streamingMessageId && !!live.streamingReasoning);
+        if (id === 'chat.message.thread.expand') return !expanded && !loadingRef.current && ((live.node.children?.length ?? 0) > 0 || live.node.childCount > 0 && !!live.onLoadChildren);
+        if (id === 'chat.message.thread.collapse') return expanded;
+        return false;
+      },
+      open(id) {
+        const live = navigationLive.current;
+        if (id === 'chat.message.read.open') {
+          root.focus();
+          if (document.activeElement !== root) return false;
+          setIsReading(true);
+          return true;
+        }
+        if (id === 'chat.message.reasoning.toggle') {
+          const wasExpanded = useChatStore.getState().isConversationReasoningExpanded(conversationId, live.node.message.id, sessionKey);
+          toggleConversationReasoningExpanded(conversationId, live.node.message.id);
+          announce(t(wasExpanded ? 'chat.reasoningHidden' : 'chat.reasoningShown'));
+          return true;
+        }
+        if (id === 'chat.message.thread.expand') return startThreadExpansion();
+        if (id === 'chat.message.thread.collapse') {
+          pendingExpansion.current?.lease.dispose(); pendingExpansion.current = null;
+          loadingRef.current = false; setIsLoading(false);
+          toggleConversationThreadExpanded(conversationId, live.node.message.id);
+          return true;
+        }
+        if (id === 'chat.message.menu.open' && live.onContextMenu) {
+          const rect = root.getBoundingClientRect();
+          live.onContextMenu({ preventDefault() {}, stopPropagation() {}, clientX: rect.left + rect.width / 2,
+            clientY: rect.top + rect.height / 2, currentTarget: root, target: root } as unknown as React.MouseEvent, live.node.message);
+          return true;
+        }
+        return false;
+      },
+    });
+    return () => { mounted.current = false; off(); pendingExpansion.current?.lease.dispose(); pendingExpansion.current = null; loadingRef.current = false; };
+  }, [navigationInstanceId, conversationId, sessionKey, panel?.tab.id, owner?.userId, owner?.sessionId, modalId, commandPathname, node.message, canonicalMessage]);
+
+  const handleToggle = () => requestNavigation(isExpanded ? 'chat.message.thread.collapse' : 'chat.message.thread.expand');
 
   const isInternal = node.message.internal || level > 0;
-  const isToolOnlyTurnPlaceholder = node.message.source === TOOL_ONLY_TURN_PLACEHOLDER_SOURCE;
 
   // Handlers de edição
-  const handleSaveEdit = async () => {
-    if (!editContent.trim()) return;
-
-    try {
-      const messageId = node.message.id;
-      await UpdateMessage(messageId, editContent);
-      announce(t('chat.messageEdited'));
-      setIsEditing(false);
-      
-      // Restaura o foco para a mensagem após salvar
-      requestAnimationFrame(() => {
-        nodeRef.current?.focus();
-      });
-    } catch (error) {
-      handleError(error, {
-        source: 'MessageNode.handleSaveEdit',
-        userMessage: t('chat.editSaveError'),
-        severity: ErrorSeverity.RECOVERABLE,
-      });
-    }
+  const handleSaveEdit = () => {
+    onSaveEdit?.(node.message);
   };
 
   const handleCancelEdit = () => {
-    setEditContent(node.message.content);
-    setIsEditing(false);
+    editDraft.cancel();
     announce(t('chat.editCancelled'));
     
     // Restaura o foco para a mensagem após cancelar
@@ -265,24 +384,19 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
     }
   };
 
-  const expandAndFocusFirst = async () => {
+  const expandAndFocusFirst = () => {
     if (!hasChildren) return;
-    
-    if (!isExpanded) {
-      await handleToggle();
-      // Aguarda renderização dos filhos
-      setTimeout(() => {
-        focusFirstChild();
-      }, 100);
-    } else {
-      // Já expandido, apenas foca no primeiro filho
-      focusFirstChild();
-    }
+    if (!isExpanded) requestNavigation('chat.message.thread.expand');
+    else focusFirstChild();
   };
-  
+
   // Navegação por teclado (como no Svelte)
   const handleKeyDown = async (e: React.KeyboardEvent) => {
     const key = e.key;
+    if (e.target instanceof Element && e.target.closest('.message-node') !== nodeRef.current) return;
+    if (e.defaultPrevented || e.nativeEvent.isComposing || e.keyCode === 229) return;
+    if (e.repeat && (key === 'Enter' || key.toLowerCase() === 'r' || key === ' ' || key === 'F2' || key === 'Delete' || e.ctrlKey && key.toLowerCase() === 'c')) return;
+    if (e.target instanceof Element && e.target.closest('input,textarea,select,[contenteditable="true"]')) return;
 
     // Se está editando, deixar o editor tratar todas as teclas
     // Verifica também se o foco está em um textarea ou button (editor)
@@ -305,6 +419,11 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
       return;
     }
 
+    // Native controls own their activation keys; the message is not a second
+    // Enter/Space handler for a thread button, link or context-menu trigger.
+    if (e.target instanceof Element && e.target !== nodeRef.current &&
+      e.target.closest('button,a[href],summary,[role="button"],[role="link"],[role="menuitem"],[role="combobox"]')) return;
+
     // Espaço: reproduz TTS da mensagem
     if (key === ' ' && !node.message.isStreaming) {
       e.preventDefault();
@@ -316,10 +435,10 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
     }
     
     // Enter ativa modo de leitura (virtual modal)
-    if (key === 'Enter' && !node.message.internal) {
+    if (key === 'Enter' && !e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey && !node.message.internal) {
       e.preventDefault();
       e.stopPropagation();
-      setIsReading(true);
+      requestNavigation('chat.message.read.open');
       return;
     }
 
@@ -327,9 +446,7 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
     if (key === 'F2' && node.message.role === 'user' && !node.message.internal && !node.message.isStreaming) {
       e.preventDefault();
       e.stopPropagation();
-      setIsEditing(true);
-      setEditContent(node.message.content);
-      announce(t('chat.editingMessage'));
+      if (!e.repeat && !e.nativeEvent.isComposing && e.keyCode !== 229) onEdit?.(node.message);
       return;
     }
 
@@ -338,7 +455,6 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
       key === 'Delete'
       && !node.message.internal
       && !node.message.isStreaming
-      && !isToolOnlyTurnPlaceholder
       && onDelete
     ) {
       e.preventDefault();
@@ -351,23 +467,15 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
     if (e.ctrlKey && key === 'c' && !e.altKey && !node.message.internal) {
       e.preventDefault();
       e.stopPropagation();
-      const textToCopy = e.shiftKey 
-        ? `[${node.message.role}] ${node.message.content}` // Ctrl+Shift+C: com role
-        : node.message.content; // Ctrl+C: apenas conteúdo
-      navigator.clipboard.writeText(textToCopy);
-      announce(e.shiftKey ? t('chat.copiedWithRole') : t('chat.contentCopied'));
+      if (!e.repeat && !e.nativeEvent.isComposing && e.keyCode !== 229) onCopy?.(node.message, e.shiftKey);
       return;
     }
 
-    // R: toggle do reasoning (somente mensagens do assistente com reasoning)
-    if ((key === 'r' || key === 'R') && node.message.role === 'assistant' && node.message.reasoning) {
+    // R keeps its native node ingress but delegates the effect to the registry.
+    if ((key === 'r' || key === 'R') && !e.ctrlKey && !e.altKey && !e.metaKey && node.message.role === 'assistant' && node.message.reasoning) {
       e.preventDefault();
       e.stopPropagation();
-      if (!conversationId) return;
-      toggleConversationReasoningExpanded(conversationId, node.message.id);
-      // O estado é lido pela store, então precisamos verificar o novo estado
-      const isNowExpanded = !reasoningExpanded; // Toggle do estado atual
-      announce(isNowExpanded ? t('chat.reasoningShown') : t('chat.reasoningHidden'));
+      requestNavigation('chat.message.reasoning.toggle');
       return;
     }
 
@@ -417,9 +525,7 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
       e.preventDefault();
       e.stopPropagation();
       if (isExpanded && hasChildren) {
-        if (conversationId) {
-          toggleConversationThreadExpanded(conversationId, node.message.id);
-        }
+        requestNavigation('chat.message.thread.collapse');
       } else if (level > 0) {
         focusParent();
       }
@@ -431,9 +537,7 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
       if (isExpanded && hasChildren) {
         e.preventDefault();
         e.stopPropagation();
-        if (conversationId) {
-          toggleConversationThreadExpanded(conversationId, node.message.id);
-        }
+        requestNavigation('chat.message.thread.collapse');
       } else if (level > 0) {
         e.preventDefault();
         e.stopPropagation();
@@ -507,24 +611,12 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
     }
   };
 
-  // Handler para onKeyUp - captura ContextMenu key ou Shift+F10
+  // ContextMenu/Shift+F10 keep native release semantics; the effect is shared.
   const handleKeyUp = (e: React.KeyboardEvent) => {
-    if ((e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) && !node.message.internal) {
-      e.preventDefault();
-      e.stopPropagation();
-      if (onContextMenu && nodeRef.current) {
-        // Simula evento de mouse no centro do elemento
-        const rect = nodeRef.current.getBoundingClientRect();
-        const syntheticEvent = {
-          preventDefault: () => {},
-          stopPropagation: () => {},
-          clientX: rect.left + rect.width / 2,
-          clientY: rect.top + rect.height / 2,
-          currentTarget: nodeRef.current, // Para restaurar foco após fechar menu
-          target: nodeRef.current,
-        } as unknown as React.MouseEvent;
-        onContextMenu(syntheticEvent, node.message);
-      }
+    if (e.defaultPrevented || e.repeat || e.nativeEvent.isComposing || e.keyCode === 229 || e.ctrlKey || e.altKey || e.metaKey ||
+      e.target instanceof Element && (e.target.closest('.message-node') !== nodeRef.current || !!e.target.closest('input,textarea,select,[contenteditable="true"]'))) return;
+    if ((e.key === 'ContextMenu' || e.shiftKey && e.key === 'F10') && !node.message.internal) {
+      if (requestNavigation('chat.message.menu.open')) { e.preventDefault(); e.stopPropagation(); }
     }
   };
 
@@ -534,6 +626,7 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
       className={`message-node message-node--level-${level} ${isInternal ? 'message-node--internal' : ''} ${isReading ? 'message-node--reading' : ''}`}
       data-level={level}
       data-sibling-index={siblingIndex}
+      data-chat-navigation-instance={navigationInstanceId}
       data-message-node
       data-message-id={node.message.id}
       onKeyDown={handleKeyDown}
@@ -552,25 +645,21 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
           isThreadExpanded={isExpanded}
           isThreadLoading={isLoading}
           onThreadToggle={handleToggle}
-          onContextMenu={onContextMenu}
+          onContextMenu={(event) => { event.preventDefault(); event.stopPropagation(); requestNavigation('chat.message.menu.open'); }}
           onSpeak={handleSpeak}
           editorTargets={editorTargets}
           onSendToEditor={onSendToEditor}
           isReading={isReading}
           isEditing={isEditing}
           editContent={editContent}
-          onEditContentChange={setEditContent}
+          onEditContentChange={editDraft.change}
           onSaveEdit={handleSaveEdit}
           onCancelEdit={handleCancelEdit}
           // Reasoning/Thinking - passa apenas para a mensagem em streaming
           streamingReasoning={node.message.id === streamingMessageId ? (streamingReasoning || undefined) : undefined}
           isThinking={node.message.id === streamingMessageId ? isThinkingGlobal : false}
           isReasoningExpanded={reasoningExpanded}
-          onToggleReasoning={() => {
-            if (conversationId) {
-              toggleConversationReasoningExpanded(conversationId, node.message.id);
-            }
-          }}
+          onToggleReasoning={() => requestNavigation('chat.message.reasoning.toggle')}
           // Tool calling - passa apenas para a mensagem em streaming
           activeToolCalls={node.message.id === streamingMessageId ? activeToolCalls : undefined}
           completedSegments={node.message.id === streamingMessageId ? completedSegments : undefined}
@@ -590,6 +679,10 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
               onLoadChildren={onLoadChildren}
               onContextMenu={onContextMenu}
               onSpeak={onSpeak}
+              onCopy={onCopy}
+              onEdit={onEdit}
+              onSaveEdit={onSaveEdit}
+              commandPathname={commandPathname}
               onDelete={onDelete}
               // Não passa onReachEnd para threads internas
             />

@@ -21,15 +21,17 @@ function PanelShortcut({ onNew }: { onNew: () => void }) {
   return null;
 }
 
-function pressCtrlN(target: EventTarget = window) {
-  target.dispatchEvent(
-    new KeyboardEvent('keydown', {
-      key: 'n',
-      ctrlKey: true,
-      bubbles: true,
-      cancelable: true,
-    }),
-  );
+function pressCtrlN(target: EventTarget = window, flags: KeyboardEventInit = {}, alreadyConsumed = false) {
+  const event = new KeyboardEvent('keydown', {
+    key: 'n',
+    ctrlKey: true,
+    bubbles: true,
+    cancelable: true,
+    ...flags,
+  });
+  if (alreadyConsumed) event.preventDefault();
+  target.dispatchEvent(event);
+  return event;
 }
 
 describe('useActivePanelNewShortcut', () => {
@@ -89,5 +91,29 @@ describe('useActivePanelNewShortcut', () => {
 
     expect(onNew).not.toHaveBeenCalled();
     input.remove();
+  });
+
+  it.each([
+    ['evento já consumido', {}, true],
+    ['repetição', { repeat: true }, false],
+    ['composição IME', { isComposing: true }, false],
+    ['keyCode 229', { keyCode: 229 }, false],
+  ])('não executa com %s', (_reason, flags, alreadyConsumed) => {
+    const onNew = vi.fn();
+    render(<CrudPanel active onNew={onNew} />);
+
+    pressCtrlN(window, flags, alreadyConsumed);
+
+    expect(onNew).not.toHaveBeenCalled();
+  });
+
+  it('ignora Ctrl+N reportado como AltGraph', () => {
+    const onNew = vi.fn();
+    render(<CrudPanel active onNew={onNew} />);
+    const altGraphEvent = new KeyboardEvent('keydown', { key: 'n', ctrlKey: true, bubbles: true, cancelable: true });
+    Object.defineProperty(altGraphEvent, 'getModifierState', { value: (modifier: string) => modifier === 'AltGraph' });
+    window.dispatchEvent(altGraphEvent);
+
+    expect(onNew).not.toHaveBeenCalled();
   });
 });

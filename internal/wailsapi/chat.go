@@ -2,6 +2,7 @@ package wailsapi
 
 import (
 	"context"
+	"errors"
 	"sync"
 
 	"assistente/controllers"
@@ -17,6 +18,41 @@ type Chat struct {
 	mu      sync.RWMutex
 	session Session
 	ctrl    *controllers.ChatController
+	command ChatCommandHook
+}
+
+// ChatCommandHook commits an admitted operation through the original controller.
+// It is wired internally, never supplied by the caller. next captures stripped params.
+type ChatCommandHook func(context.Context, *llm.ChatCommandMetadata, string, string, func(context.Context) (string, error)) (string, error)
+
+func AttachChatCommandHook(api *Chat, hook ChatCommandHook) {
+	if api == nil {
+		return
+	}
+	api.mu.Lock()
+	defer api.mu.Unlock()
+	api.command = hook
+}
+
+func stripChatCommand(params llm.ChatParams) (*llm.ChatCommandMetadata, llm.ChatParams) {
+	metadata := params.Command
+	params.Command = nil
+	return metadata, params
+}
+
+func (api *Chat) submit(ctx context.Context, metadata *llm.ChatCommandMetadata, conversationID, retryID string, next func(context.Context) (string, error)) (string, error) {
+	// Existing deep-link/non-migrated callers retain the authenticated pipeline.
+	// Present but invalid metadata MUST NOT fall back to this legacy ingress.
+	if metadata == nil {
+		return next(ctx)
+	}
+	api.mu.RLock()
+	hook := api.command
+	api.mu.RUnlock()
+	if hook != nil {
+		return hook(ctx, metadata, conversationID, retryID, next)
+	}
+	return "", errors.New("chat command hook unavailable")
 }
 
 // NewChat cria o bind vazio; AttachChat preenche deps no startup.
@@ -52,7 +88,10 @@ func (api *Chat) SendMessage(conversationID, userContent, userMedia string, para
 		return "", err
 	}
 	return WithUser(session, func(ctx context.Context) (string, error) {
-		return ctrl.SendMessage(ctx, conversationID, userContent, userMedia, params)
+		metadata, params := stripChatCommand(params)
+		return api.submit(ctx, metadata, conversationID, "", func(turnCtx context.Context) (string, error) {
+			return ctrl.SendMessage(turnCtx, conversationID, userContent, userMedia, params)
+		})
 	})
 }
 
@@ -63,6 +102,12 @@ func (api *Chat) RetryMessage(conversationID, messageID string, params llm.ChatP
 		return "", err
 	}
 	return WithUser(session, func(ctx context.Context) (string, error) {
-		return ctrl.RetryMessage(ctx, conversationID, messageID, params)
+		if messageID == "" {
+			return "", errors.New("retry message ID required")
+		}
+		metadata, params := stripChatCommand(params)
+		return api.submit(ctx, metadata, conversationID, messageID, func(turnCtx context.Context) (string, error) {
+			return ctrl.RetryMessage(turnCtx, conversationID, messageID, params)
+		})
 	})
 }

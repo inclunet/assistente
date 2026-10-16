@@ -16,12 +16,22 @@ import { MermaidCodeBlockNodeView } from './MermaidCodeBlockNodeView';
 import { isSafeLinkHref } from '../../lib/safeLink';
 import { normalizePastedLinkHref } from '../../lib/linkPaste';
 
+// Os comandos permanecem disponíveis; apenas os keymaps migrados deixam
+// de concorrer com bindings remapeados/suprimidos pelo dispatcher do produto.
+const CommandAwareStarterKit = StarterKit.extend({
+  addExtensions() {
+    return (this.parent?.() ?? []).map(extension =>
+      ['bold', 'italic', 'strike', 'paragraph', 'heading', 'blockquote', 'bulletList', 'orderedList'].includes(extension.name)
+        ? extension.extend({ addKeyboardShortcuts: () => ({}) })
+        : extension);
+  },
+});
+
 type MermaidRequestCtx = {
   mermaidBlockId: string;
   code: string;
   insertText?: string;
-  apply: (nextCode: string) => void;
-  remove: () => void;
+  expectedEditor?: object;
 };
 
 function isSafeImageSrc(src: string): boolean {
@@ -62,6 +72,14 @@ export function buildRichTextExtensions(args: {
   });
 
   const MermaidAwareCodeBlock = CodeBlock.extend({
+    addAttributes() {
+      return { ...this.parent?.(), mermaidBlockId: { default: null, rendered: false } };
+    },
+    addKeyboardShortcuts() {
+      const shortcuts = { ...this.parent?.() };
+      delete shortcuts['Mod-Alt-c'];
+      return shortcuts;
+    },
     addOptions() {
       const parent = this.parent?.() as CodeBlockOptions | undefined;
       return {
@@ -162,7 +180,7 @@ export function buildRichTextExtensions(args: {
   });
 
   return [
-    StarterKit.configure({
+    CommandAwareStarterKit.configure({
       codeBlock: false,
       link: false,
     }),

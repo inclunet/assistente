@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"assistente/internal/logging"
 	"gorm.io/gorm"
 )
 
@@ -43,30 +44,31 @@ func taskListWorkflowQuery(ctx context.Context, base *gorm.DB) *gorm.DB {
 // templateWorkflow pode ser nil para usar workflow padrão (A Fazer, Em
 // Progresso, Concluído). slug: opcional; normalizado e único quando não vazio.
 func CreateTaskListWithContext(ctx context.Context, title, description string, templateWorkflow *TaskListWorkflow, slug string) (*TaskList, error) {
-	// Valida limite
-	var count int64
-	if err := ScopeByUser(ctx, db.WithContext(ctx).Model(&TaskList{}), "user_id").Count(&count).Error; err != nil {
-		return nil, err
-	}
-	if count >= MaxTaskLists {
-		return nil, errors.New("limite de tasklists atingido")
-	}
-
 	normalizedSlug := NormalizeTaskListSlug(slug)
 	if err := ValidateTaskListSlugFormat(normalizedSlug); err != nil {
 		return nil, err
 	}
-	taskList := &TaskList{
-		Title:             title,
-		Description:       description,
-		PreferredViewMode: "list",
-		Slug:              normalizedSlug,
-	}
-	if userID, ok := UserIDFromContext(ctx); ok {
-		taskList.UserID = userID
-	}
-
-	err := db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	var taskList *TaskList
+	// Adquire o writer antes das leituras, evitando promover um snapshot WAL
+	// obsoleto para escrita. Limite, slug e workflow pertencem à mesma transação.
+	err := withSQLiteImmediateTransaction(ctx, db, "tasklist.create", func(tx *gorm.DB) error {
+		var count int64
+		if err := ScopeByUser(ctx, tx.Model(&TaskList{}), "user_id").Count(&count).Error; err != nil {
+			return err
+		}
+		if count >= MaxTaskLists {
+			return errors.New("limite de tasklists atingido")
+		}
+		// Uma nova tentativa não reutiliza IDs/associações de uma transação revertida.
+		taskList = &TaskList{
+			Title:             title,
+			Description:       description,
+			PreferredViewMode: "list",
+			Slug:              normalizedSlug,
+		}
+		if userID, ok := UserIDFromContext(ctx); ok {
+			taskList.UserID = userID
+		}
 		if normalizedSlug != "" {
 			var taken int64
 			if err := ScopeByUser(ctx, tx.Model(&TaskList{}), "user_id").
@@ -96,32 +98,44 @@ func CreateTaskListWithContext(ctx context.Context, title, description string, t
 }
 
 // GetTaskListWithContext retorna uma tasklist do usuário do contexto pelo ID,
-// com workflow e tasks.
+// com workflow e hierarquia completa. O caminho completo usa uma única
+// projeção plana para tasks e monta a árvore em memória, sem Preload por nível.
+// A UI usa ListTasksPageWithContext e não chama este contrato completo.
 func GetTaskListWithContext(ctx context.Context, id string) (*TaskList, error) {
+	return GetTaskListWithHierarchyWithContext(ctx, id)
+}
+
+// GetTaskListMetadataWithContext retorna apenas a lista e o workflow. É o
+// caminho para eventos e validações que não consomem Tasks; evita hidratar
+// milhares de linhas só para obter título, slug ou configuração.
+func GetTaskListMetadataWithContext(ctx context.Context, id string) (*TaskList, error) {
 	var taskList TaskList
-	err := WithSQLiteBusyRetry(ctx, "tasklist.get", func() error {
-		return ScopeByUser(ctx, db.WithContext(ctx), "user_id").Preload("Workflow").
-			Preload("Tasks", func(db *gorm.DB) *gorm.DB {
-				return db.Where("parent_id IS NULL").Order("`order` ASC")
-			}).
-			Preload("Tasks.Subtasks", func(db *gorm.DB) *gorm.DB {
-				return db.Order("`order` ASC")
-			}).
+	err := WithSQLiteBusyRetry(ctx, "tasklist.get.metadata", func() error {
+		return ScopeByUser(ctx, db.WithContext(ctx).Model(&TaskList{}), "task_lists.user_id").
+			Select(`task_lists.*, (
+				SELECT COUNT(*) FROM tasks
+				WHERE tasks.task_list_id = task_lists.id
+				  AND tasks.parent_id IS NULL
+			) AS task_count`).
+			Preload("Workflow").
 			First(&taskList, "id = ?", id).Error
 	})
-
 	return &taskList, err
 }
 
-// GetAllTaskListsWithContext retorna todas as tasklists do usuário do
-// contexto, ordenadas por data de criação.
+// GetAllTaskListsWithContext retorna o catálogo de tasklists do usuário, com
+// workflow e contagem agregada, sem hidratar Tasks. Consumidores que precisam
+// do conteúdo usam paginação ou o contrato explícito de hierarquia completa.
 func GetAllTaskListsWithContext(ctx context.Context) ([]TaskList, error) {
 	var taskLists []TaskList
 	err := WithSQLiteBusyRetry(ctx, "tasklist.list_all", func() error {
-		return ScopeByUser(ctx, db.WithContext(ctx), "user_id").Preload("Workflow").
-			Preload("Tasks", func(db *gorm.DB) *gorm.DB {
-				return db.Where("parent_id IS NULL").Order("`order` ASC")
-			}).
+		return ScopeByUser(ctx, db.WithContext(ctx).Model(&TaskList{}), "task_lists.user_id").
+			Select(`task_lists.*, (
+				SELECT COUNT(*) FROM tasks
+				WHERE tasks.task_list_id = task_lists.id
+				  AND tasks.parent_id IS NULL
+			) AS task_count`).
+			Preload("Workflow").
 			Order("created_at DESC").
 			Find(&taskLists).Error
 	})
@@ -131,12 +145,30 @@ func GetAllTaskListsWithContext(ctx context.Context) ([]TaskList, error) {
 // UpdateTaskListWithContext atualiza title e description de uma tasklist do
 // usuário do contexto.
 func UpdateTaskListWithContext(ctx context.Context, id string, title, description string) error {
+	var current TaskList
+	query := ScopeByUser(ctx, db.WithContext(ctx).Model(&TaskList{}), "user_id")
+	if err := query.Where("id = ?", id).First(&current).Error; err != nil {
+		return err
+	}
 	return ScopeByUser(ctx, db.WithContext(ctx).Model(&TaskList{}), "user_id").
 		Where("id = ?", id).
 		Updates(map[string]interface{}{
 			"title":       title,
 			"description": description,
+			"updated_at":  nextTaskListUpdatedAt(current.UpdatedAt),
 		}).Error
+}
+
+// SQLite persiste timestamps com precisão de milissegundos nesta aplicação.
+// Garantir avanço estrito aqui evita que duas mutações sucessivas produzam o
+// mesmo fingerprint observável e atravessem uma proteção ABA.
+func nextTaskListUpdatedAt(previous time.Time) time.Time {
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	previous = previous.UTC().Truncate(time.Millisecond)
+	if !now.After(previous) {
+		return previous.Add(time.Millisecond)
+	}
+	return now
 }
 
 // SetTaskListViewModeWithContext define o modo de visualização (list ou
@@ -152,7 +184,7 @@ func SetTaskListViewModeWithContext(ctx context.Context, id string, viewMode str
 // workflow mas sem as tasks.
 func CloneTaskListWithContext(ctx context.Context, id string, newTitle string) (*TaskList, error) {
 	// Busca tasklist original
-	original, err := GetTaskListWithContext(ctx, id)
+	original, err := GetTaskListMetadataWithContext(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -186,42 +218,60 @@ func CloneTaskListWithContext(ctx context.Context, id string, newTitle string) (
 // ClearTaskListWithContext remove todas as tasks de uma tasklist do usuário
 // do contexto, mantendo a lista e o workflow.
 func ClearTaskListWithContext(ctx context.Context, id string) error {
-	taskIDs := taskQuery(ctx, db.Model(&Task{}).Select("tasks.id").Where("tasks.task_list_id = ?", id))
-	// Deleta notas de todas as tasks da lista
-	if err := db.WithContext(ctx).Where("task_id IN (?)", taskIDs).
-		Delete(&TaskNote{}).Error; err != nil {
-		return err
-	}
-	if err := db.WithContext(ctx).Where("id IN (?)", taskIDs).Delete(&Task{}).Error; err != nil {
-		return err
-	}
-	return nil
+	return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var taskIDs []string
+		if err := taskQuery(ctx, tx.Model(&Task{}).Select("tasks.id").Where("tasks.task_list_id = ?", id)).Pluck("tasks.id", &taskIDs).Error; err != nil {
+			return err
+		}
+		var rootIDs []string
+		if err := taskQuery(ctx, tx.Model(&Task{}).Select("tasks.id").Where("tasks.task_list_id = ? AND tasks.parent_id IS NULL", id)).Pluck("tasks.id", &rootIDs).Error; err != nil {
+			return err
+		}
+		levels, err := taskDescendantLevelsWithContext(ctx, tx, rootIDs, taskIDs, id)
+		if err != nil {
+			return err
+		}
+		if len(taskIDs) > 0 {
+			noteIDs := taskNoteQuery(ctx, tx.Model(&TaskNote{}).Select("task_notes.id").Where("task_notes.task_id IN ?", taskIDs))
+			if err := tx.Where("id IN (?)", noteIDs).Delete(&TaskNote{}).Error; err != nil {
+				return err
+			}
+		}
+		return deleteTaskLevels(tx, ctx, levels)
+	})
 }
 
 // DeleteTaskListWithContext deleta uma tasklist do usuário do contexto e
 // todas suas tasks.
 func DeleteTaskListWithContext(ctx context.Context, id string) error {
-	taskIDs := taskQuery(ctx, db.Model(&Task{}).Select("tasks.id").Where("tasks.task_list_id = ?", id))
-	// Deleta notas de todas as tasks da lista
-	if err := db.WithContext(ctx).Where("task_id IN (?)", taskIDs).
-		Delete(&TaskNote{}).Error; err != nil {
-		return err
-	}
-
-	// Deleta tasks
-	if err := db.WithContext(ctx).Where("id IN (?)", taskIDs).Delete(&Task{}).Error; err != nil {
-		return err
-	}
-
-	// Deleta workflow
-	if err := db.WithContext(ctx).Where("task_list_id IN (?)",
-		ScopeByUser(ctx, db.WithContext(ctx).Model(&TaskList{}).Select("id").Where("id = ?", id), "user_id"),
-	).Delete(&TaskListWorkflow{}).Error; err != nil {
-		return err
-	}
-
-	// Deleta tasklist
-	return ScopeByUser(ctx, db.WithContext(ctx), "user_id").Where("id = ?", id).Delete(&TaskList{}).Error
+	return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var taskIDs []string
+		if err := taskQuery(ctx, tx.Model(&Task{}).Select("tasks.id").Where("tasks.task_list_id = ?", id)).Pluck("tasks.id", &taskIDs).Error; err != nil {
+			return err
+		}
+		var rootIDs []string
+		if err := taskQuery(ctx, tx.Model(&Task{}).Select("tasks.id").Where("tasks.task_list_id = ? AND tasks.parent_id IS NULL", id)).Pluck("tasks.id", &rootIDs).Error; err != nil {
+			return err
+		}
+		levels, err := taskDescendantLevelsWithContext(ctx, tx, rootIDs, taskIDs, id)
+		if err != nil {
+			return err
+		}
+		if len(taskIDs) > 0 {
+			noteIDs := taskNoteQuery(ctx, tx.Model(&TaskNote{}).Select("task_notes.id").Where("task_notes.task_id IN ?", taskIDs))
+			if err := tx.Where("id IN (?)", noteIDs).Delete(&TaskNote{}).Error; err != nil {
+				return err
+			}
+		}
+		if err := deleteTaskLevels(tx, ctx, levels); err != nil {
+			return err
+		}
+		listIDs := ScopeByUser(ctx, tx.Model(&TaskList{}).Select("id").Where("id = ?", id), "user_id")
+		if err := tx.Where("task_list_id IN (?)", listIDs).Delete(&TaskListWorkflow{}).Error; err != nil {
+			return err
+		}
+		return ScopeByUser(ctx, tx, "user_id").Where("id = ?", id).Delete(&TaskList{}).Error
+	})
 }
 
 // ==================== Workflow Operations ====================
@@ -271,12 +321,23 @@ func createWorkflowForTaskListWithDB(ctx context.Context, query *gorm.DB, taskLi
 // GetWorkflowWithContext retorna o workflow de uma tasklist do usuário do
 // contexto.
 func GetWorkflowWithContext(ctx context.Context, taskListID string) (*TaskListWorkflow, error) {
-	var workflow TaskListWorkflow
+	var workflow *TaskListWorkflow
 	err := WithSQLiteBusyRetry(ctx, "tasklist.workflow.get", func() error {
-		return taskListWorkflowQuery(ctx, db.Model(&TaskListWorkflow{})).
-			Where("task_list_workflows.task_list_id = ?", taskListID).
-			First(&workflow).Error
+		var err error
+		workflow, err = workflowWithDB(ctx, db, taskListID)
+		return err
 	})
+	if workflow == nil {
+		workflow = &TaskListWorkflow{}
+	}
+	return workflow, err
+}
+
+func workflowWithDB(ctx context.Context, q *gorm.DB, taskListID string) (*TaskListWorkflow, error) {
+	var workflow TaskListWorkflow
+	err := taskListWorkflowQuery(ctx, q.Model(&TaskListWorkflow{})).
+		Where("task_list_workflows.task_list_id = ?", taskListID).
+		First(&workflow).Error
 	return &workflow, err
 }
 
@@ -311,7 +372,35 @@ func UpdateWorkflowFullWithContext(
 	initialStatusID int,
 	statusMigration map[int]int,
 ) error {
-	if _, err := GetTaskListWithContext(ctx, taskListID); err != nil {
+	return updateWorkflowFull(ctx, taskListID, nil, statuses, transitions, initialStatusID, statusMigration)
+}
+
+// UpdateWorkflowFullCheckedWithContext é UpdateWorkflowFullWithContext com
+// controle de concorrência: grava somente se o workflow atual ainda for
+// equivalente a expected; caso contrário devolve ErrTaskListConfigConflict sem
+// gravar nem migrar tasks.
+func UpdateWorkflowFullCheckedWithContext(
+	ctx context.Context,
+	taskListID string,
+	expected TaskListWorkflowSnapshot,
+	statuses []TaskListWorkflowStatus,
+	transitions TaskListWorkflowTransitions,
+	initialStatusID int,
+	statusMigration map[int]int,
+) error {
+	return updateWorkflowFull(ctx, taskListID, &expected, statuses, transitions, initialStatusID, statusMigration)
+}
+
+func updateWorkflowFull(
+	ctx context.Context,
+	taskListID string,
+	expected *TaskListWorkflowSnapshot,
+	statuses []TaskListWorkflowStatus,
+	transitions TaskListWorkflowTransitions,
+	initialStatusID int,
+	statusMigration map[int]int,
+) error {
+	if _, err := GetTaskListMetadataWithContext(ctx, taskListID); err != nil {
 		return err
 	}
 	if len(statuses) == 0 {
@@ -353,30 +442,33 @@ func UpdateWorkflowFullWithContext(
 		}
 	}
 
-	counts, err := GetTaskCountsByStatusWithContext(ctx, taskListID)
-	if err != nil {
-		return fmt.Errorf("erro ao verificar tasks existentes: %w", err)
-	}
-
-	for usedStatusID, count := range counts {
-		if count == 0 {
-			continue
+	// IMMEDIATE pelo mesmo motivo de SetTaskListCustomActionsCheckedWithContext.
+	// As contagens também são lidas sob o lock: contadas antes, uma tarefa
+	// criada no intervalo num status removido ficaria sem status válido.
+	return withSQLiteImmediateTransaction(ctx, db, "tasklist.workflow.update_full", func(tx *gorm.DB) error {
+		// O conflito vem antes da contagem: um workflow alterado em outro lugar
+		// não pode virar um erro genérico de "status em uso".
+		if expected != nil {
+			if err := ensureWorkflowUnchanged(ctx, tx, taskListID, *expected); err != nil {
+				return err
+			}
 		}
-		if statusIDs[usedStatusID] {
-			continue
+		counts, err := taskCountsByStatus(ctx, tx, taskListID)
+		if err != nil {
+			return fmt.Errorf("erro ao verificar tasks existentes: %w", err)
 		}
-		if statusMigration != nil {
+		for usedStatusID, count := range counts {
+			if count == 0 || statusIDs[usedStatusID] {
+				continue
+			}
 			if _, ok := statusMigration[usedStatusID]; ok {
 				continue
 			}
+			return fmt.Errorf(
+				"status_id %d está em uso por %d task(s) e não existe nos novos statuses; forneça status_migration para migrá-las",
+				usedStatusID, count,
+			)
 		}
-		return fmt.Errorf(
-			"status_id %d está em uso por %d task(s) e não existe nos novos statuses; forneça status_migration para migrá-las",
-			usedStatusID, count,
-		)
-	}
-
-	return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		for oldID, newID := range statusMigration {
 			taskIDs := taskQuery(ctx, tx.Model(&Task{}).Select("tasks.id").Where("tasks.task_list_id = ? AND tasks.status_id = ?", taskListID, oldID))
 			if err := tx.Model(&Task{}).Where("id IN (?)", taskIDs).
@@ -403,18 +495,27 @@ func UpdateWorkflowFullWithContext(
 // GetTaskCountsByStatusWithContext retorna a contagem de tasks por status_id
 // para uma tasklist do usuário do contexto.
 func GetTaskCountsByStatusWithContext(ctx context.Context, taskListID string) (map[int]int64, error) {
+	var result map[int]int64
+	err := WithSQLiteBusyRetry(ctx, "tasklist.status_counts", func() error {
+		var err error
+		result, err = taskCountsByStatus(ctx, db, taskListID)
+		return err
+	})
+	return result, err
+}
+
+// taskCountsByStatus conta as tasks por status_id usando q (conexão comum ou
+// transação em curso).
+func taskCountsByStatus(ctx context.Context, q *gorm.DB, taskListID string) (map[int]int64, error) {
 	var counts []struct {
 		StatusID int
 		Count    int64
 	}
-	err := WithSQLiteBusyRetry(ctx, "tasklist.status_counts", func() error {
-		return taskQuery(ctx, db.Model(&Task{})).
-			Where("tasks.task_list_id = ?", taskListID).
-			Group("tasks.status_id").
-			Select("tasks.status_id, count(*) as count").
-			Scan(&counts).Error
-	})
-	if err != nil {
+	if err := taskQuery(ctx, q.Model(&Task{})).
+		Where("tasks.task_list_id = ?", taskListID).
+		Group("tasks.status_id").
+		Select("tasks.status_id, count(*) as count").
+		Scan(&counts).Error; err != nil {
 		return nil, err
 	}
 
@@ -430,9 +531,15 @@ func GetTaskCountsByStatusWithContext(ctx context.Context, taskListID string) (m
 // slug: nil = não altera slug; ponteiro para string vazia = limpa slug;
 // valor = define slug normalizado.
 func UpdateTaskListFullWithContext(ctx context.Context, id string, title, description, preferredViewMode string, slug *string) error {
+	var current TaskList
+	if err := ScopeByUser(ctx, db.WithContext(ctx).Model(&TaskList{}), "user_id").
+		Where("id = ?", id).First(&current).Error; err != nil {
+		return err
+	}
 	updates := map[string]interface{}{
 		"title":       title,
 		"description": description,
+		"updated_at":  nextTaskListUpdatedAt(current.UpdatedAt),
 	}
 	if preferredViewMode == "list" || preferredViewMode == "kanban" {
 		updates["preferred_view_mode"] = preferredViewMode
@@ -457,29 +564,71 @@ func UpdateTaskListFullWithContext(ctx context.Context, id string, title, descri
 }
 
 // SetTaskListConversationWithContext vincula (ou desvincula, com nil) uma
-// tasklist do usuário do contexto a uma conversa. Não valida a existência da
-// conversa: o vínculo é uma referência fraca (a conversa pode ser de outra
-// origem/canal); o escopo por usuário já protege contra acesso indevido.
+// tasklist do usuário do contexto a uma conversa que pertença ao mesmo usuário.
 func SetTaskListConversationWithContext(ctx context.Context, id string, conversationID *string) error {
-	return ScopeByUser(ctx, db.WithContext(ctx).Model(&TaskList{}), "user_id").
-		Where("id = ?", id).
-		Update("conversation_id", conversationID).Error
+	userID, err := RequireUserID(ctx)
+	if err != nil {
+		return err
+	}
+	return withSQLiteImmediateTransaction(ctx, db, "tasklist.set_conversation", func(tx *gorm.DB) error {
+		var normalizedConversationID *string
+		if conversationID != nil {
+			trimmed := strings.TrimSpace(*conversationID)
+			if trimmed != "" {
+				normalizedConversationID = &trimmed
+			}
+		}
+		if normalizedConversationID != nil {
+			if err := ValidateConversationOwnerTx(ctx, tx, *normalizedConversationID, userID); err != nil {
+				return err
+			}
+		}
+		return ScopeByUser(ctx, tx.WithContext(ctx).Model(&TaskList{}), "user_id").
+			Where("id = ?", id).
+			Update("conversation_id", normalizedConversationID).Error
+	})
 }
 
-// GetTaskListsByConversationIDWithContext retorna as tasklists do usuário do
-// contexto vinculadas a uma conversa, com workflow e tasks raiz.
+// GetTaskListsByConversationIDWithContext retorna metadados, workflow e
+// contagem das listas vinculadas, sem carregar todas as tasks.
 func GetTaskListsByConversationIDWithContext(ctx context.Context, conversationID string) ([]TaskList, error) {
 	var taskLists []TaskList
 	err := WithSQLiteBusyRetry(ctx, "tasklist.list_by_conversation", func() error {
-		return ScopeByUser(ctx, db.WithContext(ctx), "user_id").Preload("Workflow").
-			Preload("Tasks", func(db *gorm.DB) *gorm.DB {
-				return db.Where("parent_id IS NULL").Order("`order` ASC")
-			}).
+		return ScopeByUser(ctx, db.WithContext(ctx).Model(&TaskList{}), "task_lists.user_id").
+			Select(`task_lists.*, (
+				SELECT COUNT(*) FROM tasks
+				WHERE tasks.task_list_id = task_lists.id
+				  AND tasks.parent_id IS NULL
+			) AS task_count`).
+			Preload("Workflow").
 			Where("conversation_id = ?", conversationID).
 			Order("created_at DESC").
 			Find(&taskLists).Error
 	})
 	return taskLists, err
+}
+
+// GetTaskListContextTasksWithContext projeta até limitPerList raízes de cada
+// lista para contexto de conversa. ROW_NUMBER reparte o orçamento entre listas
+// em uma única consulta, sem N+1 nem starvation por ordenação de IDs.
+func GetTaskListContextTasksWithContext(ctx context.Context, taskListIDs []string, limitPerList int) ([]Task, error) {
+	if len(taskListIDs) == 0 || limitPerList <= 0 {
+		return []Task{}, nil
+	}
+	var tasks []Task
+	err := WithSQLiteBusyRetry(ctx, "tasklist.context_tasks", func() error {
+		ranked := taskQuery(ctx, db.Model(&Task{})).
+			Select(`tasks.*, ROW_NUMBER() OVER (
+				PARTITION BY tasks.task_list_id
+				ORDER BY tasks."order" ASC, tasks.id ASC
+			) AS context_rank`).
+			Where("tasks.task_list_id IN ? AND tasks.parent_id IS NULL", taskListIDs)
+		return db.WithContext(ctx).Table("(?) AS ranked_tasks", ranked).
+			Where("ranked_tasks.context_rank <= ?", limitPerList).
+			Order(`ranked_tasks.task_list_id ASC, ranked_tasks."order" ASC, ranked_tasks.id ASC`).
+			Find(&tasks).Error
+	})
+	return tasks, err
 }
 
 // ReorderWorkflowStatusesWithContext reordena os statuses do workflow do
@@ -534,6 +683,13 @@ func ValidateStatusTransitionWithContext(ctx context.Context, taskListID string,
 	if err != nil {
 		return err
 	}
+	return validateStatusTransition(workflow, fromStatusID, toStatusID)
+}
+
+func validateStatusTransition(workflow *TaskListWorkflow, fromStatusID, toStatusID int) error {
+	if fromStatusID == toStatusID {
+		return nil
+	}
 
 	// Desserializa statuses e transitions
 	var statuses []TaskListWorkflowStatus
@@ -584,7 +740,7 @@ func ValidateStatusTransitionWithContext(ctx context.Context, taskListID string,
 // CreateTaskWithContext cria uma nova task em uma tasklist do usuário do
 // contexto.
 func CreateTaskWithContext(ctx context.Context, taskListID string, title, description, code, link string, parentID *string) (*Task, error) {
-	if _, err := GetTaskListWithContext(ctx, taskListID); err != nil {
+	if _, err := GetTaskListMetadataWithContext(ctx, taskListID); err != nil {
 		return nil, err
 	}
 	if parentID != nil {
@@ -596,48 +752,57 @@ func CreateTaskWithContext(ctx context.Context, taskListID string, title, descri
 			return nil, fmt.Errorf("parent_id não pertence à tasklist solicitada")
 		}
 	}
-	// Busca workflow para status inicial
-	workflow, err := GetWorkflowWithContext(ctx, taskListID)
-	if err != nil {
-		return nil, err
-	}
-
-	// Calcula próxima ordem
-	var maxOrder int
-	query := taskQuery(ctx, db.Model(&Task{})).Where("tasks.task_list_id = ?", taskListID)
-	if parentID != nil {
-		query = query.Where("tasks.parent_id = ?", parentID)
-	} else {
-		query = query.Where("tasks.parent_id IS NULL")
-	}
-	query.Select(`COALESCE(MAX(tasks."order"), -1)`).Scan(&maxOrder)
-
 	task := &Task{
 		TaskListID:  taskListID,
 		Title:       title,
 		Description: description,
 		Code:        code,
 		Link:        link,
-		StatusID:    workflow.InitialStatusID,
 		ParentID:    parentID,
-		Order:       maxOrder + 1,
 	}
 
 	if err := ValidateTaskCodeForTaskListWithContext(ctx, taskListID, code); err != nil {
 		return nil, err
 	}
 
-	if err := db.WithContext(ctx).Create(task).Error; err != nil {
+	if err := insertTaskWithInitialStatus(ctx, task); err != nil {
 		return nil, err
 	}
 
 	return task, nil
 }
 
+// insertTaskWithInitialStatus lê o status inicial e a próxima ordem sob o lock
+// de escrita, para uma edição concorrente do workflow não deixar a task
+// apontando para um status que acabou de ser removido.
+func insertTaskWithInitialStatus(ctx context.Context, task *Task) error {
+	return withSQLiteImmediateTransaction(ctx, db, "tasklist.task.create", func(tx *gorm.DB) error {
+		workflow, err := workflowWithDB(ctx, tx, task.TaskListID)
+		if err != nil {
+			return err
+		}
+
+		var maxOrder int
+		query := taskQuery(ctx, tx.Model(&Task{})).Where("tasks.task_list_id = ?", task.TaskListID)
+		if task.ParentID != nil {
+			query = query.Where("tasks.parent_id = ?", task.ParentID)
+		} else {
+			query = query.Where("tasks.parent_id IS NULL")
+		}
+		if err := query.Select(`COALESCE(MAX(tasks."order"), -1)`).Scan(&maxOrder).Error; err != nil {
+			return err
+		}
+
+		task.StatusID = workflow.InitialStatusID
+		task.Order = maxOrder + 1
+		return tx.Create(task).Error
+	})
+}
+
 // CreateTaskFullWithContext cria uma nova task em uma tasklist do usuário do
 // contexto, com todos os campos, incluindo assignee e creator.
 func CreateTaskFullWithContext(ctx context.Context, taskListID string, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID string, parentID *string) (*Task, error) {
-	if _, err := GetTaskListWithContext(ctx, taskListID); err != nil {
+	if _, err := GetTaskListMetadataWithContext(ctx, taskListID); err != nil {
 		return nil, err
 	}
 	if parentID != nil {
@@ -649,20 +814,6 @@ func CreateTaskFullWithContext(ctx context.Context, taskListID string, title, de
 			return nil, fmt.Errorf("parent_id não pertence à tasklist solicitada")
 		}
 	}
-	workflow, err := GetWorkflowWithContext(ctx, taskListID)
-	if err != nil {
-		return nil, err
-	}
-
-	var maxOrder int
-	query := taskQuery(ctx, db.Model(&Task{})).Where("tasks.task_list_id = ?", taskListID)
-	if parentID != nil {
-		query = query.Where("tasks.parent_id = ?", parentID)
-	} else {
-		query = query.Where("tasks.parent_id IS NULL")
-	}
-	query.Select(`COALESCE(MAX(tasks."order"), -1)`).Scan(&maxOrder)
-
 	task := &Task{
 		TaskListID:   taskListID,
 		Title:        title,
@@ -673,16 +824,14 @@ func CreateTaskFullWithContext(ctx context.Context, taskListID string, title, de
 		AssigneeID:   assigneeID,
 		CreatorName:  creatorName,
 		CreatorID:    creatorID,
-		StatusID:     workflow.InitialStatusID,
 		ParentID:     parentID,
-		Order:        maxOrder + 1,
 	}
 
 	if err := ValidateTaskCodeForTaskListWithContext(ctx, taskListID, code); err != nil {
 		return nil, err
 	}
 
-	if err := db.WithContext(ctx).Create(task).Error; err != nil {
+	if err := insertTaskWithInitialStatus(ctx, task); err != nil {
 		return nil, err
 	}
 
@@ -790,11 +939,29 @@ func UpdateTaskFullWithContext(ctx context.Context, id string, title, descriptio
 // usuário do contexto a uma conversa. Usa o mesmo padrão de escopo via subquery
 // de UpdateTaskWithContext para garantir que só tasks do usuário sejam afetadas.
 func SetTaskConversationWithContext(ctx context.Context, id string, conversationID *string) error {
-	taskIDs := taskQuery(ctx, db.Model(&Task{}).Select("tasks.id").Where("tasks.id = ?", id))
-	return db.WithContext(ctx).Model(&Task{}).
-		Where("id = ?", id).
-		Where("id IN (?)", taskIDs).
-		Update("conversation_id", conversationID).Error
+	userID, err := RequireUserID(ctx)
+	if err != nil {
+		return err
+	}
+	return withSQLiteImmediateTransaction(ctx, db, "task.set_conversation", func(tx *gorm.DB) error {
+		var normalizedConversationID *string
+		if conversationID != nil {
+			trimmed := strings.TrimSpace(*conversationID)
+			if trimmed != "" {
+				normalizedConversationID = &trimmed
+			}
+		}
+		if normalizedConversationID != nil {
+			if err := ValidateConversationOwnerTx(ctx, tx, *normalizedConversationID, userID); err != nil {
+				return err
+			}
+		}
+		taskIDs := taskQuery(ctx, tx.Model(&Task{}).Select("tasks.id").Where("tasks.id = ?", id))
+		return tx.WithContext(ctx).Model(&Task{}).
+			Where("id = ?", id).
+			Where("id IN (?)", taskIDs).
+			Update("conversation_id", normalizedConversationID).Error
+	})
 }
 
 // GetTasksByConversationIDWithContext retorna as tasks do usuário do contexto
@@ -824,29 +991,38 @@ func UpdateTaskAssigneeWithContext(ctx context.Context, id string, assigneeName,
 // UpdateTaskStatusWithContext atualiza o status de uma task do usuário do
 // contexto, com validação de transição.
 func UpdateTaskStatusWithContext(ctx context.Context, id string, newStatusID int) error {
-	// Busca task
-	task, err := GetTaskWithContext(ctx, id)
-	if err != nil {
-		return err
-	}
+	// Task e workflow são lidos sob o lock de escrita: uma edição do workflow
+	// não pode remover o status destino entre a validação e o UPDATE.
+	return withSQLiteImmediateTransaction(ctx, db, "tasklist.task.update_status", func(tx *gorm.DB) error {
+		var task Task
+		if err := taskQuery(ctx, tx.Model(&Task{})).Where("tasks.id = ?", id).First(&task).Error; err != nil {
+			return err
+		}
+		workflow, err := workflowWithDB(ctx, tx, task.TaskListID)
+		if err != nil {
+			return err
+		}
+		if err := validateStatusTransition(workflow, task.StatusID, newStatusID); err != nil {
+			return err
+		}
+		updates, err := taskStatusUpdates(workflow, newStatusID)
+		if err != nil {
+			return err
+		}
+		return tx.Model(&Task{}).Where("id = ?", task.ID).Updates(updates).Error
+	})
+}
 
-	// Valida transição
-	if err := ValidateStatusTransitionWithContext(ctx, task.TaskListID, task.StatusID, newStatusID); err != nil {
-		return err
-	}
-
-	// Atualiza status e mantém completed_at coerente com o status final.
+// taskStatusUpdates monta a mudança de status mantendo completed_at coerente
+// com o status final do workflow.
+func taskStatusUpdates(workflow *TaskListWorkflow, newStatusID int) (map[string]interface{}, error) {
 	updates := map[string]interface{}{
 		"status_id":    newStatusID,
 		"completed_at": nil,
 	}
-	workflow, err := GetWorkflowWithContext(ctx, task.TaskListID)
-	if err != nil {
-		return err
-	}
 	var statuses []TaskListWorkflowStatus
 	if err := json.Unmarshal([]byte(workflow.Statuses), &statuses); err != nil {
-		return err
+		return nil, err
 	}
 	maxOrder := -1
 	newStatusOrder := -1
@@ -862,15 +1038,13 @@ func UpdateTaskStatusWithContext(ctx context.Context, id string, newStatusID int
 		now := time.Now()
 		updates["completed_at"] = now
 	}
-
-	taskIDs := taskQuery(ctx, db.Model(&Task{}).Select("tasks.id").Where("tasks.id = ?", id))
-	return db.WithContext(ctx).Model(&Task{}).Where("id = ?", id).Where("id IN (?)", taskIDs).Updates(updates).Error
+	return updates, nil
 }
 
 // ReorderTasksWithContext reordena as tasks dentro de um status/parent
 // pertencente ao usuário do contexto.
 func ReorderTasksWithContext(ctx context.Context, taskListID string, statusID int, orderedIDs []string) error {
-	if _, err := GetTaskListWithContext(ctx, taskListID); err != nil {
+	if _, err := GetTaskListMetadataWithContext(ctx, taskListID); err != nil {
 		return err
 	}
 	for i, id := range orderedIDs {
@@ -919,15 +1093,89 @@ func DemoteTaskWithContext(ctx context.Context, id string, parentID string) erro
 	return db.WithContext(ctx).Model(&Task{}).Where("id = ?", id).Where("id IN (?)", taskIDs).Update("parent_id", parentID).Error
 }
 
-// MoveTaskToListWithContext move uma task do usuário do contexto (e suas
-// subtasks) para outra tasklist do mesmo usuário. Reseta status para o
-// inicial do workflow destino, limpa parent e recalcula order.
+// taskDescendantLevelsWithContext percorre uma árvore sob o escopo do usuário
+// e retorna seus níveis em ordem raiz→folhas. expectedIDs exige correspondência
+// exata com o conjunto de tarefas da operação; expectedTaskListID impede que
+// uma exclusão atravesse listas por causa de relações legadas inconsistentes.
+func taskDescendantLevelsWithContext(ctx context.Context, tx *gorm.DB, rootIDs, expectedIDs []string, expectedTaskListID string) ([][]string, error) {
+	if len(rootIDs) == 0 {
+		if len(expectedIDs) > 0 {
+			return nil, errors.New("árvore de tarefas inconsistente: raízes ausentes")
+		}
+		return nil, nil
+	}
+	levels := [][]string{append([]string(nil), rootIDs...)}
+	seen := make(map[string]struct{}, len(rootIDs))
+	for _, id := range rootIDs {
+		seen[id] = struct{}{}
+	}
+	for levelIndex := 0; levelIndex < len(levels); levelIndex++ {
+		var children []string
+		if err := taskQuery(ctx, tx.Model(&Task{}).Select("tasks.id")).
+			Where("tasks.parent_id IN ?", levels[levelIndex]).Pluck("tasks.id", &children).Error; err != nil {
+			return nil, err
+		}
+		next := make([]string, 0, len(children))
+		for _, id := range children {
+			if _, exists := seen[id]; exists {
+				continue
+			}
+			seen[id] = struct{}{}
+			next = append(next, id)
+		}
+		if len(next) > 0 {
+			levels = append(levels, next)
+		}
+	}
+	if expectedIDs != nil {
+		expected := make(map[string]struct{}, len(expectedIDs))
+		for _, id := range expectedIDs {
+			expected[id] = struct{}{}
+		}
+		if len(seen) != len(expected) {
+			return nil, fmt.Errorf("árvore de tarefas inconsistente: alcançadas %d de %d tarefas", len(seen), len(expected))
+		}
+		for id := range seen {
+			if _, exists := expected[id]; !exists {
+				return nil, fmt.Errorf("árvore de tarefas inconsistente: tarefa %s está fora do escopo da operação", id)
+			}
+		}
+	}
+	if expectedTaskListID != "" {
+		var crossListCount int64
+		ids := make([]string, 0, len(seen))
+		for id := range seen {
+			ids = append(ids, id)
+		}
+		if err := taskQuery(ctx, tx.Model(&Task{})).Where("tasks.id IN ? AND tasks.task_list_id <> ?", ids, expectedTaskListID).Count(&crossListCount).Error; err != nil {
+			return nil, err
+		}
+		if crossListCount != 0 {
+			return nil, fmt.Errorf("árvore de tarefas inconsistente: %d tarefas pertencem a outra lista", crossListCount)
+		}
+	}
+	return levels, nil
+}
+
+func deleteTaskLevels(tx *gorm.DB, ctx context.Context, levels [][]string) error {
+	for levelIndex := len(levels) - 1; levelIndex >= 0; levelIndex-- {
+		ids := taskQuery(ctx, tx.Model(&Task{}).Select("tasks.id").Where("tasks.id IN ?", levels[levelIndex]))
+		if err := tx.Where("id IN (?)", ids).Delete(&Task{}).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// MoveTaskToListWithContext move uma task do usuário do contexto e toda sua
+// descendência para outra tasklist do mesmo usuário. Reseta status para o
+// inicial do workflow destino, limpa o parent da raiz e recalcula sua order.
 func MoveTaskToListWithContext(ctx context.Context, taskID string, targetTaskListID string) (*Task, error) {
 	task, err := GetTaskWithContext(ctx, taskID)
 	if err != nil {
 		return nil, fmt.Errorf("task %s não encontrada: %w", taskID, err)
 	}
-	if _, err := GetTaskListWithContext(ctx, targetTaskListID); err != nil {
+	if _, err := GetTaskListMetadataWithContext(ctx, targetTaskListID); err != nil {
 		return nil, err
 	}
 
@@ -944,31 +1192,45 @@ func MoveTaskToListWithContext(ctx context.Context, taskID string, targetTaskLis
 		return nil, fmt.Errorf("workflow da lista destino %s não encontrado: %w", targetTaskListID, err)
 	}
 
-	var maxOrder int
-	taskQuery(ctx, db.Model(&Task{})).
-		Where("tasks.task_list_id = ? AND tasks.parent_id IS NULL", targetTaskListID).
-		Select(`COALESCE(MAX(tasks."order"), -1)`).
-		Scan(&maxOrder)
-
-	updates := map[string]interface{}{
-		"task_list_id": targetTaskListID,
-		"status_id":    workflow.InitialStatusID,
-		"parent_id":    nil,
-		"order":        maxOrder + 1,
-		"completed_at": nil,
-	}
-	taskIDs := taskQuery(ctx, db.Model(&Task{}).Select("tasks.id").Where("tasks.id = ?", taskID))
-	if err := db.WithContext(ctx).Model(&Task{}).Where("id = ?", taskID).Where("id IN (?)", taskIDs).Updates(updates).Error; err != nil {
+	err = db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		levels, err := taskDescendantLevelsWithContext(ctx, tx, []string{taskID}, nil, "")
+		if err != nil {
+			return err
+		}
+		var maxOrder int
+		if err := taskQuery(ctx, tx.Model(&Task{})).
+			Where("tasks.task_list_id = ? AND tasks.parent_id IS NULL", targetTaskListID).
+			Select(`COALESCE(MAX(tasks."order"), -1)`).Scan(&maxOrder).Error; err != nil {
+			return err
+		}
+		rootUpdates := map[string]interface{}{
+			"task_list_id": targetTaskListID,
+			"status_id":    workflow.InitialStatusID,
+			"parent_id":    nil,
+			"order":        maxOrder + 1,
+			"completed_at": nil,
+		}
+		rootIDs := taskQuery(ctx, tx.Model(&Task{}).Select("tasks.id").Where("tasks.id = ?", taskID))
+		if err := tx.Model(&Task{}).Where("id IN (?)", rootIDs).Updates(rootUpdates).Error; err != nil {
+			return err
+		}
+		var descendantIDs []string
+		for _, level := range levels[1:] {
+			descendantIDs = append(descendantIDs, level...)
+		}
+		if len(descendantIDs) == 0 {
+			return nil
+		}
+		ids := taskQuery(ctx, tx.Model(&Task{}).Select("tasks.id").Where("tasks.id IN ?", descendantIDs))
+		return tx.Model(&Task{}).Where("id IN (?)", ids).Updates(map[string]interface{}{
+			"task_list_id": targetTaskListID,
+			"status_id":    workflow.InitialStatusID,
+			"completed_at": nil,
+		}).Error
+	})
+	if err != nil {
 		return nil, err
 	}
-
-	// Subtasks acompanham a task pai
-	subtaskIDs := taskQuery(ctx, db.Model(&Task{}).Select("tasks.id").Where("tasks.parent_id = ?", taskID))
-	db.WithContext(ctx).Model(&Task{}).Where("id IN (?)", subtaskIDs).Updates(map[string]interface{}{
-		"task_list_id": targetTaskListID,
-		"status_id":    workflow.InitialStatusID,
-		"completed_at": nil,
-	})
 
 	return GetTaskWithContext(ctx, taskID)
 }
@@ -986,28 +1248,30 @@ func GetSubtasksWithContext(ctx context.Context, parentID string) ([]Task, error
 // DeleteTaskWithContext deleta uma task do usuário do contexto, suas notas e
 // todas suas subtasks.
 func DeleteTaskWithContext(ctx context.Context, id string) error {
-	if _, err := GetTaskWithContext(ctx, id); err != nil {
-		return err
-	}
+	return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var root Task
+		if err := taskQuery(ctx, tx.Model(&Task{})).Where("tasks.id = ?", id).First(&root).Error; err != nil {
+			return err
+		}
 
-	// Deleta notas das subtasks e da task
-	var subtaskIDs []string
-	taskQuery(ctx, db.Model(&Task{})).Where("tasks.parent_id = ?", id).Pluck("tasks.id", &subtaskIDs)
-	allIDs := append(subtaskIDs, id)
-	noteIDs := taskNoteQuery(ctx, db.Model(&TaskNote{}).Select("task_notes.id").Where("task_notes.task_id IN ?", allIDs))
-	if err := db.WithContext(ctx).Where("id IN (?)", noteIDs).Delete(&TaskNote{}).Error; err != nil {
-		return err
-	}
+		// A relação ParentID não tem ON DELETE CASCADE; remover folhas antes
+		// dos pais também evita deixar dados parciais em caso de falha.
+		levels, err := taskDescendantLevelsWithContext(ctx, tx, []string{root.ID}, nil, root.TaskListID)
+		if err != nil {
+			return err
+		}
+		var allIDs []string
+		for _, level := range levels {
+			allIDs = append(allIDs, level...)
+		}
 
-	// Deleta subtasks
-	subtaskQuery := taskQuery(ctx, db.Model(&Task{}).Select("tasks.id").Where("tasks.parent_id = ?", id))
-	if err := db.WithContext(ctx).Where("id IN (?)", subtaskQuery).Delete(&Task{}).Error; err != nil {
-		return err
-	}
+		noteIDs := taskNoteQuery(ctx, tx.Model(&TaskNote{}).Select("task_notes.id").Where("task_notes.task_id IN ?", allIDs))
+		if err := tx.Where("id IN (?)", noteIDs).Delete(&TaskNote{}).Error; err != nil {
+			return err
+		}
 
-	// Deleta task
-	taskIDs := taskQuery(ctx, db.Model(&Task{}).Select("tasks.id").Where("tasks.id = ?", id))
-	return db.WithContext(ctx).Where("id IN (?)", taskIDs).Delete(&Task{}).Error
+		return deleteTaskLevels(tx, ctx, levels)
+	})
 }
 
 // ==================== TaskNote Operations ====================
@@ -1087,7 +1351,9 @@ func applyTaskNoteExternalUpsertUpdatesWithContext(ctx context.Context, noteID s
 		updates["type"] = *p.Type
 	}
 	noteIDs := taskNoteQuery(ctx, db.Model(&TaskNote{}).Select("task_notes.id").Where("task_notes.id = ?", noteID))
-	return db.WithContext(ctx).Model(&TaskNote{}).Where("id = ?", noteID).Where("id IN (?)", noteIDs).Updates(updates).Error
+	return WithSQLiteBusyRetry(ctx, "tasklist.note.external_upsert.update", func() error {
+		return db.WithContext(ctx).Model(&TaskNote{}).Where("id = ?", noteID).Where("id IN (?)", noteIDs).Updates(updates).Error
+	})
 }
 
 // UpsertTaskNoteByExternalWithContext cria ou atualiza uma nota de forma
@@ -1116,10 +1382,15 @@ func UpsertTaskNoteByExternalWithContext(ctx context.Context, p UpsertTaskNoteBy
 	}
 	if existing != nil {
 		if existing.TaskID != p.TaskID {
-			return nil, false, fmt.Errorf(
-				"nota com source=%q external_id=%q já existe na task %s; recusado vincular à task %s",
-				src, ext, existing.TaskID, p.TaskID,
-			)
+			// A nota externa já está vinculada a outra task. Revincular quebraria
+			// a unicidade de (source, external_id) e, no fan-out de sync de
+			// tickets, isso reaparecia repetidamente como "job attempt failed"
+			// no assistente.log — retry nunca resolve um conflito determinístico.
+			// Já existe a nota: é no-op idempotente (skip), não erro retentável.
+			logging.Infof(ctx, "database.tasklist",
+				"nota externa source=%q external_id=%q já vinculada à task %s; ignorando vínculo com %s",
+				src, ext, existing.TaskID, p.TaskID)
+			return existing, false, nil
 		}
 		if p.Type == nil {
 			updates := map[string]interface{}{
@@ -1162,20 +1433,25 @@ func UpsertTaskNoteByExternalWithContext(ctx context.Context, p UpsertTaskNoteBy
 		ExternalUpdatedAt: p.ExternalUpdatedAt,
 	}
 
-	if err := db.WithContext(ctx).Create(note).Error; err != nil {
-		if !isSQLiteUniqueConstraintError(err) {
-			return nil, false, err
+	createErr := WithSQLiteBusyRetry(ctx, "tasklist.note.external_upsert.create", func() error {
+		return db.WithContext(ctx).Create(note).Error
+	})
+	if createErr != nil {
+		if !isSQLiteUniqueConstraintError(createErr) {
+			return nil, false, createErr
 		}
 		// Corrida: outra goroutine criou a mesma referência — reconsultar e atualizar.
 		again, e2 := FindTaskNoteByExternalRefWithContext(ctx, src, ext)
 		if e2 != nil || again == nil {
-			return nil, false, fmt.Errorf("criação conflitante e reconsulta falhou: %w", err)
+			return nil, false, fmt.Errorf("criação conflitante e reconsulta falhou: %w", createErr)
 		}
 		if again.TaskID != p.TaskID {
-			return nil, false, fmt.Errorf(
-				"nota com source=%q external_id=%q já existe na task %s; recusado vincular à task %s",
-				src, ext, again.TaskID, p.TaskID,
-			)
+			// Corrida perdida para a mesma referência externa já ligada a outra
+			// task: mesmo no-op idempotente do caminho acima (skip, sem retry).
+			logging.Infof(ctx, "database.tasklist",
+				"nota externa source=%q external_id=%q já vinculada à task %s; ignorando vínculo com %s",
+				src, ext, again.TaskID, p.TaskID)
+			return again, false, nil
 		}
 		if err := applyTaskNoteExternalUpsertUpdatesWithContext(ctx, again.ID, p); err != nil {
 			return nil, false, err
@@ -1189,7 +1465,9 @@ func UpsertTaskNoteByExternalWithContext(ctx context.Context, p UpsertTaskNoteBy
 
 func finishNoteUpdateWithContext(ctx context.Context, noteID string, updates map[string]interface{}) (*TaskNote, bool, error) {
 	noteIDs := taskNoteQuery(ctx, db.Model(&TaskNote{}).Select("task_notes.id").Where("task_notes.id = ?", noteID))
-	if err := db.WithContext(ctx).Model(&TaskNote{}).Where("id = ?", noteID).Where("id IN (?)", noteIDs).Updates(updates).Error; err != nil {
+	if err := WithSQLiteBusyRetry(ctx, "tasklist.note.finish_update", func() error {
+		return db.WithContext(ctx).Model(&TaskNote{}).Where("id = ?", noteID).Where("id IN (?)", noteIDs).Updates(updates).Error
+	}); err != nil {
 		return nil, false, err
 	}
 	out, err := GetTaskNoteWithContext(ctx, noteID)
@@ -1244,7 +1522,7 @@ func DeleteTaskNotesWithContext(ctx context.Context, taskID string) error {
 // GetTaskListStatsWithContext retorna estatísticas de uma tasklist do usuário
 // do contexto (total, por status).
 func GetTaskListStatsWithContext(ctx context.Context, taskListID string) (map[string]interface{}, error) {
-	if _, err := GetTaskListWithContext(ctx, taskListID); err != nil {
+	if _, err := GetTaskListMetadataWithContext(ctx, taskListID); err != nil {
 		return nil, err
 	}
 	var total int64
@@ -1277,7 +1555,7 @@ func GetTaskListStatsWithContext(ctx context.Context, taskListID string) (map[st
 // GetTaskListWithHierarchyWithContext retorna uma tasklist do usuário do
 // contexto com hierarquia completa de tasks.
 func GetTaskListWithHierarchyWithContext(ctx context.Context, id string) (*TaskList, error) {
-	taskList, err := GetTaskListWithContext(ctx, id)
+	taskList, err := GetTaskListMetadataWithContext(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -1286,7 +1564,7 @@ func GetTaskListWithHierarchyWithContext(ctx context.Context, id string) (*TaskL
 	var allTasks []Task
 	if err := WithSQLiteBusyRetry(ctx, "tasklist.hierarchy.tasks", func() error {
 		return taskQuery(ctx, db.Model(&Task{})).Where("tasks.task_list_id = ?", id).
-			Order(`tasks."order" ASC, tasks.created_at ASC`).
+			Order(`tasks."order" ASC, tasks.id ASC`).
 			Find(&allTasks).Error
 	}); err != nil {
 		return nil, err
@@ -1311,13 +1589,19 @@ func GetTaskListWithHierarchyWithContext(ctx context.Context, id string) (*TaskL
 		rootTaskIDs = append(rootTaskIDs, task.ID)
 	}
 
-	var buildTaskTree func(task *Task) Task
-	buildTaskTree = func(task *Task) Task {
+	var buildTaskTree func(task *Task, ancestors map[string]bool) Task
+	buildTaskTree = func(task *Task, ancestors map[string]bool) Task {
 		cloned := *task
+		if ancestors[task.ID] {
+			cloned.Subtasks = []Task{}
+			return cloned
+		}
+		ancestors[task.ID] = true
+		defer delete(ancestors, task.ID)
 		children := childrenByParentID[task.ID]
 		cloned.Subtasks = make([]Task, 0, len(children))
 		for _, child := range children {
-			cloned.Subtasks = append(cloned.Subtasks, buildTaskTree(child))
+			cloned.Subtasks = append(cloned.Subtasks, buildTaskTree(child, ancestors))
 		}
 		return cloned
 	}
@@ -1325,7 +1609,7 @@ func GetTaskListWithHierarchyWithContext(ctx context.Context, id string) (*TaskL
 	rootTasks := make([]Task, 0, len(rootTaskIDs))
 	for _, rootID := range rootTaskIDs {
 		if rootTask, ok := taskMap[rootID]; ok {
-			rootTasks = append(rootTasks, buildTaskTree(rootTask))
+			rootTasks = append(rootTasks, buildTaskTree(rootTask, make(map[string]bool)))
 		}
 	}
 

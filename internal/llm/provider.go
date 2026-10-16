@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+
+	"assistente/internal/llmcompat"
 )
 
 // ProviderType representa o tipo de provedor LLM (label de marca).
@@ -13,6 +15,7 @@ import (
 type ProviderType string
 
 const (
+	ProviderChatGPT    ProviderType = "chatgpt"
 	ProviderOpenAI     ProviderType = "openai"
 	ProviderClaude     ProviderType = "claude"
 	ProviderGrok       ProviderType = "grok"
@@ -138,22 +141,25 @@ const (
 // ProviderConfig descreve um provedor LLM
 // Usado pelo ProviderRegistry para inicialização do cliente.
 type ProviderConfig struct {
-	ID                string            `json:"id"`
-	Name              string            `json:"name"`
-	Type              ProviderType      `json:"type"`
-	APIFormat         APIFormat         `json:"api_format,omitempty"`
-	BaseURL           string            `json:"base_url"`
-	Model             string            `json:"model,omitempty"`
-	DefaultModel      string            `json:"default_model,omitempty"`
-	IsDefault         bool              `json:"is_default,omitempty"`
-	Timeout           int               `json:"timeout,omitempty"`
+	ID   string       `json:"id"`
+	Name string       `json:"name"`
+	Type ProviderType `json:"type"`
+	// CompatibilityRevision identifica o snapshot da conexão carregado do banco.
+	// Requisições em andamento preservam esta revisão ao registrar evidências.
+	CompatibilityRevision int       `json:"-"`
+	APIFormat             APIFormat `json:"api_format,omitempty"`
+	BaseURL               string    `json:"base_url"`
+	Model                 string    `json:"model,omitempty"`
+	DefaultModel          string    `json:"default_model,omitempty"`
+	IsDefault             bool      `json:"is_default,omitempty"`
+	Timeout               int       `json:"timeout,omitempty"`
 	// StreamIdleTimeoutSeconds limita quanto tempo um streaming SSE pode ficar
-	// sem entregar evento nenhum antes de a tentativa ser cancelada (watchdog
-	// de ociosidade). Zero = padrão de 60s. Não é teto sobre o stream total:
-	// cada chunk recebido reinicia a contagem.
+	// sem eventos. Zero usa o padrão de 60s; cada evento reinicia a contagem.
+	// O valor é preservado por DB e portabilidade para compatibilidade; a UI
+	// ainda não oferece controle próprio.
 	StreamIdleTimeoutSeconds int               `json:"stream_idle_timeout_seconds,omitempty"`
 	Headers                  map[string]string `json:"headers,omitempty"`
-	CredentialPattern string            `json:"credential_pattern,omitempty"`
+	CredentialPattern        string            `json:"credential_pattern,omitempty"`
 	// AuthMode controla o tratamento de credenciais. Ver `AuthMode` para detalhes.
 	// Vazio = inferido a partir de CredentialPattern (sem pattern → none, com pattern → required).
 	AuthMode AuthMode `json:"auth_mode,omitempty"`
@@ -234,10 +240,10 @@ func (p *ProviderConfig) EffectiveAuthMode() AuthMode {
 
 // EffectiveReasoningContentMode aplica o default seguro para providers antigos.
 func (p *ProviderConfig) EffectiveReasoningContentMode() ReasoningContentMode {
-	if p != nil && p.ReasoningContentMode == ReasoningContentReplayWithTools {
-		return ReasoningContentReplayWithTools
+	if p == nil {
+		return ReasoningContentDisabled
 	}
-	return ReasoningContentDisabled
+	return ReasoningContentMode(llmcompat.EffectiveReasoningContentMode(string(p.ReasoningContentMode)))
 }
 
 // AssistantPrefillCapability descreve, de forma explícita, até onde um
@@ -332,29 +338,10 @@ func isAnthropicOfficialURL(baseURL string) bool {
 // da introdução de api_format usem automaticamente a Responses API,
 // sem exigir migração manual de configs existentes.
 func (p *ProviderConfig) GetAPIFormat() APIFormat {
-	if p.APIFormat != "" {
-		switch p.Type {
-		case ProviderLocalAI, ProviderOllama, ProviderLlamaCPP:
-			if p.APIFormat == APIFormatOpenAIResponses {
-				return APIFormatOpenAI
-			}
-		}
-		return p.APIFormat
-	}
-	switch p.Type {
-	case ProviderLocalAI, ProviderOllama, ProviderLlamaCPP:
+	if p == nil {
 		return APIFormatOpenAI
 	}
-	if isOpenAIRealURL(p.BaseURL) {
-		return APIFormatOpenAIResponses
-	}
-	return APIFormatOpenAI
-}
-
-// isOpenAIRealURL retorna true se a URL aponta para a API oficial da OpenAI.
-func isOpenAIRealURL(baseURL string) bool {
-	normalized := strings.ToLower(strings.TrimSuffix(baseURL, "/"))
-	return strings.Contains(normalized, "api.openai.com")
+	return APIFormat(llmcompat.EffectiveAPIFormat(string(p.Type), string(p.APIFormat), p.BaseURL))
 }
 
 // Validate verifica se o ProviderConfig é válido
@@ -362,6 +349,10 @@ func (p *ProviderConfig) Validate() error {
 	if p == nil {
 		return fmt.Errorf("provider config nil")
 	}
+	if p.Type == ProviderChatGPT && (p.BaseURL != "https://api.openai.com/v1" || p.APIFormat != APIFormatOpenAIResponses || !strings.HasPrefix(p.CredentialPattern, "oauth:") || p.EffectiveAuthMode() != AuthModeRequired) {
+		return fmt.Errorf("chatgpt_invalid_connection_configuration")
+	}
+
 	p.ID = strings.TrimSpace(p.ID)
 	p.Name = strings.TrimSpace(p.Name)
 	p.BaseURL = strings.TrimSpace(p.BaseURL)
@@ -439,6 +430,9 @@ func (p *ProviderConfig) validateCredentialEnv() error {
 // SupportsTTS retorna true se o SDK do provider suporta síntese de voz (TTS).
 // Atualmente apenas o SDK OpenAI (formatos openai e openai_responses) tem endpoint /audio/speech.
 func (p *ProviderConfig) SupportsTTS() bool {
+	if p.Type == ProviderChatGPT {
+		return false
+	}
 	f := p.GetAPIFormat()
 	return f == APIFormatOpenAI || f == APIFormatOpenAIResponses
 }
@@ -446,6 +440,9 @@ func (p *ProviderConfig) SupportsTTS() bool {
 // SupportsSTT retorna true se o SDK do provider suporta transcrição de voz (STT/Whisper).
 // Atualmente apenas o SDK OpenAI (formatos openai e openai_responses) tem endpoint /audio/transcriptions.
 func (p *ProviderConfig) SupportsSTT() bool {
+	if p.Type == ProviderChatGPT {
+		return false
+	}
 	f := p.GetAPIFormat()
 	return f == APIFormatOpenAI || f == APIFormatOpenAIResponses
 }

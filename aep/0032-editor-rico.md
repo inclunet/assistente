@@ -140,7 +140,9 @@ Nota de performance:
 - **Ctrl+T / Ctrl+W / Ctrl+Tab / Ctrl+Shift+Tab / Ctrl+1-9**: reaproveitar padrão de abas (como Chat/Terminal), mas **escopado** quando EditorPage está ativa.
 - (Opcional) **Ctrl+B / Ctrl+I / Ctrl+K** para formatação clássica.
 
-Observação: `Ctrl+I` já aparece na ajuda como “Perfis de interação”. Mesmo que hoje não esteja 100% implementado, é melhor **não** usar `Ctrl+I` no Editor por padrão.
+Observação: o perfil de interação do chat usa `Ctrl+P` conforme o AEP-0034.
+`Ctrl+I` não integra mais esse contrato; seu eventual uso para itálico no
+Editor permanece escopado à superfície editável.
 
 ---
 

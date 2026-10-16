@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"assistente/internal/acp"
 	"assistente/internal/chat"
 	"assistente/internal/core/ports"
 	"assistente/internal/events"
@@ -8,6 +9,7 @@ import (
 	"assistente/internal/logging"
 	"context"
 	"errors"
+	"strings"
 )
 
 // SimpleStreamHandler implements llm.StreamHandler for the non-agentic (no-tool) path.
@@ -22,7 +24,10 @@ type SimpleStreamHandler struct {
 	profileSlug           string // Profile slug for TTS resolution
 	lastError             string
 	suppressTerminalError bool
+	terminalEmitted       bool
+	deferAgentTerminal    bool // orquestrador entrega o patch após persistir o parcial
 	finish                llm.FinishInfo
+	usage                 llm.Usage
 	// activity acompanha um turno conduzido por agente externo (AEP-0084):
 	// ferramentas que o agente rodou e os segmentos já fechados.
 	activity agentActivity
@@ -35,6 +40,7 @@ var (
 	_ llm.NonRetryableErrorSink = (*SimpleStreamHandler)(nil)
 	_ llm.TurnNoticeSink        = (*SimpleStreamHandler)(nil)
 	_ llm.AgentTitleSink        = (*SimpleStreamHandler)(nil)
+	_ llm.UsageSink             = (*SimpleStreamHandler)(nil)
 )
 
 // NewSimpleStreamHandler constructs a SimpleStreamHandler bound to a conversation.
@@ -68,23 +74,55 @@ func (s *Service) NewSimpleStreamHandler(ctx context.Context, conversationID, us
 
 func (h *SimpleStreamHandler) OnError(err string) {
 	h.lastError = err
-	h.FinishThinkingIfActive()
-	_, _ = h.Finalize()
-	h.closePendingAgentTools()
+	if h.deferAgentTerminal && h.hasAgentActivity() {
+		// O orquestrador emitirá um único terminal após salvar parcial e ledger.
+		h.MarkErrorNotRetryable()
+		h.FlushStream()
+		h.FinishThinkingIfActive()
+		h.closePendingAgentTools(h.pendingToolErrorKind())
+		return
+	}
 	// A supressão existe para não finalizar o streaming enquanto ainda há
 	// tentativa pela frente. Um erro que não pode ser repetido encerra o turno
 	// agora, e calá-lo deixaria a tela esperando por uma tentativa que não vem.
 	if h.suppressTerminalError && !h.ErrorNotRetryable() {
+		h.DiscardStreamReasoning()
+		_, _ = h.Finalize()
+		h.closePendingAgentTools(h.pendingToolErrorKind())
 		return
 	}
-	h.Emitter.Emit("chat:stream", events.StreamEvent{
-		MessageID:      h.AssistantMessageID,
-		Done:           true,
-		Error:          err,
-		ConversationId: h.ConversationID,
-		TurnID:         h.TurnID,
-		SurfaceOrigin:  h.SurfaceOrigin,
-	})
+	h.FlushStream()
+	h.FinishThinkingIfActive()
+	_, _ = h.Finalize()
+	h.closePendingAgentTools(h.pendingToolErrorKind())
+	streamEvent := events.StreamEvent{
+		MessageID:            h.AssistantMessageID,
+		Done:                 true,
+		Error:                err,
+		ConversationId:       h.ConversationID,
+		TurnID:               h.TurnID,
+		FinishReason:         string(h.finish.Reason),
+		RawReason:            h.finish.RawReason,
+		Provider:             h.finish.Provider,
+		Model:                h.finish.Model,
+		EffectiveOutputLimit: h.finish.OutputLimit,
+		SurfaceOrigin:        h.SurfaceOrigin,
+	}
+	if h.finish.Provider != "" || h.finish.Model != "" ||
+		h.finish.OutputLimit != 0 || h.finish.RawReason != "" ||
+		h.finish.Reason != "" || h.finish.ResponseBytes != 0 {
+		responseBytes := h.finish.ResponseBytes
+		streamEvent.ResponseBytes = &responseBytes
+	}
+	if h.usage.OutputTokensReported {
+		outputTokens := h.usage.CompletionTokens
+		streamEvent.OutputTokens = &outputTokens
+	}
+	if h.usage.ReasoningTokensReported {
+		reasoningTokens := h.usage.ReasoningTokens
+		streamEvent.ReasoningTokens = &reasoningTokens
+	}
+	h.Emitter.Emit("chat:stream", streamEvent)
 }
 
 func (h *SimpleStreamHandler) LastError() string {
@@ -95,11 +133,29 @@ func (h *SimpleStreamHandler) OnFinishReason(info llm.FinishInfo) {
 	h.finish = info
 }
 
+func (h *SimpleStreamHandler) OnUsage(usage llm.Usage) {
+	h.usage = usage
+}
+
+func (h *SimpleStreamHandler) ResetStreamAttempt() {
+	h.BaseStreamHandler.ResetStreamAttempt()
+	h.lastError = ""
+	h.finish = llm.FinishInfo{}
+	h.usage = llm.Usage{}
+}
+
 // SuppressTerminalError evita emitir chat:stream terminal com Error.
 // Usado pela auto-recuperação para não finalizar o streaming no frontend
 // antes de esgotar as tentativas.
 func (h *SimpleStreamHandler) SuppressTerminalError(v bool) {
 	h.suppressTerminalError = v
+}
+
+// TerminalEmitted informa ao loop simples que OnDone já produziu o evento
+// terminal. Isso evita um segundo chat:done de cancelamento quando a própria
+// finalização detecta context.Canceled.
+func (h *SimpleStreamHandler) TerminalEmitted() bool {
+	return h != nil && h.terminalEmitted
 }
 
 // OnToolCalls is the safety fallback for when simple streaming unexpectedly receives tool calls.
@@ -111,8 +167,15 @@ func (h *SimpleStreamHandler) OnToolCalls(calls []llm.ToolCall, fullResponse str
 
 func (h *SimpleStreamHandler) OnMCPToolEvent(event llm.MCPToolEvent) {
 	if event.IsCompleted {
-		logging.Infof(context.Background(), "agent.simple-stream-handler", "[MCP Native] ✅ %s (server=%s, id=%s): %d bytes output",
-			event.Name, event.ServerLabel, event.ID, len(event.Output))
+		if event.Error != "" {
+			// Falha já emitida ao frontend e logada em ERRO correlacionado pelo
+			// provider (fonte única). Aqui só um Debug, sem duplicar o ERRO.
+			logging.Debugf(context.Background(), "agent.simple-stream-handler", "[MCP Native] ❌ %s (server=%s, id=%s) FALHOU: %s",
+				event.Name, event.ServerLabel, event.ID, truncateString(event.Error, MaxResultDisplaySize))
+		} else {
+			logging.Infof(context.Background(), "agent.simple-stream-handler", "[MCP Native] ✅ %s (server=%s, id=%s): %d bytes output",
+				event.Name, event.ServerLabel, event.ID, len(event.Output))
+		}
 	} else {
 		logging.Infof(context.Background(), "agent.simple-stream-handler", "[MCP Native] 🔧 %s (server=%s, id=%s)",
 			event.Name, event.ServerLabel, event.ID)
@@ -122,16 +185,28 @@ func (h *SimpleStreamHandler) OnMCPToolEvent(event llm.MCPToolEvent) {
 func (h *SimpleStreamHandler) OnDone(fullResponse string, usage llm.Usage, model string) {
 	remainingSpeech, readInSegments := h.UnreadTail()
 	accumulatedContent, accumulatedReasoning := h.Finalize()
-	h.closePendingAgentTools()
+	h.closePendingAgentTools(h.pendingToolErrorKind())
+	if err := h.flushAgentTools(); err != nil {
+		h.MarkErrorNotRetryable()
+		h.OnError("Falha ao preservar atividades do agente: " + err.Error())
+		return
+	}
 
 	finalContent := fullResponse
 	if finalContent == "" {
 		finalContent = accumulatedContent
 	}
+	// AEP-0108 D4: turno que termina sem conteúdo e com erro não pode deixar o
+	// placeholder assistant vazio no banco — o vazio apaga o rastro na UI. O
+	// texto do erro (sanitizado, fronteira de dado não confiável) vira o
+	// conteúdo, e a conclusão normal o anuncia/fala como qualquer resposta.
+	if strings.TrimSpace(finalContent) == "" && strings.TrimSpace(h.lastError) != "" {
+		finalContent = "Falha na resposta do agente: " + acp.SanitizeContent(h.lastError)
+	}
 
 	// Delegate save, notify, and event emission to the Service (same as agentic path).
 	// The user message remains a standalone item; the assistant response carries the turn id.
-	h.svc.SaveAndFinish(h.ctx, h.ConversationID, h.userMessageID, h.assistantMessageID, AgenticResult{
+	h.terminalEmitted = h.svc.SaveAndFinish(h.ctx, h.ConversationID, h.userMessageID, h.assistantMessageID, AgenticResult{
 		FullResponse: finalContent,
 		Reasoning:    accumulatedReasoning,
 		Usage:        usage,
@@ -143,4 +218,11 @@ func (h *SimpleStreamHandler) OnDone(fullResponse string, usage llm.Usage, model
 		ReadInSegments:  readInSegments,
 		RemainingSpeech: remainingSpeech,
 	}, h.profileSlug, nil, h.SurfaceOrigin)
+}
+
+func (h *SimpleStreamHandler) pendingToolErrorKind() string {
+	if h.ctx != nil && errors.Is(h.ctx.Err(), context.Canceled) {
+		return "cancelled"
+	}
+	return "unknown"
 }

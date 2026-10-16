@@ -18,6 +18,10 @@ export function SetTaskListCustomActions(arg1, arg2) {
   return window['go']['wailsapi']['TasklistActions']['SetTaskListCustomActions'](arg1, arg2);
 }
 
+export function SetTaskListCustomActionsChecked(arg1, arg2, arg3) {
+  return window['go']['wailsapi']['TasklistActions']['SetTaskListCustomActionsChecked'](arg1, arg2, arg3);
+}
+
 export function TriggerCustomAction(arg1, arg2, arg3) {
   return window['go']['wailsapi']['TasklistActions']['TriggerCustomAction'](arg1, arg2, arg3);
 }

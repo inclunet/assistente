@@ -38,7 +38,7 @@ func TestACredencialDoAgenteSaiDoCofreDecifrada(t *testing.T) {
 
 	credMgr := credentials.NewManagerWithStoreAndPersistence(
 		[]byte("test-key-exactly-32-bytes-long!!"), credentials.NewDBStore(), true)
-	if err := credMgr.RegisterPatternWithContext(ctx, "api.openai.com", &credentials.AuthConfig{
+	if err := credMgr.RegisterPatternWithContext(ctx, "api.openai.com", &credentials.AuthConfig{Source: "static",
 		Type: "bearer", Token: "sk-do-cofre",
 	}); err != nil {
 		t.Fatalf("registrar a credencial: %v", err)
@@ -82,7 +82,7 @@ func TestOAgenteDeUmaPessoaNaoRecebeACredencialDeOutra(t *testing.T) {
 
 	credMgr := credentials.NewManagerWithStoreAndPersistence(
 		[]byte("test-key-exactly-32-bytes-long!!"), credentials.NewDBStore(), true)
-	if err := credMgr.RegisterPatternWithContext(daAna, "api.openai.com", &credentials.AuthConfig{
+	if err := credMgr.RegisterPatternWithContext(daAna, "api.openai.com", &credentials.AuthConfig{Source: "static",
 		Type: "bearer", Token: "sk-da-ana",
 	}); err != nil {
 		t.Fatalf("registrar a credencial: %v", err)

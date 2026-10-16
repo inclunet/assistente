@@ -38,6 +38,10 @@ export function DeleteConversation(arg1) {
   return window['go']['wailsapi']['Conversations']['DeleteConversation'](arg1);
 }
 
+export function DeleteConversations(arg1) {
+  return window['go']['wailsapi']['Conversations']['DeleteConversations'](arg1);
+}
+
 export function DeleteMessage(arg1) {
   return window['go']['wailsapi']['Conversations']['DeleteMessage'](arg1);
 }
@@ -108,6 +112,10 @@ export function GetPinnedMessages(arg1) {
 
 export function GetRecentMessages(arg1, arg2) {
   return window['go']['wailsapi']['Conversations']['GetRecentMessages'](arg1, arg2);
+}
+
+export function GetToolInvocationDetails(arg1) {
+  return window['go']['wailsapi']['Conversations']['GetToolInvocationDetails'](arg1);
 }
 
 export function RebuildSearchIndex() {

@@ -4,6 +4,69 @@
 
 ## Dependências
 
+Adendo AEP-0103, seção 36 (17/09/2026): o handler de jobs admite cadeia
+herdada de camada somente após prova autoritativa no App. Raiz type/ID vem
+do fato verificado na outbox, com sessão/workspace e fontes revalidados.
+O runtime preserva os dois históricos e continua dono de DetectLoop e
+MaxChainDepth. Dispatch é vinculado ao alvo e estágio da cadeia; descendentes
+não herdam a autorização. A prova integrada usa catálogo controlado; não
+encerra R05.2/R03.4 nem disponibiliza `job.run` na paleta.
+As notas seguintes descrevem etapas anteriores.
+
+Adendo AEP-0103, seção 34 (17/09/2026): `Manager.CommandHandler` conecta
+delegação de usuário local ao executor real, com alvo UUID/slug/versão fixado
+pelo bootstrap. Exige contrato destrutivo/interativo, decisão consumida e
+revalidação de owner, definição, sessão e autorização antes da fila e de cada
+tentativa. Resultado expõe somente IDs/estado terminal durável; paths da tool
+são aplicados no ledger comum e não herdados pelos jobs descendentes.
+O teste integrado usa sessão, DecisionStore, SQLite e ToolInvocationService
+reais e prova replay sem novo run. **R05.2 continua parcial**: montagem App,
+raiz reativa e entradas agent/job_service/catálogo R07 ainda não publicadas.
+
+Adendo AEP-0103, seção 33 (17/09/2026): a entrada específica de tasklists
+cria raiz interna vinculada à sessão local. A identidade é revalidada antes
+de `queued` e preservada nos descendentes; payload público não cria autoridade.
+Jobs, executor e ledger compartilham a validação da cadeia de comandos.
+Recuperação qualificada com fechamento/reabertura do SQLite e lease expirada,
+sem recolocar eventos entregues na fila. A composição comando → novo job
+permanece dependente de R05.2/R07, não simulada por handler de teste.
+
+Adendo AEP-0103, seção 32 (17/09/2026): a projeção de claims transporta a
+proveniência do fato verificado, não a cópia solta da claim. O resolvedor do
+App herda somente as fontes das camadas selecionadas; término do runtime
+remove sua influência. Histórico de jobs não recebe nomes de comandos;
+o executor mantém `command_chain_history` separado, inclusive na auditoria
+redigida. A composição completa de novos jobs por comandos permanece em R03.4.
+
+Adendo AEP-0103, seção 31 (17/09/2026): após persistir `queued`, o executor
+carimba contexto privado com a raiz e a cadeia do run. O listener do Manager
+e `RunJobContext` preservam essa origem em encadeamentos; payload público não
+substitui a prova, e contexto de outro usuário não vira raiz manual. A outbox
+continua sendo produzida pela timeline de cada run, não pelo EventBus.
+
+Adendo AEP-0103, seção 30 (17/09/2026): claims validadas agora compõem o mapa
+efetivo do App. A validade publicada cobre lease, condição e runtime vivo;
+o término do run retira o efeito mesmo antes de a manutenção atualizar a
+linha auditável. O caminho estável consulta memória, não timeline/SQLite.
+Ingressos completos e replay ainda não têm aceite integral de R03.
+
+Adendo AEP-0103, 17/09/2026: `WatchSecurityEpoch` preserva a prova viva do
+run durante publicação de bindings/camadas; encerramento do contexto, sessão,
+bloqueio e drain continuam invalidando-a. Rebuild real do App e renovação além
+do TTL inicial estão qualificados na seção 29. A matriz do executor cobre
+as cinco origens elegíveis e estados terminais/retry, mas não certifica seus
+adaptadores de ingresso nem a projeção das claims no resolvedor.
+
+Adendo AEP-0103, 16/09/2026: o executor reserva a identidade de comandos para
+captura autenticada do host e geração privada por run. Proveniência recebida
+no trigger não concede essa autoridade. Manager mantém prova em memória até
+o fim da execução, invalidada por Stop e pelo watch da sessão. Linhas no banco
+isoladamente não provam trabalho vivo; falhas SQL não viram ausência de runtime.
+Indisponibilidade dessa capacidade não cancela uma tool legada já autorizada.
+O Consumer do App e a manutenção compartilham a cadência existente e o gate.
+Aceite e limitações: seção 26 da tasklist AEP-0103; não declara jobs/camadas
+integralmente concluídos.
+
 - **AEP-0046** (Migração de IDs sequenciais para UUIDv7): Deve ser implementada primeiro. Fornece o `UUIDModel` com hook `BeforeCreate` que gera UUIDv7 automaticamente. Todas as PKs das tabelas desta AEP usam esse modelo.
 - **AEP-0052** (Multi-user accounts): Jobs, pipelines, runs e eventos nascem sempre com `user_id`.
 - **AEP-0047** (Importação e Exportação): O mecanismo compartilhado de importações legadas é reaproveitado para migrar jobs do filesystem para o banco.
@@ -52,6 +115,31 @@ Antes desta AEP, o sistema de jobs era 100% baseado em filesystem:
 
 ## Estado implementado
 
+### Adendo AEP-0103 — timeline incremental (15/09/2026)
+
+Fechamento adicional de lease: `commandjobactivation.RenewRuntime` permite
+continuidade após o deadline original do evento somente com lease ainda viva,
+runtime/owner/grant atuais e integridade/epoch preservados. O caminho de consumo
+continua rejeitando replay fora do horizonte. Testes usam um epoch curto que
+vence naturalmente antes da lease, sem fabricar renovação. Remoção da outbox
+original impede renovação; preservar/reconstruir a prova autoritativa e montar
+heartbeat real permanecem requisitos da integração AEP-0103, ainda desabilitada.
+
+O executor passa a persistir criação `queued`, início real e agendamento de
+retry antes das respectivas fronteiras de despacho/efeito/espera. O término
+atualiza o mesmo run. `queued_at` é obrigatório; `started_at` pode ser NULL
+enquanto aguarda despacho. A migração pré-AutoMigrate v24 preenche somente o
+timestamp histórico a partir de `started_at`, preservando IDs e sem inventar
+origem causal nem produzir eventos retroativos.
+
+`DBRepository.PersistRunState` compõe run, evento ordenado e, quando elegível,
+`command_job_activation_outbox` na mesma transação. Apenas os fatos v1
+explicitamente permitidos pela AEP-0103 são candidatos; eventos legados sem
+proveniência comprovada não viram autoridade. A outbox não possui FK/cascade
+para runs/eventos. O consumidor de ativação continua desabilitado até a
+integração de claims, grants, lease/heartbeat e manutenção; persistir um fato
+não concede permissão para executar comandos.
+
 - Models e `DBRepository` vivem em `internal/database/models_jobs.go` e
   `internal/jobs/repository.go`.
 - `Manager` exige `Repository`; `BaseDir` só identifica a fonte da importação
@@ -89,6 +177,16 @@ quantidade por job com `runs_per_job_keep` (padrão 200). A limpeza roda ainda
 no `Start()` do Manager.
 
 A interface de persistência expõe limpeza separada para runs, eventos de domínio e timeline operacional (`CleanOldRuns`, `CleanOldEvents`, `CleanOldRunEvents`) para deixar explícito que as três tabelas participam da retenção.
+
+Adendo AEP-0103/R03.4 (24/09/2026): `command_job_activation_outbox` preserva o
+fato durável e seu replay, mas o Consumer também revalida o job e o `job_run`
+antes de aplicar a ocorrência. Por isso limpeza por idade e count-cap mantêm o
+run referenciado enquanto houver outbox `pending`/`processing`; após
+`delivered`/`dead_letter`, o run volta a ser elegível conforme a política
+normal. A outbox mantém seu próprio horizonte de replay, independente da linha
+de run. Evidência focada: `internal/jobs/command_activation_retention_matrix_test.go`
+e `internal/commandjobactivation/recovery_matrix_test.go`. Isso documenta
+somente a fronteira de retenção, não declara R03.4 concluído.
 
 ### D4 — Separação entre eventos de domínio e timeline operacional
 

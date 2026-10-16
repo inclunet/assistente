@@ -41,7 +41,7 @@ async function setupHistoryPage(
   wails: Parameters<Parameters<typeof test>[2]>[0]['wails'],
 ) {
   await wails.setResponse('GetConversations', conversationsFixture());
-  await wails.setResponse('DeleteConversation', undefined);
+  await wails.setResponse('DeleteConversations', (ids: string[]) => ids);
   await wails.waitForApp();
 
   await page.goto('/#/history');

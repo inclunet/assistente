@@ -1,6 +1,6 @@
 # AEP-0059: Performance de Conversas Longas
 
-## Status: In Progress — janela incremental e timeline canônica entregues; virtualização e conteúdo pesado seguem pendentes
+## Status: In Progress — janela, timeline, detalhes lazy, contagem indexada e memoização da lista entregues; demais conteúdos pesados seguem pendentes
 
 ## Relação com a AEP-0056
 
@@ -159,6 +159,9 @@ A lista virtualizada deve manter experiência consistente para teclado e leitor 
 - Medir tempo de carregamento, transformação e renderização em conversas sintéticas de 100, 500 e 1000 mensagens.
 - Definir limites internos para janela inicial, paginação e ativação de virtualização.
 - Criar fixture/testes de performance funcional para conversa longa.
+- [x] Remover parsing de metadata JSON da contagem de chamadas ao modelo:
+  a migração v20 materializa iteração/origem externa no ledger, e benchmarks
+  com 20.000 invocações exigem contagem média abaixo de 100 ms.
 
 ### Fase 2 — Janela por sessão ✅
 
@@ -243,6 +246,29 @@ Critério prático:
   anúncios sem duplicação; esta fase não encontrou evidência que justificasse
   alterar o limiar acessível.
 
+#### Estabilidade das propriedades da lista
+
+`ChatSessionView` e `MessageList` preservam a identidade dos callbacks de
+navegação e das propriedades que não mudaram. Isso permite que a memoização
+dos nós existentes sobreviva a atualizações de sessão, em vez de propagar
+novas funções/objetos para todos os itens visíveis. Dependências relevantes
+continuam atualizando as ações: estabilidade não pode capturar estado antigo
+de paginação, exclusão, menus ou origem da superfície.
+
+O recorte preserva o renderer Markdown, sanitização, Mermaid, virtualização,
+foco e o protocolo de eventos. Ele não implementa parsing incremental da
+resposta em construção nem elimina o custo de renderizar texto que mudou.
+Esses custos continuam pendentes de uma otimização específica e medida.
+
+Evidência funcional: `MessageList.performance.test.tsx`, com viewport sintética
+de 700 px e virtualizer real, compara 10 mudanças de loading em históricos de
+100/500/1000 nós. Na base `1060a783e`, o nó memoizado instrumentado renderiza
+110 vezes adicionais; após a otimização, zero. A fixture exige que existam nós
+montados (não aceita uma janela vazia como sucesso). Ao alterar o conteúdo de
+um entre dois nós, os renders caem de dois para um. O teste também verifica
+troca de callbacks, paginação e bloqueio durante carregamento. São contadores
+de trabalho no limite da lista, não benchmark de Markdown, WebView ou NVDA.
+
 ### Fase 4 — Virtualização acessível ⏳
 
 - Introduzir virtualização em `MessageList` atrás de um limite.
@@ -253,7 +279,9 @@ Critério prático:
 ### Fase 5 — Conteúdo pesado sob demanda ⏳
 
 - Carregar filhos de thread apenas quando expandidos.
-- Manter tool calls e reasoning colapsados sem render caro inicial.
+- [x] Projetar resumos leves de invocações no item do turno e carregar detalhes
+  integrais em batch/lazy, conforme a AEP-0104.
+- Manter reasoning colapsado sem render caro inicial.
 - Adiar áudio e anexos grandes até interação explícita.
 - Evitar parse/render completo de Markdown fora da janela visível.
 
@@ -281,8 +309,17 @@ Critério prático:
 - [ ] Não há fixture focada comprovada de 500 mensagens sintéticas.
 - [x] `aria-posinset`/`aria-setsize` usam posição e total de itens de timeline.
 - [x] Turnos com tool calls são um único item acessível.
+- [x] Janela e `turnPatch` não carregam input/output integral de tools.
+- [x] Detalhes de invocações são carregados em batch user-scoped, sem N+1.
+- [x] Contagem de model calls usa somente o ledger materializado e índices por
+  conversa/turno, com paridade semântica, isolamento multiusuário, plano sem
+  full scan/JSON e orçamento reproduzível de 100 ms para 20.000 invocações.
 
 Evidências entregues: `internal/app/db_message_window_test.go`,
 `internal/chat/timeline_test.go`,
 `frontend/src/components/chat/MessageList.test.tsx`,
-`ChatSessionContext.test.tsx` e `ChatSessionView.test.tsx`.
+`ChatSessionContext.test.tsx`, `ChatSessionView.test.tsx`,
+`internal/toolinvocations/projection_read_test.go`,
+`internal/app/db_message_window_benchmark_test.go` e
+`frontend/src/components/chat/ToolCallsSection.test.tsx`,
+`internal/database/token_repository_performance_test.go`.

@@ -1,12 +1,26 @@
 import { forwardRef, useImperativeHandle, type ReactNode } from 'react';
 import { describe, expect, it, beforeEach, vi } from 'vitest';
-import { render, waitFor } from '@testing-library/react';
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { WorkspaceTab } from '../../store/workspaceStore';
 import TaskListView from './TaskListView';
+import {
+  canFocusWorkspacePanelImmediately,
+  getWorkspacePanelImmediateFocusHandler,
+  requestWorkspacePanelFocus,
+} from '../workspace/workspacePanelFocusRegistry';
+import { DATAGRID_ENTRY_SELECTOR } from '../ui/DataGrid';
+import { enqueueSave, taskListWorkflowSaveKey } from '../../lib/serialSaveQueue';
 
 const openCreateModalMock = vi.fn();
 const registerWorkspaceChatAdapterMock = vi.hoisted(() => vi.fn());
+const commandSurfaceGetterMock = vi.hoisted(() => vi.fn());
+const requestPagePresentationMock = vi.hoisted(() => vi.fn(() => true));
+const requestPageMutationMock = vi.hoisted(() => vi.fn());
+const pagePresentationOptionsMock = vi.hoisted(() => vi.fn());
+const pageMutationOptionsMock = vi.hoisted(() => vi.fn());
+const readTaskListCommandTargetMock = vi.hoisted(() => vi.fn());
+const announceMock = vi.hoisted(() => vi.fn());
 const chatModalState = vi.hoisted(() => ({
   isOpen: false,
   boundTabId: null as string | null,
@@ -23,9 +37,27 @@ const workspacePanelState = vi.hoisted(() => ({
   } satisfies WorkspaceTab,
 }));
 
+const workspaceStoreState = vi.hoisted(() => ({
+  workspace: {
+    id: 'workspace-1',
+    profile: 'default',
+    activeTabId: 'tasklist-tab',
+    tabs: [workspacePanelState.tab],
+  },
+}));
+
 const taskListStoreState = vi.hoisted(() => ({
   taskLists: new Map<string, unknown>(),
+  taskPages: new Map<string, { nextCursor: string; hasMore: boolean; totalCount: number }>(),
+  loadingByTaskListId: new Map<string, boolean>(),
+  loadingTaskPagesByListId: new Map<string, boolean>(),
+  taskPageLoadErrors: new Map<string, string>(),
+  errors: new Map<string, string>(),
   loadTaskList: vi.fn(),
+  loadMoreTasks: vi.fn(),
+  loadAllTasksForBoard: vi.fn(),
+  cancelBoardTaskLoad: vi.fn(),
+  clearError: vi.fn(),
   setViewMode: vi.fn(),
   cloneTaskList: vi.fn(),
   clearTaskList: vi.fn(),
@@ -35,10 +67,30 @@ const taskListStoreState = vi.hoisted(() => ({
   listBoardCustomActions: vi.fn(),
   triggerCustomAction: vi.fn(),
   setTaskListConversation: vi.fn(),
+  updateTaskList: vi.fn(),
 }));
 
 vi.mock('react-router-dom', () => ({
   useNavigate: () => vi.fn(),
+  useLocation: () => ({ pathname: '/' }),
+}));
+
+vi.mock('../../lib/commandPagePresentation', () => ({
+  usePagePresentationCommands: (options: unknown) => {
+    pagePresentationOptionsMock(options);
+    return { request: requestPagePresentationMock };
+  },
+}));
+
+vi.mock('../../lib/commandPageMutation', () => ({
+  usePageMutationCommands: (options: unknown) => {
+    pageMutationOptionsMock(options);
+    return { request: requestPageMutationMock };
+  },
+}));
+
+vi.mock('../../lib/commandPageMutationWails', () => ({
+  readTaskListCommandTarget: (...args: unknown[]) => readTaskListCommandTargetMock(...args),
 }));
 
 vi.mock('react-i18next', () => ({
@@ -48,47 +100,70 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
-vi.mock('../workspace/WorkspacePanelContext', () => ({
-  useWorkspacePanel: () => workspacePanelState,
+vi.mock('../workspace/WorkspacePanelContext', async () => {
+  const actual = await vi.importActual<typeof import('../workspace/WorkspacePanelContext')>(
+    '../workspace/WorkspacePanelContext',
+  );
+  return {
+    ...actual,
+    useWorkspacePanel: () => workspacePanelState,
+    useOptionalWorkspacePanel: () => ({ ...workspacePanelState, rootRef: undefined }),
+  };
+});
+
+vi.mock('../workspace/useWorkspaceCommandSurface', () => ({
+  useWorkspaceCommandSurface: (_surfaceType: string, getter: () => unknown) => {
+    commandSurfaceGetterMock(getter);
+  },
 }));
 
 vi.mock('../../store/workspaceStore', () => ({
-  useWorkspaceStore: (selector: (state: { workspace: { profile: string } }) => unknown) => selector({
-    workspace: { profile: 'default' },
-  }),
+  useWorkspaceStore: Object.assign(
+    (selector: (state: typeof workspaceStoreState) => unknown) => selector(workspaceStoreState),
+    { getState: () => workspaceStoreState },
+  ),
 }));
 
 vi.mock('../../store/taskListStore', () => ({
-  useTaskListStore: (selector?: (state: typeof taskListStoreState) => unknown) => (
+  useTaskListStore: Object.assign((selector?: (state: typeof taskListStoreState) => unknown) => (
     typeof selector === 'function' ? selector(taskListStoreState) : taskListStoreState
-  ),
+  ), {
+    getState: () => taskListStoreState,
+  }),
 }));
 
 vi.mock('../../store/workspaceChatModalStore', () => {
   const useStore = (selector?: (s: typeof chatModalState) => unknown) => (
     typeof selector === 'function' ? selector(chatModalState) : chatModalState
   );
-  (useStore as unknown as { getState: () => unknown }).getState = () => ({ requestOpen: vi.fn() });
+  (useStore as unknown as { getState: () => unknown }).getState = () => ({
+    ...chatModalState,
+    requestOpen: vi.fn(),
+  });
   return { useWorkspaceChatModalStore: useStore };
 });
 
 vi.mock('../../store/uiStore', () => ({
   useUIStore: (selector: (state: { addToast: ReturnType<typeof vi.fn> }) => unknown) => selector({
-    addToast: vi.fn(),
+    addToast: toastMock,
   }),
 }));
 
 vi.mock('../../hooks/useAnnouncer', () => ({
-  useAnnouncer: () => ({ announce: vi.fn() }),
+  useAnnouncer: () => ({ announce: announceMock }),
 }));
 
+const confirmMock = vi.hoisted(() => vi.fn());
+const toastMock = vi.hoisted(() => vi.fn());
+
 vi.mock('../../hooks/useConfirm', () => ({
-  useConfirm: () => vi.fn().mockResolvedValue(false),
+  useConfirm: () => confirmMock,
 }));
 
 vi.mock('../../hooks/useDefaultFocus', () => ({
   registerDefaultFocus: vi.fn(),
   unregisterDefaultFocus: vi.fn(),
+  restoreDefaultFocus: vi.fn(),
 }));
 
 vi.mock('../../hooks/useRegisterWorkspaceChatAdapter', () => ({
@@ -97,17 +172,50 @@ vi.mock('../../hooks/useRegisterWorkspaceChatAdapter', () => ({
 
 vi.mock('../ui/Modal', () => ({
   isModalOpen: () => false,
-  Modal: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  Modal: ({ children, title, initialFocusSelector }: {
+    children: ReactNode;
+    title?: string;
+    initialFocusSelector?: string;
+  }) => (
+    <div role="dialog" aria-label={title} data-initial-focus={initialFocusSelector}>{children}</div>
+  ),
+}));
+
+vi.mock('./CustomActionsEditor', () => ({ default: () => <div>custom-actions-editor</div> }));
+const workflowEditorProps = vi.hoisted(() => ({
+  current: null as null | {
+    onSave: (...args: unknown[]) => Promise<void>;
+    onConflict?: () => void;
+    syncToken?: number;
+  },
+}));
+vi.mock('./WorkflowEditor', () => ({
+  default: (props: NonNullable<typeof workflowEditorProps.current>) => {
+    workflowEditorProps.current = props;
+    return (
+      <div>
+        <div>workflow-editor</div>
+        <span>{`sync:${props.syncToken}`}</span>
+      </div>
+    );
+  },
 }));
 
 vi.mock('../ui/Toolbar', () => ({
-  Toolbar: ({ actions }: { actions?: Array<{ key: string; label: string; onClick?: () => void }> }) => (
+  Toolbar: ({
+    actions,
+    rightEnd,
+  }: {
+    actions?: Array<{ key: string; label: string; onClick?: () => void; disabled?: boolean }>;
+    rightEnd?: ReactNode;
+  }) => (
     <div>
       {actions?.map((action) => (
-        <button key={action.key} type="button" onClick={action.onClick}>
+        <button key={action.key} type="button" onClick={action.onClick} disabled={action.disabled}>
           {action.label}
         </button>
       ))}
+      {rightEnd}
     </div>
   ),
 }));
@@ -117,7 +225,12 @@ vi.mock('./TasksTable', () => ({
     useImperativeHandle(ref, () => ({
       openCreateModal: openCreateModalMock,
     }));
-    return <div>tasks-table</div>;
+    return (
+      <div data-testid="tasklist-surface-focus" tabIndex={0}>
+        tasks-table
+        <input aria-label="campo da lista" />
+      </div>
+    );
   }),
 }));
 
@@ -126,13 +239,26 @@ vi.mock('./KanbanBoard', () => ({
     useImperativeHandle(ref, () => ({
       openCreateModal: openCreateModalMock,
     }));
-    return <div>kanban-board</div>;
+    // Espelha o contrato de foco real: container focável com role="grid".
+    return (
+      <div className="kanban-board" role="grid" tabIndex={0}>
+        kanban-board
+      </div>
+    );
   }),
 }));
 
 vi.mock('./useCustomActions', () => ({
   useCustomActions: () => ({ runCustomAction: vi.fn() }),
 }));
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((fulfill) => {
+    resolve = fulfill;
+  });
+  return { promise, resolve };
+}
 
 describe('TaskListView', () => {
   beforeEach(() => {
@@ -142,11 +268,50 @@ describe('TaskListView', () => {
     chatModalState.boundConversationId = null;
     openCreateModalMock.mockReset();
     registerWorkspaceChatAdapterMock.mockReset();
+    commandSurfaceGetterMock.mockReset();
+    requestPagePresentationMock.mockReset();
+    requestPagePresentationMock.mockReturnValue(true);
+    requestPageMutationMock.mockReset();
+    requestPageMutationMock.mockResolvedValue({
+      status: 'succeeded',
+      result: { id: 'tasklist-copy', title: 'Lista (Cópia)' },
+    });
+    pagePresentationOptionsMock.mockReset();
+    pageMutationOptionsMock.mockReset();
+    readTaskListCommandTargetMock.mockReset();
+    readTaskListCommandTargetMock.mockResolvedValue({
+      taskList: { title: 'Lista atômica', description: 'Descrição atual' },
+      fingerprint: 'fingerprint-1',
+    });
+    workspaceStoreState.workspace = {
+      id: 'workspace-1',
+      profile: 'default',
+      activeTabId: 'tasklist-tab',
+      tabs: [workspacePanelState.tab],
+    };
+    announceMock.mockReset();
+    toastMock.mockReset();
+    confirmMock.mockReset();
+    confirmMock.mockResolvedValue(false);
     taskListStoreState.loadTaskList.mockReset();
+    taskListStoreState.loadMoreTasks.mockReset();
+    taskListStoreState.loadAllTasksForBoard.mockReset();
+    taskListStoreState.loadAllTasksForBoard.mockResolvedValue(205);
+    taskListStoreState.cancelBoardTaskLoad.mockReset();
+    taskListStoreState.taskPages = new Map([
+      ['tasklist-1', { nextCursor: '', hasMore: false, totalCount: 0 }],
+    ]);
+    taskListStoreState.loadingByTaskListId = new Map();
+    taskListStoreState.loadingTaskPagesByListId = new Map();
+    taskListStoreState.taskPageLoadErrors = new Map();
+    taskListStoreState.errors = new Map();
+    taskListStoreState.clearError.mockReset();
     taskListStoreState.listBoardCustomActions.mockReset();
     taskListStoreState.listBoardCustomActions.mockResolvedValue([]);
     taskListStoreState.setTaskListConversation.mockReset();
     taskListStoreState.setTaskListConversation.mockResolvedValue(undefined);
+    taskListStoreState.updateTaskList.mockReset();
+    taskListStoreState.updateTaskList.mockResolvedValue(undefined);
     taskListStoreState.taskLists = new Map([
       ['tasklist-1', {
         id: 'tasklist-1',
@@ -156,6 +321,51 @@ describe('TaskListView', () => {
         workflow: { id: 'workflow-1', taskListId: 'tasklist-1', statuses: [], allowedTransitions: {}, initialStatusId: 1 },
       }],
     ]);
+  });
+
+  it('getter relê retarget da mesma aba sem rerender ou Notify', () => {
+    render(<TaskListView taskListId="tasklist-1" />);
+
+    const getter = commandSurfaceGetterMock.mock.calls[
+      commandSurfaceGetterMock.mock.calls.length - 1
+    ]?.[0] as (() => unknown) | undefined;
+    expect(getter).toBeDefined();
+    expect(getter?.()).not.toBeNull();
+
+    workspaceStoreState.workspace.tabs = [{
+      ...workspacePanelState.tab,
+      state: { tasklistId: 'tasklist-2' },
+    }];
+
+    expect(getter?.()).toBeNull();
+  });
+
+  it('carrega a primeira página quando o cache contém apenas metadados', async () => {
+    taskListStoreState.taskPages = new Map();
+    render(<TaskListView taskListId="tasklist-1" />);
+
+    expect(screen.getByText('Carregando...')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(taskListStoreState.loadTaskList).toHaveBeenCalledTimes(1);
+      expect(taskListStoreState.loadTaskList).toHaveBeenCalledWith('tasklist-1');
+    });
+  });
+
+  it('expõe erro da primeira página e permite retry acessível', async () => {
+    const user = userEvent.setup();
+    taskListStoreState.taskLists = new Map();
+    taskListStoreState.taskPages = new Map();
+    taskListStoreState.errors = new Map([
+      ['loadTaskList:tasklist-1', 'falha transitória'],
+    ]);
+    render(<TaskListView taskListId="tasklist-1" />);
+
+    expect(screen.getByText('falha transitória')).toBeInTheDocument();
+    expect(announceMock).toHaveBeenCalledWith('falha transitória', 'assertive');
+    await user.click(screen.getByRole('button', { name: 'Tentar novamente' }));
+
+    expect(taskListStoreState.clearError).toHaveBeenCalledWith('loadTaskList:tasklist-1');
+    expect(taskListStoreState.loadTaskList).toHaveBeenCalledWith('tasklist-1');
   });
 
   it('não responde a atalhos globais quando o painel está inativo', async () => {
@@ -183,14 +393,320 @@ describe('TaskListView', () => {
     expect(surfaceContext.snapshotVersion).toMatch(/^tasklist:tasklist-tab:/);
   });
 
-  it('responde a atalhos globais quando o painel está ativo', async () => {
-    const user = userEvent.setup();
+  it('libera o Kanban na primeira página enquanto carrega as demais', async () => {
     workspacePanelState.isActive = true;
+    const backgroundLoad = deferred<number>();
+    taskListStoreState.loadAllTasksForBoard.mockReturnValueOnce(backgroundLoad.promise);
+    taskListStoreState.taskLists = new Map([
+      ['tasklist-1', {
+        id: 'tasklist-1',
+        title: 'Board grande',
+        preferredViewMode: 'kanban',
+        tasks: Array.from({ length: 100 }, (_, index) => ({
+          id: `task-${index + 1}`,
+          taskListId: 'tasklist-1',
+          title: `Card ${index + 1}`,
+          statusId: 1,
+          order: index,
+        })),
+        workflow: {
+          id: 'workflow-1',
+          taskListId: 'tasklist-1',
+          statuses: [{ id: 1, order: 0, label: 'A fazer' }],
+          allowedTransitions: {},
+          initialStatusId: 1,
+        },
+      }],
+    ]);
+    taskListStoreState.taskPages = new Map([
+      ['tasklist-1', { nextCursor: 'cursor-100', hasMore: true, totalCount: 205 }],
+    ]);
+    taskListStoreState.loadingTaskPagesByListId = new Map([
+      ['tasklist-1', true],
+    ]);
+
     render(<TaskListView taskListId="tasklist-1" />);
 
-    await user.keyboard('n');
+    expect(document.body).toHaveTextContent('kanban-board');
+    await waitFor(() => {
+      expect(taskListStoreState.loadAllTasksForBoard).toHaveBeenCalledTimes(1);
+      expect(taskListStoreState.loadAllTasksForBoard).toHaveBeenCalledWith('tasklist-1');
+    });
+    expect(taskListStoreState.loadAllTasksForBoard.mock.results[0]?.value).toBe(backgroundLoad.promise);
+    expect(announceMock).toHaveBeenCalledWith(
+      '{{loaded}} de {{total}} cards carregados; o quadro já está navegável',
+      'polite',
+    );
 
-    expect(openCreateModalMock).toHaveBeenCalledTimes(1);
+    backgroundLoad.resolve(205);
+    await waitFor(() => {
+      expect(announceMock).toHaveBeenCalledWith('Quadro completo com {{count}} cards', 'polite');
+    });
+  });
+
+  it('expõe retry sem remover o Kanban após falha de página posterior', async () => {
+    workspacePanelState.isActive = true;
+    taskListStoreState.taskLists = new Map([
+      ['tasklist-1', {
+        id: 'tasklist-1',
+        title: 'Board parcial',
+        preferredViewMode: 'kanban',
+        tasks: [{ id: 'task-1', taskListId: 'tasklist-1', title: 'Card disponível', statusId: 1, order: 0 }],
+        workflow: {
+          id: 'workflow-1',
+          taskListId: 'tasklist-1',
+          statuses: [{ id: 1, order: 0, label: 'A fazer' }],
+          allowedTransitions: {},
+          initialStatusId: 1,
+        },
+      }],
+    ]);
+    taskListStoreState.taskPages = new Map([
+      ['tasklist-1', { nextCursor: 'cursor-100', hasMore: true, totalCount: 205 }],
+    ]);
+    taskListStoreState.taskPageLoadErrors = new Map([
+      ['tasklist-1', 'falha transitória'],
+    ]);
+    taskListStoreState.loadAllTasksForBoard.mockRejectedValueOnce(new Error('falha transitória'));
+
+    render(<TaskListView taskListId="tasklist-1" />);
+
+    expect(document.body).toHaveTextContent('kanban-board');
+    expect(document.body).toHaveTextContent('Não foi possível carregar todos os cards');
+    expect(document.body).toHaveTextContent('Tentar carregar cards restantes');
+    await waitFor(() => {
+      expect(announceMock).toHaveBeenCalledWith(
+        'Não foi possível carregar todos os cards. Os cards disponíveis continuam navegáveis.',
+        'polite',
+      );
+    });
+  });
+
+  it('não anuncia conclusão depois que o Kanban é desmontado', async () => {
+    workspacePanelState.isActive = true;
+    const backgroundLoad = deferred<number>();
+    taskListStoreState.loadAllTasksForBoard.mockReturnValueOnce(backgroundLoad.promise);
+    taskListStoreState.taskLists = new Map([
+      ['tasklist-1', {
+        id: 'tasklist-1',
+        title: 'Board',
+        preferredViewMode: 'kanban',
+        tasks: [{ id: 'task-1', taskListId: 'tasklist-1', title: 'Card', statusId: 1, order: 0 }],
+        workflow: {
+          id: 'workflow-1',
+          taskListId: 'tasklist-1',
+          statuses: [{ id: 1, order: 0, label: 'A fazer' }],
+          allowedTransitions: {},
+          initialStatusId: 1,
+        },
+      }],
+    ]);
+    taskListStoreState.taskPages = new Map([
+      ['tasklist-1', { nextCursor: 'cursor-100', hasMore: true, totalCount: 205 }],
+    ]);
+
+    const { unmount } = render(<TaskListView taskListId="tasklist-1" />);
+    await waitFor(() => expect(taskListStoreState.loadAllTasksForBoard).toHaveBeenCalledTimes(1));
+    announceMock.mockClear();
+
+    unmount();
+    backgroundLoad.resolve(205);
+    await backgroundLoad.promise;
+    await Promise.resolve();
+
+    expect(announceMock).not.toHaveBeenCalled();
+  });
+
+  it('não anuncia progresso ou conclusão enquanto o painel está inativo', async () => {
+    const backgroundLoad = deferred<number>();
+    taskListStoreState.loadAllTasksForBoard.mockReturnValueOnce(backgroundLoad.promise);
+    taskListStoreState.taskLists = new Map([
+      ['tasklist-1', {
+        id: 'tasklist-1',
+        title: 'Board oculto',
+        preferredViewMode: 'kanban',
+        tasks: [{ id: 'task-1', taskListId: 'tasklist-1', title: 'Card', statusId: 1, order: 0 }],
+        workflow: {
+          id: 'workflow-1',
+          taskListId: 'tasklist-1',
+          statuses: [{ id: 1, order: 0, label: 'A fazer' }],
+          allowedTransitions: {},
+          initialStatusId: 1,
+        },
+      }],
+    ]);
+    taskListStoreState.taskPages = new Map([
+      ['tasklist-1', { nextCursor: 'cursor-100', hasMore: true, totalCount: 205 }],
+    ]);
+    taskListStoreState.loadingTaskPagesByListId = new Map([['tasklist-1', true]]);
+
+    render(<TaskListView taskListId="tasklist-1" />);
+    await Promise.resolve();
+
+    expect(taskListStoreState.loadAllTasksForBoard).not.toHaveBeenCalled();
+    expect(announceMock).not.toHaveBeenCalled();
+    backgroundLoad.resolve(205);
+  });
+
+  it('não anuncia conclusão se o usuário trocar de painel durante a carga', async () => {
+    workspacePanelState.isActive = true;
+    const backgroundLoad = deferred<number>();
+    taskListStoreState.loadAllTasksForBoard.mockReturnValueOnce(backgroundLoad.promise);
+    taskListStoreState.taskLists = new Map([
+      ['tasklist-1', {
+        id: 'tasklist-1',
+        title: 'Board',
+        preferredViewMode: 'kanban',
+        tasks: [{ id: 'task-1', taskListId: 'tasklist-1', title: 'Card', statusId: 1, order: 0 }],
+        workflow: {
+          id: 'workflow-1',
+          taskListId: 'tasklist-1',
+          statuses: [{ id: 1, order: 0, label: 'A fazer' }],
+          allowedTransitions: {},
+          initialStatusId: 1,
+        },
+      }],
+    ]);
+    taskListStoreState.taskPages = new Map([
+      ['tasklist-1', { nextCursor: 'cursor-100', hasMore: true, totalCount: 205 }],
+    ]);
+
+    const { rerender } = render(<TaskListView taskListId="tasklist-1" />);
+    await waitFor(() => expect(taskListStoreState.loadAllTasksForBoard).toHaveBeenCalledTimes(1));
+    announceMock.mockClear();
+
+    workspacePanelState.isActive = false;
+    rerender(<TaskListView taskListId="tasklist-1" />);
+    backgroundLoad.resolve(205);
+    await backgroundLoad.promise;
+    await Promise.resolve();
+
+    expect(announceMock).not.toHaveBeenCalled();
+  });
+
+  it('encaminha os gestos locais N e D aos requests comuns quando o painel está ativo', async () => {
+    const user = userEvent.setup();
+    workspacePanelState.isActive = true;
+    taskListStoreState.taskLists = new Map([[
+      'tasklist-1', {
+        id: 'tasklist-1',
+        title: 'Lista',
+        preferredViewMode: 'list',
+        tasks: [{ id: 'task-1', title: 'Tarefa' }],
+        taskCount: 1,
+        workflow: { id: 'workflow-1', taskListId: 'tasklist-1', statuses: [], allowedTransitions: {}, initialStatusId: 1 },
+      },
+    ]]);
+    render(<TaskListView taskListId="tasklist-1" />);
+
+    screen.getByTestId('tasklist-surface-focus').focus();
+    await user.keyboard('n');
+    await user.keyboard('d');
+
+    expect(openCreateModalMock).not.toHaveBeenCalled();
+    expect(requestPagePresentationMock).toHaveBeenCalledWith('tasklist.task.create.open');
+    expect(requestPageMutationMock).toHaveBeenCalledWith('tasklists.duplicate');
+  });
+
+  it('encaminha Ctrl+L também em editável interno, mas respeita consumo prévio e escopo do root', () => {
+    workspacePanelState.isActive = true;
+    taskListStoreState.taskLists = new Map([[
+      'tasklist-1', {
+        id: 'tasklist-1',
+        title: 'Lista',
+        preferredViewMode: 'list',
+        tasks: [{ id: 'task-1', title: 'Tarefa' }],
+        taskCount: 1,
+        workflow: { id: 'workflow-1', taskListId: 'tasklist-1', statuses: [], allowedTransitions: {}, initialStatusId: 1 },
+      },
+    ]]);
+    render(<TaskListView taskListId="tasklist-1" />);
+
+    const input = screen.getByRole('textbox', { name: 'campo da lista' });
+    input.focus();
+    const consumed = new KeyboardEvent('keydown', { key: 'l', ctrlKey: true, bubbles: true, cancelable: true });
+    consumed.preventDefault();
+    input.dispatchEvent(consumed);
+    expect(requestPageMutationMock).not.toHaveBeenCalled();
+
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'l', ctrlKey: true, bubbles: true, cancelable: true }));
+    expect(requestPageMutationMock).toHaveBeenCalledWith('tasklists.clear');
+
+    requestPageMutationMock.mockClear();
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'l', ctrlKey: true, bubbles: true, cancelable: true }));
+    expect(requestPageMutationMock).not.toHaveBeenCalled();
+  });
+
+  it('mantém Limpar elegível quando o catálogo informa tarefas fora da página carregada', () => {
+    taskListStoreState.taskLists = new Map([[
+      'tasklist-1', {
+        id: 'tasklist-1',
+        title: 'Lista paginada',
+        preferredViewMode: 'list',
+        tasks: [],
+        taskCount: 4,
+        workflow: { id: 'workflow-1', taskListId: 'tasklist-1', statuses: [], allowedTransitions: {}, initialStatusId: 1 },
+      },
+    ]]);
+    render(<TaskListView taskListId="tasklist-1" />);
+    fireEvent.click(screen.getByRole('button', { name: 'Configurações' }));
+    expect(screen.getByRole('menuitem', { name: /Limpar/ })).toBeEnabled();
+  });
+
+  it('registra canStart/prepare contra aba ativa, retarget e reload sem perder o fingerprint', async () => {
+    workspacePanelState.isActive = true;
+    taskListStoreState.taskLists = new Map([[
+      'tasklist-1', {
+        id: 'tasklist-1',
+        title: 'Lista cacheada',
+        preferredViewMode: 'list',
+        tasks: [],
+        taskCount: 4,
+        workflow: { id: 'workflow-1', taskListId: 'tasklist-1', statuses: [], allowedTransitions: {}, initialStatusId: 1 },
+      },
+    ]]);
+    render(<TaskListView taskListId="tasklist-1" />);
+
+    const options = pageMutationOptionsMock.mock.calls[pageMutationOptionsMock.mock.calls.length - 1]?.[0] as {
+      canStart: (id: 'tasklists.clear' | 'tasklists.duplicate') => boolean;
+      prepare: (id: 'tasklists.clear' | 'tasklists.duplicate') => {
+        readRequest: () => Promise<unknown>;
+        isCurrent: () => boolean;
+      } | undefined;
+    };
+    expect(options.canStart('tasklists.clear')).toBe(true);
+    const prepared = options.prepare('tasklists.duplicate');
+    expect(prepared).toBeDefined();
+    await expect(prepared?.readRequest()).resolves.toEqual({
+      targetId: 'tasklist-1',
+      expectedFingerprint: 'fingerprint-1',
+      title: 'Lista atômica (Cópia)',
+      description: 'Descrição atual',
+    });
+    expect(readTaskListCommandTargetMock).toHaveBeenCalledWith('tasklist-1');
+
+    workspaceStoreState.workspace = {
+      ...workspaceStoreState.workspace,
+      tabs: [{ ...workspacePanelState.tab, state: { tasklistId: 'tasklist-2' } }],
+    };
+    expect(options.canStart('tasklists.duplicate')).toBe(false);
+    expect(prepared?.isCurrent()).toBe(false);
+
+    workspaceStoreState.workspace = {
+      ...workspaceStoreState.workspace,
+      tabs: [workspacePanelState.tab],
+    };
+    taskListStoreState.taskLists = new Map([[
+      'tasklist-1', {
+        id: 'tasklist-1',
+        title: 'Lista recarregada',
+        preferredViewMode: 'list',
+        tasks: [],
+        taskCount: 4,
+        workflow: { id: 'workflow-1', taskListId: 'tasklist-1', statuses: [], allowedTransitions: {}, initialStatusId: 1 },
+      },
+    ]]);
+    expect(prepared?.isCurrent()).toBe(false);
   });
 
   it('auto-vincula a lista à conversa do chat embutido quando o modal abre nesta aba', async () => {
@@ -214,6 +730,120 @@ describe('TaskListView', () => {
     expect(taskListStoreState.setTaskListConversation).not.toHaveBeenCalled();
   });
 
+  function kanbanListReady() {
+    taskListStoreState.taskLists = new Map([
+      ['tasklist-1', {
+        id: 'tasklist-1',
+        title: 'Board',
+        preferredViewMode: 'kanban',
+        tasks: [{ id: 'task-1', taskListId: 'tasklist-1', title: 'Card', statusId: 1, order: 0 }],
+        workflow: {
+          id: 'workflow-1',
+          taskListId: 'tasklist-1',
+          statuses: [{ id: 1, order: 0, label: 'A fazer' }],
+          allowedTransitions: {},
+          initialStatusId: 1,
+        },
+      }],
+    ]);
+    taskListStoreState.taskPages = new Map([
+      ['tasklist-1', { nextCursor: '', hasMore: false, totalCount: 1 }],
+    ]);
+  }
+
+  it('registra handler de foco de painel e foca a área default do board quando pronto', async () => {
+    workspacePanelState.isActive = true;
+    kanbanListReady();
+    render(<TaskListView taskListId="tasklist-1" />);
+
+    // Simula o WorkspaceLayout roteando o foco para este painel.
+    let accepted = false;
+    act(() => {
+      accepted = requestWorkspacePanelFocus('tasklist-tab');
+    });
+    expect(accepted).toBe(true);
+
+    await waitFor(() => {
+      expect(document.querySelector('.kanban-board')).toHaveFocus();
+    });
+  });
+
+  it('expõe capability imediata real, foca no mesmo tick e recusa modal, inatividade e readiness', () => {
+    workspacePanelState.isActive = true;
+    kanbanListReady();
+    const { rerender } = render(<TaskListView taskListId="tasklist-1" />);
+    const immediate = getWorkspacePanelImmediateFocusHandler('tasklist-tab');
+    const board = document.querySelector('.kanban-board');
+    expect(immediate).toBeDefined();
+    expect(board).toBeTruthy();
+    expect(canFocusWorkspacePanelImmediately('tasklist-tab')).toBe(true);
+
+    expect(immediate?.()).toBe(true);
+    expect(document.activeElement).toBe(board);
+
+    chatModalState.isOpen = true;
+    expect(canFocusWorkspacePanelImmediately('tasklist-tab')).toBe(false);
+    expect(immediate?.()).toBe(false);
+    chatModalState.isOpen = false;
+
+    workspacePanelState.isActive = false;
+    rerender(<TaskListView taskListId="tasklist-1" />);
+    expect(canFocusWorkspacePanelImmediately('tasklist-tab')).toBe(false);
+    expect(immediate?.()).toBe(false);
+  });
+
+  it('recusa capability imediata enquanto a lista ainda não está pronta', () => {
+    workspacePanelState.isActive = true;
+    taskListStoreState.taskLists = new Map();
+    taskListStoreState.taskPages = new Map();
+    render(<TaskListView taskListId="tasklist-1" />);
+    const immediate = getWorkspacePanelImmediateFocusHandler('tasklist-tab');
+    expect(immediate).toBeDefined();
+    expect(canFocusWorkspacePanelImmediately('tasklist-tab')).toBe(false);
+    expect(immediate?.()).toBe(false);
+  });
+
+  it('adia o foco do painel até o board terminar de carregar', async () => {
+    workspacePanelState.isActive = true;
+    // Estado inicial: sem taskList/taskPage → tela "Carregando...".
+    taskListStoreState.taskLists = new Map();
+    taskListStoreState.taskPages = new Map();
+    const { rerender } = render(<TaskListView taskListId="tasklist-1" />);
+
+    expect(screen.getByText('Carregando...')).toBeInTheDocument();
+
+    // Pedido de foco chega durante o carregamento: aceito, mas ainda sem board.
+    let accepted = false;
+    act(() => {
+      accepted = requestWorkspacePanelFocus('tasklist-tab');
+    });
+    expect(accepted).toBe(true);
+    await Promise.resolve();
+    expect(document.querySelector('.kanban-board')).toBeNull();
+
+    // Board carrega: o pedido pendente é atendido sem nova interação.
+    kanbanListReady();
+    rerender(<TaskListView taskListId="tasklist-1" />);
+
+    await waitFor(() => {
+      expect(document.querySelector('.kanban-board')).toHaveFocus();
+    });
+  });
+
+  it('não atende pedido de foco quando o painel está inativo', async () => {
+    workspacePanelState.isActive = false;
+    kanbanListReady();
+    render(<TaskListView taskListId="tasklist-1" />);
+
+    let accepted = true;
+    act(() => {
+      accepted = requestWorkspacePanelFocus('tasklist-tab');
+    });
+    expect(accepted).toBe(false);
+    await Promise.resolve();
+    expect(document.querySelector('.kanban-board')).not.toHaveFocus();
+  });
+
   it('não re-vincula quando a lista já aponta para a conversa do chat', async () => {
     taskListStoreState.taskLists = new Map([
       ['tasklist-1', {
@@ -232,5 +862,141 @@ describe('TaskListView', () => {
 
     await Promise.resolve();
     expect(taskListStoreState.setTaskListConversation).not.toHaveBeenCalled();
+  });
+
+  it('menu Configurações reúne edição, workflow, ações, duplicar, limpar e apagar', async () => {
+    const user = userEvent.setup();
+    render(<TaskListView taskListId="tasklist-1" />);
+    await user.click(screen.getByRole('button', { name: 'Configurações' }));
+
+    for (const name of ['Editar Lista', 'Editar Workflow', 'Ações customizadas', /Duplicar/, /Limpar/, 'Apagar']) {
+      expect(await screen.findByRole('menuitem', { name })).toBeInTheDocument();
+    }
+    // Sem vínculo manual (AEP-0073): o vínculo da lista é só via chat embutido.
+    expect(screen.queryByRole('menuitem', { name: /conversa/i })).not.toBeInTheDocument();
+    // Ações movidas para o menu não poluem mais a toolbar.
+    expect(screen.queryByRole('button', { name: 'Editar Workflow' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Ações customizadas' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Duplicar' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Nova Tarefa' })).toBeInTheDocument();
+  });
+
+  it.each([
+    ['Ações customizadas', 'custom-actions-editor'],
+    ['Editar Workflow', 'workflow-editor'],
+  ])('modal "%s" aberto pelo menu pede foco inicial no grid', async (name, content) => {
+    taskListStoreState.getTaskCountsByStatus.mockResolvedValue({});
+    const user = userEvent.setup();
+    render(<TaskListView taskListId="tasklist-1" />);
+    await user.click(screen.getByRole('button', { name: 'Configurações' }));
+    await user.click(await screen.findByRole('menuitem', { name }));
+
+    const dialog = await screen.findByRole('dialog', { name });
+    expect(dialog).toHaveAttribute('data-initial-focus', DATAGRID_ENTRY_SELECTOR);
+    expect(await screen.findByText(content)).toBeInTheDocument();
+  });
+
+  it('reabrir o workflow com um salvamento em voo espera ele terminar antes de ler os dados', async () => {
+    taskListStoreState.getTaskCountsByStatus.mockResolvedValue({});
+    let resolveSave!: () => void;
+    void enqueueSave(taskListWorkflowSaveKey('tasklist-1'), () => new Promise<void>((res) => { resolveSave = res; }));
+    const user = userEvent.setup();
+    render(<TaskListView taskListId="tasklist-1" />);
+    await user.click(screen.getByRole('button', { name: 'Configurações' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Editar Workflow' }));
+
+    await new Promise<void>((r) => { window.setTimeout(r, 20); });
+    expect(taskListStoreState.getTaskCountsByStatus).not.toHaveBeenCalled();
+    expect(screen.queryByText('workflow-editor')).not.toBeInTheDocument();
+
+    resolveSave();
+    expect(await screen.findByText('workflow-editor')).toBeInTheDocument();
+    expect(taskListStoreState.getTaskCountsByStatus).toHaveBeenCalledTimes(1);
+  });
+
+  it('o editor de workflow grava com o estado esperado e, em conflito, relê e sincroniza', async () => {
+    taskListStoreState.getTaskCountsByStatus.mockResolvedValue({});
+    taskListStoreState.updateWorkflowFull.mockResolvedValue(undefined);
+    const user = userEvent.setup();
+    render(<TaskListView taskListId="tasklist-1" />);
+    await user.click(screen.getByRole('button', { name: 'Configurações' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Editar Workflow' }));
+    expect(await screen.findByText('sync:0')).toBeInTheDocument();
+
+    const expected = { statuses: [], transitions: {}, initialStatusId: 1 };
+    await workflowEditorProps.current!.onSave([], {}, 1, {}, expected);
+    expect(taskListStoreState.updateWorkflowFull).toHaveBeenCalledWith('tasklist-1', [], {}, 1, {}, expected);
+
+    const loadsBefore = taskListStoreState.loadTaskList.mock.calls.length;
+    taskListStoreState.loadTaskList.mockResolvedValueOnce({ id: 'tasklist-1' });
+    taskListStoreState.getTaskCountsByStatus.mockResolvedValue({ 1: 3 });
+    act(() => { workflowEditorProps.current!.onConflict?.(); });
+
+    expect(await screen.findByText('sync:1')).toBeInTheDocument();
+    expect(taskListStoreState.loadTaskList.mock.calls.length).toBe(loadsBefore + 1);
+    expect(taskListStoreState.getTaskCountsByStatus).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    ['a lista', () => { taskListStoreState.loadTaskList.mockResolvedValueOnce(null); }],
+    ['as contagens', () => {
+      taskListStoreState.loadTaskList.mockResolvedValueOnce({ id: 'tasklist-1' });
+      taskListStoreState.getTaskCountsByStatus.mockRejectedValueOnce(new Error('offline'));
+    }],
+  ])('conflito com falha ao reler %s avisa e não sincroniza o editor com dados antigos', async (_what, arrange) => {
+    taskListStoreState.getTaskCountsByStatus.mockResolvedValue({});
+    const user = userEvent.setup();
+    render(<TaskListView taskListId="tasklist-1" />);
+    await user.click(screen.getByRole('button', { name: 'Configurações' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Editar Workflow' }));
+    expect(await screen.findByText('sync:0')).toBeInTheDocument();
+
+    arrange();
+    act(() => { workflowEditorProps.current!.onConflict?.(); });
+
+    await waitFor(() => expect(toastMock).toHaveBeenCalledWith('Erro ao carregar dados', 'error'));
+    expect(screen.getByText('sync:0')).toBeInTheDocument();
+  });
+
+  it('edita título e descrição da lista pelo menu', async () => {
+    const user = userEvent.setup();
+    render(<TaskListView taskListId="tasklist-1" />);
+    await user.click(screen.getByRole('button', { name: 'Configurações' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Editar Lista' }));
+
+    const titleInput = await screen.findByLabelText(/Título/);
+    expect(titleInput).toHaveValue('Lista');
+    fireEvent.change(titleInput, { target: { value: 'Lista Nova' } });
+    fireEvent.change(screen.getByLabelText('Descrição'), { target: { value: 'Desc' } });
+    await user.click(screen.getByRole('button', { name: 'Salvar' }));
+
+    await waitFor(() => expect(taskListStoreState.updateTaskList).toHaveBeenCalledWith('tasklist-1', 'Lista Nova', 'Desc'));
+    expect(announceMock).toHaveBeenCalledWith('Lista atualizada');
+  });
+
+  it('mostra erro e mantém o modal aberto quando salvar a lista falha', async () => {
+    const user = userEvent.setup();
+    taskListStoreState.updateTaskList.mockRejectedValueOnce(new Error('falha no backend'));
+    render(<TaskListView taskListId="tasklist-1" />);
+    await user.click(screen.getByRole('button', { name: 'Configurações' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Editar Lista' }));
+
+    fireEvent.change(await screen.findByLabelText(/Título/), { target: { value: 'Outro' } });
+    await user.click(screen.getByRole('button', { name: 'Salvar' }));
+
+    await waitFor(() => expect(toastMock).toHaveBeenCalledWith('falha no backend', 'error'));
+    expect(toastMock).not.toHaveBeenCalledWith('Lista atualizada', expect.anything(), expect.anything(), expect.anything(), expect.anything());
+    // Sem sucesso: o modal segue aberto para corrigir e tentar de novo.
+    expect(screen.getByLabelText(/Título/)).toBeInTheDocument();
+  });
+
+  it('apaga a lista pelo menu com confirmação', async () => {
+    const user = userEvent.setup();
+    confirmMock.mockResolvedValue(true);
+    render(<TaskListView taskListId="tasklist-1" />);
+    await user.click(screen.getByRole('button', { name: 'Configurações' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Apagar' }));
+
+    await waitFor(() => expect(taskListStoreState.deleteTaskList).toHaveBeenCalledWith('tasklist-1'));
   });
 });

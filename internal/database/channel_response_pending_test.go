@@ -5,6 +5,29 @@ import (
 	"time"
 )
 
+func TestUpsertChannelResponsePendingNormalizaConversationID(t *testing.T) {
+	setupTestDB(t)
+	if err := db.AutoMigrate(&ChannelResponsePending{}); err != nil {
+		t.Fatal(err)
+	}
+	ctx := testCtx()
+	convID := createTestConversation(t, "canal")
+	pending := &ChannelResponsePending{
+		ConversationID: " " + convID + " ",
+		Channel:        "signal",
+		ChatID:         "chat",
+	}
+	if err := UpsertChannelResponsePending(ctx, pending); err != nil {
+		t.Fatal(err)
+	}
+	if pending.ConversationID != convID {
+		t.Fatalf("ID não normalizado no objeto: %q", pending.ConversationID)
+	}
+	if count := countWhere(t, db, &ChannelResponsePending{}, "conversation_id = ?", convID); count != 1 {
+		t.Fatalf("pendência normalizada não persistida: count=%d", count)
+	}
+}
+
 func TestFindFirstAssistantMessageAfter_UsesTurnNotStaleAssistant(t *testing.T) {
 	setupTestDB(t)
 	ctx := testCtx()

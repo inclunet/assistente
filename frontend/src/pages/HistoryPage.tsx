@@ -17,11 +17,12 @@ import { ExportConversations, ExportConversationsToFile } from '@wailsjs/go/wail
 import {
   GetConversationsByIDs,
   GetConversationsPage,
-  DeleteConversation,
+  DeleteConversations,
   UpdateConversation,
   SearchConversationHistory,
 } from '@wailsjs/go/wailsapi/Conversations';
 import { portability } from '@wailsjs/go/models';
+import { clearToolInvocationDetailsCache } from '../services/toolInvocationDetailsCache';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
@@ -42,6 +43,7 @@ import { useSubAgentRunsStore } from '../store/subAgentRunsStore';
 import { isActiveSubAgentRunStatus } from '../types/subagentRuns';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { executeDeepLink } from '../lib/deepLinks';
+import { requestCommandNavigation } from '../lib/commandNavigation';
 import { formatRelativeTime } from '../lib/dateUtils';
 import { downloadJSON, generateFilename } from '../lib/exportImport';
 import { exportConversationsFileDialogLabels } from '../lib/exportDialogLabels';
@@ -94,6 +96,8 @@ export default function HistoryPage() {
   const [autoFillRetryTick, setAutoFillRetryTick] = useState(0);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [deleting, setDeleting] = useState(false);
+  const deletionInFlightRef = useRef(false);
   const [searchResultIds, setSearchResultIds] = useState<Set<string> | null>(null);
   const [searchConversations, setSearchConversations] = useState<Conversation[]>([]);
   const [snippetsMap, setSnippetsMap] = useState<Map<string, string>>(new Map());
@@ -286,18 +290,6 @@ export default function HistoryPage() {
     return () => { if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current); };
   }, [searchTerm, doSearch]);
 
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.ctrlKey && e.key === 'n') {
-        e.preventDefault();
-        handleNewConversation();
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
-
   const handleOpenConversation = useCallback(async (conversationId: string, title?: string) => {
     await executeDeepLink(
       { type: 'conversation:open', conversationId, title },
@@ -305,9 +297,9 @@ export default function HistoryPage() {
     );
   }, [navigate]);
 
-  const handleNewConversation = () => {
-    navigate('/');
-  };
+  const handleNewConversation = useCallback(() => {
+    requestCommandNavigation('navigation.workspace.open');
+  }, []);
 
   const handleToggleSubAgents = useCallback(() => {
     setShowSubAgents((prev) => {
@@ -325,57 +317,59 @@ export default function HistoryPage() {
     ids: string[],
     options: { bulk: boolean; anchorRow: number },
   ) => {
-    if (ids.length === 0) return;
+    if (ids.length === 0 || deletionInFlightRef.current) return;
+    deletionInFlightRef.current = true;
+    setDeleting(true);
     const firstConversation = conversations.find((c) => c.id === ids[0])
       ?? searchConversations.find((c) => c.id === ids[0]);
     const title = firstConversation?.title || t('history.untitled');
     const count = ids.length;
-    const ok = await confirm({
-      title: options.bulk
-        ? t('history.confirmDeleteMultipleTitle')
-        : t('history.confirmDeleteTitle'),
-      message: options.bulk
-        ? t('history.confirmDeleteMultiple', { count })
-        : t('history.confirmDelete', { title }),
-      confirmText: t('common.confirm'),
-      cancelText: t('common.cancel'),
-      variant: 'danger',
-    });
-    if (!ok) return;
+    try {
+      const ok = await confirm({
+        title: options.bulk
+          ? t('history.confirmDeleteMultipleTitle')
+          : t('history.confirmDeleteTitle'),
+        message: options.bulk
+          ? t('history.confirmDeleteMultiple', { count })
+          : t('history.confirmDelete', { title }),
+        confirmText: t('common.confirm'),
+        cancelText: t('common.cancel'),
+        variant: 'danger',
+      });
+      if (!ok) return;
 
-    const results = await Promise.allSettled(ids.map((id) => DeleteConversation(id)));
-    const succeededIds = ids.filter((_, index) => results[index].status === 'fulfilled');
-    const failedIds = ids.filter((_, index) => results[index].status === 'rejected');
-
-    if (succeededIds.length > 0) {
-      const succeededSet = new Set(succeededIds);
-      const paginatedDeleted = conversationsRef.current.filter((conversation) => succeededSet.has(conversation.id)).length;
+      const deletedIds = await DeleteConversations(ids);
+      clearToolInvocationDetailsCache();
+      // Respostas iniciadas antes do commit não podem repor linhas excluídas.
+      loadRequestRef.current += 1;
+      searchRequestRef.current += 1;
+      loadingPageRef.current = false;
+      setLoading(false);
+      setLoadingMore(false);
+      setSearching(false);
+      const deletedSet = new Set(deletedIds);
+      const paginatedDeleted = conversationsRef.current.filter((conversation) => deletedSet.has(conversation.id)).length;
       const knownDeleted = new Set([
-        ...conversationsRef.current.filter((conversation) => succeededSet.has(conversation.id)).map((conversation) => conversation.id),
-        ...searchConversations.filter((conversation) => succeededSet.has(conversation.id)).map((conversation) => conversation.id),
+        ...conversationsRef.current.filter((conversation) => deletedSet.has(conversation.id)).map((conversation) => conversation.id),
+        ...searchConversations.filter((conversation) => deletedSet.has(conversation.id)).map((conversation) => conversation.id),
       ]).size;
-      const nextConversations = conversationsRef.current.filter((conversation) => !succeededSet.has(conversation.id));
+      const nextConversations = conversationsRef.current.filter((conversation) => !deletedSet.has(conversation.id));
       conversationsRef.current = nextConversations;
       setConversations(nextConversations);
-      setSearchConversations((previous) => previous.filter((conversation) => !succeededSet.has(conversation.id)));
+      setSearchConversations((previous) => previous.filter((conversation) => !deletedSet.has(conversation.id)));
       totalConversationsRef.current = Math.max(0, totalConversationsRef.current - knownDeleted);
       setTotalConversations(totalConversationsRef.current);
       reduceConversationPageOffset(paginatedDeleted);
-      setSelectedIds(new Set(failedIds));
+      setSelectedIds(new Set());
       requestGridFocus({ rowIndex: options.anchorRow });
-    }
-
-    if (failedIds.length === 0) {
-      announce(t('history.deleteSucceeded', { count: succeededIds.length }));
-    } else if (succeededIds.length > 0) {
-      logger.error('Erro ao deletar parte das conversas:', results);
-      announce(t('history.deletePartial', {
-        successCount: succeededIds.length,
-        failureCount: failedIds.length,
-      }), 'assertive');
-    } else {
-      logger.error('Erro ao deletar conversas:', results);
-      announce(t('history.deleteFailed', { count: failedIds.length }), 'assertive');
+      announce(t('history.deleteSucceeded', { count: deletedIds.length }));
+    } catch (error) {
+      logger.error('Erro ao deletar conversas:', error);
+      setSelectedIds(new Set(ids));
+      announce(t('history.deleteFailed', { count: ids.length }), 'assertive');
+    } finally {
+      deletionInFlightRef.current = false;
+      setDeleting(false);
     }
   }, [
     announce,
@@ -620,12 +614,13 @@ export default function HistoryPage() {
         id: 'delete',
         label: t('history.deleteConversation', 'Excluir conversa'),
         icon: <DeleteOutlined />,
+        disabled: deleting,
         action: () => handleDeleteConversation(item.id),
       });
 
       return actions;
     },
-    [exportJsonByIds, openRichExport, handleDeleteConversation, handleOpenConversation, handleSendToWorkspace, workspaces, t]
+    [deleting, exportJsonByIds, openRichExport, handleDeleteConversation, handleOpenConversation, handleSendToWorkspace, workspaces, t]
   );
 
   const getMenuButtonItems = useCallback(
@@ -808,7 +803,7 @@ export default function HistoryPage() {
               : t('history.deleteConversation', 'Excluir conversa'),
             icon: <DeleteOutlined />,
             onClick: handleDeleteAction,
-            disabled: selectedIds.size === 0 && !focusedRow,
+            disabled: deleting || (selectedIds.size === 0 && !focusedRow),
             variant: 'danger',
           },
           {

@@ -3,6 +3,7 @@ package channels
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -37,11 +38,27 @@ func setupChannelsDB(t *testing.T) *gorm.DB {
 	}
 	sqlDB.SetMaxOpenConns(1)
 	if err := db.AutoMigrate(
+		&database.Conversation{},
 		&database.Channel{},
 		&database.ChannelContact{},
 		&database.ChannelContactConversation{},
 	); err != nil {
 		t.Fatalf("migrate: %v", err)
+	}
+	for id, userID := range map[string]string{
+		"conv-uuid": "user-ana",
+		"conv-2":    "user-ana",
+		"conv-1":    "user-1",
+		"c-1":       "user-ana",
+		"7":         "published-fixture-user",
+	} {
+		if err := db.Create(&database.Conversation{
+			UUIDModel: database.UUIDModel{ID: id},
+			UserID:    userID,
+			Title:     id,
+		}).Error; err != nil {
+			t.Fatalf("seed conversation %s: %v", id, err)
+		}
 	}
 	UseDatabase(db)
 	t.Cleanup(func() {
@@ -99,7 +116,7 @@ func TestSaveLoadDelete_DB(t *testing.T) {
 		t.Fatalf("LoadEnabled: %v %v", err, enabled)
 	}
 
-	if err := SaveConversationID("telegram", "99", "conv-2"); err != nil {
+	if err := SaveConversationID("telegram", "99", "  conv-2  "); err != nil {
 		t.Fatalf("SaveConversationID: %v", err)
 	}
 	loaded, _ = Load("telegram")
@@ -116,6 +133,32 @@ func TestSaveLoadDelete_DB(t *testing.T) {
 	}
 	if loaded != nil {
 		t.Fatalf("esperava nil após Delete, got %+v", loaded)
+	}
+}
+
+func TestSaveConversationIDRejectsDeletedConversation(t *testing.T) {
+	setupTempHome(t)
+	db := setupChannelsDB(t)
+	if err := Save("telegram", &ChannelConfig{
+		Enabled:     true,
+		OwnerUserID: "user-ana",
+		Type:        "telegram",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Delete(&database.Conversation{}, "id = ?", "conv-2").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveConversationID("telegram", "99", "conv-2"); !errors.Is(err, database.ErrConversationDeleted) {
+		t.Fatalf("erro=%v, esperado conversa deletada", err)
+	}
+}
+
+func TestSaveConversationIDRejectsBlankConversation(t *testing.T) {
+	setupTempHome(t)
+	setupChannelsDB(t)
+	if err := SaveConversationID("telegram", "99", " \t "); !errors.Is(err, database.ErrConversationIDRequired) {
+		t.Fatalf("erro=%v, esperado ID obrigatório", err)
 	}
 }
 
@@ -188,6 +231,50 @@ func TestAdoptOrphans_WithDBSkipsFilesystemWrites(t *testing.T) {
 	}
 	if strings.TrimSpace(fsCfg.OwnerUserID) != "" {
 		t.Fatalf("AdoptOrphans com DB não deveria escrever FS; OwnerUserID=%q", fsCfg.OwnerUserID)
+	}
+}
+
+// TestImportLegacyChannels_PulaConversaDeletada reproduz o cenário do
+// assistente.log: um channels/*.json legado aponta para uma conversa que já foi
+// deletada. Antes, o import falhava com ERROR ruidoso a cada startup
+// ("erro ao importar channels legado telegram.json: conversa foi deletada").
+// Agora o vínculo obsoleto é tratado como skip benigno (sem falha nem erro).
+func TestImportLegacyChannels_PulaConversaDeletada(t *testing.T) {
+	setupTempHome(t)
+	db := setupChannelsDB(t)
+
+	dir := filepath.Join(configdir.GetHomeDir(), "channels")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	// Config legado referencia a conversa seedada "c-1"...
+	payload, _ := json.Marshal(ChannelConfig{
+		Enabled:       true,
+		MaxContacts:   1,
+		Conversations: map[string]string{"1": "c-1"},
+	})
+	if err := os.WriteFile(filepath.Join(dir, "telegram.json"), payload, 0600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	// ...mas a conversa foi deletada antes do import.
+	if err := db.Delete(&database.Conversation{}, "id = ?", "c-1").Error; err != nil {
+		t.Fatalf("delete conversation: %v", err)
+	}
+
+	ctx := database.WithUserID(context.Background(), "user-ana")
+	result, err := ImportLegacyChannelsWithContext(ctx, nil)
+	if err != nil {
+		t.Fatalf("import não deveria retornar erro fatal: %v", err)
+	}
+	if result.Failed != 0 {
+		t.Fatalf("conversa deletada deveria ser skip, não falha: %+v", result)
+	}
+	if len(result.Errors) != 0 {
+		t.Fatalf("import não deveria emitir erro por vínculo obsoleto: %v", result.Errors)
+	}
+	// O canal não é persistido enquanto o vínculo apontar para conversa ausente.
+	if id, _, e := ChannelIDBySlug("telegram"); e == nil && id != "" {
+		t.Fatalf("canal não deveria ser importado com vínculo obsoleto: id=%q", id)
 	}
 }
 

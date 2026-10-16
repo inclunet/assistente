@@ -68,6 +68,8 @@ func TestToolsMethodsNotOnUnauthAllowlist(t *testing.T) {
 	for _, name := range []string{
 		"GetAvailableTools",
 		"GetRuntimeToolCatalog",
+		"ListCommands",
+		"DescribeCommand",
 	} {
 		if slices.Contains(UnauthenticatedAppMethods, name) {
 			t.Fatalf("%s é autenticado via Tools/WithUser; não pertence à allowlist", name)
@@ -139,6 +141,8 @@ func TestCredentialsCRUDMethodsNotOnUnauthAllowlist(t *testing.T) {
 	t.Parallel()
 	for _, name := range []string{
 		"ListCredentials",
+		"ListManagedCredentials",
+		"GetCredentialForURL",
 		"UpsertCredential",
 		"DeleteCredential",
 		"ListExternalSources",
@@ -206,7 +210,11 @@ func TestMCPMethodsNotOnUnauthAllowlist(t *testing.T) {
 		"ConnectMCPServer",
 		"DisconnectMCPServer",
 		"ReconnectMCPServer",
+		"ReauthorizeMCPServer",
 		"SaveMCPServer",
+		"SaveMCPServerWithOAuthSecret",
+		"SaveMCPServerWithCredential",
+		"InspectMCPOAuthInventory",
 		"DuplicateMCPServer",
 		"DeleteMCPServer",
 		"GetMCPServerTools",
@@ -482,6 +490,7 @@ func TestLLMModelsMethodsNotOnUnauthAllowlist(t *testing.T) {
 		"GetModelCatalogByProvider",
 		"RefreshModelCatalogByProvider",
 		"CancelStreamingForConversation",
+		"CancelStreamingExecution",
 	} {
 		if slices.Contains(UnauthenticatedAppMethods, name) {
 			t.Fatalf("%s está em wailsapi.LLMModels; não pertence à allowlist de *App", name)
@@ -544,12 +553,15 @@ func TestTasklistMethodsNotOnUnauthAllowlist(t *testing.T) {
 		"GetWorkflow",
 		"UpdateWorkflow",
 		"UpdateWorkflowFull",
+		"UpdateWorkflowFullChecked",
+		"SetTaskListCustomActionsChecked",
 		"GetTaskCountsByStatus",
 		"ReorderWorkflowStatuses",
 		"ValidateStatusTransition",
 		"CreateTask",
 		"GetTask",
 		"GetTasksByTaskListID",
+		"GetTaskListPage",
 		"GetTasksByStatus",
 		"UpdateTask",
 		"UpdateTaskFull",
@@ -593,6 +605,7 @@ func TestConversationsMethodsNotOnUnauthAllowlist(t *testing.T) {
 		"GetMessageChildren",
 		"UpdateConversation",
 		"DeleteConversation",
+		"DeleteConversations",
 		"DeleteMessage",
 		"UpdateMessage",
 		"ToggleMessagePin",

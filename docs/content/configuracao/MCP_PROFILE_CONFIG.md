@@ -9,6 +9,9 @@ weight: 4
 
 O Assistente usa MCP (Model Context Protocol) para integrar tools de servidores externos. A decisão de como MCP servers são consumidos é **capability-driven** — determinada pelo runtime com base no provider LLM configurado, não por campos manuais no perfil.
 
+Para inspecionar credenciais existentes sem alterá-las, consulte o
+[Diagnóstico OAuth](MCP_CONFIG_EXAMPLES.md).
+
 ---
 
 ## Como Funciona

@@ -6,13 +6,17 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
+	"assistente/internal/commandjobevents"
 	"assistente/internal/database"
+	"assistente/internal/jobprofilegrant"
 	"assistente/internal/slug"
 	"assistente/internal/toolinvocations"
 	"assistente/internal/tools"
 
+	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
@@ -64,11 +68,35 @@ type Repository interface {
 
 // DBRepository implementa Repository usando GORM.
 type DBRepository struct {
-	db  *gorm.DB
-	now func() time.Time
+	db            *gorm.DB
+	now           func() time.Time
+	commandEvents *commandjobevents.Store
+
+	// jobRowCache guarda mapeamentos (user_id, slug) -> linha de job com TTL.
+	// jobRowBySlug é chamado a CADA run (LogRun e afins) e, sob carga do
+	// pipeline, esse SELECT está entre os maiores ofensores de contenção do
+	// writer SQLite. O mapeamento é estável (slug é a identidade do job por
+	// usuário), então um cache user-scoped com invalidação nas mutações elimina a
+	// releitura repetida. Ver AEP-0106 (Fase 2).
+	jobRowCacheMu sync.RWMutex
+	jobRowCache   map[string]jobRowCacheEntry
+}
+
+// jobRowResolveCacheTTL limita a validade de cada entrada como rede de
+// segurança (além da invalidação explícita nas mutações), cobrindo caminhos de
+// escrita não previstos (ex.: migração de slug no boot).
+const jobRowResolveCacheTTL = 60 * time.Second
+
+type jobRowCacheEntry struct {
+	job       database.Job
+	expiresAt time.Time
 }
 
 const sqliteDeleteBatchSize = 500
+
+// retentionBatchSize limita o trabalho de uma chamada de manutenção, inclusive
+// quando a passagem é retomada pelo coordinator.
+const retentionBatchSize = 128
 
 func stringBatches(values []string, size int) [][]string {
 	if size <= 0 {
@@ -86,7 +114,12 @@ func stringBatches(values []string, size int) [][]string {
 }
 
 func NewDBRepository(db *gorm.DB) *DBRepository {
-	return &DBRepository{db: db, now: time.Now}
+	return &DBRepository{
+		db:            db,
+		now:           time.Now,
+		commandEvents: commandjobevents.NewStore(db),
+		jobRowCache:   make(map[string]jobRowCacheEntry),
+	}
 }
 
 func (r *DBRepository) retry(ctx context.Context, operation string, fn func() error) error {
@@ -366,6 +399,7 @@ func (r *DBRepository) DeletePipeline(ctx context.Context, slug string) error {
 	if err != nil {
 		return err
 	}
+	defer r.invalidateJobRowCacheForUser(ctx)
 	return r.retry(ctx, "delete_pipeline", func() error {
 		return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 			var row database.JobPipeline
@@ -463,6 +497,7 @@ func (r *DBRepository) CreateJob(ctx context.Context, job *Job) error {
 	if err != nil {
 		return err
 	}
+	defer r.invalidateJobRowCacheForUser(ctx)
 	if job == nil {
 		return fmt.Errorf("job is required")
 	}
@@ -487,6 +522,14 @@ func (r *DBRepository) CreateJob(ctx context.Context, job *Job) error {
 			if err != nil {
 				return err
 			}
+			allowed, err := r.enabledJobGrantValidTx(tx, userID, "", job)
+			if err != nil {
+				return err
+			}
+			if !allowed {
+				row.Enabled = false
+				job.Enabled = false
+			}
 			if err := tx.Create(row).Error; err != nil {
 				if isUniqueConstraintError(err) {
 					return fmt.Errorf("%w: %s", ErrJobAlreadyExists, slug)
@@ -508,6 +551,7 @@ func (r *DBRepository) CreateJob(ctx context.Context, job *Job) error {
 				}
 			}
 			job.ID = slug
+			job.DatabaseID = row.ID
 			job.Pipeline = normalizeSlug(job.Pipeline)
 			job.PipelineEnabled = pipelineEnabled
 			job.Tags = uniqueSlugs(job.Tags)
@@ -521,6 +565,7 @@ func (r *DBRepository) SaveJob(ctx context.Context, job *Job) error {
 	if err != nil {
 		return err
 	}
+	defer r.invalidateJobRowCacheForUser(ctx)
 	if job == nil {
 		return fmt.Errorf("job is required")
 	}
@@ -549,18 +594,32 @@ func (r *DBRepository) SaveJob(ctx context.Context, job *Job) error {
 			err = tx.Where("user_id = ? AND slug = ?", userID, slug).First(&existing).Error
 			switch {
 			case errors.Is(err, gorm.ErrRecordNotFound):
-				if err := tx.Create(row).Error; err != nil {
-					return err
-				}
 			case err != nil:
 				return err
 			default:
 				row.ID = existing.ID
 				row.CreatedAt = existing.CreatedAt
 				row.CreatedBy = existing.CreatedBy
+			}
+			allowed, err := r.enabledJobGrantValidTx(tx, userID, row.ID, job)
+			if err != nil {
+				return err
+			}
+			if !allowed {
+				row.Enabled = false
+				job.Enabled = false
+			}
+			if existing.ID == "" {
+				if err := tx.Create(row).Error; err != nil {
+					return err
+				}
+			} else {
 				if err := tx.Model(&existing).Select("*").Omit("id", "created_at").Updates(row).Error; err != nil {
 					return err
 				}
+			}
+			if err := r.revokeStaleJobGrantsTx(tx, userID, row.ID, job); err != nil {
+				return err
 			}
 			if err := r.saveTriggersTx(ctx, tx, userID, row.ID, job.Triggers); err != nil {
 				return err
@@ -577,9 +636,77 @@ func (r *DBRepository) SaveJob(ctx context.Context, job *Job) error {
 				}
 			}
 			job.ID = slug
+			job.DatabaseID = row.ID
 			job.Pipeline = normalizeSlug(job.Pipeline)
 			job.PipelineEnabled = pipelineEnabled
 			job.Tags = uniqueSlugs(job.Tags)
+			return nil
+		})
+	})
+}
+
+func (r *DBRepository) enabledJobGrantValidTx(tx *gorm.DB, userID, jobID string, job *Job) (bool, error) {
+	if job == nil || !job.Enabled {
+		return true, nil
+	}
+	fingerprint, grantable := jobprofilegrant.FingerprintForInputs(job.Tool, job.Inputs)
+	if !grantable {
+		return true, nil
+	}
+	if jobID == "" || !tx.Migrator().HasTable(&database.JobProfileGrant{}) {
+		return false, nil
+	}
+	expression, _ := job.Inputs["profile"].(string)
+	query := tx.Model(&database.JobProfileGrant{}).
+		Where("user_id = ? AND job_id = ? AND delegation_fingerprint = ? AND revoked_at IS NULL",
+			userID, jobID, fingerprint).
+		Where("NOT EXISTS (SELECT 1 FROM profile_grant_revocation_intents WHERE profile_grant_revocation_intents.target_profile_slug = job_profile_grants.target_profile_slug)").
+		Where("generation = (?)", tx.Model(&database.JobProfileGrantEpoch{}).
+			Select("generation").
+			Where("job_profile_grant_epochs.user_id = job_profile_grants.user_id AND job_profile_grant_epochs.job_id = job_profile_grants.job_id AND job_profile_grant_epochs.target_profile_slug = job_profile_grants.target_profile_slug AND job_profile_grant_epochs.delegation_fingerprint = job_profile_grants.delegation_fingerprint"))
+	if !strings.Contains(expression, "{{") {
+		query = query.Where("target_profile_slug = ?", strings.TrimSpace(expression))
+	}
+	var count int64
+	if err := query.Count(&count).Error; err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+func (r *DBRepository) ReconcileUnauthorizedJobs(ctx context.Context) error {
+	userID, err := database.RequireUserID(ctx)
+	if err != nil {
+		return err
+	}
+	return r.retry(ctx, "reconcile_unauthorized_jobs", func() error {
+		return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			var rows []database.Job
+			if err := tx.Model(&database.Job{}).
+				Select("jobs.*").
+				Joins("LEFT JOIN tool_catalog ON tool_catalog.id = jobs.tool_catalog_id").
+				Where("jobs.user_id = ? AND jobs.enabled = ? AND (TRIM(jobs.tool_name) = ? OR (TRIM(jobs.tool_name) = '' AND TRIM(tool_catalog.name) = ?))",
+					userID, true, jobprofilegrant.ToolSubagent, jobprofilegrant.ToolSubagent).
+				Find(&rows).Error; err != nil {
+				return err
+			}
+			for _, row := range rows {
+				var inputs map[string]any
+				if err := unmarshalJSON(row.Inputs, &inputs); err != nil {
+					return err
+				}
+				candidate := &Job{Tool: jobprofilegrant.ToolSubagent, Inputs: inputs, Enabled: true}
+				allowed, err := r.enabledJobGrantValidTx(tx, userID, row.ID, candidate)
+				if err != nil {
+					return err
+				}
+				if !allowed {
+					if err := tx.Model(&database.Job{}).Where("id = ? AND user_id = ?", row.ID, userID).
+						Update("enabled", false).Error; err != nil {
+						return err
+					}
+				}
+			}
 			return nil
 		})
 	})
@@ -590,6 +717,7 @@ func (r *DBRepository) DeleteJob(ctx context.Context, slug string) error {
 	if err != nil {
 		return err
 	}
+	defer r.invalidateJobRowCacheForUser(ctx)
 	return r.retry(ctx, "delete_job", func() error {
 		return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 			var row database.Job
@@ -620,9 +748,48 @@ func (r *DBRepository) DeleteJob(ctx context.Context, slug string) error {
 			if err := tx.Where("user_id = ? AND resource_type = ? AND resource_id = ?", userID, tagResourceJob, row.ID).Delete(&database.TagAssignment{}).Error; err != nil {
 				return err
 			}
+			if tx.Migrator().HasTable(&database.JobProfileGrant{}) {
+				now := r.now().UTC()
+				if tx.Migrator().HasTable(&database.JobProfileGrantEpoch{}) {
+					if err := tx.Model(&database.JobProfileGrantEpoch{}).
+						Where("user_id = ? AND job_id = ?", userID, row.ID).
+						UpdateColumn("generation", gorm.Expr("generation + 1")).Error; err != nil {
+						return err
+					}
+				}
+				if err := tx.Model(&database.JobProfileGrant{}).
+					Where("user_id = ? AND job_id = ? AND revoked_at IS NULL", userID, row.ID).
+					Updates(map[string]any{"revoked_at": now, "revoked_by": "job excluído"}).Error; err != nil {
+					return err
+				}
+			}
 			return tx.Delete(&row).Error
 		})
 	})
+}
+
+func (r *DBRepository) revokeStaleJobGrantsTx(tx *gorm.DB, userID, jobID string, job *Job) error {
+	if !tx.Migrator().HasTable(&database.JobProfileGrant{}) {
+		return nil
+	}
+	fingerprint, grantable := jobprofilegrant.FingerprintForInputs(job.Tool, job.Inputs)
+	if tx.Migrator().HasTable(&database.JobProfileGrantEpoch{}) {
+		epochs := tx.Model(&database.JobProfileGrantEpoch{}).
+			Where("user_id = ? AND job_id = ?", userID, jobID)
+		if grantable {
+			epochs = epochs.Where("delegation_fingerprint <> ?", fingerprint)
+		}
+		if err := epochs.UpdateColumn("generation", gorm.Expr("generation + 1")).Error; err != nil {
+			return err
+		}
+	}
+	stale := tx.Model(&database.JobProfileGrant{}).
+		Where("user_id = ? AND job_id = ? AND revoked_at IS NULL", userID, jobID)
+	if grantable {
+		stale = stale.Where("delegation_fingerprint <> ?", fingerprint)
+	}
+	now := r.now().UTC()
+	return stale.Updates(map[string]any{"revoked_at": now, "revoked_by": "configuração alterada"}).Error
 }
 
 func (r *DBRepository) ListTriggers(ctx context.Context, jobID string) ([]Trigger, error) {
@@ -764,38 +931,37 @@ func (r *DBRepository) LogRun(ctx context.Context, rl *RunLog) error {
 	if err != nil {
 		return err
 	}
-	inputs, err := marshalJSON(RedactResolvedInputs(nil, rl.ResolvedInputs))
-	if err != nil {
-		return err
-	}
-	output, err := marshalJSON(rl.Output)
-	if err != nil {
-		return err
-	}
 	events, err := marshalJSON(rl.EventsEmitted)
 	if err != nil {
 		return err
 	}
 	row := database.JobRun{
-		UUIDModel:     database.UUIDModel{ID: strings.TrimSpace(rl.RunID)},
-		UserID:        userID,
-		JobID:         jobRow.ID,
-		TriggerID:     triggerID,
-		Status:        rl.Status,
-		StartedAt:     rl.StartedAt,
-		CompletedAt:   completedAt,
-		DurationMs:    durationMillis(rl.StartedAt, rl.CompletedAt),
-		Error:         rl.Error,
-		RetryCount:    rl.RetryCount,
-		IsDryRun:      rl.IsDryRun,
-		ToolName:      rl.ToolName,
-		TriggerData:   triggerData,
-		Inputs:        inputs,
-		Output:        output,
-		EventsEmitted: events,
+		UUIDModel:      database.UUIDModel{ID: strings.TrimSpace(rl.RunID)},
+		UserID:         userID,
+		JobID:          jobRow.ID,
+		TriggerID:      triggerID,
+		Status:         rl.Status,
+		QueuedAt:       rl.QueuedAt,
+		StartedAt:      rl.StartedAt,
+		RootOriginType: rl.RootOriginType,
+		RootOriginID:   rl.RootOriginID,
+		CompletedAt:    completedAt,
+		DurationMs:     durationMillis(rl.StartedAt, rl.CompletedAt),
+		Error:          rl.Error,
+		RetryCount:     rl.RetryCount,
+		IsDryRun:       rl.IsDryRun,
+		TriggerData:    triggerData,
+		EventsEmitted:  events,
 	}
-	if row.StartedAt.IsZero() {
-		row.StartedAt = r.now()
+	row.Provenance, err = marshalJSON(rl.Provenance)
+	if err != nil {
+		return err
+	}
+	if row.QueuedAt.IsZero() {
+		row.QueuedAt = row.StartedAt
+		if row.QueuedAt.IsZero() {
+			row.QueuedAt = r.now()
+		}
 	}
 	return r.retry(ctx, "log_run", func() error {
 		return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -805,6 +971,7 @@ func (r *DBRepository) LogRun(ctx context.Context, rl *RunLog) error {
 			rl.RunID = row.ID
 			for i, event := range rl.RunEvents {
 				event.RunID = row.ID
+				event.RootOriginType, event.RootOriginID, event.Provenance = rl.RootOriginType, rl.RootOriginID, rl.Provenance
 				if event.Sequence <= 0 {
 					event.Sequence = i + 1
 				}
@@ -816,14 +983,17 @@ func (r *DBRepository) LogRun(ctx context.Context, rl *RunLog) error {
 					return err
 				}
 				eventRow := database.JobRunEvent{
-					UUIDModel:  database.UUIDModel{ID: strings.TrimSpace(event.ID)},
-					UserID:     userID,
-					JobRunID:   row.ID,
-					Sequence:   event.Sequence,
-					OccurredAt: event.Timestamp,
-					Type:       event.Type,
-					Message:    event.Message,
-					Data:       data,
+					UUIDModel:      database.UUIDModel{ID: strings.TrimSpace(event.ID)},
+					UserID:         userID,
+					JobRunID:       row.ID,
+					Sequence:       event.Sequence,
+					OccurredAt:     event.Timestamp,
+					Type:           event.Type,
+					Message:        event.Message,
+					Data:           data,
+					RootOriginType: event.RootOriginType,
+					RootOriginID:   event.RootOriginID,
+					Provenance:     row.Provenance,
 				}
 				if err := tx.Create(&eventRow).Error; err != nil {
 					return err
@@ -856,6 +1026,261 @@ func (r *DBRepository) LogRun(ctx context.Context, rl *RunLog) error {
 			return nil
 		})
 	})
+}
+
+// Mesmo orçamento máximo da política de contenção SQLite. Inclui o preflight
+// e a espera por conexão, inclusive para contextos duráveis WithoutCancel.
+const runStatePersistenceTimeout = 4 * time.Second
+
+// PersistRunState grava uma transição incremental do runtime. O run e o
+// job_run_event são escritos na mesma transação; quando a transição é elegível
+// para ativação contextual, o fato normalizado e sua outbox entram nessa mesma
+// transação. A ausência do schema da outbox não habilita fallback para o
+// EventBus: apenas deixa o adapter durável indisponível até a migração central.
+func (r *DBRepository) PersistRunState(ctx context.Context, rl *RunLog, event *RunEvent) error {
+	userID, err := database.RequireUserID(ctx)
+	if err != nil {
+		return err
+	}
+	if rl == nil || event == nil {
+		return fmt.Errorf("run e evento são obrigatórios")
+	}
+	if strings.TrimSpace(rl.RunID) == "" || strings.TrimSpace(rl.JobID) == "" {
+		return fmt.Errorf("run/job id são obrigatórios")
+	}
+	ctx, cancel := context.WithTimeout(ctx, runStatePersistenceTimeout)
+	defer cancel()
+	deadline, _ := ctx.Deadline()
+	jobRow, err := r.jobRowBySlug(ctx, rl.JobID)
+	if err != nil {
+		return err
+	}
+	if rl.QueuedAt.IsZero() {
+		rl.QueuedAt = r.now()
+	}
+	if event.Timestamp.IsZero() {
+		event.Timestamp = r.now()
+	}
+	if strings.TrimSpace(event.ID) == "" {
+		id, err := uuid.NewV7()
+		if err != nil {
+			return err
+		}
+		event.ID = id.String()
+	}
+	if !isUUIDv7(event.ID) {
+		return fmt.Errorf("run event id deve ser UUIDv7")
+	}
+	if event.RunID == "" {
+		event.RunID = rl.RunID
+	}
+	if event.RunID != rl.RunID {
+		return fmt.Errorf("evento pertence a outro run")
+	}
+	// O runtime usa (unknown, "") quando não há prova de origem. Esse par é
+	// uma marca explícita de desconhecido, não uma origem parcial; ele permite
+	// a timeline normal, mas commandJobFact o mantém inelegível para outbox.
+	unknownRoot := strings.TrimSpace(rl.RootOriginType) == "unknown" && strings.TrimSpace(rl.RootOriginID) == ""
+	if !unknownRoot && (rl.RootOriginType != "" && rl.RootOriginID == "" || rl.RootOriginType == "" && rl.RootOriginID != "") {
+		return fmt.Errorf("root origin type/id devem ser informados juntos")
+	}
+	event.RootOriginType, event.RootOriginID, event.Provenance = rl.RootOriginType, rl.RootOriginID, rl.Provenance
+	data, err := marshalJSON(event.Data)
+	if err != nil {
+		return err
+	}
+	triggerData, err := marshalJSON(rl.Trigger)
+	if err != nil {
+		return err
+	}
+	triggerID, err := r.triggerIDForRun(ctx, userID, jobRow.ID, rl.Trigger)
+	if err != nil {
+		return err
+	}
+	eventsEmitted, err := marshalJSON(rl.EventsEmitted)
+	if err != nil {
+		return err
+	}
+	provenance, err := marshalJSON(rl.Provenance)
+	if err != nil {
+		return err
+	}
+	outboxReady := r.commandEvents != nil && r.commandEvents.Ready(ctx)
+
+	return database.WithSQLiteImmediateTransactionOnce(ctx, deadline, r.db, "jobs.persist_run_state", func(tx *gorm.DB) error {
+		var row database.JobRun
+		err := tx.Where("user_id = ? AND id = ?", userID, strings.TrimSpace(rl.RunID)).First(&row).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			if event.Type != RunStatusQueued || rl.Status != RunStatusQueued {
+				return fmt.Errorf("run incremental deve nascer em queued")
+			}
+			row = database.JobRun{
+				UUIDModel: database.UUIDModel{ID: strings.TrimSpace(rl.RunID)}, UserID: userID,
+				JobID: jobRow.ID, TriggerID: "", Status: RunStatusQueued, QueuedAt: rl.QueuedAt,
+				TriggerData: triggerData, EventsEmitted: eventsEmitted, IsDryRun: rl.IsDryRun,
+				RootOriginType: rl.RootOriginType, RootOriginID: rl.RootOriginID, Provenance: provenance,
+			}
+			row.TriggerID = triggerID
+			// started_at precisa ser NULL na fila; map insert evita que o zero
+			// value de time.Time vire uma data sentinela no SQLite.
+			values := map[string]any{
+				"id": row.ID, "user_id": row.UserID, "job_id": row.JobID, "trigger_id": row.TriggerID,
+				"status": row.Status, "queued_at": row.QueuedAt, "started_at": nil,
+				"trigger_data": row.TriggerData, "events_emitted": row.EventsEmitted, "is_dry_run": row.IsDryRun,
+				"root_origin_type": row.RootOriginType, "root_origin_id": row.RootOriginID, "provenance": row.Provenance,
+			}
+			if err := tx.Table("job_runs").Create(values).Error; err != nil {
+				return err
+			}
+		} else if err != nil {
+			return err
+		} else if row.UserID != userID || row.JobID != jobRow.ID {
+			return gorm.ErrRecordNotFound
+		}
+		if rl.RootOriginType == "" && rl.RootOriginID == "" && row.RootOriginType != "" && row.RootOriginID != "" {
+			rl.RootOriginType, rl.RootOriginID = row.RootOriginType, row.RootOriginID
+			_ = unmarshalJSON(row.Provenance, &rl.Provenance)
+		}
+		provenance, err = marshalJSON(rl.Provenance)
+		if err != nil {
+			return err
+		}
+
+		updates := map[string]any{
+			"status": rl.Status, "queued_at": rl.QueuedAt, "completed_at": nullableTime(rl.CompletedAt),
+			"duration_ms": durationMillis(rl.StartedAt, rl.CompletedAt), "error": rl.Error,
+			"retry_count": rl.RetryCount, "is_dry_run": rl.IsDryRun, "trigger_data": triggerData,
+			"events_emitted": eventsEmitted,
+		}
+		if rl.RootOriginType != "" && rl.RootOriginID != "" {
+			updates["root_origin_type"], updates["root_origin_id"], updates["provenance"] = rl.RootOriginType, rl.RootOriginID, provenance
+		}
+		if rl.StartedAt.IsZero() {
+			updates["started_at"] = nil
+		} else {
+			updates["started_at"] = rl.StartedAt
+		}
+		if err := tx.Model(&database.JobRun{}).Where("user_id = ? AND id = ?", userID, rl.RunID).Updates(updates).Error; err != nil {
+			return err
+		}
+
+		var existing database.JobRunEvent
+		err = tx.Where("user_id = ? AND id = ?", userID, event.ID).First(&existing).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			sequence := event.Sequence
+			if sequence <= 0 {
+				if err := tx.Model(&database.JobRunEvent{}).Where("user_id = ? AND job_run_id = ?", userID, rl.RunID).Select("COALESCE(MAX(sequence), 0)").Scan(&sequence).Error; err != nil {
+					return err
+				}
+				sequence++
+			}
+			existing = database.JobRunEvent{UUIDModel: database.UUIDModel{ID: event.ID}, UserID: userID, JobRunID: rl.RunID, Sequence: sequence, OccurredAt: event.Timestamp, Type: event.Type, Message: event.Message, Data: data, RootOriginType: rl.RootOriginType, RootOriginID: rl.RootOriginID, Provenance: provenance}
+			if err := tx.Create(&existing).Error; err != nil {
+				return err
+			}
+		} else if err != nil {
+			return err
+		} else if existing.UserID != userID || existing.JobRunID != rl.RunID || existing.Sequence != event.Sequence && event.Sequence > 0 || existing.Type != event.Type || existing.Message != event.Message || existing.Data != data {
+			return fmt.Errorf("run event %s: %w", event.ID, commandjobevents.ErrFingerprintConflict)
+		}
+		event.ID, event.Sequence = existing.ID, existing.Sequence
+		event.RootOriginType, event.RootOriginID = existing.RootOriginType, existing.RootOriginID
+		_ = unmarshalJSON(existing.Provenance, &event.Provenance)
+		if err := persistDomainEventsTx(ctx, tx, userID, jobRow, rl.RunID, rl.DomainEvents); err != nil {
+			return err
+		}
+
+		if fact, ok := commandJobFact(userID, *jobRow, rl, event); ok && outboxReady {
+			if err := r.commandEvents.InsertFactTx(tx, fact); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+func persistDomainEventsTx(ctx context.Context, tx *gorm.DB, userID string, jobRow *database.Job, runID string, entries []EventEntry) error {
+	for index := range entries {
+		entry := &entries[index]
+		if strings.TrimSpace(entry.ID) == "" {
+			id, err := uuid.NewV7()
+			if err != nil {
+				return err
+			}
+			entry.ID = id.String()
+		}
+		if entry.Timestamp.IsZero() {
+			entry.Timestamp = time.Now()
+		}
+		entry.RunID = runID
+		data, err := marshalJSON(entry.Data)
+		if err != nil {
+			return err
+		}
+		var existing database.JobEvent
+		err = tx.WithContext(ctx).Where("user_id = ? AND id = ?", userID, entry.ID).First(&existing).Error
+		if err == nil {
+			continue
+		}
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+		jobID := jobRow.ID
+		runIDCopy := runID
+		row := database.JobEvent{
+			UUIDModel: database.UUIDModel{ID: entry.ID}, UserID: userID, JobID: &jobID, JobRunID: &runIDCopy,
+			OccurredAt: entry.Timestamp, Type: entry.Type, Event: entry.Event, Message: entry.Message, Data: data,
+		}
+		if err := tx.WithContext(ctx).Create(&row).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func commandJobFact(userID string, jobRow database.Job, rl *RunLog, event *RunEvent) (commandjobevents.Fact, bool) {
+	state := ""
+	switch event.Type {
+	case RunStatusQueued:
+		state = commandjobevents.StateQueued
+	case RunStatusRunning:
+		state = commandjobevents.StateStarted
+	case "retry_scheduled", RunStatusRetrying:
+		state = commandjobevents.StateRetryScheduled
+	case RunStatusCompleted:
+		state = commandjobevents.StateCompleted
+	case RunStatusFailed:
+		state = commandjobevents.StateFailed
+	case RunStatusSkipped:
+		state = commandjobevents.StateSkipped
+	default:
+		return commandjobevents.Fact{}, false
+	}
+	rootType := strings.TrimSpace(rl.RootOriginType)
+	rootID := strings.TrimSpace(rl.RootOriginID)
+	if !commandJobRootEligible(rootType) || rootID == "" || strings.TrimSpace(jobRow.ID) == "" || !isUUIDv7(jobRow.ID) || !isUUIDv7(event.ID) {
+		return commandjobevents.Fact{}, false
+	}
+	return commandjobevents.Fact{
+		SchemaVersion: commandjobevents.SchemaVersion, EventName: commandjobevents.SchemaVersion,
+		SourceEventID: event.ID, UserID: userID, JobDatabaseID: jobRow.ID, JobSlug: jobRow.Slug,
+		RunID: rl.RunID, RunEventID: event.ID, Sequence: event.Sequence, State: state,
+		OccurredAt: event.Timestamp, RootOriginType: rootType, RootOriginID: rootID, Provenance: rl.Provenance,
+	}, true
+}
+
+func commandJobRootEligible(rootType string) bool {
+	switch rootType {
+	case "manual", "cron", "interval", "user_hotkey", "internal_event":
+		return true
+	default:
+		return false
+	}
+}
+
+func isUUIDv7(value string) bool {
+	id, err := uuid.Parse(value)
+	return err == nil && id.Version() == 7 && id.Variant() == uuid.RFC4122 && id.String() == value
 }
 
 func (r *DBRepository) GetRuns(ctx context.Context, jobID string, limit int) ([]RunLog, error) {
@@ -991,6 +1416,11 @@ func (r *DBRepository) GetRun(ctx context.Context, jobID, runID string) (*RunLog
 		return nil, err
 	}
 	rl := runModelToDomain(row, jobRow.Slug)
+	runs := []RunLog{rl}
+	if err := r.hydrateRunLogsFromLedger(ctx, runs); err != nil {
+		return nil, err
+	}
+	rl = runs[0]
 	return &rl, nil
 }
 
@@ -1329,9 +1759,9 @@ func (r *DBRepository) deleteRunDependenciesByIDsTx(ctx context.Context, tx *gor
 		// tool_invocations: remove execuções técnicas associadas aos runs purgados.
 		// Best-effort: pode não existir em migrações parciais.
 		if hasToolInvocations {
-			if err := database.ScopeByUser(ctx, tx.WithContext(ctx).Model(&database.ToolInvocation{}), "user_id").
-				Where("origin_type = ? AND origin_id IN ?", toolinvocations.OriginJobRun, batch).
-				Delete(&database.ToolInvocation{}).Error; err != nil {
+			target := database.ScopeByUser(ctx, tx.WithContext(ctx).Model(&database.ToolInvocation{}), "user_id").
+				Where("origin_type = ? AND origin_id IN ?", toolinvocations.OriginJobRun, batch)
+			if _, err := database.DeleteToolInvocationsWithChildrenDetachedTx(ctx, tx, target); err != nil {
 				return err
 			}
 		}
@@ -1361,18 +1791,40 @@ func (r *DBRepository) deleteRunsByIDsTx(ctx context.Context, tx *gorm.DB, runID
 }
 
 func (r *DBRepository) CleanOldRuns(ctx context.Context, maxAge time.Duration) (int, error) {
+	var total int
+	for {
+		deleted, more, err := r.CleanOldRunsBatch(ctx, maxAge, retentionBatchSize)
+		total += deleted
+		if err != nil || !more {
+			return total, err
+		}
+	}
+}
+
+func (r *DBRepository) CleanOldRunsBatch(ctx context.Context, maxAge time.Duration, limit int) (int, bool, error) {
 	if _, err := database.RequireUserID(ctx); err != nil {
-		return 0, err
+		return 0, false, err
 	}
-	cutoff := r.now().Add(-maxAge)
-	var runIDs []string
-	if err := database.ScopeByUser(ctx, r.db.WithContext(ctx).Model(&database.JobRun{}), "user_id").
-		Where("started_at < ?", cutoff).Pluck("id", &runIDs).Error; err != nil {
-		return 0, err
+	if limit <= 0 {
+		return 0, false, fmt.Errorf("limite de retenção inválido")
 	}
+	now := r.now()
+	cutoff := now.Add(-maxAge)
 	deleted := int64(0)
-	hasToolInvocations := r.db.Migrator().HasTable(&database.ToolInvocation{})
+	more := false
+	hasToolInvocations := r.db.WithContext(ctx).Migrator().HasTable(&database.ToolInvocation{})
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var runIDs []string
+		query := database.ScopeByUser(ctx, tx.Model(&database.JobRun{}), "user_id").
+			Where("julianday(COALESCE(started_at, queued_at)) < julianday(?)", cutoff.UTC())
+		query = r.retainableRunQuery(query, now)
+		if err := query.Order("COALESCE(started_at, queued_at) ASC, id ASC").Limit(limit+1).Pluck("id", &runIDs).Error; err != nil {
+			return err
+		}
+		more = len(runIDs) > limit
+		if more {
+			runIDs = runIDs[:limit]
+		}
 		if err := r.deleteRunDependenciesByIDsTx(ctx, tx, runIDs, hasToolInvocations); err != nil {
 			return err
 		}
@@ -1381,9 +1833,9 @@ func (r *DBRepository) CleanOldRuns(ctx context.Context, maxAge time.Duration) (
 		return err
 	})
 	if err != nil {
-		return 0, err
+		return 0, false, err
 	}
-	return int(deleted), nil
+	return int(deleted), more, nil
 }
 
 // CleanRunsExceedingCount mantém apenas os `keepPerJob` runs mais recentes por
@@ -1391,34 +1843,50 @@ func (r *DBRepository) CleanOldRuns(ctx context.Context, maxAge time.Duration) (
 // retenção por idade para conter jobs de alta frequência (AEP-0074, D4).
 // keepPerJob <= 0 desativa a limpeza.
 func (r *DBRepository) CleanRunsExceedingCount(ctx context.Context, keepPerJob int) (int, error) {
+	var total int
+	for {
+		deleted, more, err := r.CleanRunsExceedingCountBatch(ctx, keepPerJob, retentionBatchSize)
+		total += deleted
+		if err != nil || !more {
+			return total, err
+		}
+	}
+}
+
+func (r *DBRepository) CleanRunsExceedingCountBatch(ctx context.Context, keepPerJob, limit int) (int, bool, error) {
 	userID, err := database.RequireUserID(ctx)
 	if err != nil {
-		return 0, err
+		return 0, false, err
 	}
 	if keepPerJob <= 0 {
-		return 0, nil
+		return 0, false, nil
+	}
+	if limit <= 0 {
+		return 0, false, fmt.Errorf("limite de retenção inválido")
 	}
 	// Enumera os runs de cada job em ordem decrescente (mais recentes primeiro)
 	// com uma window function e remove tudo além dos `keepPerJob` mais novos.
 	// Evita a subquery correlacionada O(n²) por job — relevante justamente nos
 	// jobs de alta frequência que este cap quer conter. O desempate por id trata
 	// started_at idêntico.
-	ranked := r.db.WithContext(ctx).Model(&database.JobRun{}).
-		Select("id, ROW_NUMBER() OVER (PARTITION BY job_id ORDER BY started_at DESC, id DESC) AS rn").
-		Where("user_id = ?", userID)
-	var runIDs []string
-	if err := r.db.WithContext(ctx).
-		Table("(?) AS ranked", ranked).
-		Where("rn > ?", keepPerJob).
-		Pluck("id", &runIDs).Error; err != nil {
-		return 0, err
-	}
-	if len(runIDs) == 0 {
-		return 0, nil
-	}
 	deleted := int64(0)
-	hasToolInvocations := r.db.Migrator().HasTable(&database.ToolInvocation{})
+	more := false
+	hasToolInvocations := r.db.WithContext(ctx).Migrator().HasTable(&database.ToolInvocation{})
 	err = r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// Seleção e remoção usam o mesmo snapshot transacional: uma lease
+		// não pode ser concedida entre a escolha do run e sua exclusão.
+		ranked := tx.Model(&database.JobRun{}).
+			Select("id, ROW_NUMBER() OVER (PARTITION BY job_id ORDER BY julianday(COALESCE(started_at, queued_at)) DESC, id DESC) AS rn").
+			Where("user_id = ?", userID)
+		ranked = r.retainableRunQuery(ranked, r.now())
+		var runIDs []string
+		if err := tx.Table("(?) AS ranked", ranked).Where("rn > ?", keepPerJob).Order("id ASC").Limit(limit+1).Pluck("id", &runIDs).Error; err != nil {
+			return err
+		}
+		more = len(runIDs) > limit
+		if more {
+			runIDs = runIDs[:limit]
+		}
 		if err := r.deleteRunDependenciesByIDsTx(ctx, tx, runIDs, hasToolInvocations); err != nil {
 			return err
 		}
@@ -1427,29 +1895,114 @@ func (r *DBRepository) CleanRunsExceedingCount(ctx context.Context, keepPerJob i
 		return err
 	})
 	if err != nil {
-		return 0, err
+		return 0, false, err
 	}
-	return int(deleted), nil
+	return int(deleted), more, nil
+}
+
+// retainableRunQuery protege runs que ainda são fontes necessárias para o
+// Consumer da outbox e runs não terminais que sustentam uma ativação. Embora o
+// fato normalizado sobreviva sem job_runs, o Consumer revalida o job e o run
+// antes de aplicar cada fato; portanto, pending/processing deve manter a linha
+// de origem até entrega ou dead-letter. Depois disso, um run não terminal só é
+// elegível para exclusão quando NÃO existe lease viva com claim ativa
+// correspondente, no mesmo user/run/activation. Sem as tabelas de leases,
+// nenhum run não terminal é removido (fail closed).
+func (r *DBRepository) retainableRunQuery(query *gorm.DB, now time.Time) *gorm.DB {
+	terminal := []string{RunStatusCompleted, RunStatusFailed, RunStatusSkipped}
+	if query.Migrator().HasTable("command_job_activation_outbox") {
+		query = query.Where(`NOT EXISTS (
+			SELECT 1 FROM command_job_activation_outbox source
+			WHERE source.run_id = job_runs.id
+			  AND source.user_id = job_runs.user_id
+			  AND source.delivery_state IN (?, ?)
+		)`, commandjobevents.DeliveryPending, commandjobevents.DeliveryProcessing)
+	}
+	if !query.Migrator().HasTable("command_job_activation_leases") || !query.Migrator().HasTable("command_layer_activation_state") {
+		return query.Where("status IN ?", terminal)
+	}
+	return query.Where(`status IN ? OR (
+		status NOT IN ? AND NOT EXISTS (
+			SELECT 1 FROM command_job_activation_leases lease
+			JOIN command_layer_activation_state claim
+			  ON claim.activation_id = lease.activation_id
+			 AND claim.user_id = lease.user_id
+			 AND claim.state = 'active'
+			WHERE lease.run_id = job_runs.id
+			  AND lease.user_id = job_runs.user_id
+			  AND julianday(lease.expires_at) > julianday(?)
+		)
+	)`, terminal, terminal, now.UTC())
 }
 
 func (r *DBRepository) CleanOldEvents(ctx context.Context, maxAge time.Duration) (int, error) {
+	var total int
+	for {
+		deleted, more, err := r.CleanOldEventsBatch(ctx, maxAge, retentionBatchSize)
+		total += deleted
+		if err != nil || !more {
+			return total, err
+		}
+	}
+}
+
+func (r *DBRepository) CleanOldEventsBatch(ctx context.Context, maxAge time.Duration, limit int) (int, bool, error) {
 	if _, err := database.RequireUserID(ctx); err != nil {
-		return 0, err
+		return 0, false, err
+	}
+	if limit <= 0 {
+		return 0, false, fmt.Errorf("limite de retenção inválido")
 	}
 	cutoff := r.now().Add(-maxAge)
-	res := database.ScopeByUser(ctx, r.db.WithContext(ctx), "user_id").
-		Where("occurred_at < ?", cutoff).Delete(&database.JobEvent{})
-	return int(res.RowsAffected), res.Error
+	var ids []string
+	query := database.ScopeByUser(ctx, r.db.WithContext(ctx).Model(&database.JobEvent{}), "user_id").Where("occurred_at < ?", cutoff).Order("occurred_at ASC").Limit(limit + 1)
+	if err := query.Pluck("id", &ids).Error; err != nil {
+		return 0, false, err
+	}
+	more := len(ids) > limit
+	if more {
+		ids = ids[:limit]
+	}
+	if len(ids) == 0 {
+		return 0, false, nil
+	}
+	res := database.ScopeByUser(ctx, r.db.WithContext(ctx), "user_id").Where("id IN ?", ids).Delete(&database.JobEvent{})
+	return int(res.RowsAffected), more, res.Error
 }
 
 func (r *DBRepository) CleanOldRunEvents(ctx context.Context, maxAge time.Duration) (int, error) {
+	var total int
+	for {
+		deleted, more, err := r.CleanOldRunEventsBatch(ctx, maxAge, retentionBatchSize)
+		total += deleted
+		if err != nil || !more {
+			return total, err
+		}
+	}
+}
+
+func (r *DBRepository) CleanOldRunEventsBatch(ctx context.Context, maxAge time.Duration, limit int) (int, bool, error) {
 	if _, err := database.RequireUserID(ctx); err != nil {
-		return 0, err
+		return 0, false, err
+	}
+	if limit <= 0 {
+		return 0, false, fmt.Errorf("limite de retenção inválido")
 	}
 	cutoff := r.now().Add(-maxAge)
-	res := database.ScopeByUser(ctx, r.db.WithContext(ctx), "user_id").
-		Where("occurred_at < ?", cutoff).Delete(&database.JobRunEvent{})
-	return int(res.RowsAffected), res.Error
+	var ids []string
+	query := database.ScopeByUser(ctx, r.db.WithContext(ctx).Model(&database.JobRunEvent{}), "user_id").Where("occurred_at < ?", cutoff).Order("occurred_at ASC").Limit(limit + 1)
+	if err := query.Pluck("id", &ids).Error; err != nil {
+		return 0, false, err
+	}
+	more := len(ids) > limit
+	if more {
+		ids = ids[:limit]
+	}
+	if len(ids) == 0 {
+		return 0, false, nil
+	}
+	res := database.ScopeByUser(ctx, r.db.WithContext(ctx), "user_id").Where("id IN ?", ids).Delete(&database.JobRunEvent{})
+	return int(res.RowsAffected), more, res.Error
 }
 
 func (r *DBRepository) ensureTagTx(ctx context.Context, tx *gorm.DB, userID, slug string) (*database.Tag, error) {
@@ -1676,12 +2229,74 @@ func isUniqueConstraintError(err error) bool {
 }
 
 func (r *DBRepository) jobRowBySlug(ctx context.Context, slug string) (*database.Job, error) {
+	normalized := normalizeSlug(slug)
+	userID, _ := database.UserIDFromContext(ctx)
+	if userID != "" {
+		if cached, ok := r.lookupJobRowCache(userID, normalized); ok {
+			// Devolve uma cópia: os callers só leem (jobRow.ID), mas isolar evita
+			// que uma mutação acidental futura corrompa a entrada compartilhada.
+			row := cached
+			return &row, nil
+		}
+	}
+
 	var row database.Job
 	if err := database.ScopeByUser(ctx, r.db.WithContext(ctx), "user_id").
-		Where("slug = ?", normalizeSlug(slug)).First(&row).Error; err != nil {
+		Where("slug = ?", normalized).First(&row).Error; err != nil {
 		return nil, err
 	}
+	if userID != "" {
+		r.storeJobRowCache(userID, normalized, row)
+	}
 	return &row, nil
+}
+
+// jobRowCacheKey compõe a chave (user_id, slug) com separador que não ocorre em
+// UUIDs nem em slugs, evitando colisão entre pares distintos.
+func (r *DBRepository) jobRowCacheKey(userID, slug string) string {
+	return userID + "\x00" + slug
+}
+
+func (r *DBRepository) lookupJobRowCache(userID, slug string) (database.Job, bool) {
+	r.jobRowCacheMu.RLock()
+	entry, ok := r.jobRowCache[r.jobRowCacheKey(userID, slug)]
+	r.jobRowCacheMu.RUnlock()
+	if !ok || !r.now().Before(entry.expiresAt) {
+		return database.Job{}, false
+	}
+	return entry.job, true
+}
+
+func (r *DBRepository) storeJobRowCache(userID, slug string, job database.Job) {
+	r.jobRowCacheMu.Lock()
+	if r.jobRowCache == nil {
+		r.jobRowCache = make(map[string]jobRowCacheEntry)
+	}
+	r.jobRowCache[r.jobRowCacheKey(userID, slug)] = jobRowCacheEntry{
+		job:       job,
+		expiresAt: r.now().Add(jobRowResolveCacheTTL),
+	}
+	r.jobRowCacheMu.Unlock()
+}
+
+// invalidateJobRowCacheForUser remove todas as entradas de um usuário. É
+// chamado por TODA mutação de job (create/save/delete/pipeline): como slug é a
+// identidade e mutações são raras frente às leituras, limpar o usuário inteiro
+// evita qualquer chave perdida (ex.: delete+recreate com novo ID) sem
+// complicar cada site de escrita.
+func (r *DBRepository) invalidateJobRowCacheForUser(ctx context.Context) {
+	userID, _ := database.UserIDFromContext(ctx)
+	if userID == "" {
+		return
+	}
+	prefix := userID + "\x00"
+	r.jobRowCacheMu.Lock()
+	for k := range r.jobRowCache {
+		if strings.HasPrefix(k, prefix) {
+			delete(r.jobRowCache, k)
+		}
+	}
+	r.jobRowCacheMu.Unlock()
 }
 
 func (r *DBRepository) triggerIDForRun(ctx context.Context, userID, jobID string, info TriggerInfo) (string, error) {
@@ -1799,6 +2414,7 @@ func jobModelToDomainWithTags(row database.Job, tagSlugs []string) (*Job, error)
 		toolName = row.ToolCatalog.Name
 	}
 	return &Job{
+		DatabaseID:     row.ID,
 		ID:             row.Slug,
 		Name:           row.Name,
 		Description:    row.Description,
@@ -1966,33 +2582,136 @@ func tagModelToDomain(row database.Tag) Tag {
 	}
 }
 
+func (r *DBRepository) hydrateRunLogsFromLedger(ctx context.Context, runs []RunLog) error {
+	if len(runs) == 0 {
+		return nil
+	}
+	if !r.db.Migrator().HasTable(&database.ToolInvocation{}) {
+		return nil
+	}
+	runIDs := make([]string, 0, len(runs))
+	byRunID := make(map[string]*RunLog, len(runs))
+	for i := range runs {
+		runID := strings.TrimSpace(runs[i].RunID)
+		if runID == "" {
+			continue
+		}
+		runIDs = append(runIDs, runID)
+		byRunID[runID] = &runs[i]
+	}
+	if len(runIDs) == 0 {
+		return nil
+	}
+	type invocationRow struct {
+		OriginID           string
+		Input              string
+		Output             string
+		ResultAvailability string
+		ToolName           string
+		Attempt            int
+	}
+	var rows []invocationRow
+	if err := r.retry(ctx, "hydrate_run_ledger", func() error {
+		return database.ScopeByUser(ctx, r.db.WithContext(ctx).Model(&database.ToolInvocation{}), "tool_invocations.user_id").
+			Select("tool_invocations.origin_id, tool_invocations.input, tool_invocations.output, tool_invocations.result_availability, tool_invocations.attempt, tool_catalog.name AS tool_name").
+			Joins("LEFT JOIN tool_catalog ON tool_catalog.id = tool_invocations.tool_catalog_id").
+			Where("tool_invocations.origin_type = ? AND tool_invocations.origin_id IN ?", toolinvocations.OriginJobRun, runIDs).
+			Order("tool_invocations.origin_id, tool_invocations.attempt DESC, tool_invocations.queued_at DESC, tool_invocations.id DESC").
+			Find(&rows).Error
+	}); err != nil {
+		return fmt.Errorf("hydrate job runs from tool invocation ledger: %w", err)
+	}
+	hydrated := make(map[string]struct{}, len(rows))
+	for _, row := range rows {
+		run := byRunID[row.OriginID]
+		if run == nil {
+			continue
+		}
+		if _, exists := hydrated[row.OriginID]; exists {
+			continue
+		}
+		hydrated[row.OriginID] = struct{}{}
+		run.ToolName = strings.TrimSpace(row.ToolName)
+		run.ResolvedInputs = invocationArguments(row.Input)
+		run.Output = invocationOutput(row.Output)
+		run.OutputSize = len(row.Output)
+		run.Replayable = run.Status != "skipped" &&
+			run.ToolName != "" &&
+			run.ResolvedInputs != nil &&
+			!ContainsRedactedValue(run.ResolvedInputs)
+	}
+	return nil
+}
+
+func invocationArguments(raw string) map[string]any {
+	var envelope struct {
+		ToolCall struct {
+			Function struct {
+				Arguments string `json:"arguments"`
+			} `json:"function"`
+		} `json:"tool_call"`
+	}
+	if json.Unmarshal([]byte(raw), &envelope) != nil || strings.TrimSpace(envelope.ToolCall.Function.Arguments) == "" {
+		return nil
+	}
+	var arguments map[string]any
+	if json.Unmarshal([]byte(envelope.ToolCall.Function.Arguments), &arguments) != nil {
+		return nil
+	}
+	return arguments
+}
+
+func invocationOutput(raw string) map[string]any {
+	result := toolinvocations.ExtractToolInvocationResult(raw)
+	output := make(map[string]any)
+	if strings.TrimSpace(result.Content) != "" {
+		if err := json.Unmarshal([]byte(result.Content), &output); err != nil {
+			var array []any
+			if json.Unmarshal([]byte(result.Content), &array) == nil {
+				output["content"] = array
+			} else {
+				output["content"] = result.Content
+			}
+		}
+	}
+	for key, value := range result.Metadata {
+		output["_meta_"+key] = value
+	}
+	if len(output) == 0 {
+		return nil
+	}
+	return output
+}
+
 func runModelToDomain(row database.JobRun, jobSlug string) RunLog {
 	var trigger TriggerInfo
 	_ = unmarshalJSON(row.TriggerData, &trigger)
-	var inputs map[string]any
-	_ = unmarshalJSON(row.Inputs, &inputs)
-	var output map[string]any
-	_ = unmarshalJSON(row.Output, &output)
 	var events []string
 	_ = unmarshalJSON(row.EventsEmitted, &events)
 	rl := RunLog{
 		RunID:          row.ID,
 		JobID:          jobSlug,
-		ToolName:       row.ToolName,
+		JobDatabaseID:  row.JobID,
 		Trigger:        trigger,
 		Status:         row.Status,
+		QueuedAt:       row.QueuedAt,
 		StartedAt:      row.StartedAt,
-		ResolvedInputs: inputs,
-		Output:         output,
-		OutputSize:     len(row.Output),
 		Error:          row.Error,
 		RetryCount:     row.RetryCount,
 		EventsEmitted:  events,
 		IsDryRun:       row.IsDryRun,
+		RootOriginType: row.RootOriginType,
+		RootOriginID:   row.RootOriginID,
 		Duration:       time.Duration(row.DurationMs * int64(time.Millisecond)).String(),
 		CompletedAt:    time.Time{},
 	}
-	rl.Replayable = rl.Status != "skipped" && rl.ToolName != "" && rl.ResolvedInputs != nil && !ContainsRedactedValue(rl.ResolvedInputs)
+	_ = unmarshalJSON(row.Provenance, &rl.Provenance)
+	// Linhas anteriores à coluna queued_at não têm esse fato; a migração
+	// compatível deve preenchê-lo com started_at. O fallback aqui só representa
+	// a leitura de bases antigas e nunca torna a linha elegível para a outbox.
+	if rl.QueuedAt.IsZero() && !rl.StartedAt.IsZero() {
+		rl.QueuedAt = rl.StartedAt
+	}
 	if row.CompletedAt != nil {
 		rl.CompletedAt = *row.CompletedAt
 	}
@@ -2001,15 +2720,20 @@ func runModelToDomain(row database.JobRun, jobSlug string) RunLog {
 
 func runEventModelToDomain(row database.JobRunEvent) RunEvent {
 	var data map[string]any
+	var provenance map[string]any
 	_ = unmarshalJSON(row.Data, &data)
+	_ = unmarshalJSON(row.Provenance, &provenance)
 	return RunEvent{
-		ID:        row.ID,
-		RunID:     row.JobRunID,
-		Sequence:  row.Sequence,
-		Timestamp: row.OccurredAt,
-		Type:      row.Type,
-		Message:   row.Message,
-		Data:      data,
+		ID:             row.ID,
+		RunID:          row.JobRunID,
+		Sequence:       row.Sequence,
+		Timestamp:      row.OccurredAt,
+		Type:           row.Type,
+		Message:        row.Message,
+		Data:           data,
+		RootOriginType: row.RootOriginType,
+		RootOriginID:   row.RootOriginID,
+		Provenance:     provenance,
 	}
 }
 
@@ -2039,6 +2763,12 @@ func unmarshalJSON(raw string, dst any) error {
 // vazios e lookups por slug vazio não devem casar registros).
 func normalizeSlug(s string) string {
 	return slug.Slugify(s, "")
+}
+
+// NormalizeSlug expõe a mesma normalização usada na persistência para adapters
+// que precisam devolver ou consultar a identidade canônica após salvar.
+func NormalizeSlug(s string) string {
+	return normalizeSlug(s)
 }
 
 func uniqueSlugs(values []string) []string {

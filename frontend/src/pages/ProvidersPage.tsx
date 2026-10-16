@@ -1,3 +1,5 @@
+import { apidto } from '@wailsjs/go/models';
+import { ChatGPTConnection } from '../components/settings/ChatGPTConnection';
 import { logger } from '../utils/logger';
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -14,7 +16,6 @@ import {
   CanRemoveACPAgent,
   RemoveACPAgent,
 } from '@wailsjs/go/wailsapi/ACPInstall';
-import type { apidto } from '@wailsjs/go/models';
 import {
   GetLLMProvidersWithStatus,
   CreateLLMProvider,
@@ -35,10 +36,15 @@ import { useAnnouncer } from '../hooks/useAnnouncer';
 import { useUIStore } from '../store/uiStore';
 import { useResourceEditRequest } from '../hooks/useResourceEditRequest';
 import { useConfirm } from '../hooks/useConfirm';
-import { useActivePanelNewShortcut } from '../hooks/useActivePanelShortcut';
+import { useLocation } from 'react-router-dom';
+import { useProviderCreationCommands, type ProviderCreationKind } from '../lib/providerCreationCommands';
+import { useCommandShortcutHint } from '../lib/commandShortcutHints';
 import './ProvidersPage.css';
 
 interface Provider {
+  auth_mode?: string;
+  credential_pattern?: string;
+  reasoning_content_mode?: string;
   id: string;
   name: string;
   type: string;
@@ -75,6 +81,10 @@ type InstallPlan = apidto.ACPInstallPlan;
 
 export default function ProvidersPage() {
   const { t } = useTranslation();
+  const { pathname } = useLocation();
+  const pageRef = useRef<HTMLDivElement>(null);
+  const newShortcut = useCommandShortcutHint('providers.create.open', 'providers', 'settings');
+  const [creationKind, setCreationKind] = useState<'api' | 'acp'>('api');
   const confirm = useConfirm();
   const addToast = useUIStore((s) => s.addToast);
   const { announce } = useAnnouncer();
@@ -86,9 +96,13 @@ export default function ProvidersPage() {
 
   const [providers, setProviders] = useState<ProviderRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [providerLoadSucceeded, setProviderLoadSucceeded] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string | number>>(new Set());
   const [isEditing, setIsEditing] = useState(false);
+  const [providerSaving, setProviderSaving] = useState(false);
+  const [oauthCloseBlocked, setOAuthCloseBlocked] = useState(false);
+  const [oauthDialog, setOAuthDialog] = useState<{ id?: string } | null>(null);
   const [editingProvider, setEditingProvider] = useState<ProviderFormData | undefined>(undefined);
   const [focusedRow, setFocusedRow] = useState<ProviderRow | null>(null);
   const [updatePlans, setUpdatePlans] = useState<Record<string, InstallPlan>>({});
@@ -124,8 +138,10 @@ export default function ProvidersPage() {
         statusText: getStatusText(p.credential_status),
       })) as ProviderRow[];
       setProviders(mapped);
+      setProviderLoadSucceeded(true);
       void loadUpdatePlans(mapped);
     } catch (error) {
+      setProviderLoadSucceeded(false);
       logger.error('Erro ao carregar provedores:', error);
       addToast(t('providers.error.loadFailed', 'Erro ao carregar provedores'), 'error');
     } finally {
@@ -143,7 +159,7 @@ export default function ProvidersPage() {
       if (found) handleEditProvider(found);
     },
     onNew: () => handleAddProvider(),
-    ready: !loading && providers.length > 0,
+    ready: !loading && providerLoadSucceeded,
   });
 
   const getStatusText = (status: string): string => {
@@ -158,20 +174,31 @@ export default function ProvidersPage() {
     }
   };
 
-  const handleAddProvider = () => {
+  const openCreation = (kind: ProviderCreationKind) => {
+    if (kind === 'chatgpt') { setOAuthDialog({}); return; }
+    setCreationKind(kind);
     setEditingProvider(undefined);
     setIsEditing(true);
   };
-
-  useActivePanelNewShortcut(handleAddProvider);
+  const creation = useProviderCreationCommands({
+    root: pageRef, pathname,
+    ready: !loading && !isEditing && !oauthDialog && !updateTarget,
+    open: openCreation,
+  });
+  const handleAddProvider = () => creation.requestOpen();
 
   const handleEditProvider = useCallback((provider: ProviderRow) => {
+ if (provider.type === 'chatgpt') { setOAuthDialog({id: provider.id}); return; }
+    setCreationKind(provider.api_format === AGENT_API_FORMAT ? 'acp' : 'api');
     setEditingProvider({
       id: provider.id,
       name: provider.name,
       type: provider.type,
       base_url: provider.base_url,
       api_key: '',
+      auth_mode: provider.auth_mode,
+      credential_pattern: provider.credential_pattern,
+      reasoning_content_mode: provider.reasoning_content_mode,
       default_model: (provider as Provider).default_model || '',
       api_format: (provider as Provider).api_format || '',
       acp_command: provider.acp_command || '',
@@ -208,14 +235,17 @@ export default function ProvidersPage() {
   };
 
   const handleDuplicateProvider = async (provider: ProviderRow) => {
+ if (provider.type === 'chatgpt') { setOAuthDialog({}); return; }
     try {
       const name = getDuplicateName(provider.name);
-      await CreateLLMProvider({
+      await CreateLLMProvider(apidto.CreateLLMProviderRequest.createFrom({
         id: `${provider.type}-${Date.now()}`,
         name,
+        credential_from_provider_id: provider.api_format === AGENT_API_FORMAT ? undefined : provider.id,
         type: provider.type,
         base_url: provider.base_url,
         api_format: (provider as Provider).api_format || undefined,
+        auth_mode: provider.api_format === AGENT_API_FORMAT ? undefined : provider.auth_mode,
         // A cópia de um agente precisa subir o mesmo agente: o backend recusa o
         // formato acp sem comando, e sem argumentos o processo subiria em outro
         // modo que não o do original.
@@ -230,7 +260,7 @@ export default function ProvidersPage() {
         // o mesmo agente e precisa da mesma chave, e o segredo continua onde
         // sempre esteve, no cofre.
         acp_credential_env: provider.acp_credential_env || undefined,
-      });
+      }));
       addToast(t('providers.toast.duplicated'), 'success', undefined, undefined, { suppressAnnounce: true });
       announce(t('providers.toast.duplicated'));
       await loadProviders();
@@ -287,7 +317,13 @@ export default function ProvidersPage() {
       announce(t('providers.toast.deleted'));
       await loadProviders();
     } catch (error: unknown) {
-      addToast(getErrorMessage(error) || t('providers.error.deleteFailed'), 'error');
+      const message = getErrorMessage(error);
+      const errorKey = message.includes('oauth_vault_persistence_required') || message.includes('oauth_vault_unavailable')
+        ? 'chatgpt.vaultUnavailable'
+        : message.includes('oauth_authorization_changed') ? 'chatgpt.authorizationChanged'
+        : message.includes('chatgpt_authorization_in_progress') ? 'chatgpt.authorizationInProgress'
+        : message.includes('chatgpt_disconnect_before_delete') ? 'chatgpt.disconnectBeforeDelete' : '';
+      addToast(errorKey ? t(errorKey) : (message || t('providers.error.deleteFailed')), 'error');
       return;
     }
 
@@ -390,32 +426,32 @@ export default function ProvidersPage() {
       {
         id: 'edit',
         label: t('providers.actions.edit', 'Editar'),
-        icon: <EditOutlined />,
+        icon: <EditOutlined aria-hidden="true" />,
         onClick: () => handleEditProvider(item),
       },
       ...((item as Provider).is_default ? [] : [{
         id: 'setDefault',
         label: t('providers.actions.setDefault', 'Tornar Padrão'),
-        icon: <StarOutlined />,
+        icon: <StarOutlined aria-hidden="true" />,
         onClick: () => handleSetDefault(item),
       }]),
       {
         id: 'duplicate',
         label: t('providers.actions.duplicate', 'Duplicar'),
-        icon: <CopyOutlined />,
+        icon: <CopyOutlined aria-hidden="true" />,
         onClick: () => handleDuplicateProvider(item),
       },
       {
         id: 'updateAgent',
         label: t('providers.actions.updateAgent', 'Atualizar agente'),
-        icon: <ReloadOutlined />,
+        icon: <ReloadOutlined aria-hidden="true" />,
         onClick: () => handleUpdateAgent(item),
         disabled: !canUpdate,
       },
       {
         id: 'delete',
         label: t('providers.actions.delete', 'Excluir'),
-        icon: <DeleteOutlined />,
+        icon: <DeleteOutlined aria-hidden="true" />,
         onClick: () => handleDeleteProvider(item),
         danger: true,
       },
@@ -435,12 +471,18 @@ export default function ProvidersPage() {
     [providers, searchTerm]
   );
 
+  const actionTarget = filteredRows.find(row => row.id === focusedRow?.id);
+
   const getRowId = useCallback((item: ProviderRow) => item.id, []);
   const handleFocusChange = useCallback((item: ProviderRow | null) => setFocusedRow(item), []);
 
   return (
-    <div className="providers-page">
+    <div className="providers-page" ref={pageRef}>
+      {creation.menu}
       {loading && <div className="loading">{t('providers.loading', 'Carregando...')}</div>}
+          <Modal isOpen={oauthDialog !== null} allowClose={!oauthCloseBlocked} onClose={() => { if (!oauthCloseBlocked) { setOAuthDialog(null); void loadProviders(); } }} title={t('chatgpt.title')} size="md">
+            {oauthDialog && <ChatGPTConnection onCloseBlockedChange={setOAuthCloseBlocked} id={oauthDialog.id} onClose={() => setOAuthDialog(null)} onChanged={() => void loadProviders()} />}
+          </Modal>
       {!loading && (
         <>
           <Toolbar
@@ -448,32 +490,27 @@ export default function ProvidersPage() {
             searchPlaceholder={t('providers.search', 'Buscar provedores...')}
             searchValue={searchTerm}
             onSearchChange={setSearchTerm}
+            rightEnd={<MenuButton
+              buttonLabel={t('providers.actions.actions', 'Ações')}
+              contextKey={JSON.stringify([actionTarget, updatePlans, searchTerm])}
+              items={actionTarget
+                ? getProviderRowActions(actionTarget)
+                : [
+                  { id: 'edit', label: t('providers.actions.edit', 'Editar'), disabled: true },
+                  { id: 'duplicate', label: t('providers.actions.duplicate', 'Duplicar'), disabled: true },
+                  { id: 'delete', label: t('providers.actions.delete', 'Excluir'), disabled: true },
+                ]}
+            />}
             actions={[
               {
                 key: 'add',
-                label: t('providers.actions.add', 'Adicionar Provedor'),
+                label: t('providers.creation.title'),
                 onClick: handleAddProvider,
-                shortcut: 'Ctrl+N',
+                shortcut: newShortcut,
+                buttonRef: creation.buttonRef,
+                'aria-haspopup': 'menu',
+                'aria-expanded': creation.isOpen,
                 variant: 'primary',
-              },
-              {
-                key: 'edit',
-                label: t('providers.actions.edit', 'Editar'),
-                onClick: () => focusedRow && handleEditProvider(focusedRow),
-                disabled: !focusedRow,
-              },
-              {
-                key: 'duplicate',
-                label: t('providers.actions.duplicate', 'Duplicar'),
-                onClick: () => focusedRow && handleDuplicateProvider(focusedRow),
-                disabled: !focusedRow,
-              },
-              {
-                key: 'delete',
-                label: t('providers.actions.delete', 'Excluir'),
-                onClick: () => focusedRow && handleDeleteProvider(focusedRow),
-                disabled: !focusedRow,
-                variant: 'danger',
               },
             ]}
           />
@@ -491,9 +528,11 @@ export default function ProvidersPage() {
             onFocusChange={handleFocusChange}
           />
 
+
           <Modal
             isOpen={isEditing}
-            onClose={handleCancelEdit}
+            allowClose={!providerSaving}
+            onClose={() => { if (!providerSaving) handleCancelEdit(); }}
             title={editingProvider?.id
               ? t('providers.modal.editTitle', 'Editar Provedor')
               : t('providers.modal.newTitle', 'Novo Provedor')}
@@ -502,6 +541,8 @@ export default function ProvidersPage() {
             <div className="providers-editor">
               <ProviderForm
                 provider={editingProvider}
+                kind={creationKind}
+                onBusyChange={setProviderSaving}
                 onSave={handleSaveSuccess}
                 onCancel={handleCancelEdit}
               />
@@ -517,10 +558,6 @@ export default function ProvidersPage() {
             })}
             description={t('providerForm.agent.catalog.confirm.introUpdate')}
             severity={updateTarget?.plan.unverified ? 'permission' : 'info'}
-            initialFocusSelector={
-              updateTarget?.plan.unverified ? '[data-decision-action="cancel"]' : undefined
-            }
-            safeActionId="cancel"
             actions={[
               {
                 id: 'confirm',
@@ -531,11 +568,15 @@ export default function ProvidersPage() {
                 ),
                 primary: true,
                 variant: 'primary',
+                polarity: 'affirmative',
+                scope: 'current',
               },
               {
                 id: 'cancel',
                 label: t('providerForm.agent.catalog.confirm.cancelBtn'),
                 variant: 'outline',
+                polarity: 'negative',
+                scope: 'current',
               },
             ]}
             onAction={(actionId) => {

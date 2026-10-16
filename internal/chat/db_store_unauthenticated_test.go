@@ -53,14 +53,6 @@ func TestDBMessageStore_UnauthenticatedErrors(t *testing.T) {
 			_, err := store.GetTurnTokenStats(ctx, "x", "y")
 			return err
 		}},
-		{"AddAssistantToolMessage", func() error {
-			_, err := store.AddAssistantToolMessage(ctx, "x", "y", "", "", "", "")
-			return err
-		}},
-		{"AddToolResultMessage", func() error {
-			_, err := store.AddToolResultMessage(ctx, "x", "y", "", "")
-			return err
-		}},
 		{"SearchMessages", func() error {
 			_, err := store.SearchMessages(ctx, "q", 10)
 			return err

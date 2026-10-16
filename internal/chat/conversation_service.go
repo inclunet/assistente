@@ -29,8 +29,6 @@ func EnrichMessage(msg Message) EnrichedMessage {
 		Content:          msg.Content,
 		Reasoning:        msg.Reasoning,
 		Media:            msg.Media,
-		ToolCalls:        msg.ToolCalls,
-		ToolCallID:       msg.ToolCallID,
 		PromptTokens:     msg.PromptTokens,
 		CompletionTokens: msg.CompletionTokens,
 		TotalTokens:      msg.TotalTokens,
@@ -43,7 +41,7 @@ func EnrichMessage(msg Message) EnrichedMessage {
 		CreatedAt:        msg.CreatedAt,
 		Timestamp:        msg.CreatedAt.UnixMilli(),
 		IsStreaming:      false,
-		Internal:         msg.ParentID != nil || msg.Role == "tool",
+		Internal:         msg.ParentID != nil,
 	}
 }
 

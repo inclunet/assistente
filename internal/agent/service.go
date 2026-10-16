@@ -1,8 +1,11 @@
 package agent
 
 import (
+	"assistente/internal/acp"
 	"assistente/internal/logging"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -85,6 +88,9 @@ type Service struct {
 	triggerSummarize func(context.Context, string, string)
 	onSpeechRequest  func(conversationID string, messageID string, role, text, origin, profileSlug string, interrupt bool)
 	renameFromAgent  func(ctx context.Context, conversationID, turnMessageID, title string) error
+
+	// Somente seams unitários internos podem habilitar execução sem ledger.
+	// NewService nunca expõe esta opção ao runtime.
 }
 
 // StreamSimpleWithRecovery executa um streaming simples (sem tool calling) com auto-retry opcional.
@@ -128,10 +134,19 @@ func (s *Service) StreamSimpleWithRecovery(
 			s.emitPlaceholderErrorDone(conversationID, turnID, surfaceOrigin)
 			return
 		}
+		h.deferAgentTerminal = true
 		messages = s.applyContinuationPrefill(ctx, messages, params, h.AssistantMessageID, h.SetInitialContent)
 		// Só a última tentativa deve finalizar o streaming com erro.
 		h.SuppressTerminalError(attempt < attempts)
 		streamer.StreamChat(ctx, messages, params, h)
+		h.closePendingAgentTools(h.pendingToolErrorKind())
+		if err := h.flushAgentTools(); err != nil {
+			h.MarkErrorNotRetryable()
+			h.OnError("Falha ao preservar atividades do agente: " + err.Error())
+		}
+		if h.TerminalEmitted() {
+			return
+		}
 		if ctx.Err() != nil {
 			partialContent, partialReasoning := h.Finalize()
 			s.persistAssistantPartialBestEffort(ctx, h.AssistantMessageID, partialContent, partialReasoning)
@@ -147,12 +162,15 @@ func (s *Service) StreamSimpleWithRecovery(
 		if h.ErrorNotRetryable() {
 			partialContent, partialReasoning := h.Finalize()
 			s.persistAssistantPartialBestEffort(ctx, h.AssistantMessageID, partialContent, partialReasoning)
+			s.persistErrorWhenEmpty(ctx, h.AssistantMessageID, h.LastError())
+			h.emitAgentErrorDone()
 			logging.Errorf(ctx, "agent.service", "[Chat] streaming interrompido sem repetição possível (conversa %s): %s", conversationID, h.LastError())
 			return
 		}
 		if attempt == attempts {
 			partialContent, partialReasoning := h.Finalize()
 			s.persistAssistantPartialBestEffort(ctx, h.AssistantMessageID, partialContent, partialReasoning)
+			s.persistErrorWhenEmpty(ctx, h.AssistantMessageID, h.LastError())
 		}
 		if attempt < attempts {
 			logging.Errorf(context.Background(), "agent.service", "[Chat] streaming interrompido (conversa %s, tentativa %d/%d): %s", conversationID, attempt, attempts, h.LastError())
@@ -162,6 +180,9 @@ func (s *Service) StreamSimpleWithRecovery(
 
 // NewService cria um novo Service com as dependências injetadas.
 func NewService(cfg ServiceConfig) *Service {
+	if cfg.ToolExecutor != nil && cfg.ToolInvocations == nil {
+		panic("agent service: tool invocation ledger not configured")
+	}
 	return &Service{
 		emitter:          cfg.Emitter,
 		msgRepo:          cfg.MsgRepo,
@@ -249,7 +270,9 @@ type LoopStats struct {
 }
 
 // SaveAndFinish salva a resposta final do assistente e emite os eventos de conclusão.
-// Se houve MCP tool calls nativas, persiste no banco antes da mensagem final.
+// A persistência da mensagem final é um gate: sem ela, o turno termina em erro
+// recuperável e nenhum efeito de sucesso (notificação, TTS, resumo ou replay de
+// tools) é disparado.
 // loopStats é opcional — se nil, apenas os campos enriquecidos derivados das estatísticas do loop ficam vazios.
 func (s *Service) SaveAndFinish(
 	ctx context.Context,
@@ -259,8 +282,12 @@ func (s *Service) SaveAndFinish(
 	profileSlug string,
 	loopStats *LoopStats,
 	surfaceOrigin *ports.ChatSurfaceOrigin,
-) {
+) bool {
 	var savedMsgID string
+	// MCP nativo é evidência de uma ação já executada pelo provider. Ele deve
+	// ser registrado antes da finalização da mensagem: uma falha posterior no
+	// update do assistant não pode apagar o ledger e induzir um retry a repetir
+	// uma ação real.
 	if conversationID != "" && turnID != "" && len(result.NativeMCPEvents) > 0 {
 		finalIteration := 0
 		if loopStats != nil && loopStats.IterationCount > 0 {
@@ -290,10 +317,17 @@ func (s *Service) SaveAndFinish(
 		var err error
 		savedMsgID, err = chat.FinalizeAssistantMessage(ctx, s.msgRepo, assistantMessageID, opts)
 		if errors.Is(err, chat.ErrConversationGone) {
-			return
+			return false
 		}
 		if err != nil {
 			logging.Errorf(ctx, "agent.service", "[Agent] erro ao salvar resposta final: %v", err)
+			s.persistAssistantPartialBestEffort(ctx, assistantMessageID, result.FullResponse, result.Reasoning)
+			if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
+				s.emitFinalizationCancelledDone(ctx, conversationID, turnID, assistantMessageID, surfaceOrigin)
+				return true
+			}
+			s.emitFinalizationErrorDone(ctx, conversationID, turnID, assistantMessageID, surfaceOrigin)
+			return true
 		}
 	}
 	if savedMsgID == "" {
@@ -325,16 +359,42 @@ func (s *Service) SaveAndFinish(
 	if loopStats != nil {
 		hadTools = loopStats.ToolCallCount > 0 || len(result.NativeMCPEvents) > 0
 	}
+	responseBytes := result.Finish.ResponseBytes
+	if responseBytes == 0 && result.FullResponse != "" {
+		responseBytes = len(result.FullResponse)
+	}
 	doneEvent := ports.DoneEvent{
-		ConversationID:     conversationID,
-		TurnID:             turnID,
-		AssistantMessageID: savedMsgID,
-		HadToolCalls:       hadTools,
-		Reason:             "completed",
-		SurfaceOrigin:      surfaceOrigin,
+		ConversationID:       conversationID,
+		TurnID:               turnID,
+		AssistantMessageID:   savedMsgID,
+		HadToolCalls:         hadTools,
+		Reason:               "completed",
+		FinishReason:         string(result.Finish.Reason),
+		RawReason:            result.Finish.RawReason,
+		Provider:             result.Finish.Provider,
+		Model:                result.Model,
+		EffectiveOutputLimit: result.Finish.OutputLimit,
+		ResponseBytes:        &responseBytes,
+		SurfaceOrigin:        surfaceOrigin,
+	}
+	if doneEvent.Model == "" {
+		doneEvent.Model = result.Finish.Model
+	}
+	if result.Usage.OutputTokensReported {
+		outputTokens := result.Usage.CompletionTokens
+		doneEvent.OutputTokens = &outputTokens
+	}
+	if result.Usage.ReasoningTokensReported {
+		reasoningTokens := result.Usage.ReasoningTokens
+		doneEvent.ReasoningTokens = &reasoningTokens
 	}
 	if result.Finish.Reason == llm.FinishReasonMaxTokens {
 		doneEvent.Reason = "output_limit"
+		logging.Infof(ctx, "agent.service",
+			"provider informou limite de geração (finish_reason=%s, raw_reason=%q, provider=%q, model=%q, output_limit=%d, output_tokens=%v, reasoning_tokens=%v, response_bytes=%d)",
+			doneEvent.FinishReason, doneEvent.RawReason, doneEvent.Provider, doneEvent.Model,
+			doneEvent.EffectiveOutputLimit, optionalTokenCount(doneEvent.OutputTokens),
+			optionalTokenCount(doneEvent.ReasoningTokens), optionalTokenCount(doneEvent.ResponseBytes))
 	}
 	if loopStats != nil {
 		doneEvent.IterationCount = loopStats.IterationCount
@@ -380,11 +440,52 @@ func (s *Service) SaveAndFinish(
 	if s.triggerSummarize != nil {
 		go func() {
 			defer s.recoverFromPanic(conversationID, "triggerSummarize")
-			s.triggerSummarize(ctx, conversationID, profileSlug)
+			// O resumo é trabalho posterior à persistência, não parte do turno
+			// cujo contexto será encerrado assim que o worker retornar.
+			s.triggerSummarize(context.WithoutCancel(ctx), conversationID, profileSlug)
 		}()
 	}
 
 	s.emitTokenStats(conversationID)
+	return true
+}
+
+func (s *Service) emitFinalizationCancelledDone(ctx context.Context, conversationID, turnID, assistantMessageID string, surfaceOrigin *ports.ChatSurfaceOrigin) {
+	if s == nil || s.emitter == nil {
+		return
+	}
+	patch, _ := s.buildTurnPatch(ctx, conversationID, turnID)
+	s.emitter.Emit("chat:done", ports.DoneEvent{
+		TurnPatch:          patch,
+		ConversationID:     conversationID,
+		TurnID:             turnID,
+		AssistantMessageID: assistantMessageID,
+		Reason:             "cancelled",
+		SurfaceOrigin:      surfaceOrigin,
+	})
+}
+
+func (s *Service) emitFinalizationErrorDone(ctx context.Context, conversationID, turnID, assistantMessageID string, surfaceOrigin *ports.ChatSurfaceOrigin) {
+	if s == nil || s.emitter == nil {
+		return
+	}
+	patch, _ := s.buildTurnPatch(ctx, conversationID, turnID)
+	s.emitter.Emit("chat:done", ports.DoneEvent{
+		TurnPatch:          patch,
+		ConversationID:     conversationID,
+		TurnID:             turnID,
+		AssistantMessageID: assistantMessageID,
+		Reason:             "error",
+		ErrorMessage:       ports.ChatErrorInternal,
+		SurfaceOrigin:      surfaceOrigin,
+	})
+}
+
+func optionalTokenCount(value *int) any {
+	if value == nil {
+		return "unavailable"
+	}
+	return *value
 }
 
 func (s *Service) buildTurnPatch(ctx context.Context, conversationID, turnID string) (*ports.TurnPatchEvent, error) {
@@ -414,33 +515,40 @@ func (s *Service) buildTurnPatch(ctx context.Context, conversationID, turnID str
 	}
 
 	callsByTurn := map[string][]chat.TurnSegmentToolCall{}
-	resultsByTurn := map[string]map[string]string{}
-	if userID, userErr := database.RequireUserID(patchCtx); userErr == nil {
-		displays, displayErr := toolinvocations.LoadChatToolInvocationDisplaysForTurnIDsWithUser(patchCtx, userID, []string{turnID})
-		if displayErr != nil {
-			return nil, displayErr
+	userID, userErr := database.RequireUserID(patchCtx)
+	if userErr != nil {
+		return nil, userErr
+	}
+	summaries, summaryErr := toolinvocations.LoadSummariesForTurnIDsWithUser(patchCtx, userID, []string{turnID})
+	if summaryErr != nil {
+		return nil, summaryErr
+	}
+	for _, summary := range summaries[turnID] {
+		call := chat.TurnSegmentToolCall{
+			InvocationID:       summary.InvocationID,
+			ID:                 summary.CallID,
+			Name:               summary.Name,
+			Origin:             summary.Origin,
+			ServerLabel:        summary.ServerLabel,
+			Status:             summary.Status,
+			Iteration:          summary.Iteration,
+			DurationMs:         summary.DurationMs,
+			InputPreview:       summary.InputPreview,
+			OutputPreview:      summary.OutputPreview,
+			InputBytes:         summary.InputBytes,
+			OutputBytes:        summary.OutputBytes,
+			HasDetails:         summary.HasDetails,
+			ResultAvailability: summary.ResultAvailability,
+			HasSearchResults:   summary.HasSearchResults,
+			SearchResultCount:  summary.SearchResultCount,
+			SecurityOutcome:    summary.SecurityOutcome,
+			AssistantMessageID: summary.AssistantMessageID,
+			ACPTextOffset:      summary.ACPTextOffset,
 		}
-		for _, display := range displays[turnID] {
-			call := chat.TurnSegmentToolCall{
-				ID:                 display.ID,
-				Type:               display.Type,
-				Function:           chat.TurnSegmentToolFunction{Name: display.Name, Arguments: display.Arguments},
-				Result:             display.Result,
-				Origin:             display.Origin,
-				ServerLabel:        display.ServerLabel,
-				Iteration:          display.Iteration,
-				DurationMs:         display.DurationMs,
-				AssistantMessageID: display.AssistantMessageID,
-			}
-			callsByTurn[turnID] = append(callsByTurn[turnID], call)
-			if resultsByTurn[turnID] == nil {
-				resultsByTurn[turnID] = map[string]string{}
-			}
-			resultsByTurn[turnID][display.ID] = display.Result
-		}
+		callsByTurn[turnID] = append(callsByTurn[turnID], call)
 	}
 
-	nodes := chat.BuildNodesWithTimelineConsolidation(messages, nil, map[string]int{}, resultsByTurn, callsByTurn)
+	nodes := chat.BuildNodesWithTimelineConsolidation(messages, nil, map[string]int{}, callsByTurn)
 	if len(nodes) == 0 {
 		return nil, nil
 	}
@@ -452,7 +560,6 @@ func (s *Service) buildTurnPatch(ctx context.Context, conversationID, turnID str
 		TurnID:           turnID,
 		Content:          message.Content,
 		Reasoning:        message.Reasoning,
-		ToolCalls:        message.ToolCalls,
 		PromptTokens:     message.PromptTokens,
 		CompletionTokens: message.CompletionTokens,
 		TotalTokens:      message.TotalTokens,
@@ -466,11 +573,15 @@ func (s *Service) buildTurnPatch(ctx context.Context, conversationID, turnID str
 	for _, segment := range message.TurnSegments {
 		target := ports.TurnPatchSegment{Type: segment.Type, Content: segment.Content}
 		for _, call := range segment.ToolCalls {
-			target.ToolCalls = append(target.ToolCalls, ports.TurnPatchToolCall{
-				ID: call.ID, Type: call.Type,
-				Function: ports.TurnPatchToolFunction{Name: call.Function.Name, Arguments: call.Function.Arguments},
-				Result:   call.Result, Origin: call.Origin, ServerLabel: call.ServerLabel,
+			target.ToolInvocations = append(target.ToolInvocations, ports.TurnPatchToolInvocation{
+				InvocationID: call.InvocationID, CallID: call.ID, Name: call.Name,
+				Origin: call.Origin, ServerLabel: call.ServerLabel, Status: call.Status,
 				Iteration: call.Iteration, DurationMs: call.DurationMs,
+				InputPreview: call.InputPreview, OutputPreview: call.OutputPreview,
+				InputBytes: call.InputBytes, OutputBytes: call.OutputBytes,
+				HasDetails: call.HasDetails, ResultAvailability: call.ResultAvailability,
+				HasSearchResults: call.HasSearchResults, SearchResultCount: call.SearchResultCount,
+				SecurityOutcome: call.SecurityOutcome,
 			})
 		}
 		patch.Message.TurnSegments = append(patch.Message.TurnSegments, target)
@@ -575,11 +686,8 @@ func extractLogicalToolName(toolName string) string {
 	return toolName
 }
 
-// persistNativeMCPCalls salva MCP tool calls nativas no banco no mesmo formato que bridge calls:
-// uma mensagem assistant com tool_calls JSON e os resultados técnicos em tool_invocations.
-// AEP-0039 Fase 5: serializa com EnrichedToolCall para incluir origin, server_label, iteration.
-// Persistência: salva tool calls no assistant message (sem criar mensagens role=tool)
-// e registra os resultados técnicos em tool_invocations.
+// persistNativeMCPCalls registra MCP nativo exclusivamente em tool_invocations.
+// Nenhum marcador assistant vazio ou fallback role=tool é persistido.
 func (s *Service) persistNativeMCPCalls(ctx context.Context, conversationID, turnID string, mcpEvents []llm.MCPToolEvent, iteration int) {
 	if len(mcpEvents) == 0 {
 		return
@@ -614,154 +722,75 @@ func (s *Service) persistNativeMCPCalls(ctx context.Context, conversationID, tur
 		argsByID[ev.ID] = ev.Arguments
 	}
 
-	// Persistência do output: AEP-0063 (D2) evita armazenar tool results como mensagens.
-	// O output completo fica efêmero em tool_invocations; se a persistência estiver
-	// indisponível, o fallback role=tool é usado para manter histórico/export legível.
-	// IMPORTANTE: grava os fallbacks APÓS a mensagem assistant tool_calls para manter
-	// a ordem tool-call -> tool-result no histórico/export.
-	formatFallbackContent := func(output, errMsg string) string {
-		if strings.TrimSpace(errMsg) == "" {
-			return output
-		}
-		// Mantém um marcador explícito para consumidores de histórico/export.
-		// Evita duplicar se o backend já prefixou.
-		trimmed := strings.TrimSpace(errMsg)
-		if strings.HasPrefix(trimmed, "Error:") || strings.HasPrefix(trimmed, "ERROR:") {
-			return trimmed
-		}
-		return "Error: " + trimmed
-	}
-	type fallbackToolResult struct {
-		CallID  string
-		Content string
-	}
+	// A partir da fase 3 da AEP-0104, não existe cópia role=tool. MCP nativo já
+	// foi executado pelo provider, então uma falha de auditoria é terminal para
+	// a persistência técnica e nunca cria uma fonte alternativa em mensagens.
 	persistable := s.toolInvocations != nil && s.toolInvocations.CanPersist()
-	fallbackResults := make([]fallbackToolResult, 0)
 	if !persistable {
-		for _, ev := range mcpEvents {
-			if !ev.IsCompleted {
-				continue
-			}
-			content := formatFallbackContent(ev.Output, ev.Error)
-			fallbackResults = append(fallbackResults, fallbackToolResult{CallID: ev.ID, Content: content})
-		}
+		logging.Errorf(ctx, "agent.service", "[MCP Native] ledger indisponível; resultados técnicos não serão copiados para chat_messages")
+		return
 	}
 
-	if persistable {
-		// Resultados técnicos: persistir em tool_invocations quando disponível.
-		// Não criar novas mensagens role=tool em caso de sucesso (export/import lê tool_calls enriquecido).
-		slugCache := map[string]string{}
-		for _, ev := range mcpEvents {
-			if !ev.IsCompleted {
-				continue
-			}
-			label := strings.TrimSpace(ev.ServerLabel)
-			slug := strings.TrimSpace(slugCache[label])
-			if slug == "" {
-				resolved, ok := resolveMCPServerSlug(ctx, label)
-				if ok {
-					slug = resolved
-					slugCache[label] = resolved
-				}
-			}
-			if strings.TrimSpace(slug) == "" {
-				logging.Errorf(ctx, "agent.service", "[MCP Native] não foi possível resolver server slug para %q; usando fallback role=tool (id=%s)", ev.ServerLabel, ev.ID)
-				content := formatFallbackContent(ev.Output, ev.Error)
-				fallbackResults = append(fallbackResults, fallbackToolResult{CallID: ev.ID, Content: content})
-				continue
-			}
-			fullName := mcp.BuildToolName(slug, ev.Name)
-			args := ev.Arguments
-			if strings.TrimSpace(args) == "" {
-				args = argsByID[ev.ID]
-			}
-			result := tools.ToolResult{Content: ev.Output}
-			errKind := tools.ErrorKindNone
-			errMsg := ""
-			if ev.Error != "" {
-				result = tools.ToolResult{Content: ev.Error, IsError: true}
-				errKind = tools.ErrorKindUnknown
-				errMsg = ev.Error
-			}
-			_, recErr := s.toolInvocations.Record(ctx, toolinvocations.RecordRequest{
-				Call: tools.ToolCall{
-					ID:   ev.ID,
-					Type: "function",
-					Function: tools.FunctionCall{
-						Name:      fullName,
-						Arguments: args,
-					},
-				},
-				Origin:    toolinvocations.Origin{Type: toolinvocations.OriginChat, ID: turnID},
-				DryRun:    false,
-				Iteration: iteration,
-				Result:    result,
-				// Sem sinalização de timeout/cancel no contrato do MCP event hoje.
-				ErrorKind:    errKind,
-				ErrorMessage: errMsg,
-				Retryable:    false,
-				DurationMs:   0,
-			})
-			if recErr != nil {
-				logging.Errorf(ctx, "agent.service", "[MCP Native] Erro ao registrar tool invocation (id=%s): %v", ev.ID, recErr)
-				// Fallback: garante que exista ao menos um resultado persistido
-				// para o tool_call_id no histórico da conversa.
-				content := formatFallbackContent(ev.Output, ev.Error)
-				fallbackResults = append(fallbackResults, fallbackToolResult{CallID: ev.ID, Content: content})
-				continue
-			}
-		}
-	}
-
-	hasCompletedToolCall := false
+	slugCache := map[string]string{}
 	for _, ev := range mcpEvents {
-		if !ev.IsCompleted {
+		if !ev.IsCompleted || strings.TrimSpace(ev.ID) == "" {
 			continue
 		}
-		hasCompletedToolCall = true
-	}
-	if !hasCompletedToolCall {
-		return
-	}
-	assistantMarker, err := s.msgRepo.AddAssistantToolMessage(ctx, conversationID, turnID, "", "", "", "")
-	if err != nil {
-		logging.Errorf(ctx, "agent.service", "[MCP Native] Erro ao salvar marcador assistant de tools: %v", err)
-		// Ainda assim, tenta persistir resultados como role=tool (melhor que perder output).
-		for _, ev := range mcpEvents {
-			if !ev.IsCompleted {
-				continue
+		label := strings.TrimSpace(ev.ServerLabel)
+		slug := strings.TrimSpace(slugCache[label])
+		if slug == "" {
+			if resolved, ok := resolveMCPServerSlug(ctx, label); ok {
+				slug = resolved
+			} else {
+				slug = archivalMCPServerSlug(label)
 			}
-			callID := strings.TrimSpace(ev.ID)
-			if callID == "" {
-				continue
-			}
-			content := strings.TrimSpace(formatFallbackContent(ev.Output, ev.Error))
-			if content == "" {
-				continue
-			}
-			if _, err2 := s.msgRepo.AddToolResultMessage(ctx, conversationID, turnID, content, callID); err2 != nil {
-				logging.Errorf(ctx, "agent.service", "[MCP Native] Erro ao salvar tool result message (fallback, id=%s): %v", callID, err2)
-			}
+			slugCache[label] = slug
 		}
-		return
-	}
-	if assistantMarker != nil {
-		execResults := make([]tools.ToolExecutionResult, 0, len(mcpEvents))
-		for _, ev := range mcpEvents {
-			if ev.IsCompleted {
-				execResults = append(execResults, tools.ToolExecutionResult{CallID: ev.ID})
-			}
+		fullName := mcp.BuildToolName(slug, ev.Name)
+		args := ev.Arguments
+		if strings.TrimSpace(args) == "" {
+			args = argsByID[ev.ID]
 		}
-		s.tagChatToolInvocationsWithAssistantMessage(ctx, turnID, execResults, assistantMarker.ID)
-	}
-	for _, fb := range fallbackResults {
-		if strings.TrimSpace(fb.CallID) == "" {
-			continue
+		result := tools.ToolResult{Content: ev.Output}
+		errKind := tools.ErrorKindNone
+		errMsg := ""
+		if ev.Error != "" {
+			result = tools.ToolResult{Content: ev.Error, IsError: true}
+			errKind = tools.ErrorKindUnknown
+			errMsg = ev.Error
 		}
-		if _, err := s.msgRepo.AddToolResultMessage(ctx, conversationID, turnID, fb.Content, fb.CallID); err != nil {
-			logging.Errorf(ctx, "agent.service", "[MCP Native] Erro ao salvar tool result message (fallback, id=%s): %v", fb.CallID, err)
+		_, recErr := s.toolInvocations.Record(ctx, toolinvocations.RecordRequest{
+			Call: tools.ToolCall{
+				ID:   ev.ID,
+				Type: "function",
+				Function: tools.FunctionCall{
+					Name:      fullName,
+					Arguments: args,
+				},
+			},
+			Origin: toolinvocations.Origin{
+				Type:           toolinvocations.OriginChat,
+				ID:             turnID,
+				ConversationID: conversationID,
+				TurnID:         turnID,
+			},
+			DryRun:       false,
+			Iteration:    iteration,
+			Result:       result,
+			ErrorKind:    errKind,
+			ErrorMessage: errMsg,
+			Retryable:    false,
+			DurationMs:   0,
+		})
+		if recErr != nil {
+			logging.Errorf(ctx, "agent.service", "[MCP Native] falha ao registrar tool invocation sem fallback em mensagens (id=%s): %v", ev.ID, recErr)
 		}
 	}
+}
+
+func archivalMCPServerSlug(serverLabel string) string {
+	sum := sha256.Sum256([]byte(strings.TrimSpace(serverLabel)))
+	return "archival-" + hex.EncodeToString(sum[:6])
 }
 
 func resolveMCPServerSlug(ctx context.Context, serverLabel string) (string, bool) {
@@ -1165,10 +1194,20 @@ func (s *Service) executeToolCallsWithRuntimeControls(ctx context.Context, calls
 
 func (s *Service) executeToolCalls(ctx context.Context, calls []tools.ToolCall, origin toolinvocations.Origin, iteration int) toolExecutionBatch {
 	if s.toolInvocations == nil {
-		execs := s.toolExecutor.ExecuteAll(ctx, calls)
+		execs := make([]tools.ToolExecutionResult, len(calls))
 		persisted := make(map[string]bool, len(execs))
-		for _, r := range execs {
-			persisted[r.CallID] = false
+		for index, call := range calls {
+			execs[index] = tools.ToolExecutionResult{
+				CallID:   call.ID,
+				ToolName: call.Function.Name,
+				Result: tools.ToolResult{
+					Content: "tool invocation ledger is not configured",
+					IsError: true,
+				},
+				ErrorKind: tools.ErrorKindUnknown,
+				ErrorCode: "invocation_ledger_unavailable",
+			}
+			persisted[call.ID] = false
 		}
 		return toolExecutionBatch{Executions: execs, PersistedByCallID: persisted, Context: ctx}
 	}
@@ -1184,7 +1223,16 @@ func (s *Service) executeToolCalls(ctx context.Context, calls []tools.ToolCall, 
 
 func (s *Service) executeToolCall(ctx context.Context, call tools.ToolCall, origin toolinvocations.Origin, iteration int) (tools.ToolExecutionResult, bool) {
 	if s.toolInvocations == nil {
-		return s.toolExecutor.ExecuteOne(ctx, call), false
+		return tools.ToolExecutionResult{
+			CallID:   call.ID,
+			ToolName: call.Function.Name,
+			Result: tools.ToolResult{
+				Content: "tool invocation ledger is not configured",
+				IsError: true,
+			},
+			ErrorKind: tools.ErrorKindUnknown,
+			ErrorCode: "invocation_ledger_unavailable",
+		}, false
 	}
 	res := s.toolInvocations.Execute(ctx, toolinvocations.ExecuteRequest{Call: call, Origin: origin, Iteration: iteration})
 	return res.Execution, res.Persisted
@@ -1314,6 +1362,30 @@ func (s *Service) persistAssistantPartialBestEffort(ctx context.Context, assista
 	}
 }
 
+// persistErrorWhenEmpty grava o texto do erro no placeholder quando o turno
+// termina sem nenhum conteúdo (AEP-0108 D4). Placeholder vazio apaga o rastro
+// na UI; com o motivo salvo, a conclusão normal o anuncia/fala. Cancelamento
+// de quem chamou não passa por aqui — não é falha. O texto é sanitizado por
+// ser fronteira de dado não confiável (parte dele vem do agente).
+func (s *Service) persistErrorWhenEmpty(ctx context.Context, assistantMessageID, errText string) {
+	assistantMessageID = strings.TrimSpace(assistantMessageID)
+	if assistantMessageID == "" || strings.TrimSpace(errText) == "" || s.msgRepo == nil {
+		return
+	}
+	persistCtx := context.WithoutCancel(ctx)
+	msg, err := s.msgRepo.GetMessage(persistCtx, assistantMessageID)
+	if err != nil || msg == nil || strings.TrimSpace(msg.Content) != "" {
+		return
+	}
+	conteudo := "Falha na resposta do agente: " + acp.SanitizeContent(errText)
+	if err := s.msgRepo.UpdateMessageContentAndReasoning(persistCtx, assistantMessageID, conteudo, msg.Reasoning, msg.PromptTokens, msg.CompletionTokens, msg.TotalTokens, msg.Model); err != nil {
+		// Sem prefixo [Agent]: o inventário de logging legado (issue #675)
+		// congela os formatos com prefixo de componente em minúsculas, e código
+		// novo não deve aumentar essa lista.
+		logging.Warnf(ctx, "agent.service", "aviso: falha ao persistir erro da mensagem assistant %s: %v", assistantMessageID, err)
+	}
+}
+
 func (s *Service) emitSimpleContextDone(
 	ctx context.Context,
 	conversationID string,
@@ -1329,7 +1401,9 @@ func (s *Service) emitSimpleContextDone(
 	if errors.Is(err, context.DeadlineExceeded) {
 		errorMessage = "tempo limite da geração atingido"
 	}
+	patch, _ := s.buildTurnPatch(ctx, conversationID, turnID)
 	s.emitter.Emit("chat:done", ports.DoneEvent{
+		TurnPatch:          patch,
 		ConversationID:     conversationID,
 		TurnID:             turnID,
 		AssistantMessageID: assistantMessageID,

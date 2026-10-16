@@ -46,7 +46,7 @@ function antDesignIconsStub() {
           'PaperClipOutlined', 'PauseCircleOutlined', 'PlayCircleOutlined',
           'PlusOutlined',
           'QuestionCircleOutlined',
-          'ReadOutlined', 'ReloadOutlined', 'RightOutlined', 'RobotOutlined',
+          'ReadOutlined', 'ReloadOutlined', 'RightOutlined', 'RobotOutlined', 'UndoOutlined',
           'SafetyOutlined', 'SaveOutlined', 'SendOutlined', 'SettingOutlined',
           'SlidersOutlined', 'SoundOutlined', 'StarFilled', 'StarOutlined',
           'StopOutlined',

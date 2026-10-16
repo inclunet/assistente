@@ -49,6 +49,7 @@ func (a *App) initCredentialManager() {
 	}
 	a.handleVaultIntegrityOnBoot()
 	a.registerEnvCredentials(a.internalBootstrapCtx(), a.credMgr)
+	a.initCommandStorage()
 }
 
 // handleVaultIntegrityOnBoot reage ao status de integridade do vault
@@ -106,11 +107,11 @@ func (a *App) registerEnvCredentials(ctx context.Context, credMgr *credentials.M
 
 	// GITHUB_TOKEN -> *.github.com, github.com
 	if ghToken := os.Getenv("GITHUB_TOKEN"); ghToken != "" {
-		_ = credMgr.RegisterPatternWithContext(ctx, "*.github.com", &credentials.AuthConfig{
+		_ = credMgr.RegisterPatternWithContext(ctx, "*.github.com", &credentials.AuthConfig{Source: "static",
 			Type:  "bearer",
 			Token: ghToken,
 		})
-		_ = credMgr.RegisterPatternWithContext(ctx, "github.com", &credentials.AuthConfig{
+		_ = credMgr.RegisterPatternWithContext(ctx, "github.com", &credentials.AuthConfig{Source: "static",
 			Type:  "bearer",
 			Token: ghToken,
 		})
@@ -118,11 +119,11 @@ func (a *App) registerEnvCredentials(ctx context.Context, credMgr *credentials.M
 
 	// GITLAB_TOKEN -> *.gitlab.com, gitlab.com
 	if glToken := os.Getenv("GITLAB_TOKEN"); glToken != "" {
-		_ = credMgr.RegisterPatternWithContext(ctx, "*.gitlab.com", &credentials.AuthConfig{
+		_ = credMgr.RegisterPatternWithContext(ctx, "*.gitlab.com", &credentials.AuthConfig{Source: "static",
 			Type:  "bearer",
 			Token: glToken,
 		})
-		_ = credMgr.RegisterPatternWithContext(ctx, "gitlab.com", &credentials.AuthConfig{
+		_ = credMgr.RegisterPatternWithContext(ctx, "gitlab.com", &credentials.AuthConfig{Source: "static",
 			Type:  "bearer",
 			Token: glToken,
 		})
@@ -130,11 +131,11 @@ func (a *App) registerEnvCredentials(ctx context.Context, credMgr *credentials.M
 
 	// BITBUCKET_TOKEN -> *.bitbucket.org, bitbucket.org
 	if bbToken := os.Getenv("BITBUCKET_TOKEN"); bbToken != "" {
-		_ = credMgr.RegisterPatternWithContext(ctx, "*.bitbucket.org", &credentials.AuthConfig{
+		_ = credMgr.RegisterPatternWithContext(ctx, "*.bitbucket.org", &credentials.AuthConfig{Source: "static",
 			Type:  "bearer",
 			Token: bbToken,
 		})
-		_ = credMgr.RegisterPatternWithContext(ctx, "bitbucket.org", &credentials.AuthConfig{
+		_ = credMgr.RegisterPatternWithContext(ctx, "bitbucket.org", &credentials.AuthConfig{Source: "static",
 			Type:  "bearer",
 			Token: bbToken,
 		})
@@ -142,7 +143,7 @@ func (a *App) registerEnvCredentials(ctx context.Context, credMgr *credentials.M
 
 	// API genérica - GENERIC_API_KEY para qualquer host (fallback)
 	if apiKey := os.Getenv("GENERIC_API_KEY"); apiKey != "" {
-		_ = credMgr.RegisterPatternWithContext(ctx, "*", &credentials.AuthConfig{
+		_ = credMgr.RegisterPatternWithContext(ctx, "*", &credentials.AuthConfig{Source: "static",
 			Type: "custom",
 			Headers: map[string]string{
 				"X-API-Key": apiKey,
@@ -152,6 +153,7 @@ func (a *App) registerEnvCredentials(ctx context.Context, credMgr *credentials.M
 }
 
 func (a *App) configureCredentialManager(dek []byte, persist bool) {
+	a.clearCommandStorageReadiness()
 	if a.credStore == nil {
 		a.credStore = credentials.NewDBStore()
 	}
@@ -169,6 +171,7 @@ func (a *App) configureCredentialManager(dek []byte, persist bool) {
 	}
 	a.handleVaultIntegrityOnBoot()
 	a.registerEnvCredentials(a.internalBootstrapCtx(), a.credMgr)
+	a.initCommandStorage()
 }
 
 // HasMasterKey verifica se uma master key (senha mestre) já foi configurada no banco.
@@ -187,12 +190,14 @@ func (a *App) HasMasterKey() bool {
 // Após sucesso, o credential manager é reconfigurado com persistência ativada.
 // Pré-sessão: permanece no *App / UnauthenticatedAppMethods (AEP-0088).
 func (a *App) SetupMasterPassword(password string) (string, error) {
+	defer a.beginCommandAuthTransition()()
 	store := credentials.NewDBStore()
 	result, err := credentials.SetupMasterKeyAdoptingKeychain(store, password)
 	if err != nil {
 		return "", err
 	}
 	a.configureCredentialManager(result.DEK, true)
+	a.markCommandVaultUnlocked()
 	return result.RecoveryKey, nil
 }
 

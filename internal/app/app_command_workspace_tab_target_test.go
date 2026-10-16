@@ -1,0 +1,106 @@
+package app
+
+import (
+	"testing"
+
+	"assistente/internal/commandbindings"
+	"assistente/internal/commandcatalog"
+	"assistente/internal/workspace"
+)
+
+func TestWorkspaceTabGoToDoesNotCreateUnsafePaletteDefault(t *testing.T) {
+	manager := workspace.NewManager(t.TempDir())
+	if err := manager.Initialize(t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	app := &App{workspaceMgr: manager}
+	registry, handlers, err := app.commandProductCatalog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	definition, ok := registry.Lookup(commandWorkspaceTabGoToID)
+	handler, hasHandler := handlers[commandWorkspaceTabGoToID]
+	if !registry.Complete() || len(handlers) != len(registry.List()) || !ok || !hasHandler || handler.Start == nil ||
+		handler.Contract.Route != definition.HandlerRoute || handler.Contract.Classification != definition.HandlerClassification {
+		t.Fatalf("registro/handler de go_to divergentes: definition=%+v handler=%+v", definition, handler)
+	}
+	projection, err := commandProductProjection(registry, nil)
+	if err != nil {
+		t.Fatalf("catalog projection rejects a parameterized navigation command: %v", err)
+	}
+	foundPaletteTarget := false
+	for _, layer := range projection.BuiltinLayers {
+		for _, item := range layer.Defaults {
+			if item.Candidate.CommandID == commandWorkspaceTabGoToID {
+				foundPaletteTarget = true
+			}
+		}
+	}
+	if foundPaletteTarget {
+		t.Fatal("go_to received an automatic palette default without a workspace target")
+	}
+}
+
+func TestWorkspaceTabGoToArgumentsReachKeyboardDeckAndPaletteProjection(t *testing.T) {
+	definition, handler := commandWorkspaceTabNavigationRegistration(commandWorkspaceTabGoToID)
+	registry, err := commandcatalog.NewComplete([]commandcatalog.Registration{{Definition: definition, Handler: handler}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	arguments := `{"workspace_id":"workspace-a","target_mode":"specific","tab_id":"tab-a"}`
+	canonicalArguments := `{"tab_id":"tab-a","target_mode":"specific","workspace_id":"workspace-a"}`
+	shortcut := LocalCommandShortcut{Version: 1, Code: "KeyG", Modifiers: []string{"Control", "Alt"}}
+	configuration, err := commandbindings.NewConfiguration(nil, nil, []commandbindings.Candidate{
+		{ID: "keyboard-target", Trigger: "keyboard.local:KeyG", CommandID: commandWorkspaceTabGoToID, ArgumentsKey: arguments, ExecutionScopeKey: "global", Scope: commandbindings.Global, Enabled: true, LayerActive: true},
+		{ID: "palette-target", Trigger: "palette:" + commandWorkspaceTabGoToID, CommandID: commandWorkspaceTabGoToID, ArgumentsKey: arguments, ExecutionScopeKey: "global", Scope: commandbindings.Global, Enabled: true, LayerActive: true},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyboard, ok := resolvedLocalKeyboardBinding(configuration, registry, "keyboard.local:KeyG", shortcut, commandbindings.Facts{commandbindings.AppFocused: true})
+	if !ok || keyboard.CommandID != commandWorkspaceTabGoToID || keyboard.Handler != "local_ui" || marshalJSONArgumentObject(t, keyboard.Arguments) != `{"tab_id":"tab-a","target_mode":"specific","workspace_id":"workspace-a"}` {
+		t.Fatalf("binding local perdeu alvo parametrizado: %+v ok=%t", keyboard, ok)
+	}
+	palette := localPaletteUIArguments(configuration, registry)
+	if marshalJSONArgumentObject(t, palette[commandWorkspaceTabGoToID]) != canonicalArguments {
+		t.Fatalf("paleta local perdeu alvo parametrizado: %+v", palette[commandWorkspaceTabGoToID])
+	}
+
+	cloned := cloneLocalPaletteArguments(palette)
+	cloned[commandWorkspaceTabGoToID]["target_mode"] = "mutated"
+	if marshalJSONArgumentObject(t, palette[commandWorkspaceTabGoToID]) != canonicalArguments {
+		t.Fatal("projeção de argumentos compartilha ou não copia o payload")
+	}
+}
+
+func TestWorkspaceTabGoToConditionalPaletteAndDeckKeepArgumentsPerSurface(t *testing.T) {
+	definition, handler := commandWorkspaceTabNavigationRegistration(commandWorkspaceTabGoToID)
+	registry, err := commandcatalog.NewComplete([]commandcatalog.Registration{{Definition: definition, Handler: handler}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	positionArgs := `{"position":2,"target_mode":"position","workspace_id":"workspace-a"}`
+	specificArgs := `{"tab_id":"tab-z","target_mode":"specific","workspace_id":"workspace-a"}`
+	paletteConfig, err := commandbindings.NewConfiguration(nil, nil, []commandbindings.Candidate{
+		{ID: "palette-chat", Trigger: "palette:" + commandWorkspaceTabGoToID, CommandID: commandWorkspaceTabGoToID, ArgumentsKey: positionArgs, ExecutionScopeKey: "global", Scope: commandbindings.Global, Condition: commandbindings.Facts{commandbindings.SurfaceType: "chat"}, Enabled: true, LayerActive: true},
+		{ID: "palette-editor", Trigger: "palette:" + commandWorkspaceTabGoToID, CommandID: commandWorkspaceTabGoToID, ArgumentsKey: specificArgs, ExecutionScopeKey: "global", Scope: commandbindings.Global, Condition: commandbindings.Facts{commandbindings.SurfaceType: "editor"}, Enabled: true, LayerActive: true},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	palette, ok := localPaletteUICondition(paletteConfig, registry, "palette:"+commandWorkspaceTabGoToID)
+	if !ok || !palette.BySurface["chat"] || !palette.BySurface["editor"] || marshalJSONArgumentObject(t, palette.BySurfaceArguments["chat"]) != positionArgs || marshalJSONArgumentObject(t, palette.BySurfaceArguments["editor"]) != specificArgs {
+		t.Fatalf("palette lost branch-specific targets: %+v", palette)
+	}
+	deckConfig, err := commandbindings.NewConfiguration(nil, nil, []commandbindings.Candidate{
+		{ID: "deck-chat", Trigger: deckConditionTestTrigger, CommandID: commandWorkspaceTabGoToID, ArgumentsKey: positionArgs, ExecutionScopeKey: "global", Scope: commandbindings.Application, Condition: commandbindings.Facts{commandbindings.SurfaceType: "chat"}, Enabled: true, LayerActive: true},
+		{ID: "deck-editor", Trigger: deckConditionTestTrigger, CommandID: commandWorkspaceTabGoToID, ArgumentsKey: specificArgs, ExecutionScopeKey: "global", Scope: commandbindings.Application, Condition: commandbindings.Facts{commandbindings.SurfaceType: "editor"}, Enabled: true, LayerActive: true},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	conditions := localDeckUIConditions(deckConfig, registry, deckConditionTestTrigger)
+	if len(conditions) != 1 || !conditions[0].BySurface["chat"] || !conditions[0].BySurface["editor"] || marshalJSONArgumentObject(t, conditions[0].BySurfaceArguments["chat"]) != positionArgs || marshalJSONArgumentObject(t, conditions[0].BySurfaceArguments["editor"]) != specificArgs {
+		t.Fatalf("Deck lost branch-specific targets: %+v", conditions)
+	}
+}

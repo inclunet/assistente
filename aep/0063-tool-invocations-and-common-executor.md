@@ -1,6 +1,6 @@
 # AEP-0063 — Tool Invocations e Executor Comum
 
-**Status:** Done
+**Status:** Done — executor comum e ledger exclusivo entregues
 
 ## Dependências
 
@@ -14,7 +14,11 @@
 
 Criar uma camada única de execução e persistência para chamadas de tools: `ToolInvocationService` + tabela `tool_invocations`. O chat, jobs, testes/dry-run e integrações MCP passam a usar o mesmo executor, o mesmo modelo de status e a mesma trilha técnica de execução.
 
-Resultados de tools deixam de ser armazenados como mensagens de chat ou logs em arquivos. Mensagens continuam representando a conversa; `tool_invocations` representa o histórico técnico, efêmero e sujeito a retenção.
+Resultados de tools não são armazenados como mensagens de chat ou logs em
+arquivos. Mensagens representam a conversa; `tool_invocations` representa o
+histórico técnico e segue a retenção definida por origem. A remoção integral
+dos fallbacks e cópias foi concluída pela
+[AEP-0104](0104-tool-invocations-como-ledger-canonico.md).
 
 ## Motivação
 
@@ -40,6 +44,11 @@ Mensagens podem conter referências leves, como `tool_invocation_id`, quando a U
 
 ### D3 — `ToolInvocationService` como único caminho de execução
 
+O serviço é dependência obrigatória no wiring/construtor de cada executor.
+Configuração ausente falha na montagem; a defesa runtime falha antes de qualquer
+efeito e nunca chama um executor direto como fallback. Caminhos de execução sem
+ledger não fazem parte da compatibilidade histórica.
+
 O serviço recebe um pedido normalizado:
 
 - `user_id`
@@ -53,8 +62,9 @@ O serviço recebe um pedido normalizado:
 
 Ele tenta resolver a tool no catálogo, aplica políticas de execução e chama o
 adapter nativo ou MCP. Quando a resolução produz um registro persistível, grava
-status/duração/input/output/erro; se o catálogo não puder resolver a tool, a
-execução continua em modo best-effort e o chamador usa o fallback documentado.
+status/duração/input/output/erro. Desde a fase 3 da AEP-0104, catálogo ausente
+gera resolução archival indisponível e falha de auditoria antes do `Create`
+impede a execução.
 
 ### D4 — Origens explícitas
 
@@ -66,10 +76,31 @@ Cada invocação informa de onde veio:
 | `job_run` | `job_runs.id` |
 | `tool_catalog` | teste manual do catálogo |
 | `system` | automação interna |
+| `command_invocation` | `command_invocations.invocation_id`, com owner autenticado |
 
 `origin_id` é string para não acoplar a tabela a uma única FK. Quando houver origem conhecida e estável, o código valida a existência antes de executar.
 
+Adendo AEP-0103 (15/09/2026, integração ainda não publicada no App): a ponte
+`commandtoolbridge` exige rota tipada e ID canônico visível de catálogo,
+preserva `command_invocation` como origem e delega ao MESMO
+`toolinvocations.Service`. Não há execução direta nem fallback para usuário
+system. Paths sensíveis do contrato acompanham input/output e os artefatos
+retomáveis de resultados grandes; diagnóstico livre que possa repetir segredo
+é omitido no armazenamento. Falha de adaptação do resultado depois de efeito
+não equivale a prova de falha sem efeito: o comando usa `outcome_unknown`.
+O registro das rotas reais e a retenção de origem de comando permanecem
+dependências de montagem/manutenção da AEP-0103; esta adição não as habilita.
+
 ### D5 — Logs efêmeros e retenção própria
+
+Adendo AEP-0103 (17/09/2026, R05.2 ainda parcial): `commandtoolbridge`
+preserva conversa/turno, identidade estrutural da superfície e profile de
+origem. Profile de destino nunca substitui o profile-pai usado para avaliar
+delegação cross-profile. O caminho de jobs usa o mesmo ToolInvocationService,
+com `origin_type=job_run`; o vínculo ao comando fica na cadeia estrutural do
+run, sem reutilizar o ID da invocação técnica. Policies de paths da tool
+delegada são fixadas pelo bootstrap e limitadas ao job alvo, não a seus
+descendentes. Nada disso cria grants ou publica novas rotas no App.
 
 `tool_invocations` tem retenção por origem conforme a
 [AEP-0074-B — Compactação e Retenção do Banco de Dados](0074-database-compaction-and-retention.md).
@@ -122,9 +153,16 @@ Isso cobre tanto dry-run de jobs quanto teste manual de uma tool no `tool_catalo
 Índices:
 
 - `(user_id, origin_type, origin_id)`
+- `(user_id, origin_type, origin_id, queued_at, id)` para hidratação ordenada
+  em lote dos turnos de chat (issue #739)
 - `(user_id, tool_catalog_id, started_at)`
 - `(user_id, status, queued_at)`
 - `(user_id, dry_run, queued_at)`
+
+O lote de hidratação continua em até 400 `origin_id`s, abaixo do limite de
+variáveis do SQLite. Medição por `EXPLAIN QUERY PLAN` mostrou que reduzir
+mecanicamente para 20 apenas multiplicaria round trips; o índice acima elimina
+o scan amplo preservando uma consulta por lote e a ordem `queued_at, id`.
 
 ## Fluxo sem diagrama
 
@@ -208,6 +246,18 @@ O bridge MCP e as tools nativas usam o mesmo contrato:
 16. Implementar limpeza periódica por idade e por runs removidos.
 17. Expor listagem/diagnóstico para UI/API quando necessário.
 
+### Fase 6 — Ledger exclusivo e teardown ✅
+
+18. ✅ Backfill retomável de mensagens e runs publicados (v18).
+19. ✅ Parar toda escrita `role=tool`/`tool_calls`/`tool_call_id`.
+20. ✅ Migrar consumidores, projeções e detalhes lazy para o ledger.
+21. ✅ Remover escrita e leitura direta das cópias técnicas de `job_runs`;
+    detalhes são hidratados em lote pelo ledger.
+22. ✅ Reconstruir o schema legado sem as colunas físicas.
+
+Esta fase foi executada em sete PRs pela AEP-0104. A migração v19 conclui o
+cutover físico e promove os checkpoints reconciliados para `canonical`.
+
 ## Arquivos previstos
 
 | Arquivo | Mudança |
@@ -234,8 +284,9 @@ O bridge MCP e as tools nativas usam o mesmo contrato:
 ## Critérios de aceitação
 
 - [x] Toda chamada nova por chat, job ou dry-run que resolve uma entrada
-  persistível de catálogo cria `tool_invocations`; catálogo ausente/não
-  resolvido mantém execução best-effort e fallback sem afirmar persistência.
+  persistível de catálogo cria `tool_invocations`.
+- [x] Chat sem entrada persistível resolve catálogo archival ou falha fechado,
+  sem fallback em mensagens.
 - [x] `tool_catalog_id` é canônico e não duplica `tool_name`.
 - [x] Jobs mantêm estado em `job_runs` e execução técnica em invocações.
 - [x] Chat não grava novos resultados brutos como mensagens no caminho feliz.
@@ -244,8 +295,14 @@ O bridge MCP e as tools nativas usam o mesmo contrato:
 - [x] Retenção/limpeza respeita a política por origem da
   [AEP-0074-B — Compactação e Retenção do Banco de Dados](0074-database-compaction-and-retention.md).
 - [x] Testes cobrem sucesso, falha, timeout, dry-run, chat e `job_run`.
+- [x] Nenhuma execução ou resultado técnico é persistido em `chat_messages`.
+- [x] `job_runs` não recebe novas cópias de tool, input ou output da execução;
+  consultas hidratam esses dados exclusivamente de `tool_invocations`.
+- [x] Não existem dual-read, dual-write ou fallback legado após o cutover.
 
 Evidências: `internal/toolinvocations/{repository,service}_test.go`,
+`internal/toolinvocations/hydration_test.go`,
+`internal/database/query_performance_indexes_test.go`,
 `internal/agent/service_tool_calls_persistence_test.go`,
 `internal/jobs/executor_toolinvocations_test.go`,
 `manager_toolinvocations_test.go` e `internal/wailsapi/jobs_dryrun_test.go`.
@@ -253,13 +310,12 @@ O contrato de código/retryability e a interrupção seletiva de retries de jobs
 são cobertos também por `internal/tools/executor_test.go` e
 `internal/jobs/executor_toolinvocations_test.go`.
 
-## Plano de Transição e Compatibilidade (Issue #127)
+## Registro da transição concluída do Issue #127
 
 Esta seção registra como o critério de aceite "há migração/compatibilidade para dados
-existentes OU um plano explícito de transição" do issue #127 foi atendido. O núcleo do
-AEP-0063 está implementado. A transição posterior do L3 foi concluída pela AEP-0078:
-novas mensagens não gravam `tool_calls` no caminho feliz, enquanto dados históricos
-continuam legíveis como fallback.
+existentes OU um plano explícito de transição" do issue #127 foi atendido naquele
+escopo. O executor comum e a separação exclusiva do ledger foram concluídos;
+L1/L3 e as cópias técnicas de runs foram removidos pela AEP-0104.
 
 ### O que já migrou para `tool_invocations`
 
@@ -267,9 +323,9 @@ Já usam o executor comum (`internal/toolinvocations.Service`) e persistem em `t
 
 - **Chat / agentic loop** (`internal/agent/service.go`): cada tool call passa por
   `Service.Execute`/`ExecuteAll` com `origin_type = chat` e
-  `origin_id = turnID`. Quando o catálogo resolve uma entrada persistível, o
-  resultado técnico fica em `tool_invocations`; caso contrário, `Persisted=false`
-  aciona o fallback best-effort descrito em L1.
+  `origin_id = turnID`, com `conversation_id`/`turn_id` explícitos. O resultado
+  técnico fica em `tool_invocations`; catálogo ausente gera entrada archival e
+  falha de persistência não aciona fallback em mensagens.
 - **Jobs** (`internal/jobs/executor.go`): execuções reais de tools chamam `Service.Execute`
   com `origin_type = job_run` e `origin_id = run.RunID` (o ID do `job_run`). Isso é o vínculo
   origem→armazenamento comum: dado um `job_run`, é possível listar suas invocações por
@@ -282,28 +338,26 @@ Já usam o executor comum (`internal/toolinvocations.Service`) e persistem em `t
   marcadas com `metadata.external = true`. MCP bridge e tools internas/nativas passam pelo
   mesmo caminho `Execute`, garantindo representação consistente (D-MCP / critério de
   consistência MCP↔builtin do issue #127).
-- **Export/Import** (`internal/portability/service.go`): hidratação reconstrói os resultados de
-  tools a partir de `tool_invocations`, sem depender exclusivamente de mensagens.
+- **Export/Import** (`internal/portability/service.go`): resultados são
+  exportados e importados no bloco canônico `toolInvocations`; protocolo
+  técnico embutido em mensagens é rejeitado.
 
-### O que permanece em armazenamento legado e por quê
+### Estado final após o cutover
 
-Três mecanismos legados continuam ativos de forma **intencional**. Nenhum é removido neste
-ciclo (issue #127) por serem de alto risco; cada um tem função de compatibilidade ou de
-domínio distinta da trilha técnica de `tool_invocations`.
+Compatibilidade antiga não constitui caminho alternativo de execução. L1/L3
+foram migrados e removidos fisicamente; nenhum writer ou leitor os aceita. L2
+não é compatibilidade:
+`job_run_events` representa eventos operacionais, enquanto toda execução
+técnica vive exclusivamente no ledger.
 
 #### L1 — Fallback `role=tool` no chat
 
-- **Onde**: `internal/agent/service.go` (`RunAgenticLoop` e `persistNativeMCPCalls`),
-  via `msgRepo.AddToolResultMessage`.
-- **Quando dispara**: somente quando a persistência técnica não pôde ser usada como fonte
-  para hidratação — isto é, quando `tool_invocations` não persistiu (`Persisted = false`,
-  ex.: catálogo indisponível) **ou** quando a mensagem assistant `tool_calls` falhou ao salvar
-  (`assistantToolCallsSaved = false`). No caminho feliz, **não** são criadas mensagens
-  `role=tool` (ver `TestRunAgenticLoop_ToolCalls_SuppressesRoleToolOnSuccessfulPersistence`).
-- **Por que permanece**: é a rede de segurança que evita órfãos no histórico/exportação quando
-  a hidratação a partir de `tool_invocations` + assistant `tool_calls` não é possível. Remover
-  agora poderia perder rastreabilidade em falhas transitórias de DB.
-- **Status**: compatibilidade ativa, acionada apenas em caminho de exceção.
+- **Onde existia**: `RunAgenticLoop` e `persistNativeMCPCalls`, via
+  `msgRepo.AddToolResultMessage`.
+- **Estado atual**: removido do runtime na fase 3 da AEP-0104. Catálogo ausente
+  gera entrada archival; indisponibilidade do ledger impede o efeito local e
+  MCP já executado pelo provider registra erro sem fabricar uma mensagem.
+- **Status**: runtime, interfaces, leitores e schema físico removidos.
 
 #### L2 — Timeline própria de jobs em `job_run_events`
 
@@ -322,31 +376,26 @@ domínio distinta da trilha técnica de `tool_invocations`.
 
 #### L3 — `tool_calls` JSON em mensagens assistant
 
-- **Onde permanece**: dados históricos em `chat_messages.tool_calls` e caminhos de
-  compatibilidade de leitura.
-- **Estado atual**: o agentic loop não grava L3 no caminho feliz
-  (`internal/agent/agentic_loop.go`); timeline, exportação e sumarização hidratam
-  chamadas por `tool_invocations`.
-- **Compatibilidade**: mensagens antigas continuam legíveis e exportáveis. O fallback
-  não autoriza novos consumidores nem novas escritas de L3.
-- **Status**: deprecação funcional concluída pela AEP-0078; coluna legada preservada
-  para leitura.
+- **Onde existia**: `chat_messages.tool_calls` e leitores de compatibilidade.
+- **Estado atual**: removido dos modelos, interfaces, leitores, testes e schema
+  físico; timeline, exportação e sumarização usam apenas `tool_invocations`.
+- **Status**: removido.
 
 ### Plano e critérios para deprecar cada legado
 
 | Legado | Ação | Critério para deprecar |
 |---|---|---|
-| L1 `role=tool` | Reduzir gradualmente o acionamento. | Quando a hidratação por `tool_invocations` + assistant `tool_calls` cobrir 100% dos caminhos de leitura (UI, export, sumarização) **e** métricas mostrarem 0 acionamentos do fallback em produção por um período de observação. Só então remover `AddToolResultMessage` do caminho de chat. |
+| L1 `role=tool` | Remover do runtime. | Backfill comprovado e escrita ledger-only; falha de auditoria fecha a execução. |
 | L2 `job_run_events` | **Não deprecar.** | Permanece como timeline operacional. Só seria reavaliado se a UI de jobs passar a derivar a timeline inteiramente de `tool_invocations` + `job_runs`, o que não é objetivo do issue #127. |
-| L3 `tool_calls` JSON em mensagens | Não gravar em mensagens novas; manter leitura legada. | Concluído pela AEP-0078; remoção física da coluna exigiria migração separada. |
+| L3 `tool_calls` JSON em mensagens | Migrar, cortar leitura e remover fisicamente. | Gate transacional e rebuild da Fase 7 da AEP-0104. |
 
-### Compatibilidade com dados existentes
+### Migração dos dados existentes
 
-- Não há backfill destrutivo. Mensagens `role=tool` e `tool_calls` históricas continuam
-  legíveis; a hidratação prioriza `tool_invocations` quando presente e cai para o conteúdo de
-  mensagens quando não há registro técnico (dados anteriores à introdução da tabela).
-- `tool_invocations` é log efêmero (D5): a ausência de registros antigos é esperada e tratada
-  pela leitura como "sem trilha técnica", sem quebrar a exibição da conversa/job.
+- O backfill v18 é aditivo, user-scoped, retomável e mantém mensagens
+  `role=tool`/`tool_calls` intactas durante a transição. Ausência, ambiguidade
+  ou divergência de hash mantém o recurso `pending`.
+- A migração v19 exige todos os recursos `backfilled`, cria backup verificável,
+  remove as representações antigas e promove o estado para `canonical`.
 
 ### Critérios de aceite do issue #127 — mapeamento
 
@@ -355,12 +404,36 @@ domínio distinta da trilha técnica de `tool_invocations`.
 | Executor comum em chat e jobs | Atendido | `internal/toolinvocations`, `internal/agent/service.go`, `internal/jobs/executor.go` |
 | Invocações em tabela própria com vínculo à origem | Atendido | `database.ToolInvocation`, `origin_type`/`origin_id` |
 | Jobs referenciam armazenamento comum (não dependem de log isolado) | Atendido | `executor.go` (`origin_id = run.RunID`) + `executor_toolinvocations_test.go`; `job_run_events` documentado como timeline operacional (L2) |
-| Tool results de chat não exclusivamente como mensagens | Atendido | Hidratação via `tool_invocations`; `role=tool` só como fallback (L1) |
+| Tool results de chat não exclusivamente como mensagens | Atendido | Persistência e hidratação exclusivas via `tool_invocations`; L1 removido |
 | MCP e tools internas representadas de forma consistente | Atendido | `Execute`/`Record` unificados; `metadata.external` para MCP nativo |
 | Migração/compatibilidade OU plano explícito de transição | **Atendido por esta seção** | Plano L1/L2/L3 + critérios de deprecação |
 | Testes cobrindo chat, job e dry-run no mesmo executor | Atendido | `service_tool_calls_persistence_test.go`, `executor_toolinvocations_test.go`, `manager_toolinvocations_test.go`, `internal/wailsapi/jobs_dryrun_test.go` |
 
 ## Relação com issues
+
+### Integração interna com comandos — AEP-0103, 17/09/2026
+
+Seção 38: a preparação da origem de eventos acontece no worker da ponte,
+antes de `Execute`, e sua revalidação final usa `BeforeExecute` após a
+persistência. O runtime carimba a origem privada do comando/da camada reativa
+no contexto da tool; efeitos sobre tasklists preservam essa raiz e a cadeia
+no job descendente. Isso não cria run artificial nem amplia grants. Cleanup
+da preparação preserva owner, cancelamento e deadline do pedido original.
+
+A montagem local de alvo fixo do App usa `ToolInvocationService`, com a mesma
+identidade de banco e registry do bootstrap. `BeforeExecute` revalida a
+autorização após `Create`/`MarkRunning`, antes da tool. Recusa, panic e
+cancelamento produzem resultado genérico, sem persistir mensagens do guard.
+Falhas de persistência não autorizam a execução; na falha de finalização de
+uma recusa, a remoção da linha é best-effort, não uma garantia contra perda
+do banco/processo. A qualificação de recuperação continua pendente.
+
+`ExpectedToolGeneration` fixa o registro autorizado: o executor captura tool
+e geração atomicamente, recusando substituição com o mesmo nome. Chamadores
+existentes sem pin continuam com sua política atual. Não há novo executor,
+allowlist de shell ou permissão implícita para profiles. A confirmação do
+comando não substitui políticas próprias da tool. Esse corte não publica
+comandos de tools nem certifica as identidades agent/job ou ciclo reativo.
 
 - Fecha a issue de unificação de execução e storage de tool calls.
 - Inclui a base para a issue de dry-run/teste de tools pelo catálogo.

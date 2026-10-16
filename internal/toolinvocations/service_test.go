@@ -3,12 +3,15 @@ package toolinvocations
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
 
 	"assistente/internal/database"
 	"assistente/internal/tools"
+
+	"gorm.io/gorm"
 )
 
 func TestOutputForPersistence_CapsLargeOutputAndDropsLargeMetadata(t *testing.T) {
@@ -39,9 +42,33 @@ func TestOutputForPersistence_CapsLargeOutputAndDropsLargeMetadata(t *testing.T)
 	if _, ok := payload["is_error"].(bool); !ok {
 		t.Fatalf("expected is_error bool, got=%T", payload["is_error"])
 	}
-	// Metadata deve ter sido dropada para caber no limite.
-	if _, ok := payload["metadata"]; ok {
-		t.Fatalf("expected metadata to be dropped, got=%v", payload["metadata"])
+	// Metadata arbitrária é removida, mas o marcador compacto de omissão fica.
+	metadata, _ := payload["metadata"].(map[string]any)
+	if metadata["omitted_for_persistence"] != true {
+		t.Fatalf("expected compact omission marker, got=%v", payload["metadata"])
+	}
+}
+
+func TestBuildInvocationMetadataPersistsOnlyNativeSearchPresentation(t *testing.T) {
+	svc := &Service{}
+	call := tools.ToolCall{Function: tools.FunctionCall{Name: "search_files", Arguments: `{}`}}
+	presentation := tools.SearchResultPresentation{Version: 1, Total: 1, Items: []tools.SearchResultItem{{Kind: "file", Title: "main.go"}}}
+	metadata := svc.buildInvocationMetadata(call, 1, 2, false, tools.ToolResult{Metadata: map[string]any{
+		tools.SearchResultPresentationMetadataKey: presentation,
+	}})
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(metadata, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := payload[tools.SearchResultPresentationMetadataKey]; !ok {
+		t.Fatalf("contrato de busca não persistido: %s", metadata)
+	}
+
+	mcp := svc.buildInvocationMetadata(call, 1, 2, true, tools.ToolResult{Metadata: map[string]any{
+		tools.SearchResultPresentationMetadataKey: presentation,
+	}})
+	if strings.Contains(string(mcp), tools.SearchResultPresentationMetadataKey) {
+		t.Fatalf("metadata de integração externa não deveria virar apresentação: %s", mcp)
 	}
 }
 
@@ -69,8 +96,40 @@ func TestOutputForPersistence_DropsNonSerializableMetadataAndStillCapsSize(t *te
 	if payload["is_error"] != true {
 		t.Fatalf("expected is_error=true, got=%v", payload["is_error"])
 	}
-	if _, ok := payload["metadata"]; ok {
-		t.Fatalf("expected metadata to be dropped when non-serializable")
+	metadata, _ := payload["metadata"].(map[string]any)
+	if metadata["omitted_for_persistence"] != true {
+		t.Fatalf("expected compact omission marker, got=%v", payload["metadata"])
+	}
+}
+
+func TestOutputForPersistenceTinyLimitHydratesAsExplicitOmission(t *testing.T) {
+	for _, max := range []int{1, len(`{"content":"","is_error":true}`)} {
+		svc := &Service{persistMaxResultSize: max}
+		out := svc.outputForPersistence(tools.ToolResult{Content: strings.Repeat("x", 4096)})
+		if string(out) != persistenceOmissionSentinel || len(out) > svc.persistMaxResultSize {
+			t.Fatalf("max=%d: sentinela inválido: %q", max, out)
+		}
+		persisted := ExtractToolInvocationResult(string(out))
+		if !persisted.IsError || persisted.Failure == nil ||
+			persisted.Failure.Code != "result_omitted_for_persistence" ||
+			persisted.Metadata["omitted_for_persistence"] != true {
+			t.Fatalf("max=%d: omissão reidratada como sucesso: %+v", max, persisted)
+		}
+	}
+}
+
+func TestOutputForPersistenceMarksMetadataReductionWhenContentFits(t *testing.T) {
+	svc := &Service{persistMaxResultSize: 256}
+	result := tools.ToolResult{
+		Content:  "conteúdo íntegro",
+		Metadata: map[string]any{"http": strings.Repeat("x", 4096)},
+	}
+	persisted := ExtractToolInvocationResult(string(svc.outputForPersistence(result)))
+	if persisted.Content != result.Content {
+		t.Fatalf("conteúdo que cabia foi alterado: %+v", persisted)
+	}
+	if persisted.Metadata["omitted_for_persistence"] != true {
+		t.Fatalf("redução de metadata não foi sinalizada: %+v", persisted.Metadata)
 	}
 }
 
@@ -100,6 +159,126 @@ func TestOutputForPersistence_PreservesResultAnnotations(t *testing.T) {
 	}
 }
 
+func TestOutputForPersistenceRemovesWindowWhenContentIsReduced(t *testing.T) {
+	svc := &Service{persistMaxResultSize: 256}
+	result := tools.ToolResult{
+		Content: strings.Repeat("x", 4096),
+		Annotations: &tools.ResultAnnotations{
+			DocumentProjection: &tools.DocumentProjectionAnnotation{
+				Source: "manual.pdf", Format: "pdf", ReadOnly: true,
+			},
+			OutputWindow: &tools.OutputWindowAnnotation{
+				HasMore: true, Unit: "bytes", Returned: 4096, Total: 8192,
+				NextOffset: 4096, ResultID: "tool-result-efemero",
+			},
+		},
+	}
+	persisted := ExtractToolInvocationResult(string(svc.outputForPersistence(result)))
+	if persisted.Annotations != nil {
+		t.Fatalf("contrato parcial sobreviveu à omissão: %+v", persisted.Annotations)
+	}
+	if !strings.Contains(persisted.Content, "omitted") {
+		t.Fatalf("omissão explícita ausente: %+v", persisted)
+	}
+}
+
+func TestOutputForPersistenceOmitsEphemeralPreviewEvenWhenItFits(t *testing.T) {
+	svc := &Service{persistMaxResultSize: 4096}
+	result := tools.ToolResult{
+		Content:  "prefixo",
+		Metadata: map[string]any{"result_id": "tool-result-efemero"},
+		Annotations: &tools.ResultAnnotations{OutputWindow: &tools.OutputWindowAnnotation{
+			HasMore: true, Unit: "bytes", Returned: 7, Total: 1000,
+			NextOffset: 7, ResultID: "tool-result-efemero", OriginalBytes: 1000,
+		}},
+	}
+	persisted := ExtractToolInvocationResult(string(svc.outputForPersistence(result)))
+	if persisted.Annotations != nil || strings.Contains(persisted.Content, result.Content) {
+		t.Fatalf("prévia efêmera foi persistida como completa: %+v", persisted)
+	}
+	if !strings.Contains(persisted.Content, "omitted") {
+		t.Fatalf("omissão explícita ausente: %+v", persisted)
+	}
+}
+
+func TestOutputForPersistenceOmitsEphemeralPreviewWithoutSizeLimit(t *testing.T) {
+	svc := &Service{persistMaxResultSize: 0}
+	result := tools.ToolResult{
+		Content:  "prefixo",
+		Metadata: map[string]any{"result_id": "tool-result-efemero"},
+		Annotations: &tools.ResultAnnotations{OutputWindow: &tools.OutputWindowAnnotation{
+			HasMore: true, Unit: "bytes", Returned: 7, Total: 1000,
+			NextOffset: 7, ResultID: "tool-result-efemero", OriginalBytes: 1000,
+		}},
+	}
+	persisted := ExtractToolInvocationResult(string(svc.outputForPersistence(result)))
+	if persisted.Annotations != nil || strings.Contains(persisted.Content, result.Content) ||
+		strings.Contains(string(svc.outputForPersistence(result)), "tool-result-efemero") {
+		t.Fatalf("budget ilimitado persistiu ID efêmero: %+v", persisted)
+	}
+	if !strings.Contains(persisted.Content, "omitted") {
+		t.Fatalf("omissão não foi explícita: %+v", persisted)
+	}
+}
+
+func TestOutputForPersistenceKeepsCompleteFinalPageWithoutEphemeralID(t *testing.T) {
+	svc := &Service{persistMaxResultSize: 4096}
+	result := tools.ToolResult{
+		Content:  "página final exata",
+		RawExact: true,
+		Metadata: map[string]any{"result_id": "tool-result-efemero", "source": "read_tool_result"},
+		Annotations: &tools.ResultAnnotations{OutputWindow: &tools.OutputWindowAnnotation{
+			HasMore: false, Unit: "bytes", Offset: 100, Returned: 18, Total: 118,
+			ResultID: "tool-result-efemero", OriginalBytes: 118,
+		}},
+	}
+	persisted := ExtractToolInvocationResult(string(svc.outputForPersistence(result)))
+	if persisted.Content != result.Content || !persisted.RawExact {
+		t.Fatalf("página final completa foi omitida: %+v", persisted)
+	}
+	if persisted.Annotations.OutputWindow.ResultID != "" {
+		t.Fatalf("result_id efêmero sobreviveu: %+v", persisted.Annotations.OutputWindow)
+	}
+	if _, ok := persisted.Metadata["result_id"]; ok {
+		t.Fatalf("result_id efêmero sobreviveu na metadata: %+v", persisted.Metadata)
+	}
+}
+
+func TestOutputForPersistenceOmitsExactContentInsteadOfCutting(t *testing.T) {
+	svc := &Service{persistMaxResultSize: 256}
+	for _, result := range []tools.ToolResult{
+		{Content: `{"value":"` + strings.Repeat("x", 4096) + `"}`, Structured: true},
+		{Content: strings.Repeat("raw-", 4096), RawExact: true},
+		{Content: `"` + strings.Repeat("x", 4096) + `"`},
+	} {
+		persisted := ExtractToolInvocationResult(string(svc.outputForPersistence(result)))
+		if strings.Contains(persisted.Content, result.Content[:100]) {
+			t.Fatalf("resultado exato foi persistido parcialmente: %q", persisted.Content)
+		}
+		if !strings.Contains(persisted.Content, "omitted") {
+			t.Fatalf("omissão explícita ausente: %+v", persisted)
+		}
+	}
+}
+
+func TestOutputForPersistenceRestoresRawExactSemModelEnvelope(t *testing.T) {
+	svc := &Service{persistMaxResultSize: 4096}
+	result := tools.ToolResult{
+		Content:  "texto projetado",
+		RawExact: true,
+		Annotations: &tools.ResultAnnotations{DocumentProjection: &tools.DocumentProjectionAnnotation{
+			Source: "manual.pdf", Format: "pdf", ReadOnly: true,
+		}},
+	}
+	persisted := ExtractToolInvocationResult(string(svc.outputForPersistence(result)))
+	if !persisted.RawExact || persisted.Annotations == nil {
+		t.Fatalf("contrato raw/proveniência não foi reidratado: %+v", persisted)
+	}
+	if got := tools.ContentForModel(persisted); got != result.Content {
+		t.Fatalf("raw reidratado recebeu envelope: %q", got)
+	}
+}
+
 func TestExtractToolInvocationResultRestoresProjectionAnnotations(t *testing.T) {
 	raw := `{"content":"# Manual","is_error":false,"annotations":{"document_projection":{"source":"manual.docx","format":"docx","read_only":true}}}`
 	result := ExtractToolInvocationResult(raw)
@@ -113,16 +292,52 @@ func TestExtractToolInvocationResultRestoresProjectionAnnotations(t *testing.T) 
 }
 
 type echoTool struct{}
+type countingTool struct{ calls *int }
 
 func (echoTool) Name() string { return "echo" }
 func (echoTool) Description() string {
 	return "echo"
+}
+
+type createFailRepository struct {
+	Repository
+	err error
+}
+
+func (r createFailRepository) Create(context.Context, *Invocation, ...CreateOptions) error {
+	return r.err
 }
 func (echoTool) Parameters() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{"value":{"type":"string"}}}`)
 }
 func (echoTool) Execute(_ context.Context, args json.RawMessage) (tools.ToolResult, error) {
 	return tools.ToolResult{Content: string(args)}, nil
+}
+func (countingTool) Name() string        { return "echo" }
+func (countingTool) Description() string { return "counting" }
+func (countingTool) Parameters() json.RawMessage {
+	return json.RawMessage(`{"type":"object"}`)
+}
+func (t countingTool) Execute(context.Context, json.RawMessage) (tools.ToolResult, error) {
+	*t.calls++
+	return tools.ToolResult{Content: "executed"}, nil
+}
+
+func TestServiceSemRepositorioNaoExecutaTool(t *testing.T) {
+	calls := 0
+	registry := tools.NewRegistry()
+	registry.MustRegister(countingTool{calls: &calls})
+	service := NewService(nil, tools.NewExecutor(registry, tools.DefaultExecutorConfig()))
+	result := service.Execute(context.Background(), ExecuteRequest{
+		Call:   tools.ToolCall{ID: "closed", Function: tools.FunctionCall{Name: "echo", Arguments: `{}`}},
+		Origin: Origin{Type: OriginToolCatalog, ID: "catalog"},
+	})
+	if calls != 0 {
+		t.Fatalf("tool executou sem ledger: %d", calls)
+	}
+	if !result.Execution.Result.IsError || result.Persisted {
+		t.Fatalf("falha fechada inválida: %+v", result)
+	}
 }
 
 func TestServiceExecutesAndPersistsInvocation(t *testing.T) {
@@ -140,7 +355,8 @@ func TestServiceExecutesAndPersistsInvocation(t *testing.T) {
 				Arguments: `{"value":"ok"}`,
 			},
 		},
-		Origin: Origin{Type: OriginChat, ID: "turn-1"},
+		Origin:    Origin{Type: OriginChat, ID: "turn-1"},
+		Iteration: 4,
 	})
 	if result.Execution.Result.IsError {
 		t.Fatalf("execution returned error: %s", result.Execution.Result.Content)
@@ -152,11 +368,127 @@ func TestServiceExecutesAndPersistsInvocation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get invocation: %v", err)
 	}
-	if got.Status != StatusSucceeded || got.ToolCallID != "call-1" || got.OriginID != "turn-1" {
+	if got.Status != StatusSucceeded || got.ToolCallID != "call-1" || got.OriginID != "turn-1" ||
+		got.ConversationID != "conv-a" || got.TurnID != "turn-1" || got.Attempt != 1 ||
+		got.ModelIteration != 4 || got.External ||
+		got.InputHash == "" || got.OutputHash == "" || got.ResultAvailability != "available" {
 		t.Fatalf("unexpected invocation: %#v", got)
 	}
 	if len(got.Output) == 0 {
 		t.Fatal("expected persisted output")
+	}
+}
+
+func TestServiceDoesNotExecuteWhenChatOriginDisappearsDuringCreate(t *testing.T) {
+	repo, userA, _ := setupRepositoryTest(t)
+	for _, createErr := range []error{
+		gorm.ErrRecordNotFound,
+		ErrChatOriginIDRequired,
+		errors.New("database is locked (5) (SQLITE_BUSY)"),
+	} {
+		calls := 0
+		registry := tools.NewRegistry()
+		registry.MustRegister(countingTool{calls: &calls})
+		svc := NewService(
+			createFailRepository{Repository: repo, err: createErr},
+			tools.NewExecutor(registry, tools.DefaultExecutorConfig()),
+		)
+
+		result := svc.Execute(userA, ExecuteRequest{
+			Call: tools.ToolCall{
+				ID:   "call-race",
+				Type: "function",
+				Function: tools.FunctionCall{
+					Name:      "echo",
+					Arguments: `{"value":"não executar"}`,
+				},
+			},
+			Origin: Origin{Type: OriginChat, ID: "turn-1"},
+		})
+		if !result.Execution.Result.IsError || !strings.Contains(result.Execution.Result.Content, "validar o item do chat") {
+			t.Fatalf("erro %v deveria cancelar sem executar tool: %+v", createErr, result.Execution.Result)
+		}
+		if calls != 0 {
+			t.Fatalf("erro %v executou a tool %d vez(es)", createErr, calls)
+		}
+	}
+}
+
+func TestServiceDoesNotExecuteNonChatWhenCreateFails(t *testing.T) {
+	repo, userA, _ := setupRepositoryTest(t)
+	calls := 0
+	var metrics Metrics
+	registry := tools.NewRegistry()
+	registry.MustRegister(countingTool{calls: &calls})
+	service := NewService(
+		createFailRepository{Repository: repo, err: errors.New("db unavailable")},
+		tools.NewExecutor(registry, tools.DefaultExecutorConfig()),
+		&metrics,
+	)
+	result := service.Execute(userA, ExecuteRequest{
+		Call:   tools.ToolCall{ID: "job-call", Function: tools.FunctionCall{Name: "echo", Arguments: `{}`}},
+		Origin: Origin{Type: OriginJobRun, ID: "run-1"},
+	})
+	if calls != 0 || !result.Execution.Result.IsError || result.Persisted {
+		t.Fatalf("execução não-chat não fechou na falha do ledger: calls=%d result=%+v", calls, result)
+	}
+	if got := metrics.Snapshot().PersistenceFailures; got != 1 {
+		t.Fatalf("falhas de persistência=%d, esperado 1", got)
+	}
+}
+
+func TestServiceDoesNotExecuteWhenChatOriginValidationFails(t *testing.T) {
+	repo, _, _ := setupRepositoryTest(t)
+	calls := 0
+	registry := tools.NewRegistry()
+	registry.MustRegister(countingTool{calls: &calls})
+	svc := NewService(repo, tools.NewExecutor(registry, tools.DefaultExecutorConfig()))
+
+	result := svc.Execute(context.Background(), ExecuteRequest{
+		Call: tools.ToolCall{
+			ID:   "call-validation-error",
+			Type: "function",
+			Function: tools.FunctionCall{
+				Name:      "echo",
+				Arguments: `{"value":"não executar"}`,
+			},
+		},
+		Origin: Origin{Type: OriginChat, ID: "turn-1"},
+	})
+	if !result.Execution.Result.IsError || !strings.Contains(result.Execution.Result.Content, "validar o item do chat") {
+		t.Fatalf("falha de validação deveria cancelar sem executar tool: %+v", result.Execution.Result)
+	}
+	if calls != 0 {
+		t.Fatalf("falha de validação executou a tool %d vez(es)", calls)
+	}
+}
+
+func TestServiceDoesNotExecuteWhenChatSchemaIsUnavailable(t *testing.T) {
+	repo, userA, _ := setupRepositoryTest(t)
+	if err := database.DB().Migrator().DropTable(&database.ChatMessage{}); err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	registry := tools.NewRegistry()
+	registry.MustRegister(countingTool{calls: &calls})
+	svc := NewService(repo, tools.NewExecutor(registry, tools.DefaultExecutorConfig()))
+
+	result := svc.Execute(userA, ExecuteRequest{
+		Call: tools.ToolCall{
+			ID:   "call-schema-error",
+			Type: "function",
+			Function: tools.FunctionCall{
+				Name:      "echo",
+				Arguments: `{}`,
+			},
+		},
+		Origin: Origin{Type: " chat ", ID: " turn-1 "},
+	})
+	if !result.Execution.Result.IsError || !strings.Contains(result.Execution.Result.Content, "validar o item do chat") {
+		t.Fatalf("schema ausente deveria cancelar: %+v", result.Execution.Result)
+	}
+	if calls != 0 {
+		t.Fatalf("schema ausente executou a tool %d vez(es)", calls)
 	}
 }
 
@@ -672,6 +1004,7 @@ func TestRecordTreatsNonNoneErrorKindAsFailed(t *testing.T) {
 		Retryable:         false,
 		RetryabilityKnown: true,
 		DurationMs:        1,
+		Iteration:         6,
 	})
 	if err != nil {
 		t.Fatalf("record: %v", err)
@@ -686,7 +1019,13 @@ func TestRecordTreatsNonNoneErrorKindAsFailed(t *testing.T) {
 	if persisted.ErrorKind != string(tools.ErrorKindConfiguration) ||
 		persisted.ErrorCode != "invalid_configuration" ||
 		!persisted.RetryabilityKnown ||
-		persisted.Retryable {
+		persisted.Retryable ||
+		persisted.ConversationID != "conv-a" ||
+		persisted.TurnID != "turn-rec" ||
+		persisted.ModelIteration != 6 ||
+		!persisted.External ||
+		persisted.InputHash == "" ||
+		persisted.OutputHash == "" {
 		t.Fatalf("structured record fields were not preserved: %#v", persisted)
 	}
 }

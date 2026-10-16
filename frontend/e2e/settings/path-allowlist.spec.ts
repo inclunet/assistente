@@ -28,8 +28,12 @@ test.describe('Allowlist de paths — gestão e decisão', () => {
   test('nega e lembra por botão, enquanto ESC apenas cancela e restaura foco', async ({ page, wails }) => {
     await wails.setResponse('RespondQuestionnaire', undefined);
     await wails.waitForApp();
+    // waitForApp só aguarda o layout. Espere o foco inicial assíncrono do chat
+    // estabilizar antes de preparar o acionador que o evento deve capturar.
+    await expect(page.locator('.chat-input__textarea')).toBeFocused();
     const trigger = page.getByRole('button').first();
     await trigger.focus();
+    await expect(trigger).toBeFocused();
 
     const payload = {
       id: 'fstrust-e2e',
@@ -59,6 +63,9 @@ test.describe('Allowlist de paths — gestão e decisão', () => {
       return call?.args;
     }).toEqual(['fstrust-e2e', { actionId: 'deny-workspace' }, false]);
     await expect(dialog).not.toBeVisible();
+    // A restauração é agendada pelo App em requestAnimationFrame. Aguarde-a
+    // antes de emitir outro questionário, que captura o foco atual ao abrir.
+    await expect(trigger).toBeFocused();
 
     await wails.emit('tool:questionnaire', { ...payload, id: 'fstrust-cancel-e2e' });
     await expect(dialog).toBeVisible();

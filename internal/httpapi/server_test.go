@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 
 	"assistente/internal/auth"
 	"assistente/internal/database"
@@ -157,38 +156,12 @@ func TestValidateBindSecurity(t *testing.T) {
 }
 
 func TestExternalModeValidatesBearerJWT(t *testing.T) {
-	signer, err := auth.NewTokenSigner()
-	if err != nil {
-		t.Fatalf("new signer: %v", err)
-	}
-	jwksServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewEncoder(w).Encode(signer.JWKSet())
-	}))
-	defer jwksServer.Close()
-
-	external := auth.NewExternalAuthenticator(auth.ExternalAuthConfig{
-		Issuer:            "https://idp.example.com",
-		Audience:          "assistente",
-		JWKSURL:           jwksServer.URL,
-		AllowedAlgorithms: []string{"EdDSA"},
-	})
-	server := New(Config{Mode: "external", External: external})
-	now := time.Now()
-	token, err := signer.SignAccessToken(auth.AccessClaims{
-		Issuer:    "https://idp.example.com",
-		Audience:  "assistente",
-		Subject:   "external-user",
-		IssuedAt:  now.Unix(),
-		ExpiresAt: now.Add(time.Minute).Unix(),
-		Role:      "user",
-	})
-	if err != nil {
-		t.Fatalf("sign token: %v", err)
-	}
-	req := httptest.NewRequest(http.MethodGet, "/auth/me", nil)
-	req.Header.Set("Authorization", "Bearer "+token)
-	rec := httptest.NewRecorder()
-	server.Handler().ServeHTTP(rec, req)
+	fixture := newExternalIdentityAccessFixture(t)
+	fixture.bootstrap()
+	fixture.mapIdentity("external-user", fixture.target.ID)
+	server := fixture.server()
+	token := fixture.token("external-user", fixture.issuer, "", []string{"user"})
+	rec := externalMeRequest(server, "Bearer "+token)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("me status = %d body=%s", rec.Code, rec.Body.String())
 	}
@@ -200,42 +173,12 @@ func TestExternalModeValidatesBearerJWT(t *testing.T) {
 }
 
 func TestExternalModeUsesConfiguredRoleClaimAndScopes(t *testing.T) {
-	signer, err := auth.NewTokenSigner()
-	if err != nil {
-		t.Fatalf("new signer: %v", err)
-	}
-	jwksServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewEncoder(w).Encode(signer.JWKSet())
-	}))
-	defer jwksServer.Close()
-
-	external := auth.NewExternalAuthenticator(auth.ExternalAuthConfig{
-		Issuer:            "https://idp.example.com",
-		Audience:          "assistente",
-		JWKSURL:           jwksServer.URL,
-		AllowedAlgorithms: []string{"EdDSA"},
-		RequiredScopes:    []string{"assistente:read"},
-		RoleClaim:         "groups",
-	})
-	server := New(Config{Mode: "external", External: external})
-
-	now := time.Now()
-	token, err := signExternalToken(t, signer, map[string]any{
-		"iss":    "https://idp.example.com",
-		"aud":    "assistente",
-		"sub":    "external-admin",
-		"iat":    now.Unix(),
-		"exp":    now.Add(time.Minute).Unix(),
-		"scope":  "profile assistente:read",
-		"groups": []string{"admin", "operator"},
-	})
-	if err != nil {
-		t.Fatalf("sign external token: %v", err)
-	}
-	req := httptest.NewRequest(http.MethodGet, "/auth/me", nil)
-	req.Header.Set("Authorization", "Bearer "+token)
-	rec := httptest.NewRecorder()
-	server.Handler().ServeHTTP(rec, req)
+	fixture := newExternalIdentityAccessFixture(t)
+	fixture.bootstrap()
+	fixture.mapIdentity("external-admin", fixture.admin.ID)
+	server := fixture.serverWithReadScope()
+	token := fixture.token("external-admin", fixture.issuer, "profile assistente:read", []string{"admin", "operator"})
+	rec := externalMeRequest(server, "Bearer "+token)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("me status = %d body=%s", rec.Code, rec.Body.String())
 	}
@@ -246,26 +189,12 @@ func TestExternalModeUsesConfiguredRoleClaimAndScopes(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &me); err != nil {
 		t.Fatalf("decode me: %v", err)
 	}
-	if me.UserID != "external-admin" || me.Role != "admin" {
-		t.Fatalf("me = %+v, want external-admin/admin", me)
+	if me.UserID != fixture.admin.ID || me.Role != "admin" {
+		t.Fatalf("me = %+v, want mapped local admin %s", me, fixture.admin.ID)
 	}
 
-	noScope, err := signExternalToken(t, signer, map[string]any{
-		"iss":    "https://idp.example.com",
-		"aud":    "assistente",
-		"sub":    "external-admin",
-		"iat":    now.Unix(),
-		"exp":    now.Add(time.Minute).Unix(),
-		"scope":  "profile",
-		"groups": []string{"admin"},
-	})
-	if err != nil {
-		t.Fatalf("sign no-scope token: %v", err)
-	}
-	req = httptest.NewRequest(http.MethodGet, "/auth/me", nil)
-	req.Header.Set("Authorization", "Bearer "+noScope)
-	rec = httptest.NewRecorder()
-	server.Handler().ServeHTTP(rec, req)
+	noScope := fixture.token("external-admin", fixture.issuer, "profile", []string{"admin"})
+	rec = externalMeRequest(server, "Bearer "+noScope)
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("missing scope status = %d body=%s", rec.Code, rec.Body.String())
 	}

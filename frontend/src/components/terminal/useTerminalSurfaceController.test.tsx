@@ -70,15 +70,20 @@ describe('useTerminalSurfaceController', () => {
     expect(workspaceMocks.updateTab).not.toHaveBeenCalled();
   });
 
-  it('recarrega a lista para resolver um sessionId ainda ausente do store', async () => {
+  it('reconcilia sessão criada pelo backend antes do listener e carrega seu histórico sem criar outra', async () => {
+    terminalMocks.loadSessions.mockImplementationOnce(async () => {
+      terminalMocks.sessions = [{ id: 'session-backend' }];
+    });
     renderHook(() => useTerminalSurfaceController({
       ...terminalTab,
-      state: { sessionId: 'session-1' },
+      state: { sessionId: 'session-backend' },
     }, true));
 
     await waitFor(() => {
-      expect(terminalMocks.loadSessions).toHaveBeenCalled();
+      expect(terminalMocks.loadHistory).toHaveBeenCalledWith('session-backend');
     });
+    expect(terminalMocks.loadSessions).toHaveBeenCalledTimes(1);
+    expect(terminalMocks.createSession).not.toHaveBeenCalled();
     expect(workspaceMocks.updateTab).not.toHaveBeenCalled();
   });
 

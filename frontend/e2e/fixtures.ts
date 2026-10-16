@@ -12,6 +12,8 @@ import { buildWailsMockScript } from './mocks/wails-runtime';
 export interface WailsMock {
   /** Sobrescreve a resposta de uma função Wails. Pode ser chamado antes ou depois de waitForApp. */
   setResponse: (fn: string, value: unknown) => Promise<void>;
+  /** Remove override one-shot depois do cenário que o exige. */
+  clearResponse: (fn: string) => Promise<void>;
   /** Configura uma função Wails para rejeitar com erro. */
   setError: (fn: string, message: string) => Promise<void>;
   /** Remove erro configurado para uma função Wails. Só funciona após waitForApp. */
@@ -66,6 +68,10 @@ export const test = base.extend<{ wails: WailsMock }>({
         }
       },
 
+      async clearResponse(fn: string) {
+        await page.evaluate((name) => window.__wailsMock.clearResponse(name), fn);
+      },
+
       async setError(fn: string, message: string) {
         if (!navigated) {
           pendingErrors.push({ fn, message });
@@ -85,6 +91,29 @@ export const test = base.extend<{ wails: WailsMock }>({
       },
 
       async emit(event: string, data?: unknown) {
+        // O backend ecoa a origem do envio em eventos do turno. Fixtures que
+        // omitem a origem usam a última chamada desta conversa; origens
+        // explícitas (incluindo eventos atrasados) nunca são substituídas.
+        if (event.startsWith('chat:') && data && typeof data === 'object'
+          && 'conversationId' in data && !('surfaceOrigin' in data)) {
+          const surfaceOrigin = await page.evaluate((conversationId) => {
+            const call = window.__wailsMock.getCallLog().slice().reverse().find((entry) => (
+              (entry.fn === 'SendMessage' || entry.fn === 'RetryMessage')
+              && entry.args[0] === conversationId
+            ));
+            const params = call?.args[call.fn === 'SendMessage' ? 3 : 2] as Record<string, string> | undefined;
+            if (!params?.surfaceExecutionId) return undefined;
+            return {
+              conversationId,
+              executionId: params.surfaceExecutionId,
+              sessionKey: params.surfaceSessionKey,
+              surfaceId: params.surfaceId,
+              surfaceType: params.surfaceType,
+              tabId: params.surfaceTabId,
+            };
+          }, data.conversationId);
+          if (surfaceOrigin) data = { ...data, surfaceOrigin };
+        }
         // Converte fixtures legadas de streaming acumulado para o protocolo
         // delta; cenários novos podem enviar delta/sequence diretamente.
         if (event === 'chat:stream' && data && typeof data === 'object' && 'content' in data) {

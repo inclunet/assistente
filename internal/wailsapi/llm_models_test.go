@@ -1,6 +1,7 @@
 package wailsapi
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -36,6 +37,9 @@ func TestLLMModelsNotWired(t *testing.T) {
 	}
 	if err := api.CancelStreamingForConversation("c1"); !errors.Is(err, ErrLLMModelsNotWired) {
 		t.Fatalf("CancelStreamingForConversation: got %v", err)
+	}
+	if err := api.CancelStreamingExecution("c1", "execution-1"); !errors.Is(err, ErrLLMModelsNotWired) {
+		t.Fatalf("CancelStreamingExecution: got %v", err)
 	}
 }
 
@@ -73,6 +77,42 @@ func TestLLMModelsUsesWithUserNotRequireAuth(t *testing.T) {
 	}
 }
 
+func TestLLMModelsCancelExecutionRequiresHook(t *testing.T) {
+	t.Parallel()
+	api := NewLLMModels()
+	AttachLLMModels(api, stubSession{ctx: context.Background()},
+		providers.NewService(providers.ServiceConfig{}), profiles.NewManager(),
+		LLMModelsHooks{CancelStreaming: func(string) {
+			t.Fatal("cancelamento identificado não deve usar o hook da conversa")
+		}})
+	if err := api.CancelStreamingExecution("c1", "execution-1"); !errors.Is(err, ErrLLMModelsNotWired) {
+		t.Fatalf("CancelExecution sem hook: got %v, quer ErrLLMModelsNotWired", err)
+	}
+}
+
+func TestLLMModelsCancelExecutionForwardsIdentity(t *testing.T) {
+	t.Parallel()
+	api := NewLLMModels()
+	calls := 0
+	AttachLLMModels(api, stubSession{ctx: context.Background()},
+		providers.NewService(providers.ServiceConfig{}), profiles.NewManager(),
+		LLMModelsHooks{
+			CancelStreaming: func(string) { t.Fatal("não deve cancelar a conversa inteira") },
+			CancelExecution: func(conversationID, executionID string) {
+				calls++
+				if conversationID != "c1" || executionID != "execution-2" {
+					t.Fatalf("identidade recebida = (%q, %q)", conversationID, executionID)
+				}
+			},
+		})
+	if err := api.CancelStreamingExecution("c1", "execution-2"); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 {
+		t.Fatalf("hook chamado %d vezes; esperado 1", calls)
+	}
+}
+
 func TestLLMModelsAuthRejectsWhenSessionFails(t *testing.T) {
 	t.Parallel()
 	semAuth := errors.New("sessão não autenticada")
@@ -82,7 +122,10 @@ func TestLLMModelsAuthRejectsWhenSessionFails(t *testing.T) {
 		stubSession{err: semAuth},
 		providers.NewService(providers.ServiceConfig{}),
 		profiles.NewManager(),
-		LLMModelsHooks{CancelStreaming: func(string) {}},
+		LLMModelsHooks{
+			CancelStreaming: func(string) { t.Error("hook executado sem autenticação") },
+			CancelExecution: func(string, string) { t.Error("hook identificado executado sem autenticação") },
+		},
 	)
 
 	casos := []struct {
@@ -115,6 +158,9 @@ func TestLLMModelsAuthRejectsWhenSessionFails(t *testing.T) {
 		}},
 		{"CancelStreamingForConversation", func() error {
 			return api.CancelStreamingForConversation("c1")
+		}},
+		{"CancelStreamingExecution", func() error {
+			return api.CancelStreamingExecution("c1", "execution-1")
 		}},
 	}
 	for _, c := range casos {

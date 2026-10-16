@@ -54,6 +54,10 @@ export function SetActiveWorkspaceTab(arg1) {
   return window['go']['wailsapi']['Workspace']['SetActiveWorkspaceTab'](arg1);
 }
 
+export function SetActiveWorkspaceTabForWorkspace(arg1, arg2) {
+  return window['go']['wailsapi']['Workspace']['SetActiveWorkspaceTabForWorkspace'](arg1, arg2);
+}
+
 export function SetWorkspaceProfile(arg1) {
   return window['go']['wailsapi']['Workspace']['SetWorkspaceProfile'](arg1);
 }

@@ -61,9 +61,10 @@ export function ChatPanel({
     <ChatSessionView
       variant={variant}
       surface={surface}
-      onSend={(content, mediaFiles, origin) => onSend(content, mediaFiles, {
+      onSend={(content, mediaFiles, origin, command) => onSend(content, mediaFiles, {
         conversationId: surface.conversationId || origin.conversationId || null,
         origin,
+        command,
       })}
       onRequestConversationChange={onRequestConversationChange}
       showShortcutsHelp={showShortcutsHelp}

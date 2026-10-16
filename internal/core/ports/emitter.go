@@ -12,14 +12,22 @@ type Emitter interface {
 // quanto após segment_done; BaseContent é o prefixo persistido usado em
 // continuação explícita. Sequence é monotônica dentro de cada época.
 type StreamEvent struct {
-	MessageID      string             `json:"messageId"`
-	ConversationId string             `json:"conversationId"`
-	TurnID         string             `json:"turnId"`
-	Delta          string             `json:"delta,omitempty"`
-	Reset          bool               `json:"reset,omitempty"`
-	BaseContent    string             `json:"baseContent,omitempty"`
-	Sequence       uint64             `json:"sequence"`
-	Done           bool               `json:"done"`
-	Error          string             `json:"error,omitempty"`
-	SurfaceOrigin  *ChatSurfaceOrigin `json:"surfaceOrigin,omitempty"`
+	MessageID            string             `json:"messageId"`
+	ConversationId       string             `json:"conversationId"`
+	TurnID               string             `json:"turnId"`
+	Delta                string             `json:"delta,omitempty"`
+	Reset                bool               `json:"reset,omitempty"`
+	BaseContent          string             `json:"baseContent,omitempty"`
+	Sequence             uint64             `json:"sequence"`
+	Done                 bool               `json:"done"`
+	Error                string             `json:"error,omitempty"`
+	FinishReason         string             `json:"finishReason,omitempty"`
+	RawReason            string             `json:"rawReason,omitempty"`
+	Provider             string             `json:"provider,omitempty"`
+	Model                string             `json:"model,omitempty"`
+	EffectiveOutputLimit int                `json:"effectiveOutputLimit,omitempty"`
+	OutputTokens         *int               `json:"outputTokens,omitempty"`
+	ReasoningTokens      *int               `json:"reasoningTokens,omitempty"`
+	ResponseBytes        *int               `json:"responseBytes,omitempty"`
+	SurfaceOrigin        *ChatSurfaceOrigin `json:"surfaceOrigin,omitempty"`
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 	"testing"
 
 	"assistente/internal/database"
@@ -61,6 +62,64 @@ func TestServiceSyncBuiltinsCatalogsGlobalToolsOnly(t *testing.T) {
 		if _, ok := got["job"]; ok {
 			t.Fatalf("hidden opt-in tool should not be cataloged: %#v", entries)
 		}
+	}
+}
+
+func TestServiceRepeatedBootCatalogSyncWithThreeMCPServers(t *testing.T) {
+	repo := setupCatalogFileTest(t)
+	ctx := database.WithUserID(context.Background(), "user-a")
+	registry := tools.NewRegistry()
+	registry.MustRegister(catalogTestTool{name: "feed_read"})
+	svc := NewService(repo)
+
+	type server struct {
+		slug string
+		id   string
+	}
+	servers := []server{
+		{slug: "github", id: seedServer(t, repo, "user-a", "github")},
+		{slug: "inclunet", id: seedServer(t, repo, "user-a", "inclunet")},
+		{slug: "obs", id: seedServer(t, repo, "user-a", "obs")},
+	}
+
+	for boot := 1; boot <= 10; boot++ {
+		start := make(chan struct{})
+		errs := make(chan error, len(servers)+1)
+		var wg sync.WaitGroup
+		wg.Add(len(servers) + 1)
+		go func() {
+			defer wg.Done()
+			<-start
+			errs <- svc.SyncBuiltins(context.Background(), registry)
+		}()
+		for _, srv := range servers {
+			srv := srv
+			go func() {
+				defer wg.Done()
+				<-start
+				errs <- svc.SyncMCPServerTools(ctx, srv.slug, srv.id, []MCPToolDescriptor{{
+					Name:     "search",
+					FullName: "mcp_" + srv.slug + "__search",
+					Schema:   json.RawMessage(`{"type":"object"}`),
+				}})
+			}()
+		}
+		close(start)
+		wg.Wait()
+		close(errs)
+		for err := range errs {
+			if err != nil {
+				t.Fatalf("boot %d: sync concorrente falhou: %v", boot, err)
+			}
+		}
+	}
+
+	entries, err := repo.ListTools(ctx, tools.ToolCatalogFilter{})
+	if err != nil {
+		t.Fatalf("list synced tools: %v", err)
+	}
+	if len(entries) != 4 {
+		t.Fatalf("entries após 10 boots = %d, want 4: %#v", len(entries), entries)
 	}
 }
 

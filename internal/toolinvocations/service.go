@@ -1,7 +1,6 @@
 package toolinvocations
 
 import (
-	"assistente/internal/logging"
 	"context"
 	"encoding/json"
 	"errors"
@@ -11,9 +10,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"assistente/internal/database"
 	"assistente/internal/tools"
-
 	"gorm.io/gorm"
 )
 
@@ -21,6 +18,7 @@ type Service struct {
 	repo     Repository
 	executor *tools.Executor
 	now      func() time.Time
+	metrics  *Metrics
 
 	// persistOpTimeout limita o tempo de cada operação síncrona de persistência.
 	// A persistência deve sobreviver a cancelamento do usuário, mas não deve
@@ -40,16 +38,27 @@ type Service struct {
 	persistMaxInputSize int
 }
 
-func NewService(repo Repository, executor *tools.Executor) *Service {
+func NewService(repo Repository, executor *tools.Executor, configuredMetrics ...*Metrics) *Service {
+	metrics := RuntimeMetrics()
+	if len(configuredMetrics) > 0 && configuredMetrics[0] != nil {
+		metrics = configuredMetrics[0]
+	}
 	return &Service{
 		repo:                 repo,
 		executor:             executor,
 		now:                  time.Now,
+		metrics:              metrics,
 		persistOpTimeout:     3 * time.Second,
 		persistMaxResultSize: tools.DefaultMaxResultSize,
 		// Mantém o mesmo limite de persistência do Output para consistência.
 		persistMaxErrorSize: tools.DefaultMaxResultSize,
 		persistMaxInputSize: tools.DefaultMaxResultSize,
+	}
+}
+
+func (s *Service) recordPersistenceFailure() {
+	if s != nil {
+		s.metrics.IncPersistenceFailure()
 	}
 }
 
@@ -66,6 +75,16 @@ func (s *Service) persistOpCtx(parent context.Context) (context.Context, context
 
 func (s *Service) CanPersist() bool {
 	return s != nil && s.repo != nil
+}
+
+// IsBoundTo confirma que ledger, executor e bootstrap pertencem exatamente ao
+// DB e registry informados. O vínculo é por identidade de ponteiros.
+func (s *Service) IsBoundTo(db *gorm.DB, registry *tools.Registry) bool {
+	if s == nil || db == nil || registry == nil || s.executor == nil || s.executor.Registry() != registry {
+		return false
+	}
+	repo, ok := s.repo.(*DBRepository)
+	return ok && repo != nil && repo.db != nil && repo.db == db
 }
 
 // CleanOldDryRuns remove invocações dry-run operacionais (job_run/tool_catalog)
@@ -94,179 +113,59 @@ func (s *Service) CleanOrphanChat(ctx context.Context) (int, error) {
 	return s.repo.CleanOrphanChat(ctx)
 }
 
+func cancelledLedgerUnavailable(call tools.ToolCall) ExecuteResult {
+	return ExecuteResult{
+		Execution: executionCancelled(call, "Execução cancelada: não foi possível validar o item do chat ou persistir sua tool invocation"),
+		Persisted: false,
+	}
+}
+
 func (s *Service) Execute(ctx context.Context, req ExecuteRequest) ExecuteResult {
 	if s == nil || s.executor == nil {
-		return ExecuteResult{Execution: executionError(req.Call, "tool invocation service not configured"), Persisted: false}
+		return ExecuteResult{Execution: executionError(req.Call, "tool invocation service not configured")}
 	}
-	if s.repo == nil {
-		// Sem persistência configurada: ainda executa a tool.
-		exec := s.executorForRequest(req).ExecuteOne(ctx, req.Call)
-		return ExecuteResult{Execution: exec, Persisted: false}
+	start := invocationStart{
+		call: req.Call, persistedArguments: req.PersistedArguments, origin: req.Origin,
+		sensitivePaths: req.SensitivePaths, parentID: req.ParentInvocationID,
+		toolCatalogID: req.ToolCatalogID, requireCanonical: req.RequireCanonicalToolCatalogID,
+		dryRun: req.DryRun, iteration: req.Iteration,
 	}
-
-	// Persistência best-effort: deve funcionar mesmo se o ctx for cancelado.
-	persistCtx := s.persistCtx(ctx)
-
-	// Defesa best-effort: se a origem do chat já foi deletada, não criar
-	// registros técnicos que ficarão órfãos. Alguns cenários de teste/migração
-	// não têm a tabela de chat_messages disponível.
-	if strings.TrimSpace(req.Origin.Type) == OriginChat && strings.TrimSpace(req.Origin.ID) != "" {
-		if db := database.DB(); db != nil && db.Migrator().HasTable(&database.ChatMessage{}) {
-			opCtx, cancel := s.persistOpCtx(persistCtx)
-			_, err := database.GetMessageWithContext(opCtx, req.Origin.ID)
-			cancel()
-			if err != nil {
-				if errors.Is(err, gorm.ErrRecordNotFound) {
-					// Se o turno/mensagem foi removido antes da execução, não execute tools com efeitos colaterais.
-					logging.Warnf(ctx, "toolinvocations.service", "[toolinvocations] chat origin %s deleted before execution; aborting tool execution", strings.TrimSpace(req.Origin.ID))
-					return ExecuteResult{Execution: executionCancelled(req.Call, "Execução cancelada: o item do chat foi removido"), Persisted: false}
-				}
-				// Para falhas transitórias de DB, mantém best-effort e executa sem persistência.
-				logging.Errorf(ctx, "toolinvocations.service", "[toolinvocations] failed to validate chat origin %s; executing without persistence (best-effort): %v", strings.TrimSpace(req.Origin.ID), err)
-				exec := s.executorForRequest(req).ExecuteOne(ctx, req.Call)
-				return ExecuteResult{Execution: exec, Persisted: false}
-			}
+	inv, err := s.beginInvocation(ctx, start)
+	if err != nil {
+		if errors.Is(err, errChatLedgerUnavailable) {
+			return cancelledLedgerUnavailable(req.Call)
 		}
+		return ExecuteResult{Invocation: inv, Execution: executionError(req.Call, "tool invocation persistence unavailable")}
 	}
-
-	queuedAt := s.now()
-	toolCatalogID := req.ToolCatalogID
-	if strings.TrimSpace(toolCatalogID) != "" {
-		opCtx, cancel := s.persistOpCtx(persistCtx)
-		visible, err := s.repo.IsToolCatalogIDVisible(opCtx, toolCatalogID)
-		cancel()
-		if err != nil {
-			logging.Errorf(ctx, "toolinvocations.service", "[toolinvocations] failed to validate tool_catalog_id (best-effort): %v", err)
-			toolCatalogID = ""
-		} else if !visible {
-			logging.Infof(ctx, "toolinvocations.service", "[toolinvocations] tool_catalog_id not visible to user; falling back to resolve by name (best-effort) id=%s", strings.TrimSpace(toolCatalogID))
-			toolCatalogID = ""
-		} else {
-			// Defesa: garante que o ID fornecido corresponde ao nome da tool.
-			opCtx, cancel := s.persistOpCtx(persistCtx)
-			resolved, err := s.repo.ResolveToolCatalogID(opCtx, req.Call.Function.Name)
-			cancel()
-			if err != nil {
-				logging.Errorf(ctx, "toolinvocations.service", "[toolinvocations] failed to verify tool_catalog_id by name (best-effort): %v", err)
-				toolCatalogID = ""
-			} else if strings.TrimSpace(resolved) != "" && resolved != toolCatalogID {
-				logging.Infof(ctx, "toolinvocations.service", "[toolinvocations] tool_catalog_id mismatch for %q; using resolved id", req.Call.Function.Name)
-				toolCatalogID = resolved
-			}
-		}
-	}
-	if toolCatalogID == "" {
-		opCtx, cancel := s.persistOpCtx(persistCtx)
-		id, err := s.repo.ResolveToolCatalogID(opCtx, req.Call.Function.Name)
-		cancel()
-		if err != nil {
-			// Best-effort: não bloqueia execução quando o catálogo está
-			// desatualizado/indisponível. Executa a tool sem persistir.
-			logging.Errorf(ctx, "toolinvocations.service", "[toolinvocations] failed to resolve tool_catalog_id (best-effort): %v", err)
-			exec := s.executorForRequest(req).ExecuteOne(ctx, req.Call)
-			return ExecuteResult{Execution: exec, Persisted: false}
-		}
-		toolCatalogID = id
-	}
-
-	input := s.buildInvocationInput(req.Call)
-	// Encadeamento pai↔filho (AEP-0068): se o chamador não trouxe um
-	// ParentInvocationID explícito, herda o carimbado no ctx (ex.: sub-conversa
-	// de sub-agente herda a invocação da tool `subagent` que a originou).
-	parentInvocationID := req.ParentInvocationID
-	if parentInvocationID == "" {
-		parentInvocationID = ParentInvocationIDFromContext(ctx)
-	}
-	inv := Invocation{
-		ToolCatalogID:      toolCatalogID,
-		OriginType:         req.Origin.Type,
-		OriginID:           req.Origin.ID,
-		ParentInvocationID: parentInvocationID,
-		ToolCallID:         req.Call.ID,
-		Status:             StatusQueued,
-		DryRun:             req.DryRun,
-		Input:              input,
-		Metadata:           s.buildInvocationDisplayMetadata(req.Call, req.Iteration, 0, false),
-		QueuedAt:           queuedAt,
-	}
-	if inv.OriginType == "" {
-		inv.OriginType = OriginChat
-	}
-	if inv.ToolCatalogID == "" {
-		return ExecuteResult{Execution: executionError(req.Call, "tool_catalog_id is required")}
-	}
-
-	opCtx, cancel := s.persistOpCtx(persistCtx)
-	if err := s.repo.Create(opCtx, &inv); err != nil {
-		logging.Errorf(ctx, "toolinvocations.service", "[toolinvocations] failed to create invocation (best-effort): %v", err)
-		inv.ID = ""
-	}
-	cancel()
-	if inv.ID != "" {
-		startedAt := s.now()
-		opCtx, cancel := s.persistOpCtx(persistCtx)
-		if err := s.repo.MarkRunning(opCtx, inv.ID, startedAt); err != nil {
-			logging.Errorf(ctx, "toolinvocations.service", "[toolinvocations] failed to mark running (id=%s): %v", inv.ID, err)
-		} else {
-			inv.StartedAt = &startedAt
-		}
-		cancel()
-	}
-
-	// Carimba o ID da invocação corrente no ctx para que tools que delegam
-	// (ex.: `subagent`) possam encadear suas sub-invocações a este turno.
+	// Somente esta entrada executa tools. Record usa o mesmo ledger sem executor.
 	execCtx := WithCurrentInvocationID(ctx, inv.ID)
-	exec := s.executorForRequest(req).ExecuteOne(execCtx, req.Call)
-	persisted := false
-	if s.repo != nil && inv.ID != "" {
-		// Revalida a origem de chat antes de finalizar. Se o turno/mensagem foi
-		// deletado enquanto a tool estava rodando, apaga a invocação recém-criada
-		// para não deixar registros órfãos.
-		if strings.TrimSpace(inv.OriginType) == OriginChat && strings.TrimSpace(inv.OriginID) != "" {
-			if db := database.DB(); db != nil && db.Migrator().HasTable(&database.ChatMessage{}) {
-				opCtx, cancel := s.persistOpCtx(persistCtx)
-				_, err := database.GetMessageWithContext(opCtx, inv.OriginID)
-				cancel()
-				if err != nil {
-					if errors.Is(err, gorm.ErrRecordNotFound) {
-						opCtx, cancel := s.persistOpCtx(persistCtx)
-						delErr := s.repo.Delete(opCtx, inv.ID)
-						cancel()
-						if delErr != nil {
-							logging.Errorf(ctx, "toolinvocations.service", "[toolinvocations] failed to delete orphan invocation (id=%s): %v", inv.ID, delErr)
-						}
-						return ExecuteResult{Invocation: inv, Execution: exec, Persisted: false}
-					}
-					// Se não conseguimos revalidar por erro transitório, tenta completar a invocação.
-					logging.Warnf(ctx, "toolinvocations.service", "[toolinvocations] warning: failed to revalidate chat origin %s before complete; completing anyway (id=%s): %v", strings.TrimSpace(inv.OriginID), inv.ID, err)
-				}
-			}
-		}
-
-		status, errorMessage := statusForExecution(exec)
-		completedAt := s.now()
-		inv.Status = status
-		inv.Output = s.outputForPersistence(exec.Result)
-		inv.ErrorKind = string(exec.ErrorKind)
-		inv.ErrorCode = exec.ErrorCode
-		inv.ErrorMessage = s.truncateErrorForPersistence(errorMessage)
-		inv.Retryable = exec.Retryable
-		inv.RetryabilityKnown = exec.RetryabilityKnown
-		inv.CompletedAt = &completedAt
-		inv.DurationMs = exec.DurationMs
-		inv.Metadata = s.buildInvocationDisplayMetadata(req.Call, req.Iteration, exec.DurationMs, false)
-		opCtx, cancel := s.persistOpCtx(persistCtx)
-		err := s.repo.Complete(opCtx, inv.ID, &inv)
-		cancel()
-		if err != nil {
-			logging.Errorf(ctx, "toolinvocations.service", "[toolinvocations] failed to complete invocation (id=%s): %v", inv.ID, err)
-			persisted = false
+	var exec tools.ToolExecutionResult
+	guardRejected := false
+	if req.BeforeExecute != nil {
+		guardErr := callBeforeExecute(req.BeforeExecute, execCtx)
+		if execCtx.Err() != nil || errors.Is(guardErr, context.Canceled) || errors.Is(guardErr, context.DeadlineExceeded) {
+			guardRejected = true
+			exec = executionGuardCancelled(req.Call)
+		} else if guardErr != nil {
+			guardRejected = true
+			exec = executionGuardDenied(req.Call)
 		} else {
-			persisted = true
+			exec = s.executorForRequest(req).ExecuteOne(execCtx, req.Call)
 		}
+	} else {
+		exec = s.executorForRequest(req).ExecuteOne(execCtx, req.Call)
 	}
-
-	return ExecuteResult{Invocation: inv, Execution: exec, Persisted: persisted}
+	status, message := statusForExecution(exec)
+	if len(req.SensitivePaths.Input) > 0 || len(req.SensitivePaths.Output) > 0 {
+		message = ""
+	}
+	err = s.finishInvocation(ctx, &inv, start, invocationOutcome{
+		status: status, message: message, result: exec.Result, errorKind: exec.ErrorKind,
+		errorCode: exec.ErrorCode, retryable: exec.Retryable,
+		retryabilityKnown: exec.RetryabilityKnown, durationMs: exec.DurationMs,
+		deleteOnFailure: guardRejected,
+	})
+	return ExecuteResult{Invocation: inv, Execution: exec, Persisted: err == nil}
 }
 
 func (s *Service) executorForRequest(req ExecuteRequest) *tools.Executor {
@@ -276,50 +175,81 @@ func (s *Service) executorForRequest(req ExecuteRequest) *tools.Executor {
 	if s.executor == nil {
 		return nil
 	}
-	if req.ExecutionMaxResultSize <= 0 {
-		return s.executor
-	}
 	cfg := s.executor.Config()
-	if req.ExecutionMaxResultSize == cfg.MaxResultSize {
+	effectiveMax := req.ExecutionMaxResultSize
+	if effectiveMax <= 0 {
+		effectiveMax = cfg.MaxResultSize
+	}
+	expectedGeneration := req.ExpectedToolGeneration
+	if expectedGeneration == 0 {
+		expectedGeneration = cfg.ExpectedToolGeneration
+	}
+	if effectiveMax == cfg.MaxResultSize && req.RequireCompleteResult == cfg.RequireCompleteResult && expectedGeneration == cfg.ExpectedToolGeneration && len(req.SensitivePaths.Output) == 0 {
 		return s.executor
 	}
 	// Config por request: pode aumentar OU reduzir o budget.
-	cfg.MaxResultSize = req.ExecutionMaxResultSize
+	cfg.MaxResultSize = effectiveMax
+	cfg.RequireCompleteResult = req.RequireCompleteResult
+	cfg.ExpectedToolGeneration = expectedGeneration
+	if len(req.SensitivePaths.Output) > 0 {
+		paths := append([]string(nil), req.SensitivePaths.Output...)
+		cfg.PersistedResultRedactor = func(result tools.ToolResult) tools.ToolResult {
+			return redactToolResultForPersistence(result, paths)
+		}
+	}
 	return tools.NewExecutor(s.executor.Registry(), cfg)
 }
 
 func (s *Service) truncateForPersistence(result tools.ToolResult) tools.ToolResult {
 	max := s.persistMaxResultSize
+	if result.Annotations != nil && result.Annotations.OutputWindow != nil &&
+		result.Annotations.OutputWindow.ResultID != "" {
+		window := result.Annotations.OutputWindow
+		if window.HasMore {
+			size := window.OriginalBytes
+			if size <= 0 {
+				size = len(result.Content)
+			}
+			return persistenceOmissionResult(size)
+		}
+		// A última página é conteúdo completo por si só. Preserva-a, mas remove o
+		// identificador do LRU, que não é durável entre hidratações.
+		annotations := *result.Annotations
+		windowCopy := *window
+		windowCopy.ResultID = ""
+		annotations.OutputWindow = &windowCopy
+		result.Annotations = &annotations
+		if result.Metadata != nil {
+			metadata := make(map[string]any, len(result.Metadata))
+			for key, value := range result.Metadata {
+				if key != "result_id" {
+					metadata[key] = value
+				}
+			}
+			result.Metadata = metadata
+		}
+	}
 	if max <= 0 {
 		return result
 	}
 	if len(result.Content) <= max {
 		return result
 	}
+	// A cópia de auditoria nunca persiste prefixos: a hidratação reutiliza este
+	// payload no contexto e não poderia distinguir um corte de um resultado
+	// completo. Vale também para JSON legado ainda não marcado Structured.
+	return persistenceOmissionResult(len(result.Content))
+}
 
-	// Evita mutar o mapa original (ToolResult.Metadata é map por referência).
-	if result.Metadata != nil {
-		result.Metadata = cloneAnyMap(result.Metadata)
+func persistenceOmissionResult(originalBytes int) tools.ToolResult {
+	return tools.ToolResult{
+		Content: "[result_omitted_for_persistence] Resultado exato omitido da cópia de auditoria.",
+		IsError: true,
+		Metadata: map[string]any{
+			"omitted_for_persistence": true,
+			"original_size_bytes":     originalBytes,
+		},
 	}
-
-	// Truncamento UTF-8 safe: replica a semântica do executor.
-	origSize := len(result.Content)
-	warning := fmt.Sprintf(
-		"\n\n[TRUNCADO: resultado original tinha %d bytes, limite é %d bytes]",
-		origSize, max,
-	)
-	contentBudget := max - len(warning)
-	if contentBudget >= 1 {
-		result.Content = truncateUTF8Safe(result.Content, contentBudget) + warning
-	} else {
-		result.Content = truncateUTF8Safe(result.Content, max)
-	}
-	if result.Metadata == nil {
-		result.Metadata = make(map[string]any)
-	}
-	result.Metadata["truncated_for_persistence"] = true
-	result.Metadata["original_size_bytes"] = origSize
-	return result
 }
 
 func (s *Service) truncateErrorForPersistence(message string) string {
@@ -336,14 +266,6 @@ func (s *Service) truncateErrorForPersistence(message string) string {
 		return truncateUTF8Safe(message, budget) + suffix
 	}
 	return truncateUTF8Safe(message, max)
-}
-
-func cloneAnyMap(src map[string]any) map[string]any {
-	out := make(map[string]any, len(src))
-	for k, v := range src {
-		out[k] = v
-	}
-	return out
 }
 
 func truncateUTF8Safe(s string, maxBytes int) string {
@@ -615,132 +537,24 @@ func (s *Service) ExecuteAll(ctx context.Context, calls []tools.ToolCall, origin
 // (por exemplo, MCP nativo executado pelo provedor LLM). Best-effort: não
 // deve falhar o fluxo chamador.
 func (s *Service) Record(ctx context.Context, req RecordRequest) (Invocation, error) {
-	if s == nil || s.repo == nil {
-		return Invocation{}, fmt.Errorf("tool invocation repository not configured")
+	start := invocationStart{
+		call: req.Call, persistedArguments: req.PersistedArguments, origin: req.Origin,
+		sensitivePaths: req.SensitivePaths, parentID: req.ParentInvocationID,
+		toolCatalogID: req.ToolCatalogID, requireCanonical: req.RequireCanonicalToolCatalogID,
+		dryRun:    req.DryRun,
+		iteration: req.Iteration, external: true, observation: req.Observation,
 	}
-
-	// Persistência de invocações externas também deve sobreviver a cancelamento.
-	persistCtx := s.persistCtx(ctx)
-
-	// Defesa best-effort: se a origem do chat já foi deletada, não criar
-	// registros técnicos que ficarão órfãos.
-	if strings.TrimSpace(req.Origin.Type) == OriginChat && strings.TrimSpace(req.Origin.ID) != "" {
-		if db := database.DB(); db != nil && db.Migrator().HasTable(&database.ChatMessage{}) {
-			opCtx, cancel := s.persistOpCtx(persistCtx)
-			_, err := database.GetMessageWithContext(opCtx, req.Origin.ID)
-			cancel()
-			if err != nil {
-				if errors.Is(err, gorm.ErrRecordNotFound) {
-					return Invocation{}, err
-				}
-				logging.Warnf(ctx, "toolinvocations.service", "[toolinvocations] warning: failed to validate chat origin %s for Record; proceeding (best-effort): %v", strings.TrimSpace(req.Origin.ID), err)
-			}
-		}
-	}
-
-	toolCatalogID := strings.TrimSpace(req.ToolCatalogID)
-	if toolCatalogID != "" {
-		opCtx, cancel := s.persistOpCtx(persistCtx)
-		visible, err := s.repo.IsToolCatalogIDVisible(opCtx, toolCatalogID)
-		cancel()
-		if err != nil {
-			return Invocation{}, err
-		}
-		if !visible {
-			toolCatalogID = ""
-		} else {
-			opCtx, cancel := s.persistOpCtx(persistCtx)
-			resolved, err := s.repo.ResolveToolCatalogID(opCtx, req.Call.Function.Name)
-			cancel()
-			if err != nil {
-				// Melhor não persistir sob um ID possivelmente incorreto.
-				toolCatalogID = ""
-			} else if strings.TrimSpace(resolved) != "" && resolved != toolCatalogID {
-				toolCatalogID = resolved
-			}
-		}
-	}
-	if toolCatalogID == "" {
-		opCtx, cancel := s.persistOpCtx(persistCtx)
-		id, err := s.repo.ResolveToolCatalogID(opCtx, req.Call.Function.Name)
-		cancel()
-		if err != nil {
-			return Invocation{}, err
-		}
-		toolCatalogID = id
-	}
-	queuedAt := s.now()
-	inv := Invocation{
-		ToolCatalogID:      toolCatalogID,
-		OriginType:         req.Origin.Type,
-		OriginID:           req.Origin.ID,
-		ParentInvocationID: "",
-		ToolCallID:         req.Call.ID,
-		Status:             StatusQueued,
-		DryRun:             req.DryRun,
-		Input:              s.buildInvocationInput(req.Call),
-		QueuedAt:           queuedAt,
-	}
-	if inv.OriginType == "" {
-		inv.OriginType = OriginChat
-	}
-
-	opCtx, cancel := s.persistOpCtx(persistCtx)
-	if err := s.repo.Create(opCtx, &inv); err != nil {
-		cancel()
-		return inv, err
-	}
-	cancel()
-	startedAt := s.now()
-	opCtx, cancel = s.persistOpCtx(persistCtx)
-	if err := s.repo.MarkRunning(opCtx, inv.ID, startedAt); err != nil {
-		logging.Errorf(ctx, "toolinvocations.service", "[toolinvocations] failed to mark running (id=%s): %v", inv.ID, err)
-	} else {
-		inv.StartedAt = &startedAt
-	}
-	cancel()
-	status, errorMessage := statusForRecord(req)
-	completedAt := s.now()
-	inv.Status = status
-	inv.Output = s.outputForPersistence(req.Result)
-	inv.ErrorKind = string(req.ErrorKind)
-	inv.ErrorCode = req.ErrorCode
-	inv.ErrorMessage = s.truncateErrorForPersistence(errorMessage)
-	inv.Retryable = req.Retryable
-	inv.RetryabilityKnown = req.RetryabilityKnown
-	inv.CompletedAt = &completedAt
-	inv.DurationMs = req.DurationMs
-	inv.Metadata = s.buildInvocationDisplayMetadata(req.Call, req.Iteration, req.DurationMs, true)
-
-	// Revalida a origem do chat antes de finalizar. Native MCP pode correr com
-	// deleção de turno/mensagem após o pre-check do chamador.
-	if strings.TrimSpace(inv.OriginType) == OriginChat && strings.TrimSpace(inv.OriginID) != "" {
-		if db := database.DB(); db != nil && db.Migrator().HasTable(&database.ChatMessage{}) {
-			opCtx, cancel := s.persistOpCtx(persistCtx)
-			_, err := database.GetMessageWithContext(opCtx, inv.OriginID)
-			cancel()
-			if err != nil {
-				if errors.Is(err, gorm.ErrRecordNotFound) {
-					opCtx, cancel := s.persistOpCtx(persistCtx)
-					delErr := s.repo.Delete(opCtx, inv.ID)
-					cancel()
-					if delErr != nil {
-						logging.Errorf(ctx, "toolinvocations.service", "[toolinvocations] failed to delete orphan recorded invocation (id=%s): %v", inv.ID, delErr)
-					}
-					return inv, err
-				}
-				logging.Warnf(ctx, "toolinvocations.service", "[toolinvocations] warning: failed to revalidate chat origin %s before completing Record; completing anyway (id=%s): %v", strings.TrimSpace(inv.OriginID), inv.ID, err)
-			}
-		}
-	}
-	opCtx, cancel = s.persistOpCtx(persistCtx)
-	err := s.repo.Complete(opCtx, inv.ID, &inv)
-	cancel()
+	inv, err := s.beginInvocation(ctx, start)
 	if err != nil {
-		logging.Errorf(ctx, "toolinvocations.service", "[toolinvocations] failed to complete recorded invocation (id=%s): %v", inv.ID, err)
 		return inv, err
 	}
-	return inv, nil
+	status, message := statusForRecord(req)
+	err = s.finishInvocation(ctx, &inv, start, invocationOutcome{
+		status: status, message: message, result: req.Result, errorKind: req.ErrorKind,
+		errorCode: req.ErrorCode, retryable: req.Retryable,
+		retryabilityKnown: req.RetryabilityKnown, durationMs: req.DurationMs,
+	})
+	return inv, err
 }
 
 func (s *Service) buildInvocationDisplayMetadata(call tools.ToolCall, iteration int, durationMs int64, external bool) json.RawMessage {
@@ -749,6 +563,33 @@ func (s *Service) buildInvocationDisplayMetadata(call tools.ToolCall, iteration 
 		arguments = redactArgumentsJSON(call.Function.Arguments)
 	}
 	return buildInvocationDisplayMetadata(call, arguments, iteration, durationMs, external, s.persistMaxInputSize)
+}
+
+// buildInvocationMetadata acrescenta somente o contrato de apresentação
+// explicitamente emitido por buscas nativas. Nunca promove metadata genérica
+// nem conteúdo de integrações MCP para a camada de interface.
+func (s *Service) buildInvocationMetadata(call tools.ToolCall, iteration int, durationMs int64, external bool, result tools.ToolResult) json.RawMessage {
+	base := s.buildInvocationDisplayMetadata(call, iteration, durationMs, external)
+	if external {
+		return base
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(base, &payload); err != nil || payload == nil {
+		return base
+	}
+	if call.Function.Name == "search_files" || call.Function.Name == "grep_search" {
+		if presentation, ok := result.Metadata[tools.SearchResultPresentationMetadataKey].(tools.SearchResultPresentation); ok && presentation.Version == 1 {
+			payload[tools.SearchResultPresentationMetadataKey] = presentation
+		}
+	}
+	if signals, ok := result.Metadata[tools.SecuritySignalsMetadataKey].([]tools.SecuritySignal); ok && len(signals) > 0 {
+		payload[tools.SecuritySignalsMetadataKey] = signals
+	}
+	merged, err := json.Marshal(payload)
+	if err != nil {
+		return base
+	}
+	return merged
 }
 
 func buildInvocationDisplayMetadata(call tools.ToolCall, arguments string, iteration int, durationMs int64, external bool, maxBytes int) json.RawMessage {
@@ -891,6 +732,33 @@ func executionError(call tools.ToolCall, message string) tools.ToolExecutionResu
 	}
 }
 
+func callBeforeExecute(guard func(context.Context) error, ctx context.Context) (err error) {
+	defer func() {
+		if recover() != nil {
+			err = errors.New("execution guard panicked")
+		}
+	}()
+	return guard(ctx)
+}
+
+func executionGuardDenied(call tools.ToolCall) tools.ToolExecutionResult {
+	return tools.ToolExecutionResult{
+		CallID: call.ID, ToolName: call.Function.Name,
+		Result:    tools.ToolResult{Content: "Execução da tool não autorizada", IsError: true},
+		ErrorKind: tools.ErrorKindAuthorization, ErrorCode: "execution_guard_denied",
+		RetryabilityKnown: true,
+	}
+}
+
+func executionGuardCancelled(call tools.ToolCall) tools.ToolExecutionResult {
+	return tools.ToolExecutionResult{
+		CallID: call.ID, ToolName: call.Function.Name,
+		Result:    tools.ToolResult{Content: "Execução da tool cancelada", IsError: true},
+		ErrorKind: tools.ErrorKindCancelled, ErrorCode: "execution_guard_cancelled",
+		RetryabilityKnown: true,
+	}
+}
+
 func executionCancelled(call tools.ToolCall, message string) tools.ToolExecutionResult {
 	if strings.TrimSpace(message) == "" {
 		message = "Execução cancelada"
@@ -909,8 +777,11 @@ func executionCancelled(call tools.ToolCall, message string) tools.ToolExecution
 	}
 }
 
-func (s *Service) outputForPersistence(result tools.ToolResult) json.RawMessage {
+func (s *Service) outputForPersistence(result tools.ToolResult, sensitivePaths ...[]string) json.RawMessage {
 	max := s.persistMaxResultSize
+	if len(sensitivePaths) > 0 {
+		result = redactToolResultForPersistence(result, sensitivePaths[0])
+	}
 	trimmed := s.truncateForPersistence(result)
 	data := resultOutput(trimmed)
 	if max <= 0 || len(data) <= max {
@@ -918,47 +789,33 @@ func (s *Service) outputForPersistence(result tools.ToolResult) json.RawMessage 
 	}
 
 	// Primeiro fallback: dropa metadata, que pode explodir o payload.
-	trimmed.Metadata = nil
+	trimmed.Metadata = map[string]any{"omitted_for_persistence": true}
 	data = resultOutput(trimmed)
 	if len(data) <= max {
 		return data
 	}
 
-	// Fallback final: reduz content até caber no JSON (UTF-8 safe).
-	origSize := len(data)
-	warning := fmt.Sprintf(
-		"\n\n[TRUNCADO: payload serializado tinha %d bytes, limite é %d bytes]",
-		origSize,
-		max,
-	)
-	content := trimmed.Content
-	// Começa com um budget razoável; ajusta iterativamente com base no marshal.
-	budget := max
-	for attempt := 0; attempt < 4; attempt++ {
-		candidate := truncateUTF8Safe(content, budget)
-		trimmed.Content = candidate + warning
-		data = resultOutput(trimmed)
-		if len(data) <= max {
+	// Se metadata/anotações fizeram o payload exceder o teto, não remova o
+	// contrato e apresente o corpo como completo: persista omissão explícita.
+	return minimalPersistenceOutput(max)
+}
+
+func minimalPersistenceOutput(max int) json.RawMessage {
+	candidates := []map[string]any{{
+		"content":  "Output omitido da cópia de auditoria por exceder o limite de persistência.",
+		"is_error": true,
+		"metadata": map[string]any{"omitted_for_persistence": true},
+	}, {
+		"content":  "[result_omitted_for_persistence]",
+		"is_error": true,
+	}}
+	for _, candidate := range candidates {
+		data, _ := json.Marshal(candidate)
+		if max <= 0 || len(data) <= max {
 			return data
 		}
-		over := len(data) - max
-		budget -= over + 64
-		if budget < 1 {
-			break
-		}
 	}
-
-	// Último recurso: JSON mínimo válido.
-	isErr := result.IsError
-	minimal, _ := json.Marshal(map[string]any{
-		"content":  "[TRUNCADO: output excedeu limite de persistência]",
-		"is_error": isErr,
-	})
-	if len(minimal) > 0 {
-		return minimal
-	}
-	if isErr {
-		return json.RawMessage(`{"content":"[TRUNCADO]","is_error":true}`)
-	}
-	return json.RawMessage(`{"content":"[TRUNCADO]","is_error":false}`)
+	// Um valor JSON escalar de um byte cabe em qualquer teto positivo e não se
+	// confunde com ToolResult vazio. O hidratador o reconhece como omissão.
+	return json.RawMessage(persistenceOmissionSentinel)
 }

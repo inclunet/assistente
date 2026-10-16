@@ -4,6 +4,114 @@
 
 ## Dependências
 
+Continuação AEP-0112 (Slack): o bloco opcional cifrado também transporta a
+credencial estática composta de bot/app token numa única entrada lógica
+`channel:slack:connection`. Não transporta IDs locais de usuário/consumidor:
+a restauração cria o vínculo local atomicamente, mantém novos canais desativados
+e exige decisão de conflito para sobrescrever uma conexão existente. Não exporta
+configurações/contatos de canais. Os papéis ficam exclusivamente no blob protegido
+por senha; `TestStaticConnectionPasswordBackupRoundTripAndConflict` cobre opção,
+senha, ausência de plaintext, isolamento e restauração sem par de linhas.
+
+Continuação AEP-0112: novos cadastros OAuth de backups canônicos e arquivos
+históricos são restaurados desativados, com conexão automática desligada e
+aviso de recuperação. Metadados e credenciais presentes são preservados, sem
+invenção de grant nem conversão silenciosa. Slugs existentes não são alterados.
+A criação e os flags de recuperação são atômicos; STDIO/Bearer não mudam.
+
+Integração AEP-0112: JSON externo Cursor/Claude com MCP HTTP sem Bearer explícito
+cria servidor e autorização OAuth pendente atomicamente no cofre compartilhado.
+A importação não abre consentimento e desativa a conexão automática inicial.
+STDIO/Bearer e backups históricos mantêm os contratos anteriores; detalhes e
+testes estão na seção de importação externa do AEP-0112. O status deste AEP
+permanece In Progress pelas pendências de acessibilidade já registradas.
+
+Continuação AEP-0103 (17/09/2026, seção 45): a exportação comum de camadas
+está disponível no painel de Dados. Usa o envelope v2 exclusivo de comandos,
+sem valores de credenciais e sem fallback de backup parcial. A fachada delega
+ao host autenticado; o teste real exporta global+workspace e importa como
+cópia com decisões e publicação. O fluxo sensível segue pendente como ação
+separada de UI; não se promove IncludeCredentials no export comum. A rota
+de importação atual ainda recusa envelopes mistos com credenciais.
+
+Continuação AEP-0103 (17/09/2026, seção 44): a entrada desktop de importação
+de `resources.commandLayers` usa a sessão local revalidada e o pipeline
+transacional comum, sem JWT fornecido pela UI. A fachada existente encaminha
+esses arquivos antes do restore genérico; recursos misturados, mesmo vazios,
+são recusados. A tela de Dados oferece política explícita, nomes e mapeamento
+de workspaces, aguarda as confirmações e apresenta relatório redigido.
+Commit sem publicação retorna relatório e não é repetido automaticamente.
+A exportação pública/sensível permanece pendente. As notas seguintes são
+históricas; não descrevem mais a disponibilidade atual da importação desktop.
+
+Continuação AEP-0103 (17/09/2026, seção 43): o envelope de lote retorna
+relatório redigido do plano aplicado, com destinos reais de cópias, escolhas
+keep/replace/copy e avisos agregados por código. Não expõe argumentos,
+patterns de credenciais ou conteúdo de outro usuário. No-op é explícito;
+rollback não retorna relatório de sucesso. Ainda não habilita a fachada
+genérica ou UI: falta a composição desktop autenticada completa.
+
+Continuação AEP-0103 (17/09/2026, seção 42): lote composto no applier
+interno do App. Após a única transação, reconstrói uma vez a união do
+workspace ativo e revalida todos os escopos alterados. O resultado distingue
+commit persistido de publicação concluída, sem repetição automática em caso
+de falha pós-commit. Isso não publica a API/UX genérica nem a exportação
+sensível. As limitações das notas anteriores são históricas.
+
+Continuação AEP-0103 (17/09/2026, seção 41): `ApplyCommandEnvelopeBatch`
+adiciona importação interna global+workspaces, com o mesmo parser estrito
+e limite de 64 KiB. Até 64 escopos, resolvidos explicitamente e autorizados
+antes de qualquer leitura de configuração. Há uma decisão por escopo alterado,
+todas antes da única transação que consome os receipts e grava dados/gerações/
+auditorias; negar qualquer decisão impede o lote inteiro. Keep integral não
+abre decisões. O serviço valida também a união final dos escopos; workspaces
+são aplicados antes do global para preservar seus CAS de dados herdados.
+O envelope continua recusando credenciais e recursos misturados. Ainda não
+monta o lote no applier/App/UI nem habilita exportação sensível. Notas de
+rodadas anteriores abaixo descrevem as limitações existentes naquelas datas.
+
+Continuação AEP-0103 (17/09/2026, seção 40 da tasklist): o applier interno
+do App recebe o envelope pelo mesmo pipeline de confirmação e reconstrução
+das mutações comuns. Owner vem do token autenticado, sobrescrevendo eventual
+marker no contexto. Posse de UUIDs, conflitos de nome e disponibilidade de
+patterns usam portas SQL reais do destino; não há leitura/descriptografia
+de tokens. Isso não habilita ainda a API genérica, lotes multi-escopo nem
+exportação de conteúdo sensível.
+
+Rodada de quinze pacotes AEP-0103 (15/09/2026): `ExportCommandEnvelope` e
+`ApplyCommandEnvelope` compõem o envelope v1/v2 com o writer confirmado, sem
+novo caminho de persistência. Export requer escopo previamente autorizado pelo
+host; import revalida autoridade e referências. JSON duplicado, campos estranhos,
+recursos misturados e credenciais são recusados. O limite interno é 64 KiB e um
+escopo por aplicação. A cobertura entre bancos temporários não habilita a UI
+genérica, lotes multi-escopo ou exportação sensível criptografada.
+
+Na rodada de dez frentes de 15/09/2026, o round-trip interno passou a exercitar
+ExportFromStore → ApplyPlanImport → Store real, com deltas builtin,
+`needs_review`, global e workspace. Keep não abre decisão; Replace restaura
+personalizações; Copy exige nome escolhido, gera novos IDs e remapeia bindings
+para a camada copiada, preservando o global. A sessão desse teste é uma porta
+de autenticação controlada, não transporte público/JWT ponta a ponta.
+O import/export genérico continua recusando commandLayers: essa cobertura não
+habilita a UI nem encerra atomicidade multi-escopo ou export sensível.
+
+Na continuação de 15/09/2026, testes do writer interno confirmam que referência
+ausente falha antes da decisão e erro do hook desfaz o lote. Keep sem mudanças
+não grava nem solicita decisão; a API retorna `ErrNoChanges` para esse no-op
+validado, sem mascarar owner ou referências revogados. Teste transacional do
+writer confirmado comprova regra de evento importada desabilitada e sem grants/claims.
+Lote global+workspace é recusado pela API atual de escopo único. Atomicidade
+multi-escopo e UX pública seguem pendentes, sem escritor paralelo.
+
+**Integração AEP-0103 (15/09/2026):** `commandportability.ApplyPlanImport`
+encaminha o plano ao writer comum confirmado de configuração. Receipt, auditoria
+`config_import` (migração 27), geração e alterações são transacionais; referências
+são revalidadas no gate final. Keep preserva destino, Replace substitui filhos e
+Copy remapeia IDs. O escopo workspace não pode alterar globals herdados.
+Grants/claims não são importados e regras de eventos importadas ficam desabilitadas.
+Este é um caminho interno: envelope público, lote multi-escopo, idempotência completa
+e UI ainda não estão habilitados. Não equivale a backup funcional de comandos no produto.
+
 - **AEP-0046** (Migração de IDs sequenciais para UUIDv7): o formato canônico
   usa IDs estáveis. O export publicado pela 0.1.9, com IDs numéricos, permanece
   aceito por um adaptador de entrada para cumprir a política de upgrade
@@ -49,7 +157,7 @@ Ficam explicitamente fora do escopo desta PR os recursos que ainda vivem em arqu
 
 O pacote `internal/portability` também é responsável por orquestrar importações legadas de arquivos quando um recurso passa a ser persistido no banco. Cada recurso fornece apenas source/parser/importer específicos; o loop de descoberta, leitura read-only, idempotência e relatório de resultado permanece compartilhado para ser reaproveitado por recursos futuros, como skills. O gatilho dessas importações fica em uma fase global pós-login no app, antes dos managers carregarem seus runtimes do banco.
 
-A AEP-0048 usa esse mecanismo para importar definições de jobs, tags, pipelines implícitas e triggers do filesystem para o banco. Logs legados de runs e eventos são descartados e não entram na migração. Tags passam a ser recurso compartilhado do app e podem ser exportadas/importadas como catálogo + associações por recurso. A AEP-0063 não exporta `tool_invocations` como histórico permanente por padrão: são logs técnicos efêmeros, sujeitos a retenção.
+A AEP-0048 usa esse mecanismo para importar definições de jobs, tags, pipelines implícitas e triggers do filesystem para o banco. Logs legados de runs e eventos são descartados e não entram na migração. Tags passam a ser recurso compartilhado do app e podem ser exportadas/importadas como catálogo + associações por recurso. A AEP-0104 distingue invocações operacionais efêmeras das invocações de chat que compõem a conversa: o export de conversa inclui estas últimas em bloco canônico próprio, enquanto logs de jobs/dry-run continuam fora por padrão.
 
 ### D1 — Formato: JSON versionado com IDs estáveis
 
@@ -405,6 +513,39 @@ Cada recurso implementa essas interfaces. Adicionar um novo tipo requer apenas r
 
 Até que as migrações arquiteturais das AEP-0046, AEP-0048, AEP-0050, AEP-0051 e AEP-0052 sejam concluídas, esta extensibilidade permanece como direção de evolução, não como requisito de implementação imediata desta PR.
 
+### Adendo de implementação AEP-0103 — commandLayers (15/09/2026)
+
+O envelope registra `resources.commandLayers`; seu DTO e planejamento puro
+ficam em `internal/commandportability`. O DTO exclui owner, grants, receipts,
+claims e histórico. O planejamento mantém/desabilita/substitui/copia referências
+sem escrever no banco, exige autorização do workspace de destino e usa o
+catálogo completo para validar paths sensíveis. Referência de credencial usa
+pattern exato, não ID local nem segredo bruto; regra event-driven não recebe
+concessão por importação.
+
+O export canônico passa a emitir versão 2. O envelope versão 1 anteriormente
+emitido é normalizado para versão 2 no parser, sem regenerar IDs; análise e
+importação real desse formato têm regressão. Versões futuras continuam
+recusadas. O adaptador do formato histórico publicado permanece preservado.
+
+Fechamento adicional de gaps (15/09/2026): o formato interno representa
+personalizações sobre builtin em contêiner por escopo com `deltaOnly: true`,
+sem ID/nome de camada e com `builtinDeltas`/`builtinRuleDeltas`. O discriminador
+é explícito; não se cria camada persistente fictícia. Export completo inclui
+esses contêineres; seleção explícita de camadas user não agrega personalizações
+builtin não solicitadas. Referências de camada, default substituído e regra
+builtin usam consultas distintas. Mapeamento de workspaces revalida unicidade
+no destino; cópia não duplica silenciosamente a chave natural de regra builtin.
+Metadados de revisão permanecem portáveis e regras event-driven continuam sem
+grant e desabilitadas no plano. Nenhuma dessas operações puras autoriza commit.
+
+Implementação parcial: faltam writer
+transacional confirmado pelo serviço comum e ligação à UI. O import/export
+genérico recusa commandLayers enquanto essas portas não estiverem montadas;
+não retorna falso sucesso nem exporta subconjunto como backup completo. Plano
+mutável não é prova de autorização. O fluxo sensível criptografado existente
+não foi ampliado para permitir segredo bruto em binding.
+
 ### D14 — Avisos e erros da importação viajam como código, não como texto
 
 O backend não sabe em que idioma a tela está, e o arquivo importado tampouco.
@@ -474,6 +615,19 @@ type LocalizedMessage struct {
 23. Testes Go: recursos fora do escopo no import geram warning; recursos fora do escopo no export são rejeitados.
 24. Testes frontend: modais de export/import, seleção DB-only, senha de credenciais, preview e warnings.
 
+### Fase 6 — Invocações canônicas de conversa ✅
+
+25. [x] Adicionar bloco `toolInvocations` ao export v2 sem recolocar dados técnicos
+    em mensagens.
+26. [x] Converter `toolCalls`/`toolCallId` de arquivos antigos durante o import.
+27. [x] Garantir roundtrip, idempotência, ownership e rich export pelo ledger.
+
+Evidência: `internal/portability/service.go` exporta e importa o bloco
+user-scoped, cria catálogo archival não executável para histórico importado e
+não recria `role=tool`; `service_test.go` cobre roundtrip integral. Os
+renderizadores em `render.go` projetam o ledger em HTML/PDF/Markdown sem
+alterar o JSON canônico.
+
 ## Riscos
 
 | # | Risco | Probabilidade | Impacto | Mitigação |
@@ -507,3 +661,7 @@ DB-only descrito em D0.
 13. **i18n**: todas as strings de UI novas existem nos 3 locales.
 14. **Acessibilidade**: modais de export/import são navegáveis por teclado, com foco gerenciado e feedback via announcer/toast.
 15. **Avisos e erros traduzíveis**: a lista de avisos, erros e motivos de conflito sai do backend com código e parâmetros (D14), aparece na tela e no announcer no idioma escolhido e cai no texto de reserva quando o código é desconhecido.
+
+## Exceção deliberada AEP-0110 — credenciais
+
+A decisão do mantenedor em [AEP-0110](0110-fontes-explicitas-de-credenciais.md) exige source explícita e reconfiguração manual das credenciais antigas. Schema e demais recursos mantêm sua política de upgrade. O bloco cifrado de exportação preserva Source/SourceConfig sem executar a fonte; a importação de credenciais sem source é recusada. A cobertura está em TestCredentialSourceExportImportRoundTrip. O status geral desta AEP permanece inalterado.

@@ -11,16 +11,20 @@ import (
 	"sync"
 	"time"
 
+	"assistente/internal/commandjobactivation"
+	"assistente/internal/commandmaintenance"
 	"assistente/internal/config"
 	"assistente/internal/database"
 	"assistente/internal/eventctx"
 	"assistente/internal/hotkey"
+	"assistente/internal/jobprofilegrant"
 	"assistente/internal/mcp"
 	"assistente/internal/messaging"
 	"assistente/internal/toolinvocations"
 	"assistente/internal/tools"
 
 	"github.com/google/uuid"
+	nativehotkey "golang.design/x/hotkey"
 )
 
 var (
@@ -36,34 +40,123 @@ type SecretStore interface {
 	GetSecret(ctx context.Context, key string) (string, error)
 }
 
+// HotkeyRegistrar é a fronteira mínima entre o Manager e o adaptador físico.
+// O callback só é produzido pelo registrador confiável; payloads externos não
+// participam da criação do TriggerContext.
+type HotkeyRegistrar interface {
+	Register(modifiers []nativehotkey.Modifier, key nativehotkey.Key, callback hotkey.HotkeyCallback) (int, error)
+	Unregister(id int) error
+}
+
 // ManagerConfig contem as dependencias externas do Manager.
 type ManagerConfig struct {
-	BaseDir         string // Diretório legado usado apenas como fonte da importação inicial.
-	Repository      Repository
-	ContextProvider func() context.Context
-	ToolRegistry    *tools.Registry
-	ToolInvocations *toolinvocations.Service
-	HotkeyManager   *hotkey.Manager
-	MsgGateway      *messaging.Gateway
-	SecretStore     SecretStore
-	EmitEvent       func(event string, data any) // Wails EventsEmit
+	BaseDir               string // Diretório legado usado apenas como fonte da importação inicial.
+	Repository            Repository
+	ContextProvider       func() context.Context
+	ToolRegistry          *tools.Registry
+	ToolInvocations       *toolinvocations.Service
+	HotkeyManager         HotkeyRegistrar
+	DispatchCommandHotkey func(context.Context, CommandHotkeyOccurrence) error
+	MsgGateway            *messaging.Gateway
+	SecretStore           SecretStore
+	JobProfileGrants      *jobprofilegrant.Store
+	EmitEvent             func(event string, data any) // Wails EventsEmit
+	// MaintenanceCoordinator é opcional durante a migração do bootstrap. Quando
+	// fornecido, ele é o único dono da passagem; sem ele permanece a cadência
+	// legada, sem criar um segundo loop.
+	MaintenanceCoordinator *commandmaintenance.Coordinator
+	CommandRuntimeIdentity func(context.Context) (commandjobactivation.RuntimeIdentity, context.Context, func(), error)
+	// MaxConcurrentRuns limita quantas execuções automáticas de job rodam ao
+	// mesmo tempo (scheduler + cadeias de evento). <= 0 usa
+	// defaultMaxConcurrentRuns. Ver AEP-0106.
+	MaxConcurrentRuns int
+}
+
+// defaultMaxConcurrentRuns é o teto padrão de execuções automáticas de job
+// simultâneas. Alinhado ao pool do SQLite (sqliteMaxOpenConns=4): o fan-out sem
+// limite do EventBus disparava dezenas de runs concorrentes contra 1 writer
+// SQLite, causando SLOW SQL/SQLITE_BUSY e "context deadline exceeded" que
+// ABORTAVAM tools e jobs (ver AEP-0106). Limitar a concorrência na raiz remove a
+// tempestade sem sacrificar o encadeamento (o publicador não espera o run
+// downstream). Configurável via ManagerConfig.MaxConcurrentRuns.
+const defaultMaxConcurrentRuns = 4
+
+// runLimiter é um semáforo de contagem (canal com buffer) que limita execuções
+// concorrentes de job. É imutável após a criação, então pode ser lido no hot
+// path sem lock — evitando qualquer deadlock com o Stop (que segura m.mu ao
+// drenar o EventBus).
+type runLimiter struct {
+	sem chan struct{}
+}
+
+func newRunLimiter(max int) *runLimiter {
+	if max <= 0 {
+		max = defaultMaxConcurrentRuns
+	}
+	return &runLimiter{sem: make(chan struct{}, max)}
+}
+
+// acquire reserva um slot, respeitando o cancelamento do contexto. Retorna false
+// quando o ctx é cancelado antes de conseguir o slot (nesse caso NÃO se deve
+// executar nem chamar release).
+func (l *runLimiter) acquire(ctx context.Context) bool {
+	if l == nil || l.sem == nil {
+		return true
+	}
+	// Se o contexto já está cancelado, aborta sem reservar slot. Sem esse guard,
+	// com slot livre E ctx cancelado os dois cases do select ficam prontos e o Go
+	// escolhe um ao acaso, podendo executar um run já cancelado (viola AEP-0106).
+	if ctx.Err() != nil {
+		return false
+	}
+	select {
+	case l.sem <- struct{}{}:
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
+// release devolve um slot. Só deve ser chamado após um acquire bem-sucedido.
+func (l *runLimiter) release() {
+	if l == nil || l.sem == nil {
+		return
+	}
+	select {
+	case <-l.sem:
+	default:
+	}
 }
 
 // Manager orquestra todos os componentes do sistema de jobs.
 type Manager struct {
-	cfg            ManagerConfig
-	registry       *Registry
-	eventBus       *EventBus
-	scheduler      *Scheduler
-	executor       *JobExecutor
-	circuitBreaker *CircuitBreaker
-	hotkeyIDs      map[string][]int // jobID -> hotkey IDs registrados
-	retentionStop  chan struct{}
-	mu             sync.Mutex
-	started        bool
-	compactMu      sync.Mutex
-	lastCompaction time.Time
-	compacting     bool
+	cfg                       ManagerConfig
+	registry                  *Registry
+	eventBus                  *EventBus
+	scheduler                 *Scheduler
+	executor                  *JobExecutor
+	circuitBreaker            *CircuitBreaker
+	hotkeyIDs                 map[string][]int // jobID -> hotkey IDs registrados
+	retentionStop             chan struct{}
+	retentionCancel           context.CancelFunc
+	retentionDone             chan struct{}
+	stopping                  chan struct{}
+	mu                        sync.Mutex
+	initialChatRetentionError error // protegido por mu; diagnóstico da última partida efetiva
+	runtimeMu                 sync.Mutex
+	triggerMu                 sync.Mutex
+	hotkeyLifetimeMu          sync.Mutex
+	hotkeyLifetimes           map[string]map[int]*hotkeyRegistrationLifetime
+	started                   bool
+	compactMu                 sync.Mutex
+	commandRuntimeMu          sync.Mutex
+	commandRuntime            map[string]commandRuntimeEntry
+	commandRuntimeAccepting   bool
+	commandRuntimeToken       uint64
+	commandMaintenanceClosed  bool
+	lastCompaction            time.Time
+	compacting                bool
+	runLimiter                *runLimiter
 }
 
 // NewManager cria um Manager com todas as dependencias.
@@ -73,25 +166,38 @@ func NewManager(cfg ManagerConfig) *Manager {
 	circuitBreaker := NewCircuitBreaker()
 
 	m := &Manager{
-		cfg:            cfg,
-		registry:       registry,
-		eventBus:       eventBus,
-		circuitBreaker: circuitBreaker,
-		hotkeyIDs:      make(map[string][]int),
+		cfg:             cfg,
+		registry:        registry,
+		eventBus:        eventBus,
+		circuitBreaker:  circuitBreaker,
+		hotkeyIDs:       make(map[string][]int),
+		hotkeyLifetimes: make(map[string]map[int]*hotkeyRegistrationLifetime),
+		runLimiter:      newRunLimiter(cfg.MaxConcurrentRuns),
 	}
 
-	// Cria o executor com as dependencias
-	m.executor = NewJobExecutor(ExecutorConfig{
-		ToolRegistry:    cfg.ToolRegistry,
-		ToolInvocations: cfg.ToolInvocations,
-		EventBus:        eventBus,
-		Repository:      cfg.Repository,
-		CircuitBreaker:  circuitBreaker,
-		SecretStore:     cfg.SecretStore,
-		NotifyFunc:      m.notifyChannels,
-		OnRunStart:      m.onRunStart,
-		OnRunEnd:        m.onRunEnd,
+	// Monta o executor somente com o ledger canônico disponível. Ausência dessa
+	// dependência é erro de wiring e deve interromper a inicialização, não
+	// degradar para execução direta.
+	executor, err := NewJobExecutor(ExecutorConfig{
+		ToolRegistry:             cfg.ToolRegistry,
+		ToolInvocations:          cfg.ToolInvocations,
+		EventBus:                 eventBus,
+		Repository:               cfg.Repository,
+		CircuitBreaker:           circuitBreaker,
+		SecretStore:              cfg.SecretStore,
+		NotifyFunc:               m.notifyChannels,
+		OnRunStart:               m.onRunStart,
+		OnRunEnd:                 m.onRunEnd,
+		CommandRuntimeIdentity:   cfg.CommandRuntimeIdentity,
+		CommandJobServiceContext: m.commandJobServiceContext,
+		CommandRuntimeToken:      m.commandRuntimeTokenValue,
+		OnCommandRuntimeStart:    m.registerCommandRuntime,
+		OnCommandRuntimeEnd:      m.unregisterCommandRuntime,
 	})
+	if err != nil {
+		panic(err)
+	}
+	m.executor = executor
 
 	// Cria o scheduler com a funcao de execucao
 	m.scheduler = NewScheduler(m.executeJob)
@@ -103,10 +209,19 @@ func NewManager(cfg ManagerConfig) *Manager {
 func (m *Manager) Start() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.stopping != nil {
+		return ErrCommandMaintenanceBusy
+	}
+	if m.commandMaintenanceClosed {
+		return ErrCommandMaintenanceUnavailable
+	}
+	m.runtimeMu.Lock()
+	defer m.runtimeMu.Unlock()
 
 	if m.started {
 		return nil
 	}
+	m.initialChatRetentionError = nil
 
 	if m.cfg.Repository == nil {
 		return fmt.Errorf("jobs repository not configured")
@@ -117,6 +232,13 @@ func (m *Manager) Start() error {
 	}
 
 	ctx := m.context()
+	if reconciler, ok := m.cfg.Repository.(interface {
+		ReconcileUnauthorizedJobs(context.Context) error
+	}); ok {
+		if err := reconciler.ReconcileUnauthorizedJobs(ctx); err != nil {
+			return fmt.Errorf("reconcile unauthorized jobs: %w", err)
+		}
+	}
 	jobs, err := m.cfg.Repository.ListJobs(ctx, JobFilter{})
 	if err != nil {
 		return fmt.Errorf("load jobs from database: %w", err)
@@ -136,36 +258,69 @@ func (m *Manager) Start() error {
 
 	// Inicia o scheduler
 	m.scheduler.Start()
-	m.runRetention(ctx)
-	m.startRetentionLoop(ctx)
-
+	m.enableCommandRuntimeTracking()
+	// Portas de manutenção podem consultar o runtime. Não as execute sob
+	// mu/runtimeMu de Start: a passagem inicial pertence ao mesmo loop que
+	// Stop cancela e drena. O caminho legado mantém sua inicialização atual.
+	if m.cfg.MaintenanceCoordinator == nil {
+		m.initialChatRetentionError = m.runRetentionWithChatError(ctx)
+	}
 	m.started = true
+	m.startRetentionLoop(ctx)
 	logging.Infof(context.Background(), "jobs.manager", "[Jobs] Manager started")
 	return nil
+}
+
+// InitialChatRetentionError retorna somente o diagnóstico da retenção inicial
+// legada de chat. Não indica falha do scheduler nem aguarda manutenção coordenada.
+func (m *Manager) InitialChatRetentionError() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.initialChatRetentionError
 }
 
 // Stop para todos os componentes.
 func (m *Manager) Stop() {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if !m.started {
-		m.registry.Clear()
-		m.circuitBreaker.Reset()
+	if stopped := m.stopping; stopped != nil {
+		m.mu.Unlock()
+		<-stopped
 		return
 	}
-
-	if m.retentionStop != nil {
-		close(m.retentionStop)
-		m.retentionStop = nil
+	stopped := make(chan struct{})
+	m.stopping = stopped
+	done := m.retentionDone
+	retentionStop := m.retentionStop
+	retentionCancel := m.retentionCancel
+	// A passagem pode precisar de locks do Manager para encerrar. Primeiro
+	// cancela e aguarda fora deles, mantendo Start/remontagem bloqueados.
+	m.mu.Unlock()
+	if retentionCancel != nil {
+		retentionCancel()
 	}
-	m.scheduler.Stop()
-	m.eventBus.Close()
-	m.unregisterAllHotkeys()
+	m.invalidateCommandRuntimeTracking()
+	if retentionStop != nil {
+		close(retentionStop)
+	}
+	if done != nil {
+		<-done
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.runtimeMu.Lock()
+	defer m.runtimeMu.Unlock()
+	m.retentionStop, m.retentionCancel, m.retentionDone = nil, nil, nil
+	if m.started {
+		m.scheduler.Stop()
+		m.eventBus.Close()
+		m.unregisterAllHotkeys()
+	}
 	m.registry.Clear()
 	m.circuitBreaker.Reset()
 
 	m.started = false
+	m.stopping = nil
+	close(stopped)
 	logging.Infof(context.Background(), "jobs.manager", "[Jobs] Manager stopped")
 }
 
@@ -261,6 +416,8 @@ func (m *Manager) GetJobContext(ctx context.Context, id string) (*Job, error) {
 
 // ToggleJob ativa ou desativa um job e persiste no repositório DB-backed.
 func (m *Manager) ToggleJob(id string, enabled bool) error {
+	m.runtimeMu.Lock()
+	defer m.runtimeMu.Unlock()
 	job := m.registry.Get(id)
 	if job == nil {
 		return fmt.Errorf("%w: %s", ErrJobNotFound, id)
@@ -282,13 +439,18 @@ func (m *Manager) ToggleJob(id string, enabled bool) error {
 
 	m.emitEvent("jobs:toggled", map[string]any{
 		"id":      id,
-		"enabled": enabled,
+		"enabled": updated.Enabled,
 	})
 
+	if enabled && !updated.Enabled {
+		return jobprofilegrant.ErrAuthorizationNotGranted
+	}
 	return nil
 }
 
 func (m *Manager) ToggleJobContext(ctx context.Context, id string, enabled bool) error {
+	m.runtimeMu.Lock()
+	defer m.runtimeMu.Unlock()
 	ctx, err := m.scopedContext(ctx)
 	if err != nil {
 		return err
@@ -309,8 +471,38 @@ func (m *Manager) ToggleJobContext(ctx context.Context, id string, enabled bool)
 	} else {
 		m.unregisterTriggers(&updated)
 	}
-	m.emitEvent("jobs:toggled", map[string]any{"id": id, "enabled": enabled})
+	m.emitEvent("jobs:toggled", map[string]any{"id": id, "enabled": updated.Enabled})
+	if enabled && !updated.Enabled {
+		return jobprofilegrant.ErrAuthorizationNotGranted
+	}
 	return nil
+}
+
+// ReconcileDisabledJobs aplica ao registry/scheduler o estado já persistido
+// pelo store de grants após revogação ou exclusão global de profile.
+func (m *Manager) ReconcileDisabledJobs(slugs []string) {
+	m.runtimeMu.Lock()
+	defer m.runtimeMu.Unlock()
+	seen := make(map[string]struct{}, len(slugs))
+	for _, slug := range slugs {
+		slug = strings.TrimSpace(slug)
+		if slug == "" {
+			continue
+		}
+		if _, ok := seen[slug]; ok {
+			continue
+		}
+		seen[slug] = struct{}{}
+		current := m.registry.Get(slug)
+		if current == nil || !current.Enabled {
+			continue
+		}
+		updated := *current
+		updated.Enabled = false
+		m.unregisterTriggers(current)
+		m.registry.Set(&updated)
+		m.emitEvent("jobs:toggled", map[string]any{"id": slug, "enabled": false})
+	}
 }
 
 // RunJob executa um job manualmente.
@@ -343,6 +535,9 @@ func (m *Manager) RunJobContext(ctx context.Context, id string) (*RunLog, error)
 		Type:         TriggerManual,
 		EventPayload: make(map[string]any),
 	}
+	// A tool de jobs pode chamar esta entrada durante outro run. "manual"
+	// descreve a entrada, mas não substitui a raiz privada já autenticada.
+	inheritCommandEventOrigin(ctx, trigCtx)
 	rl := m.executor.Execute(ctx, job, trigCtx)
 	return rl, nil
 }
@@ -581,6 +776,8 @@ func (m *Manager) ListPipelinesContext(ctx context.Context) ([]Pipeline, error) 
 }
 
 func (m *Manager) SavePipeline(pipeline *Pipeline) error {
+	m.runtimeMu.Lock()
+	defer m.runtimeMu.Unlock()
 	if err := m.cfg.Repository.SavePipeline(m.context(), pipeline); err != nil {
 		return err
 	}
@@ -589,6 +786,8 @@ func (m *Manager) SavePipeline(pipeline *Pipeline) error {
 }
 
 func (m *Manager) SavePipelineContext(ctx context.Context, pipeline *Pipeline) error {
+	m.runtimeMu.Lock()
+	defer m.runtimeMu.Unlock()
 	ctx, err := m.scopedContext(ctx)
 	if err != nil {
 		return err
@@ -601,6 +800,8 @@ func (m *Manager) SavePipelineContext(ctx context.Context, pipeline *Pipeline) e
 }
 
 func (m *Manager) CreatePipelineContext(ctx context.Context, pipeline *Pipeline) error {
+	m.runtimeMu.Lock()
+	defer m.runtimeMu.Unlock()
 	ctx, err := m.scopedContext(ctx)
 	if err != nil {
 		return err
@@ -613,6 +814,8 @@ func (m *Manager) CreatePipelineContext(ctx context.Context, pipeline *Pipeline)
 }
 
 func (m *Manager) DeletePipeline(slug string) error {
+	m.runtimeMu.Lock()
+	defer m.runtimeMu.Unlock()
 	slug = normalizeSlug(slug)
 	if err := m.cfg.Repository.DeletePipeline(m.context(), slug); err != nil {
 		return err
@@ -622,6 +825,8 @@ func (m *Manager) DeletePipeline(slug string) error {
 }
 
 func (m *Manager) DeletePipelineContext(ctx context.Context, slug string) error {
+	m.runtimeMu.Lock()
+	defer m.runtimeMu.Unlock()
 	ctx, err := m.scopedContext(ctx)
 	if err != nil {
 		return err
@@ -893,6 +1098,9 @@ func newChainID() string {
 // SaveJob cria ou atualiza um job a partir de dados do frontend.
 // Valida, persiste no banco e registra no runtime.
 func (m *Manager) SaveJob(job *Job) error {
+	m.runtimeMu.Lock()
+	defer m.runtimeMu.Unlock()
+	requestedEnabled := job != nil && job.Enabled
 	if err := Validate(job); err != nil {
 		return err
 	}
@@ -925,10 +1133,16 @@ func (m *Manager) SaveJob(job *Job) error {
 		"name": job.Name,
 	})
 
+	if requestedEnabled && !saved.Enabled {
+		return jobprofilegrant.ErrAuthorizationNotGranted
+	}
 	return nil
 }
 
 func (m *Manager) SaveJobContext(ctx context.Context, job *Job) error {
+	m.runtimeMu.Lock()
+	defer m.runtimeMu.Unlock()
+	requestedEnabled := job != nil && job.Enabled
 	ctx, err := m.scopedContext(ctx)
 	if err != nil {
 		return err
@@ -958,11 +1172,17 @@ func (m *Manager) SaveJobContext(ctx context.Context, job *Job) error {
 
 	m.registerJob(saved)
 	m.emitEvent("jobs:updated", map[string]any{"id": job.ID, "name": job.Name})
+	if requestedEnabled && !saved.Enabled {
+		return jobprofilegrant.ErrAuthorizationNotGranted
+	}
 	return nil
 }
 
 // CreateJobContext cria um job no banco e registra no runtime, falhando se já existir.
 func (m *Manager) CreateJobContext(ctx context.Context, job *Job) error {
+	m.runtimeMu.Lock()
+	defer m.runtimeMu.Unlock()
+	requestedEnabled := job != nil && job.Enabled
 	ctx, err := m.scopedContext(ctx)
 	if err != nil {
 		return err
@@ -988,11 +1208,16 @@ func (m *Manager) CreateJobContext(ctx context.Context, job *Job) error {
 	}
 	m.registerJob(saved)
 	m.emitEvent("jobs:updated", map[string]any{"id": job.ID, "name": job.Name})
+	if requestedEnabled && !saved.Enabled {
+		return jobprofilegrant.ErrAuthorizationNotGranted
+	}
 	return nil
 }
 
 // DeleteJob remove um job do banco e do runtime.
 func (m *Manager) DeleteJob(id string) error {
+	m.runtimeMu.Lock()
+	defer m.runtimeMu.Unlock()
 	job := m.registry.Get(id)
 	if job == nil {
 		return fmt.Errorf("%w: %s", ErrJobNotFound, id)
@@ -1015,6 +1240,8 @@ func (m *Manager) DeleteJob(id string) error {
 }
 
 func (m *Manager) DeleteJobContext(ctx context.Context, id string) error {
+	m.runtimeMu.Lock()
+	defer m.runtimeMu.Unlock()
 	ctx, err := m.scopedContext(ctx)
 	if err != nil {
 		return err
@@ -1121,33 +1348,37 @@ func (m *Manager) TestToolDryRunContext(parent context.Context, req TestToolRequ
 	if err != nil {
 		return nil, fmt.Errorf("marshal inputs: %w", err)
 	}
+	persistedArgsJSON, err := json.Marshal(RedactResolvedInputs(req.Inputs, inputs))
+	if err != nil {
+		return nil, fmt.Errorf("marshal redacted inputs: %w", err)
+	}
+	persistedArguments := string(persistedArgsJSON)
 
 	ctx, cancel := context.WithTimeout(execCtx, 30*time.Second)
 	defer cancel()
 
 	start := time.Now()
-	var result tools.ToolResult
-	var execErr error
-	if m.cfg.ToolInvocations != nil {
-		exec := m.cfg.ToolInvocations.Execute(ctx, toolinvocations.ExecuteRequest{
-			Call: tools.ToolCall{
-				ID:   fmt.Sprintf("tool_catalog_%d", time.Now().UnixNano()),
-				Type: "function",
-				Function: tools.FunctionCall{
-					Name:      toolName,
-					Arguments: string(argsJSON),
-				},
-			},
-			Origin:                 toolinvocations.Origin{Type: toolinvocations.OriginToolCatalog, ID: toolName},
-			ToolCatalogID:          strings.TrimSpace(req.ToolCatalogID),
-			DryRun:                 true,
-			ExecutionMaxResultSize: JobExecutionMaxResultSizeBytes,
-		}).Execution
-		result = exec.Result
-		execErr = exec.Error
-	} else {
-		result, execErr = tool.Execute(ctx, argsJSON)
+	if m.cfg.ToolInvocations == nil {
+		return nil, errors.New("tool invocation ledger not configured")
 	}
+	exec := m.cfg.ToolInvocations.Execute(ctx, toolinvocations.ExecuteRequest{
+		Call: tools.ToolCall{
+			ID:   fmt.Sprintf("tool_catalog_%d", time.Now().UnixNano()),
+			Type: "function",
+			Function: tools.FunctionCall{
+				Name:      toolName,
+				Arguments: string(argsJSON),
+			},
+		},
+		PersistedArguments:     &persistedArguments,
+		Origin:                 toolinvocations.Origin{Type: toolinvocations.OriginToolCatalog, ID: toolName},
+		ToolCatalogID:          strings.TrimSpace(req.ToolCatalogID),
+		DryRun:                 true,
+		ExecutionMaxResultSize: JobExecutionMaxResultSizeBytes,
+		RequireCompleteResult:  true,
+	}).Execution
+	result := exec.Result
+	execErr := exec.Error
 	duration := time.Since(start)
 
 	if execErr != nil {
@@ -1286,6 +1517,12 @@ func (m *Manager) unregisterJob(jobID string) {
 }
 
 func (m *Manager) registerTriggers(job *Job) {
+	m.triggerMu.Lock()
+	defer m.triggerMu.Unlock()
+	m.registerTriggersLocked(job)
+}
+
+func (m *Manager) registerTriggersLocked(job *Job) {
 	if !m.effectiveJobEnabled(job) {
 		return
 	}
@@ -1338,6 +1575,7 @@ func (m *Manager) registerTriggers(job *Job) {
 					ChainID:      chainID,
 					ChainHistory: chainHistory,
 				}
+				inheritCommandEventOrigin(ctx, trigCtx)
 
 				// O run downstream roda em goroutine de fan-out do EventBus, mas o
 				// publicador retorna sem esperar. Se herdarmos o ctx do publicador
@@ -1371,6 +1609,12 @@ func triggerChainContext(ctx context.Context, payload map[string]any) (string, [
 }
 
 func (m *Manager) unregisterTriggers(job *Job) {
+	m.triggerMu.Lock()
+	defer m.triggerMu.Unlock()
+	m.unregisterTriggersLocked(job)
+}
+
+func (m *Manager) unregisterTriggersLocked(job *Job) {
 	m.scheduler.Unschedule(job.ID)
 	m.eventBus.UnsubscribeAll(job.ID)
 	m.unregisterJobHotkeys(job.ID)
@@ -1387,22 +1631,59 @@ func (m *Manager) registerJobHotkey(job *Job, keys string, when string) {
 		return
 	}
 
-	jobCopy := *job
+	binding, err := m.prepareHotkeyBinding(m.context(), job, keys, when)
+	if err != nil {
+		logging.Errorf(context.Background(), "jobs.manager", "[Jobs] Hotkey prepare error for %s (%s): %v", job.ID, keys, err)
+		return
+	}
+	lifetimeCtx, lifetimeCancel := context.WithCancel(context.Background())
+	lifetime := &hotkeyRegistrationLifetime{ctx: lifetimeCtx, cancel: lifetimeCancel}
 	id, err := m.cfg.HotkeyManager.Register(modifiers, key, func() {
-		ctx := m.context()
-		trigCtx := &TriggerContext{
-			Type:         TriggerHotkey,
-			Keys:         keys,
-			When:         when,
-			EventPayload: make(map[string]any),
+		if !lifetime.active.Load() {
+			return
 		}
-		m.executeJob(ctx, &jobCopy, trigCtx)
+		ctx := m.context()
+		runCtx, runCancel := context.WithCancel(ctx)
+		defer runCancel()
+		go func() {
+			select {
+			case <-lifetime.ctx.Done():
+				runCancel()
+			case <-runCtx.Done():
+			}
+		}()
+		ctx = runCtx
+		if m.cfg.DispatchCommandHotkey == nil {
+			logging.Errorf(context.Background(), "jobs.manager", "[Jobs] %s: hotkey dispatcher unavailable; execution refused", binding.jobSlug)
+			return
+		}
+		occurrence := CommandHotkeyOccurrence{manager: m, binding: binding, lifetime: lifetime}
+		if err := occurrence.Validate(ctx); err != nil {
+			logging.Infof(context.Background(), "jobs.manager", "[Jobs] %s: hotkey binding is stale or unavailable, skipping: %v", binding.jobSlug, err)
+			return
+		}
+		if binding.when != "" {
+			ok, evalErr := EvaluateCondition(binding.when, &TemplateContext{Event: map[string]any{}, Now: time.Now()})
+			if evalErr != nil {
+				logging.Errorf(context.Background(), "jobs.manager", "[Jobs] %s: hotkey when eval error: %v", binding.jobSlug, evalErr)
+				return
+			}
+			if !ok {
+				logging.Infof(context.Background(), "jobs.manager", "[Jobs] %s: hotkey when condition not met, skipping", binding.jobSlug)
+				return
+			}
+		}
+		if err := m.cfg.DispatchCommandHotkey(ctx, occurrence); err != nil {
+			logging.Infof(context.Background(), "jobs.manager", "[Jobs] %s: hotkey dispatch refused: %v", binding.jobSlug, err)
+		}
 	})
 	if err != nil {
+		lifetimeCancel()
 		logging.Errorf(context.Background(), "jobs.manager", "[Jobs] Hotkey register error for %s (%s): %v", job.ID, keys, err)
 		return
 	}
 
+	m.addHotkeyLifetime(job.ID, id, lifetime)
 	m.hotkeyIDs[job.ID] = append(m.hotkeyIDs[job.ID], id)
 	logging.Infof(context.Background(), "jobs.manager", "[Jobs] Hotkey registered for %s: %s", job.ID, keys)
 }
@@ -1413,6 +1694,7 @@ func (m *Manager) unregisterJobHotkeys(jobID string) {
 	}
 
 	for _, id := range m.hotkeyIDs[jobID] {
+		m.invalidateHotkeyLifetime(jobID, id)
 		if err := m.cfg.HotkeyManager.Unregister(id); err != nil {
 			logging.Errorf(context.Background(), "jobs.manager", "[Jobs] Hotkey unregister error for %s (id=%d): %v", jobID, id, err)
 		}
@@ -1421,6 +1703,8 @@ func (m *Manager) unregisterJobHotkeys(jobID string) {
 }
 
 func (m *Manager) unregisterAllHotkeys() {
+	m.triggerMu.Lock()
+	defer m.triggerMu.Unlock()
 	if m.cfg.HotkeyManager == nil {
 		return
 	}
@@ -1493,10 +1777,38 @@ func (m *Manager) emitJobUpdates(jobs []Job) {
 	m.emitEvent("jobs:updated", map[string]any{"ids": ids})
 }
 
+// jobRunnable reavalia, com a versão mais atual do registry (pode ter mudado via
+// hot reload), se o job ainda deve rodar: habilitado e, para triggers
+// automáticos de tool MCP, com a tool disponível. Retorna a versão corrente e
+// true quando pode executar; caso contrário loga o skip (quando aplicável) e
+// retorna false.
+func (m *Manager) jobRunnable(ctx context.Context, jobID string, trigCtx *TriggerContext) (*Job, bool) {
+	current := m.registry.Get(jobID)
+	if current == nil || !m.effectiveJobEnabled(current) {
+		return nil, false
+	}
+	if trigCtx != nil && trigCtx.Type != TriggerManual && strings.HasPrefix(current.Tool, "mcp_") {
+		if m.cfg.ToolRegistry == nil {
+			m.logSkippedUnavailableTool(ctx, current, trigCtx, "tool registry is not available")
+			return nil, false
+		}
+		if _, ok := m.cfg.ToolRegistry.Get(current.Tool); !ok {
+			m.logSkippedUnavailableTool(ctx, current, trigCtx, fmt.Sprintf("MCP tool %q is not available yet", current.Tool))
+			return nil, false
+		}
+	}
+	return current, true
+}
+
 func (m *Manager) executeJob(ctx context.Context, job *Job, trigCtx *TriggerContext) {
-	// Busca a versao mais atual do registry (pode ter sido atualizada via hot reload)
+	// Pré-check barato antes de escopar/enfileirar: job removido ou desabilitado
+	// nem entra na fila do semáforo.
 	current := m.registry.Get(job.ID)
 	if current == nil || !m.effectiveJobEnabled(current) {
+		return
+	}
+	if binding, ok := ctx.Value(preparedHotkeyDispatchKey{}).(preparedHotkeyBinding); ok && !m.preparedHotkeyStillCurrent(ctx, binding, current) {
+		logging.Infof(context.Background(), "jobs.manager", "[Jobs] %s: hotkey dispatch changed before scoped context, skipping", binding.jobSlug)
 		return
 	}
 	ctx, err := m.scopedContext(ctx)
@@ -1504,15 +1816,33 @@ func (m *Manager) executeJob(ctx context.Context, job *Job, trigCtx *TriggerCont
 		logging.Infof(ctx, "jobs.manager", "[Jobs] %s: authenticated context required: %v", current.ID, err)
 		return
 	}
-	if trigCtx != nil && trigCtx.Type != TriggerManual && strings.HasPrefix(current.Tool, "mcp_") {
-		if m.cfg.ToolRegistry == nil {
-			m.logSkippedUnavailableTool(ctx, current, trigCtx, "tool registry is not available")
-			return
-		}
-		if _, ok := m.cfg.ToolRegistry.Get(current.Tool); !ok {
-			m.logSkippedUnavailableTool(ctx, current, trigCtx, fmt.Sprintf("MCP tool %q is not available yet", current.Tool))
-			return
-		}
+	if binding, ok := ctx.Value(preparedHotkeyDispatchKey{}).(preparedHotkeyBinding); ok && !m.preparedHotkeyStillCurrent(ctx, binding, current) {
+		logging.Infof(context.Background(), "jobs.manager", "[Jobs] %s: hotkey dispatch changed after scoped context, skipping", binding.jobSlug)
+		return
+	}
+	// Guards completos já com o ctx escopado (o skip de tool MCP indisponível é
+	// persistido e exige user_id no contexto).
+	current, ok := m.jobRunnable(ctx, job.ID, trigCtx)
+	if !ok {
+		return
+	}
+	// Limita a concorrência de execução (AEP-0106). O slot é adquirido só depois
+	// dos guards (job desabilitado/tool indisponível não consome slot) e liberado
+	// ao fim do run. Se o ctx for cancelado antes do slot, aborta sem executar.
+	if !m.runLimiter.acquire(ctx) {
+		logging.Debugf(ctx, "jobs.manager", "[Jobs] %s: execução abortada ao aguardar slot de concorrência (contexto cancelado)", current.ID)
+		return
+	}
+	defer m.runLimiter.release()
+	// Reavalia com a versão mais recente após aguardar o slot: enquanto o run
+	// esperava vaga, o job pode ter sido desabilitado, excluído ou perdido a tool.
+	current, ok = m.jobRunnable(ctx, job.ID, trigCtx)
+	if !ok {
+		return
+	}
+	if binding, ok := ctx.Value(preparedHotkeyDispatchKey{}).(preparedHotkeyBinding); ok && !m.preparedHotkeyStillCurrent(ctx, binding, current) {
+		logging.Infof(context.Background(), "jobs.manager", "[Jobs] %s: hotkey dispatch changed before executor, skipping", binding.jobSlug)
+		return
 	}
 	m.executor.Execute(ctx, current, trigCtx)
 }
@@ -1570,21 +1900,30 @@ func maintenanceSettings() config.MaintenanceSettings {
 }
 
 func (m *Manager) runRetention(ctx context.Context) {
+	_ = m.runRetentionWithChatError(ctx)
+}
+
+func (m *Manager) runRetentionWithChatError(ctx context.Context) error {
 	if m.cfg.Repository == nil {
-		return
+		return nil
 	}
+	if m.cfg.MaintenanceCoordinator != nil {
+		m.runCommandMaintenance(ctx)
+		return nil
+	}
+	var chatErr error
 	maint := maintenanceSettings()
 	// Dados de jobs são efêmeros: janela curta (horas), configurável (AEP-0074).
 	jobsAge := time.Duration(maint.JobRetentionHours) * time.Hour
 	if deleted, err := m.cfg.Repository.CleanOldRunEvents(ctx, jobsAge); err != nil {
 		logging.Errorf(ctx, "jobs.manager", "[Jobs] retention run events failed: %v", err)
 	} else if deleted > 0 {
-		logging.Errorf(ctx, "jobs.manager", "[Jobs] retention removed %d run event(s)", deleted)
+		logging.Infof(ctx, "jobs.manager", "[Jobs] retention removed %d run event(s)", deleted)
 	}
 	if deleted, err := m.cfg.Repository.CleanOldEvents(ctx, jobsAge); err != nil {
 		logging.Errorf(ctx, "jobs.manager", "[Jobs] retention events failed: %v", err)
 	} else if deleted > 0 {
-		logging.Errorf(ctx, "jobs.manager", "[Jobs] retention removed %d event(s)", deleted)
+		logging.Infof(ctx, "jobs.manager", "[Jobs] retention removed %d event(s)", deleted)
 	}
 	if deleted, err := m.cfg.Repository.CleanOldRuns(ctx, jobsAge); err != nil {
 		logging.Errorf(ctx, "jobs.manager", "[Jobs] retention runs failed: %v", err)
@@ -1606,8 +1945,10 @@ func (m *Manager) runRetention(ctx context.Context) {
 			logging.Infof(ctx, "jobs.manager", "[Jobs] retention removed %d dry-run tool invocation(s)", deleted)
 		}
 		// Tool calls de chat: retenção = ciclo de vida da conversa. Aqui só
-		// varremos órfãos; o cap de idade opcional roda no login (AEP-0074, D5).
+		// varremos órfãos e aplicamos o cap opcional na passagem inicial e
+		// periódica (AEP-0074, D5).
 		if deleted, err := m.cfg.ToolInvocations.CleanOrphanChat(ctx); err != nil {
+			chatErr = errors.Join(chatErr, err)
 			logging.Errorf(ctx, "jobs.manager", "[Jobs] retention orphan chat tool invocations failed: %v", err)
 		} else if deleted > 0 {
 			logging.Infof(ctx, "jobs.manager", "[Jobs] retention removed %d orphan chat tool invocation(s)", deleted)
@@ -1615,6 +1956,7 @@ func (m *Manager) runRetention(ctx context.Context) {
 		if maint.ChatToolCallsRetentionDays > 0 {
 			chatAge := time.Duration(maint.ChatToolCallsRetentionDays) * 24 * time.Hour
 			if deleted, err := m.cfg.ToolInvocations.CleanOldChat(ctx, chatAge); err != nil {
+				chatErr = errors.Join(chatErr, err)
 				logging.Errorf(ctx, "jobs.manager", "[Jobs] retention chat tool invocations age-cap failed: %v", err)
 			} else if deleted > 0 {
 				logging.Infof(ctx, "jobs.manager", "[Jobs] retention removed %d chat tool invocation(s) over age cap", deleted)
@@ -1624,16 +1966,27 @@ func (m *Manager) runRetention(ctx context.Context) {
 	// Compactação física do arquivo: devolve espaço ao SO após as deleções
 	// acima. Throttled e global (AEP-0074, D3).
 	m.maybeCompact(ctx, maint.VacuumMinFreeBytes)
+	return chatErr
 }
 
 // maybeCompact dispara a compactação física do banco no máximo uma vez por
 // intervalo de retenção. É global ao arquivo .db (não escopada por usuário) e
 // best-effort: qualquer erro é apenas logado.
 func (m *Manager) maybeCompact(ctx context.Context, minFreeBytes int64) {
+	if err := m.compact(ctx, minFreeBytes); err != nil {
+		logging.Errorf(ctx, "jobs.manager", "[Jobs] retention compaction failed: %v", err)
+	}
+}
+
+// compact executa a compactação usando o mesmo gate/throttle do caminho
+// legado, mas preserva o erro para o coordinator de manutenção. Um retorno
+// nil também cobre um no-op legítimo (throttle/limiar); somente compactação
+// física bem-sucedida arma lastCompaction.
+func (m *Manager) compact(ctx context.Context, minFreeBytes int64) error {
 	m.compactMu.Lock()
 	if m.compacting || (!m.lastCompaction.IsZero() && time.Since(m.lastCompaction) < jobRetentionInterval) {
 		m.compactMu.Unlock()
-		return
+		return nil
 	}
 	m.compacting = true
 	m.compactMu.Unlock()
@@ -1650,10 +2003,7 @@ func (m *Manager) maybeCompact(ctx context.Context, minFreeBytes int64) {
 		m.lastCompaction = time.Now()
 	}
 	m.compactMu.Unlock()
-
-	if err != nil {
-		logging.Errorf(ctx, "jobs.manager", "[Jobs] retention compaction failed: %v", err)
-	}
+	return err
 }
 
 func (m *Manager) startRetentionLoop(ctx context.Context) {
@@ -1662,13 +2012,33 @@ func (m *Manager) startRetentionLoop(ctx context.Context) {
 	}
 	stop := make(chan struct{})
 	m.retentionStop = stop
+	done := make(chan struct{})
+	m.retentionDone = done
+	ctx, cancel := context.WithCancel(ctx)
+	m.retentionCancel = cancel
 	go func() {
-		ticker := time.NewTicker(jobRetentionInterval)
-		defer ticker.Stop()
+		defer close(done)
+		defer cancel()
+		delay := jobRetentionInterval
+		if m.cfg.MaintenanceCoordinator != nil {
+			delay = 0
+		}
+		timer := time.NewTimer(delay)
+		defer timer.Stop()
 		for {
 			select {
-			case <-ticker.C:
-				m.runRetention(ctx)
+			case <-timer.C:
+				if ctx.Err() != nil {
+					return
+				}
+				if m.cfg.MaintenanceCoordinator != nil {
+					delay = m.runCommandMaintenance(ctx)
+				} else {
+					m.runRetention(ctx)
+				}
+				timer.Reset(delay)
+			case <-ctx.Done():
+				return
 			case <-stop:
 				return
 			}
@@ -1757,6 +2127,12 @@ func cloneJob(job *Job) (*Job, error) {
 		return nil, fmt.Errorf("clone job %s: %w", job.ID, err)
 	}
 	copy.PipelineEnabled = job.PipelineEnabled
+	// Inputs uses omitempty for transport, but the definition fingerprint
+	// distinguishes an empty object from null. A detached copy must preserve
+	// the persisted definition, including jobs that require no inputs.
+	if job.Inputs != nil && copy.Inputs == nil {
+		copy.Inputs = make(map[string]any)
+	}
 	return &copy, nil
 }
 

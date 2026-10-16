@@ -338,8 +338,14 @@ func resetRequestBody(req *http.Request) error {
 	return nil
 }
 
-// applyAuth aplica autenticação baseada no domínio da requisição
+// applyAuth aplica autenticação baseada no domínio da requisição.
+// Pula quando o ctx declara autenticação manual (WithManualAuth): o chamador
+// já resolveu e aplicou o material de auth — resolver de novo executaria
+// fontes dinâmicas duas vezes e poderia injetar headers redundantes.
 func (c *Client) applyAuth(ctx context.Context, req *http.Request) {
+	if hasManualAuth(ctx) {
+		return
+	}
 	if c.credMgr == nil {
 		return
 	}
