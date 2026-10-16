@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"assistente/internal/eventctx"
 )
 
 // TestPublishDomainEventReachesSubscriber verifica que PublishDomainEvent publica
@@ -198,6 +200,44 @@ func TestPublishDomainEventRequiresUserID(t *testing.T) {
 	})
 	if err := mgr.PublishDomainEvent(userA, "", nil); err == nil {
 		t.Fatal("expected error for empty event name")
+	}
+}
+
+func TestTriggerChainContextFallsBackToEventProvenance(t *testing.T) {
+	ctx := eventctx.With(context.Background(), eventctx.Provenance{
+		Source:       "job",
+		SourceJobID:  "parent-job",
+		ChainID:      "parent-chain",
+		ChainHistory: []string{"parent-job"},
+	})
+
+	chainID, history := triggerChainContext(ctx, map[string]any{
+		"error":  "tool failed",
+		"job_id": "parent-job",
+		"run_id": "parent-run",
+	})
+	if chainID != "parent-chain" {
+		t.Fatalf("chainID = %q, want parent-chain", chainID)
+	}
+	if len(history) != 1 || history[0] != "parent-job" {
+		t.Fatalf("history = %#v, want [parent-job]", history)
+	}
+	if cap(history) != len(history) {
+		t.Fatalf("history cap = %d, len = %d; want cap == len", cap(history), len(history))
+	}
+}
+
+func TestTriggerChainContextPrefersExplicitPayload(t *testing.T) {
+	ctx := eventctx.With(context.Background(), eventctx.Provenance{
+		ChainID:      "context-chain",
+		ChainHistory: []string{"context-job"},
+	})
+	chainID, history := triggerChainContext(ctx, map[string]any{
+		"_chain_id":      "payload-chain",
+		"_chain_history": []string{"payload-job"},
+	})
+	if chainID != "payload-chain" || len(history) != 1 || history[0] != "payload-job" {
+		t.Fatalf("cadeia explícita do payload não preservada: id=%q history=%#v", chainID, history)
 	}
 }
 
