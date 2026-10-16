@@ -2,6 +2,50 @@
 
 **Status:** Done
 
+**Migração experimental do driver (16/10/2026): Deprecated.** Por decisão
+do mantenedor, a proposta `ncruces/go-sqlite3` + `gormlite` foi abandonada
+após a qualificação reproduzir perda de conteúdo em reconstrução de tabela
+no adaptador. Não haverá fork nem correção local da dependência. A proposta
+não foi publicada em PR nem aplicada ao banco pessoal. O driver vigente
+`github.com/glebarez/sqlite` permanece; melhorias de contenção devem reduzir
+o trabalho SQL sem depender de cancelamento imediato de consultas.
+
+**Extensão coordenada, seleção sob carga (16/10/2026): In Progress.**
+A elegibilidade de runs por idade e quantidade passa a usar conjuntos de
+proteção não correlacionados, escopados pelo usuário autenticado. A consulta
+não reexamina todas as fontes de outbox/leases para cada run antes de ordenar
+o lote. Pending/processing, claims ativas com lease viva, tratamento de estados
+terminais e o snapshot transacional de seleção/exclusão não mudam. O limite
+de linhas continua 128 na manutenção; não é limite rígido de tempo. O driver
+atual pode ultrapassar o cancelamento ao avaliar um SELECT; sua substituição
+não faz parte desta otimização. Plano SQL e isolamento têm regressões em
+`internal/jobs/repository_retention_plan_test.go`; validação na instalação
+carregada segue pendente, sem mudança do Done do escopo legado.
+
+Qualificação sintética no driver vigente, sem alterar schema ou pragmas:
+com 1.500 runs, três amostras sem `sqlite_stat1` mediram 735–796 ms versus
+2,8–6,3 ms na seleção por idade e 872–913 ms versus 4,8–7,5 ms por contagem
+(consulta antiga versus nova). O plano antigo escolheu o índice de usuário
+da outbox em cada subquery correlacionada; o novo constrói uma lista sem
+correlação. Com `ANALYZE`, não houve ganho consistente: medianas de idade
+aproximadamente 6,2 ms em ambas; contagem 11,2 ms antiga / 13,2 ms nova.
+Uma amostra parcial de 6.000 runs sem estatísticas mediu idade em 41,3 s / 18,7 ms;
+as demais amostras grandes não foram concluídas e não compõem uma média.
+Reprodução opt-in: `BenchmarkRetentionQueryPlansScale` (1.500) e
+`BenchmarkRetentionQueryPlansLarge` (6.000), com `-benchtime=1x`.
+Os logs de 6.000 foram gerados antes da separação dos wrappers, quando o
+tamanho era uma constante em `BenchmarkRetentionQueryPlansScale`.
+No código final, reproduzir somente o caso grande medido com
+`go test ./internal/jobs -run '^$' -bench 'BenchmarkRetentionQueryPlansLarge/without-sqlite-stat1/age' -benchtime=1x -count=1`.
+Para as três amostras menores, usar
+`go test ./internal/jobs -run '^$' -bench '^BenchmarkRetentionQueryPlansScale$' -benchtime=1x -count=3`.
+Aplicar antes os diretórios de build definidos em `AGENTS.md`; a query antiga
+do caso grande pode levar dezenas de segundos mesmo no banco descartável.
+Os testes regulares comparam os IDs completos entre as consultas e verificam
+proteção/isolamento, além do plano; não impõem limiar de tempo ao CI.
+Essa evidência demonstra um caso de degradação evitado, não certifica a causa
+exclusiva das quedas de comandos no banco real nem um ganho universal.
+
 **Extensão coordenada, recuperação sob contenção (29/09/2026): In Progress.**
 A passagem AEP-0103 usa contexto com timeout de `min(TTL/3, 5s)` e cancelamento
 propagado ao SQL. Continua na mesma goroutine, sem scheduler adicional.
