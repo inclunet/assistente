@@ -4,6 +4,7 @@ import { agentActionClassName, agentActionKey } from './agentAction';
 
 /** Motivos de aviso de turno que a interface sabe traduzir (backend: ChatNoticeKind*). */
 export const CHAT_NOTICE_ATTACHMENTS_NOT_SENT = 'attachments_not_sent';
+export const CHAT_NOTICE_AGENT_OUTPUT_NOT_DISPLAYED = 'agent_output_not_displayed';
 export const CHAT_NOTICE_PERMISSION_NO_WATCHER = 'permission_denied_no_watcher';
 export const CHAT_NOTICE_PERMISSION_TIMEOUT = 'permission_denied_timeout';
 export const CHAT_NOTICE_PERMISSION_UNAVAILABLE = 'permission_denied_unavailable';
@@ -25,6 +26,7 @@ export const CHAT_NOTICE_STREAM_RETRY = 'stream_retry';
 
 const KIND_KEYS: Record<string, string> = {
   [CHAT_NOTICE_ATTACHMENTS_NOT_SENT]: 'app.chatNotice.attachmentsNotSent',
+  [CHAT_NOTICE_AGENT_OUTPUT_NOT_DISPLAYED]: 'app.chatNotice.agentOutputNotDisplayed',
   [CHAT_NOTICE_PERMISSION_NO_WATCHER]: 'app.chatNotice.permissionNoWatcher',
   [CHAT_NOTICE_PERMISSION_TIMEOUT]: 'app.chatNotice.permissionTimeout',
   [CHAT_NOTICE_PERMISSION_UNAVAILABLE]: 'app.chatNotice.permissionUnavailable',

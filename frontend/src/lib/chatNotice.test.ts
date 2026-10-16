@@ -5,6 +5,7 @@ import {
   chatNoticeMessage,
   chatNoticeTone,
   CHAT_NOTICE_ATTACHMENTS_NOT_SENT,
+  CHAT_NOTICE_AGENT_OUTPUT_NOT_DISPLAYED,
   CHAT_NOTICE_PERMISSION_ALWAYS_ALLOWED,
   CHAT_NOTICE_PERMISSION_ALWAYS_NOT_SAVED,
   CHAT_NOTICE_PERMISSION_NO_WATCHER,
@@ -29,6 +30,11 @@ const t = ((key: string, opts?: Record<string, unknown>) =>
   opts ? `${key}|${JSON.stringify(opts)}` : key) as unknown as TFunction;
 
 describe('chatNoticeMessage', () => {
+  it('avisa quando o agente produz resposta não textual que não é exibida', () => {
+    expect(chatNoticeMessage(t, { kind: CHAT_NOTICE_AGENT_OUTPUT_NOT_DISPLAYED }))
+      .toContain('app.chatNotice.agentOutputNotDisplayed');
+  });
+
   it('traduz o motivo nomeado pelo backend, com a quantidade', () => {
     const message = chatNoticeMessage(t, {
       conversationId: 'conversa-1',

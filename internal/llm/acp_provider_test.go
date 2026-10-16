@@ -329,6 +329,17 @@ func (e *espiao) OnAgentTitle(title string) {
 
 func (e *espiao) texto() string { return strings.Join(e.chunks, "") }
 
+func TestTurnoACPAnunciaUmaVezConteudoNaoTextualNaoRenderizado(t *testing.T) {
+	handler := &espiao{}
+	turn := &acpTurn{handler: handler}
+	turn.update(acp.Update{Kind: acp.UpdateUnsupportedOutput})
+	turn.update(acp.Update{Kind: acp.UpdateUnsupportedOutput})
+
+	if len(handler.avisos) != 1 || handler.avisos[0].Kind != TurnNoticeAgentOutputNotDisplayed {
+		t.Fatalf("avisos = %+v; queria um aviso de resposta não textual", handler.avisos)
+	}
+}
+
 // espiaoSurdo é um handler que não sabe receber atividade de agente: o turno
 // precisa seguir entregando texto para ele.
 type espiaoSurdo struct {

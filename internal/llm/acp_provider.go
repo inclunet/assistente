@@ -170,7 +170,8 @@ func (p *ACPChatProvider) StreamChat(ctx context.Context, messages []Message, pa
 	}
 
 	response := turn.response()
-	if notice, empty := stopWithoutAnswer(stop, response); empty {
+	if notice, empty := stopWithoutAnswer(stop, response); empty &&
+		!(stop == acp.StopEndTurn && turn.outputNoticeSent) {
 		// O desfecho vai como resposta, e não como erro: recusa e limite são
 		// o turno terminando, não o transporte falhando. Como erro, o texto
 		// não seria salvo nem falado — e a auto-recuperação ainda repetiria
@@ -384,7 +385,8 @@ type acpTurn struct {
 	// lastAnonymous é a chave da última chamada sem identificador ainda aberta,
 	// e é por ela que uma atualização sem identificador nem classe encontra o
 	// começo dela.
-	lastAnonymous string
+	lastAnonymous    string
+	outputNoticeSent bool
 }
 
 // agentToolState é o que o app precisa lembrar de uma chamada entre o começo e
@@ -419,6 +421,11 @@ func (t *acpTurn) update(update acp.Update) {
 		// protocolo do agente fica parado (AEP-0084 D8). O último título vale,
 		// porque o agente refina o dele conforme o turno avança.
 		t.title = acp.SanitizeLabel(update.Title)
+	case acp.UpdateUnsupportedOutput:
+		if !t.outputNoticeSent {
+			t.outputNoticeSent = true
+			notifyTurn(t.handler, TurnNotice{Kind: TurnNoticeAgentOutputNotDisplayed})
+		}
 	}
 }
 

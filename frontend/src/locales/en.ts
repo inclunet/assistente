@@ -4778,6 +4778,7 @@ const en = {
         },
       },
       chatNotice: {
+        agentOutputNotDisplayed: 'The agent sent non-text content that cannot be displayed in this conversation yet.',
         attachmentsNotSent_one: '{{count}} attachment was not sent: this provider does not accept it, or it could not be embedded in the request. The turn went through with the text only.',
         attachmentsNotSent_other: '{{count}} attachments were not sent: this provider does not accept them, or they could not be embedded in the request. The turn went through with the text only.',
         permissionNoWatcher: 'The agent asked permission to {{action}} in this conversation, but there was no one to answer. The action was denied.',

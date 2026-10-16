@@ -4780,6 +4780,7 @@ const ptBR = {
         },
       },
       chatNotice: {
+        agentOutputNotDisplayed: 'O agente enviou conteúdo não textual que ainda não pode ser exibido nesta conversa.',
         attachmentsNotSent_one: '{{count}} anexo não foi enviado: este provedor não o recebe ou ele não pôde ser embutido no pedido. O turno seguiu só com o texto.',
         attachmentsNotSent_other: '{{count}} anexos não foram enviados: este provedor não os recebe ou eles não puderam ser embutidos no pedido. O turno seguiu só com o texto.',
         permissionNoWatcher: 'O agente pediu permissão para {{action}} nesta conversa, mas não havia ninguém para responder. A ação foi negada.',

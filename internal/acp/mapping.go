@@ -182,6 +182,9 @@ func updateFrom(update sdk.SessionUpdate) (Update, bool) {
 	case update.AgentMessageChunk != nil:
 		text := textOf(update.AgentMessageChunk.Content)
 		if text == "" {
+			if hasNonTextContent(update.AgentMessageChunk.Content) {
+				return Update{Kind: UpdateUnsupportedOutput}, true
+			}
 			return Update{}, false
 		}
 		return Update{Kind: UpdateText, Text: text}, true
@@ -270,6 +273,10 @@ func textOf(block sdk.ContentBlock) string {
 		return ""
 	}
 	return block.Text.Text
+}
+
+func hasNonTextContent(block sdk.ContentBlock) bool {
+	return block.Image != nil || block.Audio != nil || block.ResourceLink != nil || block.Resource != nil
 }
 
 func toolCallFromStart(call *sdk.SessionUpdateToolCall) ToolCall {

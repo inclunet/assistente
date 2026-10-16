@@ -314,6 +314,10 @@ type ContextWarningEvent struct {
 // esperar uma resposta sobre uma imagem que o modelo nunca viu.
 const ChatNoticeKindAttachmentsNotSent = "attachments_not_sent"
 
+// ChatNoticeKindAgentOutputNotDisplayed indica resposta ACP com conteúdo que
+// ainda não pode ser exibido na superfície comum de chat.
+const ChatNoticeKindAgentOutputNotDisplayed = "agent_output_not_displayed"
+
 // O modelo escolhido não pôde valer neste turno (AEP-0084 D6). O turno seguiu no
 // modelo em que o agente está, porque resposta do modelo errado é melhor do que
 // resposta nenhuma — mas quem escolheu precisa saber, senão lê a resposta

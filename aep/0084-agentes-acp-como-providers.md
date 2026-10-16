@@ -866,7 +866,7 @@ AEPs relacionados.
 | Texto em prompts e respostas | **Implementado** | Blocos de texto são encaminhados para o provider e para a superfície comum de chat. |
 | Imagem inline em prompt | **Parcial** | Só é enviada quando o agente anuncia `promptCapabilities.image`; URLs e formatos não embutidos não são convertidos em blocos ACP. Anexos não enviados geram aviso. |
 | Áudio e recurso/contexto embutido em prompt | **Não implementado** | `audio` e `embeddedContext` não são convertidos pelo provider. Anexos não suportados são informados; não há tradução ACP para áudio nem `ResourceLink`/`Resource`. |
-| Blocos não textuais nas respostas do agente | **Não implementado** | `agent_message_chunk` e `agent_thought_chunk` só projetam blocos `text`; imagem, áudio e recurso na saída são ignorados, sem aviso específico na conversa. |
+| Blocos não textuais nas respostas do agente | **Parcial** | Blocos `text` são projetados; imagem, áudio e recursos não são renderizados e agora geram um aviso acessível por turno. Renderização multimodal continua pendente. |
 | Texto, raciocínio, início/progresso de ferramenta, opções, modo, título e comandos em `session/update` | **Implementado** | Esse é o conjunto atualmente mapeado em `internal/acp/mapping.go`. |
 | Mensagem de usuário reproduzida durante `session/load` | **Ignorada deliberadamente na apresentação** | A conversa do app vem do histórico local, evitando duplicar mensagens ACP reproduzidas. Uma futura sincronização cruzada precisará resolver divergência de histórico antes de apresentar esses eventos. |
 | Plano do agente (`sessionUpdate: plan`) | **Não implementado** | Atualizações de plano são ignoradas; planos poderiam mostrar etapas e progresso sem confundi-los com tools executáveis. |
@@ -1437,6 +1437,7 @@ testes.
 - [x] Apresentar e alterar opções seletoras de categorias adicionais (`thought_level` etc.) em controle acessível, com rótulos e anúncios internacionalizados.
 - [x] Propagar snapshots de opções vazios até o frontend para remover controles obsoletos (`TestSnapshotVazioDeOpcoesChegaATela`; teste Vitest correspondente). Avisos legados sem lista continuam preservando os seletores conhecidos.
 - [x] Retomar com `session/resume` quando anunciado, com fallback para `session/load` (`TestRetomaSessaoSemReplayQuandoAgenteAnunciaResume`).
+- [x] Avisar uma vez por turno quando a resposta ACP contém bloco não textual que o chat ainda não renderiza (`TestRespostaACPComBlocoNaoTextualGeraAtualizacaoDeSaidaNaoRenderizada`; teste Vitest de aviso).
 - [ ] Cobrir uso/custo, metadados de sessão, notices/compaction, conteúdo
   multimodal, elicitation, sessões externas e raízes adicionais, com testes e
   revisão de acessibilidade/privacidade.

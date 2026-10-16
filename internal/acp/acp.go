@@ -437,6 +437,9 @@ const (
 	// UpdateCommands traz o conjunto completo de comandos que o agente oferece
 	// para esta sessão. Vazio significa que ele não oferece nenhum.
 	UpdateCommands UpdateKind = "commands"
+	// UpdateUnsupportedOutput avisa que a resposta contém bloco não textual que
+	// a superfície comum de chat não consegue renderizar.
+	UpdateUnsupportedOutput UpdateKind = "unsupported_output"
 )
 
 // Update é um evento do turno. Tipos de notificação que este pacote ainda não

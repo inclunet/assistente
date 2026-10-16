@@ -82,6 +82,10 @@ type TurnNoticeKind string
 // esperando uma resposta sobre uma imagem que o agente nunca viu.
 const TurnNoticeAttachmentsNotSent TurnNoticeKind = "attachments_not_sent"
 
+// TurnNoticeAgentOutputNotDisplayed avisa que o agente respondeu com conteúdo
+// não textual que a superfície comum de chat ainda não apresenta.
+const TurnNoticeAgentOutputNotDisplayed TurnNoticeKind = "agent_output_not_displayed"
+
 // O modelo escolhido no perfil não pôde valer neste turno (AEP-0084 D6). O turno
 // segue no modelo em que o agente está, porque uma resposta do modelo errado é
 // melhor do que resposta nenhuma — mas quem escolheu precisa saber, senão lê a

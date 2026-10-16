@@ -73,6 +73,17 @@ func TestMapeiaOpcaoBooleanaEAtualizacaoVazia(t *testing.T) {
 	}
 }
 
+func TestRespostaACPComBlocoNaoTextualGeraAtualizacaoDeSaidaNaoRenderizada(t *testing.T) {
+	update, ok := updateFrom(sdk.SessionUpdate{
+		AgentMessageChunk: &sdk.SessionUpdateAgentMessageChunk{
+			Content: sdk.ContentBlock{Image: &sdk.ContentBlockImage{Data: "ZmFrZQ==", MimeType: "image/png"}},
+		},
+	})
+	if !ok || update.Kind != UpdateUnsupportedOutput {
+		t.Fatalf("atualização = %+v, ok=%v; queria aviso de conteúdo ACP não textual", update, ok)
+	}
+}
+
 // Uma linha gigante no stderr do agente não pode calar o leitor: é justamente
 // quando o agente despeja um stack trace que o diagnóstico seguinte importa.
 func TestLinhaGiganteNoStderrNaoCalaODiagnosticoSeguinte(t *testing.T) {
