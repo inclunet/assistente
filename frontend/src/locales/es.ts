@@ -339,6 +339,8 @@ const es = {
         modelChanged: 'Modelo del agente cambiado a {{model}}. Se aplica desde el próximo turno.',
         modeChanged: 'Modo del agente cambiado a {{mode}}. Se aplica desde el próximo turno.',
         booleanLabel: 'Opción del agente',
+        booleanEnabled: 'activada',
+        booleanDisabled: 'desactivada',
         settingLabel: 'Configuración del agente',
         settingDescription: 'Elige una configuración que ofrece el agente para esta conversación',
         optionChanged: 'La configuración {{option}} del agente cambió a {{value}}.',

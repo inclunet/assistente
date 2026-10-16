@@ -85,10 +85,17 @@ export const AgentOptionsPickers: React.FC<AgentOptionsPickersProps> = ({
     }));
   }, [announce, change, t]);
 
-  const handleBooleanChange = useCallback((option: AgentConfigOption, value: boolean) => {
+  const handleBooleanChange = useCallback(async (option: AgentConfigOption, value: boolean) => {
     if (value === !!option.currentBool) return;
-    void change(option.id, String(value));
-  }, [change]);
+    const applied = await change(option.id, String(value));
+    if (!applied) return;
+    const current = applied.find((candidate) => candidate.id === option.id);
+    if (!current) return;
+    announce(t('chat.agentOptions.optionChanged', {
+      option: current.name || t('chat.agentOptions.booleanLabel'),
+      value: t(current.currentBool ? 'chat.agentOptions.booleanEnabled' : 'chat.agentOptions.booleanDisabled'),
+    }));
+  }, [announce, change, t]);
 
   if (!model && !mode && additionalSelects.length === 0 && booleans.length === 0) return null;
 

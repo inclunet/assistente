@@ -340,6 +340,8 @@ const ptBR = {
         modelChanged: 'Modelo do agente alterado para {{model}}. Vale do próximo turno em diante.',
         modeChanged: 'Modo do agente alterado para {{mode}}. Vale do próximo turno em diante.',
         booleanLabel: 'Opção do agente',
+        booleanEnabled: 'ativada',
+        booleanDisabled: 'desativada',
         settingLabel: 'Configuração do agente',
         settingDescription: 'Escolhe uma configuração oferecida pelo agente para esta conversa',
         optionChanged: '{{option}} do agente alterada para {{value}}.',

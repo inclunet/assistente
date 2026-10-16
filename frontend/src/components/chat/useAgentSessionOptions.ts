@@ -218,6 +218,7 @@ export function useAgentSessionOptions(
     const requested = conversationId;
     const requestVersion = snapshotVersionRef.current;
     const requestCategoryVersions = new Map(categoryVersionsRef.current);
+    const startingOptions = [...optionsRef.current];
     const requestedOption = optionsRef.current.find((option) => option.id === optionId);
     const requestedCategory = requestedOption
       ? isCategory(requestedOption, AGENT_OPTION_MODEL)
@@ -323,8 +324,11 @@ export function useAgentSessionOptions(
         announceRef.current(tRef.current('chat.agentOptions.changeUnknownState'));
         return null;
       }
+      const responseOptions = snapshotChanged
+        ? reconcileSnapshotResponse(applied, startingOptions, optionsRef.current)
+        : applied;
       const reconciled = preserveChangedCategories(
-        applied,
+        responseOptions,
         optionsRef.current,
         requestCategoryVersions,
         categoryVersionsRef.current,
@@ -348,6 +352,39 @@ export function useAgentSessionOptions(
   }, [conversationId]);
 
   return useMemo(() => ({ options, changing, change }), [options, changing, change]);
+}
+
+/** Mantém mudanças e remoções de opções publicadas por snapshot após o pedido. */
+function reconcileSnapshotResponse(
+  response: AgentConfigOption[],
+  before: AgentConfigOption[],
+  latest: AgentConfigOption[],
+): AgentConfigOption[] {
+  const reconciled = response.filter((option) => {
+    // Snapshot completo é a fonte atual de membership: a resposta atrasada não
+    // pode reintroduzir nenhuma opção que ele deixou de publicar.
+    return latest.some((candidate) => candidate.id === option.id);
+  });
+
+  for (const current of latest) {
+    const previous = before.find((option) => option.id === current.id);
+    if (previous && sameOptionState(previous, current)) continue;
+    const index = reconciled.findIndex((option) => option.id === current.id);
+    if (index === -1) reconciled.push(current);
+    else reconciled[index] = current;
+  }
+  return reconciled;
+}
+
+function sameOptionState(left: AgentConfigOption, right: AgentConfigOption): boolean {
+  const leftValue = left.kind === 'boolean' ? String(!!left.currentBool) : left.currentValue;
+  const rightValue = right.kind === 'boolean' ? String(!!right.currentBool) : right.currentValue;
+  return left.name === right.name && left.category === right.category && left.kind === right.kind &&
+    leftValue === rightValue && left.values.length === right.values.length &&
+    left.values.every((value, index) => {
+      const candidate = right.values[index];
+      return candidate !== undefined && value.value === candidate.value && value.name === candidate.name;
+    });
 }
 
 /** Mantém as opções conhecidas quando o agente só anuncia um valor corrente. */

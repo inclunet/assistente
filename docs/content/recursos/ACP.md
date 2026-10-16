@@ -31,6 +31,8 @@ Na conversa, o Assistente também mostra modos, opções booleanas e outros
 seletores que o agente oferecer (por exemplo, nível de raciocínio). A lista é
 atualizada pelos snapshots ACP; quando o agente remove todas as opções, os
 controles antigos desaparecem. Os rótulos e valores apresentados vêm do agente.
+Ao alterar uma opção booleana, o Assistente anuncia se ela ficou ativada ou
+desativada conforme o estado confirmado pelo agente, que pode diferir do pedido.
 
 O Assistente mantém os formatos ACP anteriores enquanto qualquer agente
 suportado ou publicado no catálogo depender deles. O payload `models` e o
@@ -69,7 +71,7 @@ pode impedir o registro de uma atividade ainda em andamento.
 - Cancelamento é serial (1 turno/sessão por vez).
 - O agente pode enviar planos e detalhes ricos de execução, mas o chat ainda não os apresenta; as atividades mostram classe, resumo e estado básico.
 - O título ACP pode renomear uma conversa; quando o agente o limpa, o app restaura o título padrão se o nome ainda for automático e mantém títulos escolhidos pela pessoa.
-- Conteúdo enviado ao agente inclui texto e imagem inline; áudio WAV/MP3 e arquivos PDF/texto são enviados quando o agente anuncia suporte. Formatos e arquivos não suportados não são enviados; imagens, áudio ou recursos recebidos na resposta ainda não são exibidos, e a conversa anuncia essa limitação.
+- Conteúdo enviado ao agente inclui texto e imagem inline; áudio WAV/MP3 é enviado quando o agente anuncia suporte, inclusive quando há uma transcrição junto da gravação. Arquivos PDF/texto também são enviados quando o agente anuncia suporte. Formatos e arquivos não suportados não são enviados; imagens, áudio ou recursos recebidos na resposta ainda não são exibidos, e a conversa anuncia essa limitação.
 - Se o agente reportar uso ACP, o painel de tokens mostra a ocupação atual e o custo acumulado da sessão enquanto a janela está aberta; avisos aparecem ao atingir 80% e 95%. Esses números vêm do próprio agente e não são salvos como contabilidade local.
 - O catálogo instala e inicia agentes, mas não garante que todos os recursos opcionais do ACP estejam integrados.
 - O Assistente não lista sessões que o agente conhece fora das conversas locais, nem oferece várias raízes de workspace na mesma sessão.

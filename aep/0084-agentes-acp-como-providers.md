@@ -865,7 +865,7 @@ AEPs relacionados.
 | MCP enviado em `session/new`/`session/load` | **Intencionalmente vazio** | O app não injeta servidores MCP próprios; o agente usa sua configuração local (D1). Generalizar essa passagem exigiria decisão de credenciais, escopo e isolamento. |
 | Texto em prompts e respostas | **Implementado** | Blocos de texto são encaminhados para o provider e para a superfície comum de chat. |
 | Imagem inline em prompt | **Parcial** | Só é enviada quando o agente anuncia `promptCapabilities.image`; URLs e formatos não embutidos não são convertidos em blocos ACP. Anexos não enviados geram aviso. |
-| Áudio e recurso/contexto embutido em prompt | **Parcial** | Áudio WAV/MP3 inline é enviado quando o agente anuncia `promptCapabilities.audio`; PDF e texto são enviados como recurso ACP quando anuncia `embeddedContext`. Formatos desconhecidos ou agentes sem suporte geram aviso. Outros tipos de arquivo ainda ficam de fora. |
+| Áudio e recurso/contexto embutido em prompt | **Parcial** | Áudio WAV/MP3 inline é enviado quando o agente anuncia `promptCapabilities.audio`, inclusive junto da transcrição preservada no histórico; PDF e texto são enviados como recurso ACP quando anuncia `embeddedContext`. Formatos desconhecidos ou agentes sem suporte geram aviso. Outros tipos de arquivo ainda ficam de fora. |
 | Blocos não textuais nas respostas do agente | **Parcial** | Blocos `text` são projetados; imagem, áudio e recursos não são renderizados e agora geram um aviso acessível por turno. Se o turno terminar sem texto, a resposta final recebe o fallback terminal existente para evitar mensagem vazia. O contrato `ChatParams` não transporta o idioma da interface, então esse fallback permanece em pt-BR até uma decisão transversal de localização. Renderização multimodal continua pendente. |
 | Texto, raciocínio, início/progresso de ferramenta, opções, modo, título e comandos em `session/update` | **Implementado** | Esse é o conjunto atualmente mapeado em `internal/acp/mapping.go`. |
 | Mensagem de usuário reproduzida durante `session/load` | **Ignorada deliberadamente na apresentação** | A conversa do app vem do histórico local, evitando duplicar mensagens ACP reproduzidas. Uma futura sincronização cruzada precisará resolver divergência de histórico antes de apresentar esses eventos. |
@@ -1437,7 +1437,14 @@ testes.
   reconciliação e a releitura confirma o estado efetivo
   (`AgentOptionsPickers`: "não restaura opção removida por uma resposta atrasada"
   e "releitura resolve boolean false omitido no snapshot durante troca em voo").
+- [x] Ao chegar snapshot durante troca pendente, preservar mudanças de outras
+  opções e remoções ao aplicar a resposta da opção pedida
+  (`AgentOptionsPickers`: "preserva outras mudanças e remoções do snapshot ao aplicar resposta atrasada").
 - [x] Mapear, apresentar e alterar opções booleanas em ACP (`TestOpcaoBooleanaPodeSerConsultadaEAlterada`; teste Vitest de `AgentOptionsPickers`).
+- [x] Anunciar o estado booleano que o agente confirmou, inclusive quando ele
+  difere do pedido (`AgentOptionsPickers`: "anuncia o estado booleano que o agente confirmou, mesmo se diferir do pedido").
+- [x] Preservar o áudio original ao lado da transcrição no histórico e enviá-lo
+  a agentes ACP com `promptCapabilities.audio` (`TestMediaHistoryLoader_PreservaAudioACPQuandoJaExisteTranscricao`, `TestAudioACPOriginalAcompanhaTranscricaoNoPrompt`).
 - [x] Apresentar e alterar opções seletoras de categorias adicionais (`thought_level` etc.) em controle acessível, com rótulos e anúncios internacionalizados.
 - [x] Propagar snapshots de opções vazios até o frontend para remover controles obsoletos (`TestSnapshotVazioDeOpcoesChegaATela`; teste Vitest correspondente). Avisos legados sem lista continuam preservando os seletores conhecidos.
 - [x] Retomar com `session/resume` quando anunciado, usando `session/load` como fallback se ambos forem anunciados e a retomada falhar (`TestRetomaSessaoSemReplayQuandoAgenteAnunciaResume`, `TestRetomaSessaoUsaLoadQuandoResumeFalha`).

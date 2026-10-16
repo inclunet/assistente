@@ -340,6 +340,8 @@ const en = {
         modelChanged: 'Agent model changed to {{model}}. It applies from the next turn on.',
         modeChanged: 'Agent mode changed to {{mode}}. It applies from the next turn on.',
         booleanLabel: 'Agent option',
+        booleanEnabled: 'enabled',
+        booleanDisabled: 'disabled',
         settingLabel: 'Agent setting',
         settingDescription: 'Chooses a setting offered by the agent for this conversation',
         optionChanged: 'Agent {{option}} changed to {{value}}.',

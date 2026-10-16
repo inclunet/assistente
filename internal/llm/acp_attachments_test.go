@@ -302,6 +302,20 @@ func TestAudioInlineDependeDaCapabilityEDoFormato(t *testing.T) {
 	}
 }
 
+func TestAudioACPOriginalAcompanhaTranscricaoNoPrompt(t *testing.T) {
+	content, notSent := turnContent(Message{
+		Content:          "transcrição do áudio",
+		ACPOriginalAudio: []InputAudio{{Data: "QUJD", Format: "wav"}},
+	}, func() bool { return false }, func() bool { return true }, func() bool { return false })
+
+	if notSent != 0 || len(content) != 2 {
+		t.Fatalf("conteúdo ACP = %+v, não enviados = %d; esperado texto e áudio", content, notSent)
+	}
+	if content[0].Text != "transcrição do áudio" || content[1].AudioData != "QUJD" || content[1].AudioMIME != "audio/wav" {
+		t.Fatalf("prompt ACP perdeu transcrição ou áudio original: %+v", content)
+	}
+}
+
 func TestArquivoEmbutidoDependeDaCapabilityESoAceitaPDFOuTexto(t *testing.T) {
 	msg := Message{Role: "user", Content: []interface{}{
 		map[string]interface{}{"type": "text", "text": "resuma"},

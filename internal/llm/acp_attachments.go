@@ -32,7 +32,12 @@ func turnContent(msg Message, acceptsImage, acceptsAudio, acceptsEmbedded func()
 	imageAccepted, imageAsked := false, false
 	audioAccepted, audioAsked := false, false
 	embeddedAccepted, embeddedAsked := false, false
-	for _, part := range messageParts(msg) {
+	parts := messageParts(msg)
+	for i := range msg.ACPOriginalAudio {
+		part := msg.ACPOriginalAudio[i]
+		parts = append(parts, ContentPart{Type: "input_audio", InputAudio: &part})
+	}
+	for _, part := range parts {
 		switch part.Type {
 		case "":
 			// Sem tipo não há como saber o que é: não é conteúdo que o app

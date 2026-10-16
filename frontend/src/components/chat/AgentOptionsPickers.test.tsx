@@ -111,13 +111,37 @@ describe('AgentOptionsPickers', () => {
       available: true,
       options: [{ id: 'telemetria', name: 'Telemetria', kind: 'boolean', currentBool: true, values: [] }],
     });
-    setOption.mockResolvedValue({ conversationId: 'conversa-1', available: true, options: [] });
+    setOption.mockResolvedValue({
+      conversationId: 'conversa-1', available: true,
+      options: [{ id: 'telemetria', name: 'Telemetria', kind: 'boolean', currentBool: false, values: [] }],
+    });
 
     render(<AgentOptionsPickers conversationId="conversa-1" />);
     const checkbox = await screen.findByRole('checkbox', { name: 'Telemetria' });
     expect(checkbox).toBeChecked();
     await userEvent.click(checkbox);
     await waitFor(() => expect(setOption).toHaveBeenCalledWith('conversa-1', 'telemetria', 'false'));
+    await waitFor(() => expect(announce).toHaveBeenCalledWith(
+      expect.stringContaining('chat.agentOptions.booleanDisabled'),
+    ));
+  });
+
+  it('anuncia o estado booleano que o agente confirmou, mesmo se diferir do pedido', async () => {
+    getOptions.mockResolvedValue({
+      conversationId: 'conversa-1', available: true,
+      options: [{ id: 'telemetria', name: 'Telemetria', kind: 'boolean', currentBool: true, values: [] }],
+    });
+    setOption.mockResolvedValue({
+      conversationId: 'conversa-1', available: true,
+      options: [{ id: 'telemetria', name: 'Telemetria', kind: 'boolean', currentBool: true, values: [] }],
+    });
+
+    render(<AgentOptionsPickers conversationId="conversa-1" />);
+    await userEvent.click(await screen.findByRole('checkbox', { name: 'Telemetria' }));
+    await waitFor(() => expect(setOption).toHaveBeenCalledWith('conversa-1', 'telemetria', 'false'));
+    await waitFor(() => expect(announce).toHaveBeenCalledWith(
+      expect.stringContaining('chat.agentOptions.booleanEnabled'),
+    ));
   });
 
   it('mostra e altera seletores ACP de categorias adicionais', async () => {
@@ -319,6 +343,48 @@ describe('AgentOptionsPickers', () => {
       resolveChange(opcoesDoAgente('modelo-b'));
     });
     expect(screen.getByRole('button', { name: 'Modelo, Modelo C' })).toBeInTheDocument();
+  });
+
+  it('preserva outras mudanças e remoções do snapshot ao aplicar resposta atrasada', async () => {
+    const optionsState = (model: string, mode: string, includeEffort: boolean) => ({
+      conversationId: 'conversa-1', available: true,
+      options: [
+        {
+          id: 'model', name: 'Modelo', category: 'model', currentValue: model,
+          values: [{ value: 'modelo-a', name: 'Modelo A' }, { value: 'modelo-b', name: 'Modelo B' }],
+        },
+        {
+          id: 'mode', name: 'Modo', category: 'mode', currentValue: mode,
+          values: [{ value: 'agent' }, { value: 'plan' }],
+        },
+        ...(includeEffort ? [{
+          id: 'effort', name: 'Esforço', category: 'thought_level', kind: 'select', currentValue: 'high',
+          values: [{ value: 'high', name: 'Alto' }],
+        }] : []),
+      ],
+    });
+    getOptions.mockResolvedValue(optionsState('modelo-a', 'agent', true));
+    let resolveChange!: (value: unknown) => void;
+    setOption.mockImplementation(() => new Promise((resolve) => { resolveChange = resolve; }));
+
+    render(<AgentOptionsPickers conversationId="conversa-1" />);
+    await userEvent.click(await screen.findByRole('button', { name: /Modelo/ }));
+    await userEvent.click(await screen.findByRole('option', { name: 'Modelo B' }));
+    await waitFor(() => expect(setOption).toHaveBeenCalledWith('conversa-1', 'model', 'modelo-b'));
+
+    act(() => {
+      emitAgentOptions?.({
+        conversationId: 'conversa-1', options: optionsState('modelo-a', 'plan', false).options,
+        snapshot: true, modelChanged: false, modeChanged: true, announce: false,
+      });
+    });
+    await act(async () => {
+      resolveChange(optionsState('modelo-b', 'agent', true));
+    });
+
+    expect(screen.getByRole('button', { name: 'Modelo, Modelo B' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Modo, chat.agentOptions.mode.plan' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Esforço/ })).not.toBeInTheDocument();
   });
 
   it('não restaura opção removida por uma resposta atrasada', async () => {

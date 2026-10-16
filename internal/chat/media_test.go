@@ -238,8 +238,8 @@ func TestMediaHistoryLoader_AudioUnsupported_NoTranscribe_Placeholder(t *testing
 	}
 }
 
-func TestMediaHistoryLoader_AudioSkippedWhenHasTextContent(t *testing.T) {
-	// Quando Content != "" (transcrição já existe), parte de áudio deve ser pulada
+func TestMediaHistoryLoader_PreservaAudioACPQuandoJaExisteTranscricao(t *testing.T) {
+	// O histórico comum mantém só a transcrição, mas ACP também recebe o áudio original.
 	media := mediaJSON([]map[string]interface{}{
 		{"type": "audio/wav", "data": "wavdata"},
 	})
@@ -256,6 +256,9 @@ func TestMediaHistoryLoader_AudioSkippedWhenHasTextContent(t *testing.T) {
 	}
 	if parts[0].(map[string]interface{})["type"] != "text" {
 		t.Error("expected text part, not audio")
+	}
+	if len(msgs[0].ACPOriginalAudio) != 1 || msgs[0].ACPOriginalAudio[0] != (llm.InputAudio{Data: "wavdata", Format: "wav"}) {
+		t.Fatalf("áudio original não foi preservado para ACP: %+v", msgs[0].ACPOriginalAudio)
 	}
 }
 

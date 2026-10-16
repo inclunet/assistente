@@ -176,8 +176,9 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 **ACP (16/10/2026):** AEP-0084 passa a **In Progress** para ampliar a cobertura
 ACP v1; o escopo original segue entregue. O AEP registra a matriz de cobertura,
 incluindo reconciliação de respostas atrasadas com snapshots (opções removidas
-e boolean `false` omitido pelo DTO), recursos não apresentados e capacidades
-intencionalmente desativadas. AEP-0086 permanece **Done** para
+e boolean `false` omitido pelo DTO), anúncio do resultado booleano confirmado e
+preservação de áudio original junto da transcrição para ACP, além de recursos
+não apresentados e capacidades intencionalmente desativadas. AEP-0086 permanece **Done** para
 descoberta/instalação, com limite explícito entre instalar um agente e integrar
 todos os recursos dele. AEP-0108 permanece **In Progress**: a fila visível e o
 cancelamento restrito ao próximo envio manual pendente foram implementados; a
