@@ -8,6 +8,7 @@ import { VoiceRole } from '../services/tts/index';
 import { messageAudioService } from '../services/messageAudio';
 import { stripMarkdown } from '../lib/stripMarkdown';
 import { isBackendId } from '../lib/idUtils';
+import { translateBackendErrorDiagnostic } from '../lib/providerErrorMessage';
 import i18next from 'i18next';
 
 export interface UseContextMenuResult {
@@ -137,7 +138,10 @@ export function useMessageActions(options: UseMessageActionsOptions = {}) {
       if (!message.content || !message.id) return;
 
       const role: VoiceRole = message.role === 'user' ? 'user' : 'assistant';
-      const plain = stripMarkdown(message.content);
+      const speechContent = message.role === 'assistant'
+        ? translateBackendErrorDiagnostic(message.content)
+        : message.content;
+      const plain = stripMarkdown(speechContent);
       const prefix =
         message.role === 'user'
           ? i18next.t('chat.you')

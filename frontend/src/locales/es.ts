@@ -390,6 +390,7 @@ const es = {
         streamingRetriesExhausted: 'No se pudo completar la respuesta después de varios intentos de conexión.',
         streamingPromptCacheHintRejected: 'El proveedor rechazó la sugerencia de caché incluso después de desactivarla. Comprueba la configuración del gateway o desactiva las sugerencias de caché en el perfil.',
         streamingTokenRateLimit: 'Se alcanzó la cuota de tokens del proveedor (HTTP 429). Espera a que se renueve la cuota e inténtalo de nuevo.',
+        agentResponseFailed: 'Falló la respuesta del agente:',
         providerErrors: {
           unsupportedParameter: 'El proveedor no acepta el parámetro {{field}} para este modelo. Comprueba los parámetros configurados.{{statusLabel}}',
           unsupportedParameterUnknown: 'El proveedor rechazó un parámetro, pero no identificó un campo que se pueda omitir de forma segura.{{statusLabel}}',

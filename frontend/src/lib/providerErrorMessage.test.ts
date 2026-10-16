@@ -29,6 +29,9 @@ describe('translateErrorMarkers', () => {
     await i18n.changeLanguage('pt-BR');
     expect(translateErrorMarkers('Falha na resposta do agente: provider_error:v1:authentication:'))
       .toBe('Falha na resposta do agente: O provedor recusou a autenticação. Confira a credencial configurada.');
+    await i18n.changeLanguage('es');
+    expect(translateBackendErrorDiagnostic('Falha na resposta do agente: provider_error:v1:authentication:'))
+      .toBe('Falló la respuesta del agente: El proveedor rechazó la autenticación. Comprueba la credencial configurada.');
   });
 
   it('traduz falhas MCP por servidor e etapa em cada idioma', async () => {

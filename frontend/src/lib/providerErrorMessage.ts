@@ -69,7 +69,7 @@ export function translateErrorMarkers(text: string): string {
 export function translateBackendErrorDiagnostic(text: string): string {
   const providerDiagnostic = /^Falha na resposta do agente: (provider_error:v1:[a-z_]+:[a-z_.]*(?::[1-5][0-9]{2})?)$/.exec(text);
   if (providerDiagnostic) {
-    return `Falha na resposta do agente: ${translateProviderErrorMessage(providerDiagnostic[1]) ?? providerDiagnostic[1]}`;
+    return `${i18next.t('chat.errors.agentResponseFailed')} ${translateProviderErrorMessage(providerDiagnostic[1]) ?? providerDiagnostic[1]}`;
   }
   if (/^mcp_error:v1:[^:\s]+:(list_tools|call|handshake|unknown)$/.test(text)) {
     return translateErrorMarkers(text);

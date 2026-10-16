@@ -338,7 +338,10 @@ na `main`.
   identificar o servidor sem ambiguidade. Erros estruturados de provedor e MCP
   são traduzidos em eventos, histórico e erros de sumarização. A tradução do
   histórico limita-se aos formatos explícitos de diagnóstico do backend,
-  preservando marcadores literais em mensagens do usuário e código. Nomes de
+  preservando marcadores literais em mensagens do usuário e código. A leitura
+  em voz alta traduz os mesmos diagnósticos no TTS do backend e no fallback
+  WebSpeech, pelo idioma solicitado; áudio histórico desses marcadores não é
+  reutilizado nem salvo no cache compartilhado por mensagem. Nomes de
   servidores MCP com `:` são escapados antes de formar o marcador. Testes dos
   dois adaptadores confirmam que erros de valor não removem campo nem repetem o
   envio; casos de alias ambíguo e campo não enviado também não aprendem nem

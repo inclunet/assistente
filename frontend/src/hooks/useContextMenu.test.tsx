@@ -196,7 +196,12 @@ describe('useMessageActions', () => {
   beforeAll(async () => {
     // The hook now translates feedback; keep this fixture's original UX assertion.
     await i18next.init({ lng: 'pt-BR', resources: { 'pt-BR': { translation: {
-      chat: { contentCopied: 'Mensagem copiada.', copyFailed: 'Erro ao copiar mensagem.' },
+      chat: {
+        contentCopied: 'Mensagem copiada.', copyFailed: 'Erro ao copiar mensagem.',
+        errors: { agentResponseFailed: 'Falha na resposta do agente:', providerErrors: {
+          authentication: 'O provedor recusou a autenticação. Confira a credencial configurada.',
+        } },
+      },
     } } } });
   });
   beforeEach(() => {
@@ -258,6 +263,25 @@ describe('useMessageActions', () => {
     });
 
     expect(ttsServiceMock.speakAsRole).toHaveBeenCalledWith('Teste', 'assistant', undefined, undefined);
+  });
+
+  it('fala o diagnóstico do provider traduzido no fallback WebSpeech', async () => {
+    messageAudioServiceMock.speakMessage.mockResolvedValue(false);
+    ttsServiceMock.getVoiceContext.mockReturnValue({ providerId: 'test-provider', voiceId: 'voice', model: 'tts-1', rate: 1 });
+    const { result } = renderHook(() => useMessageActions());
+
+    await act(async () => {
+      await result.current.speakMessage({
+        id: '1712345678901-diagnostic',
+        content: 'Falha na resposta do agente: provider_error:v1:authentication:',
+        role: 'assistant',
+      } as never);
+    });
+
+    expect(ttsServiceMock.speakAsRole).toHaveBeenCalledWith(
+      'Falha na resposta do agente: O provedor recusou a autenticação. Confira a credencial configurada.',
+      'assistant', undefined, undefined,
+    );
   });
 
   it('não reproduz quando sem config de voz', async () => {

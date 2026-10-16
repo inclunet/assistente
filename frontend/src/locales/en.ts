@@ -391,6 +391,7 @@ const en = {
         streamingRetriesExhausted: 'The response could not be completed after several connection attempts.',
         streamingPromptCacheHintRejected: 'The provider rejected the cache hint even after it was disabled. Check the gateway configuration or disable cache hints in the profile.',
         streamingTokenRateLimit: 'The provider token quota was reached (HTTP 429). Wait for the quota to reset and try again.',
+        agentResponseFailed: 'Agent response failed:',
         providerErrors: {
           unsupportedParameter: 'The provider does not accept the {{field}} parameter for this model. Check the configured parameters.{{statusLabel}}',
           unsupportedParameterUnknown: 'The provider rejected a parameter but did not identify a field that can be safely omitted.{{statusLabel}}',

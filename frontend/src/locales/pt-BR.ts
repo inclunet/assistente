@@ -391,6 +391,7 @@ const ptBR = {
         streamingRetriesExhausted: 'Não foi possível concluir a resposta após várias tentativas de conexão.',
         streamingPromptCacheHintRejected: 'O provedor rejeitou a dica de cache mesmo depois de ela ser desativada. Verifique a configuração do gateway ou desative as dicas de cache no perfil.',
         streamingTokenRateLimit: 'A cota de tokens do provedor foi atingida (HTTP 429). Aguarde a renovação da cota e tente novamente.',
+        agentResponseFailed: 'Falha na resposta do agente:',
         providerErrors: {
           unsupportedParameter: 'O provedor não aceita o parâmetro {{field}} para este modelo. Confira os parâmetros configurados.{{statusLabel}}',
           unsupportedParameterUnknown: 'O provedor recusou um parâmetro, mas não identificou um campo que possa ser omitido com segurança.{{statusLabel}}',
