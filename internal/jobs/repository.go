@@ -1802,7 +1802,8 @@ func (r *DBRepository) CleanOldRuns(ctx context.Context, maxAge time.Duration) (
 }
 
 func (r *DBRepository) CleanOldRunsBatch(ctx context.Context, maxAge time.Duration, limit int) (int, bool, error) {
-	if _, err := database.RequireUserID(ctx); err != nil {
+	userID, err := database.RequireUserID(ctx)
+	if err != nil {
 		return 0, false, err
 	}
 	if limit <= 0 {
@@ -1813,11 +1814,11 @@ func (r *DBRepository) CleanOldRunsBatch(ctx context.Context, maxAge time.Durati
 	deleted := int64(0)
 	more := false
 	hasToolInvocations := r.db.WithContext(ctx).Migrator().HasTable(&database.ToolInvocation{})
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err = r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var runIDs []string
 		query := database.ScopeByUser(ctx, tx.Model(&database.JobRun{}), "user_id").
 			Where("julianday(COALESCE(started_at, queued_at)) < julianday(?)", cutoff.UTC())
-		query = r.retainableRunQuery(query, now)
+		query = r.retainableRunQuery(query, userID, now)
 		if err := query.Order("COALESCE(started_at, queued_at) ASC, id ASC").Limit(limit+1).Pluck("id", &runIDs).Error; err != nil {
 			return err
 		}
@@ -1878,7 +1879,7 @@ func (r *DBRepository) CleanRunsExceedingCountBatch(ctx context.Context, keepPer
 		ranked := tx.Model(&database.JobRun{}).
 			Select("id, ROW_NUMBER() OVER (PARTITION BY job_id ORDER BY julianday(COALESCE(started_at, queued_at)) DESC, id DESC) AS rn").
 			Where("user_id = ?", userID)
-		ranked = r.retainableRunQuery(ranked, r.now())
+		ranked = r.retainableRunQuery(ranked, userID, r.now())
 		var runIDs []string
 		if err := tx.Table("(?) AS ranked", ranked).Where("rn > ?", keepPerJob).Order("id ASC").Limit(limit+1).Pluck("id", &runIDs).Error; err != nil {
 			return err
@@ -1908,31 +1909,34 @@ func (r *DBRepository) CleanRunsExceedingCountBatch(ctx context.Context, keepPer
 // elegível para exclusão quando NÃO existe lease viva com claim ativa
 // correspondente, no mesmo user/run/activation. Sem as tabelas de leases,
 // nenhum run não terminal é removido (fail closed).
-func (r *DBRepository) retainableRunQuery(query *gorm.DB, now time.Time) *gorm.DB {
+func (r *DBRepository) retainableRunQuery(query *gorm.DB, userID string, now time.Time) *gorm.DB {
 	terminal := []string{RunStatusCompleted, RunStatusFailed, RunStatusSkipped}
+	// Materializa os conjuntos protegidos uma vez por usuário, em vez de
+	// reexaminar a outbox/leases para cada run candidato. LIMIT no SELECT
+	// externo não limita o trabalho de uma subquery correlacionada antes do
+	// ORDER BY. run_id é NOT NULL nos dois schemas; o filtro explícito também
+	// impede que um NULL legado contamine a semântica de NOT IN.
 	if query.Migrator().HasTable("command_job_activation_outbox") {
-		query = query.Where(`NOT EXISTS (
-			SELECT 1 FROM command_job_activation_outbox source
-			WHERE source.run_id = job_runs.id
-			  AND source.user_id = job_runs.user_id
+		query = query.Where(`job_runs.id NOT IN (
+			SELECT source.run_id FROM command_job_activation_outbox source
+			WHERE source.user_id = ? AND source.run_id IS NOT NULL
 			  AND source.delivery_state IN (?, ?)
-		)`, commandjobevents.DeliveryPending, commandjobevents.DeliveryProcessing)
+		)`, userID, commandjobevents.DeliveryPending, commandjobevents.DeliveryProcessing)
 	}
 	if !query.Migrator().HasTable("command_job_activation_leases") || !query.Migrator().HasTable("command_layer_activation_state") {
 		return query.Where("status IN ?", terminal)
 	}
 	return query.Where(`status IN ? OR (
-		status NOT IN ? AND NOT EXISTS (
-			SELECT 1 FROM command_job_activation_leases lease
+		status NOT IN ? AND job_runs.id NOT IN (
+			SELECT lease.run_id FROM command_job_activation_leases lease
 			JOIN command_layer_activation_state claim
 			  ON claim.activation_id = lease.activation_id
 			 AND claim.user_id = lease.user_id
 			 AND claim.state = 'active'
-			WHERE lease.run_id = job_runs.id
-			  AND lease.user_id = job_runs.user_id
+			WHERE lease.user_id = ? AND lease.run_id IS NOT NULL
 			  AND julianday(lease.expires_at) > julianday(?)
 		)
-	)`, terminal, terminal, now.UTC())
+	)`, terminal, terminal, userID, now.UTC())
 }
 
 func (r *DBRepository) CleanOldEvents(ctx context.Context, maxAge time.Duration) (int, error) {
