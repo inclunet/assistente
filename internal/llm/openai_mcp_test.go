@@ -581,6 +581,12 @@ func (h *logCaptureHandler) find(level slog.Level, substr string) *slog.Record {
 	return nil
 }
 
+func (h *logCaptureHandler) snapshot() []slog.Record {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return append([]slog.Record(nil), h.records...)
+}
+
 // TestOpenAIResponsesLogsNativeMCPCallError garante que, ao processar um
 // output item mcp_call com o campo error preenchido, o provider (1) preserva o
 // erro no MCPToolEvent e (2) o loga em ERRO com server_label, nome da tool e o
