@@ -7,6 +7,10 @@ import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { ProviderForm, PROVIDER_CONFIG, API_FORMAT_OPTIONS } from "./ProviderForm";
 
+const waitForProfileOption = async (select: HTMLElement, value: string) => {
+  await waitFor(() => expect(Array.from((select as HTMLSelectElement).options).some(option => option.value === value)).toBe(true));
+};
+
 vi.mock('react-i18next', () => ({
   initReactI18next: { type: '3rdParty', init: () => {} },
   useTranslation: () => ({
@@ -138,7 +142,7 @@ describe("ProviderForm - Renderização", () => {
   it('informa quando o catálogo está indisponível e mantém a opção personalizada', async () => {
     vi.mocked(GetLLMCatalog).mockRejectedValueOnce(new Error('offline'));
     render(<ProviderForm onCancel={() => {}} onSave={() => {}} />);
-    expect(await screen.findByRole('status')).toHaveTextContent('Catálogo indisponível');
+    expect(await screen.findByText(/Catálogo indisponível/)).toBeInTheDocument();
     expect(screen.getByLabelText(/perfil de servidor/i)).toHaveValue('');
     expect(screen.getByLabelText(/base url/i)).toBeInTheDocument();
   });
@@ -206,6 +210,7 @@ describe("ProviderForm - Renderização", () => {
     );
 
     const typeSelect = screen.getByLabelText(/perfil de servidor/i);
+    await waitForProfileOption(typeSelect, 'ollama');
     await user.selectOptions(typeSelect, "ollama");
 
     const urlInput = screen.getByLabelText(/base url/i) as HTMLInputElement;
@@ -236,10 +241,12 @@ describe("ProviderForm - Renderização", () => {
     );
 
     const typeSelect = screen.getByLabelText(/perfil de servidor/i);
+    await waitForProfileOption(typeSelect, 'ollama');
     await user.selectOptions(typeSelect, "ollama");
 
     expect(screen.getByLabelText('providerForm.authMode')).toHaveValue('none');
     expect(screen.queryByRole('button', { name: 'credentials.mcp.configure' })).not.toBeInTheDocument();
+    await waitForProfileOption(typeSelect, 'custom-openai-compatible');
     await user.selectOptions(typeSelect, 'custom-openai-compatible');
     await user.selectOptions(screen.getByLabelText('providerForm.authMode'), 'optional');
     expect(screen.getByRole('button', { name: 'credentials.mcp.configure' })).toBeInTheDocument();
@@ -249,6 +256,7 @@ describe("ProviderForm - Renderização", () => {
     const user = userEvent.setup();
     render(<ProviderForm onCancel={() => {}} onSave={() => {}} />);
     const profileSelect = screen.getByLabelText(/perfil de servidor/i);
+    await waitForProfileOption(profileSelect, 'deepseek');
     await user.selectOptions(profileSelect, 'deepseek');
     const modelSelect = screen.getByLabelText(/modelo padrão/i);
     expect(modelSelect.tagName).toBe('SELECT');
@@ -295,6 +303,7 @@ describe("ProviderForm - Validação", () => {
     await user.type(nameInput, "Test");
 
     const typeSelect = screen.getByLabelText(/perfil de servidor/i);
+    await waitForProfileOption(typeSelect, 'ollama');
     await user.selectOptions(typeSelect, "ollama");
 
     const urlInput = screen.getByLabelText(/base url/i) as HTMLInputElement;
@@ -315,6 +324,7 @@ describe("ProviderForm - Validação", () => {
     );
 
     const typeSelect = screen.getByLabelText(/perfil de servidor/i);
+    await waitForProfileOption(typeSelect, 'ollama');
     await user.selectOptions(typeSelect, "ollama");
 
     const urlInput = screen.getByLabelText(/base url/i);
@@ -363,6 +373,7 @@ describe("ProviderForm - Carregamento de Modelos", () => {
     await user.type(nameInput, "My Ollama");
 
     const typeSelect = screen.getByLabelText(/perfil de servidor/i);
+    await waitForProfileOption(typeSelect, 'ollama');
     await user.selectOptions(typeSelect, "ollama");
 
     const loadButton = screen.getByRole("button", { name: /carregar modelos/i });
@@ -392,6 +403,7 @@ describe("ProviderForm - Carregamento de Modelos", () => {
     await user.type(nameInput, "My Ollama");
 
     const typeSelect = screen.getByLabelText(/perfil de servidor/i);
+    await waitForProfileOption(typeSelect, 'ollama');
     await user.selectOptions(typeSelect, "ollama");
 
     const loadButton = screen.getByRole("button", { name: /carregar modelos/i });
@@ -423,6 +435,7 @@ describe("ProviderForm - Carregamento de Modelos", () => {
     await user.type(nameInput, "My Ollama");
 
     const typeSelect = screen.getByLabelText(/perfil de servidor/i);
+    await waitForProfileOption(typeSelect, 'ollama');
     await user.selectOptions(typeSelect, "ollama");
 
     const loadButton = screen.getByRole("button", { name: /carregar modelos/i });
@@ -451,6 +464,7 @@ describe("ProviderForm - Carregamento de Modelos", () => {
     await user.type(nameInput, "My Custom");
 
     const typeSelect = screen.getByLabelText(/perfil de servidor/i);
+    await waitForProfileOption(typeSelect, 'ollama');
     await user.selectOptions(typeSelect, "ollama");
 
     const loadButton = screen.getByRole("button", { name: /carregar modelos/i });
@@ -483,6 +497,7 @@ describe("ProviderForm - Salvar", () => {
     await user.type(nameInput, "My Ollama");
 
     const typeSelect = screen.getByLabelText(/perfil de servidor/i);
+    await waitForProfileOption(typeSelect, 'ollama');
     await user.selectOptions(typeSelect, "ollama");
 
     const loadButton = screen.getByRole("button", { name: /carregar modelos/i });
@@ -599,6 +614,7 @@ describe("api_format semantics", () => {
     );
 
     const typeSelect = screen.getByLabelText(/perfil de servidor/i);
+    await waitForProfileOption(typeSelect, 'ollama');
     await user.selectOptions(typeSelect, "ollama");
 
     const apiFormatLabel = screen.getByText("providerForm.apiProtocol");
@@ -614,6 +630,7 @@ describe("api_format semantics", () => {
     );
 
     const typeSelect = screen.getByLabelText(/perfil de servidor/i);
+    await waitForProfileOption(typeSelect, 'deepseek');
     await user.selectOptions(typeSelect, "deepseek");
 
     const mode = screen.getByLabelText(/compatibilidade com reasoning_content/i);

@@ -167,10 +167,13 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
     void Promise.resolve().then(() => GetLLMCatalog()).then((response) => {
       if (active) setCatalogProfiles(response?.document?.servers || []);
     }).catch(() => {
-      if (active) setCatalogProfiles([]);
+      if (active) {
+        setCatalogProfiles([]);
+        announce(t('providerForm.catalogUnavailable'), 'polite');
+      }
     });
     return () => { active = false; };
-  }, [kind]);
+  }, [announce, kind, t]);
   const availableProfiles = useMemo(() => {
     const source = catalogProfiles === null ? [] : catalogProfiles;
     // Cohere anuncia uma rota com prefixo que o runtime atual não acrescenta
@@ -804,6 +807,11 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
   const defaultModelChoices = defaultModelPolicy?.policy === 'choice'
     ? (defaultModelPolicy.choices || []).filter((value): value is string => typeof value === 'string')
     : [];
+  const defaultModelDescription = modelsLoaded && apiTested
+    ? t('providerForm.connected')
+    : loadingModels
+    ? t('providerForm.loadingModels')
+    : t('providerForm.defaultModelHelp');
   const apiFormatPolicy = policyFor(selectedProfile, 'api_format');
   const authModePolicy = policyFor(selectedProfile, 'auth.mode');
   const isUrlReadonly = baseURLPolicy?.policy === 'fixed' || baseURLPolicy?.policy === 'hidden';
@@ -855,7 +863,7 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
           fullWidth
         />
       </FormField>
-      {catalogUnavailable && <p role="status" aria-live="polite" aria-atomic="true">
+      {catalogUnavailable && <p>
         {t('providerForm.catalogUnavailable')}
       </p>}
 
@@ -958,56 +966,22 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
       </>}
 
       {/* Default Model — loads models list which also validates the provider */}
-      {defaultModelPolicy?.policy !== 'hidden' && <FormField
-        label={t('providerForm.defaultModel')}
-        error={errors.api}
-        description={
-          modelsLoaded && apiTested
-            ? t('providerForm.connected')
-            : loadingModels
-            ? t('providerForm.loadingModels')
-            : t('providerForm.defaultModelHelp')
-        }
-      >
-        {defaultModelPolicy?.policy === 'fixed' ? (
-          <Select
-            options={formData.default_model ? [{ value: formData.default_model, label: formData.default_model }] : []}
-            value={formData.default_model || ''}
-            fullWidth
-            aria-label={t('providerForm.defaultModel')}
-            disabled
-          />
-        ) : defaultModelPolicy?.policy === 'choice' ? (
-          <Select
-            options={defaultModelChoices.map(value => ({ value, label: value }))}
-            value={formData.default_model || ''}
-            onChange={(e) => setFormData(prev => ({ ...prev, default_model: e.target.value }))}
-            fullWidth
-            aria-label={t('providerForm.defaultModel')}
-          />
-        ) : modelsLoaded && models.length > 0 ? (
-          <Select
-            options={[
-              { value: '', label: t('providerForm.modelAutomatic') },
-              ...models.map(m => ({ value: m, label: m })),
-            ]}
-            value={formData.default_model || ''}
-            onChange={(e) => setFormData(prev => ({ ...prev, default_model: e.target.value }))}
-            fullWidth
-            aria-label={t('providerForm.defaultModel')}
-            disabled={defaultModelPolicy?.policy === 'fixed'}
-          />
-        ) : modelsLoaded && endpointNotSupported ? (
-          <Input
-            value={formData.default_model || ''}
-            onChange={(e) => setFormData(prev => ({ ...prev, default_model: e.target.value }))}
-            placeholder={(typeof selectedProfile.default_model_id === 'string' ? selectedProfile.default_model_id : config.defaultModel) || t('providerForm.modelPlaceholder')}
-            fullWidth
-            aria-label={t('providerForm.defaultModel')}
-            disabled={defaultModelPolicy?.policy === 'fixed'}
-          />
-        ) : (
+      {defaultModelPolicy?.policy !== 'hidden' && (
+        defaultModelPolicy?.policy === 'editable' && !modelsLoaded ? (
           <div className="provider-form__model-load-section">
+            <FormField
+              label={t('providerForm.defaultModel')}
+              error={errors.api}
+              description={defaultModelDescription}
+            >
+              <Input
+                value={formData.default_model || ''}
+                onChange={(e) => setFormData(prev => ({ ...prev, default_model: e.target.value }))}
+                placeholder={(typeof selectedProfile.default_model_id === 'string' ? selectedProfile.default_model_id : config.defaultModel) || t('providerForm.modelPlaceholder')}
+                fullWidth
+                aria-label={t('providerForm.defaultModel')}
+              />
+            </FormField>
             <Button
               type="button"
               variant="secondary"
@@ -1017,10 +991,64 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
             >
               {loadingModels ? t('providerForm.loadingModels') : t('providerForm.loadModelsBtn')}
             </Button>
-
           </div>
-        )}
-      </FormField>}
+        ) : (
+          <FormField
+            label={t('providerForm.defaultModel')}
+            error={errors.api}
+            description={defaultModelDescription}
+          >
+            {defaultModelPolicy?.policy === 'fixed' ? (
+              <Select
+                options={formData.default_model ? [{ value: formData.default_model, label: formData.default_model }] : []}
+                value={formData.default_model || ''}
+                fullWidth
+                aria-label={t('providerForm.defaultModel')}
+                disabled
+              />
+            ) : defaultModelPolicy?.policy === 'choice' ? (
+              <Select
+                options={defaultModelChoices.map(value => ({ value, label: value }))}
+                value={formData.default_model || ''}
+                onChange={(e) => setFormData(prev => ({ ...prev, default_model: e.target.value }))}
+                fullWidth
+                aria-label={t('providerForm.defaultModel')}
+              />
+            ) : modelsLoaded && models.length > 0 ? (
+              <Select
+                options={[
+                  { value: '', label: t('providerForm.modelAutomatic') },
+                  ...models.map(m => ({ value: m, label: m })),
+                ]}
+                value={formData.default_model || ''}
+                onChange={(e) => setFormData(prev => ({ ...prev, default_model: e.target.value }))}
+                fullWidth
+                aria-label={t('providerForm.defaultModel')}
+                disabled={defaultModelPolicy?.policy === 'fixed'}
+              />
+            ) : modelsLoaded && endpointNotSupported ? (
+              <Input
+                value={formData.default_model || ''}
+                onChange={(e) => setFormData(prev => ({ ...prev, default_model: e.target.value }))}
+                placeholder={(typeof selectedProfile.default_model_id === 'string' ? selectedProfile.default_model_id : config.defaultModel) || t('providerForm.modelPlaceholder')}
+                fullWidth
+                aria-label={t('providerForm.defaultModel')}
+                disabled={defaultModelPolicy?.policy === 'fixed'}
+              />
+            ) : (
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={handleLoadModels}
+                disabled={loadingModels || !canLoadModels}
+                aria-label={t('providerForm.loadModels')}
+              >
+                {loadingModels ? t('providerForm.loadingModels') : t('providerForm.loadModelsBtn')}
+              </Button>
+            )}
+          </FormField>
+        )
+      )}
         </>
       )}
 

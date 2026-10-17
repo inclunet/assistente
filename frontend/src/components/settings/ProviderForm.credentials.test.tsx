@@ -22,11 +22,18 @@ beforeEach(() => {
  vi.mocked(CreateLLMProvider).mockResolvedValue({});
 });
 const configure = async () => {
+ await waitForProfileOption('openai');
  const button = screen.getByRole('button', { name: 'credentials.mcp.configure' });
  await waitFor(() => expect(button).toBeEnabled());
  await userEvent.click(button);
 };
-const set = async (label: string, value: string) => { await act(async () => { fireEvent.change(screen.getByLabelText(new RegExp(label)), { target: { value } }); }); };
+const waitForProfileOption = async (value: string) => {
+ await waitFor(() => expect(Array.from((screen.getByLabelText(/perfil de servidor/i) as HTMLSelectElement).options).some(option => option.value === value)).toBe(true));
+};
+const set = async (label: string, value: string) => {
+ if (label === 'providerForm.serverProfile' && value) await waitForProfileOption(value);
+ await act(async () => { fireEvent.change(screen.getByLabelText(new RegExp(label)), { target: { value } }); });
+};
 describe('ProviderForm shared credentials', () => {
  it.each(['static', 'env', 'keyring', 'command'])('tests and saves a %s draft through the provider transaction only', async source => {
   const saved = vi.fn();
@@ -188,10 +195,19 @@ it('contains focus in the real modal during save and restores it on failure', as
   await userEvent.click(save);
   const status = screen.getAllByText('common.saving').find(el => el.tagName === 'P')!;
   await waitFor(() => expect(status).toHaveFocus());
+  const dialog = screen.getByRole('dialog');
+  const focusable = Array.from(dialog.querySelectorAll<HTMLElement>(
+    'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"]), [contenteditable]'
+  )).filter(element => !element.matches(':disabled') && !element.closest('[hidden], [aria-hidden="true"]'));
+  const firstFocusable = focusable[0];
+  const lastFocusable = focusable[focusable.length - 1];
+  expect(lastFocusable).toBe(status);
+  lastFocusable?.focus();
   await userEvent.tab();
-  expect(status).toHaveFocus();
+  expect(firstFocusable).toHaveFocus();
+  firstFocusable?.focus();
   await userEvent.tab({ shift: true });
-  expect(status).toHaveFocus();
+  expect(lastFocusable).toHaveFocus();
   await act(async () => reject(new Error('save failed')));
   await waitFor(() => expect(save).toHaveFocus());
   expect(screen.getByLabelText(/providerForm.name/)).toBeEnabled();
