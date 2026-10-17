@@ -34,6 +34,7 @@ jobs:
           DEEPSEEK__KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           DEEPSEEK__API_BASE: https://api.deepseek.com
           config.model: deepseek/deepseek-v4-flash
+          pr_reviewer.inline_key_issues: "true"
           config.response_language: pt-BR
           config.max_model_tokens: "32000"
           config.max_output_tokens: "8192"
