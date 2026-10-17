@@ -505,11 +505,11 @@ describe('AgentOptionsPickers', () => {
           values: [{ value: 'modelo-a', name: 'Modelo A' }, { value: 'modelo-b', name: 'Modelo B' }],
         },
         {
-          id: 'verbosity', name: 'Verbosity', category: 'other', currentValue: verbosity,
+          id: 'verbosity', name: 'Verbosity', category: 'other', kind: 'select', currentValue: verbosity,
           values: [{ value: 'concise', name: 'Concisa' }, { value: 'detailed', name: 'Detalhada' }],
         },
         ...(includeEffort ? [{
-          id: 'effort', name: 'Esforço', category: 'other', currentValue: 'high',
+          id: 'effort', name: 'Esforço', category: 'other', kind: 'select', currentValue: 'high',
           values: [{ value: 'high', name: 'Alto' }],
         }] : []),
       ],

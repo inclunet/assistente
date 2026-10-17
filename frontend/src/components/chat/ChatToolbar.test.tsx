@@ -502,6 +502,36 @@ describe('ChatToolbar fila de envios', () => {
     expect(cancelNextQueuedTurnMock).not.toHaveBeenCalled();
   });
 
+  it('não move o foco para a conversa nova quando a fila da conversa anterior desaparece', () => {
+    queuedTurnCountRef.current = 1;
+    const view = renderToolbar();
+    screen.getByRole('button', { name: 'chat.queue.cancelNext' }).focus();
+
+    sessionConversationRef.current = 'conversation-2';
+    contextRef.conversation = 'conversation-2';
+    queuedTurnCountRef.current = 0;
+    view.rerender(<MemoryRouter><ChatToolbar /></MemoryRouter>);
+
+    expect(screen.getByRole('button', { name: 'chat.pins.button' })).not.toHaveFocus();
+  });
+
+  it('mantém o controle de foco ao trocar de conversa com fila nas duas conversas', () => {
+    queuedTurnCountRef.current = 1;
+    const view = renderToolbar();
+    const cancelButton = screen.getByRole('button', { name: 'chat.queue.cancelNext' });
+    cancelButton.focus();
+
+    sessionConversationRef.current = 'conversation-2';
+    contextRef.conversation = 'conversation-2';
+    view.rerender(<MemoryRouter><ChatToolbar /></MemoryRouter>);
+    expect(cancelButton).toHaveFocus();
+
+    queuedTurnCountRef.current = 0;
+    view.rerender(<MemoryRouter><ChatToolbar /></MemoryRouter>);
+
+    expect(screen.getByRole('button', { name: 'chat.pins.button' })).toHaveFocus();
+  });
+
   it('não mantém restauração armada quando a fila cresce e o foco muda', () => {
     queuedTurnCountRef.current = 1;
     const view = renderToolbar();
