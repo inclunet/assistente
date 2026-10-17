@@ -42,7 +42,7 @@
     },
     "server": {
       "type": "object",
-      "required": ["id", "name", "group", "provider_family", "api_format", "adapter_id", "auth", "fields"],
+      "required": ["id", "name", "group", "provider_family", "status", "api_format", "adapter_id", "auth", "fields"],
       "properties": {
         "id": {"$ref": "#/$defs/identifier"},
         "name": {"type": "string", "minLength": 1, "maxLength": 120},

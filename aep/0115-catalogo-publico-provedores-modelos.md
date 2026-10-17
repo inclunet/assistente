@@ -222,9 +222,12 @@ altera conexões existentes nem sobrepõe a identidade explícita persistida.
 4. **Modelos, capacidades e proxies.** Associar IDs expostos apenas por
    mapeamento exato e integrar recursos/limites sem impedir aliases
    desconhecidos.
-5. **Vozes TTS.** Consumir vozes catalogadas por perfil, rota e modelo,
-   incluindo estado de completude. Esta fase é dependência da fase 4 do
-   AEP-0113.
+5. **Vozes TTS na API do catálogo.** Integrar a coleção de vozes do asset ao
+   consumo tipado, associada à exposição de perfil, rota/API e modelo, incluindo
+   estado de completude. Esta fase fornece os dados consumidos pela fase 4 do
+   AEP-0113, que implementa a seleção e o comportamento de compatibilidade na
+   interface. Assim, a dependência é unidirecional: AEP-0113 fase 4 depende das
+   fases 1–5 desta AEP.
 6. **Manutenção do catálogo.** Definir processo e cadência de atualização,
    validação e publicação. Sondagens de síntese potencialmente pagas podem ser
    usadas no processo editorial, com custo e escopo controlados; abrir a UI ou
