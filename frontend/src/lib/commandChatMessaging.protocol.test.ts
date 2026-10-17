@@ -222,6 +222,12 @@ describe('protocolo auditado do envio de chat', () => {
       releaseBegin = resolve;
       signalBeginStarted();
     }));
+    vi.mocked(first.port.takeUICommand).mockResolvedValue({
+      ticket: 'first-ticket', invocationId: 'first-invocation', commandId: 'chat.message.send', handoffId: 'first-handoff',
+    });
+    vi.mocked(first.port.getUICommandResult).mockResolvedValue({
+      invocationId: 'first-invocation', status: 'succeeded',
+    });
 
     const firstRun = executeChatMessaging(first.port, firstTarget);
     await beginStarted;

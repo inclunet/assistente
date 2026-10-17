@@ -223,11 +223,15 @@ describe('AgentOptionsPickers', () => {
   });
 
   it('restaura foco quando a releitura após resposta concorrente remove a opção focada', async () => {
-    getOptions.mockResolvedValueOnce(opcoesDoAgente());
+    let optionsReads = 0;
     let resolveChange!: (value: unknown) => void;
     let resolveRefresh!: (value: unknown) => void;
+    getOptions.mockImplementation(() => {
+      optionsReads += 1;
+      if (optionsReads < 3) return Promise.resolve(opcoesDoAgente());
+      return new Promise((resolve) => { resolveRefresh = resolve; });
+    });
     setOption.mockImplementation(() => new Promise((resolve) => { resolveChange = resolve; }));
-    getOptions.mockImplementationOnce(() => new Promise((resolve) => { resolveRefresh = resolve; }));
 
     render(<AgentOptionsPickers conversationId="conversa-1" />);
     const modelPicker = await screen.findByRole('button', { name: /Modelo/ });
@@ -245,7 +249,7 @@ describe('AgentOptionsPickers', () => {
     await act(async () => {
       resolveChange(opcoesDoAgente('modelo-a'));
     });
-    await waitFor(() => expect(getOptions).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(getOptions).toHaveBeenCalledTimes(3));
     const modePicker = screen.getByRole('button', { name: /Modo/ });
     modePicker.focus();
 

@@ -89,6 +89,11 @@ const chatStoreState = {
   getDraftRevision: () => 0,
   getMessagingPipelineRevision: () => 0,
   waitForMessagingAdmission: async () => {},
+  registerMessagingAdmission: () => ({
+    activate: () => true,
+    complete: () => {},
+    cancelled: new Promise<never>(() => {}),
+  }),
   cancelStreaming: vi.fn(),
   retryMessageToConversation: vi.fn(),
   ensureConversationSurfaceSession: vi.fn(),
