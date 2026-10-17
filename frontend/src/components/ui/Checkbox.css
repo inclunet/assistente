@@ -61,12 +61,14 @@
   border-color: var(--accent);
 }
 
-.checkbox-input:disabled + .checkbox-box {
+.checkbox-input:disabled + .checkbox-box,
+.checkbox-input[aria-disabled='true'] + .checkbox-box {
   opacity: 0.4;
   cursor: not-allowed;
 }
 
-.checkbox-input:disabled ~ .checkbox-label {
+.checkbox-input:disabled ~ .checkbox-label,
+.checkbox-input[aria-disabled='true'] ~ .checkbox-label {
   opacity: 0.4;
   cursor: not-allowed;
 }

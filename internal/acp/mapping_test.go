@@ -36,10 +36,7 @@ func TestDecisaoQueJaChegouVenceOFimDoPrazo(t *testing.T) {
 	}
 }
 
-// O evento de opções é o conjunto completo, então entregar vazio significa "não
-// há mais opção nenhuma" — e o seletor de modelo sumiria da tela. Agente que só
-// manda o que ainda não consumimos não está dizendo isso.
-func TestConjuntoDeOpcoesSemNadaMapeavelNaoViraEventoVazio(t *testing.T) {
+func TestMapeiaOpcaoBooleanaEAtualizacaoVazia(t *testing.T) {
 	soBooleana := sdk.SessionUpdate{
 		ConfigOptionUpdate: &sdk.SessionConfigOptionUpdate{
 			ConfigOptions: []sdk.SessionConfigOption{
@@ -47,8 +44,13 @@ func TestConjuntoDeOpcoesSemNadaMapeavelNaoViraEventoVazio(t *testing.T) {
 			},
 		},
 	}
-	if update, ok := updateFrom(soBooleana); ok {
-		t.Errorf("opção que não sabemos mapear virou conjunto vazio: %+v", update)
+	if update, ok := updateFrom(soBooleana); !ok || update.Kind != UpdateConfigOptions || len(update.ConfigOptions) != 1 || update.ConfigOptions[0].Kind != "boolean" || !update.ConfigOptions[0].CurrentBool {
+		t.Fatalf("opção booleana não foi mapeada: %+v, ok=%v", update, ok)
+	}
+
+	vazia := sdk.SessionUpdate{ConfigOptionUpdate: &sdk.SessionConfigOptionUpdate{ConfigOptions: []sdk.SessionConfigOption{}}}
+	if update, ok := updateFrom(vazia); !ok || update.Kind != UpdateConfigOptions || len(update.ConfigOptions) != 0 {
+		t.Fatalf("snapshot vazio não foi preservado: %+v, ok=%v", update, ok)
 	}
 
 	// Com algo mapeável, o evento sai normalmente.
@@ -68,6 +70,41 @@ func TestConjuntoDeOpcoesSemNadaMapeavelNaoViraEventoVazio(t *testing.T) {
 	update, ok := updateFrom(comModelo)
 	if !ok || update.Kind != UpdateConfigOptions || len(update.ConfigOptions) != 1 {
 		t.Errorf("conjunto com modelo deveria ser entregue: %+v (ok=%v)", update, ok)
+	}
+}
+
+func TestRespostaACPComBlocoNaoTextualGeraAtualizacaoDeSaidaNaoRenderizada(t *testing.T) {
+	update, ok := updateFrom(sdk.SessionUpdate{
+		AgentMessageChunk: &sdk.SessionUpdateAgentMessageChunk{
+			Content: sdk.ContentBlock{Image: &sdk.ContentBlockImage{Data: "ZmFrZQ==", MimeType: "image/png"}},
+		},
+	})
+	if !ok || update.Kind != UpdateUnsupportedOutput {
+		t.Fatalf("atualização = %+v, ok=%v; queria aviso de conteúdo ACP não textual", update, ok)
+	}
+}
+
+func TestAtualizacaoACPDeUsoMapeiaJanelaECusto(t *testing.T) {
+	cost := 0.013
+	update, ok := updateFrom(sdk.SessionUpdate{
+		UsageUpdate: &sdk.SessionUsageUpdate{
+			Used: 2400,
+			Size: 8000,
+			Cost: &sdk.Cost{Amount: cost, Currency: "usd"},
+		},
+	})
+	if !ok || update.Kind != UpdateUsage || update.ContextUsed != 2400 || update.ContextSize != 8000 {
+		t.Fatalf("snapshot de uso = %+v, ok=%v", update, ok)
+	}
+	if update.SessionCostAmount == nil || *update.SessionCostAmount != cost || update.SessionCostCurrency != "USD" {
+		t.Fatalf("custo de sessão não foi normalizado: %+v", update)
+	}
+	semMoeda := sdk.SessionUpdate{UsageUpdate: &sdk.SessionUsageUpdate{
+		Used: 1, Size: 10, Cost: &sdk.Cost{Amount: cost, Currency: "<USD>"},
+	}}
+	update, ok = updateFrom(semMoeda)
+	if !ok || update.SessionCostAmount != nil || update.SessionCostCurrency != "" {
+		t.Fatalf("moeda inválida chegou à interface: %+v, ok=%v", update, ok)
 	}
 }
 
@@ -447,12 +484,42 @@ func TestBlocosDoPromptIgnoramConteudoVazio(t *testing.T) {
 	if _, err := promptBlocks([]Content{ImageContent("ZmFrZQ==", "")}); err == nil {
 		t.Error("imagem sem tipo MIME deveria falhar aqui, e não no agente")
 	}
-	blocos, err := promptBlocks([]Content{TextContent("oi"), ImageContent("ZmFrZQ==", "image/png")})
+	if _, err := promptBlocks([]Content{AudioContent("ZmFrZQ==", "")}); err == nil {
+		t.Error("áudio sem tipo MIME deveria falhar aqui, e não no agente")
+	}
+	if _, err := promptBlocks([]Content{EmbeddedResourceContent("nota.pdf", "ZmFrZQ==", "")}); err == nil {
+		t.Error("recurso sem tipo MIME deveria falhar aqui, e não no agente")
+	}
+	blocos, err := promptBlocks([]Content{
+		TextContent("oi"), ImageContent("ZmFrZQ==", "image/png"), AudioContent("ZmFrZQ==", "audio/wav"),
+		EmbeddedResourceContent("nota.pdf", "ZmFrZQ==", "application/pdf"),
+	})
 	if err != nil {
 		t.Fatalf("blocos válidos: %v", err)
 	}
-	if len(blocos) != 2 || blocos[0].Text == nil || blocos[1].Image == nil {
+	if len(blocos) != 5 || blocos[0].Text == nil || blocos[1].Image == nil || blocos[2].Audio == nil ||
+		blocos[3].Text == nil || blocos[4].Resource == nil {
 		t.Fatalf("blocos inesperados: %+v", blocos)
+	}
+}
+
+func TestPromptBlocksAssociamNomeBaseAoRecursoEmbutido(t *testing.T) {
+	blocks, err := promptBlocks([]Content{
+		EmbeddedResourceContent(`C:\privado\relatorio.pdf`, "cGRmMQ==", "application/pdf"),
+		EmbeddedResourceContent("/home/pessoa/notas.txt", "dGV4dG8=", "text/plain"),
+	})
+	if err != nil {
+		t.Fatalf("promptBlocks: %v", err)
+	}
+	if len(blocks) != 4 || blocks[0].Text == nil || blocks[1].Resource == nil ||
+		blocks[2].Text == nil || blocks[3].Resource == nil {
+		t.Fatalf("blocos de anexo não mantiveram nome antes do recurso: %+v", blocks)
+	}
+	if blocks[0].Text.Text != "[Arquivo anexado: relatorio.pdf]" || blocks[2].Text.Text != "[Arquivo anexado: notas.txt]" {
+		t.Fatalf("nomes de anexo inesperados: %q, %q", blocks[0].Text.Text, blocks[2].Text.Text)
+	}
+	if strings.Contains(blocks[0].Text.Text, `C:\`) || strings.Contains(blocks[2].Text.Text, "/home/") {
+		t.Fatalf("caminho local foi incluído no prompt: %q, %q", blocks[0].Text.Text, blocks[2].Text.Text)
 	}
 }
 
@@ -550,5 +617,21 @@ func TestOQueVeioPeloFormatoAnteriorSobreviveAoConjuntoSeguinte(t *testing.T) {
 	// esvaziou as opções: quem chama trata isso guardando o que já tinha.
 	if got := withKnownLegacy(nil, conhecido); got != nil {
 		t.Errorf("sem conjunto novo, nada a preservar: %+v", got)
+	}
+}
+
+func TestSnapshotNaoReinscreveOpcaoModernaRemovida(t *testing.T) {
+	known := []ConfigOption{
+		{ID: "model", Category: CategoryModel, Kind: "select", CurrentValue: "modelo-a"},
+		{ID: "mode", Category: modeCategory, CurrentValue: "agent"},
+	}
+	fresh := []ConfigOption{{ID: "verbosity", Category: "other", Kind: "select", CurrentValue: "high"}}
+
+	got := withKnownLegacy(fresh, known)
+	if len(got) != 2 {
+		t.Fatalf("snapshot reinstalou opção moderna removida: %+v", got)
+	}
+	if got[0].ID != "verbosity" || got[1].ID != "mode" {
+		t.Fatalf("snapshot ou opção legada incorretos: %+v", got)
 	}
 }

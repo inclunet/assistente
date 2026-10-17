@@ -26,6 +26,7 @@ const acpOptionsComponent = "app.app-acp-options"
 type AgentSessionOptionsEvent struct {
 	ConversationID string                     `json:"conversationId"`
 	Options        []apidto.AgentConfigOption `json:"options"`
+	Snapshot       bool                       `json:"snapshot"`
 	Model          string                     `json:"model,omitempty"`
 	Mode           string                     `json:"mode,omitempty"`
 	ModelChanged   bool                       `json:"modelChanged"`
@@ -110,15 +111,11 @@ func (a *App) agentSessionOptionsChanged(event acp.SessionOptionsEvent) {
 		return
 	}
 	options := wailsapi.AgentOptionsFrom(event.Options)
-	if len(options) == 0 && !event.Announceable() {
-		// Conjunto do qual nada é aproveitável não descreve seletor nenhum, e
-		// nada mudou: não há o que dizer nem o que desenhar.
+	// Snapshot vazio é estado e precisa limpar opções que o agente deixou de
+	// oferecer. Avisos legados podem omitir a lista ao informar um valor novo.
+	if len(options) == 0 && !event.Snapshot && !event.Announceable() {
 		return
 	}
-	// Conjunto vazio com troca dentro segue viagem: o agente pode contar que
-	// mudou de modelo sem repetir a lista de opções, e engolir esse aviso seria
-	// engolir justamente a troca que a pessoa não viu acontecer. Quem exibe sabe
-	// que vazio aqui não é ordem de apagar os seletores.
 	if event.Announceable() {
 		logging.Infof(context.Background(), acpOptionsComponent,
 			"[ACP] o agente da conversa %s mudou de configuração: modelo=%q modo=%q",
@@ -127,6 +124,7 @@ func (a *App) agentSessionOptionsChanged(event acp.SessionOptionsEvent) {
 	a.emitter.Emit("chat:agent_options", AgentSessionOptionsEvent{
 		ConversationID: event.ConversationID,
 		Options:        options,
+		Snapshot:       event.Snapshot,
 		Model:          event.Model,
 		Mode:           event.Mode,
 		ModelChanged:   event.ModelChanged,

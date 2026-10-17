@@ -11,7 +11,7 @@ import "assistente/internal/logging"
 // gerado.
 func (h *SimpleStreamHandler) OnAgentTitle(title string) {
 	title = singleLine(title)
-	if title == "" || h.svc == nil || h.svc.renameFromAgent == nil {
+	if h.svc == nil || h.svc.renameFromAgent == nil {
 		return
 	}
 	if err := h.svc.renameFromAgent(h.ctx, h.ConversationID, h.userMessageID, title); err != nil {

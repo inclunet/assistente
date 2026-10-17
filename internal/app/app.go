@@ -1245,12 +1245,13 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	a.wireTasklist()
 	a.wireTasklistActions()
 	a.conversationsCtrl = controllers.NewConversationsController(controllers.ConversationsControllerConfig{
-		MsgRepo:               a.msgRepo,
-		Emitter:               a.emitter,
-		ResetScopedState:      a.resetConversationScopedState,
-		PrepareBatchDelete:    a.prepareConversationDeletion,
-		ConfirmDeleteMessage:  a.confirmDeleteMessageQuestionnaire,
-		GetEffectiveModelFunc: a.effectiveModelFromActiveProfile,
+		MsgRepo:                     a.msgRepo,
+		Emitter:                     a.emitter,
+		ResetScopedState:            a.resetConversationScopedState,
+		PrepareBatchDelete:          a.prepareConversationDeletion,
+		ConfirmDeleteMessage:        a.confirmDeleteMessageQuestionnaire,
+		GetEffectiveModelFunc:       a.effectiveModelFromActiveProfile,
+		UpdateConversationTitleFunc: a.chatInteractor.UpdateConversationTitle,
 	})
 	a.wireConversations()
 	a.speechCtrl = controllers.NewSpeechController(controllers.SpeechControllerConfig{

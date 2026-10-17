@@ -101,6 +101,73 @@ func TestTituloDoAgenteSubstituiOPadrao(t *testing.T) {
 	}
 }
 
+func TestTituloNuloDoAgenteLimpaTituloGeradoAnteriormente(t *testing.T) {
+	mensagem := &Message{ConversationID: "conv-1", Content: "investigue a falha"}
+	repo := &convRepoDeTitulo{conv: &Conversation{Title: automaticTitle(mensagem.Content)}}
+	em := &spyEmitter{}
+	i := interactorDeTitulo(em, repo, &repoDeMensagem{mensagem: mensagem})
+
+	if err := i.RenameFromAgent(context.Background(), "conv-1", "msg-1", "Corrigir a falha de autenticação"); err != nil {
+		t.Fatalf("aplicar título do agente: %v", err)
+	}
+	if err := i.RenameFromAgent(context.Background(), "conv-1", "msg-2", ""); err != nil {
+		t.Fatalf("limpar título do agente: %v", err)
+	}
+	if repo.conv.Title != DefaultConversationTitle {
+		t.Fatalf("título após limpeza = %q", repo.conv.Title)
+	}
+}
+
+func TestTituloNuloNaoLimpaSugestaoDepoisDeRenomeacaoManual(t *testing.T) {
+	mensagem := &Message{ConversationID: "conv-1", Content: "investigue a falha"}
+	repo := &convRepoDeTitulo{conv: &Conversation{Title: automaticTitle(mensagem.Content)}}
+	em := &spyEmitter{}
+	i := interactorDeTitulo(em, repo, &repoDeMensagem{mensagem: mensagem})
+	if err := i.RenameFromAgent(context.Background(), "conv-1", "msg-1", "Corrigir a falha de autenticação"); err != nil {
+		t.Fatalf("aplicar título do agente: %v", err)
+	}
+
+	if err := i.UpdateConversationTitle(context.Background(), "conv-1", "Título escolhido manualmente", ""); err != nil {
+		t.Fatalf("renomeação manual: %v", err)
+	}
+	if err := i.RenameFromAgent(context.Background(), "conv-1", "msg-2", ""); err != nil {
+		t.Fatalf("limpar título após renomeação manual: %v", err)
+	}
+	if repo.conv.Title != "Título escolhido manualmente" {
+		t.Fatalf("título após tentativa de limpeza = %q", repo.conv.Title)
+	}
+}
+
+func TestTituloNuloDoAgenteRestauraPadraoSobreTituloAutomatico(t *testing.T) {
+	mensagem := &Message{ConversationID: "conv-1", Content: "corrija este problema no código"}
+	repo := &convRepoDeTitulo{conv: &Conversation{Title: automaticTitle(mensagem.Content)}}
+	em := &spyEmitter{}
+	i := interactorDeTitulo(em, repo, &repoDeMensagem{mensagem: mensagem})
+
+	if err := i.RenameFromAgent(context.Background(), "conv-1", "msg-1", ""); err != nil {
+		t.Fatalf("limpar título: %v", err)
+	}
+	if repo.conv.Title != DefaultConversationTitle {
+		t.Fatalf("título após limpeza = %q", repo.conv.Title)
+	}
+	if titulo, ok := tituloRenomeado(t, em); !ok || titulo != DefaultConversationTitle {
+		t.Fatalf("evento após limpeza = %q, presente=%t", titulo, ok)
+	}
+}
+
+func TestTituloNuloDoAgenteNaoApagaNomeEscolhido(t *testing.T) {
+	repo := &convRepoDeTitulo{conv: &Conversation{Title: "Sprint da equipe"}}
+	em := &spyEmitter{}
+	i := interactorDeTitulo(em, repo, nil)
+
+	if err := i.RenameFromAgent(context.Background(), "conv-1", "msg-1", ""); err != nil {
+		t.Fatalf("limpar título: %v", err)
+	}
+	if repo.conv.Title != "Sprint da equipe" || len(repo.gravou) != 0 {
+		t.Fatalf("título escolhido foi alterado: título=%q gravações=%v", repo.conv.Title, repo.gravou)
+	}
+}
+
 // O rótulo provisório é o recorte da primeira mensagem, e o app foi quem o
 // escreveu: o nome do agente descreve melhor o mesmo pedido e pode tomar o lugar.
 func TestTituloDoAgenteSubstituiORecorteDaMensagem(t *testing.T) {

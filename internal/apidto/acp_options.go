@@ -18,6 +18,8 @@ type AgentConfigOption struct {
 	// e varia entre implementações.
 	Category     string             `json:"category,omitempty"`
 	CurrentValue string             `json:"currentValue"`
+	Kind         string             `json:"kind"`
+	CurrentBool  bool               `json:"currentBool,omitempty"`
 	Values       []AgentConfigValue `json:"values"`
 }
 

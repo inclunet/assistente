@@ -754,7 +754,7 @@ func (c *Conversation) ensure(ctx context.Context, spec ProviderSpec) error {
 	// e vários agentes mandam as escolhas só no corpo da resposta. Anunciá-las
 	// aqui é o que faz os seletores de modelo e modo aparecerem assim que a
 	// sessão sobe, sem depender de um turno seguinte (AEP-0084 D6).
-	c.manager.sessionOptionsChanged(mounted.sessionID, session.ConfigOptions())
+	c.manager.sessionOptionsChanged(mounted.sessionID, session.ConfigOptions(), true)
 	return nil
 }
 
@@ -777,7 +777,7 @@ func (c *Conversation) resume(ctx context.Context, proc *agentProcess, stored *S
 			"[ACP] conversa %s: agente %q indisponível para retomar a sessão: %v", c.id, proc.spec.ID, err)
 		return nil, SessionRecreated
 	}
-	if !caps.LoadSession {
+	if !caps.LoadSession && !caps.ResumeSession {
 		return nil, SessionRecreated
 	}
 	session, err := proc.client.LoadSession(ctx, stored.SessionID, dir)
