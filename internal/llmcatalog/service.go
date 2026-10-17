@@ -211,9 +211,11 @@ func (s *Service) refresh(parent context.Context) (retErr error) {
 		fetchedAt := s.now()
 		envelope, err := makeCacheEnvelope(document, fetchedAt, etag, modified)
 		if err != nil {
+			s.setReason("cache_write_failed")
 			return err
 		}
 		if err := s.writeCache(envelope); err != nil {
+			s.setReason("cache_write_failed")
 			return err
 		}
 		s.mu.Lock()
@@ -252,9 +254,11 @@ func (s *Service) refresh(parent context.Context) (retErr error) {
 	modified = resp.Header.Get("Last-Modified")
 	envelope, err := makeCacheEnvelope(document, fetchedAt, etag, modified)
 	if err != nil {
+		s.setReason("cache_write_failed")
 		return err
 	}
 	if err := s.writeCache(envelope); err != nil {
+		s.setReason("cache_write_failed")
 		return err
 	}
 	s.mu.Lock()
