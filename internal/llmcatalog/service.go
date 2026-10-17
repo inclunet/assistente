@@ -248,8 +248,8 @@ func (s *Service) refresh(parent context.Context) (retErr error) {
 		return err
 	}
 	fetchedAt := s.now()
-	etag := resp.Header.Get("ETag")
-	modified := resp.Header.Get("Last-Modified")
+	etag = resp.Header.Get("ETag")
+	modified = resp.Header.Get("Last-Modified")
 	envelope, err := makeCacheEnvelope(document, fetchedAt, etag, modified)
 	if err != nil {
 		return err
