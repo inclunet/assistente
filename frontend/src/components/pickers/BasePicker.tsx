@@ -28,6 +28,7 @@ interface BasePickerProps {
   variant?: Variant;
   placeholder?: string;
   disabled?: boolean;
+  busy?: boolean;
   maxWidth?: string;
   helpText?: string;
   onAnnounce?: (message: string) => void;
@@ -105,6 +106,7 @@ export const BasePicker = ({
   variant = 'form',
   placeholder,
   disabled,
+  busy,
   maxWidth,
   helpText,
   onAnnounce,
@@ -267,6 +269,7 @@ export const BasePicker = ({
       maxWidth={maxWidth}
       placeholder={placeholder}
       disabled={disabled}
+      busy={busy}
       onAnnounce={onAnnounce}
       shortcut={shortcut}
       onOpen={onOpen}

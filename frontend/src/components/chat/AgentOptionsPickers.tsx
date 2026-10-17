@@ -49,7 +49,7 @@ export const AgentOptionsPickers: React.FC<AgentOptionsPickersProps> = ({
   );
 
   const handleModelChange = useCallback(async (value: string) => {
-    if (!model || value === model.currentValue) return;
+    if (changing || !model || value === model.currentValue) return;
     const applied = await change(model.id, value);
     if (!applied) return;
     // A troca vale do próximo turno em diante, e dizer isso evita a dúvida de
@@ -62,20 +62,20 @@ export const AgentOptionsPickers: React.FC<AgentOptionsPickersProps> = ({
     announce(t('chat.agentOptions.modelChanged', {
       model: labelOfValue(current, current.currentValue || value),
     }));
-  }, [announce, change, model, t]);
+  }, [announce, change, changing, model, t]);
 
   const handleModeChange = useCallback(async (value: string) => {
-    if (!mode || value === mode.currentValue) return;
+    if (changing || !mode || value === mode.currentValue) return;
     const applied = await change(mode.id, value);
     if (!applied) return;
     const current = optionByCategory(applied, AGENT_OPTION_MODE) ?? mode;
     announce(t('chat.agentOptions.modeChanged', {
       mode: labelOfValue(current, current.currentValue || value, (v) => agentModeLabel(t, v)),
     }));
-  }, [announce, change, mode, t]);
+  }, [announce, change, changing, mode, t]);
 
   const handleAdditionalChange = useCallback(async (option: AgentConfigOption, value: string) => {
-    if (value === option.currentValue) return;
+    if (changing || value === option.currentValue) return;
     const applied = await change(option.id, value);
     if (!applied) return;
     const current = applied.find((candidate) => candidate.id === option.id) ?? option;
@@ -83,7 +83,7 @@ export const AgentOptionsPickers: React.FC<AgentOptionsPickersProps> = ({
       option: current.name || t('chat.agentOptions.settingLabel'),
       value: labelOfValue(current, current.currentValue || value),
     }));
-  }, [announce, change, t]);
+  }, [announce, change, changing, t]);
 
   const handleBooleanChange = useCallback(async (option: AgentConfigOption, value: boolean) => {
     if (disabled || changing) return;
@@ -106,13 +106,14 @@ export const AgentOptionsPickers: React.FC<AgentOptionsPickersProps> = ({
         <div data-chat-picker="model" data-agent-option-id={model.id} style={{ display: 'contents' }}>
           <BasePicker
             variant="toolbar"
-            items={itemsOf(model)}
+            items={itemsOf(model, undefined, changing)}
             selected={model.currentValue}
             onSelect={(value) => void handleModelChange(value)}
             label={model.name || t('chat.agentOptions.modelLabel')}
             description={t('chat.agentOptions.modelDescription')}
             maxWidth="180px"
-            disabled={disabled || changing}
+            disabled={disabled}
+            busy={changing}
             onAnnounce={announce}
             shortcut={modelShortcut}
             showEmptyState={false}
@@ -123,13 +124,14 @@ export const AgentOptionsPickers: React.FC<AgentOptionsPickersProps> = ({
         <div data-agent-option-id={mode.id} style={{ display: 'contents' }}>
           <BasePicker
             variant="toolbar"
-            items={itemsOf(mode, (value) => agentModeLabel(t, value))}
+            items={itemsOf(mode, (value) => agentModeLabel(t, value), changing)}
             selected={mode.currentValue}
             onSelect={(value) => void handleModeChange(value)}
             label={mode.name || t('chat.agentOptions.modeLabel')}
             description={t('chat.agentOptions.modeDescription')}
             maxWidth="140px"
-            disabled={disabled || changing}
+            disabled={disabled}
+            busy={changing}
             onAnnounce={announce}
             showEmptyState={false}
           />
@@ -139,13 +141,14 @@ export const AgentOptionsPickers: React.FC<AgentOptionsPickersProps> = ({
         <div key={option.id} data-agent-option-id={option.id} style={{ display: 'contents' }}>
           <BasePicker
             variant="toolbar"
-            items={itemsOf(option)}
+            items={itemsOf(option, undefined, changing)}
             selected={option.currentValue}
             onSelect={(value) => void handleAdditionalChange(option, value)}
             label={option.name || t('chat.agentOptions.settingLabel')}
             description={t('chat.agentOptions.settingDescription')}
             maxWidth="180px"
-            disabled={disabled || changing}
+            disabled={disabled}
+            busy={changing}
             onAnnounce={announce}
             showEmptyState={false}
           />
@@ -175,9 +178,11 @@ export const AgentOptionsPickers: React.FC<AgentOptionsPickersProps> = ({
 function itemsOf(
   option: AgentConfigOption,
   translateValue?: (value: string) => string,
+  disabled = false,
 ): ComboboxItem[] {
   return option.values.map((item) => ({
     value: item.value,
     label: labelOfValue(option, item.value, translateValue),
+    disabled,
   }));
 }

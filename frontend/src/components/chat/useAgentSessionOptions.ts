@@ -309,10 +309,10 @@ export function useAgentSessionOptions(
           return reconciled.some((option) => option.id === optionId) ? reconciled : null;
         }
 
-        // Um snapshot que mudou a própria opção é mais novo que uma resposta
-        // atrasada que não confirma o valor pedido; mantém-se e anuncia-se o
-        // estado que o agente publicou.
-        if (snapshotChanged && currentMoved && currentValue !== value) {
+        // Sem uma resposta aplicável, o snapshot conflitante é o único estado
+        // confirmado. Respostas completas passam pela reconciliação abaixo, que
+        // preserva o valor do snapshot e incorpora opções novas.
+        if (snapshotChanged && currentMoved && currentValue !== value && applied.length === 0) {
           return current ? optionsRef.current : null;
         }
       }
