@@ -5,6 +5,8 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -26,7 +28,7 @@ func TestRefreshValidatesAndPersistsThenOfflineLoadsCache(t *testing.T) {
 		}),
 	})
 	got := service.Refresh(context.Background())
-	if got.Document.CatalogVersion != "v1" || got.FromCache || got.FetchedAt.IsZero() {
+	if got.Document.CatalogVersion != "v1" || got.FromCache || got.FetchedAt.IsZero() || got.Refreshing {
 		t.Fatalf("snapshot após refresh = %#v", got)
 	}
 
@@ -58,6 +60,55 @@ func TestInvalidRefreshPreservesLastValidDocument(t *testing.T) {
 	}
 }
 
+func TestRefreshDoesNotPublishCatalogWhenCacheWriteFails(t *testing.T) {
+	dir := t.TempDir()
+	var calls atomic.Int32
+	service := New(Config{Dir: dir, HTTP: doerFunc(func(context.Context, *http.Request) (*http.Response, error) {
+		if calls.Add(1) == 1 {
+			return response(http.StatusOK, minimalCatalog, http.Header{"Content-Type": []string{"application/json"}}), nil
+		}
+		updated := strings.Replace(minimalCatalog, `"catalog_version":"v1"`, `"catalog_version":"v2"`, 1)
+		return response(http.StatusOK, updated, http.Header{"Content-Type": []string{"application/json"}}), nil
+	})})
+	first := service.Refresh(context.Background())
+	cachePath := filepath.Join(dir, cacheFileName)
+	if err := os.Remove(cachePath); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(cachePath, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	got := service.Refresh(context.Background())
+	if got.Document.CatalogVersion != first.Document.CatalogVersion || !got.FetchedAt.Equal(first.FetchedAt) {
+		t.Fatalf("catálogo não persistido foi publicado: antes=%#v depois=%#v", first, got)
+	}
+}
+
+func TestNotModifiedDoesNotPublishFreshnessWhenCacheWriteFails(t *testing.T) {
+	dir := t.TempDir()
+	var calls atomic.Int32
+	service := New(Config{Dir: dir, HTTP: doerFunc(func(context.Context, *http.Request) (*http.Response, error) {
+		if calls.Add(1) == 1 {
+			return response(http.StatusOK, minimalCatalog, http.Header{"Content-Type": []string{"application/json"}, "ETag": []string{`"catalog-v1"`}}), nil
+		}
+		return response(http.StatusNotModified, "", http.Header{"ETag": []string{`"catalog-v1"`}}), nil
+	})})
+	first := service.Refresh(context.Background())
+	cachePath := filepath.Join(dir, cacheFileName)
+	if err := os.Remove(cachePath); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(cachePath, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	got := service.Refresh(context.Background())
+	if got.Document.CatalogVersion != first.Document.CatalogVersion || !got.FetchedAt.Equal(first.FetchedAt) || got.FromCache != first.FromCache {
+		t.Fatalf("frescor não persistido foi publicado: antes=%#v depois=%#v", first, got)
+	}
+}
+
 func TestRefreshUsesConditionalRequestAndRetainsDocumentOnNotModified(t *testing.T) {
 	var calls atomic.Int32
 	service := New(Config{Dir: t.TempDir(), HTTP: doerFunc(func(_ context.Context, req *http.Request) (*http.Response, error) {
@@ -72,6 +123,9 @@ func TestRefreshUsesConditionalRequestAndRetainsDocumentOnNotModified(t *testing
 		}
 		return response(http.StatusNotModified, "", http.Header{"ETag": []string{`"catalog-v1"`}}), nil
 	})})
+	base := time.Date(2026, 10, 17, 12, 0, 0, 0, time.UTC)
+	var ticks atomic.Int64
+	service.now = func() time.Time { return base.Add(time.Duration(ticks.Add(1)) * time.Second) }
 	first := service.Refresh(context.Background())
 	second := service.Refresh(context.Background())
 	if second.Document.CatalogVersion != first.Document.CatalogVersion || !second.FromCache || !second.FetchedAt.After(first.FetchedAt) {

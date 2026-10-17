@@ -9,7 +9,7 @@ func (a *App) initLLMCatalog() {
 	if a.llmCatalog == nil {
 		a.llmCatalog = llmcatalog.New(llmcatalog.Config{})
 	}
-	a.llmCatalog.Start(a.ctx)
+	a.llmCatalog.Start(a.appContext())
 }
 
 func (a *App) wireLLMCatalog() {

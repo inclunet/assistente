@@ -31,6 +31,7 @@ func TestDecodeRejectsInvalidDocuments(t *testing.T) {
 	}{
 		{name: "referência inexistente", json: strings.Replace(minimalCatalog, `"server_profile_id":"test"`, `"server_profile_id":"missing"`, 1), want: "referência de servidor inexistente"},
 		{name: "choice default fora das opções", json: strings.Replace(minimalCatalog, `"policy":"editable","required":true`, `"policy":"choice","default":"a","choices":["b"]`, 1), want: "deve corresponder a uma opção"},
+		{name: "choices duplicadas", json: strings.Replace(minimalCatalog, `"policy":"editable","required":true`, `"policy":"choice","choices":["a","a"]`, 1), want: "opções duplicadas"},
 		{name: "campo obrigatório ausente em auth", json: strings.Replace(minimalCatalog, `,"required":false`, "", 1), want: "auth.required ausente"},
 		{name: "choices nulo", json: strings.Replace(minimalCatalog, `"required":true`, `"required":true,"choices":null`, 1), want: ".fields.base_url.choices não pode ser null"},
 		{name: "limits nulo", json: strings.Replace(minimalCatalog, `"capabilities":{}`, `"capabilities":{},"limits":null`, 1), want: ".limits não pode ser null"},
@@ -93,5 +94,24 @@ func TestCloneIsIndependent(t *testing.T) {
 	clone.Models[0].Capabilities["input.text"] = "unsupported"
 	if doc.Servers[0].Fields["base_url"].Policy != "editable" || doc.Models[0].Capabilities["input.text"] != "supported" {
 		t.Fatal("mutar clone alterou o documento original")
+	}
+}
+
+func TestClonePreservesEmptyVoiceItems(t *testing.T) {
+	raw := strings.Replace(minimalCatalog, `"canonical_model_id":"vendor/model"`, `"canonical_model_id":"vendor/model","selection_mode":"model_only","voices":{"completeness":"complete","items":[]}`, 1)
+	doc, err := Decode([]byte(raw))
+	if err != nil {
+		t.Fatalf("catálogo com lista de vozes vazia deve ser válido: %v", err)
+	}
+	clone := doc.Clone()
+	if doc.Exposures[0].Voices.Items == nil || clone.Exposures[0].Voices.Items == nil {
+		t.Fatal("Clone converteu voices.items vazio em null")
+	}
+	encoded, err := json.Marshal(clone.Exposures[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(encoded), `"items":[]`) {
+		t.Fatalf("voices.items deveria permanecer array vazio: %s", encoded)
 	}
 }

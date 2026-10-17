@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
-	"reflect"
 	"regexp"
 	"strings"
 	"time"
@@ -191,18 +190,16 @@ func validateFieldPolicy(path string, policy FieldPolicy) error {
 	if policy.Policy != "choice" && policy.Choices != nil {
 		return invalid(path+".choices", "só é permitido quando policy=choice")
 	}
-	seen := make([]any, 0, len(policy.Choices))
+	seen := make(map[any]struct{}, len(policy.Choices))
 	for i, choice := range policy.Choices {
 		value, err := primitiveValue(choice, false)
 		if err != nil {
 			return invalid(fmt.Sprintf("%s.choices[%d]", path, i), "deve ser string, número ou booleano")
 		}
-		for _, previous := range seen {
-			if reflect.DeepEqual(previous, value) {
-				return invalid(path+".choices", "opções duplicadas")
-			}
+		if _, exists := seen[value]; exists {
+			return invalid(path+".choices", "opções duplicadas")
 		}
-		seen = append(seen, value)
+		seen[value] = struct{}{}
 	}
 	if policy.Policy == "choice" && policy.defaultPresent {
 		value, err := primitiveValue(policy.Default, true)
@@ -210,12 +207,7 @@ func validateFieldPolicy(path string, policy FieldPolicy) error {
 			return invalid(path+".default", "valor padrão inválido")
 		}
 		found := false
-		for _, choice := range seen {
-			if reflect.DeepEqual(choice, value) {
-				found = true
-				break
-			}
-		}
+		_, found = seen[value]
 		if !found {
 			return invalid(path+".default", "deve corresponder a uma opção declarada em choices")
 		}

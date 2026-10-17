@@ -141,13 +141,16 @@ func (s *Service) Snapshot() Snapshot {
 
 // Refresh executa uma atualização explícita. Uma resposta inválida ou uma
 // falha de rede mantém o último documento validado.
-func (s *Service) Refresh(ctx context.Context) Snapshot {
+func (s *Service) Refresh(ctx context.Context) (snapshot Snapshot) {
 	if !s.refreshing.CompareAndSwap(false, true) {
 		return s.Snapshot()
 	}
-	defer s.refreshing.Store(false)
+	defer func() {
+		s.refreshing.Store(false)
+		snapshot = s.Snapshot()
+	}()
 	_ = s.refresh(ctx)
-	return s.Snapshot()
+	return
 }
 
 func (s *Service) refreshInBackground(ctx context.Context) {
@@ -200,17 +203,26 @@ func (s *Service) refresh(parent context.Context) (retErr error) {
 			s.setReason("malformed_catalog")
 			return errors.New("resposta 304 sem catálogo em cache")
 		}
-		s.mu.Lock()
-		s.snapshot.FetchedAt = s.now()
-		s.snapshot.FromCache = true
-		s.snapshot.ReasonCode = ""
-		s.etag = firstNonEmpty(resp.Header.Get("ETag"), s.etag)
-		s.lastModified = firstNonEmpty(resp.Header.Get("Last-Modified"), s.lastModified)
-		envelope := s.cacheValueLocked()
-		s.mu.Unlock()
+		s.mu.RLock()
+		document := s.snapshot.Document.Clone()
+		etag := firstNonEmpty(resp.Header.Get("ETag"), s.etag)
+		modified := firstNonEmpty(resp.Header.Get("Last-Modified"), s.lastModified)
+		s.mu.RUnlock()
+		fetchedAt := s.now()
+		envelope, err := makeCacheEnvelope(document, fetchedAt, etag, modified)
+		if err != nil {
+			return err
+		}
 		if err := s.writeCache(envelope); err != nil {
 			return err
 		}
+		s.mu.Lock()
+		s.snapshot.FetchedAt = fetchedAt
+		s.snapshot.FromCache = true
+		s.snapshot.ReasonCode = ""
+		s.etag = etag
+		s.lastModified = modified
+		s.mu.Unlock()
 		return nil
 	}
 	if resp.StatusCode != http.StatusOK {
@@ -235,16 +247,22 @@ func (s *Service) refresh(parent context.Context) (retErr error) {
 		s.setReason("malformed_catalog")
 		return err
 	}
-	s.mu.Lock()
-	s.snapshot = Snapshot{Document: document, FetchedAt: s.now(), FromCache: false}
-	s.loaded = true
-	s.etag = resp.Header.Get("ETag")
-	s.lastModified = resp.Header.Get("Last-Modified")
-	envelope := s.cacheValueLocked()
-	s.mu.Unlock()
+	fetchedAt := s.now()
+	etag = resp.Header.Get("ETag")
+	modified = resp.Header.Get("Last-Modified")
+	envelope, err := makeCacheEnvelope(document, fetchedAt, etag, modified)
+	if err != nil {
+		return err
+	}
 	if err := s.writeCache(envelope); err != nil {
 		return err
 	}
+	s.mu.Lock()
+	s.snapshot = Snapshot{Document: document, FetchedAt: fetchedAt, FromCache: false}
+	s.loaded = true
+	s.etag = etag
+	s.lastModified = modified
+	s.mu.Unlock()
 	return nil
 }
 
@@ -283,9 +301,12 @@ func (s *Service) loadCache() {
 	s.mu.Unlock()
 }
 
-func (s *Service) cacheValueLocked() cacheEnvelope {
-	body, _ := json.Marshal(s.snapshot.Document)
-	return cacheEnvelope{FetchedAt: s.snapshot.FetchedAt, ETag: s.etag, LastModified: s.lastModified, Document: body}
+func makeCacheEnvelope(document Document, fetchedAt time.Time, etag, lastModified string) (cacheEnvelope, error) {
+	body, err := json.Marshal(document)
+	if err != nil {
+		return cacheEnvelope{}, err
+	}
+	return cacheEnvelope{FetchedAt: fetchedAt, ETag: etag, LastModified: lastModified, Document: body}, nil
 }
 
 func (s *Service) writeCache(envelope cacheEnvelope) (retErr error) {
