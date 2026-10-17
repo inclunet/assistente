@@ -28,7 +28,7 @@ const configure = async () => {
  await userEvent.click(button);
 };
 const waitForProfileOption = async (value: string) => {
- await waitFor(() => expect(Array.from((screen.getByLabelText(/perfil de servidor/i) as HTMLSelectElement).options).some(option => option.value === value)).toBe(true));
+ await waitFor(() => expect(Array.from((screen.getByLabelText('providerForm.serverProfile') as HTMLSelectElement).options).some(option => option.value === value)).toBe(true));
 };
 const set = async (label: string, value: string) => {
  if (label === 'providerForm.serverProfile' && value) await waitForProfileOption(value);

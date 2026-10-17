@@ -488,6 +488,6 @@ describe("ProviderForm - Ida e volta no tipo do provedor", () => {
     const [id, payload] = vi.mocked(App.UpdateLLMProvider).mock.calls[0];
     expect(id).toBe("ollama-123");
     expect(payload).toMatchObject({ type: "ollama", base_url: "http://192.168.1.100:11434" });
-    expect(payload.server_profile_id).toBe('');
+    expect(payload).not.toHaveProperty('server_profile_id');
   });
 });

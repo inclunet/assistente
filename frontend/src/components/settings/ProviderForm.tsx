@@ -161,6 +161,8 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
   const { announce } = useAnnouncer();
   const [catalogProfiles, setCatalogProfiles] = useState<ServerProfile[] | null>(null);
   const catalogDefaultSuppressed = useRef(false);
+  const catalogUnavailableAnnouncement = useRef('');
+  catalogUnavailableAnnouncement.current = t('providerForm.catalogUnavailable');
   useEffect(() => {
     if (kind === 'acp') return;
     let active = true;
@@ -169,11 +171,11 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
     }).catch(() => {
       if (active) {
         setCatalogProfiles([]);
-        announce(t('providerForm.catalogUnavailable'), 'polite');
+        announce(catalogUnavailableAnnouncement.current, 'polite');
       }
     });
     return () => { active = false; };
-  }, [announce, kind, t]);
+  }, [announce, kind]);
   const availableProfiles = useMemo(() => {
     const source = catalogProfiles === null ? [] : catalogProfiles;
     // Cohere anuncia uma rota com prefixo que o runtime atual não acrescenta
@@ -460,14 +462,14 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
   useEffect(() => {
     if (!provider || kind === 'acp' || catalogProfiles === null || !provider.server_profile_id) return;
     const profile = catalogProfiles.find(candidate => candidate.id === provider.server_profile_id);
-    if (policyFor(profile, 'default_model_id')?.policy !== 'fixed' || !profile) return;
+    if (!profile) return;
     const catalogDefault = policyValue(profile, 'default_model_id', profile.default_model_id);
     if (typeof catalogDefault !== 'string' || !catalogDefault) return;
 
     setFormData(prev => {
-      // The persisted value remains authoritative; only fill a genuinely empty
-      // field for this same connection after its explicit profile is available.
-      if (prev.id !== provider.id || prev.default_model?.trim() || provider.default_model?.trim()) return prev;
+      // The saved value remains authoritative. Fill only an empty field on the
+      // same connection/profile, even when its catalog policy is editable.
+      if (prev.id !== provider.id || prev.server_profile_id !== provider.server_profile_id || prev.default_model?.trim() || provider.default_model?.trim()) return prev;
       return { ...prev, default_model: catalogDefault };
     });
   }, [provider, kind, catalogProfiles]);
