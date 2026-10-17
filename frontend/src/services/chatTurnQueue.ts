@@ -164,7 +164,7 @@ export function createConversationTurnQueue(): ConversationTurnQueue {
       entry.reject(new ConversationTurnQueueCancelledError(conversationId));
       const entryIndex = state?.entries.indexOf(entry) ?? -1;
       if (entryIndex >= 0) state?.entries.splice(entryIndex, 1);
-      if (tails.get(conversationId) === state && state.entries.length === 0 && !state.tailPending) tails.delete(conversationId);
+      if (state && tails.get(conversationId) === state && state.entries.length === 0 && !state.tailPending) tails.delete(conversationId);
     }
     return true;
   };
