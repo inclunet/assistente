@@ -189,6 +189,7 @@ interface ChatStore {
   ) => Promise<boolean>;
   cancelStreaming: (conversationId: string, options?: { origin?: ChatSurfaceOrigin }) => Promise<void>;
   waitForMessagingAdmission: (conversationId: string, sessionKey?: string) => Promise<void>;
+  registerMessagingAdmission: (conversationId: string, sessionKey?: string) => { activate: () => boolean; complete: () => void; cancelled: Promise<never> };
   finishCommandCancellation: (conversationId: string, sessionKey: string | undefined, pipelineRevision: number, announceCancelled?: boolean) => void;
   getMessagingPipelineRevision: (conversationId: string) => number;
   getDraftRevision: (sessionKey: string) => number;
@@ -1553,7 +1554,30 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           throw new ChatMessagingStaleError();
         }
         throw error;
-      }
+      } finally { settleCount?.(); }
+    },
+    registerMessagingAdmission: (conversationId, sessionKey) => {
+      const queuedBehindActiveWork = turnQueue.isQueued(conversationId) || turnQueue.hasPendingAdmission(conversationId);
+      const settleCount = queuedBehindActiveWork ? countQueuedTurn(conversationId, sessionKey) : undefined;
+      let settled = false;
+      const settle = () => {
+        if (settled) return;
+        settled = true;
+        settleCount?.();
+      };
+      const registration = turnQueue.registerPendingAdmission(conversationId, settle);
+      return {
+        cancelled: registration.cancelled,
+        activate: () => {
+          const activated = registration.activate();
+          if (activated) settle();
+          return activated;
+        },
+        complete: () => {
+          registration.complete();
+          settle();
+        },
+      };
     },
     getMessagingPipelineRevision: conversationId => pipelineRevisions.get(conversationId) ?? 0,
     getDraftRevision: sessionKey => draftRevisions.get(sessionKey) ?? 0,

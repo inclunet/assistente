@@ -133,8 +133,12 @@ recuperação e proibição de `assistant` vazio em erro.
    `chatStore.validation.test.ts` cobre que cancelamento de envio/retry
    auditado na fila resulta em comando cancelado, sem envio ao backend.
    A barreira de admissão dos comandos da interface também é contada e
-   cancelável enquanto aguarda a fila (`waitForMessagingAdmission`), e o
-   protocolo termina cancelado sem reservar comando
+   cancelável enquanto aguarda a fila (`registerMessagingAdmission`). Cada
+   comando registra sua pendência antes da serialização do executor; em dois
+   comandos simultâneos da mesma conversa, o segundo permanece contado e pode
+   ser cancelado enquanto aguarda sua vez, sem ocupar a fila que precisa
+   executar a mensagem. O cancelamento
+   não reserva nem executa o comando
    (`commandChatMessaging.protocol.test.ts`). A validação store-level cobre
    contagem, cancelamento e continuidade do turno ativo
    (`chatStore.validation.test.ts`). Barreiras internas e eventos externos
@@ -167,9 +171,11 @@ recuperação e proibição de `assistant` vazio em erro.
       incluindo restauração de foco durante `isLoading` e ao admitir
       automaticamente o último item. O nome acessível do botão contém o rótulo
       visível `chat.queue.cancelNext`. A espera de admissão
-      de comando também é contada/cancelável e não reserva o comando depois do
-      cancelamento (`chatStore.validation.test.ts`,
-      `commandChatMessaging.protocol.test.ts`).
+      de comando também é contada/cancelável (`registerMessagingAdmission`);
+      dois comandos concorrentes do executor real mantêm o segundo
+      visível/cancelável enquanto aguarda a vez, sem bloquear o envio anterior
+      nem reservar o comando cancelado
+      (`chatStore.validation.test.ts`, `commandChatMessaging.protocol.test.ts`).
 - [x] Agente vivo sem resposta vira `ErrCancelNotConfirmed` via watchdog de
       inatividade (nunca `markDead`, que é por `conn`).
 - [ ] Estratégia validada detecta processo/agente morto com sessão ociosa sem

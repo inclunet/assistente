@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { CHAT_MESSAGE_ACTION_IDS, ChatMessagingStaleError, executeChatMessaging, type ChatMessagingTarget } from './commandChatMessaging';
 import type { CommandContextualBackendPort } from './commandContextualBackendExecution';
 import type { UICommandStatus } from './commandUIExecution';
+import { createConversationTurnQueue } from '../services/chatTurnQueue';
 
 function setup(commandId: ChatMessagingTarget['commandId'] = 'chat.message.send', status: UICommandStatus = 'succeeded') {
   const reservation = { ticket: 'ticket-1', invocationId: 'invocation-1', commandId };
@@ -170,6 +171,73 @@ describe('protocolo auditado do envio de chat', () => {
     expect(await executeChatMessaging(port, target)).toBe('cancelled');
     expect(port.beginUICommand).not.toHaveBeenCalled();
     expect(target.execute).not.toHaveBeenCalled();
+  });
+
+  it('registra e cancela o segundo comando enquanto aguarda a admissão serializada', async () => {
+    const queue = createConversationTurnQueue();
+    let queuedCount = 0;
+    const attachAdmission = (source: ChatMessagingTarget): ChatMessagingTarget => ({
+      ...source,
+      queueKey: 'conversation-1',
+      registerAdmission: () => {
+        const counted = queue.isQueued('conversation-1') || queue.hasPendingAdmission('conversation-1');
+        if (counted) queuedCount += 1;
+        let settled = false;
+        const settle = () => {
+          if (!counted || settled) return;
+          settled = true;
+          queuedCount -= 1;
+        };
+        const registration = queue.registerPendingAdmission('conversation-1', settle);
+        return {
+          cancelled: registration.cancelled,
+          activate: () => {
+            const active = registration.activate();
+            if (active) settle();
+            return active;
+          },
+          complete: () => {
+            registration.complete();
+            settle();
+          },
+        };
+      },
+    });
+    let releaseBegin!: (value: { ticket: string; invocationId: string; commandId: ChatMessagingTarget['commandId'] }) => void;
+    let signalBeginStarted!: () => void;
+    let releaseSend!: () => void;
+    let signalSendStarted!: () => void;
+    const beginStarted = new Promise<void>(resolve => { signalBeginStarted = resolve; });
+    const sendStarted = new Promise<void>(resolve => { signalSendStarted = resolve; });
+    const first = setup();
+    const second = setup();
+    const firstTarget = attachAdmission(first.target);
+    const secondTarget = attachAdmission(second.target);
+    firstTarget.execute = async () => {
+      await queue.enqueue('conversation-1', async () => {
+        await new Promise<void>(resolve => { releaseSend = resolve; signalSendStarted(); });
+      });
+    };
+    vi.mocked(first.port.beginUICommand).mockImplementation(() => new Promise(resolve => {
+      releaseBegin = resolve;
+      signalBeginStarted();
+    }));
+
+    const firstRun = executeChatMessaging(first.port, firstTarget);
+    await beginStarted;
+    const secondRun = executeChatMessaging(second.port, secondTarget);
+
+    expect(queuedCount).toBe(1);
+    releaseBegin({ ticket: 'first-ticket', invocationId: 'first-invocation', commandId: 'chat.message.send' });
+    await sendStarted;
+    expect(queuedCount).toBe(1);
+    expect(queue.cancelNext('conversation-1')).toBe(true);
+    await expect(secondRun).resolves.toBe('cancelled');
+    expect(queuedCount).toBe(0);
+    expect(second.port.beginUICommand).not.toHaveBeenCalled();
+
+    releaseSend();
+    await expect(firstRun).resolves.toBe('succeeded');
   });
 
   it('contexto perdido durante Begin cancela a reserva sem executar', async () => {

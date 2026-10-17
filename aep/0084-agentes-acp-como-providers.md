@@ -1476,7 +1476,10 @@ testes.
   multimodal, elicitation, sessões externas e raízes adicionais, com testes e
   revisão de acessibilidade/privacidade.
 - [x] Completar estado acessível e cancelamento individual do próximo envio
-  manual pendente na fila da conversa (AEP-0108 D1); eventos externos seguem
+  manual pendente na fila da conversa (AEP-0108 D1), incluindo dois comandos
+  concorrentes pelo executor real: o segundo fica contado/cancelável enquanto
+  aguarda a serialização, sem reservar nem executar após o cancelamento
+  (`commandChatMessaging.protocol.test.ts`); eventos externos seguem
   serializados e não entram na contagem cancelável.
 - [x] Não ressuscitar opções ACP modernas removidas por snapshot legado sem
   opções; `TestSnapshotNaoReinscreveOpcaoModernaRemovida`.

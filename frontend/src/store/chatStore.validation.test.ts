@@ -2215,6 +2215,20 @@ describe('chatStore validation', () => {
     emitEvent('chat:done', { conversationId: defaultConversationId });
   });
 
+  it('mantém contagem e cancelamento após a barreira começar antes da vez do executor', async () => {
+    const firstAdmission = useChatStore.getState().registerMessagingAdmission(defaultConversationId);
+    expect(firstAdmission.activate()).toBe(true);
+    const secondAdmission = useChatStore.getState().registerMessagingAdmission(defaultConversationId);
+    expect(useChatStore.getState().sessionsByConversationId[defaultConversationId]?.queuedTurnCount).toBe(1);
+
+    firstAdmission.complete();
+    expect(useChatStore.getState().sessionsByConversationId[defaultConversationId]?.queuedTurnCount).toBe(1);
+    expect(useChatStore.getState().cancelNextQueuedTurn(defaultConversationId)).toBe(true);
+    await expect(secondAdmission.cancelled).rejects.toBeDefined();
+    expect(secondAdmission.activate()).toBe(false);
+    expect(useChatStore.getState().sessionsByConversationId[defaultConversationId]?.queuedTurnCount).toBe(0);
+  });
+
   it('limpeza de admissão antiga não subtrai a contagem de uma nova entrada', async () => {
     const firstSend = deferred<void>();
     const secondSend = deferred<void>();

@@ -182,7 +182,9 @@ resposta de opção obsoleta, além de recursos não apresentados e capacidades
 intencionalmente desativadas. AEP-0086 permanece **Done** para
 descoberta/instalação, com limite explícito entre instalar um agente e integrar
 todos os recursos dele. AEP-0108 permanece **In Progress**: fila visível e
-cancelamento de envios pendentes, inclusive durante a admissão, estão cobertos;
+cancelamento de envios pendentes, inclusive do segundo comando que aguarda a
+serialização externa (`registerMessagingAdmission`), estão cobertos pelo
+executor real e pela fila cancelável;
 continua pendente uma sondagem ociosa segura.
 
 AEP-0103, seção168 (26/09/2026): toolbar de Novo/Editar/Apagar nos gerenciadores,
