@@ -135,7 +135,7 @@ export function createConversationTurnQueue(): ConversationTurnQueue {
       active = false;
       const index = state?.entries.indexOf(entry) ?? -1;
       if (index >= 0) state?.entries.splice(index, 1);
-      if (tails.get(conversationId) === state && state.entries.length === 0 && !state.tailPending) tails.delete(conversationId);
+      if (state && tails.get(conversationId) === state && state.entries.length === 0 && !state.tailPending) tails.delete(conversationId);
       return true;
     };
     return {
