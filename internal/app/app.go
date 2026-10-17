@@ -1020,6 +1020,12 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 		RateLimitKeyFunc:        llmRateLimitKeyFunc,
 		RateLimitPolicyResolver: llmRateLimitPolicyResolver,
 		ACPManager:              a.acpMgr,
+		CatalogSnapshot: func() llmcatalog.Snapshot {
+			if a.llmCatalog == nil {
+				return llmcatalog.Snapshot{}
+			}
+			return a.llmCatalog.Snapshot()
+		},
 	})
 
 	// Inicializa o Token Service (estatísticas de tokens)
