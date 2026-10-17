@@ -196,25 +196,22 @@ func TemplateFromCatalogServer(server llmcatalog.Server) (*llm.ProviderConfig, e
 	if server.Status != "active" {
 		return nil, fmt.Errorf("perfil de servidor %q não está ativo", server.ID)
 	}
-	profile, err := catalogRuntimeProfileFor(server)
+	apiFormatValue := catalogPolicyStringDefault(server, "api_format", server.APIFormat)
+	profile, err := catalogRuntimeProfileFor(server, apiFormatValue)
 	if err != nil {
 		return nil, err
 	}
-	apiFormat, err := catalogAPIFormat(server.APIFormat)
+	apiFormat, err := catalogAPIFormat(apiFormatValue)
 	if err != nil {
 		return nil, err
 	}
-	authMode, err := catalogAuthMode(server.Auth.Mode, server.Auth.Required)
+	authModeValue := catalogPolicyStringDefault(server, "auth.mode", server.Auth.Mode)
+	authMode, err := catalogAuthMode(authModeValue)
 	if err != nil {
 		return nil, err
 	}
 
-	baseURL := server.BaseURL
-	if baseURL == "" {
-		if value, ok := server.Fields["base_url"].Default.(string); ok {
-			baseURL = value
-		}
-	}
+	baseURL := catalogPolicyStringDefault(server, "base_url", server.BaseURL)
 	credentialPattern := ""
 	if authMode != llm.AuthModeNone && baseURL != "" {
 		credentialPattern, err = ExtractHostname(baseURL)
@@ -222,12 +219,7 @@ func TemplateFromCatalogServer(server llmcatalog.Server) (*llm.ProviderConfig, e
 			return nil, fmt.Errorf("base_url do perfil %q: %w", server.ID, err)
 		}
 	}
-	defaultModel := server.DefaultModelID
-	if defaultModel == "" {
-		if value, ok := server.Fields["default_model_id"].Default.(string); ok {
-			defaultModel = value
-		}
-	}
+	defaultModel := catalogPolicyStringDefault(server, "default_model_id", server.DefaultModelID)
 	id, err := catalogProviderID(server.ID)
 	if err != nil {
 		return nil, err
@@ -240,6 +232,27 @@ func TemplateFromCatalogServer(server llmcatalog.Server) (*llm.ProviderConfig, e
 		CredentialPattern: credentialPattern, AuthMode: authMode,
 		ReasoningContentMode: profile.reasoningContentMode,
 	}, nil
+}
+
+func catalogPolicyStringDefault(server llmcatalog.Server, field, fallback string) string {
+	policy, ok := server.Fields[field]
+	if !ok {
+		return fallback
+	}
+	value, ok := policy.Default.(string)
+	if policy.Policy == "fixed" || policy.Policy == "hidden" || policy.Policy == "choice" {
+		if ok {
+			return value
+		}
+		return fallback
+	}
+	if fallback != "" {
+		return fallback
+	}
+	if ok {
+		return value
+	}
+	return fallback
 }
 
 // CatalogTemplate resolve um perfil explicitamente identificado no snapshot
@@ -305,7 +318,7 @@ var catalogRuntimeProfiles = map[string]catalogRuntimeProfile{
 	"llamacpp":                  {providerFamily: "llamacpp", apiFormat: "openai", providerID: "llamacpp-local", providerType: llm.ProviderLlamaCPP},
 }
 
-func catalogRuntimeProfileFor(server llmcatalog.Server) (catalogRuntimeProfile, error) {
+func catalogRuntimeProfileFor(server llmcatalog.Server, apiFormat string) (catalogRuntimeProfile, error) {
 	profile, ok := catalogRuntimeProfiles[server.ID]
 	if !ok {
 		switch server.ID {
@@ -317,7 +330,7 @@ func catalogRuntimeProfileFor(server llmcatalog.Server) (catalogRuntimeProfile, 
 			return catalogRuntimeProfile{}, fmt.Errorf("perfil de servidor %q não tem combinação de runtime allowlisted", server.ID)
 		}
 	}
-	if server.ProviderFamily != profile.providerFamily || server.APIFormat != profile.apiFormat {
+	if server.ProviderFamily != profile.providerFamily || apiFormat != profile.apiFormat {
 		return catalogRuntimeProfile{}, fmt.Errorf("perfil %q requer provider_family=%q e api_format=%q", server.ID, profile.providerFamily, profile.apiFormat)
 	}
 	return profile, nil
@@ -346,26 +359,18 @@ func catalogAPIFormat(value string) (llm.APIFormat, error) {
 	}
 }
 
-func catalogAuthMode(mode string, required bool) (llm.AuthMode, error) {
+func catalogAuthMode(mode string) (llm.AuthMode, error) {
 	switch mode {
 	case "bearer_api_key":
-		if required {
-			return llm.AuthModeRequired, nil
-		}
+		return llm.AuthModeRequired, nil
 	case "api_key_header":
-		if required {
-			return llm.AuthModeRequired, nil
-		}
+		return llm.AuthModeRequired, nil
 	case "optional_api_key":
-		if !required {
-			return llm.AuthModeOptional, nil
-		}
+		return llm.AuthModeOptional, nil
 	case "none":
-		if !required {
-			return llm.AuthModeNone, nil
-		}
+		return llm.AuthModeNone, nil
 	}
-	return "", fmt.Errorf("modo de autenticação %q incompatível com required=%t", mode, required)
+	return "", fmt.Errorf("modo de autenticação %q não está na allowlist do runtime", mode)
 }
 
 func catalogErrorFamily(family string) llm.ProviderErrorFamily {
