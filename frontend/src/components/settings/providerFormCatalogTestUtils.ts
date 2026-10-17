@@ -51,3 +51,11 @@ export const providerFormCatalogResponse = {
 };
 
 export const providerFormCatalogAPIResponse = apidto.LLMCatalogResponse.createFrom(providerFormCatalogResponse);
+
+export const providerFormCatalogRefreshingAPIResponse = apidto.LLMCatalogResponse.createFrom({
+  document: llmcatalog.Document.createFrom({
+    servers: [], models: [], exposures: [], schema_version: 1,
+    catalog_version: 'test', updated_at: '2026-10-17T00:00:00Z',
+  }),
+  refreshing: true,
+});

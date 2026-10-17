@@ -166,15 +166,28 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
   useEffect(() => {
     if (kind === 'acp') return;
     let active = true;
-    void Promise.resolve().then(() => GetLLMCatalog()).then((response) => {
-      if (active) setCatalogProfiles(response?.document?.servers || []);
-    }).catch(() => {
-      if (active) {
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    const loadCatalog = async () => {
+      try {
+        const response = await GetLLMCatalog();
+        if (!active) return;
+        const servers = response?.document?.servers || [];
+        if (servers.length === 0 && response?.refreshing) {
+          retryTimer = setTimeout(() => { void loadCatalog(); }, 250);
+          return;
+        }
+        setCatalogProfiles(servers);
+      } catch {
+        if (!active) return;
         setCatalogProfiles([]);
         announce(catalogUnavailableAnnouncement.current, 'polite');
       }
-    });
-    return () => { active = false; };
+    };
+    void Promise.resolve().then(loadCatalog);
+    return () => {
+      active = false;
+      if (retryTimer) clearTimeout(retryTimer);
+    };
   }, [announce, kind]);
   const availableProfiles = useMemo(() => {
     const source = catalogProfiles === null ? [] : catalogProfiles;

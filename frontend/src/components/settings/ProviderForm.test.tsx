@@ -80,7 +80,7 @@ vi.mock('@wailsjs/go/wailsapi/LLMCatalog', async () => {
 
 import * as App from "@wailsjs/go/wailsapi/LLMProviders";
 import { GetLLMCatalog } from '@wailsjs/go/wailsapi/LLMCatalog';
-import { providerFormCatalogAPIResponse } from './providerFormCatalogTestUtils';
+import { providerFormCatalogAPIResponse, providerFormCatalogRefreshingAPIResponse } from './providerFormCatalogTestUtils';
 
 describe("PROVIDER_CONFIG", () => {
   it("deve ter configuração para OpenAI", () => {
@@ -129,6 +129,16 @@ describe("ProviderForm - Renderização", () => {
     expect(screen.getByLabelText(/base url/i)).toBeDisabled();
     expect(screen.getByRole('link', { name: 'providerForm.signupLink' })).toHaveAttribute('href', 'https://platform.openai.com/');
     expect(screen.getByRole('link', { name: 'providerForm.apiKeyLink' })).toHaveAttribute('href', 'https://platform.openai.com/api-keys');
+  });
+
+  it('consulta novamente o catálogo quando o primeiro snapshot ainda está atualizando', async () => {
+    vi.mocked(GetLLMCatalog)
+      .mockResolvedValueOnce(providerFormCatalogRefreshingAPIResponse)
+      .mockResolvedValueOnce(providerFormCatalogAPIResponse);
+    render(<ProviderForm onCancel={() => {}} onSave={() => {}} />);
+
+    expect(await screen.findByRole('option', { name: 'OpenAI' })).toBeInTheDocument();
+    expect(GetLLMCatalog).toHaveBeenCalledTimes(2);
   });
 
   it('não oferece o perfil Cohere enquanto sua rota catalogada não for suportada', async () => {
