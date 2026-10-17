@@ -1,6 +1,6 @@
 # AEP-0113 — Compatibilidade de parâmetros por modelo e provedor
 
-Status: Done — escopo aprovado das fases 1–3 concluído nos PRs #889, #909 e #919; fase 4 de vozes TTS permanece futura e requer decisão própria
+Status: In Progress — fases 1–3 concluídas nos PRs #889, #909 e #919; fase 4 depende do catálogo definido na AEP-0115
 
 ## Resumo
 
@@ -14,9 +14,10 @@ O armazenamento é de estado atual, não de afirmações históricas concorrente
 Não há auditoria, histórico imutável, reconciliador de fontes, importadores de
 catálogos ou jobs de atualização. Tarifas e custos estão fora deste AEP.
 
-Disponibilizar vozes compatíveis com modelos TTS em um select amigável continua
-como objetivo da última fase, a rediscutir. A obtenção e validação dessas vozes
-não estão definidas e não condicionam as primeiras entregas.
+Disponibilizar vozes compatíveis com modelos TTS em um select amigável é a fase
+4 desta AEP e depende do catálogo público de provedores e modelos definido na
+[AEP-0115](0115-catalogo-publico-provedores-modelos.md). O catálogo é mantido
+separadamente do estado local de compatibilidade aprendido por esta AEP.
 
 ## Motivação
 
@@ -266,22 +267,20 @@ job ou sondagem automática: a restrição permanece enquanto a identidade da
 conexão for a mesma, até remoção explícita ou futura política aprovada. O risco
 de suporte do endpoint evoluir sem mudança de identidade é aceito inicialmente.
 
-### 6. Vozes TTS: objetivo futuro, mecanismo ainda não aprovado
+### 6. Vozes TTS: consumir o catálogo da AEP-0115
 
-A última fase pretende oferecer IDs e nomes amigáveis de vozes compatíveis com
-o modelo TTS em um select acessível, respeitando a separação modelo/voz do
-AEP-0038. Não se presume descoberta automática disponível atualmente.
+Esta fase consome a lista de vozes da AEP-0115, associada ao perfil de servidor,
+à rota/API e ao modelo TTS, e apresenta IDs e nomes amigáveis em um select
+acessível, respeitando a separação modelo/voz do AEP-0038. O contrato do
+catálogo distingue listas completas, parciais e desconhecidas. Ausência de uma
+voz em uma lista parcial ou desconhecida não a marca como incompatível.
 
-Antes de implementar, rediscutir como obter, validar e atualizar a lista. Busca
-assistida por modelo ou uma lista de vozes conhecidas com testes de síntese são
-possibilidades, não decisões aprovadas. Informação encontrada pode estar errada;
-testes podem gerar custo e uma falha pode ter causa diferente da voz. Não se
-autoriza busca, sondagem ou cobrança automática por esta AEP.
-
-Essa fase deverá distinguir lista completa, lista parcial e rejeição de um
-valor específico, sem transformar ausência numa lista em não suporte. O schema,
-a estratégia de atualização e os critérios detalhados serão definidos quando
-a fase for retomada. Não se antecipa infraestrutura de opções nas fases 1–3.
+Uma rejeição de valor de voz continua distinta da rejeição do campo `voice`:
+não aprende nem suprime esse campo. Sondagens de síntese potencialmente pagas
+podem ser usadas no processo de manutenção do catálogo nos termos da AEP-0115;
+abrir a interface ou selecionar um modelo não dispara sondagem paga automática.
+Esta fase só começa depois de as fases 1–4 da AEP-0115 fornecerem o asset,
+consumo/cache, perfis de configuração e contrato de exposições de modelo.
 
 ### 7. Escopo retirado e relação com o PR #889
 
@@ -361,13 +360,14 @@ na `main`.
    sem achados pendentes e as duas threads foram resolvidas. Testes focados,
    `go build ./...`, `go vet ./...`, `tsc --noEmit` e lint passaram localmente;
    ACP não foi executado localmente por orientação de Infosec.
-4. **Vozes TTS — futura, a rediscutir.** Objetivo de seleção amigável, sem
-   mecanismo de descoberta, schema ou automação aprovados. Não bloqueia a
-   entrega das fases 1–3 e não autoriza implementação antecipada.
+4. **Vozes TTS — planejada, dependente da AEP-0115.** Consumir a lista de vozes
+   associada à rota e ao modelo no catálogo, respeitando completude e estado
+   desconhecido. Depende da conclusão das fases 1–4 da AEP-0115; a fase de
+   manutenção do catálogo pode evoluir separadamente.
 
-Os PRs #889, #909 e #919 concluíram as fases 1–3 do escopo aprovado. O status
-`Done` cobre essas fases; a fase 4 continua fora do escopo aprovado até haver
-uma decisão própria sobre obtenção, validação e atualização de vozes.
+Os PRs #889, #909 e #919 concluíram as fases 1–3. Como a fase 4 permanece
+planejada e depende da AEP-0115, o status desta AEP é `In Progress` até que a
+seleção de vozes seja implementada e seus critérios sejam atendidos.
 
 ## Riscos
 
@@ -385,8 +385,9 @@ uma decisão própria sobre obtenção, validação e atualização de vozes.
 - **Retorno da complexidade retirada:** a implementação não deve reintroduzir
   histórico, reconciliação de múltiplas fontes ou schema de modalidades futuras sob outros
   nomes. Extensões precisam de um consumidor e de uma necessidade concreta.
-- **Vozes incorretas ou testes pagos:** aquisição e validação serão revistas
-  antes da fase 4; as primeiras entregas não fazem essas consultas ou testes.
+- **Vozes incorretas ou testes pagos:** consumir o estado de completude do
+  catálogo; sondagens pagas pertencem à manutenção editorial e não ao uso
+  normal da interface.
 
 ## Critérios de aceitação
 
@@ -450,5 +451,5 @@ uma decisão própria sobre obtenção, validação e atualização de vozes.
   `docs/content/configuracao/PROVIDER_CONFIGURATION.md` e
   `docs/content/recursos/PERFIS.md` foram atualizados no PR #919.
 
-A fase de vozes requer nova discussão e critérios próprios antes de sua
-implementação; não integra os critérios de conclusão das fases 1–3.
+A fase de vozes depende das fases 1–4 da AEP-0115 e integra o escopo pendente
+desta AEP; sua implementação e evidências atualizarão este documento e o índice.
