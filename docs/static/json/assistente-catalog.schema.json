@@ -52,7 +52,7 @@
         "replaced_by": {"$ref": "#/$defs/identifier"},
         "api_format": {"$ref": "#/$defs/apiFormat"},
         "adapter_id": {"$ref": "#/$defs/apiFormat"},
-        "base_url": {"type": "string", "format": "uri", "maxLength": 2048, "pattern": "^https?://"},
+        "base_url": {"type": "string", "format": "uri", "maxLength": 2048, "pattern": "^https?://", "not": {"pattern": "^https?://[^/]*@"}},
         "default_port": {"type": "integer", "minimum": 1, "maximum": 65535},
         "auth": {
           "type": "object",
@@ -63,8 +63,8 @@
           },
           "additionalProperties": true
         },
-        "signup_url": {"type": "string", "format": "uri", "pattern": "^https://", "maxLength": 2048},
-        "api_key_url": {"type": "string", "format": "uri", "pattern": "^https://", "maxLength": 2048},
+        "signup_url": {"type": "string", "format": "uri", "pattern": "^https://", "maxLength": 2048, "not": {"pattern": "^https://[^/]*@"}},
+        "api_key_url": {"type": "string", "format": "uri", "pattern": "^https://", "maxLength": 2048, "not": {"pattern": "^https://[^/]*@"}},
         "default_model_id": {"type": "string", "minLength": 1, "maxLength": 200},
         "endpoints": {
           "type": "object",
@@ -84,6 +84,7 @@
         }
       },
       "allOf": [
+        {"if": {"properties": {"group": {"const": "hosted"}}, "required": ["group"]}, "then": {"properties": {"base_url": {"pattern": "^https://"}}}},
         {"if": {"properties": {"group": {"enum": ["hosted", "proxy", "local"]}}, "required": ["group"]}, "then": {"required": ["base_url"]}},
         {"if": {"properties": {"group": {"const": "custom"}}, "required": ["group"]}, "then": {"properties": {"fields": {"required": ["base_url"]}}}},
         {"if": {"properties": {"status": {"const": "deprecated"}}, "required": ["status"]}, "then": {"properties": {"replaced_by": {"$ref": "#/$defs/identifier"}}}}
