@@ -31,6 +31,7 @@ func TestDecodeRejectsInvalidDocuments(t *testing.T) {
 	}{
 		{name: "referência inexistente", json: strings.Replace(minimalCatalog, `"server_profile_id":"test"`, `"server_profile_id":"missing"`, 1), want: "referência de servidor inexistente"},
 		{name: "choice default fora das opções", json: strings.Replace(minimalCatalog, `"policy":"editable","required":true`, `"policy":"choice","default":"a","choices":["b"]`, 1), want: "deve corresponder a uma opção"},
+		{name: "choices duplicadas", json: strings.Replace(minimalCatalog, `"policy":"editable","required":true`, `"policy":"choice","choices":["a","a"]`, 1), want: "opções duplicadas"},
 		{name: "campo obrigatório ausente em auth", json: strings.Replace(minimalCatalog, `,"required":false`, "", 1), want: "auth.required ausente"},
 		{name: "choices nulo", json: strings.Replace(minimalCatalog, `"required":true`, `"required":true,"choices":null`, 1), want: ".fields.base_url.choices não pode ser null"},
 		{name: "limits nulo", json: strings.Replace(minimalCatalog, `"capabilities":{}`, `"capabilities":{},"limits":null`, 1), want: ".limits não pode ser null"},
