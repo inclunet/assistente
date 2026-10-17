@@ -1,6 +1,6 @@
 # AEP-0115 — Catálogo público de provedores e modelos
 
-Status: In Progress — contrato aprovado; publicação do catálogo e consumo pelo aplicativo pendentes
+Status: In Progress — contrato aprovado; fase 1 (schema e asset inicial) implementada neste PR; consumo pendente
 
 ## Resumo
 
@@ -143,46 +143,52 @@ de capacidade e vozes aplicáveis àquela rota. A forma conceitual mínima é:
     "id": "openrouter",
     "name": "OpenRouter",
     "provider_family": "openrouter",
-    "api_format": "openai-chat-completions",
-    "adapter_id": "openai-chat-completions",
+    "api_format": "openai",
+    "adapter_id": "openai",
     "base_url": "https://openrouter.ai/api/v1",
-    "auth": {"mode": "bearer-api-key", "required": true},
+    "auth": {"mode": "bearer_api_key", "required": true},
     "signup_url": "https://openrouter.ai/signup",
     "api_key_url": "https://openrouter.ai/keys",
     "fields": {
-      "base_url": {"policy": "fixed"},
-      "api_format": {"policy": "fixed"},
-      "auth.mode": {"policy": "fixed"}
+      "base_url": {"policy": "fixed", "default": "https://openrouter.ai/api/v1"},
+      "api_format": {"policy": "fixed", "default": "openai"},
+      "auth.mode": {"policy": "fixed", "default": "bearer_api_key"}
     }
   }],
   "models": [{
     "id": "anthropic/claude-3.7-sonnet",
     "vendor": "Anthropic",
     "name": "Claude 3.7 Sonnet",
+    "status": "active",
     "capabilities": {
       "input.text": "supported",
       "input.image": "supported",
       "output.text": "supported",
       "output.audio": "unsupported",
-      "tools": "supported",
+      "tools.function_calling": "supported",
       "reasoning": "unknown"
     },
     "limits": {"context_tokens": 200000, "max_output_tokens": 64000}
   }],
   "exposures": [{
     "server_profile_id": "openrouter",
-    "api_format": "openai-chat-completions",
+    "api_format": "openai",
     "exposed_model_id": "anthropic/claude-3.7-sonnet",
     "canonical_model_id": "anthropic/claude-3.7-sonnet"
   }]
 }
 ```
 
-O exemplo é ilustrativo; o schema formal deve definir enums, campos
-obrigatórios/opcionais, tipos, limites de tamanho, URLs aceitas e regras de
-compatibilidade. `capabilities` aceita somente os três estados definidos nesta
-AEP. Limites numéricos são inteiros positivos. `voices.completeness` aceita
-`complete`, `partial` ou `unknown`; cada item contém pelo menos ID e nome
+O exemplo é ilustrativo; o schema formal define enums, campos
+obrigatórios/opcionais, tipos, limites de tamanho e URLs aceitas. O JSON Schema
+valida a estrutura de cada registro. Integridade entre coleções é uma validação
+semântica complementar: o consumidor deve rejeitar IDs de servidor/modelo
+duplicados, referências inexistentes e tuplas de exposição repetidas. A fase 2
+implementará essa validação no carregamento do catálogo, incluindo defaults
+que não pertençam às opções declaradas por campos `choice`. `capabilities`
+aceita somente os três estados definidos nesta AEP. Limites numéricos são inteiros
+positivos. `voices.completeness` aceita `complete`, `partial` ou `unknown`; cada
+item contém pelo menos ID e nome
 localizável/fallback. Exposições são identificadas pela tupla servidor + formato
 exato + ID do modelo exposto, que deve ser única no documento. `selection_mode`
 aceita `model_and_voice` ou `model_only` e é obrigatório quando a exposição
@@ -202,11 +208,13 @@ altera conexões existentes nem sobrepõe a identidade explícita persistida.
 
 ## Fases
 
-1. **Contrato e asset JSON.** Definir schema validável, exemplos para provedores
-   nativos, proxy OpenAI compatível e modelo customizado; publicar asset Hugo e
-   validar compatibilidade de schema.
-2. **Consumo e cache no backend.** Buscar, validar e cachear a última versão
-   válida; expor dados tipados ao frontend e manter inicialização e uso offline.
+1. **Contrato e asset JSON — concluída neste PR.** Schema Draft 2020-12 validado
+   contra o asset inicial publicado em `docs/static/json/`, cobrindo provedores
+   hospedados, Ollama/LocalAI/llama.cpp, OpenRouter, LiteLLM, perfil
+   personalizado, modelos, exposição por proxy e completude de vozes.
+2. **Consumo e cache no backend.** Buscar, validar estrutura e integridade
+   semântica, e cachear a última versão válida; expor dados tipados ao frontend
+   e manter inicialização e uso offline.
 3. **Configuração de provedores pelo catálogo.** Trocar os presets duplicados
    do frontend/backend por perfis catalogados; aplicar política fixa/editável
    por campo, manter customizados, mostrar links de cadastro/chave e preservar
@@ -214,9 +222,12 @@ altera conexões existentes nem sobrepõe a identidade explícita persistida.
 4. **Modelos, capacidades e proxies.** Associar IDs expostos apenas por
    mapeamento exato e integrar recursos/limites sem impedir aliases
    desconhecidos.
-5. **Vozes TTS.** Consumir vozes catalogadas por perfil, rota e modelo,
-   incluindo estado de completude. Esta fase é dependência da fase 4 do
-   AEP-0113.
+5. **Vozes TTS na API do catálogo.** Integrar a coleção de vozes do asset ao
+   consumo tipado, associada à exposição de perfil, rota/API e modelo, incluindo
+   estado de completude. Esta fase fornece os dados consumidos pela fase 4 do
+   AEP-0113, que implementa a seleção e o comportamento de compatibilidade na
+   interface. Assim, a dependência é unidirecional: AEP-0113 fase 4 depende das
+   fases 1–5 desta AEP.
 6. **Manutenção do catálogo.** Definir processo e cadência de atualização,
    validação e publicação. Sondagens de síntese potencialmente pagas podem ser
    usadas no processo editorial, com custo e escopo controlados; abrir a UI ou
@@ -239,10 +250,16 @@ altera conexões existentes nem sobrepõe a identidade explícita persistida.
 
 ## Critérios de aceitação
 
-- [ ] O asset público tem schema versionado, exemplos de provedor, modelo,
-  exposição por proxy e estado de completude de vozes.
-- [ ] A aplicação valida o documento, mantém cache válido e continua a
-  funcionar offline.
+- [x] O asset público tem schema versionado, exemplos de provedor, modelo,
+  exposição por proxy e estado de completude de vozes. Evidência: arquivos
+  `docs/static/json/assistente-catalog.schema.json` e
+  `docs/static/json/assistente-catalog.json`, servidos pelo Hugo sob `/json/`;
+  validação Draft 2020-12 e conferência semântica das referências e unicidade
+  deste asset registradas no PR. A validação semântica de catálogos baixados é
+  critério da fase 2.
+- [ ] A aplicação valida a estrutura e a integridade semântica do documento
+  (IDs únicos, referências existentes e tuplas de exposição únicas), mantém
+  cache válido e continua a funcionar offline.
 - [ ] Provedores conhecidos aplicam as políticas de edição declaradas; URLs de
   cadastro e obtenção de chave são acessíveis e localizadas.
 - [ ] Atualizar o catálogo não sobrescreve configurações existentes nem envia

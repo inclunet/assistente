@@ -1,6 +1,6 @@
 # AEP-0113 — Compatibilidade de parâmetros por modelo e provedor
 
-Status: In Progress — fases 1–3 concluídas nos PRs #889, #909 e #919; fase 4 depende do catálogo definido na AEP-0115
+Status: In Progress — fases 1–3 concluídas nos PRs #889, #909 e #919; fase 4 depende da fase 5 da AEP-0115
 
 ## Resumo
 
@@ -279,8 +279,9 @@ Uma rejeição de valor de voz continua distinta da rejeição do campo `voice`:
 não aprende nem suprime esse campo. Sondagens de síntese potencialmente pagas
 podem ser usadas no processo de manutenção do catálogo nos termos da AEP-0115;
 abrir a interface ou selecionar um modelo não dispara sondagem paga automática.
-Esta fase só começa depois de as fases 1–4 da AEP-0115 fornecerem o asset,
-consumo/cache, perfis de configuração e contrato de exposições de modelo.
+Esta fase só começa depois de as fases 1–5 da AEP-0115 fornecerem o asset,
+consumo/cache, perfis de configuração, contrato de exposições de modelo e
+metadados de vozes na API tipada do catálogo.
 
 ### 7. Escopo retirado e relação com o PR #889
 
@@ -362,7 +363,7 @@ na `main`.
    ACP não foi executado localmente por orientação de Infosec.
 4. **Vozes TTS — planejada, dependente da AEP-0115.** Consumir a lista de vozes
    associada à rota e ao modelo no catálogo, respeitando completude e estado
-   desconhecido. Depende da conclusão das fases 1–4 da AEP-0115; a fase de
+   desconhecido. Depende da conclusão das fases 1–5 da AEP-0115; a fase de
    manutenção do catálogo pode evoluir separadamente.
 
 Os PRs #889, #909 e #919 concluíram as fases 1–3. Como a fase 4 permanece
@@ -451,5 +452,5 @@ seleção de vozes seja implementada e seus critérios sejam atendidos.
   `docs/content/configuracao/PROVIDER_CONFIGURATION.md` e
   `docs/content/recursos/PERFIS.md` foram atualizados no PR #919.
 
-A fase de vozes depende das fases 1–4 da AEP-0115 e integra o escopo pendente
+A fase de vozes depende das fases 1–5 da AEP-0115 e integra o escopo pendente
 desta AEP; sua implementação e evidências atualizarão este documento e o índice.

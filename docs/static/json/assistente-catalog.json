@@ -1,0 +1,553 @@
+{
+  "schema_version": 1,
+  "catalog_version": "2026-10-17.1",
+  "updated_at": "2026-10-17T12:00:00Z",
+  "servers": [
+    {
+      "id": "openai",
+      "name": "OpenAI",
+      "group": "hosted",
+      "provider_family": "openai",
+      "status": "active",
+      "api_format": "openai_responses",
+      "adapter_id": "openai_responses",
+      "base_url": "https://api.openai.com/v1",
+      "auth": {"mode": "bearer_api_key", "required": true},
+      "signup_url": "https://platform.openai.com/",
+      "api_key_url": "https://platform.openai.com/api-keys",
+      "default_model_id": "gpt-6.1-sol",
+      "endpoints": {
+        "responses": {"path": "/responses"},
+        "models": {"path": "/models"},
+        "tts": {"path": "/audio/speech"}
+      },
+      "fields": {
+        "base_url": {"policy": "fixed", "default": "https://api.openai.com/v1"},
+        "api_format": {"policy": "fixed", "default": "openai_responses"},
+        "auth.mode": {"policy": "fixed", "default": "bearer_api_key"},
+        "default_model_id": {"policy": "editable", "default": "gpt-6.1-sol"}
+      }
+    },
+    {
+      "id": "anthropic",
+      "name": "Anthropic Claude",
+      "group": "hosted",
+      "provider_family": "anthropic",
+      "status": "active",
+      "api_format": "anthropic",
+      "adapter_id": "anthropic",
+      "base_url": "https://api.anthropic.com",
+      "auth": {"mode": "api_key_header", "required": true},
+      "signup_url": "https://console.anthropic.com/",
+      "api_key_url": "https://console.anthropic.com/settings/keys",
+      "default_model_id": "claude-sonnet-5",
+      "endpoints": {"chat": {"path": "/messages"}, "models": {"path": "/models"}},
+      "fields": {
+        "base_url": {"policy": "fixed", "default": "https://api.anthropic.com"},
+        "api_format": {"policy": "fixed", "default": "anthropic"},
+        "auth.mode": {"policy": "fixed", "default": "api_key_header"},
+        "default_model_id": {"policy": "editable", "default": "claude-sonnet-5"}
+      }
+    },
+    {
+      "id": "google-gemini",
+      "name": "Google Gemini API",
+      "group": "hosted",
+      "provider_family": "google",
+      "status": "active",
+      "api_format": "google",
+      "adapter_id": "google",
+      "base_url": "https://generativelanguage.googleapis.com/v1beta",
+      "auth": {"mode": "api_key_header", "required": true},
+      "signup_url": "https://aistudio.google.com/",
+      "api_key_url": "https://aistudio.google.com/app/apikey",
+      "default_model_id": "gemini-3.8-flash",
+      "endpoints": {"chat": {"path": "/models/{model}:generateContent"}, "models": {"path": "/models"}},
+      "fields": {
+        "base_url": {"policy": "fixed", "default": "https://generativelanguage.googleapis.com/v1beta"},
+        "api_format": {"policy": "fixed", "default": "google"},
+        "auth.mode": {"policy": "fixed", "default": "api_key_header"},
+        "default_model_id": {"policy": "editable", "default": "gemini-3.8-flash"}
+      }
+    },
+    {
+      "id": "xai",
+      "name": "xAI",
+      "group": "hosted",
+      "provider_family": "xai",
+      "status": "active",
+      "api_format": "openai",
+      "adapter_id": "openai",
+      "base_url": "https://api.x.ai/v1",
+      "auth": {"mode": "bearer_api_key", "required": true},
+      "signup_url": "https://console.x.ai/",
+      "api_key_url": "https://console.x.ai/",
+      "default_model_id": "grok-4.6",
+      "endpoints": {"chat": {"path": "/chat/completions"}, "models": {"path": "/models"}},
+      "fields": {
+        "base_url": {"policy": "fixed", "default": "https://api.x.ai/v1"},
+        "api_format": {"policy": "fixed", "default": "openai"},
+        "auth.mode": {"policy": "fixed", "default": "bearer_api_key"},
+        "default_model_id": {"policy": "editable", "default": "grok-4.6"}
+      }
+    },
+    {
+      "id": "deepseek",
+      "name": "DeepSeek",
+      "group": "hosted",
+      "provider_family": "deepseek",
+      "status": "active",
+      "api_format": "openai",
+      "adapter_id": "openai",
+      "base_url": "https://api.deepseek.com/v1",
+      "auth": {"mode": "bearer_api_key", "required": true},
+      "signup_url": "https://platform.deepseek.com/",
+      "api_key_url": "https://platform.deepseek.com/api_keys",
+      "default_model_id": "deepseek-chat",
+      "endpoints": {"chat": {"path": "/chat/completions"}, "models": {"path": "/models"}},
+      "fields": {
+        "base_url": {"policy": "fixed", "default": "https://api.deepseek.com/v1"},
+        "api_format": {"policy": "fixed", "default": "openai"},
+        "auth.mode": {"policy": "fixed", "default": "bearer_api_key"},
+        "default_model_id": {"policy": "editable", "default": "deepseek-chat"}
+      }
+    },
+    {
+      "id": "mistral",
+      "name": "Mistral AI",
+      "group": "hosted",
+      "provider_family": "mistral",
+      "status": "active",
+      "api_format": "openai",
+      "adapter_id": "openai",
+      "base_url": "https://api.mistral.ai/v1",
+      "auth": {"mode": "bearer_api_key", "required": true},
+      "signup_url": "https://console.mistral.ai/",
+      "api_key_url": "https://console.mistral.ai/api-keys/",
+      "default_model_id": "mistral-small-latest",
+      "endpoints": {"chat": {"path": "/chat/completions"}, "models": {"path": "/models"}},
+      "fields": {
+        "base_url": {"policy": "fixed", "default": "https://api.mistral.ai/v1"},
+        "api_format": {"policy": "fixed", "default": "openai"},
+        "auth.mode": {"policy": "fixed", "default": "bearer_api_key"},
+        "default_model_id": {"policy": "editable", "default": "mistral-small-latest"}
+      }
+    },
+    {
+      "id": "groq",
+      "name": "Groq",
+      "group": "hosted",
+      "provider_family": "groq",
+      "status": "active",
+      "api_format": "openai",
+      "adapter_id": "openai",
+      "base_url": "https://api.groq.com/openai/v1",
+      "auth": {"mode": "bearer_api_key", "required": true},
+      "signup_url": "https://console.groq.com/",
+      "api_key_url": "https://console.groq.com/keys",
+      "default_model_id": "llama-3.3-70b-versatile",
+      "endpoints": {"chat": {"path": "/chat/completions"}, "models": {"path": "/models"}},
+      "fields": {
+        "base_url": {"policy": "fixed", "default": "https://api.groq.com/openai/v1"},
+        "api_format": {"policy": "fixed", "default": "openai"},
+        "auth.mode": {"policy": "fixed", "default": "bearer_api_key"},
+        "default_model_id": {"policy": "editable", "default": "llama-3.3-70b-versatile"}
+      }
+    },
+    {
+      "id": "together-ai",
+      "name": "Together AI",
+      "group": "hosted",
+      "provider_family": "together",
+      "status": "active",
+      "api_format": "openai",
+      "adapter_id": "openai",
+      "base_url": "https://api.together.xyz/v1",
+      "auth": {"mode": "bearer_api_key", "required": true},
+      "signup_url": "https://api.together.ai/",
+      "api_key_url": "https://api.together.ai/settings/api-keys",
+      "endpoints": {"chat": {"path": "/chat/completions"}, "models": {"path": "/models"}},
+      "fields": {
+        "base_url": {"policy": "fixed", "default": "https://api.together.xyz/v1"},
+        "api_format": {"policy": "fixed", "default": "openai"},
+        "auth.mode": {"policy": "fixed", "default": "bearer_api_key"}
+      }
+    },
+    {
+      "id": "fireworks-ai",
+      "name": "Fireworks AI",
+      "group": "hosted",
+      "provider_family": "fireworks",
+      "status": "active",
+      "api_format": "openai",
+      "adapter_id": "openai",
+      "base_url": "https://api.fireworks.ai/inference/v1",
+      "auth": {"mode": "bearer_api_key", "required": true},
+      "signup_url": "https://fireworks.ai/",
+      "api_key_url": "https://fireworks.ai/account/api-keys",
+      "endpoints": {"chat": {"path": "/chat/completions"}, "models": {"path": "/models"}},
+      "fields": {
+        "base_url": {"policy": "fixed", "default": "https://api.fireworks.ai/inference/v1"},
+        "api_format": {"policy": "fixed", "default": "openai"},
+        "auth.mode": {"policy": "fixed", "default": "bearer_api_key"}
+      }
+    },
+    {
+      "id": "perplexity",
+      "name": "Perplexity API",
+      "group": "hosted",
+      "provider_family": "perplexity",
+      "status": "active",
+      "api_format": "openai",
+      "adapter_id": "openai",
+      "base_url": "https://api.perplexity.ai",
+      "auth": {"mode": "bearer_api_key", "required": true},
+      "signup_url": "https://www.perplexity.ai/",
+      "api_key_url": "https://www.perplexity.ai/settings/api",
+      "default_model_id": "sonar",
+      "endpoints": {"chat": {"path": "/chat/completions"}},
+      "fields": {
+        "base_url": {"policy": "fixed", "default": "https://api.perplexity.ai"},
+        "api_format": {"policy": "fixed", "default": "openai"},
+        "auth.mode": {"policy": "fixed", "default": "bearer_api_key"},
+        "default_model_id": {"policy": "editable", "default": "sonar"}
+      }
+    },
+    {
+      "id": "cohere",
+      "name": "Cohere",
+      "group": "hosted",
+      "provider_family": "cohere",
+      "status": "active",
+      "api_format": "openai",
+      "adapter_id": "openai",
+      "base_url": "https://api.cohere.ai",
+      "auth": {"mode": "bearer_api_key", "required": true},
+      "signup_url": "https://dashboard.cohere.com/",
+      "api_key_url": "https://dashboard.cohere.com/api-keys",
+      "endpoints": {"chat": {"path": "/compatibility/v1/chat/completions"}},
+      "fields": {
+        "base_url": {"policy": "fixed", "default": "https://api.cohere.ai"},
+        "api_format": {"policy": "fixed", "default": "openai"},
+        "auth.mode": {"policy": "fixed", "default": "bearer_api_key"}
+      }
+    },
+    {
+      "id": "zai-global",
+      "name": "Z.ai — API geral",
+      "group": "hosted",
+      "provider_family": "zai",
+      "status": "active",
+      "api_format": "openai",
+      "adapter_id": "openai",
+      "base_url": "https://api.z.ai/api/paas/v4",
+      "auth": {"mode": "bearer_api_key", "required": true},
+      "signup_url": "https://z.ai/",
+      "api_key_url": "https://z.ai/",
+      "default_model_id": "glm-5.3",
+      "endpoints": {"chat": {"path": "/chat/completions"}, "models": {"path": "/models"}},
+      "fields": {
+        "base_url": {"policy": "fixed", "default": "https://api.z.ai/api/paas/v4"},
+        "api_format": {"policy": "fixed", "default": "openai"},
+        "auth.mode": {"policy": "fixed", "default": "bearer_api_key"},
+        "default_model_id": {"policy": "editable", "default": "glm-5.3"}
+      }
+    },
+    {
+      "id": "zai-coding-plan",
+      "name": "Z.ai — Coding Plan",
+      "group": "hosted",
+      "provider_family": "zai",
+      "status": "active",
+      "api_format": "openai",
+      "adapter_id": "openai",
+      "base_url": "https://api.z.ai/api/coding/paas/v4",
+      "auth": {"mode": "bearer_api_key", "required": true},
+      "signup_url": "https://z.ai/",
+      "api_key_url": "https://z.ai/",
+      "default_model_id": "glm-5.3",
+      "endpoints": {"chat": {"path": "/chat/completions"}, "models": {"path": "/models"}},
+      "fields": {
+        "base_url": {"policy": "fixed", "default": "https://api.z.ai/api/coding/paas/v4"},
+        "api_format": {"policy": "fixed", "default": "openai"},
+        "auth.mode": {"policy": "fixed", "default": "bearer_api_key"},
+        "default_model_id": {"policy": "editable", "default": "glm-5.3"}
+      }
+    },
+    {
+      "id": "openrouter",
+      "name": "OpenRouter",
+      "group": "proxy",
+      "provider_family": "openrouter",
+      "status": "active",
+      "api_format": "openai",
+      "adapter_id": "openai",
+      "base_url": "https://openrouter.ai/api/v1",
+      "auth": {"mode": "bearer_api_key", "required": true},
+      "signup_url": "https://openrouter.ai/",
+      "api_key_url": "https://openrouter.ai/keys",
+      "endpoints": {"chat": {"path": "/chat/completions"}, "models": {"path": "/models"}},
+      "fields": {
+        "base_url": {"policy": "fixed", "default": "https://openrouter.ai/api/v1"},
+        "api_format": {"policy": "fixed", "default": "openai"},
+        "auth.mode": {"policy": "fixed", "default": "bearer_api_key"}
+      }
+    },
+    {
+      "id": "litellm-openai-proxy",
+      "name": "LiteLLM Proxy — OpenAI-compatible",
+      "group": "proxy",
+      "provider_family": "litellm",
+      "status": "active",
+      "api_format": "openai",
+      "adapter_id": "openai",
+      "base_url": "http://localhost:4000/v1",
+      "default_port": 4000,
+      "auth": {"mode": "optional_api_key", "required": false},
+      "signup_url": "https://docs.litellm.ai/",
+      "api_key_url": "https://docs.litellm.ai/docs/proxy/virtual_keys",
+      "endpoints": {"chat": {"path": "/chat/completions"}, "models": {"path": "/models"}},
+      "fields": {
+        "base_url": {"policy": "editable", "default": "http://localhost:4000/v1", "required": true},
+        "api_format": {"policy": "fixed", "default": "openai"},
+        "auth.mode": {"policy": "choice", "default": "optional_api_key", "choices": ["bearer_api_key", "optional_api_key", "none"]}
+      }
+    },
+    {
+      "id": "localai-openai-compatible",
+      "name": "LocalAI — OpenAI-compatible",
+      "group": "local",
+      "provider_family": "localai",
+      "status": "active",
+      "api_format": "openai",
+      "adapter_id": "openai",
+      "base_url": "http://localhost:8080/v1",
+      "default_port": 8080,
+      "auth": {"mode": "optional_api_key", "required": false},
+      "signup_url": "https://localai.io/",
+      "api_key_url": "https://localai.io/docs/advanced/security/",
+      "endpoints": {"chat": {"path": "/chat/completions"}, "models": {"path": "/models"}, "tts": {"path": "/audio/speech"}},
+      "fields": {
+        "base_url": {"policy": "editable", "default": "http://localhost:8080/v1", "required": true},
+        "api_format": {"policy": "fixed", "default": "openai"},
+        "auth.mode": {"policy": "choice", "default": "optional_api_key", "choices": ["bearer_api_key", "optional_api_key", "none"]}
+      }
+    },
+    {
+      "id": "ollama",
+      "name": "Ollama — servidor local",
+      "group": "local",
+      "provider_family": "ollama",
+      "status": "active",
+      "api_format": "ollama",
+      "adapter_id": "ollama",
+      "base_url": "http://localhost:11434",
+      "default_port": 11434,
+      "auth": {"mode": "none", "required": false},
+      "signup_url": "https://ollama.com/",
+      "endpoints": {"chat": {"path": "/api/chat"}},
+      "fields": {
+        "base_url": {"policy": "editable", "default": "http://localhost:11434", "required": true},
+        "api_format": {"policy": "fixed", "default": "ollama"},
+        "auth.mode": {"policy": "fixed", "default": "none"}
+      }
+    },
+    {
+      "id": "llamacpp",
+      "name": "llama.cpp — servidor local",
+      "group": "local",
+      "provider_family": "llamacpp",
+      "status": "active",
+      "api_format": "openai",
+      "adapter_id": "openai",
+      "base_url": "http://localhost:8080/v1",
+      "default_port": 8080,
+      "auth": {"mode": "none", "required": false},
+      "signup_url": "https://github.com/ggml-org/llama.cpp",
+      "endpoints": {"chat": {"path": "/chat/completions"}, "models": {"path": "/models"}},
+      "fields": {
+        "base_url": {"policy": "editable", "default": "http://localhost:8080/v1", "required": true},
+        "api_format": {"policy": "fixed", "default": "openai"},
+        "auth.mode": {"policy": "fixed", "default": "none"}
+      }
+    },
+    {
+      "id": "custom-openai-compatible",
+      "name": "Provedor personalizado — OpenAI-compatible",
+      "group": "custom",
+      "provider_family": "custom",
+      "status": "active",
+      "api_format": "openai",
+      "adapter_id": "openai",
+      "auth": {"mode": "optional_api_key", "required": false},
+      "endpoints": {"chat": {"path": "/chat/completions"}, "models": {"path": "/models"}},
+      "fields": {
+        "base_url": {"policy": "editable", "required": true},
+        "api_format": {"policy": "choice", "default": "openai", "choices": ["openai", "openai_responses"]},
+        "auth.mode": {"policy": "choice", "default": "optional_api_key", "choices": ["bearer_api_key", "optional_api_key", "none"]},
+        "default_model_id": {"policy": "editable"}
+      }
+    }
+  ],
+  "models": [
+    {
+      "id": "openai/gpt-6.1-sol",
+      "vendor": "OpenAI",
+      "name": "GPT-6.1 Sol",
+      "status": "active",
+      "capabilities": {
+        "input.text": "supported",
+        "input.image": "supported",
+        "input.file": "supported",
+        "output.text": "supported",
+        "output.audio": "unsupported",
+        "tools.function_calling": "supported",
+        "output.structured": "supported",
+        "reasoning": "supported"
+      },
+      "limits": {"context_tokens": 1050000, "max_output_tokens": 128000}
+    },
+    {
+      "id": "anthropic/claude-sonnet-5",
+      "vendor": "Anthropic",
+      "name": "Claude Sonnet 5",
+      "status": "active",
+      "capabilities": {
+        "input.text": "supported",
+        "input.image": "supported",
+        "output.text": "supported",
+        "tools.function_calling": "supported",
+        "output.structured": "supported",
+        "reasoning": "supported"
+      },
+      "limits": {"context_tokens": 1000000, "max_output_tokens": 128000}
+    },
+    {
+      "id": "google/gemini-3.8-flash",
+      "vendor": "Google",
+      "name": "Gemini 3.8 Flash",
+      "status": "active",
+      "capabilities": {
+        "input.text": "supported",
+        "input.image": "supported",
+        "input.video": "supported",
+        "input.audio": "supported",
+        "input.file": "supported",
+        "output.text": "supported",
+        "output.audio": "unsupported",
+        "tools.function_calling": "supported",
+        "output.structured": "supported",
+        "reasoning": "supported"
+      },
+      "limits": {"context_tokens": 1048576, "max_input_tokens": 1048576, "max_output_tokens": 65536}
+    },
+    {
+      "id": "xai/grok-4.6",
+      "vendor": "xAI",
+      "name": "Grok 4.6",
+      "status": "active",
+      "capabilities": {
+        "input.text": "supported",
+        "input.image": "unknown",
+        "output.text": "supported",
+        "tools.function_calling": "unknown",
+        "reasoning": "unknown"
+      },
+      "limits": {"context_tokens": 500000}
+    },
+    {
+      "id": "zai/glm-5.3",
+      "vendor": "Z.ai",
+      "name": "GLM-5.3",
+      "status": "active",
+      "capabilities": {
+        "input.text": "supported",
+        "input.image": "unknown",
+        "output.text": "supported",
+        "tools.function_calling": "unknown",
+        "reasoning": "unknown"
+      }
+    },
+    {
+      "id": "openai/gpt-4o-mini-tts",
+      "vendor": "OpenAI",
+      "name": "GPT-4o mini TTS",
+      "status": "active",
+      "capabilities": {
+        "input.text": "supported",
+        "output.text": "unsupported",
+        "output.audio": "supported",
+        "speech.synthesis": "supported"
+      }
+    }
+  ],
+  "exposures": [
+    {
+      "server_profile_id": "openai",
+      "api_format": "openai_responses",
+      "exposed_model_id": "gpt-6.1-sol",
+      "canonical_model_id": "openai/gpt-6.1-sol"
+    },
+    {
+      "server_profile_id": "openrouter",
+      "api_format": "openai",
+      "exposed_model_id": "openai/gpt-6.1-sol",
+      "canonical_model_id": "openai/gpt-6.1-sol"
+    },
+    {
+      "server_profile_id": "anthropic",
+      "api_format": "anthropic",
+      "exposed_model_id": "claude-sonnet-5",
+      "canonical_model_id": "anthropic/claude-sonnet-5"
+    },
+    {
+      "server_profile_id": "google-gemini",
+      "api_format": "google",
+      "exposed_model_id": "gemini-3.8-flash",
+      "canonical_model_id": "google/gemini-3.8-flash"
+    },
+    {
+      "server_profile_id": "xai",
+      "api_format": "openai",
+      "exposed_model_id": "grok-4.6",
+      "canonical_model_id": "xai/grok-4.6"
+    },
+    {
+      "server_profile_id": "zai-global",
+      "api_format": "openai",
+      "exposed_model_id": "glm-5.3",
+      "canonical_model_id": "zai/glm-5.3"
+    },
+    {
+      "server_profile_id": "zai-coding-plan",
+      "api_format": "openai",
+      "exposed_model_id": "glm-5.3",
+      "canonical_model_id": "zai/glm-5.3"
+    },
+    {
+      "server_profile_id": "openai",
+      "api_format": "openai_responses",
+      "exposed_model_id": "gpt-4o-mini-tts",
+      "canonical_model_id": "openai/gpt-4o-mini-tts",
+      "selection_mode": "model_and_voice",
+      "voices": {
+        "completeness": "partial",
+        "items": [
+          {"id": "alloy", "name": "Alloy"},
+          {"id": "ash", "name": "Ash"},
+          {"id": "ballad", "name": "Ballad"},
+          {"id": "coral", "name": "Coral"},
+          {"id": "echo", "name": "Echo"},
+          {"id": "fable", "name": "Fable"},
+          {"id": "marin", "name": "Marin"},
+          {"id": "nova", "name": "Nova"},
+          {"id": "onyx", "name": "Onyx"},
+          {"id": "sage", "name": "Sage"},
+          {"id": "shimmer", "name": "Shimmer"},
+          {"id": "verse", "name": "Verse"},
+          {"id": "cedar", "name": "Cedar"}
+        ]
+      }
+    }
+  ]
+}

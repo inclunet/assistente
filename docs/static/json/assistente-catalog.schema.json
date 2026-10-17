@@ -1,0 +1,154 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://assistente.inclunet.com.br/json/assistente-catalog.schema.json",
+  "title": "Catálogo público de provedores e modelos do Assistente",
+  "description": "Contrato público do catálogo consumido pelo aplicativo Assistente.",
+  "type": "object",
+  "required": ["schema_version", "catalog_version", "updated_at", "servers", "models", "exposures"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "catalog_version": {"type": "string", "minLength": 1, "maxLength": 64},
+    "updated_at": {"type": "string", "format": "date-time"},
+    "servers": {"type": "array", "items": {"$ref": "#/$defs/server"}},
+    "models": {"type": "array", "items": {"$ref": "#/$defs/model"}},
+    "exposures": {"type": "array", "items": {"$ref": "#/$defs/exposure"}}
+  },
+  "$defs": {
+    "identifier": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"},
+    "apiFormat": {"type": "string", "enum": ["openai", "openai_responses", "anthropic", "google", "ollama"]},
+    "fieldPolicy": {
+      "type": "object",
+      "required": ["policy"],
+      "properties": {
+        "policy": {"type": "string", "enum": ["fixed", "editable", "choice", "hidden"]},
+        "default": {"type": ["string", "number", "boolean", "null"]},
+        "required": {"type": "boolean"},
+        "choices": {"type": "array", "items": {"type": ["string", "number", "boolean"]}, "minItems": 1, "uniqueItems": true}
+      },
+      "allOf": [
+        {"if": {"properties": {"policy": {"const": "choice"}}, "required": ["policy"]}, "then": {"required": ["choices"]}},
+        {"if": {"properties": {"policy": {"const": "fixed"}}, "required": ["policy"]}, "then": {"required": ["default"]}},
+        {"if": {"properties": {"policy": {"enum": ["fixed", "editable", "hidden"]}}, "required": ["policy"]}, "then": {"not": {"required": ["choices"]}}}
+      ],
+      "additionalProperties": true
+    },
+    "endpoint": {
+      "type": "object",
+      "required": ["path"],
+      "properties": {
+        "path": {"type": "string", "enum": ["/responses", "/chat/completions", "/compatibility/v1/chat/completions", "/messages", "/models", "/models/{model}:generateContent", "/audio/speech", "/api/chat"]}
+      },
+      "additionalProperties": true
+    },
+    "server": {
+      "type": "object",
+      "required": ["id", "name", "group", "provider_family", "status", "api_format", "adapter_id", "auth", "fields"],
+      "properties": {
+        "id": {"$ref": "#/$defs/identifier"},
+        "name": {"type": "string", "minLength": 1, "maxLength": 120},
+        "group": {"type": "string", "enum": ["hosted", "proxy", "local", "custom"]},
+        "provider_family": {"$ref": "#/$defs/identifier"},
+        "status": {"type": "string", "enum": ["active", "deprecated"]},
+        "replaced_by": {"$ref": "#/$defs/identifier"},
+        "api_format": {"$ref": "#/$defs/apiFormat"},
+        "adapter_id": {"$ref": "#/$defs/apiFormat"},
+        "base_url": {"type": "string", "format": "uri", "maxLength": 2048, "pattern": "^https?://"},
+        "default_port": {"type": "integer", "minimum": 1, "maximum": 65535},
+        "auth": {
+          "type": "object",
+          "required": ["mode", "required"],
+          "properties": {
+            "mode": {"type": "string", "enum": ["bearer_api_key", "api_key_header", "optional_api_key", "none"]},
+            "required": {"type": "boolean"}
+          },
+          "additionalProperties": true
+        },
+        "signup_url": {"type": "string", "format": "uri", "pattern": "^https://", "maxLength": 2048},
+        "api_key_url": {"type": "string", "format": "uri", "pattern": "^https://", "maxLength": 2048},
+        "default_model_id": {"type": "string", "minLength": 1, "maxLength": 200},
+        "endpoints": {
+          "type": "object",
+          "properties": {
+            "chat": {"$ref": "#/$defs/endpoint"},
+            "responses": {"$ref": "#/$defs/endpoint"},
+            "models": {"$ref": "#/$defs/endpoint"},
+            "tts": {"$ref": "#/$defs/endpoint"}
+          },
+          "additionalProperties": true
+        },
+        "fields": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": {"enum": ["base_url", "api_format", "auth.mode", "default_model_id"]},
+          "additionalProperties": {"$ref": "#/$defs/fieldPolicy"}
+        }
+      },
+      "allOf": [
+        {"if": {"properties": {"group": {"enum": ["hosted", "proxy", "local"]}}, "required": ["group"]}, "then": {"required": ["base_url"]}},
+        {"if": {"properties": {"group": {"const": "custom"}}, "required": ["group"]}, "then": {"properties": {"fields": {"required": ["base_url"]}}}},
+        {"if": {"properties": {"status": {"const": "deprecated"}}, "required": ["status"]}, "then": {"properties": {"replaced_by": {"$ref": "#/$defs/identifier"}}}}
+      ],
+      "additionalProperties": true
+    },
+    "capabilities": {
+      "type": "object",
+      "propertyNames": {"pattern": "^[a-z][a-z0-9_.-]{0,63}$"},
+      "additionalProperties": {"type": "string", "enum": ["supported", "unsupported", "unknown"]}
+    },
+    "limits": {
+      "type": "object",
+      "propertyNames": {"pattern": "^[a-z][a-z0-9_.-]{0,63}$"},
+      "additionalProperties": {"type": "integer", "minimum": 1}
+    },
+    "model": {
+      "type": "object",
+      "required": ["id", "vendor", "name", "status", "capabilities"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._/-]{0,199}$"},
+        "vendor": {"type": "string", "minLength": 1, "maxLength": 120},
+        "name": {"type": "string", "minLength": 1, "maxLength": 160},
+        "status": {"type": "string", "enum": ["active", "preview", "deprecated"]},
+        "capabilities": {"$ref": "#/$defs/capabilities"},
+        "limits": {"$ref": "#/$defs/limits"}
+      },
+      "additionalProperties": true
+    },
+    "voice": {
+      "type": "object",
+      "required": ["id", "name"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1, "maxLength": 160},
+        "name": {"type": "string", "minLength": 1, "maxLength": 160},
+        "language": {"type": "string", "minLength": 2, "maxLength": 35}
+      },
+      "additionalProperties": true
+    },
+    "exposure": {
+      "type": "object",
+      "required": ["server_profile_id", "api_format", "exposed_model_id", "canonical_model_id"],
+      "properties": {
+        "server_profile_id": {"$ref": "#/$defs/identifier"},
+        "api_format": {"$ref": "#/$defs/apiFormat"},
+        "exposed_model_id": {"type": "string", "minLength": 1, "maxLength": 200},
+        "canonical_model_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._/-]{0,199}$"},
+        "capability_overrides": {"$ref": "#/$defs/capabilities"},
+        "selection_mode": {"type": "string", "enum": ["model_and_voice", "model_only"]},
+        "voices": {
+          "type": "object",
+          "required": ["completeness", "items"],
+          "properties": {
+            "completeness": {"type": "string", "enum": ["complete", "partial", "unknown"]},
+            "items": {"type": "array", "items": {"$ref": "#/$defs/voice"}}
+          },
+          "additionalProperties": true
+        }
+      },
+      "allOf": [
+        {"if": {"properties": {"voices": {"type": "object"}}, "required": ["voices"]}, "then": {"required": ["selection_mode"]}},
+        {"if": {"properties": {"selection_mode": {"const": "model_only"}}, "required": ["selection_mode"]}, "then": {"properties": {"voices": {"properties": {"items": {"maxItems": 0}}}}}}
+      ],
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}
