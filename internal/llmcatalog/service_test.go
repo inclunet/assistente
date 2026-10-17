@@ -72,6 +72,9 @@ func TestRefreshUsesConditionalRequestAndRetainsDocumentOnNotModified(t *testing
 		}
 		return response(http.StatusNotModified, "", http.Header{"ETag": []string{`"catalog-v1"`}}), nil
 	})})
+	base := time.Date(2026, 10, 17, 12, 0, 0, 0, time.UTC)
+	var ticks atomic.Int64
+	service.now = func() time.Time { return base.Add(time.Duration(ticks.Add(1)) * time.Second) }
 	first := service.Refresh(context.Background())
 	second := service.Refresh(context.Background())
 	if second.Document.CatalogVersion != first.Document.CatalogVersion || !second.FromCache || !second.FetchedAt.After(first.FetchedAt) {
