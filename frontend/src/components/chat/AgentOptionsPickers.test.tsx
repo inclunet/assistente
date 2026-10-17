@@ -222,6 +222,44 @@ describe('AgentOptionsPickers', () => {
     expect(screen.getByRole('button', { name: /Modelo/ })).toHaveFocus();
   });
 
+  it('restaura foco quando a releitura após resposta concorrente remove a opção focada', async () => {
+    getOptions.mockResolvedValueOnce(opcoesDoAgente());
+    let resolveChange!: (value: unknown) => void;
+    let resolveRefresh!: (value: unknown) => void;
+    setOption.mockImplementation(() => new Promise((resolve) => { resolveChange = resolve; }));
+    getOptions.mockImplementationOnce(() => new Promise((resolve) => { resolveRefresh = resolve; }));
+
+    render(<AgentOptionsPickers conversationId="conversa-1" />);
+    const modelPicker = await screen.findByRole('button', { name: /Modelo/ });
+    await userEvent.click(modelPicker);
+    await userEvent.click(await screen.findByRole('option', { name: 'Modelo B' }));
+    await waitFor(() => expect(setOption).toHaveBeenCalledWith('conversa-1', 'model', 'modelo-b'));
+
+    act(() => {
+      emitAgentOptions?.({
+        conversationId: 'conversa-1', model: 'modelo-b', snapshot: false, announce: false,
+      });
+    });
+    await waitFor(() => expect(screen.getByRole('button', { name: /Modo/ })).toBeInTheDocument());
+
+    await act(async () => {
+      resolveChange(opcoesDoAgente('modelo-a'));
+    });
+    await waitFor(() => expect(getOptions).toHaveBeenCalledTimes(2));
+    const modePicker = screen.getByRole('button', { name: /Modo/ });
+    modePicker.focus();
+
+    await act(async () => {
+      resolveRefresh({
+        conversationId: 'conversa-1', available: true,
+        options: [opcoesDoAgente('modelo-b').options[0]],
+      });
+    });
+
+    await waitFor(() => expect(screen.queryByRole('button', { name: /Modo/ })).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole('button', { name: /Modelo/ })).toHaveFocus());
+  });
+
   it('remove opções antigas quando o agente publica um snapshot vazio', async () => {
     getOptions.mockResolvedValue(opcoesDoAgente());
     render(<AgentOptionsPickers conversationId="conversa-1" />);

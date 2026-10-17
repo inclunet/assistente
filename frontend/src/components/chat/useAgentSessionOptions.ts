@@ -302,10 +302,14 @@ export function useAgentSessionOptions(
             beforeRefresh,
             categoryVersionsRef.current,
           );
+          const focusedOption = focusedOptionRemovedBySnapshot(reconciled);
           optionsVersionRef.current += 1;
           snapshotVersionRef.current += 1;
           optionsRef.current = reconciled;
           setOptions(reconciled);
+          if (focusedOption) {
+            requestAnimationFrame(() => restoreToolbarFocus(focusedOption.toolbar, focusedOption.id));
+          }
           return reconciled.some((option) => option.id === optionId) ? reconciled : null;
         }
 
@@ -337,10 +341,14 @@ export function useAgentSessionOptions(
         requestCategoryVersions,
         categoryVersionsRef.current,
       );
+      const focusedOption = focusedOptionRemovedBySnapshot(reconciled);
       optionsVersionRef.current += 1;
       snapshotVersionRef.current += 1;
       optionsRef.current = reconciled;
       setOptions(reconciled);
+      if (focusedOption) {
+        requestAnimationFrame(() => restoreToolbarFocus(focusedOption.toolbar, focusedOption.id));
+      }
       return reconciled;
     } catch (error: unknown) {
       logger.error('[AgentOptions] falha ao trocar a opção do agente:', error);
