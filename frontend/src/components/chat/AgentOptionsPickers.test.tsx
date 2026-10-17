@@ -233,7 +233,11 @@ describe('AgentOptionsPickers', () => {
     });
     setOption.mockImplementation(() => new Promise((resolve) => { resolveChange = resolve; }));
 
-    render(<AgentOptionsPickers conversationId="conversa-1" />);
+    render(
+      <div role="toolbar">
+        <AgentOptionsPickers conversationId="conversa-1" />
+      </div>,
+    );
     const modelPicker = await screen.findByRole('button', { name: /Modelo/ });
     await userEvent.click(modelPicker);
     await userEvent.click(await screen.findByRole('option', { name: 'Modelo B' }));
