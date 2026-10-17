@@ -1,6 +1,6 @@
 # AEP-0113 — Compatibilidade de parâmetros por modelo e provedor
 
-Status: In Progress — fase 1 concluída no PR #889; fase 2 em implementação e validação no PR #909; fase 3 em implementação em branch empilhada sobre #909
+Status: Done — escopo aprovado das fases 1–3 concluído nos PRs #889, #909 e #919; fase 4 de vozes TTS permanece futura e requer decisão própria
 
 ## Resumo
 
@@ -313,7 +313,7 @@ na `main`.
    adicionados nesta rodada foram executados pelo CI remoto; nenhum teste local
    foi executado nesta rodada por orientação de Infosec.
 
-2. **Envio, aprendizado e retry — In Progress.** Integrar o estado ao pipeline,
+2. **Envio, aprendizado e retry — concluída no PR #909.** Integrar o estado ao pipeline,
   capturar a revisão efetiva, classificar rejeições explícitas, persistir e
   repetir uma vez com segurança; envios seguintes respeitam o aprendizado.
   Aliases ambíguos de saída em Chat Completions não aprendem nem fazem retry de
@@ -346,27 +346,28 @@ na `main`.
   dois adaptadores confirmam que erros de valor não removem campo nem repetem o
   envio; casos de alias ambíguo e campo não enviado também não aprendem nem
   repetem. Diagnósticos desconhecidos mantêm apenas campos allowlisted e não
-  carregam texto ou payload livre. Os testes Go focados, `go build ./...` e
-  `go vet ./...` passaram localmente; testes ACP
-  não foram executados localmente por orientação de Infosec. CI, revisão local
-  independente e review remota destas correções ainda precisam terminar antes
-  da conclusão da fase.
-3. **Profile Manager — In Progress.** O editor consulta as restrições do
-   backend ao trocar provedor/modelo, oculta somente campos de geração já
+  carregam texto ou payload livre. O PR #909 foi mergeado em `ced425efd`; seus
+  checks de CI concluíram antes do merge. Testes ACP não foram executados
+  localmente por orientação de Infosec.
+3. **Profile Manager — concluída no PR #919.** O editor consulta as restrições
+   do backend ao trocar provedor/modelo, oculta somente campos de geração já
    reconhecidos como incompatíveis e mantém campos desconhecidos disponíveis.
    Valores existentes são preservados; enquanto a consulta está pendente, os
    campos de geração ficam desabilitados para evitar que o foco salte quando
-   campos forem ocultados. Testes de `ProfileChatSection` e `ProfileEditorTabs`
-   cobrem a renderização, a troca de seleção e a guarda de foco; CI e review
-   remota do PR empilhado ainda precisam validar esta fase.
+   campos forem ocultados. O teste A→B→A confirma que resultados antigos são
+   invalidados até a consulta atual concluir; o teste da API cobre combinações
+   de seletores `$default` sem alterar valores persistidos. O merge commit é
+   `412da6a78`; todos os checks do CI passaram, a revisão do Copilot concluiu
+   sem achados pendentes e as duas threads foram resolvidas. Testes focados,
+   `go build ./...`, `go vet ./...`, `tsc --noEmit` e lint passaram localmente;
+   ACP não foi executado localmente por orientação de Infosec.
 4. **Vozes TTS — futura, a rediscutir.** Objetivo de seleção amigável, sem
    mecanismo de descoberta, schema ou automação aprovados. Não bloqueia a
    entrega das fases 1–3 e não autoriza implementação antecipada.
 
-PRs seguem essa ordem; dependências ainda abertas exigem empilhamento. O status
-permanece `In Progress` enquanto as fases 1–3 estiverem pendentes. Concluídas
-essas fases, documento e índice podem marcar `Done` para o escopo aprovado,
-mantendo explícito que a fase 4 é uma proposta futura que exige nova decisão.
+Os PRs #889, #909 e #919 concluíram as fases 1–3 do escopo aprovado. O status
+`Done` cobre essas fases; a fase 4 continua fora do escopo aprovado até haver
+uma decisão própria sobre obtenção, validação e atualização de vozes.
 
 ## Riscos
 
@@ -402,8 +403,9 @@ mantendo explícito que a fase 4 é uma proposta futura que exige nova decisão.
   exclusão do provedor remove o estado dependente. Coberto pelos testes focados
   de escopo e cascata no PR #889.
 - [x] Troca de revisão invalida restrições e uma resposta atrasada não grava na
-  revisão nova. O teste focado cobre gravação obsoleta e invalidação; a fase 2
-  integrou a revisão ao snapshot efetivo, com validação ponta a ponta pendente.
+  revisão nova. `TestCompatibilityLearningPersistsBeforeRetryAndNextSend` cobre
+  a revisão efetivamente usada, a recusa de gravação obsoleta e a ausência de
+  retry sob revisão alterada.
 - [x] A revisão de compatibilidade acompanha endpoint, formato de API, família
   explícita de erros, adaptador e modo de protocolo. Alterar a referência de
   credencial atualiza a revisão de configuração, mas não invalida campos
@@ -438,12 +440,15 @@ mantendo explícito que a fase 4 é uma proposta futura que exige nova decisão.
   de persistência. `TestCompatibilityLearningPersistsBeforeRetryAndNextSend`
   cobre ambos os formatos no SQLite, incluindo revisão alterada antes da
   persistência e ausência de retry ou gravação na nova revisão.
-- [ ] O Profile Manager oculta campos não suportados usando o estado do backend,
+- [x] O Profile Manager oculta campos não suportados usando o estado do backend,
   preserva valores salvos, reavalia ao trocar de modelo e mantém foco acessível.
-  A implementação está em andamento na branch empilhada sobre o PR #909; os
-  testes focados e checks remotos ainda precisam passar antes de marcar aceite.
-- [ ] Fases implementadas atualizam este documento, o índice e a documentação
-  de usuário correspondente com testes e evidências no mesmo PR.
+  O PR #919 cobre o fluxo A→B→A, campos desabilitados durante a consulta e
+  seletores `$default`; CI verde e threads de review resolvidas no merge
+  `412da6a78`.
+- [x] Fases implementadas atualizam este documento, o índice e a documentação
+  de usuário correspondente com testes e evidências nos PRs #909 e #919;
+  `docs/content/configuracao/PROVIDER_CONFIGURATION.md` e
+  `docs/content/recursos/PERFIS.md` foram atualizados no PR #919.
 
 A fase de vozes requer nova discussão e critérios próprios antes de sua
 implementação; não integra os critérios de conclusão das fases 1–3.
