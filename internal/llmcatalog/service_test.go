@@ -80,7 +80,7 @@ func TestRefreshDoesNotPublishCatalogWhenCacheWriteFails(t *testing.T) {
 	}
 
 	got := service.Refresh(context.Background())
-	if got.Document.CatalogVersion != first.Document.CatalogVersion || !got.FetchedAt.Equal(first.FetchedAt) {
+	if got.Document.CatalogVersion != first.Document.CatalogVersion || !got.FetchedAt.Equal(first.FetchedAt) || got.ReasonCode != "cache_write_failed" {
 		t.Fatalf("catálogo não persistido foi publicado: antes=%#v depois=%#v", first, got)
 	}
 }
@@ -104,7 +104,7 @@ func TestNotModifiedDoesNotPublishFreshnessWhenCacheWriteFails(t *testing.T) {
 	}
 
 	got := service.Refresh(context.Background())
-	if got.Document.CatalogVersion != first.Document.CatalogVersion || !got.FetchedAt.Equal(first.FetchedAt) || got.FromCache != first.FromCache {
+	if got.Document.CatalogVersion != first.Document.CatalogVersion || !got.FetchedAt.Equal(first.FetchedAt) || got.FromCache != first.FromCache || got.ReasonCode != "cache_write_failed" {
 		t.Fatalf("frescor não persistido foi publicado: antes=%#v depois=%#v", first, got)
 	}
 }
