@@ -180,7 +180,7 @@ func (d Document) Clone() Document {
 		clone.Servers[i].Endpoints = cloneMap(server.Endpoints)
 		clone.Servers[i].Fields = make(map[string]FieldPolicy, len(server.Fields))
 		for key, policy := range server.Fields {
-			policy.Choices = append([]any(nil), policy.Choices...)
+			policy.Choices = cloneSlice(policy.Choices)
 			clone.Servers[i].Fields[key] = policy
 		}
 	}
@@ -196,10 +196,19 @@ func (d Document) Clone() Document {
 		clone.Exposures[i].CapabilityOverrides = cloneMap(exposure.CapabilityOverrides)
 		if exposure.Voices != nil {
 			voices := *exposure.Voices
-			voices.Items = append([]Voice(nil), exposure.Voices.Items...)
+			voices.Items = cloneSlice(exposure.Voices.Items)
 			clone.Exposures[i].Voices = &voices
 		}
 	}
+	return clone
+}
+
+func cloneSlice[T any](source []T) []T {
+	if source == nil {
+		return nil
+	}
+	clone := make([]T, len(source))
+	copy(clone, source)
 	return clone
 }
 

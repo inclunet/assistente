@@ -141,13 +141,16 @@ func (s *Service) Snapshot() Snapshot {
 
 // Refresh executa uma atualização explícita. Uma resposta inválida ou uma
 // falha de rede mantém o último documento validado.
-func (s *Service) Refresh(ctx context.Context) Snapshot {
+func (s *Service) Refresh(ctx context.Context) (snapshot Snapshot) {
 	if !s.refreshing.CompareAndSwap(false, true) {
 		return s.Snapshot()
 	}
-	defer s.refreshing.Store(false)
+	defer func() {
+		s.refreshing.Store(false)
+		snapshot = s.Snapshot()
+	}()
 	_ = s.refresh(ctx)
-	return s.Snapshot()
+	return
 }
 
 func (s *Service) refreshInBackground(ctx context.Context) {

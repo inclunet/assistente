@@ -26,7 +26,7 @@ func TestRefreshValidatesAndPersistsThenOfflineLoadsCache(t *testing.T) {
 		}),
 	})
 	got := service.Refresh(context.Background())
-	if got.Document.CatalogVersion != "v1" || got.FromCache || got.FetchedAt.IsZero() {
+	if got.Document.CatalogVersion != "v1" || got.FromCache || got.FetchedAt.IsZero() || got.Refreshing {
 		t.Fatalf("snapshot após refresh = %#v", got)
 	}
 

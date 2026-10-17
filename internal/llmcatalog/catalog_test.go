@@ -96,3 +96,22 @@ func TestCloneIsIndependent(t *testing.T) {
 		t.Fatal("mutar clone alterou o documento original")
 	}
 }
+
+func TestClonePreservesEmptyVoiceItems(t *testing.T) {
+	raw := strings.Replace(minimalCatalog, `"canonical_model_id":"vendor/model"`, `"canonical_model_id":"vendor/model","selection_mode":"model_only","voices":{"completeness":"complete","items":[]}`, 1)
+	doc, err := Decode([]byte(raw))
+	if err != nil {
+		t.Fatalf("catálogo com lista de vozes vazia deve ser válido: %v", err)
+	}
+	clone := doc.Clone()
+	if doc.Exposures[0].Voices.Items == nil || clone.Exposures[0].Voices.Items == nil {
+		t.Fatal("Clone converteu voices.items vazio em null")
+	}
+	encoded, err := json.Marshal(clone.Exposures[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(encoded), `"items":[]`) {
+		t.Fatalf("voices.items deveria permanecer array vazio: %s", encoded)
+	}
+}
