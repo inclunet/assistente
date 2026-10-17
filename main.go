@@ -196,6 +196,8 @@ func run(args []string) (exitCode int) {
 	application.SetLLMProvidersAPI(a, llmProvidersAPI)
 	llmModelsAPI := wailsapi.NewLLMModels()
 	application.SetLLMModelsAPI(a, llmModelsAPI)
+	llmCatalogAPI := wailsapi.NewLLMCatalog()
+	application.SetLLMCatalogAPI(a, llmCatalogAPI)
 	chatAPI := wailsapi.NewChat()
 	application.SetChatAPI(a, chatAPI)
 	acpCommandsAPI := wailsapi.NewACPCommands()
@@ -273,6 +275,7 @@ func run(args []string) (exitCode int) {
 			jobsAPI,
 			llmProvidersAPI,
 			llmModelsAPI,
+			llmCatalogAPI,
 			chatAPI,
 			acpCommandsAPI,
 			acpProvidersAPI,

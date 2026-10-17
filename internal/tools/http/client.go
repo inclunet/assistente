@@ -50,6 +50,9 @@ type Config struct {
 	// política anti-SSRF (BlockedIPError). Permite o fluxo de consentimento +
 	// allowlist e a reexecução da request. nil => comportamento hard-deny padrão.
 	Authorizer NetworkAuthorizer
+	// CheckRedirect substitui a política padrão de redirects para clientes com
+	// uma origem fixa. nil preserva o comportamento atual do cliente.
+	CheckRedirect func(req *http.Request, via []*http.Request) error
 }
 
 // RetryPolicy define política de retry
@@ -87,7 +90,8 @@ func New(cfg *Config, domainPatterns map[string]string) *Client {
 
 	return &Client{
 		baseClient: &http.Client{
-			Timeout: cfg.Timeout,
+			Timeout:       cfg.Timeout,
+			CheckRedirect: cfg.CheckRedirect,
 		},
 		credMgr:        cfg.CredentialManager,
 		retryPolicy:    cfg.RetryPolicy,

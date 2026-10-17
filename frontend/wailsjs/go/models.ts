@@ -1290,6 +1290,48 @@ export namespace apidto {
 	    }
 	}
 	
+	export class LLMCatalogResponse {
+	    document: llmcatalog.Document;
+	    fetched_at?: string;
+	    age_seconds: number;
+	    from_cache: boolean;
+	    stale: boolean;
+	    refreshing: boolean;
+	    reason_code?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new LLMCatalogResponse(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.document = this.convertValues(source["document"], llmcatalog.Document);
+	        this.fetched_at = source["fetched_at"];
+	        this.age_seconds = source["age_seconds"];
+	        this.from_cache = source["from_cache"];
+	        this.stale = source["stale"];
+	        this.refreshing = source["refreshing"];
+	        this.reason_code = source["reason_code"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class MCPServerAuthInfo {
 	    hasAuth: boolean;
 	    authType: string;
@@ -6422,6 +6464,273 @@ export namespace llm {
 	        this.acp_agent_id = source["acp_agent_id"];
 	    }
 	}
+
+}
+
+export namespace llmcatalog {
+	
+	export class Auth {
+	    mode: string;
+	    required: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new Auth(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.mode = source["mode"];
+	        this.required = source["required"];
+	    }
+	}
+	export class Voice {
+	    id: string;
+	    name: string;
+	    language?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Voice(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.language = source["language"];
+	    }
+	}
+	export class VoiceList {
+	    completeness: string;
+	    items: Voice[];
+	
+	    static createFrom(source: any = {}) {
+	        return new VoiceList(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.completeness = source["completeness"];
+	        this.items = this.convertValues(source["items"], Voice);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class Exposure {
+	    server_profile_id: string;
+	    api_format: string;
+	    exposed_model_id: string;
+	    canonical_model_id: string;
+	    capability_overrides?: Record<string, string>;
+	    selection_mode?: string;
+	    voices?: VoiceList;
+	
+	    static createFrom(source: any = {}) {
+	        return new Exposure(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.server_profile_id = source["server_profile_id"];
+	        this.api_format = source["api_format"];
+	        this.exposed_model_id = source["exposed_model_id"];
+	        this.canonical_model_id = source["canonical_model_id"];
+	        this.capability_overrides = source["capability_overrides"];
+	        this.selection_mode = source["selection_mode"];
+	        this.voices = this.convertValues(source["voices"], VoiceList);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class Model {
+	    id: string;
+	    vendor: string;
+	    name: string;
+	    status: string;
+	    capabilities: Record<string, string>;
+	    limits?: Record<string, number>;
+	
+	    static createFrom(source: any = {}) {
+	        return new Model(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.vendor = source["vendor"];
+	        this.name = source["name"];
+	        this.status = source["status"];
+	        this.capabilities = source["capabilities"];
+	        this.limits = source["limits"];
+	    }
+	}
+	export class FieldPolicy {
+	    policy: string;
+	    default?: any;
+	    required?: boolean;
+	    choices?: any[];
+	
+	    static createFrom(source: any = {}) {
+	        return new FieldPolicy(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.policy = source["policy"];
+	        this.default = source["default"];
+	        this.required = source["required"];
+	        this.choices = source["choices"];
+	    }
+	}
+	export class Endpoint {
+	    path: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Endpoint(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.path = source["path"];
+	    }
+	}
+	export class Server {
+	    id: string;
+	    name: string;
+	    group: string;
+	    provider_family: string;
+	    status: string;
+	    replaced_by?: string;
+	    api_format: string;
+	    adapter_id: string;
+	    base_url?: string;
+	    default_port?: number;
+	    auth: Auth;
+	    signup_url?: string;
+	    api_key_url?: string;
+	    default_model_id?: string;
+	    endpoints?: Record<string, Endpoint>;
+	    fields: Record<string, FieldPolicy>;
+	
+	    static createFrom(source: any = {}) {
+	        return new Server(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.group = source["group"];
+	        this.provider_family = source["provider_family"];
+	        this.status = source["status"];
+	        this.replaced_by = source["replaced_by"];
+	        this.api_format = source["api_format"];
+	        this.adapter_id = source["adapter_id"];
+	        this.base_url = source["base_url"];
+	        this.default_port = source["default_port"];
+	        this.auth = this.convertValues(source["auth"], Auth);
+	        this.signup_url = source["signup_url"];
+	        this.api_key_url = source["api_key_url"];
+	        this.default_model_id = source["default_model_id"];
+	        this.endpoints = this.convertValues(source["endpoints"], Endpoint, true);
+	        this.fields = this.convertValues(source["fields"], FieldPolicy, true);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class Document {
+	    schema_version: number;
+	    catalog_version: string;
+	    updated_at: string;
+	    servers: Server[];
+	    models: Model[];
+	    exposures: Exposure[];
+	
+	    static createFrom(source: any = {}) {
+	        return new Document(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.schema_version = source["schema_version"];
+	        this.catalog_version = source["catalog_version"];
+	        this.updated_at = source["updated_at"];
+	        this.servers = this.convertValues(source["servers"], Server);
+	        this.models = this.convertValues(source["models"], Model);
+	        this.exposures = this.convertValues(source["exposures"], Exposure);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	
+	
+	
+	
+	
 
 }
 
