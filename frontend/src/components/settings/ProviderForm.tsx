@@ -984,7 +984,6 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
             onChange={(e) => setFormData(prev => ({ ...prev, default_model: e.target.value }))}
             fullWidth
             aria-label={t('providerForm.defaultModel')}
-            disabled={defaultModelPolicy.policy === 'fixed'}
           />
         ) : modelsLoaded && models.length > 0 ? (
           <Select

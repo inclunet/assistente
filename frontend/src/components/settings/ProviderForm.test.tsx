@@ -70,13 +70,13 @@ vi.mock("@wailsjs/go/wailsapi/LLMProviders", () => ({
   UpdateLLMProvider: vi.fn(() => Promise.resolve({})),
 }));
 vi.mock('@wailsjs/go/wailsapi/LLMCatalog', async () => {
-  const { providerFormCatalogResponse } = await import('./providerFormCatalogTestUtils');
-  return { GetLLMCatalog: vi.fn(async () => providerFormCatalogResponse) };
+  const { providerFormCatalogAPIResponse } = await import('./providerFormCatalogTestUtils');
+  return { GetLLMCatalog: vi.fn(async () => providerFormCatalogAPIResponse) };
 });
 
 import * as App from "@wailsjs/go/wailsapi/LLMProviders";
 import { GetLLMCatalog } from '@wailsjs/go/wailsapi/LLMCatalog';
-import { providerFormCatalogResponse } from './providerFormCatalogTestUtils';
+import { providerFormCatalogAPIResponse } from './providerFormCatalogTestUtils';
 
 describe("PROVIDER_CONFIG", () => {
   it("deve ter configuração para OpenAI", () => {
@@ -157,7 +157,7 @@ describe("ProviderForm - Renderização", () => {
     await user.selectOptions(screen.getByLabelText('providerForm.apiProtocol'), 'openai');
 
     await act(async () => {
-      resolveCatalog(providerFormCatalogResponse as unknown as Awaited<ReturnType<typeof GetLLMCatalog>>);
+      resolveCatalog(providerFormCatalogAPIResponse);
     });
 
     await waitFor(() => expect(screen.getByRole('option', { name: 'OpenAI' })).toBeInTheDocument());

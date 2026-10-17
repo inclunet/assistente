@@ -65,8 +65,8 @@ vi.mock("@wailsjs/go/wailsapi/LLMProviders", () => ({
   UpdateLLMProvider: vi.fn(() => Promise.resolve({})),
 }));
 vi.mock('@wailsjs/go/wailsapi/LLMCatalog', async () => {
-  const { providerFormCatalogResponse } = await import('./providerFormCatalogTestUtils');
-  return { GetLLMCatalog: vi.fn(async () => providerFormCatalogResponse) };
+  const { providerFormCatalogAPIResponse } = await import('./providerFormCatalogTestUtils');
+  return { GetLLMCatalog: vi.fn(async () => providerFormCatalogAPIResponse) };
 });
 
 import * as App from "@wailsjs/go/wailsapi/LLMProviders";

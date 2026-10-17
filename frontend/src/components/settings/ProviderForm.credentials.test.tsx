@@ -11,8 +11,8 @@ const { announce } = vi.hoisted(() => ({ announce: vi.fn() }));
 vi.mock('../../hooks/useAnnouncer', () => ({ useAnnouncer: () => ({ announce }) }));
 vi.mock('@wailsjs/go/wailsapi/LLMProviders', () => ({ ListModelsRaw: vi.fn(), CreateLLMProvider: vi.fn(), UpdateLLMProvider: vi.fn() }));
 vi.mock('@wailsjs/go/wailsapi/LLMCatalog', async () => {
- const { providerFormCatalogResponse } = await import('./providerFormCatalogTestUtils');
- return { GetLLMCatalog: vi.fn(async () => providerFormCatalogResponse) };
+ const { providerFormCatalogAPIResponse } = await import('./providerFormCatalogTestUtils');
+ return { GetLLMCatalog: vi.fn(async () => providerFormCatalogAPIResponse) };
 });
 vi.mock('@wailsjs/go/wailsapi/Credentials', () => ({ GetCredentialForURL: vi.fn(), ListCredentials: vi.fn(async () => []), ListExternalSources: vi.fn(async () => []), UpsertCredential: vi.fn() }));
 beforeEach(() => {

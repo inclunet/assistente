@@ -1,3 +1,5 @@
+import { apidto, llmcatalog } from '@wailsjs/go/models';
+
 const profiles: Array<[string, string, string, string, string, string]> = [
   ['openai', 'OpenAI', 'openai', 'openai_responses', 'https://api.openai.com/v1', 'bearer_api_key'],
   ['anthropic', 'Anthropic', 'anthropic', 'anthropic', 'https://api.anthropic.com', 'api_key_header'],
@@ -20,7 +22,7 @@ const profiles: Array<[string, string, string, string, string, string]> = [
 ];
 
 export const providerFormCatalogResponse = {
-  document: {
+  document: llmcatalog.Document.createFrom({
     servers: profiles.map(([id, name, provider_family, api_format, base_url, authMode]) => ({
       id, name, provider_family, api_format, base_url, status: 'active', group: 'hosted',
       adapter_id: api_format, auth: { mode: authMode, required: ['bearer_api_key', 'api_key_header'].includes(authMode) },
@@ -35,6 +37,13 @@ export const providerFormCatalogResponse = {
           ? { policy: 'choice', default: 'deepseek-chat', choices: ['deepseek-chat', 'deepseek-reasoner'] }
           : { policy: 'editable' },
       },
-    })),
-  },
+    })).map(server => llmcatalog.Server.createFrom(server)),
+    models: [],
+    exposures: [],
+    schema_version: 1,
+    catalog_version: 'test',
+    updated_at: '2026-10-17T00:00:00Z',
+  }),
 };
+
+export const providerFormCatalogAPIResponse = apidto.LLMCatalogResponse.createFrom(providerFormCatalogResponse);
