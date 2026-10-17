@@ -10,6 +10,10 @@ vi.mock('react-i18next', () => ({ initReactI18next: { type: '3rdParty', init: ()
 const { announce } = vi.hoisted(() => ({ announce: vi.fn() }));
 vi.mock('../../hooks/useAnnouncer', () => ({ useAnnouncer: () => ({ announce }) }));
 vi.mock('@wailsjs/go/wailsapi/LLMProviders', () => ({ ListModelsRaw: vi.fn(), CreateLLMProvider: vi.fn(), UpdateLLMProvider: vi.fn() }));
+vi.mock('@wailsjs/go/wailsapi/LLMCatalog', async () => {
+ const { providerFormCatalogResponse } = await import('./providerFormCatalogTestUtils');
+ return { GetLLMCatalog: vi.fn(async () => providerFormCatalogResponse) };
+});
 vi.mock('@wailsjs/go/wailsapi/Credentials', () => ({ GetCredentialForURL: vi.fn(), ListCredentials: vi.fn(async () => []), ListExternalSources: vi.fn(async () => []), UpsertCredential: vi.fn() }));
 beforeEach(() => {
  vi.clearAllMocks();
@@ -115,7 +119,7 @@ describe('ProviderForm shared credentials', () => {
   let resolve!: (models: string[]) => void;
   vi.mocked(ListModelsRaw).mockReturnValue(new Promise(done => { resolve = done; }));
   render(<ProviderForm onSave={() => {}} onCancel={() => {}} />);
-  await set('providerForm.providerType', 'custom');
+  await set('providerForm.serverProfile', 'custom-openai-compatible');
   await set('Base URL', 'https://one.example/v1');
   await userEvent.click(screen.getByRole('button', { name: 'providerForm.loadModels' }));
   await set('Base URL', 'https://two.example/v1');
@@ -198,12 +202,12 @@ it('contains focus in the real modal during save and restores it on failure', as
 it('discards visual credentials when switching types with the same URL and protocol', async () => {
  render(<ProviderForm onSave={() => {}} onCancel={() => {}} />);
  await set('providerForm.name', 'API');
- await set('providerForm.providerType', 'custom');
+ await set('providerForm.serverProfile', 'custom-openai-compatible');
  await set('Base URL', 'http://localhost:8080');
  await set('providerForm.apiProtocol', 'openai');
  await configure();
  await set('credentials.labels.token', 'discarded-token');
- await set('providerForm.providerType', 'localai');
+ await set('providerForm.serverProfile', 'localai-openai-compatible');
  expect(screen.queryByLabelText('credentials.labels.token')).not.toBeInTheDocument();
  await configure();
  expect(screen.getByLabelText('credentials.labels.token')).toHaveValue('');

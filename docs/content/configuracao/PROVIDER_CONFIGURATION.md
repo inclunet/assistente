@@ -150,6 +150,31 @@ minutos, quando a reserva da tentativa expira.
 
 ## Provedores Suportados
 
+### Perfis do catálogo
+
+Ao criar ou editar um provedor API, o formulário apresenta os perfis de servidor
+disponíveis no catálogo. Um perfil conhecido pode definir a URL, o protocolo, a
+autenticação e o modelo padrão como fixos, editáveis, uma lista de opções ou
+ocultos. Campos fixos são controlados pelo perfil. Quando o catálogo fornece
+links de cadastro ou de obtenção de chave, eles aparecem no formulário com
+nomes acessíveis no idioma selecionado.
+
+Use **Personalizado** para informar manualmente a URL e escolher entre os
+formatos de API suportados pelo aplicativo. Se o catálogo estiver indisponível,
+o formulário avisa e mantém essa configuração personalizada disponível. Uma
+resposta que chegue depois de você começar a preencher o formulário preserva a
+URL e o formato digitados.
+
+Conexões antigas sem `server_profile_id` permanecem sem perfil associado e
+mantêm seus valores. Para aplicar um perfil a uma conexão existente, selecione-o
+explicitamente. Se uma conexão vinculada não tiver modelo salvo e o perfil
+declarar um modelo padrão fixo, o formulário preenche esse valor; modelos já
+salvos continuam prevalecendo.
+
+O perfil Cohere não aparece enquanto a rota anunciada pelo catálogo não for
+suportada pelo runtime. Para configurá-lo manualmente, use **Personalizado** e
+uma rota que o aplicativo suporte.
+
 ### Provedores Cloud (API Key obrigatória)
 
 | Provedor | URL Base | Modelo Padrão | Como obter API Key |
@@ -191,8 +216,8 @@ minutos, quando a reserva da tentativa expira.
 
 1. Acesse **Configurações** (`Alt + 2`) e abra **Provedores**.
 2. Abra **Novo provedor** e escolha **Provedor API**.
-3. Escolha o tipo, informe o nome e confira URL/protocolo.
-4. Escolha autenticação obrigatória, opcional ou sem autenticação, conforme o serviço.
+3. Escolha um perfil do catálogo ou **Personalizado**, informe o nome e confira URL/protocolo.
+4. Configure autenticação quando o perfil permitir edição; perfis conhecidos podem fixar essa opção.
 5. Mantenha a entrada já vinculada ou use **Configurar credencial** para editar a fonte.
 6. Acione **Carregar modelos** para testar explicitamente e escolher o modelo padrão.
 7. Clique em **Criar** ou **Atualizar** e aguarde a gravação.

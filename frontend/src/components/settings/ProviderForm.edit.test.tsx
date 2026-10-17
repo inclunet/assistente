@@ -15,6 +15,8 @@ vi.mock('react-i18next', () => ({
         'providerForm.name': 'Nome',
         'providerForm.namePlaceholder': 'Nome do provedor',
         'providerForm.providerType': 'Tipo',
+        'providerForm.serverProfile': 'Perfil de servidor',
+        'providerForm.customProfile': 'Personalizado',
         'providerForm.baseUrl': 'Base URL',
         'providerForm.defaultUrl': 'URL padrão',
         'providerForm.error.nameRequired': 'Nome é obrigatório',
@@ -62,6 +64,10 @@ vi.mock("@wailsjs/go/wailsapi/LLMProviders", () => ({
   CreateLLMProvider: vi.fn(() => Promise.resolve({ id: "123" })),
   UpdateLLMProvider: vi.fn(() => Promise.resolve({})),
 }));
+vi.mock('@wailsjs/go/wailsapi/LLMCatalog', async () => {
+  const { providerFormCatalogResponse } = await import('./providerFormCatalogTestUtils');
+  return { GetLLMCatalog: vi.fn(async () => providerFormCatalogResponse) };
+});
 
 import * as App from "@wailsjs/go/wailsapi/LLMProviders";
 
@@ -214,7 +220,7 @@ describe("ProviderForm - Edição de API Key", () => {
     expect(screen.getByText('credentials.mcp.configure')).toBeInTheDocument();
 
     // Alterar tipo (não deve mostrar campo automaticamente)
-    const typeSelect = screen.getByLabelText(/tipo/i);
+    const typeSelect = screen.getByLabelText(/perfil de servidor/i);
     await user.selectOptions(typeSelect, "anthropic");
 
     // Ainda deve mostrar botão (não expôr campo automaticamente)
@@ -232,7 +238,7 @@ describe("ProviderForm - Restrições de URL em Edição", () => {
     vi.mocked(App.ListModelsRaw).mockResolvedValue(["model-1", "model-2"]);
   });
 
-  it("não deve permitir editar URL de OpenAI mesmo em modo edição", () => {
+  it("mantém a URL de conexão legada editável sem associar perfil automaticamente", () => {
     render(
       <ProviderForm
         provider={{
@@ -248,12 +254,46 @@ describe("ProviderForm - Restrições de URL em Edição", () => {
     );
 
     const urlInput = screen.getByLabelText(/base url/i) as HTMLInputElement;
-    expect(urlInput).toBeDisabled();
-    expect(urlInput).toHaveAttribute("readonly");
+    expect(urlInput).not.toBeDisabled();
+    expect(urlInput).not.toHaveAttribute("readonly");
     expect(urlInput.value).toBe("https://api.openai.com/v1");
   });
 
-  it("não deve permitir editar URL de Anthropic mesmo em modo edição", () => {
+  it('mantém URL salva ao editar uma conexão explicitamente vinculada ao perfil', () => {
+    render(<ProviderForm provider={{
+      id: 'openai-catalog-1', name: 'OpenAI personalizado', type: 'openai',
+      server_profile_id: 'openai', base_url: 'https://api.openai.com/custom-v1', api_key: '',
+      api_format: 'openai_responses',
+    }} onCancel={() => {}} onSave={() => {}} />);
+    expect(screen.getByLabelText(/base url/i)).toHaveValue('https://api.openai.com/custom-v1');
+    expect(screen.getByLabelText(/base url/i)).toBeDisabled();
+    expect(screen.getByLabelText(/perfil de servidor/i)).toHaveValue('openai');
+  });
+
+  it('preenche modelo fixo do catálogo quando a conexão vinculada não tem um salvo', async () => {
+    render(<ProviderForm provider={{
+      id: 'openai-fixed-model', name: 'OpenAI', type: 'openai',
+      server_profile_id: 'fixed-model-test', base_url: 'https://api.openai.com/v1',
+      api_key: '', default_model: '', api_format: 'openai',
+    }} onCancel={() => {}} onSave={() => {}} />);
+
+    await waitFor(() => expect(screen.getByLabelText(/perfil de servidor/i)).toHaveValue('fixed-model-test'));
+    await waitFor(() => expect(screen.getByLabelText(/modelo padrão/i)).toHaveValue('gpt-4o-mini'));
+    expect(screen.getByLabelText(/modelo padrão/i)).toBeDisabled();
+  });
+
+  it('preserva o modelo salvo ao editar um perfil que declara default fixo', async () => {
+    render(<ProviderForm provider={{
+      id: 'openai-saved-model', name: 'OpenAI', type: 'openai',
+      server_profile_id: 'fixed-model-test', base_url: 'https://api.openai.com/v1',
+      api_key: '', default_model: 'gpt-4o', api_format: 'openai',
+    }} onCancel={() => {}} onSave={() => {}} />);
+
+    await waitFor(() => expect(screen.getByLabelText(/perfil de servidor/i)).toHaveValue('fixed-model-test'));
+    expect(screen.getByLabelText(/modelo padrão/i)).toHaveValue('gpt-4o');
+  });
+
+  it("mantém a URL legada de Anthropic sem aplicar política do catálogo", () => {
     render(
       <ProviderForm
         provider={{
@@ -269,11 +309,11 @@ describe("ProviderForm - Restrições de URL em Edição", () => {
     );
 
     const urlInput = screen.getByLabelText(/base url/i) as HTMLInputElement;
-    expect(urlInput).toBeDisabled();
-    expect(urlInput).toHaveAttribute("readonly");
+    expect(urlInput).not.toBeDisabled();
+    expect(urlInput).not.toHaveAttribute("readonly");
   });
 
-  it("não deve permitir editar URL de Google mesmo em modo edição", () => {
+  it("mantém a URL legada de Google sem aplicar política do catálogo", () => {
     render(
       <ProviderForm
         provider={{
@@ -289,7 +329,7 @@ describe("ProviderForm - Restrições de URL em Edição", () => {
     );
 
     const urlInput = screen.getByLabelText(/base url/i) as HTMLInputElement;
-    expect(urlInput).toBeDisabled();
+    expect(urlInput).not.toBeDisabled();
   });
 
   it("deve permitir editar URL de Ollama em modo edição", () => {
@@ -373,7 +413,7 @@ describe("ProviderForm - Restrições de URL em Edição", () => {
     expect(urlInput).not.toBeDisabled();
 
     // Mudar para OpenAI
-    const typeSelect = screen.getByLabelText(/tipo/i);
+    const typeSelect = screen.getByLabelText(/perfil de servidor/i);
     await user.selectOptions(typeSelect, "openai");
 
     // URL agora bloqueada e valendo o padrão do tipo escolhido: para um provedor
@@ -411,11 +451,11 @@ describe("ProviderForm - Ida e volta no tipo do provedor", () => {
     await user.click(screen.getByRole("button", { name: /carregar modelos/i }));
     await waitFor(() => expect(App.ListModelsRaw).toHaveBeenCalled());
 
-    const typeSelect = screen.getByLabelText(/tipo/i);
+    const typeSelect = screen.getByLabelText(/perfil de servidor/i);
     await user.selectOptions(typeSelect, "openai");
     expect((screen.getByLabelText(/base url/i) as HTMLInputElement).value).toBe("https://api.openai.com/v1");
 
-    await user.selectOptions(typeSelect, "ollama");
+    await user.selectOptions(typeSelect, "");
 
     const urlInput = screen.getByLabelText(/base url/i) as HTMLInputElement;
     expect(urlInput.value).toBe("http://192.168.1.100:11434");
@@ -428,5 +468,6 @@ describe("ProviderForm - Ida e volta no tipo do provedor", () => {
     const [id, payload] = vi.mocked(App.UpdateLLMProvider).mock.calls[0];
     expect(id).toBe("ollama-123");
     expect(payload).toMatchObject({ type: "ollama", base_url: "http://192.168.1.100:11434" });
+    expect(payload).not.toHaveProperty('server_profile_id');
   });
 });
