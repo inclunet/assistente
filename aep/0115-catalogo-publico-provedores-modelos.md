@@ -1,6 +1,6 @@
 # AEP-0115 — Catálogo público de provedores e modelos
 
-Status: In Progress — contrato aprovado; fases 1 (schema e asset inicial) e 2 (consumo, validação e cache backend) implementadas nos PRs empilhados; integração de provedores, modelos e vozes pendente
+Status: In Progress — contrato aprovado; fases 1 (schema e asset inicial) e 2 (consumo, validação e cache backend) implementadas; fase 3 parcialmente entregue com persistência explícita e consumo pelo formulário; fábrica de defaults do backend, modelos e vozes pendentes
 
 ## Resumo
 
@@ -223,12 +223,22 @@ altera conexões existentes nem sobrepõe a identidade explícita persistida.
    persistir atomicamente a última versão válida com ETag/Last-Modified e expor
    snapshots tipados por API Wails. O cache é carregado localmente e a atualização
    ocorre em segundo plano; falhas mantêm o snapshot válido anterior.
-3. **Configuração de provedores pelo catálogo — em andamento.** Persistir a
-   associação explícita `server_profile_id` sem inferir perfis de conexões
-   existentes; depois trocar os presets duplicados do frontend/backend por
-   perfis catalogados, aplicar política fixa/editável por campo, manter
-   customizados, mostrar links de cadastro/chave e preservar configurações
-   salvas.
+3. **Configuração de provedores pelo catálogo — em andamento.** A persistência
+   explícita de `server_profile_id` e o consumo pelo formulário de provedores
+   estão implementados: o formulário lista perfis ativos, usa allowlists locais
+   para família/formato/autenticação, aplica políticas de campos, oferece
+   links acessíveis e localizados, mantém configuração customizada quando o
+   catálogo falha e preserva valores salvos e entradas manuais digitadas
+   enquanto o catálogo carrega, sem associar perfis a conexões legadas. O
+   modelo padrão fixo só preenche conexões vinculadas quando não existe valor
+   salvo; modelos existentes têm precedência. O
+   caminho Ollama mantém o adaptador runtime atual sem mapear
+   genericamente o formato de catálogo `ollama`. Evidência da UI: `ProviderForm.tsx`
+   e testes focados do formulário no PR da UI. A substituição dos defaults da
+   fábrica backend por perfis do catálogo continua pendente para o próximo PR
+   empilhado. O perfil Cohere permanece oculto na UI até que o runtime suporte
+   a rota `/compatibility/v1/chat/completions` anunciada no asset; a configuração
+   manual segue disponível. Modelos e vozes permanecem nas fases seguintes.
 4. **Modelos, capacidades e proxies.** Associar IDs expostos apenas por
    mapeamento exato e integrar recursos/limites sem impedir aliases
    desconhecidos.
@@ -277,8 +287,21 @@ altera conexões existentes nem sobrepõe a identidade explícita persistida.
   limita o tamanho do documento e grava cache por substituição atômica. Evidência:
   `internal/llmcatalog/service.go` e `GetLLMCatalog` em
   `internal/wailsapi/llm_catalog.go`.
-- [ ] Provedores conhecidos aplicam as políticas de edição declaradas; URLs de
-  cadastro e obtenção de chave são acessíveis e localizadas.
+- [x] O formulário de provedores consome perfis ativos do catálogo por seleção
+  explícita, aplica políticas fixas/editáveis/choice/hidden para campos
+  estruturais, apresenta links acessíveis e localizados e oferece perfil
+  customizado com aviso localizado quando o catálogo está indisponível. O
+  formulário usa allowlists locais, mantém conexões legadas sem perfil e não
+  substitui URL/formato que a pessoa editou enquanto aguardava a resposta do
+  catálogo; o perfil Cohere cuja rota catalogada não é suportada não aparece
+  como perfil funcional, permanecendo disponível a opção personalizada. Ao
+  editar conexão vinculada com modelo fixo, aplica o default somente se não
+  houver modelo salvo.
+  Evidência: `frontend/src/components/settings/ProviderForm.tsx`, testes focados
+  em `ProviderForm.test.tsx` (incluindo resposta assíncrona atrasada) e
+  `ProviderForm.edit.test.tsx` no PR de UI da fase 3.
+- [ ] A fábrica de defaults do backend consome perfis do catálogo em vez de
+  manter presets duplicados; pendente para o próximo PR empilhado da fase 3.
 - [x] A conexão persiste o ID do perfil de servidor escolhido explicitamente,
   preserva a associação em exportação/importação e deixa conexões antigas sem
   perfil; agentes ACP e a conexão OAuth do ChatGPT não recebem perfil HTTP.

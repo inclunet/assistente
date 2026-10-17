@@ -10,6 +10,10 @@ vi.mock('react-i18next', () => ({ initReactI18next: { type: '3rdParty', init: ()
 const { announce } = vi.hoisted(() => ({ announce: vi.fn() }));
 vi.mock('../../hooks/useAnnouncer', () => ({ useAnnouncer: () => ({ announce }) }));
 vi.mock('@wailsjs/go/wailsapi/LLMProviders', () => ({ ListModelsRaw: vi.fn(), CreateLLMProvider: vi.fn(), UpdateLLMProvider: vi.fn() }));
+vi.mock('@wailsjs/go/wailsapi/LLMCatalog', async () => {
+ const { providerFormCatalogAPIResponse } = await import('./providerFormCatalogTestUtils');
+ return { GetLLMCatalog: vi.fn(async () => providerFormCatalogAPIResponse) };
+});
 vi.mock('@wailsjs/go/wailsapi/Credentials', () => ({ GetCredentialForURL: vi.fn(), ListCredentials: vi.fn(async () => []), ListExternalSources: vi.fn(async () => []), UpsertCredential: vi.fn() }));
 beforeEach(() => {
  vi.clearAllMocks();
@@ -18,11 +22,18 @@ beforeEach(() => {
  vi.mocked(CreateLLMProvider).mockResolvedValue({});
 });
 const configure = async () => {
+ await waitForProfileOption('openai');
  const button = screen.getByRole('button', { name: 'credentials.mcp.configure' });
  await waitFor(() => expect(button).toBeEnabled());
  await userEvent.click(button);
 };
-const set = async (label: string, value: string) => { await act(async () => { fireEvent.change(screen.getByLabelText(new RegExp(label)), { target: { value } }); }); };
+const waitForProfileOption = async (value: string) => {
+ await waitFor(() => expect(Array.from((screen.getByLabelText('providerForm.serverProfile') as HTMLSelectElement).options).some(option => option.value === value)).toBe(true));
+};
+const set = async (label: string, value: string) => {
+ if (label === 'providerForm.serverProfile' && value) await waitForProfileOption(value);
+ await act(async () => { fireEvent.change(screen.getByLabelText(new RegExp(label)), { target: { value } }); });
+};
 describe('ProviderForm shared credentials', () => {
  it.each(['static', 'env', 'keyring', 'command'])('tests and saves a %s draft through the provider transaction only', async source => {
   const saved = vi.fn();
@@ -115,7 +126,7 @@ describe('ProviderForm shared credentials', () => {
   let resolve!: (models: string[]) => void;
   vi.mocked(ListModelsRaw).mockReturnValue(new Promise(done => { resolve = done; }));
   render(<ProviderForm onSave={() => {}} onCancel={() => {}} />);
-  await set('providerForm.providerType', 'custom');
+  await set('providerForm.serverProfile', 'custom-openai-compatible');
   await set('Base URL', 'https://one.example/v1');
   await userEvent.click(screen.getByRole('button', { name: 'providerForm.loadModels' }));
   await set('Base URL', 'https://two.example/v1');
@@ -184,10 +195,19 @@ it('contains focus in the real modal during save and restores it on failure', as
   await userEvent.click(save);
   const status = screen.getAllByText('common.saving').find(el => el.tagName === 'P')!;
   await waitFor(() => expect(status).toHaveFocus());
+  const dialog = screen.getByRole('dialog');
+  const focusable = Array.from(dialog.querySelectorAll<HTMLElement>(
+    'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"]), [contenteditable]'
+  )).filter(element => !element.matches(':disabled') && !element.closest('[hidden], [aria-hidden="true"]'));
+  const firstFocusable = focusable[0];
+  const lastFocusable = focusable[focusable.length - 1];
+  expect(lastFocusable).toBe(status);
+  lastFocusable?.focus();
   await userEvent.tab();
-  expect(status).toHaveFocus();
+  expect(firstFocusable).toHaveFocus();
+  firstFocusable?.focus();
   await userEvent.tab({ shift: true });
-  expect(status).toHaveFocus();
+  expect(lastFocusable).toHaveFocus();
   await act(async () => reject(new Error('save failed')));
   await waitFor(() => expect(save).toHaveFocus());
   expect(screen.getByLabelText(/providerForm.name/)).toBeEnabled();
@@ -198,12 +218,12 @@ it('contains focus in the real modal during save and restores it on failure', as
 it('discards visual credentials when switching types with the same URL and protocol', async () => {
  render(<ProviderForm onSave={() => {}} onCancel={() => {}} />);
  await set('providerForm.name', 'API');
- await set('providerForm.providerType', 'custom');
+ await set('providerForm.serverProfile', 'custom-openai-compatible');
  await set('Base URL', 'http://localhost:8080');
  await set('providerForm.apiProtocol', 'openai');
  await configure();
  await set('credentials.labels.token', 'discarded-token');
- await set('providerForm.providerType', 'localai');
+ await set('providerForm.serverProfile', 'localai-openai-compatible');
  expect(screen.queryByLabelText('credentials.labels.token')).not.toBeInTheDocument();
  await configure();
  expect(screen.getByLabelText('credentials.labels.token')).toHaveValue('');

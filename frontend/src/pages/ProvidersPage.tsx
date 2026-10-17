@@ -49,6 +49,7 @@ interface Provider {
   name: string;
   type: string;
   api_format?: string;
+  server_profile_id?: string;
   base_url: string;
   credential_required: boolean;
   credential_status: 'none' | 'configured' | 'missing';
@@ -201,6 +202,7 @@ export default function ProvidersPage() {
       reasoning_content_mode: provider.reasoning_content_mode,
       default_model: (provider as Provider).default_model || '',
       api_format: (provider as Provider).api_format || '',
+      server_profile_id: provider.server_profile_id,
       acp_command: provider.acp_command || '',
       acp_args: provider.acp_args || [],
       acp_agent_id: provider.acp_agent_id || '',
@@ -245,6 +247,7 @@ export default function ProvidersPage() {
         type: provider.type,
         base_url: provider.base_url,
         api_format: (provider as Provider).api_format || undefined,
+        server_profile_id: provider.server_profile_id || undefined,
         auth_mode: provider.api_format === AGENT_API_FORMAT ? undefined : provider.auth_mode,
         // A cópia de um agente precisa subir o mesmo agente: o backend recusa o
         // formato acp sem comando, e sem argumentos o processo subiria em outro

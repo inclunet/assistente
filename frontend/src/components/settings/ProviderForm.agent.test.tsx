@@ -8,6 +8,10 @@ import userEvent from '@testing-library/user-event';
 import ptBR from '../../locales/pt-BR';
 import { ProviderForm } from './ProviderForm';
 
+const waitForProfileOption = async (select: HTMLElement, value: string) => {
+  await waitFor(() => expect(Array.from((select as HTMLSelectElement).options).some(option => option.value === value)).toBe(true));
+};
+
 const announceMock = vi.hoisted(() => vi.fn());
 const detectMock = vi.hoisted(() => vi.fn());
 // Assinatura declarada nos mocks para os testes poderem inspecionar o payload:
@@ -355,7 +359,9 @@ describe('ProviderForm — provedor de agente de código', () => {
     await screen.findByLabelText(/base url/i);
 
     expect(screen.queryByRole('option', { name: /agente de código/i })).not.toBeInTheDocument();
-    await user.selectOptions(screen.getByLabelText(/tipo de provedor/i), 'ollama');
+    const profileSelect = screen.getByLabelText(/perfil de servidor/i);
+    await waitForProfileOption(profileSelect, 'ollama');
+    await user.selectOptions(profileSelect, 'ollama');
     expect(screen.queryByLabelText(/comando do agente/i)).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: /carregar modelos/i }));
     await waitFor(() => expect(screen.getByRole('button', { name: /atualizar/i })).toBeEnabled());
