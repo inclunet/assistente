@@ -96,3 +96,12 @@ func TestAgentOptionsFromSanitizaRotulosDoAgente(t *testing.T) {
 		t.Errorf("Value = %q, quer o identificador intacto", got[0].Values[0].Value)
 	}
 }
+
+func TestAgentOptionsFromMantemToggleBooleanaSemListaDeValores(t *testing.T) {
+	got := AgentOptionsFrom([]acp.ConfigOption{{
+		ID: "telemetria", Name: "Telemetria", Kind: "boolean", CurrentBool: false,
+	}})
+	if len(got) != 1 || got[0].Kind != "boolean" || got[0].CurrentBool {
+		t.Fatalf("toggle booleano não chegou à borda Wails: %+v", got)
+	}
+}

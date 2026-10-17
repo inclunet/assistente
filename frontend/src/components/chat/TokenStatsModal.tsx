@@ -42,6 +42,8 @@ interface TokenStats {
   messagesOutOfContextCount: number;
   toolsUsedCount: number;
   toolBreakdown: ToolBreakdownEntry[];
+  acpSessionCostAmount?: number;
+  acpSessionCostCurrency?: string;
 }
 
 interface TokenStatsModalProps {
@@ -49,6 +51,8 @@ interface TokenStatsModalProps {
   isOpen: boolean;
   onClose: () => void;
 }
+
+type ACPUsageEvent = Partial<TokenStats> & { conversationId: string };
 
 const mergeRealtimeTokenStats = (
   current: TokenStats,
@@ -66,6 +70,20 @@ const mergeRealtimeTokenStats = (
   return merged;
 };
 
+const mergeACPUsage = (current: TokenStats, update: ACPUsageEvent | null): TokenStats => {
+  if (!update) return current;
+  return {
+    ...current,
+    contextTokens: update.contextTokens ?? current.contextTokens,
+    contextLimit: update.contextLimit ?? current.contextLimit,
+    contextUsage: update.contextUsage ?? current.contextUsage,
+    isNearLimit: update.isNearLimit ?? current.isNearLimit,
+    isCritical: update.isCritical ?? current.isCritical,
+    acpSessionCostAmount: update.acpSessionCostAmount ?? current.acpSessionCostAmount,
+    acpSessionCostCurrency: update.acpSessionCostCurrency ?? current.acpSessionCostCurrency,
+  };
+};
+
 export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
   conversationId,
   isOpen,
@@ -77,12 +95,14 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState('overview');
   const pendingFinalStatsRef = useRef<(Partial<TokenStats> & { conversationId: string }) | null>(null);
+  const latestACPUsageRef = useRef<ACPUsageEvent | null>(null);
 
   useEffect(() => {
     if (!isOpen || !conversationId) {
       return;
     }
     pendingFinalStatsRef.current = null;
+    latestACPUsageRef.current = null;
     let current = true;
     setStats(null);
 
@@ -94,9 +114,13 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
         const result = await GetConversationTokenStats(conversationId);
         if (!current) return;
         const pendingFinalStats = pendingFinalStatsRef.current;
+        const latestACPUsage = latestACPUsageRef.current;
         if (pendingFinalStats?.conversationId === conversationId) {
-          setStats(mergeRealtimeTokenStats(result, pendingFinalStats));
+          const withFinal = mergeRealtimeTokenStats(result, pendingFinalStats);
+          setStats(mergeACPUsage(withFinal, latestACPUsage?.conversationId === conversationId ? latestACPUsage : null));
           pendingFinalStatsRef.current = null;
+        } else if (latestACPUsage?.conversationId === conversationId) {
+          setStats(mergeACPUsage(result, latestACPUsage));
         } else {
           setStats(result);
         }
@@ -116,7 +140,7 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
       if (current && data.conversationId === conversationId) {
         setStats((current) => {
           if (current) {
-            return mergeRealtimeTokenStats(current, data);
+            return mergeACPUsage(mergeRealtimeTokenStats(current, data), latestACPUsageRef.current);
           }
           pendingFinalStatsRef.current = data;
           return current;
@@ -126,14 +150,42 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
 
     const unsubscribeRealtime = EventsOn('chat:token_stats_update', (data: Partial<TokenStats> & { conversationId: string }) => {
       if (current && data.conversationId === conversationId) {
-        setStats((current) => current ? mergeRealtimeTokenStats(current, data) : current);
+        setStats((current) => current
+          ? mergeACPUsage(mergeRealtimeTokenStats(current, data), latestACPUsageRef.current)
+          : current);
       }
+    });
+
+    const unsubscribeACPUsage = EventsOn('chat:acp_usage_update', (data: {
+      conversationId: string;
+      contextTokens: number;
+      contextLimit: number;
+      contextUsage: number;
+      isNearLimit: boolean;
+      isCritical: boolean;
+      costAmount?: number;
+      costCurrency?: string;
+    }) => {
+      if (!current || data.conversationId !== conversationId) return;
+      const update: Partial<TokenStats> & { conversationId: string } = {
+        ...data,
+      };
+      if (data.costAmount !== undefined) update.acpSessionCostAmount = data.costAmount;
+      if (data.costCurrency !== undefined) update.acpSessionCostCurrency = data.costCurrency;
+      latestACPUsageRef.current = latestACPUsageRef.current
+        ? { ...latestACPUsageRef.current, ...update }
+        : update;
+      setStats((currentStats) => {
+        if (currentStats) return mergeACPUsage(mergeRealtimeTokenStats(currentStats, update), latestACPUsageRef.current);
+        return currentStats;
+      });
     });
 
     return () => {
       current = false;
       unsubscribe();
       unsubscribeRealtime();
+      unsubscribeACPUsage();
     };
   }, [conversationId, isOpen, t]);
 
@@ -179,7 +231,7 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
     return t('tokenStats.cacheUnavailableNote');
   };
 
-  const roundedContextUsage = stats ? Number(stats.contextUsage.toFixed(1)) : 0;
+  const roundedContextUsage = stats ? Number(Math.min(100, Math.max(0, stats.contextUsage)).toFixed(1)) : 0;
   const contextUsageText = `${roundedContextUsage.toFixed(1)}%`;
   const modelCallCount = stats?.modelCallCount ?? 0;
   const hasCacheReadTokens = (stats?.cacheReadTokens ?? 0) > 0;
@@ -308,6 +360,14 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
               {estimatedCost && (
                 <section className="token-stats-section">
                   <h3>{t('tokenStats.costEstimate')}</h3>
+                  {stats.acpSessionCostAmount !== undefined && (
+                    <p className="token-stats-cost__note">
+                      {t('tokenStats.acpReportedCost', {
+                        amount: stats.acpSessionCostAmount.toFixed(4),
+                        currency: stats.acpSessionCostCurrency || '',
+                      })}
+                    </p>
+                  )}
                   <table className="token-stats-table token-stats-table--cost">
                     <thead>
                       <tr>

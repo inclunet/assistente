@@ -145,15 +145,17 @@ func currentModeOf(options []acp.ConfigOption) string {
 func AgentOptionsFrom(options []acp.ConfigOption) []apidto.AgentConfigOption {
 	out := make([]apidto.AgentConfigOption, 0, len(options))
 	for _, option := range options {
-		if len(option.Values) == 0 {
+		if option.Kind != "boolean" && len(option.Values) == 0 {
 			continue
 		}
 		converted := apidto.AgentConfigOption{
-			ID:           option.ID,
+			ID: option.ID,
 			// Nome é rótulo do agente: vira seletor, ARIA e anúncio (AEP-0084 D11).
 			Name:         acp.SanitizeLabel(option.Name),
 			Category:     option.Category,
 			CurrentValue: option.CurrentValue,
+			Kind:         option.Kind,
+			CurrentBool:  option.CurrentBool,
 			Values:       make([]apidto.AgentConfigValue, 0, len(option.Values)),
 		}
 		for _, value := range option.Values {

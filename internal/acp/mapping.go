@@ -1,7 +1,10 @@
 package acp
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
+	"math"
 	"strings"
 
 	sdk "github.com/coder/acp-go-sdk"
@@ -10,6 +13,7 @@ import (
 func capabilitiesFrom(resp sdk.InitializeResponse) Capabilities {
 	caps := Capabilities{
 		LoadSession:           resp.AgentCapabilities.LoadSession,
+		ResumeSession:         resp.AgentCapabilities.SessionCapabilities.Resume != nil,
 		CloseSession:          resp.AgentCapabilities.SessionCapabilities.Close != nil,
 		PromptImage:           resp.AgentCapabilities.PromptCapabilities.Image,
 		PromptAudio:           resp.AgentCapabilities.PromptCapabilities.Audio,
@@ -181,6 +185,9 @@ func updateFrom(update sdk.SessionUpdate) (Update, bool) {
 	case update.AgentMessageChunk != nil:
 		text := textOf(update.AgentMessageChunk.Content)
 		if text == "" {
+			if hasNonTextContent(update.AgentMessageChunk.Content) {
+				return Update{Kind: UpdateUnsupportedOutput}, true
+			}
 			return Update{}, false
 		}
 		return Update{Kind: UpdateText, Text: text}, true
@@ -202,13 +209,9 @@ func updateFrom(update sdk.SessionUpdate) (Update, bool) {
 
 	case update.ConfigOptionUpdate != nil:
 		options := configOptionsFrom(update.ConfigOptionUpdate.ConfigOptions)
-		// Este evento é o conjunto completo, então um conjunto vazio diz "não
-		// há mais opção nenhuma". Nada mapeado não significa isso: significa
-		// que o agente só mandou coisas que ainda não consumimos. Entregar o
-		// vazio faria o seletor de modelo desaparecer da tela sem motivo.
-		if len(options) == 0 {
-			return Update{}, false
-		}
+		// A notificação contém o conjunto completo. Vazio (inclusive quando
+		// só vieram variantes ainda não representadas) precisa chegar ao estado
+		// da sessão para não manter seletores que o agente já retirou.
 		return Update{Kind: UpdateConfigOptions, ConfigOptions: options}, true
 
 	case update.CurrentModeUpdate != nil:
@@ -232,9 +235,38 @@ func updateFrom(update sdk.SessionUpdate) (Update, bool) {
 			return Update{}, false
 		}
 		return Update{Kind: UpdateTitle, Title: title}, true
+
+	case update.UsageUpdate != nil:
+		usage := update.UsageUpdate
+		mapped := Update{
+			Kind:                UpdateUsage,
+			ContextUsed:         max(0, usage.Used),
+			ContextSize:         max(0, usage.Size),
+			SessionCostCurrency: "",
+		}
+		if usage.Cost != nil && usage.Cost.Amount >= 0 && !math.IsNaN(usage.Cost.Amount) &&
+			!math.IsInf(usage.Cost.Amount, 0) && validCurrencyCode(usage.Cost.Currency) {
+			amount := usage.Cost.Amount
+			mapped.SessionCostAmount = &amount
+			mapped.SessionCostCurrency = strings.ToUpper(strings.TrimSpace(usage.Cost.Currency))
+		}
+		return mapped, true
 	}
 
 	return Update{}, false
+}
+
+func validCurrencyCode(value string) bool {
+	value = strings.TrimSpace(value)
+	if len(value) != 3 {
+		return false
+	}
+	for _, char := range strings.ToUpper(value) {
+		if char < 'A' || char > 'Z' {
+			return false
+		}
+	}
+	return true
 }
 
 // commandsFrom traduz os comandos que o agente oferece. Nome e descrição vão
@@ -273,6 +305,10 @@ func textOf(block sdk.ContentBlock) string {
 		return ""
 	}
 	return block.Text.Text
+}
+
+func hasNonTextContent(block sdk.ContentBlock) bool {
+	return block.Image != nil || block.Audio != nil || block.ResourceLink != nil || block.Resource != nil
 }
 
 func toolCallFromStart(call *sdk.SessionUpdateToolCall) ToolCall {
@@ -315,21 +351,27 @@ func toolCallFromUpdate(call sdk.ToolCallUpdate) ToolCall {
 func configOptionsFrom(options []sdk.SessionConfigOption) []ConfigOption {
 	var out []ConfigOption
 	for _, option := range options {
-		// Opções booleanas ainda não têm uso no app; mapear só o seletor evita
-		// inventar semântica para algo que ninguém consome.
-		if option.Select == nil {
-			continue
+		switch {
+		case option.Select != nil:
+			converted := ConfigOption{
+				ID: string(option.Select.Id), Name: option.Select.Name,
+				CurrentValue: string(option.Select.CurrentValue),
+				Kind:         "select", Values: configValuesFrom(option.Select.Options),
+			}
+			if option.Select.Category != nil {
+				converted.Category = string(*option.Select.Category)
+			}
+			out = append(out, converted)
+		case option.Boolean != nil:
+			converted := ConfigOption{
+				ID: string(option.Boolean.Id), Name: option.Boolean.Name,
+				Kind: "boolean", CurrentBool: option.Boolean.CurrentValue,
+			}
+			if option.Boolean.Category != nil {
+				converted.Category = string(*option.Boolean.Category)
+			}
+			out = append(out, converted)
 		}
-		converted := ConfigOption{
-			ID:           string(option.Select.Id),
-			Name:         option.Select.Name,
-			CurrentValue: string(option.Select.CurrentValue),
-			Values:       configValuesFrom(option.Select.Options),
-		}
-		if option.Select.Category != nil {
-			converted.Category = string(*option.Select.Category)
-		}
-		out = append(out, converted)
 	}
 	return out
 }
@@ -456,7 +498,7 @@ func withKnownLegacy(fresh, known []ConfigOption) []ConfigOption {
 		if hasCategory(fresh, category) {
 			continue
 		}
-		if option, ok := OptionByCategory(known, category); ok {
+		if option, ok := OptionByCategory(known, category); ok && option.Kind == "" {
 			fresh = append(fresh, option)
 		}
 	}
@@ -536,6 +578,32 @@ func promptBlocks(content []Content) ([]sdk.ContentBlock, error) {
 	blocks := make([]sdk.ContentBlock, 0, len(content))
 	for _, item := range content {
 		switch {
+		case item.AudioData != "":
+			if strings.TrimSpace(item.AudioMIME) == "" {
+				return nil, errors.New("anexo de áudio sem tipo MIME")
+			}
+			blocks = append(blocks, sdk.AudioBlock(item.AudioData, item.AudioMIME))
+		case item.ResourceData != "":
+			if strings.TrimSpace(item.ResourceMIME) == "" {
+				return nil, errors.New("recurso embutido sem tipo MIME")
+			}
+			mime := strings.TrimSpace(item.ResourceMIME)
+			name := strings.TrimSpace(strings.ReplaceAll(item.ResourceName, "\\", "/"))
+			if separator := strings.LastIndex(name, "/"); separator >= 0 {
+				name = name[separator+1:]
+			}
+			name = SanitizeLabel(name)
+			if name == "" || name == "." || name == ".." {
+				name = "anexo"
+			}
+			blocks = append(blocks, sdk.TextBlock("[Arquivo anexado: "+name+"]"))
+			digest := sha256.Sum256([]byte(name + "\x00" + mime + "\x00" + item.ResourceData))
+			uri := "urn:assistente:attachment:" + hex.EncodeToString(digest[:])
+			blocks = append(blocks, sdk.ResourceBlock(sdk.EmbeddedResourceResource{
+				BlobResourceContents: &sdk.BlobResourceContents{
+					Blob: item.ResourceData, MimeType: &mime, Uri: uri,
+				},
+			}))
 		case item.ImageData != "":
 			// Imagem sem tipo viraria um mimeType vazio no fio, e o agente
 			// falharia de um jeito difícil de ligar de volta ao anexo.

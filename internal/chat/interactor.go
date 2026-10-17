@@ -94,6 +94,11 @@ type Interactor struct {
 	// promptCacheAdjustMu serializa o auto-ajuste de provider_hints=false quando
 	// um provider rejeita explicitamente prompt_cache_key.
 	promptCacheAdjustMu sync.Mutex
+	// agentTitles registra títulos que o ACP gerou nesta execução. A identidade
+	// permite limpar uma sugestão do agente sem confundi-la com uma edição manual.
+	agentTitlesMu        sync.Mutex
+	agentTitles          map[string]string
+	agentTitleMutationMu sync.Mutex
 }
 
 // NewInteractor creates an Interactor with its required dependencies.
@@ -110,7 +115,41 @@ func NewInteractor(cfg InteractorConfig) *Interactor {
 		contextProviders: cfg.ContextProviders,
 		linkedTaskLists:  cfg.LinkedTaskLists,
 		mutateProfiles:   cfg.MutateProfiles,
+		agentTitles:      make(map[string]string),
 	}
+}
+
+// ForgetAgentTitle invalida a origem ACP quando alguém escolhe outro título.
+func (i *Interactor) ForgetAgentTitle(conversationID string) {
+	i.agentTitlesMu.Lock()
+	delete(i.agentTitles, conversationID)
+	i.agentTitlesMu.Unlock()
+}
+
+// UpdateConversationTitle aplica uma edição manual serializada com atualizações
+// ACP para que um título gerado com snapshot antigo não sobrescreva a escolha.
+func (i *Interactor) UpdateConversationTitle(ctx context.Context, conversationID, title, model string) error {
+	i.agentTitleMutationMu.Lock()
+	defer i.agentTitleMutationMu.Unlock()
+	if err := i.convRepo.UpdateConversation(ctx, conversationID, title, model); err != nil {
+		return err
+	}
+	if title != "" {
+		i.ForgetAgentTitle(conversationID)
+	}
+	return nil
+}
+
+func (i *Interactor) rememberAgentTitle(conversationID, title string) {
+	i.agentTitlesMu.Lock()
+	i.agentTitles[conversationID] = title
+	i.agentTitlesMu.Unlock()
+}
+
+func (i *Interactor) isAgentTitle(conversationID, title string) bool {
+	i.agentTitlesMu.Lock()
+	defer i.agentTitlesMu.Unlock()
+	return i.agentTitles[conversationID] == title
 }
 
 func (i *Interactor) resolveWorkspaceProfileSlug(conversationID string, params ChatParams) string {

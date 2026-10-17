@@ -227,7 +227,7 @@ func TestPartesDestipadasViramOsMesmosBlocos(t *testing.T) {
 		map[string]interface{}{"type": "image_url", "image_url": map[string]interface{}{"url": imagemPNG}},
 	}}
 
-	content, notSent := turnContent(msg, aceitaImagem)
+	content, notSent := turnContent(msg, aceitaImagem, func() bool { return false }, func() bool { return false })
 
 	if notSent != 0 {
 		t.Errorf("anexos não enviados = %d, quer 0", notSent)
@@ -237,20 +237,18 @@ func TestPartesDestipadasViramOsMesmosBlocos(t *testing.T) {
 	}
 }
 
-func TestAnexoQueNaoEImagemTambemEContado(t *testing.T) {
-	// O pipeline monta estas partes para os modelos que as recebem
-	// nativamente; o bloco do ACP só carrega texto e imagem.
+func TestAnexoNaoSuportadoTambemEContado(t *testing.T) {
+	// Documento e vídeo ainda não têm bloco equivalente no provider ACP.
 	msg := Message{Role: "user", Content: []interface{}{
 		map[string]interface{}{"type": "text", "text": "o que tem nestes arquivos?"},
-		map[string]interface{}{"type": "input_audio", "input_audio": map[string]interface{}{"data": "..."}},
 		map[string]interface{}{"type": "file", "file": map[string]interface{}{"filename": "nota.pdf"}},
 		map[string]interface{}{"type": "video", "video": map[string]interface{}{"data": "..."}},
 	}}
 
-	content, notSent := turnContent(msg, aceitaImagem)
+	content, notSent := turnContent(msg, aceitaImagem, func() bool { return false }, func() bool { return false })
 
-	if notSent != 3 {
-		t.Errorf("anexos não enviados = %d, quer os três: sumir com eles calado é o que o AEP proíbe", notSent)
+	if notSent != 2 {
+		t.Errorf("anexos não enviados = %d, quer os dois: sumir com eles calado é o que o AEP proíbe", notSent)
 	}
 	if len(content) != 1 || content[0].Text != "o que tem nestes arquivos?" {
 		t.Errorf("blocos = %+v, quer só o texto", content)
@@ -265,7 +263,7 @@ func TestParteSemTipoNaoViraAlarmeFalso(t *testing.T) {
 
 	// Sem tipo não dá para dizer que era anexo: contar isso avisaria a pessoa
 	// sobre um anexo que ela não mandou.
-	if _, notSent := turnContent(msg, aceitaImagem); notSent != 0 {
+	if _, notSent := turnContent(msg, aceitaImagem, func() bool { return false }, func() bool { return false }); notSent != 0 {
 		t.Errorf("anexos não enviados = %d, quer 0", notSent)
 	}
 }
@@ -274,9 +272,95 @@ func TestTurnoDeTextoPuroNaoPerguntaOQueOAgenteAceita(t *testing.T) {
 	perguntas := 0
 	msg := Message{Role: "user", Content: "só texto"}
 
-	turnContent(msg, func() bool { perguntas++; return true })
+	turnContent(msg, func() bool { perguntas++; return true }, func() bool { perguntas++; return true }, func() bool { perguntas++; return true })
 
 	if perguntas != 0 {
 		t.Errorf("perguntou %d vez(es) sobre imagem numa mensagem sem imagem", perguntas)
+	}
+}
+
+func TestAudioInlineDependeDaCapabilityEDoFormato(t *testing.T) {
+	msg := Message{Role: "user", Content: []interface{}{
+		map[string]interface{}{"type": "text", "text": "transcreva"},
+		map[string]interface{}{"type": "input_audio", "input_audio": map[string]interface{}{"data": "QUJD", "format": "wav"}},
+	}}
+	content, notSent := turnContent(msg, aceitaImagem, func() bool { return true }, func() bool { return false })
+	if notSent != 0 || len(content) != 2 || content[1].AudioData != "QUJD" || content[1].AudioMIME != "audio/wav" {
+		t.Fatalf("áudio aceito deveria virar bloco ACP: content=%+v notSent=%d", content, notSent)
+	}
+	content, notSent = turnContent(msg, aceitaImagem, func() bool { return false }, func() bool { return false })
+	if notSent != 1 || len(content) != 1 {
+		t.Fatalf("agente sem capability deve receber só texto e contar o áudio: content=%+v notSent=%d", content, notSent)
+	}
+	msg.Content = []interface{}{
+		map[string]interface{}{"type": "text", "text": "transcreva"},
+		map[string]interface{}{"type": "input_audio", "input_audio": map[string]interface{}{"data": "QUJD", "format": "ogg"}},
+	}
+	content, notSent = turnContent(msg, aceitaImagem, func() bool { return true }, func() bool { return false })
+	if notSent != 1 || len(content) != 1 {
+		t.Fatalf("formato desconhecido deve ser contado como não enviado: content=%+v notSent=%d", content, notSent)
+	}
+}
+
+func TestAudioACPOriginalAcompanhaTranscricaoNoPrompt(t *testing.T) {
+	content, notSent := turnContent(Message{
+		Content:          "transcrição do áudio",
+		ACPOriginalAudio: []InputAudio{{Data: "QUJD", Format: "wav"}},
+	}, func() bool { return false }, func() bool { return true }, func() bool { return false })
+
+	if notSent != 0 || len(content) != 2 {
+		t.Fatalf("conteúdo ACP = %+v, não enviados = %d; esperado texto e áudio", content, notSent)
+	}
+	if content[0].Text != "transcrição do áudio" || content[1].AudioData != "QUJD" || content[1].AudioMIME != "audio/wav" {
+		t.Fatalf("prompt ACP perdeu transcrição ou áudio original: %+v", content)
+	}
+}
+
+func TestAudioACPOriginalNormalizaAliasesMIMEDoHistorico(t *testing.T) {
+	tests := []struct {
+		format   string
+		wantMIME string
+	}{
+		{format: "mpeg", wantMIME: "audio/mp3"},
+		{format: "x-wav", wantMIME: "audio/wav"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.format, func(t *testing.T) {
+			content, notSent := turnContent(Message{
+				Content:          "transcrição do áudio",
+				ACPOriginalAudio: []InputAudio{{Data: "QUJD", Format: tt.format}},
+			}, aceitaImagem, func() bool { return true }, func() bool { return false })
+
+			if notSent != 0 || len(content) != 2 || content[1].AudioData != "QUJD" || content[1].AudioMIME != tt.wantMIME {
+				t.Fatalf("áudio %q deveria acompanhar a transcrição: content=%+v notSent=%d", tt.format, content, notSent)
+			}
+		})
+	}
+}
+
+func TestArquivoEmbutidoDependeDaCapabilityESoAceitaPDFOuTexto(t *testing.T) {
+	msg := Message{Role: "user", Content: []interface{}{
+		map[string]interface{}{"type": "text", "text": "resuma"},
+		map[string]interface{}{"type": "file", "file": map[string]interface{}{
+			"filename": `C:\\privado\\relatorio.pdf`, "data": "JVBERiQ=", "mime_type": "application/pdf",
+		}},
+	}}
+	content, notSent := turnContent(msg, aceitaImagem, func() bool { return false }, func() bool { return true })
+	if notSent != 0 || len(content) != 2 || content[1].ResourceName != "relatorio.pdf" || content[1].ResourceMIME != "application/pdf" {
+		t.Fatalf("PDF aceito deveria virar recurso embutido sem caminho local: content=%+v notSent=%d", content, notSent)
+	}
+	content, notSent = turnContent(msg, aceitaImagem, func() bool { return false }, func() bool { return false })
+	if notSent != 1 || len(content) != 1 {
+		t.Fatalf("sem capability deve manter só texto e contar o PDF: content=%+v notSent=%d", content, notSent)
+	}
+	msg.Content = []interface{}{
+		map[string]interface{}{"type": "text", "text": "resuma"},
+		map[string]interface{}{"type": "file", "file": map[string]interface{}{
+			"filename": "arquivo.bin", "data": "AA==", "mime_type": "application/octet-stream",
+		}},
+	}
+	content, notSent = turnContent(msg, aceitaImagem, func() bool { return false }, func() bool { return true })
+	if notSent != 1 || len(content) != 1 {
+		t.Fatalf("tipo binário não suportado deve ser contado: content=%+v notSent=%d", content, notSent)
 	}
 }

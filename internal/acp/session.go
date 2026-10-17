@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
+	"sort"
+	"strconv"
 	"sync"
 	"time"
 
@@ -52,6 +55,9 @@ type session struct {
 	// pediu desiste de esperar —, porque dois session/prompt no mesmo
 	// sessionId se atropelariam do lado do agente (AEP-0084 D10).
 	turnSlot chan struct{}
+	// optionWriteSlot serializa escritas de configuração na mesma sessão; as
+	// notificações do agente continuam livres para atualizar options via mu.
+	optionWriteSlot chan struct{}
 
 	// grace é o prazo de confirmação do cancelamento; campo, e não constante,
 	// para que o teste possa encurtá-lo sem esperar meio minuto.
@@ -74,10 +80,11 @@ type session struct {
 	sinkMu sync.RWMutex
 	sink   UpdateSink
 
-	mu       sync.Mutex
-	options  []ConfigOption
-	commands []Command
-	closed   bool
+	mu              sync.Mutex
+	options         []ConfigOption
+	optionRevisions map[string]uint64
+	commands        []Command
+	closed          bool
 
 	// unconfirmedSig fecha quando o turno em andamento foi cancelado e o agente
 	// não confirmou no prazo. O slot continua ocupado nesse caso — dois
@@ -117,21 +124,24 @@ func (s *session) isClosed() bool {
 
 func newSession(id, cwd string, cn *conn, options []ConfigOption) *session {
 	s := &session{
-		id:             id,
-		cwd:            cwd,
-		cn:             cn,
-		turnSlot:       make(chan struct{}, 1),
-		grace:          cancelGrace,
-		closeWait:      closeTimeout,
-		stallTimeout:   stallTimeout,
-		stallPoll:      stallPoll,
-		options:        copyOptions(options),
-		cancelSig:      make(chan struct{}),
-		unconfirmedSig: make(chan struct{}),
-		closedSig:      make(chan struct{}),
-		lastActivity:   time.Now(),
+		id:              id,
+		cwd:             cwd,
+		cn:              cn,
+		turnSlot:        make(chan struct{}, 1),
+		optionWriteSlot: make(chan struct{}, 1),
+		grace:           cancelGrace,
+		closeWait:       closeTimeout,
+		stallTimeout:    stallTimeout,
+		stallPoll:       stallPoll,
+		options:         copyOptions(options),
+		optionRevisions: make(map[string]uint64),
+		cancelSig:       make(chan struct{}),
+		unconfirmedSig:  make(chan struct{}),
+		closedSig:       make(chan struct{}),
+		lastActivity:    time.Now(),
 	}
 	s.turnSlot <- struct{}{}
+	s.optionWriteSlot <- struct{}{}
 	return s
 }
 
@@ -157,7 +167,25 @@ func (s *session) setConfigOptions(options []ConfigOption) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.bumpOptionRevisionsLocked(s.options, options)
 	s.options = copyOptions(options)
+}
+
+// replaceConfigOptions aplica o snapshot completo de config_option_update.
+// Diferente do estado inicial ou da resposta legada a uma troca, uma lista
+// vazia aqui é informação: o agente deixou de oferecer as opções conhecidas.
+func (s *session) replaceConfigOptions(options []ConfigOption) []ConfigOption {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(options) > 0 {
+		// Agentes com campos legados de modelo/modo não os repetem em todo
+		// config_option_update. Preservá-los mantém esses controles enquanto
+		// opções modernas adicionais mudam; snapshot vazio ainda os remove.
+		options = withKnownLegacy(options, s.options)
+	}
+	s.bumpOptionRevisionsLocked(s.options, options)
+	s.options = copyOptions(options)
+	return copyOptions(s.options)
 }
 
 // mergeConfigOptions funde o conjunto que o agente mandou com o que a sessão já
@@ -173,8 +201,131 @@ func (s *session) mergeConfigOptions(fresh []ConfigOption) ([]ConfigOption, bool
 	if len(merged) == 0 {
 		return copyOptions(s.options), false
 	}
+	s.bumpOptionRevisionsLocked(s.options, merged)
 	s.options = copyOptions(merged)
 	return copyOptions(s.options), true
+}
+
+// optionRevisionSnapshot registra as categorias antes de uma escrita remota.
+// Uma notificação mais nova do agente pode chegar antes da resposta JSON-RPC;
+// a resposta antiga não deve desfazer essa notificação nem o estado lido depois.
+func (s *session) optionRevisionSnapshot() map[string]uint64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	snapshot := make(map[string]uint64, len(s.optionRevisions))
+	for optionID, revision := range s.optionRevisions {
+		snapshot[optionID] = revision
+	}
+	return snapshot
+}
+
+// reconcileConfigOptionResponse aceita a resposta da escrita nas opções
+// que não mudaram desde o pedido e mantém a versão mais recente das demais.
+// O agente pode notificar a troca antes de devolver o estado completo do pedido.
+func (s *session) reconcileConfigOptionResponse(fresh []ConfigOption, id, value string, before map[string]uint64) ([]ConfigOption, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	latest := copyOptions(s.options)
+	merged := withKnownLegacy(fresh, latest)
+	if len(merged) == 0 {
+		optionID := optionRevisionKeyForID(id)
+		if s.optionRevisions[optionID] != before[optionID] {
+			return latest, true
+		}
+		updated, ok := setOptionValue(latest, id, value)
+		if !ok {
+			return latest, false
+		}
+		merged = updated
+	} else {
+		changed := make(map[string]bool)
+		for optionID, revision := range s.optionRevisions {
+			if revision != before[optionID] {
+				changed[optionID] = true
+			}
+		}
+		if len(changed) > 0 {
+			merged = preserveChangedOptions(merged, latest, changed)
+		}
+	}
+	s.bumpOptionRevisionsLocked(latest, merged)
+	s.options = copyOptions(merged)
+	return copyOptions(s.options), true
+}
+
+func (s *session) bumpOptionRevisionsLocked(before, after []ConfigOption) {
+	if s.optionRevisions == nil {
+		s.optionRevisions = make(map[string]uint64)
+	}
+	groupByOption := func(options []ConfigOption) map[string][]ConfigOption {
+		grouped := make(map[string][]ConfigOption)
+		for _, option := range options {
+			optionKey := optionRevisionKey(option)
+			grouped[optionKey] = append(grouped[optionKey], option)
+		}
+		for optionKey := range grouped {
+			sort.Slice(grouped[optionKey], func(i, j int) bool {
+				return grouped[optionKey][i].ID < grouped[optionKey][j].ID
+			})
+		}
+		return grouped
+	}
+	previous := groupByOption(before)
+	current := groupByOption(after)
+	changed := make(map[string]bool, len(previous)+len(current))
+	for optionKey := range previous {
+		changed[optionKey] = true
+	}
+	for optionKey := range current {
+		changed[optionKey] = true
+	}
+	for optionKey := range changed {
+		if !reflect.DeepEqual(previous[optionKey], current[optionKey]) {
+			s.optionRevisions[optionKey]++
+		}
+	}
+}
+
+func optionRevisionKey(option ConfigOption) string {
+	return optionRevisionKeyForID(option.ID)
+}
+
+func optionRevisionKeyForID(id string) string {
+	return "option:" + id
+}
+
+func preserveChangedOptions(base, latest []ConfigOption, changed map[string]bool) []ConfigOption {
+	out := make([]ConfigOption, 0, len(base)+len(latest))
+	for _, option := range base {
+		if !changed[optionRevisionKey(option)] {
+			out = append(out, option)
+		}
+	}
+	for _, option := range latest {
+		if changed[optionRevisionKey(option)] {
+			out = append(out, option)
+		}
+	}
+	return out
+}
+
+func setOptionValue(options []ConfigOption, id, value string) ([]ConfigOption, bool) {
+	out := copyOptions(options)
+	for i := range out {
+		if out[i].ID != id {
+			continue
+		}
+		if out[i].Kind == "boolean" {
+			if parsed, err := strconv.ParseBool(value); err == nil {
+				out[i].CurrentBool = parsed
+			}
+		} else {
+			out[i].CurrentValue = value
+		}
+		return out, true
+	}
+	return copyOptions(options), false
 }
 
 // Commands devolve os comandos que o agente ofereceu para esta sessão. Cópia
@@ -216,28 +367,15 @@ func (s *session) setCurrentMode(mode string) {
 	defer s.mu.Unlock()
 	for i := range s.options {
 		if s.options[i].Category == modeCategory {
+			if s.options[i].CurrentValue == mode {
+				return
+			}
+			before := copyOptions(s.options)
 			s.options[i].CurrentValue = mode
+			s.bumpOptionRevisionsLocked(before, s.options)
 			return
 		}
 	}
-}
-
-// setCurrentValue anota o valor de uma opção pelo identificador dela e devolve
-// o estado resultante junto com a notícia de ter achado a opção — na mesma
-// trava, para que quem chamou receba o que acabou de escrever. Não inventa a
-// opção que não existe: sem nome nem lista de valores, o que apareceria no
-// seletor é um controle mudo, e as opções que este pacote ainda não modela são
-// justamente as que ninguém sabe desenhar.
-func (s *session) setCurrentValue(id, value string) ([]ConfigOption, bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for i := range s.options {
-		if s.options[i].ID == id {
-			s.options[i].CurrentValue = value
-			return copyOptions(s.options), true
-		}
-	}
-	return copyOptions(s.options), false
 }
 
 func (s *session) setSink(sink UpdateSink) {
@@ -258,21 +396,18 @@ func (s *session) deliver(update Update) {
 	s.noteActivity()
 	switch update.Kind {
 	case UpdateConfigOptions:
-		// Quem escuta recebe o mesmo conjunto que passamos a guardar, e não o
-		// que veio do agente. O evento se anuncia como o conjunto completo, e
-		// um agente que manda só os modelos faria a UI esconder o seletor de
-		// modo no meio da conversa — enquanto o estado da sessão ainda diria
-		// que o modo existe.
-		update.ConfigOptions, _ = s.mergeConfigOptions(update.ConfigOptions)
+		// A notificação ACP é o snapshot completo. Não mesclar deixa de
+		// ressuscitar seletores obsoletos quando o agente os remove.
+		update.ConfigOptions = s.replaceConfigOptions(update.ConfigOptions)
 		// O agente trocou de modelo por conta própria — fallback de limite, por
 		// exemplo. A lista que a tela de configurações guarda descreve um estado
 		// que acabou de mudar, e servir a antiga mostraria opções que já não são
 		// as dele (AEP-0084 D6).
 		s.cn.invalidateOptions()
-		s.cn.announceOptions(s.id, update.ConfigOptions)
+		s.cn.announceOptions(s.id, update.ConfigOptions, true)
 	case UpdateMode:
 		s.setCurrentMode(update.Mode)
-		s.cn.announceOptions(s.id, s.ConfigOptions())
+		s.cn.announceOptions(s.id, s.ConfigOptions(), false)
 	case UpdateCommands:
 		// A lista chega fora de turno — o agente a manda assim que a sessão
 		// abre —, então quem escuta é o canal próprio, e não o sink, que só
@@ -801,6 +936,19 @@ func (s *session) farewell(ctx context.Context) error {
 }
 
 func (s *session) SetConfigOption(ctx context.Context, id, value string) ([]ConfigOption, error) {
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-s.closedSig:
+		return nil, ErrSessionClosed
+	case <-s.optionWriteSlot:
+	}
+	if err := ctx.Err(); err != nil {
+		s.optionWriteSlot <- struct{}{}
+		return nil, err
+	}
+	defer func() { s.optionWriteSlot <- struct{}{} }()
+
 	// Conversa encerrada não troca de modelo: quem ainda segura a sessão não
 	// deve conseguir falar com o agente sobre ela.
 	if s.isClosed() {
@@ -809,14 +957,23 @@ func (s *session) SetConfigOption(ctx context.Context, id, value string) ([]Conf
 	if s.cn.isDead() {
 		return nil, ErrSessionLost
 	}
+	optionRevisions := s.optionRevisionSnapshot()
+	request := sdk.SetSessionConfigOptionRequest{ValueId: &sdk.SetSessionConfigOptionValueId{
+		SessionId: sdk.SessionId(s.id),
+		ConfigId:  sdk.SessionConfigId(id),
+		Value:     sdk.SessionConfigValueId(value),
+	}}
+	if s.optionKind(id) == "boolean" {
+		parsed, parseErr := strconv.ParseBool(value)
+		if parseErr != nil {
+			return nil, fmt.Errorf("valor booleano inválido para a opção %q", id)
+		}
+		request = sdk.SetSessionConfigOptionRequest{Boolean: &sdk.SetSessionConfigOptionBoolean{
+			SessionId: sdk.SessionId(s.id), ConfigId: sdk.SessionConfigId(id), Value: parsed,
+		}}
+	}
 	resp, err := sdk.SendRequest[sdk.SetSessionConfigOptionResponse](s.cn.rpc, ctx,
-		sdk.AgentMethodSessionSetConfigOption, sdk.SetSessionConfigOptionRequest{
-			ValueId: &sdk.SetSessionConfigOptionValueId{
-				SessionId: sdk.SessionId(s.id),
-				ConfigId:  sdk.SessionConfigId(id),
-				Value:     sdk.SessionConfigValueId(value),
-			},
-		})
+		sdk.AgentMethodSessionSetConfigOption, request)
 	if err != nil {
 		if !isMethodNotFound(err) {
 			return nil, wrapCallError(fmt.Sprintf("trocar a opção %q da sessão", id), err)
@@ -827,7 +984,8 @@ func (s *session) SetConfigOption(ctx context.Context, id, value string) ([]Conf
 		if err := s.setLegacyOption(ctx, id, value); err != nil {
 			return nil, err
 		}
-		return s.confirmLocally(ctx, id, value), nil
+		options, _ := s.reconcileConfigOptionResponse(nil, id, value, optionRevisions)
+		return options, nil
 	}
 
 	// Mesmo cuidado do deliver: o agente no formato legado responde só com o
@@ -835,29 +993,18 @@ func (s *session) SetConfigOption(ctx context.Context, id, value string) ([]Conf
 	// campo — sumiria do seletor só porque a pessoa trocou de modelo. O que
 	// volta é sempre cópia: entregar o slice guardado deixaria quem chamou
 	// mexendo no estado da sessão por fora.
-	if novas, ok := s.mergeConfigOptions(configOptionsFrom(resp.ConfigOptions)); ok {
-		return novas, nil
+	options, ok := s.reconcileConfigOptionResponse(configOptionsFrom(resp.ConfigOptions), id, value, optionRevisions)
+	if ok {
+		return options, nil
 	}
 
 	// A resposta do agente não trouxe nada aproveitável — só opções de tipos
 	// que ainda não modelamos, por exemplo —, então o valor pedido é guardado
 	// à mão: sem isso a tela anunciaria o modelo antigo para uma troca que
 	// aconteceu de verdade.
-	return s.confirmLocally(ctx, id, value), nil
-}
-
-// confirmLocally anota o valor que o agente aceitou sem devolver estado. Vale
-// para o seletor legado, que não responde nada, e para a resposta que só traz
-// opções de tipos que este pacote ainda não modela.
-func (s *session) confirmLocally(ctx context.Context, id, value string) []ConfigOption {
-	novas, achou := s.setCurrentValue(id, value)
-	if !achou {
-		// A opção trocada é uma que não acompanhamos. Fica registrado: é o que
-		// explica uma tela que não mudou depois de uma troca bem-sucedida.
-		logging.Debugf(ctx, logComponent,
-			"[ACP] o agente confirmou a troca de %q na sessão %q, opção que não acompanhamos", id, s.id)
-	}
-	return novas
+	logging.Debugf(ctx, logComponent,
+		"[ACP] o agente confirmou a troca de %q na sessão %q, opção que não acompanhamos", id, s.id)
+	return options, nil
 }
 
 // setLegacyOption fala com o agente pelo seletor anterior ao configOptions. O
@@ -906,6 +1053,17 @@ func (s *session) categoryOf(id string) string {
 		}
 	}
 	return ""
+}
+
+func (s *session) optionKind(id string) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, option := range s.options {
+		if option.ID == id {
+			return option.Kind
+		}
+	}
+	return "select"
 }
 
 // isMethodNotFound distingue o agente que não conhece o método do agente que

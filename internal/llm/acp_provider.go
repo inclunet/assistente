@@ -174,7 +174,11 @@ func (p *ACPChatProvider) StreamChat(ctx context.Context, messages []Message, pa
 		// O desfecho vai como resposta, e não como erro: recusa e limite são
 		// o turno terminando, não o transporte falhando. Como erro, o texto
 		// não seria salvo nem falado — e a auto-recuperação ainda repetiria
-		// para o agente um pedido que ele já aceitou.
+		// para o agente um pedido que ele já aceitou. O aviso de conteúdo ACP
+		// não renderizado é complementar; ainda precisamos persistir um desfecho
+		// textual para respostas compostas só por blocos que a UI não exibe.
+		// ChatParams ainda não transporta o locale da interface, então mantemos o
+		// fallback terminal existente até uma decisão transversal de localização.
 		response = notice
 	}
 	if stop != acp.StopEndTurn {
@@ -265,7 +269,11 @@ func (p *ACPChatProvider) promptContent(ctx context.Context, conv *acp.Conversat
 		if messages[i].Role != "user" {
 			continue
 		}
-		content, notSent := turnContent(messages[i], func() bool { return p.acceptsImage(ctx, conv) })
+		content, notSent := turnContent(messages[i],
+			func() bool { return p.acceptsImage(ctx, conv) },
+			func() bool { return p.acceptsAudio(ctx, conv) },
+			func() bool { return p.acceptsEmbeddedContext(ctx, conv) },
+		)
 		if len(content) == 0 {
 			if notSent > 0 {
 				return nil, 0, errors.New("o anexo não pôde ser enviado ao agente, e a mensagem não tem texto para enviar no lugar")
@@ -288,6 +296,29 @@ func (p *ACPChatProvider) acceptsImage(ctx context.Context, conv *acp.Conversati
 		return false
 	}
 	return caps.PromptImage
+}
+
+// acceptsAudio diz se o agente recebe áudio inline. Uma falha ao ler as
+// capacidades é tratada como não aceitação para preservar o texto do turno.
+func (p *ACPChatProvider) acceptsAudio(ctx context.Context, conv *acp.Conversation) bool {
+	caps, err := conv.Capabilities(ctx)
+	if err != nil {
+		logging.Warnf(ctx, acpProviderComponent,
+			"[ACP] capacidades do agente indisponíveis; anexos ficam de fora deste turno: %v", err)
+		return false
+	}
+	return caps.PromptAudio
+}
+
+// acceptsEmbeddedContext diz se o agente recebe conteúdo de arquivo embutido.
+func (p *ACPChatProvider) acceptsEmbeddedContext(ctx context.Context, conv *acp.Conversation) bool {
+	caps, err := conv.Capabilities(ctx)
+	if err != nil {
+		logging.Warnf(ctx, acpProviderComponent,
+			"[ACP] capacidades do agente indisponíveis; anexos ficam de fora deste turno: %v", err)
+		return false
+	}
+	return caps.PromptEmbeddedContext
 }
 
 // turnAccepted diz se o pedido chegou a sair para o agente. A definição é
@@ -373,7 +404,8 @@ type acpTurn struct {
 	thinking  bool
 	// title é o nome que o agente deu à sessão, já saneado. Entregue depois do
 	// turno, e não durante: ver o comentário em update.
-	title string
+	title      string
+	titleClear bool
 	// segmentPending diz que há texto escrito depois do último corte, e é o que
 	// impede um segmento vazio quando o agente emenda uma ferramenta na outra.
 	segmentPending bool
@@ -384,7 +416,9 @@ type acpTurn struct {
 	// lastAnonymous é a chave da última chamada sem identificador ainda aberta,
 	// e é por ela que uma atualização sem identificador nem classe encontra o
 	// começo dela.
-	lastAnonymous string
+	lastAnonymous       string
+	outputNoticeSent    bool
+	contextWarningLevel int
 }
 
 // agentToolState é o que o app precisa lembrar de uma chamada entre o começo e
@@ -418,7 +452,41 @@ func (t *acpTurn) update(update acp.Update) {
 		// roda na goroutine de entrega do transporte — enquanto ele não volta, o
 		// protocolo do agente fica parado (AEP-0084 D8). O último título vale,
 		// porque o agente refina o dele conforme o turno avança.
+		t.titleClear = update.TitleCleared
 		t.title = acp.SanitizeLabel(update.Title)
+	case acp.UpdateUnsupportedOutput:
+		if !t.outputNoticeSent {
+			t.outputNoticeSent = true
+			notifyTurn(t.handler, TurnNotice{Kind: TurnNoticeAgentOutputNotDisplayed})
+		}
+	case acp.UpdateUsage:
+		if update.ContextSize <= 0 || update.ContextUsed < 0 {
+			return
+		}
+		usage := ACPUsageUpdate{
+			ContextTokens: update.ContextUsed,
+			ContextLimit:  update.ContextSize,
+			CostAmount:    update.SessionCostAmount,
+			CostCurrency:  update.SessionCostCurrency,
+		}
+		reportACPUsage(t.handler, usage)
+		percentage := float64(update.ContextUsed) * 100 / float64(update.ContextSize)
+		if percentage > 100 {
+			percentage = 100
+		}
+		if percentage >= 95 && t.contextWarningLevel < 2 {
+			t.contextWarningLevel = 2
+			notifyTurn(t.handler, TurnNotice{
+				Kind: TurnNoticeAgentContextCritical, Percentage: percentage,
+				ContextTokens: update.ContextUsed, ContextLimit: update.ContextSize,
+			})
+		} else if percentage >= 80 && t.contextWarningLevel < 1 {
+			t.contextWarningLevel = 1
+			notifyTurn(t.handler, TurnNotice{
+				Kind: TurnNoticeAgentContextNearLimit, Percentage: percentage,
+				ContextTokens: update.ContextUsed, ContextLimit: update.ContextSize,
+			})
+		}
 	}
 }
 
@@ -579,7 +647,7 @@ func (t *acpTurn) response() string {
 // entrega as atualizações do protocolo. Handler que não sabe receber título
 // simplesmente não recebe: renomear é conveniência, e nenhum turno depende dela.
 func (t *acpTurn) deliverTitle() {
-	if strings.TrimSpace(t.title) == "" {
+	if strings.TrimSpace(t.title) == "" && !t.titleClear {
 		return
 	}
 	if sink, ok := t.handler.(AgentTitleSink); ok {

@@ -5,6 +5,106 @@ import (
 	"testing"
 )
 
+func TestSnapshotDeOpcoesVazioRemoveEstadoAnterior(t *testing.T) {
+	sess := &session{options: []ConfigOption{{ID: "model", CurrentValue: "modelo-a"}}}
+	got := sess.replaceConfigOptions(nil)
+	if len(got) != 0 || len(sess.ConfigOptions()) != 0 {
+		t.Fatalf("opções antigas sobreviveram ao snapshot vazio: retornadas=%+v estado=%+v", got, sess.ConfigOptions())
+	}
+}
+
+func TestAtualizacaoDeModoNaoDescartaRespostaDeModeloEmAndamento(t *testing.T) {
+	sess := &session{options: []ConfigOption{
+		{ID: "model", Category: CategoryModel, CurrentValue: "modelo-a"},
+		{ID: "mode", Category: modeCategory, CurrentValue: "agent"},
+	}}
+	antes := sess.optionRevisionSnapshot()
+
+	// A notificação parcial de modo chega enquanto a troca de modelo aguarda
+	// resposta. Ela só deve invalidar a categoria mode.
+	if _, changed := sess.mergeConfigOptions([]ConfigOption{{
+		ID: "mode", Category: modeCategory, CurrentValue: "plan",
+	}}); !changed {
+		t.Fatal("atualização parcial de modo não foi aplicada")
+	}
+	options, ok := sess.reconcileConfigOptionResponse([]ConfigOption{
+		{ID: "model", Category: CategoryModel, CurrentValue: "modelo-b"},
+	}, "model", "modelo-b", antes)
+	if !ok {
+		t.Fatal("resposta de modelo não foi reconciliada")
+	}
+	if got := findOption(options, CategoryModel); got == nil || got.CurrentValue != "modelo-b" {
+		t.Fatalf("atualização de modo descartou a troca de modelo: %+v", options)
+	}
+	if got := findOption(options, modeCategory); got == nil || got.CurrentValue != "plan" {
+		t.Fatalf("resposta atrasada reverteu o modo: %+v", options)
+	}
+}
+
+func TestAtualizacaoDeOutraOpcaoNaoDescartaRespostaNaCategoriaOther(t *testing.T) {
+	sess := &session{options: []ConfigOption{
+		{ID: "effort", Category: "other", CurrentValue: "low"},
+		{ID: "verbosity", Category: "other", CurrentValue: "concise"},
+	}}
+	antes := sess.optionRevisionSnapshot()
+	updated := sess.replaceConfigOptions([]ConfigOption{
+		{ID: "effort", Category: "other", CurrentValue: "low"},
+		{ID: "verbosity", Category: "other", CurrentValue: "detailed"},
+	})
+	if got := findOptionByID(updated, "verbosity"); got == nil || got.CurrentValue != "detailed" {
+		t.Fatalf("snapshot de verbosity não foi aplicado: %+v", updated)
+	}
+	options, ok := sess.reconcileConfigOptionResponse([]ConfigOption{
+		{ID: "effort", Category: "other", CurrentValue: "high"},
+		{ID: "verbosity", Category: "other", CurrentValue: "concise"},
+	}, "effort", "high", antes)
+	if !ok {
+		t.Fatal("resposta de effort não foi reconciliada")
+	}
+	if got := findOptionByID(options, "effort"); got == nil || got.CurrentValue != "high" {
+		t.Fatalf("outra opção de other descartou a troca de effort: %+v", options)
+	}
+	if got := findOptionByID(options, "verbosity"); got == nil || got.CurrentValue != "detailed" {
+		t.Fatalf("a notificação de verbosity foi revertida: %+v", options)
+	}
+}
+
+func findOptionByID(options []ConfigOption, id string) *ConfigOption {
+	for i := range options {
+		if options[i].ID == id {
+			return &options[i]
+		}
+	}
+	return nil
+}
+
+func TestOpcaoBooleanaPodeSerConsultadaEAlterada(t *testing.T) {
+	ctx := testContext(t)
+	client := newTestClient(t, scriptBooleanOptions, nil)
+	sess := startSession(t, client, ctx)
+
+	initial := sess.ConfigOptions()
+	if len(initial) < 2 {
+		t.Fatalf("opção booleana ausente: %+v", initial)
+	}
+	option := &initial[1]
+	if option.ID != "telemetria" || option.Kind != "boolean" || !option.CurrentBool {
+		t.Fatalf("opção booleana inicial inesperada: %+v", option)
+	}
+
+	options, err := sess.SetConfigOption(ctx, "telemetria", "false")
+	if err != nil {
+		t.Fatalf("alterar opção booleana: %v", err)
+	}
+	if len(options) < 2 {
+		t.Fatalf("opção booleana sumiu depois da troca: %+v", options)
+	}
+	option = &options[1]
+	if option.ID != "telemetria" || option.Kind != "boolean" || option.CurrentBool {
+		t.Fatalf("valor booleano não foi atualizado: %+v", option)
+	}
+}
+
 func TestTrocaDeModeloValeParaOTurnoSeguinte(t *testing.T) {
 	ctx := testContext(t)
 	client := newTestClient(t, scriptModelo, nil)

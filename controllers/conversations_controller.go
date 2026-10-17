@@ -15,17 +15,18 @@ import (
 // ConversationsController orquestra persistência de conversas/mensagens (AEP-0088).
 // Side-effects do App (reset de escopo, questionário, modelo do perfil) entram via hooks.
 type ConversationsControllerConfig struct {
-	MsgRepo                 chat.MessageRepository
-	Emitter                 ports.Emitter
-	ResetScopedState        func(ctx context.Context, conversationID string)
-	PrepareBatchDelete      func(ctx context.Context, conversationIDs []string) (finalize func(committed bool), err error)
-	ValidateBatchDelete     func(ctx context.Context, conversationIDs []string) ([]string, error)
-	DeleteBatch             func(ctx context.Context, conversationIDs []string) ([]string, error)
-	ListConversations       func(ctx context.Context) ([]database.Conversation, error)
-	WithMaintenance         func(ctx context.Context, fn func() error) error
-	DeleteWithinMaintenance func(ctx context.Context, conversationIDs []string) ([]string, error)
-	ConfirmDeleteMessage    func() error
-	GetEffectiveModelFunc   func() (string, error)
+	MsgRepo                     chat.MessageRepository
+	Emitter                     ports.Emitter
+	ResetScopedState            func(ctx context.Context, conversationID string)
+	PrepareBatchDelete          func(ctx context.Context, conversationIDs []string) (finalize func(committed bool), err error)
+	ValidateBatchDelete         func(ctx context.Context, conversationIDs []string) ([]string, error)
+	DeleteBatch                 func(ctx context.Context, conversationIDs []string) ([]string, error)
+	ListConversations           func(ctx context.Context) ([]database.Conversation, error)
+	WithMaintenance             func(ctx context.Context, fn func() error) error
+	DeleteWithinMaintenance     func(ctx context.Context, conversationIDs []string) ([]string, error)
+	ConfirmDeleteMessage        func() error
+	GetEffectiveModelFunc       func() (string, error)
+	UpdateConversationTitleFunc func(ctx context.Context, conversationID, title, model string) error
 }
 
 // ConversationsController é o orquestrador do domínio conversations.
@@ -41,6 +42,7 @@ type ConversationsController struct {
 	deleteWithinMaintenance func(ctx context.Context, conversationIDs []string) ([]string, error)
 	confirmDeleteMessage    func() error
 	getEffectiveModel       func() (string, error)
+	updateConversationTitle func(ctx context.Context, conversationID, title, model string) error
 }
 
 var (
@@ -79,6 +81,7 @@ func NewConversationsController(cfg ConversationsControllerConfig) *Conversation
 		deleteWithinMaintenance: cfg.DeleteWithinMaintenance,
 		confirmDeleteMessage:    cfg.ConfirmDeleteMessage,
 		getEffectiveModel:       cfg.GetEffectiveModelFunc,
+		updateConversationTitle: cfg.UpdateConversationTitleFunc,
 	}
 }
 
@@ -397,7 +400,11 @@ func (c *ConversationsController) GetMessageChildren(ctx context.Context, messag
 
 // UpdateConversation atualiza título/modelo e emite rename se houver título.
 func (c *ConversationsController) UpdateConversation(ctx context.Context, id string, title, model string) error {
-	if err := database.UpdateConversationWithContext(ctx, id, title, model); err != nil {
+	update := c.updateConversationTitle
+	if update == nil {
+		update = database.UpdateConversationWithContext
+	}
+	if err := update(ctx, id, title, model); err != nil {
 		return err
 	}
 	if title != "" {
