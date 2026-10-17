@@ -211,14 +211,15 @@ describe('AgentOptionsPickers', () => {
     await user.keyboard('{ArrowDown}{Enter}');
 
     await waitFor(() => expect(setOption).toHaveBeenCalledWith('conversa-1', 'model', 'modelo-b'));
-    await waitFor(() => expect(trigger).toHaveFocus());
-    expect(trigger).not.toBeDisabled();
-    expect(trigger).toHaveAttribute('aria-busy', 'true');
+    await waitFor(() => expect(screen.getByRole('button', { name: /Modelo/ })).toHaveFocus());
+    const triggerAfterSelection = screen.getByRole('button', { name: /Modelo/ });
+    expect(triggerAfterSelection).not.toBeDisabled();
+    expect(triggerAfterSelection).toHaveAttribute('aria-busy', 'true');
 
     await act(async () => {
       resolveChange(opcoesDoAgente('modelo-b'));
     });
-    expect(trigger).toHaveFocus();
+    expect(screen.getByRole('button', { name: /Modelo/ })).toHaveFocus();
   });
 
   it('remove opções antigas quando o agente publica um snapshot vazio', async () => {
