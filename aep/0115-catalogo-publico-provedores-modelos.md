@@ -223,10 +223,12 @@ altera conexões existentes nem sobrepõe a identidade explícita persistida.
    persistir atomicamente a última versão válida com ETag/Last-Modified e expor
    snapshots tipados por API Wails. O cache é carregado localmente e a atualização
    ocorre em segundo plano; falhas mantêm o snapshot válido anterior.
-3. **Configuração de provedores pelo catálogo.** Trocar os presets duplicados
-   do frontend/backend por perfis catalogados; aplicar política fixa/editável
-   por campo, manter customizados, mostrar links de cadastro/chave e preservar
-   configurações salvas.
+3. **Configuração de provedores pelo catálogo — em andamento.** Persistir a
+   associação explícita `server_profile_id` sem inferir perfis de conexões
+   existentes; depois trocar os presets duplicados do frontend/backend por
+   perfis catalogados, aplicar política fixa/editável por campo, manter
+   customizados, mostrar links de cadastro/chave e preservar configurações
+   salvas.
 4. **Modelos, capacidades e proxies.** Associar IDs expostos apenas por
    mapeamento exato e integrar recursos/limites sem impedir aliases
    desconhecidos.
@@ -277,6 +279,12 @@ altera conexões existentes nem sobrepõe a identidade explícita persistida.
   `internal/wailsapi/llm_catalog.go`.
 - [ ] Provedores conhecidos aplicam as políticas de edição declaradas; URLs de
   cadastro e obtenção de chave são acessíveis e localizadas.
+- [x] A conexão persiste o ID do perfil de servidor escolhido explicitamente,
+  preserva a associação em exportação/importação e deixa conexões antigas sem
+  perfil; agentes ACP e a conexão OAuth do ChatGPT não recebem perfil HTTP.
+  Evidência: `llm.ProviderConfig.ServerProfileID`, coluna aditiva
+  `llm_providers.server_profile_id`, conversão no `DBStore` e cobertura em
+  `db_store_stream_timeout_test.go` e `portability/providers_catalog_test.go`.
 - [ ] Atualizar o catálogo não sobrescreve configurações existentes nem envia
   dados locais ao site.
 - [ ] Modelos e aliases só recebem capacidades por associação exata; IDs sem

@@ -10,6 +10,7 @@ func TestDBStorePreservaStreamIdleTimeout(t *testing.T) {
 	original := &llm.ProviderConfig{
 		ID:                       "provider-1",
 		Name:                     "Provider",
+		ServerProfileID:          "openrouter",
 		CompatibilityRevision:    9,
 		StreamIdleTimeoutSeconds: 75,
 	}
@@ -23,5 +24,8 @@ func TestDBStorePreservaStreamIdleTimeout(t *testing.T) {
 	}
 	if restored.CompatibilityRevision != 9 {
 		t.Fatalf("revisão de compatibilidade=%d, esperada 9", restored.CompatibilityRevision)
+	}
+	if restored.ServerProfileID != "openrouter" {
+		t.Fatalf("perfil de servidor=%q, esperado openrouter", restored.ServerProfileID)
 	}
 }

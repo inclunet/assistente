@@ -930,6 +930,7 @@ export namespace apidto {
 	    api_key?: string;
 	    default_model?: string;
 	    api_format?: string;
+	    server_profile_id?: string;
 	    reasoning_content_mode?: string;
 	    acp_command?: string;
 	    acp_args?: string[];
@@ -952,6 +953,7 @@ export namespace apidto {
 	        this.api_key = source["api_key"];
 	        this.default_model = source["default_model"];
 	        this.api_format = source["api_format"];
+	        this.server_profile_id = source["server_profile_id"];
 	        this.reasoning_content_mode = source["reasoning_content_mode"];
 	        this.acp_command = source["acp_command"];
 	        this.acp_args = source["acp_args"];
@@ -1839,6 +1841,7 @@ export namespace apidto {
 	    api_key?: string;
 	    default_model?: string;
 	    api_format?: string;
+	    server_profile_id?: string;
 	    reasoning_content_mode?: string;
 	    acp_command?: string;
 	    acp_args?: string[];
@@ -1859,6 +1862,7 @@ export namespace apidto {
 	        this.api_key = source["api_key"];
 	        this.default_model = source["default_model"];
 	        this.api_format = source["api_format"];
+	        this.server_profile_id = source["server_profile_id"];
 	        this.reasoning_content_mode = source["reasoning_content_mode"];
 	        this.acp_command = source["acp_command"];
 	        this.acp_args = source["acp_args"];
@@ -6420,6 +6424,7 @@ export namespace llm {
 	    id: string;
 	    name: string;
 	    type: string;
+	    server_profile_id?: string;
 	    api_format?: string;
 	    base_url: string;
 	    model?: string;
@@ -6446,6 +6451,7 @@ export namespace llm {
 	        this.id = source["id"];
 	        this.name = source["name"];
 	        this.type = source["type"];
+	        this.server_profile_id = source["server_profile_id"];
 	        this.api_format = source["api_format"];
 	        this.base_url = source["base_url"];
 	        this.model = source["model"];

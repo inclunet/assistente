@@ -28,6 +28,10 @@ const acpAPIFormat = "acp"
 const acpProviderType = "acp"
 
 func exportProvider(provider *database.LLMProvider) (ProviderExport, error) {
+	serverProfileID := provider.ServerProfileID
+	if provider.Type == "chatgpt" || provider.Type == acpProviderType || provider.APIFormat == acpAPIFormat {
+		serverProfileID = ""
+	}
 	args, err := decodeStringSlice(provider.ACPArgs)
 	if err != nil {
 		return ProviderExport{}, fmt.Errorf("erro ao decodificar argumentos do agente do provider %s: %w", provider.ID, err)
@@ -44,6 +48,7 @@ func exportProvider(provider *database.LLMProvider) (ProviderExport, error) {
 		Name:                     provider.Name,
 		Type:                     provider.Type,
 		ErrorFamily:              provider.ErrorFamily,
+		ServerProfileID:          serverProfileID,
 		APIFormat:                provider.APIFormat,
 		BaseURL:                  provider.BaseURL,
 		Model:                    provider.Model,
@@ -176,6 +181,7 @@ func persistProvider(ctx context.Context, tx *gorm.DB, provider ProviderExport, 
 			Name:                     provider.Name,
 			Type:                     provider.Type,
 			ErrorFamily:              provider.ErrorFamily,
+			ServerProfileID:          provider.ServerProfileID,
 			APIFormat:                provider.APIFormat,
 			BaseURL:                  provider.BaseURL,
 			Model:                    provider.Model,
@@ -207,6 +213,7 @@ func persistProvider(ctx context.Context, tx *gorm.DB, provider ProviderExport, 
 	existing.Name = provider.Name
 	existing.Type = provider.Type
 	existing.ErrorFamily = provider.ErrorFamily
+	existing.ServerProfileID = provider.ServerProfileID
 	existing.APIFormat = provider.APIFormat
 	existing.BaseURL = provider.BaseURL
 	existing.Model = provider.Model
@@ -231,7 +238,11 @@ func validateProviderExport(provider ProviderExport) (ProviderExport, error) {
 	normalized.Name = strings.TrimSpace(provider.Name)
 	normalized.Type = strings.TrimSpace(provider.Type)
 	normalized.ErrorFamily = strings.TrimSpace(provider.ErrorFamily)
+	normalized.ServerProfileID = strings.TrimSpace(provider.ServerProfileID)
 	normalized.APIFormat = strings.TrimSpace(provider.APIFormat)
+	if normalized.Type == "chatgpt" || normalized.Type == acpProviderType || normalized.APIFormat == acpAPIFormat {
+		normalized.ServerProfileID = ""
+	}
 	normalized.BaseURL = strings.TrimSpace(provider.BaseURL)
 	normalized.Model = strings.TrimSpace(provider.Model)
 	normalized.DefaultModel = strings.TrimSpace(provider.DefaultModel)
