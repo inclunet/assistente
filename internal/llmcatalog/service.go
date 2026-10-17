@@ -166,7 +166,7 @@ func (s *Service) refreshInBackground(ctx context.Context) {
 // cancelado antes da chamada para interromper o request em andamento.
 func (s *Service) Close() { s.background.Wait() }
 
-func (s *Service) refresh(parent context.Context) error {
+func (s *Service) refresh(parent context.Context) (retErr error) {
 	ctx, cancel := context.WithTimeout(parent, requestTimeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, URL, nil)
@@ -190,7 +190,11 @@ func (s *Service) refresh(parent context.Context) error {
 		s.setReason("unreachable")
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			retErr = errors.Join(retErr, fmt.Errorf("fechar resposta do catálogo: %w", err))
+		}
+	}()
 	if resp.StatusCode == http.StatusNotModified {
 		if !loaded {
 			s.setReason("malformed_catalog")
@@ -258,9 +262,9 @@ func (s *Service) loadCache() {
 	if err != nil {
 		return
 	}
-	defer file.Close()
 	body, err := io.ReadAll(io.LimitReader(file, maxCacheBytes+1))
-	if err != nil || len(body) > maxCacheBytes {
+	closeErr := file.Close()
+	if err != nil || closeErr != nil || len(body) > maxCacheBytes {
 		return
 	}
 	var envelope cacheEnvelope
@@ -284,7 +288,7 @@ func (s *Service) cacheValueLocked() cacheEnvelope {
 	return cacheEnvelope{FetchedAt: s.snapshot.FetchedAt, ETag: s.etag, LastModified: s.lastModified, Document: body}
 }
 
-func (s *Service) writeCache(envelope cacheEnvelope) error {
+func (s *Service) writeCache(envelope cacheEnvelope) (retErr error) {
 	if s.path == "" {
 		return nil
 	}
@@ -300,18 +304,19 @@ func (s *Service) writeCache(envelope cacheEnvelope) error {
 		return err
 	}
 	tmpName := tmp.Name()
-	defer os.Remove(tmpName)
+	defer func() {
+		if err := os.Remove(tmpName); err != nil && !errors.Is(err, os.ErrNotExist) {
+			retErr = errors.Join(retErr, fmt.Errorf("remover arquivo temporário do catálogo: %w", err))
+		}
+	}()
 	if err := tmp.Chmod(0o600); err != nil {
-		_ = tmp.Close()
-		return err
+		return errors.Join(err, tmp.Close())
 	}
 	if _, err := tmp.Write(body); err != nil {
-		_ = tmp.Close()
-		return err
+		return errors.Join(err, tmp.Close())
 	}
 	if err := tmp.Sync(); err != nil {
-		_ = tmp.Close()
-		return err
+		return errors.Join(err, tmp.Close())
 	}
 	if err := tmp.Close(); err != nil {
 		return err

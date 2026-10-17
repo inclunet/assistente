@@ -79,7 +79,7 @@ func Validate(doc Document) error {
 		if server.DefaultModelID != "" && !lengthBetween(server.DefaultModelID, 1, 200) {
 			return invalid(path+".default_model_id", "tamanho inválido")
 		}
-		if server.Fields == nil || len(server.Fields) == 0 {
+		if len(server.Fields) == 0 {
 			return invalid(path+".fields", "deve conter pelo menos uma política")
 		}
 		for name, policy := range server.Fields {
