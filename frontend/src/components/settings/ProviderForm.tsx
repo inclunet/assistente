@@ -43,7 +43,8 @@ const policyFor = (profile: ServerProfile | undefined, field: string): FieldPoli
 const policyValue = (profile: ServerProfile, field: string, fallback: unknown): unknown => {
   const policy = policyFor(profile, field);
   if (policy?.policy === 'fixed' || policy?.policy === 'hidden' || policy?.policy === 'choice') return policy.default ?? fallback;
-  return fallback ?? policy?.default;
+  const hasFallback = fallback !== undefined && fallback !== null && fallback !== '';
+  return hasFallback ? fallback : policy?.default ?? fallback;
 };
 
 const customProfile = (): ServerProfile => ({

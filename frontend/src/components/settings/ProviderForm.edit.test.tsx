@@ -293,6 +293,18 @@ describe("ProviderForm - Restrições de URL em Edição", () => {
     expect(screen.getByLabelText(/modelo padrão/i)).toHaveValue('gpt-4o');
   });
 
+  it('usa default da política editável quando o valor top-level está vazio', async () => {
+    render(<ProviderForm provider={{
+      id: 'editable-model', name: 'OpenAI', type: 'openai',
+      server_profile_id: 'editable-model-test', base_url: 'https://api.openai.com/v1',
+      api_key: '', default_model: '', api_format: 'openai',
+    }} onCancel={() => {}} onSave={() => {}} />);
+
+    await waitFor(() => expect(screen.getByLabelText(/perfil de servidor/i)).toHaveValue('editable-model-test'));
+    expect(screen.getByLabelText(/modelo padrão/i)).toHaveValue('gpt-4o-mini');
+    expect(screen.getByLabelText(/modelo padrão/i)).not.toBeDisabled();
+  });
+
   it("mantém a URL legada de Anthropic sem aplicar política do catálogo", () => {
     render(
       <ProviderForm

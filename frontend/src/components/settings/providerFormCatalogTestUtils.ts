@@ -19,6 +19,7 @@ const profiles: Array<[string, string, string, string, string, string]> = [
   ['llamacpp', 'llama.cpp', 'llamacpp', 'openai', 'http://localhost:8080/v1', 'none'],
   ['custom-openai-compatible', 'Custom', 'custom', 'openai', '', 'optional_api_key'],
   ['fixed-model-test', 'OpenAI com modelo fixo', 'openai', 'openai', 'https://api.openai.com/v1', 'bearer_api_key'],
+  ['editable-model-test', 'OpenAI com modelo inicial editável', 'openai', 'openai', 'https://api.openai.com/v1', 'bearer_api_key'],
 ];
 
 export const providerFormCatalogResponse = {
@@ -26,6 +27,7 @@ export const providerFormCatalogResponse = {
     servers: profiles.map(([id, name, provider_family, api_format, base_url, authMode]) => ({
       id, name, provider_family, api_format, base_url, status: 'active', group: 'hosted',
       adapter_id: api_format, auth: { mode: authMode, required: ['bearer_api_key', 'api_key_header'].includes(authMode) },
+      ...(id === 'editable-model-test' ? { default_model_id: '' } : {}),
       ...(id === 'openai' ? { signup_url: 'https://platform.openai.com/', api_key_url: 'https://platform.openai.com/api-keys' } : {}),
       fields: {
         base_url: { policy: ['openai', 'anthropic', 'google-gemini', 'deepseek', 'xai', 'mistral', 'groq', 'together-ai', 'fireworks-ai', 'perplexity', 'cohere', 'openrouter', 'fixed-model-test'].includes(id) ? 'fixed' : 'editable', default: base_url },
@@ -33,6 +35,8 @@ export const providerFormCatalogResponse = {
         'auth.mode': { policy: id === 'custom-openai-compatible' ? 'editable' : 'fixed', default: authMode },
         default_model_id: id === 'fixed-model-test'
           ? { policy: 'fixed', default: 'gpt-4o-mini' }
+          : id === 'editable-model-test'
+          ? { policy: 'editable', default: 'gpt-4o-mini' }
           : id === 'deepseek'
           ? { policy: 'choice', default: 'deepseek-chat', choices: ['deepseek-chat', 'deepseek-reasoner'] }
           : { policy: 'editable' },
