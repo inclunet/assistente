@@ -13,6 +13,7 @@ type CreateLLMProviderRequest struct {
 	APIKey                   string           `json:"api_key,omitempty"`
 	DefaultModel             string           `json:"default_model,omitempty"`
 	APIFormat                string           `json:"api_format,omitempty"`
+	ServerProfileID          string           `json:"server_profile_id,omitempty"`
 	ReasoningContentMode     string           `json:"reasoning_content_mode,omitempty"`
 	// ACPCommand e ACPArgs endereçam o agente de código quando APIFormat é
 	// acp: é o que substitui BaseURL e APIKey, que ali não existem
@@ -56,6 +57,7 @@ type UpdateLLMProviderRequest struct {
 	APIKey               string           `json:"api_key,omitempty"`
 	DefaultModel         string           `json:"default_model,omitempty"`
 	APIFormat            string           `json:"api_format,omitempty"`
+	ServerProfileID      *string          `json:"server_profile_id,omitempty"`
 	ReasoningContentMode string           `json:"reasoning_content_mode,omitempty"`
 	// ACPCommand segue a convenção dos demais campos daqui: vazio é "não
 	// mexer".

@@ -119,6 +119,7 @@ type ProviderExport struct {
 	Name                     string    `json:"name"`
 	Type                     string    `json:"type"`
 	ErrorFamily              string    `json:"errorFamily,omitempty"`
+	ServerProfileID          string    `json:"serverProfileId,omitempty"`
 	APIFormat                string    `json:"apiFormat,omitempty"`
 	BaseURL                  string    `json:"baseUrl"`
 	Model                    string    `json:"model,omitempty"`
