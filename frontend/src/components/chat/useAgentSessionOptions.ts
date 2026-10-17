@@ -312,7 +312,7 @@ export function useAgentSessionOptions(
         // Um snapshot que mudou a própria opção é mais novo que uma resposta
         // atrasada que não confirma o valor pedido; mantém-se e anuncia-se o
         // estado que o agente publicou.
-        if (snapshotChanged && currentMoved) {
+        if (snapshotChanged && currentMoved && currentValue !== value) {
           return current ? optionsRef.current : null;
         }
       }
