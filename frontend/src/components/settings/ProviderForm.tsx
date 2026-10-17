@@ -1,11 +1,10 @@
-import { apidto } from '@wailsjs/go/models';
+import { apidto, llmcatalog } from '@wailsjs/go/models';
 import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react';
 import { WarningOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { CreateLLMProvider, UpdateLLMProvider, ListModelsRaw } from '@wailsjs/go/wailsapi/LLMProviders';
 import { GetLLMCatalog } from '@wailsjs/go/wailsapi/LLMCatalog';
-import type { llmcatalog } from '@wailsjs/go/models';
 import { Input, Select, Button, FormField } from '../';
 import { DialogActions } from '../ui/DialogActions';
 import { AGENT_API_FORMAT, PROVIDER_CONFIG } from '../../config/providers';
@@ -47,7 +46,7 @@ const policyValue = (profile: ServerProfile, field: string, fallback: unknown): 
   return hasFallback ? fallback : policy?.default ?? fallback;
 };
 
-const customProfile = (): ServerProfile => ({
+const customProfile = (): ServerProfile => llmcatalog.Server.createFrom({
   id: '', name: '', group: 'custom', provider_family: 'custom', status: 'active',
   api_format: 'openai', adapter_id: 'openai', base_url: '',
   auth: { mode: 'optional_api_key', required: false },
