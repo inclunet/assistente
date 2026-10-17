@@ -575,8 +575,14 @@ export default function CommandSettingsPage() {
       announce(message);
       setEditor(null);
       await load();
-    } catch {
-      if (current()) setError(t('commandSettings.errors.generic'));
+    } catch (error) {
+      if (current()) {
+        const detail = error instanceof Error ? error.message : String(error ?? '');
+        const message = detail.toLowerCase().includes('command settings storage temporarily busy')
+          ? t('commandSettings.errors.storageBusy')
+          : t('commandSettings.errors.generic');
+        setError(message);
+      }
     } finally {
       busyRef.current = false;
       if (mounted.current) setBusy(false);

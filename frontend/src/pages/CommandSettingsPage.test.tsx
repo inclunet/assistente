@@ -1394,6 +1394,35 @@ describe('CommandSettingsPage', () => {
     expect(getSettings).toHaveBeenCalledTimes(1);
   });
 
+  it('mostra erro transitório específico quando o SQLite está ocupado', async () => {
+    mutateSettings.mockRejectedValue(new Error('command settings storage temporarily busy'));
+    render(<CommandSettingsPage />);
+    await waitFor(() => expect(screen.getByText('Minha camada')).toBeInTheDocument());
+    fireEvent.click(await bindingAction('commandSettings.actions.suppress'));
+    const dialog = screen.getByRole('dialog', { name: 'commandSettings.managers.commands' });
+    await within(dialog).findByText('commandSettings.errors.storageBusy');
+    expect(announce).toHaveBeenCalledWith('commandSettings.errors.storageBusy', 'assertive');
+    expect(mutateSettings).toHaveBeenCalledTimes(1);
+    expect(getSettings).toHaveBeenCalledTimes(1);
+  });
+
+  it('preserva o formulário após banco ocupado e só repete ao salvar explicitamente', async () => {
+    mutateSettings.mockRejectedValueOnce('command settings storage temporarily busy');
+    render(<CommandSettingsPage />);
+    const editor = await openLayerEditor('Minha camada', 'toolbar');
+    const name = within(editor).getByRole('textbox', { name: /commandSettings.form.name/ });
+    fireEvent.change(name, { target: { value: 'Camada personalizada' } });
+    await userEvent.click(within(editor).getByRole('button', { name: 'common.save' }));
+    await waitFor(() => expect(announce).toHaveBeenCalledWith('commandSettings.errors.storageBusy', 'assertive'));
+    expect(editor).toBeInTheDocument();
+    expect(name).toHaveValue('Camada personalizada');
+    expect(mutateSettings).toHaveBeenCalledTimes(1);
+    expect(getSettings).toHaveBeenCalledTimes(1);
+    await userEvent.click(within(editor).getByRole('button', { name: 'common.save' }));
+    await waitFor(() => expect(mutateSettings).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(editor).not.toBeInTheDocument());
+  });
+
   it('restaura uma personalização sem executar exclusão genérica', async () => {
     getSettings.mockResolvedValue({ ...snapshot, bindings: [{ ...snapshot.bindings[0], customized: true, enabled: false }] });
     render(<CommandSettingsPage />);

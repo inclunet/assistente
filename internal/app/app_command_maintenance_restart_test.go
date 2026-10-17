@@ -299,7 +299,10 @@ func seedCommandMaintenanceLegacy(t *testing.T, userIDs ...string) commandMainte
 
 func (s commandMaintenanceLegacySeed) awaitCleanedAndCompacted(t *testing.T) {
 	t.Helper()
-	deadline := time.Now().Add(15 * time.Second)
+	// Uma passagem que disputa SQLite com o job vivo pode adiar a limpeza
+	// por 30s. O gate verifica convergência/proteção, não latência de limpeza;
+	// preserve a margem original de 15s além desse primeiro recuo.
+	deadline := time.Now().Add(45 * time.Second)
 	var runs, invocations int64
 	var mode int
 	for {
