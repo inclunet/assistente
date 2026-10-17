@@ -41,6 +41,7 @@ var (
 	_ llm.TurnNoticeSink        = (*SimpleStreamHandler)(nil)
 	_ llm.AgentTitleSink        = (*SimpleStreamHandler)(nil)
 	_ llm.UsageSink             = (*SimpleStreamHandler)(nil)
+	_ llm.ACPUsageSink          = (*SimpleStreamHandler)(nil)
 )
 
 // NewSimpleStreamHandler constructs a SimpleStreamHandler bound to a conversation.

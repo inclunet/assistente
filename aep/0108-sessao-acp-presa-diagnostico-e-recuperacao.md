@@ -1,7 +1,7 @@
 # AEP-0108 — Sessão ACP presa: diagnóstico e recuperação
 
-**Status:** In Progress — observabilidade, watchdog de turno e recuperação
-implementados; pendentes apresentação/cancelamento correto da fila (D1) e
+**Status:** In Progress — observabilidade, watchdog de turno, recuperação e
+cancelamento acessível de turno enfileirado implementados; pendente uma
 estratégia segura para detectar agente morto com sessão ociosa (D2, cobertura a).
 
 ## Resumo
@@ -44,6 +44,10 @@ recuperação e proibição de `assistant` vazio em erro.
 - O estado observado pelo frontend precisa ser correlacionado ao turno e à
   conversa; fila ACP não é um estado global do provider, que pode multiplexar
   outras sessões.
+- A contagem cancelável representa envios iniciados na interface. Eventos
+  recebidos de canais externos também respeitam a serialização da conversa, mas
+  não podem ser descartados pela ação local de cancelamento e não fazem parte
+  dessa contagem de envios canceláveis.
 
 ### D2. Heartbeat com fail-fast
 
@@ -106,7 +110,8 @@ recuperação e proibição de `assistant` vazio em erro.
 1. **Fase 1 — Observabilidade (D1 + D4):** logs de fila (`acquireTurn`), erro
    persistido no placeholder vazio (`persistErrorWhenEmpty` + `OnDone`).
    ✅ Implementada (testes `TestOnDone*`, `TestPersistErrorWhenEmpty*`).
-   Pendente a parte visual do D1 (estado na UI com Cancelar).
+   Implementada junto à Fase 4, que adiciona o estado visível e o cancelamento
+   individual na toolbar.
 2. **Fase 2 — Fail-fast (D2, cobertura b):** watchdog de inatividade em turno em
    voo (`watchStall`, `stallTimeout` 10min/`stallPoll` 1min, desfecho
    `unconfirmed`). ✅ Implementada (testes `TestWatchStall*`,
@@ -115,10 +120,31 @@ recuperação e proibição de `assistant` vazio em erro.
    `agent_session_recovered` (3 locales + vitest). ✅ Implementada (teste
    `TestSessaoPerdidaInvalidaEAvisaSessaoNova`; retomada já coberta por
    `TestDepoisDeInvalidarOProximoTurnoTentaRetomarAMesmaSessao`).
-4. **Fase 4 — Estado de fila acessível (D1):** publicar estado por conversa e
-   por turno; oferecer cancelar a chamada em espera sem cancelar o turno ativo;
-   anunciar entrada, saída, cancelamento e recusa de fila. **Pendente.** Exige
-   cobertura de teclado/leitor de tela e corrida entre admissão e cancelamento.
+4. **Fase 4 — Estado de fila acessível (D1):** contagem por conversa, ação
+   acessível para cancelar o próximo envio manual ainda pendente, sem cancelar o ativo,
+   e anúncio explícito do desfecho. Implementada no frontend com cancelamento
+   individual na fila (`chatTurnQueue`); `chatTurnQueue.test.ts` cobre
+   cancelamento sem iniciar a chamada, continuidade do turno ativo e exclusão
+   de entradas invalidadas por limpeza; `ChatToolbar.test.tsx` cobre controle,
+   anúncio e restauração de foco ao cancelar o último item, inclusive durante
+   um turno ativo ou quando o turno anterior admite o envio automaticamente: o
+   foco retorna ao botão de mensagens fixadas, que permanece
+   habilitado quando a ação de limpar está desabilitada.
+   `chatStore.validation.test.ts` cobre que cancelamento de envio/retry
+   auditado na fila resulta em comando cancelado, sem envio ao backend.
+   A barreira de admissão dos comandos da interface também é contada e
+   cancelável enquanto aguarda a fila (`registerMessagingAdmission`). Cada
+   comando registra sua pendência antes da serialização do executor; em dois
+   comandos simultâneos da mesma conversa, o segundo permanece contado e pode
+   ser cancelado enquanto aguarda sua vez, sem ocupar a fila que precisa
+   executar a mensagem. O cancelamento
+   não reserva nem executa o comando
+   (`commandChatMessaging.protocol.test.ts`). A validação store-level cobre
+   contagem, cancelamento e continuidade do turno ativo
+   (`chatStore.validation.test.ts`). Barreiras internas e eventos externos
+   continuam fora da contagem/cancelamento.
+   A fila backend ACP (`turnSlot`) continua serializada; sondagem ociosa é a
+   pendência separada da Fase 5.
 5. **Fase 5 — Sessão ACP ociosa (D2, cobertura a):** definir se existe uma
    verificação segura com prazo que não possa bloquear `Write` nem derrubar
    sessões saudáveis compartilhadas. **Pendente de decisão técnica.** Até lá,
@@ -139,8 +165,17 @@ recuperação e proibição de `assistant` vazio em erro.
 ## Critérios de aceitação
 
 - [x] Turno ACP sem resposta gera log de espera.
-- [ ] Turno enfileirado tem estado acessível por conversa e pode ser cancelado
-      sem cancelar o turno ACP ativo; leitor de tela anuncia os desfechos.
+- [x] Envio manual enfileirado tem estado acessível por conversa e o próximo pendente
+      pode ser cancelado sem cancelar o turno ativo; anúncio global confirma a
+      operação. Evidências: `chatTurnQueue` Vitest e `ChatToolbar` Vitest,
+      incluindo restauração de foco durante `isLoading` e ao admitir
+      automaticamente o último item. O nome acessível do botão contém o rótulo
+      visível `chat.queue.cancelNext`. A espera de admissão
+      de comando também é contada/cancelável (`registerMessagingAdmission`);
+      dois comandos concorrentes do executor real mantêm o segundo
+      visível/cancelável enquanto aguarda a vez, sem bloquear o envio anterior
+      nem reservar o comando cancelado
+      (`chatStore.validation.test.ts`, `commandChatMessaging.protocol.test.ts`).
 - [x] Agente vivo sem resposta vira `ErrCancelNotConfirmed` via watchdog de
       inatividade (nunca `markDead`, que é por `conn`).
 - [ ] Estratégia validada detecta processo/agente morto com sessão ociosa sem
@@ -149,4 +184,4 @@ recuperação e proibição de `assistant` vazio em erro.
       a tentativa seguinte retoma/abre nova.
 - [x] Nenhum caminho de erro do loop simples persiste `assistant` vazio
       (`persistErrorWhenEmpty` + `OnDone`).
-- [x] Testes Go cobrindo fila, watchdog e recuperação; `go build/vet/test` verdes.
+- [ ] Testes Go cobrindo fila, watchdog e recuperação; aguardar execução verde no CI.

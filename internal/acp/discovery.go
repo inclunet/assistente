@@ -170,8 +170,8 @@ func (c *conn) invalidateOptions() {
 // O aviso é isolado por pânico pelo mesmo motivo que a entrega ao sink: quem
 // escuta é código de fora, e um defeito dele não pode virar falha ao tratar a
 // notificação do agente.
-func (c *conn) announceOptions(sessionID string, options []ConfigOption) {
-	if c.cfg.OnConfigOptions == nil || len(options) == 0 {
+func (c *conn) announceOptions(sessionID string, options []ConfigOption, snapshot bool) {
+	if c.cfg.OnConfigOptions == nil {
 		return
 	}
 	defer func() {
@@ -180,7 +180,7 @@ func (c *conn) announceOptions(sessionID string, options []ConfigOption) {
 				"[ACP] quem escuta as opções da sessão %q quebrou: %v", sessionID, r)
 		}
 	}()
-	c.cfg.OnConfigOptions(sessionID, options)
+	c.cfg.OnConfigOptions(sessionID, options, snapshot)
 }
 
 // announceCommands conta a quem cuida do app quais comandos uma sessão passou a

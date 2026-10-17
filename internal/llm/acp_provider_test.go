@@ -260,6 +260,7 @@ type espiao struct {
 	naoRetentavel bool
 	ferramentas   []AgentToolEvent
 	avisos        []TurnNotice
+	usosACP       []ACPUsageUpdate
 	titulos       []string
 	segmentos     int
 	pronto        bool
@@ -320,6 +321,7 @@ func (e *espiao) OnTurnNotice(notice TurnNotice) {
 	e.avisos = append(e.avisos, notice)
 	e.ordem = append(e.ordem, "notice_"+string(notice.Kind))
 }
+func (e *espiao) OnACPUsage(update ACPUsageUpdate) { e.usosACP = append(e.usosACP, update) }
 
 // E o nome que o agente deu à sessão, que vira o título da conversa.
 func (e *espiao) OnAgentTitle(title string) {
@@ -328,6 +330,67 @@ func (e *espiao) OnAgentTitle(title string) {
 }
 
 func (e *espiao) texto() string { return strings.Join(e.chunks, "") }
+
+func TestTurnoACPAnunciaUmaVezConteudoNaoTextualNaoRenderizado(t *testing.T) {
+	handler := &espiao{}
+	turn := &acpTurn{handler: handler}
+	turn.update(acp.Update{Kind: acp.UpdateUnsupportedOutput})
+	turn.update(acp.Update{Kind: acp.UpdateUnsupportedOutput})
+
+	if len(handler.avisos) != 1 || handler.avisos[0].Kind != TurnNoticeAgentOutputNotDisplayed {
+		t.Fatalf("avisos = %+v; queria um aviso de resposta não textual", handler.avisos)
+	}
+}
+
+func TestTurnoACPComSomenteConteudoNaoTextualFinalizaComRespostaPersistivel(t *testing.T) {
+	sessao := &agenteFalso{updates: []acp.Update{{Kind: acp.UpdateUnsupportedOutput}}}
+	provider := providerDeAgente(t, sessao)
+	handler := &espiao{}
+
+	provider.StreamChat(t.Context(),
+		[]Message{{Role: "user", Content: "analise este anexo"}},
+		ChatParams{ConversationID: "conversa-1"}, handler)
+
+	if handler.erro != "" {
+		t.Fatalf("turno falhou: %s", handler.erro)
+	}
+	if len(handler.avisos) != 1 || handler.avisos[0].Kind != TurnNoticeAgentOutputNotDisplayed {
+		t.Fatalf("aviso de conteúdo não renderizado = %+v", handler.avisos)
+	}
+	if handler.respostaFim == "" || handler.respostaFim != "O agente terminou o turno sem escrever resposta." {
+		t.Fatalf("resposta final vazia ou inesperada: %q", handler.respostaFim)
+	}
+}
+
+func TestTurnoACPAtualizaUsoEAnunciaCadaFaixaUmaVez(t *testing.T) {
+	handler := &espiao{}
+	turn := &acpTurn{handler: handler}
+	for _, used := range []int{700, 820, 900, 960, 980} {
+		turn.update(acp.Update{Kind: acp.UpdateUsage, ContextUsed: used, ContextSize: 1000})
+	}
+	if len(handler.usosACP) != 5 || handler.usosACP[4].ContextTokens != 980 {
+		t.Fatalf("snapshots de uso = %+v", handler.usosACP)
+	}
+	if len(handler.avisos) != 2 || handler.avisos[0].Kind != TurnNoticeAgentContextNearLimit || handler.avisos[1].Kind != TurnNoticeAgentContextCritical {
+		t.Fatalf("avisos de limite = %+v", handler.avisos)
+	}
+}
+
+func TestTurnoACPLimitaPercentualDeAvisoAoLimiteDoContexto(t *testing.T) {
+	handler := &espiao{}
+	turn := &acpTurn{handler: handler}
+	turn.update(acp.Update{Kind: acp.UpdateUsage, ContextUsed: 1200, ContextSize: 1000})
+
+	if len(handler.avisos) != 1 || handler.avisos[0].Kind != TurnNoticeAgentContextCritical {
+		t.Fatalf("avisos de limite = %+v", handler.avisos)
+	}
+	if got := handler.avisos[0].Percentage; got != 100 {
+		t.Fatalf("percentual do aviso = %v; queria 100", got)
+	}
+	if got := handler.avisos[0].ContextTokens; got != 1200 {
+		t.Fatalf("tokens usados no aviso = %d; queria preservar 1200", got)
+	}
+}
 
 // espiaoSurdo é um handler que não sabe receber atividade de agente: o turno
 // precisa seguir entregando texto para ele.

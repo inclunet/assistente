@@ -420,5 +420,31 @@ func (h *SimpleStreamHandler) OnTurnNotice(notice llm.TurnNotice) {
 		Kind:           string(notice.Kind),
 		Count:          notice.Count,
 		Model:          notice.Model,
+		Percentage:     notice.Percentage,
+		ContextTokens:  notice.ContextTokens,
+		ContextLimit:   notice.ContextLimit,
 	})
+}
+
+// OnACPUsage publica o snapshot real da janela de contexto reportado pela
+// sessão ACP. O custo continua separado da estimativa local de tokens.
+func (h *SimpleStreamHandler) OnACPUsage(update llm.ACPUsageUpdate) {
+	if h.Emitter == nil || update.ContextLimit <= 0 || update.ContextTokens < 0 {
+		return
+	}
+	percentage := float64(update.ContextTokens) * 100 / float64(update.ContextLimit)
+	if percentage > 100 {
+		percentage = 100
+	}
+	event := ports.ACPUsageUpdateEvent{
+		ConversationID: h.ConversationID,
+		ContextTokens:  update.ContextTokens,
+		ContextLimit:   update.ContextLimit,
+		ContextUsage:   percentage,
+		IsNearLimit:    percentage >= 80,
+		IsCritical:     percentage >= 95,
+		CostAmount:     update.CostAmount,
+		CostCurrency:   update.CostCurrency,
+	}
+	h.Emitter.Emit("chat:acp_usage_update", event)
 }

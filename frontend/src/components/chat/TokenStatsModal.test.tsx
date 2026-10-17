@@ -109,6 +109,116 @@ describe('TokenStatsModal', () => {
     expect(screen.queryByText('31.347 tokenStats.tokensPerMsg')).not.toBeInTheDocument();
   });
 
+  it('atualiza ocupação com usage_update ACP recebido durante a sessão', async () => {
+    getStatsSpy.mockResolvedValue({
+      conversationId: 'conversation-1',
+      promptTokens: 0,
+      completionTokens: 0,
+      totalTokens: 0,
+      contextTokens: 0,
+      messageCount: 0,
+      mostUsedModel: '',
+      contextUsage: 0,
+      contextLimit: 0,
+      isNearLimit: false,
+      isCritical: false,
+      systemPromptEstimatedTokens: 0,
+      summaryTokens: 0,
+      messagesInContextTokens: 0,
+      messagesOutOfContextTokens: 0,
+      messagesInContextCount: 0,
+      messagesOutOfContextCount: 0,
+      toolsUsedCount: 0,
+      toolBreakdown: [],
+    });
+    render(<TokenStatsModal conversationId="conversation-1" isOpen onClose={() => {}} />);
+    const progress = await screen.findByRole('progressbar', { name: 'tokenStats.contextUsage' });
+
+    act(() => {
+      eventCallbacks['chat:acp_usage_update']?.forEach((callback) => callback({
+        conversationId: 'conversation-1',
+        contextTokens: 9600,
+        contextLimit: 10000,
+        contextUsage: 96,
+        isNearLimit: true,
+        isCritical: true,
+        costAmount: 0.02,
+        costCurrency: 'USD',
+      }));
+    });
+
+    expect(progress).toHaveAttribute('aria-valuenow', '96');
+    expect(screen.getByText('tokenStats.acpReportedCost')).toBeInTheDocument();
+
+    act(() => {
+      eventCallbacks['chat:acp_usage_update']?.forEach((callback) => callback({
+        conversationId: 'conversation-1',
+        contextTokens: 12000,
+        contextLimit: 10000,
+        contextUsage: 120,
+        isNearLimit: true,
+        isCritical: true,
+      }));
+    });
+
+    expect(progress).toHaveAttribute('aria-valuenow', '100');
+    expect(screen.getByText('tokenStats.acpReportedCost')).toBeInTheDocument();
+  });
+
+  it('preserva o contexto ACP quando chegam estatísticas locais finais', async () => {
+    getStatsSpy.mockResolvedValue({
+      conversationId: 'conversation-1',
+      promptTokens: 0,
+      completionTokens: 0,
+      totalTokens: 0,
+      contextTokens: 0,
+      messageCount: 0,
+      mostUsedModel: '',
+      contextUsage: 0,
+      contextLimit: 0,
+      isNearLimit: false,
+      isCritical: false,
+      systemPromptEstimatedTokens: 0,
+      summaryTokens: 0,
+      messagesInContextTokens: 0,
+      messagesOutOfContextTokens: 0,
+      messagesInContextCount: 0,
+      messagesOutOfContextCount: 0,
+      toolsUsedCount: 0,
+      toolBreakdown: [],
+    });
+    render(<TokenStatsModal conversationId="conversation-1" isOpen onClose={() => {}} />);
+    const progress = await screen.findByRole('progressbar', { name: 'tokenStats.contextUsage' });
+
+    act(() => {
+      eventCallbacks['chat:acp_usage_update']?.forEach((callback) => callback({
+        conversationId: 'conversation-1',
+        contextTokens: 9600,
+        contextLimit: 10000,
+        contextUsage: 96,
+        isNearLimit: true,
+        isCritical: true,
+        costAmount: 0.02,
+        costCurrency: 'USD',
+      }));
+      eventCallbacks['chat:token_stats']?.forEach((callback) => callback({
+        conversationId: 'conversation-1',
+        promptTokens: 900,
+        completionTokens: 100,
+        totalTokens: 1000,
+        contextTokens: 500,
+        contextLimit: 1000,
+        contextUsage: 50,
+        isNearLimit: false,
+        isCritical: false,
+      }));
+    });
+
+    expect(progress).toHaveAttribute('aria-valuenow', '96');
+    expect(progress).toHaveAttribute('aria-valuetext', '96.0%');
+    expect(screen.getByText('tokenStats.acpReportedCost')).toBeInTheDocument();
+  });
+
   it('renderiza métricas e aviso de prompt cache', async () => {
     getStatsSpy.mockResolvedValue({
       conversationId: "01926b90-7a5a-7c4e-8d3f-000000000001",

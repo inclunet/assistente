@@ -18,6 +18,9 @@ type SessionOptionsEvent struct {
 
 	// Options é o conjunto completo que a sessão conhece agora.
 	Options []ConfigOption
+	// Snapshot distingue a lista completa de config_option_update dos avisos
+	// legados que trazem apenas o valor corrente de modelo ou modo.
+	Snapshot bool
 
 	// Model e Mode são os valores correntes, quando o agente expõe a escolha.
 	Model string
@@ -172,7 +175,7 @@ func (m *Manager) undoSessionIntent(sessionID, category, intended, previous stri
 
 // sessionOptionsChanged traduz o aviso do transporte num evento de conversa. O
 // transporte só sabe o nome da sessão; quem sabe de quem ela é somos nós.
-func (m *Manager) sessionOptionsChanged(sessionID string, options []ConfigOption) {
+func (m *Manager) sessionOptionsChanged(sessionID string, options []ConfigOption, snapshot bool) {
 	if m.onOptions == nil {
 		return
 	}
@@ -191,6 +194,7 @@ func (m *Manager) sessionOptionsChanged(sessionID string, options []ConfigOption
 		ConversationID: known.conversationID,
 		ProviderID:     known.providerID,
 		Options:        options,
+		Snapshot:       snapshot,
 		Model:          model,
 		Mode:           mode,
 		PreviousMode:   known.mode,

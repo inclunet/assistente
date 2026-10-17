@@ -173,13 +173,19 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 
 ## Índice
 
-**ACP (16/10/2026):** AEP-0084 permanece **Done** no escopo original e agora
-registra a matriz de cobertura do ACP v1, incluindo recursos não apresentados e
-capacidades intencionalmente desativadas. AEP-0086 permanece **Done** para
+**ACP (16/10/2026):** AEP-0084 passa a **In Progress** para ampliar a cobertura
+ACP v1; o escopo original segue entregue. O AEP registra a matriz de cobertura,
+incluindo reconciliação de respostas atrasadas com snapshots (opções removidas
+e boolean `false` omitido pelo DTO), anúncio do resultado booleano confirmado e
+preservação de áudio original junto da transcrição para ACP, proteção contra
+resposta de opção obsoleta, além de recursos não apresentados e capacidades
+intencionalmente desativadas. AEP-0086 permanece **Done** para
 descoberta/instalação, com limite explícito entre instalar um agente e integrar
 todos os recursos dele. AEP-0108 permanece **In Progress**: fila visível e
-cancelamento restrito ao turno correto, além de uma sondagem ociosa segura,
-continuam pendentes. A implementação dessas lacunas fica para PRs posteriores.
+cancelamento de envios pendentes, inclusive do segundo comando que aguarda a
+serialização externa (`registerMessagingAdmission`), estão cobertos pelo
+executor real e pela fila cancelável;
+continua pendente uma sondagem ociosa segura.
 
 AEP-0103, seção168 (26/09/2026): toolbar de Novo/Editar/Apagar nos gerenciadores,
 menus de contexto equivalentes, Enter para editar e continuidade da lista após salvar,
@@ -1127,7 +1133,7 @@ de cancelamento de release na dependência; o AEP permanece **In Progress**.
 | [0081](0081-politica-tools-por-perfil-e-carregamento-sob-demanda.md) | Política de Tools por Perfil e Carregamento sob Demanda | ✔️ Accepted |
 | [0082](0082-network-trust-allowlist.md) | Network Trust Allowlist | ✅ Done |
 | [0083](0083-channels-database-migration.md) | Migração de Canais e Contatos para Banco de Dados | ✅ Done |
-| [0084](0084-agentes-acp-como-providers.md) | Agentes de código ACP como providers LLM | ✅ Done |
+| [0084](0084-agentes-acp-como-providers.md) | Agentes de código ACP como providers LLM | 🚧 In Progress |
 | [0085](0085-i18n-de-dialogos-do-questionnaire.md) | i18n dos diálogos que o backend manda para a tela (questionnaire) | ✅ Done |
 | [0086](0086-registro-acp-descoberta-e-instalacao-de-agentes.md) | Descoberta e instalação de agentes pelo registro ACP | ✅ Done |
 | [0087](0087-tela-de-erro-acessivel-e-diagnosticavel.md) | Tela de erro acessível e diagnosticável | 🚧 In Progress |

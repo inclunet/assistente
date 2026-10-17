@@ -89,6 +89,9 @@ func (h *BaseStreamHandler) OnTurnNotice(notice llm.TurnNotice) {
 		Kind:           string(notice.Kind),
 		Count:          notice.Count,
 		Model:          notice.Model,
+		Percentage:     notice.Percentage,
+		ContextTokens:  notice.ContextTokens,
+		ContextLimit:   notice.ContextLimit,
 	})
 }
 

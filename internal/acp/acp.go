@@ -97,7 +97,7 @@ type Config struct {
 	// Roda na goroutine de entrega do transporte, então precisa retornar rápido
 	// e não pode conversar com o agente: enquanto ela não volta, o protocolo
 	// fica parado.
-	OnConfigOptions func(sessionID string, options []ConfigOption)
+	OnConfigOptions func(sessionID string, options []ConfigOption, snapshot bool)
 
 	// OnCommands é avisado quando o agente conta quais comandos a sessão
 	// oferece. Ele manda isso logo depois de abrir a sessão, fora de qualquer
@@ -123,8 +123,8 @@ type Client interface {
 	// NewSession abre uma sessão nova com o diretório de trabalho informado.
 	NewSession(ctx context.Context, cwd string) (Session, error)
 
-	// LoadSession retoma uma sessão que o agente já conhece. Só funciona quando
-	// Capabilities().LoadSession é verdadeiro.
+	// LoadSession retoma uma sessão que o agente já conhece, usando session/resume
+	// quando anunciado e session/load como fallback.
 	LoadSession(ctx context.Context, sessionID, cwd string) (Session, error)
 
 	// Capabilities devolve o que o agente anunciou no handshake, iniciando o
@@ -212,6 +212,8 @@ type Capabilities struct {
 
 	// LoadSession indica suporte a retomar sessões por ID.
 	LoadSession bool
+	// ResumeSession permite retomar sem replay do histórico ACP.
+	ResumeSession bool
 
 	// CloseSession indica suporte a encerrar sessões pelo protocolo. Sem ele,
 	// o app só consegue esquecer a sessão do lado de cá.
@@ -391,6 +393,14 @@ type Content struct {
 	// preenchidos, o bloco é de imagem e Text é ignorado.
 	ImageData string
 	ImageMIME string
+	// AudioData e AudioMIME são o áudio em base64 e o tipo MIME correspondente.
+	AudioData string
+	AudioMIME string
+	// Resource guarda conteúdo binário embutido, enviado só com a capability
+	// promptCapabilities.embeddedContext.
+	ResourceName string
+	ResourceData string
+	ResourceMIME string
 }
 
 // TextContent cria um bloco de texto.
@@ -399,6 +409,16 @@ func TextContent(text string) Content { return Content{Text: text} }
 // ImageContent cria um bloco de imagem a partir de dados em base64.
 func ImageContent(base64Data, mimeType string) Content {
 	return Content{ImageData: base64Data, ImageMIME: mimeType}
+}
+
+// AudioContent cria um bloco de áudio a partir de dados base64.
+func AudioContent(base64Data, mimeType string) Content {
+	return Content{AudioData: base64Data, AudioMIME: mimeType}
+}
+
+// EmbeddedResourceContent cria um recurso binário de contexto para o prompt.
+func EmbeddedResourceContent(name, base64Data, mimeType string) Content {
+	return Content{ResourceName: name, ResourceData: base64Data, ResourceMIME: mimeType}
 }
 
 // StopReason é o motivo pelo qual o agente encerrou o turno.
@@ -435,6 +455,11 @@ const (
 	// UpdateCommands traz o conjunto completo de comandos que o agente oferece
 	// para esta sessão. Vazio significa que ele não oferece nenhum.
 	UpdateCommands UpdateKind = "commands"
+	// UpdateUnsupportedOutput avisa que a resposta contém bloco não textual que
+	// a superfície comum de chat não consegue renderizar.
+	UpdateUnsupportedOutput UpdateKind = "unsupported_output"
+	// UpdateUsage atualiza a janela de contexto e o custo acumulado da sessão.
+	UpdateUsage UpdateKind = "usage"
 )
 
 // Update é um evento do turno. Tipos de notificação que este pacote ainda não
@@ -454,9 +479,17 @@ type Update struct {
 	// Mode vale para UpdateMode e Title para UpdateTitle.
 	Mode  string
 	Title string
+	// TitleCleared sinaliza que o agente enviou explicitamente title: null.
+	TitleCleared bool
 
 	// Commands vale para UpdateCommands.
 	Commands []Command
+
+	// ContextUsed, ContextSize e custo valem para UpdateUsage.
+	ContextUsed         int
+	ContextSize         int
+	SessionCostAmount   *float64
+	SessionCostCurrency string
 }
 
 // Command é um comando que o agente oferece para a sessão — o que ele chama de
@@ -505,6 +538,8 @@ type ConfigOption struct {
 	Name         string
 	Category     string
 	CurrentValue string
+	Kind         string
+	CurrentBool  bool
 	Values       []ConfigValue
 }
 

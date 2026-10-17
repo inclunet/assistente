@@ -1,9 +1,10 @@
 # AEP-0084 — Agentes de código ACP como providers LLM
 
-**Status:** ✅ Done
+**Status:** In Progress — cobertura ACP v1 em ampliação; o escopo original continua entregue.
 
-**Nota de escopo (16/10/2026):** o escopo original foi entregue; a auditoria de
-cobertura ACP v1 e as capacidades ainda não integradas estão registradas abaixo.
+**Nota de escopo (16/10/2026):** o escopo original foi entregue. Por solicitação
+do mantenedor, as lacunas da auditoria ACP v1 estão autorizadas para
+implementação, exceto a apresentação de planos, reservada para discussão.
 
 ## Resumo
 
@@ -433,6 +434,20 @@ O agente também troca de modelo sozinho (fallback de rate limit, por exemplo) e
 notifica via `config_option_update`. Isso vira um evento para a UI refletir o
 modelo corrente — a pessoa precisa saber com quem está falando.
 
+Resposta de `session/set_config_option` e `config_option_update` podem chegar
+fora de ordem por canais diferentes. A sessão serializa escritas concorrentes e
+versiona cada opção pelo identificador, sem fazer uma notificação de outra
+opção invalidar a resposta válida. A resposta remota é reconciliada com o
+estado recebido depois que o pedido saiu; uma resposta atrasada não pode
+reverter um snapshot mais novo nem divergir da consulta seguinte. A cobertura
+de transporte real inclui `TestNotificacaoMaisNovaPrevaleceSobreRespostaAtrasadaDaTroca`
+e `TestTrocasConcorrentesDaMesmaOpcaoSaoSerializadas`; a reconciliação entre
+opções da categoria `other` está em `session_options_test.go`. Uma resposta
+atrasada preserva opções novas que o agente só apresentou ao atender a troca,
+sem ressuscitar IDs conhecidos removidos pelo snapshot. Se o snapshot remover
+o controle focado, a barra de ferramentas devolve o foco a outro controle que
+permaneceu disponível.
+
 ### D7. As tool calls do agente são informativas, não executáveis
 
 `tool_call` e `tool_call_update` do ACP descrevem o que o agente **já está
@@ -850,56 +865,58 @@ específicos do agente sejam apresentados pelo Assistente.
 Legenda: **implementado** está coberto pelo transporte/integração atual;
 **parcial** funciona com perda conhecida de informação; **intencionalmente
 desativado** é uma fronteira de segurança ou produto já decidida; **não
-implementado** é capacidade ACP sem fluxo correspondente no app. Os itens são
-registro e backlog para priorização posterior; este PR documental não autoriza
-implementá-los em conjunto nem altera as decisões de segurança.
+implementado** é capacidade ACP sem fluxo correspondente no app. Os itens
+abaixo formam o backlog de implementação autorizado em 16/10/2026. Capacidades
+de execução continuam obrigadas aos contratos de segurança e acessibilidade dos
+AEPs relacionados.
 
 | Área ACP v1 | Estado no Assistente | Lacuna ou limite registrado |
 |---|---|---|
 | Transporte JSON-RPC sobre stdio, `initialize`, `session/new`, `session/prompt`, `session/cancel`, `session/load` e `session/close` | **Implementado** | Um processo por provider e sessões multiplexadas. O fechamento remoto é condicionado à capability anunciada pelo agente. A recuperação de sessão presa segue AEP-0108. |
 | `session/list` e `session/delete` | **Não implementado** | O app não importa nem navega sessões criadas fora do Assistente. Conversas e histórico do app continuam sendo a fonte de apresentação; avaliar descoberta cruzada apenas se houver demanda. |
-| `session/resume` | **Não implementado** | O app usa `session/load` quando anunciado. Retomar sem replay é capacidade distinta e deve ser avaliada com agentes que a publiquem. |
+| `session/resume` | **Implementado** | Quando anunciado, é preferido a `session/load` para retomar sem replay; se falhar e o agente também anunciar `loadSession`, tenta `session/load` antes de desistir. Agentes que só anunciam `loadSession` usam esse método diretamente. |
 | `sessionCapabilities.additionalDirectories` | **Não implementado** | Cada conversa usa um `cwd` primário; não há seleção de múltiplas raízes adicionais. |
 | MCP enviado em `session/new`/`session/load` | **Intencionalmente vazio** | O app não injeta servidores MCP próprios; o agente usa sua configuração local (D1). Generalizar essa passagem exigiria decisão de credenciais, escopo e isolamento. |
 | Texto em prompts e respostas | **Implementado** | Blocos de texto são encaminhados para o provider e para a superfície comum de chat. |
 | Imagem inline em prompt | **Parcial** | Só é enviada quando o agente anuncia `promptCapabilities.image`; URLs e formatos não embutidos não são convertidos em blocos ACP. Anexos não enviados geram aviso. |
-| Áudio e recurso/contexto embutido em prompt | **Não implementado** | `audio` e `embeddedContext` não são convertidos pelo provider. Anexos não suportados são informados; não há tradução ACP para áudio nem `ResourceLink`/`Resource`. |
-| Blocos não textuais nas respostas do agente | **Não implementado** | `agent_message_chunk` e `agent_thought_chunk` só projetam blocos `text`; imagem, áudio e recurso na saída são ignorados, sem aviso específico na conversa. |
+| Áudio e recurso/contexto embutido em prompt | **Parcial** | Áudio WAV/MP3 inline é enviado quando o agente anuncia `promptCapabilities.audio`, inclusive junto da transcrição preservada no histórico; PDF e texto são enviados como recurso ACP quando anuncia `embeddedContext`, precedidos pelo nome base do arquivo em texto. O caminho local não é incluído. Formatos desconhecidos ou agentes sem suporte geram aviso. Outros tipos de arquivo ainda ficam de fora. |
+| Blocos não textuais nas respostas do agente | **Parcial** | Blocos `text` são projetados; imagem, áudio e recursos não são renderizados e agora geram um aviso acessível por turno. Se o turno terminar sem texto, a resposta final recebe o fallback terminal existente para evitar mensagem vazia. O contrato `ChatParams` não transporta o idioma da interface, então esse fallback permanece em pt-BR até uma decisão transversal de localização. Renderização multimodal continua pendente. |
 | Texto, raciocínio, início/progresso de ferramenta, opções, modo, título e comandos em `session/update` | **Implementado** | Esse é o conjunto atualmente mapeado em `internal/acp/mapping.go`. |
 | Mensagem de usuário reproduzida durante `session/load` | **Ignorada deliberadamente na apresentação** | A conversa do app vem do histórico local, evitando duplicar mensagens ACP reproduzidas. Uma futura sincronização cruzada precisará resolver divergência de histórico antes de apresentar esses eventos. |
 | Plano do agente (`sessionUpdate: plan`) | **Não implementado** | Atualizações de plano são ignoradas; planos poderiam mostrar etapas e progresso sem confundi-los com tools executáveis. |
 | Detalhes de ferramenta (`name`, conteúdo, diff, locais, entrada/saída bruta) | **Parcial** | A atividade recebe essencialmente categoria, título e estado. Resultado, diff e localização de arquivo não chegam ao registro. Conteúdo bruto exige decisão explícita de privacidade, saneamento e retenção antes de qualquer captura. |
-| Uso/contexto (`usage_update`) | **Não implementado** | O ACP v1 atual pode reportar janela utilizada e custo acumulado; o app ainda mostra uso indisponível e não usa esses dados para avisos. |
+| Uso/contexto (`usage_update`) | **Parcial** | Snapshot de janela e custo do agente chegam ao painel de tokens enquanto o modal está aberto; avisos são emitidos uma vez por turno ao cruzar 80%/95%. Não entram no ledger local nem persistem entre carregamentos; a extensão do SDK é instável. |
 | Atualizações de aviso e compactação (`notice`, `compaction_update`, `compaction_summary_chunk`) | **Não anunciadas/não renderizadas** | O handshake não declara `ClientSessionCapabilities.notices` nem `.compaction`; o app não tem projeção para esses três updates. Não habilitá-las sem definir apresentação, replay e acessibilidade. |
-| Opções de configuração | **Parcial** | Modelo, modo e categorias representadas são expostos; outras categorias ficam fora do seletor. Opções booleanas não são anunciadas/suportadas pelo cliente. Atualização vazia/sem opções reconhecíveis não é distinguida de “nenhuma opção”, podendo preservar opções obsoletas. |
+| Opções de configuração | **Parcial** | Seletores, modos, modelos e toggles booleanos são expostos. Snapshot vazio remove opções obsoletas e restaura o foco na barra se remover o controle focado; respostas atrasadas preservam IDs novos e não ressuscitam IDs removidos. Opções ACP de tipos ainda não modelados seguem pendentes. |
 | Elicitation ACP (`elicitation/create` e `elicitation/complete`, modos form/URL) | **Não implementado** | Questionários e extensões bloqueantes específicas não equivalem ao contrato genérico de elicitation. Não há handlers, anúncio de capacidade nem renderer para os modos ACP. |
 | Filesystem e terminal oferecidos pelo cliente ao agente | **Intencionalmente desativado** | O handshake envia ambos como não suportados. O agente usa ferramentas próprias no `cwd`; oferecer ferramentas do app seria outra decisão de segurança e produto. |
 | Aprovação (`session/request_permission`) e extensões Cursor documentadas | **Implementado** | Usa arbitragem/questionário existentes, com recusa segura e cancelamento. Extensões não padronizadas de outros agentes dependem de handlers específicos. |
 | Autenticação ACP (`authenticate`, `logout`) | **Intencionalmente externalizada** | O app não executa autenticação ACP nem logout do agente. Login local e passagem opcional de credencial do cofre seguem AEP-0086 D12; falta de login é diagnosticada e instruída pela UI. |
 | Autenticação interativa no terminal pelo cliente | **Não oferecido** | O login permanece no mecanismo do agente; o app explica o método e pode passar credencial do cofre quando explicitamente configurado (AEP-0086 D12). Não há terminal interativo ACP do lado do cliente. |
-| Metadados da sessão | **Parcial** | Título não vazio renomeia a conversa. A limpeza de título (`null`) e os demais campos de `session_info_update` não são projetados. |
+| Metadados da sessão | **Parcial** | Título não vazio renomeia a conversa; `title: null` restaura o rótulo padrão quando o nome atual é automático ou foi gerado pelo agente nesta execução, preservando títulos definidos manualmente. `updatedAt` e `_meta` não são projetados. A origem do título gerado não persiste após reiniciar o app. |
 | Compatibilidade de agentes e versões | **Parcialmente verificada** | Existem sondas, testes com agente falso e matriz para contratos legados de modelo (D16), mas não uma matriz atual por versão/distribuição cobrindo recursos ACP nem execução registrada do Compatibility Test Kit oficial. |
 
 #### Pendências ordenadas para decisão posterior
 
-1. **Confiabilidade e acessibilidade (AEP-0108):** apresentar estado de fila,
-   permitir cancelar somente a chamada que está esperando e distinguir isso de
-   cancelar o turno ativo. Sondagem de processo ocioso permanece uma questão
-   técnica em aberto; não deve bloquear nem derrubar uma conexão compartilhada.
-2. **Fidelidade da atividade:** representar plano ACP, detalhes estruturados de
-   tool call e metadados de sessão, definindo saneamento, privacidade e
-   persistência antes de expor payloads.
-3. **Compatibilidade funcional:** tratar corretamente atualizações vazias de
-   opções e limpeza de título; avaliar elicitation e conteúdo adicional conforme
-   os agentes suportados e os componentes acessíveis disponíveis.
+1. **Confiabilidade (AEP-0108):** investigar a sondagem de processo ocioso; ela
+   não deve bloquear nem derrubar uma conexão compartilhada.
+2. **Fidelidade da atividade:** ampliar detalhes estruturados de tool call e
+   metadados de sessão, definindo saneamento, privacidade e persistência antes
+   de expor payloads. Apresentação de planos ACP fica reservada para discussão.
+3. **Compatibilidade funcional:** projetar `updatedAt` e metadados adicionais
+   de sessão; avaliar elicitation e conteúdo adicional conforme os agentes
+   suportados e os componentes acessíveis disponíveis. Atualizações vazias de
+   opções e `title: null` já têm tratamento definido.
 4. **Cobertura de protocolo:** registrar a versão do SDK/schema e sua relação
    com ACP v1, manter fixtures para variantes conhecidas e criar uma matriz de
    agentes/distribuições. A execução do kit oficial depende da compatibilidade
    com stdio e deve ser investigada antes de virar gate obrigatório.
-5. **Capacidades ampliadas:** decidir se descoberta de sessões, resume,
-   múltiplas raízes, notices, compaction, áudio, recursos embutidos, uso/custo ou
-   filesystem/terminal do cliente resolvem necessidades reais. Capacidades
-   explicitamente desativadas continuam assim até decisão arquitetural própria.
+5. **Capacidades ampliadas:** implementar descoberta/exclusão de sessões,
+   múltiplas raízes, notices e compaction. `session/resume` já está implementado;
+   áudio WAV/MP3, recursos PDF/texto e uso/custo em tempo real têm suporte parcial
+   conforme a matriz. Filesystem/terminal seguem sujeitos aos contratos de permissão e
+   confirmação dos AEPs; planos ACP ficam fora desta implementação até decisão
+   posterior.
 
 #### Referências consultadas em 16/10/2026
 
@@ -1425,6 +1442,60 @@ testes.
 
 ## Critérios de aceitação
 
+### Ampliação ACP v1 autorizada em 16/10/2026
+
+- [x] Atualização completa de opções, inclusive conjunto vazio, substitui o
+  snapshot da sessão e remove opções obsoletas (`TestSnapshotDeOpcoesVazioRemoveEstadoAnterior`).
+- [x] Respostas atrasadas de troca não ressuscitam opções removidas por snapshot;
+  snapshots booleanos com `false` omitido pelo DTO são reconhecidos na
+  reconciliação e a releitura confirma o estado efetivo
+  (`AgentOptionsPickers`: "não restaura opção removida por uma resposta atrasada"
+  e "releitura resolve boolean false omitido no snapshot durante troca em voo").
+- [x] Ao chegar snapshot durante troca pendente, preservar mudanças de outras
+  opções e remoções ao aplicar a resposta da opção pedida
+  (`AgentOptionsPickers`: "preserva outras mudanças e remoções do snapshot ao aplicar resposta atrasada").
+- [x] Preservar IDs de opção novos incluídos na resposta atrasada quando o
+  snapshot só atualiza opções já conhecidas (`AgentOptionsPickers`: "preserva uma
+  opção nova na resposta quando o snapshot só atualiza outra opção").
+- [x] Ao remover por snapshot o controle que contém o foco, restaurá-lo em outro
+  controle habilitado da mesma barra; cobrir remoção parcial e snapshot vazio
+  (`AgentOptionsPickers`: "restaura o foco na barra quando um snapshot ... remove a opção focada").
+- [x] Associar PDF/texto ACP ao nome base do arquivo antes do recurso, sem
+  incluir caminho local (`TestPromptBlocksAssociamNomeBaseAoRecursoEmbutido`).
+- [x] Mapear, apresentar e alterar opções booleanas em ACP (`TestOpcaoBooleanaPodeSerConsultadaEAlterada`; teste Vitest de `AgentOptionsPickers`).
+- [x] Anunciar o estado booleano que o agente confirmou, inclusive quando ele
+  difere do pedido (`AgentOptionsPickers`: "anuncia o estado booleano que o agente confirmou, mesmo se diferir do pedido").
+- [x] Preservar o áudio original ao lado da transcrição no histórico e enviá-lo
+  a agentes ACP com `promptCapabilities.audio` (`TestMediaHistoryLoader_PreservaAudioACPQuandoJaExisteTranscricao`, `TestAudioACPOriginalAcompanhaTranscricaoNoPrompt`).
+- [x] Apresentar e alterar opções seletoras de categorias adicionais (`thought_level` etc.) em controle acessível, com rótulos e anúncios internacionalizados.
+- [x] Propagar snapshots de opções vazios até o frontend para remover controles obsoletos (`TestSnapshotVazioDeOpcoesChegaATela`; teste Vitest correspondente). Avisos legados sem lista continuam preservando os seletores conhecidos.
+- [x] Retomar com `session/resume` quando anunciado, usando `session/load` como fallback se ambos forem anunciados e a retomada falhar (`TestRetomaSessaoSemReplayQuandoAgenteAnunciaResume`, `TestRetomaSessaoUsaLoadQuandoResumeFalha`).
+- [x] Avisar uma vez por turno quando a resposta ACP contém bloco não textual que o chat ainda não renderiza e ainda finalizar uma resposta textual persistível quando nenhum texto veio (`TestRespostaACPComBlocoNaoTextualGeraAtualizacaoDeSaidaNaoRenderizada`; teste Vitest de aviso; `TestTurnoACPComSomenteConteudoNaoTextualFinalizaComRespostaPersistivel`).
+- [x] Projetar janela/custo de `usage_update` no painel de tokens e avisar uma vez por turno ao cruzar 80%/95%, limitando o percentual anunciado a 100% (`TestAtualizacaoACPDeUsoMapeiaJanelaECusto`, `TestTurnoACPAtualizaUsoEAnunciaCadaFaixaUmaVez`, `TestTurnoACPLimitaPercentualDeAvisoAoLimiteDoContexto` e teste Vitest do `TokenStatsModal`).
+- [ ] Cobrir uso/custo, metadados de sessão, notices/compaction, conteúdo
+  multimodal, elicitation, sessões externas e raízes adicionais, com testes e
+  revisão de acessibilidade/privacidade.
+- [x] Completar estado acessível e cancelamento individual do próximo envio
+  manual pendente na fila da conversa (AEP-0108 D1), incluindo dois comandos
+  concorrentes pelo executor real: o segundo fica contado/cancelável enquanto
+  aguarda a serialização, sem reservar nem executar após o cancelamento
+  (`commandChatMessaging.protocol.test.ts`); eventos externos seguem
+  serializados e não entram na contagem cancelável.
+- [x] Não ressuscitar opções ACP modernas removidas por snapshot legado sem
+  opções; `TestSnapshotNaoReinscreveOpcaoModernaRemovida`.
+- [x] Permitir `title: null` limpar título ACP gerado nesta execução e preservar
+  renomeação manual subsequente; testes em `internal/chat/rename_test.go`.
+- [ ] Validar estratégia segura de detecção de agente morto com sessão ociosa
+  (AEP-0108 D2, cobertura a).
+- [ ] Revisar compatibilidade de SDK/schema e matriz de agentes; não declarar
+  conformidade pelo TCK experimental sem evidência registrada.
+- [ ] Manter filesystem/terminal do cliente sob confirmação/permissão; não
+  expor execução privilegiada sem respeitar AEP-0091 e a política de tools.
+- [ ] Implementar os métodos ACP de autenticação e logout com consentimento
+  explícito, sem exibir nem registrar segredos fora do cofre.
+- [ ] Apresentação de planos ACP fica fora deste escopo e requer discussão e
+  decisão posteriores.
+
 - Um perfil apontando para um provider ACP conversa na superfície de chat comum,
   com streaming de texto e de raciocínio, sem fluxo de envio alternativo.
 - Nenhuma tool do app é oferecida ao agente, e nenhuma tool call do agente entra
@@ -1441,7 +1512,9 @@ testes.
   agente.
 - Lista de modelos e troca de modelo funcionam com o Cursor, pelos dois formatos
   de seleção, e com os demais agentes pelo formato que cada um fala — inclusive
-  com quem só fala o legado.
+  com quem só fala o legado; resposta atrasada não reverte atualização posterior
+  (`TestNotificacaoMaisNovaPrevaleceSobreRespostaAtrasadaDaTroca`, agente ACP em
+  processo separado).
 - Payload `models` e seletor `session/set_model` permanecem enquanto qualquer
   agente suportado/publicado depender de cada um; depois do último consumidor,
   a matriz completa sem consumidor nem resultado desconhecido permite propor

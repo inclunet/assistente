@@ -528,7 +528,7 @@ function ChatSessionViewContent({
         const send = live.controller.sendMessage;
         return {
           isCurrent, canCommit,
-          waitForAdmission: id === 'chat.response.cancel' ? undefined : () => useChatStore.getState().waitForMessagingAdmission(conversationId),
+          registerAdmission: id === 'chat.response.cancel' ? undefined : () => useChatStore.getState().registerMessagingAdmission(conversationId, sessionKey),
           async execute(handoff) {
             if (!canCommit()) throw new ChatMessagingStaleError();
             const command = { handoff, isCurrent: canCommit, onPipelineStarted: (revision: number) => { runRevision = revision; pipelineStarted = true; } };

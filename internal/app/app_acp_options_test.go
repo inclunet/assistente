@@ -22,7 +22,7 @@ type agenteFalso struct {
 	opcoes     []acp.ConfigOption
 	comandos   []acp.Command
 	trocas     []string
-	anuncia    func(sessionID string, options []acp.ConfigOption)
+	anuncia    func(sessionID string, options []acp.ConfigOption, snapshot bool)
 	anunciaCmd func(sessionID string, commands []acp.Command)
 	sessoes    []*sessaoFalsa
 	erroTroca  error
@@ -131,7 +131,7 @@ func (a *agenteFalso) avisaSozinho(modelo string) {
 	if aviso == nil {
 		return
 	}
-	aviso("sessao-1", opcoesDeAgente(modelo, "agent"))
+	aviso("sessao-1", opcoesDeAgente(modelo, "agent"), true)
 }
 
 // avisaModo é o agente contando que trocou de modo por conta própria, sem
@@ -144,7 +144,7 @@ func (a *agenteFalso) avisaModo(modo string) {
 	if aviso == nil {
 		return
 	}
-	aviso("sessao-1", opcoesDeAgente("modelo-a", modo))
+	aviso("sessao-1", opcoesDeAgente("modelo-a", modo), true)
 }
 
 // avisaSemLista é o agente contando a troca sem repetir os valores que oferece —
@@ -161,7 +161,16 @@ func (a *agenteFalso) avisaSemLista(modelo string) {
 		Name:         "Modelo",
 		Category:     acp.CategoryModel,
 		CurrentValue: modelo,
-	}})
+	}}, false)
+}
+
+func (a *agenteFalso) avisaOpcoesVazias() {
+	a.mu.Lock()
+	aviso := a.anuncia
+	a.mu.Unlock()
+	if aviso != nil {
+		aviso("sessao-1", []acp.ConfigOption{}, true)
+	}
 }
 
 // sessaoFalsa é a sessão do agente falso.
@@ -420,20 +429,23 @@ func TestTrocaContadaSemListaDeValoresAindaChegaATela(t *testing.T) {
 	}
 }
 
-// Aviso sem valores e sem troca nenhuma não tem o que fazer na tela: não há
-// seletor a desenhar nem notícia a dar.
-func TestAvisoSemValoresESemTrocaNaoViraEvento(t *testing.T) {
+// Snapshot vazio remove seletores antigos mesmo quando modelo e modo não
+// mudaram. A interface não pode manter opções que o agente retirou.
+func TestSnapshotVazioDeOpcoesChegaATela(t *testing.T) {
 	agente := novoAgenteFalso()
 	a, emissor := appComAgente(t, agente)
 	conversaComSessao(t, a, "conversa-1")
 
-	agente.avisaSemLista("modelo-a")
+	agente.avisaOpcoesVazias()
 
-	// O único evento é o da montagem da sessão; o aviso sem valores e sem
-	// troca nenhuma não vira evento.
+	// O primeiro evento monta o estado conhecido; o segundo limpa o snapshot.
 	eventos := emissor.find("chat:agent_options")
-	if len(eventos) != 1 {
-		t.Fatalf("esperava só o evento da montagem, obtive %d: %+v", len(eventos), eventos)
+	if len(eventos) != 2 {
+		t.Fatalf("esperava evento de snapshot vazio, obtive %d: %+v", len(eventos), eventos)
+	}
+	evento := eventos[1].data.(AgentSessionOptionsEvent)
+	if len(evento.Options) != 0 || !evento.Snapshot || evento.Announce {
+		t.Fatalf("snapshot vazio não foi propagado como estado: %+v", evento)
 	}
 }
 

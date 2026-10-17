@@ -25,6 +25,11 @@ export interface ChatMessagingExecution {
   readonly isCurrent: () => boolean;
   readonly onPipelineStarted?: (revision: number) => void;
 }
+export interface ChatMessagingAdmissionRegistration {
+  activate(): boolean;
+  complete(): void;
+  cancelled: Promise<never>;
+}
 export class ChatMessagingStaleError extends Error {
   constructor() { super('chat-messaging-stale'); }
 }
@@ -36,6 +41,7 @@ export interface PreparedChatMessagingTarget {
   finishAdmission?(): void;
   settled?(status: UICommandStatus): void;
   waitForAdmission?(): Promise<void>;
+  registerAdmission?(): ChatMessagingAdmissionRegistration | undefined;
   succeeded?(): void;
   isCurrent(): boolean;
   canCommit(): boolean;
@@ -136,6 +142,7 @@ export function captureChatMessagingTarget(
       prepared.finishAdmission?.();
     },
     waitForAdmission: () => prepared.waitForAdmission?.() ?? Promise.resolve(),
+    registerAdmission: () => prepared.registerAdmission?.(),
     succeeded: () => { if (!disposed && surfaces.has(source) && source.root.isConnected && source.isCurrent()) prepared.succeeded?.(); },
     failed: reason => { if (isCurrent()) prepared.failed?.(reason); },
     settled: status => { if (!disposed && surfaces.has(source) && source.root.isConnected && source.isCurrent()) prepared.settled?.(status); },
@@ -176,10 +183,30 @@ export async function executeChatMessaging(port: CommandContextualBackendPort, t
   }
   if (commandID === 'chat.response.cancel') return executeCaptured(port, target, commandID);
   const key = target.queueKey ?? target.instanceId;
+  let registration: ChatMessagingAdmissionRegistration | undefined;
+  try { registration = target.registerAdmission?.(); }
+  catch { return 'failed'; }
   const previous = admissions.get(key) ?? Promise.resolve();
-  const run = previous.catch(() => undefined).then(() => executeCaptured(port, target, commandID));
+  const run = previous.catch(() => undefined).then(() => {
+    if (registration && !registration.activate()) return 'cancelled' as UICommandStatus;
+    return executeCaptured(port, target, commandID);
+  });
   admissions.set(key, run);
-  try { return await run; } finally { if (admissions.get(key) === run) admissions.delete(key); }
+  const clearAdmission = () => {
+    registration?.complete();
+    if (admissions.get(key) === run) admissions.delete(key);
+  };
+  void run.then(clearAdmission, clearAdmission);
+  if (registration) {
+    return Promise.race([run, registration.cancelled.then(() => {
+      target.dispose();
+      return 'cancelled' as UICommandStatus;
+    }, () => {
+      target.dispose();
+      return 'cancelled' as UICommandStatus;
+    })]);
+  }
+  return run;
 }
 async function executeCaptured(port: CommandContextualBackendPort, target: ChatMessagingTarget, commandID: string): Promise<UICommandStatus> {
   let ticket: string | undefined;

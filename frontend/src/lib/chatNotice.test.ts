@@ -5,6 +5,9 @@ import {
   chatNoticeMessage,
   chatNoticeTone,
   CHAT_NOTICE_ATTACHMENTS_NOT_SENT,
+  CHAT_NOTICE_AGENT_OUTPUT_NOT_DISPLAYED,
+  CHAT_NOTICE_AGENT_CONTEXT_NEAR_LIMIT,
+  CHAT_NOTICE_AGENT_CONTEXT_CRITICAL,
   CHAT_NOTICE_PERMISSION_ALWAYS_ALLOWED,
   CHAT_NOTICE_PERMISSION_ALWAYS_NOT_SAVED,
   CHAT_NOTICE_PERMISSION_NO_WATCHER,
@@ -29,6 +32,23 @@ const t = ((key: string, opts?: Record<string, unknown>) =>
   opts ? `${key}|${JSON.stringify(opts)}` : key) as unknown as TFunction;
 
 describe('chatNoticeMessage', () => {
+  it('avisa quando o agente produz resposta não textual que não é exibida', () => {
+    expect(chatNoticeMessage(t, { kind: CHAT_NOTICE_AGENT_OUTPUT_NOT_DISPLAYED }))
+      .toContain('app.chatNotice.agentOutputNotDisplayed');
+  });
+
+  it('inclui o uso da janela no aviso ACP localizado', () => {
+    const message = chatNoticeMessage(t, {
+      kind: CHAT_NOTICE_AGENT_CONTEXT_CRITICAL,
+      percentage: 96.4,
+      contextTokens: 9640,
+      contextLimit: 10000,
+    });
+    expect(message).toContain('app.chatNotice.agentContextCritical|');
+    expect(message).toContain('"percentage":"96.4"');
+    expect(chatNoticeTone(CHAT_NOTICE_AGENT_CONTEXT_NEAR_LIMIT)).toBe('warning');
+  });
+
   it('traduz o motivo nomeado pelo backend, com a quantidade', () => {
     const message = chatNoticeMessage(t, {
       conversationId: 'conversa-1',

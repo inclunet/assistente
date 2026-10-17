@@ -11,12 +11,15 @@ import (
 
 // Message representa uma mensagem no histórico do chat
 type Message struct {
-	Role             string      `json:"role"`
-	Content          interface{} `json:"content,omitempty"`           // Pode ser string ou []ContentPart
-	Thinking         string      `json:"thinking,omitempty"`          // Ollama thinking/reasoning
-	ReasoningContent string      `json:"reasoning_content,omitempty"` // extensão OpenAI-compatible controlada por reasoning_content_mode
-	ToolCalls        []ToolCall  `json:"tool_calls,omitempty"`        // Tool calls solicitadas pelo assistant
-	ToolCallID       string      `json:"tool_call_id,omitempty"`      // Para role="tool": vincula ao call
+	Role    string      `json:"role"`
+	Content interface{} `json:"content,omitempty"` // Pode ser string ou []ContentPart
+	// ACPOriginalAudio conserva o anexo de áudio original quando o histórico
+	// também contém a transcrição em texto; só o provider ACP consome este campo.
+	ACPOriginalAudio []InputAudio `json:"-"`
+	Thinking         string       `json:"thinking,omitempty"`          // Ollama thinking/reasoning
+	ReasoningContent string       `json:"reasoning_content,omitempty"` // extensão OpenAI-compatible controlada por reasoning_content_mode
+	ToolCalls        []ToolCall   `json:"tool_calls,omitempty"`        // Tool calls solicitadas pelo assistant
+	ToolCallID       string       `json:"tool_call_id,omitempty"`      // Para role="tool": vincula ao call
 	// MessageID e TurnContextTarget são metadados internos da request LLM.
 	// Eles não são enviados ao provider nem persistidos; servem para associar
 	// contexto transitório ao turno correto mesmo em retries/branches.
@@ -84,9 +87,24 @@ type FunctionDefinition struct {
 
 // ContentPart representa uma parte do conteúdo multimodal
 type ContentPart struct {
-	Type     string    `json:"type"` // "text" ou "image_url"
-	Text     string    `json:"text,omitempty"`
-	ImageURL *ImageURL `json:"image_url,omitempty"`
+	Type       string      `json:"type"` // "text", "image_url" ou "input_audio"
+	Text       string      `json:"text,omitempty"`
+	ImageURL   *ImageURL   `json:"image_url,omitempty"`
+	InputAudio *InputAudio `json:"input_audio,omitempty"`
+	File       *InputFile  `json:"file,omitempty"`
+}
+
+// InputAudio guarda o payload base64 no formato de entrada comum do chat.
+type InputAudio struct {
+	Data   string `json:"data"`
+	Format string `json:"format"`
+}
+
+// InputFile guarda um anexo textual ou binário já persistido como base64.
+type InputFile struct {
+	Filename string `json:"filename"`
+	Data     string `json:"data"`
+	MIMEType string `json:"mime_type"`
 }
 
 // ImageURL representa uma imagem em base64 ou URL

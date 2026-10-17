@@ -5,7 +5,7 @@ import {commandui} from '../models';
 import {commandbridge} from '../models';
 import {context} from '../models';
 import {database} from '../models';
-import {json} from '../models';
+import {jsontext} from '../models';
 import {hotkey} from '../models';
 import {credentials} from '../models';
 import {ports} from '../models';
@@ -80,7 +80,7 @@ export function ExecuteContextualDeckLayerCommand(arg1:string,arg2:string,arg3:a
 
 export function ExecuteContextualPaletteLayerCommand(arg1:string,arg2:string,arg3:app.LocalCommandKeyboardContext):Promise<app.CommandExecutionResult>;
 
-export function ExecutePaletteCommand(arg1:string,arg2:json.RawMessage):Promise<app.CommandExecutionResult>;
+export function ExecutePaletteCommand(arg1:string,arg2:jsontext.Value):Promise<app.CommandExecutionResult>;
 
 export function GetAuthStatus():Promise<app.AuthStatus>;
 
