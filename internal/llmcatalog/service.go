@@ -144,8 +144,9 @@ func (s *Service) Snapshot() Snapshot {
 	return snapshot
 }
 
-// Refresh executa uma atualização explícita. Uma resposta inválida ou uma
-// falha de rede mantém o último documento validado.
+// Refresh tenta atualizar explicitamente. Chamadas sobrepostas são
+// coalescidas e retornam o snapshot corrente do serviço, que pode refletir
+// outra atualização já publicada. Falha mantém o último documento validado.
 func (s *Service) Refresh(ctx context.Context) (snapshot Snapshot) {
 	s.mu.Lock()
 	if s.closed {
@@ -317,10 +318,11 @@ func (s *Service) loadCache() {
 	if err != nil {
 		return
 	}
-	if envelope.FetchedAt.After(s.now()) {
+	now := s.now()
+	if envelope.FetchedAt.After(now) {
 		// Mantém o último documento válido, mas força revalidação após desvio
 		// do relógio ou adulteração do timestamp, sem tratá-lo como fresco.
-		envelope.FetchedAt = s.now().Add(-s.ttl)
+		envelope.FetchedAt = now.Add(-s.ttl)
 	}
 	s.mu.Lock()
 	s.snapshot = Snapshot{Document: document, FetchedAt: envelope.FetchedAt, FromCache: true}
