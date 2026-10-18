@@ -77,6 +77,7 @@ type Service struct {
 	loaded       bool
 	started      bool
 	closed       bool
+	cancelStart  context.CancelFunc
 	refreshing   atomic.Bool
 	background   sync.WaitGroup
 }
@@ -117,6 +118,8 @@ func (s *Service) Start(ctx context.Context) {
 		return
 	}
 	s.started = true
+	startCtx, cancelStart := context.WithCancel(ctx)
+	s.cancelStart = cancelStart
 	s.background.Add(1)
 	s.mu.Unlock()
 	defer s.background.Done()
@@ -126,7 +129,7 @@ func (s *Service) Start(ctx context.Context) {
 	needsRefresh := !s.loaded || s.now().Sub(s.snapshot.FetchedAt) >= s.ttl
 	s.mu.RUnlock()
 	if needsRefresh {
-		s.refreshInBackground(ctx)
+		s.refreshInBackground(startCtx)
 	}
 }
 
@@ -183,12 +186,16 @@ func (s *Service) refreshInBackground(ctx context.Context) {
 	}()
 }
 
-// Close aguarda inicialização e atualizações em segundo plano e explícitas;
-// o contexto de startup deve ser cancelado antes para interromper a busca.
+// Close cancela o contexto de startup e aguarda inicialização e atualizações
+// em segundo plano e explícitas.
 func (s *Service) Close() {
 	s.mu.Lock()
 	s.closed = true
+	cancelStart := s.cancelStart
 	s.mu.Unlock()
+	if cancelStart != nil {
+		cancelStart()
+	}
 	s.background.Wait()
 }
 

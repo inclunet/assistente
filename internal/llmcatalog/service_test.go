@@ -219,17 +219,14 @@ func TestStartReturnsWhileBackgroundFetchIsPending(t *testing.T) {
 	service.Close()
 }
 
-func TestCloseWaitsForStartupRefresh(t *testing.T) {
+func TestCloseCancelsStartupRefresh(t *testing.T) {
 	started := make(chan struct{})
-	release := make(chan struct{})
+	canceled := make(chan struct{})
 	service := New(Config{Dir: t.TempDir(), HTTP: doerFunc(func(ctx context.Context, _ *http.Request) (*http.Response, error) {
 		close(started)
-		select {
-		case <-release:
-			return response(http.StatusOK, minimalCatalog, http.Header{"Content-Type": []string{"application/json"}}), nil
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		}
+		<-ctx.Done()
+		close(canceled)
+		return nil, ctx.Err()
 	})})
 	service.Start(context.Background())
 	select {
@@ -238,39 +235,23 @@ func TestCloseWaitsForStartupRefresh(t *testing.T) {
 		t.Fatal("refresh iniciado por Start não começou")
 	}
 
-	closeDone := make(chan struct{})
+	closed := make(chan struct{})
 	go func() {
 		service.Close()
-		close(closeDone)
+		close(closed)
 	}()
-	deadline := time.After(time.Second)
-	for {
-		service.mu.RLock()
-		closed := service.closed
-		service.mu.RUnlock()
-		if closed {
-			break
-		}
-		select {
-		case <-deadline:
-			t.Fatal("Close não iniciou antes do limite")
-		case <-time.After(time.Millisecond):
-		}
-	}
 	select {
-	case <-closeDone:
-		t.Fatal("Close retornou enquanto o refresh de inicialização ainda podia gravar o cache")
-	case <-time.After(50 * time.Millisecond):
-	}
-
-	close(release)
-	select {
-	case <-closeDone:
+	case <-canceled:
 	case <-time.After(time.Second):
-		t.Fatal("Close não terminou após o refresh de inicialização")
+		t.Fatal("Close não cancelou o refresh de inicialização")
 	}
-	if _, err := os.Stat(service.path); err != nil {
-		t.Fatalf("cache deveria ser gravado antes de Close retornar: %v", err)
+	select {
+	case <-closed:
+	case <-time.After(time.Second):
+		t.Fatal("Close não terminou após cancelar o refresh")
+	}
+	if _, err := os.Stat(service.path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("refresh cancelado não deveria gravar cache, erro ao consultar: %v", err)
 	}
 }
 
