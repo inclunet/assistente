@@ -2,6 +2,7 @@ package llmcatalog
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -44,6 +45,43 @@ func TestRefreshValidatesAndPersistsThenOfflineLoadsCache(t *testing.T) {
 	loaded := offline.Snapshot()
 	if loaded.Document.CatalogVersion != "v1" || !loaded.FromCache {
 		t.Fatalf("cache offline = %#v", loaded)
+	}
+}
+
+func TestStartRevalidatesCacheWithFutureTimestamp(t *testing.T) {
+	dir := t.TempDir()
+	document, err := Decode([]byte(minimalCatalog))
+	if err != nil {
+		t.Fatal(err)
+	}
+	future := time.Now().Add(24 * time.Hour)
+	envelope, err := makeCacheEnvelope(document, future, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := json.Marshal(envelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, cacheFileName), body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	refreshStarted := make(chan struct{})
+	service := New(Config{Dir: dir, TTL: time.Hour, HTTP: doerFunc(func(context.Context, *http.Request) (*http.Response, error) {
+		close(refreshStarted)
+		return nil, errors.New("offline")
+	})})
+	service.now = time.Now
+	service.Start(context.Background())
+	defer service.Close()
+	select {
+	case <-refreshStarted:
+	case <-time.After(time.Second):
+		t.Fatal("cache com timestamp futuro não agendou revalidação")
+	}
+	got := service.Snapshot()
+	if got.Document.CatalogVersion != "v1" || got.FetchedAt.After(time.Now()) || !got.Stale {
+		t.Fatalf("cache futuro deveria continuar disponível e stale: %#v", got)
 	}
 }
 
@@ -179,6 +217,59 @@ func TestStartReturnsWhileBackgroundFetchIsPending(t *testing.T) {
 	cancel()
 	close(release)
 	service.Close()
+}
+
+func TestCloseWaitsForExplicitRefresh(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var calls atomic.Int32
+	service := New(Config{Dir: t.TempDir(), HTTP: doerFunc(func(context.Context, *http.Request) (*http.Response, error) {
+		if calls.Add(1) > 1 {
+			return nil, errors.New("refresh após Close")
+		}
+		close(started)
+		<-release
+		return response(http.StatusOK, minimalCatalog, http.Header{"Content-Type": []string{"application/json"}}), nil
+	})})
+	refreshDone := make(chan struct{})
+	go func() {
+		service.Refresh(context.Background())
+		close(refreshDone)
+	}()
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("refresh explícito não começou")
+	}
+
+	closeDone := make(chan struct{})
+	go func() {
+		service.Close()
+		close(closeDone)
+	}()
+	select {
+	case <-closeDone:
+		t.Fatal("Close retornou enquanto Refresh ainda podia gravar o cache")
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(release)
+	select {
+	case <-refreshDone:
+	case <-time.After(time.Second):
+		t.Fatal("refresh explícito não terminou")
+	}
+	select {
+	case <-closeDone:
+	case <-time.After(time.Second):
+		t.Fatal("Close não terminou após o refresh")
+	}
+	if _, err := os.Stat(service.path); err != nil {
+		t.Fatalf("cache deveria ter sido gravado antes de Close retornar: %v", err)
+	}
+	service.Refresh(context.Background())
+	if calls.Load() != 1 {
+		t.Fatalf("Refresh após Close chegou ao transporte: calls=%d", calls.Load())
+	}
 }
 
 func response(status int, body string, headers http.Header) *http.Response {

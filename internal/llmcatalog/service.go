@@ -76,6 +76,7 @@ type Service struct {
 	lastModified string
 	loaded       bool
 	started      bool
+	closed       bool
 	refreshing   atomic.Bool
 	background   sync.WaitGroup
 }
@@ -111,12 +112,14 @@ func New(cfg Config) *Service {
 // da interface. Chamadas repetidas são seguras.
 func (s *Service) Start(ctx context.Context) {
 	s.mu.Lock()
-	if s.started {
+	if s.started || s.closed {
 		s.mu.Unlock()
 		return
 	}
 	s.started = true
+	s.background.Add(1)
 	s.mu.Unlock()
+	defer s.background.Done()
 
 	s.loadCache()
 	s.mu.RLock()
@@ -144,22 +147,34 @@ func (s *Service) Snapshot() Snapshot {
 // Refresh executa uma atualização explícita. Uma resposta inválida ou uma
 // falha de rede mantém o último documento validado.
 func (s *Service) Refresh(ctx context.Context) (snapshot Snapshot) {
-	if !s.refreshing.CompareAndSwap(false, true) {
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
 		return s.Snapshot()
 	}
+	if !s.refreshing.CompareAndSwap(false, true) {
+		s.mu.Unlock()
+		return s.Snapshot()
+	}
+	s.background.Add(1)
+	s.mu.Unlock()
 	defer func() {
 		s.refreshing.Store(false)
 		snapshot = s.Snapshot()
+		s.background.Done()
 	}()
 	_ = s.refresh(ctx)
 	return
 }
 
 func (s *Service) refreshInBackground(ctx context.Context) {
-	if !s.refreshing.CompareAndSwap(false, true) {
+	s.mu.Lock()
+	if s.closed || !s.refreshing.CompareAndSwap(false, true) {
+		s.mu.Unlock()
 		return
 	}
 	s.background.Add(1)
+	s.mu.Unlock()
 	go func() {
 		defer s.background.Done()
 		defer s.refreshing.Store(false)
@@ -167,9 +182,14 @@ func (s *Service) refreshInBackground(ctx context.Context) {
 	}()
 }
 
-// Close espera a busca de fundo terminar; o contexto de startup deve ser
-// cancelado antes da chamada para interromper o request em andamento.
-func (s *Service) Close() { s.background.Wait() }
+// Close aguarda inicialização e atualizações em segundo plano e explícitas;
+// o contexto de startup deve ser cancelado antes para interromper a busca.
+func (s *Service) Close() {
+	s.mu.Lock()
+	s.closed = true
+	s.mu.Unlock()
+	s.background.Wait()
+}
 
 func (s *Service) refresh(parent context.Context) error {
 	ctx, cancel := context.WithTimeout(parent, requestTimeout)
@@ -296,6 +316,11 @@ func (s *Service) loadCache() {
 	document, err := Decode(envelope.Document)
 	if err != nil {
 		return
+	}
+	if envelope.FetchedAt.After(s.now()) {
+		// Mantém o último documento válido, mas força revalidação após desvio
+		// do relógio ou adulteração do timestamp, sem tratá-lo como fresco.
+		envelope.FetchedAt = s.now().Add(-s.ttl)
 	}
 	s.mu.Lock()
 	s.snapshot = Snapshot{Document: document, FetchedAt: envelope.FetchedAt, FromCache: true}

@@ -227,7 +227,9 @@ altera conexões existentes nem sobrepõe a identidade explícita persistida.
    URL fixa sem seguir redirects, validar estrutura e integridade semântica,
    persistir atomicamente a última versão válida com ETag/Last-Modified e expor
    snapshots tipados por API Wails. O cache é carregado localmente e a atualização
-   ocorre em segundo plano; falhas mantêm o snapshot válido anterior.
+   ocorre em segundo plano; falhas mantêm o snapshot válido anterior. Timestamps
+   futuros no cache mantêm o documento disponível como stale e forçam
+   revalidação; o shutdown aguarda refreshes explícitos e de fundo.
 3. **Configuração de provedores pelo catálogo.** Trocar os presets duplicados
    do frontend/backend por perfis catalogados; aplicar política fixa/editável
    por campo, manter customizados, mostrar links de cadastro/chave e preservar
@@ -286,6 +288,9 @@ altera conexões existentes nem sobrepõe a identidade explícita persistida.
   limita o tamanho do documento e grava cache por substituição atômica. Evidência:
   `internal/llmcatalog/service.go` e `GetLLMCatalog` em
   `internal/wailsapi/llm_catalog.go`.
+- [x] Cache com timestamp futuro continua disponível como stale e inicia
+  revalidação; o shutdown aguarda refreshes ativos. Evidência:
+  `internal/llmcatalog/service.go` e testes em `service_test.go`.
 - [ ] Provedores conhecidos aplicam as políticas de edição declaradas; URLs de
   cadastro e obtenção de chave são acessíveis e localizadas.
 - [ ] Atualizar o catálogo não sobrescreve configurações existentes nem envia

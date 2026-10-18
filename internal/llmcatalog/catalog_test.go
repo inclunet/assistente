@@ -1,6 +1,7 @@
 package llmcatalog
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"strings"
@@ -130,6 +131,7 @@ func TestCloneIsIndependent(t *testing.T) {
 
 func TestClonePreservesEmptyVoiceItems(t *testing.T) {
 	raw := strings.Replace(minimalCatalog, `"canonical_model_id":"vendor/model"`, `"canonical_model_id":"vendor/model","selection_mode":"model_only","voices":{"completeness":"complete","items":[]}`, 1)
+	raw = strings.Replace(raw, `"policy":"editable","required":true`, `"policy":"fixed","default":null`, 1)
 	doc, err := Decode([]byte(raw))
 	if err != nil {
 		t.Fatalf("catálogo com lista de vozes vazia deve ser válido: %v", err)
@@ -138,11 +140,22 @@ func TestClonePreservesEmptyVoiceItems(t *testing.T) {
 	if doc.Exposures[0].Voices.Items == nil || clone.Exposures[0].Voices.Items == nil {
 		t.Fatal("Clone converteu voices.items vazio em null")
 	}
-	encoded, err := json.Marshal(clone.Exposures[0])
+	encoded, err := json.Marshal(clone)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(encoded), `"items":[]`) {
 		t.Fatalf("voices.items deveria permanecer array vazio: %s", encoded)
+	}
+	roundTrip, err := Decode(encoded)
+	if err != nil {
+		t.Fatalf("round-trip do documento serializado: %v", err)
+	}
+	reencoded, err := json.Marshal(roundTrip)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(encoded, reencoded) {
+		t.Fatalf("round-trip não idempotente:\n primeiro: %s\nsegundo: %s", encoded, reencoded)
 	}
 }
