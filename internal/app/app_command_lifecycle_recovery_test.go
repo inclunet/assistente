@@ -46,6 +46,22 @@ func TestAppCommandLifecycleRecoveryAllowsBootWhenDatabaseHasNoRecoverableRows(t
 	}
 }
 
+func TestAppCommandLifecycleRecoveryPreservesStorageCause(t *testing.T) {
+	db := lifecycleRecoveryDB(t)
+	const hook = "test:lifecycle_preflight_busy"
+	if err := db.Callback().Row().Before("gorm:row").Register(hook, func(tx *gorm.DB) {
+		_ = tx.AddError(commandLoadCodedError{})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Callback().Row().Remove(hook) })
+	err := (&appCommandLifecycleRuntime{}).Recover(context.Background(), commandruntime.Generation{Value: "generation"})
+	var coded interface{ Code() int }
+	if !errors.Is(err, commandruntime.ErrNotReady) || !errors.As(err, &coded) || coded.Code() != 517 {
+		t.Fatalf("preflight perdeu causa tipada do armazenamento: %v", err)
+	}
+}
+
 func TestAppCommandLifecycleRecoveryBlocksEveryRecoverableTable(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -83,6 +99,9 @@ func TestAppCommandLifecycleRecoveryBlocksEveryRecoverableTable(t *testing.T) {
 			err := (&appCommandLifecycleRuntime{}).Recover(context.Background(), commandruntime.Generation{Value: "generation"})
 			if !errors.Is(err, commandruntime.ErrNotReady) {
 				t.Fatalf("pendência %s não bloqueou com ErrNotReady: %v", tc.name, err)
+			}
+			if !errors.Is(err, errCommandRecoveryPending) || commandLoadErrorClass(err) != "recovery_pending" {
+				t.Fatalf("pendência %s sem diagnóstico específico: %v", tc.name, err)
 			}
 		})
 	}

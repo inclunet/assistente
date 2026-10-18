@@ -153,6 +153,14 @@ type App struct {
 	authKeyringSave         func(string) error
 	authKeyringDelete       func() error
 
+	commandCatalogRecoveryMu            sync.Mutex
+	commandCatalogRecoveryRunning       bool
+	commandCatalogRecoveryClosing       bool
+	commandCatalogRecoveryWake          chan struct{}
+	commandCatalogRecoveryPendingTicket *commandCatalogRecoveryTicket
+	commandCatalogRecoveryCancel        context.CancelFunc
+	commandCatalogRecoveryDone          chan struct{}
+
 	// Watcher de arquivos do editor (mudanças externas)
 	editorWatchMu             sync.Mutex
 	editorDirWatches          map[string]*editorDirWatch
@@ -1358,6 +1366,11 @@ func (a *App) waitBackground(timeout time.Duration) {
 // Shutdown encerra todos os serviços do app.
 func (a *App) Shutdown() {
 	a.startupResult.finish(context.Canceled)
+	// Cancela e aguarda a única recuperação de hot-swap antes de desmontar
+	// lifecycle/adapters. A rotina não pode republicar após o início do shutdown.
+	recoveryCtx, cancelRecovery := context.WithTimeout(context.Background(), shutdownBackgroundTimeout)
+	a.stopCommandCatalogRecovery(recoveryCtx)
+	cancelRecovery()
 	// Publica inclusive o estado terminal quando nenhum vínculo foi criado:
 	// uma admissão concorrente não pode montar uma registry viva após o shutdown.
 	a.ensureExternalUIConnections().Close()
