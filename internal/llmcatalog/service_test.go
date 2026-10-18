@@ -19,6 +19,10 @@ func (fn doerFunc) Do(ctx context.Context, req *http.Request) (*http.Response, e
 	return fn(ctx, req)
 }
 
+type closeErrorBody struct{ io.Reader }
+
+func (closeErrorBody) Close() error { return errors.New("falha ao fechar body") }
+
 func TestRefreshValidatesAndPersistsThenOfflineLoadsCache(t *testing.T) {
 	dir := t.TempDir()
 	service := New(Config{
@@ -40,6 +44,21 @@ func TestRefreshValidatesAndPersistsThenOfflineLoadsCache(t *testing.T) {
 	loaded := offline.Snapshot()
 	if loaded.Document.CatalogVersion != "v1" || !loaded.FromCache {
 		t.Fatalf("cache offline = %#v", loaded)
+	}
+}
+
+func TestRefreshKeepsSuccessfulCatalogWhenBodyCloseFails(t *testing.T) {
+	service := New(Config{Dir: t.TempDir(), HTTP: doerFunc(func(context.Context, *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       closeErrorBody{Reader: strings.NewReader(minimalCatalog)},
+		}, nil
+	})})
+
+	got := service.Refresh(context.Background())
+	if got.Document.CatalogVersion != "v1" || got.ReasonCode != "" || got.FromCache {
+		t.Fatalf("falha de limpeza não deve invalidar catálogo publicado: %#v", got)
 	}
 }
 

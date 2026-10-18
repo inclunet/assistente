@@ -44,9 +44,11 @@ type Config struct {
 
 // Snapshot é o documento servido junto do estado de frescor do cache.
 type Snapshot struct {
-	Document   Document
-	FetchedAt  time.Time
-	Age        time.Duration
+	Document  Document
+	FetchedAt time.Time
+	Age       time.Duration
+	// FromCache indica que o documento servido veio do payload persistido; uma
+	// resposta 304 revalida esse payload, mas não fornece um documento novo.
 	FromCache  bool
 	Stale      bool
 	Refreshing bool
@@ -169,7 +171,7 @@ func (s *Service) refreshInBackground(ctx context.Context) {
 // cancelado antes da chamada para interromper o request em andamento.
 func (s *Service) Close() { s.background.Wait() }
 
-func (s *Service) refresh(parent context.Context) (retErr error) {
+func (s *Service) refresh(parent context.Context) error {
 	ctx, cancel := context.WithTimeout(parent, requestTimeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, URL, nil)
@@ -193,11 +195,9 @@ func (s *Service) refresh(parent context.Context) (retErr error) {
 		s.setReason("unreachable")
 		return err
 	}
-	defer func() {
-		if err := resp.Body.Close(); err != nil {
-			retErr = errors.Join(retErr, fmt.Errorf("fechar resposta do catálogo: %w", err))
-		}
-	}()
+	// A resposta já foi obtida; falha de limpeza do body não invalida um
+	// catálogo que foi lido, validado e persistido com sucesso.
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode == http.StatusNotModified {
 		if !loaded {
 			s.setReason("malformed_catalog")

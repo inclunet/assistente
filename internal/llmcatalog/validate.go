@@ -95,7 +95,7 @@ func Validate(doc Document) error {
 			}
 		}
 		for endpointName, endpoint := range server.Endpoints {
-			if !oneOf(endpointName, "chat", "responses", "models", "tts") && endpoint.Path == "" {
+			if endpoint.Path == "" {
 				return invalid(path+".endpoints."+endpointName, "endpoint precisa declarar path")
 			}
 			if !endpointPaths[endpoint.Path] {

@@ -51,6 +51,18 @@ func TestDecodeRejectsInvalidDocuments(t *testing.T) {
 	}
 }
 
+func TestDecodeAllowsAdditionalEndpointNamesOnlyForSupportedPaths(t *testing.T) {
+	withCustomName := strings.Replace(minimalCatalog, `"auth":{`, `"endpoints":{"custom_metrics":{"path":"/models"}},"auth":{`, 1)
+	if _, err := Decode([]byte(withCustomName)); err != nil {
+		t.Fatalf("nome adicional permitido pelo schema deve aceitar rota allowlisted: %v", err)
+	}
+
+	withUnsupportedPath := strings.Replace(minimalCatalog, `"auth":{`, `"endpoints":{"custom_metrics":{"path":"/custom"}},"auth":{`, 1)
+	if _, err := Decode([]byte(withUnsupportedPath)); err == nil || !strings.Contains(err.Error(), "rota não permitida") {
+		t.Fatalf("rota fora da allowlist deveria ser rejeitada: %v", err)
+	}
+}
+
 func TestValidateRejectsDuplicateExposureTuple(t *testing.T) {
 	doc, err := Decode([]byte(minimalCatalog))
 	if err != nil {
