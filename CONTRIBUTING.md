@@ -73,7 +73,10 @@ estimativa do PR-Agent usa a tabela de preços do LiteLLM e pode divergir da
 cobrança, pois a DeepSeek aplica tarifas diferentes por horário e cache. Para
 acompanhar o valor efetivamente cobrado, confira o uso na plataforma da DeepSeek
 e a [tabela oficial de preços](https://api-docs.deepseek.com/quick_start/pricing/).
-Os limites de contexto e saída configurados no workflow mantêm cada execução
-contida; novas execuções continuam dependendo de um novo `/review` manual. Não
-há teto agregado de gastos nem limite de frequência: cada execução adicional
-pode gerar custo.
+O workflow limita cada chamada a 128 mil tokens de entrada e 32.768 de saída,
+e desativa o fallback OpenAI padrão do PR-Agent: a revisão usa apenas a API
+DeepSeek configurada. Esses valores são tetos, não consumo garantido; confira
+o custo estimado no resumo e o uso efetivamente cobrado no painel da DeepSeek.
+Novas execuções continuam dependendo de um novo `/review` manual. Não há teto
+agregado de gastos nem limite de frequência: cada execução adicional pode
+gerar custo.
