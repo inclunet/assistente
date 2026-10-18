@@ -3,6 +3,7 @@ package llmcatalog
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/url"
 	"regexp"
 	"strings"
@@ -253,7 +254,24 @@ func validURL(value string, httpsOnly bool) bool {
 	if err != nil || parsed.Host == "" || parsed.User != nil || (httpsOnly && parsed.Scheme != "https") {
 		return false
 	}
-	return parsed.Scheme == "http" || parsed.Scheme == "https"
+	if parsed.Scheme == "https" {
+		return true
+	}
+	return parsed.Scheme == "http" && loopbackHost(parsed.Hostname())
+}
+
+func loopbackHost(host string) bool {
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+	if ipv4 := ip.To4(); ipv4 != nil {
+		return ipv4[0] == 127 && host == ipv4.String()
+	}
+	return host == "::1"
 }
 
 func lengthBetween(value string, min, max int) bool {

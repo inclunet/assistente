@@ -39,6 +39,10 @@ func TestDecodeRejectsInvalidDocuments(t *testing.T) {
 		{name: "voices nulo", json: strings.Replace(minimalCatalog, `"canonical_model_id":"vendor/model"`, `"canonical_model_id":"vendor/model","voices":null`, 1), want: ".voices não pode ser null"},
 		{name: "userinfo em URL de servidor", json: strings.Replace(minimalCatalog, `"group":"custom"`, `"group":"local","base_url":"https://usuario:senha@localhost:1234"`, 1), want: "URL inválida"},
 		{name: "http em provedor hospedado", json: strings.Replace(minimalCatalog, `"group":"custom"`, `"group":"hosted","base_url":"http://api.example.com"`, 1), want: "esquema não permitido"},
+		{name: "http em host remoto", json: strings.Replace(minimalCatalog, `"group":"custom"`, `"group":"proxy","base_url":"http://gateway.example.com/v1"`, 1), want: "URL inválida"},
+		{name: "http em ipv4 loopback inválido", json: strings.Replace(minimalCatalog, `"group":"custom"`, `"group":"local","base_url":"http://127.999.0.1/v1"`, 1), want: "URL inválida"},
+		{name: "http localhost não canônico", json: strings.Replace(minimalCatalog, `"group":"custom"`, `"group":"local","base_url":"http://LOCALHOST:11434/v1"`, 1), want: "URL inválida"},
+		{name: "http ipv6 loopback não canônico", json: strings.Replace(minimalCatalog, `"group":"custom"`, `"group":"local","base_url":"http://[0:0:0:0:0:0:0:1]:11434/v1"`, 1), want: "URL inválida"},
 		{name: "json final excedente", json: minimalCatalog + ` {}`, want: "há conteúdo após o JSON"},
 	}
 	for _, test := range tests {
@@ -46,6 +50,21 @@ func TestDecodeRejectsInvalidDocuments(t *testing.T) {
 			_, err := Decode([]byte(test.json))
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("Decode() erro = %v; esperado conter %q", err, test.want)
+			}
+		})
+	}
+}
+
+func TestDecodeAllowsHTTPOnlyForLoopbackCatalogURLs(t *testing.T) {
+	for _, baseURL := range []string{
+		"http://localhost:11434/v1",
+		"http://127.12.34.56:11434/v1",
+		"http://[::1]:11434/v1",
+	} {
+		t.Run(baseURL, func(t *testing.T) {
+			catalog := strings.Replace(minimalCatalog, `"group":"custom"`, `"group":"local","base_url":"`+baseURL+`"`, 1)
+			if _, err := Decode([]byte(catalog)); err != nil {
+				t.Fatalf("URL loopback deve ser aceita: %v", err)
 			}
 		})
 	}
