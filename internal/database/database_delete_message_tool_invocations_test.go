@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -35,6 +36,91 @@ func setupDeleteMessageToolInvocationsTestDB(t *testing.T) {
 		}
 		db = nil
 	})
+}
+
+func TestDeleteMessageWithContextDetachesSurvivingSubagentInvocationWithForeignKeys(t *testing.T) {
+	previousDB, previousPath := db, dbPath
+	var initializedDB *gorm.DB
+	defer func() {
+		if initializedDB != nil {
+			if sqlDB, err := initializedDB.DB(); err == nil {
+				_ = initializedDB.Exec("PRAGMA wal_checkpoint(TRUNCATE)").Error
+				_ = sqlDB.Close()
+			}
+		}
+		db, dbPath = previousDB, previousPath
+	}()
+
+	path, err := filepath.Abs(filepath.Join(t.TempDir(), "message-invocations.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := InitPath(path); err != nil {
+		initializedDB = db
+		t.Fatalf("InitPath: %v", err)
+	}
+	initializedDB = db
+	if sqlDB, err := db.DB(); err == nil {
+		sqlDB.SetMaxOpenConns(1)
+	}
+	ctx := WithUserID(context.Background(), "message-owner")
+	if err := db.Create(&User{
+		UUIDModel: UUIDModel{ID: "message-owner"}, Username: "message-owner", PasswordHash: "test",
+		Role: UserRoleUser, IsActive: true,
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	tool := ToolCatalog{
+		UUIDModel: UUIDModel{ID: "message-tool"}, Name: "message-tool", DisplayName: "Message tool",
+		Origin: tools.ToolOriginBuiltin, AvailabilityStatus: tools.ToolAvailabilityAvailable,
+	}
+	if err := db.Create(&tool).Error; err != nil {
+		t.Fatal(err)
+	}
+	parentConversation, err := CreateConversationWithContext(ctx, "parent", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	childConversation, err := CreateConversationWithContext(ctx, "subagent", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := CreateMessageWithContext(ctx, MessageOptions{ConversationID: parentConversation.ID, Role: "user", Content: "turn"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	childMessage, err := CreateMessageWithContext(ctx, MessageOptions{ConversationID: childConversation.ID, Role: "assistant", Content: "subagent result"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	parentInvocation := ToolInvocation{
+		UUIDModel: UUIDModel{ID: "message-parent-invocation"}, UserID: "message-owner", ToolCatalogID: tool.ID,
+		OriginType: "chat", OriginID: root.ID, Status: "succeeded", QueuedAt: time.Now(),
+	}
+	if err := db.Create(&parentInvocation).Error; err != nil {
+		t.Fatal(err)
+	}
+	childInvocation := ToolInvocation{
+		UUIDModel: UUIDModel{ID: "message-child-invocation"}, UserID: "message-owner", ToolCatalogID: tool.ID,
+		OriginType: "chat", OriginID: childMessage.ID, ParentInvocationID: &parentInvocation.ID,
+		Status: "succeeded", QueuedAt: time.Now(),
+	}
+	if err := db.Create(&childInvocation).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := DeleteMessageWithContext(ctx, root.ID); err != nil {
+		t.Fatalf("DeleteMessageWithContext: %v", err)
+	}
+	var storedChild ToolInvocation
+	if err := db.First(&storedChild, "id = ?", childInvocation.ID).Error; err != nil {
+		t.Fatalf("subagent invocation should survive: %v", err)
+	}
+	if storedChild.ParentInvocationID != nil {
+		t.Fatalf("surviving invocation still points to deleted parent: %v", *storedChild.ParentInvocationID)
+	}
+	if err := db.First(&parentInvocation, "id = ?", parentInvocation.ID).Error; err == nil {
+		t.Fatal("turn deletion left its parent invocation behind")
+	}
 }
 
 func TestDeleteMessageWithContext_DeletesChatToolInvocationsByTurnIDAndMessageID(t *testing.T) {

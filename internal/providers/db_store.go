@@ -37,9 +37,10 @@ func (s *DBStore) Save(ctx context.Context, providers []*llm.ProviderConfig) err
 	if err := database.RequireUserIDOrBootstrap(ctx); err != nil {
 		return err
 	}
-	return database.DB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	compatibilityRevisions := make([]int, len(providers))
+	err := database.DB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		repository := database.NewProviderRepository(tx)
-		for _, p := range providers {
+		for i, p := range providers {
 			var current database.LLMProvider
 			err := tx.Where("id = ?", p.ID).First(&current).Error
 			if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
@@ -54,12 +55,21 @@ func (s *DBStore) Save(ctx context.Context, providers []*llm.ProviderConfig) err
 					return oauthflow.ErrConflict
 				}
 			}
-			if err := repository.SaveLLMProvider(ctx, toDBModel(p)); err != nil {
+			dbProvider := toDBModel(p)
+			if err := repository.SaveLLMProvider(ctx, dbProvider); err != nil {
 				return err
 			}
+			compatibilityRevisions[i] = dbProvider.CompatibilityRevision
 		}
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+	for i, p := range providers {
+		p.CompatibilityRevision = compatibilityRevisions[i]
+	}
+	return nil
 }
 
 // Load retorna todos os provedores do banco convertidos para ProviderConfig.
@@ -137,6 +147,8 @@ func toDBModel(p *llm.ProviderConfig) *database.LLMProvider {
 		ID:                       p.ID,
 		Name:                     p.Name,
 		Type:                     string(p.Type),
+		ErrorFamily:              string(p.ErrorFamily),
+		CompatibilityRevision:    p.CompatibilityRevision,
 		APIFormat:                string(p.APIFormat),
 		BaseURL:                  p.BaseURL,
 		Model:                    p.Model,
@@ -172,6 +184,8 @@ func fromDBModel(dbP *database.LLMProvider) (*llm.ProviderConfig, error) {
 		ID:                       dbP.ID,
 		Name:                     dbP.Name,
 		Type:                     llm.ProviderType(dbP.Type),
+		ErrorFamily:              llm.ProviderErrorFamily(dbP.ErrorFamily),
+		CompatibilityRevision:    dbP.CompatibilityRevision,
 		APIFormat:                llm.APIFormat(dbP.APIFormat),
 		BaseURL:                  dbP.BaseURL,
 		Model:                    dbP.Model,
@@ -187,6 +201,9 @@ func fromDBModel(dbP *database.LLMProvider) (*llm.ProviderConfig, error) {
 		ACPEnv:                   env,
 		ACPCredentialEnv:         credentialEnv,
 		ACPAgentID:               dbP.ACPAgentID,
+	}
+	if p.ErrorFamily == "" {
+		p.ErrorFamily = llm.ExplicitProviderErrorFamilyFromType(p.Type)
 	}
 	normalizeProviderRuntimeDefaults(p)
 	return p, nil

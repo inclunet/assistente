@@ -182,7 +182,7 @@ async function speakMessage(messageId: string, volume: number = 1.0, provider?: 
     if (isCurrent && !isCurrent()) return false;
     if (result && result.audio && result.audio.length > 0) {
       const blob = base64ToBlob(result.audio, result.mimeType);
-      memoryCacheSet(messageId, blob);
+      if (result.cached) memoryCacheSet(messageId, blob);
       await playAudioBlob(blob, volume, messageId, isCurrent, onStarted);
       return true;
     }
@@ -217,7 +217,7 @@ async function getMessageAudioBlob(messageId: string, provider?: TTSProviderPara
     );
     if (result && result.audio && result.audio.length > 0) {
       const blob = base64ToBlob(result.audio, result.mimeType);
-      memoryCacheSet(messageId, blob);
+      if (result.cached) memoryCacheSet(messageId, blob);
       return blob;
     }
     return null;

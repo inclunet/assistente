@@ -69,6 +69,7 @@ export interface RoleVoiceConfig {
   providerId: string;   // "webspeech" ou LLM provider ID ("sapi5" delega ao backend)
   voiceId: string;      // ID da voz
   model: string;        // modelo TTS (ex: "tts-1")
+  language?: string;    // idioma do perfil que pediu a fala
   selectionMode?: 'model_and_voice' | 'model_only';
   rate: number;
   pitch: number;        // 0.5–2.0 (tom da voz)
@@ -238,10 +239,16 @@ class TTSService {
    * passar ao messageAudioService. Retorna undefined se a role não tem config.
    * Centraliza a montagem para evitar duplicação nos callers.
    */
-  getVoiceContext(role: VoiceRole): { providerId: string; voiceId: string; model: string; rate: number } | undefined {
+  getVoiceContext(role: VoiceRole): { providerId: string; voiceId: string; model: string; rate: number; language?: string } | undefined {
     const rc = this.roleConfigs.get(role);
     if (!rc) return undefined;
-    return { providerId: rc.providerId, voiceId: rc.voiceId, model: rc.model, rate: rc.rate };
+    return {
+      providerId: rc.providerId,
+      voiceId: rc.voiceId,
+      model: rc.model,
+      rate: rc.rate,
+      ...(rc.language ? { language: rc.language } : {}),
+    };
   }
 
   /**

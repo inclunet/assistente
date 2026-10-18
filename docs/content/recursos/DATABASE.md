@@ -12,6 +12,18 @@ manutenção explica o banco SQLite, suas migrações e sua compactação.
 
 ## Inicialização
 
+A limpeza automática faz uma pausa progressiva quando falha: começa em 30
+segundos e chega a no máximo cinco minutos. Isso evita insistir continuamente
+enquanto o banco está ocupado. A renovação de ativações e a recuperação de
+comandos continuam funcionando durante a pausa. O trabalho de limpeza é
+retomado, não descartado; falhas e o prazo da pausa aparecem no log.
+
+Ao salvar camadas e teclas, banco ocupado é uma falha temporária, não uma
+configuração inválida. Se ocorrer, aguarde e tente salvar novamente. Uma
+gravação já confirmada não é repetida automaticamente caso a publicação do
+mapa falhe. O log identifica a operação e a etapa, sem copiar o conteúdo dos
+comandos, argumentos ou segredos.
+
 Bancos já configurados para compactação incremental não regravam essa
 configuração a cada abertura. A tela aguarda a inicialização e verifica a sessão
 automaticamente, sem exigir cliques em tentar novamente. Bancos grandes ou que
@@ -146,6 +158,14 @@ CLI ou executáveis de teste e não substituem o relatório do app.
       aparecer.
 
 ## Manutenção e retenção
+
+A limpeza do histórico de jobs trabalha em lotes e preserva execuções ainda
+necessárias para eventos pendentes ou ativações válidas de comandos. A seleção
+agrupa essas proteções por usuário para evitar buscas repetidas em históricos
+grandes. Isso não muda os prazos configurados nem permite apagar dados de outro
+usuário. Os limites de tempo continuam cooperativos: a otimização não garante
+que toda consulta termine em cinco segundos, nem substitui a investigação de
+quedas de comandos em sessões longas.
 
 Na implementação AEP-0103, a manutenção de comandos é montada antes do início
 dos jobs quando o armazenamento de comandos está pronto. Ela compartilha o

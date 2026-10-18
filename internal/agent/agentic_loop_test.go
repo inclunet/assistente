@@ -11,6 +11,7 @@ import (
 	"assistente/internal/database"
 	"assistente/internal/events"
 	"assistente/internal/llm"
+	"assistente/internal/llmcapabilities"
 	"assistente/internal/toolinvocations"
 	"assistente/internal/tools"
 	"assistente/internal/tools/invocationctx"
@@ -534,6 +535,47 @@ func TestAgenticLoopRunner_FinishLimitReachedSemCallbackNaoPanica(t *testing.T) 
 
 	if len(em.find("chat:done")) != 1 {
 		t.Fatal("chat:done não emitido com OnSpeechRequest nil")
+	}
+}
+
+type compatibilityRetryProbeStreamer struct {
+	state        *llm.CompatibilityState
+	calls        int
+	retryClaimed bool
+}
+
+func (s *compatibilityRetryProbeStreamer) StreamChat(_ context.Context, _ []llm.Message, _ llm.ChatParams, handler llm.StreamHandler, _ ...llm.ToolDefinition) {
+	s.calls++
+	if s.calls == 1 {
+		handler.OnToolCalls([]llm.ToolCall{{ID: "call-1", Type: "function", Function: llm.FunctionCall{Name: "lookup", Arguments: `{}`}}}, "resultado intermediário", llm.Usage{}, "model")
+		return
+	}
+	s.retryClaimed = s.state.LearnAndClaimRetry(context.Background(), llmcapabilities.CapabilityChatCompletions, llmcapabilities.FieldTemperature, "openai.chat.unsupported_parameter")
+	handler.OnError("rejeição explícita")
+}
+
+func TestAgenticLoopBlocksCompatibilityRetryAfterEarlierIterationOutput(t *testing.T) {
+	persistCalls := 0
+	state := llm.NewCompatibilityState("model", 1, nil, func(context.Context, llmcapabilities.Capability, llmcapabilities.FieldKey, string) error {
+		persistCalls++
+		return nil
+	})
+	streamer := &compatibilityRetryProbeStreamer{state: state}
+	runner := newSeamRunner(NewService(ServiceConfig{}), "conversation", "turn")
+	runner.params.Compatibility = state
+	runner.activeStreamer = streamer
+	runner.newHandler = func(string, int) IterationHandler { return &testIterationHandler{} }
+
+	first, firstErr, stop := runner.streamIteration(context.Background(), 0)
+	if stop || firstErr != "" || len(first.ToolCalls) != 1 || first.FullResponse == "" {
+		t.Fatalf("primeira iteração = %#v, err=%q, stop=%v", first, firstErr, stop)
+	}
+	_, secondErr, stop := runner.streamIteration(context.Background(), 1)
+	if stop || secondErr == "" {
+		t.Fatalf("segunda iteração deveria terminar com erro: err=%q stop=%v", secondErr, stop)
+	}
+	if streamer.retryClaimed || persistCalls != 0 {
+		t.Fatalf("retry=%v persistCalls=%d após efeitos da iteração anterior", streamer.retryClaimed, persistCalls)
 	}
 }
 

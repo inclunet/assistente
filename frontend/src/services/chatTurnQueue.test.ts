@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  ConversationTurnQueueCancelledError,
   ConversationTurnQueueClearedError,
   createConversationTurnQueue,
 } from './chatTurnQueue';
@@ -123,10 +124,99 @@ describe('chatTurnQueue', () => {
     expect(queue.isQueued('conversation-1')).toBe(false);
   });
 
+  it('cancela somente o próximo turno pendente e continua o turno ativo', async () => {
+    const queue = createConversationTurnQueue();
+    const active = deferred<void>();
+    const calls: string[] = [];
+    let cancelledCount = 0;
+
+    const activeRun = queue.enqueue('conversation-1', async () => {
+      calls.push('active:start');
+      await active.promise;
+      calls.push('active:end');
+    });
+    const cancelledRun = queue.enqueue('conversation-1', async () => {
+      calls.push('cancelled:started');
+    }, () => { cancelledCount += 1; });
+    const nextRun = queue.enqueue('conversation-1', async () => {
+      calls.push('next:started');
+    });
+
+    await flushMicrotasks();
+    expect(queue.cancelNext('conversation-1')).toBe(true);
+    await expect(cancelledRun).rejects.toBeInstanceOf(ConversationTurnQueueCancelledError);
+    expect(cancelledCount).toBe(1);
+    expect(calls).toEqual(['active:start']);
+
+    active.resolve();
+    await Promise.all([activeRun, nextRun]);
+    expect(calls).toEqual(['active:start', 'active:end', 'next:started']);
+  });
+
+  it('ignora barreiras internas ao cancelar o próximo turno da conversa', async () => {
+    const queue = createConversationTurnQueue();
+    const active = deferred<void>();
+    const calls: string[] = [];
+    const activeRun = queue.enqueue('conversation-1', async () => {
+      calls.push('active:start');
+      await active.promise;
+      calls.push('active:end');
+    });
+    const admissionBarrier = queue.enqueue('conversation-1', async () => {
+      calls.push('barrier');
+    });
+    const cancelledTurn = queue.enqueue('conversation-1', async () => {
+      calls.push('cancelled:start');
+    }, () => {});
+
+    await flushMicrotasks();
+    expect(queue.cancelNext('conversation-1')).toBe(true);
+    await expect(cancelledTurn).rejects.toBeInstanceOf(ConversationTurnQueueCancelledError);
+    expect(calls).toEqual(['active:start']);
+
+    active.resolve();
+    await Promise.all([activeRun, admissionBarrier]);
+    expect(calls).toEqual(['active:start', 'active:end', 'barrier']);
+  });
+
+  it('não cancela turno quando não há chamada esperando', () => {
+    const queue = createConversationTurnQueue();
+    expect(queue.cancelNext('conversation-1')).toBe(false);
+  });
+
   it('limpa fila inexistente sem efeito colateral', () => {
     const queue = createConversationTurnQueue();
     queue.clear('conversation-1');
     expect(queue.isQueued('conversation-1')).toBe(false);
+  });
+
+  it('cancelNext ignora pendentes invalidados por clear', async () => {
+    const queue = createConversationTurnQueue();
+    const active = deferred<void>();
+    const calls: string[] = [];
+    const activeRun = queue.enqueue('conversation-1', async () => {
+      calls.push('active:start');
+      await active.promise;
+      calls.push('active:end');
+    });
+    const invalidated = queue.enqueue('conversation-1', async () => {
+      calls.push('invalidated');
+    });
+
+    await flushMicrotasks();
+    queue.clear('conversation-1');
+    const current = queue.enqueue('conversation-1', async () => {
+      calls.push('current');
+    }, () => calls.push('current:cancelled'));
+
+    expect(queue.cancelNext('conversation-1')).toBe(true);
+    await expect(current).rejects.toBeInstanceOf(ConversationTurnQueueCancelledError);
+    expect(calls).toContain('current:cancelled');
+
+    active.resolve();
+    await activeRun;
+    await expect(invalidated).rejects.toBeInstanceOf(ConversationTurnQueueClearedError);
+    expect(calls).toEqual(['active:start', 'current:cancelled', 'active:end']);
   });
 
   it('invalida pendentes de todas as conversas', async () => {

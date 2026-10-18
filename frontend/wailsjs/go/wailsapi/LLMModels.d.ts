@@ -12,6 +12,8 @@ export function GetModels():Promise<Array<string>>;
 
 export function GetModelsByProvider(arg1:string):Promise<Array<string>>;
 
+export function GetUnsupportedProfileChatFields(arg1:string,arg2:string):Promise<Array<string>>;
+
 export function RefreshModelCatalogByProvider(arg1:string):Promise<llm.ModelCatalog>;
 
 export function RefreshModels():Promise<Array<string>>;

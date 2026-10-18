@@ -126,6 +126,8 @@ const tokenStatsModalLifecycle = vi.hoisted(() => ({
 }));
 const tMock = vi.hoisted(() => (key: string, fallback?: unknown) => typeof fallback === 'string' ? fallback : key);
 const sessionConversationRef = vi.hoisted(() => ({ current: 'conversation-1' as string | null }));
+const queuedTurnCountRef = vi.hoisted(() => ({ current: 0 }));
+const cancelNextQueuedTurnMock = vi.hoisted(() => vi.fn(() => true));
 const contextRef = vi.hoisted(() => ({ owner: 'owner-1', session: 'session-1', workspace: 'workspace-1', tab: 'tab-chat', conversation: 'conversation-1' as string | null }));
 const contextSubscribers = vi.hoisted(() => new Set<() => void>());
 const subscribeContext = (changed: () => void) => { contextSubscribers.add(changed); return () => { contextSubscribers.delete(changed); }; };
@@ -252,7 +254,7 @@ vi.mock('../pickers/ModelPicker', () => ({
 vi.mock('./ChatSessionContext', () => ({
   useChatSession: () => ({
     conversationId: sessionConversationRef.current,
-    session: { queuedTurnCount: 0 },
+    session: { queuedTurnCount: queuedTurnCountRef.current },
     conversation: activeConversationRef.current,
     isLoading: isLoadingRef.current,
     clearConversationMessages: clearConversationMessagesMock,
@@ -307,6 +309,11 @@ vi.mock('../../store/uiStore', () => ({
     const state = { addToast: vi.fn() };
     return typeof selector === 'function' ? selector(state) : state;
   },
+}));
+
+vi.mock('../../store/chatStore', () => ({
+  useChatStore: (selector: (state: { cancelNextQueuedTurn: typeof cancelNextQueuedTurnMock }) => unknown) =>
+    selector({ cancelNextQueuedTurn: cancelNextQueuedTurnMock }),
 }));
 
 vi.mock('../../store/navigationStore', () => ({
@@ -401,6 +408,8 @@ beforeEach(() => {
   modalState.id = null;
   getTokenStatsMock.mockReset().mockImplementation(async (conversationId: string) => ({ ...tokenStats, conversationId }));
   sessionConversationRef.current = 'conversation-1';
+  queuedTurnCountRef.current = 0;
+  cancelNextQueuedTurnMock.mockReset().mockReturnValue(true);
   Object.assign(contextRef, { owner: 'owner-1', session: 'session-1', workspace: 'workspace-1', tab: 'tab-chat', conversation: 'conversation-1' });
   updateTabMock.mockReset().mockResolvedValue(undefined);
   getProfileMock.mockReset().mockResolvedValue({
@@ -426,6 +435,117 @@ describe('ChatToolbar mensagens fixadas', () => {
     fireEvent.click(screen.getByRole('button', { name: 'chat.pins.button' }));
 
     expect(await screen.findByText('chat.pins.description')).toBeInTheDocument();
+  });
+});
+
+describe('ChatToolbar fila de envios', () => {
+  it('cancela o próximo envio pendente e anuncia o resultado', () => {
+    queuedTurnCountRef.current = 1;
+    renderToolbar();
+
+    fireEvent.click(screen.getByRole('button', { name: 'chat.queue.cancelNext' }));
+
+    expect(cancelNextQueuedTurnMock).toHaveBeenCalledWith('conversation-1');
+    expect(announceMock).toHaveBeenCalledWith('chat.queue.cancelledNext');
+  });
+
+  it('não anuncia cancelamento quando a fila não aceita a ação', () => {
+    queuedTurnCountRef.current = 1;
+    cancelNextQueuedTurnMock.mockReturnValue(false);
+    renderToolbar();
+
+    fireEvent.click(screen.getByRole('button', { name: 'chat.queue.cancelNext' }));
+
+    expect(cancelNextQueuedTurnMock).toHaveBeenCalledWith('conversation-1');
+    expect(announceMock).not.toHaveBeenCalledWith('chat.queue.cancelledNext');
+  });
+
+  it('move o foco para um controle estável quando o último item cancela', () => {
+    queuedTurnCountRef.current = 1;
+    const view = renderToolbar();
+    const cancelButton = screen.getByRole('button', { name: 'chat.queue.cancelNext' });
+    cancelButton.focus();
+
+    fireEvent.click(cancelButton);
+    queuedTurnCountRef.current = 0;
+    view.rerender(<MemoryRouter><ChatToolbar /></MemoryRouter>);
+
+    expect(screen.getByRole('button', { name: 'chat.pins.button' })).toHaveFocus();
+  });
+
+  it('restaura o foco para um controle habilitado enquanto o turno ativo continua', () => {
+    queuedTurnCountRef.current = 1;
+    isLoadingRef.current = true;
+    const view = renderToolbar();
+    const cancelButton = screen.getByRole('button', { name: 'chat.queue.cancelNext' });
+    cancelButton.focus();
+
+    fireEvent.click(cancelButton);
+    queuedTurnCountRef.current = 0;
+    view.rerender(<MemoryRouter><ChatToolbar /></MemoryRouter>);
+
+    expect(screen.getByRole('button', { name: 'chat.clearBtn' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'chat.pins.button' })).toHaveFocus();
+  });
+
+  it('restaura o foco quando a admissão automática remove o último envio pendente', () => {
+    queuedTurnCountRef.current = 1;
+    isLoadingRef.current = true;
+    const view = renderToolbar();
+    screen.getByRole('button', { name: 'chat.queue.cancelNext' }).focus();
+
+    queuedTurnCountRef.current = 0;
+    isLoadingRef.current = false;
+    view.rerender(<MemoryRouter><ChatToolbar /></MemoryRouter>);
+
+    expect(screen.getByRole('button', { name: 'chat.pins.button' })).toHaveFocus();
+    expect(cancelNextQueuedTurnMock).not.toHaveBeenCalled();
+  });
+
+  it('não move o foco para a conversa nova quando a fila da conversa anterior desaparece', () => {
+    queuedTurnCountRef.current = 1;
+    const view = renderToolbar();
+    screen.getByRole('button', { name: 'chat.queue.cancelNext' }).focus();
+
+    sessionConversationRef.current = 'conversation-2';
+    contextRef.conversation = 'conversation-2';
+    queuedTurnCountRef.current = 0;
+    view.rerender(<MemoryRouter><ChatToolbar /></MemoryRouter>);
+
+    expect(screen.getByRole('button', { name: 'chat.pins.button' })).not.toHaveFocus();
+  });
+
+  it('mantém o controle de foco ao trocar de conversa com fila nas duas conversas', () => {
+    queuedTurnCountRef.current = 1;
+    const view = renderToolbar();
+    const cancelButton = screen.getByRole('button', { name: 'chat.queue.cancelNext' });
+    cancelButton.focus();
+
+    sessionConversationRef.current = 'conversation-2';
+    contextRef.conversation = 'conversation-2';
+    view.rerender(<MemoryRouter><ChatToolbar /></MemoryRouter>);
+    expect(cancelButton).toHaveFocus();
+
+    queuedTurnCountRef.current = 0;
+    view.rerender(<MemoryRouter><ChatToolbar /></MemoryRouter>);
+
+    expect(screen.getByRole('button', { name: 'chat.pins.button' })).toHaveFocus();
+  });
+
+  it('não mantém restauração armada quando a fila cresce e o foco muda', () => {
+    queuedTurnCountRef.current = 1;
+    const view = renderToolbar();
+    screen.getByRole('button', { name: 'chat.queue.cancelNext' }).focus();
+
+    queuedTurnCountRef.current = 2;
+    view.rerender(<MemoryRouter><ChatToolbar /></MemoryRouter>);
+    const clearButton = screen.getByRole('button', { name: 'chat.clearBtn' });
+    clearButton.focus();
+
+    queuedTurnCountRef.current = 0;
+    view.rerender(<MemoryRouter><ChatToolbar /></MemoryRouter>);
+
+    expect(clearButton).toHaveFocus();
   });
 });
 

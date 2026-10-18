@@ -371,6 +371,24 @@ var schemaMigrations = []migration{
 		// pela porta transacional, depois que o host compõe os repositories.
 		Run: func(*gorm.DB) error { return errMigrationDeferred },
 	},
+	{
+		Version: 33,
+		Name:    "llm_model_compatibility_state",
+		Phase:   phasePostAutoMigrate,
+		Run:     MigrateLLMModelCapabilities,
+	},
+	{
+		Version: 34,
+		Name:    "llm_provider_error_family_compatibility_revision",
+		Phase:   phasePostAutoMigrate,
+		Run:     MigrateLLMProviderErrorFamilyRevisionGuard,
+	},
+	{
+		Version: 35,
+		Name:    "llm_provider_legacy_error_families",
+		Phase:   phasePostAutoMigrate,
+		Run:     MigrateLLMProviderLegacyErrorFamilies,
+	},
 }
 
 // runMigrations aplica, na ordem de Version, todas as migrações da fase

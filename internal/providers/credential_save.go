@@ -153,6 +153,7 @@ func (s *Service) saveWithCredential(ctx context.Context, p, expected *llm.Provi
 		}
 	}
 	var publishErr error
+	var persistedProvider *database.LLMProvider
 	err = s.registry.WithGeneration(generation, func() error {
 		return atomicStore.SaveWithConsumer(ctx, draft.Pattern, draft.Auth, nil, func(tx *gorm.DB) error {
 			if generation != s.registry.Generation() {
@@ -175,8 +176,14 @@ func (s *Service) saveWithCredential(ctx context.Context, p, expected *llm.Provi
 				}
 				p.IsDefault = current.IsDefault
 			}
-			return repo.SaveLLMProvider(ctx, toDBModel(p))
-		}, func() { publishErr = s.registry.RegisterGeneration(p, generation) })
+			persistedProvider = toDBModel(p)
+			return repo.SaveLLMProvider(ctx, persistedProvider)
+		}, func() {
+			if persistedProvider != nil {
+				p.CompatibilityRevision = persistedProvider.CompatibilityRevision
+			}
+			publishErr = s.registry.RegisterGeneration(p, generation)
+		})
 	})
 	if err != nil {
 		return err

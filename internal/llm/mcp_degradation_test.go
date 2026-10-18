@@ -76,8 +76,43 @@ func TestInferMCPFailure_UsesRawServerLabel(t *testing.T) {
 	if !failure.Degradable {
 		t.Fatal("falha deveria ser degradável")
 	}
-	if !strings.Contains(failure.Message, "Atlassian") {
-		t.Fatalf("mensagem deveria citar o servidor, got %q", failure.Message)
+	if failure.Message != "mcp_error:v1:Atlassian:list_tools" {
+		t.Fatalf("marcador sanitizado = %q", failure.Message)
+	}
+}
+
+func TestFormatMCPFailureUserMessageEscapesDelimiterInServerName(t *testing.T) {
+	if got, want := formatMCPFailureUserMessage("Equipe: Produção", MCPFailureStageCall), "mcp_error:v1:Equipe%3A%20Produ%C3%A7%C3%A3o:call"; got != want {
+		t.Fatalf("marcador = %q, want %q", got, want)
+	}
+}
+
+func TestInferMCPFailurePrefersStructuredLabelWhenMessageMentionsAnotherServer(t *testing.T) {
+	servers := []MCPServerConfig{
+		{Name: "Atlassian", Slug: "atlassian", URL: "https://mcp.atlassian.com/v1/sse"},
+		{Name: "Slack", Slug: "slack", URL: "https://mcp.slack.com/mcp"},
+	}
+	failure := inferMCPFailure(
+		MCPFailureStageHandshake,
+		"Atlassian connection was mentioned in provider detail",
+		`{"server_label":"Slack"}`,
+		"",
+		servers,
+	)
+	if failure == nil || failure.ServerName != "Slack" {
+		t.Fatalf("rótulo estruturado deveria prevalecer sobre texto da mensagem: %+v", failure)
+	}
+}
+
+func TestInferMCPFailure_DoesNotExposeProviderErrorText(t *testing.T) {
+	const providerText = "secret provider detail: rejected credential pattern"
+	servers := []MCPServerConfig{{Name: "Atlassian", Slug: "atlassian", URL: "https://mcp.atlassian.com/v1/sse"}}
+	failure := inferMCPFailure(MCPFailureStageHandshake, providerText, `{"server_label":"Atlassian"}`, "", servers)
+	if failure == nil {
+		t.Fatal("esperava falha MCP classificada")
+	}
+	if strings.Contains(failure.Message, providerText) || strings.Contains(failure.Message, "credential pattern") {
+		t.Fatalf("mensagem expôs texto livre do provedor: %q", failure.Message)
 	}
 }
 

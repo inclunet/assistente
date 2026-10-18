@@ -20,6 +20,7 @@ import { llm } from '../../wailsjs/go/models';
 import { announce } from '../hooks/useAnnouncer';
 import { logger } from '../utils/logger';
 import i18next from 'i18next';
+import { translateProviderErrorMessage } from '../lib/providerErrorMessage';
 import { playSendSound } from '../services/audioFeedback';
 import { isChatConversationActive } from '../services/chatArbitration';
 import {
@@ -34,6 +35,7 @@ import {
 import { handleExternalChatIncoming } from '../services/externalChatController';
 import {
   createConversationTurnQueue,
+  isConversationTurnQueueCancelledError,
   isConversationTurnQueueClearedError,
 } from '../services/chatTurnQueue';
 import {
@@ -186,11 +188,13 @@ interface ChatStore {
     options?: { origin?: ChatSurfaceOrigin; command?: ChatMessagingExecution },
   ) => Promise<boolean>;
   cancelStreaming: (conversationId: string, options?: { origin?: ChatSurfaceOrigin }) => Promise<void>;
-  waitForMessagingAdmission: (conversationId: string) => Promise<void>;
+  waitForMessagingAdmission: (conversationId: string, sessionKey?: string) => Promise<void>;
+  registerMessagingAdmission: (conversationId: string, sessionKey?: string) => { activate: () => boolean; complete: () => void; cancelled: Promise<never> };
   finishCommandCancellation: (conversationId: string, sessionKey: string | undefined, pipelineRevision: number, announceCancelled?: boolean) => void;
   getMessagingPipelineRevision: (conversationId: string) => number;
   getDraftRevision: (sessionKey: string) => number;
   cancelConversationTurn: (conversationId: string) => void;
+  cancelNextQueuedTurn: (conversationId: string) => boolean;
 
   getConversationMessages: (conversationId: string) => Message[];
   getConversationThreadedMessages: (conversationId: string) => MessageNode[] | undefined;
@@ -298,12 +302,26 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     });
   };
 
+  const queuedTurnCountGenerations = new Map<string, number>();
   const adjustQueuedTurnCount = (conversationId: string, delta: number, sessionKey?: string) => {
     set((state) => {
       const session = getSession(state, conversationId, sessionKey);
       const queuedTurnCount = Math.max(0, (session.queuedTurnCount ?? 0) + delta);
       return patchSession(state, conversationId, { queuedTurnCount }, sessionKey);
     });
+  };
+
+  const countQueuedTurn = (conversationId: string, sessionKey?: string) => {
+    const generation = queuedTurnCountGenerations.get(conversationId) ?? 0;
+    adjustQueuedTurnCount(conversationId, 1, sessionKey);
+    let counted = true;
+    return () => {
+      if (!counted) return;
+      counted = false;
+      if ((queuedTurnCountGenerations.get(conversationId) ?? 0) === generation) {
+        adjustQueuedTurnCount(conversationId, -1, sessionKey);
+      }
+    };
   };
 
   const mergeConversationNodes = (existing: MessageNode[], incoming: MessageNode[]): MessageNode[] => {
@@ -503,6 +521,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
   };
 
   const resetQueuedTurnCount = (conversationId: string) => {
+    queuedTurnCountGenerations.set(conversationId, (queuedTurnCountGenerations.get(conversationId) ?? 0) + 1);
     set((state) => {
       const patches = patchSession(state, conversationId, { queuedTurnCount: 0 });
       const surfaceSessionsByKey = { ...(patches.surfaceSessionsByKey ?? state.surfaceSessionsByKey) };
@@ -772,7 +791,8 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           controller.handleSendCancellation();
           throw new ChatMessagingStaleError();
         }
-        const errorMessage = getErrorMessage(error);
+        const rawErrorMessage = getErrorMessage(error);
+        const errorMessage = translateProviderErrorMessage(rawErrorMessage) ?? rawErrorMessage;
         if (submitted) {
           // A Wails rejection may be pre-effect (denied/stale) or uncertain
           // after persistence. Surface it without offering replay; the command
@@ -1460,19 +1480,23 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       }
       const sessionKey = options?.origin?.sessionKey;
       const queuedBehindActiveTurn = turnQueue.isQueued(conversationId);
-      if (queuedBehindActiveTurn) adjustQueuedTurnCount(conversationId, 1, sessionKey);
+      const settleQueuedCount = queuedBehindActiveTurn ? countQueuedTurn(conversationId, sessionKey) : undefined;
       let markAccepted!: (accepted: boolean) => void;
       let rejectAccepted!: (error: unknown) => void;
       const accepted = new Promise<boolean>((resolve, reject) => { markAccepted = resolve; rejectAccepted = reject; });
       void turnQueue.enqueue(conversationId, async () => {
-          if (queuedBehindActiveTurn) adjustQueuedTurnCount(conversationId, -1, sessionKey);
+          settleQueuedCount?.();
           const result = await sendMessageInternal(conversationId, content, mediaFiles, paramsOverride, undefined, options);
           markAccepted(result.accepted);
           await result.controller?.done;
-        }).catch((error) => {
-          if (options?.command) rejectAccepted(isConversationTurnQueueClearedError(error) ? new ChatMessagingStaleError() : error);
+        }, settleQueuedCount, settleQueuedCount).catch((error) => {
+          if (options?.command) rejectAccepted(
+            isConversationTurnQueueClearedError(error) || isConversationTurnQueueCancelledError(error)
+              ? new ChatMessagingStaleError()
+              : error,
+          );
           else markAccepted(false);
-          if (!isConversationTurnQueueClearedError(error)) {
+          if (!isConversationTurnQueueClearedError(error) && !isConversationTurnQueueCancelledError(error)) {
             logger.error('[Chat] falha inesperada na fila do turno', error);
           }
         });
@@ -1491,27 +1515,69 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       }
       const sessionKey = options?.origin?.sessionKey;
       const queuedBehindActiveTurn = turnQueue.isQueued(conversationId);
-      if (queuedBehindActiveTurn) adjustQueuedTurnCount(conversationId, 1, sessionKey);
+      const settleQueuedCount = queuedBehindActiveTurn ? countQueuedTurn(conversationId, sessionKey) : undefined;
       let markAccepted!: (accepted: boolean) => void;
       let rejectAccepted!: (error: unknown) => void;
       const accepted = new Promise<boolean>((resolve, reject) => { markAccepted = resolve; rejectAccepted = reject; });
       void turnQueue.enqueue(conversationId, async () => {
-          if (queuedBehindActiveTurn) adjustQueuedTurnCount(conversationId, -1, sessionKey);
+          settleQueuedCount?.();
           const result = await sendMessageInternal(conversationId, '', undefined, paramsOverride, messageId, options);
           markAccepted(result.accepted);
           await result.controller?.done;
-        }).catch((error) => {
-          if (options?.command) rejectAccepted(isConversationTurnQueueClearedError(error) ? new ChatMessagingStaleError() : error);
+        }, settleQueuedCount, settleQueuedCount).catch((error) => {
+          if (options?.command) rejectAccepted(
+            isConversationTurnQueueClearedError(error) || isConversationTurnQueueCancelledError(error)
+              ? new ChatMessagingStaleError()
+              : error,
+          );
           else markAccepted(false);
-          if (!isConversationTurnQueueClearedError(error)) {
+          if (!isConversationTurnQueueClearedError(error) && !isConversationTurnQueueCancelledError(error)) {
             logger.error('[Chat] falha inesperada na fila de retry', error);
           }
         });
       return accepted;
     },
 
-    waitForMessagingAdmission: async (conversationId) => {
-      await turnQueue.enqueue(conversationId, async () => {});
+    waitForMessagingAdmission: async (conversationId, sessionKey) => {
+      const queuedBehindActiveTurn = turnQueue.isQueued(conversationId);
+      const settleCount = queuedBehindActiveTurn ? countQueuedTurn(conversationId, sessionKey) : undefined;
+      try {
+        await turnQueue.enqueue(
+          conversationId,
+          async () => {},
+          settleCount,
+          settleCount,
+        );
+      } catch (error) {
+        settleCount?.();
+        if (isConversationTurnQueueCancelledError(error) || isConversationTurnQueueClearedError(error)) {
+          throw new ChatMessagingStaleError();
+        }
+        throw error;
+      } finally { settleCount?.(); }
+    },
+    registerMessagingAdmission: (conversationId, sessionKey) => {
+      const queuedBehindActiveWork = turnQueue.isQueued(conversationId) || turnQueue.hasPendingAdmission(conversationId);
+      const settleCount = queuedBehindActiveWork ? countQueuedTurn(conversationId, sessionKey) : undefined;
+      let settled = false;
+      const settle = () => {
+        if (settled) return;
+        settled = true;
+        settleCount?.();
+      };
+      const registration = turnQueue.registerPendingAdmission(conversationId, settle);
+      return {
+        cancelled: registration.cancelled,
+        activate: () => {
+          const activated = registration.activate();
+          if (activated) settle();
+          return activated;
+        },
+        complete: () => {
+          registration.complete();
+          settle();
+        },
+      };
     },
     getMessagingPipelineRevision: conversationId => pipelineRevisions.get(conversationId) ?? 0,
     getDraftRevision: sessionKey => draftRevisions.get(sessionKey) ?? 0,
@@ -1570,6 +1636,8 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       setConversationLoading(conversationId, false);
       resetQueuedTurnCount(conversationId);
     },
+
+    cancelNextQueuedTurn: (conversationId) => turnQueue.cancelNext(conversationId),
 
     getConversationMessages: (conversationId) => (
       flattenThreadedMessages(getConversationTimeline(get(), conversationId)?.threadedMessages)
@@ -1744,12 +1812,12 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       void handleExternalChatIncoming(data, {
         hasConversationSession: (conversationId) => !!getConversationTimeline(get(), conversationId),
         loadConversationSession: (conversationId) => get().loadConversationSession(conversationId),
-        enqueueExternalTurn: async (conversationId, sessionKey, task) => {
-          const queuedBehindActiveTurn = turnQueue.isQueued(conversationId);
-          if (queuedBehindActiveTurn) adjustQueuedTurnCount(conversationId, 1, sessionKey);
+        // Mensagens recebidas por canal não são envios da toolbar e não podem
+        // ser descartadas pela ação local de cancelar o próximo turno. Elas
+        // continuam serializadas, mas não entram na contagem cancelável da UI.
+        enqueueExternalTurn: async (conversationId, _sessionKey, task) => {
           try {
             await turnQueue.enqueue(conversationId, async () => {
-              if (queuedBehindActiveTurn) adjustQueuedTurnCount(conversationId, -1, sessionKey);
               await task();
             });
           } catch (error) {

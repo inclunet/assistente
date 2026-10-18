@@ -11,6 +11,6 @@ type AudioRepository interface {
 	// SaveMessageAudio persiste o áudio de uma mensagem.
 	SaveMessageAudio(ctx context.Context, messageID string, audioBase64, mimeType string) error
 
-	// GetMessageContent retorna o conteúdo textual de uma mensagem.
-	GetMessageContent(ctx context.Context, messageID string) (string, error)
+	// GetMessageContent retorna o conteúdo e o papel da mensagem.
+	GetMessageContent(ctx context.Context, messageID string) (content string, role string, err error)
 }

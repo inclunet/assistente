@@ -1,6 +1,6 @@
 # AEP-0113 — Compatibilidade de parâmetros por modelo e provedor
 
-Status: In Progress — escopo revisado; implementação do PR #889 a retificar
+Status: In Progress — fases 1–3 concluídas nos PRs #889, #909 e #919; fase 4 depende da fase 5 da AEP-0115
 
 ## Resumo
 
@@ -14,9 +14,10 @@ O armazenamento é de estado atual, não de afirmações históricas concorrente
 Não há auditoria, histórico imutável, reconciliador de fontes, importadores de
 catálogos ou jobs de atualização. Tarifas e custos estão fora deste AEP.
 
-Disponibilizar vozes compatíveis com modelos TTS em um select amigável continua
-como objetivo da última fase, a rediscutir. A obtenção e validação dessas vozes
-não estão definidas e não condicionam as primeiras entregas.
+Disponibilizar vozes compatíveis com modelos TTS em um select amigável é a fase
+4 desta AEP e depende do catálogo público de provedores e modelos definido na
+[AEP-0115](0115-catalogo-publico-provedores-modelos.md). O catálogo é mantido
+separadamente do estado local de compatibilidade aprendido por esta AEP.
 
 ## Motivação
 
@@ -71,6 +72,9 @@ llm_model_capabilities → llm_model_capability_fields`:
   `api_format`.
 - `llm_model_capabilities` delimita o contexto funcional em que os campos são
   enviados. Seu código é fechado e validado pelo domínio, não é texto livre.
+  O modelo e o código da capability formam sua identidade persistida e não
+  podem ser alterados depois da criação, para que restrições filhas não sejam
+  reinterpretadas em outro modelo ou contexto.
   Quando operações do mesmo tipo funcional aceitam parâmetros diferentes,
   recebem códigos de contexto distintos. A linha não afirma, por si só, que o
   modelo suporta uma capability; ela organiza a compatibilidade dos campos.
@@ -104,11 +108,12 @@ O provedor existente continua sendo a raiz de configuração e autorização.
 escopo do provedor; uma requisição de usuário não pode publicar restrições
 globais em provedores de sistema sem a autorização correspondente.
 
-Uma revisão não secreta de compatibilidade muda quando mudam endpoint, formato,
-adaptador ou identidade efetiva de conta/credencial. Trocar apenas nome ou modelo
-padrão não invalida restrições de outros modelos. Renovação de token na mesma
-conta não é, por si só, troca de identidade. Segredos não são armazenados ou
-hasheados para compor a revisão.
+Uma revisão não secreta de compatibilidade muda quando mudam endpoint, formato
+de API, família explícita do provedor, adaptador ou modo de protocolo. O aprendizado pertence à
+relação entre provedor configurado, modelo remoto, capability/operação e campo.
+Referências e conteúdo de credenciais não participam dessa relação. Trocar nome,
+modelo padrão ou configuração de credencial não invalida restrições de outros
+modelos. Segredos não são armazenados ou hasheados para compor a revisão.
 
 A requisição captura a revisão da configuração efetivamente usada, não uma
 versão possivelmente desatualizada do registry. Mudanças de identidade
@@ -130,6 +135,14 @@ identificável. Esse resultado pode alimentar tanto a política de retry quanto
 mensagens legíveis ao usuário; classificar um erro, por si só, não autoriza retry
 nem aprendizado.
 
+A família usada pelo reconhecedor é metadado explícito da conexão e persiste
+separada do rótulo de marca (`type`) e do formato de protocolo (`api_format`).
+Criação pelo wizard grava essa família; os IDs estáveis dos provedores OpenAI,
+LiteLLM e OpenRouter já criados pelo wizard preservam a escolha ao carregar
+bancos anteriores à coluna. Uma configuração sem família identificável recebe
+somente classificação geral e não pode aprender campos específicos de OpenAI
+ou LiteLLM. Alterar a família incrementa a revisão de compatibilidade.
+
 Para classificar uma rejeição como não suporte de parâmetro, o reconhecedor
 precisa identificar sem ambiguidade o nome rejeitado e mapeá-lo para um campo
 canônico conhecido da operação. O campo deve ter sido efetivamente enviado na
@@ -140,11 +153,49 @@ como autenticação, cota ou falha transitória, que não exigem um campo. Cada
 assinatura aceita tem fixtures de teste positivas e negativas no adaptador
 correspondente.
 
+O suporte é explícito por assinatura, não herdado apenas por compatibilidade
+com o formato OpenAI:
+
+- OpenAI: `code=unsupported_parameter` com `error.param` conhecido pode ensinar
+  o campo; `invalid_request_error` ou HTTP 400 genérico não ensina. A
+  documentação orienta a inspecionar códigos e `param` em erros estruturados,
+  mas a aplicação só aprende com a assinatura exata allowlisted
+  ([guia de erros](https://developers.openai.com/api/docs/guides/error-codes)).
+- LiteLLM: reconhece o tipo `UnsupportedParamsError` ou o prefixo exato
+  `litellm.UnsupportedParamsError:` no campo `error.message`, formato
+  documentado do gateway; o `error.param` ainda precisa mapear para campo
+  conhecido e enviado ([mapeamento de exceções](https://docs.litellm.ai/docs/exception_mapping),
+  [formato de erros do gateway](https://docs.litellm.ai/docs/proxy/error_reference)).
+- xAI: erros são reconhecidos por categorias/status do envelope OpenAI
+  compatível, mas HTTP 400 indica argumento inválido de forma ampla; não ensina
+  nem suprime campo até haver uma assinatura oficial mais específica
+  ([depuração de erros](https://docs.x.ai/developers/debugging)).
+- LocalAI, OpenRouter e Z.ai: envelopes OpenAI compatíveis podem alimentar
+  categorias gerais quando seus campos estruturados correspondem ao contrato
+  conhecido. HTTP 400, `invalid_request_error` ou códigos numéricos sem
+  semântica específica nunca provam não suporte de campo. Não há aprendizado
+  até uma assinatura inequívoca e documentada ser adicionada com fixtures.
+- Anthropic e Google: a classificação atual cobre categorias gerais dos
+  formatos próprios; não há aprendizado de campos nesta entrega.
+
+Uma família sem assinatura de não suporte continua recebendo mensagem
+normalizada e diagnóstico sanitizado quando o envelope permite. Uma resposta
+desconhecida pode ser adicionada gradualmente ao reconhecedor depois de revisão
+da documentação ou de reprodução segura; seu texto bruto não é gravado.
+
 O domínio preserva a intenção semântica; a tradução para nomes como
 `max_tokens` ou `max_completion_tokens` permanece no adaptador existente.
 Rejeitar um alias de transporte não prova que todas as representações da mesma
 intenção são inválidas. Só registrar não suporte do campo canônico quando o
 adaptador puder estabelecer essa correspondência sem ambiguidade.
+
+Na Chat Completions, `max_tokens` e `max_completion_tokens` são aliases de
+transporte para a mesma intenção. A rejeição de qualquer um deles pode ser
+classificada e mostrada com o nome exato recebido, mas não aprende nem suprime o
+campo semântico `max_output_tokens`, porque isso também descartaria o outro
+alias sem evidência. A Responses API só aprende `max_output_tokens` quando esse
+nome exato foi enviado. Supressão persistente específica por alias exige uma
+decisão futura de schema e não é inferida nesta fase.
 
 Erros de faixa, enum, autenticação, permissão, cota, rede e rejeições ambíguas
 mantêm seu tratamento normal, mas podem receber uma classificação normalizada
@@ -216,22 +267,21 @@ job ou sondagem automática: a restrição permanece enquanto a identidade da
 conexão for a mesma, até remoção explícita ou futura política aprovada. O risco
 de suporte do endpoint evoluir sem mudança de identidade é aceito inicialmente.
 
-### 6. Vozes TTS: objetivo futuro, mecanismo ainda não aprovado
+### 6. Vozes TTS: consumir o catálogo da AEP-0115
 
-A última fase pretende oferecer IDs e nomes amigáveis de vozes compatíveis com
-o modelo TTS em um select acessível, respeitando a separação modelo/voz do
-AEP-0038. Não se presume descoberta automática disponível atualmente.
+Esta fase consome a lista de vozes da AEP-0115, associada ao perfil de servidor,
+à rota/API e ao modelo TTS, e apresenta IDs e nomes amigáveis em um select
+acessível, respeitando a separação modelo/voz do AEP-0038. O contrato do
+catálogo distingue listas completas, parciais e desconhecidas. Ausência de uma
+voz em uma lista parcial ou desconhecida não a marca como incompatível.
 
-Antes de implementar, rediscutir como obter, validar e atualizar a lista. Busca
-assistida por modelo ou uma lista de vozes conhecidas com testes de síntese são
-possibilidades, não decisões aprovadas. Informação encontrada pode estar errada;
-testes podem gerar custo e uma falha pode ter causa diferente da voz. Não se
-autoriza busca, sondagem ou cobrança automática por esta AEP.
-
-Essa fase deverá distinguir lista completa, lista parcial e rejeição de um
-valor específico, sem transformar ausência numa lista em não suporte. O schema,
-a estratégia de atualização e os critérios detalhados serão definidos quando
-a fase for retomada. Não se antecipa infraestrutura de opções nas fases 1–3.
+Uma rejeição de valor de voz continua distinta da rejeição do campo `voice`:
+não aprende nem suprime esse campo. Sondagens de síntese potencialmente pagas
+podem ser usadas no processo de manutenção do catálogo nos termos da AEP-0115;
+abrir a interface ou selecionar um modelo não dispara sondagem paga automática.
+Esta fase só começa depois de as fases 1–5 da AEP-0115 fornecerem o asset,
+consumo/cache, perfis de configuração, contrato de exposições de modelo e
+metadados de vozes na API tipada do catálogo.
 
 ### 7. Escopo retirado e relação com o PR #889
 
@@ -241,35 +291,84 @@ histórico de verificações e selagem de opções. As antigas fases de fontes/j
 e tarifas/custos foram retiradas, não permanecem como entregas pendentes.
 Se houver necessidade futura de custos, será discutida separadamente.
 
-Este PR é exclusivamente documental. Após seu merge pelo mantenedor, o PR #889
-deve incorporar a `main` revisada e retificar persistência, migrações e testes
-para este contrato antes de ser considerado pronto. O mantenedor confirmou
-que a branch não foi executada em instalações; suas migrações inéditas podem
-ser consolidadas sem suportar estados intermediários daquela branch. Isso não
-autoriza renumerar ou remover migrações já publicadas na `main`.
+O PR #889 retifica persistência, migrações e testes para este contrato. O
+mantenedor confirmou que a branch não foi executada em instalações; suas
+migrações inéditas podem ser consolidadas sem suportar estados intermediários
+daquela branch. Isso não autoriza renumerar ou remover migrações já publicadas
+na `main`.
 
 ## Fases
 
 0. **Revisão documental — registrada neste documento.** Substituir a direção
    original do PR #887, alinhar o índice e orientar a retificação do #889.
    Nenhuma alteração de schema ou comportamento é entregue nesta revisão.
-1. **Persistência mínima — pendente; PR #889 a retificar.** Hierarquia
-   provedor → modelo → capability/operação → campo, com estado atual de
-   restrições, unicidade, autorização, revisão de conexão e recusa de gravações
-   obsoletas. Sem histórico, catálogos externos, jobs ou infraestrutura de vozes.
-2. **Envio, aprendizado e retry — pendente.** Integrar o estado ao pipeline,
-   capturar a revisão efetiva, classificar rejeições explícitas, persistir e
-   repetir uma vez com segurança; envios seguintes respeitam o aprendizado.
-3. **Profile Manager — pendente.** Ocultar campos não suportados, manter
-   desconhecidos disponíveis e preservar valores salvos e acessibilidade.
-4. **Vozes TTS — futura, a rediscutir.** Objetivo de seleção amigável, sem
-   mecanismo de descoberta, schema ou automação aprovados. Não bloqueia a
-   entrega das fases 1–3 e não autoriza implementação antecipada.
+1. **Persistência mínima — concluída no PR #889.** Hierarquia provedor →
+   modelo → capability/operação → campo, com estado atual de restrições,
+   unicidade, autorização, revisão de conexão e recusa de gravações obsoletas;
+   identidade de capability é imutável e não pode ser substituída via
+   `INSERT OR REPLACE`. Sem histórico, catálogos externos, jobs ou infraestrutura
+   de vozes. Evidência: o merge commit `20544967f` passou pelos 25 checks do CI e a
+   review automática do Copilot encerrou sem threads pendentes. A revisão local
+   independente do diff final não encontrou pendências. Os testes focados
+   adicionados nesta rodada foram executados pelo CI remoto; nenhum teste local
+   foi executado nesta rodada por orientação de Infosec.
 
-PRs seguem essa ordem; dependências ainda abertas exigem empilhamento. O status
-permanece `In Progress` enquanto as fases 1–3 estiverem pendentes. Concluídas
-essas fases, documento e índice podem marcar `Done` para o escopo aprovado,
-mantendo explícito que a fase 4 é uma proposta futura que exige nova decisão.
+2. **Envio, aprendizado e retry — concluída no PR #909.** Integrar o estado ao pipeline,
+  capturar a revisão efetiva, classificar rejeições explícitas, persistir e
+  repetir uma vez com segurança; envios seguintes respeitam o aprendizado.
+  Aliases ambíguos de saída em Chat Completions não aprendem nem fazem retry de
+  compatibilidade nesta fase. As assinaturas de aprendizado atualmente
+  implementadas são OpenAI `unsupported_parameter` e LiteLLM
+  `UnsupportedParamsError`; as demais famílias têm classificação geral sem
+  aprendizado de campo. `internal/core/usecases/compatibility_state_test.go`
+  percorre os adaptadores Chat Completions e Responses com SQLite real e
+  comprova o payload inicial, a persistência antes do retry e a supressão do
+  campo no retry e no envio seguinte. Esta rodada também protege retries em
+  iterações posteriores após efeitos, trata falhas de resolução de credencial
+  encapsuladas, persiste a família explícita do provedor e invalida a revisão
+  tanto no repositório quanto no trigger SQLite. A migração 34 atualiza o
+  trigger em bancos que já aplicaram a migração 33; a migração 35 materializa
+  uma única vez a família dos provedores legados do wizard, somente quando o
+  tipo atual ainda corresponde ao formato original. Leituras posteriores não
+  inferem família pelo ID, evitando reclassificar como específica uma conexão
+  editada para ser genérica. O template Gemini permanece
+  sem família de erros específica até existir um reconhecedor correspondente.
+  A leitura de compatibilidade cria o modelo sem sobrescrever seu nome de
+  exibição; falhas MCP mantêm a mensagem e o JSON estruturado separados para
+  identificar o servidor sem ambiguidade. Erros estruturados de provedor e MCP
+  são traduzidos em eventos, histórico e erros de sumarização. A tradução do
+  histórico limita-se aos formatos explícitos de diagnóstico do backend,
+  preservando marcadores literais em mensagens do usuário e código. A leitura
+  em voz alta traduz os mesmos diagnósticos no TTS do backend e no fallback
+  WebSpeech, pelo idioma solicitado; áudio histórico desses marcadores não é
+  reutilizado nem salvo no cache compartilhado por mensagem. Nomes de
+  servidores MCP com `:` são escapados antes de formar o marcador. Testes dos
+  dois adaptadores confirmam que erros de valor não removem campo nem repetem o
+  envio; casos de alias ambíguo e campo não enviado também não aprendem nem
+  repetem. Diagnósticos desconhecidos mantêm apenas campos allowlisted e não
+  carregam texto ou payload livre. O PR #909 foi mergeado em `ced425efd`; seus
+  checks de CI concluíram antes do merge. Testes ACP não foram executados
+  localmente por orientação de Infosec.
+3. **Profile Manager — concluída no PR #919.** O editor consulta as restrições
+   do backend ao trocar provedor/modelo, oculta somente campos de geração já
+   reconhecidos como incompatíveis e mantém campos desconhecidos disponíveis.
+   Valores existentes são preservados; enquanto a consulta está pendente, os
+   campos de geração ficam desabilitados para evitar que o foco salte quando
+   campos forem ocultados. O teste A→B→A confirma que resultados antigos são
+   invalidados até a consulta atual concluir; o teste da API cobre combinações
+   de seletores `$default` sem alterar valores persistidos. O merge commit é
+   `412da6a78`; todos os checks do CI passaram, a revisão do Copilot concluiu
+   sem achados pendentes e as duas threads foram resolvidas. Testes focados,
+   `go build ./...`, `go vet ./...`, `tsc --noEmit` e lint passaram localmente;
+   ACP não foi executado localmente por orientação de Infosec.
+4. **Vozes TTS — planejada, dependente da AEP-0115.** Consumir a lista de vozes
+   associada à rota e ao modelo no catálogo, respeitando completude e estado
+   desconhecido. Depende da conclusão das fases 1–5 da AEP-0115; a fase de
+   manutenção do catálogo pode evoluir separadamente.
+
+Os PRs #889, #909 e #919 concluíram as fases 1–3. Como a fase 4 permanece
+planejada e depende da AEP-0115, o status desta AEP é `In Progress` até que a
+seleção de vozes seja implementada e seus critérios sejam atendidos.
 
 ## Riscos
 
@@ -287,43 +386,71 @@ mantendo explícito que a fase 4 é uma proposta futura que exige nova decisão.
 - **Retorno da complexidade retirada:** a implementação não deve reintroduzir
   histórico, reconciliação de múltiplas fontes ou schema de modalidades futuras sob outros
   nomes. Extensões precisam de um consumidor e de uma necessidade concreta.
-- **Vozes incorretas ou testes pagos:** aquisição e validação serão revistas
-  antes da fase 4; as primeiras entregas não fazem essas consultas ou testes.
+- **Vozes incorretas ou testes pagos:** consumir o estado de completude do
+  catálogo; sondagens pagas pertencem à manutenção editorial e não ao uso
+  normal da interface.
 
 ## Critérios de aceitação
 
 - [x] Revisão documental explicita o novo escopo, substitui as exigências de
   histórico e remove fontes/jobs e custos; índice usa o mesmo título/status.
-- [ ] Restrições persistem entre sessões na hierarquia
+- [x] Restrições persistem entre sessões na hierarquia
   provedor/modelo/capability/operação/campo; repetir a rejeição atualiza a
-  mesma linha e não acumula histórico.
-- [ ] Ausência de restrição não omite parâmetros nem oculta campos.
-- [ ] Autorização impede acesso entre usuários e publicação global indevida;
-  exclusão do provedor remove o estado dependente.
-- [ ] Troca de identidade invalida restrições e caches; uma resposta atrasada
-  não grava na nova revisão. Testar também concorrência entre troca e gravação.
-- [ ] O snapshot da requisição corresponde à revisão efetiva da conexão,
-  incluindo mudanças de credencial/conta, sem armazenar segredos no estado.
-- [ ] Rejeição explícita de parâmetro enviado e conhecido gera restrição e um
-  retry seguro; o próximo envio omite o parâmetro sem repetir o erro.
-- [ ] Reconhecedores por provedor/formato aceitam apenas assinaturas
+  mesma linha e não acumula histórico. `llm_model_capabilities_test.go` valida
+  hierarquia, idempotência, isolamento e concorrência no PR #889.
+- [x] Ausência de restrição não omite parâmetros nem oculta campos; a consulta
+  inicial é vazia e os adaptadores só suprimem campos persistidos no estado da
+  requisição (`internal/llm/compatibility_state.go`).
+- [x] Autorização impede acesso entre usuários e publicação global indevida;
+  exclusão do provedor remove o estado dependente. Coberto pelos testes focados
+  de escopo e cascata no PR #889.
+- [x] Troca de revisão invalida restrições e uma resposta atrasada não grava na
+  revisão nova. `TestCompatibilityLearningPersistsBeforeRetryAndNextSend` cobre
+  a revisão efetivamente usada, a recusa de gravação obsoleta e a ausência de
+  retry sob revisão alterada.
+- [x] A revisão de compatibilidade acompanha endpoint, formato de API, família
+  explícita de erros, adaptador e modo de protocolo. Alterar a referência de
+  credencial atualiza a revisão de configuração, mas não invalida campos
+  aprendidos. `llm_provider_revision_guards_test.go` cobre a separação entre as
+  revisões e a invalidação ao mudar a família.
+- [x] Rejeição explícita de parâmetro enviado e conhecido gera restrição e um
+  retry seguro; o próximo envio omite o parâmetro sem repetir o erro. O teste
+  `TestCompatibilityLearningPersistsBeforeRetryAndNextSend` comprova o fluxo
+  com persistência SQLite nos adaptadores Chat Completions e Responses.
+- [x] Reconhecedores por provedor/formato aceitam apenas assinaturas
   documentadas; fixtures positivas extraem e mapeiam o campo enviado correto,
-  e casos desconhecidos/ambíguos não geram aprendizado nem retry.
-- [ ] Erros de valor são distintos de não suporte do campo: podem produzir
+  e casos desconhecidos/ambíguos não geram aprendizado nem retry. O fluxo de
+  persistência e retry está coberto nos adaptadores Chat Completions e Responses;
+  testes negativos verificam alias ambíguo e parâmetros não enviados.
+- [x] Erros de valor são distintos de não suporte do campo: podem produzir
   diagnóstico legível, mas não removem o campo, não repetem o envio sem ele e
-  não persistem valores/restrições nesta entrega.
-- [ ] Diagnósticos locais de erros não reconhecidos são estruturados e limitados;
+  não persistem valores/restrições nesta entrega. Ambos os adaptadores e o
+  histórico do chat têm testes para preservar o campo e exibir o diagnóstico
+  localizado.
+- [x] Diagnósticos locais de erros não reconhecidos são estruturados e limitados;
   não persistem payload/mensagem bruta, prompts, valores ou credenciais e não
-  enviam telemetria automaticamente.
-- [ ] Testes negativos cobrem HTTP 400 genérico, autenticação, erro transitório,
+  enviam telemetria automaticamente. Foi removido o repasse do texto livre de
+  erro MCP; marcadores allowlisted são traduzidos nos consumidores. Testes
+  verificam o descarte de campos desconhecidos e mensagens/payloads livres.
+- [x] Testes negativos cobrem HTTP 400 genérico, autenticação, erro transitório,
   valor/faixa/voz inválidos, alias ambíguo, campo não enviado e obrigatório.
-- [ ] Não há segundo retry de compatibilidade, repetição de tools ou nova
+- [x] Não há segundo retry de compatibilidade, repetição de tools ou nova
   mensagem; saída parcial, cancelamento, falha de persistência e revisão
-  alterada impedem a repetição automática.
-- [ ] O Profile Manager oculta campos não suportados usando o estado do backend,
+  alterada impedem a repetição automática. Chat Completions e Responses têm
+  testes ponta a ponta para retry único, tool, conteúdo e reasoning expostos
+  entre iterações, timeout após reasoning, cancelamento após conteúdo e falha
+  de persistência. `TestCompatibilityLearningPersistsBeforeRetryAndNextSend`
+  cobre ambos os formatos no SQLite, incluindo revisão alterada antes da
+  persistência e ausência de retry ou gravação na nova revisão.
+- [x] O Profile Manager oculta campos não suportados usando o estado do backend,
   preserva valores salvos, reavalia ao trocar de modelo e mantém foco acessível.
-- [ ] Fases implementadas atualizam este documento, o índice e a documentação
-  de usuário correspondente com testes e evidências no mesmo PR.
+  O PR #919 cobre o fluxo A→B→A, campos desabilitados durante a consulta e
+  seletores `$default`; CI verde e threads de review resolvidas no merge
+  `412da6a78`.
+- [x] Fases implementadas atualizam este documento, o índice e a documentação
+  de usuário correspondente com testes e evidências nos PRs #909 e #919;
+  `docs/content/configuracao/PROVIDER_CONFIGURATION.md` e
+  `docs/content/recursos/PERFIS.md` foram atualizados no PR #919.
 
-A fase de vozes requer nova discussão e critérios próprios antes de sua
-implementação; não integra os critérios de conclusão das fases 1–3.
+A fase de vozes depende das fases 1–5 da AEP-0115 e integra o escopo pendente
+desta AEP; sua implementação e evidências atualizarão este documento e o índice.

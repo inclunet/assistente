@@ -2,7 +2,8 @@ import { logger } from '../../utils/logger';
 import React, { useEffect, useCallback, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { ClearOutlined, EditOutlined, SettingOutlined } from '@ant-design/icons';
+import { ClearOutlined, CloseOutlined, EditOutlined, SettingOutlined } from '@ant-design/icons';
+import { useChatStore } from '../../store/chatStore';
 import { useNavigationStore } from '../../store/navigationStore';
 import { CHAT_CLEAR_COMMAND, registerChatClearSurface, requestChatClear } from '../../lib/commandChatClear';
 import { GetActiveProfileSlug, GetProfile } from '@wailsjs/go/wailsapi/Profiles';
@@ -144,11 +145,23 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
   const effectiveConversationId = sessionConversationId || conversationId || null;
   const queuedTurnCount = session?.queuedTurnCount ?? 0;
   const { announce, announceRequest } = useAnnouncer();
+  const cancelNextQueuedTurn = useChatStore((s) => s.cancelNextQueuedTurn);
   const announceRequestRef = useRef(announceRequest);
   const conversationTitle = activeConversation?.title || t('chat.newConversation');
   const isInsideModal = useIsInsideModal();
   const isModalTopmost = useModalIsTopmost();
   const modalId = useModalId();
+
+  const handleCancelQueuedTurn = useCallback(() => {
+    if (!effectiveConversationId) return;
+    restoreFocusAfterQueueCancelRef.current = queuedTurnCount === 1
+      && document.activeElement === cancelQueuedTurnButtonRef.current;
+    if (!cancelNextQueuedTurn(effectiveConversationId)) {
+      restoreFocusAfterQueueCancelRef.current = false;
+      return;
+    }
+    announce(t('chat.queue.cancelledNext'));
+  }, [announce, cancelNextQueuedTurn, effectiveConversationId, queuedTurnCount, t]);
 
   const workspace = useWorkspaceStore((s) => s.workspace);
   const updateWsTab = useWorkspaceStore((s) => s.updateTab);
@@ -165,6 +178,21 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
   const historyPickerRef = useRef<HistoryPickerRef>(null);
   const profilePickerRef = useRef<ProfilePickerRef>(null);
   const toolbarRef = useRef<HTMLDivElement>(null);
+  const cancelQueuedTurnButtonRef = useRef<HTMLButtonElement | null>(null);
+  const focusedQueueConversationIdRef = useRef<string | null>(null);
+  const pinnedMessagesButtonRef = useRef<HTMLButtonElement>(null);
+  const restoreFocusAfterQueueCancelRef = useRef(false);
+  const setCancelQueuedTurnButtonRef = useCallback((button: HTMLButtonElement | null) => {
+    if (button && document.activeElement === button) {
+      // A troca de conversa pode substituir o callback ref sem desmontar o botão.
+      // Atualiza o contexto mantendo o foco no mesmo elemento.
+      focusedQueueConversationIdRef.current = effectiveConversationId;
+      restoreFocusAfterQueueCancelRef.current = false;
+    } else if (!button && focusedQueueConversationIdRef.current === effectiveConversationId) {
+      restoreFocusAfterQueueCancelRef.current = true;
+    }
+    cancelQueuedTurnButtonRef.current = button;
+  }, [effectiveConversationId]);
   const historyContainerRef = useRef<HTMLDivElement>(null);
   const profileContainerRef = useRef<HTMLDivElement>(null);
   const modelPickerContainerRef = useRef<HTMLDivElement>(null);
@@ -173,6 +201,18 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
   );
   const previousQueueConversationIdRef = useRef<string | null | undefined>(undefined);
   const previousQueuedTurnCountRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (queuedTurnCount > 0) {
+      restoreFocusAfterQueueCancelRef.current = false;
+      return;
+    }
+    if (!restoreFocusAfterQueueCancelRef.current) return;
+    restoreFocusAfterQueueCancelRef.current = false;
+    if (focusedQueueConversationIdRef.current !== effectiveConversationId) return;
+    if (document.activeElement !== document.body && document.activeElement !== document.documentElement) return;
+    pinnedMessagesButtonRef.current?.focus();
+  }, [effectiveConversationId, queuedTurnCount]);
   const shortcutHint = useCommandShortcutHints('chat');
   const clearShortcut = shortcutHint(CHAT_CLEAR_COMMAND);
   const historyShortcut = shortcutHint('chat.history.open');
@@ -592,6 +632,19 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
         }
         right={
           <>
+            {queuedTurnCount > 0 && (
+              <ToolbarButton
+                ref={setCancelQueuedTurnButtonRef}
+                label={t('chat.queue.cancelNext')}
+                icon={<CloseOutlined />}
+                title={t('chat.queue.cancelNextDescription')}
+                onClick={handleCancelQueuedTurn}
+                onFocus={() => { focusedQueueConversationIdRef.current = effectiveConversationId; }}
+                onBlur={(event) => {
+                  if (event.currentTarget.isConnected) focusedQueueConversationIdRef.current = null;
+                }}
+              />
+            )}
             <ToolbarButton
               label={t('chat.clearBtn')}
               icon={<ClearOutlined />}
@@ -620,6 +673,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
             <ToolbarSeparator />
 
             <ToolbarButton
+              ref={pinnedMessagesButtonRef}
               label={t('chat.pins.button')}
               icon="📌"
               title={t('chat.pins.buttonDescription')}

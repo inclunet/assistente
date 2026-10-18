@@ -7,6 +7,7 @@ package commandmaintenance
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"time"
 )
@@ -152,24 +153,29 @@ type Report struct {
 	InvocationsDeleted int64
 	ActivationsDeleted int64
 	Compacted          bool
+	// RetentionRetryAfter adia somente limpeza; heartbeat e recuperação continuam.
+	RetentionRetryAfter time.Duration
 }
 
 // Coordinator é o único dono da sequência de manutenção. Run é uma única
 // passagem; uma chamada posterior pode continuar um lote que retornou More.
 type Coordinator struct {
-	ports   Ports
-	mu      sync.Mutex
-	running bool
+	ports            Ports
+	mu               sync.Mutex
+	running          bool
+	now              func() time.Time
+	retentionRetryAt time.Time
+	retentionBackoff time.Duration
 }
 
 func New(ports Ports) (*Coordinator, error) {
 	if ports.Outbox == nil || ports.Decisions == nil || ports.Invocations == nil || ports.Claims == nil || ports.Jobs == nil || ports.Tools == nil || ports.InvocationDB == nil || ports.Activations == nil || ports.Compaction == nil {
 		return nil, ErrInvalid
 	}
-	return &Coordinator{ports: ports}, nil
+	return &Coordinator{ports: ports, now: time.Now}, nil
 }
 
-func (c *Coordinator) Run(ctx context.Context, policy Policy) (Report, error) {
+func (c *Coordinator) Run(ctx context.Context, policy Policy) (report Report, runErr error) {
 	if c == nil || ctx == nil {
 		return Report{}, ErrInvalid
 	}
@@ -195,12 +201,27 @@ func (c *Coordinator) Run(ctx context.Context, policy Policy) (Report, error) {
 	c.running = true
 	c.mu.Unlock()
 	defer func() {
+		// Não suspender a manutenção crítica nem repetir uma limpeza falha a
+		// cada segundo. O prazo começa após o retorno do SQL, não antes dele.
+		if strings.HasPrefix(report.Stage, "retention.") || report.Stage == "compaction" {
+			if runErr != nil {
+				if c.retentionBackoff == 0 {
+					c.retentionBackoff = 30 * time.Second
+				} else {
+					c.retentionBackoff = min(2*c.retentionBackoff, 5*time.Minute)
+				}
+				c.retentionRetryAt = c.now().Add(c.retentionBackoff)
+				report.RetentionRetryAfter = c.retentionBackoff
+			}
+		} else if report.Stage == "complete" {
+			c.retentionBackoff = 0
+			c.retentionRetryAt = time.Time{}
+		}
 		c.mu.Lock()
 		c.running = false
 		c.mu.Unlock()
 	}()
 
-	var report Report
 	if c.ports.Heartbeat != nil {
 		report.Stage = "heartbeat"
 		result, err := c.ports.Heartbeat.Heartbeat(ctx, policy)
@@ -293,6 +314,12 @@ func (c *Coordinator) Run(ctx context.Context, policy Policy) (Report, error) {
 	// Nenhuma exclusão/compactação pode ocorrer enquanto um domínio ainda
 	// tiver lote pendente. A próxima passagem retoma pelo cursor próprio.
 	if report.MoreHeartbeat || report.MoreOutbox || report.MoreRecovery {
+		return report, nil
+	}
+	if remaining := c.retentionRetryAt.Sub(c.now()); remaining > 0 {
+		report.Stage = "retention.deferred"
+		report.MoreRetention = true
+		report.RetentionRetryAfter = remaining
 		return report, nil
 	}
 

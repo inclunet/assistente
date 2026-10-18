@@ -706,6 +706,13 @@ Ollama, e a lista deles já existe, com busca e estado por máquina, no catálog
 Escolher "agente de código" leva ao catálogo, e o agente escolhido é o que fica
 no `acp_agent_id`.
 
+**Limite de compatibilidade.** Instalar e iniciar um agente do catálogo não
+significa que toda capacidade ACP dele esteja integrada à interface. O catálogo
+resolve distribuição e comando; a cobertura de protocolo e as capacidades
+ausentes são registradas na [auditoria ACP v1 do AEP-0084](0084-agentes-acp-como-providers.md#auditoria-de-cobertura-do-acp-v1-16102026).
+Um agente sem tipo próprio pode usar o caminho comum de ACP, sujeito a essa
+matriz; recursos específicos do agente continuam exigindo suporte explícito.
+
 ### D12. O caminho normal é a autenticação do próprio agente; passar credencial do cofre é opção explícita, por provedor
 
 O padrão não muda: **o app não injeta credencial**, e quem configura um agente
@@ -1210,6 +1217,8 @@ um provider que sobe; sem `uv`, o requisito é dito com o mesmo tratamento do D7
   é recusado com motivo.
 - Um agente do catálogo sem tipo próprio no app — Gemini CLI, por exemplo — pode
   ser instalado e usado sem código novo por agente.
+- [x] Instalação pelo catálogo não é promessa de paridade com todos os recursos ACP
+  do agente; a cobertura fica explícita na matriz do AEP-0084.
 - Providers ACP já configurados continuam funcionando sem migração.
 - A autenticação do agente segue sendo feita pelo mecanismo dele por padrão: sem
   ninguém ligar nada, o ambiente do processo do agente é o de hoje.

@@ -194,7 +194,12 @@ func (p *GoogleProvider) SendChat(ctx context.Context, messages []Message, param
 
 	resp, err := client.Models.GenerateContent(ctx, model, contents, config)
 	if err != nil {
-		return "", fmt.Errorf("erro ao enviar mensagem: %w", err)
+		providerError, recognized := RecognizeProviderError(p.provider, err)
+		if !recognized {
+			providerError = ProviderErrorDiagnostic(p.provider, err)
+		}
+		logging.Errorf(ctx, "llm.google-provider", "provider API error signature=%s category=%s status=%d", providerError.Recognizer, providerError.Category, providerError.StatusCode)
+		return "", fmt.Errorf("erro ao enviar mensagem: %s", providerError.DisplayMessage())
 	}
 	if len(resp.Candidates) == 0 || resp.Candidates[0].Content == nil {
 		return "", fmt.Errorf("nenhuma resposta recebida")
@@ -365,7 +370,15 @@ func (p *GoogleProvider) doStream(ctx context.Context, client *genai.Client, usa
 		if err != nil {
 			wd.Stop()
 			errStr := err.Error()
-			logging.Errorf(ctx, "llm.google-provider", "[GoogleProvider] Stream error: %s", errStr)
+			providerError, recognizedProviderError := RecognizeProviderError(p.provider, err)
+			if !recognizedProviderError {
+				providerError = ProviderErrorDiagnostic(p.provider, err)
+			}
+			if recognizedProviderError {
+				logging.Errorf(ctx, "llm.google-provider", "provider API error signature=%s category=%s status=%d", providerError.Recognizer, providerError.Category, providerError.StatusCode)
+			} else {
+				logging.Errorf(ctx, "llm.google-provider", "provider stream error signature=%s category=%s", providerError.Recognizer, providerError.Category)
+			}
 
 			// Cancelamento do usuÃƒÂ¡rio (contexto pai): nunca retentar.
 			if ctx.Err() != nil {
@@ -399,7 +412,7 @@ func (p *GoogleProvider) doStream(ctx context.Context, client *genai.Client, usa
 			if emittedNonRetryableEffect {
 				markErrorNotRetryable(handler)
 			}
-			handler.OnError(errStr)
+			handler.OnError(providerError.DisplayMessage())
 			return true
 		}
 

@@ -421,17 +421,28 @@ func GetMessageContentWithContext(ctx context.Context, messageID string) (string
 }
 
 func (r *MessageRepository) GetMessageContentWithContext(ctx context.Context, messageID string) (string, error) {
+	content, _, err := r.GetMessageContentAndRoleWithContext(ctx, messageID)
+	return content, err
+}
+
+// GetMessageContentAndRoleWithContext retorna somente o conteúdo e o papel da
+// mensagem pertencente ao usuário do contexto, sem carregar anexos ou áudio.
+func GetMessageContentAndRoleWithContext(ctx context.Context, messageID string) (string, string, error) {
+	return NewMessageRepository(db).GetMessageContentAndRoleWithContext(ctx, messageID)
+}
+
+func (r *MessageRepository) GetMessageContentAndRoleWithContext(ctx context.Context, messageID string) (string, string, error) {
 	db := r.db
 	if _, err := RequireUserID(ctx); err != nil {
-		return "", err
+		return "", "", err
 	}
 	var msg ChatMessage
 	if err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).
-		Select("chat_messages.content").
+		Select("chat_messages.content", "chat_messages.role").
 		First(&msg, "chat_messages.id = ?", messageID).Error; err != nil {
-		return "", err
+		return "", "", err
 	}
-	return msg.Content, nil
+	return msg.Content, msg.Role, nil
 }
 
 // GetMessageWithContext retorna a mensagem completa pelo ID, restrita ao
@@ -998,7 +1009,6 @@ func deleteChatToolInvocationsForTurnToolCallIDs(ctx context.Context, exec *gorm
 	if !exec.Migrator().HasTable(&ToolInvocation{}) {
 		return nil
 	}
-	userID, _ := UserIDFromContext(ctx)
 	ids := make([]string, 0, len(toolCallIDs))
 	for _, id := range toolCallIDs {
 		id = strings.TrimSpace(id)
@@ -1017,9 +1027,12 @@ func deleteChatToolInvocationsForTurnToolCallIDs(ctx context.Context, exec *gorm
 		if end > len(ids) {
 			end = len(ids)
 		}
-		if err := exec.WithContext(ctx).
-			Where("user_id = ? AND origin_type = ? AND origin_id = ? AND tool_call_id IN ?", userID, "chat", turn, ids[start:end]).
-			Delete(&ToolInvocation{}).Error; err != nil {
+		if err := exec.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			target := ScopeByUser(ctx, tx.Model(&ToolInvocation{}), "user_id").
+				Where("origin_type = ? AND origin_id = ? AND tool_call_id IN ?", "chat", turn, ids[start:end])
+			_, err := DeleteToolInvocationsWithChildrenDetachedTx(ctx, tx, target)
+			return err
+		}); err != nil {
 			return err
 		}
 	}
@@ -1036,7 +1049,6 @@ func deleteChatToolInvocationsForOriginIDs(ctx context.Context, exec *gorm.DB, o
 	if !exec.Migrator().HasTable(&ToolInvocation{}) {
 		return nil
 	}
-	userID, _ := UserIDFromContext(ctx)
 	// Batch para evitar estourar limite de variáveis do SQLite.
 	const batchSize = 400
 	for start := 0; start < len(originIDs); start += batchSize {
@@ -1044,9 +1056,12 @@ func deleteChatToolInvocationsForOriginIDs(ctx context.Context, exec *gorm.DB, o
 		if end > len(originIDs) {
 			end = len(originIDs)
 		}
-		if err := exec.WithContext(ctx).
-			Where("user_id = ? AND origin_type = ? AND origin_id IN ?", userID, "chat", originIDs[start:end]).
-			Delete(&ToolInvocation{}).Error; err != nil {
+		if err := exec.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			target := ScopeByUser(ctx, tx.Model(&ToolInvocation{}), "user_id").
+				Where("origin_type = ? AND origin_id IN ?", "chat", originIDs[start:end])
+			_, err := DeleteToolInvocationsWithChildrenDetachedTx(ctx, tx, target)
+			return err
+		}); err != nil {
 			return err
 		}
 	}

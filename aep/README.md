@@ -1,5 +1,30 @@
 # AEP — Assistente Enhancement Proposals
 
+**AEP-0103 / extensão AEP-0074 — recuo sob contenção (16/10/2026): In Progress.**
+Falhas na limpeza/compactação adiam somente a retenção por 30s até 5min,
+preservando heartbeat, outbox e recuperação. Regressões determinísticas em
+`retention_backoff_test.go` e `command_maintenance_backoff_test.go`; aceite
+no banco real pendente. AEP-0074 legado permanece Done.
+
+**Proposta de migração experimental do driver, associada à AEP-0074
+(16/10/2026): Deprecated.** O AEP de retenção não foi abandonado.
+Abandonada por decisão do mantenedor após falha de integridade no adaptador
+GORM candidato. Glebarez permanece, sem fork nem emendas em dependências.
+Otimizações de contenção continuam separadamente.
+
+**AEP-0103 / extensão AEP-0074 — retenção sob carga (16/10/2026): In Progress.**
+Seleção por idade/count-cap usa conjuntos protegidos por usuário, sem
+subqueries correlacionadas por run; mantém replay, leases e atomicidade.
+Plano SQL e isolamento cobertos, com aceite de sessão longa ainda pendente.
+Cancelamento no driver permanece investigação separada, sem garantia rígida
+de prazo. O Done do AEP-0074 continua restrito ao escopo legado.
+
+**AEP-0103 — apresentação de destinos de aba (16/10/2026): In Progress.**
+Nome e ícone automáticos no Stream Deck para destinos de aba; prévia no
+editor substitui a personalização desses comandos. A seleção específica
+continua por ID, sem busca por título. Ausência/ambiguidade não preserva
+ícone ou imagem antiga. Aceite físico/NVDA pendente, sem promoção de critérios.
+
 **AEP-0103 — resultado e foco após criação (07/10/2026): In Progress.**
 Consulta de resultado retido independe da projeção do mapa (I04.5), preservando
 identidade, runtime, cofre e sessão do SO. Begin/Take/Commit não mudam.
@@ -153,6 +178,20 @@ Este diretório é o **repositório único** de decisões arquiteturais do proje
 > Verificação reproduzível: `python .github/scripts/verificar-status-aeps.py`.
 
 ## Índice
+
+**ACP (16/10/2026):** AEP-0084 passa a **In Progress** para ampliar a cobertura
+ACP v1; o escopo original segue entregue. O AEP registra a matriz de cobertura,
+incluindo reconciliação de respostas atrasadas com snapshots (opções removidas
+e boolean `false` omitido pelo DTO), anúncio do resultado booleano confirmado e
+preservação de áudio original junto da transcrição para ACP, proteção contra
+resposta de opção obsoleta, além de recursos não apresentados e capacidades
+intencionalmente desativadas. AEP-0086 permanece **Done** para
+descoberta/instalação, com limite explícito entre instalar um agente e integrar
+todos os recursos dele. AEP-0108 permanece **In Progress**: fila visível e
+cancelamento de envios pendentes, inclusive do segundo comando que aguarda a
+serialização externa (`registerMessagingAdmission`), estão cobertos pelo
+executor real e pela fila cancelável;
+continua pendente uma sondagem ociosa segura.
 
 AEP-0103, seção168 (26/09/2026): toolbar de Novo/Editar/Apagar nos gerenciadores,
 menus de contexto equivalentes, Enter para editar e continuidade da lista após salvar,
@@ -1100,7 +1139,7 @@ de cancelamento de release na dependência; o AEP permanece **In Progress**.
 | [0081](0081-politica-tools-por-perfil-e-carregamento-sob-demanda.md) | Política de Tools por Perfil e Carregamento sob Demanda | ✔️ Accepted |
 | [0082](0082-network-trust-allowlist.md) | Network Trust Allowlist | ✅ Done |
 | [0083](0083-channels-database-migration.md) | Migração de Canais e Contatos para Banco de Dados | ✅ Done |
-| [0084](0084-agentes-acp-como-providers.md) | Agentes de código ACP como providers LLM | ✅ Done |
+| [0084](0084-agentes-acp-como-providers.md) | Agentes de código ACP como providers LLM | 🚧 In Progress |
 | [0085](0085-i18n-de-dialogos-do-questionnaire.md) | i18n dos diálogos que o backend manda para a tela (questionnaire) | ✅ Done |
 | [0086](0086-registro-acp-descoberta-e-instalacao-de-agentes.md) | Descoberta e instalação de agentes pelo registro ACP | ✅ Done |
 | [0087](0087-tela-de-erro-acessivel-e-diagnosticavel.md) | Tela de erro acessível e diagnosticável | 🚧 In Progress |
@@ -1129,8 +1168,9 @@ de cancelamento de release na dependência; o AEP permanece **In Progress**.
 | [0110](0110-fontes-explicitas-de-credenciais.md) | Fontes explícitas de credenciais | ✅ Done |
 | [0111](0111-inicializacao-desktop-exclusiva.md) | Inicialização desktop exclusiva | 🚧 In Progress |
 | [0112](0112-oauth-compartilhado-e-autorizacoes-unificadas.md) | OAuth compartilhado e autorizações unificadas — ChatGPT, MCP, recuperação/migração, Slack por conexão e CredManager; aceites funcionais confirmados em 05/10/2026 | ✅ Done |
-| [0113](0113-capabilities-parametros-e-custos-de-modelos.md) | Compatibilidade de parâmetros por modelo e provedor | 🚧 In Progress |
+| [0113](0113-capabilities-parametros-e-custos-de-modelos.md) | Compatibilidade de parâmetros por modelo e provedor — fases 1–3 concluídas nos PRs #889, #909 e #919; fase 4 de vozes TTS depende da fase 5 da AEP-0115 | 🚧 In Progress |
 | [0114](0114-criacao-de-provedores-e-credenciais-unificadas.md) | Criação de provedores e credenciais unificadas | ✅ Done — preferências ChatGPT, menu API/ACP, comandos e CredManager compartilhado; rota padrão e menu Ações corrigidos |
+| [0115](0115-catalogo-publico-provedores-modelos.md) | Catálogo público de provedores e modelos | 🚧 In Progress — fase 1 (schema e asset inicial) implementada; consumo pendente |
 
 Correções paralelas posteriores à revisão da AEP-0103 estão registradas nas seções 10 e 11 da tasklist de conclusão: bridge, importação, restore, outbox, lifecycle e a primeira rodada real de produto. O executor desktop usa `newCommandDesktopExecutor` e `commandconfig.ProjectComplete`; autenticação é por sessão local sem JWT, a bridge é assíncrona com shutdown/join, e recovery é preflight somente leitura fail-closed sem reconciliação interprocesso. A limitação inicial de entrega somente de resumo/status foi resolvida na seção 14: `workspace.list` entrega resultado efêmero no picker compartilhado. A seção 15 liga a seleção da paleta à resolução de configuração persistida, supressão e recusa sem fallback, inclusive na bridge. A falha histórica de `internal/acpregistry` não reapareceu nas suítes completas das seções 12–14, mas sua causa não foi certificada. Providers/transporte de UI, origens físicas, recovery R04 e o aceite BASE-PRONTA permanecem pendentes.
 

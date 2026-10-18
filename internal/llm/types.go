@@ -11,12 +11,15 @@ import (
 
 // Message representa uma mensagem no histórico do chat
 type Message struct {
-	Role             string      `json:"role"`
-	Content          interface{} `json:"content,omitempty"`           // Pode ser string ou []ContentPart
-	Thinking         string      `json:"thinking,omitempty"`          // Ollama thinking/reasoning
-	ReasoningContent string      `json:"reasoning_content,omitempty"` // extensão OpenAI-compatible controlada por reasoning_content_mode
-	ToolCalls        []ToolCall  `json:"tool_calls,omitempty"`        // Tool calls solicitadas pelo assistant
-	ToolCallID       string      `json:"tool_call_id,omitempty"`      // Para role="tool": vincula ao call
+	Role    string      `json:"role"`
+	Content interface{} `json:"content,omitempty"` // Pode ser string ou []ContentPart
+	// ACPOriginalAudio conserva o anexo de áudio original quando o histórico
+	// também contém a transcrição em texto; só o provider ACP consome este campo.
+	ACPOriginalAudio []InputAudio `json:"-"`
+	Thinking         string       `json:"thinking,omitempty"`          // Ollama thinking/reasoning
+	ReasoningContent string       `json:"reasoning_content,omitempty"` // extensão OpenAI-compatible controlada por reasoning_content_mode
+	ToolCalls        []ToolCall   `json:"tool_calls,omitempty"`        // Tool calls solicitadas pelo assistant
+	ToolCallID       string       `json:"tool_call_id,omitempty"`      // Para role="tool": vincula ao call
 	// MessageID e TurnContextTarget são metadados internos da request LLM.
 	// Eles não são enviados ao provider nem persistidos; servem para associar
 	// contexto transitório ao turno correto mesmo em retries/branches.
@@ -84,9 +87,24 @@ type FunctionDefinition struct {
 
 // ContentPart representa uma parte do conteúdo multimodal
 type ContentPart struct {
-	Type     string    `json:"type"` // "text" ou "image_url"
-	Text     string    `json:"text,omitempty"`
-	ImageURL *ImageURL `json:"image_url,omitempty"`
+	Type       string      `json:"type"` // "text", "image_url" ou "input_audio"
+	Text       string      `json:"text,omitempty"`
+	ImageURL   *ImageURL   `json:"image_url,omitempty"`
+	InputAudio *InputAudio `json:"input_audio,omitempty"`
+	File       *InputFile  `json:"file,omitempty"`
+}
+
+// InputAudio guarda o payload base64 no formato de entrada comum do chat.
+type InputAudio struct {
+	Data   string `json:"data"`
+	Format string `json:"format"`
+}
+
+// InputFile guarda um anexo textual ou binário já persistido como base64.
+type InputFile struct {
+	Filename string `json:"filename"`
+	Data     string `json:"data"`
+	MIMEType string `json:"mime_type"`
 }
 
 // ImageURL representa uma imagem em base64 ou URL
@@ -268,25 +286,26 @@ type ChatParams struct {
 	// "continue a partir deste texto: ...". É definido pelo backend (use case) quando
 	// a continuação está habilitada no perfil mas o provider não suporta prefill.
 	// Mutuamente exclusivo com AllowAssistantPrefill.
-	ContinueViaUserMessage bool            `json:"continueViaUserMessage,omitempty"`
-	MaxAgenticIterations   int             `json:"maxAgenticIterations,omitempty"` // 0 = usar default (100), >0 = limite customizado
-	ResponseTimeout        int             `json:"responseTimeout,omitempty"`      // Timeout em segundos (2ª camada de proteção)
-	RateLimitEnabled       *bool           `json:"-"`                              // Política de rate limit resolvida do perfil; nil usa o default.
-	RateLimitRPM           int             `json:"-"`                              // Taxa sustentada resolvida do perfil.
-	RateLimitBurst         int             `json:"-"`                              // Rajada instantânea resolvida do perfil.
-	ContextWindow          int             `json:"contextWindow,omitempty"`        // Tamanho da janela de contexto do modelo (0 = sem limite). AEP-0039 Fase 4.
-	TabType                string          `json:"tabType,omitempty"`              // Tipo da aba de origem ("editor", "chat", etc.)
-	ActiveFilePath         string          `json:"activeFilePath,omitempty"`       // Caminho do arquivo ativo (editor tabs)
-	SurfaceStateJSON       string          `json:"surfaceStateJson,omitempty"`     // Espelho serializado de WorkspaceTab.state
-	SurfaceContextJSON     string          `json:"surfaceContextJson,omitempty"`   // Contexto transitório do envio atual
-	SurfaceSessionKey      string          `json:"surfaceSessionKey,omitempty"`    // Identidade explícita da sessão visual que originou o turno
-	SurfaceExecutionID     string          `json:"surfaceExecutionId,omitempty"`   // Correlação de uma execução, distinta do turno persistido em retries
-	SurfaceID              string          `json:"surfaceId,omitempty"`            // Identidade estável da superfície de origem
-	SurfaceType            string          `json:"surfaceType,omitempty"`          // page | embedded | modal | external
-	SurfaceTabID           string          `json:"surfaceTabId,omitempty"`         // Workspace tab que hospeda a superfície, quando existir
-	PromptCacheKey         string          `json:"-"`                              // Hint seguro derivado pelo backend para prompt_cache_key
-	ExplicitCacheControl   bool            `json:"-"`                              // Permite cache_control explícito em providers compatíveis
-	DebugDump              DebugDumpConfig `json:"-"`                              // Dump local de requests/responses LLM para diagnóstico
+	ContinueViaUserMessage bool                `json:"continueViaUserMessage,omitempty"`
+	MaxAgenticIterations   int                 `json:"maxAgenticIterations,omitempty"` // 0 = usar default (100), >0 = limite customizado
+	ResponseTimeout        int                 `json:"responseTimeout,omitempty"`      // Timeout em segundos (2ª camada de proteção)
+	RateLimitEnabled       *bool               `json:"-"`                              // Política de rate limit resolvida do perfil; nil usa o default.
+	RateLimitRPM           int                 `json:"-"`                              // Taxa sustentada resolvida do perfil.
+	RateLimitBurst         int                 `json:"-"`                              // Rajada instantânea resolvida do perfil.
+	ContextWindow          int                 `json:"contextWindow,omitempty"`        // Tamanho da janela de contexto do modelo (0 = sem limite). AEP-0039 Fase 4.
+	TabType                string              `json:"tabType,omitempty"`              // Tipo da aba de origem ("editor", "chat", etc.)
+	ActiveFilePath         string              `json:"activeFilePath,omitempty"`       // Caminho do arquivo ativo (editor tabs)
+	SurfaceStateJSON       string              `json:"surfaceStateJson,omitempty"`     // Espelho serializado de WorkspaceTab.state
+	SurfaceContextJSON     string              `json:"surfaceContextJson,omitempty"`   // Contexto transitório do envio atual
+	SurfaceSessionKey      string              `json:"surfaceSessionKey,omitempty"`    // Identidade explícita da sessão visual que originou o turno
+	SurfaceExecutionID     string              `json:"surfaceExecutionId,omitempty"`   // Correlação de uma execução, distinta do turno persistido em retries
+	SurfaceID              string              `json:"surfaceId,omitempty"`            // Identidade estável da superfície de origem
+	SurfaceType            string              `json:"surfaceType,omitempty"`          // page | embedded | modal | external
+	SurfaceTabID           string              `json:"surfaceTabId,omitempty"`         // Workspace tab que hospeda a superfície, quando existir
+	PromptCacheKey         string              `json:"-"`                              // Hint seguro derivado pelo backend para prompt_cache_key
+	ExplicitCacheControl   bool                `json:"-"`                              // Permite cache_control explícito em providers compatíveis
+	DebugDump              DebugDumpConfig     `json:"-"`                              // Dump local de requests/responses LLM para diagnóstico
+	Compatibility          *CompatibilityState `json:"-"`                              // Restricoes e retry de compatibilidade deste turno.
 
 	// OnNativeMCPUnsupported é um hook opcional, definido pelo backend (use case),
 	// chamado quando uma request com MCP nativo falha com erro de não-suporte

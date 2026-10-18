@@ -15,6 +15,12 @@ Na página de perfis, a lista ocupa a área disponível e a dica de edição fic
 no rodapé, sem cobrir as linhas ou seus botões de ações. Use as setas para
 navegar pela grade e Enter para abrir o perfil selecionado.
 
+No editor, os parâmetros de geração que o provedor e o modelo já rejeitaram
+explicitamente ficam ocultos. Campos ainda desconhecidos continuam disponíveis.
+O app reavalia a lista ao trocar o provedor ou o modelo; ocultar um campo não
+apaga nem altera o valor salvo no perfil, que volta a aparecer quando a nova
+conexão não tem essa restrição.
+
 Para renomear na própria grade, pressione F2 na célula do nome. Enter confirma
 a edição uma única vez; Escape descarta a alteração. A exclusão de um perfil
 inativo pede confirmação antes de executar. Enquanto essa confirmação estiver

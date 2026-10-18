@@ -296,6 +296,19 @@ type TokenStatsUpdateEvent struct {
 	ToolBreakdown               any     `json:"toolBreakdown,omitempty"`
 }
 
+// ACPUsageUpdateEvent transporta apenas o snapshot de uso que o agente reportou.
+// Não deve ser somado a tokens nem interpretado como custo calculado pelo app.
+type ACPUsageUpdateEvent struct {
+	ConversationID string   `json:"conversationId"`
+	ContextTokens  int      `json:"contextTokens"`
+	ContextLimit   int      `json:"contextLimit"`
+	ContextUsage   float64  `json:"contextUsage"`
+	IsNearLimit    bool     `json:"isNearLimit"`
+	IsCritical     bool     `json:"isCritical"`
+	CostAmount     *float64 `json:"costAmount,omitempty"`
+	CostCurrency   string   `json:"costCurrency,omitempty"`
+}
+
 // ContextWarningEvent is the payload for chat:context_warning.
 // ContextTokens reflete a ocupação ATUAL da janela de contexto (usage do
 // último turno), não o acumulado de billing (issue #197 / AEP-0012).
@@ -313,6 +326,10 @@ type ContextWarningEvent struct {
 // segue com o texto, e a pessoa é avisada do que ficou de fora em vez de
 // esperar uma resposta sobre uma imagem que o modelo nunca viu.
 const ChatNoticeKindAttachmentsNotSent = "attachments_not_sent"
+
+// ChatNoticeKindAgentOutputNotDisplayed indica resposta ACP com conteúdo que
+// ainda não pode ser exibido na superfície comum de chat.
+const ChatNoticeKindAgentOutputNotDisplayed = "agent_output_not_displayed"
 
 // O modelo escolhido não pôde valer neste turno (AEP-0084 D6). O turno seguiu no
 // modelo em que o agente está, porque resposta do modelo errado é melhor do que
@@ -428,7 +445,10 @@ type ChatNoticeEvent struct {
 	// rótulo que o agente deu, e o valor cru quando ele não deu nenhum. Vem
 	// resolvido daqui, ao contrário do Model, porque quem exibe o aviso é uma
 	// superfície global que não conhece as opções desta sessão.
-	Mode string `json:"mode,omitempty"`
+	Mode          string  `json:"mode,omitempty"`
+	Percentage    float64 `json:"percentage,omitempty"`
+	ContextTokens int     `json:"contextTokens,omitempty"`
+	ContextLimit  int     `json:"contextLimit,omitempty"`
 }
 
 // SummaryStartedEvent is the payload for chat:summary_started.

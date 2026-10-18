@@ -99,6 +99,67 @@ func TestProviderCredentialPreservesExplicitReferenceAndDefault(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestProviderCredentialSavePublishesCompatibilityRevisionOnlyAfterCommit(t *testing.T) {
+	service, _, ctx := chatGPTTestService(t)
+	request := vaultProviderRequest(&credentials.AuthConfig{Source: "static", Type: "bearer", Token: "initial"})
+	if _, err := service.Create(ctx, request); err != nil {
+		t.Fatalf("create provider with credential: %v", err)
+	}
+	assertCredentialProviderCompatibilityRevision(t, service, ctx, 1)
+
+	for _, name := range []string{"Edited once", "Edited twice"} {
+		result, err := service.Update(ctx, "api", UpdateRequest{
+			Name: name, Type: "custom", BaseURL: request.BaseURL,
+			Credential: &CredentialSpec{Pattern: request.Credential.Pattern, Auth: &credentials.AuthConfig{Source: "static", Type: "bearer", Token: name}},
+		})
+		if err != nil {
+			t.Fatalf("update %q with credential: %v", name, err)
+		}
+		if result.Provider.Name != name {
+			t.Fatalf("provider name=%q, want %q", result.Provider.Name, name)
+		}
+		assertCredentialProviderCompatibilityRevision(t, service, ctx, 1)
+	}
+
+	db := database.DB()
+	if err := db.Callback().Update().Before("gorm:update").Register("test:provider-revision-rollback", func(tx *gorm.DB) {
+		if tx.Statement.Table == "llm_providers" {
+			_ = tx.AddError(errors.New("provider write failed"))
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Callback().Update().Remove("test:provider-revision-rollback") })
+	_, err := service.Update(ctx, "api", UpdateRequest{
+		Name: "Must roll back", Type: "custom", BaseURL: request.BaseURL,
+		Credential: &CredentialSpec{Pattern: request.Credential.Pattern, Auth: &credentials.AuthConfig{Source: "static", Type: "bearer", Token: "rollback"}},
+	})
+	if err == nil {
+		t.Fatal("provider update failure should roll back")
+	}
+	assertCredentialProviderCompatibilityRevision(t, service, ctx, 1)
+	saved, err := service.store.Get(ctx, "api")
+	if err != nil || saved.Name != "Edited twice" {
+		t.Fatalf("rollback changed persisted provider: provider=%+v err=%v", saved, err)
+	}
+}
+
+func assertCredentialProviderCompatibilityRevision(t *testing.T, service *Service, ctx context.Context, want int) {
+	t.Helper()
+	stored, err := service.store.Get(ctx, "api")
+	if err != nil {
+		t.Fatalf("load provider from store: %v", err)
+	}
+	registered := service.registry.Get("api")
+	if registered == nil {
+		t.Fatal("provider missing from registry")
+	}
+	if stored.CompatibilityRevision != want || registered.CompatibilityRevision != want {
+		t.Fatalf("compatibility revision mismatch: store=%d registry=%d want=%d", stored.CompatibilityRevision, registered.CompatibilityRevision, want)
+	}
+}
+
 func TestProviderCredentialRejectsInvalidTargetsAndCrossUser(t *testing.T) {
 	for _, scenario := range []string{"unrelated-pattern", "managed", "none", "acp", "google-basic", "duplicate-other-user"} {
 		t.Run(scenario, func(t *testing.T) {

@@ -50,10 +50,10 @@ func applyWorkspaceTabDeckVisual(
 }
 
 func applyWorkspaceTabDeckVisualForPage(
-	configuration *commandbindings.Configuration,
-	registry *commandcatalog.Registry,
-	identity string,
-	bindingIDs []string,
+	_ *commandbindings.Configuration,
+	_ *commandcatalog.Registry,
+	_ string,
+	_ []string,
 	conditions []LocalCommandPaletteCondition,
 	arguments []byte,
 	active *workspace.Workspace,
@@ -80,27 +80,6 @@ func applyWorkspaceTabDeckVisualForPage(
 	if len(targets) == 0 {
 		return base, variants
 	}
-	if len(bindingIDs) == 0 && commandID == "" {
-		seen := make(map[string]bool)
-		observe := func(definition commandcatalog.Definition) bool {
-			return commandDeckLocalUIEligible(definition) || commandDeckContextualUIEligible(definition)
-		}
-		consume := func(result commandbindings.Result) {
-			if isWorkspaceTabDeckVisualCommand(result.CommandID) {
-				for _, id := range result.BindingIDs {
-					if !seen[id] {
-						seen[id] = true
-						bindingIDs = append(bindingIDs, id)
-					}
-				}
-			}
-		}
-		if appPage == "" {
-			deckUIConditionsObservedWithoutPage(configuration, registry, identity, observe, consume)
-		} else {
-			deckUIConditionsObservedForPage(configuration, registry, identity, observe, appPage, consume)
-		}
-	}
 	target := targets[0]
 	for _, candidate := range targets {
 		if candidate.state == workspaceTabDeckTargetUnavailable {
@@ -121,40 +100,36 @@ func applyWorkspaceTabDeckVisualForPage(
 	}
 	preserveCombinedTitle := commandID == "" && hasNonTabWorkspaceTabDeckVisualCommand(conditions, appPage)
 
-	apply := func(visual commandDeckVisual, state string) commandDeckVisual {
-		customTitle := hasCustomDeckTitle(configuration, bindingIDs, state, locale)
-		if !customTitle {
-			switch target.state {
-			case workspaceTabDeckTargetReady:
-				if preserveCombinedTitle {
-					visual.title = deckVisualSuffix(visual.title, target.title)
-				} else {
-					visual.title = target.title
-				}
-			case workspaceTabDeckTargetUnavailable:
-				if preserveCombinedTitle {
-					visual.title = deckVisualSuffix(visual.title, workspaceTabDeckText(locale, "unavailable"))
-				} else {
-					visual.title = workspaceTabDeckText(locale, "unavailable")
-				}
-			case workspaceTabDeckTargetAmbiguous:
-				if preserveCombinedTitle {
-					visual.title = deckVisualSuffix(visual.title, target.title)
-				} else {
-					visual.title = target.title
-				}
+	apply := func(visual commandDeckVisual) commandDeckVisual {
+		switch target.state {
+		case workspaceTabDeckTargetReady:
+			if preserveCombinedTitle {
+				visual.title = deckVisualSuffix(visual.title, target.title)
+			} else {
+				visual.title = target.title
 			}
-		} else if target.state == workspaceTabDeckTargetUnavailable || target.state == workspaceTabDeckTargetAmbiguous {
-			visual.title = deckVisualSuffix(visual.title, target.title)
-		}
-		if target.state == workspaceTabDeckTargetReady && !hasCustomDeckIcon(configuration, bindingIDs, state) {
-			visual.icon = target.icon
+			if !preserveCombinedTitle {
+				visual.icon = target.icon
+				visual.imageRef = ""
+			} else if visual.icon == "" {
+				visual.icon = target.icon
+			}
+		case workspaceTabDeckTargetUnavailable, workspaceTabDeckTargetAmbiguous:
+			if preserveCombinedTitle {
+				visual.title = deckVisualSuffix(visual.title, target.title)
+			} else {
+				visual.title = target.title
+			}
+			if !preserveCombinedTitle {
+				visual.icon = ""
+				visual.imageRef = ""
+			}
 		}
 		return visual
 	}
-	base = apply(base, "")
+	base = apply(base)
 	for state, visual := range variants {
-		variants[state] = apply(visual, state)
+		variants[state] = apply(visual)
 	}
 	return base, variants
 }
@@ -360,25 +335,4 @@ func deckVisualSuffix(title, marker string) string {
 		return marker
 	}
 	return fmt.Sprintf("%s — %s", title, marker)
-}
-
-func hasCustomDeckTitle(configuration *commandbindings.Configuration, ids []string, state, locale string) bool {
-	if configuration == nil || len(ids) == 0 {
-		return false
-	}
-	if state != "" {
-		return strings.TrimSpace(configuration.PresentationForState(ids, state).TitleByLocale[locale]) != ""
-	}
-	title, ok := configuration.TitleForBindings(ids, locale)
-	return ok && strings.TrimSpace(title) != ""
-}
-
-func hasCustomDeckIcon(configuration *commandbindings.Configuration, ids []string, state string) bool {
-	if configuration == nil || len(ids) == 0 {
-		return false
-	}
-	if state != "" {
-		return strings.TrimSpace(configuration.PresentationForState(ids, state).Icon) != ""
-	}
-	return strings.TrimSpace(configuration.IconForBindings(ids)) != ""
 }

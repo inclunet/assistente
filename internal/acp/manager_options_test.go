@@ -10,18 +10,18 @@ import (
 // gancho que o transporte usaria para contar uma mudança. O gancho é o que a
 // própria configuração leva ao transporte: pegá-lo daqui é o que faz o teste
 // passar pelo caminho real em vez de chamar o método interno na mão.
-func managerComAvisos(t *testing.T, client *fakeManagedClient) (*Manager, func() []SessionOptionsEvent, func(string, []ConfigOption)) {
+func managerComAvisos(t *testing.T, client *fakeManagedClient) (*Manager, func() []SessionOptionsEvent, func(string, []ConfigOption, ...bool)) {
 	t.Helper()
 	return managerComAvisosSobre(t, newMemoryStore(), client)
 }
 
 // managerComAvisosSobre é o mesmo com um registro de sessões preparado pelo
 // teste, para exercitar a conversa que reabre em vez da que nasce agora.
-func managerComAvisosSobre(t *testing.T, store SessionStore, client *fakeManagedClient) (*Manager, func() []SessionOptionsEvent, func(string, []ConfigOption)) {
+func managerComAvisosSobre(t *testing.T, store SessionStore, client *fakeManagedClient) (*Manager, func() []SessionOptionsEvent, func(string, []ConfigOption, ...bool)) {
 	t.Helper()
 
 	var eventos []SessionOptionsEvent
-	var doTransporte func(string, []ConfigOption)
+	var doTransporte func(string, []ConfigOption, bool)
 
 	m := NewManager(ManagerConfig{
 		Store:   store,
@@ -36,11 +36,15 @@ func managerComAvisosSobre(t *testing.T, store SessionStore, client *fakeManaged
 	})
 	t.Cleanup(m.Shutdown)
 
-	avisar := func(sessionID string, options []ConfigOption) {
+	avisar := func(sessionID string, options []ConfigOption, snapshot ...bool) {
 		if doTransporte == nil {
 			t.Fatal("o manager não passou ao transporte quem escuta as opções da sessão")
 		}
-		doTransporte(sessionID, options)
+		isSnapshot := true
+		if len(snapshot) > 0 {
+			isSnapshot = snapshot[0]
+		}
+		doTransporte(sessionID, options, isSnapshot)
 	}
 	return m, func() []SessionOptionsEvent { return eventos }, avisar
 }

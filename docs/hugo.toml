@@ -1,4 +1,4 @@
-baseURL = 'https://inclunet.github.io/assistente/'
+baseURL = 'https://assistente.inclunet.com.br/'
 languageCode = 'pt-BR'
 defaultContentLanguage = 'pt-br'
 title = 'Assistente'

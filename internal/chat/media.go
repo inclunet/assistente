@@ -144,6 +144,9 @@ func (l *MediaHistoryLoader) format(ctx context.Context, dbMessages []Message, e
 			var mediaParts []map[string]interface{}
 			if err := json.Unmarshal([]byte(m.Media), &mediaParts); err == nil {
 				msg.Content = l.convertMediaParts(ctx, mediaParts, m.Content)
+				if m.Role == "user" && strings.TrimSpace(m.Content) != "" {
+					msg.ACPOriginalAudio = originalAudioForACP(mediaParts)
+				}
 			} else {
 				msg.Content = m.Content
 			}
@@ -155,6 +158,23 @@ func (l *MediaHistoryLoader) format(ctx context.Context, dbMessages []Message, e
 	}
 
 	return messages, existingSummary, nil
+}
+
+func originalAudioForACP(mediaParts []map[string]interface{}) []llm.InputAudio {
+	var audio []llm.InputAudio
+	for _, part := range mediaParts {
+		mediaType, _ := part["type"].(string)
+		data, _ := part["data"].(string)
+		if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(mediaType)), "audio/") || strings.TrimSpace(data) == "" {
+			continue
+		}
+		format := strings.TrimPrefix(NormalizeAudioMIME(mediaType), "audio/")
+		if format == "" {
+			continue
+		}
+		audio = append(audio, llm.InputAudio{Data: data, Format: format})
+	}
+	return audio
 }
 
 // convertMediaParts converte os mediaParts do banco para o formato multimodal do LLM.

@@ -138,21 +138,28 @@ func (s *Service) CreateTTSClientWithLanguage(ctx context.Context, providerID st
 
 // SpeakMessage retorna o áudio de uma mensagem, usando cache do DB se disponível.
 // `language` é o idioma do perfil que pediu a fala (vazio → perfil ativo) e
-// define o idioma dos rótulos falados, como o marcador de bloco de código.
+// define o idioma dos rótulos falados, como o marcador de bloco de código e
+// diagnósticos estruturados de erro.
 func (s *Service) SpeakMessage(ctx context.Context, messageID string, providerID string, model string, voiceID string, rate float64, language string) (*AudioResult, error) {
-	// 1. Checa cache no DB. O cache é por mensagem e, por decisão anterior a
+	// 1. Busca o conteúdo primeiro para reconhecer diagnósticos históricos.
+	// Áudio desses marcadores não é reutilizado: pode conter o texto técnico
+	// antigo ou estar em outro idioma.
+	content, role, contentErr := s.audioRepo.GetMessageContent(ctx, messageID)
+	isDiagnostic := contentErr == nil && isBackendErrorDiagnostic(role, content)
+
+	// 2. Checa cache no DB para mensagens comuns. O cache é por mensagem e, por decisão anterior a
 	// este parâmetro, ignora provider, voz, rate e idioma: existe um único
 	// áudio por mensagem. Trocar de perfil não regera o áudio já persistido —
 	// para isso o áudio da mensagem precisa ser invalidado.
-	audio, mime, err := s.audioRepo.GetMessageAudio(ctx, messageID)
-	if err == nil && audio != "" {
-		return &AudioResult{Audio: audio, MimeType: mime, Cached: true}, nil
+	if !isDiagnostic {
+		audio, mime, err := s.audioRepo.GetMessageAudio(ctx, messageID)
+		if err == nil && audio != "" {
+			return &AudioResult{Audio: audio, MimeType: mime, Cached: true}, nil
+		}
 	}
 
-	// 2. Busca o conteúdo textual da mensagem
-	content, err := s.audioRepo.GetMessageContent(ctx, messageID)
-	if err != nil {
-		return nil, fmt.Errorf("mensagem %s não encontrada: %w", messageID, err)
+	if contentErr != nil {
+		return nil, fmt.Errorf("mensagem %s não encontrada: %w", messageID, contentErr)
 	}
 	if strings.TrimSpace(content) == "" {
 		return nil, fmt.Errorf("mensagem %s sem conteúdo textual", messageID)
@@ -160,6 +167,9 @@ func (s *Service) SpeakMessage(ctx context.Context, messageID string, providerID
 
 	if strings.TrimSpace(language) == "" {
 		language = s.activeProfileLanguage()
+	}
+	if isDiagnostic {
+		content = translateBackendErrorForSpeech(content, language)
 	}
 	rawContent := content
 	content = textutil.StripMarkdownForSpeechLabeled(content, textutil.CodeBlockSpeechLabel(language))
@@ -177,7 +187,11 @@ func (s *Service) SpeakMessage(ctx context.Context, messageID string, providerID
 		return nil, fmt.Errorf("TTS for message %s: %w", messageID, err)
 	}
 
-	// 4. Persiste no DB
+	// 4. Persiste apenas mensagens comuns. O cache por mensagem não diferencia
+	// idioma e não deve guardar fala localizada de diagnóstico.
+	if isDiagnostic {
+		return &AudioResult{Audio: base64.StdEncoding.EncodeToString(audioData), MimeType: mimeType, Cached: false}, nil
+	}
 	audioBase64 := base64.StdEncoding.EncodeToString(audioData)
 	cached := true
 	if saveErr := s.audioRepo.SaveMessageAudio(ctx, messageID, audioBase64, mimeType); saveErr != nil {

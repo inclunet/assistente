@@ -6,6 +6,7 @@ import (
 	"assistente/internal/chat"
 	"assistente/internal/core/ports"
 	"assistente/internal/core/usecases"
+	"assistente/internal/database"
 	"assistente/internal/llm"
 	"assistente/internal/logging"
 	mcpmgr "assistente/internal/mcp"
@@ -21,19 +22,20 @@ import (
 
 // ChatControllerConfig agrupa todas as dependências do ChatController.
 type ChatControllerConfig struct {
-	Emitter          ports.Emitter
-	ChatInteractor   *chat.Interactor
-	ToolRegistry     *tools.Registry
-	ProviderSvc      *providers.Service
-	MCPMgr           *mcpmgr.Manager
-	AgentSvc         *agent.Service
-	StreamMgr        *chat.StreamingManager
-	SpeechSvc        *speech.Service
-	ConvRepo         chat.ConversationRepository
-	MsgGateway       *messaging.Gateway
-	ResponseNotifier *messaging.ResponseNotifier
-	OnSpeechRequest  func(conversationID string, messageID string, role, text, origin, profileSlug string, interrupt bool)
-	OpenEditorPaths  func() []string
+	Emitter           ports.Emitter
+	ChatInteractor    *chat.Interactor
+	ToolRegistry      *tools.Registry
+	ProviderSvc       *providers.Service
+	ModelCapabilities *database.LLMModelCapabilitiesRepository
+	MCPMgr            *mcpmgr.Manager
+	AgentSvc          *agent.Service
+	StreamMgr         *chat.StreamingManager
+	SpeechSvc         *speech.Service
+	ConvRepo          chat.ConversationRepository
+	MsgGateway        *messaging.Gateway
+	ResponseNotifier  *messaging.ResponseNotifier
+	OnSpeechRequest   func(conversationID string, messageID string, role, text, origin, profileSlug string, interrupt bool)
+	OpenEditorPaths   func() []string
 }
 
 type sendMessageExecutor interface {
@@ -63,17 +65,18 @@ func NewChatController(cfg ChatControllerConfig) *ChatController {
 		responseNotifier: cfg.ResponseNotifier,
 		loadedToolStore:  loadedToolStore,
 		sendMsgUC: usecases.NewSendMessageUseCase(usecases.SendMessageConfig{
-			ChatInteractor:  cfg.ChatInteractor,
-			ToolRegistry:    cfg.ToolRegistry,
-			LoadedToolStore: loadedToolStore,
-			ProviderSvc:     cfg.ProviderSvc,
-			MCPMgr:          cfg.MCPMgr,
-			AgentSvc:        cfg.AgentSvc,
-			StreamMgr:       cfg.StreamMgr,
-			SpeechSvc:       cfg.SpeechSvc,
-			Emitter:         cfg.Emitter,
-			OnSpeechRequest: cfg.OnSpeechRequest,
-			OpenEditorPaths: cfg.OpenEditorPaths,
+			ChatInteractor:    cfg.ChatInteractor,
+			ToolRegistry:      cfg.ToolRegistry,
+			LoadedToolStore:   loadedToolStore,
+			ProviderSvc:       cfg.ProviderSvc,
+			ModelCapabilities: cfg.ModelCapabilities,
+			MCPMgr:            cfg.MCPMgr,
+			AgentSvc:          cfg.AgentSvc,
+			StreamMgr:         cfg.StreamMgr,
+			SpeechSvc:         cfg.SpeechSvc,
+			Emitter:           cfg.Emitter,
+			OnSpeechRequest:   cfg.OnSpeechRequest,
+			OpenEditorPaths:   cfg.OpenEditorPaths,
 		}),
 	}
 }
