@@ -3,3 +3,4 @@ disable_auto_feedback = true
 
 [pr_reviewer]
 inline_key_issues = true
+num_max_findings = 30
