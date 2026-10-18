@@ -1,0 +1,48 @@
+name: Revisão assistida por IA
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-review-${{ github.event.issue.number }}
+  cancel-in-progress: false
+  queue: max
+
+jobs:
+  review:
+    if: >-
+      github.event.issue.pull_request &&
+      github.event.sender.type != 'Bot' &&
+      github.event.comment.body == '/review' &&
+      (github.event.comment.author_association == 'OWNER' ||
+       github.event.comment.author_association == 'MEMBER' ||
+       github.event.comment.author_association == 'COLLABORATOR')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Revisar o pull request com PR-Agent
+        uses: docker://pragent/pr-agent:0.48.0-github_action
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DEEPSEEK__KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          DEEPSEEK__API_BASE: https://api.deepseek.com
+          config.model: deepseek/deepseek-v4-flash
+          pr_reviewer.inline_key_issues: "true"
+          config.response_language: pt-BR
+          config.max_model_tokens: "32000"
+          config.max_output_tokens: "8192"
+          config.output_run_details: "true"
+          config.output_run_cost: "true"
+          config.propagate_tool_errors: "true"
+          GITHUB_ACTION_CONFIG__FAIL_ON_TOOL_ERRORS: "true"
+          github_action_config.auto_review: "false"
+          github_action_config.auto_describe: "false"
+          github_action_config.auto_improve: "false"
