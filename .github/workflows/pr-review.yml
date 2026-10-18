@@ -40,7 +40,7 @@ jobs:
           config.response_language: pt-BR
           config.max_model_tokens: "128000"
           config.max_output_tokens: "32768"
-          config.reasoning_effort: low
+          config.reasoning_effort: none
           config.output_run_details: "true"
           config.output_run_cost: "true"
           config.propagate_tool_errors: "true"
