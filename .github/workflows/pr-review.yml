@@ -37,6 +37,7 @@ jobs:
           config.model: deepseek/deepseek-v4-flash
           config.fallback_models: '[]'
           pr_reviewer.inline_key_issues: "true"
+          pr_reviewer.num_max_findings: "30"
           config.response_language: pt-BR
           config.max_model_tokens: "128000"
           config.max_output_tokens: "32768"
