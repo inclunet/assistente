@@ -67,7 +67,8 @@ e salve-a no repositório como o segredo `DEEPSEEK_API_KEY`, em
 **Settings → Secrets and variables → Actions**. O `GITHUB_TOKEN` é fornecido
 automaticamente pelo Actions com permissão para comentar no PR.
 
-Cada comentário de revisão inclui modelo, tokens, chamadas e custo estimado. A
+O resumo de cada revisão pode incluir modelo, tokens, chamadas e custo estimado
+quando esses dados estão disponíveis. A
 estimativa do PR-Agent usa a tabela de preços do LiteLLM e pode divergir da
 cobrança, pois a DeepSeek aplica tarifas diferentes por horário e cache. Para
 acompanhar o valor efetivamente cobrado, confira o uso na plataforma da DeepSeek
