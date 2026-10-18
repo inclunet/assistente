@@ -50,3 +50,30 @@ O workflow em `.github/workflows/ci.yml` roda em todo PR:
 - **Vitest** (incluindo testes `axe-core` de acessibilidade)
 
 Se qualquer step falhar, o PR não pode ser mergeado.
+
+## Revisão assistida por IA
+
+Uma revisão sob demanda pode ser iniciada comentando exatamente `/review` em um
+pull request. O PR-Agent publica um resumo e comentários inline para problemas
+que conseguir ancorar no diff. A automação só aceita comentários de membros,
+colaboradores e donos do repositório; ela não revisa automaticamente ao abrir o
+PR nem a cada push.
+
+O modelo é o DeepSeek V4.1 Flash pela API oficial (`https://api.deepseek.com`).
+O identificador `deepseek-v4-flash` usado pelo PR-Agent/LiteLLM é o alias de
+compatibilidade que a DeepSeek atualmente direciona ao modelo `deepseek-flash`.
+Para habilitar o fluxo, crie uma chave na [plataforma da DeepSeek](https://platform.deepseek.com/)
+e salve-a no repositório como o segredo `DEEPSEEK_API_KEY`, em
+**Settings → Secrets and variables → Actions**. O `GITHUB_TOKEN` é fornecido
+automaticamente pelo Actions com permissão para comentar no PR.
+
+O resumo de cada revisão pode incluir modelo, tokens, chamadas e custo estimado
+quando esses dados estão disponíveis. A
+estimativa do PR-Agent usa a tabela de preços do LiteLLM e pode divergir da
+cobrança, pois a DeepSeek aplica tarifas diferentes por horário e cache. Para
+acompanhar o valor efetivamente cobrado, confira o uso na plataforma da DeepSeek
+e a [tabela oficial de preços](https://api-docs.deepseek.com/quick_start/pricing/).
+Os limites de contexto e saída configurados no workflow mantêm cada execução
+contida; novas execuções continuam dependendo de um novo `/review` manual. Não
+há teto agregado de gastos nem limite de frequência: cada execução adicional
+pode gerar custo.
