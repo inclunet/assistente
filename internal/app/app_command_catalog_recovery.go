@@ -150,9 +150,9 @@ func (a *App) runCommandCatalogRecovery(ctx context.Context, ticket *commandCata
 		if refreshPending {
 			if a.jobMgr != nil {
 				if err := a.jobMgr.RegenerateCatalog(); err != nil {
-					logging.Errorf(context.Background(), "app.app-mcp", "[Jobs] Catalog regeneration failed (error_class=%s)", commandLoadErrorClass(err))
+					logging.Errorf(context.Background(), "app.app-mcp", "Catalog regeneration failed (error_class=%s)", commandLoadErrorClass(err))
 				} else {
-					logging.Infof(context.Background(), "app.app-mcp", "[Jobs] Catalog regenerated after MCP tools change")
+					logging.Infof(context.Background(), "app.app-mcp", "Catalog regenerated after MCP tools change")
 				}
 			}
 			refreshPending = false
@@ -226,7 +226,7 @@ func (a *App) runCommandCatalogRecovery(ctx context.Context, ticket *commandCata
 			refreshPending = true
 			continue
 		}
-		logging.Warnf(context.Background(), "app.app-mcp", "[Commands] Catalog refresh deferred (error_class=%s)", commandLoadErrorClass(err))
+		logging.Warnf(context.Background(), "app.app-mcp", "Catalog refresh deferred (error_class=%s)", commandLoadErrorClass(err))
 		wait := time.NewTimer(commandCatalogRecoveryBackoff(attempt))
 		authCheck := time.NewTicker(time.Second)
 		attempt++
