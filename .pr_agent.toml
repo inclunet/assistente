@@ -1,0 +1,5 @@
+[config]
+disable_auto_feedback = true
+
+[pr_reviewer]
+inline_key_issues = true
