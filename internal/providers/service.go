@@ -151,6 +151,21 @@ func (s *Service) Load(ctx context.Context) error {
 			logging.Infof(ctx, "providers.service", "[providers] api_format de '%s' materializado como %q", p.Name, inferred)
 		}
 		if err := s.registry.Register(p); err != nil {
+			if errors.Is(err, llm.ErrInsecureHTTPAuthorizationRequired) {
+				if pendingErr := s.registry.RegisterPendingAuthorization(p); pendingErr == nil {
+					logging.Warnf(ctx, "providers.service", "[providers] Provedor '%s' carregado aguardando aceite explícito para HTTP remoto", p.ID)
+					continue
+				} else {
+					logging.Errorf(ctx, "providers.service", "[providers] Erro ao preservar provedor '%s' para reautorização: %v", p.ID, pendingErr)
+				}
+			} else if errors.Is(err, llm.ErrInvalidProviderBaseURL) {
+				if pendingErr := s.registry.RegisterPendingInvalidBaseURL(p); pendingErr == nil {
+					logging.Warnf(ctx, "providers.service", "[providers] Provedor '%s' carregado aguardando correção da URL", p.ID)
+					continue
+				} else {
+					logging.Errorf(ctx, "providers.service", "[providers] Erro ao preservar provedor '%s' para correção da URL: %v", p.ID, pendingErr)
+				}
+			}
 			logging.Errorf(ctx, "providers.service", "[providers] Erro ao registrar provedor '%s': %v", p.ID, err)
 		}
 	}
@@ -203,18 +218,19 @@ func (s *Service) EnsureDefault(ctx context.Context) {
 
 // CreateRequest contém os dados para criar um provedor.
 type CreateRequest struct {
-	CredentialFromProviderID string
-	Credential               *CredentialSpec
-	AuthMode                 string
-	ID                       string
-	Name                     string
-	Type                     string
-	APIFormat                string
-	ServerProfileID          string
-	BaseURL                  string
-	APIKey                   string
-	DefaultModel             string
-	ReasoningContentMode     string
+	CredentialFromProviderID  string
+	Credential                *CredentialSpec
+	AuthMode                  string
+	ID                        string
+	Name                      string
+	Type                      string
+	APIFormat                 string
+	ServerProfileID           string
+	InsecureHTTPAuthorizedURL string
+	BaseURL                   string
+	APIKey                    string
+	DefaultModel              string
+	ReasoningContentMode      string
 	// ACPCommand, ACPArgs e ACPEnv valem quando APIFormat é acp: é assim que
 	// o agente de código é endereçado, no lugar de BaseURL e APIKey.
 	ACPCommand string
@@ -404,22 +420,23 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*CreateResult,
 
 	isFirst := len(s.registry.List()) == 0
 	provider := &llm.ProviderConfig{
-		ID:                   req.ID,
-		Name:                 req.Name,
-		Type:                 llm.ProviderType(req.Type),
-		APIFormat:            apiFormat,
-		ServerProfileID:      strings.TrimSpace(req.ServerProfileID),
-		BaseURL:              baseURL,
-		DefaultModel:         req.DefaultModel,
-		ReasoningContentMode: llm.ReasoningContentMode(strings.TrimSpace(req.ReasoningContentMode)),
-		IsDefault:            isFirst,
-		Timeout:              180,
-		CredentialPattern:    hostname,
-		ACPCommand:           req.ACPCommand,
-		ACPArgs:              append([]string(nil), req.ACPArgs...),
-		ACPEnv:               copyStringMap(req.ACPEnv),
-		ACPCredentialEnv:     copyStringMap(req.ACPCredentialEnv),
-		ACPAgentID:           strings.TrimSpace(req.ACPAgentID),
+		ID:                        req.ID,
+		Name:                      req.Name,
+		Type:                      llm.ProviderType(req.Type),
+		APIFormat:                 apiFormat,
+		ServerProfileID:           strings.TrimSpace(req.ServerProfileID),
+		InsecureHTTPAuthorizedURL: strings.TrimSpace(req.InsecureHTTPAuthorizedURL),
+		BaseURL:                   baseURL,
+		DefaultModel:              req.DefaultModel,
+		ReasoningContentMode:      llm.ReasoningContentMode(strings.TrimSpace(req.ReasoningContentMode)),
+		IsDefault:                 isFirst,
+		Timeout:                   180,
+		CredentialPattern:         hostname,
+		ACPCommand:                req.ACPCommand,
+		ACPArgs:                   append([]string(nil), req.ACPArgs...),
+		ACPEnv:                    copyStringMap(req.ACPEnv),
+		ACPCredentialEnv:          copyStringMap(req.ACPCredentialEnv),
+		ACPAgentID:                strings.TrimSpace(req.ACPAgentID),
 	}
 	provider.AuthMode = llm.AuthMode(req.AuthMode)
 	normalizeProviderRuntimeDefaults(provider)
@@ -464,16 +481,17 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*CreateResult,
 
 // UpdateRequest contém os campos opcionais para atualizar um provedor.
 type UpdateRequest struct {
-	Credential           *CredentialSpec
-	AuthMode             string
-	Name                 string
-	Type                 string
-	APIFormat            string
-	ServerProfileID      *string
-	BaseURL              string
-	APIKey               string
-	DefaultModel         string
-	ReasoningContentMode string
+	Credential                *CredentialSpec
+	AuthMode                  string
+	Name                      string
+	Type                      string
+	APIFormat                 string
+	ServerProfileID           *string
+	InsecureHTTPAuthorizedURL *string
+	BaseURL                   string
+	APIKey                    string
+	DefaultModel              string
+	ReasoningContentMode      string
 	// ACPCommand segue a convenção dos demais: vazio é "não mexer".
 	ACPCommand string
 	// ACPArgs e ACPEnv são ponteiros porque, aqui, lista vazia é uma escolha
@@ -532,26 +550,27 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Up
 	}
 
 	updated := &llm.ProviderConfig{
-		ID:                       existing.ID,
-		Name:                     existing.Name,
-		Type:                     existing.Type,
-		ErrorFamily:              existing.ErrorFamily,
-		ServerProfileID:          existing.ServerProfileID,
-		APIFormat:                existing.APIFormat,
-		BaseURL:                  existing.BaseURL,
-		Model:                    existing.Model,
-		DefaultModel:             existing.DefaultModel,
-		IsDefault:                existing.IsDefault,
-		Timeout:                  existing.Timeout,
-		StreamIdleTimeoutSeconds: existing.StreamIdleTimeoutSeconds,
-		CredentialPattern:        existing.CredentialPattern,
-		AuthMode:                 existing.AuthMode,
-		ReasoningContentMode:     existing.ReasoningContentMode,
-		ACPCommand:               existing.ACPCommand,
-		ACPArgs:                  append([]string(nil), existing.ACPArgs...),
-		ACPEnv:                   copyStringMap(existing.ACPEnv),
-		ACPCredentialEnv:         copyStringMap(existing.ACPCredentialEnv),
-		ACPAgentID:               existing.ACPAgentID,
+		ID:                        existing.ID,
+		Name:                      existing.Name,
+		Type:                      existing.Type,
+		ErrorFamily:               existing.ErrorFamily,
+		ServerProfileID:           existing.ServerProfileID,
+		InsecureHTTPAuthorizedURL: existing.InsecureHTTPAuthorizedURL,
+		APIFormat:                 existing.APIFormat,
+		BaseURL:                   existing.BaseURL,
+		Model:                     existing.Model,
+		DefaultModel:              existing.DefaultModel,
+		IsDefault:                 existing.IsDefault,
+		Timeout:                   existing.Timeout,
+		StreamIdleTimeoutSeconds:  existing.StreamIdleTimeoutSeconds,
+		CredentialPattern:         existing.CredentialPattern,
+		AuthMode:                  existing.AuthMode,
+		ReasoningContentMode:      existing.ReasoningContentMode,
+		ACPCommand:                existing.ACPCommand,
+		ACPArgs:                   append([]string(nil), existing.ACPArgs...),
+		ACPEnv:                    copyStringMap(existing.ACPEnv),
+		ACPCredentialEnv:          copyStringMap(existing.ACPCredentialEnv),
+		ACPAgentID:                existing.ACPAgentID,
 	}
 
 	if req.Name != "" {
@@ -580,9 +599,15 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Up
 			return nil, fmt.Errorf("erro ao extrair hostname: %w", err)
 		}
 		updated.BaseURL = baseURL
+		if updated.InsecureHTTPAuthorizedURL != baseURL {
+			updated.InsecureHTTPAuthorizedURL = ""
+		}
 		if existing.CredentialPattern == "" || !sameCredentialOrigin(baseURL, existing.BaseURL) {
 			updated.CredentialPattern = hostname
 		}
+	}
+	if req.InsecureHTTPAuthorizedURL != nil {
+		updated.InsecureHTTPAuthorizedURL = strings.TrimSpace(*req.InsecureHTTPAuthorizedURL)
 	}
 	// Aparado uma vez e usado nas duas decisões — aplicar e recusar —, como no
 	// Create: um valor só de espaços não é edição, e não pode virar nem
@@ -895,7 +920,7 @@ func (s *Service) TestConnection(ctx context.Context, req TestRequest) (bool, er
 	if parsed.Scheme != "http" && parsed.Scheme != "https" {
 		return false, fmt.Errorf("URL deve começar com http:// ou https://")
 	}
-	if parsed.Host == "" {
+	if parsed.Host == "" || parsed.Hostname() == "" || parsed.User != nil {
 		return false, fmt.Errorf("URL deve conter um endereço de servidor válido")
 	}
 
@@ -941,6 +966,9 @@ func (s *Service) ListModels(ctx context.Context, req TestRequest) ([]string, er
 	}
 	if parsed.Scheme != "http" && parsed.Scheme != "https" {
 		return nil, fmt.Errorf("URL deve começar com http:// ou https://")
+	}
+	if parsed.Host == "" || parsed.Hostname() == "" || parsed.User != nil {
+		return nil, fmt.Errorf("URL deve conter um endereço de servidor válido")
 	}
 
 	modelsEndpoint := strings.TrimSuffix(req.BaseURL, "/") + "/models"
@@ -1009,6 +1037,9 @@ func (s *Service) GetChatProviderWithConfigSnapshot(ctx context.Context, provide
 	if provider == nil {
 		return nil, nil, fmt.Errorf("provedor LLM não encontrado: %s", providerID)
 	}
+	if err := provider.Validate(); err != nil {
+		return nil, nil, err
+	}
 	cm, _ := s.credMgr.(*credentials.Manager)
 	// Aplica rate limiting por usuário de forma central (Issue #27). Quando
 	// rateLimiter é nil, NewRateLimitedProvider devolve o provider inalterado.
@@ -1023,13 +1054,14 @@ func (s *Service) GetChatProviderWithConfigSnapshot(ctx context.Context, provide
 
 // ListModelsRawRequest contém os parâmetros para listagem de modelos via credenciais ad-hoc.
 type ListModelsRawRequest struct {
-	Credential *CredentialSpec
-	AuthMode   string
-	APIFormat  string
-	Type       string
-	BaseURL    string
-	APIKey     string // se vazio e ProviderID preenchido, busca credencial existente
-	ProviderID string // opcional; usado para recuperar credencial existente
+	Credential                *CredentialSpec
+	AuthMode                  string
+	APIFormat                 string
+	Type                      string
+	BaseURL                   string
+	APIKey                    string // se vazio e ProviderID preenchido, busca credencial existente
+	ProviderID                string // opcional; usado para recuperar credencial existente
+	InsecureHTTPAuthorizedURL string
 }
 
 // buildTempProviderForListModels monta o ProviderConfig efêmero usado em
@@ -1077,7 +1109,7 @@ func (s *Service) ListModelsRaw(ctx context.Context, req ListModelsRawRequest) (
 	if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
 		return nil, fmt.Errorf("URL deve começar com http:// ou https://")
 	}
-	if parsedURL.Host == "" {
+	if parsedURL.Host == "" || parsedURL.Hostname() == "" || parsedURL.User != nil {
 		return nil, fmt.Errorf("URL deve conter um endereço de servidor válido")
 	}
 
@@ -1090,6 +1122,10 @@ func (s *Service) ListModelsRaw(ctx context.Context, req ListModelsRawRequest) (
 
 	hostname := strings.ToLower(parsedURL.Hostname())
 	tempProvider := buildTempProviderForListModels(req, hostname, existingProvider)
+	if tempProvider.EffectiveAuthMode() != llm.AuthModeNone && llm.RequiresInsecureHTTPAuthorization(req.BaseURL) &&
+		req.InsecureHTTPAuthorizedURL != req.BaseURL {
+		return nil, fmt.Errorf("autorização explícita necessária para enviar credenciais por HTTP remoto")
+	}
 	if err := s.prepareCredential(ctx, tempProvider, existingProvider, req.Credential, req.APIKey != ""); err != nil {
 		return nil, err
 	}

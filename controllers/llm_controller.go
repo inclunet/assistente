@@ -91,14 +91,14 @@ func (c *LLMController) TestLLMProvider(ctx context.Context, req TestLLMProvider
 			retErr = fmt.Errorf("erro interno ao testar provider: %v", r)
 		}
 	}()
-	if req.Credential != nil || req.AuthMode != "" || req.APIFormat != "" {
+	if req.Credential != nil || req.AuthMode != "" || req.APIFormat != "" || llm.RequiresInsecureHTTPAuthorization(req.BaseURL) {
 		_, err := c.ListModelsRaw(ctx, req)
 		return err == nil, err
 	}
 	return c.providerSvc.TestConnection(ctx, providers.TestRequest{
-		BaseURL:    req.BaseURL,
-		APIKey:     req.APIKey,
-		ProviderID: req.ProviderID,
+		BaseURL:                   req.BaseURL,
+		APIKey:                    req.APIKey,
+		ProviderID:                req.ProviderID,
 	})
 }
 
@@ -119,6 +119,7 @@ func (c *LLMController) ListModelsRaw(ctx context.Context, req TestLLMProviderRe
 		BaseURL:    req.BaseURL,
 		APIKey:     req.APIKey,
 		ProviderID: req.ProviderID,
+		InsecureHTTPAuthorizedURL: req.InsecureHTTPAuthorizedURL,
 	})
 }
 
@@ -143,25 +144,26 @@ func providerToMap(p *llm.ProviderConfig, credentialPattern string, credentialCo
 	// evita vazar segredo para o frontend sem perder o runtime.
 	acpEnv := map[string]string{}
 	return map[string]interface{}{
-		"id":                     p.ID,
-		"name":                   p.Name,
-		"type":                   string(p.Type),
-		"server_profile_id":      p.ServerProfileID,
-		"api_format":             string(p.GetAPIFormat()),
-		"base_url":               p.BaseURL,
-		"model":                  p.Model,
-		"default_model":          p.DefaultModel,
-		"is_default":             p.IsDefault,
-		"timeout":                p.Timeout,
-		"credential_pattern":     credentialPattern,
-		"credential_configured":  credentialConfigured,
-		"auth_mode":              string(p.EffectiveAuthMode()),
-		"reasoning_content_mode": string(p.EffectiveReasoningContentMode()),
-		"acp_command":            p.ACPCommand,
-		"acp_args":               acpArgs,
-		"acp_env":                acpEnv,
-		"acp_agent_id":           p.ACPAgentID,
-		"acp_credential_env":     acpCredentialEnv,
+		"id":                           p.ID,
+		"name":                         p.Name,
+		"type":                         string(p.Type),
+		"server_profile_id":            p.ServerProfileID,
+		"insecure_http_authorized_url": p.InsecureHTTPAuthorizedURL,
+		"api_format":                   string(p.GetAPIFormat()),
+		"base_url":                     p.BaseURL,
+		"model":                        p.Model,
+		"default_model":                p.DefaultModel,
+		"is_default":                   p.IsDefault,
+		"timeout":                      p.Timeout,
+		"credential_pattern":           credentialPattern,
+		"credential_configured":        credentialConfigured,
+		"auth_mode":                    string(p.EffectiveAuthMode()),
+		"reasoning_content_mode":       string(p.EffectiveReasoningContentMode()),
+		"acp_command":                  p.ACPCommand,
+		"acp_args":                     acpArgs,
+		"acp_env":                      acpEnv,
+		"acp_agent_id":                 p.ACPAgentID,
+		"acp_credential_env":           acpCredentialEnv,
 	}
 }
 
@@ -173,18 +175,19 @@ func (c *LLMController) CreateLLMProvider(ctx context.Context, req CreateLLMProv
 	res, err := c.providerSvc.Create(ctx, providers.CreateRequest{
 		CredentialFromProviderID: req.CredentialFromProviderID,
 		Credential:               credential, AuthMode: req.AuthMode,
-		ID:                   req.ID,
-		Name:                 req.Name,
-		Type:                 req.Type,
-		APIFormat:            req.APIFormat,
-		ServerProfileID:      req.ServerProfileID,
-		BaseURL:              req.BaseURL,
-		APIKey:               req.APIKey,
-		DefaultModel:         req.DefaultModel,
-		ReasoningContentMode: req.ReasoningContentMode,
-		ACPCommand:           req.ACPCommand,
-		ACPArgs:              req.ACPArgs,
-		ACPAgentID:           req.ACPAgentID,
+		ID:                        req.ID,
+		Name:                      req.Name,
+		Type:                      req.Type,
+		APIFormat:                 req.APIFormat,
+		ServerProfileID:           req.ServerProfileID,
+		InsecureHTTPAuthorizedURL: req.InsecureHTTPAuthorizedURL,
+		BaseURL:                   req.BaseURL,
+		APIKey:                    req.APIKey,
+		DefaultModel:              req.DefaultModel,
+		ReasoningContentMode:      req.ReasoningContentMode,
+		ACPCommand:                req.ACPCommand,
+		ACPArgs:                   req.ACPArgs,
+		ACPAgentID:                req.ACPAgentID,
 
 		ACPCredentialEnv: req.ACPCredentialEnv,
 	})
@@ -201,17 +204,18 @@ func (c *LLMController) UpdateLLMProvider(ctx context.Context, id string, req Up
 	}
 	res, err := c.providerSvc.Update(ctx, id, providers.UpdateRequest{
 		Credential: credential, AuthMode: req.AuthMode,
-		Name:                 req.Name,
-		Type:                 req.Type,
-		APIFormat:            req.APIFormat,
-		ServerProfileID:      req.ServerProfileID,
-		BaseURL:              req.BaseURL,
-		APIKey:               req.APIKey,
-		DefaultModel:         req.DefaultModel,
-		ReasoningContentMode: req.ReasoningContentMode,
-		ACPCommand:           req.ACPCommand,
-		ACPArgs:              req.ACPArgs,
-		ACPAgentID:           req.ACPAgentID,
+		Name:                      req.Name,
+		Type:                      req.Type,
+		APIFormat:                 req.APIFormat,
+		ServerProfileID:           req.ServerProfileID,
+		InsecureHTTPAuthorizedURL: req.InsecureHTTPAuthorizedURL,
+		BaseURL:                   req.BaseURL,
+		APIKey:                    req.APIKey,
+		DefaultModel:              req.DefaultModel,
+		ReasoningContentMode:      req.ReasoningContentMode,
+		ACPCommand:                req.ACPCommand,
+		ACPArgs:                   req.ACPArgs,
+		ACPAgentID:                req.ACPAgentID,
 
 		ACPCredentialEnv: req.ACPCredentialEnv,
 	})

@@ -41,6 +41,67 @@ func TestProviderCredentialCommandHelper(t *testing.T) {
 	os.Exit(0)
 }
 
+func TestPrepareProbeAuthRequiresRemoteHTTPAuthorizationBeforeCredentialLookup(t *testing.T) {
+	t.Setenv("PROVIDER_CREDENTIAL_HELPER", "1")
+	dir := t.TempDir()
+	valueFile := filepath.Join(dir, "value")
+	callsFile := filepath.Join(dir, "calls")
+	t.Setenv("PROVIDER_COMMAND_VALUE_FILE", valueFile)
+	t.Setenv("PROVIDER_COMMAND_CALLS_FILE", callsFile)
+	if err := os.WriteFile(valueFile, []byte("secret"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider := &llm.ProviderConfig{
+		ID: "remote-http", Name: "Remote HTTP", Type: llm.ProviderOpenAI,
+		BaseURL: "http://gateway.example/v1", CredentialPattern: "gateway.example",
+	}
+	registry := llm.NewProviderRegistry()
+	if err := registry.RegisterPendingAuthorization(provider); err != nil {
+		t.Fatal(err)
+	}
+	manager := credentials.NewManager(nil)
+	if err := manager.RegisterPattern(provider.CredentialPattern, &credentials.AuthConfig{
+		Source: "command", Type: "bearer",
+		SourceConfig: &credentials.SourceConfig{Command: exe, Args: []string{"-test.run=^TestProviderCredentialCommandHelper$"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(ServiceConfig{Registry: registry, CredMgr: manager, Store: NewMemoryStore()})
+	fallbackService := NewService(ServiceConfig{
+		Registry: registry,
+		CredMgr:  struct{ CredentialManager }{CredentialManager: manager},
+		Store:    NewMemoryStore(),
+	})
+	for _, tc := range []struct {
+		name    string
+		service *Service
+		apiKey  string
+	}{
+		{name: "credencial por comando", service: service},
+		{name: "API key explícita", service: service, apiKey: "explicit-secret"},
+		{name: "credential manager alternativo", service: fallbackService},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			target, err := http.NewRequest(http.MethodGet, provider.BaseURL+"/models", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			req := TestRequest{BaseURL: provider.BaseURL, ProviderID: provider.ID, APIKey: tc.apiKey}
+			err = tc.service.prepareProbeAuth(context.Background(), req, target, &http.Client{})
+			if err == nil || !strings.Contains(err.Error(), "autorização explícita necessária") {
+				t.Fatalf("esperava bloqueio por falta de aceite HTTP remoto, erro = %v", err)
+			}
+		})
+	}
+	if _, err := os.Stat(callsFile); !os.IsNotExist(err) {
+		t.Fatalf("credencial foi resolvida antes do aceite: stat(calls) = %v", err)
+	}
+}
+
 func TestProviderProbesUseSourcesAndPreserveCredentials(t *testing.T) {
 	t.Setenv("PROVIDER_CREDENTIAL_HELPER", "1")
 	t.Setenv("PROVIDER_SOURCE_TOKEN", "source-token")

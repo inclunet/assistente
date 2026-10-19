@@ -526,6 +526,9 @@ func TestProviderCredentialDefaultPortsPreserveAlias(t *testing.T) {
 			port = "443"
 		}
 		p := &llm.ProviderConfig{ID: id, Name: id, Type: llm.ProviderCustom, APIFormat: llm.APIFormatOpenAI, BaseURL: scheme + "://example.com/v1", CredentialPattern: "alias-" + id, AuthMode: llm.AuthModeRequired}
+		if scheme == "http" {
+			p.InsecureHTTPAuthorizedURL = p.BaseURL
+		}
 		if err := service.store.Save(ctx, []*llm.ProviderConfig{p}); err != nil {
 			t.Fatal(err)
 		}
@@ -537,12 +540,16 @@ func TestProviderCredentialDefaultPortsPreserveAlias(t *testing.T) {
 		}
 		target := scheme + "://example.com:" + port + "/v1"
 		if scheme == "http" {
-			models, err := service.ListModelsRaw(ctx, ListModelsRawRequest{ProviderID: id, Type: "custom", BaseURL: target})
+			models, err := service.ListModelsRaw(ctx, ListModelsRawRequest{ProviderID: id, Type: "custom", BaseURL: target, InsecureHTTPAuthorizedURL: target})
 			if err != nil || len(models) != 1 {
 				t.Fatalf("preview: %v %v", models, err)
 			}
 		}
-		got, err := service.Update(ctx, id, UpdateRequest{BaseURL: target, Credential: &CredentialSpec{Pattern: p.CredentialPattern, Auth: &credentials.AuthConfig{Source: "static", Type: "bearer", Token: "alias-token"}}})
+		update := UpdateRequest{BaseURL: target, Credential: &CredentialSpec{Pattern: p.CredentialPattern, Auth: &credentials.AuthConfig{Source: "static", Type: "bearer", Token: "alias-token"}}}
+		if scheme == "http" {
+			update.InsecureHTTPAuthorizedURL = &target
+		}
+		got, err := service.Update(ctx, id, update)
 		if err != nil || got.Provider.CredentialPattern != p.CredentialPattern {
 			t.Fatalf("save: %v", err)
 		}

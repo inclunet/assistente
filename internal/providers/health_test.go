@@ -3,6 +3,7 @@ package providers
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -133,6 +134,42 @@ func TestCheckHealth_ProviderMissing(t *testing.T) {
 	}
 	if res.ErrorType != "provider_missing" {
 		t.Fatalf("ErrorType esperado provider_missing, got %q", res.ErrorType)
+	}
+}
+
+func TestCheckHealth_DoesNotProbeProviderPendingHTTPAuthorization(t *testing.T) {
+	requests := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests++
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+	original := http.DefaultTransport
+	transport := original.(*http.Transport).Clone()
+	transport.Proxy = nil
+	transport.DialContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
+		return (&net.Dialer{}).DialContext(ctx, network, srv.Listener.Addr().String())
+	}
+	http.DefaultTransport = transport
+	t.Cleanup(func() { http.DefaultTransport = original; transport.CloseIdleConnections() })
+
+	provider := &llm.ProviderConfig{
+		ID: "legacy-http", Name: "Legacy HTTP", Type: llm.ProviderOpenAI,
+		BaseURL: "http://gateway.example/v1", AuthMode: llm.AuthModeRequired,
+		CredentialPattern: "gateway.example",
+	}
+	registry := llm.NewProviderRegistry()
+	if err := registry.RegisterPendingAuthorization(provider); err != nil {
+		t.Fatal(err)
+	}
+	svc := NewService(ServiceConfig{Registry: registry, CredMgr: credentials.NewManager(nil)})
+
+	res := svc.CheckHealth(context.Background(), profileForProvider(provider.ID))
+	if res.ErrorType != "provider_invalid" || res.Error == "" {
+		t.Fatalf("esperava bloqueio por falta de aceite, got %+v", res)
+	}
+	if requests != 0 {
+		t.Fatalf("health enviou request antes do aceite: %d", requests)
 	}
 }
 

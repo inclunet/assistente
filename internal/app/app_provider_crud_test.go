@@ -184,10 +184,11 @@ func TestCreateLocalAIProviderUsesOptionalAuth(t *testing.T) {
 	app := newAppForTest(credMgr, llmRegistry)
 
 	resp, err := app.createLLMProvider(CreateLLMProviderRequest{
-		ID:      "localai-test",
-		Name:    "LocalAI Test",
-		Type:    "localai",
-		BaseURL: "http://inclunet:30090/v1",
+		ID:                        "localai-test",
+		Name:                      "LocalAI Test",
+		Type:                      "localai",
+		BaseURL:                   "http://inclunet:30090/v1",
+		InsecureHTTPAuthorizedURL: "http://inclunet:30090/v1",
 		// Simula configuração legada/importada que marcou LocalAI como Responses.
 		APIFormat: string(llm.APIFormatOpenAIResponses),
 	})

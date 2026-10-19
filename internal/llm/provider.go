@@ -1,12 +1,22 @@
 package llm
 
 import (
+	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"strings"
 
 	"assistente/internal/llmcompat"
 )
+
+// ErrInsecureHTTPAuthorizationRequired indica que uma conexão com credenciais
+// usa HTTP remoto sem aceite explícito para a URL exata.
+var ErrInsecureHTTPAuthorizationRequired = errors.New("autorização explícita necessária para HTTP remoto")
+
+// ErrInvalidProviderBaseURL identifica URLs antigas que precisam ser corrigidas
+// antes que a conexão possa ser usada.
+var ErrInvalidProviderBaseURL = errors.New("base_url inválida")
 
 // ProviderType representa o tipo de provedor LLM (label de marca).
 //
@@ -178,6 +188,10 @@ type ProviderConfig struct {
 	// público. Vazio significa configuração antiga ou personalizada; não é
 	// inferido a partir de tipo, URL ou modelo.
 	ServerProfileID string `json:"server_profile_id,omitempty"`
+	// InsecureHTTPAuthorizedURL registra o aceite explícito para enviar
+	// credenciais a uma URL HTTP remota. O valor precisa corresponder exatamente
+	// a BaseURL; por isso qualquer alteração invalida automaticamente o aceite.
+	InsecureHTTPAuthorizedURL string `json:"insecure_http_authorized_url,omitempty"`
 	// CompatibilityRevision identifica o snapshot da conexão carregado do banco.
 	// Requisições em andamento preservam esta revisão ao registrar evidências.
 	CompatibilityRevision int       `json:"-"`
@@ -380,6 +394,10 @@ func (p *ProviderConfig) GetAPIFormat() APIFormat {
 
 // Validate verifica se o ProviderConfig é válido
 func (p *ProviderConfig) Validate() error {
+	return p.validate(false, false)
+}
+
+func (p *ProviderConfig) validate(allowPendingHTTPAuthorization, allowInvalidBaseURL bool) error {
 	if p == nil {
 		return fmt.Errorf("provider config nil")
 	}
@@ -421,9 +439,39 @@ func (p *ProviderConfig) Validate() error {
 		return fmt.Errorf("provider %s tem configuração de agente mas api_format é %q; use %q", p.ID, p.GetAPIFormat(), APIFormatACP)
 	}
 	if p.BaseURL == "" {
-		return fmt.Errorf("provider base_url vazio")
+		if allowInvalidBaseURL {
+			return nil
+		}
+		return fmt.Errorf("provider base_url vazio: %w", ErrInvalidProviderBaseURL)
+	}
+	parsedURL, err := url.Parse(p.BaseURL)
+	if err != nil || (parsedURL.Scheme != "http" && parsedURL.Scheme != "https") || parsedURL.Host == "" || parsedURL.Hostname() == "" || parsedURL.User != nil {
+		if allowInvalidBaseURL {
+			return nil
+		}
+		return fmt.Errorf("provider %s: %w; informe uma URL absoluta http ou https sem usuário ou senha", p.ID, ErrInvalidProviderBaseURL)
+	}
+	if p.EffectiveAuthMode() != AuthModeNone && RequiresInsecureHTTPAuthorization(p.BaseURL) &&
+		p.InsecureHTTPAuthorizedURL != p.BaseURL && !allowPendingHTTPAuthorization {
+		return fmt.Errorf("provider %s: %w", p.ID, ErrInsecureHTTPAuthorizationRequired)
 	}
 	return nil
+}
+
+// RequiresInsecureHTTPAuthorization identifica HTTP fora de loopback. HTTP
+// local continua disponível para servidores locais; destinos remotos exigem
+// aceite explícito antes que qualquer credencial possa ser enviada.
+func RequiresInsecureHTTPAuthorization(rawURL string) bool {
+	parsed, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil || !strings.EqualFold(parsed.Scheme, "http") || parsed.Hostname() == "" {
+		return false
+	}
+	host := strings.TrimSuffix(strings.ToLower(parsed.Hostname()), ".")
+	if host == "localhost" || strings.HasSuffix(host, ".localhost") {
+		return false
+	}
+	ip := net.ParseIP(host)
+	return ip == nil || !ip.IsLoopback()
 }
 
 // validateCredentialEnv recusa par de variável e padrão do cofre que não dá

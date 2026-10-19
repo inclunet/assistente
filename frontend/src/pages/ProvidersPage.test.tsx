@@ -158,13 +158,14 @@ vi.mock('../components/settings/ProviderForm', () => ({
     onSave,
     onCancel,
   }: {
-    provider?: { acp_command?: string; acp_args?: string[] };
+    provider?: { acp_command?: string; acp_args?: string[]; insecure_http_authorized_url?: string };
     onSave: () => void;
     onCancel: () => void;
   }) => (
     <div>
       <span data-testid="form-acp-command">{provider?.acp_command ?? ''}</span>
       <span data-testid="form-acp-args">{JSON.stringify(provider?.acp_args ?? [])}</span>
+      <span data-testid="form-http-authorization">{provider?.insecure_http_authorized_url ?? ''}</span>
       <button type="button" onClick={onSave}>Salvar</button>
       <button type="button" onClick={onCancel}>Cancelar</button>
     </div>
@@ -332,6 +333,29 @@ describe('ProvidersPage', () => {
     await screen.findByText('API original');
     await user.click(screen.getAllByRole('button', { name: 'Duplicar' }).find(button => !button.hasAttribute('disabled'))!);
     await waitFor(() => expect(mockCreateProvider).toHaveBeenCalledWith(expect.objectContaining({ type, auth_mode, credential_from_provider_id: 'api' })));
+  });
+
+  it('preserva aceite HTTP remoto ao editar, mas não ao duplicar uma conexão', async () => {
+    const authorizedURL = 'http://gateway.example.com/v1';
+    mockGetProviders.mockResolvedValue([{
+      id: 'custom-api', name: 'Gateway', type: 'custom', api_format: 'openai', base_url: authorizedURL,
+      auth_mode: 'required', insecure_http_authorized_url: authorizedURL,
+      credential_required: true, credential_status: 'configured',
+    }]);
+    const user = userEvent.setup();
+    render(<ProvidersPage />);
+    await screen.findByText('Gateway');
+
+    await user.click(screen.getAllByRole('button', { name: 'Editar' }).find(button => !button.hasAttribute('disabled'))!);
+    expect(await screen.findByTestId('form-http-authorization')).toHaveTextContent(authorizedURL);
+    await user.click(screen.getByRole('button', { name: 'Cancelar' }));
+
+    await user.click(screen.getAllByRole('button', { name: 'Duplicar' }).find(button => !button.hasAttribute('disabled'))!);
+    expect(mockCreateProvider).not.toHaveBeenCalled();
+    await user.click(await screen.findByRole('button', { name: 'providerForm.insecureHTTP.authorize' }));
+    await waitFor(() => expect(mockCreateProvider).toHaveBeenCalledWith(expect.objectContaining({
+      insecure_http_authorized_url: authorizedURL,
+    })));
   });
 
   it('leva o comando salvo do agente ao formulario de edicao', async () => {

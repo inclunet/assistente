@@ -1,6 +1,7 @@
 import { test, expect } from '../fixtures';
 import { readFileSync } from 'node:fs';
 const wire = JSON.parse(readFileSync(new URL('../../src/lib/__fixtures__/commandKeyboardMap.json', import.meta.url), 'utf8')) as Record<string, unknown>;
+const providerCatalog = JSON.parse(readFileSync(new URL('../../../docs/static/json/assistente-catalog.json', import.meta.url), 'utf8'));
 
 test.use({ locale: 'pt-BR' });
 test('Novo provedor compartilha menu por botão e Ctrl+N, separa API e restaura foco', async ({ page, wails }) => {
@@ -13,6 +14,14 @@ test('Novo provedor compartilha menu por botão e Ctrl+N, separa API e restaura 
     { id: 'providers.acp.create.open', name: 'Serviço ACP', available: true },
     { id: 'providers.api.create.open', name: 'Provedor API', available: true },
   ]);
+  await wails.setResponse('GetCredentialForURL', null);
+  await wails.setResponse('GetLLMCatalog', {
+    document: providerCatalog,
+    refreshing: false,
+    age_seconds: 0,
+    from_cache: false,
+    stale: false,
+  });
   await wails.waitForApp();
   await page.goto('/#/settings');
   const trigger = page.getByRole('button', { name: /^Novo provedor(?:, Ctrl\+N)?$/ });
@@ -52,10 +61,12 @@ test('Novo provedor compartilha menu por botão e Ctrl+N, separa API e restaura 
   await page.keyboard.press('Control+n');
   await expect(page.getByRole('menu')).toHaveCount(0);
   await expect(page.locator('.provider-form')).toBeVisible();
-  await wails.setResponse('GetCredentialForURL', null);
   await wails.setResponse('ListModelsRaw', ['test-model']);
+  await expect(page.getByLabel('Base URL')).toHaveValue('https://api.openai.com/v1');
   await page.getByLabel(/^Nome/).fill('API via ambiente');
-  await page.getByRole('button', { name: 'Configurar credencial', exact: true }).click();
+  const configureCredential = page.getByRole('button', { name: 'Configurar credencial', exact: true });
+  await expect(configureCredential).toBeEnabled();
+  await configureCredential.click();
   await page.getByLabel('Fonte', { exact: true }).selectOption('env');
   await page.getByLabel('Nome da variável', { exact: true }).fill('PROVIDER_API_TOKEN');
   await page.getByRole('button', { name: 'Carregar modelos do provedor', exact: true }).click();

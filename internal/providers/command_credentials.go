@@ -16,6 +16,24 @@ import (
 // mantêm a aplicação existente, sem cache implícito.
 func (s *Service) prepareProbeAuth(ctx context.Context, req TestRequest, target *http.Request, client *http.Client) error {
 	restrictProbeRedirect(client, req.BaseURL)
+	var provider *llm.ProviderConfig
+	if req.ProviderID != "" && s.registry != nil {
+		provider = s.registry.Get(req.ProviderID)
+		if provider == nil {
+			return fmt.Errorf("provedor não encontrado")
+		}
+		if provider.EffectiveAuthMode() == llm.AuthModeNone {
+			return s.applyProbeAuth(ctx, req, target)
+		}
+		if !sameCredentialOrigin(req.BaseURL, provider.BaseURL) {
+			return fmt.Errorf("URL alterada: informe uma credencial para testar o novo destino")
+		}
+	}
+	if llm.RequiresInsecureHTTPAuthorization(req.BaseURL) &&
+		(provider == nil || provider.BaseURL != req.BaseURL || provider.InsecureHTTPAuthorizedURL != req.BaseURL) {
+		return fmt.Errorf("autorização explícita necessária para enviar credenciais por HTTP remoto")
+	}
+
 	cm, ok := s.credMgr.(*credentials.Manager)
 	if !ok || strings.TrimSpace(req.APIKey) != "" {
 		return s.applyProbeAuth(ctx, req, target)
@@ -26,20 +44,7 @@ func (s *Service) prepareProbeAuth(ctx context.Context, req TestRequest, target 
 	}
 	pattern := parsed.Hostname()
 	mode := credentials.AuthRequired
-	if req.ProviderID != "" {
-		if s.registry == nil {
-			return s.applyProbeAuth(ctx, req, target)
-		}
-		provider := s.registry.Get(req.ProviderID)
-		if provider == nil {
-			return fmt.Errorf("provedor não encontrado")
-		}
-		if provider.EffectiveAuthMode() == llm.AuthModeNone {
-			return s.applyProbeAuth(ctx, req, target)
-		}
-		if !sameCredentialOrigin(req.BaseURL, provider.BaseURL) {
-			return fmt.Errorf("URL alterada: informe uma credencial para testar o novo destino")
-		}
+	if provider != nil {
 		pattern = provider.CredentialPattern
 		if provider.EffectiveAuthMode() == llm.AuthModeOptional {
 			mode = credentials.AuthOptional

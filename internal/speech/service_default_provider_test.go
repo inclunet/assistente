@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"assistente/internal/credentials"
 	"assistente/internal/llm"
 	"assistente/internal/profiles"
 )
@@ -105,5 +106,35 @@ func TestGetTTSModels_IDConcretoPassaIntacto(t *testing.T) {
 
 	if len(reg.requested) != 1 || reg.requested[0] != "anthropic-custom" {
 		t.Fatalf("registro consultado com %v; esperado [anthropic-custom]", reg.requested)
+	}
+}
+
+func TestSpeechManagerDoesNotLoadCredentialForPendingHTTPProvider(t *testing.T) {
+	ctx := context.Background()
+	provider := &llm.ProviderConfig{
+		ID: "legacy-http", Name: "Legacy HTTP", Type: llm.ProviderOpenAI,
+		APIFormat: llm.APIFormatOpenAI, BaseURL: "http://gateway.example/v1",
+		AuthMode: llm.AuthModeRequired, CredentialPattern: "gateway.example",
+	}
+	registry := &recordingRegistry{configs: map[string]*llm.ProviderConfig{provider.ID: provider}}
+	credMgr := credentials.NewManager(nil)
+	if err := credMgr.RegisterPatternWithContext(ctx, provider.CredentialPattern, &credentials.AuthConfig{
+		Source: "static", Type: "bearer", Token: "secret-token",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	profile := &profiles.Profile{}
+	profile.Voice.Assistant.Provider = "openai"
+	profile.Voice.Assistant.LLMProviderID = provider.ID
+
+	sm := NewSpeechManagerFromProfile(ctx, profile, registry, credMgr)
+	if sm == nil {
+		t.Fatal("speech manager deveria permanecer configurado")
+	}
+	if sm.config.Assistant.APIKey != "" || sm.config.Assistant.BaseURL != "" || sm.config.Assistant.CredentialPattern != "" {
+		t.Fatalf("configuração de voz carregou credencial de provider pendente: %+v", sm.config.Assistant)
+	}
+	if provider.BaseURL != "http://gateway.example/v1" {
+		t.Fatalf("validação alterou a configuração compartilhada: %+v", provider)
 	}
 }

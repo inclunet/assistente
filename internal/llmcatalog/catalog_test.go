@@ -31,8 +31,8 @@ func TestDecodeRejectsInvalidDocuments(t *testing.T) {
 		want string
 	}{
 		{name: "referência inexistente", json: strings.Replace(minimalCatalog, `"server_profile_id":"test"`, `"server_profile_id":"missing"`, 1), want: "referência de servidor inexistente"},
-		{name: "choice default fora das opções", json: strings.Replace(minimalCatalog, `"policy":"editable","required":true`, `"policy":"choice","default":"a","choices":["b"]`, 1), want: "deve corresponder a uma opção"},
-		{name: "choices duplicadas", json: strings.Replace(minimalCatalog, `"policy":"editable","required":true`, `"policy":"choice","choices":["a","a"]`, 1), want: "opções duplicadas"},
+		{name: "choice default fora das opções", json: strings.Replace(minimalCatalog, `"policy":"editable","required":true`, `"policy":"choice","default":"https://a.example.com","choices":["https://b.example.com"]`, 1), want: "deve corresponder a uma opção"},
+		{name: "choices duplicadas", json: strings.Replace(minimalCatalog, `"policy":"editable","required":true`, `"policy":"choice","choices":["https://a.example.com","https://a.example.com"]`, 1), want: "opções duplicadas"},
 		{name: "campo obrigatório ausente em auth", json: strings.Replace(minimalCatalog, `,"required":false`, "", 1), want: "auth.required ausente"},
 		{name: "choices nulo", json: strings.Replace(minimalCatalog, `"required":true`, `"required":true,"choices":null`, 1), want: ".fields.base_url.choices não pode ser null"},
 		{name: "limits nulo", json: strings.Replace(minimalCatalog, `"capabilities":{}`, `"capabilities":{},"limits":null`, 1), want: ".limits não pode ser null"},
@@ -95,12 +95,14 @@ func TestValidateRejectsDuplicateExposureTuple(t *testing.T) {
 }
 
 func TestFieldPolicyPreservesExplicitNullDefault(t *testing.T) {
-	raw := strings.Replace(minimalCatalog, `"policy":"editable","required":true`, `"policy":"fixed","default":null`, 1)
+	raw := strings.Replace(minimalCatalog,
+		`"fields":{"base_url":{"policy":"editable","required":true}}`,
+		`"fields":{"base_url":{"policy":"editable","required":true},"default_model_id":{"policy":"editable","default":null}}`, 1)
 	doc, err := Decode([]byte(raw))
 	if err != nil {
 		t.Fatalf("default null explícito deve ser válido: %v", err)
 	}
-	encoded, err := json.Marshal(doc.Servers[0].Fields["base_url"])
+	encoded, err := json.Marshal(doc.Servers[0].Fields["default_model_id"])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,12 +112,121 @@ func TestFieldPolicyPreservesExplicitNullDefault(t *testing.T) {
 }
 
 func TestFixedFieldRequiresDefault(t *testing.T) {
-	raw := strings.Replace(minimalCatalog, `"policy":"editable","required":true`, `"policy":"fixed"`, 1)
-	if _, err := Decode([]byte(raw)); err == nil || !strings.Contains(err.Error(), "obrigatório quando policy=fixed") {
-		t.Fatalf("Decode() erro = %v; esperado default fixo obrigatório", err)
+	if err := validateFieldPolicy("fields.test", FieldPolicy{Policy: "fixed"}); err == nil || !strings.Contains(err.Error(), "obrigatório quando policy=fixed") {
+		t.Fatalf("validateFieldPolicy() erro = %v; esperado default fixo obrigatório", err)
 	}
 }
 
+func TestFixedBaseURLRequiresNonEmptyValue(t *testing.T) {
+	raw := strings.Replace(minimalCatalog, `"policy":"editable","required":true`, `"policy":"fixed","default":null`, 1)
+	if _, err := Decode([]byte(raw)); err == nil || !strings.Contains(err.Error(), "URL válida") {
+		t.Fatalf("Decode() erro = %v; esperava rejeição de URL fixa sem valor", err)
+	}
+}
+
+func TestFixedFieldDefaultsMatchFieldContracts(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{
+			name: "base_url remoto em HTTP",
+			raw: strings.Replace(minimalCatalog,
+				`"policy":"editable","required":true`,
+				`"policy":"fixed","default":"http://gateway.example.com/v1"`, 1),
+			want: "URL válida para o grupo",
+		},
+		{
+			name: "api_format fora da allowlist",
+			raw: strings.Replace(minimalCatalog,
+				`"fields":{"base_url":{"policy":"editable","required":true}}`,
+				`"fields":{"base_url":{"policy":"editable","required":true},"api_format":{"policy":"fixed","default":"unknown"}}`, 1),
+			want: "formato de API suportado",
+		},
+		{
+			name: "auth mode fora da allowlist",
+			raw: strings.Replace(minimalCatalog,
+				`"fields":{"base_url":{"policy":"editable","required":true}}`,
+				`"fields":{"base_url":{"policy":"editable","required":true},"auth.mode":{"policy":"fixed","default":"unknown"}}`, 1),
+			want: "modo de autenticação suportado",
+		},
+		{
+			name: "default_model_id maior que o limite",
+			raw: strings.Replace(minimalCatalog,
+				`"fields":{"base_url":{"policy":"editable","required":true}}`,
+				`"fields":{"base_url":{"policy":"editable","required":true},"default_model_id":{"policy":"fixed","default":"`+strings.Repeat("m", 201)+`"}}`, 1),
+			want: "1 a 200 caracteres",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := Decode([]byte(test.raw)); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("Decode() erro = %v; esperado conter %q", err, test.want)
+			}
+		})
+	}
+}
+
+func TestChoiceFieldValuesMatchFieldContracts(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{
+			name: "api_format fora da allowlist",
+			raw: strings.Replace(minimalCatalog,
+				`"fields":{"base_url":{"policy":"editable","required":true}}`,
+				`"fields":{"base_url":{"policy":"editable","required":true},"api_format":{"policy":"choice","choices":["unknown"]}}`, 1),
+			want: "formato de API suportado",
+		},
+		{
+			name: "auth mode fora da allowlist",
+			raw: strings.Replace(minimalCatalog,
+				`"fields":{"base_url":{"policy":"editable","required":true}}`,
+				`"fields":{"base_url":{"policy":"editable","required":true},"auth.mode":{"policy":"choice","choices":["unknown"]}}`, 1),
+			want: "modo de autenticação suportado",
+		},
+		{
+			name: "base_url remota HTTP",
+			raw: strings.Replace(minimalCatalog,
+				`"fields":{"base_url":{"policy":"editable","required":true}}`,
+				`"fields":{"base_url":{"policy":"choice","choices":["http://gateway.example.com/v1"]}}`, 1),
+			want: "URL válida para o grupo",
+		},
+		{
+			name: "modelo choice vazio",
+			raw: strings.Replace(minimalCatalog,
+				`"fields":{"base_url":{"policy":"editable","required":true}}`,
+				`"fields":{"base_url":{"policy":"editable","required":true},"default_model_id":{"policy":"choice","choices":["   "]}}`, 1),
+			want: "cada opção deve ter de 1 a 200 caracteres",
+		},
+		{
+			name: "modelo fixed com espaços externos",
+			raw: strings.Replace(minimalCatalog,
+				`"fields":{"base_url":{"policy":"editable","required":true}}`,
+				`"fields":{"base_url":{"policy":"editable","required":true},"default_model_id":{"policy":"fixed","default":" model "}}`, 1),
+			want: "deve ser um modelo de 1 a 200 caracteres",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := Decode([]byte(test.raw)); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("Decode() erro = %v; esperado conter %q", err, test.want)
+			}
+		})
+	}
+}
+
+func TestFixedDefaultModelRequiresNonEmptyValue(t *testing.T) {
+	raw := strings.Replace(minimalCatalog,
+		`"fields":{"base_url":{"policy":"editable","required":true}}`,
+		`"fields":{"base_url":{"policy":"editable","required":true},"default_model_id":{"policy":"fixed","default":null}}`, 1)
+	if _, err := Decode([]byte(raw)); err == nil || !strings.Contains(err.Error(), "1 a 200 caracteres") {
+		t.Fatalf("Decode() erro = %v; esperava rejeição de modelo fixo sem valor", err)
+	}
+}
 func TestCloneIsIndependent(t *testing.T) {
 	doc, err := Decode([]byte(strings.Replace(minimalCatalog, `"capabilities":{}`, `"capabilities":{"input.text":"supported"}`, 1)))
 	if err != nil {
@@ -131,7 +242,7 @@ func TestCloneIsIndependent(t *testing.T) {
 
 func TestClonePreservesEmptyVoiceItems(t *testing.T) {
 	raw := strings.Replace(minimalCatalog, `"canonical_model_id":"vendor/model"`, `"canonical_model_id":"vendor/model","selection_mode":"model_only","voices":{"completeness":"complete","items":[]}`, 1)
-	raw = strings.Replace(raw, `"policy":"editable","required":true`, `"policy":"fixed","default":null`, 1)
+	raw = strings.Replace(raw, `"policy":"editable","required":true`, `"policy":"fixed","default":"http://localhost:11434/v1"`, 1)
 	doc, err := Decode([]byte(raw))
 	if err != nil {
 		t.Fatalf("catálogo com lista de vozes vazia deve ser válido: %v", err)

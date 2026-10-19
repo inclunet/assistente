@@ -64,7 +64,7 @@ func (s *Service) CheckHealth(ctx context.Context, activeProfile *profiles.Profi
 		return res
 	}
 
-	provider := s.registry.Get(resolved.Chat.LLMProvider)
+	provider := s.registry.GetSnapshot(resolved.Chat.LLMProvider)
 	if provider == nil {
 		res.Error = fmt.Sprintf("provedor não encontrado: %s", resolved.Chat.LLMProvider)
 		res.ErrorType = "provider_missing"
@@ -76,6 +76,11 @@ func (s *Service) CheckHealth(ctx context.Context, activeProfile *profiles.Profi
 	res.Model = resolved.Chat.Model
 	if res.Model == "" {
 		res.Model = provider.DefaultModel
+	}
+	if err := provider.Validate(); err != nil {
+		res.Error = err.Error()
+		res.ErrorType = "provider_invalid"
+		return res
 	}
 
 	// Agente de código não tem endpoint: sondá-lo é subir o processo, fazer o

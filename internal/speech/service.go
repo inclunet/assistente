@@ -115,6 +115,12 @@ func (s *Service) CreateTTSClient(ctx context.Context, providerID string, model 
 		logging.Infof(ctx, "speech.service", "[TTS] Provider %s não encontrado", providerID)
 		return nil
 	}
+	providerSnapshot := *cfg
+	cfg = &providerSnapshot
+	if err := cfg.Validate(); err != nil {
+		logging.Warnf(ctx, "speech.service", "[TTS] Provider %s não pode ser usado: %v", providerID, err)
+		return nil
+	}
 	return NewTTSClient(TTSConfig{
 		BaseURL:           cfg.BaseURL,
 		CredentialPattern: cfg.CredentialPattern,
@@ -126,6 +132,12 @@ func (s *Service) CreateTTSClientWithLanguage(ctx context.Context, providerID st
 	cfg := s.registry.Get(providerID)
 	if cfg == nil {
 		logging.Infof(ctx, "speech.service", "[TTS] Provider %s não encontrado", providerID)
+		return nil
+	}
+	providerSnapshot := *cfg
+	cfg = &providerSnapshot
+	if err := cfg.Validate(); err != nil {
+		logging.Warnf(ctx, "speech.service", "[TTS] Provider %s não pode ser usado: %v", providerID, err)
 		return nil
 	}
 	return NewTTSClient(TTSConfig{

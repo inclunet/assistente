@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -72,6 +73,43 @@ func TestProviderConfigValidate_Valid(t *testing.T) {
 				t.Errorf("Validate: esperado sucesso, got erro: %v", err)
 			}
 		})
+	}
+}
+
+func TestProviderConfigValidateRequiresRemoteHTTPConsentForCredentials(t *testing.T) {
+	config := &ProviderConfig{ID: "custom", Name: "Custom", Type: ProviderCustom, BaseURL: "http://gateway.example/v1", AuthMode: AuthModeRequired}
+	if err := config.Validate(); err == nil || !strings.Contains(err.Error(), "autorização explícita") {
+		t.Fatalf("URL HTTP remota sem aceite: erro = %v", err)
+	}
+	config.InsecureHTTPAuthorizedURL = config.BaseURL
+	if err := config.Validate(); err != nil {
+		t.Fatalf("URL HTTP remota com aceite correspondente: %v", err)
+	}
+	config.BaseURL = "http://gateway.example/v2"
+	if err := config.Validate(); err == nil || !strings.Contains(err.Error(), "autorização explícita") {
+		t.Fatalf("URL alterada deve invalidar o aceite: erro = %v", err)
+	}
+}
+
+func TestProviderConfigValidateRejectsMalformedBaseURL(t *testing.T) {
+	for _, rawURL := range []string{"http://", "http:///path", "http://%", "http://user:secret@gateway.example/v1"} {
+		t.Run(rawURL, func(t *testing.T) {
+			provider := &ProviderConfig{ID: "custom", Name: "Custom", Type: ProviderCustom, BaseURL: rawURL, AuthMode: AuthModeRequired}
+			if err := provider.Validate(); err == nil || !strings.Contains(err.Error(), "base_url inválida") {
+				t.Fatalf("Validate(%q) = %v; esperado rejeitar URL inválida", rawURL, err)
+			}
+		})
+	}
+}
+
+func TestRequiresInsecureHTTPAuthorizationKeepsLoopbackAvailable(t *testing.T) {
+	for _, rawURL := range []string{"http://localhost:11434", "http://127.0.0.1:8080", "http://[::1]:8080"} {
+		if RequiresInsecureHTTPAuthorization(rawURL) {
+			t.Errorf("loopback %q não deveria exigir aceite HTTP remoto", rawURL)
+		}
+	}
+	if !RequiresInsecureHTTPAuthorization("http://192.168.1.20:8080") {
+		t.Fatal("host remoto deveria exigir aceite HTTP")
 	}
 }
 
@@ -153,6 +191,14 @@ func TestProviderConfigValidate_Invalid(t *testing.T) {
 				t.Errorf("Validate: esperado erro contendo %q, got %q", tt.errMsg, err.Error())
 			}
 		})
+	}
+}
+
+func TestProviderConfigValidate_EmptyBaseURLPreservesInvalidURLSentinel(t *testing.T) {
+	config := &ProviderConfig{ID: "test-provider", Name: "Test Provider"}
+	err := config.Validate()
+	if !errors.Is(err, ErrInvalidProviderBaseURL) {
+		t.Fatalf("Validate() = %v; esperado ErrInvalidProviderBaseURL", err)
 	}
 }
 

@@ -28,6 +28,8 @@ import { DecisionDialog } from '../components/ui/DecisionDialog';
 import { Toolbar } from '../components/ui/Toolbar';
 import { Modal } from '../components/ui/Modal';
 import { ProviderForm, ProviderFormData } from '../components/settings/ProviderForm';
+import { requiresRemoteHTTPAuthorization } from '../components/settings/providerHttpAuthorization';
+import { toWailsRequest, type CreateProviderRequest } from '../types/providerRequests';
 import { AGENT_API_FORMAT } from '../config/providers';
 import { requestACPAgentUpdate } from '../services/acpInstall';
 import { useGridFocus } from '../hooks/useGridFocus';
@@ -49,6 +51,8 @@ interface Provider {
   name: string;
   type: string;
   api_format?: string;
+  server_profile_id?: string;
+  insecure_http_authorized_url?: string;
   base_url: string;
   credential_required: boolean;
   credential_status: 'none' | 'configured' | 'missing';
@@ -107,6 +111,7 @@ export default function ProvidersPage() {
   const [focusedRow, setFocusedRow] = useState<ProviderRow | null>(null);
   const [updatePlans, setUpdatePlans] = useState<Record<string, InstallPlan>>({});
   const [updateTarget, setUpdateTarget] = useState<{ provider: ProviderRow; plan: InstallPlan } | null>(null);
+  const [pendingDuplicate, setPendingDuplicate] = useState<CreateProviderRequest | null>(null);
   const updatePlanSeq = useRef(0);
 
   const loadUpdatePlans = async (items: ProviderRow[]) => {
@@ -201,6 +206,8 @@ export default function ProvidersPage() {
       reasoning_content_mode: provider.reasoning_content_mode,
       default_model: (provider as Provider).default_model || '',
       api_format: (provider as Provider).api_format || '',
+      server_profile_id: provider.server_profile_id,
+      insecure_http_authorized_url: provider.insecure_http_authorized_url,
       acp_command: provider.acp_command || '',
       acp_args: provider.acp_args || [],
       acp_agent_id: provider.acp_agent_id || '',
@@ -234,39 +241,57 @@ export default function ProvidersPage() {
     return `${base} ${index}`;
   };
 
-  const handleDuplicateProvider = async (provider: ProviderRow) => {
- if (provider.type === 'chatgpt') { setOAuthDialog({}); return; }
+  const createDuplicateProvider = async (request: CreateProviderRequest) => {
     try {
-      const name = getDuplicateName(provider.name);
-      await CreateLLMProvider(apidto.CreateLLMProviderRequest.createFrom({
-        id: `${provider.type}-${Date.now()}`,
-        name,
-        credential_from_provider_id: provider.api_format === AGENT_API_FORMAT ? undefined : provider.id,
-        type: provider.type,
-        base_url: provider.base_url,
-        api_format: (provider as Provider).api_format || undefined,
-        auth_mode: provider.api_format === AGENT_API_FORMAT ? undefined : provider.auth_mode,
-        // A cópia de um agente precisa subir o mesmo agente: o backend recusa o
-        // formato acp sem comando, e sem argumentos o processo subiria em outro
-        // modo que não o do original.
-        acp_command: provider.acp_command || undefined,
-        acp_args: provider.acp_args || undefined,
-        // Sem o id do agente a cópia perderia de qual linha do registro ela
-        // veio, e a tela de provedor não teria o que oferecer de catálogo.
-        acp_agent_id: provider.acp_agent_id || undefined,
-        // ACPEnv não atravessa Create: o backend reaplica o env do binário
-        // instalado a partir do acp_agent_id / installed.json.
-        // A passagem de credencial vai junto porque é referência: a cópia sobe
-        // o mesmo agente e precisa da mesma chave, e o segredo continua onde
-        // sempre esteve, no cofre.
-        acp_credential_env: provider.acp_credential_env || undefined,
-      }));
+      await CreateLLMProvider(toWailsRequest<apidto.CreateLLMProviderRequest>(request));
       addToast(t('providers.toast.duplicated'), 'success', undefined, undefined, { suppressAnnounce: true });
       announce(t('providers.toast.duplicated'));
       await loadProviders();
     } catch (error: unknown) {
       addToast(getErrorMessage(error) || t('providers.error.duplicateFailed'), 'error');
     }
+  };
+
+  const handleDuplicateProvider = async (provider: ProviderRow) => {
+    if (provider.type === 'chatgpt') { setOAuthDialog({}); return; }
+    const request: CreateProviderRequest = {
+      id: `${provider.type}-${Date.now()}`,
+      name: getDuplicateName(provider.name),
+      credential_from_provider_id: provider.api_format === AGENT_API_FORMAT ? undefined : provider.id,
+      type: provider.type,
+      base_url: provider.base_url,
+      api_format: (provider as Provider).api_format || undefined,
+      server_profile_id: provider.server_profile_id || undefined,
+      // O aceite é por conexão: uma cópia precisa da própria autorização.
+      insecure_http_authorized_url: undefined,
+      auth_mode: provider.api_format === AGENT_API_FORMAT ? undefined : provider.auth_mode,
+      // A cópia de um agente precisa subir o mesmo agente: o backend recusa o
+      // formato acp sem comando, e sem argumentos o processo subiria em outro
+      // modo que não o do original.
+      acp_command: provider.acp_command || undefined,
+      acp_args: provider.acp_args || undefined,
+      // Sem o id do agente a cópia perderia de qual linha do registro ela
+      // veio, e a tela de provedor não teria o que oferecer de catálogo.
+      acp_agent_id: provider.acp_agent_id || undefined,
+      // ACPEnv não atravessa Create: o backend reaplica o env do binário
+      // instalado a partir do acp_agent_id / installed.json.
+      // A passagem de credencial vai junto porque é referência: a cópia sobe
+      // o mesmo agente e precisa da mesma chave, e o segredo continua onde
+      // sempre esteve, no cofre.
+      acp_credential_env: provider.acp_credential_env || undefined,
+    };
+    if (requiresRemoteHTTPAuthorization(provider.base_url, provider.auth_mode || 'required')) {
+      setPendingDuplicate(request);
+      return;
+    }
+    await createDuplicateProvider(request);
+  };
+
+  const confirmDuplicateProvider = () => {
+    const request = pendingDuplicate;
+    if (!request) return;
+    setPendingDuplicate(null);
+    void createDuplicateProvider({ ...request, insecure_http_authorized_url: request.base_url });
   };
 
   const handleUpdateAgent = (provider: ProviderRow) => {
@@ -548,6 +573,23 @@ export default function ProvidersPage() {
               />
             </div>
           </Modal>
+
+          <DecisionDialog
+            isOpen={!!pendingDuplicate}
+            onCancel={() => setPendingDuplicate(null)}
+            title={t('providerForm.insecureHTTP.title')}
+            description={t('providerForm.insecureHTTP.description')}
+            body={pendingDuplicate ? <p>{pendingDuplicate.base_url}</p> : undefined}
+            severity="permission"
+            actions={[
+              { id: 'authorize', label: t('providerForm.insecureHTTP.authorize'), primary: true, variant: 'primary', polarity: 'affirmative' },
+              { id: 'cancel', label: t('common.cancel'), variant: 'outline', polarity: 'negative' },
+            ]}
+            onAction={(actionId) => {
+              if (actionId === 'authorize') confirmDuplicateProvider();
+              else setPendingDuplicate(null);
+            }}
+          />
 
           <DecisionDialog
             isOpen={!!updateTarget}

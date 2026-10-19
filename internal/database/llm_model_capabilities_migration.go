@@ -22,6 +22,11 @@ func MigrateLLMModelCapabilities(db *gorm.DB) error {
 				return fmt.Errorf("adicionar revisão de compatibilidade do provedor: %w", err)
 			}
 		}
+		if !tx.Migrator().HasColumn(&LLMProvider{}, "InsecureHTTPAuthorizedURL") {
+			if err := tx.Exec(`ALTER TABLE llm_providers ADD COLUMN insecure_http_authorized_url TEXT NOT NULL DEFAULT ''`).Error; err != nil {
+				return fmt.Errorf("adicionar autorização HTTP remoto do provedor: %w", err)
+			}
+		}
 		for _, statement := range llmModelCapabilityDDL {
 			if err := tx.Exec(statement).Error; err != nil {
 				return err

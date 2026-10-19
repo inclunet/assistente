@@ -2,10 +2,14 @@ vi.mock('@wailsjs/go/wailsapi/Credentials', () => ({
  GetCredentialForURL: vi.fn(async () => null), ListCredentials: vi.fn(async () => []),
  ListExternalSources: vi.fn(async () => []), UpsertCredential: vi.fn(),
 }));
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { ProviderForm, PROVIDER_CONFIG, API_FORMAT_OPTIONS } from "./ProviderForm";
+
+const waitForProfileOption = async (select: HTMLElement, value: string) => {
+  await waitFor(() => expect(Array.from((select as HTMLSelectElement).options).some(option => option.value === value)).toBe(true));
+};
 
 vi.mock('react-i18next', () => ({
   initReactI18next: { type: '3rdParty', init: () => {} },
@@ -15,6 +19,9 @@ vi.mock('react-i18next', () => ({
         'providerForm.name': 'Nome',
         'providerForm.namePlaceholder': 'Nome do provedor',
         'providerForm.providerType': 'Tipo',
+        'providerForm.serverProfile': 'Perfil de servidor',
+        'providerForm.customProfile': 'Personalizado',
+        'providerForm.catalogUnavailable': 'Catálogo indisponível. Você pode configurar um perfil personalizado.',
         'providerForm.reasoningContentMode': 'Compatibilidade com reasoning_content',
         'providerForm.reasoningContentModeHelp': 'Configuração explícita do protocolo',
         'providerForm.reasoningContentDisabled': 'Desabilitada',
@@ -66,8 +73,14 @@ vi.mock("@wailsjs/go/wailsapi/LLMProviders", () => ({
   CreateLLMProvider: vi.fn(() => Promise.resolve({ id: "123" })),
   UpdateLLMProvider: vi.fn(() => Promise.resolve({})),
 }));
+vi.mock('@wailsjs/go/wailsapi/LLMCatalog', async () => {
+  const { providerFormCatalogAPIResponse } = await import('./providerFormCatalogTestUtils');
+  return { GetLLMCatalog: vi.fn(async () => providerFormCatalogAPIResponse) };
+});
 
 import * as App from "@wailsjs/go/wailsapi/LLMProviders";
+import { GetLLMCatalog } from '@wailsjs/go/wailsapi/LLMCatalog';
+import { providerFormCatalogAPIResponse, providerFormCatalogRefreshingAPIResponse } from './providerFormCatalogTestUtils';
 
 describe("PROVIDER_CONFIG", () => {
   it("deve ter configuração para OpenAI", () => {
@@ -106,10 +119,102 @@ describe("ProviderForm - Renderização", () => {
     );
 
     expect(screen.getByLabelText(/nome/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/tipo/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/perfil de servidor/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/base url/i)).toBeInTheDocument();
   });
 
+  it('aplica o perfil vindo do catálogo e oferece links de cadastro e chave', async () => {
+    render(<ProviderForm onCancel={() => {}} onSave={() => {}} />);
+    await waitFor(() => expect(screen.getByLabelText(/perfil de servidor/i)).toHaveValue('openai'));
+    expect(screen.getByLabelText(/base url/i)).toBeDisabled();
+    expect(screen.getByRole('link', { name: 'providerForm.signupLink' })).toHaveAttribute('href', 'https://platform.openai.com/');
+    expect(screen.getByRole('link', { name: 'providerForm.apiKeyLink' })).toHaveAttribute('href', 'https://platform.openai.com/api-keys');
+  });
+
+  it('consulta novamente o catálogo quando o primeiro snapshot ainda está atualizando', async () => {
+    vi.mocked(GetLLMCatalog)
+      .mockResolvedValueOnce(providerFormCatalogRefreshingAPIResponse)
+      .mockResolvedValueOnce(providerFormCatalogAPIResponse);
+    render(<ProviderForm onCancel={() => {}} onSave={() => {}} />);
+
+    expect(await screen.findByRole('option', { name: 'OpenAI' })).toBeInTheDocument();
+    expect(GetLLMCatalog).toHaveBeenCalledTimes(2);
+  });
+
+  it('não oferece o perfil Cohere enquanto sua rota catalogada não for suportada', async () => {
+    render(<ProviderForm onCancel={() => {}} onSave={() => {}} />);
+    const profileSelect = screen.getByLabelText(/perfil de servidor/i);
+    await waitFor(() => expect(screen.getByRole('option', { name: 'OpenAI' })).toBeInTheDocument());
+    expect(Array.from((profileSelect as HTMLSelectElement).options).map(option => option.value)).not.toContain('cohere');
+    expect(profileSelect).toContainElement(screen.getByRole('option', { name: 'Personalizado' }));
+  });
+
+  it('informa quando o catálogo está indisponível e mantém a opção personalizada', async () => {
+    vi.mocked(GetLLMCatalog).mockRejectedValueOnce(new Error('offline'));
+    render(<ProviderForm onCancel={() => {}} onSave={() => {}} />);
+    expect(await screen.findByText(/Catálogo indisponível/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/perfil de servidor/i)).toHaveValue('');
+    expect(screen.getByLabelText(/base url/i)).toBeInTheDocument();
+  });
+
+  it('preserva URL, protocolo e autenticação ao trocar para o perfil personalizado', async () => {
+    const user = userEvent.setup();
+    render(<ProviderForm onCancel={() => {}} onSave={() => {}} />);
+    const profileSelect = screen.getByLabelText(/perfil de servidor/i);
+    await waitForProfileOption(profileSelect, 'ollama');
+    await user.selectOptions(profileSelect, 'ollama');
+    const urlInput = screen.getByLabelText(/base url/i);
+    await user.clear(urlInput);
+    await user.type(urlInput, 'http://127.0.0.1:11434');
+    await user.selectOptions(profileSelect, '');
+
+    expect(urlInput).toHaveValue('http://127.0.0.1:11434');
+    expect(screen.getByLabelText('providerForm.apiProtocol')).toHaveValue('openai');
+    expect(screen.getByLabelText('providerForm.authMode')).toHaveValue('none');
+  });
+
+  it('preserva URL e formato digitados antes de o catálogo responder', async () => {
+    let resolveCatalog!: (response: Awaited<ReturnType<typeof GetLLMCatalog>>) => void;
+    vi.mocked(GetLLMCatalog).mockReturnValueOnce(new Promise<Awaited<ReturnType<typeof GetLLMCatalog>>>(resolve => {
+      resolveCatalog = resolve;
+    }));
+    const user = userEvent.setup();
+    render(<ProviderForm onCancel={() => {}} onSave={() => {}} />);
+
+    const urlInput = screen.getByLabelText(/base url/i);
+    await user.clear(urlInput);
+    await user.type(urlInput, 'https://gateway.example/v1');
+    await user.selectOptions(screen.getByLabelText('providerForm.apiProtocol'), 'openai');
+
+    await act(async () => {
+      resolveCatalog(providerFormCatalogAPIResponse);
+    });
+
+    await waitFor(() => expect(screen.getByRole('option', { name: 'OpenAI' })).toBeInTheDocument());
+    expect(screen.getByLabelText(/perfil de servidor/i)).toHaveValue('');
+    expect(screen.getByLabelText(/base url/i)).toHaveValue('https://gateway.example/v1');
+    expect(screen.getByLabelText('providerForm.apiProtocol')).toHaveValue('openai');
+    expect(screen.getByLabelText('providerForm.authMode')).toHaveValue('optional');
+  });
+
+  it('usa os defaults customizados ao digitar o modelo antes de o catálogo responder', async () => {
+    let resolveCatalog!: (response: Awaited<ReturnType<typeof GetLLMCatalog>>) => void;
+    vi.mocked(GetLLMCatalog).mockReturnValueOnce(new Promise<Awaited<ReturnType<typeof GetLLMCatalog>>>(resolve => {
+      resolveCatalog = resolve;
+    }));
+    const user = userEvent.setup();
+    render(<ProviderForm onCancel={() => {}} onSave={() => {}} />);
+
+    await user.type(screen.getByLabelText(/modelo padrão/i), 'manual-model');
+    expect(screen.getByLabelText(/base url/i)).toHaveValue('');
+    expect(screen.getByLabelText('providerForm.apiProtocol')).toHaveValue('openai');
+    expect(screen.getByLabelText('providerForm.authMode')).toHaveValue('optional');
+
+    await act(async () => resolveCatalog(providerFormCatalogAPIResponse));
+    await waitFor(() => expect(screen.getByRole('option', { name: 'OpenAI' })).toBeInTheDocument());
+    expect(screen.getByLabelText(/perfil de servidor/i)).toHaveValue('');
+    expect(screen.getByLabelText(/modelo padrão/i)).toHaveValue('manual-model');
+  });
   it("deve ter labels HTML associados corretamente (acessibilidade)", () => {
     render(
       <ProviderForm
@@ -125,7 +230,7 @@ describe("ProviderForm - Renderização", () => {
     expect(nomeLabel).toHaveAttribute("for", nomeInput.getAttribute("id"));
   });
 
-  it("deve mostrar URL read-only para OpenAI", () => {
+  it("deve mostrar URL read-only para OpenAI", async () => {
     render(
       <ProviderForm
         onCancel={() => {}}
@@ -134,8 +239,10 @@ describe("ProviderForm - Renderização", () => {
     );
 
     const urlInput = screen.getByLabelText(/base url/i) as HTMLInputElement;
-    expect(urlInput).toBeDisabled();
-    expect(urlInput.value).toBe("https://api.openai.com/v1");
+    await waitFor(() => {
+      expect(urlInput).toBeDisabled();
+      expect(urlInput.value).toBe("https://api.openai.com/v1");
+    });
   });
 
   it("deve mostrar URL editável para Ollama", async () => {
@@ -147,12 +254,15 @@ describe("ProviderForm - Renderização", () => {
       />
     );
 
-    const typeSelect = screen.getByLabelText(/tipo/i);
+    const typeSelect = screen.getByLabelText(/perfil de servidor/i);
+    await waitForProfileOption(typeSelect, 'ollama');
     await user.selectOptions(typeSelect, "ollama");
 
     const urlInput = screen.getByLabelText(/base url/i) as HTMLInputElement;
     expect(urlInput).not.toBeDisabled();
     expect(urlInput.value).toBe("http://localhost:11434");
+    expect(screen.getByLabelText('providerForm.apiProtocol')).toHaveValue('openai');
+
   });
 
   it("deve exigir autenticação para OpenAI", () => {
@@ -176,13 +286,77 @@ describe("ProviderForm - Renderização", () => {
       />
     );
 
-    const typeSelect = screen.getByLabelText(/tipo/i);
+    const typeSelect = screen.getByLabelText(/perfil de servidor/i);
+    await waitForProfileOption(typeSelect, 'ollama');
     await user.selectOptions(typeSelect, "ollama");
 
     expect(screen.getByLabelText('providerForm.authMode')).toHaveValue('none');
     expect(screen.queryByRole('button', { name: 'credentials.mcp.configure' })).not.toBeInTheDocument();
+    await waitForProfileOption(typeSelect, 'custom-openai-compatible');
+    await user.selectOptions(typeSelect, 'custom-openai-compatible');
     await user.selectOptions(screen.getByLabelText('providerForm.authMode'), 'optional');
     expect(screen.getByRole('button', { name: 'credentials.mcp.configure' })).toBeInTheDocument();
+  });
+
+  it('restringe modelo padrão às opções choice declaradas no perfil', async () => {
+    const user = userEvent.setup();
+    render(<ProviderForm onCancel={() => {}} onSave={() => {}} />);
+    const profileSelect = screen.getByLabelText(/perfil de servidor/i);
+    await waitForProfileOption(profileSelect, 'deepseek');
+    await user.selectOptions(profileSelect, 'deepseek');
+    const modelSelect = screen.getByLabelText(/modelo padrão/i);
+    expect(modelSelect.tagName).toBe('SELECT');
+    expect(modelSelect).toHaveValue('deepseek-chat');
+    expect(Array.from((modelSelect as HTMLSelectElement).options).map(option => option.value)).toEqual([
+      'deepseek-chat', 'deepseek-reasoner',
+    ]);
+  });
+
+  it('pede aceite antes de testar credenciais em HTTP remoto e vincula aceite à URL', async () => {
+    const user = userEvent.setup();
+    render(<ProviderForm onCancel={() => {}} onSave={() => {}} />);
+    const profileSelect = screen.getByLabelText(/perfil de servidor/i);
+    await waitForProfileOption(profileSelect, 'custom-openai-compatible');
+    await user.selectOptions(profileSelect, 'custom-openai-compatible');
+    await user.selectOptions(screen.getByLabelText('providerForm.authMode'), 'required');
+    await user.type(screen.getByLabelText(/base url/i), 'http://gateway.example.test/v1');
+
+    await user.click(screen.getByRole('button', { name: /carregar modelos/i }));
+    expect(await screen.findByRole('alertdialog')).toBeInTheDocument();
+    expect(App.ListModelsRaw).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: 'providerForm.insecureHTTP.authorize' }));
+    await waitFor(() => expect(App.ListModelsRaw).toHaveBeenCalledWith(expect.objectContaining({
+      base_url: 'http://gateway.example.test/v1',
+      insecure_http_authorized_url: 'http://gateway.example.test/v1',
+    })));
+  });
+
+  it.each(['fixed-model-test', 'deepseek'])('permite testar a conexão com política de modelo %s', async profileId => {
+    const user = userEvent.setup();
+    render(<ProviderForm onCancel={() => {}} onSave={() => {}} />);
+    const profileSelect = screen.getByLabelText(/perfil de servidor/i);
+    await waitForProfileOption(profileSelect, profileId);
+    await user.selectOptions(profileSelect, profileId);
+    const createButton = screen.getByRole('button', { name: /criar/i });
+    expect(createButton).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: /carregar modelos/i }));
+    await waitFor(() => expect(createButton).toBeEnabled());
+  });
+
+  it('mantém visível um modelo manual que não aparece na lista retornada', async () => {
+    const user = userEvent.setup();
+    render(<ProviderForm onCancel={() => {}} onSave={() => {}} />);
+    const profileSelect = screen.getByLabelText(/perfil de servidor/i);
+    await waitForProfileOption(profileSelect, '');
+    await user.selectOptions(profileSelect, '');
+    const modelInput = screen.getByLabelText(/modelo padrão/i);
+    await user.type(modelInput, 'gateway/private-model');
+    await user.click(screen.getByRole('button', { name: /carregar modelos/i }));
+
+    const modelSelect = await screen.findByLabelText(/modelo padrão/i);
+    expect(modelSelect).toHaveValue('gateway/private-model');
+    expect(modelSelect).toContainElement(screen.getByRole('option', { name: 'gateway/private-model' }));
   });
 });
 
@@ -221,7 +395,8 @@ describe("ProviderForm - Validação", () => {
     const nameInput = screen.getByLabelText(/nome/i);
     await user.type(nameInput, "Test");
 
-    const typeSelect = screen.getByLabelText(/tipo/i);
+    const typeSelect = screen.getByLabelText(/perfil de servidor/i);
+    await waitForProfileOption(typeSelect, 'ollama');
     await user.selectOptions(typeSelect, "ollama");
 
     const urlInput = screen.getByLabelText(/base url/i) as HTMLInputElement;
@@ -241,7 +416,8 @@ describe("ProviderForm - Validação", () => {
       />
     );
 
-    const typeSelect = screen.getByLabelText(/tipo/i);
+    const typeSelect = screen.getByLabelText(/perfil de servidor/i);
+    await waitForProfileOption(typeSelect, 'ollama');
     await user.selectOptions(typeSelect, "ollama");
 
     const urlInput = screen.getByLabelText(/base url/i);
@@ -289,7 +465,8 @@ describe("ProviderForm - Carregamento de Modelos", () => {
     const nameInput = screen.getByLabelText(/nome/i);
     await user.type(nameInput, "My Ollama");
 
-    const typeSelect = screen.getByLabelText(/tipo/i);
+    const typeSelect = screen.getByLabelText(/perfil de servidor/i);
+    await waitForProfileOption(typeSelect, 'ollama');
     await user.selectOptions(typeSelect, "ollama");
 
     const loadButton = screen.getByRole("button", { name: /carregar modelos/i });
@@ -318,7 +495,8 @@ describe("ProviderForm - Carregamento de Modelos", () => {
     const nameInput = screen.getByLabelText(/nome/i);
     await user.type(nameInput, "My Ollama");
 
-    const typeSelect = screen.getByLabelText(/tipo/i);
+    const typeSelect = screen.getByLabelText(/perfil de servidor/i);
+    await waitForProfileOption(typeSelect, 'ollama');
     await user.selectOptions(typeSelect, "ollama");
 
     const loadButton = screen.getByRole("button", { name: /carregar modelos/i });
@@ -349,7 +527,8 @@ describe("ProviderForm - Carregamento de Modelos", () => {
     const nameInput = screen.getByLabelText(/nome/i);
     await user.type(nameInput, "My Ollama");
 
-    const typeSelect = screen.getByLabelText(/tipo/i);
+    const typeSelect = screen.getByLabelText(/perfil de servidor/i);
+    await waitForProfileOption(typeSelect, 'ollama');
     await user.selectOptions(typeSelect, "ollama");
 
     const loadButton = screen.getByRole("button", { name: /carregar modelos/i });
@@ -377,7 +556,8 @@ describe("ProviderForm - Carregamento de Modelos", () => {
     const nameInput = screen.getByLabelText(/nome/i);
     await user.type(nameInput, "My Custom");
 
-    const typeSelect = screen.getByLabelText(/tipo/i);
+    const typeSelect = screen.getByLabelText(/perfil de servidor/i);
+    await waitForProfileOption(typeSelect, 'ollama');
     await user.selectOptions(typeSelect, "ollama");
 
     const loadButton = screen.getByRole("button", { name: /carregar modelos/i });
@@ -409,7 +589,8 @@ describe("ProviderForm - Salvar", () => {
     const nameInput = screen.getByLabelText(/nome/i);
     await user.type(nameInput, "My Ollama");
 
-    const typeSelect = screen.getByLabelText(/tipo/i);
+    const typeSelect = screen.getByLabelText(/perfil de servidor/i);
+    await waitForProfileOption(typeSelect, 'ollama');
     await user.selectOptions(typeSelect, "ollama");
 
     const loadButton = screen.getByRole("button", { name: /carregar modelos/i });
@@ -424,7 +605,10 @@ describe("ProviderForm - Salvar", () => {
 
     await waitFor(() => {
       expect(App.CreateLLMProvider).toHaveBeenCalledWith(expect.objectContaining({
+        type: 'ollama',
+        api_format: 'openai',
         reasoning_content_mode: "disabled",
+        server_profile_id: "ollama",
       }));
       expect(mockOnSave).toHaveBeenCalled();
     });
@@ -522,7 +706,8 @@ describe("api_format semantics", () => {
       <ProviderForm onCancel={() => {}} onSave={() => {}} />
     );
 
-    const typeSelect = screen.getByLabelText(/tipo/i);
+    const typeSelect = screen.getByLabelText(/perfil de servidor/i);
+    await waitForProfileOption(typeSelect, 'ollama');
     await user.selectOptions(typeSelect, "ollama");
 
     const apiFormatLabel = screen.getByText("providerForm.apiProtocol");
@@ -537,7 +722,8 @@ describe("api_format semantics", () => {
       <ProviderForm onCancel={() => {}} onSave={() => {}} />
     );
 
-    const typeSelect = screen.getByLabelText(/tipo/i);
+    const typeSelect = screen.getByLabelText(/perfil de servidor/i);
+    await waitForProfileOption(typeSelect, 'deepseek');
     await user.selectOptions(typeSelect, "deepseek");
 
     const mode = screen.getByLabelText(/compatibilidade com reasoning_content/i);
