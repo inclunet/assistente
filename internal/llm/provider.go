@@ -442,7 +442,7 @@ func (p *ProviderConfig) validate(allowPendingHTTPAuthorization, allowInvalidBas
 		if allowInvalidBaseURL {
 			return nil
 		}
-		return fmt.Errorf("provider %s: %w", p.ID, ErrInvalidProviderBaseURL)
+		return fmt.Errorf("provider base_url vazio: %w", ErrInvalidProviderBaseURL)
 	}
 	parsedURL, err := url.Parse(p.BaseURL)
 	if err != nil || (parsedURL.Scheme != "http" && parsedURL.Scheme != "https") || parsedURL.Host == "" || parsedURL.Hostname() == "" || parsedURL.User != nil {

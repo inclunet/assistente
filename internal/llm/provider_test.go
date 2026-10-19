@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -190,6 +191,14 @@ func TestProviderConfigValidate_Invalid(t *testing.T) {
 				t.Errorf("Validate: esperado erro contendo %q, got %q", tt.errMsg, err.Error())
 			}
 		})
+	}
+}
+
+func TestProviderConfigValidate_EmptyBaseURLPreservesInvalidURLSentinel(t *testing.T) {
+	config := &ProviderConfig{ID: "test-provider", Name: "Test Provider"}
+	err := config.Validate()
+	if !errors.Is(err, ErrInvalidProviderBaseURL) {
+		t.Fatalf("Validate() = %v; esperado ErrInvalidProviderBaseURL", err)
 	}
 }
 

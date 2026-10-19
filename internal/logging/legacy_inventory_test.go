@@ -41,8 +41,10 @@ const (
 	// diagnósticos estruturados e sanitizados.
 	// O worker de recuperação MCP substitui os três formatos de app_mcp.go
 	// por mensagens sem prefixos legados; a causa permanece sanitizada.
-	expectedLegacyFormatCount  = 719
-	expectedLegacyFormatDigest = "3777905f32e27acb31ec374495efaf108de2a1cf098c7dd25eefbc6e7e0ebb1b"
+	// O catálogo público registra seis formatos diagnósticos novos: quatro nos
+	// fluxos de reautorização/correção, um no perfil de voz e um no resumo.
+	expectedLegacyFormatCount  = 725
+	expectedLegacyFormatDigest = "98f2fe436a17d497ffb8b4b226ea7a0f513ca2c39441991e233d13d2cc00ad92"
 )
 
 // TestLegacyLoggingInventory mantém reproduzível o inventário da issue #675.
