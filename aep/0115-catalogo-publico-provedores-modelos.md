@@ -230,13 +230,15 @@ altera conexões existentes nem sobrepõe a identidade explícita persistida.
    ocorre em segundo plano; falhas mantêm o snapshot válido anterior. Timestamps
    futuros no cache mantêm o documento disponível como stale e forçam
    revalidação; o shutdown aguarda refreshes explícitos e de fundo.
-3. **Configuração de provedores pelo catálogo.** Trocar os presets duplicados
-   do frontend/backend por perfis catalogados; aplicar política fixa/editável
-   por campo, manter customizados, mostrar links de cadastro/chave e preservar
-   configurações salvas. URLs remotas `http` digitadas pelo usuário devem
-   anunciar o risco e pedir autorização antes de transmitir credenciais, usando
-   o contrato de decisão/autorização de rede existente; HTTP sem TLS nunca é
-   permitido por um perfil remoto do catálogo.
+3. **Configuração de provedores pelo catálogo — em andamento.** Persistir a
+   associação explícita `server_profile_id` sem inferir perfis de conexões
+   existentes; depois trocar os presets duplicados do frontend/backend por
+   perfis catalogados, aplicar política fixa/editável por campo, manter
+   customizados, mostrar links de cadastro/chave e preservar configurações
+   salvas. URLs remotas `http` digitadas pelo usuário devem anunciar o risco e
+   pedir autorização antes de transmitir credenciais, usando o contrato de
+   decisão/autorização de rede existente; HTTP sem TLS não é permitido por um
+   perfil remoto do catálogo.
 4. **Modelos, capacidades e proxies.** Associar IDs expostos apenas por
    mapeamento exato e integrar recursos/limites sem impedir aliases
    desconhecidos.
@@ -293,6 +295,13 @@ altera conexões existentes nem sobrepõe a identidade explícita persistida.
   `internal/llmcatalog/service.go` e testes em `service_test.go`.
 - [ ] Provedores conhecidos aplicam as políticas de edição declaradas; URLs de
   cadastro e obtenção de chave são acessíveis e localizadas.
+- [x] A conexão persiste o ID do perfil de servidor escolhido explicitamente,
+  preserva a associação em exportação/importação e deixa conexões antigas sem
+  perfil; agentes ACP e a conexão OAuth do ChatGPT não recebem perfil HTTP.
+  Evidência: `llm.ProviderConfig.ServerProfileID`, coluna aditiva
+  `llm_providers.server_profile_id`, conversão no `DBStore` e cobertura em
+  `db_store_stream_timeout_test.go`, `portability/providers_catalog_test.go` e
+  rejeição em `providers/chatgpt_test.go` para updates de OAuth.
 - [ ] Atualizar o catálogo não sobrescreve configurações existentes nem envia
   dados locais ao site.
 - [ ] Modelos e aliases só recebem capacidades por associação exata; IDs sem

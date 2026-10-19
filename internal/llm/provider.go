@@ -174,6 +174,10 @@ type ProviderConfig struct {
 	// ErrorFamily is explicit upstream identity for provider-specific error
 	// recognition. Empty means only generic classification is safe.
 	ErrorFamily ProviderErrorFamily `json:"-"`
+	// ServerProfileID guarda a associação explícita com um perfil do catálogo
+	// público. Vazio significa configuração antiga ou personalizada; não é
+	// inferido a partir de tipo, URL ou modelo.
+	ServerProfileID string `json:"server_profile_id,omitempty"`
 	// CompatibilityRevision identifica o snapshot da conexão carregado do banco.
 	// Requisições em andamento preservam esta revisão ao registrar evidências.
 	CompatibilityRevision int       `json:"-"`

@@ -210,6 +210,7 @@ type CreateRequest struct {
 	Name                     string
 	Type                     string
 	APIFormat                string
+	ServerProfileID          string
 	BaseURL                  string
 	APIKey                   string
 	DefaultModel             string
@@ -285,6 +286,7 @@ func normalizeProviderACP(p *llm.ProviderConfig) {
 		return
 	}
 	p.BaseURL = ""
+	p.ServerProfileID = ""
 	p.CredentialPattern = ""
 	p.AuthMode = llm.AuthModeNone
 	p.ReasoningContentMode = llm.ReasoningContentDisabled
@@ -406,6 +408,7 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*CreateResult,
 		Name:                 req.Name,
 		Type:                 llm.ProviderType(req.Type),
 		APIFormat:            apiFormat,
+		ServerProfileID:      strings.TrimSpace(req.ServerProfileID),
 		BaseURL:              baseURL,
 		DefaultModel:         req.DefaultModel,
 		ReasoningContentMode: llm.ReasoningContentMode(strings.TrimSpace(req.ReasoningContentMode)),
@@ -466,6 +469,7 @@ type UpdateRequest struct {
 	Name                 string
 	Type                 string
 	APIFormat            string
+	ServerProfileID      *string
 	BaseURL              string
 	APIKey               string
 	DefaultModel         string
@@ -532,6 +536,7 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Up
 		Name:                     existing.Name,
 		Type:                     existing.Type,
 		ErrorFamily:              existing.ErrorFamily,
+		ServerProfileID:          existing.ServerProfileID,
 		APIFormat:                existing.APIFormat,
 		BaseURL:                  existing.BaseURL,
 		Model:                    existing.Model,
@@ -559,6 +564,9 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Up
 	}
 	if apiFormat := strings.TrimSpace(req.APIFormat); apiFormat != "" {
 		updated.APIFormat = llm.APIFormat(apiFormat)
+	}
+	if req.ServerProfileID != nil {
+		updated.ServerProfileID = strings.TrimSpace(*req.ServerProfileID)
 	}
 	if req.DefaultModel != "" {
 		updated.DefaultModel = req.DefaultModel
