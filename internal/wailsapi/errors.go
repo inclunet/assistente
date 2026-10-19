@@ -113,6 +113,10 @@ var ErrACPOptionsNotWired = errors.New("wailsapi: acp options bind not wired")
 // session/registry/catalogOf.
 var ErrACPRegistryNotWired = errors.New("wailsapi: acp registry bind not wired")
 
+// ErrLLMCatalogNotWired indica que o bind do catálogo LLM ainda não recebeu
+// suas dependências no startup.
+var ErrLLMCatalogNotWired = errors.New("wailsapi: llm catalog bind not wired")
+
 // ErrACPWorkDirNotWired indica que o bind ACPWorkDir ainda não recebeu manager/session.
 var ErrACPWorkDirNotWired = errors.New("wailsapi: acp workdir bind not wired")
 

@@ -1,6 +1,6 @@
 # AEP-0115 — Catálogo público de provedores e modelos
 
-Status: In Progress — contrato aprovado; fase 1 (schema e asset inicial) implementada neste PR; consumo pendente
+Status: In Progress — contrato aprovado; fases 1 (schema e asset inicial) e 2 (consumo, validação e cache backend) implementadas nos PRs empilhados; integração de provedores, modelos e vozes pendente
 
 ## Resumo
 
@@ -60,6 +60,14 @@ somente leitura por padrão. Uma exceção editável ou uma lista de escolhas s�
 existe quando declarada explicitamente pelo perfil e necessária para um caso
 suportado; não há uma opção genérica para liberar campos bloqueados. Campos
 `fixed` são enviados a partir do catálogo, sem controle editável na UI.
+URLs do catálogo não podem carregar userinfo (usuário/senha embutidos); chaves
+e credenciais nunca pertencem ao asset público. Perfis `hosted` exigem `https`;
+URLs `http` no catálogo só podem apontar para loopback (`localhost`, `127.0.0.0/8`
+ou `::1`), inclusive em perfis locais e de proxy. Isso impede que uma alteração
+indevida no asset direcione credenciais para um host remoto sem TLS. URLs remotas
+`http` informadas manualmente pelo usuário exigem aviso e autorização explícita
+antes de qualquer envio de credencial; a fase 3 deve integrar esse percurso ao
+contrato de decisão/autorização de rede já existente.
 
 Os perfis catalogados fornecem defaults e restrições de interface, não
 substituem configurações já salvas. Atualizar o catálogo não reescreve endpoint,
@@ -181,11 +189,14 @@ de capacidade e vozes aplicáveis àquela rota. A forma conceitual mínima é:
 
 O exemplo é ilustrativo; o schema formal define enums, campos
 obrigatórios/opcionais, tipos, limites de tamanho e URLs aceitas. O JSON Schema
-valida a estrutura de cada registro. Integridade entre coleções é uma validação
-semântica complementar: o consumidor deve rejeitar IDs de servidor/modelo
-duplicados, referências inexistentes e tuplas de exposição repetidas. A fase 2
-implementará essa validação no carregamento do catálogo, incluindo defaults
-que não pertençam às opções declaradas por campos `choice`. `capabilities`
+valida a estrutura de cada registro. O backend decodifica o envelope em tipos
+Go e valida a estrutura v1 e as mesmas invariantes relevantes antes de aceitar
+qualquer documento remoto. Integridade entre coleções é uma validação semântica
+complementar: IDs de servidor/modelo duplicados, referências inexistentes,
+tuplas de exposição repetidas e defaults que não pertençam às opções declaradas
+por campos `choice` invalidam o documento inteiro. O teste do pacote valida o
+asset publicado e os casos semânticos; alterações no schema v1 devem atualizar
+os tipos, o validador e esses casos juntos. `capabilities`
 aceita somente os três estados definidos nesta AEP. Limites numéricos são inteiros
 positivos. `voices.completeness` aceita `complete`, `partial` ou `unknown`; cada
 item contém pelo menos ID e nome
@@ -212,13 +223,20 @@ altera conexões existentes nem sobrepõe a identidade explícita persistida.
    contra o asset inicial publicado em `docs/static/json/`, cobrindo provedores
    hospedados, Ollama/LocalAI/llama.cpp, OpenRouter, LiteLLM, perfil
    personalizado, modelos, exposição por proxy e completude de vozes.
-2. **Consumo e cache no backend.** Buscar, validar estrutura e integridade
-   semântica, e cachear a última versão válida; expor dados tipados ao frontend
-   e manter inicialização e uso offline.
+2. **Consumo e cache no backend — concluída no PR filho desta fase.** Buscar a
+   URL fixa sem seguir redirects, validar estrutura e integridade semântica,
+   persistir atomicamente a última versão válida com ETag/Last-Modified e expor
+   snapshots tipados por API Wails. O cache é carregado localmente e a atualização
+   ocorre em segundo plano; falhas mantêm o snapshot válido anterior. Timestamps
+   futuros no cache mantêm o documento disponível como stale e forçam
+   revalidação; o shutdown aguarda refreshes explícitos e de fundo.
 3. **Configuração de provedores pelo catálogo.** Trocar os presets duplicados
    do frontend/backend por perfis catalogados; aplicar política fixa/editável
    por campo, manter customizados, mostrar links de cadastro/chave e preservar
-   configurações salvas.
+   configurações salvas. URLs remotas `http` digitadas pelo usuário devem
+   anunciar o risco e pedir autorização antes de transmitir credenciais, usando
+   o contrato de decisão/autorização de rede existente; HTTP sem TLS nunca é
+   permitido por um perfil remoto do catálogo.
 4. **Modelos, capacidades e proxies.** Associar IDs expostos apenas por
    mapeamento exato e integrar recursos/limites sem impedir aliases
    desconhecidos.
@@ -244,6 +262,9 @@ altera conexões existentes nem sobrepõe a identidade explícita persistida.
 - Políticas de campos muito rígidas podem impedir configuração necessária;
   cada campo e perfil deve declarar a política e permitir opções suportadas
   suficientes para o uso pretendido.
+- HTTP remoto pode expor credenciais; o catálogo limita esse esquema a loopback,
+  e a configuração manual precisa obter autorização explícita antes do primeiro
+  envio de credencial.
 - Confiar em JSON remoto para selecionar comportamento executável ampliaria a
   superfície de ataque; tratar o catálogo como dados validados e usar
   adaptadores locais allowlisted.
@@ -256,10 +277,20 @@ altera conexões existentes nem sobrepõe a identidade explícita persistida.
   `docs/static/json/assistente-catalog.json`, servidos pelo Hugo sob `/json/`;
   validação Draft 2020-12 e conferência semântica das referências e unicidade
   deste asset registradas no PR. A validação semântica de catálogos baixados é
-  critério da fase 2.
-- [ ] A aplicação valida a estrutura e a integridade semântica do documento
-  (IDs únicos, referências existentes e tuplas de exposição únicas), mantém
-  cache válido e continua a funcionar offline.
+  coberta também pelo consumidor da fase 2.
+- [x] A aplicação valida estrutura e integridade semântica do documento (IDs
+  únicos, referências existentes, tuplas de exposição únicas e defaults de
+  `choice`), mantém cache válido e continua a funcionar offline. Evidência:
+  `internal/llmcatalog/{parser.go,validate.go,service.go,service_test.go}`;
+  os testes cobrem asset publicado, rejeição semântica, cache offline,
+  preservação após resposta inválida e revalidação condicional.
+- [x] A atualização não bloqueia o startup, usa origem HTTPS fixa sem redirects,
+  limita o tamanho do documento e grava cache por substituição atômica. Evidência:
+  `internal/llmcatalog/service.go` e `GetLLMCatalog` em
+  `internal/wailsapi/llm_catalog.go`.
+- [x] Cache com timestamp futuro continua disponível como stale e inicia
+  revalidação; o shutdown aguarda refreshes ativos. Evidência:
+  `internal/llmcatalog/service.go` e testes em `service_test.go`.
 - [ ] Provedores conhecidos aplicam as políticas de edição declaradas; URLs de
   cadastro e obtenção de chave são acessíveis e localizadas.
 - [ ] Atualizar o catálogo não sobrescreve configurações existentes nem envia

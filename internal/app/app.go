@@ -38,6 +38,7 @@ import (
 	"assistente/internal/jobprofilegrant"
 	"assistente/internal/jobs"
 	"assistente/internal/llm"
+	"assistente/internal/llmcatalog"
 	mcpmgr "assistente/internal/mcp"
 	"assistente/internal/memory"
 	"assistente/internal/messaging"
@@ -100,6 +101,7 @@ type App struct {
 	acpMgr              *acp.Manager             // Processos e sessões dos agentes ACP (AEP-0084)
 	acpTrust            *acptrust.Store          // Permissões que o perfil concedeu ao agente para sempre (AEP-0084 D9)
 	acpRegistry         *acpregistry.Service     // Catálogo de agentes do registro oficial do ACP (AEP-0086 D2)
+	llmCatalog          *llmcatalog.Service      // Catálogo público de provedores e modelos (AEP-0115)
 	skillMgr            *skills.Manager          // Gerenciador de skills
 	// acpCatalogSvc é o catálogo do registro ACP: o serviço acima e o instalador
 	// de agentes (AEP-0086). Montado na primeira chamada que precisa dele — ver
@@ -377,6 +379,9 @@ type App struct {
 	// llmModelsAPI é o bind Wails do domínio llm_models (AEP-0088): catálogo,
 	// refresh e cancel de streaming. Criado em main; streamMgr permanece no *App.
 	llmModelsAPI *wailsapi.LLMModels
+
+	// llmCatalogAPI é o bind Wails do catálogo público AEP-0115.
+	llmCatalogAPI *wailsapi.LLMCatalog
 
 	// chatAPI é o bind Wails do domínio chat/envio (AEP-0040, AEP-0088):
 	// SendMessage e RetryMessage. Criado em main e wired após NewChatController.
@@ -813,6 +818,14 @@ func SetACPRegistryAPI(a *App, api *wailsapi.ACPRegistry) {
 	a.acpRegistryAPI = api
 }
 
+// SetLLMCatalogAPI registra o bind Wails do catálogo AEP-0115 antes do Run.
+func SetLLMCatalogAPI(a *App, api *wailsapi.LLMCatalog) {
+	if a == nil {
+		return
+	}
+	a.llmCatalogAPI = api
+}
+
 // SetACPWorkDirAPI registra o bind Wails de acp_workdir antes do Run (main.go).
 // Função de pacote (não método) para não entrar na superfície Bind do Wails.
 func SetACPWorkDirAPI(a *App, api *wailsapi.ACPWorkDir) {
@@ -994,6 +1007,9 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	// aqui; ele precisa existir antes do provider service porque é dele que um
 	// provedor de agente empresta a sessão da conversa (AEP-0084 D3).
 	a.initACP()
+	if !a.commandCLIOnly {
+		a.initLLMCatalog()
+	}
 
 	// Inicializa o Provider Service (camada de negócio para provedores LLM)
 	a.providerSvc = providers.NewService(providers.ServiceConfig{
@@ -1291,6 +1307,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	a.wireACPProviders()
 	a.wireACPOptions()
 	a.wireACPRegistry()
+	a.wireLLMCatalog()
 	a.wireACPWorkDir()
 	a.wireACPInstall()
 	a.wireACPTrust()
@@ -1418,6 +1435,9 @@ func (a *App) Shutdown() {
 	// antes de derrubar os managers, evitando loops órfãos no encerramento.
 	if a.cancel != nil {
 		a.cancel()
+	}
+	if a.llmCatalog != nil {
+		a.llmCatalog.Close()
 	}
 	a.waitBackground(shutdownBackgroundTimeout)
 	if a.httpResponseArtifacts != nil {
