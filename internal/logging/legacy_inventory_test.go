@@ -39,8 +39,10 @@ const (
 	// expiração, mantendo os mesmos call sites e a contagem do inventário.
 	// O AEP-0113 substitui sete formatos com texto livre de provedor por
 	// diagnósticos estruturados e sanitizados.
-	expectedLegacyFormatCount  = 722
-	expectedLegacyFormatDigest = "a70029b230fd4060a10359f6edb3c1a3fb4674d4687534b7b34c98167f172087"
+	// O worker de recuperação MCP substitui os três formatos de app_mcp.go
+	// por mensagens sem prefixos legados; a causa permanece sanitizada.
+	expectedLegacyFormatCount  = 719
+	expectedLegacyFormatDigest = "3777905f32e27acb31ec374495efaf108de2a1cf098c7dd25eefbc6e7e0ebb1b"
 )
 
 // TestLegacyLoggingInventory mantém reproduzível o inventário da issue #675.

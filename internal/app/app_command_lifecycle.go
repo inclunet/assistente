@@ -366,6 +366,10 @@ func (a *App) bootstrapCommandLifecycleAfterAuthLocked(ctx context.Context, resu
 		logging.Errorf(context.Background(), "app.app", "runtime de comandos não pôde ser desabilitado antes da recarga: %v", resetErr)
 		return resetErr
 	}
+	if err := a.recoverCurrentCommandDecisionSession(ctx); err != nil {
+		logging.Warnf(ctx, "app.commands", "recuperação de confirmações pendente antes do bootstrap: error_class=%s", commandLoadErrorClass(err))
+		return err
+	}
 	if err := a.rebuildCommandLifecyclePersistedConfiguration(ctx); err != nil {
 		logging.Warnf(context.Background(), "app.app", "configuração inicial de comandos indisponível após autenticação: %v", err)
 		return err

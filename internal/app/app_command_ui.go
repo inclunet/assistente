@@ -149,6 +149,7 @@ func (a *App) authenticatedCommandProductContext(ctx context.Context) (*commandP
 	commandLoadStage(ctx, "lifecycle")
 	snapshot, err := CommandLifecycleSnapshot(a)
 	if err != nil || snapshot.State != commandruntime.StateReady || !snapshot.Published || a.commandProduct.Load() != p || !p.dependenciesMatch(a) {
+		commandLoadLifecycle(ctx, snapshot, err)
 		if err != nil {
 			commandLoadCause(ctx, err)
 		} else {
