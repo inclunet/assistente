@@ -858,7 +858,10 @@ func TestChatGPTPreferencesPreserveAuthorizationAndDefault(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := s.Update(ctx, created.ID, UpdateRequest{Name: "Renamed", DefaultModel: "account-model"})
+	emptyProfileID := ""
+	result, err := s.Update(ctx, created.ID, UpdateRequest{
+		Name: "Renamed", DefaultModel: "account-model", ServerProfileID: &emptyProfileID,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
