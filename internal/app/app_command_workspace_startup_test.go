@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"assistente/internal/commanddecision"
 	"assistente/internal/commandruntime"
 )
 
@@ -82,6 +83,7 @@ func TestCommandWorkspaceReloadRecoversCatalogUnmountedDuringSwitch(t *testing.T
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	old := a.commandProduct.Load()
+	receipt := seedCommandBootstrapReceipt(t, a, old.principal.SessionID, commanddecision.Accepted, time.Now().Add(-time.Hour))
 	ticket := a.captureCommandCatalogRecoveryTicket()
 	shutdownCommandCatalogProductForTest(t, ctx, a)
 	a.commandProduct.Store(nil)
@@ -103,6 +105,9 @@ func TestCommandWorkspaceReloadRecoversCatalogUnmountedDuringSwitch(t *testing.T
 	assertCommandCatalogReadyAfterRecovery(t, a, old, "")
 	if a.commandProduct.Load().workspaceID != ws.ID {
 		t.Fatal("reload montou produto para o workspace anterior")
+	}
+	if got := commandBootstrapReceiptStatus(t, receipt); got != commanddecision.Expired {
+		t.Fatalf("remontagem não reconciliou confirmação vencida: %s", got)
 	}
 }
 

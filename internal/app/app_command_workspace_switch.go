@@ -50,6 +50,10 @@ func (a *App) reloadCommandsAfterWorkspaceSwitch() {
 		logging.Warnf(ctx, "app.app-workspace", "comandos indisponíveis após troca de workspace: montagem: %v", err)
 		return
 	}
+	if err := a.recoverCurrentCommandDecisionSession(ctx); err != nil {
+		logging.Warnf(ctx, "app.app-workspace", "comandos indisponíveis após troca de workspace: recuperação: error_class=%s", commandLoadErrorClass(err))
+		return
+	}
 	if err := a.reconcileCommandLifecycleClaimsForTransition(ctx, false, true); err != nil {
 		logging.Warnf(ctx, "app.app-workspace", "comandos indisponíveis após troca de workspace: restauração: %v", err)
 		return

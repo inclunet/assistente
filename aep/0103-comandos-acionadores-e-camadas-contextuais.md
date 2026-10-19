@@ -51,6 +51,9 @@ inválido. Testes `TestCommandWorkspaceReloadRecoversCatalogUnmountedDuringSwitc
 `TestCommandWorkspaceReloadWithoutConfiguredRuntimeIsNoop` cobrem retomada e
 recusas. `TestCommandCatalogRecoveryStopJoinsWhileBootstrapRemainsOwned`
 comprova join por cancelamento sem depender da liberação da barreira.
+A remontagem por workspace também reconcilia recibos elegíveis da própria
+sessão antes da projeção/preflight, pela mesma rotina autenticada do login e
+do hot-swap. O teste de remontagem inclui confirmação aceita já vencida.
 
 **Contenção ao configurar comandos (16/10/2026): In Progress.** O coordenador
 aplica recuo de 30s até 5min após falha na retenção/compactação, sem atrasar
