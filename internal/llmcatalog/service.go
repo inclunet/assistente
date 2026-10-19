@@ -44,9 +44,11 @@ type Config struct {
 
 // Snapshot é o documento servido junto do estado de frescor do cache.
 type Snapshot struct {
-	Document   Document
-	FetchedAt  time.Time
-	Age        time.Duration
+	Document  Document
+	FetchedAt time.Time
+	Age       time.Duration
+	// FromCache indica que o documento servido veio do payload persistido; uma
+	// resposta 304 revalida esse payload, mas não fornece um documento novo.
 	FromCache  bool
 	Stale      bool
 	Refreshing bool
@@ -74,6 +76,8 @@ type Service struct {
 	lastModified string
 	loaded       bool
 	started      bool
+	closed       bool
+	cancelStart  context.CancelFunc
 	refreshing   atomic.Bool
 	background   sync.WaitGroup
 }
@@ -109,19 +113,23 @@ func New(cfg Config) *Service {
 // da interface. Chamadas repetidas são seguras.
 func (s *Service) Start(ctx context.Context) {
 	s.mu.Lock()
-	if s.started {
+	if s.started || s.closed {
 		s.mu.Unlock()
 		return
 	}
 	s.started = true
+	startCtx, cancelStart := context.WithCancel(ctx)
+	s.cancelStart = cancelStart
+	s.background.Add(1)
 	s.mu.Unlock()
+	defer s.background.Done()
 
 	s.loadCache()
 	s.mu.RLock()
 	needsRefresh := !s.loaded || s.now().Sub(s.snapshot.FetchedAt) >= s.ttl
 	s.mu.RUnlock()
 	if needsRefresh {
-		s.refreshInBackground(ctx)
+		s.refreshInBackground(startCtx)
 	}
 }
 
@@ -139,25 +147,38 @@ func (s *Service) Snapshot() Snapshot {
 	return snapshot
 }
 
-// Refresh executa uma atualização explícita. Uma resposta inválida ou uma
-// falha de rede mantém o último documento validado.
+// Refresh tenta atualizar explicitamente. Chamadas sobrepostas são
+// coalescidas e retornam o snapshot corrente do serviço, que pode refletir
+// outra atualização já publicada. Falha mantém o último documento validado.
 func (s *Service) Refresh(ctx context.Context) (snapshot Snapshot) {
-	if !s.refreshing.CompareAndSwap(false, true) {
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
 		return s.Snapshot()
 	}
+	if !s.refreshing.CompareAndSwap(false, true) {
+		s.mu.Unlock()
+		return s.Snapshot()
+	}
+	s.background.Add(1)
+	s.mu.Unlock()
 	defer func() {
 		s.refreshing.Store(false)
 		snapshot = s.Snapshot()
+		s.background.Done()
 	}()
 	_ = s.refresh(ctx)
 	return
 }
 
 func (s *Service) refreshInBackground(ctx context.Context) {
-	if !s.refreshing.CompareAndSwap(false, true) {
+	s.mu.Lock()
+	if s.closed || !s.refreshing.CompareAndSwap(false, true) {
+		s.mu.Unlock()
 		return
 	}
 	s.background.Add(1)
+	s.mu.Unlock()
 	go func() {
 		defer s.background.Done()
 		defer s.refreshing.Store(false)
@@ -165,11 +186,20 @@ func (s *Service) refreshInBackground(ctx context.Context) {
 	}()
 }
 
-// Close espera a busca de fundo terminar; o contexto de startup deve ser
-// cancelado antes da chamada para interromper o request em andamento.
-func (s *Service) Close() { s.background.Wait() }
+// Close cancela o contexto de startup e aguarda inicialização e atualizações
+// em segundo plano e explícitas.
+func (s *Service) Close() {
+	s.mu.Lock()
+	s.closed = true
+	cancelStart := s.cancelStart
+	s.mu.Unlock()
+	if cancelStart != nil {
+		cancelStart()
+	}
+	s.background.Wait()
+}
 
-func (s *Service) refresh(parent context.Context) (retErr error) {
+func (s *Service) refresh(parent context.Context) error {
 	ctx, cancel := context.WithTimeout(parent, requestTimeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, URL, nil)
@@ -193,11 +223,9 @@ func (s *Service) refresh(parent context.Context) (retErr error) {
 		s.setReason("unreachable")
 		return err
 	}
-	defer func() {
-		if err := resp.Body.Close(); err != nil {
-			retErr = errors.Join(retErr, fmt.Errorf("fechar resposta do catálogo: %w", err))
-		}
-	}()
+	// A resposta já foi obtida; falha de limpeza do body não invalida um
+	// catálogo que foi lido, validado e persistido com sucesso.
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode == http.StatusNotModified {
 		if !loaded {
 			s.setReason("malformed_catalog")
@@ -296,6 +324,12 @@ func (s *Service) loadCache() {
 	document, err := Decode(envelope.Document)
 	if err != nil {
 		return
+	}
+	now := s.now()
+	if envelope.FetchedAt.After(now) {
+		// Mantém o último documento válido, mas força revalidação após desvio
+		// do relógio ou adulteração do timestamp, sem tratá-lo como fresco.
+		envelope.FetchedAt = now.Add(-s.ttl)
 	}
 	s.mu.Lock()
 	s.snapshot = Snapshot{Document: document, FetchedAt: envelope.FetchedAt, FromCache: true}

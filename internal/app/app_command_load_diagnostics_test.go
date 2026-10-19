@@ -17,6 +17,7 @@ import (
 	"assistente/internal/commandexecution"
 	"assistente/internal/commandjobactivation"
 	"assistente/internal/commandjobevents"
+	"assistente/internal/commandruntime"
 	"assistente/internal/logging"
 )
 
@@ -62,6 +63,28 @@ func commandLoadRecords(t *testing.T, b *commandLoadLogBuffer) []map[string]any 
 }
 
 type commandLoadCodedError struct{}
+
+func TestCommandLoadDiagnosticsLifecycleFailureDoesNotExposeLastError(t *testing.T) {
+	b := captureCommandLoadLogs(t)
+	ctx, trace := beginCommandLoad(context.Background(), "keyboard_map_load")
+	commandLoadStage(ctx, "lifecycle")
+	commandLoadLifecycle(ctx, commandruntime.Snapshot{State: commandruntime.StateFailed, LastError: "SECRET SQL and session"}, nil)
+	trace.finish(commandruntime.ErrNotReady)
+	records := commandLoadRecords(t, b)
+	if len(records) != 1 || records[0]["lifecycle_state"] != "failed" || records[0]["lifecycle_published"] != false || records[0]["lifecycle_available"] != true {
+		t.Fatalf("estado de lifecycle ausente: %+v", records)
+	}
+	if strings.Contains(b.text(), "SECRET") {
+		t.Fatal("diagnóstico expôs LastError")
+	}
+	ctx, trace = beginCommandLoad(context.Background(), "keyboard_map_load")
+	commandLoadLifecycle(ctx, commandruntime.Snapshot{}, errors.New("SECRET"))
+	trace.finish(commandruntime.ErrNotReady)
+	records = commandLoadRecords(t, b)
+	if records[1]["lifecycle_available"] != false || strings.Contains(b.text(), "SECRET") {
+		t.Fatalf("diagnóstico de lifecycle ausente inválido: %+v", records[1])
+	}
+}
 
 func (commandLoadCodedError) Error() string { return "SECRET SQL arguments and user data" }
 func (commandLoadCodedError) Code() int     { return 517 }

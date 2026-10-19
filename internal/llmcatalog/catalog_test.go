@@ -1,6 +1,7 @@
 package llmcatalog
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"strings"
@@ -39,6 +40,10 @@ func TestDecodeRejectsInvalidDocuments(t *testing.T) {
 		{name: "voices nulo", json: strings.Replace(minimalCatalog, `"canonical_model_id":"vendor/model"`, `"canonical_model_id":"vendor/model","voices":null`, 1), want: ".voices não pode ser null"},
 		{name: "userinfo em URL de servidor", json: strings.Replace(minimalCatalog, `"group":"custom"`, `"group":"local","base_url":"https://usuario:senha@localhost:1234"`, 1), want: "URL inválida"},
 		{name: "http em provedor hospedado", json: strings.Replace(minimalCatalog, `"group":"custom"`, `"group":"hosted","base_url":"http://api.example.com"`, 1), want: "esquema não permitido"},
+		{name: "http em host remoto", json: strings.Replace(minimalCatalog, `"group":"custom"`, `"group":"proxy","base_url":"http://gateway.example.com/v1"`, 1), want: "URL inválida"},
+		{name: "http em ipv4 loopback inválido", json: strings.Replace(minimalCatalog, `"group":"custom"`, `"group":"local","base_url":"http://127.999.0.1/v1"`, 1), want: "URL inválida"},
+		{name: "http localhost não canônico", json: strings.Replace(minimalCatalog, `"group":"custom"`, `"group":"local","base_url":"http://LOCALHOST:11434/v1"`, 1), want: "URL inválida"},
+		{name: "http ipv6 loopback não canônico", json: strings.Replace(minimalCatalog, `"group":"custom"`, `"group":"local","base_url":"http://[0:0:0:0:0:0:0:1]:11434/v1"`, 1), want: "URL inválida"},
 		{name: "json final excedente", json: minimalCatalog + ` {}`, want: "há conteúdo após o JSON"},
 	}
 	for _, test := range tests {
@@ -48,6 +53,33 @@ func TestDecodeRejectsInvalidDocuments(t *testing.T) {
 				t.Fatalf("Decode() erro = %v; esperado conter %q", err, test.want)
 			}
 		})
+	}
+}
+
+func TestDecodeAllowsHTTPOnlyForLoopbackCatalogURLs(t *testing.T) {
+	for _, baseURL := range []string{
+		"http://localhost:11434/v1",
+		"http://127.12.34.56:11434/v1",
+		"http://[::1]:11434/v1",
+	} {
+		t.Run(baseURL, func(t *testing.T) {
+			catalog := strings.Replace(minimalCatalog, `"group":"custom"`, `"group":"local","base_url":"`+baseURL+`"`, 1)
+			if _, err := Decode([]byte(catalog)); err != nil {
+				t.Fatalf("URL loopback deve ser aceita: %v", err)
+			}
+		})
+	}
+}
+
+func TestDecodeAllowsAdditionalEndpointNamesOnlyForSupportedPaths(t *testing.T) {
+	withCustomName := strings.Replace(minimalCatalog, `"auth":{`, `"endpoints":{"custom_metrics":{"path":"/models"}},"auth":{`, 1)
+	if _, err := Decode([]byte(withCustomName)); err != nil {
+		t.Fatalf("nome adicional permitido pelo schema deve aceitar rota allowlisted: %v", err)
+	}
+
+	withUnsupportedPath := strings.Replace(minimalCatalog, `"auth":{`, `"endpoints":{"custom_metrics":{"path":"/custom"}},"auth":{`, 1)
+	if _, err := Decode([]byte(withUnsupportedPath)); err == nil || !strings.Contains(err.Error(), "rota não permitida") {
+		t.Fatalf("rota fora da allowlist deveria ser rejeitada: %v", err)
 	}
 }
 
@@ -99,6 +131,7 @@ func TestCloneIsIndependent(t *testing.T) {
 
 func TestClonePreservesEmptyVoiceItems(t *testing.T) {
 	raw := strings.Replace(minimalCatalog, `"canonical_model_id":"vendor/model"`, `"canonical_model_id":"vendor/model","selection_mode":"model_only","voices":{"completeness":"complete","items":[]}`, 1)
+	raw = strings.Replace(raw, `"policy":"editable","required":true`, `"policy":"fixed","default":null`, 1)
 	doc, err := Decode([]byte(raw))
 	if err != nil {
 		t.Fatalf("catálogo com lista de vozes vazia deve ser válido: %v", err)
@@ -107,11 +140,22 @@ func TestClonePreservesEmptyVoiceItems(t *testing.T) {
 	if doc.Exposures[0].Voices.Items == nil || clone.Exposures[0].Voices.Items == nil {
 		t.Fatal("Clone converteu voices.items vazio em null")
 	}
-	encoded, err := json.Marshal(clone.Exposures[0])
+	encoded, err := json.Marshal(clone)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(encoded), `"items":[]`) {
 		t.Fatalf("voices.items deveria permanecer array vazio: %s", encoded)
+	}
+	roundTrip, err := Decode(encoded)
+	if err != nil {
+		t.Fatalf("round-trip do documento serializado: %v", err)
+	}
+	reencoded, err := json.Marshal(roundTrip)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(encoded, reencoded) {
+		t.Fatalf("round-trip não idempotente:\n primeiro: %s\nsegundo: %s", encoded, reencoded)
 	}
 }

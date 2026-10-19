@@ -677,38 +677,71 @@ func (a *App) refreshCommandProductCatalog(ctx context.Context) error {
 	if a == nil || ctx == nil {
 		return commandexecution.ErrInvalidConfiguration
 	}
+	if a.commandProduct.Load() == nil {
+		return nil // mudança pré-login: o próximo mount lê o catálogo atual.
+	}
+	return a.refreshCommandProductCatalogForRecovery(ctx, nil)
+}
+
+func (a *App) refreshCommandProductCatalogForRecovery(ctx context.Context, ticket *commandCatalogRecoveryTicket) error {
+	if a == nil || ctx == nil {
+		return commandexecution.ErrInvalidConfiguration
+	}
+	commandLoadStage(ctx, "bootstrap_wait")
 	if err := a.lockCommandBootstrap(ctx); err != nil {
 		return err
 	}
 	defer a.unlockCommandBootstrap()
-	p := a.commandProduct.Load()
-	if p == nil {
-		return nil // mudança pré-login: o próximo mount lê o catálogo atual.
+	if ticket != nil && !ticket.current(a) {
+		return commandexecution.ErrStale
 	}
-	if !p.dependenciesMatch(a) {
+	p := a.commandProduct.Load()
+	if p != nil && !p.dependenciesMatch(a) {
 		return commandexecution.ErrStale
 	}
 	lifecycle := a.commandLifecycle.Load()
-	if lifecycle == nil {
-		return commandruntime.ErrNotReady
+	lifecycleAlreadyStopping := false
+	if lifecycle != nil {
+		state := lifecycle.Snapshot().State
+		lifecycleAlreadyStopping = state == commandruntime.StateStopping || state == commandruntime.StateStopped
 	}
-	if err := ResetCommandLifecycle(ctx, a, "tool_catalog_changed"); err != nil {
-		return err
+	if lifecycle != nil && !lifecycleAlreadyStopping {
+		commandLoadStage(ctx, "reset")
+		if err := ResetCommandLifecycle(ctx, a, "tool_catalog_changed"); err != nil {
+			return err
+		}
 	}
-	if err := p.Shutdown(ctx); err != nil {
-		return err
+	if ticket != nil && !ticket.current(a) {
+		return commandexecution.ErrStale
 	}
-	if err := a.shutdownMountedCommandLifecycle(ctx, lifecycle); err != nil {
-		return err
+	if p != nil {
+		commandLoadStage(ctx, "product_shutdown")
+		if err := p.Shutdown(ctx); err != nil {
+			return err
+		}
 	}
-	if p.bridge != nil {
-		if err := p.bridge.Shutdown(ctx); err != nil {
+	if lifecycle != nil {
+		commandLoadStage(ctx, "lifecycle_shutdown")
+		if err := a.shutdownMountedCommandLifecycle(ctx, lifecycle); err != nil {
+			return err
+		}
+	}
+	if ticket != nil && !ticket.current(a) {
+		return commandexecution.ErrStale
+	}
+	bridge := a.commandBridge.Load()
+	if p != nil && p.bridge != nil {
+		bridge = p.bridge
+	}
+	if bridge != nil {
+		commandLoadStage(ctx, "bridge_shutdown")
+		if err := bridge.Shutdown(ctx); err != nil {
 			return err
 		}
 	}
 	a.commandLifecycleMount.Lock()
 	a.authMu.Lock()
-	if a.commandProduct.Load() != p || a.commandLifecycle.Load() != nil {
+	if a.commandProduct.Load() != p || a.commandLifecycle.Load() != nil || a.commandBridge.Load() != bridge {
 		a.authMu.Unlock()
 		a.commandLifecycleMount.Unlock()
 		return commandexecution.ErrStale
@@ -718,12 +751,25 @@ func (a *App) refreshCommandProductCatalog(ctx context.Context) error {
 	a.commandRegistry = nil
 	a.authMu.Unlock()
 	a.commandLifecycleMount.Unlock()
+	if ticket != nil && !ticket.current(a) {
+		return commandexecution.ErrStale
+	}
+	commandLoadStage(ctx, "product_mount")
 	if err := a.mountCommandProduct(ctx); err != nil {
 		return err
 	}
+	commandLoadStage(ctx, "decision_recovery")
+	if err := a.recoverCurrentCommandDecisionSession(ctx); err != nil {
+		return err
+	}
+	if ticket != nil && !ticket.current(a) {
+		return commandexecution.ErrStale
+	}
+	commandLoadStage(ctx, "projection_rebuild")
 	if err := a.rebuildCommandLifecyclePersistedConfiguration(ctx); err != nil {
 		return err
 	}
+	commandLoadStage(ctx, "bootstrap")
 	if err := BootstrapCommandLifecycle(ctx, a); err != nil {
 		return err
 	}

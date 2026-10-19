@@ -62,7 +62,12 @@ suportado; não há uma opção genérica para liberar campos bloqueados. Campos
 `fixed` são enviados a partir do catálogo, sem controle editável na UI.
 URLs do catálogo não podem carregar userinfo (usuário/senha embutidos); chaves
 e credenciais nunca pertencem ao asset público. Perfis `hosted` exigem `https`;
-perfis locais e de proxy podem declarar `http` quando o endpoint assim exigir.
+URLs `http` no catálogo só podem apontar para loopback (`localhost`, `127.0.0.0/8`
+ou `::1`), inclusive em perfis locais e de proxy. Isso impede que uma alteração
+indevida no asset direcione credenciais para um host remoto sem TLS. URLs remotas
+`http` informadas manualmente pelo usuário exigem aviso e autorização explícita
+antes de qualquer envio de credencial; a fase 3 deve integrar esse percurso ao
+contrato de decisão/autorização de rede já existente.
 
 Os perfis catalogados fornecem defaults e restrições de interface, não
 substituem configurações já salvas. Atualizar o catálogo não reescreve endpoint,
@@ -222,7 +227,9 @@ altera conexões existentes nem sobrepõe a identidade explícita persistida.
    URL fixa sem seguir redirects, validar estrutura e integridade semântica,
    persistir atomicamente a última versão válida com ETag/Last-Modified e expor
    snapshots tipados por API Wails. O cache é carregado localmente e a atualização
-   ocorre em segundo plano; falhas mantêm o snapshot válido anterior.
+    ocorre em segundo plano; falhas mantêm o snapshot válido anterior. Timestamps
+    futuros no cache mantêm o documento disponível como stale e forçam
+    revalidação; o shutdown aguarda refreshes explícitos e de fundo.
 3. **Configuração de provedores pelo catálogo — em andamento.** A persistência
    explícita de `server_profile_id` e o consumo pelo formulário de provedores
    estão implementados: o formulário lista perfis ativos, usa allowlists locais
@@ -231,15 +238,15 @@ altera conexões existentes nem sobrepõe a identidade explícita persistida.
    catálogo falha e preserva valores salvos e entradas manuais digitadas
    enquanto o catálogo carrega, sem associar perfis a conexões legadas. O
    modelo padrão fixo só preenche conexões vinculadas quando não existe valor
-   salvo; modelos existentes têm precedência. O
-   caminho Ollama mantém o adaptador runtime atual sem mapear
-   genericamente o formato de catálogo `ollama`. Evidência da UI: `ProviderForm.tsx`
-   e testes focados do formulário no PR da UI. A substituição dos defaults da
-   fábrica backend por perfis do catálogo continua pendente para o próximo PR
-   empilhado. O perfil Cohere permanece oculto na UI até que o runtime suporte
-   a rota `/compatibility/v1/chat/completions` anunciada no asset; a configuração
-   manual segue disponível. Modelos e vozes permanecem nas fases seguintes.
-4. **Modelos, capacidades e proxies.** Associar IDs expostos apenas por
+   salvo; modelos existentes têm precedência. O caminho Ollama mantém o
+   adaptador runtime atual sem mapear genericamente o formato de catálogo
+   `ollama`. HTTP remoto digitado manualmente anuncia o risco e exige autorização
+   antes de transmitir credenciais; perfis remotos do catálogo não permitem HTTP.
+   Evidência da UI: `frontend/src/components/settings/ProviderForm.tsx` e testes
+   focados. A substituição dos defaults da fábrica backend por perfis do catálogo
+   continua pendente. O perfil Cohere cuja rota catalogada não é suportada não
+   aparece como funcional; a configuração manual segue disponível. Modelos e
+   vozes permanecem nas fases seguintes.4. **Modelos, capacidades e proxies.** Associar IDs expostos apenas por
    mapeamento exato e integrar recursos/limites sem impedir aliases
    desconhecidos.
 5. **Vozes TTS na API do catálogo.** Integrar a coleção de vozes do asset ao
@@ -264,6 +271,9 @@ altera conexões existentes nem sobrepõe a identidade explícita persistida.
 - Políticas de campos muito rígidas podem impedir configuração necessária;
   cada campo e perfil deve declarar a política e permitir opções suportadas
   suficientes para o uso pretendido.
+- HTTP remoto pode expor credenciais; o catálogo limita esse esquema a loopback,
+  e a configuração manual precisa obter autorização explícita antes do primeiro
+  envio de credencial.
 - Confiar em JSON remoto para selecionar comportamento executável ampliaria a
   superfície de ataque; tratar o catálogo como dados validados e usar
   adaptadores locais allowlisted.
@@ -287,27 +297,32 @@ altera conexões existentes nem sobrepõe a identidade explícita persistida.
   limita o tamanho do documento e grava cache por substituição atômica. Evidência:
   `internal/llmcatalog/service.go` e `GetLLMCatalog` em
   `internal/wailsapi/llm_catalog.go`.
-- [x] O formulário de provedores consome perfis ativos do catálogo por seleção
-  explícita, aplica políticas fixas/editáveis/choice/hidden para campos
-  estruturais, apresenta links acessíveis e localizados e oferece perfil
-  customizado com aviso localizado quando o catálogo está indisponível. O
-  formulário usa allowlists locais, mantém conexões legadas sem perfil e não
-  substitui URL/formato que a pessoa editou enquanto aguardava a resposta do
-  catálogo; o perfil Cohere cuja rota catalogada não é suportada não aparece
-  como perfil funcional, permanecendo disponível a opção personalizada. Ao
-  editar conexão vinculada com modelo fixo, aplica o default somente se não
-  houver modelo salvo.
-  Evidência: `frontend/src/components/settings/ProviderForm.tsx`, testes focados
-  em `ProviderForm.test.tsx` (incluindo resposta assíncrona atrasada) e
-  `ProviderForm.edit.test.tsx` no PR de UI da fase 3.
-- [ ] A fábrica de defaults do backend consome perfis do catálogo em vez de
-  manter presets duplicados; pendente para o próximo PR empilhado da fase 3.
-- [x] A conexão persiste o ID do perfil de servidor escolhido explicitamente,
+    ocorre em segundo plano; falhas mantêm o snapshot válido anterior. Timestamps
+    futuros no cache mantêm o documento disponível como stale e forçam
+    revalidação; o shutdown aguarda refreshes explícitos e de fundo.
+3. **Configuração de provedores pelo catálogo — em andamento.** A persistência
+   explícita de `server_profile_id` e o consumo pelo formulário de provedores
+   estão implementados: o formulário lista perfis ativos, usa allowlists locais
+   para família/formato/autenticação, aplica políticas de campos, oferece
+   links acessíveis e localizados, mantém configuração customizada quando o
+   catálogo falha e preserva valores salvos e entradas manuais digitadas
+   enquanto o catálogo carrega, sem associar perfis a conexões legadas. O
+   modelo padrão fixo só preenche conexões vinculadas quando não existe valor
+   salvo; modelos existentes têm precedência. O caminho Ollama mantém o
+   adaptador runtime atual sem mapear genericamente o formato de catálogo
+   `ollama`. HTTP remoto digitado manualmente anuncia o risco e exige autorização
+   antes de transmitir credenciais; perfis remotos do catálogo não permitem HTTP.
+   Evidência da UI: `frontend/src/components/settings/ProviderForm.tsx` e testes
+   focados. A substituição dos defaults da fábrica backend por perfis do catálogo
+   continua pendente. O perfil Cohere cuja rota catalogada não é suportada não
+   aparece como funcional; a configuração manual segue disponível. Modelos e
+   vozes permanecem nas fases seguintes.- [x] A conexão persiste o ID do perfil de servidor escolhido explicitamente,
   preserva a associação em exportação/importação e deixa conexões antigas sem
   perfil; agentes ACP e a conexão OAuth do ChatGPT não recebem perfil HTTP.
   Evidência: `llm.ProviderConfig.ServerProfileID`, coluna aditiva
   `llm_providers.server_profile_id`, conversão no `DBStore` e cobertura em
-  `db_store_stream_timeout_test.go` e `portability/providers_catalog_test.go`.
+  `db_store_stream_timeout_test.go`, `portability/providers_catalog_test.go` e
+  rejeição em `providers/chatgpt_test.go` para updates de OAuth.
 - [ ] Atualizar o catálogo não sobrescreve configurações existentes nem envia
   dados locais ao site.
 - [ ] Modelos e aliases só recebem capacidades por associação exata; IDs sem
