@@ -300,7 +300,8 @@ altera conexões existentes nem sobrepõe a identidade explícita persistida.
   perfil; agentes ACP e a conexão OAuth do ChatGPT não recebem perfil HTTP.
   Evidência: `llm.ProviderConfig.ServerProfileID`, coluna aditiva
   `llm_providers.server_profile_id`, conversão no `DBStore` e cobertura em
-  `db_store_stream_timeout_test.go` e `portability/providers_catalog_test.go`.
+  `db_store_stream_timeout_test.go`, `portability/providers_catalog_test.go` e
+  rejeição em `providers/chatgpt_test.go` para updates de OAuth.
 - [ ] Atualizar o catálogo não sobrescreve configurações existentes nem envia
   dados locais ao site.
 - [ ] Modelos e aliases só recebem capacidades por associação exata; IDs sem

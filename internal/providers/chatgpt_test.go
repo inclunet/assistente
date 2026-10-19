@@ -886,8 +886,10 @@ func TestChatGPTPreferencesPreserveAuthorizationAndDefault(t *testing.T) {
 }
 
 func TestChatGPTPreferencesRejectConnectionMutations(t *testing.T) {
+	profileID := "openrouter"
 	for name, req := range map[string]UpdateRequest{
 		"type": {Type: "openai"}, "url": {BaseURL: "https://other.test"},
+		"server-profile": {ServerProfileID: &profileID},
 		"format": {APIFormat: "openai"}, "key": {APIKey: "secret"},
 		"reasoning": {ReasoningContentMode: "enabled"}, "command": {ACPCommand: "agent"},
 		"args": {ACPArgs: new([]string)}, "env": {ACPEnv: new(map[string]string)},
@@ -905,7 +907,7 @@ func TestChatGPTPreferencesRejectConnectionMutations(t *testing.T) {
 				t.Fatal("invalid edit accepted")
 			}
 			saved, err := s.store.Get(ctx, created.ID)
-			if err != nil || saved.Name != "Original" || saved.DefaultModel != "" {
+			if err != nil || saved.Name != "Original" || saved.DefaultModel != "" || saved.ServerProfileID != "" {
 				t.Fatal("invalid edit mutated provider")
 			}
 		})
