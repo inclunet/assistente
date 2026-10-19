@@ -286,7 +286,7 @@ describe("ProviderForm - Restrições de URL em Edição", () => {
     const profileSelect = screen.getByLabelText(/perfil de servidor/i);
     await waitFor(() => expect(profileSelect).toHaveValue('retired-gateway'));
     expect(screen.getByRole('option', { name: /profileUnavailable/ })).toBeDisabled();
-    expect(screen.getByRole('status')).toHaveTextContent('profileUnavailableHelp');
+    expect(screen.getByText('providerForm.profileUnavailableHelp')).toBeInTheDocument();
     expect(screen.getByLabelText(/base url/i)).toHaveValue('https://gateway.example/v1');
   });
 

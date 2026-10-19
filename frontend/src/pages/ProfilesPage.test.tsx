@@ -3,13 +3,22 @@ import type { ReactNode } from 'react';
 import { useEffect } from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import type { PageMutationResult } from '../lib/commandPageMutation';
+import type { PageMutationRequest, PageMutationResult } from '../lib/commandPageMutation';
+
+type MockPreparedPageMutation = {
+  readRequest(): Promise<PageMutationRequest>;
+  succeeded?(result: PageMutationResult): void | Promise<void>;
+};
+type MockPageMutationOptions = {
+  allowedCommands: readonly string[];
+  prepare(commandId: string): MockPreparedPageMutation | undefined;
+};
 
 const mockReadProfileCommandTarget = vi.fn();
 const mockRequestFormPageMutation = vi.fn();
 const mockRequestRootPageMutation = vi.fn();
-let formMutationOptions: any;
-let rootMutationOptions: any;
+let formMutationOptions: MockPageMutationOptions;
+let rootMutationOptions: MockPageMutationOptions;
 const mockNavigate = vi.fn();
 const mockSetActiveTab = vi.fn();
 const mockRequestOpen = vi.fn();
@@ -131,7 +140,7 @@ vi.mock('../lib/commandPageMutationWails', () => ({
 }));
 
 vi.mock('../lib/commandPageMutation', () => ({
-  usePageMutationCommands: (options: any) => {
+  usePageMutationCommands: (options: MockPageMutationOptions) => {
     if (options.allowedCommands.includes('profiles.create')) {
       formMutationOptions = options;
       return { request: mockRequestFormPageMutation };
@@ -287,7 +296,7 @@ function mutationResult(commandId: string, request: { targetId?: string; profile
   return { id: request.targetId || 'padrao', title: request.profile?.name || 'Perfil Padrão' };
 }
 
-async function executeMockPageMutation(commandId: string, options: any) {
+async function executeMockPageMutation(commandId: string, options: MockPageMutationOptions) {
   const prepared = options.prepare(commandId);
   if (!prepared) return { status: 'cancelled' };
   const request = await prepared.readRequest();
