@@ -102,11 +102,7 @@ func TestFieldPolicyPreservesExplicitNullDefault(t *testing.T) {
 	if err != nil {
 		t.Fatalf("default null explícito deve ser válido: %v", err)
 	}
-	encoded, err := json.Marshal(doc.Servers[0].Fields["base_url"])
-	if err != nil {
-		t.Fatal(err)
-	}
-	encoded, err = json.Marshal(doc.Servers[0].Fields["default_model_id"])
+	encoded, err := json.Marshal(doc.Servers[0].Fields["default_model_id"])
 	if err != nil {
 		t.Fatal(err)
 	}
