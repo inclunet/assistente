@@ -116,13 +116,45 @@ func Validate(doc Document) error {
 					return invalid(path+".fields.auth.mode.default", "deve ser um modo de autenticação suportado quando policy=fixed")
 				}
 			}
+			if policy.Policy == "choice" {
+				switch name {
+				case "base_url":
+					for _, choice := range policy.Choices {
+						value, ok := choice.(string)
+						if !ok || !validURL(value, server.Group == "hosted") {
+							return invalid(path+".fields.base_url.choices", "cada opção deve ser uma URL válida para o grupo do servidor")
+						}
+					}
+				case "api_format":
+					for _, choice := range policy.Choices {
+						value, ok := choice.(string)
+						if !ok || !apiFormats[value] {
+							return invalid(path+".fields.api_format.choices", "cada opção deve ser um formato de API suportado")
+						}
+					}
+				case "auth.mode":
+					for _, choice := range policy.Choices {
+						value, ok := choice.(string)
+						if !ok || !oneOf(value, "bearer_api_key", "api_key_header", "optional_api_key", "none") {
+							return invalid(path+".fields.auth.mode.choices", "cada opção deve ser um modo de autenticação suportado")
+						}
+					}
+				case "default_model_id":
+					for _, choice := range policy.Choices {
+						value, ok := choice.(string)
+						if !ok || value != strings.TrimSpace(value) || !lengthBetween(strings.TrimSpace(value), 1, 200) {
+							return invalid(path+".fields.default_model_id.choices", "cada opção deve ter de 1 a 200 caracteres")
+						}
+					}
+				}
+			}
 			if name == "default_model_id" && policy.Policy == "fixed" {
 				model, ok := policy.Default.(string)
 				if policy.Default == nil {
 					model = server.DefaultModelID
 					ok = strings.TrimSpace(model) != ""
 				}
-				if !ok || !lengthBetween(strings.TrimSpace(model), 1, 200) {
+				if !ok || model != strings.TrimSpace(model) || !lengthBetween(strings.TrimSpace(model), 1, 200) {
 					return invalid(path+".fields.default_model_id.default", "deve ser um modelo de 1 a 200 caracteres quando policy=fixed")
 				}
 			}
