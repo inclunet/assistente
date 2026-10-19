@@ -1023,6 +1023,7 @@ export function buildWailsMockScript(): string {
       Conversations: makeProxy('wailsapi.Conversations'),
       Speech: makeProxy('wailsapi.Speech'),
       Jobs: makeProxy('wailsapi.Jobs'),
+      LLMCatalog: makeProxy('wailsapi.LLMCatalog'),
       LLMProviders: makeProxy('wailsapi.LLMProviders'),
       LLMModels: makeProxy('wailsapi.LLMModels'),
       Chat: makeProxy('wailsapi.Chat'),
