@@ -62,6 +62,7 @@ test('Novo provedor compartilha menu por botão e Ctrl+N, separa API e restaura 
   await expect(page.getByRole('menu')).toHaveCount(0);
   await expect(page.locator('.provider-form')).toBeVisible();
   await wails.setResponse('ListModelsRaw', ['test-model']);
+  await page.getByLabel(/Perfil de servidor/).selectOption('openai');
   await expect(page.getByLabel('Base URL')).toHaveValue('https://api.openai.com/v1');
   await page.getByLabel(/^Nome/).fill('API via ambiente');
   const configureCredential = page.getByRole('button', { name: 'Configurar credencial', exact: true });
