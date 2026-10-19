@@ -248,7 +248,7 @@ describe("ProviderForm - Restrições de URL em Edição", () => {
     const url = 'http://gateway.example.test/v1';
     render(<ProviderForm provider={{
       id: 'custom-http', name: 'Gateway', type: 'custom', base_url: url,
-      api_format: 'openai', auth_mode: 'required',
+      api_key: '', api_format: 'openai', auth_mode: 'required',
       insecure_http_authorized_url: url,
     }} onCancel={() => {}} onSave={() => {}} />);
 
