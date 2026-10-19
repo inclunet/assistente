@@ -30,6 +30,10 @@ novamente**: a limpeza encerra o recibo, sem repetir a edição de configuraçã
 Confirmações ainda válidas e pendências de outras sessões não são descartadas
 para forçar a ativação do mapa. Sessão, cofre e estado do sistema operacional
 continuam sendo verificados durante a recuperação.
+Se você trocar de workspace enquanto o catálogo estiver sendo reconstruído,
+a troca aguarda essa etapa e recompõe os comandos para o workspace selecionado.
+Isso não reaproveita permissões do workspace anterior nem reativa comandos
+depois de sair da conta.
 
 A atualização das reservas de teclas globais não apaga o mapa local enquanto
 seu substituto está carregando. O mapa vigente só permanece disponível enquanto

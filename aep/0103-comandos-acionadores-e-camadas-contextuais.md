@@ -42,6 +42,16 @@ sessão/workspace e shutdown impedem reaproveitar sua autoridade. O teste
 SQLite no preflight e comprova publicação nova após liberar o armazenamento,
 sem outro evento MCP e sem reabilitar o produto anterior.
 
+Revisão de 19/10: a troca de workspace não ignora mais a reconstrução ao
+observar o produto temporariamente ausente durante hot-swap. A decisão ocorre
+sob a barreira de bootstrap; o callback existente da troca confirmada remonta
+apenas com runtime configurado e sessão presente. O ticket antigo continua
+inválido. Testes `TestCommandWorkspaceReloadRecoversCatalogUnmountedDuringSwitch`,
+`TestCommandWorkspaceReloadWithoutProductDoesNotMountAfterLogout` e
+`TestCommandWorkspaceReloadWithoutConfiguredRuntimeIsNoop` cobrem retomada e
+recusas. `TestCommandCatalogRecoveryStopJoinsWhileBootstrapRemainsOwned`
+comprova join por cancelamento sem depender da liberação da barreira.
+
 **Contenção ao configurar comandos (16/10/2026): In Progress.** O coordenador
 aplica recuo de 30s até 5min após falha na retenção/compactação, sem atrasar
 heartbeat, outbox ou recuperação. A pausa não muda autorização, proteção de

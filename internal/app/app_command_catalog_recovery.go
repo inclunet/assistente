@@ -103,6 +103,9 @@ func (a *App) requestCommandCatalogRecovery() {
 	// Captura e publicação do ticket são serializadas: uma requisição antiga
 	// não pode sobrescrever uma captura mais recente após trocar de sessão.
 	// A captura só lê memória; não acessa banco, rede ou o próprio worker.
+	// Ordem: recoveryMu -> leituras curtas de auth/lifecycle/workspace.
+	// Não chamar request/stop segurando esses locks; o join de stop ocorre
+	// após liberar recoveryMu, antes dos locks de teardown do App.
 	ticket := a.captureCommandCatalogRecoveryTicket()
 	if a.commandCatalogRecoveryRunning {
 		a.commandCatalogRecoveryPendingTicket = ticket

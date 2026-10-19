@@ -12,7 +12,7 @@ import (
 // serializa trocas e só emite workspace:switched depois desta reconstrução.
 // Não roda em troca de aba e não mantém authMu/DispatchGate durante o bootstrap.
 func (a *App) reloadCommandsAfterWorkspaceSwitch() {
-	if a == nil || a.commandProduct.Load() == nil {
+	if a == nil {
 		return
 	}
 	ctx := a.commandBridgeContext()
@@ -22,6 +22,21 @@ func (a *App) reloadCommandsAfterWorkspaceSwitch() {
 		return
 	}
 	defer a.unlockCommandBootstrap()
+	// O hot-swap pode ter retirado o produto antes da troca. A decisão de
+	// ignorar o reload precisa ocorrer sob a mesma barreira, não no intervalo
+	// entre desmontagem e remontagem. Sem runtime configurado ou sem sessão,
+	// preserve o no-op pré-login; não reutilize o ticket do workspace anterior.
+	if a.commandProduct.Load() == nil {
+		a.authMu.RLock()
+		configured := a.commandHost != nil
+		a.authMu.RUnlock()
+		if !configured {
+			return
+		}
+		if _, err := a.currentCommandPrincipal(); err != nil {
+			return
+		}
+	}
 	// Primeiro retire a publicação: montar o produto novo sobre o mapa pronto
 	// do workspace anterior abriria uma janela de resolução com deltas errados.
 	cleanup, cancel := context.WithTimeout(context.Background(), time.Second)

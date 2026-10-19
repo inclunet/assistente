@@ -99,3 +99,28 @@ func TestCommandCatalogRecoveryBackoffIsBounded(t *testing.T) {
 		}
 	}
 }
+
+func TestCommandCatalogRecoveryStopJoinsWhileBootstrapRemainsOwned(t *testing.T) {
+	a := commandJobPublicationApp(t)
+	if err := a.lockCommandBootstrap(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer a.unlockCommandBootstrap()
+	a.requestCommandCatalogRecovery()
+	a.commandCatalogRecoveryMu.Lock()
+	done := a.commandCatalogRecoveryDone
+	a.commandCatalogRecoveryMu.Unlock()
+	if done == nil {
+		t.Fatal("worker não iniciou")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	a.stopCommandCatalogRecovery(ctx)
+	// A barreira permanece ocupada: o join depende do cancelamento, não
+	// de liberar bootstrap nem de desmontar os serviços durante shutdown.
+	select {
+	case <-done:
+	default:
+		t.Fatal("stop não conseguiu join enquanto bootstrap estava ocupado")
+	}
+}
