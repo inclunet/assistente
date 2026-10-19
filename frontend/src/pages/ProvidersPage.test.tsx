@@ -335,7 +335,7 @@ describe('ProvidersPage', () => {
     await waitFor(() => expect(mockCreateProvider).toHaveBeenCalledWith(expect.objectContaining({ type, auth_mode, credential_from_provider_id: 'api' })));
   });
 
-  it('preserva aceite HTTP remoto ao editar e duplicar uma conexão', async () => {
+  it('preserva aceite HTTP remoto ao editar, mas não ao duplicar uma conexão', async () => {
     const authorizedURL = 'http://gateway.example.com/v1';
     mockGetProviders.mockResolvedValue([{
       id: 'custom-api', name: 'Gateway', type: 'custom', api_format: 'openai', base_url: authorizedURL,
@@ -351,6 +351,8 @@ describe('ProvidersPage', () => {
     await user.click(screen.getByRole('button', { name: 'Cancelar' }));
 
     await user.click(screen.getAllByRole('button', { name: 'Duplicar' }).find(button => !button.hasAttribute('disabled'))!);
+    expect(mockCreateProvider).not.toHaveBeenCalled();
+    await user.click(await screen.findByRole('button', { name: 'providerForm.insecureHTTP.authorize' }));
     await waitFor(() => expect(mockCreateProvider).toHaveBeenCalledWith(expect.objectContaining({
       insecure_http_authorized_url: authorizedURL,
     })));

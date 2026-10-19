@@ -68,6 +68,28 @@ func TestProviderRegistryRegisterValidation(t *testing.T) {
 	}
 }
 
+func TestProviderRegistryKeepsPendingAuthorizationUnavailableForUse(t *testing.T) {
+	registry := NewProviderRegistry()
+	provider := &ProviderConfig{
+		ID: "legacy-http", Name: "Legacy HTTP", Type: ProviderCustom,
+		BaseURL: "http://gateway.example/v1", AuthMode: AuthModeRequired,
+	}
+	if err := registry.RegisterPendingAuthorization(provider); err != nil {
+		t.Fatalf("RegisterPendingAuthorization: %v", err)
+	}
+	if registry.Get(provider.ID) == nil || registry.GetSnapshot(provider.ID) == nil {
+		t.Fatal("provedor pendente deveria continuar visível para gerenciamento")
+	}
+	if err := registry.Register(provider); err == nil {
+		t.Fatal("Register normal não deve aceitar provedor pendente")
+	}
+
+	provider.InsecureHTTPAuthorizedURL = provider.BaseURL
+	if err := registry.Register(provider); err != nil {
+		t.Fatalf("Register após aceite explícito: %v", err)
+	}
+}
+
 func TestRegistryGenerationRejectsLatePublication(t *testing.T) {
 	r := NewProviderRegistry()
 	p := &ProviderConfig{ID: "session", Name: "Session", Type: ProviderOpenAI, BaseURL: "https://api.openai.com/v1"}

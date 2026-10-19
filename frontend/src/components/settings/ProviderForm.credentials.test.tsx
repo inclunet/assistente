@@ -141,6 +141,24 @@ describe('ProviderForm shared credentials', () => {
   await set('credentials.sourceFields.envName', 'OTHER_TOKEN');
   expect(screen.getByRole('button', { name: 'common.create' })).toBeDisabled();
  });
+ it('uses the editable catalog URL for an OpenAI-family profile', async () => {
+  render(<ProviderForm onSave={() => {}} onCancel={() => {}} />);
+  await set('providerForm.name', 'Gateway');
+  await set('providerForm.serverProfile', 'editable-url-openai-test');
+  await set('providerForm.baseUrl', 'https://proxy.example/v1');
+  await userEvent.click(screen.getByRole('button', { name: 'providerForm.loadModels' }));
+  await screen.findByText('providerForm.connected');
+  expect(vi.mocked(ListModelsRaw).mock.calls[0][0].base_url).toBe('https://proxy.example/v1');
+ });
+ it('rejects URL userinfo before probing even when authentication is disabled', async () => {
+  render(<ProviderForm onSave={() => {}} onCancel={() => {}} />);
+  await set('providerForm.name', 'Gateway');
+  await set('providerForm.serverProfile', 'editable-url-openai-test');
+  await set('providerForm.baseUrl', 'http://user:secret@proxy.example/v1');
+  await userEvent.click(screen.getByRole('button', { name: 'providerForm.loadModels' }));
+  expect(await screen.findByText('providerForm.error.urlInvalid')).toBeInTheDocument();
+  expect(ListModelsRaw).not.toHaveBeenCalled();
+ });
  it('keeps editing and cancellation blocked until the save resolves', async () => {
   let resolve!: (value: Record<string, never>) => void;
   vi.mocked(CreateLLMProvider).mockReturnValue(new Promise(done => { resolve = done; }));

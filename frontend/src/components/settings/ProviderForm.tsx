@@ -17,24 +17,11 @@ import { AgentProviderFields } from './AgentProviderFields';
 export { PROVIDER_CONFIG } from '../../config/providers';
 import { ResourceCredentialEditor } from '../credentials/ResourceCredentialEditor';
 import { credentialInput, validateCredential, type CredentialDraft } from '../credentials/credentialDraft';
+import { requiresRemoteHTTPAuthorization } from './providerHttpAuthorization';
 import './ProviderForm.css';
 const HTTP_CREDENTIAL_TYPES = ['bearer', 'basic', 'custom'];
 const defaultAuthMode = (type: string) => ['ollama', 'llamacpp'].includes(type) ? 'none' : type === 'localai' ? 'optional' : 'required';
 const sameOrigin = (a: string, b: string) => { try { return new URL(a).origin === new URL(b).origin; } catch { return false; } };
-const requiresRemoteHTTPAuthorization = (rawURL: string, authMode: string) => {
-  if (authMode === 'none') return false;
-  try {
-    const url = new URL(rawURL);
-    if (url.protocol !== 'http:') return false;
-    const hostname = url.hostname.toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '');
-    if (hostname === 'localhost' || hostname.endsWith('.localhost') || hostname === '::1') return false;
-    const ipv4 = hostname.split('.').map(Number);
-    return !(ipv4.length === 4 && ipv4.every(part => Number.isInteger(part) && part >= 0 && part <= 255) && ipv4[0] === 127);
-  } catch {
-    return false;
-  }
-};
-
 const PROFILE_FAMILY_TO_RUNTIME_TYPE: Record<string, string> = {
   openai: 'openai', anthropic: 'anthropic', google: 'google', xai: 'xai',
   deepseek: 'deepseek', mistral: 'mistral', groq: 'groq', together: 'together',
@@ -652,6 +639,7 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
       const value = policyValue(profile, 'base_url', profile.base_url);
       if (typeof value === 'string') return value;
     }
+    if (policy) return formData.base_url;
     const config = PROVIDER_CONFIG[type] || PROVIDER_CONFIG.custom;
     
     // Para provedores com URL não editável (comerciais), retorna a URL padrão
@@ -710,6 +698,10 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
     try {
       const parsed = new URL(canonicalUrl);
       if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+        setErrors((prev) => ({ ...prev, base_url: t('providerForm.error.urlInvalid') }));
+        return;
+      }
+      if (parsed.username || parsed.password) {
         setErrors((prev) => ({ ...prev, base_url: t('providerForm.error.urlInvalid') }));
         return;
       }
@@ -961,7 +953,7 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
           fullWidth
         />
       </FormField>
-      {!isAgent && savedProfileUnavailable && <p role="status">
+      {!isAgent && savedProfileUnavailable && <p>
         {t('providerForm.profileUnavailableHelp')}
       </p>}
       {catalogUnavailable && <p>

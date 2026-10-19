@@ -20,6 +20,7 @@ const profiles: Array<[string, string, string, string, string, string]> = [
   ['custom-openai-compatible', 'Custom', 'custom', 'openai', '', 'optional_api_key'],
   ['fixed-model-test', 'OpenAI com modelo fixo', 'openai', 'openai', 'https://api.openai.com/v1', 'bearer_api_key'],
   ['editable-model-test', 'OpenAI com modelo inicial editável', 'openai', 'openai', 'https://api.openai.com/v1', 'bearer_api_key'],
+  ['editable-url-openai-test', 'OpenAI compatível com URL editável', 'openai', 'openai', 'https://api.openai.com/v1', 'none'],
   ['retired-profile-test', 'Perfil descontinuado', 'openai', 'openai', 'https://retired.example/v1', 'bearer_api_key'],
 ];
 

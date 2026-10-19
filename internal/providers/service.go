@@ -151,6 +151,21 @@ func (s *Service) Load(ctx context.Context) error {
 			logging.Infof(ctx, "providers.service", "[providers] api_format de '%s' materializado como %q", p.Name, inferred)
 		}
 		if err := s.registry.Register(p); err != nil {
+			if errors.Is(err, llm.ErrInsecureHTTPAuthorizationRequired) {
+				if pendingErr := s.registry.RegisterPendingAuthorization(p); pendingErr == nil {
+					logging.Warnf(ctx, "providers.service", "[providers] Provedor '%s' carregado aguardando aceite explícito para HTTP remoto", p.ID)
+					continue
+				} else {
+					logging.Errorf(ctx, "providers.service", "[providers] Erro ao preservar provedor '%s' para reautorização: %v", p.ID, pendingErr)
+				}
+			} else if errors.Is(err, llm.ErrInvalidProviderBaseURL) {
+				if pendingErr := s.registry.RegisterPendingInvalidBaseURL(p); pendingErr == nil {
+					logging.Warnf(ctx, "providers.service", "[providers] Provedor '%s' carregado aguardando correção da URL", p.ID)
+					continue
+				} else {
+					logging.Errorf(ctx, "providers.service", "[providers] Erro ao preservar provedor '%s' para correção da URL: %v", p.ID, pendingErr)
+				}
+			}
 			logging.Errorf(ctx, "providers.service", "[providers] Erro ao registrar provedor '%s': %v", p.ID, err)
 		}
 	}
@@ -572,9 +587,6 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Up
 	if req.ServerProfileID != nil {
 		updated.ServerProfileID = strings.TrimSpace(*req.ServerProfileID)
 	}
-	if req.InsecureHTTPAuthorizedURL != nil {
-		updated.InsecureHTTPAuthorizedURL = strings.TrimSpace(*req.InsecureHTTPAuthorizedURL)
-	}
 	if req.DefaultModel != "" {
 		updated.DefaultModel = req.DefaultModel
 	}
@@ -593,6 +605,9 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Up
 		if existing.CredentialPattern == "" || !sameCredentialOrigin(baseURL, existing.BaseURL) {
 			updated.CredentialPattern = hostname
 		}
+	}
+	if req.InsecureHTTPAuthorizedURL != nil {
+		updated.InsecureHTTPAuthorizedURL = strings.TrimSpace(*req.InsecureHTTPAuthorizedURL)
 	}
 	// Aparado uma vez e usado nas duas decisões — aplicar e recusar —, como no
 	// Create: um valor só de espaços não é edição, e não pode virar nem
@@ -905,7 +920,7 @@ func (s *Service) TestConnection(ctx context.Context, req TestRequest) (bool, er
 	if parsed.Scheme != "http" && parsed.Scheme != "https" {
 		return false, fmt.Errorf("URL deve começar com http:// ou https://")
 	}
-	if parsed.Host == "" {
+	if parsed.Host == "" || parsed.Hostname() == "" || parsed.User != nil {
 		return false, fmt.Errorf("URL deve conter um endereço de servidor válido")
 	}
 
@@ -951,6 +966,9 @@ func (s *Service) ListModels(ctx context.Context, req TestRequest) ([]string, er
 	}
 	if parsed.Scheme != "http" && parsed.Scheme != "https" {
 		return nil, fmt.Errorf("URL deve começar com http:// ou https://")
+	}
+	if parsed.Host == "" || parsed.Hostname() == "" || parsed.User != nil {
+		return nil, fmt.Errorf("URL deve conter um endereço de servidor válido")
 	}
 
 	modelsEndpoint := strings.TrimSuffix(req.BaseURL, "/") + "/models"
@@ -1018,6 +1036,9 @@ func (s *Service) GetChatProviderWithConfigSnapshot(ctx context.Context, provide
 	provider := s.registry.GetSnapshot(providerID)
 	if provider == nil {
 		return nil, nil, fmt.Errorf("provedor LLM não encontrado: %s", providerID)
+	}
+	if err := provider.Validate(); err != nil {
+		return nil, nil, err
 	}
 	cm, _ := s.credMgr.(*credentials.Manager)
 	// Aplica rate limiting por usuário de forma central (Issue #27). Quando
@@ -1088,7 +1109,7 @@ func (s *Service) ListModelsRaw(ctx context.Context, req ListModelsRawRequest) (
 	if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
 		return nil, fmt.Errorf("URL deve começar com http:// ou https://")
 	}
-	if parsedURL.Host == "" {
+	if parsedURL.Host == "" || parsedURL.Hostname() == "" || parsedURL.User != nil {
 		return nil, fmt.Errorf("URL deve conter um endereço de servidor válido")
 	}
 

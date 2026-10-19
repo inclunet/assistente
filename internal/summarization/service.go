@@ -638,12 +638,20 @@ func (s *Service) executeSummarization(
 	logging.Infof(ctx, "summarization.service", "[Summary] Iniciando sumarização: conversa=%s, modelo=%s, %d mensagens novas, resumo anterior=%d chars",
 		conversationID, model, len(newMessages), len(existingSummary))
 
-	provider := s.cfg.LLMRegistry.Get(profile.Chat.LLMProvider)
+	provider := s.cfg.LLMRegistry.GetSnapshot(profile.Chat.LLMProvider)
 	if provider == nil {
 		logging.Errorf(ctx, "summarization.service", "[Summary] Provider não encontrado: %s", profile.Chat.LLMProvider)
 		s.cfg.Emitter.Emit("chat:summary_error", ports.SummaryErrorEvent{
 			ConversationID: conversationID,
 			Error:          "Provider não encontrado",
+		})
+		return
+	}
+	if err := provider.Validate(); err != nil {
+		logging.Errorf(ctx, "summarization.service", "[Summary] Provedor não pode ser usado: %v", err)
+		s.cfg.Emitter.Emit("chat:summary_error", ports.SummaryErrorEvent{
+			ConversationID: conversationID,
+			Error:          fmt.Sprintf("Resumo não gerado: %v", err),
 		})
 		return
 	}

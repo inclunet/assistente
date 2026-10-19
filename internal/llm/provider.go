@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"net/url"
@@ -8,6 +9,14 @@ import (
 
 	"assistente/internal/llmcompat"
 )
+
+// ErrInsecureHTTPAuthorizationRequired indica que uma conexão com credenciais
+// usa HTTP remoto sem aceite explícito para a URL exata.
+var ErrInsecureHTTPAuthorizationRequired = errors.New("autorização explícita necessária para HTTP remoto")
+
+// ErrInvalidProviderBaseURL identifica URLs antigas que precisam ser corrigidas
+// antes que a conexão possa ser usada.
+var ErrInvalidProviderBaseURL = errors.New("base_url inválida")
 
 // ProviderType representa o tipo de provedor LLM (label de marca).
 //
@@ -385,6 +394,10 @@ func (p *ProviderConfig) GetAPIFormat() APIFormat {
 
 // Validate verifica se o ProviderConfig é válido
 func (p *ProviderConfig) Validate() error {
+	return p.validate(false, false)
+}
+
+func (p *ProviderConfig) validate(allowPendingHTTPAuthorization, allowInvalidBaseURL bool) error {
 	if p == nil {
 		return fmt.Errorf("provider config nil")
 	}
@@ -426,11 +439,21 @@ func (p *ProviderConfig) Validate() error {
 		return fmt.Errorf("provider %s tem configuração de agente mas api_format é %q; use %q", p.ID, p.GetAPIFormat(), APIFormatACP)
 	}
 	if p.BaseURL == "" {
-		return fmt.Errorf("provider base_url vazio")
+		if allowInvalidBaseURL {
+			return nil
+		}
+		return fmt.Errorf("provider %s: %w", p.ID, ErrInvalidProviderBaseURL)
+	}
+	parsedURL, err := url.Parse(p.BaseURL)
+	if err != nil || (parsedURL.Scheme != "http" && parsedURL.Scheme != "https") || parsedURL.Host == "" || parsedURL.Hostname() == "" || parsedURL.User != nil {
+		if allowInvalidBaseURL {
+			return nil
+		}
+		return fmt.Errorf("provider %s: %w; informe uma URL absoluta http ou https sem usuário ou senha", p.ID, ErrInvalidProviderBaseURL)
 	}
 	if p.EffectiveAuthMode() != AuthModeNone && RequiresInsecureHTTPAuthorization(p.BaseURL) &&
-		p.InsecureHTTPAuthorizedURL != p.BaseURL {
-		return fmt.Errorf("provider %s exige autorização explícita para enviar credenciais por HTTP remoto", p.ID)
+		p.InsecureHTTPAuthorizedURL != p.BaseURL && !allowPendingHTTPAuthorization {
+		return fmt.Errorf("provider %s: %w", p.ID, ErrInsecureHTTPAuthorizationRequired)
 	}
 	return nil
 }

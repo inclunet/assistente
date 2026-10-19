@@ -90,6 +90,17 @@ func TestProviderConfigValidateRequiresRemoteHTTPConsentForCredentials(t *testin
 	}
 }
 
+func TestProviderConfigValidateRejectsMalformedBaseURL(t *testing.T) {
+	for _, rawURL := range []string{"http://", "http:///path", "http://%", "http://user:secret@gateway.example/v1"} {
+		t.Run(rawURL, func(t *testing.T) {
+			provider := &ProviderConfig{ID: "custom", Name: "Custom", Type: ProviderCustom, BaseURL: rawURL, AuthMode: AuthModeRequired}
+			if err := provider.Validate(); err == nil || !strings.Contains(err.Error(), "base_url inválida") {
+				t.Fatalf("Validate(%q) = %v; esperado rejeitar URL inválida", rawURL, err)
+			}
+		})
+	}
+}
+
 func TestRequiresInsecureHTTPAuthorizationKeepsLoopbackAvailable(t *testing.T) {
 	for _, rawURL := range []string{"http://localhost:11434", "http://127.0.0.1:8080", "http://[::1]:8080"} {
 		if RequiresInsecureHTTPAuthorization(rawURL) {

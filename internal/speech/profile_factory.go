@@ -38,6 +38,13 @@ func NewSpeechManagerFromProfile(ctx context.Context, p *profiles.Profile, regis
 			credsCache[llmProviderID] = &resolvedCreds{}
 			return "", "", ""
 		}
+		providerSnapshot := *cfg
+		cfg = &providerSnapshot
+		if err := cfg.Validate(); err != nil {
+			logging.Warnf(ctx, "speech.profile-factory", "[Speech] Provider '%s' não pode fornecer credenciais: %v", llmProviderID, err)
+			credsCache[llmProviderID] = &resolvedCreds{}
+			return "", "", ""
+		}
 		baseURL = cfg.BaseURL
 		credPattern = cfg.CredentialPattern
 		if cfg.CredentialPattern != "" {

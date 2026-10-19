@@ -2,6 +2,7 @@ package providers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -43,6 +44,72 @@ func TestBuildTempProviderForListModels_HerdaAPIFormatDoExistente(t *testing.T) 
 	}
 	if temp.CredentialPattern != "ist-prod-litellm.example.com" {
 		t.Fatalf("CredentialPattern errado: %q", temp.CredentialPattern)
+	}
+}
+
+func TestLoadKeepsLegacyRemoteHTTPProviderForExplicitReauthorization(t *testing.T) {
+	ctx := context.Background()
+	store := NewMemoryStore()
+	registry := llm.NewProviderRegistry()
+	provider := &llm.ProviderConfig{
+		ID: "legacy-http", Name: "Legacy HTTP", Type: llm.ProviderCustom,
+		APIFormat: llm.APIFormatOpenAI, BaseURL: "http://gateway.example/v1",
+		AuthMode: llm.AuthModeRequired, CredentialPattern: "gateway.example",
+	}
+	if err := store.Save(ctx, []*llm.ProviderConfig{provider}); err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(ServiceConfig{Registry: registry, Store: store})
+	if err := service.Load(ctx); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	loaded := registry.Get(provider.ID)
+	if loaded == nil || loaded.InsecureHTTPAuthorizedURL != "" {
+		t.Fatalf("provedor legado não foi preservado sem conceder aceite: %#v", loaded)
+	}
+	if _, _, err := service.GetChatProviderWithConfigSnapshot(ctx, provider.ID); err == nil || !strings.Contains(err.Error(), "autorização explícita") {
+		t.Fatalf("uso sem aceite explícito deveria ser bloqueado: %v", err)
+	}
+
+	authorizedURL := provider.BaseURL
+	if _, err := service.Update(ctx, provider.ID, UpdateRequest{InsecureHTTPAuthorizedURL: &authorizedURL}); err != nil {
+		t.Fatalf("Update após aceite explícito: %v", err)
+	}
+	if _, _, err := service.GetChatProviderWithConfigSnapshot(ctx, provider.ID); err != nil {
+		t.Fatalf("provedor deveria voltar a ser utilizável após aceite: %v", err)
+	}
+}
+
+func TestLoadKeepsLegacyInvalidBaseURLForRepair(t *testing.T) {
+	ctx := context.Background()
+	store := NewMemoryStore()
+	registry := llm.NewProviderRegistry()
+	provider := &llm.ProviderConfig{
+		ID: "legacy-invalid-url", Name: "Legacy invalid URL", Type: llm.ProviderCustom,
+		APIFormat: llm.APIFormatOpenAI, BaseURL: "http://user:pass@",
+		AuthMode: llm.AuthModeRequired, CredentialPattern: "legacy.example",
+	}
+	if err := store.Save(ctx, []*llm.ProviderConfig{provider}); err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(ServiceConfig{Registry: registry, Store: store})
+	if err := service.Load(ctx); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	loaded := registry.Get(provider.ID)
+	if loaded == nil || loaded.BaseURL != provider.BaseURL {
+		t.Fatalf("provedor legado deveria continuar visível para correção: %#v", loaded)
+	}
+	if _, _, err := service.GetChatProviderWithConfigSnapshot(ctx, provider.ID); !errors.Is(err, llm.ErrInvalidProviderBaseURL) {
+		t.Fatalf("uso deveria ser bloqueado até corrigir base_url; erro = %v", err)
+	}
+
+	correctedURL := "https://gateway.example/v1"
+	if _, err := service.Update(ctx, provider.ID, UpdateRequest{BaseURL: correctedURL}); err != nil {
+		t.Fatalf("Update após corrigir URL: %v", err)
+	}
+	if _, _, err := service.GetChatProviderWithConfigSnapshot(ctx, provider.ID); err != nil {
+		t.Fatalf("provedor deveria voltar a ser utilizável após corrigir URL: %v", err)
 	}
 }
 
@@ -103,6 +170,18 @@ func TestListModelsRaw_TrimAPIKey(t *testing.T) {
 	}
 	if strings.ContainsAny(got, "\n\t") || strings.HasPrefix(strings.TrimPrefix(got, "Bearer "), " ") {
 		t.Fatalf("Authorization com whitespace residual: %q", got)
+	}
+}
+
+func TestListModelsRawRejectsMalformedHTTPURLBeforeSendingCredential(t *testing.T) {
+	svc := NewService(ServiceConfig{Registry: llm.NewProviderRegistry(), CredMgr: credentials.NewManager(nil)})
+	for _, rawURL := range []string{"http://:80/v1", "http://user:secret@gateway.example/v1"} {
+		_, err := svc.ListModelsRaw(context.Background(), ListModelsRawRequest{
+			Type: "openai", BaseURL: rawURL, APIKey: "temporary-secret",
+		})
+		if err == nil || !strings.Contains(err.Error(), "endereço de servidor válido") {
+			t.Errorf("URL insegura %q deveria ser rejeitada antes do envio: %v", rawURL, err)
+		}
 	}
 }
 

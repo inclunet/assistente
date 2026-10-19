@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"sync"
@@ -38,6 +39,52 @@ func (r *ProviderRegistry) Register(provider *ProviderConfig) error {
 	defer r.mu.Unlock()
 
 	// Sobrescreve se existir (para permitir update)
+	r.providers[provider.ID] = provider
+	return nil
+}
+
+// RegisterPendingAuthorization mantém conexão existente acessível para edição
+// quando ainda não recebeu o aceite HTTP remoto. A validação estrutural é
+// obrigatória; o uso normal continua bloqueado por ProviderConfig.Validate.
+func (r *ProviderRegistry) RegisterPendingAuthorization(provider *ProviderConfig) error {
+	if r == nil {
+		return fmt.Errorf("registry nil")
+	}
+	if provider == nil {
+		return fmt.Errorf("provider nil")
+	}
+	if provider.EffectiveAuthMode() == AuthModeNone || !RequiresInsecureHTTPAuthorization(provider.BaseURL) ||
+		provider.InsecureHTTPAuthorizedURL == provider.BaseURL {
+		return fmt.Errorf("provider %s não está pendente de autorização HTTP remota", provider.ID)
+	}
+	if err := provider.validate(true, false); err != nil {
+		return err
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.providers[provider.ID] = provider
+	return nil
+}
+
+// RegisterPendingInvalidBaseURL preserva uma conexão existente cuja URL precisa
+// ser corrigida. A validação continua bloqueando qualquer uso normal.
+func (r *ProviderRegistry) RegisterPendingInvalidBaseURL(provider *ProviderConfig) error {
+	if r == nil {
+		return fmt.Errorf("registry nil")
+	}
+	if provider == nil {
+		return fmt.Errorf("provider nil")
+	}
+	if err := provider.Validate(); !errors.Is(err, ErrInvalidProviderBaseURL) {
+		return fmt.Errorf("provider %s não está pendente de correção de base_url", provider.ID)
+	}
+	if err := provider.validate(false, true); err != nil {
+		return err
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.providers[provider.ID] = provider
 	return nil
 }

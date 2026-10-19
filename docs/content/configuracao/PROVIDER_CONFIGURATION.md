@@ -235,6 +235,14 @@ autorize novamente antes de enviar credenciais. Prefira HTTPS sempre que o
 servidor oferecer suporte. Endereços locais de loopback, como `localhost`, não
 exigem esse aceite.
 
+Ao atualizar de uma versão anterior, provedores já configurados em HTTP remoto
+sem esse aceite continuam aparecendo para edição, mas ficam bloqueados para
+chat, sumarização, teste de saúde, voz e sondagem autenticada. Teste a conexão e
+autorize a URL exata para voltar a usá-la. O aceite é por conexão: renovar a
+credencial na mesma URL não exige nova autorização; mudar a URL exige.
+Conexões antigas com URL malformada também continuam na lista para correção, mas
+ficam bloqueadas até que a URL seja válida.
+
 Abrir ou editar os campos não executa comandos de token. Alterar URL, protocolo,
 autenticação ou credencial exige um novo teste. Respostas de testes anteriores
 não validam uma configuração que mudou. Durante a gravação, o formulário e o
