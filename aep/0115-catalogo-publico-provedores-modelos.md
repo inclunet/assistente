@@ -62,7 +62,12 @@ suportado; não há uma opção genérica para liberar campos bloqueados. Campos
 `fixed` são enviados a partir do catálogo, sem controle editável na UI.
 URLs do catálogo não podem carregar userinfo (usuário/senha embutidos); chaves
 e credenciais nunca pertencem ao asset público. Perfis `hosted` exigem `https`;
-perfis locais e de proxy podem declarar `http` quando o endpoint assim exigir.
+URLs `http` no catálogo só podem apontar para loopback (`localhost`, `127.0.0.0/8`
+ou `::1`), inclusive em perfis locais e de proxy. Isso impede que uma alteração
+indevida no asset direcione credenciais para um host remoto sem TLS. URLs remotas
+`http` informadas manualmente pelo usuário exigem aviso e autorização explícita
+antes de qualquer envio de credencial; a fase 3 deve integrar esse percurso ao
+contrato de decisão/autorização de rede já existente.
 
 Os perfis catalogados fornecem defaults e restrições de interface, não
 substituem configurações já salvas. Atualizar o catálogo não reescreve endpoint,
@@ -222,13 +227,18 @@ altera conexões existentes nem sobrepõe a identidade explícita persistida.
    URL fixa sem seguir redirects, validar estrutura e integridade semântica,
    persistir atomicamente a última versão válida com ETag/Last-Modified e expor
    snapshots tipados por API Wails. O cache é carregado localmente e a atualização
-   ocorre em segundo plano; falhas mantêm o snapshot válido anterior.
+   ocorre em segundo plano; falhas mantêm o snapshot válido anterior. Timestamps
+   futuros no cache mantêm o documento disponível como stale e forçam
+   revalidação; o shutdown aguarda refreshes explícitos e de fundo.
 3. **Configuração de provedores pelo catálogo — em andamento.** Persistir a
    associação explícita `server_profile_id` sem inferir perfis de conexões
    existentes; depois trocar os presets duplicados do frontend/backend por
    perfis catalogados, aplicar política fixa/editável por campo, manter
    customizados, mostrar links de cadastro/chave e preservar configurações
-   salvas.
+   salvas. URLs remotas `http` digitadas pelo usuário devem anunciar o risco e
+   pedir autorização antes de transmitir credenciais, usando o contrato de
+   decisão/autorização de rede existente; HTTP sem TLS não é permitido por um
+   perfil remoto do catálogo.
 4. **Modelos, capacidades e proxies.** Associar IDs expostos apenas por
    mapeamento exato e integrar recursos/limites sem impedir aliases
    desconhecidos.
@@ -254,6 +264,9 @@ altera conexões existentes nem sobrepõe a identidade explícita persistida.
 - Políticas de campos muito rígidas podem impedir configuração necessária;
   cada campo e perfil deve declarar a política e permitir opções suportadas
   suficientes para o uso pretendido.
+- HTTP remoto pode expor credenciais; o catálogo limita esse esquema a loopback,
+  e a configuração manual precisa obter autorização explícita antes do primeiro
+  envio de credencial.
 - Confiar em JSON remoto para selecionar comportamento executável ampliaria a
   superfície de ataque; tratar o catálogo como dados validados e usar
   adaptadores locais allowlisted.
@@ -277,6 +290,9 @@ altera conexões existentes nem sobrepõe a identidade explícita persistida.
   limita o tamanho do documento e grava cache por substituição atômica. Evidência:
   `internal/llmcatalog/service.go` e `GetLLMCatalog` em
   `internal/wailsapi/llm_catalog.go`.
+- [x] Cache com timestamp futuro continua disponível como stale e inicia
+  revalidação; o shutdown aguarda refreshes ativos. Evidência:
+  `internal/llmcatalog/service.go` e testes em `service_test.go`.
 - [ ] Provedores conhecidos aplicam as políticas de edição declaradas; URLs de
   cadastro e obtenção de chave são acessíveis e localizadas.
 - [x] A conexão persiste o ID do perfil de servidor escolhido explicitamente,
