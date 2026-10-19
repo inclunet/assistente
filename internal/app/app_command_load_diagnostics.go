@@ -35,8 +35,30 @@ type commandLoadTrace struct {
 	currentStage string
 	started      time.Time
 	cause        error
+	lifecycle    []slog.Attr
 	finished     bool
 	timer        *time.Timer
+}
+
+// Somente estado público em memória; LastError pode conter SQL ou conteúdo
+// arbitrário de dependências e nunca deve ser incluído neste diagnóstico.
+func commandLoadLifecycle(ctx context.Context, snapshot commandruntime.Snapshot, err error) {
+	if ctx == nil {
+		return
+	}
+	if t, ok := ctx.Value(commandLoadTraceKey{}).(*commandLoadTrace); ok {
+		t.mu.Lock()
+		defer t.mu.Unlock()
+		if err != nil {
+			t.lifecycle = []slog.Attr{slog.Bool("lifecycle_available", false)}
+			return
+		}
+		t.lifecycle = []slog.Attr{
+			slog.Bool("lifecycle_available", true),
+			slog.String("lifecycle_state", string(snapshot.State)),
+			slog.Bool("lifecycle_published", snapshot.Published),
+		}
+	}
 }
 
 func beginCommandLoad(ctx context.Context, operation string) (context.Context, *commandLoadTrace) {
@@ -125,6 +147,7 @@ func (t *commandLoadTrace) write(level slog.Level, status string, err error, cou
 		}
 	}
 	attrs = append(attrs, counts...)
+	attrs = append(attrs, t.lifecycle...)
 	t.logger.LogAttrs(context.Background(), level, "Command load", attrs...)
 }
 
@@ -139,6 +162,7 @@ func commandLoadErrorClass(err error) string {
 		{auth.ErrInactiveUser, "inactive_user"},
 		{commandsecurity.ErrStaleEpoch, "stale_epoch"}, {commandsecurity.ErrDrainInProgress, "draining"},
 		{commandsecurity.ErrDrainFailed, "drain_failed"},
+		{errCommandRecoveryPending, "recovery_pending"},
 		{commandruntime.ErrNotReady, "not_ready"}, {commandruntime.ErrStopped, "stopped"},
 		{commandexecution.ErrInvalidHostState, "invalid_host_state"},
 		{commandexecution.ErrHostStateDisabled, "host_state_disabled"},

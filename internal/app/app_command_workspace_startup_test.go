@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"assistente/internal/commanddecision"
 	"assistente/internal/commandruntime"
 )
 
@@ -74,5 +75,61 @@ func TestCommandWorkspaceReloadPreservesReadinessWhileBootstrapOwned(t *testing.
 	}
 	if _, err := a.GetLocalCommandKeyboardMap(); err != nil {
 		t.Fatalf("mapa após reload: %v", err)
+	}
+}
+
+func TestCommandWorkspaceReloadRecoversCatalogUnmountedDuringSwitch(t *testing.T) {
+	a := commandJobPublicationApp(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	old := a.commandProduct.Load()
+	receipt := seedCommandBootstrapReceipt(t, a, old.principal.SessionID, commanddecision.Accepted, time.Now().Add(-time.Hour))
+	ticket := a.captureCommandCatalogRecoveryTicket()
+	shutdownCommandCatalogProductForTest(t, ctx, a)
+	a.commandProduct.Store(nil)
+	a.commandBridge.Store(nil)
+	a.commandRegistry = nil
+	ws, err := a.workspaceMgr.Create("workspace-during-catalog-recovery")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.workspaceMgr.Switch(ws.ID); err != nil {
+		t.Fatal(err)
+	}
+	if ticket.current(a) {
+		t.Fatal("ticket do workspace anterior continuou válido")
+	}
+	// É o callback da troca confirmada, não o worker antigo, que deve montar
+	// a autoridade do workspace novo após o hot-swap retirar o produto.
+	a.reloadCommandsAfterWorkspaceSwitch()
+	assertCommandCatalogReadyAfterRecovery(t, a, old, "")
+	if a.commandProduct.Load().workspaceID != ws.ID {
+		t.Fatal("reload montou produto para o workspace anterior")
+	}
+	if got := commandBootstrapReceiptStatus(t, receipt); got != commanddecision.Expired {
+		t.Fatalf("remontagem não reconciliou confirmação vencida: %s", got)
+	}
+}
+
+func TestCommandWorkspaceReloadWithoutProductDoesNotMountAfterLogout(t *testing.T) {
+	a := commandJobPublicationApp(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	shutdownCommandCatalogProductForTest(t, ctx, a)
+	a.commandProduct.Store(nil)
+	a.commandBridge.Store(nil)
+	a.commandRegistry = nil
+	a.setCurrentAuthUser(nil)
+	a.reloadCommandsAfterWorkspaceSwitch()
+	if a.commandProduct.Load() != nil || a.commandLifecycle.Load() != nil {
+		t.Fatal("reload sem sessão montou produto/lifecycle")
+	}
+}
+
+func TestCommandWorkspaceReloadWithoutConfiguredRuntimeIsNoop(t *testing.T) {
+	a := &App{}
+	a.reloadCommandsAfterWorkspaceSwitch()
+	if a.commandProduct.Load() != nil || a.commandLifecycle.Load() != nil {
+		t.Fatal("reload pré-login montou produto/lifecycle")
 	}
 }

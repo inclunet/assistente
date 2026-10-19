@@ -16,6 +16,8 @@ import (
 	"github.com/google/uuid"
 )
 
+var errCommandRecoveryPending = errors.New("há trabalho recuperável pendente")
+
 type appCommandLifecycleRuntime struct {
 	app    *App
 	inputs CommandLifecycleMountInputs
@@ -107,13 +109,13 @@ func (r *appCommandLifecycleRuntime) Recover(ctx context.Context, _ commandrunti
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return ctxErr
 		}
-		return fmt.Errorf("%w: preflight de recovery: %v", commandruntime.ErrNotReady, err)
+		return fmt.Errorf("%w: preflight de recovery: %w", commandruntime.ErrNotReady, err)
 	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	if pending.Invocations != 0 || pending.Ledgers != 0 || pending.Decisions != 0 {
-		return fmt.Errorf("%w: há trabalho recuperável pendente (invocações=%d, ledger=%d, decisões=%d)", commandruntime.ErrNotReady, pending.Invocations, pending.Ledgers, pending.Decisions)
+		return fmt.Errorf("%w: %w (invocações=%d, ledger=%d, decisões=%d)", commandruntime.ErrNotReady, errCommandRecoveryPending, pending.Invocations, pending.Ledgers, pending.Decisions)
 	}
 	return nil
 }

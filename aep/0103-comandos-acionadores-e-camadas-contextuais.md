@@ -2,6 +2,59 @@
 
 Status: In Progress — evidências e aceites pendentes conforme os registros abaixo
 
+**Recuperação após atualização de catálogo (18/10/2026): In Progress.**
+O log de 17/10 mostra desconexão/reconexão MCP seguida de falha no refresh
+do catálogo e recusas persistentes `keyboard_map_load/lifecycle/not_ready`.
+Há contenção SQLite na mesma janela, mas o diagnóstico antigo não preservava
+a etapa/causa do refresh e não demonstra corrupção do banco. O hot-swap precisa
+retomar uma substituição incompleta sem depender de outro evento MCP, mantendo
+retirada autoritativa, sessão revalidada e o preflight de recuperação. Não é
+permitido republicar o catálogo anterior ou aceitar trabalho pendente sem prova
+de encerramento para tornar o mapa disponível. Aceite em sessão longa permanece
+pendente; nenhum critério manual é promovido por esta correção.
+O diagnóstico de recusa inclui disponibilidade, estado e publicação do lifecycle,
+sem copiar `LastError`; o preflight preserva a causa tipada do armazenamento.
+Evidências: `TestCommandLoadDiagnosticsLifecycleFailureDoesNotExposeLastError`
+e `TestAppCommandLifecycleRecoveryPreservesStorageCause`.
+
+A consulta somente leitura de 18/10 encontrou sete recibos de alteração de
+configuração vencidos desde 16/10, da mesma sessão não revogada (seis `pending`,
+um `accepted`), sem invocações/ledgers não terminais. Eles são um impedimento
+concreto ao preflight global; não foram alterados manualmente. O bootstrap e
+o hot-swap passam a chamar a reconciliação já prevista de recibos da sessão
+local autenticada antes de reconstruir a projeção. Cada lote de até 128 recibos
+revalida identidade, dependências, cofre, SO e epochs na fronteira de publicação;
+esperas de retry e passagem ao próximo lote ficam fora do gate. Falha mantém o
+mapa retirado. Recibos ainda válidos e outras sessões continuam intactos; não
+há consumo, reapresentação nem repetição da mutação aceita. O preflight global
+continua obrigatório para qualquer pendência restante. Evidências:
+`TestCommandCatalogRecoversExpiredConfigurationConfirmationsBeforeBootstrap`,
+`TestCurrentCommandDecisionRecoveryPreservesLiveAndForeignConfirmations`,
+`TestCurrentCommandDecisionRecoveryBatchesExpiredReceipts` e
+`TestCurrentCommandDecisionRecoveryRejectsLockedVaultAndLogout`.
+Recibos elegíveis de confirmação de invocação seguem a mesma reconciliação,
+sem alterar o estado da invocação ou seu ledger; pendências de execução seguem
+bloqueando o preflight (`TestCurrentCommandDecisionRecoveryExpiresInvocationReceiptWithoutCompletingInvocation`).
+O worker único combina eventos MCP, captura sua sessão de forma serializada,
+retoma desmontagem parcial e repete falhas com recuo de 1s até 30s. Troca de
+sessão/workspace e shutdown impedem reaproveitar sua autoridade. O teste
+`TestCommandCatalogStorageFailureRecoversWithoutAnotherMCPEvent` injeta falha
+SQLite no preflight e comprova publicação nova após liberar o armazenamento,
+sem outro evento MCP e sem reabilitar o produto anterior.
+
+Revisão de 19/10: a troca de workspace não ignora mais a reconstrução ao
+observar o produto temporariamente ausente durante hot-swap. A decisão ocorre
+sob a barreira de bootstrap; o callback existente da troca confirmada remonta
+apenas com runtime configurado e sessão presente. O ticket antigo continua
+inválido. Testes `TestCommandWorkspaceReloadRecoversCatalogUnmountedDuringSwitch`,
+`TestCommandWorkspaceReloadWithoutProductDoesNotMountAfterLogout` e
+`TestCommandWorkspaceReloadWithoutConfiguredRuntimeIsNoop` cobrem retomada e
+recusas. `TestCommandCatalogRecoveryStopJoinsWhileBootstrapRemainsOwned`
+comprova join por cancelamento sem depender da liberação da barreira.
+A remontagem por workspace também reconcilia recibos elegíveis da própria
+sessão antes da projeção/preflight, pela mesma rotina autenticada do login e
+do hot-swap. O teste de remontagem inclui confirmação aceita já vencida.
+
 **Contenção ao configurar comandos (16/10/2026): In Progress.** O coordenador
 aplica recuo de 30s até 5min após falha na retenção/compactação, sem atrasar
 heartbeat, outbox ou recuperação. A pausa não muda autorização, proteção de

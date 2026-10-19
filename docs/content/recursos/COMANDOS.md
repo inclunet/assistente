@@ -22,6 +22,19 @@ contexto do gerenciador; não é executada ao navegar para outra página.
 
 ## Diagnosticar falhas de carregamento
 
+Na atualização do catálogo de ferramentas, uma falha temporária passa a ter
+recuperação automática no backend, sem exigir nova reconexão MCP. O aplicativo
+também encerra confirmações vencidas ou obsoletas da própria sessão antes de
+reconstruir os comandos. Uma confirmação aceita que venceu **não é executada
+novamente**: a limpeza encerra o recibo, sem repetir a edição de configuração.
+Confirmações ainda válidas e pendências de outras sessões não são descartadas
+para forçar a ativação do mapa. Sessão, cofre e estado do sistema operacional
+continuam sendo verificados durante a recuperação.
+Se você trocar de workspace enquanto o catálogo estiver sendo reconstruído,
+a troca aguarda essa etapa e recompõe os comandos para o workspace selecionado.
+Isso não reaproveita permissões do workspace anterior nem reativa comandos
+depois de sair da conta.
+
 A atualização das reservas de teclas globais não apaga o mapa local enquanto
 seu substituto está carregando. O mapa vigente só permanece disponível enquanto
 não tiver sido invalidado ou expirado; teclas reservadas globalmente continuam
@@ -67,6 +80,16 @@ o resultado ou aviso. `slow` aparece uma vez após três segundos, sem interromp
 operação. Em falhas, `error_class`, `error_types` e, quando disponível,
 `error_code` preservam a causa tipada anterior à mensagem genérica da interface.
 Erros desconhecidos têm classe `other`, não seu texto potencialmente sensível.
+Quando a recusa ocorre no ciclo de vida dos comandos, `lifecycle_available`,
+`lifecycle_state` e `lifecycle_published` distinguem runtime ausente, em falha
+ou ainda não publicado. O detalhe interno do erro não é copiado para o log:
+esses campos descrevem o estado, sem registrar conteúdo de comandos ou teclas.
+`recovery_pending` indica que há operações pendentes cujo encerramento ainda
+precisa ser comprovado; não significa, por si só, que o banco está bloqueado.
+`operation=command_catalog_hot_swap` acompanha a recuperação do catálogo,
+incluindo desmontagem, reconciliação de confirmações, reconstrução e bootstrap.
+Quando confirmações obsoletas são encerradas, o log registra apenas a quantidade
+em `closed` e se há outro lote em `more`, sem conteúdo das decisões.
 Classes como `host_user_not_published`, `host_state_disabled` e
 `job_projection_unavailable` distinguem estados antes classificados apenas
 como `other`. Uma classe isolada indica onde investigar, não comprova a causa

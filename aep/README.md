@@ -1,5 +1,15 @@
 # AEP — Assistente Enhancement Proposals
 
+**AEP-0103 — recuperação após atualização de catálogo (18/10/2026): In Progress.**
+Correção da retomada de hot-swap incompleto, sem reutilizar catálogo revogado
+nem dispensar autenticação/preflight. Diagnóstico diferencia o estado do runtime
+e preserva causa tipada de storage. Aceite em sessão longa permanece pendente.
+O bootstrap reconcilia confirmações expiradas/obsoletas da própria sessão pelo
+contrato existente, sem reaplicar alterações nem ignorar pendências de terceiros.
+Revisão de 19/10 cobre troca de workspace durante desmontagem temporária:
+o callback reconstrói a sessão atual sob a barreira, sem reutilizar ticket antigo
+nem montar comandos após logout. Aceites manuais permanecem pendentes.
+
 **AEP-0103 / extensão AEP-0074 — recuo sob contenção (16/10/2026): In Progress.**
 Falhas na limpeza/compactação adiam somente a retenção por 30s até 5min,
 preservando heartbeat, outbox e recuperação. Regressões determinísticas em
