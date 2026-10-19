@@ -86,6 +86,46 @@ func Validate(doc Document) error {
 			if !oneOf(name, "base_url", "api_format", "auth.mode", "default_model_id") {
 				return invalid(path+".fields."+name, "campo não permitido pelo schema v1")
 			}
+			if name == "base_url" && policy.Policy == "fixed" {
+				baseURL, ok := policy.Default.(string)
+				if policy.Default == nil {
+					baseURL = server.BaseURL
+					ok = baseURL != ""
+				}
+				if !ok || strings.TrimSpace(baseURL) == "" || !validURL(baseURL, server.Group == "hosted") {
+					return invalid(path+".fields.base_url.default", "deve ser uma URL válida para o grupo do servidor quando policy=fixed")
+				}
+			}
+			if name == "api_format" && policy.Policy == "fixed" {
+				apiFormat, ok := policy.Default.(string)
+				if policy.Default == nil {
+					apiFormat = server.APIFormat
+					ok = true
+				}
+				if !ok || !apiFormats[apiFormat] {
+					return invalid(path+".fields.api_format.default", "deve ser um formato de API suportado quando policy=fixed")
+				}
+			}
+			if name == "auth.mode" && policy.Policy == "fixed" {
+				authMode, ok := policy.Default.(string)
+				if policy.Default == nil {
+					authMode = server.Auth.Mode
+					ok = true
+				}
+				if !ok || !oneOf(authMode, "bearer_api_key", "api_key_header", "optional_api_key", "none") {
+					return invalid(path+".fields.auth.mode.default", "deve ser um modo de autenticação suportado quando policy=fixed")
+				}
+			}
+			if name == "default_model_id" && policy.Policy == "fixed" {
+				model, ok := policy.Default.(string)
+				if policy.Default == nil {
+					model = server.DefaultModelID
+					ok = strings.TrimSpace(model) != ""
+				}
+				if !ok || !lengthBetween(strings.TrimSpace(model), 1, 200) {
+					return invalid(path+".fields.default_model_id.default", "deve ser um modelo de 1 a 200 caracteres quando policy=fixed")
+				}
+			}
 			if err := validateFieldPolicy(path+".fields."+name, policy); err != nil {
 				return err
 			}

@@ -2,6 +2,7 @@ package llm
 
 import (
 	"fmt"
+	"net"
 	"net/url"
 	"strings"
 
@@ -178,6 +179,10 @@ type ProviderConfig struct {
 	// público. Vazio significa configuração antiga ou personalizada; não é
 	// inferido a partir de tipo, URL ou modelo.
 	ServerProfileID string `json:"server_profile_id,omitempty"`
+	// InsecureHTTPAuthorizedURL registra o aceite explícito para enviar
+	// credenciais a uma URL HTTP remota. O valor precisa corresponder exatamente
+	// a BaseURL; por isso qualquer alteração invalida automaticamente o aceite.
+	InsecureHTTPAuthorizedURL string `json:"insecure_http_authorized_url,omitempty"`
 	// CompatibilityRevision identifica o snapshot da conexão carregado do banco.
 	// Requisições em andamento preservam esta revisão ao registrar evidências.
 	CompatibilityRevision int       `json:"-"`
@@ -423,7 +428,27 @@ func (p *ProviderConfig) Validate() error {
 	if p.BaseURL == "" {
 		return fmt.Errorf("provider base_url vazio")
 	}
+	if p.EffectiveAuthMode() != AuthModeNone && RequiresInsecureHTTPAuthorization(p.BaseURL) &&
+		p.InsecureHTTPAuthorizedURL != p.BaseURL {
+		return fmt.Errorf("provider %s exige autorização explícita para enviar credenciais por HTTP remoto", p.ID)
+	}
 	return nil
+}
+
+// RequiresInsecureHTTPAuthorization identifica HTTP fora de loopback. HTTP
+// local continua disponível para servidores locais; destinos remotos exigem
+// aceite explícito antes que qualquer credencial possa ser enviada.
+func RequiresInsecureHTTPAuthorization(rawURL string) bool {
+	parsed, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil || !strings.EqualFold(parsed.Scheme, "http") || parsed.Hostname() == "" {
+		return false
+	}
+	host := strings.TrimSuffix(strings.ToLower(parsed.Hostname()), ".")
+	if host == "localhost" || strings.HasSuffix(host, ".localhost") {
+		return false
+	}
+	ip := net.ParseIP(host)
+	return ip == nil || !ip.IsLoopback()
 }
 
 // validateCredentialEnv recusa par de variável e padrão do cofre que não dá

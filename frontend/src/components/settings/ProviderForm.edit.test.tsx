@@ -276,6 +276,32 @@ describe("ProviderForm - Restrições de URL em Edição", () => {
     expect(screen.getByLabelText(/perfil de servidor/i)).toHaveValue('openai');
   });
 
+  it('mostra o perfil salvo como indisponível quando ele não consta no catálogo', async () => {
+    render(<ProviderForm provider={{
+      id: 'legacy-profile', name: 'Gateway antigo', type: 'custom',
+      server_profile_id: 'retired-gateway', base_url: 'https://gateway.example/v1',
+      api_key: '', api_format: 'openai',
+    }} onCancel={() => {}} onSave={() => {}} />);
+
+    const profileSelect = screen.getByLabelText(/perfil de servidor/i);
+    await waitFor(() => expect(profileSelect).toHaveValue('retired-gateway'));
+    expect(screen.getByRole('option', { name: /profileUnavailable/ })).toBeDisabled();
+    expect(screen.getByRole('status')).toHaveTextContent('profileUnavailableHelp');
+    expect(screen.getByLabelText(/base url/i)).toHaveValue('https://gateway.example/v1');
+  });
+
+  it('mantém as políticas do perfil descontinuado salvo ao editar a conexão', async () => {
+    render(<ProviderForm provider={{
+      id: 'retired-provider', name: 'Gateway antigo', type: 'openai',
+      server_profile_id: 'retired-profile-test', base_url: 'https://retired.example/v1',
+      api_key: '', default_model: '', api_format: 'openai',
+    }} onCancel={() => {}} onSave={() => {}} />);
+
+    await waitFor(() => expect(screen.getByLabelText(/perfil de servidor/i)).toHaveValue('retired-profile-test'));
+    expect(screen.getByLabelText(/base url/i)).toBeDisabled();
+    expect(screen.getByLabelText(/base url/i)).toHaveValue('https://retired.example/v1');
+  });
+
   it('preenche modelo fixo do catálogo quando a conexão vinculada não tem um salvo', async () => {
     render(<ProviderForm provider={{
       id: 'openai-fixed-model', name: 'OpenAI', type: 'openai',
@@ -488,6 +514,6 @@ describe("ProviderForm - Ida e volta no tipo do provedor", () => {
     const [id, payload] = vi.mocked(App.UpdateLLMProvider).mock.calls[0];
     expect(id).toBe("ollama-123");
     expect(payload).toMatchObject({ type: "ollama", base_url: "http://192.168.1.100:11434" });
-    expect(payload).not.toHaveProperty('server_profile_id');
+    expect(payload.server_profile_id).toBeUndefined();
   });
 });

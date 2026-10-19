@@ -69,8 +69,9 @@ type LLMProvider struct {
 	ErrorFamily string // explicit upstream family for documented error recognition
 	// ServerProfileID é a associação escolhida explicitamente no catálogo público.
 	// Vazio preserva configurações antigas como personalizadas.
-	ServerProfileID string `gorm:"type:text"`
-	APIFormat       string // openai, anthropic, google, acp (SDK/protocolo)
+	ServerProfileID           string `gorm:"type:text"`
+	InsecureHTTPAuthorizedURL string `gorm:"type:text"`
+	APIFormat                 string // openai, anthropic, google, acp (SDK/protocolo)
 	// BaseURL segue NOT NULL: um provedor acp (AEP-0084) não tem endereço e
 	// grava string vazia, que a coluna aceita. Recriar a tabela só para
 	// trocar vazio por NULL custaria o procedimento mais arriscado do banco

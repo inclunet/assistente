@@ -84,6 +84,11 @@ vi.mock('@wailsjs/go/wailsapi/LLMProviders', () => ({
   ListModelsRaw: listModelsMock,
 }));
 
+vi.mock('@wailsjs/go/wailsapi/LLMCatalog', async () => {
+  const { providerFormCatalogAPIResponse } = await import('./providerFormCatalogTestUtils');
+  return { GetLLMCatalog: vi.fn(async () => providerFormCatalogAPIResponse) };
+});
+
 vi.mock('@wailsjs/go/wailsapi/Credentials', () => ({
   ListCredentials: listCredentialsMock,
 }));

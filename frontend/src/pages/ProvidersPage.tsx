@@ -28,6 +28,7 @@ import { DecisionDialog } from '../components/ui/DecisionDialog';
 import { Toolbar } from '../components/ui/Toolbar';
 import { Modal } from '../components/ui/Modal';
 import { ProviderForm, ProviderFormData } from '../components/settings/ProviderForm';
+import { toWailsRequest, type CreateProviderRequest } from '../types/providerRequests';
 import { AGENT_API_FORMAT } from '../config/providers';
 import { requestACPAgentUpdate } from '../services/acpInstall';
 import { useGridFocus } from '../hooks/useGridFocus';
@@ -50,6 +51,7 @@ interface Provider {
   type: string;
   api_format?: string;
   server_profile_id?: string;
+  insecure_http_authorized_url?: string;
   base_url: string;
   credential_required: boolean;
   credential_status: 'none' | 'configured' | 'missing';
@@ -203,6 +205,7 @@ export default function ProvidersPage() {
       default_model: (provider as Provider).default_model || '',
       api_format: (provider as Provider).api_format || '',
       server_profile_id: provider.server_profile_id,
+      insecure_http_authorized_url: provider.insecure_http_authorized_url,
       acp_command: provider.acp_command || '',
       acp_args: provider.acp_args || [],
       acp_agent_id: provider.acp_agent_id || '',
@@ -240,7 +243,7 @@ export default function ProvidersPage() {
  if (provider.type === 'chatgpt') { setOAuthDialog({}); return; }
     try {
       const name = getDuplicateName(provider.name);
-      await CreateLLMProvider(apidto.CreateLLMProviderRequest.createFrom({
+      const request: CreateProviderRequest = {
         id: `${provider.type}-${Date.now()}`,
         name,
         credential_from_provider_id: provider.api_format === AGENT_API_FORMAT ? undefined : provider.id,
@@ -248,6 +251,7 @@ export default function ProvidersPage() {
         base_url: provider.base_url,
         api_format: (provider as Provider).api_format || undefined,
         server_profile_id: provider.server_profile_id || undefined,
+        insecure_http_authorized_url: provider.insecure_http_authorized_url,
         auth_mode: provider.api_format === AGENT_API_FORMAT ? undefined : provider.auth_mode,
         // A cópia de um agente precisa subir o mesmo agente: o backend recusa o
         // formato acp sem comando, e sem argumentos o processo subiria em outro
@@ -263,7 +267,8 @@ export default function ProvidersPage() {
         // o mesmo agente e precisa da mesma chave, e o segredo continua onde
         // sempre esteve, no cofre.
         acp_credential_env: provider.acp_credential_env || undefined,
-      }));
+      };
+      await CreateLLMProvider(toWailsRequest<apidto.CreateLLMProviderRequest>(request));
       addToast(t('providers.toast.duplicated'), 'success', undefined, undefined, { suppressAnnounce: true });
       announce(t('providers.toast.duplicated'));
       await loadProviders();

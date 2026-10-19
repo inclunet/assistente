@@ -1,6 +1,7 @@
 import { test, expect } from '../fixtures';
 import { readFileSync } from 'node:fs';
 const wire = JSON.parse(readFileSync(new URL('../../src/lib/__fixtures__/commandKeyboardMap.json', import.meta.url), 'utf8')) as Record<string, unknown>;
+const providerCatalog = JSON.parse(readFileSync(new URL('../../../docs/static/json/assistente-catalog.json', import.meta.url), 'utf8'));
 
 test.use({ locale: 'pt-BR' });
 test('Novo provedor compartilha menu por botão e Ctrl+N, separa API e restaura foco', async ({ page, wails }) => {
@@ -14,6 +15,13 @@ test('Novo provedor compartilha menu por botão e Ctrl+N, separa API e restaura 
     { id: 'providers.api.create.open', name: 'Provedor API', available: true },
   ]);
   await wails.setResponse('GetCredentialForURL', null);
+  await wails.setResponse('GetLLMCatalog', {
+    document: providerCatalog,
+    refreshing: false,
+    age_seconds: 0,
+    from_cache: false,
+    stale: false,
+  });
   await wails.waitForApp();
   await page.goto('/#/settings');
   const trigger = page.getByRole('button', { name: /^Novo provedor(?:, Ctrl\+N)?$/ });

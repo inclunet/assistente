@@ -1,6 +1,6 @@
 # AEP-0115 — Catálogo público de provedores e modelos
 
-Status: In Progress — contrato aprovado; fases 1 (schema e asset inicial) e 2 (consumo, validação e cache backend) implementadas; fase 3 parcialmente entregue com persistência explícita e consumo pelo formulário; fábrica de defaults do backend, modelos e vozes pendentes
+Status: In Progress — contrato aprovado; fases 1 (schema e asset inicial) e 2 (consumo, validação e cache backend) implementadas; fase 3 parcialmente entregue com persistência explícita, consumo pelo formulário e aceite por conexão para HTTP remoto; Cohere aguarda suporte à rota anunciada; fábrica de defaults do backend pendente; modelos e vozes pendentes
 
 ## Resumo
 
@@ -66,8 +66,10 @@ URLs `http` no catálogo só podem apontar para loopback (`localhost`, `127.0.0.
 ou `::1`), inclusive em perfis locais e de proxy. Isso impede que uma alteração
 indevida no asset direcione credenciais para um host remoto sem TLS. URLs remotas
 `http` informadas manualmente pelo usuário exigem aviso e autorização explícita
-antes de qualquer envio de credencial; a fase 3 deve integrar esse percurso ao
-contrato de decisão/autorização de rede já existente.
+antes de qualquer envio de credencial. A fase 3 integra esse percurso ao
+DecisionDialog e persiste o aceite vinculado à URL exata da conexão; alterar a
+URL invalida o aceite. O backend exige essa correspondência também para sondagem,
+criação, edição e uso runtime de credenciais.
 
 Os perfis catalogados fornecem defaults e restrições de interface, não
 substituem configurações já salvas. Atualizar o catálogo não reescreve endpoint,
@@ -219,117 +221,32 @@ altera conexões existentes nem sobrepõe a identidade explícita persistida.
 
 ## Fases
 
-1. **Contrato e asset JSON — concluída neste PR.** Schema Draft 2020-12 validado
-   contra o asset inicial publicado em `docs/static/json/`, cobrindo provedores
-   hospedados, Ollama/LocalAI/llama.cpp, OpenRouter, LiteLLM, perfil
-   personalizado, modelos, exposição por proxy e completude de vozes.
-2. **Consumo e cache no backend — concluída no PR filho desta fase.** Buscar a
-   URL fixa sem seguir redirects, validar estrutura e integridade semântica,
-   persistir atomicamente a última versão válida com ETag/Last-Modified e expor
-   snapshots tipados por API Wails. O cache é carregado localmente e a atualização
-    ocorre em segundo plano; falhas mantêm o snapshot válido anterior. Timestamps
-    futuros no cache mantêm o documento disponível como stale e forçam
-    revalidação; o shutdown aguarda refreshes explícitos e de fundo.
-3. **Configuração de provedores pelo catálogo — em andamento.** A persistência
-   explícita de `server_profile_id` e o consumo pelo formulário de provedores
-   estão implementados: o formulário lista perfis ativos, usa allowlists locais
-   para família/formato/autenticação, aplica políticas de campos, oferece
-   links acessíveis e localizados, mantém configuração customizada quando o
-   catálogo falha e preserva valores salvos e entradas manuais digitadas
-   enquanto o catálogo carrega, sem associar perfis a conexões legadas. O
-   modelo padrão fixo só preenche conexões vinculadas quando não existe valor
-   salvo; modelos existentes têm precedência. O caminho Ollama mantém o
-   adaptador runtime atual sem mapear genericamente o formato de catálogo
-   `ollama`. HTTP remoto digitado manualmente anuncia o risco e exige autorização
-   antes de transmitir credenciais; perfis remotos do catálogo não permitem HTTP.
-   Evidência da UI: `frontend/src/components/settings/ProviderForm.tsx` e testes
-   focados. A substituição dos defaults da fábrica backend por perfis do catálogo
-   continua pendente. O perfil Cohere cuja rota catalogada não é suportada não
-   aparece como funcional; a configuração manual segue disponível. Modelos e
-   vozes permanecem nas fases seguintes.4. **Modelos, capacidades e proxies.** Associar IDs expostos apenas por
-   mapeamento exato e integrar recursos/limites sem impedir aliases
-   desconhecidos.
-5. **Vozes TTS na API do catálogo.** Integrar a coleção de vozes do asset ao
-   consumo tipado, associada à exposição de perfil, rota/API e modelo, incluindo
-   estado de completude. Esta fase fornece os dados consumidos pela fase 4 do
-   AEP-0113, que implementa a seleção e o comportamento de compatibilidade na
-   interface. Assim, a dependência é unidirecional: AEP-0113 fase 4 depende das
-   fases 1–5 desta AEP.
-6. **Manutenção do catálogo.** Definir processo e cadência de atualização,
-   validação e publicação. Sondagens de síntese potencialmente pagas podem ser
-   usadas no processo editorial, com custo e escopo controlados; abrir a UI ou
-   selecionar modelo não dispara sondagem paga automaticamente.
+1. **Contrato e asset JSON — concluída neste PR.** Schema Draft 2020-12 validado contra o asset inicial publicado em `docs/static/json/`, cobrindo provedores hospedados, Ollama/LocalAI/llama.cpp, OpenRouter, LiteLLM, perfil personalizado, modelos, exposição por proxy e completude de vozes.
+2. **Consumo e cache no backend — concluída no PR filho desta fase.** Buscar a URL fixa sem seguir redirects, validar estrutura e integridade semântica, persistir atomicamente a última versão válida com ETag/Last-Modified e expor snapshots tipados por API Wails. O cache carrega localmente e atualiza em segundo plano; falhas mantêm o snapshot válido anterior. Timestamps futuros no cache mantêm o documento disponível como stale e forçam revalidação; o shutdown aguarda refreshes explícitos e de fundo.
+3. **Configuração de provedores pelo catálogo — em andamento.** A persistência explícita de `server_profile_id` e o consumo pelo formulário estão implementados: lista perfis ativos, usa allowlists locais para família/formato/autenticação, aplica políticas de campo, oferece links acessíveis e localizados, mantém configuração customizada quando o catálogo falha e preserva valores salvos e entradas manuais durante o carregamento, sem associar perfis a conexões legadas. O `default_model_id` do perfil preenche uma conexão vinculada apenas quando o campo está vazio; valores salvos têm precedência, inclusive para políticas editáveis. O caminho Ollama mantém o adaptador runtime atual sem mapear genericamente o formato `ollama`. HTTP remoto manual exige aceite acessível antes da sondagem; o aceite fica salvo por conexão, vinculado à URL exata, é conferido no backend para o uso futuro e não é exportado na portabilidade. O perfil Cohere cuja rota catalogada não é suportada não aparece como funcional; a configuração manual segue disponível. A substituição dos defaults da fábrica backend continua pendente.
+4. **Modelos, capacidades e proxies.** Associar IDs expostos apenas por mapeamento exato e integrar recursos e limites sem impedir aliases desconhecidos.
+5. **Vozes TTS na API do catálogo.** Integrar a coleção de vozes do asset ao consumo tipado, associada à exposição de perfil, rota/API e modelo, incluindo estado de completude. Esta fase fornece os dados consumidos pela fase 4 do AEP-0113, que implementa a seleção e o comportamento de compatibilidade na interface. Assim, a dependência é unidirecional: AEP-0113 fase 4 depende das fases 1–5 desta AEP.
+6. **Manutenção do catálogo.** Definir processo e cadência de atualização, validação e publicação. Sondagens de síntese potencialmente pagas podem ser usadas no processo editorial, com custo e escopo controlados; abrir a UI ou selecionar modelo não dispara sondagem paga automaticamente.
 
 ## Riscos
 
-- Catálogo desatualizado pode sugerir capacidade ou limite incorreto; manter
-  `unknown`, cache do último documento válido e validação na API real.
-- Mudança de schema pode quebrar versões antigas; versionar schema e ignorar
-  campos opcionais desconhecidos sem aceitar formatos incompatíveis.
-- Um proxy pode usar alias sem revelar seu modelo; preservar o alias utilizável
-  com capacidades desconhecidas até existir associação explícita.
-- Políticas de campos muito rígidas podem impedir configuração necessária;
-  cada campo e perfil deve declarar a política e permitir opções suportadas
-  suficientes para o uso pretendido.
-- HTTP remoto pode expor credenciais; o catálogo limita esse esquema a loopback,
-  e a configuração manual precisa obter autorização explícita antes do primeiro
-  envio de credencial.
-- Confiar em JSON remoto para selecionar comportamento executável ampliaria a
-  superfície de ataque; tratar o catálogo como dados validados e usar
-  adaptadores locais allowlisted.
+- Catálogo desatualizado pode sugerir capacidade ou limite incorreto; manter `unknown`, cache do último documento válido e validação na API real.
+- Mudança de schema pode quebrar versões antigas; versionar schema e ignorar campos opcionais desconhecidos sem aceitar formatos incompatíveis.
+- Um proxy pode usar alias sem revelar seu modelo; preservar o alias utilizável com capacidades desconhecidas até existir associação explícita.
+- Políticas de campos muito rígidas podem impedir configuração necessária; cada campo e perfil deve declarar a política e permitir opções suportadas suficientes para o uso pretendido.
+- HTTP remoto pode expor credenciais. O asset limita esse esquema a loopback; configuração manual fora de loopback exige aceite explícito, persistido por URL exata e revalidado pelo backend. Esse aceite não torna o canal criptografado e deve ser invalidado quando o destino muda.
+- Confiar em JSON remoto para selecionar comportamento executável ampliaria a superfície de ataque; tratar o catálogo como dados validados e usar adaptadores locais allowlisted.
 
 ## Critérios de aceitação
 
-- [x] O asset público tem schema versionado, exemplos de provedor, modelo,
-  exposição por proxy e estado de completude de vozes. Evidência: arquivos
-  `docs/static/json/assistente-catalog.schema.json` e
-  `docs/static/json/assistente-catalog.json`, servidos pelo Hugo sob `/json/`;
-  validação Draft 2020-12 e conferência semântica das referências e unicidade
-  deste asset registradas no PR. A validação semântica de catálogos baixados é
-  coberta também pelo consumidor da fase 2.
-- [x] A aplicação valida estrutura e integridade semântica do documento (IDs
-  únicos, referências existentes, tuplas de exposição únicas e defaults de
-  `choice`), mantém cache válido e continua a funcionar offline. Evidência:
-  `internal/llmcatalog/{parser.go,validate.go,service.go,service_test.go}`;
-  os testes cobrem asset publicado, rejeição semântica, cache offline,
-  preservação após resposta inválida e revalidação condicional.
-- [x] A atualização não bloqueia o startup, usa origem HTTPS fixa sem redirects,
-  limita o tamanho do documento e grava cache por substituição atômica. Evidência:
-  `internal/llmcatalog/service.go` e `GetLLMCatalog` em
-  `internal/wailsapi/llm_catalog.go`.
-    ocorre em segundo plano; falhas mantêm o snapshot válido anterior. Timestamps
-    futuros no cache mantêm o documento disponível como stale e forçam
-    revalidação; o shutdown aguarda refreshes explícitos e de fundo.
-3. **Configuração de provedores pelo catálogo — em andamento.** A persistência
-   explícita de `server_profile_id` e o consumo pelo formulário de provedores
-   estão implementados: o formulário lista perfis ativos, usa allowlists locais
-   para família/formato/autenticação, aplica políticas de campos, oferece
-   links acessíveis e localizados, mantém configuração customizada quando o
-   catálogo falha e preserva valores salvos e entradas manuais digitadas
-   enquanto o catálogo carrega, sem associar perfis a conexões legadas. O
-   modelo padrão fixo só preenche conexões vinculadas quando não existe valor
-   salvo; modelos existentes têm precedência. O caminho Ollama mantém o
-   adaptador runtime atual sem mapear genericamente o formato de catálogo
-   `ollama`. HTTP remoto digitado manualmente anuncia o risco e exige autorização
-   antes de transmitir credenciais; perfis remotos do catálogo não permitem HTTP.
-   Evidência da UI: `frontend/src/components/settings/ProviderForm.tsx` e testes
-   focados. A substituição dos defaults da fábrica backend por perfis do catálogo
-   continua pendente. O perfil Cohere cuja rota catalogada não é suportada não
-   aparece como funcional; a configuração manual segue disponível. Modelos e
-   vozes permanecem nas fases seguintes.- [x] A conexão persiste o ID do perfil de servidor escolhido explicitamente,
-  preserva a associação em exportação/importação e deixa conexões antigas sem
-  perfil; agentes ACP e a conexão OAuth do ChatGPT não recebem perfil HTTP.
-  Evidência: `llm.ProviderConfig.ServerProfileID`, coluna aditiva
-  `llm_providers.server_profile_id`, conversão no `DBStore` e cobertura em
-  `db_store_stream_timeout_test.go`, `portability/providers_catalog_test.go` e
-  rejeição em `providers/chatgpt_test.go` para updates de OAuth.
-- [ ] Atualizar o catálogo não sobrescreve configurações existentes nem envia
-  dados locais ao site.
-- [ ] Modelos e aliases só recebem capacidades por associação exata; IDs sem
-  associação continuam selecionáveis com recursos desconhecidos.
-- [ ] Nenhuma conexão é identificada por inferência de hostname ou prefixo de
-  modelo; configurações antigas ambíguas permanecem personalizadas.
-- [ ] A fase de vozes do AEP-0113 consome o catálogo e distingue dados completos,
-  parciais e desconhecidos, sem sondagem paga automática durante o uso normal.
-- [ ] O AEP e o índice são atualizados em cada PR que entregar uma fase, com
-  evidências verificáveis e status sincronizado.
+- [x] O asset público tem schema versionado, exemplos de provedor, modelo, exposição por proxy e estado de completude de vozes. Evidência: `docs/static/json/assistente-catalog.schema.json` e `docs/static/json/assistente-catalog.json`, servidos pelo Hugo sob `/json/`; validação Draft 2020-12 e conferência semântica das referências e unicidade deste asset registradas no PR. A validação semântica de catálogos baixados é coberta também pelo consumidor da fase 2.
+- [x] A aplicação valida estrutura e integridade semântica do documento (IDs únicos, referências existentes, tuplas de exposição únicas e defaults de `choice`), mantém cache válido e continua a funcionar offline. Evidência: `internal/llmcatalog/{parser.go,validate.go,service.go,service_test.go}`; testes cobrem asset publicado, rejeição semântica, cache offline, preservação após resposta inválida e revalidação condicional.
+- [x] A atualização não bloqueia o startup, usa origem HTTPS fixa sem redirects, limita o tamanho do documento e grava cache por substituição atômica. Evidência: `internal/llmcatalog/service.go` e `GetLLMCatalog` em `internal/wailsapi/llm_catalog.go`; testes de serviço cobrem atualização em segundo plano, timestamps futuros no cache e espera de refreshes durante o shutdown.
+- [x] A conexão persiste o ID do perfil de servidor escolhido explicitamente, preserva a associação em exportação/importação e deixa conexões antigas sem perfil; agentes ACP e a conexão OAuth do ChatGPT não recebem perfil HTTP. Evidência: `llm.ProviderConfig.ServerProfileID`, coluna aditiva `llm_providers.server_profile_id`, conversão no `DBStore` e cobertura em `db_store_stream_timeout_test.go`, `portability/providers_catalog_test.go` e rejeição em `providers/chatgpt_test.go` para updates de OAuth.
+- [x] O formulário aplica perfis e políticas de campo, mostra links de cadastro/chave, preserva configurações salvas e mantém o modo customizado disponível offline. Para HTTP remoto manual, o DecisionDialog exige aceite antes da sondagem, grava o aceite por URL exata e o backend impede o envio de credenciais se essa URL mudar ou não tiver sido autorizada. Evidência: `frontend/src/components/settings/ProviderForm.tsx`, `internal/llm/provider.go`, `internal/providers/service.go` e testes focados.
+- [ ] A fábrica de defaults do backend consome perfis do catálogo, mantendo defaults e runtime coerentes com o formulário.
+- [ ] Atualizar o catálogo não sobrescreve configurações existentes nem envia dados locais ao site.
+- [ ] Modelos e aliases só recebem capacidades por associação exata; IDs sem associação continuam selecionáveis com recursos desconhecidos.
+- [ ] Nenhuma conexão é identificada por inferência de hostname ou prefixo de modelo; configurações antigas ambíguas permanecem personalizadas.
+- [ ] A fase de vozes do AEP-0113 consome o catálogo e distingue dados completos, parciais e desconhecidos, sem sondagem paga automática durante o uso normal.
+- [ ] O AEP e o índice são atualizados em cada PR que entregar uma fase, com evidências verificáveis e status sincronizado.

@@ -157,6 +157,22 @@ describe("ProviderForm - Renderização", () => {
     expect(screen.getByLabelText(/base url/i)).toBeInTheDocument();
   });
 
+  it('preserva URL, protocolo e autenticação ao trocar para o perfil personalizado', async () => {
+    const user = userEvent.setup();
+    render(<ProviderForm onCancel={() => {}} onSave={() => {}} />);
+    const profileSelect = screen.getByLabelText(/perfil de servidor/i);
+    await waitForProfileOption(profileSelect, 'ollama');
+    await user.selectOptions(profileSelect, 'ollama');
+    const urlInput = screen.getByLabelText(/base url/i);
+    await user.clear(urlInput);
+    await user.type(urlInput, 'http://127.0.0.1:11434');
+    await user.selectOptions(profileSelect, '');
+
+    expect(urlInput).toHaveValue('http://127.0.0.1:11434');
+    expect(screen.getByLabelText('providerForm.apiProtocol')).toHaveValue('openai');
+    expect(screen.getByLabelText('providerForm.authMode')).toHaveValue('none');
+  });
+
   it('preserva URL e formato digitados antes de o catálogo responder', async () => {
     let resolveCatalog!: (response: Awaited<ReturnType<typeof GetLLMCatalog>>) => void;
     vi.mocked(GetLLMCatalog).mockReturnValueOnce(new Promise<Awaited<ReturnType<typeof GetLLMCatalog>>>(resolve => {
@@ -178,8 +194,27 @@ describe("ProviderForm - Renderização", () => {
     expect(screen.getByLabelText(/perfil de servidor/i)).toHaveValue('');
     expect(screen.getByLabelText(/base url/i)).toHaveValue('https://gateway.example/v1');
     expect(screen.getByLabelText('providerForm.apiProtocol')).toHaveValue('openai');
+    expect(screen.getByLabelText('providerForm.authMode')).toHaveValue('optional');
   });
 
+  it('usa os defaults customizados ao digitar o modelo antes de o catálogo responder', async () => {
+    let resolveCatalog!: (response: Awaited<ReturnType<typeof GetLLMCatalog>>) => void;
+    vi.mocked(GetLLMCatalog).mockReturnValueOnce(new Promise<Awaited<ReturnType<typeof GetLLMCatalog>>>(resolve => {
+      resolveCatalog = resolve;
+    }));
+    const user = userEvent.setup();
+    render(<ProviderForm onCancel={() => {}} onSave={() => {}} />);
+
+    await user.type(screen.getByLabelText(/modelo padrão/i), 'manual-model');
+    expect(screen.getByLabelText(/base url/i)).toHaveValue('');
+    expect(screen.getByLabelText('providerForm.apiProtocol')).toHaveValue('openai');
+    expect(screen.getByLabelText('providerForm.authMode')).toHaveValue('optional');
+
+    await act(async () => resolveCatalog(providerFormCatalogAPIResponse));
+    await waitFor(() => expect(screen.getByRole('option', { name: 'OpenAI' })).toBeInTheDocument());
+    expect(screen.getByLabelText(/perfil de servidor/i)).toHaveValue('');
+    expect(screen.getByLabelText(/modelo padrão/i)).toHaveValue('manual-model');
+  });
   it("deve ter labels HTML associados corretamente (acessibilidade)", () => {
     render(
       <ProviderForm
@@ -227,6 +262,7 @@ describe("ProviderForm - Renderização", () => {
     expect(urlInput).not.toBeDisabled();
     expect(urlInput.value).toBe("http://localhost:11434");
     expect(screen.getByLabelText('providerForm.apiProtocol')).toHaveValue('openai');
+
   });
 
   it("deve exigir autenticação para OpenAI", () => {
@@ -274,6 +310,53 @@ describe("ProviderForm - Renderização", () => {
     expect(Array.from((modelSelect as HTMLSelectElement).options).map(option => option.value)).toEqual([
       'deepseek-chat', 'deepseek-reasoner',
     ]);
+  });
+
+  it('pede aceite antes de testar credenciais em HTTP remoto e vincula aceite à URL', async () => {
+    const user = userEvent.setup();
+    render(<ProviderForm onCancel={() => {}} onSave={() => {}} />);
+    const profileSelect = screen.getByLabelText(/perfil de servidor/i);
+    await waitForProfileOption(profileSelect, 'custom-openai-compatible');
+    await user.selectOptions(profileSelect, 'custom-openai-compatible');
+    await user.selectOptions(screen.getByLabelText('providerForm.authMode'), 'required');
+    await user.type(screen.getByLabelText(/base url/i), 'http://gateway.example.test/v1');
+
+    await user.click(screen.getByRole('button', { name: /carregar modelos/i }));
+    expect(await screen.findByRole('alertdialog')).toBeInTheDocument();
+    expect(App.ListModelsRaw).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: 'providerForm.insecureHTTP.authorize' }));
+    await waitFor(() => expect(App.ListModelsRaw).toHaveBeenCalledWith(expect.objectContaining({
+      base_url: 'http://gateway.example.test/v1',
+      insecure_http_authorized_url: 'http://gateway.example.test/v1',
+    })));
+  });
+
+  it.each(['fixed-model-test', 'deepseek'])('permite testar a conexão com política de modelo %s', async profileId => {
+    const user = userEvent.setup();
+    render(<ProviderForm onCancel={() => {}} onSave={() => {}} />);
+    const profileSelect = screen.getByLabelText(/perfil de servidor/i);
+    await waitForProfileOption(profileSelect, profileId);
+    await user.selectOptions(profileSelect, profileId);
+    const createButton = screen.getByRole('button', { name: /criar/i });
+    expect(createButton).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: /carregar modelos/i }));
+    await waitFor(() => expect(createButton).toBeEnabled());
+  });
+
+  it('mantém visível um modelo manual que não aparece na lista retornada', async () => {
+    const user = userEvent.setup();
+    render(<ProviderForm onCancel={() => {}} onSave={() => {}} />);
+    const profileSelect = screen.getByLabelText(/perfil de servidor/i);
+    await waitForProfileOption(profileSelect, '');
+    await user.selectOptions(profileSelect, '');
+    const modelInput = screen.getByLabelText(/modelo padrão/i);
+    await user.type(modelInput, 'gateway/private-model');
+    await user.click(screen.getByRole('button', { name: /carregar modelos/i }));
+
+    const modelSelect = await screen.findByLabelText(/modelo padrão/i);
+    expect(modelSelect).toHaveValue('gateway/private-model');
+    expect(modelSelect).toContainElement(screen.getByRole('option', { name: 'gateway/private-model' }));
   });
 });
 

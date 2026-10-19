@@ -7,6 +7,8 @@ import { CreateLLMProvider, UpdateLLMProvider, ListModelsRaw } from '@wailsjs/go
 import { GetLLMCatalog } from '@wailsjs/go/wailsapi/LLMCatalog';
 import { Input, Select, Button, FormField } from '../';
 import { DialogActions } from '../ui/DialogActions';
+import { DecisionDialog } from '../ui/DecisionDialog';
+import { toWailsRequest, type CreateProviderRequest, type TestProviderRequest, type UpdateProviderRequest } from '../../types/providerRequests';
 import { AGENT_API_FORMAT, PROVIDER_CONFIG } from '../../config/providers';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import type { CatalogAgent } from './ACPAgentCatalog';
@@ -19,6 +21,19 @@ import './ProviderForm.css';
 const HTTP_CREDENTIAL_TYPES = ['bearer', 'basic', 'custom'];
 const defaultAuthMode = (type: string) => ['ollama', 'llamacpp'].includes(type) ? 'none' : type === 'localai' ? 'optional' : 'required';
 const sameOrigin = (a: string, b: string) => { try { return new URL(a).origin === new URL(b).origin; } catch { return false; } };
+const requiresRemoteHTTPAuthorization = (rawURL: string, authMode: string) => {
+  if (authMode === 'none') return false;
+  try {
+    const url = new URL(rawURL);
+    if (url.protocol !== 'http:') return false;
+    const hostname = url.hostname.toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '');
+    if (hostname === 'localhost' || hostname.endsWith('.localhost') || hostname === '::1') return false;
+    const ipv4 = hostname.split('.').map(Number);
+    return !(ipv4.length === 4 && ipv4.every(part => Number.isInteger(part) && part >= 0 && part <= 255) && ipv4[0] === 127);
+  } catch {
+    return false;
+  }
+};
 
 const PROFILE_FAMILY_TO_RUNTIME_TYPE: Record<string, string> = {
   openai: 'openai', anthropic: 'anthropic', google: 'google', xai: 'xai',
@@ -46,6 +61,11 @@ const policyValue = (profile: ServerProfile, field: string, fallback: unknown): 
   return hasFallback ? fallback : policy?.default ?? fallback;
 };
 
+const defaultModelForProfile = (profile: ServerProfile | undefined): string | undefined => {
+  if (!profile) return undefined;
+  const value = policyValue(profile, 'default_model_id', profile.default_model_id);
+  return typeof value === 'string' && value.trim() ? value : undefined;
+};
 const customProfile = (): ServerProfile => llmcatalog.Server.createFrom({
   id: '', name: '', group: 'custom', provider_family: 'custom', status: 'active',
   api_format: 'openai', adapter_id: 'openai', base_url: '',
@@ -69,10 +89,20 @@ const runtimeProfileValues = (profile: ServerProfile) => {
     : typeof rawFormat === 'string' ? allowlisted(API_FORMAT_TO_RUNTIME, rawFormat) : undefined;
   const rawAuthMode = policyValue(profile, 'auth.mode', profile.auth?.mode);
   const authMode = typeof rawAuthMode === 'string' ? allowlisted(AUTH_MODE_TO_RUNTIME, rawAuthMode) : undefined;
-  if (!runtimeType || !apiFormat || !authMode) return null;
+  if (!runtimeType || !PROVIDER_CONFIG[runtimeType] || !apiFormat || !authMode) return null;
+  if (apiFormat === 'google' && authMode !== 'required') return null;
   const rawBaseURL = policyValue(profile, 'base_url', profile.base_url || '');
   const baseURL = typeof rawBaseURL === 'string' ? rawBaseURL : '';
   return { runtimeType, apiFormat, authMode, baseURL };
+};
+
+const profileAllowsRequiredAuth = (profile: ServerProfile) => {
+  const policy = policyFor(profile, 'auth.mode');
+  if (!policy || policy.policy === 'editable') return true;
+  const allowedModes = policy.policy === 'choice'
+    ? policy.choices || []
+    : [policy.default];
+  return allowedModes.some(mode => mode === 'bearer_api_key' || mode === 'api_key_header');
 };
 
 export interface ProviderFormData {
@@ -86,6 +116,7 @@ export interface ProviderFormData {
   default_model?: string;
   api_format?: string;
   server_profile_id?: string;
+  insecure_http_authorized_url?: string;
   reasoning_content_mode?: string;
   /** Comando e argumentos do agente de código, quando o formato é acp. */
   acp_command?: string;
@@ -161,6 +192,7 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
   const { announce } = useAnnouncer();
   const [catalogProfiles, setCatalogProfiles] = useState<ServerProfile[] | null>(null);
   const catalogDefaultSuppressed = useRef(false);
+  const customDraftInitialized = useRef(false);
   const catalogUnavailableAnnouncement = useRef('');
   catalogUnavailableAnnouncement.current = t('providerForm.catalogUnavailable');
   useEffect(() => {
@@ -209,10 +241,15 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
     api_format: kind === 'acp' ? AGENT_API_FORMAT : PROVIDER_CONFIG.openai.apiFormat || '',
     reasoning_content_mode: PROVIDER_CONFIG.openai.reasoningContentMode || 'disabled',
   });
+  const savedProfileId = formData.server_profile_id ?? provider?.server_profile_id;
+  const savedProfileUnavailable = Boolean(savedProfileId)
+    && !availableProfiles.some(profile => profile.id === savedProfileId);
   const selectedProfile = useMemo(() => {
     const profileId = formData.server_profile_id ?? provider?.server_profile_id;
-    return availableProfiles.find(profile => profile.id === profileId) || customProfile();
-  }, [availableProfiles, formData.server_profile_id, provider?.server_profile_id]);
+    return availableProfiles.find(profile => profile.id === profileId)
+      || (profileId ? catalogProfiles?.find(profile => profile.id === profileId) : undefined)
+      || customProfile();
+  }, [availableProfiles, catalogProfiles, formData.server_profile_id, provider?.server_profile_id]);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const savingStatus = useRef<HTMLParagraphElement>(null);
@@ -224,6 +261,7 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
     wasSaving.current = saving;
   }, [saving]);
   const [apiTested, setApiTested] = useState(false);
+  const [httpAuthorizationURL, setHttpAuthorizationURL] = useState('');
 
   const [credentialDraft, setCredentialDraft] = useState<CredentialDraft | null>(null);
   const loadSequence = useRef(0);
@@ -320,8 +358,9 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
   const loadModels = useCallback(async (overrideData?: Partial<ProviderFormData>) => {
     const data = { ...formData, ...overrideData };
     const config = PROVIDER_CONFIG[data.type] || PROVIDER_CONFIG.custom;
-    const profile = availableProfiles.find(item => item.id === data.server_profile_id);
-    const catalogDefaultModel = typeof profile?.default_model_id === 'string' ? profile.default_model_id : undefined;
+    const profile = availableProfiles.find(item => item.id === data.server_profile_id)
+      || (data.server_profile_id ? catalogProfiles?.find(item => item.id === data.server_profile_id) : undefined);
+    const catalogDefaultModel = defaultModelForProfile(profile);
     const policy = policyFor(profile, 'base_url');
     const configuredURL = profile && (policy?.policy === 'fixed' || policy?.policy === 'hidden')
       ? policyValue(profile, 'base_url', profile.base_url)
@@ -349,14 +388,16 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
     });
 
     try {
-      const result = await ListModelsRaw(apidto.TestLLMProviderRequest.createFrom({
+      const request: TestProviderRequest = {
           type: data.type,
           base_url: canonicalUrl,
           credential: credentialDraft ? credentialInput(credentialDraft) : undefined,
           auth_mode: data.auth_mode || defaultAuthMode(data.type),
           api_format: data.api_format || undefined,
           provider_id: data.id || undefined,
-        }));
+          insecure_http_authorized_url: data.insecure_http_authorized_url || undefined,
+        };
+      const result = await ListModelsRaw(toWailsRequest<apidto.TestLLMProviderRequest>(request));
 
       if (sequence !== loadSequence.current) return;
       setModels(result || []);
@@ -365,7 +406,7 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
 
       // Se não tinha modelo selecionado, prefere o default do perfil escolhido.
       if (!data.default_model) {
-        const suggested = catalogDefaultModel || config.defaultModel;
+        const suggested = catalogDefaultModel || (!data.server_profile_id ? config.defaultModel : undefined);
         if (suggested && (result || []).includes(suggested)) {
           setFormData(prev => ({ ...prev, default_model: suggested }));
         }
@@ -380,7 +421,7 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
         setModelsLoaded(true);
         setApiTested(true);
         // Sugere o modelo default se não tem um selecionado
-        if (!data.default_model && (catalogDefaultModel || config.defaultModel)) {
+        if (!data.default_model && (catalogDefaultModel || (!data.server_profile_id && config.defaultModel))) {
           setFormData(prev => ({ ...prev, default_model: catalogDefaultModel || config.defaultModel }));
         }
       } else {
@@ -394,10 +435,11 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
     } finally {
       if (sequence === loadSequence.current) setLoadingModels(false);
     }
-  }, [formData, credentialDraft, t, provider, availableProfiles]);
+  }, [formData, credentialDraft, t, provider, availableProfiles, catalogProfiles]);
 
   useEffect(() => {
     catalogDefaultSuppressed.current = false;
+    customDraftInitialized.current = false;
     setAgentSelectionToken(0);
     formSequence.current++;
     setSaving(false);
@@ -414,6 +456,7 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
         api_key: '',
         auth_mode: provider.auth_mode || defaultAuthMode(provider.type),
         credential_pattern: provider.credential_pattern,
+        insecure_http_authorized_url: provider.insecure_http_authorized_url,
         default_model: provider.default_model || '',
         api_format: provider.api_format ?? provConfig.apiFormat ?? '',
         server_profile_id: provider.server_profile_id,
@@ -440,6 +483,7 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
         api_key: '',
         api_format: config.apiFormat || '',
         server_profile_id: undefined,
+        insecure_http_authorized_url: undefined,
         auth_mode: defaultAuthMode(defaultType),
         reasoning_content_mode: config.reasoningContentMode || 'disabled',
         acp_command: '',
@@ -505,6 +549,7 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
         ?? savedConfig.reasoningContentMode
         ?? 'disabled',
       base_url: provider.base_url,
+      insecure_http_authorized_url: provider.insecure_http_authorized_url,
       default_model: provider.default_model || '',
       api_key: '',
       auth_mode: provider.auth_mode || defaultAuthMode(provider.type),
@@ -527,6 +572,7 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
     // Uma escolha explícita sempre vence a resposta assíncrona do catálogo.
     catalogDefaultSuppressed.current = true;
     const profile = availableProfiles.find(candidate => candidate.id === profileId) || customProfile();
+    if (profileId && profile.id !== profileId) return;
     if (provider && profileId === (provider.server_profile_id || '')) {
       restoreSavedProvider();
       return;
@@ -538,15 +584,18 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
       ...prev,
       type: values.runtimeType,
       server_profile_id: profileId,
-      api_format: values.apiFormat,
+      api_format: profileId === '' ? (prev.api_format || values.apiFormat) : values.apiFormat,
       reasoning_content_mode: PROVIDER_CONFIG[values.runtimeType]?.reasoningContentMode || 'disabled',
-      base_url: values.baseURL,
-      default_model: typeof policyValue(profile, 'default_model_id', profile.default_model_id) === 'string'
+      base_url: profileId === '' ? prev.base_url : values.baseURL,
+      insecure_http_authorized_url: (profileId === '' ? prev.base_url : values.baseURL) === prev.base_url
+        ? prev.insecure_http_authorized_url
+        : undefined,
+      default_model: profileId === '' ? (prev.default_model || '') : typeof policyValue(profile, 'default_model_id', profile.default_model_id) === 'string'
         ? policyValue(profile, 'default_model_id', profile.default_model_id) as string : '',
       // O que não pertence ao novo tipo não fica pendurado: agente não tem
       // credencial no app, e provedor HTTP não tem comando para subir.
       api_key: '',
-      auth_mode: values.authMode,
+      auth_mode: profileId === '' ? (prev.auth_mode || values.authMode) : values.authMode,
       credential_pattern: undefined,
       acp_command: '',
       acp_args: [],
@@ -618,6 +667,9 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
     const profileFields = ['base_url', 'api_format', 'auth_mode', 'default_model'];
     const preserveCustomDraft = !provider && catalogProfiles === null && profileFields.includes(field);
     if (preserveCustomDraft) catalogDefaultSuppressed.current = true;
+    const initializeCustomDraft = preserveCustomDraft && !customDraftInitialized.current;
+    if (initializeCustomDraft) customDraftInitialized.current = true;
+    const customDefaults = initializeCustomDraft ? runtimeProfileValues(customProfile()) : null;
     if (['base_url', 'api_format'].includes(field)) handleCredentialChange(null);
     if (field === 'auth_mode') {
       if (value === 'none' || (formData.auth_mode || defaultAuthMode(formData.type)) === 'none') handleCredentialChange(null);
@@ -626,8 +678,20 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
     setFormData((prev) => ({
       ...prev,
       [field]: value,
-      ...(preserveCustomDraft ? { type: 'custom', server_profile_id: undefined } : {}),
-      ...(field === 'api_format' && value === 'google' ? { auth_mode: 'required' } : {}),
+      ...(field === 'base_url' && value !== prev.base_url ? { insecure_http_authorized_url: undefined } : {}),
+      ...(preserveCustomDraft ? {
+        type: 'custom',
+        server_profile_id: undefined,
+        ...(initializeCustomDraft ? {
+          ...(field !== 'base_url' ? { base_url: '' } : {}),
+          ...(field !== 'api_format' ? { api_format: customDefaults?.apiFormat } : {}),
+          ...(field !== 'auth_mode' ? { auth_mode: customDefaults?.authMode } : {}),
+          ...(field !== 'default_model' ? { default_model: '' } : {}),
+        } : {}),
+      } : {}),
+      ...(field === 'api_format' && value === 'google' && profileAllowsRequiredAuth(selectedProfile)
+        ? { auth_mode: 'required' }
+        : {}),
     }));
     // Limpa erro do campo
     if (errors[field]) {
@@ -657,6 +721,11 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
     if (credentialDraft) {
       const error = validateCredential(credentialDraft, t);
       if (error) { setErrors(prev => ({ ...prev, credential: error })); return; }
+    }
+
+    if (requiresRemoteHTTPAuthorization(canonicalUrl, authMode) && formData.insecure_http_authorized_url !== canonicalUrl) {
+      setHttpAuthorizationURL(canonicalUrl);
+      return;
     }
 
     await loadModels();
@@ -773,7 +842,7 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
 
       if (formData.id) {
         // Update
-        await UpdateLLMProvider(formData.id, apidto.UpdateLLMProviderRequest.createFrom({
+        const request: UpdateProviderRequest = {
             name: formData.name,
             type: formData.type,
             base_url: canonicalUrl,
@@ -782,14 +851,16 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
             default_model: formData.default_model || undefined,
             api_format: formData.api_format || undefined,
             server_profile_id: formData.server_profile_id !== undefined ? formData.server_profile_id : provider?.server_profile_id,
+            insecure_http_authorized_url: formData.insecure_http_authorized_url,
             reasoning_content_mode: formData.reasoning_content_mode || 'disabled',
-        }));
+        };
+        await UpdateLLMProvider(formData.id, toWailsRequest<apidto.UpdateLLMProviderRequest>(request));
       } else {
         // Create - gera ID único
         const suggestedDefault = typeof selectedProfile.default_model_id === 'string'
           ? selectedProfile.default_model_id
           : PROVIDER_CONFIG[formData.type]?.defaultModel;
-        await CreateLLMProvider(apidto.CreateLLMProviderRequest.createFrom({
+        const request: CreateProviderRequest = {
             id: `${formData.type}-${Date.now()}`,
             name: formData.name,
             type: formData.type,
@@ -799,8 +870,10 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
             default_model: formData.default_model || suggestedDefault || undefined,
             api_format: formData.api_format || undefined,
             server_profile_id: formData.server_profile_id || undefined,
+            insecure_http_authorized_url: formData.insecure_http_authorized_url,
             reasoning_content_mode: formData.reasoning_content_mode || 'disabled',
-      }));
+        };
+        await CreateLLMProvider(toWailsRequest<apidto.CreateLLMProviderRequest>(request));
       }
 
       if (sequence === formSequence.current) onSave();
@@ -829,13 +902,14 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
     : t('providerForm.defaultModelHelp');
   const apiFormatPolicy = policyFor(selectedProfile, 'api_format');
   const authModePolicy = policyFor(selectedProfile, 'auth.mode');
-  const isUrlReadonly = baseURLPolicy?.policy === 'fixed' || baseURLPolicy?.policy === 'hidden';
+  const catalogPolicyPending = Boolean(provider?.server_profile_id) && catalogProfiles === null;
+  const isUrlReadonly = catalogPolicyPending || baseURLPolicy?.policy === 'fixed' || baseURLPolicy?.policy === 'hidden';
   const isURLHidden = baseURLPolicy?.policy === 'hidden';
   const isApiFormatHidden = apiFormatPolicy?.policy === 'hidden';
-  const isApiFormatReadonly = apiFormatPolicy?.policy === 'fixed';
+  const isApiFormatReadonly = catalogPolicyPending || apiFormatPolicy?.policy === 'fixed';
   const isAuthModeHidden = authModePolicy?.policy === 'hidden';
-  const isAuthModeReadonly = authModePolicy?.policy === 'fixed';
-  const apiFormatChoices = apiFormatPolicy?.policy === 'choice' && apiFormatPolicy.choices?.length
+  const isAuthModeReadonly = catalogPolicyPending || authModePolicy?.policy === 'fixed';
+  const rawApiFormatChoices = apiFormatPolicy?.policy === 'choice' && apiFormatPolicy.choices?.length
     ? apiFormatPolicy.choices.flatMap(value => typeof value === 'string' && allowlisted(API_FORMAT_TO_RUNTIME, value) ? [allowlisted(API_FORMAT_TO_RUNTIME, value)!] : [])
     : API_FORMAT_OPTIONS.map(option => option.value);
   const baseURLChoices = baseURLPolicy?.policy === 'choice' && baseURLPolicy.choices?.length
@@ -844,7 +918,19 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
   const authChoices = authModePolicy?.policy === 'choice' && authModePolicy.choices?.length
     ? authModePolicy.choices.flatMap(value => typeof value === 'string' && allowlisted(AUTH_MODE_TO_RUNTIME, value) ? [allowlisted(AUTH_MODE_TO_RUNTIME, value)!] : [])
     : ['required', 'optional', 'none'];
+  const apiFormatChoices = rawApiFormatChoices.filter(value => value !== 'google' || profileAllowsRequiredAuth(selectedProfile));
   const profileSelection = formData.server_profile_id ?? provider?.server_profile_id ?? '';
+  const profileOptions = [
+    ...(savedProfileUnavailable && savedProfileId ? [{
+      value: savedProfileId,
+      label: t('providerForm.profileUnavailable', { id: savedProfileId }),
+      disabled: true,
+    }] : []),
+    ...availableProfiles.map(profile => ({
+      value: profile.id,
+      label: profile.name || t('providerForm.customProfile'),
+    })),
+  ];
   const authMode = formData.auth_mode || defaultAuthMode(formData.type);
   const canLoadModels = Boolean(getCanonicalUrl(formData.type).trim()) &&
     (!credentialDraft || !validateCredential(credentialDraft, t));
@@ -869,15 +955,15 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
 
       <FormField label={t(isAgent ? 'providerForm.providerType' : 'providerForm.serverProfile')} required>
         <Select
-          options={isAgent ? tiposDeProvedor : availableProfiles.map(profile => ({
-            value: profile.id,
-            label: profile.name || t('providerForm.customProfile'),
-          }))}
+          options={isAgent ? tiposDeProvedor : profileOptions}
           value={isAgent ? formData.type : profileSelection}
           onChange={(e) => isAgent ? handleTypeChange(e.target.value) : handleProfileChange(e.target.value)}
           fullWidth
         />
       </FormField>
+      {!isAgent && savedProfileUnavailable && <p role="status">
+        {t('providerForm.profileUnavailableHelp')}
+      </p>}
       {catalogUnavailable && <p>
         {t('providerForm.catalogUnavailable')}
       </p>}
@@ -991,7 +1077,7 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
             >
               <Input
                 value={formData.default_model || ''}
-                onChange={(e) => setFormData(prev => ({ ...prev, default_model: e.target.value }))}
+                onChange={(e) => handleChange('default_model', e.target.value)}
                 placeholder={(typeof selectedProfile.default_model_id === 'string' ? selectedProfile.default_model_id : config.defaultModel) || t('providerForm.modelPlaceholder')}
                 fullWidth
                 aria-label={t('providerForm.defaultModel')}
@@ -1014,29 +1100,54 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
             description={defaultModelDescription}
           >
             {defaultModelPolicy?.policy === 'fixed' ? (
-              <Select
-                options={formData.default_model ? [{ value: formData.default_model, label: formData.default_model }] : []}
-                value={formData.default_model || ''}
-                fullWidth
-                aria-label={t('providerForm.defaultModel')}
-                disabled
-              />
+              <div className="provider-form__model-load-section">
+                <Select
+                  options={formData.default_model ? [{ value: formData.default_model, label: formData.default_model }] : []}
+                  value={formData.default_model || ''}
+                  fullWidth
+                  aria-label={t('providerForm.defaultModel')}
+                  disabled
+                />
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={handleLoadModels}
+                  disabled={loadingModels || !canLoadModels}
+                  aria-label={t('providerForm.loadModels')}
+                >
+                  {loadingModels ? t('providerForm.loadingModels') : t('providerForm.loadModelsBtn')}
+                </Button>
+              </div>
             ) : defaultModelPolicy?.policy === 'choice' ? (
-              <Select
-                options={defaultModelChoices.map(value => ({ value, label: value }))}
-                value={formData.default_model || ''}
-                onChange={(e) => setFormData(prev => ({ ...prev, default_model: e.target.value }))}
-                fullWidth
-                aria-label={t('providerForm.defaultModel')}
-              />
+              <div className="provider-form__model-load-section">
+                <Select
+                  options={defaultModelChoices.map(value => ({ value, label: value }))}
+                  value={formData.default_model || ''}
+                  onChange={(e) => handleChange('default_model', e.target.value)}
+                  fullWidth
+                  aria-label={t('providerForm.defaultModel')}
+                />
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={handleLoadModels}
+                  disabled={loadingModels || !canLoadModels}
+                  aria-label={t('providerForm.loadModels')}
+                >
+                  {loadingModels ? t('providerForm.loadingModels') : t('providerForm.loadModelsBtn')}
+                </Button>
+              </div>
             ) : modelsLoaded && models.length > 0 ? (
               <Select
                 options={[
                   { value: '', label: t('providerForm.modelAutomatic') },
+                  ...(formData.default_model && !models.includes(formData.default_model)
+                    ? [{ value: formData.default_model, label: formData.default_model }]
+                    : []),
                   ...models.map(m => ({ value: m, label: m })),
                 ]}
                 value={formData.default_model || ''}
-                onChange={(e) => setFormData(prev => ({ ...prev, default_model: e.target.value }))}
+                onChange={(e) => handleChange('default_model', e.target.value)}
                 fullWidth
                 aria-label={t('providerForm.defaultModel')}
                 disabled={defaultModelPolicy?.policy === 'fixed'}
@@ -1044,7 +1155,7 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
             ) : modelsLoaded && endpointNotSupported ? (
               <Input
                 value={formData.default_model || ''}
-                onChange={(e) => setFormData(prev => ({ ...prev, default_model: e.target.value }))}
+                onChange={(e) => handleChange('default_model', e.target.value)}
                 placeholder={(typeof selectedProfile.default_model_id === 'string' ? selectedProfile.default_model_id : config.defaultModel) || t('providerForm.modelPlaceholder')}
                 fullWidth
                 aria-label={t('providerForm.defaultModel')}
@@ -1096,6 +1207,28 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
             {t('common.cancel')}
           </Button>
         }
+      />
+      <DecisionDialog
+        isOpen={Boolean(httpAuthorizationURL)}
+        title={t('providerForm.insecureHTTP.title')}
+        description={t('providerForm.insecureHTTP.description')}
+        body={<p>{httpAuthorizationURL}</p>}
+        severity="permission"
+        actions={[
+          { id: 'authorize', label: t('providerForm.insecureHTTP.authorize'), primary: true, variant: 'primary', polarity: 'affirmative' },
+          { id: 'cancel', label: t('common.cancel'), variant: 'outline', polarity: 'negative' },
+        ]}
+        onAction={(actionId) => {
+          if (actionId === 'authorize' && httpAuthorizationURL) {
+            const authorizedURL = httpAuthorizationURL;
+            setFormData(prev => ({ ...prev, insecure_http_authorized_url: authorizedURL }));
+            setHttpAuthorizationURL('');
+            void loadModels({ insecure_http_authorized_url: authorizedURL });
+            return;
+          }
+          setHttpAuthorizationURL('');
+        }}
+        onCancel={() => setHttpAuthorizationURL('')}
       />
     </form>
   );

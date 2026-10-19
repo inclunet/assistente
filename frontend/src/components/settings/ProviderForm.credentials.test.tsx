@@ -28,7 +28,7 @@ const configure = async () => {
  await userEvent.click(button);
 };
 const waitForProfileOption = async (value: string) => {
- await waitFor(() => expect(Array.from((screen.getByLabelText('providerForm.serverProfile') as HTMLSelectElement).options).some(option => option.value === value)).toBe(true));
+ await waitFor(() => expect(Array.from((screen.getByLabelText(/providerForm\.serverProfile/) as HTMLSelectElement).options).some(option => option.value === value)).toBe(true));
 };
 const set = async (label: string, value: string) => {
  if (label === 'providerForm.serverProfile' && value) await waitForProfileOption(value);
@@ -127,9 +127,9 @@ describe('ProviderForm shared credentials', () => {
   vi.mocked(ListModelsRaw).mockReturnValue(new Promise(done => { resolve = done; }));
   render(<ProviderForm onSave={() => {}} onCancel={() => {}} />);
   await set('providerForm.serverProfile', 'custom-openai-compatible');
-  await set('Base URL', 'https://one.example/v1');
+  await set('providerForm.baseUrl', 'https://one.example/v1');
   await userEvent.click(screen.getByRole('button', { name: 'providerForm.loadModels' }));
-  await set('Base URL', 'https://two.example/v1');
+  await set('providerForm.baseUrl', 'https://two.example/v1');
   await act(async () => resolve(['old-model']));
   expect(screen.queryByText('providerForm.connected')).not.toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'common.create' })).toBeDisabled();
@@ -219,7 +219,7 @@ it('discards visual credentials when switching types with the same URL and proto
  render(<ProviderForm onSave={() => {}} onCancel={() => {}} />);
  await set('providerForm.name', 'API');
  await set('providerForm.serverProfile', 'custom-openai-compatible');
- await set('Base URL', 'http://localhost:8080');
+  await set('providerForm.baseUrl', 'http://localhost:8080');
  await set('providerForm.apiProtocol', 'openai');
  await configure();
  await set('credentials.labels.token', 'discarded-token');

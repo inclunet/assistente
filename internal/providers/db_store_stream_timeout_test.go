@@ -8,11 +8,12 @@ import (
 
 func TestDBStorePreservaStreamIdleTimeout(t *testing.T) {
 	original := &llm.ProviderConfig{
-		ID:                       "provider-1",
-		Name:                     "Provider",
-		ServerProfileID:          "openrouter",
-		CompatibilityRevision:    9,
-		StreamIdleTimeoutSeconds: 75,
+		ID:                        "provider-1",
+		Name:                      "Provider",
+		ServerProfileID:           "openrouter",
+		InsecureHTTPAuthorizedURL: "http://proxy.example/v1",
+		CompatibilityRevision:     9,
+		StreamIdleTimeoutSeconds:  75,
 	}
 
 	restored, err := fromDBModel(toDBModel(original))
@@ -27,5 +28,8 @@ func TestDBStorePreservaStreamIdleTimeout(t *testing.T) {
 	}
 	if restored.ServerProfileID != "openrouter" {
 		t.Fatalf("perfil de servidor=%q, esperado openrouter", restored.ServerProfileID)
+	}
+	if restored.InsecureHTTPAuthorizedURL != "http://proxy.example/v1" {
+		t.Fatalf("aceite HTTP=%q, esperado URL vinculada", restored.InsecureHTTPAuthorizedURL)
 	}
 }

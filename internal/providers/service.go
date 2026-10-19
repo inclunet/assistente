@@ -203,18 +203,19 @@ func (s *Service) EnsureDefault(ctx context.Context) {
 
 // CreateRequest contém os dados para criar um provedor.
 type CreateRequest struct {
-	CredentialFromProviderID string
-	Credential               *CredentialSpec
-	AuthMode                 string
-	ID                       string
-	Name                     string
-	Type                     string
-	APIFormat                string
-	ServerProfileID          string
-	BaseURL                  string
-	APIKey                   string
-	DefaultModel             string
-	ReasoningContentMode     string
+	CredentialFromProviderID  string
+	Credential                *CredentialSpec
+	AuthMode                  string
+	ID                        string
+	Name                      string
+	Type                      string
+	APIFormat                 string
+	ServerProfileID           string
+	InsecureHTTPAuthorizedURL string
+	BaseURL                   string
+	APIKey                    string
+	DefaultModel              string
+	ReasoningContentMode      string
 	// ACPCommand, ACPArgs e ACPEnv valem quando APIFormat é acp: é assim que
 	// o agente de código é endereçado, no lugar de BaseURL e APIKey.
 	ACPCommand string
@@ -404,22 +405,23 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*CreateResult,
 
 	isFirst := len(s.registry.List()) == 0
 	provider := &llm.ProviderConfig{
-		ID:                   req.ID,
-		Name:                 req.Name,
-		Type:                 llm.ProviderType(req.Type),
-		APIFormat:            apiFormat,
-		ServerProfileID:      strings.TrimSpace(req.ServerProfileID),
-		BaseURL:              baseURL,
-		DefaultModel:         req.DefaultModel,
-		ReasoningContentMode: llm.ReasoningContentMode(strings.TrimSpace(req.ReasoningContentMode)),
-		IsDefault:            isFirst,
-		Timeout:              180,
-		CredentialPattern:    hostname,
-		ACPCommand:           req.ACPCommand,
-		ACPArgs:              append([]string(nil), req.ACPArgs...),
-		ACPEnv:               copyStringMap(req.ACPEnv),
-		ACPCredentialEnv:     copyStringMap(req.ACPCredentialEnv),
-		ACPAgentID:           strings.TrimSpace(req.ACPAgentID),
+		ID:                        req.ID,
+		Name:                      req.Name,
+		Type:                      llm.ProviderType(req.Type),
+		APIFormat:                 apiFormat,
+		ServerProfileID:           strings.TrimSpace(req.ServerProfileID),
+		InsecureHTTPAuthorizedURL: strings.TrimSpace(req.InsecureHTTPAuthorizedURL),
+		BaseURL:                   baseURL,
+		DefaultModel:              req.DefaultModel,
+		ReasoningContentMode:      llm.ReasoningContentMode(strings.TrimSpace(req.ReasoningContentMode)),
+		IsDefault:                 isFirst,
+		Timeout:                   180,
+		CredentialPattern:         hostname,
+		ACPCommand:                req.ACPCommand,
+		ACPArgs:                   append([]string(nil), req.ACPArgs...),
+		ACPEnv:                    copyStringMap(req.ACPEnv),
+		ACPCredentialEnv:          copyStringMap(req.ACPCredentialEnv),
+		ACPAgentID:                strings.TrimSpace(req.ACPAgentID),
 	}
 	provider.AuthMode = llm.AuthMode(req.AuthMode)
 	normalizeProviderRuntimeDefaults(provider)
@@ -464,16 +466,17 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*CreateResult,
 
 // UpdateRequest contém os campos opcionais para atualizar um provedor.
 type UpdateRequest struct {
-	Credential           *CredentialSpec
-	AuthMode             string
-	Name                 string
-	Type                 string
-	APIFormat            string
-	ServerProfileID      *string
-	BaseURL              string
-	APIKey               string
-	DefaultModel         string
-	ReasoningContentMode string
+	Credential                *CredentialSpec
+	AuthMode                  string
+	Name                      string
+	Type                      string
+	APIFormat                 string
+	ServerProfileID           *string
+	InsecureHTTPAuthorizedURL *string
+	BaseURL                   string
+	APIKey                    string
+	DefaultModel              string
+	ReasoningContentMode      string
 	// ACPCommand segue a convenção dos demais: vazio é "não mexer".
 	ACPCommand string
 	// ACPArgs e ACPEnv são ponteiros porque, aqui, lista vazia é uma escolha
@@ -532,26 +535,27 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Up
 	}
 
 	updated := &llm.ProviderConfig{
-		ID:                       existing.ID,
-		Name:                     existing.Name,
-		Type:                     existing.Type,
-		ErrorFamily:              existing.ErrorFamily,
-		ServerProfileID:          existing.ServerProfileID,
-		APIFormat:                existing.APIFormat,
-		BaseURL:                  existing.BaseURL,
-		Model:                    existing.Model,
-		DefaultModel:             existing.DefaultModel,
-		IsDefault:                existing.IsDefault,
-		Timeout:                  existing.Timeout,
-		StreamIdleTimeoutSeconds: existing.StreamIdleTimeoutSeconds,
-		CredentialPattern:        existing.CredentialPattern,
-		AuthMode:                 existing.AuthMode,
-		ReasoningContentMode:     existing.ReasoningContentMode,
-		ACPCommand:               existing.ACPCommand,
-		ACPArgs:                  append([]string(nil), existing.ACPArgs...),
-		ACPEnv:                   copyStringMap(existing.ACPEnv),
-		ACPCredentialEnv:         copyStringMap(existing.ACPCredentialEnv),
-		ACPAgentID:               existing.ACPAgentID,
+		ID:                        existing.ID,
+		Name:                      existing.Name,
+		Type:                      existing.Type,
+		ErrorFamily:               existing.ErrorFamily,
+		ServerProfileID:           existing.ServerProfileID,
+		InsecureHTTPAuthorizedURL: existing.InsecureHTTPAuthorizedURL,
+		APIFormat:                 existing.APIFormat,
+		BaseURL:                   existing.BaseURL,
+		Model:                     existing.Model,
+		DefaultModel:              existing.DefaultModel,
+		IsDefault:                 existing.IsDefault,
+		Timeout:                   existing.Timeout,
+		StreamIdleTimeoutSeconds:  existing.StreamIdleTimeoutSeconds,
+		CredentialPattern:         existing.CredentialPattern,
+		AuthMode:                  existing.AuthMode,
+		ReasoningContentMode:      existing.ReasoningContentMode,
+		ACPCommand:                existing.ACPCommand,
+		ACPArgs:                   append([]string(nil), existing.ACPArgs...),
+		ACPEnv:                    copyStringMap(existing.ACPEnv),
+		ACPCredentialEnv:          copyStringMap(existing.ACPCredentialEnv),
+		ACPAgentID:                existing.ACPAgentID,
 	}
 
 	if req.Name != "" {
@@ -568,6 +572,9 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Up
 	if req.ServerProfileID != nil {
 		updated.ServerProfileID = strings.TrimSpace(*req.ServerProfileID)
 	}
+	if req.InsecureHTTPAuthorizedURL != nil {
+		updated.InsecureHTTPAuthorizedURL = strings.TrimSpace(*req.InsecureHTTPAuthorizedURL)
+	}
 	if req.DefaultModel != "" {
 		updated.DefaultModel = req.DefaultModel
 	}
@@ -580,6 +587,9 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Up
 			return nil, fmt.Errorf("erro ao extrair hostname: %w", err)
 		}
 		updated.BaseURL = baseURL
+		if updated.InsecureHTTPAuthorizedURL != baseURL {
+			updated.InsecureHTTPAuthorizedURL = ""
+		}
 		if existing.CredentialPattern == "" || !sameCredentialOrigin(baseURL, existing.BaseURL) {
 			updated.CredentialPattern = hostname
 		}
@@ -1023,13 +1033,14 @@ func (s *Service) GetChatProviderWithConfigSnapshot(ctx context.Context, provide
 
 // ListModelsRawRequest contém os parâmetros para listagem de modelos via credenciais ad-hoc.
 type ListModelsRawRequest struct {
-	Credential *CredentialSpec
-	AuthMode   string
-	APIFormat  string
-	Type       string
-	BaseURL    string
-	APIKey     string // se vazio e ProviderID preenchido, busca credencial existente
-	ProviderID string // opcional; usado para recuperar credencial existente
+	Credential                *CredentialSpec
+	AuthMode                  string
+	APIFormat                 string
+	Type                      string
+	BaseURL                   string
+	APIKey                    string // se vazio e ProviderID preenchido, busca credencial existente
+	ProviderID                string // opcional; usado para recuperar credencial existente
+	InsecureHTTPAuthorizedURL string
 }
 
 // buildTempProviderForListModels monta o ProviderConfig efêmero usado em
@@ -1090,6 +1101,10 @@ func (s *Service) ListModelsRaw(ctx context.Context, req ListModelsRawRequest) (
 
 	hostname := strings.ToLower(parsedURL.Hostname())
 	tempProvider := buildTempProviderForListModels(req, hostname, existingProvider)
+	if tempProvider.EffectiveAuthMode() != llm.AuthModeNone && llm.RequiresInsecureHTTPAuthorization(req.BaseURL) &&
+		req.InsecureHTTPAuthorizedURL != req.BaseURL {
+		return nil, fmt.Errorf("autorização explícita necessária para enviar credenciais por HTTP remoto")
+	}
 	if err := s.prepareCredential(ctx, tempProvider, existingProvider, req.Credential, req.APIKey != ""); err != nil {
 		return nil, err
 	}

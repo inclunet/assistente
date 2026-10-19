@@ -222,6 +222,19 @@ uma rota que o aplicativo suporte.
 6. Acione **Carregar modelos** para testar explicitamente e escolher o modelo padrão.
 7. Clique em **Criar** ou **Atualizar** e aguarde a gravação.
 
+Perfis conhecidos exibem a configuração publicada no catálogo; campos definidos
+como fixos ficam bloqueados. Em **Personalizado**, você pode informar o endereço
+do seu servidor ou proxy.
+
+Para enviar credenciais a um endereço `http://` fora de loopback, o Assistente
+abre um diálogo de autorização antes do teste. HTTP não criptografa a conexão:
+quem controla a rede ou o servidor de destino pode ler a credencial e o conteúdo
+enviado. O aceite fica salvo apenas para aquela URL exata e é removido quando o
+endereço muda. O aceite não é levado em exportações; após importar a conexão,
+autorize novamente antes de enviar credenciais. Prefira HTTPS sempre que o
+servidor oferecer suporte. Endereços locais de loopback, como `localhost`, não
+exigem esse aceite.
+
 Abrir ou editar os campos não executa comandos de token. Alterar URL, protocolo,
 autenticação ou credencial exige um novo teste. Respostas de testes anteriores
 não validam uma configuração que mudou. Durante a gravação, o formulário e o

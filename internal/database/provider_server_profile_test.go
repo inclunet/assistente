@@ -19,6 +19,7 @@ func TestLLMProviderServerProfileIDAutoMigrates(t *testing.T) {
 	want := LLMProvider{
 		ID: "openrouter", Name: "OpenRouter", Type: "openrouter",
 		BaseURL: "https://openrouter.ai/api/v1", ServerProfileID: "openrouter",
+		InsecureHTTPAuthorizedURL: "http://proxy.example/v1",
 	}
 	if err := db.Create(&want).Error; err != nil {
 		t.Fatalf("criar provider: %v", err)
@@ -29,5 +30,8 @@ func TestLLMProviderServerProfileIDAutoMigrates(t *testing.T) {
 	}
 	if got.ServerProfileID != want.ServerProfileID {
 		t.Fatalf("server profile id = %q, esperado %q", got.ServerProfileID, want.ServerProfileID)
+	}
+	if got.InsecureHTTPAuthorizedURL != want.InsecureHTTPAuthorizedURL {
+		t.Fatalf("insecure HTTP authorization URL = %q, esperado %q", got.InsecureHTTPAuthorizedURL, want.InsecureHTTPAuthorizedURL)
 	}
 }
