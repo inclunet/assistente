@@ -666,7 +666,6 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
     setFormData((prev) => ({
       ...prev,
       [field]: value,
-      ...(field === 'base_url' && value !== prev.base_url ? { insecure_http_authorized_url: undefined } : {}),
       ...(preserveCustomDraft ? {
         type: 'custom',
         server_profile_id: undefined,
@@ -843,7 +842,8 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
             default_model: formData.default_model || undefined,
             api_format: formData.api_format || undefined,
             server_profile_id: formData.server_profile_id !== undefined ? formData.server_profile_id : provider?.server_profile_id,
-            insecure_http_authorized_url: formData.insecure_http_authorized_url,
+            insecure_http_authorized_url: formData.insecure_http_authorized_url === canonicalUrl
+              ? formData.insecure_http_authorized_url : undefined,
             reasoning_content_mode: formData.reasoning_content_mode || 'disabled',
         };
         await UpdateLLMProvider(formData.id, toWailsRequest<apidto.UpdateLLMProviderRequest>(request));
@@ -862,7 +862,8 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
             default_model: formData.default_model || suggestedDefault || undefined,
             api_format: formData.api_format || undefined,
             server_profile_id: formData.server_profile_id || undefined,
-            insecure_http_authorized_url: formData.insecure_http_authorized_url,
+            insecure_http_authorized_url: formData.insecure_http_authorized_url === canonicalUrl
+              ? formData.insecure_http_authorized_url : undefined,
             reasoning_content_mode: formData.reasoning_content_mode || 'disabled',
         };
         await CreateLLMProvider(toWailsRequest<apidto.CreateLLMProviderRequest>(request));

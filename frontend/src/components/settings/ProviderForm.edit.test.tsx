@@ -243,6 +243,28 @@ describe("ProviderForm - Restrições de URL em Edição", () => {
     vi.mocked(App.ListModelsRaw).mockResolvedValue(["model-1", "model-2"]);
   });
 
+  it("preserva o aceite HTTP ao editar e restaurar a URL salva antes de testar", async () => {
+    const user = userEvent.setup();
+    const url = 'http://gateway.example.test/v1';
+    render(<ProviderForm provider={{
+      id: 'custom-http', name: 'Gateway', type: 'custom', base_url: url,
+      api_format: 'openai', auth_mode: 'required',
+      insecure_http_authorized_url: url,
+    }} onCancel={() => {}} onSave={() => {}} />);
+
+    const urlInput = screen.getByLabelText(/base url/i);
+    await waitFor(() => expect(urlInput).toHaveValue(url));
+    await user.clear(urlInput);
+    await user.type(urlInput, url);
+    await user.click(screen.getByRole('button', { name: /carregar modelos/i }));
+
+    await waitFor(() => expect(App.ListModelsRaw).toHaveBeenCalledWith(expect.objectContaining({
+      base_url: url,
+      insecure_http_authorized_url: url,
+    })));
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+  });
+
   it("mantém a URL de conexão legada editável sem associar perfil automaticamente", () => {
     render(
       <ProviderForm
