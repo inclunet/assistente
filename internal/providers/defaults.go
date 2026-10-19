@@ -441,10 +441,13 @@ func (s *Service) createFromTemplate(ctx context.Context, p *llm.ProviderConfig,
 	}
 
 	if apiKey != "" && p.CredentialPattern != "" {
-		if err := s.credMgr.RegisterPatternWithContext(ctx, p.CredentialPattern, &credentials.AuthConfig{Source: "static",
-			Type:  "bearer",
-			Token: apiKey,
-		}); err != nil {
+		auth := &credentials.AuthConfig{Source: "static", Type: "bearer", Token: apiKey}
+		if p.GetAPIFormat() == llm.APIFormatAnthropic {
+			// A SDK Anthropic envia a chave em x-api-key. O transport gerenciado
+			// precisa sobrescrever o placeholder do SDK nesse mesmo header.
+			auth = &credentials.AuthConfig{Source: "static", Type: "custom", Headers: map[string]string{"x-api-key": apiKey}}
+		}
+		if err := s.credMgr.RegisterPatternWithContext(ctx, p.CredentialPattern, auth); err != nil {
 			return fmt.Errorf("erro ao salvar credencial: %w", err)
 		}
 	}

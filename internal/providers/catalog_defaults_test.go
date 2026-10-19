@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"assistente/internal/credentials"
 	"assistente/internal/llm"
 	"assistente/internal/llmcatalog"
 )
@@ -143,6 +144,10 @@ func TestTemplateFromCatalogServerRejectsUnknownRemoteValues(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			server := base
+			server.Fields = make(map[string]llmcatalog.FieldPolicy, len(base.Fields))
+			for field, policy := range base.Fields {
+				server.Fields[field] = policy
+			}
 			tt.change(&server)
 			if _, err := TemplateFromCatalogServer(server); err == nil {
 				t.Fatal("esperava rejeição do valor fora da allowlist")
@@ -199,5 +204,32 @@ func TestCreateFromTemplateUsesCatalogAndFallsBackWhenSnapshotIsEmpty(t *testing
 	created = registry.Get("ollama-local")
 	if created == nil || created.ServerProfileID != "" || created.BaseURL != "http://localhost:11434/api" {
 		t.Fatalf("fallback Ollama inesperado: %+v", created)
+	}
+}
+
+func TestCreateFromTemplateStoresAnthropicKeyInExpectedHeader(t *testing.T) {
+	ctx := context.Background()
+	registry := llm.NewProviderRegistry()
+	credMgr := credentials.NewManager([]byte("01234567890123456789012345678901"))
+	server := llmcatalog.Server{
+		ID: "anthropic", Name: "Anthropic", ProviderFamily: "anthropic",
+		Status: "active", APIFormat: "anthropic", BaseURL: "https://api.anthropic.com",
+		Auth: llmcatalog.Auth{Mode: "api_key_header", Required: true},
+	}
+	snapshot := llmcatalog.Snapshot{Document: llmcatalog.Document{Servers: []llmcatalog.Server{server}}}
+	svc := NewService(ServiceConfig{
+		Registry: registry, Store: NewMemoryStore(), CredMgr: credMgr,
+		CatalogSnapshot: func() llmcatalog.Snapshot { return snapshot },
+	})
+	if err := svc.CreateFromTemplate(ctx, "claude", "anthropic-secret"); err != nil {
+		t.Fatal(err)
+	}
+
+	auth, err := credMgr.GetByPatternWithContext(ctx, "api.anthropic.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if auth == nil || auth.Type != "custom" || auth.Headers["x-api-key"] != "anthropic-secret" {
+		t.Fatalf("credencial Anthropic não foi salva no header exigido pela API: %+v", auth)
 	}
 }
