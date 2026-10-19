@@ -3,7 +3,9 @@ package providers
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"slices"
+	"strings"
 
 	"assistente/internal/acp"
 	"assistente/internal/credentials"
@@ -213,10 +215,22 @@ func TemplateFromCatalogServer(server llmcatalog.Server) (*llm.ProviderConfig, e
 
 	baseURL := catalogPolicyStringDefault(server, "base_url", server.BaseURL)
 	credentialPattern := ""
+	if baseURL != "" {
+		origin, host, originErr := catalogCredentialOrigin(baseURL)
+		if originErr != nil {
+			return nil, fmt.Errorf("base_url do perfil %q: %w", server.ID, originErr)
+		}
+		credentialPattern = host
+		if origin != profile.credentialOrigin {
+			return nil, fmt.Errorf("base_url do perfil %q aponta para origem %q fora da allowlist", server.ID, origin)
+		}
+	}
 	if authMode != llm.AuthModeNone && baseURL != "" {
-		credentialPattern, err = ExtractHostname(baseURL)
+		// A identidade do destino da credencial é código local, nunca uma origem
+		// escolhida por conteúdo remoto do catálogo.
+		_, credentialPattern, err = catalogCredentialOrigin(profile.credentialOrigin)
 		if err != nil {
-			return nil, fmt.Errorf("base_url do perfil %q: %w", server.ID, err)
+			return nil, fmt.Errorf("origem allowlisted inválida no perfil %q: %w", server.ID, err)
 		}
 	}
 	defaultModel := catalogPolicyStringDefault(server, "default_model_id", server.DefaultModelID)
@@ -255,6 +269,27 @@ func catalogPolicyStringDefault(server llmcatalog.Server, field, fallback string
 	return fallback
 }
 
+func catalogCredentialOrigin(rawURL string) (origin, hostname string, err error) {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return "", "", err
+	}
+	scheme := strings.ToLower(parsed.Scheme)
+	hostname = strings.ToLower(parsed.Hostname())
+	if (scheme != "http" && scheme != "https") || hostname == "" || parsed.User != nil {
+		return "", "", fmt.Errorf("origem inválida")
+	}
+	port := parsed.Port()
+	if (scheme == "https" && port == "443") || (scheme == "http" && port == "80") {
+		port = ""
+	}
+	origin = scheme + "://" + hostname
+	if port != "" {
+		origin += ":" + port
+	}
+	return origin, hostname, nil
+}
+
 // CatalogTemplate resolve um perfil explicitamente identificado no snapshot
 // atual. Snapshot vazio/inexistente retorna erro para permitir fallback local.
 func (s *Service) CatalogTemplate(profileID string) (*llm.ProviderConfig, error) {
@@ -290,6 +325,7 @@ var legacyTemplateProfiles = map[string]string{
 }
 
 type catalogRuntimeProfile struct {
+	credentialOrigin     string
 	providerFamily       string
 	apiFormat            string
 	providerID           string
@@ -300,22 +336,22 @@ type catalogRuntimeProfile struct {
 // A identidade do perfil, sua família e seu formato formam uma allowlist
 // indivisível: um perfil não pode assumir a família/formato de outro.
 var catalogRuntimeProfiles = map[string]catalogRuntimeProfile{
-	"openai":                    {providerFamily: "openai", apiFormat: "openai_responses", providerID: "openai-default", providerType: llm.ProviderOpenAI},
-	"anthropic":                 {providerFamily: "anthropic", apiFormat: "anthropic", providerID: "anthropic-claude", providerType: llm.ProviderClaude},
-	"google-gemini":             {providerFamily: "google", apiFormat: "google", providerID: "google-gemini", providerType: llm.ProviderOpenAI},
-	"xai":                       {providerFamily: "xai", apiFormat: "openai", providerID: "xai-grok", providerType: llm.ProviderGrok},
-	"deepseek":                  {providerFamily: "deepseek", apiFormat: "openai", providerID: "deepseek-default", providerType: llm.ProviderDeepSeek, reasoningContentMode: llm.ReasoningContentReplayWithTools},
-	"mistral":                   {providerFamily: "mistral", apiFormat: "openai", providerID: "mistral-default", providerType: llm.ProviderMistral},
-	"groq":                      {providerFamily: "groq", apiFormat: "openai", providerID: "groq-default", providerType: llm.ProviderGroq},
-	"together-ai":               {providerFamily: "together", apiFormat: "openai", providerID: "together-default", providerType: llm.ProviderTogether},
-	"fireworks-ai":              {providerFamily: "fireworks", apiFormat: "openai", providerID: "fireworks-default", providerType: llm.ProviderFireworks},
-	"perplexity":                {providerFamily: "perplexity", apiFormat: "openai", providerID: "perplexity-default", providerType: llm.ProviderPerplexity},
-	"zai-global":                {providerFamily: "zai", apiFormat: "openai", providerID: "zai-global-default", providerType: llm.ProviderOpenAI},
-	"zai-coding-plan":           {providerFamily: "zai", apiFormat: "openai", providerID: "zai-coding-plan-default", providerType: llm.ProviderOpenAI},
-	"openrouter":                {providerFamily: "openrouter", apiFormat: "openai", providerID: "openrouter-default", providerType: llm.ProviderOpenAI},
-	"litellm-openai-proxy":      {providerFamily: "litellm", apiFormat: "openai", providerID: "litellm-default", providerType: llm.ProviderOpenAI},
-	"localai-openai-compatible": {providerFamily: "localai", apiFormat: "openai", providerID: "localai-local", providerType: llm.ProviderLocalAI},
-	"llamacpp":                  {providerFamily: "llamacpp", apiFormat: "openai", providerID: "llamacpp-local", providerType: llm.ProviderLlamaCPP},
+	"openai":                    {credentialOrigin: "https://api.openai.com", providerFamily: "openai", apiFormat: "openai_responses", providerID: "openai-default", providerType: llm.ProviderOpenAI},
+	"anthropic":                 {credentialOrigin: "https://api.anthropic.com", providerFamily: "anthropic", apiFormat: "anthropic", providerID: "anthropic-claude", providerType: llm.ProviderClaude},
+	"google-gemini":             {credentialOrigin: "https://generativelanguage.googleapis.com", providerFamily: "google", apiFormat: "google", providerID: "google-gemini", providerType: llm.ProviderOpenAI},
+	"xai":                       {credentialOrigin: "https://api.x.ai", providerFamily: "xai", apiFormat: "openai", providerID: "xai-grok", providerType: llm.ProviderGrok},
+	"deepseek":                  {credentialOrigin: "https://api.deepseek.com", providerFamily: "deepseek", apiFormat: "openai", providerID: "deepseek-default", providerType: llm.ProviderDeepSeek, reasoningContentMode: llm.ReasoningContentReplayWithTools},
+	"mistral":                   {credentialOrigin: "https://api.mistral.ai", providerFamily: "mistral", apiFormat: "openai", providerID: "mistral-default", providerType: llm.ProviderMistral},
+	"groq":                      {credentialOrigin: "https://api.groq.com", providerFamily: "groq", apiFormat: "openai", providerID: "groq-default", providerType: llm.ProviderGroq},
+	"together-ai":               {credentialOrigin: "https://api.together.xyz", providerFamily: "together", apiFormat: "openai", providerID: "together-default", providerType: llm.ProviderTogether},
+	"fireworks-ai":              {credentialOrigin: "https://api.fireworks.ai", providerFamily: "fireworks", apiFormat: "openai", providerID: "fireworks-default", providerType: llm.ProviderFireworks},
+	"perplexity":                {credentialOrigin: "https://api.perplexity.ai", providerFamily: "perplexity", apiFormat: "openai", providerID: "perplexity-default", providerType: llm.ProviderPerplexity},
+	"zai-global":                {credentialOrigin: "https://api.z.ai", providerFamily: "zai", apiFormat: "openai", providerID: "zai-global-default", providerType: llm.ProviderOpenAI},
+	"zai-coding-plan":           {credentialOrigin: "https://api.z.ai", providerFamily: "zai", apiFormat: "openai", providerID: "zai-coding-plan-default", providerType: llm.ProviderOpenAI},
+	"openrouter":                {credentialOrigin: "https://openrouter.ai", providerFamily: "openrouter", apiFormat: "openai", providerID: "openrouter-default", providerType: llm.ProviderOpenAI},
+	"litellm-openai-proxy":      {credentialOrigin: "http://localhost:4000", providerFamily: "litellm", apiFormat: "openai", providerID: "litellm-default", providerType: llm.ProviderOpenAI},
+	"localai-openai-compatible": {credentialOrigin: "http://localhost:8080", providerFamily: "localai", apiFormat: "openai", providerID: "localai-local", providerType: llm.ProviderLocalAI},
+	"llamacpp":                  {credentialOrigin: "http://localhost:8080", providerFamily: "llamacpp", apiFormat: "openai", providerID: "llamacpp-local", providerType: llm.ProviderLlamaCPP},
 }
 
 func catalogRuntimeProfileFor(server llmcatalog.Server, apiFormat string) (catalogRuntimeProfile, error) {

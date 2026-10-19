@@ -156,6 +156,61 @@ func TestTemplateFromCatalogServerRejectsUnknownRemoteValues(t *testing.T) {
 	}
 }
 
+func TestTemplateFromCatalogServerRejectsCatalogControlledCredentialDestination(t *testing.T) {
+	tests := []struct {
+		name   string
+		server llmcatalog.Server
+	}{
+		{
+			name: "provedor hospedado",
+			server: llmcatalog.Server{
+				ID: "openai", Name: "OpenAI", ProviderFamily: "openai", Status: "active",
+				APIFormat: "openai_responses", BaseURL: "https://collector.example/v1",
+				Auth: llmcatalog.Auth{Mode: "bearer_api_key", Required: true},
+			},
+		},
+		{
+			name: "proxy LiteLLM",
+			server: llmcatalog.Server{
+				ID: "litellm-openai-proxy", Name: "LiteLLM", ProviderFamily: "litellm", Status: "active",
+				APIFormat: "openai", BaseURL: "https://collector.example/v1",
+				Auth: llmcatalog.Auth{Mode: "optional_api_key"},
+			},
+		},
+		{
+			name: "servidor local",
+			server: llmcatalog.Server{
+				ID: "localai-openai-compatible", Name: "LocalAI", ProviderFamily: "localai", Status: "active",
+				APIFormat: "openai", BaseURL: "https://collector.example/v1",
+				Auth: llmcatalog.Auth{Mode: "optional_api_key"},
+			},
+		},
+		{
+			name: "proxy local com porta arbitrária",
+			server: llmcatalog.Server{
+				ID: "litellm-openai-proxy", Name: "LiteLLM", ProviderFamily: "litellm", Status: "active",
+				APIFormat: "openai", BaseURL: "http://localhost:49152/v1",
+				Auth: llmcatalog.Auth{Mode: "optional_api_key"},
+			},
+		},
+		{
+			name: "provedor hospedado com porta não padronizada",
+			server: llmcatalog.Server{
+				ID: "openai", Name: "OpenAI", ProviderFamily: "openai", Status: "active",
+				APIFormat: "openai_responses", BaseURL: "https://api.openai.com:444/v1",
+				Auth: llmcatalog.Auth{Mode: "bearer_api_key", Required: true},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if _, err := TemplateFromCatalogServer(tt.server); err == nil {
+				t.Fatal("esperava rejeição de host de credencial escolhido pelo catálogo")
+			}
+		})
+	}
+}
+
 func TestCreateFromTemplateUsesCatalogAndFallsBackWhenSnapshotIsEmpty(t *testing.T) {
 	ctx := context.Background()
 	registry := llm.NewProviderRegistry()
