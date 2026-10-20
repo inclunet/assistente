@@ -2,12 +2,62 @@ package providers
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"testing"
 
 	"assistente/internal/credentials"
+	"assistente/internal/database"
 	"assistente/internal/llm"
 	"assistente/internal/llmcatalog"
 )
+
+type failingProviderTemplateStore struct {
+	ProviderStore
+	err error
+}
+
+func (s failingProviderTemplateStore) Save(context.Context, []*llm.ProviderConfig) error {
+	return s.err
+}
+
+type failingCredentialListStore struct {
+	credentials.Store
+	stored   []credentials.StoredCredential
+	failList bool
+}
+
+func (s *failingCredentialListStore) SaveCredential(_ context.Context, cred credentials.StoredCredential) error {
+	for i := range s.stored {
+		if cred.ID != "" && s.stored[i].ID == cred.ID {
+			s.stored[i] = cred
+			return nil
+		}
+	}
+	if cred.ID == "" {
+		cred.ID = fmt.Sprintf("credential-%d", len(s.stored)+1)
+	}
+	s.stored = append(s.stored, cred)
+	return nil
+}
+
+func (s *failingCredentialListStore) ListCredentials(context.Context) ([]credentials.StoredCredential, error) {
+	if s.failList {
+		return nil, errors.New("leitura de credenciais indisponível")
+	}
+	return append([]credentials.StoredCredential(nil), s.stored...), nil
+}
+
+func (s *failingCredentialListStore) DeleteCredential(_ context.Context, pattern string) error {
+	filtered := s.stored[:0]
+	for _, cred := range s.stored {
+		if cred.Pattern != pattern {
+			filtered = append(filtered, cred)
+		}
+	}
+	s.stored = filtered
+	return nil
+}
 
 func TestTemplateFromCatalogServerUsesAllowlistsAndPersistsProfile(t *testing.T) {
 	server := llmcatalog.Server{
@@ -211,7 +261,7 @@ func TestTemplateFromCatalogServerRejectsCatalogControlledCredentialDestination(
 	}
 }
 
-func TestCreateFromTemplateUsesCatalogAndFallsBackWhenSnapshotIsEmpty(t *testing.T) {
+func TestCreateFromTemplateRequiresCatalogProfile(t *testing.T) {
 	ctx := context.Background()
 	registry := llm.NewProviderRegistry()
 	store := NewMemoryStore()
@@ -236,12 +286,12 @@ func TestCreateFromTemplateUsesCatalogAndFallsBackWhenSnapshotIsEmpty(t *testing
 	registry = llm.NewProviderRegistry()
 	store = NewMemoryStore()
 	svc = NewService(ServiceConfig{Registry: registry, Store: store, CatalogSnapshot: func() llmcatalog.Snapshot { return llmcatalog.Snapshot{} }})
-	if err := svc.CreateFromTemplate(ctx, "openai", ""); err != nil {
-		t.Fatalf("bootstrap sem catálogo deve manter fallback: %v", err)
+	if err := svc.CreateFromTemplate(ctx, "openai", ""); err == nil {
+		t.Fatal("bootstrap sem catálogo deve exigir configuração manual")
 	}
 	created = registry.Get("openai-default")
-	if created == nil || created.ServerProfileID != "" {
-		t.Fatalf("fallback local inesperado: %+v", created)
+	if created != nil {
+		t.Fatalf("não deve registrar preset sem catálogo: %+v", created)
 	}
 
 	registry = llm.NewProviderRegistry()
@@ -253,12 +303,140 @@ func TestCreateFromTemplateUsesCatalogAndFallsBackWhenSnapshotIsEmpty(t *testing
 	}
 	snapshot = llmcatalog.Snapshot{Document: llmcatalog.Document{Servers: []llmcatalog.Server{ollama}}}
 	svc = NewService(ServiceConfig{Registry: registry, Store: store, CatalogSnapshot: func() llmcatalog.Snapshot { return snapshot }})
-	if err := svc.CreateFromTemplate(ctx, "ollama", ""); err != nil {
-		t.Fatalf("perfil Ollama incompatível deve preservar fallback de setup: %v", err)
+	if err := svc.CreateFromTemplate(ctx, "ollama", ""); err == nil {
+		t.Fatal("perfil Ollama sem suporte de runtime deve exigir configuração manual")
 	}
 	created = registry.Get("ollama-local")
-	if created == nil || created.ServerProfileID != "" || created.BaseURL != "http://localhost:11434/api" {
-		t.Fatalf("fallback Ollama inesperado: %+v", created)
+	if created != nil {
+		t.Fatalf("não deve registrar fallback Ollama incompatível: %+v", created)
+	}
+}
+
+func TestCreateFromTemplateRollsBackRegistryWhenPersistenceFails(t *testing.T) {
+	registry := llm.NewProviderRegistry()
+	server := llmcatalog.Server{
+		ID: "openai", Name: "OpenAI", ProviderFamily: "openai", Status: "active",
+		APIFormat: "openai_responses", BaseURL: "https://api.openai.com/v1",
+		Auth: llmcatalog.Auth{Mode: "bearer_api_key", Required: true},
+	}
+	snapshot := llmcatalog.Snapshot{Document: llmcatalog.Document{Servers: []llmcatalog.Server{server}}}
+	svc := NewService(ServiceConfig{
+		Registry:        registry,
+		Store:           failingProviderTemplateStore{ProviderStore: NewMemoryStore(), err: errors.New("persistência indisponível")},
+		CatalogSnapshot: func() llmcatalog.Snapshot { return snapshot },
+	})
+
+	if err := svc.CreateFromTemplate(context.Background(), "openai", ""); err == nil {
+		t.Fatal("esperava falha de persistência")
+	}
+	if created := registry.Get("openai-default"); created != nil {
+		t.Fatalf("provedor permaneceu no registry após falha de persistência: %+v", created)
+	}
+}
+
+func TestCreateFromTemplateDoesNotPersistCredentialsForAuthNoneProfile(t *testing.T) {
+	ctx := context.Background()
+	registry := llm.NewProviderRegistry()
+	credMgr := credentials.NewManager([]byte("01234567890123456789012345678901"))
+	server := llmcatalog.Server{
+		ID: "llamacpp", Name: "llama.cpp", ProviderFamily: "llamacpp", Status: "active",
+		APIFormat: "openai", BaseURL: "http://localhost:8080/v1",
+		Auth: llmcatalog.Auth{Mode: "none", Required: false},
+	}
+	snapshot := llmcatalog.Snapshot{Document: llmcatalog.Document{Servers: []llmcatalog.Server{server}}}
+	svc := NewService(ServiceConfig{
+		Registry: registry, Store: NewMemoryStore(), CredMgr: credMgr,
+		CatalogSnapshot: func() llmcatalog.Snapshot { return snapshot },
+	})
+
+	if err := svc.CreateFromTemplate(ctx, "llamacpp", "accidental-secret"); err != nil {
+		t.Fatal(err)
+	}
+	created := registry.Get("llamacpp-local")
+	if created == nil || created.CredentialPattern != "" || created.EffectiveAuthMode() != llm.AuthModeNone {
+		t.Fatalf("perfil sem autenticação recebeu padrão de credencial: %+v", created)
+	}
+	auth, err := credMgr.GetByPatternWithContext(ctx, "localhost")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if auth != nil {
+		t.Fatalf("chave acidental foi salva para localhost: %+v", auth)
+	}
+}
+
+func TestCreateFromTemplateRollsBackCredentialWhenCredentialStoreFailsAfterSave(t *testing.T) {
+	ctx := database.WithUserID(context.Background(), "test-user")
+	registry := llm.NewProviderRegistry()
+	credentialStore := &failingCredentialListStore{failList: true}
+	credMgr := credentials.NewManagerWithStoreAndPersistence(
+		[]byte("01234567890123456789012345678901"), credentialStore, true,
+	)
+	server := llmcatalog.Server{
+		ID: "openai", Name: "OpenAI", ProviderFamily: "openai", Status: "active",
+		APIFormat: "openai_responses", BaseURL: "https://api.openai.com/v1",
+		Auth: llmcatalog.Auth{Mode: "bearer_api_key", Required: true},
+	}
+	snapshot := llmcatalog.Snapshot{Document: llmcatalog.Document{Servers: []llmcatalog.Server{server}}}
+	svc := NewService(ServiceConfig{
+		Registry: registry, Store: NewMemoryStore(), CredMgr: credMgr,
+		CatalogSnapshot: func() llmcatalog.Snapshot { return snapshot },
+	})
+
+	if err := svc.CreateFromTemplate(ctx, "openai", "secret"); err == nil {
+		t.Fatal("esperava falha ao consultar credenciais persistidas")
+	}
+	if len(credentialStore.stored) != 0 {
+		t.Fatalf("credencial ficou persistida após erro: %+v", credentialStore.stored)
+	}
+	if created := registry.Get("openai-default"); created != nil {
+		t.Fatalf("provedor ficou ativo após erro de credencial: %+v", created)
+	}
+}
+
+func TestCreateFromTemplateRestoresPreviousCredentialWhenCredentialStoreFailsAfterSave(t *testing.T) {
+	ctx := database.WithUserID(context.Background(), "test-user")
+	registry := llm.NewProviderRegistry()
+	credentialStore := &failingCredentialListStore{}
+	credMgr := credentials.NewManagerWithStoreAndPersistence(
+		[]byte("01234567890123456789012345678901"), credentialStore, true,
+	)
+	if err := credMgr.RegisterPatternWithContext(ctx, "api.openai.com", &credentials.AuthConfig{
+		Source: "static", Type: "bearer", Token: "previous-secret",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(credentialStore.stored) != 1 {
+		t.Fatalf("credencial inicial não foi persistida: %+v", credentialStore.stored)
+	}
+	previousID := credentialStore.stored[0].ID
+	credentialStore.failList = true
+
+	server := llmcatalog.Server{
+		ID: "openai", Name: "OpenAI", ProviderFamily: "openai", Status: "active",
+		APIFormat: "openai_responses", BaseURL: "https://api.openai.com/v1",
+		Auth: llmcatalog.Auth{Mode: "bearer_api_key", Required: true},
+	}
+	snapshot := llmcatalog.Snapshot{Document: llmcatalog.Document{Servers: []llmcatalog.Server{server}}}
+	svc := NewService(ServiceConfig{
+		Registry: registry, Store: NewMemoryStore(), CredMgr: credMgr,
+		CatalogSnapshot: func() llmcatalog.Snapshot { return snapshot },
+	})
+	if err := svc.CreateFromTemplate(ctx, "openai", "replacement-secret"); err == nil {
+		t.Fatal("esperava falha ao consultar credenciais persistidas")
+	}
+	auth, err := credMgr.GetByPatternWithContext(ctx, "api.openai.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if auth == nil || auth.Token != "previous-secret" {
+		t.Fatalf("credencial anterior não foi restaurada: %+v", auth)
+	}
+	if len(credentialStore.stored) != 1 || credentialStore.stored[0].ID != previousID {
+		t.Fatalf("registro/ID de credencial anterior não foi restaurado: %+v", credentialStore.stored)
+	}
+	if created := registry.Get("openai-default"); created != nil {
+		t.Fatalf("provedor ficou ativo após erro de credencial: %+v", created)
 	}
 }
 

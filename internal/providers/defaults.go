@@ -9,6 +9,7 @@ import (
 
 	"assistente/internal/acp"
 	"assistente/internal/credentials"
+	"assistente/internal/database"
 	"assistente/internal/llm"
 	"assistente/internal/llmcatalog"
 	"assistente/internal/logging"
@@ -216,11 +217,10 @@ func TemplateFromCatalogServer(server llmcatalog.Server) (*llm.ProviderConfig, e
 	baseURL := catalogPolicyStringDefault(server, "base_url", server.BaseURL)
 	credentialPattern := ""
 	if baseURL != "" {
-		origin, host, originErr := catalogCredentialOrigin(baseURL)
+		origin, _, originErr := catalogCredentialOrigin(baseURL)
 		if originErr != nil {
 			return nil, fmt.Errorf("base_url do perfil %q: %w", server.ID, originErr)
 		}
-		credentialPattern = host
 		if origin != profile.credentialOrigin {
 			return nil, fmt.Errorf("base_url do perfil %q aponta para origem %q fora da allowlist", server.ID, origin)
 		}
@@ -291,7 +291,8 @@ func catalogCredentialOrigin(rawURL string) (origin, hostname string, err error)
 }
 
 // CatalogTemplate resolve um perfil explicitamente identificado no snapshot
-// atual. Snapshot vazio/inexistente retorna erro para permitir fallback local.
+// atual. Snapshot vazio/inexistente retorna erro; presets de provedores não são
+// duplicados localmente como fallback.
 func (s *Service) CatalogTemplate(profileID string) (*llm.ProviderConfig, error) {
 	if s.catalogSnapshot == nil {
 		return nil, fmt.Errorf("catálogo de provedores indisponível")
@@ -448,23 +449,17 @@ func AgentProvider(id, name, agentID string, install acp.Install) *llm.ProviderC
 	}
 }
 
-// CreateFromTemplate cria um provedor a partir de um template builtin, registra-o no
-// registry, salva a credencial (se apiKey fornecida) e persiste no store.
-// É equivalente ao antigo CreateDefaultLLMProvider no app layer.
+// CreateFromTemplate preserva a entrada legada da CLI, mas resolve os dados
+// exclusivamente do perfil correspondente no catálogo atual.
 //
 // Só provedor HTTP passa por aqui: agente de código não tem template, e quem
 // cria um é o formulário, com o agente escolhido no catálogo (AEP-0086 D11).
 func (s *Service) CreateFromTemplate(ctx context.Context, providerType, apiKey string) error {
-	var p *llm.ProviderConfig
-	var err error
-	if profileID, ok := legacyTemplateProfiles[providerType]; ok {
-		p, err = s.CatalogTemplate(profileID)
+	profileID, ok := legacyTemplateProfiles[providerType]
+	if !ok {
+		return fmt.Errorf("tipo de provedor %q não possui perfil no catálogo", providerType)
 	}
-	if p == nil {
-		// Catálogo vazio, offline ou perfil ainda não suportado pelo runtime:
-		// preserva o primeiro setup e a compatibilidade da CLI.
-		p, err = BuiltinTemplate(providerType)
-	}
+	p, err := s.CatalogTemplate(profileID)
 	if err != nil {
 		return err
 	}
@@ -472,8 +467,50 @@ func (s *Service) CreateFromTemplate(ctx context.Context, providerType, apiKey s
 }
 
 func (s *Service) createFromTemplate(ctx context.Context, p *llm.ProviderConfig, apiKey string) error {
+	var previousCredential *credentials.StoredCredential
+	if apiKey != "" && p.CredentialPattern != "" {
+		if s.credMgr == nil {
+			return fmt.Errorf("gerenciador de credenciais indisponível")
+		}
+		if persistence, ok := s.credMgr.(interface{ CanPersist() bool }); ok && persistence.CanPersist() {
+			if _, scoped := database.UserIDFromContext(ctx); !scoped {
+				return database.ErrUserScopeRequired
+			}
+		}
+		lister, ok := s.credMgr.(interface {
+			ListCredentialsWithContext(context.Context) ([]credentials.StoredCredential, error)
+		})
+		if !ok {
+			return fmt.Errorf("gerenciador de credenciais não permite snapshot para rollback")
+		}
+		stored, err := lister.ListCredentialsWithContext(ctx)
+		if err != nil {
+			return fmt.Errorf("erro ao preparar credencial: %w", err)
+		}
+		for i := range stored {
+			if stored[i].Pattern == p.CredentialPattern {
+				previousCredential = &stored[i]
+				break
+			}
+		}
+	}
 	if err := s.registry.Register(p); err != nil {
 		return fmt.Errorf("erro ao registrar provedor: %w", err)
+	}
+	rollbackProvider := func() error {
+		if err := s.registry.Remove(p.ID); err != nil {
+			return fmt.Errorf("erro ao remover provedor após falha: %w", err)
+		}
+		if err := s.Save(ctx); err != nil {
+			return fmt.Errorf("erro ao desfazer persistência do provedor: %w", err)
+		}
+		return nil
+	}
+	if err := s.Save(ctx); err != nil {
+		if rollbackErr := s.registry.Remove(p.ID); rollbackErr != nil {
+			return fmt.Errorf("erro ao salvar provedor: %w (rollback do registry: %v)", err, rollbackErr)
+		}
+		return fmt.Errorf("erro ao salvar provedor: %w", err)
 	}
 
 	if apiKey != "" && p.CredentialPattern != "" {
@@ -484,12 +521,30 @@ func (s *Service) createFromTemplate(ctx context.Context, p *llm.ProviderConfig,
 			auth = &credentials.AuthConfig{Source: "static", Type: "custom", Headers: map[string]string{"x-api-key": apiKey}}
 		}
 		if err := s.credMgr.RegisterPatternWithContext(ctx, p.CredentialPattern, auth); err != nil {
+			var credentialRollbackErr error
+			if previousCredential != nil {
+				if deleteErr := s.credMgr.DeletePattern(ctx, p.CredentialPattern); deleteErr != nil {
+					credentialRollbackErr = deleteErr
+				} else {
+					if restorer, ok := s.credMgr.(interface {
+						RegisterStoredCredentialWithContext(context.Context, credentials.StoredCredential) error
+					}); ok {
+						credentialRollbackErr = restorer.RegisterStoredCredentialWithContext(ctx, *previousCredential)
+					} else {
+						credentialRollbackErr = fmt.Errorf("gerenciador não permite restaurar a credencial anterior")
+					}
+				}
+			} else {
+				credentialRollbackErr = s.credMgr.DeletePattern(ctx, p.CredentialPattern)
+			}
+			if rollbackErr := rollbackProvider(); rollbackErr != nil {
+				return fmt.Errorf("erro ao salvar credencial: %w (rollback do provedor: %v; rollback da credencial: %v)", err, rollbackErr, credentialRollbackErr)
+			}
+			if credentialRollbackErr != nil {
+				return fmt.Errorf("erro ao salvar credencial: %w (rollback da credencial: %v)", err, credentialRollbackErr)
+			}
 			return fmt.Errorf("erro ao salvar credencial: %w", err)
 		}
-	}
-
-	if err := s.Save(ctx); err != nil {
-		return fmt.Errorf("erro ao salvar provedor: %w", err)
 	}
 
 	logging.Infof(ctx, "providers.defaults", "[providers] Provedor '%s' criado a partir do template", p.ID)
