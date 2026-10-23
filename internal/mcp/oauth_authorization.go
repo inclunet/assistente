@@ -406,6 +406,7 @@ func (m *Manager) beginManagedAttemptWithGuard(ctx, guardCtx context.Context, sl
 	}
 	attempt := &managedAttempt{reconnectAttemptID: retryAttemptID, cancel: cancel, done: make(chan struct{})}
 	m.managedAttempts[slug] = attempt
+	attemptCtx = context.WithValue(attemptCtx, managedAttemptContextKey{}, attempt)
 	previousStatus, previousError := StatusDisconnected, ""
 	if status := m.servers[slug]; status != nil {
 		previousStatus, previousError = status.Status, status.Error
@@ -431,6 +432,16 @@ func (m *Manager) beginManagedAttemptWithGuard(ctx, guardCtx context.Context, sl
 		}
 		close(attempt.done)
 	}, nil
+}
+
+type managedAttemptContextKey struct{}
+
+func managedAttemptFromContext(ctx context.Context) *managedAttempt {
+	if ctx == nil {
+		return nil
+	}
+	attempt, _ := ctx.Value(managedAttemptContextKey{}).(*managedAttempt)
+	return attempt
 }
 
 func (m *Manager) authorizeManagedOAuth(ctx context.Context, slug string, cfg ServerConfig) error {

@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"assistente/internal/oauthflow"
 	"assistente/internal/toolcatalog"
 	"assistente/internal/tools"
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
@@ -67,6 +68,44 @@ func (c *contextFirstCheckObserved) Err() error {
 	err := c.Context.Err()
 	c.once.Do(func() { close(c.checked) })
 	return err
+}
+
+type controlledAfterFuncContext struct {
+	context.Context
+	cancelBase context.CancelFunc
+	mu         sync.Mutex
+	callback   func()
+	stopped    bool
+	fired      bool
+}
+
+func (c *controlledAfterFuncContext) AfterFunc(callback func()) func() bool {
+	c.mu.Lock()
+	c.callback = callback
+	c.mu.Unlock()
+	return func() bool {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		if c.fired {
+			return false
+		}
+		c.stopped = true
+		return true
+	}
+}
+
+func (c *controlledAfterFuncContext) cancel() {
+	c.cancelBase()
+	c.mu.Lock()
+	callback := c.callback
+	shouldFire := !c.stopped && !c.fired
+	if shouldFire {
+		c.fired = true
+	}
+	c.mu.Unlock()
+	if shouldFire && callback != nil {
+		callback()
+	}
 }
 
 func TestBeginManagedAttemptNaoRegistraRetryCancelado(t *testing.T) {
@@ -157,6 +196,43 @@ func TestConnectWithContextMantemSessaoAposRetorno(t *testing.T) {
 		t.Fatalf("sessão morreu quando connectWithContext retornou: %v", err)
 	}
 
+	m.CloseAll()
+}
+
+func TestCancelamentoAposPublicacaoNaoEncerraSessaoConectada(t *testing.T) {
+	m := newLifecycleManager()
+	factory := newInMemoryMCPFactory(t, m.ctx)
+	defer factory.close()
+	m.transportFactory = factory.transport
+	registerLifecycleServer(m, "cancelamento-apos-publicacao", ServerConfig{Enabled: true, Transport: TransportStdio})
+
+	baseCtx, cancelBase := context.WithCancel(context.Background())
+	parentCtx := &controlledAfterFuncContext{Context: baseCtx, cancelBase: cancelBase}
+	m.emitEvent = func(event string, _ any) {
+		if event == "mcp:server_connected" {
+			parentCtx.cancel()
+		}
+	}
+
+	if err := m.connectWithContext(parentCtx, "cancelamento-apos-publicacao"); err != nil {
+		t.Fatalf("connectWithContext: %v", err)
+	}
+	if parentCtx.Err() == nil {
+		t.Fatal("o teste não cancelou o contexto após publicar a conexão")
+	}
+
+	m.mu.RLock()
+	conn := m.connections["cancelamento-apos-publicacao"]
+	status := m.servers["cancelamento-apos-publicacao"].Status
+	m.mu.RUnlock()
+	if conn == nil || status != StatusConnected {
+		t.Fatalf("cancelamento após publicação invalidou a sessão: conn=%v status=%s", conn != nil, status)
+	}
+	listCtx, cancelList := context.WithTimeout(context.Background(), time.Second)
+	defer cancelList()
+	if _, err := conn.session.ListTools(listCtx, nil); err != nil {
+		t.Fatalf("sessão foi encerrada pelo cancelamento do chamador após publicação: %v", err)
+	}
 	m.CloseAll()
 }
 
@@ -599,6 +675,46 @@ func TestConnectManualAguardaFimDoCleanupDeDesconexao(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("conexão manual não prosseguiu após o cleanup")
 	}
+	m.CloseAll()
+}
+
+func TestConexaoDiretaRespeitaReservaOAuthEDonoNaoEsperaPropriaTentativa(t *testing.T) {
+	m := newLifecycleManager()
+	slug := "oauth-reservado"
+	registerLifecycleServer(m, slug, ServerConfig{Enabled: true, Transport: "invalid"})
+	managedCtx, finishManaged, err := m.beginManagedAttemptWithGuard(context.Background(), context.Background(), slug, 0)
+	if err != nil {
+		t.Fatalf("beginManagedAttemptWithGuard: %v", err)
+	}
+	owner := managedAttemptFromContext(managedCtx)
+	if owner == nil {
+		t.Fatal("contexto gerenciado não transportou o dono da reserva")
+	}
+	var finishOnce sync.Once
+	finish := func() { finishOnce.Do(finishManaged) }
+	t.Cleanup(finish)
+
+	if err := m.connectWithContext(context.Background(), slug); !errors.Is(err, oauthflow.ErrConflict) {
+		t.Fatalf("conexão direta não respeitou a reserva OAuth: %v", err)
+	}
+
+	m.mu.Lock()
+	m.connections[slug] = &serverConnection{}
+	m.mu.Unlock()
+	connectDone := make(chan error, 1)
+	go func() { connectDone <- m.connectWithContext(managedCtx, slug) }()
+	select {
+	case err := <-connectDone:
+		if err == nil || !strings.Contains(err.Error(), "transport desconhecido") {
+			t.Fatalf("Connect gerenciado não prosseguiu após reciclar a sessão existente: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Connect gerenciado aguardou a conclusão da própria reserva OAuth")
+	}
+	if err := managedCtx.Err(); err != nil {
+		t.Fatalf("reciclar a sessão cancelou a tentativa dona: %v", err)
+	}
+	finish()
 	m.CloseAll()
 }
 

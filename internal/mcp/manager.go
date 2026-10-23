@@ -666,6 +666,11 @@ func (m *Manager) connectWithContextForRetry(parentCtx context.Context, slug str
 		m.mu.Unlock()
 		return oauthflow.ErrTransient
 	}
+	managedOwner := managedAttemptFromContext(parentCtx)
+	if managed := m.managedAttempts[slug]; managed != nil && managed != managedOwner {
+		m.mu.Unlock()
+		return oauthflow.ErrConflict
+	}
 	if cleanupDone := m.disconnectCleanups[slug]; cleanupDone != nil {
 		m.mu.Unlock()
 		select {
@@ -705,7 +710,11 @@ func (m *Manager) connectWithContextForRetry(parentCtx context.Context, slug str
 	// readquirimos depois (evita deadlock por re-entrância no RWMutex).
 	if _, connected := m.connections[slug]; connected {
 		m.mu.Unlock()
-		_ = m.Disconnect(slug)
+		if managedOwner != nil {
+			_ = m.disconnectWithManagedOwner(slug, managedOwner)
+		} else {
+			_ = m.Disconnect(slug)
+		}
 		m.mu.Lock()
 		status, ok = m.servers[slug]
 		if m.retiringLegacy[slug] {
@@ -968,11 +977,27 @@ func (m *Manager) connectWithContextForRetry(parentCtx context.Context, slug str
 
 	now := time.Now()
 	m.mu.Lock()
-	if m.connections[slug] != conn || sessionCtx.Err() != nil {
+	// A publicação de StatusConnected é o ponto em que o chamador deixa de
+	// possuir a sessão. Serialize o desarme do callback e a guarda com as
+	// mudanças de ownership do Manager para que um cancelamento anterior à
+	// publicação seja aplicado antes de aceitar a sessão.
+	parentCancelStopped := stopParentCancel()
+	if !parentCancelStopped || parentCtx.Err() != nil {
+		sessionCancel()
+	}
+	if m.connectCancels[slug] != attempt || m.connections[slug] != conn || sessionCtx.Err() != nil {
+		if m.connectCancels[slug] == attempt {
+			if s, ok := m.servers[slug]; ok && s.Status == StatusConnecting {
+				s.Status = StatusDisconnected
+				s.Error = ""
+			}
+		}
 		m.mu.Unlock()
 		m.detachConnection(slug, conn)
 		_ = closeServerConnection(slug, conn, true)
-		m.resetConnectingStatus(slug)
+		if err := parentCtx.Err(); err != nil {
+			return err
+		}
 		return context.Canceled
 	}
 	if conn.sessionEnded {
@@ -1280,11 +1305,20 @@ func (m *Manager) disconnectWithRecovery(slug string, legacyOnly, cancelRecovery
 }
 
 func (m *Manager) disconnectWithRecoveryForAttempt(slug string, legacyOnly, cancelRecovery bool, retryAttemptID uint64) (bool, error) {
+	return m.disconnectWithRecoveryForAttemptAndOwner(slug, legacyOnly, cancelRecovery, retryAttemptID, nil)
+}
+
+func (m *Manager) disconnectWithManagedOwner(slug string, owner *managedAttempt) error {
+	_, err := m.disconnectWithRecoveryForAttemptAndOwner(slug, false, true, 0, owner)
+	return err
+}
+
+func (m *Manager) disconnectWithRecoveryForAttemptAndOwner(slug string, legacyOnly, cancelRecovery bool, retryAttemptID uint64, managedOwner *managedAttempt) (bool, error) {
 	m.mu.Lock()
 	if cleanupDone := m.disconnectCleanups[slug]; cleanupDone != nil {
 		m.mu.Unlock()
 		<-cleanupDone
-		return m.disconnectWithRecoveryForAttempt(slug, legacyOnly, cancelRecovery, retryAttemptID)
+		return m.disconnectWithRecoveryForAttemptAndOwner(slug, legacyOnly, cancelRecovery, retryAttemptID, managedOwner)
 	}
 	if retryAttemptID != 0 {
 		status := m.servers[slug]
@@ -1320,7 +1354,7 @@ func (m *Manager) disconnectWithRecoveryForAttempt(slug string, legacyOnly, canc
 	} else {
 		reconnect = nil
 	}
-	if managed != nil {
+	if managed != nil && managed != managedOwner {
 		managed.cancel()
 	}
 	if !ok && attempt == nil && managed == nil && reconnect == nil {
@@ -1374,7 +1408,7 @@ func (m *Manager) disconnectWithRecoveryForAttempt(slug string, legacyOnly, canc
 	if attempt != nil {
 		<-attempt.done
 	}
-	if managed != nil && managed.done != nil {
+	if managed != nil && managed != managedOwner && managed.done != nil {
 		<-managed.done
 	}
 
