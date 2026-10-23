@@ -43,8 +43,10 @@ const (
 	// por mensagens sem prefixos legados; a causa permanece sanitizada.
 	// O catálogo público registra seis formatos diagnósticos novos: quatro nos
 	// fluxos de reautorização/correção, um no perfil de voz e um no resumo.
-	expectedLegacyFormatCount  = 725
-	expectedLegacyFormatDigest = "98f2fe436a17d497ffb8b4b226ea7a0f513ca2c39441991e233d13d2cc00ad92"
+	// A disponibilidade de tools registra mais três formatos por tentativa:
+	// tools locais no loop agêntico, tools MCP/OpenAI e tools MCP/Anthropic.
+	expectedLegacyFormatCount  = 728
+	expectedLegacyFormatDigest = "9c5cef93b078119baf939af43a4ba4b082de16c632b3b4f0c608423cf8001c1e"
 )
 
 // TestLegacyLoggingInventory mantém reproduzível o inventário da issue #675.

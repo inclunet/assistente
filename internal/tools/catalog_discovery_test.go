@@ -76,3 +76,22 @@ func TestLoadedToolStoreClaimsAutoSearchOncePerConversationProfile(t *testing.T)
 		t.Fatal("mudança de perfil deveria iniciar novo estado runtime")
 	}
 }
+
+func TestLoadedToolStoreForgetsOnlyNamedToolsForMatchingProfile(t *testing.T) {
+	store := NewLoadedToolStore()
+	store.Load("conv-a", "padrao", []string{"read_file", "search_files"}, nil, nil, nil)
+	store.Load("conv-b", "padrao", []string{"read_file"}, nil, nil, nil)
+
+	store.Forget("conv-a", "outro", []string{"read_file"})
+	if got := store.Loaded("conv-a", "padrao", nil); len(got) != 2 {
+		t.Fatalf("perfil diferente alterou tools carregadas: %#v", got)
+	}
+
+	store.Forget("conv-a", "padrao", []string{" read_file ", "unknown"})
+	if got := store.Loaded("conv-a", "padrao", nil); len(got) != 1 || got[0] != "search_files" {
+		t.Fatalf("tools restantes = %#v, want search_files", got)
+	}
+	if got := store.Loaded("conv-b", "padrao", nil); len(got) != 1 || got[0] != "read_file" {
+		t.Fatalf("forget vazou para outra conversa: %#v", got)
+	}
+}

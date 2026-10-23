@@ -259,6 +259,27 @@ func (s *LoadedToolStore) ResetConversation(conversationID string) {
 	delete(s.byConversation, conversationID)
 }
 
+// Forget removes runtime-loaded tools that the catalog has confirmed as
+// unavailable. A transient catalog read failure must not call this method: in
+// that case the executor remains the source of truth and can return its actual
+// connection error to the model.
+func (s *LoadedToolStore) Forget(conversationID, profileSlug string, names []string) {
+	if s == nil || strings.TrimSpace(conversationID) == "" || len(names) == 0 {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	state, ok := s.byConversation[conversationID]
+	if !ok || state.profileSlug != strings.TrimSpace(profileSlug) {
+		return
+	}
+	for _, raw := range names {
+		if name := strings.TrimSpace(raw); name != "" {
+			delete(state.loaded, name)
+		}
+	}
+}
+
 func (s *LoadedToolStore) ensureLocked(conversationID, profileSlug string) *loadedToolConversationState {
 	profileSlug = strings.TrimSpace(profileSlug)
 	state, ok := s.byConversation[conversationID]

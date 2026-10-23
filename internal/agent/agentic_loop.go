@@ -211,6 +211,11 @@ func (r *agenticLoopRunner) streamIteration(ctx context.Context, iteration int) 
 			setInitialContent = prefillSetter.SetInitialContent
 		}
 		r.messages = r.svc.applyContinuationPrefill(ctx, r.messages, r.params, r.assistantMessageID, setInitialContent)
+		toolNames := make([]string, 0, len(r.activeToolDefs))
+		for _, definition := range r.activeToolDefs {
+			toolNames = append(toolNames, definition.Function.Name)
+		}
+		logging.Debugf(ctx, "agent.agentic-loop", "[Agent] definições locais enviadas ao provider (iteração %d): %v", iteration, toolNames)
 		r.activeStreamer.StreamChat(ctx, r.messages, r.params, handler, r.activeToolDefs...)
 		// Fallback nativo→adapter no MESMO turno: se o provider sinalizou que o
 		// modelo não suporta MCP nativo, troca para o streamer/tools em modo

@@ -573,7 +573,16 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 	}
 	if uc.loadedToolStore != nil && !disableTools {
 		loadedRuntimeTools := uc.loadedToolStore.Loaded(req.ConversationID, params.ProfileSlug, toolCatalogVisibleNames)
-		loadedRuntimeTools = availableLoadedRuntimeTools(ctx, loadedRuntimeTools)
+		available, unavailable, availabilityErr := loadedRuntimeToolAvailability(ctx, loadedRuntimeTools)
+		if availabilityErr != nil {
+			// A falha transitória ao consultar o catálogo não deve apagar do payload
+			// tools já autorizadas e carregadas nesta conversa. Mantemos as definições
+			// e deixamos o executor informar a falha real, se o servidor estiver fora.
+			logging.Warnf(ctx, "core.usecases.send-message", "[SendMessage] não foi possível revalidar tools carregadas; mantendo o conjunto da conversa: %v", availabilityErr)
+		} else {
+			loadedRuntimeTools = available
+			uc.loadedToolStore.Forget(req.ConversationID, params.ProfileSlug, unavailable)
+		}
 		if len(loadedRuntimeTools) > 0 {
 			runtimeTools = append(runtimeTools, loadedRuntimeTools...)
 			toolCfg.RuntimeTools = runtimeTools
@@ -812,28 +821,47 @@ func (uc *SendMessageUseCase) whisperTranscribeFunc() chat.TranscribeFunc {
 }
 
 func availableLoadedRuntimeTools(ctx context.Context, names []string) []string {
-	if len(names) == 0 || database.DB() == nil {
-		return nil
+	available, _, err := loadedRuntimeToolAvailability(ctx, names)
+	if err != nil {
+		return append([]string(nil), names...)
+	}
+	return available
+}
+
+func loadedRuntimeToolAvailability(ctx context.Context, names []string) (available, unavailable []string, err error) {
+	if len(names) == 0 {
+		return nil, nil, nil
+	}
+	if database.DB() == nil {
+		// O store de conversa já contém ferramentas autorizadas e carregadas. Sem
+		// catálogo consultável, não as ocultamos silenciosamente do próximo turno.
+		return append([]string(nil), names...), nil, nil
 	}
 	entries, err := toolcatalog.NewDBRepository(database.DB()).ListTools(ctx, tools.ToolCatalogFilter{
 		NameIn:             names,
-		AvailabilityStatus: tools.ToolAvailabilityAvailable,
+		IncludeUnavailable: true,
 	})
 	if err != nil {
-		logging.Errorf(ctx, "core.usecases.send-message", "[SendMessage] falha ao revalidar tools carregadas: %v", err)
-		return nil
+		return nil, nil, err
 	}
-	available := make(map[string]struct{}, len(entries))
+	unavailableNames := make(map[string]struct{}, len(entries))
 	for _, entry := range entries {
-		available[entry.Name] = struct{}{}
+		if entry.AvailabilityStatus == tools.ToolAvailabilityUnavailable {
+			unavailableNames[entry.Name] = struct{}{}
+		}
 	}
 	filtered := make([]string, 0, len(names))
+	filteredUnavailable := make([]string, 0)
 	for _, name := range names {
-		if _, ok := available[name]; ok {
+		if _, ok := unavailableNames[name]; ok {
+			filteredUnavailable = append(filteredUnavailable, name)
+		} else {
+			// Ausência de linha ou status desconhecido não é evidência de
+			// indisponibilidade; preserve o carregamento anterior.
 			filtered = append(filtered, name)
 		}
 	}
-	return filtered
+	return filtered, filteredUnavailable, nil
 }
 
 func controlPlaneNamesFromPolicy(policy chat.EffectiveToolPolicy) []string {

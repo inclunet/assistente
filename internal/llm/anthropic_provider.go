@@ -16,6 +16,11 @@ import (
 	anthropicparam "github.com/anthropics/anthropic-sdk-go/packages/param"
 )
 
+func validAnthropicBetaToolParameters(raw []byte) bool {
+	var schema anthropic.BetaToolInputSchemaParam
+	return json.Unmarshal(raw, &schema) == nil
+}
+
 // AnthropicProvider implementa ChatProvider usando a SDK anthropic-sdk-go.
 type AnthropicProvider struct {
 	client *anthropic.Client
@@ -277,6 +282,7 @@ func (p *AnthropicProvider) streamChatWithMCP(
 		if attemptFn == nil {
 			attemptFn = p.doStreamBeta
 		}
+		logging.Debugf(ctx, "llm.anthropic-provider", "[AnthropicProvider] tools da tentativa %d: locais=%v MCP=%v", attempt, toolDefinitionNames(tools, validAnthropicBetaToolParameters), mcpServerToolNames(currentServers))
 		result := attemptFn(ctx, betaParams, handler, currentServers)
 		if result.done {
 			return

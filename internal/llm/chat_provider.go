@@ -2,6 +2,8 @@ package llm
 
 import (
 	"context"
+	"sort"
+	"strings"
 
 	"assistente/internal/acp"
 	"assistente/internal/credentials"
@@ -26,6 +28,47 @@ type MCPServerConfig struct {
 	ToolNames    []string                    `json:"tool_names,omitempty"`    // todas as tools do server (namespaced, para dedup bridge)
 	AllowedTools []string                    `json:"allowed_tools,omitempty"` // tools permitidas pelo perfil (nomes originais do MCP server); vazio = todas
 	Recover      func(context.Context) error `json:"-"`
+}
+
+func toolDefinitionNames(definitions []ToolDefinition, validParameters func([]byte) bool) []string {
+	names := make([]string, 0, len(definitions))
+	for _, definition := range definitions {
+		if definition.Function.Name == "" {
+			continue
+		}
+		if len(definition.Function.Parameters) > 0 && !validParameters(definition.Function.Parameters) {
+			continue
+		}
+		names = append(names, definition.Function.Name)
+	}
+	return names
+}
+
+func mcpServerToolNames(servers []MCPServerConfig) []string {
+	var names []string
+	for _, server := range servers {
+		serverName := server.Slug
+		if serverName == "" {
+			serverName = server.Name
+		}
+		allowed := server.AllowedTools
+		if len(allowed) == 0 {
+			allowed = server.ToolNames
+		}
+		for _, name := range allowed {
+			if name != "" {
+				if len(server.AllowedTools) == 0 {
+					namespace := "mcp_" + serverName + "__"
+					if strings.HasPrefix(name, namespace) && len(name) > len(namespace) {
+						name = strings.TrimPrefix(name, namespace)
+					}
+				}
+				names = append(names, serverName+":"+name)
+			}
+		}
+	}
+	sort.Strings(names)
+	return names
 }
 
 // ChatProvider abstrai a comunicação com LLMs via SDKs oficiais.

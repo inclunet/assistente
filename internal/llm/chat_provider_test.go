@@ -10,6 +10,33 @@ import (
 	"google.golang.org/genai"
 )
 
+func TestToolDiagnosticsListNamesSentToProvider(t *testing.T) {
+	localNames := toolDefinitionNames([]ToolDefinition{
+		{Function: FunctionDefinition{Name: "read_file"}},
+		{Function: FunctionDefinition{}},
+		{Function: FunctionDefinition{Name: "write_file", Parameters: []byte(`{"type":"object"}`)}},
+		{Function: FunctionDefinition{Name: "malformed_schema", Parameters: []byte(`{not-json}`)}},
+	}, validAnthropicBetaToolParameters)
+	if len(localNames) != 2 || localNames[0] != "read_file" || localNames[1] != "write_file" {
+		t.Fatalf("nomes locais = %#v", localNames)
+	}
+
+	mcpNames := mcpServerToolNames([]MCPServerConfig{
+		{Slug: "github", ToolNames: []string{"mcp_github__create_issue"}, AllowedTools: []string{"create_issue", "list_repos"}},
+		{Name: "files", ToolNames: []string{"mcp_files__read"}},
+		{Name: "other", ToolNames: []string{"mcp_files__unmatched"}},
+	})
+	want := []string{"files:read", "github:create_issue", "github:list_repos", "other:mcp_files__unmatched"}
+	if len(mcpNames) != len(want) {
+		t.Fatalf("nomes MCP = %#v, want %#v", mcpNames, want)
+	}
+	for i := range want {
+		if mcpNames[i] != want[i] {
+			t.Fatalf("nomes MCP = %#v, want %#v", mcpNames, want)
+		}
+	}
+}
+
 func TestGetAPIFormat_Default(t *testing.T) {
 	p := &ProviderConfig{
 		ID:      "test",
