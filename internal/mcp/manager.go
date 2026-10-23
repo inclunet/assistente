@@ -94,30 +94,31 @@ type connectionAttempt struct {
 // Manager gerencia servidores MCP: configuração, conexão, discovery de tools.
 // Thread-safe para uso concorrente.
 type Manager struct {
-	retiringLegacy    map[string]bool // blocks Connect until legacy cleanup effects finish
-	snapshotRoot      string          // optional test root; production stays outside exported config
-	managedAttempts   map[string]context.CancelFunc
-	mu                sync.RWMutex
-	resolver          *configdir.Resolver
-	repo              Repository
-	catalog           ToolCatalog
-	credMgr           *credentials.Manager
-	registry          *tools.Registry
-	emitEvent         emitFunc
-	llmHandler        func(context.Context, SamplingRequest) (string, error) // handler para sampling requests
-	servers           map[string]*ServerStatus                               // slug -> status
-	connections       map[string]*serverConnection                           // slug -> connection ativa
-	connectCancels    map[string]*connectionAttempt                          // slug -> tentativa de Connect em andamento
-	ctx               context.Context
-	cancel            context.CancelFunc
-	bgWG              sync.WaitGroup // join de refresh OAuth e reconexões no CloseAll
-	bgMu              sync.Mutex     // protege bgClosed e serializa Add(1) contra Wait (evita WaitGroup misuse)
-	bgClosed          bool           // true após CloseAll iniciar o join; bloqueia novas goroutines rastreadas
-	authContext       func() context.Context
-	networkMu         sync.RWMutex
-	networkAuthorizer oauthflow.NetworkAuthorizer
-	roots             []Root // workspace roots globais
-	connectTimeout    time.Duration
+	retiringLegacy         map[string]bool // blocks Connect until legacy cleanup effects finish
+	snapshotRoot           string          // optional test root; production stays outside exported config
+	managedAttempts        map[string]context.CancelFunc
+	mu                     sync.RWMutex
+	resolver               *configdir.Resolver
+	repo                   Repository
+	catalog                ToolCatalog
+	credMgr                *credentials.Manager
+	registry               *tools.Registry
+	emitEvent              emitFunc
+	llmHandler             func(context.Context, SamplingRequest) (string, error) // handler para sampling requests
+	servers                map[string]*ServerStatus                               // slug -> status
+	connections            map[string]*serverConnection                           // slug -> connection ativa
+	connectCancels         map[string]*connectionAttempt                          // slug -> tentativa de Connect em andamento
+	nextReconnectAttemptID uint64                                                 // protegido por mu; impede cleanup antigo de limpar retry novo
+	ctx                    context.Context
+	cancel                 context.CancelFunc
+	bgWG                   sync.WaitGroup // join de refresh OAuth e reconexões no CloseAll
+	bgMu                   sync.Mutex     // protege bgClosed e serializa Add(1) contra Wait (evita WaitGroup misuse)
+	bgClosed               bool           // true após CloseAll iniciar o join; bloqueia novas goroutines rastreadas
+	authContext            func() context.Context
+	networkMu              sync.RWMutex
+	networkAuthorizer      oauthflow.NetworkAuthorizer
+	roots                  []Root // workspace roots globais
+	connectTimeout         time.Duration
 
 	// transportFactory existe para testes de lifecycle sem processos ou rede
 	// externa. Em produção, createTransport usa os transports oficiais.
@@ -2059,16 +2060,10 @@ func (m *Manager) reconnectWithRetry(slug string) {
 		return
 	}
 
-	status.Reconnecting = true
+	attemptID := m.beginReconnectAttemptLocked(status)
 	m.mu.Unlock()
 
-	defer func() {
-		m.mu.Lock()
-		if s, ok := m.servers[slug]; ok {
-			s.Reconnecting = false
-		}
-		m.mu.Unlock()
-	}()
+	defer m.releaseReconnectAttempt(slug, attemptID)
 
 	for {
 		m.mu.RLock()
@@ -2143,9 +2138,25 @@ func (m *Manager) reconnectWithRetry(slug string) {
 		}
 
 		logReconnectSuccess(slug)
-		if m.finishReconnectAttempt(slug) {
+		if m.finishReconnectAttempt(slug, attemptID) {
 			return
 		}
+	}
+}
+
+func (m *Manager) beginReconnectAttemptLocked(status *ServerStatus) uint64 {
+	m.nextReconnectAttemptID++
+	status.Reconnecting = true
+	status.reconnectAttemptID = m.nextReconnectAttemptID
+	return status.reconnectAttemptID
+}
+
+func (m *Manager) releaseReconnectAttempt(slug string, attemptID uint64) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if status, ok := m.servers[slug]; ok && status.reconnectAttemptID == attemptID {
+		status.Reconnecting = false
+		status.reconnectAttemptID = 0
 	}
 }
 
@@ -2153,18 +2164,26 @@ func (m *Manager) reconnectWithRetry(slug string) {
 // que o watcher registra session.Wait. Se a sessão caiu durante a reconexão,
 // a tentativa atual continua o backoff; se cair depois, o watcher encontra o
 // ownership liberado e agenda uma nova tentativa.
-func (m *Manager) finishReconnectAttempt(slug string) bool {
+func (m *Manager) finishReconnectAttempt(slug string, attemptID uint64) bool {
 	m.mu.Lock()
 	status, ok := m.servers[slug]
 	if !ok || !status.Config.Enabled {
 		m.mu.Unlock()
 		return true
 	}
+	if !status.Reconnecting || status.reconnectAttemptID != attemptID {
+		m.mu.Unlock()
+		return true
+	}
 	conn := m.connections[slug]
 	if (conn != nil && conn.sessionEnded) || status.Status == StatusError {
+		var endErr error
+		if conn != nil {
+			endErr = conn.sessionEndErr
+		}
 		m.mu.Unlock()
 		if conn != nil {
-			m.handleSessionEnded(slug, conn, conn.sessionEndErr)
+			m.handleSessionEnded(slug, conn, endErr)
 		}
 		return false
 	}
@@ -2174,6 +2193,7 @@ func (m *Manager) finishReconnectAttempt(slug string) bool {
 	}
 	status.RetryCount = 0
 	status.Reconnecting = false
+	status.reconnectAttemptID = 0
 	m.mu.Unlock()
 	return true
 }

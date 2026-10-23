@@ -152,6 +152,8 @@ type ServerStatus struct {
 	Capabilities ServerCapabilities `json:"capabilities"`
 
 	Reconnecting bool `json:"-"`
+	// reconnectAttemptID identifica o dono atual da reconexão; protegido por Manager.mu.
+	reconnectAttemptID uint64 `json:"-"`
 
 	// NeedsReauth indica que o token OAuth do servidor expirou e não pôde ser
 	// renovado silenciosamente (sem/refresh_token inválido, invalid_grant). Nesse

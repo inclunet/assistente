@@ -183,13 +183,14 @@ func TestEncerramentoDuranteReconexaoMantemDonoDoRetry(t *testing.T) {
 	conn := &serverConnection{sessionEnded: true, sessionEndErr: errors.New("transporte fechado")}
 	m.connections["reconnect-ended"] = conn
 	m.servers["reconnect-ended"] = &ServerStatus{
-		Slug:         "reconnect-ended",
-		Config:       ServerConfig{Enabled: true},
-		Status:       StatusConnected,
-		Reconnecting: true,
+		Slug:               "reconnect-ended",
+		Config:             ServerConfig{Enabled: true},
+		Status:             StatusConnected,
+		Reconnecting:       true,
+		reconnectAttemptID: 1,
 	}
 
-	if m.finishReconnectAttempt("reconnect-ended") {
+	if m.finishReconnectAttempt("reconnect-ended", 1) {
 		t.Fatal("reconexão atual encerrou em vez de manter o retry após queda imediata")
 	}
 	m.mu.RLock()
@@ -198,6 +199,36 @@ func TestEncerramentoDuranteReconexaoMantemDonoDoRetry(t *testing.T) {
 	m.mu.RUnlock()
 	if status != StatusError || !reconnecting {
 		t.Fatalf("ownership do retry perdido: status=%s reconnecting=%v", status, reconnecting)
+	}
+	m.CloseAll()
+}
+
+func TestCleanupDeRetryAntigoNaoLiberaNovoDono(t *testing.T) {
+	m := newLifecycleManager()
+	registerLifecycleServer(m, "retry-handoff", ServerConfig{Enabled: true})
+	m.mu.Lock()
+	status := m.servers["retry-handoff"]
+	firstAttemptID := m.beginReconnectAttemptLocked(status)
+	m.mu.Unlock()
+	m.releaseReconnectAttempt("retry-handoff", firstAttemptID)
+
+	m.mu.Lock()
+	secondAttemptID := m.beginReconnectAttemptLocked(status)
+	m.mu.Unlock()
+
+	cleanupDone := make(chan struct{})
+	go func() {
+		defer close(cleanupDone)
+		m.releaseReconnectAttempt("retry-handoff", firstAttemptID)
+	}()
+	<-cleanupDone
+
+	m.mu.RLock()
+	reconnecting := m.servers["retry-handoff"].Reconnecting
+	ownerID := m.servers["retry-handoff"].reconnectAttemptID
+	m.mu.RUnlock()
+	if !reconnecting || ownerID != secondAttemptID {
+		t.Fatalf("cleanup antigo removeu o dono novo: reconnecting=%v owner=%d", reconnecting, ownerID)
 	}
 	m.CloseAll()
 }
