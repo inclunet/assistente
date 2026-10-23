@@ -1022,6 +1022,16 @@ func (m *Manager) connectWithContextForRetry(parentCtx context.Context, slug str
 		_ = closeServerConnection(slug, conn, true)
 		return fmt.Errorf("sessão MCP '%s' encerrou durante a conexão", slug)
 	}
+	if s, ok := m.servers[slug]; ok && s.Status == StatusError {
+		failure := s.Error
+		m.mu.Unlock()
+		m.detachConnection(slug, conn)
+		_ = closeServerConnection(slug, conn, true)
+		if failure == "" {
+			failure = "falha reportada durante o discovery"
+		}
+		return fmt.Errorf("sessão MCP '%s' falhou durante a conexão: %s", slug, failure)
+	}
 	if s, ok := m.servers[slug]; ok {
 		s.Status = StatusConnected
 		s.Error = ""

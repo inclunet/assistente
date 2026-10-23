@@ -329,6 +329,59 @@ func TestEncerramentoDuranteDiscoveryAcionaEstadoIndisponivel(t *testing.T) {
 	m.CloseAll()
 }
 
+func TestFalhaDaToolAposRegistroDuranteDiscoveryNaoViraConnected(t *testing.T) {
+	m := newLifecycleManager()
+	slug := "falha-tool-durante-discovery"
+	registerLifecycleServer(m, slug, ServerConfig{Enabled: true, Transport: TransportStdio})
+	// Dispara tools_changed após o refresh atualizar o registry, criando a
+	// mesma janela em que os bridges já estão visíveis e Connect ainda finaliza.
+	m.servers[slug].Tools = []MCPToolInfo{{Name: "tool-anterior"}}
+	factory := newInMemoryMCPFactory(t, m.ctx)
+	defer factory.close()
+	m.transportFactory = factory.transport
+	var failureTriggered sync.Once
+	unhealthy := make(chan struct{}, 1)
+	m.emitEvent = func(event string, _ any) {
+		switch event {
+		case "mcp:tools_changed":
+			failureTriggered.Do(func() {
+				m.mu.RLock()
+				conn := m.connections[slug]
+				m.mu.RUnlock()
+				m.handleToolCallErrorForConnection(slug, conn, &SessionExpiredError{StatusCode: http.StatusGone})
+			})
+		case "mcp:server_unhealthy":
+			unhealthy <- struct{}{}
+		}
+	}
+
+	err := m.Connect(slug)
+	if err == nil {
+		t.Fatal("Connect aceitou a sessão após falha de sessão durante o discovery")
+	}
+	select {
+	case <-unhealthy:
+	case <-time.After(time.Second):
+		t.Fatal("falha de sessão durante o discovery não sinalizou servidor indisponível")
+	}
+	m.mu.RLock()
+	status := m.servers[slug].Status
+	statusError := m.servers[slug].Error
+	conn := m.connections[slug]
+	_, retryReserved := m.reconnectCancels[slug]
+	m.mu.RUnlock()
+	if status != StatusError || !strings.Contains(statusError, "sessão perdida") {
+		t.Fatalf("falha de sessão foi sobrescrita: status=%s error=%q", status, statusError)
+	}
+	if conn != nil {
+		t.Fatal("sessão inválida permaneceu publicada após a falha durante discovery")
+	}
+	if !retryReserved {
+		t.Fatal("falha de sessão durante discovery perdeu a reserva de reconexão")
+	}
+	m.CloseAll()
+}
+
 func TestEncerramentoDuranteReconexaoMantemDonoDoRetry(t *testing.T) {
 	m := newLifecycleManager()
 	conn := &serverConnection{sessionEnded: true, sessionEndErr: errors.New("transporte fechado")}
