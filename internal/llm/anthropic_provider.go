@@ -257,7 +257,6 @@ func (p *AnthropicProvider) streamChatWithMCP(
 ) {
 	currentServers := cloneMCPServers(p.mcpServers)
 	logging.Infof(ctx, "llm.anthropic-provider", "[AnthropicProvider] MCP nativo: %d servers, %d tools locais", len(currentServers), len(tools))
-	logging.Debugf(ctx, "llm.anthropic-provider", "[AnthropicProvider] tools desta requisição: locais=%v MCP=%v", toolDefinitionNames(tools), mcpServerToolNames(currentServers))
 
 	const maxAttempts = 10
 	bk := 500 * time.Millisecond
@@ -278,6 +277,7 @@ func (p *AnthropicProvider) streamChatWithMCP(
 		if attemptFn == nil {
 			attemptFn = p.doStreamBeta
 		}
+		logging.Debugf(ctx, "llm.anthropic-provider", "[AnthropicProvider] tools da tentativa %d: locais=%v MCP=%v", attempt, toolDefinitionNames(tools), mcpServerToolNames(currentServers))
 		result := attemptFn(ctx, betaParams, handler, currentServers)
 		if result.done {
 			return

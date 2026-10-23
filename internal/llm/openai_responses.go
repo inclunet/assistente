@@ -104,7 +104,6 @@ func (p *OpenAIProvider) streamChatResponses(
 	params.Model = model
 	currentServers := cloneMCPServers(p.mcpServers)
 	logging.Infof(ctx, "llm.openai-responses", "[OpenAIProvider] Responses API: %d MCP servers, %d tools locais", len(currentServers), len(tools))
-	logging.Debugf(ctx, "llm.openai-responses", "[OpenAIProvider] tools desta requisição: locais=%v MCP=%v", toolDefinitionNames(tools), mcpServerToolNames(currentServers))
 
 	const maxAttempts = 10
 	bk := 500 * time.Millisecond
@@ -131,6 +130,7 @@ func (p *OpenAIProvider) streamChatResponses(
 		if attemptFn == nil {
 			attemptFn = p.doStreamResponses
 		}
+		logging.Debugf(ctx, "llm.openai-responses", "[OpenAIProvider] tools da tentativa %d: locais=%v MCP=%v", attempt, toolDefinitionNames(tools), mcpServerToolNames(currentServers))
 		result := attemptFn(ctx, respParams, handler, currentServers, params, dumpHandle)
 		pruneDebugDumpHandle(dumpHandle)
 		if result.done {
