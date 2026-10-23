@@ -9,7 +9,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"os"
 	"os/exec"
 	"sort"
 	"strings"
@@ -923,6 +925,13 @@ func (m *Manager) connectWithContext(parentCtx context.Context, slug string) err
 }
 
 func isSessionTerminationError(err error) bool {
+	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	var networkErr *net.OpError
+	if errors.As(err, &networkErr) || errors.Is(err, net.ErrClosed) || errors.Is(err, os.ErrClosed) {
+		return true
+	}
 	return errors.Is(err, mcpsdk.ErrConnectionClosed) ||
 		errors.Is(err, io.EOF) ||
 		errors.Is(err, io.ErrUnexpectedEOF) ||

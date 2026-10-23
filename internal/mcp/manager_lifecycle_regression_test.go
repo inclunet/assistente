@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -538,6 +539,35 @@ func TestEncerramentoDuranteToolsListPreservaFalhaAntesDoWatcher(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("Connect não concluiu cleanup após liberar o watcher")
+	}
+}
+
+func TestClassificaFalhasDeTransporteDuranteDiscovery(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{
+			name: "erro de leitura de rede",
+			err:  &net.OpError{Op: "read", Net: "tcp", Err: errors.New("connection reset by peer")},
+			want: true,
+		},
+		{name: "conexão de rede fechada", err: net.ErrClosed, want: true},
+		{name: "arquivo fechado", err: os.ErrClosed, want: true},
+		{name: "sentinela MCP", err: mcpsdk.ErrConnectionClosed, want: true},
+		{name: "erro de resposta MCP", err: &jsonrpc.Error{Code: jsonrpc.CodeInternalError, Message: "falha da ferramenta"}, want: false},
+		{name: "cancelamento local", err: context.Canceled, want: false},
+		{name: "prazo local", err: context.DeadlineExceeded, want: false},
+		{name: "erro comum", err: errors.New("falha ao listar tools"), want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isSessionTerminationError(tt.err); got != tt.want {
+				t.Fatalf("isSessionTerminationError(%v) = %t, esperado %t", tt.err, got, tt.want)
+			}
+		})
 	}
 }
 
