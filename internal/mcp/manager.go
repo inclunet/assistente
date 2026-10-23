@@ -1020,7 +1020,9 @@ func (m *Manager) connectWithContextForRetry(parentCtx context.Context, slug str
 		s.Capabilities = capabilities
 		s.Roots = currentRoots
 		s.ConnectedAt = &now
-		s.RetryCount = 0
+		if retryAttemptID == 0 {
+			s.RetryCount = 0
+		}
 	}
 	m.mu.Unlock()
 
@@ -1315,7 +1317,12 @@ func (m *Manager) disconnectWithRecoveryForAttempt(slug string, legacyOnly, canc
 }
 
 func (m *Manager) disconnectWithManagedOwner(ctx context.Context, slug string, owner *managedAttempt) error {
-	_, err := m.disconnectWithRecoveryForAttemptAndOwner(slug, false, true, 0, owner, ctx)
+	retryAttemptID := owner.reconnectAttemptID
+	cancelRecovery := retryAttemptID == 0
+	disconnected, err := m.disconnectWithRecoveryForAttemptAndOwner(slug, false, cancelRecovery, retryAttemptID, owner, ctx)
+	if err == nil && !disconnected && retryAttemptID != 0 {
+		return oauthflow.ErrConflict
+	}
 	return err
 }
 
