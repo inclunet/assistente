@@ -826,6 +826,42 @@ func TestOwnerOAuthGerenciadoPreservaReservaDeRetry(t *testing.T) {
 	m.CloseAll()
 }
 
+func TestRetrySemOAuthPreservaReservaAoReciclarSessaoConcorrente(t *testing.T) {
+	m := newLifecycleManager()
+	slug := "retry-sessao-concorrente"
+	registerLifecycleServer(m, slug, ServerConfig{Enabled: true, Transport: "invalid"})
+	retryCtx, cancelRetry := context.WithCancel(context.Background())
+	m.mu.Lock()
+	status := m.servers[slug]
+	status.Status = StatusConnected
+	retryID := m.beginReconnectAttemptLocked(status)
+	retry := &reconnectAttempt{id: retryID, cancel: cancelRetry}
+	m.reconnectCancels[slug] = retry
+	conn := &serverConnection{}
+	m.connections[slug] = conn
+	m.mu.Unlock()
+
+	err := m.connectWithContextForRetry(retryCtx, slug, retryID)
+	if err == nil || !strings.Contains(err.Error(), "transport desconhecido") {
+		t.Fatalf("Connect não chegou ao transporte após reciclar a sessão: %v", err)
+	}
+	m.mu.RLock()
+	gotRetry := m.reconnectCancels[slug]
+	status = m.servers[slug]
+	_, connectionStillPublished := m.connections[slug]
+	m.mu.RUnlock()
+	if gotRetry != retry || !status.Reconnecting || status.reconnectAttemptID != retryID {
+		t.Fatalf("reciclar a sessão cancelou a reserva do retry: same=%v reconnecting=%v id=%d", gotRetry == retry, status.Reconnecting, status.reconnectAttemptID)
+	}
+	if retryCtx.Err() != nil {
+		t.Fatalf("reciclar a sessão cancelou o contexto do retry: %v", retryCtx.Err())
+	}
+	if connectionStillPublished {
+		t.Fatal("sessão concorrente permaneceu publicada após reciclagem pelo retry")
+	}
+	m.CloseAll()
+}
+
 func TestQuedaImediataDuranteRetryPreservaContadorAteFinalizacao(t *testing.T) {
 	m := newLifecycleManager()
 	factory := newInMemoryMCPFactory(t, m.ctx)

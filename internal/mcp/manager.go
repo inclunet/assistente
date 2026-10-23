@@ -714,6 +714,14 @@ func (m *Manager) connectWithContextForRetry(parentCtx context.Context, slug str
 			if err := m.disconnectWithManagedOwner(parentCtx, slug, managedOwner); err != nil {
 				return err
 			}
+		} else if retryAttemptID != 0 {
+			disconnected, err := m.disconnectForRetry(slug, retryAttemptID)
+			if err != nil {
+				return err
+			}
+			if !disconnected {
+				return context.Canceled
+			}
 		} else {
 			_ = m.Disconnect(slug)
 		}
