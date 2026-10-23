@@ -3,7 +3,6 @@ package mcp
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -88,109 +87,101 @@ func TestConnectWithContextMantemSessaoAposRetorno(t *testing.T) {
 	if conn == nil {
 		t.Fatal("sessão não foi publicada")
 	}
-	pingCtx, cancelPing := context.WithTimeout(context.Background(), time.Second)
-	defer cancelPing()
-	if err := conn.session.Ping(pingCtx, nil); err != nil {
+	listCtx, cancelList := context.WithTimeout(context.Background(), time.Second)
+	defer cancelList()
+	if _, err := conn.session.ListTools(listCtx, nil); err != nil {
 		t.Fatalf("sessão morreu quando connectWithContext retornou: %v", err)
 	}
 
 	m.CloseAll()
 }
 
-func TestHealthCheckNaoFechaSessaoPorCancelamentoLocal(t *testing.T) {
+func TestEncerramentoEspontaneoDaSessaoAtualizaStatus(t *testing.T) {
 	m := newLifecycleManager()
 	factory := newInMemoryMCPFactory(t, m.ctx)
 	defer factory.close()
 	m.transportFactory = factory.transport
-	registerLifecycleServer(m, "health", ServerConfig{Enabled: true, Transport: TransportStdio})
+	registerLifecycleServer(m, "sessao-encerrada", ServerConfig{Enabled: true, Transport: TransportStdio})
 
-	if err := m.Connect("health"); err != nil {
+	var unhealthy atomic.Int32
+	m.emitEvent = func(event string, _ any) {
+		if event == "mcp:server_unhealthy" {
+			unhealthy.Add(1)
+		}
+	}
+	if err := m.Connect("sessao-encerrada"); err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
-	m.performHealthCheck("health")
 
+	factory.mu.Lock()
+	serverSession := factory.sessions[0]
+	factory.mu.Unlock()
+	if err := serverSession.Close(); err != nil {
+		t.Fatalf("fechamento remoto da sessão: %v", err)
+	}
+
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		m.mu.RLock()
+		status := m.servers["sessao-encerrada"].Status
+		m.mu.RUnlock()
+		if status == StatusError {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
 	m.mu.RLock()
-	status := m.servers["health"]
-	failures := status.ConsecutiveHealthFailures
-	state := status.Status
+	status := m.servers["sessao-encerrada"]
 	m.mu.RUnlock()
-	if failures != 0 || state != StatusConnected {
-		t.Fatalf("health check degradou sessão válida: status=%s failures=%d error=%q", state, failures, status.Error)
+	if status.Status != StatusError || !strings.Contains(status.Error, "sessão perdida") {
+		t.Fatalf("encerramento espontâneo não refletido no status: %#v", status)
+	}
+	if unhealthy.Load() != 1 {
+		t.Fatalf("eventos server_unhealthy=%d, esperado 1", unhealthy.Load())
 	}
 	m.CloseAll()
 }
 
-func TestHealthCheckIgnoraEOFDeCleanupSemFalhaOuReconexao(t *testing.T) {
-	handler := &captureHandler{}
-	oldLogger := slog.Default()
-	slog.SetDefault(slog.New(handler))
-	defer slog.SetDefault(oldLogger)
-
+func TestEncerramentoDuranteDiscoveryAcionaEstadoIndisponivel(t *testing.T) {
 	m := newLifecycleManager()
-	defer m.CloseAll()
-
-	conn := &serverConnection{}
-	m.connections["cleanup"] = conn
-	m.servers["cleanup"] = &ServerStatus{
-		Slug:                      "cleanup",
-		Config:                    ServerConfig{Enabled: true},
-		Status:                    StatusConnected,
-		ConsecutiveHealthFailures: 1,
+	registerLifecycleServer(m, "sessao-encerra-no-discovery", ServerConfig{Enabled: true, Transport: TransportStdio})
+	server := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "discovery-close-test", Version: "1.0.0"}, nil)
+	server.AddResource(&mcpsdk.Resource{URI: "file:///discovery"}, nil)
+	unhealthy := make(chan struct{}, 1)
+	m.emitEvent = func(event string, _ any) {
+		if event == "mcp:server_unhealthy" {
+			unhealthy <- struct{}{}
+		}
 	}
-	events := make(chan string, 8)
-	m.emitEvent = func(event string, _ any) { events <- event }
-
-	healthCtx, cancelHealth := context.WithCancel(context.Background())
-	cancelHealth()
-	m.recordHealthCheckResult(
-		healthCtx,
-		"cleanup",
-		conn,
-		fmt.Errorf("connection closed: ping: client is closing: %w", io.EOF),
-	)
-
-	status := m.servers["cleanup"]
-	if status.ConsecutiveHealthFailures != 1 {
-		t.Fatalf("falhas=%d, esperado preservar 1", status.ConsecutiveHealthFailures)
+	var serverSession *mcpsdk.ServerSession
+	m.transportFactory = func(context.Context, string, ServerConfig) (mcpsdk.Transport, error) {
+		clientTransport, serverTransport := mcpsdk.NewInMemoryTransports()
+		var err error
+		serverSession, err = server.Connect(m.ctx, serverTransport, nil)
+		if err != nil {
+			return nil, err
+		}
+		return &closeOnResourceListTransport{inner: clientTransport, closeSession: func() { _ = serverSession.Close() }}, nil
 	}
-	if status.Status != StatusConnected || status.Reconnecting {
-		t.Fatalf("cleanup normal alterou status: status=%s reconnecting=%v", status.Status, status.Reconnecting)
-	}
+	defer func() {
+		if serverSession != nil {
+			_ = serverSession.Close()
+		}
+	}()
+
+	_ = m.Connect("sessao-encerra-no-discovery")
 	select {
-	case event := <-events:
-		t.Fatalf("cleanup normal emitiu evento indevido: %s", event)
-	default:
+	case <-unhealthy:
+	case <-time.After(time.Second):
+		t.Fatal("encerramento durante discovery não sinalizou a sessão indisponível")
 	}
-	handler.mu.Lock()
-	defer handler.mu.Unlock()
-	if len(handler.records) != 0 {
-		t.Fatalf("cleanup normal gerou %d logs; esperado nenhum", len(handler.records))
+	m.mu.RLock()
+	status := m.servers["sessao-encerra-no-discovery"]
+	m.mu.RUnlock()
+	if status.Status != StatusError {
+		t.Fatalf("encerramento não atualizou o status: status=%s error=%q", status.Status, status.Error)
 	}
-}
-
-func TestHealthCheckMantemFalhaRealComLifecycleAtivo(t *testing.T) {
-	m := newLifecycleManager()
-	defer m.CloseAll()
-
-	conn := &serverConnection{}
-	m.connections["falha-real"] = conn
-	m.servers["falha-real"] = &ServerStatus{
-		Slug:   "falha-real",
-		Config: ServerConfig{Enabled: true},
-		Status: StatusConnected,
-	}
-
-	m.recordHealthCheckResult(
-		context.Background(),
-		"falha-real",
-		conn,
-		errors.New("connection closed: ping: transport reset"),
-	)
-
-	status := m.servers["falha-real"]
-	if status.ConsecutiveHealthFailures != 1 {
-		t.Fatalf("falhas=%d, esperado 1 para erro real", status.ConsecutiveHealthFailures)
-	}
+	m.CloseAll()
 }
 
 // TestMCPHelperProcess é reexecutado como subprocesso por
@@ -324,6 +315,32 @@ func (c *delayedWriteConnection) Write(ctx context.Context, msg jsonrpc.Message)
 	}
 }
 
+type closeOnResourceListTransport struct {
+	inner        mcpsdk.Transport
+	closeSession func()
+}
+
+func (t *closeOnResourceListTransport) Connect(ctx context.Context) (mcpsdk.Connection, error) {
+	conn, err := t.inner.Connect(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &closeOnResourceListConnection{Connection: conn, closeSession: t.closeSession}, nil
+}
+
+type closeOnResourceListConnection struct {
+	mcpsdk.Connection
+	closeSession func()
+	once         sync.Once
+}
+
+func (c *closeOnResourceListConnection) Write(ctx context.Context, msg jsonrpc.Message) error {
+	if request, ok := msg.(*jsonrpc.Request); ok && request.Method == "resources/list" {
+		c.once.Do(c.closeSession)
+	}
+	return c.Connection.Write(ctx, msg)
+}
+
 func TestFallbackSSERecebeNovoTimeoutDeHandshake(t *testing.T) {
 	m := newLifecycleManager()
 	m.connectTimeout = 800 * time.Millisecond
@@ -419,17 +436,11 @@ func TestDisconnectCancelaSessaoAtiva(t *testing.T) {
 	}
 	m.mu.RLock()
 	conn := m.connections["ativa"]
-	healthDone := conn.healthDone
 	sessionDone := conn.sessionDone
 	m.mu.RUnlock()
 
 	if err := m.Disconnect("ativa"); err != nil {
 		t.Fatalf("Disconnect: %v", err)
-	}
-	select {
-	case <-healthDone:
-	case <-time.After(time.Second):
-		t.Fatal("Disconnect retornou antes de encerrar o health loop")
 	}
 	select {
 	case _, ok := <-sessionDone:
@@ -439,9 +450,7 @@ func TestDisconnectCancelaSessaoAtiva(t *testing.T) {
 	default:
 		t.Fatal("Disconnect retornou antes de session.Wait terminar")
 	}
-	pingCtx, cancelPing := context.WithTimeout(context.Background(), time.Second)
-	defer cancelPing()
-	if err := conn.session.Ping(pingCtx, nil); err == nil {
+	if _, err := conn.session.ListTools(context.Background(), nil); err == nil {
 		t.Fatal("sessão continuou utilizável após Disconnect")
 	}
 	m.CloseAll()
@@ -483,95 +492,7 @@ func TestWatcherDaSessaoIniciaComBackgroundFechado(t *testing.T) {
 	}
 }
 
-type pingBlockingTransport struct {
-	inner       mcpsdk.Transport
-	pingStarted chan struct{}
-}
-
-func (t *pingBlockingTransport) Connect(ctx context.Context) (mcpsdk.Connection, error) {
-	conn, err := t.inner.Connect(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return &pingBlockingConnection{Connection: conn, pingStarted: t.pingStarted}, nil
-}
-
-type pingBlockingConnection struct {
-	mcpsdk.Connection
-	pingStarted chan struct{}
-	pingOnce    sync.Once
-}
-
-func (c *pingBlockingConnection) Write(ctx context.Context, msg jsonrpc.Message) error {
-	if request, ok := msg.(*jsonrpc.Request); ok && request.Method == "ping" {
-		c.pingOnce.Do(func() { close(c.pingStarted) })
-		<-ctx.Done()
-		return ctx.Err()
-	}
-	return c.Connection.Write(ctx, msg)
-}
-
-func TestDisconnectCancelaHealthCheckEmVoo(t *testing.T) {
-	m := newLifecycleManager()
-	registerLifecycleServer(m, "health-em-voo", ServerConfig{Enabled: true, Transport: TransportStdio})
-
-	server := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "health-cancel-test", Version: "1.0.0"}, nil)
-	pingStarted := make(chan struct{})
-	m.transportFactory = func(ctx context.Context, _ string, _ ServerConfig) (mcpsdk.Transport, error) {
-		clientTransport, serverTransport := mcpsdk.NewInMemoryTransports()
-		serverSession, err := server.Connect(m.ctx, serverTransport, nil)
-		if err != nil {
-			return nil, err
-		}
-		t.Cleanup(func() { _ = serverSession.Close() })
-		return &pingBlockingTransport{inner: clientTransport, pingStarted: pingStarted}, nil
-	}
-	if err := m.Connect("health-em-voo"); err != nil {
-		t.Fatalf("Connect: %v", err)
-	}
-
-	m.mu.Lock()
-	conn := m.connections["health-em-voo"]
-	conn.cancelHealth()
-	oldHealthDone := conn.healthDone
-	m.mu.Unlock()
-	<-oldHealthDone
-
-	probeCtx, probeCancel := context.WithCancel(m.ctx)
-	probeDone := make(chan struct{})
-	m.mu.Lock()
-	conn.cancelHealth = probeCancel
-	conn.healthDone = probeDone
-	m.mu.Unlock()
-	go func() {
-		defer close(probeDone)
-		m.performHealthCheckFor(probeCtx, "health-em-voo", conn)
-	}()
-
-	select {
-	case <-pingStarted:
-	case <-time.After(time.Second):
-		t.Fatal("Ping não entrou em voo")
-	}
-	disconnectDone := make(chan error, 1)
-	go func() { disconnectDone <- m.Disconnect("health-em-voo") }()
-	select {
-	case err := <-disconnectDone:
-		if err != nil {
-			t.Fatalf("Disconnect: %v", err)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("Disconnect aguardou o timeout global em vez de cancelar Ping")
-	}
-	select {
-	case <-probeDone:
-	default:
-		t.Fatal("Disconnect retornou antes do health check em voo")
-	}
-	m.CloseAll()
-}
-
-func TestReconnectNaoDuplicaConexaoNemHealthLoop(t *testing.T) {
+func TestReconnectSubstituiSessaoSemDuplicarConexao(t *testing.T) {
 	m := newLifecycleManager()
 	factory := newInMemoryMCPFactory(t, m.ctx)
 	defer factory.close()
@@ -583,18 +504,11 @@ func TestReconnectNaoDuplicaConexaoNemHealthLoop(t *testing.T) {
 	}
 	m.mu.RLock()
 	first := m.connections["reconnect"]
-	firstHealthDone := first.healthDone
 	m.mu.RUnlock()
 
 	if err := m.Reconnect("reconnect"); err != nil {
 		t.Fatalf("Reconnect: %v", err)
 	}
-	select {
-	case <-firstHealthDone:
-	case <-time.After(time.Second):
-		t.Fatal("health loop antigo permaneceu ativo")
-	}
-
 	m.mu.RLock()
 	second := m.connections["reconnect"]
 	connectionCount := len(m.connections)
@@ -675,9 +589,7 @@ func TestSSELegadoMantemLifecycleAposConnectRetornar(t *testing.T) {
 	m.mu.RLock()
 	session := m.connections["sse"].session
 	m.mu.RUnlock()
-	pingCtx, cancelPing := context.WithTimeout(context.Background(), time.Second)
-	defer cancelPing()
-	if err := session.Ping(pingCtx, nil); err != nil {
+	if _, err := session.ListTools(context.Background(), nil); err != nil {
 		t.Fatalf("SSE legado morreu após Connect retornar: %v", err)
 	}
 	m.CloseAll()
@@ -706,15 +618,13 @@ func TestStreamableFallbackSemSSEMantemLifecycle(t *testing.T) {
 	m.mu.RLock()
 	session := m.connections["polling"].session
 	m.mu.RUnlock()
-	pingCtx, cancelPing := context.WithTimeout(context.Background(), time.Second)
-	defer cancelPing()
-	if err := session.Ping(pingCtx, nil); err != nil {
+	if _, err := session.ListTools(context.Background(), nil); err != nil {
 		t.Fatalf("fallback polling não preservou lifecycle: %v", err)
 	}
 	m.CloseAll()
 }
 
-func TestCloseAllEncerraSessoesLoopsETentativas(t *testing.T) {
+func TestCloseAllEncerraSessoesETentativas(t *testing.T) {
 	m := newLifecycleManager()
 	factory := newInMemoryMCPFactory(t, m.ctx)
 	defer factory.close()
@@ -726,18 +636,8 @@ func TestCloseAllEncerraSessoesLoopsETentativas(t *testing.T) {
 		}
 	}
 
-	m.mu.RLock()
-	connections := []*serverConnection{m.connections["a"], m.connections["b"]}
-	m.mu.RUnlock()
 	m.CloseAll()
 
-	for _, conn := range connections {
-		select {
-		case <-conn.healthDone:
-		default:
-			t.Fatal("CloseAll retornou antes de um health loop terminar")
-		}
-	}
 	m.mu.RLock()
 	connectionCount := len(m.connections)
 	attemptCount := len(m.connectCancels)

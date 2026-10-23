@@ -22,7 +22,7 @@ O retry é deliberadamente limitado e só acontece dentro de uma janela segura: 
 
 - A checagem atual de elegibilidade (`GetEligibleNativeMCPServers()`) é necessária, mas insuficiente. Ela diz quais servidores podem entrar na request, não quais continuarão saudáveis durante esta tentativa específica.
 - OpenAI Responses e Anthropic MCP Connector tratam erros de MCP como falha terminal do stream quando o provider encerra a resposta com erro.
-- O `MCP Manager` já possui health check, refresh de token e reconnect, mas esses mecanismos são assíncronos e não participam da decisão do chat em tempo real.
+- O `MCP Manager` recupera a conexão após erros reais de transporte, além de refresh de token e reconnect, mas esses mecanismos são assíncronos e não participam da decisão do chat em tempo real.
 - Na prática, um erro localizado em um conector remoto degrada a experiência inteira do chat, mesmo quando seria aceitável continuar sem aquele servidor.
 
 ## Objetivos

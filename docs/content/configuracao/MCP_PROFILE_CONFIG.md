@@ -74,13 +74,14 @@ Depois que a conexão é estabelecida, a sessão permanece ativa até uma destas
 - desconexão manual do servidor;
 - logout ou troca de usuário;
 - encerramento do Assistente;
-- falha real detectada pelo health check.
+- erro de transporte/sessão observado durante uma chamada real de tool.
 
 O handshake tem timeout próprio. Se ele expirar, o Assistente cancela a
 tentativa e encerra o transporte ou processo STDIO antes de permitir uma nova
-conexão. A cada 2 minutos, um health check valida a sessão; falhas consecutivas
-acionam reconexão automática com espera progressiva. A reconexão substitui a
-sessão e os monitores anteriores, sem executar duas conexões em paralelo.
+conexão. O aplicativo não envia sondagens periódicas: mantém o estado após
+handshake e discovery e reconecta quando o transporte encerra a sessão ou uma
+chamada real de tool detecta erro de transporte. A reconexão substitui a sessão
+sem executar duas conexões em paralelo.
 
 Mensagens informativas de reconexão bem-sucedida não indicam falha. Erros reais
 de handshake, transporte, autenticação ou fechamento inesperado continuam

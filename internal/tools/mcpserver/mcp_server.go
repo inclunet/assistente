@@ -603,7 +603,6 @@ type listServerResponse struct {
 	Enabled       bool                    `json:"enabled"`
 	AutoConnect   bool                    `json:"auto_connect"`
 	ConnectedAt   string                  `json:"connected_at,omitempty"`
-	LastPing      string                  `json:"last_ping,omitempty"`
 	Command       string                  `json:"command,omitempty"`
 	Args          []string                `json:"args,omitempty"`
 	URL           string                  `json:"url,omitempty"`
@@ -674,7 +673,6 @@ func toListServerResponse(server mcpmgr.ServerInfo) listServerResponse {
 		Enabled:       server.Enabled,
 		AutoConnect:   server.AutoConnect,
 		ConnectedAt:   server.ConnectedAt,
-		LastPing:      server.LastPing,
 		Command:       server.Command,
 		Args:          append([]string{}, server.Args...),
 		URL:           server.URL,

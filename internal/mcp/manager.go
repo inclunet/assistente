@@ -39,17 +39,8 @@ const (
 	listToolsTimeout = 15 * time.Second
 
 	// closeAllWaitTimeout é o teto de espera pelo join das goroutines de
-	// background (loops e reconexões) durante o CloseAll. Defensivo.
+	// background (refresh OAuth e reconexões) durante o CloseAll. Defensivo.
 	closeAllWaitTimeout = 10 * time.Second
-
-	// healthCheckInterval é o intervalo entre health checks
-	healthCheckInterval = 2 * time.Minute
-
-	// healthCheckTimeout é o timeout para ping de health check
-	healthCheckTimeout = 10 * time.Second
-
-	// healthCheckFailThreshold é o número de falhas consecutivas antes de reconectar
-	healthCheckFailThreshold = 2
 
 	// maxRetries é o número máximo de tentativas rápidas de reconexão
 	maxRetries = 3
@@ -83,9 +74,9 @@ type serverConnection struct {
 	session              *mcpsdk.ClientSession
 	cancelSession        context.CancelFunc         // encerra todo o ciclo de vida da sessão
 	sessionDone          chan error                 // recebe o resultado de Wait quando a sessão termina
+	sessionEnded         bool                       // protegido por Manager.mu; impede publicar sessão já encerrada
+	sessionEndErr        error                      // resultado de Wait, protegido por Manager.mu
 	bridges              []*MCPToolBridge           // tools registradas no registry
-	cancelHealth         context.CancelFunc         // cancela health check goroutine
-	healthDone           chan struct{}              // fechado quando o health loop termina
 	logHandler           func(LogEntry)             // handler para logs do servidor
 	progressHandler      func(ProgressNotification) // handler para progresso
 	resourceSubHandler   func(ResourceUpdated)      // handler para resource updates
@@ -119,7 +110,7 @@ type Manager struct {
 	connectCancels    map[string]*connectionAttempt                          // slug -> tentativa de Connect em andamento
 	ctx               context.Context
 	cancel            context.CancelFunc
-	bgWG              sync.WaitGroup // join de loops (health/token refresh) e reconexões no CloseAll
+	bgWG              sync.WaitGroup // join de refresh OAuth e reconexões no CloseAll
 	bgMu              sync.Mutex     // protege bgClosed e serializa Add(1) contra Wait (evita WaitGroup misuse)
 	bgClosed          bool           // true após CloseAll iniciar o join; bloqueia novas goroutines rastreadas
 	authContext       func() context.Context
@@ -134,7 +125,7 @@ type Manager struct {
 }
 
 // goTracked executa fn numa goroutine rastreada por bgWG, permitindo que
-// CloseAll aguarde o término dos loops e reconexões antes do shutdown.
+// CloseAll aguarde o término dos trabalhos de background antes do shutdown.
 func (m *Manager) goTracked(fn func()) {
 	m.tryGoTracked(fn)
 }
@@ -148,8 +139,7 @@ func (m *Manager) goTracked(fn func()) {
 // garante que nenhum Add ocorra concorrente ao Wait — caso contrário o
 // runtime aborta com "sync: WaitGroup misuse: Add called concurrently with
 // Wait" quando uma reconexão dispara trabalho rastreado durante o shutdown.
-// bgMu é dedicado (não reusa m.mu) porque goTracked é chamado com m.mu já
-// retido em performHealthCheck.
+// bgMu é dedicado (não reusa m.mu) porque goTracked pode ser chamado com m.mu retido.
 func (m *Manager) tryGoTracked(fn func()) bool {
 	m.bgMu.Lock()
 	if m.bgClosed {
@@ -840,7 +830,7 @@ func (m *Manager) connectWithContext(parentCtx context.Context, slug string) err
 	}
 
 	// Publica provisoriamente a sessão para permitir o discovery. A tentativa
-	// continua registrada até offerings e loops estarem prontos, portanto
+	// continua registrada até o discovery terminar, portanto
 	// Disconnect ainda consegue cancelá-la e aguardar seu cleanup completo.
 	m.mu.Lock()
 	if m.connectCancels[slug] != attempt || sessionCtx.Err() != nil {
@@ -853,8 +843,14 @@ func (m *Manager) connectWithContext(parentCtx context.Context, slug string) err
 	m.connections[slug] = conn
 	m.mu.Unlock()
 	watchSession := func() {
-		sessionDone <- session.Wait()
+		waitErr := session.Wait()
+		m.mu.Lock()
+		conn.sessionEnded = true
+		conn.sessionEndErr = waitErr
+		m.mu.Unlock()
+		sessionDone <- waitErr
 		close(sessionDone)
+		m.handleSessionEnded(slug, conn, waitErr)
 	}
 	if !m.tryGoTracked(watchSession) {
 		// CloseAll pode bloquear novos Adds no bgWG entre a publicação da
@@ -881,38 +877,32 @@ func (m *Manager) connectWithContext(parentCtx context.Context, slug string) err
 		return fmt.Errorf("falha ao descobrir offerings do servidor MCP '%s': %w", slug, err)
 	}
 
-	healthCtx, healthCancel := context.WithCancel(sessionCtx)
-	healthDone := make(chan struct{})
-
 	now := time.Now()
 	m.mu.Lock()
 	if m.connections[slug] != conn || sessionCtx.Err() != nil {
 		m.mu.Unlock()
-		healthCancel()
 		m.detachConnection(slug, conn)
 		_ = closeServerConnection(slug, conn, true)
 		m.resetConnectingStatus(slug)
 		return context.Canceled
 	}
-	conn.cancelHealth = healthCancel
-	conn.healthDone = healthDone
+	if conn.sessionEnded {
+		sessionErr := conn.sessionEndErr
+		m.mu.Unlock()
+		m.handleSessionEnded(slug, conn, sessionErr)
+		m.detachConnection(slug, conn)
+		_ = closeServerConnection(slug, conn, true)
+		return fmt.Errorf("sessão MCP '%s' encerrou durante a conexão", slug)
+	}
 	if s, ok := m.servers[slug]; ok {
 		s.Status = StatusConnected
 		s.Error = ""
 		s.Capabilities = capabilities
 		s.Roots = currentRoots
 		s.ConnectedAt = &now
-		s.LastPing = &now
 		s.RetryCount = 0
 	}
 	m.mu.Unlock()
-
-	if !m.tryGoTracked(func() {
-		defer close(healthDone)
-		m.healthCheckLoop(healthCtx, slug, conn)
-	}) {
-		close(healthDone)
-	}
 
 	m.emit("mcp:server_connected", map[string]any{
 		"slug": slug,
@@ -1166,9 +1156,6 @@ func (m *Manager) disconnect(slug string, legacyOnly bool) error {
 		attempt.cancel()
 	}
 	if conn != nil {
-		if conn.cancelHealth != nil {
-			conn.cancelHealth()
-		}
 		if conn.cancelSession != nil {
 			conn.cancelSession()
 		}
@@ -1186,14 +1173,12 @@ func (m *Manager) disconnect(slug string, legacyOnly bool) error {
 		s.Resources = []MCPResourceInfo{}
 		s.Prompts = []MCPPromptInfo{}
 		s.ConnectedAt = nil
-		s.LastPing = nil
 	}
 	m.mu.Unlock()
 
 	var closeErr error
 	if conn != nil {
 		closeErr = closeServerConnection(slug, conn, true)
-		waitConnectionLoops(conn)
 	}
 	if attempt != nil {
 		<-attempt.done
@@ -1242,9 +1227,6 @@ func closeServerConnection(slug string, conn *serverConnection, expected bool) e
 		default:
 		}
 	}
-	if conn.cancelHealth != nil {
-		conn.cancelHealth()
-	}
 	if conn.cancelSession != nil {
 		conn.cancelSession()
 	}
@@ -1285,15 +1267,6 @@ func waitConnectionSession(conn *serverConnection) (error, bool) {
 		return result, ok
 	}
 	return nil, false
-}
-
-func waitConnectionLoops(conn *serverConnection) {
-	if conn == nil {
-		return
-	}
-	if conn.healthDone != nil {
-		<-conn.healthDone
-	}
 }
 
 func isExpectedSessionCloseError(err error, alreadyEnded bool) bool {
@@ -1616,7 +1589,7 @@ func (m *Manager) CloseAll() {
 	m.bgClosed = true
 	m.bgMu.Unlock()
 	m.disconnectAllConnections("shutdown")
-	// Aguarda loops (health/token refresh) e reconexões em andamento encerrarem
+	// Aguarda refreshes OAuth e reconexões em andamento encerrarem
 	// após o cancelamento do ctx, evitando goroutines órfãs no shutdown.
 	m.waitBackground(closeAllWaitTimeout)
 	logging.Infof(context.Background(), "mcp.manager", "[MCP] Todos os servidores MCP desconectados")
@@ -1670,8 +1643,8 @@ func (m *Manager) createTransport(ctx context.Context, slug string, cfg ServerCo
 		}
 
 		cmd := exec.CommandContext(ctx, cfg.Command, cfg.Args...)
-		// Sem isso, no Windows cada servidor MCP stdio (incluindo reconexões do
-		// health check) abre uma janela de console que rouba o foco do app.
+		// Sem isso, no Windows cada servidor MCP stdio (incluindo reconexões)
+		// abre uma janela de console que rouba o foco do app.
 		osutil.HideConsoleWindow(cmd)
 
 		if len(cfg.Env) > 0 {
@@ -2001,110 +1974,6 @@ func (m *Manager) RecoverServerBestEffort(ctx context.Context, slug string) Reco
 	return result
 }
 
-// healthCheckLoop executa pings periódicos para verificar a saúde do servidor.
-func (m *Manager) healthCheckLoop(ctx context.Context, slug string, expected *serverConnection) {
-	ticker := time.NewTicker(healthCheckInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			m.performHealthCheckFor(ctx, slug, expected)
-		}
-	}
-}
-
-// performHealthCheck executa um ping no servidor e atualiza o status.
-// Para servidores que não suportam ping, faz fallback para refreshServerOfferings,
-// que também mantém tools/resources/prompts sincronizados.
-func (m *Manager) performHealthCheck(slug string) {
-	m.performHealthCheckFor(m.ctx, slug, nil)
-}
-
-func (m *Manager) performHealthCheckFor(parentCtx context.Context, slug string, expected *serverConnection) {
-	m.mu.RLock()
-	conn, ok := m.connections[slug]
-	if !ok || (expected != nil && conn != expected) {
-		m.mu.RUnlock()
-		return
-	}
-	status, hasStatus := m.servers[slug]
-	if hasStatus && status.Reconnecting {
-		m.mu.RUnlock()
-		return
-	}
-	session := conn.session
-	m.mu.RUnlock()
-
-	ctx, cancel := context.WithTimeout(parentCtx, healthCheckTimeout)
-	defer cancel()
-
-	err := session.Ping(ctx, nil)
-
-	if err != nil && isMethodNotFound(err) {
-		// Ping não suportado — valida a sessão re-descobrindo offerings.
-		// Isso também mantém as tools sincronizadas caso o servidor as altere.
-		err = m.refreshServerOfferingsWithContextFor(ctx, slug, conn)
-	}
-
-	m.recordHealthCheckResult(parentCtx, slug, conn, err)
-}
-
-// recordHealthCheckResult aplica somente resultados de uma sessão ainda ativa.
-// Erros devolvidos depois do cancelamento do próprio lifecycle não representam
-// falha de saúde e não podem alimentar o contador ou a reconexão.
-func (m *Manager) recordHealthCheckResult(parentCtx context.Context, slug string, conn *serverConnection, err error) {
-	if healthCheckEndedDuringCleanup(parentCtx, err) {
-		return
-	}
-
-	now := time.Now()
-	m.mu.Lock()
-	// A sessão pode ter sido desconectada ou substituída enquanto Ping estava
-	// em voo. Um resultado tardio nunca deve degradar a nova conexão nem
-	// sobrescrever o estado disconnected.
-	if m.connections[slug] != conn {
-		m.mu.Unlock()
-		return
-	}
-	if s, ok := m.servers[slug]; ok {
-		if err != nil {
-			s.ConsecutiveHealthFailures++
-			logging.Errorf(context.Background(), "mcp.manager", "[MCP] Health check falhou para '%s' (%d/%d): %v",
-				slug, s.ConsecutiveHealthFailures, healthCheckFailThreshold, err)
-
-			if s.ConsecutiveHealthFailures >= healthCheckFailThreshold {
-				s.Status = StatusError
-				s.Error = fmt.Sprintf("health check falhou: %v", err)
-				s.ConsecutiveHealthFailures = 0
-				m.goTracked(func() { m.reconnectWithRetry(slug) })
-			}
-		} else {
-			s.LastPing = &now
-			s.ConsecutiveHealthFailures = 0
-			if s.Status == StatusError {
-				s.Status = StatusConnected
-				s.Error = ""
-			}
-		}
-	}
-	m.mu.Unlock()
-
-	if err != nil {
-		m.emit("mcp:server_unhealthy", map[string]string{
-			"slug":  slug,
-			"error": err.Error(),
-		})
-		m.logEvent(slug, "health_fail", "Health check MCP falhou", map[string]any{"error": err.Error()})
-	}
-}
-
-func healthCheckEndedDuringCleanup(parentCtx context.Context, err error) bool {
-	return err != nil && parentCtx != nil && parentCtx.Err() != nil
-}
-
 // handleToolCallError é chamado pelo MCPToolBridge quando um tool call falha
 // com erro de transporte/sessão. Dispara reconexão imediata.
 func (m *Manager) handleToolCallError(slug string, err error) {
@@ -2117,7 +1986,6 @@ func (m *Manager) handleToolCallError(slug string, err error) {
 
 	logging.Errorf(context.Background(), "mcp.manager", "[MCP] Erro de sessão/transporte em tool call para '%s': %v", slug, err)
 
-	status.ConsecutiveHealthFailures = healthCheckFailThreshold
 	status.Status = StatusError
 	status.Error = fmt.Sprintf("sessão perdida: %v", err)
 	m.mu.Unlock()
@@ -2131,14 +1999,31 @@ func (m *Manager) handleToolCallError(slug string, err error) {
 	m.goTracked(func() { m.reconnectWithRetry(slug) })
 }
 
-// isMethodNotFound detecta erros JSON-RPC "method not found" (código -32601).
-// Servidores que não implementam ping retornam esse erro.
-func isMethodNotFound(err error) bool {
+// handleSessionEnded trata o encerramento espontâneo reportado pelo transporte.
+// O protocolo não exige keepalive; session.Wait é a notificação passiva de que
+// a conexão realmente terminou. Encerramentos iniciados pelo Manager já removem
+// ou desmarcam a conexão antes de cancelar a sessão e são ignorados aqui.
+func (m *Manager) handleSessionEnded(slug string, conn *serverConnection, err error) {
 	if err == nil {
-		return false
+		err = errors.New("transporte encerrou a sessão MCP")
 	}
-	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, "method not found") || strings.Contains(msg, "-32601")
+
+	m.mu.Lock()
+	status, ok := m.servers[slug]
+	if !ok || !status.Config.Enabled ||
+		(status.Status != StatusConnected && status.Status != StatusConnecting) ||
+		m.connections[slug] != conn {
+		m.mu.Unlock()
+		return
+	}
+	status.Status = StatusError
+	status.Error = fmt.Sprintf("sessão perdida: %v", err)
+	m.mu.Unlock()
+
+	logging.Errorf(context.Background(), "mcp.manager", "[MCP] Sessão/transporte encerrado inesperadamente para '%s': %v", slug, err)
+	m.emit("mcp:server_unhealthy", map[string]string{"slug": slug, "error": err.Error()})
+	m.logEvent(slug, "error", "Sessão/transporte encerrado inesperadamente", map[string]any{"error": err.Error()})
+	m.goTracked(func() { m.reconnectWithRetry(slug) })
 }
 
 // reconnectWithRetry tenta reconectar ao servidor com exponential backoff.

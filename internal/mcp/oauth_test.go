@@ -577,28 +577,6 @@ func TestEffectiveClientSecret(t *testing.T) {
 	}
 }
 
-func TestIsMethodNotFound(t *testing.T) {
-	tests := []struct {
-		err  error
-		want bool
-	}{
-		{nil, false},
-		{fmt.Errorf("connection refused"), false},
-		{fmt.Errorf("timeout waiting for response"), false},
-		{fmt.Errorf(`calling "ping": Method not found: ping`), true},
-		{fmt.Errorf("method not found"), true},
-		{fmt.Errorf("JSON-RPC error -32601: method not found"), true},
-		{fmt.Errorf("code -32601"), true},
-		{fmt.Errorf("METHOD NOT FOUND"), true},
-	}
-	for _, tc := range tests {
-		got := isMethodNotFound(tc.err)
-		if got != tc.want {
-			t.Errorf("isMethodNotFound(%v): got %v, want %v", tc.err, got, tc.want)
-		}
-	}
-}
-
 func TestSessionExpiredError(t *testing.T) {
 	err404 := &SessionExpiredError{StatusCode: 404}
 	if err404.Error() != "mcp session expired (HTTP 404)" {
