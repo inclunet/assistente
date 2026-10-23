@@ -2004,6 +2004,9 @@ func (m *Manager) handleToolCallError(slug string, err error) {
 // a conexão realmente terminou. Encerramentos iniciados pelo Manager já removem
 // ou desmarcam a conexão antes de cancelar a sessão e são ignorados aqui.
 func (m *Manager) handleSessionEnded(slug string, conn *serverConnection, err error) {
+	if m.ctx.Err() != nil {
+		return
+	}
 	if err == nil {
 		err = errors.New("transporte encerrou a sessão MCP")
 	}
@@ -2018,12 +2021,15 @@ func (m *Manager) handleSessionEnded(slug string, conn *serverConnection, err er
 	}
 	status.Status = StatusError
 	status.Error = fmt.Sprintf("sessão perdida: %v", err)
+	scheduleReconnect := !status.Reconnecting
 	m.mu.Unlock()
 
 	logging.Errorf(context.Background(), "mcp.manager", "[MCP] Sessão/transporte encerrado inesperadamente para '%s': %v", slug, err)
 	m.emit("mcp:server_unhealthy", map[string]string{"slug": slug, "error": err.Error()})
 	m.logEvent(slug, "error", "Sessão/transporte encerrado inesperadamente", map[string]any{"error": err.Error()})
-	m.goTracked(func() { m.reconnectWithRetry(slug) })
+	if scheduleReconnect {
+		m.goTracked(func() { m.reconnectWithRetry(slug) })
+	}
 }
 
 // reconnectWithRetry tenta reconectar ao servidor com exponential backoff.
@@ -2137,13 +2143,39 @@ func (m *Manager) reconnectWithRetry(slug string) {
 		}
 
 		logReconnectSuccess(slug)
-		m.mu.Lock()
-		if s, ok := m.servers[slug]; ok {
-			s.RetryCount = 0
+		if m.finishReconnectAttempt(slug) {
+			return
 		}
-		m.mu.Unlock()
-		return
 	}
+}
+
+// finishReconnectAttempt libera o ownership da reconexão sob o mesmo lock em
+// que o watcher registra session.Wait. Se a sessão caiu durante a reconexão,
+// a tentativa atual continua o backoff; se cair depois, o watcher encontra o
+// ownership liberado e agenda uma nova tentativa.
+func (m *Manager) finishReconnectAttempt(slug string) bool {
+	m.mu.Lock()
+	status, ok := m.servers[slug]
+	if !ok || !status.Config.Enabled {
+		m.mu.Unlock()
+		return true
+	}
+	conn := m.connections[slug]
+	if (conn != nil && conn.sessionEnded) || status.Status == StatusError {
+		m.mu.Unlock()
+		if conn != nil {
+			m.handleSessionEnded(slug, conn, conn.sessionEndErr)
+		}
+		return false
+	}
+	if status.Status != StatusConnected || conn == nil {
+		m.mu.Unlock()
+		return true
+	}
+	status.RetryCount = 0
+	status.Reconnecting = false
+	m.mu.Unlock()
+	return true
 }
 
 func logReconnectSuccess(slug string) {

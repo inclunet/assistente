@@ -103,10 +103,10 @@ func TestEncerramentoEspontaneoDaSessaoAtualizaStatus(t *testing.T) {
 	m.transportFactory = factory.transport
 	registerLifecycleServer(m, "sessao-encerrada", ServerConfig{Enabled: true, Transport: TransportStdio})
 
-	var unhealthy atomic.Int32
+	unhealthy := make(chan struct{}, 1)
 	m.emitEvent = func(event string, _ any) {
 		if event == "mcp:server_unhealthy" {
-			unhealthy.Add(1)
+			unhealthy <- struct{}{}
 		}
 	}
 	if err := m.Connect("sessao-encerrada"); err != nil {
@@ -120,24 +120,17 @@ func TestEncerramentoEspontaneoDaSessaoAtualizaStatus(t *testing.T) {
 		t.Fatalf("fechamento remoto da sessão: %v", err)
 	}
 
-	deadline := time.Now().Add(time.Second)
-	for time.Now().Before(deadline) {
-		m.mu.RLock()
-		status := m.servers["sessao-encerrada"].Status
-		m.mu.RUnlock()
-		if status == StatusError {
-			break
-		}
-		time.Sleep(time.Millisecond)
+	select {
+	case <-unhealthy:
+	case <-time.After(time.Second):
+		t.Fatal("encerramento da sessão não emitiu server_unhealthy")
 	}
 	m.mu.RLock()
-	status := m.servers["sessao-encerrada"]
+	status := m.servers["sessao-encerrada"].Status
+	err := m.servers["sessao-encerrada"].Error
 	m.mu.RUnlock()
-	if status.Status != StatusError || !strings.Contains(status.Error, "sessão perdida") {
-		t.Fatalf("encerramento espontâneo não refletido no status: %#v", status)
-	}
-	if unhealthy.Load() != 1 {
-		t.Fatalf("eventos server_unhealthy=%d, esperado 1", unhealthy.Load())
+	if status != StatusError || !strings.Contains(err, "sessão perdida") {
+		t.Fatalf("encerramento espontâneo não refletido no status: status=%s error=%q", status, err)
 	}
 	m.CloseAll()
 }
@@ -176,10 +169,67 @@ func TestEncerramentoDuranteDiscoveryAcionaEstadoIndisponivel(t *testing.T) {
 		t.Fatal("encerramento durante discovery não sinalizou a sessão indisponível")
 	}
 	m.mu.RLock()
-	status := m.servers["sessao-encerra-no-discovery"]
+	status := m.servers["sessao-encerra-no-discovery"].Status
+	err := m.servers["sessao-encerra-no-discovery"].Error
 	m.mu.RUnlock()
-	if status.Status != StatusError {
-		t.Fatalf("encerramento não atualizou o status: status=%s error=%q", status.Status, status.Error)
+	if status != StatusError {
+		t.Fatalf("encerramento não atualizou o status: status=%s error=%q", status, err)
+	}
+	m.CloseAll()
+}
+
+func TestEncerramentoDuranteReconexaoMantemDonoDoRetry(t *testing.T) {
+	m := newLifecycleManager()
+	conn := &serverConnection{sessionEnded: true, sessionEndErr: errors.New("transporte fechado")}
+	m.connections["reconnect-ended"] = conn
+	m.servers["reconnect-ended"] = &ServerStatus{
+		Slug:         "reconnect-ended",
+		Config:       ServerConfig{Enabled: true},
+		Status:       StatusConnected,
+		Reconnecting: true,
+	}
+
+	if m.finishReconnectAttempt("reconnect-ended") {
+		t.Fatal("reconexão atual encerrou em vez de manter o retry após queda imediata")
+	}
+	m.mu.RLock()
+	status := m.servers["reconnect-ended"].Status
+	reconnecting := m.servers["reconnect-ended"].Reconnecting
+	m.mu.RUnlock()
+	if status != StatusError || !reconnecting {
+		t.Fatalf("ownership do retry perdido: status=%s reconnecting=%v", status, reconnecting)
+	}
+	m.CloseAll()
+}
+
+func TestEncerramentoDuranteShutdownNaoEmiteFalha(t *testing.T) {
+	m := newLifecycleManager()
+	conn := &serverConnection{}
+	m.connections["shutdown-ended"] = conn
+	m.servers["shutdown-ended"] = &ServerStatus{
+		Slug:   "shutdown-ended",
+		Config: ServerConfig{Enabled: true},
+		Status: StatusConnected,
+	}
+	events := make(chan string, 1)
+	m.emitEvent = func(event string, _ any) {
+		if event == "mcp:server_unhealthy" {
+			events <- event
+		}
+	}
+	m.cancel()
+
+	m.handleSessionEnded("shutdown-ended", conn, errors.New("connection closed"))
+	m.mu.RLock()
+	status := m.servers["shutdown-ended"].Status
+	m.mu.RUnlock()
+	if status != StatusConnected {
+		t.Fatalf("cleanup de shutdown alterou status para %s", status)
+	}
+	select {
+	case event := <-events:
+		t.Fatalf("cleanup de shutdown emitiu evento %q", event)
+	default:
 	}
 	m.CloseAll()
 }

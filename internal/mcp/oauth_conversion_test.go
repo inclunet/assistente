@@ -275,25 +275,39 @@ func TestClientConversionWaitsForLegacyCleanupBeforeNewConnection(t *testing.T) 
 	var releaseOnce sync.Once
 	release := func() { releaseOnce.Do(func() { close(releaseClose) }) }
 	var closeOnce sync.Once
-	var serverSession *mcpsdk.ServerSession
-	a.transportFactory = func(_ context.Context, _ string, _ ServerConfig) (mcpsdk.Transport, error) {
-		clientTransport, serverTransport := mcpsdk.NewInMemoryTransports()
-		var connectErr error
-		serverSession, connectErr = server.Connect(a.ctx, serverTransport, nil)
-		if connectErr != nil {
-			return nil, connectErr
-		}
-		return &blockingCloseTransport{inner: clientTransport, started: closeStarted, release: releaseClose, once: &closeOnce}, nil
+	clientTransport, serverTransport := mcpsdk.NewInMemoryTransports()
+	serverSession, err := server.Connect(a.ctx, serverTransport, nil)
+	if err != nil {
+		t.Fatal(err)
 	}
+	client := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "legacy-cleanup-test", Version: "1.0.0"}, nil)
+	legacyCtx, cancelLegacy := context.WithCancel(a.ctx)
+	legacySession, err := client.Connect(legacyCtx, &blockingCloseTransport{
+		inner: clientTransport, started: closeStarted, release: releaseClose, once: &closeOnce,
+	}, nil)
+	if err != nil {
+		cancelLegacy()
+		_ = serverSession.Close()
+		t.Fatal(err)
+	}
+	sessionDone := make(chan error, 1)
+	go func() {
+		sessionDone <- legacySession.Wait()
+		close(sessionDone)
+	}()
+	a.mu.Lock()
+	a.connections[cfg.Slug] = &serverConnection{
+		client: client, session: legacySession, cancelSession: cancelLegacy, sessionDone: sessionDone,
+	}
+	if status := a.servers[cfg.Slug]; status != nil {
+		status.Status = StatusConnected
+	}
+	a.mu.Unlock()
 	defer func() {
 		release()
-		if serverSession != nil {
-			_ = serverSession.Close()
-		}
+		cancelLegacy()
+		_ = serverSession.Close()
 	}()
-	if err := a.Connect(cfg.Slug); err != nil {
-		t.Fatalf("Connect legado: %v", err)
-	}
 
 	conversionDone := make(chan error, 1)
 	go func() { conversionDone <- a.ConvertOAuthClientSnapshot(ctx, info.ID, "client_secret_post") }()
