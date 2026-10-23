@@ -422,6 +422,125 @@ func (c *closeOnResourceListConnection) Write(ctx context.Context, msg jsonrpc.M
 	return c.Connection.Write(ctx, msg)
 }
 
+type closeOnToolsListTransport struct {
+	inner        mcpsdk.Transport
+	closeSession func()
+	readBlocked  chan struct{}
+	allowRead    <-chan struct{}
+}
+
+func (t *closeOnToolsListTransport) Connect(ctx context.Context) (mcpsdk.Connection, error) {
+	conn, err := t.inner.Connect(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &closeOnToolsListConnection{
+		Connection:   conn,
+		closeSession: t.closeSession,
+		readBlocked:  t.readBlocked,
+		allowRead:    t.allowRead,
+	}, nil
+}
+
+type closeOnToolsListConnection struct {
+	mcpsdk.Connection
+	closeSession func()
+	readBlocked  chan struct{}
+	allowRead    <-chan struct{}
+	closeOnce    sync.Once
+	readOnce     sync.Once
+}
+
+func (c *closeOnToolsListConnection) Read(ctx context.Context) (jsonrpc.Message, error) {
+	message, err := c.Connection.Read(ctx)
+	if err != nil {
+		c.readOnce.Do(func() {
+			close(c.readBlocked)
+			<-c.allowRead
+		})
+	}
+	return message, err
+}
+
+func (c *closeOnToolsListConnection) Write(ctx context.Context, message jsonrpc.Message) error {
+	if request, ok := message.(*jsonrpc.Request); ok && request.Method == "tools/list" {
+		c.closeOnce.Do(c.closeSession)
+		return mcpsdk.ErrConnectionClosed
+	}
+	return c.Connection.Write(ctx, message)
+}
+
+func TestEncerramentoDuranteToolsListPreservaFalhaAntesDoWatcher(t *testing.T) {
+	m := newLifecycleManager()
+	registerLifecycleServer(m, "sessao-encerra-tools-list", ServerConfig{Enabled: true})
+	server := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "tools-list-close-test", Version: "1.0.0"}, nil)
+	var serverSession *mcpsdk.ServerSession
+	readBlocked := make(chan struct{})
+	allowRead := make(chan struct{})
+	var releaseOnce sync.Once
+	releaseRead := func() { releaseOnce.Do(func() { close(allowRead) }) }
+	m.transportFactory = func(ctx context.Context, _ string, _ ServerConfig) (mcpsdk.Transport, error) {
+		clientTransport, serverTransport := mcpsdk.NewInMemoryTransports()
+		var err error
+		serverSession, err = server.Connect(ctx, serverTransport, nil)
+		if err != nil {
+			return nil, err
+		}
+		return &closeOnToolsListTransport{
+			inner: clientTransport,
+			closeSession: func() {
+				_ = serverSession.Close()
+			},
+			readBlocked: readBlocked,
+			allowRead:   allowRead,
+		}, nil
+	}
+	defer func() {
+		if serverSession != nil {
+			_ = serverSession.Close()
+		}
+	}()
+	defer m.CloseAll()
+	defer releaseRead()
+
+	unhealthy := make(chan struct{}, 1)
+	m.emitEvent = func(event string, _ any) {
+		if event == "mcp:server_unhealthy" {
+			unhealthy <- struct{}{}
+		}
+	}
+	connectDone := make(chan error, 1)
+	go func() { connectDone <- m.Connect("sessao-encerra-tools-list") }()
+
+	select {
+	case <-readBlocked:
+	case <-time.After(time.Second):
+		t.Fatal("watcher não alcançou a barreira de leitura após tools/list falhar")
+	}
+	select {
+	case <-unhealthy:
+	case <-time.After(time.Second):
+		t.Fatal("falha de transporte durante tools/list não sinalizou sessão indisponível antes do watcher")
+	}
+	m.mu.RLock()
+	status := m.servers["sessao-encerra-tools-list"].Status
+	err := m.servers["sessao-encerra-tools-list"].Error
+	m.mu.RUnlock()
+	if status != StatusError || !strings.Contains(err, "sessão perdida") {
+		t.Fatalf("falha remota durante discovery não preservada: status=%s error=%q", status, err)
+	}
+
+	releaseRead()
+	select {
+	case err := <-connectDone:
+		if err == nil {
+			t.Fatal("Connect deveria retornar erro após encerramento durante tools/list")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Connect não concluiu cleanup após liberar o watcher")
+	}
+}
+
 func TestFallbackSSERecebeNovoTimeoutDeHandshake(t *testing.T) {
 	m := newLifecycleManager()
 	m.connectTimeout = 800 * time.Millisecond

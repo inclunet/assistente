@@ -868,6 +868,12 @@ func (m *Manager) connectWithContext(parentCtx context.Context, slug string) err
 	stopSessionCancel()
 	operationCancel()
 	if err != nil {
+		if isSessionTerminationError(err) {
+			// Preserve the remote termination before detaching the connection.
+			// The watcher may still be waiting to acquire m.mu, so detaching first
+			// would make it discard this lifecycle event.
+			m.handleSessionEnded(slug, conn, err)
+		}
 		m.detachConnection(slug, conn)
 		_ = closeServerConnection(slug, conn, true)
 		if sessionCtx.Err() != nil || errors.Is(err, context.Canceled) {
@@ -914,6 +920,13 @@ func (m *Manager) connectWithContext(parentCtx context.Context, slug string) err
 	})
 
 	return nil
+}
+
+func isSessionTerminationError(err error) bool {
+	return errors.Is(err, mcpsdk.ErrConnectionClosed) ||
+		errors.Is(err, io.EOF) ||
+		errors.Is(err, io.ErrUnexpectedEOF) ||
+		errors.Is(err, io.ErrClosedPipe)
 }
 
 type clientConnectResult struct {
