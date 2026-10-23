@@ -662,6 +662,10 @@ func (m *Manager) connectWithContextForRetry(parentCtx context.Context, slug str
 		m.mu.Unlock()
 		return err
 	}
+	if m.retiringLegacy[slug] {
+		m.mu.Unlock()
+		return oauthflow.ErrTransient
+	}
 	if cleanupDone := m.disconnectCleanups[slug]; cleanupDone != nil {
 		m.mu.Unlock()
 		select {
