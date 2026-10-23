@@ -72,6 +72,7 @@ type ToolCatalog interface {
 // serverConnection mantém o estado runtime de um servidor MCP conectado.
 type serverConnection struct {
 	oauthAuthorizationID string // immutable owner captured when the transport is built
+	sessionCtx           context.Context
 	client               *mcpsdk.Client
 	session              *mcpsdk.ClientSession
 	cancelSession        context.CancelFunc         // encerra todo o ciclo de vida da sessão
@@ -89,8 +90,15 @@ type serverConnection struct {
 // sessão seja publicada depois de o usuário já tê-la desconectado.
 type connectionAttempt struct {
 	oauthAuthorizationID string
+	reconnectAttemptID   uint64
 	cancel               context.CancelFunc
 	done                 chan struct{}
+}
+
+type managedAttempt struct {
+	reconnectAttemptID uint64
+	cancel             context.CancelFunc
+	done               chan struct{}
 }
 
 type reconnectAttempt struct {
@@ -104,7 +112,7 @@ type reconnectAttempt struct {
 type Manager struct {
 	retiringLegacy         map[string]bool // blocks Connect until legacy cleanup effects finish
 	snapshotRoot           string          // optional test root; production stays outside exported config
-	managedAttempts        map[string]context.CancelFunc
+	managedAttempts        map[string]*managedAttempt
 	mu                     sync.RWMutex
 	resolver               *configdir.Resolver
 	repo                   Repository
@@ -587,7 +595,7 @@ func (m *Manager) connectWithParentContext(parentCtx context.Context, slug strin
 			stopParentCancel()
 			cancelCredentialCtx()
 		}()
-		ctx, done, err := m.beginManagedAttemptWithGuard(credentialCtx, parentCtx, slug)
+		ctx, done, err := m.beginManagedAttemptWithGuard(credentialCtx, parentCtx, slug, retryAttemptID)
 		if err != nil {
 			return err
 		}
@@ -621,12 +629,16 @@ func (m *Manager) connectWithParentContext(parentCtx context.Context, slug strin
 			}
 		}
 		m.clearNeedsReauth(slug)
-		return m.connectWithContext(ctx, slug)
+		return m.connectWithContextForRetry(ctx, slug, retryAttemptID)
 	}
-	return m.connectWithContext(parentCtx, slug)
+	return m.connectWithContextForRetry(parentCtx, slug, retryAttemptID)
 }
 
 func (m *Manager) connectWithContext(parentCtx context.Context, slug string) error {
+	return m.connectWithContextForRetry(parentCtx, slug, 0)
+}
+
+func (m *Manager) connectWithContextForRetry(parentCtx context.Context, slug string, retryAttemptID uint64) error {
 	if parentCtx == nil {
 		parentCtx = context.Background()
 	}
@@ -707,7 +719,7 @@ func (m *Manager) connectWithContext(parentCtx context.Context, slug string) err
 	sessionCtx, sessionCancel := context.WithCancel(sessionBase)
 	sessionCtx = withOAuthInteraction(sessionCtx)
 	sessionCtx = oauthflow.WithNetworkAuthorizer(sessionCtx, m.authorizeOAuthNetwork)
-	attempt := &connectionAttempt{cancel: sessionCancel, done: make(chan struct{}), oauthAuthorizationID: status.Config.OAuthAuthorizationID}
+	attempt := &connectionAttempt{cancel: sessionCancel, done: make(chan struct{}), oauthAuthorizationID: status.Config.OAuthAuthorizationID, reconnectAttemptID: retryAttemptID}
 	m.connectCancels[slug] = attempt
 	stopParentCancel := context.AfterFunc(parentCtx, sessionCancel)
 	status.Status = StatusConnecting
@@ -875,6 +887,7 @@ func (m *Manager) connectWithContext(parentCtx context.Context, slug string) err
 	sessionDone := make(chan error, 1)
 	conn := &serverConnection{
 		oauthAuthorizationID: cfg.OAuthAuthorizationID,
+		sessionCtx:           sessionCtx,
 		client:               client,
 		session:              session,
 		cancelSession:        sessionCancel,
@@ -1216,13 +1229,28 @@ func (m *Manager) disconnectForRetry(slug string, retryAttemptID uint64) (bool, 
 
 func (m *Manager) supersedeReconnectWithManualConnect(slug string) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-	if retry := m.reconnectCancels[slug]; retry != nil {
+	retry := m.reconnectCancels[slug]
+	var pending []<-chan struct{}
+	if retry != nil {
 		retry.cancel()
 		delete(m.reconnectCancels, slug)
 		if status := m.servers[slug]; status != nil && status.reconnectAttemptID == retry.id {
 			status.Reconnecting = false
 			status.reconnectAttemptID = 0
+		}
+		if attempt := m.connectCancels[slug]; attempt != nil && attempt.reconnectAttemptID == retry.id {
+			attempt.cancel()
+			pending = append(pending, attempt.done)
+		}
+		if attempt := m.managedAttempts[slug]; attempt != nil && attempt.reconnectAttemptID == retry.id {
+			attempt.cancel()
+			pending = append(pending, attempt.done)
+		}
+	}
+	m.mu.Unlock()
+	for _, done := range pending {
+		if done != nil {
+			<-done
 		}
 	}
 }
@@ -1243,11 +1271,11 @@ func (m *Manager) disconnectWithRecoveryForAttempt(slug string, legacyOnly, canc
 		}
 	}
 	conn, ok := m.connections[slug]
-	managedCancel := m.managedAttempts[slug]
+	managed := m.managedAttempts[slug]
 	attempt := m.connectCancels[slug]
 	reconnect := m.reconnectCancels[slug]
 	if legacyOnly {
-		managedCancel = nil
+		managed = nil
 		if conn != nil && conn.oauthAuthorizationID != "" {
 			conn, ok = nil, false
 		}
@@ -1268,10 +1296,10 @@ func (m *Manager) disconnectWithRecoveryForAttempt(slug string, legacyOnly, canc
 	} else {
 		reconnect = nil
 	}
-	if managedCancel != nil {
-		managedCancel()
+	if managed != nil {
+		managed.cancel()
 	}
-	if !ok && attempt == nil && managedCancel == nil && reconnect == nil {
+	if !ok && attempt == nil && managed == nil && reconnect == nil {
 		m.mu.Unlock()
 		return true, nil
 	}
@@ -1317,6 +1345,9 @@ func (m *Manager) disconnectWithRecoveryForAttempt(slug string, legacyOnly, canc
 	}
 	if attempt != nil {
 		<-attempt.done
+	}
+	if managed != nil && managed.done != nil {
+		<-managed.done
 	}
 
 	m.markServerToolsUnavailable(slug, "server disconnected")
@@ -2154,7 +2185,7 @@ func (m *Manager) handleToolCallErrorForConnection(slug string, conn *serverConn
 // a conexão realmente terminou. Encerramentos iniciados pelo Manager já removem
 // ou desmarcam a conexão antes de cancelar a sessão e são ignorados aqui.
 func (m *Manager) handleSessionEnded(slug string, conn *serverConnection, err error) {
-	if m.ctx.Err() != nil {
+	if m.ctx.Err() != nil || (conn != nil && conn.sessionCtx != nil && conn.sessionCtx.Err() != nil) {
 		return
 	}
 	if err == nil {
@@ -2165,7 +2196,8 @@ func (m *Manager) handleSessionEnded(slug string, conn *serverConnection, err er
 	status, ok := m.servers[slug]
 	if !ok || !status.Config.Enabled ||
 		(status.Status != StatusConnected && status.Status != StatusConnecting) ||
-		m.connections[slug] != conn {
+		m.connections[slug] != conn ||
+		(conn.sessionCtx != nil && conn.sessionCtx.Err() != nil) {
 		m.mu.Unlock()
 		return
 	}

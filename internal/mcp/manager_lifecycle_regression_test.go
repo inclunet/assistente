@@ -29,6 +29,18 @@ func registerLifecycleServer(m *Manager, slug string, cfg ServerConfig) {
 	}
 }
 
+type contextFirstCheckObserved struct {
+	context.Context
+	checked chan struct{}
+	once    sync.Once
+}
+
+func (c *contextFirstCheckObserved) Err() error {
+	err := c.Context.Err()
+	c.once.Do(func() { close(c.checked) })
+	return err
+}
+
 func TestBeginManagedAttemptNaoRegistraRetryCancelado(t *testing.T) {
 	m := newLifecycleManager()
 	slug := "oauth-cancelado"
@@ -36,7 +48,7 @@ func TestBeginManagedAttemptNaoRegistraRetryCancelado(t *testing.T) {
 
 	ownerCtx, cancelOwner := context.WithCancel(context.Background())
 	cancelOwner()
-	_, done, err := m.beginManagedAttemptWithGuard(context.Background(), ownerCtx, slug)
+	_, done, err := m.beginManagedAttemptWithGuard(context.Background(), ownerCtx, slug, 0)
 	if err == nil {
 		done()
 		t.Fatal("esperava rejeitar a tentativa cujo retry já foi cancelado")
@@ -390,6 +402,122 @@ func TestRetryAntigoNaoDesconectaConexaoManualNova(t *testing.T) {
 		t.Fatalf("retry antigo afetou a conexão manual: conn=%p status=%s", gotConn, gotStatus)
 	}
 	m.CloseAll()
+}
+
+func TestCancelamentoLocalDuranteDiscoveryNaoAgendaRecuperacao(t *testing.T) {
+	m := newLifecycleManager()
+	slug := "discovery-cancelado"
+	registerLifecycleServer(m, slug, ServerConfig{Enabled: true})
+	baseCtx, cancelSession := context.WithCancel(context.Background())
+	sessionCtx := &contextFirstCheckObserved{Context: baseCtx, checked: make(chan struct{})}
+	conn := &serverConnection{sessionCtx: sessionCtx}
+	m.connections[slug] = conn
+	m.servers[slug].Status = StatusConnecting
+
+	events := make(chan string, 2)
+	m.emitEvent = func(event string, _ any) { events <- event }
+	// Segura Manager.mu para cancelar depois da primeira verificação do watcher,
+	// mas antes de ele conseguir validar a conexão e reservar uma recuperação.
+	m.mu.Lock()
+	finished := make(chan struct{})
+	go func() {
+		m.handleSessionEnded(slug, conn, errors.New("transport closed"))
+		close(finished)
+	}()
+	select {
+	case <-sessionCtx.checked:
+	case <-time.After(time.Second):
+		m.mu.Unlock()
+		t.Fatal("watcher não verificou o contexto local")
+	}
+	cancelSession()
+	m.mu.Unlock()
+	select {
+	case <-finished:
+	case <-time.After(time.Second):
+		t.Fatal("handler de encerramento local não terminou")
+	}
+
+	m.mu.RLock()
+	status := m.servers[slug].Status
+	_, retryScheduled := m.reconnectCancels[slug]
+	m.mu.RUnlock()
+	if status != StatusConnecting || retryScheduled {
+		t.Fatalf("cancelamento local foi tratado como queda remota: status=%s retry=%v", status, retryScheduled)
+	}
+	select {
+	case event := <-events:
+		t.Fatalf("cancelamento local emitiu evento inesperado %q", event)
+	default:
+	}
+	m.CloseAll()
+}
+
+func TestConnectManualAguardaTentativaDoRetryAntesDeAssumir(t *testing.T) {
+	for _, managedOAuth := range []bool{false, true} {
+		name := "connect"
+		if managedOAuth {
+			name = "oauth-gerenciado"
+		}
+		t.Run(name, func(t *testing.T) {
+			m := newLifecycleManager()
+			slug := "transferencia-retry"
+			registerLifecycleServer(m, slug, ServerConfig{Enabled: true})
+			m.servers[slug].Status = StatusError
+
+			m.mu.Lock()
+			retryCtx, retryID := m.reserveReconnectAttemptLocked(slug, m.servers[slug])
+			m.mu.Unlock()
+
+			attemptCtx, cancelAttempt := context.WithCancel(retryCtx)
+			attemptDone := make(chan struct{})
+			if managedOAuth {
+				_, managedDone, err := m.beginManagedAttemptWithGuard(attemptCtx, retryCtx, slug, retryID)
+				if err != nil {
+					t.Fatalf("beginManagedAttemptWithGuard: %v", err)
+				}
+				go func() {
+					<-attemptCtx.Done()
+					managedDone()
+					close(attemptDone)
+				}()
+			} else {
+				m.mu.Lock()
+				m.connectCancels[slug] = &connectionAttempt{
+					reconnectAttemptID: retryID,
+					cancel:             cancelAttempt,
+					done:               attemptDone,
+				}
+				m.mu.Unlock()
+				go func() {
+					<-attemptCtx.Done()
+					m.mu.Lock()
+					delete(m.connectCancels, slug)
+					m.mu.Unlock()
+					close(attemptDone)
+				}()
+			}
+
+			m.supersedeReconnectWithManualConnect(slug)
+			select {
+			case <-attemptDone:
+			default:
+				t.Fatal("Connect manual retornou antes do cleanup da tentativa de retry")
+			}
+			if retryCtx.Err() == nil {
+				t.Fatal("Connect manual não cancelou o contexto do retry")
+			}
+			m.mu.RLock()
+			_, managedPending := m.managedAttempts[slug]
+			_, connectPending := m.connectCancels[slug]
+			m.mu.RUnlock()
+			if managedPending || connectPending {
+				t.Fatalf("tentativa do retry permaneceu registrada: managed=%v connect=%v", managedPending, connectPending)
+			}
+			cancelAttempt()
+			m.CloseAll()
+		})
+	}
 }
 
 func TestFalhaDaConexaoDuranteRetryPreservaEstadoDeErro(t *testing.T) {
