@@ -184,8 +184,6 @@ type ServerInfo struct {
 	// interativa (token expirado sem refresh possível — AEP-0105).
 	NeedsReauth bool   `json:"needsReauth"`
 	ConnectedAt string `json:"connectedAt,omitempty"`
-	// LastPing permanece vazio para compatibilidade com clientes Wails antigos.
-	LastPing string `json:"lastPing,omitempty"`
 	// Campos de config visíveis (sem env)
 	Command string   `json:"command,omitempty"`
 	Args    []string `json:"args,omitempty"`
