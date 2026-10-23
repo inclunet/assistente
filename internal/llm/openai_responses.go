@@ -15,6 +15,11 @@ import (
 	"github.com/openai/openai-go/shared"
 )
 
+func validOpenAIResponsesToolParameters(raw []byte) bool {
+	var parameters map[string]any
+	return json.Unmarshal(raw, &parameters) == nil
+}
+
 // sendChatResponses envia uma mensagem (não-streaming) via Responses API.
 func (p *OpenAIProvider) sendChatResponses(ctx context.Context, model string, messages []Message, params ChatParams) (string, error) {
 	if p.provider.Type == ProviderChatGPT {
@@ -130,7 +135,7 @@ func (p *OpenAIProvider) streamChatResponses(
 		if attemptFn == nil {
 			attemptFn = p.doStreamResponses
 		}
-		logging.Debugf(ctx, "llm.openai-responses", "[OpenAIProvider] tools da tentativa %d: locais=%v MCP=%v", attempt, toolDefinitionNames(tools), mcpServerToolNames(currentServers))
+		logging.Debugf(ctx, "llm.openai-responses", "[OpenAIProvider] tools da tentativa %d: locais=%v MCP=%v", attempt, toolDefinitionNames(tools, validOpenAIResponsesToolParameters), mcpServerToolNames(currentServers))
 		result := attemptFn(ctx, respParams, handler, currentServers, params, dumpHandle)
 		pruneDebugDumpHandle(dumpHandle)
 		if result.done {

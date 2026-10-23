@@ -14,8 +14,9 @@ func TestToolDiagnosticsListNamesSentToProvider(t *testing.T) {
 	localNames := toolDefinitionNames([]ToolDefinition{
 		{Function: FunctionDefinition{Name: "read_file"}},
 		{Function: FunctionDefinition{}},
-		{Function: FunctionDefinition{Name: "write_file"}},
-	})
+		{Function: FunctionDefinition{Name: "write_file", Parameters: []byte(`{"type":"object"}`)}},
+		{Function: FunctionDefinition{Name: "malformed_schema", Parameters: []byte(`{not-json}`)}},
+	}, validAnthropicBetaToolParameters)
 	if len(localNames) != 2 || localNames[0] != "read_file" || localNames[1] != "write_file" {
 		t.Fatalf("nomes locais = %#v", localNames)
 	}

@@ -30,12 +30,16 @@ type MCPServerConfig struct {
 	Recover      func(context.Context) error `json:"-"`
 }
 
-func toolDefinitionNames(definitions []ToolDefinition) []string {
+func toolDefinitionNames(definitions []ToolDefinition, validParameters func([]byte) bool) []string {
 	names := make([]string, 0, len(definitions))
 	for _, definition := range definitions {
-		if definition.Function.Name != "" {
-			names = append(names, definition.Function.Name)
+		if definition.Function.Name == "" {
+			continue
 		}
+		if len(definition.Function.Parameters) > 0 && !validParameters(definition.Function.Parameters) {
+			continue
+		}
+		names = append(names, definition.Function.Name)
 	}
 	return names
 }
