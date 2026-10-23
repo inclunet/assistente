@@ -70,6 +70,17 @@ func (c *contextFirstCheckObserved) Err() error {
 	return err
 }
 
+type contextDoneObserved struct {
+	context.Context
+	observed chan struct{}
+	once     sync.Once
+}
+
+func (c *contextDoneObserved) Done() <-chan struct{} {
+	c.once.Do(func() { close(c.observed) })
+	return c.Context.Done()
+}
+
 type controlledAfterFuncContext struct {
 	context.Context
 	cancelBase context.CancelFunc
@@ -715,6 +726,62 @@ func TestConexaoDiretaRespeitaReservaOAuthEDonoNaoEsperaPropriaTentativa(t *test
 		t.Fatalf("reciclar a sessão cancelou a tentativa dona: %v", err)
 	}
 	finish()
+	m.CloseAll()
+}
+
+func TestOwnerOAuthInterrompeEsperaPorCleanupConcorrente(t *testing.T) {
+	m := newLifecycleManager()
+	slug := "oauth-cleanup-concorrente"
+	registerLifecycleServer(m, slug, ServerConfig{Enabled: true})
+	managedCtx, finishManaged, err := m.beginManagedAttemptWithGuard(context.Background(), context.Background(), slug, 0)
+	if err != nil {
+		t.Fatalf("beginManagedAttemptWithGuard: %v", err)
+	}
+	owner := managedAttemptFromContext(managedCtx)
+	if owner == nil {
+		t.Fatal("contexto gerenciado não transportou o dono da reserva")
+	}
+
+	cleanupDone := make(chan struct{})
+	m.mu.Lock()
+	m.disconnectCleanups[slug] = cleanupDone
+	m.mu.Unlock()
+
+	waitObserved := &contextDoneObserved{Context: managedCtx, observed: make(chan struct{})}
+	ownerDone := make(chan error, 1)
+	go func() {
+		err := m.disconnectWithManagedOwner(waitObserved, slug, owner)
+		finishManaged()
+		ownerDone <- err
+	}()
+	select {
+	case <-waitObserved.observed:
+	case <-time.After(time.Second):
+		t.Fatal("owner não iniciou a espera cancelável pelo cleanup concorrente")
+	}
+	externalDisconnectDone := make(chan error, 1)
+	go func() { externalDisconnectDone <- m.Disconnect(slug) }()
+	owner.cancel()
+	select {
+	case err := <-ownerDone:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("espera pelo cleanup concorrente não propagou cancelamento: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("owner OAuth permaneceu bloqueado aguardando cleanup depois do cancelamento")
+	}
+	close(cleanupDone)
+	m.mu.Lock()
+	delete(m.disconnectCleanups, slug)
+	m.mu.Unlock()
+	select {
+	case err := <-externalDisconnectDone:
+		if err != nil {
+			t.Fatalf("Disconnect externo: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Disconnect externo permaneceu bloqueado depois do cleanup")
+	}
 	m.CloseAll()
 }
 

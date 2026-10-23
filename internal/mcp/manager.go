@@ -711,11 +711,17 @@ func (m *Manager) connectWithContextForRetry(parentCtx context.Context, slug str
 	if _, connected := m.connections[slug]; connected {
 		m.mu.Unlock()
 		if managedOwner != nil {
-			_ = m.disconnectWithManagedOwner(slug, managedOwner)
+			if err := m.disconnectWithManagedOwner(parentCtx, slug, managedOwner); err != nil {
+				return err
+			}
 		} else {
 			_ = m.Disconnect(slug)
 		}
 		m.mu.Lock()
+		if err := parentCtx.Err(); err != nil {
+			m.mu.Unlock()
+			return err
+		}
 		status, ok = m.servers[slug]
 		if m.retiringLegacy[slug] {
 			m.mu.Unlock()
@@ -1305,20 +1311,48 @@ func (m *Manager) disconnectWithRecovery(slug string, legacyOnly, cancelRecovery
 }
 
 func (m *Manager) disconnectWithRecoveryForAttempt(slug string, legacyOnly, cancelRecovery bool, retryAttemptID uint64) (bool, error) {
-	return m.disconnectWithRecoveryForAttemptAndOwner(slug, legacyOnly, cancelRecovery, retryAttemptID, nil)
+	return m.disconnectWithRecoveryForAttemptAndOwner(slug, legacyOnly, cancelRecovery, retryAttemptID, nil, nil)
 }
 
-func (m *Manager) disconnectWithManagedOwner(slug string, owner *managedAttempt) error {
-	_, err := m.disconnectWithRecoveryForAttemptAndOwner(slug, false, true, 0, owner)
+func (m *Manager) disconnectWithManagedOwner(ctx context.Context, slug string, owner *managedAttempt) error {
+	_, err := m.disconnectWithRecoveryForAttemptAndOwner(slug, false, true, 0, owner, ctx)
 	return err
 }
 
-func (m *Manager) disconnectWithRecoveryForAttemptAndOwner(slug string, legacyOnly, cancelRecovery bool, retryAttemptID uint64, managedOwner *managedAttempt) (bool, error) {
+func (m *Manager) disconnectWithRecoveryForAttemptAndOwner(slug string, legacyOnly, cancelRecovery bool, retryAttemptID uint64, managedOwner *managedAttempt, managedOwnerCtx context.Context) (bool, error) {
 	m.mu.Lock()
+	if managedOwner != nil {
+		if managedOwnerCtx == nil {
+			m.mu.Unlock()
+			return false, context.Canceled
+		}
+		if err := managedOwnerCtx.Err(); err != nil {
+			m.mu.Unlock()
+			return false, err
+		}
+		if m.managedAttempts[slug] != managedOwner {
+			m.mu.Unlock()
+			return false, context.Canceled
+		}
+	}
 	if cleanupDone := m.disconnectCleanups[slug]; cleanupDone != nil {
 		m.mu.Unlock()
-		<-cleanupDone
-		return m.disconnectWithRecoveryForAttemptAndOwner(slug, legacyOnly, cancelRecovery, retryAttemptID, managedOwner)
+		if managedOwner != nil && managedOwnerCtx != nil {
+			if err := managedOwnerCtx.Err(); err != nil {
+				return false, err
+			}
+			select {
+			case <-cleanupDone:
+				if err := managedOwnerCtx.Err(); err != nil {
+					return false, err
+				}
+			case <-managedOwnerCtx.Done():
+				return false, managedOwnerCtx.Err()
+			}
+		} else {
+			<-cleanupDone
+		}
+		return m.disconnectWithRecoveryForAttemptAndOwner(slug, legacyOnly, cancelRecovery, retryAttemptID, managedOwner, managedOwnerCtx)
 	}
 	if retryAttemptID != 0 {
 		status := m.servers[slug]
