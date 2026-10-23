@@ -97,7 +97,9 @@ func TestClientConversionAtomicIdempotentAndRestart(t *testing.T) {
 			attemptCtx, cancel := context.WithCancel(ctx)
 			defer cancel()
 			b.managedAttempts = make(map[string]*managedAttempt)
-			b.managedAttempts[cfg.Slug] = &managedAttempt{cancel: cancel, done: make(chan struct{})}
+			managedDone := make(chan struct{})
+			t.Cleanup(func() { close(managedDone) })
+			b.managedAttempts[cfg.Slug] = &managedAttempt{cancel: cancel, done: managedDone}
 			b.connections[cfg.Slug] = &serverConnection{cancelSession: cancel, oauthAuthorizationID: "managed"}
 			if err = b.ConvertOAuthClientSnapshot(ctx, info.ID, method); err != nil || attemptCtx.Err() != nil {
 				t.Fatal("repeat interrupted managed attempt", err)
