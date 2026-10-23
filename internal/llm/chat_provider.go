@@ -3,6 +3,7 @@ package llm
 import (
 	"context"
 	"sort"
+	"strings"
 
 	"assistente/internal/acp"
 	"assistente/internal/credentials"
@@ -52,6 +53,12 @@ func mcpServerToolNames(servers []MCPServerConfig) []string {
 		}
 		for _, name := range allowed {
 			if name != "" {
+				if len(server.AllowedTools) == 0 {
+					namespace := "mcp_" + serverName + "__"
+					if strings.HasPrefix(name, namespace) && len(name) > len(namespace) {
+						name = strings.TrimPrefix(name, namespace)
+					}
+				}
 				names = append(names, serverName+":"+name)
 			}
 		}

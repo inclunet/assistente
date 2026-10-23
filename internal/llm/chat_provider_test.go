@@ -23,8 +23,9 @@ func TestToolDiagnosticsListNamesSentToProvider(t *testing.T) {
 	mcpNames := mcpServerToolNames([]MCPServerConfig{
 		{Slug: "github", ToolNames: []string{"mcp_github__create_issue"}, AllowedTools: []string{"create_issue", "list_repos"}},
 		{Name: "files", ToolNames: []string{"mcp_files__read"}},
+		{Name: "other", ToolNames: []string{"mcp_files__unmatched"}},
 	})
-	want := []string{"files:mcp_files__read", "github:create_issue", "github:list_repos"}
+	want := []string{"files:read", "github:create_issue", "github:list_repos", "other:mcp_files__unmatched"}
 	if len(mcpNames) != len(want) {
 		t.Fatalf("nomes MCP = %#v, want %#v", mcpNames, want)
 	}
