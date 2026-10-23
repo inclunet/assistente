@@ -979,8 +979,11 @@ func (m *Manager) connectWithContextForRetry(parentCtx context.Context, slug str
 			// would make it discard this lifecycle event.
 			m.handleSessionEnded(slug, conn, err)
 		}
-		m.detachConnection(slug, conn)
+		detached := m.detachConnection(slug, conn)
 		_ = closeServerConnection(slug, conn, true)
+		if detached {
+			m.invalidateServerTools(slug, "connection failed during discovery")
+		}
 		if sessionCtx.Err() != nil || errors.Is(err, context.Canceled) {
 			m.resetConnectingStatus(slug)
 			return context.Canceled
@@ -1007,8 +1010,11 @@ func (m *Manager) connectWithContextForRetry(parentCtx context.Context, slug str
 			}
 		}
 		m.mu.Unlock()
-		m.detachConnection(slug, conn)
+		detached := m.detachConnection(slug, conn)
 		_ = closeServerConnection(slug, conn, true)
+		if detached {
+			m.invalidateServerTools(slug, "connection attempt was canceled")
+		}
 		if err := parentCtx.Err(); err != nil {
 			return err
 		}
@@ -1018,15 +1024,21 @@ func (m *Manager) connectWithContextForRetry(parentCtx context.Context, slug str
 		sessionErr := conn.sessionEndErr
 		m.mu.Unlock()
 		m.handleSessionEnded(slug, conn, sessionErr)
-		m.detachConnection(slug, conn)
+		detached := m.detachConnection(slug, conn)
 		_ = closeServerConnection(slug, conn, true)
+		if detached {
+			m.invalidateServerTools(slug, "session ended during discovery")
+		}
 		return fmt.Errorf("sessão MCP '%s' encerrou durante a conexão", slug)
 	}
 	if s, ok := m.servers[slug]; ok && s.Status == StatusError {
 		failure := s.Error
 		m.mu.Unlock()
-		m.detachConnection(slug, conn)
+		detached := m.detachConnection(slug, conn)
 		_ = closeServerConnection(slug, conn, true)
+		if detached {
+			m.invalidateServerTools(slug, "session failed during discovery")
+		}
 		if failure == "" {
 			failure = "falha reportada durante o discovery"
 		}
@@ -1489,15 +1501,23 @@ func (m *Manager) disconnectWithRecoveryForAttemptAndOwner(slug string, legacyOn
 	return true, closeErr
 }
 
-func (m *Manager) detachConnection(slug string, expected *serverConnection) {
+func (m *Manager) detachConnection(slug string, expected *serverConnection) bool {
 	m.mu.Lock()
+	detached := false
 	if m.connections[slug] == expected {
 		for _, bridge := range expected.bridges {
 			m.registry.Unregister(bridge.Name())
 		}
 		delete(m.connections, slug)
+		detached = true
 	}
 	m.mu.Unlock()
+	return detached
+}
+
+func (m *Manager) invalidateServerTools(slug, reason string) {
+	m.markServerToolsUnavailable(slug, reason)
+	m.emit("mcp:tools_changed", nil)
 }
 
 func closeServerConnection(slug string, conn *serverConnection, expected bool) error {

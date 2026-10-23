@@ -28,6 +28,40 @@ type blockingUnavailableCatalog struct {
 	release chan struct{}
 }
 
+type recordingUnavailableCatalog struct {
+	mu       sync.Mutex
+	serverID string
+	reason   string
+	calls    int
+}
+
+func (*recordingUnavailableCatalog) ListTools(context.Context, tools.ToolCatalogFilter) ([]tools.ToolCatalogEntry, error) {
+	return nil, nil
+}
+
+func (c *recordingUnavailableCatalog) MarkServerToolsUnavailable(_ context.Context, serverID string, _ []string, reason string) (int, error) {
+	c.mu.Lock()
+	c.serverID = serverID
+	c.reason = reason
+	c.calls++
+	c.mu.Unlock()
+	return 0, nil
+}
+
+func (*recordingUnavailableCatalog) RecordToolTest(context.Context, string, string, string) error {
+	return nil
+}
+
+func (*recordingUnavailableCatalog) RecordToolTestByID(context.Context, string, string, string) error {
+	return nil
+}
+
+func (*recordingUnavailableCatalog) SyncBuiltins(context.Context, *tools.Registry) error { return nil }
+
+func (*recordingUnavailableCatalog) SyncMCPServerTools(context.Context, string, string, []toolcatalog.MCPToolDescriptor) error {
+	return nil
+}
+
 func (c *blockingUnavailableCatalog) ListTools(context.Context, tools.ToolCatalogFilter) ([]tools.ToolCatalogEntry, error) {
 	return nil, nil
 }
@@ -333,17 +367,23 @@ func TestFalhaDaToolAposRegistroDuranteDiscoveryNaoViraConnected(t *testing.T) {
 	m := newLifecycleManager()
 	slug := "falha-tool-durante-discovery"
 	registerLifecycleServer(m, slug, ServerConfig{Enabled: true, Transport: TransportStdio})
+	m.servers[slug].ID = "server-id"
+	m.servers[slug].Config.UserID = "user-id"
 	// Dispara tools_changed após o refresh atualizar o registry, criando a
 	// mesma janela em que os bridges já estão visíveis e Connect ainda finaliza.
 	m.servers[slug].Tools = []MCPToolInfo{{Name: "tool-anterior"}}
+	catalog := &recordingUnavailableCatalog{}
+	m.SetCatalog(catalog)
 	factory := newInMemoryMCPFactory(t, m.ctx)
 	defer factory.close()
 	m.transportFactory = factory.transport
 	var failureTriggered sync.Once
 	unhealthy := make(chan struct{}, 1)
+	var toolsChanged atomic.Int32
 	m.emitEvent = func(event string, _ any) {
 		switch event {
 		case "mcp:tools_changed":
+			toolsChanged.Add(1)
 			failureTriggered.Do(func() {
 				m.mu.RLock()
 				conn := m.connections[slug]
@@ -378,6 +418,15 @@ func TestFalhaDaToolAposRegistroDuranteDiscoveryNaoViraConnected(t *testing.T) {
 	}
 	if !retryReserved {
 		t.Fatal("falha de sessão durante discovery perdeu a reserva de reconexão")
+	}
+	catalog.mu.Lock()
+	catalogCalls, catalogServerID, catalogReason := catalog.calls, catalog.serverID, catalog.reason
+	catalog.mu.Unlock()
+	if catalogCalls != 1 || catalogServerID != "server-id" || catalogReason != "session failed during discovery" {
+		t.Fatalf("catálogo não invalidou tools obsoletas: calls=%d serverID=%q reason=%q", catalogCalls, catalogServerID, catalogReason)
+	}
+	if got := toolsChanged.Load(); got < 2 {
+		t.Fatalf("cleanup não emitiu tools_changed após invalidar o catálogo: eventos=%d", got)
 	}
 	m.CloseAll()
 }
