@@ -125,6 +125,7 @@ type Manager struct {
 	connections            map[string]*serverConnection                           // slug -> connection ativa
 	connectCancels         map[string]*connectionAttempt                          // slug -> tentativa de Connect em andamento
 	reconnectCancels       map[string]*reconnectAttempt                           // slug -> retry automático em andamento
+	disconnectCleanups     map[string]chan struct{}                               // slug -> cleanup fora do lock em andamento
 	nextReconnectAttemptID uint64                                                 // protegido por mu; impede cleanup antigo de limpar retry novo
 	ctx                    context.Context
 	cancel                 context.CancelFunc
@@ -192,17 +193,18 @@ func (m *Manager) waitBackground(timeout time.Duration) {
 func NewManager(registry *tools.Registry, credMgr *credentials.Manager, emitEvent emitFunc) *Manager {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Manager{
-		resolver:         configdir.NewResolver(configSubdir),
-		credMgr:          credMgr,
-		registry:         registry,
-		emitEvent:        emitEvent,
-		servers:          make(map[string]*ServerStatus),
-		connections:      make(map[string]*serverConnection),
-		connectCancels:   make(map[string]*connectionAttempt),
-		reconnectCancels: make(map[string]*reconnectAttempt),
-		ctx:              ctx,
-		cancel:           cancel,
-		connectTimeout:   connectTimeout,
+		resolver:           configdir.NewResolver(configSubdir),
+		credMgr:            credMgr,
+		registry:           registry,
+		emitEvent:          emitEvent,
+		servers:            make(map[string]*ServerStatus),
+		connections:        make(map[string]*serverConnection),
+		connectCancels:     make(map[string]*connectionAttempt),
+		reconnectCancels:   make(map[string]*reconnectAttempt),
+		disconnectCleanups: make(map[string]chan struct{}),
+		ctx:                ctx,
+		cancel:             cancel,
+		connectTimeout:     connectTimeout,
 	}
 }
 
@@ -659,6 +661,15 @@ func (m *Manager) connectWithContextForRetry(parentCtx context.Context, slug str
 	if err := parentCtx.Err(); err != nil {
 		m.mu.Unlock()
 		return err
+	}
+	if cleanupDone := m.disconnectCleanups[slug]; cleanupDone != nil {
+		m.mu.Unlock()
+		select {
+		case <-cleanupDone:
+			return m.connectWithContextForRetry(parentCtx, slug, retryAttemptID)
+		case <-parentCtx.Done():
+			return parentCtx.Err()
+		}
 	}
 	status, ok := m.servers[slug]
 	if !ok {
@@ -1231,6 +1242,7 @@ func (m *Manager) supersedeReconnectWithManualConnect(slug string) {
 	m.mu.Lock()
 	retry := m.reconnectCancels[slug]
 	var pending []<-chan struct{}
+	cleanupDone := m.disconnectCleanups[slug]
 	if retry != nil {
 		retry.cancel()
 		delete(m.reconnectCancels, slug)
@@ -1253,6 +1265,9 @@ func (m *Manager) supersedeReconnectWithManualConnect(slug string) {
 			<-done
 		}
 	}
+	if cleanupDone != nil {
+		<-cleanupDone
+	}
 }
 
 func (m *Manager) disconnectWithRecovery(slug string, legacyOnly, cancelRecovery bool) error {
@@ -1262,6 +1277,11 @@ func (m *Manager) disconnectWithRecovery(slug string, legacyOnly, cancelRecovery
 
 func (m *Manager) disconnectWithRecoveryForAttempt(slug string, legacyOnly, cancelRecovery bool, retryAttemptID uint64) (bool, error) {
 	m.mu.Lock()
+	if cleanupDone := m.disconnectCleanups[slug]; cleanupDone != nil {
+		m.mu.Unlock()
+		<-cleanupDone
+		return m.disconnectWithRecoveryForAttempt(slug, legacyOnly, cancelRecovery, retryAttemptID)
+	}
 	if retryAttemptID != 0 {
 		status := m.servers[slug]
 		retry := m.reconnectCancels[slug]
@@ -1312,8 +1332,12 @@ func (m *Manager) disconnectWithRecoveryForAttempt(slug string, legacyOnly, canc
 			return true, nil
 		}
 		m.retiringLegacy[slug] = true
-		defer func() { m.mu.Lock(); delete(m.retiringLegacy, slug); m.mu.Unlock() }()
 	}
+	if m.disconnectCleanups == nil {
+		m.disconnectCleanups = make(map[string]chan struct{})
+	}
+	cleanupDone := make(chan struct{})
+	m.disconnectCleanups[slug] = cleanupDone
 
 	if attempt != nil {
 		attempt.cancel()
@@ -1356,6 +1380,14 @@ func (m *Manager) disconnectWithRecoveryForAttempt(slug string, legacyOnly, canc
 	m.emit("mcp:server_disconnected", map[string]string{"slug": slug})
 	m.emit("mcp:tools_changed", nil)
 	m.logEvent(slug, "disconnected", "Servidor MCP desconectado", nil)
+
+	m.mu.Lock()
+	delete(m.disconnectCleanups, slug)
+	if legacyOnly {
+		delete(m.retiringLegacy, slug)
+	}
+	close(cleanupDone)
+	m.mu.Unlock()
 
 	return true, closeErr
 }

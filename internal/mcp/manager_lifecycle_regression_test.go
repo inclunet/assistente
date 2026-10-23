@@ -16,9 +16,37 @@ import (
 	"testing"
 	"time"
 
+	"assistente/internal/toolcatalog"
+	"assistente/internal/tools"
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
+
+type blockingUnavailableCatalog struct {
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (c *blockingUnavailableCatalog) ListTools(context.Context, tools.ToolCatalogFilter) ([]tools.ToolCatalogEntry, error) {
+	return nil, nil
+}
+
+func (c *blockingUnavailableCatalog) MarkServerToolsUnavailable(context.Context, string, []string, string) (int, error) {
+	close(c.entered)
+	<-c.release
+	return 0, nil
+}
+
+func (*blockingUnavailableCatalog) RecordToolTest(context.Context, string, string, string) error {
+	return nil
+}
+func (*blockingUnavailableCatalog) RecordToolTestByID(context.Context, string, string, string) error {
+	return nil
+}
+func (*blockingUnavailableCatalog) SyncBuiltins(context.Context, *tools.Registry) error { return nil }
+func (*blockingUnavailableCatalog) SyncMCPServerTools(context.Context, string, string, []toolcatalog.MCPToolDescriptor) error {
+	return nil
+}
 
 func registerLifecycleServer(m *Manager, slug string, cfg ServerConfig) {
 	m.servers[slug] = &ServerStatus{
@@ -471,15 +499,18 @@ func TestConnectManualAguardaTentativaDoRetryAntesDeAssumir(t *testing.T) {
 
 			attemptCtx, cancelAttempt := context.WithCancel(retryCtx)
 			attemptDone := make(chan struct{})
+			completion := attemptDone
 			if managedOAuth {
 				_, managedDone, err := m.beginManagedAttemptWithGuard(attemptCtx, retryCtx, slug, retryID)
 				if err != nil {
 					t.Fatalf("beginManagedAttemptWithGuard: %v", err)
 				}
+				m.mu.RLock()
+				completion = m.managedAttempts[slug].done
+				m.mu.RUnlock()
 				go func() {
 					<-attemptCtx.Done()
 					managedDone()
-					close(attemptDone)
 				}()
 			} else {
 				m.mu.Lock()
@@ -500,7 +531,7 @@ func TestConnectManualAguardaTentativaDoRetryAntesDeAssumir(t *testing.T) {
 
 			m.supersedeReconnectWithManualConnect(slug)
 			select {
-			case <-attemptDone:
+			case <-completion:
 			default:
 				t.Fatal("Connect manual retornou antes do cleanup da tentativa de retry")
 			}
@@ -518,6 +549,57 @@ func TestConnectManualAguardaTentativaDoRetryAntesDeAssumir(t *testing.T) {
 			m.CloseAll()
 		})
 	}
+}
+
+func TestConnectManualAguardaFimDoCleanupDeDesconexao(t *testing.T) {
+	m := newLifecycleManager()
+	slug := "cleanup-retry"
+	registerLifecycleServer(m, slug, ServerConfig{Enabled: true, UserID: "test-user"})
+	m.servers[slug].ID = "server-id"
+	m.catalog = &blockingUnavailableCatalog{entered: make(chan struct{}), release: make(chan struct{})}
+	catalog := m.catalog.(*blockingUnavailableCatalog)
+	m.connections[slug] = &serverConnection{}
+	m.mu.Lock()
+	_, retryID := m.reserveReconnectAttemptLocked(slug, m.servers[slug])
+	m.mu.Unlock()
+
+	disconnectDone := make(chan struct{})
+	go func() {
+		_, _ = m.disconnectForRetry(slug, retryID)
+		close(disconnectDone)
+	}()
+	select {
+	case <-catalog.entered:
+	case <-time.After(time.Second):
+		t.Fatal("cleanup não chegou à atualização do catálogo")
+	}
+
+	manualConnectDone := make(chan struct{})
+	manualConnectStarted := make(chan struct{})
+	go func() {
+		close(manualConnectStarted)
+		m.supersedeReconnectWithManualConnect(slug)
+		close(manualConnectDone)
+	}()
+	<-manualConnectStarted
+	select {
+	case <-manualConnectDone:
+		t.Fatal("conexão manual avançou antes de terminar o cleanup anterior")
+	case <-time.After(30 * time.Millisecond):
+	}
+
+	close(catalog.release)
+	select {
+	case <-disconnectDone:
+	case <-time.After(time.Second):
+		t.Fatal("cleanup de desconexão não terminou")
+	}
+	select {
+	case <-manualConnectDone:
+	case <-time.After(time.Second):
+		t.Fatal("conexão manual não prosseguiu após o cleanup")
+	}
+	m.CloseAll()
 }
 
 func TestFalhaDaConexaoDuranteRetryPreservaEstadoDeErro(t *testing.T) {
