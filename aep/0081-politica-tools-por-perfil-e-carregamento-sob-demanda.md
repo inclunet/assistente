@@ -167,9 +167,19 @@ Escopo inicial:
 - reset em restart do app;
 - TTL configurável ou default conservador;
 - invalidação quando `schema_hash` mudar ou a tool ficar `unavailable`;
+- a revalidação só invalida uma tool quando o catálogo confirma que ela está
+  indisponível; falha transitória ao consultar o catálogo preserva as tools já
+  autorizadas/carregadas, e a execução informa a falha real se o executor não
+  puder usá-las;
 - invalidação quando o perfil efetivo mudar, `disable_tools` for ativado, ou a allowlist deixar de permitir a tool;
 - remoção explícita por `unload`;
 - replanejamento quando o budget de schema for excedido.
+
+O estado em memória não substitui as definições efetivamente enviadas ao
+provider. Uma falha ao consultar o catálogo não pode apagar silenciosamente
+tools carregadas do payload. Para diagnóstico, logs de nível debug registram
+os nomes de tools locais e MCP incluídos em cada chamada ao provider, sem
+registrar argumentos ou credenciais.
 
 A persistência de loaded tools não substitui o `tool_catalog`. Ela é um cache de disponibilidade efetiva para o agentic loop, derivado da política do perfil e do catálogo.
 
@@ -394,6 +404,8 @@ Regras:
 - `search` não revela tools `disabled` para o perfil.
 - `load` não carrega tools fora da allowlist/estado do perfil e retorna motivos estruturados de rejeição.
 - Tools carregadas sob demanda persistem por conversa/sessão até restart, TTL, `unload`, mudança de `schema_hash`, indisponibilidade, mudança de perfil ou budget.
+- Falha transitória de leitura do catálogo não remove tools carregadas do payload; somente disponibilidade negativa confirmada invalida o estado runtime.
+- Logs de debug permitem comparar os nomes de tools MCP e locais enviados ao provider por chamada.
 - `tool_catalog` é tratado como bootstrap/control-plane conforme a política de tool calling, e `load_skill`/autoativação de skills pelo modelo permanece indisponível conforme AEP-0072.
 - MCP bridge/native, tools destrutivas e budgets de schema respeitam a mesma política central.
 - Wildcards MCP e de pacote obedecem à precedência documentada, resolvem tools
