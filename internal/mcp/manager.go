@@ -928,6 +928,10 @@ func isSessionTerminationError(err error) bool {
 	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return false
 	}
+	var expiredSessionErr *SessionExpiredError
+	if errors.As(err, &expiredSessionErr) {
+		return true
+	}
 	var networkErr *net.OpError
 	if errors.As(err, &networkErr) || errors.Is(err, net.ErrClosed) || errors.Is(err, os.ErrClosed) {
 		return true
@@ -1055,6 +1059,9 @@ func (m *Manager) refreshServerOfferingsWithContextFor(parentCtx context.Context
 	// Descobre resources
 	var resourceInfos []MCPResourceInfo
 	resourcesResult, err := session.ListResources(ctx, nil)
+	if isSessionTerminationError(err) {
+		return fmt.Errorf("erro ao listar resources: %w", err)
+	}
 	if err == nil && resourcesResult != nil {
 		for _, res := range resourcesResult.Resources {
 			resourceInfos = append(resourceInfos, MCPResourceInfo{
@@ -1070,6 +1077,9 @@ func (m *Manager) refreshServerOfferingsWithContextFor(parentCtx context.Context
 	// Descobre prompts
 	var promptInfos []MCPPromptInfo
 	promptsResult, err := session.ListPrompts(ctx, nil)
+	if isSessionTerminationError(err) {
+		return fmt.Errorf("erro ao listar prompts: %w", err)
+	}
 	if err == nil && promptsResult != nil {
 		for _, prompt := range promptsResult.Prompts {
 			args := make([]MCPPromptArgument, len(prompt.Arguments))
@@ -2251,6 +2261,9 @@ func (m *Manager) ReadResource(slug, uri string) (string, error) {
 		URI: uri,
 	})
 	if err != nil {
+		if isSessionTerminationError(err) {
+			m.handleSessionEnded(slug, conn, err)
+		}
 		return "", fmt.Errorf("erro ao ler resource: %w", err)
 	}
 
@@ -2285,6 +2298,9 @@ func (m *Manager) GetPrompt(slug, name string, arguments map[string]string) ([]s
 		Arguments: arguments,
 	})
 	if err != nil {
+		if isSessionTerminationError(err) {
+			m.handleSessionEnded(slug, conn, err)
+		}
 		return nil, fmt.Errorf("erro ao obter prompt: %w", err)
 	}
 

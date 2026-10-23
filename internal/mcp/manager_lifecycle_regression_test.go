@@ -426,6 +426,7 @@ func (c *closeOnResourceListConnection) Write(ctx context.Context, msg jsonrpc.M
 type closeOnToolsListTransport struct {
 	inner        mcpsdk.Transport
 	closeSession func()
+	failure      error
 	readBlocked  chan struct{}
 	allowRead    <-chan struct{}
 }
@@ -438,6 +439,7 @@ func (t *closeOnToolsListTransport) Connect(ctx context.Context) (mcpsdk.Connect
 	return &closeOnToolsListConnection{
 		Connection:   conn,
 		closeSession: t.closeSession,
+		failure:      t.failure,
 		readBlocked:  t.readBlocked,
 		allowRead:    t.allowRead,
 	}, nil
@@ -446,6 +448,7 @@ func (t *closeOnToolsListTransport) Connect(ctx context.Context) (mcpsdk.Connect
 type closeOnToolsListConnection struct {
 	mcpsdk.Connection
 	closeSession func()
+	failure      error
 	readBlocked  chan struct{}
 	allowRead    <-chan struct{}
 	closeOnce    sync.Once
@@ -466,7 +469,37 @@ func (c *closeOnToolsListConnection) Read(ctx context.Context) (jsonrpc.Message,
 func (c *closeOnToolsListConnection) Write(ctx context.Context, message jsonrpc.Message) error {
 	if request, ok := message.(*jsonrpc.Request); ok && request.Method == "tools/list" {
 		c.closeOnce.Do(c.closeSession)
+		if c.failure != nil {
+			return c.failure
+		}
 		return mcpsdk.ErrConnectionClosed
+	}
+	return c.Connection.Write(ctx, message)
+}
+
+type failOnMethodTransport struct {
+	inner   mcpsdk.Transport
+	method  string
+	failure error
+}
+
+func (t *failOnMethodTransport) Connect(ctx context.Context) (mcpsdk.Connection, error) {
+	conn, err := t.inner.Connect(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &failOnMethodConnection{Connection: conn, method: t.method, failure: t.failure}, nil
+}
+
+type failOnMethodConnection struct {
+	mcpsdk.Connection
+	method  string
+	failure error
+}
+
+func (c *failOnMethodConnection) Write(ctx context.Context, message jsonrpc.Message) error {
+	if request, ok := message.(*jsonrpc.Request); ok && request.Method == c.method {
+		return c.failure
 	}
 	return c.Connection.Write(ctx, message)
 }
@@ -492,6 +525,7 @@ func TestEncerramentoDuranteToolsListPreservaFalhaAntesDoWatcher(t *testing.T) {
 			closeSession: func() {
 				_ = serverSession.Close()
 			},
+			failure:     &SessionExpiredError{StatusCode: http.StatusGone},
 			readBlocked: readBlocked,
 			allowRead:   allowRead,
 		}, nil
@@ -555,6 +589,8 @@ func TestClassificaFalhasDeTransporteDuranteDiscovery(t *testing.T) {
 		},
 		{name: "conexão de rede fechada", err: net.ErrClosed, want: true},
 		{name: "arquivo fechado", err: os.ErrClosed, want: true},
+		{name: "sessão HTTP expirada 404", err: &SessionExpiredError{StatusCode: http.StatusNotFound}, want: true},
+		{name: "sessão HTTP expirada 410", err: &SessionExpiredError{StatusCode: http.StatusGone}, want: true},
 		{name: "sentinela MCP", err: mcpsdk.ErrConnectionClosed, want: true},
 		{name: "erro de resposta MCP", err: &jsonrpc.Error{Code: jsonrpc.CodeInternalError, Message: "falha da ferramenta"}, want: false},
 		{name: "cancelamento local", err: context.Canceled, want: false},
@@ -566,6 +602,139 @@ func TestClassificaFalhasDeTransporteDuranteDiscovery(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := isSessionTerminationError(tt.err); got != tt.want {
 				t.Fatalf("isSessionTerminationError(%v) = %t, esperado %t", tt.err, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestFalhaDeSessaoEmReadResourceEGetPromptMarcaServidorIndisponivel(t *testing.T) {
+	tests := []struct {
+		name   string
+		method string
+		call   func(*Manager) error
+	}{
+		{
+			name:   "resources/read",
+			method: "resources/read",
+			call: func(m *Manager) error {
+				_, err := m.ReadResource("sessao-expirada-operacao", "file:///resource")
+				return err
+			},
+		},
+		{
+			name:   "prompts/get",
+			method: "prompts/get",
+			call: func(m *Manager) error {
+				_, err := m.GetPrompt("sessao-expirada-operacao", "prompt", nil)
+				return err
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := newLifecycleManager()
+			slug := "sessao-expirada-operacao"
+			registerLifecycleServer(m, slug, ServerConfig{Enabled: true})
+			server := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "expired-session-test", Version: "1.0.0"}, nil)
+			var serverSession *mcpsdk.ServerSession
+			m.transportFactory = func(ctx context.Context, _ string, _ ServerConfig) (mcpsdk.Transport, error) {
+				clientTransport, serverTransport := mcpsdk.NewInMemoryTransports()
+				var err error
+				serverSession, err = server.Connect(ctx, serverTransport, nil)
+				if err != nil {
+					return nil, err
+				}
+				return &failOnMethodTransport{
+					inner:   clientTransport,
+					method:  tt.method,
+					failure: &SessionExpiredError{StatusCode: http.StatusGone},
+				}, nil
+			}
+			defer func() {
+				if serverSession != nil {
+					_ = serverSession.Close()
+				}
+			}()
+			defer m.CloseAll()
+
+			unhealthy := make(chan struct{}, 1)
+			m.emitEvent = func(event string, _ any) {
+				if event == "mcp:server_unhealthy" {
+					unhealthy <- struct{}{}
+				}
+			}
+			if err := m.Connect(slug); err != nil {
+				t.Fatalf("Connect: %v", err)
+			}
+			if err := tt.call(m); err == nil {
+				t.Fatal("operação deveria retornar o erro da sessão expirada")
+			}
+
+			select {
+			case <-unhealthy:
+			case <-time.After(time.Second):
+				t.Fatal("erro de sessão na operação não sinalizou servidor indisponível")
+			}
+			m.mu.RLock()
+			status := m.servers[slug].Status
+			err := m.servers[slug].Error
+			m.mu.RUnlock()
+			if status != StatusError || !strings.Contains(err, "sessão perdida") {
+				t.Fatalf("erro de sessão não refletido no status: status=%s error=%q", status, err)
+			}
+		})
+	}
+}
+
+func TestFalhaDeSessaoEmListResourcesEListPromptsInterrompeDiscovery(t *testing.T) {
+	for _, method := range []string{"resources/list", "prompts/list"} {
+		t.Run(method, func(t *testing.T) {
+			m := newLifecycleManager()
+			slug := "sessao-expirada-discovery"
+			registerLifecycleServer(m, slug, ServerConfig{Enabled: true})
+			server := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "expired-discovery-test", Version: "1.0.0"}, nil)
+			var serverSession *mcpsdk.ServerSession
+			m.transportFactory = func(ctx context.Context, _ string, _ ServerConfig) (mcpsdk.Transport, error) {
+				clientTransport, serverTransport := mcpsdk.NewInMemoryTransports()
+				var err error
+				serverSession, err = server.Connect(ctx, serverTransport, nil)
+				if err != nil {
+					return nil, err
+				}
+				return &failOnMethodTransport{
+					inner:   clientTransport,
+					method:  method,
+					failure: &SessionExpiredError{StatusCode: http.StatusNotFound},
+				}, nil
+			}
+			defer func() {
+				if serverSession != nil {
+					_ = serverSession.Close()
+				}
+			}()
+			defer m.CloseAll()
+
+			unhealthy := make(chan struct{}, 1)
+			m.emitEvent = func(event string, _ any) {
+				if event == "mcp:server_unhealthy" {
+					unhealthy <- struct{}{}
+				}
+			}
+			if err := m.Connect(slug); err == nil {
+				t.Fatal("Connect deveria falhar após o término da sessão no discovery")
+			}
+			select {
+			case <-unhealthy:
+			case <-time.After(time.Second):
+				t.Fatal("término de sessão no discovery não sinalizou servidor indisponível")
+			}
+			m.mu.RLock()
+			status := m.servers[slug].Status
+			err := m.servers[slug].Error
+			m.mu.RUnlock()
+			if status != StatusError || !strings.Contains(err, "sessão perdida") {
+				t.Fatalf("término de sessão não refletido no status: status=%s error=%q", status, err)
 			}
 		})
 	}
