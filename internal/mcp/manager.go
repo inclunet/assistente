@@ -93,6 +93,12 @@ type connectionAttempt struct {
 	done                 chan struct{}
 }
 
+type reconnectAttempt struct {
+	id                   uint64
+	oauthAuthorizationID string
+	cancel               context.CancelFunc
+}
+
 // Manager gerencia servidores MCP: configuração, conexão, discovery de tools.
 // Thread-safe para uso concorrente.
 type Manager struct {
@@ -110,6 +116,7 @@ type Manager struct {
 	servers                map[string]*ServerStatus                               // slug -> status
 	connections            map[string]*serverConnection                           // slug -> connection ativa
 	connectCancels         map[string]*connectionAttempt                          // slug -> tentativa de Connect em andamento
+	reconnectCancels       map[string]*reconnectAttempt                           // slug -> retry automático em andamento
 	nextReconnectAttemptID uint64                                                 // protegido por mu; impede cleanup antigo de limpar retry novo
 	ctx                    context.Context
 	cancel                 context.CancelFunc
@@ -177,16 +184,17 @@ func (m *Manager) waitBackground(timeout time.Duration) {
 func NewManager(registry *tools.Registry, credMgr *credentials.Manager, emitEvent emitFunc) *Manager {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Manager{
-		resolver:       configdir.NewResolver(configSubdir),
-		credMgr:        credMgr,
-		registry:       registry,
-		emitEvent:      emitEvent,
-		servers:        make(map[string]*ServerStatus),
-		connections:    make(map[string]*serverConnection),
-		connectCancels: make(map[string]*connectionAttempt),
-		ctx:            ctx,
-		cancel:         cancel,
-		connectTimeout: connectTimeout,
+		resolver:         configdir.NewResolver(configSubdir),
+		credMgr:          credMgr,
+		registry:         registry,
+		emitEvent:        emitEvent,
+		servers:          make(map[string]*ServerStatus),
+		connections:      make(map[string]*serverConnection),
+		connectCancels:   make(map[string]*connectionAttempt),
+		reconnectCancels: make(map[string]*reconnectAttempt),
+		ctx:              ctx,
+		cancel:           cancel,
+		connectTimeout:   connectTimeout,
 	}
 }
 
@@ -531,6 +539,19 @@ func (m *Manager) Connect(slug string) error {
 
 // allowConsent is granted only by explicit user actions, never background retry.
 func (m *Manager) connect(slug string, allowConsent bool) (connectErr error) {
+	return m.connectWithParentContext(m.ctx, slug, allowConsent, 0)
+}
+
+func (m *Manager) connectWithParentContext(parentCtx context.Context, slug string, allowConsent bool, retryAttemptID uint64) (connectErr error) {
+	if parentCtx == nil {
+		parentCtx = context.Background()
+	}
+	if err := parentCtx.Err(); err != nil {
+		return err
+	}
+	if allowConsent && retryAttemptID == 0 {
+		m.supersedeReconnectWithManualConnect(slug)
+	}
 	cfg, err := m.GetConfig(slug)
 	if err != nil {
 		return err
@@ -544,12 +565,34 @@ func (m *Manager) connect(slug string, allowConsent bool) (connectErr error) {
 		_, connected := m.connections[slug]
 		m.mu.RUnlock()
 		if connected {
-			if err := m.Disconnect(slug); err != nil {
+			disconnect := m.Disconnect
+			if !allowConsent {
+				if retryAttemptID == 0 {
+					return context.Canceled
+				}
+				disconnected, err := m.disconnectForRetry(slug, retryAttemptID)
+				if err != nil {
+					return err
+				}
+				if !disconnected {
+					return context.Canceled
+				}
+			} else if err := disconnect(slug); err != nil {
 				return err
 			}
 		}
-		ctx, done, err := m.beginManagedAttempt(m.credentialContext(), slug)
+		credentialCtx, cancelCredentialCtx := context.WithCancel(m.credentialContext())
+		stopParentCancel := context.AfterFunc(parentCtx, cancelCredentialCtx)
+		defer func() {
+			stopParentCancel()
+			cancelCredentialCtx()
+		}()
+		ctx, done, err := m.beginManagedAttemptWithGuard(credentialCtx, parentCtx, slug)
 		if err != nil {
+			return err
+		}
+		if err := parentCtx.Err(); err != nil {
+			done()
 			return err
 		}
 		defer done()
@@ -580,12 +623,15 @@ func (m *Manager) connect(slug string, allowConsent bool) (connectErr error) {
 		m.clearNeedsReauth(slug)
 		return m.connectWithContext(ctx, slug)
 	}
-	return m.connectWithContext(m.ctx, slug)
+	return m.connectWithContext(parentCtx, slug)
 }
 
 func (m *Manager) connectWithContext(parentCtx context.Context, slug string) error {
 	if parentCtx == nil {
 		parentCtx = context.Background()
+	}
+	if err := parentCtx.Err(); err != nil {
+		return err
 	}
 
 	identityCtx := parentCtx
@@ -598,6 +644,10 @@ func (m *Manager) connectWithContext(parentCtx context.Context, slug string) err
 	}
 
 	m.mu.Lock()
+	if err := parentCtx.Err(); err != nil {
+		m.mu.Unlock()
+		return err
+	}
 	status, ok := m.servers[slug]
 	if !ok {
 		m.mu.Unlock()
@@ -659,12 +709,14 @@ func (m *Manager) connectWithContext(parentCtx context.Context, slug string) err
 	sessionCtx = oauthflow.WithNetworkAuthorizer(sessionCtx, m.authorizeOAuthNetwork)
 	attempt := &connectionAttempt{cancel: sessionCancel, done: make(chan struct{}), oauthAuthorizationID: status.Config.OAuthAuthorizationID}
 	m.connectCancels[slug] = attempt
+	stopParentCancel := context.AfterFunc(parentCtx, sessionCancel)
 	status.Status = StatusConnecting
 	status.Error = ""
 	cfg := status.Config
 	m.mu.Unlock()
 
 	defer func() {
+		stopParentCancel()
 		m.mu.Lock()
 		if m.connectCancels[slug] == attempt {
 			delete(m.connectCancels, slug)
@@ -1051,7 +1103,9 @@ func (m *Manager) refreshServerOfferingsWithContextFor(parentCtx context.Context
 	var toolInfos []MCPToolInfo
 	for _, mcpTool := range toolsResult.Tools {
 		bridge := NewMCPToolBridge(slug, mcpTool, session)
-		bridge.onSessionError = m.handleToolCallError
+		bridge.onSessionError = func(_ string, err error) {
+			m.handleToolCallErrorForConnection(slug, conn, err)
+		}
 		bridges = append(bridges, bridge)
 		toolInfos = append(toolInfos, bridge.ToMCPToolInfo())
 	}
@@ -1153,10 +1207,45 @@ func (m *Manager) Disconnect(slug string) error {
 // After conversion only the runtime built from legacy credentials is retired.
 // Selection and cancellation share the lock so a newer managed connection wins.
 func (m *Manager) disconnect(slug string, legacyOnly bool) error {
+	return m.disconnectWithRecovery(slug, legacyOnly, true)
+}
+
+func (m *Manager) disconnectForRetry(slug string, retryAttemptID uint64) (bool, error) {
+	return m.disconnectWithRecoveryForAttempt(slug, false, false, retryAttemptID)
+}
+
+func (m *Manager) supersedeReconnectWithManualConnect(slug string) {
 	m.mu.Lock()
+	defer m.mu.Unlock()
+	if retry := m.reconnectCancels[slug]; retry != nil {
+		retry.cancel()
+		delete(m.reconnectCancels, slug)
+		if status := m.servers[slug]; status != nil && status.reconnectAttemptID == retry.id {
+			status.Reconnecting = false
+			status.reconnectAttemptID = 0
+		}
+	}
+}
+
+func (m *Manager) disconnectWithRecovery(slug string, legacyOnly, cancelRecovery bool) error {
+	_, err := m.disconnectWithRecoveryForAttempt(slug, legacyOnly, cancelRecovery, 0)
+	return err
+}
+
+func (m *Manager) disconnectWithRecoveryForAttempt(slug string, legacyOnly, cancelRecovery bool, retryAttemptID uint64) (bool, error) {
+	m.mu.Lock()
+	if retryAttemptID != 0 {
+		status := m.servers[slug]
+		retry := m.reconnectCancels[slug]
+		if status == nil || retry == nil || retry.id != retryAttemptID || status.reconnectAttemptID != retryAttemptID || !status.Reconnecting {
+			m.mu.Unlock()
+			return false, nil
+		}
+	}
 	conn, ok := m.connections[slug]
 	managedCancel := m.managedAttempts[slug]
 	attempt := m.connectCancels[slug]
+	reconnect := m.reconnectCancels[slug]
 	if legacyOnly {
 		managedCancel = nil
 		if conn != nil && conn.oauthAuthorizationID != "" {
@@ -1165,13 +1254,26 @@ func (m *Manager) disconnect(slug string, legacyOnly bool) error {
 		if attempt != nil && attempt.oauthAuthorizationID != "" {
 			attempt = nil
 		}
+		if reconnect != nil && reconnect.oauthAuthorizationID != "" {
+			reconnect = nil
+		}
+	}
+	if cancelRecovery && reconnect != nil {
+		reconnect.cancel()
+		delete(m.reconnectCancels, slug)
+		if status := m.servers[slug]; status != nil && status.reconnectAttemptID == reconnect.id {
+			status.Reconnecting = false
+			status.reconnectAttemptID = 0
+		}
+	} else {
+		reconnect = nil
 	}
 	if managedCancel != nil {
 		managedCancel()
 	}
-	if !ok && attempt == nil && managedCancel == nil {
+	if !ok && attempt == nil && managedCancel == nil && reconnect == nil {
 		m.mu.Unlock()
-		return nil
+		return true, nil
 	}
 	if legacyOnly {
 		if m.retiringLegacy == nil {
@@ -1179,7 +1281,7 @@ func (m *Manager) disconnect(slug string, legacyOnly bool) error {
 		}
 		if m.retiringLegacy[slug] {
 			m.mu.Unlock()
-			return nil
+			return true, nil
 		}
 		m.retiringLegacy[slug] = true
 		defer func() { m.mu.Lock(); delete(m.retiringLegacy, slug); m.mu.Unlock() }()
@@ -1224,7 +1326,7 @@ func (m *Manager) disconnect(slug string, legacyOnly bool) error {
 	m.emit("mcp:tools_changed", nil)
 	m.logEvent(slug, "disconnected", "Servidor MCP desconectado", nil)
 
-	return closeErr
+	return true, closeErr
 }
 
 func (m *Manager) detachConnection(slug string, expected *serverConnection) {
@@ -1649,6 +1751,9 @@ func (m *Manager) disconnectAllConnections(reason string) {
 	for slug := range m.managedAttempts {
 		slugSet[slug] = struct{}{}
 	}
+	for slug := range m.reconnectCancels {
+		slugSet[slug] = struct{}{}
+	}
 	m.mu.RUnlock()
 
 	slugs := make([]string, 0, len(slugSet))
@@ -2010,9 +2115,13 @@ func (m *Manager) RecoverServerBestEffort(ctx context.Context, slug string) Reco
 // handleToolCallError é chamado pelo MCPToolBridge quando um tool call falha
 // com erro de transporte/sessão. Dispara reconexão imediata.
 func (m *Manager) handleToolCallError(slug string, err error) {
+	m.handleToolCallErrorForConnection(slug, nil, err)
+}
+
+func (m *Manager) handleToolCallErrorForConnection(slug string, conn *serverConnection, err error) {
 	m.mu.Lock()
 	status, ok := m.servers[slug]
-	if !ok || !status.Config.Enabled || status.Reconnecting {
+	if !ok || !status.Config.Enabled || (conn != nil && m.connections[slug] != conn) {
 		m.mu.Unlock()
 		return
 	}
@@ -2021,6 +2130,12 @@ func (m *Manager) handleToolCallError(slug string, err error) {
 
 	status.Status = StatusError
 	status.Error = fmt.Sprintf("sessão perdida: %v", err)
+	scheduleReconnect := !status.Reconnecting
+	var retryCtx context.Context
+	var retryAttemptID uint64
+	if scheduleReconnect && m.ctx.Err() == nil {
+		retryCtx, retryAttemptID = m.reserveReconnectAttemptLocked(slug, status)
+	}
 	m.mu.Unlock()
 
 	m.emit("mcp:server_unhealthy", map[string]string{
@@ -2029,7 +2144,9 @@ func (m *Manager) handleToolCallError(slug string, err error) {
 	})
 	m.logEvent(slug, "error", "Erro de sessão/transporte durante tool call", map[string]any{"error": err.Error()})
 
-	m.goTracked(func() { m.reconnectWithRetry(slug) })
+	if retryCtx != nil {
+		m.launchReconnectAttempt(slug, retryCtx, retryAttemptID)
+	}
 }
 
 // handleSessionEnded trata o encerramento espontâneo reportado pelo transporte.
@@ -2055,13 +2172,18 @@ func (m *Manager) handleSessionEnded(slug string, conn *serverConnection, err er
 	status.Status = StatusError
 	status.Error = fmt.Sprintf("sessão perdida: %v", err)
 	scheduleReconnect := !status.Reconnecting
+	var retryCtx context.Context
+	var retryAttemptID uint64
+	if scheduleReconnect {
+		retryCtx, retryAttemptID = m.reserveReconnectAttemptLocked(slug, status)
+	}
 	m.mu.Unlock()
 
 	logging.Errorf(context.Background(), "mcp.manager", "[MCP] Sessão/transporte encerrado inesperadamente para '%s': %v", slug, err)
 	m.emit("mcp:server_unhealthy", map[string]string{"slug": slug, "error": err.Error()})
 	m.logEvent(slug, "error", "Sessão/transporte encerrado inesperadamente", map[string]any{"error": err.Error()})
-	if scheduleReconnect {
-		m.goTracked(func() { m.reconnectWithRetry(slug) })
+	if retryCtx != nil {
+		m.launchReconnectAttempt(slug, retryCtx, retryAttemptID)
 	}
 }
 
@@ -2092,10 +2214,45 @@ func (m *Manager) reconnectWithRetry(slug string) {
 		return
 	}
 
-	attemptID := m.beginReconnectAttemptLocked(status)
+	reconnectCtx, attemptID := m.reserveReconnectAttemptLocked(slug, status)
 	m.mu.Unlock()
+	m.runReconnectWithRetry(slug, reconnectCtx, attemptID)
+}
 
+func (m *Manager) reserveReconnectAttemptLocked(slug string, status *ServerStatus) (context.Context, uint64) {
+	reconnectCtx, reconnectCancel := context.WithCancel(m.ctx)
+	if m.reconnectCancels == nil {
+		m.reconnectCancels = make(map[string]*reconnectAttempt)
+	}
+	attemptID := m.beginReconnectAttemptLocked(status)
+	m.reconnectCancels[slug] = &reconnectAttempt{
+		id:                   attemptID,
+		oauthAuthorizationID: status.Config.OAuthAuthorizationID,
+		cancel:               reconnectCancel,
+	}
+	return reconnectCtx, attemptID
+}
+
+func (m *Manager) launchReconnectAttempt(slug string, ctx context.Context, attemptID uint64) {
+	if !m.tryGoTracked(func() { m.runReconnectWithRetry(slug, ctx, attemptID) }) {
+		m.releaseReconnectAttempt(slug, attemptID)
+	}
+}
+
+func (m *Manager) runReconnectWithRetry(slug string, reconnectCtx context.Context, attemptID uint64) {
 	defer m.releaseReconnectAttempt(slug, attemptID)
+	if reconnectCtx.Err() != nil {
+		return
+	}
+
+	m.mu.RLock()
+	status, ok := m.servers[slug]
+	attempt := m.reconnectCancels[slug]
+	ownsAttempt := ok && attempt != nil && attempt.id == attemptID && status.Reconnecting && status.reconnectAttemptID == attemptID
+	m.mu.RUnlock()
+	if !ownsAttempt {
+		return
+	}
 
 	for {
 		m.mu.RLock()
@@ -2133,7 +2290,10 @@ func (m *Manager) reconnectWithRetry(slug string) {
 
 		select {
 		case <-time.After(delay):
-		case <-m.ctx.Done():
+		case <-reconnectCtx.Done():
+			return
+		}
+		if reconnectCtx.Err() != nil {
 			return
 		}
 
@@ -2145,10 +2305,17 @@ func (m *Manager) reconnectWithRetry(slug string) {
 		}
 		m.mu.RUnlock()
 
-		_ = m.Disconnect(slug)
+		disconnected, err := m.disconnectForRetry(slug, attemptID)
+		if err != nil {
+			logging.Errorf(context.Background(), "mcp.manager", "[MCP] Falha ao preparar reconexão de '%s': %v", slug, err)
+			continue
+		}
+		if !disconnected {
+			return
+		}
 		// Resolve before the SDK wraps errors, preserving the typed OAuth reason.
 		// Background recovery never receives permission to open consent.
-		if err := m.connect(slug, false); err != nil {
+		if err := m.connectWithParentContext(reconnectCtx, slug, false, attemptID); err != nil {
 			logging.Errorf(context.Background(), "mcp.manager", "[MCP] Falha ao reconectar '%s': %v", slug, err)
 			if errors.Is(err, oauthflow.ErrReauthorize) || errors.Is(err, oauthflow.ErrPermission) || errors.Is(err, oauthflow.ErrClientConfiguration) {
 				m.mu.RLock()
@@ -2186,6 +2353,10 @@ func (m *Manager) beginReconnectAttemptLocked(status *ServerStatus) uint64 {
 func (m *Manager) releaseReconnectAttempt(slug string, attemptID uint64) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if attempt := m.reconnectCancels[slug]; attempt != nil && attempt.id == attemptID {
+		attempt.cancel()
+		delete(m.reconnectCancels, slug)
+	}
 	if status, ok := m.servers[slug]; ok && status.reconnectAttemptID == attemptID {
 		status.Reconnecting = false
 		status.reconnectAttemptID = 0

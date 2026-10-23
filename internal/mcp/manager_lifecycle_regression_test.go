@@ -29,6 +29,29 @@ func registerLifecycleServer(m *Manager, slug string, cfg ServerConfig) {
 	}
 }
 
+func TestBeginManagedAttemptNaoRegistraRetryCancelado(t *testing.T) {
+	m := newLifecycleManager()
+	slug := "oauth-cancelado"
+	registerLifecycleServer(m, slug, ServerConfig{Enabled: true, Transport: TransportStreamable, OAuthAuthorizationID: "auth-1"})
+
+	ownerCtx, cancelOwner := context.WithCancel(context.Background())
+	cancelOwner()
+	_, done, err := m.beginManagedAttemptWithGuard(context.Background(), ownerCtx, slug)
+	if err == nil {
+		done()
+		t.Fatal("esperava rejeitar a tentativa cujo retry já foi cancelado")
+	}
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if _, ok := m.managedAttempts[slug]; ok {
+		t.Fatal("tentativa OAuth foi registrada após o cancelamento do retry")
+	}
+	if got := m.servers[slug].Status; got != StatusDisconnected {
+		t.Fatalf("status mudou apesar do retry cancelado: %s", got)
+	}
+}
+
 type inMemoryMCPFactory struct {
 	t        *testing.T
 	server   *mcpsdk.Server
@@ -230,6 +253,212 @@ func TestCleanupDeRetryAntigoNaoLiberaNovoDono(t *testing.T) {
 	m.mu.RUnlock()
 	if !reconnecting || ownerID != secondAttemptID {
 		t.Fatalf("cleanup antigo removeu o dono novo: reconnecting=%v owner=%d", reconnecting, ownerID)
+	}
+	m.CloseAll()
+}
+
+func TestDisconnectDuranteBackoffCancelaReconexaoPendente(t *testing.T) {
+	for _, disconnectAll := range []bool{false, true} {
+		name := "Disconnect"
+		if disconnectAll {
+			name = "DisconnectAll"
+		}
+		t.Run(name, func(t *testing.T) {
+			m := newLifecycleManager()
+			slug := "retry-cancelado"
+			registerLifecycleServer(m, slug, ServerConfig{Enabled: true})
+			m.servers[slug].Status = StatusError
+			var transportCalls atomic.Int32
+			m.transportFactory = func(context.Context, string, ServerConfig) (mcpsdk.Transport, error) {
+				transportCalls.Add(1)
+				return nil, errors.New("retry não deveria iniciar")
+			}
+
+			retryDone := make(chan struct{})
+			m.goTracked(func() {
+				defer close(retryDone)
+				m.reconnectWithRetry(slug)
+			})
+			deadline := time.Now().Add(time.Second)
+			for {
+				m.mu.RLock()
+				status := m.servers[slug]
+				started := status.Reconnecting && m.reconnectCancels[slug] != nil && status.RetryCount > 0
+				m.mu.RUnlock()
+				if started {
+					break
+				}
+				if time.Now().After(deadline) {
+					t.Fatal("retry não entrou no backoff")
+				}
+				time.Sleep(time.Millisecond)
+			}
+
+			if disconnectAll {
+				m.DisconnectAll()
+			} else if err := m.Disconnect(slug); err != nil {
+				t.Fatalf("Disconnect: %v", err)
+			}
+			select {
+			case <-retryDone:
+			case <-time.After(time.Second):
+				t.Fatal("desconexão não cancelou o retry em backoff")
+			}
+
+			m.mu.RLock()
+			status := m.servers[slug]
+			m.mu.RUnlock()
+			if status.Status != StatusDisconnected || status.Reconnecting {
+				t.Fatalf("retry alterou o estado após desconexão: status=%s reconnecting=%v", status.Status, status.Reconnecting)
+			}
+			if got := transportCalls.Load(); got != 0 {
+				t.Fatalf("retry abriu %d transports após a desconexão explícita", got)
+			}
+			m.CloseAll()
+		})
+	}
+}
+
+func TestDisconnectAntesDoInicioDoRetryCancelaReserva(t *testing.T) {
+	m := newLifecycleManager()
+	slug := "retry-reservado"
+	registerLifecycleServer(m, slug, ServerConfig{Enabled: true})
+	m.servers[slug].Status = StatusError
+	var transportCalls atomic.Int32
+	m.transportFactory = func(context.Context, string, ServerConfig) (mcpsdk.Transport, error) {
+		transportCalls.Add(1)
+		return nil, errors.New("retry não deveria iniciar")
+	}
+
+	m.mu.Lock()
+	retryCtx, attemptID := m.reserveReconnectAttemptLocked(slug, m.servers[slug])
+	m.mu.Unlock()
+	if err := m.Disconnect(slug); err != nil {
+		t.Fatalf("Disconnect: %v", err)
+	}
+	if retryCtx.Err() == nil {
+		t.Fatal("Disconnect não cancelou a reserva do retry ainda não iniciado")
+	}
+
+	// Simula a goroutine de recuperação começando depois que Disconnect retornou.
+	m.runReconnectWithRetry(slug, retryCtx, attemptID)
+	m.mu.RLock()
+	status := m.servers[slug]
+	_, retryStillRegistered := m.reconnectCancels[slug]
+	m.mu.RUnlock()
+	if status.Status != StatusDisconnected || status.Reconnecting || retryStillRegistered {
+		t.Fatalf("retry reservado sobreviveu à desconexão: status=%s reconnecting=%v registered=%v", status.Status, status.Reconnecting, retryStillRegistered)
+	}
+	if got := transportCalls.Load(); got != 0 {
+		t.Fatalf("retry abriu %d transports após a desconexão explícita", got)
+	}
+	m.CloseAll()
+}
+
+func TestRetryAntigoNaoDesconectaConexaoManualNova(t *testing.T) {
+	m := newLifecycleManager()
+	slug := "retry-antigo"
+	registerLifecycleServer(m, slug, ServerConfig{Enabled: true})
+	m.servers[slug].Status = StatusError
+
+	m.mu.Lock()
+	retryCtx, attemptID := m.reserveReconnectAttemptLocked(slug, m.servers[slug])
+	m.mu.Unlock()
+	m.supersedeReconnectWithManualConnect(slug)
+	if retryCtx.Err() == nil {
+		t.Fatal("conexão manual não cancelou o retry antigo")
+	}
+
+	manualConn := &serverConnection{}
+	m.mu.Lock()
+	m.connections[slug] = manualConn
+	m.servers[slug].Status = StatusConnected
+	m.mu.Unlock()
+
+	disconnected, err := m.disconnectForRetry(slug, attemptID)
+	if err != nil {
+		t.Fatalf("disconnectForRetry: %v", err)
+	}
+	if disconnected {
+		t.Fatal("retry cancelado manteve posse para desconectar uma sessão nova")
+	}
+	m.mu.RLock()
+	gotConn := m.connections[slug]
+	gotStatus := m.servers[slug].Status
+	m.mu.RUnlock()
+	if gotConn != manualConn || gotStatus != StatusConnected {
+		t.Fatalf("retry antigo afetou a conexão manual: conn=%p status=%s", gotConn, gotStatus)
+	}
+	m.CloseAll()
+}
+
+func TestFalhaDaConexaoDuranteRetryPreservaEstadoDeErro(t *testing.T) {
+	m := newLifecycleManager()
+	slug := "falha-durante-retry"
+	registerLifecycleServer(m, slug, ServerConfig{Enabled: true})
+	conn := &serverConnection{}
+	m.connections[slug] = conn
+	m.mu.Lock()
+	status := m.servers[slug]
+	status.Status = StatusConnected
+	attemptID := m.beginReconnectAttemptLocked(status)
+	m.mu.Unlock()
+
+	events := make(chan string, 1)
+	m.emitEvent = func(event string, _ any) {
+		if event == "mcp:server_unhealthy" {
+			events <- event
+		}
+	}
+	m.handleToolCallErrorForConnection(slug, conn, &SessionExpiredError{StatusCode: http.StatusGone})
+
+	m.mu.RLock()
+	gotStatus := m.servers[slug].Status
+	gotError := m.servers[slug].Error
+	reconnecting := m.servers[slug].Reconnecting
+	gotAttemptID := m.servers[slug].reconnectAttemptID
+	m.mu.RUnlock()
+	if gotStatus != StatusError || !strings.Contains(gotError, "sessão perdida") || !reconnecting || gotAttemptID != attemptID {
+		t.Fatalf("falha da sessão foi descartada durante retry: status=%s error=%q reconnecting=%v attempt=%d", gotStatus, gotError, reconnecting, gotAttemptID)
+	}
+	select {
+	case <-events:
+	default:
+		t.Fatal("falha da sessão durante retry não emitiu server_unhealthy")
+	}
+	if m.finishReconnectAttempt(slug, attemptID) {
+		t.Fatal("retry deveria continuar após detectar que a sessão atual falhou")
+	}
+	m.CloseAll()
+}
+
+func TestFalhaDeConexaoAntigaNaoAfetaSessaoReconectada(t *testing.T) {
+	m := newLifecycleManager()
+	slug := "falha-de-conexao-antiga"
+	registerLifecycleServer(m, slug, ServerConfig{Enabled: true})
+	current := &serverConnection{}
+	m.connections[slug] = current
+	m.servers[slug].Status = StatusConnected
+	old := &serverConnection{}
+
+	events := make(chan string, 1)
+	m.emitEvent = func(event string, _ any) {
+		if event == "mcp:server_unhealthy" {
+			events <- event
+		}
+	}
+	m.handleToolCallErrorForConnection(slug, old, &SessionExpiredError{StatusCode: http.StatusGone})
+
+	m.mu.RLock()
+	status := m.servers[slug].Status
+	m.mu.RUnlock()
+	if status != StatusConnected {
+		t.Fatalf("falha de conexão antiga afetou a atual: status=%s", status)
+	}
+	select {
+	case event := <-events:
+		t.Fatalf("falha de conexão antiga emitiu evento %q", event)
+	default:
 	}
 	m.CloseAll()
 }

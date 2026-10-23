@@ -361,9 +361,40 @@ func (m *Manager) validateCurrentOAuthConsumer(ctx context.Context, cfg ServerCo
 	return nil
 }
 func (m *Manager) beginManagedAttempt(ctx context.Context, slug string) (context.Context, func(), error) {
-	ctx, cancel := context.WithCancel(ctx)
+	return m.beginManagedAttemptWithGuard(ctx, ctx, slug)
+}
+
+// beginManagedAttemptWithGuard registers a managed attempt only while both the
+// credential context and its owner are still active. The owner guard closes
+// the cancellation race between an automatic retry and an explicit disconnect.
+func (m *Manager) beginManagedAttemptWithGuard(ctx, guardCtx context.Context, slug string) (context.Context, func(), error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if guardCtx == nil {
+		guardCtx = ctx
+	}
+	if err := guardCtx.Err(); err != nil {
+		return nil, nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
+	attemptCtx, cancel := context.WithCancel(ctx)
 	stop := context.AfterFunc(m.ctx, cancel)
 	m.mu.Lock()
+	if err := guardCtx.Err(); err != nil {
+		m.mu.Unlock()
+		stop()
+		cancel()
+		return nil, nil, err
+	}
+	if err := m.ctx.Err(); err != nil {
+		m.mu.Unlock()
+		stop()
+		cancel()
+		return nil, nil, err
+	}
 	if m.managedAttempts == nil {
 		m.managedAttempts = make(map[string]context.CancelFunc)
 	}
@@ -381,7 +412,7 @@ func (m *Manager) beginManagedAttempt(ctx context.Context, slug string) (context
 	}
 	m.mu.Unlock()
 	m.emit("mcp:server_connecting", map[string]string{"slug": slug})
-	return ctx, func() {
+	return attemptCtx, func() {
 		stop()
 		cancel()
 		m.mu.Lock()
