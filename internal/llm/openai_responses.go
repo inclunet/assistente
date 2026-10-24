@@ -317,6 +317,22 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 	// Conteúdo visível, reasoning e eventos MCP impedem retries automáticos
 	// posteriores porque já foram expostos ou executados nesta conversa.
 	var emittedNonRetryableEffect bool
+	var nativeContractMismatch bool
+	checkNativeContract := func(name string) string {
+		if !nativeMCPLocalToolMismatch(params.Tools, mcpServers, name) {
+			return ""
+		}
+		errText := fmt.Sprintf("MCP nativo incompatível: o provedor tentou executar a função local %q como MCP remoto", name)
+		if !nativeContractMismatch {
+			nativeContractMismatch = true
+			chatParams.NativeMCPFallback.TriggerAfterResponse()
+			if chatParams.OnNativeMCPUnsupported != nil {
+				chatParams.OnNativeMCPUnsupported()
+			}
+			logging.Warnf(ctx, "llm.openai-responses", "%s; adapter solicitado sem repetir a resposta", errText)
+		}
+		return errText
+	}
 	var lastUsage Usage
 	var lastUsageRaw any
 	var lastModel string
@@ -354,11 +370,18 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 		ReportFinishReason(handler, currentFinish)
 	}
 
+	activeMCPCalls := make(map[string]*pendingMCPCall) // keyed by item_id
+	reportError := func(message string) {
+		// OnError captura o resultado do handler. Conclusões já observadas
+		// precisam entrar nesse snapshot antes do erro terminal.
+		flushPendingCompletedMCPCalls(activeMCPCalls, handler)
+		handler.OnError(message)
+	}
 	failChatGPT := func(code string) {
 		finishThinking()
 		reportCurrentDiagnostics()
 		markErrorNotRetryable(handler)
-		handler.OnError(code)
+		reportError(code)
 	}
 
 	cancelStream := func() {
@@ -377,7 +400,6 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 	activeFuncCalls := make(map[string]*pendingFuncCall) // keyed by item_id
 	var finishedToolCalls []ToolCall
 
-	activeMCPCalls := make(map[string]*pendingMCPCall) // keyed by item_id
 	// mcpFailureLogged garante ERRO único por falha de mcp_call, keyed por
 	// item_id. Uma falha nativa chega por dois eventos (response.mcp_call.failed
 	// + response.output_item.done, em ordem que varia entre proxies); sem essa
@@ -401,7 +423,7 @@ responseEvents:
 			finishThinking()
 			reportCurrentDiagnostics()
 			markErrorNotRetryable(handler)
-			handler.OnError(streamIdleErrorMessage)
+			reportError(streamIdleErrorMessage)
 			return mcpStreamAttemptResult{done: true}
 		}
 		event := stream.Current()
@@ -441,7 +463,7 @@ responseEvents:
 						finishThinking()
 						reportCurrentDiagnostics()
 						markErrorNotRetryable(handler)
-						handler.OnError(streamIdleErrorMessage)
+						reportError(streamIdleErrorMessage)
 						return mcpStreamAttemptResult{done: true}
 					}
 					fullResponse.WriteString(content)
@@ -469,7 +491,7 @@ responseEvents:
 					finishThinking()
 					reportCurrentDiagnostics()
 					markErrorNotRetryable(handler)
-					handler.OnError(streamIdleErrorMessage)
+					reportError(streamIdleErrorMessage)
 					return mcpStreamAttemptResult{done: true}
 				}
 				fullReasoning.WriteString(ev.Delta)
@@ -497,9 +519,10 @@ responseEvents:
 				}
 			case "mcp_call":
 				mc := &pendingMCPCall{
-					ID:          ev.Item.ID,
-					Name:        ev.Item.Name,
-					ServerLabel: ev.Item.ServerLabel,
+					ID:            ev.Item.ID,
+					Name:          ev.Item.Name,
+					ServerLabel:   ev.Item.ServerLabel,
+					ContractError: checkNativeContract(ev.Item.Name),
 				}
 				activeMCPCalls[ev.Item.ID] = mc
 				emittedNonRetryableEffect = true
@@ -515,7 +538,14 @@ responseEvents:
 		case "response.output_item.done":
 			ev := event.AsResponseOutputItemDone()
 			if ev.Item.Type == "mcp_call" {
+				contractError := checkNativeContract(ev.Item.Name)
+				if ev.Item.Error == "" {
+					ev.Item.Error = contractError
+				}
 				mc, ok := activeMCPCalls[ev.Item.ID]
+				if ev.Item.Error == "" && ok {
+					ev.Item.Error = mc.ContractError
+				}
 				args := ""
 				if ok {
 					args = mc.Args.String()
@@ -737,21 +767,21 @@ responseEvents:
 				}
 				markErrorNotRetryable(handler)
 				reportCurrentDiagnostics()
-				handler.OnError(providerError.DisplayMessage())
+				reportError(providerError.DisplayMessage())
 				return mcpStreamAttemptResult{done: true}
 			}
 			if !emittedNonRetryableEffect && looksLikeTokenRateLimit(errMsg) {
 				finishThinking()
 				reportCurrentDiagnostics()
 				markErrorNotRetryable(handler)
-				handler.OnError(streamTokenRateLimitError)
+				reportError(streamTokenRateLimitError)
 				return mcpStreamAttemptResult{done: true}
 			}
 			if !emittedNonRetryableEffect && providerError != nil && providerError.Category == ProviderErrorInvalidValue {
 				finishThinking()
 				reportCurrentDiagnostics()
 				markErrorNotRetryable(handler)
-				handler.OnError(providerError.DisplayMessage())
+				reportError(providerError.DisplayMessage())
 				return mcpStreamAttemptResult{done: true}
 			}
 			if !emittedNonRetryableEffect && isRetryableError(errMsg) {
@@ -764,9 +794,9 @@ responseEvents:
 				markErrorNotRetryable(handler)
 			}
 			if providerError != nil {
-				handler.OnError(providerError.DisplayMessage())
+				reportError(providerError.DisplayMessage())
 			} else {
-				handler.OnError(errMsg)
+				reportError(errMsg)
 			}
 			return mcpStreamAttemptResult{done: true}
 
@@ -808,7 +838,7 @@ responseEvents:
 		if ctx.Err() != nil {
 			cancelStream()
 			reportCurrentDiagnostics()
-			handler.OnError("Streaming cancelado: " + ctx.Err().Error())
+			reportError("Streaming cancelado: " + ctx.Err().Error())
 			return mcpStreamAttemptResult{done: true}
 		}
 
@@ -822,7 +852,7 @@ responseEvents:
 			finishThinking()
 			reportCurrentDiagnostics()
 			markErrorNotRetryable(handler)
-			handler.OnError(streamIdleErrorMessage)
+			reportError(streamIdleErrorMessage)
 			return mcpStreamAttemptResult{done: true}
 		}
 
@@ -840,14 +870,14 @@ responseEvents:
 			finishThinking()
 			reportCurrentDiagnostics()
 			markErrorNotRetryable(handler)
-			handler.OnError(streamTokenRateLimitError)
+			reportError(streamTokenRateLimitError)
 			return mcpStreamAttemptResult{done: true}
 		}
 		if !emittedNonRetryableEffect && recognizedProviderError && providerError.Category == ProviderErrorInvalidValue {
 			finishThinking()
 			reportCurrentDiagnostics()
 			markErrorNotRetryable(handler)
-			handler.OnError(providerError.DisplayMessage())
+			reportError(providerError.DisplayMessage())
 			return mcpStreamAttemptResult{done: true}
 		}
 		if !emittedNonRetryableEffect && isRetryableError(errStr) {
@@ -867,7 +897,7 @@ responseEvents:
 		if emittedNonRetryableEffect || (recognizedProviderError && providerError.Category == ProviderErrorUnsupportedParameter) {
 			markErrorNotRetryable(handler)
 		}
-		handler.OnError(providerError.DisplayMessage())
+		reportError(providerError.DisplayMessage())
 		return mcpStreamAttemptResult{done: true}
 	}
 
@@ -893,7 +923,7 @@ responseEvents:
 		finishThinking()
 		reportCurrentDiagnostics()
 		markErrorNotRetryable(handler)
-		handler.OnError(streamIdleErrorMessage)
+		reportError(streamIdleErrorMessage)
 		return mcpStreamAttemptResult{done: true}
 	}
 
@@ -986,7 +1016,7 @@ responseEvents:
 		if emittedNonRetryableEffect {
 			markErrorNotRetryable(handler)
 		}
-		handler.OnError("streaming_interrupted")
+		reportError("streaming_interrupted")
 		return mcpStreamAttemptResult{done: true}
 	}
 
