@@ -1,6 +1,32 @@
 # AEP-0074 — Compactação e Retenção do Banco de Dados
 
-**Status:** Done
+**Status:** In Progress
+
+O escopo legado está concluído. O status global inclui as extensões de
+contenção e coordenação abaixo, cuja qualificação no banco carregado permanece
+pendente. As referências históricas a Done descrevem somente o escopo legado.
+
+**Extensão de acesso ao histórico de jobs (24/10/2026): In Progress.**
+O log após a limpeza limitada de órfãos ainda mostra `retention.jobs` esgotando
+5s: seleção de 129 runs em 2,7s e desassociação de filhos interrompida após
+2s. A seleção por idade passa a aceitar qualquer lote vencido, sem ordenar
+todo o histórico por `COALESCE(started_at, queued_at)` antes do `LIMIT`.
+A ordenação que define os últimos N runs na retenção por quantidade permanece.
+A migração aditiva v36 (AEP-0076) cria o índice de invocações por
+`(parent_invocation_id, user_id)`, somente para linhas com pai, permitindo localizar os filhos sem percorrer
+todo o ledger do usuário. Falha ao criar esse índice adia a migração para
+outro boot; não impede o uso do aplicativo.
+
+Não há outro scheduler, retry, cache ou adapter. Seleção e exclusão continuam
+na mesma transação, com os mesmos critérios de ownership, outbox e leases.
+Regressões: `TestOldRunRetentionDoesNotSortEntireHistory` captura o SQL real,
+verifica ausência de ordenação temporária e prova continuação/isolamento;
+`TestToolParentRetentionIndexUpgradeAndCleanupPlan` verifica upgrade idempotente,
+plano de busca por pai/usuário e integridade referencial. Os testes anteriores
+de rollback e retenção por quantidade continuam aplicáveis. Isso reduz trabalho
+desnecessário, mas não limita a quantidade de descendentes por run nem prova
+que todas as falhas de tools foram causadas por essa rotina. A qualificação
+no banco carregado após deploy permanece pendente.
 
 **Extensão de contenção (16/10/2026): In Progress.** Falhas de retenção ou
 compactação no coordenador adiam somente a limpeza por 30s, 60s, 120s, 240s
@@ -116,7 +142,7 @@ sem fonte mesmo sem workspace/UI disponível, mas não permite ativação ou
 renovação nesse estado. Erros de transação continuam erros, não ausência de
 contexto. O diagnóstico de falhas inclui etapa e contadores confirmados.
 Aceites e limites estão na tasklist; o gate integrado de restart de todos os
-domínios ainda não está certificado. Done acima continua restrito ao legado.
+domínios ainda não está certificado. O escopo legado permanece concluído.
 
 **Atualização da extensão AEP-0103, seção 26 (16/09/2026):** a composição real
 está ligada no App antes de jobs.Start quando o armazenamento de comandos está
@@ -136,7 +162,7 @@ transitórios não viram rejeição definitiva e retenção sinaliza continuaç�
 após rollback. A composição completa do Consumer e a chamada produtiva de
 ConfigureCommandMaintenance ainda faltam. O recovery de restart registrado
 já está ligado ao bootstrap (seção 24 da tasklist AEP-0103); isso não habilita
-a cadência periódica completa. Done acima permanece restrito ao escopo legado.
+a cadência periódica completa. O escopo legado permanece concluído.
 
 **Rodada de quinze pacotes AEP-0103 (15/09/2026), extensão In Progress:**
 `commanddecision.CoordinatorRecovery` pagina receipts de todos os owners,
