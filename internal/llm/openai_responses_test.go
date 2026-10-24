@@ -651,6 +651,7 @@ func TestOpenAIProvider_StreamChatResponses_ReportsFailureWithoutRemovingTools(t
 
 	handler := &providerRetryHandler{}
 	provider.streamChatResponses(context.Background(), "gpt-test", []Message{{Role: "user", Content: "oi"}}, ChatParams{}, handler)
+	assertMCPFailureNotRetryable(t, handler)
 
 	if attempts != 1 {
 		t.Fatalf("attempts = %d, want 1", attempts)
@@ -700,6 +701,7 @@ func TestOpenAIProvider_StreamChatResponses_NativeMCPUnsupportedWithoutAdapterRe
 	handler := &providerRetryHandler{}
 	params := ChatParams{OnNativeMCPUnsupported: func() { hookCalls++ }}
 	provider.streamChatResponses(context.Background(), "deepseek-v4-flash", []Message{{Role: "user", Content: "oi"}}, params, handler)
+	assertMCPFailureNotRetryable(t, handler)
 
 	if attempts != 1 {
 		t.Fatalf("attempts = %d, want 1", attempts)
