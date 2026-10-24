@@ -2,6 +2,28 @@
 
 **Status:** Done
 
+**Extensão de acesso ao histórico de jobs (24/10/2026): In Progress.**
+O log após a limpeza limitada de órfãos ainda mostra `retention.jobs` esgotando
+5s: seleção de 129 runs em 2,7s e desassociação de filhos interrompida após
+2s. A seleção por idade passa a aceitar qualquer lote vencido, sem ordenar
+todo o histórico por `COALESCE(started_at, queued_at)` antes do `LIMIT`.
+A ordenação que define os últimos N runs na retenção por quantidade permanece.
+A migração aditiva v36 (AEP-0076) cria o índice de invocações por
+`(parent_invocation_id, user_id)`, somente para linhas com pai, permitindo localizar os filhos sem percorrer
+todo o ledger do usuário. Falha ao criar esse índice adia a migração para
+outro boot; não impede o uso do aplicativo.
+
+Não há outro scheduler, retry, cache ou adapter. Seleção e exclusão continuam
+na mesma transação, com os mesmos critérios de ownership, outbox e leases.
+Regressões: `TestOldRunRetentionDoesNotSortEntireHistory` captura o SQL real,
+verifica ausência de ordenação temporária e prova continuação/isolamento;
+`TestToolParentRetentionIndexUpgradeAndCleanupPlan` verifica upgrade idempotente,
+plano de busca por pai/usuário e integridade referencial. Os testes anteriores
+de rollback e retenção por quantidade continuam aplicáveis. Isso reduz trabalho
+desnecessário, mas não limita a quantidade de descendentes por run nem prova
+que todas as falhas de tools foram causadas por essa rotina. A qualificação
+no banco carregado após deploy permanece pendente.
+
 **Extensão de contenção (16/10/2026): In Progress.** Falhas de retenção ou
 compactação no coordenador adiam somente a limpeza por 30s, 60s, 120s, 240s
 e no máximo 5min, contados após a operação retornar. Heartbeat, outbox e

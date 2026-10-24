@@ -1,5 +1,12 @@
 # AEP — Assistente Enhancement Proposals
 
+**AEP-0074 — acesso ao histórico de jobs (24/10/2026): In Progress.**
+Seleção por idade sem ordenação global antes do lote e migração aditiva v36
+para localizar filhos de invocações por pai e usuário. Regressões verificam
+os planos SQL produtivos, continuidade da limpeza, isolamento, upgrade e FKs.
+Sem novo coordenador ou política; qualificação no banco carregado pendente.
+O status Done do AEP-0074 permanece restrito ao escopo legado.
+
 **AEP-0103 — recuperação após atualização de catálogo (18/10/2026): In Progress.**
 Correção da retomada de hot-swap incompleto, sem reutilizar catálogo revogado
 nem dispensar autenticação/preflight. Diagnóstico diferencia o estado do runtime
