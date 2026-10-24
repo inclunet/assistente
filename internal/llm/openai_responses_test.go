@@ -767,7 +767,7 @@ func TestOpenAIProvider_StreamChatResponses_PromptCacheHintUnsupportedRetriesWit
 		t.Fatal("PromptCacheHintFallback should be disabled after explicit rejection")
 	}
 	if len(handler.errors) != 0 {
-		t.Fatalf("esperava erro explícito de conexão MCP: %v", handler.errors)
+		t.Fatalf("não deveria emitir erro após o retry sem prompt cache hint: %v", handler.errors)
 	}
 	if handler.done != 1 {
 		t.Fatalf("OnDone = %d, want 1", handler.done)

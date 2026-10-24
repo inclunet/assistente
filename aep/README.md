@@ -1133,7 +1133,7 @@ de cancelamento de release na dependência; o AEP permanece **In Progress**.
 | [0050](0050-profiles-database-migration.md) | Migração de Profiles para Banco de Dados (adiada) | 📝 Draft |
 | [0051](0051-skills-database-migration.md) | Migração de Skills para Banco de Dados | 📝 Draft |
 | [0052](0052-multi-user-accounts.md) | Sistema de Contas de Usuário — autenticação aguarda startup no desktop | 🚧 In Progress |
-| [0053](0053-mcp-graceful-degradation.md) | Degradação de MCP nativo substituída pelo plano estável da AEP-0021 v9 | Superseded |
+| [0053](0053-mcp-graceful-degradation.md) | Degradação de MCP nativo substituída pelo plano estável da AEP-0021 v9 | 🗄️ Superseded |
 | [0056](0056-workspace-self-contained-tabs.md) | Workspace com Abas Autocontidas | ✅ Done |
 | [0057](0057-chat-session-identity.md) | Sessões de Superfície e Timeline de Chat — fan-out e rascunho PR3 | ✅ Done |
 | [0058](0058-global-accessibility-voice-arbitration.md) | Arbitragem Global de Acessibilidade e Voz | ✅ Done |
