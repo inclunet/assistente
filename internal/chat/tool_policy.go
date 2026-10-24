@@ -4,7 +4,6 @@ import (
 	"sort"
 	"strings"
 
-	mcplib "assistente/internal/mcp"
 	"assistente/internal/tools"
 )
 
@@ -297,9 +296,9 @@ func toolPolicyTargetFromRegistry(registry *tools.Registry, name string) ToolPol
 	if !ok {
 		return target
 	}
-	// Só o formato canônico completo mcp_<slug>__<tool> identifica uma ponte
-	// MCP. Builtins como mcp_server mantêm seus CatalogMetadata.Package.
-	if _, _, isMCP := mcplib.ParseToolName(name); !isMCP {
+	if identity, ok := tools.MCPIdentityOf(tool); ok {
+		target.MCPServerSlug = identity.ServerSlug
+	} else {
 		target.Package = tools.CatalogMetadataForTool(tool).Package
 	}
 	return target

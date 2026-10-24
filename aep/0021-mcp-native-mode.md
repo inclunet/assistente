@@ -35,6 +35,29 @@ aparente de tools. A política de preferência nativa/adapter permanece a mesma.
 - As APIs legadas de seleção e testes de paridade foram retirados. Os cenários
   de autorização, orçamento e seleção são verificados no fluxo usado no envio.
 
+### Identidade da implementação
+
+A ponte declara servidor e nome original por `MCPIdentityProvider`. O nome
+publicado continua único e compatível com perfis/conversas existentes, mas não
+serve para determinar origem, política, proteção de resultados ou apresentação.
+O snapshot nativo carrega nome registrado e original juntos, sem reconstrução.
+
+Jobs carregam a origem do catálogo junto do job, inclusive quando a ferramenta
+está desconectada. Dry-run consulta a implementação; registrar resultado por
+nome exige contexto autenticado e uma única entrada visível. Nomes ambíguos
+exigem ID do catálogo.
+
+Eventos finais e histórico usam a identidade capturada pelo executor, mesmo
+que a ferramenta seja desconectada ou substituída durante a chamada. Registros
+de MCP nativo recebem servidor e nome original do evento adaptado, sem depender
+de uma ponte registrada localmente.
+
+A única interpretação legada mantida no backend é a importação de jobs que
+referenciam pelo nome persistido uma ferramenta ainda não descoberta. Ela exige
+servidor existente do usuário e grava origem/servidor no catálogo. Seletores de
+perfil preservam sua sintaxe pública; só casam MCP depois que sua identidade é
+conhecida. O registro posterior continua sendo avaliado pela política vigente.
+
 ### Fases e evidências da simplificação
 
 - [x] Plano estável, expansão e ausência de alternativa desnecessária:
@@ -45,8 +68,12 @@ aparente de tools. A política de preferência nativa/adapter permanece a mesma.
 - [x] Falha sem descarte de servidor: testes `ReportsFailureWithoutRemovingTools`
   em `llm`, e `NativeMCPUnsupportedWithoutAdapterReportsError`.
 - [x] Retirada dos wrappers históricos e conversão duplicada de definições.
-- [ ] Desacoplar a identidade MCP do formato do nome nas camadas de política,
-  executor, catálogo e jobs; entrega subsequente da refatoração.
+- [x] Identidade MCP explícita nas camadas de política, executor, catálogo e jobs;
+  `TestMCPSelectionUsesIdentityInsteadOfPublishedName` e cenários de aliases no executor/catálogo.
+- [x] Histórico preserva a implementação executada: testes
+  `TestServicePreservesExecutedIdentityAfterRegistryReplacement`,
+  `TestServiceUsesBuiltinIdentityWhenBridgeIsReplacedBeforeExecution` e
+  `TestPersistNativeMCPCalls_RecordsToolInvocation`.
 - [ ] Qualificar com conversa real após implantação.
 
 ---

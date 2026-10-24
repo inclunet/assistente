@@ -15,9 +15,10 @@ import (
 func charRegistry(t *testing.T) *tools.Registry {
 	t.Helper()
 	r := tools.NewRegistry()
-	for _, n := range []string{tools.ToolCatalogName, tools.LoadSkillName, "read_file", "grep_search", "write_file", "mcp_srv__do"} {
+	for _, n := range []string{tools.ToolCatalogName, tools.LoadSkillName, "read_file", "grep_search", "write_file"} {
 		r.MustRegister(newToolDef(n))
 	}
+	r.MustRegister(newMCPToolDef("srv", "do"))
 	r.MustRegisterOptIn(newToolDef("text_edit"))
 	return r
 }
@@ -101,6 +102,6 @@ func expansionStreamerAndMgr(native bool) (llm.ChatProvider, NativeMCPManager) {
 		return nil, nil
 	}
 	return &mockChatProvider{nativeCapable: true}, &mockNativeMCPMgr{servers: []mcplib.NativeMCPServer{
-		{Slug: "srv", Name: "Srv", URL: "https://srv.io", ToolNames: []string{"mcp_srv__do"}},
+		{Slug: "srv", Name: "Srv", URL: "https://srv.io", Tools: []mcplib.NativeMCPTool{{RegisteredName: "mcp_srv__do", Name: "do"}}},
 	}}
 }

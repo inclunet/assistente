@@ -288,39 +288,18 @@ func (r *DBRepository) MarkServerToolsUnavailable(ctx context.Context, serverID 
 }
 
 func (r *DBRepository) RecordToolTest(ctx context.Context, toolName, status, errorMessage string) error {
-	toolName = strings.TrimSpace(toolName)
-	if toolName == "" {
-		return fmt.Errorf("toolName é obrigatório")
+	entries, err := r.ListTools(ctx, tools.ToolCatalogFilter{NameIn: []string{toolName}, IncludeUnavailable: true, Limit: 2})
+	if err != nil {
+		return err
 	}
-	status = strings.TrimSpace(status)
-	if status == "" {
-		status = tools.ToolTestStatusOK
-	}
-	now := r.now()
-	query := r.db.WithContext(ctx).Model(&database.ToolCatalog{}).Where("name = ?", toolName)
-	if isMCPNamespacedName(toolName) {
-		userID, err := database.RequireUserID(ctx)
-		if err != nil {
-			return err
-		}
-		query = query.Where("user_id = ?", userID)
-	} else {
-		query = query.Where("(user_id IS NULL OR user_id = '')")
-	}
-	tx := query.Updates(map[string]any{
-		"last_tested_at":   &now,
-		"last_test_status": status,
-		"last_test_error":  errorMessage,
-	})
-	if tx.Error != nil {
-		return tx.Error
-	}
-	if tx.RowsAffected == 0 {
+	if len(entries) == 0 {
 		return gorm.ErrRecordNotFound
 	}
-	return nil
+	if len(entries) != 1 {
+		return fmt.Errorf("nome de tool ambíguo; informe o ID do catálogo")
+	}
+	return r.RecordToolTestByID(ctx, entries[0].ID, status, errorMessage)
 }
-
 func (r *DBRepository) RecordToolTestByID(ctx context.Context, toolCatalogID, status, errorMessage string) error {
 	userID, err := database.RequireUserID(ctx)
 	if err != nil {
@@ -509,18 +488,6 @@ func toolModelToEntry(row database.ToolCatalog) (tools.ToolCatalogEntry, error) 
 		entry.MCPServerID = *row.MCPServerID
 	}
 	return entry, nil
-}
-
-// isMCPNamespacedName reporta se o nome segue o padrão namespaced de uma tool
-// MCP ("mcp_<slug>__<tool>"). Espelha mcp.ParseToolName sem importar o pacote
-// MCP, evitando ciclo de import (mcp consome este pacote).
-func isMCPNamespacedName(name string) bool {
-	name = strings.TrimSpace(name)
-	if !strings.HasPrefix(name, "mcp_") {
-		return false
-	}
-	parts := strings.SplitN(name[4:], "__", 2)
-	return len(parts) == 2 && strings.TrimSpace(parts[0]) != "" && strings.TrimSpace(parts[1]) != ""
 }
 
 func marshalJSONString(v any) (string, error) {

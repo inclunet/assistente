@@ -380,7 +380,7 @@ func reconcileToolContentsWithContracts(ctx context.Context, results []tools.Too
 		// O pre-check legado calcula a quota de cada resultado. Reaplicamos essa
 		// quota ao contrato da tool para não cortar JSON/raw nem deixar
 		// output_window apontar além dos bytes realmente enviados.
-		contents[i] = tools.ContentForModelWithinLimit(ctx, execution.Result, len(contents[i]), execution.ToolName)
+		contents[i] = tools.ContentForModelWithinLimit(ctx, execution.Result, len(contents[i]), execution.MCPIdentity != nil)
 	}
 }
 
@@ -580,8 +580,7 @@ func (r *agenticLoopRunner) retryRetryableTools(ctx context.Context, toolCalls [
 	for i, execResult := range execResults {
 		if execResult.Result.IsError && execResult.Retryable && iteration < r.maxIterations-1 {
 			retriedCallIDs[execResult.CallID] = struct{}{}
-			retryOrigin, retryServerLabel := detectToolOrigin(execResult.ToolName)
-			retryName := extractLogicalToolName(execResult.ToolName)
+			retryOrigin, retryServerLabel, retryName := toolPresentation(execResult.ToolName, execResult.MCPIdentity)
 			// Emite tool_end para a tentativa que falhou (attempt=0)
 			EmitToolEnd(r.svc.emitter, ports.ToolEndEvent{
 				ConversationID:     r.conversationID,
@@ -647,8 +646,7 @@ func (r *agenticLoopRunner) retryRetryableTools(ctx context.Context, toolCalls [
 func (r *agenticLoopRunner) emitToolEndsAndAccount(execResults []tools.ToolExecutionResult, retriedCallIDs map[string]struct{}) []ports.ToolSummary {
 	var iterationTools []ports.ToolSummary
 	for _, execResult := range execResults {
-		origin, serverLabel := detectToolOrigin(execResult.ToolName)
-		logicalName := extractLogicalToolName(execResult.ToolName)
+		origin, serverLabel, logicalName := toolPresentation(execResult.ToolName, execResult.MCPIdentity)
 		status := "ok"
 		if execResult.Result.IsError {
 			status = "error"
@@ -912,36 +910,6 @@ func buildAgenticInvocationContext(ctx context.Context, params llm.ChatParams, c
 	})
 }
 
-// buildEnrichedToolCalls monta os EnrichedToolCall para persistência da mensagem
-// assistant (AEP-0039 Fase 5 / AEP-0063), incluindo origin, server_label, iteração
-// e a duração da execução correspondente quando disponível.
-func buildEnrichedToolCalls(toolCalls []llm.ToolCall, execResults []tools.ToolExecutionResult, iteration int) []llm.EnrichedToolCall {
-	enrichedCalls := make([]llm.EnrichedToolCall, len(toolCalls))
-	// AEP-0063 (D2): não persistir tool results como parte das mensagens.
-	// O resultado é efêmero em tool_invocations e hidratado sob demanda.
-	for i, tc := range toolCalls {
-		tcOrigin, tcServerLabel := detectToolOrigin(tc.Function.Name)
-		enrichedCalls[i] = llm.EnrichedToolCall{
-			ID:   tc.ID,
-			Type: tc.Type,
-			Function: llm.FunctionCall{
-				Name:      extractLogicalToolName(tc.Function.Name),
-				Arguments: tc.Function.Arguments,
-			},
-			Origin:      tcOrigin,
-			ServerLabel: tcServerLabel,
-			Iteration:   iteration,
-		}
-		if i < len(execResults) {
-			enrichedCalls[i].DurationMs = execResults[i].DurationMs
-		}
-	}
-	return enrichedCalls
-}
-
-// sortedToolNames retorna os nomes de tools de um set ordenados alfabeticamente.
-// Sempre retorna uma slice não-nil (vazia quando o set é vazio) para manter a
-// serialização de eventos estável.
 func sortedToolNames(set map[string]struct{}) []string {
 	names := make([]string, 0, len(set))
 	for name := range set {

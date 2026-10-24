@@ -3,7 +3,7 @@ package wailsapi
 import (
 	"assistente/internal/jobs"
 	"assistente/internal/logging"
-	"assistente/internal/mcp"
+
 	"assistente/internal/tools"
 	"context"
 	"errors"
@@ -19,15 +19,6 @@ type DryRunMCPCatalog interface {
 	ListToolCatalog(ctx context.Context, filter tools.ToolCatalogFilter) ([]tools.ToolCatalogEntry, error)
 	RecordToolTestStatus(ctx context.Context, toolName, status, errorMessage string) error
 	RecordToolTestStatusByID(ctx context.Context, toolCatalogID, status, errorMessage string) error
-}
-
-func isMCPBridgeDryRunName(toolName string) bool {
-	toolName = strings.TrimSpace(toolName)
-	if strings.HasPrefix(toolName, "mcp_native__") {
-		return false
-	}
-	_, _, ok := mcp.ParseToolName(toolName)
-	return ok
 }
 
 func recordToolDryRunStatus(ctx context.Context, mcpCat DryRunMCPCatalog, result *jobs.TestToolResult, status string) {

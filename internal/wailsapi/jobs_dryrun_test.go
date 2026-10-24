@@ -19,6 +19,10 @@ import (
 
 type jobsDryRunMCPTool struct{}
 
+func (jobsDryRunMCPTool) MCPIdentity() tools.MCPToolIdentity {
+	return tools.MCPToolIdentity{ServerSlug: "jira", ToolName: "create_issue"}
+}
+
 func (jobsDryRunMCPTool) Name() string                { return "mcp_jira__create_issue" }
 func (jobsDryRunMCPTool) Description() string         { return "create issue" }
 func (jobsDryRunMCPTool) Parameters() json.RawMessage { return json.RawMessage(`{"type":"object"}`) }

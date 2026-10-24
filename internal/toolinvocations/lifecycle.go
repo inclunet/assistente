@@ -27,6 +27,7 @@ func logInvocationPersistenceFailure(ctx context.Context, stage string, origin O
 
 // As entradas adaptam seus resultados; somente este núcleo grava o ciclo de vida.
 type invocationStart struct {
+	identity           tools.MCPToolIdentity
 	call               tools.ToolCall
 	persistedArguments *string
 	sensitivePaths     commandcatalog.SensitivePaths
@@ -40,6 +41,7 @@ type invocationStart struct {
 }
 
 type invocationOutcome struct {
+	identity                     tools.MCPToolIdentity
 	status, message              string
 	result                       tools.ToolResult
 	errorKind                    tools.ErrorKind
@@ -177,7 +179,7 @@ func (s *Service) beginInvocation(ctx context.Context, req invocationStart) (Inv
 		Status: StatusQueued, DryRun: req.dryRun, ModelIteration: req.iteration,
 		External: req.external, DisplayName: req.call.Function.Name,
 		ResultAvailability: "pending", QueuedAt: queuedAt,
-		Metadata: s.buildInvocationDisplayMetadata(call, req.iteration, 0, req.external),
+		Metadata: s.buildInvocationDisplayMetadata(call, req.iteration, 0, req.external, req.identity),
 	}
 	if observation := req.observation; observation != nil {
 		inv.Metadata = observationMetadata
@@ -271,7 +273,7 @@ func (s *Service) finishInvocation(ctx context.Context, inv *Invocation, req inv
 	} else {
 		inv.Output = s.outputForPersistence(outcome.result, req.sensitivePaths.Output)
 		populateOutputProjection(inv)
-		inv.Metadata = s.buildInvocationMetadata(req.persistenceCall(), req.iteration, outcome.durationMs, req.external, outcome.result)
+		inv.Metadata = s.buildInvocationMetadata(req.persistenceCall(), req.iteration, outcome.durationMs, req.external, outcome.result, outcome.identity)
 	}
 	inv.CompletedAt = &completedAt
 	opCtx, cancel := s.persistOpCtx(persistCtx)

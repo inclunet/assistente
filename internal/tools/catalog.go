@@ -73,7 +73,7 @@ func CatalogEntryFromTool(tool Tool) ToolCatalogEntry {
 	name := tool.Name()
 	schema := tool.Parameters()
 	metadata := CatalogMetadataForTool(tool)
-	return ToolCatalogEntry{
+	entry := ToolCatalogEntry{
 		Name:               name,
 		DisplayName:        name,
 		Description:        tool.Description(),
@@ -88,6 +88,13 @@ func CatalogEntryFromTool(tool Tool) ToolCatalogEntry {
 		SchemaBytes:        len(schema),
 		AvailabilityStatus: ToolAvailabilityAvailable,
 	}
+	if identity, ok := MCPIdentityOf(tool); ok {
+		entry.Origin = ToolOriginMCPBridge
+		entry.DisplayName = identity.ToolName
+		entry.Package = "mcp:" + identity.ServerSlug
+		entry.Category, entry.Class, entry.Risk = "mcp", "mcp_tool", ""
+	}
+	return entry
 }
 
 func SchemaHash(schema json.RawMessage) string {

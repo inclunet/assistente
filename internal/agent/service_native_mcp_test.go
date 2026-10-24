@@ -184,6 +184,25 @@ func TestPersistNativeMCPCalls_RecordsToolInvocation(t *testing.T) {
 		t.Fatalf("expected 4 invocations, got %d", len(rows))
 	}
 	for _, row := range rows {
+		if row.ToolCallID == "call-1" {
+			stored, err := repo.Get(userCtx, row.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var payload struct {
+				Display struct {
+					Name   string `json:"name"`
+					Origin string `json:"origin"`
+					Server string `json:"server_label"`
+				} `json:"display"`
+			}
+			if err := json.Unmarshal(stored.Metadata, &payload); err != nil {
+				t.Fatal(err)
+			}
+			if payload.Display.Name != "ping" || payload.Display.Server != "srv" || payload.Display.Origin != "mcp_native" {
+				t.Fatalf("native identity lost: %s", stored.Metadata)
+			}
+		}
 		if row.ConversationID != "conv-1" || row.TurnID != "turn-1" ||
 			row.InputHash == "" || row.OutputHash == "" {
 			t.Fatalf("invocação MCP sem vínculo/projeção: %+v", row)

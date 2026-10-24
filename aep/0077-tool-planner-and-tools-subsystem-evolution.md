@@ -15,7 +15,7 @@ verificam a política efetiva em vez de comparar duas implementações legadas.
 A conversão do registry para definições foi unificada. O `TurnToolPlan` da
 AEP-0021 v9 fixa a delegação utilizada na expansão e calcula alternativa
 adapter somente quando existe delegação nativa. A refatoração de identidade
-MCP continua registrada como fase pendente na AEP-0021.
+MCP está entregue na AEP-0021 v9; resta a qualificação com conversa real.
 
 ## Resumo
 

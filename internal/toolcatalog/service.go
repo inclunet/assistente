@@ -50,14 +50,14 @@ func (s *Service) RecordToolTestByID(ctx context.Context, toolCatalogID, status,
 }
 
 // SyncBuiltins cataloga as tools builtin descobríveis do registry. Tools com
-// nome namespaced de MCP são ignoradas (são sincronizadas via SyncMCPServerTools
+// identidade MCP são ignoradas (são sincronizadas via SyncMCPServerTools
 // com escopo de servidor/usuário).
 func (s *Service) SyncBuiltins(ctx context.Context, registry *tools.Registry) error {
 	if s == nil || s.repo == nil || registry == nil {
 		return nil
 	}
 	for _, tool := range registry.Discoverable() {
-		if isMCPNamespacedName(tool.Name()) {
+		if _, isMCP := tools.MCPIdentityOf(tool); isMCP {
 			continue
 		}
 		entry := tools.CatalogEntryFromTool(tool)

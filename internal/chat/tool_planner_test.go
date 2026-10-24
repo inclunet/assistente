@@ -120,7 +120,7 @@ func TestPolicyPlanner_NativeBridgeNaoConsomeBudget(t *testing.T) {
 
 	capable := &mockChatProvider{nativeCapable: true}
 	mgr := &mockNativeMCPMgr{servers: []mcplib.NativeMCPServer{
-		{Slug: "srv", Name: "Srv", URL: "https://srv.io", ToolNames: []string{"mcp_srv__do"}},
+		{Slug: "srv", Name: "Srv", URL: "https://srv.io", Tools: []mcplib.NativeMCPTool{{RegisteredName: "mcp_srv__do", Name: "do"}}},
 	}}
 	cfg := ProfileToolConfig{
 		EnabledTools:      []string{"read_file", "mcp_srv__do"},

@@ -56,24 +56,13 @@ func BuildToolName(serverSlug, toolName string) string {
 	return fmt.Sprintf("mcp_%s__%s", serverSlug, toolName)
 }
 
-// ParseToolName extrai serverSlug e toolName de um nome namespaced.
-// Retorna ("", "", false) se o nome não for um tool MCP válido.
-func ParseToolName(fullName string) (serverSlug, toolName string, ok bool) {
-	fullName = strings.TrimSpace(fullName)
-	if !strings.HasPrefix(fullName, "mcp_") {
-		return "", "", false
-	}
-	rest := fullName[4:] // remove "mcp_"
-	parts := strings.SplitN(rest, "__", 2)
-	if len(parts) != 2 || strings.TrimSpace(parts[0]) == "" || strings.TrimSpace(parts[1]) == "" {
-		return "", "", false
-	}
-	return strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1]), true
-}
-
 // Name retorna o nome completo (namespaced) da tool.
 func (b *MCPToolBridge) Name() string {
 	return b.fullName
+}
+
+func (b *MCPToolBridge) MCPIdentity() tools.MCPToolIdentity {
+	return tools.MCPToolIdentity{ServerSlug: b.serverSlug, ToolName: b.toolName}
 }
 
 // Description retorna a descrição original da tool MCP.

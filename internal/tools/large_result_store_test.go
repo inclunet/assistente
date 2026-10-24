@@ -116,7 +116,7 @@ func TestProtectModelResultLayersByteResumeOverNaturalWindow(t *testing.T) {
 		Content:     strings.Repeat("x", 1024),
 		Annotations: &ResultAnnotations{OutputWindow: source},
 	}
-	modelContent := ContentForModelWithinLimit(largeResultTestContext(), result, 768, "read_file")
+	modelContent := ContentForModelWithinLimit(largeResultTestContext(), result, 768, false)
 	if len(modelContent) > 768 || !strings.Contains(modelContent, `"result_id"`) ||
 		!strings.Contains(modelContent, `"source_window"`) {
 		t.Fatalf("pre-check não recompôs janela natural: %q", modelContent)
@@ -304,7 +304,8 @@ func TestExecutorMakesLargeMCPJSONRecoverable(t *testing.T) {
 	original := `{"items":[` + strings.Repeat(`{"id":1},`, 2000) + `null]}`
 	registry := NewRegistry()
 	registry.MustRegister(&mockTool{
-		name: "mcp_server__large",
+		name:     "external_alias",
+		identity: MCPToolIdentity{ServerSlug: "server", ToolName: "large"},
 		exec: func(context.Context, json.RawMessage) (ToolResult, error) {
 			return ToolResult{Content: original}, nil
 		},
@@ -312,7 +313,7 @@ func TestExecutorMakesLargeMCPJSONRecoverable(t *testing.T) {
 	cfg := DefaultExecutorConfig()
 	cfg.MaxResultSize = 1024
 	got := NewExecutor(registry, cfg).ExecuteOne(largeResultTestContext(), ToolCall{
-		ID: "call-mcp", Function: FunctionCall{Name: "mcp_server__large", Arguments: `{}`},
+		ID: "call-mcp", Function: FunctionCall{Name: "external_alias", Arguments: `{}`},
 	})
 	if got.Result.IsError || got.Result.Annotations == nil || got.Result.Annotations.OutputWindow == nil {
 		t.Fatalf("MCP grande não ficou recuperável: %+v", got)
@@ -329,7 +330,7 @@ func TestExecutorMakesLargeMCPJSONRecoverable(t *testing.T) {
 func TestExecutorDoesNotMistakeBuiltinMCPServerForBridge(t *testing.T) {
 	registry := NewRegistry()
 	registry.MustRegister(&mockTool{
-		name: "mcp_server",
+		name: "mcp_fake__builtin",
 		exec: func(context.Context, json.RawMessage) (ToolResult, error) {
 			return ToolResult{Content: `{"value":"` + strings.Repeat("x", 2000) + `"}`, Structured: true}, nil
 		},
@@ -337,7 +338,7 @@ func TestExecutorDoesNotMistakeBuiltinMCPServerForBridge(t *testing.T) {
 	cfg := DefaultExecutorConfig()
 	cfg.MaxResultSize = 512
 	got := NewExecutor(registry, cfg).ExecuteOne(context.Background(), ToolCall{
-		ID: "call-builtin", Function: FunctionCall{Name: "mcp_server", Arguments: `{}`},
+		ID: "call-builtin", Function: FunctionCall{Name: "mcp_fake__builtin", Arguments: `{}`},
 	})
 	if got.ErrorCode != "result_too_large" || !got.Result.IsError {
 		t.Fatalf("builtin mcp_server passou como bridge: %+v", got)
@@ -559,7 +560,7 @@ func TestContentForModelWithinLimitRecalculatesRecoverableWindow(t *testing.T) {
 	if !ok {
 		t.Fatal("primeira proteção falhou")
 	}
-	got := ContentForModelWithinLimit(largeResultTestContext(), first, 1024, "")
+	got := ContentForModelWithinLimit(largeResultTestContext(), first, 1024, false)
 	if len(got) > 1024 {
 		t.Fatalf("resultado excedeu quota: %d", len(got))
 	}
@@ -586,7 +587,7 @@ func TestContentForModelWithinLimitNeverCutsRawOrStructured(t *testing.T) {
 		{Content: `{"value":"` + strings.Repeat("x", 500) + `"}`, Structured: true},
 		{Content: `"` + strings.Repeat("x", 500) + `"`},
 	} {
-		got := ContentForModelWithinLimit(context.Background(), result, 256, "")
+		got := ContentForModelWithinLimit(context.Background(), result, 256, false)
 		if strings.Contains(got, result.Content[:100]) {
 			t.Fatalf("conteúdo exato foi devolvido parcialmente: %q", got)
 		}
@@ -608,7 +609,7 @@ func TestContentForModelWithinLimitNeverRepaginatesRawResultPage(t *testing.T) {
 			NextOffset: 1300, ResultID: "tool-result-existente",
 		}},
 	}
-	got := ContentForModelWithinLimit(largeResultTestContext(), result, 64, "read_tool_result")
+	got := ContentForModelWithinLimit(largeResultTestContext(), result, 64, false)
 	if !strings.Contains(got, "raw_result_too_large") || strings.Contains(got, "página") {
 		t.Fatalf("página raw foi repaginada em vez de rejeitada: %q", got)
 	}
@@ -616,7 +617,7 @@ func TestContentForModelWithinLimitNeverRepaginatesRawResultPage(t *testing.T) {
 
 func TestContentForModelWithinLimitNeverExceedsTinyBudget(t *testing.T) {
 	for _, budget := range []int{0, 1, 8} {
-		got := ContentForModelWithinLimit(context.Background(), ToolResult{Content: "raw", RawExact: true}, budget, "")
+		got := ContentForModelWithinLimit(context.Background(), ToolResult{Content: "raw", RawExact: true}, budget, false)
 		if len(got) > budget {
 			t.Fatalf("falha raw excedeu budget %d: %q", budget, got)
 		}
@@ -630,7 +631,7 @@ func TestContentForModelWithinLimitKeepsMCPPreviewDelimited(t *testing.T) {
 		t.Fatal("primeira proteção MCP falhou")
 	}
 	firstReturned := first.Annotations.OutputWindow.Returned
-	got := ContentForModelWithinLimit(largeResultTestContext(), first, 1024, "mcp_server__large")
+	got := ContentForModelWithinLimit(largeResultTestContext(), first, 1024, true)
 	if len(got) > 1024 || !strings.Contains(got, mcpPreviewPrefix) || !strings.Contains(got, mcpPreviewSuffix) {
 		t.Fatalf("prévia MCP recomposta incorretamente: %q", got)
 	}
@@ -641,7 +642,7 @@ func TestContentForModelWithinLimitKeepsMCPPreviewDelimited(t *testing.T) {
 
 func TestContentForModelWithinLimitDoesNotInferMCPFromContent(t *testing.T) {
 	content := mcpPreviewPrefix + strings.Repeat("x", 2000)
-	got := ContentForModelWithinLimit(largeResultTestContext(), ToolResult{Content: content}, 1024, "ordinary_tool")
+	got := ContentForModelWithinLimit(largeResultTestContext(), ToolResult{Content: content}, 1024, false)
 	if strings.Count(got, mcpPreviewPrefix) != 1 {
 		t.Fatalf("texto comum foi reclassificado como MCP: %q", got)
 	}
@@ -656,7 +657,7 @@ func TestContentForModelWithinLimitDoesNotReclassifyExistingWindowAsJSON(t *test
 	if !IsCanonicalJSON(first.Content) {
 		t.Fatalf("fixture não produziu prévia acidentalmente JSON: %q", first.Content)
 	}
-	got := ContentForModelWithinLimit(largeResultTestContext(), first, 1024, "ordinary_tool")
+	got := ContentForModelWithinLimit(largeResultTestContext(), first, 1024, false)
 	if !strings.Contains(got, `"result_id"`) || strings.Contains(got, "[result_too_large]") {
 		t.Fatalf("janela retomável foi reclassificada como JSON: %q", got)
 	}

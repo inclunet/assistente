@@ -103,7 +103,7 @@ func (e *Executor) ExecuteOne(ctx context.Context, call ToolCall) ToolExecutionR
 }
 
 // executeSingle executa uma única tool com timeout e tratamento de erro.
-func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecutionResult {
+func (e *Executor) executeSingle(ctx context.Context, call ToolCall) (execution ToolExecutionResult) {
 	toolName := call.Function.Name
 	start := time.Now()
 
@@ -140,6 +140,12 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 			DurationMs:        time.Since(start).Milliseconds(),
 		}
 	}
+	identity, mcpBridge := MCPIdentityOf(tool)
+	defer func() {
+		if mcpBridge {
+			execution.MCPIdentity = &identity
+		}
+	}()
 	if e.config.ExpectedToolGeneration != 0 && generation != e.config.ExpectedToolGeneration {
 		err := fmt.Errorf("geração da ferramenta '%s' mudou: esperada %d, atual %d", toolName, e.config.ExpectedToolGeneration, generation)
 		return ToolExecutionResult{
@@ -235,7 +241,7 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 			}
 			result.IsError = true
 			result = protectErroredToolResult(
-				execCtx, result, e.config.MaxResultSize, toolName, e.config.RequireCompleteResult,
+				execCtx, result, e.config.MaxResultSize, mcpBridge, e.config.RequireCompleteResult,
 			)
 			resultCh <- ToolExecutionResult{
 				CallID:            call.ID,
@@ -270,7 +276,6 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecuti
 			if !structured && !result.RawExact && !hasWindow {
 				structured = IsCanonicalJSON(result.Content)
 			}
-			mcpBridge := isMCPBridgeToolName(toolName)
 			if e.config.RequireCompleteResult || ((structured || result.RawExact) && !mcpBridge) {
 				// Falha classificada do executor (AEP-0039): preenche Error/ErrorKind
 				// para que agent/service.go emita tool_failure e persista o error_kind.
@@ -530,7 +535,7 @@ func metadataForFailure(metadata map[string]any) map[string]any {
 // protectErroredToolResult aplica a mesma barreira final quando a tool devolve
 // simultaneamente ToolResult e erro Go. A classificação e retryability do erro
 // original continuam sendo definidas pelo chamador.
-func protectErroredToolResult(ctx context.Context, result ToolResult, maxBytes int, toolName string, requireComplete bool) ToolResult {
+func protectErroredToolResult(ctx context.Context, result ToolResult, maxBytes int, mcpBridge bool, requireComplete bool) ToolResult {
 	if window := outputWindowOf(result); requireComplete && window != nil && window.HasMore {
 		return boundFailureResult(ToolResult{
 			Content:     "Resultado machine-facing está incompleto. Reduza o escopo da chamada; este consumidor exige o resultado integral.",
@@ -548,7 +553,6 @@ func protectErroredToolResult(ctx context.Context, result ToolResult, maxBytes i
 	hasWindow := outputWindowOf(result) != nil
 	exact := result.RawExact || result.Structured ||
 		(!hasWindow && IsCanonicalJSON(result.Content))
-	mcpBridge := isMCPBridgeToolName(toolName)
 	if exact && !mcpBridge {
 		code := failureCode(result)
 		if code == "" {
@@ -630,15 +634,6 @@ func boundedFailureContent(message, code string, maxBytes int) string {
 		return compact
 	}
 	return truncateUTF8(compact, maxBytes)
-}
-
-func isMCPBridgeToolName(name string) bool {
-	if !strings.HasPrefix(name, "mcp_") {
-		return false
-	}
-	rest := strings.TrimPrefix(name, "mcp_")
-	parts := strings.SplitN(rest, "__", 2)
-	return len(parts) == 2 && strings.TrimSpace(parts[0]) != "" && strings.TrimSpace(parts[1]) != ""
 }
 
 func failureCode(result ToolResult) string {

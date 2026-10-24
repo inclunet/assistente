@@ -114,42 +114,6 @@ func TestSortedToolNames(t *testing.T) {
 	}
 }
 
-func TestBuildEnrichedToolCalls(t *testing.T) {
-	calls := []llm.ToolCall{
-		{ID: "c1", Type: "function", Function: llm.FunctionCall{Name: "read_file", Arguments: `{"p":1}`}},
-		{ID: "c2", Type: "function", Function: llm.FunctionCall{Name: "mcp_github__search", Arguments: `{}`}},
-	}
-	execs := []tools.ToolExecutionResult{
-		{CallID: "c1", DurationMs: 11},
-		{CallID: "c2", DurationMs: 22},
-	}
-	got := buildEnrichedToolCalls(calls, execs, 3)
-	if len(got) != 2 {
-		t.Fatalf("len=%d, want 2", len(got))
-	}
-	if got[0].Function.Name != "read_file" || got[0].Origin != OriginBuiltin || got[0].Iteration != 3 || got[0].DurationMs != 11 {
-		t.Fatalf("builtin enriched inesperado: %#v", got[0])
-	}
-	if got[1].Function.Name != "search" || got[1].Origin != OriginMCPBridge || got[1].ServerLabel != "github" || got[1].DurationMs != 22 {
-		t.Fatalf("bridge enriched inesperado: %#v", got[1])
-	}
-}
-
-func TestBuildEnrichedToolCalls_MoreCallsThanExecs(t *testing.T) {
-	calls := []llm.ToolCall{
-		{ID: "c1", Function: llm.FunctionCall{Name: "read_file"}},
-		{ID: "c2", Function: llm.FunctionCall{Name: "grep_search"}},
-	}
-	// Apenas uma execução — a segunda call não deve estourar índice.
-	got := buildEnrichedToolCalls(calls, []tools.ToolExecutionResult{{CallID: "c1", DurationMs: 9}}, 0)
-	if len(got) != 2 {
-		t.Fatalf("len=%d, want 2", len(got))
-	}
-	if got[0].DurationMs != 9 || got[1].DurationMs != 0 {
-		t.Fatalf("durations inesperadas: %#v", got)
-	}
-}
-
 func TestBuildAgenticInvocationContext(t *testing.T) {
 	params := llm.ChatParams{TabType: "chat", ActiveFilePath: "a.go", ProfileSlug: "dev"}
 	ctx := buildAgenticInvocationContext(context.Background(), params, "conv", "turn")
@@ -220,7 +184,7 @@ func TestAgenticLoopRunner_EmitToolEndsAndAccount(t *testing.T) {
 
 	execResults := []tools.ToolExecutionResult{
 		{CallID: "a", ToolName: "read_file", Result: tools.ToolResult{Content: "ok"}},
-		{CallID: "b", ToolName: "mcp_github__search", Result: tools.ToolResult{Content: "boom", IsError: true}, ErrorKind: tools.ErrorKindUnknown, DurationMs: 5},
+		{CallID: "b", ToolName: "external_alias", MCPIdentity: &tools.MCPToolIdentity{ServerSlug: "github", ToolName: "search"}, Result: tools.ToolResult{Content: "boom", IsError: true}, ErrorKind: tools.ErrorKindUnknown, DurationMs: 5},
 	}
 	retried := map[string]struct{}{"b": {}}
 
