@@ -13,10 +13,12 @@ import (
 	"testing"
 	"time"
 
+	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
+	"gorm.io/gorm"
+
 	"assistente/internal/credentials"
 	"assistente/internal/database"
 	"assistente/internal/oauthflow"
-	"gorm.io/gorm"
 )
 
 func TestClientConversionAtomicIdempotentAndRestart(t *testing.T) {
@@ -94,8 +96,10 @@ func TestClientConversionAtomicIdempotentAndRestart(t *testing.T) {
 			}
 			attemptCtx, cancel := context.WithCancel(ctx)
 			defer cancel()
-			b.managedAttempts = make(map[string]context.CancelFunc)
-			b.managedAttempts[cfg.Slug] = cancel
+			b.managedAttempts = make(map[string]*managedAttempt)
+			managedDone := make(chan struct{})
+			t.Cleanup(func() { close(managedDone) })
+			b.managedAttempts[cfg.Slug] = &managedAttempt{cancel: cancel, done: managedDone}
 			b.connections[cfg.Slug] = &serverConnection{cancelSession: cancel, oauthAuthorizationID: "managed"}
 			if err = b.ConvertOAuthClientSnapshot(ctx, info.ID, method); err != nil || attemptCtx.Err() != nil {
 				t.Fatal("repeat interrupted managed attempt", err)
@@ -266,35 +270,100 @@ func TestClientConversionWaitsForLegacyCleanupBeforeNewConnection(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	legacyCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	healthDone := make(chan struct{})
+
+	server := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "legacy-cleanup-test", Version: "1.0.0"}, nil)
+	closeStarted := make(chan struct{})
+	releaseClose := make(chan struct{})
 	var releaseOnce sync.Once
-	release := func() { releaseOnce.Do(func() { close(healthDone) }) }
-	defer release()
-	a.connections[cfg.Slug] = &serverConnection{cancelSession: cancel, healthDone: healthDone}
-	done := make(chan error, 1)
-	go func() { done <- a.ConvertOAuthClientSnapshot(ctx, info.ID, "client_secret_post") }()
+	release := func() { releaseOnce.Do(func() { close(releaseClose) }) }
+	var closeOnce sync.Once
+	clientTransport, serverTransport := mcpsdk.NewInMemoryTransports()
+	serverSession, err := server.Connect(a.ctx, serverTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "legacy-cleanup-test", Version: "1.0.0"}, nil)
+	legacyCtx, cancelLegacy := context.WithCancel(a.ctx)
+	legacySession, err := client.Connect(legacyCtx, &blockingCloseTransport{
+		inner: clientTransport, started: closeStarted, release: releaseClose, once: &closeOnce,
+	}, nil)
+	if err != nil {
+		cancelLegacy()
+		_ = serverSession.Close()
+		t.Fatal(err)
+	}
+	sessionDone := make(chan error, 1)
+	go func() {
+		sessionDone <- legacySession.Wait()
+		close(sessionDone)
+	}()
+	a.mu.Lock()
+	a.connections[cfg.Slug] = &serverConnection{
+		client: client, session: legacySession, cancelSession: cancelLegacy, sessionDone: sessionDone,
+	}
+	if status := a.servers[cfg.Slug]; status != nil {
+		status.Status = StatusConnected
+	}
+	a.mu.Unlock()
+	defer func() {
+		release()
+		cancelLegacy()
+		_ = serverSession.Close()
+	}()
+
+	conversionDone := make(chan error, 1)
+	go func() { conversionDone <- a.ConvertOAuthClientSnapshot(ctx, info.ID, "client_secret_post") }()
 	select {
-	case <-legacyCtx.Done():
+	case <-closeStarted:
 	case <-time.After(5 * time.Second):
-		t.Fatal("legacy not retired")
+		t.Fatal("cleanup da conexão legada não iniciou")
 	}
 	if err := a.connectWithContext(ctx, cfg.Slug); !errors.Is(err, oauthflow.ErrTransient) {
-		t.Fatal("new connection started before cleanup", err)
+		t.Fatalf("nova conexão começou antes do fim do cleanup legado: %v", err)
 	}
 	release()
 	select {
-	case err := <-done:
+	case err := <-conversionDone:
 		if err != nil {
 			t.Fatal(err)
 		}
 	case <-time.After(5 * time.Second):
-		t.Fatal("cleanup did not finish")
+		t.Fatal("cleanup legado não terminou")
 	}
 	a.mu.RLock()
-	defer a.mu.RUnlock()
-	if a.retiringLegacy[cfg.Slug] {
-		t.Fatal("retirement barrier retained")
+	retiring := a.retiringLegacy[cfg.Slug]
+	a.mu.RUnlock()
+	if retiring {
+		t.Fatal("barreira de aposentadoria permaneceu ativa")
 	}
+}
+
+type blockingCloseTransport struct {
+	inner   mcpsdk.Transport
+	started chan struct{}
+	release chan struct{}
+	once    *sync.Once
+}
+
+func (t *blockingCloseTransport) Connect(ctx context.Context) (mcpsdk.Connection, error) {
+	conn, err := t.inner.Connect(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &blockingCloseConnection{Connection: conn, started: t.started, release: t.release, once: t.once}, nil
+}
+
+type blockingCloseConnection struct {
+	mcpsdk.Connection
+	started chan struct{}
+	release chan struct{}
+	once    *sync.Once
+}
+
+func (c *blockingCloseConnection) Close() error {
+	c.once.Do(func() {
+		close(c.started)
+		<-c.release
+	})
+	return c.Connection.Close()
 }

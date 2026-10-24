@@ -304,8 +304,7 @@ func (a *ToolsRetentionAdapter) CleanOrphanChatBatch(ctx context.Context, policy
 		return commandmaintenance.RetentionResult{}, err
 	}
 	deleted, more, err := a.owner.retainUsers(ctx, maintenanceToolsOrphanChats, policy, func(userCtx context.Context) (int, bool, error) {
-		deleted, err := a.owner.toolInvocations.CleanOrphanChat(userCtx)
-		return deleted, false, err
+		return a.owner.toolInvocations.CleanOrphanChatBatch(userCtx, maintenanceRecordBatchSize(policy))
 	})
 	return commandmaintenance.RetentionResult{Deleted: deleted, More: more}, err
 }

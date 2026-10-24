@@ -71,7 +71,7 @@ func TestReconnectWithRetrySaiCedoComCtxCancelado(t *testing.T) {
 
 // TestGoTrackedNaoPanicaComCloseAllConcorrente reproduz o cenário do review do
 // Copilot na PR #276: várias goroutines disparam trabalho rastreado (como uma
-// reconexão de health check) ao mesmo tempo em que CloseAll faz o join. Sem a
+// reconexão após erro de transporte) ao mesmo tempo em que CloseAll faz o join. Sem a
 // proteção da flag bgClosed, o Add(1) concorrente ao Wait dispararia o pânico
 // "sync: WaitGroup misuse: Add called concurrently with Wait". Rode com -race.
 func TestGoTrackedNaoPanicaComCloseAllConcorrente(t *testing.T) {

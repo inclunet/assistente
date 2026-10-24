@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	stdlog "log"
 	"path/filepath"
 	"strings"
@@ -750,6 +751,134 @@ func TestRepositoryCleanOrphanChat(t *testing.T) {
 	}
 	if _, ok := remaining["chat-orphan"]; ok {
 		t.Fatalf("chat-orphan deveria ter sido removido, got %#v", remaining)
+	}
+}
+
+func TestRepositoryCleanOrphanChatBatchLimitsDeletesAndResumes(t *testing.T) {
+	repo, userA, userB := setupRepositoryTest(t)
+	if err := database.DB().AutoMigrate(&database.ChatMessage{}); err != nil {
+		t.Fatalf("automigrate chat_messages: %v", err)
+	}
+	toolID, err := repo.ResolveToolCatalogID(userA, "echo")
+	if err != nil {
+		t.Fatalf("resolve tool: %v", err)
+	}
+	seedOrphan := func(ctx context.Context, id string) {
+		t.Helper()
+		userID, err := database.RequireUserID(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := database.DB().WithContext(ctx).Create(&database.ToolInvocation{
+			UUIDModel:     database.UUIDModel{ID: id},
+			UserID:        userID,
+			ToolCatalogID: toolID,
+			OriginType:    OriginChat,
+			OriginID:      "missing-" + id,
+			ToolCallID:    "call-" + id,
+			Status:        StatusSucceeded,
+			QueuedAt:      time.Now(),
+		}).Error; err != nil {
+			t.Fatalf("seed orphan %s: %v", id, err)
+		}
+	}
+	seedOrphan(userA, "batch-orphan-a")
+	seedOrphan(userA, "batch-orphan-b")
+	seedOrphan(userA, "batch-orphan-c")
+	seedOrphan(userB, "other-user-orphan")
+
+	deleted, more, err := repo.CleanOrphanChatBatch(userA, 2)
+	if err != nil {
+		t.Fatalf("first batch: %v", err)
+	}
+	if deleted != 2 || !more {
+		t.Fatalf("first batch = (%d, %v), want (2, true)", deleted, more)
+	}
+	deleted, more, err = repo.CleanOrphanChatBatch(userA, 2)
+	if err != nil {
+		t.Fatalf("second batch: %v", err)
+	}
+	if deleted != 1 || more {
+		t.Fatalf("second batch = (%d, %v), want (1, false)", deleted, more)
+	}
+
+	var remaining int64
+	if err := database.DB().Model(&database.ToolInvocation{}).Where("id = ?", "other-user-orphan").Count(&remaining).Error; err != nil {
+		t.Fatalf("count other user's row: %v", err)
+	}
+	if remaining != 1 {
+		t.Fatalf("other user's orphan rows remaining = %d, want 1", remaining)
+	}
+}
+
+func TestRepositoryCleanOrphanChatBatchBoundsChildDetachment(t *testing.T) {
+	repo, userA, _ := setupRepositoryTest(t)
+	if err := database.DB().AutoMigrate(&database.ChatMessage{}); err != nil {
+		t.Fatalf("automigrate chat_messages: %v", err)
+	}
+	toolID, err := repo.ResolveToolCatalogID(userA, "echo")
+	if err != nil {
+		t.Fatalf("resolve tool: %v", err)
+	}
+	parent := database.ToolInvocation{
+		UUIDModel:     database.UUIDModel{ID: "orphan-parent-batch"},
+		UserID:        "user-a",
+		ToolCatalogID: toolID,
+		OriginType:    OriginChat,
+		OriginID:      "missing-parent-message",
+		ToolCallID:    "call-orphan-parent-batch",
+		Status:        StatusSucceeded,
+		QueuedAt:      time.Now(),
+	}
+	if err := database.DB().Create(&parent).Error; err != nil {
+		t.Fatalf("create orphan parent: %v", err)
+	}
+	for i := 0; i < 3; i++ {
+		parentID := parent.ID
+		if err := database.DB().Create(&database.ToolInvocation{
+			UUIDModel:          database.UUIDModel{ID: fmt.Sprintf("surviving-child-%d", i)},
+			UserID:             "user-a",
+			ToolCatalogID:      toolID,
+			OriginType:         OriginJobRun,
+			OriginID:           fmt.Sprintf("run-%d", i),
+			ParentInvocationID: &parentID,
+			ToolCallID:         fmt.Sprintf("child-call-%d", i),
+			Status:             StatusSucceeded,
+			QueuedAt:           time.Now(),
+		}).Error; err != nil {
+			t.Fatalf("create child %d: %v", i, err)
+		}
+	}
+
+	for pass := 1; pass <= 3; pass++ {
+		deleted, more, err := repo.CleanOrphanChatBatch(userA, 1)
+		if err != nil {
+			t.Fatalf("batch %d: %v", pass, err)
+		}
+		wantDeleted, wantMore := 0, true
+		if pass == 3 {
+			wantDeleted, wantMore = 1, false
+		}
+		if deleted != wantDeleted || more != wantMore {
+			t.Fatalf("batch %d = (%d, %v), want (%d, %v)", pass, deleted, more, wantDeleted, wantMore)
+		}
+		var linkedChildren int64
+		if err := database.DB().Model(&database.ToolInvocation{}).
+			Where("parent_invocation_id = ?", parent.ID).Count(&linkedChildren).Error; err != nil {
+			t.Fatalf("count linked children after batch %d: %v", pass, err)
+		}
+		wantLinked := int64(3 - pass)
+		if linkedChildren != wantLinked {
+			t.Fatalf("linked children after batch %d = %d, want %d", pass, linkedChildren, wantLinked)
+		}
+	}
+	var survivingChildren int64
+	if err := database.DB().Model(&database.ToolInvocation{}).
+		Where("id LIKE ? AND parent_invocation_id IS NULL", "surviving-child-%").Count(&survivingChildren).Error; err != nil {
+		t.Fatalf("count detached children: %v", err)
+	}
+	if survivingChildren != 3 {
+		t.Fatalf("detached children = %d, want 3", survivingChildren)
 	}
 }
 

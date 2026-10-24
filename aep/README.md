@@ -16,6 +16,13 @@ preservando heartbeat, outbox e recuperação. Regressões determinísticas em
 `retention_backoff_test.go` e `command_maintenance_backoff_test.go`; aceite
 no banco real pendente. AEP-0074 legado permanece Done.
 
+**AEP-0103 / AEP-0104 / extensão AEP-0074 — limpeza limitada do ledger
+(24/10/2026): In Progress.** Retenção de invocações órfãs agora usa lotes por
+usuário para pais e filhos, e adquire o writer antes de ler/excluir; mantém
+atomicidade do detach final, isolamento e fail-closed do ledger. Testes cobrem
+progresso e isolamento; validação da contenção no banco carregado após deploy
+permanece pendente.
+
 **Proposta de migração experimental do driver, associada à AEP-0074
 (16/10/2026): Deprecated.** O AEP de retenção não foi abandonado.
 Abandonada por decisão do mantenedor após falha de integridade no adaptador

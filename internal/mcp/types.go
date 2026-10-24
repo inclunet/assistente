@@ -147,13 +147,13 @@ type ServerStatus struct {
 	Resources    []MCPResourceInfo  `json:"resources"`
 	Prompts      []MCPPromptInfo    `json:"prompts"`
 	ConnectedAt  *time.Time         `json:"connectedAt,omitempty"`
-	LastPing     *time.Time         `json:"lastPing,omitempty"`
 	RetryCount   int                `json:"retryCount,omitempty"`
 	Roots        []Root             `json:"roots,omitempty"`
 	Capabilities ServerCapabilities `json:"capabilities"`
 
-	Reconnecting              bool `json:"-"`
-	ConsecutiveHealthFailures int  `json:"-"`
+	Reconnecting bool `json:"-"`
+	// reconnectAttemptID identifica o dono atual da reconexão; protegido por Manager.mu.
+	reconnectAttemptID uint64 `json:"-"`
 
 	// NeedsReauth indica que o token OAuth do servidor expirou e não pôde ser
 	// renovado silenciosamente (sem/refresh_token inválido, invalid_grant). Nesse
@@ -186,7 +186,6 @@ type ServerInfo struct {
 	// interativa (token expirado sem refresh possível — AEP-0105).
 	NeedsReauth bool   `json:"needsReauth"`
 	ConnectedAt string `json:"connectedAt,omitempty"`
-	LastPing    string `json:"lastPing,omitempty"`
 	// Campos de config visíveis (sem env)
 	Command string   `json:"command,omitempty"`
 	Args    []string `json:"args,omitempty"`
@@ -264,9 +263,6 @@ func (s *ServerStatus) toServerInfo() ServerInfo {
 	}
 	if s.ConnectedAt != nil {
 		info.ConnectedAt = s.ConnectedAt.Format(time.RFC3339)
-	}
-	if s.LastPing != nil {
-		info.LastPing = s.LastPing.Format(time.RFC3339)
 	}
 	if info.Tools == nil {
 		info.Tools = []MCPToolInfo{}

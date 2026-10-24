@@ -14,6 +14,32 @@ import (
 	"gorm.io/gorm"
 )
 
+type unboundedOrphanChatRepository struct {
+	Repository
+	cleanCalled bool
+}
+
+func (r *unboundedOrphanChatRepository) CleanOrphanChat(context.Context) (int, error) {
+	r.cleanCalled = true
+	return 5, nil
+}
+
+func TestCleanOrphanChatBatchRejectsUnboundedRepository(t *testing.T) {
+	repo := &unboundedOrphanChatRepository{}
+	service := NewService(repo, nil)
+
+	deleted, more, err := service.CleanOrphanChatBatch(context.Background(), 1)
+	if !errors.Is(err, ErrOrphanChatBatchUnsupported) {
+		t.Fatalf("batch error = %v, want %v", err, ErrOrphanChatBatchUnsupported)
+	}
+	if deleted != 0 || more {
+		t.Fatalf("batch result = (%d, %v), want (0, false)", deleted, more)
+	}
+	if repo.cleanCalled {
+		t.Fatal("batch path fell back to unbounded cleanup")
+	}
+}
+
 func TestOutputForPersistence_CapsLargeOutputAndDropsLargeMetadata(t *testing.T) {
 	max := 256
 	svc := &Service{persistMaxResultSize: max}

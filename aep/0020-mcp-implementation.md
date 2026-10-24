@@ -3,7 +3,7 @@
 ## Status: In Progress — núcleo funcional entregue; capacidades avançadas aguardam suporte e wiring do SDK
 
 Este documento reúne o núcleo funcional de MCP e extensões avançadas. Tools,
-resources, prompts, health checks e modo nativo estão entregues. Roots
+resources, prompts, recuperação por falhas reais de sessão e modo nativo estão entregues. Roots
 dinâmicos, logging do protocolo, progress, subscriptions, sampling recebido do
 servidor e capabilities reais permanecem apenas parcialmente preparados e não
 integram uma sessão MCP completa enquanto o SDK/wiring correspondente estiver
@@ -26,7 +26,7 @@ ausente.
 - ✅ Discovery via `ListResources`
 - ✅ Leitura via `ReadResource`
 - ✅ Suporte a múltiplos MIME types
-- ✅ Cache e refresh automático
+- ✅ Cache de offerings atualizado durante conexão e recuperação
 - 🔄 **Subscriptions** - Estrutura pronta, aguardando SDK
 
 ### 3. **Prompts** ✅ FUNCIONAL
@@ -35,17 +35,20 @@ ausente.
 - ✅ Suporte a argumentos parametrizados
 - ✅ Retorno de múltiplas mensagens
 
-### 4. **Health Checks** ✅ FUNCIONAL
-- ✅ Ping periódico a cada 2 minutos
-- ✅ Timeout de 10 segundos por ping
-- ✅ Auto-reconnect com exponential backoff
+### 4. **Estado e recuperação da sessão** ✅ FUNCIONAL
+- ✅ Estado conectado após handshake e discovery bem-sucedidos
+- ✅ Reconexão automática com exponential backoff quando o transporte encerra
+  a sessão ou uma operação real detecta erro de transporte/sessão
 - ✅ Backoff de reconexão inicia em 15 segundos e chega ao máximo de 5 minutos
 - ✅ Notificações de estado no frontend
 - ✅ Contexto de sessão persistente, separado do timeout do handshake
 - ✅ `Disconnect`/`CloseAll` cancelam e aguardam conexões em andamento
-- ✅ Reconexão substitui sessão e health loop sem duplicação
-- ✅ Encerramentos normais do lifecycle (`client is closing`/EOF de cleanup)
-  encerram o health loop sem contabilizar falha, emitir evento ou reconectar
+- ✅ Reconexão substitui a sessão sem duplicar conexões
+
+Não há sondagem periódica da sessão. O watcher passivo do `session.Wait` detecta
+encerramentos reportados pelo transporte, inclusive durante períodos sem chamadas;
+falhas reais em chamadas também iniciam a recuperação. A sessão não depende de
+sondagens ativas para permanecer conectada.
 
 #### Contrato de lifecycle da sessão
 
@@ -59,18 +62,14 @@ de retornar.
 Cada slug possui no máximo uma tentativa de conexão publicada. `Disconnect`
 cancela tanto a tentativa em andamento quanto a sessão ativa e aguarda o
 cleanup da tentativa; `CloseAll` inclui tentativas ainda não publicadas no
-shutdown. Os loops de health check e refresh OAuth pertencem à instância da
-conexão, encerram com ela e não podem operar sobre a sessão criada por uma
-reconexão posterior.
+shutdown. O refresh OAuth pertence à instância da conexão e não pode operar
+sobre a sessão criada por uma reconexão posterior.
 
 Erros esperados ao fechar uma sessão já encerrada são registrados como
 informação de cleanup. Falhas inesperadas de fechamento permanecem em nível de
-erro; reconexão bem-sucedida é informação, não erro. Um health check que
-observe `client is closing`/EOF depois de o próprio contexto de lifecycle ter
-sido cancelado não representa indisponibilidade: o resultado é descartado e
-não alimenta contador, evento de unhealthy ou reconexão. O mesmo erro com o
-lifecycle ainda ativo continua sendo falha real, sujeita ao limiar de duas
-falhas consecutivas.
+erro; reconexão bem-sucedida é informação, não erro. Erros observados durante
+cleanup não iniciam uma segunda recuperação; erros de transporte em chamadas
+reais de tools marcam a sessão como indisponível e iniciam reconexão.
 
 ### 5. **Native MCP Mode** ✅ FUNCIONAL
 - ✅ MCP nativo real via Responses API (OpenAI) e MCP Connector (Anthropic)
@@ -160,7 +159,7 @@ app.mcpMgr.SetSamplingHandler(func(ctx context.Context, req mcpmgr.SamplingReque
 | Tools | ✅ Funcional | ✅ | ✅ |
 | Resources | ✅ Funcional | ✅ | ✅ |
 | Prompts | ✅ Funcional | ✅ | ✅ |
-| Health Checks | ✅ Funcional | ✅ | ✅ |
+| Estado/recuperação da sessão | ✅ Funcional | ✅ | ✅ |
 | Native Mode | ✅ Funcional (capability-driven) | ✅ | ✅ |
 | Roots | 🔄 Preparado | ❌ | ✅ |
 | Logging | 🔄 Preparado | ❌ | ✅ |
@@ -197,7 +196,7 @@ Quando o SDK Go oficial (`github.com/modelcontextprotocol/go-sdk`) adicionar sup
 2. **Type-safe** - Todos os tipos definidos corretamente
 3. **Testada** - Build compila sem erros
 4. **Documentada** - TODOs indicam exatamente o que fazer
-5. **Núcleo completo** - Tools, resources, prompts, health checks e modo nativo cobertos
+5. **Núcleo completo** - Tools, resources, prompts, estado de sessão e modo nativo cobertos
 6. **Compatível** - Funciona com SDK v1.3.0 atual
 
 ---
@@ -241,8 +240,8 @@ de esta AEP poder ser concluída.
 
 - lifecycle, timeout, cancelamento, reconexão e shutdown:
   `internal/mcp/manager.go`;
-- regressões de sessão persistente, health check, timeout STDIO, cancelamento
-  concorrente, EOF de cleanup sem flapping, SSE legado, Streamable HTTP sem
-  SSE, reconexão e `CloseAll`:
+- regressões de sessão persistente, timeout STDIO, cancelamento concorrente,
+  encerramento espontâneo, EOF de cleanup, SSE legado, Streamable HTTP sem SSE,
+  reconexão e `CloseAll`:
   `internal/mcp/manager_lifecycle_regression_test.go`;
 - validação de concorrência: `go test -race ./internal/mcp`.

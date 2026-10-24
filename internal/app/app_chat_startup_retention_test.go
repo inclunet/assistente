@@ -43,6 +43,21 @@ func (r *startupChatRetentionRepository) CleanOrphanChat(ctx context.Context) (i
 	return r.Repository.CleanOrphanChat(ctx)
 }
 
+func (r *startupChatRetentionRepository) CleanOrphanChatBatch(ctx context.Context, limit int) (int, bool, error) {
+	r.orphans.Add(1)
+	r.observe()
+	if r.orphanErr != nil {
+		return 0, false, r.orphanErr
+	}
+	cleaner, ok := r.Repository.(interface {
+		CleanOrphanChatBatch(context.Context, int) (int, bool, error)
+	})
+	if !ok {
+		return 0, false, toolinvocations.ErrOrphanChatBatchUnsupported
+	}
+	return cleaner.CleanOrphanChatBatch(ctx, limit)
+}
+
 func (r *startupChatRetentionRepository) CleanOldChat(ctx context.Context, age time.Duration) (int, error) {
 	r.old.Add(1)
 	r.observe()

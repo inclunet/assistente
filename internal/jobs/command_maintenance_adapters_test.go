@@ -3,6 +3,7 @@ package jobs
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -206,6 +207,57 @@ func TestCommandMaintenanceAdaptersCleanRealToolInvocationsPerUser(t *testing.T)
 	}
 	if deleted != 2 {
 		t.Fatalf("deleted orphan chat invocations = %d, want 2", deleted)
+	}
+}
+
+func TestToolsRetentionAdapterBoundsOrphanCleanupPerPass(t *testing.T) {
+	manager, repo, _, _ := newCommandMaintenanceTestManager(t)
+	adapters, err := NewCommandMaintenanceAdapters(manager)
+	if err != nil {
+		t.Fatalf("new adapters: %v", err)
+	}
+	if err := repo.db.AutoMigrate(&database.Conversation{}, &database.ChatMessage{}); err != nil {
+		t.Fatalf("migrate chat tables: %v", err)
+	}
+	for i := 0; i < 3; i++ {
+		if err := repo.db.Create(&database.ToolInvocation{
+			UUIDModel:     database.UUIDModel{ID: fmt.Sprintf("bounded-orphan-%d", i)},
+			UserID:        "user-a",
+			ToolCatalogID: "test-tool-catalog",
+			OriginType:    toolinvocations.OriginChat,
+			OriginID:      fmt.Sprintf("missing-message-%d", i),
+			Status:        toolinvocations.StatusSucceeded,
+			QueuedAt:      time.Now(),
+		}).Error; err != nil {
+			t.Fatalf("create orphan %d: %v", i, err)
+		}
+	}
+
+	policy := commandMaintenanceTestPolicy()
+	policy.BatchSize = 1
+	var total int64
+	for pass := 0; pass < 4; pass++ {
+		result, err := adapters.Tools.CleanOrphanChatBatch(context.Background(), policy)
+		if err != nil {
+			t.Fatalf("maintenance pass %d: %v", pass+1, err)
+		}
+		if result.Deleted > 1 {
+			t.Fatalf("pass %d deleted %d rows, want at most 1", pass+1, result.Deleted)
+		}
+		total += result.Deleted
+		if !result.More {
+			break
+		}
+	}
+	if total != 3 {
+		t.Fatalf("deleted rows across bounded passes = %d, want 3", total)
+	}
+	var remaining int64
+	if err := repo.db.Model(&database.ToolInvocation{}).Where("id LIKE ?", "bounded-orphan-%").Count(&remaining).Error; err != nil {
+		t.Fatalf("count remaining orphans: %v", err)
+	}
+	if remaining != 0 {
+		t.Fatalf("remaining orphan rows = %d, want 0", remaining)
 	}
 }
 

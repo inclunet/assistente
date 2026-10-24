@@ -194,12 +194,12 @@ export const useMCPStore = create<MCPState>((set, get) => ({
       get().loadServers();
     }));
 
-    // Servidor detectado como não-saudável (health check ou tool call falhou)
+    // Servidor detectado como indisponível após falha real de sessão/transporte.
     unsubs.push(EventsOn('mcp:server_unhealthy', () => {
       get().loadServers();
     }));
 
-    // Tools/resources/prompts mudaram (refresh periódico ou reconexão)
+    // Tools/resources/prompts mudaram (atualização de offerings ou reconexão)
     unsubs.push(EventsOn('mcp:tools_changed', () => {
       get().loadServers();
     }));
