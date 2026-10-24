@@ -37,15 +37,23 @@ func TestNativeMCPLocalToolMismatch(t *testing.T) {
 
 type contractStreamHandler struct {
 	mcpTrackingHandler
-	nonRetryable bool
-	errText      string
+	nonRetryable     bool
+	errText          string
+	completedAtError int
 }
 
 func (h *contractStreamHandler) MarkErrorNotRetryable() { h.nonRetryable = true }
-func (h *contractStreamHandler) OnError(errText string) { h.errText = errText }
+func (h *contractStreamHandler) OnError(errText string) {
+	h.errText = errText
+	for _, event := range h.events {
+		if event.IsCompleted {
+			h.completedAtError++
+		}
+	}
+}
 
 func TestResponsesNativeLocalMismatchPreservesResponse(t *testing.T) {
-	for _, mode := range []string{"added_and_done", "done_only", "completed_without_done", "ordinary_remote_error", "interrupted"} {
+	for _, mode := range []string{"added_and_done", "done_only", "completed_without_done", "ordinary_remote_error", "interrupted", "completed_then_failed", "completed_then_transport_error"} {
 		t.Run(mode, func(t *testing.T) {
 			name := "tool_catalog"
 			if mode == "ordinary_remote_error" {
@@ -56,13 +64,17 @@ func TestResponsesNativeLocalMismatchPreservesResponse(t *testing.T) {
 			if mode != "done_only" {
 				emit(fmt.Sprintf(`{"type":"response.output_item.added","output_index":0,"item":{"id":"mcp_1","type":"mcp_call","name":%q,"server_label":"proxy-renamed"}}`, name))
 			}
-			if mode == "completed_without_done" {
+			withoutDone := strings.HasPrefix(mode, "completed_")
+			if withoutDone {
 				emit(`{"type":"response.mcp_call.completed","item_id":"mcp_1"}`)
 			} else {
 				emit(fmt.Sprintf(`{"type":"response.output_item.done","output_index":0,"item":{"id":"mcp_1","type":"mcp_call","name":%q,"server_label":"proxy-renamed","output":"Error executing tool: 'tool_catalog'","error":null}}`, name))
 			}
 			emit(`{"type":"response.output_text.delta","delta":"resposta preservada"}`)
-			if mode == "interrupted" {
+			interrupted := mode == "interrupted" || mode == "completed_then_failed" || mode == "completed_then_transport_error"
+			if mode == "completed_then_transport_error" {
+				emit(`{"type":`) // SSE inválido força erro do leitor.
+			} else if interrupted {
 				emit(`{"type":"response.failed","response":{"id":"resp_1","object":"response","status":"failed","error":{"code":"server_error","message":"interrupted after execution"}}}`)
 			} else {
 				emit(`{"type":"response.completed","response":{"id":"resp_1","object":"response","status":"completed","model":"test","output":[]}}`)
@@ -97,7 +109,7 @@ func TestResponsesNativeLocalMismatchPreservesResponse(t *testing.T) {
 			if fallback.ConsumeAfterResponse() != wantMismatch || hooks != wantHooks {
 				t.Fatalf("fallback/hook incorreto: hooks=%d", hooks)
 			}
-			if mode == "interrupted" && (!h.nonRetryable || h.errText == "") {
+			if interrupted && (!h.nonRetryable || h.errText == "" || h.completedAtError != 1) {
 				t.Fatalf("interrupção após efeito deve ser não repetível: %+v", h)
 			}
 			if fallback.ConsumeAfterResponse() {
@@ -112,7 +124,7 @@ func TestResponsesNativeLocalMismatchPreservesResponse(t *testing.T) {
 			if done == nil || (done.Error != "") != wantMismatch {
 				t.Fatalf("evento final: %+v", done)
 			}
-			if mode != "completed_without_done" && done.Output != "Error executing tool: 'tool_catalog'" {
+			if !withoutDone && done.Output != "Error executing tool: 'tool_catalog'" {
 				t.Fatalf("output perdido: %+v", done)
 			}
 		})

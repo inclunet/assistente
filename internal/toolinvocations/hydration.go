@@ -130,7 +130,7 @@ func LoadChatToolInvocationDisplaysForTurnIDsWithUser(ctx context.Context, userI
 			}
 			q := db.WithContext(ctx).
 				Model(&database.ToolInvocation{}).
-				Select("tool_invocations.id, tool_invocations.created_at, tool_invocations.origin_id, tool_invocations.tool_call_id, tool_invocations.attempt, tool_invocations.output, tool_invocations.metadata, tool_invocations.queued_at, tool_invocations.duration_ms, tool_catalog.name AS tool_name, tool_catalog.display_name AS tool_display_name, tool_catalog.origin AS tool_origin, "+resolvedTurnSQL+" AS resolved_turn_id").
+				Select("tool_invocations.id, tool_invocations.created_at, tool_invocations.origin_id, tool_invocations.tool_call_id, tool_invocations.attempt, tool_invocations.output, tool_invocations.error_message, tool_invocations.metadata, tool_invocations.queued_at, tool_invocations.duration_ms, tool_catalog.name AS tool_name, tool_catalog.display_name AS tool_display_name, tool_catalog.origin AS tool_origin, "+resolvedTurnSQL+" AS resolved_turn_id").
 				Joins("LEFT JOIN tool_catalog ON tool_catalog.id = tool_invocations.tool_catalog_id").
 				Where(
 					"tool_invocations.user_id = ? AND tool_invocations.origin_type = ? AND "+resolvedTurnSQL+" IN ? AND TRIM(tool_invocations.tool_call_id) <> '' AND (tool_invocations.completed_at IS NOT NULL OR tool_invocations.status IN (?, ?, ?, ?, ?, ?))",
@@ -223,6 +223,16 @@ func toolInvocationRowToDisplay(row database.ToolInvocation, toolName, toolDispl
 	}
 
 	result := ExtractToolInvocationResult(row.Output)
+	modelResult := tools.ContentForModel(result)
+	if result.IsError && row.ErrorMessage != "" && row.ErrorMessage != result.Content {
+		// O ledger mantém saída e diagnóstico separados. A projeção para o
+		// modelo precisa dos dois, sem substituir a saída original exibível.
+		encoded, _ := json.Marshal(struct {
+			Output string `json:"output"`
+			Error  string `json:"error"`
+		}{Output: modelResult, Error: row.ErrorMessage})
+		modelResult = string(encoded)
+	}
 	return ChatToolInvocationDisplay{
 		LedgerID:           row.ID,
 		ID:                 strings.TrimSpace(row.ToolCallID),
@@ -230,7 +240,7 @@ func toolInvocationRowToDisplay(row database.ToolInvocation, toolName, toolDispl
 		Name:               name,
 		Arguments:          meta.Display.Arguments,
 		Result:             result.Content,
-		ModelResult:        tools.ContentForModel(result),
+		ModelResult:        modelResult,
 		Origin:             origin,
 		ServerLabel:        meta.Display.ServerLabel,
 		Iteration:          meta.Display.Iteration,

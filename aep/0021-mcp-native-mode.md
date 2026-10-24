@@ -49,6 +49,11 @@ heurística específica de LiteLLM ou novo mecanismo de execução.
   e conclusão sem `output_item.done`: `native_mcp_contract_test.go` em `llm`.
 - [x] Troca posterior sem descarte, sem retry após interrupção e com ferramentas
   dinâmicas preservadas: `native_mcp_contract_test.go` em `agent`.
+- [x] Conclusões MCP entram no snapshot antes de erro terminal, inclusive sem
+  `output_item.done`; saída e diagnóstico permanecem separados no ledger:
+  `native_mcp_contract_test.go` em `llm` e `service_native_mcp_test.go` em `agent`.
+  A reidratação para histórico/sumarização inclui ambos na projeção do modelo,
+  inclusive quando a saída é vazia, sem alterar o conteúdo original persistido.
 - [x] Política de persistência automática e overrides preservados pelo hook
   existente: `native_mcp_autoadjust_test.go` em `chat`.
 - [ ] Qualificar a recuperação com o proxy e uma conversa real após implantação.
