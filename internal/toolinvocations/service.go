@@ -38,6 +38,10 @@ type Service struct {
 	persistMaxInputSize int
 }
 
+// ErrOrphanChatBatchUnsupported indica que o repositório não pode executar a
+// limpeza de órfãos dentro do limite requerido pela manutenção.
+var ErrOrphanChatBatchUnsupported = errors.New("orphan chat batch is not supported by repository")
+
 func NewService(repo Repository, executor *tools.Executor, configuredMetrics ...*Metrics) *Service {
 	metrics := RuntimeMetrics()
 	if len(configuredMetrics) > 0 && configuredMetrics[0] != nil {
@@ -111,6 +115,21 @@ func (s *Service) CleanOrphanChat(ctx context.Context) (int, error) {
 		return 0, nil
 	}
 	return s.repo.CleanOrphanChat(ctx)
+}
+
+// CleanOrphanChatBatch limita a limpeza a uma fatia por usuário durante a
+// manutenção. Repositórios sem suporte bounded retornam erro em vez de varrer
+// tudo em uma passagem.
+func (s *Service) CleanOrphanChatBatch(ctx context.Context, limit int) (int, bool, error) {
+	if s == nil || s.repo == nil {
+		return 0, false, nil
+	}
+	if cleaner, ok := s.repo.(interface {
+		CleanOrphanChatBatch(context.Context, int) (int, bool, error)
+	}); ok {
+		return cleaner.CleanOrphanChatBatch(ctx, limit)
+	}
+	return 0, false, ErrOrphanChatBatchUnsupported
 }
 
 func cancelledLedgerUnavailable(call tools.ToolCall) ExecuteResult {
