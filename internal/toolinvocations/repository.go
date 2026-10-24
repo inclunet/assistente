@@ -484,7 +484,6 @@ func (r *DBRepository) cleanOrphanChat(ctx context.Context, limit int) (int, boo
 
 		var ids []string
 		candidates := target.Session(&gorm.Session{}).
-			Order("tool_invocations.id ASC").
 			Limit(limit + 1)
 		if err := candidates.Pluck("tool_invocations.id", &ids).Error; err != nil {
 			return err
@@ -499,7 +498,6 @@ func (r *DBRepository) cleanOrphanChat(ctx context.Context, limit int) (int, boo
 		var childIDs []string
 		children := database.ScopeByUser(ctx, tx.Model(&database.ToolInvocation{}), "user_id").
 			Where("parent_invocation_id IN ?", ids).
-			Order("tool_invocations.id ASC").
 			Limit(limit + 1)
 		if err := children.Pluck("tool_invocations.id", &childIDs).Error; err != nil {
 			return err
