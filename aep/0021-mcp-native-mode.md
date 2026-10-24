@@ -1,6 +1,6 @@
 # MCP Modo Nativo
 
-## Status: In Progress — revisão v7
+## Status: In Progress — revisão v8
 
 > **Historico:** A versao original desta AEP descrevia um conceito aspiracional de modo nativo com `mcp_mode` (adapter/native/auto) no perfil. A infraestrutura foi parcialmente criada (`GetNativeServerInfo`, `TestMCPNativeSupport`, `ShouldUseMCPNative`) mas **nunca foi consumida no chat loop**. O sistema sempre operou em modo adapter.
 >
@@ -14,7 +14,53 @@
 >
 > A v6 tornou o **default (auto) OTIMISTA com auto-degradacao e memoria persistida no perfil**, mas o fallback do mesmo turno dropava os MCP servers e re-tentava "pelado" — as tools MCP sumiam naquele turno e so voltavam (via adapter) no proximo.
 >
-> **Esta v7** elimina essa limitacao: no fallback, o turno e **re-tentado em modo ADAPTER com as bridge tools presentes** (MCP como function/bridge), preservando as tools ja naquele turno. Tudo o mais da v6 permanece: default auto otimista; auto-ajuste **persistido** do perfil (`Profile.Chat.NativeMCP` nil→false) como memoria (nao cache em runtime); sem heuristica por URL; unica dimensao estatica de provider = **capacidade fisica** (`NativeMCPCapable()` — Responses/Anthropic); override explicito (`true`/`false`) nunca sobrescrito.
+> **A v7** elimina essa limitacao: no fallback, o turno e **re-tentado em modo ADAPTER com as bridge tools presentes** (MCP como function/bridge), preservando as tools ja naquele turno. Tudo o mais da v6 permanece: default auto otimista; auto-ajuste **persistido** do perfil (`Profile.Chat.NativeMCP` nil→false) como memoria (nao cache em runtime); sem heuristica por URL; unica dimensao estatica de provider = **capacidade fisica** (`NativeMCPCapable()` — Responses/Anthropic); override explicito (`true`/`false`) nunca sobrescrito.
+
+---
+
+## Recuperação de violação do contrato nativo (v8)
+
+**Decisão autorizada pelo mantenedor:** ao receber um `mcp_call` cujo nome foi
+oferecido como função local e está ausente de todas as allowlists MCP enviadas,
+o Assistente reconhece que o provedor confundiu os dois caminhos de execução.
+A detecção inicial cobre streaming da Responses API. Não depende de URL, marca
+do proxy, label reescrita pelo agregador nem do texto arbitrário de saída.
+Se algum servidor não tem allowlist ou permite uma ferramenta homônima, o nome
+sozinho é ambíguo e não dispara essa recuperação.
+
+A resposta atual é preservada, incluindo texto, chamadas locais e resultados
+MCP, e segue a persistência normal. O evento incompatível recebe erro de
+contrato quando o provedor omite o campo `error`; sua saída original é mantida.
+Somente as próximas chamadas do loop passam ao provider base com bridges,
+reutilizando o resolvedor e orçamento existentes, preservando tools já ativas.
+Não há reset de streaming, replay da requisição ou nova execução automática de
+uma operação concluída. Erro/interrupção após efeitos continua terminal, sem
+retry automático. Se o turno já terminou, a correção vale para o próximo turno
+somente quando a configuração automática puder ser memorizada.
+
+A memorização reutiliza `OnNativeMCPUnsupported`: apenas perfis automáticos
+(`nil`) passam a `false`. Overrides explícitos permanecem intactos; `true`
+recebe recuperação apenas no turno atual. Não se introduz cache de capacidades,
+heurística específica de LiteLLM ou novo mecanismo de execução.
+
+### Fases e critérios de aceitação da v8
+
+- [x] Detector conservador na Responses API, inclusive evento final sem início
+  e conclusão sem `output_item.done`: `native_mcp_contract_test.go` em `llm`.
+- [x] Troca posterior sem descarte, sem retry após interrupção e com ferramentas
+  dinâmicas preservadas: `native_mcp_contract_test.go` em `agent`.
+- [x] Política de persistência automática e overrides preservados pelo hook
+  existente: `native_mcp_autoadjust_test.go` em `chat`.
+- [ ] Qualificar a recuperação com o proxy e uma conversa real após implantação.
+
+### Riscos e limites
+
+A recuperação não desfaz ações remotas nem corrige o raciocínio que o provedor
+já fez internamente antes de devolver a resposta. Homônimos e servidores sem
+allowlist são deliberadamente inconclusivos. O orçamento pode limitar a entrada
+de bridges restauradas; não se descarta uma tool já ativa para acomodá-las.
+Falhas comuns de uma ferramenta remota não mudam a política de transporte.
+O status global permanece In Progress até a qualificação real desta extensão.
 
 ---
 

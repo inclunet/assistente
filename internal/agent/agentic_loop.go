@@ -237,6 +237,33 @@ func (r *agenticLoopRunner) streamIteration(ctx context.Context, iteration int) 
 			continue
 		}
 		result = handler.Result()
+		if fb := r.params.NativeMCPFallback; fb != nil && fb.ConsumeAfterResponse() {
+			// Não resetar o handler nem repetir a iteração: seus efeitos e
+			// resultados continuam pelo fluxo normal de persistência/execução.
+			if fb.Streamer != nil {
+				r.activeStreamer = fb.Streamer
+			}
+			if fb.ResolveToolDefs != nil {
+				names := make([]string, 0, len(fb.ToolDefs))
+				for _, tool := range fb.ToolDefs {
+					names = append(names, tool.Function.Name)
+				}
+				r.activeResolve = fb.ResolveToolDefs
+				r.activeToolDefs = fb.ResolveToolDefs(r.activeToolDefs, names)
+			} else {
+				seen := make(map[string]bool, len(r.activeToolDefs))
+				for _, tool := range r.activeToolDefs {
+					seen[tool.Function.Name] = true
+				}
+				for _, tool := range fb.ToolDefs {
+					if !seen[tool.Function.Name] {
+						r.activeToolDefs = append(r.activeToolDefs, tool)
+						seen[tool.Function.Name] = true
+					}
+				}
+			}
+			logging.Warnf(ctx, "agent.agentic-loop", "contrato MCP nativo incompatível: próximas chamadas em adapter; resposta atual preservada (iteração %d)", iteration)
+		}
 		if compatibility := r.params.Compatibility; compatibility != nil &&
 			(strings.TrimSpace(result.FullResponse) != "" || strings.TrimSpace(result.Reasoning) != "" ||
 				len(result.ToolCalls) > 0 || len(result.NativeMCPEvents) > 0) {

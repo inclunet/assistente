@@ -317,6 +317,22 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 	// Conteúdo visível, reasoning e eventos MCP impedem retries automáticos
 	// posteriores porque já foram expostos ou executados nesta conversa.
 	var emittedNonRetryableEffect bool
+	var nativeContractMismatch bool
+	checkNativeContract := func(name string) string {
+		if !nativeMCPLocalToolMismatch(params.Tools, mcpServers, name) {
+			return ""
+		}
+		errText := fmt.Sprintf("MCP nativo incompatível: o provedor tentou executar a função local %q como MCP remoto", name)
+		if !nativeContractMismatch {
+			nativeContractMismatch = true
+			chatParams.NativeMCPFallback.TriggerAfterResponse()
+			if chatParams.OnNativeMCPUnsupported != nil {
+				chatParams.OnNativeMCPUnsupported()
+			}
+			logging.Warnf(ctx, "llm.openai-responses", "%s; adapter solicitado sem repetir a resposta", errText)
+		}
+		return errText
+	}
 	var lastUsage Usage
 	var lastUsageRaw any
 	var lastModel string
@@ -497,9 +513,10 @@ responseEvents:
 				}
 			case "mcp_call":
 				mc := &pendingMCPCall{
-					ID:          ev.Item.ID,
-					Name:        ev.Item.Name,
-					ServerLabel: ev.Item.ServerLabel,
+					ID:            ev.Item.ID,
+					Name:          ev.Item.Name,
+					ServerLabel:   ev.Item.ServerLabel,
+					ContractError: checkNativeContract(ev.Item.Name),
 				}
 				activeMCPCalls[ev.Item.ID] = mc
 				emittedNonRetryableEffect = true
@@ -515,7 +532,14 @@ responseEvents:
 		case "response.output_item.done":
 			ev := event.AsResponseOutputItemDone()
 			if ev.Item.Type == "mcp_call" {
+				contractError := checkNativeContract(ev.Item.Name)
+				if ev.Item.Error == "" {
+					ev.Item.Error = contractError
+				}
 				mc, ok := activeMCPCalls[ev.Item.ID]
+				if ev.Item.Error == "" && ok {
+					ev.Item.Error = mc.ContractError
+				}
 				args := ""
 				if ok {
 					args = mc.Args.String()

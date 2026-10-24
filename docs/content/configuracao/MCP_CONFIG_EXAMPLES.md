@@ -70,6 +70,18 @@ ou endpoint rejeitar MCP nativo no modo automático, o Assistente refaz o mesmo
 turno com bridge tools e persiste `nil` → `false` no perfil. URLs `http://` com
 host remoto continuam excluídas por segurança.
 
+Se um provedor Responses tentar executar uma função local como MCP remoto,
+fora das listas de ferramentas MCP permitidas, o Assistente passa a executar
+as próximas chamadas MCP pelo adapter. Preserva a resposta e os resultados
+já recebidos, sem repetir a requisição. Em modo Automático, essa escolha fica
+salva no perfil; uma escolha explícita de modo nativo não é sobrescrita.
+Erros comuns de ferramentas remotas não provocam essa troca. Quando os nomes
+forem ambíguos, a recuperação automática não é aplicada.
+
+Para evitar a delegação MCP a um proxy incompatível desde o início, escolha
+**Ferramentas → MCP nativo → Forçar adapter** no editor do perfil. O modelo
+continua escolhendo as ferramentas; o Assistente executa as chamadas MCP.
+
 Em **perfil legado sem `tool_policy` e sem `tool_policy_default`**,
 `enabled_tools: null` com `tool_catalog` disponível pré-carrega inicialmente
 apenas o catálogo; portanto tools MCP permanecem `on_demand` e o servidor não
