@@ -54,6 +54,8 @@ heurística específica de LiteLLM ou novo mecanismo de execução.
   `native_mcp_contract_test.go` em `llm` e `service_native_mcp_test.go` em `agent`.
   A reidratação para histórico/sumarização inclui ambos na projeção do modelo,
   inclusive quando a saída é vazia, sem alterar o conteúdo original persistido.
+- [x] Detalhes técnicos exibem o diagnóstico separado da resposta original,
+  com e sem saída: `ChatMessage.toolDialogs.test.tsx` no frontend.
 - [x] Política de persistência automática e overrides preservados pelo hook
   existente: `native_mcp_autoadjust_test.go` em `chat`.
 - [ ] Qualificar a recuperação com o proxy e uma conversa real após implantação.

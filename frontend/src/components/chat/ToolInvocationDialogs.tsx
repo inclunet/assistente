@@ -341,6 +341,12 @@ export function ToolInvocationDialogsProvider({
                             t('chat.toolDetailsUnavailable'))}
                     </pre>
                   </section>
+                  {detail?.errorMessage?.trim() && (
+                    <section className="tool-calls-section__section">
+                      <h2 className="tool-calls-section__section-heading">{t('common.error')}</h2>
+                      <pre className="tool-calls-section__result-content">{detail.errorMessage}</pre>
+                    </section>
+                  )}
                 </>
               )}
             </>

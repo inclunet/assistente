@@ -78,6 +78,9 @@ salva no perfil; uma escolha explícita de modo nativo não é sobrescrita.
 Erros comuns de ferramentas remotas não provocam essa troca. Quando os nomes
 forem ambíguos, a recuperação automática não é aplicada.
 
+Nos **detalhes técnicos** da ferramenta, o diagnóstico aparece na seção **Erro**,
+separado da **Resposta** original, inclusive quando o provedor não retorna saída.
+
 Para evitar a delegação MCP a um proxy incompatível desde o início, escolha
 **Ferramentas → MCP nativo → Forçar adapter** no editor do perfil. O modelo
 continua escolhendo as ferramentas; o Assistente executa as chamadas MCP.

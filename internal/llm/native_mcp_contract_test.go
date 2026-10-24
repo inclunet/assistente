@@ -83,7 +83,9 @@ func TestResponsesNativeLocalMismatchPreservesResponse(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				calls.Add(1)
 				w.Header().Set("Content-Type", "text/event-stream")
-				fmt.Fprint(w, stream.String())
+				if _, err := fmt.Fprint(w, stream.String()); err != nil {
+					t.Errorf("escrever stream de teste: %v", err)
+				}
 			}))
 			defer server.Close()
 			p := NewOpenAIResponsesProvider(&ProviderConfig{ID: "test", BaseURL: server.URL + "/v1", APIFormat: APIFormatOpenAIResponses, AuthMode: AuthModeNone}, credentials.NewManager(nil))

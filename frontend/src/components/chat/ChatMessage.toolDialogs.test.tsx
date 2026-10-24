@@ -53,6 +53,46 @@ describe('ChatMessage tool dialog host', () => {
     currentUser.id = 'user-a';
     loadDetails.mockReset();
   });
+  it.each(['', 'saída original preservada'])(
+    'mostra diagnóstico separado da saída MCP %j',
+    async (content) => {
+      const call = {
+        invocationId: 'inv-error',
+        callId: 'call-error',
+        name: 'tool_catalog',
+        status: 'failed' as const,
+        hasDetails: true,
+        resultAvailability: 'available' as const,
+      };
+      loadDetails.mockResolvedValue(
+        new Map([
+          [
+            'inv-error',
+            {
+              invocationId: 'inv-error',
+              input: '{}',
+              output: JSON.stringify({ content, is_error: true }),
+              errorMessage: 'Contrato MCP incompatível',
+              metadata: '{}',
+            },
+          ],
+        ])
+      );
+      render(
+        <ToolInvocationDialogsProvider currentCalls={[call]}>
+          <ToolCallsSection tabNavigationEnabled toolInvocations={[call]} />
+        </ToolInvocationDialogsProvider>
+      );
+      fireEvent.click(screen.getByRole('button', { name: 'chat.technicalDetails' }));
+      expect(await screen.findByText('Contrato MCP incompatível')).toBeInTheDocument();
+      const errorSection = screen.getByRole('heading', { name: 'common.error' }).closest('section');
+      const outputSection = screen
+        .getByRole('heading', { name: 'chat.response' })
+        .closest('section');
+      expect(errorSection?.querySelector('pre')?.textContent).toBe('Contrato MCP incompatível');
+      expect(outputSection?.querySelector('pre')?.textContent).toBe(content);
+    }
+  );
   it('mantém o diálogo aberto ao trocar ativo por segmento e patch canônico', () => {
     const { rerender } = render(
       <ChatMessage
