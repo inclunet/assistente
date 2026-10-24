@@ -374,8 +374,9 @@ func (f *PromptCacheHintFallback) Disabled() bool {
 type NativeMCPAdapterFallback struct {
 	// Streamer é o provider em modo adapter (BASE, sem WithMCPServers nativo).
 	Streamer Streamer
-	// ToolDefs são as tools iniciais COM as bridge tools MCP (não removidas).
-	ToolDefs []ToolDefinition
+	// RestoreToolDefs combina os schemas capturados no planejamento com as tools
+	// já ativas, aplicando o orçamento acumulado sem reconstruir schemas no registry.
+	RestoreToolDefs func(active []ToolDefinition) []ToolDefinition
 	// ResolveToolDefs reconstrói o conjunto ACUMULADO de tools em modo adapter
 	// (mantém bridges), usado nas iterações seguintes do loop agêntico após
 	// expansão de catálogo. Recebe as tools já ATIVAS no turno e os novos nomes

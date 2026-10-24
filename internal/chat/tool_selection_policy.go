@@ -118,7 +118,7 @@ func (p *ToolSelectionPolicy) ResolveExpandedToolDefs(nativeNames map[string]str
 	}
 	names = filtered
 	newDefs := p.buildLLMToolDefs(names, cfg.DisableTools)
-	return p.planAccumulatedToolDefs(active, newDefs, cfg)
+	return p.PlanAccumulatedToolDefs(active, newDefs, cfg)
 }
 
 // ---------------------------------------------------------------------------
