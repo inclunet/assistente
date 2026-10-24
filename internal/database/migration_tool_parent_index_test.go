@@ -2,12 +2,54 @@ package database
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
 
 	"gorm.io/gorm"
 )
+
+func TestToolParentRetentionIndexDefersFailureAndRetries(t *testing.T) {
+	db := newMigratorTestDB(t)
+	if err := db.Exec(`CREATE TABLE tool_invocations (id TEXT PRIMARY KEY, user_id TEXT NOT NULL)`).Error; err != nil {
+		t.Fatal(err)
+	}
+	var migration36 migration
+	for _, m := range schemaMigrations {
+		if m.Version == 36 {
+			migration36 = m
+		}
+	}
+	if migration36.Run == nil {
+		t.Fatal("migração 36 ausente")
+	}
+	if err := migration36.Run(db); !errors.Is(err, errMigrationDeferred) {
+		t.Fatalf("falha de criação deve adiar migração: %v", err)
+	}
+	if err := runMigrationList(db, phasePostAutoMigrate, []migration{migration36}); err != nil {
+		t.Fatalf("migração adiada não deve abortar inicialização: %v", err)
+	}
+	var versions int64
+	if err := db.Table("schema_migrations").Where("version = 36").Count(&versions).Error; err != nil || versions != 0 {
+		t.Fatalf("migração adiada registrada: %d, %v", versions, err)
+	}
+	if err := db.Exec(`ALTER TABLE tool_invocations ADD COLUMN parent_invocation_id TEXT`).Error; err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		if err := runMigrationList(db, phasePostAutoMigrate, []migration{migration36}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.Table("schema_migrations").Where("version = 36").Count(&versions).Error; err != nil || versions != 1 {
+		t.Fatalf("migração recuperada deve ser registrada uma vez: %d, %v", versions, err)
+	}
+	var indexes int64
+	if err := db.Raw(`SELECT count(*) FROM sqlite_master WHERE type = 'index' AND name = 'idx_tool_invocations_parent_user'`).Scan(&indexes).Error; err != nil || indexes != 1 {
+		t.Fatalf("índice não criado após recuperação: %d, %v", indexes, err)
+	}
+}
 
 func TestToolParentRetentionIndexUpgradeAndCleanupPlan(t *testing.T) {
 	db := newMigratorTestDB(t)
