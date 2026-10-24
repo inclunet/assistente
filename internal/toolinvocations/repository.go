@@ -477,42 +477,42 @@ func (r *DBRepository) cleanOrphanChat(ctx context.Context, limit int) (int, boo
 				)
 			)`)
 		var err error
+		if limit == 0 {
+			deleted, err = database.DeleteToolInvocationsWithChildrenDetachedTx(ctx, tx, target.Session(&gorm.Session{}))
+			return err
+		}
+
 		var ids []string
 		candidates := target.Session(&gorm.Session{}).
 			Order("tool_invocations.id ASC").
 			Limit(limit + 1)
-		if limit == 0 {
-			candidates = target.Session(&gorm.Session{}).Order("tool_invocations.id ASC")
-		}
 		if err := candidates.Pluck("tool_invocations.id", &ids).Error; err != nil {
 			return err
 		}
-		more = limit > 0 && len(ids) > limit
+		more = len(ids) > limit
 		if more {
 			ids = ids[:limit]
 		}
 		if len(ids) == 0 {
 			return nil
 		}
-		if limit > 0 {
-			var childIDs []string
-			children := database.ScopeByUser(ctx, tx.Model(&database.ToolInvocation{}), "user_id").
-				Where("parent_invocation_id IN ?", ids).
-				Order("tool_invocations.id ASC").
-				Limit(limit + 1)
-			if err := children.Pluck("tool_invocations.id", &childIDs).Error; err != nil {
+		var childIDs []string
+		children := database.ScopeByUser(ctx, tx.Model(&database.ToolInvocation{}), "user_id").
+			Where("parent_invocation_id IN ?", ids).
+			Order("tool_invocations.id ASC").
+			Limit(limit + 1)
+		if err := children.Pluck("tool_invocations.id", &childIDs).Error; err != nil {
+			return err
+		}
+		if len(childIDs) > limit {
+			childIDs = childIDs[:limit]
+			if err := database.ScopeByUser(ctx, tx.Model(&database.ToolInvocation{}), "user_id").
+				Where("tool_invocations.id IN ?", childIDs).
+				Update("parent_invocation_id", nil).Error; err != nil {
 				return err
 			}
-			if len(childIDs) > limit {
-				childIDs = childIDs[:limit]
-				if err := database.ScopeByUser(ctx, tx.Model(&database.ToolInvocation{}), "user_id").
-					Where("tool_invocations.id IN ?", childIDs).
-					Update("parent_invocation_id", nil).Error; err != nil {
-					return err
-				}
-				more = true
-				return nil
-			}
+			more = true
+			return nil
 		}
 		selected := database.ScopeByUser(ctx, tx.Model(&database.ToolInvocation{}), "user_id").
 			Where("tool_invocations.id IN ?", ids)
