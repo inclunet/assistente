@@ -5,7 +5,7 @@ Seleção por idade sem ordenação global antes do lote e migração aditiva v3
 para localizar filhos de invocações por pai e usuário. Regressões verificam
 os planos SQL produtivos, continuidade da limpeza, isolamento, upgrade e FKs.
 Sem novo coordenador ou política; qualificação no banco carregado pendente.
-O status Done do AEP-0074 permanece restrito ao escopo legado.
+O escopo legado está concluído; o status global do AEP-0074-B é In Progress.
 
 **AEP-0103 — recuperação após atualização de catálogo (18/10/2026): In Progress.**
 Correção da retomada de hot-swap incompleto, sem reutilizar catálogo revogado
@@ -1153,7 +1153,7 @@ de cancelamento de release na dependência; o AEP permanece **In Progress**.
 | [0072](0072-skill-catalog-and-loading.md) | Skill Loading Runtime | ✅ Done |
 | [0073](0073-tasklist-conversation-linking.md) | Vínculo de Tasks e Tasklists a Conversas | ✅ Done |
 | [0074-A](0074-prompt-cache-e-contexto-dinamico.md) | Prompt Cache, Custo de LLM e Layout da Request ⚠️ | 🚧 In Progress |
-| [0074-B](0074-database-compaction-and-retention.md) | Compactação e Retenção do Banco de Dados ⚠️ — startup evita regravar modo incremental | ✅ Done |
+| [0074-B](0074-database-compaction-and-retention.md) | Compactação e Retenção do Banco de Dados ⚠️ — legado concluído; qualificação das extensões pendente | 🚧 In Progress |
 | [0075](0075-context-providers.md) | Context Providers | ✅ Done |
 | [0076](0076-schema-versioning-migrations.md) | Versionamento de Schema do Banco (schema_migrations) | ✅ Done |
 | [0077](0077-tool-planner-and-tools-subsystem-evolution.md) | ToolPlanner e Evolução do Subsistema de Tools | ✅ Done |

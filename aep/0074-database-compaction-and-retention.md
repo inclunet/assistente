@@ -1,6 +1,10 @@
 # AEP-0074 — Compactação e Retenção do Banco de Dados
 
-**Status:** Done
+**Status:** In Progress
+
+O escopo legado está concluído. O status global inclui as extensões de
+contenção e coordenação abaixo, cuja qualificação no banco carregado permanece
+pendente. As referências históricas a Done descrevem somente o escopo legado.
 
 **Extensão de acesso ao histórico de jobs (24/10/2026): In Progress.**
 O log após a limpeza limitada de órfãos ainda mostra `retention.jobs` esgotando
@@ -138,7 +142,7 @@ sem fonte mesmo sem workspace/UI disponível, mas não permite ativação ou
 renovação nesse estado. Erros de transação continuam erros, não ausência de
 contexto. O diagnóstico de falhas inclui etapa e contadores confirmados.
 Aceites e limites estão na tasklist; o gate integrado de restart de todos os
-domínios ainda não está certificado. Done acima continua restrito ao legado.
+domínios ainda não está certificado. O escopo legado permanece concluído.
 
 **Atualização da extensão AEP-0103, seção 26 (16/09/2026):** a composição real
 está ligada no App antes de jobs.Start quando o armazenamento de comandos está
@@ -158,7 +162,7 @@ transitórios não viram rejeição definitiva e retenção sinaliza continuaç�
 após rollback. A composição completa do Consumer e a chamada produtiva de
 ConfigureCommandMaintenance ainda faltam. O recovery de restart registrado
 já está ligado ao bootstrap (seção 24 da tasklist AEP-0103); isso não habilita
-a cadência periódica completa. Done acima permanece restrito ao escopo legado.
+a cadência periódica completa. O escopo legado permanece concluído.
 
 **Rodada de quinze pacotes AEP-0103 (15/09/2026), extensão In Progress:**
 `commanddecision.CoordinatorRecovery` pagina receipts de todos os owners,
