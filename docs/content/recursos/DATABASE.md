@@ -167,6 +167,14 @@ usuário. Os limites de tempo continuam cooperativos: a otimização não garant
 que toda consulta termine em cinco segundos, nem substitui a investigação de
 quedas de comandos em sessões longas.
 
+Na limpeza por idade, qualquer lote de execuções vencidas pode ser removido;
+não é necessário ordenar todo o histórico antes de começar. A atualização
+também adiciona um índice para localizar diretamente as invocações-filhas
+durante a exclusão. A criação desse índice acontece no primeiro início após
+a atualização e pode aumentar o tempo desse início em bancos grandes. Essas
+medidas reduzem o trabalho de manutenção que compete com as tools, mas ainda
+é necessário acompanhar os logs para confirmar a melhora na instalação.
+
 Na implementação AEP-0103, a manutenção de comandos é montada antes do início
 dos jobs quando o armazenamento de comandos está pronto. Ela compartilha o
 timer existente: verifica leases e outbox antes de reter jobs e compactar.

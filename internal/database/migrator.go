@@ -389,6 +389,14 @@ var schemaMigrations = []migration{
 		Phase:   phasePostAutoMigrate,
 		Run:     MigrateLLMProviderLegacyErrorFamilies,
 	},
+	{
+		Version: 36,
+		Name:    "tool_invocation_parent_retention_index",
+		Phase:   phasePostAutoMigrate,
+		Run: func(database *gorm.DB) error {
+			return deferIfErr(ensureToolInvocationParentRetentionIndex(database))
+		},
+	},
 }
 
 // runMigrations aplica, na ordem de Version, todas as migrações da fase
