@@ -1819,7 +1819,10 @@ func (r *DBRepository) CleanOldRunsBatch(ctx context.Context, maxAge time.Durati
 		query := database.ScopeByUser(ctx, tx.Model(&database.JobRun{}), "user_id").
 			Where("julianday(COALESCE(started_at, queued_at)) < julianday(?)", cutoff.UTC())
 		query = r.retainableRunQuery(query, userID, now)
-		if err := query.Order("COALESCE(started_at, queued_at) ASC, id ASC").Limit(limit+1).Pluck("id", &runIDs).Error; err != nil {
+		// Todos os candidatos já venceram a política de idade. Ordenar pela
+		// expressão COALESCE exige examinar e ordenar o histórico inteiro antes
+		// do LIMIT; a manutenção só precisa de qualquer lote elegível.
+		if err := query.Limit(limit+1).Pluck("id", &runIDs).Error; err != nil {
 			return err
 		}
 		more = len(runIDs) > limit
