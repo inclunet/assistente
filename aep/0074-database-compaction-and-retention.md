@@ -92,6 +92,21 @@ reproduz conflito WAL e cobre cancelamento, esgotamento e rollback sem
 contagem de resultados não confirmados. Validação no banco real permanece
 pendente; não foi realizada limpeza no banco pessoal para estes testes.
 
+**Extensão coordenada, limpeza bounded do ledger (24/10/2026): In Progress.**
+`CleanOrphanChatBatch` limita a seleção/exclusão por usuário a `BatchSize` e
+limita também a desassociação dos filhos a esse lote; quando restam mais filhos,
+o detach progride em passagens e o pai só é excluído quando os vínculos restantes
+couberem na mesma transação. A transação adquire o writer SQLite antes de ler
+candidatos (`BEGIN IMMEDIATE`), evitando promover um snapshot de leitura para
+escrita durante a limpeza. As operações permanecem escopadas pelo usuário e a
+desassociação final e exclusão do pai são atômicas. Cobertura em
+`TestRepositoryCleanOrphanChatBatchLimitsDeletesAndResumes`,
+`TestRepositoryCleanOrphanChatBatchBoundsChildDetachment` e
+`TestToolsRetentionAdapterBoundsOrphanCleanupPerPass`. Isso limita o trabalho
+desta rotina por transação; não prova que ela era a única origem do lock no log
+nem substitui validação no banco carregado após deploy. O contrato fail-closed
+do AEP-0104 permanece vigente.
+
 **Extensão AEP-0103, 17/09/2026 — seção 27:** cada passagem do coordenador
 publica a fotografia validada de MaintenanceSettings no contexto interno.
 Criação/renovação de leases e retenção de ativações usam a mesma fotografia,

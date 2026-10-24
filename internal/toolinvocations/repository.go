@@ -425,20 +425,34 @@ func (r *DBRepository) CleanOldChat(ctx context.Context, maxAge time.Duration) (
 // (deleções de conversa já removem em cascata, mas falhas podem deixar órfãos).
 // Se a tabela de chat_messages não existir (migrações parciais em teste), é no-op.
 func (r *DBRepository) CleanOrphanChat(ctx context.Context) (int, error) {
+	deleted, _, err := r.cleanOrphanChat(ctx, 0)
+	return deleted, err
+}
+
+// CleanOrphanChatBatch remove no máximo limit de invocações por transação.
+// more indica que o usuário ainda tem órfãos para outra passagem.
+func (r *DBRepository) CleanOrphanChatBatch(ctx context.Context, limit int) (int, bool, error) {
+	if limit <= 0 {
+		return 0, false, fmt.Errorf("orphan chat batch limit must be positive")
+	}
+	return r.cleanOrphanChat(ctx, limit)
+}
+
+func (r *DBRepository) cleanOrphanChat(ctx context.Context, limit int) (int, bool, error) {
 	if _, err := database.RequireUserID(ctx); err != nil {
-		return 0, err
+		return 0, false, err
 	}
 	if !r.db.Migrator().HasTable(&database.ChatMessage{}) {
-		return 0, nil
+		return 0, false, nil
 	}
 	// Vínculos canônicos usam conversation_id/turn_id. origin_id só permanece
 	// para linhas pré-v18 que ainda não receberam o backfill aditivo.
 	deleted := int64(0)
-	err := r.retry(ctx, "clean_orphan_chat", func() error {
-		return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-			target := database.ScopeByUser(ctx, tx.Model(&database.ToolInvocation{}), "user_id").
-				Where("origin_type = ?", OriginChat).
-				Where(`(
+	more := false
+	err := database.WithSQLiteImmediateTransactionOnce(ctx, time.Time{}, r.db, "toolinvocations.clean_orphan_chat", func(tx *gorm.DB) error {
+		target := database.ScopeByUser(ctx, tx.Model(&database.ToolInvocation{}), "user_id").
+			Where("origin_type = ?", OriginChat).
+			Where(`(
 				tool_invocations.conversation_id IS NOT NULL
 				AND (
 					NOT EXISTS (
@@ -462,15 +476,53 @@ func (r *DBRepository) CleanOrphanChat(ctx context.Context) (int, error) {
 					WHERE chat_messages.id = tool_invocations.origin_id
 				)
 			)`)
-			var err error
-			deleted, err = database.DeleteToolInvocationsWithChildrenDetachedTx(ctx, tx, target)
+		var err error
+		var ids []string
+		candidates := target.Session(&gorm.Session{}).
+			Order("tool_invocations.id ASC").
+			Limit(limit + 1)
+		if limit == 0 {
+			candidates = target.Session(&gorm.Session{}).Order("tool_invocations.id ASC")
+		}
+		if err := candidates.Pluck("tool_invocations.id", &ids).Error; err != nil {
 			return err
-		})
+		}
+		more = limit > 0 && len(ids) > limit
+		if more {
+			ids = ids[:limit]
+		}
+		if len(ids) == 0 {
+			return nil
+		}
+		if limit > 0 {
+			var childIDs []string
+			children := database.ScopeByUser(ctx, tx.Model(&database.ToolInvocation{}), "user_id").
+				Where("parent_invocation_id IN ?", ids).
+				Order("tool_invocations.id ASC").
+				Limit(limit + 1)
+			if err := children.Pluck("tool_invocations.id", &childIDs).Error; err != nil {
+				return err
+			}
+			if len(childIDs) > limit {
+				childIDs = childIDs[:limit]
+				if err := database.ScopeByUser(ctx, tx.Model(&database.ToolInvocation{}), "user_id").
+					Where("tool_invocations.id IN ?", childIDs).
+					Update("parent_invocation_id", nil).Error; err != nil {
+					return err
+				}
+				more = true
+				return nil
+			}
+		}
+		selected := database.ScopeByUser(ctx, tx.Model(&database.ToolInvocation{}), "user_id").
+			Where("tool_invocations.id IN ?", ids)
+		deleted, err = database.DeleteToolInvocationsWithChildrenDetachedTx(ctx, tx, selected)
+		return err
 	})
 	if err != nil {
-		return 0, err
+		return 0, false, err
 	}
-	return int(deleted), nil
+	return int(deleted), more, nil
 }
 
 func (r *DBRepository) ResolveToolCatalogID(ctx context.Context, toolName string) (string, error) {
