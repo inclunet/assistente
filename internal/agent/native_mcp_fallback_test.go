@@ -57,7 +57,10 @@ func TestRunAgenticLoop_NativeMCPUnsupportedRetriesSameTurnWithBridgeTools(t *te
 	adapter := &recordingAdapterStreamer{}
 
 	// Tools nativas (bridges removidas): só "read_file". Tools adapter (com bridge MCP).
-	nativeToolDefs := []llm.ToolDefinition{{Function: llm.FunctionDefinition{Name: "read_file"}}}
+	nativeToolDefs := []llm.ToolDefinition{
+		{Function: llm.FunctionDefinition{Name: "read_file"}},
+		{Function: llm.FunctionDefinition{Name: "loaded_during_turn"}},
+	}
 	bridgeToolDefs := []llm.ToolDefinition{
 		{Function: llm.FunctionDefinition{Name: "mcp_github__list"}},
 		{Function: llm.FunctionDefinition{Name: "read_file"}},
@@ -106,6 +109,16 @@ func TestRunAgenticLoop_NativeMCPUnsupportedRetriesSameTurnWithBridgeTools(t *te
 	}
 	if !foundBridge {
 		t.Fatalf("retry adapter não recebeu a bridge tool MCP: %#v", adapter.gotTools[0])
+	}
+
+	foundDynamic := false
+	for _, name := range adapter.gotTools[0] {
+		if name == "loaded_during_turn" {
+			foundDynamic = true
+		}
+	}
+	if !foundDynamic {
+		t.Fatalf("fallback perdeu ferramenta ativa: %v", adapter.gotTools[0])
 	}
 
 	doneEvents := em.find("chat:done")

@@ -8,19 +8,7 @@ import (
 	"assistente/internal/tools"
 )
 
-// ---------------------------------------------------------------------------
-// Testes de caracterização (AEP-0077 Fase 3, #119)
-//
-// Estes testes travam (snapshot) o comportamento ATUAL do pipeline de seleção
-// de tools — montado hoje de forma dispersa entre tool_defs.go e o callback de
-// expansão dinâmica no use case de envio. Eles devem permanecer verdes ANTES e
-// DEPOIS da consolidação em ToolSelectionPolicy: a refatoração não pode mudar
-// quais tools são oferecidas em nenhum cenário (regra de ouro de paridade).
-//
-// "legacy*" reproduz a composição exata dos call sites atuais (send_message.go).
-// Após a consolidação, ToolSelectionPolicy é exercitada com os MESMOS cenários
-// em tool_selection_policy_test.go, garantindo equivalência.
-// ---------------------------------------------------------------------------
+// Fixtures e cenários compartilhados pelos testes da política de seleção.
 
 // charRegistry monta um registry representativo: builtins gateadas pelo catálogo,
 // uma tool de runtime (load_skill), uma bridge MCP e uma tool opt-in (text_edit).
@@ -63,28 +51,8 @@ func assertNames(t *testing.T, scenario string, got, want []string) {
 	}
 }
 
-// legacyInitialDefs reproduz a montagem inicial atual:
-//
-//	initial := ResolveInitialEnabledToolsWithRuntime(...)
-//	defs    := BuildLLMToolDefs(registry, initial, disable)
-func legacyInitialDefs(r *tools.Registry, enabled []string, disable bool, runtime []string) []llm.ToolDefinition {
-	initial := ResolveInitialEnabledToolsWithRuntime(r, enabled, disable, runtime)
-	return BuildLLMToolDefs(r, initial, disable)
-}
-
-// legacyExpandedDefs reproduz o callback de expansão dinâmica atual
-// (filterExpandedToolNames + FilterToolNamesForNativeMCP + BuildLLMToolDefsByNames).
-func legacyExpandedDefs(r *tools.Registry, streamer llm.ChatProvider, mgr NativeMCPManager, names, enabled []string, disable bool, override *bool) []llm.ToolDefinition {
-	names = FilterToolNamesByEnabledTools(names, enabled, disable)
-	if enabled == nil && r != nil {
-		names = r.FilterOutOptInNames(names)
-	}
-	names = FilterToolNamesForNativeMCP(streamer, mgr, names, disable, override)
-	return BuildLLMToolDefsByNames(r, names, disable)
-}
-
 // initialSelectionCases são os cenários canônicos de seleção inicial por perfil.
-// Reusados pelo teste de paridade da policy.
+// Reusados pelos testes da política de seleção.
 type initialSelectionCase struct {
 	name     string
 	registry *tools.Registry
@@ -107,15 +75,6 @@ func initialSelectionCases(t *testing.T) []initialSelectionCase {
 	}
 }
 
-func TestCharacterization_InitialSelectionByProfile(t *testing.T) {
-	for _, tc := range initialSelectionCases(t) {
-		t.Run(tc.name, func(t *testing.T) {
-			got := defNames(legacyInitialDefs(tc.registry, tc.enabled, tc.disable, tc.runtime))
-			assertNames(t, tc.name, got, tc.want)
-		})
-	}
-}
-
 // dynamicExpansionCases são os cenários canônicos da expansão dinâmica.
 type dynamicExpansionCase struct {
 	name     string
@@ -131,7 +90,7 @@ func dynamicExpansionCases() []dynamicExpansionCase {
 	return []dynamicExpansionCase{
 		{name: "enabledNil_removeOptIn", names: []string{"read_file", "grep_search", "text_edit"}, want: []string{"grep_search", "read_file"}},
 		{name: "enabledAllowlist_filtraPorPerfil", names: []string{"read_file", "grep_search", "text_edit"}, enabled: []string{"read_file", "text_edit"}, want: []string{"read_file", "text_edit"}},
-		{name: "mcpNativoForcado_removeBridge", names: []string{"read_file", "mcp_srv__do"}, native: true, override: boolPtr(true), want: []string{"read_file"}},
+		{name: "mcpNativoForcado_mantemBridgeOnDemand", names: []string{"read_file", "mcp_srv__do"}, native: true, override: boolPtr(true), want: []string{"mcp_srv__do", "read_file"}},
 		{name: "mcpAdapterForcado_mantemBridge", names: []string{"read_file", "mcp_srv__do"}, native: true, override: boolPtr(false), want: []string{"mcp_srv__do", "read_file"}},
 		{name: "disableTools_retornaNada", names: []string{"read_file"}, disable: true, want: []string{}},
 	}
@@ -144,30 +103,4 @@ func expansionStreamerAndMgr(native bool) (llm.ChatProvider, NativeMCPManager) {
 	return &mockChatProvider{nativeCapable: true}, &mockNativeMCPMgr{servers: []mcplib.NativeMCPServer{
 		{Slug: "srv", Name: "Srv", URL: "https://srv.io", ToolNames: []string{"mcp_srv__do"}},
 	}}
-}
-
-func TestCharacterization_DynamicExpansion(t *testing.T) {
-	r := charRegistry(t)
-	for _, tc := range dynamicExpansionCases() {
-		t.Run(tc.name, func(t *testing.T) {
-			streamer, mgr := expansionStreamerAndMgr(tc.native)
-			got := defNames(legacyExpandedDefs(r, streamer, mgr, tc.names, tc.enabled, tc.disable, tc.override))
-			assertNames(t, tc.name, got, tc.want)
-		})
-	}
-}
-
-// TestCharacterization_InitialThenApplyNativeMCP fixa o pipeline completo:
-// montagem inicial → ApplyNativeMCP remove a bridge que virou nativa.
-func TestCharacterization_InitialThenApplyNativeMCP(t *testing.T) {
-	r := charRegistry(t)
-	capable := &mockChatProvider{nativeCapable: true}
-	mgr := &mockNativeMCPMgr{servers: []mcplib.NativeMCPServer{
-		{Slug: "srv", Name: "Srv", URL: "https://srv.io", ToolNames: []string{"mcp_srv__do"}},
-	}}
-	enabled := []string{"read_file", "mcp_srv__do"}
-
-	legacyDefs := BuildLLMToolDefs(r, enabled, false)
-	_, legacyOut := ApplyNativeMCP(capable, legacyDefs, mgr, enabled, false, boolPtr(true))
-	assertNames(t, "legacy", defNames(legacyOut), []string{"read_file"})
 }

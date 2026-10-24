@@ -78,6 +78,15 @@ salva no perfil; uma escolha explícita de modo nativo não é sobrescrita.
 Erros comuns de ferramentas remotas não provocam essa troca. Quando os nomes
 forem ambíguos, a recuperação automática não é aplicada.
 
+Se um servidor MCP nativo falhar na conexão ou listagem, o Assistente informa o
+problema e interrompe a tentativa. Ele não reenvia silenciosamente a pergunta
+retirando aquele servidor. Corrija a conexão ou autorização indicada antes de
+solicitar nova tentativa.
+
+As ferramentas delegadas ao provedor são fixadas na montagem do turno. Mudanças
+de conexão durante a resposta não retiram ferramentas locais por engano.
+Quando houver troca para adapter, as ferramentas já carregadas são preservadas.
+
 Nos **detalhes técnicos** da ferramenta, o diagnóstico aparece na seção **Erro**,
 separado da **Resposta** original, inclusive quando o provedor não retorna saída.
 

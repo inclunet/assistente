@@ -68,17 +68,11 @@ func (m *mockChatProvider) WithMCPServers(servers []llm.MCPServerConfig) llm.Cha
 
 // mockNativeMCPMgr implements NativeMCPManager.
 type mockNativeMCPMgr struct {
-	servers            []mcplib.NativeMCPServer
-	recoveredServerIDs []string
+	servers []mcplib.NativeMCPServer
 }
 
 func (m *mockNativeMCPMgr) GetEligibleNativeMCPServers() []mcplib.NativeMCPServer {
 	return m.servers
-}
-
-func (m *mockNativeMCPMgr) RecoverServerBestEffort(_ context.Context, slug string) mcplib.RecoveryResult {
-	m.recoveredServerIDs = append(m.recoveredServerIDs, slug)
-	return mcplib.RecoveryResult{}
 }
 
 // makeToolDefs builds []llm.ToolDefinition with given names.
@@ -99,21 +93,21 @@ func makeToolDefs(names ...string) []llm.ToolDefinition {
 
 func TestBuildLLMToolDefs_DisableTools(t *testing.T) {
 	r := registryWith("toolA", "toolB")
-	got := BuildLLMToolDefs(r, nil, true)
+	got := NewToolSelectionPolicy(r).buildLLMToolDefs(nil, true)
 	if got != nil {
 		t.Fatalf("esperava nil, obteve %v", got)
 	}
 }
 
 func TestBuildLLMToolDefs_NilRegistry(t *testing.T) {
-	got := BuildLLMToolDefs(nil, nil, false)
+	got := NewToolSelectionPolicy(nil).buildLLMToolDefs(nil, false)
 	if got != nil {
 		t.Fatalf("esperava nil para registry nil, obteve %v", got)
 	}
 }
 
 func TestBuildLLMToolDefs_EmptyRegistry(t *testing.T) {
-	got := BuildLLMToolDefs(tools.NewRegistry(), nil, false)
+	got := NewToolSelectionPolicy(tools.NewRegistry()).buildLLMToolDefs(nil, false)
 	if got != nil {
 		t.Fatalf("esperava nil para registry vazio, obteve %v", got)
 	}
@@ -121,7 +115,7 @@ func TestBuildLLMToolDefs_EmptyRegistry(t *testing.T) {
 
 func TestBuildLLMToolDefs_NilSelectionFailsClosed(t *testing.T) {
 	r := registryWith("alpha", "beta", "gamma")
-	got := BuildLLMToolDefs(r, nil, false)
+	got := NewToolSelectionPolicy(r).buildLLMToolDefs(nil, false)
 	if len(got) != 0 {
 		t.Fatalf("seleção nil não deve expor o registry, obteve %v", got)
 	}
@@ -129,7 +123,7 @@ func TestBuildLLMToolDefs_NilSelectionFailsClosed(t *testing.T) {
 
 func TestBuildLLMToolDefs_FilteredTools(t *testing.T) {
 	r := registryWith("alpha", "beta", "gamma")
-	got := BuildLLMToolDefs(r, []string{"beta"}, false)
+	got := NewToolSelectionPolicy(r).buildLLMToolDefs([]string{"beta"}, false)
 	if len(got) != 1 {
 		t.Fatalf("esperava 1 def filtrada, obteve %d", len(got))
 	}
@@ -140,7 +134,7 @@ func TestBuildLLMToolDefs_FilteredTools(t *testing.T) {
 
 func TestBuildLLMToolDefs_EnabledToolsEmptySlice(t *testing.T) {
 	r := registryWith("alpha")
-	got := BuildLLMToolDefs(r, []string{}, false)
+	got := NewToolSelectionPolicy(r).buildLLMToolDefs([]string{}, false)
 	if len(got) != 0 {
 		t.Fatalf("esperava slice vazio, obteve %v", got)
 	}
@@ -150,7 +144,7 @@ func TestBuildLLMToolDefs_ParametersPreserved(t *testing.T) {
 	r := tools.NewRegistry()
 	params := json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"}}}`)
 	r.MustRegister(&mockToolDef{name: "read_file", descr: "reads", params: params})
-	got := BuildLLMToolDefs(r, []string{"read_file"}, false)
+	got := NewToolSelectionPolicy(r).buildLLMToolDefs([]string{"read_file"}, false)
 	if len(got) != 1 {
 		t.Fatalf("esperava 1 def, obteve %d", len(got))
 	}
@@ -161,11 +155,11 @@ func TestBuildLLMToolDefs_ParametersPreserved(t *testing.T) {
 
 func TestResolveInitialEnabledTools_UsesCatalogWhenProfileDoesNotPinTools(t *testing.T) {
 	r := registryWith(tools.ToolCatalogName, "read_file", "grep_search")
-	got := ResolveInitialEnabledTools(r, nil, false)
+	got := NewToolSelectionPolicy(r).InitialEnabledToolNames(ProfileToolConfig{EnabledTools: nil, DisableTools: false})
 	if len(got) != 1 || got[0] != tools.ToolCatalogName {
 		t.Fatalf("expected only tool_catalog initially, got %#v", got)
 	}
-	defs := BuildLLMToolDefs(r, got, false)
+	defs := NewToolSelectionPolicy(r).buildLLMToolDefs(got, false)
 	if len(defs) != 1 || defs[0].Function.Name != tools.ToolCatalogName {
 		t.Fatalf("expected only tool_catalog definition, got %#v", defs)
 	}
@@ -173,7 +167,7 @@ func TestResolveInitialEnabledTools_UsesCatalogWhenProfileDoesNotPinTools(t *tes
 
 func TestResolveInitialEnabledTools_PreservesExplicitProfileSelection(t *testing.T) {
 	r := registryWith(tools.ToolCatalogName, "read_file", "grep_search")
-	got := ResolveInitialEnabledTools(r, []string{"read_file"}, false)
+	got := NewToolSelectionPolicy(r).InitialEnabledToolNames(ProfileToolConfig{EnabledTools: []string{"read_file"}, DisableTools: false})
 	if len(got) != 1 || got[0] != "read_file" {
 		t.Fatalf("expected explicit enabled tools unchanged, got %#v", got)
 	}
@@ -181,11 +175,11 @@ func TestResolveInitialEnabledTools_PreservesExplicitProfileSelection(t *testing
 
 func TestResolveInitialEnabledTools_EmptyExplicitSelectionStaysEmpty(t *testing.T) {
 	r := registryWith(tools.ToolCatalogName, "read_file")
-	got := ResolveInitialEnabledTools(r, []string{}, false)
+	got := NewToolSelectionPolicy(r).InitialEnabledToolNames(ProfileToolConfig{EnabledTools: []string{}, DisableTools: false})
 	if got == nil || len(got) != 0 {
 		t.Fatalf("expected explicit empty selection, got %#v", got)
 	}
-	defs := BuildLLMToolDefs(r, got, false)
+	defs := NewToolSelectionPolicy(r).buildLLMToolDefs(got, false)
 	if len(defs) != 0 {
 		t.Fatalf("expected no tool definitions, got %#v", defs)
 	}
@@ -193,7 +187,7 @@ func TestResolveInitialEnabledTools_EmptyExplicitSelectionStaysEmpty(t *testing.
 
 func TestResolveInitialEnabledToolsWithRuntime_AppendsLoadSkillToCatalogFirst(t *testing.T) {
 	r := registryWith(tools.ToolCatalogName, tools.LoadSkillName, "read_file")
-	got := ResolveInitialEnabledToolsWithRuntime(r, nil, false, []string{tools.LoadSkillName})
+	got := NewToolSelectionPolicy(r).InitialEnabledToolNames(ProfileToolConfig{EnabledTools: nil, DisableTools: false, RuntimeTools: []string{tools.LoadSkillName}})
 	if len(got) != 2 || got[0] != tools.ToolCatalogName || got[1] != tools.LoadSkillName {
 		t.Fatalf("expected catalog plus load_skill, got %#v", got)
 	}
@@ -201,7 +195,7 @@ func TestResolveInitialEnabledToolsWithRuntime_AppendsLoadSkillToCatalogFirst(t 
 
 func TestResolveInitialEnabledToolsWithRuntime_ExplicitEmptyKeepsToolCallingOff(t *testing.T) {
 	r := registryWith(tools.ToolCatalogName, tools.LoadSkillName, "read_file")
-	got := ResolveInitialEnabledToolsWithRuntime(r, []string{}, false, []string{tools.LoadSkillName})
+	got := NewToolSelectionPolicy(r).InitialEnabledToolNames(ProfileToolConfig{EnabledTools: []string{}, DisableTools: false, RuntimeTools: []string{tools.LoadSkillName}})
 	if got == nil || len(got) != 0 {
 		t.Fatalf("expected explicit empty selection, got %#v", got)
 	}
@@ -209,19 +203,19 @@ func TestResolveInitialEnabledToolsWithRuntime_ExplicitEmptyKeepsToolCallingOff(
 
 func TestResolveInitialEnabledToolsWithRuntime_AppendsToExplicitTools(t *testing.T) {
 	r := registryWith(tools.ToolCatalogName, tools.LoadSkillName, "read_file")
-	got := ResolveInitialEnabledToolsWithRuntime(r, []string{"read_file"}, false, []string{tools.LoadSkillName})
-	if len(got) != 2 || got[0] != "read_file" || got[1] != tools.LoadSkillName {
+	got := NewToolSelectionPolicy(r).InitialEnabledToolNames(ProfileToolConfig{EnabledTools: []string{"read_file"}, DisableTools: false, RuntimeTools: []string{tools.LoadSkillName}})
+	if len(got) != 2 || got[0] != tools.LoadSkillName || got[1] != "read_file" {
 		t.Fatalf("expected explicit tools plus load_skill, got %#v", got)
 	}
 }
 
 func TestResolveInitialEnabledTools_FailsClosedWithoutCatalog(t *testing.T) {
 	r := registryWith("read_file", "grep_search")
-	got := ResolveInitialEnabledTools(r, nil, false)
+	got := NewToolSelectionPolicy(r).InitialEnabledToolNames(ProfileToolConfig{EnabledTools: nil, DisableTools: false})
 	if got == nil || len(got) != 0 {
 		t.Fatalf("expected explicit fail-closed selection without catalog, got %#v", got)
 	}
-	defs := BuildLLMToolDefs(r, got, false)
+	defs := NewToolSelectionPolicy(r).buildLLMToolDefs(got, false)
 	if len(defs) != 0 {
 		t.Fatalf("expected no tools without catalog, got %#v", defs)
 	}
@@ -229,7 +223,7 @@ func TestResolveInitialEnabledTools_FailsClosedWithoutCatalog(t *testing.T) {
 
 func TestResolveInitialEnabledToolsWithRuntime_FailsClosedWithoutCatalog(t *testing.T) {
 	r := registryWith(tools.LoadSkillName, "read_file")
-	got := ResolveInitialEnabledToolsWithRuntime(r, nil, false, []string{tools.LoadSkillName})
+	got := NewToolSelectionPolicy(r).InitialEnabledToolNames(ProfileToolConfig{EnabledTools: nil, DisableTools: false, RuntimeTools: []string{tools.LoadSkillName}})
 	if got == nil || len(got) != 0 {
 		t.Fatalf("runtime tools não devem abrir perfil implícito sem catálogo, got %#v", got)
 	}
@@ -237,7 +231,7 @@ func TestResolveInitialEnabledToolsWithRuntime_FailsClosedWithoutCatalog(t *test
 
 func TestBuildLLMToolDefsByNames(t *testing.T) {
 	r := registryWith("alpha", "beta", "gamma")
-	got := BuildLLMToolDefsByNames(r, []string{"gamma", "missing", "alpha"}, false)
+	got := NewToolSelectionPolicy(r).buildLLMToolDefs([]string{"gamma", "missing", "alpha"}, false)
 	if len(got) != 2 {
 		t.Fatalf("expected 2 defs, got %#v", got)
 	}
@@ -248,127 +242,14 @@ func TestBuildLLMToolDefsByNames(t *testing.T) {
 
 func TestBuildLLMToolDefsByNames_DisabledOrEmpty(t *testing.T) {
 	r := registryWith("alpha")
-	if got := BuildLLMToolDefsByNames(r, []string{"alpha"}, true); got != nil {
+	if got := NewToolSelectionPolicy(r).buildLLMToolDefs([]string{"alpha"}, true); got != nil {
 		t.Fatalf("expected nil when disabled, got %#v", got)
 	}
-	if got := BuildLLMToolDefsByNames(r, nil, false); got != nil {
+	if got := NewToolSelectionPolicy(r).buildLLMToolDefs(nil, false); got != nil {
 		t.Fatalf("expected nil for nil names, got %#v", got)
 	}
-	if got := BuildLLMToolDefsByNames(nil, []string{"alpha"}, false); got != nil {
+	if got := NewToolSelectionPolicy(nil).buildLLMToolDefs([]string{"alpha"}, false); got != nil {
 		t.Fatalf("expected nil registry to return nil, got %#v", got)
-	}
-}
-
-func TestFilterToolNamesByEnabledToolsUsesProfileAllowlist(t *testing.T) {
-	got := FilterToolNamesByEnabledTools(
-		[]string{"read_file", "write_file", "mcp_srv__do"},
-		[]string{tools.ToolCatalogName, "read_file", "mcp_srv__do"},
-		false,
-	)
-	want := []string{"read_file", "mcp_srv__do"}
-	if len(got) != len(want) {
-		t.Fatalf("got %#v, want %#v", got, want)
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("got %#v, want %#v", got, want)
-		}
-	}
-}
-
-func TestFilterToolNamesByEnabledToolsNormalizesWhitespace(t *testing.T) {
-	got := FilterToolNamesByEnabledTools(
-		[]string{" read_file ", "", " write_file "},
-		[]string{" read_file ", "  "},
-		false,
-	)
-	want := []string{"read_file"}
-	if len(got) != len(want) {
-		t.Fatalf("got %#v, want %#v", got, want)
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("got %#v, want %#v", got, want)
-		}
-	}
-}
-
-func TestFilterToolNamesByEnabledToolsNilMeansDynamicCatalogCanSelectAnyTool(t *testing.T) {
-	names := []string{" read_file ", "write_file", ""}
-	got := FilterToolNamesByEnabledTools(names, nil, false)
-	want := []string{"read_file", "write_file"}
-	if len(got) != len(want) {
-		t.Fatalf("got %#v, want %#v", got, want)
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("got %#v, want %#v", got, want)
-		}
-	}
-}
-
-func TestFilterToolNamesByEnabledToolsDisabledReturnsNil(t *testing.T) {
-	if got := FilterToolNamesByEnabledTools([]string{"read_file"}, []string{"read_file"}, true); got != nil {
-		t.Fatalf("got %#v, want nil", got)
-	}
-}
-
-func TestFilterToolNamesForNativeMCPRemovesNativeBridgeNames(t *testing.T) {
-	p := &mockChatProvider{nativeCapable: true}
-	mgr := &mockNativeMCPMgr{servers: []mcplib.NativeMCPServer{
-		{Slug: "srv", Name: "Srv", URL: "https://srv.io", ToolNames: []string{"mcp_srv__do", "mcp_srv__list"}},
-	}}
-
-	got := FilterToolNamesForNativeMCP(p, mgr, []string{"read_file", "mcp_srv__do", "mcp_other__do", "mcp_srv__list"}, false, boolPtr(true))
-	want := []string{"read_file", "mcp_other__do"}
-	if len(got) != len(want) {
-		t.Fatalf("got %#v, want %#v", got, want)
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("got %#v, want %#v", got, want)
-		}
-	}
-}
-
-func TestFilterToolNamesForNativeMCPDoesNotMutateNativeServers(t *testing.T) {
-	p := &mockChatProvider{nativeCapable: true}
-	mgr := &mockNativeMCPMgr{servers: []mcplib.NativeMCPServer{
-		{Slug: "zeta", Name: "Zeta", URL: "https://zeta.io", ToolNames: []string{"mcp_zeta__z", "mcp_zeta__a"}},
-		{Slug: "alpha", Name: "Alpha", URL: "https://alpha.io", ToolNames: []string{"mcp_alpha__z", "mcp_alpha__a"}},
-	}}
-
-	_ = FilterToolNamesForNativeMCP(p, mgr, []string{"mcp_zeta__z", "mcp_alpha__z", "local_tool"}, false, boolPtr(true))
-
-	if mgr.servers[0].Slug != "zeta" || mgr.servers[1].Slug != "alpha" {
-		t.Fatalf("native servers were reordered: %#v", mgr.servers)
-	}
-	if got := mgr.servers[0].ToolNames; got[0] != "mcp_zeta__z" || got[1] != "mcp_zeta__a" {
-		t.Fatalf("native server tool names were reordered: %#v", got)
-	}
-}
-
-func TestFilterToolNamesForNativeMCPDisabledReturnsNil(t *testing.T) {
-	p := &mockChatProvider{nativeCapable: true}
-	mgr := &mockNativeMCPMgr{servers: []mcplib.NativeMCPServer{
-		{Slug: "srv", Name: "Srv", URL: "https://srv.io", ToolNames: []string{"mcp_srv__do"}},
-	}}
-
-	if got := FilterToolNamesForNativeMCP(p, mgr, []string{"read_file", "mcp_srv__do"}, true, boolPtr(true)); got != nil {
-		t.Fatalf("got %#v, want nil", got)
-	}
-}
-
-func TestFilterToolNamesForNativeMCPPreservesNamesWhenProviderIsNotNative(t *testing.T) {
-	p := &mockChatProvider{nativeCapable: false}
-	mgr := &mockNativeMCPMgr{servers: []mcplib.NativeMCPServer{
-		{Slug: "srv", Name: "Srv", URL: "https://srv.io", ToolNames: []string{"mcp_srv__do"}},
-	}}
-	names := []string{"mcp_srv__do"}
-
-	got := FilterToolNamesForNativeMCP(p, mgr, names, false, boolPtr(true))
-	if len(got) != 1 || got[0] != "mcp_srv__do" {
-		t.Fatalf("got %#v, want %#v", got, names)
 	}
 }
 
@@ -380,7 +261,7 @@ func TestApplyNativeMCP_DisableTools(t *testing.T) {
 	p := &mockChatProvider{nativeCapable: true}
 	mgr := &mockNativeMCPMgr{servers: []mcplib.NativeMCPServer{{Name: "s", URL: "https://x.io"}}}
 	defs := makeToolDefs("mcp_s1__tool1")
-	outP, outDefs := ApplyNativeMCP(p, defs, mgr, nil, true, boolPtr(true))
+	outP, outDefs := applyNativeMCP(p, defs, mgr, nil, true, boolPtr(true))
 	if outP != p {
 		t.Error("deveria retornar o mesmo provider quando disableTools=true")
 	}
@@ -392,7 +273,7 @@ func TestApplyNativeMCP_DisableTools(t *testing.T) {
 func TestApplyNativeMCP_NilMgr(t *testing.T) {
 	p := &mockChatProvider{nativeCapable: true}
 	defs := makeToolDefs("toolA")
-	outP, outDefs := ApplyNativeMCP(p, defs, nil, nil, false, boolPtr(true))
+	outP, outDefs := applyNativeMCP(p, defs, nil, nil, false, boolPtr(true))
 	if outP != p {
 		t.Error("deveria retornar o mesmo provider quando mcpMgr=nil")
 	}
@@ -407,7 +288,7 @@ func TestApplyNativeMCP_TypedNilManagerDoesNotPanic(t *testing.T) {
 	var mgr *mockNativeMCPMgr
 	var nativeMgr NativeMCPManager = mgr
 
-	outP, outDefs := ApplyNativeMCP(p, defs, nativeMgr, nil, false, boolPtr(true))
+	outP, outDefs := applyNativeMCP(p, defs, nativeMgr, nil, false, boolPtr(true))
 	if outP != p {
 		t.Error("deveria retornar o mesmo provider quando mcpMgr é typed-nil")
 	}
@@ -422,7 +303,7 @@ func TestApplyNativeMCP_TypedNilProviderDoesNotPanic(t *testing.T) {
 	var streamer llm.ChatProvider = p
 	mgr := &mockNativeMCPMgr{servers: []mcplib.NativeMCPServer{{Name: "s", URL: "https://x.io"}}}
 	defs := makeToolDefs("toolA")
-	outP, outDefs := ApplyNativeMCP(streamer, defs, mgr, nil, false, boolPtr(true))
+	outP, outDefs := applyNativeMCP(streamer, defs, mgr, nil, false, boolPtr(true))
 	if outP != streamer {
 		t.Error("deveria retornar o mesmo typed-nil streamer sem chamar métodos")
 	}
@@ -435,7 +316,7 @@ func TestApplyNativeMCP_ProviderNotNative(t *testing.T) {
 	p := &mockChatProvider{nativeCapable: false}
 	mgr := &mockNativeMCPMgr{servers: []mcplib.NativeMCPServer{{Name: "s", URL: "https://x.io"}}}
 	defs := makeToolDefs("toolA")
-	outP, outDefs := ApplyNativeMCP(p, defs, mgr, nil, false, boolPtr(true))
+	outP, outDefs := applyNativeMCP(p, defs, mgr, nil, false, boolPtr(true))
 	if outP != p {
 		t.Error("deveria retornar o mesmo provider quando NativeMCPCapable=false")
 	}
@@ -448,7 +329,7 @@ func TestApplyNativeMCP_NoServers(t *testing.T) {
 	p := &mockChatProvider{nativeCapable: true}
 	mgr := &mockNativeMCPMgr{servers: nil}
 	defs := makeToolDefs("toolA")
-	outP, outDefs := ApplyNativeMCP(p, defs, mgr, nil, false, boolPtr(true))
+	outP, outDefs := applyNativeMCP(p, defs, mgr, nil, false, boolPtr(true))
 	if outP != p {
 		t.Error("deveria retornar o mesmo provider quando nao ha servidores")
 	}
@@ -463,7 +344,7 @@ func TestApplyNativeMCP_RemovesBridgeTools(t *testing.T) {
 		{Name: "MyServer", URL: "https://mcp.example.io", ToolNames: []string{"mcp_myserver__list", "mcp_myserver__create"}},
 	}}
 	defs := makeToolDefs("mcp_myserver__list", "mcp_myserver__create", "local_tool")
-	_, outDefs := ApplyNativeMCP(p, defs, mgr, nil, false, boolPtr(true))
+	_, outDefs := applyNativeMCP(p, defs, mgr, nil, false, boolPtr(true))
 	if len(outDefs) != 1 {
 		t.Fatalf("esperava 1 def restante (local_tool), obteve %d: %v", len(outDefs), outDefs)
 	}
@@ -478,7 +359,7 @@ func TestApplyNativeMCP_CallsWithMCPServers(t *testing.T) {
 		{Slug: "srv", Name: "Srv", URL: "https://srv.io", AuthToken: "tok", ToolNames: []string{"mcp_srv__do"}},
 	}}
 	defs := makeToolDefs("mcp_srv__do")
-	outP, _ := ApplyNativeMCP(p, defs, mgr, nil, false, boolPtr(true))
+	outP, _ := applyNativeMCP(p, defs, mgr, nil, false, boolPtr(true))
 	result, ok := outP.(*mockChatProvider)
 	if !ok {
 		t.Fatal("esperava *mockChatProvider de retorno")
@@ -490,15 +371,7 @@ func TestApplyNativeMCP_CallsWithMCPServers(t *testing.T) {
 	if cfg.Slug != "srv" || cfg.Name != "Srv" || cfg.URL != "https://srv.io" || cfg.AuthToken != "tok" {
 		t.Errorf("MCPServerConfig incorreto: %+v", cfg)
 	}
-	if cfg.Recover == nil {
-		t.Error("callback de recovery deveria ter sido configurado")
-	}
-	if err := cfg.Recover(context.Background()); err != nil {
-		t.Fatalf("recover callback retornou erro: %v", err)
-	}
-	if len(mgr.recoveredServerIDs) != 1 || mgr.recoveredServerIDs[0] != "srv" {
-		t.Fatalf("recover deveria usar slug srv, got %+v", mgr.recoveredServerIDs)
-	}
+
 }
 
 func TestApplyNativeMCP_SortsServersAndToolNames(t *testing.T) {
@@ -509,7 +382,7 @@ func TestApplyNativeMCP_SortsServersAndToolNames(t *testing.T) {
 	}}
 	defs := makeToolDefs("mcp_zeta__z", "mcp_zeta__a", "mcp_alpha__z", "mcp_alpha__a")
 
-	outP, _ := ApplyNativeMCP(p, defs, mgr, nil, false, boolPtr(true))
+	outP, _ := applyNativeMCP(p, defs, mgr, nil, false, boolPtr(true))
 	result, ok := outP.(*mockChatProvider)
 	if !ok {
 		t.Fatal("provider retornado deveria ser mockChatProvider")
@@ -536,7 +409,7 @@ func TestApplyNativeMCPDoesNotMutateNativeServers(t *testing.T) {
 	}}
 	defs := makeToolDefs("mcp_zeta__z", "mcp_zeta__a", "mcp_alpha__z", "mcp_alpha__a")
 
-	_, _ = ApplyNativeMCP(p, defs, mgr, nil, false, boolPtr(true))
+	_, _ = applyNativeMCP(p, defs, mgr, nil, false, boolPtr(true))
 
 	if mgr.servers[0].Slug != "zeta" || mgr.servers[1].Slug != "alpha" {
 		t.Fatalf("native servers were reordered: %#v", mgr.servers)
@@ -553,7 +426,7 @@ func TestApplyNativeMCP_NilEnabledToolsKeepsDynamicCatalogSeparateFromWhitelist(
 	}}
 	defs := makeToolDefs(tools.ToolCatalogName)
 
-	outP, outDefs := ApplyNativeMCP(p, defs, mgr, nil, false, boolPtr(true))
+	outP, outDefs := applyNativeMCP(p, defs, mgr, nil, false, boolPtr(true))
 	result, ok := outP.(*mockChatProvider)
 	if !ok {
 		t.Fatal("esperava *mockChatProvider de retorno")
@@ -572,7 +445,7 @@ func TestApplyNativeMCP_EnabledSetFiltersServer(t *testing.T) {
 		{Name: "S", URL: "https://s.io", ToolNames: []string{"mcp_s__alpha", "mcp_s__beta"}},
 	}}
 	defs := makeToolDefs("mcp_s__alpha", "mcp_s__beta", "local")
-	_, outDefs := ApplyNativeMCP(p, defs, mgr, []string{"mcp_s__alpha"}, false, boolPtr(true))
+	_, outDefs := applyNativeMCP(p, defs, mgr, []string{"mcp_s__alpha"}, false, boolPtr(true))
 	names := map[string]bool{}
 	for _, d := range outDefs {
 		names[d.Function.Name] = true
@@ -598,10 +471,10 @@ func TestResolveNativeMCPEnabled_AutoIsOptimisticNativeWhenCapable(t *testing.T)
 	capable := &mockChatProvider{nativeCapable: true}
 	incapable := &mockChatProvider{nativeCapable: false}
 
-	if !ResolveNativeMCPEnabled(capable, nil) {
+	if !resolveNativeMCPEnabled(capable, nil) {
 		t.Error("auto: provider capaz deveria tentar nativo por default (otimista)")
 	}
-	if ResolveNativeMCPEnabled(incapable, nil) {
+	if resolveNativeMCPEnabled(incapable, nil) {
 		t.Error("auto: provider incapaz deveria cair em adapter")
 	}
 }
@@ -609,7 +482,7 @@ func TestResolveNativeMCPEnabled_AutoIsOptimisticNativeWhenCapable(t *testing.T)
 func TestResolveNativeMCPEnabled_ForceTrueOnCapableProvider(t *testing.T) {
 	// Perfil força true num provider fisicamente capaz (Responses/Anthropic).
 	capable := &mockChatProvider{nativeCapable: true}
-	if !ResolveNativeMCPEnabled(capable, boolPtr(true)) {
+	if !resolveNativeMCPEnabled(capable, boolPtr(true)) {
 		t.Error("override true deveria habilitar nativo em provider fisicamente capaz")
 	}
 }
@@ -618,7 +491,7 @@ func TestResolveNativeMCPEnabled_ForceTrueOnIncapableProviderStaysAdapter(t *tes
 	// Perfil força true, mas o provider não é capaz (ex.: Chat Completions, Google).
 	// Não deve habilitar nativo (evita remover bridge tools sem enviar type:mcp).
 	incapable := &mockChatProvider{nativeCapable: false}
-	if ResolveNativeMCPEnabled(incapable, boolPtr(true)) {
+	if resolveNativeMCPEnabled(incapable, boolPtr(true)) {
 		t.Error("override true NÃO deveria habilitar nativo em provider incapaz")
 	}
 }
@@ -626,7 +499,7 @@ func TestResolveNativeMCPEnabled_ForceTrueOnIncapableProviderStaysAdapter(t *tes
 func TestResolveNativeMCPEnabled_ForceFalseStaysAdapter(t *testing.T) {
 	// Perfil força false: sempre adapter, mesmo num provider capaz.
 	capable := &mockChatProvider{nativeCapable: true}
-	if ResolveNativeMCPEnabled(capable, boolPtr(false)) {
+	if resolveNativeMCPEnabled(capable, boolPtr(false)) {
 		t.Error("override false deveria forçar adapter mesmo em provider capaz")
 	}
 }
@@ -641,7 +514,7 @@ func TestApplyNativeMCP_ProfileOverrideForceTrueCapableConfiguresNative(t *testi
 		{Slug: "github", Name: "GitHub", URL: "https://api.githubcopilot.com/mcp/", ToolNames: []string{"mcp_github__list"}},
 	}}
 	defs := makeToolDefs("mcp_github__list", "local")
-	outP, outDefs := ApplyNativeMCP(p, defs, mgr, nil, false, boolPtr(true))
+	outP, outDefs := applyNativeMCP(p, defs, mgr, nil, false, boolPtr(true))
 	result, ok := outP.(*mockChatProvider)
 	if !ok || len(result.calledWith) != 1 {
 		t.Fatalf("override true deveria configurar 1 server nativo, got %#v", outP)
@@ -659,7 +532,7 @@ func TestApplyNativeMCP_AutoConfiguresNativeWhenCapable(t *testing.T) {
 		{Slug: "github", Name: "GitHub", URL: "https://api.githubcopilot.com/mcp/", ToolNames: []string{"mcp_github__list"}},
 	}}
 	defs := makeToolDefs("mcp_github__list", "local")
-	outP, outDefs := ApplyNativeMCP(p, defs, mgr, nil, false, nil)
+	outP, outDefs := applyNativeMCP(p, defs, mgr, nil, false, nil)
 	result, ok := outP.(*mockChatProvider)
 	if !ok || len(result.calledWith) != 1 {
 		t.Fatalf("auto+capaz deveria configurar 1 server nativo, got %#v", outP)
@@ -676,7 +549,7 @@ func TestApplyNativeMCP_AutoIncapableKeepsBridges(t *testing.T) {
 		{Slug: "github", Name: "GitHub", URL: "https://api.githubcopilot.com/mcp/", ToolNames: []string{"mcp_github__list"}},
 	}}
 	defs := makeToolDefs("mcp_github__list", "local")
-	outP, outDefs := ApplyNativeMCP(p, defs, mgr, nil, false, nil)
+	outP, outDefs := applyNativeMCP(p, defs, mgr, nil, false, nil)
 	if outP != p {
 		t.Error("auto+incapaz: WithMCPServers não deveria ser chamado (adapter)")
 	}
@@ -692,25 +565,12 @@ func TestApplyNativeMCP_ProfileOverrideForceFalseCapableKeepsBridges(t *testing.
 		{Slug: "github", Name: "GitHub", URL: "https://api.githubcopilot.com/mcp/", ToolNames: []string{"mcp_github__list"}},
 	}}
 	defs := makeToolDefs("mcp_github__list", "local")
-	outP, outDefs := ApplyNativeMCP(p, defs, mgr, nil, false, boolPtr(false))
+	outP, outDefs := applyNativeMCP(p, defs, mgr, nil, false, boolPtr(false))
 	if outP != p {
 		t.Error("override false: WithMCPServers não deveria ser chamado (adapter)")
 	}
 	if len(outDefs) != 2 {
 		t.Errorf("override false: bridge tools deveriam permanecer, got %#v", outDefs)
-	}
-}
-
-func TestFilterToolNamesForNativeMCP_ForceFalseKeepsBridgeNames(t *testing.T) {
-	// Mesmo num provider capaz, override false mantém os nomes das bridges
-	// (elas continuam sendo function tools no loop agentic).
-	p := &mockChatProvider{nativeCapable: true}
-	mgr := &mockNativeMCPMgr{servers: []mcplib.NativeMCPServer{
-		{Slug: "srv", Name: "Srv", URL: "https://srv.io", ToolNames: []string{"mcp_srv__do"}},
-	}}
-	got := FilterToolNamesForNativeMCP(p, mgr, []string{"mcp_srv__do", "read_file"}, false, boolPtr(false))
-	if len(got) != 2 {
-		t.Fatalf("override false deveria preservar bridge names, got %#v", got)
 	}
 }
 
@@ -720,7 +580,7 @@ func TestApplyNativeMCP_ServerExcludedWhenNoEnabledTools(t *testing.T) {
 		{Name: "S", URL: "https://s.io", ToolNames: []string{"mcp_s__tool1"}},
 	}}
 	defs := makeToolDefs("mcp_s__tool1", "local")
-	outP, outDefs := ApplyNativeMCP(p, defs, mgr, []string{"other_tool"}, false, boolPtr(true))
+	outP, outDefs := applyNativeMCP(p, defs, mgr, []string{"other_tool"}, false, boolPtr(true))
 	if outP != p {
 		t.Error("esperava provider original (WithMCPServers nao deveria ter sido chamado)")
 	}

@@ -3,7 +3,6 @@ package llm
 import (
 	"context"
 	"testing"
-	"time"
 
 	"assistente/internal/credentials"
 	"github.com/anthropics/anthropic-sdk-go"
@@ -863,8 +862,7 @@ func (h *cancelOnChunkRetryHandler) OnChunk(content string) {
 	h.cancel()
 }
 
-func TestAnthropicProvider_StreamChatWithMCP_DegradesFailedMCPServer(t *testing.T) {
-	recovered := make(chan struct{}, 1)
+func TestAnthropicProvider_StreamChatWithMCP_ReportsFailureWithoutRemovingTools(t *testing.T) {
 	seen := make([][]string, 0, 2)
 	attempts := 0
 
@@ -875,10 +873,6 @@ func TestAnthropicProvider_StreamChatWithMCP_DegradesFailedMCPServer(t *testing.
 				Name: "Atlassian",
 				Slug: "atlassian",
 				URL:  "https://mcp.atlassian.com/v1/sse",
-				Recover: func(context.Context) error {
-					recovered <- struct{}{}
-					return nil
-				},
 			},
 			{Name: "Slack", Slug: "slack", URL: "https://mcp.slack.com/mcp"},
 		},
@@ -897,7 +891,6 @@ func TestAnthropicProvider_StreamChatWithMCP_DegradesFailedMCPServer(t *testing.
 					ServerSlug: "atlassian",
 					Stage:      MCPFailureStageHandshake,
 					Message:    "Falha no Atlassian",
-					Degradable: true,
 				},
 			}
 		}
@@ -909,24 +902,19 @@ func TestAnthropicProvider_StreamChatWithMCP_DegradesFailedMCPServer(t *testing.
 	handler := &providerRetryHandler{}
 	provider.streamChatWithMCP(context.Background(), "claude-test", 256, nil, nil, ChatParams{}, handler)
 
-	if attempts != 2 {
-		t.Fatalf("attempts = %d, want 2", attempts)
+	if attempts != 1 {
+		t.Fatalf("attempts = %d, want 1", attempts)
 	}
-	if len(seen) != 2 || len(seen[0]) != 2 || len(seen[1]) != 1 || seen[1][0] != "slack" {
+	if len(seen) != 1 || len(seen[0]) != 2 || seen[0][0] != "atlassian" || seen[0][1] != "slack" {
 		t.Fatalf("servers por tentativa = %#v", seen)
 	}
-	select {
-	case <-recovered:
-	case <-time.After(1 * time.Second):
-		t.Fatal("esperava callback de recovery assíncrono")
+	if got := handler.chunks.String(); got != "" {
+		t.Fatalf("chunk final = %q, want %q", got, "")
 	}
-	if got := handler.chunks.String(); got != "ok" {
-		t.Fatalf("chunk final = %q, want %q", got, "ok")
-	}
-	if len(handler.errors) != 0 {
+	if len(handler.errors) != 1 || handler.errors[0] != "Falha no Atlassian" {
 		t.Fatalf("erros inesperados: %v", handler.errors)
 	}
-	if handler.done != 1 {
-		t.Fatalf("OnDone = %d, want 1", handler.done)
+	if handler.done != 0 {
+		t.Fatalf("OnDone = %d, want 0", handler.done)
 	}
 }

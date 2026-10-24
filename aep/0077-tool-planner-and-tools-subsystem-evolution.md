@@ -7,6 +7,16 @@
 | Issues | [#122](https://github.com/inclunet/assistente/issues/122), [#120](https://github.com/inclunet/assistente/issues/120), [#119](https://github.com/inclunet/assistente/issues/119), [#121](https://github.com/inclunet/assistente/issues/121); rede de segurança: [#245](https://github.com/inclunet/assistente/issues/245) |
 | Relacionados | AEP-0039 (Tool Calling Revamp), AEP-0063 (Tool Invocations & Executor Comum), AEP-0021 (MCP Native Mode), AEP-0040 (Backend-Driven Messaging), AEP-0071 (Structured Tool Output Size), AEP-0072 (Skill Loading Runtime), AEP-0075 (Context Providers), AEP-0081 (Tools por Perfil) |
 
+## Simplificação de 2026-10-24
+
+A API histórica de `tool_defs.go` deixou de ter consumidores de produção.
+Seus oito wrappers e os helpers exclusivos foram removidos. Os testes agora
+verificam a política efetiva em vez de comparar duas implementações legadas.
+A conversão do registry para definições foi unificada. O `TurnToolPlan` da
+AEP-0021 v9 fixa a delegação utilizada na expansão e calcula alternativa
+adapter somente quando existe delegação nativa. A refatoração de identidade
+MCP continua registrada como fase pendente na AEP-0021.
+
 ## Resumo
 
 No baseline anterior a esta AEP, a **política de seleção estava distribuída**, o
@@ -38,7 +48,7 @@ Este AEP **estende** AEP-0039 e AEP-0063 (não os substitui). O registry runtime
 | Metadata das builtins | Implementações concretas em `internal/tools/**` + fallback de `CatalogEntryFromTool` | Builtins com metadata específica implementam `CatalogMetadata()`; as demais, como `get_conversation_info` e `memory`, recebem defaults sem mapa central por nome |
 | Tool de listagem do catálogo | `internal/tools/catalog_tool.go` | Lista/filtra capabilities (exposta ao modelo) |
 | Persistência do catálogo | `internal/toolcatalog/repository.go`, `internal/toolcatalog/service.go` | Sync/storage do catálogo (pacote dedicado; F2/#120 concluída — MCP consome via `Manager.SetCatalog`) |
-| Política de seleção | `internal/chat/tool_selection_policy.go` (`ToolSelectionPolicy`); `tool_defs.go` são wrappers finos (F3/#119 concluída) | Resolve enabled tools, filtra por perfil, aplica MCP nativo e expansão dinâmica num ponto único |
+| Política de seleção | `internal/chat/tool_selection_policy.go` (`ToolSelectionPolicy`); `tool_defs.go` contém somente contratos e verificação de providers; wrappers históricos removidos | Resolve enabled tools, filtra por perfil, aplica MCP nativo e expansão dinâmica num ponto único |
 | Loop agêntico | `internal/agent/service.go` (`RunAgenticLoop`) | Consome tool defs/política; streaming, loop, MCP nativo, recovery |
 | Storage de resultados | `internal/toolinvocations/*` (AEP-0063) | `tool_invocations` canônico via `tool_catalog_id` |
 

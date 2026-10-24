@@ -255,10 +255,6 @@ func (p EffectiveToolPolicy) CatalogVisibleNames() []string {
 	return names
 }
 
-func (p EffectiveToolPolicy) NativePreloadedAllowlist() []string {
-	return p.PreloadedNames()
-}
-
 func (p *EffectiveToolPolicy) applyRuntimeTools(runtimeTools []string, allow bool) {
 	if !allow {
 		return

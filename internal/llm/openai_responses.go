@@ -113,8 +113,6 @@ func (p *OpenAIProvider) streamChatResponses(
 	const maxAttempts = 10
 	bk := 500 * time.Millisecond
 	maxBk := 8 * time.Second
-	degradeRetries := 0
-	maxDegradeRetries := maxMCPDegradationRetries(len(currentServers))
 
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		select {
@@ -164,11 +162,9 @@ func (p *OpenAIProvider) streamChatResponses(
 				params.NativeMCPFallback.Trigger()
 				return
 			}
-			// Sem fallback configurado (ex.: caminho simples sem tools): degrada
-			// dropando os servers nativos e re-tenta "pelado" (sem type:"mcp").
-			currentServers = nil
-			resetStreamAttempt(handler)
-			continue
+			markErrorNotRetryable(handler)
+			handler.OnError(formatMCPFailureUserMessage("MCP", MCPFailureStageHandshake))
+			return
 		}
 		if result.promptCacheHintUnsupported {
 			if effectivePromptCacheKey(params) != "" {
@@ -186,15 +182,8 @@ func (p *OpenAIProvider) streamChatResponses(
 			return
 		}
 		if result.mcpFailure != nil {
-			if degradeRetries < maxDegradeRetries {
-				if remaining, ok := planMCPDegradationRetry(ctx, "openai", attempt, currentServers, result.mcpFailure); ok {
-					currentServers = remaining
-					degradeRetries++
-					resetStreamAttempt(handler)
-					continue
-				}
-			}
 			discardStreamReasoning(handler)
+			markErrorNotRetryable(handler)
 			handler.OnError(strings.TrimSpace(result.mcpFailure.Message))
 			return
 		}
@@ -667,14 +656,7 @@ responseEvents:
 		case "response.mcp_list_tools.failed":
 			ev := event.AsResponseMcpListToolsFailed()
 			failure := inferMCPFailure(MCPFailureStageListTools, "", ev.RawJSON(), "", mcpServers)
-			if mcpFailureRecoverablyHandled(failure, emittedNonRetryableEffect) {
-				// Recuperável: a degradação (MCP-DEGRADE/MCP-RECOVER) trata e loga
-				// o desfecho. WARN evita ERRO falso-positivo quando o turno se
-				// recupera via retry_without_server.
-				logging.Warnf(ctx, "llm.openai-responses", "[OpenAIProvider] MCP tool listing falhou (server-side); recuperável via degradação")
-			} else {
-				logging.Errorf(ctx, "llm.openai-responses", "[OpenAIProvider] MCP tool listing FAILED (server-side)")
-			}
+			logging.Errorf(ctx, "llm.openai-responses", "[OpenAIProvider] MCP tool listing FAILED (server-side)")
 			if failure != nil && !emittedNonRetryableEffect {
 				reportCurrentDiagnostics()
 				return mcpStreamAttemptResult{mcpFailure: failure}
@@ -822,13 +804,9 @@ responseEvents:
 		}
 		diagnosticError := providerError.SanitizedForSentField(openAIResponsesFieldWasSent(params, providerError.Field))
 
-		// Classifica ANTES de logar: uma falha de handshake/listagem MCP
-		// recuperável é tratada pela degradação (retry_without_server) logo
-		// abaixo, e o ERRO seria falso-positivo quando o turno se recupera.
+		// Classifica o diagnóstico sem remover servidores da requisição.
 		mcpHandshakeFailure := inferMCPFailure(MCPFailureStageHandshake, errStr, "", "", mcpServers)
-		if mcpFailureRecoverablyHandled(mcpHandshakeFailure, emittedNonRetryableEffect) {
-			logging.Warnf(ctx, "llm.openai-responses", "Responses stream error recuperável via degradação MCP")
-		} else if recognizedProviderError {
+		if recognizedProviderError {
 			logging.Errorf(ctx, "llm.openai-responses", "provider API error signature=%s category=%s status=%d code=%s type=%s param=%s", diagnosticError.Recognizer, diagnosticError.Category, diagnosticError.StatusCode, diagnosticError.Code, diagnosticError.Type, diagnosticError.Param)
 		} else {
 			logging.Errorf(ctx, "llm.openai-responses", "provider Responses stream error signature=%s category=%s", diagnosticError.Recognizer, diagnosticError.Category)

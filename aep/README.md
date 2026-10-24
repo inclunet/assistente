@@ -1101,7 +1101,7 @@ de cancelamento de release na dependência; o AEP permanece **In Progress**.
 | [0018](0018-http-unified-client.md) | Cliente HTTP Unificado | 🚧 In Progress |
 | [0019](0019-http-client-centralization.md) | Centralização do Cliente HTTP | 🚧 In Progress |
 | [0020](0020-mcp-implementation.md) | Implementação do Model Context Protocol (MCP) — núcleo e extensões | 🚧 In Progress |
-| [0021](0021-mcp-native-mode.md) | MCP Modo Nativo (revisão v8; recuperação de contrato implementada, qualificação real pendente) | 🚧 In Progress |
+| [0021](0021-mcp-native-mode.md) | MCP Modo Nativo (v9; plano estável entregue, identidade MCP e qualificação real pendentes) | 🚧 In Progress |
 | [0022](0022-welcome-wizard.md) | Welcome Wizard | ✅ Done |
 | [0023](0023-deep-links.md) | Deep Links Internos (`assistente://`) | ✅ Done |
 | [0024](0024-speech-architecture.md) | Arquitetura de Voz (TTS/STT) | 🚧 In Progress |
@@ -1133,7 +1133,7 @@ de cancelamento de release na dependência; o AEP permanece **In Progress**.
 | [0050](0050-profiles-database-migration.md) | Migração de Profiles para Banco de Dados (adiada) | 📝 Draft |
 | [0051](0051-skills-database-migration.md) | Migração de Skills para Banco de Dados | 📝 Draft |
 | [0052](0052-multi-user-accounts.md) | Sistema de Contas de Usuário — autenticação aguarda startup no desktop | 🚧 In Progress |
-| [0053](0053-mcp-graceful-degradation.md) | Degradação graciosa de MCP nativo no chat | 🚧 In Progress |
+| [0053](0053-mcp-graceful-degradation.md) | Degradação de MCP nativo substituída pelo plano estável da AEP-0021 v9 | Superseded |
 | [0056](0056-workspace-self-contained-tabs.md) | Workspace com Abas Autocontidas | ✅ Done |
 | [0057](0057-chat-session-identity.md) | Sessões de Superfície e Timeline de Chat — fan-out e rascunho PR3 | ✅ Done |
 | [0058](0058-global-accessibility-voice-arbitration.md) | Arbitragem Global de Acessibilidade e Voz | ✅ Done |
