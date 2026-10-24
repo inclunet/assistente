@@ -361,11 +361,42 @@ func (m *Manager) validateCurrentOAuthConsumer(ctx context.Context, cfg ServerCo
 	return nil
 }
 func (m *Manager) beginManagedAttempt(ctx context.Context, slug string) (context.Context, func(), error) {
-	ctx, cancel := context.WithCancel(ctx)
+	return m.beginManagedAttemptWithGuard(ctx, ctx, slug, 0)
+}
+
+// beginManagedAttemptWithGuard registers a managed attempt only while both the
+// credential context and its owner are still active. The owner guard closes
+// the cancellation race between an automatic retry and an explicit disconnect.
+func (m *Manager) beginManagedAttemptWithGuard(ctx, guardCtx context.Context, slug string, retryAttemptID uint64) (context.Context, func(), error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if guardCtx == nil {
+		guardCtx = ctx
+	}
+	if err := guardCtx.Err(); err != nil {
+		return nil, nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
+	attemptCtx, cancel := context.WithCancel(ctx)
 	stop := context.AfterFunc(m.ctx, cancel)
 	m.mu.Lock()
+	if err := guardCtx.Err(); err != nil {
+		m.mu.Unlock()
+		stop()
+		cancel()
+		return nil, nil, err
+	}
+	if err := m.ctx.Err(); err != nil {
+		m.mu.Unlock()
+		stop()
+		cancel()
+		return nil, nil, err
+	}
 	if m.managedAttempts == nil {
-		m.managedAttempts = make(map[string]context.CancelFunc)
+		m.managedAttempts = make(map[string]*managedAttempt)
 	}
 	if m.managedAttempts[slug] != nil || m.connectCancels[slug] != nil {
 		m.mu.Unlock()
@@ -373,7 +404,9 @@ func (m *Manager) beginManagedAttempt(ctx context.Context, slug string) (context
 		cancel()
 		return nil, nil, oauthflow.ErrConflict
 	}
-	m.managedAttempts[slug] = cancel
+	attempt := &managedAttempt{reconnectAttemptID: retryAttemptID, cancel: cancel, done: make(chan struct{})}
+	m.managedAttempts[slug] = attempt
+	attemptCtx = context.WithValue(attemptCtx, managedAttemptContextKey{}, attempt)
 	previousStatus, previousError := StatusDisconnected, ""
 	if status := m.servers[slug]; status != nil {
 		previousStatus, previousError = status.Status, status.Error
@@ -381,11 +414,13 @@ func (m *Manager) beginManagedAttempt(ctx context.Context, slug string) (context
 	}
 	m.mu.Unlock()
 	m.emit("mcp:server_connecting", map[string]string{"slug": slug})
-	return ctx, func() {
+	return attemptCtx, func() {
 		stop()
 		cancel()
 		m.mu.Lock()
-		delete(m.managedAttempts, slug)
+		if m.managedAttempts[slug] == attempt {
+			delete(m.managedAttempts, slug)
+		}
 		restored := false
 		if status := m.servers[slug]; status != nil && status.Status == StatusConnecting {
 			status.Status, status.Error = previousStatus, previousError
@@ -395,7 +430,18 @@ func (m *Manager) beginManagedAttempt(ctx context.Context, slug string) (context
 		if restored {
 			m.emit("mcp:config_changed", map[string]string{"slug": slug})
 		}
+		close(attempt.done)
 	}, nil
+}
+
+type managedAttemptContextKey struct{}
+
+func managedAttemptFromContext(ctx context.Context) *managedAttempt {
+	if ctx == nil {
+		return nil
+	}
+	attempt, _ := ctx.Value(managedAttemptContextKey{}).(*managedAttempt)
+	return attempt
 }
 
 func (m *Manager) authorizeManagedOAuth(ctx context.Context, slug string, cfg ServerConfig) error {

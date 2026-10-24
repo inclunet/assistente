@@ -417,27 +417,11 @@ reabre a conexão com o mesmo token, enquanto reautorizar refaz o login OAuth.
 
 ## Configurações Avançadas
 
-### Health Check Tuning
-Embora não esteja no JSON, você pode ajustar no código:
+### Reconexão
 
-```go
-const (
-    healthCheckInterval = 30 * time.Second  // Ping a cada 30s
-    healthCheckTimeout = 5 * time.Second    // Timeout de 5s
-    maxRetries = 5                          // Máximo 5 tentativas
-    baseRetryDelay = 1 * time.Second        // Delay inicial 1s
-    maxRetryDelay = 5 * time.Minute         // Delay máximo 5min
-)
-```
-
-### Tuning Recommendations
-
-| Cenário | healthCheckInterval | healthCheckTimeout | maxRetries |
-|---------|--------------------|--------------------|------------|
-| **Local (rápido)** | 10s | 2s | 3 |
-| **Padrão** | 30s | 5s | 5 |
-| **Cloud (lento)** | 60s | 10s | 10 |
-| **Critical** | 5s | 1s | ∞ |
+O Assistente tenta reconectar quando o transporte reporta o encerramento da
+sessão ou quando uma chamada real detecta uma falha de transporte. Servidores
+MCP não recebem sondagens periódicas.
 
 ---
 
@@ -508,9 +492,6 @@ servers.forEach(srv => {
   if (srv.error) {
     console.error(`  Error: ${srv.error}`);
   }
-  if (srv.lastPing) {
-    console.log(`  Last ping: ${srv.lastPing}`);
-  }
 });
 ```
 
@@ -523,7 +504,7 @@ servers.forEach(srv => {
 - Coloque tokens/secrets em `env`, não em args
 - Use caminhos absolutos quando possível
 - Teste comando manualmente primeiro
-- Configure health checks apropriados
+- Trate erros de chamadas reais como sinal para verificar o servidor MCP
 
 ### ❌ DON'T
 - Não commite arquivos com secrets
@@ -541,7 +522,7 @@ servers.forEach(srv => {
   provider, tri-state do perfil, `prefer_bridge` e preload efetivo por turno
 - **Auth**: Tokens via env vars, nunca hardcoded no JSON
 - **Docker**: Servidores containerizados via stdio
-- **Auto-reconnect**: Health checks + exponential backoff automático
+- **Auto-reconnect**: encerramento de sessão/falha real de transporte + exponential backoff automático
 
 ## Diagnóstico do registro OAuth dinâmico
 

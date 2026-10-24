@@ -749,9 +749,6 @@ func TestHandleToolCallError_SetsErrorAndTriggersReconnect(t *testing.T) {
 	if s.Status != StatusError {
 		t.Errorf("expected StatusError, got %v", s.Status)
 	}
-	if s.ConsecutiveHealthFailures != healthCheckFailThreshold {
-		t.Errorf("expected failures=%d, got %d", healthCheckFailThreshold, s.ConsecutiveHealthFailures)
-	}
 
 	select {
 	case event := <-events:
@@ -789,8 +786,8 @@ func TestHandleToolCallError_SkipsReconnectingServer(t *testing.T) {
 
 	m.handleToolCallError("test", fmt.Errorf("error"))
 
-	if m.servers["test"].ConsecutiveHealthFailures != 0 {
-		t.Error("should not increment failures for reconnecting server")
+	if m.servers["test"].Status != StatusError {
+		t.Error("should preserve the error status while reconnecting")
 	}
 }
 

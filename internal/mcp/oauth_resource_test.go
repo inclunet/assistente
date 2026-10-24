@@ -145,7 +145,7 @@ func TestOAuthResourcePreservesMCPStreaming(t *testing.T) {
 					t.Fatal(err)
 				}
 				defer func() { _ = session.Close() }()
-				if err := session.Ping(ctx, nil); err != nil {
+				if _, err := session.ListResources(ctx, nil); err != nil {
 					t.Fatal(err)
 				}
 			})
