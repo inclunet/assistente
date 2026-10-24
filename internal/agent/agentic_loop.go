@@ -288,23 +288,10 @@ func (r *agenticLoopRunner) useMCPAdapter(fb *llm.NativeMCPAdapterFallback) {
 		r.activeStreamer = fb.Streamer
 	}
 	if fb.ResolveToolDefs != nil {
-		names := make([]string, 0, len(fb.ToolDefs))
-		for _, tool := range fb.ToolDefs {
-			names = append(names, tool.Function.Name)
-		}
 		r.activeResolve = fb.ResolveToolDefs
-		r.activeToolDefs = fb.ResolveToolDefs(r.activeToolDefs, names)
-	} else {
-		seen := make(map[string]bool, len(r.activeToolDefs))
-		for _, tool := range r.activeToolDefs {
-			seen[tool.Function.Name] = true
-		}
-		for _, tool := range fb.ToolDefs {
-			if !seen[tool.Function.Name] {
-				r.activeToolDefs = append(r.activeToolDefs, tool)
-				seen[tool.Function.Name] = true
-			}
-		}
+	}
+	if fb.RestoreToolDefs != nil {
+		r.activeToolDefs = fb.RestoreToolDefs(r.activeToolDefs)
 	}
 }
 

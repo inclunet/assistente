@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"assistente/internal/chat"
 	"assistente/internal/llm"
 	"context"
 	"testing"
@@ -31,18 +32,16 @@ func TestNativeMCPMismatchSwitchesWithoutDiscardingResult(t *testing.T) {
 		t.Run(map[bool]string{false: "sem resolver", true: "com resolver"}[withResolver], func(t *testing.T) {
 			native := &nativeMismatchStreamer{}
 			adapter := &recordingAdapterStreamer{}
-			fb := &llm.NativeMCPAdapterFallback{Streamer: adapter, ToolDefs: []llm.ToolDefinition{{Function: llm.FunctionDefinition{Name: "mcp_remote__query"}}}}
+			captured := []llm.ToolDefinition{{Function: llm.FunctionDefinition{Name: "mcp_remote__query"}}}
+			policy := chat.NewToolSelectionPolicy(nil)
+			fb := &llm.NativeMCPAdapterFallback{Streamer: adapter, RestoreToolDefs: func(active []llm.ToolDefinition) []llm.ToolDefinition {
+				return policy.PlanAccumulatedToolDefs(active, captured, chat.ProfileToolConfig{})
+			}}
 			resolved := 0
 			if withResolver {
 				fb.ResolveToolDefs = func(active []llm.ToolDefinition, names []string) []llm.ToolDefinition {
 					resolved++
-					if len(active) != 1 || active[0].Function.Name != "loaded_later" {
-						t.Fatal("tools dinâmicas perdidas")
-					}
-					if len(names) != 1 || names[0] != "mcp_remote__query" {
-						t.Fatal("bridge não restaurada")
-					}
-					return append(active, fb.ToolDefs...)
+					return policy.ResolveExpandedToolDefs(nil, active, names, chat.ProfileToolConfig{})
 				}
 			}
 			em := &captureEmitter{}
@@ -54,7 +53,7 @@ func TestNativeMCPMismatchSwitchesWithoutDiscardingResult(t *testing.T) {
 			if result.FullResponse != "conteúdo já recebido" || len(result.NativeMCPEvents) != 1 || result.NativeMCPEvents[0].Output != "resultado remoto" || len(result.ToolCalls) != 1 || result.ToolCalls[0].ID != "local1" {
 				t.Fatalf("resultado descartado: %+v", result)
 			}
-			if len(r.activeToolDefs) != 2 || (withResolver && resolved != 1) {
+			if len(r.activeToolDefs) != 2 || resolved != 0 {
 				t.Fatalf("tools/resolver: %+v/%d", r.activeToolDefs, resolved)
 			}
 			r.streamIteration(context.Background(), 1)

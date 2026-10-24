@@ -117,7 +117,7 @@ func (p *ToolSelectionPolicy) plannerCandidate(d llm.ToolDefinition, pinned map[
 	return c
 }
 
-// planAccumulatedToolDefs aplica o ToolPlanner ao conjunto ACUMULADO do turno:
+// PlanAccumulatedToolDefs aplica o ToolPlanner ao conjunto ACUMULADO do turno:
 // as tools já ATIVAS (enviadas em iterações anteriores) são travadas — sempre
 // preservadas e consumindo budget primeiro — e as NOVAS candidatas (delta da
 // expansão via tool_catalog) só entram no orçamento REMANESCENTE, de forma
@@ -127,7 +127,7 @@ func (p *ToolSelectionPolicy) plannerCandidate(d llm.ToolDefinition, pinned map[
 // Retorna o conjunto acumulado final (ativas preservadas em ordem + novas que
 // couberam, na ordem de entrada). Com budget ilimitado (default), o resultado é
 // idêntico ao append determinístico anterior (ativas + novas deduplicadas).
-func (p *ToolSelectionPolicy) planAccumulatedToolDefs(active, newDefs []llm.ToolDefinition, cfg ProfileToolConfig) []llm.ToolDefinition {
+func (p *ToolSelectionPolicy) PlanAccumulatedToolDefs(active, newDefs []llm.ToolDefinition, cfg ProfileToolConfig) []llm.ToolDefinition {
 	pinned := pinnedToolSet(p.ResolveEffectiveToolPolicy(cfg).PreloadedNames())
 
 	activeNames := make(map[string]struct{}, len(active))

@@ -663,7 +663,9 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 		adapterToolCfg.NativeMCP = &adapterFalse
 		params.NativeMCPFallback = &llm.NativeMCPAdapterFallback{
 			Streamer: adapterStreamer,
-			ToolDefs: adapterToolDefs,
+			RestoreToolDefs: func(active []llm.ToolDefinition) []llm.ToolDefinition {
+				return toolPolicy.PlanAccumulatedToolDefs(active, adapterToolDefs, adapterToolCfg)
+			},
 			ResolveToolDefs: func(active []llm.ToolDefinition, names []string) []llm.ToolDefinition {
 				return toolPolicy.ResolveExpandedToolDefs(nil, active, names, adapterToolCfg)
 			},

@@ -28,6 +28,25 @@ func toolWithSchema(name string, schemaLen int) *mockToolDef {
 	}
 }
 
+func TestPlanCapturedAdapterDefinitionsAfterDisconnectRespectsAccumulatedBudget(t *testing.T) {
+	registry := tools.NewRegistry()
+	registry.MustRegister(toolWithSchema("loaded_later", 30))
+	registry.MustRegister(toolWithSchema("mcp_remote__first", 30))
+	registry.MustRegister(toolWithSchema("mcp_remote__second", 30))
+	policy := NewToolSelectionPolicy(registry)
+	active := policy.PlanTurnToolDefs(nil, nil, ProfileToolConfig{EnabledTools: []string{"loaded_later"}}).Definitions
+	captured := policy.PlanTurnToolDefs(nil, nil, ProfileToolConfig{EnabledTools: []string{"mcp_remote__first", "mcp_remote__second"}}).Definitions
+	registry.Unregister("mcp_remote__first")
+	registry.Unregister("mcp_remote__second")
+	got := policy.PlanAccumulatedToolDefs(active, captured, ProfileToolConfig{SchemaBytesBudget: 60})
+	if len(got) != 2 || got[0].Function.Name != "loaded_later" {
+		t.Fatalf("captured definitions or active tool lost: %v", defNames(got))
+	}
+	if len(got[0].Function.Parameters)+len(got[1].Function.Parameters) != 60 {
+		t.Fatalf("captured schema or accumulated budget changed: %+v", got)
+	}
+}
+
 func plannerRegistry() *tools.Registry {
 	r := tools.NewRegistry()
 	r.MustRegister(toolWithSchema(tools.ToolCatalogName, 30))

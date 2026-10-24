@@ -29,6 +29,8 @@ aparente de tools. A política de preferência nativa/adapter permanece a mesma.
 - A alternativa adapter só é planejada quando há delegação nativa.
 - Os dois caminhos de troca para adapter preservam as ferramentas já ativas e
   compartilham a mesma transição; não restauram uma lista inicial sobre elas.
+- A transição usa os schemas capturados no planejamento, sem redescobrir bridges
+  no registro durante uma reconexão. O orçamento acumulado continua sendo aplicado.
 - Rejeição de MCP nativo sem alternativa adapter preparada é erro explícito.
 - A retirada silenciosa de servidores da AEP-0053 foi abandonada. Falhas MCP
   classificadas encerram a tentativa e não autorizam replay pelo agente.
