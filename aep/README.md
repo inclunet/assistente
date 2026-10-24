@@ -1101,7 +1101,7 @@ de cancelamento de release na dependência; o AEP permanece **In Progress**.
 | [0018](0018-http-unified-client.md) | Cliente HTTP Unificado | 🚧 In Progress |
 | [0019](0019-http-client-centralization.md) | Centralização do Cliente HTTP | 🚧 In Progress |
 | [0020](0020-mcp-implementation.md) | Implementação do Model Context Protocol (MCP) — núcleo e extensões | 🚧 In Progress |
-| [0021](0021-mcp-native-mode.md) | MCP Modo Nativo (revisão v7) | 🚧 In Progress |
+| [0021](0021-mcp-native-mode.md) | MCP Modo Nativo (revisão v8; recuperação de contrato implementada, qualificação real pendente) | 🚧 In Progress |
 | [0022](0022-welcome-wizard.md) | Welcome Wizard | ✅ Done |
 | [0023](0023-deep-links.md) | Deep Links Internos (`assistente://`) | ✅ Done |
 | [0024](0024-speech-architecture.md) | Arquitetura de Voz (TTS/STT) | 🚧 In Progress |

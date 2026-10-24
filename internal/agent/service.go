@@ -755,7 +755,7 @@ func (s *Service) persistNativeMCPCalls(ctx context.Context, conversationID, tur
 		errKind := tools.ErrorKindNone
 		errMsg := ""
 		if ev.Error != "" {
-			result = tools.ToolResult{Content: ev.Error, IsError: true}
+			result.IsError = true
 			errKind = tools.ErrorKindUnknown
 			errMsg = ev.Error
 		}

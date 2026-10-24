@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"assistente/internal/chat"
@@ -171,19 +172,39 @@ func TestPersistNativeMCPCalls_RecordsToolInvocation(t *testing.T) {
 	svc.persistNativeMCPCalls(userCtx, "conv-1", "turn-1", []llm.MCPToolEvent{
 		{ID: "call-1", Name: "ping", ServerLabel: "Server One", Arguments: `{"x":1}`, Output: "ok", IsCompleted: true},
 		{ID: "call-2", Name: "unknown", ServerLabel: "Missing Server", Arguments: `{}`, Output: "ok", IsCompleted: true},
+		{ID: "call-3", Name: "unknown", ServerLabel: "Missing Server", Arguments: `{}`, Output: "saída original do proxy", Error: "contrato incompatível", IsCompleted: true},
+		{ID: "call-4", Name: "unknown", ServerLabel: "Missing Server", Arguments: `{}`, Error: "contrato incompatível", IsCompleted: true},
 	}, 0)
 
 	rows, err := repo.List(userCtx, toolinvocations.Filter{OriginType: toolinvocations.OriginChat, OriginID: "turn-1", Limit: 10})
 	if err != nil {
 		t.Fatalf("list invocations: %v", err)
 	}
-	if len(rows) != 2 {
-		t.Fatalf("expected 2 invocations, got %d", len(rows))
+	if len(rows) != 4 {
+		t.Fatalf("expected 4 invocations, got %d", len(rows))
 	}
 	for _, row := range rows {
 		if row.ConversationID != "conv-1" || row.TurnID != "turn-1" ||
 			row.InputHash == "" || row.OutputHash == "" {
 			t.Fatalf("invocação MCP sem vínculo/projeção: %+v", row)
+		}
+		if row.ToolCallID == "call-3" || row.ToolCallID == "call-4" {
+			stored, err := repo.Get(userCtx, row.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var result tools.ToolResult
+			if err := json.Unmarshal(stored.Output, &result); err != nil {
+				t.Fatal(err)
+			}
+			wantContent := ""
+			if row.ToolCallID == "call-3" {
+				wantContent = "saída original do proxy"
+			}
+			if result.Content != wantContent || !result.IsError || stored.Status != toolinvocations.StatusFailed ||
+				stored.ErrorMessage != "contrato incompatível" || stored.ErrorKind != string(tools.ErrorKindUnknown) || stored.Retryable {
+				t.Fatalf("saída/diagnóstico persistidos incorretos: result=%+v row=%+v", result, stored)
+			}
 		}
 	}
 	var archivalCount int64
@@ -194,6 +215,34 @@ func TestPersistNativeMCPCalls_RecordsToolInvocation(t *testing.T) {
 	}
 	if archivalCount != 1 {
 		t.Fatalf("catálogo archival MCP=%d, esperado 1", archivalCount)
+	}
+	displays, err := toolinvocations.LoadChatToolInvocationDisplaysForTurnIDsWithUser(userCtx, "user-mcp", []string{"turn-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkedErrors := 0
+	for _, display := range displays["turn-1"] {
+		if display.ID != "call-3" && display.ID != "call-4" {
+			continue
+		}
+		checkedErrors++
+		var projected struct {
+			Output string `json:"output"`
+			Error  string `json:"error"`
+		}
+		if err := json.Unmarshal([]byte(display.ModelResult), &projected); err != nil {
+			t.Fatal(err)
+		}
+		wantContent := ""
+		if display.ID == "call-3" {
+			wantContent = "saída original do proxy"
+		}
+		if display.Result != wantContent || projected.Output != wantContent || projected.Error != "contrato incompatível" {
+			t.Fatalf("diagnóstico/saída perdidos na reidratação: %+v", display)
+		}
+	}
+	if checkedErrors != 2 {
+		t.Fatalf("erros não reidratados: %d", checkedErrors)
 	}
 }
 

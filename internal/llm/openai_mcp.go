@@ -53,7 +53,38 @@ type pendingMCPCall struct {
 	// correlacionado da falha sai em response.output_item.done (que carrega o
 	// texto do erro) ou, se esse item nunca vier, no fallback de fim de stream —
 	// nunca no próprio evento .failed, que geraria log duplicado.
-	Failed bool
+	Failed        bool
+	ContractError string
+}
+
+// nativeMCPLocalToolMismatch só conclui incompatibilidade quando o nome foi
+// enviado como função local e não pode pertencer a nenhum MCP permitido.
+// Labels de proxies e texto do output não são evidência de incompatibilidade.
+func nativeMCPLocalToolMismatch(tools []responses.ToolUnionParam, servers []MCPServerConfig, name string) bool {
+	if name == "" || len(servers) == 0 {
+		return false
+	}
+	local := false
+	for _, tool := range tools {
+		if tool.OfFunction != nil && tool.OfFunction.Name == name {
+			local = true
+			break
+		}
+	}
+	if !local {
+		return false
+	}
+	for _, server := range servers {
+		if len(server.AllowedTools) == 0 {
+			return false // Sem allowlist, não sabemos excluir uma homônima remota.
+		}
+		for _, allowed := range server.AllowedTools {
+			if allowed == name {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // buildNativeMCPTools converte os MCP servers configurados em tools type:"mcp"
@@ -111,6 +142,7 @@ func flushPendingCompletedMCPCalls(active map[string]*pendingMCPCall, handler St
 			Name:        mc.Name,
 			ServerLabel: mc.ServerLabel,
 			Arguments:   mc.Args.String(),
+			Error:       mc.ContractError,
 			IsCompleted: true,
 		})
 		delete(active, itemID)

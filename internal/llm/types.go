@@ -385,6 +385,8 @@ type NativeMCPAdapterFallback struct {
 	mu        sync.Mutex
 	triggered bool
 	consumed  bool
+	// afterResponse preserva a resposta atual; somente chamadas futuras mudam.
+	afterResponse bool
 }
 
 // Trigger marca que o fallback nativo→adapter deve ocorrer. Idempotente e thread-safe.
@@ -401,12 +403,33 @@ func (f *NativeMCPAdapterFallback) Trigger() {
 // foi consumido. O caller usa isso para trocar streamer/tools e re-tentar o turno
 // exatamente uma vez (evita loop infinito).
 func (f *NativeMCPAdapterFallback) Consume() bool {
+	return f.consume(false)
+}
+
+// TriggerAfterResponse solicita troca sem replay, pois o provider já executou
+// ou expôs efeitos. Tem precedência sobre o retry de uma rejeição inicial.
+func (f *NativeMCPAdapterFallback) TriggerAfterResponse() {
+	if f == nil {
+		return
+	}
+	f.mu.Lock()
+	f.triggered = true
+	f.afterResponse = true
+	f.mu.Unlock()
+}
+
+// ConsumeAfterResponse não descarta o resultado nem autoriza nova tentativa.
+func (f *NativeMCPAdapterFallback) ConsumeAfterResponse() bool {
+	return f.consume(true)
+}
+
+func (f *NativeMCPAdapterFallback) consume(afterResponse bool) bool {
 	if f == nil {
 		return false
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if f.triggered && !f.consumed {
+	if f.triggered && !f.consumed && f.afterResponse == afterResponse {
 		f.consumed = true
 		return true
 	}
