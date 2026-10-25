@@ -9,6 +9,7 @@ import { useWorkspaceStore } from '../../store/workspaceStore';
 import { createChatSurfaceIdentity, createEmptyChatSession } from '../../services/chatSessionRegistry';
 import { CHAT_MESSAGING_EVENT, captureChatMessagingTarget, executeChatMessaging, type ChatMessagingRequest } from '../../lib/commandChatMessaging';
 import { chat } from '../../../wailsjs/go/models';
+import type { Message } from '../../lib/chatMessageTree';
 import { ttsService } from '../../services/tts';
 
 
@@ -26,7 +27,7 @@ const configure = vi.hoisted(() => vi.fn(async () => false));
 const deepLink = vi.hoisted(() => vi.fn(async () => {}));
 vi.mock('../../store/confirmStore', () => ({ requestConfirm: configure }));
 vi.mock('../../lib/deepLinks', () => ({ executeDeepLink: deepLink }));
-vi.mock('react-i18next', () => ({ initReactI18next: { type: '3rdParty', init() {} }, useTranslation: () => ({ t }) }));
+vi.mock('react-i18next', () => ({ initReactI18next: { type: '3rdParty', init() {} }, useTranslation: () => ({ t, i18n: { language: 'pt-BR', resolvedLanguage: 'pt-BR' } }) }));
 vi.mock('@wailsjs/go/wailsapi/Chat', () => ({ SendMessage: send, RetryMessage: retry }));
 vi.mock('@wailsjs/runtime/runtime', () => ({ EventsOn: (name: string, callback: (event: unknown) => void) => {
   const callbacks = events.get(name) ?? new Set(); events.set(name, callbacks); callbacks.add(callback);
@@ -115,6 +116,32 @@ async function openEditor(content = 'editado') {
 }
 function clickSave() { fireEvent.click(screen.getByRole('button', { name: 'common.save' })); }
 describe('salvar edição: MessageNode, fonte draft, store e executor reais', () => {
+  it.each([false, true])('edição recebida substitui segmentos transitórios antigos (recolhido: %s)', async (collapsed) => {
+    const message = useChatStore.getState().timelinesByConversationId[id].threadedMessages[0].message as Message;
+    message.role = 'assistant';
+    message.content = 'Resposta anterior';
+    message._turnSegments = [
+      { type: 'text', content: 'Atividade anterior' },
+      { type: 'text', content: 'Resposta anterior' },
+    ];
+    useChatStore.setState({ surfaceSessionsByKey: {
+      [surface.sessionKey]: {
+        ...createEmptyChatSession(id, surface.sessionKey),
+        visibleThreadedMessages: useChatStore.getState().timelinesByConversationId[id].threadedMessages,
+      },
+    } });
+    mount();
+    await waitFor(() => expect(node()).toHaveTextContent('Resposta anterior'));
+    if (collapsed) fireEvent.click(screen.getByRole('button', { name: 'chat.collapseChain' }));
+    act(() => emitUpdate('Resposta corrigida'));
+    const edited = useChatStore.getState().getConversationMessages(id)[0] as Message;
+    expect(edited.content).toBe('Resposta corrigida');
+    expect(edited._turnSegments).toEqual([{ type: 'text', content: 'Resposta corrigida' }]);
+    await waitFor(() => expect(node()).toHaveTextContent('Resposta corrigida'));
+    expect(node()).not.toHaveTextContent('Resposta anterior');
+    expect(node()).not.toHaveTextContent('Atividade anterior');
+  });
+
   it('evento scoped atualiza lista antesGetResult e sucesso fecha apenas draft capturado', async () => {
     mount(); await openEditor('  novo texto  ');
     commitMessage.mockImplementationOnce(async () => {

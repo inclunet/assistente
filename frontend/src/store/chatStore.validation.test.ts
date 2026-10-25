@@ -1083,6 +1083,39 @@ describe('chatStore validation', () => {
     expect(mockSendMessage).toHaveBeenCalledWith(defaultConversationId, 'hello', '', expect.any(Object));
   });
 
+  it.each([false, true])('encaminha modo de continuação ao controlador antes de qualquer delta (%s)', async (allowAssistantPrefill) => {
+    const assistantId = '01926b90-7a5a-7c4e-8d3f-000000000011';
+    const prior = createMessageNode(assistantId);
+    const assistant = {
+      ...prior,
+      message: {
+        ...prior.message, role: 'assistant', content: 'Parcial', turnId: 'turn-1',
+        turnSegments: [
+          { type: 'tool_calls', toolInvocations: [{ callId: 'old-call', name: 'search', status: 'ok', hasDetails: true, resultAvailability: 'available' }] },
+          { type: 'text', content: 'Parcial' },
+        ],
+      },
+    } as unknown as MessageNode;
+    useChatStore.setState({
+      sessionsByConversationId: {}, surfaceSessionsByKey: {},
+      timelinesByConversationId: { [defaultConversationId]: { id: defaultConversationId, title: 'Conversa', threadedMessages: [assistant] } },
+    });
+    await useChatStore.getState().retryMessageToConversation(defaultConversationId, 'user-1', { allowAssistantPrefill });
+    const identity = { conversationId: defaultConversationId, turnId: 'turn-1', assistantMessageId: assistantId };
+    emitEvent('chat:tool_start', { ...identity, name: 'read', callId: 'new-call', origin: 'builtin' });
+    emitEvent('chat:tool_end', { ...identity, name: 'read', callId: 'new-call', status: 'ok' });
+    emitEvent('chat:done', { ...identity, reason: 'cancelled' });
+    const { getMessageTurnSegments } = await import('../lib/chatMessageTree');
+    const segments = getMessageTurnSegments(useChatStore.getState().getConversationMessages(defaultConversationId)[0])!;
+    expect(segments.flatMap(segment => [
+      ...(segment.toolInvocations ?? []).map(tool => tool.callId),
+      ...(segment.toolCalls ?? []).map(tool => tool.id),
+    ])).toEqual(allowAssistantPrefill ? ['old-call', 'new-call'] : ['new-call']);
+    expect(segments.filter(segment => segment.type === 'text').map(segment => segment.content))
+      .toEqual(allowAssistantPrefill ? ['Parcial'] : []);
+    expect(mockRetryMessage).toHaveBeenCalledWith(defaultConversationId, 'user-1', expect.objectContaining({ allowAssistantPrefill }));
+  });
+
   it('faz retry sem recarregar quando timeline já está carregada sem sessão legada', async () => {
     useChatStore.setState({
       sessionsByConversationId: {},

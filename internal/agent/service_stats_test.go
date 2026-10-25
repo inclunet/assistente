@@ -191,7 +191,11 @@ func TestSaveAndFinish_PreservaDesfechoQuandoPatchFalha(t *testing.T) {
 
 func TestSaveAndFinish_FinalizeFailureIsTerminalAndRecoverable(t *testing.T) {
 	emitter := &mockEmitter{}
-	repo := &mockMsgRepo{updateError: errors.New("db indisponível")}
+	turnID := "turn-1"
+	repo := &mockMsgRepo{updateError: errors.New("db indisponível"), turnMessages: []chat.Message{{
+		UUIDModel:      database.UUIDModel{ID: "assistant-1"},
+		ConversationID: "conv-1", TurnID: &turnID, Role: "assistant", Content: "stale partial",
+	}}}
 	notifier := messaging.NewResponseNotifier()
 	defer notifier.Stop()
 	callbackCalled := make(chan struct{}, 1)
@@ -238,7 +242,10 @@ func TestSaveAndFinish_FinalizeFailureIsTerminalAndRecoverable(t *testing.T) {
 	if done == nil {
 		t.Fatal("falha de finalização deveria emitir chat:done terminal")
 	}
-	if done.Reason != "error" || done.ErrorMessage != ports.ChatErrorInternal || done.AssistantMessageID != "assistant-1" {
+	if done.TurnPatch != nil {
+		t.Fatal("failed persistence must not replace streamed content with stale database content")
+	}
+	if done.Reason != "error" || done.ErrorMessage != ports.ChatErrorPersistence || done.AssistantMessageID != "assistant-1" {
 		t.Fatalf("desfecho terminal incorreto: %+v", *done)
 	}
 }

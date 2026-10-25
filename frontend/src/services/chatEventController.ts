@@ -8,8 +8,11 @@ import { announce } from '../hooks/useAnnouncer';
 import {
   finalizeStreamingNode,
   flattenThreadedMessages,
+  getMessageTurnSegments,
+  isContentRepresentedBySegments,
   hasMessageId,
   markMessageStreamingInTree,
+  updateMessageSegmentsInTree,
   type ChatTreeConversation,
   type Message,
   type MessageNode,
@@ -41,6 +44,9 @@ const translateBackendChatError = (message: string) => {
 
   if (message === 'assistant_placeholder_error') {
     return i18next.t('chat.errors.assistantPlaceholder');
+  }
+  if (message === 'persistence_error') {
+    return i18next.t('chat.errors.persistenceError');
   }
   if (message === 'internal_error') {
     return i18next.t('chat.errors.internalError');
@@ -74,6 +80,7 @@ interface ChatMessagesReadyEvent {
 interface ChatStreamEvent {
   conversationId: string;
   delta?: string;
+  diagnostic?: boolean;
   reset?: boolean;
   baseContent?: string;
   sequence: number;
@@ -243,6 +250,7 @@ export interface ChatEventControllerAdapter {
 
 interface ChatEventControllerOptions {
   conversationId: string;
+  continuationRequested?: boolean;
   initialUserContent?: string;
   initialMediaFiles?: MediaFile[];
   external?: {
@@ -284,6 +292,7 @@ export function stopAllChatEventControllers() {
 
 export function startChatEventController({
   conversationId,
+  continuationRequested = false,
   initialUserContent = '',
   initialMediaFiles,
   external,
@@ -302,6 +311,11 @@ export function startChatEventController({
   let provisionalThinkingTurnId: string | null = null;
   let provisionalThinkingNodeId: string | null = null;
   let streamedContent = '';
+  let pendingStreamDiagnostic: string | null = null;
+  let resumedTextAlreadyShown = 0;
+  let presentationInitialized = false;
+  let representedBaseContent = '';
+  let continuationBaseContent = '';
   let streamSequence = -1;
   let streamInitialized = false;
   let pendingVisualContent: string | null = null;
@@ -417,7 +431,7 @@ export function startChatEventController({
     const content = pendingVisualContent;
     pendingVisualContent = null;
     if (content === null || cleanupExecuted || !currentAssistantNodeId) return;
-    adapter.updateMessage(conversationId, currentAssistantNodeId, content);
+    adapter.updateMessage(conversationId, currentAssistantNodeId, content.slice(resumedTextAlreadyShown));
   };
 
   const commitStreamingContent = () => {
@@ -556,14 +570,14 @@ export function startChatEventController({
       const nextContent = pendingVisualContent;
       pendingVisualContent = null;
       if (nextContent === null || cleanupExecuted || !currentAssistantNodeId) return;
-      adapter.updateMessage(conversationId, currentAssistantNodeId, nextContent);
+      adapter.updateMessage(conversationId, currentAssistantNodeId, nextContent.slice(resumedTextAlreadyShown));
     });
   };
 
   const getCurrentAssistantContent = () => {
     if (!currentAssistantNodeId) return '';
     if (pendingVisualContent !== null) return pendingVisualContent;
-    if (streamInitialized) return streamedContent;
+    if (streamInitialized || presentationInitialized) return streamedContent;
     const messages = flattenThreadedMessages(getCurrentSession().conversation?.threadedMessages);
     return String(messages.find(m => m.id === currentAssistantNodeId)?.content || '');
   };
@@ -716,6 +730,20 @@ export function startChatEventController({
     if (event.conversationId !== conversationId) return;
     if (!isActive()) return;
 
+    if (event.diagnostic && event.delta) {
+      currentTurnId = event.turnId || currentTurnId;
+      ensureAssistantNode(event.messageId);
+      pendingStreamDiagnostic = event.delta;
+      if (!streamInitialized && presentationInitialized) {
+        streamedContent = representedBaseContent;
+        resumedTextAlreadyShown = isContentRepresentedBySegments(getCurrentSession().completedSegments, streamedContent)
+          ? streamedContent.length : 0;
+        updateStreamingMessage(streamedContent);
+      }
+      return;
+    }
+    if (event.done && pendingStreamDiagnostic !== null) return;
+
     if (event.delta && !event.done && !event.error) {
       if (
         !Number.isSafeInteger(event.sequence)
@@ -729,6 +757,11 @@ export function startChatEventController({
       const backendAssistantId = event.messageId && event.messageId !== '' ? event.messageId : null;
       if (!ensureAssistantNode(backendAssistantId) && !currentAssistantNodeId) return;
       if (event.reset) {
+        resumedTextAlreadyShown = 0;
+        initializePresentation(event.baseContent ?? '');
+        if (event.baseContent && representedBaseContent.startsWith(event.baseContent)) {
+          resumedTextAlreadyShown = event.baseContent.length;
+        }
         streamedContent = event.baseContent ?? '';
         streamSequence = -1;
         streamInitialized = true;
@@ -749,6 +782,7 @@ export function startChatEventController({
       const backendAssistantId = event.messageId && event.messageId !== '' ? event.messageId : null;
       const hasAssistantNode = ensureAssistantNode(backendAssistantId) || currentAssistantNodeId !== null;
       const errorMessage = translateBackendChatError(String(event.error || '').trim());
+      preserveReceivedSegments(i18next.t('chat.errorPrefix', { message: errorMessage }));
       const eventOrigin = getEventOrigin(event);
       announceWithOrigin({
         message: errorMessage,
@@ -943,19 +977,58 @@ export function startChatEventController({
     playChatErrorSoundIfActive(conversationId, getEventOrigin(event));
   });
 
-  unsubSegmentDone = turnEvents.on('chat:segment_done', (event: ChatSegmentDoneEvent) => {
-    if (event.conversationId !== conversationId) return;
-    if (!isActive()) return;
-    currentTurnId = event.turnId || currentTurnId;
-    ensureAssistantNode(event.assistantMessageId);
-    if (!external) progressAnnouncer.finishSegment();
-    if (!event.hasMore) return;
+  const getResumableSegments = (message?: Message): TurnSegment[] => {
+    if (!message) return [];
+    const segments = (getMessageTurnSegments(message) ?? []).filter(segment => !segment.diagnostic);
+    if (segments.length || message._turnSegments !== undefined) return segments;
+    return message.content ? [{ type: 'text', content: message.content }] : [];
+  };
 
+  const initializePresentation = (baseContent: string) => {
+    if (presentationInitialized) return;
+    continuationBaseContent = baseContent;
+
+    const existing = flattenThreadedMessages(getCurrentSession().conversation?.threadedMessages)
+      .find(message => message.id === currentAssistantNodeId);
+    const knownSegments = getResumableSegments(existing);
+    if (baseContent) {
+      const seed: TurnSegment[] = knownSegments.length
+        ? [...knownSegments] : [{ type: 'text', content: baseContent }];
+      patchCurrentSession({ completedSegments: seed });
+      const baseRepresented = isContentRepresentedBySegments(seed, baseContent);
+      representedBaseContent = baseRepresented ? baseContent : '';
+      resumedTextAlreadyShown = baseRepresented ? baseContent.length : 0;
+    }
+    // A new attempt owns its presentation, including when its final patch
+    // cannot be read. Capture continuation history before clearing it.
+    if (currentAssistantNodeId) {
+      const messageId = currentAssistantNodeId;
+      adapter.patchConversation(conversationId, conversation => ({
+        ...conversation,
+        threadedMessages: updateMessageSegmentsInTree(conversation.threadedMessages, messageId, []),
+      }));
+    }
+    presentationInitialized = true;
+  };
+
+  const collectReceivedSegments = (content: string): TurnSegment[] => {
     const session = getCurrentSession();
+    if (!presentationInitialized && session.activeToolCalls.length === 0 && session.completedSegments.length === 0) {
+      const existing = flattenThreadedMessages(session.conversation?.threadedMessages)
+        .find(message => message.id === currentAssistantNodeId);
+      const knownSegments = getResumableSegments(existing);
+      if (knownSegments.length) return knownSegments;
+    }
     const newSegments: TurnSegment[] = [...session.completedSegments];
-    if (event.content) {
-      if (event.content.trim()) turnHadAssistantText = true;
-      newSegments.push({ type: 'text', content: event.content });
+    const receivedText = content.slice(resumedTextAlreadyShown);
+    if (receivedText) {
+      const last = newSegments[newSegments.length - 1];
+      const hasUnrepresentedContinuationBase = !!continuationBaseContent && !representedBaseContent;
+      if (last?.type === 'text' && !hasUnrepresentedContinuationBase) {
+        newSegments[newSegments.length - 1] = { ...last, content: (last.content ?? '') + receivedText };
+      } else {
+        newSegments.push({ type: 'text', content: receivedText });
+      }
     }
     if (session.activeToolCalls.length > 0) {
       newSegments.push({
@@ -971,6 +1044,94 @@ export function startChatEventController({
         })),
       });
     }
+    return newSegments;
+  };
+
+  const preserveReceivedSegments = (diagnostic?: string) => {
+    if (!currentAssistantNodeId) return;
+    if (!presentationInitialized && (continuationRequested || getCurrentSession().activeToolCalls.length > 0)) {
+      if (continuationRequested) {
+        const existing = flattenThreadedMessages(getCurrentSession().conversation?.threadedMessages)
+          .find(message => message.id === currentAssistantNodeId);
+        const knownSegments = getResumableSegments(existing);
+        const lastTextIndex = knownSegments.map(segment => segment.type).lastIndexOf('text');
+        // Canonical scalar may aggregate several text fragments. Keep its full
+        // value independently of the literal chronology and UI diagnostics.
+        const conclusion = existing?._turnSegments !== undefined
+          ? existing._resumableContent ?? knownSegments[lastTextIndex]?.content ?? ''
+          : existing?.content ?? '';
+        patchCurrentSession({ completedSegments: knownSegments });
+        // Retain the displayed conclusion without appending it a second time.
+        resumedTextAlreadyShown = conclusion.length;
+        updateStreamingMessage(conclusion);
+      } else {
+        updateStreamingMessage('');
+      }
+    }
+    if (!presentationInitialized && !continuationRequested && getCurrentSession().activeToolCalls.length === 0) {
+      const existing = flattenThreadedMessages(getCurrentSession().conversation?.threadedMessages)
+        .find(message => message.id === currentAssistantNodeId);
+      if (existing?._resumableContent !== undefined) updateStreamingMessage(existing._resumableContent);
+    }
+    const messageId = currentAssistantNodeId;
+    const resumableContent = getCurrentAssistantContent();
+    const segments = collectReceivedSegments(resumableContent);
+    if (diagnostic) segments.push({ type: 'text', content: diagnostic, diagnostic: true });
+    adapter.patchConversation(conversationId, conversation => ({
+      ...conversation,
+      threadedMessages: updateMessageSegmentsInTree(conversation.threadedMessages, messageId, segments, resumableContent),
+    }));
+  };
+
+  const preservePatchedDiagnostic = (diagnostic: string) => {
+    if (!currentAssistantNodeId) return;
+    const messageId = currentAssistantNodeId;
+    const patched = flattenThreadedMessages(getCurrentSession().conversation?.threadedMessages)
+      .find(message => message.id === messageId);
+    // The applied patch owns the chronology; live tool/segment lists can still
+    // contain the same executions and must not be merged into this projection.
+    const canonical = patched ? getMessageTurnSegments(patched) ?? [] : [];
+    const segments: TurnSegment[] = [
+      ...(canonical.length ? canonical : patched?.content ? [{ type: 'text' as const, content: patched.content }] : []),
+      { type: 'text', content: diagnostic, diagnostic: true },
+    ];
+    adapter.patchConversation(conversationId, conversation => ({
+      ...conversation,
+      threadedMessages: updateMessageSegmentsInTree(conversation.threadedMessages, messageId, segments, patched?.content ?? ''),
+    }));
+  };
+
+  unsubSegmentDone = turnEvents.on('chat:segment_done', (event: ChatSegmentDoneEvent) => {
+    if (event.conversationId !== conversationId) return;
+    if (!isActive()) return;
+    currentTurnId = event.turnId || currentTurnId;
+    ensureAssistantNode(event.assistantMessageId);
+    if (!external) progressAnnouncer.finishSegment();
+    if (!presentationInitialized) {
+      // Without a delta, a matching segment can be the continuation prefill.
+      // Otherwise it is new content and must not adopt the old chronology.
+      const existing = flattenThreadedMessages(getCurrentSession().conversation?.threadedMessages)
+        .find(message => message.id === currentAssistantNodeId);
+      const knownText = getResumableSegments(existing)
+        .filter(segment => segment.type === 'text').pop()?.content;
+      initializePresentation(continuationRequested && event.content && (event.content === knownText || event.content === existing?.content || event.content === existing?._resumableContent)
+        ? event.content : '');
+    }
+    // Provider completion content may omit the prefill. The streamed buffer
+    // already contains it and is authoritative whenever deltas were received.
+    const segmentContent = streamInitialized ? streamedContent : event.content ?? '';
+    if (!streamInitialized && continuationBaseContent && segmentContent
+      && representedBaseContent.startsWith(segmentContent)) {
+      resumedTextAlreadyShown = segmentContent.length;
+    }
+    if (segmentContent.trim()) turnHadAssistantText = true;
+    if (!event.hasMore) {
+      streamedContent = segmentContent;
+      updateStreamingMessage(segmentContent);
+      return;
+    }
+    const newSegments = collectReceivedSegments(segmentContent);
+    if (segmentContent) representedBaseContent = segmentContent;
     patchCurrentSession({
       completedSegments: newSegments,
       activeToolCalls: [],
@@ -978,6 +1139,7 @@ export function startChatEventController({
     flushVisualStreamingUpdate();
     if (currentAssistantNodeId) adapter.updateMessage(conversationId, currentAssistantNodeId, '');
     streamedContent = '';
+    resumedTextAlreadyShown = 0;
     streamSequence = -1;
     streamInitialized = false;
     streamingCommitted = false;
@@ -996,6 +1158,9 @@ export function startChatEventController({
       const backendAssistantId = event.assistantMessageId && event.assistantMessageId !== '' ? event.assistantMessageId : null;
       const hasAssistantNode = ensureAssistantNode(backendAssistantId) || currentAssistantNodeId !== null;
       const errorMessage = translateBackendChatError(String(event.errorMessage || '').trim());
+      const diagnostic = i18next.t('chat.errorPrefix', { message: errorMessage });
+      if (event.turnPatch) preservePatchedDiagnostic(diagnostic);
+      else preserveReceivedSegments(diagnostic);
       const eventOrigin = getEventOrigin(event);
       announceWithOrigin({
         message: errorMessage,
@@ -1016,6 +1181,22 @@ export function startChatEventController({
       return;
     }
 
+    if (event.reason === 'limit_reached' && pendingStreamDiagnostic !== null) {
+      const diagnostic = pendingStreamDiagnostic;
+      applyTurnPatch(event.turnPatch);
+      const backendAssistantId = event.assistantMessageId || null;
+      ensureAssistantNode(backendAssistantId);
+      if (event.turnPatch) preservePatchedDiagnostic(diagnostic);
+      else preserveReceivedSegments(diagnostic);
+      const content = getCurrentAssistantContent();
+      streamingCommitted = false;
+      updateStreamingMessage(content ? `${content}\n\n${diagnostic}` : diagnostic);
+      finalizeStreaming(backendAssistantId, currentTurnId);
+      patchCurrentSession({ lastInterruptedMessageId: backendAssistantId || currentAssistantNodeId });
+      cleanup();
+      return;
+    }
+
     if (event.reason === 'output_limit') {
       // O patch é autoritativo. Aplique-o antes de decidir se precisamos do
       // aviso visual de fallback, para que ele não apague o aviso em seguida.
@@ -1023,13 +1204,17 @@ export function startChatEventController({
       const backendAssistantId = event.assistantMessageId && event.assistantMessageId !== '' ? event.assistantMessageId : null;
       const hasAssistantNode = ensureAssistantNode(backendAssistantId) || currentAssistantNodeId !== null;
       const message = i18next.t('chat.outputLimitReached');
+      const hasOnlyNewTools = !event.turnPatch && !presentationInitialized && getCurrentSession().activeToolCalls.length > 0;
+      const needsNotice = hasAssistantNode && (hasOnlyNewTools || !getCurrentAssistantContent().trim());
+      if (!event.turnPatch) preserveReceivedSegments(needsNotice ? message : undefined);
+      else if (needsNotice) preservePatchedDiagnostic(message);
       announceWithOrigin({
         message,
         origin: getChatConversationVoiceOrigin(conversationId, undefined, getEventOrigin(event)),
         eventType: 'system',
         announcePriority: 'assertive',
       });
-      if (hasAssistantNode && !getCurrentAssistantContent().trim()) {
+      if (needsNotice) {
         updateStreamingMessage(message);
       }
       const interruptedId = backendAssistantId || currentAssistantNodeId;
@@ -1040,6 +1225,7 @@ export function startChatEventController({
     }
 
     if (event.reason === 'cancelled' || event.finishReason === 'cancelled') {
+      if (!event.turnPatch) preserveReceivedSegments();
       const backendAssistantId = event.assistantMessageId && event.assistantMessageId !== '' ? event.assistantMessageId : null;
       finalizeStreaming(backendAssistantId, event.turnId || currentTurnId);
       applyTurnPatch(event.turnPatch);
@@ -1049,6 +1235,10 @@ export function startChatEventController({
     }
 
     const backendAssistantId = event.assistantMessageId && event.assistantMessageId !== '' ? event.assistantMessageId : null;
+    if (!event.turnPatch) {
+      ensureAssistantNode(backendAssistantId);
+      preserveReceivedSegments();
+    }
     finalizeStreaming(backendAssistantId, event.turnId || currentTurnId);
     applyTurnPatch(event.turnPatch);
     patchCurrentSession({ lastInterruptedMessageId: null });

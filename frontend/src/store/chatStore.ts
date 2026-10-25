@@ -75,6 +75,7 @@ import {
   finalizeStreamingNode,
   hasMessageId,
   updateMessageContentInTree,
+  updateEditedMessageContentInTree,
   updateMessagePinnedInTree,
   updateMessageReasoningInTree,
   type Message,
@@ -746,6 +747,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       : undefined;
     const controller = startChatEventController({
       conversationId,
+      continuationRequested: !!retryMessageId && paramsOverride?.allowAssistantPrefill === true,
       initialUserContent: content,
       initialMediaFiles: mediaFiles,
       origin: executionOrigin,
@@ -1372,7 +1374,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       set((state) => {
         return patchConversation(state, conversationId, (conversation) => ({
           ...conversation,
-          threadedMessages: updateMessageContentInTree(conversation.threadedMessages, messageId, content),
+          threadedMessages: updateEditedMessageContentInTree(conversation.threadedMessages, messageId, content),
         }));
       });
     },

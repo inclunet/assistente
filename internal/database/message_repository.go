@@ -670,18 +670,13 @@ func UpdateMessageContentWithContext(ctx context.Context, messageID string, cont
 }
 
 func (r *MessageRepository) UpdateMessageContentWithContext(ctx context.Context, messageID string, content string, promptTokens, completionTokens, totalTokens int, model string) error {
-	db := r.db
-	if _, err := RequireUserID(ctx); err != nil {
-		return err
-	}
-	messageIDs := scopedMessageQuery(ctx, db.Model(&ChatMessage{}).Select("chat_messages.id").Where("chat_messages.id = ?", messageID))
-	return db.WithContext(ctx).Model(&ChatMessage{}).Where("id = ?", messageID).Where("id IN (?)", messageIDs).Updates(map[string]interface{}{
+	return r.updateMessageFields(ctx, messageID, map[string]interface{}{
 		"content":           content,
 		"prompt_tokens":     promptTokens,
 		"completion_tokens": completionTokens,
 		"total_tokens":      totalTokens,
 		"model":             model,
-	}).Error
+	})
 }
 
 // UpdateMessageTextWithContext atualiza somente o texto, preservando reasoning,
@@ -691,15 +686,7 @@ func UpdateMessageTextWithContext(ctx context.Context, messageID string, content
 }
 
 func (r *MessageRepository) UpdateMessageTextWithContext(ctx context.Context, messageID string, content string) error {
-	db := r.db
-	if _, err := RequireUserID(ctx); err != nil {
-		return err
-	}
-	messageIDs := scopedMessageQuery(ctx, db.Model(&ChatMessage{}).Select("chat_messages.id").Where("chat_messages.id = ?", messageID))
-	return db.WithContext(ctx).Model(&ChatMessage{}).
-		Where("id = ?", messageID).
-		Where("id IN (?)", messageIDs).
-		Update("content", content).Error
+	return r.updateMessageFields(ctx, messageID, map[string]interface{}{"content": content})
 }
 
 // UpdateMessageContentAndReasoningWithContext atualiza conteúdo, reasoning e tokens de uma mensagem
@@ -709,19 +696,14 @@ func UpdateMessageContentAndReasoningWithContext(ctx context.Context, messageID 
 }
 
 func (r *MessageRepository) UpdateMessageContentAndReasoningWithContext(ctx context.Context, messageID string, content string, reasoning string, promptTokens, completionTokens, totalTokens int, model string) error {
-	db := r.db
-	if _, err := RequireUserID(ctx); err != nil {
-		return err
-	}
-	messageIDs := scopedMessageQuery(ctx, db.Model(&ChatMessage{}).Select("chat_messages.id").Where("chat_messages.id = ?", messageID))
-	return db.WithContext(ctx).Model(&ChatMessage{}).Where("id = ?", messageID).Where("id IN (?)", messageIDs).Updates(map[string]interface{}{
+	return r.updateMessageFields(ctx, messageID, map[string]interface{}{
 		"content":           content,
 		"reasoning":         reasoning,
 		"prompt_tokens":     promptTokens,
 		"completion_tokens": completionTokens,
 		"total_tokens":      totalTokens,
 		"model":             model,
-	}).Error
+	})
 }
 
 // UpdateMessageContentReasoningAndUsageWithContext finaliza uma resposta em uma
@@ -731,12 +713,7 @@ func UpdateMessageContentReasoningAndUsageWithContext(ctx context.Context, messa
 }
 
 func (r *MessageRepository) UpdateMessageContentReasoningAndUsageWithContext(ctx context.Context, messageID string, content string, reasoning string, promptTokens, completionTokens, totalTokens int, cacheReadTokens, cacheWriteTokens, cacheMissTokens int, model string) error {
-	db := r.db
-	if _, err := RequireUserID(ctx); err != nil {
-		return err
-	}
-	messageIDs := scopedMessageQuery(ctx, db.Model(&ChatMessage{}).Select("chat_messages.id").Where("chat_messages.id = ?", messageID))
-	return db.WithContext(ctx).Model(&ChatMessage{}).Where("id = ?", messageID).Where("id IN (?)", messageIDs).Updates(map[string]interface{}{
+	return r.updateMessageFields(ctx, messageID, map[string]interface{}{
 		"content":            content,
 		"reasoning":          reasoning,
 		"prompt_tokens":      promptTokens,
@@ -746,7 +723,7 @@ func (r *MessageRepository) UpdateMessageContentReasoningAndUsageWithContext(ctx
 		"cache_write_tokens": cacheWriteTokens,
 		"cache_miss_tokens":  cacheMissTokens,
 		"model":              model,
-	}).Error
+	})
 }
 
 // UpdateMessageCacheTokensWithContext atualiza métricas opcionais de prompt cache
@@ -770,12 +747,21 @@ func (r *MessageRepository) UpdateMessageCacheTokensWithContext(ctx context.Cont
 	if len(updates) == 0 {
 		return nil
 	}
-	db := r.db
+	return r.updateMessageFields(ctx, messageID, updates)
+}
+
+// updateMessageFields repeats only the atomic, idempotent database update on
+// transient contention. Rebuild the scoped query for every attempt: GORM keeps
+// errors on a statement, and ownership must remain part of the write itself.
+func (r *MessageRepository) updateMessageFields(ctx context.Context, messageID string, updates map[string]interface{}) error {
 	if _, err := RequireUserID(ctx); err != nil {
 		return err
 	}
-	messageIDs := scopedMessageQuery(ctx, db.Model(&ChatMessage{}).Select("chat_messages.id").Where("chat_messages.id = ?", messageID))
-	return db.WithContext(ctx).Model(&ChatMessage{}).Where("id = ?", messageID).Where("id IN (?)", messageIDs).Updates(updates).Error
+	return WithSQLiteBusyRetry(ctx, "chat.update_message", func() error {
+		messageIDs := scopedMessageQuery(ctx, r.db.Model(&ChatMessage{}).Select("chat_messages.id").Where("chat_messages.id = ?", messageID))
+		return r.db.WithContext(ctx).Model(&ChatMessage{}).
+			Where("id = ?", messageID).Where("id IN (?)", messageIDs).Updates(updates).Error
+	})
 }
 
 // DeleteMessageWithContext exclui uma mensagem e todas as suas filhas

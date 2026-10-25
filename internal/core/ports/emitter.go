@@ -16,6 +16,7 @@ type StreamEvent struct {
 	ConversationId       string             `json:"conversationId"`
 	TurnID               string             `json:"turnId"`
 	Delta                string             `json:"delta,omitempty"`
+	Diagnostic           bool               `json:"diagnostic,omitempty"`
 	Reset                bool               `json:"reset,omitempty"`
 	BaseContent          string             `json:"baseContent,omitempty"`
 	Sequence             uint64             `json:"sequence"`
