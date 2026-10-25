@@ -310,6 +310,7 @@ export function startChatEventController({
   let resumedTextAlreadyShown = 0;
   let presentationInitialized = false;
   let representedBaseContent = '';
+  let continuationBaseContent = '';
   let streamSequence = -1;
   let streamInitialized = false;
   let pendingVisualContent: string | null = null;
@@ -959,6 +960,7 @@ export function startChatEventController({
 
   const initializePresentation = (baseContent: string) => {
     if (presentationInitialized) return;
+    continuationBaseContent = baseContent;
 
     const existing = flattenThreadedMessages(getCurrentSession().conversation?.threadedMessages)
       .find(message => message.id === currentAssistantNodeId);
@@ -1050,9 +1052,16 @@ export function startChatEventController({
       }
     }
     if (!event.hasMore) return;
-    if (event.content?.trim()) turnHadAssistantText = true;
-    const newSegments = collectReceivedSegments(event.content ?? '');
-    if (event.content) representedBaseContent = event.content;
+    // Provider completion content may omit the prefill. The streamed buffer
+    // already contains it and is authoritative whenever deltas were received.
+    const segmentContent = streamInitialized ? streamedContent : event.content ?? '';
+    if (!streamInitialized && continuationBaseContent && segmentContent
+      && representedBaseContent.startsWith(segmentContent)) {
+      resumedTextAlreadyShown = segmentContent.length;
+    }
+    if (segmentContent.trim()) turnHadAssistantText = true;
+    const newSegments = collectReceivedSegments(segmentContent);
+    if (segmentContent) representedBaseContent = segmentContent;
     patchCurrentSession({
       completedSegments: newSegments,
       activeToolCalls: [],

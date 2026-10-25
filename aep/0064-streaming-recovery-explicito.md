@@ -144,6 +144,9 @@ fechamento do aplicativo quando todas as gravações falham.
   sem base não reutiliza essa cronologia. A base original relida pelo backend
   nas iterações seguintes é descontada quando já integra o texto consolidado.
   Regressões no mesmo controlador cobrem base original e base estendida.
+  A consolidação usa o buffer ao vivo quando houve deltas, pois o fechamento
+  do provedor pode conter somente o sufixo; iterações sem delta descontam o
+  prefill já representado somente em continuação explícita.
 - [x] Diagnósticos terminais são marcados separadamente do conteúdo retomável.
   A inicialização do prefixo acontece uma vez por tentativa, preservando as
   iterações seguintes. Sucesso sem patch também materializa a cronologia atual,
