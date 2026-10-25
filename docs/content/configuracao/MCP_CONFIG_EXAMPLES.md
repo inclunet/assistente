@@ -996,3 +996,7 @@ A lista de ferramentas identifica a origem pelo servidor MCP associado à
 implementação. Ferramentas locais, como o gerenciador de servidores MCP,
 continuam locais. A execução e o histórico preservam o nome original da
 ferramenta no servidor; perfis e conversas existentes mantêm seus nomes salvos.
+Uma recusa de autorização mantém a identificação do servidor sem executar a
+ferramenta. Se uma implementação for substituída durante o turno, a apresentação
+final acompanha a ferramenta executada e remove o servidor antigo quando ela
+passa a ser local.

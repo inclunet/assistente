@@ -66,6 +66,24 @@ func TestExecuteSingle_Success(t *testing.T) {
 	}
 }
 
+func TestDeniedMCPToolPreservesIdentityWithoutExecution(t *testing.T) {
+	identity := MCPToolIdentity{ServerSlug: "remote", ToolName: "search"}
+	called := false
+	tool := &mockTool{name: "search_alias", identity: identity, exec: func(context.Context, json.RawMessage) (ToolResult, error) {
+		called = true
+		return ToolResult{}, nil
+	}}
+	executor := NewExecutor(newRegistry(tool), DefaultExecutorConfig())
+	ctx := WithExecutionContext(context.Background(), ExecutionContext{InvokedSkillSlug: "restricted", DeniedTools: []string{tool.Name()}})
+	result := executor.ExecuteOne(ctx, ToolCall{ID: "denied", Function: FunctionCall{Name: tool.Name(), Arguments: `{}`}})
+	if called || !result.Result.IsError || result.Retryable || !result.RetryabilityKnown {
+		t.Fatalf("authorization changed: called=%v result=%+v", called, result)
+	}
+	if result.MCPIdentity == nil || *result.MCPIdentity != identity {
+		t.Fatalf("denied tool lost identity: %+v", result.MCPIdentity)
+	}
+}
+
 func securityOutcomes(result ToolResult) []SecuritySignal {
 	values, ok := result.Metadata[SecuritySignalsMetadataKey].([]SecuritySignal)
 	if !ok {

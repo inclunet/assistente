@@ -106,6 +106,14 @@ func (e *Executor) ExecuteOne(ctx context.Context, call ToolCall) ToolExecutionR
 func (e *Executor) executeSingle(ctx context.Context, call ToolCall) (execution ToolExecutionResult) {
 	toolName := call.Function.Name
 	start := time.Now()
+	// Captura a implementação também para recusas de autorização, sem executá-la.
+	tool, generation, ok := e.registry.GetWithGeneration(toolName)
+	identity, mcpBridge := MCPIdentityOf(tool)
+	defer func() {
+		if mcpBridge {
+			execution.MCPIdentity = &identity
+		}
+	}()
 
 	if err := validateExecutionContextToolAccess(ctx, toolName); err != nil {
 		return ToolExecutionResult{
@@ -123,8 +131,6 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) (execution 
 		}
 	}
 
-	// Busca a ferramenta no registry
-	tool, generation, ok := e.registry.GetWithGeneration(toolName)
 	if !ok {
 		return ToolExecutionResult{
 			CallID:   call.ID,
@@ -140,12 +146,6 @@ func (e *Executor) executeSingle(ctx context.Context, call ToolCall) (execution 
 			DurationMs:        time.Since(start).Milliseconds(),
 		}
 	}
-	identity, mcpBridge := MCPIdentityOf(tool)
-	defer func() {
-		if mcpBridge {
-			execution.MCPIdentity = &identity
-		}
-	}()
 	if e.config.ExpectedToolGeneration != 0 && generation != e.config.ExpectedToolGeneration {
 		err := fmt.Errorf("geração da ferramenta '%s' mudou: esperada %d, atual %d", toolName, e.config.ExpectedToolGeneration, generation)
 		return ToolExecutionResult{

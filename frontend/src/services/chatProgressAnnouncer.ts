@@ -28,7 +28,7 @@ export interface ChatProgressAnnouncementGroup {
 
 export interface ChatProgressAnnouncer {
   toolStarted: (tool: ChatProgressTool) => void;
-  toolEnded: (callId: string, status?: string) => void;
+  toolEnded: (callId: string, status?: string, identity?: Pick<ChatProgressTool, 'name' | 'origin' | 'serverLabel'>) => void;
   toolFailed: (callId: string, willRetry?: boolean) => void;
   finishSegment: () => void;
   dispose: () => void;
@@ -114,10 +114,15 @@ export function createChatProgressAnnouncer({
       schedule();
     },
 
-    toolEnded: (callId, status) => {
+    toolEnded: (callId, status, identity) => {
       if (disposed || !callId) return;
       const tool = pending.get(callId);
       if (!tool) return;
+      if (identity) {
+        tool.name = identity.name;
+        tool.origin = identity.origin;
+        tool.serverLabel = identity.serverLabel;
+      }
       if (status === 'error') {
         pending.delete(callId);
       } else {

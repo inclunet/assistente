@@ -53,6 +53,9 @@ Eventos finais e histórico usam a identidade capturada pelo executor, mesmo
 que a ferramenta seja desconectada ou substituída durante a chamada. Registros
 de MCP nativo recebem servidor e nome original do evento adaptado, sem depender
 de uma ponte registrada localmente.
+Recusas de autorização preservam a identidade da ferramenta registrada sem
+executá-la. O consumidor de eventos aplica a identidade final, inclusive limpando
+o servidor anterior quando a implementação executada é local.
 
 A única interpretação legada mantida no backend é a importação de jobs que
 referenciam pelo nome persistido uma ferramenta ainda não descoberta. Ela exige
@@ -76,6 +79,9 @@ conhecida. O registro posterior continua sendo avaliado pela política vigente.
   `TestServicePreservesExecutedIdentityAfterRegistryReplacement`,
   `TestServiceUsesBuiltinIdentityWhenBridgeIsReplacedBeforeExecution` e
   `TestPersistNativeMCPCalls_RecordsToolInvocation`.
+- [x] Recusa preserva a identidade sem execução (`TestDeniedMCPToolPreservesIdentityWithoutExecution`);
+  troca de implementação atualiza UI, segmentos e anúncio nos testes de
+  `chatEventController` e `chatProgressAnnouncer`.
 - [ ] Qualificar com conversa real após implantação.
 
 ---
