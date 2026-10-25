@@ -70,11 +70,14 @@ describe('chatMessageTree', () => {
     const nodes = [node(message('root', 'assistant', 'old'), [node(message('child', 'tool'))])];
     const original = nodes[0].message as Message;
     original._turnSegments = [{ type: 'text', content: 'old' }];
+    original._resumableContent = 'old';
     const streamed = updateMessageContentInTree(nodes, 'root', 'delta');
     expect((streamed[0].message as Message)._turnSegments).toBe(original._turnSegments);
+    expect((streamed[0].message as Message)._resumableContent).toBe('old');
     const edited = updateEditedMessageContentInTree(streamed, 'root', 'edited');
     expect(edited[0].message.content).toBe('edited');
-    expect((edited[0].message as Message)._turnSegments).toBeUndefined();
+    expect((edited[0].message as Message)._turnSegments).toEqual([{ type: 'text', content: 'edited' }]);
+    expect((edited[0].message as Message)._resumableContent).toBeUndefined();
     expect(edited[0].children).toBe(nodes[0].children);
     expect(updateEditedMessageContentInTree(edited, 'root', 'edited')).toBe(edited);
   });
@@ -82,12 +85,23 @@ describe('chatMessageTree', () => {
   it('preserves canonical segments while an empty retry override hides them until an edit removes it', () => {
     const nodes = [node(message('root', 'assistant', 'Parcial'))];
     nodes[0].message.turnSegments = [new chat.TurnSegment({ type: 'text', content: 'Parcial' })];
-    const retry = updateMessageSegmentsInTree(nodes, 'root', []);
+    const received = updateMessageSegmentsInTree(nodes, 'root', [], '');
+    expect((received[0].message as Message)._resumableContent).toBe('');
+    const retry = updateMessageSegmentsInTree(received, 'root', []);
+    expect((retry[0].message as Message)._resumableContent).toBeUndefined();
     expect(getMessageTurnSegments(retry[0].message as Message)).toEqual([]);
     expect(retry[0].message.turnSegments?.[0].content).toBe('Parcial');
     const edited = updateEditedMessageContentInTree(retry, 'root', 'Parcial');
-    expect((edited[0].message as Message)._turnSegments).toBeUndefined();
+    expect((edited[0].message as Message)._turnSegments).toEqual([{ type: 'text', content: 'Parcial' }]);
     expect(getMessageTurnSegments(edited[0].message as Message)?.[0].content).toBe('Parcial');
+  });
+
+  it('projects edited text even when canonical chronology contains no tools', () => {
+    const nodes = [node(message('root', 'assistant', 'old'))];
+    nodes[0].message.turnSegments = [new chat.TurnSegment({ type: 'text', content: 'old' })];
+    const edited = updateEditedMessageContentInTree(nodes, 'root', 'new');
+    expect(getMessageTurnSegments(edited[0].message as Message)).toEqual([{ type: 'text', content: 'new' }]);
+    expect(edited[0].message.turnSegments?.[0].content).toBe('old');
   });
 
   it('attaches loaded children to the requested message', () => {

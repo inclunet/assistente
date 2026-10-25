@@ -428,7 +428,7 @@ export function startChatEventController({
     const content = pendingVisualContent;
     pendingVisualContent = null;
     if (content === null || cleanupExecuted || !currentAssistantNodeId) return;
-    adapter.updateMessage(conversationId, currentAssistantNodeId, content);
+    adapter.updateMessage(conversationId, currentAssistantNodeId, content.slice(resumedTextAlreadyShown));
   };
 
   const commitStreamingContent = () => {
@@ -567,7 +567,7 @@ export function startChatEventController({
       const nextContent = pendingVisualContent;
       pendingVisualContent = null;
       if (nextContent === null || cleanupExecuted || !currentAssistantNodeId) return;
-      adapter.updateMessage(conversationId, currentAssistantNodeId, nextContent);
+      adapter.updateMessage(conversationId, currentAssistantNodeId, nextContent.slice(resumedTextAlreadyShown));
     });
   };
 
@@ -963,14 +963,8 @@ export function startChatEventController({
   const getResumableSegments = (message?: Message): TurnSegment[] => {
     if (!message) return [];
     const segments = (getMessageTurnSegments(message) ?? []).filter(segment => !segment.diagnostic);
-    if (message._turnSegments !== undefined) return segments;
-    // The scalar may have been edited after the canonical projection was read.
-    const lastTextIndex = segments.map(segment => segment.type).lastIndexOf('text');
-    if (lastTextIndex >= 0) {
-      return segments.map((segment, index) => index === lastTextIndex
-        ? { ...segment, content: message.content } : segment);
-    }
-    return message.content ? [...segments, { type: 'text', content: message.content }] : segments;
+    if (segments.length || message._turnSegments !== undefined) return segments;
+    return message.content ? [{ type: 'text', content: message.content }] : [];
   };
 
   const initializePresentation = (baseContent: string) => {
@@ -981,14 +975,12 @@ export function startChatEventController({
       .find(message => message.id === currentAssistantNodeId);
     const knownSegments = getResumableSegments(existing);
     if (baseContent) {
-      const lastTextIndex = knownSegments.map(segment => segment.type).lastIndexOf('text');
-      const textIsLast = lastTextIndex === knownSegments.length - 1 && lastTextIndex >= 0;
-      const prefix = textIsLast ? knownSegments.slice(0, -1) : knownSegments;
-      if (!textIsLast && lastTextIndex >= 0 && knownSegments[lastTextIndex].content === baseContent) {
-        representedBaseContent = baseContent;
-        resumedTextAlreadyShown = baseContent.length;
-      }
-      patchCurrentSession({ completedSegments: [...prefix] });
+      // The explicit base is already represented by the seed chronology, even
+      // when its scalar spans several fragments separated by executions.
+      patchCurrentSession({ completedSegments: knownSegments.length
+        ? [...knownSegments] : [{ type: 'text', content: baseContent }] });
+      representedBaseContent = baseContent;
+      resumedTextAlreadyShown = baseContent.length;
     }
     // A new attempt owns its presentation, including when its final patch
     // cannot be read. Capture continuation history before clearing it.
@@ -1013,7 +1005,12 @@ export function startChatEventController({
     const newSegments: TurnSegment[] = [...session.completedSegments];
     const receivedText = content.slice(resumedTextAlreadyShown);
     if (receivedText) {
-      newSegments.push({ type: 'text', content: receivedText });
+      const last = newSegments[newSegments.length - 1];
+      if (last?.type === 'text') {
+        newSegments[newSegments.length - 1] = { ...last, content: (last.content ?? '') + receivedText };
+      } else {
+        newSegments.push({ type: 'text', content: receivedText });
+      }
     }
     if (session.activeToolCalls.length > 0) {
       newSegments.push({
@@ -1034,16 +1031,16 @@ export function startChatEventController({
 
   const preserveReceivedSegments = (diagnostic?: string) => {
     if (!currentAssistantNodeId) return;
-    if (!presentationInitialized && getCurrentSession().activeToolCalls.length > 0) {
+    if (!presentationInitialized && (continuationRequested || getCurrentSession().activeToolCalls.length > 0)) {
       if (continuationRequested) {
         const existing = flattenThreadedMessages(getCurrentSession().conversation?.threadedMessages)
           .find(message => message.id === currentAssistantNodeId);
         const knownSegments = getResumableSegments(existing);
         const lastTextIndex = knownSegments.map(segment => segment.type).lastIndexOf('text');
-        // Canonical text can predate an edit; its scalar is authoritative. A
-        // received override instead carries text separately from diagnostics.
+        // Canonical scalar may aggregate several text fragments. Keep its full
+        // value independently of the literal chronology and UI diagnostics.
         const conclusion = existing?._turnSegments !== undefined
-          ? knownSegments[lastTextIndex]?.content ?? ''
+          ? existing._resumableContent ?? knownSegments[lastTextIndex]?.content ?? ''
           : existing?.content ?? '';
         patchCurrentSession({ completedSegments: knownSegments });
         // Retain the displayed conclusion without appending it a second time.
@@ -1053,12 +1050,18 @@ export function startChatEventController({
         updateStreamingMessage('');
       }
     }
+    if (!presentationInitialized && !continuationRequested && getCurrentSession().activeToolCalls.length === 0) {
+      const existing = flattenThreadedMessages(getCurrentSession().conversation?.threadedMessages)
+        .find(message => message.id === currentAssistantNodeId);
+      if (existing?._resumableContent !== undefined) updateStreamingMessage(existing._resumableContent);
+    }
     const messageId = currentAssistantNodeId;
-    const segments = collectReceivedSegments(getCurrentAssistantContent());
+    const resumableContent = getCurrentAssistantContent();
+    const segments = collectReceivedSegments(resumableContent);
     if (diagnostic) segments.push({ type: 'text', content: diagnostic, diagnostic: true });
     adapter.patchConversation(conversationId, conversation => ({
       ...conversation,
-      threadedMessages: updateMessageSegmentsInTree(conversation.threadedMessages, messageId, segments),
+      threadedMessages: updateMessageSegmentsInTree(conversation.threadedMessages, messageId, segments, resumableContent),
     }));
   };
 
@@ -1069,13 +1072,14 @@ export function startChatEventController({
       .find(message => message.id === messageId);
     // The applied patch owns the chronology; live tool/segment lists can still
     // contain the same executions and must not be merged into this projection.
+    const canonical = patched ? getMessageTurnSegments(patched) ?? [] : [];
     const segments: TurnSegment[] = [
-      ...getResumableSegments(patched),
+      ...(canonical.length ? canonical : patched?.content ? [{ type: 'text' as const, content: patched.content }] : []),
       { type: 'text', content: diagnostic, diagnostic: true },
     ];
     adapter.patchConversation(conversationId, conversation => ({
       ...conversation,
-      threadedMessages: updateMessageSegmentsInTree(conversation.threadedMessages, messageId, segments),
+      threadedMessages: updateMessageSegmentsInTree(conversation.threadedMessages, messageId, segments, patched?.content ?? ''),
     }));
   };
 
@@ -1092,7 +1096,7 @@ export function startChatEventController({
         .find(message => message.id === currentAssistantNodeId);
       const knownText = getResumableSegments(existing)
         .filter(segment => segment.type === 'text').pop()?.content;
-      initializePresentation(event.content && (event.content === knownText || event.content === existing?.content)
+      initializePresentation(continuationRequested && event.content && (event.content === knownText || event.content === existing?.content)
         ? event.content : '');
     }
     // Provider completion content may omit the prefill. The streamed buffer

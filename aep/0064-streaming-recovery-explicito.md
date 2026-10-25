@@ -151,8 +151,10 @@ fechamento do aplicativo quando todas as gravações falham.
   Antes do primeiro delta/segmento, o modo explícito de continuação recebido
   do pipeline preserva a cadeia anterior se o turno encerrar após uma ferramenta
   sem patch; retry normal preserva somente a tentativa atual.
-  A cadeia retomável normaliza a conclusão canônica pelo conteúdo vigente,
-  preservando edições e a posição das ferramentas. Avisos terminais são
+  A cadeia canônica é preservada literalmente: a conclusão completa não é
+  confundida com seu último fragmento. A edição explícita atualiza a projeção
+  visual; a continuação conserva a cadeia anterior e acrescenta texto novo.
+  A conclusão retomável completa é mantida separadamente dos avisos. Avisos terminais são
   segmentos de diagnóstico explícitos, inclusive quando há patch, e não
   entram no conteúdo retomável.
 - [x] Diagnósticos terminais são marcados separadamente do conteúdo retomável.

@@ -175,6 +175,40 @@ describe('cronologia de ChatMessage', () => {
     });
   });
 
+  it('exibe apenas o sufixo ao continuar e mantém a conclusão integral após finalizar', () => {
+    const message = messageFor('assistant-live-continuation', { isStreaming: true });
+    const prefix: TurnSegment[] = [
+      { type: 'text', content: 'Parcial' },
+      { type: 'tool_calls', toolInvocations: [invocation('previous', 'buscar-fonte')] },
+    ];
+    const surface = seedStore({
+      targetConversationId: conversationId,
+      messageId: message.id,
+      streamingMessageId: message.id,
+      completedSegments: prefix,
+      liveContent: ' novo',
+    });
+    const { rerender } = renderMessage(surface, message);
+    expect(within(messageContent()).getAllByTestId('markdown').map(node => node.textContent)).toEqual(['Parcial', ' novo']);
+
+    const completed = messageFor(message.id, { content: 'Parcial novo' });
+    completed._turnSegments = [...prefix, { type: 'text', content: ' novo' }];
+    completed._resumableContent = 'Parcial novo';
+    act(() => {
+      seedStore({ targetConversationId: conversationId, messageId: message.id });
+    });
+    rerender(
+      <ChatSessionProvider surface={surface}>
+        <SessionMessage message={completed} />
+      </ChatSessionProvider>,
+    );
+    expect(within(messageContent()).getAllByTestId('markdown').map(node => node.textContent)).toEqual(['Parcial', ' novo']);
+    fireEvent.click(screen.getByRole('button', { name: 'chat.collapseChain' }));
+    expect(within(messageContent()).getAllByTestId('markdown').map(node => node.textContent)).toEqual(['Parcial novo']);
+    fireEvent.click(screen.getByRole('button', { name: 'chat.expandChain' }));
+    expect(within(messageContent()).getAllByTestId('markdown').map(node => node.textContent)).toEqual(['Parcial', ' novo']);
+  });
+
   it('exibe a cadeia recebida e o aviso uma vez após falha de gravação, expandida ou recolhida', () => {
     const warning = 'Erro: não foi possível salvar';
     const scalar = `${finalContent}\n\n${warning}`;
