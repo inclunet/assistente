@@ -739,7 +739,7 @@ export function startChatEventController({
       if (event.reset) {
         resumedTextAlreadyShown = 0;
         initializePresentation(event.baseContent ?? '');
-        if (event.baseContent && event.baseContent === representedBaseContent) {
+        if (event.baseContent && representedBaseContent.startsWith(event.baseContent)) {
           resumedTextAlreadyShown = event.baseContent.length;
         }
         streamedContent = event.baseContent ?? '';

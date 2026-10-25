@@ -1487,7 +1487,7 @@ describe('chatEventController', () => {
     expect(message.content).toBe('Parcial continuado\n\nErro: chat.errors.persistenceError');
   });
 
-  it('preserva segmentos novos quando a continuação recebe outro reset depois de executar tools', () => {
+  it.each(['Parcial', 'Parcial primeiro'])('preserva segmentos novos quando a continuação reutiliza a base %s', (baseContent) => {
     const { adapter, sessions } = createAdapter(['conversation-1']);
     sessions['conversation-1'].conversation!.threadedMessages = [new chat.MessageNode({
       message: {
@@ -1506,7 +1506,7 @@ describe('chatEventController', () => {
     emitEvent('chat:tool_start', { ...identity, name: 'read', callId: 'new-call', origin: 'builtin' });
     emitEvent('chat:tool_end', { ...identity, name: 'read', callId: 'new-call', status: 'ok' });
     emitEvent('chat:segment_done', { ...identity, hasMore: true, content: 'Parcial primeiro' });
-    emitEvent('chat:stream', { ...identity, messageId: 'assistant-1', reset: true, sequence: 0, baseContent: 'Parcial primeiro', delta: ' segundo' });
+    emitEvent('chat:stream', { ...identity, messageId: 'assistant-1', reset: true, sequence: 0, baseContent, delta: ' segundo' });
     emitEvent('chat:done', { ...identity, reason: 'error', errorMessage: 'persistence_error' });
     vi.runOnlyPendingTimers();
     const message = sessions['conversation-1'].conversation!.threadedMessages[0].message as Message;

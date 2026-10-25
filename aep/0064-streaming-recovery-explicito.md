@@ -141,7 +141,9 @@ fechamento do aplicativo quando todas as gravações falham.
   específico: teste de falha de salvamento em `chatEventController.test.ts`.
 - [x] Continuação explícita (`baseContent`) preserva o prefixo conhecido do turno
   e substitui apenas o último segmento textual pelo texto retomado; nova tentativa
-  sem base não reutiliza essa cronologia. Regressões no mesmo controlador.
+  sem base não reutiliza essa cronologia. A base original relida pelo backend
+  nas iterações seguintes é descontada quando já integra o texto consolidado.
+  Regressões no mesmo controlador cobrem base original e base estendida.
 - [x] Diagnósticos terminais são marcados separadamente do conteúdo retomável.
   A inicialização do prefixo acontece uma vez por tentativa, preservando as
   iterações seguintes. Sucesso sem patch também materializa a cronologia atual,
