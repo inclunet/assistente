@@ -512,7 +512,10 @@ func TestServiceDoesNotExecuteWhenChatOriginDisappearsDuringCreate(t *testing.T)
 			Origin: Origin{Type: OriginChat, ID: "turn-1"},
 		})
 		if !result.Execution.Result.IsError || !strings.Contains(result.Execution.Result.Content, "validar o item do chat") {
-			t.Fatalf("erro %v deveria cancelar sem executar tool: %+v", createErr, result.Execution.Result)
+			t.Fatalf("erro %v deveria falhar sem executar tool: %+v", createErr, result.Execution.Result)
+		}
+		if result.Execution.ErrorKind != tools.ErrorKindUnavailable || result.Execution.ErrorCode != "invocation_ledger_unavailable" || result.Persisted || result.Execution.Retryable {
+			t.Fatalf("falha de persistência classificada incorretamente: %+v", result)
 		}
 		if calls != 0 {
 			t.Fatalf("erro %v executou a tool %d vez(es)", createErr, calls)

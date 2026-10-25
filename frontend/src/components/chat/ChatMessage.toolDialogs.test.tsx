@@ -53,6 +53,15 @@ describe('ChatMessage tool dialog host', () => {
     currentUser.id = 'user-a';
     loadDetails.mockReset();
   });
+  it('traduz a falha local pelo código sem exibir a mensagem técnica', async () => {
+    const call = { callId: 'blocked', name: 'echo', status: 'error' as const,
+      errorCode: 'invocation_ledger_unavailable', summary: 'backend diagnostic' };
+    render(<ToolCallsSection tabNavigationEnabled activeToolCalls={[call]} />);
+    fireEvent.click(screen.getByRole('button', { name: 'chat.technicalDetails' }));
+    expect(await screen.findByText('chat.invocationLedgerUnavailable')).toBeInTheDocument();
+    expect(screen.queryByText('backend diagnostic')).not.toBeInTheDocument();
+    expect(loadDetails).not.toHaveBeenCalled();
+  });
   it.each(['', 'saída original preservada'])(
     'mostra diagnóstico separado da saída MCP %j',
     async (content) => {

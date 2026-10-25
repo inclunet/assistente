@@ -265,3 +265,18 @@ Exemplos:
   na conversa em andamento.
 
 Em todos os casos, os resultados permanecem restritos à conta autenticada.
+
+
+## Falha ao registrar uma execução
+
+Antes de executar uma ferramenta, o Assistente registra a chamada no banco local.
+Se não conseguir validar a conversa ou salvar esse registro, informa que a
+ferramenta **não foi executada**. Isso pode acontecer por indisponibilidade
+momentânea do banco e não significa que o servidor MCP desconectou ou que a
+ferramenta deixou de existir. Depois de resolver a falha local, solicite uma nova
+tentativa. O Assistente não executa a operação sem registro nem a repete
+automaticamente por esse erro.
+
+O diagnóstico de uma chamada que não chegou a ser registrada permanece visível
+nos detalhes até recarregar o histórico. Ele não representa uma execução salva;
+o conteúdo da conversa e as execuções já registradas continuam vindo do banco.

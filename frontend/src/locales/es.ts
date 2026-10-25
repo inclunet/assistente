@@ -474,6 +474,7 @@ const es = {
       showLess: 'Mostrar menos',
       showAll: 'Mostrar todo',
       loadingToolDetails: 'Cargando detalles...',
+      invocationLedgerUnavailable: 'Herramienta no ejecutada: no se pudo validar la conversación o registrar la ejecución en la base de datos local. Esto no indica que la herramienta o el servidor MCP no estén disponibles.',
       toolDetailsUnavailable: 'Los detalles de esta ejecución ya no están disponibles.',
       toolDetailsLoadError: 'No se pudieron cargar los detalles de la herramienta.',
       viewSearchResults: 'Ver {{count}} resultado(s)',

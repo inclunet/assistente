@@ -190,6 +190,7 @@ type ToolStartEvent struct {
 
 // ToolEndEvent is the payload for chat:tool_end.
 type ToolEndEvent struct {
+	ErrorCode          string             `json:"errorCode,omitempty"`
 	ConversationID     string             `json:"conversationId"`
 	TurnID             string             `json:"turnId,omitempty"`
 	AssistantMessageID string             `json:"assistantMessageId,omitempty"`

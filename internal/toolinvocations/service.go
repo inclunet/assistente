@@ -132,9 +132,12 @@ func (s *Service) CleanOrphanChatBatch(ctx context.Context, limit int) (int, boo
 	return 0, false, ErrOrphanChatBatchUnsupported
 }
 
-func cancelledLedgerUnavailable(call tools.ToolCall) ExecuteResult {
+func failedLedgerUnavailable(call tools.ToolCall) ExecuteResult {
+	execution := executionError(call, "Ferramenta não executada: não foi possível validar o item do chat ou salvar o registro da execução no banco local. Isso não indica indisponibilidade da ferramenta ou do servidor MCP.")
+	execution.ErrorKind = tools.ErrorKindUnavailable
+	execution.ErrorCode = "invocation_ledger_unavailable"
 	return ExecuteResult{
-		Execution: executionCancelled(call, "Execução cancelada: não foi possível validar o item do chat ou persistir sua tool invocation"),
+		Execution: execution,
 		Persisted: false,
 	}
 }
@@ -155,7 +158,7 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) ExecuteResult
 	inv, err := s.beginInvocation(ctx, start)
 	if err != nil {
 		if errors.Is(err, errChatLedgerUnavailable) {
-			return cancelledLedgerUnavailable(req.Call)
+			return failedLedgerUnavailable(req.Call)
 		}
 		return ExecuteResult{Invocation: inv, Execution: executionError(req.Call, "tool invocation persistence unavailable")}
 	}
@@ -781,24 +784,6 @@ func executionGuardCancelled(call tools.ToolCall) tools.ToolExecutionResult {
 		Result:    tools.ToolResult{Content: "Execução da tool cancelada", IsError: true},
 		ErrorKind: tools.ErrorKindCancelled, ErrorCode: "execution_guard_cancelled",
 		RetryabilityKnown: true,
-	}
-}
-
-func executionCancelled(call tools.ToolCall, message string) tools.ToolExecutionResult {
-	if strings.TrimSpace(message) == "" {
-		message = "Execução cancelada"
-	}
-	return tools.ToolExecutionResult{
-		CallID:   call.ID,
-		ToolName: call.Function.Name,
-		Result: tools.ToolResult{
-			Content: message,
-			IsError: true,
-		},
-		ErrorKind:         tools.ErrorKindCancelled,
-		Retryable:         false,
-		RetryabilityKnown: true,
-		DurationMs:        0,
 	}
 }
 
