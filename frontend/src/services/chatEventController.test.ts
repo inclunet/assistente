@@ -1685,7 +1685,9 @@ describe('chatEventController', () => {
     { withDelta: false, withTool: true },
     { withDelta: true, withTool: true },
     { withDelta: false, withTool: false },
-  ])('segunda continuação preserva scalar integral separado dos fragmentos (delta: $withDelta, tool: $withTool)', ({ withDelta, withTool }) => {
+    { withDelta: false, withTool: true, prefillFirst: true },
+    { withDelta: true, withTool: true, prefillFirst: true },
+  ])('segunda continuação preserva scalar integral separado dos fragmentos (delta: $withDelta, tool: $withTool, prefill: $prefillFirst)', ({ withDelta, withTool, prefillFirst }) => {
     const { adapter, sessions } = createAdapter(['conversation-1']);
     sessions['conversation-1'].conversation!.threadedMessages = [new chat.MessageNode({
       message: {
@@ -1704,6 +1706,7 @@ describe('chatEventController', () => {
     vi.runOnlyPendingTimers();
     expect((sessions['conversation-1'].conversation!.threadedMessages[0].message as Message)._resumableContent).toBe('Parcial continuado');
     startChatEventController({ conversationId: 'conversation-1', adapter, continuationRequested: true });
+    if (prefillFirst) emitEvent('chat:segment_done', { ...identity, hasMore: false, content: 'Parcial continuado' });
     if (withDelta) emitEvent('chat:stream', { ...identity, messageId: 'assistant-1', reset: true, sequence: 0, baseContent: 'Parcial continuado', delta: ' outra vez' });
     if (withTool) {
       emitEvent('chat:tool_start', { ...identity, name: 'read', callId: 'new-call', origin: 'builtin' });

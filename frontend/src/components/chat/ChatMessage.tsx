@@ -199,11 +199,20 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
     : displaySegments;
   const hasConclusionInChain = chainSegments.some((segment) =>
     segment.type === 'text' && segment.content === conclusionSource);
-  // A terminal received chain already includes the response and persistence
-  // warning separately. The scalar is still the compact/collapsed presentation.
-  const hasCompleteReceivedChain = !effectiveIsStreaming && !!message._turnSegments?.some(
-    segment => segment.type === 'text' && !!segment.content?.trim(),
-  );
+  // Received fragments may represent the full scalar across tool boundaries;
+  // diagnostics are separate and must not hide an unrepresented conclusion.
+  const receivedTexts = message._turnSegments?.filter(segment => segment.type === 'text' && !segment.diagnostic)
+    .map(segment => segment.content ?? '');
+  const resumableConclusion = message._resumableContent ?? conclusionSource;
+  const hasCompleteReceivedChain = !effectiveIsStreaming && receivedTexts !== undefined
+    && !!resumableConclusion
+    && (receivedTexts.includes(resumableConclusion)
+      || receivedTexts.some((_, index) => receivedTexts.slice(index).join('') === resumableConclusion));
+  const expandedConclusionContent = message._resumableContent !== undefined && isChainExpanded
+    && !hasTrailingConclusion && !hasConclusionInChain && !hasCompleteReceivedChain
+    && message._turnSegments?.some(segment => segment.diagnostic)
+    ? translateBackendErrorDiagnostic(message._resumableContent)
+    : conclusionContent;
   const showConclusionAfterChain = !effectiveIsStreaming && !!conclusionContent
     && (hasTrailingConclusion || (!hasConclusionInChain && !hasCompleteReceivedChain) || !isChainExpanded);
 
@@ -656,7 +665,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
               <div className="chat-message__text chat-message__text--segment chat-message__text--conclusion-preview">
                 {canRenderHeavyContent ? (
                   <MarkdownRenderer
-                    content={conclusionContent}
+                    content={expandedConclusionContent}
                     tabNavigation={renderedTabNavigation}
                     interactiveButtons={!!onSendToEditor}
                     enableSendToEditorButtons={!!onSendToEditor}

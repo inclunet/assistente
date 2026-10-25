@@ -156,7 +156,9 @@ fechamento do aplicativo quando todas as gravações falham.
   visual; a continuação conserva a cadeia anterior e acrescenta texto novo.
   A conclusão retomável completa é mantida separadamente dos avisos. Avisos terminais são
   segmentos de diagnóstico explícitos, inclusive quando há patch, e não
-  entram no conteúdo retomável.
+  entram no conteúdo retomável. A visualização expandida só omite a conclusão
+  separada quando os fragmentos efetivamente a representam; prefill sem delta
+  reconhece também a conclusão retomável integral da tentativa anterior.
 - [x] Diagnósticos terminais são marcados separadamente do conteúdo retomável.
   A inicialização do prefixo acontece uma vez por tentativa, preservando as
   iterações seguintes. Sucesso sem patch também materializa a cronologia atual,

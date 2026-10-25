@@ -1096,7 +1096,7 @@ export function startChatEventController({
         .find(message => message.id === currentAssistantNodeId);
       const knownText = getResumableSegments(existing)
         .filter(segment => segment.type === 'text').pop()?.content;
-      initializePresentation(continuationRequested && event.content && (event.content === knownText || event.content === existing?.content)
+      initializePresentation(continuationRequested && event.content && (event.content === knownText || event.content === existing?.content || event.content === existing?._resumableContent)
         ? event.content : '');
     }
     // Provider completion content may omit the prefill. The streamed buffer

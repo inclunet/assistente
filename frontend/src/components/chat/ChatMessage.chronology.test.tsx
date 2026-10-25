@@ -219,8 +219,9 @@ describe('cronologia de ChatMessage', () => {
         id: 'last-call', type: 'function', function: { name: 'search', arguments: '{}' },
         origin: 'builtin', status: 'done',
       }] },
-      { type: 'text', content: warning },
+      { type: 'text', content: warning, diagnostic: true },
     ];
+    message._resumableContent = finalContent;
     const surface = seedStore({ targetConversationId: conversationId, messageId: message.id });
     renderMessage(surface, message);
     const expanded = messageContent();
@@ -232,6 +233,31 @@ describe('cronologia de ChatMessage', () => {
     expect(within(messageContent()).getAllByTestId('markdown').map(node => node.textContent)).toEqual([scalar]);
     fireEvent.click(screen.getByRole('button', { name: 'chat.expandChain' }));
     expect(within(messageContent()).getAllByTestId('markdown').map(node => node.textContent)).toEqual([finalContent, warning]);
+  });
+
+  it.each([
+    { texts: ['Original'], scalar: 'Editado', represented: false },
+    { texts: ['Original'], scalar: 'Editado', represented: false, success: true },
+    { texts: ['notfoo'], scalar: 'foo', represented: false },
+    { texts: ['Antes', 'Depois'], scalar: 'AntesDepois', represented: true },
+    { texts: ['Histórico', 'Parcial', ' continuado'], scalar: 'Parcial continuado', represented: true },
+  ])('mantém conclusão recebida visível sem duplicar fragmentos ($scalar, sucesso: $success)', ({ texts, scalar, represented, success }) => {
+    const warning = 'Erro: não foi possível salvar';
+    const message = messageFor('assistant-received-conclusion', { content: success ? scalar : `${scalar}\n\n${warning}` });
+    message._resumableContent = scalar;
+    message._turnSegments = texts.flatMap((text, index): TurnSegment[] => [
+      { type: 'text', content: text },
+      { type: 'tool_calls', toolInvocations: [invocation(`call-${index}`, 'buscar-fonte')] },
+    ]);
+    if (!success) message._turnSegments.push({ type: 'text', content: warning, diagnostic: true });
+    const surface = seedStore({ targetConversationId: conversationId, messageId: message.id });
+    renderMessage(surface, message);
+    const expanded = [...texts, ...(!success ? [warning] : []), ...(!represented ? [scalar] : [])];
+    expect(within(messageContent()).getAllByTestId('markdown').map(node => node.textContent)).toEqual(expanded);
+    fireEvent.click(screen.getByRole('button', { name: 'chat.collapseChain' }));
+    expect(within(messageContent()).getAllByTestId('markdown').map(node => node.textContent)).toEqual([message.content]);
+    fireEvent.click(screen.getByRole('button', { name: 'chat.expandChain' }));
+    expect(within(messageContent()).getAllByTestId('markdown').map(node => node.textContent)).toEqual(expanded);
   });
 
   it('mostra texto editado sem descartar tools da cronologia canônica', () => {
