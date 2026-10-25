@@ -223,6 +223,22 @@ recuperação, envio normal, mídia ou protocolos de eventos.
   `ChatSessionView.test.tsx` e `frontend/src/lib/messageMenuItems.test.ts`.
 - Configuração de perfil: `frontend/src/components/profiles/ProfileChatSection.test.tsx`.
 
+### Avisos transitórios de limite
+
+O aviso de `finishLimitReached` mantém o evento `chat:stream` para os consumidores
+existentes, com `diagnostic: true`. Esse delta é apresentação, não conteúdo da
+resposta: o controller não executa seu reset no buffer retomável e aguarda
+`chat:done` para anexá-lo como segmento diagnóstico. A conclusão integral do
+último segmento é preservada mesmo após o encerramento de uma iteração com tools.
+Retry sem atividade e continuação posteriores nunca reutilizam esse aviso como
+prefill. Evidências: `TestAgenticLoopRunner_FinishLimitReached` e a regressão
+limite → retry sem atividade → continuação em `chatEventController.test.ts`.
+
+Ao retomar uma conclusão que diverge da cronologia carregada, o frontend preserva
+os segmentos literalmente. Só desconta a base do texto visual quando essa base
+estiver representada por texto integral ou concatenação desde uma fronteira de
+segmentos não diagnósticos; caso contrário, exibe a base e o novo delta.
+
 ## Riscos
 
 - **Duplicação de conteúdo**: retomar pode duplicar trechos se o prefill não for tratado de forma idempotente.

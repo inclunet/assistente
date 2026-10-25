@@ -741,6 +741,7 @@ func (r *agenticLoopRunner) finishLimitReached(ctx context.Context) {
 	logging.Infof(ctx, "agent.agentic-loop", "[Agent] limite de %d iterações atingido para conversa %s", r.maxIterations, r.conversationID)
 	r.svc.emitter.Emit("chat:stream", events.StreamEvent{
 		Delta:          limitReachedNotice,
+		Diagnostic:     true,
 		Reset:          true,
 		Sequence:       0,
 		MessageID:      r.assistantMessageID,

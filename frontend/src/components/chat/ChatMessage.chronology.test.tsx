@@ -260,6 +260,22 @@ describe('cronologia de ChatMessage', () => {
     expect(within(messageContent()).getAllByTestId('markdown').map(node => node.textContent)).toEqual(expanded);
   });
 
+  it('mantém base divergente separada na conclusão recebida sem duplicar scalar', () => {
+    const message = messageFor('assistant-divergent-base', { content: 'Editado novo' });
+    message._resumableContent = 'Editado novo';
+    message._turnSegments = [
+      { type: 'text', content: 'Original' },
+      { type: 'text', content: 'Editado novo' },
+    ];
+    const surface = seedStore({ targetConversationId: conversationId, messageId: message.id });
+    renderMessage(surface, message);
+    expect(within(messageContent()).getAllByTestId('markdown').map(node => node.textContent)).toEqual(['Original', 'Editado novo']);
+    fireEvent.click(screen.getByRole('button', { name: 'chat.collapseChain' }));
+    expect(within(messageContent()).getAllByTestId('markdown').map(node => node.textContent)).toEqual(['Editado novo']);
+    fireEvent.click(screen.getByRole('button', { name: 'chat.expandChain' }));
+    expect(within(messageContent()).getAllByText('Editado novo')).toHaveLength(1);
+  });
+
   it('mostra texto editado sem descartar tools da cronologia canônica', () => {
     const editedContent = 'Resposta corrigida pelo usuário';
     const message = messageFor('assistant-edited-canonical', {

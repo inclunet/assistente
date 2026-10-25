@@ -5,7 +5,7 @@ import {
   MessageOutlined, MobileOutlined, SoundOutlined, PauseCircleOutlined,
 } from '@ant-design/icons';
 import type { Message, TurnSegment } from '../../store/chatStore';
-import { getMessageTurnSegments, type ToolInvocationSummary } from '../../lib/chatMessageTree';
+import { getMessageTurnSegments, isContentRepresentedBySegments, type ToolInvocationSummary } from '../../lib/chatMessageTree';
 import { MarkdownRenderer } from '../ui/MarkdownRenderer';
 import { ThreadIndicator } from './ThreadIndicator';
 import { ReasoningSection } from './ReasoningSection';
@@ -201,13 +201,9 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
     segment.type === 'text' && segment.content === conclusionSource);
   // Received fragments may represent the full scalar across tool boundaries;
   // diagnostics are separate and must not hide an unrepresented conclusion.
-  const receivedTexts = message._turnSegments?.filter(segment => segment.type === 'text' && !segment.diagnostic)
-    .map(segment => segment.content ?? '');
   const resumableConclusion = message._resumableContent ?? conclusionSource;
-  const hasCompleteReceivedChain = !effectiveIsStreaming && receivedTexts !== undefined
-    && !!resumableConclusion
-    && (receivedTexts.includes(resumableConclusion)
-      || receivedTexts.some((_, index) => receivedTexts.slice(index).join('') === resumableConclusion));
+  const hasCompleteReceivedChain = !effectiveIsStreaming
+    && isContentRepresentedBySegments(message._turnSegments, resumableConclusion);
   const expandedConclusionContent = message._resumableContent !== undefined && isChainExpanded
     && !hasTrailingConclusion && !hasConclusionInChain && !hasCompleteReceivedChain
     && message._turnSegments?.some(segment => segment.diagnostic)

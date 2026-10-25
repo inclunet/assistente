@@ -1751,6 +1751,67 @@ describe('chatEventController', () => {
     expect(message._resumableContent).toBe(content);
   });
 
+  it('exclui diagnóstico de limite da retomada após retry sem atividade', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+    const identity = { conversationId: 'conversation-1', turnId: 'turn-1', assistantMessageId: 'assistant-1' };
+    const warning = 'Limite de iterações atingido';
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+    emitEvent('chat:stream', { ...identity, messageId: 'assistant-1', reset: true, sequence: 0, delta: 'Resposta parcial' });
+    emitEvent('chat:tool_start', { ...identity, name: 'search', callId: 'old-call', origin: 'builtin' });
+    emitEvent('chat:tool_end', { ...identity, name: 'search', callId: 'old-call', status: 'ok' });
+    emitEvent('chat:segment_done', { ...identity, hasMore: true, content: 'Resposta parcial' });
+    emitEvent('chat:stream', { ...identity, messageId: 'assistant-1', reset: true, sequence: 0, diagnostic: true, delta: warning });
+    emitEvent('chat:stream', { ...identity, messageId: 'assistant-1', done: true });
+    emitEvent('chat:done', { ...identity, reason: 'limit_reached' });
+    vi.runOnlyPendingTimers();
+    const limited = sessions['conversation-1'].conversation!.threadedMessages[0].message as Message;
+    expect(limited.content).toBe(`Resposta parcial\n\n${warning}`);
+    expect(limited._resumableContent).toBe('Resposta parcial');
+    expect(getMessageTurnSegments(limited)?.filter(segment => segment.diagnostic)).toEqual([{ type: 'text', content: warning, diagnostic: true }]);
+
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+    emitEvent('chat:done', { ...identity, reason: 'error', errorMessage: 'persistence_error' });
+    vi.runOnlyPendingTimers();
+    const failed = sessions['conversation-1'].conversation!.threadedMessages[0].message as Message;
+    expect(failed.content).toBe('Resposta parcial\n\nErro: chat.errors.persistenceError');
+    expect(failed._resumableContent).toBe('Resposta parcial');
+
+    startChatEventController({ conversationId: 'conversation-1', adapter, continuationRequested: true });
+    emitEvent('chat:stream', { ...identity, messageId: 'assistant-1', reset: true, sequence: 0, baseContent: 'Resposta parcial', delta: ' completa' });
+    emitEvent('chat:done', { ...identity, reason: 'completed' });
+    vi.runOnlyPendingTimers();
+    const resumed = sessions['conversation-1'].conversation!.threadedMessages[0].message as Message;
+    expect(resumed.content).toBe('Resposta parcial completa');
+    expect(resumed._resumableContent).toBe('Resposta parcial completa');
+    expect(getMessageTurnSegments(resumed)?.filter(segment => segment.type === 'text')).toEqual([
+      { type: 'text', content: 'Resposta parcial' }, { type: 'text', content: ' completa' },
+    ]);
+  });
+
+  it('mantém conclusão recarregada divergente visível durante continuação', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+    sessions['conversation-1'].conversation!.threadedMessages = [new chat.MessageNode({
+      message: {
+        id: 'assistant-1', conversationId: 'conversation-1', turnId: 'turn-1', role: 'assistant', content: 'Editado',
+        turnSegments: [{ type: 'text', content: 'Original' }],
+      } as Message,
+      children: [], level: 0, childCount: 0,
+    }) as MessageNode];
+    startChatEventController({ conversationId: 'conversation-1', adapter, continuationRequested: true });
+    emitEvent('chat:stream', { conversationId: 'conversation-1', turnId: 'turn-1', assistantMessageId: 'assistant-1', messageId: 'assistant-1', reset: true, sequence: 0, baseContent: 'Editado', delta: ' novo' });
+    vi.runOnlyPendingTimers();
+    expect(sessions['conversation-1'].completedSegments).toEqual([{ type: 'text', content: 'Original' }]);
+    expect(adapter.updateMessage).toHaveBeenLastCalledWith('conversation-1', 'assistant-1', 'Editado novo');
+    emitEvent('chat:done', { conversationId: 'conversation-1', turnId: 'turn-1', assistantMessageId: 'assistant-1', reason: 'completed' });
+    vi.runOnlyPendingTimers();
+    const completed = sessions['conversation-1'].conversation!.threadedMessages[0].message as Message;
+    expect(completed.content).toBe('Editado novo');
+    expect(getMessageTurnSegments(completed)).toEqual([
+      { type: 'text', content: 'Original' },
+      { type: 'text', content: 'Editado novo' },
+    ]);
+  });
+
   it.each([false, true])('apresenta só sufixo durante continuação e confirma scalar integral no terminal (falha: %s)', (failure) => {
     const { adapter, sessions } = createAdapter(['conversation-1']);
     sessions['conversation-1'].conversation!.threadedMessages = [new chat.MessageNode({

@@ -70,6 +70,13 @@ export function getMessageTurnSegments(message: Message): TurnSegment[] | undefi
   return undefined;
 }
 
+export function isContentRepresentedBySegments(segments: TurnSegment[] | undefined, content: string): boolean {
+  if (!content || !segments) return false;
+  const texts = segments.filter(segment => segment.type === 'text' && !segment.diagnostic)
+    .map(segment => segment.content ?? '');
+  return texts.includes(content) || texts.some((_, index) => texts.slice(index).join('') === content);
+}
+
 export interface ChatTreeConversation {
   id: string;
   title: string;

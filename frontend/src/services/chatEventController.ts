@@ -9,6 +9,7 @@ import {
   finalizeStreamingNode,
   flattenThreadedMessages,
   getMessageTurnSegments,
+  isContentRepresentedBySegments,
   hasMessageId,
   markMessageStreamingInTree,
   updateMessageSegmentsInTree,
@@ -79,6 +80,7 @@ interface ChatMessagesReadyEvent {
 interface ChatStreamEvent {
   conversationId: string;
   delta?: string;
+  diagnostic?: boolean;
   reset?: boolean;
   baseContent?: string;
   sequence: number;
@@ -309,6 +311,7 @@ export function startChatEventController({
   let provisionalThinkingTurnId: string | null = null;
   let provisionalThinkingNodeId: string | null = null;
   let streamedContent = '';
+  let pendingStreamDiagnostic: string | null = null;
   let resumedTextAlreadyShown = 0;
   let presentationInitialized = false;
   let representedBaseContent = '';
@@ -727,6 +730,20 @@ export function startChatEventController({
     if (event.conversationId !== conversationId) return;
     if (!isActive()) return;
 
+    if (event.diagnostic && event.delta) {
+      currentTurnId = event.turnId || currentTurnId;
+      ensureAssistantNode(event.messageId);
+      pendingStreamDiagnostic = event.delta;
+      if (!streamInitialized && presentationInitialized) {
+        streamedContent = representedBaseContent;
+        resumedTextAlreadyShown = isContentRepresentedBySegments(getCurrentSession().completedSegments, streamedContent)
+          ? streamedContent.length : 0;
+        updateStreamingMessage(streamedContent);
+      }
+      return;
+    }
+    if (event.done && pendingStreamDiagnostic !== null) return;
+
     if (event.delta && !event.done && !event.error) {
       if (
         !Number.isSafeInteger(event.sequence)
@@ -975,12 +992,12 @@ export function startChatEventController({
       .find(message => message.id === currentAssistantNodeId);
     const knownSegments = getResumableSegments(existing);
     if (baseContent) {
-      // The explicit base is already represented by the seed chronology, even
-      // when its scalar spans several fragments separated by executions.
-      patchCurrentSession({ completedSegments: knownSegments.length
-        ? [...knownSegments] : [{ type: 'text', content: baseContent }] });
-      representedBaseContent = baseContent;
-      resumedTextAlreadyShown = baseContent.length;
+      const seed: TurnSegment[] = knownSegments.length
+        ? [...knownSegments] : [{ type: 'text', content: baseContent }];
+      patchCurrentSession({ completedSegments: seed });
+      const baseRepresented = isContentRepresentedBySegments(seed, baseContent);
+      representedBaseContent = baseRepresented ? baseContent : '';
+      resumedTextAlreadyShown = baseRepresented ? baseContent.length : 0;
     }
     // A new attempt owns its presentation, including when its final patch
     // cannot be read. Capture continuation history before clearing it.
@@ -1006,7 +1023,8 @@ export function startChatEventController({
     const receivedText = content.slice(resumedTextAlreadyShown);
     if (receivedText) {
       const last = newSegments[newSegments.length - 1];
-      if (last?.type === 'text') {
+      const hasUnrepresentedContinuationBase = !!continuationBaseContent && !representedBaseContent;
+      if (last?.type === 'text' && !hasUnrepresentedContinuationBase) {
         newSegments[newSegments.length - 1] = { ...last, content: (last.content ?? '') + receivedText };
       } else {
         newSegments.push({ type: 'text', content: receivedText });
@@ -1159,6 +1177,22 @@ export function startChatEventController({
       const interruptedId = backendAssistantId || currentAssistantNodeId;
       patchCurrentSession({ lastInterruptedMessageId: interruptedId });
       finalizeStreaming(backendAssistantId, currentTurnId);
+      cleanup();
+      return;
+    }
+
+    if (event.reason === 'limit_reached' && pendingStreamDiagnostic !== null) {
+      const diagnostic = pendingStreamDiagnostic;
+      applyTurnPatch(event.turnPatch);
+      const backendAssistantId = event.assistantMessageId || null;
+      ensureAssistantNode(backendAssistantId);
+      if (event.turnPatch) preservePatchedDiagnostic(diagnostic);
+      else preserveReceivedSegments(diagnostic);
+      const content = getCurrentAssistantContent();
+      streamingCommitted = false;
+      updateStreamingMessage(content ? `${content}\n\n${diagnostic}` : diagnostic);
+      finalizeStreaming(backendAssistantId, currentTurnId);
+      patchCurrentSession({ lastInterruptedMessageId: backendAssistantId || currentAssistantNodeId });
       cleanup();
       return;
     }
