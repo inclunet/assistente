@@ -147,6 +147,10 @@ fechamento do aplicativo quando todas as gravações falham.
   iterações seguintes. Sucesso sem patch também materializa a cronologia atual,
   sem reexibir aviso ou resposta de tentativa anterior. Regressões encadeiam
   falha, retry/continuação e novo terminal em `chatEventController.test.ts`.
+- [x] Cancelamento e outros terminais sem patch preservam a mesma cadeia recebida,
+  inclusive prefill sem delta e ferramentas anteriores ao primeiro texto. Edição
+  autoritativa invalida a projeção transitória: regressões no controlador e em
+  `ChatSessionView.messageEdit.test.tsx`.
 
 ### Leitura limitada do contexto de retry
 

@@ -235,6 +235,16 @@ export function updateMessageSegmentsInTree(nodes: MessageNode[], messageId: str
   });
 }
 
+// An authoritative edit supersedes the received-only presentation. Streaming
+// updates keep using updateMessageContentInTree and preserve their segments.
+export function updateEditedMessageContentInTree(nodes: MessageNode[], messageId: string, content: string): MessageNode[] {
+  return mapMessageTree(nodes, (node) => {
+    if (String(node.message.id) !== messageId) return node;
+    if (node.message.content === content && !(node.message as Message)._turnSegments?.length) return node;
+    return cloneNode(node, { message: cloneMessage(node.message, { content, _turnSegments: [] }) });
+  });
+}
+
 export function updateMessagePinnedInTree(nodes: MessageNode[], messageId: string, pinned: boolean): MessageNode[] {
   return mapMessageTree(nodes, (node) => {
     if (String(node.message.id) !== messageId) return node;

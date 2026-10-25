@@ -6,6 +6,7 @@ import {
   flattenThreadedMessages,
   hasMessageId,
   updateMessageContentInTree,
+  updateEditedMessageContentInTree,
   type Message,
   type MessageNode,
 } from './chatMessageTree';
@@ -61,6 +62,19 @@ describe('chatMessageTree', () => {
     expect(updated[0].children?.[1]).toBe(untouchedInTree);
     expect(updated[1]).toBe(sibling);
     expect(updateMessageContentInTree(nodes, 'missing', 'new')).toBe(nodes);
+  });
+
+  it('invalidates received segments only for authoritative edits, preserving children and streaming updates', () => {
+    const nodes = [node(message('root', 'assistant', 'old'), [node(message('child', 'tool'))])];
+    const original = nodes[0].message as Message;
+    original._turnSegments = [{ type: 'text', content: 'old' }];
+    const streamed = updateMessageContentInTree(nodes, 'root', 'delta');
+    expect((streamed[0].message as Message)._turnSegments).toBe(original._turnSegments);
+    const edited = updateEditedMessageContentInTree(streamed, 'root', 'edited');
+    expect(edited[0].message.content).toBe('edited');
+    expect((edited[0].message as Message)._turnSegments).toEqual([]);
+    expect(edited[0].children).toBe(nodes[0].children);
+    expect(updateEditedMessageContentInTree(edited, 'root', 'edited')).toBe(edited);
   });
 
   it('attaches loaded children to the requested message', () => {
