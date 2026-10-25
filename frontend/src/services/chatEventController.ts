@@ -248,6 +248,7 @@ export interface ChatEventControllerAdapter {
 
 interface ChatEventControllerOptions {
   conversationId: string;
+  continuationRequested?: boolean;
   initialUserContent?: string;
   initialMediaFiles?: MediaFile[];
   external?: {
@@ -289,6 +290,7 @@ export function stopAllChatEventControllers() {
 
 export function startChatEventController({
   conversationId,
+  continuationRequested = false,
   initialUserContent = '',
   initialMediaFiles,
   external,
@@ -1021,7 +1023,20 @@ export function startChatEventController({
 
   const preserveReceivedSegments = (diagnostic?: string) => {
     if (!currentAssistantNodeId) return;
-    if (!presentationInitialized && getCurrentSession().activeToolCalls.length > 0) updateStreamingMessage('');
+    if (!presentationInitialized && getCurrentSession().activeToolCalls.length > 0) {
+      if (continuationRequested) {
+        const existing = flattenThreadedMessages(getCurrentSession().conversation?.threadedMessages)
+          .find(message => message.id === currentAssistantNodeId);
+        const knownSegments = existing ? (getMessageTurnSegments(existing) ?? []).filter(segment => !segment.diagnostic) : [];
+        const lastText = knownSegments.filter(segment => segment.type === 'text').pop()?.content;
+        patchCurrentSession({ completedSegments: [...knownSegments] });
+        // Retain the displayed conclusion without appending it a second time.
+        resumedTextAlreadyShown = lastText?.length ?? 0;
+        updateStreamingMessage(lastText ?? existing?.content ?? '');
+      } else {
+        updateStreamingMessage('');
+      }
+    }
     const messageId = currentAssistantNodeId;
     const segments = collectReceivedSegments(getCurrentAssistantContent());
     if (diagnostic) segments.push({ type: 'text', content: diagnostic, diagnostic: true });
@@ -1046,12 +1061,7 @@ export function startChatEventController({
         .filter(segment => segment.type === 'text' && !segment.diagnostic).pop()?.content : undefined;
       initializePresentation(event.content && (event.content === knownText || event.content === existing?.content)
         ? event.content : '');
-      if (event.content) {
-        streamedContent = event.content;
-        updateStreamingMessage(event.content);
-      }
     }
-    if (!event.hasMore) return;
     // Provider completion content may omit the prefill. The streamed buffer
     // already contains it and is authoritative whenever deltas were received.
     const segmentContent = streamInitialized ? streamedContent : event.content ?? '';
@@ -1060,6 +1070,11 @@ export function startChatEventController({
       resumedTextAlreadyShown = segmentContent.length;
     }
     if (segmentContent.trim()) turnHadAssistantText = true;
+    if (!event.hasMore) {
+      streamedContent = segmentContent;
+      updateStreamingMessage(segmentContent);
+      return;
+    }
     const newSegments = collectReceivedSegments(segmentContent);
     if (segmentContent) representedBaseContent = segmentContent;
     patchCurrentSession({

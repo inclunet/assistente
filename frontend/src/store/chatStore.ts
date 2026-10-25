@@ -747,6 +747,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       : undefined;
     const controller = startChatEventController({
       conversationId,
+      continuationRequested: !!retryMessageId && paramsOverride?.allowAssistantPrefill === true,
       initialUserContent: content,
       initialMediaFiles: mediaFiles,
       origin: executionOrigin,
