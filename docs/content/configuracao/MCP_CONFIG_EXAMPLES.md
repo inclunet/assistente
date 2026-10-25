@@ -1000,3 +1000,5 @@ Uma recusa de autorização mantém a identificação do servidor sem executar a
 ferramenta. Se uma implementação for substituída durante o turno, a apresentação
 final acompanha a ferramenta executada e remove o servidor antigo quando ela
 passa a ser local.
+Dry-runs de jobs com saída simulada também preservam o nome original e o
+servidor da ferramenta MCP registrada, sem executar a chamada remota.

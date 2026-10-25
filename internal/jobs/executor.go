@@ -532,7 +532,12 @@ func (e *JobExecutor) recordMockDryRun(ctx context.Context, job *Job, rl *RunLog
 		return fmt.Errorf("marshal mock dry-run output: %w", err)
 	}
 	persistedArguments := string(input)
+	var identity tools.MCPToolIdentity
+	if tool, ok := e.toolRegistry.Get(job.Tool); ok {
+		identity, _ = tools.MCPIdentityOf(tool)
+	}
 	_, err = e.toolInvocations.Record(ctx, toolinvocations.RecordRequest{
+		MCPIdentity: identity,
 		Call: tools.ToolCall{
 			ID:   fmt.Sprintf("%s_tool", rl.RunID),
 			Type: "function",

@@ -25,9 +25,12 @@ func (simpleTool) Execute(_ context.Context, _ json.RawMessage) (tools.ToolResul
 }
 
 type scriptedTool struct {
-	results []tools.ToolResult
-	calls   int
+	results  []tools.ToolResult
+	calls    int
+	identity tools.MCPToolIdentity
 }
+
+func (s *scriptedTool) MCPIdentity() tools.MCPToolIdentity { return s.identity }
 
 func TestNewJobExecutorRequiresInvocationLedger(t *testing.T) {
 	registry := tools.NewRegistry()
@@ -272,31 +275,55 @@ func TestJobExecutorPersistsTemplateSecretsRedactedInLedger(t *testing.T) {
 }
 
 func TestJobExecutorPersistsMockDryRunOnlyInLedger(t *testing.T) {
-	tool := &scriptedTool{results: []tools.ToolResult{{Content: `{"unexpected":true}`}}}
-	executor, repo, userCtx := invocationBackedExecutor(t, tool)
-	run := executor.Execute(userCtx, &Job{
-		ID:     "mock-dry-run",
-		Tool:   tool.Name(),
-		Inputs: map[string]any{"query": "configured"},
-		DryRun: DryRunConfig{
-			Enabled:    true,
-			MockOutput: map[string]any{"mocked": true},
-		},
-	}, &TriggerContext{Type: TriggerManual})
-	if run.Status != "completed" || tool.calls != 0 {
-		t.Fatalf("mock dry-run executou tool ou falhou: calls=%d run=%#v", tool.calls, run)
-	}
-	invocations, err := repo.List(userCtx, toolinvocations.Filter{
-		OriginType: toolinvocations.OriginJobRun,
-		OriginID:   run.RunID,
-		Limit:      10,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(invocations) != 1 || !invocations[0].DryRun ||
-		!strings.Contains(toolinvocations.ExtractToolInvocationResult(string(invocations[0].Output)).Content, `"mocked":true`) {
-		t.Fatalf("mock não foi representado no ledger: %#v", invocations)
+	for _, mcp := range []bool{false, true} {
+		t.Run(map[bool]string{false: "builtin", true: "mcp_alias"}[mcp], func(t *testing.T) {
+			tool := &scriptedTool{results: []tools.ToolResult{{Content: `{"unexpected":true}`}}}
+			if mcp {
+				tool.identity = tools.MCPToolIdentity{ServerSlug: "remote", ToolName: "search"}
+			}
+			executor, repo, userCtx := invocationBackedExecutor(t, tool)
+			run := executor.Execute(userCtx, &Job{
+				ID:     "mock-dry-run",
+				Tool:   tool.Name(),
+				Inputs: map[string]any{"query": "configured"},
+				DryRun: DryRunConfig{
+					Enabled:    true,
+					MockOutput: map[string]any{"mocked": true},
+				},
+			}, &TriggerContext{Type: TriggerManual})
+			if run.Status != "completed" || tool.calls != 0 {
+				t.Fatalf("mock dry-run executou tool ou falhou: calls=%d run=%#v", tool.calls, run)
+			}
+			invocations, err := repo.List(userCtx, toolinvocations.Filter{
+				OriginType: toolinvocations.OriginJobRun,
+				OriginID:   run.RunID,
+				Limit:      10,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(invocations) != 1 || !invocations[0].DryRun ||
+				!strings.Contains(toolinvocations.ExtractToolInvocationResult(string(invocations[0].Output)).Content, `"mocked":true`) {
+				t.Fatalf("mock não foi representado no ledger: %#v", invocations)
+			}
+			var payload struct {
+				Display struct {
+					Name   string `json:"name"`
+					Origin string `json:"origin"`
+					Server string `json:"server_label"`
+				} `json:"display"`
+			}
+			if err := json.Unmarshal(invocations[0].Metadata, &payload); err != nil {
+				t.Fatal(err)
+			}
+			wantName, wantOrigin, wantServer := tool.Name(), "mcp_native", ""
+			if mcp {
+				wantName, wantOrigin, wantServer = "search", "mcp_native", "remote"
+			}
+			if payload.Display.Name != wantName || payload.Display.Origin != wantOrigin || payload.Display.Server != wantServer {
+				t.Fatalf("mock dry-run perdeu apresentação: %s", invocations[0].Metadata)
+			}
+		})
 	}
 }
 
@@ -441,18 +468,27 @@ func invocationBackedExecutor(t *testing.T, tool tools.Tool) (*JobExecutor, *too
 	if sqlDB, sqlErr := db.DB(); sqlErr == nil {
 		sqlDB.SetMaxOpenConns(1)
 	}
-	if err := db.AutoMigrate(&database.User{}, &database.ToolCatalog{}, &database.ToolInvocation{}); err != nil {
+	if err := db.AutoMigrate(&database.User{}, &database.MCPServer{}, &database.ToolCatalog{}, &database.ToolInvocation{}); err != nil {
 		t.Fatalf("automigrate: %v", err)
 	}
 	prev := database.DB()
 	database.SetDB(db)
 	t.Cleanup(func() { database.SetDB(prev) })
-	if err := db.Create(&database.ToolCatalog{
+	entry := database.ToolCatalog{
 		Name:               tool.Name(),
 		DisplayName:        tool.Name(),
 		Origin:             tools.ToolOriginBuiltin,
 		AvailabilityStatus: tools.ToolAvailabilityAvailable,
-	}).Error; err != nil {
+	}
+	if identity, ok := tools.MCPIdentityOf(tool); ok {
+		server := database.MCPServer{UserID: "user-jobs", Slug: identity.ServerSlug, Name: identity.ServerSlug, Enabled: true}
+		if err := db.Create(&server).Error; err != nil {
+			t.Fatal(err)
+		}
+		entry.UserID, entry.MCPServerID = &server.UserID, &server.ID
+		entry.Origin, entry.DisplayName = tools.ToolOriginMCPBridge, identity.ToolName
+	}
+	if err := db.Create(&entry).Error; err != nil {
 		t.Fatalf("seed tool catalog: %v", err)
 	}
 

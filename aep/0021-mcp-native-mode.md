@@ -53,6 +53,8 @@ Eventos finais e histórico usam a identidade capturada pelo executor, mesmo
 que a ferramenta seja desconectada ou substituída durante a chamada. Registros
 de MCP nativo recebem servidor e nome original do evento adaptado, sem depender
 de uma ponte registrada localmente.
+Dry-runs de jobs com saída simulada transmitem a identidade declarada pela
+ferramenta registrada ao ledger, sem executar a ferramenta.
 Recusas de autorização preservam a identidade da ferramenta registrada sem
 executá-la. O consumidor de eventos aplica a identidade final, inclusive limpando
 o servidor anterior quando a implementação executada é local.
