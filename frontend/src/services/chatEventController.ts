@@ -571,7 +571,7 @@ export function startChatEventController({
   const getCurrentAssistantContent = () => {
     if (!currentAssistantNodeId) return '';
     if (pendingVisualContent !== null) return pendingVisualContent;
-    if (streamInitialized) return streamedContent;
+    if (streamInitialized || presentationInitialized) return streamedContent;
     const messages = flattenThreadedMessages(getCurrentSession().conversation?.threadedMessages);
     return String(messages.find(m => m.id === currentAssistantNodeId)?.content || '');
   };
@@ -1044,7 +1044,10 @@ export function startChatEventController({
         .filter(segment => segment.type === 'text' && !segment.diagnostic).pop()?.content : undefined;
       initializePresentation(event.content && (event.content === knownText || event.content === existing?.content)
         ? event.content : '');
-      if (event.content) updateStreamingMessage(event.content);
+      if (event.content) {
+        streamedContent = event.content;
+        updateStreamingMessage(event.content);
+      }
     }
     if (!event.hasMore) return;
     if (event.content?.trim()) turnHadAssistantText = true;

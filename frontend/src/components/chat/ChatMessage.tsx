@@ -201,7 +201,9 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
     segment.type === 'text' && segment.content === conclusionSource);
   // A terminal received chain already includes the response and persistence
   // warning separately. The scalar is still the compact/collapsed presentation.
-  const hasCompleteReceivedChain = !effectiveIsStreaming && !!message._turnSegments?.length;
+  const hasCompleteReceivedChain = !effectiveIsStreaming && !!message._turnSegments?.some(
+    segment => segment.type === 'text' && !!segment.content?.trim(),
+  );
   const showConclusionAfterChain = !effectiveIsStreaming && !!conclusionContent
     && (hasTrailingConclusion || (!hasConclusionInChain && !hasCompleteReceivedChain) || !isChainExpanded);
 

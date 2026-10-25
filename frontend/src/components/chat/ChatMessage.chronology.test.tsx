@@ -200,6 +200,49 @@ describe('cronologia de ChatMessage', () => {
     expect(within(messageContent()).getAllByTestId('markdown').map(node => node.textContent)).toEqual([finalContent, warning]);
   });
 
+  it('mostra texto editado sem descartar tools da cronologia canônica', () => {
+    const editedContent = 'Resposta corrigida pelo usuário';
+    const message = messageFor('assistant-edited-canonical', {
+      content: editedContent,
+      turnSegments: [
+        { type: 'text', content: 'Texto original da execução' },
+        { type: 'tool_calls', toolInvocations: [invocation('canonical-call', 'buscar-fonte')] },
+      ],
+    });
+    const canonicalSegments = message.turnSegments;
+    expect(message._turnSegments).toBeUndefined();
+    const surface = seedStore({ targetConversationId: conversationId, messageId: message.id });
+    renderMessage(surface, message);
+    const expanded = messageContent();
+    expect(within(expanded).getAllByText(editedContent)).toHaveLength(1);
+    expect(expanded.querySelector('.tool-calls-section')).not.toBeNull();
+    expect(expanded.querySelector('.tool-calls-section')!.compareDocumentPosition(within(expanded).getByText(editedContent)) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'chat.collapseChain' }));
+    expect(within(messageContent()).getAllByTestId('markdown').map(item => item.textContent)).toEqual([editedContent]);
+    fireEvent.click(screen.getByRole('button', { name: 'chat.expandChain' }));
+    expect(messageContent().querySelector('.tool-calls-section')).not.toBeNull();
+    expect(within(messageContent()).getAllByText(editedContent)).toHaveLength(1);
+    expect(message.turnSegments).toBe(canonicalSegments);
+    expect(message.turnSegments?.[1].toolInvocations?.[0].callId).toBe('canonical-call');
+  });
+
+  it('mostra placeholder de turno só com tools na cadeia recebida expandida e recolhida', () => {
+    const message = messageFor('assistant-tools-only', { content: '' });
+    message._turnSegments = [{ type: 'tool_calls', toolCalls: [{
+      id: 'only-call', type: 'function', function: { name: 'search', arguments: '{}' },
+      origin: 'builtin', status: 'done',
+    }] }];
+    const surface = seedStore({ targetConversationId: conversationId, messageId: message.id });
+    renderMessage(surface, message);
+    const placeholder = 'chat.toolOnlyTurnPlaceholder';
+    expect(within(messageContent()).getByText(placeholder)).toBeVisible();
+    expect(messageContent().querySelector('.tool-calls-section')).not.toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'chat.collapseChain' }));
+    expect(within(messageContent()).getByText(placeholder)).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'chat.expandChain' }));
+    expect(within(messageContent()).getAllByText(placeholder)).toHaveLength(1);
+  });
+
   it('mantém aviso de limite visível após tools na cadeia recebida expandida', () => {
     const warning = 'chat.outputLimitReached';
     const message = messageFor('assistant-limit', { content: warning });

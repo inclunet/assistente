@@ -151,6 +151,9 @@ fechamento do aplicativo quando todas as gravações falham.
   inclusive prefill sem delta e ferramentas anteriores ao primeiro texto. Edição
   autoritativa invalida a projeção transitória: regressões no controlador e em
   `ChatSessionView.messageEdit.test.tsx`.
+- [x] O buffer vazio entre segmentos é autoritativo, sem recuperar texto antigo
+  da árvore. Placeholders e avisos continuam visíveis com a cadeia expandida;
+  regressões usam conteúdo ao vivo separado da árvore e renderização real.
 
 ### Leitura limitada do contexto de retry
 
