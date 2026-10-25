@@ -18,6 +18,16 @@ const tool = (callId: string, name = callId): ChatProgressTool => ({
 });
 
 describe('chatProgressAnnouncer', () => {
+  it('anuncia a identidade final local sem o servidor antigo', () => {
+    const announce = vi.fn();
+    const announcer = createChatProgressAnnouncer({ announce });
+    announcer.toolStarted({ ...tool('replaced', 'remote_search'), origin: 'mcp_bridge', serverLabel: 'remote' });
+    vi.advanceTimersByTime(CHAT_PROGRESS_BURST_WINDOW_MS);
+    announcer.toolEnded('replaced', 'ok', { name: 'local_alias', origin: 'builtin', serverLabel: undefined });
+    vi.advanceTimersByTime(CHAT_PROGRESS_BURST_WINDOW_MS);
+    expect(announce.mock.calls[1][0]).toEqual([{ state: 'done', tools: [{ ...tool('replaced', 'local_alias'), serverLabel: undefined }] }]);
+  });
+
   beforeEach(() => vi.useFakeTimers());
 
   afterEach(() => {

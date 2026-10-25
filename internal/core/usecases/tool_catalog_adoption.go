@@ -75,5 +75,10 @@ func canonicalToolSelectorMatcher(raw string, entry tools.ToolCatalogEntry) (boo
 		return false, false
 	}
 	wildcard := selector.Kind != chat.ToolPolicySelectorLiteral
-	return selector.Matches(chat.ToolPolicyTarget{Name: entry.Name, Package: entry.Package}), wildcard
+	target := chat.ToolPolicyTarget{Name: entry.Name, Package: entry.Package}
+	if entry.Origin == tools.ToolOriginMCPBridge || entry.Origin == tools.ToolOriginMCPNative {
+		target.MCPServerSlug = strings.TrimPrefix(entry.Package, "mcp:")
+		target.Package = ""
+	}
+	return selector.Matches(target), wildcard
 }

@@ -237,16 +237,19 @@ func applyNativeMCP(
 			Name:      srv.Name,
 			URL:       srv.URL,
 			AuthToken: srv.AuthToken,
-			ToolNames: sortedToolNames(srv.ToolNames),
+		}
+		for _, tool := range srv.Tools {
+			cfg.ToolNames = append(cfg.ToolNames, tool.RegisteredName)
 		}
 
 		if enabledSet != nil {
 			var allowed []string
 			var allowedFull []string
-			for _, fullName := range srv.ToolNames {
+			for _, tool := range srv.Tools {
+				fullName := tool.RegisteredName
 				if enabledSet[fullName] {
-					if _, originalName, ok := mcplib.ParseToolName(fullName); ok {
-						allowed = append(allowed, originalName)
+					if tool.Name != "" {
+						allowed = append(allowed, tool.Name)
 					}
 					allowedFull = append(allowedFull, fullName)
 				}
@@ -295,20 +298,14 @@ func sortNativeMCPServers(servers []mcplib.NativeMCPServer) {
 		return servers[i].Name < servers[j].Name
 	})
 	for i := range servers {
-		servers[i].ToolNames = sortedToolNames(servers[i].ToolNames)
+		sort.SliceStable(servers[i].Tools, func(a, b int) bool { return servers[i].Tools[a].RegisteredName < servers[i].Tools[b].RegisteredName })
 	}
 }
 
 func cloneNativeMCPServers(servers []mcplib.NativeMCPServer) []mcplib.NativeMCPServer {
 	out := append([]mcplib.NativeMCPServer(nil), servers...)
 	for i := range out {
-		out[i].ToolNames = append([]string(nil), out[i].ToolNames...)
+		out[i].Tools = append([]mcplib.NativeMCPTool(nil), out[i].Tools...)
 	}
-	return out
-}
-
-func sortedToolNames(names []string) []string {
-	out := append([]string(nil), names...)
-	sort.Strings(out)
 	return out
 }

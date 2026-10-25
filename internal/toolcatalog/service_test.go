@@ -12,9 +12,12 @@ import (
 )
 
 type catalogTestTool struct {
-	name string
-	meta tools.CatalogMetadata
+	identity tools.MCPToolIdentity
+	name     string
+	meta     tools.CatalogMetadata
 }
+
+func (t catalogTestTool) MCPIdentity() tools.MCPToolIdentity { return t.identity }
 
 func (t catalogTestTool) Name() string { return t.name }
 func (t catalogTestTool) Description() string {
@@ -37,7 +40,7 @@ func TestServiceSyncBuiltinsCatalogsGlobalToolsOnly(t *testing.T) {
 	registry.MustRegister(catalogTestTool{name: "read_file"})
 	registry.MustRegisterOptIn(catalogTestTool{name: "job"})
 	registry.MustRegisterDiscoverableOptIn(catalogTestTool{name: "job_pipeline"})
-	registry.MustRegister(catalogTestTool{name: "mcp_jira__create_issue"})
+	registry.MustRegister(catalogTestTool{name: "issue_alias", identity: tools.MCPToolIdentity{ServerSlug: "jira", ToolName: "create_issue"}})
 
 	svc := NewService(repo)
 	if err := svc.SyncBuiltins(context.Background(), registry); err != nil {

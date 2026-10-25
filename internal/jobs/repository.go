@@ -887,7 +887,7 @@ func (r *DBRepository) ListToolCatalog(ctx context.Context) ([]CatalogEntry, err
 			schema = json.RawMessage(`{}`)
 		}
 		source := "internal"
-		if row.Origin == tools.ToolOriginMCPBridge || strings.HasPrefix(row.Name, "mcp_") {
+		if row.Origin == tools.ToolOriginMCPBridge || row.Origin == tools.ToolOriginMCPNative {
 			source = "mcp"
 		}
 		description := row.Description
@@ -2161,6 +2161,8 @@ func (r *DBRepository) createUnresolvedMCPToolTx(ctx context.Context, tx *gorm.D
 	return row.ID, nil
 }
 
+// Compatibilidade de importação: jobs antigos podem referenciar uma ponte ainda
+// não descoberta apenas pelo nome persistido. O runtime usa a origem do catálogo.
 func mcpServerSlugFromToolName(name string) (string, bool) {
 	name = strings.TrimSpace(name)
 	if !strings.HasPrefix(name, "mcp_") {
@@ -2417,10 +2419,13 @@ func jobModelToDomainWithTags(row database.Job, tagSlugs []string) (*Job, error)
 	if toolName == "" {
 		toolName = row.ToolCatalogID
 	}
+	toolOrigin := ""
 	if row.ToolCatalog != nil && row.ToolCatalog.Name != "" {
 		toolName = row.ToolCatalog.Name
+		toolOrigin = row.ToolCatalog.Origin
 	}
 	return &Job{
+		ToolOrigin:     toolOrigin,
 		DatabaseID:     row.ID,
 		ID:             row.Slug,
 		Name:           row.Name,

@@ -2,17 +2,16 @@ package chat
 
 import (
 	"strings"
-
-	mcplib "assistente/internal/mcp"
 )
 
 // ToolPolicyTarget reúne os atributos usados pela gramática de seletores.
 // Package deve vir de tools.CatalogMetadata para builtins e ficar vazio para
-// tools MCP, cuja seleção é feita pelo namespace canônico.
+// tools MCP, cuja seleção usa o servidor declarado pela implementação.
 type ToolPolicyTarget struct {
-	Name    string
-	Package string
-	OptIn   bool
+	Name          string
+	Package       string
+	OptIn         bool
+	MCPServerSlug string
 }
 
 type ToolPolicySelectorKind int
@@ -119,16 +118,13 @@ func (s ToolPolicySelector) Matches(target ToolPolicyTarget) bool {
 	case ToolPolicySelectorLiteral:
 		return target.Name == s.Value
 	case ToolPolicySelectorAllNative:
-		_, _, isMCP := mcplib.ParseToolName(target.Name)
-		return !isMCP
+		return target.MCPServerSlug == ""
 	case ToolPolicySelectorAllMCP:
-		_, _, isMCP := mcplib.ParseToolName(target.Name)
-		return isMCP
+		return target.MCPServerSlug != ""
 	case ToolPolicySelectorAllPackages:
 		return strings.TrimSpace(target.Package) != ""
 	case ToolPolicySelectorMCPServer:
-		slug, _, isMCP := mcplib.ParseToolName(target.Name)
-		return isMCP && slug == s.Value
+		return target.MCPServerSlug != "" && target.MCPServerSlug == s.Value
 	case ToolPolicySelectorPackage:
 		return target.Package == s.Value
 	default:

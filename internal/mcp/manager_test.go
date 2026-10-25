@@ -1154,10 +1154,10 @@ func TestGetEligibleNativeMCPServersSortsServersAndTools(t *testing.T) {
 	if result[0].Slug != "alpha" || result[1].Slug != "zeta" {
 		t.Fatalf("servers out of order: %#v", result)
 	}
-	if got := result[0].ToolNames; len(got) != 2 || got[0] != "mcp_alpha__a" || got[1] != "mcp_alpha__z" {
+	if got := result[0].Tools; len(got) != 2 || got[0].RegisteredName != "mcp_alpha__a" || got[0].Name != "a" || got[1].RegisteredName != "mcp_alpha__z" || got[1].Name != "z" {
 		t.Fatalf("alpha tools out of order: %#v", got)
 	}
-	if got := result[1].ToolNames; len(got) != 2 || got[0] != "mcp_zeta__a" || got[1] != "mcp_zeta__z" {
+	if got := result[1].Tools; len(got) != 2 || got[0].RegisteredName != "mcp_zeta__a" || got[0].Name != "a" || got[1].RegisteredName != "mcp_zeta__z" || got[1].Name != "z" {
 		t.Fatalf("zeta tools out of order: %#v", got)
 	}
 }

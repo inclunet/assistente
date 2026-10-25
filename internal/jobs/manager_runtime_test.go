@@ -273,8 +273,9 @@ func TestManagerGetToolCatalogIncludesDiscoverableOptIn(t *testing.T) {
 func TestManagerGetToolCatalogDerivesMCPRegistryMetadata(t *testing.T) {
 	registry := tools.NewRegistry()
 	registry.MustRegister(&fakeTool{
-		name:   "mcp_jira__issue__delete",
-		params: json.RawMessage(`{"type":"object"}`),
+		name:     "mcp_jira__issue__delete",
+		identity: tools.MCPToolIdentity{ServerSlug: "jira", ToolName: "issue__delete"},
+		params:   json.RawMessage(`{"type":"object"}`),
 	})
 	registry.MustRegister(&fakeTool{
 		name:   "mcp_native__filesystem",
@@ -296,8 +297,8 @@ func TestManagerGetToolCatalogDerivesMCPRegistryMetadata(t *testing.T) {
 		t.Fatalf("unexpected MCP bridge metadata: %#v", bridge)
 	}
 	native := entries["mcp_native__filesystem"]
-	if native.Source != "mcp" || native.Origin != tools.ToolOriginMCPNative || native.Risk != "" {
-		t.Fatalf("unexpected MCP native metadata: %#v", native)
+	if native.Source != "internal" || native.Origin != tools.ToolOriginBuiltin || native.Risk != "read" {
+		t.Fatalf("name alone must not classify a builtin as MCP native: %#v", native)
 	}
 }
 
@@ -385,6 +386,7 @@ func TestManagerExecuteJobSkipsAutomaticMCPRunWhenToolUnavailable(t *testing.T) 
 		t.Fatalf("save job: %v", err)
 	}
 	job.Tool = "mcp_jira__create_issue"
+	job.ToolOrigin = tools.ToolOriginMCPBridge
 	mgr.registry.Set(job)
 
 	mgr.executeJob(context.Background(), job, &TriggerContext{Type: TriggerInterval, Every: "1m"})

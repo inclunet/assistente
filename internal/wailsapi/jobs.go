@@ -428,15 +428,7 @@ func testToolDryRun(
 	if req.Inputs == nil {
 		req.Inputs = make(map[string]any)
 	}
-	if strings.TrimSpace(req.MCPServerID) == "" && isMCPBridgeDryRunName(req.ToolName) && !req.AllowUnsafe {
-		return &jobs.TestToolResult{
-			Success:  false,
-			Error:    "dry-run bloqueado por política para tool MCP sem mcp_server_id",
-			Blocked:  true,
-			Origin:   tools.ToolOriginMCPBridge,
-			ToolName: strings.TrimSpace(req.ToolName),
-		}, nil
-	}
+
 	if strings.TrimSpace(req.MCPServerID) != "" {
 		if err := resolveMCPToolDryRunTarget(ctx, mcp, &req); err != nil {
 			result := &jobs.TestToolResult{

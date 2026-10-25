@@ -137,12 +137,11 @@ func ProtectToolResult(ctx context.Context, result ToolResult, maxContentBytes i
 // ContentForModelWithinLimit recompõe um resultado para um budget de contexto
 // menor que o budget do executor. Resultados exatos nunca são cortados; textos
 // retomáveis recebem uma nova janela coerente com os bytes realmente enviados.
-func ContentForModelWithinLimit(ctx context.Context, result ToolResult, maxBytes int, toolName string) string {
+func ContentForModelWithinLimit(ctx context.Context, result ToolResult, maxBytes int, mcpBridge bool) string {
 	content := ContentForModel(result)
 	if len(content) <= maxBytes {
 		return content
 	}
-	mcpBridge := isMCPBridgeToolName(toolName)
 	hasWindow := result.Annotations != nil && result.Annotations.OutputWindow != nil
 	if !mcpBridge && (result.RawExact || result.Structured || (!hasWindow && IsCanonicalJSON(result.Content))) {
 		code := "result_too_large"

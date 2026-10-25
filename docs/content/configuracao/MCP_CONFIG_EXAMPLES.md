@@ -989,3 +989,16 @@ quando presentes, usam o diagnóstico e o procedimento de migração existentes.
 Ao salvar uma credencial junto do servidor, as duas alterações são confirmadas
 em conjunto. Se o cofre ou o cadastro falhar, a configuração anterior permanece
 intacta; o formulário fica aberto para correção.
+
+### Origem das ferramentas
+
+A lista de ferramentas identifica a origem pelo servidor MCP associado à
+implementação. Ferramentas locais, como o gerenciador de servidores MCP,
+continuam locais. A execução e o histórico preservam o nome original da
+ferramenta no servidor; perfis e conversas existentes mantêm seus nomes salvos.
+Uma recusa de autorização mantém a identificação do servidor sem executar a
+ferramenta. Se uma implementação for substituída durante o turno, a apresentação
+final acompanha a ferramenta executada e remove o servidor antigo quando ela
+passa a ser local.
+Dry-runs de jobs com saída simulada também preservam o nome original e o
+servidor da ferramenta MCP registrada, sem executar a chamada remota.

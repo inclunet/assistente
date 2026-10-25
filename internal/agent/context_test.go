@@ -321,8 +321,9 @@ func TestReconcileToolContentsKeepsMCPPreviewDelimited(t *testing.T) {
 	ctx := userctx.WithUserID(context.Background(), "context-test")
 	result := tools.ToolResult{Content: strings.Repeat(`{"value":"x"}`, 1000)}
 	executions := []tools.ToolExecutionResult{{
-		ToolName: "mcp_server__large",
-		Result:   result,
+		ToolName:    "mcp_server__large",
+		MCPIdentity: &tools.MCPToolIdentity{ServerSlug: "server", ToolName: "large"},
+		Result:      result,
 	}}
 	contents := []string{tools.ContentForModel(result)}
 	PreCheckContextWindow(400, 50, nil, contents, false)

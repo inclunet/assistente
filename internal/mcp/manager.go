@@ -2760,12 +2760,17 @@ func (m *Manager) ImportFromMCPJSON(data []byte) (int, error) {
 
 // NativeMCPServer descreve um servidor MCP HTTP elegível para passthrough nativo.
 // Usado pelo chat loop para montar MCPServerConfig e passar ao ChatProvider.
+type NativeMCPTool struct {
+	RegisteredName string
+	Name           string
+}
+
 type NativeMCPServer struct {
 	Slug      string
 	Name      string
 	URL       string
 	AuthToken string
-	ToolNames []string // nomes das tools registradas (namespaced, para filtragem)
+	Tools     []NativeMCPTool
 }
 
 // MCPServerReauthEvent é o payload tipado do evento mcp:server_needs_reauth,
@@ -2788,7 +2793,7 @@ type nativeMCPCandidate struct {
 	name          string
 	url           string
 	authType      AuthType
-	toolNames     []string
+	tools         []NativeMCPTool
 }
 
 // isNativeMCPEligibleURL verifica se a URL é segura para MCP nativo.
@@ -2847,9 +2852,9 @@ func (m *Manager) collectNativeMCPCandidates() []nativeMCPCandidate {
 			authType:      status.Config.AuthType,
 		}
 		for _, t := range status.Tools {
-			c.toolNames = append(c.toolNames, t.FullName)
+			c.tools = append(c.tools, NativeMCPTool{RegisteredName: t.FullName, Name: t.Name})
 		}
-		sort.Strings(c.toolNames)
+		sort.Slice(c.tools, func(i, j int) bool { return c.tools[i].RegisteredName < c.tools[j].RegisteredName })
 		candidates = append(candidates, c)
 	}
 	return candidates
@@ -2891,7 +2896,7 @@ func (m *Manager) GetEligibleNativeMCPServers() []NativeMCPServer {
 			Name:      c.name,
 			URL:       c.url,
 			AuthToken: token,
-			ToolNames: c.toolNames,
+			Tools:     c.tools,
 		})
 	}
 	sort.SliceStable(result, func(i, j int) bool {
