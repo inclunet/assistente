@@ -276,11 +276,12 @@ describe('chatEventController', () => {
     emitEvent('chat:tool_start', { ...identity, name: 'search', callId: 'call-1' });
     expect(sessions['conversation-1'].activeToolCalls[0].status).toBe('running');
     expect(sessions['conversation-1'].completedSegments).toEqual([]);
-    emitEvent('chat:tool_end', { ...identity, name: 'search', callId: 'call-1', status: 'error', summary: 'Indisponível' });
+    emitEvent('chat:tool_end', { ...identity, name: 'search', callId: 'call-1', status: 'error', summary: 'Indisponível', errorCode: 'invocation_ledger_unavailable' });
     emitEvent('chat:segment_done', { ...identity, hasMore: true, content: 'Vou pesquisar.' });
     emitEvent('chat:tool_start', { ...identity, name: 'read', callId: 'call-2' });
     expect(sessions['conversation-1'].completedSegments.map((segment) => segment.type)).toEqual(['text', 'tool_calls']);
     expect(sessions['conversation-1'].completedSegments[1].toolCalls?.[0].status).toBe('error');
+    expect(sessions['conversation-1'].completedSegments[1].toolCalls?.[0].errorCode).toBe('invocation_ledger_unavailable');
     emitEvent('chat:tool_end', { ...identity, name: 'read', callId: 'call-2', status: 'ok' });
     emitEvent('chat:segment_done', { ...identity, hasMore: true, content: 'Vou consultar outra fonte.' });
 

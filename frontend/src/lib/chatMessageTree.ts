@@ -22,6 +22,7 @@ export interface ToolInvocationSummary {
 }
 
 export interface StreamingToolCall {
+  errorCode?: string;
   id: string;
   type: string;
   function: { name: string; arguments: string };

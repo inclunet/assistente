@@ -7,6 +7,9 @@ no ledger antes de executar uma tool de chat retorna `unavailable` com código
 `invocation_ledger_unavailable`, mantendo `Persisted=false` e zero efeitos.
 Não é cancelamento pelo usuário nem prova de indisponibilidade do MCP.
 O registro continua obrigatório, sem repetir automaticamente efeitos externos.
+O evento `chat:tool_end` propaga `errorCode` opcional; o controller preserva
+o código e os detalhes traduzem a falha local em pt-BR, en e es, sem interpretar
+o texto do resultado. Consumidores antigos podem ignorar o campo aditivo.
 Regressão WAL: `TestServiceLedgerContentionDoesNotExecuteAndRecoversOnce`.
 
 (endurecido para bancos legados grandes: `hash_mismatch` é aviso de auditoria

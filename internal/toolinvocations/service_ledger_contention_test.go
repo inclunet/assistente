@@ -24,17 +24,17 @@ func TestServiceLedgerContentionDoesNotExecuteAndRecoversOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer pool.Close()
+	defer func() { _ = pool.Close() }()
 	pool.SetMaxOpenConns(4)
 	writer, err := pool.Conn(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer writer.Close()
+	defer func() { _ = writer.Close() }()
 	if _, err := writer.ExecContext(context.Background(), "BEGIN IMMEDIATE"); err != nil {
 		t.Fatal(err)
 	}
-	defer writer.ExecContext(context.Background(), "ROLLBACK")
+	defer func() { _, _ = writer.ExecContext(context.Background(), "ROLLBACK") }()
 	calls := 0
 	registry := tools.NewRegistry()
 	registry.MustRegister(countingTool{calls: &calls})

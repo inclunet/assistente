@@ -123,6 +123,7 @@ interface ChatToolStartEvent {
 }
 
 interface ChatToolEndEvent {
+  errorCode?: string;
   conversationId: string;
   assistantMessageId?: string;
   callId: string;
@@ -857,10 +858,10 @@ export function startChatEventController({
       activeToolCalls: existing >= 0
         ? session.activeToolCalls.map((tc) =>
           tc.callId === event.callId
-            ? { ...tc, name: event.name, callId: event.callId, args: event.args ?? tc.args, status: 'running' as const, summary: event.summary, origin: event.origin ?? tc.origin, serverLabel: event.serverLabel ?? tc.serverLabel }
+            ? { ...tc, name: event.name, callId: event.callId, args: event.args ?? tc.args, status: 'running' as const, summary: event.summary, errorCode: undefined, origin: event.origin ?? tc.origin, serverLabel: event.serverLabel ?? tc.serverLabel }
             : tc
         )
-        : [...session.activeToolCalls, { name: event.name, callId: event.callId, args: event.args, status: 'running' as const, summary: event.summary, origin: event.origin, serverLabel: event.serverLabel }],
+        : [...session.activeToolCalls, { name: event.name, callId: event.callId, args: event.args, status: 'running' as const, summary: event.summary, errorCode: undefined, origin: event.origin, serverLabel: event.serverLabel }],
     });
     if (!external) {
       progressAnnouncer.toolStarted({
@@ -891,7 +892,7 @@ export function startChatEventController({
     const session = getCurrentSession();
     const activeToolCalls = session.activeToolCalls.map((tc) =>
         tc.callId === event.callId
-          ? { ...tc, name: event.name ?? tc.name, status: terminalStatus, summary: event.summary, origin: event.origin ?? tc.origin, serverLabel: event.origin === 'builtin' ? undefined : event.serverLabel ?? tc.serverLabel }
+          ? { ...tc, name: event.name ?? tc.name, status: terminalStatus, summary: event.summary, errorCode: event.errorCode, origin: event.origin ?? tc.origin, serverLabel: event.origin === 'builtin' ? undefined : event.serverLabel ?? tc.serverLabel }
           : tc
       );
     patchCurrentSession({ activeToolCalls });
@@ -1038,6 +1039,7 @@ export function startChatEventController({
           type: 'function',
           function: { name: tc.name, arguments: tc.args || '' },
           result: tc.summary,
+          errorCode: tc.errorCode,
           origin: tc.origin,
           serverLabel: tc.serverLabel,
           status: tc.status,
