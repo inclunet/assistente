@@ -205,6 +205,9 @@ const (
 // ToolExecutionResult agrupa o resultado de uma execução com metadados do call original.
 // Usado pelo executor para devolver resultados ao agentic loop.
 type ToolExecutionResult struct {
+	// MCPIdentity preserva a identidade da implementação capturada pelo executor.
+	MCPIdentity *MCPToolIdentity `json:"-"`
+
 	// CallID é o ID do ToolCall que originou esta execução
 	CallID string `json:"call_id"`
 

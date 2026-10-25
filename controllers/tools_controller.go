@@ -58,8 +58,9 @@ func (c *ToolsController) GetAvailableTools() []ToolInfo {
 			OptIn:       c.toolRegistry.IsOptIn(name),
 		}
 
-		if slug, originalName, ok := mcpmgr.ParseToolName(name); ok {
-			info.DisplayName = originalName
+		if identity, ok := tools.MCPIdentityOf(t); ok {
+			slug := identity.ServerSlug
+			info.DisplayName = identity.ToolName
 			info.SourceType = "mcp"
 			info.SourceLabel = slug
 			info.Package = ""

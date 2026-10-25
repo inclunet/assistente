@@ -677,6 +677,7 @@ func TestFanOut_DownstreamTemplateResolution(t *testing.T) {
 // --- fakeTool for Execute tests ---
 
 type fakeTool struct {
+	identity  tools.MCPToolIdentity
 	name      string
 	params    json.RawMessage
 	response  string
@@ -684,6 +685,8 @@ type fakeTool struct {
 	lastArgs  json.RawMessage
 	lastCtx   context.Context
 }
+
+func (f *fakeTool) MCPIdentity() tools.MCPToolIdentity { return f.identity }
 
 func (f *fakeTool) Name() string                { return f.name }
 func (f *fakeTool) Description() string         { return "fake tool for testing" }

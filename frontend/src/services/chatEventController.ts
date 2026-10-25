@@ -853,18 +853,17 @@ export function startChatEventController({
     currentTurnId = event.turnId || currentTurnId;
     const terminalStatus = terminalToolStatus(event);
     const cancelled = terminalStatus === 'cancelled';
-    if (!external) progressAnnouncer.toolEnded(event.callId, terminalStatus === 'done' ? 'ok' : 'error');
     ensureAssistantNode(event.assistantMessageId);
     const session = getCurrentSession();
-    patchCurrentSession({
-      activeToolCalls: session.activeToolCalls.map((tc) =>
+    const activeToolCalls = session.activeToolCalls.map((tc) =>
         tc.callId === event.callId
-          ? { ...tc, status: terminalStatus, summary: event.summary, origin: event.origin ?? tc.origin, serverLabel: event.serverLabel ?? tc.serverLabel }
+          ? { ...tc, name: event.name ?? tc.name, status: terminalStatus, summary: event.summary, origin: event.origin ?? tc.origin, serverLabel: event.origin === 'builtin' ? undefined : event.serverLabel ?? tc.serverLabel }
           : tc
-      ),
-    });
+      );
+    patchCurrentSession({ activeToolCalls });
+    const finishedCall = activeToolCalls.find((tool) => tool.callId === event.callId);
+    if (!external) progressAnnouncer.toolEnded(event.callId, terminalStatus === 'done' ? 'ok' : 'error', finishedCall);
     if (!external && !cancelled) return;
-    const finishedCall = session.activeToolCalls.find((tool) => tool.callId === event.callId);
     if (cancelled) {
       const cancelledMessage = `${formatToolPresentation(
         presentTool(event.name ?? finishedCall?.name ?? '', event.origin ?? finishedCall?.origin, event.serverLabel ?? finishedCall?.serverLabel, finishedCall?.args),
@@ -884,7 +883,7 @@ export function startChatEventController({
       return;
     }
     if (!('attempt' in event)) {
-      const failedCall = session.activeToolCalls.find((tool) => tool.callId === event.callId);
+      const failedCall = finishedCall;
       const failedLabel = formatToolPresentation(
         presentTool(event.name ?? failedCall?.name ?? '', event.origin ?? failedCall?.origin, event.serverLabel ?? failedCall?.serverLabel, failedCall?.args),
         (key, values) => i18next.t(key, values),

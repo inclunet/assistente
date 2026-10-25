@@ -79,9 +79,9 @@ func TestToolPolicyMatcherPrecedenciaEDesempateRestritivo(t *testing.T) {
 		target ToolPolicyTarget
 		want   ToolPolicyState
 	}{
-		{"literal disabled vence wildcard específico", ToolPolicyTarget{Name: "mcp_atlassian__create_issue"}, ToolPolicyDisabled},
-		{"wildcard específico vence geral", ToolPolicyTarget{Name: "mcp_atlassian__search"}, ToolPolicyOnDemand},
-		{"wildcard geral cobre outro MCP", ToolPolicyTarget{Name: "mcp_slack__send"}, ToolPolicyPreloaded},
+		{"literal disabled vence wildcard específico", ToolPolicyTarget{Name: "mcp_atlassian__create_issue", MCPServerSlug: "atlassian"}, ToolPolicyDisabled},
+		{"wildcard específico vence geral", ToolPolicyTarget{Name: "mcp_atlassian__search", MCPServerSlug: "atlassian"}, ToolPolicyOnDemand},
+		{"wildcard geral cobre outro MCP", ToolPolicyTarget{Name: "mcp_slack__send", MCPServerSlug: "slack"}, ToolPolicyPreloaded},
 		{"literal builtin vence pacote", ToolPolicyTarget{Name: "search_conversations", Package: "history"}, ToolPolicyDisabled},
 		{"aliases empatados escolhem restritivo", ToolPolicyTarget{Name: "history_other", Package: "history"}, ToolPolicyOnDemand},
 		{"default rege sem correspondência", ToolPolicyTarget{Name: "read_file", Package: "filesystem"}, ToolPolicyDisabled},
@@ -116,7 +116,7 @@ func TestToolPolicySelectorMatchesNamespaces(t *testing.T) {
 	pkg, _ := ParseToolPolicySelector("package/history/*")
 	native, _ := ParseToolPolicySelector("*")
 
-	mcpTarget := ToolPolicyTarget{Name: "mcp_atlassian__search"}
+	mcpTarget := ToolPolicyTarget{Name: "mcp_atlassian__search", MCPServerSlug: "atlassian"}
 	nativeTarget := ToolPolicyTarget{Name: "search_conversations", Package: "history"}
 	if !mcpAll.Matches(mcpTarget) || !mcpServer.Matches(mcpTarget) || native.Matches(mcpTarget) {
 		t.Fatal("seletores MCP/native não reconheceram namespaces")
@@ -167,7 +167,7 @@ func TestEffectiveToolPolicyDistingueBuiltinMCPServerDePonteCanonica(t *testing.
 
 	// Ambas entram depois da resolução para exercitar EffectiveToolPolicy.target.
 	registry.MustRegister(policyMetadataTool{name: "mcp_server", pkg: "mcp"})
-	registry.MustRegister(policyMetadataTool{name: "mcp_atlassian__search", pkg: "mcp"})
+	registry.MustRegister(newMCPToolDef("atlassian", "search"))
 
 	if got := effectiveLazy.State("mcp_server"); got != ToolPolicyPreloaded {
 		t.Fatalf("builtin mcp_server deveria manter package no caminho lazy, got %s", got)

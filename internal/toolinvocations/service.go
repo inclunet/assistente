@@ -149,6 +149,9 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) ExecuteResult
 		toolCatalogID: req.ToolCatalogID, requireCanonical: req.RequireCanonicalToolCatalogID,
 		dryRun: req.DryRun, iteration: req.Iteration,
 	}
+	if tool, ok := s.executor.Registry().Get(req.Call.Function.Name); ok {
+		start.identity, _ = tools.MCPIdentityOf(tool)
+	}
 	inv, err := s.beginInvocation(ctx, start)
 	if err != nil {
 		if errors.Is(err, errChatLedgerUnavailable) {
@@ -178,8 +181,15 @@ func (s *Service) Execute(ctx context.Context, req ExecuteRequest) ExecuteResult
 	if len(req.SensitivePaths.Input) > 0 || len(req.SensitivePaths.Output) > 0 {
 		message = ""
 	}
+	var identity tools.MCPToolIdentity
+	if exec.MCPIdentity != nil {
+		identity = *exec.MCPIdentity
+	} else if guardRejected {
+		identity = start.identity
+	}
 	err = s.finishInvocation(ctx, &inv, start, invocationOutcome{
-		status: status, message: message, result: exec.Result, errorKind: exec.ErrorKind,
+		identity: identity,
+		status:   status, message: message, result: exec.Result, errorKind: exec.ErrorKind,
 		errorCode: exec.ErrorCode, retryable: exec.Retryable,
 		retryabilityKnown: exec.RetryabilityKnown, durationMs: exec.DurationMs,
 		deleteOnFailure: guardRejected,
@@ -557,7 +567,8 @@ func (s *Service) ExecuteAll(ctx context.Context, calls []tools.ToolCall, origin
 // deve falhar o fluxo chamador.
 func (s *Service) Record(ctx context.Context, req RecordRequest) (Invocation, error) {
 	start := invocationStart{
-		call: req.Call, persistedArguments: req.PersistedArguments, origin: req.Origin,
+		identity: req.MCPIdentity,
+		call:     req.Call, persistedArguments: req.PersistedArguments, origin: req.Origin,
 		sensitivePaths: req.SensitivePaths, parentID: req.ParentInvocationID,
 		toolCatalogID: req.ToolCatalogID, requireCanonical: req.RequireCanonicalToolCatalogID,
 		dryRun:    req.DryRun,
@@ -569,26 +580,27 @@ func (s *Service) Record(ctx context.Context, req RecordRequest) (Invocation, er
 	}
 	status, message := statusForRecord(req)
 	err = s.finishInvocation(ctx, &inv, start, invocationOutcome{
-		status: status, message: message, result: req.Result, errorKind: req.ErrorKind,
+		identity: req.MCPIdentity,
+		status:   status, message: message, result: req.Result, errorKind: req.ErrorKind,
 		errorCode: req.ErrorCode, retryable: req.Retryable,
 		retryabilityKnown: req.RetryabilityKnown, durationMs: req.DurationMs,
 	})
 	return inv, err
 }
 
-func (s *Service) buildInvocationDisplayMetadata(call tools.ToolCall, iteration int, durationMs int64, external bool) json.RawMessage {
+func (s *Service) buildInvocationDisplayMetadata(call tools.ToolCall, iteration int, durationMs int64, external bool, identity tools.MCPToolIdentity) json.RawMessage {
 	arguments := ""
 	if strings.TrimSpace(call.Function.Arguments) != "" {
 		arguments = redactArgumentsJSON(call.Function.Arguments)
 	}
-	return buildInvocationDisplayMetadata(call, arguments, iteration, durationMs, external, s.persistMaxInputSize)
+	return buildInvocationDisplayMetadata(call, arguments, iteration, durationMs, external, s.persistMaxInputSize, identity)
 }
 
 // buildInvocationMetadata acrescenta somente o contrato de apresentação
 // explicitamente emitido por buscas nativas. Nunca promove metadata genérica
 // nem conteúdo de integrações MCP para a camada de interface.
-func (s *Service) buildInvocationMetadata(call tools.ToolCall, iteration int, durationMs int64, external bool, result tools.ToolResult) json.RawMessage {
-	base := s.buildInvocationDisplayMetadata(call, iteration, durationMs, external)
+func (s *Service) buildInvocationMetadata(call tools.ToolCall, iteration int, durationMs int64, external bool, result tools.ToolResult, identity tools.MCPToolIdentity) json.RawMessage {
+	base := s.buildInvocationDisplayMetadata(call, iteration, durationMs, external, identity)
 	if external {
 		return base
 	}
@@ -611,15 +623,15 @@ func (s *Service) buildInvocationMetadata(call tools.ToolCall, iteration int, du
 	return merged
 }
 
-func buildInvocationDisplayMetadata(call tools.ToolCall, arguments string, iteration int, durationMs int64, external bool, maxBytes int) json.RawMessage {
-	payload := buildInvocationDisplayPayload(call, arguments, iteration, durationMs, external, false, 0)
+func buildInvocationDisplayMetadata(call tools.ToolCall, arguments string, iteration int, durationMs int64, external bool, maxBytes int, identity tools.MCPToolIdentity) json.RawMessage {
+	payload := buildInvocationDisplayPayload(call, arguments, iteration, durationMs, external, false, 0, identity)
 	metadata, _ := json.Marshal(payload)
 	if maxBytes <= 0 || len(metadata) <= maxBytes {
 		return metadata
 	}
 
 	origSize := len(arguments)
-	basePayload := buildInvocationDisplayPayload(call, "", iteration, durationMs, external, true, origSize)
+	basePayload := buildInvocationDisplayPayload(call, "", iteration, durationMs, external, true, origSize, identity)
 	baseBytes, _ := json.Marshal(basePayload)
 	if len(baseBytes) >= maxBytes {
 		return compactInvocationDisplayMetadata(origSize, maxBytes)
@@ -655,19 +667,13 @@ func compactInvocationDisplayMetadata(originalSize int, maxBytes int) json.RawMe
 	return nil
 }
 
-func buildInvocationDisplayPayload(call tools.ToolCall, arguments string, iteration int, durationMs int64, external bool, truncated bool, originalSize int) map[string]any {
+func buildInvocationDisplayPayload(call tools.ToolCall, arguments string, iteration int, durationMs int64, external bool, truncated bool, originalSize int, identity tools.MCPToolIdentity) map[string]any {
 	name := strings.TrimSpace(call.Function.Name)
 	displayName := name
 	origin := "builtin"
 	serverLabel := ""
-	if strings.HasPrefix(name, "mcp_") {
-		idx := strings.Index(name, "__")
-		if idx > len("mcp_") && idx+2 < len(name) {
-			serverLabel = strings.TrimSpace(name[len("mcp_"):idx])
-			displayName = strings.TrimSpace(name[idx+2:])
-		}
-	}
-	if serverLabel != "" && displayName != "" {
+	if identity.ServerSlug != "" && identity.ToolName != "" {
+		serverLabel, displayName = identity.ServerSlug, identity.ToolName
 		origin = "mcp_bridge"
 	}
 	if displayName == "" {

@@ -253,6 +253,19 @@ function createAdapter(initialConversationIds: string[]) {
 }
 
 describe('chatEventController', () => {
+  it('aplica a identidade final local após substituir uma ponte MCP', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+    const identity = { conversationId: 'conversation-1', turnId: 'turn-1', assistantMessageId: 'assistant-1', callId: 'replaced' };
+    emitEvent('chat:tool_start', { ...identity, name: 'search', origin: 'mcp_bridge', serverLabel: 'remote' });
+    emitEvent('chat:tool_end', { ...identity, name: 'local_alias', origin: 'builtin', status: 'ok' });
+    const expected = { name: 'local_alias', origin: 'builtin', serverLabel: undefined, status: 'done' };
+    expect(sessions['conversation-1'].activeToolCalls[0]).toMatchObject(expected);
+    emitEvent('chat:segment_done', { ...identity, hasMore: true, content: '' });
+    const segment = sessions['conversation-1'].completedSegments.find((item) => item.type === 'tool_calls');
+    expect(segment?.toolCalls?.[0]).toMatchObject({ function: { name: 'local_alias' }, origin: 'builtin', serverLabel: undefined, status: 'done' });
+  });
+
   it('preserva texto antes das ferramentas e falhas entre duas rodadas', () => {
     const { adapter, sessions } = createAdapter(['conversation-1']);
     startChatEventController({ conversationId: 'conversation-1', adapter });

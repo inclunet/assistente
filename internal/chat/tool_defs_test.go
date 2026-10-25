@@ -15,9 +15,18 @@ import (
 // ---------------------------------------------------------------------------
 
 type mockToolDef struct {
-	name   string
-	descr  string
-	params json.RawMessage
+	identity tools.MCPToolIdentity
+	name     string
+	descr    string
+	params   json.RawMessage
+}
+
+func (m *mockToolDef) MCPIdentity() tools.MCPToolIdentity { return m.identity }
+
+func newMCPToolDef(slug, name string) *mockToolDef {
+	tool := newToolDef("mcp_" + slug + "__" + name)
+	tool.identity = tools.MCPToolIdentity{ServerSlug: slug, ToolName: name}
+	return tool
 }
 
 func (m *mockToolDef) Name() string                { return m.name }
@@ -341,7 +350,7 @@ func TestApplyNativeMCP_NoServers(t *testing.T) {
 func TestApplyNativeMCP_RemovesBridgeTools(t *testing.T) {
 	p := &mockChatProvider{nativeCapable: true}
 	mgr := &mockNativeMCPMgr{servers: []mcplib.NativeMCPServer{
-		{Name: "MyServer", URL: "https://mcp.example.io", ToolNames: []string{"mcp_myserver__list", "mcp_myserver__create"}},
+		{Name: "MyServer", URL: "https://mcp.example.io", Tools: []mcplib.NativeMCPTool{{RegisteredName: "mcp_myserver__list", Name: "list"}, {RegisteredName: "mcp_myserver__create", Name: "create"}}},
 	}}
 	defs := makeToolDefs("mcp_myserver__list", "mcp_myserver__create", "local_tool")
 	_, outDefs := applyNativeMCP(p, defs, mgr, nil, false, boolPtr(true))
@@ -356,7 +365,7 @@ func TestApplyNativeMCP_RemovesBridgeTools(t *testing.T) {
 func TestApplyNativeMCP_CallsWithMCPServers(t *testing.T) {
 	p := &mockChatProvider{nativeCapable: true}
 	mgr := &mockNativeMCPMgr{servers: []mcplib.NativeMCPServer{
-		{Slug: "srv", Name: "Srv", URL: "https://srv.io", AuthToken: "tok", ToolNames: []string{"mcp_srv__do"}},
+		{Slug: "srv", Name: "Srv", URL: "https://srv.io", AuthToken: "tok", Tools: []mcplib.NativeMCPTool{{RegisteredName: "mcp_srv__do", Name: "do"}}},
 	}}
 	defs := makeToolDefs("mcp_srv__do")
 	outP, _ := applyNativeMCP(p, defs, mgr, nil, false, boolPtr(true))
@@ -377,8 +386,8 @@ func TestApplyNativeMCP_CallsWithMCPServers(t *testing.T) {
 func TestApplyNativeMCP_SortsServersAndToolNames(t *testing.T) {
 	p := &mockChatProvider{nativeCapable: true}
 	mgr := &mockNativeMCPMgr{servers: []mcplib.NativeMCPServer{
-		{Slug: "zeta", Name: "Zeta", URL: "https://zeta.io", ToolNames: []string{"mcp_zeta__z", "mcp_zeta__a"}},
-		{Slug: "alpha", Name: "Alpha", URL: "https://alpha.io", ToolNames: []string{"mcp_alpha__z", "mcp_alpha__a"}},
+		{Slug: "zeta", Name: "Zeta", URL: "https://zeta.io", Tools: []mcplib.NativeMCPTool{{RegisteredName: "mcp_zeta__z", Name: "z"}, {RegisteredName: "mcp_zeta__a", Name: "a"}}},
+		{Slug: "alpha", Name: "Alpha", URL: "https://alpha.io", Tools: []mcplib.NativeMCPTool{{RegisteredName: "mcp_alpha__z", Name: "z"}, {RegisteredName: "mcp_alpha__a", Name: "a"}}},
 	}}
 	defs := makeToolDefs("mcp_zeta__z", "mcp_zeta__a", "mcp_alpha__z", "mcp_alpha__a")
 
@@ -404,8 +413,8 @@ func TestApplyNativeMCP_SortsServersAndToolNames(t *testing.T) {
 func TestApplyNativeMCPDoesNotMutateNativeServers(t *testing.T) {
 	p := &mockChatProvider{nativeCapable: true}
 	mgr := &mockNativeMCPMgr{servers: []mcplib.NativeMCPServer{
-		{Slug: "zeta", Name: "Zeta", URL: "https://zeta.io", ToolNames: []string{"mcp_zeta__z", "mcp_zeta__a"}},
-		{Slug: "alpha", Name: "Alpha", URL: "https://alpha.io", ToolNames: []string{"mcp_alpha__z", "mcp_alpha__a"}},
+		{Slug: "zeta", Name: "Zeta", URL: "https://zeta.io", Tools: []mcplib.NativeMCPTool{{RegisteredName: "mcp_zeta__z", Name: "z"}, {RegisteredName: "mcp_zeta__a", Name: "a"}}},
+		{Slug: "alpha", Name: "Alpha", URL: "https://alpha.io", Tools: []mcplib.NativeMCPTool{{RegisteredName: "mcp_alpha__z", Name: "z"}, {RegisteredName: "mcp_alpha__a", Name: "a"}}},
 	}}
 	defs := makeToolDefs("mcp_zeta__z", "mcp_zeta__a", "mcp_alpha__z", "mcp_alpha__a")
 
@@ -414,7 +423,7 @@ func TestApplyNativeMCPDoesNotMutateNativeServers(t *testing.T) {
 	if mgr.servers[0].Slug != "zeta" || mgr.servers[1].Slug != "alpha" {
 		t.Fatalf("native servers were reordered: %#v", mgr.servers)
 	}
-	if got := mgr.servers[0].ToolNames; got[0] != "mcp_zeta__z" || got[1] != "mcp_zeta__a" {
+	if got := mgr.servers[0].Tools; got[0].RegisteredName != "mcp_zeta__z" || got[1].RegisteredName != "mcp_zeta__a" {
 		t.Fatalf("native server tool names were reordered: %#v", got)
 	}
 }
@@ -422,7 +431,7 @@ func TestApplyNativeMCPDoesNotMutateNativeServers(t *testing.T) {
 func TestApplyNativeMCP_NilEnabledToolsKeepsDynamicCatalogSeparateFromWhitelist(t *testing.T) {
 	p := &mockChatProvider{nativeCapable: true}
 	mgr := &mockNativeMCPMgr{servers: []mcplib.NativeMCPServer{
-		{Slug: "srv", Name: "Srv", URL: "https://srv.io", ToolNames: []string{"mcp_srv__do"}},
+		{Slug: "srv", Name: "Srv", URL: "https://srv.io", Tools: []mcplib.NativeMCPTool{{RegisteredName: "mcp_srv__do", Name: "do"}}},
 	}}
 	defs := makeToolDefs(tools.ToolCatalogName)
 
@@ -442,7 +451,7 @@ func TestApplyNativeMCP_NilEnabledToolsKeepsDynamicCatalogSeparateFromWhitelist(
 func TestApplyNativeMCP_EnabledSetFiltersServer(t *testing.T) {
 	p := &mockChatProvider{nativeCapable: true}
 	mgr := &mockNativeMCPMgr{servers: []mcplib.NativeMCPServer{
-		{Name: "S", URL: "https://s.io", ToolNames: []string{"mcp_s__alpha", "mcp_s__beta"}},
+		{Name: "S", URL: "https://s.io", Tools: []mcplib.NativeMCPTool{{RegisteredName: "mcp_s__alpha", Name: "alpha"}, {RegisteredName: "mcp_s__beta", Name: "beta"}}},
 	}}
 	defs := makeToolDefs("mcp_s__alpha", "mcp_s__beta", "local")
 	_, outDefs := applyNativeMCP(p, defs, mgr, []string{"mcp_s__alpha"}, false, boolPtr(true))
@@ -511,7 +520,7 @@ func TestApplyNativeMCP_ProfileOverrideForceTrueCapableConfiguresNative(t *testi
 	// Provider fisicamente capaz e perfil força true.
 	p := &mockChatProvider{nativeCapable: true}
 	mgr := &mockNativeMCPMgr{servers: []mcplib.NativeMCPServer{
-		{Slug: "github", Name: "GitHub", URL: "https://api.githubcopilot.com/mcp/", ToolNames: []string{"mcp_github__list"}},
+		{Slug: "github", Name: "GitHub", URL: "https://api.githubcopilot.com/mcp/", Tools: []mcplib.NativeMCPTool{{RegisteredName: "mcp_github__list", Name: "list"}}},
 	}}
 	defs := makeToolDefs("mcp_github__list", "local")
 	outP, outDefs := applyNativeMCP(p, defs, mgr, nil, false, boolPtr(true))
@@ -529,7 +538,7 @@ func TestApplyNativeMCP_AutoConfiguresNativeWhenCapable(t *testing.T) {
 	// nativos e remove as bridges (só voltam se o perfil for ajustado p/ adapter).
 	p := &mockChatProvider{nativeCapable: true}
 	mgr := &mockNativeMCPMgr{servers: []mcplib.NativeMCPServer{
-		{Slug: "github", Name: "GitHub", URL: "https://api.githubcopilot.com/mcp/", ToolNames: []string{"mcp_github__list"}},
+		{Slug: "github", Name: "GitHub", URL: "https://api.githubcopilot.com/mcp/", Tools: []mcplib.NativeMCPTool{{RegisteredName: "mcp_github__list", Name: "list"}}},
 	}}
 	defs := makeToolDefs("mcp_github__list", "local")
 	outP, outDefs := applyNativeMCP(p, defs, mgr, nil, false, nil)
@@ -546,7 +555,7 @@ func TestApplyNativeMCP_AutoIncapableKeepsBridges(t *testing.T) {
 	// Provider incapaz + auto (nil) → adapter: bridges permanecem.
 	p := &mockChatProvider{nativeCapable: false}
 	mgr := &mockNativeMCPMgr{servers: []mcplib.NativeMCPServer{
-		{Slug: "github", Name: "GitHub", URL: "https://api.githubcopilot.com/mcp/", ToolNames: []string{"mcp_github__list"}},
+		{Slug: "github", Name: "GitHub", URL: "https://api.githubcopilot.com/mcp/", Tools: []mcplib.NativeMCPTool{{RegisteredName: "mcp_github__list", Name: "list"}}},
 	}}
 	defs := makeToolDefs("mcp_github__list", "local")
 	outP, outDefs := applyNativeMCP(p, defs, mgr, nil, false, nil)
@@ -562,7 +571,7 @@ func TestApplyNativeMCP_ProfileOverrideForceFalseCapableKeepsBridges(t *testing.
 	// Provider capaz, mas perfil força adapter (false).
 	p := &mockChatProvider{nativeCapable: true}
 	mgr := &mockNativeMCPMgr{servers: []mcplib.NativeMCPServer{
-		{Slug: "github", Name: "GitHub", URL: "https://api.githubcopilot.com/mcp/", ToolNames: []string{"mcp_github__list"}},
+		{Slug: "github", Name: "GitHub", URL: "https://api.githubcopilot.com/mcp/", Tools: []mcplib.NativeMCPTool{{RegisteredName: "mcp_github__list", Name: "list"}}},
 	}}
 	defs := makeToolDefs("mcp_github__list", "local")
 	outP, outDefs := applyNativeMCP(p, defs, mgr, nil, false, boolPtr(false))
@@ -577,7 +586,7 @@ func TestApplyNativeMCP_ProfileOverrideForceFalseCapableKeepsBridges(t *testing.
 func TestApplyNativeMCP_ServerExcludedWhenNoEnabledTools(t *testing.T) {
 	p := &mockChatProvider{nativeCapable: true}
 	mgr := &mockNativeMCPMgr{servers: []mcplib.NativeMCPServer{
-		{Name: "S", URL: "https://s.io", ToolNames: []string{"mcp_s__tool1"}},
+		{Name: "S", URL: "https://s.io", Tools: []mcplib.NativeMCPTool{{RegisteredName: "mcp_s__tool1", Name: "tool1"}}},
 	}}
 	defs := makeToolDefs("mcp_s__tool1", "local")
 	outP, outDefs := applyNativeMCP(p, defs, mgr, []string{"other_tool"}, false, boolPtr(true))

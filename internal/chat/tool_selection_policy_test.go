@@ -7,6 +7,30 @@ import (
 	"assistente/internal/tools"
 )
 
+func TestMCPSelectionUsesIdentityInsteadOfPublishedName(t *testing.T) {
+	r := registryWith(tools.ToolCatalogName, "mcp_fake__builtin")
+	bridge := newMCPToolDef("remote", "search")
+	bridge.name = "external_alias"
+	r.MustRegister(bridge)
+	p := NewToolSelectionPolicy(r)
+	cfg := ProfileToolConfig{ToolPolicyDefault: string(ToolPolicyDisabled), ToolPolicy: map[string]string{
+		"mcp/remote/*": string(ToolPolicyPreloaded),
+	}}
+	effective := p.ResolveEffectiveToolPolicy(cfg)
+	if effective.State(bridge.Name()) != ToolPolicyPreloaded || effective.State("mcp_fake__builtin") != ToolPolicyDisabled {
+		t.Fatal("a seleção deve seguir a identidade declarada, não o prefixo")
+	}
+	mgr := &mockNativeMCPMgr{servers: []mcplib.NativeMCPServer{{Slug: "remote", Name: "Remote", URL: "https://remote.example/mcp", Tools: []mcplib.NativeMCPTool{{RegisteredName: bridge.Name(), Name: "search"}}}}}
+	plan := p.PlanTurnToolDefs(&mockChatProvider{nativeCapable: true}, mgr, cfg)
+	if _, delegated := plan.NativeNames[bridge.Name()]; !delegated {
+		t.Fatal("alias MCP não foi delegado")
+	}
+	provider := plan.Streamer.(*mockChatProvider)
+	if len(provider.calledWith) != 1 || len(provider.calledWith[0].AllowedTools) != 1 || provider.calledWith[0].AllowedTools[0] != "search" {
+		t.Fatalf("nome original não foi preservado: %#v", provider.calledWith)
+	}
+}
+
 func TestToolSelectionPolicy_InitialToolDefs_RespectsPolicy(t *testing.T) {
 	for _, tc := range initialSelectionCases(t) {
 		t.Run(tc.name, func(t *testing.T) {
@@ -37,7 +61,7 @@ func TestToolSelectionPolicy_ApplyNativeMCP_RemovesNativeBridge(t *testing.T) {
 	r := charRegistry(t)
 	capable := &mockChatProvider{nativeCapable: true}
 	mgr := &mockNativeMCPMgr{servers: []mcplib.NativeMCPServer{
-		{Slug: "srv", Name: "Srv", URL: "https://srv.io", ToolNames: []string{"mcp_srv__do"}},
+		{Slug: "srv", Name: "Srv", URL: "https://srv.io", Tools: []mcplib.NativeMCPTool{{RegisteredName: "mcp_srv__do", Name: "do"}}},
 	}}
 	enabled := []string{"read_file", "mcp_srv__do"}
 
@@ -270,19 +294,19 @@ func TestToolSelectionPolicy_WildcardsSaoAplicadosLazyARegistroMCPPosterior(t *t
 		},
 	})
 
-	if got := effective.State("mcp_atlassian__search"); got != ToolPolicyPreloaded {
-		t.Fatalf("wildcard futuro específico = %s, esperado preloaded", got)
+	if got := effective.State("mcp_atlassian__search"); got != ToolPolicyDisabled {
+		t.Fatalf("nome sem identidade não deve receber wildcard MCP: %s", got)
 	}
-	if got := effective.State("mcp_slack__send"); got != ToolPolicyOnDemand {
-		t.Fatalf("wildcard futuro geral = %s, esperado on_demand", got)
+	if got := effective.State("mcp_slack__send"); got != ToolPolicyDisabled {
+		t.Fatalf("nome sem identidade não deve receber wildcard MCP: %s", got)
 	}
 	if got := effective.State("mcp_atlassian__delete"); got != ToolPolicyDisabled {
 		t.Fatalf("negação literal = %s, esperado disabled", got)
 	}
 
-	r.MustRegister(newToolDef("mcp_atlassian__search"))
-	r.MustRegister(newToolDef("mcp_atlassian__delete"))
-	r.MustRegister(newToolDef("mcp_slack__send"))
+	r.MustRegister(newMCPToolDef("atlassian", "search"))
+	r.MustRegister(newMCPToolDef("atlassian", "delete"))
+	r.MustRegister(newMCPToolDef("slack", "send"))
 
 	assertNames(t, "preloaded lazy", effective.PreloadedNames(), []string{tools.ToolCatalogName, "mcp_atlassian__search"})
 	assertNames(t, "visible lazy", effective.CatalogVisibleNames(), []string{
@@ -562,7 +586,7 @@ func TestToolSelectionPolicy_NativeMCPUsesPreloadedAllowlist(t *testing.T) {
 	r := charRegistry(t)
 	capable := &mockChatProvider{nativeCapable: true}
 	mgr := &mockNativeMCPMgr{servers: []mcplib.NativeMCPServer{
-		{Slug: "srv", Name: "Srv", URL: "https://srv.io", ToolNames: []string{"mcp_srv__do"}},
+		{Slug: "srv", Name: "Srv", URL: "https://srv.io", Tools: []mcplib.NativeMCPTool{{RegisteredName: "mcp_srv__do", Name: "do"}}},
 	}}
 	policy := NewToolSelectionPolicy(r)
 
@@ -595,7 +619,7 @@ func TestToolSelectionPolicy_NativeMCPDoesNotOpenLegacyProfileWithoutCatalog(t *
 	policy := NewToolSelectionPolicy(r)
 	capable := &mockChatProvider{nativeCapable: true}
 	mgr := &mockNativeMCPMgr{servers: []mcplib.NativeMCPServer{
-		{Slug: "srv", Name: "Srv", URL: "https://srv.io", ToolNames: []string{"read_file"}},
+		{Slug: "srv", Name: "Srv", URL: "https://srv.io", Tools: []mcplib.NativeMCPTool{{RegisteredName: "read_file", Name: ""}}},
 	}}
 
 	turnPlan0 := policy.PlanTurnToolDefs(capable, mgr, ProfileToolConfig{})
@@ -617,7 +641,7 @@ func TestToolSelectionPolicy_OnDemandMCPBridgeIsNotRemovedBeforeLoad(t *testing.
 	policy := NewToolSelectionPolicy(r)
 	capable := &mockChatProvider{nativeCapable: true}
 	mgr := &mockNativeMCPMgr{servers: []mcplib.NativeMCPServer{
-		{Slug: "srv", Name: "Srv", URL: "https://srv.io", ToolNames: []string{"mcp_srv__do"}},
+		{Slug: "srv", Name: "Srv", URL: "https://srv.io", Tools: []mcplib.NativeMCPTool{{RegisteredName: "mcp_srv__do", Name: "do"}}},
 	}}
 
 	got := policy.ResolveExpandedToolDefs(policy.PlanTurnToolDefs(capable, mgr, ProfileToolConfig{NativeMCP: boolPtr(true)}).NativeNames, nil, []string{"mcp_srv__do"}, ProfileToolConfig{NativeMCP: boolPtr(true)})
@@ -626,16 +650,18 @@ func TestToolSelectionPolicy_OnDemandMCPBridgeIsNotRemovedBeforeLoad(t *testing.
 
 // A conexão pode mudar, mas a expansão deve corresponder ao payload já montado.
 func TestTurnToolPlanExpansionUsesSentNativeServers(t *testing.T) {
-	registry := registryWith("mcp_a__search", "mcp_b__search")
+	registry := registryWith()
+	registry.MustRegister(newMCPToolDef("a", "search"))
+	registry.MustRegister(newMCPToolDef("b", "search"))
 	policy := NewToolSelectionPolicy(registry)
 	cfg := ProfileToolConfig{EnabledTools: []string{"mcp_a__search", "mcp_b__search"}}
 	provider := &mockChatProvider{nativeCapable: true}
 	manager := &mockNativeMCPMgr{servers: []mcplib.NativeMCPServer{
-		{Slug: "a", Name: "A", URL: "https://a.example/mcp", ToolNames: []string{"mcp_a__search"}},
+		{Slug: "a", Name: "A", URL: "https://a.example/mcp", Tools: []mcplib.NativeMCPTool{{RegisteredName: "mcp_a__search", Name: "search"}}},
 	}}
 	plan := policy.PlanTurnToolDefs(provider, manager, cfg)
 	manager.servers = []mcplib.NativeMCPServer{
-		{Slug: "b", Name: "B", URL: "https://b.example/mcp", ToolNames: []string{"mcp_b__search"}},
+		{Slug: "b", Name: "B", URL: "https://b.example/mcp", Tools: []mcplib.NativeMCPTool{{RegisteredName: "mcp_b__search", Name: "search"}}},
 	}
 	expanded := policy.ResolveExpandedToolDefs(plan.NativeNames, nil, cfg.EnabledTools, cfg)
 	assertNames(t, "somente A foi delegado", defNames(expanded), []string{"mcp_b__search"})

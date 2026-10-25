@@ -18,7 +18,7 @@ import (
 	"assistente/internal/eventctx"
 	"assistente/internal/hotkey"
 	"assistente/internal/jobprofilegrant"
-	"assistente/internal/mcp"
+
 	"assistente/internal/messaging"
 	"assistente/internal/toolinvocations"
 	"assistente/internal/tools"
@@ -899,17 +899,8 @@ func catalogEntryFromRegistryTool(tool tools.Tool) CatalogEntry {
 		Risk:               meta.Risk,
 		AvailabilityStatus: tools.ToolAvailabilityAvailable,
 	}
-	if strings.HasPrefix(entry.Name, "mcp_") {
+	if meta.Origin != tools.ToolOriginBuiltin {
 		entry.Source = "mcp"
-	}
-	if strings.HasPrefix(entry.Name, "mcp_native__") {
-		entry.Origin = tools.ToolOriginMCPNative
-		entry.Risk = ""
-		return entry
-	}
-	if _, _, ok := mcp.ParseToolName(entry.Name); ok {
-		entry.Origin = tools.ToolOriginMCPBridge
-		entry.Risk = ""
 	}
 	return entry
 }
@@ -1274,7 +1265,7 @@ func (m *Manager) TestToolDryRunContext(parent context.Context, req TestToolRequ
 	if m.cfg.ToolRegistry == nil {
 		return nil, fmt.Errorf("tool registry not configured")
 	}
-	origin := effectiveToolOrigin(toolName, req.Origin)
+	origin := strings.TrimSpace(req.Origin)
 	if blocked, reason := dryRunBlockedReason(origin, strings.TrimSpace(req.Risk), req.AllowUnsafe); blocked && origin == tools.ToolOriginMCPNative {
 		return &TestToolResult{
 			Success:       false,
@@ -1290,6 +1281,7 @@ func (m *Manager) TestToolDryRunContext(parent context.Context, req TestToolRequ
 	if !ok {
 		return nil, fmt.Errorf("tool not found: %s", toolName)
 	}
+	origin = tools.CatalogEntryFromTool(tool).Origin
 	if origin == tools.ToolOriginMCPBridge && !req.AllowUnsafe &&
 		(strings.TrimSpace(req.Risk) == "" || strings.TrimSpace(req.MCPServerID) == "" || strings.TrimSpace(req.ToolCatalogID) == "") {
 		return &TestToolResult{
@@ -1433,20 +1425,6 @@ func (m *Manager) TestToolDryRunContext(parent context.Context, req TestToolRequ
 	}, nil
 }
 
-func effectiveToolOrigin(toolName, requestedOrigin string) string {
-	if strings.HasPrefix(toolName, "mcp_native__") {
-		return tools.ToolOriginMCPNative
-	}
-	if _, _, ok := mcp.ParseToolName(toolName); ok {
-		return tools.ToolOriginMCPBridge
-	}
-	origin := strings.TrimSpace(requestedOrigin)
-	if origin != "" {
-		return origin
-	}
-	return tools.ToolOriginBuiltin
-}
-
 func effectiveToolRisk(metadataRisk, requestedRisk string) string {
 	metadataRisk = strings.TrimSpace(metadataRisk)
 	requestedRisk = strings.TrimSpace(requestedRisk)
@@ -1500,6 +1478,11 @@ func (m *Manager) RegenerateCatalog() error {
 // --- Metodos internos ---
 
 func (m *Manager) registerJob(job *Job) {
+	if m.cfg.ToolRegistry != nil {
+		if tool, ok := m.cfg.ToolRegistry.Get(job.Tool); ok {
+			job.ToolOrigin = tools.CatalogEntryFromTool(tool).Origin
+		}
+	}
 	m.registry.Set(job)
 	if m.started {
 		m.registerTriggers(job)
@@ -1787,7 +1770,7 @@ func (m *Manager) jobRunnable(ctx context.Context, jobID string, trigCtx *Trigge
 	if current == nil || !m.effectiveJobEnabled(current) {
 		return nil, false
 	}
-	if trigCtx != nil && trigCtx.Type != TriggerManual && strings.HasPrefix(current.Tool, "mcp_") {
+	if trigCtx != nil && trigCtx.Type != TriggerManual && current.ToolOrigin == tools.ToolOriginMCPBridge {
 		if m.cfg.ToolRegistry == nil {
 			m.logSkippedUnavailableTool(ctx, current, trigCtx, "tool registry is not available")
 			return nil, false

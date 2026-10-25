@@ -647,8 +647,7 @@ func (s *Service) emitTokenStats(conversationID string) {
 
 func (s *Service) emitToolStarts(conversationID string, turnID string, assistantMessageID string, calls []llm.ToolCall, surfaceOrigin *ports.ChatSurfaceOrigin) {
 	for _, call := range calls {
-		origin, serverLabel := detectToolOrigin(call.Function.Name)
-		name := extractLogicalToolName(call.Function.Name)
+		origin, serverLabel, name := s.toolPresentation(call.Function.Name)
 		EmitToolStart(s.emitter, ports.ToolStartEvent{
 			ConversationID:     conversationID,
 			TurnID:             turnID,
@@ -663,27 +662,22 @@ func (s *Service) emitToolStarts(conversationID string, turnID string, assistant
 	}
 }
 
-// detectToolOrigin determina origin e serverLabel a partir do nome da tool.
-// Tools MCP bridge seguem o formato "mcp_{serverSlug}__{toolName}".
-func detectToolOrigin(toolName string) (origin, serverLabel string) {
-	if strings.HasPrefix(toolName, "mcp_") {
-		if idx := strings.Index(toolName, "__"); idx > 4 {
-			return OriginMCPBridge, toolName[4:idx]
+func (s *Service) toolPresentation(name string) (origin, server, logicalName string) {
+	if s.toolExecutor != nil {
+		if tool, ok := s.toolExecutor.Registry().Get(name); ok {
+			if identity, ok := tools.MCPIdentityOf(tool); ok {
+				return toolPresentation(name, &identity)
+			}
 		}
 	}
-	return OriginBuiltin, ""
+	return toolPresentation(name, nil)
 }
 
-// extractLogicalToolName retorna o nome lógico da tool, sem prefixo MCP bridge.
-// Para "mcp_github__search_code" retorna "search_code".
-// Para tools builtin/native retorna o nome inalterado.
-func extractLogicalToolName(toolName string) string {
-	if strings.HasPrefix(toolName, "mcp_") {
-		if idx := strings.Index(toolName, "__"); idx > 4 {
-			return toolName[idx+2:]
-		}
+func toolPresentation(name string, identity *tools.MCPToolIdentity) (origin, server, logicalName string) {
+	if identity != nil {
+		return OriginMCPBridge, identity.ServerSlug, identity.ToolName
 	}
-	return toolName
+	return OriginBuiltin, "", name
 }
 
 // persistNativeMCPCalls registra MCP nativo exclusivamente em tool_invocations.
@@ -760,6 +754,7 @@ func (s *Service) persistNativeMCPCalls(ctx context.Context, conversationID, tur
 			errMsg = ev.Error
 		}
 		_, recErr := s.toolInvocations.Record(ctx, toolinvocations.RecordRequest{
+			MCPIdentity: tools.MCPToolIdentity{ServerSlug: slug, ToolName: ev.Name},
 			Call: tools.ToolCall{
 				ID:   ev.ID,
 				Type: "function",

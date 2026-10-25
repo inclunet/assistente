@@ -58,6 +58,10 @@ func (testToolMCPNative) Execute(_ context.Context, _ json.RawMessage) (tools.To
 
 type testToolMCPBridge struct{}
 
+func (testToolMCPBridge) MCPIdentity() tools.MCPToolIdentity {
+	return tools.MCPToolIdentity{ServerSlug: "jira", ToolName: "delete_issue"}
+}
+
 func (testToolMCPBridge) Name() string                { return "mcp_jira__delete_issue" }
 func (testToolMCPBridge) Description() string         { return "bridge" }
 func (testToolMCPBridge) Parameters() json.RawMessage { return json.RawMessage(`{"type":"object"}`) }
@@ -238,8 +242,8 @@ func TestManagerTestToolDryRunContext_BlocksUnsafeAndNative(t *testing.T) {
 	if err != nil {
 		t.Fatalf("native implicit dry-run err: %v", err)
 	}
-	if nativeImplicit == nil || !nativeImplicit.Blocked || nativeImplicit.Success || nativeImplicit.Origin != tools.ToolOriginMCPNative {
-		t.Fatalf("expected implicit native MCP dry-run to be blocked, got %#v", nativeImplicit)
+	if nativeImplicit == nil || !nativeImplicit.Success || nativeImplicit.Origin != tools.ToolOriginBuiltin {
+		t.Fatalf("name alone must not classify a builtin as MCP native, got %#v", nativeImplicit)
 	}
 
 	bridgeWithoutRisk, err := mgr.TestToolDryRunContext(userCtx, TestToolRequest{ToolName: "mcp_jira__delete_issue"})

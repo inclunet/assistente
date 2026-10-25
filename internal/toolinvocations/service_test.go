@@ -81,7 +81,7 @@ func TestBuildInvocationMetadataPersistsOnlyNativeSearchPresentation(t *testing.
 	presentation := tools.SearchResultPresentation{Version: 1, Total: 1, Items: []tools.SearchResultItem{{Kind: "file", Title: "main.go"}}}
 	metadata := svc.buildInvocationMetadata(call, 1, 2, false, tools.ToolResult{Metadata: map[string]any{
 		tools.SearchResultPresentationMetadataKey: presentation,
-	}})
+	}}, tools.MCPToolIdentity{})
 	var payload map[string]json.RawMessage
 	if err := json.Unmarshal(metadata, &payload); err != nil {
 		t.Fatal(err)
@@ -92,7 +92,7 @@ func TestBuildInvocationMetadataPersistsOnlyNativeSearchPresentation(t *testing.
 
 	mcp := svc.buildInvocationMetadata(call, 1, 2, true, tools.ToolResult{Metadata: map[string]any{
 		tools.SearchResultPresentationMetadataKey: presentation,
-	}})
+	}}, tools.MCPToolIdentity{})
 	if strings.Contains(string(mcp), tools.SearchResultPresentationMetadataKey) {
 		t.Fatalf("metadata de integração externa não deveria virar apresentação: %s", mcp)
 	}
@@ -318,7 +318,87 @@ func TestExtractToolInvocationResultRestoresProjectionAnnotations(t *testing.T) 
 }
 
 type echoTool struct{}
+type disconnectingMCPTool struct {
+	echoTool
+	registry *tools.Registry
+}
+
+func (disconnectingMCPTool) MCPIdentity() tools.MCPToolIdentity {
+	return tools.MCPToolIdentity{ServerSlug: "original", ToolName: "search"}
+}
+
+func (t disconnectingMCPTool) Execute(context.Context, json.RawMessage) (tools.ToolResult, error) {
+	t.registry.Unregister("echo")
+	t.registry.MustRegister(echoTool{})
+	return tools.ToolResult{Content: "ok"}, nil
+}
+
+func TestServicePreservesExecutedIdentityAfterRegistryReplacement(t *testing.T) {
+	repo, user, _ := setupRepositoryTest(t)
+	registry := tools.NewRegistry()
+	registry.MustRegister(disconnectingMCPTool{registry: registry})
+	svc := NewService(repo, tools.NewExecutor(registry, tools.DefaultExecutorConfig()))
+	result := svc.Execute(user, ExecuteRequest{
+		Call:   tools.ToolCall{ID: "identity", Function: tools.FunctionCall{Name: "echo", Arguments: `{}`}},
+		Origin: Origin{Type: OriginChat, ID: "turn-1"},
+	})
+	if !result.Persisted || result.Execution.Result.IsError {
+		t.Fatalf("execution failed: %+v", result)
+	}
+	stored, err := repo.Get(user, result.Invocation.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload struct {
+		Display struct {
+			Name   string `json:"name"`
+			Origin string `json:"origin"`
+			Server string `json:"server_label"`
+		} `json:"display"`
+	}
+	if err := json.Unmarshal(stored.Metadata, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Display.Name != "search" || payload.Display.Server != "original" || payload.Display.Origin != "mcp_bridge" {
+		t.Fatalf("identity replaced by current registry: %s", stored.Metadata)
+	}
+}
+
 type countingTool struct{ calls *int }
+
+func TestServiceUsesBuiltinIdentityWhenBridgeIsReplacedBeforeExecution(t *testing.T) {
+	repo, user, _ := setupRepositoryTest(t)
+	registry := tools.NewRegistry()
+	registry.MustRegister(disconnectingMCPTool{registry: registry})
+	svc := NewService(repo, tools.NewExecutor(registry, tools.DefaultExecutorConfig()))
+	result := svc.Execute(user, ExecuteRequest{
+		Call:   tools.ToolCall{ID: "replaced", Function: tools.FunctionCall{Name: "echo", Arguments: `{}`}},
+		Origin: Origin{Type: OriginChat, ID: "turn-1"},
+		BeforeExecute: func(context.Context) error {
+			registry.Unregister("echo")
+			registry.MustRegister(echoTool{})
+			return nil
+		},
+	})
+	if !result.Persisted || result.Execution.Result.IsError || result.Execution.MCPIdentity != nil {
+		t.Fatalf("unexpected execution: %+v", result)
+	}
+	stored, err := repo.Get(user, result.Invocation.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload struct {
+		Display struct {
+			Origin string `json:"origin"`
+		} `json:"display"`
+	}
+	if err := json.Unmarshal(stored.Metadata, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Display.Origin != "builtin" {
+		t.Fatalf("stale identity: %s", stored.Metadata)
+	}
+}
 
 func (echoTool) Name() string { return "echo" }
 func (echoTool) Description() string {
@@ -800,7 +880,7 @@ func TestBuildInvocationDisplayMetadataRedactsArguments(t *testing.T) {
 				"note":"hello"
 			}`,
 		},
-	}, 1, 12, false)
+	}, 1, 12, false, tools.MCPToolIdentity{})
 	raw := string(metadata)
 	if strings.Contains(raw, "123") || strings.Contains(raw, "Bearer abc.def.ghi") {
 		t.Fatalf("display metadata leaked sensitive arguments: %s", raw)
@@ -832,7 +912,7 @@ func TestBuildInvocationDisplayMetadataTruncatesArguments(t *testing.T) {
 			Name:      "echo",
 			Arguments: `{"value":"` + strings.Repeat("a", 4096) + `"}`,
 		},
-	}, 2, 34, false)
+	}, 2, 34, false, tools.MCPToolIdentity{})
 	if len(metadata) > max {
 		t.Fatalf("metadata size = %d, want <= %d", len(metadata), max)
 	}
@@ -869,7 +949,7 @@ func TestBuildInvocationDisplayMetadataUsesCompactFallbackWithinLimit(t *testing
 			Name:      "mcp_" + strings.Repeat("server", 20) + "__" + strings.Repeat("tool", 20),
 			Arguments: `{"value":"` + strings.Repeat("a", 1024) + `"}`,
 		},
-	}, strings.Repeat("a", 1024), 1, 12, false, max)
+	}, strings.Repeat("a", 1024), 1, 12, false, max, tools.MCPToolIdentity{})
 	if len(metadata) > max {
 		t.Fatalf("metadata size = %d, want <= %d: %s", len(metadata), max, string(metadata))
 	}
@@ -878,15 +958,16 @@ func TestBuildInvocationDisplayMetadataUsesCompactFallbackWithinLimit(t *testing
 	}
 }
 
-func TestBuildInvocationDisplayPayloadDetectsOnlyOfficialMCPBridgeNames(t *testing.T) {
+func TestBuildInvocationDisplayPayloadUsesExplicitMCPIdentity(t *testing.T) {
 	tests := []struct {
 		name            string
+		identity        tools.MCPToolIdentity
 		wantOrigin      string
 		wantServerLabel string
 		wantName        string
 	}{
 		{
-			name:            "mcp_github__search_code",
+			name: "external_alias", identity: tools.MCPToolIdentity{ServerSlug: "github", ToolName: "search_code"},
 			wantOrigin:      "mcp_bridge",
 			wantServerLabel: "github",
 			wantName:        "search_code",
@@ -898,10 +979,10 @@ func TestBuildInvocationDisplayPayloadDetectsOnlyOfficialMCPBridgeNames(t *testi
 			wantName:        "builtin__with_separator",
 		},
 		{
-			name:            "mcp___missing_server",
+			name:            "mcp_fake__builtin",
 			wantOrigin:      "builtin",
 			wantServerLabel: "",
-			wantName:        "mcp___missing_server",
+			wantName:        "mcp_fake__builtin",
 		},
 	}
 	for _, tt := range tests {
@@ -912,7 +993,7 @@ func TestBuildInvocationDisplayPayloadDetectsOnlyOfficialMCPBridgeNames(t *testi
 					Name:      tt.name,
 					Arguments: "{}",
 				},
-			}, "{}", 1, 12, false, false, 0)
+			}, "{}", 1, 12, false, false, 0, tt.identity)
 			display, _ := payload["display"].(map[string]any)
 			if display["origin"] != tt.wantOrigin || display["server_label"] != tt.wantServerLabel || display["name"] != tt.wantName {
 				t.Fatalf("unexpected display payload: %#v", display)

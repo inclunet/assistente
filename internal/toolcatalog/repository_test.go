@@ -517,16 +517,19 @@ func TestDBRepositoryUpsertToolPersistsZeroValueUpdates(t *testing.T) {
 func TestDBRepositoryRecordsToolTestResults(t *testing.T) {
 	repo, userA, _ := setupCatalogTest(t)
 	if err := repo.UpsertTool(context.Background(), &tools.ToolCatalogEntry{
-		Name:               "read_file",
-		DisplayName:        "read_file",
+		Name:               "mcp_fake__builtin",
+		DisplayName:        "mcp_fake__builtin",
 		Origin:             tools.ToolOriginBuiltin,
 		AvailabilityStatus: tools.ToolAvailabilityAvailable,
 		Schema:             json.RawMessage(`{"type":"object"}`),
 	}); err != nil {
 		t.Fatalf("upsert builtin: %v", err)
 	}
-	if err := repo.RecordToolTest(context.Background(), "read_file", tools.ToolTestStatusOK, ""); err != nil {
+	if err := repo.RecordToolTest(userA, "mcp_fake__builtin", tools.ToolTestStatusOK, ""); err != nil {
 		t.Fatalf("record builtin test: %v", err)
+	}
+	if err := repo.RecordToolTest(context.Background(), "mcp_fake__builtin", tools.ToolTestStatusError, "unauthorized"); err != database.ErrUserScopeRequired {
+		t.Fatalf("record builtin without user = %v", err)
 	}
 	entries, err := repo.ListTools(userA, tools.ToolCatalogFilter{})
 	if err != nil {
@@ -538,7 +541,7 @@ func TestDBRepositoryRecordsToolTestResults(t *testing.T) {
 
 	serverID := seedServer(t, repo, "user-a", "jira")
 	if err := repo.UpsertTool(userA, &tools.ToolCatalogEntry{
-		Name:               "mcp_jira__create_issue",
+		Name:               "issue_alias",
 		DisplayName:        "create_issue",
 		Origin:             tools.ToolOriginMCPBridge,
 		MCPServerID:        serverID,
@@ -547,7 +550,7 @@ func TestDBRepositoryRecordsToolTestResults(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("upsert mcp: %v", err)
 	}
-	if err := repo.RecordToolTest(userA, "mcp_jira__create_issue", tools.ToolTestStatusError, "boom"); err != nil {
+	if err := repo.RecordToolTest(userA, "issue_alias", tools.ToolTestStatusError, "boom"); err != nil {
 		t.Fatalf("record mcp test: %v", err)
 	}
 	entries, err = repo.ListTools(userA, tools.ToolCatalogFilter{})
@@ -556,7 +559,7 @@ func TestDBRepositoryRecordsToolTestResults(t *testing.T) {
 	}
 	var found tools.ToolCatalogEntry
 	for _, entry := range entries {
-		if entry.Name == "mcp_jira__create_issue" {
+		if entry.Name == "issue_alias" {
 			found = entry
 		}
 	}
@@ -590,6 +593,9 @@ func TestDBRepositoryRecordToolTestByIDUpdatesOnlySelectedCatalogRow(t *testing.
 	entries, err := repo.ListTools(userA, tools.ToolCatalogFilter{MCPServerID: serverAID, IncludeUnavailable: true})
 	if err != nil || len(entries) != 1 {
 		t.Fatalf("list server A tools: entries=%#v err=%v", entries, err)
+	}
+	if err := repo.RecordToolTest(userA, "mcp_native__filesystem", tools.ToolTestStatusError, "ambiguous"); err == nil {
+		t.Fatal("record by name accepted multiple visible tools")
 	}
 	if err := repo.RecordToolTestByID(userA, entries[0].ID, tools.ToolTestStatusBlocked, "native dry-run blocked"); err != nil {
 		t.Fatalf("record by id: %v", err)

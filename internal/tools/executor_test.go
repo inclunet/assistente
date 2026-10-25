@@ -12,11 +12,14 @@ import (
 
 // mockTool implements Tool for testing.
 type mockTool struct {
-	name   string
-	exec   func(ctx context.Context, args json.RawMessage) (ToolResult, error)
-	panics bool
-	panicV any
+	identity MCPToolIdentity
+	name     string
+	exec     func(ctx context.Context, args json.RawMessage) (ToolResult, error)
+	panics   bool
+	panicV   any
 }
+
+func (m *mockTool) MCPIdentity() MCPToolIdentity { return m.identity }
 
 func (m *mockTool) Name() string                { return m.name }
 func (m *mockTool) Description() string         { return "mock tool" }
@@ -60,6 +63,24 @@ func TestExecuteSingle_Success(t *testing.T) {
 	}
 	if res.Result.Content != "hello" {
 		t.Fatalf("expected 'hello', got %q", res.Result.Content)
+	}
+}
+
+func TestDeniedMCPToolPreservesIdentityWithoutExecution(t *testing.T) {
+	identity := MCPToolIdentity{ServerSlug: "remote", ToolName: "search"}
+	called := false
+	tool := &mockTool{name: "search_alias", identity: identity, exec: func(context.Context, json.RawMessage) (ToolResult, error) {
+		called = true
+		return ToolResult{}, nil
+	}}
+	executor := NewExecutor(newRegistry(tool), DefaultExecutorConfig())
+	ctx := WithExecutionContext(context.Background(), ExecutionContext{InvokedSkillSlug: "restricted", DeniedTools: []string{tool.Name()}})
+	result := executor.ExecuteOne(ctx, ToolCall{ID: "denied", Function: FunctionCall{Name: tool.Name(), Arguments: `{}`}})
+	if called || !result.Result.IsError || result.Retryable || !result.RetryabilityKnown {
+		t.Fatalf("authorization changed: called=%v result=%+v", called, result)
+	}
+	if result.MCPIdentity == nil || *result.MCPIdentity != identity {
+		t.Fatalf("denied tool lost identity: %+v", result.MCPIdentity)
 	}
 }
 
@@ -509,7 +530,7 @@ func TestProtectErroredToolResultMaterializesFallbackFailure(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got := protectErroredToolResult(context.Background(), tc.result, 1024, "test_tool", false)
+			got := protectErroredToolResult(context.Background(), tc.result, 1024, false, false)
 			if got.Failure == nil || got.Failure.Code != "tool_execution_error" {
 				t.Fatalf("fallback estruturado ausente: %+v", got)
 			}

@@ -76,7 +76,7 @@ func TestAutoDiscoverReadOnlyToolsNeverElevatesWriteOrOptIn(t *testing.T) {
 }
 
 func TestCanonicalToolSelectorMatcherReusesPolicyGrammar(t *testing.T) {
-	entry := tools.ToolCatalogEntry{Name: "mcp_atlassian__search_issues", Package: "mcp:atlassian"}
+	entry := tools.ToolCatalogEntry{Name: "mcp_atlassian__search_issues", Origin: tools.ToolOriginMCPBridge, Package: "mcp:atlassian"}
 	if match, wildcard := canonicalToolSelectorMatcher("mcp/atlassian/*", entry); !match || !wildcard {
 		t.Fatalf("seletor MCP canônico não casou: match=%v wildcard=%v", match, wildcard)
 	}
@@ -87,9 +87,9 @@ func TestCanonicalToolSelectorMatcherReusesPolicyGrammar(t *testing.T) {
 
 func TestCatalogLoadWildcardUsesCanonicalMatcher(t *testing.T) {
 	store := adoptionCatalogStore{entries: []tools.ToolCatalogEntry{
-		{Name: "mcp_atlassian__search_issues", Package: "mcp:atlassian", Risk: "network", AvailabilityStatus: tools.ToolAvailabilityAvailable},
-		{Name: "mcp_atlassian__get_issue", Package: "mcp:atlassian", Risk: "network", AvailabilityStatus: tools.ToolAvailabilityAvailable},
-		{Name: "mcp_slack__search", Package: "mcp:slack", Risk: "network", AvailabilityStatus: tools.ToolAvailabilityAvailable},
+		{Name: "mcp_atlassian__search_issues", Origin: tools.ToolOriginMCPBridge, Package: "mcp:atlassian", Risk: "network", AvailabilityStatus: tools.ToolAvailabilityAvailable},
+		{Name: "mcp_atlassian__get_issue", Origin: tools.ToolOriginMCPBridge, Package: "mcp:atlassian", Risk: "network", AvailabilityStatus: tools.ToolAvailabilityAvailable},
+		{Name: "mcp_slack__search", Origin: tools.ToolOriginMCPBridge, Package: "mcp:slack", Risk: "network", AvailabilityStatus: tools.ToolAvailabilityAvailable},
 	}}
 	loaded := tools.NewLoadedToolStore()
 	ctx := tools.WithToolCatalogRuntime(context.Background(), tools.ToolCatalogRuntime{
@@ -125,12 +125,12 @@ func TestCatalogLoadWildcardEvaluatesAllVisibleEntriesAndCapsMatches(t *testing.
 	visible := make([]string, 0, 230)
 	for i := 0; i < 205; i++ {
 		name := fmt.Sprintf("mcp_slack__tool_%03d", i)
-		entries = append(entries, tools.ToolCatalogEntry{Name: name, Package: "mcp:slack", AvailabilityStatus: tools.ToolAvailabilityAvailable})
+		entries = append(entries, tools.ToolCatalogEntry{Name: name, Origin: tools.ToolOriginMCPBridge, Package: "mcp:slack", AvailabilityStatus: tools.ToolAvailabilityAvailable})
 		visible = append(visible, name)
 	}
 	for i := 0; i < 25; i++ {
 		name := fmt.Sprintf("mcp_atlassian__tool_%03d", i)
-		entries = append(entries, tools.ToolCatalogEntry{Name: name, Package: "mcp:atlassian", AvailabilityStatus: tools.ToolAvailabilityAvailable})
+		entries = append(entries, tools.ToolCatalogEntry{Name: name, Origin: tools.ToolOriginMCPBridge, Package: "mcp:atlassian", AvailabilityStatus: tools.ToolAvailabilityAvailable})
 		visible = append(visible, name)
 	}
 	ctx := tools.WithToolCatalogRuntime(context.Background(), tools.ToolCatalogRuntime{

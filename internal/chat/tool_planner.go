@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"assistente/internal/llm"
-	mcplib "assistente/internal/mcp"
+
 	"assistente/internal/toolcatalog"
 	"assistente/internal/tools"
 )
@@ -181,16 +181,13 @@ func (p *ToolSelectionPolicy) PlanAccumulatedToolDefs(active, newDefs []llm.Tool
 	return out
 }
 
-// toolOriginPackage resolve origem e pacote de catálogo de uma tool pelo nome.
-// Tools MCP (nome namespaced) são bridge com pacote "mcp:<slug>"; as demais são
-// builtins cujo pacote vem dos metadados declarados na própria tool (Fase 1).
+// toolOriginPackage consulta os metadados da implementação registrada.
 func (p *ToolSelectionPolicy) toolOriginPackage(name string) (origin, pkg string) {
-	if slug, _, ok := mcplib.ParseToolName(name); ok {
-		return tools.ToolOriginMCPBridge, "mcp:" + slug
-	}
+
 	if p.registry != nil {
 		if tool, ok := p.registry.Get(name); ok {
-			return tools.ToolOriginBuiltin, tools.CatalogEntryFromTool(tool).Package
+			entry := tools.CatalogEntryFromTool(tool)
+			return entry.Origin, entry.Package
 		}
 	}
 	return tools.ToolOriginBuiltin, ""

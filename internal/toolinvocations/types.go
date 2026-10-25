@@ -128,6 +128,7 @@ type ExecuteResult struct {
 // RecordRequest registra uma invocação já executada fora do executor comum
 // (ex.: MCP nativo), persistindo input/output/status no mesmo formato.
 type RecordRequest struct {
+	MCPIdentity tools.MCPToolIdentity
 	// Observation contém uma atividade externa sem payload técnico disponível.
 	// O adaptador de cada protocolo fornece apenas a apresentação saneada.
 	Observation *ExternalObservation
