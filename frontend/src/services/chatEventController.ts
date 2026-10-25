@@ -10,6 +10,7 @@ import {
   flattenThreadedMessages,
   hasMessageId,
   markMessageStreamingInTree,
+  updateMessageSegmentsInTree,
   type ChatTreeConversation,
   type Message,
   type MessageNode,
@@ -946,19 +947,11 @@ export function startChatEventController({
     playChatErrorSoundIfActive(conversationId, getEventOrigin(event));
   });
 
-  unsubSegmentDone = turnEvents.on('chat:segment_done', (event: ChatSegmentDoneEvent) => {
-    if (event.conversationId !== conversationId) return;
-    if (!isActive()) return;
-    currentTurnId = event.turnId || currentTurnId;
-    ensureAssistantNode(event.assistantMessageId);
-    if (!external) progressAnnouncer.finishSegment();
-    if (!event.hasMore) return;
-
+  const collectReceivedSegments = (content: string): TurnSegment[] => {
     const session = getCurrentSession();
     const newSegments: TurnSegment[] = [...session.completedSegments];
-    if (event.content) {
-      if (event.content.trim()) turnHadAssistantText = true;
-      newSegments.push({ type: 'text', content: event.content });
+    if (content) {
+      newSegments.push({ type: 'text', content: content });
     }
     if (session.activeToolCalls.length > 0) {
       newSegments.push({
@@ -974,6 +967,19 @@ export function startChatEventController({
         })),
       });
     }
+    return newSegments;
+  };
+
+  unsubSegmentDone = turnEvents.on('chat:segment_done', (event: ChatSegmentDoneEvent) => {
+    if (event.conversationId !== conversationId) return;
+    if (!isActive()) return;
+    currentTurnId = event.turnId || currentTurnId;
+    ensureAssistantNode(event.assistantMessageId);
+    if (!external) progressAnnouncer.finishSegment();
+    if (!event.hasMore) return;
+
+    if (event.content?.trim()) turnHadAssistantText = true;
+    const newSegments = collectReceivedSegments(event.content ?? '');
     patchCurrentSession({
       completedSegments: newSegments,
       activeToolCalls: [],
@@ -1013,6 +1019,15 @@ export function startChatEventController({
         patchCurrentSession({ sendFailureMessage: errorMessage, sendFailureAnnounced: true, sendFailureRetryable: false });
       }
       const interruptedId = backendAssistantId || currentAssistantNodeId;
+      if (event.errorMessage === 'persistence_error' && !event.turnPatch && interruptedId) {
+        // Keep the received chronology on its existing backend-owned node before
+        // cleanup clears the live state. This is not a persisted database patch.
+        const segments = collectReceivedSegments(getCurrentAssistantContent());
+        adapter.patchConversation(conversationId, (conversation) => ({
+          ...conversation,
+          threadedMessages: updateMessageSegmentsInTree(conversation.threadedMessages, interruptedId, segments),
+        }));
+      }
       patchCurrentSession({ lastInterruptedMessageId: interruptedId });
       finalizeStreaming(backendAssistantId, currentTurnId);
       cleanup();

@@ -226,6 +226,13 @@ export function updateMessageContentInTree(nodes: MessageNode[], messageId: stri
   });
 }
 
+export function updateMessageSegmentsInTree(nodes: MessageNode[], messageId: string, segments: TurnSegment[]): MessageNode[] {
+  return mapMessageTree(nodes, (node) => {
+    if (String(node.message.id) !== messageId) return node;
+    return cloneNode(node, { message: cloneMessage(node.message, { _turnSegments: segments }) });
+  });
+}
+
 export function updateMessagePinnedInTree(nodes: MessageNode[], messageId: string, pinned: boolean): MessageNode[] {
   return mapMessageTree(nodes, (node) => {
     if (String(node.message.id) !== messageId) return node;

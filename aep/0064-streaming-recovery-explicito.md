@@ -110,7 +110,7 @@ As opções ficam no perfil (guia “Modelos”), com rótulos amigáveis e i18n
   backend tenta preservar o parcial no placeholder existente e emite apenas um
   `chat:done` com `reason=error`, `errorMessage=persistence_error` e o ID da
   mensagem. O terminal não inclui snapshot antigo do banco, preservando na
-  superfície de origem o texto já recebido por streaming. A UI informa que a
+  superfície de origem o texto e os segmentos de ferramentas já recebidos por streaming. A UI informa que a
   gravação falhou e orienta copiar o texto antes de fechar/recarregar; não
   afirma que o conteúdo está durável. Não emite sucesso para canais, `chat:stream` concluído,
   TTS ou sumarização; o ledger de MCP nativo continua sendo persistido antes
@@ -137,7 +137,7 @@ fechamento do aplicativo quando todas as gravações falham.
   `TestMessageUpdateRetryStopsOnCancellationAndPermanentError`.
 - [x] Falha terminal não publica snapshot obsoleto nem efeitos de sucesso:
   `TestSaveAndFinish_FinalizeFailureIsTerminalAndRecoverable`.
-- [x] UI preserva o último delta ainda não renderizado e mostra diagnóstico
+- [x] UI preserva o último delta ainda não renderizado, a cronologia de ferramentas e mostra diagnóstico
   específico: teste de falha de salvamento em `chatEventController.test.ts`.
 
 ### Leitura limitada do contexto de retry

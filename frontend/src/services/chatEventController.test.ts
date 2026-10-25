@@ -1359,6 +1359,37 @@ describe('chatEventController', () => {
     expect(mockPlayChatErrorSoundIfActive).toHaveBeenCalledWith('conversation-1', undefined);
   });
 
+  it.each([false, true])('preserva cronologia recebida na falha de gravação (última tool ativa: %s)', (withActiveTool) => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+    const identity = { conversationId: 'conversation-1', turnId: 'turn-1', assistantMessageId: 'assistant-1' };
+    emitEvent('chat:stream', { ...identity, messageId: 'assistant-1', content: 'Vou pesquisar.', done: false });
+    emitEvent('chat:tool_start', { ...identity, name: 'search', callId: 'call-1', origin: 'mcp_bridge', serverLabel: 'remote' });
+    emitEvent('chat:tool_end', { ...identity, name: 'search', callId: 'call-1', status: 'ok', summary: 'Encontrado' });
+    emitEvent('chat:segment_done', { ...identity, hasMore: true, content: 'Vou pesquisar.' });
+    emitEvent('chat:stream', { ...identity, messageId: 'assistant-1', content: 'Resposta final.', done: false });
+    if (withActiveTool) {
+      emitEvent('chat:tool_start', { ...identity, name: 'read', callId: 'call-2', origin: 'builtin' });
+      emitEvent('chat:tool_end', { ...identity, name: 'read', callId: 'call-2', status: 'ok' });
+    }
+    emitEvent('chat:done', { ...identity, reason: 'error', errorMessage: 'persistence_error' });
+    vi.runOnlyPendingTimers();
+    const message = sessions['conversation-1'].conversation!.threadedMessages[0].message as Message;
+    expect(message._turnSegments?.map(segment => segment.type)).toEqual(
+      withActiveTool ? ['text', 'tool_calls', 'text', 'tool_calls'] : ['text', 'tool_calls', 'text'],
+    );
+    expect(message._turnSegments?.[0].content).toBe('Vou pesquisar.');
+    expect(message._turnSegments?.[1].toolCalls?.[0]).toMatchObject({
+      id: 'call-1', function: { name: 'search' }, status: 'done', result: 'Encontrado',
+      origin: 'mcp_bridge', serverLabel: 'remote',
+    });
+    expect(message._turnSegments?.[2].content).toBe('Resposta final.\n\nErro: chat.errors.persistenceError');
+    if (withActiveTool) expect(message._turnSegments?.[3].toolCalls?.[0].id).toBe('call-2');
+    expect(sessions['conversation-1'].completedSegments).toEqual([]);
+    expect(sessions['conversation-1'].activeToolCalls).toEqual([]);
+    expect(message.isStreaming).toBe(false);
+  });
+
   it('preserva texto recebido e informa falha de salvamento sem pedir nova geração', () => {
     const { adapter, sessions } = createAdapter(['conversation-1']);
     startChatEventController({ conversationId: 'conversation-1', adapter });

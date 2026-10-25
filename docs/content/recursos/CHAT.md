@@ -74,7 +74,7 @@ gravação da mensagem, com espera limitada. Isso não chama novamente o modelo
 nem executa ferramentas outra vez.
 
 Se ainda não for possível salvar a resposta, o turno termina com um aviso
-específico. O texto recebido permanece na superfície em que você iniciou a
+específico. O texto e a sequência de ferramentas recebidos permanecem na superfície em que você iniciou a
 resposta; **copie-o antes de fechar ou recarregar a conversa**, pois não há
 garantia de que tenha sido salvo. Um snapshot antigo do banco não substitui
 esse texto no encerramento com falha de gravação. Não há notificação de sucesso,
