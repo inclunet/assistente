@@ -394,6 +394,7 @@ const en = {
         mediaSerializationFailed: 'The attachments could not be prepared. Please try again.',
         cancelStreamingFailed: 'Could not cancel generation: {{message}}',
         assistantPlaceholder: 'Could not prepare the assistant message.',
+        persistenceError: 'The response could not be saved. Copy the text before closing or reloading the conversation.',
         internalError: 'Unexpected internal error. Please try again.',
         streamingInterrupted: 'Response interrupted by provider without finish reason; please try again.',
         streamingIdleTimeout: 'Provider stopped responding mid-generation (idle timeout).',

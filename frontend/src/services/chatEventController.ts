@@ -42,6 +42,9 @@ const translateBackendChatError = (message: string) => {
   if (message === 'assistant_placeholder_error') {
     return i18next.t('chat.errors.assistantPlaceholder');
   }
+  if (message === 'persistence_error') {
+    return i18next.t('chat.errors.persistenceError');
+  }
   if (message === 'internal_error') {
     return i18next.t('chat.errors.internalError');
   }

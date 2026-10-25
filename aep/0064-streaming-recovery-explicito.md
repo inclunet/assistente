@@ -1,6 +1,6 @@
 # AEP-0064 — Recuperação explícita de resposta interrompida (continuação) e cancelamento de geração
 
-Status: Done — recuperação, retry ancorado com leitura limitada e persistência terminal
+Status: Done — recuperação, retry ancorado e persistência terminal sob contenção
 Data: 2026-05-21
 Autor: Leonardo Gleison (Inclunet) + GitHub Copilot
 
@@ -108,11 +108,37 @@ As opções ficam no perfil (guia “Modelos”), com rótulos amigáveis e i18n
   `assistant` trailing antes do provider.
 - Persistir a resposta final é um gate terminal. Se a finalização falhar, o
   backend tenta preservar o parcial no placeholder existente e emite apenas um
-  `chat:done` com `reason=error`, `errorMessage=internal_error` e o ID da
-  mensagem recuperável. Não emite sucesso para canais, `chat:stream` concluído,
+  `chat:done` com `reason=error`, `errorMessage=persistence_error` e o ID da
+  mensagem. O terminal não inclui snapshot antigo do banco, preservando na
+  superfície de origem o texto já recebido por streaming. A UI informa que a
+  gravação falhou e orienta copiar o texto antes de fechar/recarregar; não
+  afirma que o conteúdo está durável. Não emite sucesso para canais, `chat:stream` concluído,
   TTS ou sumarização; o ledger de MCP nativo continua sendo persistido antes
   da finalização como evidência de ações já executadas. Nenhuma tool é repetida
   automaticamente. O caminho simple usa o mesmo gate compartilhado.
+
+### Persistência sob contenção (25/10/2026)
+
+As atualizações de texto, parcial, resposta final e métricas usam o
+`WithSQLiteBusyRetry` já existente no repositório SQLite. Cada tentativa
+reconstrói a consulta com ownership e repete somente o UPDATE atômico e
+idempotente. Não há repetição de geração, execução de tools, novo armazenamento
+ou fila em paralelo ao banco. Erros permanentes não são repetidos e o contexto
+continua controlando o cancelamento.
+
+A política central mantém espera limitada. Se a indisponibilidade persistir,
+o gate terminal continua falhando explicitamente, sem efeitos de sucesso. A
+preservação visual não equivale a persistência em disco e não sobrevive ao
+fechamento do aplicativo quando todas as gravações falham.
+
+- [x] Writer lock real seguido de liberação preserva conteúdo, reasoning e usage
+  sem duplicar mensagens: `TestMessageUpdatesSurviveWriterContention`.
+- [x] Cancelamento e erro permanente encerram as tentativas:
+  `TestMessageUpdateRetryStopsOnCancellationAndPermanentError`.
+- [x] Falha terminal não publica snapshot obsoleto nem efeitos de sucesso:
+  `TestSaveAndFinish_FinalizeFailureIsTerminalAndRecoverable`.
+- [x] UI preserva o último delta ainda não renderizado e mostra diagnóstico
+  específico: teste de falha de salvamento em `chatEventController.test.ts`.
 
 ### Leitura limitada do contexto de retry
 

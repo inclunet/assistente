@@ -69,11 +69,16 @@ banco, sem carregar a conversa inteira para repetir uma pergunta antiga. As
 regras do limite de contexto e do resumo são preservadas. Isso reduz o trabalho
 local do retry, mas não muda a velocidade de geração do provedor.
 
-Se a gravação da resposta final falhar, o chat encerra o turno com erro
-recuperável e mantém o ID da mensagem/placeholder para uma nova ação explícita.
-Não há notificação de sucesso, TTS ou sumarização nesse caso, e ferramentas não
-são repetidas automaticamente. O erro técnico fica no log; a interface recebe
-o código estável `internal_error`.
+Quando o banco está temporariamente ocupado, o aplicativo repete apenas a
+gravação da mensagem, com espera limitada. Isso não chama novamente o modelo
+nem executa ferramentas outra vez.
+
+Se ainda não for possível salvar a resposta, o turno termina com um aviso
+específico. O texto recebido permanece na superfície em que você iniciou a
+resposta; **copie-o antes de fechar ou recarregar a conversa**, pois não há
+garantia de que tenha sido salvo. Um snapshot antigo do banco não substitui
+esse texto no encerramento com falha de gravação. Não há notificação de sucesso,
+TTS ou sumarização nesse caso.
 
 ## Limites e truncamentos
 

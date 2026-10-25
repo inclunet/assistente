@@ -1359,6 +1359,29 @@ describe('chatEventController', () => {
     expect(mockPlayChatErrorSoundIfActive).toHaveBeenCalledWith('conversation-1', undefined);
   });
 
+  it('preserva texto recebido e informa falha de salvamento sem pedir nova geração', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+    emitEvent('chat:messages_ready', {
+      conversationId: 'conversation-1', userMessageId: 'user-1',
+      userContent: 'pergunta', turnId: 'user-1',
+    });
+    emitEvent('chat:stream', {
+      conversationId: 'conversation-1', turnId: 'user-1',
+      messageId: 'assistant-db-3', content: 'resposta completa recebida', done: false,
+    });
+    // Terminal arrives before the animation frame has rendered the last delta.
+    emitEvent('chat:done', {
+      conversationId: 'conversation-1', turnId: 'user-1',
+      assistantMessageId: 'assistant-db-3', reason: 'error',
+      errorMessage: 'persistence_error',
+    });
+    vi.runOnlyPendingTimers();
+    const messages = sessions['conversation-1'].conversation?.threadedMessages ?? [];
+    expect(messages[1].message.content).toBe('resposta completa recebida\n\nErro: chat.errors.persistenceError');
+    expect(messages[1].message.isStreaming).toBe(false);
+  });
+
   it('preenche fallback visual quando chat:done falha sem parcial', () => {
     const { adapter, sessions } = createAdapter(['conversation-1']);
 
