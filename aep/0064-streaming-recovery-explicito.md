@@ -151,6 +151,10 @@ fechamento do aplicativo quando todas as gravações falham.
   Antes do primeiro delta/segmento, o modo explícito de continuação recebido
   do pipeline preserva a cadeia anterior se o turno encerrar após uma ferramenta
   sem patch; retry normal preserva somente a tentativa atual.
+  A cadeia retomável normaliza a conclusão canônica pelo conteúdo vigente,
+  preservando edições e a posição das ferramentas. Avisos terminais são
+  segmentos de diagnóstico explícitos, inclusive quando há patch, e não
+  entram no conteúdo retomável.
 - [x] Diagnósticos terminais são marcados separadamente do conteúdo retomável.
   A inicialização do prefixo acontece uma vez por tentativa, preservando as
   iterações seguintes. Sucesso sem patch também materializa a cronologia atual,

@@ -868,6 +868,57 @@ describe('chatEventController', () => {
     expect(sessions['conversation-1'].lastInterruptedMessageId).toBe('assistant-limit-patch');
   });
 
+  it.each([
+    { terminal: 'error', nextDelta: false },
+    { terminal: 'error', nextDelta: true },
+    { terminal: 'output_limit', nextDelta: false },
+  ])('diagnóstico com patch não vira conteúdo na continuação ($terminal, delta: $nextDelta)', ({ terminal, nextDelta }) => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+    const identity = { conversationId: 'conversation-1', turnId: 'turn-1', assistantMessageId: 'assistant-1' };
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+    emitEvent('chat:tool_start', { ...identity, name: 'stale', callId: 'stale-completed', origin: 'builtin' });
+    emitEvent('chat:tool_end', { ...identity, name: 'stale', callId: 'stale-completed', status: 'ok' });
+    emitEvent('chat:segment_done', { ...identity, content: 'Texto obsoleto', hasMore: true });
+    emitEvent('chat:tool_start', { ...identity, name: 'stale', callId: 'stale-active', origin: 'builtin' });
+    const content = terminal === 'error' ? 'Parcial' : '';
+    emitEvent('chat:done', {
+      ...identity, reason: terminal,
+      ...(terminal === 'error' ? { errorMessage: 'internal_error' } : {}),
+      turnPatch: { message: {
+        id: 'assistant-1', conversationId: 'conversation-1', turnId: 'turn-1', content,
+        createdAt: '2026-09-19T10:00:00Z', timestamp: 1,
+        turnSegments: [
+          { type: 'tool_calls', toolInvocations: [{ callId: 'canonical-call', name: 'search', status: 'ok', hasDetails: true, resultAvailability: 'available' }] },
+          ...(content ? [{ type: 'text', content }] : []),
+        ],
+      } },
+    });
+    vi.runOnlyPendingTimers();
+    const ended = sessions['conversation-1'].conversation!.threadedMessages[0].message as Message;
+    const endedSegments = getMessageTurnSegments(ended)!;
+    expect(endedSegments.filter(segment => segment.diagnostic)).toHaveLength(1);
+    expect(JSON.stringify(endedSegments)).not.toContain('stale');
+    expect(JSON.stringify(endedSegments)).not.toContain('Texto obsoleto');
+    startChatEventController({ conversationId: 'conversation-1', adapter, continuationRequested: true });
+    if (nextDelta) {
+      emitEvent('chat:stream', { ...identity, messageId: 'assistant-1', reset: true, sequence: 0, baseContent: content, delta: ' novo' });
+    }
+    emitEvent('chat:tool_start', { ...identity, name: 'read', callId: 'new-call', origin: 'builtin' });
+    emitEvent('chat:tool_end', { ...identity, name: 'read', callId: 'new-call', status: 'ok' });
+    emitEvent('chat:done', { ...identity, reason: 'cancelled' });
+    vi.runOnlyPendingTimers();
+    const resumed = sessions['conversation-1'].conversation!.threadedMessages[0].message as Message;
+    const segments = getMessageTurnSegments(resumed)!;
+    expect(segments.filter(segment => segment.diagnostic)).toEqual([]);
+    expect(segments.filter(segment => segment.type === 'text').map(segment => segment.content))
+      .toEqual(content ? [content + (nextDelta ? ' novo' : '')] : []);
+    expect(segments.flatMap(segment => [
+      ...(segment.toolInvocations ?? []).map(tool => tool.callId),
+      ...(segment.toolCalls ?? []).map(tool => tool.id),
+    ])).toEqual(['canonical-call', 'new-call']);
+    expect(resumed.content).toBe(content + (nextDelta ? ' novo' : ''));
+  });
+
   it('em erro no chat:stream usa messageId persistido para interrupção', () => {
     const { adapter, sessions } = createAdapter(['conversation-1']);
     const surfaceOrigin = {
@@ -1500,6 +1551,85 @@ describe('chatEventController', () => {
       expect(message.isStreaming).toBe(false);
     },
   );
+
+  it.each([
+    { source: 'helper de edição', useEditHelper: true, content: 'Texto editado', hasCanonicalText: true },
+    { source: 'canônico recarregado', useEditHelper: false, content: 'Texto editado', hasCanonicalText: true },
+    { source: 'edição vazia', useEditHelper: true, content: '', hasCanonicalText: true },
+    { source: 'canônico vazio recarregado', useEditHelper: false, content: '', hasCanonicalText: true },
+    { source: 'canônico só com tools', useEditHelper: false, content: 'Texto editado', hasCanonicalText: false },
+  ].flatMap(scenario => ['cancelled', 'error'].map(reason => ({ ...scenario, reason }))))(
+    'continuação tool-first preserva conclusão de $source ($reason)',
+    ({ useEditHelper, content, hasCanonicalText, reason }) => {
+      const { adapter, sessions } = createAdapter(['conversation-1']);
+      const prior = new chat.MessageNode({
+        message: {
+          id: 'assistant-1', conversationId: 'conversation-1', turnId: 'turn-1', role: 'assistant',
+          content: useEditHelper ? 'Texto original' : content,
+          turnSegments: [
+            ...(hasCanonicalText ? [{ type: 'text', content: 'Texto original' }] : []),
+            { type: 'tool_calls', toolInvocations: [{ callId: 'old-call', name: 'search', status: 'ok', hasDetails: true, resultAvailability: 'available' }] },
+          ],
+        } as Message,
+        children: [], level: 0, childCount: 0,
+      }) as MessageNode;
+      sessions['conversation-1'].conversation!.threadedMessages = useEditHelper
+        ? updateEditedMessageContentInTree([prior], 'assistant-1', content)
+        : [prior];
+      startChatEventController({ conversationId: 'conversation-1', adapter, continuationRequested: true });
+      const identity = { conversationId: 'conversation-1', turnId: 'turn-1', assistantMessageId: 'assistant-1' };
+      emitEvent('chat:tool_start', { ...identity, name: 'read', callId: 'new-call', origin: 'builtin' });
+      emitEvent('chat:tool_end', { ...identity, name: 'read', callId: 'new-call', status: 'ok' });
+      emitEvent('chat:done', { ...identity, reason, ...(reason === 'error' ? { errorMessage: 'persistence_error' } : {}) });
+      vi.runOnlyPendingTimers();
+      const message = sessions['conversation-1'].conversation!.threadedMessages[0].message as Message;
+      const segments = getMessageTurnSegments(message)!;
+      expect(segments.filter(segment => segment.type === 'text' && !segment.diagnostic && segment.content).map(segment => segment.content))
+        .toEqual(content ? [content] : []);
+      expect(segments.flatMap(segment => [
+        ...(segment.toolInvocations ?? []).map(tool => tool.callId),
+        ...(segment.toolCalls ?? []).map(tool => tool.id),
+      ])).toEqual(['old-call', 'new-call']);
+      expect(JSON.stringify(segments)).not.toContain('Texto original');
+      expect(message.content).toBe(reason === 'error'
+        ? `${content ? content + '\n\n' : ''}Erro: chat.errors.persistenceError`
+        : content);
+      if (hasCanonicalText) expect(message.turnSegments?.[0].content).toBe('Texto original');
+      expect(message.isStreaming).toBe(false);
+    },
+  );
+
+  it('retoma conclusão editada com delta mantendo tools posteriores e textos anteriores nas posições originais', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+    sessions['conversation-1'].conversation!.threadedMessages = [new chat.MessageNode({
+      message: {
+        id: 'assistant-1', conversationId: 'conversation-1', turnId: 'turn-1', role: 'assistant', content: 'Editado',
+        turnSegments: [
+          { type: 'text', content: 'Plano anterior' },
+          { type: 'tool_calls', toolInvocations: [{ callId: 'before-call', name: 'search', status: 'ok', hasDetails: true, resultAvailability: 'available' }] },
+          { type: 'text', content: 'Conclusão antiga' },
+          { type: 'tool_calls', toolInvocations: [{ callId: 'after-call', name: 'read', status: 'ok', hasDetails: true, resultAvailability: 'available' }] },
+        ],
+      } as Message,
+      children: [], level: 0, childCount: 0,
+    }) as MessageNode];
+    startChatEventController({ conversationId: 'conversation-1', adapter, continuationRequested: true });
+    const identity = { conversationId: 'conversation-1', turnId: 'turn-1', assistantMessageId: 'assistant-1' };
+    emitEvent('chat:stream', { ...identity, messageId: 'assistant-1', reset: true, sequence: 0, baseContent: 'Editado', delta: ' novo' });
+    emitEvent('chat:done', { ...identity, reason: 'error', errorMessage: 'persistence_error' });
+    vi.runOnlyPendingTimers();
+    const message = sessions['conversation-1'].conversation!.threadedMessages[0].message as Message;
+    const segments = getMessageTurnSegments(message)!;
+    expect(segments.map(segment => segment.type)).toEqual(['text', 'tool_calls', 'text', 'tool_calls', 'text', 'text']);
+    expect(segments[0].content).toBe('Plano anterior');
+    expect(segments[1].toolInvocations?.[0].callId).toBe('before-call');
+    expect(segments[2].content).toBe('Editado');
+    expect(segments[3].toolInvocations?.[0].callId).toBe('after-call');
+    expect(segments[4].content).toBe(' novo');
+    expect(segments[5].diagnostic).toBe(true);
+    expect(JSON.stringify(segments)).not.toContain('Conclusão antiga');
+    expect(message.content).toBe('Editado novo\n\nErro: chat.errors.persistenceError');
+  });
 
   it('continua depois de falha de gravação sem transformar o aviso anterior em conteúdo', () => {
     const { adapter, sessions } = createAdapter(['conversation-1']);
