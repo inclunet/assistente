@@ -34,6 +34,8 @@ export interface StreamingToolCall {
 export interface TurnSegment {
   type: 'text' | 'tool_calls';
   content?: string;
+  /** Aviso da apresentação; não integra o conteúdo retomado pelo modelo. */
+  diagnostic?: boolean;
   /** Projeção leve persistida; detalhes são carregados sob demanda. */
   toolInvocations?: ToolInvocationSummary[];
   /** Estado transitório enquanto o turno ainda está em streaming. */
@@ -229,7 +231,7 @@ export function updateMessageContentInTree(nodes: MessageNode[], messageId: stri
 export function updateMessageSegmentsInTree(nodes: MessageNode[], messageId: string, segments: TurnSegment[]): MessageNode[] {
   return mapMessageTree(nodes, (node) => {
     if (String(node.message.id) !== messageId) return node;
-    return cloneNode(node, { message: cloneMessage(node.message, { _turnSegments: segments }) });
+    return cloneNode(node, { message: cloneMessage(node.message, { _turnSegments: segments, turnSegments: [] }) });
   });
 }
 

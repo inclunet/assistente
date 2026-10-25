@@ -308,6 +308,8 @@ export function startChatEventController({
   let provisionalThinkingNodeId: string | null = null;
   let streamedContent = '';
   let resumedTextAlreadyShown = 0;
+  let presentationInitialized = false;
+  let representedBaseContent = '';
   let streamSequence = -1;
   let streamInitialized = false;
   let pendingVisualContent: string | null = null;
@@ -736,21 +738,34 @@ export function startChatEventController({
       if (!ensureAssistantNode(backendAssistantId) && !currentAssistantNodeId) return;
       if (event.reset) {
         resumedTextAlreadyShown = 0;
-        if (!streamInitialized && event.baseContent) {
-          // baseContent explicitly resumes the last text segment. Preserve the
-          // known chronology without inserting that base a second time.
+        if (!presentationInitialized) {
           const existing = flattenThreadedMessages(getCurrentSession().conversation?.threadedMessages)
             .find(message => message.id === currentAssistantNodeId);
-          const knownSegments = existing ? getMessageTurnSegments(existing) ?? [] : [];
-          const lastTextIndex = knownSegments.map(segment => segment.type).lastIndexOf('text');
-          const textIsLast = lastTextIndex === knownSegments.length - 1 && lastTextIndex >= 0;
-          const prefix = textIsLast ? knownSegments.slice(0, -1) : knownSegments;
-          // A tool-only final iteration can follow the text being resumed.
-          // Keep that earlier text in place and append only the continuation.
-          if (!textIsLast && lastTextIndex >= 0 && knownSegments[lastTextIndex].content === event.baseContent) {
-            resumedTextAlreadyShown = event.baseContent.length;
+          const knownSegments = existing
+            ? (getMessageTurnSegments(existing) ?? []).filter(segment => !segment.diagnostic)
+            : [];
+          if (event.baseContent) {
+            const lastTextIndex = knownSegments.map(segment => segment.type).lastIndexOf('text');
+            const textIsLast = lastTextIndex === knownSegments.length - 1 && lastTextIndex >= 0;
+            const prefix = textIsLast ? knownSegments.slice(0, -1) : knownSegments;
+            if (!textIsLast && lastTextIndex >= 0 && knownSegments[lastTextIndex].content === event.baseContent) {
+              representedBaseContent = event.baseContent;
+            }
+            patchCurrentSession({ completedSegments: [...prefix] });
           }
-          patchCurrentSession({ completedSegments: [...prefix] });
+          // A new attempt owns its presentation, including when its final patch
+          // cannot be read. Capture continuation history before clearing it.
+          if (currentAssistantNodeId) {
+            const messageId = currentAssistantNodeId;
+            adapter.patchConversation(conversationId, conversation => ({
+              ...conversation,
+              threadedMessages: updateMessageSegmentsInTree(conversation.threadedMessages, messageId, []),
+            }));
+          }
+          presentationInitialized = true;
+        }
+        if (event.baseContent && event.baseContent === representedBaseContent) {
+          resumedTextAlreadyShown = event.baseContent.length;
         }
         streamedContent = event.baseContent ?? '';
         streamSequence = -1;
@@ -1000,6 +1015,7 @@ export function startChatEventController({
 
     if (event.content?.trim()) turnHadAssistantText = true;
     const newSegments = collectReceivedSegments(event.content ?? '');
+    if (event.content) representedBaseContent = event.content;
     patchCurrentSession({
       completedSegments: newSegments,
       activeToolCalls: [],
@@ -1026,6 +1042,11 @@ export function startChatEventController({
       const backendAssistantId = event.assistantMessageId && event.assistantMessageId !== '' ? event.assistantMessageId : null;
       const hasAssistantNode = ensureAssistantNode(backendAssistantId) || currentAssistantNodeId !== null;
       const errorMessage = translateBackendChatError(String(event.errorMessage || '').trim());
+      // A tools-only attempt has no reset/delta to replace the previous scalar.
+      // Wait until the terminal event so a later continuation can still seed it.
+      if (event.errorMessage === 'persistence_error' && !event.turnPatch && !presentationInitialized) {
+        updateStreamingMessage('');
+      }
       const receivedSegments = event.errorMessage === 'persistence_error' && !event.turnPatch
         ? collectReceivedSegments(getCurrentAssistantContent())
         : null;
@@ -1048,7 +1069,7 @@ export function startChatEventController({
         // cleanup clears the live state. This is not a persisted database patch.
         const segments: TurnSegment[] = [
           ...receivedSegments,
-          { type: 'text', content: i18next.t('chat.errorPrefix', { message: errorMessage }) },
+          { type: 'text', content: i18next.t('chat.errorPrefix', { message: errorMessage }), diagnostic: true },
         ];
         adapter.patchConversation(conversationId, (conversation) => ({
           ...conversation,
@@ -1094,8 +1115,20 @@ export function startChatEventController({
     }
 
     const backendAssistantId = event.assistantMessageId && event.assistantMessageId !== '' ? event.assistantMessageId : null;
+    if (!event.turnPatch && !presentationInitialized) {
+      ensureAssistantNode(backendAssistantId);
+      updateStreamingMessage('');
+    }
     finalizeStreaming(backendAssistantId, event.turnId || currentTurnId);
     applyTurnPatch(event.turnPatch);
+    if (!event.turnPatch && currentAssistantNodeId) {
+      const messageId = currentAssistantNodeId;
+      const segments = collectReceivedSegments(getCurrentAssistantContent());
+      adapter.patchConversation(conversationId, conversation => ({
+        ...conversation,
+        threadedMessages: updateMessageSegmentsInTree(conversation.threadedMessages, messageId, segments),
+      }));
+    }
     patchCurrentSession({ lastInterruptedMessageId: null });
 
     if (event.hadToolCalls) {
