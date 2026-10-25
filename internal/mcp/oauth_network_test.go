@@ -317,7 +317,7 @@ func TestBestEffortRefreshConsentRetainsCallerCancellation(t *testing.T) {
 	}
 }
 
-func TestRecoveryStopsAfterRefreshNetworkRefusal(t *testing.T) {
+func TestRefreshStopsAfterNetworkRefusal(t *testing.T) {
 	var prompts, requests atomic.Int32
 	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { requests.Add(1); w.WriteHeader(401) }))
 	defer source.Close()
@@ -328,8 +328,8 @@ func TestRecoveryStopsAfterRefreshNetworkRefusal(t *testing.T) {
 		prompts.Add(1)
 		return nil, false, nil
 	})
-	result := m.RecoverServerBestEffort(context.Background(), "srv")
-	if !errors.Is(result.Err, oauthflow.ErrNetworkAuthorization) || !result.Attempted || result.Reconnected || result.Refreshed || prompts.Load() != 1 || requests.Load() != 0 {
-		t.Fatalf("result=%+v prompts=%d requests=%d", result, prompts.Load(), requests.Load())
+	refreshed, err := m.refreshOAuthTokenBestEffort(ctx, "srv", false)
+	if !errors.Is(err, oauthflow.ErrNetworkAuthorization) || refreshed || prompts.Load() != 1 || requests.Load() != 0 {
+		t.Fatalf("err=%v refreshed=%v prompts=%d requests=%d", err, refreshed, prompts.Load(), requests.Load())
 	}
 }

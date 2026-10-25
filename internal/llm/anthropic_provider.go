@@ -266,8 +266,6 @@ func (p *AnthropicProvider) streamChatWithMCP(
 	const maxAttempts = 10
 	bk := 500 * time.Millisecond
 	maxBk := 8 * time.Second
-	degradeRetries := 0
-	maxDegradeRetries := maxMCPDegradationRetries(len(currentServers))
 
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		select {
@@ -301,20 +299,13 @@ func (p *AnthropicProvider) streamChatWithMCP(
 				params.NativeMCPFallback.Trigger()
 				return
 			}
-			currentServers = nil
-			resetStreamAttempt(handler)
-			continue
+			markErrorNotRetryable(handler)
+			handler.OnError(formatMCPFailureUserMessage("MCP", MCPFailureStageHandshake))
+			return
 		}
 		if result.mcpFailure != nil {
-			if degradeRetries < maxDegradeRetries {
-				if remaining, ok := planMCPDegradationRetry(ctx, "anthropic", attempt, currentServers, result.mcpFailure); ok {
-					currentServers = remaining
-					degradeRetries++
-					resetStreamAttempt(handler)
-					continue
-				}
-			}
 			discardStreamReasoning(handler)
+			markErrorNotRetryable(handler)
 			handler.OnError(strings.TrimSpace(result.mcpFailure.Message))
 			return
 		}

@@ -63,11 +63,11 @@ func TestToolPolicyUpgradeLegacyEnabledToolsFailsClosedWithoutCatalog(t *testing
 			}
 
 			cfg := ProfileToolConfig{EnabledTools: persisted.EnabledTools}
-			gotWithCatalog := defNames(NewToolSelectionPolicy(withCatalog).InitialToolDefs(cfg))
+			gotWithCatalog := defNames(NewToolSelectionPolicy(withCatalog).PlanTurnToolDefs(nil, nil, cfg).Definitions)
 			assertNames(t, "com catálogo", gotWithCatalog, tc.wantWithCatalog)
 
 			policyWithoutCatalog := NewToolSelectionPolicy(withoutCatalog)
-			gotWithoutCatalog := defNames(policyWithoutCatalog.InitialToolDefs(cfg))
+			gotWithoutCatalog := defNames(policyWithoutCatalog.PlanTurnToolDefs(nil, nil, cfg).Definitions)
 			assertNames(t, "sem catálogo", gotWithoutCatalog, tc.wantWithoutCatalog)
 			effectiveWithoutCatalog := policyWithoutCatalog.ResolveEffectiveToolPolicy(cfg)
 			if effectiveWithoutCatalog.State("text_edit") != ToolPolicyDisabled {

@@ -76,7 +76,6 @@ func TestLegacyOAuthRuntimeRequiresExplicitMigration(t *testing.T) {
 				func() error { return m.Connect("legacy") },
 				func() error { return m.connectWithContext(ctx, "legacy") },
 				func() error { return m.Reconnect("legacy") },
-				func() error { return m.RecoverServerBestEffort(ctx, "legacy").Err },
 			} {
 				if err := operation(); !errors.Is(err, errOAuthMigrationRequired) {
 					t.Fatalf("migration not required: %v", err)
@@ -146,7 +145,6 @@ func TestManagedOAuthMissingReferenceNeverFallsBack(t *testing.T) {
 		func() error { return m.Connect("legacy") },
 		func() error { return m.connectWithContext(ctx, "legacy") },
 		func() error { return m.ReauthorizeServer(ctx, "legacy") },
-		func() error { return m.RecoverServerBestEffort(ctx, "legacy").Err },
 	} {
 		if err := call(); !errors.Is(err, oauthflow.ErrResource) {
 			t.Fatalf("damaged authorization bypassed: %v", err)
@@ -157,7 +155,7 @@ func TestManagedOAuthMissingReferenceNeverFallsBack(t *testing.T) {
 	}
 }
 
-func TestRecoveryStdioIgnoresResidualLegacyOAuth(t *testing.T) {
+func TestReconnectStdioIgnoresResidualLegacyOAuth(t *testing.T) {
 	var requests atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { requests.Add(1); w.WriteHeader(401) }))
 	defer srv.Close()
@@ -169,9 +167,9 @@ func TestRecoveryStdioIgnoresResidualLegacyOAuth(t *testing.T) {
 	factory := newInMemoryMCPFactory(t, m.ctx)
 	defer factory.close()
 	m.transportFactory = factory.transport
-	result := m.RecoverServerBestEffort(ctx, "legacy")
-	if result.Err != nil || !result.Reconnected || result.Refreshed || requests.Load() != 0 {
-		t.Fatalf("STDIO attempted residual OAuth: %+v requests=%d", result, requests.Load())
+	connectErr := m.reconnectWithContext(ctx, "legacy")
+	if connectErr != nil || requests.Load() != 0 {
+		t.Fatalf("STDIO attempted residual OAuth: %v requests=%d", connectErr, requests.Load())
 	}
 	stored, err := m.credMgr.GetByPatternWithContext(ctx, userTokensPattern("legacy"))
 	if err != nil || stored == nil || stored.Token != "old" {

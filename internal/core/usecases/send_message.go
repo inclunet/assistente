@@ -622,8 +622,9 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 	//   - adapterToolDefs: tools COM as bridges MCP (não removidas), já orçadas.
 	// Usadas pelo fallback nativo→adapter no MESMO turno (ver NativeMCPFallback).
 	adapterStreamer := requestStreamer
-	var llmToolDefs, adapterToolDefs []llm.ToolDefinition
-	requestStreamer, llmToolDefs, adapterToolDefs = toolPolicy.PlanTurnToolDefs(requestStreamer, uc.mcpMgr, toolCfg)
+	toolPlan := toolPolicy.PlanTurnToolDefs(requestStreamer, uc.mcpMgr, toolCfg)
+	requestStreamer = toolPlan.Streamer
+	llmToolDefs, adapterToolDefs := toolPlan.Definitions, toolPlan.AdapterDefinitions
 
 	// O critério do D7 é o conjunto FINAL que chega ao roteamento: uma tool
 	// sobrevivente basta para mandar o turno do agente para o loop errado. O
@@ -662,9 +663,11 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 		adapterToolCfg.NativeMCP = &adapterFalse
 		params.NativeMCPFallback = &llm.NativeMCPAdapterFallback{
 			Streamer: adapterStreamer,
-			ToolDefs: adapterToolDefs,
+			RestoreToolDefs: func(active []llm.ToolDefinition) []llm.ToolDefinition {
+				return toolPolicy.PlanAccumulatedToolDefs(active, adapterToolDefs, adapterToolCfg)
+			},
 			ResolveToolDefs: func(active []llm.ToolDefinition, names []string) []llm.ToolDefinition {
-				return toolPolicy.ResolveExpandedToolDefs(adapterStreamer, uc.mcpMgr, active, names, adapterToolCfg)
+				return toolPolicy.ResolveExpandedToolDefs(nil, active, names, adapterToolCfg)
 			},
 		}
 	}
@@ -722,7 +725,7 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 					return agent.NewAgenticStreamHandler(uc.emitter, convID, iter, surfaceOrigin, userMsg.ID)
 				},
 				func(active []llm.ToolDefinition, names []string) []llm.ToolDefinition {
-					return toolPolicy.ResolveExpandedToolDefs(requestStreamer, uc.mcpMgr, active, names, toolCfg)
+					return toolPolicy.ResolveExpandedToolDefs(toolPlan.NativeNames, active, names, toolCfg)
 				},
 				recoveryEnabled,
 				recoveryMaxAttempts,

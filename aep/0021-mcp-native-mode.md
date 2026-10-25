@@ -1,6 +1,6 @@
 # MCP Modo Nativo
 
-## Status: In Progress — revisão v8
+## Status: In Progress — revisão v9
 
 > **Historico:** A versao original desta AEP descrevia um conceito aspiracional de modo nativo com `mcp_mode` (adapter/native/auto) no perfil. A infraestrutura foi parcialmente criada (`GetNativeServerInfo`, `TestMCPNativeSupport`, `ShouldUseMCPNative`) mas **nunca foi consumida no chat loop**. O sistema sempre operou em modo adapter.
 >
@@ -15,6 +15,41 @@
 > A v6 tornou o **default (auto) OTIMISTA com auto-degradacao e memoria persistida no perfil**, mas o fallback do mesmo turno dropava os MCP servers e re-tentava "pelado" — as tools MCP sumiam naquele turno e so voltavam (via adapter) no proximo.
 >
 > **A v7** elimina essa limitacao: no fallback, o turno e **re-tentado em modo ADAPTER com as bridge tools presentes** (MCP como function/bridge), preservando as tools ja naquele turno. Tudo o mais da v6 permanece: default auto otimista; auto-ajuste **persistido** do perfil (`Profile.Chat.NativeMCP` nil→false) como memoria (nao cache em runtime); sem heuristica por URL; unica dimensao estatica de provider = **capacidade fisica** (`NativeMCPCapable()` — Responses/Anthropic); override explicito (`true`/`false`) nunca sobrescrito.
+
+---
+
+## Plano estável de ferramentas (v9)
+
+Refatoração autorizada em 2026-10-24 após investigação de complexidade e perda
+aparente de tools. A política de preferência nativa/adapter permanece a mesma.
+
+- O planejamento produz o streamer efetivo, suas definições locais e o conjunto
+  de nomes realmente delegado. A expansão usa esse conjunto durante todo o turno,
+  sem consultar novamente elegibilidade, conexões ou tokens.
+- A alternativa adapter só é planejada quando há delegação nativa.
+- Os dois caminhos de troca para adapter preservam as ferramentas já ativas e
+  compartilham a mesma transição; não restauram uma lista inicial sobre elas.
+- A transição usa os schemas capturados no planejamento, sem redescobrir bridges
+  no registro durante uma reconexão. O orçamento acumulado continua sendo aplicado.
+- Rejeição de MCP nativo sem alternativa adapter preparada é erro explícito.
+- A retirada silenciosa de servidores da AEP-0053 foi abandonada. Falhas MCP
+  classificadas encerram a tentativa e não autorizam replay pelo agente.
+- As APIs legadas de seleção e testes de paridade foram retirados. Os cenários
+  de autorização, orçamento e seleção são verificados no fluxo usado no envio.
+
+### Fases e evidências da simplificação
+
+- [x] Plano estável, expansão e ausência de alternativa desnecessária:
+  `TestTurnToolPlanExpansionUsesSentNativeServers` e
+  `TestTurnToolPlanWithoutNativeHasOnlyOneSelection`.
+- [x] Transição adapter preserva ferramentas carregadas:
+  `native_mcp_fallback_test.go` e `native_mcp_contract_test.go` em `agent`.
+- [x] Falha sem descarte de servidor: testes `ReportsFailureWithoutRemovingTools`
+  em `llm`, e `NativeMCPUnsupportedWithoutAdapterReportsError`.
+- [x] Retirada dos wrappers históricos e conversão duplicada de definições.
+- [ ] Desacoplar a identidade MCP do formato do nome nas camadas de política,
+  executor, catálogo e jobs; entrega subsequente da refatoração.
+- [ ] Qualificar com conversa real após implantação.
 
 ---
 

@@ -28,6 +28,25 @@ func toolWithSchema(name string, schemaLen int) *mockToolDef {
 	}
 }
 
+func TestPlanCapturedAdapterDefinitionsAfterDisconnectRespectsAccumulatedBudget(t *testing.T) {
+	registry := tools.NewRegistry()
+	registry.MustRegister(toolWithSchema("loaded_later", 30))
+	registry.MustRegister(toolWithSchema("mcp_remote__first", 30))
+	registry.MustRegister(toolWithSchema("mcp_remote__second", 30))
+	policy := NewToolSelectionPolicy(registry)
+	active := policy.PlanTurnToolDefs(nil, nil, ProfileToolConfig{EnabledTools: []string{"loaded_later"}}).Definitions
+	captured := policy.PlanTurnToolDefs(nil, nil, ProfileToolConfig{EnabledTools: []string{"mcp_remote__first", "mcp_remote__second"}}).Definitions
+	registry.Unregister("mcp_remote__first")
+	registry.Unregister("mcp_remote__second")
+	got := policy.PlanAccumulatedToolDefs(active, captured, ProfileToolConfig{SchemaBytesBudget: 60})
+	if len(got) != 2 || got[0].Function.Name != "loaded_later" {
+		t.Fatalf("captured definitions or active tool lost: %v", defNames(got))
+	}
+	if len(got[0].Function.Parameters)+len(got[1].Function.Parameters) != 60 {
+		t.Fatalf("captured schema or accumulated budget changed: %+v", got)
+	}
+}
+
 func plannerRegistry() *tools.Registry {
 	r := tools.NewRegistry()
 	r.MustRegister(toolWithSchema(tools.ToolCatalogName, 30))
@@ -46,8 +65,8 @@ func TestPolicyPlanner_DefaultBudgetSemRegressao(t *testing.T) {
 	enabled := []string{"read_file", "write_file", "grep_search"}
 
 	// Sem budget (default) deve coincidir exatamente com a montagem direta.
-	legacy := defNames(BuildLLMToolDefs(r, enabled, false))
-	got := defNames(policy.InitialToolDefs(ProfileToolConfig{EnabledTools: enabled}))
+	legacy := defNames(NewToolSelectionPolicy(r).buildLLMToolDefs(enabled, false))
+	got := defNames(policy.PlanTurnToolDefs(nil, nil, ProfileToolConfig{EnabledTools: enabled}).Definitions)
 	assertNames(t, "default budget == legacy", got, legacy)
 
 	// E a ordem canônica (alfabética) é preservada.
@@ -63,10 +82,10 @@ func TestPolicyPlanner_BudgetCortaPorRanking(t *testing.T) {
 
 	// Cada schema tem 30 bytes; budget 60 cabe 2. Todas pinned (mesmo tier) →
 	// desempate alfabético: grep_search e read_file entram; write_file corta.
-	got := defNames(policy.InitialToolDefs(ProfileToolConfig{
+	got := defNames(policy.PlanTurnToolDefs(nil, nil, ProfileToolConfig{
 		EnabledTools:      enabled,
 		SchemaBytesBudget: 60,
-	}))
+	}).Definitions)
 	assertNames(t, "budget 60 corta write_file", got, []string{"grep_search", "read_file"})
 }
 
@@ -76,7 +95,7 @@ func TestPolicyPlanner_EssencialNuncaCortada(t *testing.T) {
 	r := plannerRegistry()
 	policy := NewToolSelectionPolicy(r)
 	// enabled nil + catálogo presente → seleção inicial é só o tool_catalog.
-	got := defNames(policy.InitialToolDefs(ProfileToolConfig{SchemaBytesBudget: 1}))
+	got := defNames(policy.PlanTurnToolDefs(nil, nil, ProfileToolConfig{SchemaBytesBudget: 1}).Definitions)
 	assertNames(t, "essencial preservada sob budget mínimo", got, []string{tools.ToolCatalogName})
 }
 
@@ -86,7 +105,7 @@ func TestPolicyPlanner_LegacyWithoutCatalogFailsClosedBeforeBudget(t *testing.T)
 	r.MustRegister(toolWithSchema("write_file", 30))
 	policy := NewToolSelectionPolicy(r)
 
-	got := policy.InitialToolDefs(ProfileToolConfig{SchemaBytesBudget: 1000})
+	got := policy.PlanTurnToolDefs(nil, nil, ProfileToolConfig{SchemaBytesBudget: 1000}).Definitions
 	assertNames(t, "sem catálogo", defNames(got), []string{})
 }
 
@@ -99,7 +118,7 @@ func TestPolicyPlanner_ExpansaoComBudget(t *testing.T) {
 	// enabled nil (catálogo dinâmico) → tools não-pinned; budget 60 cabe 2 (tier
 	// builtin, alfabético): grep_search e read_file entram, write_file corta.
 	names := []string{"read_file", "write_file", "grep_search"}
-	got := defNames(policy.ResolveExpandedToolDefs(nil, nil, nil, names, ProfileToolConfig{SchemaBytesBudget: 60}))
+	got := defNames(policy.ResolveExpandedToolDefs(nil, nil, names, ProfileToolConfig{SchemaBytesBudget: 60}))
 	assertNames(t, "expansão sob budget", got, []string{"grep_search", "read_file"})
 }
 
@@ -128,7 +147,9 @@ func TestPolicyPlanner_NativeBridgeNaoConsomeBudget(t *testing.T) {
 		SchemaBytesBudget: 50, // cabe só 1 dos 2 schemas de 30 bytes
 	}
 
-	_, nativeDefs, adapterDefs := policy.PlanTurnToolDefs(capable, mgr, cfg)
+	turnPlan0 := policy.PlanTurnToolDefs(capable, mgr, cfg)
+
+	nativeDefs, adapterDefs := turnPlan0.Definitions, turnPlan0.AdapterDefinitions
 
 	// Caminho NATIVO: a bridge é removida (passthrough) antes de orçar, então a
 	// builtin fixada sobrevive sem competir pelo budget com a bridge descartada.
@@ -157,16 +178,16 @@ func TestPolicyPlanner_BudgetAcumuladoMultiplasIteracoes(t *testing.T) {
 	cfg := ProfileToolConfig{SchemaBytesBudget: 120} // cabe 4 schemas de 30 bytes
 
 	// Início do turno: só o tool_catalog (gateado pelo catálogo).
-	active := policy.InitialToolDefs(cfg)
+	active := policy.PlanTurnToolDefs(nil, nil, cfg).Definitions
 	assertNames(t, "inicial", defNames(active), []string{tools.ToolCatalogName})
 
 	// Iteração 1: expande read_file + write_file — total 90B, cabe.
-	active = policy.ResolveExpandedToolDefs(nil, nil, active, []string{"read_file", "write_file"}, cfg)
+	active = policy.ResolveExpandedToolDefs(nil, active, []string{"read_file", "write_file"}, cfg)
 	assertNames(t, "iter1", defNames(active), []string{tools.ToolCatalogName, "read_file", "write_file"})
 
 	// Iteração 2: tenta grep_search + list_dir. Acumulado já em 90B; só 1 nova
 	// cabe (120B). grep_search vence (alfabético); list_dir é cortada por budget.
-	active = policy.ResolveExpandedToolDefs(nil, nil, active, []string{"grep_search", "list_dir"}, cfg)
+	active = policy.ResolveExpandedToolDefs(nil, active, []string{"grep_search", "list_dir"}, cfg)
 	assertNames(t, "iter2 respeita budget acumulado", defNames(active),
 		[]string{tools.ToolCatalogName, "read_file", "write_file", "grep_search"})
 
@@ -194,6 +215,6 @@ func TestPolicyPlanner_DeduplicaDefsPorNome(t *testing.T) {
 	enabled := []string{"read_file", "read_file", "write_file"}
 
 	// Budget ilimitado (default): nada é cortado, mas a saída ainda é deduplicada.
-	got := defNames(policy.InitialToolDefs(ProfileToolConfig{EnabledTools: enabled}))
+	got := defNames(policy.PlanTurnToolDefs(nil, nil, ProfileToolConfig{EnabledTools: enabled}).Definitions)
 	assertNames(t, "dedup com budget ilimitado", got, []string{"read_file", "write_file"})
 }

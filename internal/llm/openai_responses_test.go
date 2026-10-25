@@ -7,7 +7,6 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
 	"assistente/internal/credentials"
 	"assistente/internal/database"
@@ -612,8 +611,7 @@ func TestOpenAIResponsesStreamInjectsScopedCredential(t *testing.T) {
 	}
 }
 
-func TestOpenAIProvider_StreamChatResponses_DegradesFailedMCPServer(t *testing.T) {
-	recovered := make(chan struct{}, 1)
+func TestOpenAIProvider_StreamChatResponses_ReportsFailureWithoutRemovingTools(t *testing.T) {
 	seen := make([][]string, 0, 2)
 	attempts := 0
 
@@ -625,10 +623,6 @@ func TestOpenAIProvider_StreamChatResponses_DegradesFailedMCPServer(t *testing.T
 				Name: "Atlassian",
 				Slug: "atlassian",
 				URL:  "https://mcp.atlassian.com/v1/sse",
-				Recover: func(context.Context) error {
-					recovered <- struct{}{}
-					return nil
-				},
 			},
 			{Name: "Slack", Slug: "slack", URL: "https://mcp.slack.com/mcp"},
 		},
@@ -647,7 +641,6 @@ func TestOpenAIProvider_StreamChatResponses_DegradesFailedMCPServer(t *testing.T
 					ServerSlug: "atlassian",
 					Stage:      MCPFailureStageListTools,
 					Message:    "Falha no Atlassian",
-					Degradable: true,
 				},
 			}
 		}
@@ -658,34 +651,27 @@ func TestOpenAIProvider_StreamChatResponses_DegradesFailedMCPServer(t *testing.T
 
 	handler := &providerRetryHandler{}
 	provider.streamChatResponses(context.Background(), "gpt-test", []Message{{Role: "user", Content: "oi"}}, ChatParams{}, handler)
+	assertMCPFailureNotRetryable(t, handler)
 
-	if attempts != 2 {
-		t.Fatalf("attempts = %d, want 2", attempts)
+	if attempts != 1 {
+		t.Fatalf("attempts = %d, want 1", attempts)
 	}
-	if len(seen) != 2 || len(seen[0]) != 2 || len(seen[1]) != 1 || seen[1][0] != "slack" {
+	if len(seen) != 1 || len(seen[0]) != 2 || seen[0][0] != "atlassian" || seen[0][1] != "slack" {
 		t.Fatalf("servers por tentativa = %#v", seen)
 	}
-	select {
-	case <-recovered:
-	case <-time.After(1 * time.Second):
-		t.Fatal("esperava callback de recovery assíncrono")
+	if got := handler.chunks.String(); got != "" {
+		t.Fatalf("chunk final = %q, want %q", got, "")
 	}
-	if got := handler.chunks.String(); got != "ok" {
-		t.Fatalf("chunk final = %q, want %q", got, "ok")
-	}
-	if len(handler.errors) != 0 {
+	if len(handler.errors) != 1 || handler.errors[0] != "Falha no Atlassian" {
 		t.Fatalf("erros inesperados: %v", handler.errors)
 	}
-	if handler.done != 1 {
-		t.Fatalf("OnDone = %d, want 1", handler.done)
+	if handler.done != 0 {
+		t.Fatalf("OnDone = %d, want 0", handler.done)
 	}
 }
 
-// TestOpenAIProvider_StreamChatResponses_NativeMCPUnsupportedFallsBackToAdapter
-// cobre o auto-fallback nativo→adapter no MESMO turno: a 1ª tentativa (com MCP
-// nativo) retorna nativeMCPUnsupported; o loop dropa os servers, dispara o hook
-// OnNativeMCPUnsupported e re-tenta sem servers, concluindo sem erro.
-func TestOpenAIProvider_StreamChatResponses_NativeMCPUnsupportedFallsBackToAdapter(t *testing.T) {
+// Sem um adapter preparado, a rejeição nativa termina com erro e preserva os servidores.
+func TestOpenAIProvider_StreamChatResponses_NativeMCPUnsupportedWithoutAdapterReportsError(t *testing.T) {
 	seen := make([][]string, 0, 2)
 	attempts := 0
 	hookCalls := 0
@@ -715,21 +701,22 @@ func TestOpenAIProvider_StreamChatResponses_NativeMCPUnsupportedFallsBackToAdapt
 	handler := &providerRetryHandler{}
 	params := ChatParams{OnNativeMCPUnsupported: func() { hookCalls++ }}
 	provider.streamChatResponses(context.Background(), "deepseek-v4-flash", []Message{{Role: "user", Content: "oi"}}, params, handler)
+	assertMCPFailureNotRetryable(t, handler)
 
-	if attempts != 2 {
-		t.Fatalf("attempts = %d, want 2", attempts)
+	if attempts != 1 {
+		t.Fatalf("attempts = %d, want 1", attempts)
 	}
-	if len(seen) != 2 || len(seen[0]) != 1 || len(seen[1]) != 0 {
-		t.Fatalf("servers por tentativa = %#v (esperava [1 server] depois [0 servers])", seen)
+	if len(seen) != 1 || len(seen[0]) != 1 {
+		t.Fatalf("servers por tentativa = %#v (esperava uma tentativa com o servidor original)", seen)
 	}
 	if hookCalls != 1 {
 		t.Fatalf("OnNativeMCPUnsupported chamado %d vezes, want 1", hookCalls)
 	}
-	if len(handler.errors) != 0 {
-		t.Fatalf("não deveria emitir erro ao usuário (fallback transparente): %v", handler.errors)
+	if len(handler.errors) != 1 || handler.errors[0] != formatMCPFailureUserMessage("MCP", MCPFailureStageHandshake) {
+		t.Fatalf("esperava erro explícito de conexão MCP: %v", handler.errors)
 	}
-	if handler.done != 1 {
-		t.Fatalf("OnDone = %d, want 1", handler.done)
+	if handler.done != 0 {
+		t.Fatalf("OnDone = %d, want 0", handler.done)
 	}
 }
 
@@ -780,7 +767,7 @@ func TestOpenAIProvider_StreamChatResponses_PromptCacheHintUnsupportedRetriesWit
 		t.Fatal("PromptCacheHintFallback should be disabled after explicit rejection")
 	}
 	if len(handler.errors) != 0 {
-		t.Fatalf("não deveria emitir erro ao usuário (fallback transparente): %v", handler.errors)
+		t.Fatalf("não deveria emitir erro após o retry sem prompt cache hint: %v", handler.errors)
 	}
 	if handler.done != 1 {
 		t.Fatalf("OnDone = %d, want 1", handler.done)

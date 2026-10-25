@@ -4,7 +4,9 @@ import (
 	"context"
 	"testing"
 
+	"assistente/internal/chat"
 	"assistente/internal/llm"
+	"assistente/internal/tools"
 )
 
 // nativeUnsupportedStreamer emula um provider que rejeita MCP nativo: dispara o
@@ -13,10 +15,14 @@ import (
 type nativeUnsupportedStreamer struct {
 	calls     int
 	hookCalls int
+	onAttempt func()
 }
 
 func (s *nativeUnsupportedStreamer) StreamChat(_ context.Context, _ []llm.Message, params llm.ChatParams, _ llm.StreamHandler, _ ...llm.ToolDefinition) {
 	s.calls++
+	if s.onAttempt != nil {
+		s.onAttempt()
+	}
 	if params.OnNativeMCPUnsupported != nil {
 		params.OnNativeMCPUnsupported()
 		s.hookCalls++
@@ -53,21 +59,30 @@ func TestRunAgenticLoop_NativeMCPUnsupportedRetriesSameTurnWithBridgeTools(t *te
 	repo := &inMemoryMsgRepo{}
 	svc := NewService(ServiceConfig{Emitter: em, MsgRepo: repo})
 
-	native := &nativeUnsupportedStreamer{}
+	registry := tools.NewRegistry()
+	registry.MustRegister(fallbackBridgeTool{})
+	policy := chat.NewToolSelectionPolicy(registry)
+	cfg := chat.ProfileToolConfig{EnabledTools: []string{"mcp_github__list"}}
+	native := &nativeUnsupportedStreamer{onAttempt: func() { registry.Unregister("mcp_github__list") }}
 	adapter := &recordingAdapterStreamer{}
 
 	// Tools nativas (bridges removidas): só "read_file". Tools adapter (com bridge MCP).
-	nativeToolDefs := []llm.ToolDefinition{{Function: llm.FunctionDefinition{Name: "read_file"}}}
-	bridgeToolDefs := []llm.ToolDefinition{
-		{Function: llm.FunctionDefinition{Name: "mcp_github__list"}},
+	nativeToolDefs := []llm.ToolDefinition{
 		{Function: llm.FunctionDefinition{Name: "read_file"}},
+		{Function: llm.FunctionDefinition{Name: "loaded_during_turn"}},
 	}
+	bridgeToolDefs := policy.PlanTurnToolDefs(nil, nil, cfg).Definitions
 
 	params := llm.ChatParams{
 		MaxAgenticIterations: 1,
 		NativeMCPFallback: &llm.NativeMCPAdapterFallback{
 			Streamer: adapter,
-			ToolDefs: bridgeToolDefs,
+			RestoreToolDefs: func(active []llm.ToolDefinition) []llm.ToolDefinition {
+				return policy.PlanAccumulatedToolDefs(active, bridgeToolDefs, cfg)
+			},
+			ResolveToolDefs: func(active []llm.ToolDefinition, names []string) []llm.ToolDefinition {
+				return policy.ResolveExpandedToolDefs(nil, active, names, cfg)
+			},
 		},
 	}
 
@@ -108,11 +123,25 @@ func TestRunAgenticLoop_NativeMCPUnsupportedRetriesSameTurnWithBridgeTools(t *te
 		t.Fatalf("retry adapter não recebeu a bridge tool MCP: %#v", adapter.gotTools[0])
 	}
 
+	foundDynamic := false
+	for _, name := range adapter.gotTools[0] {
+		if name == "loaded_during_turn" {
+			foundDynamic = true
+		}
+	}
+	if !foundDynamic {
+		t.Fatalf("fallback perdeu ferramenta ativa: %v", adapter.gotTools[0])
+	}
+
 	doneEvents := em.find("chat:done")
 	if len(doneEvents) != 1 {
 		t.Fatalf("esperava 1 chat:done, got %d", len(doneEvents))
 	}
 }
+
+type fallbackBridgeTool struct{ okTool }
+
+func (fallbackBridgeTool) Name() string { return "mcp_github__list" }
 
 // TestNativeMCPAdapterFallback_ConsumeOnce garante que Consume só dispara uma vez.
 func TestNativeMCPAdapterFallback_ConsumeOnce(t *testing.T) {

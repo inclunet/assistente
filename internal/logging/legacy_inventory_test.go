@@ -45,8 +45,9 @@ const (
 	// fluxos de reautorização/correção, um no perfil de voz e um no resumo.
 	// A disponibilidade de tools registra mais três formatos por tentativa:
 	// tools locais no loop agêntico, tools MCP/OpenAI e tools MCP/Anthropic.
-	expectedLegacyFormatCount  = 728
-	expectedLegacyFormatDigest = "9c5cef93b078119baf939af43a4ba4b082de16c632b3b4f0c608423cf8001c1e"
+	// A retirada do retry sem servidores remove um formato legado de listagem recuperável.
+	expectedLegacyFormatCount  = 727
+	expectedLegacyFormatDigest = "14e1d56d1b923f2cd61012c0d9ff61b2835fc8e230e7061016e1e90931f35796"
 )
 
 // TestLegacyLoggingInventory mantém reproduzível o inventário da issue #675.

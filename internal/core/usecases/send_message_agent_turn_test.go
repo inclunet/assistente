@@ -59,12 +59,16 @@ func TestConjuntoFinalDoTurnoDeAgenteChegaVazioAoRoteamento(t *testing.T) {
 		}
 	}
 
-	_, nativas, adapter := policy.PlanTurnToolDefs(nil, nil, cfgDoTurno(perfil))
+	turnPlan1 := policy.PlanTurnToolDefs(nil, nil, cfgDoTurno(perfil))
+
+	nativas, adapter := turnPlan1.Definitions, turnPlan1.AdapterDefinitions
 	if len(nativas) == 0 && len(adapter) == 0 {
 		t.Fatal("sem a guarda o perfil deveria produzir tools — o teste não provaria nada")
 	}
 
-	_, nativas, adapter = policy.PlanTurnToolDefs(nil, nil, cfgDoTurno(profileWithToolsDisabled(perfil)))
+	turnPlan0 := policy.PlanTurnToolDefs(nil, nil, cfgDoTurno(profileWithToolsDisabled(perfil)))
+
+	nativas, adapter = turnPlan0.Definitions, turnPlan0.AdapterDefinitions
 	if len(nativas) > 0 || len(adapter) > 0 {
 		t.Errorf("turno de agente chegou ao roteamento com tools: %d nativas, %d adapter", len(nativas), len(adapter))
 	}

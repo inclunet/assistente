@@ -3,7 +3,6 @@ package llm
 import (
 	"context"
 	"testing"
-	"time"
 
 	"assistente/internal/credentials"
 	"github.com/anthropics/anthropic-sdk-go"
@@ -836,13 +835,25 @@ func TestAnthropicProvider_AllowedToolsPreserved(t *testing.T) {
 
 type providerRetryHandler struct {
 	captureHandler
-	errors []string
-	done   int
-	tools  int
+	errors       []string
+	done         int
+	tools        int
+	nonRetryable bool
+	errorsMarked []bool
 }
 
 func (h *providerRetryHandler) OnError(err string) {
 	h.errors = append(h.errors, err)
+	h.errorsMarked = append(h.errorsMarked, h.nonRetryable)
+}
+
+func (h *providerRetryHandler) MarkErrorNotRetryable() { h.nonRetryable = true }
+
+func assertMCPFailureNotRetryable(t *testing.T, h *providerRetryHandler) {
+	t.Helper()
+	if len(h.errorsMarked) != 1 || !h.errorsMarked[0] {
+		t.Fatalf("falha MCP não foi marcada antes de OnError: %v", h.errorsMarked)
+	}
 }
 
 func (h *providerRetryHandler) OnDone(fullResponse string, usage Usage, model string) {
@@ -863,8 +874,7 @@ func (h *cancelOnChunkRetryHandler) OnChunk(content string) {
 	h.cancel()
 }
 
-func TestAnthropicProvider_StreamChatWithMCP_DegradesFailedMCPServer(t *testing.T) {
-	recovered := make(chan struct{}, 1)
+func TestAnthropicProvider_StreamChatWithMCP_ReportsFailureWithoutRemovingTools(t *testing.T) {
 	seen := make([][]string, 0, 2)
 	attempts := 0
 
@@ -875,10 +885,6 @@ func TestAnthropicProvider_StreamChatWithMCP_DegradesFailedMCPServer(t *testing.
 				Name: "Atlassian",
 				Slug: "atlassian",
 				URL:  "https://mcp.atlassian.com/v1/sse",
-				Recover: func(context.Context) error {
-					recovered <- struct{}{}
-					return nil
-				},
 			},
 			{Name: "Slack", Slug: "slack", URL: "https://mcp.slack.com/mcp"},
 		},
@@ -897,7 +903,6 @@ func TestAnthropicProvider_StreamChatWithMCP_DegradesFailedMCPServer(t *testing.
 					ServerSlug: "atlassian",
 					Stage:      MCPFailureStageHandshake,
 					Message:    "Falha no Atlassian",
-					Degradable: true,
 				},
 			}
 		}
@@ -908,25 +913,42 @@ func TestAnthropicProvider_StreamChatWithMCP_DegradesFailedMCPServer(t *testing.
 
 	handler := &providerRetryHandler{}
 	provider.streamChatWithMCP(context.Background(), "claude-test", 256, nil, nil, ChatParams{}, handler)
+	assertMCPFailureNotRetryable(t, handler)
 
-	if attempts != 2 {
-		t.Fatalf("attempts = %d, want 2", attempts)
+	if attempts != 1 {
+		t.Fatalf("attempts = %d, want 1", attempts)
 	}
-	if len(seen) != 2 || len(seen[0]) != 2 || len(seen[1]) != 1 || seen[1][0] != "slack" {
+	if len(seen) != 1 || len(seen[0]) != 2 || seen[0][0] != "atlassian" || seen[0][1] != "slack" {
 		t.Fatalf("servers por tentativa = %#v", seen)
 	}
-	select {
-	case <-recovered:
-	case <-time.After(1 * time.Second):
-		t.Fatal("esperava callback de recovery assíncrono")
+	if got := handler.chunks.String(); got != "" {
+		t.Fatalf("chunk final = %q, want %q", got, "")
 	}
-	if got := handler.chunks.String(); got != "ok" {
-		t.Fatalf("chunk final = %q, want %q", got, "ok")
-	}
-	if len(handler.errors) != 0 {
+	if len(handler.errors) != 1 || handler.errors[0] != "Falha no Atlassian" {
 		t.Fatalf("erros inesperados: %v", handler.errors)
 	}
-	if handler.done != 1 {
-		t.Fatalf("OnDone = %d, want 1", handler.done)
+	if handler.done != 0 {
+		t.Fatalf("OnDone = %d, want 0", handler.done)
+	}
+}
+
+func TestAnthropicProvider_NativeMCPUnsupportedWithoutAdapterReportsError(t *testing.T) {
+	attempts := 0
+	provider := &AnthropicProvider{
+		provider:   &ProviderConfig{ID: "a", BaseURL: "https://api.anthropic.com"},
+		mcpServers: []MCPServerConfig{{Name: "server", Slug: "server", URL: "https://example.com/mcp"}},
+	}
+	provider.betaAttemptFn = func(_ context.Context, _ anthropic.BetaMessageNewParams, _ StreamHandler, servers []MCPServerConfig) mcpStreamAttemptResult {
+		attempts++
+		if len(servers) != 1 {
+			t.Fatalf("servidores removidos: %v", servers)
+		}
+		return mcpStreamAttemptResult{nativeMCPUnsupported: true}
+	}
+	handler := &providerRetryHandler{}
+	provider.streamChatWithMCP(context.Background(), "claude-test", 256, nil, nil, ChatParams{}, handler)
+	assertMCPFailureNotRetryable(t, handler)
+	if attempts != 1 || handler.done != 0 || handler.errors[0] != formatMCPFailureUserMessage("MCP", MCPFailureStageHandshake) {
+		t.Fatalf("falha inesperada: attempts=%d done=%d errors=%v", attempts, handler.done, handler.errors)
 	}
 }
