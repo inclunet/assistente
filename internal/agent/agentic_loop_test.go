@@ -177,6 +177,23 @@ func TestAgenticLoopRunner_TurnStillValid(t *testing.T) {
 	}
 }
 
+func TestAgenticLoopRunner_EmitsLedgerFailureCode(t *testing.T) {
+	em := &captureEmitter{}
+	svc := NewService(ServiceConfig{Emitter: em, MsgRepo: &mockMsgRepo{}})
+	r := newSeamRunner(svc, "c1", "t1")
+	r.emitToolEndsAndAccount([]tools.ToolExecutionResult{{CallID: "blocked", ToolName: "echo",
+		Result: tools.ToolResult{Content: "diagnostic", IsError: true}, ErrorKind: tools.ErrorKindUnavailable,
+		ErrorCode: "invocation_ledger_unavailable"}}, nil)
+	ends := em.find("chat:tool_end")
+	if len(ends) != 1 {
+		t.Fatalf("tool_end=%d", len(ends))
+	}
+	event := ends[0].data.(ports.ToolEndEvent)
+	if event.ErrorCode != "invocation_ledger_unavailable" || event.Status != "error" || event.ConversationID != "c1" {
+		t.Fatalf("evento sem diagnóstico estruturado: %+v", event)
+	}
+}
+
 func TestAgenticLoopRunner_EmitToolEndsAndAccount(t *testing.T) {
 	em := &captureEmitter{}
 	svc := NewService(ServiceConfig{Emitter: em, MsgRepo: &mockMsgRepo{}})

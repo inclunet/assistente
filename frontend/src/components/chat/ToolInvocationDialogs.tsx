@@ -37,6 +37,7 @@ export type InvocationForDetails = {
   outputPreview?: string;
   args?: string;
   summary?: string;
+  errorCode?: string;
   securityOutcome?: string;
   durationMs?: number;
   hasSearchResults?: boolean;
@@ -333,7 +334,9 @@ export function ToolInvocationDialogsProvider({
                     <pre className="tool-calls-section__result-content">
                       {detail
                         ? detailResult(detail)
-                        : (displayToolStatus(selectedCurrent.status) === 'running'
+                        : selectedCurrent.errorCode === 'invocation_ledger_unavailable'
+                          ? t('chat.invocationLedgerUnavailable')
+                          : (displayToolStatus(selectedCurrent.status) === 'running'
                             ? `${t('chat.partialOutput')}: `
                             : '') +
                           (selectedCurrent.outputPreview ??

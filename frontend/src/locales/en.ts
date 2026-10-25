@@ -475,6 +475,7 @@ const en = {
       showLess: 'Show less',
       showAll: 'Show all',
       loadingToolDetails: 'Loading details...',
+      invocationLedgerUnavailable: 'Tool not executed: the conversation could not be validated or the execution recorded in the local database. This does not indicate that the tool or MCP server is unavailable.',
       toolDetailsUnavailable: 'Details for this execution are no longer available.',
       toolDetailsLoadError: 'Could not load the tool details.',
       viewSearchResults: 'View {{count}} result(s)',

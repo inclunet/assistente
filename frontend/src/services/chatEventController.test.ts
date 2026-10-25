@@ -276,11 +276,12 @@ describe('chatEventController', () => {
     emitEvent('chat:tool_start', { ...identity, name: 'search', callId: 'call-1' });
     expect(sessions['conversation-1'].activeToolCalls[0].status).toBe('running');
     expect(sessions['conversation-1'].completedSegments).toEqual([]);
-    emitEvent('chat:tool_end', { ...identity, name: 'search', callId: 'call-1', status: 'error', summary: 'Indisponível' });
+    emitEvent('chat:tool_end', { ...identity, name: 'search', callId: 'call-1', status: 'error', summary: 'Indisponível', errorCode: 'invocation_ledger_unavailable' });
     emitEvent('chat:segment_done', { ...identity, hasMore: true, content: 'Vou pesquisar.' });
     emitEvent('chat:tool_start', { ...identity, name: 'read', callId: 'call-2' });
     expect(sessions['conversation-1'].completedSegments.map((segment) => segment.type)).toEqual(['text', 'tool_calls']);
     expect(sessions['conversation-1'].completedSegments[1].toolCalls?.[0].status).toBe('error');
+    expect(sessions['conversation-1'].completedSegments[1].toolCalls?.[0].errorCode).toBe('invocation_ledger_unavailable');
     emitEvent('chat:tool_end', { ...identity, name: 'read', callId: 'call-2', status: 'ok' });
     emitEvent('chat:segment_done', { ...identity, hasMore: true, content: 'Vou consultar outra fonte.' });
 
@@ -2465,6 +2466,39 @@ describe('chatEventController', () => {
     expect(mockAnnounceWithOrigin).toHaveBeenCalledWith(expect.objectContaining({
       message: 'chat.toolMcpProvider. chat.toolStatusFailed',
     }));
+  });
+
+  it.each([
+    [false, false], [true, false], [false, true], [true, true],
+  ])('preserva diagnóstico não persistido no patch: segmento=%s registro=%s', (completed, persisted) => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+    const identity = { conversationId: 'conversation-1', turnId: 'turn-1', assistantMessageId: 'backend-assistant' };
+    emitEvent('chat:tool_start', { ...identity, name: 'echo', callId: 'blocked' });
+    emitEvent('chat:tool_end', { ...identity, callId: 'blocked', status: 'error', errorKind: 'unavailable',
+      errorCode: 'invocation_ledger_unavailable', summary: 'diagnostic' });
+    if (completed) emitEvent('chat:segment_done', { ...identity, hasMore: true, content: 'intermediário' });
+    const canonical = [
+      { type: 'text', content: 'resposta canônica' },
+      ...(persisted ? [{ type: 'tool_calls', toolInvocations: [{ callId: 'blocked', invocationId: 'persisted',
+        name: 'echo', status: 'failed', hasDetails: true, resultAvailability: 'available' }] }] : []),
+    ];
+    emitEvent('chat:done', { ...identity, hadToolCalls: true, turnPatch: { message: {
+      id: 'backend-assistant', conversationId: 'conversation-1', turnId: 'turn-1',
+      content: 'resposta canônica', createdAt: '2026-10-25T00:00:00Z', timestamp: 1, turnSegments: canonical,
+    } } });
+    const message = sessions['conversation-1'].conversation!.threadedMessages[0].message as Message;
+    expect(message.content).toBe('resposta canônica');
+    expect(message.turnSegments).toEqual(canonical);
+    if (persisted) {
+      expect(message._turnSegments).toBeUndefined();
+    } else {
+      expect(message._resumableContent).toBe('resposta canônica');
+      expect(message._turnSegments).toHaveLength(2);
+      expect(message._turnSegments?.[1]).toMatchObject({ type: 'tool_calls', diagnostic: true,
+        toolCalls: [{ id: 'blocked', errorCode: 'invocation_ledger_unavailable', status: 'error' }] });
+    }
+    expect(sessions['conversation-1'].activeToolCalls).toEqual([]);
   });
 
   it('aplica patch canônico multi-segmento sem recarregar snapshot completo', () => {

@@ -475,6 +475,7 @@ const ptBR = {
       showLess: 'Mostrar menos',
       showAll: 'Mostrar tudo',
       loadingToolDetails: 'Carregando detalhes...',
+      invocationLedgerUnavailable: 'Ferramenta não executada: não foi possível validar a conversa ou registrar a execução no banco local. Isso não indica indisponibilidade da ferramenta ou do servidor MCP.',
       toolDetailsUnavailable: 'Os detalhes desta execução não estão mais disponíveis.',
       toolDetailsLoadError: 'Não foi possível carregar os detalhes da ferramenta.',
       viewSearchResults: 'Ver {{count}} resultado(s)',
