@@ -276,3 +276,7 @@ momentânea do banco e não significa que o servidor MCP desconectou ou que a
 ferramenta deixou de existir. Depois de resolver a falha local, solicite uma nova
 tentativa. O Assistente não executa a operação sem registro nem a repete
 automaticamente por esse erro.
+
+O diagnóstico de uma chamada que não chegou a ser registrada permanece visível
+nos detalhes até recarregar o histórico. Ele não representa uma execução salva;
+o conteúdo da conversa e as execuções já registradas continuam vindo do banco.

@@ -489,6 +489,17 @@ export function startChatEventController({
   const applyTurnPatch = (patch?: ChatTurnPatch) => {
     if (!patch?.message || patch.message.conversationId !== conversationId) return;
     if (currentTurnId && patch.message.turnId !== currentTurnId) return;
+    const canonicalSegments = patch.message.turnSegments ?? [];
+    const persistedCalls = new Set(canonicalSegments.flatMap(segment =>
+      (segment.toolInvocations ?? []).map(invocation => invocation.callId)));
+    // Falhas anteriores ao registro não existem no snapshot do ledger. São
+    // diagnósticos desta apresentação, nunca execuções persistidas ou contexto
+    // retomável. O patch continua autoritativo para texto e chamadas registradas.
+    const unpersistedFailures = Array.from(new Map(collectReceivedSegments('')
+      .flatMap(segment => segment.toolCalls ?? [])
+      .filter(call => call.status === 'error'
+        && call.errorCode === 'invocation_ledger_unavailable' && !persistedCalls.has(call.id))
+      .map(call => [call.id, call])).values());
     invalidateToolInvocationDetails(
       (patch.message.turnSegments ?? [])
         .flatMap((segment) => segment.toolInvocations ?? [])
@@ -538,9 +549,16 @@ export function startChatEventController({
           originalIndex: node.originalIndex,
         }) as MessageNode];
       });
+      const patchedNodes = replaced ? threadedMessages : [...threadedMessages, persistedNode];
       return {
         ...conversation,
-        threadedMessages: replaced ? threadedMessages : [...threadedMessages, persistedNode],
+        threadedMessages: unpersistedFailures.length
+          ? updateMessageSegmentsInTree(patchedNodes, patch.message.id, [
+            ...(canonicalSegments.length ? canonicalSegments : patch.message.content
+              ? [{ type: 'text' as const, content: patch.message.content }] : []),
+            { type: 'tool_calls', diagnostic: true, toolCalls: unpersistedFailures },
+          ], patch.message.content)
+          : patchedNodes,
       };
     });
     currentAssistantNodeId = patch.message.id;

@@ -10,6 +10,12 @@ O registro continua obrigatório, sem repetir automaticamente efeitos externos.
 O evento `chat:tool_end` propaga `errorCode` opcional; o controller preserva
 o código e os detalhes traduzem a falha local em pt-BR, en e es, sem interpretar
 o texto do resultado. Consumidores antigos podem ignorar o campo aditivo.
+Quando o patch terminal não contém a chamada que falhou antes do registro,
+a apresentação mantém seu diagnóstico efêmero separado dos segmentos canônicos;
+não o envia como contexto retomável nem duplica chamadas presentes no ledger.
+Ele não sobrevive ao recarregamento do histórico, pois nenhuma execução ocorreu.
+Regressão: matriz de segmentos ativos/concluídos com e sem registro no patch em
+`chatEventController.test.ts`.
 Regressão WAL: `TestServiceLedgerContentionDoesNotExecuteAndRecoversOnce`.
 
 (endurecido para bancos legados grandes: `hash_mismatch` é aviso de auditoria
