@@ -175,6 +175,31 @@ describe('cronologia de ChatMessage', () => {
     });
   });
 
+  it('exibe a cadeia recebida e o aviso uma vez após falha de gravação, expandida ou recolhida', () => {
+    const warning = 'Erro: não foi possível salvar';
+    const scalar = `${finalContent}\n\n${warning}`;
+    const message = messageFor('assistant-unsaved', { content: scalar });
+    message._turnSegments = [
+      { type: 'text', content: finalContent },
+      { type: 'tool_calls', toolCalls: [{
+        id: 'last-call', type: 'function', function: { name: 'search', arguments: '{}' },
+        origin: 'builtin', status: 'done',
+      }] },
+      { type: 'text', content: warning },
+    ];
+    const surface = seedStore({ targetConversationId: conversationId, messageId: message.id });
+    renderMessage(surface, message);
+    const expanded = messageContent();
+    expect(within(expanded).getAllByTestId('markdown').map(node => node.textContent)).toEqual([finalContent, warning]);
+    const tools = expanded.querySelector('.tool-calls-section')!;
+    expect(within(expanded).getByText(finalContent).compareDocumentPosition(tools) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(tools.compareDocumentPosition(within(expanded).getByText(warning)) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'chat.collapseChain' }));
+    expect(within(messageContent()).getAllByTestId('markdown').map(node => node.textContent)).toEqual([scalar]);
+    fireEvent.click(screen.getByRole('button', { name: 'chat.expandChain' }));
+    expect(within(messageContent()).getAllByTestId('markdown').map(node => node.textContent)).toEqual([finalContent, warning]);
+  });
+
   it('mantém texto → tools → texto → tools e coloca a conclusão uma vez após a cadeia', () => {
     const message = messageFor('assistant-chronological', {
       content: finalContent,

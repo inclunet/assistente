@@ -199,8 +199,11 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
     : displaySegments;
   const hasConclusionInChain = chainSegments.some((segment) =>
     segment.type === 'text' && segment.content === conclusionSource);
+  // A terminal received chain already includes the response and persistence
+  // warning separately. The scalar is still the compact/collapsed presentation.
+  const hasCompleteReceivedChain = !effectiveIsStreaming && !!message._turnSegments?.length;
   const showConclusionAfterChain = !effectiveIsStreaming && !!conclusionContent
-    && (hasTrailingConclusion || !hasConclusionInChain || !isChainExpanded);
+    && (hasTrailingConclusion || (!hasConclusionInChain && !hasCompleteReceivedChain) || !isChainExpanded);
 
   // O host dos diálogos vive no ChatMessage, fora das Sections temporárias.
   // A projeção canônica é inserida por último para prevalecer sobre dados ativos

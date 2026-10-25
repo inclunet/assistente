@@ -1359,6 +1359,62 @@ describe('chatEventController', () => {
     expect(mockPlayChatErrorSoundIfActive).toHaveBeenCalledWith('conversation-1', undefined);
   });
 
+  it('mantém tools posteriores ao texto retomado sem duplicar baseContent', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+    sessions['conversation-1'].conversation!.threadedMessages = [new chat.MessageNode({
+      message: {
+        id: 'assistant-1', conversationId: 'conversation-1', turnId: 'turn-1',
+        role: 'assistant', content: 'Parcial',
+        turnSegments: [
+          { type: 'text', content: 'Parcial' },
+          { type: 'tool_calls', toolInvocations: [{ callId: 'old-call', name: 'search', status: 'ok', hasDetails: true, resultAvailability: 'available' }] },
+        ],
+      } as Message,
+      children: [], level: 0, childCount: 0,
+    }) as MessageNode];
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+    const identity = { conversationId: 'conversation-1', turnId: 'turn-1', assistantMessageId: 'assistant-1' };
+    emitEvent('chat:stream', { ...identity, messageId: 'assistant-1', reset: true, sequence: 0, baseContent: 'Parcial', delta: ' continuação' });
+    emitEvent('chat:done', { ...identity, reason: 'error', errorMessage: 'persistence_error' });
+    vi.runOnlyPendingTimers();
+    const message = sessions['conversation-1'].conversation!.threadedMessages[0].message as Message;
+    expect(message._turnSegments?.map(segment => segment.type)).toEqual(['text', 'tool_calls', 'text', 'text']);
+    expect(message._turnSegments?.[0].content).toBe('Parcial');
+    expect(message._turnSegments?.[1].toolInvocations?.[0].callId).toBe('old-call');
+    expect(message._turnSegments?.[2].content).toBe(' continuação');
+    expect(message._turnSegments?.[3].content).toBe('Erro: chat.errors.persistenceError');
+  });
+
+  it.each([false, true])('distingue continuação de nova tentativa na cronologia após falha (continuação: %s)', (continuation) => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+    const priorSegments = [
+      { type: 'text', content: 'Vou pesquisar.' },
+      { type: 'tool_calls', toolInvocations: [{ callId: 'old-call', name: 'search', status: 'ok', hasDetails: true, resultAvailability: 'available' }] },
+      { type: 'text', content: 'Resposta parcial' },
+    ];
+    sessions['conversation-1'].conversation!.threadedMessages = [new chat.MessageNode({
+      message: { id: 'assistant-1', conversationId: 'conversation-1', turnId: 'turn-1', role: 'assistant', content: 'Resposta parcial', turnSegments: priorSegments } as Message,
+      children: [], level: 0, childCount: 0,
+    }) as MessageNode];
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+    const identity = { conversationId: 'conversation-1', turnId: 'turn-1', assistantMessageId: 'assistant-1' };
+    emitEvent('chat:stream', {
+      ...identity, messageId: 'assistant-1', reset: true, sequence: 0,
+      baseContent: continuation ? 'Resposta parcial' : '', delta: ' nova resposta',
+    });
+    emitEvent('chat:done', { ...identity, reason: 'error', errorMessage: 'persistence_error' });
+    vi.runOnlyPendingTimers();
+    const message = sessions['conversation-1'].conversation!.threadedMessages[0].message as Message;
+    const segments = message._turnSegments!;
+    expect(segments.map(segment => segment.type)).toEqual(continuation ? ['text', 'tool_calls', 'text', 'text'] : ['text', 'text']);
+    if (continuation) {
+      expect(segments[0].content).toBe('Vou pesquisar.');
+      expect(segments[1].toolInvocations?.[0].callId).toBe('old-call');
+    }
+    expect(segments[segments.length - 2]?.content).toBe(`${continuation ? 'Resposta parcial' : ''} nova resposta`);
+    expect(segments[segments.length - 1]?.content).toBe('Erro: chat.errors.persistenceError');
+  });
+
   it.each([false, true])('preserva cronologia recebida na falha de gravação (última tool ativa: %s)', (withActiveTool) => {
     const { adapter, sessions } = createAdapter(['conversation-1']);
     startChatEventController({ conversationId: 'conversation-1', adapter });
@@ -1376,14 +1432,15 @@ describe('chatEventController', () => {
     vi.runOnlyPendingTimers();
     const message = sessions['conversation-1'].conversation!.threadedMessages[0].message as Message;
     expect(message._turnSegments?.map(segment => segment.type)).toEqual(
-      withActiveTool ? ['text', 'tool_calls', 'text', 'tool_calls'] : ['text', 'tool_calls', 'text'],
+      withActiveTool ? ['text', 'tool_calls', 'text', 'tool_calls', 'text'] : ['text', 'tool_calls', 'text', 'text'],
     );
     expect(message._turnSegments?.[0].content).toBe('Vou pesquisar.');
     expect(message._turnSegments?.[1].toolCalls?.[0]).toMatchObject({
       id: 'call-1', function: { name: 'search' }, status: 'done', result: 'Encontrado',
       origin: 'mcp_bridge', serverLabel: 'remote',
     });
-    expect(message._turnSegments?.[2].content).toBe('Resposta final.\n\nErro: chat.errors.persistenceError');
+    expect(message._turnSegments?.[2].content).toBe('Resposta final.');
+    expect(message._turnSegments?.[withActiveTool ? 4 : 3].content).toBe('Erro: chat.errors.persistenceError');
     if (withActiveTool) expect(message._turnSegments?.[3].toolCalls?.[0].id).toBe('call-2');
     expect(sessions['conversation-1'].completedSegments).toEqual([]);
     expect(sessions['conversation-1'].activeToolCalls).toEqual([]);

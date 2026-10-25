@@ -139,6 +139,9 @@ fechamento do aplicativo quando todas as gravações falham.
   `TestSaveAndFinish_FinalizeFailureIsTerminalAndRecoverable`.
 - [x] UI preserva o último delta ainda não renderizado, a cronologia de ferramentas e mostra diagnóstico
   específico: teste de falha de salvamento em `chatEventController.test.ts`.
+- [x] Continuação explícita (`baseContent`) preserva o prefixo conhecido do turno
+  e substitui apenas o último segmento textual pelo texto retomado; nova tentativa
+  sem base não reutiliza essa cronologia. Regressões no mesmo controlador.
 
 ### Leitura limitada do contexto de retry
 
