@@ -9,6 +9,7 @@ import {
 import { CHAT_TURN_EVENT_NAMES, resetChatEventHubForTests } from './chatEventHub';
 import {
   getMessageTurnSegments,
+  updateEditedMessageContentInTree,
   updateMessageContentInTree,
   updateMessageReasoningInTree,
   type ChatTreeConversation,
@@ -1427,6 +1428,45 @@ describe('chatEventController', () => {
     expect(message.content).toBe(failure ? 'Erro: chat.errors.persistenceError' : '');
     if (failure) expect(segments[1].content).toBe('Erro: chat.errors.persistenceError');
     expect(message.isStreaming).toBe(false);
+  });
+
+  it.each([false, true])('mantém tools antigas e novas após continuação sem patch seguida de edição (falha: %s)', (failure) => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+    sessions['conversation-1'].conversation!.threadedMessages = [new chat.MessageNode({
+      message: {
+        id: 'assistant-1', conversationId: 'conversation-1', turnId: 'turn-1', role: 'assistant', content: 'Parcial',
+        turnSegments: [
+          { type: 'tool_calls', toolInvocations: [{ callId: 'canonical-call', name: 'search', status: 'ok', hasDetails: true, resultAvailability: 'available' }] },
+          { type: 'text', content: 'Parcial' },
+        ],
+      } as Message,
+      children: [], level: 0, childCount: 0,
+    }) as MessageNode];
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+    const identity = { conversationId: 'conversation-1', turnId: 'turn-1', assistantMessageId: 'assistant-1' };
+    emitEvent('chat:stream', { ...identity, messageId: 'assistant-1', reset: true, sequence: 0, baseContent: 'Parcial', delta: ' continuado' });
+    emitEvent('chat:tool_start', { ...identity, name: 'read', callId: 'new-call', origin: 'builtin' });
+    emitEvent('chat:tool_end', { ...identity, name: 'read', callId: 'new-call', status: 'ok' });
+    emitEvent('chat:done', {
+      ...identity, reason: failure ? 'error' : 'completed',
+      ...(failure ? { errorMessage: 'persistence_error' } : {}),
+    });
+    vi.runOnlyPendingTimers();
+    const completed = sessions['conversation-1'].conversation!.threadedMessages[0].message as Message;
+    expect(getMessageTurnSegments(completed)?.[1].content).toBe('Parcial continuado');
+    expect(completed.turnSegments?.[0].toolInvocations?.[0].callId).toBe('canonical-call');
+    adapter.patchConversation('conversation-1', conversation => ({
+      ...conversation,
+      threadedMessages: updateEditedMessageContentInTree(conversation.threadedMessages, 'assistant-1', 'Texto editado'),
+    }));
+    const edited = sessions['conversation-1'].conversation!.threadedMessages[0].message as Message;
+    expect(edited.content).toBe('Texto editado');
+    const segments = getMessageTurnSegments(edited)!;
+    expect(segments.map(segment => segment.type)).toEqual(['tool_calls', 'tool_calls', 'text']);
+    expect(segments[0].toolInvocations?.[0].callId).toBe('canonical-call');
+    expect(segments[1].toolCalls?.[0].id).toBe('new-call');
+    expect(segments[2]).toEqual({ type: 'text', content: 'Texto editado' });
+    expect(edited.turnSegments?.[1].content).toBe('Parcial');
   });
 
   it('continua depois de falha de gravação sem transformar o aviso anterior em conteúdo', () => {

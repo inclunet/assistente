@@ -3,10 +3,12 @@ import { chat } from '../../wailsjs/go/models';
 import {
   attachChildrenToMessage,
   finalizeStreamingNode,
+  getMessageTurnSegments,
   flattenThreadedMessages,
   hasMessageId,
   updateMessageContentInTree,
   updateEditedMessageContentInTree,
+  updateMessageSegmentsInTree,
   type Message,
   type MessageNode,
 } from './chatMessageTree';
@@ -72,9 +74,20 @@ describe('chatMessageTree', () => {
     expect((streamed[0].message as Message)._turnSegments).toBe(original._turnSegments);
     const edited = updateEditedMessageContentInTree(streamed, 'root', 'edited');
     expect(edited[0].message.content).toBe('edited');
-    expect((edited[0].message as Message)._turnSegments).toEqual([]);
+    expect((edited[0].message as Message)._turnSegments).toBeUndefined();
     expect(edited[0].children).toBe(nodes[0].children);
     expect(updateEditedMessageContentInTree(edited, 'root', 'edited')).toBe(edited);
+  });
+
+  it('preserves canonical segments while an empty retry override hides them until an edit removes it', () => {
+    const nodes = [node(message('root', 'assistant', 'Parcial'))];
+    nodes[0].message.turnSegments = [new chat.TurnSegment({ type: 'text', content: 'Parcial' })];
+    const retry = updateMessageSegmentsInTree(nodes, 'root', []);
+    expect(getMessageTurnSegments(retry[0].message as Message)).toEqual([]);
+    expect(retry[0].message.turnSegments?.[0].content).toBe('Parcial');
+    const edited = updateEditedMessageContentInTree(retry, 'root', 'Parcial');
+    expect((edited[0].message as Message)._turnSegments).toBeUndefined();
+    expect(getMessageTurnSegments(edited[0].message as Message)?.[0].content).toBe('Parcial');
   });
 
   it('attaches loaded children to the requested message', () => {

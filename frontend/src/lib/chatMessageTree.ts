@@ -60,7 +60,7 @@ export type Message = chat.EnrichedMessage & {
 // (`turnSegments`). Issue #150 garante que ambas as fontes existam para que
 // recarregar o histórico mantenha a cadeia de raciocínio em UMA única entrada.
 export function getMessageTurnSegments(message: Message): TurnSegment[] | undefined {
-  if (message._turnSegments && message._turnSegments.length > 0) {
+  if (message._turnSegments !== undefined) {
     return message._turnSegments as TurnSegment[];
   }
   const canonical = (message as Message & { turnSegments?: TurnSegment[] }).turnSegments;
@@ -81,7 +81,7 @@ function cloneMessage(message: Message, overrides: Partial<Message> = {}): Messa
     ...message,
     ...overrides,
   }) as Message;
-  // Omitting _turnSegments in overrides preserves existing segments; pass [] to clear explicitly.
+  // Omitting _turnSegments preserves the override; [] explicitly hides canonical segments.
   const turnSegments = overrides._turnSegments ?? message._turnSegments;
   if (turnSegments) cloned._turnSegments = turnSegments;
   return cloned;
@@ -231,17 +231,24 @@ export function updateMessageContentInTree(nodes: MessageNode[], messageId: stri
 export function updateMessageSegmentsInTree(nodes: MessageNode[], messageId: string, segments: TurnSegment[]): MessageNode[] {
   return mapMessageTree(nodes, (node) => {
     if (String(node.message.id) !== messageId) return node;
-    return cloneNode(node, { message: cloneMessage(node.message, { _turnSegments: segments, turnSegments: [] }) });
+    return cloneNode(node, { message: cloneMessage(node.message, { _turnSegments: segments }) });
   });
 }
 
-// An authoritative edit supersedes the received-only presentation. Streaming
-// updates keep using updateMessageContentInTree and preserve their segments.
+// An edit replaces received text, but keeps executions that may not yet appear
+// in the canonical projection. Streaming updates preserve all their segments.
 export function updateEditedMessageContentInTree(nodes: MessageNode[], messageId: string, content: string): MessageNode[] {
   return mapMessageTree(nodes, (node) => {
     if (String(node.message.id) !== messageId) return node;
-    if (node.message.content === content && !(node.message as Message)._turnSegments?.length) return node;
-    return cloneNode(node, { message: cloneMessage(node.message, { content, _turnSegments: [] }) });
+    if (node.message.content === content && (node.message as Message)._turnSegments === undefined) return node;
+    const edited = cloneMessage(node.message, { content });
+    const receivedTools = edited._turnSegments?.filter(segment => segment.type === 'tool_calls') ?? [];
+    if (receivedTools.length > 0) {
+      edited._turnSegments = [...receivedTools, { type: 'text', content }];
+    } else {
+      delete edited._turnSegments;
+    }
+    return cloneNode(node, { message: edited });
   });
 }
 

@@ -136,7 +136,7 @@ describe('salvar edição: MessageNode, fonte draft, store e executor reais', ()
     act(() => emitUpdate('Resposta corrigida'));
     const edited = useChatStore.getState().getConversationMessages(id)[0] as Message;
     expect(edited.content).toBe('Resposta corrigida');
-    expect(edited._turnSegments).toEqual([]);
+    expect(edited._turnSegments).toBeUndefined();
     await waitFor(() => expect(node()).toHaveTextContent('Resposta corrigida'));
     expect(node()).not.toHaveTextContent('Resposta anterior');
     expect(node()).not.toHaveTextContent('Atividade anterior');

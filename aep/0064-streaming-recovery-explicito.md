@@ -149,7 +149,9 @@ fechamento do aplicativo quando todas as gravações falham.
   falha, retry/continuação e novo terminal em `chatEventController.test.ts`.
 - [x] Cancelamento e outros terminais sem patch preservam a mesma cadeia recebida,
   inclusive prefill sem delta e ferramentas anteriores ao primeiro texto. Edição
-  autoritativa invalida a projeção transitória: regressões no controlador e em
+  autoritativa substitui textos/diagnósticos e preserva ferramentas recebidas,
+  sem apagar a fonte canônica. Override vazio suprime temporariamente essa
+  fonte durante retry, sem destruí-la: regressões no controlador e em
   `ChatSessionView.messageEdit.test.tsx`.
 - [x] O buffer vazio entre segmentos é autoritativo, sem recuperar texto antigo
   da árvore. Placeholders e avisos continuam visíveis com a cadeia expandida;
