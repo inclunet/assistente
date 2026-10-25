@@ -326,7 +326,7 @@ func (s *Service) SaveAndFinish(
 				s.emitFinalizationCancelledDone(ctx, conversationID, turnID, assistantMessageID, surfaceOrigin)
 				return true
 			}
-			s.emitFinalizationErrorDone(ctx, conversationID, turnID, assistantMessageID, surfaceOrigin)
+			s.emitFinalizationErrorDone(conversationID, turnID, assistantMessageID, surfaceOrigin)
 			return true
 		}
 	}
@@ -465,18 +465,18 @@ func (s *Service) emitFinalizationCancelledDone(ctx context.Context, conversatio
 	})
 }
 
-func (s *Service) emitFinalizationErrorDone(ctx context.Context, conversationID, turnID, assistantMessageID string, surfaceOrigin *ports.ChatSurfaceOrigin) {
+func (s *Service) emitFinalizationErrorDone(conversationID, turnID, assistantMessageID string, surfaceOrigin *ports.ChatSurfaceOrigin) {
 	if s == nil || s.emitter == nil {
 		return
 	}
-	patch, _ := s.buildTurnPatch(ctx, conversationID, turnID)
+	// A failed write leaves the database snapshot older than the streamed text.
+	// Do not replace that text with a stale terminal patch.
 	s.emitter.Emit("chat:done", ports.DoneEvent{
-		TurnPatch:          patch,
 		ConversationID:     conversationID,
 		TurnID:             turnID,
 		AssistantMessageID: assistantMessageID,
 		Reason:             "error",
-		ErrorMessage:       ports.ChatErrorInternal,
+		ErrorMessage:       ports.ChatErrorPersistence,
 		SurfaceOrigin:      surfaceOrigin,
 	})
 }

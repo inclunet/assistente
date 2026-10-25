@@ -388,7 +388,7 @@ func TestAgenticLoopRunner_FinishLimitReached(t *testing.T) {
 		t.Fatalf("chat:stream=%d, want 2", len(streamEvents))
 	}
 	delta := streamEvents[0].data.(events.StreamEvent)
-	if delta.Delta != limitReachedNotice || !delta.Reset || delta.Done {
+	if delta.Delta != limitReachedNotice || !delta.Diagnostic || !delta.Reset || delta.Done {
 		t.Fatalf("delta de limite inesperado: %+v", delta)
 	}
 	if !streamEvents[1].data.(events.StreamEvent).Done {

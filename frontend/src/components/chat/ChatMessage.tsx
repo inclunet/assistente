@@ -5,7 +5,7 @@ import {
   MessageOutlined, MobileOutlined, SoundOutlined, PauseCircleOutlined,
 } from '@ant-design/icons';
 import type { Message, TurnSegment } from '../../store/chatStore';
-import { getMessageTurnSegments, type ToolInvocationSummary } from '../../lib/chatMessageTree';
+import { getMessageTurnSegments, isContentRepresentedBySegments, type ToolInvocationSummary } from '../../lib/chatMessageTree';
 import { MarkdownRenderer } from '../ui/MarkdownRenderer';
 import { ThreadIndicator } from './ThreadIndicator';
 import { ReasoningSection } from './ReasoningSection';
@@ -199,8 +199,18 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
     : displaySegments;
   const hasConclusionInChain = chainSegments.some((segment) =>
     segment.type === 'text' && segment.content === conclusionSource);
+  // Received fragments may represent the full scalar across tool boundaries;
+  // diagnostics are separate and must not hide an unrepresented conclusion.
+  const resumableConclusion = message._resumableContent ?? conclusionSource;
+  const hasCompleteReceivedChain = !effectiveIsStreaming
+    && isContentRepresentedBySegments(message._turnSegments, resumableConclusion);
+  const expandedConclusionContent = message._resumableContent !== undefined && isChainExpanded
+    && !hasTrailingConclusion && !hasConclusionInChain && !hasCompleteReceivedChain
+    && message._turnSegments?.some(segment => segment.diagnostic)
+    ? translateBackendErrorDiagnostic(message._resumableContent)
+    : conclusionContent;
   const showConclusionAfterChain = !effectiveIsStreaming && !!conclusionContent
-    && (hasTrailingConclusion || !hasConclusionInChain || !isChainExpanded);
+    && (hasTrailingConclusion || (!hasConclusionInChain && !hasCompleteReceivedChain) || !isChainExpanded);
 
   // O host dos diálogos vive no ChatMessage, fora das Sections temporárias.
   // A projeção canônica é inserida por último para prevalecer sobre dados ativos
@@ -651,7 +661,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
               <div className="chat-message__text chat-message__text--segment chat-message__text--conclusion-preview">
                 {canRenderHeavyContent ? (
                   <MarkdownRenderer
-                    content={conclusionContent}
+                    content={expandedConclusionContent}
                     tabNavigation={renderedTabNavigation}
                     interactiveButtons={!!onSendToEditor}
                     enableSendToEditorButtons={!!onSendToEditor}

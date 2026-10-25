@@ -394,6 +394,7 @@ const ptBR = {
         mediaSerializationFailed: 'Não foi possível preparar os anexos. Tente novamente.',
         cancelStreamingFailed: 'Não foi possível cancelar a geração: {{message}}',
         assistantPlaceholder: 'Não foi possível preparar a mensagem do assistente.',
+        persistenceError: 'Não foi possível salvar a resposta. Copie o texto antes de fechar ou recarregar a conversa.',
         internalError: 'Erro interno inesperado. Tente novamente.',
         streamingInterrupted: 'Resposta interrompida pelo provedor sem motivo de finalização; tente novamente.',
         streamingIdleTimeout: 'O provedor parou de responder no meio da geração (timeout de inatividade).',
