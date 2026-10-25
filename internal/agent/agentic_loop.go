@@ -223,13 +223,7 @@ func (r *agenticLoopRunner) streamIteration(ctx context.Context, iteration int) 
 		// tentativa de recovery. Consume() garante que isso ocorre só uma vez.
 		if fb := r.params.NativeMCPFallback; fb != nil && fb.Consume() {
 			logging.Infof(ctx, "agent.agentic-loop", "[Agent] MCP nativo não suportado (iteração %d): re-tentando o mesmo turno em modo adapter com bridge tools", iteration)
-			if fb.Streamer != nil {
-				r.activeStreamer = fb.Streamer
-			}
-			r.activeToolDefs = fb.ToolDefs
-			if fb.ResolveToolDefs != nil {
-				r.activeResolve = fb.ResolveToolDefs
-			}
+			r.useMCPAdapter(fb)
 			if resetter, ok := handler.(interface{ ResetStreamAttempt() }); ok {
 				resetter.ResetStreamAttempt()
 			}
@@ -240,28 +234,7 @@ func (r *agenticLoopRunner) streamIteration(ctx context.Context, iteration int) 
 		if fb := r.params.NativeMCPFallback; fb != nil && fb.ConsumeAfterResponse() {
 			// Não resetar o handler nem repetir a iteração: seus efeitos e
 			// resultados continuam pelo fluxo normal de persistência/execução.
-			if fb.Streamer != nil {
-				r.activeStreamer = fb.Streamer
-			}
-			if fb.ResolveToolDefs != nil {
-				names := make([]string, 0, len(fb.ToolDefs))
-				for _, tool := range fb.ToolDefs {
-					names = append(names, tool.Function.Name)
-				}
-				r.activeResolve = fb.ResolveToolDefs
-				r.activeToolDefs = fb.ResolveToolDefs(r.activeToolDefs, names)
-			} else {
-				seen := make(map[string]bool, len(r.activeToolDefs))
-				for _, tool := range r.activeToolDefs {
-					seen[tool.Function.Name] = true
-				}
-				for _, tool := range fb.ToolDefs {
-					if !seen[tool.Function.Name] {
-						r.activeToolDefs = append(r.activeToolDefs, tool)
-						seen[tool.Function.Name] = true
-					}
-				}
-			}
+			r.useMCPAdapter(fb)
 			logging.Warnf(ctx, "agent.agentic-loop", "contrato MCP nativo incompatível: próximas chamadas em adapter; resposta atual preservada (iteração %d)", iteration)
 		}
 		if compatibility := r.params.Compatibility; compatibility != nil &&
@@ -307,6 +280,19 @@ func (r *agenticLoopRunner) streamIteration(ctx context.Context, iteration int) 
 		}
 	}
 	return result, lastStreamErr, false
+}
+
+// useMCPAdapter preserva tools carregadas durante o turno nas duas transições.
+func (r *agenticLoopRunner) useMCPAdapter(fb *llm.NativeMCPAdapterFallback) {
+	if fb.Streamer != nil {
+		r.activeStreamer = fb.Streamer
+	}
+	if fb.ResolveToolDefs != nil {
+		r.activeResolve = fb.ResolveToolDefs
+	}
+	if fb.RestoreToolDefs != nil {
+		r.activeToolDefs = fb.RestoreToolDefs(r.activeToolDefs)
+	}
 }
 
 // persistPartialFrom salva o que a iteração alcançou a escrever antes de

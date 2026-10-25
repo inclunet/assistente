@@ -1161,16 +1161,6 @@ func (m *Manager) resetConnectingStatus(slug string) {
 	m.mu.Unlock()
 }
 
-func (m *Manager) refreshServerOfferingsWithContext(parentCtx context.Context, slug string) error {
-	m.mu.RLock()
-	conn, ok := m.connections[slug]
-	m.mu.RUnlock()
-	if !ok {
-		return fmt.Errorf("servidor '%s' não está conectado", slug)
-	}
-	return m.refreshServerOfferingsWithContextFor(parentCtx, slug, conn)
-}
-
 func (m *Manager) refreshServerOfferingsWithContextFor(parentCtx context.Context, slug string, expected *serverConnection) error {
 	m.mu.RLock()
 	conn, ok := m.connections[slug]
@@ -2226,72 +2216,6 @@ func (m *Manager) refreshOAuthTokenBestEffort(ctx context.Context, slug string, 
 	return false, nil
 }
 
-// RecoverServerBestEffort tenta restaurar um servidor MCP para chamadas futuras do chat.
-// A operação é best-effort: falhas são retornadas, mas não devem interromper a resposta atual.
-func (m *Manager) RecoverServerBestEffort(ctx context.Context, slug string) RecoveryResult {
-	result := RecoveryResult{}
-
-	select {
-	case <-ctx.Done():
-		result.Err = ctx.Err()
-		return result
-	default:
-	}
-
-	m.mu.RLock()
-	status, ok := m.servers[slug]
-	if !ok {
-		m.mu.RUnlock()
-		result.Err = fmt.Errorf("servidor MCP '%s' não encontrado", slug)
-		return result
-	}
-	if !status.Config.Enabled {
-		m.mu.RUnlock()
-		result.Err = fmt.Errorf("servidor MCP '%s' está desabilitado", slug)
-		return result
-	}
-	currentStatus := status.Status
-	runtimeErr := oauthRuntimeError(status.Config)
-	m.mu.RUnlock()
-	if runtimeErr != nil {
-		result.Err = runtimeErr
-		return result
-	}
-
-	result.Attempted = true
-
-	refreshed, refreshErr := m.refreshOAuthTokenBestEffort(ctx, slug, true)
-	if terminalOAuthNetworkError(ctx, refreshErr) {
-		result.Err = refreshErr
-		return result
-	}
-	if refreshed {
-		result.Refreshed = true
-	}
-
-	if currentStatus == StatusConnected {
-		if err := m.refreshServerOfferingsWithContext(ctx, slug); err == nil {
-			return result
-		} else if refreshErr == nil {
-			refreshErr = err
-		} else {
-			refreshErr = errors.Join(refreshErr, err)
-		}
-	}
-
-	if err := m.reconnectWithContext(ctx, slug); err == nil {
-		result.Reconnected = true
-		return result
-	} else if refreshErr == nil {
-		refreshErr = err
-	} else {
-		refreshErr = errors.Join(refreshErr, err)
-	}
-
-	result.Err = refreshErr
-	return result
-}
-
 // handleToolCallError é chamado pelo MCPToolBridge quando um tool call falha
 // com erro de transporte/sessão. Dispara reconexão imediata.
 func (m *Manager) handleToolCallError(slug string, err error) {
@@ -2865,15 +2789,6 @@ type nativeMCPCandidate struct {
 	url           string
 	authType      AuthType
 	toolNames     []string
-}
-
-// RecoveryResult descreve o resultado de uma tentativa best-effort de recuperação
-// de um servidor MCP para chamadas futuras do chat.
-type RecoveryResult struct {
-	Attempted   bool
-	Refreshed   bool
-	Reconnected bool
-	Err         error
 }
 
 // isNativeMCPEligibleURL verifica se a URL é segura para MCP nativo.

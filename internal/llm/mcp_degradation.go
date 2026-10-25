@@ -1,12 +1,9 @@
 package llm
 
 import (
-	"assistente/internal/logging"
-	"context"
 	"encoding/json"
 	"net/url"
 	"strings"
-	"time"
 )
 
 type MCPFailureStage string
@@ -19,21 +16,10 @@ const (
 )
 
 type MCPAttemptFailure struct {
-	ServerName  string
-	ServerSlug  string
-	Stage       MCPFailureStage
-	Message     string
-	Recoverable bool
-	Degradable  bool
-}
-
-// mcpFailureRecoverablyHandled indica que a falha MCP será tratada pela
-// degradação (retry_without_server) e o turno tende a se recuperar. Nesse caso
-// o provider deve logar em WARN, não ERRO: o ERRO seria falso-positivo, já que
-// MCP-DEGRADE/MCP-RECOVER registram o desfecho real. Reserva-se o ERRO para
-// falhas não-recuperáveis ou quando já houve efeito não-retentável no turno.
-func mcpFailureRecoverablyHandled(failure *MCPAttemptFailure, emittedNonRetryableEffect bool) bool {
-	return failure != nil && failure.Recoverable && !emittedNonRetryableEffect
+	ServerName string
+	ServerSlug string
+	Stage      MCPFailureStage
+	Message    string
 }
 
 type mcpStreamAttemptResult struct {
@@ -47,16 +33,6 @@ type mcpStreamAttemptResult struct {
 	// degradação nativo→adapter no mesmo turno + auto-ajuste persistido do perfil.
 	nativeMCPUnsupported       bool
 	promptCacheHintUnsupported bool
-}
-
-func maxMCPDegradationRetries(serverCount int) int {
-	if serverCount <= 0 {
-		return 0
-	}
-	if serverCount < 3 {
-		return serverCount
-	}
-	return 3
 }
 
 func cloneMCPServers(servers []MCPServerConfig) []MCPServerConfig {
@@ -92,70 +68,11 @@ func inferMCPFailure(stage MCPFailureStage, message, rawJSON, fallbackServer str
 	userMessage := formatMCPFailureUserMessage(matched.Name, stage)
 
 	return &MCPAttemptFailure{
-		ServerName:  matched.Name,
-		ServerSlug:  matched.Slug,
-		Stage:       stage,
-		Message:     userMessage,
-		Recoverable: looksRecoverableMCPFailure(detectionText),
-		Degradable:  true,
+		ServerName: matched.Name,
+		ServerSlug: matched.Slug,
+		Stage:      stage,
+		Message:    userMessage,
 	}
-}
-
-func planMCPDegradationRetry(
-	ctx context.Context,
-	provider string,
-	attempt int,
-	servers []MCPServerConfig,
-	failure *MCPAttemptFailure,
-) ([]MCPServerConfig, bool) {
-	if failure == nil || !failure.Degradable {
-		return nil, false
-	}
-
-	remaining, removed, ok := removeMCPServer(servers, failure.ServerName, failure.ServerSlug)
-	if !ok {
-		return nil, false
-	}
-
-	logging.Infof(ctx, "llm.mcp-degradation", "[MCP-DEGRADE] attempt=%d provider=%s server=%s stage=%s action=retry_without_server recoverable=%v",
-		attempt, provider, removed.Name, failure.Stage, failure.Recoverable)
-
-	if removed.Recover != nil {
-		go func(provider string, removed MCPServerConfig) {
-			recoveryCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-
-			if err := removed.Recover(recoveryCtx); err != nil {
-				logging.Infof(ctx, "llm.mcp-degradation", "[MCP-RECOVER] provider=%s server=%s err=%v", provider, removed.Name, err)
-			} else {
-				logging.Infof(ctx, "llm.mcp-degradation", "[MCP-RECOVER] provider=%s server=%s err=nil", provider, removed.Name)
-			}
-		}(provider, removed)
-	}
-
-	return remaining, true
-}
-
-func removeMCPServer(servers []MCPServerConfig, serverName, serverSlug string) ([]MCPServerConfig, MCPServerConfig, bool) {
-	if serverSlug != "" {
-		for idx, srv := range servers {
-			if srv.Slug == serverSlug {
-				remaining := make([]MCPServerConfig, 0, len(servers)-1)
-				remaining = append(remaining, servers[:idx]...)
-				remaining = append(remaining, servers[idx+1:]...)
-				return remaining, srv, true
-			}
-		}
-	}
-	for idx, srv := range servers {
-		if srv.Name == serverName {
-			remaining := make([]MCPServerConfig, 0, len(servers)-1)
-			remaining = append(remaining, servers[:idx]...)
-			remaining = append(remaining, servers[idx+1:]...)
-			return remaining, srv, true
-		}
-	}
-	return nil, MCPServerConfig{}, false
 }
 
 func findMCPServer(servers []MCPServerConfig, nameOrSlug string) (MCPServerConfig, bool) {
@@ -299,34 +216,6 @@ func looksLikeMCPFailure(text string) bool {
 		"list tools",
 		"failed dependency",
 		"server unhealthy",
-	} {
-		if strings.Contains(lower, token) {
-			return true
-		}
-	}
-	return false
-}
-
-func looksRecoverableMCPFailure(text string) bool {
-	lower := strings.ToLower(text)
-	for _, token := range []string{
-		"auth",
-		"authentication",
-		"unauthorized",
-		"forbidden",
-		"token",
-		"credential",
-		"refresh",
-		"expired",
-		"timeout",
-		"temporar",
-		"failed dependency",
-		"server unhealthy",
-		"unhealthy",
-		"connect",
-		"dependency",
-		"424",
-		"5xx",
 	} {
 		if strings.Contains(lower, token) {
 			return true

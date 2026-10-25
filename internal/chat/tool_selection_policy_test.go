@@ -7,64 +7,30 @@ import (
 	"assistente/internal/tools"
 )
 
-// Estes testes garantem que ToolSelectionPolicy produz EXATAMENTE os mesmos
-// resultados que a composição legada (capturada em
-// tool_selection_characterization_test.go), provando a paridade exigida pela
-// Fase 3 do AEP-0077 (#119). Reusam os mesmos cenários canônicos.
-
-func TestToolSelectionPolicy_InitialToolDefs_MatchesLegacy(t *testing.T) {
+func TestToolSelectionPolicy_InitialToolDefs_RespectsPolicy(t *testing.T) {
 	for _, tc := range initialSelectionCases(t) {
 		t.Run(tc.name, func(t *testing.T) {
 			policy := NewToolSelectionPolicy(tc.registry)
 			cfg := ProfileToolConfig{EnabledTools: tc.enabled, DisableTools: tc.disable, RuntimeTools: tc.runtime}
 
-			gotDefs := defNames(policy.InitialToolDefs(cfg))
+			gotDefs := defNames(policy.PlanTurnToolDefs(nil, nil, cfg).Definitions)
 			assertNames(t, tc.name+" defs", gotDefs, tc.want)
-
-			// InitialEnabledToolNames + buildLLMToolDefs deve coincidir com InitialToolDefs.
-			legacy := defNames(legacyInitialDefs(tc.registry, tc.enabled, tc.disable, tc.runtime))
-			assertNames(t, tc.name+" legacy", gotDefs, legacy)
 		})
 	}
 }
 
-func TestToolSelectionPolicy_ResolveExpandedToolDefs_MatchesLegacy(t *testing.T) {
+func TestToolSelectionPolicy_ResolveExpandedToolDefs_RespectsPolicy(t *testing.T) {
 	r := charRegistry(t)
-	for _, tc := range policyDynamicExpansionCases() {
+	for _, tc := range dynamicExpansionCases() {
 		t.Run(tc.name, func(t *testing.T) {
 			streamer, mgr := expansionStreamerAndMgr(tc.native)
 			policy := NewToolSelectionPolicy(r)
 			cfg := ProfileToolConfig{EnabledTools: tc.enabled, DisableTools: tc.disable, NativeMCP: tc.override}
 
-			got := defNames(policy.ResolveExpandedToolDefs(streamer, mgr, nil, tc.names, cfg))
+			got := defNames(policy.ResolveExpandedToolDefs(policy.PlanTurnToolDefs(streamer, mgr, cfg).NativeNames, nil, tc.names, cfg))
 			assertNames(t, tc.name, got, tc.want)
-
-			if !tc.intentionalAEP0081Change {
-				legacy := defNames(legacyExpandedDefs(r, streamer, mgr, tc.names, tc.enabled, tc.disable, tc.override))
-				assertNames(t, tc.name+" legacy", got, legacy)
-			}
 		})
 	}
-}
-
-type policyDynamicExpansionCase struct {
-	dynamicExpansionCase
-	intentionalAEP0081Change bool
-}
-
-func policyDynamicExpansionCases() []policyDynamicExpansionCase {
-	base := dynamicExpansionCases()
-	out := make([]policyDynamicExpansionCase, 0, len(base))
-	for _, tc := range base {
-		policyCase := policyDynamicExpansionCase{dynamicExpansionCase: tc}
-		if tc.name == "mcpNativoForcado_removeBridge" {
-			policyCase.name = "mcpNativoForcado_mantemBridgeOnDemand"
-			policyCase.want = []string{"mcp_srv__do", "read_file"}
-			policyCase.intentionalAEP0081Change = true
-		}
-		out = append(out, policyCase)
-	}
-	return out
 }
 
 func TestToolSelectionPolicy_ApplyNativeMCP_RemovesNativeBridge(t *testing.T) {
@@ -76,8 +42,8 @@ func TestToolSelectionPolicy_ApplyNativeMCP_RemovesNativeBridge(t *testing.T) {
 	enabled := []string{"read_file", "mcp_srv__do"}
 
 	policy := NewToolSelectionPolicy(r)
-	defs := policy.InitialToolDefs(ProfileToolConfig{EnabledTools: enabled})
-	_, out := policy.ApplyNativeMCP(capable, defs, mgr, ProfileToolConfig{EnabledTools: enabled, NativeMCP: boolPtr(true)})
+	plan := policy.PlanTurnToolDefs(capable, mgr, ProfileToolConfig{EnabledTools: enabled, NativeMCP: boolPtr(true)})
+	out := plan.Definitions
 	assertNames(t, "policy", defNames(out), []string{"read_file"})
 }
 
@@ -86,7 +52,7 @@ func TestToolSelectionPolicy_InitialEnabledToolNames_NilRegistrySafe(t *testing.
 	if got := policy.InitialEnabledToolNames(ProfileToolConfig{}); got != nil {
 		t.Fatalf("registry nil deveria devolver nil, got %#v", got)
 	}
-	if got := policy.InitialToolDefs(ProfileToolConfig{}); got != nil {
+	if got := policy.PlanTurnToolDefs(nil, nil, ProfileToolConfig{}).Definitions; got != nil {
 		t.Fatalf("registry nil deveria devolver nil defs, got %#v", got)
 	}
 	if got := policy.ResolveEffectiveToolPolicy(ProfileToolConfig{}).SelectionStatus(); got != ToolSelectionRegistryUnavailable {
@@ -363,7 +329,7 @@ func TestToolSelectionPolicy_ToolPolicyDoesNotElevateDisabledCatalog(t *testing.
 	if effective.AllowsRuntimeLoad("read_file") || effective.IsVisibleInCatalog("read_file") {
 		t.Fatal("catálogo desabilitado não pode carregar nem revelar read_file")
 	}
-	got := policy.ResolveExpandedToolDefs(nil, nil, nil, []string{"read_file"}, ProfileToolConfig{
+	got := policy.ResolveExpandedToolDefs(nil, nil, []string{"read_file"}, ProfileToolConfig{
 		ToolPolicy: map[string]string{
 			tools.ToolCatalogName: string(ToolPolicyDisabled),
 			"read_file":           string(ToolPolicyOnDemand),
@@ -444,7 +410,7 @@ func TestToolSelectionPolicy_ToolPolicyKeepsOnDemandWhenCatalogUnavailable(t *te
 	if effective.SelectionStatus() != ToolSelectionCatalogUnavailable {
 		t.Fatalf("status = %s, esperado catalog_unavailable", effective.SelectionStatus())
 	}
-	got := policy.ResolveExpandedToolDefs(nil, nil, nil, []string{"read_file"}, ProfileToolConfig{
+	got := policy.ResolveExpandedToolDefs(nil, nil, []string{"read_file"}, ProfileToolConfig{
 		ToolPolicy: map[string]string{"read_file": string(ToolPolicyOnDemand)},
 	})
 	assertNames(t, "expansão sem catálogo", defNames(got), []string{})
@@ -600,7 +566,9 @@ func TestToolSelectionPolicy_NativeMCPUsesPreloadedAllowlist(t *testing.T) {
 	}}
 	policy := NewToolSelectionPolicy(r)
 
-	streamer, nativeDefs, _ := policy.PlanTurnToolDefs(capable, mgr, ProfileToolConfig{})
+	turnPlan2 := policy.PlanTurnToolDefs(capable, mgr, ProfileToolConfig{})
+
+	streamer, nativeDefs := turnPlan2.Streamer, turnPlan2.Definitions
 	result, ok := streamer.(*mockChatProvider)
 	if !ok {
 		t.Fatalf("esperava mock provider, got %#v", streamer)
@@ -610,7 +578,9 @@ func TestToolSelectionPolicy_NativeMCPUsesPreloadedAllowlist(t *testing.T) {
 	}
 	assertNames(t, "native defs", defNames(nativeDefs), []string{tools.ToolCatalogName})
 
-	streamer, nativeDefs, _ = policy.PlanTurnToolDefs(capable, mgr, ProfileToolConfig{EnabledTools: []string{"mcp_srv__do"}})
+	turnPlan1 := policy.PlanTurnToolDefs(capable, mgr, ProfileToolConfig{EnabledTools: []string{"mcp_srv__do"}})
+
+	streamer, nativeDefs = turnPlan1.Streamer, turnPlan1.Definitions
 	result, ok = streamer.(*mockChatProvider)
 	if !ok || len(result.calledWith) != 1 || len(result.calledWith[0].AllowedTools) != 1 || result.calledWith[0].AllowedTools[0] != "do" {
 		t.Fatalf("allowlist explícita deveria expor só mcp_srv__do nativa, provider=%#v", streamer)
@@ -628,7 +598,9 @@ func TestToolSelectionPolicy_NativeMCPDoesNotOpenLegacyProfileWithoutCatalog(t *
 		{Slug: "srv", Name: "Srv", URL: "https://srv.io", ToolNames: []string{"read_file"}},
 	}}
 
-	streamer, nativeDefs, adapterDefs := policy.PlanTurnToolDefs(capable, mgr, ProfileToolConfig{})
+	turnPlan0 := policy.PlanTurnToolDefs(capable, mgr, ProfileToolConfig{})
+
+	streamer, nativeDefs, adapterDefs := turnPlan0.Streamer, turnPlan0.Definitions, turnPlan0.AdapterDefinitions
 	result, ok := streamer.(*mockChatProvider)
 	if !ok {
 		t.Fatalf("esperava mock provider, got %#v", streamer)
@@ -648,6 +620,37 @@ func TestToolSelectionPolicy_OnDemandMCPBridgeIsNotRemovedBeforeLoad(t *testing.
 		{Slug: "srv", Name: "Srv", URL: "https://srv.io", ToolNames: []string{"mcp_srv__do"}},
 	}}
 
-	got := policy.ResolveExpandedToolDefs(capable, mgr, nil, []string{"mcp_srv__do"}, ProfileToolConfig{NativeMCP: boolPtr(true)})
+	got := policy.ResolveExpandedToolDefs(policy.PlanTurnToolDefs(capable, mgr, ProfileToolConfig{NativeMCP: boolPtr(true)}).NativeNames, nil, []string{"mcp_srv__do"}, ProfileToolConfig{NativeMCP: boolPtr(true)})
 	assertNames(t, "on_demand bridge stays as function schema", defNames(got), []string{"mcp_srv__do"})
+}
+
+// A conexão pode mudar, mas a expansão deve corresponder ao payload já montado.
+func TestTurnToolPlanExpansionUsesSentNativeServers(t *testing.T) {
+	registry := registryWith("mcp_a__search", "mcp_b__search")
+	policy := NewToolSelectionPolicy(registry)
+	cfg := ProfileToolConfig{EnabledTools: []string{"mcp_a__search", "mcp_b__search"}}
+	provider := &mockChatProvider{nativeCapable: true}
+	manager := &mockNativeMCPMgr{servers: []mcplib.NativeMCPServer{
+		{Slug: "a", Name: "A", URL: "https://a.example/mcp", ToolNames: []string{"mcp_a__search"}},
+	}}
+	plan := policy.PlanTurnToolDefs(provider, manager, cfg)
+	manager.servers = []mcplib.NativeMCPServer{
+		{Slug: "b", Name: "B", URL: "https://b.example/mcp", ToolNames: []string{"mcp_b__search"}},
+	}
+	expanded := policy.ResolveExpandedToolDefs(plan.NativeNames, nil, cfg.EnabledTools, cfg)
+	assertNames(t, "somente A foi delegado", defNames(expanded), []string{"mcp_b__search"})
+	sent := plan.Streamer.(*mockChatProvider).calledWith
+	if len(sent) != 1 || sent[0].Slug != "a" {
+		t.Fatalf("plano enviado alterado: %#v", sent)
+	}
+}
+
+func TestTurnToolPlanWithoutNativeHasOnlyOneSelection(t *testing.T) {
+	policy := NewToolSelectionPolicy(registryWith("read_file"))
+	provider := &mockChatProvider{nativeCapable: true}
+	plan := policy.PlanTurnToolDefs(provider, nil, ProfileToolConfig{EnabledTools: []string{"read_file"}})
+	assertNames(t, "seleção efetiva", defNames(plan.Definitions), []string{"read_file"})
+	if plan.AdapterDefinitions != nil || plan.NativeNames != nil || plan.Streamer != provider {
+		t.Fatalf("plano alternativo sem delegação: %#v", plan)
+	}
 }

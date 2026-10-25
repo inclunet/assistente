@@ -26,10 +26,10 @@ func containsName(names []string, target string) bool {
 // Allowlist não-vazia: só as tools listadas pelo skill sobrevivem nas defs.
 func TestToolSelectionPolicy_SkillAllowlist_OmiteToolForaDaLista(t *testing.T) {
 	policy := NewToolSelectionPolicy(charRegistry(t))
-	got := defNames(policy.InitialToolDefs(ProfileToolConfig{
+	got := defNames(policy.PlanTurnToolDefs(nil, nil, ProfileToolConfig{
 		EnabledTools:      []string{"read_file", "write_file", "grep_search"},
 		SkillAllowedTools: []string{"read_file", "write_file"},
-	}))
+	}).Definitions)
 	assertNames(t, "allowlist do skill", got, []string{"read_file", "write_file"})
 	if containsName(got, "grep_search") {
 		t.Fatalf("grep_search deveria sumir das defs sob allowlist do skill: %#v", got)
@@ -40,17 +40,17 @@ func TestToolSelectionPolicy_SkillAllowlist_OmiteToolForaDaLista(t *testing.T) {
 func TestToolSelectionPolicy_SkillScopeVazio_NaoAltera(t *testing.T) {
 	policy := NewToolSelectionPolicy(charRegistry(t))
 	cfg := ProfileToolConfig{EnabledTools: []string{"read_file", "write_file", "grep_search"}}
-	base := defNames(policy.InitialToolDefs(cfg))
+	base := defNames(policy.PlanTurnToolDefs(nil, nil, cfg).Definitions)
 	assertNames(t, "sem escopo do skill", base, []string{"grep_search", "read_file", "write_file"})
 }
 
 // Denylist do skill remove a tool mesmo quando o perfil a habilita.
 func TestToolSelectionPolicy_SkillDenylist_RemoveToolHabilitada(t *testing.T) {
 	policy := NewToolSelectionPolicy(charRegistry(t))
-	got := defNames(policy.InitialToolDefs(ProfileToolConfig{
+	got := defNames(policy.PlanTurnToolDefs(nil, nil, ProfileToolConfig{
 		EnabledTools:     []string{"read_file", "write_file", "grep_search"},
 		SkillDeniedTools: []string{"grep_search"},
-	}))
+	}).Definitions)
 	assertNames(t, "denylist do skill", got, []string{"read_file", "write_file"})
 	if containsName(got, "grep_search") {
 		t.Fatalf("grep_search deveria ser removida pela denylist do skill: %#v", got)
@@ -60,11 +60,11 @@ func TestToolSelectionPolicy_SkillDenylist_RemoveToolHabilitada(t *testing.T) {
 // A denylist vence a allowlist para a mesma tool (defesa consistente com o gate).
 func TestToolSelectionPolicy_SkillDenylist_VenceAllowlist(t *testing.T) {
 	policy := NewToolSelectionPolicy(charRegistry(t))
-	got := defNames(policy.InitialToolDefs(ProfileToolConfig{
+	got := defNames(policy.PlanTurnToolDefs(nil, nil, ProfileToolConfig{
 		EnabledTools:      []string{"read_file", "write_file"},
 		SkillAllowedTools: []string{"read_file", "write_file"},
 		SkillDeniedTools:  []string{"write_file"},
-	}))
+	}).Definitions)
 	assertNames(t, "denylist vence allowlist", got, []string{"read_file"})
 }
 
@@ -77,7 +77,7 @@ func TestToolSelectionPolicy_SkillAllowlist_BloqueiaExpansaoDinamica(t *testing.
 		// as descobre. O skill precisa manter o catálogo para permitir a carga.
 		SkillAllowedTools: []string{tools.ToolCatalogName, "read_file"},
 	}
-	got := defNames(policy.ResolveExpandedToolDefs(nil, nil, nil, []string{"read_file", "grep_search"}, cfg))
+	got := defNames(policy.ResolveExpandedToolDefs(nil, nil, []string{"read_file", "grep_search"}, cfg))
 	assertNames(t, "expansão sob allowlist do skill", got, []string{"read_file"})
 	if containsName(got, "grep_search") {
 		t.Fatalf("grep_search fora da allowlist do skill não deveria ser expandida: %#v", got)
@@ -89,12 +89,15 @@ func TestToolSelectionPolicy_SkillAllowlist_BloqueiaExpansaoDinamica(t *testing.
 // escopo do skill nos dois caminhos.
 func TestToolSelectionPolicy_PlanTurnToolDefs_RespeitaEscopoDoSkill(t *testing.T) {
 	policy := NewToolSelectionPolicy(charRegistry(t))
-	_, nativeDefs, adapterDefs := policy.PlanTurnToolDefs(nil, nil, ProfileToolConfig{
+	turnPlan0 := policy.PlanTurnToolDefs(nil, nil, ProfileToolConfig{
 		EnabledTools:      []string{"read_file", "write_file", "grep_search"},
 		SkillAllowedTools: []string{"read_file"},
 	})
+	nativeDefs, adapterDefs := turnPlan0.Definitions, turnPlan0.AdapterDefinitions
 	assertNames(t, "plan nativo", defNames(nativeDefs), []string{"read_file"})
-	assertNames(t, "plan adapter", defNames(adapterDefs), []string{"read_file"})
+	if adapterDefs != nil {
+		t.Fatal("sem delegação nativa não deve haver plano adapter alternativo")
+	}
 }
 
 // O catálogo visível ao modelo também respeita a denylist do skill: a tool
@@ -134,10 +137,10 @@ func baseScopeRegistry(t *testing.T) *tools.Registry {
 // (tools.IsProtectedBaseTool em validateExecutionContextToolAccess).
 func TestToolSelectionPolicy_SkillAllowlist_NaoRebaixaConjuntoBase(t *testing.T) {
 	policy := NewToolSelectionPolicy(baseScopeRegistry(t))
-	got := defNames(policy.InitialToolDefs(ProfileToolConfig{
+	got := defNames(policy.PlanTurnToolDefs(nil, nil, ProfileToolConfig{
 		EnabledTools:      []string{"memory", "read_file", "grep_search"},
 		SkillAllowedTools: []string{"read_file"}, // allowlist de domínio, omite a base
-	}))
+	}).Definitions)
 	assertNames(t, "allowlist não rebaixa base", got, []string{"memory", "read_file"})
 	if containsName(got, "grep_search") {
 		t.Fatalf("grep_search de domínio deveria sumir sob allowlist do skill: %#v", got)
