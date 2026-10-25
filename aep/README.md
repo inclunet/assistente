@@ -1,5 +1,12 @@
 # AEP — Assistente Enhancement Proposals
 
+**AEP-0074-B — exclusão por lote (25/10/2026): In Progress.** Migração v37
+indexa `(user_id, id)` em `job_runs` para evitar varredura do histórico no DELETE.
+Plano SQL, FKs e recuperação sob writer WAL têm regressões; falta qualificação
+após deploy. AEP-0104 permanece Done: falha ao validar a origem/criar o registro é
+`unavailable`, não cancelamento; o registro obrigatório é preservado.
+
+
 **AEP-0074 — acesso ao histórico de jobs (24/10/2026): In Progress.**
 Seleção por idade sem ordenação global antes do lote e migração aditiva v36
 para localizar filhos de invocações por pai e usuário. Regressões verificam

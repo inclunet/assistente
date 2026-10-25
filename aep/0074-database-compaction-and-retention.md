@@ -2,6 +2,25 @@
 
 **Status:** In Progress
 
+**Exclusão de runs por lote (25/10/2026): In Progress.** O log registra DELETEs
+de 128 runs em aproximadamente 1,5s, concorrentes com falhas de criação de
+invocações. Inspeção somente de leitura no banco instalado confirmou o plano
+`idx_job_runs_user_started_at (user_id=?)`: o DELETE percorre o histórico do
+usuário. A migração aditiva v37 cria `idx_job_runs_user_id_id (user_id, id)` para
+buscar diretamente o lote, preservando seleção, transação, FKs e retenção.
+Sem retries ou scheduler adicionais. A construção do índice consome espaço e
+pode alongar o primeiro boot; falha adia a migração para o próximo boot sem
+registrar sucesso nem impedir o aplicativo de iniciar.
+
+Regressões: `TestJobRunRetentionIndexTargetsBatchAndPreservesForeignKeys`
+(plano do DELETE GORM, limite, isolamento e FKs),
+`TestJobRunRetentionIndexDefersFailureAndRetries` (upgrade idempotente e adiamento)
+e `TestServiceLedgerContentionDoesNotExecuteAndRecoversOnce` (writer WAL real,
+zero efeitos durante bloqueio e uma execução registrada na nova tentativa).
+A qualificação após deploy no banco carregado permanece pendente; esta correção
+não certifica ausência de toda contenção.
+
+
 O escopo legado está concluído. O status global inclui as extensões de
 contenção e coordenação abaixo, cuja qualificação no banco carregado permanece
 pendente. As referências históricas a Done descrevem somente o escopo legado.

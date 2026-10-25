@@ -1,6 +1,14 @@
 # AEP-0104 — Tool invocations como ledger canônico
 
 **Status:** Done — ledger exclusivo, backfill e cutover físico entregues
+
+**Classificação de falhas (25/10/2026):** falha de validação da origem ou criação do registro
+no ledger antes de executar uma tool de chat retorna `unavailable` com código
+`invocation_ledger_unavailable`, mantendo `Persisted=false` e zero efeitos.
+Não é cancelamento pelo usuário nem prova de indisponibilidade do MCP.
+O registro continua obrigatório, sem repetir automaticamente efeitos externos.
+Regressão WAL: `TestServiceLedgerContentionDoesNotExecuteAndRecoversOnce`.
+
 (endurecido para bancos legados grandes: `hash_mismatch` é aviso de auditoria
 não bloqueante e o `foreign_key_check` do cutover é escopado às tabelas
 reconstruídas — ver D5, D9 e "Endurecimento da migração v18/v19")
