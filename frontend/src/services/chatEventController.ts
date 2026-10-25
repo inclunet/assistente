@@ -762,7 +762,7 @@ export function startChatEventController({
       const backendAssistantId = event.messageId && event.messageId !== '' ? event.messageId : null;
       const hasAssistantNode = ensureAssistantNode(backendAssistantId) || currentAssistantNodeId !== null;
       const errorMessage = translateBackendChatError(String(event.error || '').trim());
-      preserveReceivedSegments(errorMessage);
+      preserveReceivedSegments(i18next.t('chat.errorPrefix', { message: errorMessage }));
       const eventOrigin = getEventOrigin(event);
       announceWithOrigin({
         message: errorMessage,
@@ -1017,12 +1017,12 @@ export function startChatEventController({
     return newSegments;
   };
 
-  const preserveReceivedSegments = (errorMessage?: string) => {
+  const preserveReceivedSegments = (diagnostic?: string) => {
     if (!currentAssistantNodeId) return;
     if (!presentationInitialized && getCurrentSession().activeToolCalls.length > 0) updateStreamingMessage('');
     const messageId = currentAssistantNodeId;
     const segments = collectReceivedSegments(getCurrentAssistantContent());
-    if (errorMessage) segments.push({ type: 'text', content: i18next.t('chat.errorPrefix', { message: errorMessage }), diagnostic: true });
+    if (diagnostic) segments.push({ type: 'text', content: diagnostic, diagnostic: true });
     adapter.patchConversation(conversationId, conversation => ({
       ...conversation,
       threadedMessages: updateMessageSegmentsInTree(conversation.threadedMessages, messageId, segments),
@@ -1076,7 +1076,7 @@ export function startChatEventController({
       const backendAssistantId = event.assistantMessageId && event.assistantMessageId !== '' ? event.assistantMessageId : null;
       const hasAssistantNode = ensureAssistantNode(backendAssistantId) || currentAssistantNodeId !== null;
       const errorMessage = translateBackendChatError(String(event.errorMessage || '').trim());
-      if (!event.turnPatch) preserveReceivedSegments(errorMessage);
+      if (!event.turnPatch) preserveReceivedSegments(i18next.t('chat.errorPrefix', { message: errorMessage }));
       const eventOrigin = getEventOrigin(event);
       announceWithOrigin({
         message: errorMessage,
@@ -1098,20 +1098,22 @@ export function startChatEventController({
     }
 
     if (event.reason === 'output_limit') {
-      if (!event.turnPatch) preserveReceivedSegments();
       // O patch é autoritativo. Aplique-o antes de decidir se precisamos do
       // aviso visual de fallback, para que ele não apague o aviso em seguida.
       applyTurnPatch(event.turnPatch);
       const backendAssistantId = event.assistantMessageId && event.assistantMessageId !== '' ? event.assistantMessageId : null;
       const hasAssistantNode = ensureAssistantNode(backendAssistantId) || currentAssistantNodeId !== null;
       const message = i18next.t('chat.outputLimitReached');
+      const hasOnlyNewTools = !event.turnPatch && !presentationInitialized && getCurrentSession().activeToolCalls.length > 0;
+      const needsNotice = hasAssistantNode && (hasOnlyNewTools || !getCurrentAssistantContent().trim());
+      if (!event.turnPatch) preserveReceivedSegments(needsNotice ? message : undefined);
       announceWithOrigin({
         message,
         origin: getChatConversationVoiceOrigin(conversationId, undefined, getEventOrigin(event)),
         eventType: 'system',
         announcePriority: 'assertive',
       });
-      if (hasAssistantNode && !getCurrentAssistantContent().trim()) {
+      if (needsNotice) {
         updateStreamingMessage(message);
       }
       const interruptedId = backendAssistantId || currentAssistantNodeId;

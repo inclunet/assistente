@@ -816,6 +816,24 @@ describe('chatEventController', () => {
     expect(messages[1].message.content).not.toContain('Erro:');
   });
 
+  it('inclui aviso de limite depois das tools concluídas quando o terminal não traz patch nem texto', () => {
+    const { adapter, sessions } = createAdapter(['conversation-1']);
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+    const identity = { conversationId: 'conversation-1', turnId: 'turn-1', assistantMessageId: 'assistant-1' };
+    emitEvent('chat:tool_start', { ...identity, name: 'search', callId: 'call-1', origin: 'builtin' });
+    emitEvent('chat:tool_end', { ...identity, name: 'search', callId: 'call-1', status: 'ok' });
+    emitEvent('chat:segment_done', { ...identity, hasMore: true, content: '' });
+    emitEvent('chat:done', { ...identity, reason: 'output_limit' });
+    vi.runOnlyPendingTimers();
+    const message = sessions['conversation-1'].conversation!.threadedMessages[0].message as Message;
+    expect(message.content).toBe('chat.outputLimitReached');
+    expect(getMessageTurnSegments(message)).toMatchObject([
+      { type: 'tool_calls', toolCalls: [{ id: 'call-1' }] },
+      { type: 'text', content: 'chat.outputLimitReached', diagnostic: true },
+    ]);
+    expect(message.isStreaming).toBe(false);
+  });
+
   it('preserva o aviso de limite quando o patch persistido está vazio', () => {
     const { adapter, sessions } = createAdapter(['conversation-1']);
     startChatEventController({ conversationId: 'conversation-1', adapter });

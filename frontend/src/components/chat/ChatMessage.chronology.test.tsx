@@ -200,6 +200,25 @@ describe('cronologia de ChatMessage', () => {
     expect(within(messageContent()).getAllByTestId('markdown').map(node => node.textContent)).toEqual([finalContent, warning]);
   });
 
+  it('mantém aviso de limite visível após tools na cadeia recebida expandida', () => {
+    const warning = 'chat.outputLimitReached';
+    const message = messageFor('assistant-limit', { content: warning });
+    message._turnSegments = [
+      { type: 'tool_calls', toolCalls: [{
+        id: 'limit-call', type: 'function', function: { name: 'search', arguments: '{}' },
+        origin: 'builtin', status: 'done',
+      }] },
+      { type: 'text', content: warning, diagnostic: true },
+    ];
+    const surface = seedStore({ targetConversationId: conversationId, messageId: message.id });
+    renderMessage(surface, message);
+    const expanded = messageContent();
+    expect(within(expanded).getAllByTestId('markdown').map(item => item.textContent)).toEqual([warning]);
+    expect(expanded.querySelector('.tool-calls-section')!.compareDocumentPosition(within(expanded).getByText(warning)) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'chat.collapseChain' }));
+    expect(within(messageContent()).getAllByTestId('markdown').map(item => item.textContent)).toEqual([warning]);
+  });
+
   it('mantém texto → tools → texto → tools e coloca a conclusão uma vez após a cadeia', () => {
     const message = messageFor('assistant-chronological', {
       content: finalContent,
