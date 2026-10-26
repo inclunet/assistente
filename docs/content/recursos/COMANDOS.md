@@ -5,6 +5,11 @@ weight: 23
 
 # Comandos e acionadores
 
+Ao atualizar os atalhos, pedidos simultâneos são agrupados para evitar leituras
+redundantes. A resposta de uma leitura ultrapassada não é aplicada. Perda de foco,
+troca de sessão/workspace e encerramento continuam invalidando o mapa anterior;
+atalhos só voltam a funcionar quando o mapa atual estiver autorizado.
+
 A barra de camadas começa com **Nova camada** e **Configurações da camada**,
 lado a lado. O menu reúne as ações da camada selecionada, incluindo editar,
 apagar e abrir seus comandos ou regras, respeitando as restrições de camadas

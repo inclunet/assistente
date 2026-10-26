@@ -187,7 +187,7 @@ describe('renew() do mapa de comandos local', () => {
       let hardRefresh: Promise<void> | undefined;
       if (action === 'refresh') {
         hardRefresh = controller.refresh();
-        await vi.waitFor(() => expect(loadMap).toHaveBeenCalledTimes(3));
+        expect(loadMap).toHaveBeenCalledTimes(2);
         keydown();
         expect(onDown).not.toHaveBeenCalledWith(expect.objectContaining({ commandId: 'command.old' }));
       } else if (action === 'blur') {
@@ -197,7 +197,10 @@ describe('renew() do mapa de comandos local', () => {
       }
       pending.resolve(map('stale-renewal', 'command.stale'));
       await renewal;
+      keydown();
+      expect(onDown).not.toHaveBeenCalledWith(expect.objectContaining({ commandId: 'command.stale' }));
       if (hardRefresh) {
+        await vi.waitFor(() => expect(loadMap).toHaveBeenCalledTimes(3));
         replacement.resolve(map('authoritative', 'command.authoritative'));
         await hardRefresh;
       }

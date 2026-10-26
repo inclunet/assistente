@@ -2,7 +2,10 @@ package jobs
 
 import (
 	"context"
+	"database/sql"
 	"errors"
+	"log/slog"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -387,5 +390,53 @@ func TestManagerStopJoinsMaintenanceWithoutHoldingManagerLocks(t *testing.T) {
 	}
 	if !m.eventBus.closed {
 		t.Fatal("dependência não encerrada após drenagem")
+	}
+}
+
+func TestMaintenancePassReportsOnlyRealFailuresDuringShutdown(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		cancel      bool
+		failure     error
+		wantFailure bool
+	}{
+		{"shutdown", true, context.Canceled, false},
+		{"active-cancellation", false, context.Canceled, true},
+		{"transaction-error", false, sql.ErrTxDone, true},
+		{"real-error-with-cancel", true, errors.New("storage failure"), true},
+		{"deadline", false, context.DeadlineExceeded, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			previous := slog.Default()
+			sink := &logCaptureSink{}
+			slog.SetDefault(slog.New(&logCaptureHandler{sink: sink}))
+			t.Cleanup(func() { slog.SetDefault(previous) })
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			empty := commandMaintenanceNoopPort{}
+			coordinator, err := commandmaintenance.New(commandmaintenance.Ports{
+				Heartbeat: maintenanceHeartbeatFunc(func(context.Context, commandmaintenance.Policy) (commandmaintenance.BatchResult, error) {
+					if tc.cancel {
+						cancel()
+					}
+					return commandmaintenance.BatchResult{}, tc.failure
+				}),
+				Outbox: empty, Decisions: empty, Invocations: empty, Claims: empty, Jobs: empty, Tools: empty, InvocationDB: empty, Activations: empty, Compaction: &recordingMaintenance{},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			m := &Manager{cfg: ManagerConfig{MaintenanceCoordinator: coordinator}}
+			m.runCommandMaintenance(ctx)
+			failed := false
+			for _, record := range sink.snapshot() {
+				if strings.Contains(record.message, "instance maintenance failed:") {
+					failed = true
+				}
+			}
+			if failed != tc.wantFailure {
+				t.Fatalf("log failure=%v want=%v logs=%+v", failed, tc.wantFailure, sink.snapshot())
+			}
+		})
 	}
 }

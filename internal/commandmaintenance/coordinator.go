@@ -204,7 +204,8 @@ func (c *Coordinator) Run(ctx context.Context, policy Policy) (report Report, ru
 		// Não suspender a manutenção crítica nem repetir uma limpeza falha a
 		// cada segundo. O prazo começa após o retorno do SQL, não antes dele.
 		if strings.HasPrefix(report.Stage, "retention.") || report.Stage == "compaction" {
-			if runErr != nil {
+			cancelled := errors.Is(ctx.Err(), context.Canceled) && errors.Is(runErr, context.Canceled)
+			if runErr != nil && !cancelled {
 				if c.retentionBackoff == 0 {
 					c.retentionBackoff = 30 * time.Second
 				} else {

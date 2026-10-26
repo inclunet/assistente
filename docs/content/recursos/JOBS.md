@@ -109,3 +109,9 @@ camadas de comandos. Isso não transforma todos os eventos do barramento em
 eventos confiáveis nem concede permissões às custom actions. A publicação de
 eventos de domínio continua best-effort: uma falha é registrada no log e não
 desfaz a mutação da tasklist já concluída.
+
+## Encerramento da manutenção
+
+Ao fechar o aplicativo, a manutenção é cancelada e seu término é aguardado.
+Esse cancelamento esperado não é registrado como falha de retenção. Erros de
+armazenamento e estouros do prazo operacional continuam aparecendo no log.

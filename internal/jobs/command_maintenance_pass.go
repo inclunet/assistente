@@ -2,6 +2,7 @@ package jobs
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"assistente/internal/commandmaintenance"
@@ -46,6 +47,9 @@ func (m *Manager) runCommandMaintenance(ctx context.Context) time.Duration {
 	defer cancel()
 	started := time.Now()
 	report, err := m.cfg.MaintenanceCoordinator.Run(passCtx, policy)
+	if errors.Is(ctx.Err(), context.Canceled) && errors.Is(err, context.Canceled) {
+		return commandMaintenanceDelay(policy, report, err)
+	}
 	if err != nil {
 		logging.Errorf(ctx, "jobs.manager", "instance maintenance failed: stage=%s elapsed_ms=%d budget_ms=%d heartbeat=%d outbox_requeued=%d outbox_purged=%d recovered=%d jobs_deleted=%d tools_deleted=%d invocations_deleted=%d activations_deleted=%d: %v", report.Stage, time.Since(started).Milliseconds(), commandMaintenancePassBudget(policy.LeaseDuration).Milliseconds(), report.HeartbeatProcessed, report.OutboxRequeued, report.OutboxPurged, report.Recovered, report.JobsDeleted, report.ToolsDeleted, report.InvocationsDeleted, report.ActivationsDeleted, err)
 		if report.RetentionRetryAfter > 0 {

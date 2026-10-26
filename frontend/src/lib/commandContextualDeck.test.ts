@@ -24,8 +24,9 @@ describe('physical Deck lease and closed projection selection', () => {
     expect(f.api.BeginContextualPaletteUICommand).not.toHaveBeenCalled(); expect(f.api.BeginUICommand).not.toHaveBeenCalled();
   });
   it.each(['expired', 'bridge-drift', 'missing-api', 'wrong-command'])('rejects %s without fallback', async mode => {
-    const now = Date.now(); const f = fixture();
-    if (mode === 'expired') vi.spyOn(Date, 'now').mockReturnValue(now + 10001);
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(100000);
+    const f = fixture();
+    if (mode === 'expired') clock.mockReturnValue(110001);
     if (mode === 'missing-api') Reflect.deleteProperty(f.api, 'BeginContextualDeckUICommand');
     const promise = f.port.beginUICommand(mode === 'wrong-command' ? 'workspace.tab.close' : f.commandId);
     if (mode === 'bridge-drift') f.isCurrent.mockReturnValue(false);
