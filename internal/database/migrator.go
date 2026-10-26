@@ -405,6 +405,14 @@ var schemaMigrations = []migration{
 			return deferIfErr(ensureJobRunRetentionIndex(database))
 		},
 	},
+	{
+		Version: 38,
+		Name:    "tool_invocation_orphan_scan_index",
+		Phase:   phasePostAutoMigrate,
+		Run: func(db *gorm.DB) error {
+			return deferIfErr(ensureToolInvocationOrphanScanIndex(db))
+		},
+	},
 }
 
 // runMigrations aplica, na ordem de Version, todas as migrações da fase

@@ -1,5 +1,14 @@
 # AEP — Assistente Enhancement Proposals
 
+**AEP-0074 — varredura de órfãos por páginas (26/10/2026): In Progress.**
+Índice v38 por usuário/origem/ID e cursor em memória limitam os registros
+examinados por passagem, mesmo sem órfãos; avanço só após commit, retorno ao
+início ao concluir o ciclo, detach limitado e FKs preservados. Regressões em
+`TestOrphanScanBoundsHealthyPagesAndRevisitsEarlierIDs` e
+`TestOrphanScanIndexMigrationAndKeysetPlan` e
+`TestOrphanScanActualBatchPlansAndRollback`. Qualificação no banco instalado
+após deploy permanece pendente.
+
 **AEP-0074-B — exclusão por lote (25/10/2026): In Progress.** Migração v37
 indexa `(user_id, id)` em `job_runs` para evitar varredura do histórico no DELETE.
 Plano SQL, FKs e recuperação sob writer WAL têm regressões; falta qualificação
