@@ -2,6 +2,35 @@
 
 **Status:** In Progress
 
+**Varredura de órfãos por páginas (26/10/2026): In Progress.** Após v37,
+o log instalado registrou 11 chamadas concluídas, incluindo sete do Databricks,
+sem nova falha de criação do ledger no período observado. Persistem consultas
+de órfãos sem resultados (mediana 357 ms): limitar resultados não limita o
+histórico examinado. A migração v38 acrescenta índices `(user_id, origin_type, id)` para a página
+e `(user_id, id)` para exclusão e atualização dos IDs selecionados.
+`CleanOrphanChatBatch` seleciona primeiro até `BatchSize + 1` IDs de chat,
+por keyset, e aplica o predicado de orfandade somente aos primeiros `BatchSize`.
+O writer continua adquirido antes das leituras. O limite de filhos e a exclusão
+atômica continuam vigentes; nenhuma política de expiração foi ampliada.
+
+Um cursor em memória por usuário avança somente após commit. Falha não avança;
+quando há filhos excedentes, a página é retomada até concluir o detach. Ao fim
+do ciclo, o cursor é descartado: IDs anteriores inseridos ou tornados órfãos
+serão revisitados. Restart inicia novo ciclo sem afetar dados. `More` passa a
+significar registros ainda não examinados ou filhos pendentes, inclusive quando
+a página contém apenas registros válidos. O coordenador existente agenda a
+continuação. O caminho legado sem lote permanece com sua semântica integral.
+
+Evidências: `TestOrphanScanBoundsHealthyPagesAndRevisitsEarlierIDs`,
+`TestOrphanScanIndexMigrationAndKeysetPlan`,
+`TestOrphanScanActualBatchPlansAndRollback` e as regressões existentes de
+limite de exclusão e detach de filhos. Os índices são aditivos e idempotentes; falha
+adia a migração sem registrar sucesso. A construção pode alongar o boot e
+consumir espaço; enquanto adiada, o plano de acesso ainda pode varrer o histórico.
+Qualificação da v38 no banco instalado permanece pendente; não se afirma
+eliminação de toda contenção. FKs e dados pessoais não são alterados manualmente.
+
+
 **Exclusão de runs por lote (25/10/2026): In Progress.** O log registra DELETEs
 de 128 runs em aproximadamente 1,5s, concorrentes com falhas de criação de
 invocações. Inspeção somente de leitura no banco instalado confirmou o plano
@@ -147,8 +176,8 @@ escrita durante a limpeza. As operações permanecem escopadas pelo usuário e a
 desassociação final e exclusão do pai são atômicas. Cobertura em
 `TestRepositoryCleanOrphanChatBatchLimitsDeletesAndResumes`,
 `TestRepositoryCleanOrphanChatBatchBoundsChildDetachment` e
-`TestToolsRetentionAdapterBoundsOrphanCleanupPerPass`. Isso limita o trabalho
-desta rotina por transação; não prova que ela era a única origem do lock no log
+`TestToolsRetentionAdapterBoundsOrphanCleanupPerPass`. Isso limita exclusões e detach
+por transação; a extensão de 26/10 também limita os registros examinados; não prova que ela era a única origem do lock no log
 nem substitui validação no banco carregado após deploy. O contrato fail-closed
 do AEP-0104 permanece vigente.
 
