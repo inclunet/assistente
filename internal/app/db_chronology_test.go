@@ -50,6 +50,7 @@ func TestMessageWindowPreservaCronologiaComFinalPreCriadoSemUsage(t *testing.T) 
 			UUIDModel: database.UUIDModel{ID: fmt.Sprintf("chronology-inv-%d", iteration)},
 			UserID:    messageWindowTestUserID, ToolCatalogID: catalog.ID,
 			OriginType: "chat", OriginID: user.ID,
+			ConversationID: &conv.ID, TurnID: &user.ID,
 			ToolCallID: fmt.Sprintf("call-%d", iteration), Status: "succeeded",
 			Metadata: fmt.Sprintf(`{"display":{"assistant_message_id":%q,"iteration":%d}}`, messageID, iteration),
 			QueuedAt: base.Add(time.Duration(iteration+1) * time.Second),

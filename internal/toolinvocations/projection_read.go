@@ -86,22 +86,7 @@ func LoadSummariesForTurnIDsWithUser(ctx context.Context, userID string, turnIDs
 	if db == nil || !db.Migrator().HasTable(&database.ToolInvocation{}) {
 		return result, nil
 	}
-	resolvedTurnSQL := "tool_invocations.origin_id"
-	if db.Migrator().HasTable(&database.ChatMessage{}) && db.Migrator().HasTable(&database.Conversation{}) {
-		resolvedTurnSQL = `COALESCE(
-			tool_invocations.turn_id,
-			(
-				SELECT COALESCE(legacy_message.turn_id, legacy_message.id)
-				FROM chat_messages legacy_message
-				JOIN conversations legacy_conversation
-					ON legacy_conversation.id = legacy_message.conversation_id
-					AND legacy_conversation.user_id = tool_invocations.user_id
-				WHERE legacy_message.id = tool_invocations.origin_id
-				LIMIT 1
-			),
-			tool_invocations.origin_id
-		)`
-	}
+	const resolvedTurnSQL = "tool_invocations.turn_id"
 	type row struct {
 		ID                   string
 		ToolCallID           string
