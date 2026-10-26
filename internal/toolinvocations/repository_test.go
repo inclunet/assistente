@@ -359,6 +359,7 @@ func TestLoadChatToolInvocationDisplaysKeepsLatestRetryForCallID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve tool: %v", err)
 	}
+	turnID := "turn-1"
 	oldTime := time.Now().Add(-time.Minute)
 	newTime := time.Now()
 	rows := []database.ToolInvocation{
@@ -367,6 +368,7 @@ func TestLoadChatToolInvocationDisplaysKeepsLatestRetryForCallID(t *testing.T) {
 			ToolCatalogID: toolID,
 			OriginType:    OriginChat,
 			OriginID:      "turn-1",
+			TurnID:        &turnID,
 			ToolCallID:    "call-1",
 			Status:        StatusFailed,
 			Output:        `{"content":"OLD"}`,
@@ -377,6 +379,7 @@ func TestLoadChatToolInvocationDisplaysKeepsLatestRetryForCallID(t *testing.T) {
 			ToolCatalogID: toolID,
 			OriginType:    OriginChat,
 			OriginID:      "turn-1",
+			TurnID:        &turnID,
 			ToolCallID:    "call-1",
 			Status:        StatusSucceeded,
 			Output:        `{"content":"NEW"}`,
@@ -397,6 +400,7 @@ func TestLoadChatToolInvocationDisplaysKeepsLatestRetryForCallID(t *testing.T) {
 }
 
 func TestLoadChatToolInvocationDisplaysIncludesQueuedAndRunning(t *testing.T) {
+	turnID := "turn-running"
 	repo, userA, _ := setupRepositoryTest(t)
 	toolID, err := repo.ResolveToolCatalogID(userA, "echo")
 	if err != nil {
@@ -408,6 +412,7 @@ func TestLoadChatToolInvocationDisplaysIncludesQueuedAndRunning(t *testing.T) {
 			ToolCatalogID: toolID,
 			OriginType:    OriginChat,
 			OriginID:      "turn-running",
+			TurnID:        &turnID,
 			ToolCallID:    "call-queued",
 			Status:        StatusQueued,
 			Metadata:      `{"display":{"version":1,"type":"function","name":"echo","arguments":"{}","iteration":1}}`,
@@ -418,6 +423,7 @@ func TestLoadChatToolInvocationDisplaysIncludesQueuedAndRunning(t *testing.T) {
 			ToolCatalogID: toolID,
 			OriginType:    OriginChat,
 			OriginID:      "turn-running",
+			TurnID:        &turnID,
 			ToolCallID:    "call-running",
 			Status:        StatusRunning,
 			Metadata:      `{"display":{"version":1,"type":"function","name":"echo","arguments":"{}","iteration":2}}`,

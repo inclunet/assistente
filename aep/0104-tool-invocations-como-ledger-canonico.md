@@ -1,6 +1,6 @@
 # AEP-0104 — Tool invocations como ledger canônico
 
-**Status:** Done — ledger exclusivo, backfill e cutover físico entregues
+**Status:** Done — ledger, cutover e correção dos vínculos remanescentes implementados
 
 **Classificação de falhas (25/10/2026):** falha de validação da origem ou criação do registro
 no ledger antes de executar uma tool de chat retorna `unavailable` com código
@@ -21,6 +21,34 @@ Regressão WAL: `TestServiceLedgerContentionDoesNotExecuteAndRecoversOnce`.
 (endurecido para bancos legados grandes: `hash_mismatch` é aviso de auditoria
 não bloqueante e o `foreign_key_check` do cutover é escopado às tabelas
 reconstruídas — ver D5, D9 e "Endurecimento da migração v18/v19")
+
+## Correção de vínculos remanescentes (26/10/2026)
+
+A inspeção somente de leitura encontrou 1.594 invocações de chat preexistentes
+sem vínculos canônicos completos, recuperáveis pelas mensagens existentes.
+A v18 não alcançou todas as linhas já presentes no ledger. A decisão é completar
+esses vínculos na migração v39, antes de usar leituras diretas por `turn_id`.
+
+- A migração percorre lotes de 256 IDs dentro de uma transação e altera somente
+  `conversation_id` e `turn_id`; preserva IDs, conteúdo e timestamps.
+- Usa o turno explícito existente; quando ausente, usa `chat_messages.turn_id`
+  ou o ID da mensagem de origem, respeitando a resolução histórica. Confere
+  usuário e conversa. Vínculo irrecuperável aborta a inicialização e reverte
+  a migração inteira, sem registrar sua conclusão nem descartar dados.
+- Índices `(user_id, origin_type, conversation_id)` e
+  `(user_id, origin_type, turn_id, queued_at, id)` delimitam as leituras de
+  estatísticas, hidratação e projeção. Hidratação e projeção deixam de resolver
+  vínculos antigos em cada leitura; exportação e limpeza não mudam neste ajuste.
+- Regressões: `migration_chat_tool_links_test.go` cobre preservação, repetição,
+  lotes, isolamento e rollback; `TestCanonicalHistoryReadsUseScopedIndex`
+  verifica os planos das consultas realmente executadas pelos dois leitores.
+- Validação local: `go build`, `go vet`, testes de database/toolinvocations e
+  janela/cronologia do App aprovados; lint do diff sem novos achados. Revisão
+  independente `review_history_links`: três rodadas, um achado de fixtures
+  corrigido, zero pendências. A paginação é lexicográfica por turno, horário e
+  ID; regressão com 2.202 chamadas preserva conteúdo e ordem entre páginas.
+- Verificação após instalação: confirmar aplicação da v39 e latências nos logs.
+  O banco pessoal foi inspecionado somente para leitura, sem aplicar migração.
 
 ## Resumo
 

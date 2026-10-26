@@ -223,17 +223,19 @@ func TestGetConversationMessageWindow_ReturnsCanonicalTimelineItems(t *testing.T
 		t.Fatalf("load tool catalog: %v", err)
 	}
 	if err := database.DB().WithContext(ctx).Create(&database.ToolInvocation{
-		UUIDModel:     database.UUIDModel{ID: "inv-1"},
-		UserID:        messageWindowTestUserID,
-		ToolCatalogID: catalog.ID,
-		OriginType:    "chat",
-		OriginID:      user.ID,
-		ToolCallID:    "tool-1",
-		Status:        "succeeded",
-		DryRun:        false,
-		Output:        `{"content":"resultado","is_error":false}`,
-		Metadata:      fmt.Sprintf(`{"display":{"version":1,"assistant_message_id":%q,"iteration":0}}`, intermediate.ID),
-		QueuedAt:      time.Now(),
+		UUIDModel:      database.UUIDModel{ID: "inv-1"},
+		UserID:         messageWindowTestUserID,
+		ToolCatalogID:  catalog.ID,
+		OriginType:     "chat",
+		OriginID:       user.ID,
+		ConversationID: &conv.ID,
+		TurnID:         &user.ID,
+		ToolCallID:     "tool-1",
+		Status:         "succeeded",
+		DryRun:         false,
+		Output:         `{"content":"resultado","is_error":false}`,
+		Metadata:       fmt.Sprintf(`{"display":{"version":1,"assistant_message_id":%q,"iteration":0}}`, intermediate.ID),
+		QueuedAt:       time.Now(),
 	}).Error; err != nil {
 		t.Fatalf("create tool invocation: %v", err)
 	}
@@ -324,19 +326,21 @@ func TestGetConversationMessageWindow_HydratesToolCallsFromInvocationsWithoutMes
 		t.Fatalf("load tool catalog: %v", err)
 	}
 	if err := database.DB().WithContext(ctx).Create(&database.ToolInvocation{
-		UUIDModel:     database.UUIDModel{ID: "inv-new-l3-free"},
-		UserID:        messageWindowTestUserID,
-		ToolCatalogID: catalog.ID,
-		OriginType:    "chat",
-		OriginID:      user.ID,
-		ToolCallID:    "tool-1",
-		Status:        "succeeded",
-		DryRun:        false,
-		Input:         `{"query":"foo"}`,
-		Output:        `{"content":"resultado por invocacao","is_error":false}`,
-		Metadata:      fmt.Sprintf(`{"display":{"version":1,"type":"function","name":"search","arguments":"{\"q\":\"foo\"}","origin":"builtin","assistant_message_id":%q,"iteration":1,"duration_ms":42},"search_result_presentation":{"version":1,"total":2},"security_signals":[{"version":1,"outcome":"approved"}]}`, intermediate.ID),
-		QueuedAt:      time.Now(),
-		DurationMs:    42,
+		UUIDModel:      database.UUIDModel{ID: "inv-new-l3-free"},
+		UserID:         messageWindowTestUserID,
+		ToolCatalogID:  catalog.ID,
+		OriginType:     "chat",
+		OriginID:       user.ID,
+		ConversationID: &conv.ID,
+		TurnID:         &user.ID,
+		ToolCallID:     "tool-1",
+		Status:         "succeeded",
+		DryRun:         false,
+		Input:          `{"query":"foo"}`,
+		Output:         `{"content":"resultado por invocacao","is_error":false}`,
+		Metadata:       fmt.Sprintf(`{"display":{"version":1,"type":"function","name":"search","arguments":"{\"q\":\"foo\"}","origin":"builtin","assistant_message_id":%q,"iteration":1,"duration_ms":42},"search_result_presentation":{"version":1,"total":2},"security_signals":[{"version":1,"outcome":"approved"}]}`, intermediate.ID),
+		QueuedAt:       time.Now(),
+		DurationMs:     42,
 	}).Error; err != nil {
 		t.Fatalf("create tool invocation: %v", err)
 	}
@@ -379,16 +383,18 @@ func TestGetConversationMessageWindow_AnchorInsideTurnUsesTimelineItem(t *testin
 		t.Fatalf("load tool catalog: %v", err)
 	}
 	if err := database.DB().WithContext(ctx).Create(&database.ToolInvocation{
-		UUIDModel:     database.UUIDModel{ID: "inv-2"},
-		UserID:        messageWindowTestUserID,
-		ToolCatalogID: catalog.ID,
-		OriginType:    "chat",
-		OriginID:      user.ID,
-		ToolCallID:    "tool-1",
-		Status:        "succeeded",
-		DryRun:        false,
-		Output:        `{"content":"resultado","is_error":false}`,
-		QueuedAt:      time.Now(),
+		UUIDModel:      database.UUIDModel{ID: "inv-2"},
+		UserID:         messageWindowTestUserID,
+		ToolCatalogID:  catalog.ID,
+		OriginType:     "chat",
+		OriginID:       user.ID,
+		ConversationID: &conv.ID,
+		TurnID:         &user.ID,
+		ToolCallID:     "tool-1",
+		Status:         "succeeded",
+		DryRun:         false,
+		Output:         `{"content":"resultado","is_error":false}`,
+		QueuedAt:       time.Now(),
 	}).Error; err != nil {
 		t.Fatalf("create tool invocation: %v", err)
 	}
@@ -428,16 +434,18 @@ func TestGetConversationMessageWindow_TurnWithEmptyAssistantKeepsLedgerSummary(t
 		t.Fatalf("load tool catalog: %v", err)
 	}
 	if err := database.DB().WithContext(ctx).Create(&database.ToolInvocation{
-		UUIDModel:     database.UUIDModel{ID: "inv-3"},
-		UserID:        messageWindowTestUserID,
-		ToolCatalogID: catalog.ID,
-		OriginType:    "chat",
-		OriginID:      user.ID,
-		ToolCallID:    "tool-1",
-		Status:        "succeeded",
-		DryRun:        false,
-		Output:        `{"content":"resultado preservado","is_error":false}`,
-		QueuedAt:      time.Now(),
+		UUIDModel:      database.UUIDModel{ID: "inv-3"},
+		UserID:         messageWindowTestUserID,
+		ToolCatalogID:  catalog.ID,
+		OriginType:     "chat",
+		OriginID:       user.ID,
+		ConversationID: &conv.ID,
+		TurnID:         &user.ID,
+		ToolCallID:     "tool-1",
+		Status:         "succeeded",
+		DryRun:         false,
+		Output:         `{"content":"resultado preservado","is_error":false}`,
+		QueuedAt:       time.Now(),
 	}).Error; err != nil {
 		t.Fatalf("create tool invocation: %v", err)
 	}

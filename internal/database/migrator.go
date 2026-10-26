@@ -413,6 +413,12 @@ var schemaMigrations = []migration{
 			return deferIfErr(ensureToolInvocationOrphanScanIndex(db))
 		},
 	},
+	{
+		Version: 39,
+		Name:    "chat_tool_invocation_links",
+		Phase:   phasePostAutoMigrate,
+		Run:     migrateChatToolLinks,
+	},
 }
 
 // runMigrations aplica, na ordem de Version, todas as migrações da fase

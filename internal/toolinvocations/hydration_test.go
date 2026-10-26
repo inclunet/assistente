@@ -3,6 +3,7 @@ package toolinvocations
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
 func TestLoadChatToolInvocationDisplaysForTurnIDsPreservesCompletenessOrderAndLatestRetry(t *testing.T) {
@@ -46,6 +48,7 @@ func TestLoadChatToolInvocationDisplaysForTurnIDsPreservesCompletenessOrderAndLa
 				ToolCatalogID: catalog.ID,
 				OriginType:    OriginChat,
 				OriginID:      turnID,
+				TurnID:        &turnID,
 				ToolCallID:    fmt.Sprintf("call-%d", call),
 				Attempt:       1,
 				Status:        StatusSucceeded,
@@ -64,6 +67,7 @@ func TestLoadChatToolInvocationDisplaysForTurnIDsPreservesCompletenessOrderAndLa
 		ToolCatalogID: catalog.ID,
 		OriginType:    OriginChat,
 		OriginID:      turnIDs[0],
+		TurnID:        &turnIDs[0],
 		ToolCallID:    "call-1",
 		Status:        StatusSucceeded,
 		Attempt:       2,
@@ -107,7 +111,7 @@ func TestLoadChatToolInvocationDisplaysForTurnIDsPreservesCompletenessOrderAndLa
 	}
 }
 
-func TestLoadChatToolInvocationDisplaysResolveOriginAssistantLegado(t *testing.T) {
+func TestLoadChatToolInvocationDisplaysUsesCanonicalTurnWithAssistantOrigin(t *testing.T) {
 	testDB, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
@@ -143,6 +147,7 @@ func TestLoadChatToolInvocationDisplaysResolveOriginAssistantLegado(t *testing.T
 	completed := time.Now().UTC()
 	if err := testDB.Create(&database.ToolInvocation{
 		UserID: "user-a", ToolCatalogID: catalog.ID, OriginType: OriginChat,
+		ConversationID: &conv.ID, TurnID: &turnID,
 		OriginID: assistantID, ToolCallID: "call-legacy", Status: StatusSucceeded,
 		Output: `{"content":"resultado"}`, QueuedAt: completed.Add(-time.Second), CompletedAt: &completed,
 	}).Error; err != nil {
@@ -154,6 +159,104 @@ func TestLoadChatToolInvocationDisplaysResolveOriginAssistantLegado(t *testing.T
 		t.Fatal(err)
 	}
 	if len(got[turnID]) != 1 || got[turnID][0].Result != "resultado" {
-		t.Fatalf("vínculo legado não foi resolvido: %+v", got)
+		t.Fatalf("vínculo canônico não foi carregado: %+v", got)
+	}
+}
+
+func TestCanonicalHistoryReadsUseScopedIndex(t *testing.T) {
+	testDB, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := testDB.AutoMigrate(&database.ToolCatalog{}, &database.ToolInvocation{}); err != nil {
+		t.Fatal(err)
+	}
+	for _, sql := range []string{
+		`CREATE INDEX idx_tool_invocations_chat_turn ON tool_invocations(user_id,origin_type,turn_id,queued_at,id)`,
+		`CREATE INDEX idx_tool_invocations_orphan_scan ON tool_invocations(user_id,origin_type,id)`,
+	} {
+		if err := testDB.Exec(sql).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	log := &orphanPlanLogger{Interface: logger.Default}
+	previous := database.DB()
+	database.SetDB(testDB.Session(&gorm.Session{Logger: log}))
+	t.Cleanup(func() { database.SetDB(previous) })
+	if _, err := LoadChatToolInvocationDisplaysForTurnIDsWithUser(context.Background(), "user", []string{"turn-a", "turn-b"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadSummariesForTurnIDsWithUser(context.Background(), "user", []string{"turn-a", "turn-b"}); err != nil {
+		t.Fatal(err)
+	}
+	queries := 0
+	for _, sql := range log.statements {
+		if !strings.Contains(sql, "resolved_turn_id") {
+			continue
+		}
+		queries++
+		if strings.Contains(sql, "legacy_message") {
+			t.Fatalf("consulta ainda interpreta legado: %s", sql)
+		}
+		var plan []struct{ Detail string }
+		if err := testDB.Raw("EXPLAIN QUERY PLAN " + sql).Scan(&plan).Error; err != nil {
+			t.Fatal(err)
+		}
+		found := false
+		for _, step := range plan {
+			if strings.Contains(step.Detail, "idx_tool_invocations_chat_turn") && strings.Contains(step.Detail, "user_id=? AND origin_type=? AND turn_id=?") {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("consulta varre fora dos turnos solicitados: %+v", plan)
+		}
+	}
+	if queries != 2 {
+		t.Fatalf("esperadas duas consultas produtivas, recebido %d", queries)
+	}
+}
+
+func TestCanonicalHistoryPaginationPreservesEveryCallAndTurnOrder(t *testing.T) {
+	testDB, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := testDB.AutoMigrate(&database.ToolCatalog{}, &database.ToolInvocation{}); err != nil {
+		t.Fatal(err)
+	}
+	previous := database.DB()
+	database.SetDB(testDB)
+	t.Cleanup(func() { database.SetDB(previous) })
+	base := time.Date(2026, 10, 26, 0, 0, 0, 0, time.UTC)
+	// A ordem temporal global intercala os turnos; a página termina dentro do segundo.
+	for _, turn := range []string{"turn-a", "turn-b"} {
+		rows := make([]database.ToolInvocation, 1101)
+		for i := range rows {
+			rows[i] = database.ToolInvocation{
+				UUIDModel: database.UUIDModel{ID: fmt.Sprintf("%s-%04d", turn, i)},
+				UserID:    "user", OriginType: OriginChat, OriginID: turn, TurnID: &turn,
+				ToolCallID: fmt.Sprintf("call-%04d", i), Status: StatusSucceeded,
+				QueuedAt: base.Add(time.Duration(i/2) * time.Second), Output: `{"content":"preservado"}`,
+			}
+		}
+		if err := testDB.CreateInBatches(rows, 20).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := LoadChatToolInvocationDisplaysForTurnIDsWithUser(context.Background(), "user", []string{"turn-b", "turn-a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, turn := range []string{"turn-a", "turn-b"} {
+		calls := got[turn]
+		if len(calls) != 1101 {
+			t.Fatalf("%s: %d chamadas, esperado 1101", turn, len(calls))
+		}
+		for i, call := range calls {
+			if call.ID != fmt.Sprintf("call-%04d", i) || call.Result != "preservado" {
+				t.Fatalf("ordem/conteúdo perdido %s[%d]: %+v", turn, i, call)
+			}
+		}
 	}
 }
