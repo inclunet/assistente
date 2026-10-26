@@ -141,9 +141,10 @@ describe('commandLocalKeyboard', () => {
       const stale = keyboard.refresh();
       await oldStarted;
       const latest = keyboard.refresh();
-      await latest;
+      await Promise.resolve();
+      expect(loadMap).toHaveBeenCalledTimes(2);
       rejectOld(new Error('resposta antiga falhou'));
-      await stale;
+      await Promise.all([stale, latest]);
       await vi.advanceTimersByTimeAsync(10_000);
       expect(loadMap).toHaveBeenCalledTimes(3);
     } finally {
@@ -517,11 +518,15 @@ describe('commandLocalKeyboard', () => {
     const refreshA = keyboard.refresh();
     await vi.waitFor(() => expect(loadMap).toHaveBeenCalledTimes(2));
     const refreshB = keyboard.refresh();
+    await Promise.resolve();
+    expect(loadMap).toHaveBeenCalledTimes(2);
+    resolveA({ generation: 'gA', bindings: [{ shortcut, commandId: 'workspace.list', handler: 'backend' }] });
+    await refreshA;
+    window.dispatchEvent(event('keydown'));
+    expect(onDown).not.toHaveBeenCalled();
     await vi.waitFor(() => expect(loadMap).toHaveBeenCalledTimes(3));
     resolveB({ generation: 'gB', bindings: [{ shortcut, commandId: 'workspace.list', handler: 'backend' }] });
     await refreshB;
-    resolveA({ generation: 'gA', bindings: [{ shortcut, commandId: 'workspace.list', handler: 'backend' }] });
-    await refreshA;
     const mapped = event('keydown');
     window.dispatchEvent(mapped);
     expect(onDown).toHaveBeenCalledTimes(1);
@@ -829,11 +834,14 @@ describe('commandLocalKeyboard', () => {
     const first = keyboard.refresh();
     await vi.waitFor(() => expect(loadMap).toHaveBeenCalledTimes(2));
     const second = keyboard.refresh();
-    await vi.waitFor(() => expect(loadMap).toHaveBeenCalledTimes(3));
-    resolveNew({ generation: 'new', ownerId: 'owner-current', bindings: [] });
-    await second;
+    await Promise.resolve();
+    expect(loadMap).toHaveBeenCalledTimes(2);
     resolveOld({ generation: 'old', ownerId: 'owner-current', bindings: [] });
     await first;
+    await vi.waitFor(() => expect(loadMap).toHaveBeenCalledTimes(3));
+    expect(accepted).toEqual(['initial']);
+    resolveNew({ generation: 'new', ownerId: 'owner-current', bindings: [] });
+    await second;
     expect(accepted).toEqual(['initial', 'new']);
     expect(invalidated).toHaveBeenCalled();
     keyboard.dispose();
@@ -1099,4 +1107,44 @@ describe('commandLocalKeyboard', () => {
     expect(onSequenceCancelled).toHaveBeenLastCalledWith('blur');
     keyboard.dispose();
   });
+});
+
+it.each(['resolve', 'reject'] as const)('serializa leituras e agrupa refreshes após %s da leitura antiga', async outcome => {
+  let resolveOld!: (map: LocalCommandKeyboardMap) => void;
+  let rejectOld!: (err: Error) => void;
+  const loadMap = vi.fn()
+    .mockImplementationOnce(() => new Promise<LocalCommandKeyboardMap>((resolve, reject) => { resolveOld = resolve; rejectOld = reject; }))
+    .mockResolvedValue({ generation: 'latest', bindings: [] });
+  const accepted = vi.fn();
+  const keyboard = createLocalCommandKeyboard({ target: window, loadMap, onDown: vi.fn(async () => {}), onUp: vi.fn(async () => {}), reset: vi.fn(async () => {}), blocked: () => false, onMapAccepted: accepted });
+  try {
+    const first = keyboard.refresh();
+    await vi.waitFor(() => expect(loadMap).toHaveBeenCalledTimes(1));
+    const pending = [keyboard.refresh(), keyboard.renew(), keyboard.refresh()];
+    await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+    expect(loadMap).toHaveBeenCalledTimes(1);
+    if (outcome === 'resolve') resolveOld({ generation: 'obsolete', bindings: [] });
+    else rejectOld(new Error('old request failed'));
+    await Promise.all([first, ...pending]);
+    expect(loadMap).toHaveBeenCalledTimes(2);
+    expect(accepted.mock.calls.map(([map]) => map.generation)).toEqual(['latest']);
+  } finally { keyboard.dispose(); }
+});
+
+it.each(['blur', 'dispose'] as const)('não inicia leitura pendente após %s', async outcome => {
+  let resolveOld!: (map: LocalCommandKeyboardMap) => void;
+  const loadMap = vi.fn(() => new Promise<LocalCommandKeyboardMap>(resolve => { resolveOld = resolve; }));
+  const accepted = vi.fn();
+  const keyboard = createLocalCommandKeyboard({ target: window, loadMap, onDown: vi.fn(async () => {}), onUp: vi.fn(async () => {}), reset: vi.fn(async () => {}), blocked: () => false, onMapAccepted: accepted });
+  try {
+    const first = keyboard.refresh();
+    await vi.waitFor(() => expect(loadMap).toHaveBeenCalledTimes(1));
+    const second = keyboard.refresh();
+    if (outcome === 'dispose') keyboard.dispose();
+    else window.dispatchEvent(new Event('blur'));
+    resolveOld({ generation: 'obsolete', bindings: [] });
+    await Promise.all([first, second]);
+    expect(loadMap).toHaveBeenCalledTimes(1);
+    expect(accepted).not.toHaveBeenCalled();
+  } finally { keyboard.dispose(); }
 });

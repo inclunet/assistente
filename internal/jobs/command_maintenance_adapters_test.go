@@ -2,6 +2,7 @@ package jobs
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"testing"
@@ -594,5 +595,43 @@ func TestCommandMaintenanceAdaptersCoordinatorDoesNotReportCompactionOnError(t *
 	}
 	if report.Compacted {
 		t.Fatal("coordinator reported compaction after physical error")
+	}
+}
+
+func TestMaintenanceAdapterClassifiesCancelledTransactionOnly(t *testing.T) {
+	for _, tc := range []struct {
+		name               string
+		cancel             bool
+		failure, errorWant error
+	}{
+		{"cancelled-transaction", true, sql.ErrTxDone, context.Canceled},
+		{"active-transaction-error", false, sql.ErrTxDone, sql.ErrTxDone},
+		{"real-error-during-cancel", true, errors.New("storage failure"), nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			manager, _, _, _ := newCommandMaintenanceTestManager(t)
+			adapters, err := NewCommandMaintenanceAdapters(manager)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			count, more, err := adapters.Jobs.owner.retainUsers(ctx, maintenanceJobsCursor, commandMaintenanceTestPolicy(), func(context.Context) (int, bool, error) {
+				if tc.cancel {
+					cancel()
+				}
+				return 2, false, tc.failure
+			})
+			want := tc.errorWant
+			if want == nil {
+				want = tc.failure
+			}
+			if !errors.Is(err, want) || count != 2 || !more {
+				t.Fatalf("resultado %d %v %v; esperado %v", count, more, err, want)
+			}
+			if cursor := adapters.Jobs.owner.cursors[maintenanceJobsCursor]; cursor.after != "" {
+				t.Fatal("avançou cursor após erro")
+			}
+		})
 	}
 }

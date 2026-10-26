@@ -111,3 +111,50 @@ func TestRetentionBackoffAlsoDefersAfterLateFailure(t *testing.T) {
 		})
 	}
 }
+
+type cancellationRetentionFunc func(context.Context, Policy) (int64, error)
+
+func (f cancellationRetentionFunc) Retain(ctx context.Context, p Policy) (int64, error) {
+	return f(ctx, p)
+}
+
+func TestRetentionCancellationDoesNotBackoffButFailuresDo(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		cancel      bool
+		failure     error
+		wantBackoff bool
+	}{
+		{"shutdown", true, context.Canceled, false},
+		{"unrelated-error-during-shutdown", true, errors.New("storage failure"), true},
+		{"cancellation-with-live-context", false, context.Canceled, true},
+		{"deadline", false, context.DeadlineExceeded, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var order []string
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			ports := Ports{Outbox: &maintenanceOutbox{order: &order}, Decisions: maintenanceRecovery{}, Invocations: maintenanceRecovery{}, Claims: maintenanceRecovery{}, Tools: maintenanceTools{order: &order}, InvocationDB: maintenanceRetention{order: &order}, Activations: maintenanceRetention{order: &order}, Compaction: maintenanceCompact{order: &order}}
+			ports.Jobs = cancellationRetentionFunc(func(context.Context, Policy) (int64, error) {
+				if tc.cancel {
+					cancel()
+				}
+				return 0, tc.failure
+			})
+			c, err := New(ports)
+			if err != nil {
+				t.Fatal(err)
+			}
+			report, err := c.Run(ctx, validMaintenancePolicy(2))
+			if !errors.Is(err, tc.failure) {
+				t.Fatalf("erro perdido: %v", err)
+			}
+			if (report.RetentionRetryAfter > 0) != tc.wantBackoff {
+				t.Fatalf("backoff incorreto: %+v", report)
+			}
+			if !tc.wantBackoff && (c.retentionBackoff != 0 || !c.retentionRetryAt.IsZero()) {
+				t.Fatal("cancelamento alterou estado de recuo")
+			}
+		})
+	}
+}

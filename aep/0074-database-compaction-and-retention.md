@@ -264,6 +264,14 @@ legado percorre todos os usuários sem paginação. Os adapters ainda não subst
 a cadência produtiva e não constituem prova de geração encerrada. O status Done
 acima refere-se ao escopo legado, não ao aceite de I12 da AEP-0103.
 
+
+**Extensão AEP-0103 — cancelamento da manutenção (26/10/2026): In Progress.**
+Cancelamento explícito não aumenta o recuo de retenção nem produz diagnóstico
+de falha durante shutdown. `ErrTxDone` só é traduzido pelo adapter quando seu
+contexto já terminou; deadline e falhas reais seguem reportados. Contagens,
+cursores e drenagem são preservados. Evidências nos testes de cancelamento
+do coordinator/adapters/pass citados no AEP-0103. Aceite em sessão real pendente.
+
 ## Dependências
 
 - **AEP-0048** (Migração de Jobs para Banco de Dados): definiu a retenção por idade (30 dias) de `job_runs`, `job_events` e `job_run_events` via goroutine no Manager. Esta AEP **substitui** essa janela por uma retenção curta, configurável em horas (padrão 24h), por dados de jobs serem efêmeros.

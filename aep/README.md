@@ -1,3 +1,9 @@
+**AEP-0103 / extensão AEP-0074 — teclado e shutdown (26/10/2026): In Progress.**
+Leituras do mapa são serializadas e agrupadas sem adiar invalidações; cancelamento
+explícito da manutenção não gera falso erro nem recuo. Deadlines e erros reais
+continuam visíveis. Regressões no controller e coordinator/adapters/pass;
+aceite em sessão real e demais critérios existentes permanecem pendentes.
+
 **AEP-0104 — correção dos vínculos remanescentes (26/10/2026): Done.**
 Migração v39 preserva registros e completa vínculos recuperáveis; hidratação e
 projeção passam a consultar diretamente turnos com índices por usuário/origem.

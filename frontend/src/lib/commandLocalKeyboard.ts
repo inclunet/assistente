@@ -460,6 +460,7 @@ function validateMap(map: LocalCommandKeyboardMap): ValidatedBindings | null {
 export function createLocalCommandKeyboard(options: LocalCommandKeyboardOptions): LocalCommandKeyboardController {
   let disposed = false;
   let refreshId = 0;
+  let mapLoadInFlight: Promise<LocalCommandKeyboardMap> | undefined;
   let generation: string | null = null;
   let validUntil = 0;
   let expiryTimer: ReturnType<typeof setTimeout> | undefined;
@@ -954,9 +955,19 @@ export function createLocalCommandKeyboard(options: LocalCommandKeyboardOptions)
       return;
     }
     if (disposed || id !== refreshId) return;
+    // A invalidação acima é imediata. Aguarda a leitura antiga sem reutilizar
+    // sua autoridade; somente o pedido ainda atual inicia a próxima leitura.
+    if (mapLoadInFlight) await mapLoadInFlight.catch(() => undefined);
+    if (disposed || id !== refreshId) return;
     let map: LocalCommandKeyboardMap;
     try {
-      map = await options.loadMap();
+      const loading = options.loadMap();
+      mapLoadInFlight = loading;
+      try {
+        map = await loading;
+      } finally {
+        mapLoadInFlight = undefined;
+      }
     } catch {
       // Na renovação, erro de transporte não revoga o mapa. Expiração, blur e
       // refresh autoritativo continuam descartando-o e invalidando esta resposta.

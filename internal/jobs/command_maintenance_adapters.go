@@ -2,6 +2,7 @@ package jobs
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"strings"
 	"sync"
@@ -150,6 +151,12 @@ func (o *maintenanceOwner) retainUsers(ctx context.Context, operation string, po
 		}
 		total += int64(deleted)
 		if err != nil {
+			// database/sql pode concluir o rollback automático antes de a
+			// operação observar o cancelamento. Com contexto ativo, ErrTxDone
+			// continua sendo uma falha real de transação.
+			if errors.Is(err, sql.ErrTxDone) && ctx.Err() != nil {
+				err = ctx.Err()
+			}
 			return total, true, err
 		}
 		if recordMore {
