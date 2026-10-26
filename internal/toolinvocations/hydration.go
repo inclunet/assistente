@@ -94,22 +94,7 @@ func LoadChatToolInvocationDisplaysForTurnIDsWithUser(ctx context.Context, userI
 
 	results := make(map[string][]ChatToolInvocationDisplay, len(turnIDs))
 	indexByTurnCall := make(map[string]map[string]int, len(turnIDs))
-	resolvedTurnSQL := "tool_invocations.origin_id"
-	if db.Migrator().HasTable(&database.ChatMessage{}) && db.Migrator().HasTable(&database.Conversation{}) {
-		resolvedTurnSQL = `COALESCE(
-			tool_invocations.turn_id,
-			(
-				SELECT COALESCE(legacy_message.turn_id, legacy_message.id)
-				FROM chat_messages legacy_message
-				JOIN conversations legacy_conversation
-					ON legacy_conversation.id = legacy_message.conversation_id
-					AND legacy_conversation.user_id = tool_invocations.user_id
-				WHERE legacy_message.id = tool_invocations.origin_id
-				LIMIT 1
-			),
-			tool_invocations.origin_id
-		)`
-	}
+	const resolvedTurnSQL = "tool_invocations.turn_id"
 	for start := 0; start < len(turnIDs); start += maxTurnIDsPerBatch {
 		end := start + maxTurnIDsPerBatch
 		if end > len(turnIDs) {
@@ -120,6 +105,7 @@ func LoadChatToolInvocationDisplaysForTurnIDsWithUser(ctx context.Context, userI
 		attemptByTurnCall := make(map[string]map[string]int)
 		var cursorQueuedAt *time.Time
 		cursorID := ""
+		cursorTurnID := ""
 		for {
 			type invocationDisplayRow struct {
 				database.ToolInvocation
@@ -145,11 +131,11 @@ func LoadChatToolInvocationDisplaysForTurnIDsWithUser(ctx context.Context, userI
 					StatusTimedOut,
 				)
 			if cursorQueuedAt != nil {
-				q = q.Where("(tool_invocations.queued_at > ?) OR (tool_invocations.queued_at = ? AND tool_invocations.id > ?)", *cursorQueuedAt, *cursorQueuedAt, cursorID)
+				q = q.Where("(tool_invocations.turn_id, tool_invocations.queued_at, tool_invocations.id) > (?, ?, ?)", cursorTurnID, *cursorQueuedAt, cursorID)
 			}
 
 			var rows []invocationDisplayRow
-			err := q.Order("tool_invocations.queued_at ASC, tool_invocations.id ASC").Limit(pageSize).Find(&rows).Error
+			err := q.Order("tool_invocations.turn_id ASC, tool_invocations.queued_at ASC, tool_invocations.id ASC").Limit(pageSize).Find(&rows).Error
 			if err != nil {
 				return nil, fmt.Errorf("erro ao buscar tool invocations: %w", err)
 			}
@@ -187,6 +173,7 @@ func LoadChatToolInvocationDisplaysForTurnIDsWithUser(ctx context.Context, userI
 			last := rows[len(rows)-1]
 			cursorQueuedAt = &last.QueuedAt
 			cursorID = last.ID
+			cursorTurnID = last.ResolvedTurnID
 			if len(rows) < pageSize {
 				break
 			}

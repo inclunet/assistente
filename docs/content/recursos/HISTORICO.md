@@ -29,6 +29,15 @@ política de retenção já removeu o payload, o app informa que os detalhes nã
 estão mais disponíveis. Excluir mensagens ou conversas também remove detalhes
 associados e invalida cópias temporárias mantidas em memória.
 
+### Atualização de históricos antigos
+
+Ao atualizar, o Assistente corrige os vínculos recuperáveis entre chamadas de
+ferramentas antigas e suas conversas, preservando os registros e resultados.
+A leitura passa a buscar diretamente as chamadas dos turnos solicitados.
+Se encontrar um vínculo inconsistente que não possa recuperar com segurança,
+a atualização do banco é revertida e a inicialização informa o erro. Os dados
+são preservados; guarde o diagnóstico para investigar antes de tentar novamente.
+
 ## Exportação e importação
 
 Ao exportar uma conversa, o arquivo JSON inclui o histórico completo das

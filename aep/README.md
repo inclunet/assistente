@@ -1,3 +1,9 @@
+**AEP-0104 — correção dos vínculos remanescentes (26/10/2026): Done.**
+Migração v39 preserva registros e completa vínculos recuperáveis; hidratação e
+projeção passam a consultar diretamente turnos com índices por usuário/origem.
+Build/vet, testes focados e revisão independente aprovados. Verificação de
+latências após instalação pendente; o banco pessoal não foi alterado.
+
 # AEP — Assistente Enhancement Proposals
 
 **AEP-0074 — varredura de órfãos por páginas (26/10/2026): In Progress.**
@@ -1199,7 +1205,7 @@ de cancelamento de release na dependência; o AEP permanece **In Progress**.
 | [0101](0101-profiles-descobríveis-e-delegacao-autorizada.md) | Profiles descobríveis, delegação autorizada e grants específicos de jobs | ✅ Done |
 | [0102](0102-resultados-grandes-de-tools.md) | Resultados grandes de tools | ✅ Done |
 | [0103](0103-comandos-acionadores-e-camadas-contextuais.md) | Comandos, acionadores e camadas contextuais | 🚧 In Progress |
-| [0104](0104-tool-invocations-como-ledger-canonico.md) | Tool invocations como ledger canônico; núcleo único de persistência, cronologia por rodada e posições de texto ACP, conclusão terminal e atividades externas | ✅ Done |
+| [0104](0104-tool-invocations-como-ledger-canonico.md) | Tool invocations como ledger canônico; correção de vínculos remanescentes e índices de histórico | ✅ Done |
 | [0105](0105-reautorizacao-oauth-mcp-nativo.md) | Reautorização OAuth interativa para MCP nativo | 🚧 In Progress — runtime OAuth composto do AEP-0112; legado exige migração explícita |
 | [0106](0106-contencao-do-pipeline-de-jobs.md) | Contenção do pipeline de jobs (limite de concorrência + cache por slug) | 🚧 In Progress |
 | [0107](0107-tool-execution-ux.md) | Experiência de execução de tools: estado, contexto e resultados acionáveis | ✅ Done |
