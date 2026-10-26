@@ -123,7 +123,7 @@ func TestOrphanScanActualBatchPlansAndRollback(t *testing.T) {
 	// A falha ocorre após DELETE, dentro da transação: tudo deve voltar.
 	failure := errors.New("injected after delete")
 	callback := "test:orphan-rollback"
-	if err := repo.db.Callback().Delete().After("gorm:delete").Register(callback, func(tx *gorm.DB) { tx.AddError(failure) }); err != nil {
+	if err := repo.db.Callback().Delete().After("gorm:delete").Register(callback, func(tx *gorm.DB) { _ = tx.AddError(failure) }); err != nil {
 		t.Fatal(err)
 	}
 	n, _, err := repo.CleanOrphanChatBatch(ctx, 128)
