@@ -2,6 +2,30 @@
 
 Status: In Progress — evidências e aceites pendentes conforme os registros abaixo
 
+**Leituras de teclado e cancelamento da manutenção (26/10/2026): In Progress.**
+A leitura do mapa mantém uma única chamada em andamento por controller e
+agrupa pedidos posteriores pelo `refreshId` já existente. Invalidações continuam
+síncronas: a resposta anterior não é reutilizada, somente o pedido mais recente
+inicia a próxima leitura. Blur/dispose impedem iniciar a leitura pendente.
+Renovação preserva o mapa apenas enquanto suas provas e validade continuam vivas.
+Não há novo cache, gate de backend ou timer de recuperação.
+
+A manutenção continua cancelando e aguardando a passagem antes de destruir
+suas dependências. O adapter traduz `sql.ErrTxDone` para o erro do contexto
+somente quando esse contexto já terminou; com contexto ativo mantém a falha.
+Cancelamento explícito da passagem não aumenta o recuo de retenção; o Manager
+não o anuncia como falha quando o contexto pai também foi cancelado. Deadline
+operacional e outros erros continuam propagados, reportados e sujeitos ao recuo.
+Contagens confirmadas e cursores permanecem preservados.
+
+Evidências: `commandLocalKeyboard.test.ts` cobre agrupamento após sucesso/erro,
+invalidação antes da próxima leitura, blur e dispose. Backend:
+`TestMaintenanceAdapterClassifiesCancelledTransactionOnly`,
+`TestRetentionCancellationDoesNotBackoffButFailuresDo` e
+`TestMaintenancePassReportsOnlyRealFailuresDuringShutdown`.
+Esta correção não promove os aceites manuais pendentes do AEP-0103 nem os da
+extensão de manutenção. Validação em sessão real após instalação permanece pendente.
+
 **Recuperação após atualização de catálogo (18/10/2026): In Progress.**
 O log de 17/10 mostra desconexão/reconexão MCP seguida de falha no refresh
 do catálogo e recusas persistentes `keyboard_map_load/lifecycle/not_ready`.
