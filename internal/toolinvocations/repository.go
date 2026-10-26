@@ -53,6 +53,9 @@ type Repository interface {
 }
 
 type DBRepository struct {
+	orphanScanMu    sync.Mutex
+	orphanScanAfter map[string]string
+
 	db  *gorm.DB
 	now func() time.Time
 
@@ -430,16 +433,20 @@ func (r *DBRepository) CleanOrphanChat(ctx context.Context) (int, error) {
 }
 
 // CleanOrphanChatBatch remove no máximo limit de invocações por transação.
-// more indica que o usuário ainda tem órfãos para outra passagem.
+// more indica que restam registros a examinar ou filhos a desassociar.
 func (r *DBRepository) CleanOrphanChatBatch(ctx context.Context, limit int) (int, bool, error) {
 	if limit <= 0 {
 		return 0, false, fmt.Errorf("orphan chat batch limit must be positive")
 	}
+	// Serializa a progressão dos cursores; eles só avançam após commit.
+	r.orphanScanMu.Lock()
+	defer r.orphanScanMu.Unlock()
 	return r.cleanOrphanChat(ctx, limit)
 }
 
 func (r *DBRepository) cleanOrphanChat(ctx context.Context, limit int) (int, bool, error) {
-	if _, err := database.RequireUserID(ctx); err != nil {
+	userID, err := database.RequireUserID(ctx)
+	if err != nil {
 		return 0, false, err
 	}
 	if !r.db.Migrator().HasTable(&database.ChatMessage{}) {
@@ -449,7 +456,25 @@ func (r *DBRepository) cleanOrphanChat(ctx context.Context, limit int) (int, boo
 	// para linhas pré-v18 que ainda não receberam o backfill aditivo.
 	deleted := int64(0)
 	more := false
-	err := database.WithSQLiteImmediateTransactionOnce(ctx, time.Time{}, r.db, "toolinvocations.clean_orphan_chat", func(tx *gorm.DB) error {
+	nextAfter := ""
+	err = database.WithSQLiteImmediateTransactionOnce(ctx, time.Time{}, r.db, "toolinvocations.clean_orphan_chat", func(tx *gorm.DB) error {
+		var examined []string
+		if limit > 0 {
+			page := database.ScopeByUser(ctx, tx.Model(&database.ToolInvocation{}), "user_id").
+				Where("origin_type = ? AND id > ?", OriginChat, r.orphanScanAfter[userID]).
+				Order("id").Limit(limit + 1)
+			if err := page.Pluck("id", &examined).Error; err != nil {
+				return err
+			}
+			more = len(examined) > limit
+			if more {
+				examined = examined[:limit]
+				nextAfter = examined[len(examined)-1]
+			}
+			if len(examined) == 0 {
+				return nil
+			}
+		}
 		target := database.ScopeByUser(ctx, tx.Model(&database.ToolInvocation{}), "user_id").
 			Where("origin_type = ?", OriginChat).
 			Where(`(
@@ -483,14 +508,11 @@ func (r *DBRepository) cleanOrphanChat(ctx context.Context, limit int) (int, boo
 		}
 
 		var ids []string
+		// O predicado de orfandade só examina os IDs desta página.
 		candidates := target.Session(&gorm.Session{}).
-			Limit(limit + 1)
+			Where("tool_invocations.id IN ?", examined)
 		if err := candidates.Pluck("tool_invocations.id", &ids).Error; err != nil {
 			return err
-		}
-		more = len(ids) > limit
-		if more {
-			ids = ids[:limit]
 		}
 		if len(ids) == 0 {
 			return nil
@@ -510,6 +532,7 @@ func (r *DBRepository) cleanOrphanChat(ctx context.Context, limit int) (int, boo
 				return err
 			}
 			more = true
+			nextAfter = r.orphanScanAfter[userID] // Retoma a mesma página até concluir os filhos.
 			return nil
 		}
 		selected := database.ScopeByUser(ctx, tx.Model(&database.ToolInvocation{}), "user_id").
@@ -519,6 +542,16 @@ func (r *DBRepository) cleanOrphanChat(ctx context.Context, limit int) (int, boo
 	})
 	if err != nil {
 		return 0, false, err
+	}
+	if limit > 0 {
+		if r.orphanScanAfter == nil {
+			r.orphanScanAfter = make(map[string]string)
+		}
+		if nextAfter == "" {
+			delete(r.orphanScanAfter, userID) // Próximo ciclo também revisita IDs anteriores.
+		} else {
+			r.orphanScanAfter[userID] = nextAfter
+		}
 	}
 	return int(deleted), more, nil
 }

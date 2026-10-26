@@ -280,3 +280,12 @@ automaticamente por esse erro.
 O diagnóstico de uma chamada que não chegou a ser registrada permanece visível
 nos detalhes até recarregar o histórico. Ele não representa uma execução salva;
 o conteúdo da conversa e as execuções já registradas continuam vindo do banco.
+
+### Limpeza do histórico em segundo plano
+
+A manutenção verifica registros de ferramentas em pequenos lotes e continua do
+ponto anterior, inclusive quando não encontra registros órfãos. Isso reduz o
+trabalho realizado enquanto o banco está reservado para escrita e a disputa com
+novas chamadas de ferramentas. Conversas e execuções válidas continuam preservadas.
+Se o aplicativo for reiniciado, a verificação recomeça com segurança; nenhuma ação
+é necessária para retomar a limpeza.
