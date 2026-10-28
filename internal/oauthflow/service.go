@@ -281,7 +281,9 @@ func (s *Service) exchange(ctx context.Context, r Record, form url.Values) (resp
 		var payload struct {
 			Error string `json:"error"`
 		}
-		_ = json.NewDecoder(io.LimitReader(resp.Body, 1024*1024)).Decode(&payload)
+		if err := json.NewDecoder(io.LimitReader(resp.Body, 1024*1024)).Decode(&payload); err != nil {
+			failure.category = exchangeErrorCategory(err, "http_rejected")
+		}
 		failure.code = safeOAuthErrorCode(payload.Error)
 		if resp.StatusCode == http.StatusBadRequest || resp.StatusCode == http.StatusUnauthorized {
 			switch payload.Error {

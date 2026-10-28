@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -39,6 +40,11 @@ func TestRefreshDiagnosticsAreSafeAndPreservePolicy(t *testing.T) {
 		{name: "canceled", transportError: fmt.Errorf("%s: %w", secret, context.Canceled), stage: "exchange", cause: "canceled", code: "none", want: ErrTransient, calls: 0},
 		{name: "body timeout", status: 200, bodyError: fmt.Errorf("%s: %w", secret, context.DeadlineExceeded), stage: "exchange", cause: "timeout", code: "none", want: ErrReauthorize},
 		{name: "body canceled", status: 200, bodyError: fmt.Errorf("%s: %w", secret, context.Canceled), stage: "exchange", cause: "canceled", code: "none", want: ErrReauthorize},
+		{name: "socket timeout", transportError: fmt.Errorf("%s: %w", secret, os.ErrDeadlineExceeded), stage: "exchange", cause: "timeout", code: "none", want: ErrTransient},
+		{name: "body socket timeout", status: 200, bodyError: fmt.Errorf("%s: %w", secret, os.ErrDeadlineExceeded), stage: "exchange", cause: "timeout", code: "none", want: ErrReauthorize},
+		{name: "rejection body timeout", status: 400, bodyError: context.DeadlineExceeded, stage: "exchange", cause: "timeout", code: "none", want: ErrReauthorize},
+		{name: "rejection body canceled", status: 400, bodyError: context.Canceled, stage: "exchange", cause: "canceled", code: "none", want: ErrReauthorize},
+		{name: "server error body socket timeout", status: 503, bodyError: os.ErrDeadlineExceeded, stage: "exchange", cause: "timeout", code: "none", want: ErrTransient},
 		{name: "pending write", status: 200, body: success, failRevision: 2, stage: "persist_pending", cause: "storage", code: "none", calls: 0},
 		{name: "token write", status: 200, body: success, failRevision: 3, stage: "persist_tokens", cause: "storage", code: "none", want: ErrReauthorize, calls: 1},
 		{name: "rejection write", status: 400, body: `{"error":"invalid_grant"}`, failRevision: 3, stage: "persist_rejection", cause: "storage", code: "none", want: ErrReauthorize, calls: 1},

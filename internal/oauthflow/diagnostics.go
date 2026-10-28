@@ -3,6 +3,8 @@ package oauthflow
 import (
 	"context"
 	"errors"
+	"net"
+	"os"
 	"time"
 
 	"assistente/internal/logging"
@@ -24,7 +26,11 @@ func exchangeErrorCategory(err error, fallback string) string {
 	if errors.Is(err, context.Canceled) {
 		return "canceled"
 	}
-	if errors.Is(err, context.DeadlineExceeded) {
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, os.ErrDeadlineExceeded) {
+		return "timeout"
+	}
+	var networkError net.Error
+	if errors.As(err, &networkError) && networkError.Timeout() {
 		return "timeout"
 	}
 	return fallback
@@ -57,7 +63,7 @@ func logRefreshResult(ctx context.Context, r Record, reason, stage string, start
 			}
 		case errors.Is(err, context.Canceled):
 			cause = "canceled"
-		case errors.Is(err, context.DeadlineExceeded):
+		case errors.Is(err, context.DeadlineExceeded) || errors.Is(err, os.ErrDeadlineExceeded):
 			cause = "timeout"
 		case errors.Is(err, ErrConflict):
 			cause = "conflict"
