@@ -402,6 +402,16 @@ selo **"Reautorização necessária"** na coluna de status e é temporariamente
 retirado do modo nativo — assim o Assistente não envia um token vencido ao
 provedor de IA.
 
+Se uma ação no chat desktop precisar do servidor e a renovação automática não
+resolver, o Assistente abre o fluxo OAuth existente e anuncia a abertura para o
+leitor de tela. A chamada aguarda o login antes de enviar a operação ao servidor.
+Chamadas concorrentes compartilham a tentativa; cancelar ou negar não abre novas
+janelas repetidamente naquele turno. Uma nova ação sua pode tentar novamente.
+
+Autoconexão e tarefas em segundo plano não abrem o navegador. A pendência permanece
+na página MCP. Recuperar a autorização não repete automaticamente uma operação
+que já foi enviada ao servidor, nem reenvia uma mensagem.
+
 Para resolver, selecione o servidor e use a ação **Reautorizar** (disponível no
 menu de ações da linha e na barra de ferramentas, apenas para servidores
 OAuth2 PKCE). Uma janela do navegador será aberta para você autenticar

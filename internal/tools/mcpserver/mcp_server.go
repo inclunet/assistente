@@ -23,9 +23,9 @@ type Manager interface {
 	SaveConfig(slug string, cfg mcpmgr.ServerConfig) error
 	DeleteConfig(slug string) error
 	DuplicateConfig(slug string) (string, error)
-	Connect(slug string) error
+	ConnectWithContext(context.Context, string) error
 	Disconnect(slug string) error
-	Reconnect(slug string) error
+	ReconnectWithContext(context.Context, string) error
 	LoadConfigs() error
 	GetLogs(slug string, limit int) ([]mcpmgr.MCPServerLog, error)
 }
@@ -169,11 +169,11 @@ func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolRes
 	case "duplicate":
 		return duplicateServer(mgr, slug)
 	case "connect":
-		return connectionAction(mgr, slug, "connected", "conectar", mgr.Connect)
+		return connectionAction(mgr, slug, "connected", "conectar", func(slug string) error { return mgr.ConnectWithContext(ctx, slug) })
 	case "disconnect":
 		return connectionAction(mgr, slug, "disconnected", "desconectar", mgr.Disconnect)
 	case "reconnect":
-		return connectionAction(mgr, slug, "reconnected", "reconectar", mgr.Reconnect)
+		return connectionAction(mgr, slug, "reconnected", "reconectar", func(slug string) error { return mgr.ReconnectWithContext(ctx, slug) })
 	case "reload":
 		return reloadServers(mgr)
 	case "logs":

@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"context"
 	"reflect"
 
 	"assistente/internal/llm"
@@ -39,5 +40,5 @@ func NativeMCPManagerIsNil(m NativeMCPManager) bool {
 // NativeMCPManager abstrai a consulta de servidores MCP elegíveis para passthrough nativo.
 // Implementado por *mcp.Manager; pode ser mockado em testes.
 type NativeMCPManager interface {
-	GetEligibleNativeMCPServers() []mcplib.NativeMCPServer
+	GetEligibleNativeMCPServers(context.Context, []string) []mcplib.NativeMCPServer
 }

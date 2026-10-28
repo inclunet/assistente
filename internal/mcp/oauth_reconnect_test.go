@@ -96,7 +96,7 @@ func TestReconnectMigrationSuccessFailureAndRetry(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			a.signalNeedsReauth(cfg.Slug, cfg.Name, "old grant expired")
+			a.signalNeedsReauth(cfg, "old grant expired")
 			db := a.repository().(*DBRepository).db
 			var before database.CredentialEntry
 			if err := db.First(&before, "user_id = ? AND pattern = ?", "owner", userTokensPattern(cfg.Slug)).Error; err != nil {
@@ -171,7 +171,7 @@ func TestReconnectMigrationSuccessFailureAndRetry(t *testing.T) {
 			if a.servers[cfg.Slug].NeedsReauth {
 				t.Fatal("new migration retained old warning")
 			}
-			a.signalNeedsReauth(cfg.Slug, cfg.Name, "new rejection")
+			a.signalNeedsReauth(a.servers[cfg.Slug].Config, "new rejection")
 			if err := a.ReconnectOAuthSnapshot(ctx, info.ID, inputMethod); err != nil {
 				t.Fatal("local replay", err)
 			}

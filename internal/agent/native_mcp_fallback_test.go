@@ -71,7 +71,7 @@ func TestRunAgenticLoop_NativeMCPUnsupportedRetriesSameTurnWithBridgeTools(t *te
 		{Function: llm.FunctionDefinition{Name: "read_file"}},
 		{Function: llm.FunctionDefinition{Name: "loaded_during_turn"}},
 	}
-	bridgeToolDefs := policy.PlanTurnToolDefs(nil, nil, cfg).Definitions
+	bridgeToolDefs := policy.PlanTurnToolDefs(context.Background(), nil, nil, cfg).Definitions
 
 	params := llm.ChatParams{
 		MaxAgenticIterations: 1,

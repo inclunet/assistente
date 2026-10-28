@@ -82,7 +82,7 @@ func TestGetEligibleNativeMCPServers_ExpiredWithoutRefreshSignalsReauthAndSkips(
 	}
 
 	seedManagedRuntime(t, m, ctx, "atlassian", "dead-token", "", time.Now().Add(-time.Hour))
-	result := m.GetEligibleNativeMCPServers()
+	result := m.GetEligibleNativeMCPServers(m.credentialContext(), nil)
 
 	if len(result) != 0 {
 		t.Fatalf("servidor com token morto NÃO deveria entrar no MCP nativo, got %#v", result)
@@ -109,7 +109,7 @@ func TestGetEligibleNativeMCPServers_ExpiredWithoutRefreshSignalsReauthAndSkips(
 	}
 
 	// Idempotência: uma segunda chamada não deve reemitir o evento (só transição).
-	_ = m.GetEligibleNativeMCPServers()
+	_ = m.GetEligibleNativeMCPServers(m.credentialContext(), nil)
 	if emitter.countByName("mcp:server_needs_reauth") != 1 {
 		t.Errorf("evento de reauth não deveria repetir por turno, got %d", emitter.countByName("mcp:server_needs_reauth"))
 	}
@@ -148,7 +148,7 @@ func TestGetEligibleNativeMCPServers_ExpiredTokenRefreshedAndDelivered(t *testin
 	}
 
 	seedManagedRuntime(t, m, ctx, "srv", "old-token", "stored-refresh", time.Now().Add(-time.Minute))
-	result := m.GetEligibleNativeMCPServers()
+	result := m.GetEligibleNativeMCPServers(m.credentialContext(), nil)
 
 	if len(result) != 1 {
 		t.Fatalf("servidor deveria entrar no MCP nativo após refresh, got %#v", result)
@@ -193,7 +193,7 @@ func TestGetEligibleNativeMCPServers_ValidTokenDeliveredWithoutRefresh(t *testin
 	}
 
 	seedManagedRuntime(t, m, ctx, "srv", "good-token", "r1", time.Now().Add(time.Hour))
-	result := m.GetEligibleNativeMCPServers()
+	result := m.GetEligibleNativeMCPServers(m.credentialContext(), nil)
 	if len(result) != 1 || result[0].AuthToken != "good-token" {
 		t.Fatalf("token válido deveria ser entregue sem refresh, got %#v", result)
 	}

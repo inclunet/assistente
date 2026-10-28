@@ -1,6 +1,6 @@
 # AEP-0112 — OAuth compartilhado e autorizações unificadas
 
-**Status:** In Progress — contrato base aceito em 05/10; extensão de diagnóstico de refresh em validação
+**Status:** In Progress — diagnóstico e recuperação interativa implementados; confirmação em ocorrência real e NVDA pendentes
 **Contrato base concluído em:** 2026-10-05
 **Data:** 2026-09-30
 
@@ -27,6 +27,16 @@ as decisões de rotação/reautorização e acrescenta evidência operacional se
 Não se atribui retroativamente uma causa ao incidente de 28/10. Esta extensão
 não autoriza reutilizar refresh token rotacionado nem iniciar consentimento
 silencioso. O encerramento de 05/10 abaixo continua válido para o contrato base.
+
+## Extensão: recuperação interativa no desktop — 28/10/2026
+
+D4 passa a permitir consentimento durante uma ação do chat desktop. Implementação
+e evidências estão na extensão do AEP-0105: escopo por turno, isolamento de
+background, anúncio global e ausência de replay após 401 nas chamadas interativas.
+
+- [x] Contrato D4 e implementação alinhados; regressões em
+  `internal/mcp/interactive_oauth_test.go` e `frontend/src/hooks/useMCPRuntime.test.tsx`.
+- [ ] Confirmar a experiência com o servidor real e NVDA após instalar.
 
 ## Resumo
 
@@ -284,9 +294,15 @@ navegador/listener nem exige identidade OIDC do usuário: usa a autenticação d
 cliente e obtém novo access token pelo grant quando necessário, sem presumir
 refresh token. Configuração, validação e testes são específicos de cada grant.
 
-Abertura do navegador requer ação explícita de conectar/reautorizar. Startup,
-listagem, envio e refresh silencioso não iniciam consentimento. A tela MCP poderá
-abrir o editor compartilhado, mas não manter cópia da configuração OAuth.
+Abertura do navegador é permitida por Conectar/Reautorizar e pela recuperação
+OAuth necessária a uma ação interativa do usuário no chat desktop (contrato
+refinado com o mantenedor em 28/10/2026). O turno compartilha uma única tentativa
+por autorização, inclusive entre ferramentas concorrentes; recusa/cancelamento
+não reabre consentimento nesse turno. Startup, listagem, jobs e refresh em segundo
+plano não iniciam consentimento. A tela MCP poderá abrir o editor compartilhado,
+mas não manter cópia da configuração OAuth. O protocolo e a persistência continuam
+no lifecycle existente; recuperar autenticação não autoriza repetir uma operação
+já enviada ao recurso. Ver extensão de apresentação/recuperação no AEP-0105.
 
 ### D5 — Extensibilidade com limites de confiança
 

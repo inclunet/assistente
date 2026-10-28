@@ -547,6 +547,34 @@ func (m *Manager) Connect(slug string) error {
 	return m.connect(slug, true)
 }
 
+// ConnectWithContext serves tool actions using the caller's interaction scope.
+// Background tools never inherit the desktop Connect action's consent permission.
+func (m *Manager) ConnectWithContext(ctx context.Context, slug string) error {
+	cfg, err := m.GetConfig(slug)
+	if err != nil {
+		return err
+	}
+	if cfg.Enabled && cfg.AuthType == AuthOAuth2PKCE && cfg.OAuthAuthorizationID != "" {
+		if _, err := m.resolveManagedOAuth(ctx, *cfg, ""); err != nil {
+			return err
+		}
+	}
+	m.mu.RLock()
+	_, connected := m.connections[slug]
+	m.mu.RUnlock()
+	if connected {
+		return ctx.Err()
+	}
+	return m.connectWithParentContext(ctx, slug, false, 0)
+}
+
+func (m *Manager) ReconnectWithContext(ctx context.Context, slug string) error {
+	if err := m.Disconnect(slug); err != nil {
+		return err
+	}
+	return m.ConnectWithContext(ctx, slug)
+}
+
 // allowConsent is granted only by explicit user actions, never background retry.
 func (m *Manager) connect(slug string, allowConsent bool) (connectErr error) {
 	return m.connectWithParentContext(m.ctx, slug, allowConsent, 0)
@@ -622,7 +650,7 @@ func (m *Manager) connectWithParentContext(parentCtx context.Context, slug strin
 				m.setError(slug, connectErr.Error())
 			}
 		}()
-		if _, err = m.resolveManagedOAuth(ctx, *cfg, ""); err != nil {
+		if _, err = m.resolveManagedOAuthSilent(ctx, *cfg, ""); err != nil {
 			if !allowConsent || !errors.Is(err, oauthflow.ErrReauthorize) {
 				return err
 			}
@@ -630,7 +658,7 @@ func (m *Manager) connectWithParentContext(parentCtx context.Context, slug strin
 				return err
 			}
 		}
-		m.clearNeedsReauth(slug)
+		m.clearNeedsReauth(*cfg)
 		return m.connectWithContextForRetry(ctx, slug, retryAttemptID)
 	}
 	return m.connectWithContextForRetry(parentCtx, slug, retryAttemptID)
@@ -1639,7 +1667,7 @@ func (m *Manager) ReauthorizeServer(ctx context.Context, slug string) error {
 		if err = m.authorizeManagedOAuth(ctx, slug, cfg); err != nil {
 			return err
 		}
-		m.clearNeedsReauth(slug)
+		m.clearNeedsReauth(cfg)
 		current, err := m.GetConfig(slug)
 		if err != nil {
 			return err
@@ -1656,10 +1684,12 @@ func (m *Manager) ReauthorizeServer(ctx context.Context, slug string) error {
 // interativa e emite o evento tipado mcp:server_needs_reauth para a UI. Emite
 // apenas na transição (false→true) para não repetir o alerta a cada turno de
 // chat (GetEligibleNativeMCPServers roda por turno). AEP-0105.
-func (m *Manager) signalNeedsReauth(slug, name, reason string) {
+func (m *Manager) signalNeedsReauth(cfg ServerConfig, reason string) {
+	slug, name := cfg.Slug, cfg.Name
 	m.mu.Lock()
 	changed := false
-	if s, ok := m.servers[slug]; ok && !s.NeedsReauth {
+	if s, ok := m.servers[slug]; ok && !s.NeedsReauth &&
+		sameOAuthConsumer(s.Config, cfg) {
 		s.NeedsReauth = true
 		changed = true
 	}
@@ -1678,10 +1708,11 @@ func (m *Manager) signalNeedsReauth(slug, name, reason string) {
 
 // clearNeedsReauth limpa o sinal de reauth de um servidor (após renovação bem
 // sucedida ou reautorização) e emite mcp:server_reauthorized apenas na transição.
-func (m *Manager) clearNeedsReauth(slug string) {
+func (m *Manager) clearNeedsReauth(cfg ServerConfig) {
+	slug := cfg.Slug
 	m.mu.Lock()
 	changed := false
-	if s, ok := m.servers[slug]; ok && s.NeedsReauth {
+	if s, ok := m.servers[slug]; ok && s.NeedsReauth && sameOAuthConsumer(s.Config, cfg) {
 		s.NeedsReauth = false
 		changed = true
 	}
@@ -1689,6 +1720,12 @@ func (m *Manager) clearNeedsReauth(slug string) {
 	if changed {
 		m.emit("mcp:server_reauthorized", map[string]string{"slug": slug})
 	}
+}
+
+func sameOAuthConsumer(current, expected ServerConfig) bool {
+	return current.ID == expected.ID && current.UserID == expected.UserID &&
+		current.OAuthAuthorizationID == expected.OAuthAuthorizationID &&
+		current.URL == expected.URL && current.AuthType == expected.AuthType
 }
 
 // List retorna informações de todos os servidores (formato frontend-safe).
@@ -2424,17 +2461,16 @@ func (m *Manager) runReconnectWithRetry(slug string, reconnectCtx context.Contex
 			logging.Errorf(context.Background(), "mcp.manager", "[MCP] Falha ao reconectar '%s': %v", slug, err)
 			if errors.Is(err, oauthflow.ErrReauthorize) || errors.Is(err, oauthflow.ErrPermission) || errors.Is(err, oauthflow.ErrClientConfiguration) {
 				m.mu.RLock()
-				name, clientCredentials := slug, false
+				clientCredentials := false
+				var currentConfig ServerConfig
 				if current, exists := m.servers[slug]; exists {
-					name = current.Config.Name
 					clientCredentials = current.Config.AuthType == AuthOAuth2ClientCredentials
+					currentConfig = current.Config
 				}
 				m.mu.RUnlock()
 				if clientCredentials {
 					// This grant needs configuration, not browser consent.
-					m.clearNeedsReauth(slug)
-				} else {
-					m.signalNeedsReauth(slug, name, err.Error())
+					m.clearNeedsReauth(currentConfig)
 				}
 				return
 			}
@@ -2870,12 +2906,30 @@ func (m *Manager) collectNativeMCPCandidates() []nativeMCPCandidate {
 // forçado; se o refresh falhar (sem/refresh_token inválido, invalid_grant), o
 // servidor é sinalizado como precisando de reautorização e EXCLUÍDO do caminho
 // nativo, em vez de mandar um token morto ao provider.
-func (m *Manager) GetEligibleNativeMCPServers() []NativeMCPServer {
+func (m *Manager) GetEligibleNativeMCPServers(ctx context.Context, enabledTools []string) []NativeMCPServer {
 	candidates := m.collectNativeMCPCandidates()
-	ctx := m.credentialContext()
+	if ctx == nil {
+		ctx = m.credentialContext()
+	}
+	allowed := make(map[string]bool, len(enabledTools))
+	for _, name := range enabledTools {
+		allowed[name] = true
+	}
 
 	var result []NativeMCPServer
 	for _, c := range candidates {
+		if enabledTools != nil {
+			selected := false
+			for _, tool := range c.tools {
+				if allowed[tool.RegisteredName] {
+					selected = true
+					break
+				}
+			}
+			if !selected {
+				continue
+			}
+		}
 		if err := oauthRuntimeError(c.managedConfig); err != nil {
 			m.mu.RLock()
 			status := m.servers[c.slug]
@@ -2917,7 +2971,7 @@ func (m *Manager) resolveNativeAuthToken(ctx context.Context, c nativeMCPCandida
 		if err != nil {
 			if errors.Is(err, oauthflow.ErrReauthorize) || errors.Is(err, oauthflow.ErrPermission) || errors.Is(err, oauthflow.ErrClientConfiguration) {
 				if c.managedConfig.AuthType == AuthOAuth2ClientCredentials {
-					m.clearNeedsReauth(c.slug)
+					m.clearNeedsReauth(c.managedConfig)
 					reason := "oauth_client_configuration_required"
 					if errors.Is(err, oauthflow.ErrPermission) {
 						reason = "oauth_permission_missing"
@@ -2929,13 +2983,10 @@ func (m *Manager) resolveNativeAuthToken(ctx context.Context, c nativeMCPCandida
 					if !unchanged {
 						m.setError(c.slug, reason)
 					}
-				} else {
-					m.signalNeedsReauth(c.slug, c.name, "oauth_reauthorization_required")
 				}
 			}
 			return "", false
 		}
-		m.clearNeedsReauth(c.slug)
 		return r.Tokens.Access, true
 	}
 
@@ -2949,7 +3000,7 @@ func (m *Manager) resolveNativeAuthToken(ctx context.Context, c nativeMCPCandida
 
 	auth, err := m.credMgr.GetByPatternWithContext(ctx, userTokensPattern(c.slug))
 	if err == nil && auth != nil && auth.Token != "" {
-		m.clearNeedsReauth(c.slug)
+		m.clearNeedsReauth(c.managedConfig)
 		logging.Infof(context.Background(), "mcp.manager", "[MCP] servidor %q: token OAuth resolvido (pattern=%s, len=%d, expires=%d)",
 			c.slug, userTokensPattern(c.slug), len(auth.Token), auth.ExpiresAt)
 		return auth.Token, true

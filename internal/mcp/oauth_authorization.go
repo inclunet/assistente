@@ -276,6 +276,29 @@ func (m *Manager) projectManagedOAuth(cfg *ServerConfig) (*ServerConfig, error) 
 	return &result, nil
 }
 func (m *Manager) resolveManagedOAuth(ctx context.Context, cfg ServerConfig, rejected string) (oauthflow.Record, error) {
+	r, err := m.resolveManagedOAuthSilent(ctx, cfg, rejected)
+	scope, interactive := ctx.Value(interactiveOAuthKey{}).(*interactiveOAuthScope)
+	if err == nil && interactive && rejected != "" {
+		return oauthflow.Record{}, errors.New("oauth_request_not_replayable")
+	}
+	if err == nil || cfg.AuthType != AuthOAuth2PKCE || !interactive {
+		return r, err
+	}
+	if !errors.Is(err, oauthflow.ErrReauthorize) && !errors.Is(err, oauthflow.ErrPermission) && !scope.hasAttempt(cfg) {
+		return r, err
+	}
+	if authErr := m.recoverInteractiveOAuth(ctx, cfg); authErr != nil {
+		return r, authErr
+	}
+	if rejected != "" {
+		// The resource already received this request. Consent recovery must not
+		// replay an operation whose execution cannot be established here.
+		return oauthflow.Record{}, errors.New("oauth_request_not_replayable")
+	}
+	return m.resolveManagedOAuthSilent(ctx, cfg, "")
+}
+
+func (m *Manager) resolveManagedOAuthSilent(ctx context.Context, cfg ServerConfig, rejected string) (oauthflow.Record, error) {
 	store, current, service, err := m.managedOAuth(ctx, cfg)
 	if err != nil {
 		return oauthflow.Record{}, err
@@ -290,6 +313,10 @@ func (m *Manager) resolveManagedOAuth(ctx context.Context, cfg ServerConfig, rej
 	boundStore := mcpRuntimeOAuthStore{mcpAtomicOAuthStore: atomicStore, cfg: cfg}
 	r, err := service.Resolve(oauthflow.WithNetworkOperation(ctx), boundStore, cfg.OAuthAuthorizationID, cfg.URL, rejected)
 	if err != nil {
+		if ctx.Err() == nil && cfg.AuthType == AuthOAuth2PKCE &&
+			(errors.Is(err, oauthflow.ErrReauthorize) || errors.Is(err, oauthflow.ErrPermission)) {
+			m.signalNeedsReauth(cfg, "oauth_reauthorization_required")
+		}
 		return r, err
 	}
 	latest, err := store.Load(ctx, r.ID)
@@ -302,6 +329,7 @@ func (m *Manager) resolveManagedOAuth(ctx context.Context, cfg ServerConfig, rej
 	if err = m.validateCurrentOAuthConsumer(ctx, cfg, latest); err != nil {
 		return oauthflow.Record{}, err
 	}
+	m.clearNeedsReauth(cfg)
 	return r, nil
 }
 
@@ -523,8 +551,9 @@ func (m *Manager) authorizeOAuthWithStore(ctx context.Context, slug string, cfg 
 	return err
 }
 
-// A managed transport never opens a browser or falls back to legacy credentials.
-// A 401 can renew once; replay is limited to requests with a recreatable body.
+// A managed transport uses the caller's consent scope and never legacy credentials.
+// Interactive calls never replay a 401; background silent refresh may replay a
+// request with a recreatable body.
 type managedOAuthTransport struct {
 	manager *Manager
 	cfg     ServerConfig

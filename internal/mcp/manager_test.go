@@ -1107,7 +1107,7 @@ func TestGetEligibleNativeMCPServers_URLFiltering(t *testing.T) {
 		Tools:  []MCPToolInfo{dummyTool},
 	}
 
-	result := m.GetEligibleNativeMCPServers()
+	result := m.GetEligibleNativeMCPServers(m.credentialContext(), nil)
 
 	slugs := map[string]bool{}
 	for _, srv := range result {
@@ -1147,7 +1147,7 @@ func TestGetEligibleNativeMCPServersSortsServersAndTools(t *testing.T) {
 		},
 	}
 
-	result := m.GetEligibleNativeMCPServers()
+	result := m.GetEligibleNativeMCPServers(m.credentialContext(), nil)
 	if len(result) != 2 {
 		t.Fatalf("len(result) = %d, want 2: %#v", len(result), result)
 	}
