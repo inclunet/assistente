@@ -92,7 +92,7 @@ func TestLegacyOAuthRuntimeRequiresExplicitMigration(t *testing.T) {
 			m.servers["legacy"].Status = StatusConnected
 			m.servers["legacy"].Tools = []MCPToolInfo{{Name: "tool", FullName: "mcp_legacy__tool"}}
 			m.mu.Unlock()
-			if len(m.GetEligibleNativeMCPServers()) != 0 {
+			if len(m.GetEligibleNativeMCPServers(m.credentialContext(), nil)) != 0 {
 				t.Fatal("legacy authorization exposed to native provider")
 			}
 			// The resolver itself must refuse the historical grant, including a

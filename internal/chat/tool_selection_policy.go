@@ -81,10 +81,10 @@ type TurnToolPlan struct {
 	NativeNames        map[string]struct{}
 }
 
-func (p *ToolSelectionPolicy) PlanTurnToolDefs(streamer llm.ChatProvider, mcpMgr NativeMCPManager, cfg ProfileToolConfig) TurnToolPlan {
+func (p *ToolSelectionPolicy) PlanTurnToolDefs(ctx context.Context, streamer llm.ChatProvider, mcpMgr NativeMCPManager, cfg ProfileToolConfig) TurnToolPlan {
 	preloaded := p.ResolveEffectiveToolPolicy(cfg).PreloadedNames()
 	raw := p.buildLLMToolDefs(preloaded, cfg.DisableTools)
-	nativeStreamer, reduced := applyNativeMCP(streamer, raw, mcpMgr, preloaded, cfg.DisableTools, cfg.NativeMCP)
+	nativeStreamer, reduced := applyNativeMCP(ctx, streamer, raw, mcpMgr, preloaded, cfg.DisableTools, cfg.NativeMCP)
 	plan := TurnToolPlan{Streamer: nativeStreamer, Definitions: p.applyPlanner(reduced, cfg, "inicial")}
 	if nativeStreamer == streamer {
 		return plan
@@ -199,6 +199,7 @@ func resolveNativeMCPEnabled(streamer llm.ChatProvider, override *bool) bool {
 // applyNativeMCP configura servidores MCP HTTP nativos no ChatProvider e remove
 // as bridge tools correspondentes do toolDefs para evitar duplicatas.
 func applyNativeMCP(
+	ctx context.Context,
 	streamer llm.ChatProvider,
 	toolDefs []llm.ToolDefinition,
 	mcpMgr NativeMCPManager,
@@ -213,7 +214,7 @@ func applyNativeMCP(
 		return streamer, toolDefs
 	}
 
-	nativeServers := mcpMgr.GetEligibleNativeMCPServers()
+	nativeServers := mcpMgr.GetEligibleNativeMCPServers(ctx, enabledTools)
 	if len(nativeServers) == 0 {
 		return streamer, toolDefs
 	}

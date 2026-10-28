@@ -12,6 +12,7 @@ import {
   ReloadOutlined,
   SafetyOutlined,
 } from '@ant-design/icons';
+import { reauthorizeMCPServer } from '../services/mcpReauthorization';
 import { useMCPStore } from '../store/mcpStore';
 import { mcp } from '../../wailsjs/go/models';
 import {
@@ -117,11 +118,9 @@ export default function McpPage() {
     connect,
     disconnect,
     reconnect,
-    reauthorize,
     save,
     remove,
     getConfig,
-    setupEventListeners,
   } = useMCPStore();
   const initialLoadRevision = useRef(loadRevision);
 
@@ -175,9 +174,7 @@ export default function McpPage() {
 
   useEffect(() => {
     void loadServers();
-    const cleanup = setupEventListeners();
-    return cleanup;
-  }, [loadServers, setupEventListeners]);
+  }, [loadServers]);
 
   // Convert servers to rows (memoizado para evitar re-renders em cascata no DataGrid)
   const rows: ServerRow[] = useMemo(() => (servers || []).map((s: ServerInfo) => ({
@@ -576,18 +573,7 @@ export default function McpPage() {
     }
   }, [reconnect, addToast, announce, t]);
 
-  const handleReauthorize = useCallback(async (row: ServerRow) => {
-    try {
-      announce(t('mcp.announce.reauthorizing', { name: row.name }));
-      await reauthorize(row.slug);
-      addToast(t('mcp.toast.serverReauthorized', { name: row.name }), 'success', undefined, undefined, {
-        suppressAnnounce: true,
-      });
-      announce(t('mcp.announce.serverReauthorized', { name: row.name }));
-    } catch (error: unknown) {
-      addToast(getErrorMessage(error) || t('mcp.error.reauthorizeFailed'), 'error');
-    }
-  }, [reauthorize, addToast, announce, t]);
+  const handleReauthorize = useCallback((row: ServerRow) => reauthorizeMCPServer(row), []);
 
   const handleDuplicate = useCallback(async (row: ServerRow) => {
     try {

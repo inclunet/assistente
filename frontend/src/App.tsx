@@ -14,6 +14,7 @@ import { ConfirmHost } from './components/ui/ConfirmHost';
 import { QuestionnaireDialog, isDecisionQuestionnaire } from './components/ui/QuestionnaireDialog';
 import { DecisionQuestionnaireHost } from './components/ui/DecisionQuestionnaireHost';
 import { useQuestionnaireUIStore } from './store/questionnaireUIStore';
+import { useMCPRuntime } from './hooks/useMCPRuntime';
 import { useConnectionStatusListener } from './hooks/useConnectionStatusListener';
 import { useWakeLock } from './hooks/useWakeLock';
 import { usePartialRuntimeInitListener } from './hooks/usePartialRuntimeInitListener';
@@ -91,6 +92,7 @@ function App() {
     // Status de conexão com a API LLM (Issue #38): assinatura única do evento,
     // anúncios de queda/restauração via announcer global + toast.
     useConnectionStatusListener();
+    useMCPRuntime();
     useWakeLock();
     useUpdateCheckListener();
 

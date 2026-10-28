@@ -162,6 +162,11 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 	if _, err := database.RequireUserID(ctx); err != nil {
 		return "", err
 	}
+	if req.Source == "wails" {
+		ctx = mcpmgr.WithInteractiveOAuth(ctx)
+	} else {
+		ctx = mcpmgr.WithoutInteractiveOAuth(ctx)
+	}
 	releaseConversation, reserved := uc.streamMgr.ReserveConversation(req.ConversationID)
 	if !reserved {
 		return "", database.ErrConversationDeleted
@@ -622,7 +627,7 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 	//   - adapterToolDefs: tools COM as bridges MCP (não removidas), já orçadas.
 	// Usadas pelo fallback nativo→adapter no MESMO turno (ver NativeMCPFallback).
 	adapterStreamer := requestStreamer
-	toolPlan := toolPolicy.PlanTurnToolDefs(requestStreamer, uc.mcpMgr, toolCfg)
+	toolPlan := toolPolicy.PlanTurnToolDefs(ctx, requestStreamer, uc.mcpMgr, toolCfg)
 	requestStreamer = toolPlan.Streamer
 	llmToolDefs, adapterToolDefs := toolPlan.Definitions, toolPlan.AdapterDefinitions
 

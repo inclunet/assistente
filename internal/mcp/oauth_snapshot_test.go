@@ -238,7 +238,7 @@ func testSnapshotReauthorization(t *testing.T, enableAfterAuthorization bool) {
 	if err := m.ReconnectOAuthSnapshot(ctx, conversion.ID, "none"); err != nil {
 		t.Fatal(err)
 	}
-	m.signalNeedsReauth("legacy", cfg.Name, "test")
+	m.signalNeedsReauth(m.servers["legacy"].Config, "test")
 	if enableAfterAuthorization {
 		m.emitEvent = func(event string, _ any) {
 			if event == "mcp:server_reauthorized" {
