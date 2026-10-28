@@ -83,6 +83,13 @@ handshake e discovery e reconecta quando o transporte encerra a sessão ou uma
 chamada real de tool detecta erro de transporte. A reconexão substitui a sessão
 sem executar duas conexões em paralelo.
 
+Se apenas uma ferramenta exceder seu prazo ou sua chamada for cancelada, o
+Assistente informa a falha dessa chamada e mantém a sessão disponível para as
+demais ferramentas. Esse erro, isoladamente, não desconecta o servidor nem
+reconstrói o catálogo de comandos. Se o transporte realmente encerrar a sessão,
+a recuperação continua automática. A chamada que falhou não é repetida por
+esse mecanismo, pois pode já ter produzido efeitos no serviço remoto.
+
 Mensagens informativas de reconexão bem-sucedida não indicam falha. Erros reais
 de handshake, transporte, autenticação ou fechamento inesperado continuam
 registrados para diagnóstico.

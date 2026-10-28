@@ -3,10 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
-	"net"
 	"strings"
 
 	"assistente/internal/tools"
@@ -92,7 +89,7 @@ func (b *MCPToolBridge) Execute(ctx context.Context, args json.RawMessage) (tool
 		Arguments: arguments,
 	})
 	if err != nil {
-		if b.onSessionError != nil && isSessionOrTransportError(err) {
+		if b.onSessionError != nil && isSessionTerminationError(err) {
 			go b.onSessionError(b.serverSlug, err)
 		}
 		return tools.ToolResult{
@@ -111,52 +108,6 @@ func (b *MCPToolBridge) Execute(ctx context.Context, args json.RawMessage) (tool
 			"mcpTool":   b.toolName,
 		},
 	}, nil
-}
-
-// isSessionOrTransportError detecta erros que indicam que a sessão ou transporte
-// estão quebrados e uma reconexão é necessária.
-func isSessionOrTransportError(err error) bool {
-	if err == nil {
-		return false
-	}
-
-	// EOF / conexão fechada
-	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
-		return true
-	}
-
-	// Erros de rede
-	var netErr *net.OpError
-	if errors.As(err, &netErr) {
-		return true
-	}
-
-	// SessionExpiredError do nosso round tripper
-	var sessErr *SessionExpiredError
-	if errors.As(err, &sessErr) {
-		return true
-	}
-
-	msg := strings.ToLower(err.Error())
-	sessionIndicators := []string{
-		"connection reset",
-		"connection refused",
-		"connection closed",
-		"client is closing",
-		"broken pipe",
-		"session expired",
-		"session not found",
-		"use of closed network connection",
-		"exceeded",
-		"eof",
-	}
-	for _, indicator := range sessionIndicators {
-		if strings.Contains(msg, indicator) {
-			return true
-		}
-	}
-
-	return false
 }
 
 // extractTextContent extrai o conteúdo textual de um CallToolResult.

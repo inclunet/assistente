@@ -1,3 +1,9 @@
+**AEP-0020 — isolamento de falhas de chamadas MCP (28/10/2026): In Progress.**
+Bridge reutiliza a classificação tipada de sessão: timeout/cancelamento de uma
+chamada e erros textuais de domínio não desconectam o servidor. Testes com SDK
+em memória preservam ferramentas e comprovam sinalização de fechamento real.
+Aceite em sessão real e extensões pendentes do AEP permanecem em aberto.
+
 **AEP-0103 / extensão AEP-0074 — teclado e shutdown (26/10/2026): In Progress.**
 Leituras do mapa são serializadas e agrupadas sem adiar invalidações; cancelamento
 explícito da manutenção não gera falso erro nem recuo. Deadlines e erros reais
