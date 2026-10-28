@@ -1,5 +1,6 @@
 /** @vitest-environment jsdom */
-import { act, renderHook, waitFor } from '@testing-library/react';
+import { Suspense, startTransition } from 'react';
+import { act, render, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { mcp } from '@wailsjs/go/models';
 import { useMCPRuntime } from './useMCPRuntime';
@@ -90,6 +91,23 @@ describe('global MCP authorization presentation', () => {
   expect(useMCPStore.getState().servers).toHaveLength(0);
   expect(mocks.handlers.size).toBe(0);
   unmount();
+ });
+ it('does not publish a translator from discarded concurrent render work', async () => {
+  const pending = new Promise<void>(() => {});
+  let suspended = false;
+  function Runtime({ suspend }: { suspend: boolean }) {
+   useMCPRuntime();
+   if (suspend) { suspended = true; throw pending; }
+   return null;
+  }
+  const view = render(<Suspense fallback={null}><Runtime suspend={false} /></Suspense>);
+  await waitFor(() => expect(useMCPStore.getState().servers).toHaveLength(1));
+  mocks.t = (key: string) => `uncommitted:${key}`;
+  act(() => { startTransition(() => { view.rerender(<Suspense fallback={null}><Runtime suspend /></Suspense>); }); });
+  expect(suspended).toBe(true);
+  act(() => { mocks.handlers.get('mcp:oauth_authorize')?.({ slug: 'db' }); });
+  expect(mocks.announce).toHaveBeenLastCalledWith(expect.objectContaining({ message: 'mcp.announce.reauthorizing' }));
+  view.unmount();
  });
  it('does not reset readiness or subscriptions when the language changes', async () => {
   const { rerender, unmount } = renderHook(useMCPRuntime);

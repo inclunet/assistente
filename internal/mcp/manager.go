@@ -554,16 +554,16 @@ func (m *Manager) ConnectWithContext(ctx context.Context, slug string) error {
 	if err != nil {
 		return err
 	}
-	if cfg.Enabled && cfg.AuthType == AuthOAuth2PKCE && cfg.OAuthAuthorizationID != "" {
-		if _, err := m.resolveManagedOAuth(ctx, *cfg, ""); err != nil {
-			return err
-		}
-	}
 	m.mu.RLock()
 	_, connected := m.connections[slug]
 	m.mu.RUnlock()
 	if connected {
 		return ctx.Err()
+	}
+	if cfg.Enabled && cfg.AuthType == AuthOAuth2PKCE && cfg.OAuthAuthorizationID != "" {
+		if _, err := m.resolveManagedOAuth(ctx, *cfg, ""); err != nil {
+			return err
+		}
 	}
 	return m.connectWithParentContext(ctx, slug, false, 0)
 }

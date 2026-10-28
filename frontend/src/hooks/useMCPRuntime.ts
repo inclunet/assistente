@@ -9,7 +9,9 @@ import { announceWithOrigin } from '../services/voiceAccessibility/announcerBrok
 export function useMCPRuntime() {
   const { t } = useTranslation();
   const translation = useRef(t);
-  translation.current = t;
+  useEffect(() => {
+    translation.current = t;
+  }, [t]);
   const authenticated = useAuthStore((s) => s.isAuthenticated);
   const userId = useAuthStore((s) => s.user?.userId);
   const sessionId = useAuthStore((s) => s.user?.sessionId);

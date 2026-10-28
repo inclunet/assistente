@@ -191,7 +191,8 @@ consentimentos e mantendo a mesma persistência e proteção de sessão.
 Autoconexão, manutenção, listagem e jobs apenas registram `NeedsReauth`. Subagentes
 em background não herdam o escopo interativo do turno que os iniciou. A tool
 `mcp_server` propaga o contexto da ação: não herda a permissão incondicional do
-botão desktop Conectar. Client Credentials continua exigindo configuração, sem
+botão desktop Conectar. `connect` reutiliza uma conexão já existente sem exigir
+nova resolução OAuth; uma chamada real ao recurso continua validando o token. Client Credentials continua exigindo configuração, sem
 abrir navegador. No modo nativo só servidores selecionados pelo plano de tools
 podem iniciar recuperação; o contexto da ação chega à resolução da credencial.
 

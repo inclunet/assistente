@@ -254,19 +254,31 @@ func TestWithoutInteractiveOAuthMasksInheritedConsent(t *testing.T) {
 }
 
 func TestConnectWithContextPreservesExistingConnection(t *testing.T) {
-	m, _, ctx := managedFixture(t)
-	if err := m.SaveConfig("connected", managedConfig("https://resource.example")); err != nil {
-		t.Fatal(err)
-	}
-	seedManagedRuntime(t, m, ctx, "connected", "VALID", "", time.Now().Add(time.Hour))
-	conn := &serverConnection{}
-	m.connections["connected"] = conn
-	defer delete(m.connections, "connected")
-	if err := m.ConnectWithContext(ctx, "connected"); err != nil {
-		t.Fatal(err)
-	}
-	if m.connections["connected"] != conn {
-		t.Fatal("existing connection replaced")
+	for _, access := range []string{"VALID", ""} {
+		t.Run("access_"+access, func(t *testing.T) {
+			m, _, ctx := managedFixture(t)
+			if err := m.SaveConfig("connected", managedConfig("https://resource.example")); err != nil {
+				t.Fatal(err)
+			}
+			seedManagedRuntime(t, m, ctx, "connected", access, "", time.Now().Add(time.Hour))
+			conn := &serverConnection{}
+			m.connections["connected"] = conn
+			defer delete(m.connections, "connected")
+			if err := m.ConnectWithContext(ctx, "connected"); err != nil {
+				t.Fatal(err)
+			}
+			turn := WithInteractiveOAuth(ctx)
+			if err := m.ConnectWithContext(turn, "connected"); err != nil {
+				t.Fatal(err)
+			}
+			cfg, _, _ := loadManaged(t, m, ctx, "connected")
+			if turn.Value(interactiveOAuthKey{}).(*interactiveOAuthScope).hasAttempt(cfg) {
+				t.Fatal("connect opened unnecessary consent")
+			}
+			if m.connections["connected"] != conn {
+				t.Fatal("existing connection replaced")
+			}
+		})
 	}
 }
 
