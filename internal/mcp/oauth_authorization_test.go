@@ -609,7 +609,7 @@ func TestManagedOAuthSSEFallbackPreservesAuthorization(t *testing.T) {
 		t.Cleanup(func() { _ = session.Close() })
 		return clientTransport, nil
 	}
-	m.signalNeedsReauth("polling", "polling", "expired")
+	m.signalNeedsReauth(m.servers["polling"].Config, "expired")
 	if err := m.Connect("polling"); err != nil {
 		t.Fatal(err)
 	}

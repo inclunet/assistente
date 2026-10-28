@@ -3,7 +3,7 @@
 **Status:** 🚧 In Progress — backend (ação `ReauthorizeServer`, guarda de token
 expirado no caminho nativo e sinalização `NeedsReauth`), binding Wails, UI de
 reautorização, testes, documentação de usuário e CI verde entregues no PR #771.
-Integração com o ciclo compartilhado do AEP-0112 em andamento.
+Integração com o ciclo compartilhado do AEP-0112 em andamento; recuperação interativa implementada; confirmação com servidor real e NVDA pendente.
 
 ## Resumo
 
@@ -177,3 +177,41 @@ falhas de gravação impedem abertura do browser e não publicam registro parcia
 Os testes de callback, rollback, concorrência e recuperação foram migrados para
 esse caminho, preservando as garantias anteriores. O status continua In Progress
 enquanto os aceites funcionais da integração compartilhada estiverem pendentes.
+
+## Recuperação interativa de autorização — 28/10/2026
+
+Status: **In Progress**. Contrato refinado com o mantenedor: o chat desktop pode
+abrir o fluxo OAuth existente quando uma ação em curso precisa do servidor e o
+refresh não resolve. O contexto desse turno é explícito e compartilhado pelas
+ferramentas. Cada autorização recebe no máximo uma tentativa interativa por turno;
+recusa/cancelamento é preservado nas próximas chamadas desse turno. Uma nova ação
+explícita pode tentar novamente. O árbitro OAuth existente continua serializando
+consentimentos e mantendo a mesma persistência e proteção de sessão.
+
+Autoconexão, manutenção, listagem e jobs apenas registram `NeedsReauth`. Subagentes
+em background não herdam o escopo interativo do turno que os iniciou. A tool
+`mcp_server` propaga o contexto da ação: não herda a permissão incondicional do
+botão desktop Conectar. `connect` reutiliza uma conexão já existente sem exigir
+nova resolução OAuth; uma chamada real ao recurso continua validando o token. Client Credentials continua exigindo configuração, sem
+abrir navegador. No modo nativo só servidores selecionados pelo plano de tools
+podem iniciar recuperação; o contexto da ação chega à resolução da credencial.
+
+Antes do envio ao recurso, a chamada aguarda autorização e segue uma vez. Se o
+recurso já recebeu a requisição e recusou o token, a reautorização pode recuperar
+as próximas chamadas, mas a requisição original não é repetida por esse fluxo.
+Não se cria outra pipeline de mensagens nem se reenvia uma conversa.
+
+A sinalização central cobre transporte, modo nativo e autoconexão. Marcar e limpar
+pendência exige a mesma identidade do consumidor; respostas obsoletas não mudam
+o estado de uma autorização substituta. A UI tem um único proprietário de eventos
+MCP por sessão, anuncia a abertura do navegador pelo serviço de acessibilidade e
+mantém Reautorizar na página MCP. Não há aviso persistente obrigando clique extra.
+Trocar idioma não reinicia o estado; logout remove assinaturas e resultados tardios.
+
+- [x] Sinalização, recuperação e proteção contra consumidor substituído:
+  `reauth_presentation_test.go`.
+- [x] Consentimento sob demanda, concorrência e recusa sem repetição no turno:
+  `interactive_oauth_test.go`.
+- [x] Assinatura global, anúncio, deduplicação e isolamento de sessão:
+  `frontend/src/hooks/useMCPRuntime.test.tsx`.
+- [ ] Validar a experiência real e anúncio com NVDA após instalar.

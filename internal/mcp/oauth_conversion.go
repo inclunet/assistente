@@ -20,6 +20,7 @@ func (m *Manager) ReconnectOAuthSnapshot(ctx context.Context, snapshotID, authMe
 		return credentials.ErrSnapshot
 	}
 	var slug string
+	var publishedConfig ServerConfig
 	newGrant := false
 	err = m.credMgr.ReconnectLegacyOAuth(ctx, dir, snapshotID, authMethod,
 		func(row database.MCPServer, client *credentials.AuthConfig, id string) (oauthflow.Record, error) {
@@ -93,6 +94,7 @@ func (m *Manager) ReconnectOAuthSnapshot(ctx context.Context, snapshotID, authMe
 			cfg, err := serverModelToConfig(row)
 			if err == nil {
 				slug = cfg.Slug
+				publishedConfig = cfg
 				m.publishManagedOAuth(cfg)
 			}
 		})
@@ -102,7 +104,7 @@ func (m *Manager) ReconnectOAuthSnapshot(ctx context.Context, snapshotID, authMe
 	if slug != "" {
 		_ = m.disconnect(slug, true)
 		if newGrant {
-			m.clearNeedsReauth(slug)
+			m.clearNeedsReauth(publishedConfig)
 		}
 	}
 	m.emit("mcp:config_changed", map[string]string{"slug": slug})

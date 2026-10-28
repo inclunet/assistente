@@ -29,6 +29,7 @@ interface MCPState {
   editingConfig: ServerConfig | null;
 
   // Actions
+  reset: () => void;
   loadServers: () => Promise<void>;
   connect: (slug: string) => Promise<void>;
   disconnect: (slug: string) => Promise<void>;
@@ -45,6 +46,7 @@ interface MCPState {
 
 // Only the latest list request may publish data/readiness.
 let loadRequestGeneration = 0;
+let sessionGeneration = 0;
 
 export const useMCPStore = create<MCPState>((set, get) => ({
   servers: [],
@@ -52,6 +54,12 @@ export const useMCPStore = create<MCPState>((set, get) => ({
   loadRevision: 0,
   activeServerSlug: null,
   editingConfig: null,
+
+  reset: () => {
+    ++sessionGeneration;
+    ++loadRequestGeneration;
+    set({ servers: [], isLoading: false, loadRevision: 0, activeServerSlug: null, editingConfig: null });
+  },
 
   loadServers: async () => {
     const requestGeneration = ++loadRequestGeneration;
@@ -100,12 +108,13 @@ export const useMCPStore = create<MCPState>((set, get) => ({
   },
 
   reauthorize: async (slug: string) => {
+    const session = sessionGeneration;
     try {
       await ReauthorizeMCPServer(slug);
-      await get().loadServers();
+      if (session === sessionGeneration) await get().loadServers();
     } catch (err) {
       logger.error(`[MCP] Erro ao reautorizar '${slug}':`, err);
-      await get().loadServers();
+      if (session === sessionGeneration) await get().loadServers();
       throw err;
     }
   },

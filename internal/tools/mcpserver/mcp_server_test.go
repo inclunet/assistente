@@ -75,7 +75,7 @@ func (m *fakeManager) DuplicateConfig(slug string) (string, error) {
 	return slug + "-copia", nil
 }
 
-func (m *fakeManager) Connect(slug string) error {
+func (m *fakeManager) ConnectWithContext(_ context.Context, slug string) error {
 	m.connected = slug
 	return m.err
 }
@@ -85,7 +85,7 @@ func (m *fakeManager) Disconnect(slug string) error {
 	return m.err
 }
 
-func (m *fakeManager) Reconnect(slug string) error {
+func (m *fakeManager) ReconnectWithContext(_ context.Context, slug string) error {
 	m.reconnected = slug
 	return m.err
 }

@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 
@@ -63,11 +64,11 @@ func TestToolPolicyUpgradeLegacyEnabledToolsFailsClosedWithoutCatalog(t *testing
 			}
 
 			cfg := ProfileToolConfig{EnabledTools: persisted.EnabledTools}
-			gotWithCatalog := defNames(NewToolSelectionPolicy(withCatalog).PlanTurnToolDefs(nil, nil, cfg).Definitions)
+			gotWithCatalog := defNames(NewToolSelectionPolicy(withCatalog).PlanTurnToolDefs(context.Background(), nil, nil, cfg).Definitions)
 			assertNames(t, "com catálogo", gotWithCatalog, tc.wantWithCatalog)
 
 			policyWithoutCatalog := NewToolSelectionPolicy(withoutCatalog)
-			gotWithoutCatalog := defNames(policyWithoutCatalog.PlanTurnToolDefs(nil, nil, cfg).Definitions)
+			gotWithoutCatalog := defNames(policyWithoutCatalog.PlanTurnToolDefs(context.Background(), nil, nil, cfg).Definitions)
 			assertNames(t, "sem catálogo", gotWithoutCatalog, tc.wantWithoutCatalog)
 			effectiveWithoutCatalog := policyWithoutCatalog.ResolveEffectiveToolPolicy(cfg)
 			if effectiveWithoutCatalog.State("text_edit") != ToolPolicyDisabled {

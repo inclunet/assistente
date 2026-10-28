@@ -791,7 +791,7 @@ func TestApplySkillToolScope_AllowlistPreservaCatalogoProtegido_PromptEDefsCoere
 
 	// Coerência com as definitions: sob o mesmo escopo, o planner ainda expõe
 	// tool_catalog (base protegido), alinhado ao que o prompt anuncia.
-	defs := chat.NewToolSelectionPolicy(reg).PlanTurnToolDefs(nil, nil, chat.ProfileToolConfig{
+	defs := chat.NewToolSelectionPolicy(reg).PlanTurnToolDefs(context.Background(), nil, nil, chat.ProfileToolConfig{
 		SkillAllowedTools: []string{"read_file", "memory"},
 	}).Definitions
 	foundCatalog := false
