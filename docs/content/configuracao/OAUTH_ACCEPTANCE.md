@@ -97,3 +97,26 @@ Um registro de resultado pode ser: “commit X, Windows, ChatGPT: catálogo/envi
 ferramenta/reinício passaram; refresh não observado; reconexão passou; idioma
 pt-BR, navegação e anúncios conferidos com NVDA”. Isso permite concluir apenas
 os aceites efetivamente testados e manter os demais pendentes.
+
+## Diagnosticar uma renovação que falhou
+
+O evento `oauth_refresh` informa a etapa (`stage`), a causa (`cause`), o status
+HTTP (`http_status`) e um código OAuth controlado (`oauth_error`). Ao relatar
+uma falha, registre o horário e esses campos, além da integração e do resultado.
+Não é necessário copiar tokens, credenciais ou o arquivo de log inteiro.
+
+- `exchange`: falha ao trocar o token. `transport`, `timeout` e `canceled`
+  indicam comunicação/interrupção; `http_rejected` vem acompanhado do status e,
+  quando reconhecido, do código OAuth. `invalid_response` indica resposta inválida.
+- `persist_pending`, `persist_tokens` ou `persist_rejection`: falha ao registrar
+  o estado local da renovação. `storage` indica persistência e `conflict` indica
+  que a autorização mudou durante a operação.
+- `validate_tokens` ou `validate_permissions`: falha na validação da resposta ou
+  nas permissões concedidas. HTTP bem-sucedido não garante autorização utilizável.
+
+Status zero significa que não há resposta HTTP associada àquele diagnóstico;
+`other` significa código remoto não incluído na lista segura. Esses valores não
+permitem concluir que o servidor recusou definitivamente o token.
+Se a rotação ficar incerta ou o servidor rejeitar o refresh, a autorização pode
+continuar exigindo **Autorizar novamente**. O aplicativo não repete um token que
+possa ter sido consumido pelo servidor.

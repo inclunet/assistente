@@ -1,8 +1,32 @@
 # AEP-0112 — OAuth compartilhado e autorizações unificadas
 
-**Status:** Done
-**Concluído em:** 2026-10-05
+**Status:** In Progress — contrato base aceito em 05/10; extensão de diagnóstico de refresh em validação
+**Contrato base concluído em:** 2026-10-05
 **Data:** 2026-09-30
+
+## Extensão: diagnóstico de renovação — 28/10/2026
+
+O refresh automático do Databricks falhou em 28/10, mas o registro antigo
+`outcome=failure` não distinguia a etapa nem a causa. Esta extensão preserva
+as decisões de rotação/reautorização e acrescenta evidência operacional segura.
+
+- [x] O evento `oauth_refresh` mantém correlação e informa `stage`, `cause`,
+  `http_status` e `oauth_error`, além de motivo, duração e resultado.
+- [x] Etapas distinguem preparação, gravação da marca pendente, troca HTTP,
+  validação dos tokens, gravação dos tokens/rejeição e permissões finais.
+- [x] Código OAuth vem de lista fechada; desconhecidos viram `other` e ausência
+  vira `none`. Mensagem de rede, URL, corpo e `error_description` nunca são
+  copiados para o diagnóstico. O status é zero quando não há resposta HTTP
+  associada ao erro; isso não significa que nenhuma requisição tenha ocorrido.
+- [x] O resultado reflete também falha de persistência ou permissão, mesmo com
+  troca HTTP bem-sucedida. O ciclo de credenciais e suas sentinelas permanecem.
+- [x] Evidência: `TestRefreshDiagnosticsAreSafeAndPreservePolicy`, junto das
+  regressões existentes de rotação, concorrência e recusa de retry implícito.
+- [ ] Confirmar a causa em uma nova ocorrência real de falha OAuth após instalar.
+
+Não se atribui retroativamente uma causa ao incidente de 28/10. Esta extensão
+não autoriza reutilizar refresh token rotacionado nem iniciar consentimento
+silencioso. O encerramento de 05/10 abaixo continua válido para o contrato base.
 
 ## Resumo
 
