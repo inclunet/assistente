@@ -831,7 +831,7 @@ func TestManagedOAuthSessionExpiryTriggersBridgeRecovery(t *testing.T) {
 				req, _ := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL, nil)
 				resp, err := transport.RoundTrip(req)
 				var expired *SessionExpiredError
-				if resp != nil || !errors.As(err, &expired) || expired.StatusCode != status || !isSessionOrTransportError(err) {
+				if resp != nil || !errors.As(err, &expired) || expired.StatusCode != status || !isSessionTerminationError(err) {
 					t.Fatalf("bridge recovery not signaled: %v", err)
 				}
 				for _, body := range bodies {
