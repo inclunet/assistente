@@ -10,8 +10,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"assistente/internal/logging"
 )
 
 // An explicit invalid-grant response prevents access/refresh token reuse.
@@ -93,7 +91,7 @@ func (s *Service) Pending(id, userID, integration string) (Record, error) {
 
 // Resolve never starts an interactive flow. Unknown expiry is not inferred from
 // a token's shape. RejectedAccess requests at most one refresh of that token set.
-func (s *Service) Resolve(ctx context.Context, store Store, id, resource, rejectedAccess string) (Record, error) {
+func (s *Service) Resolve(ctx context.Context, store Store, id, resource, rejectedAccess string) (resolved Record, resolveErr error) {
 	ctx, sessionCancel := sessionContext(ctx, store)
 	defer sessionCancel()
 	release, err := s.gate(ctx, id)
@@ -154,11 +152,25 @@ func (s *Service) Resolve(ctx context.Context, store Store, id, resource, reject
 		}
 		return r, nil
 	}
+	started := time.Now()
+	reason := "expiry"
+	if rejected {
+		reason = "http_401"
+	}
+	stage := "prepare_refresh"
+	var diagnosticErr error
+	defer func() {
+		if diagnosticErr == nil {
+			diagnosticErr = resolveErr
+		}
+		logRefreshResult(ctx, r, reason, stage, started, diagnosticErr)
+	}()
 	if s.BeforeRefresh != nil {
 		if err = s.BeforeRefresh(ctx, r); err != nil {
 			return Record{}, err
 		}
 	}
+	stage = "persist_pending"
 	before := r.Revision
 	r.Revision++
 	r.RefreshPending = true
@@ -168,19 +180,14 @@ func (s *Service) Resolve(ctx context.Context, store Store, id, resource, reject
 	if err = store.CompareAndSwap(ctx, r, before); err != nil {
 		return Record{}, err
 	}
-	started := time.Now()
-	reason := "expiry"
-	if rejected {
-		reason = "http_401"
-	}
 	outcome := "failure"
 	pendingRevision := r.Revision
 	defer func() {
 		if outcome != "success" {
 			finishRefreshAttempt(ctx, store, r.ID, pendingRevision)
 		}
-		logging.Infof(ctx, "oauthflow", "oauth_refresh credential_id=%s integration=%s reason=%s duration_ms=%d outcome=%s", r.ID, r.Integration, reason, time.Since(started).Milliseconds(), outcome)
 	}()
+	stage = "exchange"
 	response, err := s.exchange(ctx, r, url.Values{"grant_type": {"refresh_token"}, "refresh_token": {r.Tokens.Refresh}, "client_id": {r.Client.ID}, "resource": {r.Resource}})
 	if err != nil {
 		if errors.Is(err, errRejectedGrant) {
@@ -190,15 +197,19 @@ func (s *Service) Resolve(ctx context.Context, store Store, id, resource, reject
 			r.RefreshPending = false
 			r.RefreshUntil = time.Time{}
 			r.Revision++
+			stage = "persist_rejection"
 			if saveErr := store.CompareAndSwap(ctx, r, r.Revision-1); saveErr != nil {
 				return Record{}, errors.Join(ErrReauthorize, saveErr)
 			}
+			stage = "exchange"
+			diagnosticErr = err
 			return Record{}, ErrReauthorize
 		}
 		// Keep the durable pending marker on ambiguous network/server responses.
 		// The old rotating token must not be sent again, even after a restart.
 		return Record{}, errors.Join(ErrReauthorize, err)
 	}
+	stage = "validate_tokens"
 	updated, err := s.applyTokens(ctx, i, r, response, "", false)
 	if err != nil {
 		return Record{}, errors.Join(ErrReauthorize, err)
@@ -206,13 +217,16 @@ func (s *Service) Resolve(ctx context.Context, store Store, id, resource, reject
 	updated.Revision++
 	updated.RefreshPending = false
 	updated.RefreshUntil = time.Time{}
+	stage = "persist_tokens"
 	if err = store.CompareAndSwap(ctx, updated, r.Revision); err != nil {
 		return Record{}, errors.Join(ErrReauthorize, err)
 	}
 	outcome = "success"
+	stage = "validate_permissions"
 	if updated.State != "connected" {
 		return Record{}, ErrPermission
 	}
+	stage = "complete"
 	return updated, nil
 }
 
@@ -226,7 +240,14 @@ type tokenResponse struct {
 	Earliest  json.RawMessage `json:"earliest_refresh_at"`
 }
 
-func (s *Service) exchange(ctx context.Context, r Record, form url.Values) (tokenResponse, error) {
+func (s *Service) exchange(ctx context.Context, r Record, form url.Values) (response tokenResponse, exchangeErr error) {
+	failure := exchangeFailure{category: "request_invalid"}
+	defer func() {
+		if exchangeErr != nil {
+			failure.err = exchangeErr
+			exchangeErr = &failure
+		}
+	}()
 	if r.GrantType != "" {
 		form.Del("resource")
 		if r.Audience != "" {
@@ -249,17 +270,23 @@ func (s *Service) exchange(ctx context.Context, r Record, form url.Values) (toke
 	}
 	resp, err := s.HTTP.Do(req)
 	if err != nil {
+		failure.category = exchangeErrorCategory(err, "transport")
 		return tokenResponse{}, ErrTransient
 	}
 	defer func() { _ = resp.Body.Close() }()
+	failure.status = resp.StatusCode
+	failure.category = "http_rejected"
 	if resp.StatusCode != http.StatusOK {
 		// Never return error_description: providers may echo credential material.
-		var failure struct {
+		var payload struct {
 			Error string `json:"error"`
 		}
-		_ = json.NewDecoder(io.LimitReader(resp.Body, 1024*1024)).Decode(&failure)
+		if err := json.NewDecoder(io.LimitReader(resp.Body, 1024*1024)).Decode(&payload); err != nil {
+			failure.category = exchangeErrorCategory(err, "http_rejected")
+		}
+		failure.code = safeOAuthErrorCode(payload.Error)
 		if resp.StatusCode == http.StatusBadRequest || resp.StatusCode == http.StatusUnauthorized {
-			switch failure.Error {
+			switch payload.Error {
 			case "invalid_client":
 				if form.Get("grant_type") == "client_credentials" {
 					return tokenResponse{}, ErrClientConfiguration
@@ -277,8 +304,10 @@ func (s *Service) exchange(ctx context.Context, r Record, form url.Values) (toke
 		}
 		return tokenResponse{}, ErrReauthorize
 	}
+	failure.category = "invalid_response"
 	var result tokenResponse
-	if json.NewDecoder(io.LimitReader(resp.Body, 1024*1024)).Decode(&result) != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1024*1024)).Decode(&result); err != nil {
+		failure.category = exchangeErrorCategory(err, "invalid_response")
 		return result, ErrReauthorize
 	}
 	if result.Access == "" || !strings.EqualFold(result.Type, "bearer") || result.ExpiresIn < 0 {
