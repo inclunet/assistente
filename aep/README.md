@@ -1,3 +1,8 @@
+**AEP-0112 — diagnóstico de renovação OAuth (28/10/2026): In Progress.**
+Contrato base aceito em 05/10 preservado. A extensão registra etapa, causa segura,
+status HTTP e código OAuth controlado; testes cobrem sigilo e política de rotação.
+Identificação da causa em uma nova ocorrência real permanece pendente.
+
 **AEP-0020 — isolamento de falhas de chamadas MCP (28/10/2026): In Progress.**
 Bridge reutiliza a classificação tipada de sessão: timeout/cancelamento de uma
 chamada e erros textuais de domínio não desconectam o servidor. Testes com SDK
@@ -1225,7 +1230,7 @@ de cancelamento de release na dependência; o AEP permanece **In Progress**.
 | [0109](0109-concorrencia-na-configuracao-da-tasklist.md) | Controle de concorrência na configuração da tasklist (workflow e custom actions) | ✅ Done |
 | [0110](0110-fontes-explicitas-de-credenciais.md) | Fontes explícitas de credenciais | ✅ Done |
 | [0111](0111-inicializacao-desktop-exclusiva.md) | Inicialização desktop exclusiva | 🚧 In Progress |
-| [0112](0112-oauth-compartilhado-e-autorizacoes-unificadas.md) | OAuth compartilhado e autorizações unificadas — ChatGPT, MCP, recuperação/migração, Slack por conexão e CredManager; aceites funcionais confirmados em 05/10/2026 | ✅ Done |
+| [0112](0112-oauth-compartilhado-e-autorizacoes-unificadas.md) | OAuth compartilhado e autorizações unificadas — ChatGPT, MCP, recuperação/migração, Slack por conexão e CredManager; aceites funcionais confirmados em 05/10/2026; extensão de diagnóstico de refresh | 🚧 In Progress — diagnóstico entregue, confirmação em ocorrência real pendente |
 | [0113](0113-capabilities-parametros-e-custos-de-modelos.md) | Compatibilidade de parâmetros por modelo e provedor — fases 1–3 concluídas nos PRs #889, #909 e #919; fase 4 de vozes TTS depende da fase 5 da AEP-0115 | 🚧 In Progress |
 | [0114](0114-criacao-de-provedores-e-credenciais-unificadas.md) | Criação de provedores e credenciais unificadas | ✅ Done — preferências ChatGPT, menu API/ACP, comandos e CredManager compartilhado; rota padrão e menu Ações corrigidos |
 | [0115](0115-catalogo-publico-provedores-modelos.md) | Catálogo público de provedores e modelos | 🚧 In Progress — contrato aprovado; fases 1 (schema e asset inicial) e 2 (consumo, validação e cache backend) implementadas; fase 3 parcialmente entregue com persistência explícita, consumo pelo formulário e aceite por conexão para HTTP remoto; provedores legados sem aceite permanecem editáveis e bloqueados até reautorização explícita; Cohere aguarda suporte à rota anunciada; fábrica de defaults do backend pendente; modelos e vozes pendentes |
