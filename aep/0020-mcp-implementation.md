@@ -71,6 +71,26 @@ erro; reconexão bem-sucedida é informação, não erro. Erros observados duran
 cleanup não iniciam uma segunda recuperação; erros de transporte em chamadas
 reais de tools marcam a sessão como indisponível e iniciam reconexão.
 
+#### Isolamento de falhas de chamadas — 28/10/2026
+
+Timeout ou cancelamento de uma chamada não comprovam perda da sessão MCP.
+Tools, resources e prompts usam o mesmo classificador de erros tipados;
+mensagens textuais como `exceeded`, `EOF` ou `connection closed` em uma
+resposta remota não autorizam desconectar o servidor. O watcher de
+`session.Wait` continua responsável pelo encerramento efetivo do transporte,
+inclusive quando sua causa interna é textual. A sentinela de conexão fechada
+do SDK e erros tipados de transporte/sessão continuam acionando recuperação.
+Nenhuma chamada de ferramenta é repetida automaticamente por esta correção.
+
+Evidências: `TestSessionTerminationClassificationForToolErrors` cobre erros
+locais, de domínio e transportes tipados; `TestBridgeCallFailurePreservesSession`
+usa sessões reais do SDK em memória para provar que timeout, cancelamento e
+recusa remota preservam outra ferramenta na mesma sessão, enquanto o fechamento
+real ainda notifica recuperação. As regressões de lifecycle existentes cobrem
+reconexão e preservação do catálogo. O status global permanece **In Progress**;
+a confirmação em sessão real após instalação e as extensões pendentes não são
+promovidas por estes testes.
+
 ### 5. **Native MCP Mode** ✅ FUNCIONAL
 - ✅ MCP nativo real via Responses API (OpenAI) e MCP Connector (Anthropic)
 - ✅ Capacidade física pelo contrato `ChatProvider.NativeMCPCapable()`; o
