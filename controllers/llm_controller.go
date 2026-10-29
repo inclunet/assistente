@@ -96,9 +96,9 @@ func (c *LLMController) TestLLMProvider(ctx context.Context, req TestLLMProvider
 		return err == nil, err
 	}
 	return c.providerSvc.TestConnection(ctx, providers.TestRequest{
-		BaseURL:                   req.BaseURL,
-		APIKey:                    req.APIKey,
-		ProviderID:                req.ProviderID,
+		BaseURL:    req.BaseURL,
+		APIKey:     req.APIKey,
+		ProviderID: req.ProviderID,
 	})
 }
 
@@ -115,10 +115,10 @@ func (c *LLMController) ListModelsRaw(ctx context.Context, req TestLLMProviderRe
 	}
 	return c.providerSvc.ListModelsRaw(ctx, providers.ListModelsRawRequest{
 		Credential: credential, AuthMode: req.AuthMode, APIFormat: req.APIFormat,
-		Type:       req.Type,
-		BaseURL:    req.BaseURL,
-		APIKey:     req.APIKey,
-		ProviderID: req.ProviderID,
+		Type:                      req.Type,
+		BaseURL:                   req.BaseURL,
+		APIKey:                    req.APIKey,
+		ProviderID:                req.ProviderID,
 		InsecureHTTPAuthorizedURL: req.InsecureHTTPAuthorizedURL,
 	})
 }
@@ -193,6 +193,9 @@ func (c *LLMController) CreateLLMProvider(ctx context.Context, req CreateLLMProv
 	})
 	if err != nil {
 		return nil, err
+	}
+	if res.Provider.IsDefault && c.onProviderChange != nil {
+		c.onProviderChange()
 	}
 	return providerToMap(res.Provider, res.CredentialPattern, res.CredentialConfigured), nil
 }

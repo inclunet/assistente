@@ -1233,7 +1233,7 @@ de cancelamento de release na dependência; o AEP permanece **In Progress**.
 | [0112](0112-oauth-compartilhado-e-autorizacoes-unificadas.md) | OAuth compartilhado e autorizações unificadas — ChatGPT, MCP, recuperação/migração, Slack por conexão e CredManager; aceites funcionais confirmados em 05/10/2026; extensão de diagnóstico de refresh | 🚧 In Progress — diagnóstico e recuperação interativa implementados; confirmação em ocorrência real e NVDA pendentes |
 | [0113](0113-capabilities-parametros-e-custos-de-modelos.md) | Compatibilidade de parâmetros por modelo e provedor — fases 1–3 concluídas nos PRs #889, #909 e #919; fase 4 de vozes TTS depende da fase 5 da AEP-0115 | 🚧 In Progress |
 | [0114](0114-criacao-de-provedores-e-credenciais-unificadas.md) | Criação de provedores e credenciais unificadas | ✅ Done — preferências ChatGPT, menu API/ACP, comandos e CredManager compartilhado; rota padrão e menu Ações corrigidos |
-| [0115](0115-catalogo-publico-provedores-modelos.md) | Catálogo público de provedores e modelos | 🚧 In Progress — fases 1 e 2 implementadas; fase 3 parcialmente entregue com persistência explícita, formulário por perfis e fábrica backend allowlisted; integração do wizard, modelos e vozes pendentes; Cohere e Ollama aguardam suporte às rotas/runtime |
+| [0115](0115-catalogo-publico-provedores-modelos.md) | Catálogo público de provedores e modelos | 🚧 In Progress — fases 1 e 2 implementadas; fase 3 parcialmente entregue com persistência explícita, formulário por perfis e fábrica backend allowlisted; onboarding desktop compartilha o formulário; migração da CLI, modelos e vozes pendentes; Cohere e Ollama aguardam suporte às rotas/runtime |
 
 Correções paralelas posteriores à revisão da AEP-0103 estão registradas nas seções 10 e 11 da tasklist de conclusão: bridge, importação, restore, outbox, lifecycle e a primeira rodada real de produto. O executor desktop usa `newCommandDesktopExecutor` e `commandconfig.ProjectComplete`; autenticação é por sessão local sem JWT, a bridge é assíncrona com shutdown/join, e recovery é preflight somente leitura fail-closed sem reconciliação interprocesso. A limitação inicial de entrega somente de resumo/status foi resolvida na seção 14: `workspace.list` entrega resultado efêmero no picker compartilhado. A seção 15 liga a seleção da paleta à resolução de configuração persistida, supressão e recusa sem fallback, inclusive na bridge. A falha histórica de `internal/acpregistry` não reapareceu nas suítes completas das seções 12–14, mas sua causa não foi certificada. Providers/transporte de UI, origens físicas, recovery R04 e o aceite BASE-PRONTA permanecem pendentes.
 
@@ -1369,5 +1369,6 @@ carregamento sob demanda implementada e coberta por regressões, com confirmaç�
 
 AEP-0115 / PR #933: fábrica catalogada sem presets locais duplicados; criação
 com chave usa a transação cofre/consumidor e referência por conexão. IDs
-existentes são preservados por recusa de duplicata. Wizard completo, modelos e
-vozes continuam pendentes; status **In Progress**.
+existentes são preservados por recusa de duplicata. O onboarding desktop agora
+reutiliza o formulário de provedores; a CLI ainda exige migração de suas opções
+e metadados. Modelos e vozes continuam pendentes; status **In Progress**.

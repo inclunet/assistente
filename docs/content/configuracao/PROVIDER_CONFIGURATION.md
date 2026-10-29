@@ -9,6 +9,13 @@ weight: 1
 
 O Assistente suporta múltiplos provedores de LLM, tanto comerciais (cloud) quanto locais.
 
+No primeiro acesso, após preparar o cofre, o Assistente abre este mesmo formulário
+de provedores. Perfis do catálogo, campos fixos ou editáveis, links de cadastro e
+obtenção de chave, teste de conexão e escolha do modelo funcionam da mesma forma
+no onboarding e nas configurações. Sem catálogo disponível, você pode configurar
+uma conexão manual. Cancelar preserva o cofre; uma falha ao salvar mantém o
+formulário aberto para correção. O primeiro provedor salvo se torna o padrão.
+
 Durante o envio, o Assistente reconhece algumas assinaturas documentadas de erro por provedor. Quando a resposta identifica um parâmetro opcional que o modelo não aceita, ele pode repetir uma vez sem esse parâmetro e memorizar a restrição para aquela conexão e modelo. Erros genéricos ou valores inválidos não removem parâmetros nem alteram o perfil salvo. Basta adicionar um provedor nas configurações (`Alt + 2`) e informar uma chave de API ou usar uma credencial já cadastrada para o domínio.
 
 A tela inicial de **Configurações** já mostra Provedores. **Novo provedor**

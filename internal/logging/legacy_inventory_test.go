@@ -48,8 +48,10 @@ const (
 	// A retirada do retry sem servidores remove um formato legado de listagem recuperável.
 	// A criação catalogada usa a persistência compartilhada e remove o formato
 	// legado de sucesso da fábrica, sem reintroduzir logging.Printf.
-	expectedLegacyFormatCount  = 726
-	expectedLegacyFormatDigest = "4868734a630b73340c278696b0f293ec229577e8227242db84d82d6ee1204110"
+	// O onboarding reutiliza ProviderForm e remove os oito formatos do percurso
+	// paralelo de sondagem, credencial e criação do WelcomeController.
+	expectedLegacyFormatCount  = 718
+	expectedLegacyFormatDigest = "44b9eb56bfc683430b8f735c8eafd358a8b295628cde153b3f4150ab97ca414e"
 )
 
 // TestLegacyLoggingInventory mantém reproduzível o inventário da issue #675.

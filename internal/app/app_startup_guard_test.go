@@ -89,11 +89,6 @@ func TestWelcomeBindingsAreSafeBeforeStartup(t *testing.T) {
 		t.Fatal("NeedsWelcomeWizard(a) = false before startup, want conservative true")
 	}
 
-	result := a.validateWizardConnection("https://example.com", "")
-	if result.ErrorType != "app_initializing" {
-		t.Fatalf("validateWizardConnection() ErrorType = %q, want app_initializing", result.ErrorType)
-	}
-
 	if _, err := api.RunWelcomeWizard(); !errors.Is(err, wailsapi.ErrWelcomeNotWired) {
 		t.Fatalf("RunWelcomeWizard() error = %v, want ErrWelcomeNotWired", err)
 	}

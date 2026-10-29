@@ -68,10 +68,7 @@ func setupWizardTestApp(t *testing.T) *App {
 		Emitter:     &noop.EmitterAdapter{},
 	})
 	a.welcomeCtrl = controllers.NewWelcomeController(controllers.WelcomeControllerConfig{
-		CredMgr:          credMgr,
-		ProviderSvc:      svc,
-		LLMRegistry:      llmRegistry,
-		SaveLLMProviders: func() error { return svc.Save(a.internalBootstrapCtx()) },
+		ProviderSvc: svc,
 	})
 	return a
 }
@@ -126,10 +123,7 @@ func setupWizardTestAppWithProfiles(t *testing.T) (*App, *profiles.Manager) {
 		Emitter:     &noop.EmitterAdapter{},
 	})
 	a.welcomeCtrl = controllers.NewWelcomeController(controllers.WelcomeControllerConfig{
-		CredMgr:          credMgr,
-		ProviderSvc:      svc,
-		LLMRegistry:      llmRegistry,
-		SaveLLMProviders: func() error { return svc.Save(a.internalBootstrapCtx()) },
+		ProviderSvc: svc,
 	})
 	return a, pm
 }
@@ -163,7 +157,7 @@ func TestGetWizardProviderInfo_AllProviders(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.choice, func(t *testing.T) {
-			info := getWizardProviderInfo(tt.choice)
+			info := controllers.GetWizardProviderInfo(tt.choice)
 			if info.ID != tt.wantID {
 				t.Errorf("ID: got %s, want %s", info.ID, tt.wantID)
 			}
@@ -189,7 +183,7 @@ func TestGetWizardProviderInfoSetsExplicitErrorFamilies(t *testing.T) {
 		{"Outro (URL personalizada)", ""},
 	}
 	for _, test := range tests {
-		if got := getWizardProviderInfo(test.choice).ErrorFamily; got != test.family {
+		if got := controllers.GetWizardProviderInfo(test.choice).ErrorFamily; got != test.family {
 			t.Errorf("%s error family = %q, want %q", test.choice, got, test.family)
 		}
 	}
@@ -212,7 +206,7 @@ func TestGetWizardProviderInfo_IDsMatchCreateDefaultLLMProvider(t *testing.T) {
 		"Ollama (Local)":     "ollama-local",
 	}
 	for choice, expectedID := range mapping {
-		info := getWizardProviderInfo(choice)
+		info := controllers.GetWizardProviderInfo(choice)
 		if info.ID != expectedID {
 			t.Errorf("choice=%s: ID got %s, want %s", choice, info.ID, expectedID)
 		}
@@ -233,241 +227,13 @@ func TestGetWizardProviderInfo_APIFormats(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.choice, func(t *testing.T) {
-			info := getWizardProviderInfo(tt.choice)
+			info := controllers.GetWizardProviderInfo(tt.choice)
 			if info.APIFormat != tt.wantFmt {
 				t.Errorf("APIFormat: got %q, want %q", info.APIFormat, tt.wantFmt)
 			}
 		})
 	}
 }
-
-// --- createWizardProvider ---
-
-func TestCreateWizardProvider_OpenAI(t *testing.T) {
-	app := setupWizardTestApp(t)
-
-	providerID, err := app.createWizardProvider("OpenAI", "https://api.openai.com/v1", "sk-test123", "gpt-4o-mini")
-	if err != nil {
-		t.Fatalf("createWizardProvider: %v", err)
-	}
-
-	if providerID != "openai-default" {
-		t.Errorf("providerID: got %s, want openai-default", providerID)
-	}
-
-	// Provider must be in registry
-	provider := app.llmRegistry.Get("openai-default")
-	if provider == nil {
-		t.Fatal("provider not found in registry")
-	}
-	if provider.BaseURL != "https://api.openai.com/v1" {
-		t.Errorf("BaseURL: got %s, want https://api.openai.com/v1", provider.BaseURL)
-	}
-	if provider.Model != "gpt-4o-mini" {
-		t.Errorf("Model: got %s, want gpt-4o-mini", provider.Model)
-	}
-	if provider.Type != llm.ProviderOpenAI {
-		t.Errorf("Type: got %s, want openai", provider.Type)
-	}
-	if provider.CredentialPattern != "api.openai.com" {
-		t.Errorf("CredentialPattern: got %s, want api.openai.com", provider.CredentialPattern)
-	}
-
-	// Credential must be stored
-	auth, err := app.credMgr.GetByPattern("api.openai.com")
-	if err != nil {
-		t.Fatalf("GetByPattern: %v", err)
-	}
-	if auth.Token != "sk-test123" {
-		t.Errorf("Token: got %s, want sk-test123", auth.Token)
-	}
-}
-
-func TestCreateWizardProvider_Claude(t *testing.T) {
-	app := setupWizardTestApp(t)
-
-	providerID, err := app.createWizardProvider("Anthropic (Claude)", "https://api.anthropic.com/v1", "sk-ant-test", "claude-3-5-sonnet")
-	if err != nil {
-		t.Fatalf("createWizardProvider: %v", err)
-	}
-
-	if providerID != "anthropic-claude" {
-		t.Errorf("providerID: got %s, want anthropic-claude", providerID)
-	}
-
-	provider := app.llmRegistry.Get("anthropic-claude")
-	if provider == nil {
-		t.Fatal("provider not found in registry")
-	}
-	if provider.Type != llm.ProviderClaude {
-		t.Errorf("Type: got %s, want claude", provider.Type)
-	}
-}
-
-func TestCreateWizardProvider_Ollama_NoAPIKey(t *testing.T) {
-	app := setupWizardTestApp(t)
-
-	providerID, err := app.createWizardProvider("Ollama (Local)", "http://localhost:11434/v1", "", "llama2")
-	if err != nil {
-		t.Fatalf("createWizardProvider: %v", err)
-	}
-
-	if providerID != "ollama-local" {
-		t.Errorf("providerID: got %s, want ollama-local", providerID)
-	}
-
-	provider := app.llmRegistry.Get("ollama-local")
-	if provider == nil {
-		t.Fatal("provider not found in registry")
-	}
-	if provider.Timeout != 300 {
-		t.Errorf("Timeout: got %d, want 300 for Ollama", provider.Timeout)
-	}
-}
-
-func TestCreateWizardProvider_DeepSeek(t *testing.T) {
-	app := setupWizardTestApp(t)
-
-	providerID, err := app.createWizardProvider("DeepSeek", "https://api.deepseek.com/v1", "sk-deep-test", "deepseek-chat")
-	if err != nil {
-		t.Fatalf("createWizardProvider: %v", err)
-	}
-
-	if providerID != "deepseek-default" {
-		t.Errorf("providerID: got %s, want deepseek-default", providerID)
-	}
-
-	provider := app.llmRegistry.Get("deepseek-default")
-	if provider == nil {
-		t.Fatal("provider not found in registry")
-	}
-	if provider.Type != llm.ProviderDeepSeek {
-		t.Errorf("Type: got %s, want deepseek", provider.Type)
-	}
-	if provider.CredentialPattern != "api.deepseek.com" {
-		t.Errorf("CredentialPattern: got %s, want api.deepseek.com", provider.CredentialPattern)
-	}
-	if provider.ReasoningContentMode != llm.ReasoningContentReplayWithTools {
-		t.Errorf("ReasoningContentMode: got %s, want %s",
-			provider.ReasoningContentMode, llm.ReasoningContentReplayWithTools)
-	}
-
-	auth, err := app.credMgr.GetByPattern("api.deepseek.com")
-	if err != nil {
-		t.Fatalf("GetByPattern: %v", err)
-	}
-	if auth.Token != "sk-deep-test" {
-		t.Errorf("Token: got %s, want sk-deep-test", auth.Token)
-	}
-}
-
-func TestCreateWizardProvider_Grok(t *testing.T) {
-	app := setupWizardTestApp(t)
-
-	providerID, err := app.createWizardProvider("xAI (Grok)", "https://api.x.ai/v1", "xai-key-test", "grok-2")
-	if err != nil {
-		t.Fatalf("createWizardProvider: %v", err)
-	}
-
-	if providerID != "xai-grok" {
-		t.Errorf("providerID: got %s, want xai-grok", providerID)
-	}
-
-	provider := app.llmRegistry.Get("xai-grok")
-	if provider == nil {
-		t.Fatal("provider not found in registry")
-	}
-	if provider.Type != llm.ProviderGrok {
-		t.Errorf("Type: got %s, want grok", provider.Type)
-	}
-	if provider.CredentialPattern != "api.x.ai" {
-		t.Errorf("CredentialPattern: got %s, want api.x.ai", provider.CredentialPattern)
-	}
-}
-
-func TestCreateWizardProvider_CustomURL(t *testing.T) {
-	app := setupWizardTestApp(t)
-
-	providerID, err := app.createWizardProvider("Outro (URL personalizada)", "https://my-server.example.com/v1", "my-key", "my-model")
-	if err != nil {
-		t.Fatalf("createWizardProvider: %v", err)
-	}
-
-	if providerID != "custom" {
-		t.Errorf("providerID: got %s, want custom", providerID)
-	}
-
-	provider := app.llmRegistry.Get("custom")
-	if provider == nil {
-		t.Fatal("provider not found in registry")
-	}
-	if provider.CredentialPattern != "my-server.example.com" {
-		t.Errorf("CredentialPattern: got %s, want my-server.example.com", provider.CredentialPattern)
-	}
-}
-
-func TestCreateWizardProvider_OverwritesExisting(t *testing.T) {
-	app := setupWizardTestApp(t)
-
-	_, err := app.createWizardProvider("OpenAI", "https://api.openai.com/v1", "sk-old", "gpt-3.5-turbo")
-	if err != nil {
-		t.Fatalf("first createWizardProvider: %v", err)
-	}
-
-	// Re-run overwrites existing
-	_, err = app.createWizardProvider("OpenAI", "https://api.openai.com/v1", "sk-new", "gpt-4o")
-	if err != nil {
-		t.Fatalf("second createWizardProvider: %v", err)
-	}
-
-	provider := app.llmRegistry.Get("openai-default")
-	if provider == nil {
-		t.Fatal("provider not found in registry after overwrite")
-	}
-	if provider.Model != "gpt-4o" {
-		t.Errorf("Model after overwrite: got %s, want gpt-4o", provider.Model)
-	}
-
-	auth, err := app.credMgr.GetByPattern("api.openai.com")
-	if err != nil {
-		t.Fatalf("GetByPattern after overwrite: %v", err)
-	}
-	if auth.Token != "sk-new" {
-		t.Errorf("Token after overwrite: got %s, want sk-new", auth.Token)
-	}
-}
-
-func TestCreateWizardProvider_PersistsToSQLite(t *testing.T) {
-	app := setupWizardTestApp(t)
-
-	_, err := app.createWizardProvider("Google (Gemini)", "https://generativelanguage.googleapis.com/v1beta/openai/", "goog-key", "gemini-2.0-flash")
-	if err != nil {
-		t.Fatalf("createWizardProvider: %v", err)
-	}
-
-	dbProviders, err := database.GetLLMProvidersWithContext(wizardTestCtx())
-	if err != nil {
-		t.Fatalf("GetLLMProviders: %v", err)
-	}
-	if len(dbProviders) == 0 {
-		t.Fatal("no providers in SQLite after createWizardProvider")
-	}
-
-	found := false
-	for _, p := range dbProviders {
-		if p.ID == "google-gemini" {
-			found = true
-			if p.BaseURL != "https://generativelanguage.googleapis.com/v1beta/openai/" {
-				t.Errorf("DB BaseURL: got %s", p.BaseURL)
-			}
-		}
-	}
-	if !found {
-		t.Error("google-gemini not found in SQLite")
-	}
-}
-
-// --- $default sentinel resolution ---
 
 func TestDefaultProfileUsesSentinel(t *testing.T) {
 	p := profiles.DefaultProfile()
@@ -489,6 +255,8 @@ func TestDefaultProfileUsesSentinel(t *testing.T) {
 
 func TestWizardIntegration_ProviderMarkedAsDefault(t *testing.T) {
 	app, pm := setupWizardTestAppWithProfiles(t)
+	reloads := 0
+	app.llmCtrl = controllers.NewLLMController(controllers.LLMControllerConfig{LLMRegistry: app.llmRegistry, ProviderSvc: app.providerSvc, OnProviderChange: func() { reloads++ }})
 
 	p := profiles.DefaultProfile()
 	p.Name = "Meu Perfil"
@@ -498,9 +266,13 @@ func TestWizardIntegration_ProviderMarkedAsDefault(t *testing.T) {
 		t.Fatalf("create profile: %v", err)
 	}
 
-	providerID, err := app.createWizardProvider("OpenAI", "https://api.openai.com/v1", "sk-test", "gpt-4o-mini")
+	created, err := app.llmCtrl.CreateLLMProvider(wizardTestCtx(), controllers.CreateLLMProviderRequest{ID: "onboarding", Name: "OpenAI", Type: "openai", APIFormat: "openai_responses", BaseURL: "https://api.openai.com/v1", APIKey: "sk-test", DefaultModel: "gpt-4o-mini"})
 	if err != nil {
 		t.Fatalf("createWizardProvider: %v", err)
+	}
+
+	if reloads != 1 {
+		t.Fatalf("first provider must refresh runtime once, got %d", reloads)
 	}
 
 	// Profile retains $default sentinel
@@ -513,7 +285,7 @@ func TestWizardIntegration_ProviderMarkedAsDefault(t *testing.T) {
 	}
 
 	// Provider should exist in registry with IsDefault and DefaultModel
-	provider := app.llmRegistry.Get(providerID)
+	provider := app.llmRegistry.Get(created["id"].(string))
 	if provider == nil {
 		t.Fatal("provider not found in registry")
 	}
@@ -528,8 +300,8 @@ func TestWizardIntegration_ProviderMarkedAsDefault(t *testing.T) {
 	}
 
 	// Credential should exist for the provider's pattern
-	auth, err := app.credMgr.GetByPattern(provider.CredentialPattern)
-	if err != nil {
+	auth, err := app.credMgr.GetByPatternWithContext(wizardTestCtx(), provider.CredentialPattern)
+	if err != nil || auth == nil {
 		t.Fatalf("credential not found for pattern %s: %v", provider.CredentialPattern, err)
 	}
 	if auth.Token != "sk-test" {
@@ -1205,29 +977,25 @@ func TestValidateWizardURL_ValidFormats(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	app := setupWizardTestApp(t)
-	if err := app.validateWizardURL(srv.URL); err != nil {
+	if err := providers.ValidateURL(wizardTestCtx(), srv.URL); err != nil {
 		t.Errorf("should accept valid reachable URL: %v", err)
 	}
 }
 
 func TestValidateWizardURL_InvalidScheme(t *testing.T) {
-	app := setupWizardTestApp(t)
-	if err := app.validateWizardURL("ftp://example.com"); err == nil {
+	if err := providers.ValidateURL(wizardTestCtx(), "ftp://example.com"); err == nil {
 		t.Error("should reject ftp:// scheme")
 	}
 }
 
 func TestValidateWizardURL_EmptyHost(t *testing.T) {
-	app := setupWizardTestApp(t)
-	if err := app.validateWizardURL("http://"); err == nil {
+	if err := providers.ValidateURL(wizardTestCtx(), "http://"); err == nil {
 		t.Error("should reject URL with empty host")
 	}
 }
 
 func TestValidateWizardURL_Unreachable(t *testing.T) {
-	app := setupWizardTestApp(t)
-	if err := app.validateWizardURL("http://192.0.2.1:1"); err == nil {
+	if err := providers.ValidateURL(wizardTestCtx(), "http://192.0.2.1:1"); err == nil {
 		t.Error("should reject unreachable URL")
 	}
 }
@@ -1238,8 +1006,7 @@ func TestValidateWizardURL_Accepts401(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	app := setupWizardTestApp(t)
-	if err := app.validateWizardURL(srv.URL); err != nil {
+	if err := providers.ValidateURL(wizardTestCtx(), srv.URL); err != nil {
 		t.Errorf("should accept 401 (server is alive): %v", err)
 	}
 }
@@ -1250,8 +1017,7 @@ func TestValidateWizardURL_RejectsServerError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	app := setupWizardTestApp(t)
-	if err := app.validateWizardURL(srv.URL); err == nil {
+	if err := providers.ValidateURL(wizardTestCtx(), srv.URL); err == nil {
 		t.Error("should reject 500 server error")
 	}
 }
@@ -1281,7 +1047,7 @@ func TestValidateWizardConnection_SuccessWithModels(t *testing.T) {
 	defer srv.Close()
 
 	app := setupWizardTestApp(t)
-	result := app.validateWizardConnection(srv.URL, "sk-test")
+	result := app.providerSvc.ProbeConnection(wizardTestCtx(), srv.URL, "sk-test")
 
 	if result.ErrorType != "" {
 		t.Fatalf("unexpected error: %s - %s", result.ErrorType, result.ErrorDetail)
@@ -1308,7 +1074,7 @@ func TestValidateWizardConnection_Unauthorized_WithKey(t *testing.T) {
 	defer srv.Close()
 
 	app := setupWizardTestApp(t)
-	result := app.validateWizardConnection(srv.URL, "bad-key")
+	result := app.providerSvc.ProbeConnection(wizardTestCtx(), srv.URL, "bad-key")
 
 	if result.ErrorType != "auth_invalid" {
 		t.Errorf("expected auth_invalid, got %s", result.ErrorType)
@@ -1325,7 +1091,7 @@ func TestValidateWizardConnection_Unauthorized_NoKey(t *testing.T) {
 	defer srv.Close()
 
 	app := setupWizardTestApp(t)
-	result := app.validateWizardConnection(srv.URL, "")
+	result := app.providerSvc.ProbeConnection(wizardTestCtx(), srv.URL, "")
 
 	if result.ErrorType != "auth_required" {
 		t.Errorf("expected auth_required, got %s", result.ErrorType)
@@ -1339,7 +1105,7 @@ func TestValidateWizardConnection_Forbidden(t *testing.T) {
 	defer srv.Close()
 
 	app := setupWizardTestApp(t)
-	result := app.validateWizardConnection(srv.URL, "some-key")
+	result := app.providerSvc.ProbeConnection(wizardTestCtx(), srv.URL, "some-key")
 
 	if result.ErrorType != "auth_invalid" {
 		t.Errorf("expected auth_invalid, got %s", result.ErrorType)
@@ -1353,7 +1119,7 @@ func TestValidateWizardConnection_ServerError(t *testing.T) {
 	defer srv.Close()
 
 	app := setupWizardTestApp(t)
-	result := app.validateWizardConnection(srv.URL, "")
+	result := app.providerSvc.ProbeConnection(wizardTestCtx(), srv.URL, "")
 
 	if result.ErrorType != "server_error" {
 		t.Errorf("expected server_error, got %s", result.ErrorType)
@@ -1365,7 +1131,7 @@ func TestValidateWizardConnection_ServerError(t *testing.T) {
 
 func TestValidateWizardConnection_Unreachable(t *testing.T) {
 	app := setupWizardTestApp(t)
-	result := app.validateWizardConnection("http://192.0.2.1:1", "")
+	result := app.providerSvc.ProbeConnection(wizardTestCtx(), "http://192.0.2.1:1", "")
 
 	if result.ErrorType != "url_unreachable" {
 		t.Errorf("expected url_unreachable, got %s", result.ErrorType)
@@ -1387,7 +1153,7 @@ func TestValidateWizardConnection_InvalidURL(t *testing.T) {
 
 	for _, u := range tests {
 		t.Run(u, func(t *testing.T) {
-			result := app.validateWizardConnection(u, "")
+			result := app.providerSvc.ProbeConnection(wizardTestCtx(), u, "")
 			if result.ErrorType != "url_invalid" && result.ErrorType != "url_unreachable" {
 				t.Errorf("expected url_invalid or url_unreachable for %q, got %s", u, result.ErrorType)
 			}
@@ -1402,7 +1168,7 @@ func TestValidateWizardConnection_NotFound_ModelsEndpoint(t *testing.T) {
 	defer srv.Close()
 
 	app := setupWizardTestApp(t)
-	result := app.validateWizardConnection(srv.URL, "sk-test")
+	result := app.providerSvc.ProbeConnection(wizardTestCtx(), srv.URL, "sk-test")
 
 	if result.ErrorType != "" {
 		t.Errorf("unexpected error: %s", result.ErrorType)
@@ -1426,7 +1192,7 @@ func TestValidateWizardConnection_EmptyModelsResponse(t *testing.T) {
 	defer srv.Close()
 
 	app := setupWizardTestApp(t)
-	result := app.validateWizardConnection(srv.URL, "sk-test")
+	result := app.providerSvc.ProbeConnection(wizardTestCtx(), srv.URL, "sk-test")
 
 	if result.ErrorType != "" {
 		t.Errorf("unexpected error: %s", result.ErrorType)
@@ -1449,7 +1215,7 @@ func TestValidateWizardConnection_AuthHeaderSent(t *testing.T) {
 	defer srv.Close()
 
 	app := setupWizardTestApp(t)
-	app.validateWizardConnection(srv.URL, "my-secret-key")
+	app.providerSvc.ProbeConnection(wizardTestCtx(), srv.URL, "my-secret-key")
 
 	if receivedAuth != "Bearer my-secret-key" {
 		t.Errorf("expected Bearer header, got %q", receivedAuth)
@@ -1466,7 +1232,7 @@ func TestValidateWizardConnection_NoAuthHeaderWhenEmpty(t *testing.T) {
 	defer srv.Close()
 
 	app := setupWizardTestApp(t)
-	app.validateWizardConnection(srv.URL, "")
+	app.providerSvc.ProbeConnection(wizardTestCtx(), srv.URL, "")
 
 	if receivedAuth != "" {
 		t.Errorf("should not send auth header when key is empty, got %q", receivedAuth)

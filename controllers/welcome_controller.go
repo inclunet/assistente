@@ -1,9 +1,7 @@
 package controllers
 
 import (
-	"assistente/internal/logging"
 	"context"
-	"fmt"
 	"strings"
 
 	"assistente/internal/credentials"
@@ -105,42 +103,19 @@ func GetWizardProviderInfo(providerChoice string) WizardProviderInfo {
 
 // WelcomeControllerConfig agrupa dependências do WelcomeController.
 type WelcomeControllerConfig struct {
-	QuestionnaireMgr *questionnaire.Manager
-	CredMgr          *credentials.Manager
-	ProviderSvc      *providers.Service
-	LLMRegistry      *llm.ProviderRegistry
-	UpdaterCtrl      *UpdaterController
-
-	// Callbacks para operações que pertencem à camada App (infra).
+	QuestionnaireMgr           *questionnaire.Manager
+	ProviderSvc                *providers.Service
 	ConfigureCredentialManager func(dek []byte, persist bool)
-	InitLLMClient              func()
-	SaveLLMProviders           func() error
 }
 
-// WelcomeController expõe o wizard de boas-vindas e verificações iniciais.
 type WelcomeController struct {
 	questionnaireMgr           *questionnaire.Manager
-	credMgr                    *credentials.Manager
 	providerSvc                *providers.Service
-	llmRegistry                *llm.ProviderRegistry
-	updaterCtrl                *UpdaterController
 	configureCredentialManager func(dek []byte, persist bool)
-	initLLMClient              func()
-	saveLLMProviders           func() error
 }
 
-// NewWelcomeController cria um WelcomeController com as dependências fornecidas.
 func NewWelcomeController(cfg WelcomeControllerConfig) *WelcomeController {
-	return &WelcomeController{
-		questionnaireMgr:           cfg.QuestionnaireMgr,
-		credMgr:                    cfg.CredMgr,
-		providerSvc:                cfg.ProviderSvc,
-		llmRegistry:                cfg.LLMRegistry,
-		updaterCtrl:                cfg.UpdaterCtrl,
-		configureCredentialManager: cfg.ConfigureCredentialManager,
-		initLLMClient:              cfg.InitLLMClient,
-		saveLLMProviders:           cfg.SaveLLMProviders,
-	}
+	return &WelcomeController{questionnaireMgr: cfg.QuestionnaireMgr, providerSvc: cfg.ProviderSvc, configureCredentialManager: cfg.ConfigureCredentialManager}
 }
 
 // NeedsWelcomeWizard verifica se o assistente precisa do wizard de boas-vindas.
@@ -161,348 +136,41 @@ func (c *WelcomeController) NeedsWelcomeWizard(ctx context.Context) bool {
 	return !hasProviders || !hasMasterKey
 }
 
-// RunWelcomeWizard executa o wizard de boas-vindas.
-// Retorna true se completou com sucesso, false se cancelado.
+// RunWelcomeWizard prepara o cofre para o onboarding. O retorno true significa
+// que senha e recuperação foram configuradas; o frontend conclui o onboarding
+// com o ProviderForm compartilhado, pela API autenticada de provedores.
 func (c *WelcomeController) RunWelcomeWizard(ctx context.Context) (bool, error) {
-	var provider string
-	var baseURL string
-	var apiKey string
-	var defaultModel string
-	var recoveryKey string
-	// Os avisos de erro ocupam o lugar da descrição da etapa e também se
-	// traduzem: o texto vazio significa "nenhum erro pendente".
-	var passwordError questionnaire.Text
-	var providerError questionnaire.Text
-	var urlError questionnaire.Text
-	var keyError questionnaire.Text
-	var validatedModels []string
-
 	store := credentials.NewDBStore()
-	masterKeyConfigured, _ := store.HasKeyWrap(ctx, credentials.KeyWrapKindMaster)
-
-	currentStep := 0
-	if masterKeyConfigured {
-		currentStep = 2
-	}
-
-	for currentStep >= 0 {
-		switch currentStep {
-		case 0: // Etapa 0: Senha mestre
-			passwordResp, err := c.questionnaireMgr.RequestQuestionnaire(ctx, welcomeMasterPasswordPayload(passwordError))
-
-			if err != nil || passwordResp.Cancelled {
-				return false, err
-			}
-
-			masterPassword, _ := passwordResp.Answers["masterPassword"].(string)
-			confirmPassword, _ := passwordResp.Answers["confirmPassword"].(string)
-			if strings.TrimSpace(masterPassword) == "" || masterPassword != confirmPassword {
-				passwordError = welcomePasswordMismatch()
-				currentStep = 0
-				continue
-			}
-
-			setupResult, err := credentials.SetupMasterKeyAdoptingKeychain(store, masterPassword)
-			if err != nil {
-				return false, err
-			}
-
-			recoveryKey = setupResult.RecoveryKey
-			if c.configureCredentialManager != nil {
-				c.configureCredentialManager(setupResult.DEK, true)
-			}
-			passwordError = questionnaire.Text{}
-			currentStep = 1
-
-		case 1: // Etapa 1: Código de recuperação
-			_, err := c.questionnaireMgr.RequestQuestionnaire(ctx, welcomeRecoveryCodePayload(recoveryKey))
-			if err != nil {
-				return false, err
-			}
-			currentStep = 2
-
-		case 2: // Etapa 2: Escolher provedor
-			providerResp, err := c.questionnaireMgr.RequestQuestionnaire(ctx, welcomeProviderPayload(provider, providerError))
-
-			if err != nil || providerResp.Cancelled {
-				return false, err
-			}
-
-			provider = providerResp.Answers["provider"].(string)
-			providerError = questionnaire.Text{}
-
-			baseURL = ""
-			if kind := WizardLabelToProviderType(provider); kind != "" {
-				tmpl, err := c.wizardProviderTemplate(provider, kind)
-				if err != nil {
-					providerError = welcomeProviderUnavailable()
-					continue
-				}
-				baseURL = tmpl.BaseURL
-			}
-
-			currentStep = 3
-
-		case 3: // Etapa 3: URL personalizada (se necessário)
-			if !wizardNeedsCustomURL(provider) {
-				currentStep = 4
-				continue
-			}
-
-			placeholderURL := "http://localhost:11434/v1"
-			switch provider {
-			case wizardProviderLiteLLM:
-				placeholderURL = "http://localhost:4000"
-			case wizardProviderAzure:
-				placeholderURL = "https://your-resource.openai.azure.com"
-			}
-
-			urlResp, err := c.questionnaireMgr.RequestQuestionnaire(ctx, welcomeServerURLPayload(placeholderURL, baseURL, urlError))
-
-			if err != nil {
-				return false, err
-			}
-
-			if urlResp.Cancelled {
-				currentStep = 2
-				continue
-			}
-
-			baseURL = urlResp.Answers["baseURL"].(string)
-			urlError = questionnaire.Text{}
-
-			if err := c.ValidateWizardURL(ctx, baseURL); err != nil {
-				urlError = welcomeInvalidURL(err)
-				currentStep = 3
-				continue
-			}
-
-			currentStep = 4
-
-		case 4: // Etapa 4: API Key + validação de conexão
-			keyResp, err := c.questionnaireMgr.RequestQuestionnaire(ctx, welcomeAPIKeyPayload(provider, apiKey, keyError))
-
-			if err != nil {
-				return false, err
-			}
-
-			if keyResp.Cancelled {
-				keyError = questionnaire.Text{}
-				if wizardNeedsCustomURL(provider) {
-					currentStep = 3
-				} else {
-					currentStep = 2
-				}
-				continue
-			}
-
-			if keyResp.Answers["apiKey"] != nil {
-				apiKey = keyResp.Answers["apiKey"].(string)
-			}
-			keyError = questionnaire.Text{}
-
-			logging.Infof(ctx, "controllers.welcome-controller", "[Wizard] Validando conexão: %s (com key: %v)", baseURL, apiKey != "")
-			validation := c.ValidateWizardConnection(ctx, baseURL, apiKey)
-
-			switch validation.ErrorType {
-			case "url_invalid", "url_unreachable":
-				if wizardNeedsCustomURL(provider) {
-					urlError = welcomeURLUnreachable(validation.ErrorDetail)
-					currentStep = 3
-				} else {
-					keyError = welcomeConnectionFailed(provider, baseURL, validation.ErrorDetail)
-					currentStep = 4
-				}
-				continue
-
-			case "auth_required":
-				keyError = welcomeAuthRequired(validation.ErrorDetail)
-				currentStep = 4
-				continue
-
-			case "auth_invalid":
-				keyError = welcomeAuthInvalid(validation.ErrorDetail)
-				currentStep = 4
-				continue
-
-			case "server_error":
-				keyError = welcomeServerError(validation.ErrorDetail)
-				currentStep = 4
-				continue
-			}
-
-			validatedModels = validation.Models
-			logging.Infof(ctx, "controllers.welcome-controller", "[Wizard] Conexão validada com sucesso. Modelos disponíveis: %d", len(validatedModels))
-			currentStep = 5
-
-		case 5: // Etapa 5: Escolher modelo (conexão já validada)
-			if len(validatedModels) > 0 {
-				modelDefault := defaultModel
-				if modelDefault == "" {
-					modelDefault = validatedModels[0]
-				}
-
-				modelResp, err := c.questionnaireMgr.RequestQuestionnaire(ctx, welcomeModelChoicePayload(validatedModels, modelDefault))
-
-				if err != nil {
-					return false, err
-				}
-
-				if modelResp.Cancelled {
-					currentStep = 4
-					continue
-				}
-
-				defaultModel = modelResp.Answers["model"].(string)
-			} else {
-				manualResp, err := c.questionnaireMgr.RequestQuestionnaire(ctx, welcomeManualModelPayload(defaultModel))
-
-				if err != nil {
-					return false, err
-				}
-
-				if manualResp.Cancelled {
-					currentStep = 4
-					continue
-				}
-
-				defaultModel = manualResp.Answers["defaultModel"].(string)
-			}
-
-			// Registra credencial temporária para o CreateWizardProvider
-			wizardHostname, _ := providers.ExtractHostname(baseURL)
-			if apiKey != "" && wizardHostname != "" {
-				wizardAuth := &credentials.AuthConfig{Source: "static",
-					Type:  "bearer",
-					Token: apiKey,
-				}
-				if err := c.credMgr.RegisterPatternWithContext(ctx, wizardHostname, wizardAuth); err != nil {
-					logging.Errorf(ctx, "controllers.welcome-controller", "[Wizard] Erro ao registrar credencial temporária: %v", err)
-				}
-			}
-
-			providerID, err := c.CreateWizardProvider(ctx, provider, baseURL, apiKey, defaultModel)
-			if err != nil {
-				return false, fmt.Errorf("erro ao criar provedor: %w", err)
-			}
-
-			if c.initLLMClient != nil {
-				c.initLLMClient()
-			}
-
-			// Verificação final: confirma que o provider funciona com o modelo escolhido
-			finalModels, finalErr := c.providerSvc.GetModelsByProvider(ctx, providerID)
-			if finalErr != nil {
-				logging.Infof(ctx, "controllers.welcome-controller", "[Wizard] Verificação final: %v (provider pode não suportar /models)", finalErr)
-			} else {
-				logging.Infof(ctx, "controllers.welcome-controller", "[Wizard] Verificação final OK: %d modelos via provider '%s'", len(finalModels), providerID)
-				modelFound := false
-				for _, m := range finalModels {
-					if m == defaultModel {
-						modelFound = true
-						break
-					}
-				}
-				if !modelFound && len(finalModels) > 0 {
-					logging.Warnf(ctx, "controllers.welcome-controller", "[Wizard] Aviso: modelo '%s' não encontrado na lista do provider (%d modelos)", defaultModel, len(finalModels))
-				}
-			}
-
-			if c.updaterCtrl != nil {
-				// Reusa o mesmo scheduler cancelável do startup. O sinal
-				// antecipa a primeira checagem sem criar goroutine órfã.
-				c.updaterCtrl.RequestUpdateCheck()
-			}
-			return true, nil
-		}
-	}
-
-	return false, nil
-}
-
-// O wizard legado só aceita rotas compatíveis com o formato que irá persistir.
-func (c *WelcomeController) wizardProviderTemplate(choice, kind string) (*llm.ProviderConfig, error) {
-	template, err := c.providerSvc.TemplateForProviderType(kind)
+	configured, err := store.HasKeyWrap(ctx, credentials.KeyWrapKindMaster)
 	if err != nil {
-		return nil, err
+		return false, err
 	}
-	info := GetWizardProviderInfo(choice)
-	legacy := &llm.ProviderConfig{Type: info.Type, APIFormat: info.APIFormat}
-	if legacy.GetAPIFormat() != template.GetAPIFormat() {
-		return nil, fmt.Errorf("o formato do perfil %q não é suportado pelo wizard inicial; configure o provedor em Configurações → Provedores", template.ServerProfileID)
+	if configured {
+		return true, nil
 	}
-	return template, nil
-}
-
-// ValidateWizardConnection testa URL, autenticação e lista modelos de um provedor.
-func (c *WelcomeController) ValidateWizardConnection(ctx context.Context, baseURL, apiKey string) providers.ConnectionProbeResult {
-	return c.providerSvc.ProbeConnection(ctx, baseURL, apiKey)
-}
-
-// ValidateWizardURL valida formato e alcançabilidade básica de uma URL personalizada.
-func (c *WelcomeController) ValidateWizardURL(ctx context.Context, baseURL string) error {
-	return providers.ValidateURL(ctx, baseURL)
-}
-
-// CreateWizardProvider cria o provedor LLM escolhido durante o wizard,
-// registrando-o no registry, salvando a credencial e persistindo no SQLite.
-func (c *WelcomeController) CreateWizardProvider(ctx context.Context, providerChoice, baseURL, apiKey, model string) (string, error) {
-	info := GetWizardProviderInfo(providerChoice)
-
-	hostname, err := providers.ExtractHostname(baseURL)
-	if err != nil {
-		return "", fmt.Errorf("erro ao extrair hostname de %s: %w", baseURL, err)
-	}
-
-	timeout := 180
-	if info.Type == llm.ProviderOllama {
-		timeout = 300
-	}
-
-	defaultModel := model
-	if defaultModel == "" && info.DefaultModel != "" {
-		defaultModel = info.DefaultModel
-	}
-
-	provider := &llm.ProviderConfig{
-		ID:                   info.ID,
-		Name:                 info.Name,
-		Type:                 info.Type,
-		ErrorFamily:          info.ErrorFamily,
-		APIFormat:            info.APIFormat,
-		BaseURL:              baseURL,
-		Model:                model,
-		DefaultModel:         defaultModel,
-		IsDefault:            true,
-		Timeout:              timeout,
-		CredentialPattern:    hostname,
-		ReasoningContentMode: info.ReasoningContentMode,
-	}
-
-	if err := c.llmRegistry.Register(provider); err != nil {
-		return "", fmt.Errorf("erro ao registrar provedor: %w", err)
-	}
-
-	if apiKey != "" && hostname != "" {
-		authCfg := &credentials.AuthConfig{Source: "static",
-			Type:  "bearer",
-			Token: apiKey,
+	var passwordError questionnaire.Text
+	for {
+		response, err := c.questionnaireMgr.RequestQuestionnaire(ctx, welcomeMasterPasswordPayload(passwordError))
+		if err != nil || response.Cancelled {
+			return false, err
 		}
-		if err := c.credMgr.RegisterPatternWithContext(ctx, hostname, authCfg); err != nil {
-			return "", fmt.Errorf("erro ao salvar credencial: %w", err)
+		password, _ := response.Answers["masterPassword"].(string)
+		confirmation, _ := response.Answers["confirmPassword"].(string)
+		if strings.TrimSpace(password) == "" || password != confirmation {
+			passwordError = welcomePasswordMismatch()
+			continue
 		}
-	}
-
-	if c.saveLLMProviders != nil {
-		if err := c.saveLLMProviders(); err != nil {
-			return "", fmt.Errorf("erro ao persistir provedor: %w", err)
+		result, err := credentials.SetupMasterKeyAdoptingKeychain(store, password)
+		if err != nil {
+			return false, err
 		}
+		if c.configureCredentialManager != nil {
+			c.configureCredentialManager(result.DEK, true)
+		}
+		response, err = c.questionnaireMgr.RequestQuestionnaire(ctx, welcomeRecoveryCodePayload(result.RecoveryKey))
+		if err != nil || response.Cancelled {
+			return false, err
+		}
+		return true, nil
 	}
-
-	if err := c.providerSvc.SetDefault(ctx, info.ID); err != nil {
-		logging.Warnf(ctx, "controllers.welcome-controller", "[Wizard] Aviso: erro ao marcar provedor como default: %v", err)
-	}
-
-	logging.Infof(ctx, "controllers.welcome-controller", "[Wizard] Provedor '%s' (%s) criado como default, modelo padrão: %s", info.ID, info.Name, defaultModel)
-	return info.ID, nil
 }
