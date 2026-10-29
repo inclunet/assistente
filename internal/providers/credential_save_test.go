@@ -22,6 +22,88 @@ import (
 func vaultProviderRequest(auth *credentials.AuthConfig) CreateRequest {
 	return CreateRequest{ID: "api", Name: "API", Type: "custom", BaseURL: "https://example.com/v1", APIFormat: "openai", AuthMode: "required", Credential: &CredentialSpec{Pattern: "example.com", Auth: auth}}
 }
+
+func TestNewProviderCredentialsDoNotReplaceExistingSources(t *testing.T) {
+	for _, source := range []string{"static", "env", "command"} {
+		t.Run(source, func(t *testing.T) {
+			service, mgr, ctx := chatGPTTestService(t)
+			old := &credentials.AuthConfig{Source: source, Type: "bearer", Token: "old"}
+			if source == "env" {
+				old.Token = ""
+				old.SourceConfig = &credentials.SourceConfig{Env: "UNSET_ISOLATION_TOKEN"}
+			}
+			if source == "command" {
+				old.Token = ""
+				old.SourceConfig = &credentials.SourceConfig{Command: "never-executed", TimeoutSeconds: 30}
+			}
+			if err := mgr.RegisterPatternWithContext(ctx, "example.com", old); err != nil {
+				t.Fatal(err)
+			}
+			request := vaultProviderRequest(&credentials.AuthConfig{Source: "static", Type: "bearer", Token: "new"})
+			result, err := service.Create(ctx, request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			preserved, err := mgr.GetConfigByPatternWithContext(ctx, "example.com")
+			if err != nil || preserved.Source != source || preserved.Token != old.Token {
+				t.Fatalf("existing credential changed: source=%s err=%v", source, err)
+			}
+			if result.CredentialPattern != "provider:api" || request.Credential.Pattern != "example.com" {
+				t.Fatal("new credential not isolated or input draft mutated")
+			}
+			stored, err := mgr.GetConfigByPatternWithContext(ctx, "provider:api")
+			if err != nil || stored == nil || stored.Token != "new" {
+				t.Fatalf("new credential missing: %v", err)
+			}
+		})
+	}
+}
+
+func TestNewProviderCredentialsAreIsolatedAcrossPortsAndLegacyInput(t *testing.T) {
+	service, mgr, ctx := chatGPTTestService(t)
+	for i, port := range []string{"8080", "4000"} {
+		id, token := fmt.Sprintf("local-%d", i), fmt.Sprintf("key-%d", i)
+		req := CreateRequest{ID: id, Name: id, Type: "custom", APIFormat: "openai", AuthMode: "required", BaseURL: "http://localhost:" + port + "/v1"}
+		if i == 0 {
+			req.Credential = &CredentialSpec{Pattern: "localhost", Auth: &credentials.AuthConfig{Source: "static", Type: "bearer", Token: token}}
+		} else {
+			req.APIKey = token
+		}
+		result, err := service.Create(ctx, req)
+		if err != nil || result.CredentialPattern != "provider:"+id {
+			t.Fatalf("create: %v %+v", err, result)
+		}
+	}
+	for i := range 2 {
+		stored, err := mgr.GetConfigByPatternWithContext(ctx, fmt.Sprintf("provider:local-%d", i))
+		if err != nil || stored == nil || stored.Token != fmt.Sprintf("key-%d", i) {
+			t.Fatalf("credential %d overwritten: %v", i, err)
+		}
+	}
+}
+
+func TestNewProviderLegacyKeyRollbackDoesNotLeaveCredential(t *testing.T) {
+	service, mgr, ctx := chatGPTTestService(t)
+	db := database.DB()
+	if err := db.Callback().Create().Before("gorm:create").Register("test:isolated-rollback", func(tx *gorm.DB) {
+		if tx.Statement.Table == "llm_providers" {
+			_ = tx.AddError(errors.New("consumer write failed"))
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Callback().Create().Remove("test:isolated-rollback") })
+	_, err := service.Create(ctx, CreateRequest{ID: "api", Name: "API", Type: "custom", BaseURL: "https://example.com/v1", APIKey: "new"})
+	if err == nil {
+		t.Fatal("expected failed transaction")
+	}
+	if auth, err := mgr.GetConfigByPatternWithContext(ctx, "provider:api"); err == nil && auth != nil {
+		t.Fatal("orphan credential after rollback")
+	}
+	if service.registry.Get("api") != nil {
+		t.Fatal("failed provider published")
+	}
+}
 func TestProviderCredentialSourcesSaveWithoutResolving(t *testing.T) {
 	for _, auth := range []*credentials.AuthConfig{
 		{Source: "static", Type: "bearer", Token: "private-token"},
@@ -36,10 +118,10 @@ func TestProviderCredentialSourcesSaveWithoutResolving(t *testing.T) {
 				t.Fatal(err)
 			}
 			stored, err := service.store.Get(ctx, "api")
-			if err != nil || stored.CredentialPattern != "example.com" || !stored.IsDefault || !result.CredentialConfigured {
+			if err != nil || stored.CredentialPattern != "provider:api" || !stored.IsDefault || !result.CredentialConfigured {
 				t.Fatalf("provider: %+v %v", stored, err)
 			}
-			config, err := mgr.GetConfigByPatternWithContext(ctx, "example.com")
+			config, err := mgr.GetConfigByPatternWithContext(ctx, "provider:api")
 			if err != nil || config.Source != auth.Source {
 				t.Fatalf("credential: %v", err)
 			}
@@ -111,7 +193,7 @@ func TestProviderCredentialSavePublishesCompatibilityRevisionOnlyAfterCommit(t *
 	for _, name := range []string{"Edited once", "Edited twice"} {
 		result, err := service.Update(ctx, "api", UpdateRequest{
 			Name: name, Type: "custom", BaseURL: request.BaseURL,
-			Credential: &CredentialSpec{Pattern: request.Credential.Pattern, Auth: &credentials.AuthConfig{Source: "static", Type: "bearer", Token: name}},
+			Credential: &CredentialSpec{Pattern: "provider:api", Auth: &credentials.AuthConfig{Source: "static", Type: "bearer", Token: name}},
 		})
 		if err != nil {
 			t.Fatalf("update %q with credential: %v", name, err)
@@ -133,7 +215,7 @@ func TestProviderCredentialSavePublishesCompatibilityRevisionOnlyAfterCommit(t *
 	t.Cleanup(func() { _ = db.Callback().Update().Remove("test:provider-revision-rollback") })
 	_, err := service.Update(ctx, "api", UpdateRequest{
 		Name: "Must roll back", Type: "custom", BaseURL: request.BaseURL,
-		Credential: &CredentialSpec{Pattern: request.Credential.Pattern, Auth: &credentials.AuthConfig{Source: "static", Type: "bearer", Token: "rollback"}},
+		Credential: &CredentialSpec{Pattern: "provider:api", Auth: &credentials.AuthConfig{Source: "static", Type: "bearer", Token: "rollback"}},
 	})
 	if err == nil {
 		t.Fatal("provider update failure should roll back")
@@ -228,7 +310,7 @@ func TestProviderCredentialRejectsStaleConsumerSnapshot(t *testing.T) {
 	if err := database.DB().Model(&database.LLMProvider{}).Where("id = ?", "api").Updates(map[string]any{"name": "Changed elsewhere", "default_model": "new-model"}).Error; err != nil {
 		t.Fatal(err)
 	}
-	_, err := service.Update(ctx, "api", UpdateRequest{Credential: &CredentialSpec{Pattern: "example.com", Auth: &credentials.AuthConfig{Source: "static", Type: "bearer", Token: "new"}}})
+	_, err := service.Update(ctx, "api", UpdateRequest{Credential: &CredentialSpec{Pattern: "provider:api", Auth: &credentials.AuthConfig{Source: "static", Type: "bearer", Token: "new"}}})
 	if err == nil {
 		t.Fatal("stale snapshot accepted")
 	}
@@ -236,7 +318,7 @@ func TestProviderCredentialRejectsStaleConsumerSnapshot(t *testing.T) {
 	if err != nil || saved.Name != "Changed elsewhere" || saved.DefaultModel != "new-model" {
 		t.Fatal("lost persisted preferences")
 	}
-	auth, err := mgr.GetByPatternWithContext(ctx, "example.com")
+	auth, err := mgr.GetByPatternWithContext(ctx, "provider:api")
 	if err != nil || auth.Token != "old" {
 		t.Fatal("vault changed on conflict")
 	}
@@ -376,7 +458,7 @@ func TestProviderCredentialCommitPublicationSerializesMutations(t *testing.T) {
 			expected := service.registry.Get("api")
 			next := *expected
 			next.Name = "Committed"
-			draft := &CredentialSpec{Pattern: "example.com", Auth: &credentials.AuthConfig{Source: "static", Type: "bearer", Token: "new"}}
+			draft := &CredentialSpec{Pattern: "provider:api", Auth: &credentials.AuthConfig{Source: "static", Type: "bearer", Token: "new"}}
 			scope, err := service.captureCredentialSave(ctx, draft, service.registry.Generation())
 			if err != nil {
 				t.Fatal(err)
@@ -421,7 +503,7 @@ func TestProviderCredentialCommitPublicationSerializesMutations(t *testing.T) {
 			if err := <-changed; err != nil {
 				t.Fatal(err)
 			}
-			auth, err := mgr.GetByPatternWithContext(ctx, "example.com")
+			auth, err := mgr.GetByPatternWithContext(ctx, "provider:api")
 			if err != nil || auth.Token != "new" {
 				t.Fatal("credential not committed")
 			}
@@ -486,7 +568,7 @@ func TestProviderCredentialCreateUsesEffectiveReference(t *testing.T) {
 			}
 			want := "*.example.com"
 			if key != "" {
-				want = "api.example.com"
+				want = "provider:api"
 			}
 			if got.CredentialPattern != want || !got.CredentialConfigured {
 				t.Fatalf("reference/status: %+v", got)
@@ -610,9 +692,9 @@ func TestProviderUpdateExplicitKeyPreservesSharedWildcard(t *testing.T) {
 	if got.Provider.CredentialPattern != "new.example.com" {
 		t.Fatalf("wrong reference: %s", got.Provider.CredentialPattern)
 	}
-	for pattern, token := range map[string]string{"*.example.com": "shared-key", "new.example.com": "new-key", "old.example.net": "old-key"} {
+	for pattern, token := range map[string]string{"*.example.com": "shared-key", "new.example.com": "new-key", "provider:api": "old-key"} {
 		auth, err := mgr.GetByPatternWithContext(ctx, pattern)
-		if err != nil || auth.Token != token {
+		if err != nil || auth == nil || auth.Token != token {
 			t.Fatalf("changed credential %s: %v", pattern, err)
 		}
 	}

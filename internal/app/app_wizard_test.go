@@ -47,7 +47,7 @@ func setupWizardTestApp(t *testing.T) *App {
 	t.Helper()
 	_ = setupWizardTestDB(t)
 
-	credMgr := credentials.NewManager([]byte("test-key-exactly-32-bytes-long!!"))
+	credMgr := credentials.NewManagerWithStore([]byte("test-key-exactly-32-bytes-long!!"), credentials.NewDBStore(), true)
 	llmRegistry := llm.NewProviderRegistry()
 	svc := providers.NewService(providers.ServiceConfig{
 		Registry: llmRegistry,
@@ -100,7 +100,7 @@ func setupWizardTestAppWithProfiles(t *testing.T) (*App, *profiles.Manager) {
 		configdir.ResetForTests()
 	})
 
-	credMgr := credentials.NewManager([]byte("test-key-exactly-32-bytes-long!!"))
+	credMgr := credentials.NewManagerWithStore([]byte("test-key-exactly-32-bytes-long!!"), credentials.NewDBStore(), true)
 	pm := profiles.NewManager()
 	llmRegistry := llm.NewProviderRegistry()
 	svc := providers.NewService(providers.ServiceConfig{

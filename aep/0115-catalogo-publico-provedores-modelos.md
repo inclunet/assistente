@@ -265,6 +265,15 @@ perfil ativo para os sentinelas de provedor/modelo padrão, evitando que um
 modelo explícito antigo oculte a nova escolha.
 Credenciais usam o mesmo resolvedor e a transação do cadastro compartilhado;
 HTTP remoto exige aceite explícito para a URL exata antes da sondagem.
+No serviço de criação, toda credencial nova fornecida em draft ou API key
+legada recebe `provider:<id>` após validação e é salva atomicamente com a
+conexão. O draft original da sondagem e entradas anteriores por hostname ou
+wildcard permanecem intactos. Criar uma conexão sem fornecer credencial nova
+mantém o contrato de reutilização de referência existente; duplicação explícita
+por ID continua compartilhando a referência autorizada, sem copiar segredos.
+Edição preserva referências existentes, sem migração implícita. Regressões em
+`internal/providers/credential_save_test.go` cobrem sobrescrita, portas locais,
+entrada legada, rollback, duplicação explícita e preservação de fontes externas.
 A autenticação de ambos reutiliza SetupVault/UnlockVault/CreateAdminUser/Login/
 RefreshAuth, sem inferir usuário nem contornar o isolamento por sessão.
 Evidências: `cmd/asst/provider_setup_test.go` e `provider_auth_test.go`, além dos
