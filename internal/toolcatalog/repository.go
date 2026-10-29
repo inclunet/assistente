@@ -155,7 +155,7 @@ func (r *DBRepository) ListTools(ctx context.Context, filter tools.ToolCatalogFi
 	if filter.AvailabilityStatus != "" {
 		query = query.Where("availability_status = ?", filter.AvailabilityStatus)
 	} else if !filter.IncludeUnavailable {
-		query = query.Where("availability_status = ?", tools.ToolAvailabilityAvailable)
+		query = query.Where("availability_status = ? OR name IN ?", tools.ToolAvailabilityAvailable, filter.RecoverableNames)
 	}
 	if filter.Limit > 0 {
 		query = query.Limit(filter.Limit)
@@ -237,6 +237,10 @@ func (r *DBRepository) MarkServerToolsUnavailable(ctx context.Context, serverID 
 		"last_unavailable_at": &now,
 	}
 	if len(seenNames) == 0 {
+		// Uma desconexão não desfaz a descoberta negativa do servidor.
+		if reason != "not discovered" {
+			base = base.Where("availability_reason <> ? OR availability_reason IS NULL", "not discovered")
+		}
 		var affected int64
 		err := r.retry(ctx, "mark_server_tools_unavailable", func() error {
 			tx := base.Updates(updates)

@@ -1361,3 +1361,8 @@ ambos como documentos principais: por isso há 102 documentos para 101 números
 ocupados.
 
 - [AEP-0110 — Fontes explícitas de credenciais](0110-fontes-explicitas-de-credenciais.md) — Done — cache command sob demanda, renovação HTTP 401 e diagnóstico de execuções
+
+
+Recuperação de ferramentas MCP desconectadas (28/10/2026): AEPs 0049, 0105 e
+0112 permanecem **In Progress**; AEP-0081 permanece **Accepted**. Extensão de
+carregamento sob demanda implementada e coberta por regressões, com confirmação real/NVDA pendente.

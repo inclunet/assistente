@@ -647,3 +647,13 @@ Evidências: `internal/mcp/repository_test.go`, `manager_test.go`,
   `OAuth2Scopes`.
 - [ ] A retenção de logs possui regressões de cutoff, preservação de registros
   recentes e execução inicial/periódica.
+
+
+## Ferramentas recuperáveis após desconexão — 28/10/2026
+
+Status: **In Progress**, mantendo as demais pendências deste AEP. A extensão
+aprovada no AEP-0081 permite descobrir metadados de ferramentas MCP de servidores
+habilitados sem afirmar disponibilidade remota. Carregar exige conexão e
+confirmação no registry atual. Desconexões preservam `not discovered` para não
+ressuscitar ferramentas retiradas; a persistência não sofre nova migração.
+Evidência: `TestDisconnectPreservesRemovedToolAndRecoverableFilter`.

@@ -1012,3 +1012,22 @@ final acompanha a ferramenta executada e remove o servidor antigo quando ela
 passa a ser local.
 Dry-runs de jobs com saída simulada também preservam o nome original e o
 servidor da ferramenta MCP registrada, sem executar a chamada remota.
+
+
+### Usar ferramentas após iniciar desconectado
+
+Se a sessão expirou enquanto o Assistente estava fechado, as ferramentas já
+conhecidas de um servidor habilitado continuam podendo ser encontradas pelo
+chat. Quando forem carregadas para uso, o Assistente conecta o servidor e,
+se a renovação não for suficiente, abre o navegador para autorizar. Conclua
+a autorização e volte ao Assistente; não é necessário abrir Configurações.
+
+A busca no catálogo não abre o navegador. A conexão automática e os trabalhos
+em segundo plano também não iniciam consentimento. Se você cancelar ou negar,
+a mesma conversa não repetirá a janela naquele turno. Uma nova mensagem pode
+iniciar outra tentativa.
+
+Depois de conectar, o Assistente confirma quais ferramentas o servidor ainda
+oferece e usa suas definições atuais. Ferramentas removidas pelo servidor e
+servidores desabilitados não são habilitados por esse processo. Um servidor
+nunca conectado ainda precisa da primeira conexão para descobrir suas ferramentas.

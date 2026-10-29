@@ -550,22 +550,74 @@ func (m *Manager) Connect(slug string) error {
 // ConnectWithContext serves tool actions using the caller's interaction scope.
 // Background tools never inherit the desktop Connect action's consent permission.
 func (m *Manager) ConnectWithContext(ctx context.Context, slug string) error {
-	cfg, err := m.GetConfig(slug)
-	if err != nil {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
 		return err
 	}
 	m.mu.RLock()
-	_, connected := m.connections[slug]
+	previous := m.connections[slug]
+	ended := previous != nil && previous.sessionEnded
 	m.mu.RUnlock()
-	if connected {
-		return ctx.Err()
+	if ended {
+		// O watcher já confirmou o encerramento. O uso atual antecipa o retry
+		// agendado, sem tocar em uma conexão que outra chamada tenha substituído.
+		m.supersedeReconnectWithManualConnect(slug)
+		if m.detachConnection(slug, previous) {
+			_ = closeServerConnection(slug, previous, true)
+		}
+	}
+	connected, err := m.waitForConnection(ctx, slug)
+	if err != nil || connected {
+		return err
+	}
+	cfg, err := m.GetConfig(slug)
+	if err != nil {
+		return err
 	}
 	if cfg.Enabled && cfg.AuthType == AuthOAuth2PKCE && cfg.OAuthAuthorizationID != "" {
 		if _, err := m.resolveManagedOAuth(ctx, *cfg, ""); err != nil {
 			return err
 		}
 	}
-	return m.connectWithParentContext(ctx, slug, false, 0)
+	err = m.connectWithParentContext(ctx, slug, false, 0, true)
+	if err == nil {
+		return nil
+	}
+	// Outra chamada pode ter iniciado a conexão enquanto resolvíamos OAuth.
+	connected, waitErr := m.waitForConnection(ctx, slug)
+	if waitErr != nil || connected {
+		return waitErr
+	}
+	return err
+}
+
+// A tentativa inclui discovery: uma sessão publicada provisoriamente ainda não
+// confirma que o registry esteja pronto. Leia conexão e tentativa sob o mesmo lock.
+func (m *Manager) waitForConnection(ctx context.Context, slug string) (bool, error) {
+	for {
+		if err := ctx.Err(); err != nil {
+			return false, err
+		}
+		m.mu.RLock()
+		var done <-chan struct{}
+		if attempt := m.managedAttempts[slug]; attempt != nil {
+			done = attempt.done
+		} else if attempt := m.connectCancels[slug]; attempt != nil {
+			done = attempt.done
+		}
+		_, connected := m.connections[slug]
+		m.mu.RUnlock()
+		if done == nil {
+			return connected, nil
+		}
+		select {
+		case <-ctx.Done():
+			return false, ctx.Err()
+		case <-done:
+		}
+	}
 }
 
 func (m *Manager) ReconnectWithContext(ctx context.Context, slug string) error {
@@ -577,10 +629,10 @@ func (m *Manager) ReconnectWithContext(ctx context.Context, slug string) error {
 
 // allowConsent is granted only by explicit user actions, never background retry.
 func (m *Manager) connect(slug string, allowConsent bool) (connectErr error) {
-	return m.connectWithParentContext(m.ctx, slug, allowConsent, 0)
+	return m.connectWithParentContext(m.ctx, slug, allowConsent, 0, false)
 }
 
-func (m *Manager) connectWithParentContext(parentCtx context.Context, slug string, allowConsent bool, retryAttemptID uint64) (connectErr error) {
+func (m *Manager) connectWithParentContext(parentCtx context.Context, slug string, allowConsent bool, retryAttemptID uint64, reuse bool) (connectErr error) {
 	if parentCtx == nil {
 		parentCtx = context.Background()
 	}
@@ -603,6 +655,16 @@ func (m *Manager) connectWithParentContext(parentCtx context.Context, slug strin
 		_, connected := m.connections[slug]
 		m.mu.RUnlock()
 		if connected {
+			if reuse {
+				ready, err := m.waitForConnection(parentCtx, slug)
+				if err != nil {
+					return err
+				}
+				if !ready {
+					return fmt.Errorf("conexão MCP '%s' não foi concluída", slug)
+				}
+				return nil
+			}
 			disconnect := m.Disconnect
 			if !allowConsent {
 				if retryAttemptID == 0 {
@@ -659,16 +721,16 @@ func (m *Manager) connectWithParentContext(parentCtx context.Context, slug strin
 			}
 		}
 		m.clearNeedsReauth(*cfg)
-		return m.connectWithContextForRetry(ctx, slug, retryAttemptID)
+		return m.connectWithContextForRetry(ctx, slug, retryAttemptID, reuse)
 	}
-	return m.connectWithContextForRetry(parentCtx, slug, retryAttemptID)
+	return m.connectWithContextForRetry(parentCtx, slug, retryAttemptID, reuse)
 }
 
 func (m *Manager) connectWithContext(parentCtx context.Context, slug string) error {
-	return m.connectWithContextForRetry(parentCtx, slug, 0)
+	return m.connectWithContextForRetry(parentCtx, slug, 0, false)
 }
 
-func (m *Manager) connectWithContextForRetry(parentCtx context.Context, slug string, retryAttemptID uint64) error {
+func (m *Manager) connectWithContextForRetry(parentCtx context.Context, slug string, retryAttemptID uint64, reuse bool) error {
 	if parentCtx == nil {
 		parentCtx = context.Background()
 	}
@@ -703,7 +765,7 @@ func (m *Manager) connectWithContextForRetry(parentCtx context.Context, slug str
 		m.mu.Unlock()
 		select {
 		case <-cleanupDone:
-			return m.connectWithContextForRetry(parentCtx, slug, retryAttemptID)
+			return m.connectWithContextForRetry(parentCtx, slug, retryAttemptID, reuse)
 		case <-parentCtx.Done():
 			return parentCtx.Err()
 		}
@@ -728,8 +790,16 @@ func (m *Manager) connectWithContextForRetry(parentCtx context.Context, slug str
 		m.mu.Unlock()
 		return oauthflow.ErrTransient
 	}
-	if _, connecting := m.connectCancels[slug]; connecting {
+	if attempt, connecting := m.connectCancels[slug]; connecting {
 		m.mu.Unlock()
+		if reuse {
+			select {
+			case <-parentCtx.Done():
+				return parentCtx.Err()
+			case <-attempt.done:
+			}
+			return m.connectWithContextForRetry(parentCtx, slug, retryAttemptID, reuse)
+		}
 		return fmt.Errorf("servidor MCP '%s' já está conectando — use Desconectar para cancelar", slug)
 	}
 
@@ -737,6 +807,10 @@ func (m *Manager) connectWithContextForRetry(parentCtx context.Context, slug str
 	// m.mu internamente, então liberamos o lock antes de chamá-lo e o
 	// readquirimos depois (evita deadlock por re-entrância no RWMutex).
 	if _, connected := m.connections[slug]; connected {
+		if reuse {
+			m.mu.Unlock()
+			return parentCtx.Err()
+		}
 		m.mu.Unlock()
 		if managedOwner != nil {
 			if err := m.disconnectWithManagedOwner(parentCtx, slug, managedOwner); err != nil {
@@ -2457,7 +2531,7 @@ func (m *Manager) runReconnectWithRetry(slug string, reconnectCtx context.Contex
 		}
 		// Resolve before the SDK wraps errors, preserving the typed OAuth reason.
 		// Background recovery never receives permission to open consent.
-		if err := m.connectWithParentContext(reconnectCtx, slug, false, attemptID); err != nil {
+		if err := m.connectWithParentContext(reconnectCtx, slug, false, attemptID, false); err != nil {
 			logging.Errorf(context.Background(), "mcp.manager", "[MCP] Falha ao reconectar '%s': %v", slug, err)
 			if errors.Is(err, oauthflow.ErrReauthorize) || errors.Is(err, oauthflow.ErrPermission) || errors.Is(err, oauthflow.ErrClientConfiguration) {
 				m.mu.RLock()
