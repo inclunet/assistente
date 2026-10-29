@@ -235,6 +235,15 @@ func (e *mcpPreparationEmitter) Emit(name string, payload any) {
 }
 
 func TestSendMessageUseCase_MCPPreparationFailurePreservesMessage(t *testing.T) {
+	testMCPPreparationFailure(t, false)
+}
+
+func TestSendMessageUseCase_MCPPreparationCancellationIsNotFailure(t *testing.T) {
+	testMCPPreparationFailure(t, true)
+}
+
+func testMCPPreparationFailure(t *testing.T, cancelDuringPreparation bool) {
+	t.Helper()
 	setupTestDB(t)
 	db := database.DB()
 	if err := db.AutoMigrate(&database.MCPServer{}, &database.MCPServerLog{}, &database.ToolCatalog{}); err != nil {
@@ -242,7 +251,13 @@ func TestSendMessageUseCase_MCPPreparationFailurePreservesMessage(t *testing.T) 
 	}
 	ctx := database.WithUserID(context.Background(), "test-user")
 	registry := tools.NewRegistry()
-	manager := mcp.NewManager(registry, nil, nil)
+	turnCtx, cancelTurn := context.WithCancel(ctx)
+	defer cancelTurn()
+	manager := mcp.NewManager(registry, nil, func(event string, _ any) {
+		if cancelDuringPreparation && event == "mcp:server_connecting" {
+			cancelTurn()
+		}
+	})
 	defer manager.CloseAll()
 	manager.SetAuthContextProvider(func() context.Context { return ctx })
 	manager.SetRepository(mcp.NewDBRepository(db))
@@ -273,18 +288,24 @@ func TestSendMessageUseCase_MCPPreparationFailurePreservesMessage(t *testing.T) 
 		cfg.ToolRegistry, cfg.MCPMgr = registry, manager
 	})
 	_, err = uc.Execute(usecases.SendMessageRequest{
-		Ctx: ctx, ConversationID: conv.ID, UserContent: "use search", Source: "wails",
+		Ctx: turnCtx, ConversationID: conv.ID, UserContent: "use search", Source: "wails",
 		Params: llm.ChatParams{SurfaceSessionKey: "session", SurfaceID: "tab", SurfaceType: "page"},
 	})
-	if err == nil || len(emitter.errors) != 1 {
-		t.Fatalf("expected explicit failure and event: err=%v events=%+v", err, emitter.errors)
-	}
-	event := emitter.errors[0]
-	if event.ConversationID != conv.ID || event.Error != ports.ChatErrorMCPPreparation {
-		t.Fatalf("incorrect chat error: %+v", event)
-	}
-	if event.SurfaceOrigin == nil || event.SurfaceOrigin.SurfaceID != "tab" || event.SurfaceOrigin.SessionKey != "session" {
-		t.Fatalf("error lost its surface origin: %+v", event.SurfaceOrigin)
+	if cancelDuringPreparation {
+		if !errors.Is(err, context.Canceled) || len(emitter.errors) != 0 {
+			t.Fatalf("cancellation reported as failure: err=%v events=%+v", err, emitter.errors)
+		}
+	} else {
+		if err == nil || len(emitter.errors) != 1 {
+			t.Fatalf("expected explicit failure and event: err=%v events=%+v", err, emitter.errors)
+		}
+		event := emitter.errors[0]
+		if event.ConversationID != conv.ID || event.Error != ports.ChatErrorMCPPreparation {
+			t.Fatalf("incorrect chat error: %+v", event)
+		}
+		if event.SurfaceOrigin == nil || event.SurfaceOrigin.SurfaceID != "tab" || event.SurfaceOrigin.SessionKey != "session" {
+			t.Fatalf("error lost its surface origin: %+v", event.SurfaceOrigin)
+		}
 	}
 	var count int64
 	if err := db.Model(&database.ChatMessage{}).Where("conversation_id = ? AND role = ?", conv.ID, "user").Count(&count).Error; err != nil || count != 1 {

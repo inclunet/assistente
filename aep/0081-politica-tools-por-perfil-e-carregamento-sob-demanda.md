@@ -463,3 +463,7 @@ Uma entrada que sozinha exceda o limite retorna erro explícito. Evidência:
 Falha de preparação preloaded emite `chat:error`, preserva a mensagem e libera
 a conversa; não prossegue silenciosamente sem as ferramentas selecionadas
 (`TestSendMessageUseCase_MCPPreparationFailurePreservesMessage`).
+
+Cancelar o turno durante a preparação não emite erro de MCP. A mensagem
+permanece persistida e a conversa é liberada, conforme
+`TestSendMessageUseCase_MCPPreparationCancellationIsNotFailure`.

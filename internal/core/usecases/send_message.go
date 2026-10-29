@@ -610,6 +610,9 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 	for _, entry := range toolCfg.CatalogTools {
 		if initialPolicy.State(entry.Name) == chat.ToolPolicyPreloaded {
 			if err := uc.mcpMgr.PrepareCatalogTool(ctx, entry); err != nil {
+				if errors.Is(ctx.Err(), context.Canceled) {
+					return "", ctx.Err()
+				}
 				uc.emitter.Emit("chat:error", ports.ErrorEvent{
 					ConversationID: req.ConversationID,
 					SurfaceOrigin:  surfaceOrigin,
