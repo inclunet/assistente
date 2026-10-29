@@ -2,9 +2,9 @@ package llmcatalog
 
 import (
 	"encoding/json"
-	"fmt"
 	"math"
 	"slices"
+	"strconv"
 )
 
 // Parameter describes a canonical chat field. An absent bound or default is
@@ -28,7 +28,7 @@ type ParameterValueError struct {
 func (e *ParameterValueError) Error() string {
 	marker := "parameter_error:v1:" + e.Field + ":" + e.Code
 	if e.Limit != nil {
-		marker += fmt.Sprintf(":%g", *e.Limit)
+		marker += ":" + strconv.FormatFloat(*e.Limit, 'f', -1, 64)
 	}
 	return marker
 }

@@ -6,6 +6,20 @@ import (
 	"testing"
 )
 
+func TestParameterValueErrorKeepsLimitsReadable(t *testing.T) {
+	for _, tc := range []struct {
+		limit float64
+		text  string
+	}{
+		{1000000, "1000000"}, {2147483647, "2147483647"}, {0.000001, "0.000001"},
+	} {
+		err := &ParameterValueError{Field: "max_output_tokens", Code: "maximum", Limit: &tc.limit}
+		if got := err.Error(); got != "parameter_error:v1:max_output_tokens:maximum:"+tc.text {
+			t.Fatalf("marker=%q", got)
+		}
+	}
+}
+
 func TestDecodeRejectsInvalidParameterContracts(t *testing.T) {
 	for _, extra := range []string{
 		`"parameters":{"temperature":{"support":"supported","minimum":null}}`,

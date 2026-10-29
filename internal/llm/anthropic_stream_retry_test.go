@@ -157,9 +157,13 @@ func TestAnthropicCancelamentoEmThinkingNaoFinalizaResposta(t *testing.T) {
 		Model: "claude-test", AuthMode: AuthModeNone,
 	}, credentials.NewManager([]byte("test-key-exactly-32-bytes-long!!")))
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	handler := &cancelOnThinkingHandler{cancel: cancel}
 
-	provider.StreamChat(ctx, []Message{{Role: "user", Content: "oi"}}, ChatParams{Model: "claude-test"}, handler)
+	provider.StreamChat(ctx, []Message{{Role: "user", Content: "oi"}}, ChatParams{Model: "claude-test", MaxTokens: testParameterPointer(123)}, handler)
+	if ctx.Err() != context.Canceled {
+		t.Fatal("OnThinking não cancelou o contexto")
+	}
 
 	if handler.done != "" || len(handler.chunks) != 0 {
 		t.Fatalf("barge-in publicou terminal/chunk obsoleto: done=%q chunks=%v", handler.done, handler.chunks)
