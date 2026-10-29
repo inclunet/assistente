@@ -116,7 +116,7 @@ func TestCredentialMetadataFlowsThroughProviderPreviewCreateAndDuplicate(t *test
 		t.Fatalf("preview: %v %v", models, err)
 	}
 	created, err := consumer.CreateLLMProvider(ctx, CreateLLMProviderRequest{ID: "original", Name: "Original", Type: "custom", APIFormat: "openai", BaseURL: resource, Credential: input})
-	if err != nil || created["credential_pattern"] != "localhost" {
+	if err != nil || created["credential_pattern"] != "provider:original" {
 		t.Fatalf("create: %v %v", created, err)
 	}
 	// Move the fixture to a non-hostname alias, then duplicate through the DTO/controller.

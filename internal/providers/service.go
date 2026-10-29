@@ -360,7 +360,7 @@ func normalizeProviderRuntimeDefaults(p *llm.ProviderConfig) {
 // Create cria e registra um novo provedor LLM.
 func (s *Service) Create(ctx context.Context, req CreateRequest) (*CreateResult, error) {
 	generation := s.registry.Generation()
-	if req.Credential == nil {
+	if req.Credential == nil && req.APIKey == "" {
 		s.publicationMu.Lock()
 		defer s.publicationMu.Unlock()
 	}
@@ -454,23 +454,46 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*CreateResult,
 	if err := s.prepareCredential(ctx, provider, source, req.Credential, req.APIKey != ""); err != nil {
 		return nil, err
 	}
+	draft := req.Credential
 	if req.APIKey != "" {
-		provider.CredentialPattern = hostname
-	} else if !isACP && req.Credential == nil {
+		// A entrada legada também representa um segredo novo: normalizá-la
+		// permite usar a mesma transação de credencial e conexão do formulário.
+		auth := &credentials.AuthConfig{Source: "static", Type: "bearer", Token: req.APIKey}
+		if provider.GetAPIFormat() == llm.APIFormatAnthropic {
+			auth = &credentials.AuthConfig{Source: "static", Type: "custom", Headers: map[string]string{"x-api-key": req.APIKey}}
+		}
+		draft = &CredentialSpec{Auth: auth}
+		if err := validateCredentialMode(provider, draft); err != nil {
+			return nil, err
+		}
+		scope, err = s.captureCredentialSave(ctx, draft, generation)
+		if err != nil {
+			return nil, err
+		}
+	} else if !isACP && draft == nil {
 		auth, err := s.credentialConfig(ctx, provider.CredentialPattern)
 		credConfigured = err == nil && auth != nil && auth.Source != ""
+	}
+	if draft != nil {
+		// prepareCredential já validou a referência original do editor. Uma
+		// nova credencial pertence à nova conexão, não ao hostname compartilhado.
+		// Copiar preserva o draft usado pela sondagem e não altera entradas antigas.
+		isolated := *draft
+		isolated.Pattern = "provider:" + provider.ID
+		draft = &isolated
+		provider.CredentialPattern = isolated.Pattern
 	}
 
 	if err := provider.Validate(); err != nil {
 		return nil, err
 	}
-	if req.Credential != nil {
-		if err := s.saveWithCredential(ctx, provider, nil, req.Credential, scope); err != nil {
+	if draft != nil {
+		if err := s.saveWithCredential(ctx, provider, nil, draft, scope); err != nil {
 			return nil, err
 		}
 		return &CreateResult{Provider: provider, CredentialPattern: provider.CredentialPattern, CredentialConfigured: true}, nil
 	}
-	if err := s.saveWithoutCredentialDraft(ctx, provider, generation, req.APIKey, isFirst); err != nil {
+	if err := s.saveWithoutCredentialDraft(ctx, provider, generation, "", isFirst); err != nil {
 		return nil, err
 	}
 

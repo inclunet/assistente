@@ -15,6 +15,16 @@ import (
 // retire optionally replaces a versioned OAuth grant using the same lifecycle
 // guards as explicit OAuth removal. No cache or consumer publication precedes commit.
 func (s *oauthStore) SaveWithConsumer(ctx context.Context, pattern string, auth *AuthConfig, retire *oauthflow.Record, update func(*gorm.DB) error, publish func()) error {
+	return s.saveWithConsumer(ctx, pattern, auth, retire, false, update, publish)
+}
+
+// CreateCredentialWithConsumer preserves any existing credential, including entries whose
+// original consumer was deleted. Creation never implies consent to replace it.
+func (s *oauthStore) CreateCredentialWithConsumer(ctx context.Context, pattern string, auth *AuthConfig, update func(*gorm.DB) error, publish func()) error {
+	return s.saveWithConsumer(ctx, pattern, auth, nil, true, update, publish)
+}
+
+func (s *oauthStore) saveWithConsumer(ctx context.Context, pattern string, auth *AuthConfig, retire *oauthflow.Record, createOnly bool, update func(*gorm.DB) error, publish func()) error {
 	m := s.manager
 	user, err := database.RequireUserID(ctx)
 	if err != nil {
@@ -50,6 +60,15 @@ func (s *oauthStore) SaveWithConsumer(ctx context.Context, pattern string, auth 
 	}
 	var id string
 	err = database.WithSQLiteImmediateTransactionOnce(ctx, time.Time{}, store.db, "credentials.consumer.save", func(tx *gorm.DB) error {
+		if createOnly {
+			var count int64
+			if err := tx.Model(&database.CredentialEntry{}).Where("user_id = ? AND pattern = ?", user, pattern).Count(&count).Error; err != nil {
+				return err
+			}
+			if count != 0 {
+				return oauthflow.ErrConflict
+			}
+		}
 		if retire != nil {
 			if retire.UserID != user {
 				return oauthflow.ErrConflict

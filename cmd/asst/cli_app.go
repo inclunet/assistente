@@ -464,8 +464,32 @@ func (c cliApp) ListModelsRaw(req apidto.TestLLMProviderRequest) ([]string, erro
 	return ctrl.ListModelsRaw(ctx, req)
 }
 
-func (c cliApp) CreateDefaultLLMProvider(providerType, apiKey string) error {
-	return app.CreateDefaultLLMProvider(c.App, providerType, apiKey)
+func (c cliApp) GetLLMCatalog() (apidto.LLMCatalogResponse, error) {
+	api := app.LLMCatalogAPI(c.App)
+	if api == nil {
+		return apidto.LLMCatalogResponse{}, wailsapi.ErrLLMCatalogNotWired
+	}
+	return api.GetLLMCatalog()
+}
+
+func (c cliApp) GetCredentialForURL(resource string) (*apidto.CredentialSummary, error) {
+	ctrl, err := c.credentials()
+	if err != nil {
+		return nil, err
+	}
+	ctx, err := app.AuthenticatedContext(c.App)
+	if err != nil {
+		return nil, err
+	}
+	return ctrl.GetCredentialForURL(ctx, resource)
+}
+
+func (c cliApp) RefreshLLMCatalog() (apidto.LLMCatalogResponse, error) {
+	api := app.LLMCatalogAPI(c.App)
+	if api == nil {
+		return apidto.LLMCatalogResponse{}, wailsapi.ErrLLMCatalogNotWired
+	}
+	return api.RefreshLLMCatalog()
 }
 
 func (c cliApp) CreateLLMProvider(req apidto.CreateLLMProviderRequest) (map[string]interface{}, error) {

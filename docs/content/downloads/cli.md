@@ -60,31 +60,34 @@ asst setup
 Ele guia você por:
 1. **Senha mestre** — protege suas API keys (criptografia local)
 2. **Chave de recuperação** — gerada automaticamente (anote em lugar seguro)
-3. **Provedor de IA** — escolha um serviço cujo perfil esteja disponível no catálogo e seja compatível com o aplicativo
-4. **API key** — entrada com caracteres ocultos
-5. **Teste de conexão** — valida automaticamente
-6. **Modelo** — escolha da lista ou digite o nome
+3. **Conta local** — cria a primeira conta ou autentica uma existente; quando possível, restaura a sessão salva
+4. **Provedor de IA** — escolha um perfil compatível do catálogo ou configuração manual
+5. **API key** — entrada com caracteres ocultos no terminal
+6. **Teste de conexão e modelo** — uma única listagem consulta o servidor; informe o ID exato, inclusive aliases de proxies
 
 Os presets usados por `asst setup` e `asst providers add` dependem do catálogo
-público ou de uma cópia válida em cache. Sem um perfil compatível, a criação
-retorna um erro; não usa uma lista local alternativa de URLs ou modelos.
-O menu inicial ainda possui opções legadas: os presets nativos de Ollama e
-Cohere não podem ser criados por esse caminho enquanto suas rotas não forem
-suportadas pela integração do catálogo.
+público ou de uma cópia válida em cache. Os dois comandos usam o mesmo formulário
+de terminal, com links de cadastro e obtenção de chave e as políticas dos campos
+publicadas no catálogo. Sem catálogo, você pode solicitar uma atualização ou
+seguir com **Configuração manual**, informando URL, formato e autenticação.
+Perfis sem suporte no runtime não aparecem como opções disponíveis.
 
 No desktop, a configuração inicial usa o mesmo formulário de provedores das
 configurações, com perfis do catálogo, links de cadastro/chave e seleção de
 modelo. A configuração manual permanece disponível sem catálogo. Cancelar essa
 etapa preserva o cofre já preparado; na próxima entrada é possível retomá-la.
 
-Para esses casos, ou para um endpoint personalizado, use **Configurações →
-Provedores** no aplicativo desktop e a configuração manual, escolhendo um
-formato de API suportado pelo servidor. A configuração manual não depende do
-catálogo. Depois, selecione a conexão salva na CLI. Uma conexão existente não
-é sobrescrita ao tentar criar novamente o mesmo preset.
+Endpoints personalizados também podem ser cadastrados diretamente pelo CLI.
+Antes de enviar credenciais por HTTP remoto, o terminal pede autorização para
+a URL exata. Recusar cancela o cadastro antes da sondagem. A chave só é salva
+junto com a conexão, após concluir o formulário. Uma falha de listagem permite
+continuar com um modelo manual mediante confirmação explícita.
 
-Em `asst providers add`, confirmar o modelo exibido com Enter aplica esse
-modelo ao perfil ativo, mesmo se o catálogo tiver outro modelo padrão.
+O modelo confirmado é salvo na própria conexão. `asst providers add` preserva
+o provedor padrão existente e os perfis de conversa; a primeira conexão vira
+padrão automaticamente. `asst setup` define a nova conexão como padrão e ajusta
+o perfil ativo para usar esse provedor e seu modelo padrão. Os demais perfis
+permanecem inalterados.
 
 ## Comandos disponíveis
 

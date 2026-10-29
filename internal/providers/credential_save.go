@@ -89,6 +89,7 @@ func (s *Service) prepareCredential(ctx context.Context, p, existing *llm.Provid
 // request or shell execution is performed while saving configuration.
 type credentialConsumerStore interface {
 	SaveWithConsumer(context.Context, string, *credentials.AuthConfig, *oauthflow.Record, func(*gorm.DB) error, func()) error
+	CreateCredentialWithConsumer(context.Context, string, *credentials.AuthConfig, func(*gorm.DB) error, func()) error
 }
 type credentialSaveScope struct {
 	store      credentialConsumerStore
@@ -154,8 +155,14 @@ func (s *Service) saveWithCredential(ctx context.Context, p, expected *llm.Provi
 	}
 	var publishErr error
 	var persistedProvider *database.LLMProvider
+	save := func(ctx context.Context, pattern string, auth *credentials.AuthConfig, update func(*gorm.DB) error, publish func()) error {
+		return atomicStore.SaveWithConsumer(ctx, pattern, auth, nil, update, publish)
+	}
+	if expected == nil {
+		save = atomicStore.CreateCredentialWithConsumer
+	}
 	err = s.registry.WithGeneration(generation, func() error {
-		return atomicStore.SaveWithConsumer(ctx, draft.Pattern, draft.Auth, nil, func(tx *gorm.DB) error {
+		return save(ctx, draft.Pattern, draft.Auth, func(tx *gorm.DB) error {
 			if generation != s.registry.Generation() {
 				return oauthflow.ErrConflict
 			}

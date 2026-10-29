@@ -1,6 +1,6 @@
 # AEP-0115 — Catálogo público de provedores e modelos
 
-Status: In Progress — contrato aprovado; fases 1 (schema e asset inicial) e 2 (consumo, validação e cache backend) implementadas; fase 3 parcialmente entregue com persistência explícita, formulário por perfis, aceite por conexão para HTTP remoto e fábrica backend allowlisted; provedores legados sem aceite permanecem editáveis e bloqueados até reautorização explícita; onboarding desktop reutiliza o formulário; migração da CLI, modelos e vozes pendentes; Cohere e Ollama aguardam suporte às rotas/runtime catalogados
+Status: In Progress — contrato aprovado; fases 1 (schema e asset inicial) e 2 (consumo, validação e cache backend) implementadas; fase 3 parcialmente entregue com persistência explícita, formulário por perfis, aceite por conexão para HTTP remoto e fábrica backend allowlisted; provedores legados sem aceite permanecem editáveis e bloqueados até reautorização explícita; onboarding desktop reutiliza o formulário; CLI consolidada com autenticação e cadastro compartilhados; modelos e vozes pendentes; Cohere e Ollama aguardam suporte às rotas/runtime catalogados
 
 ## Resumo
 
@@ -231,7 +231,7 @@ altera conexões existentes nem sobrepõe a identidade explícita persistida.
 
 1. **Contrato e asset JSON — concluída neste PR.** Schema Draft 2020-12 validado contra o asset inicial publicado em `docs/static/json/`, cobrindo provedores hospedados, Ollama/LocalAI/llama.cpp, OpenRouter, LiteLLM, perfil personalizado, modelos, exposição por proxy e completude de vozes.
 2. **Consumo e cache no backend — concluída no PR filho desta fase.** Buscar a URL fixa sem seguir redirects, validar estrutura e integridade semântica, persistir atomicamente a última versão válida com ETag/Last-Modified e expor snapshots tipados por API Wails. O cache carrega localmente e atualiza em segundo plano; falhas mantêm o snapshot válido anterior. Timestamps futuros no cache mantêm o documento disponível como stale e forçam revalidação; o shutdown aguarda refreshes explícitos e de fundo.
-3. **Configuração de provedores pelo catálogo — em andamento.** A persistência explícita de `server_profile_id` e o consumo pelo formulário estão implementados: lista perfis ativos, usa allowlists locais para família/formato/autenticação, aplica políticas de campo, oferece links acessíveis e localizados, mantém configuração customizada quando o catálogo falha e preserva valores salvos e entradas manuais durante o carregamento, sem associar perfis a conexões legadas. O `default_model_id` do perfil preenche uma conexão vinculada apenas quando o campo está vazio; valores salvos têm precedência, inclusive para políticas editáveis. A fábrica backend resolve perfis do snapshot por IDs explícitos e allowlists locais da tupla perfil/família/formato e autenticação. Aplica a mesma precedência da UI: políticas `fixed`, `hidden` e `choice` usam seu default; `editable` preserva o valor top-level e usa o default somente quando ausente ou vazio. O modo efetivo vem de `auth.mode`, sem depender de `auth.required` potencialmente divergente. Sem snapshot ou perfil compatível, a fábrica não cria presets locais: o fluxo manual continua disponível na configuração do provedor; a entrada legada de CLI retorna erro claro e não inventa URL ou modelo. O caminho Ollama mantém o adaptador runtime atual sem mapear genericamente o formato `ollama`; o perfil nativo permanece fora da fábrica até o suporte do protocolo ser definido e implementado. HTTP remoto manual exige aceite acessível antes da sondagem; o aceite fica salvo por conexão, vinculado à URL exata, é conferido no backend para o uso futuro e não é exportado na portabilidade. Conexões legadas sem aceite permanecem visíveis para edição, sem receber aceite retroativo, e são bloqueadas em chat, sumarização, health check, voz e sondagem até autorização explícita; renovar a credencial na mesma URL preserva o aceite. Conexões legadas com URL inválida também continuam editáveis e bloqueadas até a correção. O Cohere fica fora da UI e da fábrica enquanto o runtime não representar a rota catalogada `/compatibility/v1/chat/completions`; a configuração manual segue disponível. O onboarding desktop reutiliza o formulário de provedores; a migração da CLI, modelos e vozes permanece pendente.
+3. **Configuração de provedores pelo catálogo — em andamento.** A persistência explícita de `server_profile_id` e o consumo pelo formulário estão implementados: lista perfis ativos, usa allowlists locais para família/formato/autenticação, aplica políticas de campo, oferece links acessíveis e localizados, mantém configuração customizada quando o catálogo falha e preserva valores salvos e entradas manuais durante o carregamento, sem associar perfis a conexões legadas. O `default_model_id` do perfil preenche uma conexão vinculada apenas quando o campo está vazio; valores salvos têm precedência, inclusive para políticas editáveis. A fábrica backend resolve perfis do snapshot por IDs explícitos e allowlists locais da tupla perfil/família/formato e autenticação. Aplica a mesma precedência da UI: políticas `fixed`, `hidden` e `choice` usam seu default; `editable` preserva o valor top-level e usa o default somente quando ausente ou vazio. O modo efetivo vem de `auth.mode`, sem depender de `auth.required` potencialmente divergente. Sem snapshot ou perfil compatível, a fábrica não cria presets locais: o fluxo manual continua disponível na configuração do provedor; a entrada legada de CLI retorna erro claro e não inventa URL ou modelo. O caminho Ollama mantém o adaptador runtime atual sem mapear genericamente o formato `ollama`; o perfil nativo permanece fora da fábrica até o suporte do protocolo ser definido e implementado. HTTP remoto manual exige aceite acessível antes da sondagem; o aceite fica salvo por conexão, vinculado à URL exata, é conferido no backend para o uso futuro e não é exportado na portabilidade. Conexões legadas sem aceite permanecem visíveis para edição, sem receber aceite retroativo, e são bloqueadas em chat, sumarização, health check, voz e sondagem até autorização explícita; renovar a credencial na mesma URL preserva o aceite. Conexões legadas com URL inválida também continuam editáveis e bloqueadas até a correção. O Cohere fica fora da UI e da fábrica enquanto o runtime não representar a rota catalogada `/compatibility/v1/chat/completions`; a configuração manual segue disponível. O onboarding desktop reutiliza o formulário de provedores; a CLI usa um cadastro compartilhado; modelos e vozes permanecem pendentes.
 Na fábrica backend, a allowlist local inclui a origem completa (esquema, host e porta) junto à tupla perfil/família/formato e autenticação. Provedores hospedados e OpenRouter usam origens HTTPS fixas no runtime; LiteLLM fica limitado a `http://localhost:4000`, e LocalAI e llama.cpp a `http://localhost:8080`. Assim, o catálogo remoto não escolhe o destino de credenciais nem pode redirecionar uma chave para outro serviço local. Endpoints customizados permanecem no fluxo de configuração manual sob controle local do usuário.
 
 A criação catalogada reutiliza a transação existente do cofre/consumidor
@@ -253,9 +253,38 @@ catálogo/credenciais de `ProviderForm`, por `controllers/welcome_catalog_test.g
 e pela integração em `internal/app/app_wizard_test.go`.
 Os helpers e testes exclusivos do antigo percurso desktop foram removidos; as
 validações de URL/conexão continuam cobertas diretamente no serviço compartilhado.
-A CLI ainda mantém opções/metadados próprios em `setup`/`providers add`; sua
-migração e consolidação em um único percurso continuam pendentes. Portanto,
-a fase 3 permanece In Progress e não implica conclusão de modelos ou vozes.
+A CLI usa `configureProvider` para `setup` e `providers add`, com snapshots da
+mesma API autenticada do catálogo, filtrados por `TemplateFromCatalogServer`.
+As listas legadas de provedores/modelos do wizard foram removidas. Políticas
+fixas/ocultas não são editáveis; escolhas e campos editáveis seguem o catálogo.
+Configuração manual permanece disponível sem snapshot. Uma única listagem
+sonda a conexão e oferece IDs sem reescrever aliases; o modelo confirmado é
+persistido na conexão. `setup` define o ID retornado como padrão; `providers add`
+preserva o padrão existente e os perfis de conversa. `setup` ajusta apenas o
+perfil ativo para os sentinelas de provedor/modelo padrão, evitando que um
+modelo explícito antigo oculte a nova escolha.
+Credenciais usam o mesmo resolvedor e a transação do cadastro compartilhado;
+HTTP remoto exige aceite explícito para a URL exata antes da sondagem.
+No serviço de criação, toda credencial nova fornecida em draft ou API key
+legada recebe `provider:<id>` após validação e é salva atomicamente com a
+conexão. O draft original da sondagem e entradas anteriores por hostname ou
+wildcard permanecem intactos. Criar uma conexão sem fornecer credencial nova
+mantém o contrato de reutilização de referência existente; duplicação explícita
+por ID continua compartilhando a referência autorizada, sem copiar segredos.
+A criação de credencial recusa qualquer referência já existente no cofre,
+inclusive sem consumidor, na mesma transação da conexão. Não enumera consumidores
+nem interpreta seus metadados: cópias, agentes e consumidores futuros ficam
+protegidos pela proibição de sobrescrita na origem. Recriar um ID excluído exige
+um novo ID quando sua credencial permanece; atualização é uma operação explícita.
+Edição preserva referências existentes, sem migração implícita. Regressões em
+`internal/providers/credential_save_test.go` cobrem sobrescrita, portas locais,
+entrada legada, rollback, duplicação explícita e preservação de fontes externas.
+A autenticação de ambos reutiliza SetupVault/UnlockVault/CreateAdminUser/Login/
+RefreshAuth, sem inferir usuário nem contornar o isolamento por sessão.
+Evidências: `cmd/asst/provider_setup_test.go` e `provider_auth_test.go`, além dos
+testes dos serviços de credenciais e provedores. A fase 3 permanece In Progress
+quanto às rotas catalogadas ainda sem suporte (Cohere e Ollama nativo); modelos,
+vozes e manutenção do catálogo continuam pendentes nas fases seguintes.
 
 4. **Modelos, capacidades e proxies.** Associar IDs expostos apenas por mapeamento exato e integrar recursos e limites sem impedir aliases desconhecidos.
 5. **Vozes TTS na API do catálogo.** Integrar a coleção de vozes do asset ao consumo tipado, associada à exposição de perfil, rota/API e modelo, incluindo estado de completude. Esta fase fornece os dados consumidos pela fase 4 do AEP-0113, que implementa a seleção e o comportamento de compatibilidade na interface. Assim, a dependência é unidirecional: AEP-0113 fase 4 depende das fases 1–5 desta AEP.
@@ -273,6 +302,7 @@ a fase 3 permanece In Progress e não implica conclusão de modelos ou vozes.
 
 ## Critérios de aceitação
 
+- [x] `asst setup` e `asst providers add` compartilham autenticação, formulário de catálogo/manual, sondagem única e cadastro pelo controller existente. O CLI remove listas legadas, preserva aliases e pede consentimento antes de HTTP remoto. Evidências: `cmd/asst/provider_setup_test.go`, `provider_auth_test.go` e `provider_setup_integration_test.go` (headers HTTP e persistência pelo controller/cofre reais).
 - [x] O asset público tem schema versionado, exemplos de provedor, modelo, exposição por proxy e estado de completude de vozes. Evidência: `docs/static/json/assistente-catalog.schema.json` e `docs/static/json/assistente-catalog.json`, servidos pelo Hugo sob `/json/`; validação Draft 2020-12 e conferência semântica das referências e unicidade deste asset registradas no PR. A validação semântica de catálogos baixados é coberta também pelo consumidor da fase 2.
 - [x] A aplicação valida estrutura e integridade semântica do documento (IDs únicos, referências existentes, tuplas de exposição únicas e defaults de `choice`), mantém cache válido e continua a funcionar offline. Evidência: `internal/llmcatalog/{parser.go,validate.go,service.go,service_test.go}`; testes cobrem asset publicado, rejeição semântica, cache offline, preservação após resposta inválida e revalidação condicional.
 - [x] A atualização não bloqueia o startup, usa origem HTTPS fixa sem redirects, limita o tamanho do documento e grava cache por substituição atômica. Evidência: `internal/llmcatalog/service.go` e `GetLLMCatalog` em `internal/wailsapi/llm_catalog.go`; testes de serviço cobrem atualização em segundo plano, timestamps futuros no cache e espera de refreshes durante o shutdown.

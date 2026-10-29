@@ -20,7 +20,7 @@ func TemplateFromCatalogServer(server llmcatalog.Server) (*llm.ProviderConfig, e
 	if server.Status != "active" {
 		return nil, fmt.Errorf("perfil de servidor %q não está ativo", server.ID)
 	}
-	apiFormatValue := catalogPolicyStringDefault(server, "api_format", server.APIFormat)
+	apiFormatValue := CatalogFieldDefault(server, "api_format", server.APIFormat)
 	profile, err := catalogRuntimeProfileFor(server, apiFormatValue)
 	if err != nil {
 		return nil, err
@@ -29,13 +29,13 @@ func TemplateFromCatalogServer(server llmcatalog.Server) (*llm.ProviderConfig, e
 	if err != nil {
 		return nil, err
 	}
-	authModeValue := catalogPolicyStringDefault(server, "auth.mode", server.Auth.Mode)
-	authMode, err := catalogAuthMode(authModeValue)
+	authModeValue := CatalogFieldDefault(server, "auth.mode", server.Auth.Mode)
+	authMode, err := CatalogAuthMode(authModeValue)
 	if err != nil {
 		return nil, err
 	}
 
-	baseURL := catalogPolicyStringDefault(server, "base_url", server.BaseURL)
+	baseURL := CatalogFieldDefault(server, "base_url", server.BaseURL)
 	credentialPattern := ""
 	if baseURL != "" {
 		origin, _, originErr := catalogCredentialOrigin(baseURL)
@@ -47,7 +47,7 @@ func TemplateFromCatalogServer(server llmcatalog.Server) (*llm.ProviderConfig, e
 		}
 	}
 
-	defaultModel := catalogPolicyStringDefault(server, "default_model_id", server.DefaultModelID)
+	defaultModel := CatalogFieldDefault(server, "default_model_id", server.DefaultModelID)
 	id, err := catalogProviderID(server.ID)
 	if err != nil {
 		return nil, err
@@ -68,7 +68,8 @@ func TemplateFromCatalogServer(server llmcatalog.Server) (*llm.ProviderConfig, e
 	}, nil
 }
 
-func catalogPolicyStringDefault(server llmcatalog.Server, field, fallback string) string {
+// CatalogFieldDefault aplica a precedência de valores do contrato AEP-0115.
+func CatalogFieldDefault(server llmcatalog.Server, field, fallback string) string {
 	policy, ok := server.Fields[field]
 	if !ok {
 		return fallback
@@ -216,7 +217,8 @@ func catalogAPIFormat(value string) (llm.APIFormat, error) {
 	}
 }
 
-func catalogAuthMode(mode string) (llm.AuthMode, error) {
+// CatalogAuthMode traduz autenticação declarativa para o modo do runtime.
+func CatalogAuthMode(mode string) (llm.AuthMode, error) {
 	switch mode {
 	case "bearer_api_key":
 		return llm.AuthModeRequired, nil

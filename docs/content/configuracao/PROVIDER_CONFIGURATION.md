@@ -16,6 +16,13 @@ no onboarding e nas configurações. Sem catálogo disponível, você pode confi
 uma conexão manual. Cancelar preserva o cofre; uma falha ao salvar mantém o
 formulário aberto para correção. O primeiro provedor salvo se torna o padrão.
 
+Ao fornecer uma nova credencial durante o cadastro, ela fica vinculada à nova
+conexão. Cadastrar outra conta no mesmo servidor, ou outro serviço local em
+uma porta diferente, não substitui a chave da conexão anterior. Essa regra vale
+no desktop e no CLI; credencial e conexão são salvas juntas. Conexões existentes
+mantêm suas referências. Reutilizar ou duplicar uma credencial existente continua
+sendo um vínculo compartilhado; editar essa credencial afeta quem a reutiliza.
+
 Durante o envio, o Assistente reconhece algumas assinaturas documentadas de erro por provedor. Quando a resposta identifica um parâmetro opcional que o modelo não aceita, ele pode repetir uma vez sem esse parâmetro e memorizar a restrição para aquela conexão e modelo. Erros genéricos ou valores inválidos não removem parâmetros nem alteram o perfil salvo. Basta adicionar um provedor nas configurações (`Alt + 2`) e informar uma chave de API ou usar uma credencial já cadastrada para o domínio.
 
 A tela inicial de **Configurações** já mostra Provedores. **Novo provedor**
@@ -399,10 +406,14 @@ anterior para permitir a correção. Alternar autenticação obrigatória/opcion
 preserva a credencial digitada, mas exige testar novamente. Escolher sem
 autenticação descarta o rascunho ainda não salvo.
 
-Chamadas antigas que enviam diretamente o campo `api_key`, fora do editor
-compartilhado, conservam o contrato anterior de gravações separadas. Nesse
-caminho de compatibilidade, uma falha pode deixar a credencial do hostname
-alterada; a cobertura restante é acompanhada na
+Na criação, chamadas antigas que enviam diretamente o campo `api_key` também
+gravam credencial e conexão juntas. Reutilizar o ID de uma conexão excluída é
+recusado quando sua credencial ainda existe, mesmo sem uma conexão vinculada;
+crie a nova conexão com outro ID. Criar uma conexão nunca autoriza substituir
+uma credencial anterior, usada por cópias, agentes ou outros consumidores.
+Na edição, chamadas antigas com `api_key`, fora do editor compartilhado,
+conservam o contrato anterior de gravações separadas. Nesse caminho, uma falha
+pode deixar a credencial alterada; a cobertura restante é acompanhada na
 [issue #872](https://github.com/inclunet/assistente/issues/872).
 A conexão ChatGPT usa o fluxo OAuth dedicado; uma API key estática não pode
 substituir seu registro OAuth pela edição genérica.
