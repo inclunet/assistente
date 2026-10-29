@@ -123,6 +123,27 @@ func TestNewProviderReusedIDPreservesSurvivingDuplicateCredential(t *testing.T) 
 	}
 }
 
+func TestNewProviderPreservesExistingCredentialWithoutConsumer(t *testing.T) {
+	service, mgr, ctx := chatGPTTestService(t)
+	if err := mgr.RegisterPatternWithContext(ctx, "provider:api", &credentials.AuthConfig{Source: "static", Type: "bearer", Token: "original"}); err != nil {
+		t.Fatal(err)
+	}
+	_, err := service.Create(ctx, vaultProviderRequest(&credentials.AuthConfig{Source: "static", Type: "bearer", Token: "replacement"}))
+	if !errors.Is(err, oauthflow.ErrConflict) {
+		t.Fatalf("expected existing credential conflict: %v", err)
+	}
+	auth, err := mgr.GetConfigByPatternWithContext(ctx, "provider:api")
+	if err != nil || auth == nil || auth.Token != "original" {
+		t.Fatalf("existing credential changed: %v", err)
+	}
+	if service.registry.Get("api") != nil {
+		t.Fatal("rejected connection published")
+	}
+	if _, err := service.store.Get(ctx, "api"); err == nil {
+		t.Fatal("rejected connection persisted")
+	}
+}
+
 func TestNewProviderLegacyKeyRollbackDoesNotLeaveCredential(t *testing.T) {
 	service, mgr, ctx := chatGPTTestService(t)
 	db := database.DB()
@@ -475,13 +496,13 @@ func TestProviderCredentialLegacyAPIKeyPreviewWithAliasOrWildcard(t *testing.T) 
 }
 
 type pausedCredentialStore struct {
-	inner     credentialConsumerStore
+	credentialConsumerStore
 	committed chan struct{}
 	release   chan struct{}
 }
 
 func (s *pausedCredentialStore) SaveWithConsumer(ctx context.Context, pattern string, auth *credentials.AuthConfig, retire *oauthflow.Record, update func(*gorm.DB) error, publish func()) error {
-	return s.inner.SaveWithConsumer(ctx, pattern, auth, retire, update, func() {
+	return s.credentialConsumerStore.SaveWithConsumer(ctx, pattern, auth, retire, update, func() {
 		close(s.committed)
 		<-s.release
 		publish()
@@ -504,7 +525,7 @@ func TestProviderCredentialCommitPublicationSerializesMutations(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			paused := &pausedCredentialStore{inner: scope.store, committed: make(chan struct{}), release: make(chan struct{})}
+			paused := &pausedCredentialStore{credentialConsumerStore: scope.store, committed: make(chan struct{}), release: make(chan struct{})}
 			scope.store = paused
 			var once sync.Once
 			release := func() { once.Do(func() { close(paused.release) }) }
