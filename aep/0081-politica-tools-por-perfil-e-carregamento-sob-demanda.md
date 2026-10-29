@@ -422,3 +422,48 @@ Regras:
   gate de execução e seleção anunciada usam a mesma fonte
   (`tools.IsProtectedBaseTool`). (D12)
 - Nenhum fluxo alternativo de envio de mensagens é criado.
+
+
+## Recuperação MCP no carregamento — 28/10/2026
+
+Contrato aprovado pelo mantenedor: ferramentas previamente descobertas de
+servidores habilitados continuam descobríveis quando o aplicativo inicia sem
+conexão. O catálogo fornece somente metadados, sempre restritos ao usuário e à
+política do perfil/skill. `search` não conecta nem abre OAuth.
+
+`load` e a seleção `preloaded` preparam a conexão pelo Manager existente. Se
+necessário, o turno desktop abre o consentimento OAuth existente e aguarda sua
+conclusão. Em seguida, confirma a ferramenta no registry recém-descoberto; o
+schema persistido não vira definição executável. Jobs e autoconexão continuam
+sem consentimento interativo. Operações já enviadas não são repetidas.
+
+Disponibilidade remota e autorização para carregar permanecem distintas: uma
+entrada recuperável mantém seu status `unavailable` até a conexão confirmar a
+oferta. Servidores desabilitados, removidos ou de outro usuário não participam.
+A descoberta negativa (`not discovered`) é preservada durante desconexões,
+para que ferramentas retiradas não reapareçam no próximo início.
+
+Implementação e regressões automatizadas: `catalog_recovery_test.go` em MCP, tools e chat,
+e `TestDisconnectPreservesRemovedToolAndRecoverableFilter` no catálogo.
+A recuperação antes do backoff está coberta por
+`TestCatalogRecoveryReplacesEndedSessionBeforeBackoff`. O aceite real com servidor
+e NVDA permanece pendente; não há nova migração de
+credenciais, mecanismo paralelo de autenticação ou mudança de bindings.
+
+A busca indica `recoverable=true` nas entradas indisponíveis que podem ser
+carregadas. Descrições da listagem são limitadas a 1024 bytes serializados em
+JSON e sinalizam abreviação; o ranking continua usando o texto completo e o
+carregamento publica a definição completa atual. Isso evita exceder o teto de
+resultado estruturado apenas ao descobrir ferramentas (`TestCatalogRecoverySearchBoundsDescriptions`).
+
+A resposta completa de busca respeita o limite efetivo do executor: metadados
+longos reduzem a quantidade de itens por página, preservando nomes e offset.
+Uma entrada que sozinha exceda o limite retorna erro explícito. Evidência:
+`internal/tools/catalog_recovery_test.go`, `TestCatalogRecoverySearchBoundsWholePage`.
+Falha de preparação preloaded emite `chat:error`, preserva a mensagem e libera
+a conversa; não prossegue silenciosamente sem as ferramentas selecionadas
+(`TestSendMessageUseCase_MCPPreparationFailurePreservesMessage`).
+
+Cancelar o turno durante a preparação não emite erro de MCP. A mensagem
+permanece persistida e a conversa é liberada, conforme
+`TestSendMessageUseCase_MCPPreparationCancellationIsNotFailure`.

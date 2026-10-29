@@ -54,6 +54,11 @@ func TestAvailableLoadedRuntimeToolsFiltersUnavailable(t *testing.T) {
 	if len(got) != 1 || got[0] != "read_file" {
 		t.Fatalf("availableLoadedRuntimeTools = %#v, want read_file only", got)
 	}
+	available, unavailable, err := loadedRuntimeToolAvailability(ctx, []string{"mcp_srv__down", "read_file"}, "mcp_srv__down")
+	if err != nil || len(available) != 2 || len(unavailable) != 0 {
+		t.Fatalf("recoverable tool was forgotten: %v %v %v", available, unavailable, err)
+	}
+
 }
 
 func TestLoadedRuntimeToolAvailabilityPreservesUnknownCatalogEntries(t *testing.T) {

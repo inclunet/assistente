@@ -45,6 +45,9 @@ const translateBackendChatError = (message: string) => {
   if (message === 'assistant_placeholder_error') {
     return i18next.t('chat.errors.assistantPlaceholder');
   }
+  if (message === 'mcp_preparation_error') {
+    return i18next.t('chat.errors.mcpPreparation');
+  }
   if (message === 'persistence_error') {
     return i18next.t('chat.errors.persistenceError');
   }
@@ -624,7 +627,7 @@ export function startChatEventController({
     if (event.conversationId !== conversationId && event.conversationId !== '') return;
     if (!isActive()) return;
     finalizeStreaming();
-    announce(event.error);
+    announce(translateBackendChatError(event.error));
     playChatErrorSoundIfActive(conversationId, origin);
     cleanup();
   });

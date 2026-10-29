@@ -53,6 +53,8 @@ type ToolCatalogEntry struct {
 }
 
 type ToolCatalogFilter struct {
+	// RecoverableNames permite descoberta sem afirmar disponibilidade remota.
+	RecoverableNames   []string `json:"-"`
 	NameIn             []string `json:"name_in,omitempty"`
 	Origin             string   `json:"origin,omitempty"`
 	MCPServerID        string   `json:"mcp_server_id,omitempty"`

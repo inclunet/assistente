@@ -26,6 +26,7 @@ const (
 )
 
 type EffectiveToolPolicy struct {
+	targets  map[string]ToolPolicyTarget
 	states   map[string]ToolPolicyState
 	registry *tools.Registry
 	matcher  ToolPolicyMatcher
@@ -65,6 +66,17 @@ func (p *ToolSelectionPolicy) resolveProfileToolPolicy(cfg ProfileToolConfig) Ef
 	}
 
 	names := p.registry.Names()
+	policy.targets = make(map[string]ToolPolicyTarget, len(names)+len(cfg.CatalogTools))
+	for _, name := range names {
+		policy.targets[name] = p.toolPolicyTarget(name)
+	}
+	for _, entry := range cfg.CatalogTools {
+		if _, exists := policy.targets[entry.Name]; exists {
+			continue
+		}
+		policy.targets[entry.Name] = ToolPolicyTarget{Name: entry.Name, MCPServerSlug: strings.TrimPrefix(entry.Package, "mcp:")}
+		names = append(names, entry.Name)
+	}
 	// Uma chave com espaços é aceita ao aplicar o mapa, mas some em qualquer
 	// consulta direta. Normalizar antes de decidir mantém uma negação explícita
 	// valendo em toda a resolução.
@@ -81,7 +93,7 @@ func (p *ToolSelectionPolicy) resolveProfileToolPolicy(cfg ProfileToolConfig) Ef
 		policy.structured = true
 		policy.matcher = NewToolPolicyMatcher(configured, cfg.ToolPolicyDefault)
 		for _, name := range names {
-			policy.states[name] = policy.matcher.Resolve(p.toolPolicyTarget(name)).State
+			policy.states[name] = policy.matcher.Resolve(policy.target(name)).State
 		}
 		policy.ensureCatalogForOnDemandTools(configured)
 		policy.applyRuntimeTools(cfg.RuntimeTools, p.registry.Has(tools.ToolCatalogName))
@@ -123,7 +135,7 @@ func (p *ToolSelectionPolicy) applyLegacyAllowlist(policy *EffectiveToolPolicy, 
 	hasExplicitAuthorization := false
 	for _, name := range cfg.EnabledTools {
 		name = strings.TrimSpace(name)
-		if name == "" || !p.registry.Has(name) {
+		if _, exists := policy.targets[name]; name == "" || !exists {
 			continue
 		}
 		policy.states[name] = ToolPolicyPreloaded
@@ -221,9 +233,8 @@ func (p EffectiveToolPolicy) PreloadedNames() []string {
 	if p.disabled {
 		return []string{}
 	}
-	registered := p.registry.Names()
-	names := make([]string, 0, len(registered))
-	for _, name := range registered {
+	names := make([]string, 0, len(p.states))
+	for _, name := range p.knownNames() {
 		if p.State(name) == ToolPolicyPreloaded {
 			names = append(names, name)
 		}
@@ -242,15 +253,28 @@ func (p EffectiveToolPolicy) CatalogVisibleNames() []string {
 	if p.State(tools.ToolCatalogName) != ToolPolicyPreloaded {
 		return []string{}
 	}
-	registered := p.registry.Names()
-	names := make([]string, 0, len(registered))
-	for _, name := range registered {
+	names := make([]string, 0, len(p.states))
+	for _, name := range p.knownNames() {
 		state := p.State(name)
 		if state == ToolPolicyOnDemand || state == ToolPolicyPreloaded {
 			names = append(names, name)
 		}
 	}
 	sortToolPolicyNames(names)
+	return names
+}
+
+func (p EffectiveToolPolicy) knownNames() []string {
+	names := p.registry.Names()
+	seen := make(map[string]bool, len(names))
+	for _, name := range names {
+		seen[name] = true
+	}
+	for name := range p.targets {
+		if !seen[name] {
+			names = append(names, name)
+		}
+	}
 	return names
 }
 
@@ -284,6 +308,12 @@ func (p *ToolSelectionPolicy) toolPolicyTarget(name string) ToolPolicyTarget {
 }
 
 func (p EffectiveToolPolicy) target(name string) ToolPolicyTarget {
+	if p.registry != nil && p.registry.Has(name) {
+		return toolPolicyTargetFromRegistry(p.registry, name)
+	}
+	if target, ok := p.targets[name]; ok {
+		return target
+	}
 	return toolPolicyTargetFromRegistry(p.registry, name)
 }
 

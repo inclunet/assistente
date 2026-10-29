@@ -530,6 +530,17 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 		SchemaBytesBudget: toolSchemaBudgetBytes,
 		PreferredPackages: preferredToolPackages,
 	}
+	recoverableNames := []string(nil)
+	if !disableTools && uc.mcpMgr != nil {
+		entries, err := uc.mcpMgr.DiscoverableTools(ctx)
+		if err != nil {
+			logging.Warnf(ctx, "core.usecases.send-message", "Não foi possível consultar metadados MCP; mantendo ferramentas registradas: %v", err)
+		}
+		toolCfg.CatalogTools = entries
+		for _, entry := range entries {
+			recoverableNames = append(recoverableNames, entry.Name)
+		}
+	}
 	// Escopo do skill invocado (AEP-0072 D5): reaproveita a MESMA allowlist/denylist
 	// do gate do executor para NÃO anunciar ao modelo tools que o skill bloqueia.
 	// Sem isso, a tool era oferecida, o modelo tentava usá-la e só era barrada na
@@ -578,7 +589,7 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 	}
 	if uc.loadedToolStore != nil && !disableTools {
 		loadedRuntimeTools := uc.loadedToolStore.Loaded(req.ConversationID, params.ProfileSlug, toolCatalogVisibleNames)
-		available, unavailable, availabilityErr := loadedRuntimeToolAvailability(ctx, loadedRuntimeTools)
+		available, unavailable, availabilityErr := loadedRuntimeToolAvailability(ctx, loadedRuntimeTools, recoverableNames...)
 		if availabilityErr != nil {
 			// A falha transitória ao consultar o catálogo não deve apagar do payload
 			// tools já autorizadas e carregadas nesta conversa. Mantemos as definições
@@ -591,6 +602,24 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 		if len(loadedRuntimeTools) > 0 {
 			runtimeTools = append(runtimeTools, loadedRuntimeTools...)
 			toolCfg.RuntimeTools = runtimeTools
+		}
+	}
+
+	// Só a seleção efetiva pode abrir uma conexão/OAuth; descobrir não prepara.
+	initialPolicy := toolPolicy.ResolveEffectiveToolPolicy(toolCfg)
+	for _, entry := range toolCfg.CatalogTools {
+		if initialPolicy.State(entry.Name) == chat.ToolPolicyPreloaded {
+			if err := uc.mcpMgr.PrepareCatalogTool(ctx, entry); err != nil {
+				if errors.Is(ctx.Err(), context.Canceled) {
+					return "", ctx.Err()
+				}
+				uc.emitter.Emit("chat:error", ports.ErrorEvent{
+					ConversationID: req.ConversationID,
+					SurfaceOrigin:  surfaceOrigin,
+					Error:          ports.ChatErrorMCPPreparation,
+				})
+				return "", err
+			}
 		}
 	}
 
@@ -701,6 +730,8 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 		agentCtx = tools.WithToolCatalogVisibleNames(agentCtx, effectiveToolPolicy.CatalogVisibleNames())
 		agentCtx = tools.WithToolCatalogRuntime(agentCtx, tools.ToolCatalogRuntime{
 			Store:             uc.loadedToolStore,
+			RecoverableNames:  recoverableNames,
+			Prepare:           uc.prepareCatalogTool,
 			ConversationID:    req.ConversationID,
 			ProfileSlug:       params.ProfileSlug,
 			VisibleNames:      effectiveToolPolicy.CatalogVisibleNames(),
@@ -836,7 +867,7 @@ func availableLoadedRuntimeTools(ctx context.Context, names []string) []string {
 	return available
 }
 
-func loadedRuntimeToolAvailability(ctx context.Context, names []string) (available, unavailable []string, err error) {
+func loadedRuntimeToolAvailability(ctx context.Context, names []string, recoverable ...string) (available, unavailable []string, err error) {
 	if len(names) == 0 {
 		return nil, nil, nil
 	}
@@ -852,9 +883,13 @@ func loadedRuntimeToolAvailability(ctx context.Context, names []string) (availab
 	if err != nil {
 		return nil, nil, err
 	}
+	recoverableSet := make(map[string]bool, len(recoverable))
+	for _, name := range recoverable {
+		recoverableSet[name] = true
+	}
 	unavailableNames := make(map[string]struct{}, len(entries))
 	for _, entry := range entries {
-		if entry.AvailabilityStatus == tools.ToolAvailabilityUnavailable {
+		if entry.AvailabilityStatus == tools.ToolAvailabilityUnavailable && !recoverableSet[entry.Name] {
 			unavailableNames[entry.Name] = struct{}{}
 		}
 	}
@@ -881,4 +916,14 @@ func controlPlaneNamesFromPolicy(policy chat.EffectiveToolPolicy) []string {
 		names = append(names, tools.LoadSkillName)
 	}
 	return names
+}
+
+func (uc *SendMessageUseCase) prepareCatalogTool(ctx context.Context, entry tools.ToolCatalogEntry) error {
+	if entry.Origin == tools.ToolOriginMCPBridge {
+		if uc.mcpMgr == nil {
+			return fmt.Errorf("gerenciador MCP indisponível")
+		}
+		return uc.mcpMgr.PrepareCatalogTool(ctx, entry)
+	}
+	return nil
 }

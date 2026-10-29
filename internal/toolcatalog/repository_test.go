@@ -634,3 +634,38 @@ func TestDBRepositoryRequiresUserForMCPToolTestResults(t *testing.T) {
 		t.Fatalf("record without user = %v, want ErrUserScopeRequired", err)
 	}
 }
+
+func TestDisconnectPreservesRemovedToolAndRecoverableFilter(t *testing.T) {
+	repo, user, other := setupCatalogTest(t)
+	id := seedServer(t, repo, "user-a", "remote")
+	for _, name := range []string{"present", "removed"} {
+		entry := tools.ToolCatalogEntry{Name: name, DisplayName: name, MCPServerID: id, Origin: tools.ToolOriginMCPBridge, AvailabilityStatus: tools.ToolAvailabilityAvailable, Schema: json.RawMessage(`{"type":"object"}`)}
+		if err := repo.UpsertTool(user, &entry); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := repo.MarkServerToolsUnavailable(user, id, []string{"present"}, "not discovered"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.MarkServerToolsUnavailable(user, id, nil, "server disconnected"); err != nil {
+		t.Fatal(err)
+	}
+	all, err := repo.ListTools(user, tools.ToolCatalogFilter{IncludeUnavailable: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range all {
+		if entry.Name == "removed" && entry.AvailabilityReason != "not discovered" {
+			t.Fatal("disconnect erased discovery tombstone")
+		}
+	}
+	filter := tools.ToolCatalogFilter{RecoverableNames: []string{"present"}}
+	entries, err := repo.ListTools(user, filter)
+	if err != nil || len(entries) != 1 || entries[0].Name != "present" || entries[0].AvailabilityStatus != tools.ToolAvailabilityUnavailable {
+		t.Fatalf("entries=%v err=%v", entries, err)
+	}
+	entries, err = repo.ListTools(other, filter)
+	if err != nil || len(entries) != 0 {
+		t.Fatal("recoverable filter crossed user boundary")
+	}
+}

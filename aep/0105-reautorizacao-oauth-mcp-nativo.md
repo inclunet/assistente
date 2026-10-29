@@ -215,3 +215,14 @@ Trocar idioma não reinicia o estado; logout remove assinaturas e resultados tar
 - [x] Assinatura global, anúncio, deduplicação e isolamento de sessão:
   `frontend/src/hooks/useMCPRuntime.test.tsx`.
 - [ ] Validar a experiência real e anúncio com NVDA após instalar.
+
+
+## Uso após iniciar desconectado — 28/10/2026
+
+Status: **In Progress**. A recuperação interativa agora alcança ferramentas
+previamente descobertas cujo servidor iniciou desconectado. O carregamento
+sob demanda e a seleção preloaded usam `ConnectWithContext`, aguardam o OAuth
+existente e confirmam a definição atual. Busca e startup continuam não interativos.
+Contrato de catálogo e política: AEP-0081. Evidência automatizada:
+`TestCatalogRecoveryAfterStartupRequiresUseAndFreshDiscovery`; experiência real
+com servidor e NVDA permanece pendente.

@@ -1975,3 +1975,11 @@ O AEP-0114 acompanha a edição de preferências ChatGPT e a unificação da cri
 e das credenciais de provedores. Mantém o contrato deste AEP: uma autorização
 no CredManager, com registro e tokens preservados ao editar nome/modelo.
 A migração e os aceites deste AEP permanecem concluídos.
+
+
+## Consentimento no carregamento MCP — 28/10/2026
+
+Status: **In Progress**. O carregamento de ferramentas de servidores desconectados
+reutiliza o mesmo lifecycle OAuth, contexto interativo e deduplicação por turno.
+Não cria armazenamento ou protocolo paralelo. Os contratos e provas estão nos
+AEPs 0081 e 0105; confirmação real/NVDA permanece pendente.

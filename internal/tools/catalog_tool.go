@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 )
 
 const (
@@ -58,15 +59,17 @@ type catalogToolResponse struct {
 }
 
 type catalogToolItem struct {
-	Name               string `json:"name"`
-	DisplayName        string `json:"display_name"`
-	Description        string `json:"description,omitempty"`
-	Origin             string `json:"origin"`
-	Category           string `json:"category,omitempty"`
-	Class              string `json:"class,omitempty"`
-	Package            string `json:"package,omitempty"`
-	Risk               string `json:"risk,omitempty"`
-	AvailabilityStatus string `json:"availability_status"`
+	Name                 string `json:"name"`
+	DisplayName          string `json:"display_name"`
+	Description          string `json:"description,omitempty"`
+	Origin               string `json:"origin"`
+	Category             string `json:"category,omitempty"`
+	Class                string `json:"class,omitempty"`
+	Package              string `json:"package,omitempty"`
+	Risk                 string `json:"risk,omitempty"`
+	AvailabilityStatus   string `json:"availability_status"`
+	Recoverable          bool   `json:"recoverable,omitempty"`
+	DescriptionTruncated bool   `json:"description_truncated,omitempty"`
 }
 
 type catalogToolRejection struct {
@@ -81,7 +84,7 @@ func NewCatalogTool(store CatalogToolStore) *CatalogTool {
 func (t *CatalogTool) Name() string { return ToolCatalogName }
 
 func (t *CatalogTool) Description() string {
-	return "Discover and manage authorized on-demand tools. Search once with a task query and optional filters; results rank task relevance, profile preferred packages, conversation recency, then stable origin and name. Examples: {\"action\":\"search\",\"query\":\"read files\",\"category\":\"filesystem\",\"risk\":\"read\"}, {\"action\":\"search\",\"query\":\"search Jira\",\"package\":\"mcp:atlassian\"}, {\"action\":\"load\",\"tools\":[\"read_file\"]}, or {\"action\":\"load\",\"tools\":[\"mcp/atlassian/*\"]}. Wildcard load is capped at 20 matches and still obeys profile policy, availability, risk controls and schema budget. Disabled or opt-in tools are never elevated."
+	return "Discover and manage authorized on-demand tools. MCP tools marked unavailable with recoverable=true can be loaded: load prepares their connection and, in an interactive desktop turn, authorization. Search never opens authorization. Descriptions may be abbreviated; loading obtains the current full tool definition. Search once with a task query and optional filters; results rank task relevance, profile preferred packages, conversation recency, then stable origin and name. Examples: {\"action\":\"search\",\"query\":\"read files\",\"category\":\"filesystem\",\"risk\":\"read\"}, {\"action\":\"search\",\"query\":\"search Jira\",\"package\":\"mcp:atlassian\"}, {\"action\":\"load\",\"tools\":[\"read_file\"]}, or {\"action\":\"load\",\"tools\":[\"mcp/atlassian/*\"]}. Wildcard load is capped at 20 matches and still obeys profile policy, availability, risk controls and schema budget. Disabled or opt-in tools are never elevated."
 }
 
 func (t *CatalogTool) Parameters() json.RawMessage {
@@ -185,6 +188,7 @@ func (t *CatalogTool) executeSearch(ctx context.Context, req catalogToolRequest)
 		Risk:               strings.TrimSpace(req.Risk),
 		AvailabilityStatus: strings.TrimSpace(req.AvailabilityStatus),
 		IncludeUnavailable: req.IncludeUnavailable,
+		RecoverableNames:   runtime.RecoverableNames,
 		Limit:              storeLimit,
 		Offset:             storeOffset,
 	}
@@ -222,24 +226,41 @@ func (t *CatalogTool) executeSearch(ctx context.Context, req catalogToolRequest)
 	if hasMore {
 		resp.NextOffset = offset + len(entries)
 	}
+	recoverable, _ := nameSet(runtime.RecoverableNames)
 	for _, entry := range entries {
+		_, canRecover := recoverable[entry.Name]
+		description, truncated := catalogDescription(entry.Description)
 		resp.Tools = append(resp.Tools, catalogToolItem{
-			Name:               entry.Name,
-			DisplayName:        entry.DisplayName,
-			Description:        entry.Description,
-			Origin:             entry.Origin,
-			Category:           entry.Category,
-			Class:              entry.Class,
-			Package:            entry.Package,
-			Risk:               entry.Risk,
-			AvailabilityStatus: entry.AvailabilityStatus,
+			Name:                 entry.Name,
+			DisplayName:          entry.DisplayName,
+			Description:          description,
+			DescriptionTruncated: truncated,
+			Recoverable:          canRecover && entry.AvailabilityStatus != ToolAvailabilityAvailable,
+			Origin:               entry.Origin,
+			Category:             entry.Category,
+			Class:                entry.Class,
+			Package:              entry.Package,
+			Risk:                 entry.Risk,
+			AvailabilityStatus:   entry.AvailabilityStatus,
 		})
 	}
-	data, err := json.Marshal(resp)
-	if err != nil {
-		return ToolResult{Content: fmt.Sprintf("erro ao serializar resposta do catálogo de tools: %v", err), IsError: true}, nil
+	for {
+		data, err := json.Marshal(resp)
+		if err != nil {
+			return ToolResult{Content: fmt.Sprintf("erro ao serializar resposta do catálogo de tools: %v", err), IsError: true}, nil
+		}
+		if len(data) <= MaxResultSizeFromContext(ctx) {
+			return ToolResult{Content: string(data)}, nil
+		}
+		if len(resp.Tools) <= 1 {
+			return ToolResult{Content: "entrada do catálogo excede o limite de tamanho da resposta", IsError: true}, nil
+		}
+		// Preserve identidades completas e permita continuar na próxima página.
+		resp.Tools = resp.Tools[:len(resp.Tools)-1]
+		resp.Count = len(resp.Tools)
+		resp.HasMore = true
+		resp.NextOffset = offset + resp.Count
 	}
-	return ToolResult{Content: string(data)}, nil
 }
 
 func (t *CatalogTool) executeLoad(ctx context.Context, req catalogToolRequest) (ToolResult, error) {
@@ -255,7 +276,7 @@ func (t *CatalogTool) executeLoad(ctx context.Context, req catalogToolRequest) (
 	if err != nil {
 		return ToolResult{Content: fmt.Sprintf("erro ao expandir seletores do catálogo de tools: %v", err), IsError: true}, nil
 	}
-	available, loadRejected, err := t.partitionAvailableTools(ctx, requested, runtime.VisibleNames)
+	available, loadRejected, err := t.partitionAvailableTools(ctx, requested, runtime)
 	if err != nil {
 		return ToolResult{Content: fmt.Sprintf("erro ao consultar catálogo de tools: %v", err), IsError: true}, nil
 	}
@@ -287,8 +308,8 @@ func (t *CatalogTool) expandLoadSelectors(ctx context.Context, requested []strin
 		return requested, nil, nil
 	}
 	entries, err := t.store.ListTools(ctx, ToolCatalogFilter{
-		NameIn:             runtime.VisibleNames,
-		AvailabilityStatus: ToolAvailabilityAvailable,
+		NameIn:           runtime.VisibleNames,
+		RecoverableNames: runtime.RecoverableNames,
 	})
 	if err != nil {
 		return nil, nil, err
@@ -356,8 +377,8 @@ func (t *CatalogTool) executeListLoaded(ctx context.Context) (ToolResult, error)
 	return marshalCatalogToolResponse(resp)
 }
 
-func (t *CatalogTool) partitionAvailableTools(ctx context.Context, requested, visible []string) (available []string, rejected []LoadedToolChange, err error) {
-	visibleSet, constrained := nameSet(visible)
+func (t *CatalogTool) partitionAvailableTools(ctx context.Context, requested []string, runtime ToolCatalogRuntime) (available []string, rejected []LoadedToolChange, err error) {
+	visibleSet, constrained := nameSet(runtime.VisibleNames)
 	checkNames := requested
 	if constrained {
 		checkNames = make([]string, 0, len(requested))
@@ -373,16 +394,20 @@ func (t *CatalogTool) partitionAvailableTools(ctx context.Context, requested, vi
 		return nil, rejected, nil
 	}
 	entries, err := t.store.ListTools(ctx, ToolCatalogFilter{
-		NameIn:             checkNames,
-		AvailabilityStatus: ToolAvailabilityAvailable,
-		IncludeUnavailable: false,
-		Limit:              len(checkNames),
+		NameIn:           checkNames,
+		RecoverableNames: runtime.RecoverableNames,
+		Limit:            len(checkNames),
 	})
 	if err != nil {
 		return nil, nil, err
 	}
 	found := make(map[string]struct{}, len(entries))
-	for _, entry := range entries {
+	for _, entry := range filterCatalogEntriesByVisibleNames(entries, checkNames) {
+		if runtime.Prepare != nil {
+			if err := runtime.Prepare(ctx, entry); err != nil {
+				return nil, rejected, err
+			}
+		}
 		found[entry.Name] = struct{}{}
 	}
 	for _, name := range checkNames {
@@ -471,4 +496,32 @@ func marshalCatalogToolResponse(resp catalogToolResponse) (ToolResult, error) {
 		return ToolResult{Content: fmt.Sprintf("erro ao serializar resposta do catálogo de tools: %v", err), IsError: true}, nil
 	}
 	return ToolResult{Content: string(data)}, nil
+}
+
+// O índice de descoberta não deve consumir o limite reservado ao resultado de
+// uma execução. Ranking usa o texto completo; somente a apresentação é limitada.
+func catalogDescription(description string) (string, bool) {
+	const maxBytes = 1024
+	if len(description) <= maxBytes {
+		encoded, _ := json.Marshal(description)
+		if len(encoded) <= maxBytes {
+			return description, false
+		}
+	}
+	end := min(len(description), maxBytes)
+	for end < len(description) && end > 0 && !utf8.RuneStart(description[end]) {
+		end--
+	}
+	runes := []rune(description[:end])
+	lo, hi := 0, len(runes)
+	for lo < hi {
+		mid := (lo + hi + 1) / 2
+		encoded, _ := json.Marshal(string(runes[:mid]) + "…")
+		if len(encoded) <= maxBytes {
+			lo = mid
+		} else {
+			hi = mid - 1
+		}
+	}
+	return string(runes[:lo]) + "…", true
 }
