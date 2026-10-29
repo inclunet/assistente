@@ -6,27 +6,18 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strconv"
-	"strings"
 	"text/tabwriter"
 
-	"assistente/controllers"
 	"assistente/internal/apidto"
-	"assistente/internal/profiles"
 
 	"github.com/spf13/cobra"
 )
 
 // providersBackend abstracts the app methods used by providers commands.
 type providersBackend interface {
+	providerSetupBackend
 	GetLLMProvidersWithStatus() []map[string]interface{}
 	TestLLMProvider(req apidto.TestLLMProviderRequest) (bool, error)
-	ListModelsRaw(req apidto.TestLLMProviderRequest) ([]string, error)
-	CreateDefaultLLMProvider(providerType, apiKey string) error
-	CreateLLMProvider(req apidto.CreateLLMProviderRequest) (map[string]interface{}, error)
-	SetDefaultProvider(id string) error
-	GetActiveProfileAndSlug() (*profiles.ActiveProfile, error)
-	UpdateProfile(slug string, p profiles.Profile) error
 	DeleteLLMProvider(ctx context.Context, id string) error
 }
 
@@ -84,176 +75,12 @@ var providersAddCmd = &cobra.Command{
 	Long: `Wizard interativo para configurar um novo provedor LLM.
 Solicita tipo, API key e modelo, testa a conexão e salva.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runProvidersAdd(asCLI(rootApp), os.Stdout, bufio.NewReader(os.Stdin), readPassword)
+		return runProviderCommand(asCLI(rootApp), os.Stdout, false)
 	},
 }
 
 func runProvidersAdd(svc providersBackend, out io.Writer, reader *bufio.Reader, readPwd passwordReader) error {
-	// Passo 1: Escolher tipo
-	ew := &errWriter{w: out}
-	ew.println("Escolha o tipo de provedor:")
-	ew.println()
-	for i, choice := range providerChoices {
-		ew.printf("  %2d. %s\n", i+1, choice)
-	}
-	ew.println()
-	if ew.err != nil {
-		return ew.err
-	}
-
-	providerChoice, err := readProviderChoice(reader, out)
-	if err != nil {
-		return err
-	}
-
-	info := controllers.GetWizardProviderInfo(providerChoice)
-	providerType := controllers.WizardLabelToProviderType(providerChoice)
-	if providerType == "" {
-		providerType = string(info.Type)
-	}
-
-	// Passo 2: Base URL customizada (se necessário)
-	baseURL := ""
-	if providerChoice == "Azure OpenAI" || providerChoice == "LiteLLM" || info.Type == "custom" {
-		_, _ = fmt.Fprint(out, "Base URL: ")
-		line, _ := reader.ReadString('\n')
-		baseURL = strings.TrimSpace(line)
-		if baseURL == "" {
-			return fmt.Errorf("base URL é obrigatória para %s", providerChoice)
-		}
-	}
-
-	// Passo 3: API Key
-	apiKey := ""
-	needsAPIKey := providerChoice != "Ollama (Local)"
-
-	if needsAPIKey {
-		key, readErr := readPwd("API Key: ")
-		if readErr != nil {
-			return fmt.Errorf("erro ao ler API key: %w", readErr)
-		}
-		apiKey = key
-		if apiKey == "" {
-			return fmt.Errorf("API key não pode ser vazia")
-		}
-	}
-
-	// Passo 4: Testar conexão
-	_, _ = fmt.Fprint(out, "Testando conexão... ")
-	testReq := apidto.TestLLMProviderRequest{
-		Type:   providerType,
-		APIKey: apiKey,
-	}
-	if baseURL != "" {
-		testReq.BaseURL = baseURL
-	}
-
-	ok, testErr := svc.TestLLMProvider(testReq)
-	if testErr != nil || !ok {
-		_, _ = fmt.Fprintln(out, "FALHOU")
-		if testErr != nil {
-			_, _ = fmt.Fprintf(out, "Erro: %v\n", testErr)
-		}
-		_, _ = fmt.Fprint(out, "Continuar mesmo assim? (s/N): ")
-		answer, _ := reader.ReadString('\n')
-		answer = strings.TrimSpace(strings.ToLower(answer))
-		if answer != "s" && answer != "sim" {
-			return fmt.Errorf("cancelado")
-		}
-	} else {
-		_, _ = fmt.Fprintln(out, "OK")
-	}
-
-	// Passo 5: Escolher modelo
-	model := info.DefaultModel
-	modelsReq := apidto.TestLLMProviderRequest{
-		Type:   providerType,
-		APIKey: apiKey,
-	}
-	if baseURL != "" {
-		modelsReq.BaseURL = baseURL
-	}
-
-	models, modelsErr := svc.ListModelsRaw(modelsReq)
-	if modelsErr == nil && len(models) > 0 {
-		mw := &errWriter{w: out}
-		mw.println()
-		mw.println("Modelos disponíveis:")
-		displayCount := len(models)
-		if displayCount > 20 {
-			displayCount = 20
-		}
-		for i := 0; i < displayCount; i++ {
-			marker := "  "
-			if models[i] == model {
-				marker = "* "
-			}
-			mw.printf("  %s%2d. %s\n", marker, i+1, models[i])
-		}
-		if len(models) > 20 {
-			mw.printf("  ... e mais %d modelos.\n", len(models)-20)
-		}
-		mw.println()
-		if mw.err != nil {
-			return mw.err
-		}
-
-		defaultHint := ""
-		if model != "" {
-			defaultHint = fmt.Sprintf(" (Enter para '%s')", model)
-		}
-		_, _ = fmt.Fprintf(out, "Modelo%s: ", defaultHint)
-
-		line, _ := reader.ReadString('\n')
-		line = strings.TrimSpace(line)
-		if line != "" {
-			if num, err := strconv.Atoi(line); err == nil && num >= 1 && num <= len(models) {
-				model = models[num-1]
-			} else {
-				model = line
-			}
-		}
-	} else if model == "" {
-		_, _ = fmt.Fprint(out, "Modelo (nome exato): ")
-		line, _ := reader.ReadString('\n')
-		model = strings.TrimSpace(line)
-	}
-
-	// Passo 6: Criar provedor
-	if baseURL != "" {
-		// Provedor com URL customizada — usar Create completo
-		apiFormat := string(info.APIFormat)
-		if apiFormat == "" {
-			apiFormat = "openai"
-		}
-		_, err = svc.CreateLLMProvider(apidto.CreateLLMProviderRequest{
-			ID:           info.ID,
-			Name:         info.Name,
-			Type:         providerType,
-			APIFormat:    apiFormat,
-			BaseURL:      baseURL,
-			APIKey:       apiKey,
-			DefaultModel: model,
-		})
-	} else {
-		// Provedor padrão — usar template
-		err = svc.CreateDefaultLLMProvider(providerType, apiKey)
-		if err == nil && model != "" {
-			// Aplica o modelo selecionado ao perfil ativo
-			// (CreateDefaultLLMProvider usa o default do template).
-			if mErr := setActiveProfileChatModel(svc, model); mErr != nil {
-				_, _ = fmt.Fprintf(out, "Aviso: provedor criado, mas não foi possível aplicar o modelo %q ao perfil ativo: %v\n", model, mErr)
-				_, _ = fmt.Fprintln(out, "Defina o modelo depois com: asst config model <modelo>")
-			}
-		}
-	}
-
-	if err != nil {
-		return fmt.Errorf("erro ao criar provedor: %w", err)
-	}
-
-	_, err = fmt.Fprintf(out, "Provedor '%s' criado com sucesso.\n", providerChoice)
-	return err
+	return configureProvider(svc, out, reader, readPwd, false)
 }
 
 // ─── test ───────────────────────────────────────────────────────────────────

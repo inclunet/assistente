@@ -13,6 +13,7 @@ import (
 	cliadapter "assistente/adapters/cli"
 	"assistente/internal/app"
 	"assistente/internal/database"
+	"assistente/internal/wailsapi"
 
 	"github.com/spf13/cobra"
 	gormlogger "gorm.io/gorm/logger"
@@ -70,6 +71,7 @@ var rootCmd = &cobra.Command{
 		cliEmitter = cliadapter.NewEmitterAdapter(
 			cliadapter.WithVerbose(verbose),
 		)
+		app.SetLLMCatalogAPI(rootApp, wailsapi.NewLLMCatalog())
 
 		// O nível de log do GORM precisa ser configurado antes do startup,
 		// pois o database.Init() ocorre durante a inicialização do app.

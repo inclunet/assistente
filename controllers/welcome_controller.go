@@ -5,97 +5,9 @@ import (
 	"strings"
 
 	"assistente/internal/credentials"
-	"assistente/internal/llm"
 	"assistente/internal/providers"
 	"assistente/internal/questionnaire"
 )
-
-// ============================================================================
-// Wizard Provider Metadata
-// ============================================================================
-
-// WizardProviderInfo mapeia a escolha do wizard para configuração do provedor.
-type WizardProviderInfo struct {
-	ID                   string
-	Name                 string
-	Type                 llm.ProviderType
-	ErrorFamily          llm.ProviderErrorFamily
-	APIFormat            llm.APIFormat
-	DefaultModel         string
-	ReasoningContentMode llm.ReasoningContentMode
-}
-
-// WizardLabelToProviderType mapeia o rótulo exibido no wizard para o type ID
-// usado pela entrada legada de perfis do catálogo. Retorna "" para provedores sem template canônico.
-func WizardLabelToProviderType(label string) string {
-	switch label {
-	case "OpenAI":
-		return "openai"
-	case "Anthropic (Claude)":
-		return "claude"
-	case "Google (Gemini)":
-		return "google"
-	case "DeepSeek":
-		return "deepseek"
-	case "xAI (Grok)":
-		return "grok"
-	case "OpenRouter":
-		return "openrouter"
-	case "Mistral AI":
-		return "mistral"
-	case "Groq":
-		return "groq"
-	case "Together AI":
-		return "together"
-	case "Fireworks AI":
-		return "fireworks"
-	case "Perplexity":
-		return "perplexity"
-	case "Ollama (Local)":
-		return "ollama"
-	default:
-		return ""
-	}
-}
-
-// GetWizardProviderInfo retorna ID, nome, tipo e modelo default sugerido para a escolha do wizard.
-func GetWizardProviderInfo(providerChoice string) WizardProviderInfo {
-	switch providerChoice {
-	case "OpenAI":
-		return WizardProviderInfo{ID: "openai-default", Name: "OpenAI", Type: llm.ProviderOpenAI, ErrorFamily: llm.ProviderErrorFamilyOpenAI, APIFormat: llm.APIFormatOpenAIResponses, DefaultModel: "gpt-4o-mini"}
-	case "Anthropic (Claude)":
-		return WizardProviderInfo{ID: "anthropic-claude", Name: "Claude (Anthropic)", Type: llm.ProviderClaude, APIFormat: llm.APIFormatAnthropic, DefaultModel: "claude-sonnet-4-20250514"}
-	case "Google (Gemini)":
-		return WizardProviderInfo{ID: "google-gemini", Name: "Google (Gemini)", Type: llm.ProviderOpenAI, DefaultModel: "gemini-2.0-flash"}
-	case "OpenRouter":
-		return WizardProviderInfo{ID: "openrouter-default", Name: "OpenRouter", Type: llm.ProviderOpenAI, ErrorFamily: llm.ProviderErrorFamilyOpenRouter}
-	case "Mistral AI":
-		return WizardProviderInfo{ID: "mistral-default", Name: "Mistral AI", Type: llm.ProviderMistral, DefaultModel: "mistral-small-latest"}
-	case "Groq":
-		return WizardProviderInfo{ID: "groq-default", Name: "Groq", Type: llm.ProviderGroq, DefaultModel: "llama-3.3-70b-versatile"}
-	case "Together AI":
-		return WizardProviderInfo{ID: "together-default", Name: "Together AI", Type: llm.ProviderTogether}
-	case "Fireworks AI":
-		return WizardProviderInfo{ID: "fireworks-default", Name: "Fireworks AI", Type: llm.ProviderFireworks}
-	case "Perplexity":
-		return WizardProviderInfo{ID: "perplexity-default", Name: "Perplexity", Type: llm.ProviderPerplexity, DefaultModel: "sonar"}
-	case "DeepSeek":
-		return WizardProviderInfo{
-			ID: "deepseek-default", Name: "DeepSeek", Type: llm.ProviderDeepSeek,
-			DefaultModel: "deepseek-chat", ReasoningContentMode: llm.ReasoningContentReplayWithTools,
-		}
-	case "xAI (Grok)":
-		return WizardProviderInfo{ID: "xai-grok", Name: "xAI (Grok)", Type: llm.ProviderGrok, DefaultModel: "grok-3-mini"}
-	case "Azure OpenAI":
-		return WizardProviderInfo{ID: "azure-openai", Name: "Azure OpenAI", Type: llm.ProviderOpenAI}
-	case "Ollama (Local)":
-		return WizardProviderInfo{ID: "ollama-local", Name: "Ollama (Local)", Type: llm.ProviderOllama}
-	case "LiteLLM":
-		return WizardProviderInfo{ID: "litellm", Name: "LiteLLM", Type: llm.ProviderOpenAI, ErrorFamily: llm.ProviderErrorFamilyLiteLLM}
-	default:
-		return WizardProviderInfo{ID: "custom", Name: "Custom Provider", Type: llm.ProviderCustom}
-	}
-}
 
 // ============================================================================
 // WelcomeController
