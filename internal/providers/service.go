@@ -1275,29 +1275,33 @@ func (s *Service) modelCatalog(
 	if providerID == "" {
 		return catalog, nil
 	}
-	catalog.Agent = s.providerIsAgent(providerID)
-	if p := s.registry.Get(providerID); p != nil {
-		catalog.UsesChatGPTPlan = p.Type == llm.ProviderChatGPT
-	}
-	cp, err := s.GetChatProvider(ctx, providerID)
+	cp, provider, err := s.GetChatProviderWithConfigSnapshot(ctx, providerID)
 	if err != nil {
 		return llm.ModelCatalog{}, err
 	}
+	catalog.Agent = provider.IsACP()
+	catalog.UsesChatGPTPlan = provider.Type == llm.ProviderChatGPT
 	models, err := list(ctx, cp)
 	if err != nil {
 		return llm.ModelCatalog{}, err
 	}
 	if len(models) > 0 {
-		catalog.Models = models
+		catalog.Models = append([]llm.ModelOption(nil), models...)
+	}
+	if provider.ServerProfileID != "" && !catalog.Agent && !catalog.UsesChatGPTPlan && s.catalogSnapshot != nil {
+		ids := make([]string, len(models))
+		for i, model := range models {
+			ids[i] = model.Value
+		}
+		metadata := s.catalogSnapshot().Document.ResolveModels(provider.ServerProfileID, string(provider.GetAPIFormat()), ids)
+		for i := range catalog.Models {
+			if model, ok := metadata[catalog.Models[i].Value]; ok {
+				catalog.Models[i].Catalog = &model
+				catalog.Models[i].Label = model.Name + " (" + catalog.Models[i].Value + ")"
+			}
+		}
 	}
 	return catalog, nil
-}
-
-func (s *Service) providerIsAgent(providerID string) bool {
-	if s.registry == nil {
-		return false
-	}
-	return s.registry.Get(providerID).IsACP()
 }
 
 // RefreshModels é o mesmo para o provedor do perfil ativo.

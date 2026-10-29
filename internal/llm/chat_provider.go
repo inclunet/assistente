@@ -7,6 +7,7 @@ import (
 
 	"assistente/internal/acp"
 	"assistente/internal/credentials"
+	"assistente/internal/llmcatalog"
 )
 
 // Streamer é a interface mínima para streaming de chat.
@@ -133,9 +134,11 @@ func RefreshModels(ctx context.Context, provider ChatProvider) ([]string, error)
 type ModelOption struct {
 	// Value é o que fica gravado no perfil e volta ao provedor.
 	Value string `json:"value"`
-	// Label é como exibi-lo. Igual ao Value quando o provedor só tem
-	// identificadores a oferecer, que é o caso de todo provedor HTTP.
+	// Label é como exibi-lo, sem alterar o ID enviado ao servidor.
 	Label string `json:"label"`
+	// Catalog contém metadados informativos da exposição exata. Ausência
+	// significa desconhecido; não substitui restrições aprendidas localmente.
+	Catalog *llmcatalog.Model `json:"catalog,omitempty"`
 }
 
 // ModelCatalog é a lista de modelos junto com o que a tela precisa saber para

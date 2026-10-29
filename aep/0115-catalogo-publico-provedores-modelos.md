@@ -1,6 +1,6 @@
 # AEP-0115 — Catálogo público de provedores e modelos
 
-Status: In Progress — contrato aprovado; fases 1 (schema e asset inicial) e 2 (consumo, validação e cache backend) implementadas; fase 3 parcialmente entregue com persistência explícita, formulário por perfis, aceite por conexão para HTTP remoto e fábrica backend allowlisted; provedores legados sem aceite permanecem editáveis e bloqueados até reautorização explícita; onboarding desktop reutiliza o formulário; CLI consolidada com autenticação e cadastro compartilhados; modelos e vozes pendentes; Cohere e Ollama aguardam suporte às rotas/runtime catalogados
+Status: In Progress — contrato aprovado; fases 1 (schema e asset inicial) e 2 (consumo, validação e cache backend) implementadas; fase 3 parcialmente entregue com persistência explícita, formulário por perfis, aceite por conexão para HTTP remoto e fábrica backend allowlisted; provedores legados sem aceite permanecem editáveis e bloqueados até reautorização explícita; onboarding desktop reutiliza o formulário; CLI consolidada com autenticação e cadastro compartilhados; fase 4 com resolução exata e metadados na API compartilhada/CLI; apresentação completa de recursos e vozes pendentes; Cohere e Ollama aguardam suporte às rotas/runtime catalogados
 
 ## Resumo
 
@@ -286,7 +286,20 @@ testes dos serviços de credenciais e provedores. A fase 3 permanece In Progress
 quanto às rotas catalogadas ainda sem suporte (Cohere e Ollama nativo); modelos,
 vozes e manutenção do catálogo continuam pendentes nas fases seguintes.
 
-4. **Modelos, capacidades e proxies.** Associar IDs expostos apenas por mapeamento exato e integrar recursos e limites sem impedir aliases desconhecidos.
+4. **Modelos, capacidades e proxies — parcialmente entregue.** A API existente
+   `GetModelCatalogByProvider` e sua atualização resolvem a tupla exata do perfil
+   persistido, formato usado pelo adaptador e ID listado pelo servidor. O
+   resolvedor único `llmcatalog.Document.ResolveModels` aplica overrides da
+   exposição sobre o modelo canônico e devolve cópias independentes. O seletor
+   existente recebe nome legível acompanhado do ID remoto, sem mudar o valor
+   selecionado. `asst providers models <id> --json` consome a mesma API e expõe
+   capacidades e limites informativos. Sem correspondência, `catalog` é ausente;
+   capacidades ausentes significam desconhecidas. O catálogo nunca acrescenta
+   modelos à lista da conta nem altera configuração, aprendizado ou payloads.
+   Evidências: `llmcatalog/resolve_test.go`,
+   `providers/model_catalog_metadata_test.go` e `cmd/asst/providers_test.go`.
+   Ainda falta apresentar capacidades/limites na interface gráfica e oferecer
+   o vínculo explícito de aliases privados; não se infere associação por nome.
 5. **Vozes TTS na API do catálogo.** Integrar a coleção de vozes do asset ao consumo tipado, associada à exposição de perfil, rota/API e modelo, incluindo estado de completude. Esta fase fornece os dados consumidos pela fase 4 do AEP-0113, que implementa a seleção e o comportamento de compatibilidade na interface. Assim, a dependência é unidirecional: AEP-0113 fase 4 depende das fases 1–5 desta AEP.
 6. **Manutenção do catálogo.** Definir processo e cadência de atualização, validação e publicação. Sondagens de síntese potencialmente pagas podem ser usadas no processo editorial, com custo e escopo controlados; abrir a UI ou selecionar modelo não dispara sondagem paga automaticamente.
 
@@ -311,7 +324,7 @@ vozes e manutenção do catálogo continuam pendentes nas fases seguintes.
 - [x] A fábrica backend consome perfis do catálogo e não mantém presets duplicados nos caminhos de criação cobertos. Evidência: `internal/providers/defaults.go`, `ServiceConfig.CatalogSnapshot` e `internal/providers/catalog_defaults_test.go`; perfis e combinações sem suporte são recusados, e a ausência de snapshot retorna erro sem criar configuração. A interface de configuração manual permanece disponível.
 - [x] A fábrica backend resolve perfis do snapshot por IDs explícitos, valida a tupla perfil/família/formato, autenticação e origem completa (esquema/host/porta), e segue a precedência da UI: políticas `fixed`/`hidden`/`choice` usam seu default; `editable` mantém o top-level quando presente e usa o default quando ausente/vazio. Deriva autenticação do `auth.mode` efetivo (`bearer_api_key`/`api_key_header` obrigatório, `optional_api_key` opcional, `none` sem credencial), ignorando `auth.required` divergente. Snapshot vazio/offline não fabrica preset nem endpoint; o bootstrap legado da CLI retorna erro e a configuração manual continua disponível. Provedores hospedados e OpenRouter usam origens HTTPS fixas; LiteLLM só aceita `http://localhost:4000`, LocalAI e llama.cpp só aceitam `http://localhost:8080`, impedindo que o catálogo remoto escolha o destino da credencial. Evidência: `internal/providers/defaults.go`, `ServiceConfig.CatalogSnapshot` e `internal/providers/catalog_defaults_test.go`. Os perfis nativos Ollama e Cohere são recusados enquanto o runtime não representar seus formatos/rotas.
 - [ ] Atualizar o catálogo não sobrescreve configurações existentes nem envia dados locais ao site.
-- [ ] Modelos e aliases só recebem capacidades por associação exata; IDs sem associação continuam selecionáveis com recursos desconhecidos.
-- [ ] Nenhuma conexão é identificada por inferência de hostname ou prefixo de modelo; configurações antigas ambíguas permanecem personalizadas.
+- [x] Modelos e aliases só recebem capacidades por associação exata; IDs sem associação continuam selecionáveis com recursos desconhecidos. Evidência: `internal/llmcatalog/resolve_test.go` e `internal/providers/model_catalog_metadata_test.go` cobrem formato/perfil/ID exatos, overrides, ausência de inferência, atualização de limites e lista restrita aos modelos retornados pelo servidor.
+- [x] Nenhuma conexão é identificada por inferência de hostname ou prefixo de modelo; configurações antigas ambíguas permanecem personalizadas. A resolução usa o `ServerProfileID` explícito e o snapshot do adaptador que fez a listagem; testes do catálogo e de persistência cobrem conexões sem vínculo.
 - [ ] A fase de vozes do AEP-0113 consome o catálogo e distingue dados completos, parciais e desconhecidos, sem sondagem paga automática durante o uso normal.
 - [ ] O AEP e o índice são atualizados em cada PR que entregar uma fase, com evidências verificáveis e status sincronizado.

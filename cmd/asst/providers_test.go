@@ -3,11 +3,14 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
 
 	"assistente/internal/apidto"
+	"assistente/internal/llm"
+	"assistente/internal/llmcatalog"
 )
 
 // ---------------------------------------------------------------------------
@@ -21,6 +24,7 @@ type mockProvidersBackend struct {
 	testErr             error
 	models              []string
 	modelsErr           error
+	modelCatalog        *llm.ModelCatalog
 	defaultProviderID   string
 	setDefaultErr       error
 	deleteErr           error
@@ -41,6 +45,16 @@ func (m *mockProvidersBackend) TestLLMProvider(req apidto.TestLLMProviderRequest
 
 func (m *mockProvidersBackend) ListModelsRaw(req apidto.TestLLMProviderRequest) ([]string, error) {
 	return m.models, m.modelsErr
+}
+func (m *mockProvidersBackend) GetModelCatalogByProvider(string) (llm.ModelCatalog, error) {
+	if m.modelCatalog != nil {
+		return *m.modelCatalog, m.modelsErr
+	}
+	catalog := llm.ModelCatalog{Models: []llm.ModelOption{}}
+	for _, id := range m.models {
+		catalog.Models = append(catalog.Models, llm.ModelOption{Value: id, Label: id})
+	}
+	return catalog, m.modelsErr
 }
 func (m *mockProvidersBackend) SetDefaultProvider(id string) error {
 	m.defaultProviderID = id
@@ -177,7 +191,7 @@ func TestProvidersModels_Success(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	err := runProvidersModels(mock, &out, "openai-1")
+	err := runProvidersModels(mock, &out, "openai-1", false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -197,7 +211,7 @@ func TestProvidersModels_Empty(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	err := runProvidersModels(mock, &out, "empty")
+	err := runProvidersModels(mock, &out, "empty", false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -212,12 +226,30 @@ func TestProvidersModels_Error(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	err := runProvidersModels(mock, &out, "bad")
+	err := runProvidersModels(mock, &out, "bad", false)
 	if err == nil {
 		t.Fatal("expected error")
 	}
 	if !strings.Contains(err.Error(), "erro ao listar modelos") {
 		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestProvidersModels_JSONPreservesAliasAndMetadata(t *testing.T) {
+	mock := &mockProvidersBackend{modelCatalog: &llm.ModelCatalog{Models: []llm.ModelOption{
+		{Value: "openai/private-alias", Label: "Model", Catalog: &llmcatalog.Model{ID: "vendor/model", Capabilities: map[string]string{"tools.function_calling": "unknown"}, Limits: map[string]int64{"context_tokens": 1000}}},
+		{Value: "unknown", Label: "unknown"},
+	}}}
+	var out bytes.Buffer
+	if err := runProvidersModels(mock, &out, "proxy", true); err != nil {
+		t.Fatal(err)
+	}
+	var catalog llm.ModelCatalog
+	if err := json.Unmarshal(out.Bytes(), &catalog); err != nil {
+		t.Fatal(err)
+	}
+	if len(catalog.Models) != 2 || catalog.Models[0].Value != "openai/private-alias" || catalog.Models[0].Catalog.Limits["context_tokens"] != 1000 || catalog.Models[1].Catalog != nil {
+		t.Fatalf("metadata changed: %+v", catalog)
 	}
 }
 

@@ -395,6 +395,25 @@ Provedores genéricos antigos com referência OAuth sem credencial local podem s
 excluídos ou corrigidos editando a URL e configurando a credencial normalmente.
 Uma autorização local existente continua protegida contra desvinculação acidental.
 
+### Informações do catálogo na seleção de modelos
+
+Em conexões criadas a partir de um perfil do catálogo, o seletor pode mostrar
+o nome legível do modelo junto ao ID exato aceito pelo servidor. A lista continua
+sendo a que a sua conta ou servidor oferece; modelos do catálogo público não são
+adicionados automaticamente.
+
+A associação exige perfil de servidor, formato de API e ID do modelo iguais aos
+da exposição catalogada. Prefixos de LiteLLM/OpenRouter não são removidos nem
+interpretados. Aliases privados e conexões manuais continuam utilizáveis sem
+metadados conhecidos. Atualizar o catálogo não muda o modelo ou a URL salvos.
+
+A API compartilhada e `asst providers models <id> --json` também fornecem
+capacidades e limites conhecidos. Ausência de `catalog` ou de uma capacidade
+significa informação desconhecida, não incompatibilidade. Limites são
+informativos; não alteram seus parâmetros nem substituem as restrições
+aprendidas nas chamadas reais. A apresentação detalhada desses dados na
+interface gráfica será acrescentada em uma próxima etapa.
+
 ### Falha ao salvar um provedor com API key
 
 No formulário de API, a credencial e a configuração do provedor são gravadas

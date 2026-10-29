@@ -25,6 +25,14 @@ var errConversationsNotReady = fmt.Errorf("conversations controller não inicial
 var errExportImportNotReady = fmt.Errorf("export/import bind não inicializado")
 var errChatNotReady = fmt.Errorf("chat bind não inicializado")
 
+func (c cliApp) GetModelCatalogByProvider(id string) (llm.ModelCatalog, error) {
+	api := app.LLMModelsAPI(c.App)
+	if api == nil {
+		return llm.ModelCatalog{}, wailsapi.ErrLLMModelsNotWired
+	}
+	return api.GetModelCatalogByProvider(id)
+}
+
 // cliApp adapta *app.App para as interfaces da CLI após AEP-0088: métodos de
 // profiles/credentials/mcp/llm_providers/llm_models/chat/tasklist/conversations saíram do Bind
 // Wails e vivem nos controllers / wailsapi.
