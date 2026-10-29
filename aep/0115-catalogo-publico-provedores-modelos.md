@@ -163,7 +163,11 @@ Perfis legados com `reasoning_effort` omitido mantêm a escolha desativada;
 novos perfis serializam `null` para o default do modelo, preservando a distinção
 também ao exportar. O evento de invalidação `llm_catalog:changed`, sem payload,
 é emitido após publicar um documento validado e faz o editor reconsultar seu
-contrato sem alterar os valores do formulário. Erros de valor carregam campo,
+contrato sem alterar os valores do formulário nem desmontar controles durante
+a revalidação. Se uma nova restrição remover o campo focado, o foco retorna ao
+controle restante do grupo ou ao conteúdo da guia. Raciocínio manual também
+distingue explicitamente desativado, default do modelo e valor personalizado.
+Erros de valor carregam campo,
 código e limite no marcador `parameter_error:v1`, traduzido pelo apresentador
 de erros existente. A escolha do modelo reutiliza `llm.ResolveModel` em
 catálogo, compatibilidade e transporte.

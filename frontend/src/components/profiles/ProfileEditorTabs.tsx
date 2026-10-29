@@ -79,7 +79,7 @@ export function ProfileEditorTabs({
   const chatModelID = editingProfile.chat?.model || '';
   const [catalogRevision, setCatalogRevision] = useState(0);
   useEffect(() => EventsOn('llm_catalog:changed', () => setCatalogRevision((revision) => revision + 1)), []);
-  const compatibilityKey = `${chatProviderID}\u0000${chatModelID}\u0000${catalogRevision}`;
+  const compatibilityKey = `${chatProviderID}\u0000${chatModelID}`;
   const [unsupportedChatFields, setUnsupportedChatFields] = useState<{ key: string; fields: Record<string, llmcatalog.Parameter>; loading: boolean }>({ key: '', fields: {}, loading: false });
   if (unsupportedChatFields.key !== compatibilityKey) {
     setUnsupportedChatFields({
@@ -89,6 +89,7 @@ export function ProfileEditorTabs({
     });
   }
   const containerRef = useRef<HTMLDivElement>(null);
+  const contractFocusRef = useRef<{ element: HTMLElement; group: HTMLElement | null } | null>(null);
   const pendingShortcutFocusRef = useRef<EditorTabId | null>(null);
   const { isAgent: agentProvider, resolved: agentProviderResolved } = useAgentProvider(
     editingProfile.chat?.llm_provider || '',
@@ -109,14 +110,20 @@ export function ProfileEditorTabs({
 
     GetProfileChatParameterContract(chatProviderID, chatModelID)
       .then((fields) => {
-        if (current) setUnsupportedChatFields({ key: compatibilityKey, fields: fields || {}, loading: false });
+        if (current) {
+          const element = document.activeElement;
+          if (element instanceof HTMLElement && containerRef.current?.contains(element)) {
+            contractFocusRef.current = { element, group: element.closest('.profiles-field') };
+          }
+          setUnsupportedChatFields({ key: compatibilityKey, fields: fields || {}, loading: false });
+        }
       })
       .catch(() => {
-        if (current) setUnsupportedChatFields({ key: compatibilityKey, fields: {}, loading: false });
+        if (current) setUnsupportedChatFields((previous) => ({ ...previous, loading: false }));
       });
 
     return () => { current = false; };
-  }, [chatProviderID, chatModelID, compatibilityKey]);
+  }, [chatProviderID, chatModelID, compatibilityKey, catalogRevision]);
 
   const parameterContract = unsupportedChatFields.key === compatibilityKey
     ? unsupportedChatFields.fields
@@ -194,6 +201,17 @@ export function ProfileEditorTabs({
     },
     [activeTab],
   );
+
+  useLayoutEffect(() => {
+    const previous = contractFocusRef.current;
+    contractFocusRef.current = null;
+    if (!previous || previous.element.isConnected || document.activeElement !== document.body) return;
+    const replacement = previous.group?.isConnected
+      ? previous.group.querySelector<HTMLElement>(FOCUSABLE_SELECTOR)
+      : null;
+    if (replacement) replacement.focus();
+    else focusProfileContent();
+  }, [parameterContract, focusProfileContent]);
 
   useLayoutEffect(() => {
     if (pendingShortcutFocusRef.current !== activeTab) return;

@@ -223,6 +223,27 @@ describe('ProfileChatSection', () => {
     expect(onChange).toHaveBeenCalledWith('reasoning_effort', null);
   });
 
+  it('distingue desativado, default e valor personalizado sem opções catalogadas', async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const { rerender } = render(<ProfileChatSection {...defaultProps} parameterContract={{}}
+      reasoningEffort="" onChange={onChange} />);
+    const select = screen.getByLabelText('Raciocínio (Reasoning)');
+    expect(select).toHaveValue('off');
+    await user.selectOptions(select, 'model-default');
+    expect(onChange).toHaveBeenLastCalledWith('reasoning_effort', null);
+    rerender(<ProfileChatSection {...defaultProps} parameterContract={{}} reasoningEffort={null} onChange={onChange} />);
+    expect(select).toHaveValue('model-default');
+    fireEvent.change(screen.getByLabelText('profiles.chatSection.reasoningCustom'), { target: { value: 'adaptive' } });
+    expect(onChange).toHaveBeenLastCalledWith('reasoning_effort', 'adaptive');
+    rerender(<ProfileChatSection {...defaultProps} parameterContract={{}} reasoningEffort="adaptive" onChange={onChange} />);
+    expect(select).toHaveValue('adaptive');
+    select.focus();
+    rerender(<ProfileChatSection {...defaultProps} parameterContract={{ reasoning_effort: { support: 'supported', choices: ['adaptive', 'high'] } }} reasoningEffort="adaptive" onChange={onChange} />);
+    expect(screen.getByLabelText('Raciocínio (Reasoning)')).toBe(select);
+    expect(select).toHaveFocus();
+  });
+
   it('renderiza os campos numéricos com valores corretos', () => {
     render(<ProfileChatSection {...defaultProps} />);
     

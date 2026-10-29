@@ -2221,6 +2221,7 @@ const es = {
         timeout: 'Timeout (segundos)',
         reasoning: 'Razonamiento (Reasoning)',
         reasoningOllama: 'Activado (Ollama)',
+        reasoningCustom: 'Valor personalizado de razonamiento',
         reasoningOff: 'Desactivado',
         reasoningNone: 'Mínimo (none)',
         reasoningLow: 'Bajo (low)',

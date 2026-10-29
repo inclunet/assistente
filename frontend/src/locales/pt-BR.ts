@@ -2219,6 +2219,7 @@ const ptBR = {
         timeout: 'Timeout (segundos)',
         reasoning: 'Raciocínio (Reasoning)',
         reasoningOllama: 'Ativado (Ollama)',
+        reasoningCustom: 'Valor personalizado de raciocínio',
         reasoningOff: 'Desativado',
         reasoningNone: 'Mínimo (none)',
         reasoningLow: 'Baixo (low)',

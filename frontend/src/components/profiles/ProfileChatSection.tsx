@@ -258,7 +258,7 @@ export function ProfileChatSection({
           <label htmlFor="chat-reasoning" className="profiles-field__label">
             {t('profiles.chatSection.reasoning')}
           </label>
-          {reasoningChoices ? <select
+          <select
             id="chat-reasoning" className="profiles-field__select"
             value={reasoningValue} disabled={generationDisabled}
             aria-invalid={reasoningInvalid || undefined}
@@ -267,12 +267,13 @@ export function ProfileChatSection({
           >
             <option value="model-default">{t('profiles.chatSection.modelDefault')}</option>
             <option value="off">{t('profiles.chatSection.reasoningOff')}</option>
-            {reasoningInvalid && <option value={reasoningValue}>{reasoningValue}</option>}
-            {reasoningChoices.filter((value) => value !== 'off').map((value) => <option key={value} value={value}>{value}</option>)}
-          </select> : <Input
-            id="chat-reasoning" value={reasoningEffort ?? ''} disabled={generationDisabled}
-            placeholder={t('profiles.chatSection.modelDefault')}
-            onChange={(e) => onChange('reasoning_effort', e.target.value || null)}
+            {(reasoningInvalid || (!reasoningChoices && reasoningEffort && reasoningEffort !== 'off')) && <option value={reasoningValue}>{reasoningValue}</option>}
+            {reasoningChoices?.filter((value) => value !== 'off').map((value) => <option key={value} value={value}>{value}</option>)}
+          </select>
+          {!reasoningChoices && <Input
+            id="chat-reasoning-custom" label={t('profiles.chatSection.reasoningCustom')}
+            value={reasoningEffort === 'off' ? '' : reasoningEffort ?? ''} disabled={generationDisabled}
+            onChange={(e) => onChange('reasoning_effort', e.target.value)}
           />}
           {reasoningInvalid && <span id="chat-reasoning-error">{t('profiles.chatSection.parameterInvalid')}</span>}
           <span className="profiles-field__hint">

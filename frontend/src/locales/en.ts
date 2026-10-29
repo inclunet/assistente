@@ -2218,6 +2218,7 @@ const en = {
         timeout: 'Timeout (seconds)',
         reasoning: 'Reasoning',
         reasoningOllama: 'Enabled (Ollama)',
+        reasoningCustom: 'Custom reasoning value',
         reasoningOff: 'Disabled',
         reasoningNone: 'Minimum (none)',
         reasoningLow: 'Low (low)',

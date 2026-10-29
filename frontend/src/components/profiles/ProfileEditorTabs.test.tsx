@@ -144,6 +144,23 @@ function perfilCom(provider: string) {
 /* ── Testes ─────────────────────────────────────────────── */
 
 describe('ProfileEditorTabs', () => {
+  it('preserva o foco durante revalidação e o recupera quando o campo deixa de existir', async () => {
+    const user = userEvent.setup();
+    render(<ProfileEditorTabs {...propsCom({ chat: { ...defaultProfile.chat, llm_provider: 'openai', model: 'model' } })} />);
+    await waitFor(() => expect(screen.getByTestId('temperature-field')).not.toBeDisabled());
+    await user.click(screen.getAllByRole('tab').find((tab) => tab.getAttribute('data-tab-value') === 'models')!);
+    const field = screen.getByTestId('temperature-field');
+    field.focus();
+    let finish!: (fields: Record<string, { support: string }>) => void;
+    compatibilitySpy.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    act(() => catalogEvents.get('llm_catalog:changed')?.());
+    expect(field).toHaveFocus();
+    expect(field).not.toBeDisabled();
+    await act(async () => finish({ temperature: { support: 'unsupported' } }));
+    expect(screen.queryByTestId('temperature-field')).not.toBeInTheDocument();
+    expect(document.getElementById('profile-editor-tabpanel-models')).toHaveFocus();
+  });
+
   it('reconsulta o contrato após publicação do catálogo sem alterar o perfil', async () => {
     const profile = { ...defaultProfile, chat: { ...defaultProfile.chat, llm_provider: 'openai', model: 'model' } };
     const props = propsCom(profile);
