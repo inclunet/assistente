@@ -82,6 +82,47 @@ func TestNewProviderCredentialsAreIsolatedAcrossPortsAndLegacyInput(t *testing.T
 	}
 }
 
+func TestNewProviderReusedIDPreservesSurvivingDuplicateCredential(t *testing.T) {
+	for _, legacy := range []bool{false, true} {
+		t.Run(fmt.Sprintf("legacy=%t", legacy), func(t *testing.T) {
+			service, mgr, ctx := chatGPTTestService(t)
+			req := vaultProviderRequest(&credentials.AuthConfig{Source: "static", Type: "bearer", Token: "original"})
+			if _, err := service.Create(ctx, req); err != nil {
+				t.Fatal(err)
+			}
+			copyReq := CreateRequest{ID: "copy", Name: "Copy", Type: "custom", APIFormat: "openai", BaseURL: req.BaseURL, CredentialFromProviderID: req.ID}
+			if _, err := service.Create(ctx, copyReq); err != nil {
+				t.Fatal(err)
+			}
+			if err := service.Delete(ctx, req.ID); err != nil {
+				t.Fatal(err)
+			}
+			req.Credential.Auth.Token = "replacement"
+			if legacy {
+				req.Credential = nil
+				req.APIKey = "replacement"
+			}
+			if _, err := service.Create(ctx, req); !errors.Is(err, oauthflow.ErrConflict) {
+				t.Fatalf("expected credential collision: %v", err)
+			}
+			auth, err := mgr.GetConfigByPatternWithContext(ctx, "provider:api")
+			if err != nil || auth == nil || auth.Token != "original" {
+				t.Fatalf("surviving credential changed: %v", err)
+			}
+			if service.registry.Get("api") != nil {
+				t.Fatal("rejected connection published")
+			}
+			if _, err := service.store.Get(ctx, "api"); err == nil {
+				t.Fatal("rejected connection persisted")
+			}
+			copy, err := service.store.Get(ctx, "copy")
+			if err != nil || copy.CredentialPattern != "provider:api" {
+				t.Fatalf("surviving connection changed: %v", err)
+			}
+		})
+	}
+}
+
 func TestNewProviderLegacyKeyRollbackDoesNotLeaveCredential(t *testing.T) {
 	service, mgr, ctx := chatGPTTestService(t)
 	db := database.DB()
@@ -786,10 +827,10 @@ func TestProviderCredentialCanonicalHostnamePreviewAndSave(t *testing.T) {
 		t.Fatalf("preview: %v %v", models, err)
 	}
 	got, err := service.Create(ctx, CreateRequest{ID: "mixed-case", Name: "Mixed", Type: "custom", APIFormat: "openai", BaseURL: base, Credential: draft})
-	if err != nil || got.CredentialPattern != "localhost" {
+	if err != nil || got.CredentialPattern != "provider:mixed-case" {
 		t.Fatalf("save: %v %v", got, err)
 	}
-	stored, err := mgr.GetConfigByPatternWithContext(ctx, "localhost")
+	stored, err := mgr.GetConfigByPatternWithContext(ctx, "provider:mixed-case")
 	if err != nil || stored == nil {
 		t.Fatalf("missing canonical credential: %v", err)
 	}

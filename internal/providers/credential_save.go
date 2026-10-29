@@ -165,11 +165,19 @@ func (s *Service) saveWithCredential(ctx context.Context, p, expected *llm.Provi
 				if !errors.Is(loadErr, gorm.ErrRecordNotFound) {
 					return oauthflow.ErrConflict
 				}
-				count, err := repo.CountLLMProviders(ctx)
+				providers, err := repo.GetLLMProviders(ctx)
 				if err != nil {
 					return err
 				}
-				p.IsDefault = count == 0
+				// A conexão original pode ter sido excluída enquanto uma cópia
+				// ainda usa sua credencial. Recusar dentro da mesma transação
+				// também desfaz a escrita do segredo, sem afetar a cópia.
+				for _, provider := range providers {
+					if provider.CredentialPattern == draft.Pattern {
+						return oauthflow.ErrConflict
+					}
+				}
+				p.IsDefault = len(providers) == 0
 			} else {
 				if loadErr != nil || !current.UpdatedAt.Equal(baseline.UpdatedAt) || current.Type != baseline.Type || current.CredentialPattern != baseline.CredentialPattern {
 					return oauthflow.ErrConflict

@@ -271,6 +271,8 @@ conexão. O draft original da sondagem e entradas anteriores por hostname ou
 wildcard permanecem intactos. Criar uma conexão sem fornecer credencial nova
 mantém o contrato de reutilização de referência existente; duplicação explícita
 por ID continua compartilhando a referência autorizada, sem copiar segredos.
+Recriar um ID cuja referência ainda é usada por uma cópia sobrevivente é
+recusado na mesma transação, preservando o segredo e a conexão da cópia.
 Edição preserva referências existentes, sem migração implícita. Regressões em
 `internal/providers/credential_save_test.go` cobrem sobrescrita, portas locais,
 entrada legada, rollback, duplicação explícita e preservação de fontes externas.

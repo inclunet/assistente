@@ -109,10 +109,14 @@ func TestCriarAgentePelaFronteiraGuardaOComandoESemURL(t *testing.T) {
 func TestVirarAgentePelaFronteiraLargaURLECredencial(t *testing.T) {
 	ctrl, registry, cofre := controladorDeProvedores(t)
 	ctx := context.Background()
+	// A edição parte de uma conexão legada com credencial compartilhada.
+	if err := cofre.RegisterPatternWithContext(ctx, "api.openai.com", &credentials.AuthConfig{Source: "static", Type: "bearer", Token: "sk-secreta"}); err != nil {
+		t.Fatal(err)
+	}
 
 	if _, err := ctrl.CreateLLMProvider(ctx, CreateLLMProviderRequest{
 		ID: "prov", Name: "OpenAI", Type: "openai",
-		BaseURL: "https://api.openai.com/v1", APIKey: "sk-secreta",
+		BaseURL: "https://api.openai.com/v1",
 	}); err != nil {
 		t.Fatalf("Create falhou: %v", err)
 	}

@@ -406,10 +406,13 @@ anterior para permitir a correção. Alternar autenticação obrigatória/opcion
 preserva a credencial digitada, mas exige testar novamente. Escolher sem
 autenticação descarta o rascunho ainda não salvo.
 
-Chamadas antigas que enviam diretamente o campo `api_key`, fora do editor
-compartilhado, conservam o contrato anterior de gravações separadas. Nesse
-caminho de compatibilidade, uma falha pode deixar a credencial do hostname
-alterada; a cobertura restante é acompanhada na
+Na criação, chamadas antigas que enviam diretamente o campo `api_key` também
+gravam credencial e conexão juntas. Reutilizar o ID de uma conexão excluída é
+recusado quando uma cópia ainda depende de sua credencial; crie a nova conexão
+com outro ID para preservar a cópia.
+Na edição, chamadas antigas com `api_key`, fora do editor compartilhado,
+conservam o contrato anterior de gravações separadas. Nesse caminho, uma falha
+pode deixar a credencial alterada; a cobertura restante é acompanhada na
 [issue #872](https://github.com/inclunet/assistente/issues/872).
 A conexão ChatGPT usa o fluxo OAuth dedicado; uma API key estática não pode
 substituir seu registro OAuth pela edição genérica.
