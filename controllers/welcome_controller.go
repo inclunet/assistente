@@ -137,7 +137,7 @@ func (c *WelcomeController) NeedsWelcomeWizard(ctx context.Context) bool {
 }
 
 // RunWelcomeWizard prepara o cofre para o onboarding. O retorno true significa
-// que senha e recuperacao foram configuradas; o frontend conclui o onboarding
+// que senha e recuperação foram configuradas; o frontend conclui o onboarding
 // com o ProviderForm compartilhado, pela API autenticada de provedores.
 func (c *WelcomeController) RunWelcomeWizard(ctx context.Context) (bool, error) {
 	store := credentials.NewDBStore()

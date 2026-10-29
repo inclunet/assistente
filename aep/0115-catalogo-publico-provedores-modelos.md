@@ -241,20 +241,21 @@ IDs existentes são recusados; edição continua pelo fluxo próprio. Cada
 conexão nova usa referência explícita `provider:<id>`, isolada por usuário,
 sem reaproveitar chaves pelo hostname, inclusive entre portas de localhost.
 A tabela `BuiltinTemplate` foi removida. O onboarding desktop prepara o cofre
-com os questionarios existentes e abre o mesmo `ProviderForm` das configuracoes.
-Nao ha formulario, sondagem ou persistencia alternativa de provedor. O retorno
+com os questionários existentes e abre o mesmo `ProviderForm` das configurações.
+Não há formulário, sondagem ou persistência alternativa de provedor. O retorno
 true de `Welcome.RunWelcomeWizard` significa cofre preparado; sucesso do onboarding
-so e anunciado apos a persistencia autenticada do formulario compartilhado.
-Cancelar preserva o cofre. Troca de sessao desmonta o draft e descarta resultados
-atrasados; replay de efeitos nao repete a preparacao. O primeiro provedor criado
+só é anunciado após a persistência autenticada do formulário compartilhado.
+Cancelar preserva o cofre. Troca de sessão desmonta o draft e descarta resultados
+atrasados; replay de efeitos não repete a preparação. O primeiro provedor criado
 pelo controller compartilhado atualiza o cliente pelo hook existente.
-Evidencias: `WelcomeSetup.test.tsx`, testes de catalogo/credenciais de `ProviderForm`,
-`controllers/welcome_catalog_test.go` e a integracao em `internal/app/app_wizard_test.go`.
+A implementação está coberta por `WelcomeSetup.test.tsx`, pelos testes de
+catálogo/credenciais de `ProviderForm`, por `controllers/welcome_catalog_test.go`
+e pela integração em `internal/app/app_wizard_test.go`.
 Os helpers e testes exclusivos do antigo percurso desktop foram removidos; as
-validacoes de URL/conexao continuam cobertas diretamente no servico compartilhado.
-A CLI ainda mantem opcoes/metadados proprios em `setup`/`providers add`; sua
-migracao e consolidacao em um unico percurso continuam pendentes. Portanto,
-a fase 3 permanece In Progress e nao implica conclusao de modelos ou vozes.
+validações de URL/conexão continuam cobertas diretamente no serviço compartilhado.
+A CLI ainda mantém opções/metadados próprios em `setup`/`providers add`; sua
+migração e consolidação em um único percurso continuam pendentes. Portanto,
+a fase 3 permanece In Progress e não implica conclusão de modelos ou vozes.
 
 4. **Modelos, capacidades e proxies.** Associar IDs expostos apenas por mapeamento exato e integrar recursos e limites sem impedir aliases desconhecidos.
 5. **Vozes TTS na API do catálogo.** Integrar a coleção de vozes do asset ao consumo tipado, associada à exposição de perfil, rota/API e modelo, incluindo estado de completude. Esta fase fornece os dados consumidos pela fase 4 do AEP-0113, que implementa a seleção e o comportamento de compatibilidade na interface. Assim, a dependência é unidirecional: AEP-0113 fase 4 depende das fases 1–5 desta AEP.

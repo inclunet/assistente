@@ -99,8 +99,8 @@ func (w *Welcome) NeedsWelcomeWizard() bool {
 	return EvaluateNeedsWelcomeWizard(session, ctrl, runtime)
 }
 
-// RunWelcomeWizard prepara senha mestre e recuperacao. True libera o
-// formulario compartilhado de provedores; nao indica onboarding concluido.
+// RunWelcomeWizard prepara senha mestre e recuperação. True libera o
+// formulário compartilhado de provedores; não indica onboarding concluído.
 func (w *Welcome) RunWelcomeWizard() (bool, error) {
 	w.mu.RLock()
 	ctrl := w.ctrl
