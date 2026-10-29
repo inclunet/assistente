@@ -410,6 +410,7 @@ Na criação, chamadas antigas que enviam diretamente o campo `api_key` também
 gravam credencial e conexão juntas. Reutilizar o ID de uma conexão excluída é
 recusado quando uma cópia ainda depende de sua credencial; crie a nova conexão
 com outro ID para preservar a cópia.
+Essa proteção também cobre credenciais vinculadas às variáveis de ambiente de agentes.
 Na edição, chamadas antigas com `api_key`, fora do editor compartilhado,
 conservam o contrato anterior de gravações separadas. Nesse caminho, uma falha
 pode deixar a credencial alterada; a cobertura restante é acompanhada na

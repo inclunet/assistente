@@ -34,7 +34,7 @@ func setupTestDB(t *testing.T) *gorm.DB {
 	})
 
 	// Auto-migrate
-	if err := db.AutoMigrate(&database.LLMProvider{}); err != nil {
+	if err := db.AutoMigrate(&database.LLMProvider{}, &database.CredentialEntry{}); err != nil {
 		t.Fatalf("Falha ao migrar tabelas: %v", err)
 	}
 
@@ -72,7 +72,7 @@ func TestCreateProviderWithAPIKey(t *testing.T) {
 	_ = setupTestDB(t)
 
 	// Setup
-	credMgr := credentials.NewManager([]byte("test-key-exactly-32-bytes-long!!"))
+	credMgr := credentials.NewManagerWithStore([]byte("test-key-exactly-32-bytes-long!!"), credentials.NewDBStore(), true)
 	llmRegistry := llm.NewProviderRegistry()
 
 	// Simular App com componentes necessários
@@ -97,7 +97,7 @@ func TestCreateProviderWithAPIKey(t *testing.T) {
 	if resp["id"] != "test-openai" {
 		t.Errorf("ID incorreto: %v", resp["id"])
 	}
-	if resp["credential_pattern"] != "api.openai.com" {
+	if resp["credential_pattern"] != "provider:test-openai" {
 		t.Errorf("Pattern incorreto: %v", resp["credential_pattern"])
 	}
 	if !resp["credential_configured"].(bool) {
@@ -112,7 +112,7 @@ func TestCreateProviderWithAPIKey(t *testing.T) {
 
 	// Verificar que credencial foi salva
 	credCtx := database.WithUserID(context.Background(), "test-user")
-	cred, err := credMgr.GetByPatternWithContext(credCtx, "api.openai.com")
+	cred, err := credMgr.GetByPatternWithContext(credCtx, "provider:test-openai")
 	if err != nil {
 		t.Fatalf("Credencial não foi salva: %v", err)
 	}
@@ -129,7 +129,7 @@ func TestUpdateProvider(t *testing.T) {
 	// Setup database
 	_ = setupTestDB(t)
 
-	credMgr := credentials.NewManager([]byte("test-key-exactly-32-bytes-long!!"))
+	credMgr := credentials.NewManagerWithStore([]byte("test-key-exactly-32-bytes-long!!"), credentials.NewDBStore(), true)
 	llmRegistry := llm.NewProviderRegistry()
 
 	app := newAppForTest(credMgr, llmRegistry)
@@ -164,7 +164,7 @@ func TestUpdateProvider(t *testing.T) {
 
 	// Verificar que credencial foi atualizada
 	credCtx := database.WithUserID(context.Background(), "test-user")
-	cred, err := credMgr.GetByPatternWithContext(credCtx, "api.openai.com")
+	cred, err := credMgr.GetByPatternWithContext(credCtx, "provider:test-update")
 	if err != nil {
 		t.Fatalf("Credencial não encontrada: %v", err)
 	}
@@ -179,7 +179,7 @@ func TestUpdateProvider(t *testing.T) {
 func TestCreateLocalAIProviderUsesOptionalAuth(t *testing.T) {
 	_ = setupTestDB(t)
 
-	credMgr := credentials.NewManager([]byte("test-key-exactly-32-bytes-long!!"))
+	credMgr := credentials.NewManagerWithStore([]byte("test-key-exactly-32-bytes-long!!"), credentials.NewDBStore(), true)
 	llmRegistry := llm.NewProviderRegistry()
 	app := newAppForTest(credMgr, llmRegistry)
 
@@ -230,7 +230,7 @@ func TestDeleteProvider(t *testing.T) {
 	// Setup database
 	_ = setupTestDB(t)
 
-	credMgr := credentials.NewManager([]byte("test-key-exactly-32-bytes-long!!"))
+	credMgr := credentials.NewManagerWithStore([]byte("test-key-exactly-32-bytes-long!!"), credentials.NewDBStore(), true)
 	llmRegistry := llm.NewProviderRegistry()
 
 	app := newAppForTest(credMgr, llmRegistry)
@@ -264,7 +264,7 @@ func TestDeleteProvider(t *testing.T) {
 // TestListProvidersWithStatus valida listagem com status de credenciais
 func TestListProvidersWithStatus(t *testing.T) {
 	_ = setupTestDB(t)
-	credMgr := credentials.NewManager([]byte("test-key-exactly-32-bytes-long!!"))
+	credMgr := credentials.NewManagerWithStore([]byte("test-key-exactly-32-bytes-long!!"), credentials.NewDBStore(), true)
 	llmRegistry := llm.NewProviderRegistry()
 
 	app := newAppForTest(credMgr, llmRegistry)

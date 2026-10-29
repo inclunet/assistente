@@ -273,6 +273,8 @@ mantém o contrato de reutilização de referência existente; duplicação expl
 por ID continua compartilhando a referência autorizada, sem copiar segredos.
 Recriar um ID cuja referência ainda é usada por uma cópia sobrevivente é
 recusado na mesma transação, preservando o segredo e a conexão da cópia.
+A verificação inclui referências no mapa de credenciais de agentes, sem
+resolver segredos nem executar processos durante a gravação.
 Edição preserva referências existentes, sem migração implícita. Regressões em
 `internal/providers/credential_save_test.go` cobrem sobrescrita, portas locais,
 entrada legada, rollback, duplicação explícita e preservação de fontes externas.

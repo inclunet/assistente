@@ -176,6 +176,15 @@ func (s *Service) saveWithCredential(ctx context.Context, p, expected *llm.Provi
 					if provider.CredentialPattern == draft.Pattern {
 						return oauthflow.ErrConflict
 					}
+					credentialEnv, err := decodeACPMap(provider.ACPCredentialEnv)
+					if err != nil {
+						return err
+					}
+					for _, pattern := range credentialEnv {
+						if pattern == draft.Pattern {
+							return oauthflow.ErrConflict
+						}
+					}
 				}
 				p.IsDefault = len(providers) == 0
 			} else {
