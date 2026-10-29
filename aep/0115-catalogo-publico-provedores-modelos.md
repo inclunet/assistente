@@ -176,6 +176,10 @@ entregues no mesmo contrato, mesmo para modelos desconhecidos; o frontend não
 repete uma tabela de limites. Sem orçamento de saída conhecido, a sumarização
 mantém sua margem proporcional de segurança existente, sem inventar 4096 tokens
 nem recuperar do perfil um campo que o transporte suprimiu.
+O pré-check de resultados de tools segue a mesma ausência de orçamento fictício,
+preservando a margem proporcional do AEP-0039. A regressão em
+`agent/context_test.go` comprova que uma janela pequena com saída desconhecida
+não perde resultados curtos por reservar 4096 tokens inexistentes.
 
 Uma exposição associa explicitamente `(server_profile_id, api_format,
 exposed_model_id)` ao modelo canônico, podendo declarar diferenças conhecidas de
