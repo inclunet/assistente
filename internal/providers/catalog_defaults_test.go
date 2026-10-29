@@ -3,7 +3,8 @@ package providers
 import (
 	"context"
 	"errors"
-	"fmt"
+	"gorm.io/gorm"
+	"os"
 	"testing"
 
 	"assistente/internal/credentials"
@@ -21,42 +22,18 @@ func (s failingProviderTemplateStore) Save(context.Context, []*llm.ProviderConfi
 	return s.err
 }
 
-type failingCredentialListStore struct {
-	credentials.Store
-	stored   []credentials.StoredCredential
-	failList bool
-}
-
-func (s *failingCredentialListStore) SaveCredential(_ context.Context, cred credentials.StoredCredential) error {
-	for i := range s.stored {
-		if cred.ID != "" && s.stored[i].ID == cred.ID {
-			s.stored[i] = cred
-			return nil
-		}
+func catalogTestTemplate(t *testing.T, kind string) (*llm.ProviderConfig, error) {
+	t.Helper()
+	data, err := os.ReadFile("../../docs/static/json/assistente-catalog.json")
+	if err != nil {
+		t.Fatal(err)
 	}
-	if cred.ID == "" {
-		cred.ID = fmt.Sprintf("credential-%d", len(s.stored)+1)
+	doc, err := llmcatalog.Decode(data)
+	if err != nil {
+		t.Fatal(err)
 	}
-	s.stored = append(s.stored, cred)
-	return nil
-}
-
-func (s *failingCredentialListStore) ListCredentials(context.Context) ([]credentials.StoredCredential, error) {
-	if s.failList {
-		return nil, errors.New("leitura de credenciais indisponível")
-	}
-	return append([]credentials.StoredCredential(nil), s.stored...), nil
-}
-
-func (s *failingCredentialListStore) DeleteCredential(_ context.Context, pattern string) error {
-	filtered := s.stored[:0]
-	for _, cred := range s.stored {
-		if cred.Pattern != pattern {
-			filtered = append(filtered, cred)
-		}
-	}
-	s.stored = filtered
-	return nil
+	service := NewService(ServiceConfig{CatalogSnapshot: func() llmcatalog.Snapshot { return llmcatalog.Snapshot{Document: doc} }})
+	return service.CatalogTemplate(legacyTemplateProfiles[kind])
 }
 
 func TestTemplateFromCatalogServerUsesAllowlistsAndPersistsProfile(t *testing.T) {
@@ -109,7 +86,7 @@ func TestTemplateFromCatalogServerUsesDeclaredFieldPolicyDefaults(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if provider.BaseURL != "https://api.openai.com/v1" || provider.CredentialPattern != "api.openai.com" {
+	if provider.BaseURL != "https://api.openai.com/v1" || provider.CredentialPattern != "provider:openai-default" {
 		t.Fatalf("BaseURL/CredentialPattern não vieram do default da política: %+v", provider)
 	}
 	if provider.DefaultModel != "stale-model" || provider.Model != "stale-model" {
@@ -366,103 +343,181 @@ func TestCreateFromTemplateDoesNotPersistCredentialsForAuthNoneProfile(t *testin
 }
 
 func TestCreateFromTemplateRollsBackCredentialWhenCredentialStoreFailsAfterSave(t *testing.T) {
-	ctx := database.WithUserID(context.Background(), "test-user")
-	registry := llm.NewProviderRegistry()
-	credentialStore := &failingCredentialListStore{failList: true}
-	credMgr := credentials.NewManagerWithStoreAndPersistence(
-		[]byte("01234567890123456789012345678901"), credentialStore, true,
-	)
-	server := llmcatalog.Server{
-		ID: "openai", Name: "OpenAI", ProviderFamily: "openai", Status: "active",
-		APIFormat: "openai_responses", BaseURL: "https://api.openai.com/v1",
-		Auth: llmcatalog.Auth{Mode: "bearer_api_key", Required: true},
-	}
-	snapshot := llmcatalog.Snapshot{Document: llmcatalog.Document{Servers: []llmcatalog.Server{server}}}
-	svc := NewService(ServiceConfig{
-		Registry: registry, Store: NewMemoryStore(), CredMgr: credMgr,
-		CatalogSnapshot: func() llmcatalog.Snapshot { return snapshot },
-	})
-
-	if err := svc.CreateFromTemplate(ctx, "openai", "secret"); err == nil {
-		t.Fatal("esperava falha ao consultar credenciais persistidas")
-	}
-	if len(credentialStore.stored) != 0 {
-		t.Fatalf("credencial ficou persistida após erro: %+v", credentialStore.stored)
-	}
-	if created := registry.Get("openai-default"); created != nil {
-		t.Fatalf("provedor ficou ativo após erro de credencial: %+v", created)
+	for _, table := range []string{"llm_providers", "credential_entries"} {
+		t.Run(table, func(t *testing.T) {
+			svc, mgr, ctx := chatGPTTestService(t)
+			p, err := catalogTestTemplate(t, "openai")
+			if err != nil {
+				t.Fatal(err)
+			}
+			db := database.DB()
+			callback := "test:catalog-write-failure"
+			if err := db.Callback().Create().Before("gorm:create").Register(callback, func(tx *gorm.DB) {
+				if tx.Statement.Table == table {
+					_ = tx.AddError(errors.New("write failed"))
+				}
+			}); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() {
+				if err := db.Callback().Create().Remove(callback); err != nil {
+					t.Error(err)
+				}
+			})
+			if err := svc.createFromTemplate(ctx, p, "secret"); err == nil {
+				t.Fatal("expected atomic failure")
+			}
+			if svc.registry.Get(p.ID) != nil {
+				t.Fatal("failed provider published")
+			}
+			if _, err := svc.store.Get(ctx, p.ID); !errors.Is(err, gorm.ErrRecordNotFound) {
+				t.Fatalf("provider persisted: %v", err)
+			}
+			auth, err := mgr.GetByPatternWithContext(ctx, p.CredentialPattern)
+			if err != nil || auth != nil {
+				t.Fatalf("failed credential published: %v", err)
+			}
+			var count int64
+			if err := db.Model(&database.CredentialEntry{}).Count(&count).Error; err != nil || count != 0 {
+				t.Fatalf("credential persisted: %d %v", count, err)
+			}
+		})
 	}
 }
 
 func TestCreateFromTemplateRestoresPreviousCredentialWhenCredentialStoreFailsAfterSave(t *testing.T) {
-	ctx := database.WithUserID(context.Background(), "test-user")
-	registry := llm.NewProviderRegistry()
-	credentialStore := &failingCredentialListStore{}
-	credMgr := credentials.NewManagerWithStoreAndPersistence(
-		[]byte("01234567890123456789012345678901"), credentialStore, true,
-	)
-	if err := credMgr.RegisterPatternWithContext(ctx, "api.openai.com", &credentials.AuthConfig{
-		Source: "static", Type: "bearer", Token: "previous-secret",
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if len(credentialStore.stored) != 1 {
-		t.Fatalf("credencial inicial não foi persistida: %+v", credentialStore.stored)
-	}
-	previousID := credentialStore.stored[0].ID
-	credentialStore.failList = true
-
-	server := llmcatalog.Server{
-		ID: "openai", Name: "OpenAI", ProviderFamily: "openai", Status: "active",
-		APIFormat: "openai_responses", BaseURL: "https://api.openai.com/v1",
-		Auth: llmcatalog.Auth{Mode: "bearer_api_key", Required: true},
-	}
-	snapshot := llmcatalog.Snapshot{Document: llmcatalog.Document{Servers: []llmcatalog.Server{server}}}
-	svc := NewService(ServiceConfig{
-		Registry: registry, Store: NewMemoryStore(), CredMgr: credMgr,
-		CatalogSnapshot: func() llmcatalog.Snapshot { return snapshot },
-	})
-	if err := svc.CreateFromTemplate(ctx, "openai", "replacement-secret"); err == nil {
-		t.Fatal("esperava falha ao consultar credenciais persistidas")
-	}
-	auth, err := credMgr.GetByPatternWithContext(ctx, "api.openai.com")
+	svc, mgr, ctx := chatGPTTestService(t)
+	p, err := catalogTestTemplate(t, "openai")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if auth == nil || auth.Token != "previous-secret" {
-		t.Fatalf("credencial anterior não foi restaurada: %+v", auth)
+	if err := mgr.RegisterPatternWithContext(ctx, p.CredentialPattern, &credentials.AuthConfig{Source: "static", Type: "bearer", Token: "previous-secret"}); err != nil {
+		t.Fatal(err)
 	}
-	if len(credentialStore.stored) != 1 || credentialStore.stored[0].ID != previousID {
-		t.Fatalf("registro/ID de credencial anterior não foi restaurado: %+v", credentialStore.stored)
+	db := database.DB()
+	var previous database.CredentialEntry
+	if err := db.First(&previous).Error; err != nil {
+		t.Fatal(err)
 	}
-	if created := registry.Get("openai-default"); created != nil {
-		t.Fatalf("provedor ficou ativo após erro de credencial: %+v", created)
+	callback := "test:catalog-provider-failure"
+	if err := db.Callback().Create().Before("gorm:create").Register(callback, func(tx *gorm.DB) {
+		if tx.Statement.Table == "llm_providers" {
+			_ = tx.AddError(errors.New("provider write failed"))
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := db.Callback().Create().Remove(callback); err != nil {
+			t.Error(err)
+		}
+	})
+	if err := svc.createFromTemplate(ctx, p, "replacement-secret"); err == nil {
+		t.Fatal("expected rollback")
+	}
+	auth, err := mgr.GetByPatternWithContext(ctx, p.CredentialPattern)
+	if err != nil || auth == nil || auth.Token != "previous-secret" {
+		t.Fatalf("previous credential lost: %v", err)
+	}
+	var stored database.CredentialEntry
+	if err := db.First(&stored).Error; err != nil || stored.ID != previous.ID {
+		t.Fatalf("previous identity lost: %v", err)
+	}
+	if _, err := svc.store.Get(ctx, p.ID); !errors.Is(err, gorm.ErrRecordNotFound) {
+		t.Fatalf("failed provider persisted: %v", err)
 	}
 }
 
 func TestCreateFromTemplateStoresAnthropicKeyInExpectedHeader(t *testing.T) {
-	ctx := context.Background()
-	registry := llm.NewProviderRegistry()
-	credMgr := credentials.NewManager([]byte("01234567890123456789012345678901"))
+	svc, credMgr, ctx := chatGPTTestService(t)
 	server := llmcatalog.Server{
 		ID: "anthropic", Name: "Anthropic", ProviderFamily: "anthropic",
 		Status: "active", APIFormat: "anthropic", BaseURL: "https://api.anthropic.com",
 		Auth: llmcatalog.Auth{Mode: "api_key_header", Required: true},
 	}
 	snapshot := llmcatalog.Snapshot{Document: llmcatalog.Document{Servers: []llmcatalog.Server{server}}}
-	svc := NewService(ServiceConfig{
-		Registry: registry, Store: NewMemoryStore(), CredMgr: credMgr,
-		CatalogSnapshot: func() llmcatalog.Snapshot { return snapshot },
-	})
+	svc.catalogSnapshot = func() llmcatalog.Snapshot { return snapshot }
 	if err := svc.CreateFromTemplate(ctx, "claude", "anthropic-secret"); err != nil {
 		t.Fatal(err)
 	}
 
-	auth, err := credMgr.GetByPatternWithContext(ctx, "api.anthropic.com")
+	auth, err := credMgr.GetByPatternWithContext(ctx, "provider:anthropic-claude")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if auth == nil || auth.Type != "custom" || auth.Headers["x-api-key"] != "anthropic-secret" {
 		t.Fatalf("credencial Anthropic não foi salva no header exigido pela API: %+v", auth)
+	}
+}
+
+func TestCatalogCreationPreservesExistingProviderAndCredential(t *testing.T) {
+	svc, mgr, ctx := chatGPTTestService(t)
+	p, err := catalogTestTemplate(t, "openai")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.createFromTemplate(ctx, p, "original"); err != nil {
+		t.Fatal(err)
+	}
+	replacement := *p
+	replacement.Name = "replacement"
+	if err := svc.createFromTemplate(ctx, &replacement, "new"); err == nil {
+		t.Fatal("duplicate replaced existing connection")
+	}
+	stored, err := svc.store.Get(ctx, p.ID)
+	if err != nil || stored.Name != p.Name || svc.registry.Get(p.ID).Name != p.Name {
+		t.Fatal("existing provider changed")
+	}
+	auth, err := mgr.GetByPatternWithContext(ctx, p.CredentialPattern)
+	if err != nil || auth == nil || auth.Token != "original" {
+		t.Fatal("existing credential changed")
+	}
+}
+
+func TestCatalogCredentialsAreIsolatedAcrossLocalServices(t *testing.T) {
+	for _, secondKey := range []string{"", "localai-key"} {
+		t.Run(secondKey, func(t *testing.T) {
+			svc, mgr, ctx := chatGPTTestService(t)
+			litellm, err := TemplateFromCatalogServer(llmcatalog.Server{ID: "litellm-openai-proxy", Name: "LiteLLM", ProviderFamily: "litellm", APIFormat: "openai", BaseURL: "http://localhost:4000/v1", Status: "active", Auth: llmcatalog.Auth{Mode: "optional_api_key"}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			localai, err := catalogTestTemplate(t, "localai")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if litellm.CredentialPattern == localai.CredentialPattern {
+				t.Fatal("local services share a credential reference")
+			}
+			if err := svc.createFromTemplate(ctx, litellm, "litellm-key"); err != nil {
+				t.Fatal(err)
+			}
+			if err := svc.createFromTemplate(ctx, localai, secondKey); err != nil {
+				t.Fatal(err)
+			}
+			first, err := mgr.GetByPatternWithContext(ctx, litellm.CredentialPattern)
+			if err != nil || first == nil || first.Token != "litellm-key" {
+				t.Fatal("first credential overwritten")
+			}
+			second, err := mgr.GetByPatternWithContext(ctx, localai.CredentialPattern)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if secondKey == "" && second != nil {
+				t.Fatal("first credential reused")
+			}
+			if secondKey != "" && (second == nil || second.Token != secondKey) {
+				t.Fatal("second credential not isolated")
+			}
+		})
+	}
+}
+
+func TestCatalogGoogleRejectsUnsupportedAuthentication(t *testing.T) {
+	for _, mode := range []string{"none", "optional_api_key"} {
+		_, err := TemplateFromCatalogServer(llmcatalog.Server{ID: "google-gemini", Name: "Google", ProviderFamily: "google", APIFormat: "google", BaseURL: "https://generativelanguage.googleapis.com/v1beta", Status: "active", Auth: llmcatalog.Auth{Mode: mode}})
+		if err == nil {
+			t.Fatalf("Google accepted %s", mode)
+		}
 	}
 }

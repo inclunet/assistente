@@ -1366,3 +1366,8 @@ ocupados.
 Recuperação de ferramentas MCP desconectadas (28/10/2026): AEPs 0049, 0105 e
 0112 permanecem **In Progress**; AEP-0081 permanece **Accepted**. Extensão de
 carregamento sob demanda implementada e coberta por regressões, com confirmação real/NVDA pendente.
+
+AEP-0115 / PR #933: fábrica catalogada sem presets locais duplicados; criação
+com chave usa a transação cofre/consumidor e referência por conexão. IDs
+existentes são preservados por recusa de duplicata. Wizard completo, modelos e
+vozes continuam pendentes; status **In Progress**.

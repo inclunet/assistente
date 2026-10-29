@@ -8,7 +8,7 @@ import (
 )
 
 func TestBuiltinDeepSeekDeclaraCapabilityDeReasoningContent(t *testing.T) {
-	provider, err := BuiltinTemplate("deepseek")
+	provider, err := catalogTestTemplate(t, "deepseek")
 	if err != nil {
 		t.Fatal(err)
 	}

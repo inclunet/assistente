@@ -60,10 +60,30 @@ asst setup
 Ele guia você por:
 1. **Senha mestre** — protege suas API keys (criptografia local)
 2. **Chave de recuperação** — gerada automaticamente (anote em lugar seguro)
-3. **Provedor de IA** — OpenAI, Claude, Gemini, Ollama (local), e mais 10 opções
+3. **Provedor de IA** — escolha um serviço cujo perfil esteja disponível no catálogo e seja compatível com o aplicativo
 4. **API key** — entrada com caracteres ocultos
 5. **Teste de conexão** — valida automaticamente
 6. **Modelo** — escolha da lista ou digite o nome
+
+Os presets usados por `asst setup` e `asst providers add` dependem do catálogo
+público ou de uma cópia válida em cache. Sem um perfil compatível, a criação
+retorna um erro; não usa uma lista local alternativa de URLs ou modelos.
+O menu inicial ainda possui opções legadas: os presets nativos de Ollama e
+Cohere não podem ser criados por esse caminho enquanto suas rotas não forem
+suportadas pela integração do catálogo.
+
+O wizard inicial do desktop também recusa perfis cujo formato difere do seu
+fluxo legado, como a API nativa Google. Configure esses perfis pelo formulário
+de provedores, que já suporta o formato declarado no catálogo.
+
+Para esses casos, ou para um endpoint personalizado, use **Configurações →
+Provedores** no aplicativo desktop e a configuração manual, escolhendo um
+formato de API suportado pelo servidor. A configuração manual não depende do
+catálogo. Depois, selecione a conexão salva na CLI. Uma conexão existente não
+é sobrescrita ao tentar criar novamente o mesmo preset.
+
+Em `asst providers add`, confirmar o modelo exibido com Enter aplica esse
+modelo ao perfil ativo, mesmo se o catálogo tiver outro modelo padrão.
 
 ## Comandos disponíveis
 

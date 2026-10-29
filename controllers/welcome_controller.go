@@ -28,7 +28,7 @@ type WizardProviderInfo struct {
 }
 
 // WizardLabelToProviderType mapeia o rótulo exibido no wizard para o type ID
-// usado por providers.BuiltinTemplate. Retorna "" para provedores sem template canônico.
+// usado pela entrada legada de perfis do catálogo. Retorna "" para provedores sem template canônico.
 func WizardLabelToProviderType(label string) string {
 	switch label {
 	case "OpenAI":
@@ -229,10 +229,16 @@ func (c *WelcomeController) RunWelcomeWizard(ctx context.Context) (bool, error) 
 
 			provider = providerResp.Answers["provider"].(string)
 
-			if tmpl, err := providers.BuiltinTemplate(WizardLabelToProviderType(provider)); err == nil {
+			baseURL = ""
+			if kind := WizardLabelToProviderType(provider); kind != "" {
+				if c.providerSvc == nil {
+					return false, fmt.Errorf("serviço de provedores indisponível")
+				}
+				tmpl, err := c.wizardProviderTemplate(provider, kind)
+				if err != nil {
+					return false, err
+				}
 				baseURL = tmpl.BaseURL
-			} else {
-				baseURL = ""
 			}
 
 			currentStep = 3
@@ -412,6 +418,20 @@ func (c *WelcomeController) RunWelcomeWizard(ctx context.Context) (bool, error) 
 	}
 
 	return false, nil
+}
+
+// O wizard legado só aceita rotas compatíveis com o formato que irá persistir.
+func (c *WelcomeController) wizardProviderTemplate(choice, kind string) (*llm.ProviderConfig, error) {
+	template, err := c.providerSvc.TemplateForProviderType(kind)
+	if err != nil {
+		return nil, err
+	}
+	info := GetWizardProviderInfo(choice)
+	legacy := &llm.ProviderConfig{Type: info.Type, APIFormat: info.APIFormat}
+	if legacy.GetAPIFormat() != template.GetAPIFormat() {
+		return nil, fmt.Errorf("o formato do perfil %q não é suportado pelo wizard inicial; configure o provedor em Configurações → Provedores", template.ServerProfileID)
+	}
+	return template, nil
 }
 
 // ValidateWizardConnection testa URL, autenticação e lista modelos de um provedor.

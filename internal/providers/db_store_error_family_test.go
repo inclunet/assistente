@@ -42,7 +42,7 @@ func TestFromDBModelDoesNotInferErrorFamilyFromWizardID(t *testing.T) {
 }
 
 func TestBuiltinTemplatesDoNotGuessGoogleErrorFamily(t *testing.T) {
-	google, err := BuiltinTemplate("google")
+	google, err := catalogTestTemplate(t, "google")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,7 +50,7 @@ func TestBuiltinTemplatesDoNotGuessGoogleErrorFamily(t *testing.T) {
 		t.Fatalf("família de erro Gemini = %q, queria classificação genérica", google.ErrorFamily)
 	}
 
-	openrouter, err := BuiltinTemplate("openrouter")
+	openrouter, err := catalogTestTemplate(t, "openrouter")
 	if err != nil {
 		t.Fatal(err)
 	}

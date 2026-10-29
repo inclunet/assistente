@@ -56,7 +56,7 @@ type ServiceConfig struct {
 	ACPManager *acp.Manager
 	// CatalogSnapshot fornece o último catálogo validado disponível. Pode
 	// retornar um snapshot vazio durante o primeiro startup/offline; nesse caso
-	// as fábricas mantêm o caminho legado de bootstrap.
+	// as fábricas recusam presets indisponíveis; a configuração manual permanece disponível.
 	CatalogSnapshot func() llmcatalog.Snapshot
 }
 
