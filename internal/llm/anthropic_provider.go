@@ -93,7 +93,7 @@ func (p *AnthropicProvider) SendChat(ctx context.Context, messages []Message, pa
 	if params.MaxTokens == nil || *params.MaxTokens < 1 {
 		return "", fmt.Errorf("max_output_tokens: configure um limite de saída para a API Anthropic")
 	}
-	model := resolveModel(p.provider, params.Model)
+	model := ResolveModel(p.provider, params.Model)
 	if model == "" {
 		return "", fmt.Errorf("nenhum modelo especificado e nenhum modelo padrÃ£o configurado")
 	}
@@ -178,7 +178,7 @@ func (p *AnthropicProvider) StreamChat(ctx context.Context, messages []Message, 
 		handler.OnError("max_output_tokens: configure um limite de saída para a API Anthropic")
 		return
 	}
-	model := resolveModel(p.provider, params.Model)
+	model := ResolveModel(p.provider, params.Model)
 	if model == "" {
 		handler.OnError("Nenhum modelo especificado e nenhum modelo padrÃ£o configurado")
 		return

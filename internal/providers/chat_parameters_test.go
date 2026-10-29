@@ -20,9 +20,10 @@ func TestChatParameterContractDefaultsExplicitZeroAndLocalSuppression(t *testing
 	}
 	service := NewService(ServiceConfig{CatalogSnapshot: func() llmcatalog.Snapshot { return llmcatalog.Snapshot{Document: doc} }})
 	provider := &llm.ProviderConfig{ServerProfileID: "proxy", APIFormat: llm.APIFormatOpenAI, DefaultModel: "alias"}
+	provider.Model, provider.DefaultModel = "alias", "other"
 	input := llm.ChatParams{}
 	resolved, err := service.ApplyChatParameterContract(provider, input)
-	if err != nil || resolved.Temperature == nil || *resolved.Temperature != 0.7 || resolved.OutputTokenLimit() != 2048 || resolved.Reasoning() != "low" {
+	if err != nil || resolved.Model != "alias" || resolved.Temperature == nil || *resolved.Temperature != 0.7 || resolved.OutputTokenLimit() != 2048 || resolved.Reasoning() != "low" {
 		t.Fatalf("defaults: %+v, %v", resolved, err)
 	}
 	if input.Temperature != nil || input.MaxTokens != nil || input.ReasoningEffort != nil {

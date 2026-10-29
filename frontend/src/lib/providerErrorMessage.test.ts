@@ -3,6 +3,15 @@ import i18n from './i18n';
 import { translateBackendErrorDiagnostic, translateErrorMarkers, translateProviderErrorMessage } from './providerErrorMessage';
 
 describe('translateProviderErrorMessage', () => {
+  it('traduz violações do contrato com seus limites nos três idiomas', () => {
+    const marker = 'parameter_error:v1:max_output_tokens:maximum:128000';
+    expect(translateProviderErrorMessage(marker, 'pt-BR')).toBe('O valor de max_output_tokens deve ser no máximo 128000.');
+    expect(translateProviderErrorMessage(marker, 'en')).toBe('The value for max_output_tokens must be at most 128000.');
+    expect(translateProviderErrorMessage(marker, 'es')).toBe('El valor de max_output_tokens debe ser como máximo 128000.');
+    expect(translateProviderErrorMessage('parameter_error:v1:temperature:minimum')).toBeNull();
+    expect(translateProviderErrorMessage('parameter_error:v1:unknown:maximum:2')).toBeNull();
+  });
+
   it('localiza marcadores permitidos e mantém o alias informado pelo provedor', async () => {
     await i18n.changeLanguage('pt-BR');
 

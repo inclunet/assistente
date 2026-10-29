@@ -403,6 +403,12 @@ const en = {
         streamingPromptCacheHintRejected: 'The provider rejected the cache hint even after it was disabled. Check the gateway configuration or disable cache hints in the profile.',
         streamingTokenRateLimit: 'The provider token quota was reached (HTTP 429). Wait for the quota to reset and try again.',
         agentResponseFailed: 'Agent response failed:',
+        parameterErrors: {
+          choice: 'The configured value for {{field}} is not among the options supported by this model.',
+          number: 'The configured value for {{field}} is not a valid number for this parameter.',
+          minimum: 'The value for {{field}} must be at least {{limit}}.',
+          maximum: 'The value for {{field}} must be at most {{limit}}.',
+        },
         providerErrors: {
           unsupportedParameter: 'The provider does not accept the {{field}} parameter for this model. Check the configured parameters.{{statusLabel}}',
           unsupportedParameterUnknown: 'The provider rejected a parameter but did not identify a field that can be safely omitted.{{statusLabel}}',

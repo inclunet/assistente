@@ -28,6 +28,12 @@ function translationFunction(language?: string) {
 }
 
 export function translateProviderErrorMessage(message: string, language?: string): string | null {
+  const parameter = /^parameter_error:v1:(temperature|top_p|max_output_tokens|reasoning_effort|context_window):(choice|number|minimum|maximum)(?::(-?\d+(?:\.\d+)?(?:e[+-]?\d+)?))?$/.exec(message);
+  if (parameter) {
+    const [, field, code, limit] = parameter;
+    if ((code === 'minimum' || code === 'maximum') !== (limit !== undefined)) return null;
+    return translationFunction(language)(`chat.errors.parameterErrors.${code}`, { field, limit });
+  }
   const match = /^provider_error:v1:([a-z_]+):([a-z_.]*)(?::([1-5][0-9]{2}))?$/.exec(message);
   if (!match) return null;
 
@@ -56,7 +62,7 @@ const mcpStages: Record<string, string> = {
 
 export function translateErrorMarkers(text: string, language?: string): string {
   const withProviderErrors = text.replace(
-    /provider_error:v1:[a-z_]+:[a-z_.]*(?::[1-5][0-9]{2})?/g,
+    /(?:provider_error:v1:[a-z_]+:[a-z_.]*(?::[1-5][0-9]{2})?|parameter_error:v1:[a-z_]+:[a-z_]+(?::-?\d+(?:\.\d+)?(?:e[+-]?\d+)?)?)/g,
     (marker) => translateProviderErrorMessage(marker, language) ?? marker,
   );
   return withProviderErrors.replace(/mcp_error:v1:([^:\s]+):(list_tools|call|handshake|unknown)/g, (marker, encodedServer: string, stage: string) => {

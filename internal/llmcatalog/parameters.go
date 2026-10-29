@@ -18,6 +18,21 @@ type Parameter struct {
 	Default any      `json:"default,omitempty"`
 }
 
+// ParameterValueError is a stable diagnostic translated by the error presenter.
+type ParameterValueError struct {
+	Field string
+	Code  string
+	Limit *float64
+}
+
+func (e *ParameterValueError) Error() string {
+	marker := "parameter_error:v1:" + e.Field + ":" + e.Code
+	if e.Limit != nil {
+		marker += fmt.Sprintf(":%g", *e.Limit)
+	}
+	return marker
+}
+
 // NumericDefault returns a copy of a validated numeric default.
 func (p Parameter) NumericDefault() *float64 {
 	var value float64
@@ -137,7 +152,7 @@ func (p Parameter) ValidateValue(name string, value any) error {
 	if name == "reasoning_effort" {
 		text, ok := value.(string)
 		if !ok || !lengthBetween(text, 0, 64) || (p.Choices != nil && !slices.Contains(p.Choices, text)) {
-			return fmt.Errorf("%s: opção não permitida", name)
+			return &ParameterValueError{Field: name, Code: "choice"}
 		}
 		return nil
 	}
@@ -151,25 +166,25 @@ func (p Parameter) ValidateValue(name string, value any) error {
 		var err error
 		number, err = typed.Float64()
 		if err != nil {
-			return fmt.Errorf("%s: número inválido", name)
+			return &ParameterValueError{Field: name, Code: "number"}
 		}
 	default:
-		return fmt.Errorf("%s: valor deve ser numérico", name)
+		return &ParameterValueError{Field: name, Code: "number"}
 	}
 	if math.IsNaN(number) || math.IsInf(number, 0) || (name == "max_output_tokens" && (math.Trunc(number) != number || number < 1 || number > math.MaxInt32)) {
-		return fmt.Errorf("%s: número inválido", name)
+		return &ParameterValueError{Field: name, Code: "number"}
 	}
 	if (name == "temperature" && number < 0) || (name == "top_p" && (number < 0 || number > 1)) {
-		return fmt.Errorf("%s: número fora do domínio do parâmetro", name)
+		return &ParameterValueError{Field: name, Code: "number"}
 	}
 	if name == "context_window" && (number < 0 || math.Trunc(number) != number) {
-		return fmt.Errorf("%s: janela de contexto inválida", name)
+		return &ParameterValueError{Field: name, Code: "number"}
 	}
 	if p.Minimum != nil && number < *p.Minimum {
-		return fmt.Errorf("%s: valor menor que %g", name, *p.Minimum)
+		return &ParameterValueError{Field: name, Code: "minimum", Limit: p.Minimum}
 	}
 	if p.Maximum != nil && number > *p.Maximum {
-		return fmt.Errorf("%s: valor maior que %g", name, *p.Maximum)
+		return &ParameterValueError{Field: name, Code: "maximum", Limit: p.Maximum}
 	}
 	return nil
 }

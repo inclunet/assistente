@@ -159,6 +159,14 @@ Chamadas internas `SimpleChat` conservam seu orçamento explícito de tarefa;
 não são configuração de parâmetros do perfil. Adaptadores Anthropic e Google
 não oferecem `reasoning_effort` enquanto não traduzirem esse campo canônico.
 Regras condicionais entre parâmetros não são representadas nesta entrega.
+Perfis legados com `reasoning_effort` omitido mantêm a escolha desativada;
+novos perfis serializam `null` para o default do modelo, preservando a distinção
+também ao exportar. O evento de invalidação `llm_catalog:changed`, sem payload,
+é emitido após publicar um documento validado e faz o editor reconsultar seu
+contrato sem alterar os valores do formulário. Erros de valor carregam campo,
+código e limite no marcador `parameter_error:v1`, traduzido pelo apresentador
+de erros existente. A escolha do modelo reutiliza `llm.ResolveModel` em
+catálogo, compatibilidade e transporte.
 
 Uma exposição associa explicitamente `(server_profile_id, api_format,
 exposed_model_id)` ao modelo canônico, podendo declarar diferenças conhecidas de

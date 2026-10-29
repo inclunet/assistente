@@ -48,6 +48,26 @@ func TestRefreshValidatesAndPersistsThenOfflineLoadsCache(t *testing.T) {
 	}
 }
 
+func TestRefreshNotifiesOnlyPublishedDocuments(t *testing.T) {
+	var calls int
+	var service *Service
+	body := minimalCatalog
+	service = New(Config{Dir: t.TempDir(), OnChanged: func() {
+		calls++
+		if service.Snapshot().Document.CatalogVersion != "v1" {
+			t.Error("notification preceded snapshot publication")
+		}
+	}, HTTP: doerFunc(func(context.Context, *http.Request) (*http.Response, error) {
+		return response(http.StatusOK, body, http.Header{"Content-Type": []string{"application/json"}}), nil
+	})})
+	service.Refresh(t.Context())
+	body = `{}`
+	service.Refresh(t.Context())
+	if calls != 1 {
+		t.Fatalf("notifications=%d", calls)
+	}
+}
+
 func TestStartRevalidatesCacheWithFutureTimestamp(t *testing.T) {
 	dir := t.TempDir()
 	document, err := Decode([]byte(minimalCatalog))

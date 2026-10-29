@@ -10,7 +10,11 @@ func LLMCatalogAPI(a *App) *wailsapi.LLMCatalog { return a.llmCatalogAPI }
 
 func (a *App) initLLMCatalog() {
 	if a.llmCatalog == nil {
-		a.llmCatalog = llmcatalog.New(llmcatalog.Config{})
+		a.llmCatalog = llmcatalog.New(llmcatalog.Config{OnChanged: func() {
+			if a.emitter != nil {
+				a.emitter.Emit("llm_catalog:changed", nil)
+			}
+		}})
 	}
 	a.llmCatalog.Start(a.appContext())
 }

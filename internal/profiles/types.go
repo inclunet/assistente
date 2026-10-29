@@ -68,7 +68,7 @@ type ChatConfig struct {
 	MinContextMessages int               `json:"min_context_messages,omitempty"` // Mín de mensagens preservadas após sumarização (0 = padrão 10)
 	TopP               *float64          `json:"top_p"`                          // 0.0 a 1.0
 	ResponseTimeout    int               `json:"response_timeout"`               // Timeout em segundos
-	ReasoningEffort    *string           `json:"reasoning_effort,omitempty"`     // off, low, medium, high (vazio = off)
+	ReasoningEffort    *string           `json:"reasoning_effort"`               // off, low, medium, high (vazio = off)
 	EnabledTools       []string          `json:"enabled_tools"`                  // Ferramentas habilitadas (nil = seleção dinâmica/catalogo quando disponível)
 	ToolPolicy         map[string]string `json:"tool_policy,omitempty"`          // Política tri-state por tool: disabled, on_demand, preloaded
 	ToolPolicyDefault  string            `json:"tool_policy_default,omitempty"`  // Estado de tools não listadas: disabled (default) ou on_demand
@@ -176,6 +176,20 @@ func (c ChatConfig) EffectiveDebug() ChatDebugConfig {
 		return DefaultChatDebugConfig()
 	}
 	return *c.Debug
+}
+
+// UnmarshalJSON preserves the old omitted reasoning field as explicit off.
+// New profiles serialize null for the model default, so the states stay distinct.
+func (c *ChatConfig) UnmarshalJSON(data []byte) error {
+	type plain ChatConfig
+	off := ""
+	decoded := plain(*c)
+	decoded.ReasoningEffort = &off
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	*c = ChatConfig(decoded)
+	return nil
 }
 
 func (c *ChatDebugConfig) UnmarshalJSON(data []byte) error {

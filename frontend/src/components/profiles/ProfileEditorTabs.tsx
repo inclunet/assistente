@@ -13,6 +13,7 @@ import { ProfileToolsSection } from './ProfileToolsSection';
 import { ProfileAudioTab } from './ProfileAudioTab';
 import type { ProfileEditSection } from '../../store/navigationStore';
 import { GetProfileChatParameterContract } from '@wailsjs/go/wailsapi/LLMModels';
+import { EventsOn } from '@wailsjs/runtime/runtime';
 import './ProfileEditorTabs.css';
 
 const EDITOR_TABS = ['general', 'models', 'skills', 'contextProviders', 'tools', 'audio'] as const;
@@ -76,7 +77,9 @@ export function ProfileEditorTabs({
   );
   const chatProviderID = editingProfile.chat?.llm_provider || '';
   const chatModelID = editingProfile.chat?.model || '';
-  const compatibilityKey = `${chatProviderID}\u0000${chatModelID}`;
+  const [catalogRevision, setCatalogRevision] = useState(0);
+  useEffect(() => EventsOn('llm_catalog:changed', () => setCatalogRevision((revision) => revision + 1)), []);
+  const compatibilityKey = `${chatProviderID}\u0000${chatModelID}\u0000${catalogRevision}`;
   const [unsupportedChatFields, setUnsupportedChatFields] = useState<{ key: string; fields: Record<string, llmcatalog.Parameter>; loading: boolean }>({ key: '', fields: {}, loading: false });
   if (unsupportedChatFields.key !== compatibilityKey) {
     setUnsupportedChatFields({

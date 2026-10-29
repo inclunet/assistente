@@ -35,8 +35,8 @@ func (s *Service) ChatParameterContract(provider *llm.ProviderConfig, modelID st
 // ApplyChatParameterContract prepares a request copy without writing defaults
 // back to the profile. A suppressed field cannot receive a catalog default.
 func (s *Service) ApplyChatParameterContract(provider *llm.ProviderConfig, params llm.ChatParams) (llm.ChatParams, error) {
-	if params.Model == "" && provider != nil {
-		params.Model = provider.DefaultModel
+	if provider != nil {
+		params.Model = llm.ResolveModel(provider, params.Model)
 	}
 	var operation llmcapabilities.Capability
 	if provider != nil {

@@ -795,13 +795,7 @@ func (uc *SendMessageUseCase) loadCompatibilityState(ctx context.Context, provid
 	default:
 		return nil
 	}
-	modelID := requestedModel
-	if modelID == "" {
-		modelID = provider.Model
-	}
-	if modelID == "" {
-		modelID = provider.DefaultModel
-	}
+	modelID := llm.ResolveModel(provider, requestedModel)
 	if modelID == "" {
 		return nil
 	}

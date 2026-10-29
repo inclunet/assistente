@@ -168,7 +168,7 @@ func (p *GoogleProvider) newClient(ctx context.Context) (*genai.Client, error) {
 }
 
 func (p *GoogleProvider) SendChat(ctx context.Context, messages []Message, params ChatParams) (string, error) {
-	model := resolveModel(p.provider, params.Model)
+	model := ResolveModel(p.provider, params.Model)
 	if model == "" {
 		return "", fmt.Errorf("nenhum modelo especificado e nenhum modelo padrÃƒÆ’Ã‚Â£o configurado")
 	}
@@ -256,7 +256,7 @@ func (p *GoogleProvider) SimpleChat(ctx context.Context, model, systemPrompt, us
 }
 
 func (p *GoogleProvider) StreamChat(ctx context.Context, messages []Message, params ChatParams, handler StreamHandler, tools ...ToolDefinition) {
-	model := resolveModel(p.provider, params.Model)
+	model := ResolveModel(p.provider, params.Model)
 	if model == "" {
 		handler.OnError("Nenhum modelo especificado e nenhum modelo padrÃƒÆ’Ã‚Â£o configurado")
 		return

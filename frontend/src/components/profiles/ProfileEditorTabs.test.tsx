@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ProfileEditorTabs } from './ProfileEditorTabs';
 
@@ -8,6 +8,13 @@ import { ProfileEditorTabs } from './ProfileEditorTabs';
 const mockAnnounce = vi.fn();
 const providersSpy = vi.fn();
 const compatibilitySpy = vi.fn();
+const catalogEvents = vi.hoisted(() => new Map<string, () => void>());
+vi.mock('@wailsjs/runtime/runtime', () => ({
+  EventsOn: (name: string, callback: () => void) => {
+    catalogEvents.set(name, callback);
+    return () => catalogEvents.delete(name);
+  },
+}));
 
 vi.mock('@wailsjs/go/wailsapi/LLMProviders', () => ({
   GetLLMProvidersWithStatus: () => providersSpy(),
@@ -18,6 +25,7 @@ vi.mock('@wailsjs/go/wailsapi/LLMModels', () => ({
 }));
 
 beforeEach(() => {
+  catalogEvents.clear();
   mockAnnounce.mockReset();
   providersSpy.mockReset();
   providersSpy.mockResolvedValue([
@@ -136,6 +144,21 @@ function perfilCom(provider: string) {
 /* ── Testes ─────────────────────────────────────────────── */
 
 describe('ProfileEditorTabs', () => {
+  it('reconsulta o contrato após publicação do catálogo sem alterar o perfil', async () => {
+    const profile = { ...defaultProfile, chat: { ...defaultProfile.chat, llm_provider: 'openai', model: 'model' } };
+    const props = propsCom(profile);
+    const { unmount } = render(<ProfileEditorTabs {...props} />);
+    await waitFor(() => expect(compatibilitySpy).toHaveBeenCalledTimes(1));
+    compatibilitySpy.mockResolvedValueOnce({ temperature: { support: 'unsupported' } });
+    act(() => catalogEvents.get('llm_catalog:changed')?.());
+    await waitFor(() => expect(screen.getByTestId('chat-section')).toHaveAttribute('data-unsupported-fields', 'temperature'));
+    expect(compatibilitySpy).toHaveBeenCalledTimes(2);
+    expect(props.updateField).not.toHaveBeenCalled();
+    expect(props.updateFields).not.toHaveBeenCalled();
+    unmount();
+    expect(catalogEvents.has('llm_catalog:changed')).toBe(false);
+  });
+
   it('busca restrições para o provedor e modelo atuais e descarta resposta atrasada de outro modelo', async () => {
     let resolveOld!: (fields: Record<string, { support: string }>) => void;
     let resolveCurrent!: (fields: Record<string, { support: string }>) => void;

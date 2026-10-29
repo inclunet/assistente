@@ -425,6 +425,8 @@ zero digitado é um valor explícito e não significa vazio. A API Anthropic exi
 um limite de saída; configure-o quando o catálogo não oferecer um default.
 Chamadas internas curtas usam seu próprio orçamento explícito, separado do
 perfil de conversa.
+Perfis antigos mantêm a opção de raciocínio desativado. Para passar a usar o
+default catalogado, selecione explicitamente o padrão do modelo no editor.
 
 Trocar de modelo ou atualizar o catálogo não ajusta silenciosamente os valores
 configurados. Valores incompatíveis precisam ser corrigidos; o backend também

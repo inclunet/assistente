@@ -84,7 +84,7 @@ func (p *ACPChatProvider) StreamChat(ctx context.Context, messages []Message, pa
 	// O modelo passa pela mesma cadeia dos outros provedores — pedido do turno,
 	// depois o do provider —, senão a escolha feita na configuração do provedor
 	// valeria para todo mundo menos para os agentes.
-	modelNotice, hasModelNotice := p.applyModel(ctx, conv, resolveModel(p.provider, params.Model))
+	modelNotice, hasModelNotice := p.applyModel(ctx, conv, ResolveModel(p.provider, params.Model))
 
 	// O agente pergunta no meio do turno, e o pedido chega por outra goroutine
 	// sabendo só o nome da sessão. É esta marca que diz a quem perguntar — e
@@ -203,7 +203,7 @@ func (p *ACPChatProvider) currentModel(conv *acp.Conversation, requested string)
 			return current
 		}
 	}
-	return resolveModel(p.provider, requested)
+	return ResolveModel(p.provider, requested)
 }
 
 // notifyTurn entrega um aviso sobre o turno quando o handler sabe recebê-lo. É
