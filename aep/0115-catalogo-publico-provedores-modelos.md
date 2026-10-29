@@ -245,7 +245,9 @@ resolvedor de presets catalogados para obter a URL. O wizard legado recusa
 perfis cujo formato difere do que persistiria (como Google nativo), em vez de
 combinar URL nativa com o adaptador OpenAI. Evidência:
 `controllers/welcome_catalog_test.go`.
-os testes de família/capability usam o asset publicado. Google aceita somente
+Os erros de catálogo permanecem na seleção do provedor, com aviso traduzível e
+possibilidade de escolher outra opção, sem encerrar o wizard.
+Os testes de família/capability usam o asset publicado. Google aceita somente
 autenticação obrigatória. A CLI aplica o modelo confirmado, inclusive Enter
 sobre o default exibido. Evidências: `internal/providers/catalog_defaults_test.go`
 e `cmd/asst/providers_test.go`. A migração completa do wizard para o catálogo

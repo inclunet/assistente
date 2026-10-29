@@ -75,6 +75,8 @@ suportadas pela integração do catálogo.
 O wizard inicial do desktop também recusa perfis cujo formato difere do seu
 fluxo legado, como a API nativa Google. Configure esses perfis pelo formulário
 de provedores, que já suporta o formato declarado no catálogo.
+Quando um perfil estiver indisponível ou incompatível, o wizard mantém a seleção
+aberta com um aviso, permitindo escolher outro provedor ou informar uma URL manual.
 
 Para esses casos, ou para um endpoint personalizado, use **Configurações →
 Provedores** no aplicativo desktop e a configuração manual, escolhendo um

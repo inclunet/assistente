@@ -172,6 +172,7 @@ func (c *WelcomeController) RunWelcomeWizard(ctx context.Context) (bool, error) 
 	// Os avisos de erro ocupam o lugar da descrição da etapa e também se
 	// traduzem: o texto vazio significa "nenhum erro pendente".
 	var passwordError questionnaire.Text
+	var providerError questionnaire.Text
 	var urlError questionnaire.Text
 	var keyError questionnaire.Text
 	var validatedModels []string
@@ -221,22 +222,21 @@ func (c *WelcomeController) RunWelcomeWizard(ctx context.Context) (bool, error) 
 			currentStep = 2
 
 		case 2: // Etapa 2: Escolher provedor
-			providerResp, err := c.questionnaireMgr.RequestQuestionnaire(ctx, welcomeProviderPayload(provider))
+			providerResp, err := c.questionnaireMgr.RequestQuestionnaire(ctx, welcomeProviderPayload(provider, providerError))
 
 			if err != nil || providerResp.Cancelled {
 				return false, err
 			}
 
 			provider = providerResp.Answers["provider"].(string)
+			providerError = questionnaire.Text{}
 
 			baseURL = ""
 			if kind := WizardLabelToProviderType(provider); kind != "" {
-				if c.providerSvc == nil {
-					return false, fmt.Errorf("serviço de provedores indisponível")
-				}
 				tmpl, err := c.wizardProviderTemplate(provider, kind)
 				if err != nil {
-					return false, err
+					providerError = welcomeProviderUnavailable()
+					continue
 				}
 				baseURL = tmpl.BaseURL
 			}
