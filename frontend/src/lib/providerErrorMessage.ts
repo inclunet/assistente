@@ -28,7 +28,7 @@ function translationFunction(language?: string) {
 }
 
 export function translateProviderErrorMessage(message: string, language?: string): string | null {
-  const parameter = /^parameter_error:v1:(temperature|top_p|max_output_tokens|reasoning_effort|context_window):(choice|number|minimum|maximum)(?::(-?\d+(?:\.\d+)?(?:e[+-]?\d+)?))?$/.exec(message);
+  const parameter = /^parameter_error:v1:(temperature|top_p|max_output_tokens|reasoning_effort|context_window):(choice|number|minimum|maximum|required)(?::(-?\d+(?:\.\d+)?(?:e[+-]?\d+)?))?$/.exec(message);
   if (parameter) {
     const [, field, code, limit] = parameter;
     if ((code === 'minimum' || code === 'maximum') !== (limit !== undefined)) return null;

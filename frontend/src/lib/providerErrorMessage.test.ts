@@ -10,6 +10,7 @@ describe('translateProviderErrorMessage', () => {
     expect(translateProviderErrorMessage(marker, 'es')).toBe('El valor de max_output_tokens debe ser como máximo 128000.');
     expect(translateProviderErrorMessage('parameter_error:v1:temperature:minimum')).toBeNull();
     expect(translateProviderErrorMessage('parameter_error:v1:unknown:maximum:2')).toBeNull();
+    expect(translateProviderErrorMessage('parameter_error:v1:max_output_tokens:required', 'en')).toBe('Configure max_output_tokens: this API requires an explicit value and no model default is available.');
   });
 
   it('localiza marcadores permitidos e mantém o alias informado pelo provedor', async () => {

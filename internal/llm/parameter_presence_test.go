@@ -9,6 +9,15 @@ import (
 	"assistente/internal/credentials"
 )
 
+func TestAnthropicRequiresExplicitOrResolvedOutputBudget(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Error("request sent without required output budget") }))
+	defer server.Close()
+	provider := NewChatProvider(&ProviderConfig{ID: "test", APIFormat: APIFormatAnthropic, BaseURL: server.URL, AuthMode: AuthModeNone, DefaultModel: "model"}, credentials.NewManager(nil), nil)
+	if _, err := provider.SendChat(t.Context(), []Message{{Role: "user", Content: "test"}}, ChatParams{}); err == nil {
+		t.Fatal("missing budget accepted")
+	}
+}
+
 func TestChatParameterPresenceReachesHTTPPayload(t *testing.T) {
 	for _, format := range []APIFormat{APIFormatOpenAI, APIFormatOpenAIResponses} {
 		t.Run(string(format), func(t *testing.T) {

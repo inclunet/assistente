@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"assistente/internal/credentials"
+	"assistente/internal/llmcatalog"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	anthropicoption "github.com/anthropics/anthropic-sdk-go/option"
@@ -91,7 +92,7 @@ func (p *AnthropicProvider) WithMCPServers(servers []MCPServerConfig) ChatProvid
 
 func (p *AnthropicProvider) SendChat(ctx context.Context, messages []Message, params ChatParams) (string, error) {
 	if params.MaxTokens == nil || *params.MaxTokens < 1 {
-		return "", fmt.Errorf("max_output_tokens: configure um limite de saída para a API Anthropic")
+		return "", &llmcatalog.ParameterValueError{Field: "max_output_tokens", Code: "required"}
 	}
 	model := ResolveModel(p.provider, params.Model)
 	if model == "" {
@@ -175,7 +176,7 @@ func (p *AnthropicProvider) SimpleChat(ctx context.Context, model, systemPrompt,
 
 func (p *AnthropicProvider) StreamChat(ctx context.Context, messages []Message, params ChatParams, handler StreamHandler, tools ...ToolDefinition) {
 	if params.MaxTokens == nil || *params.MaxTokens < 1 {
-		handler.OnError("max_output_tokens: configure um limite de saída para a API Anthropic")
+		handler.OnError((&llmcatalog.ParameterValueError{Field: "max_output_tokens", Code: "required"}).Error())
 		return
 	}
 	model := ResolveModel(p.provider, params.Model)

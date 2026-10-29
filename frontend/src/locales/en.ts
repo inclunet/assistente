@@ -404,6 +404,7 @@ const en = {
         streamingTokenRateLimit: 'The provider token quota was reached (HTTP 429). Wait for the quota to reset and try again.',
         agentResponseFailed: 'Agent response failed:',
         parameterErrors: {
+          required: 'Configure {{field}}: this API requires an explicit value and no model default is available.',
           choice: 'The configured value for {{field}} is not among the options supported by this model.',
           number: 'The configured value for {{field}} is not a valid number for this parameter.',
           minimum: 'The value for {{field}} must be at least {{limit}}.',

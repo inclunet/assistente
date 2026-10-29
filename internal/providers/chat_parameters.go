@@ -29,6 +29,13 @@ func (s *Service) ChatParameterContract(provider *llm.ProviderConfig, modelID st
 	for _, name := range unsupported {
 		fields[name] = llmcatalog.Parameter{Support: "unsupported"}
 	}
+	for _, name := range []string{"temperature", "top_p", "max_output_tokens", "context_window"} {
+		field, known := fields[name]
+		if !known {
+			field.Support = "unknown"
+		}
+		fields[name] = field.WithDomain(name)
+	}
 	return fields
 }
 

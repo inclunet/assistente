@@ -33,6 +33,32 @@ func (e *ParameterValueError) Error() string {
 	return marker
 }
 
+// WithDomain intersects catalog constraints with the parameter's numeric domain.
+// The editor receives this same contract; it does not repeat transport bounds.
+func (p Parameter) WithDomain(name string) Parameter {
+	if p.Support == "unsupported" {
+		return p
+	}
+	var minimum, maximum float64
+	switch name {
+	case "temperature", "context_window":
+		minimum, maximum = 0, math.Inf(1)
+	case "top_p":
+		minimum, maximum = 0, 1
+	case "max_output_tokens":
+		minimum, maximum = 1, math.MaxInt32
+	default:
+		return p
+	}
+	if p.Minimum == nil || *p.Minimum < minimum {
+		p.Minimum = &minimum
+	}
+	if !math.IsInf(maximum, 1) && (p.Maximum == nil || *p.Maximum > maximum) {
+		p.Maximum = &maximum
+	}
+	return p
+}
+
 // NumericDefault returns a copy of a validated numeric default.
 func (p Parameter) NumericDefault() *float64 {
 	var value float64
@@ -171,15 +197,10 @@ func (p Parameter) ValidateValue(name string, value any) error {
 	default:
 		return &ParameterValueError{Field: name, Code: "number"}
 	}
-	if math.IsNaN(number) || math.IsInf(number, 0) || (name == "max_output_tokens" && (math.Trunc(number) != number || number < 1 || number > math.MaxInt32)) {
+	if math.IsNaN(number) || math.IsInf(number, 0) || ((name == "max_output_tokens" || name == "context_window") && math.Trunc(number) != number) {
 		return &ParameterValueError{Field: name, Code: "number"}
 	}
-	if (name == "temperature" && number < 0) || (name == "top_p" && (number < 0 || number > 1)) {
-		return &ParameterValueError{Field: name, Code: "number"}
-	}
-	if name == "context_window" && (number < 0 || math.Trunc(number) != number) {
-		return &ParameterValueError{Field: name, Code: "number"}
-	}
+	p = p.WithDomain(name)
 	if p.Minimum != nil && number < *p.Minimum {
 		return &ParameterValueError{Field: name, Code: "minimum", Limit: p.Minimum}
 	}

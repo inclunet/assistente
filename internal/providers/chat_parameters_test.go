@@ -1,12 +1,40 @@
 package providers
 
 import (
+	"math"
 	"testing"
 
 	"assistente/internal/llm"
 	"assistente/internal/llmcapabilities"
 	"assistente/internal/llmcatalog"
 )
+
+func TestChatParameterContractExposesNumericDomainWithoutCatalog(t *testing.T) {
+	service := NewService(ServiceConfig{})
+	fields := service.ChatParameterContract(nil, "private", nil)
+	for _, tc := range []struct {
+		name    string
+		minimum float64
+		maximum *float64
+	}{
+		{"temperature", 0, nil},
+		{"top_p", 0, numericBound(1)},
+		{"max_output_tokens", 1, numericBound(math.MaxInt32)},
+	} {
+		field := fields[tc.name]
+		if field.Support != "unknown" || field.Default != nil || field.Minimum == nil || *field.Minimum != tc.minimum {
+			t.Fatalf("%s: %+v", tc.name, field)
+		}
+		if tc.maximum != nil && (field.Maximum == nil || *field.Maximum != *tc.maximum) {
+			t.Fatalf("%s: maximum=%v", tc.name, field.Maximum)
+		}
+		if field.ValidateValue(tc.name, tc.minimum-1) == nil {
+			t.Fatalf("%s accepted out of domain value", tc.name)
+		}
+	}
+}
+
+func numericBound(value float64) *float64 { return &value }
 
 func TestChatParameterContractDefaultsExplicitZeroAndLocalSuppression(t *testing.T) {
 	minimum, maximum := 0.0, 1.0

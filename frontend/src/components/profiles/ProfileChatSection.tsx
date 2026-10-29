@@ -648,7 +648,7 @@ function ProfileNumberParameter({ id, label, value, contract, onChange, disabled
   onChange: (value: number | null) => void; disabled: boolean; integer?: boolean;
 }) {
   const { t } = useTranslation();
-  const invalid = value != null && ((contract?.minimum != null && value < contract.minimum)
+  const invalid = value != null && (!Number.isFinite(value) || (contract?.minimum != null && value < contract.minimum)
     || (contract?.maximum != null && value > contract.maximum) || (integer && !Number.isInteger(value)));
   return <div className="profiles-field"><Input
     id={id} label={label} type="number" value={value ?? ''} step={integer ? 1 : 'any'}

@@ -404,6 +404,7 @@ const ptBR = {
         streamingTokenRateLimit: 'A cota de tokens do provedor foi atingida (HTTP 429). Aguarde a renovação da cota e tente novamente.',
         agentResponseFailed: 'Falha na resposta do agente:',
         parameterErrors: {
+          required: 'Configure {{field}}: esta API exige um valor explícito e não há default disponível para o modelo.',
           choice: 'O valor configurado para {{field}} não está entre as opções aceitas pelo modelo.',
           number: 'O valor configurado para {{field}} não é um número válido para este parâmetro.',
           minimum: 'O valor de {{field}} deve ser pelo menos {{limit}}.',

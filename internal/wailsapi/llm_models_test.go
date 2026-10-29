@@ -115,7 +115,7 @@ func TestGetProfileChatParameterContractResolvesDefaultSelections(t *testing.T) 
 		if err != nil {
 			t.Fatalf("seleção (%q, %q): %v", selection.providerID, selection.modelID, err)
 		}
-		if len(fields) != 1 || fields[string(llmcapabilities.FieldTemperature)].Support != "unsupported" {
+		if fields[string(llmcapabilities.FieldTemperature)].Support != "unsupported" {
 			t.Fatalf("seleção (%q, %q): campos = %v; esperado temperature", selection.providerID, selection.modelID, fields)
 		}
 	}

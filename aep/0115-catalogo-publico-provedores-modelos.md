@@ -167,6 +167,11 @@ contrato sem alterar os valores do formulário. Erros de valor carregam campo,
 código e limite no marcador `parameter_error:v1`, traduzido pelo apresentador
 de erros existente. A escolha do modelo reutiliza `llm.ResolveModel` em
 catálogo, compatibilidade e transporte.
+Domínios numéricos intrínsecos são aplicados por `Parameter.WithDomain` e
+entregues no mesmo contrato, mesmo para modelos desconhecidos; o frontend não
+repete uma tabela de limites. Sem orçamento de saída conhecido, a sumarização
+mantém sua margem proporcional de segurança existente, sem inventar 4096 tokens
+nem recuperar do perfil um campo que o transporte suprimiu.
 
 Uma exposição associa explicitamente `(server_profile_id, api_format,
 exposed_model_id)` ao modelo canônico, podendo declarar diferenças conhecidas de
