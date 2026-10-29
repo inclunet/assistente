@@ -138,12 +138,13 @@ func decodeJSONValue(raw json.RawMessage) (any, error) {
 }
 
 type Model struct {
-	ID           string            `json:"id"`
-	Vendor       string            `json:"vendor"`
-	Name         string            `json:"name"`
-	Status       string            `json:"status"`
-	Capabilities map[string]string `json:"capabilities"`
-	Limits       map[string]int64  `json:"limits,omitempty"`
+	ID           string               `json:"id"`
+	Vendor       string               `json:"vendor"`
+	Name         string               `json:"name"`
+	Status       string               `json:"status"`
+	Capabilities map[string]string    `json:"capabilities"`
+	Limits       map[string]int64     `json:"limits,omitempty"`
+	Parameters   map[string]Parameter `json:"parameters,omitempty"`
 }
 
 type Voice struct {
@@ -158,13 +159,14 @@ type VoiceList struct {
 }
 
 type Exposure struct {
-	ServerProfileID     string            `json:"server_profile_id"`
-	APIFormat           string            `json:"api_format"`
-	ExposedModelID      string            `json:"exposed_model_id"`
-	CanonicalModelID    string            `json:"canonical_model_id"`
-	CapabilityOverrides map[string]string `json:"capability_overrides,omitempty"`
-	SelectionMode       string            `json:"selection_mode,omitempty"`
-	Voices              *VoiceList        `json:"voices,omitempty"`
+	ServerProfileID     string               `json:"server_profile_id"`
+	APIFormat           string               `json:"api_format"`
+	ExposedModelID      string               `json:"exposed_model_id"`
+	CanonicalModelID    string               `json:"canonical_model_id"`
+	CapabilityOverrides map[string]string    `json:"capability_overrides,omitempty"`
+	ParameterOverrides  map[string]Parameter `json:"parameter_overrides,omitempty"`
+	SelectionMode       string               `json:"selection_mode,omitempty"`
+	Voices              *VoiceList           `json:"voices,omitempty"`
 }
 
 // Clone returns an independent deep copy.
@@ -189,11 +191,13 @@ func (d Document) Clone() Document {
 		clone.Models[i] = model
 		clone.Models[i].Capabilities = cloneMap(model.Capabilities)
 		clone.Models[i].Limits = cloneMap(model.Limits)
+		clone.Models[i].Parameters = cloneParameters(model.Parameters)
 	}
 	clone.Exposures = make([]Exposure, len(d.Exposures))
 	for i, exposure := range d.Exposures {
 		clone.Exposures[i] = exposure
 		clone.Exposures[i].CapabilityOverrides = cloneMap(exposure.CapabilityOverrides)
+		clone.Exposures[i].ParameterOverrides = cloneParameters(exposure.ParameterOverrides)
 		if exposure.Voices != nil {
 			voices := *exposure.Voices
 			voices.Items = cloneSlice(exposure.Voices.Items)

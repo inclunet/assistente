@@ -84,9 +84,11 @@ func runProfilesShow(svc profilesBackend, out io.Writer, slug string) error {
 	if profile.Chat.Model != "" {
 		_, _ = fmt.Fprintf(out, "Modelo:      %s\n", profile.Chat.Model)
 	}
-	_, _ = fmt.Fprintf(out, "Temperatura: %.1f\n", profile.Chat.Temperature)
-	if profile.Chat.MaxTokens > 0 {
-		_, _ = fmt.Fprintf(out, "Max Tokens:  %d\n", profile.Chat.MaxTokens)
+	if profile.Chat.Temperature != nil {
+		_, _ = fmt.Fprintf(out, "Temperatura: %.1f\n", *profile.Chat.Temperature)
+	}
+	if profile.Chat.MaxTokens != nil {
+		_, _ = fmt.Fprintf(out, "Max Tokens:  %d\n", *profile.Chat.MaxTokens)
 	}
 	if defaultState := strings.TrimSpace(profile.Chat.ToolPolicyDefault); defaultState != "" {
 		_, _ = fmt.Fprintf(out, "Tools default: %s\n", defaultState)
@@ -162,7 +164,8 @@ func runProfilesCreate(svc profilesBackend, out io.Writer, cmd *cobra.Command) e
 		p.Chat.Model = profileCreateModel
 	}
 	if cmd.Flags().Changed("temperature") {
-		p.Chat.Temperature = profileCreateTemp
+		temperature := profileCreateTemp
+		p.Chat.Temperature = &temperature
 	}
 
 	slug, err := svc.CreateProfile(p)
@@ -212,7 +215,8 @@ func runProfilesEdit(svc profilesBackend, out io.Writer, cmd *cobra.Command, slu
 		profile.Chat.LLMProvider = profileEditProvider
 	}
 	if cmd.Flags().Changed("temperature") {
-		profile.Chat.Temperature = profileEditTemp
+		temperature := profileEditTemp
+		profile.Chat.Temperature = &temperature
 	}
 
 	if err := svc.UpdateProfile(slug, *profile); err != nil {

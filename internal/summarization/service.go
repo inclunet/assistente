@@ -76,9 +76,9 @@ func ShouldTriggerSummarization(
 	}
 
 	contextWindow := profile.Chat.ContextWindow
-	maxTokens := profile.Chat.MaxTokens
-	if maxTokens <= 0 {
-		maxTokens = 4096
+	maxTokens := 0
+	if profile.Chat.MaxTokens != nil {
+		maxTokens = *profile.Chat.MaxTokens
 	}
 
 	safetyMargin := int(float64(contextWindow) * contextWindowSafetyMargin)
@@ -396,7 +396,7 @@ func NewService(cfg ServiceConfig) *Service {
 // provider/modelo desse perfil, não o do perfil ativo global (Issue #203). Só
 // recai sobre o perfil ativo global quando o slug está vazio ou não pode ser
 // resolvido — mesmo padrão de fallback de `chat.Interactor.PrepareContext`.
-func (s *Service) CheckAndTriggerSummarization(ctx context.Context, conversationID string, profileSlug string) {
+func (s *Service) CheckAndTriggerSummarization(ctx context.Context, conversationID string, profileSlug string, outputTokenLimit int) {
 	if conversationID == "" {
 		return
 	}
@@ -463,6 +463,11 @@ func (s *Service) CheckAndTriggerSummarization(ctx context.Context, conversation
 		}
 	}
 
+	// Reserve the effective output budget captured by the completed turn,
+	// including catalog defaults, without modifying the saved profile.
+	resolvedProfile := *profile
+	resolvedProfile.Chat.MaxTokens = &outputTokenLimit
+	profile = &resolvedProfile
 	invocationResults := loadSummarizationToolInvocationResults(ctx, contextMessages)
 	if shouldTriggerSummarizationWithHydratedToolResults(profile, contextMessages, existingSummary, invocationResults) {
 		s.TriggerSummarizationInBackground(ctx, conversationID, profile, allRootMessages)
@@ -719,9 +724,9 @@ func shouldTriggerSummarizationWithHydratedToolResults(
 	}
 
 	contextWindow := profile.Chat.ContextWindow
-	maxTokens := profile.Chat.MaxTokens
-	if maxTokens <= 0 {
-		maxTokens = 4096
+	maxTokens := 0
+	if profile.Chat.MaxTokens != nil {
+		maxTokens = *profile.Chat.MaxTokens
 	}
 
 	safetyMargin := int(float64(contextWindow) * contextWindowSafetyMargin)

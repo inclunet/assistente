@@ -58,8 +58,8 @@ func TestConfigShow_Success(t *testing.T) {
 			Chat: profiles.ChatConfig{
 				LLMProvider:     "openai-default",
 				Model:           "gpt-4o",
-				Temperature:     0.3,
-				MaxTokens:       4096,
+				Temperature:     testParameterPointer(float64(0.3)),
+				MaxTokens:       testParameterPointer(int(4096)),
 				ResponseTimeout: 60,
 			},
 		},
@@ -181,3 +181,5 @@ func TestConfigModel_Error(t *testing.T) {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
+
+func testParameterPointer[T any](value T) *T { return &value }

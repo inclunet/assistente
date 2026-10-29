@@ -35,6 +35,15 @@ func (d Document) ResolveModels(serverProfileID, apiFormat string, ids []string)
 			model.Capabilities[key] = value
 		}
 		model.Limits = cloneMap(model.Limits)
+		model.Parameters = withKnownOutputLimit(cloneParameters(model.Parameters), model.Limits["max_output_tokens"])
+		if len(exposure.ParameterOverrides) > 0 {
+			if model.Parameters == nil {
+				model.Parameters = make(map[string]Parameter)
+			}
+			for name, field := range cloneParameters(exposure.ParameterOverrides) {
+				model.Parameters[name] = field
+			}
+		}
 		resolved[exposure.ExposedModelID] = model
 	}
 	return resolved

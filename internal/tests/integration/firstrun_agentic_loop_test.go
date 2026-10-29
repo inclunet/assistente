@@ -23,8 +23,8 @@ func TestIntegration_FirstMessageAgenticLoopDefaultLimit(t *testing.T) {
 		Chat: profiles.ChatConfig{
 			LLMProvider:  "openai",
 			Model:        "gpt-4o",
-			Temperature:  0.7,
-			MaxTokens:    2000,
+			Temperature:  testParameterPointer(float64(0.7)),
+			MaxTokens:    testParameterPointer(int(2000)),
 			DisableTools: false,
 			EnabledTools: []string{"web_search", "calculator", "file_read"},
 			// MaxAgenticIterations NOT SET → uses default 25
@@ -39,7 +39,7 @@ func TestIntegration_FirstMessageAgenticLoopDefaultLimit(t *testing.T) {
 
 	// 3. Criar conversa
 	conv := &database.Conversation{
-		Title:     "Default Agentic Loop",
+		Title: "Default Agentic Loop",
 	}
 
 	if err := db.Create(conv).Error; err != nil {
@@ -102,8 +102,8 @@ func TestIntegration_FirstMessageAgenticLoopCustomLimit(t *testing.T) {
 			Chat: profiles.ChatConfig{
 				LLMProvider:          "openai",
 				Model:                "gpt-4o",
-				Temperature:          0.7,
-				MaxTokens:            2000,
+				Temperature:          testParameterPointer(float64(0.7)),
+				MaxTokens:            testParameterPointer(int(2000)),
 				DisableTools:         false,
 				MaxAgenticIterations: l.limit, // Custom limit
 				ResponseTimeout:      90,      // 90s para múltiplas iterações
@@ -117,7 +117,7 @@ func TestIntegration_FirstMessageAgenticLoopCustomLimit(t *testing.T) {
 
 		// Criar conversa
 		conv := &database.Conversation{
-			Title:     "Chat " + l.name,
+			Title: "Chat " + l.name,
 		}
 
 		if err := db.Create(conv).Error; err != nil {
@@ -168,8 +168,8 @@ func TestIntegration_FirstMessageAgenticLoopHitLimit(t *testing.T) {
 		Chat: profiles.ChatConfig{
 			LLMProvider:          "openai",
 			Model:                "gpt-4o",
-			Temperature:          0.7,
-			MaxTokens:            2000,
+			Temperature:          testParameterPointer(float64(0.7)),
+			MaxTokens:            testParameterPointer(int(2000)),
 			DisableTools:         false,
 			MaxAgenticIterations: 5, // Limite bem baixo para teste
 			ResponseTimeout:      30,
@@ -179,7 +179,7 @@ func TestIntegration_FirstMessageAgenticLoopHitLimit(t *testing.T) {
 
 	// 2. Criar conversa
 	conv := &database.Conversation{
-		Title:     "Hit Limit Chat",
+		Title: "Hit Limit Chat",
 	}
 
 	if err := db.Create(conv).Error; err != nil {
@@ -241,8 +241,8 @@ func TestIntegration_FirstMessageAgenticLoopWithinLimit(t *testing.T) {
 		Chat: profiles.ChatConfig{
 			LLMProvider:          "openai",
 			Model:                "gpt-4o",
-			Temperature:          0.7,
-			MaxTokens:            3000,
+			Temperature:          testParameterPointer(float64(0.7)),
+			MaxTokens:            testParameterPointer(int(3000)),
 			DisableTools:         false,
 			MaxAgenticIterations: 100, // Limite alto
 			ResponseTimeout:      60,
@@ -256,7 +256,7 @@ func TestIntegration_FirstMessageAgenticLoopWithinLimit(t *testing.T) {
 
 	// 2. Criar conversa
 	conv := &database.Conversation{
-		Title:     "Within Limit Chat",
+		Title: "Within Limit Chat",
 	}
 
 	if err := db.Create(conv).Error; err != nil {
@@ -308,8 +308,8 @@ func TestIntegration_FirstMessageAgenticLoopExceedsLimit(t *testing.T) {
 		Chat: profiles.ChatConfig{
 			LLMProvider:          "openai",
 			Model:                "gpt-4o",
-			Temperature:          0.7,
-			MaxTokens:            4000,
+			Temperature:          testParameterPointer(float64(0.7)),
+			MaxTokens:            testParameterPointer(int(4000)),
 			DisableTools:         false,
 			MaxAgenticIterations: 50, // Limite: 50
 			ResponseTimeout:      90,
@@ -323,7 +323,7 @@ func TestIntegration_FirstMessageAgenticLoopExceedsLimit(t *testing.T) {
 
 	// 2. Criar conversa
 	conv := &database.Conversation{
-		Title:     "Exceeded Limit Chat",
+		Title: "Exceeded Limit Chat",
 	}
 
 	if err := db.Create(conv).Error; err != nil {
@@ -375,8 +375,8 @@ func TestIntegration_FirstMessageAgenticLoopTokenCounting(t *testing.T) {
 		Chat: profiles.ChatConfig{
 			LLMProvider:          "openai",
 			Model:                "gpt-4o",
-			Temperature:          0.7,
-			MaxTokens:            5000, // Contexto generoso
+			Temperature:          testParameterPointer(float64(0.7)),
+			MaxTokens:            testParameterPointer(int(5000)), // Contexto generoso
 			DisableTools:         false,
 			MaxAgenticIterations: 50,
 			ResponseTimeout:      60,
@@ -386,7 +386,7 @@ func TestIntegration_FirstMessageAgenticLoopTokenCounting(t *testing.T) {
 
 	// 2. Criar conversa
 	conv := &database.Conversation{
-		Title:     "Token Count Loop",
+		Title: "Token Count Loop",
 	}
 
 	if err := db.Create(conv).Error; err != nil {
@@ -435,13 +435,13 @@ func TestIntegration_FirstMessageAgenticLoopTokenCounting(t *testing.T) {
 		t.Fatalf("falha ao recuperar resposta: %v", err)
 	}
 
-	if retrieved.TotalTokens > profile.Chat.MaxTokens {
+	if retrieved.TotalTokens > *profile.Chat.MaxTokens {
 		t.Errorf("total tokens (%d) não deveria exceder MaxTokens (%d) mesmo em múltiplas iterações",
-			retrieved.TotalTokens, profile.Chat.MaxTokens)
+			retrieved.TotalTokens, *profile.Chat.MaxTokens)
 	}
 
 	t.Logf("✓ Token counting em múltiplas iterações validado (%.0f%% do MaxTokens utilizado)",
-		float64(retrieved.TotalTokens)/float64(profile.Chat.MaxTokens)*100)
+		float64(retrieved.TotalTokens)/float64(*profile.Chat.MaxTokens)*100)
 }
 
 // TestIntegration_FirstMessageAgenticLoopTimeoutProtection testa timeout como 2ª camada de proteção
@@ -460,8 +460,8 @@ func TestIntegration_FirstMessageAgenticLoopTimeoutProtection(t *testing.T) {
 		Chat: profiles.ChatConfig{
 			LLMProvider:          "openai",
 			Model:                "gpt-4o",
-			Temperature:          0.7,
-			MaxTokens:            3000,
+			Temperature:          testParameterPointer(float64(0.7)),
+			MaxTokens:            testParameterPointer(int(3000)),
 			DisableTools:         false,
 			MaxAgenticIterations: 100, // Limite alto
 			ResponseTimeout:      10,  // Timeout curto (10s)
@@ -471,7 +471,7 @@ func TestIntegration_FirstMessageAgenticLoopTimeoutProtection(t *testing.T) {
 
 	// 2. Criar conversa
 	conv := &database.Conversation{
-		Title:     "Timeout Protection Loop",
+		Title: "Timeout Protection Loop",
 	}
 
 	if err := db.Create(conv).Error; err != nil {
@@ -516,3 +516,5 @@ func TestIntegration_FirstMessageAgenticLoopTimeoutProtection(t *testing.T) {
 
 	t.Logf("✓ Timeout como 2ª proteção validado (%.1fs < %ds)", timeTaken.Seconds(), profile.Chat.ResponseTimeout)
 }
+
+func testParameterPointer[T any](value T) *T { return &value }

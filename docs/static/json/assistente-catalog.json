@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "catalog_version": "2026-10-17.1",
-  "updated_at": "2026-10-17T12:00:00Z",
+  "catalog_version": "2026-10-29.1",
+  "updated_at": "2026-10-29T22:00:00Z",
   "servers": [
     {
       "id": "openai",
@@ -486,7 +486,10 @@
       "server_profile_id": "openai",
       "api_format": "openai_responses",
       "exposed_model_id": "gpt-6.1-sol",
-      "canonical_model_id": "openai/gpt-6.1-sol"
+      "canonical_model_id": "openai/gpt-6.1-sol",
+      "parameter_overrides": {
+        "reasoning_effort": {"support": "supported", "choices": ["low", "medium", "high", "xhigh", "max"], "default": "medium"}
+      }
     },
     {
       "server_profile_id": "openrouter",
@@ -498,7 +501,11 @@
       "server_profile_id": "anthropic",
       "api_format": "anthropic",
       "exposed_model_id": "claude-sonnet-5",
-      "canonical_model_id": "anthropic/claude-sonnet-5"
+      "canonical_model_id": "anthropic/claude-sonnet-5",
+      "parameter_overrides": {
+        "temperature": {"support": "unsupported"},
+        "top_p": {"support": "unsupported"}
+      }
     },
     {
       "server_profile_id": "google-gemini",

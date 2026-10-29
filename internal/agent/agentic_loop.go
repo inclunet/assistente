@@ -415,7 +415,7 @@ func (r *agenticLoopRunner) executeToolIteration(ctx context.Context, result Age
 	for i, res := range execResults {
 		toolContents[i] = tools.ContentForModel(res.Result)
 	}
-	PreCheckContextWindow(r.params.ContextWindow, r.params.MaxTokens, r.messages, toolContents, r.replaysReasoningContent())
+	PreCheckContextWindow(r.params.ContextWindow, r.params.OutputTokenLimit(), r.messages, toolContents, r.replaysReasoningContent())
 	reconcileToolContentsWithContracts(ctx, execResults, toolContents)
 
 	// 5f-iii. Persiste o texto intermediário do assistant. AEP-0078 depreca o L3:
@@ -802,7 +802,7 @@ func (r *agenticLoopRunner) finishLimitReached(ctx context.Context) {
 	if r.svc.triggerSummarize != nil {
 		go func() {
 			defer r.svc.recoverFromPanic(r.conversationID, "triggerSummarize")
-			r.svc.triggerSummarize(context.WithoutCancel(ctx), r.conversationID, r.params.ProfileSlug)
+			r.svc.triggerSummarize(context.WithoutCancel(ctx), r.conversationID, r.params.ProfileSlug, r.lastFinish.OutputLimit)
 		}()
 	}
 }

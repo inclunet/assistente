@@ -51,7 +51,7 @@ func TestGoogleStreamRetryAvisoEFinalizacao(t *testing.T) {
 	}, credMgr)
 	handler := &espiaoAvisos{}
 
-	provider.StreamChat(ctxCred, []Message{{Role: "user", Content: "olá"}}, ChatParams{Model: "gemini-test", MaxTokens: 321}, handler)
+	provider.StreamChat(ctxCred, []Message{{Role: "user", Content: "olá"}}, ChatParams{Model: "gemini-test", MaxTokens: testParameterPointer(int(321))}, handler)
 
 	if handler.err != "" {
 		t.Fatalf("turno deveria concluir sem erro; veio %q", handler.err)
@@ -140,7 +140,7 @@ func TestGoogleTimeoutParcialPreservaDiagnosticos(t *testing.T) {
 	handler := &espiaoAvisos{}
 
 	provider.StreamChat(ctxCred, []Message{{Role: "user", Content: "oi"}},
-		ChatParams{Model: "gemini-test", MaxTokens: 321}, handler)
+		ChatParams{Model: "gemini-test", MaxTokens: testParameterPointer(int(321))}, handler)
 
 	if handler.err != streamIdleErrorMessage || !handler.naoRetentavel {
 		t.Fatalf("timeout terminal inválido: err=%q nonRetryable=%v", handler.err, handler.naoRetentavel)

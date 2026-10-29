@@ -108,6 +108,7 @@ describe('ProfileChatSection', () => {
     rateLimitRpm: 60,
     rateLimitBurst: 30,
     reasoningEffort: '',
+    parameterContract: { reasoning_effort: { support: 'supported', choices: ['off', 'none', 'low', 'medium', 'high', 'max', 'ollama'] } },
     promptCache: {
       enabled: false,
       provider_hints: false,
@@ -178,11 +179,48 @@ describe('ProfileChatSection', () => {
     expect(screen.getByTestId('model-picker-mock')).toBeInTheDocument();
   });
 
-  it('renderiza os sliders com valores formatados', () => {
+  it('preserva os valores numéricos configurados', () => {
     render(<ProfileChatSection {...defaultProps} />);
     
-    expect(screen.getByText('0.70')).toBeInTheDocument();
-    expect(screen.getByText('1.00')).toBeInTheDocument();
+    expect(screen.getByLabelText('Temperatura')).toHaveValue(0.7);
+    expect(screen.getByLabelText('Top P')).toHaveValue(1);
+  });
+
+  it('mantém ausência e zero distintos sem gravar o default exibido', () => {
+    const onChange = vi.fn();
+    render(<ProfileChatSection {...defaultProps} temperature={null} topP={0} onChange={onChange}
+      parameterContract={{ temperature: { support: 'supported', minimum: 0, maximum: 1, default: 0.5 } }} />);
+    expect(screen.getByLabelText('Temperatura')).toHaveValue(null);
+    expect(screen.getByLabelText('Temperatura')).toHaveAttribute('placeholder', '0.5');
+    expect(screen.getByLabelText('Top P')).toHaveValue(0);
+    expect(onChange).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText('Temperatura'), { target: { value: '0' } });
+    expect(onChange).toHaveBeenCalledWith('temperature', 0);
+  });
+
+  it('sinaliza o valor existente fora do novo limite sem clamp', () => {
+    const onChange = vi.fn();
+    const { rerender } = render(<ProfileChatSection {...defaultProps} onChange={onChange}
+      parameterContract={{ max_output_tokens: { support: 'unknown', maximum: 8192 } }} />);
+    rerender(<ProfileChatSection {...defaultProps} onChange={onChange}
+      parameterContract={{ max_output_tokens: { support: 'unknown', maximum: 2048 } }} />);
+    const input = screen.getByLabelText('Max Tokens');
+    expect(input).toHaveValue(4096);
+    expect(input).toHaveAttribute('max', '2048');
+    expect(input).toHaveAttribute('aria-invalid', 'true');
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it('usa as opções catalogadas e permite voltar ao default sem salvar seu valor', async () => {
+    const onChange = vi.fn();
+    const user = userEvent.setup();
+    render(<ProfileChatSection {...defaultProps} reasoningEffort="xhigh" onChange={onChange}
+      parameterContract={{ reasoning_effort: { support: 'supported', choices: ['medium', 'xhigh'], default: 'medium' } }} />);
+    const select = screen.getByLabelText('Raciocínio (Reasoning)');
+    expect(select).toHaveValue('xhigh');
+    expect(screen.queryByRole('option', { name: 'low' })).not.toBeInTheDocument();
+    await user.selectOptions(select, 'model-default');
+    expect(onChange).toHaveBeenCalledWith('reasoning_effort', null);
   });
 
   it('renderiza os campos numéricos com valores corretos', () => {
@@ -230,6 +268,20 @@ describe('ProfileChatSection', () => {
     fireEvent.change(input, { target: { value: '2048' } });
     
     expect(handleChange).toHaveBeenCalledWith('max_tokens', 2048);
+  });
+
+  it('aplica o teto catalogado de contexto sem substituir zero ou corrigir o valor salvo', () => {
+    const onChange = vi.fn();
+    const parameterContract = { context_window: { support: 'unknown', maximum: 64000 } };
+    const { rerender } = render(<ProfileChatSection {...defaultProps}
+      contextWindow={0} parameterContract={parameterContract} onChange={onChange} />);
+    expect(screen.getByLabelText('Janela de Contexto (tokens)')).toHaveValue(0);
+    expect(screen.getByLabelText('Janela de Contexto (tokens)')).toHaveAttribute('max', '64000');
+    rerender(<ProfileChatSection {...defaultProps} contextWindow={128000}
+      parameterContract={parameterContract} onChange={onChange} />);
+    expect(screen.getByLabelText('Janela de Contexto (tokens)')).toHaveValue(128000);
+    expect(screen.getByLabelText('Janela de Contexto (tokens)')).toHaveAttribute('aria-invalid', 'true');
+    expect(onChange).not.toHaveBeenCalled();
   });
 
   it('chama onChange ao alterar context_window', () => {

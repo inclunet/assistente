@@ -7,6 +7,7 @@ import (
 	"assistente/internal/database"
 	"assistente/internal/llm"
 	"assistente/internal/llmcapabilities"
+	"assistente/internal/llmcatalog"
 	"assistente/internal/profiles"
 	"assistente/internal/providers"
 )
@@ -128,9 +129,9 @@ func (m *LLMModels) GetModelCatalogByProvider(providerID string) (llm.ModelCatal
 	})
 }
 
-// GetUnsupportedProfileChatFields retorna somente restrições aprendidas para
-// o modelo remoto e o formato de chat atual do provedor autenticado.
-func (m *LLMModels) GetUnsupportedProfileChatFields(providerID, remoteModelID string) ([]string, error) {
+// GetProfileChatParameterContract resolve parâmetros catalogados e restrições
+// aprendidas para o modelo e o formato do provedor autenticado.
+func (m *LLMModels) GetProfileChatParameterContract(providerID, remoteModelID string) (map[string]llmcatalog.Parameter, error) {
 	session, providerSvc, _, _, err := m.deps()
 	if err != nil {
 		return nil, err
@@ -141,7 +142,7 @@ func (m *LLMModels) GetUnsupportedProfileChatFields(providerID, remoteModelID st
 	if capabilities == nil {
 		return nil, ErrLLMModelsNotWired
 	}
-	return WithUser(session, func(ctx context.Context) ([]string, error) {
+	return WithUser(session, func(ctx context.Context) (map[string]llmcatalog.Parameter, error) {
 		resolvedProfile := providerSvc.ResolveProfileDefaults(ctx, &profiles.Profile{
 			Chat: profiles.ChatConfig{LLMProvider: providerID, Model: remoteModelID},
 		})
@@ -163,9 +164,13 @@ func (m *LLMModels) GetUnsupportedProfileChatFields(providerID, remoteModelID st
 		case llm.APIFormatOpenAIResponses:
 			capability = llmcapabilities.CapabilityResponses
 		default:
-			return []string{}, nil
+			return providerSvc.ChatParameterContract(provider, remoteModelID, nil), nil
 		}
-		return capabilities.ListUnsupportedFieldCodesForProviderModel(ctx, providerID, remoteModelID, capability, provider.CompatibilityRevision)
+		unsupported, err := capabilities.ListUnsupportedFieldCodesForProviderModel(ctx, providerID, remoteModelID, capability, provider.CompatibilityRevision)
+		if err != nil {
+			return nil, err
+		}
+		return providerSvc.ChatParameterContract(provider, remoteModelID, unsupported), nil
 	})
 }
 

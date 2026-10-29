@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useLayoutEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { profiles, apidto, allowlist, contextprovider, skills } from '@wailsjs/go/models';
+import type { profiles, llmcatalog, apidto, allowlist, contextprovider, skills } from '@wailsjs/go/models';
 import { Tabs, TabList, Tab, TabPanel } from '../ui/tabs';
 import { restoreDefaultFocus } from '../../hooks/useDefaultFocus';
 import { announce } from '../../hooks/useAnnouncer';
@@ -12,7 +12,7 @@ import { ProfileContextProvidersSection } from './ProfileContextProvidersSection
 import { ProfileToolsSection } from './ProfileToolsSection';
 import { ProfileAudioTab } from './ProfileAudioTab';
 import type { ProfileEditSection } from '../../store/navigationStore';
-import { GetUnsupportedProfileChatFields } from '@wailsjs/go/wailsapi/LLMModels';
+import { GetProfileChatParameterContract } from '@wailsjs/go/wailsapi/LLMModels';
 import './ProfileEditorTabs.css';
 
 const EDITOR_TABS = ['general', 'models', 'skills', 'contextProviders', 'tools', 'audio'] as const;
@@ -77,11 +77,11 @@ export function ProfileEditorTabs({
   const chatProviderID = editingProfile.chat?.llm_provider || '';
   const chatModelID = editingProfile.chat?.model || '';
   const compatibilityKey = `${chatProviderID}\u0000${chatModelID}`;
-  const [unsupportedChatFields, setUnsupportedChatFields] = useState<{ key: string; fields: string[]; loading: boolean }>({ key: '', fields: [], loading: false });
+  const [unsupportedChatFields, setUnsupportedChatFields] = useState<{ key: string; fields: Record<string, llmcatalog.Parameter>; loading: boolean }>({ key: '', fields: {}, loading: false });
   if (unsupportedChatFields.key !== compatibilityKey) {
     setUnsupportedChatFields({
       key: compatibilityKey,
-      fields: [],
+      fields: {},
       loading: Boolean(chatProviderID && chatModelID),
     });
   }
@@ -104,20 +104,21 @@ export function ProfileEditorTabs({
     let current = true;
     if (!chatProviderID || !chatModelID) return () => { current = false; };
 
-    GetUnsupportedProfileChatFields(chatProviderID, chatModelID)
+    GetProfileChatParameterContract(chatProviderID, chatModelID)
       .then((fields) => {
-        if (current) setUnsupportedChatFields({ key: compatibilityKey, fields: fields || [], loading: false });
+        if (current) setUnsupportedChatFields({ key: compatibilityKey, fields: fields || {}, loading: false });
       })
       .catch(() => {
-        if (current) setUnsupportedChatFields({ key: compatibilityKey, fields: [], loading: false });
+        if (current) setUnsupportedChatFields({ key: compatibilityKey, fields: {}, loading: false });
       });
 
     return () => { current = false; };
   }, [chatProviderID, chatModelID, compatibilityKey]);
 
-  const unsupportedFields = unsupportedChatFields.key === compatibilityKey
+  const parameterContract = unsupportedChatFields.key === compatibilityKey
     ? unsupportedChatFields.fields
-    : [];
+    : {};
+  const unsupportedFields = Object.keys(parameterContract).filter((field) => parameterContract[field].support === 'unsupported');
   const compatibilityLoading = Boolean(chatProviderID && chatModelID && (
     unsupportedChatFields.key !== compatibilityKey || unsupportedChatFields.loading
   ));
@@ -302,19 +303,20 @@ export function ProfileEditorTabs({
             llmProvider={editingProfile.chat?.llm_provider || ''}
             model={editingProfile.chat?.model || ''}
             unsupportedFields={unsupportedFields}
+            parameterContract={parameterContract}
             compatibilityLoading={compatibilityLoading}
-            temperature={editingProfile.chat?.temperature ?? 0.7}
-            maxTokens={editingProfile.chat?.max_tokens ?? 4096}
+            temperature={editingProfile.chat?.temperature ?? null}
+            maxTokens={editingProfile.chat?.max_tokens ?? null}
             maxTokensMode={editingProfile.chat?.max_tokens_mode || 'legacy'}
             contextWindow={editingProfile.chat?.context_window ?? 0}
             maxContextMessages={editingProfile.chat?.max_context_messages ?? 0}
             minContextMessages={editingProfile.chat?.min_context_messages ?? 0}
-            topP={editingProfile.chat?.top_p ?? 1.0}
+            topP={editingProfile.chat?.top_p ?? null}
             responseTimeout={editingProfile.chat?.response_timeout ?? 180}
             rateLimitEnabled={editingProfile.chat?.rate_limit_enabled ?? true}
             rateLimitRpm={editingProfile.chat?.rate_limit_rpm ?? 60}
             rateLimitBurst={editingProfile.chat?.rate_limit_burst ?? 30}
-            reasoningEffort={editingProfile.chat?.reasoning_effort || ''}
+            reasoningEffort={editingProfile.chat?.reasoning_effort ?? null}
             promptCache={editingProfile.chat?.prompt_cache}
             debug={editingProfile.chat?.debug}
             streamingRecoveryEnabled={editingProfile.chat?.streaming_recovery_enabled ?? true}

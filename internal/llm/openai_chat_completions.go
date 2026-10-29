@@ -23,15 +23,7 @@ func (p *OpenAIProvider) sendChatCompletions(ctx context.Context, model string, 
 		Model:    shared.ChatModel(model),
 		Messages: convertMessages(messages),
 	}
-	if params.Temperature > 0 && !params.Compatibility.IsUnsupported(llmcapabilities.CapabilityChatCompletions, llmcapabilities.FieldTemperature) {
-		sdkParams.Temperature = param.NewOpt(params.Temperature)
-	}
-	if params.MaxTokensMode == "completion_tokens" && params.MaxTokens > 0 && !params.Compatibility.IsUnsupported(llmcapabilities.CapabilityChatCompletions, llmcapabilities.FieldMaxOutputTokens) {
-		sdkParams.MaxCompletionTokens = param.NewOpt(int64(params.MaxTokens))
-	} else if params.MaxTokens > 0 && !params.Compatibility.IsUnsupported(llmcapabilities.CapabilityChatCompletions, llmcapabilities.FieldMaxOutputTokens) {
-		sdkParams.MaxTokens = param.NewOpt(int64(params.MaxTokens))
-	}
-	applyPromptCacheKeyToChatCompletions(&sdkParams, params)
+	applyChatCompletionsParameters(&sdkParams, params)
 
 	completion, err := p.client.Chat.Completions.New(ctx, sdkParams)
 	if err != nil {
@@ -77,27 +69,7 @@ func (p *OpenAIProvider) streamChatCompletions(ctx context.Context, model string
 		},
 	}
 
-	if params.Temperature > 0 && !params.Compatibility.IsUnsupported(llmcapabilities.CapabilityChatCompletions, llmcapabilities.FieldTemperature) {
-		sdkParams.Temperature = param.NewOpt(params.Temperature)
-	}
-
-	if params.MaxTokensMode == "completion_tokens" && params.MaxTokens > 0 && !params.Compatibility.IsUnsupported(llmcapabilities.CapabilityChatCompletions, llmcapabilities.FieldMaxOutputTokens) {
-		sdkParams.MaxCompletionTokens = param.NewOpt(int64(params.MaxTokens))
-	} else if params.MaxTokens > 0 && !params.Compatibility.IsUnsupported(llmcapabilities.CapabilityChatCompletions, llmcapabilities.FieldMaxOutputTokens) {
-		sdkParams.MaxTokens = param.NewOpt(int64(params.MaxTokens))
-	}
-	applyPromptCacheKeyToChatCompletions(&sdkParams, params)
-
-	if params.TopP > 0 && params.TopP != 1.0 && !params.Compatibility.IsUnsupported(llmcapabilities.CapabilityChatCompletions, llmcapabilities.FieldTopP) {
-		sdkParams.TopP = param.NewOpt(params.TopP)
-	}
-
-	switch params.ReasoningEffort {
-	case "low", "medium", "high":
-		if !params.Compatibility.IsUnsupported(llmcapabilities.CapabilityChatCompletions, llmcapabilities.FieldReasoningEffort) {
-			sdkParams.ReasoningEffort = shared.ReasoningEffort(params.ReasoningEffort)
-		}
-	}
+	applyChatCompletionsParameters(&sdkParams, params)
 
 	if len(tools) > 0 {
 		sdkParams.Tools = convertTools(tools)
@@ -621,4 +593,28 @@ func applyPromptCacheKeyToChatCompletions(sdkParams *openai.ChatCompletionNewPar
 		return
 	}
 	sdkParams.PromptCacheKey = param.NewOpt(key)
+}
+
+func applyChatCompletionsParameters(sdkParams *openai.ChatCompletionNewParams, params ChatParams) {
+	if params.Temperature != nil && !params.Compatibility.IsUnsupported(llmcapabilities.CapabilityChatCompletions, llmcapabilities.FieldTemperature) {
+		sdkParams.Temperature = param.NewOpt(*params.Temperature)
+	}
+
+	if params.MaxTokensMode == "completion_tokens" && params.MaxTokens != nil && !params.Compatibility.IsUnsupported(llmcapabilities.CapabilityChatCompletions, llmcapabilities.FieldMaxOutputTokens) {
+		sdkParams.MaxCompletionTokens = param.NewOpt(int64(*params.MaxTokens))
+	} else if params.MaxTokens != nil && !params.Compatibility.IsUnsupported(llmcapabilities.CapabilityChatCompletions, llmcapabilities.FieldMaxOutputTokens) {
+		sdkParams.MaxTokens = param.NewOpt(int64(*params.MaxTokens))
+	}
+	applyPromptCacheKeyToChatCompletions(sdkParams, params)
+
+	if params.TopP != nil && !params.Compatibility.IsUnsupported(llmcapabilities.CapabilityChatCompletions, llmcapabilities.FieldTopP) {
+		sdkParams.TopP = param.NewOpt(*params.TopP)
+	}
+
+	if params.Reasoning() != "" && params.Reasoning() != "off" {
+		if !params.Compatibility.IsUnsupported(llmcapabilities.CapabilityChatCompletions, llmcapabilities.FieldReasoningEffort) {
+			sdkParams.ReasoningEffort = shared.ReasoningEffort(params.Reasoning())
+		}
+	}
+
 }

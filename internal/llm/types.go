@@ -255,15 +255,31 @@ type ChatCommandMetadata struct {
 	HandoffID string `json:"handoffId"`
 }
 
+// OutputTokenLimit returns the configured limit for usage diagnostics. Zero
+// means no configured limit; it is never used to choose a request default.
+func (p ChatParams) OutputTokenLimit() int {
+	if p.MaxTokens == nil {
+		return 0
+	}
+	return *p.MaxTokens
+}
+
+func (p ChatParams) Reasoning() string {
+	if p.ReasoningEffort == nil {
+		return ""
+	}
+	return *p.ReasoningEffort
+}
+
 // ChatParams contém os parâmetros para uma requisição de chat
 type ChatParams struct {
 	Command         *ChatCommandMetadata `json:"command,omitempty"`
 	Model           string               `json:"model"`
-	MaxTokens       int                  `json:"maxTokens"`
+	MaxTokens       *int                 `json:"maxTokens"`
 	MaxTokensMode   string               `json:"maxTokensMode,omitempty"` // "legacy" (max_tokens) ou "completion_tokens" (max_completion_tokens)
-	Temperature     float64              `json:"temperature"`
-	TopP            float64              `json:"topP,omitempty"`
-	ReasoningEffort string               `json:"reasoningEffort,omitempty"` // off, low, medium, high
+	Temperature     *float64             `json:"temperature"`
+	TopP            *float64             `json:"topP,omitempty"`
+	ReasoningEffort *string              `json:"reasoningEffort,omitempty"` // off, low, medium, high
 	ProfileSlug     string               `json:"profileSlug,omitempty"`     // Perfil específico (canais). Vazio = perfil ativo global
 	// ConversationID é a conversa do turno. Provider HTTP não precisa dele —
 	// o histórico vai na request —, mas o agente ACP guarda o histórico na

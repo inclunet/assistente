@@ -191,7 +191,7 @@ func TestShouldTriggerSummarizationWithHydratedToolResults(t *testing.T) {
 		return &profiles.Profile{
 			Chat: profiles.ChatConfig{
 				ContextWindow: contextWindow,
-				MaxTokens:     maxTokens,
+				MaxTokens:     &maxTokens,
 			},
 		}
 	}
@@ -273,7 +273,7 @@ func TestShouldTriggerSummarization(t *testing.T) {
 		return &profiles.Profile{
 			Chat: profiles.ChatConfig{
 				ContextWindow: contextWindow,
-				MaxTokens:     maxTokens,
+				MaxTokens:     &maxTokens,
 			},
 		}
 	}
@@ -344,7 +344,7 @@ func TestShouldTriggerSummarization(t *testing.T) {
 		p := &profiles.Profile{
 			Chat: profiles.ChatConfig{
 				ContextWindow: 20000,
-				MaxTokens:     0,
+				MaxTokens:     testParameterPointer(int(0)),
 			},
 		}
 		msgs := makeMsgs(40, 5)
@@ -524,3 +524,5 @@ func TestBuildSummarizationUserPrompt(t *testing.T) {
 		}
 	})
 }
+
+func testParameterPointer[T any](value T) *T { return &value }

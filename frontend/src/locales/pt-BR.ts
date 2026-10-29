@@ -2176,6 +2176,9 @@ const ptBR = {
         feedbackSoundsHint: 'Sons ao iniciar/parar gravação e outros eventos de interação',
       },
       chatSection: {
+        modelDefault: 'Padrão do modelo',
+        modelDefaultHint: 'Deixe vazio para usar o padrão do catálogo; sem um padrão conhecido, o parâmetro não é enviado.',
+        parameterInvalid: 'Valor incompatível com os limites conhecidos do modelo.',
         groupProvider: 'Provedor e Modelo',
         groupGeneration: 'Parâmetros de Geração',
         groupContext: 'Contexto e Limites',

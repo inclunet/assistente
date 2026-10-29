@@ -199,6 +199,9 @@ func Validate(doc Document) error {
 		if err := validateLimits(path+".limits", model.Limits); err != nil {
 			return err
 		}
+		if err := validateParameters(path+".parameters", withKnownOutputLimit(cloneParameters(model.Parameters), model.Limits["max_output_tokens"])); err != nil {
+			return err
+		}
 	}
 
 	exposures := make(map[string]struct{}, len(doc.Exposures))
@@ -219,6 +222,9 @@ func Validate(doc Document) error {
 		}
 		exposures[key] = struct{}{}
 		if err := validateCapabilities(path+".capability_overrides", exposure.CapabilityOverrides); err != nil {
+			return err
+		}
+		if err := validateParameters(path+".parameter_overrides", exposure.ParameterOverrides); err != nil {
 			return err
 		}
 		if exposure.SelectionMode != "" && !oneOf(exposure.SelectionMode, "model_and_voice", "model_only") {

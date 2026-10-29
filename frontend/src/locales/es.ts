@@ -2178,6 +2178,9 @@ const es = {
         feedbackSoundsHint: 'Sonidos al iniciar/detener grabación y otros eventos de interacción',
       },
       chatSection: {
+        modelDefault: 'Predeterminado del modelo',
+        modelDefaultHint: 'Deje vacío para usar el valor del catálogo; sin un valor conocido, el parámetro no se envía.',
+        parameterInvalid: 'El valor no cumple los límites conocidos del modelo.',
         groupProvider: 'Proveedor y Modelo',
         groupGeneration: 'Parámetros de Generación',
         groupContext: 'Contexto y Límites',

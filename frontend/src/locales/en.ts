@@ -2175,6 +2175,9 @@ const en = {
         feedbackSoundsHint: 'Sounds when starting/stopping recording and other interaction events',
       },
       chatSection: {
+        modelDefault: 'Model default',
+        modelDefaultHint: 'Leave empty to use the catalog default; without a known default, the parameter is omitted.',
+        parameterInvalid: 'Value is outside the known model constraints.',
         groupProvider: 'Provider & Model',
         groupGeneration: 'Generation Parameters',
         groupContext: 'Context & Limits',

@@ -653,7 +653,7 @@ func TestPrepareContext_ProfileSlugDoesNotInheritFromGlobalActiveProfile(t *test
 	panel.Chat.Model = ""
 	panel.Voice.Assistant.LLMProviderID = ""
 	panel.Input.LLMProviderID = ""
-	panel.Chat.Temperature = 0.2
+	panel.Chat.Temperature = testParameterPointer(0.2)
 	panelSlug := "perfil-editor-legado"
 	panelData, err := json.Marshal(panel)
 	if err != nil {
@@ -703,7 +703,7 @@ func TestPrepareContext_ProfileSlugDoesNotInheritFromGlobalActiveProfile(t *test
 	}
 
 	// E os campos não-routing do panel preservados intactos.
-	if resp.ActiveProfile.Chat.Temperature != 0.2 {
+	if resp.ActiveProfile.Chat.Temperature == nil || *resp.ActiveProfile.Chat.Temperature != 0.2 {
 		t.Fatalf("Temperature = %v, want 0.2", resp.ActiveProfile.Chat.Temperature)
 	}
 	if resp.ActiveProfile.Name != "Perfil do Editor" {
@@ -1845,3 +1845,5 @@ func TestPrepareMessagesRejectsDisabledSkill(t *testing.T) {
 		t.Fatal("disabled skill must not emit skill_loaded")
 	}
 }
+
+func testParameterPointer[T any](value T) *T { return &value }

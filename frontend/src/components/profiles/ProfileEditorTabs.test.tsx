@@ -14,7 +14,7 @@ vi.mock('@wailsjs/go/wailsapi/LLMProviders', () => ({
 }));
 
 vi.mock('@wailsjs/go/wailsapi/LLMModels', () => ({
-  GetUnsupportedProfileChatFields: (...args: unknown[]) => compatibilitySpy(...args),
+  GetProfileChatParameterContract: (...args: unknown[]) => compatibilitySpy(...args),
 }));
 
 beforeEach(() => {
@@ -25,7 +25,7 @@ beforeEach(() => {
     { id: 'cursor', api_format: 'acp' },
   ]);
   compatibilitySpy.mockReset();
-  compatibilitySpy.mockResolvedValue([]);
+  compatibilitySpy.mockResolvedValue({});
 });
 
 vi.mock('react-i18next', () => ({
@@ -137,11 +137,11 @@ function perfilCom(provider: string) {
 
 describe('ProfileEditorTabs', () => {
   it('busca restrições para o provedor e modelo atuais e descarta resposta atrasada de outro modelo', async () => {
-    let resolveOld!: (fields: string[]) => void;
-    let resolveCurrent!: (fields: string[]) => void;
+    let resolveOld!: (fields: Record<string, { support: string }>) => void;
+    let resolveCurrent!: (fields: Record<string, { support: string }>) => void;
     compatibilitySpy
-      .mockImplementationOnce(() => new Promise<string[]>((resolve) => { resolveOld = resolve; }))
-      .mockImplementationOnce(() => new Promise<string[]>((resolve) => { resolveCurrent = resolve; }));
+      .mockImplementationOnce(() => new Promise<Record<string, { support: string }>>((resolve) => { resolveOld = resolve; }))
+      .mockImplementationOnce(() => new Promise<Record<string, { support: string }>>((resolve) => { resolveCurrent = resolve; }));
     const profile = (model: string) => ({
       ...defaultProfile,
       chat: { ...defaultProfile.chat, llm_provider: 'openai', model },
@@ -153,28 +153,28 @@ describe('ProfileEditorTabs', () => {
     expect(compatibilitySpy).toHaveBeenNthCalledWith(2, 'openai', 'current-model');
     expect(screen.getByTestId('chat-section')).toHaveAttribute('data-compatibility-loading', 'true');
     expect(screen.getByTestId('temperature-field')).toBeDisabled();
-    resolveCurrent(['temperature']);
+    resolveCurrent({ temperature: { support: 'unsupported' } });
     await waitFor(() => expect(screen.getByTestId('chat-section')).toHaveAttribute('data-unsupported-fields', 'temperature'));
     expect(screen.queryByTestId('temperature-field')).not.toBeInTheDocument();
-    resolveOld(['temperature']);
+    resolveOld({ temperature: { support: 'unsupported' } });
     await waitFor(() => expect(screen.getByTestId('chat-section')).toHaveAttribute('data-unsupported-fields', 'temperature'));
   });
 
   it('invalida restrições antigas ao voltar ao mesmo provedor e modelo enquanto consulta novamente', async () => {
-    let resolveFirst!: (fields: string[]) => void;
-    let resolveSecond!: (fields: string[]) => void;
-    let resolveReturn!: (fields: string[]) => void;
+    let resolveFirst!: (fields: Record<string, { support: string }>) => void;
+    let resolveSecond!: (fields: Record<string, { support: string }>) => void;
+    let resolveReturn!: (fields: Record<string, { support: string }>) => void;
     compatibilitySpy
-      .mockImplementationOnce(() => new Promise<string[]>((resolve) => { resolveFirst = resolve; }))
-      .mockImplementationOnce(() => new Promise<string[]>((resolve) => { resolveSecond = resolve; }))
-      .mockImplementationOnce(() => new Promise<string[]>((resolve) => { resolveReturn = resolve; }));
+      .mockImplementationOnce(() => new Promise<Record<string, { support: string }>>((resolve) => { resolveFirst = resolve; }))
+      .mockImplementationOnce(() => new Promise<Record<string, { support: string }>>((resolve) => { resolveSecond = resolve; }))
+      .mockImplementationOnce(() => new Promise<Record<string, { support: string }>>((resolve) => { resolveReturn = resolve; }));
     const profile = (model: string) => ({
       ...defaultProfile,
       chat: { ...defaultProfile.chat, llm_provider: 'openai', model },
     });
     const { rerender } = render(<ProfileEditorTabs {...propsCom(profile('model-a'))} />);
 
-    resolveFirst(['temperature']);
+    resolveFirst({ temperature: { support: 'unsupported' } });
     await waitFor(() => expect(screen.queryByTestId('temperature-field')).not.toBeInTheDocument());
 
     rerender(<ProfileEditorTabs {...propsCom(profile('model-b'))} />);
@@ -184,9 +184,9 @@ describe('ProfileEditorTabs', () => {
     expect(screen.getByTestId('chat-section')).toHaveAttribute('data-compatibility-loading', 'true');
     expect(screen.getByTestId('temperature-field')).toBeDisabled();
 
-    resolveReturn(['temperature']);
+    resolveReturn({ temperature: { support: 'unsupported' } });
     await waitFor(() => expect(screen.queryByTestId('temperature-field')).not.toBeInTheDocument());
-    resolveSecond([]);
+    resolveSecond({});
     await waitFor(() => expect(screen.queryByTestId('temperature-field')).not.toBeInTheDocument());
   });
 

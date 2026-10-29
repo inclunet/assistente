@@ -349,13 +349,13 @@ func (i *Interactor) PrepareContext(ctx context.Context, req PrepareContextReque
 		if params.Model == "" && activeProfile.Chat.Model != "" {
 			params.Model = activeProfile.Chat.Model
 		}
-		if activeProfile.Chat.Temperature > 0 {
+		if activeProfile.Chat.Temperature != nil {
 			params.Temperature = activeProfile.Chat.Temperature
 		}
-		if activeProfile.Chat.MaxTokens > 0 {
+		if activeProfile.Chat.MaxTokens != nil {
 			params.MaxTokens = activeProfile.Chat.MaxTokens
 		}
-		if activeProfile.Chat.TopP > 0 {
+		if activeProfile.Chat.TopP != nil {
 			params.TopP = activeProfile.Chat.TopP
 		}
 		if activeProfile.Chat.MaxTokensMode != "" {

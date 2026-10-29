@@ -4,7 +4,9 @@ import (
 	"assistente/internal/llm"
 	"encoding/json"
 	"fmt"
+	"math"
 	"strings"
+	"unicode/utf8"
 )
 
 // DefaultProviderSentinel é o valor sentinela usado em profiles para indicar
@@ -58,15 +60,15 @@ type MediaSupport struct {
 type ChatConfig struct {
 	LLMProvider        string            `json:"llm_provider"` // ID do provedor LLM a usar (ex: "openai-default")
 	Model              string            `json:"model,omitempty"`
-	Temperature        float64           `json:"temperature"`                    // 0.0 a 2.0
-	MaxTokens          int               `json:"max_tokens"`                     // Limite de tokens na resposta
+	Temperature        *float64          `json:"temperature"`                    // 0.0 a 2.0
+	MaxTokens          *int              `json:"max_tokens"`                     // Limite de tokens na resposta
 	MaxTokensMode      string            `json:"max_tokens_mode,omitempty"`      // "legacy" (max_tokens) ou "completion_tokens" (max_completion_tokens)
 	ContextWindow      int               `json:"context_window,omitempty"`       // Tamanho da janela de contexto do modelo (0 = não definido)
 	MaxContextMessages int               `json:"max_context_messages,omitempty"` // Máx de mensagens no contexto (0 = padrão 50)
 	MinContextMessages int               `json:"min_context_messages,omitempty"` // Mín de mensagens preservadas após sumarização (0 = padrão 10)
-	TopP               float64           `json:"top_p"`                          // 0.0 a 1.0
+	TopP               *float64          `json:"top_p"`                          // 0.0 a 1.0
 	ResponseTimeout    int               `json:"response_timeout"`               // Timeout em segundos
-	ReasoningEffort    string            `json:"reasoning_effort,omitempty"`     // off, low, medium, high (vazio = off)
+	ReasoningEffort    *string           `json:"reasoning_effort,omitempty"`     // off, low, medium, high (vazio = off)
 	EnabledTools       []string          `json:"enabled_tools"`                  // Ferramentas habilitadas (nil = seleção dinâmica/catalogo quando disponível)
 	ToolPolicy         map[string]string `json:"tool_policy,omitempty"`          // Política tri-state por tool: disabled, on_demand, preloaded
 	ToolPolicyDefault  string            `json:"tool_policy_default,omitempty"`  // Estado de tools não listadas: disabled (default) ou on_demand
@@ -354,11 +356,7 @@ func DefaultProfile() *Profile {
 		Chat: ChatConfig{
 			LLMProvider:                   DefaultProviderSentinel,
 			Model:                         DefaultProviderSentinel,
-			Temperature:                   0.7,
-			MaxTokens:                     4096,
-			TopP:                          1.0,
 			ResponseTimeout:               180,
-			ReasoningEffort:               "",
 			ToolPolicyDefault:             DefaultToolPolicyDefault,
 			ToolPolicy:                    DefaultToolPolicy(),
 			RateLimitEnabled:              boolPtr(true),
@@ -410,11 +408,11 @@ func (p *Profile) Validate() error {
 	if p.Chat.LLMProvider == "" {
 		return fmt.Errorf("chat.llm_provider is required (ex: 'openai-default' or '$default')")
 	}
-	if p.Chat.Temperature < 0 || p.Chat.Temperature > 2 {
-		return fmt.Errorf("chat.temperature must be between 0 and 2")
+	if p.Chat.Temperature != nil && (*p.Chat.Temperature < 0 || math.IsNaN(*p.Chat.Temperature) || math.IsInf(*p.Chat.Temperature, 0)) {
+		return fmt.Errorf("chat.temperature must be a finite non-negative number")
 	}
-	if p.Chat.MaxTokens < 1 {
-		return fmt.Errorf("chat.max_tokens must be at least 1")
+	if p.Chat.MaxTokens != nil && (*p.Chat.MaxTokens < 1 || *p.Chat.MaxTokens > math.MaxInt32) {
+		return fmt.Errorf("chat.max_tokens must be between 1 and %d", math.MaxInt32)
 	}
 	if p.Chat.ContextWindow < 0 {
 		return fmt.Errorf("chat.context_window must be 0 (auto) or a positive number")
@@ -428,7 +426,7 @@ func (p *Profile) Validate() error {
 	if p.Chat.MinContextMessages > 0 && p.Chat.MaxContextMessages > 0 && p.Chat.MinContextMessages >= p.Chat.MaxContextMessages {
 		return fmt.Errorf("chat.min_context_messages must be less than max_context_messages")
 	}
-	if p.Chat.TopP < 0 || p.Chat.TopP > 1 {
+	if p.Chat.TopP != nil && (*p.Chat.TopP < 0 || *p.Chat.TopP > 1 || math.IsNaN(*p.Chat.TopP)) {
 		return fmt.Errorf("chat.top_p must be between 0 and 1")
 	}
 	switch strings.TrimSpace(p.Chat.ToolPolicyDefault) {
@@ -462,9 +460,8 @@ func (p *Profile) Validate() error {
 	if p.Chat.RateLimitBurst < 0 || p.Chat.RateLimitBurst > MaxLLMRateLimitValue {
 		return fmt.Errorf("chat.rate_limit_burst must be between 0 (default) and %d", MaxLLMRateLimitValue)
 	}
-	validReasoningEfforts := []string{"", "off", "none", "low", "medium", "high", "max", "ollama"}
-	if !containsStr(validReasoningEfforts, p.Chat.ReasoningEffort) {
-		return fmt.Errorf("chat.reasoning_effort must be one of: off, low, medium, high")
+	if p.Chat.ReasoningEffort != nil && utf8.RuneCountInString(*p.Chat.ReasoningEffort) > 64 {
+		return fmt.Errorf("chat.reasoning_effort must contain at most 64 characters")
 	}
 
 	// Validação da voz — cada role independente

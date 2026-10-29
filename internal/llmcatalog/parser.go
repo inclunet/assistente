@@ -78,13 +78,20 @@ func rejectNullProperties(data []byte) error {
 		return err
 	}
 	if err := rejectNullArrayObjects(root["models"], "models", func(index int, model map[string]json.RawMessage) error {
-		return rejectNullMembers(model, fmt.Sprintf("models[%d]", index), "id", "vendor", "name", "status", "capabilities", "limits")
+		path := fmt.Sprintf("models[%d]", index)
+		if err := rejectNullMembers(model, path, "id", "vendor", "name", "status", "capabilities", "limits", "parameters"); err != nil {
+			return err
+		}
+		return rejectNullParameters(model["parameters"], path+".parameters")
 	}); err != nil {
 		return err
 	}
 	return rejectNullArrayObjects(root["exposures"], "exposures", func(index int, exposure map[string]json.RawMessage) error {
 		path := fmt.Sprintf("exposures[%d]", index)
-		if err := rejectNullMembers(exposure, path, "server_profile_id", "api_format", "exposed_model_id", "canonical_model_id", "capability_overrides", "selection_mode", "voices"); err != nil {
+		if err := rejectNullMembers(exposure, path, "server_profile_id", "api_format", "exposed_model_id", "canonical_model_id", "capability_overrides", "parameter_overrides", "selection_mode", "voices"); err != nil {
+			return err
+		}
+		if err := rejectNullParameters(exposure["parameter_overrides"], path+".parameter_overrides"); err != nil {
 			return err
 		}
 		if voices, ok := rawObject(exposure["voices"]); ok {
@@ -99,6 +106,18 @@ func rejectNullProperties(data []byte) error {
 		}
 		return nil
 	})
+}
+
+func rejectNullParameters(raw json.RawMessage, path string) error {
+	fields, _ := rawObject(raw)
+	for name, fieldRaw := range fields {
+		if field, ok := rawObject(fieldRaw); ok {
+			if err := rejectNullMembers(field, path+"."+name, "support", "minimum", "maximum", "choices", "default"); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func rejectNullMembers(object map[string]json.RawMessage, path string, names ...string) error {

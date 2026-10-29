@@ -762,8 +762,8 @@ export const useChatStore = create<ChatStore>()((set, get) => {
 
       const mergedParams = new llm.ChatParams({
         model: paramsOverride?.model ?? '',
-        temperature: paramsOverride?.temperature ?? 0,
-        maxTokens: paramsOverride?.maxTokens ?? 0,
+        temperature: paramsOverride?.temperature,
+        maxTokens: paramsOverride?.maxTokens,
         maxTokensMode: paramsOverride?.maxTokensMode,
         topP: paramsOverride?.topP,
         reasoningEffort: paramsOverride?.reasoningEffort,

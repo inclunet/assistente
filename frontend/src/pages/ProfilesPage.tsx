@@ -328,14 +328,14 @@ export default function ProfilesPage() {
           chat: {
             llm_provider: '',
             model: '',
-            temperature: 0.7,
-            max_tokens: 4096,
-            top_p: 1.0,
+            temperature: null,
+            max_tokens: null,
+            top_p: null,
             response_timeout: 180,
             rate_limit_enabled: true,
             rate_limit_rpm: 60,
             rate_limit_burst: 30,
-            reasoning_effort: '',
+            reasoning_effort: null,
             prompt_cache: {
               enabled: false,
               provider_hints: false,
