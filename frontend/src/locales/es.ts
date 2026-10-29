@@ -393,6 +393,7 @@ const es = {
         mediaSerializationFailed: 'No se pudieron preparar los archivos adjuntos. Inténtalo de nuevo.',
         cancelStreamingFailed: 'No se pudo cancelar la generación: {{message}}',
         assistantPlaceholder: 'No se pudo preparar el mensaje del asistente.',
+        mcpPreparation: 'No se pudieron preparar las herramientas MCP. Comprueba la conexión y la autenticación del servidor.',
         persistenceError: 'No se pudo guardar la respuesta. Copia el texto antes de cerrar o recargar la conversación.',
         internalError: 'Error interno inesperado. Inténtalo de nuevo.',
         streamingInterrupted: 'Respuesta interrumpida por el proveedor sin motivo de finalización; inténtelo de nuevo.',

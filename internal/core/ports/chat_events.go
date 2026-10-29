@@ -4,6 +4,8 @@ package ports
 // Every chat event MUST carry ConversationID (AEP-0040).
 
 const (
+	// ChatErrorMCPPreparation reports an explicitly failed tool preparation.
+	ChatErrorMCPPreparation = "mcp_preparation_error"
 	// ChatErrorInternal is a stable UI-facing error code for unexpected backend failures.
 	ChatErrorInternal = "internal_error"
 	// ChatErrorPersistence reports a response that could not be saved.

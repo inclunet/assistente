@@ -909,7 +909,7 @@ func TestOwnerOAuthGerenciadoPreservaReservaDeRetry(t *testing.T) {
 	finish := func() { finishOnce.Do(finishManaged) }
 	t.Cleanup(finish)
 
-	err = m.connectWithContextForRetry(managedCtx, slug, retryID)
+	err = m.connectWithContextForRetry(managedCtx, slug, retryID, false)
 	if err == nil || !strings.Contains(err.Error(), "transport desconhecido") {
 		t.Fatalf("Connect não chegou ao transporte após reciclar a sessão: %v", err)
 	}
@@ -943,7 +943,7 @@ func TestRetrySemOAuthPreservaReservaAoReciclarSessaoConcorrente(t *testing.T) {
 	m.connections[slug] = conn
 	m.mu.Unlock()
 
-	err := m.connectWithContextForRetry(retryCtx, slug, retryID)
+	err := m.connectWithContextForRetry(retryCtx, slug, retryID, false)
 	if err == nil || !strings.Contains(err.Error(), "transport desconhecido") {
 		t.Fatalf("Connect não chegou ao transporte após reciclar a sessão: %v", err)
 	}
@@ -988,7 +988,7 @@ func TestQuedaImediataDuranteRetryPreservaContadorAteFinalizacao(t *testing.T) {
 		}
 	}
 
-	if err := m.connectWithContextForRetry(retryCtx, slug, retryID); err != nil {
+	if err := m.connectWithContextForRetry(retryCtx, slug, retryID, false); err != nil {
 		t.Fatalf("Connect no retry: %v", err)
 	}
 	m.mu.RLock()

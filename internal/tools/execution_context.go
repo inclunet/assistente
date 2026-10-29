@@ -55,6 +55,9 @@ func ToolCatalogVisibleNamesFromContext(ctx context.Context) ([]string, bool) {
 type toolCatalogRuntimeKey struct{}
 
 type ToolCatalogRuntime struct {
+	RecoverableNames []string
+	// Prepare confirma a tool executável após recuperar sua conexão, quando necessário.
+	Prepare           func(context.Context, ToolCatalogEntry) error
 	Store             *LoadedToolStore
 	ConversationID    string
 	ProfileSlug       string

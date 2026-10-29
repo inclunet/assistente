@@ -31,6 +31,8 @@ func NewToolSelectionPolicy(registry *tools.Registry) *ToolSelectionPolicy {
 // ToolPolicy, quando presente, representa a política tri-state nova da AEP-0081
 // por nome de tool: disabled, on_demand ou preloaded.
 type ProfileToolConfig struct {
+	// CatalogTools amplia somente a descoberta; execução exige uma tool no registry.
+	CatalogTools []tools.ToolCatalogEntry
 	EnabledTools []string
 	ToolPolicy   map[string]string
 	// ToolPolicyDefault define o estado das tools ausentes de ToolPolicy.
