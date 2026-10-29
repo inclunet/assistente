@@ -5098,6 +5098,7 @@ const es = {
           recoveryConfirmPrompt: 'He guardado el código de recuperación en un lugar seguro',
           providerTitle: '¡Bienvenido a Assistente!',
           providerDescription: 'Vamos a configurar tu asistente en unos pocos pasos.',
+          providerUnavailable: 'Este proveedor no está disponible en el catálogo o no es compatible con este asistente de configuración. Elige otro proveedor o usa Otro (URL personalizada).',
           providerPrompt: '¿Qué proveedor de IA quieres usar?',
           providerOptionOther: 'Otro (URL personalizada)',
           urlTitle: 'Configuración del servidor',

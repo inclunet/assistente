@@ -168,7 +168,7 @@ func welcomeRecoveryCodePayload(recoveryKey string) questionnaire.RequestPayload
 // não se traduzem; a escolha "outro" é texto do app e ganha chave, mas segue
 // valendo pelo texto pronto — é por ele que o wizard sabe que precisa pedir a URL
 // (AEP-0085 D5).
-func welcomeProviderPayload(provider string) questionnaire.RequestPayload {
+func welcomeProviderPayload(provider string, erro questionnaire.Text) questionnaire.RequestPayload {
 	opcoes := append(
 		questionnaire.PlainTexts(wizardProviderNames),
 		questionnaire.Keyed(welcomeTextKey("providerOptionOther"), wizardProviderOther),
@@ -176,10 +176,10 @@ func welcomeProviderPayload(provider string) questionnaire.RequestPayload {
 
 	return questionnaire.RequestPayload{
 		Title: questionnaire.Keyed(welcomeTextKey("providerTitle"), "Bem-vindo ao Assistente!"),
-		Description: questionnaire.Keyed(
+		Description: welcomeDescription(erro, questionnaire.Keyed(
 			welcomeTextKey("providerDescription"),
 			"Vamos configurar seu assistente em alguns passos simples.",
-		),
+		)),
 		Questions: []questionnaire.Question{
 			{
 				ID:       "provider",
@@ -194,6 +194,10 @@ func welcomeProviderPayload(provider string) questionnaire.RequestPayload {
 		SubmitLabel: welcomeSubmitNext(),
 		CancelLabel: welcomeCancel(),
 	}
+}
+
+func welcomeProviderUnavailable() questionnaire.Text {
+	return questionnaire.Keyed(welcomeTextKey("providerUnavailable"), "Este provedor não está disponível no catálogo ou não é compatível com este assistente de configuração. Escolha outro provedor ou use Outro (URL personalizada).")
 }
 
 // welcomeServerURLPayload pede a URL do servidor. A URL de exemplo é endereço,

@@ -75,7 +75,7 @@ func TestOAgenteLocalNaoSeConfundeComOProvedorHTTPDaMesmaMarca(t *testing.T) {
 	// outro é o agente local. Compartilhar identificador faria um sobrescrever o
 	// outro no registro.
 	agente := AgentProvider("claude-code-agent", "Claude Code", "claude-acp", acp.Install{Command: "claude-agent-acp"})
-	http, err := BuiltinTemplate("claude")
+	http, err := catalogTestTemplate(t, "claude")
 	if err != nil {
 		t.Fatalf("template da Anthropic falhou: %v", err)
 	}
@@ -188,12 +188,12 @@ func TestNenhumAgenteTemTemplateEscritoAMao(t *testing.T) {
 	// era acrescentar código, que é o que a Fase 6 do AEP-0086 apagou. Qual
 	// agente subir é escolha de quem configura, feita no catálogo.
 	for _, tipo := range []string{"cursor", "claude-code", "acp", "gemini-cli"} {
-		p, err := BuiltinTemplate(tipo)
+		p, err := catalogTestTemplate(t, tipo)
 		if err == nil {
 			t.Errorf("%q ainda tem template builtin: %+v", tipo, p)
 			continue
 		}
-		if !strings.Contains(err.Error(), "inválido") {
+		if !strings.Contains(err.Error(), "catálogo") {
 			t.Errorf("%q falhou por outro motivo: %v", tipo, err)
 		}
 	}

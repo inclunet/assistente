@@ -21,6 +21,7 @@ import (
 	"assistente/internal/credentials"
 	"assistente/internal/database"
 	"assistente/internal/llm"
+	"assistente/internal/llmcatalog"
 	"assistente/internal/profiles"
 )
 
@@ -53,6 +54,10 @@ type ServiceConfig struct {
 	// explicando que o serviço não está de pé, em vez de subir um agente por
 	// conta própria a cada chamada de GetChatProvider.
 	ACPManager *acp.Manager
+	// CatalogSnapshot fornece o último catálogo validado disponível. Pode
+	// retornar um snapshot vazio durante o primeiro startup/offline; nesse caso
+	// as fábricas recusam presets indisponíveis; a configuração manual permanece disponível.
+	CatalogSnapshot func() llmcatalog.Snapshot
 }
 
 // Service encapsula a lógica de negócio de gerenciamento de provedores LLM.
@@ -69,6 +74,7 @@ type Service struct {
 	rateLimitKeyFunc func(context.Context) string
 	rateLimitPolicy  llm.RateLimitPolicyResolver
 	acpMgr           *acp.Manager
+	catalogSnapshot  func() llmcatalog.Snapshot
 }
 
 // Count retorna o número de provedores no store.
@@ -91,6 +97,7 @@ func NewService(cfg ServiceConfig) *Service {
 		rateLimitKeyFunc: cfg.RateLimitKeyFunc,
 		rateLimitPolicy:  cfg.RateLimitPolicyResolver,
 		acpMgr:           cfg.ACPManager,
+		catalogSnapshot:  cfg.CatalogSnapshot,
 	}
 }
 

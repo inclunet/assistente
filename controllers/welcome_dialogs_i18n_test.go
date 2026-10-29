@@ -141,7 +141,7 @@ func dialogosDoWizard() map[string]struct {
 			}},
 		},
 		"provedor": {
-			payload: welcomeProviderPayload(""),
+			payload: welcomeProviderPayload("", questionnaire.Text{}),
 			quer: dialogoEsperado{traduzido: map[string]string{
 				"title":           "Bem-vindo ao Assistente!",
 				"description":     "Vamos configurar seu assistente em alguns passos simples.",
@@ -220,7 +220,7 @@ func TestOWizardVaiTraduzivelParaATela(t *testing.T) {
 // que precisa pedir a URL do servidor (D5). Traduzir esse valor levaria quem usa
 // o app em inglês direto para a etapa da chave de API, sem servidor nenhum.
 func TestAsOpcoesDeProvedorSeguemValendoPeloTextoPronto(t *testing.T) {
-	opcoes := welcomeProviderPayload("").Questions[0].Options
+	opcoes := welcomeProviderPayload("", questionnaire.Text{}).Questions[0].Options
 
 	valores := questionnaire.TextValues(opcoes)
 	quer := append(append([]string{}, wizardProviderNames...), wizardProviderOther)

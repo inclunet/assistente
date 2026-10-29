@@ -238,7 +238,7 @@ func runProvidersAdd(svc providersBackend, out io.Writer, reader *bufio.Reader, 
 	} else {
 		// Provedor padrão — usar template
 		err = svc.CreateDefaultLLMProvider(providerType, apiKey)
-		if err == nil && model != "" && model != info.DefaultModel {
+		if err == nil && model != "" {
 			// Aplica o modelo selecionado ao perfil ativo
 			// (CreateDefaultLLMProvider usa o default do template).
 			if mErr := setActiveProfileChatModel(svc, model); mErr != nil {

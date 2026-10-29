@@ -350,6 +350,9 @@ func TestProvidersAdd_OpenAI_Success(t *testing.T) {
 	if mock.createdDefaultKey != "sk-test-key" {
 		t.Errorf("expected API key 'sk-test-key', got %q", mock.createdDefaultKey)
 	}
+	if mock.chatModelSet != "gpt-4o-mini" {
+		t.Fatalf("confirmed default was not applied: %q", mock.chatModelSet)
+	}
 	if !strings.Contains(out.String(), "criado com sucesso") {
 		t.Error("expected success message")
 	}

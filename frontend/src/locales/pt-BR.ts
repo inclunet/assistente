@@ -5093,6 +5093,7 @@ const ptBR = {
           recoveryConfirmPrompt: 'Eu salvei o código de recuperação em local seguro',
           providerTitle: 'Bem-vindo ao Assistente!',
           providerDescription: 'Vamos configurar seu assistente em alguns passos simples.',
+          providerUnavailable: 'Este provedor não está disponível no catálogo ou não é compatível com este assistente de configuração. Escolha outro provedor ou use Outro (URL personalizada).',
           providerPrompt: 'Qual provedor de IA você deseja usar?',
           providerOptionOther: 'Outro (URL personalizada)',
           urlTitle: 'Configuração do Servidor',

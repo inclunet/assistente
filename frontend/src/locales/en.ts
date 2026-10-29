@@ -5092,6 +5092,7 @@ const en = {
           recoveryConfirmPrompt: 'I have saved the recovery code somewhere safe',
           providerTitle: 'Welcome to Assistente!',
           providerDescription: 'Let’s set up your assistant in a few simple steps.',
+          providerUnavailable: 'This provider is unavailable in the catalog or incompatible with this setup wizard. Choose another provider or use Other (custom URL).',
           providerPrompt: 'Which AI provider do you want to use?',
           providerOptionOther: 'Other (custom URL)',
           urlTitle: 'Server settings',
