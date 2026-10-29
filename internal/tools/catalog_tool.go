@@ -244,11 +244,23 @@ func (t *CatalogTool) executeSearch(ctx context.Context, req catalogToolRequest)
 			AvailabilityStatus:   entry.AvailabilityStatus,
 		})
 	}
-	data, err := json.Marshal(resp)
-	if err != nil {
-		return ToolResult{Content: fmt.Sprintf("erro ao serializar resposta do catálogo de tools: %v", err), IsError: true}, nil
+	for {
+		data, err := json.Marshal(resp)
+		if err != nil {
+			return ToolResult{Content: fmt.Sprintf("erro ao serializar resposta do catálogo de tools: %v", err), IsError: true}, nil
+		}
+		if len(data) <= MaxResultSizeFromContext(ctx) {
+			return ToolResult{Content: string(data)}, nil
+		}
+		if len(resp.Tools) <= 1 {
+			return ToolResult{Content: "entrada do catálogo excede o limite de tamanho da resposta", IsError: true}, nil
+		}
+		// Preserve identidades completas e permita continuar na próxima página.
+		resp.Tools = resp.Tools[:len(resp.Tools)-1]
+		resp.Count = len(resp.Tools)
+		resp.HasMore = true
+		resp.NextOffset = offset + resp.Count
 	}
-	return ToolResult{Content: string(data)}, nil
 }
 
 func (t *CatalogTool) executeLoad(ctx context.Context, req catalogToolRequest) (ToolResult, error) {

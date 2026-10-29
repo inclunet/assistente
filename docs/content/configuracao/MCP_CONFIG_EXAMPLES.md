@@ -1031,3 +1031,7 @@ Depois de conectar, o Assistente confirma quais ferramentas o servidor ainda
 oferece e usa suas definições atuais. Ferramentas removidas pelo servidor e
 servidores desabilitados não são habilitados por esse processo. Um servidor
 nunca conectado ainda precisa da primeira conexão para descobrir suas ferramentas.
+
+Se a preparação das ferramentas falhar antes da resposta, o Assistente avisa
+e preserva sua mensagem. Você pode tentar novamente após verificar a conexão
+ou a autenticação. Desconectar manualmente interrompe a recuperação automática.

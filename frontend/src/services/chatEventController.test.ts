@@ -1431,6 +1431,16 @@ describe('chatEventController', () => {
     expect(mockPlayChatErrorSoundIfActive).toHaveBeenCalledWith('conversation-1', undefined);
   });
 
+  it('traduz a falha de preparação MCP no evento de erro', () => {
+    const { adapter } = createAdapter(['conversation-1']);
+    startChatEventController({ conversationId: 'conversation-1', adapter });
+    emitEvent('chat:error', {
+      conversationId: 'conversation-1',
+      error: 'mcp_preparation_error',
+    });
+    expect(mockAnnounce).toHaveBeenCalledWith('chat.errors.mcpPreparation');
+  });
+
   it('descarta aviso e cronologia antigos quando uma nova tentativa termina com sucesso sem patch', () => {
     const { adapter, sessions } = createAdapter(['conversation-1']);
     const identity = { conversationId: 'conversation-1', turnId: 'turn-1', assistantMessageId: 'assistant-1' };

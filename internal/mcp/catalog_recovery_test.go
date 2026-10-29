@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -211,5 +212,110 @@ func TestCatalogRecoveryReplacesEndedSessionBeforeBackoff(t *testing.T) {
 	m.mu.RUnlock()
 	if !ready || factory.count.Load() != 2 {
 		t.Fatal("ended connection was reused or recovery was duplicated")
+	}
+}
+
+func TestCatalogRecoveryRestoresRetryAfterTransientFailure(t *testing.T) {
+	m := newLifecycleManager()
+	registerLifecycleServer(m, "ended", ServerConfig{Enabled: true})
+	factory := newInMemoryMCPFactory(t, context.Background())
+	defer factory.close()
+	defer m.CloseAll()
+	var fail atomic.Bool
+	m.transportFactory = func(ctx context.Context, slug string, cfg ServerConfig) (mcpsdk.Transport, error) {
+		if fail.Load() {
+			return nil, errors.New("temporary transport failure")
+		}
+		return factory.transport(ctx, slug, cfg)
+	}
+	unhealthy := make(chan struct{}, 1)
+	m.emitEvent = func(event string, _ any) {
+		if event == "mcp:server_unhealthy" {
+			select {
+			case unhealthy <- struct{}{}:
+			default:
+			}
+		}
+	}
+	if err := m.ConnectWithContext(context.Background(), "ended"); err != nil {
+		t.Fatal(err)
+	}
+	fail.Store(true)
+	factory.mu.Lock()
+	remote := factory.sessions[0]
+	factory.mu.Unlock()
+	if err := remote.Close(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-unhealthy:
+	case <-time.After(5 * time.Second):
+		t.Fatal("watcher did not observe session termination")
+	}
+	m.mu.RLock()
+	previousID := m.servers["ended"].reconnectAttemptID
+	m.mu.RUnlock()
+	if err := m.ConnectWithContext(context.Background(), "ended"); err == nil {
+		t.Fatal("transient failure was ignored")
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	attempt := m.reconnectCancels["ended"]
+	status := m.servers["ended"]
+	if attempt == nil || attempt.id == previousID || !status.Reconnecting || status.reconnectAttemptID != attempt.id {
+		t.Fatal("on-demand failure left the server without background recovery")
+	}
+}
+
+func TestCatalogRecoveryDisconnectCancelsAnticipatedConnection(t *testing.T) {
+	m := newLifecycleManager()
+	registerLifecycleServer(m, "ended", ServerConfig{Enabled: true})
+	defer m.CloseAll()
+	m.connections["ended"] = &serverConnection{sessionEnded: true}
+	m.servers["ended"].Status = StatusError
+	started := make(chan struct{})
+	m.transportFactory = func(ctx context.Context, _ string, _ ServerConfig) (mcpsdk.Transport, error) {
+		close(started)
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	done := make(chan error, 1)
+	go func() { done <- m.ConnectWithContext(context.Background(), "ended") }()
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("connection did not start")
+	}
+	if err := m.Disconnect("ended"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("expected cancellation: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("connection did not finish")
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.reconnectCancels["ended"] != nil || m.servers["ended"].Reconnecting {
+		t.Fatal("explicit disconnect restarted automatic recovery")
+	}
+}
+
+func TestCatalogRecoveryDisconnectClearsFailureWithoutActiveAttempt(t *testing.T) {
+	m := newLifecycleManager()
+	registerLifecycleServer(m, "failed", ServerConfig{Enabled: true})
+	defer m.CloseAll()
+	m.servers["failed"].Status = StatusError
+	m.servers["failed"].Error = "temporary failure"
+	if err := m.Disconnect("failed"); err != nil {
+		t.Fatal(err)
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.servers["failed"].Status != StatusDisconnected || m.servers["failed"].Error != "" {
+		t.Fatal("explicit disconnect left the failure eligible for another retry")
 	}
 }

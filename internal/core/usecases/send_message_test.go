@@ -20,9 +20,12 @@ import (
 	"assistente/internal/database"
 	"assistente/internal/events"
 	"assistente/internal/llm"
+	"assistente/internal/mcp"
 	"assistente/internal/profiles"
 	"assistente/internal/providers"
 	"assistente/internal/speech"
+	"assistente/internal/toolcatalog"
+	"assistente/internal/tools"
 )
 
 // setupTestDB inicializa um banco SQLite em memória e injeta via database.SetDB.
@@ -180,6 +183,7 @@ func newMediaTestUseCaseWithEmitter(
 	profileMgr *profiles.Manager,
 	transcribe chat.TranscribeFunc,
 	emitter ports.Emitter,
+	configure ...func(*usecases.SendMessageConfig),
 ) (*usecases.SendMessageUseCase, *chat.StreamingManager) {
 	t.Helper()
 	registry := llm.NewProviderRegistry()
@@ -207,7 +211,7 @@ func newMediaTestUseCaseWithEmitter(
 		ProfileMgr:  profileMgr,
 	})
 	agentSvc := agent.NewService(agent.ServiceConfig{Emitter: events.NoopEmitter{}, MsgRepo: chat.NewDBMessageStore()})
-	return usecases.NewSendMessageUseCase(usecases.SendMessageConfig{
+	cfg := usecases.SendMessageConfig{
 		ChatInteractor: interactor,
 		ProviderSvc:    providerSvc,
 		StreamMgr:      streamMgr,
@@ -215,7 +219,84 @@ func newMediaTestUseCaseWithEmitter(
 		Transcribe:     transcribe,
 		Emitter:        emitter,
 		AgentSvc:       agentSvc,
-	}), streamMgr
+	}
+	for _, apply := range configure {
+		apply(&cfg)
+	}
+	return usecases.NewSendMessageUseCase(cfg), streamMgr
+}
+
+type mcpPreparationEmitter struct{ errors []ports.ErrorEvent }
+
+func (e *mcpPreparationEmitter) Emit(name string, payload any) {
+	if name == "chat:error" {
+		e.errors = append(e.errors, payload.(ports.ErrorEvent))
+	}
+}
+
+func TestSendMessageUseCase_MCPPreparationFailurePreservesMessage(t *testing.T) {
+	setupTestDB(t)
+	db := database.DB()
+	if err := db.AutoMigrate(&database.MCPServer{}, &database.MCPServerLog{}, &database.ToolCatalog{}); err != nil {
+		t.Fatal(err)
+	}
+	ctx := database.WithUserID(context.Background(), "test-user")
+	registry := tools.NewRegistry()
+	manager := mcp.NewManager(registry, nil, nil)
+	defer manager.CloseAll()
+	manager.SetAuthContextProvider(func() context.Context { return ctx })
+	manager.SetRepository(mcp.NewDBRepository(db))
+	catalog := toolcatalog.NewService(toolcatalog.NewDBRepository(db))
+	manager.SetCatalog(catalog)
+	// Invalid transport fails before starting a process or accessing the network.
+	server := database.MCPServer{UserID: "test-user", Slug: "broken", Name: "Broken", Transport: "invalid", Enabled: true}
+	if err := db.Create(&server).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.LoadConfigs(); err != nil {
+		t.Fatal(err)
+	}
+	name := mcp.BuildToolName("broken", "search")
+	if err := catalog.SyncMCPServerTools(ctx, "broken", server.ID, []toolcatalog.MCPToolDescriptor{{FullName: name, Name: "search"}}); err != nil {
+		t.Fatal(err)
+	}
+	profileMgr := setupProfileDir(t)
+	profile := minValidProfile("MCP preparation", "media-test")
+	profile.Chat.EnabledTools = []string{name}
+	setupProfileWith(t, profileMgr, profile)
+	conv, err := database.CreateConversationWithContext(ctx, "mcp-preparation", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	emitter := &mcpPreparationEmitter{}
+	uc, streamMgr := newMediaTestUseCaseWithEmitter(t, profileMgr, nil, emitter, func(cfg *usecases.SendMessageConfig) {
+		cfg.ToolRegistry, cfg.MCPMgr = registry, manager
+	})
+	_, err = uc.Execute(usecases.SendMessageRequest{
+		Ctx: ctx, ConversationID: conv.ID, UserContent: "use search", Source: "wails",
+		Params: llm.ChatParams{SurfaceSessionKey: "session", SurfaceID: "tab", SurfaceType: "page"},
+	})
+	if err == nil || len(emitter.errors) != 1 {
+		t.Fatalf("expected explicit failure and event: err=%v events=%+v", err, emitter.errors)
+	}
+	event := emitter.errors[0]
+	if event.ConversationID != conv.ID || event.Error != ports.ChatErrorMCPPreparation {
+		t.Fatalf("incorrect chat error: %+v", event)
+	}
+	if event.SurfaceOrigin == nil || event.SurfaceOrigin.SurfaceID != "tab" || event.SurfaceOrigin.SessionKey != "session" {
+		t.Fatalf("error lost its surface origin: %+v", event.SurfaceOrigin)
+	}
+	var count int64
+	if err := db.Model(&database.ChatMessage{}).Where("conversation_id = ? AND role = ?", conv.ID, "user").Count(&count).Error; err != nil || count != 1 {
+		t.Fatalf("user message lost or duplicated: count=%d err=%v", count, err)
+	}
+	nextCtx, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
+	_, _, finish, err := streamMgr.Begin(nextCtx, conv.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	finish()
 }
 
 type mediaEventEmitter struct {

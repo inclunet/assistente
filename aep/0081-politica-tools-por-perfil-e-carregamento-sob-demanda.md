@@ -455,3 +455,11 @@ carregadas. Descrições da listagem são limitadas a 1024 bytes serializados em
 JSON e sinalizam abreviação; o ranking continua usando o texto completo e o
 carregamento publica a definição completa atual. Isso evita exceder o teto de
 resultado estruturado apenas ao descobrir ferramentas (`TestCatalogRecoverySearchBoundsDescriptions`).
+
+A resposta completa de busca respeita o limite efetivo do executor: metadados
+longos reduzem a quantidade de itens por página, preservando nomes e offset.
+Uma entrada que sozinha exceda o limite retorna erro explícito. Evidência:
+`internal/tools/catalog_recovery_test.go`, `TestCatalogRecoverySearchBoundsWholePage`.
+Falha de preparação preloaded emite `chat:error`, preserva a mensagem e libera
+a conversa; não prossegue silenciosamente sem as ferramentas selecionadas
+(`TestSendMessageUseCase_MCPPreparationFailurePreservesMessage`).

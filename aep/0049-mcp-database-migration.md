@@ -493,12 +493,22 @@ parcial.
 23. Marcar tools reaparecidas como `available`, atualizando schema hash e timestamps
 24. Expor APIs para listar catálogo, filtrar por categoria/pacote/risco/disponibilidade e testar tool
 
+Extensão da Fase 6 concluída: desconexão preserva `not discovered` e entradas
+recuperáveis continuam restritas ao usuário, sem afirmar disponibilidade remota.
+Evidência: `internal/toolcatalog/repository_test.go`,
+`TestDisconnectPreservesRemovedToolAndRecoverableFilter`.
+
 ### Fase 7 — Tool catalog/select_tools no chat ✅
 
 25. Criar tool pequena `tool_catalog`/`select_tools` para descoberta e ativação de pacotes
 26. Implementar `ToolPlanner` com orçamento por quantidade/bytes e modos `all`, `none`, `preset`, `catalog`, `auto`
 27. Alterar o envio de chat para começar com tools mínimas e ativar tools completas na iteração seguinte do agentic loop
 28. Integrar seleção com `ApplyNativeMCP`, preenchendo `AllowedTools` para MCP nativo
+
+Extensão da Fase 7 concluída: busca não conecta; carregamento autorizado prepara
+conexão/OAuth e confirma o registry atual. Evidências:
+`internal/tools/catalog_recovery_test.go`, `internal/mcp/catalog_recovery_test.go`
+e `internal/chat/tool_catalog_recovery_test.go`.
 
 ### Fase 8 — Dry run/teste de tools ✅
 
@@ -637,6 +647,9 @@ Evidências: `internal/mcp/repository_test.go`, `manager_test.go`,
   dedicada.
 - [x] Ausência/reaparecimento transita `unavailable`/`available`.
 - [x] Chat seleciona/ativa tools por catálogo.
+- [x] Recuperação preserva isolamento e descoberta negativa; carregamento exige
+  preparação autorizada e schema atual. Evidências nas Fases 6/7.
+- [ ] Validar recuperação em servidor real com NVDA na instalação do mantenedor.
 - [x] MCP nativo recebe `AllowedTools`.
 - [ ] O caminho de seleção/chat possui regressão com transporte MCP STDIO real.
 - [x] Dry-run de builtins e MCP usa o pipeline protegido.
@@ -656,4 +669,5 @@ aprovada no AEP-0081 permite descobrir metadados de ferramentas MCP de servidore
 habilitados sem afirmar disponibilidade remota. Carregar exige conexão e
 confirmação no registry atual. Desconexões preservam `not discovered` para não
 ressuscitar ferramentas retiradas; a persistência não sofre nova migração.
-Evidência: `TestDisconnectPreservesRemovedToolAndRecoverableFilter`.
+Evidência: `internal/toolcatalog/repository_test.go`,
+`TestDisconnectPreservesRemovedToolAndRecoverableFilter`.

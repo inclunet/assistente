@@ -549,7 +549,7 @@ func (m *Manager) Connect(slug string) error {
 
 // ConnectWithContext serves tool actions using the caller's interaction scope.
 // Background tools never inherit the desktop Connect action's consent permission.
-func (m *Manager) ConnectWithContext(ctx context.Context, slug string) error {
+func (m *Manager) ConnectWithContext(ctx context.Context, slug string) (connectErr error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -558,12 +558,33 @@ func (m *Manager) ConnectWithContext(ctx context.Context, slug string) error {
 	}
 	m.mu.RLock()
 	previous := m.connections[slug]
+	previousStatus := m.servers[slug]
 	ended := previous != nil && previous.sessionEnded
 	m.mu.RUnlock()
 	if ended {
 		// O watcher já confirmou o encerramento. O uso atual antecipa o retry
 		// agendado, sem tocar em uma conexão que outra chamada tenha substituído.
 		m.supersedeReconnectWithManualConnect(slug)
+		defer func() {
+			if connectErr == nil || ctx.Err() != nil || errors.Is(connectErr, context.Canceled) ||
+				errors.Is(connectErr, oauthflow.ErrReauthorize) ||
+				errors.Is(connectErr, oauthflow.ErrPermission) ||
+				errors.Is(connectErr, oauthflow.ErrClientConfiguration) {
+				return
+			}
+			// Reserve antes de lançar: Desconectar deve poder cancelar o retry.
+			m.mu.Lock()
+			status := m.servers[slug]
+			if status == nil || status != previousStatus || !status.Config.Enabled ||
+				status.Status != StatusError || status.Reconnecting || m.ctx.Err() != nil ||
+				m.connections[slug] != nil || m.connectCancels[slug] != nil || m.managedAttempts[slug] != nil {
+				m.mu.Unlock()
+				return
+			}
+			retryCtx, attemptID := m.reserveReconnectAttemptLocked(slug, status)
+			m.mu.Unlock()
+			m.launchReconnectAttempt(slug, retryCtx, attemptID)
+		}()
 		if m.detachConnection(slug, previous) {
 			_ = closeServerConnection(slug, previous, true)
 		}
@@ -1521,8 +1542,13 @@ func (m *Manager) disconnectWithRecoveryForAttemptAndOwner(slug string, legacyOn
 		managed.cancel()
 	}
 	if !ok && attempt == nil && managed == nil && reconnect == nil {
-		m.mu.Unlock()
-		return true, nil
+		status := m.servers[slug]
+		if !cancelRecovery || legacyOnly || status == nil || status.Status == StatusDisconnected {
+			m.mu.Unlock()
+			return true, nil
+		}
+		// Uma desconexão explícita também encerra o estado de erro sem sessão.
+		// Isso impede uma tentativa recém-finalizada de reservar outro retry.
 	}
 	if legacyOnly {
 		if m.retiringLegacy == nil {
