@@ -46,8 +46,10 @@ const (
 	// A disponibilidade de tools registra mais três formatos por tentativa:
 	// tools locais no loop agêntico, tools MCP/OpenAI e tools MCP/Anthropic.
 	// A retirada do retry sem servidores remove um formato legado de listagem recuperável.
-	expectedLegacyFormatCount  = 727
-	expectedLegacyFormatDigest = "14e1d56d1b923f2cd61012c0d9ff61b2835fc8e230e7061016e1e90931f35796"
+	// A criação catalogada usa a persistência compartilhada e remove o formato
+	// legado de sucesso da fábrica, sem reintroduzir logging.Printf.
+	expectedLegacyFormatCount  = 726
+	expectedLegacyFormatDigest = "4868734a630b73340c278696b0f293ec229577e8227242db84d82d6ee1204110"
 )
 
 // TestLegacyLoggingInventory mantém reproduzível o inventário da issue #675.
