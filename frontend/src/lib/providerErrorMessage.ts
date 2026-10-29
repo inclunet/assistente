@@ -83,10 +83,12 @@ export function translateErrorMarkers(text: string, language?: string): string {
 // Restricting translation here prevents marker-like text in user messages or
 // assistant code samples from being rewritten during Markdown rendering.
 export function translateBackendErrorDiagnostic(text: string, language?: string): string {
-  const providerDiagnostic = /^Falha na resposta do agente: (provider_error:v1:[a-z_]+:[a-z_.]*(?::[1-5][0-9]{2})?)$/.exec(text);
-  if (providerDiagnostic) {
-    const t = translationFunction(language);
-    return `${t('chat.errors.agentResponseFailed')} ${translateProviderErrorMessage(providerDiagnostic[1], language) ?? providerDiagnostic[1]}`;
+  const agentFailurePrefix = 'Falha na resposta do agente: ';
+  if (text.startsWith(agentFailurePrefix)) {
+    const translated = translateProviderErrorMessage(text.slice(agentFailurePrefix.length), language);
+    if (translated) {
+      return `${translationFunction(language)('chat.errors.agentResponseFailed')} ${translated}`;
+    }
   }
   if (/^mcp_error:v1:[^:\s]+:(list_tools|call|handshake|unknown)$/.test(text)) {
     return translateErrorMarkers(text, language);
