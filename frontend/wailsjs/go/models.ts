@@ -931,6 +931,7 @@ export namespace apidto {
 	    default_model?: string;
 	    api_format?: string;
 	    server_profile_id?: string;
+	    insecure_http_authorized_url?: string;
 	    reasoning_content_mode?: string;
 	    acp_command?: string;
 	    acp_args?: string[];
@@ -954,6 +955,7 @@ export namespace apidto {
 	        this.default_model = source["default_model"];
 	        this.api_format = source["api_format"];
 	        this.server_profile_id = source["server_profile_id"];
+	        this.insecure_http_authorized_url = source["insecure_http_authorized_url"];
 	        this.reasoning_content_mode = source["reasoning_content_mode"];
 	        this.acp_command = source["acp_command"];
 	        this.acp_args = source["acp_args"];
@@ -1671,6 +1673,7 @@ export namespace apidto {
 	    base_url: string;
 	    api_key?: string;
 	    provider_id?: string;
+	    insecure_http_authorized_url?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new TestLLMProviderRequest(source);
@@ -1685,6 +1688,7 @@ export namespace apidto {
 	        this.base_url = source["base_url"];
 	        this.api_key = source["api_key"];
 	        this.provider_id = source["provider_id"];
+	        this.insecure_http_authorized_url = source["insecure_http_authorized_url"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -1842,6 +1846,7 @@ export namespace apidto {
 	    default_model?: string;
 	    api_format?: string;
 	    server_profile_id?: string;
+	    insecure_http_authorized_url?: string;
 	    reasoning_content_mode?: string;
 	    acp_command?: string;
 	    acp_args?: string[];
@@ -1863,6 +1868,7 @@ export namespace apidto {
 	        this.default_model = source["default_model"];
 	        this.api_format = source["api_format"];
 	        this.server_profile_id = source["server_profile_id"];
+	        this.insecure_http_authorized_url = source["insecure_http_authorized_url"];
 	        this.reasoning_content_mode = source["reasoning_content_mode"];
 	        this.acp_command = source["acp_command"];
 	        this.acp_args = source["acp_args"];
@@ -6291,25 +6297,10 @@ export namespace llm {
 	        this.TurnID = source["TurnID"];
 	    }
 	}
-	export class FunctionDefinition {
-	    name: string;
-	    description: string;
-	    parameters: number[];
-	
-	    static createFrom(source: any = {}) {
-	        return new FunctionDefinition(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.name = source["name"];
-	        this.description = source["description"];
-	        this.parameters = source["parameters"];
-	    }
-	}
 	export class ModelOption {
 	    value: string;
 	    label: string;
+	    catalog?: llmcatalog.Model;
 	
 	    static createFrom(source: any = {}) {
 	        return new ModelOption(source);
@@ -6319,7 +6310,26 @@ export namespace llm {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.value = source["value"];
 	        this.label = source["label"];
+	        this.catalog = this.convertValues(source["catalog"], llmcatalog.Model);
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class ModelCatalog {
 	    usesChatGPTPlan: boolean;
@@ -6356,41 +6366,8 @@ export namespace llm {
 		}
 	}
 	
-	export class ToolDefinition {
-	    type: string;
-	    function: FunctionDefinition;
-	
-	    static createFrom(source: any = {}) {
-	        return new ToolDefinition(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.type = source["type"];
-	        this.function = this.convertValues(source["function"], FunctionDefinition);
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
 	export class NativeMCPAdapterFallback {
 	    Streamer: any;
-	    ToolDefs: ToolDefinition[];
 	
 	    static createFrom(source: any = {}) {
 	        return new NativeMCPAdapterFallback(source);
@@ -6399,32 +6376,14 @@ export namespace llm {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.Streamer = source["Streamer"];
-	        this.ToolDefs = this.convertValues(source["ToolDefs"], ToolDefinition);
 	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
 	}
 	export class ProviderConfig {
 	    id: string;
 	    name: string;
 	    type: string;
 	    server_profile_id?: string;
+	    insecure_http_authorized_url?: string;
 	    api_format?: string;
 	    base_url: string;
 	    model?: string;
@@ -6452,6 +6411,7 @@ export namespace llm {
 	        this.name = source["name"];
 	        this.type = source["type"];
 	        this.server_profile_id = source["server_profile_id"];
+	        this.insecure_http_authorized_url = source["insecure_http_authorized_url"];
 	        this.api_format = source["api_format"];
 	        this.base_url = source["base_url"];
 	        this.model = source["model"];
@@ -7077,7 +7037,6 @@ export namespace mcp {
 	    autoConnect: boolean;
 	    needsReauth: boolean;
 	    connectedAt?: string;
-	    lastPing?: string;
 	    command?: string;
 	    args?: string[];
 	    url?: string;
@@ -7106,7 +7065,6 @@ export namespace mcp {
 	        this.autoConnect = source["autoConnect"];
 	        this.needsReauth = source["needsReauth"];
 	        this.connectedAt = source["connectedAt"];
-	        this.lastPing = source["lastPing"];
 	        this.command = source["command"];
 	        this.args = source["args"];
 	        this.url = source["url"];

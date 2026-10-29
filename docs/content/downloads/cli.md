@@ -162,6 +162,7 @@ asst providers list              # Lista providers com status
 asst providers add               # Wizard interativo
 asst providers test <id>         # Testa conexão
 asst providers models <id>       # Lista modelos disponíveis
+asst providers models <id> --json # Inclui metadados conhecidos do catálogo
 asst providers default <id>      # Define padrão
 asst providers remove <id>       # Remove
 ```

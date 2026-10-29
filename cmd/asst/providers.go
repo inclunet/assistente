@@ -3,12 +3,14 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"text/tabwriter"
 
 	"assistente/internal/apidto"
+	"assistente/internal/llm"
 
 	"github.com/spf13/cobra"
 )
@@ -16,6 +18,7 @@ import (
 // providersBackend abstracts the app methods used by providers commands.
 type providersBackend interface {
 	providerSetupBackend
+	GetModelCatalogByProvider(string) (llm.ModelCatalog, error)
 	GetLLMProvidersWithStatus() []map[string]interface{}
 	TestLLMProvider(req apidto.TestLLMProviderRequest) (bool, error)
 	DeleteLLMProvider(ctx context.Context, id string) error
@@ -119,24 +122,29 @@ var providersModelsCmd = &cobra.Command{
 	Short: "Lista modelos disponíveis de um provedor",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runProvidersModels(asCLI(rootApp), os.Stdout, args[0])
+		jsonOutput, err := cmd.Flags().GetBool("json")
+		if err != nil {
+			return err
+		}
+		return runProvidersModels(asCLI(rootApp), os.Stdout, args[0], jsonOutput)
 	},
 }
 
-func runProvidersModels(svc providersBackend, out io.Writer, id string) error {
-	models, err := svc.ListModelsRaw(apidto.TestLLMProviderRequest{
-		ProviderID: id,
-	})
+func runProvidersModels(svc providersBackend, out io.Writer, id string, jsonOutput bool) error {
+	catalog, err := svc.GetModelCatalogByProvider(id)
 	if err != nil {
 		return fmt.Errorf("erro ao listar modelos: %w", err)
 	}
-	if len(models) == 0 {
+	if jsonOutput {
+		return json.NewEncoder(out).Encode(catalog)
+	}
+	if len(catalog.Models) == 0 {
 		_, err = fmt.Fprintln(out, "Nenhum modelo encontrado.")
 		return err
 	}
 	ew := &errWriter{w: out}
-	for _, m := range models {
-		ew.println(m)
+	for _, m := range catalog.Models {
+		ew.println(m.Value)
 	}
 	return ew.err
 }
@@ -193,6 +201,7 @@ func str(v interface{}) string {
 }
 
 func init() {
+	providersModelsCmd.Flags().Bool("json", false, "Inclui metadados informativos do catálogo em JSON")
 	providersCmd.AddCommand(providersListCmd)
 	providersCmd.AddCommand(providersAddCmd)
 	providersCmd.AddCommand(providersTestCmd)
