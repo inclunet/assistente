@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Outlet, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { RespondQuestionnaire } from "@wailsjs/go/wailsapi/Allowlists";
-import { NeedsWelcomeWizard, RunWelcomeWizard } from "@wailsjs/go/wailsapi/Welcome";
+import { WelcomeSetup } from "./components/settings/WelcomeSetup";
 import { EventsOn } from "@wailsjs/runtime/runtime";
 import { useAuthStore } from './store/authStore';
 import { useUIStore } from './store/uiStore';
@@ -26,7 +26,6 @@ import { useTheme } from './hooks/useTheme';
 import { ConfigProvider } from 'antd';
 import type { Locale } from 'antd/es/locale';
 import { getAntdTheme } from './theme/antdTheme';
-import { waitForWailsBridge } from './lib/waitForWailsBridge';
 import { summaryErrorMessage } from './lib/summaryError';
 import { chatNoticeMessage, chatNoticeTone, type ChatNoticeEvent } from './lib/chatNotice';
 import { useBackendQuestionnaire } from './hooks/useBackendQuestionnaire';
@@ -110,46 +109,6 @@ function App() {
             clearQuestionnaire();
         }
     }, [authLoading, isAuthenticated, clearQuestionnaire]);
-
-    useEffect(() => {
-        const controller = new AbortController();
-
-        const runBoot = async () => {
-            await waitForWailsBridge({ signal: controller.signal });
-            if (controller.signal.aborted) return;
-            if (!isAuthenticated || !authUser) return;
-
-            // Verifica se precisa do wizard de boas-vindas. Toda a configuração
-            // de LLM/modelo/voz vive em profiles + provider registry; não há mais
-            // config legado para carregar no boot (#299).
-            //
-            // A própria checagem (NeedsWelcomeWizard) também roda dentro do try:
-            // se a ponte/IPC falhar, o usuário recebe feedback (app.wizard.error)
-            // em vez de a falha cair silenciosamente só no .catch externo.
-            try {
-                const needsWizard = await NeedsWelcomeWizard();
-                if (needsWizard) {
-                    const completed = await RunWelcomeWizard();
-                    if (!completed) {
-                        addToast(t('app.wizard.cancelled'), 'warning');
-                    } else {
-                        addToast(t('app.wizard.success'), 'success', 5000);
-                    }
-                }
-            } catch (error) {
-                logger.error('[App] Erro no wizard de boas-vindas:', error);
-                addToast(t('app.wizard.error'), 'error');
-            }
-        };
-
-        void runBoot().catch((error) => {
-            if (error instanceof DOMException && error.name === 'AbortError') {
-                return;
-            }
-            logger.error('[App] Erro no boot:', error);
-        });
-        return () => controller.abort();
-    }, [addToast, isAuthenticated, authUser, t]);
 
     // Escuta eventos de conversa deletada/limpa
     useEffect(() => {
@@ -364,6 +323,7 @@ function App() {
             <ScreenReaderAnnouncer />
             <ToastHost />
             <AuthGate>
+              {isAuthenticated && authUser && <WelcomeSetup key={`${authUser.userId}:${authUser.sessionId}`} />}
                 <CommandContextProvider><ExternalUIConnectionProvider><Outlet /></ExternalUIConnectionProvider></CommandContextProvider>
                 <ConfirmHost />
                 <DecisionQuestionnaireHost

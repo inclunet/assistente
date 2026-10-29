@@ -403,13 +403,8 @@ func (a *App) wireMemory() {
 func (a *App) wireWelcome() {
 	a.welcomeCtrl = controllers.NewWelcomeController(controllers.WelcomeControllerConfig{
 		QuestionnaireMgr:           a.questionnaireMgr,
-		CredMgr:                    a.credMgr,
 		ProviderSvc:                a.providerSvc,
-		LLMRegistry:                a.llmRegistry,
-		UpdaterCtrl:                a.updaterCtrl,
 		ConfigureCredentialManager: a.configureCredentialManager,
-		InitLLMClient:              a.initLLMClient,
-		SaveLLMProviders:           a.saveLLMProviders,
 	})
 	if a.welcomeAPI != nil {
 		wailsapi.AttachWelcome(a.welcomeAPI, wailsSession{app: a}, a.welcomeCtrl, welcomeRuntime{app: a})

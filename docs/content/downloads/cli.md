@@ -72,11 +72,10 @@ O menu inicial ainda possui opções legadas: os presets nativos de Ollama e
 Cohere não podem ser criados por esse caminho enquanto suas rotas não forem
 suportadas pela integração do catálogo.
 
-O wizard inicial do desktop também recusa perfis cujo formato difere do seu
-fluxo legado, como a API nativa Google. Configure esses perfis pelo formulário
-de provedores, que já suporta o formato declarado no catálogo.
-Quando um perfil estiver indisponível ou incompatível, o wizard mantém a seleção
-aberta com um aviso, permitindo escolher outro provedor ou informar uma URL manual.
+No desktop, a configuração inicial usa o mesmo formulário de provedores das
+configurações, com perfis do catálogo, links de cadastro/chave e seleção de
+modelo. A configuração manual permanece disponível sem catálogo. Cancelar essa
+etapa preserva o cofre já preparado; na próxima entrada é possível retomá-la.
 
 Para esses casos, ou para um endpoint personalizado, use **Configurações →
 Provedores** no aplicativo desktop e a configuração manual, escolhendo um

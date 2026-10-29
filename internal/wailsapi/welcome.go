@@ -99,8 +99,8 @@ func (w *Welcome) NeedsWelcomeWizard() bool {
 	return EvaluateNeedsWelcomeWizard(session, ctrl, runtime)
 }
 
-// RunWelcomeWizard executa o wizard de boas-vindas.
-// Retorna true se completou com sucesso, false se cancelado.
+// RunWelcomeWizard prepara senha mestre e recuperacao. True libera o
+// formulario compartilhado de provedores; nao indica onboarding concluido.
 func (w *Welcome) RunWelcomeWizard() (bool, error) {
 	w.mu.RLock()
 	ctrl := w.ctrl

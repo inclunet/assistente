@@ -1,47 +1,18 @@
 package controllers
 
 import (
-	"context"
-	"time"
-
 	"assistente/internal/credentials"
 	"assistente/internal/database"
-	"assistente/internal/llmcatalog"
-	"assistente/internal/providers"
 	"assistente/internal/questionnaire"
-	"testing"
-
+	"context"
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
+	"testing"
+	"time"
 )
 
-func TestWelcomeCatalogRejectsIncompatibleNativeRoute(t *testing.T) {
-	for _, test := range []struct {
-		choice, kind, id, family, format, url string
-		accepted                              bool
-	}{
-		{"OpenAI", "openai", "openai", "openai", "openai_responses", "https://api.openai.com/v1", true},
-		{"Google (Gemini)", "google", "google-gemini", "google", "google", "https://generativelanguage.googleapis.com/v1beta", false},
-	} {
-		t.Run(test.kind, func(t *testing.T) {
-			server := llmcatalog.Server{ID: test.id, ProviderFamily: test.family, Name: test.choice, APIFormat: test.format, BaseURL: test.url, Status: "active", Auth: llmcatalog.Auth{Mode: "bearer_api_key"}}
-			svc := providers.NewService(providers.ServiceConfig{CatalogSnapshot: func() llmcatalog.Snapshot {
-				return llmcatalog.Snapshot{Document: llmcatalog.Document{Servers: []llmcatalog.Server{server}}}
-			}})
-			controller := NewWelcomeController(WelcomeControllerConfig{ProviderSvc: svc})
-			got, err := controller.wizardProviderTemplate(test.choice, test.kind)
-			if test.accepted {
-				if err != nil || got.BaseURL != test.url {
-					t.Fatalf("catalog URL not used: %v", err)
-				}
-			} else if err == nil || got != nil {
-				t.Fatal("native route accepted by legacy OpenAI wizard")
-			}
-		})
-	}
-}
-
-func TestWelcomeCatalogErrorAllowsAnotherProvider(t *testing.T) {
+func welcomeVaultDB(t *testing.T) *gorm.DB {
+	t.Helper()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
@@ -61,57 +32,63 @@ func TestWelcomeCatalogErrorAllowsAnotherProvider(t *testing.T) {
 	if err := db.AutoMigrate(&database.CredentialKeyWrap{}); err != nil {
 		t.Fatal(err)
 	}
+	return db
+}
+
+func TestWelcomePreparedVaultDoesNotOpenAnotherQuestionnaire(t *testing.T) {
+	db := welcomeVaultDB(t)
 	if err := db.Create(&database.CredentialKeyWrap{Kind: credentials.KeyWrapKindMaster}).Error; err != nil {
 		t.Fatal(err)
 	}
-	for _, choice := range []string{"OpenAI", "Google (Gemini)", wizardProviderOllama} {
-		t.Run(choice, func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			requests := 0
-			var manager *questionnaire.Manager
-			manager = questionnaire.NewManager(func(event string, data any) {
-				if event != questionnaire.EventQuestionnaire {
-					return
-				}
-				payload := data.(map[string]any)
-				questions := payload["questions"].([]questionnaire.Question)
-				description := payload["description"].(questionnaire.Text)
-				requests++
-				answers := map[string]any{}
-				cancelled := false
-				switch requests {
-				case 1:
-					answers["provider"] = choice
-				case 2:
-					if questions[0].ID != "provider" || questions[0].Default != choice || description.Key != welcomeTextKey("providerUnavailable") {
-						t.Errorf("provider selection did not retain choice and localized error: %+v", payload)
-					}
-					answers["provider"] = wizardProviderOther
-				case 3:
-					if questions[0].ID != "baseURL" {
-						t.Errorf("manual configuration not reached: %+v", payload)
-					}
-					cancelled = true
-				case 4:
-					if questions[0].ID != "provider" || description.Key != welcomeTextKey("providerDescription") {
-						t.Errorf("previous catalog error was not cleared: %+v", payload)
-					}
-					cancelled = true
-				default:
-					t.Error("unexpected wizard step")
-					cancelled = true
-				}
-				if err := manager.Respond(payload["id"].(string), answers, cancelled); err != nil {
-					t.Error(err)
-				}
-			})
-			svc := providers.NewService(providers.ServiceConfig{})
-			controller := NewWelcomeController(WelcomeControllerConfig{ProviderSvc: svc, QuestionnaireMgr: manager})
-			completed, err := controller.RunWelcomeWizard(ctx)
-			if err != nil || completed || requests != 4 {
-				t.Fatalf("wizard ended unexpectedly: completed=%v requests=%d err=%v", completed, requests, err)
-			}
-		})
+	mgr := questionnaire.NewManager(func(string, any) { t.Error("vault already prepared") })
+	ctrl := NewWelcomeController(WelcomeControllerConfig{QuestionnaireMgr: mgr})
+	ready, err := ctrl.RunWelcomeWizard(context.Background())
+	if err != nil || !ready {
+		t.Fatalf("ready=%v err=%v", ready, err)
+	}
+}
+
+func TestWelcomePasswordMismatchStaysInVaultStepAndCanCancel(t *testing.T) {
+	db := welcomeVaultDB(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	requests := 0
+	var mgr *questionnaire.Manager
+	mgr = questionnaire.NewManager(func(event string, data any) {
+		if event != questionnaire.EventQuestionnaire {
+			return
+		}
+		payload := data.(map[string]any)
+		requests++
+		if requests == 2 && payload["description"].(questionnaire.Text).Key != welcomeTextKey("passwordMismatch") {
+			t.Error("missing localized mismatch")
+		}
+		if err := mgr.Respond(payload["id"].(string), map[string]any{"masterPassword": "different", "confirmPassword": "password"}, requests >= 2); err != nil {
+			t.Error(err)
+		}
+	})
+	ctrl := NewWelcomeController(WelcomeControllerConfig{QuestionnaireMgr: mgr})
+	ready, err := ctrl.RunWelcomeWizard(ctx)
+	if err != nil || ready || requests != 2 {
+		t.Fatalf("ready=%v requests=%d err=%v", ready, requests, err)
+	}
+	var count int64
+	if err := db.Model(&database.CredentialKeyWrap{}).Count(&count).Error; err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatal("cancelled preparation changed vault")
+	}
+}
+
+func TestWelcomeVaultReadFailureDoesNotOfferToOverwriteIt(t *testing.T) {
+	db := welcomeVaultDB(t)
+	if err := db.Migrator().DropTable(&database.CredentialKeyWrap{}); err != nil {
+		t.Fatal(err)
+	}
+	ctrl := NewWelcomeController(WelcomeControllerConfig{QuestionnaireMgr: questionnaire.NewManager(func(string, any) { t.Error("storage failure must not initiate setup") })})
+	ready, err := ctrl.RunWelcomeWizard(context.Background())
+	if err == nil || ready {
+		t.Fatalf("ready=%v err=%v", ready, err)
 	}
 }

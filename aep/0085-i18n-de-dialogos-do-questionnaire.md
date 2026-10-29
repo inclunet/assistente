@@ -195,6 +195,12 @@ Namespace (D7): `app.questionnaire.editConfirmation.*`.
 
 ### Fase 4 — Updater e wizard de boas-vindas (feita)
 
+Evolução pelo AEP-0115: no desktop, os questionários do onboarding ficam
+limitados à senha mestre e à recuperação. Provedor, credenciais e modelo usam
+o `ProviderForm` compartilhado com as configurações, traduzido por i18next.
+Os antigos payloads de configuração e suas chaves exclusivas foram removidos;
+o contrato de tradução continua vigente nas etapas de cofre restantes.
+
 O convite para atualizar (`controllers/updater_controller.go`), o pedido de
 privilégio de administrador para substituir o executável
 (`internal/app/app_updater.go`) e as etapas do wizard de boas-vindas
