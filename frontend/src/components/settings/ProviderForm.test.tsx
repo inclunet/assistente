@@ -3,6 +3,7 @@ vi.mock('@wailsjs/go/wailsapi/Credentials', () => ({
  ListExternalSources: vi.fn(async () => []), UpsertCredential: vi.fn(),
 }));
 import { act, render, screen, waitFor } from "@testing-library/react";
+import { apidto } from '@wailsjs/go/models';
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { ProviderForm, PROVIDER_CONFIG, API_FORMAT_OPTIONS } from "./ProviderForm";
@@ -106,6 +107,17 @@ describe("PROVIDER_CONFIG", () => {
 });
 
 describe("ProviderForm - Renderização", () => {
+  it('não oferece o perfil Cohere antigo em cache com rota incompatível', async () => {
+    const cached = apidto.LLMCatalogResponse.createFrom(JSON.parse(JSON.stringify(providerFormCatalogAPIResponse)));
+    const cohere = cached.document!.servers!.find(server => server.id === 'cohere')!;
+    cohere.base_url = 'https://api.cohere.ai';
+    cohere.fields!.base_url.default = cohere.base_url;
+    cohere.endpoints = { chat: { path: '/compatibility/v1/chat/completions' } };
+    vi.mocked(GetLLMCatalog).mockResolvedValueOnce(cached);
+    render(<ProviderForm onCancel={() => {}} onSave={() => {}} />);
+    await waitFor(() => expect(screen.getByRole('option', { name: 'OpenAI' })).toBeInTheDocument());
+    expect(screen.queryByRole('option', { name: 'Cohere' })).not.toBeInTheDocument();
+  });
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -141,11 +153,14 @@ describe("ProviderForm - Renderização", () => {
     expect(GetLLMCatalog).toHaveBeenCalledTimes(2);
   });
 
-  it('não oferece o perfil Cohere enquanto sua rota catalogada não for suportada', async () => {
+  it('oferece o perfil Cohere com a rota OpenAI-compatible declarada', async () => {
     render(<ProviderForm onCancel={() => {}} onSave={() => {}} />);
     const profileSelect = screen.getByLabelText(/perfil de servidor/i);
     await waitFor(() => expect(screen.getByRole('option', { name: 'OpenAI' })).toBeInTheDocument());
-    expect(Array.from((profileSelect as HTMLSelectElement).options).map(option => option.value)).not.toContain('cohere');
+    expect(Array.from((profileSelect as HTMLSelectElement).options).map(option => option.value)).toContain('cohere');
+    await userEvent.setup().selectOptions(profileSelect, 'cohere');
+    expect(screen.getByLabelText(/base url/i)).toHaveValue('https://api.cohere.ai/compatibility/v1');
+    expect(screen.getByLabelText('providerForm.apiProtocol')).toHaveValue('openai');
     expect(profileSelect).toContainElement(screen.getByRole('option', { name: 'Personalizado' }));
   });
 
@@ -260,7 +275,7 @@ describe("ProviderForm - Renderização", () => {
 
     const urlInput = screen.getByLabelText(/base url/i) as HTMLInputElement;
     expect(urlInput).not.toBeDisabled();
-    expect(urlInput.value).toBe("http://localhost:11434");
+    expect(urlInput.value).toBe("http://localhost:11434/v1");
     expect(screen.getByLabelText('providerForm.apiProtocol')).toHaveValue('openai');
 
   });
@@ -400,7 +415,7 @@ describe("ProviderForm - Validação", () => {
     await user.selectOptions(typeSelect, "ollama");
 
     const urlInput = screen.getByLabelText(/base url/i) as HTMLInputElement;
-    expect(urlInput.value).toBe("http://localhost:11434");
+    expect(urlInput.value).toBe("http://localhost:11434/v1");
 
     await user.clear(urlInput);
     expect(urlInput.value).toBe("");
@@ -476,7 +491,7 @@ describe("ProviderForm - Carregamento de Modelos", () => {
       expect(App.ListModelsRaw).toHaveBeenCalledWith(
         expect.objectContaining({
           type: "ollama",
-          base_url: "http://localhost:11434",
+          base_url: "http://localhost:11434/v1",
         })
       );
     });
@@ -539,7 +554,7 @@ describe("ProviderForm - Carregamento de Modelos", () => {
     });
   });
 
-  it("deve mostrar input livre quando endpoint não suportado", async () => {
+  it("cadastra Cohere com ID manual quando a listagem não é suportada", async () => {
     vi.mocked(App.ListModelsRaw).mockRejectedValueOnce(
       new Error("models_endpoint_not_supported")
     );
@@ -554,19 +569,27 @@ describe("ProviderForm - Carregamento de Modelos", () => {
     );
 
     const nameInput = screen.getByLabelText(/nome/i);
-    await user.type(nameInput, "My Custom");
+    await user.type(nameInput, "My Cohere");
 
     const typeSelect = screen.getByLabelText(/perfil de servidor/i);
-    await waitForProfileOption(typeSelect, 'ollama');
-    await user.selectOptions(typeSelect, "ollama");
+    await waitForProfileOption(typeSelect, 'cohere');
+    await user.selectOptions(typeSelect, "cohere");
 
     const loadButton = screen.getByRole("button", { name: /carregar modelos/i });
     await user.click(loadButton);
 
     await waitFor(() => {
-      // O status deve indicar conexão ok
       expect(screen.getByText(/conectado/i)).toBeInTheDocument();
     });
+    await user.type(screen.getByLabelText(/modelo padrão/i), 'command-a-03-2025');
+    await user.click(screen.getByRole('button', { name: 'Criar' }));
+    await waitFor(() => expect(App.CreateLLMProvider).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'cohere',
+      server_profile_id: 'cohere',
+      api_format: 'openai',
+      base_url: 'https://api.cohere.ai/compatibility/v1',
+      default_model: 'command-a-03-2025',
+    })));
   });
 });
 

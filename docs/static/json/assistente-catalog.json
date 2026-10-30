@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "catalog_version": "2026-10-30.2",
-  "updated_at": "2026-10-30T12:11:13Z",
+  "catalog_version": "2026-10-30.3",
+  "updated_at": "2026-10-30T12:19:52Z",
   "servers": [
     {
       "id": "openai",
@@ -221,13 +221,13 @@
       "status": "active",
       "api_format": "openai",
       "adapter_id": "openai",
-      "base_url": "https://api.cohere.ai",
+      "base_url": "https://api.cohere.ai/compatibility/v1",
       "auth": {"mode": "bearer_api_key", "required": true},
       "signup_url": "https://dashboard.cohere.com/",
       "api_key_url": "https://dashboard.cohere.com/api-keys",
-      "endpoints": {"chat": {"path": "/compatibility/v1/chat/completions"}},
+      "endpoints": {"chat": {"path": "/chat/completions"}},
       "fields": {
-        "base_url": {"policy": "fixed", "default": "https://api.cohere.ai"},
+        "base_url": {"policy": "fixed", "default": "https://api.cohere.ai/compatibility/v1"},
         "api_format": {"policy": "fixed", "default": "openai"},
         "auth.mode": {"policy": "fixed", "default": "bearer_api_key"}
       }
@@ -339,16 +339,16 @@
       "group": "local",
       "provider_family": "ollama",
       "status": "active",
-      "api_format": "ollama",
-      "adapter_id": "ollama",
-      "base_url": "http://localhost:11434",
+      "api_format": "openai",
+      "adapter_id": "openai",
+      "base_url": "http://localhost:11434/v1",
       "default_port": 11434,
       "auth": {"mode": "none", "required": false},
       "signup_url": "https://ollama.com/",
-      "endpoints": {"chat": {"path": "/api/chat"}},
+      "endpoints": {"chat": {"path": "/chat/completions"}},
       "fields": {
-        "base_url": {"policy": "editable", "default": "http://localhost:11434", "required": true},
-        "api_format": {"policy": "fixed", "default": "ollama"},
+        "base_url": {"policy": "editable", "default": "http://localhost:11434/v1", "required": true},
+        "api_format": {"policy": "fixed", "default": "openai"},
         "auth.mode": {"policy": "fixed", "default": "none"}
       }
     },
