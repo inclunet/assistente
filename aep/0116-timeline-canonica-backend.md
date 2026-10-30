@@ -1,6 +1,6 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — fase 1 concluída; fase 2 com identidade aditiva e hidratação fiel
+## Status: In Progress — fase 1 concluída; fase 2 com identidade, hidratação e base persistente de turnos
 
 Data: 2026-10-30
 
@@ -267,6 +267,39 @@ Pendências da fase 2: projeção incremental de segmentos, estado persistente d
 turnos/tentativas, sequência/época, cursores, inscrições de janela e recuperação
 unificada. As caixas acima permanecem abertas; este recorte não corrige sozinho
 ordenação ou foco da UI e não conclui a fase 2.
+
+Terceiro recorte da fase 2: migração v41 (aguarda a conclusão da v19, inclusive
+adoção de usuário no upgrade 0.1.9) e repositório transacional de
+`chat_turns`/`chat_turn_attempts`, sem duplicar texto, usage ou ferramentas.
+O backfill em lotes reutiliza a seleção legada de representante, preserva IDs
+opacos e registra `historical_unknown`/`legacy`; não inventa tentativas nem
+converte presença de texto ou tokens em evidência de sucesso. Vínculos de
+resposta incompatíveis ficam sem representante; mensagens originais são
+preservadas. Perguntas órfãs de conversa ficam fora dos novos metadados, com
+contagem registrada, sem bloquear a abertura nem apagar o histórico. Backup consistente com manifesto SHA-256 precede a transação de
+DDL, constraints e backfill; falha reverte toda a nova estrutura.
+
+O repositório gera executionId no backend, admite uma tentativa ativa por
+turno e rejeita terminais de execuções anteriores. Retry/continue preservam
+o turno. Finalização pode compartilhar a transação do chamador que grava
+resposta/usage. Recuperação marca tentativas interrompidas por reinício,
+limitada ao usuário; sua chamada deve anteceder a admissão dos workers.
+
+**Limite explícito:** o pipeline atual ainda não escreve nem lê estas tabelas.
+O backfill é um retrato da migração, não uma segunda autoridade de runtime.
+Antes de ativar o repositório no pipeline, o próximo recorte deve reconciliar
+transacionalmente mensagens novas, retry/edições e importações ocorridas após
+v41, sem reclassificar tentativas canônicas. Integrar todos os caminhos
+terminais e recuperação antes dos workers no mesmo corte; não usar esse
+retrato incompleto como fonte da janela. Não há trigger inferindo lifecycle
+nem escrita parcial em alguns fluxos de envio. A projeção incremental e a
+migração do frontend continuam pendentes; este recorte não corrige foco/ordem.
+
+Evidências: `chat_turn_repository_test.go` cobre concorrência, terminal
+atrasado, escopo por usuário, constraints, rollback junto da resposta,
+recuperação, cascata, lotes, idempotência, backup restaurável e rollback de
+schema. `TestPublishedRelease*` verifica upgrades das fixtures publicadas e
+reabertura. Testes ACP locais permanecem excluídos por orientação do mantenedor.
 
 ### Fase 3 — Consumidor frontend e remoções
 

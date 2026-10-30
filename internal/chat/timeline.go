@@ -52,26 +52,6 @@ func groupCanonicalInvocations(calls []TurnSegmentToolCall) []canonicalInvocatio
 	return groups
 }
 
-func timelineMessageWrittenAfter(left, right Message) bool {
-	leftTime, rightTime := left.CreatedAt, right.CreatedAt
-	if left.UpdatedAt.After(leftTime) {
-		leftTime = left.UpdatedAt
-	}
-	if right.UpdatedAt.After(rightTime) {
-		rightTime = right.UpdatedAt
-	}
-	if !leftTime.Equal(rightTime) {
-		return leftTime.After(rightTime)
-	}
-	if (left.TotalTokens > 0) != (right.TotalTokens > 0) {
-		return left.TotalTokens > 0
-	}
-	if !left.CreatedAt.Equal(right.CreatedAt) {
-		return left.CreatedAt.After(right.CreatedAt)
-	}
-	return left.ID > right.ID
-}
-
 // ConsolidateTimelineTurn constrói a timeline apenas com mensagens
 // conversacionais e resumos leves do ledger.
 func ConsolidateTimelineTurn(messages []Message, invocationToolCalls []TurnSegmentToolCall) ConsolidatedTurnResult {
@@ -95,25 +75,7 @@ func ConsolidateTimelineTurn(messages []Message, invocationToolCalls []TurnSegme
 			intermediateIDs[id] = true
 		}
 	}
-	hasFinalCandidate := false
-	for _, message := range ordered {
-		if message.Role == "assistant" && !intermediateIDs[message.ID] {
-			hasFinalCandidate = true
-			break
-		}
-	}
-	representative := ordered[0]
-	hasAssistant := false
-	for _, message := range ordered {
-		if message.Role == "assistant" && (!hasFinalCandidate || !intermediateIDs[message.ID]) {
-			// O registro final pode ser criado antes das rodadas e atualizado
-			// no encerramento. Usar a escrita, não só criação ou usage.
-			if !hasAssistant || timelineMessageWrittenAfter(message, representative) {
-				representative = message
-			}
-			hasAssistant = true
-		}
-	}
+	representative := database.SelectLegacyTurnRepresentative(ordered, intermediateIDs)
 
 	if segments, ok := consolidateACPTextPositions(ordered, invocationToolCalls); ok {
 		return ConsolidatedTurnResult{Message: representative, Segments: segments}
@@ -174,7 +136,7 @@ func ConsolidateTimelineTurn(messages []Message, invocationToolCalls []TurnSegme
 			segments = append(segments, TurnSegment{Type: "tool_calls", ToolCalls: groups[index].calls})
 		}
 	}
-	if hasAssistant && !finalHasLocalCalls {
+	if representative.Role == "assistant" && !finalHasLocalCalls {
 		appendText(representative)
 	}
 	if len(invocationToolCalls) == 0 && len(ordered) <= 1 {
