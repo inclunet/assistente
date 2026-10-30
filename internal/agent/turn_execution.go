@@ -78,8 +78,15 @@ func (s *Service) BeginTurn(ctx context.Context, conversationID, turnID, mode st
 	}
 	attempt, err := s.turns.BeginExecution(ctx, conversationID, turnID, "", mode, id.String(), lease.Path)
 	if err != nil {
-		_ = lease.Close()
-		return ctx, err
+		// Estas recusas acontecem antes do INSERT da tentativa. Para erro de
+		// storage/COMMIT, a ausência de confirmação não prova ausência de gravação.
+		var releaseErr error
+		if errors.Is(err, database.ErrChatTurnActive) || errors.Is(err, database.ErrChatTurnInvalid) || errors.Is(err, gorm.ErrRecordNotFound) {
+			releaseErr = lease.RemoveUnadmitted()
+		} else {
+			releaseErr = lease.Close()
+		}
+		return ctx, errors.Join(err, releaseErr)
 	}
 	return context.WithValue(ctx, turnExecutionKey{}, &turnExecution{id: attempt.ExecutionID, lease: lease}), nil
 }

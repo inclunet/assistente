@@ -331,7 +331,13 @@ morte por PID, tempo ou disponibilidade do lock desktop. A migração v42 adicio
 estáveis ficam junto do banco; o endereço absoluto é gravado antes de publicar
 active_execution_id. Recuperação abre exatamente esse endereço, inclusive com
 cache/ambiente divergentes ou banco acessado por hardlink; não recria arquivo
-ausente como prova de morte. Não são conteúdo nem executáveis. Cópia/movimentação
+ausente como prova de morte. Controle ilegível preserva a tentativa ativa, registra
+diagnóstico e não bloqueia a recuperação das demais nem o startup. A ação de
+operação é encerrar todas as interfaces e restaurar cópia consistente da pasta
+de dados (banco e controles); não oferecer encerramento forçado sem prova de posse.
+Recusas comprovadas antes do INSERT removem o sidecar ainda não admitido; falhas
+de armazenamento/COMMIT preservam-no porque o resultado pode ser ambíguo.
+Não são conteúdo nem executáveis. Cópia/movimentação
 de banco ativo entre máquinas/usuários e remoção externa dos sidecars não são
 prova suportada de encerramento. V41/v42 pendentes bloqueiam o
 envio antes de gravar a pergunta, mantendo login/adoção disponíveis para concluir

@@ -62,3 +62,12 @@ func Open(ctx context.Context, path, executionID string) (*Lease, error) {
 	return &Lease{lock: lock, Path: path}, nil
 }
 func (l *Lease) Close() error { return l.lock.Close() }
+
+// RemoveUnadmitted só pode ser usado quando a admissão comprovadamente não
+// chegou a inserir a tentativa. Erro/resultado ambíguo de COMMIT não autoriza unlink.
+func (l *Lease) RemoveUnadmitted() error {
+	if err := l.Close(); err != nil {
+		return err
+	}
+	return os.Remove(l.Path)
+}

@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"testing"
 
@@ -323,5 +324,34 @@ func TestTurnRuntimeStartupPreservesLiveCLIAndRecoversReleasedExecution(t *testi
 	svc.EndUnfinishedTurn(ctx, conv, turn, nil)
 	if len(em.find("chat:done")) != 0 {
 		t.Fatal("worker antigo publicou terminal após recuperação")
+	}
+}
+
+func TestTurnRuntimeRejectedAdmissionRemovesOnlyUnusedLease(t *testing.T) {
+	svc, ctx, conv, turn, _ := setupTurnRuntime(t)
+	path := executionFrom(ctx).lease.Path
+	before, err := filepath.Glob(filepath.Join(filepath.Dir(path), "*.lock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.BeginTurn(ctx, conv, turn, database.TurnModeRetry); !errors.Is(err, database.ErrChatTurnActive) {
+		t.Fatalf("admissão concorrente: %v", err)
+	}
+	after, err := filepath.Glob(filepath.Join(filepath.Dir(path), "*.lock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after) != len(before) {
+		t.Fatalf("lease órfão: antes=%v depois=%v", before, after)
+	}
+	if err := database.RecoverChatTurnsBeforeWorkers(); err != nil {
+		t.Fatal(err)
+	}
+	current, err := database.NewChatTurnRepository(database.DB()).Get(ctx, conv, turn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.ActiveExecutionID == nil || *current.ActiveExecutionID != executionID(ctx) {
+		t.Fatal("removeu posse da tentativa viva")
 	}
 }

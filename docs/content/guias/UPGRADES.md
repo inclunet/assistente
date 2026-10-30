@@ -71,3 +71,9 @@ O diretório `.assistente-chat-executions`, junto ao banco, guarda os controles
 de posse das gerações. Preserve-o com os dados e não o limpe enquanto houver
 processos do Assistente abertos. Ele permite distinguir uma geração interrompida
 de uma geração ainda ativa em outra interface.
+
+Se o diagnóstico informar que o controle de uma geração está indisponível, o
+aplicativo mantém essa tentativa pendente e continua abrindo as demais conversas.
+Para restaurá-la, encerre todas as interfaces do Assistente, inclusive a CLI,
+restaure uma cópia consistente da pasta de dados (banco e controles) e abra o
+aplicativo novamente. Não crie um arquivo vazio para substituir o controle perdido.

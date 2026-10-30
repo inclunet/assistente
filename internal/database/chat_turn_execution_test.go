@@ -4,6 +4,7 @@ import (
 	"assistente/internal/turnlease"
 	"context"
 	"errors"
+	"os"
 	"testing"
 	"time"
 )
@@ -140,6 +141,24 @@ func TestTurnExecutionStartupRecoversBeforeReconciliation(t *testing.T) {
 	if err := lease.Close(); err != nil {
 		t.Fatal(err)
 	}
+	seedChatTurnTestMessages(t, db, "conv", "lost-lease", "")
+	lost, err := repo.Begin(ctx, "conv", "lost-lease", "", TurnModeNew)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lostLease, err := turnlease.Create(ctx, t.TempDir(), lost.ExecutionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec("UPDATE chat_turn_attempts SET lease_path=? WHERE execution_id=?", lostLease.Path, lost.ExecutionID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := lostLease.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(lostLease.Path); err != nil {
+		t.Fatal(err)
+	}
 	seedChatTurnTestMessages(t, db, "conv", "imported-after-migration", "imported-response")
 	if err := initializeChatTurnsBeforeWorkers(db); err != nil {
 		t.Fatal(err)
@@ -147,6 +166,13 @@ func TestTurnExecutionStartupRecoversBeforeReconciliation(t *testing.T) {
 	turn, err := repo.Get(ctx, "conv", "turn")
 	if err != nil || turn.State != TurnInterrupted || turn.ActiveExecutionID != nil {
 		t.Fatalf("recuperação: %+v %v", turn, err)
+	}
+	unproven, err := repo.Get(ctx, "conv", "lost-lease")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unproven.ActiveExecutionID == nil || *unproven.ActiveExecutionID != lost.ExecutionID {
+		t.Fatalf("inferiu morte sem posse: %+v", unproven)
 	}
 	var stored ChatTurnAttempt
 	if err := db.First(&stored, "execution_id = ?", attempt.ExecutionID).Error; err != nil {

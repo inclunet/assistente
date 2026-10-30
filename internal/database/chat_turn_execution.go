@@ -1,6 +1,7 @@
 package database
 
 import (
+	"assistente/internal/logging"
 	"assistente/internal/turnlease"
 	"context"
 	"errors"
@@ -170,7 +171,8 @@ func initializeChatTurnsBeforeWorkers(db *gorm.DB) error {
 			continue
 		}
 		if err != nil {
-			return err
+			logging.Warnf(context.Background(), "database.chat-turns", "posse da execução %s indisponível; tentativa preservada para restauração dos dados: %v", turn.ActiveExecutionID, err)
+			continue
 		}
 		ctx := WithUserID(context.Background(), turn.UserID)
 		finishErr := NewChatTurnRepository(db).FinishResponse(ctx, turn.ConversationID, turn.UserMessageID, turn.ActiveExecutionID, TurnInterrupted, "restart", "", nil)

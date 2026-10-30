@@ -197,13 +197,14 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
-	if err := uc.agentSvc.CheckTurnStorageReady(ctx); err != nil {
-		return "", err
-	}
 	if req.Params.AllowAssistantPrefill && req.RetryMessageID == "" {
 		errMsg := "continuação explícita requer RetryMessage (mensagem para retry)"
 		uc.emitter.Emit("chat:error", ports.ErrorEvent{ConversationID: req.ConversationID, Error: errMsg})
 		return "", fmt.Errorf("%s", errMsg)
+	}
+
+	if err := uc.agentSvc.CheckTurnStorageReady(ctx); err != nil {
+		return "", err
 	}
 
 	var retryUserMsg *chat.Message
