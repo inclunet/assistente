@@ -17,8 +17,6 @@ type ConsolidatedTurnResult struct {
 }
 
 func normalizeInvocationSummary(call TurnSegmentToolCall) TurnSegmentToolCall {
-	call.InvocationID = strings.TrimSpace(call.InvocationID)
-	call.ID = strings.TrimSpace(call.ID)
 	call.Name = strings.TrimSpace(call.Name)
 	call.Status = strings.TrimSpace(call.Status)
 	if call.Name == "" {

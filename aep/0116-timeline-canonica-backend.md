@@ -210,7 +210,7 @@ retry; terminal compara identidade com janela e preserva-a mesmo se persistênci
 ou patch falhar. O evento da pergunta só publica sua identidade após commit.
 Testes ACP locais permanecem suspensos por solicitação do mantenedor.
 
-Revisão remota deste recorte: o patch seleciona o nó por itemId de resposta,
+Revisão remota deste recorte: os segmentos preservam IDs de invocação e de chamada do provedor; teste com SQLite verifica patch → consulta dos detalhes sem colisão entre IDs distintos. O cache frontend preserva as mesmas referências na consulta e na invalidação, com regressão de entradas independentes. Além disso, o patch seleciona o nó por itemId de resposta,
 nunca por posição na lista. Uma pergunta legada com turn_id igual ao próprio ID
 continua independente e, sozinha, não produz patch de resposta. IDs não vazios
 mantêm seus bytes originais na identidade, agrupamento e hidratação de tools;
@@ -218,7 +218,7 @@ mantêm seus bytes originais na identidade, agrupamento e hidratação de tools;
 
 Validação local do recorte: build/vet, ports/chat/events e seleção explícita
 dos handlers/terminais de agent e das projeções de toolinvocations passaram sem executar ACP. TypeScript, ESLint,
-Stylelint (avisos preexistentes) e 6.847 testes Vitest em 515 arquivos passaram.
+Stylelint (avisos preexistentes) e 6.848 testes Vitest em 515 arquivos passaram.
 Bindings regenerados com Wails 2.15.0, a versão do go.mod. Lint Go local 2.15.0
 mantém 12 ocorrências fora do diff; análise contra a base 977a950cc tem zero novas.
 
