@@ -124,7 +124,8 @@ após comprovar o substituto em erro/cancelamento/falha do patch.
 
 ### 4. Frontend apresenta e mantém estado de interação
 
-Um índice de itens por conversa, com janelas ordenadas por IDs por superfície.
+Um índice de itens por conversa, com cada superfície recebendo do backend uma
+lista de IDs na ordem canônica, sem reordená-la localmente.
 Foco, modo de leitura, expansão, edição, scroll e rascunho permanecem locais à
 superfície; não migram ao backend. Dados conversacionais não são espelhados em
 árvores independentes por sessão. Política de cache deve limitar retenção sem
