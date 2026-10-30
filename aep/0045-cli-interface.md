@@ -258,6 +258,11 @@ focados nos arquivos `*_test.go` correspondentes. A ajuda é registrada em
 - [ ] `wails dev` funciona normalmente — não há execução manual reproduzível
   registrada nesta auditoria.
 - [x] `go build ./cmd/asst` compila sem dependências Wails.
+- [x] CI compila a CLI Linux amd64/arm64 e macOS amd64/arm64 com
+  `CGO_ENABLED=0`. As máscaras de modificadores Linux pertencem ao protocolo
+  X11 e não dependem das constantes exportadas apenas pelo backend CGO.
+  `TestLinuxModifierMasksMatchNativeBackend` confere a equivalência no build
+  nativo. A recusa de captura global fora do Windows (AEP-0103) permanece.
 - [x] Chat interativo e pipe são cobertos por `cmd/asst/chat_test.go`.
 - [x] Perfis são cobertos por `cmd/asst/profiles_test.go`.
 - [x] Setup headless é coberto por `cmd/asst/setup_test.go`.
