@@ -1,6 +1,7 @@
 package database
 
 import (
+	"assistente/internal/turnlease"
 	"context"
 	"errors"
 	"testing"
@@ -103,6 +104,9 @@ func TestTurnExecutionReconcilesLegacyButPreservesCanonicalResponse(t *testing.T
 }
 
 func TestTurnExecutionStartupRecoversBeforeReconciliation(t *testing.T) {
+	cache := t.TempDir()
+	t.Setenv("LOCALAPPDATA", cache)
+	t.Setenv("XDG_CACHE_HOME", cache)
 	db := newChatTurnTestDB(t, false)
 	seedChatTurnTestMessages(t, db, "conv", "turn", "")
 	if err := migrateChatTurns(db); err != nil {
@@ -114,10 +118,26 @@ func TestTurnExecutionStartupRecoversBeforeReconciliation(t *testing.T) {
 	if err := recordMigration(db, migration{Version: 41, Name: "chat_turns_and_attempts"}); err != nil {
 		t.Fatal(err)
 	}
+	if err := migrateChatTurnLeases(db); err != nil {
+		t.Fatal(err)
+	}
+	if err := recordMigration(db, migration{Version: 42, Name: "chat_turn_execution_leases"}); err != nil {
+		t.Fatal(err)
+	}
 	ctx := WithUserID(context.Background(), "user")
 	repo := NewChatTurnRepository(db)
 	attempt, err := repo.Begin(ctx, "conv", "turn", "", TurnModeNew)
 	if err != nil {
+		t.Fatal(err)
+	}
+	lease, err := turnlease.Create(ctx, t.TempDir(), attempt.ExecutionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec("UPDATE chat_turn_attempts SET lease_path=? WHERE execution_id=?", lease.Path, attempt.ExecutionID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := lease.Close(); err != nil {
 		t.Fatal(err)
 	}
 	seedChatTurnTestMessages(t, db, "conv", "imported-after-migration", "imported-response")
@@ -138,5 +158,19 @@ func TestTurnExecutionStartupRecoversBeforeReconciliation(t *testing.T) {
 	imported, err := repo.Get(ctx, "conv", "imported-after-migration")
 	if err != nil || imported.ResponseMessageID == nil || *imported.ResponseMessageID != "imported-response" {
 		t.Fatalf("importação: %+v %v", imported, err)
+	}
+}
+
+func TestTurnExecutionReconciliationDoesNotRewriteUnchangedResponse(t *testing.T) {
+	db := newChatTurnTestDB(t, false)
+	seedChatTurnTestMessages(t, db, "conv", "turn", "response")
+	if err := migrateChatTurns(db); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec(`CREATE TRIGGER reject_unchanged BEFORE UPDATE ON chat_turns WHEN NEW.response_message_id IS OLD.response_message_id BEGIN SELECT RAISE(ABORT,'update redundante'); END`).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := reconcileLegacyChatTurns(db, "", ""); err != nil {
+		t.Fatal(err)
 	}
 }

@@ -13,6 +13,9 @@ import (
 
 func setupTurnRuntime(t *testing.T) (*Service, context.Context, string, string, *captureEmitter) {
 	t.Helper()
+	cache := t.TempDir()
+	t.Setenv("LOCALAPPDATA", cache)
+	t.Setenv("XDG_CACHE_HOME", cache)
 	restore := database.SetDB(database.DB())
 	if err := database.InitPath(filepath.Join(t.TempDir(), "runtime.db")); err != nil {
 		t.Fatal(err)
@@ -36,6 +39,7 @@ func setupTurnRuntime(t *testing.T) (*Service, context.Context, string, string, 
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { svc.EndUnfinishedTurn(ctx, conv.ID, question.ID, nil) })
 	return svc, ctx, conv.ID, question.ID, emitter
 }
 
@@ -282,5 +286,42 @@ func TestTurnRuntimeAgenticTerminalPaths(t *testing.T) {
 				t.Fatalf("patch obsoleto: %+v", done)
 			}
 		})
+	}
+}
+
+func TestTurnRuntimeStartupPreservesLiveCLIAndRecoversReleasedExecution(t *testing.T) {
+	svc, ctx, conv, turn, em := setupTurnRuntime(t)
+	// Cache divergente entre CLI/desktop não muda o endereço persistido do lease.
+	otherCache := t.TempDir()
+	t.Setenv("LOCALAPPDATA", otherCache)
+	t.Setenv("XDG_CACHE_HOME", otherCache)
+	// Uma segunda abertura do banco (desktop ou CLI) não prova morte do worker.
+	if err := database.RecoverChatTurnsBeforeWorkers(); err != nil {
+		t.Fatal(err)
+	}
+	current, err := database.NewChatTurnRepository(database.DB()).Get(ctx, conv, turn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.ActiveExecutionID == nil || *current.ActiveExecutionID != executionID(ctx) {
+		t.Fatalf("interrompeu worker vivo: %+v", current)
+	}
+	// Simula a liberação nativa que o SO garante ao encerrar o processo.
+	if err := executionFrom(ctx).lease.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.RecoverChatTurnsBeforeWorkers(); err != nil {
+		t.Fatal(err)
+	}
+	current, err = database.NewChatTurnRepository(database.DB()).Get(ctx, conv, turn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.State != database.TurnInterrupted || current.ActiveExecutionID != nil {
+		t.Fatalf("não recuperou execução sem posse: %+v", current)
+	}
+	svc.EndUnfinishedTurn(ctx, conv, turn, nil)
+	if len(em.find("chat:done")) != 0 {
+		t.Fatal("worker antigo publicou terminal após recuperação")
 	}
 }

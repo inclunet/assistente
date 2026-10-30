@@ -3,6 +3,8 @@ package usecases_test
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -30,6 +32,9 @@ import (
 // setupTestDB usa o mesmo schema/migrações da composição de produção.
 func setupTestDB(t *testing.T) {
 	t.Helper()
+	cache := t.TempDir()
+	t.Setenv("LOCALAPPDATA", cache)
+	t.Setenv("XDG_CACHE_HOME", cache)
 	restore := database.SetDB(database.DB())
 	if err := database.InitPath(filepath.Join(t.TempDir(), "usecase.db")); err != nil {
 		t.Fatal(err)
@@ -699,15 +704,21 @@ func TestSendMessageUseCase_FallsBackToUserMessageWhenProviderUnsupported(t *tes
 	setupTestDB(t)
 	ctx := database.WithUserID(context.Background(), "test-user")
 	mgr := setupProfileDir(t)
-	setupProfileWith(t, mgr, minValidProfile("Unsupported Prefill Provider", "openai-compatible"))
+	profile := minValidProfile("Unsupported Prefill Provider", "openai-compatible")
+	disabled := false
+	profile.Chat.StreamingRecoveryEnabled = &disabled
+	setupProfileWith(t, mgr, profile)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "provider de teste indisponível", http.StatusBadRequest)
+	}))
+	t.Cleanup(server.Close)
 	uc := newTestUseCaseWithProviders(t, mgr, &llm.ProviderConfig{
 		ID:        "openai-compatible",
 		Name:      "OpenAI Compatible",
 		Type:      llm.ProviderOpenAI,
 		APIFormat: llm.APIFormatOpenAI,
-		// Endpoint local que recusa conexão imediatamente: o streaming roda em
-		// goroutine após o retorno; o teste só valida a decisão síncrona (sem erro).
-		BaseURL: "http://127.0.0.1:1/v1",
+		// Resposta controlada, sem depender de porta fechada ou backoff de rede.
+		BaseURL: server.URL + "/v1",
 	})
 	conversationID, userMessageID := createRetryableUserMessage(t, ctx)
 	if _, err := database.CreateMessageWithContext(ctx, database.MessageOptions{ConversationID: conversationID, TurnID: &userMessageID, Role: "assistant", Content: "resposta parcial"}); err != nil {
@@ -871,3 +882,28 @@ func TestSendMessageUseCase_RetryExistingUserMessageDoesNotDuplicateUserRow(t *t
 }
 
 func testParameterPointer[T any](value T) *T { return &value }
+
+func TestSendMessageRejectsPendingTurnMigrationBeforeWriting(t *testing.T) {
+	setupTestDB(t)
+	ctx := database.WithUserID(context.Background(), "test-user")
+	mgr := setupProfileDir(t)
+	uc := newTestUseCase(t, mgr)
+	conv, err := database.CreateConversationWithContext(ctx, "upgrade", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.DB().Exec("DELETE FROM schema_migrations WHERE version = 41").Error; err != nil {
+		t.Fatal(err)
+	}
+	_, err = uc.Execute(usecases.SendMessageRequest{Ctx: ctx, ConversationID: conv.ID, UserContent: "não salvar ainda", Source: "test"})
+	if !errors.Is(err, database.ErrChatTurnMigrationPending) {
+		t.Fatalf("erro=%v", err)
+	}
+	var count int64
+	if err := database.DB().Model(&database.ChatMessage{}).Where("conversation_id = ?", conv.ID).Count(&count).Error; err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("gravou %d mensagens antes da migração", count)
+	}
+}

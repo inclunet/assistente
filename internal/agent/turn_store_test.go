@@ -3,6 +3,7 @@ package agent
 import (
 	"assistente/internal/chat"
 	"assistente/internal/database"
+	"assistente/internal/turnlease"
 	"context"
 	"strings"
 )
@@ -16,7 +17,11 @@ func newTestAgentService(cfg ServiceConfig) *Service {
 	return NewService(cfg)
 }
 
-func (s *handlerTestTurnStore) Begin(context.Context, string, string, string, string) (*database.ChatTurnAttempt, error) {
+func (s *handlerTestTurnStore) CheckReady(context.Context) error { return nil }
+func (s *handlerTestTurnStore) CreateExecutionLease(context.Context, string) (*turnlease.Lease, error) {
+	panic("fixture sem admissão")
+}
+func (s *handlerTestTurnStore) BeginExecution(context.Context, string, string, string, string, string, string) (*database.ChatTurnAttempt, error) {
 	panic("fixture de handler não implementa admissão de turnos")
 }
 func (s *handlerTestTurnStore) EnsureResponse(ctx context.Context, conversationID, turnID, _ string) (string, error) {

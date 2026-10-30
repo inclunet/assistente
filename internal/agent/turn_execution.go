@@ -1,8 +1,10 @@
 package agent
 
 import (
+	"assistente/internal/turnlease"
 	"context"
 	"errors"
+	"github.com/google/uuid"
 	"sync"
 
 	"assistente/internal/chat"
@@ -14,7 +16,9 @@ import (
 // TurnStore é obrigatório na composição. Implementações de teste substituem
 // explicitamente a persistência; produção sempre usa ChatTurnRepository.
 type TurnStore interface {
-	Begin(context.Context, string, string, string, string) (*database.ChatTurnAttempt, error)
+	CheckReady(context.Context) error
+	CreateExecutionLease(context.Context, string) (*turnlease.Lease, error)
+	BeginExecution(context.Context, string, string, string, string, string, string) (*database.ChatTurnAttempt, error)
 	EnsureResponse(context.Context, string, string, string) (string, error)
 	MarkStreaming(context.Context, string, string, string) error
 	WritePartial(context.Context, string, string, string, string, bool) error
@@ -33,6 +37,7 @@ type turnExecution struct {
 	mu       sync.Mutex
 	id       string
 	finished bool
+	lease    *turnlease.Lease
 }
 
 func executionFrom(ctx context.Context) *turnExecution {
@@ -47,6 +52,9 @@ func executionID(ctx context.Context) string {
 	return ""
 }
 
+// CheckTurnStorageReady antecede qualquer escrita de pergunta no pipeline.
+func (s *Service) CheckTurnStorageReady(ctx context.Context) error { return s.turns.CheckReady(ctx) }
+
 // BeginTurn precede criação da resposta, prompt e chamada ao provider. Erros
 // posteriores à pergunta confirmada podem assim encerrar a tentativa correta.
 func (s *Service) BeginTurn(ctx context.Context, conversationID, turnID, mode string) (context.Context, error) {
@@ -60,11 +68,20 @@ func (s *Service) BeginTurn(ctx context.Context, conversationID, turnID, mode st
 		}
 		s.pendingTerminals.CompareAndDelete(key, pending)
 	}
-	attempt, err := s.turns.Begin(ctx, conversationID, turnID, "", mode)
+	id, err := uuid.NewV7()
 	if err != nil {
 		return ctx, err
 	}
-	return context.WithValue(ctx, turnExecutionKey{}, &turnExecution{id: attempt.ExecutionID}), nil
+	lease, err := s.turns.CreateExecutionLease(ctx, id.String())
+	if err != nil {
+		return ctx, err
+	}
+	attempt, err := s.turns.BeginExecution(ctx, conversationID, turnID, "", mode, id.String(), lease.Path)
+	if err != nil {
+		_ = lease.Close()
+		return ctx, err
+	}
+	return context.WithValue(ctx, turnExecutionKey{}, &turnExecution{id: attempt.ExecutionID, lease: lease}), nil
 }
 
 func (s *Service) EnsureTurnResponse(ctx context.Context, conversationID, turnID string) (string, error) {
@@ -141,6 +158,9 @@ func (s *Service) EndUnfinishedTurn(ctx context.Context, conversationID, turnID 
 	execution := executionFrom(ctx)
 	if execution == nil {
 		return
+	}
+	if execution.lease != nil {
+		defer func() { _ = execution.lease.Close() }()
 	}
 	execution.mu.Lock()
 	finished := execution.finished

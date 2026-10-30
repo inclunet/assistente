@@ -1,8 +1,10 @@
 package database
 
 import (
+	"assistente/internal/turnlease"
 	"context"
 	"errors"
+	"path/filepath"
 	"strings"
 
 	"gorm.io/gorm"
@@ -106,6 +108,42 @@ func (r *ChatTurnRepository) FinishResponse(ctx context.Context, conversationID,
 	})
 }
 
+// CreateExecutionLease usa armazenamento persistente adjacente ao banco. O
+// caminho exato vai na tentativa e independe do ambiente/path usado no próximo boot.
+func (r *ChatTurnRepository) CreateExecutionLease(ctx context.Context, executionID string) (*turnlease.Lease, error) {
+	sqlDB, err := r.db.DB()
+	if err != nil {
+		return nil, err
+	}
+	path, err := sqliteMainDatabasePath(sqlDB)
+	if err != nil {
+		return nil, err
+	}
+	if path == "" || !filepath.IsAbs(path) {
+		return nil, errors.New("banco de chat precisa de caminho persistente")
+	}
+	return turnlease.Create(ctx, filepath.Join(filepath.Dir(path), ".assistente-chat-executions"), executionID)
+}
+
+// CheckReady bloqueia o envio antes da pergunta quando o upgrade depende da
+// adoção dos dados legados. O login permanece disponível para concluir a adoção.
+func (r *ChatTurnRepository) CheckReady(ctx context.Context) error {
+	versions, err := appliedMigrationVersions(r.db.WithContext(ctx))
+	if err != nil {
+		return err
+	}
+	if !versions[41] || !versions[42] {
+		return ErrChatTurnMigrationPending
+	}
+	return nil
+}
+
+var ErrChatTurnMigrationPending = errors.New("migração do histórico de chat pendente; conclua a adoção dos dados no login e reinicie o aplicativo")
+
+// RecoverChatTurnsBeforeWorkers recupera somente execuções sem lease vivo.
+// A composição chama antes de admitir workers; CLI e desktop usam a mesma prova.
+func RecoverChatTurnsBeforeWorkers() error { return initializeChatTurnsBeforeWorkers(db) }
+
 // initializeChatTurnsBeforeWorkers só roda ao abrir o banco, antes de admitir
 // execuções. Nunca usar como limpeza periódica de uma instância ativa.
 func initializeChatTurnsBeforeWorkers(db *gorm.DB) error {
@@ -113,19 +151,36 @@ func initializeChatTurnsBeforeWorkers(db *gorm.DB) error {
 	if err != nil {
 		return err
 	}
-	if !versions[41] {
+	if !versions[41] || !versions[42] {
 		return nil
-	} // a adoção do usuário ainda pode adiar v19/v41
-	return db.Transaction(func(tx *gorm.DB) error {
-		var owners []string
-		if err := tx.Raw(`SELECT DISTINCT c.user_id FROM conversations c JOIN chat_turns t ON t.conversation_id=c.id WHERE t.active_execution_id IS NOT NULL`).Scan(&owners).Error; err != nil {
+	} // a adoção do usuário ainda pode adiar v19/v41/v42
+	var active []struct {
+		UserID            string
+		ConversationID    string
+		UserMessageID     string
+		ActiveExecutionID string
+		LeasePath         string
+	}
+	if err := db.Raw(`SELECT c.user_id,t.conversation_id,t.user_message_id,t.active_execution_id,a.lease_path FROM conversations c JOIN chat_turns t ON t.conversation_id=c.id JOIN chat_turn_attempts a ON a.execution_id=t.active_execution_id WHERE t.active_execution_id IS NOT NULL`).Scan(&active).Error; err != nil {
+		return err
+	}
+	for _, turn := range active {
+		lease, err := turnlease.Open(context.Background(), turn.LeasePath, turn.ActiveExecutionID)
+		if errors.Is(err, turnlease.ErrBusy) {
+			continue
+		}
+		if err != nil {
 			return err
 		}
-		for _, owner := range owners {
-			if err := NewChatTurnRepository(tx).RecoverInterruptedBeforeStartup(WithUserID(context.Background(), owner)); err != nil {
-				return err
-			}
+		ctx := WithUserID(context.Background(), turn.UserID)
+		finishErr := NewChatTurnRepository(db).FinishResponse(ctx, turn.ConversationID, turn.UserMessageID, turn.ActiveExecutionID, TurnInterrupted, "restart", "", nil)
+		closeErr := lease.Close()
+		if finishErr != nil && !errors.Is(finishErr, ErrChatTurnStale) {
+			return finishErr
 		}
-		return reconcileLegacyChatTurns(tx, "", "")
-	})
+		if closeErr != nil {
+			return closeErr
+		}
+	}
+	return db.Transaction(func(tx *gorm.DB) error { return reconcileLegacyChatTurns(tx, "", "") })
 }

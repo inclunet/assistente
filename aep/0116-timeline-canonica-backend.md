@@ -303,7 +303,7 @@ Quarto recorte da fase 2: lifecycle integrado ao único pipeline de envio.
   parciais e terminais antigos por executionId antes de tocar no conteúdo.
 - [x] Encerrar erros de preparação/provider, cancelamento, limites e panic; garantir
   chat:done mesmo se TTS/notificação falhar após um commit confirmado.
-- [x] Recuperar tentativas ativas ao abrir o banco antes dos workers e reconciliar
+- [x] Recuperar tentativas sem lease vivo antes dos workers e reconciliar
   legados sem tentativas; retry/continue também reconciliam esse subconjunto.
 - [x] Importar mensagens e metadados juntos, com origem imported e estado
   historical_unknown, sem restaurar execuções ou inferir sucesso pelo texto.
@@ -321,6 +321,27 @@ retry, cancelamento, falhas de placeholder/gravação/terminal, ID opaco, provid
 terminal e panic pós-commit; `TestImportConversationCreatesHistoricalTurnAtomically`
 prova importação com rollback. Fixtures isoladas de handlers recebem TurnStore
 explícito; produção exige o repositório real. Nenhum teste ACP local foi executado.
+
+Revisão remota deste recorte: a reserva desktop não exclui CLI (AEP-0111).
+Cada worker adquire lease nativo de executionId antes da admissão no banco e o
+mantém até terminar seus writes e liberar a execução. Startup só recupera uma
+tentativa cujo lease consiga adquirir, confirmando o terminal por CAS; posse
+ocupada preserva a tentativa viva, independentemente da superfície. Não inferir
+morte por PID, tempo ou disponibilidade do lock desktop. A migração v42 adiciona somente lease_path à tentativa. Sidecars privados e
+estáveis ficam junto do banco; o endereço absoluto é gravado antes de publicar
+active_execution_id. Recuperação abre exatamente esse endereço, inclusive com
+cache/ambiente divergentes ou banco acessado por hardlink; não recria arquivo
+ausente como prova de morte. Não são conteúdo nem executáveis. Cópia/movimentação
+de banco ativo entre máquinas/usuários e remoção externa dos sidecars não são
+prova suportada de encerramento. V41/v42 pendentes bloqueiam o
+envio antes de gravar a pergunta, mantendo login/adoção disponíveis para concluir
+o upgrade no próximo boot. `TestTurnRuntimeStartupPreservesLiveCLIAndRecoversReleasedExecution`,
+`TestExecutionLeaseExcludesAnotherOwnerUntilReleased` e
+`TestSendMessageRejectsPendingTurnMigrationBeforeWriting` verificam essas fronteiras.
+Reconciliação não atualiza representante inalterado; a leitura legada em lotes
+continua necessária para detectar escritas de versões anteriores após v41. Não
+adicionar um segundo checkpoint derivado sem contrato de invalidação.
+
 
 Limite: a janela e o patch visual ainda usam o contrato legado. Projeção incremental,
 época/sequência, recuperação de conteúdo volatile e cutover do frontend permanecem

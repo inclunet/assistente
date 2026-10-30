@@ -87,7 +87,9 @@ func TestPersistErrorWhenEmptyGravaErroNoPlaceholderVazio(t *testing.T) {
 	repo := &repoCapturaConteudo{}
 	svc := newTestAgentService(ServiceConfig{Emitter: &mockEmitter{}, MsgRepo: repo})
 
-	svc.persistErrorWhenEmpty(context.Background(), "msg-1", "processo do agente caiu")
+	if err := svc.persistErrorWhenEmpty(context.Background(), "msg-1", "processo do agente caiu"); err != nil {
+		t.Fatal(err)
+	}
 
 	conteudo, ok := repo.conteudos["msg-1"]
 	if !ok {
@@ -106,7 +108,9 @@ func TestPersistErrorWhenEmptyPreservaConteudoExistente(t *testing.T) {
 	}}
 	svc := newTestAgentService(ServiceConfig{Emitter: &mockEmitter{}, MsgRepo: repo})
 
-	svc.persistErrorWhenEmpty(context.Background(), "msg-1", "processo do agente caiu")
+	if err := svc.persistErrorWhenEmpty(context.Background(), "msg-1", "processo do agente caiu"); err != nil {
+		t.Fatal(err)
+	}
 
 	if conteudo, ok := repo.conteudos["msg-1"]; ok {
 		t.Errorf("conteúdo parcial %q foi sobrescrito pelo erro", conteudo)

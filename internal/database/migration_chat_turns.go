@@ -208,7 +208,7 @@ func reconcileLegacyChatTurns(tx *gorm.DB, turnID, conversationID string) error 
 			// Reexecução após crash entre commit e schema_migrations não reclassifica estado ativo.
 			if err := tx.Exec(`INSERT INTO chat_turns(user_message_id,conversation_id,response_message_id,state,origin)
  VALUES (?,?,?,'historical_unknown','legacy') ON CONFLICT(user_message_id) DO UPDATE SET response_message_id=excluded.response_message_id
- WHERE chat_turns.active_execution_id IS NULL AND NOT EXISTS (SELECT 1 FROM chat_turn_attempts a WHERE a.turn_id=excluded.user_message_id)`, question.ID, question.ConversationID, responseID).Error; err != nil {
+ WHERE chat_turns.response_message_id IS NOT excluded.response_message_id AND chat_turns.active_execution_id IS NULL AND NOT EXISTS (SELECT 1 FROM chat_turn_attempts a WHERE a.turn_id=excluded.user_message_id)`, question.ID, question.ConversationID, responseID).Error; err != nil {
 				return err
 			}
 		}
