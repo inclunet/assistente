@@ -274,7 +274,8 @@ O backfill em lotes reutiliza a seleção legada de representante, preserva IDs
 opacos e registra `historical_unknown`/`legacy`; não inventa tentativas nem
 converte presença de texto ou tokens em evidência de sucesso. Vínculos de
 resposta incompatíveis ficam sem representante; mensagens originais são
-preservadas. Backup consistente com manifesto SHA-256 precede a transação de
+preservadas. Perguntas órfãs de conversa ficam fora dos novos metadados, com
+contagem registrada, sem bloquear a abertura nem apagar o histórico. Backup consistente com manifesto SHA-256 precede a transação de
 DDL, constraints e backfill; falha reverte toda a nova estrutura.
 
 O repositório gera executionId no backend, admite uma tentativa ativa por

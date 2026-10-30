@@ -134,9 +134,16 @@ func backupChatTurns(db *gorm.DB) error {
 func backfillChatTurns(tx *gorm.DB) error {
 	const batchSize = 128
 	cursor := ""
+	var orphaned int64
+	if err := tx.Model(&ChatMessage{}).Where("role = 'user' AND NOT EXISTS (SELECT 1 FROM conversations c WHERE c.id = chat_messages.conversation_id)").Count(&orphaned).Error; err != nil {
+		return err
+	}
+	if orphaned > 0 {
+		logging.Warnf(context.Background(), "database.chat-turns", "%d perguntas sem conversa preservadas fora dos metadados de turno", orphaned)
+	}
 	for {
 		var questions []ChatMessage
-		if err := tx.Select("id,conversation_id,parent_id").Where("role = 'user' AND id > ?", cursor).
+		if err := tx.Select("id,conversation_id,parent_id").Where("role = 'user' AND id > ? AND EXISTS (SELECT 1 FROM conversations c WHERE c.id = chat_messages.conversation_id)", cursor).
 			Order("id").Limit(batchSize).Find(&questions).Error; err != nil {
 			return err
 		}

@@ -328,7 +328,7 @@ func TestMigrateChatTurnsBackupAndBatches(t *testing.T) {
 	}
 }
 
-func TestMigrateChatTurnsRollsBackSchemaAndPreservesHistory(t *testing.T) {
+func TestMigrateChatTurnsPreservesOrphanOutsideTurnMetadata(t *testing.T) {
 	db := newChatTurnTestDB(t, false)
 	seedChatTurnTestMessages(t, db, "conv", "valid", "response")
 	// Simula corrupção legada que não pode satisfazer a FK da nova tabela.
@@ -339,15 +339,59 @@ func TestMigrateChatTurnsRollsBackSchemaAndPreservesHistory(t *testing.T) {
 	if err := db.Exec("PRAGMA foreign_keys=ON").Error; err != nil {
 		t.Fatal(err)
 	}
+	if err := migrateChatTurns(db); err != nil {
+		t.Fatal(err)
+	}
+	var count int64
+	if err := db.Model(&ChatMessage{}).Count(&count).Error; err != nil || count != 3 {
+		t.Fatalf("histórico alterado: %d %v", count, err)
+	}
+	var turns []ChatTurn
+	if err := db.Find(&turns).Error; err != nil || len(turns) != 1 || turns[0].UserMessageID != "valid" {
+		t.Fatalf("metadados incorretos: %+v %v", turns, err)
+	}
+}
+
+func TestMigrateChatTurnsRollsBackSchemaAndPreservesHistory(t *testing.T) {
+	db := newChatTurnTestDB(t, false)
+	seedChatTurnTestMessages(t, db, "conv", "turn", "response")
+	// Falha real de leitura: não existe o ledger exigido pela seleção histórica.
+	if err := db.Exec("DROP TABLE tool_invocations").Error; err != nil {
+		t.Fatal(err)
+	}
 	if err := migrateChatTurns(db); err == nil {
-		t.Fatal("aceitou conversa inexistente")
+		t.Fatal("ignorou erro de leitura")
 	}
 	if db.Migrator().HasTable("chat_turns") || db.Migrator().HasTable("chat_turn_attempts") {
 		t.Fatal("DDL parcial persistido")
 	}
 	var count int64
-	if err := db.Model(&ChatMessage{}).Count(&count).Error; err != nil || count != 3 {
+	if err := db.Model(&ChatMessage{}).Count(&count).Error; err != nil || count != 2 {
 		t.Fatalf("histórico alterado: %d %v", count, err)
+	}
+}
+
+func TestMigrateChatTurnsRejectsForeignKeyCorruption(t *testing.T) {
+	db := newChatTurnTestDB(t, false)
+	if err := createChatTurnSchema(db); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec("PRAGMA foreign_keys=OFF").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&ChatTurnAttempt{ExecutionID: "orphan", TurnID: "missing", Mode: TurnModeNew, State: TurnPreparing, StartedAt: time.Now()}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec("PRAGMA foreign_keys=ON").Error; err != nil {
+		t.Fatal(err)
+	}
+	seedChatTurnTestMessages(t, db, "conv", "turn", "response")
+	if err := migrateChatTurns(db); err == nil {
+		t.Fatal("ignorou corrupção de FK")
+	}
+	var count int64
+	if err := db.Model(&ChatTurn{}).Count(&count).Error; err != nil || count != 0 {
+		t.Fatalf("backfill parcial persistido: %d %v", count, err)
 	}
 }
 
