@@ -373,7 +373,7 @@ describe('ProviderForm — provedor de agente de código', () => {
     await user.click(screen.getByRole('button', { name: /atualizar/i }));
     await waitFor(() => expect(updateMock).toHaveBeenCalled());
     expect(updateMock.mock.calls[0][1]).toMatchObject({
-      type: 'ollama', api_format: 'openai', base_url: 'http://localhost:11434',
+      type: 'ollama', api_format: 'openai', base_url: 'http://localhost:11434/v1',
     });
     expect(JSON.parse(JSON.stringify(updateMock.mock.calls[0][1]))).not.toHaveProperty('acp_command');
     expect(JSON.parse(JSON.stringify(updateMock.mock.calls[0][1]))).not.toHaveProperty('acp_args');
