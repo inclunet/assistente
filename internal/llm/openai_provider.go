@@ -3,6 +3,7 @@ package llm
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"strings"
 
 	"assistente/internal/credentials"
@@ -64,19 +65,31 @@ type OpenAIProvider struct {
 // NewOpenAIProvider cria um provider Chat Completions-only (OpenAI-compatible).
 // Usado para OpenRouter, Ollama, Groq, Together, e qualquer endpoint /v1/chat/completions.
 func NewOpenAIProvider(provider *ProviderConfig, credMgr *credentials.Manager) *OpenAIProvider {
-	return newOpenAIProviderBase(provider, credMgr, false)
+	return newOpenAIProviderBase(provider, credMgr, false, nil)
 }
 
 // NewOpenAIResponsesProvider cria um provider Responses API-first (OpenAI real).
 // Usa /v1/responses como caminho padrão para streaming/chat.
 // Suporta MCP nativo, reasoning summaries, e features modernas da OpenAI.
 func NewOpenAIResponsesProvider(provider *ProviderConfig, credMgr *credentials.Manager) *OpenAIProvider {
-	return newOpenAIProviderBase(provider, credMgr, true)
+	return newOpenAIProviderBase(provider, credMgr, true, nil)
 }
 
-func newOpenAIProviderBase(provider *ProviderConfig, credMgr *credentials.Manager, useResponses bool) *OpenAIProvider {
-	httpClient := newHTTPClientForProvider(provider, credMgr)
-	streamHTTPClient := newStreamingHTTPClientForProvider(provider, credMgr)
+// NewOpenAIProviderWithAPIKey configura um provider efêmero sem armazenamento de credenciais.
+// O chamador é responsável por validar o destino antes de passar a chave.
+func NewOpenAIProviderWithAPIKey(provider *ProviderConfig, apiKey string) *OpenAIProvider {
+	return newOpenAIProviderBase(provider, nil, false, &apiKey)
+}
+
+func newOpenAIProviderBase(provider *ProviderConfig, credMgr *credentials.Manager, useResponses bool, apiKey *string) *OpenAIProvider {
+	var httpClient, streamHTTPClient *http.Client
+	if apiKey != nil {
+		httpClient = &http.Client{Timeout: providerTimeout(provider), CheckRedirect: credentials.SameOriginRedirect}
+		streamHTTPClient = &http.Client{CheckRedirect: credentials.SameOriginRedirect}
+	} else {
+		httpClient = newHTTPClientForProvider(provider, credMgr)
+		streamHTTPClient = newStreamingHTTPClientForProvider(provider, credMgr)
+	}
 
 	opts := []option.RequestOption{
 		option.WithHTTPClient(httpClient),
@@ -84,7 +97,9 @@ func newOpenAIProviderBase(provider *ProviderConfig, credMgr *credentials.Manage
 	streamOpts := []option.RequestOption{
 		option.WithHTTPClient(streamHTTPClient),
 	}
-	if providerUsesPlaceholderAPIKey(provider) {
+	if apiKey != nil {
+		opts = append(opts, option.WithAPIKey(*apiKey))
+	} else if providerUsesPlaceholderAPIKey(provider) {
 		opts = append(opts, option.WithAPIKey("managed-by-credential-transport"))
 	} else {
 		// Provedores AuthModeNone (Ollama, llama.cpp): o SDK
@@ -103,7 +118,9 @@ func newOpenAIProviderBase(provider *ProviderConfig, credMgr *credentials.Manage
 	opts = append(opts, option.WithBaseURL(baseURL))
 	streamOpts = append(streamOpts, option.WithBaseURL(baseURL))
 
-	if providerUsesPlaceholderAPIKey(provider) {
+	if apiKey != nil {
+		streamOpts = append(streamOpts, option.WithAPIKey(*apiKey))
+	} else if providerUsesPlaceholderAPIKey(provider) {
 		streamOpts = append(streamOpts, option.WithAPIKey("managed-by-credential-transport"))
 	} else {
 		streamOpts = append(streamOpts, option.WithAPIKey(""))
