@@ -14,8 +14,7 @@ func MessageItemID(messageID string) string {
 // ResponseItemID identifica a resposta pela pergunta, nunca pela mensagem
 // representante. Eventos operacionais sem turno não identificam um item.
 func ResponseItemID(turnID string) string {
-	turnID = strings.TrimSpace(turnID)
-	if turnID == "" {
+	if strings.TrimSpace(turnID) == "" {
 		return ""
 	}
 	return "turn:" + turnID

@@ -341,8 +341,7 @@ func uniqueNonEmptyIDs(values []string) []string {
 	result := make([]string, 0, len(values))
 	seen := make(map[string]struct{}, len(values))
 	for _, value := range values {
-		value = strings.TrimSpace(value)
-		if value == "" {
+		if strings.TrimSpace(value) == "" {
 			continue
 		}
 		if _, exists := seen[value]; exists {

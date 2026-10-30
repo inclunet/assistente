@@ -34,6 +34,54 @@ func setupProjectionReadTest(t *testing.T) *gorm.DB {
 	return testDB
 }
 
+func TestProjectionPreservesOpaqueTurnAndInvocationIDs(t *testing.T) {
+	testDB := setupProjectionReadTest(t)
+	conv := database.Conversation{UUIDModel: database.UUIDModel{ID: "conv"}, UserID: "user-a"}
+	catalog := database.ToolCatalog{Name: "search", DisplayName: "Search", Origin: "builtin"}
+	if err := testDB.Create(&conv).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := testDB.Create(&catalog).Error; err != nil {
+		t.Fatal(err)
+	}
+	turnIDs := []string{"question", " question "}
+	invocationIDs := []string{"inv", " inv "}
+	for index, turnID := range turnIDs {
+		message := database.ChatMessage{UUIDModel: database.UUIDModel{ID: turnID}, ConversationID: conv.ID, Role: "user"}
+		if err := testDB.Create(&message).Error; err != nil {
+			t.Fatal(err)
+		}
+		invocation := database.ToolInvocation{
+			UUIDModel: database.UUIDModel{ID: invocationIDs[index]}, UserID: conv.UserID, ToolCatalogID: catalog.ID,
+			OriginType: OriginChat, OriginID: turnID, ConversationID: &conv.ID, TurnID: &turnID,
+			ToolCallID: "same-provider-call", Status: StatusSucceeded, ResultAvailability: "available",
+		}
+		if err := testDB.Create(&invocation).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	summaries, err := LoadSummariesForTurnIDsWithUser(context.Background(), conv.UserID, append(turnIDs, "", " ", turnIDs[0]))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(summaries) != 2 {
+		t.Fatalf("turnos distintos foram agrupados: %+v", summaries)
+	}
+	for index, turnID := range turnIDs {
+		items := summaries[turnID]
+		if len(items) != 1 || items[0].InvocationID != invocationIDs[index] {
+			t.Fatalf("invocação do turno %q incorreta: %+v", turnID, items)
+		}
+	}
+	details, err := LoadDetailsWithUser(context.Background(), conv.UserID, append(invocationIDs, "", " ", invocationIDs[0]))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(details) != 2 || details[0].InvocationID != invocationIDs[0] || details[1].InvocationID != invocationIDs[1] {
+		t.Fatalf("IDs de invocação distintos foram normalizados: %+v", details)
+	}
+}
+
 func TestProjectionSummaryLeveEDetailsUserScoped(t *testing.T) {
 	testDB := setupProjectionReadTest(t)
 	convA := database.Conversation{UUIDModel: database.UUIDModel{ID: "conv-a"}, UserID: "user-a"}

@@ -176,6 +176,31 @@ func TestTimelineItemIdentityKeepsLegacyAndUserIndependent(t *testing.T) {
 	}
 }
 
+func TestTimelineItemIdentityPreservesOpaqueTurnIDs(t *testing.T) {
+	plain, spaced := "question", " question "
+	messages := []Message{
+		{UUIDModel: database.UUIDModel{ID: "a"}, Role: "assistant", TurnID: &plain, Content: "primeira"},
+		{UUIDModel: database.UUIDModel{ID: "b"}, Role: "assistant", TurnID: &spaced, Content: "segunda"},
+	}
+	items := []database.MessageWindowItem{
+		{Kind: database.MessageWindowItemKindTurn, TurnID: plain},
+		{Kind: database.MessageWindowItemKindTurn, TurnID: spaced},
+	}
+	for _, nodes := range [][]MessageNode{
+		BuildNodesWithTimelineConsolidation(messages, nil, nil, nil),
+		BuildTimelineMessageNodes(items, messages, nil, nil, nil),
+	} {
+		if len(nodes) != 2 || nodes[0].ItemID != "turn:question" || nodes[1].ItemID != "turn: question " ||
+			nodes[0].Message.Content != "primeira" || nodes[1].Message.Content != "segunda" {
+			t.Fatalf("IDs opacos foram normalizados ou agrupados: %+v", nodes)
+		}
+	}
+	ids := CollectTurnIDsWithToolCalls(messages)
+	if len(ids) != 2 || ids[0] != plain || ids[1] != spaced {
+		t.Fatalf("hidratação deve consultar IDs exatos: %q", ids)
+	}
+}
+
 func TestConsolidateTimelineTurnFinalPreCriadoSemUsageUsaAtualizacaoTerminal(t *testing.T) {
 	turnID := "turn-updated-final"
 	base := time.Date(2026, 9, 17, 12, 0, 0, 0, time.UTC)

@@ -282,6 +282,42 @@ func TestBuildTurnPatchSobreviveAoCancelamentoDoTurno(t *testing.T) {
 	}
 }
 
+func TestBuildTurnPatchSelectsResponseIdentity(t *testing.T) {
+	for _, turnID := range []string{"question", " question "} {
+		for _, withResponse := range []bool{false, true} {
+			name := turnID + "/only-question"
+			if withResponse {
+				name = turnID + "/with-response"
+			}
+			t.Run(name, func(t *testing.T) {
+				question := chat.Message{UUIDModel: database.UUIDModel{ID: turnID}, ConversationID: "conv",
+					Role: "user", TurnID: &turnID, Content: "pergunta não é resposta"}
+				repo := &mockMsgRepo{turnMessages: []chat.Message{question}}
+				if withResponse {
+					repo.turnMessages = append(repo.turnMessages, chat.Message{
+						UUIDModel: database.UUIDModel{ID: "assistant"}, ConversationID: "conv",
+						Role: "assistant", TurnID: &turnID, Content: "resposta correta",
+					})
+				}
+				svc := NewService(ServiceConfig{Emitter: &mockEmitter{}, MsgRepo: repo})
+				patch, err := svc.buildTurnPatch(database.WithUserID(context.Background(), "user-a"), "conv", turnID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !withResponse {
+					if patch != nil {
+						t.Fatalf("pergunta não pode preencher patch de resposta: %+v", patch)
+					}
+					return
+				}
+				if patch == nil || patch.ItemID != "turn:"+turnID || patch.Message.ID != "assistant" || patch.Message.Content != "resposta correta" {
+					t.Fatalf("patch não selecionou a resposta exata: %+v", patch)
+				}
+			})
+		}
+	}
+}
+
 func TestBuildTurnPatchPropagaResultadosEBloqueioDoLedger(t *testing.T) {
 	turnID := "turn-ledger"
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})

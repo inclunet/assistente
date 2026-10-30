@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -554,11 +555,16 @@ func (s *Service) buildTurnPatch(ctx context.Context, conversationID, turnID str
 	}
 
 	nodes := chat.BuildNodesWithTimelineConsolidation(messages, nil, map[string]int{}, callsByTurn)
-	if len(nodes) == 0 {
+	itemID := ports.ResponseItemID(turnID)
+	responseIndex := slices.IndexFunc(nodes, func(node chat.MessageNode) bool {
+		return node.ItemID == itemID
+	})
+	if responseIndex < 0 {
 		return nil, nil
 	}
-	message := nodes[0].Message
-	patch := &ports.TurnPatchEvent{ItemID: nodes[0].ItemID, Message: ports.TurnPatchMessage{
+	response := nodes[responseIndex]
+	message := response.Message
+	patch := &ports.TurnPatchEvent{ItemID: response.ItemID, Message: ports.TurnPatchMessage{
 		ID:               message.ID,
 		ConversationID:   message.ConversationID,
 		ParentID:         message.ParentID,

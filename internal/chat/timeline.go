@@ -353,8 +353,8 @@ func CollectTurnIDsWithToolCalls(messages []Message) []string {
 		if message.Role == "user" || message.TurnID == nil {
 			continue
 		}
-		turnID := strings.TrimSpace(*message.TurnID)
-		if turnID == "" {
+		turnID := *message.TurnID
+		if strings.TrimSpace(turnID) == "" {
 			continue
 		}
 		if _, found := seen[turnID]; !found {
