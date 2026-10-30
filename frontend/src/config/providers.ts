@@ -1,48 +1,4 @@
-/**
- * Metadados de provedores LLM: configuração de conexão e capacidades TTS.
- *
- * Centraliza informações que antes estavam espalhadas em heurísticas
- * (isTTSModel, isOpenAILike, standardModelPrefixes, etc.)
- *
- * Cada preset declara explicitamente:
- * - Configuração de conexão (URL, API key, API format)
- * - Capacidades de TTS (suporte, modelos, vozes, listagem dinâmica)
- */
-
-import type { TTSSelectionMode } from '../services/tts/types';
-
-/** Modelo TTS estático conhecido. */
-export interface StaticTTSModel {
-  id: string;
-  name: string;
-  provider: string;
-  selectionMode: TTSSelectionMode;
-  description?: string;
-}
-
-/** Voz estática associada a modelos que usam voz separada. */
-export interface StaticVoice {
-  /** ID da voz para a API (ex: "alloy") */
-  id: string;
-  /** Nome exibido no picker (ex: "Alloy HD") */
-  name: string;
-  /** Provedor TTS (ex: "openai") */
-  provider: string;
-  /** Idioma da voz (ex: "multilingual") */
-  language: string;
-}
-
-/** Capacidades TTS de um tipo de provedor */
-export interface TTSCapabilities {
-  /** Provedor suporta TTS via /audio/speech */
-  supportsTTS: boolean;
-  /** Modelos estáticos conhecidos para provedores sem listagem dinâmica no backend. */
-  staticModels: StaticTTSModel[];
-  /** Vozes estáticas para modelos que exigem voz separada. */
-  staticVoices: StaticVoice[];
-  /** Backend suporta listagem dinâmica de modelos via /v1/models */
-  supportsDynamicVoiceListing: boolean;
-}
+/** Definições locais de tipos e formatos de conexão. Modelos e vozes TTS vêm do catálogo. */
 
 /** Configuração de um tipo de provedor */
 export interface ProviderPreset {
@@ -62,60 +18,8 @@ export interface ProviderPreset {
   defaultModel?: string;
   apiFormat?: string;
   reasoningContentMode?: string;
-  tts: TTSCapabilities;
 }
 
-/** Nomes base das vozes OpenAI para gerar variantes Standard/HD */
-const OPENAI_VOICE_NAMES = [
-  { id: 'alloy', name: 'Alloy' },
-  { id: 'ash', name: 'Ash' },
-  { id: 'ballad', name: 'Ballad' },
-  { id: 'coral', name: 'Coral' },
-  { id: 'echo', name: 'Echo' },
-  { id: 'fable', name: 'Fable' },
-  { id: 'nova', name: 'Nova' },
-  { id: 'onyx', name: 'Onyx' },
-  { id: 'sage', name: 'Sage' },
-  { id: 'shimmer', name: 'Shimmer' },
-  { id: 'verse', name: 'Verse' },
-];
-
-const OPENAI_MODELS: StaticTTSModel[] = [
-  { id: 'tts-1', name: 'tts-1', provider: 'openai', selectionMode: 'model_and_voice' },
-  { id: 'tts-1-hd', name: 'tts-1-hd', provider: 'openai', selectionMode: 'model_and_voice' },
-  { id: 'gpt-4o-mini-tts', name: 'gpt-4o-mini-tts', provider: 'openai', selectionMode: 'model_and_voice' },
-];
-
-const OPENAI_VOICES: StaticVoice[] = OPENAI_VOICE_NAMES.map(v => ({
-  id: v.id,
-  name: v.name,
-  provider: 'openai',
-  language: 'multilingual',
-}));
-
-/** Capacidades TTS: sem suporte */
-const NO_TTS: TTSCapabilities = {
-  supportsTTS: false,
-  staticModels: [],
-  staticVoices: [],
-  supportsDynamicVoiceListing: false,
-};
-
-/** Capacidades TTS: OpenAI real (modelo e voz separados) */
-const OPENAI_TTS: TTSCapabilities = {
-  supportsTTS: true,
-  staticModels: OPENAI_MODELS,
-  staticVoices: OPENAI_VOICES,
-  supportsDynamicVoiceListing: false,
-};
-
-/** Capacidades TTS: provedor local com listagem dinâmica (LocalAI, etc.) */
-const DYNAMIC_TTS: TTSCapabilities = {
-  supportsTTS: true,
-  staticModels: [],
-  staticVoices: [],
-  supportsDynamicVoiceListing: true,
-};
 
 export const PROVIDER_CONFIG: Record<string, ProviderPreset> = {
   // --- Commercial API providers ---
@@ -128,7 +32,6 @@ export const PROVIDER_CONFIG: Record<string, ProviderPreset> = {
     helpText: 'Get your API key from https://platform.openai.com/api-keys',
     defaultModel: 'gpt-4o-mini',
     apiFormat: 'openai_responses',
-    tts: OPENAI_TTS,
   },
   anthropic: {
     label: 'Anthropic',
@@ -139,7 +42,6 @@ export const PROVIDER_CONFIG: Record<string, ProviderPreset> = {
     helpText: 'Get your API key from https://console.anthropic.com',
     defaultModel: 'claude-sonnet-4-20250514',
     apiFormat: 'anthropic',
-    tts: NO_TTS,
   },
   google: {
     label: 'Google (Gemini)',
@@ -150,7 +52,6 @@ export const PROVIDER_CONFIG: Record<string, ProviderPreset> = {
     helpText: 'Get your API key from https://aistudio.google.com',
     defaultModel: 'gemini-2.0-flash',
     apiFormat: 'google',
-    tts: NO_TTS,
   },
 
   // --- OpenAI-compatible commercial ---
@@ -162,7 +63,6 @@ export const PROVIDER_CONFIG: Record<string, ProviderPreset> = {
     testRequiresApiKey: true,
     helpText: 'Get your API key from https://openrouter.ai/keys',
     apiFormat: 'openai',
-    tts: NO_TTS,
   },
   deepseek: {
     label: 'DeepSeek',
@@ -174,7 +74,6 @@ export const PROVIDER_CONFIG: Record<string, ProviderPreset> = {
     defaultModel: 'deepseek-chat',
     apiFormat: 'openai',
     reasoningContentMode: 'replay_with_tools',
-    tts: NO_TTS,
   },
   xai: {
     label: 'xAI (Grok)',
@@ -185,7 +84,6 @@ export const PROVIDER_CONFIG: Record<string, ProviderPreset> = {
     helpText: 'Get your API key from https://console.x.ai',
     defaultModel: 'grok-3-mini',
     apiFormat: 'openai',
-    tts: NO_TTS,
   },
   mistral: {
     label: 'Mistral AI',
@@ -196,7 +94,6 @@ export const PROVIDER_CONFIG: Record<string, ProviderPreset> = {
     helpText: 'Get your API key from https://console.mistral.ai',
     defaultModel: 'mistral-small-latest',
     apiFormat: 'openai',
-    tts: NO_TTS,
   },
   groq: {
     label: 'Groq',
@@ -207,7 +104,6 @@ export const PROVIDER_CONFIG: Record<string, ProviderPreset> = {
     helpText: 'Get your API key from https://console.groq.com',
     defaultModel: 'llama-3.3-70b-versatile',
     apiFormat: 'openai',
-    tts: NO_TTS,
   },
   together: {
     label: 'Together AI',
@@ -217,7 +113,6 @@ export const PROVIDER_CONFIG: Record<string, ProviderPreset> = {
     testRequiresApiKey: true,
     helpText: 'Get your API key from https://api.together.ai/settings/api-keys',
     apiFormat: 'openai',
-    tts: NO_TTS,
   },
   fireworks: {
     label: 'Fireworks AI',
@@ -227,7 +122,6 @@ export const PROVIDER_CONFIG: Record<string, ProviderPreset> = {
     testRequiresApiKey: true,
     helpText: 'Get your API key from https://fireworks.ai/account/api-keys',
     apiFormat: 'openai',
-    tts: NO_TTS,
   },
   perplexity: {
     label: 'Perplexity',
@@ -238,7 +132,6 @@ export const PROVIDER_CONFIG: Record<string, ProviderPreset> = {
     helpText: 'Get your API key from https://www.perplexity.ai/settings/api',
     defaultModel: 'sonar',
     apiFormat: 'openai',
-    tts: NO_TTS,
   },
   cohere: {
     label: 'Cohere',
@@ -248,7 +141,6 @@ export const PROVIDER_CONFIG: Record<string, ProviderPreset> = {
     testRequiresApiKey: true,
     helpText: 'Get your API key from https://dashboard.cohere.ai',
     apiFormat: 'openai',
-    tts: NO_TTS,
   },
 
   // --- Local/self-hosted ---
@@ -260,7 +152,6 @@ export const PROVIDER_CONFIG: Record<string, ProviderPreset> = {
     testRequiresApiKey: false,
     helpText: 'Running locally. You can change the URL if using a different host/port',
     apiFormat: 'openai',
-    tts: NO_TTS,
   },
   localai: {
     label: 'LocalAI',
@@ -270,7 +161,6 @@ export const PROVIDER_CONFIG: Record<string, ProviderPreset> = {
     testRequiresApiKey: false,
     helpText: 'Running locally. Configure URL and optional API key if needed',
     apiFormat: 'openai',
-    tts: DYNAMIC_TTS,
   },
   llamacpp: {
     label: 'llama.cpp (server)',
@@ -280,7 +170,6 @@ export const PROVIDER_CONFIG: Record<string, ProviderPreset> = {
     testRequiresApiKey: false,
     helpText: 'llama.cpp server (--api-server). API key is not required by default.',
     apiFormat: 'openai',
-    tts: NO_TTS,
   },
 
   // --- Proxy ---
@@ -292,7 +181,6 @@ export const PROVIDER_CONFIG: Record<string, ProviderPreset> = {
     testRequiresApiKey: true,
     helpText: 'LiteLLM proxy server. Requires URL and API key',
     apiFormat: 'openai',
-    tts: DYNAMIC_TTS,
   },
 
   // --- Agentes de código locais (ACP, AEP-0084) ---
@@ -316,7 +204,6 @@ export const PROVIDER_CONFIG: Record<string, ProviderPreset> = {
     // agente não tem. Quem explica o que instalar é o formulário do agente,
     // em texto traduzido.
     apiFormat: 'acp',
-    tts: NO_TTS,
   },
 
   // --- Custom ---
@@ -327,7 +214,6 @@ export const PROVIDER_CONFIG: Record<string, ProviderPreset> = {
     apiKeyRequired: true,
     testRequiresApiKey: true,
     helpText: 'Configure your custom LLM provider',
-    tts: DYNAMIC_TTS,
   },
 };
 
@@ -342,14 +228,4 @@ export const AGENT_API_FORMAT = 'acp';
 /** Diz se o tipo de provedor é um agente de código local, e não um serviço HTTP. */
 export function providerIsAgent(providerType: string): boolean {
   return PROVIDER_CONFIG[providerType]?.apiFormat === AGENT_API_FORMAT;
-}
-
-/** Retorna o preset TTS para um tipo de provedor */
-export function getTTSCapabilities(providerType: string): TTSCapabilities {
-  return PROVIDER_CONFIG[providerType]?.tts ?? DYNAMIC_TTS;
-}
-
-/** Retorna true se o tipo de provedor suporta TTS */
-export function providerSupportsTTS(providerType: string): boolean {
-  return getTTSCapabilities(providerType).supportsTTS;
 }

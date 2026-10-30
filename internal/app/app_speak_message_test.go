@@ -8,6 +8,7 @@ import (
 
 	"assistente/internal/events"
 	"assistente/internal/llm"
+	"assistente/internal/llmcatalog"
 	"assistente/internal/profiles"
 	"assistente/internal/speech"
 	"strings"
@@ -241,17 +242,27 @@ func TestSpeakMessage_ModelOnlyRejectsVoiceID(t *testing.T) {
 
 	reg := llm.NewProviderRegistry()
 	_ = reg.Register(&llm.ProviderConfig{
-		ID:      "local-piper",
-		Name:    "Local Piper",
-		BaseURL: "http://localhost:9999",
+		ID:              "local-piper",
+		ServerProfileID: "localai",
+		Type:            llm.ProviderOpenAI,
+		APIFormat:       llm.APIFormatOpenAI,
+		Name:            "Local Piper",
+		BaseURL:         "http://localhost:9999",
 	})
 
 	app := &App{
 		audioSvc:       repo,
 		llmRegistry:    reg,
 		profileManager: profiles.NewManager(),
-		speechSvc:      newTestSpeechSvc(repo, reg),
-		currentUserID:  "test-user",
+		speechSvc: speech.NewService(speech.ServiceConfig{
+			Emitter: events.NoopEmitter{}, Registry: reg, AudioRepo: repo,
+			CatalogSnapshot: func() llmcatalog.Snapshot {
+				return llmcatalog.Snapshot{Document: llmcatalog.Document{Exposures: []llmcatalog.Exposure{{
+					ServerProfileID: "localai", APIFormat: "openai", ExposedModelID: "voice-pt_BR-dii", SelectionMode: "model_only",
+				}}}}
+			},
+		}),
+		currentUserID: "test-user",
 	}
 
 	_, err := app.speechSvc.SpeakMessage(context.Background(), "12", "local-piper", "voice-pt_BR-dii", "pt_BR-dii", 1.0, "")

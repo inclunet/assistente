@@ -127,7 +127,7 @@ func TestSpeechManagerDoesNotLoadCredentialForPendingHTTPProvider(t *testing.T) 
 	profile.Voice.Assistant.Provider = "openai"
 	profile.Voice.Assistant.LLMProviderID = provider.ID
 
-	sm := NewSpeechManagerFromProfile(ctx, profile, registry, credMgr)
+	sm := NewSpeechManagerFromProfile(ctx, profile, registry, credMgr, nil)
 	if sm == nil {
 		t.Fatal("speech manager deveria permanecer configurado")
 	}

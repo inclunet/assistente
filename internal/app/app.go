@@ -1044,6 +1044,12 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 
 	// Inicializa o Speech Service aqui (antes de initMessaging, que depende dele)
 	a.speechSvc = speech.NewService(speech.ServiceConfig{
+		CatalogSnapshot: func() llmcatalog.Snapshot {
+			if a.llmCatalog == nil {
+				return llmcatalog.Snapshot{}
+			}
+			return a.llmCatalog.Snapshot()
+		},
 		Emitter:         a.emitter,
 		Registry:        a.llmRegistry,
 		ProfileProvider: profileProviderAdapter{app: a},

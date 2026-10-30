@@ -5,63 +5,17 @@
 
 import { logger } from '../../utils/logger';
 import { TTSProvider, ITTSProvider, TTSVoice, TTSConfig } from './types';
-import type { TTSModel } from './types';
+import type { TTSModel, TTSSelectionMode } from './types';
 import { ttsFactory } from './factory';
 import { getStreamPlayer } from './streamPlayer';
 import { calcTTSTimeoutMs } from '../../lib/audioUtils';
 
-type WailsSpeech = {
-  GetTTSModels?: (providerId: string) => Promise<BackendModel[]>;
-  GetTTSVoices?: (providerId: string, modelId: string) => Promise<BackendVoice[]>;
-  SpeakPreview?: (providerId: string, model: string, voiceId: string, rate: number, volume: number, language: string, text: string, sessionId: string) => Promise<void>;
-};
+import { GetTTSModels, GetTTSVoices, SpeakPreview } from '@wailsjs/go/wailsapi/Speech';
 
-type WailsApp = {
-  go?: {
-    wailsapi?: {
-      Speech?: WailsSpeech;
-    };
-    app?: {
-      App?: WailsSpeech;
-    };
-    main?: {
-      App?: WailsSpeech;
-    };
-  };
-};
-
-const getWailsSpeech = () => {
-  const go = (window as unknown as WailsApp).go;
-  return go?.wailsapi?.Speech ?? go?.app?.App ?? go?.main?.App;
-};
-
-type BackendVoice = {
-  id: string;
-  name: string;
-  gender?: string;
-  description?: string;
-  provider?: string;
-  model_id?: string;
-};
-
-type BackendModel = {
-  id: string;
-  name: string;
-  provider?: string;
-  selection_mode: 'model_and_voice' | 'model_only';
-  description?: string;
-};
-
-const getTTSModels = async (providerId: string): Promise<BackendModel[]> => {
-  const speech = getWailsSpeech();
-  if (!speech?.GetTTSModels) return [];
-  return speech.GetTTSModels(providerId);
-};
-
-const getTTSVoices = async (providerId: string, modelId: string): Promise<BackendVoice[]> => {
-  const speech = getWailsSpeech();
-  if (!speech?.GetTTSVoices) return [];
-  return speech.GetTTSVoices(providerId, modelId);
+export type VoiceSelection = {
+ selectionMode: TTSSelectionMode | "";
+ completeness: "complete" | "partial" | "unknown";
+ voices: TTSVoice[];
 };
 
 /** Configuração de voz por role (assistant, user, system) */
@@ -121,7 +75,7 @@ class TTSService {
     }
     
     // Obtém novo provider
-    this.currentProvider = ttsFactory.getProviderWithFallback(type);
+    this.currentProvider = ttsFactory.getProvider(type);
     
     if (!this.currentProvider) {
       logger.error('[TTSService] No provider available');
@@ -169,33 +123,6 @@ class TTSService {
     };
   }
   
-  /**
-   * Detecta o provider de uma voz pelo nome
-   * Suporta formato "provider:voiceId" ou nome de voz direto
-   */
-  private detectProviderFromVoice(voiceName: string): TTSProvider {
-    // Formato provider:voiceId (ex: "openai:alloy")
-    if (voiceName.includes(':')) {
-      const [provider] = voiceName.split(':');
-      if (provider === 'openai') return TTSProvider.OPENAI;
-      if (provider === 'webspeech') return TTSProvider.WEBSPEECH;
-    }
-    if (voiceName.match(/^(alloy|ash|ballad|coral|echo|fable|nova|onyx|sage|shimmer|verse)$/)) {
-      return TTSProvider.OPENAI;
-    }
-    return TTSProvider.WEBSPEECH;
-  }
-  
-  /**
-   * Extrai apenas o ID da voz (remove prefixo provider:)
-   */
-  private extractVoiceId(voiceName: string): string {
-    if (voiceName.includes(':')) {
-      return voiceName.split(':').slice(1).join(':');
-    }
-    return voiceName;
-  }
-
   /**
    * Configura a voz de uma role específica (assistant, user, system).
    * Usado pelo hook de perfil para sincronizar voice configs do perfil ativo.
@@ -438,7 +365,7 @@ class TTSService {
   async speakWithOverride(text: string, options: { voiceName?: string; providerId?: string; rate?: number; pitch?: number; volume?: number; ttsModel?: string; language?: string; isCurrent?: () => boolean; onStarted?: () => void }): Promise<void> {
     const guard = () => { if (options.isCurrent && !options.isCurrent()) throw new Error('chat-message-stale'); };
     guard();
-    const voiceId = options.voiceName ? this.extractVoiceId(options.voiceName) : undefined;
+    const voiceId = options.voiceName;
 
     // Resolve o tipo de provider: webspeech ou LLM/sapi5 (backend)
     const resolvedProvider = this.resolveProviderType(options.providerId);
@@ -522,7 +449,7 @@ class TTSService {
       this.config = backupConfig;
       if (this.currentProvider) {
         if (this.config.voiceName) {
-          await this.currentProvider.setVoice(this.extractVoiceId(this.config.voiceName));
+          await this.currentProvider.setVoice(this.config.voiceName);
         }
         await this.currentProvider.setRate(this.config.rate);
         await this.currentProvider.setVolume(this.config.volume);
@@ -561,82 +488,69 @@ class TTSService {
     onStarted?: () => void,
   ): Promise<void> {
     if (isCurrent && !isCurrent()) throw new Error('chat-message-stale');
-    const speech = getWailsSpeech();
-    const speakPreview = speech?.SpeakPreview as ((
-      providerId: string, model: string, voiceId: string, rate: number, volume: number, language: string, text: string, sessionId: string,
-    ) => Promise<void>) | undefined;
-
-    if (!speakPreview) {
-      logger.error('[TTSService] SpeakPreview não disponível no backend');
-      return;
-    }
-
     const sessionId = `preview-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
-    // Usa o OpenAI provider do frontend para gerenciar o streaming player
-    const openaiProvider = ttsFactory.getProvider(TTSProvider.OPENAI);
-    if (openaiProvider && 'streamPlayer' in openaiProvider) {
-      // Reutiliza a infraestrutura de streaming do OpenAI provider
-      const streamPlayer = getStreamPlayer();
-      this.activeStreamPlayer = streamPlayer;
+    this.activeStreamAbort?.abort();
+    const requestPreview = () => SpeakPreview(providerId, model, voiceId, rate, volume, language, text, sessionId);
+    // SAPI5 reproduz no Windows; somente HTTP retorna eventos de áudio.
+    if (providerId === 'sapi5') return requestPreview();
+    const streamPlayer = getStreamPlayer();
+    this.activeStreamPlayer = streamPlayer;
 
-      const abort = new AbortController();
-      this.activeStreamAbort = abort;
+    const abort = new AbortController();
+    this.activeStreamAbort = abort;
 
-      const streamPromise = new Promise<void>((resolve) => {
-        const cleanup = () => {
-          clearTimeout(timeout);
-          abort.signal.removeEventListener('abort', onAbort);
-          this.activeStreamPlayer = null;
-          this.activeStreamAbort = null;
-        };
-        // Resolve imediatamente se stop() for chamado externamente
-        const onAbort = () => { cleanup(); resolve(); };
-        abort.signal.addEventListener('abort', onAbort, { once: true });
+    let complete!: () => void;
+    let fail!: (error: Error) => void;
+    const streamPromise = new Promise<void>((resolve, reject) => { complete = resolve; fail = reject; });
+    let finished = false;
+    const finish = (error?: Error) => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timeout);
+      this.emit('speakEnd');
+      if (error) fail(error); else complete();
+    };
+    const cancel = () => {
+      if (this.activeStreamAbort === abort) streamPlayer.stop();
+      finish();
+    };
+    const timeout = setTimeout(cancel, calcTTSTimeoutMs(text.length));
+    abort.signal.addEventListener('abort', cancel, { once: true });
 
-        // Timeout proporcional ao tamanho do texto
-        const timeoutMs = calcTTSTimeoutMs(text.length);
-        const timeout = setTimeout(() => { cleanup(); streamPlayer.stop(); resolve(); }, timeoutMs);
+    streamPlayer.startListening(sessionId, {
+      isCurrent,
+      onStart: () => {
+        if (abort.signal.aborted) return;
+        if (isCurrent && !isCurrent()) { abort.abort(); return; }
+        this.emit('speakStart');
+        onStarted?.();
+      },
+      onEnd: () => finish(),
+      onError: error => finish(error),
+    });
 
-        streamPlayer.startListening(sessionId, {
-          isCurrent,
-          onStart: () => {
-            if (isCurrent && !isCurrent()) { streamPlayer.stop(); abort.abort(); return; }
-            this.emit('speakStart');
-            onStarted?.();
-          },
-          onEnd: () => {
-            cleanup();
-            this.emit('speakEnd');
-            resolve();
-          },
-          onError: () => {
-            cleanup();
-            this.emit('speakEnd');
-            resolve();
-          },
-        });
-      });
-
-      try {
-        await speakPreview(providerId, model, voiceId, rate, volume, language, text, sessionId);
-        if (isCurrent && !isCurrent()) { streamPlayer.stop(); abort.abort(); throw new Error('chat-message-stale'); }
-        await streamPromise;
-      } catch (error) {
-        streamPlayer.stop();
-        if (this.activeStreamAbort === abort) {
-          this.activeStreamAbort = null;
-        }
-        if (this.activeStreamPlayer === streamPlayer) {
-          this.activeStreamPlayer = null;
-        }
-        this.emit('speakEnd');
-        throw error;
+    try {
+      await Promise.race([
+        requestPreview(),
+        streamPromise,
+      ]);
+      if (abort.signal.aborted) return;
+      if (isCurrent && !isCurrent()) throw new Error('chat-message-stale');
+      await streamPromise;
+    } catch (error) {
+      if (abort.signal.aborted) return;
+      abort.abort();
+      throw error;
+    } finally {
+      clearTimeout(timeout);
+      abort.signal.removeEventListener('abort', cancel);
+      if (this.activeStreamAbort === abort) {
+        this.activeStreamAbort = null;
+        this.activeStreamPlayer = null;
       }
-    } else {
-      // Fallback simples: só chama o backend (sem aguardar)
-      await speakPreview(providerId, model, voiceId, rate, volume, language, text, sessionId);
     }
+
   }
 
   /**   * Obtém o volume atual
@@ -646,29 +560,15 @@ class TTSService {
   }
   
   /**
-   * Define a voz (detecta provider automaticamente)
-   * Aceita formato "provider:voiceId" ou nome de voz direto
+   * Define o ID exato da voz no provedor explicitamente configurado
    */
   async setVoice(voiceName: string): Promise<void> {
     this.config.voiceName = voiceName;
     
-    // Detecta provider da voz
-    const detectedProvider = this.detectProviderFromVoice(voiceName);
-    
-    // Extrai apenas o ID da voz (remove prefixo provider:)
-    const voiceId = this.extractVoiceId(voiceName);
-    
-    // Troca de provider se necessário
-    if (detectedProvider !== this.config.provider) {
-      this.config.provider = detectedProvider;
-      await this.selectProvider(detectedProvider);
-    }
-    
-    // Define a voz no provider (usa o ID limpo, sem prefixo)
     if (this.currentProvider) {
-      await this.currentProvider.setVoice(voiceId);
+      await this.currentProvider.setVoice(voiceName);
     }
-    
+
     this.emit('configChanged', this.config);
   }
   
@@ -676,19 +576,18 @@ class TTSService {
    * Retorna lista de modelos TTS disponíveis de um provedor.
    */
   async getModelsForProvider(providerId: string): Promise<TTSModel[]> {
-    await ttsFactory.initialize();
 
     if (!providerId || providerId === 'webspeech' || providerId === 'sapi5') {
       return [];
     }
 
     try {
-      const models = await getTTSModels(providerId);
+      const models = await GetTTSModels(providerId);
       return (models || []).map((m) => ({
         id: m.id,
         name: m.name,
         provider: m.provider || providerId,
-        selectionMode: m.selection_mode,
+        selectionMode: m.selection_mode as TTSSelectionMode,
         description: m.description || m.name,
       }));
     } catch (error) {
@@ -700,51 +599,27 @@ class TTSService {
   /**
    * Retorna lista de vozes disponíveis para um provedor e modelo.
    */
-  async getVoicesForProvider(providerId: string, modelId: string = ''): Promise<TTSVoice[]> {
-    await ttsFactory.initialize();
-
+  async getVoiceSelectionForProvider(providerId: string, modelId: string = ''): Promise<VoiceSelection> {
     if (providerId === 'webspeech') {
-      const p = ttsFactory.getProvider(TTSProvider.WEBSPEECH);
-      return p ? await p.getVoices() : [];
+      await ttsFactory.initialize();
+      const provider = ttsFactory.getProvider(TTSProvider.WEBSPEECH);
+      return { selectionMode: '', completeness: 'complete', voices: provider ? await provider.getVoices() : [] };
     }
-    if (providerId === 'sapi5') {
-      try {
-        const voices = await getTTSVoices(providerId, '');
-        return (voices || []).map((v) => ({
-          id: v.id,
-          name: v.name,
-          language: 'multilingual',
-          provider: providerId,
-          gender: (v.gender || 'neutral').toLowerCase() as 'neutral' | 'male' | 'female',
-          premium: false,
-          localService: true,
-          description: v.description || v.name
-        }));
-      } catch (error) {
-        logger.error('[TTSService] Erro ao buscar vozes SAPI5:', error);
-        return [];
-      }
-    }
+    const result = await GetTTSVoices(providerId, modelId);
+    return {
+      selectionMode: result.selection_mode as TTSSelectionMode | '',
+      completeness: result.completeness as VoiceSelection['completeness'],
+      voices: result.items.map((voice) => ({
+        id: voice.id, name: voice.name, language: voice.language || '',
+        provider: providerId, modelId: voice.model_id,
+        gender: (voice.gender || 'neutral').toLowerCase() as 'neutral' | 'male' | 'female',
+        localService: providerId === 'sapi5', description: voice.description || voice.name,
+      })),
+    };
+  }
 
-    // Se for um provedor LLM registrado, busca via backend
-    if (!modelId) return [];
-    try {
-      const voices = await getTTSVoices(providerId, modelId);
-      return (voices || []).map((v) => ({
-        id: v.id,
-        name: v.name,
-        language: 'multilingual',
-        provider: providerId,
-        modelId: v.model_id || modelId,
-        gender: (v.gender || 'neutral').toLowerCase() as 'neutral' | 'male' | 'female',
-        premium: true,
-        localService: false,
-        description: v.description || v.name
-      }));
-    } catch (error) {
-      logger.error(`[TTSService] Erro ao buscar vozes para ${providerId}:`, error);
-      return [];
-    }
+  async getVoicesForProvider(providerId: string, modelId: string = ''): Promise<TTSVoice[]> {
+    return (await this.getVoiceSelectionForProvider(providerId, modelId)).voices;
   }
 
   /**

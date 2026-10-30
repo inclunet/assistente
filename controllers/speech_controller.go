@@ -46,8 +46,8 @@ func (c *SpeechController) SynthesizeStream(ctx context.Context, text, voice, se
 	return c.speechSvc.SynthesizeStream(ctx, text, voice, sessionID)
 }
 
-func (c *SpeechController) GetAvailableVoices() []speech.TTSVoiceInfo {
-	return c.speechSvc.GetAvailableVoices()
+func (c *SpeechController) GetAvailableVoices(ctx context.Context) []speech.TTSVoiceInfo {
+	return c.speechSvc.GetAvailableVoices(ctx)
 }
 
 func (c *SpeechController) SetTTSVoice(voice string) {
@@ -90,7 +90,7 @@ func (c *SpeechController) GetTTSModels(ctx context.Context, providerID string) 
 	return c.speechSvc.GetTTSModels(ctx, providerID)
 }
 
-func (c *SpeechController) GetTTSVoices(ctx context.Context, providerID, modelID string) []speech.TTSVoiceInfo {
+func (c *SpeechController) GetTTSVoices(ctx context.Context, providerID, modelID string) speech.TTSVoiceList {
 	return c.speechSvc.GetTTSVoices(ctx, providerID, modelID)
 }
 

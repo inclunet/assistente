@@ -11,6 +11,7 @@ import (
 	"assistente/internal/credentials"
 	"assistente/internal/events"
 	"assistente/internal/llm"
+	"assistente/internal/llmcatalog"
 	"assistente/internal/profiles"
 	"assistente/internal/textutil"
 )
@@ -29,6 +30,7 @@ type ProfileProvider interface {
 
 // ServiceConfig contém dependências injetadas para o Service.
 type ServiceConfig struct {
+	CatalogSnapshot func() llmcatalog.Snapshot
 	Emitter         events.Emitter
 	Registry        ProviderRegistry
 	ProfileProvider ProfileProvider
@@ -39,6 +41,7 @@ type ServiceConfig struct {
 // Service encapsula a lógica de negócio de speech/TTS/STT,
 // desacoplado do framework Wails.
 type Service struct {
+	catalogSnapshot func() llmcatalog.Snapshot
 	emitter         events.Emitter
 	registry        ProviderRegistry
 	profileProvider ProfileProvider
@@ -50,6 +53,7 @@ type Service struct {
 // NewService cria um Service com as dependências fornecidas.
 func NewService(cfg ServiceConfig) *Service {
 	return &Service{
+		catalogSnapshot: cfg.CatalogSnapshot,
 		emitter:         cfg.Emitter,
 		registry:        cfg.Registry,
 		profileProvider: cfg.ProfileProvider,
@@ -88,7 +92,7 @@ func (s *Service) InitFromProfile(ctx context.Context) error {
 		return fmt.Errorf("perfil ativo não encontrado: %w", err)
 	}
 	resolved := s.profileProvider.ResolveDefaults(ctx, p)
-	sm := NewSpeechManagerFromProfile(ctx, resolved, s.registry, s.credMgr)
+	sm := NewSpeechManagerFromProfile(ctx, resolved, s.registry, s.credMgr, s.catalogSnapshot)
 	if sm == nil {
 		return fmt.Errorf("falha ao criar speech manager para perfil ativo")
 	}
@@ -110,22 +114,7 @@ func (s *Service) EnsureSpeechManager(ctx context.Context) bool {
 
 // CreateTTSClient cria um TTSClient para um provider LLM específico.
 func (s *Service) CreateTTSClient(ctx context.Context, providerID string, model string) *TTSClient {
-	cfg := s.registry.Get(providerID)
-	if cfg == nil {
-		logging.Infof(ctx, "speech.service", "[TTS] Provider %s não encontrado", providerID)
-		return nil
-	}
-	providerSnapshot := *cfg
-	cfg = &providerSnapshot
-	if err := cfg.Validate(); err != nil {
-		logging.Warnf(ctx, "speech.service", "[TTS] Provider %s não pode ser usado: %v", providerID, err)
-		return nil
-	}
-	return NewTTSClient(TTSConfig{
-		BaseURL:           cfg.BaseURL,
-		CredentialPattern: cfg.CredentialPattern,
-		Model:             TTSModel(model),
-	}, s.credMgr)
+	return s.CreateTTSClientWithLanguage(ctx, providerID, model, "")
 }
 
 func (s *Service) CreateTTSClientWithLanguage(ctx context.Context, providerID string, model string, language string) *TTSClient {
@@ -141,10 +130,11 @@ func (s *Service) CreateTTSClientWithLanguage(ctx context.Context, providerID st
 		return nil
 	}
 	return NewTTSClient(TTSConfig{
-		BaseURL:           cfg.BaseURL,
-		CredentialPattern: cfg.CredentialPattern,
-		Model:             TTSModel(model),
-		Language:          language,
+		selectionModeForModel: catalogSelectionMode(s.catalogSnapshot, cfg.ServerProfileID, string(cfg.APIFormat), ""),
+		BaseURL:               cfg.BaseURL,
+		CredentialPattern:     cfg.CredentialPattern,
+		Model:                 TTSModel(model),
+		Language:              language,
 	}, s.credMgr)
 }
 
@@ -339,69 +329,56 @@ func (s *Service) GetTTSModels(ctx context.Context, providerID string) []TTSMode
 	if providerID == "webspeech" || providerID == "sapi5" {
 		return []TTSModelInfo{}
 	}
-	client := s.CreateTTSClient(ctx, providerID, "")
-	if client == nil {
-		logging.Errorf(ctx, "speech.service", "[GetTTSModels] não foi possível criar client para provider %s", providerID)
+	cfg := s.registry.Get(providerID)
+	if cfg == nil || s.catalogSnapshot == nil {
 		return []TTSModelInfo{}
 	}
-	models, err := client.FetchTTSModels(ctx)
-	if err != nil {
-		logging.Errorf(ctx, "speech.service", "[GetTTSModels] erro ao buscar modelos para %s: %v", providerID, err)
-		return []TTSModelInfo{}
+	doc := s.catalogSnapshot().Document
+	result := []TTSModelInfo{}
+	for _, exposure := range doc.Exposures {
+		if exposure.ServerProfileID != cfg.ServerProfileID || exposure.APIFormat != string(cfg.APIFormat) || exposure.SelectionMode == "" {
+			continue
+		}
+		result = append(result, TTSModelInfo{ID: exposure.ExposedModelID, Name: exposure.ExposedModelID, Provider: providerID, SelectionMode: exposure.SelectionMode})
 	}
-	return models
+	return result
 }
 
 // GetTTSVoices retorna vozes TTS disponíveis para um provedor e modelo.
-func (s *Service) GetTTSVoices(ctx context.Context, providerID, modelID string) []TTSVoiceInfo {
+// TTSVoiceList preserves the catalog's completeness and explicit selection mode.
+type TTSVoiceList struct {
+	SelectionMode string         `json:"selection_mode"`
+	Completeness  string         `json:"completeness"`
+	Items         []TTSVoiceInfo `json:"items"`
+}
+
+func (s *Service) GetTTSVoices(ctx context.Context, providerID, modelID string) TTSVoiceList {
+	result := TTSVoiceList{Completeness: "unknown", Items: []TTSVoiceInfo{}}
 	if providerID == "" {
-		return []TTSVoiceInfo{}
+		return result
 	}
 	providerID = s.resolveProviderSentinel(ctx, providerID)
-	if providerID == "" {
-		logging.Errorf(ctx, "speech.service", "[GetTTSVoices] não foi possível resolver o provider default ($default)")
-		return []TTSVoiceInfo{}
+	if providerID == "" || providerID == "webspeech" {
+		return result
 	}
-
-	// SAPI5: vozes do Windows
 	if providerID == "sapi5" {
-		manager := GetSAPI5Manager()
-		voices := manager.GetVoices()
-		result := make([]TTSVoiceInfo, len(voices))
-		for i, v := range voices {
-			result[i] = TTSVoiceInfo{
-				ID:          v.Name,
-				Name:        v.Name,
-				Gender:      v.Gender,
-				Description: v.Description,
-			}
+		result.Completeness = "complete"
+		for _, voice := range GetSAPI5Manager().GetVoices() {
+			result.Items = append(result.Items, TTSVoiceInfo{ID: voice.Name, Name: voice.Name, Gender: voice.Gender, Description: voice.Description})
 		}
 		return result
 	}
-
-	// WebSpeech: vozes gerenciadas pelo browser
-	if providerID == "webspeech" {
-		return []TTSVoiceInfo{}
+	cfg := s.registry.Get(providerID)
+	if cfg == nil || s.catalogSnapshot == nil {
+		return result
 	}
-	if modelID == "" {
-		logging.Infof(ctx, "speech.service", "[GetTTSVoices] model é obrigatório para provider %s", providerID)
-		return []TTSVoiceInfo{}
+	selection := s.catalogSnapshot().Document.ResolveTTSSelection(cfg.ServerProfileID, string(cfg.APIFormat), modelID)
+	result.SelectionMode = selection.SelectionMode
+	result.Completeness = selection.Voices.Completeness
+	for _, voice := range selection.Voices.Items {
+		result.Items = append(result.Items, TTSVoiceInfo{ID: voice.ID, Name: voice.Name, Language: voice.Language, ModelID: modelID, Provider: providerID})
 	}
-
-	// Provedores LLM: consulta via TTSClient
-	client := s.CreateTTSClient(ctx, providerID, modelID)
-	if client == nil {
-		logging.Errorf(ctx, "speech.service", "[GetTTSVoices] não foi possível criar client para provider %s", providerID)
-		return []TTSVoiceInfo{}
-	}
-
-	voices, err := client.FetchVoices(ctx, modelID)
-	if err != nil {
-		logging.Errorf(ctx, "speech.service", "[GetTTSVoices] erro ao buscar vozes para %s: %v", providerID, err)
-		return []TTSVoiceInfo{}
-	}
-
-	return voices
+	return result
 }
 
 // GetSTTModels retorna modelos STT disponíveis para um provedor.
@@ -659,8 +636,20 @@ func (s *Service) InitFromConfig(cfg SpeechConfig) {
 }
 
 // GetAvailableVoices retorna vozes OpenAI disponíveis.
-func (s *Service) GetAvailableVoices() []TTSVoiceInfo {
-	return GetAvailableVoices()
+func (s *Service) GetAvailableVoices(ctx context.Context) []TTSVoiceInfo {
+	if s.profileProvider == nil {
+		return []TTSVoiceInfo{}
+	}
+	p, err := s.profileProvider.GetActive()
+	if err != nil || p == nil {
+		return []TTSVoiceInfo{}
+	}
+	resolved := s.profileProvider.ResolveDefaults(ctx, p)
+	if resolved == nil {
+		return []TTSVoiceInfo{}
+	}
+	role := resolved.Voice.Assistant
+	return s.GetTTSVoices(ctx, role.LLMProviderID, role.Model).Items
 }
 
 // GetMessageAudio retorna o áudio cached de uma mensagem.

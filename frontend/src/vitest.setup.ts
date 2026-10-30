@@ -80,11 +80,9 @@ vi.mock('./services/tts/factory', () => {
 	return {
 		ttsFactory: {
 			initialize: async () => {},
-			getProviderWithFallback: () => provider,
 			getProvider: () => provider,
 			getAvailableProviders: () => [TTSProvider.WEBSPEECH],
 			isProviderAvailable: () => true,
-			getProviderByVoiceName: async () => provider,
 			dispose: () => {},
 		},
 	};

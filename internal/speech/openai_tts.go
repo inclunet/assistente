@@ -44,22 +44,8 @@ func CalcTTSTimeout(textLen int) time.Duration {
 // TTSVoice representa uma voz disponível no OpenAI TTS
 type TTSVoice string
 
-const (
-	VoiceAlloy   TTSVoice = "alloy"   // Neutra, balanceada
-	VoiceEcho    TTSVoice = "echo"    // Masculina, profunda
-	VoiceFable   TTSVoice = "fable"   // Expressiva, narrativa
-	VoiceOnyx    TTSVoice = "onyx"    // Masculina, autoritária
-	VoiceNova    TTSVoice = "nova"    // Feminina, jovem
-	VoiceShimmer TTSVoice = "shimmer" // Feminina, clara
-)
-
 // TTSModel representa o modelo de TTS
 type TTSModel string
-
-const (
-	ModelTTS1   TTSModel = "tts-1"    // Rápido, menor qualidade
-	ModelTTS1HD TTSModel = "tts-1-hd" // Mais lento, melhor qualidade
-)
 
 // TTSSelectionMode define se um modelo usa voz separada ou se o próprio
 // modelo representa a voz, como em Piper.
@@ -84,14 +70,15 @@ const (
 
 // TTSConfig configuração para o OpenAI TTS
 type TTSConfig struct {
-	BaseURL           string           // URL base (vazio = default OpenAI)
-	CredentialPattern string           // padrão para credential transport (ex: "api.openai.com")
-	Model             TTSModel         // modelo TTS
-	Voice             TTSVoice         // alloy, echo, fable, onyx, nova, shimmer
-	SelectionMode     TTSSelectionMode // model_and_voice ou model_only
-	Format            TTSFormat        // mp3, opus, aac, flac, wav, pcm
-	Speed             float64          // 0.25 a 4.0 (1.0 = normal)
-	Language          string           // idioma desejado para orientar TTS, ex: pt-BR
+	selectionModeForModel func(string) TTSSelectionMode
+	BaseURL               string           // URL base (vazio = default OpenAI)
+	CredentialPattern     string           // padrão para credential transport (ex: "api.openai.com")
+	Model                 TTSModel         // modelo TTS
+	Voice                 TTSVoice         // alloy, echo, fable, onyx, nova, shimmer
+	SelectionMode         TTSSelectionMode // model_and_voice ou model_only
+	Format                TTSFormat        // mp3, opus, aac, flac, wav, pcm
+	Speed                 float64          // 0.25 a 4.0 (1.0 = normal)
+	Language              string           // idioma desejado para orientar TTS, ex: pt-BR
 }
 
 // TTSClient cliente para síntese de voz via OpenAI SDK
@@ -102,6 +89,7 @@ type TTSClient struct {
 
 // TTSVoiceInfo informações sobre uma voz
 type TTSVoiceInfo struct {
+	Language    string `json:"language,omitempty"`
 	ID          string `json:"id"`
 	Name        string `json:"name"`
 	Description string `json:"description"`
@@ -157,8 +145,11 @@ func NewTTSClient(config TTSConfig, credMgr *credentials.Manager) *TTSClient {
 func (c *TTSClient) buildParams(text string, voice TTSVoice) (openai.AudioSpeechNewParams, error) {
 	modelID := string(c.config.Model)
 	voiceID := string(voice)
-	requestVoiceID := normalizeTTSVoiceForRequest(modelID, voiceID)
-	mode := normalizeTTSSelectionMode(modelID, c.config.SelectionMode)
+	requestVoiceID := voiceID
+	mode := c.config.SelectionMode
+	if c.config.selectionModeForModel != nil {
+		mode = c.config.selectionModeForModel(modelID)
+	}
 	if err := validateTTSSelection(modelID, voiceID, mode); err != nil {
 		return openai.AudioSpeechNewParams{}, err
 	}
@@ -167,7 +158,7 @@ func (c *TTSClient) buildParams(text string, voice TTSVoice) (openai.AudioSpeech
 		Input: text,
 		Model: openai.SpeechModel(c.config.Model),
 	}
-	if mode == TTSSelectionModelAndVoice {
+	if voiceID != "" {
 		params.Voice = openai.AudioSpeechNewParamsVoice(requestVoiceID)
 	}
 	if c.config.Speed != 1.0 {
@@ -176,14 +167,21 @@ func (c *TTSClient) buildParams(text string, voice TTSVoice) (openai.AudioSpeech
 	if c.config.Format != "" {
 		params.ResponseFormat = openai.AudioSpeechNewParamsResponseFormat(c.config.Format)
 	}
+	extraFields := map[string]any{}
+	if voiceID == "" {
+		extraFields["voice"] = param.Omit
+	}
 	if language := normalizeTTSLanguage(c.config.Language); language != "" {
 		if supportsTTSInstructions(modelID) {
 			params.Instructions = param.NewOpt(ttsLanguageInstruction(language))
 		}
 		if shouldSendTTSLanguageField(c.config.BaseURL) {
-			params.SetExtraFields(ttsLanguageExtraFields(modelID, requestVoiceID, language))
+			for key, value := range ttsLanguageExtraFields(modelID, requestVoiceID, language) {
+				extraFields[key] = value
+			}
 		}
 	}
+	params.SetExtraFields(extraFields)
 	return params, nil
 }
 
@@ -386,9 +384,6 @@ func (c *TTSClient) SetSpeed(speed float64) {
 // SetModel altera o modelo de TTS
 func (c *TTSClient) SetModel(model TTSModel) {
 	c.config.Model = model
-	if c.config.SelectionMode == "" {
-		c.config.SelectionMode = selectionModeForTTSModel(string(model))
-	}
 }
 
 // SetFormat altera o formato de saída
@@ -407,51 +402,6 @@ func (c *TTSClient) listModelsSafe(ctx context.Context) (page *pagination.Page[o
 	return c.client.Models.List(ctx)
 }
 
-// FetchTTSModels retorna modelos disponíveis para TTS.
-func (c *TTSClient) FetchTTSModels(ctx context.Context) ([]TTSModelInfo, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-
-	page, err := c.listModelsSafe(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if page == nil {
-		return []TTSModelInfo{}, nil
-	}
-
-	var models []TTSModelInfo
-	for _, m := range page.Data {
-		if isTTSModel(m.ID) {
-			models = append(models, TTSModelInfo{
-				ID:            m.ID,
-				Name:          m.ID,
-				Provider:      "",
-				SelectionMode: string(selectionModeForTTSModel(m.ID)),
-			})
-		}
-	}
-	return models, nil
-}
-
-// FetchVoices retorna vozes disponíveis para um modelo TTS específico.
-func (c *TTSClient) FetchVoices(_ context.Context, modelID string) ([]TTSVoiceInfo, error) {
-	if modelID == "" {
-		return nil, fmt.Errorf("model is required to list TTS voices")
-	}
-	if selectionModeForTTSModel(modelID) == TTSSelectionModelOnly {
-		return []TTSVoiceInfo{}, nil
-	}
-	voices := voicesForTTSModel(modelID)
-	for i := range voices {
-		voices[i].ModelID = modelID
-	}
-	return voices, nil
-}
-
 // SpeechModelInfo informações sobre um modelo de speech (TTS ou STT).
 type SpeechModelInfo struct {
 	ID   string `json:"id"`
@@ -468,85 +418,17 @@ var staticSTTModels = []SpeechModelInfo{
 // StaticSTTModels retorna a lista estática de modelos STT (para uso quando não há client).
 func StaticSTTModels() []SpeechModelInfo { return staticSTTModels }
 
-// knownTTSModels são IDs exatos de modelos TTS reconhecidos.
-var knownTTSModels = map[string]bool{
-	"tts-1": true, "tts-1-hd": true,
-	"tts-1-1106": true, "tts-1-hd-1106": true,
-	"gpt-4o-mini-tts": true,
-}
-
 // knownSTTModels são IDs exatos de modelos STT reconhecidos.
 var knownSTTModels = map[string]bool{
 	"whisper-1": true, "whisper-large-v3": true,
 	"gpt-4o-transcribe": true, "gpt-4o-mini-transcribe": true,
 }
 
-// ttsPrefixes são prefixos heurísticos para modelos TTS não catalogados.
-// - "tts-": OpenAI (tts-1, tts-1-hd)
-// - "voice-": Piper/LocalAI (voice-pt_BR-cadu-medium, voice-en_US-amy-medium)
-var ttsPrefixes = []string{"tts-", "voice-"}
-
-// ttsInfixes são substrings que indicam modelo TTS quando aparecem no meio do ID.
-// Ex: qwen3-tts-0.6b-custom-voice, vllm-omni-qwen3-tts-custom-voice,
-// qwen3-0.6b-custom-voice, kokoro, kokoros.
-var ttsInfixes = []string{"-tts-", "-tts", "custom-voice", "kokoro"}
-
 // sttPrefixes são prefixos heurísticos para modelos STT não catalogados.
 var sttPrefixes = []string{"whisper"}
 
 // sttSuffixes são sufixos heurísticos para modelos STT não catalogados.
 var sttSuffixes = []string{"-transcribe", "-asr"}
-
-// isTTSModel retorna true se o ID é um modelo TTS conhecido ou corresponde
-// a padrões heurísticos:
-//   - prefixo "tts-" (OpenAI), "voice-" (Piper/LocalAI)
-//   - infixo "-tts-" ou sufixo "-tts" (qwen3-tts-*, vllm-omni-*-tts-*)
-func isTTSModel(id string) bool {
-	lower := strings.ToLower(id)
-	if knownTTSModels[lower] {
-		return true
-	}
-	for _, p := range ttsPrefixes {
-		if strings.HasPrefix(lower, p) {
-			return true
-		}
-	}
-	for _, infix := range ttsInfixes {
-		if strings.Contains(lower, infix) {
-			return true
-		}
-	}
-	return false
-}
-
-func selectionModeForTTSModel(id string) TTSSelectionMode {
-	lower := strings.ToLower(id)
-	if strings.HasPrefix(lower, "voice-") {
-		return TTSSelectionModelOnly
-	}
-	return TTSSelectionModelAndVoice
-}
-
-func voicesForTTSModel(modelID string) []TTSVoiceInfo {
-	lower := strings.ToLower(modelID)
-	switch {
-	case strings.Contains(lower, "kokoro"):
-		return KokoroTTSVoices()
-	case strings.Contains(lower, "custom-voice"):
-		return QwenCustomVoiceTTSVoices()
-	default:
-		return GetAvailableVoices()
-	}
-}
-
-func normalizeTTSSelectionMode(modelID string, mode TTSSelectionMode) TTSSelectionMode {
-	switch mode {
-	case TTSSelectionModelAndVoice, TTSSelectionModelOnly:
-		return mode
-	default:
-		return selectionModeForTTSModel(modelID)
-	}
-}
 
 func normalizeTTSLanguage(language string) string {
 	language = strings.TrimSpace(language)
@@ -562,17 +444,6 @@ func ttsLanguageCode(language string) string {
 		return lower[:idx]
 	}
 	return lower
-}
-
-func normalizeTTSVoiceForRequest(modelID, voiceID string) string {
-	voiceID = strings.TrimSpace(voiceID)
-	if voiceID == "" {
-		return ""
-	}
-	if isKokoroTTSSelection(modelID, voiceID) {
-		return strings.ReplaceAll(voiceID, "-", "_")
-	}
-	return voiceID
 }
 
 func ttsLanguageExtraFields(modelID, voiceID, language string) map[string]any {
@@ -681,7 +552,7 @@ func validateTTSSelection(modelID, voiceID string, mode TTSSelectionMode) error 
 	if modelID == "" {
 		return fmt.Errorf("TTS model is required")
 	}
-	switch normalizeTTSSelectionMode(modelID, mode) {
+	switch mode {
 	case TTSSelectionModelOnly:
 		if voiceID != "" {
 			return fmt.Errorf("voice_id must be empty for model-only TTS model %q", modelID)
@@ -743,150 +614,4 @@ func (c *TTSClient) FetchSTTModels(ctx context.Context) []SpeechModelInfo {
 		return staticSTTModels
 	}
 	return models
-}
-
-// staticVoices é a lista estática de vozes OpenAI padrão (evita reconstruir a cada chamada).
-var staticVoices = []TTSVoiceInfo{
-	{
-		ID:          "alloy",
-		Name:        "Alloy",
-		Description: "Voz neutra e balanceada",
-		Gender:      "neutral",
-		Provider:    "openai",
-	},
-	{
-		ID:          "ash",
-		Name:        "Ash",
-		Description: "Voz masculina conversacional",
-		Gender:      "male",
-		Provider:    "openai",
-	},
-	{
-		ID:          "ballad",
-		Name:        "Ballad",
-		Description: "Voz suave e melódica",
-		Gender:      "neutral",
-		Provider:    "openai",
-	},
-	{
-		ID:          "coral",
-		Name:        "Coral",
-		Description: "Voz feminina clara",
-		Gender:      "female",
-		Provider:    "openai",
-	},
-	{
-		ID:          "echo",
-		Name:        "Echo",
-		Description: "Voz masculina e profunda",
-		Gender:      "male",
-		Provider:    "openai",
-	},
-	{
-		ID:          "fable",
-		Name:        "Fable",
-		Description: "Voz expressiva, ideal para narrativas",
-		Gender:      "neutral",
-		Provider:    "openai",
-	},
-	{
-		ID:          "nova",
-		Name:        "Nova",
-		Description: "Voz feminina jovem e energética",
-		Gender:      "female",
-		Provider:    "openai",
-	},
-	{
-		ID:          "onyx",
-		Name:        "Onyx",
-		Description: "Voz masculina e autoritária",
-		Gender:      "male",
-		Provider:    "openai",
-	},
-	{
-		ID:          "sage",
-		Name:        "Sage",
-		Description: "Voz calma e sábia",
-		Gender:      "neutral",
-		Provider:    "openai",
-	},
-	{
-		ID:          "shimmer",
-		Name:        "Shimmer",
-		Description: "Voz feminina clara e expressiva",
-		Gender:      "female",
-		Provider:    "openai",
-	},
-	{
-		ID:          "verse",
-		Name:        "Verse",
-		Description: "Voz versátil e dinâmica",
-		Gender:      "neutral",
-		Provider:    "openai",
-	},
-}
-
-var qwenCustomVoiceVoices = []TTSVoiceInfo{
-	{ID: "Vivian", Name: "Vivian", Description: "Qwen CustomVoice - feminina jovem, chinês", Gender: "female", Provider: "qwen"},
-	{ID: "Serena", Name: "Serena", Description: "Qwen CustomVoice - feminina suave, chinês", Gender: "female", Provider: "qwen"},
-	{ID: "Uncle_Fu", Name: "Uncle_Fu", Description: "Qwen CustomVoice - masculina grave, chinês", Gender: "male", Provider: "qwen"},
-	{ID: "Dylan", Name: "Dylan", Description: "Qwen CustomVoice - masculina jovem, dialeto de Pequim", Gender: "male", Provider: "qwen"},
-	{ID: "Eric", Name: "Eric", Description: "Qwen CustomVoice - masculina expressiva, dialeto de Chengdu", Gender: "male", Provider: "qwen"},
-	{ID: "Ryan", Name: "Ryan", Description: "Qwen CustomVoice - masculina dinâmica, inglês", Gender: "male", Provider: "qwen"},
-	{ID: "Aiden", Name: "Aiden", Description: "Qwen CustomVoice - masculina americana, inglês", Gender: "male", Provider: "qwen"},
-	{ID: "Ono_Anna", Name: "Ono_Anna", Description: "Qwen CustomVoice - feminina, japonês", Gender: "female", Provider: "qwen"},
-	{ID: "Sohee", Name: "Sohee", Description: "Qwen CustomVoice - feminina, coreano", Gender: "female", Provider: "qwen"},
-}
-
-var kokoroVoices = []TTSVoiceInfo{
-	{ID: "af_heart", Name: "AF Heart", Description: "Kokoro - English US female", Gender: "female", Provider: "kokoro"},
-	{ID: "af_alloy", Name: "AF Alloy", Description: "Kokoro - English US female", Gender: "female", Provider: "kokoro"},
-	{ID: "af_aoede", Name: "AF Aoede", Description: "Kokoro - English US female", Gender: "female", Provider: "kokoro"},
-	{ID: "af_bella", Name: "AF Bella", Description: "Kokoro - English US female", Gender: "female", Provider: "kokoro"},
-	{ID: "af_jessica", Name: "AF Jessica", Description: "Kokoro - English US female", Gender: "female", Provider: "kokoro"},
-	{ID: "af_kore", Name: "AF Kore", Description: "Kokoro - English US female", Gender: "female", Provider: "kokoro"},
-	{ID: "af_nicole", Name: "AF Nicole", Description: "Kokoro - English US female", Gender: "female", Provider: "kokoro"},
-	{ID: "af_nova", Name: "AF Nova", Description: "Kokoro - English US female", Gender: "female", Provider: "kokoro"},
-	{ID: "af_river", Name: "AF River", Description: "Kokoro - English US female", Gender: "female", Provider: "kokoro"},
-	{ID: "af_sarah", Name: "AF Sarah", Description: "Kokoro - English US female", Gender: "female", Provider: "kokoro"},
-	{ID: "af_sky", Name: "AF Sky", Description: "Kokoro - English US female", Gender: "female", Provider: "kokoro"},
-	{ID: "am_adam", Name: "AM Adam", Description: "Kokoro - English US male", Gender: "male", Provider: "kokoro"},
-	{ID: "am_echo", Name: "AM Echo", Description: "Kokoro - English US male", Gender: "male", Provider: "kokoro"},
-	{ID: "am_eric", Name: "AM Eric", Description: "Kokoro - English US male", Gender: "male", Provider: "kokoro"},
-	{ID: "am_fenrir", Name: "AM Fenrir", Description: "Kokoro - English US male", Gender: "male", Provider: "kokoro"},
-	{ID: "am_liam", Name: "AM Liam", Description: "Kokoro - English US male", Gender: "male", Provider: "kokoro"},
-	{ID: "am_michael", Name: "AM Michael", Description: "Kokoro - English US male", Gender: "male", Provider: "kokoro"},
-	{ID: "am_onyx", Name: "AM Onyx", Description: "Kokoro - English US male", Gender: "male", Provider: "kokoro"},
-	{ID: "am_puck", Name: "AM Puck", Description: "Kokoro - English US male", Gender: "male", Provider: "kokoro"},
-	{ID: "am_santa", Name: "AM Santa", Description: "Kokoro - English US male", Gender: "male", Provider: "kokoro"},
-	{ID: "bf_alice", Name: "BF Alice", Description: "Kokoro - English UK female", Gender: "female", Provider: "kokoro"},
-	{ID: "bf_emma", Name: "BF Emma", Description: "Kokoro - English UK female", Gender: "female", Provider: "kokoro"},
-	{ID: "bf_isabella", Name: "BF Isabella", Description: "Kokoro - English UK female", Gender: "female", Provider: "kokoro"},
-	{ID: "bf_lily", Name: "BF Lily", Description: "Kokoro - English UK female", Gender: "female", Provider: "kokoro"},
-	{ID: "bm_daniel", Name: "BM Daniel", Description: "Kokoro - English UK male", Gender: "male", Provider: "kokoro"},
-	{ID: "bm_fable", Name: "BM Fable", Description: "Kokoro - English UK male", Gender: "male", Provider: "kokoro"},
-	{ID: "bm_george", Name: "BM George", Description: "Kokoro - English UK male", Gender: "male", Provider: "kokoro"},
-	{ID: "bm_lewis", Name: "BM Lewis", Description: "Kokoro - English UK male", Gender: "male", Provider: "kokoro"},
-	{ID: "pf_dora", Name: "PF Dora", Description: "Kokoro - português feminino", Gender: "female", Provider: "kokoro"},
-	{ID: "pm_alex", Name: "PM Alex", Description: "Kokoro - português masculino", Gender: "male", Provider: "kokoro"},
-	{ID: "pm_santa", Name: "PM Santa", Description: "Kokoro - português masculino", Gender: "male", Provider: "kokoro"},
-}
-
-func copyTTSVoices(voices []TTSVoiceInfo) []TTSVoiceInfo {
-	result := make([]TTSVoiceInfo, len(voices))
-	copy(result, voices)
-	return result
-}
-
-// GetAvailableVoices retorna a lista de vozes disponíveis (cópia da lista estática).
-func GetAvailableVoices() []TTSVoiceInfo {
-	return copyTTSVoices(staticVoices)
-}
-
-func QwenCustomVoiceTTSVoices() []TTSVoiceInfo {
-	return copyTTSVoices(qwenCustomVoiceVoices)
-}
-
-func KokoroTTSVoices() []TTSVoiceInfo {
-	return copyTTSVoices(kokoroVoices)
 }

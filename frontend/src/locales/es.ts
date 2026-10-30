@@ -2133,6 +2133,11 @@ const es = {
         systemHelp: 'Sigue la voz del Sistema',
       },
       voiceSection: {
+      modeConflict: 'Seleccione el modo indicado por el catálogo para este modelo. Se ha conservado su configuración.',
+      selectionModeLabel: "Modo de selección de voz",
+      selectionModePlaceholder: "Seleccione cómo el modelo recibe la voz",
+      modelAndVoice: "Modelo y voz separados",
+      modelOnly: "Solo modelo (omitir voz)",
         modelLabel: 'Modelo TTS',
         modelPlaceholder: 'Selecciona un modelo',
         modelHelp: 'Elige el modelo TTS antes de la voz. Los modelos Piper usan solo el modelo.',
@@ -2556,10 +2561,13 @@ const es = {
       base: { loading: 'Cargando...', loadError: 'Error al cargar', empty: 'Ninguna opción disponible', retry: 'Reintentar' },
       llmProvider: { label: 'Proveedor LLM', description: 'Selecciona el proveedor de modelo de lenguaje', noneConfigured: 'Ningún proveedor configurado. Configura un proveedor primero.', loadError: 'Error al cargar proveedores', placeholder: 'Selecciona un proveedor...', retry: 'Reintentar', loading: 'Cargando proveedores...' },
       model: { label: 'Modelo', default: 'Predeterminado del proveedor', filterPlaceholder: 'Filtrar modelos...', selectProvider: 'Selecciona un proveedor primero', noModels: 'Ningún modelo disponible para este proveedor.', noModelsGlobal: 'Ningún modelo disponible. Configura un proveedor primero.', agentChooses: 'Este agente no ofrece elección de modelo: la elige él mismo.', agentUnavailable: 'No se pudo hablar con el agente. Abre Configuración → Proveedores y vuelve a detectar el agente.', configureApiKey: 'Configura la API key de este proveedor en Configuración → Credenciales', loadError: 'Error al cargar modelos:', typePlaceholder: 'Escribe el modelo...', notLoaded: 'Modelos no cargados. Escribe manualmente el nombre del modelo.', retry: 'Reintentar', loading: 'Cargando modelos...', refresh: 'Recargar modelos', refreshLabel: 'Recargar la lista de modelos del proveedor', refreshed_one: 'Lista de modelos actualizada: {{count}} modelo', refreshed_other: 'Lista de modelos actualizada: {{count}} modelos' },
-      voice: { disabled: 'Desactivado', system: 'Sistema', windows: 'Windows (SAPI5)', openai: 'OpenAI (Premium)', label: 'Voz', description: 'Selecciona la voz para síntesis de habla', loadError: 'Error al cargar voces', screenReader: 'Desactivada (usar lector de pantalla)', accessibility: 'Accesibilidad', premium: '• Premium', loading: 'Cargando voces...' },
+      voice: {
+      complete: "Lista completa de voces del catálogo.",
+      partial: "Lista parcial. También puede introducir un ID de voz.",
+      unknown: "Voces desconocidas. Introduzca el ID de voz manualmente.", disabled: 'Desactivado', system: 'Sistema', windows: 'Windows (SAPI5)', openai: 'OpenAI (Premium)', label: 'Voz', description: 'Selecciona la voz para síntesis de habla', loadError: 'Error al cargar voces', screenReader: 'Desactivada (usar lector de pantalla)', accessibility: 'Accesibilidad', premium: '• Premium', loading: 'Cargando voces...' },
       voiceProvider: { label: 'Proveedor de Voz', description: 'Selecciona el proveedor de síntesis de voz', loading: 'Cargando proveedores...', loadError: 'Error al cargar proveedores', screenReader: 'Lector de pantalla (desactivar TTS)', screenReaderDesc: 'Usa el lector de pantalla y desactiva la síntesis de voz', default: 'Predeterminado (Asistente)', defaultDesc: 'Usa el proveedor del Asistente', webspeech: 'WebSpeech (Navegador)', webspeechDesc: 'Voces del navegador (gratis)', sapi5: 'SAPI5 (Windows)', sapi5Desc: 'Voces de Windows', followAssistant: 'Seguir voz del Asistente', followAssistantDesc: 'Usa la misma voz del Asistente', followUser: 'Seguir voz del Usuario', followUserDesc: 'Usa la misma voz del Usuario', followSystem: 'Seguir voz del Sistema', followSystemDesc: 'Usa la misma voz del Sistema', llmProvider: 'Proveedor LLM', llmProviderWithHost: 'TTS/STT vía {{host}}' },
       stt: { label: 'STT', description: 'Selecciona el proveedor de reconocimiento de voz', webSpeech: 'WebSpeech', webSpeechDesc: 'Navegador (gratis)', whisper: 'Whisper', whisperDesc: 'OpenAI (premium)', whisperViaProvider: 'Whisper (vía proveedor LLM)', loadError: 'Error al cargar proveedores', loading: 'Cargando proveedores...' },
-      combobox: { select: 'Seleccionar', filterPlaceholder: 'Filtrar...', filterLabel: 'Filtrar opciones', available: 'disponibles', noResults: 'Ningún resultado', pressEnterToUse: 'Enter para usar "{{value}}"', typeToCreate: 'Escribe para crear' },
+      combobox: { manualValue: 'ID manual', select: 'Seleccionar', filterPlaceholder: 'Filtrar...', filterLabel: 'Filtrar opciones', available: 'disponibles', noResults: 'Ningún resultado', pressEnterToUse: 'Enter para usar "{{value}}"', typeToCreate: 'Escribe para crear' },
     },
 
     providerForm: {

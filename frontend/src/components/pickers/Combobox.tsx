@@ -21,6 +21,7 @@ export interface ComboboxProps {
     icon?: ReactNode;
     label?: string;
     description?: string;
+    describedBy?: string;
     items: ComboboxItem[];
     selected: string;
     onSelect: (value: string, item: ComboboxItem) => void;
@@ -50,6 +51,7 @@ export const Combobox = ({
     icon,
     label,
     description,
+    describedBy,
     items,
     selected,
     onSelect,
@@ -103,11 +105,23 @@ export const Combobox = ({
     }, []);
     useImperativeHandle(triggerRef, () => buttonRef.current as HTMLButtonElement, [triggerRef, isOpen]);
 
-    const filteredItems = useMemo(() => items.filter(item =>
-        item.label.toLowerCase().includes(filter.toLowerCase()) ||
-        (item.sublabel && item.sublabel.toLowerCase().includes(filter.toLowerCase())) ||
-        (item.searchText && item.searchText.toLowerCase().includes(filter.toLowerCase()))
-    ), [filter, items]);
+    const filteredItems = useMemo(() => {
+        const matches = items.filter(item =>
+            item.value.toLowerCase().includes(filter.toLowerCase()) ||
+            item.label.toLowerCase().includes(filter.toLowerCase()) ||
+            (item.sublabel && item.sublabel.toLowerCase().includes(filter.toLowerCase())) ||
+            (item.searchText && item.searchText.toLowerCase().includes(filter.toLowerCase()))
+        );
+        const manualValue = filter.trim();
+        const exactID = matches.find(item => item.value === manualValue);
+        const exactLabel = matches.find(item => item.label === manualValue);
+        const options = allowFreeInput && manualValue && matches.length > 0 && !exactID
+            ? [{ value: manualValue, label: manualValue, sublabel: t('pickers.combobox.manualValue') }, ...matches]
+            : matches;
+        const exact = exactID ?? exactLabel;
+        return exact ? [exact, ...options.filter(item => item !== exact)] : options;
+    }, [allowFreeInput, filter, items, t]);
+    const previousResults = useRef({ filter, items: filteredItems, isOpen, selected });
 
     const selectedItem = items.find(i => i.value === selected);
     const selectedLabel = selectedItem?.label || (selected ? selected : effectiveLabel);
@@ -227,11 +241,15 @@ export const Combobox = ({
     }, [isOpen]);
 
     useEffect(() => {
+        const previous = previousResults.current;
+        previousResults.current = { filter, items: filteredItems, isOpen, selected };
         if (!isOpen) return;
-        const currentIdx = filteredItems.findIndex(i => i.value === selected);
-        const newIdx = currentIdx >= 0 ? currentIdx : 0;
-        setHighlightIndex(newIdx);
-    }, [filteredItems, isOpen, selected]);
+        const sameQuery = previous.isOpen && previous.filter === filter && previous.selected === selected;
+        const highlightedValue = sameQuery ? previous.items[highlightIndex]?.value : undefined;
+        const retainedIndex = highlightedValue === undefined ? -1 : filteredItems.findIndex(item => item.value === highlightedValue);
+        const selectedIndex = filter ? -1 : filteredItems.findIndex(item => item.value === selected);
+        setHighlightIndex(retainedIndex >= 0 ? retainedIndex : Math.max(selectedIndex, 0));
+    }, [filter, filteredItems, highlightIndex, isOpen, selected]);
 
     useEffect(() => {
         if (!isOpen || !emptyResultsMessage) {
@@ -395,6 +413,7 @@ export const Combobox = ({
                         aria-expanded={false}
                         aria-busy={busy || undefined}
                     aria-haspopup="listbox"
+                    aria-describedby={describedBy}
                     aria-label={triggerAriaLabel ?? `${effectiveLabel}, ${selectedLabel}`}
                     title={`${description || `${effectiveLabel}: ${selectedLabel}`}${shortcut ? ` (${shortcut})` : ''}`}
                     data-shortcut={shortcut}
@@ -431,6 +450,7 @@ export const Combobox = ({
                         aria-controls={`${uniqueId}-listbox`}
                         aria-activedescendant={activeDescendant}
                         aria-autocomplete="list"
+                        aria-describedby={describedBy}
                         aria-label={`${effectiveLabel} - ${t('pickers.combobox.filterLabel')}`}
                     />
                     {renderActiveItemActions && activeItem && (

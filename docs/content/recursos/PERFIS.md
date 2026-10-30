@@ -34,6 +34,28 @@ As descrições ajudam o assistente a escolher o perfil adequado:
 
 O assistente pode consultar a lista de perfis durante uma conversa. Se uma especialização pontual bastar, ele pode propor um subagente sem alterar o perfil principal. Se a mudança for útil para os próximos turnos, pode propor a troca persistente. O aplicativo sempre pede sua autorização antes de usar outro perfil.
 
+## Modelos e vozes de síntese
+
+Na aba de áudio do perfil, escolha a conexão e o modelo de síntese. As sugestões
+HTTP vêm do catálogo público e correspondem ao perfil de servidor, formato de
+API e ID exato do modelo. Um modelo oferecido por um proxy mantém seu ID
+completo; o aplicativo não tenta descobrir sua origem pelo nome.
+
+Quando o catálogo conhece o modo de seleção, escolher o modelo configura se ele
+recebe uma voz separada. Para modelos não catalogados, informe o ID manualmente
+no seletor e escolha **Modelo e voz separados** ou **Somente modelo (não enviar
+voz)**. No segundo caso, a requisição não contém o parâmetro `voice`.
+
+A lista de vozes informa se é completa, parcial ou desconhecida. Listas parciais
+ou desconhecidas permitem digitar o ID da voz. A voz já configurada permanece
+visível mesmo quando não está na lista. Atualizar o catálogo não apaga nem troca
+os valores que você salvou ou está editando. Vozes locais continuam vindo do
+navegador ou do Windows.
+
+Abrir os seletores não executa síntese nem consome créditos. O botão de prévia
+faz uma chamada de síntese ao provedor configurado e pode ter custo. Se o
+provedor não estiver disponível, o aplicativo não escolhe outro automaticamente.
+
 ## Ferramentas e catálogo
 
 O perfil padrão usa o catálogo para descobrir ferramentas sob demanda. Se o
@@ -62,3 +84,7 @@ permissão curinga: cada slug permitido é confirmado separadamente.
 
 A delegação é explícita, revogável e auditável, sem compartilhar credenciais.
 Veja AEP-0101 para o contrato completo.
+
+Se a consulta de vozes falhar, o seletor continua disponível, a falha é anunciada
+pelo leitor de telas e **Tentar novamente** repete a consulta. A prévia de um
+modelo configurado manualmente funciona mesmo sem sugestões no catálogo.

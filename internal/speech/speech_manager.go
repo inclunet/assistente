@@ -44,16 +44,17 @@ type SpeechConfig struct {
 
 // RoleVoiceConfig configuração de voz para um role (assistant, user, system)
 type RoleVoiceConfig struct {
-	Provider          string  `json:"provider"` // "disabled", "webspeech", "sapi5", "openai"
-	APIKey            string  `json:"-"`
-	BaseURL           string  `json:"-"`
-	CredentialPattern string  `json:"-"` // para resolução lazy de credenciais
-	Voice             string  `json:"voice"`
-	Model             string  `json:"model"`          // modelo TTS
-	SelectionMode     string  `json:"selection_mode"` // "model_and_voice" ou "model_only"
-	Rate              float64 `json:"rate"`           // 0.25–4.0 (speed para OpenAI)
-	Pitch             float64 `json:"pitch"`          // 0.5–2.0 (tom da voz)
-	Volume            float64 `json:"volume"`         // 0.0–1.0
+	selectionModeForModel func(string) TTSSelectionMode
+	Provider              string  `json:"provider"` // "disabled", "webspeech", "sapi5", "openai"
+	APIKey                string  `json:"-"`
+	BaseURL               string  `json:"-"`
+	CredentialPattern     string  `json:"-"` // para resolução lazy de credenciais
+	Voice                 string  `json:"voice"`
+	Model                 string  `json:"model"`          // modelo TTS
+	SelectionMode         string  `json:"selection_mode"` // "model_and_voice" ou "model_only"
+	Rate                  float64 `json:"rate"`           // 0.25–4.0 (speed para OpenAI)
+	Pitch                 float64 `json:"pitch"`          // 0.5–2.0 (tom da voz)
+	Volume                float64 `json:"volume"`         // 0.0–1.0
 }
 
 // SpeechManager gerenciador central de speech
@@ -128,12 +129,13 @@ func (sm *SpeechManager) reinitClients() {
 				speed = 1.0
 			}
 			sm.ttsClients[entry.name] = NewTTSClient(TTSConfig{
-				BaseURL:           entry.role.BaseURL,
-				CredentialPattern: entry.role.CredentialPattern,
-				Model:             TTSModel(entry.role.Model),
-				Voice:             TTSVoice(entry.role.Voice),
-				SelectionMode:     TTSSelectionMode(entry.role.SelectionMode),
-				Speed:             speed,
+				BaseURL:               entry.role.BaseURL,
+				CredentialPattern:     entry.role.CredentialPattern,
+				Model:                 TTSModel(entry.role.Model),
+				Voice:                 TTSVoice(entry.role.Voice),
+				SelectionMode:         TTSSelectionMode(entry.role.SelectionMode),
+				selectionModeForModel: entry.role.selectionModeForModel,
+				Speed:                 speed,
 			}, sm.credMgr)
 		}
 	}

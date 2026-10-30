@@ -236,7 +236,7 @@ func TestValidateHTTPVoiceContract(t *testing.T) {
 			wantError: "voice.assistant.selection_mode must be one of: model_and_voice, model_only",
 		},
 		{
-			name: "voice model requires model only",
+			name: "voice prefix does not override explicit mode",
 			role: VoiceRoleConfig{
 				Enabled:       true,
 				Provider:      "openai",
@@ -248,10 +248,9 @@ func TestValidateHTTPVoiceContract(t *testing.T) {
 				Pitch:         1,
 				Volume:        1,
 			},
-			wantError: "voice.assistant.selection_mode must be model_only for model \"voice-pt_BR-cadu-medium\"",
 		},
 		{
-			name: "model and voice model rejects model only",
+			name: "model name does not override explicit model only",
 			role: VoiceRoleConfig{
 				Enabled:       true,
 				Provider:      "openai",
@@ -262,7 +261,6 @@ func TestValidateHTTPVoiceContract(t *testing.T) {
 				Pitch:         1,
 				Volume:        1,
 			},
-			wantError: "voice.assistant.selection_mode must be model_and_voice for model \"qwen3-tts-0.6b-custom-voice\"",
 		},
 	}
 

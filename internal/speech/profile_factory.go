@@ -5,6 +5,7 @@ import (
 	"context"
 
 	"assistente/internal/credentials"
+	"assistente/internal/llmcatalog"
 	"assistente/internal/profiles"
 )
 
@@ -14,7 +15,7 @@ import (
 // providers.Service.ResolveProfileDefaults antes de chamar esta função).
 //
 // Retorna nil se p for nil.
-func NewSpeechManagerFromProfile(ctx context.Context, p *profiles.Profile, registry ProviderRegistry, credMgr *credentials.Manager) *SpeechManager {
+func NewSpeechManagerFromProfile(ctx context.Context, p *profiles.Profile, registry ProviderRegistry, credMgr *credentials.Manager, snapshot func() llmcatalog.Snapshot) *SpeechManager {
 	if p == nil {
 		return nil
 	}
@@ -66,17 +67,22 @@ func NewSpeechManagerFromProfile(ctx context.Context, p *profiles.Profile, regis
 
 	buildRoleConfig := func(role profiles.VoiceRoleConfig) RoleVoiceConfig {
 		apiKey, baseURL, credPattern := resolveAPICreds(role.LLMProviderID)
+		var resolveMode func(string) TTSSelectionMode
+		if cfg := registry.Get(role.LLMProviderID); cfg != nil {
+			resolveMode = catalogSelectionMode(snapshot, cfg.ServerProfileID, string(cfg.APIFormat), TTSSelectionMode(role.SelectionMode))
+		}
 		return RoleVoiceConfig{
-			Provider:          role.Provider,
-			APIKey:            apiKey,
-			BaseURL:           baseURL,
-			CredentialPattern: credPattern,
-			Voice:             role.VoiceID,
-			Model:             role.Model,
-			SelectionMode:     role.SelectionMode,
-			Rate:              role.Rate,
-			Pitch:             role.Pitch,
-			Volume:            role.Volume,
+			Provider:              role.Provider,
+			APIKey:                apiKey,
+			BaseURL:               baseURL,
+			CredentialPattern:     credPattern,
+			Voice:                 role.VoiceID,
+			Model:                 role.Model,
+			SelectionMode:         role.SelectionMode,
+			selectionModeForModel: resolveMode,
+			Rate:                  role.Rate,
+			Pitch:                 role.Pitch,
+			Volume:                role.Volume,
 		}
 	}
 

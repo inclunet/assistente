@@ -17,14 +17,6 @@ import {
 import { apidto } from '../../../../wailsjs/go/models';
 import { getStreamPlayer, TTSStreamPlayer } from '../streamPlayer';
 
-interface OpenAITTSVoiceInfo {
-  id: string;
-  name: string;
-  description: string;
-  gender: string;
-  provider: string;
-}
-
 // Audio player global - SINGLETON para evitar duplicação de áudio
 // Mesmo se múltiplos listeners chamarem speak(), só um áudio toca por vez
 let globalAudioPlayer: HTMLAudioElement | null = null;
@@ -57,13 +49,8 @@ export class OpenAIProvider extends BaseTTSProvider {
   }
   
   async initialize(): Promise<void> {
-    try {
-      // Tenta obter vozes para verificar disponibilidade
-      const voices = await GetOpenAITTSVoices();
-      this._isAvailable = voices && voices.length > 0;
-    } catch {
-      this._isAvailable = false;
-    }
+    // O transporte HTTP existe independentemente dos metadados do catálogo.
+    this._isAvailable = true;
   }
   
   async getVoices(): Promise<TTSVoice[]> {
@@ -73,13 +60,12 @@ export class OpenAIProvider extends BaseTTSProvider {
     
     try {
       const voices = await GetOpenAITTSVoices();
-      return voices.map((v: OpenAITTSVoiceInfo) => ({
+      return voices.map((v) => ({
         id: v.id,
         name: v.name,
         language: 'multilingual', // OpenAI voices são multilíngues
         provider: TTSProvider.OPENAI,
         gender: v.gender.toLowerCase() as 'male' | 'female' | 'neutral',
-        premium: true,
         localService: false,
         description: v.description
       }));

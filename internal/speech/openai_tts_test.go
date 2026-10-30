@@ -34,7 +34,7 @@ func TestTTSConstants(t *testing.T) {
 	}
 }
 
-func TestFetchTTSModelsUsesRequestContextForCredentials(t *testing.T) {
+func TestListModelsUsesRequestContextForCredentials(t *testing.T) {
 	var gotAuth string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotAuth = r.Header.Get("Authorization")
@@ -62,11 +62,11 @@ func TestFetchTTSModelsUsesRequestContextForCredentials(t *testing.T) {
 		CredentialPattern: parsed.Hostname(),
 	}, credMgr)
 
-	models, err := client.FetchTTSModels(userCtx)
+	models, err := client.listModelsSafe(userCtx)
 	if err != nil {
 		t.Fatalf("FetchTTSModels failed: %v", err)
 	}
-	if len(models) != 1 || models[0].ID != "tts-1" {
+	if len(models.Data) != 1 || models.Data[0].ID != "tts-1" {
 		t.Fatalf("models: got %#v, want tts-1", models)
 	}
 	if gotAuth != "Bearer speech-token" {
@@ -123,14 +123,14 @@ func TestEventConstants(t *testing.T) {
 func TestBuildParams_DefaultVoice(t *testing.T) {
 	client := &TTSClient{
 		config: TTSConfig{
-			Model:  ModelTTS1,
-			Voice:  VoiceNova,
+			Model:  "tts-1",
+			Voice:  "nova",
 			Format: FormatMP3,
 			Speed:  1.0,
 		},
 	}
 
-	params, err := client.buildParams("Hello world", VoiceNova)
+	params, err := client.buildParams("Hello world", "nova")
 	if err != nil {
 		t.Fatalf("buildParams erro inesperado: %v", err)
 	}
@@ -152,14 +152,14 @@ func TestBuildParams_DefaultVoice(t *testing.T) {
 func TestBuildParams_CustomSpeed(t *testing.T) {
 	client := &TTSClient{
 		config: TTSConfig{
-			Model:  ModelTTS1HD,
-			Voice:  VoiceAlloy,
+			Model:  "tts-1-hd",
+			Voice:  "alloy",
 			Format: FormatOpus,
 			Speed:  1.5,
 		},
 	}
 
-	params, err := client.buildParams("Test", VoiceEcho)
+	params, err := client.buildParams("Test", "echo")
 	if err != nil {
 		t.Fatalf("buildParams erro inesperado: %v", err)
 	}
@@ -181,13 +181,13 @@ func TestBuildParams_CustomSpeed(t *testing.T) {
 func TestBuildParams_DefaultSpeedNotSet(t *testing.T) {
 	client := &TTSClient{
 		config: TTSConfig{
-			Model: ModelTTS1,
-			Voice: VoiceNova,
+			Model: "tts-1",
+			Voice: "nova",
 			Speed: 1.0,
 		},
 	}
 
-	params, err := client.buildParams("Test", VoiceNova)
+	params, err := client.buildParams("Test", "nova")
 	if err != nil {
 		t.Fatalf("buildParams erro inesperado: %v", err)
 	}
@@ -241,12 +241,12 @@ func TestBuildParams_OfficialOpenAIUsesLanguageInstruction(t *testing.T) {
 		config: TTSConfig{
 			BaseURL:  "https://api.openai.com/v1",
 			Model:    TTSModel("gpt-4o-mini-tts"),
-			Voice:    VoiceNova,
+			Voice:    "nova",
 			Language: "pt-BR",
 		},
 	}
 
-	params, err := client.buildParams("Olá", VoiceNova)
+	params, err := client.buildParams("Olá", "nova")
 	if err != nil {
 		t.Fatalf("buildParams erro inesperado: %v", err)
 	}
@@ -326,7 +326,7 @@ func TestBuildParams_KokoroUsesVoicePrefixForLangCode(t *testing.T) {
 	}
 }
 
-func TestBuildParams_KokoroNormalizesHyphenatedVoiceID(t *testing.T) {
+func TestBuildParams_PreservesHyphenatedVoiceID(t *testing.T) {
 	client := &TTSClient{
 		config: TTSConfig{
 			BaseURL:  "http://localhost:8080/v1",
@@ -340,8 +340,8 @@ func TestBuildParams_KokoroNormalizesHyphenatedVoiceID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildParams erro inesperado: %v", err)
 	}
-	if params.Voice != "pm_santa" {
-		t.Fatalf("Voice = %q, esperado pm_santa", params.Voice)
+	if params.Voice != "pm-santa" {
+		t.Fatalf("Voice = %q, esperado pm-santa", params.Voice)
 	}
 	data, err := json.Marshal(params)
 	if err != nil {
@@ -360,17 +360,9 @@ func TestBuildParams_KokoroNormalizesHyphenatedVoiceID(t *testing.T) {
 // Voice helpers
 // ============================================================================
 
-func TestGetAvailableVoices(t *testing.T) {
-	voices := GetAvailableVoices()
-	if len(voices) < 6 {
-		t.Errorf("esperava pelo menos 6 vozes, obteve %d", len(voices))
-	}
-
-	// Verifica que retorna uma cópia (não modifica o original)
-	voices[0].ID = "modified"
-	voicesAgain := GetAvailableVoices()
-	if voicesAgain[0].ID == "modified" {
-		t.Error("GetAvailableVoices deveria retornar uma cópia")
+func TestGetAvailableVoicesWithoutConfiguredProfileIsEmpty(t *testing.T) {
+	if voices := NewService(ServiceConfig{}).GetAvailableVoices(context.Background()); len(voices) != 0 {
+		t.Fatalf("invented voices: %+v", voices)
 	}
 }
 
