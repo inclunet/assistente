@@ -43,3 +43,10 @@ O `asst` inicia `internal/app` e usa conversas persistentes. Em CI e containers,
 A implementação reutiliza o provider OpenAI-compatible, o parser de skills, o registry, o executor e `read_file`. O serviço `internal/agent` não é reutilizado: exige ledger de invocações e persistência de chat. A PoC contém um loop efêmero reduzido; ainda não demonstra paridade com o ciclo do Assistente. Uma nova factory do provider permite chave em memória e preserva a política de redirecionamento de mesma origem. A CLI expõe apenas leitura no workspace, nega `.git/` e recusa skills com políticas ou recursos ainda não suportados.
 
 Ainda faltam integração MCP, operações de review, avaliação de modelos reais, políticas completas de skills, distribuição e integração ao workflow. A continuidade e abertura de PR dependem da avaliação do experimento.
+
+## Validação local da PoC
+
+- `go build ./...` e `go vet ./...` passaram. `go test ./cmd/lasst`, `./internal/skills` e `./internal/tools/filesystem` passaram; `golangci-lint run ./cmd/lasst ./internal/llm` não apontou ocorrências.
+- TypeScript (`tsc --noEmit`), ESLint e Stylelint passaram; Stylelint apresentou avisos preexistentes. Vitest passou em 493 arquivos e 6.062 testes, com arquivos identificados como relacionados a ACP excluídos.
+- A suíte completa de Go não foi validada: uma tentativa anterior falhou ao iniciar binários de `internal/acp` e `internal/acpregistry`. Por orientação do mantenedor, testes ACP não devem ser executados neste ambiente.
+- A review independente foi repetida após a correção de lint e não encontrou pendências acionáveis no escopo da PoC. Não houve teste com provedor remoto real.
