@@ -78,9 +78,9 @@ func TestLLMModelRepositoryScopesIdentityAndList(t *testing.T) {
 	if other.ID == first.ID {
 		t.Fatal("ID remoto igual compartilhou identidade entre provedores")
 	}
-	for _, remoteID := range []string{" remote-model", "remote-model ", "\tremote-model"} {
+	for _, remoteID := range []string{"", " ", "\t"} {
 		if _, err := repository.SaveModel(ctxA, "provider-a", remoteID, "Invalid"); err == nil {
-			t.Errorf("ID remoto com whitespace periférico foi normalizado em silêncio: %q", remoteID)
+			t.Errorf("ID remoto vazio foi aceito: %q", remoteID)
 		}
 	}
 	models, err := repository.ListModels(ctxA, "provider-a")

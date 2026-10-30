@@ -241,7 +241,7 @@ func validateProviderExport(provider ProviderExport) (ProviderExport, error) {
 	normalized := provider
 	normalized.ModelAliases = maps.Clone(provider.ModelAliases)
 	if err := llmcatalog.ValidateAliases(normalized.ModelAliases); err != nil {
-		return ProviderExport{}, codedErrorf(CodeProviderInvalidModelAliases, params("providerId", strings.TrimSpace(provider.ID)), "provider %q tem vínculo de modelo com ID vazio", provider.ID)
+		return ProviderExport{}, codedErrorf(CodeProviderInvalidModelAliases, params("providerId", strings.TrimSpace(provider.ID)), "provider %q tem vínculo de modelo com ID inválido", provider.ID)
 	}
 	normalized.ID = strings.TrimSpace(provider.ID)
 	normalized.Name = strings.TrimSpace(provider.Name)

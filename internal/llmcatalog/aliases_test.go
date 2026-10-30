@@ -1,6 +1,9 @@
 package llmcatalog
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestPrivateAliasesResolveExactIDsWithoutExposureOverrides(t *testing.T) {
 	doc := Document{Models: []Model{{ID: "vendor/model", Capabilities: map[string]string{"tools": "supported"}, Limits: map[string]int64{"context_tokens": 1000}}}, Exposures: []Exposure{{ServerProfileID: "proxy", APIFormat: "openai", ExposedModelID: "alias", CanonicalModelID: "vendor/model", CapabilityOverrides: map[string]string{"tools": "unsupported"}}}}
@@ -50,5 +53,14 @@ func TestPrivateAliasErrorPreservesTargetAsEscapedParameter(t *testing.T) {
 	err := (Document{}).ValidateAliasChanges(map[string]string{"remote": "vendor/model with space"}, nil)
 	if err == nil || err.Error() != "model_alias_error:v1:missing_target:vendor%2Fmodel%20with%20space" {
 		t.Fatalf("diagnostic=%v", err)
+	}
+}
+
+func TestPrivateAliasRejectsUnpersistableRemoteID(t *testing.T) {
+	for _, id := range []string{"a\x00b", strings.Repeat("a", 513)} {
+		err := ValidateAliases(map[string]string{id: "canonical"})
+		if err == nil || err.Error() != "model_alias_error:v1:invalid_id:" {
+			t.Fatalf("invalid remote ID: %v", err)
+		}
 	}
 }

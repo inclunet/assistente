@@ -1,6 +1,7 @@
 package llmcatalog
 
 import (
+	"assistente/internal/llmcapabilities"
 	"net/url"
 	"strings"
 )
@@ -18,7 +19,10 @@ func (e *AliasError) Error() string {
 // ValidateAliases checks identifiers without normalizing their wire values.
 func ValidateAliases(aliases map[string]string) error {
 	for remoteID, canonicalID := range aliases {
-		if strings.TrimSpace(remoteID) == "" || strings.TrimSpace(canonicalID) == "" {
+		if !llmcapabilities.ValidRemoteModelID(remoteID) {
+			return &AliasError{Code: "invalid_id"}
+		}
+		if strings.TrimSpace(canonicalID) == "" {
 			return &AliasError{Code: "empty_id"}
 		}
 	}

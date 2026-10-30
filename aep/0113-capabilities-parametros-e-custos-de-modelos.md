@@ -68,7 +68,13 @@ A persistência segue a hierarquia `llm_providers → llm_models →
 llm_model_capabilities → llm_model_capability_fields`:
 
 - `llm_models` identifica o modelo remoto dentro do provedor. A identidade é
-  única por provedor e ID remoto; o modelo não duplica `user_id` nem
+  única por provedor e ID remoto exato, sem remover espaços significativos.
+  O ID deve ser UTF-8 válido, conter de 1 a 512 caracteres, não ser composto
+  apenas por espaços e não conter NUL. A migração 40 preserva modelos,
+  capabilities e evidências existentes em uma transação com FKs ativas;
+  testes em `migration_llm_model_exact_ids_test.go` cobrem preservação,
+  rollback e idempotência, e `compatibility_state_test.go` cobre aprendizado
+  e retry com IDs exatos. O modelo não duplica `user_id` nem
   `api_format`.
 - `llm_model_capabilities` delimita o contexto funcional em que os campos são
   enviados. Seu código é fechado e validado pelo domínio, não é texto livre.

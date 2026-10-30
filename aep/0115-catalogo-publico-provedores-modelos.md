@@ -378,7 +378,9 @@ quanto às rotas catalogadas ainda sem suporte (Cohere e Ollama nativo); manuten
    mantém a validação de conectividade existente antes de salvar. Novos vínculos exigem alvo presente no
    snapshot. Os vínculos pertencem à conexão e acompanham suas edições explícitas
    de endereço/formato; o usuário administra o significado dos aliases nela.
-   Restrições aprendidas para o ID remoto continuam prevalecendo. Agentes ACP e
+   Restrições aprendidas para o ID remoto continuam prevalecendo. A validação
+   compartilhada e a migração 40 preservam a identidade exata também no banco
+   de compatibilidade (AEP-0113), sem perder evidências durante a atualização. Agentes ACP e
    conexões OAuth ChatGPT não recebem vínculos HTTP. Evidências adicionais:
    `llmcatalog/aliases_test.go`, `providers/model_aliases_test.go`,
    `portability/provider_aliases_test.go` e `ProviderModelAliases.test.tsx`.

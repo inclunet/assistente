@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"assistente/internal/llmcapabilities"
 	"gorm.io/gorm"
@@ -43,9 +44,8 @@ func (r *LLMModelCapabilitiesRepository) SaveModel(ctx context.Context, provider
 	if err := RequireUserIDOrBootstrap(ctx); err != nil {
 		return nil, err
 	}
-	if providerID == "" || remoteID == "" || strings.TrimSpace(remoteID) != remoteID || len(remoteID) > 512 ||
-		strings.ContainsRune(remoteID, 0) || strings.ContainsRune(displayName, 0) ||
-		len(displayName) > 512 {
+	if providerID == "" || !llmcapabilities.ValidRemoteModelID(remoteID) || strings.ContainsRune(displayName, 0) ||
+		utf8.RuneCountInString(displayName) > 512 {
 		return nil, errors.New("identidade de modelo inválida")
 	}
 
@@ -80,9 +80,8 @@ func (r *LLMModelCapabilitiesRepository) GetOrCreateModel(ctx context.Context, p
 	if err := RequireUserIDOrBootstrap(ctx); err != nil {
 		return nil, err
 	}
-	if providerID == "" || remoteID == "" || strings.TrimSpace(remoteID) != remoteID || len(remoteID) > 512 ||
-		strings.ContainsRune(remoteID, 0) || strings.ContainsRune(fallbackDisplayName, 0) ||
-		len(fallbackDisplayName) > 512 {
+	if providerID == "" || !llmcapabilities.ValidRemoteModelID(remoteID) || strings.ContainsRune(fallbackDisplayName, 0) ||
+		utf8.RuneCountInString(fallbackDisplayName) > 512 {
 		return nil, errors.New("identidade de modelo inválida")
 	}
 

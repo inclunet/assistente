@@ -419,6 +419,7 @@ var schemaMigrations = []migration{
 		Phase:   phasePostAutoMigrate,
 		Run:     migrateChatToolLinks,
 	},
+	{Version: 40, Name: "llm_model_exact_remote_ids", Phase: phasePostAutoMigrate, Run: migrateLLMModelExactIDs},
 }
 
 // runMigrations aplica, na ordem de Version, todas as migrações da fase

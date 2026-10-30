@@ -22,8 +22,11 @@ func TestCompatibilityLearningPersistsBeforeRetryAndNextSend(t *testing.T) {
 		format        llm.APIFormat
 		field         llmcapabilities.Capability
 		staleRevision bool
+		paddedID      bool
 	}{
 		{name: "chat completions", format: llm.APIFormatOpenAI, field: llmcapabilities.CapabilityChatCompletions},
+		{name: "chat padded model", format: llm.APIFormatOpenAI, field: llmcapabilities.CapabilityChatCompletions, paddedID: true},
+		{name: "responses padded model", format: llm.APIFormatOpenAIResponses, field: llmcapabilities.CapabilityResponses, paddedID: true},
 		{name: "responses", format: llm.APIFormatOpenAIResponses, field: llmcapabilities.CapabilityResponses},
 		{name: "chat completions stale revision", format: llm.APIFormatOpenAI, field: llmcapabilities.CapabilityChatCompletions, staleRevision: true},
 		{name: "responses stale revision", format: llm.APIFormatOpenAIResponses, field: llmcapabilities.CapabilityResponses, staleRevision: true},
@@ -31,6 +34,10 @@ func TestCompatibilityLearningPersistsBeforeRetryAndNextSend(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			remoteID := "gpt-test"
+			if test.paddedID {
+				remoteID = " gpt-test "
+			}
 			db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 			if err != nil {
 				t.Fatal(err)
@@ -69,6 +76,10 @@ func TestCompatibilityLearningPersistsBeforeRetryAndNextSend(t *testing.T) {
 				if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 					t.Errorf("decodificar payload da tentativa %d: %v", attempts, err)
 				}
+				var wireModel string
+				if err := json.Unmarshal(payload["model"], &wireModel); err != nil || wireModel != remoteID {
+					t.Errorf("wire model=%q want=%q, err=%v", wireModel, remoteID, err)
+				}
 				_, sent := payload["temperature"]
 				temperatureSent = append(temperatureSent, sent)
 
@@ -96,11 +107,11 @@ func TestCompatibilityLearningPersistsBeforeRetryAndNextSend(t *testing.T) {
 
 				w.Header().Set("Content-Type", "application/json")
 				if test.format == llm.APIFormatOpenAIResponses {
-					responsePayload, _ := json.Marshal(map[string]any{"id": "resp-test", "object": "response", "created_at": 1700000000, "status": "completed", "model": "gpt-test", "output": []any{map[string]any{"id": "msg-test", "type": "message", "status": "completed", "role": "assistant", "content": []any{map[string]any{"type": "output_text", "text": "ok", "annotations": []any{}}}}}})
+					responsePayload, _ := json.Marshal(map[string]any{"id": "resp-test", "object": "response", "created_at": 1700000000, "status": "completed", "model": remoteID, "output": []any{map[string]any{"id": "msg-test", "type": "message", "status": "completed", "role": "assistant", "content": []any{map[string]any{"type": "output_text", "text": "ok", "annotations": []any{}}}}}})
 					_, _ = w.Write(responsePayload)
 					return
 				}
-				responsePayload, _ := json.Marshal(map[string]any{"id": "chatcmpl-test", "object": "chat.completion", "created": 1700000000, "model": "gpt-test", "choices": []any{map[string]any{"index": 0, "message": map[string]any{"role": "assistant", "content": "ok"}, "finish_reason": "stop"}}})
+				responsePayload, _ := json.Marshal(map[string]any{"id": "chatcmpl-test", "object": "chat.completion", "created": 1700000000, "model": remoteID, "choices": []any{map[string]any{"index": 0, "message": map[string]any{"role": "assistant", "content": "ok"}, "finish_reason": "stop"}}})
 				_, _ = w.Write(responsePayload)
 			}))
 			defer server.Close()
@@ -115,7 +126,7 @@ func TestCompatibilityLearningPersistsBeforeRetryAndNextSend(t *testing.T) {
 				t.Fatal(err)
 			}
 			repository = database.NewLLMModelCapabilitiesRepository(db)
-			model, err := repository.SaveModel(ctx, providerRow.ID, "gpt-test", "GPT Test")
+			model, err := repository.SaveModel(ctx, providerRow.ID, remoteID, "GPT Test")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -126,7 +137,7 @@ func TestCompatibilityLearningPersistsBeforeRetryAndNextSend(t *testing.T) {
 				ID: providerRow.ID, Name: providerRow.Name, Type: llm.ProviderOpenAI,
 				ErrorFamily: llm.ProviderErrorFamilyOpenAI,
 				BaseURL:     providerRow.BaseURL, APIFormat: test.format, AuthMode: llm.AuthModeNone,
-				DefaultModel: "gpt-test", CompatibilityRevision: compatibilityRevision,
+				DefaultModel: remoteID, CompatibilityRevision: compatibilityRevision,
 			}
 			var provider llm.ChatProvider
 			if test.format == llm.APIFormatOpenAIResponses {
@@ -134,7 +145,7 @@ func TestCompatibilityLearningPersistsBeforeRetryAndNextSend(t *testing.T) {
 			} else {
 				provider = llm.NewOpenAIProvider(providerConfig, credentials.NewManager(nil))
 			}
-			params := llm.ChatParams{Model: "gpt-test", Temperature: testParameterPointer(float64(0.4))}
+			params := llm.ChatParams{Model: remoteID, Temperature: testParameterPointer(float64(0.4))}
 			params.Compatibility = uc.loadCompatibilityState(ctx, providerConfig, params.Model)
 			if params.Compatibility == nil {
 				t.Fatal("o use case não criou estado de compatibilidade")
@@ -170,7 +181,7 @@ func TestCompatibilityLearningPersistsBeforeRetryAndNextSend(t *testing.T) {
 				t.Fatalf("tentativas do primeiro envio = %d, esperado 2", attempts)
 			}
 
-			nextParams := llm.ChatParams{Model: "gpt-test", Temperature: testParameterPointer(float64(0.4))}
+			nextParams := llm.ChatParams{Model: remoteID, Temperature: testParameterPointer(float64(0.4))}
 			nextParams.Compatibility = uc.loadCompatibilityState(ctx, providerConfig, nextParams.Model)
 			if nextParams.Compatibility == nil || !nextParams.Compatibility.IsUnsupported(test.field, llmcapabilities.FieldTemperature) {
 				t.Fatal("envio seguinte não carregou a restrição do banco")

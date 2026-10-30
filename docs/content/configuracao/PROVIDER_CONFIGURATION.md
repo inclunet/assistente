@@ -492,3 +492,8 @@ Nenhuma associação substituta é deduzida automaticamente.
 
 O formulário mantém o teste de conectividade antes de salvar a conexão; a
 indisponibilidade do catálogo não dispensa essa validação do servidor.
+
+O ID remoto de um vínculo é preservado integralmente, inclusive espaços
+significativos. Ele deve conter de 1 a 512 caracteres, não pode conter NUL
+nem ser composto apenas por espaços. A atualização mantém as restrições
+de parâmetros já aprendidas para os modelos existentes.

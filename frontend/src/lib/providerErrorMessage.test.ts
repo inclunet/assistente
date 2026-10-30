@@ -93,6 +93,7 @@ it('traduz erros de vínculos pelo apresentador compartilhado nos três idiomas'
   expect(message).toContain(text);
   expect(message).toContain('vendor/modelo com espaço');
   expect(translateProviderErrorMessage('model_alias_error:v1:empty_id:', language)).not.toContain('model_alias_error');
+  expect(translateProviderErrorMessage('model_alias_error:v1:invalid_id:', language)).toContain('512');
  }
  expect(translateProviderErrorMessage('model_alias_error:v1:missing_target:%ZZ', 'en')).toBeNull();
 });
