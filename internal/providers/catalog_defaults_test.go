@@ -165,7 +165,7 @@ func TestTemplateFromCatalogServerRejectsUnknownRemoteValues(t *testing.T) {
 		}},
 		{name: "autenticação desconhecida", change: func(s *llmcatalog.Server) { s.Auth.Mode = "execute-command" }},
 		{name: "ollama sem formato runtime", change: func(s *llmcatalog.Server) { s.ID, s.ProviderFamily, s.APIFormat = "ollama", "ollama", "ollama" }},
-		{name: "endpoint Cohere sem suporte", change: func(s *llmcatalog.Server) { s.ID, s.ProviderFamily, s.APIFormat = "cohere", "cohere", "openai" }},
+		{name: "Cohere com origem de outro provedor", change: func(s *llmcatalog.Server) { s.ID, s.ProviderFamily, s.APIFormat = "cohere", "cohere", "openai" }},
 		{name: "perfil desativado", change: func(s *llmcatalog.Server) { s.Status = "deprecated" }},
 	}
 	for _, tt := range tests {

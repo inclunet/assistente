@@ -135,7 +135,7 @@ export const PROVIDER_CONFIG: Record<string, ProviderPreset> = {
   },
   cohere: {
     label: 'Cohere',
-    defaultUrl: 'https://api.cohere.ai',
+    defaultUrl: 'https://api.cohere.ai/compatibility/v1',
     urlEditable: false,
     apiKeyRequired: true,
     testRequiresApiKey: true,
@@ -146,7 +146,7 @@ export const PROVIDER_CONFIG: Record<string, ProviderPreset> = {
   // --- Local/self-hosted ---
   ollama: {
     label: 'Ollama (local)',
-    defaultUrl: 'http://localhost:11434',
+    defaultUrl: 'http://localhost:11434/v1',
     urlEditable: true,
     apiKeyRequired: false,
     testRequiresApiKey: false,

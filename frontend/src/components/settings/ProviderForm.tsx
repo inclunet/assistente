@@ -68,17 +68,11 @@ const customProfile = (): ServerProfile => llmcatalog.Server.createFrom({
 const runtimeProfileValues = (profile: ServerProfile) => {
   const runtimeType = allowlisted(PROFILE_FAMILY_TO_RUNTIME_TYPE, profile.provider_family);
   const rawFormat = policyValue(profile, 'api_format', profile.api_format);
-  // Ollama keeps its existing runtime adapter. The catalog's native `ollama`
-  // protocol is never copied into the persisted API format; runtime still uses
-  // the format already supported by the app for its Ollama adapter.
-  const isOllamaAdapter = profile.id === 'ollama' && profile.adapter_id === 'ollama'
-    && rawFormat === 'ollama' && runtimeType === 'ollama';
-  const apiFormat = isOllamaAdapter
-    ? (PROVIDER_CONFIG.ollama.apiFormat || 'openai')
-    : typeof rawFormat === 'string' ? allowlisted(API_FORMAT_TO_RUNTIME, rawFormat) : undefined;
+  const apiFormat = typeof rawFormat === 'string' ? allowlisted(API_FORMAT_TO_RUNTIME, rawFormat) : undefined;
   const rawAuthMode = policyValue(profile, 'auth.mode', profile.auth?.mode);
   const authMode = typeof rawAuthMode === 'string' ? allowlisted(AUTH_MODE_TO_RUNTIME, rawAuthMode) : undefined;
   if (!runtimeType || !PROVIDER_CONFIG[runtimeType] || !apiFormat || !authMode) return null;
+  if (apiFormat === 'openai' && profile.endpoints?.chat && profile.endpoints.chat.path !== '/chat/completions') return null;
   if (apiFormat === 'google' && authMode !== 'required') return null;
   const rawBaseURL = policyValue(profile, 'base_url', profile.base_url || '');
   const baseURL = typeof rawBaseURL === 'string' ? rawBaseURL : '';
@@ -216,10 +210,7 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
   }, [announce, kind]);
   const availableProfiles = useMemo(() => {
     const source = catalogProfiles === null ? [] : catalogProfiles;
-    // Cohere anuncia uma rota com prefixo que o runtime atual não acrescenta
-    // ao base_url; oferecê-lo como funcional geraria configuração inválida.
-    const safe = source.filter(profile => profile.id !== 'cohere'
-      && profile.status === 'active' && runtimeProfileValues(profile));
+    const safe = source.filter(profile => profile.status === 'active' && runtimeProfileValues(profile));
     if (catalogProfiles === null || catalogProfiles.length === 0) return [customProfile()];
     return [...safe, customProfile()];
   }, [catalogProfiles]);

@@ -50,6 +50,7 @@ const (
 	ProviderFireworks  ProviderType = "fireworks"
 	ProviderPerplexity ProviderType = "perplexity"
 	ProviderOllama     ProviderType = "ollama"
+	ProviderCohere     ProviderType = "cohere"
 	ProviderLocalAI    ProviderType = "localai"
 	ProviderLlamaCPP   ProviderType = "llamacpp"
 	ProviderCustom     ProviderType = "custom"

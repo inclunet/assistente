@@ -29,6 +29,9 @@ func TemplateFromCatalogServer(server llmcatalog.Server) (*llm.ProviderConfig, e
 	if err != nil {
 		return nil, err
 	}
+	if endpoint, declared := server.Endpoints["chat"]; apiFormat == llm.APIFormatOpenAI && declared && endpoint.Path != "/chat/completions" {
+		return nil, fmt.Errorf("rota de chat do perfil %q não é suportada pelo adaptador OpenAI-compatible", server.ID)
+	}
 	authModeValue := CatalogFieldDefault(server, "auth.mode", server.Auth.Mode)
 	authMode, err := CatalogAuthMode(authModeValue)
 	if err != nil {
@@ -143,7 +146,7 @@ var legacyTemplateProfiles = map[string]string{
 	"openrouter": "openrouter", "mistral": "mistral", "groq": "groq",
 	"together": "together-ai", "fireworks": "fireworks-ai", "perplexity": "perplexity",
 	"deepseek": "deepseek", "grok": "xai", "localai": "localai-openai-compatible",
-	"llamacpp": "llamacpp", "ollama": "ollama",
+	"llamacpp": "llamacpp", "ollama": "ollama", "cohere": "cohere",
 }
 
 type catalogRuntimeProfile struct {
@@ -158,6 +161,8 @@ type catalogRuntimeProfile struct {
 // A identidade do perfil, sua família e seu formato formam uma allowlist
 // indivisível: um perfil não pode assumir a família/formato de outro.
 var catalogRuntimeProfiles = map[string]catalogRuntimeProfile{
+	"ollama":                    {credentialOrigin: "http://localhost:11434", providerFamily: "ollama", apiFormat: "openai", providerID: "ollama-local", providerType: llm.ProviderOllama},
+	"cohere":                    {credentialOrigin: "https://api.cohere.ai", providerFamily: "cohere", apiFormat: "openai", providerID: "cohere-default", providerType: llm.ProviderCohere},
 	"openai":                    {credentialOrigin: "https://api.openai.com", providerFamily: "openai", apiFormat: "openai_responses", providerID: "openai-default", providerType: llm.ProviderOpenAI},
 	"anthropic":                 {credentialOrigin: "https://api.anthropic.com", providerFamily: "anthropic", apiFormat: "anthropic", providerID: "anthropic-claude", providerType: llm.ProviderClaude},
 	"google-gemini":             {credentialOrigin: "https://generativelanguage.googleapis.com", providerFamily: "google", apiFormat: "google", providerID: "google-gemini", providerType: llm.ProviderOpenAI},
@@ -179,14 +184,7 @@ var catalogRuntimeProfiles = map[string]catalogRuntimeProfile{
 func catalogRuntimeProfileFor(server llmcatalog.Server, apiFormat string) (catalogRuntimeProfile, error) {
 	profile, ok := catalogRuntimeProfiles[server.ID]
 	if !ok {
-		switch server.ID {
-		case "cohere":
-			return catalogRuntimeProfile{}, fmt.Errorf("perfil Cohere ainda não é suportado: o runtime não representa o endpoint catalogado /compatibility/v1/chat/completions")
-		case "ollama":
-			return catalogRuntimeProfile{}, fmt.Errorf("o formato ollama ainda não é suportado pelo runtime de provedores")
-		default:
-			return catalogRuntimeProfile{}, fmt.Errorf("perfil de servidor %q não tem combinação de runtime allowlisted", server.ID)
-		}
+		return catalogRuntimeProfile{}, fmt.Errorf("perfil de servidor %q não tem combinação de runtime allowlisted", server.ID)
 	}
 	if server.ProviderFamily != profile.providerFamily || apiFormat != profile.apiFormat {
 		return catalogRuntimeProfile{}, fmt.Errorf("perfil %q requer provider_family=%q e api_format=%q", server.ID, profile.providerFamily, profile.apiFormat)

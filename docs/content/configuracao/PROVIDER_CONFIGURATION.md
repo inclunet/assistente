@@ -185,9 +185,17 @@ explicitamente. Se uma conexão vinculada não tiver modelo salvo e o perfil
 declarar um modelo padrão fixo, o formulário preenche esse valor; modelos já
 salvos continuam prevalecendo.
 
-O perfil Cohere não aparece enquanto a rota anunciada pelo catálogo não for
-suportada pelo runtime. Para configurá-lo manualmente, use **Personalizado** e
-uma rota que o aplicativo suporte.
+Os perfis **Cohere** e **Ollama** usam OpenAI Chat Completions, com streaming e
+tools pelo mesmo transporte dos demais provedores compatíveis. Cohere usa a
+URL base `https://api.cohere.ai/compatibility/v1`; Ollama usa
+`http://localhost:11434/v1`. Não é necessário instalar outro SDK nem importar
+chaves do Ollama: as credenciais seguem a configuração do Assistente.
+
+Se a API não oferecer listagem compatível (como pode ocorrer com Cohere), informe
+manualmente o ID do modelo disponível na sua conta. A ausência dessa listagem
+não confirma autenticação ou acesso ao modelo; erros de credencial, permissão e
+rede continuam visíveis. URLs de conexões existentes são preservadas: selecione
+explicitamente o perfil para aplicar os novos valores.
 
 ### Provedores Cloud (API Key obrigatória)
 
@@ -209,7 +217,7 @@ uma rota que o aplicativo suporte.
 
 | Provedor | URL Base | Modelo Padrão | Notas |
 |---|---|---|---|
-| **Ollama** | `http://localhost:11434/api` | `llama2` | [ollama.ai](https://ollama.ai) — 100% gratuito, URL editável, timeout de 300s |
+| **Ollama** | `http://localhost:11434/v1` | `llama2` | [ollama.ai](https://ollama.ai) — 100% gratuito, URL editável, timeout de 300s |
 | **LocalAI** | `http://localhost:8080` | — | URL editável, token opcional |
 
 ### Proxies e Custom
