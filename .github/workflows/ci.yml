@@ -44,8 +44,17 @@ jobs:
     # Validação e compilações rodam em paralelo com a suíte de cobertura.
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      GOTMPDIR: ${{ github.workspace }}/build/bin/ci/_go-work
+      GOCACHE: ${{ github.workspace }}/build/bin/ci/_go-cache
+      TEMP: ${{ github.workspace }}/build/bin/ci/_scratch
+      TMP: ${{ github.workspace }}/build/bin/ci/_scratch
+      TMPDIR: ${{ github.workspace }}/build/bin/ci/_scratch
     steps:
       - uses: actions/checkout@v4
+
+      - name: Preparar diretórios de compilação
+        run: mkdir -p "$GOTMPDIR" "$GOCACHE" "$TMPDIR"
 
       - name: Install system dependencies
         timeout-minutes: 10
@@ -70,14 +79,16 @@ jobs:
       - name: Compilar testes do entrypoint gráfico para Windows
         env:
           CGO_ENABLED: "0"
-        run: GOOS=windows GOARCH=amd64 go test -c -o /tmp/assistente-windows-amd64.test .
+        run: GOOS=windows GOARCH=amd64 go test -c -o build/bin/ci/assistente-windows-amd64.test .
 
-      - name: Cross-compile da CLI para macOS sem cgo
+      - name: Compilar CLI para Linux e macOS sem CGO
         env:
           CGO_ENABLED: "0"
         run: |
-          GOOS=darwin GOARCH=amd64 go build -o /tmp/asst-darwin-amd64 ./cmd/asst/
-          GOOS=darwin GOARCH=arm64 go build -o /tmp/asst-darwin-arm64 ./cmd/asst/
+          GOOS=linux GOARCH=amd64 go build -o build/bin/ci/asst-linux-amd64 ./cmd/asst/
+          GOOS=linux GOARCH=arm64 go build -o build/bin/ci/asst-linux-arm64 ./cmd/asst/
+          GOOS=darwin GOARCH=amd64 go build -o build/bin/ci/asst-darwin-amd64 ./cmd/asst/
+          GOOS=darwin GOARCH=arm64 go build -o build/bin/ci/asst-darwin-arm64 ./cmd/asst/
 
   backend-tests:
     runs-on: ubuntu-latest

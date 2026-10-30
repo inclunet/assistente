@@ -50,6 +50,11 @@ GitHub Actions vai:
 - Gerar checksums
 - Anexar os assets ao GitHub Release criado
 
+A CLI é compilada com `CGO_ENABLED=0`, inclusive para Linux amd64/arm64.
+O CI dos PRs também verifica essa configuração para detectar dependências
+gráficas acidentais antes do lançamento. Isso não habilita atalhos globais
+nas plataformas em que a captura nativa não é suportada.
+
 O ldflag da CLI é diferente: o build de `./cmd/asst/` usa
 `-X main.AppVersion=<versão>`, pois a variável da CLI vive em
 `cmd/asst/main.go`.
