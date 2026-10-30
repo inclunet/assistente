@@ -541,3 +541,24 @@ describe('Combobox - ações da opção destacada', () => {
     expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
   });
 });
+
+it.each(['{Enter}', '{ArrowDown}{ArrowUp}{Enter}'])('confirma ID manual com sugestões parcialmente coincidentes: %s', async keys => {
+  const onSelect = vi.fn();
+  const user = userEvent.setup();
+  render(<Combobox items={[{ value: 'voice-extended', label: 'voice-extended' }]} selected="" label="Voz manual" onSelect={onSelect} allowFreeInput />);
+  await user.click(screen.getByRole('button', { name: /Voz manual/ }));
+  await user.type(screen.getByRole('combobox'), 'voice');
+  expect(screen.getByRole('option', { name: 'voice' })).toBeInTheDocument();
+  await user.keyboard(keys);
+  expect(onSelect).toHaveBeenCalledWith('voice', expect.objectContaining({ value: 'voice' }));
+});
+
+it('encontra o ID exato mesmo quando a voz tem nome amigável', async () => {
+ const onSelect = vi.fn();
+ const user = userEvent.setup();
+ render(<Combobox items={[{ value: 'bar', label: 'foo extended' }, { value: 'foo', label: 'Friendly' }]} selected="" label="Voz exata" onSelect={onSelect} allowFreeInput />);
+ await user.click(screen.getByRole('button', { name: /Voz exata/ }));
+ await user.type(screen.getByRole('combobox'), 'foo');
+ await user.keyboard('{Enter}');
+ expect(onSelect).toHaveBeenCalledWith('foo', expect.objectContaining({ label: 'Friendly' }));
+});

@@ -381,7 +381,7 @@ vozes e manutenção do catálogo continuam pendentes nas fases seguintes.
    `TestTTSRequestPreservesExactVoiceAndOmitsAbsentVoice`, além dos testes de
    `VoicePicker` e `ProfileVoiceSection`, cobrem associação exata, completude,
    preservação e omissão real do parâmetro. Esta entrega fornece o consumo da
-   fase 4 da AEP-0113. A revisão local independente (`review_catalogo_vozes`, seis rodadas)
+   fase 4 da AEP-0113. A revisão local independente (`review_catalogo_vozes`, nove rodadas)
    encerrou sem pendências. O contrato é compartilhado pela prévia e pelo
    manager, inclusive após atualização do catálogo, sem reconfigurar vozes salvas.
 

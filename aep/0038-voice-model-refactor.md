@@ -56,7 +56,7 @@ Regras:
 - Providers/modelos como OpenAI, Kokoro e Qwen usam `selection_mode = "model_and_voice"`: o usuario escolhe modelo e voz separadamente.
 - Providers/modelos como Piper usam `selection_mode = "model_only"`: o usuario escolhe apenas o modelo; `voice_id` permanece vazio.
 - IDs compostos (`voiceId::model`) ficam proibidos.
-- Listagem de `/v1/models` alimenta seletor de modelos, nao seletor de vozes.
+- O catálogo AEP-0115 alimenta as sugestões de modelos TTS; `/v1/models` não é usado por esse seletor.
 - Listagem de vozes recebe `providerID` e `modelID` como entrada.
 - A lista tipada inclui `selection_mode`, `completeness` e `items`. A origem
   das sugestões HTTP é o catálogo AEP-0115, pela tupla exata de perfil de

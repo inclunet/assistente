@@ -84,3 +84,7 @@ permissão curinga: cada slug permitido é confirmado separadamente.
 
 A delegação é explícita, revogável e auditável, sem compartilhar credenciais.
 Veja AEP-0101 para o contrato completo.
+
+Se a consulta de vozes falhar, o seletor continua disponível, a falha é anunciada
+pelo leitor de telas e **Tentar novamente** repete a consulta. A prévia de um
+modelo configurado manualmente funciona mesmo sem sugestões no catálogo.

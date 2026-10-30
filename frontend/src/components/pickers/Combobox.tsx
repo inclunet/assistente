@@ -103,11 +103,20 @@ export const Combobox = ({
     }, []);
     useImperativeHandle(triggerRef, () => buttonRef.current as HTMLButtonElement, [triggerRef, isOpen]);
 
-    const filteredItems = useMemo(() => items.filter(item =>
-        item.label.toLowerCase().includes(filter.toLowerCase()) ||
-        (item.sublabel && item.sublabel.toLowerCase().includes(filter.toLowerCase())) ||
-        (item.searchText && item.searchText.toLowerCase().includes(filter.toLowerCase()))
-    ), [filter, items]);
+    const filteredItems = useMemo(() => {
+        const matches = items.filter(item =>
+            item.value.toLowerCase().includes(filter.toLowerCase()) ||
+            item.label.toLowerCase().includes(filter.toLowerCase()) ||
+            (item.sublabel && item.sublabel.toLowerCase().includes(filter.toLowerCase())) ||
+            (item.searchText && item.searchText.toLowerCase().includes(filter.toLowerCase()))
+        );
+        const manualValue = filter.trim();
+        if (allowFreeInput && manualValue && matches.length > 0 && !items.some(item => item.value === manualValue)) {
+            return [{ value: manualValue, label: manualValue }, ...matches];
+        }
+        const exact = matches.find(item => item.value === manualValue);
+        return exact ? [exact, ...matches.filter(item => item !== exact)] : matches;
+    }, [allowFreeInput, filter, items]);
 
     const selectedItem = items.find(i => i.value === selected);
     const selectedLabel = selectedItem?.label || (selected ? selected : effectiveLabel);

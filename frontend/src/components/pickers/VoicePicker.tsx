@@ -4,6 +4,8 @@ import { SoundOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { ComboboxItem } from './Combobox';
 import { BasePicker } from './BasePicker';
+import { Button } from '../ui/Button';
+import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { ttsService } from '../../services/tts';
 import { TTSVoice } from '../../services/tts/types';
 import './VoicePicker.css';
@@ -51,14 +53,20 @@ export function VoicePicker(
   }: VoicePickerProps
 ) {
   const { t } = useTranslation();
+  const { announce } = useAnnouncer();
   const effectiveLabel = label ?? t('pickers.voice.label');
   const effectiveHelpText = helpText ?? t('pickers.voice.description');
   const [voices, setVoices] = useState<TTSVoice[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadFailed, setLoadFailed] = useState(false);
   const error = loadFailed ? t('pickers.voice.loadError') : null;
+  useEffect(() => {
+    if (error) (onAnnounce ?? announce)(error);
+  }, [error, onAnnounce, announce]);
   const [completeness, setCompleteness] = useState<'complete' | 'partial' | 'unknown'>('unknown');
   const generation = useRef(0);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const retryRef = useRef<HTMLButtonElement>(null);
   const loadVoices = useCallback(async () => {
     const request = ++generation.current;
     const special = !providerId || providerId === 'disabled' || providerId.startsWith('ref_');
@@ -69,10 +77,11 @@ export function VoicePicker(
       return;
     }
     setLoading(true);
-    setLoadFailed(false);
     try {
       const result = await ttsService.getVoiceSelectionForProvider(providerId, modelId || '');
       if (request !== generation.current) return;
+      if (document.activeElement === retryRef.current) triggerRef.current?.focus();
+      setLoadFailed(false);
       setVoices(result.voices);
       setCompleteness(result.completeness);
     } catch (err) {
@@ -103,7 +112,9 @@ export function VoicePicker(
   const catalogHelp = isHTTP ? t(`pickers.voice.${completeness}`) : '';
 
   return (
+    <>
     <BasePicker
+      triggerRef={triggerRef}
       variant={variant}
       items={items}
       selected={value}
@@ -122,9 +133,16 @@ export function VoicePicker(
       formClassName="voice-picker-form"
       formLabelClassName="voice-picker-label"
       formLabelIconClassName="voice-picker-icon"
-      helpText={variant === 'form' ? [effectiveHelpText, catalogHelp, error].filter(Boolean).join(' ') : undefined}
+      helpText={variant === 'form' ? [effectiveHelpText, catalogHelp].filter(Boolean).join(' ') : undefined}
       helpTextClassName="help-text"
 
     />
+    {error && <div>
+      <p>{error}</p>
+      <Button ref={retryRef} variant="secondary" disabled={disabled} aria-disabled={loading} onClick={() => { if (!loading) void loadVoices(); }}>
+        {t('pickers.base.retry')}
+      </Button>
+    </div>}
+    </>
   );
 }

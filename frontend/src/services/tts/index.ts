@@ -490,70 +490,57 @@ class TTSService {
     if (isCurrent && !isCurrent()) throw new Error('chat-message-stale');
     const sessionId = `preview-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
-    // Usa o OpenAI provider do frontend para gerenciar o streaming player
-    const openaiProvider = ttsFactory.getProvider(TTSProvider.OPENAI);
-    if (openaiProvider && 'streamPlayer' in openaiProvider) {
-      // Reutiliza a infraestrutura de streaming do OpenAI provider
-      const streamPlayer = getStreamPlayer();
-      this.activeStreamPlayer = streamPlayer;
+    this.activeStreamAbort?.abort();
+    const streamPlayer = getStreamPlayer();
+    this.activeStreamPlayer = streamPlayer;
 
-      const abort = new AbortController();
-      this.activeStreamAbort = abort;
+    const abort = new AbortController();
+    this.activeStreamAbort = abort;
 
-      const streamPromise = new Promise<void>((resolve) => {
-        const cleanup = () => {
-          clearTimeout(timeout);
-          abort.signal.removeEventListener('abort', onAbort);
-          this.activeStreamPlayer = null;
-          this.activeStreamAbort = null;
-        };
-        // Resolve imediatamente se stop() for chamado externamente
-        const onAbort = () => { cleanup(); resolve(); };
-        abort.signal.addEventListener('abort', onAbort, { once: true });
+    let complete!: () => void;
+    const streamPromise = new Promise<void>(resolve => { complete = resolve; });
+    const finish = () => { clearTimeout(timeout); complete(); };
+    const cancel = () => {
+      if (this.activeStreamAbort === abort) streamPlayer.stop();
+      finish();
+    };
+    const timeout = setTimeout(cancel, calcTTSTimeoutMs(text.length));
+    abort.signal.addEventListener('abort', cancel, { once: true });
 
-        // Timeout proporcional ao tamanho do texto
-        const timeoutMs = calcTTSTimeoutMs(text.length);
-        const timeout = setTimeout(() => { cleanup(); streamPlayer.stop(); resolve(); }, timeoutMs);
+    streamPlayer.startListening(sessionId, {
+      isCurrent,
+      onStart: () => {
+        if (abort.signal.aborted) return;
+        if (isCurrent && !isCurrent()) { abort.abort(); return; }
+        this.emit('speakStart');
+        onStarted?.();
+      },
+      onEnd: () => { finish(); this.emit('speakEnd'); },
+      onError: () => { finish(); this.emit('speakEnd'); },
+    });
 
-        streamPlayer.startListening(sessionId, {
-          isCurrent,
-          onStart: () => {
-            if (isCurrent && !isCurrent()) { streamPlayer.stop(); abort.abort(); return; }
-            this.emit('speakStart');
-            onStarted?.();
-          },
-          onEnd: () => {
-            cleanup();
-            this.emit('speakEnd');
-            resolve();
-          },
-          onError: () => {
-            cleanup();
-            this.emit('speakEnd');
-            resolve();
-          },
-        });
-      });
-
-      try {
-        await SpeakPreview(providerId, model, voiceId, rate, volume, language, text, sessionId);
-        if (isCurrent && !isCurrent()) { streamPlayer.stop(); abort.abort(); throw new Error('chat-message-stale'); }
-        await streamPromise;
-      } catch (error) {
-        streamPlayer.stop();
-        if (this.activeStreamAbort === abort) {
-          this.activeStreamAbort = null;
-        }
-        if (this.activeStreamPlayer === streamPlayer) {
-          this.activeStreamPlayer = null;
-        }
-        this.emit('speakEnd');
-        throw error;
+    try {
+      await Promise.race([
+        SpeakPreview(providerId, model, voiceId, rate, volume, language, text, sessionId),
+        streamPromise,
+      ]);
+      if (abort.signal.aborted) return;
+      if (isCurrent && !isCurrent()) throw new Error('chat-message-stale');
+      await streamPromise;
+    } catch (error) {
+      if (abort.signal.aborted) return;
+      abort.abort();
+      this.emit('speakEnd');
+      throw error;
+    } finally {
+      clearTimeout(timeout);
+      abort.signal.removeEventListener('abort', cancel);
+      if (this.activeStreamAbort === abort) {
+        this.activeStreamAbort = null;
+        this.activeStreamPlayer = null;
       }
-    } else {
-      // Fallback simples: só chama o backend (sem aguardar)
-      await SpeakPreview(providerId, model, voiceId, rate, volume, language, text, sessionId);
     }
+
   }
 
   /**   * Obtém o volume atual

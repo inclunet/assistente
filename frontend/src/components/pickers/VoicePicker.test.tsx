@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { VoicePicker, VOICE_DISABLED, VOICE_REF_ASSISTANT } from './VoicePicker';
 import { TTSProvider } from '../../services/tts/types';
 
@@ -18,7 +18,7 @@ vi.mock('../../services/tts', () => ({
 
 const basePickerPropsSpy = vi.fn();
 vi.mock('./BasePicker', () => ({
-  BasePicker: (props: { items: Array<{ value: string; label: string }>; selected: string; onSelect: (v: string) => void; loading?: boolean; error?: string | null }) => {
+  BasePicker: (props: { items: Array<{ value: string; label: string }>; selected: string; onSelect: (v: string) => void; loading?: boolean; error?: string | null; triggerRef?: React.Ref<HTMLButtonElement> }) => {
     basePickerPropsSpy(props);
     return (
       <div
@@ -28,6 +28,7 @@ vi.mock('./BasePicker', () => ({
         data-loading={props.loading ?? false}
         data-error={props.error ?? ''}
       >
+        <button ref={props.triggerRef} aria-label="Abrir vozes" />
         {props.items.map((item) => (
           <button
             key={item.value}
@@ -217,4 +218,22 @@ it('não consulta novamente ao editar a voz sem mudar conexão ou modelo', async
  const calls = getVoicesForProviderSpy.mock.calls.length;
  rerender(<VoicePicker providerId="proxy" modelId="model" value="manual" onChange={() => {}} />);
  expect(getVoicesForProviderSpy.mock.calls).toHaveLength(calls);
+});
+
+it('anuncia falha na toolbar e permite repetir sem retirar o seletor manual', async () => {
+  const announce = vi.fn();
+  getVoicesForProviderSpy.mockRejectedValueOnce(new Error('offline'));
+  render(<VoicePicker value="manual" providerId="proxy" variant="toolbar" onChange={() => {}} onAnnounce={announce} />);
+  const retry = await screen.findByRole('button', { name: 'pickers.base.retry' });
+  expect(announce).toHaveBeenCalledWith('pickers.voice.loadError');
+  expect(screen.getByTestId('base-picker')).toHaveAttribute('data-selected', 'manual');
+  let finish!: (value: unknown) => void;
+  getVoicesForProviderSpy.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+  retry.focus();
+  fireEvent.click(retry);
+  expect(retry).toHaveFocus();
+  await act(async () => { finish({ voices: [], completeness: 'unknown', selectionMode: '' }); });
+  await waitFor(() => expect(screen.queryByRole('button', { name: 'pickers.base.retry' })).not.toBeInTheDocument());
+  expect(screen.getByTestId('base-picker')).toHaveAttribute('data-selected', 'manual');
+  expect(screen.getByRole('button', { name: 'Abrir vozes' })).toHaveFocus();
 });

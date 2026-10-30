@@ -50,8 +50,9 @@ const (
 	// legado de sucesso da fábrica, sem reintroduzir logging.Printf.
 	// O onboarding reutiliza ProviderForm e remove os oito formatos do percurso
 	// paralelo de sondagem, credencial e criação do WelcomeController.
-	expectedLegacyFormatCount  = 718
-	expectedLegacyFormatDigest = "44b9eb56bfc683430b8f735c8eafd358a8b295628cde153b3f4150ab97ca414e"
+	// A listagem TTS por catálogo elimina seis formatos normalizados da sondagem removida.
+	expectedLegacyFormatCount  = 712
+	expectedLegacyFormatDigest = "5cf5faeb46e9b7bc4f6d852fac0150d92ff3ef1ba8980e95966614aba0504c22"
 )
 
 // TestLegacyLoggingInventory mantém reproduzível o inventário da issue #675.
