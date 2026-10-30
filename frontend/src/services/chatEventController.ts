@@ -73,6 +73,7 @@ const translateBackendChatError = (message: string) => {
 };
 
 interface ChatMessagesReadyEvent {
+  itemId: string;
   conversationId: string;
   userMessageId: string;
   userContent: string;
@@ -81,6 +82,7 @@ interface ChatMessagesReadyEvent {
 }
 
 interface ChatStreamEvent {
+  itemId?: string;
   conversationId: string;
   delta?: string;
   diagnostic?: boolean;
@@ -163,6 +165,7 @@ interface ChatSegmentDoneEvent {
 }
 
 interface ChatDoneEvent {
+  itemId?: string;
   conversationId: string;
   assistantMessageId?: string;
   turnId?: string;
@@ -206,6 +209,7 @@ function terminalToolStatus(event: ChatToolEndEvent): 'done' | 'error' | 'cancel
 }
 
 interface ChatTurnPatch {
+  itemId: string;
   message: {
     id: string;
     conversationId: string;

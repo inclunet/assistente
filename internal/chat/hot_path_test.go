@@ -216,13 +216,15 @@ type commitCheckingEmitter struct {
 	repo              *batchHistoryRepo
 	readyAfterCommit  bool
 	messagesReadySeen int
+	readyItemID       string
 }
 
-func (e *commitCheckingEmitter) Emit(name string, _ any) {
+func (e *commitCheckingEmitter) Emit(name string, data any) {
 	if name != "chat:messages_ready" {
 		return
 	}
 	e.messagesReadySeen++
+	e.readyItemID = data.(ports.MessagesReadyEvent).ItemID
 	e.readyAfterCommit = e.repo.committed
 }
 
@@ -244,6 +246,9 @@ func TestRecordUserMessageUsesSingleBatchCallAndEmitsAfterCommit(t *testing.T) {
 	}
 	if emitter.messagesReadySeen != 1 || !emitter.readyAfterCommit {
 		t.Fatalf("messages_ready deve ocorrer uma vez após commit: %+v", emitter)
+	}
+	if emitter.readyItemID != "message:user-1" {
+		t.Fatalf("identidade da pergunta ausente no primeiro evento: %q", emitter.readyItemID)
 	}
 	if result.UserMsg.ID != "user-1" || len(result.Messages) != 1 {
 		t.Fatalf("resultado batch inesperado: %+v", result)

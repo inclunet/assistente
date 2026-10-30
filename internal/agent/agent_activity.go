@@ -350,6 +350,7 @@ func (h *SimpleStreamHandler) emitAgentErrorDone() {
 		patch = nil
 	}
 	done := ports.DoneEvent{
+		ItemID:         ports.ResponseItemID(h.TurnID),
 		ConversationID: h.ConversationID, TurnID: h.TurnID, AssistantMessageID: h.AssistantMessageID,
 		SurfaceOrigin: h.SurfaceOrigin, Reason: "error", ErrorMessage: h.lastError, TurnPatch: patch,
 		FinishReason: string(h.finish.Reason), RawReason: h.finish.RawReason,

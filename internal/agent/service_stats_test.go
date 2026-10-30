@@ -143,6 +143,13 @@ func TestSaveAndFinish_DoneEvent_CarregaPatchAutoritativo(t *testing.T) {
 	if done.Reason != "output_limit" || done.TurnPatch == nil {
 		t.Fatalf("esperava output_limit com patch, recebeu %+v", done)
 	}
+	window := chat.BuildTimelineMessageNodes([]database.MessageWindowItem{{
+		Kind: database.MessageWindowItemKindTurn, TurnID: turnID,
+	}}, repo.turnMessages, nil, nil, nil)
+	if len(window) != 1 || window[0].ItemID != "turn:turn-1" ||
+		done.ItemID != window[0].ItemID || done.TurnPatch.ItemID != window[0].ItemID {
+		t.Fatalf("identidade divergiu entre terminal e janela: done=%+v window=%+v", done, window)
+	}
 	if done.FinishReason != "max_tokens" || done.RawReason != "length" ||
 		done.Provider != "provider-1" || done.Model != "modelo-real" ||
 		done.EffectiveOutputLimit != 20 || done.ResponseBytes == nil || *done.ResponseBytes != len("resposta final") {
@@ -181,7 +188,7 @@ func TestSaveAndFinish_PreservaDesfechoQuandoPatchFalha(t *testing.T) {
 			continue
 		}
 		done := event.data.(ports.DoneEvent)
-		if done.Reason != "completed" || done.ErrorMessage != "" || done.TurnPatch != nil {
+		if done.Reason != "completed" || done.ErrorMessage != "" || done.TurnPatch != nil || done.ItemID != "turn:turn-1" {
 			t.Fatalf("falha opcional do patch alterou o desfecho: %+v", done)
 		}
 		return
@@ -245,7 +252,7 @@ func TestSaveAndFinish_FinalizeFailureIsTerminalAndRecoverable(t *testing.T) {
 	if done.TurnPatch != nil {
 		t.Fatal("failed persistence must not replace streamed content with stale database content")
 	}
-	if done.Reason != "error" || done.ErrorMessage != ports.ChatErrorPersistence || done.AssistantMessageID != "assistant-1" {
+	if done.Reason != "error" || done.ErrorMessage != ports.ChatErrorPersistence || done.AssistantMessageID != "assistant-1" || done.ItemID != "turn:turn-1" {
 		t.Fatalf("desfecho terminal incorreto: %+v", *done)
 	}
 }

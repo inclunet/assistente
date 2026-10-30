@@ -144,6 +144,7 @@ func (h *BaseStreamHandler) flushPendingDeltaLocked() {
 		Sequence:       h.streamSequence,
 		Done:           false,
 		ConversationId: h.ConversationID,
+		ItemID:         ports.ResponseItemID(h.TurnID),
 		TurnID:         h.TurnID,
 		SurfaceOrigin:  h.SurfaceOrigin,
 	})

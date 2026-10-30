@@ -3540,6 +3540,7 @@ export namespace chat {
 		}
 	}
 	export class MessageNode {
+	    itemId?: string;
 	    message: EnrichedMessage;
 	    children?: MessageNode[];
 	    level: number;
@@ -3552,6 +3553,7 @@ export namespace chat {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.itemId = source["itemId"];
 	        this.message = this.convertValues(source["message"], EnrichedMessage);
 	        this.children = this.convertValues(source["children"], MessageNode);
 	        this.level = source["level"];

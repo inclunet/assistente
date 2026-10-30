@@ -149,6 +149,33 @@ func TestCollectTurnIDsWithToolCallsDeduplicaTurnosConversacionais(t *testing.T)
 	}
 }
 
+func TestTimelineItemIdentitySurvivesRepresentativeChange(t *testing.T) {
+	turnID, messages, calls := canonicalTurnFixture()
+	before := BuildNodesWithTimelineConsolidation(messages[:1], nil, nil, nil)
+	after := BuildNodesWithTimelineConsolidation(messages, nil, nil, map[string][]TurnSegmentToolCall{turnID: calls})
+	if len(before) != 1 || len(after) != 1 {
+		t.Fatalf("esperava um item por turno: before=%+v after=%+v", before, after)
+	}
+	if before[0].Message.ID == after[0].Message.ID {
+		t.Fatal("fixture precisa trocar a mensagem representante")
+	}
+	if before[0].ItemID != "turn:"+turnID || after[0].ItemID != before[0].ItemID {
+		t.Fatalf("troca de representante mudou identidade: before=%+v after=%+v", before, after)
+	}
+}
+
+func TestTimelineItemIdentityKeepsLegacyAndUserIndependent(t *testing.T) {
+	turnID := "question"
+	messages := []Message{
+		{UUIDModel: database.UUIDModel{ID: "question"}, Role: "user", TurnID: &turnID},
+		{UUIDModel: database.UUIDModel{ID: "legacy"}, Role: "assistant"},
+	}
+	nodes := BuildNodesWithTimelineConsolidation(messages, nil, nil, nil)
+	if len(nodes) != 2 || nodes[0].ItemID != "message:question" || nodes[1].ItemID != "message:legacy" {
+		t.Fatalf("mensagem independente promovida indevidamente a turno: %+v", nodes)
+	}
+}
+
 func TestConsolidateTimelineTurnFinalPreCriadoSemUsageUsaAtualizacaoTerminal(t *testing.T) {
 	turnID := "turn-updated-final"
 	base := time.Date(2026, 9, 17, 12, 0, 0, 0, time.UTC)
