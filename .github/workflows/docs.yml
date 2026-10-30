@@ -5,6 +5,8 @@ on:
     branches: [main]
     paths:
       - 'docs/**'
+      - 'internal/llmcatalog/**'
+      - '.github/workflows/docs.yml'
   workflow_dispatch:
 
 permissions:
@@ -19,16 +21,29 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      GOTMPDIR: ${{ github.workspace }}/build/bin/docs-validation/go-work
+      GOCACHE: ${{ github.workspace }}/build/bin/docs-validation/go-cache
+      TEMP: ${{ github.workspace }}/build/bin/docs-validation/scratch
+      TMP: ${{ github.workspace }}/build/bin/docs-validation/scratch
+      TMPDIR: ${{ github.workspace }}/build/bin/docs-validation/scratch
+      HUGO_CACHEDIR: ${{ github.workspace }}/build/bin/docs-validation/hugo-cache
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
+      - name: Preparar diretórios de build
+        run: mkdir -p "$GOTMPDIR" "$GOCACHE" "$TMPDIR" "$HUGO_CACHEDIR"
+
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+
+      - name: Validar catálogo antes da publicação
+        run: go test ./internal/llmcatalog -count=1
 
       - name: Setup Hugo
         uses: peaceiris/actions-hugo@v3

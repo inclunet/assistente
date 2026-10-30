@@ -6,6 +6,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/google/jsonschema-go/jsonschema"
 )
 
 const minimalCatalog = `{"schema_version":1,"catalog_version":"v1","updated_at":"2026-10-17T12:00:00Z","servers":[{"id":"test","name":"Test","group":"custom","provider_family":"test","status":"active","api_format":"openai","adapter_id":"openai","auth":{"mode":"none","required":false},"fields":{"base_url":{"policy":"editable","required":true}}}],"models":[{"id":"vendor/model","vendor":"Vendor","name":"Model","status":"active","capabilities":{}}],"exposures":[{"server_profile_id":"test","api_format":"openai","exposed_model_id":"alias","canonical_model_id":"vendor/model"}]}`
@@ -14,6 +16,25 @@ func TestDecodePublishedCatalogAsset(t *testing.T) {
 	data, err := os.ReadFile("../../docs/static/json/assistente-catalog.json")
 	if err != nil {
 		t.Fatal(err)
+	}
+	schemaData, err := os.ReadFile("../../docs/static/json/assistente-catalog.schema.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var schema jsonschema.Schema
+	if err := json.Unmarshal(schemaData, &schema); err != nil {
+		t.Fatalf("schema publicado inválido: %v", err)
+	}
+	resolved, err := schema.Resolve(nil)
+	if err != nil {
+		t.Fatalf("resolver schema publicado: %v", err)
+	}
+	var instance any
+	if err := json.Unmarshal(data, &instance); err != nil {
+		t.Fatal(err)
+	}
+	if err := resolved.Validate(instance); err != nil {
+		t.Fatalf("asset não obedece ao JSON Schema publicado: %v", err)
 	}
 	doc, err := Decode(data)
 	if err != nil {
