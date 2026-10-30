@@ -1847,3 +1847,22 @@ func TestPrepareMessagesRejectsDisabledSkill(t *testing.T) {
 }
 
 func testParameterPointer[T any](value T) *T { return &value }
+
+func TestPrepareContext_ModeloDaAbaPreservaIDExato(t *testing.T) {
+	for _, model := range []string{" team/private ", "team/private", "   "} {
+		t.Run(model, func(t *testing.T) {
+			interactor := NewInteractor(InteractorConfig{Emitter: &spyEmitter{}, ConvRepo: noopConvRepo{}, Workspace: staticWorkspaceProvider{ws: &workspace.Workspace{ID: "ws", Tabs: workspace.TabsState{Items: []workspace.Tab{{ID: "tab", Type: workspace.TabTypeChat, ConversationID: "conv", ProfileOverride: map[string]any{"model": model}}}}}}})
+			prepared, err := interactor.PrepareContext(t.Context(), PrepareContextRequest{ConversationID: "conv", Source: "wails", DefaultModel: "default", Params: ChatParams{SurfaceTabID: "tab"}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := model
+			if model == "   " {
+				want = "default"
+			}
+			if prepared.Params.Model != want {
+				t.Fatalf("model=%q want=%q", prepared.Params.Model, want)
+			}
+		})
+	}
+}

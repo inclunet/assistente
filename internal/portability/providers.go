@@ -254,8 +254,12 @@ func validateProviderExport(provider ProviderExport) (ProviderExport, error) {
 		normalized.ModelAliases = nil
 	}
 	normalized.BaseURL = strings.TrimSpace(provider.BaseURL)
-	normalized.Model = strings.TrimSpace(provider.Model)
-	normalized.DefaultModel = strings.TrimSpace(provider.DefaultModel)
+	if strings.TrimSpace(provider.Model) == "" {
+		normalized.Model = ""
+	}
+	if strings.TrimSpace(provider.DefaultModel) == "" {
+		normalized.DefaultModel = ""
+	}
 	normalized.CredentialPattern = strings.TrimSpace(provider.CredentialPattern)
 	normalized.ACPCommand = strings.TrimSpace(provider.ACPCommand)
 	normalized.ACPAgentID = strings.TrimSpace(provider.ACPAgentID)

@@ -842,3 +842,25 @@ func TestToolSameExplicitProfileDoesNotAsk(t *testing.T) {
 		t.Fatalf("same-profile deveria preservar fluxo atual: result=%#v auth=%#v runner=%#v err=%v", result, authorizer, runner, err)
 	}
 }
+
+func TestToolPreservesExactModelID(t *testing.T) {
+	for _, model := range []string{" team/private ", "team/private", "   "} {
+		runner := &fakeRunner{result: subagent.RunResult{Status: subagent.StatusSucceeded}}
+		tool := NewWithProvider(func() Runner { return runner })
+		input, err := json.Marshal(map[string]string{"prompt": "task", "model": model})
+		if err != nil {
+			t.Fatal(err)
+		}
+		result, err := tool.Execute(parentCtx(), input)
+		if err != nil || result.IsError {
+			t.Fatalf("execute: %+v %v", result, err)
+		}
+		want := model
+		if model == "   " {
+			want = ""
+		}
+		if runner.lastParams.Model != want {
+			t.Fatalf("model=%q want=%q", runner.lastParams.Model, want)
+		}
+	}
+}

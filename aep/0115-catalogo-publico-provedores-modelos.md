@@ -382,6 +382,10 @@ quanto às rotas catalogadas ainda sem suporte (Cohere e Ollama nativo); manuten
    conexões OAuth ChatGPT não recebem vínculos HTTP. Evidências adicionais:
    `llmcatalog/aliases_test.go`, `providers/model_aliases_test.go`,
    `portability/provider_aliases_test.go` e `ProviderModelAliases.test.tsx`.
+   O seletor de modelos, a barra do chat e `PrepareContext` preservam IDs não
+   vazios integralmente, inclusive espaços significativos; a validação de vazio
+   e reset não normaliza o identificador enviado. Evidências: `ModelPicker.test.tsx`,
+   `ChatToolbar.test.tsx` e `TestPrepareContext_ModeloDaAbaPreservaIDExato`.
 5. **Vozes TTS na API do catálogo — concluída.**
    `Document.ResolveTTSSelection` resolve a tupla exata e preserva o estado de
    completude. `speech.Service.GetTTSModels` e `GetTTSVoices` fornecem sugestões

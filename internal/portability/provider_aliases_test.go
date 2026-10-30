@@ -8,7 +8,7 @@ import (
 func TestPrivateAliasesImportExportAndClear(t *testing.T) {
 	setupPortabilityTestDB(t)
 	ctx := portabilityTestCtx()
-	incoming := ProviderExport{ID: "proxy-alias", Name: "Proxy", Type: "custom", APIFormat: "openai", BaseURL: "https://example.com/v1", ModelAliases: map[string]string{"private": "vendor/model"}}
+	incoming := ProviderExport{ID: "proxy-alias", Name: "Proxy", Type: "custom", APIFormat: "openai", BaseURL: "https://example.com/v1", Model: " private ", DefaultModel: " private ", ModelAliases: map[string]string{" private ": "vendor/model"}}
 	if _, err := importProvider(ctx, incoming); err != nil {
 		t.Fatal(err)
 	}
@@ -17,7 +17,7 @@ func TestPrivateAliasesImportExportAndClear(t *testing.T) {
 		t.Fatal(err)
 	}
 	exported, err := exportProvider(row)
-	if err != nil || exported.ModelAliases["private"] != "vendor/model" {
+	if err != nil || exported.ModelAliases[" private "] != "vendor/model" || exported.Model != " private " || exported.DefaultModel != " private " {
 		t.Fatalf("binding lost: %+v %v", exported, err)
 	}
 	incoming.ModelAliases = nil
