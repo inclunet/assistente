@@ -1,6 +1,6 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: Draft — proposta documental; implementação não iniciada
+## Status: In Progress — fase 1 concluída; runtime das fases 2–5 pendente
 
 Data: 2026-10-30
 
@@ -173,11 +173,11 @@ contrato mudar e docs/content no mesmo PR de comportamento visível.
 
 ### Fase 1 — Contrato e provas versionadas
 
-- [ ] Inventariar produtores, consumidores e escritores de cada campo relevante.
-- [ ] Versionar reproduções de ordem/foco e fixtures de paridade entre eventos e reload.
-- [ ] Fechar DTOs, ordenação/cursor, precedência, tentativas e recuperação de falhas.
-- [ ] Decidir persistência, constraints, upgrade/import e política de cache.
-- [ ] Fixar ambiente e medir baseline repetido; definir limites de regressão antes de alterar código.
+- [x] Inventariar produtores, consumidores e escritores de cada campo relevante (adendo abaixo).
+- [x] Versionar reproduções de ordem/foco e fixtures de paridade entre eventos e reload (seção Provas).
+- [x] Fechar DTOs, ordenação/cursor, precedência, tentativas e recuperação de falhas (adendo wire v1).
+- [x] Decidir persistência, constraints, upgrade/import e política de cache (adendo de armazenamento).
+- [x] Fixar ambiente e medir baseline repetido; definir limites de regressão antes de alterar código (seção Medição).
 
 Saída: adendo deste AEP com decisões fechadas e testes de contrato. Dependências
 não resolvidas bloqueiam os recortes correspondentes, não são fallbacks implícitos.
@@ -245,3 +245,322 @@ mecanismos extintos somente mantendo os comportamentos e falhas relevantes.
 NVDA não é requisito desta investigação/PR documental, por orientação do
 mantenedor. Os critérios de teclado, foco, semântica acessível e leitura
 continuam obrigatórios; testes DOM não serão apresentados como validação NVDA.
+
+## Adendo da fase 1 — contrato e inventário (30/10/2026)
+
+Este adendo especifica o alvo das fases 2–4. Os DTOs abaixo ainda não são
+bindings produtivos. As provas adicionadas nesta fase não implementam o protocolo.
+
+### Inventário de responsabilidades e consumidores
+
+- Entrada e retry: `internal/core/usecases/send_message.go`,
+  `internal/chat/interactor.go`, `internal/chat/handler.go`. Persistem a pergunta,
+  resolvem mídia, asseguram placeholder e finalizam a resposta. Manter um único
+  pipeline e a fila por conversa; preparar identidade antes de emitir item.
+- Streaming direto/agentic: `internal/agent/simple_stream_handler.go`,
+  `stream_handler_base.go`, `agentic_loop.go`, `service.go`; ACP:
+  `agent_activity.go`. Produzem texto, reasoning, segmentos, tools e terminal.
+  Devem alimentar um projetor comum em vez de diferentes montagens da timeline.
+- Eventos auxiliares: `internal/events/base_handler.go` e `emitter.go` também
+  emitem stream/thinking/erro. Inventário da migração inclui esses caminhos;
+  preparação sem mensagem permanece aviso, sem criar item local.
+- Persistência e projeção de janela: `internal/database/message_repository.go`,
+  `controllers/conversations_controller.go`, `internal/chat/timeline.go`.
+  Retornam ordenação/contagem da mesma unidade; retirar inferência de representante
+  do consumidor sem perder âncoras internas e autorização por conversa.
+- Frontend: `chatEventHub.ts` filtra execução; `chatEventController.ts` monta
+  segmentos e continuação; `chatSessionRegistry.ts` e `chatStore.ts` espelham
+  árvores/janelas. Substituir a montagem, não duplicar esses caminhos.
+- Consumidores laterais: `TokenStatsButton.tsx`, `TokenStatsModal.tsx`,
+  `useEditorInlineChatPatch.ts`, `useEditorInlineChat.ts` e os serviços de voz
+  dependem de eventos de término/tools. Preservar seus efeitos uma única vez;
+  evento de sincronização/reload nunca repete fala, aplicação no editor ou aviso.
+- Canais: `internal/messaging/gateway.go`, `notifier.go` e o controller de
+  messaging encaminham respostas e limpam callbacks. Não presumir que um novo
+  evento visual substitui o notifier; terminal mantém a conclusão operacional
+  e a liberação em `OnFinished` do pipeline existente.
+- Exposição: `internal/wailsapi/conversations.go` e `speech.go`; controllers
+  são fronteira reutilizada pelos transportes. `cmd/asst/chat.go` chama
+  SendMessage/GetConversation/CancelStreamingForConversation no App;
+  `adapters/cli/emitter.go` consome stream, done, error, segment_done, notice e
+  tool events, incluindo espera de término. Migrar esse adaptador junto do
+  contrato, preservando stdout incremental e término idempotente. As rotas em
+  `internal/httpapi/server.go` expõem autenticação e execução/consulta de comandos
+  externos, não um endpoint de snapshot/stream de timeline. A fonte de comando
+  `chat` não equivale a transporte de histórico. Não criar envio paralelo nem
+  exigir superfície Wails para projetar uma conversa.
+- Contexto e sumarização: `internal/chat/history.go`, `media.go`,
+  `internal/summarization/service.go`, tools em `internal/tools/history/` e
+  estatísticas em `internal/database/token_repository.go` leem mensagens/ledger.
+  Não substituir contexto do LLM pela projeção visual nem contar itens como chamadas.
+- Importação/exportação: `internal/portability/service.go` escreve diretamente
+  mensagens e remapeia relações; deve invalidar a projeção e reconstruir metadados.
+  Speech em `internal/speech/service.go` grava áudio posteriormente; pin, edição,
+  exclusão e limpeza no repositório também são mutações, não apenas SendMessage.
+
+### Campos persistidos: decisão de retenção
+
+- `id`, `conversation_id`, `role`, `content`: manter. Escrita pelo repositório,
+  pipeline e importador; leitura por histórico, contexto, ferramentas e exportação.
+- `created_at`: manter imutável durante edição/continuação; usar como dado legado
+  de ordenação no backend. `updated_at`: manter para auditoria, nunca como identidade
+  ou precedência pública. Imports substitutivos invalidam a época da projeção.
+- `turn_id`: manter como vínculo à pergunta; `parent_id`: manter para threads,
+  exclusão e importação. Validar mesmo owner/conversa e ciclos; não remover por
+  ausência de chamada UI a `AddChildMessage`.
+- `reasoning`: manter; handler/repositório gravam, projeção e leitura consomem.
+- `prompt_tokens`, `completion_tokens`, `total_tokens`, `cache_read_tokens`,
+  `cache_write_tokens`, `cache_miss_tokens`, `model`: manter valores reportados.
+  Estatísticas agregadas e ocupação atual são consumidores distintos. Não usar
+  `total_tokens > 0` para escolher a identidade da resposta.
+- `source`, `pinned`: manter origem e ação persistente de fixação; projeção entrega
+  metadados sem inferência visual. Speech não deve invalidar foco ao atualizar áudio.
+- `media`, `audio`, `audio_mime_type`: manter compatibilidade até fase 4; migrar
+  para anexos com referência única e papéis received/generated. Primeiro áudio
+  recebido não será copiado em dois lugares. Contexto e playback resolvem a mesma
+  referência; arquivos externos só se houver gestão de ciclo de vida e backup.
+- `chat_message_revisions`: manter exclusivamente para comandos/concorrência
+  existentes. Seu nonce não vira número de versão nem credencial da timeline.
+- `tool_invocations`: continua fonte única técnica. Migração não reintroduz
+  `tool_calls`, `tool_call_id` ou mensagens `role=tool` persistidas.
+
+### DTO wire v1 e ordenação
+
+IDs e cursores são strings opacas; inteiros incrementais são strings decimais
+para não perder precisão no JavaScript. Todos os retornos são autorizados pelo
+usuário/sessão do transporte, nunca pelo owner fornecido no payload.
+
+- `TimelineItem`: `itemId`, `conversationId`, `scopeParentId` (null na raiz),
+  `kind` (message/response), `turnId` (null em item sem turno), `replyToItemId`,
+  `messageIds`, `representativeMessageId`, `position`, `revision`, `state`,
+  `durability`, `segments`, `metadata` (origem, pin, uso, modelo e anexos leves).
+- `TimelineSegment`: `segmentId`, `kind` (text/reasoning/tool_invocations),
+  `text` ou `invocations` (resumos do ledger); ordem é a posição no array.
+  Proibido transportar argumentos/resultados integrais de tools nesta projeção.
+- `TimelineWindow`: `conversationId`, `scopeParentId`, `epoch`, `sequence`,
+  `items`, `orderedItemIds`, `totalCount`, `startIndex`, `endIndex`, `hasBefore`,
+  `hasAfter`, `beforeCursor`, `afterCursor`. Índices são de itens navegáveis.
+- `TimelineUpdate`: `conversationId`, `epoch`, `sequence`, `executionId` quando
+  houver execução, `operations`. Operações: item upsert/remove, segment insert/
+  append/replace/remove e metadados de contagem. A ordem materializada é entregue
+  em patches de janela descritos abaixo; frontend não compara `position` localmente.
+- `TimelineSyncRequired`: `conversationId`, nova `epoch`, razão controlada.
+  Não remove dados visíveis enquanto sincronização não completar; bloqueia
+  aplicação de deltas incompatíveis e sinaliza carregamento/erro de forma acessível.
+
+Janelas parciais têm `windowId` atribuído pelo backend, vinculado à sessão,
+superfície, conversa e escopo; fechar superfície cancela essa inscrição. O
+backend conhece os IDs materializados e entrega, no mesmo lote, `windowPatches`
+endereçados por windowId com splices (índice local, quantidade removida, IDs
+inseridos), itens necessários e metadados finais de paginação/contagem. Os
+índices são calculados pelo backend e aplicados na ordem do lote. Cada patch
+informa a revisão anterior da janela; divergência exige resync dessa janela.
+Atualização de conteúdo de item existente não substitui a lista nem seu DOM.
+
+Evento fora da janela atualiza somente itens já presentes no cache compartilhado
+e os metadados de contagem/cursores enviados pelo backend. Não insere item sem
+patch endereçado, não procura predecessor ausente e não dispara reload. Janela
+histórica preserva suas âncoras; janela inscrita em modo followTail recebe os
+splices de crescimento/corte. Mudar de modo é comando ao backend. Foco/leitura
+fixam IDs via inscrição para impedir corte; fechar libera essa retenção. A
+mesma conversa pode ter duas janelas diferentes e uma única sequência: lotes
+sem alteração local também avançam essa sequência. Snapshot/paginação atualizam
+a inscrição na mesma barreira do projetor. Snapshot não é disparado por cada
+token; somente lacuna real, época ou revisão incompatível exige recuperação.
+
+Fixture obrigatória na fase 2: duas superfícies, uma no início do histórico e
+outra na cauda, recebem nova pergunta/resposta. A primeira mantém IDs/foco sem
+reload e recebe contagem; a segunda recebe inserções ordenadas. Incluir remoção
+da âncora, paginação concorrente e fechamento de uma das inscrições.
+
+Identidade: mensagem simples usa `message:<id>`; resposta usa `turn:<userId>`
+desde o primeiro evento. `representativeMessageId` pode mudar sem trocar itemId.
+Uma mensagem histórica sem turno permanece item message até migração explícita,
+que inicia nova época; não se promove silenciosamente durante streaming.
+
+Ordem backend: chave total `(anchor.created_at, anchor.id, slot, itemId)`,
+onde resposta usa a pergunta como anchor e slot=1; mensagem simples slot=0.
+Escopo de thread é separado. A comparação é feita no backend com a precisão do
+banco e comparação binária de IDs, não `localeCompare`. Import com vínculo
+inexistente não inventa pergunta: rejeitar vínculo inválido no novo formato;
+legado é classificado e preservado como item independente com diagnóstico.
+
+`position` e cursores codificam essa chave e escopo; não são autorização. Paginar
+por cursor validado no mesmo owner/conversa; âncora excluída retorna sincronização
+necessária, nunca outra conversa nem janela vazia falsamente definitiva.
+
+### Sequência, consulta concorrente e tentativas
+
+Projetor por conversa serializa mutações visuais. `epoch` é UUID aleatório por
+instância da projeção (reinício/evicção/import substitutivo); `sequence` cresce
+por lote emitido. `revision` do item é a sequence de sua última mutação nessa
+época. Não comparar sequências de épocas diferentes.
+
+Snapshot captura estado do projetor em uma barreira; consulta persistida e
+alterações concorrentes são reconciliadas pelo backend antes da resposta.
+Cliente registra eventos antes da consulta e mantém buffer limitado. Ao receber
+snapshot S, aplica-o e reaplica apenas eventos contíguos posteriores a S na
+mesma época. Se já processou estado mais novo, não sobrescreve diretamente com
+S. Duplicatas são ignoradas; lacuna, overflow ou mudança de época exige resync,
+sem interpretar timestamps. Paginação em andamento usa a mesma regra, com
+identidade da solicitação/superfície para descartar retorno de sessão encerrada.
+
+Limites iniciais: buffer de até 256 lotes ou 2 MiB por conversa; atingir qualquer
+limite descarta o buffer e pede snapshot. Backend mantém até 256 lotes/2 MiB
+para replay na época; fora disso entrega snapshot. Esses limites não descartam
+texto exibido, apenas o histórico de transporte. Deltas seguem coalescing de
+24 ms; terminal descarrega o lote pendente antes de concluir.
+
+Cada tentativa tem `executionId` próprio gerado/validado pelo backend, vinculado
+a usuário, conversa e turno. Retry/continuação não mudam itemId nem a posição;
+mudam execução e estado, com reset explícito de segmentos definidos pelo backend.
+Evento de execução encerrada não altera a atual. Remoção gera tombstone na
+sequência; após resync o snapshot substitui a janela e remove itens ausentes,
+impedindo ressurreição por respostas antigas.
+
+### Estado, falhas e armazenamento aprovado para fase 2
+
+Estados da resposta: preparing, streaming, completed, interrupted, failed e
+historical_unknown (somente legado sem evidência terminal).
+`durability`: persisted ou volatile. Falha antes de criar pergunta retorna erro
+operacional sem item. Uma pergunta confirmada e uma falha em criar resposta não
+são confundidas com resposta vazia concluída.
+
+Adicionar `chat_turns` com `user_message_id` (PK/FK), conversation_id,
+response_message_id (FK nullable), state e active_execution_id; e
+`chat_turn_attempts` com execution_id (PK), turn_id (FK), modo new/retry/continue,
+state, início/fim e motivo terminal controlado. Não duplicar texto/usage/tools
+nessas tabelas. Constraints de estados/modos; vínculos pertencem à mesma conversa
+na transação. Exclusão da pergunta remove metadados do turno e suas tentativas.
+Não criar tabela materializada de timeline ou cópia persistida do JSON visual.
+
+`response_message_id` torna explícita a mensagem final, eliminando escolha por
+uso/timestamp nos turnos novos. Mensagens intermediárias continuam conteúdo;
+ledger fornece a relação e os offsets para tools/ACP. IDs de segmentos derivam
+de referências persistidas e posição de trecho, não do texto. Edição/retry pode
+substituir segmentos por operação explícita; identidade do item permanece.
+
+Upgrade: backfill determinístico usa o consolidador atual uma única vez para
+selecionar representante; não inventa execução histórica. Turnos legados recebem
+origem imported/legacy em metadado de migração separado do estado operacional.
+Somente registro terminal explícito comprova completed/failed/interrupted;
+texto ou tokens não provam término. Sem essa evidência, expor historical_unknown,
+sem indicador de erro/interrupção nem oferta automática de continuação. Preservar
+leitura normal do conteúdo histórico; ação explícita de nova execução passa pelo
+mesmo comando e validações do backend. Não disparar retry automático no upgrade. Backup,
+transação e verificação de vínculos precedem ativação; qualquer falha preserva
+schema anterior. O importador reconstrói vínculos/identidades, não restaura
+executionId ativo de outra instalação. Rollback após novas escritas exige
+exportação compatível ou restauração de backup, nunca downgrade silencioso.
+
+Mutação de mensagem/ledger/turno invalida projeção pelo caminho transacional
+comum. Escritores diretos (import, manutenção, speech) precisam participar;
+triggers de invalidação persistente por conversa cobrem SQL fora do repositório.
+Esse contador detecta alterações de storage, não substitui a sequência de deltas
+voláteis. Antes de snapshot o projetor verifica o contador; alteração externa
+não reconciliável inicia nova época. Nenhuma consulta SQL por token.
+
+Ao falhar gravação terminal, manter projeção incremental volatile e emitir
+failed com causa persistence_error, sem sucesso falso. Snapshot de recuperação
+na mesma instância entrega essa projeção; após reinício só conteúdo confirmado
+é recuperável e tentativa antes ativa vira interrupted. Falha em consultar o
+patch não perde texto: projetor já possui estado recebido, emite estado com
+recoveryRequired e repete sincronização limitada. Liberação da fila/OnFinished
+é garantida mesmo se gravação ou emissão falhar. Novo envio não apaga item
+volatile; ele permanece até descarte explícito ou persistência bem-sucedida.
+
+### Cache e anexos
+
+Frontend mantém referências às janelas (limite atual de 240 itens), foco/leitura,
+edição e execuções ativas; itens sem referências entram em LRU limitada a 240
+itens ou 8 MiB por usuário. Fechar última superfície remove sua janela e libera
+referências; logout limpa todo o cache. Itens ativos/volatile não são expulsos
+silenciosamente: limite excedido bloqueia novas retenções opcionais e pede
+resolução explícita quando não houver conteúdo dispensável.
+
+Backend conserva projetor enquanto houver execução ou assinante, com descarte
+após 60 s sem ambos; conteúdo volatile exige persistência ou descarte explícito,
+não timeout. Reinício/evicção produz nova época e snapshot. Não armazenar JSON
+integral de tools no cache visual. Medir retained heap e contagem de itens em
+abertura/fechamento repetidos na fase 3.
+
+Fase 4 adiciona anexos referenciados por mensagem, com ID, papel, MIME, tamanho
+e conteúdo binário único; deduplicação limitada ao usuário. Tabela de vínculos
+preserva ordem dos anexos e distingue recebido de TTS gerado. Migração valida
+bytes/hash e export/import antes de retirar media/audio; payload visual contém
+somente metadados e IDs. Não adotar arquivos soltos sem lifecycle/backup.
+
+### Provas executáveis e transição dos testes
+
+`frontend/src/services/chatTimelineContract.test.ts` registra os contratos de
+ordem hoje violados. `MessageList.identity.test.tsx` registra perda de foco sem
+focusout artificial e controles de identidade estável/saída intencional.
+Três casos usam `it.fails`: a expectativa é o comportamento correto, a falha é
+conhecida e obrigatória nesta fase. Não são testes pulados; se o defeito deixar
+de ocorrer, Vitest exige retirar `.fails`. A fase 3 deve convertê-los em testes
+normais, sem inverter expectativas. Não alterar testes existentes para mascarar
+falhas. O renderer do nó é simplificado; não é validação de Markdown/NVDA.
+
+`TestACPCronologiaNoTerminalEReabertura` compara agora o patch completo do evento
+terminal com reconstrução em outra instância, em sucesso, erro, cancelamento e
+cauda vazia. Isso comprova paridade do contrato atual no caso ACP; não comprova
+o protocolo futuro. Fase 2 acrescenta as mesmas provas para DTO v1, ferramentas
+locais/nativas, concorrência snapshot/delta, exclusão e mudança de época.
+
+### Medição reproduzível e limites
+
+Baseline: Windows/amd64, Intel Core Ultra 7 155H, Go 1.27.1 (toolchain local),
+checkout limpo de produção em c7a75bf72; alterações desta fase são testes/docs.
+Temporários e GOCACHE dentro de build/bin do worktree. Dependências frontend
+reutilizadas localmente; CI valida instalação pelo lockfile.
+
+Comando: `go test ./internal/app -o build/bin/phase1/window-benchmark.test.exe -run '^$' -bench
+'BenchmarkConversationMessageWindowBaseline/messages_(100|500|1000)_result_1024$'
+-benchmem -benchtime=20x -count=5`. Comparar mediana de cinco amostras, nunca o
+melhor resultado. Fixtures usam SQLite em memória, ledger e serialização; medir
+mídia pesada e cold disk separadamente na fase 4.
+
+Medição isolada em 30/10/2026, após encerrar as suítes concorrentes, com
+GOMAXPROCS padrão (22). Cada amostra executou 20 operações:
+
+- 100 mensagens: amostras 3,703 / 3,721 / 3,801 / 3,641 / 3,614 ms;
+  mediana 3,703 ms, 694.841 B/op, 10.630 allocs/op; janela 33.212 bytes.
+- 500 mensagens: 10,181 / 11,447 / 11,641 / 11,666 / 13,682 ms;
+  mediana 11,641 ms, 1.629.859 B/op, 24.140 allocs/op; janela 79.161 bytes.
+- 1.000 mensagens: 13,779 / 13,267 / 13,255 / 13,498 / 12,813 ms;
+  mediana 13,267 ms, 1.628.394 B/op, 24.136 allocs/op; janela 79.162 bytes.
+
+Bytes e alocações são medianas independentes das cinco amostras. As quantidades
+100/500/1.000 são mensagens persistidas; a consulta limita a janela a 240 linhas,
+não transfere todo o histórico. Esta execução substitui a amostra exploratória
+única citada no diagnóstico. A rodada sob carga concorrente foi descartada como
+baseline; não comparar seus tempos com os isolados como ganho de implementação.
+
+Orçamentos antes da implementação: mediana de tempo e B/op da mesma fixture no
+mesmo ambiente não cresce mais de 20% contra baseline; payload da janela não
+cresce mais de 10% sem justificativa revisada. Zero queries por delta; terminal
+não recarrega a conversa inteira. Na UI, testes existentes de MessageList
+performance exigem zero renders adicionais de nós estáveis por mudança de
+loading e um único nó atualizado quando só seu conteúdo muda, em 100/500/1000
+nós. Medida de heap de WebView permanece gate da fase 3, não resultado desta fase.
+
+### Validação e restrições desta entrega
+
+TypeScript, ESLint e Stylelint passaram (Stylelint mantém avisos preexistentes).
+Vitest completo: 515 arquivos, 6.846 testes; após ajuste de tipagem/fixture,
+11 testes focados passaram novamente. Go build e vet passaram. Antes da
+restrição abaixo, a fixture ACP de paridade passou, inclusive em execução com
+binário de saída explícito. Esses resultados não significam correção de runtime.
+
+golangci-lint local 2.15.0 apontou 12 ocorrências em arquivos idênticos à base;
+`golangci-lint run --new-from-rev=c7a75bf72` passou com zero ocorrências novas.
+Não declarar o lint global limpo; CI usa a versão configurada no workflow.
+Revisor independente `review_aep`: três rodadas; primeira com três achados,
+segunda aprovou as correções e terceira aprovou o diff completo sem pendências.
+
+A suíte Go completa foi interrompida: houve timeout do teste de scheduler do
+atualizador sob carga (três repetições isoladas passaram) e encerramentos
+0xffffffff em pacotes ACP. A pedido do mantenedor, não repetir testes ACP
+localmente: podem disparar antivírus e alertas de Infosec. Não executar
+`go test ./...` localmente nesse contexto. Preservar os testes versionados e
+registrar a restrição; a cobertura completa fica a cargo do CI remoto.
