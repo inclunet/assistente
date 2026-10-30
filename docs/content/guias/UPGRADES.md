@@ -29,6 +29,13 @@ falhe; não o remova antes de confirmar que o aplicativo iniciou normalmente.
 
 ## Diagnóstico local
 
+A preparação do novo histórico de chat também cria um backup consistente
+`*.pre-chat-turns-v41.bak`, acompanhado de manifesto com tamanho e SHA-256,
+antes de converter os registros. Preserve-o até confirmar a inicialização.
+Se o backup falhar, a conversão não começa; se a conversão falhar, as novas
+tabelas são revertidas e as mensagens originais são preservadas. Essa etapa
+prepara o armazenamento, sem alterar ainda a apresentação das conversas.
+
 O log de inicialização inclui uma linha do componente
 `database.upgrade-diagnostic` com:
 

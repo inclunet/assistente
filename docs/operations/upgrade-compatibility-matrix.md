@@ -13,6 +13,20 @@ o conjunto de origens suportadas.
 
 ## Matriz versionada
 
+### Incremento não publicado — AEP-0116 / turnos e tentativas
+
+A v41 `chat_turns_and_attempts` cria tabelas e constraints transacionalmente,
+com backfill em lotes e backup `*.pre-chat-turns-v41.bak` + manifesto SHA-256
+anterior ao DDL. O estado legado é `historical_unknown`, sem tentativas
+fabricadas. O pipeline ainda não usa essas tabelas: a ativação exige reconciliar
+mudanças posteriores ao backfill e integrar todos os terminais no mesmo corte.
+
+`TestPublishedRelease*` passou nas fixtures 0.1.9, 0.2.0, 0.3.0, 0.4.0 e 0.5.0,
+incluindo upgrade direto e reabertura. `TestMigrateChatTurns*` verifica lotes,
+idempotência, backup restaurável e rollback de DDL sem perda de mensagens.
+Isso não publica uma release nem certifica downgrade. Testes ACP não foram
+executados localmente, conforme restrição do mantenedor.
+
 ### Incremento não publicado — AEP-0103 / I01
 
 A v21 `command_storage_initial` é concluída na composição do host, depois da
