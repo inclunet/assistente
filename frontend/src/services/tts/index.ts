@@ -491,6 +491,9 @@ class TTSService {
     const sessionId = `preview-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
     this.activeStreamAbort?.abort();
+    const requestPreview = () => SpeakPreview(providerId, model, voiceId, rate, volume, language, text, sessionId);
+    // SAPI5 reproduz no Windows; somente HTTP retorna eventos de áudio.
+    if (providerId === 'sapi5') return requestPreview();
     const streamPlayer = getStreamPlayer();
     this.activeStreamPlayer = streamPlayer;
 
@@ -500,7 +503,14 @@ class TTSService {
     let complete!: () => void;
     let fail!: (error: Error) => void;
     const streamPromise = new Promise<void>((resolve, reject) => { complete = resolve; fail = reject; });
-    const finish = () => { clearTimeout(timeout); complete(); };
+    let finished = false;
+    const finish = (error?: Error) => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timeout);
+      this.emit('speakEnd');
+      if (error) fail(error); else complete();
+    };
     const cancel = () => {
       if (this.activeStreamAbort === abort) streamPlayer.stop();
       finish();
@@ -516,13 +526,13 @@ class TTSService {
         this.emit('speakStart');
         onStarted?.();
       },
-      onEnd: () => { finish(); this.emit('speakEnd'); },
-      onError: error => { clearTimeout(timeout); fail(error); },
+      onEnd: () => finish(),
+      onError: error => finish(error),
     });
 
     try {
       await Promise.race([
-        SpeakPreview(providerId, model, voiceId, rate, volume, language, text, sessionId),
+        requestPreview(),
         streamPromise,
       ]);
       if (abort.signal.aborted) return;
@@ -531,7 +541,6 @@ class TTSService {
     } catch (error) {
       if (abort.signal.aborted) return;
       abort.abort();
-      this.emit('speakEnd');
       throw error;
     } finally {
       clearTimeout(timeout);

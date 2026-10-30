@@ -72,3 +72,24 @@ it.each(['resolve', 'reject'])('propaga erro do player antes da resposta HTTP: %
  expect(ttsService.isSpeaking()).toBe(false);
  finishRPC();
 });
+
+it('conclui prévia SAPI5 sem aguardar eventos de streaming HTTP', async () => {
+ vi.mocked(SpeakPreview).mockResolvedValueOnce(undefined);
+ const listeners = stream.startListening.mock.calls.length;
+ await ttsService.speakWithOverride('nativa', {providerId:'sapi5',voiceName:'Voz Windows'});
+ expect(stream.startListening).toHaveBeenCalledTimes(listeners);
+ expect(SpeakPreview).toHaveBeenLastCalledWith('sapi5','','Voz Windows',1,1,'','nativa',expect.any(String));
+ expect(ttsService.isSpeaking()).toBe(false);
+});
+
+it('anuncia término uma vez ao cancelar a reprodução HTTP', async () => {
+ const ended = vi.fn();
+ ttsService.on('speakEnd', ended);
+ vi.mocked(SpeakPreview).mockResolvedValueOnce(undefined);
+ const preview = ttsService.speakWithOverride('teste', {providerId:'proxy',ttsModel:'manual'});
+ stream.startListening.mock.lastCall?.[1].onStart();
+ ttsService.stop();
+ await preview;
+ expect(ended).toHaveBeenCalledTimes(1);
+ ttsService.off('speakEnd', ended);
+});

@@ -226,7 +226,7 @@ export function ProfileVoiceSection({
           variant="secondary"
           size="sm"
           onClick={handlePreview}
-          disabled={isPreviewDisabled}
+          disabled={!isSpeaking && isPreviewDisabled}
           aria-label={isSpeaking ? t('profiles.voicePreview.stop') : t('profiles.voicePreview.buttonAria')}
         >
           <span aria-hidden="true">

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { useState, useId } from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { ProfileVoiceSection } from './ProfileVoiceSection';
 import { VOICE_DISABLED } from '../pickers/VoicePicker';
 
@@ -418,4 +418,18 @@ it('permite corrigir explicitamente conflito com o catálogo sem apagar valores 
  expect(onChange).not.toHaveBeenCalled();
  fireEvent.change(mode, { target: { value: 'model_and_voice' } });
  expect(onChange).toHaveBeenCalledWith('selectionMode', 'model_and_voice');
+});
+
+it('mantém Parar disponível quando a configuração muda durante a reprodução', async () => {
+ const { ttsService } = await import('../../services/tts');
+ const props = {providerId: 'proxy', ttsModel: 'tts-1', voice: 'v1', rate: 1, volume: 1, onChange: vi.fn()};
+ const { rerender } = render(<ProfileVoiceSection {...props} selectionMode="model_and_voice" />);
+ await screen.findByRole('option', {name:'tts-1-hd'});
+ const start = vi.mocked(ttsService.on).mock.calls.filter(([event]) => event === 'speakStart').slice(-1)[0]?.[1];
+ act(() => { start?.(); });
+ rerender(<ProfileVoiceSection {...props} selectionMode="model_only" voice="" disabled />);
+ const stopButton = screen.getByRole('button', {name:'profiles.voicePreview.stop'});
+ expect(stopButton).toBeEnabled();
+ fireEvent.click(stopButton);
+ expect(ttsService.stop).toHaveBeenCalled();
 });
