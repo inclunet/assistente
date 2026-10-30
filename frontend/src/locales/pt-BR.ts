@@ -403,6 +403,13 @@ const ptBR = {
         streamingPromptCacheHintRejected: 'O provedor rejeitou a dica de cache mesmo depois de ela ser desativada. Verifique a configuração do gateway ou desative as dicas de cache no perfil.',
         streamingTokenRateLimit: 'A cota de tokens do provedor foi atingida (HTTP 429). Aguarde a renovação da cota e tente novamente.',
         agentResponseFailed: 'Falha na resposta do agente:',
+        parameterErrors: {
+          required: 'Configure {{field}}: esta API exige um valor explícito e não há default disponível para o modelo.',
+          choice: 'O valor configurado para {{field}} não está entre as opções aceitas pelo modelo.',
+          number: 'O valor configurado para {{field}} não é um número válido para este parâmetro.',
+          minimum: 'O valor de {{field}} deve ser pelo menos {{limit}}.',
+          maximum: 'O valor de {{field}} deve ser no máximo {{limit}}.',
+        },
         providerErrors: {
           unsupportedParameter: 'O provedor não aceita o parâmetro {{field}} para este modelo. Confira os parâmetros configurados.{{statusLabel}}',
           unsupportedParameterUnknown: 'O provedor recusou um parâmetro, mas não identificou um campo que possa ser omitido com segurança.{{statusLabel}}',
@@ -2176,6 +2183,9 @@ const ptBR = {
         feedbackSoundsHint: 'Sons ao iniciar/parar gravação e outros eventos de interação',
       },
       chatSection: {
+        modelDefault: 'Padrão do modelo',
+        modelDefaultHint: 'Deixe vazio para usar o padrão do catálogo; sem um padrão conhecido, o parâmetro não é enviado.',
+        parameterInvalid: 'Valor incompatível com os limites conhecidos do modelo.',
         groupProvider: 'Provedor e Modelo',
         groupGeneration: 'Parâmetros de Geração',
         groupContext: 'Contexto e Limites',
@@ -2209,6 +2219,7 @@ const ptBR = {
         timeout: 'Timeout (segundos)',
         reasoning: 'Raciocínio (Reasoning)',
         reasoningOllama: 'Ativado (Ollama)',
+        reasoningCustom: 'Valor personalizado de raciocínio',
         reasoningOff: 'Desativado',
         reasoningNone: 'Mínimo (none)',
         reasoningLow: 'Baixo (low)',

@@ -335,9 +335,44 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 	}
 	params := pctx.Params
 	params.Source = strings.TrimSpace(req.Source)
+	surfaceOrigin := ports.NewChatSurfaceOrigin(
+		req.ConversationID,
+		params.SurfaceSessionKey,
+		params.SurfaceID,
+		params.SurfaceType,
+		params.SurfaceTabID,
+		params.SurfaceExecutionID,
+	)
+
+	// Resolve o ChatProvider para o provedor do perfil ativo.
+	if activeProfile == nil || activeProfile.Chat.LLMProvider == "" {
+		errMsg := "Nenhum provedor LLM configurado no perfil ativo."
+		uc.emitter.Emit("chat:error", ports.ErrorEvent{ConversationID: req.ConversationID, Error: errMsg})
+		return "", fmt.Errorf("%s", errMsg)
+	}
+
+	requestStreamer, providerConfig, err := uc.providerSvc.GetChatProviderWithConfigSnapshot(ctx, activeProfile.Chat.LLMProvider)
+	if err != nil {
+		errMsg := fmt.Sprintf("Provedor LLM não disponível: %v", err)
+		logging.Errorf(ctx, "core.usecases.send-message", "[SendMessage] ERRO: %s", errMsg)
+		uc.emitter.Emit("chat:error", ports.ErrorEvent{ConversationID: req.ConversationID, Error: errMsg})
+		return "", fmt.Errorf("%s", errMsg)
+	}
+	params.Compatibility = uc.loadCompatibilityState(ctx, providerConfig, params.Model)
+	params, err = uc.providerSvc.ApplyChatParameterContract(providerConfig, params)
+	if err != nil {
+		uc.emitter.Emit("chat:error", ports.ErrorEvent{ConversationID: req.ConversationID, SurfaceOrigin: surfaceOrigin, Error: err.Error()})
+		return "", err
+	}
+	logging.Infof(ctx, "core.usecases.send-message", "[SendMessage] ChatProvider resolvido para provedor: %s", activeProfile.Chat.LLMProvider)
+
+	resolvedProfile := *activeProfile
+	resolvedProfile.Chat.MaxTokens = params.MaxTokens
+	activeProfile = &resolvedProfile
+
 	if params.AllowAssistantPrefill {
 		// Gating pelo perfil: se o usuário desabilitou a ação manual, o backend deve falhar fechado.
-		if activeProfile != nil && activeProfile.Chat.StreamingRecoveryShowContinue != nil && !*activeProfile.Chat.StreamingRecoveryShowContinue {
+		if activeProfile.Chat.StreamingRecoveryShowContinue != nil && !*activeProfile.Chat.StreamingRecoveryShowContinue {
 			errMsg := "ação 'Continuar resposta' desabilitada no perfil ativo"
 			uc.emitter.Emit("chat:error", ports.ErrorEvent{ConversationID: req.ConversationID, Error: errMsg})
 			return "", fmt.Errorf("%s", errMsg)
@@ -353,14 +388,6 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 		}
 	}
 	userContent := mediaResolution.Content
-	surfaceOrigin := ports.NewChatSurfaceOrigin(
-		req.ConversationID,
-		params.SurfaceSessionKey,
-		params.SurfaceID,
-		params.SurfaceType,
-		params.SurfaceTabID,
-		params.SurfaceExecutionID,
-	)
 
 	var userMsg *chat.Message
 	var messages []llm.Message
@@ -499,19 +526,8 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 	invokedExecutionContext := prepResult.InvokedExecutionContext
 
 	// Constrói tool definitions para o LLM.
-	disableTools := activeProfile != nil && activeProfile.Chat.DisableTools
-	var profileEnabledTools []string
-	var profileToolPolicy map[string]string
-	var profileToolPolicyDefault string
-	var toolSchemaBudgetBytes int
-	var preferredToolPackages []string
-	if activeProfile != nil {
-		profileEnabledTools = activeProfile.Chat.EnabledTools
-		profileToolPolicy = activeProfile.Chat.ToolPolicy
-		profileToolPolicyDefault = activeProfile.Chat.ToolPolicyDefault
-		toolSchemaBudgetBytes = activeProfile.Chat.ToolSchemaBudgetBytes
-		preferredToolPackages = activeProfile.Chat.PreferredToolPackages
-	}
+	disableTools := activeProfile.Chat.DisableTools
+	preferredToolPackages := activeProfile.Chat.PreferredToolPackages
 	var runtimeTools []string
 	if prepResult.ModelOnDemandSkillAvailable {
 		runtimeTools = append(runtimeTools, tools.LoadSkillName)
@@ -522,12 +538,12 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 	// native/adapter (com ToolPlanner) é feita por PlanTurnToolDefs.
 	toolPolicy := chat.NewToolSelectionPolicy(uc.toolRegistry)
 	toolCfg := chat.ProfileToolConfig{
-		EnabledTools:      profileEnabledTools,
-		ToolPolicy:        profileToolPolicy,
-		ToolPolicyDefault: profileToolPolicyDefault,
+		EnabledTools:      activeProfile.Chat.EnabledTools,
+		ToolPolicy:        activeProfile.Chat.ToolPolicy,
+		ToolPolicyDefault: activeProfile.Chat.ToolPolicyDefault,
 		DisableTools:      disableTools,
 		RuntimeTools:      runtimeTools,
-		SchemaBytesBudget: toolSchemaBudgetBytes,
+		SchemaBytesBudget: activeProfile.Chat.ToolSchemaBudgetBytes,
 		PreferredPackages: preferredToolPackages,
 	}
 	recoverableNames := []string(nil)
@@ -622,23 +638,6 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 			}
 		}
 	}
-
-	// Resolve o ChatProvider para o provedor do perfil ativo.
-	if activeProfile == nil || activeProfile.Chat.LLMProvider == "" {
-		errMsg := "Nenhum provedor LLM configurado no perfil ativo."
-		uc.emitter.Emit("chat:error", ports.ErrorEvent{ConversationID: req.ConversationID, Error: errMsg})
-		return "", fmt.Errorf("%s", errMsg)
-	}
-
-	requestStreamer, providerConfig, err := uc.providerSvc.GetChatProviderWithConfigSnapshot(ctx, activeProfile.Chat.LLMProvider)
-	if err != nil {
-		errMsg := fmt.Sprintf("Provedor LLM não disponível: %v", err)
-		logging.Errorf(ctx, "core.usecases.send-message", "[SendMessage] ERRO: %s", errMsg)
-		uc.emitter.Emit("chat:error", ports.ErrorEvent{ConversationID: req.ConversationID, Error: errMsg})
-		return "", fmt.Errorf("%s", errMsg)
-	}
-	params.Compatibility = uc.loadCompatibilityState(ctx, providerConfig, params.Model)
-	logging.Infof(ctx, "core.usecases.send-message", "[SendMessage] ChatProvider resolvido para provedor: %s", activeProfile.Chat.LLMProvider)
 
 	// MCP nativo: configura servidores MCP HTTP no provider e remove suas tools da lista padrão.
 	// O override é por PERFIL (AEP-0021) e vale igualmente para chat e sub-agentes,
@@ -796,13 +795,7 @@ func (uc *SendMessageUseCase) loadCompatibilityState(ctx context.Context, provid
 	default:
 		return nil
 	}
-	modelID := requestedModel
-	if modelID == "" {
-		modelID = provider.Model
-	}
-	if modelID == "" {
-		modelID = provider.DefaultModel
-	}
+	modelID := llm.ResolveModel(provider, requestedModel)
 	if modelID == "" {
 		return nil
 	}

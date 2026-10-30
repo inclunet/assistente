@@ -409,10 +409,38 @@ metadados conhecidos. Atualizar o catálogo não muda o modelo ou a URL salvos.
 
 A API compartilhada e `asst providers models <id> --json` também fornecem
 capacidades e limites conhecidos. Ausência de `catalog` ou de uma capacidade
-significa informação desconhecida, não incompatibilidade. Limites são
-informativos; não alteram seus parâmetros nem substituem as restrições
-aprendidas nas chamadas reais. A apresentação detalhada desses dados na
-interface gráfica será acrescentada em uma próxima etapa.
+significa informação desconhecida, não incompatibilidade.
+
+No editor de perfil, temperatura, Top P, limite de saída e esforço de raciocínio
+usam as restrições conhecidas da exposição selecionada. O limite de saída
+publicado pelo catálogo passa a limitar o valor aceito no envio. Campos
+incompatíveis ficam ocultos, mas seus valores salvos são preservados para outra
+seleção. Restrições aprendidas nas chamadas reais continuam prevalecendo.
+O limite de contexto conhecido também restringe a janela configurada; zero
+continua desativando seu gerenciamento automático, sem receber outro valor.
+
+Deixe um parâmetro vazio para usar seu default catalogado. Quando não houver
+default conhecido, ele é omitido: o aplicativo não inventa outro preset. Um
+zero digitado é um valor explícito e não significa vazio. A API Anthropic exige
+um limite de saída; configure-o quando o catálogo não oferecer um default.
+Chamadas internas curtas usam seu próprio orçamento explícito, separado do
+perfil de conversa.
+Perfis antigos mantêm a opção de raciocínio desativado. Para passar a usar o
+default catalogado, selecione explicitamente o padrão do modelo no editor.
+
+Trocar de modelo ou atualizar o catálogo não ajusta silenciosamente os valores
+configurados. Valores incompatíveis precisam ser corrigidos; o backend também
+valida o contrato antes do envio. Conexões sem associação exata continuam com
+configuração manual. A tradução de esforço de raciocínio nos adaptadores nativos
+Anthropic e Google ainda não está implementada, por isso esse campo não é
+oferecido nesses formatos.
+
+O asset inicial inclui as opções e o default de raciocínio do
+[GPT-6.1 Sol](https://developers.openai.com/api/docs/models/gpt-6.1-sol) na
+Responses API e a rejeição dos parâmetros de amostragem do
+[Claude Sonnet 5](https://platform.claude.com/docs/en/models/sonnet-5/overview).
+Regras condicionais entre parâmetros ainda não são representadas no catálogo;
+informações não declaradas continuam desconhecidas.
 
 ### Falha ao salvar um provedor com API key
 

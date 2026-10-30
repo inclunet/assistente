@@ -36,17 +36,7 @@ func (p *OpenAIProvider) sendChatResponses(ctx context.Context, model string, me
 			OfInputItemList: convertToResponsesInput(messages),
 		},
 	}
-	if params.Temperature > 0 {
-		if !params.Compatibility.IsUnsupported(llmcapabilities.CapabilityResponses, llmcapabilities.FieldTemperature) {
-			respParams.Temperature = param.NewOpt(params.Temperature)
-		}
-	}
-	if params.MaxTokens > 0 {
-		if !params.Compatibility.IsUnsupported(llmcapabilities.CapabilityResponses, llmcapabilities.FieldMaxOutputTokens) {
-			respParams.MaxOutputTokens = param.NewOpt(int64(params.MaxTokens))
-		}
-	}
-	applyPromptCacheKeyToResponses(&respParams, params)
+	applyResponsesParameters(&respParams, params)
 	dumpHandle := dumpLLMRequest(p.provider, model, params, respParams)
 	defer pruneDebugDumpHandle(dumpHandle)
 
@@ -223,26 +213,7 @@ func (p *OpenAIProvider) buildResponsesParams(
 		},
 	}
 
-	if params.Temperature > 0 && !params.Compatibility.IsUnsupported(llmcapabilities.CapabilityResponses, llmcapabilities.FieldTemperature) {
-		respParams.Temperature = param.NewOpt(params.Temperature)
-	}
-	if params.MaxTokens > 0 && !params.Compatibility.IsUnsupported(llmcapabilities.CapabilityResponses, llmcapabilities.FieldMaxOutputTokens) {
-		respParams.MaxOutputTokens = param.NewOpt(int64(params.MaxTokens))
-	}
-	if params.TopP > 0 && params.TopP != 1.0 && !params.Compatibility.IsUnsupported(llmcapabilities.CapabilityResponses, llmcapabilities.FieldTopP) {
-		respParams.TopP = param.NewOpt(params.TopP)
-	}
-	applyPromptCacheKeyToResponses(&respParams, params)
-
-	switch params.ReasoningEffort {
-	case "low", "medium", "high":
-		if !params.Compatibility.IsUnsupported(llmcapabilities.CapabilityResponses, llmcapabilities.FieldReasoningEffort) {
-			respParams.Reasoning = shared.ReasoningParam{
-				Effort:  shared.ReasoningEffort(params.ReasoningEffort),
-				Summary: shared.ReasoningSummaryAuto,
-			}
-		}
-	}
+	applyResponsesParameters(&respParams, params)
 
 	var respTools []responses.ToolUnionParam
 	respTools = append(respTools, buildNativeMCPTools(mcpServers)...)
@@ -353,7 +324,7 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 			model = chatParams.Model
 		}
 		currentFinish := finishInfoWithDiagnostics(
-			finish, p.provider, model, chatParams.MaxTokens, fullResponse.Len(),
+			finish, p.provider, model, int(params.MaxOutputTokens.Value), fullResponse.Len(),
 		)
 		reportUsage(handler, lastUsage)
 		ReportFinishReason(handler, currentFinish)
@@ -969,7 +940,7 @@ responseEvents:
 		diagnosticModel = chatParams.Model
 	}
 	lastModel = diagnosticModel
-	finish = finishInfoWithDiagnostics(finish, p.provider, diagnosticModel, chatParams.MaxTokens, fullResponse.Len())
+	finish = finishInfoWithDiagnostics(finish, p.provider, diagnosticModel, int(params.MaxOutputTokens.Value), fullResponse.Len())
 	reportUsage(handler, lastUsage)
 	if finish.Reason == "" && len(finishedToolCalls) == 0 && (fullResponse.Len() > 0 || len(activeMCPCalls) > 0) {
 		finishThinking()
@@ -1076,4 +1047,27 @@ func openAIResponsesProviderErrorParamWasSent(params responses.ResponseNewParams
 
 func openAIResponsesCompatibilityFieldWasSent(params responses.ResponseNewParams, providerError ProviderError) bool {
 	return openAIResponsesProviderErrorParamWasSent(params, providerError)
+}
+
+func applyResponsesParameters(respParams *responses.ResponseNewParams, params ChatParams) {
+	if params.Temperature != nil && !params.Compatibility.IsUnsupported(llmcapabilities.CapabilityResponses, llmcapabilities.FieldTemperature) {
+		respParams.Temperature = param.NewOpt(*params.Temperature)
+	}
+	if params.MaxTokens != nil && !params.Compatibility.IsUnsupported(llmcapabilities.CapabilityResponses, llmcapabilities.FieldMaxOutputTokens) {
+		respParams.MaxOutputTokens = param.NewOpt(int64(*params.MaxTokens))
+	}
+	if params.TopP != nil && !params.Compatibility.IsUnsupported(llmcapabilities.CapabilityResponses, llmcapabilities.FieldTopP) {
+		respParams.TopP = param.NewOpt(*params.TopP)
+	}
+	applyPromptCacheKeyToResponses(respParams, params)
+
+	if params.Reasoning() != "" && params.Reasoning() != "off" {
+		if !params.Compatibility.IsUnsupported(llmcapabilities.CapabilityResponses, llmcapabilities.FieldReasoningEffort) {
+			respParams.Reasoning = shared.ReasoningParam{
+				Effort:  shared.ReasoningEffort(params.Reasoning()),
+				Summary: shared.ReasoningSummaryAuto,
+			}
+		}
+	}
+
 }

@@ -194,8 +194,8 @@ func modelOptionsOf(models []string) []ModelOption {
 	return options
 }
 
-// resolveModel retorna o modelo a usar: param explícito > provider.Model > provider.DefaultModel.
-func resolveModel(provider *ProviderConfig, requested string) string {
+// ResolveModel retorna o modelo a usar: param explícito > provider.Model > provider.DefaultModel.
+func ResolveModel(provider *ProviderConfig, requested string) string {
 	if requested != "" {
 		return requested
 	}

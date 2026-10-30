@@ -82,6 +82,18 @@ func TestPreCheckContextWindow_FitsInBudget(t *testing.T) {
 	}
 }
 
+func TestPreCheckContextWindow_UnknownOutputBudgetPreservesToolResult(t *testing.T) {
+	results := []string{"resultado curto que cabe na janela"}
+	original := results[0]
+	check := PreCheckContextWindow(1024, 0, []llm.Message{{Role: "user", Content: "oi"}}, results, false)
+	if check.Truncated || results[0] != original {
+		t.Fatalf("unknown budget discarded result: %+v, %q", check, results[0])
+	}
+	if check.AvailableTokens >= 1024 {
+		t.Fatal("lost context safety margin")
+	}
+}
+
 func TestPreCheckContextWindow_TruncatesWhenOverBudget(t *testing.T) {
 	// Create a tight context: 1000 token limit, 500 response tokens
 	// Existing messages: ~100 tokens

@@ -134,7 +134,7 @@ func TestCompatibilityLearningPersistsBeforeRetryAndNextSend(t *testing.T) {
 			} else {
 				provider = llm.NewOpenAIProvider(providerConfig, credentials.NewManager(nil))
 			}
-			params := llm.ChatParams{Model: "gpt-test", Temperature: 0.4}
+			params := llm.ChatParams{Model: "gpt-test", Temperature: testParameterPointer(float64(0.4))}
 			params.Compatibility = uc.loadCompatibilityState(ctx, providerConfig, params.Model)
 			if params.Compatibility == nil {
 				t.Fatal("o use case não criou estado de compatibilidade")
@@ -170,7 +170,7 @@ func TestCompatibilityLearningPersistsBeforeRetryAndNextSend(t *testing.T) {
 				t.Fatalf("tentativas do primeiro envio = %d, esperado 2", attempts)
 			}
 
-			nextParams := llm.ChatParams{Model: "gpt-test", Temperature: 0.4}
+			nextParams := llm.ChatParams{Model: "gpt-test", Temperature: testParameterPointer(float64(0.4))}
 			nextParams.Compatibility = uc.loadCompatibilityState(ctx, providerConfig, nextParams.Model)
 			if nextParams.Compatibility == nil || !nextParams.Compatibility.IsUnsupported(test.field, llmcapabilities.FieldTemperature) {
 				t.Fatal("envio seguinte não carregou a restrição do banco")
@@ -185,3 +185,5 @@ func TestCompatibilityLearningPersistsBeforeRetryAndNextSend(t *testing.T) {
 		})
 	}
 }
+
+func testParameterPointer[T any](value T) *T { return &value }

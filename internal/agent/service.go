@@ -66,7 +66,7 @@ type ServiceConfig struct {
 	// conversationID e o profileSlug DA CONVERSA (o mesmo resolvido no envio),
 	// para que o resumo use o provider/modelo do perfil da conversa e não o do
 	// perfil ativo global (Issue #203).
-	TriggerSummarize func(context.Context, string, string)
+	TriggerSummarize func(context.Context, string, string, int)
 	// OnSpeechRequest é chamado após chat:done e chat:segment_done para disparar TTS proativo.
 	// Parâmetros: conversationID, messageID, role, text, origin, profileSlug, interrupt.
 	OnSpeechRequest func(conversationID string, messageID string, role, text, origin, profileSlug string, interrupt bool)
@@ -85,7 +85,7 @@ type Service struct {
 	toolInvocations  *toolinvocations.Service
 	responseNotifier *messaging.ResponseNotifier
 	getTokenStats    func(string) (*chat.TokenStats, error)
-	triggerSummarize func(context.Context, string, string)
+	triggerSummarize func(context.Context, string, string, int)
 	onSpeechRequest  func(conversationID string, messageID string, role, text, origin, profileSlug string, interrupt bool)
 	renameFromAgent  func(ctx context.Context, conversationID, turnMessageID, title string) error
 
@@ -442,7 +442,7 @@ func (s *Service) SaveAndFinish(
 			defer s.recoverFromPanic(conversationID, "triggerSummarize")
 			// O resumo é trabalho posterior à persistência, não parte do turno
 			// cujo contexto será encerrado assim que o worker retornar.
-			s.triggerSummarize(context.WithoutCancel(ctx), conversationID, profileSlug)
+			s.triggerSummarize(context.WithoutCancel(ctx), conversationID, profileSlug, result.Finish.OutputLimit)
 		}()
 	}
 

@@ -58,9 +58,9 @@ func TestValidateContextFields(t *testing.T) {
 			Name: "Test",
 			Chat: ChatConfig{
 				LLMProvider:     "openai-default",
-				Temperature:     0.7,
-				MaxTokens:       4096,
-				TopP:            1.0,
+				Temperature:     testParameterPointer(float64(0.7)),
+				MaxTokens:       testParameterPointer(int(4096)),
+				TopP:            testParameterPointer(float64(1.0)),
 				ResponseTimeout: 30,
 			},
 			Voice: VoiceConfig{
@@ -201,3 +201,5 @@ func TestContextFieldsInteraction(t *testing.T) {
 		}
 	})
 }
+
+func testParameterPointer[T any](value T) *T { return &value }

@@ -277,7 +277,7 @@ func TestChatCompletions_TimeoutTerminalPreservaDiagnosticos(t *testing.T) {
 		StreamIdleTimeoutSeconds: 1,
 	}, credentials.NewManager(nil))
 	h := &spyHandler{}
-	p.StreamChat(t.Context(), []Message{{Role: "user", Content: "oi"}}, ChatParams{Model: "m", MaxTokens: 99}, h)
+	p.StreamChat(t.Context(), []Message{{Role: "user", Content: "oi"}}, ChatParams{Model: "m", MaxTokens: testParameterPointer(int(99))}, h)
 
 	if h.err != streamIdleErrorMessage {
 		t.Fatalf("erro=%q, esperado %q", h.err, streamIdleErrorMessage)
@@ -312,7 +312,7 @@ func TestResponses_TimeoutTerminalPreservaDiagnosticos(t *testing.T) {
 		AuthMode: AuthModeNone, StreamIdleTimeoutSeconds: 1,
 	}, credentials.NewManager(nil))
 	h := &spyHandler{}
-	p.StreamChat(t.Context(), []Message{{Role: "user", Content: "oi"}}, ChatParams{Model: "m", MaxTokens: 99}, h)
+	p.StreamChat(t.Context(), []Message{{Role: "user", Content: "oi"}}, ChatParams{Model: "m", MaxTokens: testParameterPointer(int(99))}, h)
 
 	if h.err != streamIdleErrorMessage {
 		t.Fatalf("erro=%q, esperado %q", h.err, streamIdleErrorMessage)

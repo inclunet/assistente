@@ -402,6 +402,13 @@ const es = {
         streamingPromptCacheHintRejected: 'El proveedor rechazó la sugerencia de caché incluso después de desactivarla. Comprueba la configuración del gateway o desactiva las sugerencias de caché en el perfil.',
         streamingTokenRateLimit: 'Se alcanzó la cuota de tokens del proveedor (HTTP 429). Espera a que se renueve la cuota e inténtalo de nuevo.',
         agentResponseFailed: 'Falló la respuesta del agente:',
+        parameterErrors: {
+          required: 'Configura {{field}}: esta API exige un valor explícito y no hay un valor predeterminado disponible para el modelo.',
+          choice: 'El valor configurado para {{field}} no está entre las opciones admitidas por el modelo.',
+          number: 'El valor configurado para {{field}} no es un número válido para este parámetro.',
+          minimum: 'El valor de {{field}} debe ser al menos {{limit}}.',
+          maximum: 'El valor de {{field}} debe ser como máximo {{limit}}.',
+        },
         providerErrors: {
           unsupportedParameter: 'El proveedor no acepta el parámetro {{field}} para este modelo. Comprueba los parámetros configurados.{{statusLabel}}',
           unsupportedParameterUnknown: 'El proveedor rechazó un parámetro, pero no identificó un campo que se pueda omitir de forma segura.{{statusLabel}}',
@@ -2178,6 +2185,9 @@ const es = {
         feedbackSoundsHint: 'Sonidos al iniciar/detener grabación y otros eventos de interacción',
       },
       chatSection: {
+        modelDefault: 'Predeterminado del modelo',
+        modelDefaultHint: 'Deje vacío para usar el valor del catálogo; sin un valor conocido, el parámetro no se envía.',
+        parameterInvalid: 'El valor no cumple los límites conocidos del modelo.',
         groupProvider: 'Proveedor y Modelo',
         groupGeneration: 'Parámetros de Generación',
         groupContext: 'Contexto y Límites',
@@ -2211,6 +2221,7 @@ const es = {
         timeout: 'Timeout (segundos)',
         reasoning: 'Razonamiento (Reasoning)',
         reasoningOllama: 'Activado (Ollama)',
+        reasoningCustom: 'Valor personalizado de razonamiento',
         reasoningOff: 'Desactivado',
         reasoningNone: 'Mínimo (none)',
         reasoningLow: 'Bajo (low)',

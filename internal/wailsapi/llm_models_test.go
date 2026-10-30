@@ -37,8 +37,8 @@ func TestLLMModelsNotWired(t *testing.T) {
 	if _, err := api.GetModelCatalogByProvider("x"); !errors.Is(err, ErrLLMModelsNotWired) {
 		t.Fatalf("GetModelCatalogByProvider: got %v", err)
 	}
-	if _, err := api.GetUnsupportedProfileChatFields("provider", "model"); !errors.Is(err, ErrLLMModelsNotWired) {
-		t.Fatalf("GetUnsupportedProfileChatFields: got %v", err)
+	if _, err := api.GetProfileChatParameterContract("provider", "model"); !errors.Is(err, ErrLLMModelsNotWired) {
+		t.Fatalf("GetProfileChatParameterContract: got %v", err)
 	}
 	if _, err := api.RefreshModelCatalogByProvider("x"); !errors.Is(err, ErrLLMModelsNotWired) {
 		t.Fatalf("RefreshModelCatalogByProvider: got %v", err)
@@ -51,7 +51,7 @@ func TestLLMModelsNotWired(t *testing.T) {
 	}
 }
 
-func TestGetUnsupportedProfileChatFieldsResolvesDefaultSelections(t *testing.T) {
+func TestGetProfileChatParameterContractResolvesDefaultSelections(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file:"+strings.ReplaceAll(t.Name(), "/", "_")+"?mode=memory&cache=shared"), &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
@@ -111,11 +111,11 @@ func TestGetUnsupportedProfileChatFieldsResolvesDefaultSelections(t *testing.T) 
 		{"selected-provider", profiles.DefaultProviderSentinel},
 		{profiles.DefaultProviderSentinel, profiles.DefaultProviderSentinel},
 	} {
-		fields, err := api.GetUnsupportedProfileChatFields(selection.providerID, selection.modelID)
+		fields, err := api.GetProfileChatParameterContract(selection.providerID, selection.modelID)
 		if err != nil {
 			t.Fatalf("seleção (%q, %q): %v", selection.providerID, selection.modelID, err)
 		}
-		if len(fields) != 1 || fields[0] != string(llmcapabilities.FieldTemperature) {
+		if fields[string(llmcapabilities.FieldTemperature)].Support != "unsupported" {
 			t.Fatalf("seleção (%q, %q): campos = %v; esperado temperature", selection.providerID, selection.modelID, fields)
 		}
 	}
@@ -232,8 +232,8 @@ func TestLLMModelsAuthRejectsWhenSessionFails(t *testing.T) {
 			_, err := api.GetModelCatalogByProvider("x")
 			return err
 		}},
-		{"GetUnsupportedProfileChatFields", func() error {
-			_, err := api.GetUnsupportedProfileChatFields("provider", "model")
+		{"GetProfileChatParameterContract", func() error {
+			_, err := api.GetProfileChatParameterContract("provider", "model")
 			return err
 		}},
 		{"RefreshModelCatalogByProvider", func() error {

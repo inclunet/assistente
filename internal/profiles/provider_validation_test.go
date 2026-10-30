@@ -51,9 +51,9 @@ func TestValidateLLMProvider(t *testing.T) {
 				Name: "Test",
 				Chat: ChatConfig{
 					LLMProvider:     tt.llmProvider,
-					Temperature:     0.7,
-					MaxTokens:       4096,
-					TopP:            1.0,
+					Temperature:     testParameterPointer(float64(0.7)),
+					MaxTokens:       testParameterPointer(int(4096)),
+					TopP:            testParameterPointer(float64(1.0)),
 					ResponseTimeout: 30,
 				},
 				Voice: VoiceConfig{
@@ -293,9 +293,9 @@ func validTestProfile() *Profile {
 		Name: "Test",
 		Chat: ChatConfig{
 			LLMProvider:     "openai-default",
-			Temperature:     0.7,
-			MaxTokens:       4096,
-			TopP:            1.0,
+			Temperature:     testParameterPointer(float64(0.7)),
+			MaxTokens:       testParameterPointer(int(4096)),
+			TopP:            testParameterPointer(float64(1.0)),
 			ResponseTimeout: 30,
 		},
 		Voice: VoiceConfig{

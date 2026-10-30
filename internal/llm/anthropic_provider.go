@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"assistente/internal/credentials"
+	"assistente/internal/llmcatalog"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	anthropicoption "github.com/anthropics/anthropic-sdk-go/option"
@@ -90,16 +91,16 @@ func (p *AnthropicProvider) WithMCPServers(servers []MCPServerConfig) ChatProvid
 }
 
 func (p *AnthropicProvider) SendChat(ctx context.Context, messages []Message, params ChatParams) (string, error) {
-	model := resolveModel(p.provider, params.Model)
+	if params.MaxTokens == nil || *params.MaxTokens < 1 {
+		return "", &llmcatalog.ParameterValueError{Field: "max_output_tokens", Code: "required"}
+	}
+	model := ResolveModel(p.provider, params.Model)
 	if model == "" {
 		return "", fmt.Errorf("nenhum modelo especificado e nenhum modelo padrÃ£o configurado")
 	}
 	params.ExplicitCacheControl = params.ExplicitCacheControl && SupportsExplicitCacheControl(p.provider)
 
-	maxTokens := int64(params.MaxTokens)
-	if maxTokens <= 0 {
-		maxTokens = 4096
-	}
+	maxTokens := int64(params.OutputTokenLimit())
 
 	system, anthropicMsgs := convertToAnthropicMessages(messages, params.ExplicitCacheControl)
 
@@ -111,8 +112,12 @@ func (p *AnthropicProvider) SendChat(ctx context.Context, messages []Message, pa
 	if len(system) > 0 {
 		sdkParams.System = system
 	}
-	if params.Temperature > 0 {
-		sdkParams.Temperature = anthropicparam.NewOpt(params.Temperature)
+	if params.Temperature != nil {
+		sdkParams.Temperature = anthropicparam.NewOpt(*params.Temperature)
+	}
+
+	if params.TopP != nil {
+		sdkParams.TopP = anthropicparam.NewOpt(*params.TopP)
 	}
 
 	msg, err := p.client.Messages.New(ctx, sdkParams)
@@ -163,21 +168,25 @@ func (p *AnthropicProvider) SimpleChat(ctx context.Context, model, systemPrompt,
 		{Role: "system", Content: systemPrompt},
 		{Role: "user", Content: userMessage},
 	}
-	return p.SendChat(ctx, msgs, ChatParams{Model: model})
+	// Internal short completions have their own explicit budget. This is not a
+	// model default and is never applied to a user's profile or normal turn.
+	budget := 4096
+	return p.SendChat(ctx, msgs, ChatParams{Model: model, MaxTokens: &budget})
 }
 
 func (p *AnthropicProvider) StreamChat(ctx context.Context, messages []Message, params ChatParams, handler StreamHandler, tools ...ToolDefinition) {
-	model := resolveModel(p.provider, params.Model)
+	if params.MaxTokens == nil || *params.MaxTokens < 1 {
+		handler.OnError((&llmcatalog.ParameterValueError{Field: "max_output_tokens", Code: "required"}).Error())
+		return
+	}
+	model := ResolveModel(p.provider, params.Model)
 	if model == "" {
 		handler.OnError("Nenhum modelo especificado e nenhum modelo padrÃ£o configurado")
 		return
 	}
 	params.ExplicitCacheControl = params.ExplicitCacheControl && SupportsExplicitCacheControl(p.provider)
 
-	maxTokens := int64(params.MaxTokens)
-	if maxTokens <= 0 {
-		maxTokens = 4096
-	}
+	maxTokens := int64(params.OutputTokenLimit())
 
 	system, anthropicMsgs := convertToAnthropicMessages(messages, params.ExplicitCacheControl)
 
@@ -197,12 +206,12 @@ func (p *AnthropicProvider) StreamChat(ctx context.Context, messages []Message, 
 		sdkParams.System = system
 	}
 
-	if params.Temperature > 0 {
-		sdkParams.Temperature = anthropicparam.NewOpt(params.Temperature)
+	if params.Temperature != nil {
+		sdkParams.Temperature = anthropicparam.NewOpt(*params.Temperature)
 	}
 
-	if params.TopP > 0 && params.TopP != 1.0 {
-		sdkParams.TopP = anthropicparam.NewOpt(params.TopP)
+	if params.TopP != nil {
+		sdkParams.TopP = anthropicparam.NewOpt(*params.TopP)
 	}
 
 	if len(tools) > 0 {
@@ -357,11 +366,11 @@ func (p *AnthropicProvider) buildBetaMCPParams(
 		}
 		betaParams.System = betaSystem
 	}
-	if params.Temperature > 0 {
-		betaParams.Temperature = anthropicparam.NewOpt(params.Temperature)
+	if params.Temperature != nil {
+		betaParams.Temperature = anthropicparam.NewOpt(*params.Temperature)
 	}
-	if params.TopP > 0 && params.TopP != 1.0 {
-		betaParams.TopP = anthropicparam.NewOpt(params.TopP)
+	if params.TopP != nil {
+		betaParams.TopP = anthropicparam.NewOpt(*params.TopP)
 	}
 
 	for _, srv := range mcpServers {

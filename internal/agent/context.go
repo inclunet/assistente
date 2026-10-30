@@ -102,7 +102,7 @@ type ContextPreCheckResult struct {
 // e os trunca proporcionalmente se necessário (AEP-0039 Fase 4).
 //
 // contextLimit: tamanho da janela de contexto do modelo (0 = sem limite, skip check).
-// maxResponseTokens: tokens reservados para a resposta do LLM.
+// maxResponseTokens: orçamento efetivo de saída; zero significa desconhecido.
 // existingMessages: mensagens já no histórico (incluindo system prompt).
 // toolResults: conteúdos dos resultados das tools (serão truncados in-place se necessário).
 // replaysReasoning: se o provider reenvia reasoning_content no histórico.
@@ -114,9 +114,6 @@ func PreCheckContextWindow(contextLimit, maxResponseTokens int, existingMessages
 	}
 
 	existingTokens := estimateMessageTokens(existingMessages, replaysReasoning)
-	if maxResponseTokens <= 0 {
-		maxResponseTokens = 4096 // fallback conservador
-	}
 
 	// Budget disponível = contextLimit * 90% - tokens existentes - tokens de resposta
 	safeLimit := int(float64(contextLimit) * contextSafetyThreshold)

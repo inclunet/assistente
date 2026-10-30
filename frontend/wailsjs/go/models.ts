@@ -6202,9 +6202,9 @@ export namespace llm {
 	export class ChatParams {
 	    command?: ChatCommandMetadata;
 	    model: string;
-	    maxTokens: number;
+	    maxTokens?: number;
 	    maxTokensMode?: string;
-	    temperature: number;
+	    temperature?: number;
 	    topP?: number;
 	    reasoningEffort?: string;
 	    profileSlug?: string;
@@ -6503,6 +6503,7 @@ export namespace llmcatalog {
 	    exposed_model_id: string;
 	    canonical_model_id: string;
 	    capability_overrides?: Record<string, string>;
+	    parameter_overrides?: Record<string, Parameter>;
 	    selection_mode?: string;
 	    voices?: VoiceList;
 	
@@ -6517,6 +6518,7 @@ export namespace llmcatalog {
 	        this.exposed_model_id = source["exposed_model_id"];
 	        this.canonical_model_id = source["canonical_model_id"];
 	        this.capability_overrides = source["capability_overrides"];
+	        this.parameter_overrides = this.convertValues(source["parameter_overrides"], Parameter, true);
 	        this.selection_mode = source["selection_mode"];
 	        this.voices = this.convertValues(source["voices"], VoiceList);
 	    }
@@ -6539,6 +6541,26 @@ export namespace llmcatalog {
 		    return a;
 		}
 	}
+	export class Parameter {
+	    support: string;
+	    minimum?: number;
+	    maximum?: number;
+	    choices?: string[];
+	    default?: any;
+	
+	    static createFrom(source: any = {}) {
+	        return new Parameter(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.support = source["support"];
+	        this.minimum = source["minimum"];
+	        this.maximum = source["maximum"];
+	        this.choices = source["choices"];
+	        this.default = source["default"];
+	    }
+	}
 	export class Model {
 	    id: string;
 	    vendor: string;
@@ -6546,6 +6568,7 @@ export namespace llmcatalog {
 	    status: string;
 	    capabilities: Record<string, string>;
 	    limits?: Record<string, number>;
+	    parameters?: Record<string, Parameter>;
 	
 	    static createFrom(source: any = {}) {
 	        return new Model(source);
@@ -6559,7 +6582,26 @@ export namespace llmcatalog {
 	        this.status = source["status"];
 	        this.capabilities = source["capabilities"];
 	        this.limits = source["limits"];
+	        this.parameters = this.convertValues(source["parameters"], Parameter, true);
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class FieldPolicy {
 	    policy: string;
@@ -6691,6 +6733,7 @@ export namespace llmcatalog {
 		    return a;
 		}
 	}
+	
 	
 	
 	
@@ -7841,13 +7884,13 @@ export namespace profiles {
 	export class ChatConfig {
 	    llm_provider: string;
 	    model?: string;
-	    temperature: number;
-	    max_tokens: number;
+	    temperature?: number;
+	    max_tokens?: number;
 	    max_tokens_mode?: string;
 	    context_window?: number;
 	    max_context_messages?: number;
 	    min_context_messages?: number;
-	    top_p: number;
+	    top_p?: number;
 	    response_timeout: number;
 	    reasoning_effort?: string;
 	    enabled_tools: string[];

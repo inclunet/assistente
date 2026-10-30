@@ -168,7 +168,7 @@ func (p *GoogleProvider) newClient(ctx context.Context) (*genai.Client, error) {
 }
 
 func (p *GoogleProvider) SendChat(ctx context.Context, messages []Message, params ChatParams) (string, error) {
-	model := resolveModel(p.provider, params.Model)
+	model := ResolveModel(p.provider, params.Model)
 	if model == "" {
 		return "", fmt.Errorf("nenhum modelo especificado e nenhum modelo padrÃƒÆ’Ã‚Â£o configurado")
 	}
@@ -184,12 +184,17 @@ func (p *GoogleProvider) SendChat(ctx context.Context, messages []Message, param
 	if system != nil {
 		config.SystemInstruction = system
 	}
-	if params.Temperature > 0 {
-		t := float32(params.Temperature)
+	if params.Temperature != nil {
+		t := float32(*params.Temperature)
 		config.Temperature = &t
 	}
-	if params.MaxTokens > 0 {
-		config.MaxOutputTokens = int32(params.MaxTokens)
+	if params.MaxTokens != nil {
+		config.MaxOutputTokens = int32(*params.MaxTokens)
+	}
+
+	if params.TopP != nil {
+		topP := float32(*params.TopP)
+		config.TopP = &topP
 	}
 
 	resp, err := client.Models.GenerateContent(ctx, model, contents, config)
@@ -251,7 +256,7 @@ func (p *GoogleProvider) SimpleChat(ctx context.Context, model, systemPrompt, us
 }
 
 func (p *GoogleProvider) StreamChat(ctx context.Context, messages []Message, params ChatParams, handler StreamHandler, tools ...ToolDefinition) {
-	model := resolveModel(p.provider, params.Model)
+	model := ResolveModel(p.provider, params.Model)
 	if model == "" {
 		handler.OnError("Nenhum modelo especificado e nenhum modelo padrÃƒÆ’Ã‚Â£o configurado")
 		return
@@ -271,17 +276,17 @@ func (p *GoogleProvider) StreamChat(ctx context.Context, messages []Message, par
 		config.SystemInstruction = system
 	}
 
-	if params.Temperature > 0 {
-		t := float32(params.Temperature)
+	if params.Temperature != nil {
+		t := float32(*params.Temperature)
 		config.Temperature = &t
 	}
 
-	if params.MaxTokens > 0 {
-		config.MaxOutputTokens = int32(params.MaxTokens)
+	if params.MaxTokens != nil {
+		config.MaxOutputTokens = int32(*params.MaxTokens)
 	}
 
-	if params.TopP > 0 && params.TopP != 1.0 {
-		tp := float32(params.TopP)
+	if params.TopP != nil {
+		tp := float32(*params.TopP)
 		config.TopP = &tp
 	}
 

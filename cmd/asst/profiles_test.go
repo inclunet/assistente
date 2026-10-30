@@ -58,7 +58,7 @@ func (m *mockProfilesBackend) GetProfile(slug string) (*profiles.Profile, error)
 		Name:        "Test",
 		Description: "Perfil de teste",
 		Chat: profiles.ChatConfig{
-			Temperature: 0.7,
+			Temperature: testParameterPointer(float64(0.7)),
 		},
 	}, nil
 }
@@ -167,8 +167,8 @@ func TestProfilesShow_Success(t *testing.T) {
 			Chat: profiles.ChatConfig{
 				LLMProvider:  "openai-default",
 				Model:        "gpt-4o",
-				Temperature:  0.3,
-				MaxTokens:    4096,
+				Temperature:  testParameterPointer(float64(0.3)),
+				MaxTokens:    testParameterPointer(int(4096)),
 				EnabledTools: []string{"http_request", "code_exec"},
 			},
 		},
@@ -193,7 +193,7 @@ func TestProfilesShow_ExibeToolPolicyEToolPolicyDefault(t *testing.T) {
 		profile: &profiles.Profile{
 			Name: "Programação",
 			Chat: profiles.ChatConfig{
-				Temperature:       0,
+				Temperature:       testParameterPointer(float64(0)),
 				ToolPolicyDefault: "on_demand",
 				ToolPolicy: map[string]string{
 					"write_file": "preloaded",
@@ -257,7 +257,7 @@ func TestProfilesShow_MinimalProfile(t *testing.T) {
 			Name:        "Simples",
 			Description: "Sem extras",
 			Chat: profiles.ChatConfig{
-				Temperature: 0.7,
+				Temperature: testParameterPointer(float64(0.7)),
 			},
 		},
 	}
@@ -410,8 +410,8 @@ func TestProfilesCreate_WithFlags(t *testing.T) {
 	if mock.createdProfile.Chat.LLMProvider != "openai-default" {
 		t.Errorf("expected provider openai-default, got %q", mock.createdProfile.Chat.LLMProvider)
 	}
-	if mock.createdProfile.Chat.Temperature != 0.3 {
-		t.Errorf("expected temperature 0.3, got %f", mock.createdProfile.Chat.Temperature)
+	if mock.createdProfile.Chat.Temperature == nil || *mock.createdProfile.Chat.Temperature != 0.3 {
+		t.Errorf("expected temperature 0.3, got %v", mock.createdProfile.Chat.Temperature)
 	}
 }
 
@@ -443,7 +443,7 @@ func TestProfilesEdit_Success(t *testing.T) {
 			Name: "Original",
 			Chat: profiles.ChatConfig{
 				Model:       "gpt-3.5",
-				Temperature: 0.7,
+				Temperature: testParameterPointer(float64(0.7)),
 			},
 		},
 	}
@@ -485,7 +485,7 @@ func TestProfilesEdit_TemperatureChanged(t *testing.T) {
 	mock := &mockProfilesBackend{
 		profile: &profiles.Profile{
 			Name: "Test",
-			Chat: profiles.ChatConfig{Temperature: 0.7},
+			Chat: profiles.ChatConfig{Temperature: testParameterPointer(float64(0.7))},
 		},
 	}
 	profileEditName = ""
@@ -506,8 +506,8 @@ func TestProfilesEdit_TemperatureChanged(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if mock.updatedProfile.Chat.Temperature != 0.2 {
-		t.Errorf("expected temperature 0.2, got %f", mock.updatedProfile.Chat.Temperature)
+	if mock.updatedProfile.Chat.Temperature == nil || *mock.updatedProfile.Chat.Temperature != 0.2 {
+		t.Errorf("expected temperature 0.2, got %v", mock.updatedProfile.Chat.Temperature)
 	}
 }
 

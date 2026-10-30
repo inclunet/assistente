@@ -37,9 +37,10 @@ type Doer interface {
 }
 
 type Config struct {
-	HTTP Doer
-	Dir  string
-	TTL  time.Duration
+	HTTP      Doer
+	Dir       string
+	TTL       time.Duration
+	OnChanged func()
 }
 
 // Snapshot é o documento servido junto do estado de frescor do cache.
@@ -65,10 +66,11 @@ type cacheEnvelope struct {
 // Service busca o documento de uma origem fixa, valida antes de publicar e
 // conserva no disco somente o último documento válido.
 type Service struct {
-	http Doer
-	path string
-	ttl  time.Duration
-	now  func() time.Time
+	http      Doer
+	path      string
+	ttl       time.Duration
+	now       func() time.Time
+	onChanged func()
 
 	mu           sync.RWMutex
 	snapshot     Snapshot
@@ -106,7 +108,7 @@ func New(cfg Config) *Service {
 	if dir != "" {
 		path = filepath.Join(dir, cacheFileName)
 	}
-	return &Service{http: client, path: path, ttl: ttl, now: time.Now}
+	return &Service{http: client, path: path, ttl: ttl, now: time.Now, onChanged: cfg.OnChanged}
 }
 
 // Start carrega o cache local e agenda uma atualização sem bloquear a abertura
@@ -295,6 +297,9 @@ func (s *Service) refresh(parent context.Context) error {
 	s.etag = etag
 	s.lastModified = modified
 	s.mu.Unlock()
+	if s.onChanged != nil {
+		s.onChanged()
+	}
 	return nil
 }
 

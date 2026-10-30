@@ -93,9 +93,9 @@ func minValidProfile(name, llmProvider string) profiles.Profile {
 		Name: name,
 		Chat: profiles.ChatConfig{
 			LLMProvider:     llmProvider,
-			Temperature:     0.7,
-			MaxTokens:       4096,
-			TopP:            1.0,
+			Temperature:     testParameterPointer(float64(0.7)),
+			MaxTokens:       testParameterPointer(int(4096)),
+			TopP:            testParameterPointer(float64(1.0)),
 			ResponseTimeout: 180,
 		},
 	}
@@ -874,3 +874,5 @@ func TestSendMessageUseCase_RetryExistingUserMessageDoesNotDuplicateUserRow(t *t
 		t.Fatalf("retry should not duplicate user messages, got %d rows", count)
 	}
 }
+
+func testParameterPointer[T any](value T) *T { return &value }

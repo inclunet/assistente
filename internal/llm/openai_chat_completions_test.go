@@ -81,7 +81,7 @@ func TestOpenAIChatCompletionsRetriesAfterPersistingUnsupportedField(t *testing.
 	}, credentials.NewManager(nil))
 	handler := &providerRetryHandler{}
 	provider.StreamChat(t.Context(), []Message{{Role: "user", Content: "oi"}}, ChatParams{
-		Temperature: 0.4, Compatibility: compatibility,
+		Temperature: testParameterPointer(float64(0.4)), Compatibility: compatibility,
 	}, handler)
 
 	if attempts != 2 || len(temperatureSent) != 2 || !temperatureSent[0] || temperatureSent[1] {
@@ -112,7 +112,7 @@ func TestOpenAIChatCompletionsAllowsOnlyOneCompatibilityRetry(t *testing.T) {
 		BaseURL: server.URL + "/v1", APIFormat: APIFormatOpenAI, AuthMode: AuthModeNone, DefaultModel: "gpt-test",
 	}, credentials.NewManager(nil))
 	handler := &providerRetryHandler{}
-	provider.StreamChat(t.Context(), []Message{{Role: "user", Content: "oi"}}, ChatParams{Temperature: 0.4, Compatibility: compatibility}, handler)
+	provider.StreamChat(t.Context(), []Message{{Role: "user", Content: "oi"}}, ChatParams{Temperature: testParameterPointer(float64(0.4)), Compatibility: compatibility}, handler)
 
 	if attempts != 2 || persistCalls != 1 || !compatibility.IsUnsupported(llmcapabilities.CapabilityChatCompletions, llmcapabilities.FieldTemperature) || len(handler.errors) != 1 {
 		t.Fatalf("tentativas=%d persistências=%d campoSuprimido=%v erros=%v; esperado uma única repetição", attempts, persistCalls, compatibility.IsUnsupported(llmcapabilities.CapabilityChatCompletions, llmcapabilities.FieldTemperature), handler.errors)
@@ -144,7 +144,7 @@ func TestOpenAIChatCompletionsDoesNotRetryAfterToolEffectAcrossIterations(t *tes
 		BaseURL: server.URL + "/v1", APIFormat: APIFormatOpenAI, AuthMode: AuthModeNone, DefaultModel: "gpt-test",
 	}, credentials.NewManager(nil))
 	handler := &providerRetryHandler{}
-	params := ChatParams{Temperature: 0.4, Compatibility: compatibility}
+	params := ChatParams{Temperature: testParameterPointer(float64(0.4)), Compatibility: compatibility}
 	tool := ToolDefinition{Type: "function", Function: FunctionDefinition{Name: "lookup", Parameters: json.RawMessage(`{"type":"object"}`)}}
 	provider.StreamChat(t.Context(), []Message{{Role: "user", Content: "oi"}}, params, handler, tool)
 	provider.StreamChat(t.Context(), []Message{{Role: "user", Content: "resultado de lookup"}}, params, handler, tool)
@@ -182,7 +182,7 @@ func TestOpenAIChatCompletionsDoesNotRetryAfterVisibleContentAcrossIterations(t 
 		BaseURL: server.URL + "/v1", APIFormat: APIFormatOpenAI, AuthMode: AuthModeNone, DefaultModel: "gpt-test",
 	}, credentials.NewManager(nil))
 	handler := &providerRetryHandler{}
-	params := ChatParams{Temperature: 0.4, Compatibility: compatibility}
+	params := ChatParams{Temperature: testParameterPointer(float64(0.4)), Compatibility: compatibility}
 	provider.StreamChat(t.Context(), []Message{{Role: "user", Content: "oi"}}, params, handler)
 	provider.StreamChat(t.Context(), []Message{{Role: "user", Content: "continuação"}}, params, handler)
 
@@ -219,7 +219,7 @@ func TestOpenAIChatCompletionsDoesNotRetryAfterReasoningAcrossIterations(t *test
 		ReasoningContentMode: ReasoningContentReplayWithTools,
 	}, credentials.NewManager(nil))
 	handler := &providerRetryHandler{}
-	params := ChatParams{Temperature: 0.4, Compatibility: compatibility}
+	params := ChatParams{Temperature: testParameterPointer(float64(0.4)), Compatibility: compatibility}
 	provider.StreamChat(t.Context(), []Message{{Role: "user", Content: "oi"}}, params, handler)
 	provider.StreamChat(t.Context(), []Message{{Role: "user", Content: "continuação"}}, params, handler)
 
@@ -283,7 +283,7 @@ func TestOpenAIChatCompletionsDoesNotRetryWhenPersistingRestrictionFails(t *test
 		BaseURL: server.URL + "/v1", APIFormat: APIFormatOpenAI, AuthMode: AuthModeNone, DefaultModel: "gpt-test",
 	}, credentials.NewManager(nil))
 	handler := &providerRetryHandler{}
-	provider.StreamChat(t.Context(), []Message{{Role: "user", Content: "oi"}}, ChatParams{Temperature: 0.4, Compatibility: compatibility}, handler)
+	provider.StreamChat(t.Context(), []Message{{Role: "user", Content: "oi"}}, ChatParams{Temperature: testParameterPointer(float64(0.4)), Compatibility: compatibility}, handler)
 
 	if attempts != 1 || persistCalls != 1 || compatibility.IsUnsupported(llmcapabilities.CapabilityChatCompletions, llmcapabilities.FieldTemperature) {
 		t.Fatalf("tentativas=%d persistências=%d campoSuprimido=%v", attempts, persistCalls, compatibility.IsUnsupported(llmcapabilities.CapabilityChatCompletions, llmcapabilities.FieldTemperature))
@@ -343,7 +343,7 @@ func TestOpenAIChatCompletionsDoesNotRetryUnsupportedValue(t *testing.T) {
 	}, credentials.NewManager(nil))
 	handler := &providerRetryHandler{}
 	provider.StreamChat(t.Context(), []Message{{Role: "user", Content: "oi"}}, ChatParams{
-		Temperature: 0.4, Compatibility: compatibility,
+		Temperature: testParameterPointer(float64(0.4)), Compatibility: compatibility,
 	}, handler)
 
 	if attempts != 1 || persistCalls != 0 || compatibility.IsUnsupported(llmcapabilities.CapabilityChatCompletions, llmcapabilities.FieldTemperature) {
@@ -416,7 +416,7 @@ func TestOpenAIChatCompletionsDoesNotRetryAmbiguousOutputTokenAlias(t *testing.T
 	}, credentials.NewManager(nil))
 	handler := &providerRetryHandler{}
 	provider.StreamChat(t.Context(), []Message{{Role: "user", Content: "oi"}}, ChatParams{
-		MaxTokens: 32, MaxTokensMode: "max_tokens", Compatibility: compatibility,
+		MaxTokens: testParameterPointer(int(32)), MaxTokensMode: "max_tokens", Compatibility: compatibility,
 	}, handler)
 
 	if attempts != 1 || persistCalls != 0 || compatibility.IsUnsupported(llmcapabilities.CapabilityChatCompletions, llmcapabilities.FieldMaxOutputTokens) {

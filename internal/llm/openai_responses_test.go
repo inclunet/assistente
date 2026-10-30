@@ -206,7 +206,7 @@ data: {"type":"response.completed","sequence_number":1,"response":{"id":"resp_2"
 	}, credentials.NewManager(nil))
 	handler := &providerRetryHandler{}
 	provider.StreamChat(t.Context(), []Message{{Role: "user", Content: "oi"}}, ChatParams{
-		Temperature: 0.4, Compatibility: compatibility,
+		Temperature: testParameterPointer(float64(0.4)), Compatibility: compatibility,
 	}, handler)
 
 	if attempts != 2 || len(temperatureSent) != 2 || !temperatureSent[0] || temperatureSent[1] {
@@ -236,7 +236,7 @@ func TestOpenAIResponsesAllowsOnlyOneCompatibilityRetry(t *testing.T) {
 		BaseURL: server.URL + "/v1", APIFormat: APIFormatOpenAIResponses, AuthMode: AuthModeNone, DefaultModel: "gpt-test",
 	}, credentials.NewManager(nil))
 	handler := &providerRetryHandler{}
-	provider.StreamChat(t.Context(), []Message{{Role: "user", Content: "oi"}}, ChatParams{Model: "gpt-test", Temperature: 0.4, Compatibility: compatibility}, handler)
+	provider.StreamChat(t.Context(), []Message{{Role: "user", Content: "oi"}}, ChatParams{Model: "gpt-test", Temperature: testParameterPointer(float64(0.4)), Compatibility: compatibility}, handler)
 
 	if attempts != 2 || persistCalls != 1 || !compatibility.IsUnsupported(llmcapabilities.CapabilityResponses, llmcapabilities.FieldTemperature) || len(handler.errors) != 1 {
 		t.Fatalf("tentativas=%d persistências=%d campoSuprimido=%v erros=%v; esperado uma única repetição", attempts, persistCalls, compatibility.IsUnsupported(llmcapabilities.CapabilityResponses, llmcapabilities.FieldTemperature), handler.errors)
@@ -273,7 +273,7 @@ func TestOpenAIResponsesDoesNotRetryAfterToolEffectAcrossIterations(t *testing.T
 		BaseURL: server.URL + "/v1", APIFormat: APIFormatOpenAIResponses, AuthMode: AuthModeNone, DefaultModel: "gpt-test",
 	}, credentials.NewManager(nil))
 	handler := &providerRetryHandler{}
-	params := ChatParams{Model: "gpt-test", Temperature: 0.4, Compatibility: compatibility}
+	params := ChatParams{Model: "gpt-test", Temperature: testParameterPointer(float64(0.4)), Compatibility: compatibility}
 	tool := ToolDefinition{Type: "function", Function: FunctionDefinition{Name: "lookup", Parameters: json.RawMessage(`{"type":"object"}`)}}
 	provider.StreamChat(t.Context(), []Message{{Role: "user", Content: "oi"}}, params, handler, tool)
 	provider.StreamChat(t.Context(), []Message{{Role: "user", Content: "resultado de lookup"}}, params, handler, tool)
@@ -309,7 +309,7 @@ func TestOpenAIResponsesDoesNotRetryAfterVisibleContentAcrossIterations(t *testi
 		BaseURL: server.URL + "/v1", APIFormat: APIFormatOpenAIResponses, AuthMode: AuthModeNone, DefaultModel: "gpt-test",
 	}, credentials.NewManager(nil))
 	handler := &providerRetryHandler{}
-	params := ChatParams{Model: "gpt-test", Temperature: 0.4, Compatibility: compatibility}
+	params := ChatParams{Model: "gpt-test", Temperature: testParameterPointer(float64(0.4)), Compatibility: compatibility}
 	provider.StreamChat(t.Context(), []Message{{Role: "user", Content: "oi"}}, params, handler)
 	provider.StreamChat(t.Context(), []Message{{Role: "user", Content: "continuação"}}, params, handler)
 
@@ -343,7 +343,7 @@ func TestOpenAIResponsesDoesNotRetryAfterReasoningAcrossIterations(t *testing.T)
 		BaseURL: server.URL + "/v1", APIFormat: APIFormatOpenAIResponses, AuthMode: AuthModeNone, DefaultModel: "gpt-test",
 	}, credentials.NewManager(nil))
 	handler := &providerRetryHandler{}
-	params := ChatParams{Model: "gpt-test", Temperature: 0.4, Compatibility: compatibility}
+	params := ChatParams{Model: "gpt-test", Temperature: testParameterPointer(float64(0.4)), Compatibility: compatibility}
 	provider.StreamChat(t.Context(), []Message{{Role: "user", Content: "oi"}}, params, handler)
 	provider.StreamChat(t.Context(), []Message{{Role: "user", Content: "continuação"}}, params, handler)
 
@@ -405,7 +405,7 @@ func TestOpenAIResponsesDoesNotRetryWhenPersistingRestrictionFails(t *testing.T)
 		BaseURL: server.URL + "/v1", APIFormat: APIFormatOpenAIResponses, AuthMode: AuthModeNone, DefaultModel: "gpt-test",
 	}, credentials.NewManager(nil))
 	handler := &providerRetryHandler{}
-	provider.StreamChat(t.Context(), []Message{{Role: "user", Content: "oi"}}, ChatParams{Model: "gpt-test", Temperature: 0.4, Compatibility: compatibility}, handler)
+	provider.StreamChat(t.Context(), []Message{{Role: "user", Content: "oi"}}, ChatParams{Model: "gpt-test", Temperature: testParameterPointer(float64(0.4)), Compatibility: compatibility}, handler)
 
 	if attempts != 1 || persistCalls != 1 || compatibility.IsUnsupported(llmcapabilities.CapabilityResponses, llmcapabilities.FieldTemperature) {
 		t.Fatalf("tentativas=%d persistências=%d campoSuprimido=%v", attempts, persistCalls, compatibility.IsUnsupported(llmcapabilities.CapabilityResponses, llmcapabilities.FieldTemperature))
@@ -464,7 +464,7 @@ func TestOpenAIResponsesDoesNotRetryOrPersistUnsupportedValue(t *testing.T) {
 	}, credentials.NewManager(nil))
 	handler := &providerRetryHandler{}
 	provider.StreamChat(t.Context(), []Message{{Role: "user", Content: "oi"}}, ChatParams{
-		Temperature: 0.4, Compatibility: compatibility,
+		Temperature: testParameterPointer(float64(0.4)), Compatibility: compatibility,
 	}, handler)
 
 	if attempts != 1 || persistCalls != 0 || compatibility.IsUnsupported(llmcapabilities.CapabilityResponses, llmcapabilities.FieldTemperature) {
@@ -502,7 +502,7 @@ func TestOpenAIResponsesDoesNotLearnUnknownOutputTokenAlias(t *testing.T) {
 	}, credentials.NewManager(nil))
 	handler := &providerRetryHandler{}
 	provider.StreamChat(t.Context(), []Message{{Role: "user", Content: "oi"}}, ChatParams{
-		MaxTokens: 32, Compatibility: compatibility,
+		MaxTokens: testParameterPointer(int(32)), Compatibility: compatibility,
 	}, handler)
 
 	if attempts != 1 || persistCalls != 0 || compatibility.IsUnsupported(llmcapabilities.CapabilityResponses, llmcapabilities.FieldMaxOutputTokens) {
@@ -533,7 +533,7 @@ func TestOpenAIResponsesPropagaLimiteComDiagnostico(t *testing.T) {
 	handler := &noopStreamHandler{}
 
 	provider.StreamChat(t.Context(), []Message{{Role: "user", Content: "oi"}},
-		ChatParams{MaxTokens: 99}, handler)
+		ChatParams{MaxTokens: testParameterPointer(int(99))}, handler)
 
 	if handler.err != "" {
 		t.Fatalf("stream falhou: %s", handler.err)

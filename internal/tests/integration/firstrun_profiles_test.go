@@ -25,9 +25,9 @@ func TestIntegration_FirstMessageWithCreativeProfile(t *testing.T) {
 		Chat: profiles.ChatConfig{
 			LLMProvider:     "openai",
 			Model:           "gpt-4o",
-			Temperature:     1.5, // HIGH - criativo
-			MaxTokens:       2000,
-			TopP:            0.95,
+			Temperature:     testParameterPointer(float64(1.5)), // HIGH - criativo
+			MaxTokens:       testParameterPointer(int(2000)),
+			TopP:            testParameterPointer(float64(0.95)),
 			ResponseTimeout: 45,
 			DisableTools:    false,
 			EnabledTools:    []string{},
@@ -40,12 +40,12 @@ func TestIntegration_FirstMessageWithCreativeProfile(t *testing.T) {
 	expectedTemperature := 1.5
 	expectedMaxTokens := 2000
 
-	if creativeProfile.Chat.Temperature != expectedTemperature {
-		t.Errorf("temperatura do perfil criativo incorreta: esperado %f, obteve %f", expectedTemperature, creativeProfile.Chat.Temperature)
+	if *creativeProfile.Chat.Temperature != expectedTemperature {
+		t.Errorf("temperatura do perfil criativo incorreta: esperado %f, obteve %f", expectedTemperature, *creativeProfile.Chat.Temperature)
 	}
 
-	if creativeProfile.Chat.MaxTokens != expectedMaxTokens {
-		t.Errorf("maxTokens do perfil criativo incorreto: esperado %d, obteve %d", expectedMaxTokens, creativeProfile.Chat.MaxTokens)
+	if *creativeProfile.Chat.MaxTokens != expectedMaxTokens {
+		t.Errorf("maxTokens do perfil criativo incorreto: esperado %d, obteve %d", expectedMaxTokens, *creativeProfile.Chat.MaxTokens)
 	}
 
 	// 3. Criar conversa
@@ -96,7 +96,7 @@ func TestIntegration_FirstMessageWithCreativeProfile(t *testing.T) {
 		t.Errorf("modelo incorreto: esperado gpt-4o, obteve %s", retrieved.Model)
 	}
 
-	t.Logf("✓ Perfil criativo (temp=%.1f, max_tokens=%d) aplicado na primeira mensagem", creativeProfile.Chat.Temperature, creativeProfile.Chat.MaxTokens)
+	t.Logf("✓ Perfil criativo (temp=%.1f, max_tokens=%d) aplicado na primeira mensagem", *creativeProfile.Chat.Temperature, *creativeProfile.Chat.MaxTokens)
 }
 
 // TestIntegration_FirstMessageWithDeterministicProfile testa primeira mensagem com perfil determinístico (temp=0)
@@ -116,9 +116,9 @@ func TestIntegration_FirstMessageWithDeterministicProfile(t *testing.T) {
 		Chat: profiles.ChatConfig{
 			LLMProvider:     "openai",
 			Model:           "gpt-4o",
-			Temperature:     0.0, // ZERO - determinístico
-			MaxTokens:       1000,
-			TopP:            0.5,
+			Temperature:     testParameterPointer(float64(0.0)), // ZERO - determinístico
+			MaxTokens:       testParameterPointer(int(1000)),
+			TopP:            testParameterPointer(float64(0.5)),
 			ResponseTimeout: 45,
 			DisableTools:    false,
 		},
@@ -127,8 +127,8 @@ func TestIntegration_FirstMessageWithDeterministicProfile(t *testing.T) {
 
 	expectedTemperature := 0.0
 
-	if deterministicProfile.Chat.Temperature != expectedTemperature {
-		t.Errorf("temperatura incorreta: esperado %f, obteve %f", expectedTemperature, deterministicProfile.Chat.Temperature)
+	if *deterministicProfile.Chat.Temperature != expectedTemperature {
+		t.Errorf("temperatura incorreta: esperado %f, obteve %f", expectedTemperature, *deterministicProfile.Chat.Temperature)
 	}
 
 	// 2. Criar conversa
@@ -168,7 +168,7 @@ func TestIntegration_FirstMessageWithDeterministicProfile(t *testing.T) {
 		t.Fatalf("falha ao criar resposta: %v", err)
 	}
 
-	t.Logf("✓ Perfil determinístico (temp=%.1f) aplicado na primeira mensagem", deterministicProfile.Chat.Temperature)
+	t.Logf("✓ Perfil determinístico (temp=%.1f) aplicado na primeira mensagem", *deterministicProfile.Chat.Temperature)
 }
 
 // TestIntegration_FirstMessageWithToolsDisabled testa primeira mensagem com tools desabilitadas
@@ -188,8 +188,8 @@ func TestIntegration_FirstMessageWithToolsDisabled(t *testing.T) {
 		Chat: profiles.ChatConfig{
 			LLMProvider:  "openai",
 			Model:        "gpt-4o",
-			Temperature:  0.7,
-			MaxTokens:    1000,
+			Temperature:  testParameterPointer(float64(0.7)),
+			MaxTokens:    testParameterPointer(int(1000)),
 			DisableTools: true, // TOOLS DESABILITADAS
 			EnabledTools: []string{},
 		},
@@ -262,9 +262,9 @@ func TestIntegration_FirstMessageWithMCPDisabled(t *testing.T) {
 		Chat: profiles.ChatConfig{
 			LLMProvider:     "openai",
 			Model:           "gpt-4o",
-			Temperature:     0.7,
-			MaxTokens:       1000,
-			TopP:            1.0,
+			Temperature:     testParameterPointer(float64(0.7)),
+			MaxTokens:       testParameterPointer(int(1000)),
+			TopP:            testParameterPointer(float64(1.0)),
 			ResponseTimeout: 180,
 			DisableTools:    false,
 			EnabledTools:    []string{},
@@ -338,8 +338,8 @@ func TestIntegration_FirstMessageDifferentModels(t *testing.T) {
 			Chat: profiles.ChatConfig{
 				LLMProvider: m.provider,
 				Model:       m.model,
-				Temperature: 0.7,
-				MaxTokens:   1000,
+				Temperature: testParameterPointer(float64(0.7)),
+				MaxTokens:   testParameterPointer(int(1000)),
 			},
 			Voice: profiles.VoiceConfig{},
 		}
@@ -413,8 +413,8 @@ func TestIntegration_FirstMessageWithContextWindowLimit(t *testing.T) {
 		Chat: profiles.ChatConfig{
 			LLMProvider:        "openai",
 			Model:              "gpt-3.5-turbo",
-			Temperature:        0.7,
-			MaxTokens:          500,
+			Temperature:        testParameterPointer(float64(0.7)),
+			MaxTokens:          testParameterPointer(int(500)),
 			ContextWindow:      4096, // Janela pequena
 			MaxContextMessages: 10,   // Maks 10 mensagens no contexto
 		},
@@ -489,8 +489,8 @@ func TestIntegration_FirstMessageProfileResponseTimeout(t *testing.T) {
 		Chat: profiles.ChatConfig{
 			LLMProvider:     "openai",
 			Model:           "gpt-4o",
-			Temperature:     0.7,
-			MaxTokens:       1000,
+			Temperature:     testParameterPointer(float64(0.7)),
+			MaxTokens:       testParameterPointer(int(1000)),
 			ResponseTimeout: 30, // 30 segundos (ao invés de 45s padrão)
 		},
 		Voice: profiles.VoiceConfig{},
@@ -551,24 +551,24 @@ func TestIntegration_FirstMessageProfileParametersPropagation(t *testing.T) {
 		Chat: profiles.ChatConfig{
 			LLMProvider:     "openai",
 			Model:           "gpt-4o",
-			Temperature:     0.8,                 // Custom temperature
-			MaxTokens:       2500,                // Custom max tokens
-			TopP:            0.85,                // Custom top_p
-			MaxTokensMode:   "completion_tokens", // Custom max tokens mode
+			Temperature:     testParameterPointer(float64(0.8)),  // Custom temperature
+			MaxTokens:       testParameterPointer(int(2500)),     // Custom max tokens
+			TopP:            testParameterPointer(float64(0.85)), // Custom top_p
+			MaxTokensMode:   "completion_tokens",                 // Custom max tokens mode
 			ResponseTimeout: 60,
 		},
 		Voice: profiles.VoiceConfig{},
 	}
 
 	// 2. Validar que parâmetros estão no profile
-	if testProfile.Chat.Temperature != 0.8 {
-		t.Errorf("temperatura esperada 0.8, obteve %f", testProfile.Chat.Temperature)
+	if *testProfile.Chat.Temperature != 0.8 {
+		t.Errorf("temperatura esperada 0.8, obteve %f", *testProfile.Chat.Temperature)
 	}
-	if testProfile.Chat.MaxTokens != 2500 {
-		t.Errorf("maxTokens esperado 2500, obteve %d", testProfile.Chat.MaxTokens)
+	if *testProfile.Chat.MaxTokens != 2500 {
+		t.Errorf("maxTokens esperado 2500, obteve %d", *testProfile.Chat.MaxTokens)
 	}
-	if testProfile.Chat.TopP != 0.85 {
-		t.Errorf("topP esperado 0.85, obteve %f", testProfile.Chat.TopP)
+	if *testProfile.Chat.TopP != 0.85 {
+		t.Errorf("topP esperado 0.85, obteve %f", *testProfile.Chat.TopP)
 	}
 	if testProfile.Chat.MaxTokensMode != "completion_tokens" {
 		t.Errorf("maxTokensMode esperado completion_tokens, obteve %s", testProfile.Chat.MaxTokensMode)
@@ -617,11 +617,11 @@ func TestIntegration_FirstMessageProfileParametersPropagation(t *testing.T) {
 		t.Fatalf("falha ao recuperar resposta: %v", err)
 	}
 
-	if retrieved.CompletionTokens > testProfile.Chat.MaxTokens {
-		t.Errorf("completion tokens (%d) excedeu maxTokens do profile (%d)", retrieved.CompletionTokens, testProfile.Chat.MaxTokens)
+	if retrieved.CompletionTokens > *testProfile.Chat.MaxTokens {
+		t.Errorf("completion tokens (%d) excedeu maxTokens do profile (%d)", retrieved.CompletionTokens, *testProfile.Chat.MaxTokens)
 	}
 
-	t.Logf("✓ Parâmetros do profile (temp=%.1f, maxTokens=%d, topP=%.2f) propagados corretamente", testProfile.Chat.Temperature, testProfile.Chat.MaxTokens, testProfile.Chat.TopP)
+	t.Logf("✓ Parâmetros do profile (temp=%.1f, maxTokens=%d, topP=%.2f) propagados corretamente", *testProfile.Chat.Temperature, *testProfile.Chat.MaxTokens, *testProfile.Chat.TopP)
 }
 
 // TestIntegration_FirstMessageProfileToolEnabling testa habilitação/desabilitação de tools por profile
@@ -640,8 +640,8 @@ func TestIntegration_FirstMessageProfileToolEnabling(t *testing.T) {
 			Chat: profiles.ChatConfig{
 				LLMProvider:  "openai",
 				Model:        "gpt-4o",
-				Temperature:  0.7,
-				MaxTokens:    1000,
+				Temperature:  testParameterPointer(float64(0.7)),
+				MaxTokens:    testParameterPointer(int(1000)),
 				DisableTools: false,
 				EnabledTools: []string{"web_search", "calculator"},
 			},
@@ -653,8 +653,8 @@ func TestIntegration_FirstMessageProfileToolEnabling(t *testing.T) {
 			Chat: profiles.ChatConfig{
 				LLMProvider:  "openai",
 				Model:        "gpt-4o",
-				Temperature:  0.7,
-				MaxTokens:    1000,
+				Temperature:  testParameterPointer(float64(0.7)),
+				MaxTokens:    testParameterPointer(int(1000)),
 				DisableTools: false,
 				EnabledTools: []string{"calculator"}, // Apenas calculator
 			},
@@ -740,15 +740,15 @@ func TestIntegration_FirstMessageProfileTopP(t *testing.T) {
 			Chat: profiles.ChatConfig{
 				LLMProvider: "openai",
 				Model:       "gpt-4o",
-				Temperature: 1.0,    // Temperatura alta para aproveitar TopP
-				TopP:        p.topP, // TopP específico
-				MaxTokens:   1000,
+				Temperature: testParameterPointer(float64(1.0)), // Temperatura alta para aproveitar TopP
+				TopP:        &p.topP,                            // TopP específico
+				MaxTokens:   testParameterPointer(int(1000)),
 			},
 			Voice: profiles.VoiceConfig{},
 		}
 
-		if profile.Chat.TopP != p.topP {
-			t.Errorf("TopP do profile %s incorreto: esperado %f, obteve %f", p.name, p.topP, profile.Chat.TopP)
+		if *profile.Chat.TopP != p.topP {
+			t.Errorf("TopP do profile %s incorreto: esperado %f, obteve %f", p.name, p.topP, *profile.Chat.TopP)
 		}
 
 		// Criar conversa
@@ -803,8 +803,8 @@ func TestIntegration_FirstMessageProfileWithVoiceSettings(t *testing.T) {
 			Chat: profiles.ChatConfig{
 				LLMProvider: "openai",
 				Model:       "gpt-4o",
-				Temperature: 0.7,
-				MaxTokens:   1000,
+				Temperature: testParameterPointer(float64(0.7)),
+				MaxTokens:   testParameterPointer(int(1000)),
 			},
 			Voice: profiles.VoiceConfig{
 				Assistant: profiles.VoiceRoleConfig{
@@ -826,8 +826,8 @@ func TestIntegration_FirstMessageProfileWithVoiceSettings(t *testing.T) {
 			Chat: profiles.ChatConfig{
 				LLMProvider: "openai",
 				Model:       "gpt-4o",
-				Temperature: 0.7,
-				MaxTokens:   1000,
+				Temperature: testParameterPointer(float64(0.7)),
+				MaxTokens:   testParameterPointer(int(1000)),
 			},
 			Voice: profiles.VoiceConfig{
 				Assistant: profiles.VoiceRoleConfig{Provider: "disabled"},
@@ -908,8 +908,8 @@ func TestIntegration_FirstMessageProfileChannelResponseMode(t *testing.T) {
 			Chat: profiles.ChatConfig{
 				LLMProvider: "openai",
 				Model:       "gpt-4o",
-				Temperature: 0.7,
-				MaxTokens:   1000,
+				Temperature: testParameterPointer(float64(0.7)),
+				MaxTokens:   testParameterPointer(int(1000)),
 			},
 			Voice: profiles.VoiceConfig{
 				Assistant: profiles.VoiceRoleConfig{

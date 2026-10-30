@@ -1,6 +1,6 @@
 # AEP-0115 — Catálogo público de provedores e modelos
 
-Status: In Progress — contrato aprovado; fases 1 (schema e asset inicial) e 2 (consumo, validação e cache backend) implementadas; fase 3 parcialmente entregue com persistência explícita, formulário por perfis, aceite por conexão para HTTP remoto e fábrica backend allowlisted; provedores legados sem aceite permanecem editáveis e bloqueados até reautorização explícita; onboarding desktop reutiliza o formulário; CLI consolidada com autenticação e cadastro compartilhados; fase 4 com resolução exata e metadados na API compartilhada/CLI; apresentação completa de recursos e vozes pendentes; Cohere e Ollama aguardam suporte às rotas/runtime catalogados
+Status: In Progress — contrato aprovado; fases 1 (schema e asset inicial) e 2 (consumo, validação e cache backend) implementadas; fase 3 parcialmente entregue com persistência explícita, formulário por perfis, aceite por conexão para HTTP remoto e fábrica backend allowlisted; provedores legados sem aceite permanecem editáveis e bloqueados até reautorização explícita; onboarding desktop reutiliza o formulário; CLI consolidada com autenticação e cadastro compartilhados; fase 4 com resolução exata e contratos de parâmetros compartilhados entre editor e envio; aliases privados e vozes pendentes; Cohere e Ollama aguardam suporte às rotas/runtime catalogados
 
 ## Resumo
 
@@ -114,8 +114,72 @@ Cada modelo usa uma identidade canônica no catálogo, separada do ID remoto que
 uma conexão envia. Metadados podem incluir fornecedor, nome, estado, modalidades
 de entrada/saída, tarefas, ferramentas, saída estruturada, raciocínio, limites
 de contexto/entrada/saída e capacidades TTS. Cada recurso usa `supported`,
-`unsupported` ou `unknown`; limites só são preenchidos quando conhecidos e são
-informativos, não um mecanismo para substituir validação do servidor.
+`unsupported` ou `unknown`; limites só são preenchidos quando conhecidos.
+Esses dados têm uso funcional: delimitam parâmetros e opções no editor e são
+validados pelo backend antes do envio. A validação do servidor continua sendo
+necessária, pois o catálogo pode estar desatualizado.
+
+### Contrato efetivo de parâmetros
+
+O backend resolve um único contrato para o modelo e sua exposição exata. O
+editor consome esse resultado; não mantém uma segunda tabela de faixas,
+defaults ou opções por modelo. O envio usa a mesma resolução no pipeline
+existente, incluindo chamadas originadas fora da interface gráfica.
+
+- O catálogo pode declarar suporte, mínimo, máximo, opções e default de cada
+  parâmetro. Restrições da exposição prevalecem sobre as do modelo canônico.
+- Restrições aprendidas localmente pela AEP-0113 continuam prevalecendo sobre
+  suporte declarado no catálogo, no escopo da conexão, modelo e operação.
+- Ausência de informação significa desconhecido e mantém configuração manual;
+  não cria um preset local alternativo nem infere associação por nome.
+- Ausência de valor configurado e zero explícito são estados distintos. Um
+  default catalogado só se aplica ao primeiro. Valores já configurados são
+  preservados; atualizar o catálogo ou mudar o modelo não os reescreve.
+- Valores explícitos fora do contrato são sinalizados para correção, sem
+  truncamento, clamp ou troca silenciosa. Campos comprovadamente não suportados
+  seguem a supressão existente da AEP-0113, sem apagar a configuração salva.
+- O contrato resolve configuração, não duplica transporte, serialização de
+  requisições, seleção de modelo ou fluxo de envio.
+
+Esta extensão foi aprovada pelo mantenedor após a entrega da associação exata
+no PR #952. Modelos declaram `parameters` e exposições declaram
+`parameter_overrides`, com `support`, `minimum`, `maximum`, `choices` e `default`.
+Um override substitui o contrato inteiro daquele campo, sem misturar restrições
+de rotas diferentes. Os quatro campos são `temperature`, `top_p`,
+`max_output_tokens` e `reasoning_effort`. O limite canônico de saída também
+restringe o contrato canônico, mesmo quando este declara um default.
+
+`Service.ChatParameterContract` resolve o contrato usado pelo editor e por
+`ApplyChatParameterContract` no envio. Valores opcionais usam ponteiros até o
+transporte, distinguindo ausência e zero sem flags paralelas. O limite conhecido
+de contexto limita a configuração da janela; zero continua desativando o
+gerenciamento automático. O orçamento efetivo de saída acompanha a resposta
+até a sumarização, sem recarregar um default divergente do perfil salvo.
+Chamadas internas `SimpleChat` conservam seu orçamento explícito de tarefa;
+não são configuração de parâmetros do perfil. Adaptadores Anthropic e Google
+não oferecem `reasoning_effort` enquanto não traduzirem esse campo canônico.
+Regras condicionais entre parâmetros não são representadas nesta entrega.
+Perfis legados com `reasoning_effort` omitido mantêm a escolha desativada;
+novos perfis serializam `null` para o default do modelo, preservando a distinção
+também ao exportar. O evento de invalidação `llm_catalog:changed`, sem payload,
+é emitido após publicar um documento validado e faz o editor reconsultar seu
+contrato sem alterar os valores do formulário nem desmontar controles durante
+a revalidação. Se uma nova restrição remover o campo focado, o foco retorna ao
+controle restante do grupo ou ao conteúdo da guia. Raciocínio manual também
+distingue explicitamente desativado, default do modelo e valor personalizado.
+Erros de valor carregam campo,
+código e limite no marcador `parameter_error:v1`, traduzido pelo apresentador
+de erros existente. A escolha do modelo reutiliza `llm.ResolveModel` em
+catálogo, compatibilidade e transporte.
+Domínios numéricos intrínsecos são aplicados por `Parameter.WithDomain` e
+entregues no mesmo contrato, mesmo para modelos desconhecidos; o frontend não
+repete uma tabela de limites. Sem orçamento de saída conhecido, a sumarização
+mantém sua margem proporcional de segurança existente, sem inventar 4096 tokens
+nem recuperar do perfil um campo que o transporte suprimiu.
+O pré-check de resultados de tools segue a mesma ausência de orçamento fictício,
+preservando a margem proporcional do AEP-0039. A regressão em
+`agent/context_test.go` comprova que uma janela pequena com saída desconhecida
+não perde resultados curtos por reservar 4096 tokens inexistentes.
 
 Uma exposição associa explicitamente `(server_profile_id, api_format,
 exposed_model_id)` ao modelo canônico, podendo declarar diferenças conhecidas de
@@ -293,13 +357,18 @@ vozes e manutenção do catálogo continuam pendentes nas fases seguintes.
    exposição sobre o modelo canônico e devolve cópias independentes. O seletor
    existente recebe nome legível acompanhado do ID remoto, sem mudar o valor
    selecionado. `asst providers models <id> --json` consome a mesma API e expõe
-   capacidades e limites informativos. Sem correspondência, `catalog` é ausente;
-   capacidades ausentes significam desconhecidas. O catálogo nunca acrescenta
-   modelos à lista da conta nem altera configuração, aprendizado ou payloads.
+   capacidades, limites e contratos de parâmetros. Sem correspondência, `catalog`
+   é ausente; capacidades ausentes significam desconhecidas. O catálogo nunca
+   acrescenta modelos à lista da conta nem reescreve configuração ou aprendizado.
+   Parâmetros ausentes recebem defaults conhecidos na cópia da requisição;
+   valores explícitos são validados e campos não suportados são suprimidos.
    Evidências: `llmcatalog/resolve_test.go`,
    `providers/model_catalog_metadata_test.go` e `cmd/asst/providers_test.go`.
-   Ainda falta apresentar capacidades/limites na interface gráfica e oferecer
-   o vínculo explícito de aliases privados; não se infere associação por nome.
+   O contrato efetivo está integrado ao editor e ao envio, com evidências em
+   `llmcatalog/parameters_test.go`, `providers/chat_parameters_test.go`,
+   `llm/parameter_presence_test.go`, `profiles/parameter_presence_test.go` e
+   `ProfileChatSection.test.tsx`. Ainda falta oferecer o vínculo explícito de
+   aliases privados; não se infere associação por nome.
 5. **Vozes TTS na API do catálogo.** Integrar a coleção de vozes do asset ao consumo tipado, associada à exposição de perfil, rota/API e modelo, incluindo estado de completude. Esta fase fornece os dados consumidos pela fase 4 do AEP-0113, que implementa a seleção e o comportamento de compatibilidade na interface. Assim, a dependência é unidirecional: AEP-0113 fase 4 depende das fases 1–5 desta AEP.
 6. **Manutenção do catálogo.** Definir processo e cadência de atualização, validação e publicação. Sondagens de síntese potencialmente pagas podem ser usadas no processo editorial, com custo e escopo controlados; abrir a UI ou selecionar modelo não dispara sondagem paga automaticamente.
 
@@ -314,6 +383,12 @@ vozes e manutenção do catálogo continuam pendentes nas fases seguintes.
 - Confiar em JSON remoto para selecionar comportamento executável ampliaria a superfície de ataque; tratar o catálogo como dados validados e usar adaptadores locais allowlisted.
 
 ## Critérios de aceitação
+
+- [x] Editor e envio consomem uma resolução backend de parâmetros aceitos,
+  faixas, opções e defaults por modelo e exposição. Valores explícitos,
+  inclusive zero, são preservados; incompatibilidades são sinalizadas sem
+  ajuste silencioso. Ausência de catálogo permite configuração manual, e
+  restrições aprendidas mantêm precedência.
 
 - [x] `asst setup` e `asst providers add` compartilham autenticação, formulário de catálogo/manual, sondagem única e cadastro pelo controller existente. O CLI remove listas legadas, preserva aliases e pede consentimento antes de HTTP remoto. Evidências: `cmd/asst/provider_setup_test.go`, `provider_auth_test.go` e `provider_setup_integration_test.go` (headers HTTP e persistência pelo controller/cofre reais).
 - [x] O asset público tem schema versionado, exemplos de provedor, modelo, exposição por proxy e estado de completude de vozes. Evidência: `docs/static/json/assistente-catalog.schema.json` e `docs/static/json/assistente-catalog.json`, servidos pelo Hugo sob `/json/`; validação Draft 2020-12 e conferência semântica das referências e unicidade deste asset registradas no PR. A validação semântica de catálogos baixados é coberta também pelo consumidor da fase 2.

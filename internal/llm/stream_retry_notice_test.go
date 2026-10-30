@@ -78,7 +78,7 @@ func TestStreamRetryAvisoSoEmFalhaTransitoria(t *testing.T) {
 
 	params := ChatParams{
 		Model:                   "m",
-		MaxTokens:               77,
+		MaxTokens:               testParameterPointer(int(77)),
 		PromptCacheKey:          "cache-key",
 		PromptCacheHintFallback: &PromptCacheHintFallback{},
 	}

@@ -152,6 +152,11 @@ vi.mock('../lib/commandPageMutation', () => ({
 
 vi.mock('@wailsjs/go/wailsapi/LLMModels', () => ({
   GetModels: vi.fn().mockResolvedValue([]),
+  GetProfileChatParameterContract: vi.fn().mockResolvedValue({}),
+}));
+
+vi.mock('@wailsjs/runtime/runtime', () => ({
+  EventsOn: vi.fn(() => vi.fn()),
 }));
 
 vi.mock('@wailsjs/go/wailsapi/Speech', () => ({

@@ -1,7 +1,8 @@
 import { useTranslation } from 'react-i18next';
 import { LLMProviderPicker } from '../pickers/LLMProviderPicker';
 import { ModelPicker } from '../pickers/ModelPicker';
-import { RangeSlider } from '../ui/RangeSlider';
+import type { llmcatalog } from '@wailsjs/go/models';
+import { Input } from '../ui/Input';
 
 interface PromptCacheValue {
   enabled?: boolean;
@@ -19,18 +20,18 @@ interface DebugValue {
 export interface ProfileChatSectionProps {
   llmProvider: string;
   model: string;
-  temperature: number;
-  maxTokens: number;
+  temperature: number | null;
+  maxTokens: number | null;
   maxTokensMode: string;
   contextWindow: number;
   maxContextMessages: number;
   minContextMessages: number;
-  topP: number;
+  topP: number | null;
   responseTimeout: number;
   rateLimitEnabled?: boolean;
   rateLimitRpm?: number;
   rateLimitBurst?: number;
-  reasoningEffort: string;
+  reasoningEffort: string | null;
   promptCache?: PromptCacheValue;
   debug?: DebugValue;
   streamingRecoveryEnabled?: boolean;
@@ -62,7 +63,7 @@ export interface ProfileChatSectionProps {
       | 'streaming_recovery_enabled'
       | 'streaming_recovery_max_attempts'
       | 'streaming_recovery_show_continue',
-    value: string | number | boolean
+    value: string | number | boolean | null
   ) => void;
   onMultiChange?: (updates: Record<string, unknown>) => void;
   disabled?: boolean;
@@ -74,6 +75,7 @@ export interface ProfileChatSectionProps {
    */
   agentProvider?: boolean;
   unsupportedFields?: readonly string[];
+  parameterContract?: Record<string, llmcatalog.Parameter>;
   compatibilityLoading?: boolean;
 }
 
@@ -120,21 +122,24 @@ export function ProfileChatSection({
   disabled = false,
   agentProvider = false,
   unsupportedFields = [],
+  parameterContract = {},
   compatibilityLoading = false,
 }: ProfileChatSectionProps) {
   const { t } = useTranslation();
-  const temperatureValue = temperature ?? 0.7;
-  const topPValue = topP ?? 1.0;
-  const maxTokensValue = maxTokens ?? 4096;
   const maxTokensModeValue = maxTokensMode || 'legacy';
   const contextWindowValue = contextWindow ?? 0;
+  const contextWindowMaximum = parameterContract.context_window?.maximum;
+  const contextWindowInvalid = contextWindowMaximum != null && contextWindowValue > contextWindowMaximum;
   const maxContextMessagesValue = maxContextMessages ?? 0;
   const minContextMessagesValue = minContextMessages ?? 0;
   const responseTimeoutValue = responseTimeout ?? 180;
   const rateLimitEnabledValue = rateLimitEnabled ?? true;
   const rateLimitRpmValue = rateLimitRpm ?? 0;
   const rateLimitBurstValue = rateLimitBurst ?? 0;
-  const reasoningValue = reasoningEffort || 'off';
+  const reasoningValue = reasoningEffort == null ? 'model-default' : reasoningEffort || 'off';
+  const reasoningChoices = parameterContract.reasoning_effort?.choices;
+  const reasoningInvalid = reasoningEffort != null && reasoningValue !== 'off'
+    && reasoningChoices != null && !reasoningChoices.includes(reasoningValue);
   const promptCacheEnabledValue = promptCache?.enabled ?? false;
   const promptCacheProviderHintsValue = promptCache?.provider_hints ?? false;
   const promptCacheExplicitCacheControlValue = promptCache?.explicit_cache_control ?? false;
@@ -238,73 +243,49 @@ export function ProfileChatSection({
           {t('profiles.chatSection.groupGeneration')}
         </legend>
 
-        {showTemperature && <div className="profiles-field">
-          <RangeSlider
-            id="chat-temperature"
-            label={t('profiles.chatSection.temperature')}
-            value={temperatureValue}
-            min={0}
-            max={2}
-            step={0.05}
-            onChange={(value) => onChange('temperature', value)}
-            formatValue={(value) => value.toFixed(2)}
-            disabled={generationDisabled}
-          />
-        </div>}
-
-        {showTopP && <div className="profiles-field">
-          <RangeSlider
-            id="chat-top-p"
-            label={t('profiles.chatSection.topP')}
-            value={topPValue}
-            min={0}
-            max={1}
-            step={0.05}
-            onChange={(value) => onChange('top_p', value)}
-            formatValue={(value) => value.toFixed(2)}
-            disabled={generationDisabled}
-          />
-        </div>}
+        {showTemperature && <ProfileNumberParameter
+          id="chat-temperature" label={t('profiles.chatSection.temperature')}
+          value={temperature} contract={parameterContract.temperature}
+          onChange={(value) => onChange('temperature', value)} disabled={generationDisabled}
+        />}
+        {showTopP && <ProfileNumberParameter
+          id="chat-top-p" label={t('profiles.chatSection.topP')}
+          value={topP} contract={parameterContract.top_p}
+          onChange={(value) => onChange('top_p', value)} disabled={generationDisabled}
+        />}
 
         {showReasoning && <div className="profiles-field">
           <label htmlFor="chat-reasoning" className="profiles-field__label">
             {t('profiles.chatSection.reasoning')}
           </label>
           <select
-            id="chat-reasoning"
-            className="profiles-field__select"
-            value={reasoningValue}
-            onChange={(e) => onChange('reasoning_effort', e.target.value === 'off' ? '' : e.target.value)}
-            disabled={generationDisabled}
+            id="chat-reasoning" className="profiles-field__select"
+            value={reasoningValue} disabled={generationDisabled}
+            aria-invalid={reasoningInvalid || undefined}
+            aria-describedby={reasoningInvalid ? 'chat-reasoning-error' : undefined}
+            onChange={(e) => onChange('reasoning_effort', e.target.value === 'model-default' ? null : e.target.value === 'off' ? '' : e.target.value)}
           >
-            <option value="ollama">{t('profiles.chatSection.reasoningOllama')}</option>
+            <option value="model-default">{t('profiles.chatSection.modelDefault')}</option>
             <option value="off">{t('profiles.chatSection.reasoningOff')}</option>
-            <option value="none">{t('profiles.chatSection.reasoningNone')}</option>
-            <option value="low">{t('profiles.chatSection.reasoningLow')}</option>
-            <option value="medium">{t('profiles.chatSection.reasoningMedium')}</option>
-            <option value="high">{t('profiles.chatSection.reasoningHigh')}</option>
-            <option value="max">{t('profiles.chatSection.reasoningMax')}</option>
+            {(reasoningInvalid || (!reasoningChoices && reasoningEffort && reasoningEffort !== 'off')) && <option value={reasoningValue}>{reasoningValue}</option>}
+            {reasoningChoices?.filter((value) => value !== 'off').map((value) => <option key={value} value={value}>{value}</option>)}
           </select>
+          {!reasoningChoices && <Input
+            id="chat-reasoning-custom" label={t('profiles.chatSection.reasoningCustom')}
+            value={reasoningEffort === 'off' ? '' : reasoningEffort ?? ''} disabled={generationDisabled}
+            onChange={(e) => onChange('reasoning_effort', e.target.value)}
+          />}
+          {reasoningInvalid && <span id="chat-reasoning-error">{t('profiles.chatSection.parameterInvalid')}</span>}
           <span className="profiles-field__hint">
             {t('profiles.chatSection.reasoningHint')}
           </span>
         </div>}
 
-        {showMaxOutputTokens && <div className="profiles-field">
-          <label htmlFor="chat-max-tokens" className="profiles-field__label">
-            {t('profiles.chatSection.maxTokens')}
-          </label>
-          <input
-            id="chat-max-tokens"
-            type="number"
-            className="profiles-field__input"
-            min={1}
-            max={128000}
-            value={maxTokensValue}
-            onChange={(e) => onChange('max_tokens', parseInt(e.target.value) || 4096)}
-            disabled={generationDisabled}
-          />
-        </div>}
+        {showMaxOutputTokens && <ProfileNumberParameter
+          id="chat-max-tokens" label={t('profiles.chatSection.maxTokens')}
+          value={maxTokens} contract={parameterContract.max_output_tokens} integer
+          onChange={(value) => onChange('max_tokens', value)} disabled={generationDisabled}
+        />}
 
         {showMaxOutputTokens && <div className="profiles-field">
           <label htmlFor="chat-max-tokens-mode" className="profiles-field__label">
@@ -468,12 +449,15 @@ export function ProfileChatSection({
             type="number"
             className="profiles-field__input"
             min={0}
-            max={2000000}
+            max={contextWindowMaximum}
+            aria-invalid={contextWindowInvalid || undefined}
+            aria-describedby={contextWindowInvalid ? 'chat-context-window-error' : undefined}
             value={contextWindowValue}
             onChange={(e) => onChange('context_window', parseInt(e.target.value) || 0)}
             placeholder="0"
             disabled={disabled}
           />
+          {contextWindowInvalid && <span id="chat-context-window-error">{t('profiles.chatSection.parameterInvalid')}</span>}
           <span className="profiles-field__hint">
             {t('profiles.chatSection.contextWindowHint')}
           </span>
@@ -658,4 +642,21 @@ export function ProfileChatSection({
       </fieldset>
     </div>
   );
+}
+
+function ProfileNumberParameter({ id, label, value, contract, onChange, disabled, integer = false }: {
+  id: string; label: string; value: number | null; contract?: llmcatalog.Parameter;
+  onChange: (value: number | null) => void; disabled: boolean; integer?: boolean;
+}) {
+  const { t } = useTranslation();
+  const invalid = value != null && (!Number.isFinite(value) || (contract?.minimum != null && value < contract.minimum)
+    || (contract?.maximum != null && value > contract.maximum) || (integer && !Number.isInteger(value)));
+  return <div className="profiles-field"><Input
+    id={id} label={label} type="number" value={value ?? ''} step={integer ? 1 : 'any'}
+    min={contract?.minimum} max={contract?.maximum} disabled={disabled}
+    placeholder={contract?.default == null ? t('profiles.chatSection.modelDefault') : String(contract.default)}
+    hint={t('profiles.chatSection.modelDefaultHint')}
+    error={invalid ? t('profiles.chatSection.parameterInvalid') : undefined}
+    onChange={(e) => onChange(e.target.value === '' ? null : e.target.valueAsNumber)}
+  /></div>;
 }

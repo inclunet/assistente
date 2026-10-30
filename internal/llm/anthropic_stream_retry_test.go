@@ -48,7 +48,7 @@ func TestAnthropicStreamRetryAvisoEFinalizacao(t *testing.T) {
 	}, credMgr)
 	handler := &espiaoAvisos{}
 
-	provider.StreamChat(ctx, []Message{{Role: "user", Content: "olá"}}, ChatParams{Model: "claude-test", MaxTokens: 123}, handler)
+	provider.StreamChat(ctx, []Message{{Role: "user", Content: "olá"}}, ChatParams{Model: "claude-test", MaxTokens: testParameterPointer(int(123))}, handler)
 
 	if handler.err != "" {
 		t.Fatalf("turno deveria concluir sem erro; veio %q", handler.err)
@@ -95,7 +95,7 @@ func TestAnthropicTimeoutParcialPreservaDiagnosticos(t *testing.T) {
 	handler := &espiaoAvisos{}
 
 	provider.StreamChat(context.Background(), []Message{{Role: "user", Content: "oi"}},
-		ChatParams{Model: "claude-test", MaxTokens: 123}, handler)
+		ChatParams{Model: "claude-test", MaxTokens: testParameterPointer(int(123))}, handler)
 
 	if handler.err != streamIdleErrorMessage || !handler.naoRetentavel {
 		t.Fatalf("timeout terminal inválido: err=%q nonRetryable=%v", handler.err, handler.naoRetentavel)
@@ -134,7 +134,7 @@ func TestAnthropicTimeoutSoComReasoningRetentaELimpaHandler(t *testing.T) {
 	handler := &espiaoAvisos{}
 
 	provider.StreamChat(context.Background(), []Message{{Role: "user", Content: "oi"}},
-		ChatParams{Model: "claude-test"}, handler)
+		ChatParams{Model: "claude-test", MaxTokens: testParameterPointer(4096)}, handler)
 
 	if handler.err != "" || handler.resets != 1 || attempts.Load() != 2 {
 		t.Fatalf("retry de reasoning inválido: err=%q resets=%d attempts=%d", handler.err, handler.resets, attempts.Load())
@@ -157,11 +157,17 @@ func TestAnthropicCancelamentoEmThinkingNaoFinalizaResposta(t *testing.T) {
 		Model: "claude-test", AuthMode: AuthModeNone,
 	}, credentials.NewManager([]byte("test-key-exactly-32-bytes-long!!")))
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	handler := &cancelOnThinkingHandler{cancel: cancel}
 
-	provider.StreamChat(ctx, []Message{{Role: "user", Content: "oi"}}, ChatParams{Model: "claude-test"}, handler)
+	provider.StreamChat(ctx, []Message{{Role: "user", Content: "oi"}}, ChatParams{Model: "claude-test", MaxTokens: testParameterPointer(123)}, handler)
+	if ctx.Err() != context.Canceled {
+		t.Fatal("OnThinking não cancelou o contexto")
+	}
 
 	if handler.done != "" || len(handler.chunks) != 0 {
 		t.Fatalf("barge-in publicou terminal/chunk obsoleto: done=%q chunks=%v", handler.done, handler.chunks)
 	}
 }
+
+func testParameterPointer[T any](value T) *T { return &value }

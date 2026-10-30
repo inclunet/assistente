@@ -47,7 +47,7 @@ func TestChatGPTRequestAndTerminalEvents(t *testing.T) {
 			if p.NativeMCPCapable() || config.SupportsTTS() || config.SupportsSTT() {
 				t.Fatal("unsupported capability advertised")
 			}
-			text, err := p.SendChat(context.Background(), []Message{{Role: "system", Content: "system instruction"}, {Role: "user", Content: "Hi"}}, ChatParams{Model: "account-model", Temperature: 0.8, TopP: 0.5, MaxTokens: 100})
+			text, err := p.SendChat(context.Background(), []Message{{Role: "system", Content: "system instruction"}, {Role: "user", Content: "Hi"}}, ChatParams{Model: "account-model", Temperature: testParameterPointer(float64(0.8)), TopP: testParameterPointer(float64(0.5)), MaxTokens: testParameterPointer(int(100))})
 			if terminal == "completed" {
 				if err != nil || text != "Hello" {
 					t.Fatalf("%q %v", text, err)

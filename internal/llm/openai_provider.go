@@ -175,7 +175,7 @@ func (p *OpenAIProvider) WithMCPServers(servers []MCPServerConfig) ChatProvider 
 
 // SendChat envia uma mensagem (não-streaming), despachando para o modo correto.
 func (p *OpenAIProvider) SendChat(ctx context.Context, messages []Message, params ChatParams) (string, error) {
-	model := resolveModel(p.provider, params.Model)
+	model := ResolveModel(p.provider, params.Model)
 	if model == "" {
 		return "", fmt.Errorf("nenhum modelo especificado e nenhum modelo padrão configurado")
 	}
@@ -197,7 +197,7 @@ func (p *OpenAIProvider) SimpleChat(ctx context.Context, model, systemPrompt, us
 // StreamChat faz streaming, despachando para o modo correto (Responses-first
 // quando useResponses=true; senão Chat Completions).
 func (p *OpenAIProvider) StreamChat(ctx context.Context, messages []Message, params ChatParams, handler StreamHandler, tools ...ToolDefinition) {
-	model := resolveModel(p.provider, params.Model)
+	model := ResolveModel(p.provider, params.Model)
 	if model == "" {
 		handler.OnError("Nenhum modelo especificado e nenhum modelo padrão configurado")
 		return

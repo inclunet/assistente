@@ -109,7 +109,7 @@ func TestConversaDeAgenteNaoDisparaSumarizacaoAutomatica(t *testing.T) {
 		ProfileManager: profileMgr,
 	})
 
-	svc.CheckAndTriggerSummarization(context.Background(), "conversa-1", slug)
+	svc.CheckAndTriggerSummarization(context.Background(), "conversa-1", slug, 0)
 
 	if repo.mensagensPedidas != 0 {
 		t.Errorf("a sumarização carregou mensagens de uma conversa de agente (%d vezes)", repo.mensagensPedidas)
@@ -137,7 +137,7 @@ func TestConversaComProvedorComumSegueSumarizando(t *testing.T) {
 		ProfileManager: profileMgr,
 	})
 
-	svc.CheckAndTriggerSummarization(context.Background(), "conversa-1", slug)
+	svc.CheckAndTriggerSummarization(context.Background(), "conversa-1", slug, 0)
 
 	if repo.mensagensPedidas == 0 {
 		t.Error("conversa com provedor comum deveria continuar sendo avaliada")
@@ -161,7 +161,7 @@ func TestConversaComPadraoGlobalDeAgenteNaoDisparaSumarizacao(t *testing.T) {
 		ProfileResolver: resolvePara("cursor"),
 	})
 
-	svc.CheckAndTriggerSummarization(context.Background(), "conversa-1", slug)
+	svc.CheckAndTriggerSummarization(context.Background(), "conversa-1", slug, 0)
 
 	if repo.mensagensPedidas != 0 {
 		t.Errorf("o sentinela escondeu o agente e o check seguiu adiante (%d leituras)", repo.mensagensPedidas)

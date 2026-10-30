@@ -403,6 +403,13 @@ const en = {
         streamingPromptCacheHintRejected: 'The provider rejected the cache hint even after it was disabled. Check the gateway configuration or disable cache hints in the profile.',
         streamingTokenRateLimit: 'The provider token quota was reached (HTTP 429). Wait for the quota to reset and try again.',
         agentResponseFailed: 'Agent response failed:',
+        parameterErrors: {
+          required: 'Configure {{field}}: this API requires an explicit value and no model default is available.',
+          choice: 'The configured value for {{field}} is not among the options supported by this model.',
+          number: 'The configured value for {{field}} is not a valid number for this parameter.',
+          minimum: 'The value for {{field}} must be at least {{limit}}.',
+          maximum: 'The value for {{field}} must be at most {{limit}}.',
+        },
         providerErrors: {
           unsupportedParameter: 'The provider does not accept the {{field}} parameter for this model. Check the configured parameters.{{statusLabel}}',
           unsupportedParameterUnknown: 'The provider rejected a parameter but did not identify a field that can be safely omitted.{{statusLabel}}',
@@ -2175,6 +2182,9 @@ const en = {
         feedbackSoundsHint: 'Sounds when starting/stopping recording and other interaction events',
       },
       chatSection: {
+        modelDefault: 'Model default',
+        modelDefaultHint: 'Leave empty to use the catalog default; without a known default, the parameter is omitted.',
+        parameterInvalid: 'Value is outside the known model constraints.',
         groupProvider: 'Provider & Model',
         groupGeneration: 'Generation Parameters',
         groupContext: 'Context & Limits',
@@ -2208,6 +2218,7 @@ const en = {
         timeout: 'Timeout (seconds)',
         reasoning: 'Reasoning',
         reasoningOllama: 'Enabled (Ollama)',
+        reasoningCustom: 'Custom reasoning value',
         reasoningOff: 'Disabled',
         reasoningNone: 'Minimum (none)',
         reasoningLow: 'Low (low)',

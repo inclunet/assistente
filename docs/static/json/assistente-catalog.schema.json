@@ -102,6 +102,57 @@
       "propertyNames": {"pattern": "^[a-z][a-z0-9_.-]{0,63}$"},
       "additionalProperties": {"type": "integer", "minimum": 1}
     },
+    "parameter": {
+      "type": "object",
+      "required": ["support"],
+      "properties": {
+        "support": {"enum": ["supported", "unsupported", "unknown"]},
+        "minimum": {"type": "number"},
+        "maximum": {"type": "number"},
+        "default": {"type": ["number", "string"]},
+        "choices": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 64}}
+      },
+      "allOf": [{
+        "if": {"properties": {"support": {"const": "unsupported"}}},
+        "then": {"not": {"anyOf": [{"required": ["minimum"]}, {"required": ["maximum"]}, {"required": ["default"]}, {"required": ["choices"]}]}}
+      }, {
+        "if": {"properties": {"support": {"const": "unknown"}}},
+        "then": {"not": {"required": ["default"]}}
+      }],
+      "additionalProperties": true
+    },
+    "numericParameter": {
+      "allOf": [{"$ref": "#/$defs/parameter"}],
+      "properties": {"default": {"type": "number"}},
+      "not": {"required": ["choices"]}
+    },
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "temperature": {
+          "allOf": [{"$ref": "#/$defs/numericParameter"}],
+          "properties": {"minimum": {"minimum": 0}, "maximum": {"minimum": 0}, "default": {"minimum": 0}}
+        },
+        "top_p": {
+          "allOf": [{"$ref": "#/$defs/numericParameter"}],
+          "properties": {"minimum": {"minimum": 0, "maximum": 1}, "maximum": {"minimum": 0, "maximum": 1}, "default": {"minimum": 0, "maximum": 1}}
+        },
+        "max_output_tokens": {
+          "allOf": [{"$ref": "#/$defs/numericParameter"}],
+          "properties": {
+            "minimum": {"type": "integer", "minimum": 1, "maximum": 2147483647},
+            "maximum": {"type": "integer", "minimum": 1, "maximum": 2147483647},
+            "default": {"type": "integer", "minimum": 1, "maximum": 2147483647}
+          }
+        },
+        "reasoning_effort": {
+          "allOf": [{"$ref": "#/$defs/parameter"}],
+          "properties": {"default": {"type": "string", "maxLength": 64}},
+          "not": {"anyOf": [{"required": ["minimum"]}, {"required": ["maximum"]}]}
+        }
+      },
+      "additionalProperties": false
+    },
     "model": {
       "type": "object",
       "required": ["id", "vendor", "name", "status", "capabilities"],
@@ -111,7 +162,8 @@
         "name": {"type": "string", "minLength": 1, "maxLength": 160},
         "status": {"type": "string", "enum": ["active", "preview", "deprecated"]},
         "capabilities": {"$ref": "#/$defs/capabilities"},
-        "limits": {"$ref": "#/$defs/limits"}
+        "limits": {"$ref": "#/$defs/limits"},
+        "parameters": {"$ref": "#/$defs/parameters"}
       },
       "additionalProperties": true
     },
@@ -134,6 +186,7 @@
         "exposed_model_id": {"type": "string", "minLength": 1, "maxLength": 200},
         "canonical_model_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._/-]{0,199}$"},
         "capability_overrides": {"$ref": "#/$defs/capabilities"},
+        "parameter_overrides": {"$ref": "#/$defs/parameters"},
         "selection_mode": {"type": "string", "enum": ["model_and_voice", "model_only"]},
         "voices": {
           "type": "object",

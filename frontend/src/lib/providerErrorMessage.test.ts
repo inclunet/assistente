@@ -3,6 +3,16 @@ import i18n from './i18n';
 import { translateBackendErrorDiagnostic, translateErrorMarkers, translateProviderErrorMessage } from './providerErrorMessage';
 
 describe('translateProviderErrorMessage', () => {
+  it('traduz violações do contrato com seus limites nos três idiomas', () => {
+    const marker = 'parameter_error:v1:max_output_tokens:maximum:128000';
+    expect(translateProviderErrorMessage(marker, 'pt-BR')).toBe('O valor de max_output_tokens deve ser no máximo 128000.');
+    expect(translateProviderErrorMessage(marker, 'en')).toBe('The value for max_output_tokens must be at most 128000.');
+    expect(translateProviderErrorMessage(marker, 'es')).toBe('El valor de max_output_tokens debe ser como máximo 128000.');
+    expect(translateProviderErrorMessage('parameter_error:v1:temperature:minimum')).toBeNull();
+    expect(translateProviderErrorMessage('parameter_error:v1:unknown:maximum:2')).toBeNull();
+    expect(translateProviderErrorMessage('parameter_error:v1:max_output_tokens:required', 'en')).toBe('Configure max_output_tokens: this API requires an explicit value and no model default is available.');
+  });
+
   it('localiza marcadores permitidos e mantém o alias informado pelo provedor', async () => {
     await i18n.changeLanguage('pt-BR');
 
@@ -25,6 +35,15 @@ describe('translateProviderErrorMessage', () => {
 });
 
 describe('translateErrorMarkers', () => {
+  it('traduz erros de parâmetros persistidos sem reescrever texto livre', () => {
+    const diagnostic = 'Falha na resposta do agente: parameter_error:v1:max_output_tokens:required';
+    expect(translateBackendErrorDiagnostic(diagnostic, 'pt-BR')).toBe('Falha na resposta do agente: Configure max_output_tokens: esta API exige um valor explícito e não há default disponível para o modelo.');
+    expect(translateBackendErrorDiagnostic(diagnostic, 'en')).toBe('Agent response failed: Configure max_output_tokens: this API requires an explicit value and no model default is available.');
+    expect(translateBackendErrorDiagnostic(diagnostic, 'es')).toBe('Falló la respuesta del agente: Configura max_output_tokens: esta API exige un valor explícito y no hay un valor predeterminado disponible para el modelo.');
+    const prose = `${diagnostic} is an example`;
+    expect(translateBackendErrorDiagnostic(prose, 'en')).toBe(prose);
+  });
+
   it('traduz marcadores dentro de erros persistidos com prefixo', async () => {
     await i18n.changeLanguage('pt-BR');
     expect(translateErrorMarkers('Falha na resposta do agente: provider_error:v1:authentication:'))

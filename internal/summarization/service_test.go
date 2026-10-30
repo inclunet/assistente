@@ -191,7 +191,7 @@ func TestShouldTriggerSummarizationWithHydratedToolResults(t *testing.T) {
 		return &profiles.Profile{
 			Chat: profiles.ChatConfig{
 				ContextWindow: contextWindow,
-				MaxTokens:     maxTokens,
+				MaxTokens:     &maxTokens,
 			},
 		}
 	}
@@ -273,7 +273,7 @@ func TestShouldTriggerSummarization(t *testing.T) {
 		return &profiles.Profile{
 			Chat: profiles.ChatConfig{
 				ContextWindow: contextWindow,
-				MaxTokens:     maxTokens,
+				MaxTokens:     &maxTokens,
 			},
 		}
 	}
@@ -340,16 +340,18 @@ func TestShouldTriggerSummarization(t *testing.T) {
 		}
 	})
 
-	t.Run("default maxTokens when zero", func(t *testing.T) {
+	t.Run("unknown output budget keeps safety margin without inventing 4096", func(t *testing.T) {
 		p := &profiles.Profile{
 			Chat: profiles.ChatConfig{
 				ContextWindow: 20000,
-				MaxTokens:     0,
 			},
 		}
-		msgs := makeMsgs(40, 5)
+		msgs := makeMsgs(1000, 50)
 		if ShouldTriggerSummarization(p, msgs, "") {
-			t.Error("expected false, small messages under budget")
+			t.Error("invented an output reserve beyond the safety margin")
+		}
+		if !ShouldTriggerSummarization(p, makeMsgs(1400, 50), "") {
+			t.Error("lost the safety margin")
 		}
 	})
 }

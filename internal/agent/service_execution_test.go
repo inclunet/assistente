@@ -7,6 +7,7 @@ import (
 
 	"assistente/internal/chat"
 	"assistente/internal/database"
+	"assistente/internal/llm"
 )
 
 func TestSummarySurvivesCompletedExecution(t *testing.T) {
@@ -20,8 +21,11 @@ func TestSummarySurvivesCompletedExecution(t *testing.T) {
 	result := make(chan error, 1)
 	service := NewService(ServiceConfig{
 		Emitter: &mockEmitter{}, MsgRepo: &mockMsgRepo{},
-		TriggerSummarize: func(summaryCtx context.Context, _, _ string) {
+		TriggerSummarize: func(summaryCtx context.Context, _, _ string, outputLimit int) {
 			<-released
+			if outputLimit != 2048 {
+				t.Errorf("resumo recebeu limite %d, esperado o limite efetivamente enviado (2048)", outputLimit)
+			}
 			if _, ownerErr := database.RequireUserID(summaryCtx); ownerErr != nil {
 				result <- ownerErr
 				return
@@ -29,7 +33,7 @@ func TestSummarySurvivesCompletedExecution(t *testing.T) {
 			result <- summaryCtx.Err()
 		},
 	})
-	service.SaveAndFinish(ctx, "conversation", "turn", "assistant", AgenticResult{FullResponse: "response"}, "", nil, nil)
+	service.SaveAndFinish(ctx, "conversation", "turn", "assistant", AgenticResult{FullResponse: "response", Finish: llm.FinishInfo{OutputLimit: 2048}}, "", nil, nil)
 	finish()
 	close(released)
 	select {
