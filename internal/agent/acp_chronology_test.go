@@ -117,6 +117,11 @@ func TestACPCronologiaNoTerminalEReabertura(t *testing.T) {
 				t.Fatal(err)
 			}
 			assertOrder(patch)
+			// AEP-0116: a reabertura deve preservar também identidade, usage e
+			// metadados leves das invocações, não somente texto/ordem dos segmentos.
+			if !reflect.DeepEqual(done.TurnPatch, patch) {
+				t.Fatalf("projeção terminal diverge da reabertura: terminal=%+v reload=%+v", done.TurnPatch, patch)
+			}
 		})
 	}
 }
