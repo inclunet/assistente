@@ -1,6 +1,6 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — fase 1 concluída; fase 2 iniciada pela identidade dos itens
+## Status: In Progress — fase 1 concluída; fase 2 com identidade aditiva e hidratação fiel
 
 Data: 2026-10-30
 
@@ -247,6 +247,22 @@ continuar reconstruindo a identidade; remover campos antigos agora quebraria
 consumidores. No cutover da fase 3, retirar o envelope legado e medir de novo;
 esta exceção não relaxa o orçamento geral de +10% para o DTO final.
 
+Segundo recorte da fase 2 ([issue #962](https://github.com/inclunet/assistente/issues/962)):
+leitura de resultados para `get_messages` e sumarização preserva IDs de mensagem,
+turno, chamada e invocação, inclusive ao deduplicar tentativas e associar resultados
+à mensagem assistant. Espaços só detectam entrada vazia; não alteram identidades.
+A hidratação reutiliza a deduplicação de IDs existente antes de separar lotes,
+sem novo normalizador, ledger ou fallback. Conteúdo e permissões continuam nos
+mesmos caminhos. Não há migração de banco, novo evento ou consulta por token.
+
+Regressões SQLite: `TestHydrationPreservesOpaqueIDsAndRetryIsolation` cobre turnos,
+chamadas, retry com timestamps invertidos, repetição entre lotes e isolamento de
+usuário; `TestGetMessagesPreservesOpaqueMessageTurnCallAndLedgerIDs` percorre a
+ferramenta pública; `TestSummarizationPreservesOpaqueIDsFromLedgerToPrompt` percorre
+consulta, vínculo de mensagem, prompt e contagem sem duplicação. Este recorte
+fecha a fronteira de leitura da issue #962; normalizações na escrita do ledger,
+lifecycle/cleanup e consumidores visuais antigos continuam pendentes conforme
+os limites acima. Não conclui a projeção incremental nem a fase 2.
 Pendências da fase 2: projeção incremental de segmentos, estado persistente de
 turnos/tentativas, sequência/época, cursores, inscrições de janela e recuperação
 unificada. As caixas acima permanecem abertas; este recorte não corrige sozinho

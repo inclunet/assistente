@@ -54,8 +54,8 @@ func LoadChatToolInvocationResultsForTurnIDsWithUser(ctx context.Context, userID
 	results := make(map[string]map[string]string, len(displays))
 	for turnID, calls := range displays {
 		for _, call := range calls {
-			callID := strings.TrimSpace(call.ID)
-			if callID == "" {
+			callID := call.ID
+			if strings.TrimSpace(callID) == "" {
 				continue
 			}
 			byCall := results[turnID]
@@ -75,6 +75,7 @@ func LoadChatToolInvocationResultsForTurnIDsWithUser(ctx context.Context, userID
 // LoadChatToolInvocationDisplaysForTurnIDsWithUser carrega o snapshot exibível de
 // tool_invocations para turns de chat, organizado como turnID -> chamadas.
 func LoadChatToolInvocationDisplaysForTurnIDsWithUser(ctx context.Context, userID string, turnIDs []string) (map[string][]ChatToolInvocationDisplay, error) {
+	turnIDs = uniqueNonEmptyIDs(turnIDs)
 	if len(turnIDs) == 0 {
 		return map[string][]ChatToolInvocationDisplay{}, nil
 	}
@@ -144,9 +145,9 @@ func LoadChatToolInvocationDisplaysForTurnIDsWithUser(ctx context.Context, userI
 			}
 
 			for _, row := range rows {
-				turnID := strings.TrimSpace(row.ResolvedTurnID)
-				callID := strings.TrimSpace(row.ToolCallID)
-				if turnID == "" || callID == "" {
+				turnID := row.ResolvedTurnID
+				callID := row.ToolCallID
+				if strings.TrimSpace(turnID) == "" || strings.TrimSpace(callID) == "" {
 					continue
 				}
 				indexByCall := indexByTurnCall[turnID]
@@ -222,7 +223,7 @@ func toolInvocationRowToDisplay(row database.ToolInvocation, toolName, toolDispl
 	}
 	return ChatToolInvocationDisplay{
 		LedgerID:           row.ID,
-		ID:                 strings.TrimSpace(row.ToolCallID),
+		ID:                 row.ToolCallID,
 		Type:               tipo,
 		Name:               name,
 		Arguments:          meta.Display.Arguments,
@@ -232,7 +233,7 @@ func toolInvocationRowToDisplay(row database.ToolInvocation, toolName, toolDispl
 		ServerLabel:        meta.Display.ServerLabel,
 		Iteration:          meta.Display.Iteration,
 		DurationMs:         durationMs,
-		AssistantMessageID: strings.TrimSpace(meta.Display.AssistantMessageID),
+		AssistantMessageID: meta.Display.AssistantMessageID,
 		CreatedAt:          row.CreatedAt,
 	}
 }
