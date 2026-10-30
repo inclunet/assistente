@@ -115,10 +115,16 @@ func backupChatTurns(db *gorm.DB) error {
 	if err := verifyToolLedgerBackupSpace(path, backup); err != nil {
 		return err
 	}
-	if _, err := sqlDB.Exec(`VACUUM INTO '` + strings.ReplaceAll(backup, "'", "''") + `'`); err != nil {
+	// SQLite aceita destino vazio: restringir acesso antes de escrever dados,
+	// sem janela de exposição dependente do umask do processo.
+	created, err := os.OpenFile(backup, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0600)
+	if err != nil {
 		return err
 	}
-	if err := os.Chmod(backup, 0600); err != nil {
+	if err := created.Close(); err != nil {
+		return err
+	}
+	if _, err := sqlDB.Exec(`VACUUM INTO '` + strings.ReplaceAll(backup, "'", "''") + `'`); err != nil {
 		return err
 	}
 	digest, size, err := fileSHA256(backup)
