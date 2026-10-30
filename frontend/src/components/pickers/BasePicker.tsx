@@ -66,6 +66,7 @@ interface BasePickerProps {
   comboboxWrapperClassName?: string;
   comboboxWrapperProps?: HTMLAttributes<HTMLDivElement>;
   allowFreeInput?: boolean;
+  preserveInputWhitespace?: boolean;
   onAfterSelect?: () => void;
 }
 
@@ -144,6 +145,7 @@ export const BasePicker = ({
   comboboxWrapperClassName,
   comboboxWrapperProps,
   allowFreeInput = false,
+  preserveInputWhitespace = false,
   onAfterSelect,
 }: BasePickerProps) => {
   const { t } = useTranslation();
@@ -277,6 +279,7 @@ export const BasePicker = ({
       onOpen={onOpen}
       triggerRef={triggerRef}
       allowFreeInput={allowFreeInput}
+      preserveInputWhitespace={preserveInputWhitespace}
       onAfterSelect={onAfterSelect}
     />
   );

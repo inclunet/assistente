@@ -20,7 +20,7 @@ func TestResolveModelsUsesExactExposureAndIndependentMetadata(t *testing.T) {
 		{"proxy", "openai", "OpenAI/team/model", false},
 		{"proxy", "openai", "openai/team/model ", false},
 	} {
-		result := doc.ResolveModels(tc.profile, tc.format, []string{tc.id})
+		result := doc.ResolveModels(tc.profile, tc.format, []string{tc.id}, nil)
 		model, found := result[tc.id]
 		if found != tc.match {
 			t.Fatalf("%+v: match=%t", tc, found)
@@ -37,7 +37,7 @@ func TestResolveModelsUsesExactExposureAndIndependentMetadata(t *testing.T) {
 	if doc.Models[0].Capabilities["reasoning"] != "unknown" || doc.Models[0].Limits["context_tokens"] != 1000 {
 		t.Fatal("resolution mutated snapshot")
 	}
-	if len(doc.ResolveModels("proxy", "openai", []string{"private-alias"})) != 0 {
+	if len(doc.ResolveModels("proxy", "openai", []string{"private-alias"}, nil)) != 0 {
 		t.Fatal("catalog added inaccessible model")
 	}
 }

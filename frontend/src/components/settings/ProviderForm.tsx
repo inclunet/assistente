@@ -12,12 +12,14 @@ import { toWailsRequest, type CreateProviderRequest, type TestProviderRequest, t
 import { AGENT_API_FORMAT, PROVIDER_CONFIG } from '../../config/providers';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import type { CatalogAgent } from './ACPAgentCatalog';
+import { ProviderModelAliases } from './ProviderModelAliases';
 import { AgentPicker } from './AgentPicker';
 import { AgentProviderFields } from './AgentProviderFields';
 export { PROVIDER_CONFIG } from '../../config/providers';
 import { ResourceCredentialEditor } from '../credentials/ResourceCredentialEditor';
 import { credentialInput, validateCredential, type CredentialDraft } from '../credentials/credentialDraft';
 import { requiresRemoteHTTPAuthorization } from './providerHttpAuthorization';
+import { translateProviderErrorMessage } from '../../lib/providerErrorMessage';
 import './ProviderForm.css';
 const HTTP_CREDENTIAL_TYPES = ['bearer', 'basic', 'custom'];
 const defaultAuthMode = (type: string) => ['ollama', 'llamacpp'].includes(type) ? 'none' : type === 'localai' ? 'optional' : 'required';
@@ -103,6 +105,7 @@ export interface ProviderFormData {
   default_model?: string;
   api_format?: string;
   server_profile_id?: string;
+  model_aliases?: Record<string, string>;
   insecure_http_authorized_url?: string;
   reasoning_content_mode?: string;
   /** Comando e argumentos do agente de código, quando o formato é acp. */
@@ -178,6 +181,7 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
   const { t, i18n } = useTranslation();
   const { announce } = useAnnouncer();
   const [catalogProfiles, setCatalogProfiles] = useState<ServerProfile[] | null>(null);
+  const [catalogModels, setCatalogModels] = useState<llmcatalog.Model[]>([]);
   const catalogDefaultSuppressed = useRef(false);
   const customDraftInitialized = useRef(false);
   const catalogUnavailableAnnouncement = useRef('');
@@ -196,9 +200,11 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
           return;
         }
         setCatalogProfiles(servers);
+        setCatalogModels(response?.document?.models || []);
       } catch {
         if (!active) return;
         setCatalogProfiles([]);
+        setCatalogModels([]);
         announce(catalogUnavailableAnnouncement.current, 'polite');
       }
     };
@@ -447,6 +453,7 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
         default_model: provider.default_model || '',
         api_format: provider.api_format ?? provConfig.apiFormat ?? '',
         server_profile_id: provider.server_profile_id,
+        model_aliases: { ...provider.model_aliases },
         reasoning_content_mode: provider.reasoning_content_mode
           ?? provConfig.reasoningContentMode
           ?? 'disabled',
@@ -532,6 +539,7 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
       type: canonicalFormType(provider),
       api_format: provider.api_format ?? savedConfig.apiFormat ?? '',
       server_profile_id: provider.server_profile_id,
+        model_aliases: { ...provider.model_aliases },
       reasoning_content_mode: provider.reasoning_content_mode
         ?? savedConfig.reasoningContentMode
         ?? 'disabled',
@@ -834,6 +842,7 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
       if (formData.id) {
         // Update
         const request: UpdateProviderRequest = {
+            model_aliases: formData.model_aliases || {},
             name: formData.name,
             type: formData.type,
             base_url: canonicalUrl,
@@ -854,6 +863,7 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
           : PROVIDER_CONFIG[formData.type]?.defaultModel;
         const request: CreateProviderRequest = {
             id: `${formData.type}-${Date.now()}`,
+            model_aliases: formData.model_aliases || {},
             name: formData.name,
             type: formData.type,
             base_url: canonicalUrl,
@@ -873,7 +883,8 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
     } catch (error: unknown) {
       if (sequence !== formSequence.current) return;
       const err = error as { message?: unknown; toString?: () => string } | null;
-      const message = String(err?.message || err?.toString?.() || error || t('providerForm.error.saveError'));
+      const rawMessage = String(err?.message || err?.toString?.() || error || t('providerForm.error.saveError'));
+      const message = translateProviderErrorMessage(rawMessage, i18n.language) ?? rawMessage;
       setErrors({ submit: message });
       announce(message, 'assertive');
     } finally {
@@ -1169,6 +1180,16 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
         )
       )}
         </>
+      )}
+
+      {!isAgent && formData.type !== 'chatgpt' && (
+        <ProviderModelAliases
+          key={provider?.id || 'new'}
+          aliases={formData.model_aliases || {}}
+          remoteModels={models}
+          catalogModels={catalogModels}
+          onChange={model_aliases => setFormData(prev => ({ ...prev, model_aliases }))}
+        />
       )}
 
       {errors.submit && (

@@ -35,12 +35,14 @@ vi.mock('./BasePicker', () => ({
   BasePicker: (props: {
     items: Array<{ value: string; label: string }>;
     allowFreeInput?: boolean;
+    preserveInputWhitespace?: boolean;
     error?: string | null;
     helpText?: string;
     description?: string;
   }) => (
     <div
       data-testid="base-picker"
+      data-preserve-whitespace={props.preserveInputWhitespace ? 'yes' : 'no'}
       data-items={props.items.length}
       data-labels={props.items.map(item => item.label).join('|')}
       data-allowfree={props.allowFreeInput ? 'yes' : 'no'}
@@ -181,6 +183,7 @@ describe('ModelPicker', () => {
     await waitFor(() => {
       expect(screen.getByTestId('base-picker')).toHaveAttribute('data-allowfree', 'yes');
     });
+    expect(screen.getByTestId('base-picker')).toHaveAttribute('data-preserve-whitespace', 'yes');
   });
 
   // O primeiro carregamento não pode invalidar nada: para um agente de código,

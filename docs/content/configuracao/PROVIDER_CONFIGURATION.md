@@ -467,3 +467,33 @@ substituir seu registro OAuth pela edição genérica.
 
 Se a exclusão informar que a conexão mudou ou está em uso por outra
 autorização, aguarde a operação terminar, recarregue a lista e tente novamente.
+
+## Vínculos privados de modelos
+
+Em uma conexão HTTP, a seção **Vínculos de modelos desta conexão** permite
+associar o ID exato usado pelo seu servidor a um modelo do catálogo. Isso atende
+aliases particulares de proxies como LiteLLM: selecione ou digite o ID remoto e
+escolha o modelo canônico correspondente. Salve pelo mesmo formulário da conexão.
+
+O vínculo fornece capacidades, limites e parâmetros para o editor e para o envio.
+Ele não muda o ID enviado, não troca o modelo padrão e não libera modelos que sua
+conta não oferece. Overrides e listas de vozes de outra rota não são copiados.
+Restrições aprendidas durante o uso continuam prevalecendo.
+
+Os vínculos são próprios de cada conexão, acompanham sua exportação/importação
+e não são enviados ao site do catálogo. Ao mudar o destino de uma conexão,
+confira se seus aliases ainda representam os mesmos modelos.
+
+Para remover um vínculo, selecione o ID remoto e escolha **Sem vínculo privado**.
+Se o catálogo estiver indisponível, vínculos salvos continuam preservados e podem
+ser removidos. Se o modelo canônico sair do catálogo, suas informações ficam
+desconhecidas até você atualizar o vínculo ou o catálogo voltar a conhecê-lo.
+Nenhuma associação substituta é deduzida automaticamente.
+
+O formulário mantém o teste de conectividade antes de salvar a conexão; a
+indisponibilidade do catálogo não dispensa essa validação do servidor.
+
+O ID remoto de um vínculo é preservado integralmente, inclusive espaços
+significativos. Ele deve conter de 1 a 512 caracteres, não pode conter NUL
+nem ser composto apenas por espaços. A atualização mantém as restrições
+de parâmetros já aprendidas para os modelos existentes.

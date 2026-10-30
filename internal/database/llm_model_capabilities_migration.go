@@ -44,7 +44,7 @@ var llmModelCapabilityDDL = []string{
 		id TEXT NOT NULL PRIMARY KEY,
 		provider_id TEXT NOT NULL COLLATE BINARY,
 		remote_id TEXT NOT NULL COLLATE BINARY
-			CHECK (length(remote_id) BETWEEN 1 AND 512 AND trim(remote_id) = remote_id AND instr(remote_id, char(0)) = 0),
+			CHECK (length(remote_id) BETWEEN 1 AND 512 AND length(trim(remote_id)) > 0 AND instr(remote_id, char(0)) = 0),
 		display_name TEXT NOT NULL DEFAULT ''
 			CHECK (length(display_name) <= 512 AND instr(display_name, char(0)) = 0),
 		created_at DATETIME NOT NULL,

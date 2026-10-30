@@ -292,6 +292,7 @@ export const ModelPicker = forwardRef<ModelPickerRef, ModelPickerProps>(({
       showFormLabelIcon={false}
       showEmptyState={!endpointNotSupported}
       allowFreeInput={endpointNotSupported}
+      preserveInputWhitespace
       formClassName={`model-picker-form${endpointNotSupported ? ' models-not-available' : ''}`}
       toolbarClassName={`model-picker-toolbar${endpointNotSupported ? ' models-not-available' : ''}`}
       loadingClassName={{ form: 'loading-state', toolbar: 'model-picker-toolbar loading' }}

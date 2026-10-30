@@ -3,9 +3,9 @@ package llmcatalog
 // ResolveModels enriches only IDs actually offered by a connection. Identity is
 // the exact server profile, API format and exposed ID; aliases are never parsed.
 // Missing entries or capability keys mean unknown, not unsupported.
-func (d Document) ResolveModels(serverProfileID, apiFormat string, ids []string) map[string]Model {
+func (d Document) ResolveModels(serverProfileID, apiFormat string, ids []string, aliases map[string]string) map[string]Model {
 	resolved := make(map[string]Model)
-	if serverProfileID == "" || apiFormat == "" || len(ids) == 0 {
+	if apiFormat == "" || len(ids) == 0 {
 		return resolved
 	}
 	requested := make(map[string]struct{}, len(ids))
@@ -17,6 +17,9 @@ func (d Document) ResolveModels(serverProfileID, apiFormat string, ids []string)
 		canonical[model.ID] = model
 	}
 	for _, exposure := range d.Exposures {
+		if _, explicit := aliases[exposure.ExposedModelID]; explicit {
+			continue
+		}
 		if exposure.ServerProfileID != serverProfileID || exposure.APIFormat != apiFormat {
 			continue
 		}
@@ -46,5 +49,19 @@ func (d Document) ResolveModels(serverProfileID, apiFormat string, ids []string)
 		}
 		resolved[exposure.ExposedModelID] = model
 	}
+	for remoteID, canonicalID := range aliases {
+		if _, offered := requested[remoteID]; !offered {
+			continue
+		}
+		model, known := canonical[canonicalID]
+		if !known {
+			continue
+		}
+		model.Capabilities = cloneMap(model.Capabilities)
+		model.Limits = cloneMap(model.Limits)
+		model.Parameters = withKnownOutputLimit(cloneParameters(model.Parameters), model.Limits["max_output_tokens"])
+		resolved[remoteID] = model
+	}
+
 	return resolved
 }

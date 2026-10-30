@@ -81,7 +81,7 @@ func TestResolveParameterOverridesReplaceWholeFieldAndDoNotMutateSnapshot(t *tes
 			"temperature": {Support: "unknown"},
 		}}},
 	}
-	model := doc.ResolveModels("proxy", "openai", []string{"alias"})["alias"]
+	model := doc.ResolveModels("proxy", "openai", []string{"alias"}, nil)["alias"]
 	field := model.Parameters["temperature"]
 	if field.Support != "unknown" || field.Minimum != nil || field.Maximum != nil || field.Default != nil {
 		t.Fatalf("mixed constraints: %+v", field)

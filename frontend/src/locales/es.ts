@@ -848,6 +848,7 @@ const es = {
         },
         provider: {
           missingId: 'Un provider del archivo no tiene id y no se puede importar.',
+          invalidModelAliases: "El proveedor \"{{providerId}}\" tiene un vínculo de modelo con ID remoto o canónico no válido y no se puede importar.",
           missingName: 'El provider "{{providerId}}" no tiene name y no se puede importar.',
           missingType: 'El provider "{{providerId}}" no tiene type y no se puede importar.',
           missingBaseUrl: 'El provider "{{providerId}}" no tiene baseUrl y no se puede importar.',
@@ -2571,6 +2572,17 @@ const es = {
     },
 
     providerForm: {
+      aliases: {
+        invalidID: "El ID remoto debe tener entre 1 y 512 caracteres, no puede contener solo espacios ni el carácter NUL.",
+        emptyID: "Los IDs remoto y canónico del vínculo no pueden estar vacíos.",
+        missingTarget: "El modelo \"{{id}}\" no se encontró en el catálogo disponible. Actualiza el catálogo o elige otro modelo antes de guardar o duplicar la conexión.",
+        title: "Vínculos de modelos de esta conexión",
+        remote: "ID exacto usado por el servidor",
+        description: "Selecciona o introduce un ID remoto y asócialo con un modelo del catálogo. El vínculo aporta límites y parámetros; no cambia el ID enviado ni concede acceso al modelo.",
+        canonical: "Modelo del catálogo",
+        none: "Sin vínculo privado",
+        missing: "{{id}} (ausente del catálogo)",
+      },
     authMode: 'Autenticación',
     authModes: { required: 'Obligatoria', optional: 'Opcional', none: 'Sin autenticación' },
       useSavedCredential: "Usar la credencial existente para este dominio",

@@ -194,7 +194,10 @@ func (i *Interactor) resolveWorkspaceTabModel(conversationID, source string, par
 		return ""
 	}
 	model, _ := tab.ProfileOverride["model"].(string)
-	return strings.TrimSpace(model)
+	if strings.TrimSpace(model) == "" {
+		return ""
+	}
+	return model
 }
 
 // PrepareContextRequest carries the raw inputs for a message send request.

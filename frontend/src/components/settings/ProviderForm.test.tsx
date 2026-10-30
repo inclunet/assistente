@@ -764,3 +764,32 @@ it('descarta o rascunho ao trocar de provedor e voltar para criação', async ()
  expect(screen.queryByLabelText('credentials.labels.token')).not.toBeInTheDocument();
  expect(App.ListModelsRaw).not.toHaveBeenCalled();
 });
+
+
+describe('ProviderForm - vínculos privados', () => {
+ it('envia o vínculo salvo sem substituir o modelo padrão e permite remover offline', async () => {
+   vi.mocked(GetLLMCatalog).mockRejectedValueOnce(new Error('offline'));
+   const provider = { id: 'private-connection', name: 'Proxy', type: 'custom', base_url: 'https://example.com/v1', api_key: '', api_format: 'openai', auth_mode: 'none', default_model: 'gpt-4o', model_aliases: { 'team/private': 'vendor/removed' } };
+   render(<ProviderForm provider={provider} onSave={vi.fn()} onCancel={vi.fn()} />);
+   await userEvent.click(screen.getByRole('button', { name: /Carregar modelos/i }));
+   await waitFor(() => expect(screen.getByRole('button', { name: 'Atualizar' })).toBeEnabled());
+   await userEvent.click(screen.getByRole('button', { name: 'Atualizar' }));
+   expect(App.UpdateLLMProvider).toHaveBeenLastCalledWith('private-connection', expect.objectContaining({ model_aliases: { 'team/private': 'vendor/removed' }, default_model: 'gpt-4o' }));
+   await userEvent.click(screen.getByRole('button', { name: /providerForm.aliases.remote/ }));
+   await userEvent.type(screen.getByRole('combobox', { name: /providerForm.aliases.remote/ }), 'team/private');
+   await userEvent.keyboard('{Enter}');
+   await userEvent.selectOptions(screen.getByLabelText('providerForm.aliases.canonical'), '');
+   await userEvent.click(screen.getByRole('button', { name: 'Atualizar' }));
+   expect(App.UpdateLLMProvider).toHaveBeenLastCalledWith('private-connection', expect.objectContaining({ model_aliases: {} }));
+ });
+});
+
+
+it('apresenta o erro traduzido quando o alvo do vínculo sai do catálogo', async () => {
+ vi.mocked(App.UpdateLLMProvider).mockRejectedValueOnce('model_alias_error:v1:missing_target:vendor%2Fgone');
+ render(<ProviderForm provider={{ id: 'saved', name: 'Proxy', type: 'custom', base_url: 'https://example.com/v1', api_key: '', auth_mode: 'none' }} onSave={vi.fn()} onCancel={vi.fn()} />);
+ await userEvent.click(screen.getByRole('button', { name: /Carregar modelos/i }));
+ await waitFor(() => expect(screen.getByRole('button', { name: 'Atualizar' })).toBeEnabled());
+ await userEvent.click(screen.getByRole('button', { name: 'Atualizar' }));
+ expect(await screen.findByText('O modelo "vendor/gone" não foi encontrado no catálogo disponível. Atualize o catálogo ou escolha outro modelo antes de salvar ou duplicar a conexão.')).toBeInTheDocument();
+});

@@ -115,20 +115,21 @@ type ToolInvocationExport struct {
 }
 
 type ProviderExport struct {
-	ID                       string    `json:"id"`
-	Name                     string    `json:"name"`
-	Type                     string    `json:"type"`
-	ErrorFamily              string    `json:"errorFamily,omitempty"`
-	ServerProfileID          string    `json:"serverProfileId,omitempty"`
-	APIFormat                string    `json:"apiFormat,omitempty"`
-	BaseURL                  string    `json:"baseUrl"`
-	Model                    string    `json:"model,omitempty"`
-	DefaultModel             string    `json:"defaultModel,omitempty"`
-	IsDefault                bool      `json:"isDefault,omitempty"`
-	Timeout                  int       `json:"timeout,omitempty"`
-	StreamIdleTimeoutSeconds int       `json:"streamIdleTimeoutSeconds,omitempty"`
-	CredentialPattern        string    `json:"credentialPattern,omitempty"`
-	CreatedAt                time.Time `json:"createdAt"`
+	ID                       string            `json:"id"`
+	Name                     string            `json:"name"`
+	Type                     string            `json:"type"`
+	ErrorFamily              string            `json:"errorFamily,omitempty"`
+	ServerProfileID          string            `json:"serverProfileId,omitempty"`
+	ModelAliases             map[string]string `json:"modelAliases,omitempty"`
+	APIFormat                string            `json:"apiFormat,omitempty"`
+	BaseURL                  string            `json:"baseUrl"`
+	Model                    string            `json:"model,omitempty"`
+	DefaultModel             string            `json:"defaultModel,omitempty"`
+	IsDefault                bool              `json:"isDefault,omitempty"`
+	Timeout                  int               `json:"timeout,omitempty"`
+	StreamIdleTimeoutSeconds int               `json:"streamIdleTimeoutSeconds,omitempty"`
+	CredentialPattern        string            `json:"credentialPattern,omitempty"`
+	CreatedAt                time.Time         `json:"createdAt"`
 	// ACPCommand e ACPArgs endereçam o agente de código quando o provider é
 	// ACP (AEP-0084): é o que substitui a URL. Caminho de binário é da
 	// máquina, então a importação avisa quando o comando não existe aqui.

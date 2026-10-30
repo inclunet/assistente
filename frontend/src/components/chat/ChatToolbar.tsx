@@ -548,13 +548,13 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
       setModelOverrideUpdating(true);
       try {
         const normalizedModel = model.trim();
-        const reset = !normalizedModel || normalizedModel === DEFAULT_ROUTING_SENTINEL;
+        const reset = !normalizedModel || model === DEFAULT_ROUTING_SENTINEL;
         await updateWsTab(panelTab.id, {
-          profile_override: { model: reset ? null : normalizedModel },
+          profile_override: { model: reset ? null : model },
         });
         announce(reset
           ? t('chat.modelOverride.reset')
-          : t('chat.modelOverride.changed', { model: normalizedModel }));
+          : t('chat.modelOverride.changed', { model }));
       } catch (error) {
         logger.error('[ChatToolbar] Erro ao trocar modelo da aba:', error);
         const message = t('chat.modelOverride.error');

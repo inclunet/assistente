@@ -39,6 +39,8 @@ export interface ComboboxProps {
     onOpenChange?: (open: boolean) => void;
     triggerRef?: Ref<HTMLButtonElement>;
     allowFreeInput?: boolean;
+    /** Preserve exact identifiers when whitespace is meaningful to the consumer. */
+    preserveInputWhitespace?: boolean;
     /** Called after an item is selected and the dropdown closes. Use to customize focus restoration. */
     onAfterSelect?: () => void;
     /** Called after dismissal cleanup; focus-leave must not restore focus to the trigger. */
@@ -67,6 +69,7 @@ export const Combobox = ({
     onOpenChange,
     triggerRef,
     allowFreeInput = false,
+    preserveInputWhitespace = false,
     onAfterSelect,
     onAfterDismiss,
     renderActiveItemActions,
@@ -105,6 +108,7 @@ export const Combobox = ({
     }, []);
     useImperativeHandle(triggerRef, () => buttonRef.current as HTMLButtonElement, [triggerRef, isOpen]);
 
+    const manualValue = preserveInputWhitespace ? filter : filter.trim();
     const filteredItems = useMemo(() => {
         const matches = items.filter(item =>
             item.value.toLowerCase().includes(filter.toLowerCase()) ||
@@ -112,15 +116,14 @@ export const Combobox = ({
             (item.sublabel && item.sublabel.toLowerCase().includes(filter.toLowerCase())) ||
             (item.searchText && item.searchText.toLowerCase().includes(filter.toLowerCase()))
         );
-        const manualValue = filter.trim();
         const exactID = matches.find(item => item.value === manualValue);
         const exactLabel = matches.find(item => item.label === manualValue);
-        const options = allowFreeInput && manualValue && matches.length > 0 && !exactID
+        const options = allowFreeInput && filter.trim() && matches.length > 0 && !exactID
             ? [{ value: manualValue, label: manualValue, sublabel: t('pickers.combobox.manualValue') }, ...matches]
             : matches;
         const exact = exactID ?? exactLabel;
         return exact ? [exact, ...options.filter(item => item !== exact)] : options;
-    }, [allowFreeInput, filter, items, t]);
+    }, [allowFreeInput, filter, manualValue, items, t]);
     const previousResults = useRef({ filter, items: filteredItems, isOpen, selected });
 
     const selectedItem = items.find(i => i.value === selected);
@@ -131,7 +134,7 @@ export const Combobox = ({
     const hasSelectedItem = Boolean(selected);
     const emptyResultsMessage = filteredItems.length === 0
         ? allowFreeInput && filter.trim()
-            ? t('pickers.combobox.pressEnterToUse', { value: filter.trim() })
+            ? t('pickers.combobox.pressEnterToUse', { value: manualValue })
             : allowFreeInput
                 ? t('pickers.combobox.typeToCreate')
                 : t('pickers.combobox.noResults')
@@ -326,7 +329,7 @@ export const Combobox = ({
             } else if (filteredItems.length === 1) {
                 selectItem(filteredItems[0]);
             } else if (allowFreeInput && filter.trim()) {
-                onSelect(filter.trim(), { value: filter.trim(), label: filter.trim() });
+                onSelect(manualValue, { value: manualValue, label: manualValue });
                 close('select');
             }
         } else if (event.key === 'Escape') {
@@ -336,7 +339,7 @@ export const Combobox = ({
         } else if (event.key === 'Tab') {
             if (renderActiveItemActions) return;
             if (allowFreeInput && filter.trim() && filteredItems.length === 0) {
-                onSelect(filter.trim(), { value: filter.trim(), label: filter.trim() });
+                onSelect(manualValue, { value: manualValue, label: manualValue });
             }
             close(allowFreeInput && filter.trim() && filteredItems.length === 0 ? 'select' : 'dismiss');
         } else if (event.key === 'Home') {
@@ -500,7 +503,7 @@ export const Combobox = ({
                         )}
                         {filteredItems.length === 0 && allowFreeInput && filter.trim() && (
                             <li className="no-results free-input-hint">
-                                {t('pickers.combobox.pressEnterToUse', { value: filter.trim() })}
+                                {t('pickers.combobox.pressEnterToUse', { value: manualValue })}
                             </li>
                         )}
                         {filteredItems.length === 0 && allowFreeInput && !filter.trim() && (

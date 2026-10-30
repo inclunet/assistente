@@ -283,6 +283,10 @@ func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolRes
 				}, false, map[string]any{"status": "denied", "authorized": false, "profile": profile}), nil
 			}
 		}
+		model := a.Model
+		if strings.TrimSpace(model) == "" {
+			model = ""
+		}
 		res, err := runner.Run(ctx, subagent.RunParams{
 			ParentConversationID: inv.ConversationID,
 			ParentTurnID:         inv.TurnID,
@@ -291,7 +295,7 @@ func (t *Tool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolRes
 			Clear:                a.Clear,
 			Prompt:               prompt,
 			ProfileSlug:          profile,
-			Model:                strings.TrimSpace(a.Model),
+			Model:                model,
 			Title:                strings.TrimSpace(a.Title),
 			Background:           a.Background,
 			PreserveResponse:     a.Raw,
