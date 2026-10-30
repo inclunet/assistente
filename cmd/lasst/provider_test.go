@@ -20,8 +20,8 @@ func TestProviderUsesExplicitKeyWithoutCredentialManager(t *testing.T) {
 			t.Errorf("Authorization: %q", got)
 		}
 		w.Header().Set("Content-Type", "text/event-stream")
-		fmt.Fprint(w, "data: {\"id\":\"chat-1\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"modelo\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"ok\"},\"finish_reason\":null}]}\n\n")
-		fmt.Fprint(w, "data: {\"id\":\"chat-1\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"modelo\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+		writeTestStream(t, w, "data: {\"id\":\"chat-1\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"modelo\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"ok\"},\"finish_reason\":null}]}\n\n")
+		writeTestStream(t, w, "data: {\"id\":\"chat-1\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"modelo\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
 	}))
 	defer server.Close()
 	p := llm.NewOpenAIProviderWithAPIKey(&llm.ProviderConfig{BaseURL: server.URL}, "teste-efemero")
@@ -72,10 +72,10 @@ func TestCompleteRunWithHTTPProvider(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "text/event-stream")
 		if requests == 1 {
-			fmt.Fprint(w, "data: {\"id\":\"id1\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"modelo\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call1\",\"type\":\"function\",\"function\":{\"name\":\"read_file\",\"arguments\":\"{\\\"path\\\":\\\"f.txt\\\"}\"}}]},\"finish_reason\":null}]}\n\n")
-			fmt.Fprint(w, "data: {\"id\":\"id1\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"modelo\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\ndata: [DONE]\n\n")
+			writeTestStream(t, w, "data: {\"id\":\"id1\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"modelo\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call1\",\"type\":\"function\",\"function\":{\"name\":\"read_file\",\"arguments\":\"{\\\"path\\\":\\\"f.txt\\\"}\"}}]},\"finish_reason\":null}]}\n\n")
+			writeTestStream(t, w, "data: {\"id\":\"id1\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"modelo\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\ndata: [DONE]\n\n")
 		} else {
-			fmt.Fprint(w, "data: {\"id\":\"id2\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"modelo\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"concluido\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+			writeTestStream(t, w, "data: {\"id\":\"id2\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"modelo\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"concluido\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
 		}
 	}))
 	defer server.Close()
@@ -83,5 +83,12 @@ func TestCompleteRunWithHTTPProvider(t *testing.T) {
 	got, err := run(context.Background(), p, "modelo", "instrucao-da-skill", "revise", dir)
 	if err != nil || got != "concluido" || requests != 2 {
 		t.Fatalf("got=%q err=%v requests=%d", got, err, requests)
+	}
+}
+
+func writeTestStream(t *testing.T, w http.ResponseWriter, content string) {
+	t.Helper()
+	if _, err := fmt.Fprint(w, content); err != nil {
+		t.Errorf("escrever resposta HTTP: %v", err)
 	}
 }
