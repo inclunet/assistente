@@ -244,4 +244,3 @@ mecanismos extintos somente mantendo os comportamentos e falhas relevantes.
 NVDA não é requisito desta investigação/PR documental, por orientação do
 mantenedor. Os critérios de teclado, foco, semântica acessível e leitura
 continuam obrigatórios; testes DOM não serão apresentados como validação NVDA.
-
