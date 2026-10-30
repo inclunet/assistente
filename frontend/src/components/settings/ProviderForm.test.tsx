@@ -783,3 +783,13 @@ describe('ProviderForm - vínculos privados', () => {
    expect(App.UpdateLLMProvider).toHaveBeenLastCalledWith('private-connection', expect.objectContaining({ model_aliases: {} }));
  });
 });
+
+
+it('apresenta o erro traduzido quando o alvo do vínculo sai do catálogo', async () => {
+ vi.mocked(App.UpdateLLMProvider).mockRejectedValueOnce('model_alias_error:v1:missing_target:vendor%2Fgone');
+ render(<ProviderForm provider={{ id: 'saved', name: 'Proxy', type: 'custom', base_url: 'https://example.com/v1', api_key: '', auth_mode: 'none' }} onSave={vi.fn()} onCancel={vi.fn()} />);
+ await userEvent.click(screen.getByRole('button', { name: /Carregar modelos/i }));
+ await waitFor(() => expect(screen.getByRole('button', { name: 'Atualizar' })).toBeEnabled());
+ await userEvent.click(screen.getByRole('button', { name: 'Atualizar' }));
+ expect(await screen.findByText('O modelo "vendor/gone" não está mais no catálogo. Atualize o vínculo antes de salvar ou duplicar a conexão.')).toBeInTheDocument();
+});

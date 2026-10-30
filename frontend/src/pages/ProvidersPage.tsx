@@ -41,6 +41,7 @@ import { useConfirm } from '../hooks/useConfirm';
 import { useLocation } from 'react-router-dom';
 import { useProviderCreationCommands, type ProviderCreationKind } from '../lib/providerCreationCommands';
 import { useCommandShortcutHint } from '../lib/commandShortcutHints';
+import { translateProviderErrorMessage } from '../lib/providerErrorMessage';
 import './ProvidersPage.css';
 
 interface Provider {
@@ -85,7 +86,7 @@ interface ProviderRow extends Provider {
 type InstallPlan = apidto.ACPInstallPlan;
 
 export default function ProvidersPage() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { pathname } = useLocation();
   const pageRef = useRef<HTMLDivElement>(null);
   const newShortcut = useCommandShortcutHint('providers.create.open', 'providers', 'settings');
@@ -250,7 +251,8 @@ export default function ProvidersPage() {
       announce(t('providers.toast.duplicated'));
       await loadProviders();
     } catch (error: unknown) {
-      addToast(getErrorMessage(error) || t('providers.error.duplicateFailed'), 'error');
+      const message = getErrorMessage(error);
+      addToast(translateProviderErrorMessage(message, i18n.language) ?? (message || t('providers.error.duplicateFailed')), 'error');
     }
   };
 

@@ -1,3 +1,4 @@
+import '../lib/i18n';
 import { useState, type ReactNode } from 'react';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { act, render, screen, waitFor } from '@testing-library/react';
@@ -300,6 +301,16 @@ describe('ProvidersPage', () => {
     expect(screen.getByRole('button', { name: 'modal-close' })).toBeEnabled();
     expect(mockGetConnection).toHaveBeenCalledTimes(1);
     expect(mockAnnounce.mock.calls.some(call => call[0] === message)).toBe(true);
+  });
+
+  it('traduz o erro de vínculo ao duplicar a conexão', async () => {
+    mockCreateProvider.mockRejectedValueOnce('model_alias_error:v1:missing_target:vendor%2Fgone');
+    const user = userEvent.setup();
+    render(<ProvidersPage />);
+    await screen.findByText('OpenAI');
+    const duplicate = screen.getAllByRole('button', { name: 'Duplicar' }).find(button => !button.hasAttribute('disabled'));
+    await user.click(duplicate!);
+    await waitFor(() => expect(mockAddToast).toHaveBeenCalledWith('O modelo "vendor/gone" não está mais no catálogo. Atualize o vínculo antes de salvar ou duplicar a conexão.', 'error'));
   });
 
   it('duplica provedor via menu de acoes', async () => {

@@ -84,3 +84,15 @@ describe('translateErrorMarkers', () => {
       .toContain('O provedor recusou a autenticação.');
   });
 });
+
+
+it('traduz erros de vínculos pelo apresentador compartilhado nos três idiomas', () => {
+ const marker = 'model_alias_error:v1:missing_target:vendor%2Fmodelo%20com%20espa%C3%A7o';
+ for (const [language, text] of [['pt-BR', 'não está mais no catálogo'], ['en', 'is no longer in the catalog'], ['es', 'ya no está en el catálogo']]) {
+  const message = translateProviderErrorMessage(marker, language);
+  expect(message).toContain(text);
+  expect(message).toContain('vendor/modelo com espaço');
+  expect(translateProviderErrorMessage('model_alias_error:v1:empty_id:', language)).not.toContain('model_alias_error');
+ }
+ expect(translateProviderErrorMessage('model_alias_error:v1:missing_target:%ZZ', 'en')).toBeNull();
+});

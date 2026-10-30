@@ -19,6 +19,7 @@ export { PROVIDER_CONFIG } from '../../config/providers';
 import { ResourceCredentialEditor } from '../credentials/ResourceCredentialEditor';
 import { credentialInput, validateCredential, type CredentialDraft } from '../credentials/credentialDraft';
 import { requiresRemoteHTTPAuthorization } from './providerHttpAuthorization';
+import { translateProviderErrorMessage } from '../../lib/providerErrorMessage';
 import './ProviderForm.css';
 const HTTP_CREDENTIAL_TYPES = ['bearer', 'basic', 'custom'];
 const defaultAuthMode = (type: string) => ['ollama', 'llamacpp'].includes(type) ? 'none' : type === 'localai' ? 'optional' : 'required';
@@ -882,7 +883,8 @@ export const ProviderForm = ({ provider, kind = provider && isAgentForm(provider
     } catch (error: unknown) {
       if (sequence !== formSequence.current) return;
       const err = error as { message?: unknown; toString?: () => string } | null;
-      const message = String(err?.message || err?.toString?.() || error || t('providerForm.error.saveError'));
+      const rawMessage = String(err?.message || err?.toString?.() || error || t('providerForm.error.saveError'));
+      const message = translateProviderErrorMessage(rawMessage, i18n.language) ?? rawMessage;
       setErrors({ submit: message });
       announce(message, 'assertive');
     } finally {

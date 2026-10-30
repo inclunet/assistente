@@ -45,3 +45,10 @@ func TestPrivateAliasChangesPreserveSavedBindingsOffline(t *testing.T) {
 		})
 	}
 }
+
+func TestPrivateAliasErrorPreservesTargetAsEscapedParameter(t *testing.T) {
+	err := (Document{}).ValidateAliasChanges(map[string]string{"remote": "vendor/model with space"}, nil)
+	if err == nil || err.Error() != "model_alias_error:v1:missing_target:vendor%2Fmodel%20with%20space" {
+		t.Fatalf("diagnostic=%v", err)
+	}
+}

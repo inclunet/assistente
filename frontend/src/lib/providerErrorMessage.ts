@@ -28,6 +28,13 @@ function translationFunction(language?: string) {
 }
 
 export function translateProviderErrorMessage(message: string, language?: string): string | null {
+  const alias = /^model_alias_error:v1:(empty_id|missing_target):(.*)$/.exec(message);
+  if (alias) {
+    let id: string;
+    try { id = decodeURIComponent(alias[2]); } catch { return null; }
+    const key = alias[1] === 'empty_id' ? 'emptyID' : 'missingTarget';
+    return translationFunction(language)(`providerForm.aliases.${key}`, { id });
+  }
   const parameter = /^parameter_error:v1:(temperature|top_p|max_output_tokens|reasoning_effort|context_window):(choice|number|minimum|maximum|required)(?::(-?\d+(?:\.\d+)?(?:e[+-]?\d+)?))?$/.exec(message);
   if (parameter) {
     const [, field, code, limit] = parameter;
