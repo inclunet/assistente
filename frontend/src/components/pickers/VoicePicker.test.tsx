@@ -237,3 +237,27 @@ it('anuncia falha na toolbar e permite repetir sem retirar o seletor manual', as
   expect(screen.getByTestId('base-picker')).toHaveAttribute('data-selected', 'manual');
   expect(screen.getByRole('button', { name: 'Abrir vozes' })).toHaveFocus();
 });
+
+it('anuncia novamente quando uma tentativa de recarga também falha', async () => {
+ const announce = vi.fn();
+ getVoicesForProviderSpy.mockRejectedValue(new Error('offline'));
+ render(<VoicePicker value="manual" providerId="proxy" onChange={() => {}} onAnnounce={announce} />);
+ const retry = await screen.findByRole('button', { name: 'pickers.base.retry' });
+ expect(announce).toHaveBeenCalledTimes(1);
+ fireEvent.click(retry);
+ await waitFor(() => expect(announce).toHaveBeenCalledTimes(2));
+ expect(announce).toHaveBeenLastCalledWith('pickers.voice.loadError');
+});
+
+it('não repete falha ao mudar a identidade do callback de anúncio', async () => {
+ const first = vi.fn();
+ const next = vi.fn();
+ getVoicesForProviderSpy.mockRejectedValue(new Error('offline'));
+ const { rerender } = render(<VoicePicker value="manual" providerId="proxy" onChange={() => {}} onAnnounce={first} />);
+ const retry = await screen.findByRole('button', { name: 'pickers.base.retry' });
+ expect(first).toHaveBeenCalledTimes(1);
+ rerender(<VoicePicker value="manual" providerId="proxy" onChange={() => {}} onAnnounce={next} />);
+ expect(next).not.toHaveBeenCalled();
+ fireEvent.click(retry);
+ await waitFor(() => expect(next).toHaveBeenCalledTimes(1));
+});

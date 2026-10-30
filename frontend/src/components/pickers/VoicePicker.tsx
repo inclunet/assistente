@@ -60,9 +60,10 @@ export function VoicePicker(
   const [loading, setLoading] = useState(false);
   const [loadFailed, setLoadFailed] = useState(false);
   const error = loadFailed ? t('pickers.voice.loadError') : null;
+  const announceFailure = useRef<() => void>(() => {});
   useEffect(() => {
-    if (error) (onAnnounce ?? announce)(error);
-  }, [error, onAnnounce, announce]);
+    announceFailure.current = () => (onAnnounce ?? announce)(t('pickers.voice.loadError'));
+  }, [t, onAnnounce, announce]);
   const [completeness, setCompleteness] = useState<'complete' | 'partial' | 'unknown'>('unknown');
   const generation = useRef(0);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -87,6 +88,7 @@ export function VoicePicker(
     } catch (err) {
       if (request !== generation.current) return;
       setLoadFailed(true);
+      announceFailure.current();
       logger.error('[VoicePicker] Failed to load voices:', err);
     } finally {
       if (request === generation.current) setLoading(false);

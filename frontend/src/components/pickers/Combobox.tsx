@@ -21,6 +21,7 @@ export interface ComboboxProps {
     icon?: ReactNode;
     label?: string;
     description?: string;
+    describedBy?: string;
     items: ComboboxItem[];
     selected: string;
     onSelect: (value: string, item: ComboboxItem) => void;
@@ -50,6 +51,7 @@ export const Combobox = ({
     icon,
     label,
     description,
+    describedBy,
     items,
     selected,
     onSelect,
@@ -404,6 +406,7 @@ export const Combobox = ({
                         aria-expanded={false}
                         aria-busy={busy || undefined}
                     aria-haspopup="listbox"
+                    aria-describedby={describedBy}
                     aria-label={triggerAriaLabel ?? `${effectiveLabel}, ${selectedLabel}`}
                     title={`${description || `${effectiveLabel}: ${selectedLabel}`}${shortcut ? ` (${shortcut})` : ''}`}
                     data-shortcut={shortcut}
@@ -440,6 +443,7 @@ export const Combobox = ({
                         aria-controls={`${uniqueId}-listbox`}
                         aria-activedescendant={activeDescendant}
                         aria-autocomplete="list"
+                        aria-describedby={describedBy}
                         aria-label={`${effectiveLabel} - ${t('pickers.combobox.filterLabel')}`}
                     />
                     {renderActiveItemActions && activeItem && (

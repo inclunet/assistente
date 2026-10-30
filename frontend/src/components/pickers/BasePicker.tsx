@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, type HTMLAttributes, type ReactNode, type Ref } from 'react';
+import { useId, useEffect, useMemo, useRef, type HTMLAttributes, type ReactNode, type Ref } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Combobox, ComboboxItem } from './Combobox';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
@@ -147,6 +147,7 @@ export const BasePicker = ({
   onAfterSelect,
 }: BasePickerProps) => {
   const { t } = useTranslation();
+  const helpId = useId();
   const { announceRequest } = useAnnouncer();
   const workspacePanel = useOptionalWorkspacePanel();
   const workspace = useWorkspaceStore((state) => state.workspace);
@@ -265,6 +266,7 @@ export const BasePicker = ({
       onSelect={(value, item) => onSelect(value, item)}
       label={label}
       description={description}
+      describedBy={variant === 'form' && helpText ? helpId : undefined}
       icon={icon}
       maxWidth={maxWidth}
       placeholder={placeholder}
@@ -308,7 +310,7 @@ export const BasePicker = ({
       ) : (
         combobox
       )}
-      {helpText && <p className={helpTextClassName}>{helpText}</p>}
+      {helpText && <p id={helpId} className={helpTextClassName}>{helpText}</p>}
     </div>
   );
 };
