@@ -845,6 +845,7 @@ const en = {
         },
         provider: {
           missingId: 'A provider in the file has no id and cannot be imported.',
+          invalidModelAliases: "Provider \"{{providerId}}\" has a model binding with an empty remote or canonical ID and cannot be imported.",
           missingName: 'Provider "{{providerId}}" has no name and cannot be imported.',
           missingType: 'Provider "{{providerId}}" has no type and cannot be imported.',
           missingBaseUrl: 'Provider "{{providerId}}" has no baseUrl and cannot be imported.',

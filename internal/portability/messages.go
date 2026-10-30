@@ -45,6 +45,7 @@ const (
 	CodeMessageInvalidTurnIdx   = "message.invalidTurnIndex"
 
 	CodeProviderOAuthTypeChange           = "provider.oauthTypeChange"
+	CodeProviderInvalidModelAliases       = "provider.invalidModelAliases"
 	CodeProviderMissingID                 = "provider.missingId"
 	CodeProviderMissingName               = "provider.missingName"
 	CodeProviderMissingType               = "provider.missingType"

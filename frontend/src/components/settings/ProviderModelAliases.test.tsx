@@ -24,6 +24,7 @@ describe('ProviderModelAliases', () => {
     expect(await axe(container)).toHaveNoViolations();
     await user.click(screen.getByRole('button', { name: /providerForm.aliases.remote/ }));
     await user.type(screen.getByRole('combobox', { name: /providerForm.aliases.remote/ }), 'team/private');
+    await waitFor(() => expect(screen.getByRole('combobox', { name: /providerForm.aliases.remote/ })).toHaveFocus());
     await user.keyboard('{Enter}');
     const canonical = screen.getByLabelText('providerForm.aliases.canonical');
     await user.selectOptions(canonical, 'vendor/model');
@@ -39,10 +40,23 @@ describe('ProviderModelAliases', () => {
     const user = userEvent.setup();
     render(<Editor initial={{ remote: 'removed' }} models={[]} />);
     await user.click(screen.getByRole('button', { name: /providerForm.aliases.remote/ }));
+    await waitFor(() => expect(screen.getByRole('combobox', { name: /providerForm.aliases.remote/ })).toHaveFocus());
     await user.keyboard('{Enter}');
     const canonical = screen.getByLabelText('providerForm.aliases.canonical');
     await waitFor(() => expect(canonical).toHaveValue('removed'));
     await user.selectOptions(canonical, '');
     expect(canonical).toHaveValue('');
   });
+});
+
+
+it.each(['{Enter}', '{Tab}'])('preserva espaços significativos no ID manual com %s', async keys => {
+  const user = userEvent.setup();
+  const onChange = vi.fn();
+  render(<ProviderModelAliases aliases={{}} remoteModels={[]} catalogModels={[model]} onChange={onChange} />);
+  await user.click(screen.getByRole('button', { name: /providerForm.aliases.remote/ }));
+  await user.type(screen.getByRole('combobox', { name: /providerForm.aliases.remote/ }), ' team/private ');
+  await user.keyboard(keys);
+  await user.selectOptions(screen.getByLabelText('providerForm.aliases.canonical'), 'vendor/model');
+  expect(onChange).toHaveBeenCalledWith({ ' team/private ': 'vendor/model' });
 });

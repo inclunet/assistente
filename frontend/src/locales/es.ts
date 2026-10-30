@@ -848,6 +848,7 @@ const es = {
         },
         provider: {
           missingId: 'Un provider del archivo no tiene id y no se puede importar.',
+          invalidModelAliases: "El proveedor \"{{providerId}}\" tiene un vínculo de modelo con ID remoto o canónico vacío y no se puede importar.",
           missingName: 'El provider "{{providerId}}" no tiene name y no se puede importar.',
           missingType: 'El provider "{{providerId}}" no tiene type y no se puede importar.',
           missingBaseUrl: 'El provider "{{providerId}}" no tiene baseUrl y no se puede importar.',

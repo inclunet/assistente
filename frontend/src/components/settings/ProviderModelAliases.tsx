@@ -32,6 +32,7 @@ export function ProviderModelAliases({ aliases, remoteModels, catalogModels, onC
         selected={remoteID}
         onSelect={setRemoteID}
         allowFreeInput
+        preserveInputWhitespace
         showEmptyState={false}
       />
       <FormField label={t('providerForm.aliases.canonical')}>

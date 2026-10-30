@@ -704,6 +704,11 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Up
 		updated.AuthMode = existing.EffectiveAuthMode()
 	}
 	normalizeProviderRuntimeDefaults(updated)
+	// A protocol transition discards inherited HTTP metadata, but an explicit
+	// incompatible binding is still rejected by ProviderConfig.Validate.
+	if updated.IsACP() && req.ModelAliases == nil {
+		updated.ModelAliases = nil
+	}
 	if updated.IsACP() && (req.APIKey != "" || req.Credential != nil || req.AuthMode != "") {
 		return nil, fmt.Errorf("provedor acp não guarda credencial no app; autentique o agente pelo CLI dele")
 	}

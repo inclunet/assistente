@@ -29,3 +29,16 @@ func TestPrivateAliasesImportExportAndClear(t *testing.T) {
 		t.Fatalf("binding not cleared: %+v %v", row, err)
 	}
 }
+
+func TestPrivateAliasesImportErrorIsLocalized(t *testing.T) {
+	for _, aliases := range []map[string]string{{" ": "model"}, {"remote": ""}} {
+		_, err := validateProviderExport(ProviderExport{ID: "proxy", ModelAliases: aliases})
+		if err == nil {
+			t.Fatal("empty identifier accepted")
+		}
+		message := messageFromError(err)
+		if message.Code != CodeProviderInvalidModelAliases || message.Params["providerId"] != "proxy" {
+			t.Fatalf("untranslated error: %+v", message)
+		}
+	}
+}

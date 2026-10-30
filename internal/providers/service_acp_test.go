@@ -223,6 +223,11 @@ func TestVirarAgenteApagaOEnderecoAntigo(t *testing.T) {
 		t.Fatalf("Create falhou: %v", err)
 	}
 
+	svc.registry.Get("prov").ModelAliases = map[string]string{"private": "canonical"}
+	explicit := map[string]string{"private": "canonical"}
+	if _, err := svc.Update(ctx, "prov", UpdateRequest{APIFormat: string(llm.APIFormatACP), ACPCommand: "cursor-agent", ModelAliases: &explicit}); err == nil {
+		t.Fatal("explicit HTTP bindings accepted for agent")
+	}
 	res, err := svc.Update(ctx, "prov", UpdateRequest{
 		APIFormat:  string(llm.APIFormatACP),
 		ACPCommand: "cursor-agent",
@@ -230,6 +235,9 @@ func TestVirarAgenteApagaOEnderecoAntigo(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("Update falhou: %v", err)
+	}
+	if len(res.Provider.ModelAliases) != 0 {
+		t.Fatal("inherited HTTP bindings retained")
 	}
 	if res.Provider.BaseURL != "" {
 		t.Errorf("base_url = %q, esperado vazio", res.Provider.BaseURL)
