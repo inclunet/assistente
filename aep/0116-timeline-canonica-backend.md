@@ -547,16 +547,20 @@ nós. Medida de heap de WebView permanece gate da fase 3, não resultado desta f
 ### Validação e restrições desta entrega
 
 TypeScript, ESLint e Stylelint passaram (Stylelint mantém avisos preexistentes).
-Vitest completo: 515 arquivos, 6.846 testes; após ajuste de tipagem/fixture,
-11 testes focados passaram novamente. Go build e vet passaram. Antes da
+Vitest completo inicial: 515 arquivos, 6.846 testes; após revisão remota,
+12 testes focados passaram, incluindo controle separado de índices e a prova
+de transitividade para todas as triplas distintas. TypeScript e ESLint dos
+arquivos alterados passaram novamente. Go build e vet passaram. Antes da
 restrição abaixo, a fixture ACP de paridade passou, inclusive em execução com
 binário de saída explícito. Esses resultados não significam correção de runtime.
 
 golangci-lint local 2.15.0 apontou 12 ocorrências em arquivos idênticos à base;
 `golangci-lint run --new-from-rev=c7a75bf72` passou com zero ocorrências novas.
 Não declarar o lint global limpo; CI usa a versão configurada no workflow.
-Revisor independente `review_aep`: três rodadas; primeira com três achados,
-segunda aprovou as correções e terceira aprovou o diff completo sem pendências.
+Revisor independente `review_aep`: quatro rodadas; primeira com três achados,
+segunda aprovou as correções, terceira aprovou o diff completo e quarta aprovou
+os ajustes da revisão remota sem pendências. CodeRabbit: achado de transitividade
+e sugestão de identidade DOM atendidos no mesmo push consolidado.
 
 A suíte Go completa foi interrompida: houve timeout do teste de scheduler do
 atualizador sob carga (três repetições isoladas passaram) e encerramentos

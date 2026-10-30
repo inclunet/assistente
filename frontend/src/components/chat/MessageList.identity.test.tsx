@@ -34,7 +34,8 @@ describe('AEP-0116 — identidade visual na conclusão', () => {
     element.focus();
     expect(document.activeElement).toBe(element);
     view.rerender(<MessageList threadedMessages={[response('user', false)]} />);
-    expect(document.activeElement).toBe(view.getByTestId('assistant'));
+    expect(view.getByTestId('assistant')).toBe(element);
+    expect(document.activeElement).toBe(element);
   });
 
   it('preserva o mesmo elemento e foco quando o turno existe desde o início', () => {

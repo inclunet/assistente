@@ -19,14 +19,27 @@ describe('AEP-0116 — lacunas conhecidas de ordenação', () => {
     expect(ordered.map(item => item.message.id)).toEqual(['user', 'assistant']);
   });
 
+  it('preserva a precedência dos índices quando ambos os itens têm índice', () => {
+    const a = node('a', 300, 0);
+    const b = node('b', 100, 1);
+    expect(sortTimelineNodes([b, a])).toEqual([a, b]);
+  });
+
   it.fails('define uma relação transitiva ao misturar índices e horários', () => {
     const a = node('a', 300, 0);
     const b = node('b', 100, 1);
     const c = node('c', 200);
     const before = (left: MessageNode, right: MessageNode) =>
       sortTimelineNodes([right, left])[0] === left;
-    expect(before(a, b)).toBe(true);
-    expect(before(b, c)).toBe(true);
-    expect(before(a, c)).toBe(true);
+    const nodes = [a, b, c];
+    for (const x of nodes) {
+      for (const y of nodes) {
+        for (const z of nodes) {
+          if (x !== y && y !== z && x !== z && before(x, y) && before(y, z)) {
+            expect(before(x, z)).toBe(true);
+          }
+        }
+      }
+    }
   });
 });
