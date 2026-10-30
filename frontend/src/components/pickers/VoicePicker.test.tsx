@@ -6,13 +6,12 @@ import { TTSProvider } from '../../services/tts/types';
 const getVoicesForProviderSpy = vi.fn();
 const getVoicesSpy = vi.fn();
 
-vi.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string) => key }),
-}));
+vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
+vi.mock('@wailsjs/runtime/runtime', () => ({ EventsOn: vi.fn(() => () => {}) }));
 
 vi.mock('../../services/tts', () => ({
   ttsService: {
-    getVoicesForProvider: (...args: unknown[]) => getVoicesForProviderSpy(...args),
+    getVoiceSelectionForProvider: (...args: unknown[]) => getVoicesForProviderSpy(...args),
     getVoices: (...args: unknown[]) => getVoicesSpy(...args),
   },
 }));
@@ -51,12 +50,12 @@ const mockVoices = [
 describe('VoicePicker', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    getVoicesForProviderSpy.mockResolvedValue(mockVoices);
+    getVoicesForProviderSpy.mockResolvedValue({ voices: mockVoices, completeness: 'partial', selectionMode: 'model_and_voice' });
     getVoicesSpy.mockResolvedValue(mockVoices);
   });
 
   it('carrega vozes e inclui opcao desativada', async () => {
-    render(<VoicePicker value="" onChange={() => {}} providerId="webspeech" profileId="test" />);
+    render(<VoicePicker value="" onChange={() => {}} providerId="webspeech" />);
 
     await waitFor(() => {
       // 2 vozes + 1 opção "desativada" = 3
@@ -65,7 +64,7 @@ describe('VoicePicker', () => {
   });
 
   it('não inclui opção desativada quando allowDisabled=false', async () => {
-    render(<VoicePicker value="" onChange={() => {}} providerId="webspeech" profileId="test" allowDisabled={false} />);
+    render(<VoicePicker value="" onChange={() => {}} providerId="webspeech" allowDisabled={false} />);
 
     await waitFor(() => {
       // 2 vozes, sem opção "desativada"
@@ -83,7 +82,6 @@ describe('VoicePicker', () => {
         value=""
         onChange={() => {}}
         providerId="webspeech"
-        profileId="test"
         references={references}
       />
     );
@@ -96,7 +94,7 @@ describe('VoicePicker', () => {
 
   it('chama onChange quando uma voz é selecionada', async () => {
     const handleChange = vi.fn();
-    render(<VoicePicker value="" onChange={handleChange} providerId="webspeech" profileId="test" />);
+    render(<VoicePicker value="" onChange={handleChange} providerId="webspeech" />);
 
     await waitFor(() => {
       expect(screen.getByTestId('item-v1')).toBeInTheDocument();
@@ -108,7 +106,7 @@ describe('VoicePicker', () => {
 
   it('permite selecionar a opção desativada', async () => {
     const handleChange = vi.fn();
-    render(<VoicePicker value="" onChange={handleChange} providerId="webspeech" profileId="test" />);
+    render(<VoicePicker value="" onChange={handleChange} providerId="webspeech" />);
 
     await waitFor(() => {
       expect(screen.getByTestId(`item-${VOICE_DISABLED}`)).toBeInTheDocument();
@@ -119,7 +117,7 @@ describe('VoicePicker', () => {
   });
 
   it('exibe o valor selecionado corretamente', async () => {
-    render(<VoicePicker value="v1" onChange={() => {}} providerId="webspeech" profileId="test" />);
+    render(<VoicePicker value="v1" onChange={() => {}} providerId="webspeech" />);
 
     await waitFor(() => {
       expect(screen.getByTestId('base-picker')).toHaveAttribute('data-selected', 'v1');
@@ -127,7 +125,7 @@ describe('VoicePicker', () => {
   });
 
   it('não carrega vozes para provider especial (disabled)', async () => {
-    render(<VoicePicker value="" onChange={() => {}} providerId="disabled" profileId="test" />);
+    render(<VoicePicker value="" onChange={() => {}} providerId="disabled" />);
 
     await waitFor(() => {
       // Apenas a opção desativada
@@ -138,7 +136,7 @@ describe('VoicePicker', () => {
   });
 
   it('não carrega vozes para provider ref_*', async () => {
-    render(<VoicePicker value="" onChange={() => {}} providerId="ref_assistant" profileId="test" />);
+    render(<VoicePicker value="" onChange={() => {}} providerId="ref_assistant" />);
 
     await waitFor(() => {
       expect(screen.getByTestId('base-picker')).toHaveAttribute('data-items', '1');
@@ -150,15 +148,15 @@ describe('VoicePicker', () => {
   it('lida com erro ao carregar vozes', async () => {
     getVoicesForProviderSpy.mockRejectedValueOnce(new Error('Voice load failed'));
 
-    render(<VoicePicker value="" onChange={() => {}} providerId="webspeech" profileId="test" />);
+    render(<VoicePicker value="" onChange={() => {}} providerId="webspeech" />);
 
     await waitFor(() => {
-      expect(screen.getByTestId('base-picker')).toHaveAttribute('data-error', 'Voice load failed');
+      expect(screen.getByTestId('base-picker')).toHaveAttribute('data-error', 'pickers.voice.loadError');
     });
   });
 
   it('busca vozes com getVoicesForProvider quando providerId é fornecido', async () => {
-    render(<VoicePicker value="" onChange={() => {}} providerId="openai-1" profileId="prof-1" />);
+    render(<VoicePicker value="" onChange={() => {}} providerId="openai-1" />);
 
     await waitFor(() => {
       expect(getVoicesForProviderSpy).toHaveBeenCalledWith('openai-1', '');
@@ -174,17 +172,49 @@ describe('VoicePicker', () => {
   });
 
   it('recarrega vozes quando providerId muda', async () => {
-    const { rerender } = render(<VoicePicker value="" onChange={() => {}} providerId="webspeech" profileId="test" />);
+    const { rerender } = render(<VoicePicker value="" onChange={() => {}} providerId="webspeech" />);
 
     await waitFor(() => {
       expect(getVoicesForProviderSpy).toHaveBeenCalledWith('webspeech', '');
     });
 
     getVoicesForProviderSpy.mockClear();
-    rerender(<VoicePicker value="" onChange={() => {}} providerId="openai-1" profileId="test" />);
+    rerender(<VoicePicker value="" onChange={() => {}} providerId="openai-1" />);
 
     await waitFor(() => {
       expect(getVoicesForProviderSpy).toHaveBeenCalledWith('openai-1', '');
     });
   });
+});
+
+
+it.each(['complete', 'partial', 'unknown'])('permite entrada manual conforme completude %s e preserva voz salva', async (completeness) => {
+  getVoicesForProviderSpy.mockResolvedValue({ voices: [], completeness, selectionMode: 'model_and_voice' });
+  render(<VoicePicker providerId="proxy" modelId="vendor/model" value="tenant:voice-id" onChange={() => {}} />);
+  await waitFor(() => expect(basePickerPropsSpy).toHaveBeenLastCalledWith(expect.objectContaining({
+    busy: false, allowFreeInput: completeness !== 'complete',
+    selected: 'tenant:voice-id', items: expect.arrayContaining([{ value: 'tenant:voice-id', label: 'tenant:voice-id' }]),
+  })));
+});
+
+it('ignora resposta antiga após trocar o modelo', async () => {
+  let resolveOld!: (value: unknown) => void;
+  getVoicesForProviderSpy.mockImplementationOnce(() => new Promise(resolve => { resolveOld = resolve; }));
+  getVoicesForProviderSpy.mockResolvedValue({ voices: [{ id: 'new', name: 'New' }], completeness: 'complete', selectionMode: 'model_and_voice' });
+  const { rerender } = render(<VoicePicker providerId="proxy" modelId="old" value="" onChange={() => {}} />);
+  rerender(<VoicePicker providerId="proxy" modelId="new" value="" onChange={() => {}} />);
+  await screen.findByTestId('item-new');
+  resolveOld({ voices: [{ id: 'old', name: 'Old' }], completeness: 'partial', selectionMode: 'model_and_voice' });
+  await waitFor(() => expect(basePickerPropsSpy).toHaveBeenLastCalledWith(expect.objectContaining({ busy: false, allowFreeInput: false })));
+  expect(screen.queryByTestId('item-old')).not.toBeInTheDocument();
+});
+
+
+it('não consulta novamente ao editar a voz sem mudar conexão ou modelo', async () => {
+ getVoicesForProviderSpy.mockResolvedValue({ voices: [], completeness: 'unknown', selectionMode: '' });
+ const { rerender } = render(<VoicePicker providerId="proxy" modelId="model" value="" onChange={() => {}} />);
+ await waitFor(() => expect(basePickerPropsSpy).toHaveBeenLastCalledWith(expect.objectContaining({ busy: false })));
+ const calls = getVoicesForProviderSpy.mock.calls.length;
+ rerender(<VoicePicker providerId="proxy" modelId="model" value="manual" onChange={() => {}} />);
+ expect(getVoicesForProviderSpy.mock.calls).toHaveLength(calls);
 });

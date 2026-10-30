@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { profiles, llm, speech } from '@wailsjs/go/models';
 import { GetSpeechProviders, GetSTTModels } from '@wailsjs/go/wailsapi/Speech';
@@ -47,15 +47,6 @@ export function ProfileAudioTab({ editingProfile, updateField, updateFields, pro
 
   const isVoiceDisabled = !assistantVoice?.enabled;
   const isSTTDisabled = !editingProfile.input?.stt_provider;
-
-  // Mapa provider ID → provider type para consultar presets TTS
-  const providerTypeMap = useMemo(() => {
-    const map: Record<string, string> = {};
-    for (const p of speechProviders) {
-      map[p.id] = p.type;
-    }
-    return map;
-  }, [speechProviders]);
 
   const llmProviderItems: VoiceProviderItem[] = speechProviders.map((p) => {
     // Mostra o host da base_url para distinguir providers (ex: "api.openai.com", "litellm.local:4000")
@@ -321,7 +312,6 @@ export function ProfileAudioTab({ editingProfile, updateField, updateFields, pro
                 rate={assistantVoice?.rate ?? 1.0}
                 volume={assistantVoice?.volume ?? 1.0}
                 providerId={resolveProviderId(currentAssistantProvider, 'assistant')}
-                providerType={providerTypeMap[resolveProviderId(currentAssistantProvider, 'assistant')] || ''}
                 profileId={profileId}
                 ttsModel={assistantVoice?.model}
                 selectionMode={assistantVoice?.selection_mode as 'model_and_voice' | 'model_only' | undefined}
@@ -357,7 +347,6 @@ export function ProfileAudioTab({ editingProfile, updateField, updateFields, pro
                 rate={userVoice?.rate ?? 1.0}
                 volume={userVoice?.volume ?? 1.0}
                 providerId={resolveProviderId(currentUserProvider, 'user')}
-                providerType={providerTypeMap[resolveProviderId(currentUserProvider, 'user')] || ''}
                 profileId={profileId}
                 ttsModel={userVoice?.model}
                 selectionMode={userVoice?.selection_mode as 'model_and_voice' | 'model_only' | undefined}
@@ -394,7 +383,6 @@ export function ProfileAudioTab({ editingProfile, updateField, updateFields, pro
                 rate={systemVoice?.rate ?? 1.0}
                 volume={systemVoice?.volume ?? 1.0}
                 providerId={resolveProviderId(currentSystemProvider, 'system')}
-                providerType={providerTypeMap[resolveProviderId(currentSystemProvider, 'system')] || ''}
                 profileId={profileId}
                 ttsModel={systemVoice?.model}
                 selectionMode={systemVoice?.selection_mode as 'model_and_voice' | 'model_only' | undefined}

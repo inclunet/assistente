@@ -1,6 +1,6 @@
 # AEP-0115 — Catálogo público de provedores e modelos
 
-Status: In Progress — contrato aprovado; fases 1 (schema e asset inicial) e 2 (consumo, validação e cache backend) implementadas; fase 3 parcialmente entregue com persistência explícita, formulário por perfis, aceite por conexão para HTTP remoto e fábrica backend allowlisted; provedores legados sem aceite permanecem editáveis e bloqueados até reautorização explícita; onboarding desktop reutiliza o formulário; CLI consolidada com autenticação e cadastro compartilhados; fase 4 com resolução exata e contratos de parâmetros compartilhados entre editor e envio; aliases privados e vozes pendentes; Cohere e Ollama aguardam suporte às rotas/runtime catalogados
+Status: In Progress — contrato aprovado; fases 1 (schema e asset inicial) e 2 (consumo, validação e cache backend) implementadas; fase 3 parcialmente entregue com persistência explícita, formulário por perfis, aceite por conexão para HTTP remoto e fábrica backend allowlisted; provedores legados sem aceite permanecem editáveis e bloqueados até reautorização explícita; onboarding desktop reutiliza o formulário; CLI consolidada com autenticação e cadastro compartilhados; fase 4 com resolução exata e contratos de parâmetros compartilhados entre editor e envio; fase 5 de vozes concluída; aliases privados pendentes; Cohere e Ollama aguardam suporte às rotas/runtime catalogados
 
 ## Resumo
 
@@ -369,7 +369,22 @@ vozes e manutenção do catálogo continuam pendentes nas fases seguintes.
    `llm/parameter_presence_test.go`, `profiles/parameter_presence_test.go` e
    `ProfileChatSection.test.tsx`. Ainda falta oferecer o vínculo explícito de
    aliases privados; não se infere associação por nome.
-5. **Vozes TTS na API do catálogo.** Integrar a coleção de vozes do asset ao consumo tipado, associada à exposição de perfil, rota/API e modelo, incluindo estado de completude. Esta fase fornece os dados consumidos pela fase 4 do AEP-0113, que implementa a seleção e o comportamento de compatibilidade na interface. Assim, a dependência é unidirecional: AEP-0113 fase 4 depende das fases 1–5 desta AEP.
+5. **Vozes TTS na API do catálogo — concluída.**
+   `Document.ResolveTTSSelection` resolve a tupla exata e preserva o estado de
+   completude. `speech.Service.GetTTSModels` e `GetTTSVoices` fornecem sugestões
+   e lista tipada sem sondar síntese nem consultar listas compiladas. A UI usa
+   o `BasePicker` existente com entrada manual para informação desconhecida,
+   mantém valores salvos e atualiza as sugestões no evento de atualização do
+   catálogo. Removidas listas duplicadas, interpretação de IDs e troca automática
+   de provedor TTS. Os testes `TestResolveTTSSelectionUsesExactExposure`,
+   `TestVoiceCatalogUsesConnectionAndExactModel` e
+   `TestTTSRequestPreservesExactVoiceAndOmitsAbsentVoice`, além dos testes de
+   `VoicePicker` e `ProfileVoiceSection`, cobrem associação exata, completude,
+   preservação e omissão real do parâmetro. Esta entrega fornece o consumo da
+   fase 4 da AEP-0113. A revisão local independente (`review_catalogo_vozes`, seis rodadas)
+   encerrou sem pendências. O contrato é compartilhado pela prévia e pelo
+   manager, inclusive após atualização do catálogo, sem reconfigurar vozes salvas.
+
 6. **Manutenção do catálogo.** Definir processo e cadência de atualização, validação e publicação. Sondagens de síntese potencialmente pagas podem ser usadas no processo editorial, com custo e escopo controlados; abrir a UI ou selecionar modelo não dispara sondagem paga automaticamente.
 
 ## Riscos

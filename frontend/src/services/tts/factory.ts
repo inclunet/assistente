@@ -67,48 +67,6 @@ export class TTSProviderFactory {
   }
 
   /**
-   * Obtém provider baseado no nome da voz
-   * Útil para detectar automaticamente o provider de uma voz
-   */
-  async getProviderByVoiceName(voiceName: string): Promise<ITTSProvider | null> {
-    // Verifica todos os providers para ver qual tem essa voz
-    for (const provider of this.providers.values()) {
-      try {
-        const voices = await provider.getVoices();
-        if (voices.some(v => v.id === voiceName || v.name === voiceName)) {
-          return provider;
-        }
-      } catch (error) {
-        logger.warn('[TTSFactory] Error checking voices for provider:', error);
-      }
-    }
-    
-    // Fallback: retorna WebSpeech se disponível
-    return this.getProvider(TTSProvider.WEBSPEECH);
-  }
-
-  /**
-   * Obtém o provider com fallback automático
-   * Tenta na ordem: requested -> WebSpeech
-   */
-  getProviderWithFallback(requested: TTSProvider): ITTSProvider | null {
-    // Tenta o provider solicitado
-    let provider = this.getProvider(requested);
-    if (provider) {
-      return provider;
-    }
-
-    // Fallback para WebSpeech
-    provider = this.getProvider(TTSProvider.WEBSPEECH);
-    if (provider) {
-      return provider;
-    }
-
-    logger.error('[TTSFactory] No providers available');
-    return null;
-  }
-
-  /**
    * Limpa todos os providers
    */
   dispose(): void {

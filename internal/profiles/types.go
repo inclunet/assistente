@@ -502,13 +502,6 @@ func (p *Profile) Validate() error {
 			if role.SelectionMode == "" {
 				return fmt.Errorf("%s.selection_mode is required for HTTP TTS", name)
 			}
-			expectedSelectionMode := "model_and_voice"
-			if strings.HasPrefix(strings.ToLower(role.Model), "voice-") {
-				expectedSelectionMode = "model_only"
-			}
-			if role.SelectionMode != expectedSelectionMode {
-				return fmt.Errorf("%s.selection_mode must be %s for model %q", name, expectedSelectionMode, role.Model)
-			}
 			if role.SelectionMode == "model_and_voice" && role.VoiceID == "" {
 				return fmt.Errorf("%s.voice_id is required when selection_mode is model_and_voice", name)
 			}

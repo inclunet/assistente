@@ -1,6 +1,6 @@
 # AEP-0113 — Compatibilidade de parâmetros por modelo e provedor
 
-Status: In Progress — fases 1–3 concluídas nos PRs #889, #909 e #919; fase 4 depende da fase 5 da AEP-0115
+Status: Done — fases 1–3 concluídas nos PRs #889, #909 e #919; fase 4 implementada com consumo tipado do catálogo da AEP-0115
 
 ## Resumo
 
@@ -361,14 +361,21 @@ na `main`.
    sem achados pendentes e as duas threads foram resolvidas. Testes focados,
    `go build ./...`, `go vet ./...`, `tsc --noEmit` e lint passaram localmente;
    ACP não foi executado localmente por orientação de Infosec.
-4. **Vozes TTS — planejada, dependente da AEP-0115.** Consumir a lista de vozes
-   associada à rota e ao modelo no catálogo, respeitando completude e estado
-   desconhecido. Depende da conclusão das fases 1–5 da AEP-0115; a fase de
-   manutenção do catálogo pode evoluir separadamente.
+4. **Vozes TTS — concluída junto à AEP-0115 fase 5.**
+   O seletor existente consome a lista tipada por perfil de servidor, API e
+   modelo exatos. Completude completa/parcial/desconhecida controla as opções
+   e a entrada manual, sem invalidar nem apagar a voz salva. Modelos sem
+   metadados admitem configuração manual do modo de seleção. Não há inferência
+   pelo nome, listas compiladas nem sondagens de síntese ao abrir a interface.
+   Evidências: `internal/llmcatalog/voices_test.go`,
+   `internal/speech/catalog_test.go`, `ProfileVoiceSection.test.tsx` e
+   `VoicePicker.test.tsx`. A revisão local independente do agente
+   `review_catalogo_vozes` encerrou sem pendências após seis rodadas de revisão
+   do diff e dos ajustes; testes de Go, tipos/bindings, lint e testes de UI
+   verificam o contrato. ACP não é executado localmente.
 
-Os PRs #889, #909 e #919 concluíram as fases 1–3. Como a fase 4 permanece
-planejada e depende da AEP-0115, o status desta AEP é `In Progress` até que a
-seleção de vozes seja implementada e seus critérios sejam atendidos.
+Os PRs #889, #909 e #919 concluíram as fases 1–3. A entrega da fase 4
+encerra o escopo de implementação desta AEP.
 
 ## Riscos
 
@@ -452,5 +459,6 @@ seleção de vozes seja implementada e seus critérios sejam atendidos.
   `docs/content/configuracao/PROVIDER_CONFIGURATION.md` e
   `docs/content/recursos/PERFIS.md` foram atualizados no PR #919.
 
-A fase de vozes depende das fases 1–5 da AEP-0115 e integra o escopo pendente
-desta AEP; sua implementação e evidências atualizarão este documento e o índice.
+- [x] A seleção de vozes consome a API tipada da AEP-0115, respeita completude,
+  preserva IDs e configuração manual e não dispara síntese automaticamente.
+  Os testes citados na fase 4 verificam também atualização do catálogo e foco.

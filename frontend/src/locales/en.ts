@@ -2130,6 +2130,11 @@ const en = {
         systemHelp: 'Follows the System voice',
       },
       voiceSection: {
+      modeConflict: 'Select the mode specified by the catalog for this model. Your configuration has been preserved.',
+      selectionModeLabel: "Voice selection mode",
+      selectionModePlaceholder: "Choose how the model receives the voice",
+      modelAndVoice: "Separate model and voice",
+      modelOnly: "Model only (omit voice)",
         modelLabel: 'TTS model',
         modelPlaceholder: 'Select a model',
         modelHelp: 'Choose the TTS model before the voice. Piper models use only the model.',
@@ -2553,7 +2558,10 @@ const en = {
       base: { loading: 'Loading...', loadError: 'Error loading', empty: 'No options available', retry: 'Try again' },
       llmProvider: { label: 'LLM Provider', description: 'Select the language model provider', noneConfigured: 'No provider configured. Configure a provider first.', loadError: 'Error loading providers', placeholder: 'Select a provider...', retry: 'Try again', loading: 'Loading providers...' },
       model: { label: 'Model', default: 'Provider default', filterPlaceholder: 'Filter models...', selectProvider: 'Select a provider first', noModels: 'No models available for this provider.', noModelsGlobal: 'No models available. Configure a provider first.', agentChooses: 'This agent offers no model choice: it picks the model itself.', agentUnavailable: 'Could not reach the agent. Open Settings → Providers and run the agent detection again.', configureApiKey: 'Configure this provider\'s API key in Settings → Credentials', loadError: 'Error loading models:', typePlaceholder: 'Type the model...', notLoaded: 'Models not loaded. Type the model name manually.', retry: 'Try again', loading: 'Loading models...', refresh: 'Reload models', refreshLabel: 'Reload the provider model list', refreshed_one: 'Model list updated: {{count}} model', refreshed_other: 'Model list updated: {{count}} models' },
-      voice: { disabled: 'Disabled', system: 'System', windows: 'Windows (SAPI5)', openai: 'OpenAI (Premium)', label: 'Voice', description: 'Select the voice for speech synthesis', loadError: 'Error loading voices', screenReader: 'Disabled (use screen reader)', accessibility: 'Accessibility', premium: '• Premium', loading: 'Loading voices...' },
+      voice: {
+      complete: "Complete catalog voice list.",
+      partial: "Partial list. You can also enter a voice ID.",
+      unknown: "Unknown voices. Enter a voice ID manually.", disabled: 'Disabled', system: 'System', windows: 'Windows (SAPI5)', openai: 'OpenAI (Premium)', label: 'Voice', description: 'Select the voice for speech synthesis', loadError: 'Error loading voices', screenReader: 'Disabled (use screen reader)', accessibility: 'Accessibility', premium: '• Premium', loading: 'Loading voices...' },
       voiceProvider: { label: 'Voice Provider', description: 'Select the speech synthesis provider', loading: 'Loading providers...', loadError: 'Error loading providers', screenReader: 'Screen reader (disable TTS)', screenReaderDesc: 'Uses the screen reader and disables speech synthesis', default: 'Default (Assistant)', defaultDesc: 'Uses the Assistant provider', webspeech: 'WebSpeech (Browser)', webspeechDesc: 'Browser voices (free)', sapi5: 'SAPI5 (Windows)', sapi5Desc: 'Windows voices', followAssistant: 'Follow Assistant voice', followAssistantDesc: 'Uses the same voice as the Assistant', followUser: 'Follow User voice', followUserDesc: 'Uses the same voice as the User', followSystem: 'Follow System voice', followSystemDesc: 'Uses the same voice as the System', llmProvider: 'LLM provider', llmProviderWithHost: 'TTS/STT via {{host}}' },
       stt: { label: 'STT', description: 'Select the speech recognition provider', webSpeech: 'WebSpeech', webSpeechDesc: 'Browser (free)', whisper: 'Whisper', whisperDesc: 'OpenAI (premium)', whisperViaProvider: 'Whisper (via LLM provider)', loadError: 'Error loading providers', loading: 'Loading providers...' },
       combobox: { select: 'Select', filterPlaceholder: 'Filter...', filterLabel: 'Filter options', available: 'available', noResults: 'No results', pressEnterToUse: 'Press Enter to use "{{value}}"', typeToCreate: 'Type to create' },

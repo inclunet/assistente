@@ -58,13 +58,27 @@ Regras:
 - IDs compostos (`voiceId::model`) ficam proibidos.
 - Listagem de `/v1/models` alimenta seletor de modelos, nao seletor de vozes.
 - Listagem de vozes recebe `providerID` e `modelID` como entrada.
+- A lista tipada inclui `selection_mode`, `completeness` e `items`. A origem
+  das sugestões HTTP é o catálogo AEP-0115, pela tupla exata de perfil de
+  servidor, formato de API e modelo exposto; não há listas compiladas nem
+  interpretação de prefixos/nomes para selecionar ou listar modelos e vozes.
+  A parametrização de idioma da síntese é um contrato separado, fora desta entrega.
+- Sem metadados, o usuário informa o modelo e escolhe explicitamente entre
+  modelo com voz ou somente modelo. O modo já salvo permanece disponível.
+  O modo somente modelo omite `voice` do JSON, inclusive no SDK que declara
+  esse campo obrigatório. IDs manuais são enviados sem remover prefixos ou
+  trocar caracteres.
+- Atualizações do catálogo atualizam sugestões sem sobrescrever voz ou modo
+  salvos. Listas parciais/desconhecidas permitem entrada manual; listas completas
+  restringem novas escolhas à lista e preservam a voz existente para edição.
+- Escolher um provedor indisponível não seleciona automaticamente outro provedor.
 - Sem migracao automatica, fallback, heuristica de compatibilidade ou degradacao silenciosa para perfis antigos.
 
 APIs obrigatorias:
 
 ```
 GetTTSModels(providerID) []TTSModelInfo
-GetTTSVoices(providerID, modelID) []TTSVoiceInfo
+GetTTSVoices(providerID, modelID) TTSVoiceList
 SpeakPreview(providerID, modelID, voiceID, rate, volume, text, sessionID)
 SpeakMessage(messageID, providerID, modelID, voiceID, rate)
 ```

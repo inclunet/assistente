@@ -144,7 +144,7 @@ func (api *Speech) GetOpenAITTSVoices() ([]speech.TTSVoiceInfo, error) {
 		return nil, err
 	}
 	return WithUser(session, func(ctx context.Context) ([]speech.TTSVoiceInfo, error) {
-		return ctrl.GetAvailableVoices(), nil
+		return ctrl.GetAvailableVoices(ctx), nil
 	})
 }
 
@@ -242,12 +242,12 @@ func (api *Speech) GetTTSModels(providerID string) ([]speech.TTSModelInfo, error
 }
 
 // GetTTSVoices lista vozes TTS de um provedor/modelo.
-func (api *Speech) GetTTSVoices(providerID, modelID string) ([]speech.TTSVoiceInfo, error) {
+func (api *Speech) GetTTSVoices(providerID, modelID string) (speech.TTSVoiceList, error) {
 	session, ctrl, err := api.deps()
 	if err != nil {
-		return nil, err
+		return speech.TTSVoiceList{}, err
 	}
-	return WithUser(session, func(ctx context.Context) ([]speech.TTSVoiceInfo, error) {
+	return WithUser(session, func(ctx context.Context) (speech.TTSVoiceList, error) {
 		return ctrl.GetTTSVoices(ctx, providerID, modelID), nil
 	})
 }
