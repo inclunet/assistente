@@ -32,6 +32,9 @@ func TestPublishedDatabase019UpgradesDirectlyToLatest(t *testing.T) {
 	if userVersion(t, database) != 17 {
 		t.Fatalf("backfill sem owner deveria permanecer pendente, schema=%d", userVersion(t, database))
 	}
+	if database.Migrator().HasTable("chat_turns") || database.Migrator().HasTable("chat_turn_attempts") {
+		t.Fatal("turnos não podem preceder o corte físico do ledger")
+	}
 	owner := User{
 		UUIDModel:    UUIDModel{ID: "018f0000-0000-7000-8000-000000009019"},
 		Username:     "fixture-019-owner",
@@ -47,6 +50,10 @@ func TestPublishedDatabase019UpgradesDirectlyToLatest(t *testing.T) {
 	}
 	if err := runMigrations(database, phasePostAutoMigrate); err != nil {
 		t.Fatalf("retomar backfill após adoção: %v", err)
+	}
+	applied, err := appliedMigrationVersions(database)
+	if err != nil || !applied[41] || !database.Migrator().HasTable("chat_turns") {
+		t.Fatalf("turnos não migrados após adoção: %v %v", applied[41], err)
 	}
 
 	var conversation Conversation

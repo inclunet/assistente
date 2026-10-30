@@ -268,7 +268,8 @@ turnos/tentativas, sequência/época, cursores, inscrições de janela e recuper
 unificada. As caixas acima permanecem abertas; este recorte não corrige sozinho
 ordenação ou foco da UI e não conclui a fase 2.
 
-Terceiro recorte da fase 2: migração v41 e repositório transacional de
+Terceiro recorte da fase 2: migração v41 (aguarda a conclusão da v19, inclusive
+adoção de usuário no upgrade 0.1.9) e repositório transacional de
 `chat_turns`/`chat_turn_attempts`, sem duplicar texto, usage ou ferramentas.
 O backfill em lotes reutiliza a seleção legada de representante, preserva IDs
 opacos e registra `historical_unknown`/`legacy`; não inventa tentativas nem

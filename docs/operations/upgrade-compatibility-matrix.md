@@ -17,7 +17,10 @@ o conjunto de origens suportadas.
 
 A v41 `chat_turns_and_attempts` cria tabelas e constraints transacionalmente,
 com backfill em lotes e backup `*.pre-chat-turns-v41.bak` + manifesto SHA-256
-anterior ao DDL. O estado legado é `historical_unknown`, sem tentativas
+anterior ao DDL. A v41 aguarda a v19 antes de criar tabelas/gatilhos, inclusive
+quando o upgrade 0.1.9 depende da adoção de usuário;
+`TestPublishedDatabase019UpgradesDirectlyToLatest` prova adiamento e retomada.
+O estado legado é `historical_unknown`, sem tentativas
 fabricadas. O pipeline ainda não usa essas tabelas: a ativação exige reconciliar
 mudanças posteriores ao backfill e integrar todos os terminais no mesmo corte.
 

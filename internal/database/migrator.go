@@ -420,7 +420,18 @@ var schemaMigrations = []migration{
 		Run:     migrateChatToolLinks,
 	},
 	{Version: 40, Name: "llm_model_exact_remote_ids", Phase: phasePostAutoMigrate, Run: migrateLLMModelExactIDs},
-	{Version: 41, Name: "chat_turns_and_attempts", Phase: phasePostAutoMigrate, Run: migrateChatTurns},
+	{Version: 41, Name: "chat_turns_and_attempts", Phase: phasePostAutoMigrate, Run: func(database *gorm.DB) error {
+		// A v19 pode aguardar adoção do usuário e reconstruir chat_messages.
+		// Não instalar FKs/gatilhos nem capturar representantes antes desse corte.
+		applied, err := appliedMigrationVersions(database)
+		if err != nil {
+			return err
+		}
+		if !applied[19] {
+			return errMigrationDeferred
+		}
+		return migrateChatTurns(database)
+	}},
 }
 
 // runMigrations aplica, na ordem de Version, todas as migrações da fase
