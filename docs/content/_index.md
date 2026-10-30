@@ -58,6 +58,8 @@ Um espaço de trabalho onde painéis de chat, editores, tarefas e terminais func
 
 ### Qualquer modelo, local ou cloud
 
+Os perfis, limites e vozes vêm do [catálogo público de provedores e modelos](guias/CATALOGO_PROVEDORES_MODELOS/), mantido e publicado neste repositório.
+
 Compatível com [mais de 15 provedores de IA com API compatível OpenAI](configuracao/PROVIDER_CONFIGURATION/), sem dependência de nenhum:
 
 | Para começar | Recomendação |

@@ -85,3 +85,10 @@ DeepSeek.
 Novas execuções continuam dependendo de um novo `/review` manual. Não há teto
 agregado de gastos nem limite de frequência: cada execução adicional pode
 gerar custo.
+
+## Catálogo público
+
+Para atualizar provedores, modelos, limites, parâmetros e vozes, siga o
+[guia de manutenção do catálogo](docs/content/guias/CATALOGO_PROVEDORES_MODELOS.md).
+O asset deve passar pelo JSON Schema e pelo validador do aplicativo antes da
+publicação; o workflow do site executa a mesma suíte de validação.

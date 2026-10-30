@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "catalog_version": "2026-10-29.1",
-  "updated_at": "2026-10-29T22:00:00Z",
+  "catalog_version": "2026-10-30.2",
+  "updated_at": "2026-10-30T12:11:13Z",
   "servers": [
     {
       "id": "openai",
@@ -448,12 +448,15 @@
       "status": "active",
       "capabilities": {
         "input.text": "supported",
-        "input.image": "unknown",
+        "input.image": "supported",
         "output.text": "supported",
-        "tools.function_calling": "unknown",
-        "reasoning": "unknown"
+        "tools.function_calling": "supported",
+        "reasoning": "supported",
+        "output.structured": "supported"
       },
-      "limits": {"context_tokens": 500000}
+      "limits": {
+        "context_tokens": 500000
+      }
     },
     {
       "id": "zai/glm-5.3",
@@ -462,17 +465,21 @@
       "status": "active",
       "capabilities": {
         "input.text": "supported",
-        "input.image": "unknown",
+        "input.image": "unsupported",
         "output.text": "supported",
-        "tools.function_calling": "unknown",
-        "reasoning": "unknown"
+        "tools.function_calling": "supported",
+        "reasoning": "supported",
+        "output.structured": "supported"
+      },
+      "limits": {
+        "max_output_tokens": 131072
       }
     },
     {
       "id": "openai/gpt-4o-mini-tts",
       "vendor": "OpenAI",
       "name": "GPT-4o mini TTS",
-      "status": "active",
+      "status": "deprecated",
       "capabilities": {
         "input.text": "supported",
         "output.text": "unsupported",
@@ -517,13 +524,53 @@
       "server_profile_id": "xai",
       "api_format": "openai",
       "exposed_model_id": "grok-4.6",
-      "canonical_model_id": "xai/grok-4.6"
+      "canonical_model_id": "xai/grok-4.6",
+      "parameter_overrides": {
+        "reasoning_effort": {
+          "support": "supported",
+          "choices": [
+            "low",
+            "medium",
+            "high",
+            "xhigh"
+          ],
+          "default": "high"
+        }
+      }
     },
     {
       "server_profile_id": "zai-global",
       "api_format": "openai",
       "exposed_model_id": "glm-5.3",
-      "canonical_model_id": "zai/glm-5.3"
+      "canonical_model_id": "zai/glm-5.3",
+      "parameter_overrides": {
+        "temperature": {
+          "support": "supported",
+          "minimum": 0,
+          "maximum": 1,
+          "default": 1
+        },
+        "top_p": {
+          "support": "supported",
+          "minimum": 0.01,
+          "maximum": 1,
+          "default": 0.95
+        },
+        "max_output_tokens": {
+          "support": "supported",
+          "minimum": 1,
+          "maximum": 131072
+        },
+        "reasoning_effort": {
+          "support": "supported",
+          "choices": [
+            "low",
+            "high",
+            "max"
+          ],
+          "default": "max"
+        }
+      }
     },
     {
       "server_profile_id": "zai-coding-plan",
