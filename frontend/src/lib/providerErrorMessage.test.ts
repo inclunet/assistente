@@ -88,7 +88,7 @@ describe('translateErrorMarkers', () => {
 
 it('traduz erros de vínculos pelo apresentador compartilhado nos três idiomas', () => {
  const marker = 'model_alias_error:v1:missing_target:vendor%2Fmodelo%20com%20espa%C3%A7o';
- for (const [language, text] of [['pt-BR', 'não está mais no catálogo'], ['en', 'is no longer in the catalog'], ['es', 'ya no está en el catálogo']]) {
+ for (const [language, text] of [['pt-BR', 'não foi encontrado no catálogo disponível'], ['en', 'was not found in the available catalog'], ['es', 'no se encontró en el catálogo disponible']]) {
   const message = translateProviderErrorMessage(marker, language);
   expect(message).toContain(text);
   expect(message).toContain('vendor/modelo com espaço');

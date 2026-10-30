@@ -2571,7 +2571,7 @@ const en = {
     providerForm: {
       aliases: {
         emptyID: "The remote and canonical model binding IDs cannot be empty.",
-        missingTarget: "Model \"{{id}}\" is no longer in the catalog. Update the binding before saving or duplicating the connection.",
+        missingTarget: "Model \"{{id}}\" was not found in the available catalog. Refresh the catalog or choose another model before saving or duplicating the connection.",
         title: "Model bindings for this connection",
         remote: "Exact server model ID",
         description: "Select or enter a remote ID and associate it with a catalog model. The binding provides limits and parameters; it does not change the submitted ID or grant access to the model.",

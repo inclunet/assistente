@@ -310,7 +310,7 @@ describe('ProvidersPage', () => {
     await screen.findByText('OpenAI');
     const duplicate = screen.getAllByRole('button', { name: 'Duplicar' }).find(button => !button.hasAttribute('disabled'));
     await user.click(duplicate!);
-    await waitFor(() => expect(mockAddToast).toHaveBeenCalledWith('O modelo "vendor/gone" não está mais no catálogo. Atualize o vínculo antes de salvar ou duplicar a conexão.', 'error'));
+    await waitFor(() => expect(mockAddToast).toHaveBeenCalledWith('O modelo "vendor/gone" não foi encontrado no catálogo disponível. Atualize o catálogo ou escolha outro modelo antes de salvar ou duplicar a conexão.', 'error'));
   });
 
   it('duplica provedor via menu de acoes', async () => {

@@ -791,5 +791,5 @@ it('apresenta o erro traduzido quando o alvo do vínculo sai do catálogo', asyn
  await userEvent.click(screen.getByRole('button', { name: /Carregar modelos/i }));
  await waitFor(() => expect(screen.getByRole('button', { name: 'Atualizar' })).toBeEnabled());
  await userEvent.click(screen.getByRole('button', { name: 'Atualizar' }));
- expect(await screen.findByText('O modelo "vendor/gone" não está mais no catálogo. Atualize o vínculo antes de salvar ou duplicar a conexão.')).toBeInTheDocument();
+ expect(await screen.findByText('O modelo "vendor/gone" não foi encontrado no catálogo disponível. Atualize o catálogo ou escolha outro modelo antes de salvar ou duplicar a conexão.')).toBeInTheDocument();
 });

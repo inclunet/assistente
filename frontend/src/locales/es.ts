@@ -2574,7 +2574,7 @@ const es = {
     providerForm: {
       aliases: {
         emptyID: "Los IDs remoto y canónico del vínculo no pueden estar vacíos.",
-        missingTarget: "El modelo \"{{id}}\" ya no está en el catálogo. Actualiza el vínculo antes de guardar o duplicar la conexión.",
+        missingTarget: "El modelo \"{{id}}\" no se encontró en el catálogo disponible. Actualiza el catálogo o elige otro modelo antes de guardar o duplicar la conexión.",
         title: "Vínculos de modelos de esta conexión",
         remote: "ID exacto usado por el servidor",
         description: "Selecciona o introduce un ID remoto y asócialo con un modelo del catálogo. El vínculo aporta límites y parámetros; no cambia el ID enviado ni concede acceso al modelo.",
