@@ -13,6 +13,8 @@ import (
 	"assistente/internal/acpregistry"
 	"assistente/internal/credentials"
 	"assistente/internal/database"
+	"assistente/internal/llmcatalog"
+	"maps"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -49,6 +51,7 @@ func exportProvider(provider *database.LLMProvider) (ProviderExport, error) {
 		Type:                     provider.Type,
 		ErrorFamily:              provider.ErrorFamily,
 		ServerProfileID:          serverProfileID,
+		ModelAliases:             maps.Clone(provider.ModelAliases),
 		APIFormat:                provider.APIFormat,
 		BaseURL:                  provider.BaseURL,
 		Model:                    provider.Model,
@@ -182,6 +185,7 @@ func persistProvider(ctx context.Context, tx *gorm.DB, provider ProviderExport, 
 			Type:                     provider.Type,
 			ErrorFamily:              provider.ErrorFamily,
 			ServerProfileID:          provider.ServerProfileID,
+			ModelAliases:             maps.Clone(provider.ModelAliases),
 			APIFormat:                provider.APIFormat,
 			BaseURL:                  provider.BaseURL,
 			Model:                    provider.Model,
@@ -214,6 +218,7 @@ func persistProvider(ctx context.Context, tx *gorm.DB, provider ProviderExport, 
 	existing.Type = provider.Type
 	existing.ErrorFamily = provider.ErrorFamily
 	existing.ServerProfileID = provider.ServerProfileID
+	existing.ModelAliases = maps.Clone(provider.ModelAliases)
 	existing.APIFormat = provider.APIFormat
 	existing.BaseURL = provider.BaseURL
 	existing.Model = provider.Model
@@ -234,6 +239,10 @@ func persistProvider(ctx context.Context, tx *gorm.DB, provider ProviderExport, 
 
 func validateProviderExport(provider ProviderExport) (ProviderExport, error) {
 	normalized := provider
+	normalized.ModelAliases = maps.Clone(provider.ModelAliases)
+	if err := llmcatalog.ValidateAliases(normalized.ModelAliases); err != nil {
+		return ProviderExport{}, err
+	}
 	normalized.ID = strings.TrimSpace(provider.ID)
 	normalized.Name = strings.TrimSpace(provider.Name)
 	normalized.Type = strings.TrimSpace(provider.Type)
@@ -242,6 +251,7 @@ func validateProviderExport(provider ProviderExport) (ProviderExport, error) {
 	normalized.APIFormat = strings.TrimSpace(provider.APIFormat)
 	if normalized.Type == "chatgpt" || normalized.Type == acpProviderType || normalized.APIFormat == acpAPIFormat {
 		normalized.ServerProfileID = ""
+		normalized.ModelAliases = nil
 	}
 	normalized.BaseURL = strings.TrimSpace(provider.BaseURL)
 	normalized.Model = strings.TrimSpace(provider.Model)

@@ -931,6 +931,7 @@ export namespace apidto {
 	    default_model?: string;
 	    api_format?: string;
 	    server_profile_id?: string;
+	    model_aliases?: Record<string, string>;
 	    insecure_http_authorized_url?: string;
 	    reasoning_content_mode?: string;
 	    acp_command?: string;
@@ -955,6 +956,7 @@ export namespace apidto {
 	        this.default_model = source["default_model"];
 	        this.api_format = source["api_format"];
 	        this.server_profile_id = source["server_profile_id"];
+	        this.model_aliases = source["model_aliases"];
 	        this.insecure_http_authorized_url = source["insecure_http_authorized_url"];
 	        this.reasoning_content_mode = source["reasoning_content_mode"];
 	        this.acp_command = source["acp_command"];
@@ -1846,6 +1848,7 @@ export namespace apidto {
 	    default_model?: string;
 	    api_format?: string;
 	    server_profile_id?: string;
+	    model_aliases?: Record<string, string>;
 	    insecure_http_authorized_url?: string;
 	    reasoning_content_mode?: string;
 	    acp_command?: string;
@@ -1868,6 +1871,7 @@ export namespace apidto {
 	        this.default_model = source["default_model"];
 	        this.api_format = source["api_format"];
 	        this.server_profile_id = source["server_profile_id"];
+	        this.model_aliases = source["model_aliases"];
 	        this.insecure_http_authorized_url = source["insecure_http_authorized_url"];
 	        this.reasoning_content_mode = source["reasoning_content_mode"];
 	        this.acp_command = source["acp_command"];
@@ -6383,6 +6387,7 @@ export namespace llm {
 	    name: string;
 	    type: string;
 	    server_profile_id?: string;
+	    model_aliases?: Record<string, string>;
 	    insecure_http_authorized_url?: string;
 	    api_format?: string;
 	    base_url: string;
@@ -6411,6 +6416,7 @@ export namespace llm {
 	        this.name = source["name"];
 	        this.type = source["type"];
 	        this.server_profile_id = source["server_profile_id"];
+	        this.model_aliases = source["model_aliases"];
 	        this.insecure_http_authorized_url = source["insecure_http_authorized_url"];
 	        this.api_format = source["api_format"];
 	        this.base_url = source["base_url"];

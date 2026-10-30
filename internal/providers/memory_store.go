@@ -28,6 +28,7 @@ func (s *MemoryStore) Save(_ context.Context, providers []*llm.ProviderConfig) e
 	defer s.mu.Unlock()
 	for _, p := range providers {
 		clone := *p
+		clone.ModelAliases = copyStringMap(p.ModelAliases)
 		s.providers[p.ID] = &clone
 	}
 	return nil
@@ -39,6 +40,7 @@ func (s *MemoryStore) Load(_ context.Context) ([]*llm.ProviderConfig, error) {
 	result := make([]*llm.ProviderConfig, 0, len(s.providers))
 	for _, p := range s.providers {
 		clone := *p
+		clone.ModelAliases = copyStringMap(p.ModelAliases)
 		result = append(result, &clone)
 	}
 	return result, nil
@@ -68,6 +70,7 @@ func (s *MemoryStore) GetDefault(_ context.Context) (*llm.ProviderConfig, error)
 		return nil, fmt.Errorf("provider default '%s' não encontrado", s.defaultID)
 	}
 	clone := *p
+	clone.ModelAliases = copyStringMap(p.ModelAliases)
 	return &clone, nil
 }
 
@@ -79,6 +82,7 @@ func (s *MemoryStore) Get(_ context.Context, id string) (*llm.ProviderConfig, er
 		return nil, fmt.Errorf("provider '%s' não encontrado", id)
 	}
 	clone := *p
+	clone.ModelAliases = copyStringMap(p.ModelAliases)
 	return &clone, nil
 }
 

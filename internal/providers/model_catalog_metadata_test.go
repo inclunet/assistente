@@ -56,6 +56,15 @@ func TestModelCatalogEnrichesOnlyRemoteModelsAndRefreshesMetadata(t *testing.T) 
 	if registry.Get("connection").DefaultModel != "private-alias" {
 		t.Fatal("saved model replaced")
 	}
+	config.ModelAliases = map[string]string{"private-alias": "canonical", "not-accessible": "canonical"}
+	if err := registry.Register(config); err != nil {
+		t.Fatal(err)
+	}
+	bound, err := service.GetModelCatalogByProvider(context.Background(), "connection")
+	if err != nil || len(bound.Models) != 2 || bound.Models[1].Value != "private-alias" || bound.Models[1].Catalog == nil || bound.Models[1].Catalog.ID != "canonical" {
+		t.Fatalf("private binding not applied to offered model: %+v %v", bound, err)
+	}
+	config.ModelAliases = nil
 	config.ServerProfileID = ""
 	if err := registry.Register(config); err != nil {
 		t.Fatal(err)

@@ -233,6 +233,7 @@ type CreateRequest struct {
 	Type                      string
 	APIFormat                 string
 	ServerProfileID           string
+	ModelAliases              map[string]string
 	InsecureHTTPAuthorizedURL string
 	BaseURL                   string
 	APIKey                    string
@@ -432,6 +433,7 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*CreateResult,
 		Type:                      llm.ProviderType(req.Type),
 		APIFormat:                 apiFormat,
 		ServerProfileID:           strings.TrimSpace(req.ServerProfileID),
+		ModelAliases:              copyStringMap(req.ModelAliases),
 		InsecureHTTPAuthorizedURL: strings.TrimSpace(req.InsecureHTTPAuthorizedURL),
 		BaseURL:                   baseURL,
 		DefaultModel:              req.DefaultModel,
@@ -484,6 +486,9 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*CreateResult,
 		provider.CredentialPattern = isolated.Pattern
 	}
 
+	if err := s.validateModelAliasChanges(provider.ModelAliases, nil); err != nil {
+		return nil, err
+	}
 	if err := provider.Validate(); err != nil {
 		return nil, err
 	}
@@ -517,6 +522,7 @@ type UpdateRequest struct {
 	Type                      string
 	APIFormat                 string
 	ServerProfileID           *string
+	ModelAliases              *map[string]string
 	InsecureHTTPAuthorizedURL *string
 	BaseURL                   string
 	APIKey                    string
@@ -585,6 +591,7 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Up
 		Type:                      existing.Type,
 		ErrorFamily:               existing.ErrorFamily,
 		ServerProfileID:           existing.ServerProfileID,
+		ModelAliases:              copyStringMap(existing.ModelAliases),
 		InsecureHTTPAuthorizedURL: existing.InsecureHTTPAuthorizedURL,
 		APIFormat:                 existing.APIFormat,
 		BaseURL:                   existing.BaseURL,
@@ -616,6 +623,9 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Up
 	}
 	if req.ServerProfileID != nil {
 		updated.ServerProfileID = strings.TrimSpace(*req.ServerProfileID)
+	}
+	if req.ModelAliases != nil {
+		updated.ModelAliases = copyStringMap(*req.ModelAliases)
 	}
 	if req.DefaultModel != "" {
 		updated.DefaultModel = req.DefaultModel
@@ -706,6 +716,9 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Up
 	// Conferir antes de mexer no registro: a troca é remover e registrar de
 	// novo, e uma edição inválida — virar acp sem informar o comando, por
 	// exemplo — faria o provedor sumir da lista em vez de a edição falhar.
+	if err := s.validateModelAliasChanges(updated.ModelAliases, existing.ModelAliases); err != nil {
+		return nil, err
+	}
 	if err := updated.Validate(); err != nil {
 		return nil, fmt.Errorf("provider '%s' inválido após a edição: %w", id, err)
 	}
@@ -1288,12 +1301,12 @@ func (s *Service) modelCatalog(
 	if len(models) > 0 {
 		catalog.Models = append([]llm.ModelOption(nil), models...)
 	}
-	if provider.ServerProfileID != "" && !catalog.Agent && !catalog.UsesChatGPTPlan && s.catalogSnapshot != nil {
+	if !catalog.Agent && !catalog.UsesChatGPTPlan && s.catalogSnapshot != nil {
 		ids := make([]string, len(models))
 		for i, model := range models {
 			ids[i] = model.Value
 		}
-		metadata := s.catalogSnapshot().Document.ResolveModels(provider.ServerProfileID, string(provider.GetAPIFormat()), ids)
+		metadata := s.catalogSnapshot().Document.ResolveModels(provider.ServerProfileID, string(provider.GetAPIFormat()), ids, provider.ModelAliases)
 		for i := range catalog.Models {
 			if model, ok := metadata[catalog.Models[i].Value]; ok {
 				catalog.Models[i].Catalog = &model

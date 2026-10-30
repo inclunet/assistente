@@ -2569,6 +2569,14 @@ const ptBR = {
     },
 
     providerForm: {
+      aliases: {
+        title: "Vínculos de modelos desta conexão",
+        remote: "ID exato usado pelo servidor",
+        description: "Selecione ou digite um ID remoto e associe-o ao modelo do catálogo. O vínculo fornece limites e parâmetros; não altera o ID enviado nem libera acesso ao modelo.",
+        canonical: "Modelo do catálogo",
+        none: "Sem vínculo privado",
+        missing: "{{id}} (ausente do catálogo)",
+      },
     authMode: 'Autenticação',
     authModes: { required: 'Obrigatória', optional: 'Opcional', none: 'Sem autenticação' },
       useSavedCredential: "Usar credencial já cadastrada para este domínio",

@@ -11,8 +11,8 @@ import (
 // lookup, never inferred from catalog metadata.
 func (s *Service) ChatParameterContract(provider *llm.ProviderConfig, modelID string, unsupported []string) map[string]llmcatalog.Parameter {
 	fields := make(map[string]llmcatalog.Parameter)
-	if provider != nil && provider.ServerProfileID != "" && s.catalogSnapshot != nil {
-		model := s.catalogSnapshot().Document.ResolveModels(provider.ServerProfileID, string(provider.GetAPIFormat()), []string{modelID})[modelID]
+	if provider != nil && s.catalogSnapshot != nil {
+		model := s.catalogSnapshot().Document.ResolveModels(provider.ServerProfileID, string(provider.GetAPIFormat()), []string{modelID}, provider.ModelAliases)[modelID]
 		for name, field := range model.Parameters {
 			fields[name] = field
 		}

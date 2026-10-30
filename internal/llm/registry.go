@@ -149,6 +149,7 @@ func (r *ProviderRegistry) GetSnapshot(id string) *ProviderConfig {
 		return nil
 	}
 	snapshot := *registered
+	snapshot.ModelAliases = cloneProviderStringMap(registered.ModelAliases)
 	snapshot.Headers = cloneProviderStringMap(registered.Headers)
 	snapshot.ACPArgs = append([]string(nil), registered.ACPArgs...)
 	snapshot.ACPEnv = cloneProviderStringMap(registered.ACPEnv)

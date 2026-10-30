@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"assistente/internal/llmcatalog"
 	"errors"
 	"fmt"
 	"net"
@@ -187,7 +188,8 @@ type ProviderConfig struct {
 	// ServerProfileID guarda a associação explícita com um perfil do catálogo
 	// público. Vazio significa configuração antiga ou personalizada; não é
 	// inferido a partir de tipo, URL ou modelo.
-	ServerProfileID string `json:"server_profile_id,omitempty"`
+	ServerProfileID string            `json:"server_profile_id,omitempty"`
+	ModelAliases    map[string]string `json:"model_aliases,omitempty"`
 	// InsecureHTTPAuthorizedURL registra o aceite explícito para enviar
 	// credenciais a uma URL HTTP remota. O valor precisa corresponder exatamente
 	// a BaseURL; por isso qualquer alteração invalida automaticamente o aceite.
@@ -405,6 +407,12 @@ func (p *ProviderConfig) validate(allowPendingHTTPAuthorization, allowInvalidBas
 		return fmt.Errorf("chatgpt_invalid_connection_configuration")
 	}
 
+	if err := llmcatalog.ValidateAliases(p.ModelAliases); err != nil {
+		return err
+	}
+	if len(p.ModelAliases) > 0 && (p.IsACP() || p.Type == ProviderChatGPT) {
+		return fmt.Errorf("model_aliases exige uma conexão HTTP de modelos")
+	}
 	p.ID = strings.TrimSpace(p.ID)
 	p.Name = strings.TrimSpace(p.Name)
 	p.BaseURL = strings.TrimSpace(p.BaseURL)

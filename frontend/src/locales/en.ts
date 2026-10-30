@@ -2568,6 +2568,14 @@ const en = {
     },
 
     providerForm: {
+      aliases: {
+        title: "Model bindings for this connection",
+        remote: "Exact server model ID",
+        description: "Select or enter a remote ID and associate it with a catalog model. The binding provides limits and parameters; it does not change the submitted ID or grant access to the model.",
+        canonical: "Catalog model",
+        none: "No private binding",
+        missing: "{{id}} (missing from catalog)",
+      },
     authMode: 'Authentication',
     authModes: { required: 'Required', optional: 'Optional', none: 'No authentication' },
       useSavedCredential: "Use the existing credential for this domain",

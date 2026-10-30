@@ -52,6 +52,7 @@ interface Provider {
   type: string;
   api_format?: string;
   server_profile_id?: string;
+  model_aliases?: Record<string, string>;
   insecure_http_authorized_url?: string;
   base_url: string;
   credential_required: boolean;
@@ -207,6 +208,7 @@ export default function ProvidersPage() {
       default_model: (provider as Provider).default_model || '',
       api_format: (provider as Provider).api_format || '',
       server_profile_id: provider.server_profile_id,
+      model_aliases: provider.model_aliases,
       insecure_http_authorized_url: provider.insecure_http_authorized_url,
       acp_command: provider.acp_command || '',
       acp_args: provider.acp_args || [],
@@ -262,6 +264,7 @@ export default function ProvidersPage() {
       base_url: provider.base_url,
       api_format: (provider as Provider).api_format || undefined,
       server_profile_id: provider.server_profile_id || undefined,
+      model_aliases: provider.model_aliases,
       // O aceite é por conexão: uma cópia precisa da própria autorização.
       insecure_http_authorized_url: undefined,
       auth_mode: provider.api_format === AGENT_API_FORMAT ? undefined : provider.auth_mode,
