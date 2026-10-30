@@ -35,6 +35,9 @@ antes de converter os registros. Preserve-o até confirmar a inicialização.
 Se o backup falhar, a conversão não começa; se a conversão falhar, as novas
 tabelas são revertidas e as mensagens originais são preservadas. Essa etapa
 prepara o armazenamento, sem alterar ainda a apresentação das conversas.
+Se a migração do histórico estiver aguardando a adoção dos dados antigos, o
+chat recusa novos envios antes de salvar a pergunta. Conclua o login de adoção
+e reinicie o aplicativo para completar a migração; o login continua disponível.
 
 O log de inicialização inclui uma linha do componente
 `database.upgrade-diagnostic` com:
@@ -62,3 +65,15 @@ Não apague os arquivos legados nem use a limpeza de canais antes de confirmar
 que os recursos foram importados. Restaure a cópia da pasta de dados e abra
 uma issue informando a versão de origem, a versão de destino e o diagnóstico
 local sem PII.
+
+
+O diretório `.assistente-chat-executions`, junto ao banco, guarda os controles
+de posse das gerações. Preserve-o com os dados e não o limpe enquanto houver
+processos do Assistente abertos. Ele permite distinguir uma geração interrompida
+de uma geração ainda ativa em outra interface.
+
+Se o diagnóstico informar que o controle de uma geração está indisponível, o
+aplicativo mantém essa tentativa pendente e continua abrindo as demais conversas.
+Para restaurá-la, encerre todas as interfaces do Assistente, inclusive a CLI,
+restaure uma cópia consistente da pasta de dados (banco e controles) e abra o
+aplicativo novamente. Não crie um arquivo vazio para substituir o controle perdido.

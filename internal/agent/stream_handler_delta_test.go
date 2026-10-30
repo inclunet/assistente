@@ -257,7 +257,7 @@ func TestAgenticDiscardReasoningPreservaDiagnosticosTerminais(t *testing.T) {
 
 func TestSimpleStreamHandlerFlushesBeforeToolAndError(t *testing.T) {
 	emitter := &captureEmitter{}
-	service := NewService(ServiceConfig{Emitter: emitter, MsgRepo: &inMemoryMsgRepo{}})
+	service := newTestAgentService(ServiceConfig{Emitter: emitter, MsgRepo: &inMemoryMsgRepo{}})
 	handler, err := service.NewSimpleStreamHandler(context.Background(), "conversation-1", "turn-1", "", nil)
 	if err != nil {
 		t.Fatalf("NewSimpleStreamHandler: %v", err)
@@ -304,7 +304,7 @@ func TestSimpleStreamHandlerFlushesBeforeToolAndError(t *testing.T) {
 
 func TestSimpleStreamHandlerFlushesBeforeSegmentAndResetsNextDelta(t *testing.T) {
 	emitter := &captureEmitter{}
-	service := NewService(ServiceConfig{Emitter: emitter, MsgRepo: &inMemoryMsgRepo{}})
+	service := newTestAgentService(ServiceConfig{Emitter: emitter, MsgRepo: &inMemoryMsgRepo{}})
 	handler, err := service.NewSimpleStreamHandler(context.Background(), "conversation-1", "turn-1", "", nil)
 	if err != nil {
 		t.Fatalf("NewSimpleStreamHandler: %v", err)
@@ -334,7 +334,7 @@ func TestSimpleStreamHandlerFlushesBeforeSegmentAndResetsNextDelta(t *testing.T)
 
 func TestSimpleStreamHandlerFlushesBeforeDoneAndOutputLimit(t *testing.T) {
 	emitter := &captureEmitter{}
-	service := NewService(ServiceConfig{Emitter: emitter, MsgRepo: &inMemoryMsgRepo{}})
+	service := newTestAgentService(ServiceConfig{Emitter: emitter, MsgRepo: &inMemoryMsgRepo{}})
 	handler, err := service.NewSimpleStreamHandler(context.Background(), "conversation-1", "turn-1", "", nil)
 	if err != nil {
 		t.Fatalf("NewSimpleStreamHandler: %v", err)

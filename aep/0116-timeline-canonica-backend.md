@@ -1,6 +1,6 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — fase 1 concluída; fase 2 com identidade, hidratação e base persistente de turnos
+## Status: In Progress — fase 1 concluída; fase 2 com identidade, hidratação e lifecycle persistente integrado
 
 Data: 2026-10-30
 
@@ -263,9 +263,8 @@ consulta, vínculo de mensagem, prompt e contagem sem duplicação. Este recorte
 fecha a fronteira de leitura da issue #962; normalizações na escrita do ledger,
 lifecycle/cleanup e consumidores visuais antigos continuam pendentes conforme
 os limites acima. Não conclui a projeção incremental nem a fase 2.
-Pendências da fase 2: projeção incremental de segmentos, estado persistente de
-turnos/tentativas, sequência/época, cursores, inscrições de janela e recuperação
-unificada. As caixas acima permanecem abertas; este recorte não corrige sozinho
+Pendências da fase 2: projeção incremental de segmentos, sequência/época,
+cursores, inscrições de janela e recuperação unificada da projeção. As caixas acima permanecem abertas; este recorte não corrige sozinho
 ordenação ou foco da UI e não conclui a fase 2.
 
 Terceiro recorte da fase 2: migração v41 (aguarda a conclusão da v19, inclusive
@@ -285,21 +284,75 @@ o turno. Finalização pode compartilhar a transação do chamador que grava
 resposta/usage. Recuperação marca tentativas interrompidas por reinício,
 limitada ao usuário; sua chamada deve anteceder a admissão dos workers.
 
-**Limite explícito:** o pipeline atual ainda não escreve nem lê estas tabelas.
-O backfill é um retrato da migração, não uma segunda autoridade de runtime.
-Antes de ativar o repositório no pipeline, o próximo recorte deve reconciliar
-transacionalmente mensagens novas, retry/edições e importações ocorridas após
-v41, sem reclassificar tentativas canônicas. Integrar todos os caminhos
-terminais e recuperação antes dos workers no mesmo corte; não usar esse
-retrato incompleto como fonte da janela. Não há trigger inferindo lifecycle
-nem escrita parcial em alguns fluxos de envio. A projeção incremental e a
-migração do frontend continuam pendentes; este recorte não corrige foco/ordem.
+O terceiro recorte preparou o armazenamento sem ativá-lo. A integração abaixo
+reconcilia o intervalo entre a migração e sua ativação antes de usar os vínculos.
 
 Evidências: `chat_turn_repository_test.go` cobre concorrência, terminal
 atrasado, escopo por usuário, constraints, rollback junto da resposta,
 recuperação, cascata, lotes, idempotência, backup restaurável e rollback de
 schema. `TestPublishedRelease*` verifica upgrades das fixtures publicadas e
 reabertura. Testes ACP locais permanecem excluídos por orientação do mantenedor.
+
+Quarto recorte da fase 2: lifecycle integrado ao único pipeline de envio.
+
+- [x] Admitir tentativa após confirmar a pergunta e antes de preparar a resposta;
+  retry/continue ganham executionId, recovery de transporte preserva a tentativa.
+- [x] Criar/reutilizar response_message_id explícito em transação vinculada à tentativa ativa;
+  continuação lê esse ID exato, sem selecionar o primeiro assistant nem normalizá-lo.
+- [x] Confirmar resposta, reasoning, usage e terminal atomicamente; rejeitar gravações
+  parciais e terminais antigos por executionId antes de tocar no conteúdo.
+- [x] Encerrar erros de preparação/provider, cancelamento, limites e panic; garantir
+  chat:done mesmo se TTS/notificação falhar após um commit confirmado.
+- [x] Recuperar tentativas sem lease vivo antes dos workers e reconciliar
+  legados sem tentativas; retry/continue também reconciliam esse subconjunto.
+- [x] Importar mensagens e metadados juntos, com origem imported e estado
+  historical_unknown, sem restaurar execuções ou inferir sucesso pelo texto.
+
+Falha de persistência publica erro sem patch obsoleto. Se o terminal também não
+puder ser salvo, o Service retém apenas a chave usuário/conversa/turno e executionId
+que ele encerrou localmente. Antes de novo BeginTurn, confirma failed/persistence_error
+para essa execução por CAS. Erro mantém a pendência e impede nova admissão; stale
+remove a pendência sem alterar execução posterior. Não recupera execução viva por
+relógio ou pelo conteúdo. Reinício usa a recuperação persistente já definida.
+
+Evidências: `TestTurnExecution*` verifica atomicidade, writes atrasados, reconciliação
+e recuperação no boot; `TestTurnRuntime*` usa SQLite real para recovery de transporte,
+retry, cancelamento, falhas de placeholder/gravação/terminal, ID opaco, provider sem
+terminal e panic pós-commit; `TestImportConversationCreatesHistoricalTurnAtomically`
+prova importação com rollback. Fixtures isoladas de handlers recebem TurnStore
+explícito; produção exige o repositório real. Nenhum teste ACP local foi executado.
+
+Revisão remota deste recorte: a reserva desktop não exclui CLI (AEP-0111).
+Cada worker adquire lease nativo de executionId antes da admissão no banco e o
+mantém até terminar seus writes e liberar a execução. Startup só recupera uma
+tentativa cujo lease consiga adquirir, confirmando o terminal por CAS; posse
+ocupada preserva a tentativa viva, independentemente da superfície. Não inferir
+morte por PID, tempo ou disponibilidade do lock desktop. A migração v42 adiciona somente lease_path à tentativa. Sidecars privados e
+estáveis ficam junto do banco; o endereço absoluto é gravado antes de publicar
+active_execution_id. Recuperação abre exatamente esse endereço, inclusive com
+cache/ambiente divergentes ou banco acessado por hardlink; não recria arquivo
+ausente como prova de morte. Controle ilegível preserva a tentativa ativa, registra
+diagnóstico e não bloqueia a recuperação das demais nem o startup. A ação de
+operação é encerrar todas as interfaces e restaurar cópia consistente da pasta
+de dados (banco e controles); não oferecer encerramento forçado sem prova de posse.
+Recusas comprovadas antes do INSERT removem o sidecar ainda não admitido; falhas
+de armazenamento/COMMIT preservam-no porque o resultado pode ser ambíguo.
+Não são conteúdo nem executáveis. Cópia/movimentação
+de banco ativo entre máquinas/usuários e remoção externa dos sidecars não são
+prova suportada de encerramento. V41/v42 pendentes bloqueiam o
+envio antes de gravar a pergunta, mantendo login/adoção disponíveis para concluir
+o upgrade no próximo boot. `TestTurnRuntimeStartupPreservesLiveCLIAndRecoversReleasedExecution`,
+`TestExecutionLeaseExcludesAnotherOwnerUntilReleased` e
+`TestSendMessageRejectsPendingTurnMigrationBeforeWriting` verificam essas fronteiras.
+Reconciliação não atualiza representante inalterado; a leitura legada em lotes
+continua necessária para detectar escritas de versões anteriores após v41. Não
+adicionar um segundo checkpoint derivado sem contrato de invalidação.
+
+
+Limite: a janela e o patch visual ainda usam o contrato legado. Projeção incremental,
+época/sequência, recuperação de conteúdo volatile e cutover do frontend permanecem
+pendentes; esta entrega não declara corrigidos foco/ordem da UI nem conclui a fase 2.
+Não há consulta por delta nem duplicação de conteúdo em chat_turns.
 
 ### Fase 3 — Consumidor frontend e remoções
 

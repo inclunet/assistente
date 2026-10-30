@@ -138,10 +138,23 @@ func backupChatTurns(db *gorm.DB) error {
 }
 
 func backfillChatTurns(tx *gorm.DB) error {
+	return reconcileLegacyChatTurns(tx, "", "")
+}
+
+// Recalcula somente registros sem tentativa canônica. O filtro opcional é usado
+// ao iniciar retry/continue de histórico importado durante a sessão.
+func reconcileLegacyChatTurns(tx *gorm.DB, turnID, conversationID string) error {
 	const batchSize = 128
 	cursor := ""
 	var orphaned int64
-	if err := tx.Model(&ChatMessage{}).Where("role = 'user' AND NOT EXISTS (SELECT 1 FROM conversations c WHERE c.id = chat_messages.conversation_id)").Count(&orphaned).Error; err != nil {
+	orphanQuery := tx.Model(&ChatMessage{}).Where("role = 'user' AND NOT EXISTS (SELECT 1 FROM conversations c WHERE c.id = chat_messages.conversation_id)")
+	if conversationID != "" {
+		orphanQuery = orphanQuery.Where("conversation_id = ?", conversationID)
+	}
+	if turnID != "" {
+		orphanQuery = orphanQuery.Where("id = ?", turnID)
+	}
+	if err := orphanQuery.Count(&orphaned).Error; err != nil {
 		return err
 	}
 	if orphaned > 0 {
@@ -149,7 +162,14 @@ func backfillChatTurns(tx *gorm.DB) error {
 	}
 	for {
 		var questions []ChatMessage
-		if err := tx.Select("id,conversation_id,parent_id").Where("role = 'user' AND id > ? AND EXISTS (SELECT 1 FROM conversations c WHERE c.id = chat_messages.conversation_id)", cursor).
+		query := tx.Where("NOT EXISTS (SELECT 1 FROM chat_turn_attempts a WHERE a.turn_id = chat_messages.id)")
+		if conversationID != "" {
+			query = query.Where("conversation_id = ?", conversationID)
+		}
+		if turnID != "" {
+			query = query.Where("id = ?", turnID)
+		}
+		if err := query.Select("id,conversation_id,parent_id").Where("role = 'user' AND id > ? AND EXISTS (SELECT 1 FROM conversations c WHERE c.id = chat_messages.conversation_id)", cursor).
 			Order("id").Limit(batchSize).Find(&questions).Error; err != nil {
 			return err
 		}
@@ -187,11 +207,15 @@ func backfillChatTurns(tx *gorm.DB) error {
 			}
 			// Reexecução após crash entre commit e schema_migrations não reclassifica estado ativo.
 			if err := tx.Exec(`INSERT INTO chat_turns(user_message_id,conversation_id,response_message_id,state,origin)
- VALUES (?,?,?,'historical_unknown','legacy') ON CONFLICT(user_message_id) DO NOTHING`, question.ID, question.ConversationID, responseID).Error; err != nil {
+ VALUES (?,?,?,'historical_unknown','legacy') ON CONFLICT(user_message_id) DO UPDATE SET response_message_id=excluded.response_message_id
+ WHERE chat_turns.response_message_id IS NOT excluded.response_message_id AND chat_turns.active_execution_id IS NULL AND NOT EXISTS (SELECT 1 FROM chat_turn_attempts a WHERE a.turn_id=excluded.user_message_id)`, question.ID, question.ConversationID, responseID).Error; err != nil {
 				return err
 			}
 		}
 		cursor = questions[len(questions)-1].ID
+	}
+	if turnID != "" || conversationID != "" {
+		return nil
 	}
 	var invalid int64
 	if err := tx.Raw(`SELECT count(*) FROM chat_messages m LEFT JOIN chat_messages q ON q.id=m.turn_id

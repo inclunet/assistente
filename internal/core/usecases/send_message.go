@@ -203,6 +203,10 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 		return "", fmt.Errorf("%s", errMsg)
 	}
 
+	if err := uc.agentSvc.CheckTurnStorageReady(ctx); err != nil {
+		return "", err
+	}
+
 	var retryUserMsg *chat.Message
 	if req.RetryMessageID != "" {
 		reused, err := uc.chatInteractor.GetRetryableUserMessage(ctx, req.ConversationID, req.RetryMessageID)
@@ -390,6 +394,11 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 	userContent := mediaResolution.Content
 
 	var userMsg *chat.Message
+	defer func() {
+		if !handedOff && userMsg != nil {
+			uc.agentSvc.EndUnfinishedTurn(ctx, req.ConversationID, userMsg.ID, surfaceOrigin)
+		}
+	}()
 	var messages []llm.Message
 	var conversationSummary string
 	if mediaResolution.NeedsSTT {
@@ -439,6 +448,22 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 		}
 	}
 	if req.RetryMessageID != "" {
+		userMsg = retryUserMsg
+		mode := database.TurnModeRetry
+		if params.AllowAssistantPrefill || params.ContinueViaUserMessage {
+			mode = database.TurnModeContinue
+		}
+		ctx, err = uc.agentSvc.BeginTurn(ctx, req.ConversationID, userMsg.ID, mode)
+		if err != nil {
+			return "", err
+		}
+		responseID := ""
+		if mode == database.TurnModeContinue {
+			responseID, err = uc.agentSvc.EnsureTurnResponse(ctx, req.ConversationID, userMsg.ID)
+			if err != nil {
+				return "", err
+			}
+		}
 		if mediaResolution.NeedsSTT {
 			if err := uc.chatInteractor.PersistUserTranscription(ctx, retryUserMsg.ID, userContent); err != nil {
 				return "", err
@@ -451,6 +476,7 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 			ActiveProfile:        activeProfile,
 			MaxContextMessages:   params.MaxContextMessages,
 			ExplicitContinuation: params.AllowAssistantPrefill || params.ContinueViaUserMessage,
+			ResponseMessageID:    responseID,
 		}, retryUserMsg)
 		if err != nil {
 			return "", err
@@ -483,6 +509,14 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 			ActiveProfile:      activeProfile,
 			MaxContextMessages: params.MaxContextMessages,
 		})
+		if rmsg != nil && rmsg.UserMsg != nil {
+			userMsg = rmsg.UserMsg
+			var beginErr error
+			ctx, beginErr = uc.agentSvc.BeginTurn(ctx, req.ConversationID, userMsg.ID, database.TurnModeNew)
+			if beginErr != nil {
+				return "", beginErr
+			}
+		}
 		if err != nil {
 			return "", err
 		}
@@ -751,6 +785,7 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 			// Registrado antes do recover para executar por último (LIFO): a
 			// recuperação também pode persistir e deve permanecer sob o gate.
 			defer req.finishExecution()
+			defer uc.agentSvc.EndUnfinishedTurn(agentCtx, req.ConversationID, userMsg.ID, surfaceOrigin)
 			defer func() {
 				r := recover()
 				uc.agentSvc.HandleRecoveredPanic(agentCtx, req.ConversationID, userMsg.ID, "runAgenticLoop", r, surfaceOrigin)
@@ -772,6 +807,7 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 		go func() {
 			// Mantém o contexto registrado até o handler de panic concluir eventuais writes.
 			defer req.finishExecution()
+			defer uc.agentSvc.EndUnfinishedTurn(convCtx, req.ConversationID, userMsg.ID, surfaceOrigin)
 			defer func() {
 				r := recover()
 				uc.agentSvc.HandleRecoveredPanic(convCtx, req.ConversationID, userMsg.ID, "StreamChat", r, surfaceOrigin)

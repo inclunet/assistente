@@ -19,7 +19,7 @@ func TestSummarySurvivesCompletedExecution(t *testing.T) {
 	defer finish()
 	released := make(chan struct{})
 	result := make(chan error, 1)
-	service := NewService(ServiceConfig{
+	service := newTestAgentService(ServiceConfig{
 		Emitter: &mockEmitter{}, MsgRepo: &mockMsgRepo{},
 		TriggerSummarize: func(summaryCtx context.Context, _, _ string, outputLimit int) {
 			<-released

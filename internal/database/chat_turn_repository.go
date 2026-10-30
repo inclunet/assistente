@@ -58,13 +58,31 @@ func (r *ChatTurnRepository) Begin(ctx context.Context, conversationID, turnID, 
 	if err != nil {
 		return nil, err
 	}
-	attempt := &ChatTurnAttempt{ExecutionID: id.String(), TurnID: turnID, Mode: mode, State: TurnPreparing, StartedAt: time.Now().UTC()}
+	return r.BeginExecution(ctx, conversationID, turnID, responseID, mode, id.String(), "")
+}
+
+// BeginExecution admite o ID cujo lease o worker já adquiriu. Begin é a API
+// de armazenamento isolado; o pipeline usa BeginExecution com posse comprovada.
+func (r *ChatTurnRepository) BeginExecution(ctx context.Context, conversationID, turnID, responseID, mode, executionID, leasePath string) (*ChatTurnAttempt, error) {
+	if mode != TurnModeNew && mode != TurnModeRetry && mode != TurnModeContinue {
+		return nil, ErrChatTurnInvalid
+	}
+	parsed, err := uuid.Parse(executionID)
+	if err != nil || parsed.Version() != 7 || parsed.String() != executionID {
+		return nil, ErrChatTurnInvalid
+	}
+	attempt := &ChatTurnAttempt{ExecutionID: executionID, TurnID: turnID, Mode: mode, State: TurnPreparing, StartedAt: time.Now().UTC()}
 	err = r.transaction(ctx, func(tx *gorm.DB) error {
 		userID, _ := RequireUserID(ctx)
 		var question ChatMessage
 		if err := tx.Table("chat_messages").Select("chat_messages.*").Joins("JOIN conversations c ON c.id = chat_messages.conversation_id").
 			Where("c.user_id = ? AND c.id = ? AND chat_messages.id = ? AND chat_messages.role = 'user'", userID, conversationID, turnID).Take(&question).Error; err != nil {
 			return err
+		}
+		if mode != TurnModeNew {
+			if err := reconcileLegacyChatTurns(tx, turnID, conversationID); err != nil {
+				return err
+			}
 		}
 		turn, err := scopedChatTurn(ctx, tx, conversationID, turnID)
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -99,6 +117,11 @@ func (r *ChatTurnRepository) Begin(ctx context.Context, conversationID, turnID, 
 		}
 		if err := tx.Create(attempt).Error; err != nil {
 			return err
+		}
+		if leasePath != "" {
+			if err := tx.Exec("UPDATE chat_turn_attempts SET lease_path = ? WHERE execution_id = ?", leasePath, executionID).Error; err != nil {
+				return err
+			}
 		}
 		return tx.Model(&ChatTurn{}).Where("user_message_id = ?", turnID).Updates(map[string]any{
 			"state": TurnPreparing, "active_execution_id": attempt.ExecutionID, "response_message_id": turn.ResponseMessageID,

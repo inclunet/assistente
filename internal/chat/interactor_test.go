@@ -575,11 +575,20 @@ func TestReuseLoadedUserMessage_AnchorsRetryAtSelectedTurnAndPreservesExplicitCo
 	}
 	interactor := NewInteractor(InteractorConfig{Emitter: &spyEmitter{}, Repo: repo})
 	selected := repo.messages[0]
+	repo.getMessage = func(id string) (*database.ChatMessage, error) {
+		for _, message := range repo.turnMessages {
+			if message.ID == id {
+				return &message, nil
+			}
+		}
+		return nil, errors.New("mensagem não encontrada")
+	}
 
 	response, err := interactor.ReuseLoadedUserMessage(context.Background(), RecordUserMessageRequest{
 		ConversationID:       "conv-1",
 		MaxContextMessages:   50,
 		ExplicitContinuation: true,
+		ResponseMessageID:    "a-1",
 	}, &selected)
 	if err != nil {
 		t.Fatalf("reuse retry: %v", err)

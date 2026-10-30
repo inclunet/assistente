@@ -49,7 +49,7 @@ func TestACPCronologiaNoTerminalEReabertura(t *testing.T) {
 			ctx, cancel := context.WithCancel(database.WithUserID(context.Background(), "user"))
 			defer cancel()
 			emitter := &mockEmitter{}
-			svc := NewService(ServiceConfig{Emitter: emitter, MsgRepo: chat.NewDBMessageStore(), ToolInvocations: toolinvocations.NewService(toolinvocations.NewDBRepository(db), nil)})
+			svc := newTestAgentService(ServiceConfig{Emitter: emitter, MsgRepo: chat.NewDBMessageStore(), ToolInvocations: toolinvocations.NewService(toolinvocations.NewDBRepository(db), nil)})
 			texts := []string{"Vou ler ação. ", "Agora executar. ", "Conclusão."}
 			if outcome == "empty_tail" {
 				texts[2] = ""
@@ -111,7 +111,7 @@ func TestACPCronologiaNoTerminalEReabertura(t *testing.T) {
 			}
 			assertOrder(done.TurnPatch)
 			// Outra instância, sem estado do streaming: só mensagens e ledger.
-			reopened := NewService(ServiceConfig{MsgRepo: chat.NewDBMessageStore()})
+			reopened := newTestAgentService(ServiceConfig{MsgRepo: chat.NewDBMessageStore()})
 			patch, err := reopened.buildTurnPatch(database.WithUserID(context.Background(), "user"), "conv", "turn")
 			if err != nil {
 				t.Fatal(err)

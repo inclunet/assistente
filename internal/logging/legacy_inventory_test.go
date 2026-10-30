@@ -51,8 +51,9 @@ const (
 	// O onboarding reutiliza ProviderForm e remove os oito formatos do percurso
 	// paralelo de sondagem, credencial e criação do WelcomeController.
 	// A listagem TTS por catálogo elimina seis formatos normalizados da sondagem removida.
-	expectedLegacyFormatCount  = 712
-	expectedLegacyFormatDigest = "5cf5faeb46e9b7bc4f6d852fac0150d92ff3ef1ba8980e95966614aba0504c22"
+	// O lifecycle propaga falha de parcial ao terminal e remove um aviso legado.
+	expectedLegacyFormatCount  = 711
+	expectedLegacyFormatDigest = "a7080626389ea863cc1db25c29b5b8e26e2b6a02aaadb4a3ed3d585bb012a6ae"
 )
 
 // TestLegacyLoggingInventory mantém reproduzível o inventário da issue #675.

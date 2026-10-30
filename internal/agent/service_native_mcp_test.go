@@ -164,7 +164,7 @@ func TestPersistNativeMCPCalls_RecordsToolInvocation(t *testing.T) {
 	exec := tools.NewExecutor(registry, tools.DefaultExecutorConfig())
 	invSvc := toolinvocations.NewService(repo, exec)
 
-	svc := NewService(ServiceConfig{
+	svc := newTestAgentService(ServiceConfig{
 		MsgRepo:         msgRepoStub{conversationID: "conv-1"},
 		ToolInvocations: invSvc,
 	})
@@ -267,7 +267,7 @@ func TestPersistNativeMCPCalls_RecordsToolInvocation(t *testing.T) {
 
 func TestPersistNativeMCPCalls_SemLedgerNaoCriaFallbackEmMensagem(t *testing.T) {
 	msgRepo := &capturingMsgRepo{conversationID: "conv-1"}
-	svc := NewService(ServiceConfig{MsgRepo: msgRepo})
+	svc := newTestAgentService(ServiceConfig{MsgRepo: msgRepo})
 
 	ctx := database.WithUserID(context.Background(), "user-mcp")
 	svc.persistNativeMCPCalls(ctx, "conv-1", "turn-1", []llm.MCPToolEvent{{

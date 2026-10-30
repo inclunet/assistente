@@ -432,6 +432,16 @@ var schemaMigrations = []migration{
 		}
 		return migrateChatTurns(database)
 	}},
+	{Version: 42, Name: "chat_turn_execution_leases", Phase: phasePostAutoMigrate, Run: func(database *gorm.DB) error {
+		applied, err := appliedMigrationVersions(database)
+		if err != nil {
+			return err
+		}
+		if !applied[41] {
+			return errMigrationDeferred
+		}
+		return migrateChatTurnLeases(database)
+	}},
 }
 
 // runMigrations aplica, na ordem de Version, todas as migrações da fase
