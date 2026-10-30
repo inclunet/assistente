@@ -118,8 +118,8 @@ func (t *GetMessagesTool) Execute(ctx context.Context, args json.RawMessage) (to
 	expandedTurns := make(map[string]struct{})
 	requestedTurns := make([]requestedTurn, 0, len(params.IDs))
 	for _, rawID := range params.IDs {
-		id := strings.TrimSpace(rawID)
-		if id == "" {
+		id := rawID
+		if strings.TrimSpace(id) == "" {
 			return toolArgumentError("ids must not contain empty message IDs"), nil
 		}
 		if _, duplicate := seen[id]; duplicate {
@@ -137,13 +137,13 @@ func (t *GetMessagesTool) Execute(ctx context.Context, args json.RawMessage) (to
 
 		turnID := ""
 		if msg.TurnID != nil {
-			turnID = strings.TrimSpace(*msg.TurnID)
+			turnID = *msg.TurnID
 		} else if msg.Role == "user" {
 			// TurnID aponta para a mensagem user raiz; nela própria o campo pode
 			// ser nulo, então o ID da mensagem identifica o turno.
 			turnID = msg.ID
 		}
-		if params.IncludeToolResults && turnID != "" {
+		if params.IncludeToolResults && strings.TrimSpace(turnID) != "" {
 			turnKey := msg.ConversationID + "\x00" + turnID
 			if _, expanded := expandedTurns[turnKey]; expanded {
 				continue
@@ -195,8 +195,8 @@ func (t *GetMessagesTool) appendRequestedToolResults(
 	}
 	for _, turn := range turns {
 		for _, display := range displays[turn.TurnID] {
-			ledgerID := strings.TrimSpace(display.LedgerID)
-			if ledgerID == "" {
+			ledgerID := display.LedgerID
+			if strings.TrimSpace(ledgerID) == "" {
 				ledgerID = turn.TurnID + ":" + display.ID
 			}
 			if _, duplicate := seen[ledgerID]; duplicate {

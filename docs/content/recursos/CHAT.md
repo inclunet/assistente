@@ -59,6 +59,10 @@ Pergunta e resposta permanecem separadas. Ao concluir o turno, a atualização
 da resposta usa o texto do assistente, inclusive ao retomar históricos antigos;
 o texto da pergunta não deve aparecer no lugar da resposta.
 
+Ao consultar resultados de ferramentas no histórico ou preparar um resumo, cada
+resultado permanece vinculado à sua mensagem e ao seu turno. Referências distintas
+do histórico são preservadas, sem misturar resultados entre respostas.
+
 ## Retry e persistência
 
 Repetir uma mensagem usa a pergunta raiz selecionada como âncora. O histórico e

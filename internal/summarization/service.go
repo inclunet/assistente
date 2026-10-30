@@ -125,8 +125,8 @@ func summarizationInvocationResultsFromDisplays(displays map[string][]toolinvoca
 	out := make(map[string]map[string]summarizationInvocationResult, len(displays))
 	for turnID, calls := range displays {
 		for _, call := range calls {
-			callID := strings.TrimSpace(call.ID)
-			if callID == "" {
+			callID := call.ID
+			if strings.TrimSpace(callID) == "" {
 				continue
 			}
 			byCall := out[turnID]
@@ -149,10 +149,10 @@ func summarizationInvocationResultsFromDisplays(displays map[string][]toolinvoca
 }
 
 func summarizationInvocationResultMatchesMessage(m chat.Message, result summarizationInvocationResult) bool {
-	assistantMessageID := strings.TrimSpace(result.AssistantMessageID)
-	messageID := strings.TrimSpace(m.ID)
-	if assistantMessageID == "" {
-		return messageID == ""
+	assistantMessageID := result.AssistantMessageID
+	messageID := m.ID
+	if strings.TrimSpace(assistantMessageID) == "" {
+		return strings.TrimSpace(messageID) == ""
 	}
 	return messageID == assistantMessageID
 }
@@ -166,8 +166,8 @@ func assignUnscopedSummarizationInvocationResults(messages []chat.Message, invoc
 		if msg.Role != "assistant" || msg.TurnID == nil {
 			continue
 		}
-		turnID := strings.TrimSpace(*msg.TurnID)
-		if turnID == "" {
+		turnID := *msg.TurnID
+		if strings.TrimSpace(turnID) == "" {
 			continue
 		}
 		assistantsByTurn[turnID] = append(assistantsByTurn[turnID], msg)
@@ -296,8 +296,8 @@ func appendSummarizationInvocationResults(sb *strings.Builder, m chat.Message, i
 	if m.TurnID == nil {
 		return
 	}
-	turnID := strings.TrimSpace(*m.TurnID)
-	if turnID == "" {
+	turnID := *m.TurnID
+	if strings.TrimSpace(turnID) == "" {
 		return
 	}
 	byCall := invocationResults[turnID]
@@ -306,8 +306,7 @@ func appendSummarizationInvocationResults(sb *strings.Builder, m chat.Message, i
 	}
 	callIDs := make([]string, 0, len(byCall))
 	for callID := range byCall {
-		callID = strings.TrimSpace(callID)
-		if callID == "" {
+		if strings.TrimSpace(callID) == "" {
 			continue
 		}
 		if _, ok := skip[summarizationInvocationResultKey(turnID, callID)]; ok {
@@ -344,7 +343,7 @@ func appendSummarizationInvocationResults(sb *strings.Builder, m chat.Message, i
 }
 
 func summarizationInvocationResultKey(turnID, callID string) string {
-	return strings.TrimSpace(turnID) + "\x00" + strings.TrimSpace(callID)
+	return turnID + "\x00" + callID
 }
 
 func truncateUTF8Safe(s string, maxBytes int) string {
@@ -761,13 +760,12 @@ func estimateHydratedToolResultTokens(messages []chat.Message, invocationResults
 		if m.TurnID == nil {
 			continue
 		}
-		turnID := strings.TrimSpace(*m.TurnID)
-		if turnID == "" {
+		turnID := *m.TurnID
+		if strings.TrimSpace(turnID) == "" {
 			continue
 		}
 		for callID, result := range invocationResults[turnID] {
-			callID = strings.TrimSpace(callID)
-			if callID == "" {
+			if strings.TrimSpace(callID) == "" {
 				continue
 			}
 			countedKey := turnID + "\x00" + callID
@@ -809,8 +807,8 @@ func loadSummarizationToolInvocationResults(ctx context.Context, messages []chat
 		if msg.TurnID == nil {
 			continue
 		}
-		turnID := strings.TrimSpace(*msg.TurnID)
-		if turnID == "" {
+		turnID := *msg.TurnID
+		if strings.TrimSpace(turnID) == "" {
 			continue
 		}
 		if _, ok := seen[turnID]; ok {
