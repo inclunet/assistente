@@ -498,7 +498,8 @@ class TTSService {
     this.activeStreamAbort = abort;
 
     let complete!: () => void;
-    const streamPromise = new Promise<void>(resolve => { complete = resolve; });
+    let fail!: (error: Error) => void;
+    const streamPromise = new Promise<void>((resolve, reject) => { complete = resolve; fail = reject; });
     const finish = () => { clearTimeout(timeout); complete(); };
     const cancel = () => {
       if (this.activeStreamAbort === abort) streamPlayer.stop();
@@ -516,7 +517,7 @@ class TTSService {
         onStarted?.();
       },
       onEnd: () => { finish(); this.emit('speakEnd'); },
-      onError: () => { finish(); this.emit('speakEnd'); },
+      onError: error => { clearTimeout(timeout); fail(error); },
     });
 
     try {

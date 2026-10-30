@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-const provider = vi.hoisted(() => ({ stop: vi.fn(), setRate: vi.fn(async () => {}), setVolume: vi.fn(async () => {}), setVoice: vi.fn(async () => {}), speak: vi.fn(async () => {}) }));
+const provider = vi.hoisted(() => ({ isSpeaking: () => false, stop: vi.fn(), setRate: vi.fn(async () => {}), setVolume: vi.fn(async () => {}), setVoice: vi.fn(async () => {}), speak: vi.fn(async () => {}) }));
 vi.mock('./factory', () => ({ ttsFactory: { initialize: vi.fn(async () => {}), getProvider: (id: string) => id === 'openai' ? null : provider } }));
 const stream = vi.hoisted(() => ({ startListening: vi.fn(), stop: vi.fn() }));
 vi.mock('./streamPlayer', () => ({ getStreamPlayer: () => stream }));
@@ -59,4 +59,16 @@ it.each(['resolve', 'reject'])('resposta tardia da primeira prévia não interro
  expect(ttsService.isSpeaking()).toBe(true);
  stream.startListening.mock.lastCall?.[1].onEnd();
  await current;
+});
+
+it.each(['resolve', 'reject'])('propaga erro do player antes da resposta HTTP: %s', async outcome => {
+ let finishRPC!: () => void;
+ vi.mocked(SpeakPreview).mockImplementationOnce(() => new Promise<void>((resolve, reject) => {
+   finishRPC = () => outcome === 'resolve' ? resolve() : reject(new Error('falha HTTP tardia'));
+ }));
+ const preview = ttsService.speakWithOverride('teste', { providerId: 'proxy', ttsModel: 'manual' });
+ stream.startListening.mock.lastCall?.[1].onError(new Error('erro de áudio'));
+ await expect(preview).rejects.toThrow('erro de áudio');
+ expect(ttsService.isSpeaking()).toBe(false);
+ finishRPC();
 });

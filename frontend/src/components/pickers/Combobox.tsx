@@ -113,12 +113,15 @@ export const Combobox = ({
             (item.searchText && item.searchText.toLowerCase().includes(filter.toLowerCase()))
         );
         const manualValue = filter.trim();
-        if (allowFreeInput && manualValue && matches.length > 0 && !items.some(item => item.value === manualValue)) {
-            return [{ value: manualValue, label: manualValue }, ...matches];
-        }
-        const exact = matches.find(item => item.value === manualValue);
-        return exact ? [exact, ...matches.filter(item => item !== exact)] : matches;
-    }, [allowFreeInput, filter, items]);
+        const exactID = matches.find(item => item.value === manualValue);
+        const exactLabel = matches.find(item => item.label === manualValue);
+        const options = allowFreeInput && manualValue && matches.length > 0 && !exactID
+            ? [{ value: manualValue, label: manualValue, sublabel: t('pickers.combobox.manualValue') }, ...matches]
+            : matches;
+        const exact = exactID ?? exactLabel;
+        return exact ? [exact, ...options.filter(item => item !== exact)] : options;
+    }, [allowFreeInput, filter, items, t]);
+    const previousResults = useRef({ filter, items: filteredItems, isOpen, selected });
 
     const selectedItem = items.find(i => i.value === selected);
     const selectedLabel = selectedItem?.label || (selected ? selected : effectiveLabel);
@@ -238,11 +241,15 @@ export const Combobox = ({
     }, [isOpen]);
 
     useEffect(() => {
+        const previous = previousResults.current;
+        previousResults.current = { filter, items: filteredItems, isOpen, selected };
         if (!isOpen) return;
-        const currentIdx = filter ? -1 : filteredItems.findIndex(i => i.value === selected);
-        const newIdx = currentIdx >= 0 ? currentIdx : 0;
-        setHighlightIndex(newIdx);
-    }, [filter, filteredItems, isOpen, selected]);
+        const sameQuery = previous.isOpen && previous.filter === filter && previous.selected === selected;
+        const highlightedValue = sameQuery ? previous.items[highlightIndex]?.value : undefined;
+        const retainedIndex = highlightedValue === undefined ? -1 : filteredItems.findIndex(item => item.value === highlightedValue);
+        const selectedIndex = filter ? -1 : filteredItems.findIndex(item => item.value === selected);
+        setHighlightIndex(retainedIndex >= 0 ? retainedIndex : Math.max(selectedIndex, 0));
+    }, [filter, filteredItems, highlightIndex, isOpen, selected]);
 
     useEffect(() => {
         if (!isOpen || !emptyResultsMessage) {

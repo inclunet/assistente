@@ -548,7 +548,7 @@ it.each([['', '{Enter}'], ['voice-extended', '{Enter}'], ['voice-extended', '{Ar
   render(<Combobox items={[{ value: 'voice-extended', label: 'voice-extended' }]} selected={selected} label="Voz manual" onSelect={onSelect} allowFreeInput />);
   await user.click(screen.getByRole('button', { name: /Voz manual/ }));
   await user.type(screen.getByRole('combobox'), 'voice');
-  expect(screen.getByRole('option', { name: 'voice' })).toBeInTheDocument();
+  expect(screen.getAllByRole('option')[0]).toHaveTextContent('pickers.combobox.manualValue');
   await user.keyboard(keys);
   expect(onSelect).toHaveBeenCalledWith('voice', expect.objectContaining({ value: 'voice' }));
 });
@@ -561,4 +561,31 @@ it.each(['', 'bar'])('encontra ID exato com nome amigável e seleção %s', asyn
  await user.type(screen.getByRole('combobox'), 'foo');
  await user.keyboard('{Enter}');
  expect(onSelect).toHaveBeenCalledWith('foo', expect.objectContaining({ label: 'Friendly' }));
+});
+
+it('preserva destaque por ID quando sugestões são atualizadas e reordenadas', async () => {
+ const onSelect = vi.fn();
+ const user = userEvent.setup();
+ const items = [{value:'voice-a',label:'Voice A'}, {value:'voice-b',label:'Voice B'}];
+ const { rerender } = render(<Combobox items={items} selected="voice-a" label="Voz atualizada" onSelect={onSelect} allowFreeInput />);
+ await user.click(screen.getByRole('button', {name:/Voz atualizada/}));
+ await user.type(screen.getByRole('combobox'), 'voice');
+ await user.keyboard('{ArrowDown}{ArrowDown}');
+ rerender(<Combobox items={[{...items[1]}, {...items[0]}]} selected="voice-a" label="Voz atualizada" onSelect={onSelect} allowFreeInput />);
+ await user.keyboard('{Enter}');
+ expect(onSelect).toHaveBeenCalledWith('voice-b', expect.objectContaining({value:'voice-b'}));
+});
+
+it('distingue nome catalogado e ID manual com o mesmo texto', async () => {
+ const onSelect = vi.fn();
+ const user = userEvent.setup();
+ render(<Combobox items={[{value:'v1',label:'Alice'}]} selected="v1" label="Voz nomeada" onSelect={onSelect} allowFreeInput />);
+ await user.click(screen.getByRole('button', {name:/Voz nomeada/}));
+ await user.type(screen.getByRole('combobox'), 'Alice');
+ const options=screen.getAllByRole('option');
+ expect(options[0]).toHaveTextContent('Alice');
+ expect(options[0]).not.toHaveTextContent('pickers.combobox.manualValue');
+ expect(options[1]).toHaveTextContent('pickers.combobox.manualValue');
+ await user.keyboard('{Enter}');
+ expect(onSelect).toHaveBeenCalledWith('v1', expect.objectContaining({value:'v1'}));
 });
