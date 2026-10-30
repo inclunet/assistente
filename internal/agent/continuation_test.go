@@ -43,7 +43,7 @@ func TestStreamSimpleWithRecovery_AllowsAssistantPrefill_EmitsDeltaWithBase(t *t
 		{UUIDModel: database.UUIDModel{ID: "a1"}, ConversationID: "c1", Role: "assistant", Content: "prefill", TurnID: &turnID},
 	}
 	em := &captureEmitter{}
-	svc := NewService(ServiceConfig{Emitter: em, MsgRepo: repo})
+	svc := newTestAgentService(ServiceConfig{Emitter: em, MsgRepo: repo})
 
 	messages := []llm.Message{
 		{Role: "user", Content: "hi"},
@@ -117,7 +117,7 @@ func TestStreamSimpleWithRecovery_ContinueViaUserMessage_FallbackPrompt(t *testi
 		{UUIDModel: database.UUIDModel{ID: "a1"}, ConversationID: "c1", Role: "assistant", Content: "parcial", TurnID: &turnID},
 	}
 	em := &captureEmitter{}
-	svc := NewService(ServiceConfig{Emitter: em, MsgRepo: repo})
+	svc := newTestAgentService(ServiceConfig{Emitter: em, MsgRepo: repo})
 
 	messages := []llm.Message{
 		{Role: "user", Content: "hi"},

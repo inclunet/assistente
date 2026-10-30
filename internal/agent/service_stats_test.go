@@ -24,7 +24,7 @@ func TestSaveAndFinish_DoneEvent_WithLoopStats(t *testing.T) {
 	emitter := &mockEmitter{}
 	repo := &mockMsgRepo{}
 
-	svc := NewService(ServiceConfig{
+	svc := newTestAgentService(ServiceConfig{
 		Emitter: emitter,
 		MsgRepo: repo,
 	})
@@ -113,7 +113,7 @@ func TestSaveAndFinish_DoneEvent_CarregaPatchAutoritativo(t *testing.T) {
 		{UUIDModel: database.UUIDModel{ID: "assistant-2", CreatedAt: base.Add(3 * time.Second)}, ConversationID: "conv-1", Role: "assistant", TurnID: &turnID, Content: "agora vou consultar"},
 	}}
 	emitter := &mockEmitter{}
-	svc := NewService(ServiceConfig{Emitter: emitter, MsgRepo: repo})
+	svc := newTestAgentService(ServiceConfig{Emitter: emitter, MsgRepo: repo})
 
 	svc.SaveAndFinish(database.WithUserID(context.Background(), "user-a"), "conv-1", turnID, "assistant-placeholder", AgenticResult{
 		FullResponse: "resposta final",
@@ -175,7 +175,7 @@ func TestSaveAndFinish_DoneEvent_CarregaPatchAutoritativo(t *testing.T) {
 
 func TestSaveAndFinish_PreservaDesfechoQuandoPatchFalha(t *testing.T) {
 	emitter := &mockEmitter{}
-	svc := NewService(ServiceConfig{
+	svc := newTestAgentService(ServiceConfig{
 		Emitter: emitter,
 		MsgRepo: &mockMsgRepo{turnMessagesError: errors.New("db indisponível")},
 	})
@@ -212,7 +212,7 @@ func TestSaveAndFinish_FinalizeFailureIsTerminalAndRecoverable(t *testing.T) {
 	})
 
 	var summarizeCalls, speechCalls int
-	svc := NewService(ServiceConfig{
+	svc := newTestAgentService(ServiceConfig{
 		Emitter:          emitter,
 		MsgRepo:          repo,
 		ResponseNotifier: notifier,
@@ -267,7 +267,7 @@ func TestBuildTurnPatchSobreviveAoCancelamentoDoTurno(t *testing.T) {
 		TurnID:         &turnID,
 		Content:        "conteúdo parcial persistido",
 	}}}
-	svc := NewService(ServiceConfig{Emitter: &mockEmitter{}, MsgRepo: repo})
+	svc := newTestAgentService(ServiceConfig{Emitter: &mockEmitter{}, MsgRepo: repo})
 	ctx, cancel := context.WithCancel(database.WithUserID(context.Background(), "user-a"))
 	cancel()
 
@@ -300,7 +300,7 @@ func TestBuildTurnPatchSelectsResponseIdentity(t *testing.T) {
 						Role: "assistant", TurnID: &turnID, Content: "resposta correta",
 					})
 				}
-				svc := NewService(ServiceConfig{Emitter: &mockEmitter{}, MsgRepo: repo})
+				svc := newTestAgentService(ServiceConfig{Emitter: &mockEmitter{}, MsgRepo: repo})
 				patch, err := svc.buildTurnPatch(database.WithUserID(context.Background(), "user-a"), "conv", turnID)
 				if err != nil {
 					t.Fatal(err)
@@ -350,7 +350,7 @@ func TestBuildTurnPatchPropagaResultadosEBloqueioDoLedger(t *testing.T) {
 	if err := db.Create(&database.ToolInvocation{UUIDModel: database.UUIDModel{ID: "inv-ledger"}, UserID: "user-a", ToolCatalogID: catalog.ID, OriginType: "chat", OriginID: "assistant-ledger", ConversationID: &conversationID, TurnID: &turnID, ToolCallID: "call-ledger", Status: "succeeded", Metadata: metadata, ResultAvailability: "available"}).Error; err != nil {
 		t.Fatalf("invocation: %v", err)
 	}
-	svc := NewService(ServiceConfig{Emitter: &mockEmitter{}, MsgRepo: repo})
+	svc := newTestAgentService(ServiceConfig{Emitter: &mockEmitter{}, MsgRepo: repo})
 	patch, err := svc.buildTurnPatch(database.WithUserID(context.Background(), "user-a"), "conv-ledger", turnID)
 	if err != nil {
 		t.Fatalf("build patch: %v", err)
@@ -414,7 +414,7 @@ func TestBuildTurnPatchPreservaEscopoDeThread(t *testing.T) {
 			Content:        "resposta na thread",
 		}},
 	}
-	svc := NewService(ServiceConfig{Emitter: &mockEmitter{}, MsgRepo: repo})
+	svc := newTestAgentService(ServiceConfig{Emitter: &mockEmitter{}, MsgRepo: repo})
 
 	patch, err := svc.buildTurnPatch(database.WithUserID(context.Background(), "user-a"), "conv-1", turnID)
 	if err != nil {
@@ -434,7 +434,7 @@ func TestSaveAndFinish_DoneEvent_NilLoopStats(t *testing.T) {
 	emitter := &mockEmitter{}
 	repo := &mockMsgRepo{}
 
-	svc := NewService(ServiceConfig{
+	svc := newTestAgentService(ServiceConfig{
 		Emitter: emitter,
 		MsgRepo: repo,
 	})
@@ -501,7 +501,7 @@ func TestSaveAndFinish_DoneEvent_ZeroToolCalls(t *testing.T) {
 	emitter := &mockEmitter{}
 	repo := &mockMsgRepo{}
 
-	svc := NewService(ServiceConfig{
+	svc := newTestAgentService(ServiceConfig{
 		Emitter: emitter,
 		MsgRepo: repo,
 	})

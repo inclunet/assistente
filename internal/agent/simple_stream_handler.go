@@ -50,7 +50,7 @@ func (s *Service) NewSimpleStreamHandler(ctx context.Context, conversationID, us
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	assistantMsgID, err := chat.EnsureAssistantPlaceholder(ctx, s.msgRepo, conversationID, userMessageID)
+	assistantMsgID, err := s.EnsureTurnResponse(ctx, conversationID, userMessageID)
 	if errors.Is(err, chat.ErrConversationGone) {
 		return nil, err
 	}
@@ -75,9 +75,11 @@ func (s *Service) NewSimpleStreamHandler(ctx context.Context, conversationID, us
 
 func (h *SimpleStreamHandler) OnError(err string) {
 	h.lastError = err
-	if h.deferAgentTerminal && h.hasAgentActivity() {
+	if h.deferAgentTerminal {
 		// O orquestrador emitirá um único terminal após salvar parcial e ledger.
-		h.MarkErrorNotRetryable()
+		if h.hasAgentActivity() {
+			h.MarkErrorNotRetryable()
+		}
 		h.FlushStream()
 		h.FinishThinkingIfActive()
 		h.closePendingAgentTools(h.pendingToolErrorKind())

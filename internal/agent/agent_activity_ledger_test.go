@@ -50,7 +50,7 @@ func TestACPAtividadePersisteNoPatchEHistorico(t *testing.T) {
 			}
 			repo := &mockMsgRepo{turnMessages: []chat.Message{{UUIDModel: database.UUIDModel{ID: "assistant-acp", CreatedAt: time.Now()}, ConversationID: "conv-acp", Role: "assistant", TurnID: &turnID, Content: "conclusão"}}}
 			emitter := &mockEmitter{}
-			svc := NewService(ServiceConfig{Emitter: emitter, MsgRepo: repo, ToolInvocations: toolinvocations.NewService(toolinvocations.NewDBRepository(db), nil)})
+			svc := newTestAgentService(ServiceConfig{Emitter: emitter, MsgRepo: repo, ToolInvocations: toolinvocations.NewService(toolinvocations.NewDBRepository(db), nil)})
 			ctx, cancel := context.WithCancel(database.WithUserID(context.Background(), "user-a"))
 			defer cancel()
 			attempts := 0

@@ -8,8 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/glebarez/sqlite"
-	"gorm.io/gorm"
+	"path/filepath"
 
 	"assistente/adapters/noop"
 	"assistente/internal/agent"
@@ -28,35 +27,17 @@ import (
 	"assistente/internal/tools"
 )
 
-// setupTestDB inicializa um banco SQLite em memória e injeta via database.SetDB.
+// setupTestDB usa o mesmo schema/migrações da composição de produção.
 func setupTestDB(t *testing.T) {
 	t.Helper()
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open in-memory db: %v", err)
+	restore := database.SetDB(database.DB())
+	if err := database.InitPath(filepath.Join(t.TempDir(), "usecase.db")); err != nil {
+		t.Fatal(err)
 	}
-	// SQLite ":memory:" cria um banco distinto por conexão. O hot path consulta
-	// provider e conversa em paralelo, portanto este fixture precisa manter uma
-	// única conexão para que ambas observem o mesmo schema.
-	sqlDB, err := db.DB()
-	if err != nil {
-		t.Fatalf("open sql db: %v", err)
+	if err := database.DB().Create(&database.User{UUIDModel: database.UUIDModel{ID: "test-user"}, Username: "test-user"}).Error; err != nil {
+		t.Fatal(err)
 	}
-	sqlDB.SetMaxOpenConns(1)
-	if err := db.AutoMigrate(
-		&database.Conversation{},
-		&database.ChatMessage{},
-		&database.CredentialEntry{},
-		&database.CredentialKeyWrap{},
-		&database.LLMProvider{},
-		&database.TaskListWorkflow{},
-		&database.TaskList{},
-		&database.Task{},
-		&database.TaskNote{},
-	); err != nil {
-		t.Fatalf("auto-migrate: %v", err)
-	}
-	database.SetDB(db)
+	t.Cleanup(func() { _ = database.Close(); restore() })
 }
 
 // setupProfileDir prepara um HOME temporário isolado para o configdir resolver.
@@ -130,7 +111,7 @@ func newTestUseCaseWithProviders(t *testing.T, profileMgr *profiles.Manager, pro
 		Registry: llmRegistry,
 	})
 	streamMgr := chat.NewStreamingManager(nil)
-	agentSvc := agent.NewService(agent.ServiceConfig{
+	agentSvc := agent.NewService(agent.ServiceConfig{Turns: database.NewChatTurnRepository(database.DB()),
 		Emitter: events.NoopEmitter{},
 		MsgRepo: chat.NewDBMessageStore(),
 	})
@@ -210,7 +191,7 @@ func newMediaTestUseCaseWithEmitter(
 		ProviderSvc: providerSvc,
 		ProfileMgr:  profileMgr,
 	})
-	agentSvc := agent.NewService(agent.ServiceConfig{Emitter: events.NoopEmitter{}, MsgRepo: chat.NewDBMessageStore()})
+	agentSvc := agent.NewService(agent.ServiceConfig{Turns: database.NewChatTurnRepository(database.DB()), Emitter: events.NoopEmitter{}, MsgRepo: chat.NewDBMessageStore()})
 	cfg := usecases.SendMessageConfig{
 		ChatInteractor: interactor,
 		ProviderSvc:    providerSvc,
@@ -729,6 +710,10 @@ func TestSendMessageUseCase_FallsBackToUserMessageWhenProviderUnsupported(t *tes
 		BaseURL: "http://127.0.0.1:1/v1",
 	})
 	conversationID, userMessageID := createRetryableUserMessage(t, ctx)
+	if _, err := database.CreateMessageWithContext(ctx, database.MessageOptions{ConversationID: conversationID, TurnID: &userMessageID, Role: "assistant", Content: "resposta parcial"}); err != nil {
+		t.Fatal(err)
+	}
+	finished := make(chan struct{})
 
 	gotConversationID, err := uc.Execute(usecases.SendMessageRequest{
 		Ctx:            ctx,
@@ -736,12 +721,22 @@ func TestSendMessageUseCase_FallsBackToUserMessageWhenProviderUnsupported(t *tes
 		RetryMessageID: userMessageID,
 		Source:         "test",
 		Params:         llm.ChatParams{AllowAssistantPrefill: true},
+		OnFinished:     func() { close(finished) },
 	})
 	if err != nil {
 		t.Fatalf("expected fallback to user message (no sync error), got %v", err)
 	}
 	if gotConversationID != conversationID {
 		t.Fatalf("expected conversationID %q, got %q", conversationID, gotConversationID)
+	}
+	select {
+	case <-finished:
+	case <-time.After(10 * time.Second):
+		t.Fatal("execução não terminou")
+	}
+	turn, err := database.NewChatTurnRepository(database.DB()).Get(ctx, conversationID, userMessageID)
+	if err != nil || turn.State != database.TurnFailed || turn.ActiveExecutionID != nil {
+		t.Fatalf("terminal não persistido: %+v %v", turn, err)
 	}
 }
 

@@ -61,7 +61,7 @@ func TestNewServiceRejectsToolExecutorWithoutLedger(t *testing.T) {
 			t.Fatal("esperava falha de wiring sem ledger")
 		}
 	}()
-	NewService(ServiceConfig{
+	newTestAgentService(ServiceConfig{
 		ToolExecutor: tools.NewExecutor(tools.NewRegistry(), tools.DefaultExecutorConfig()),
 	})
 }

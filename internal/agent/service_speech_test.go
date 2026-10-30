@@ -102,7 +102,7 @@ func TestSaveAndFinish_CallsOnSpeechRequestBeforeChatDone(t *testing.T) {
 
 	var speechCalls []speechCall
 	var speechAtEventCount int
-	svc := NewService(ServiceConfig{
+	svc := newTestAgentService(ServiceConfig{
 		Emitter: emitter,
 		MsgRepo: repo,
 		OnSpeechRequest: func(convID, msgID string, role, text, origin, profileSlug string, interrupt bool) {
@@ -161,7 +161,7 @@ func TestSaveAndFinish_NilOnSpeechRequest_NoPanic(t *testing.T) {
 	emitter := &mockEmitter{}
 	repo := &mockMsgRepo{}
 
-	svc := NewService(ServiceConfig{
+	svc := newTestAgentService(ServiceConfig{
 		Emitter: emitter,
 		MsgRepo: repo,
 		// OnSpeechRequest não definido (nil)
@@ -190,7 +190,7 @@ func TestSaveAndFinish_EmptyResponse_NoSpeechCall(t *testing.T) {
 	repo := &mockMsgRepo{}
 
 	called := false
-	svc := NewService(ServiceConfig{
+	svc := newTestAgentService(ServiceConfig{
 		Emitter: emitter,
 		MsgRepo: repo,
 		OnSpeechRequest: func(string, string, string, string, string, string, bool) {
@@ -213,7 +213,7 @@ func TestSaveAndFinish_SpeechGetsCorrectMessageID(t *testing.T) {
 	repo := &mockMsgRepo{}
 
 	var gotMsgID string
-	svc := NewService(ServiceConfig{
+	svc := newTestAgentService(ServiceConfig{
 		Emitter: emitter,
 		MsgRepo: repo,
 		OnSpeechRequest: func(convID, msgID string, role, text, origin, profileSlug string, interrupt bool) {
@@ -221,7 +221,12 @@ func TestSaveAndFinish_SpeechGetsCorrectMessageID(t *testing.T) {
 		},
 	})
 
-	svc.SaveAndFinish(context.Background(), "42", "", "", AgenticResult{
+	// O pipeline confirma a identidade antes do streaming; o terminal reutiliza-a.
+	responseID, err := svc.EnsureTurnResponse(context.Background(), "42", "turn")
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc.SaveAndFinish(context.Background(), "42", "turn", responseID, AgenticResult{
 		FullResponse: "Resposta com ID",
 		Model:        "test-model",
 	}, "", nil, nil)
@@ -247,7 +252,7 @@ func TestSaveAndFinish_SpeechGetsCorrectMessageID(t *testing.T) {
 func TestSimpleStreamHandler_PersistsAssistantWithTurnID(t *testing.T) {
 	emitter := &mockEmitter{}
 	repo := &mockMsgRepo{}
-	svc := NewService(ServiceConfig{
+	svc := newTestAgentService(ServiceConfig{
 		Emitter: emitter,
 		MsgRepo: repo,
 	})

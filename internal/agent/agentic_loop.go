@@ -9,6 +9,7 @@ import (
 
 	"assistente/internal/chat"
 	"assistente/internal/core/ports"
+	"assistente/internal/database"
 	"assistente/internal/events"
 	"assistente/internal/llm"
 	"assistente/internal/toolinvocations"
@@ -94,7 +95,10 @@ func (r *agenticLoopRunner) run(ctx context.Context) {
 			r.persistAndAccountNativeMCP(ctx, result, iteration)
 			// chat:done é o evento terminal canônico — inclui ErrorMessage para que
 			// adapters (CLI, frontend) exibam o erro sem depender de chat:stream terminal.
-			r.svc.emitter.Emit("chat:done", r.buildErrorDoneEventWithContext(ctx, streamErr, iteration))
+			event := r.buildErrorDoneEventWithContext(ctx, streamErr, iteration)
+			if r.svc.persistTerminal(ctx, &event, database.TurnFailed, "provider_error") {
+				r.svc.emitter.Emit("chat:done", event)
+			}
 			return
 		}
 
@@ -246,7 +250,10 @@ func (r *agenticLoopRunner) streamIteration(ctx context.Context, iteration int) 
 			if finisher, ok := handler.(interface{ FinishThinkingIfActive() }); ok {
 				finisher.FinishThinkingIfActive()
 			}
-			r.persistPartialFrom(ctx, handler)
+			if err := r.persistPartialFrom(ctx, handler); err != nil {
+				r.svc.emitFinalizationErrorDone(ctx, r.conversationID, r.turnID, r.assistantMessageID, r.surfaceOrigin)
+				return result, "", true
+			}
 			r.svc.emitAgenticContextDone(ctx, r.conversationID, r.turnID, r.assistantMessageID, r.surfaceOrigin, iteration, r.totalToolCallCount, r.toolsUsedSet)
 			return result, "", true
 		}
@@ -261,7 +268,10 @@ func (r *agenticLoopRunner) streamIteration(ctx context.Context, iteration int) 
 			if finisher, ok := handler.(interface{ FinishThinkingIfActive() }); ok {
 				finisher.FinishThinkingIfActive()
 			}
-			r.persistPartialFrom(ctx, handler)
+			if err := r.persistPartialFrom(ctx, handler); err != nil {
+				r.svc.emitFinalizationErrorDone(ctx, r.conversationID, r.turnID, r.assistantMessageID, r.surfaceOrigin)
+				return result, "", true
+			}
 			logging.Errorf(ctx, "agent.agentic-loop", "[Agent] streaming interrompido sem repetição possível (iteração %d): %s", iteration, result.Error)
 			break
 		}
@@ -269,7 +279,10 @@ func (r *agenticLoopRunner) streamIteration(ctx context.Context, iteration int) 
 			if finisher, ok := handler.(interface{ FinishThinkingIfActive() }); ok {
 				finisher.FinishThinkingIfActive()
 			}
-			r.persistPartialFrom(ctx, handler)
+			if err := r.persistPartialFrom(ctx, handler); err != nil {
+				r.svc.emitFinalizationErrorDone(ctx, r.conversationID, r.turnID, r.assistantMessageID, r.surfaceOrigin)
+				return result, "", true
+			}
 		}
 		if attempt < attempts {
 			logging.Errorf(ctx, "agent.agentic-loop", "[Agent] streaming interrompido (iteração %d, tentativa %d/%d): %s", iteration, attempt, attempts, result.Error)
@@ -297,13 +310,13 @@ func (r *agenticLoopRunner) useMCPAdapter(fb *llm.NativeMCPAdapterFallback) {
 
 // persistPartialFrom salva o que a iteração alcançou a escrever antes de
 // terminar sem resposta. Nem todo handler sabe finalizar um parcial.
-func (r *agenticLoopRunner) persistPartialFrom(ctx context.Context, handler IterationHandler) {
+func (r *agenticLoopRunner) persistPartialFrom(ctx context.Context, handler IterationHandler) error {
 	partialHandler, ok := handler.(interface{ Finalize() (string, string) })
 	if !ok {
-		return
+		return nil
 	}
 	partialContent, partialReasoning := partialHandler.Finalize()
-	r.svc.persistAssistantPartialBestEffort(ctx, r.assistantMessageID, partialContent, partialReasoning)
+	return r.svc.persistAssistantPartial(ctx, r.assistantMessageID, partialContent, partialReasoning)
 }
 
 // finishFinalResult trata um desfecho terminal: contabiliza eventuais MCP calls
@@ -740,33 +753,6 @@ const limitReachedNotice = "Limite de iterações do agente atingido. A resposta
 // iterações (delta informativo, terminal, chat:speak e chat:done com
 // Reason="limit_reached").
 func (r *agenticLoopRunner) finishLimitReached(ctx context.Context) {
-	logging.Infof(ctx, "agent.agentic-loop", "[Agent] limite de %d iterações atingido para conversa %s", r.maxIterations, r.conversationID)
-	r.svc.emitter.Emit("chat:stream", events.StreamEvent{
-		Delta:          limitReachedNotice,
-		Diagnostic:     true,
-		Reset:          true,
-		Sequence:       0,
-		MessageID:      r.assistantMessageID,
-		ConversationId: r.conversationID,
-		ItemID:         ports.ResponseItemID(r.turnID),
-		TurnID:         r.turnID,
-		SurfaceOrigin:  r.surfaceOrigin,
-	})
-	r.svc.emitter.Emit("chat:stream", events.StreamEvent{
-		Done:           true,
-		MessageID:      r.assistantMessageID,
-		ConversationId: r.conversationID,
-		ItemID:         ports.ResponseItemID(r.turnID),
-		TurnID:         r.turnID,
-		SurfaceOrigin:  r.surfaceOrigin,
-	})
-	// O aviso de limite só existe neste chat:stream — sem chat:speak nada o
-	// verbalizaria. Vai sem messageID: o aviso não é persistido, então a
-	// strategy backend_audio falaria o conteúdo do banco no lugar dele.
-	// Dispara antes de chat:done, que derruba os listeners.
-	if r.svc.onSpeechRequest != nil {
-		r.svc.onSpeechRequest(r.conversationID, "", "system", limitReachedNotice, "system_message", r.params.ProfileSlug, true)
-	}
 	responseBytes := r.lastFinish.ResponseBytes
 	doneEvent := ports.DoneEvent{
 		ConversationID:       r.conversationID,
@@ -799,8 +785,43 @@ func (r *agenticLoopRunner) finishLimitReached(ctx context.Context) {
 		reasoningTokens := r.lastDiagnosticUsage.ReasoningTokens
 		doneEvent.ReasoningTokens = &reasoningTokens
 	}
-	doneEvent.TurnPatch, _ = r.svc.buildTurnPatch(ctx, r.conversationID, r.turnID)
-	r.svc.emitter.Emit("chat:done", doneEvent)
+	if !r.svc.persistTerminal(ctx, &doneEvent, database.TurnInterrupted, "limit_reached") {
+		return
+	}
+	func() {
+		defer func() { r.svc.emitter.Emit("chat:done", doneEvent) }()
+		if doneEvent.ErrorMessage != "" {
+			return
+		}
+		doneEvent.TurnPatch, _ = r.svc.buildTurnPatch(ctx, r.conversationID, r.turnID)
+		logging.Infof(ctx, "agent.agentic-loop", "[Agent] limite de %d iterações atingido para conversa %s", r.maxIterations, r.conversationID)
+		r.svc.emitter.Emit("chat:stream", events.StreamEvent{
+			Delta:          limitReachedNotice,
+			Diagnostic:     true,
+			Reset:          true,
+			Sequence:       0,
+			MessageID:      r.assistantMessageID,
+			ConversationId: r.conversationID,
+			ItemID:         ports.ResponseItemID(r.turnID),
+			TurnID:         r.turnID,
+			SurfaceOrigin:  r.surfaceOrigin,
+		})
+		r.svc.emitter.Emit("chat:stream", events.StreamEvent{
+			Done:           true,
+			MessageID:      r.assistantMessageID,
+			ConversationId: r.conversationID,
+			ItemID:         ports.ResponseItemID(r.turnID),
+			TurnID:         r.turnID,
+			SurfaceOrigin:  r.surfaceOrigin,
+		})
+		// O aviso de limite só existe neste chat:stream — sem chat:speak nada o
+		// verbalizaria. Vai sem messageID: o aviso não é persistido, então a
+		// strategy backend_audio falaria o conteúdo do banco no lugar dele.
+		// Dispara antes de chat:done, que derruba os listeners.
+		if r.svc.onSpeechRequest != nil {
+			r.svc.onSpeechRequest(r.conversationID, "", "system", limitReachedNotice, "system_message", r.params.ProfileSlug, true)
+		}
+	}()
 
 	if r.svc.triggerSummarize != nil {
 		go func() {

@@ -211,3 +211,16 @@ restaurado. Se você começar a digitar enquanto o envio ainda é preparado, o
 novo texto é preservado e o envio duplicado é bloqueado até a aceitação ser
 resolvida. Itens transitórios de streaming aparecem somente na superfície que
 originou o turno; as outras superfícies exibem apenas o que foi persistido.
+
+
+## Interrupções e novas tentativas
+
+Uma nova tentativa ou continuação mantém o vínculo com a pergunta e a resposta
+existentes. Repetições automáticas por falha de conexão pertencem à mesma execução.
+Ao reabrir o aplicativo após uma interrupção, o histórico preserva o conteúdo que
+foi salvo; a geração não é retomada automaticamente nem marcada como concluída.
+
+Se o armazenamento falhar, o chat informa o erro e não substitui o texto recebido
+por uma cópia antiga. Uma nova tentativa depende de o armazenamento voltar a
+aceitar gravações. Conversas importadas preservam suas mensagens, sem retomar
+execuções da instalação de origem.

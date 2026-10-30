@@ -860,7 +860,10 @@ func importConversationMessages(ctx context.Context, tx *gorm.DB, conversationID
 		}
 		idMap[i] = newMsg.ID
 	}
-	return importConversationToolInvocations(ctx, tx, conversationID, conv.ToolInvocations)
+	if err := importConversationToolInvocations(ctx, tx, conversationID, conv.ToolInvocations); err != nil {
+		return err
+	}
+	return database.NewChatTurnRepository(tx).ReconcileImportedConversationInTransaction(ctx, conversationID)
 }
 
 func importConversationToolInvocations(

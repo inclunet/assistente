@@ -150,26 +150,26 @@ func TestAssistantMessageForToolIterationPreservesReasoningContent(t *testing.T)
 
 func TestAgenticLoopRunner_TurnStillValid(t *testing.T) {
 	// repo nil → segue o fluxo (não há como validar).
-	svcNil := NewService(ServiceConfig{Emitter: events.NoopEmitter{}})
+	svcNil := newTestAgentService(ServiceConfig{Emitter: events.NoopEmitter{}})
 	if !newSeamRunner(svcNil, "c1", "t1").turnStillValid(context.Background()) {
 		t.Fatal("repo nil deveria seguir o fluxo")
 	}
 
 	// conversa correspondente → válido.
-	svcMatch := NewService(ServiceConfig{Emitter: events.NoopEmitter{}, MsgRepo: msgRepoStub{conversationID: "c1"}})
+	svcMatch := newTestAgentService(ServiceConfig{Emitter: events.NoopEmitter{}, MsgRepo: msgRepoStub{conversationID: "c1"}})
 	if !newSeamRunner(svcMatch, "c1", "t1").turnStillValid(context.Background()) {
 		t.Fatal("conversa correspondente deveria ser válida")
 	}
 
 	// conversa divergente → inválido (aborta).
-	svcMismatch := NewService(ServiceConfig{Emitter: events.NoopEmitter{}, MsgRepo: msgRepoStub{conversationID: "outra"}})
+	svcMismatch := newTestAgentService(ServiceConfig{Emitter: events.NoopEmitter{}, MsgRepo: msgRepoStub{conversationID: "outra"}})
 	if newSeamRunner(svcMismatch, "c1", "t1").turnStillValid(context.Background()) {
 		t.Fatal("conversa divergente deveria abortar")
 	}
 
 	// erro ao buscar a mensagem do turno → inválido (aborta).
 	repoErr := &inMemoryMsgRepo{rejectCanceledCtx: true}
-	svcErr := NewService(ServiceConfig{Emitter: events.NoopEmitter{}, MsgRepo: repoErr})
+	svcErr := newTestAgentService(ServiceConfig{Emitter: events.NoopEmitter{}, MsgRepo: repoErr})
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	if newSeamRunner(svcErr, "c1", "t1").turnStillValid(ctx) {
@@ -179,7 +179,7 @@ func TestAgenticLoopRunner_TurnStillValid(t *testing.T) {
 
 func TestAgenticLoopRunner_EmitsLedgerFailureCode(t *testing.T) {
 	em := &captureEmitter{}
-	svc := NewService(ServiceConfig{Emitter: em, MsgRepo: &mockMsgRepo{}})
+	svc := newTestAgentService(ServiceConfig{Emitter: em, MsgRepo: &mockMsgRepo{}})
 	r := newSeamRunner(svc, "c1", "t1")
 	r.emitToolEndsAndAccount([]tools.ToolExecutionResult{{CallID: "blocked", ToolName: "echo",
 		Result: tools.ToolResult{Content: "diagnostic", IsError: true}, ErrorKind: tools.ErrorKindUnavailable,
@@ -196,7 +196,7 @@ func TestAgenticLoopRunner_EmitsLedgerFailureCode(t *testing.T) {
 
 func TestAgenticLoopRunner_EmitToolEndsAndAccount(t *testing.T) {
 	em := &captureEmitter{}
-	svc := NewService(ServiceConfig{Emitter: em, MsgRepo: &mockMsgRepo{}})
+	svc := newTestAgentService(ServiceConfig{Emitter: em, MsgRepo: &mockMsgRepo{}})
 	r := newSeamRunner(svc, "c1", "t1")
 
 	execResults := []tools.ToolExecutionResult{
@@ -248,7 +248,7 @@ func TestAgenticLoopRunner_RetryRetryableTools(t *testing.T) {
 	reg := tools.NewRegistry()
 	reg.MustRegister(okTool{})
 	exec := tools.NewExecutor(reg, tools.DefaultExecutorConfig())
-	svc := NewService(ServiceConfig{
+	svc := newTestAgentService(ServiceConfig{
 		Emitter: em, ToolExecutor: exec,
 		ToolInvocations: newAgentTestToolInvocations(reg),
 	})
@@ -290,7 +290,7 @@ func TestAgenticLoopRunner_RetryRetryableTools_LastIterationNoRetry(t *testing.T
 	reg := tools.NewRegistry()
 	reg.MustRegister(okTool{})
 	exec := tools.NewExecutor(reg, tools.DefaultExecutorConfig())
-	svc := NewService(ServiceConfig{
+	svc := newTestAgentService(ServiceConfig{
 		Emitter: em, ToolExecutor: exec,
 		ToolInvocations: newAgentTestToolInvocations(reg),
 	})
@@ -317,7 +317,7 @@ func TestAgenticLoopRunner_RetryRetryableTools_LastIterationNoRetry(t *testing.T
 func TestAgenticLoopRunner_PersistAndAccountNativeMCP(t *testing.T) {
 	em := &captureEmitter{}
 	msgRepo := &capturingMsgRepo{conversationID: "c1"}
-	svc := NewService(ServiceConfig{Emitter: em, MsgRepo: msgRepo})
+	svc := newTestAgentService(ServiceConfig{Emitter: em, MsgRepo: msgRepo})
 	r := newSeamRunner(svc, "c1", "t1")
 	ctx := database.WithUserID(context.Background(), "u1")
 
@@ -342,7 +342,7 @@ func TestAgenticLoopRunner_PersistAndAccountNativeMCP(t *testing.T) {
 }
 
 func TestAgenticLoopRunner_BuildErrorDoneEvent(t *testing.T) {
-	svc := NewService(ServiceConfig{Emitter: events.NoopEmitter{}})
+	svc := newTestAgentService(ServiceConfig{Emitter: events.NoopEmitter{}})
 	r := newSeamRunner(svc, "c1", "t1")
 	r.assistantMessageID = "am"
 	r.surfaceOrigin = nil
@@ -383,7 +383,7 @@ func TestAgenticLoopRunner_BuildErrorDoneEvent(t *testing.T) {
 
 func TestAgenticLoopRunner_FinishLimitReached(t *testing.T) {
 	em := &captureEmitter{}
-	svc := NewService(ServiceConfig{Emitter: em, MsgRepo: &mockMsgRepo{}})
+	svc := newTestAgentService(ServiceConfig{Emitter: em, MsgRepo: &mockMsgRepo{}})
 	r := newSeamRunner(svc, "c1", "t1")
 	r.maxIterations = 4
 	r.totalToolCallCount = 1
@@ -430,7 +430,7 @@ func TestAgenticLoopRunner_FinishLimitReached(t *testing.T) {
 
 func TestAgenticLoopRunner_FinishLimitReachedNaoReutilizaUsageAnterior(t *testing.T) {
 	em := &captureEmitter{}
-	svc := NewService(ServiceConfig{Emitter: em, MsgRepo: &mockMsgRepo{}})
+	svc := newTestAgentService(ServiceConfig{Emitter: em, MsgRepo: &mockMsgRepo{}})
 	r := newSeamRunner(svc, "c1", "t1")
 	r.maxIterations = 2
 	r.lastUsage = llm.Usage{
@@ -470,7 +470,7 @@ func TestAgenticLoopRunner_FinishLimitReachedFalaOAviso(t *testing.T) {
 	em := &captureEmitter{}
 	var calls []speechCall
 	speechAtEventCount := -1
-	svc := NewService(ServiceConfig{
+	svc := newTestAgentService(ServiceConfig{
 		Emitter: em,
 		MsgRepo: &mockMsgRepo{},
 		OnSpeechRequest: func(convID, msgID string, role, text, origin, profileSlug string, interrupt bool) {
@@ -508,7 +508,7 @@ func TestAgenticLoopRunner_FinishLimitReachedFalaOAviso(t *testing.T) {
 
 func TestAgenticLoopRunner_FinishLimitReachedSemCallbackNaoPanica(t *testing.T) {
 	em := &captureEmitter{}
-	svc := NewService(ServiceConfig{Emitter: em, MsgRepo: &mockMsgRepo{}})
+	svc := newTestAgentService(ServiceConfig{Emitter: em, MsgRepo: &mockMsgRepo{}})
 	r := newSeamRunner(svc, "c1", "t1")
 	r.maxIterations = 2
 
@@ -542,7 +542,7 @@ func TestAgenticLoopBlocksCompatibilityRetryAfterEarlierIterationOutput(t *testi
 		return nil
 	})
 	streamer := &compatibilityRetryProbeStreamer{state: state}
-	runner := newSeamRunner(NewService(ServiceConfig{}), "conversation", "turn")
+	runner := newSeamRunner(newTestAgentService(ServiceConfig{}), "conversation", "turn")
 	runner.params.Compatibility = state
 	runner.activeStreamer = streamer
 	runner.newHandler = func(string, int) IterationHandler { return &testIterationHandler{} }
@@ -609,7 +609,7 @@ func (s *outputLimitToolStreamer) StreamChat(_ context.Context, messages []llm.M
 }
 
 func newOutputLimitRunner(streamer llm.Streamer, em *captureEmitter) *agenticLoopRunner {
-	svc := NewService(ServiceConfig{Emitter: em, MsgRepo: &mockMsgRepo{}})
+	svc := newTestAgentService(ServiceConfig{Emitter: em, MsgRepo: &mockMsgRepo{}})
 	r := newSeamRunner(svc, "c1", "t1")
 	r.assistantMessageID = "a1"
 	r.messages = []llm.Message{{Role: "user", Content: "traduza o livro"}}
@@ -683,7 +683,7 @@ func TestRunAgenticLoop_JSONInvalidoSemFinishReasonContinuaInvalidArgs(t *testin
 	registry := tools.NewRegistry()
 	registry.MustRegister(okTool{})
 	executor := tools.NewExecutor(registry, tools.DefaultExecutorConfig())
-	svc := NewService(ServiceConfig{
+	svc := newTestAgentService(ServiceConfig{
 		Emitter:         em,
 		MsgRepo:         &toolMsgRepo{conversationID: "c1"},
 		ToolExecutor:    executor,
@@ -750,7 +750,7 @@ func TestRunAgenticLoop_MultipleToolIterations_EmitsEventsInOrder(t *testing.T) 
 
 	em := &captureEmitter{}
 	msgRepo := &toolMsgRepo{conversationID: conv.ID}
-	svc := NewService(ServiceConfig{Emitter: em, MsgRepo: msgRepo, ToolExecutor: exec, ToolInvocations: inv})
+	svc := newTestAgentService(ServiceConfig{Emitter: em, MsgRepo: msgRepo, ToolExecutor: exec, ToolInvocations: inv})
 
 	streamer := &multiIterToolStreamer{toolIters: 2}
 	svc.RunAgenticLoop(ctx, []llm.Message{{Role: "user", Content: "hi"}}, llm.ChatParams{MaxAgenticIterations: 5}, conv.ID, turn.ID, nil, streamer, nil, func(string, int) IterationHandler {
@@ -879,7 +879,7 @@ func TestRunAgenticLoop_PartialToolError_ContinuesAndCompletes(t *testing.T) {
 
 	em := &captureEmitter{}
 	msgRepo := &toolMsgRepo{conversationID: conv.ID}
-	svc := NewService(ServiceConfig{Emitter: em, MsgRepo: msgRepo, ToolExecutor: exec, ToolInvocations: inv})
+	svc := newTestAgentService(ServiceConfig{Emitter: em, MsgRepo: msgRepo, ToolExecutor: exec, ToolInvocations: inv})
 
 	streamer := &twoToolsThenDoneStreamer{}
 	svc.RunAgenticLoop(ctx, []llm.Message{{Role: "user", Content: "hi"}}, llm.ChatParams{MaxAgenticIterations: 5}, conv.ID, turn.ID, nil, streamer, nil, func(string, int) IterationHandler {

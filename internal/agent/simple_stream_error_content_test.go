@@ -27,7 +27,7 @@ func (r *repoCapturaConteudo) UpdateMessageContentAndReasoning(_ context.Context
 func novoHandlerComCaptura(t *testing.T, emitter *mockEmitter) (*SimpleStreamHandler, *repoCapturaConteudo) {
 	t.Helper()
 	repo := &repoCapturaConteudo{}
-	svc := NewService(ServiceConfig{Emitter: emitter, MsgRepo: repo})
+	svc := newTestAgentService(ServiceConfig{Emitter: emitter, MsgRepo: repo})
 	handler, err := svc.NewSimpleStreamHandler(context.Background(), "conversa-1", "turno-1", "perfil", nil)
 	if err != nil {
 		t.Fatalf("NewSimpleStreamHandler: %v", err)
@@ -85,7 +85,7 @@ func TestOnDoneComConteudoMantemResposta(t *testing.T) {
 // vazio sem esta gravação.
 func TestPersistErrorWhenEmptyGravaErroNoPlaceholderVazio(t *testing.T) {
 	repo := &repoCapturaConteudo{}
-	svc := NewService(ServiceConfig{Emitter: &mockEmitter{}, MsgRepo: repo})
+	svc := newTestAgentService(ServiceConfig{Emitter: &mockEmitter{}, MsgRepo: repo})
 
 	svc.persistErrorWhenEmpty(context.Background(), "msg-1", "processo do agente caiu")
 
@@ -104,7 +104,7 @@ func TestPersistErrorWhenEmptyPreservaConteudoExistente(t *testing.T) {
 			"msg-1": {UUIDModel: database.UUIDModel{ID: "msg-1"}, Content: "parcial do agente"},
 		},
 	}}
-	svc := NewService(ServiceConfig{Emitter: &mockEmitter{}, MsgRepo: repo})
+	svc := newTestAgentService(ServiceConfig{Emitter: &mockEmitter{}, MsgRepo: repo})
 
 	svc.persistErrorWhenEmpty(context.Background(), "msg-1", "processo do agente caiu")
 

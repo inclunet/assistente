@@ -159,7 +159,7 @@ func (s *recoveryStreamer) StreamChat(_ context.Context, _ []llm.Message, _ llm.
 func TestStreamSimpleWithRecovery_RetriesWithoutTerminalError(t *testing.T) {
 	em := &captureEmitter{}
 	repo := &inMemoryMsgRepo{}
-	svc := NewService(ServiceConfig{Emitter: em, MsgRepo: repo})
+	svc := newTestAgentService(ServiceConfig{Emitter: em, MsgRepo: repo})
 
 	streamer := &recoveryStreamer{steps: []func(handler llm.StreamHandler){
 		func(h llm.StreamHandler) {
@@ -221,7 +221,7 @@ func marcarNaoRetentavel(h llm.StreamHandler, err string) {
 func TestStreamSimpleWithRecovery_NaoRepeteTurnoJaAceitoPeloAgente(t *testing.T) {
 	em := &captureEmitter{}
 	repo := &inMemoryMsgRepo{}
-	svc := NewService(ServiceConfig{Emitter: em, MsgRepo: repo})
+	svc := newTestAgentService(ServiceConfig{Emitter: em, MsgRepo: repo})
 
 	streamer := &recoveryStreamer{steps: []func(handler llm.StreamHandler){
 		func(h llm.StreamHandler) {
@@ -263,7 +263,7 @@ func TestStreamSimpleWithRecovery_NaoRepeteTurnoJaAceitoPeloAgente(t *testing.T)
 func TestRunAgenticLoop_NaoRepeteTurnoJaAceitoPeloAgente(t *testing.T) {
 	em := &captureEmitter{}
 	repo := &inMemoryMsgRepo{}
-	svc := NewService(ServiceConfig{Emitter: em, MsgRepo: repo})
+	svc := newTestAgentService(ServiceConfig{Emitter: em, MsgRepo: repo})
 
 	streamer := &recoveryStreamer{steps: []func(handler llm.StreamHandler){
 		func(h llm.StreamHandler) {
@@ -303,7 +303,7 @@ func TestRunAgenticLoop_NaoRepeteTurnoJaAceitoPeloAgente(t *testing.T) {
 func TestStreamSimpleWithRecovery_StopsWhenAssistantPlaceholderFails(t *testing.T) {
 	em := &captureEmitter{}
 	repo := &inMemoryMsgRepo{createErr: fmt.Errorf("db down")}
-	svc := NewService(ServiceConfig{Emitter: em, MsgRepo: repo})
+	svc := newTestAgentService(ServiceConfig{Emitter: em, MsgRepo: repo})
 	streamer := &recoveryStreamer{steps: []func(handler llm.StreamHandler){
 		func(h llm.StreamHandler) {
 			h.OnChunk("nao deve emitir")
@@ -342,7 +342,7 @@ func TestStreamSimpleWithRecovery_StopsWhenAssistantPlaceholderFails(t *testing.
 func TestRunAgenticLoop_StopsWhenAssistantPlaceholderFails(t *testing.T) {
 	em := &captureEmitter{}
 	repo := &inMemoryMsgRepo{createErr: fmt.Errorf("db down")}
-	svc := NewService(ServiceConfig{Emitter: em, MsgRepo: repo})
+	svc := newTestAgentService(ServiceConfig{Emitter: em, MsgRepo: repo})
 	streamer := &recoveryStreamer{steps: []func(handler llm.StreamHandler){
 		func(h llm.StreamHandler) {
 			h.OnChunk("nao deve emitir")
@@ -386,7 +386,7 @@ func TestRunAgenticLoop_StopsWhenAssistantPlaceholderFails(t *testing.T) {
 func TestHandleRecoveredPanic_EmitsDoneWithAssistantMessageID(t *testing.T) {
 	em := &captureEmitter{}
 	repo := &inMemoryMsgRepo{}
-	svc := NewService(ServiceConfig{Emitter: em, MsgRepo: repo})
+	svc := newTestAgentService(ServiceConfig{Emitter: em, MsgRepo: repo})
 
 	svc.HandleRecoveredPanic(context.Background(), "conversation-1", "user-1", "StreamChat", "boom", nil)
 
@@ -412,7 +412,7 @@ func TestHandleRecoveredPanic_EmitsDoneWithAssistantMessageID(t *testing.T) {
 func TestHandleRecoveredPanic_EmitsGenericErrorAndIgnoresCanceledContext(t *testing.T) {
 	em := &captureEmitter{}
 	repo := &inMemoryMsgRepo{rejectCanceledCtx: true}
-	svc := NewService(ServiceConfig{Emitter: em, MsgRepo: repo})
+	svc := newTestAgentService(ServiceConfig{Emitter: em, MsgRepo: repo})
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
@@ -437,7 +437,7 @@ func TestHandleRecoveredPanic_EmitsGenericErrorAndIgnoresCanceledContext(t *test
 func TestStreamSimpleWithRecovery_EmitsTerminalErrorWhenExhausted(t *testing.T) {
 	em := &captureEmitter{}
 	repo := &inMemoryMsgRepo{}
-	svc := NewService(ServiceConfig{Emitter: em, MsgRepo: repo})
+	svc := newTestAgentService(ServiceConfig{Emitter: em, MsgRepo: repo})
 
 	streamer := &recoveryStreamer{steps: []func(handler llm.StreamHandler){
 		func(h llm.StreamHandler) {
@@ -474,7 +474,7 @@ func TestStreamSimpleWithRecovery_EmitsTerminalErrorWhenExhausted(t *testing.T) 
 func TestStreamSimpleWithRecovery_ContextCancelEmitsDone(t *testing.T) {
 	em := &captureEmitter{}
 	repo := &inMemoryMsgRepo{rejectCanceledCtx: true}
-	svc := NewService(ServiceConfig{Emitter: em, MsgRepo: repo})
+	svc := newTestAgentService(ServiceConfig{Emitter: em, MsgRepo: repo})
 	ctx, cancel := context.WithCancel(context.Background())
 	streamer := &recoveryStreamer{steps: []func(handler llm.StreamHandler){
 		func(h llm.StreamHandler) {
@@ -517,7 +517,7 @@ func TestStreamSimpleWithRecovery_FinalizeCancellationEmitsSingleTerminal(t *tes
 	em := &captureEmitter{}
 	ctx, cancel := context.WithCancel(context.Background())
 	repo := &inMemoryMsgRepo{rejectCanceledCtx: true, cancelOnUpdate: cancel}
-	svc := NewService(ServiceConfig{Emitter: em, MsgRepo: repo})
+	svc := newTestAgentService(ServiceConfig{Emitter: em, MsgRepo: repo})
 	streamer := &recoveryStreamer{steps: []func(handler llm.StreamHandler){
 		func(h llm.StreamHandler) {
 			h.OnDone("resposta", llm.Usage{}, "modelo")
@@ -542,7 +542,7 @@ func TestStreamSimpleWithRecovery_FinalizeCancellationEmitsSingleTerminal(t *tes
 func TestStreamSimpleWithRecovery_ConversationGoneDoesNotStream(t *testing.T) {
 	em := &captureEmitter{}
 	repo := &inMemoryMsgRepo{createErr: chat.ErrConversationDeleted}
-	svc := NewService(ServiceConfig{Emitter: em, MsgRepo: repo})
+	svc := newTestAgentService(ServiceConfig{Emitter: em, MsgRepo: repo})
 	streamer := &recoveryStreamer{steps: []func(handler llm.StreamHandler){
 		func(h llm.StreamHandler) {
 			h.OnChunk("nao deve chamar")
@@ -565,7 +565,7 @@ func TestStreamSimpleWithRecovery_ConversationGoneDoesNotStream(t *testing.T) {
 func TestRunAgenticLoop_RetriesIterationBeforeChatDoneError(t *testing.T) {
 	em := &captureEmitter{}
 	repo := &inMemoryMsgRepo{}
-	svc := NewService(ServiceConfig{Emitter: em, MsgRepo: repo})
+	svc := newTestAgentService(ServiceConfig{Emitter: em, MsgRepo: repo})
 
 	streamer := &recoveryStreamer{steps: []func(handler llm.StreamHandler){
 		func(h llm.StreamHandler) {
@@ -615,7 +615,7 @@ func TestRunAgenticLoop_RetriesIterationBeforeChatDoneError(t *testing.T) {
 func TestRunAgenticLoop_ErrorIncludesAssistantMessageIDAndPersistsPartial(t *testing.T) {
 	em := &captureEmitter{}
 	repo := &inMemoryMsgRepo{}
-	svc := NewService(ServiceConfig{Emitter: em, MsgRepo: repo})
+	svc := newTestAgentService(ServiceConfig{Emitter: em, MsgRepo: repo})
 
 	streamer := &recoveryStreamer{steps: []func(handler llm.StreamHandler){
 		func(h llm.StreamHandler) {
@@ -670,7 +670,7 @@ func TestRunAgenticLoop_ErrorIncludesAssistantMessageIDAndPersistsPartial(t *tes
 func TestRunAgenticLoop_ContextCancelPersistsPartialWithNonCanceledContext(t *testing.T) {
 	em := &captureEmitter{}
 	repo := &inMemoryMsgRepo{rejectCanceledCtx: true}
-	svc := NewService(ServiceConfig{Emitter: em, MsgRepo: repo})
+	svc := newTestAgentService(ServiceConfig{Emitter: em, MsgRepo: repo})
 	ctx, cancel := context.WithCancel(context.Background())
 
 	streamer := &recoveryStreamer{steps: []func(handler llm.StreamHandler){
@@ -728,7 +728,7 @@ func TestRunAgenticLoop_ContextCancelPersistsPartialWithNonCanceledContext(t *te
 func TestRunAgenticLoop_CanceledBeforeIterationEmitsDone(t *testing.T) {
 	em := &captureEmitter{}
 	repo := &inMemoryMsgRepo{}
-	svc := NewService(ServiceConfig{Emitter: em, MsgRepo: repo})
+	svc := newTestAgentService(ServiceConfig{Emitter: em, MsgRepo: repo})
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 

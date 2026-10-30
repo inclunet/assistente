@@ -12,6 +12,7 @@ import (
 
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
+	"path/filepath"
 )
 
 type memoryCredentialStore struct {
@@ -1052,6 +1053,8 @@ func setupPortabilityTestDB(t *testing.T) {
 		&database.LLMProvider{},
 		&database.Conversation{},
 		&database.ChatMessage{},
+		&database.ChatTurn{},
+		&database.ChatTurnAttempt{},
 		&database.ToolInvocation{},
 		&database.TaskListWorkflow{},
 		&database.TaskList{},
@@ -1067,6 +1070,17 @@ func setupPortabilityTestDB(t *testing.T) {
 	database.SetDB(db)
 }
 
+func setupPortabilityRuntimeTestDB(t *testing.T) {
+	t.Helper()
+	restore := database.SetDB(database.DB())
+	if err := database.InitPath(filepath.Join(t.TempDir(), "portability.db")); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = database.Close(); restore() })
+	if err := database.DB().Create(&database.User{UUIDModel: database.UUIDModel{ID: portabilityTestUserID}, Username: portabilityTestUserID}).Error; err != nil {
+		t.Fatal(err)
+	}
+}
 func TestConversationToolInvocationsCanonicalRoundTrip(t *testing.T) {
 	setupPortabilityTestDB(t)
 	if err := database.DB().AutoMigrate(&database.ToolCatalog{}, &database.ToolLedgerMigrationState{}); err != nil {
@@ -3351,5 +3365,48 @@ func TestCredentialSourceExportImportRoundTrip(t *testing.T) {
 	}
 	if err := validatePortableCredentialExport(CredentialExport{Pattern: "legacy.example", AuthType: "bearer", Token: "old"}); err == nil {
 		t.Fatal("legacy import must be rejected")
+	}
+}
+
+func TestImportConversationCreatesHistoricalTurnAtomically(t *testing.T) {
+	for _, rejectTurn := range []bool{false, true} {
+		t.Run(map[bool]string{false: "importado", true: "rollback"}[rejectTurn], func(t *testing.T) {
+			setupPortabilityRuntimeTestDB(t)
+			if rejectTurn {
+				if err := database.DB().Exec(`CREATE TRIGGER reject_import_turn BEFORE INSERT ON chat_turns BEGIN SELECT RAISE(ABORT,'falha nos metadados'); END`).Error; err != nil {
+					t.Fatal(err)
+				}
+			}
+			_, err := importConversation(portabilityTestCtx(), ConversationExport{ID: "conv-imported", Title: "Importada", CreatedAt: time.Now().UTC(), Messages: []MessageExport{
+				{ID: "q-imported", Role: "user", Content: "pergunta"},
+				{ID: "a-imported", Role: "assistant", Content: "resposta", TurnID: "q-imported"},
+			}}, false)
+			if rejectTurn {
+				if err == nil {
+					t.Fatal("importação aceitou falha de metadados")
+				}
+				var count int64
+				database.DB().Model(&database.ChatMessage{}).Where("conversation_id = ?", "conv-imported").Count(&count)
+				if count != 0 {
+					t.Fatal("mensagens vazaram do rollback")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			turn, err := database.NewChatTurnRepository(database.DB()).Get(portabilityTestCtx(), "conv-imported", "q-imported")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if turn.State != database.TurnHistoricalUnknown || turn.Origin != "imported" || turn.ActiveExecutionID != nil || turn.ResponseMessageID == nil || *turn.ResponseMessageID != "a-imported" {
+				t.Fatalf("turno importado: %+v", turn)
+			}
+			var count int64
+			database.DB().Model(&database.ChatTurnAttempt{}).Count(&count)
+			if count != 0 {
+				t.Fatal("inventou execução importada")
+			}
+		})
 	}
 }

@@ -66,6 +66,11 @@ func (r *ChatTurnRepository) Begin(ctx context.Context, conversationID, turnID, 
 			Where("c.user_id = ? AND c.id = ? AND chat_messages.id = ? AND chat_messages.role = 'user'", userID, conversationID, turnID).Take(&question).Error; err != nil {
 			return err
 		}
+		if mode != TurnModeNew {
+			if err := reconcileLegacyChatTurns(tx, turnID, conversationID); err != nil {
+				return err
+			}
+		}
 		turn, err := scopedChatTurn(ctx, tx, conversationID, turnID)
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			origin := "new"
