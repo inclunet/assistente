@@ -370,7 +370,7 @@ na `main`.
    Evidências: `internal/llmcatalog/voices_test.go`,
    `internal/speech/catalog_test.go`, `ProfileVoiceSection.test.tsx` e
    `VoicePicker.test.tsx`. A revisão local independente do agente
-   `review_catalogo_vozes` encerrou sem pendências após onze rodadas de revisão
+   `review_catalogo_vozes` encerrou sem pendências após doze rodadas de revisão
    do diff e dos ajustes; testes de Go, tipos/bindings, lint e testes de UI
    verificam o contrato. ACP não é executado localmente.
 

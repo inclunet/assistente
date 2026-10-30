@@ -239,10 +239,10 @@ export const Combobox = ({
 
     useEffect(() => {
         if (!isOpen) return;
-        const currentIdx = filteredItems.findIndex(i => i.value === selected);
+        const currentIdx = filter ? -1 : filteredItems.findIndex(i => i.value === selected);
         const newIdx = currentIdx >= 0 ? currentIdx : 0;
         setHighlightIndex(newIdx);
-    }, [filteredItems, isOpen, selected]);
+    }, [filter, filteredItems, isOpen, selected]);
 
     useEffect(() => {
         if (!isOpen || !emptyResultsMessage) {

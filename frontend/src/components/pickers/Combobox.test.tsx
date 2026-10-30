@@ -542,10 +542,10 @@ describe('Combobox - ações da opção destacada', () => {
   });
 });
 
-it.each(['{Enter}', '{ArrowDown}{ArrowUp}{Enter}'])('confirma ID manual com sugestões parcialmente coincidentes: %s', async keys => {
+it.each([['', '{Enter}'], ['voice-extended', '{Enter}'], ['voice-extended', '{ArrowDown}{ArrowUp}{Enter}']])('confirma ID manual com seleção %s e teclas %s', async (selected, keys) => {
   const onSelect = vi.fn();
   const user = userEvent.setup();
-  render(<Combobox items={[{ value: 'voice-extended', label: 'voice-extended' }]} selected="" label="Voz manual" onSelect={onSelect} allowFreeInput />);
+  render(<Combobox items={[{ value: 'voice-extended', label: 'voice-extended' }]} selected={selected} label="Voz manual" onSelect={onSelect} allowFreeInput />);
   await user.click(screen.getByRole('button', { name: /Voz manual/ }));
   await user.type(screen.getByRole('combobox'), 'voice');
   expect(screen.getByRole('option', { name: 'voice' })).toBeInTheDocument();
@@ -553,10 +553,10 @@ it.each(['{Enter}', '{ArrowDown}{ArrowUp}{Enter}'])('confirma ID manual com suge
   expect(onSelect).toHaveBeenCalledWith('voice', expect.objectContaining({ value: 'voice' }));
 });
 
-it('encontra o ID exato mesmo quando a voz tem nome amigável', async () => {
+it.each(['', 'bar'])('encontra ID exato com nome amigável e seleção %s', async selected => {
  const onSelect = vi.fn();
  const user = userEvent.setup();
- render(<Combobox items={[{ value: 'bar', label: 'foo extended' }, { value: 'foo', label: 'Friendly' }]} selected="" label="Voz exata" onSelect={onSelect} allowFreeInput />);
+ render(<Combobox items={[{ value: 'bar', label: 'foo extended' }, { value: 'foo', label: 'Friendly' }]} selected={selected} label="Voz exata" onSelect={onSelect} allowFreeInput />);
  await user.click(screen.getByRole('button', { name: /Voz exata/ }));
  await user.type(screen.getByRole('combobox'), 'foo');
  await user.keyboard('{Enter}');
