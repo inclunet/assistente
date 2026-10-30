@@ -9,10 +9,12 @@ import (
 )
 
 const (
-	ModCtrl  hotkey.Modifier = hotkey.ModCtrl
-	ModShift hotkey.Modifier = hotkey.ModShift
-	ModAlt   hotkey.Modifier = hotkey.Mod1
-	ModWin   hotkey.Modifier = hotkey.Mod4
+	// Máscaras do protocolo X11, disponíveis também no build sem CGO da CLI.
+	// A dependência só exporta essas constantes no arquivo que importa C.
+	ModCtrl  hotkey.Modifier = 1 << 2
+	ModShift hotkey.Modifier = 1 << 0
+	ModAlt   hotkey.Modifier = 1 << 3
+	ModWin   hotkey.Modifier = 1 << 6
 )
 
 // parseKeyStringImpl implementação específica para Linux/X11

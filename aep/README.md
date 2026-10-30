@@ -1164,7 +1164,7 @@ de cancelamento de release na dependência; o AEP permanece **In Progress**.
 | [0042](0042-chat-surface-context.md) | Chat Surface Context | 🚧 In Progress |
 | [0043](0043-tts-stt-voices.md) | Evolução TTS/STT: Vozes (Assistant + User) | 🗄️ Superseded |
 | [0044](0044-profile-settings-revamp.md) | Profile Settings Revamp (Tabbed Panels) | 🚧 In Progress |
-| [0045](0045-cli-interface.md) | Interface CLI como alternativa ao Wails | 🚧 In Progress |
+| [0045](0045-cli-interface.md) | Interface CLI como alternativa ao Wails | 🚧 In Progress — CLI Linux/macOS validada sem CGO no CI; validação manual de `wails dev` pendente |
 | [0046](0046-uuid-migration.md) | Migração de IDs Sequenciais para UUIDv7 | ✅ Done |
 | [0047](0047-import-export.md) | Importação e Exportação de Conteúdo | 🚧 In Progress |
 | [0048](0048-jobs-database-migration.md) | Migração de Jobs para Banco de Dados | ✅ Done |
