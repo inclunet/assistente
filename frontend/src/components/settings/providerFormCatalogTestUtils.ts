@@ -29,6 +29,7 @@ export const providerFormCatalogResponse = {
     servers: profiles.map(([id, name, provider_family, api_format, base_url, authMode]) => ({
       id, name, provider_family, api_format, base_url, status: id === 'retired-profile-test' ? 'deprecated' : 'active', group: 'hosted',
       adapter_id: api_format, auth: { mode: authMode, required: ['bearer_api_key', 'api_key_header'].includes(authMode) },
+      ...(['ollama', 'cohere'].includes(id) ? { endpoints: { chat: { path: '/chat/completions' } } } : {}),
       ...(id === 'editable-model-test' ? { default_model_id: '' } : {}),
       ...(id === 'openai' ? { signup_url: 'https://platform.openai.com/', api_key_url: 'https://platform.openai.com/api-keys' } : {}),
       fields: {
