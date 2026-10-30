@@ -1,3 +1,5 @@
+**AEP-0117 — runtime leve lasst: In Progress.** PoC inicial sem banco implementada; MCP e review de PR permanecem pendentes.
+
 **AEP-0112 — diagnóstico de renovação OAuth (28/10/2026): In Progress.**
 Contrato base aceito em 05/10 preservado. A extensão registra etapa, causa segura,
 status HTTP e código OAuth controlado; testes cobrem sigilo e política de rotação.
