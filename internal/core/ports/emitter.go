@@ -12,6 +12,7 @@ type Emitter interface {
 // quanto após segment_done; BaseContent é o prefixo persistido usado em
 // continuação explícita. Sequence é monotônica dentro de cada época.
 type StreamEvent struct {
+	ItemID               string             `json:"itemId,omitempty"`
 	MessageID            string             `json:"messageId"`
 	ConversationId       string             `json:"conversationId"`
 	TurnID               string             `json:"turnId"`

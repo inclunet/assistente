@@ -93,6 +93,8 @@ type EnrichedMessage struct {
 }
 
 type MessageNode struct {
+	// ItemID é fornecido pelas projeções consolidadas; árvores brutas não são timeline.
+	ItemID        string          `json:"itemId,omitempty"`
 	Message       EnrichedMessage `json:"message"`
 	Children      []MessageNode   `json:"children,omitempty"`
 	Level         int             `json:"level"`

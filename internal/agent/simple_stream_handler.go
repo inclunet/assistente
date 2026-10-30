@@ -101,6 +101,7 @@ func (h *SimpleStreamHandler) OnError(err string) {
 		Done:                 true,
 		Error:                err,
 		ConversationId:       h.ConversationID,
+		ItemID:               ports.ResponseItemID(h.TurnID),
 		TurnID:               h.TurnID,
 		FinishReason:         string(h.finish.Reason),
 		RawReason:            h.finish.RawReason,

@@ -55,6 +55,7 @@ type ThinkingEvent struct {
 // TurnPatchEvent é o item autoritativo mínimo de timeline emitido ao concluir
 // um turno. Os tipos próprios evitam acoplar ports ao pacote chat.
 type TurnPatchEvent struct {
+	ItemID  string           `json:"itemId"`
 	Message TurnPatchMessage `json:"message"`
 }
 
@@ -105,6 +106,7 @@ type TurnPatchToolInvocation struct {
 
 // DoneEvent is the payload for chat:done.
 type DoneEvent struct {
+	ItemID             string `json:"itemId,omitempty"`
 	ConversationID     string `json:"conversationId"`
 	TurnID             string `json:"turnId,omitempty"`
 	AssistantMessageID string `json:"assistantMessageId,omitempty"`
@@ -146,6 +148,7 @@ type ErrorEvent struct {
 
 // MessagesReadyEvent is the payload for chat:messages_ready.
 type MessagesReadyEvent struct {
+	ItemID         string             `json:"itemId"`
 	ConversationID string             `json:"conversationId"`
 	UserMessageID  string             `json:"userMessageId"`
 	TurnID         string             `json:"turnId,omitempty"`

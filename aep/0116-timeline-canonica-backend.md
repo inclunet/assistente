@@ -1,6 +1,6 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — fase 1 concluída; runtime das fases 2–5 pendente
+## Status: In Progress — fase 1 concluída; fase 2 iniciada pela identidade dos itens
 
 Data: 2026-10-30
 
@@ -189,6 +189,68 @@ não resolvidas bloqueiam os recortes correspondentes, não são fallbacks impl�
 - [ ] Cobrir sucesso, tools locais/nativas/ACP, erro, retry, continuação e cancelamento.
 
 Saída: contrato backend testado e adaptadores temporários identificados.
+
+Primeiro recorte da fase 2: identidade aditiva na fronteira atual. `itemId`
+passa a acompanhar os nós consolidados de histórico, `chat:messages_ready`
+(pergunta), `chat:stream`, `chat:done` e o envelope `turnPatch` (resposta).
+Uma única regra backend distingue `message:<id>` de `turn:<userId>`. Trocar a
+mensagem representante, repetir ou terminar uma execução não troca o item.
+Terminais operacionais anteriores à existência de turno omitem itemId; não
+inventam mensagem local nem usam o ID de uma mensagem assistant como fallback.
+
+Adaptadores temporários: `MessageNode`, `TurnPatchEvent` e os eventos atuais
+transportam a identidade que será usada por `TimelineItem`. As interfaces de
+eventos e bindings refletem o campo, mas a UI ainda não o usa como chave. Retirar
+esses adaptadores no cutover da fase 3, após consumidores Wails/CLI/canais
+migrarem. Não há nova store, reducer ou fluxo de envio neste recorte.
+
+Evidências: testes de timeline preservam itemId quando muda o representante e
+mantêm mensagens legadas independentes; handlers verificam primeiro delta e
+retry; terminal compara identidade com janela e preserva-a mesmo se persistência
+ou patch falhar. O evento da pergunta só publica sua identidade após commit.
+Testes ACP locais permanecem suspensos por solicitação do mantenedor.
+
+Revisão remota deste recorte: os segmentos preservam IDs de invocação e de chamada do provedor; teste com SQLite verifica patch → consulta dos detalhes sem colisão entre IDs distintos. O cache frontend preserva as mesmas referências na consulta e na invalidação, com regressão de entradas independentes. Além disso, o patch seleciona o nó por itemId de resposta,
+nunca por posição na lista. Uma pergunta legada com turn_id igual ao próprio ID
+continua independente e, sozinha, não produz patch de resposta. IDs não vazios
+mantêm seus bytes originais na identidade, agrupamento e hidratação de tools;
+`u` e ` u ` não podem colidir. O helper de placeholder também preserva o turno ao criar/reutilizar a resposta; regressão SQLite compara persistência, retry e identidade da projeção. Regressões cobrem ambos os casos.
+
+Limite deste recorte: a preservação de IDs acima vale para identidade aditiva,
+placeholder, projeção e consulta/cache de detalhes, não para toda a aplicação.
+A escrita/validação do ledger (`toolinvocations/lifecycle.go`, `repository.go`)
+ainda normaliza IDs; os testes SQLite provam leitura fiel de registros existentes,
+não preservação global ao criar invocações. Associação de tools, lifecycle/cleanup
+(`agent/service.go`, `chat/timeline.go`, `database/message_repository.go`),
+prefill/finalização de messageId e alvo de contexto ainda possuem normalizações
+legadas. `chatEventHub.ts` e `chatSessionRegistry.ts` continuam normalizando turnId
+até o cutover. Auditar e tratar essas fronteiras em recorte dedicado das fases 2–3
+antes de prometer preservação global de IDs opacos; não é uma migração global neste PR.
+Validação local do recorte: build/vet, ports/chat/events e seleção explícita
+dos handlers/terminais de agent e das projeções de toolinvocations passaram sem executar ACP. TypeScript, ESLint,
+Stylelint (avisos preexistentes) e 6.848 testes Vitest em 515 arquivos passaram.
+Bindings regenerados com Wails 2.15.0, a versão do go.mod. Lint Go local 2.15.0
+mantém 12 ocorrências fora do diff; análise contra a base 977a950cc tem zero novas.
+
+Benchmark isolado no mesmo ambiente da fase 1, cinco amostras de 20 operações:
+medianas de 3,568 / 9,299 / 12,324 ms para 100/500/1.000 mensagens; memória de
+710.935 / 1.637.854 / 1.636.750 B/op. Não interpretar variações de tempo como
+ganho causado por identidade: não houve otimização da consulta. Payload de
+37.262 / 88.881 / 88.882 bytes, acréscimo de 4.050 / 9.720 / 9.720 bytes
+(aproximadamente 12,2%) sobre a baseline. Tempo e B/op ficam dentro de +20%.
+
+Exceção de payload limitada a este adaptador de migração: o itemId precisa
+conviver com message.id, turnId e originalIndex enquanto a UI antiga consome
+esses campos. O aumento é linear nos no máximo 240 itens e não inclui conteúdo
+pesado, consultas ou eventos novos. Evitar o campo obrigaria o frontend a
+continuar reconstruindo a identidade; remover campos antigos agora quebraria
+consumidores. No cutover da fase 3, retirar o envelope legado e medir de novo;
+esta exceção não relaxa o orçamento geral de +10% para o DTO final.
+
+Pendências da fase 2: projeção incremental de segmentos, estado persistente de
+turnos/tentativas, sequência/época, cursores, inscrições de janela e recuperação
+unificada. As caixas acima permanecem abertas; este recorte não corrige sozinho
+ordenação ou foco da UI e não conclui a fase 2.
 
 ### Fase 3 — Consumidor frontend e remoções
 

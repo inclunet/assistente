@@ -55,6 +55,10 @@ enfileirados. Conversas diferentes continuam respondendo em paralelo. Ao
 terminar um turno com ferramentas, o chat atualiza apenas a resposta daquele
 turno, preservando a posição e a janela de histórico que você estava lendo.
 
+Pergunta e resposta permanecem separadas. Ao concluir o turno, a atualização
+da resposta usa o texto do assistente, inclusive ao retomar históricos antigos;
+o texto da pergunta não deve aparecer no lugar da resposta.
+
 ## Retry e persistência
 
 Repetir uma mensagem usa a pergunta raiz selecionada como âncora. O histórico e

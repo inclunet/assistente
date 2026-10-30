@@ -149,6 +149,58 @@ func TestCollectTurnIDsWithToolCallsDeduplicaTurnosConversacionais(t *testing.T)
 	}
 }
 
+func TestTimelineItemIdentitySurvivesRepresentativeChange(t *testing.T) {
+	turnID, messages, calls := canonicalTurnFixture()
+	before := BuildNodesWithTimelineConsolidation(messages[:1], nil, nil, nil)
+	after := BuildNodesWithTimelineConsolidation(messages, nil, nil, map[string][]TurnSegmentToolCall{turnID: calls})
+	if len(before) != 1 || len(after) != 1 {
+		t.Fatalf("esperava um item por turno: before=%+v after=%+v", before, after)
+	}
+	if before[0].Message.ID == after[0].Message.ID {
+		t.Fatal("fixture precisa trocar a mensagem representante")
+	}
+	if before[0].ItemID != "turn:"+turnID || after[0].ItemID != before[0].ItemID {
+		t.Fatalf("troca de representante mudou identidade: before=%+v after=%+v", before, after)
+	}
+}
+
+func TestTimelineItemIdentityKeepsLegacyAndUserIndependent(t *testing.T) {
+	turnID := "question"
+	messages := []Message{
+		{UUIDModel: database.UUIDModel{ID: "question"}, Role: "user", TurnID: &turnID},
+		{UUIDModel: database.UUIDModel{ID: "legacy"}, Role: "assistant"},
+	}
+	nodes := BuildNodesWithTimelineConsolidation(messages, nil, nil, nil)
+	if len(nodes) != 2 || nodes[0].ItemID != "message:question" || nodes[1].ItemID != "message:legacy" {
+		t.Fatalf("mensagem independente promovida indevidamente a turno: %+v", nodes)
+	}
+}
+
+func TestTimelineItemIdentityPreservesOpaqueTurnIDs(t *testing.T) {
+	plain, spaced := "question", " question "
+	messages := []Message{
+		{UUIDModel: database.UUIDModel{ID: "a"}, Role: "assistant", TurnID: &plain, Content: "primeira"},
+		{UUIDModel: database.UUIDModel{ID: "b"}, Role: "assistant", TurnID: &spaced, Content: "segunda"},
+	}
+	items := []database.MessageWindowItem{
+		{Kind: database.MessageWindowItemKindTurn, TurnID: plain},
+		{Kind: database.MessageWindowItemKindTurn, TurnID: spaced},
+	}
+	for _, nodes := range [][]MessageNode{
+		BuildNodesWithTimelineConsolidation(messages, nil, nil, nil),
+		BuildTimelineMessageNodes(items, messages, nil, nil, nil),
+	} {
+		if len(nodes) != 2 || nodes[0].ItemID != "turn:question" || nodes[1].ItemID != "turn: question " ||
+			nodes[0].Message.Content != "primeira" || nodes[1].Message.Content != "segunda" {
+			t.Fatalf("IDs opacos foram normalizados ou agrupados: %+v", nodes)
+		}
+	}
+	ids := CollectTurnIDsWithToolCalls(messages)
+	if len(ids) != 2 || ids[0] != plain || ids[1] != spaced {
+		t.Fatalf("hidratação deve consultar IDs exatos: %q", ids)
+	}
+}
+
 func TestConsolidateTimelineTurnFinalPreCriadoSemUsageUsaAtualizacaoTerminal(t *testing.T) {
 	turnID := "turn-updated-final"
 	base := time.Date(2026, 9, 17, 12, 0, 0, 0, time.UTC)

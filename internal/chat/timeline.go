@@ -5,6 +5,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"assistente/internal/core/ports"
 	"assistente/internal/database"
 )
 
@@ -16,8 +17,6 @@ type ConsolidatedTurnResult struct {
 }
 
 func normalizeInvocationSummary(call TurnSegmentToolCall) TurnSegmentToolCall {
-	call.InvocationID = strings.TrimSpace(call.InvocationID)
-	call.ID = strings.TrimSpace(call.ID)
 	call.Name = strings.TrimSpace(call.Name)
 	call.Status = strings.TrimSpace(call.Status)
 	if call.Name == "" {
@@ -239,25 +238,30 @@ func consolidateACPTextPositions(messages []Message, calls []TurnSegmentToolCall
 
 func MessageTimelineItemKey(message Message) string {
 	if message.Role != "user" && message.TurnID != nil && strings.TrimSpace(*message.TurnID) != "" {
-		return "turn:" + strings.TrimSpace(*message.TurnID)
+		return ports.ResponseItemID(*message.TurnID)
 	}
-	return "message:" + message.ID
+	return ports.MessageItemID(message.ID)
 }
 
 func timelineWindowItemKey(item database.MessageWindowItem) string {
 	if item.Kind == database.MessageWindowItemKindTurn {
-		return "turn:" + item.TurnID
+		return ports.ResponseItemID(item.TurnID)
 	}
-	return "message:" + item.MessageID
+	return ports.MessageItemID(item.MessageID)
 }
 
-func assignMessageNodeTurnSegments(nodes []MessageNode, segmentsByID map[string][]TurnSegment) []MessageNode {
+func decorateTimelineNodes(nodes []MessageNode, segmentsByID map[string][]TurnSegment) []MessageNode {
 	for index := range nodes {
+		message := nodes[index].Message
+		nodes[index].ItemID = ports.MessageItemID(message.ID)
+		if message.Role != "user" && message.TurnID != nil && strings.TrimSpace(*message.TurnID) != "" {
+			nodes[index].ItemID = ports.ResponseItemID(*message.TurnID)
+		}
 		if segments := segmentsByID[nodes[index].Message.ID]; len(segments) > 0 {
 			nodes[index].Message.TurnSegments = segments
 		}
 		if len(nodes[index].Children) > 0 {
-			nodes[index].Children = assignMessageNodeTurnSegments(nodes[index].Children, segmentsByID)
+			nodes[index].Children = decorateTimelineNodes(nodes[index].Children, segmentsByID)
 		}
 	}
 	return nodes
@@ -304,7 +308,7 @@ func BuildNodesWithTimelineConsolidation(
 		}
 		representatives = append(representatives, representative)
 	}
-	return assignMessageNodeTurnSegments(BuildMessageNodes(representatives, childCounts, parentID), segmentsByMessageID)
+	return decorateTimelineNodes(BuildMessageNodes(representatives, childCounts, parentID), segmentsByMessageID)
 }
 
 func BuildTimelineMessageNodes(
@@ -337,7 +341,7 @@ func BuildTimelineMessageNodes(
 		indexes[representative.ID] = item.OriginalIndex
 	}
 	nodes := BuildMessageNodes(representatives, childCounts, parentID)
-	return assignMessageNodeTurnSegments(assignMessageNodeOriginalIndexes(nodes, indexes), segments)
+	return decorateTimelineNodes(assignMessageNodeOriginalIndexes(nodes, indexes), segments)
 }
 
 func CollectTurnIDsWithToolCalls(messages []Message) []string {
@@ -347,8 +351,8 @@ func CollectTurnIDsWithToolCalls(messages []Message) []string {
 		if message.Role == "user" || message.TurnID == nil {
 			continue
 		}
-		turnID := strings.TrimSpace(*message.TurnID)
-		if turnID == "" {
+		turnID := *message.TurnID
+		if strings.TrimSpace(turnID) == "" {
 			continue
 		}
 		if _, found := seen[turnID]; !found {

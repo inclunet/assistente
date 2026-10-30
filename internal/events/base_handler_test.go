@@ -46,7 +46,7 @@ func TestBaseStreamHandlerPreservaCorrelacaoCompleta(t *testing.T) {
 	if emitter.name != "chat:stream" || !ok {
 		t.Fatalf("evento inesperado: %q %T", emitter.name, emitter.data)
 	}
-	if event.ConversationId != "conversation-1" || event.TurnID != "turn-1" || event.MessageID != "assistant-1" {
+	if event.ConversationId != "conversation-1" || event.TurnID != "turn-1" || event.MessageID != "assistant-1" || event.ItemID != "turn:turn-1" {
 		t.Fatalf("correlação incompleta: %+v", event)
 	}
 	if event.SurfaceOrigin != origin {

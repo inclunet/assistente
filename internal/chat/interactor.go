@@ -605,6 +605,7 @@ func (i *Interactor) RecordUserMessage(ctx context.Context, req RecordUserMessag
 	}
 
 	i.emitter.Emit("chat:messages_ready", ports.MessagesReadyEvent{
+		ItemID:         ports.MessageItemID(userMsg.ID),
 		ConversationID: req.ConversationID,
 		UserMessageID:  userMsg.ID,
 		TurnID:         userMsg.ID,

@@ -40,8 +40,7 @@ func SaveAssistantMessage(ctx context.Context, msgRepo MessageRepository, opts M
 // Nota: este placeholder pode começar com Content vazio e será atualizado ao final do streaming.
 func EnsureAssistantPlaceholder(ctx context.Context, msgRepo MessageRepository, conversationID string, turnID string) (string, error) {
 	conversationID = strings.TrimSpace(conversationID)
-	turnID = strings.TrimSpace(turnID)
-	if conversationID == "" || turnID == "" || msgRepo == nil {
+	if conversationID == "" || strings.TrimSpace(turnID) == "" || msgRepo == nil {
 		return "", nil
 	}
 

@@ -77,10 +77,10 @@ export function clearToolInvocationDetailsCache(): void {
 
 export function invalidateToolInvocationDetails(invocationIds: string[]): void {
   for (const invocationId of invocationIds) {
-    const normalized = String(invocationId ?? '').trim();
-    if (!normalized) continue;
+    const id = String(invocationId ?? '');
+    if (!id.trim()) continue;
     for (const key of cache.keys()) {
-      if (key.endsWith(`\u0000${normalized}`)) deleteEntry(key);
+      if (key.endsWith(`\u0000${id}`)) deleteEntry(key);
     }
   }
 }
@@ -92,7 +92,7 @@ export async function loadToolInvocationDetails(
   const normalizedUserId = String(userId ?? '').trim();
   if (!normalizedUserId) throw new Error('authenticated user required');
   prepareToolInvocationDetailsUser(normalizedUserId);
-  const ids = [...new Set(invocationIds.map((id) => String(id ?? '').trim()).filter(Boolean))];
+  const ids = [...new Set(invocationIds.map((id) => String(id ?? '')).filter((id) => id.trim()))];
   const result = new Map<string, toolinvocations.Detail>();
   const misses: string[] = [];
   for (const id of ids) {

@@ -82,6 +82,7 @@ func (h *BaseStreamHandler) emitStreamEvent() {
 		return
 	}
 	h.Emitter.Emit("chat:stream", StreamEvent{
+		ItemID:         ports.ResponseItemID(h.TurnID),
 		MessageID:      h.AssistantMessageID,
 		Delta:          delta,
 		Reset:          !h.StreamStarted,

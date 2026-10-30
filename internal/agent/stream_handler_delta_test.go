@@ -52,6 +52,9 @@ func TestBaseStreamHandlerCoalesceDeltasInOrderWithUnicode(t *testing.T) {
 		t.Fatalf("coalescing emitiu %d eventos, esperava 1", got)
 	}
 	stream := events[0].data.(ports.StreamEvent)
+	if stream.ItemID != "turn:turn-1" {
+		t.Fatalf("primeiro delta sem identidade canônica: %+v", stream)
+	}
 	if stream.Delta != "Olá 世界 👩🏽‍💻" {
 		t.Fatalf("delta=%q", stream.Delta)
 	}
@@ -91,6 +94,9 @@ func TestBaseStreamHandlerFlushPreservesSequenceAndRetryReset(t *testing.T) {
 	first := events[0].data.(ports.StreamEvent)
 	second := events[1].data.(ports.StreamEvent)
 	retry := events[2].data.(ports.StreamEvent)
+	if first.ItemID != "turn:turn-1" || second.ItemID != first.ItemID || retry.ItemID != first.ItemID {
+		t.Fatalf("identidade mudou entre deltas/tentativas: %+v %+v %+v", first, second, retry)
+	}
 	if first.Delta != "primeiro" || second.Delta != " segundo" {
 		t.Fatalf("buffers de deltas foram alterados após reuso: %+v %+v", first, second)
 	}

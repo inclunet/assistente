@@ -216,13 +216,15 @@ type commitCheckingEmitter struct {
 	repo              *batchHistoryRepo
 	readyAfterCommit  bool
 	messagesReadySeen int
+	readyItemID       string
 }
 
-func (e *commitCheckingEmitter) Emit(name string, _ any) {
+func (e *commitCheckingEmitter) Emit(name string, data any) {
 	if name != "chat:messages_ready" {
 		return
 	}
 	e.messagesReadySeen++
+	e.readyItemID = data.(ports.MessagesReadyEvent).ItemID
 	e.readyAfterCommit = e.repo.committed
 }
 
@@ -244,6 +246,9 @@ func TestRecordUserMessageUsesSingleBatchCallAndEmitsAfterCommit(t *testing.T) {
 	}
 	if emitter.messagesReadySeen != 1 || !emitter.readyAfterCommit {
 		t.Fatalf("messages_ready deve ocorrer uma vez após commit: %+v", emitter)
+	}
+	if emitter.readyItemID != "message:user-1" {
+		t.Fatalf("identidade da pergunta ausente no primeiro evento: %q", emitter.readyItemID)
 	}
 	if result.UserMsg.ID != "user-1" || len(result.Messages) != 1 {
 		t.Fatalf("resultado batch inesperado: %+v", result)
@@ -311,6 +316,32 @@ func setupHotPathDB(t *testing.T) (*gorm.DB, context.Context, string) {
 		t.Fatal(err)
 	}
 	return testDB, ctx, conv.ID
+}
+
+func TestAssistantPlaceholderPreservesOpaqueTurnIdentity(t *testing.T) {
+	testDB, ctx, conversationID := setupHotPathDB(t)
+	repo := NewDBMessageStore()
+	for _, turnID := range []string{"turn", " turn "} {
+		id, err := EnsureAssistantPlaceholder(ctx, repo, conversationID, turnID)
+		if err != nil || id == "" {
+			t.Fatalf("criação do turno %q: %q, %v", turnID, id, err)
+		}
+		reused, err := EnsureAssistantPlaceholder(ctx, repo, conversationID, turnID)
+		if err != nil || reused != id {
+			t.Fatalf("retry não reutilizou resposta: %q, %v", reused, err)
+		}
+		var message database.ChatMessage
+		if err := testDB.First(&message, "id = ?", id).Error; err != nil {
+			t.Fatal(err)
+		}
+		if message.TurnID == nil || *message.TurnID != turnID {
+			t.Fatalf("turno persistido foi alterado: %+v", message)
+		}
+		nodes := BuildNodesWithTimelineConsolidation([]Message{message}, nil, map[string]int{}, nil)
+		if len(nodes) != 1 || nodes[0].ItemID != ports.ResponseItemID(turnID) {
+			t.Fatalf("identidade persistida diverge do evento: %+v", nodes)
+		}
+	}
 }
 
 func TestDBMessageStorePlaceholderIsIdempotentUnderConcurrency(t *testing.T) {

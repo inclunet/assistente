@@ -748,6 +748,7 @@ func (r *agenticLoopRunner) finishLimitReached(ctx context.Context) {
 		Sequence:       0,
 		MessageID:      r.assistantMessageID,
 		ConversationId: r.conversationID,
+		ItemID:         ports.ResponseItemID(r.turnID),
 		TurnID:         r.turnID,
 		SurfaceOrigin:  r.surfaceOrigin,
 	})
@@ -755,6 +756,7 @@ func (r *agenticLoopRunner) finishLimitReached(ctx context.Context) {
 		Done:           true,
 		MessageID:      r.assistantMessageID,
 		ConversationId: r.conversationID,
+		ItemID:         ports.ResponseItemID(r.turnID),
 		TurnID:         r.turnID,
 		SurfaceOrigin:  r.surfaceOrigin,
 	})
@@ -768,6 +770,7 @@ func (r *agenticLoopRunner) finishLimitReached(ctx context.Context) {
 	responseBytes := r.lastFinish.ResponseBytes
 	doneEvent := ports.DoneEvent{
 		ConversationID:       r.conversationID,
+		ItemID:               ports.ResponseItemID(r.turnID),
 		TurnID:               r.turnID,
 		AssistantMessageID:   r.assistantMessageID,
 		HadToolCalls:         r.totalToolCallCount > 0,
@@ -816,6 +819,7 @@ func (r *agenticLoopRunner) buildErrorDoneEvent(errMessage string, iteration int
 func (r *agenticLoopRunner) buildErrorDoneEventWithContext(ctx context.Context, errMessage string, iteration int) ports.DoneEvent {
 	event := ports.DoneEvent{
 		ConversationID:       r.conversationID,
+		ItemID:               ports.ResponseItemID(r.turnID),
 		TurnID:               r.turnID,
 		AssistantMessageID:   r.assistantMessageID,
 		SurfaceOrigin:        r.surfaceOrigin,

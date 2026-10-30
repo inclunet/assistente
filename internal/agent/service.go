@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -220,6 +221,7 @@ func (s *Service) RunAgenticLoop(
 		logging.Errorf(ctx, "agent.service", "🔴 [AGENT] streamer nil na conversa %s", conversationID)
 		s.emitter.Emit("chat:done", ports.DoneEvent{
 			ConversationID: conversationID,
+			ItemID:         ports.ResponseItemID(turnID),
 			TurnID:         turnID,
 			SurfaceOrigin:  surfaceOrigin,
 			Reason:         "error",
@@ -342,6 +344,7 @@ func (s *Service) SaveAndFinish(
 		MessageID:      savedMsgID,
 		Done:           true,
 		ConversationId: conversationID,
+		ItemID:         ports.ResponseItemID(turnID),
 		TurnID:         turnID,
 		SurfaceOrigin:  surfaceOrigin,
 	})
@@ -365,6 +368,7 @@ func (s *Service) SaveAndFinish(
 	}
 	doneEvent := ports.DoneEvent{
 		ConversationID:       conversationID,
+		ItemID:               ports.ResponseItemID(turnID),
 		TurnID:               turnID,
 		AssistantMessageID:   savedMsgID,
 		HadToolCalls:         hadTools,
@@ -458,6 +462,7 @@ func (s *Service) emitFinalizationCancelledDone(ctx context.Context, conversatio
 	s.emitter.Emit("chat:done", ports.DoneEvent{
 		TurnPatch:          patch,
 		ConversationID:     conversationID,
+		ItemID:             ports.ResponseItemID(turnID),
 		TurnID:             turnID,
 		AssistantMessageID: assistantMessageID,
 		Reason:             "cancelled",
@@ -473,6 +478,7 @@ func (s *Service) emitFinalizationErrorDone(conversationID, turnID, assistantMes
 	// Do not replace that text with a stale terminal patch.
 	s.emitter.Emit("chat:done", ports.DoneEvent{
 		ConversationID:     conversationID,
+		ItemID:             ports.ResponseItemID(turnID),
 		TurnID:             turnID,
 		AssistantMessageID: assistantMessageID,
 		Reason:             "error",
@@ -549,11 +555,16 @@ func (s *Service) buildTurnPatch(ctx context.Context, conversationID, turnID str
 	}
 
 	nodes := chat.BuildNodesWithTimelineConsolidation(messages, nil, map[string]int{}, callsByTurn)
-	if len(nodes) == 0 {
+	itemID := ports.ResponseItemID(turnID)
+	responseIndex := slices.IndexFunc(nodes, func(node chat.MessageNode) bool {
+		return node.ItemID == itemID
+	})
+	if responseIndex < 0 {
 		return nil, nil
 	}
-	message := nodes[0].Message
-	patch := &ports.TurnPatchEvent{Message: ports.TurnPatchMessage{
+	response := nodes[responseIndex]
+	message := response.Message
+	patch := &ports.TurnPatchEvent{ItemID: response.ItemID, Message: ports.TurnPatchMessage{
 		ID:               message.ID,
 		ConversationID:   message.ConversationID,
 		ParentID:         message.ParentID,
@@ -882,6 +893,7 @@ func (s *Service) HandleRecoveredPanic(
 	if s.emitter != nil {
 		s.emitter.Emit("chat:done", ports.DoneEvent{
 			ConversationID:     conversationID,
+			ItemID:             ports.ResponseItemID(turnID),
 			TurnID:             turnID,
 			AssistantMessageID: assistantMessageID,
 			SurfaceOrigin:      surfaceOrigin,
@@ -1400,6 +1412,7 @@ func (s *Service) emitSimpleContextDone(
 	s.emitter.Emit("chat:done", ports.DoneEvent{
 		TurnPatch:          patch,
 		ConversationID:     conversationID,
+		ItemID:             ports.ResponseItemID(turnID),
 		TurnID:             turnID,
 		AssistantMessageID: assistantMessageID,
 		SurfaceOrigin:      surfaceOrigin,
@@ -1418,6 +1431,7 @@ func (s *Service) emitPlaceholderErrorDone(
 	}
 	s.emitter.Emit("chat:done", ports.DoneEvent{
 		ConversationID: conversationID,
+		ItemID:         ports.ResponseItemID(turnID),
 		TurnID:         turnID,
 		SurfaceOrigin:  surfaceOrigin,
 		Reason:         "error",
@@ -1445,6 +1459,7 @@ func (s *Service) emitAgenticContextDone(
 	}
 	s.emitter.Emit("chat:done", ports.DoneEvent{
 		ConversationID:     conversationID,
+		ItemID:             ports.ResponseItemID(turnID),
 		TurnID:             turnID,
 		AssistantMessageID: assistantMessageID,
 		SurfaceOrigin:      surfaceOrigin,

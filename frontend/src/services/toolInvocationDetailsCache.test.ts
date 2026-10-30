@@ -58,6 +58,25 @@ describe('toolInvocationDetailsCache', () => {
     expect(toolInvocationDetailsCacheTestApi.size).toBe(0);
   });
 
+  it('preserva IDs opacos na consulta, no cache e na invalidação independente', async () => {
+    const ids = ['inv', ' inv '];
+    const result = await loadToolInvocationDetails('user-a', [...ids, '', ' ', 'inv']);
+    expect(getDetailsMock).toHaveBeenCalledWith(ids);
+    expect([...result.keys()]).toEqual(ids);
+    expect(toolInvocationDetailsCacheTestApi.size).toBe(2);
+
+    for (const id of ids) {
+      getDetailsMock.mockClear();
+      invalidateToolInvocationDetails([id]);
+      expect(toolInvocationDetailsCacheTestApi.size).toBe(1);
+      const reloaded = await loadToolInvocationDetails('user-a', ids);
+      expect(getDetailsMock).toHaveBeenCalledTimes(1);
+      expect(getDetailsMock).toHaveBeenCalledWith([id]);
+      expect(reloaded.get(id)?.invocationId).toBe(id);
+      expect(toolInvocationDetailsCacheTestApi.size).toBe(2);
+    }
+  });
+
   it('não retém uma entrada maior que o limite de memória', async () => {
     getDetailsMock.mockResolvedValueOnce([detail('inv-large', 'x'.repeat(4 * 1024 * 1024 + 1))] as never);
     await loadToolInvocationDetails('user-a', ['inv-large']);

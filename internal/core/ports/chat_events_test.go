@@ -74,6 +74,7 @@ func TestDoneEventSerializaPatchMinimoDoTurno(t *testing.T) {
 	reasoningTokens := 5
 	responseBytes := 8
 	payload, err := json.Marshal(DoneEvent{
+		ItemID:               "turn:turn-1",
 		ConversationID:       "conv-1",
 		TurnID:               "turn-1",
 		Reason:               "output_limit",
@@ -85,7 +86,7 @@ func TestDoneEventSerializaPatchMinimoDoTurno(t *testing.T) {
 		OutputTokens:         &outputTokens,
 		ReasoningTokens:      &reasoningTokens,
 		ResponseBytes:        &responseBytes,
-		TurnPatch: &TurnPatchEvent{Message: TurnPatchMessage{
+		TurnPatch: &TurnPatchEvent{ItemID: "turn:turn-1", Message: TurnPatchMessage{
 			ID:             "assistant-1",
 			ConversationID: "conv-1",
 			ParentID:       &parentID,
@@ -125,7 +126,7 @@ func TestDoneEventSerializaPatchMinimoDoTurno(t *testing.T) {
 		`"outputTokens":7`,
 		`"reasoningTokens":5`,
 		`"responseBytes":8`,
-		`"turnPatch":{"message":`,
+		`"turnPatch":{"itemId":"turn:turn-1","message":`,
 		`"turnSegments":[`,
 		`"invocationId":"inv-1"`,
 		`"name":"update_plan"`,

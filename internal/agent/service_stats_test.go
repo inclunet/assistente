@@ -11,6 +11,7 @@ import (
 	"assistente/internal/database"
 	"assistente/internal/llm"
 	"assistente/internal/messaging"
+	"assistente/internal/toolinvocations"
 	"assistente/internal/tools"
 
 	"github.com/glebarez/sqlite"
@@ -143,6 +144,13 @@ func TestSaveAndFinish_DoneEvent_CarregaPatchAutoritativo(t *testing.T) {
 	if done.Reason != "output_limit" || done.TurnPatch == nil {
 		t.Fatalf("esperava output_limit com patch, recebeu %+v", done)
 	}
+	window := chat.BuildTimelineMessageNodes([]database.MessageWindowItem{{
+		Kind: database.MessageWindowItemKindTurn, TurnID: turnID,
+	}}, repo.turnMessages, nil, nil, nil)
+	if len(window) != 1 || window[0].ItemID != "turn:turn-1" ||
+		done.ItemID != window[0].ItemID || done.TurnPatch.ItemID != window[0].ItemID {
+		t.Fatalf("identidade divergiu entre terminal e janela: done=%+v window=%+v", done, window)
+	}
 	if done.FinishReason != "max_tokens" || done.RawReason != "length" ||
 		done.Provider != "provider-1" || done.Model != "modelo-real" ||
 		done.EffectiveOutputLimit != 20 || done.ResponseBytes == nil || *done.ResponseBytes != len("resposta final") {
@@ -181,7 +189,7 @@ func TestSaveAndFinish_PreservaDesfechoQuandoPatchFalha(t *testing.T) {
 			continue
 		}
 		done := event.data.(ports.DoneEvent)
-		if done.Reason != "completed" || done.ErrorMessage != "" || done.TurnPatch != nil {
+		if done.Reason != "completed" || done.ErrorMessage != "" || done.TurnPatch != nil || done.ItemID != "turn:turn-1" {
 			t.Fatalf("falha opcional do patch alterou o desfecho: %+v", done)
 		}
 		return
@@ -245,7 +253,7 @@ func TestSaveAndFinish_FinalizeFailureIsTerminalAndRecoverable(t *testing.T) {
 	if done.TurnPatch != nil {
 		t.Fatal("failed persistence must not replace streamed content with stale database content")
 	}
-	if done.Reason != "error" || done.ErrorMessage != ports.ChatErrorPersistence || done.AssistantMessageID != "assistant-1" {
+	if done.Reason != "error" || done.ErrorMessage != ports.ChatErrorPersistence || done.AssistantMessageID != "assistant-1" || done.ItemID != "turn:turn-1" {
 		t.Fatalf("desfecho terminal incorreto: %+v", *done)
 	}
 }
@@ -272,6 +280,42 @@ func TestBuildTurnPatchSobreviveAoCancelamentoDoTurno(t *testing.T) {
 	}
 	if patch == nil || patch.Message.Content != "conteúdo parcial persistido" {
 		t.Fatalf("patch parcial ausente após cancelamento: %+v", patch)
+	}
+}
+
+func TestBuildTurnPatchSelectsResponseIdentity(t *testing.T) {
+	for _, turnID := range []string{"question", " question "} {
+		for _, withResponse := range []bool{false, true} {
+			name := turnID + "/only-question"
+			if withResponse {
+				name = turnID + "/with-response"
+			}
+			t.Run(name, func(t *testing.T) {
+				question := chat.Message{UUIDModel: database.UUIDModel{ID: turnID}, ConversationID: "conv",
+					Role: "user", TurnID: &turnID, Content: "pergunta não é resposta"}
+				repo := &mockMsgRepo{turnMessages: []chat.Message{question}}
+				if withResponse {
+					repo.turnMessages = append(repo.turnMessages, chat.Message{
+						UUIDModel: database.UUIDModel{ID: "assistant"}, ConversationID: "conv",
+						Role: "assistant", TurnID: &turnID, Content: "resposta correta",
+					})
+				}
+				svc := NewService(ServiceConfig{Emitter: &mockEmitter{}, MsgRepo: repo})
+				patch, err := svc.buildTurnPatch(database.WithUserID(context.Background(), "user-a"), "conv", turnID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !withResponse {
+					if patch != nil {
+						t.Fatalf("pergunta não pode preencher patch de resposta: %+v", patch)
+					}
+					return
+				}
+				if patch == nil || patch.ItemID != "turn:"+turnID || patch.Message.ID != "assistant" || patch.Message.Content != "resposta correta" {
+					t.Fatalf("patch não selecionou a resposta exata: %+v", patch)
+				}
+			})
+		}
 	}
 }
 
@@ -317,6 +361,35 @@ func TestBuildTurnPatchPropagaResultadosEBloqueioDoLedger(t *testing.T) {
 	call := patch.Message.TurnSegments[1].ToolInvocations[0]
 	if !call.HasSearchResults || call.SearchResultCount != 3 || call.SecurityOutcome != "blocked" {
 		t.Fatalf("metadata perdida no patch: %+v", call)
+	}
+	// O patch deve preservar as referências exatas usadas para abrir detalhes.
+	for _, id := range []string{"inv", " inv "} {
+		invocation := database.ToolInvocation{UUIDModel: database.UUIDModel{ID: id}, UserID: "user-a", ToolCatalogID: catalog.ID,
+			OriginType: "chat", OriginID: "assistant-ledger", ConversationID: &conversationID, TurnID: &turnID,
+			ToolCallID: id, Status: "succeeded", Metadata: metadata, ResultAvailability: "available"}
+		if err := db.Create(&invocation).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	patch, err = svc.buildTurnPatch(database.WithUserID(context.Background(), "user-a"), conversationID, turnID)
+	if err != nil || patch == nil {
+		t.Fatalf("patch com IDs opacos: %v, %+v", err, patch)
+	}
+	seen := map[string]bool{}
+	for _, segment := range patch.Message.TurnSegments {
+		for _, invocation := range segment.ToolInvocations {
+			if seen[invocation.InvocationID] {
+				t.Fatalf("patch colapsou identidades: %+v", segment.ToolInvocations)
+			}
+			seen[invocation.InvocationID] = true
+			details, err := toolinvocations.LoadDetailsWithUser(context.Background(), "user-a", []string{invocation.InvocationID})
+			if err != nil || len(details) != 1 || details[0].InvocationID != invocation.InvocationID || details[0].CallID != invocation.CallID {
+				t.Fatalf("referência do patch não resolve detalhes exatos: %+v, %+v, %v", invocation, details, err)
+			}
+		}
+	}
+	if !seen["inv"] || !seen[" inv "] || len(seen) != 3 {
+		t.Fatalf("invocações ausentes no patch: %+v", seen)
 	}
 }
 
