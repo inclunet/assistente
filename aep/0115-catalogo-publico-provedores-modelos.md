@@ -1,6 +1,6 @@
 # AEP-0115 — Catálogo público de provedores e modelos
 
-Status: In Progress — contrato aprovado; fases 1 (schema e asset inicial) e 2 (consumo, validação e cache backend) implementadas; fase 3 concluída com persistência explícita, formulário por perfis, aceite por conexão para HTTP remoto e fábrica backend allowlisted; provedores legados sem aceite permanecem editáveis e bloqueados até reautorização explícita; onboarding desktop reutiliza o formulário; CLI consolidada com autenticação e cadastro compartilhados; fase 4 concluída com resolução exata, vínculos privados por conexão e contratos de parâmetros compartilhados entre editor e envio; fase 5 de vozes concluída; Cohere e Ollama usam Chat Completions OpenAI-compatible; manutenção editorial pendente na fase 6
+Status: Done — contrato aprovado; fases 1 (schema e asset inicial) e 2 (consumo, validação e cache backend) implementadas; fase 3 concluída com persistência explícita, formulário por perfis, aceite por conexão para HTTP remoto e fábrica backend allowlisted; provedores legados sem aceite permanecem editáveis e bloqueados até reautorização explícita; onboarding desktop reutiliza o formulário; CLI consolidada com autenticação e cadastro compartilhados; fase 4 concluída com resolução exata, vínculos privados por conexão e contratos de parâmetros compartilhados entre editor e envio; fase 5 de vozes concluída; Cohere e Ollama usam Chat Completions OpenAI-compatible; fase 6 concluída com manutenção editorial e validação antes da publicação
 
 ## Resumo
 
@@ -295,7 +295,7 @@ altera conexões existentes nem sobrepõe a identidade explícita persistida.
 
 1. **Contrato e asset JSON — concluída neste PR.** Schema Draft 2020-12 validado contra o asset inicial publicado em `docs/static/json/`, cobrindo provedores hospedados, Ollama/LocalAI/llama.cpp, OpenRouter, LiteLLM, perfil personalizado, modelos, exposição por proxy e completude de vozes.
 2. **Consumo e cache no backend — concluída no PR filho desta fase.** Buscar a URL fixa sem seguir redirects, validar estrutura e integridade semântica, persistir atomicamente a última versão válida com ETag/Last-Modified e expor snapshots tipados por API Wails. O cache carrega localmente e atualiza em segundo plano; falhas mantêm o snapshot válido anterior. Timestamps futuros no cache mantêm o documento disponível como stale e forçam revalidação; o shutdown aguarda refreshes explícitos e de fundo.
-3. **Configuração de provedores pelo catálogo — concluída.** A persistência explícita de `server_profile_id` e o consumo pelo formulário estão implementados: lista perfis ativos, usa allowlists locais para família/formato/autenticação, aplica políticas de campo, oferece links acessíveis e localizados, mantém configuração customizada quando o catálogo falha e preserva valores salvos e entradas manuais durante o carregamento, sem associar perfis a conexões legadas. O `default_model_id` do perfil preenche uma conexão vinculada apenas quando o campo está vazio; valores salvos têm precedência, inclusive para políticas editáveis. A fábrica backend resolve perfis do snapshot por IDs explícitos e allowlists locais da tupla perfil/família/formato e autenticação. Aplica a mesma precedência da UI: políticas `fixed`, `hidden` e `choice` usam seu default; `editable` preserva o valor top-level e usa o default somente quando ausente ou vazio. O modo efetivo vem de `auth.mode`, sem depender de `auth.required` potencialmente divergente. Sem snapshot ou perfil compatível, a fábrica não cria presets locais: o fluxo manual continua disponível na configuração do provedor; a entrada legada de CLI retorna erro claro e não inventa URL ou modelo. O perfil Ollama declara explicitamente `openai` no catálogo, com base `http://localhost:11434/v1`; não há tradução de formato nativo no formulário. HTTP remoto manual exige aceite acessível antes da sondagem; o aceite fica salvo por conexão, vinculado à URL exata, é conferido no backend para o uso futuro e não é exportado na portabilidade. Conexões legadas sem aceite permanecem visíveis para edição, sem receber aceite retroativo, e são bloqueadas em chat, sumarização, health check, voz e sondagem até autorização explícita; renovar a credencial na mesma URL preserva o aceite. Conexões legadas com URL inválida também continuam editáveis e bloqueadas até a correção. O Cohere usa `openai` com base `https://api.cohere.ai/compatibility/v1`, compondo a rota `/chat/completions` pelo adaptador existente. O onboarding desktop reutiliza o formulário de provedores; a CLI usa um cadastro compartilhado; manutenção editorial permanece pendente.
+3. **Configuração de provedores pelo catálogo — concluída.** A persistência explícita de `server_profile_id` e o consumo pelo formulário estão implementados: lista perfis ativos, usa allowlists locais para família/formato/autenticação, aplica políticas de campo, oferece links acessíveis e localizados, mantém configuração customizada quando o catálogo falha e preserva valores salvos e entradas manuais durante o carregamento, sem associar perfis a conexões legadas. O `default_model_id` do perfil preenche uma conexão vinculada apenas quando o campo está vazio; valores salvos têm precedência, inclusive para políticas editáveis. A fábrica backend resolve perfis do snapshot por IDs explícitos e allowlists locais da tupla perfil/família/formato e autenticação. Aplica a mesma precedência da UI: políticas `fixed`, `hidden` e `choice` usam seu default; `editable` preserva o valor top-level e usa o default somente quando ausente ou vazio. O modo efetivo vem de `auth.mode`, sem depender de `auth.required` potencialmente divergente. Sem snapshot ou perfil compatível, a fábrica não cria presets locais: o fluxo manual continua disponível na configuração do provedor; a entrada legada de CLI retorna erro claro e não inventa URL ou modelo. O perfil Ollama declara explicitamente `openai` no catálogo, com base `http://localhost:11434/v1`; não há tradução de formato nativo no formulário. HTTP remoto manual exige aceite acessível antes da sondagem; o aceite fica salvo por conexão, vinculado à URL exata, é conferido no backend para o uso futuro e não é exportado na portabilidade. Conexões legadas sem aceite permanecem visíveis para edição, sem receber aceite retroativo, e são bloqueadas em chat, sumarização, health check, voz e sondagem até autorização explícita; renovar a credencial na mesma URL preserva o aceite. Conexões legadas com URL inválida também continuam editáveis e bloqueadas até a correção. O Cohere usa `openai` com base `https://api.cohere.ai/compatibility/v1`, compondo a rota `/chat/completions` pelo adaptador existente. O onboarding desktop reutiliza o formulário de provedores; a CLI usa um cadastro compartilhado; manutenção editorial está definida na fase 6.
 Na fábrica backend, a allowlist local inclui a origem completa (esquema, host e porta) junto à tupla perfil/família/formato e autenticação. Provedores hospedados e OpenRouter usam origens HTTPS fixas no runtime; LiteLLM fica limitado a `http://localhost:4000`, e LocalAI e llama.cpp a `http://localhost:8080`. Assim, o catálogo remoto não escolhe o destino de credenciais nem pode redirecionar uma chave para outro serviço local. Endpoints customizados permanecem no fluxo de configuração manual sob controle local do usuário.
 
 A criação catalogada reutiliza a transação existente do cofre/consumidor
@@ -346,7 +346,7 @@ entrada legada, rollback, duplicação explícita e preservação de fontes exte
 A autenticação de ambos reutiliza SetupVault/UnlockVault/CreateAdminUser/Login/
 RefreshAuth, sem inferir usuário nem contornar o isolamento por sessão.
 Evidências: `cmd/asst/provider_setup_test.go` e `provider_auth_test.go`, além dos
-testes dos serviços de credenciais e provedores. A fase 3 está concluída; manutenção editorial do catálogo continua pendente na fase 6.
+testes dos serviços de credenciais e provedores. A fase 3 está concluída; manutenção editorial do catálogo foi entregue na fase 6.
 
 O escopo aceito para Ollama e Cohere é chat pelo adaptador OpenAI-compatible
 existente (AEP-0037), incluindo streaming e tools. Não haverá SDK ou adaptador
@@ -423,7 +423,19 @@ suas URLs; os novos valores aplicam-se ao perfil selecionado explicitamente.
    encerrou sem pendências. O contrato é compartilhado pela prévia e pelo
    manager, inclusive após atualização do catálogo, sem reconfigurar vozes salvas.
 
-6. **Manutenção do catálogo.** Definir processo e cadência de atualização, validação e publicação. Sondagens de síntese potencialmente pagas podem ser usadas no processo editorial, com custo e escopo controlados; abrir a UI ou selecionar modelo não dispara sondagem paga automaticamente.
+6. **Manutenção do catálogo — concluída.** Revisão editorial mensal e por
+   lançamento, descontinuação ou correção relevante, em PRs pequenos por provedor.
+   Não há job de coleta automática ou sondagem paga ao abrir a UI. O guia
+   `docs/content/guias/CATALOGO_PROVEDORES_MODELOS.md` define edição, versão,
+   timestamp UTC, tratamento de informações desconhecidas e correção de dados
+   publicados. Sondagens opcionais exigem escopo e orçamento delimitados.
+   `TestDecodePublishedCatalogAsset` aplica o JSON Schema publicado e o mesmo
+   validador semântico do runtime, sem regras de negócio paralelas.
+   `.github/workflows/docs.yml` executa a suíte de `internal/llmcatalog` antes
+   de construir/publicar o Hugo; falha impede a publicação. A manutenção dos
+   dados é contínua e não implica que todas as rotas/modelos do mercado estejam
+   catalogados. A revisão inicial amplia contratos confirmados dos modelos
+   existentes; informação inconclusiva continua desconhecida.
 
 ## Riscos
 
@@ -456,3 +468,8 @@ suas URLs; os novos valores aplicam-se ao perfil selecionado explicitamente.
 - [x] Nenhuma conexão é identificada por inferência de hostname ou prefixo de modelo; configurações antigas ambíguas permanecem personalizadas. A resolução usa o `ServerProfileID` explícito e o snapshot do adaptador que fez a listagem; testes do catálogo e de persistência cobrem conexões sem vínculo.
 - [x] A fase de vozes do AEP-0113 consome o catálogo e distingue dados completos, parciais e desconhecidos, sem sondagem paga automática durante o uso normal.
 - [x] O AEP e o índice são atualizados em cada PR que entregar uma fase, com evidências verificáveis e status sincronizado.
+
+- [x] A manutenção tem cadência e procedimento documentados; o CI valida o asset
+  contra o schema e o runtime, e o deploy repete a validação antes de publicar.
+  Evidências: guia de manutenção, `TestDecodePublishedCatalogAsset` e workflow
+  `Deploy Docs`. Dados podem ser corrigidos sem nova versão do aplicativo.
