@@ -214,8 +214,18 @@ Revisão remota deste recorte: os segmentos preservam IDs de invocação e de ch
 nunca por posição na lista. Uma pergunta legada com turn_id igual ao próprio ID
 continua independente e, sozinha, não produz patch de resposta. IDs não vazios
 mantêm seus bytes originais na identidade, agrupamento e hidratação de tools;
-`u` e ` u ` não podem colidir. Regressões cobrem ambos os casos.
+`u` e ` u ` não podem colidir. O helper de placeholder também preserva o turno ao criar/reutilizar a resposta; regressão SQLite compara persistência, retry e identidade da projeção. Regressões cobrem ambos os casos.
 
+Limite deste recorte: a preservação de IDs acima vale para identidade aditiva,
+placeholder, projeção e consulta/cache de detalhes, não para toda a aplicação.
+A escrita/validação do ledger (`toolinvocations/lifecycle.go`, `repository.go`)
+ainda normaliza IDs; os testes SQLite provam leitura fiel de registros existentes,
+não preservação global ao criar invocações. Associação de tools, lifecycle/cleanup
+(`agent/service.go`, `chat/timeline.go`, `database/message_repository.go`),
+prefill/finalização de messageId e alvo de contexto ainda possuem normalizações
+legadas. `chatEventHub.ts` e `chatSessionRegistry.ts` continuam normalizando turnId
+até o cutover. Auditar e tratar essas fronteiras em recorte dedicado das fases 2–3
+antes de prometer preservação global de IDs opacos; não é uma migração global neste PR.
 Validação local do recorte: build/vet, ports/chat/events e seleção explícita
 dos handlers/terminais de agent e das projeções de toolinvocations passaram sem executar ACP. TypeScript, ESLint,
 Stylelint (avisos preexistentes) e 6.848 testes Vitest em 515 arquivos passaram.
