@@ -56,3 +56,32 @@ func resolveSkill(root, name string) (string, error) {
 	}
 	return matches[0], nil
 }
+
+// readSkill mantém a abertura da skill descoberta dentro da raiz mesmo se um
+// symlink for substituído entre a descoberta e a leitura.
+func readSkill(root, name string) ([]byte, error) {
+	path, err := resolveSkill(root, name)
+	if err != nil {
+		return nil, err
+	}
+	if filepath.IsAbs(name) || strings.ContainsAny(name, `/\`) || strings.HasSuffix(strings.ToLower(name), ".md") {
+		return os.ReadFile(path)
+	}
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return nil, err
+	}
+	dir, err := os.OpenRoot(root)
+	if err != nil {
+		return nil, err
+	}
+	defer dir.Close()
+	info, err := dir.Stat(rel)
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("skill não é arquivo regular")
+	}
+	return dir.ReadFile(rel)
+}

@@ -54,3 +54,21 @@ func TestResolveSkillExplicitAndMissing(t *testing.T) {
 		t.Fatal("esperava erro")
 	}
 }
+func TestReadSkillRejectsExternalSymlink(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	source := filepath.Join(outside, "SKILL.md")
+	if err := os.WriteFile(source, []byte("segredo"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(root, ".agents", "skills", "review")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(source, filepath.Join(dir, "SKILL.md")); err != nil {
+		t.Skipf("symlink indisponível: %v", err)
+	}
+	if _, err := readSkill(root, "review"); err == nil {
+		t.Fatal("leitura de destino externo deve falhar")
+	}
+}

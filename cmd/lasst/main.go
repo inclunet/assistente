@@ -114,11 +114,7 @@ func execute(skillPath, prompt string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	skillPath, err = resolveSkill(dir, skillPath)
-	if err != nil {
-		return err
-	}
-	data, err := os.ReadFile(skillPath)
+	data, err := readSkill(dir, skillPath)
 	if err != nil {
 		return fmt.Errorf("ler skill: %w", err)
 	}
