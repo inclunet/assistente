@@ -113,3 +113,13 @@ A mudança efetiva será entregue em PR de implementação com testes e atualiza
 ### Achado adicional no PR filho — skill por symlink
 
 O `os.OpenRoot` usado na descoberta experimental do #969 impede que a leitura saia da raiz, mas permite que um symlink aponte para `.git` dentro da própria raiz, inclusive em repositório aninhado. Essa leitura não passa pela política de filesystem do executor. Antes de aproveitar o PR filho, fechar essa lacuna e testar symlinks para `.git` raiz/aninhado, troca concorrente e paths explícitos; não declarar proteção resistente a TOCTOU apenas por usar `OpenRoot` ou comparar caminhos antes de abrir. Avaliar uma abertura por componentes com handles e validação de identidade compartilhável pelo filesystem; definir os limites de renomeação concorrente, hardlinks e mounts e isolar o runner conforme o modelo de ameaça. A solução não deve alterar silenciosamente o contrato de symlinks do desktop.
+
+### Trabalho de timeline em andamento — impacto na extração
+
+Consulta aos PRs abertos em 31/10/2026, ainda não integrados à `main` `a2db8a59b`:
+
+- #975 (`5bc968c3b`) unifica os segmentos de recuperação e distingue sua identidade por geração do transporte. Uma hipótese a validar na extração é representar segmentos e reinício como eventos do núcleo, mantendo a projeção de chat no adapter; o PR não comprova essa abstração.
+- #976 (`671d04cf`) coordena leitura de janelas com a barreira de execução e exige reader explícito. Propõe-se manter essa barreira no lifecycle persistente do chat: o runtime leve não deve desligá-la nem simular conversa para reutilizar a iteração. Essa separação ainda precisa ser demonstrada.
+- #977 (`b9e51d4f`) compartilha `TimelineItem` e faz `CommitContent` receber a identidade persistida retornada pelo writer. `TimelineItem` continua em `internal/chat` e não é um tipo neutro. Ele altera `agentic_loop.go` e `service.go`: a fronteira de extração precisa representar confirmação e identidade de conteúdo sem presumir ID de mensagem SQLite; o adapter desktop preserva o contrato existente. Essa proposta ainda depende de validação de equivalência com a pilha efetivamente integrada.
+
+Essas mudanças melhoram projeção e recuperação, mas não demonstram por si só um loop independente, ledger efêmero ou runtime MCP genérico. Antes de implementar a extração, comparar novamente os heads e a main, pois a pilha segue em desenvolvimento. A PoC continua com execução direta do executor e não satisfaz ainda a decisão de ledger efêmero.
