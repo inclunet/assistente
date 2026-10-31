@@ -58,6 +58,9 @@ func runWithTools(ctx context.Context, streamer llm.Streamer, model, instruction
 		}
 	}
 	executor := tools.NewExecutor(registry, tools.DefaultExecutorConfig())
+	mcpConfig := tools.DefaultExecutorConfig()
+	mcpConfig.RequireCompleteResult = true
+	mcpExecutor := tools.NewExecutor(registry, mcpConfig)
 	defs := make([]llm.ToolDefinition, 0, 1)
 	for _, d := range registry.ToDefinitions() {
 		defs = append(defs, llm.ToolDefinition{Type: d.Type, Function: llm.FunctionDefinition{Name: d.Function.Name, Description: d.Function.Description, Parameters: d.Function.Parameters}})
@@ -89,7 +92,13 @@ func runWithTools(ctx context.Context, streamer llm.Streamer, model, instruction
 			if c.ID == "" || c.Function.Name == "" {
 				return "", errors.New("chamada de ferramenta inválida")
 			}
-			result := executor.ExecuteOne(ctx, tools.ToolCall{ID: c.ID, Type: c.Type, Function: tools.FunctionCall{Name: c.Function.Name, Arguments: c.Function.Arguments}})
+			selected := executor
+			if candidate, ok := registry.Get(c.Function.Name); ok {
+				if _, isMCP := tools.MCPIdentityOf(candidate); isMCP {
+					selected = mcpExecutor
+				}
+			}
+			result := selected.ExecuteOne(ctx, tools.ToolCall{ID: c.ID, Type: c.Type, Function: tools.FunctionCall{Name: c.Function.Name, Arguments: c.Function.Arguments}})
 			content := tools.ContentForModel(result.Result)
 			if result.Error != nil {
 				content = result.Error.Error()

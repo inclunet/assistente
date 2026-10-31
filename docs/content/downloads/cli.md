@@ -248,7 +248,7 @@ Tudo que envolve dados e configuração funciona igualmente nos dois modos.
 
 ## Experimento `lasst`
 
-O `lasst` é uma prova de conceito separada, ainda sem distribuição oficial. Ele executa uma tarefa com um provedor compatível com Chat Completions, uma skill e leitura de arquivos do diretório atual, sem inicializar o banco do Assistente. O suporte experimental a GitHub MCP e à publicação de reviews ainda precisa de validação com o servidor real.
+O `lasst` é uma prova de conceito separada, ainda sem distribuição oficial. Ele executa uma tarefa com um provedor compatível com Chat Completions, uma skill e leitura de arquivos do diretório atual, sem inicializar o banco do Assistente. O suporte experimental a GitHub MCP é somente leitura e ainda precisa de validação com o servidor real; publicação de reviews será implementada em etapa posterior.
 
 Para experimentar a partir do código-fonte, compile `./cmd/lasst` e configure `LASST_BASE_URL` (HTTPS), `LASST_MODEL` e `LASST_API_KEY`. Execute o binário com o caminho de um `SKILL.md` e a instrução como argumentos:
 
@@ -263,3 +263,5 @@ Quando o provedor exige `reasoning_content` na continuação de chamadas de ferr
 Também é possível passar o nome de uma skill encontrada em `.assistente/skills`, `.github/skills`, `.agents/skills`, `.claude/skills` ou `.cursor/skills`. Em caso de nomes duplicados, informe o caminho explícito.
 
 Para habilitar o experimento com GitHub MCP, crie `.assistente/lasst-mcp.json` contendo `{"github":{"enabled":true}}` e configure no ambiente confiável `LASST_GITHUB_TOKEN`, `LASST_GITHUB_REPOSITORY` (`owner/repo`), `LASST_GITHUB_PR`. A configuração habilita somente o GitHub MCP remoto, sem permitir escolher comando ou URL. A CLI expõe somente operações de leitura do PR; a publicação de review ainda não está disponível. O fluxo ainda precisa ser validado contra o servidor real e não substitui o workflow de review.
+
+Respostas MCP acima de 100 KiB falham explicitamente: a PoC ainda não oferece continuação para resultados grandes. O PR remoto pode mudar após o checkout; a CLI ainda não verifica a correspondência entre as revisões e não deve ser usada como review definitiva.

@@ -38,7 +38,7 @@ func openGitHubMCP(ctx context.Context, root string) ([]tools.Tool, func(), erro
 	if err != nil {
 		return nil, nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	data, err := f.ReadFile(filepath.Join(".assistente", "lasst-mcp.json"))
 	if os.IsNotExist(err) {
 		return nil, func() {}, nil

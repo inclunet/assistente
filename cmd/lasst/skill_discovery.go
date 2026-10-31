@@ -75,7 +75,7 @@ func readSkill(root, name string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer dir.Close()
+	defer func() { _ = dir.Close() }()
 	info, err := dir.Stat(rel)
 	if err != nil {
 		return nil, err

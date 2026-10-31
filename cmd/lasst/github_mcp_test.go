@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"assistente/internal/llm"
 	"assistente/internal/tools"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -106,13 +107,13 @@ func TestMCPIntegrationInMemory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ss.Close()
+	defer func() { _ = ss.Close() }()
 	client := sdk.NewClient(&sdk.Implementation{Name: "test", Version: "1"}, nil)
 	cs, err := client.Connect(ctx, ct, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer cs.Close()
+	defer func() { _ = cs.Close() }()
 	all, err := discoverGitHubTools(ctx, cs, &reviewScope{owner: "org", repo: "repo", number: 9})
 	if err != nil {
 		t.Fatal(err)
@@ -132,5 +133,55 @@ func TestMCPIntegrationInMemory(t *testing.T) {
 	}
 	if got["owner"] != "org" || got["repo"] != "repo" || got["pullNumber"] != float64(9) {
 		t.Fatalf("argumentos=%v", got)
+	}
+}
+
+type largeTool struct{}
+
+func (largeTool) Name() string                { return "mcp_github__large" }
+func (largeTool) Description() string         { return "large" }
+func (largeTool) Parameters() json.RawMessage { return json.RawMessage(`{"type":"object"}`) }
+func (largeTool) MCPIdentity() tools.MCPToolIdentity {
+	return tools.MCPToolIdentity{ServerSlug: "github", ToolName: "large"}
+}
+func (largeTool) Execute(context.Context, json.RawMessage) (tools.ToolResult, error) {
+	return tools.ToolResult{Content: strings.Repeat("x", 110*1024)}, nil
+}
+func TestMCPExecutorRejectsOversizedResult(t *testing.T) {
+	registry := tools.NewRegistry()
+	if err := registry.Register(largeTool{}); err != nil {
+		t.Fatal(err)
+	}
+	cfg := tools.DefaultExecutorConfig()
+	cfg.RequireCompleteResult = true
+	result := tools.NewExecutor(registry, cfg).ExecuteOne(context.Background(), tools.ToolCall{ID: "1", Type: "function", Function: tools.FunctionCall{Name: "mcp_github__large", Arguments: `{}`}})
+	if !result.Result.IsError || result.Error == nil {
+		t.Fatalf("resultado grande não recusado: %+v", result)
+	}
+}
+
+type largeResultStreamer struct {
+	t     *testing.T
+	calls int
+}
+
+func (s *largeResultStreamer) StreamChat(_ context.Context, messages []llm.Message, _ llm.ChatParams, h llm.StreamHandler, _ ...llm.ToolDefinition) {
+	s.t.Helper()
+	s.calls++
+	if s.calls == 1 {
+		h.OnToolCalls([]llm.ToolCall{{ID: "large", Type: "function", Function: llm.FunctionCall{Name: "mcp_github__large", Arguments: `{}`}}}, "", llm.Usage{}, "")
+		return
+	}
+	content := messages[len(messages)-1].Content.(string)
+	if strings.Contains(content, strings.Repeat("x", 100)) || !strings.Contains(content, "limite") {
+		s.t.Fatalf("resultado inesperado: %q", content)
+	}
+	h.OnDone("ok", llm.Usage{}, "")
+}
+func TestRunRejectsLargeMCPResult(t *testing.T) {
+	s := &largeResultStreamer{t: t}
+	out, err := runWithTools(context.Background(), s, "modelo", "skill", "prompt", t.TempDir(), []tools.Tool{largeTool{}})
+	if err != nil || out != "ok" || s.calls != 2 {
+		t.Fatalf("out=%q err=%v calls=%d", out, err, s.calls)
 	}
 }
