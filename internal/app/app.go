@@ -1108,7 +1108,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 
 	// Inicializa o Agent Service (agentic loop desacoplado do Wails)
 	a.agentSvc = agent.NewService(agent.ServiceConfig{
-		Turns:            database.NewChatTurnRepository(database.DB()),
+		Turns: database.NewChatTurnRepository(database.DB()), Timeline: chat.NewDBTimelineReader(database.DB()),
 		Emitter:          a.emitter,
 		MsgRepo:          a.msgRepo,
 		ToolExecutor:     a.toolExecutor,

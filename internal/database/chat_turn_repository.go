@@ -46,6 +46,29 @@ func (r *ChatTurnRepository) Get(ctx context.Context, conversationID, turnID str
 	return scopedChatTurn(ctx, r.db, conversationID, turnID)
 }
 
+// GetMany lê metadados nullable sem eleger outra resposta para turnos sem
+// representante. Ausência da chave significa histórico sem registro de turno.
+func (r *ChatTurnRepository) GetMany(ctx context.Context, conversationID string, turnIDs []string) (map[string]*ChatTurn, error) {
+	userID, err := RequireUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result := make(map[string]*ChatTurn, len(turnIDs))
+	const batchSize = 400
+	for start := 0; start < len(turnIDs); start += batchSize {
+		var turns []ChatTurn
+		if err := r.db.WithContext(ctx).Table("chat_turns").Select("chat_turns.*").
+			Joins("JOIN conversations c ON c.id=chat_turns.conversation_id").
+			Where("c.id=? AND c.user_id=? AND chat_turns.user_message_id IN ?", conversationID, userID, turnIDs[start:min(start+batchSize, len(turnIDs))]).Find(&turns).Error; err != nil {
+			return nil, err
+		}
+		for i := range turns {
+			result[turns[i].UserMessageID] = &turns[i]
+		}
+	}
+	return result, nil
+}
+
 // Begin gera executionId no backend. Retry/continue preservam a identidade do turno.
 func (r *ChatTurnRepository) Begin(ctx context.Context, conversationID, turnID, responseID, mode string) (*ChatTurnAttempt, error) {
 	if mode != TurnModeNew && mode != TurnModeRetry && mode != TurnModeContinue {

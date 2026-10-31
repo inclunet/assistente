@@ -35,7 +35,7 @@ func setupTurnRuntime(t *testing.T) (*Service, context.Context, string, string, 
 		t.Fatal(err)
 	}
 	emitter := &captureEmitter{}
-	svc := NewService(ServiceConfig{Turns: database.NewChatTurnRepository(database.DB()), MsgRepo: chat.NewDBMessageStore(), Emitter: emitter})
+	svc := NewService(ServiceConfig{Turns: database.NewChatTurnRepository(database.DB()), Timeline: chat.NewDBTimelineReader(database.DB()), MsgRepo: chat.NewDBMessageStore(), Emitter: emitter})
 	ctx, err = svc.BeginTurn(ctx, conv.ID, question.ID, database.TurnModeNew)
 	if err != nil {
 		t.Fatal(err)
@@ -85,6 +85,23 @@ func TestTurnRuntimeRecoveryKeepsOneAttemptAndResponse(t *testing.T) {
 	}
 	if len(messages) != 1 || messages[0].ID != done.AssistantMessageID || messages[0].Content != "final" || messages[0].TotalTokens != 7 || messages[0].CacheReadTokens != 2 {
 		t.Fatalf("resposta: %+v", messages)
+	}
+	snapshot, err := chat.NewDBTimelineReader(database.DB()).ReadWindow(ctx, database.MessageWindowQuery{ConversationID: conv, Anchor: "end", Direction: "before", Limit: 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	matched := false
+	for _, node := range snapshot.Window.Nodes {
+		if node.ItemID != done.ItemID {
+			continue
+		}
+		matched = true
+		if done.TurnPatch == nil || done.TurnPatch.Message.ID != node.Message.ID || done.TurnPatch.Message.Content != node.Message.Content || done.TurnPatch.Message.TotalTokens != node.Message.TotalTokens || done.TurnPatch.Message.CacheReadTokens != node.Message.CacheReadTokens {
+			t.Fatalf("terminal e janela divergentes: %+v %+v", done.TurnPatch, node)
+		}
+	}
+	if !matched {
+		t.Fatal("janela perdeu item terminal")
 	}
 	// Retry explícito ganha execução, mas preserva identidade da resposta.
 	next, err := svc.BeginTurn(ctx, conv, turn, database.TurnModeRetry)

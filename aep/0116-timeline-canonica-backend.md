@@ -1,6 +1,6 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — fase 1 concluída; fase 2 com lifecycle e invalidação persistente por conversa
+## Status: In Progress — fase 1 concluída; fase 2 com snapshot persistido integrado à janela e ao terminal
 
 Data: 2026-10-30
 
@@ -403,6 +403,63 @@ Por restrição do mantenedor, não executar ACP localmente: 31 arquivos fronten
 que mencionam ACP também foram excluídos. Review independente local: três
 rodadas; dois achados de cobertura na primeira, corrigidos e verificados nas
 seguintes, sem pendências na terceira.
+
+Sexto recorte da fase 2: `DBTimelineReader` reúne a leitura produtiva da janela
+e do patch terminal. A primeira consulta autoriza a conversa e lê a versão v43;
+mensagens, paginação, metadados nullable de turnos, resumos do ledger e contagem
+de filhos da janela vêm da mesma transação SQLite. O leitor do ledger recebe o
+handle transacional explicitamente, sem voltar ao banco global nem transformar
+schema ausente em histórico vazio. A consolidação visual ocorre após encerrar
+a transação, sobre os dados capturados; uma única conversão de Summary substitui
+as cópias no controller e no serviço do agente.
+
+`ReadTurn` autoriza a pergunta, conversa e escopo dentro do snapshot. Lê somente
+esse turno e remove o corte silencioso de 1.000 mensagens, com a mesma completude
+do item carregado pela janela. O terminal mantém WithoutCancel + timeout de 3 s
+para concluir após cancelar a geração; a janela continua cancelável. O timeout
+não é limite de memória: turnos grandes ainda são materializados integralmente;
+a projeção incremental permanece necessária. O serviço do agente recebe o leitor
+como dependência obrigatória; fakes existem apenas nos testes isolados de handlers.
+
+O snapshot preserva ausência de registro de turno e response_message_id NULL,
+sem reeleger um representante persistido. `MessageWindow`/`TurnPatchEvent` seguem
+adaptadores antigos; ainda usam a seleção visual legada até o DTO nullable. Os
+outros leitores legados de lista/árvore não são novos consumidores deste snapshot.
+A versão fica no backend e não amplia o payload Wails.
+
+Limite explícito: esta é consistência de leitura persistida, não a barreira do
+projetor com eventos. Uma consulta posterior a um retry captura o estado atual;
+não identifica qual execução motivou a consulta. Epoch, sequence, precedência de
+terminais atrasados, recuperação volatile e cutover continuam pendentes. Não
+prometer correção de foco/ordenação nem fechamento da fase 2 neste recorte.
+
+Evidências: `TestTimelineSnapshotReadsOneCommitAcrossWindowAndTurn` intercala um
+commit externo WAL entre versão e consultas e prova ausência de snapshots
+híbridos (texto, ferramenta, estado, filhos). Regressões cobrem owner, thread,
+metadado ausente, NULL/legado, cancelamento, retry e turno acima de 1.000 mensagens.
+`TestTurnRuntimeRecoveryKeepsOneAttemptAndResponse` compara o patch realmente
+emitido com a janela. A fixture de benchmark da janela mantém SQLite em memória;
+as novas integrações usam InitPath com as migrações reais.
+
+Validação local deste recorte: build, vet, golangci-lint (zero issues), testes
+focados de snapshot, janela, runtime, envio e ledger; TypeScript, ESLint,
+Stylelint e 5.887 testes frontend em 484 arquivos aprovados. Testes ACP não foram
+executados localmente. A primeira execução frontend teve duas falhas sensíveis
+a timing no Topbar; o arquivo isolado (122 testes) e a repetição completa com
+quatro workers passaram sem alteração de expectativas.
+
+Benchmark comparativo em cinco amostras de 20 iterações, mediana, mesma máquina:
+para históricos de 100/500/1.000 mensagens, o tempo foi respectivamente de
+3,197/9,013/11,768 ms para 3,553/9,362/12,242 ms (+11,1%/+3,9%/+4,0%).
+Alocações passaram de 711.323/1.637.081/1.636.437 B/op para
+777.663/1.772.782/1.792.104 B/op (+9,3%/+8,3%/+9,5%). Payloads permaneceram
+37.262/88.881/88.882 bytes. Todos dentro do orçamento de 20%. A baseline usa o
+commit f21161683 do recorte anterior; a candidata inclui metadados de turno
+persistidos no preparo da fixture, fora da medição. O snapshot de turno com mais
+de 1.000 mensagens teve mediana de 18,565 ms e 5.133.805 B/op em cinco amostras
+de dez iterações, evidenciando a materialização ainda proporcional ao turno.
+Revisão local independente: agente review_aep, três rodadas; zero pendências
+na rodada final, incluindo conferência das métricas e diff --check.
 
 ### Fase 3 — Consumidor frontend e remoções
 

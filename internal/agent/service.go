@@ -59,6 +59,7 @@ type IterationHandler interface {
 // ServiceConfig contém todas as dependências injetadas do AgentService.
 type ServiceConfig struct {
 	Turns            TurnStore
+	Timeline         chat.TurnSnapshotReader
 	Emitter          events.Emitter
 	MsgRepo          chat.MessageRepository
 	ToolExecutor     *tools.Executor
@@ -84,6 +85,7 @@ type ServiceConfig struct {
 type Service struct {
 	pendingTerminals sync.Map // pendingTurnKey -> executionId; apenas transações terminais que falharam
 	turns            TurnStore
+	timeline         chat.TurnSnapshotReader
 	emitter          events.Emitter
 	msgRepo          chat.MessageRepository
 	toolExecutor     *tools.Executor
@@ -204,6 +206,9 @@ func (s *Service) StreamSimpleWithRecovery(
 
 // NewService cria um novo Service com as dependências injetadas.
 func NewService(cfg ServiceConfig) *Service {
+	if cfg.Timeline == nil {
+		panic("agent service: timeline snapshot reader not configured")
+	}
 	if cfg.Turns == nil {
 		panic("agent service: chat turn store not configured")
 	}
@@ -212,6 +217,7 @@ func NewService(cfg ServiceConfig) *Service {
 	}
 	return &Service{
 		turns:            cfg.Turns,
+		timeline:         cfg.Timeline,
 		emitter:          cfg.Emitter,
 		msgRepo:          cfg.MsgRepo,
 		toolExecutor:     cfg.ToolExecutor,
@@ -555,57 +561,11 @@ func (s *Service) buildTurnPatch(ctx context.Context, conversationID, turnID str
 	patchCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 	defer cancel()
 
-	turnMessage, err := s.msgRepo.GetMessage(patchCtx, turnID)
+	snapshot, err := s.timeline.ReadTurn(patchCtx, conversationID, turnID)
 	if err != nil {
 		return nil, err
 	}
-	var parentID *string
-	if turnMessage != nil {
-		parentID = turnMessage.ParentID
-	}
-	messages, err := s.msgRepo.GetMessagesByTurnID(patchCtx, conversationID, parentID, turnID, 1000)
-	if err != nil {
-		return nil, err
-	}
-	if len(messages) == 0 {
-		return nil, nil
-	}
-
-	callsByTurn := map[string][]chat.TurnSegmentToolCall{}
-	userID, userErr := database.RequireUserID(patchCtx)
-	if userErr != nil {
-		return nil, userErr
-	}
-	summaries, summaryErr := toolinvocations.LoadSummariesForTurnIDsWithUser(patchCtx, userID, []string{turnID})
-	if summaryErr != nil {
-		return nil, summaryErr
-	}
-	for _, summary := range summaries[turnID] {
-		call := chat.TurnSegmentToolCall{
-			InvocationID:       summary.InvocationID,
-			ID:                 summary.CallID,
-			Name:               summary.Name,
-			Origin:             summary.Origin,
-			ServerLabel:        summary.ServerLabel,
-			Status:             summary.Status,
-			Iteration:          summary.Iteration,
-			DurationMs:         summary.DurationMs,
-			InputPreview:       summary.InputPreview,
-			OutputPreview:      summary.OutputPreview,
-			InputBytes:         summary.InputBytes,
-			OutputBytes:        summary.OutputBytes,
-			HasDetails:         summary.HasDetails,
-			ResultAvailability: summary.ResultAvailability,
-			HasSearchResults:   summary.HasSearchResults,
-			SearchResultCount:  summary.SearchResultCount,
-			SecurityOutcome:    summary.SecurityOutcome,
-			AssistantMessageID: summary.AssistantMessageID,
-			ACPTextOffset:      summary.ACPTextOffset,
-		}
-		callsByTurn[turnID] = append(callsByTurn[turnID], call)
-	}
-
-	nodes := chat.BuildNodesWithTimelineConsolidation(messages, nil, map[string]int{}, callsByTurn)
+	nodes := snapshot.Nodes
 	itemID := ports.ResponseItemID(turnID)
 	responseIndex := slices.IndexFunc(nodes, func(node chat.MessageNode) bool {
 		return node.ItemID == itemID

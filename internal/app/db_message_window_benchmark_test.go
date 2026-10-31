@@ -103,6 +103,16 @@ func seedMessageWindowBenchmark(tb testing.TB, messageCount, resultBytes int) st
 		tb.Fatalf("seed messages: %v", err)
 	}
 
+	// Metadados que o upgrade já produz em conversas reais, fora do trecho medido.
+	turns := make([]database.ChatTurn, 0, messageCount/2)
+	for index := 1; index < len(rows); index += 2 {
+		responseID := rows[index].ID
+		turns = append(turns, database.ChatTurn{UserMessageID: rows[index-1].ID, ConversationID: conversation.ID, ResponseMessageID: &responseID, State: database.TurnHistoricalUnknown, Origin: "legacy"})
+	}
+	if err := database.DB().CreateInBatches(turns, 100).Error; err != nil {
+		tb.Fatalf("seed turns: %v", err)
+	}
+
 	var catalog database.ToolCatalog
 	if err := database.DB().Where("name = ?", "search").First(&catalog).Error; err != nil {
 		tb.Fatalf("load catalog: %v", err)
