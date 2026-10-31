@@ -29,7 +29,10 @@ Testes `CanonicalPublication`, `CanonicalReplay` e `CanonicalItem` verificam del
 reset, identidade nullable, limites, evicção, mudança de época, aplicação das operações
 contra snapshot e isolamento de cópias. Build/vet e lint incremental passaram;
 289 testes seguros de chat passaram. Revisor independente review_aep: desenho
-revisado em duas propostas e gate final sem pendências. Nenhum teste ACP local.
+revisado em duas propostas e gate final sem pendências. A revisão remota do
+CodeRabbit sugeriu provar a fronteira do replay após evicção: after=0/43 recusados,
+after=44 entrega sequências 45–300; após lote excessivo, after=300 recusa e
+301 aceita vazio. Cinco testes focados passaram. Nenhum teste ACP local.
 
 ### Recorte: cursores canônicos validados no snapshot (2026-10-31)
 
