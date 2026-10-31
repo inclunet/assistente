@@ -1,8 +1,37 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — fase 1 concluída; fase 2 com operações canônicas internas; inscrições e cutover pendentes
+## Status: In Progress — fase 1 concluída; fase 2 com inscrições internas; entrega automática e cutover pendentes
 
 Data: 2026-10-30
+
+### Recorte: inscrições internas com recuperação explícita (2026-10-31)
+
+O projetor oferece um capability interno por sessão/superfície/conversa/escopo.
+A sessão vem de um adaptador confiável que a revalida, não de IDs no pedido da UI.
+Abrir inscreve a janela e captura seu snapshot sob a mesma barreira; fechar libera
+somente esse capability, inclusive depois de revogação, sem retornar conteúdo.
+Há limite de 64 inscrições por conversa. Inscrições mantêm a instância viva.
+
+Refresh é explícito. Replay é restrito aos IDs materializados daquela janela;
+lotes sem alteração local continuam avançando a sequência. A posse é reautorizada
+no storage e qualquer mudança de versão desde o snapshot exige recuperação,
+impedindo ressuscitar itens excluídos por replay antigo. Snapshots não compartilham
+memória mutável com publicação. Fechar uma janela não encerra a outra.
+
+Este recorte permanece interno: sem binding Wails e sem emitter global de dados.
+Não entrega ainda atualizações automáticas, coalescing de 24 ms, tombstones,
+windowPatches, modo followTail/pins ou invalidações de ledger/storage conectadas a
+todos os produtores. O adaptador de sessão do transporte e sua integração com
+logout/revogação também devem ser conectados antes da API pública. Assim o front
+não recebe um contrato parcialmente implementado. A fase 2 continua In Progress.
+
+Testes TimelineSubscriptions/TimelineSubscription cobrem duas superfícies,
+fechamento independente, troca/revogação de sessão, superfície duplicada,
+recuperação após exclusão, isolamento das cópias e limite de 64 inscrições com
+liberação após Close. Revisor independente review_aep: duas rodadas, sem pendências.
+Build/vet e lint incremental passaram; 293 testes seguros de chat passaram.
+Revalidação de sessão é por chamada; nenhuma entrega é enfileirada neste recorte.
+Sem execução local de ACP.
 
 ### Recorte: operações canônicas e replay interno (2026-10-31)
 
