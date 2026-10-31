@@ -14,6 +14,8 @@ import (
 // de streaming. Metadados nullable aguardam o DTO canônico; Nodes/Window ainda
 // são os adaptadores visuais existentes.
 type TimelineWindowSnapshot struct {
+	BeforeCursor          string
+	AfterCursor           string
 	Items                 []*TimelineItem
 	InvalidTurnReferences int
 	TurnIDs               []string
@@ -159,6 +161,10 @@ func (r *DBTimelineReader) readWindow(ctx context.Context, query database.Messag
 				return nil, err
 			}
 		}
+	}
+	if canonical && len(rows.Items) > 0 {
+		result.BeforeCursor = database.EncodeTimelineCursor(query.ConversationID, query.ParentID, rows.Items[0])
+		result.AfterCursor = database.EncodeTimelineCursor(query.ConversationID, query.ParentID, rows.Items[len(rows.Items)-1])
 	}
 	result.InvalidTurnReferences = rows.InvalidTurnReferences
 	result.Turns = facts.turns
