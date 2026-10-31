@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -571,50 +570,7 @@ func (s *Service) buildTurnPatch(ctx context.Context, conversationID, turnID str
 	if !recovery.CanUsePersistedPatch(executionID(ctx)) {
 		return nil, chat.ErrProjectionRecoveryRequired
 	}
-	nodes := recovery.Persisted.Nodes
-	itemID := ports.ResponseItemID(turnID)
-	responseIndex := slices.IndexFunc(nodes, func(node chat.MessageNode) bool {
-		return node.ItemID == itemID
-	})
-	if responseIndex < 0 {
-		return nil, nil
-	}
-	response := nodes[responseIndex]
-	message := response.Message
-	patch := &ports.TurnPatchEvent{ItemID: response.ItemID, Message: ports.TurnPatchMessage{
-		ID:               message.ID,
-		ConversationID:   message.ConversationID,
-		ParentID:         message.ParentID,
-		TurnID:           turnID,
-		Content:          message.Content,
-		Reasoning:        message.Reasoning,
-		PromptTokens:     message.PromptTokens,
-		CompletionTokens: message.CompletionTokens,
-		TotalTokens:      message.TotalTokens,
-		CacheReadTokens:  message.CacheReadTokens,
-		CacheWriteTokens: message.CacheWriteTokens,
-		CacheMissTokens:  message.CacheMissTokens,
-		Model:            message.Model,
-		CreatedAt:        message.CreatedAt.Format(time.RFC3339Nano),
-		Timestamp:        message.Timestamp,
-	}}
-	for _, segment := range message.TurnSegments {
-		target := ports.TurnPatchSegment{Type: segment.Type, Content: segment.Content}
-		for _, call := range segment.ToolCalls {
-			target.ToolInvocations = append(target.ToolInvocations, ports.TurnPatchToolInvocation{
-				InvocationID: call.InvocationID, CallID: call.ID, Name: call.Name,
-				Origin: call.Origin, ServerLabel: call.ServerLabel, Status: call.Status,
-				Iteration: call.Iteration, DurationMs: call.DurationMs,
-				InputPreview: call.InputPreview, OutputPreview: call.OutputPreview,
-				InputBytes: call.InputBytes, OutputBytes: call.OutputBytes,
-				HasDetails: call.HasDetails, ResultAvailability: call.ResultAvailability,
-				HasSearchResults: call.HasSearchResults, SearchResultCount: call.SearchResultCount,
-				SecurityOutcome: call.SecurityOutcome,
-			})
-		}
-		patch.Message.TurnSegments = append(patch.Message.TurnSegments, target)
-	}
-	return patch, nil
+	return recovery.Persisted.Response.TerminalPatch(), nil
 }
 
 // emitTokenStats queries token usage for a conversation and emits chat:token_stats

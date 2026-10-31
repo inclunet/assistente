@@ -84,7 +84,14 @@ func (r *handlerTestTimelineReader) ReadTurn(ctx context.Context, conversationID
 	if err != nil {
 		return nil, err
 	}
-	return &chat.TimelineTurnSnapshot{Nodes: chat.BuildNodesWithTimelineConsolidation(messages, nil, nil, chat.ToolInvocationSummariesToTurnSegments(summaries))}, nil
+	responseMessages := make([]chat.Message, 0, len(messages))
+	for _, message := range messages {
+		if message.Role != "user" {
+			responseMessages = append(responseMessages, message)
+		}
+	}
+	response, err := chat.ProjectPersistedResponse(conversationID, turnID, parent, responseMessages, chat.ToolInvocationSummariesToTurnSegments(summaries)[turnID], nil)
+	return &chat.TimelineTurnSnapshot{Response: response}, err
 }
 
 func (r *handlerTestTimelineReader) ReadVersion(context.Context, string) (database.ChatTimelineVersion, error) {
