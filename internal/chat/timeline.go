@@ -58,6 +58,13 @@ func ConsolidateTimelineTurn(messages []Message, invocationToolCalls []TurnSegme
 	if len(messages) == 0 {
 		return ConsolidatedTurnResult{}
 	}
+	ordered := orderedTurnMessages(messages)
+	representative := legacyTurnRepresentative(ordered, invocationToolCalls)
+	segments := projectResponseSegments(ordered, invocationToolCalls, &representative)
+	return ConsolidatedTurnResult{Message: representative, Segments: legacyResponseSegments(segments, len(messages), len(invocationToolCalls))}
+}
+
+func orderedTurnMessages(messages []Message) []Message {
 	ordered := append([]Message(nil), messages...)
 	sort.SliceStable(ordered, func(i, j int) bool {
 		if ordered[i].CreatedAt.Equal(ordered[j].CreatedAt) {
@@ -66,41 +73,55 @@ func ConsolidateTimelineTurn(messages []Message, invocationToolCalls []TurnSegme
 		return ordered[i].CreatedAt.Before(ordered[j].CreatedAt)
 	})
 
+	return ordered
+}
+
+func legacyTurnRepresentative(ordered []Message, invocationToolCalls []TurnSegmentToolCall) Message {
 	// A fala que originou tools locais é intermediária. Não promovê-la a
 	// conclusão se uma edição posterior atualizar seu timestamp. MCP nativo
 	// pode apontar para o próprio registro final e não é esse marcador.
 	intermediateIDs := make(map[string]bool)
 	for _, call := range invocationToolCalls {
-		if id := strings.TrimSpace(call.AssistantMessageID); id != "" && call.Origin != "mcp_native" && (call.Origin != "acp_agent" || call.ACPTextOffset == nil) {
+		if id := call.AssistantMessageID; strings.TrimSpace(id) != "" && call.Origin != "mcp_native" && (call.Origin != "acp_agent" || call.ACPTextOffset == nil) {
 			intermediateIDs[id] = true
 		}
 	}
-	representative := database.SelectLegacyTurnRepresentative(ordered, intermediateIDs)
+	return database.SelectLegacyTurnRepresentative(ordered, intermediateIDs)
 
+}
+
+func projectResponseSegments(ordered []Message, invocationToolCalls []TurnSegmentToolCall, representative *Message) []ResponseSegment {
+	representativeID := ""
+	if representative != nil {
+		representativeID = representative.ID
+	}
 	if segments, ok := consolidateACPTextPositions(ordered, invocationToolCalls); ok {
-		return ConsolidatedTurnResult{Message: representative, Segments: segments}
+		return segments
 	}
 	groups := groupCanonicalInvocations(invocationToolCalls)
-	segments := make([]TurnSegment, 0, len(ordered)+len(groups))
+	segments := make([]ResponseSegment, 0, len(ordered)+len(groups))
 	messageGroup := make(map[string]int)
 	finalHasLocalCalls := false
 	for index, group := range groups {
 		for _, call := range group.calls {
-			id := strings.TrimSpace(call.AssistantMessageID)
-			if id == "" {
+			id := call.AssistantMessageID
+			if strings.TrimSpace(id) == "" {
 				continue
 			}
 			if _, found := messageGroup[id]; !found {
 				messageGroup[id] = index
 			}
-			if id == representative.ID && call.Origin != "mcp_native" {
+			if id == representativeID && call.Origin != "mcp_native" {
 				finalHasLocalCalls = true
 			}
 		}
 	}
 	appendText := func(message Message) {
+		if message.Reasoning != "" {
+			segments = append(segments, responseTextSegment("reasoning", message, 0, message.Reasoning))
+		}
 		if strings.TrimSpace(message.Content) != "" {
-			segments = append(segments, TurnSegment{Type: "text", Content: message.Content})
+			segments = append(segments, responseTextSegment("text", message, 0, message.Content))
 		}
 	}
 	// Vínculos do ledger colocam a fala antes das tools da própria rodada.
@@ -114,7 +135,7 @@ func ConsolidateTimelineTurn(messages []Message, invocationToolCalls []TurnSegme
 	}
 	for index := len(ordered) - 1; index >= 0; index-- {
 		message := ordered[index]
-		if message.ID == representative.ID && !finalHasLocalCalls {
+		if message.ID == representativeID && !finalHasLocalCalls {
 			continue
 		}
 		if bucket, found := messageGroup[message.ID]; found {
@@ -123,7 +144,7 @@ func ConsolidateTimelineTurn(messages []Message, invocationToolCalls []TurnSegme
 		messageBuckets[index] = nextBucket
 	}
 	for index, message := range ordered {
-		if message.Role == "assistant" && (message.ID != representative.ID || finalHasLocalCalls) {
+		if message.Role == "assistant" && (message.ID != representativeID || finalHasLocalCalls) {
 			bucket := messageBuckets[index]
 			textBuckets[bucket] = append(textBuckets[bucket], message)
 		}
@@ -133,22 +154,19 @@ func ConsolidateTimelineTurn(messages []Message, invocationToolCalls []TurnSegme
 			appendText(message)
 		}
 		if index < len(groups) {
-			segments = append(segments, TurnSegment{Type: "tool_calls", ToolCalls: groups[index].calls})
+			segments = append(segments, responseToolSegment(groups[index].calls))
 		}
 	}
-	if representative.Role == "assistant" && !finalHasLocalCalls {
-		appendText(representative)
+	if representative != nil && representative.Role == "assistant" && !finalHasLocalCalls {
+		appendText(*representative)
 	}
-	if len(invocationToolCalls) == 0 && len(ordered) <= 1 {
-		segments = nil
-	}
-	return ConsolidatedTurnResult{Message: representative, Segments: segments}
+	return segments
 }
 
 // ACP mantém a resposta integral numa mensagem. As posições observadas no
 // início das tools permitem reconstruir texto → atividade sem duplicar texto
 // no ledger. Dados antigos/inválidos seguem a consolidação genérica.
-func consolidateACPTextPositions(messages []Message, calls []TurnSegmentToolCall) ([]TurnSegment, bool) {
+func consolidateACPTextPositions(messages []Message, calls []TurnSegmentToolCall) ([]ResponseSegment, bool) {
 	if len(calls) == 0 {
 		return nil, false
 	}
@@ -170,10 +188,13 @@ func consolidateACPTextPositions(messages []Message, calls []TurnSegmentToolCall
 		}
 		byMessage[call.AssistantMessageID] = append(byMessage[call.AssistantMessageID], normalizeInvocationSummary(call))
 	}
-	var segments []TurnSegment
+	var segments []ResponseSegment
 	for _, message := range messages {
 		if message.Role != "assistant" {
 			continue
+		}
+		if message.Reasoning != "" {
+			segments = append(segments, responseTextSegment("reasoning", message, 0, message.Reasoning))
 		}
 		activity := byMessage[message.ID]
 		sort.SliceStable(activity, func(i, j int) bool { return *activity[i].ACPTextOffset < *activity[j].ACPTextOffset })
@@ -181,18 +202,18 @@ func consolidateACPTextPositions(messages []Message, calls []TurnSegmentToolCall
 		for _, call := range activity {
 			offset := *call.ACPTextOffset
 			if offset > position {
-				segments = append(segments, TurnSegment{Type: "text", Content: message.Content[position:offset]})
+				segments = append(segments, responseTextSegment("text", message, position, message.Content[position:offset]))
 			}
-			if len(segments) > 0 && segments[len(segments)-1].Type == "tool_calls" {
+			if len(segments) > 0 && segments[len(segments)-1].Kind == "tool_invocations" {
 				last := &segments[len(segments)-1]
-				last.ToolCalls = append(last.ToolCalls, call)
+				last.Invocations = append(last.Invocations, call)
 			} else {
-				segments = append(segments, TurnSegment{Type: "tool_calls", ToolCalls: []TurnSegmentToolCall{call}})
+				segments = append(segments, responseToolSegment([]TurnSegmentToolCall{call}))
 			}
 			position = offset
 		}
 		if position < len(message.Content) {
-			segments = append(segments, TurnSegment{Type: "text", Content: message.Content[position:]})
+			segments = append(segments, responseTextSegment("text", message, position, message.Content[position:]))
 		}
 	}
 	return segments, true
@@ -248,6 +269,10 @@ func BuildNodesWithTimelineConsolidation(
 	childCounts map[string]int,
 	invocationToolCalls map[string][]TurnSegmentToolCall,
 ) []MessageNode {
+	return buildResponseNodes(messages, parentID, childCounts, invocationToolCalls, nil)
+}
+
+func buildResponseNodes(messages []Message, parentID *string, childCounts map[string]int, invocationToolCalls map[string][]TurnSegmentToolCall, responses map[string]*PersistedResponse) []MessageNode {
 	grouped := make(map[string][]Message)
 	order := make([]string, 0, len(messages))
 	for _, message := range messages {
@@ -264,7 +289,7 @@ func BuildNodesWithTimelineConsolidation(
 		representative := itemMessages[0]
 		if strings.HasPrefix(key, "turn:") {
 			turnID := strings.TrimPrefix(key, "turn:")
-			result := ConsolidateTimelineTurn(itemMessages, invocationToolCalls[turnID])
+			result := responseDisplay(turnID, itemMessages, invocationToolCalls[turnID], responses)
 			representative = result.Message
 			segmentsByMessageID[representative.ID] = result.Segments
 		}
@@ -280,6 +305,10 @@ func BuildTimelineMessageNodes(
 	childCounts map[string]int,
 	invocationToolCalls map[string][]TurnSegmentToolCall,
 ) []MessageNode {
+	return buildResponseWindowNodes(items, messages, parentID, childCounts, invocationToolCalls, nil)
+}
+
+func buildResponseWindowNodes(items []database.MessageWindowItem, messages []Message, parentID *string, childCounts map[string]int, invocationToolCalls map[string][]TurnSegmentToolCall, responses map[string]*PersistedResponse) []MessageNode {
 	messagesByKey := make(map[string][]Message)
 	for _, message := range messages {
 		key := MessageTimelineItemKey(message)
@@ -295,7 +324,7 @@ func BuildTimelineMessageNodes(
 		}
 		representative := itemMessages[0]
 		if item.Kind == database.MessageWindowItemKindTurn {
-			result := ConsolidateTimelineTurn(itemMessages, invocationToolCalls[item.TurnID])
+			result := responseDisplay(item.TurnID, itemMessages, invocationToolCalls[item.TurnID], responses)
 			representative = result.Message
 			segments[representative.ID] = result.Segments
 		}
@@ -323,4 +352,14 @@ func CollectTurnIDsWithToolCalls(messages []Message) []string {
 		}
 	}
 	return turnIDs
+}
+
+// Os leitores legados ainda não carregam metadados. O snapshot produtivo sempre
+// fornece as projeções, compartilhadas pelos dois adaptadores.
+func responseDisplay(turnID string, messages []Message, calls []TurnSegmentToolCall, responses map[string]*PersistedResponse) ConsolidatedTurnResult {
+	if response := responses[turnID]; response != nil {
+		message, segments := response.legacyMessage(messages, calls)
+		return ConsolidatedTurnResult{Message: message, Segments: segments}
+	}
+	return ConsolidateTimelineTurn(messages, calls)
 }

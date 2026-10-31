@@ -20,7 +20,7 @@ func TestACPTextPositionsValidaLimitesEUTF8(t *testing.T) {
 		{ID: "C", Origin: "acp_agent", AssistantMessageID: "assistant", ACPTextOffset: &end},
 	}
 	segments, ok := consolidateACPTextPositions(messages, calls)
-	if !ok || len(segments) != 3 || len(segments[0].ToolCalls) != 2 || segments[0].ToolCalls[0].ID != "A" || segments[0].ToolCalls[1].ID != "B" || segments[1].Content != "ação" || segments[2].ToolCalls[0].ID != "C" {
+	if !ok || len(segments) != 3 || len(segments[0].Invocations) != 2 || segments[0].Invocations[0].ID != "A" || segments[0].Invocations[1].ID != "B" || segments[1].Text != "ação" || segments[2].Invocations[0].ID != "C" {
 		t.Fatalf("segmentos: %+v", segments)
 	}
 	calls[0].ACPTextOffset = nil
