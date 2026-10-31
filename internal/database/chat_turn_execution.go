@@ -85,6 +85,22 @@ func (r *ChatTurnRepository) EnsureResponse(ctx context.Context, conversationID,
 // FinishResponse confirma conteúdo, usage e terminal na mesma transação.
 // A checagem da execução antecede qualquer escrita da resposta.
 func (r *ChatTurnRepository) FinishResponse(ctx context.Context, conversationID, turnID, executionID, state, reason, responseID string, response *MessageOptions) error {
+	return r.finishResponse(ctx, conversationID, turnID, executionID, state, reason, responseID, response, nil)
+}
+
+// FinishResponseWithVersion captura a versão na própria transação terminal.
+// A recuperação de startup mantém FinishResponse, inclusive antes da migração v43.
+func (r *ChatTurnRepository) FinishResponseWithVersion(ctx context.Context, conversationID, turnID, executionID, state, reason, responseID string, response *MessageOptions) (ChatTimelineVersion, error) {
+	var version ChatTimelineVersion
+	err := r.finishResponse(ctx, conversationID, turnID, executionID, state, reason, responseID, response, func(tx *gorm.DB) error {
+		var readErr error
+		version, readErr = ReadChatTimelineVersion(ctx, tx, conversationID)
+		return readErr
+	})
+	return version, err
+}
+
+func (r *ChatTurnRepository) finishResponse(ctx context.Context, conversationID, turnID, executionID, state, reason, responseID string, response *MessageOptions, afterWrite func(*gorm.DB) error) error {
 	return r.transaction(ctx, func(tx *gorm.DB) error {
 		turn, err := scopedChatTurn(ctx, tx, conversationID, turnID)
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -105,7 +121,13 @@ func (r *ChatTurnRepository) FinishResponse(ctx context.Context, conversationID,
 				return err
 			}
 		}
-		return NewChatTurnRepository(tx).Finish(ctx, conversationID, turnID, executionID, state, reason)
+		if err := NewChatTurnRepository(tx).Finish(ctx, conversationID, turnID, executionID, state, reason); err != nil {
+			return err
+		}
+		if afterWrite != nil {
+			return afterWrite(tx)
+		}
+		return nil
 	})
 }
 
@@ -133,7 +155,7 @@ func (r *ChatTurnRepository) CheckReady(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if !versions[41] || !versions[42] {
+	if !versions[41] || !versions[42] || !versions[43] {
 		return ErrChatTurnMigrationPending
 	}
 	return nil

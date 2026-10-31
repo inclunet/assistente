@@ -251,3 +251,10 @@ emissão em lote. Se a execução terminar inesperadamente, essa cópia em memó
 não é tratada como conteúdo salvo apenas porque o estado da tentativa foi
 gravado. A integração dessa cópia com a recuperação visual ainda está em
 andamento; reiniciar o aplicativo continua recuperando somente dados persistidos.
+
+A conclusão de uma tentativa verifica a execução e a versão gravada antes de
+aplicar o patch do histórico. Se outra tentativa ou edição já tiver alterado o
+estado, esse patch não é atribuído à tentativa anterior. O backend também possui
+leitura e descarte autorizado dos trechos retidos; a apresentação desses recursos
+na interface ainda será integrada. Isso não altera a recomendação de preservar
+conteúdo importante antes de reiniciar após uma falha de gravação.

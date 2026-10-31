@@ -1,6 +1,6 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — fase 1 concluída; fase 2 com projeção incremental vinculada à execução
+## Status: In Progress — fase 1 concluída; fase 2 com recuperação coordenada da projeção
 
 Data: 2026-10-30
 
@@ -622,6 +622,70 @@ legado não participam dessa fixture; a duplicação transitória dos acumulador
 continua explícita até a fase 3. Não houve alteração de SQL/payload da janela.
 Revisão independente `review_aep`: problemas de confirmação de conteúdo e
 substituição de reasoning corrigidos com regressões; gate técnico sem pendências.
+
+Décimo recorte da fase 2 (PR empilhado sobre o nono): `ReadTurnRecovery`
+coordena leitura persistida autorizada e buffers em memória pela mesma barreira
+por usuário/conversa. Até a primeira leitura reserva a instância, impedindo que
+uma admissão simultânea crie outro projetor. Referências de operações impedem
+evicção sem manter o mutex global durante I/O de uma conversa. Admissão,
+atribuição da resposta, gravações de conteúdo e commits terminais usam essa
+barreira. Setters/finalizadores diretos substituídos foram removidos.
+
+O resultado separa `Persisted`, `Active` e `Retained`. Active exige executionId
+e incarnation compatíveis; ausência de active_execution_id no banco não prova
+compatibilidade com uma execução terminal. Tentativas retidas não são mescladas
+por texto, prefixo ou horário, e representante persistido nulo continua válido.
+Leitura recusada por propriedade/exclusão/erro de storage não expõe conteúdo da
+memória. A cópia permanece protegida para nova consulta autorizada.
+
+`FinishResponseWithVersion` captura incarnation/revision na própria transação
+que grava resposta e estado. O adaptador de patch terminal só usa o persistido
+quando há prova positiva da execução e versão exata. Assim, o terminal A não
+publica o patch de B, mesmo se B já terminou. Mudança posterior de storage sem
+prova de compatibilidade retorna recoveryRequired e inicia nova época interna,
+sem repetir a troca para a mesma versão. Isso é conservador: até uma mudança
+legítima de outro turno pode exigir ressincronização. A leitura sempre reidrata
+o estado persistido atual; não há cache persistido nem SQL por delta. O lifecycle
+de startup reutiliza a mesma gravação sem exigir v43 antes da migração; a admissão
+de novos envios exige v43 antes de gravar a pergunta.
+
+`DiscardRetainedTurn` endereça usuário/conversa/turno/executionId, autoriza pelo
+banco e é idempotente. Recusa execução ativa; uma execução incompatível com o
+storage precisa primeiro ser marcada como desvinculada na recuperação para
+permitir descarte. Retry conserva conteúdo não confirmado da tentativa anterior,
+mas essa retenção não bloqueia o patch de uma nova tentativa confirmada.
+
+Evidências: `TestTurnRecovery*` cobre snapshot/delta, commit/leitura, primeira
+leitura/admissão, independência de conversas sob I/O, terminal A/retry B ativo e
+concluído, versão externa, mudança de incarnation, falha de autorização, descarte
+idempotente e recusa de execução ativa. Integração com SQLite real cobre representante
+nulo, exclusão, retenção após término sem gravação, retry, descarte e versão do
+commit terminal. Testes de lifecycle/startup e v43 permanecem íntegros.
+
+Limites: essas APIs são internas do backend. O adaptador terminal já usa a leitura
+coordenada, mas recuperação visual/descarte ainda não estão expostos por Wails.
+O par não entrega protocolo wire, inscrições, cursores ou consumidor frontend.
+Eventos legados continuam sem garantia atômica entre verificação e emissão;
+correção integral de foco/ordenação permanece dependente do cutover. Fase 2 segue
+In Progress; não declarar esses defeitos de UI resolvidos por esta entrega.
+
+Validação do décimo recorte: build/vet, golangci-lint (zero issues), regressões
+selecionadas de projeção/recuperação/runtime/finalização/lifecycle/v43 aprovadas.
+TypeScript, ESLint e Stylelint aprovados (avisos CSS preexistentes); Vitest com
+484 arquivos e 5.887 testes aprovados, excluindo os 31 arquivos relacionados a
+ACP. Nenhum teste ACP nem a suíte Go integral foram executados localmente;
+detector de corrida fica no CI por indisponibilidade local de CGO.
+
+Benchmark incremental isolado, comparando #972 (7708c31f4) com este recorte,
+mesma fixture de 1.000 deltas/18.000 bytes e cinco amostras de 1 s:
+medianas 78,225 → 87,899 microssegundos (+12,4%), 84.824 → 84.984 B/op (+0,19%),
+35 → 36 allocs/op. A alocação adicional corresponde à liberação da referência
+que impede evicção durante I/O. As amostras curtas de 100 operações apresentaram
+variação alta e não foram usadas nesta comparação. O benchmark mede admissão
+em memória e append, não custo SQL, heap retido ou UI; SQL/payload da janela
+persistida não foram alterados. Revisor independente `review_aep`: prova positiva
+do terminal e barreira da primeira leitura corrigidas com regressões; gate
+final sem pendências, incluindo captura dinâmica de conteúdo não confirmado.
 
 ### Fase 3 — Consumidor frontend e remoções
 

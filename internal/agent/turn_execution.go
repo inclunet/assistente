@@ -22,7 +22,7 @@ type TurnStore interface {
 	EnsureResponse(context.Context, string, string, string) (string, error)
 	MarkStreaming(context.Context, string, string, string) error
 	WritePartial(context.Context, string, string, string, string, bool) error
-	FinishResponse(context.Context, string, string, string, string, string, string, *database.MessageOptions) error
+	FinishResponseWithVersion(context.Context, string, string, string, string, string, string, *database.MessageOptions) (database.ChatTimelineVersion, error)
 }
 
 type turnExecutionKey struct{}
@@ -59,16 +59,6 @@ func (s *Service) CheckTurnStorageReady(ctx context.Context) error { return s.tu
 // BeginTurn precede criação da resposta, prompt e chamada ao provider. Erros
 // posteriores à pergunta confirmada podem assim encerrar a tentativa correta.
 func (s *Service) BeginTurn(ctx context.Context, conversationID, turnID, mode string) (context.Context, error) {
-	key := terminalKey(ctx, conversationID, turnID)
-	if pending, ok := s.pendingTerminals.Load(key); ok {
-		// Só recupera a execução que este Service já encerrou localmente.
-		// CAS impede que a recuperação altere uma tentativa posterior ou viva.
-		err := s.turns.FinishResponse(ctx, conversationID, turnID, pending.(string), database.TurnFailed, "persistence_error", "", nil)
-		if err != nil && !errors.Is(err, database.ErrChatTurnStale) {
-			return ctx, err
-		}
-		s.pendingTerminals.CompareAndDelete(key, pending)
-	}
 	id, err := uuid.NewV7()
 	if err != nil {
 		return ctx, err
@@ -77,10 +67,24 @@ func (s *Service) BeginTurn(ctx context.Context, conversationID, turnID, mode st
 	if err != nil {
 		return ctx, err
 	}
-	attempt, err := s.turns.BeginExecution(ctx, conversationID, turnID, "", mode, id.String(), lease.Path)
+	projection, err := s.projection.Admit(ctx, conversationID, turnID, id.String(), func() (database.ChatTimelineVersion, error) {
+		version, err := s.timeline.ReadVersion(ctx, conversationID)
+		if err != nil {
+			return version, err
+		}
+		key := terminalKey(ctx, conversationID, turnID)
+		if pending, ok := s.pendingTerminals.Load(key); ok {
+			// CAS recupera somente o terminal que este Service já encerrou localmente.
+			_, err := s.turns.FinishResponseWithVersion(ctx, conversationID, turnID, pending.(string), database.TurnFailed, "persistence_error", "", nil)
+			if err != nil && !errors.Is(err, database.ErrChatTurnStale) {
+				return version, err
+			}
+			s.pendingTerminals.CompareAndDelete(key, pending)
+		}
+		_, err = s.turns.BeginExecution(ctx, conversationID, turnID, "", mode, id.String(), lease.Path)
+		return version, err
+	})
 	if err != nil {
-		// Estas recusas acontecem antes do INSERT da tentativa. Para erro de
-		// storage/COMMIT, a ausência de confirmação não prova ausência de gravação.
 		var releaseErr error
 		if errors.Is(err, database.ErrChatTurnActive) || errors.Is(err, database.ErrChatTurnInvalid) || errors.Is(err, gorm.ErrRecordNotFound) {
 			releaseErr = lease.RemoveUnadmitted()
@@ -89,25 +93,13 @@ func (s *Service) BeginTurn(ctx context.Context, conversationID, turnID, mode st
 		}
 		return ctx, errors.Join(err, releaseErr)
 	}
-	projection, projectionErr := s.projection.Begin(ctx, conversationID, turnID, attempt.ExecutionID)
-	execution := &turnExecution{id: attempt.ExecutionID, lease: lease, projection: projection}
-	admitted := context.WithValue(ctx, turnExecutionKey{}, execution)
-	if projectionErr != nil {
-		s.EndUnfinishedTurn(admitted, conversationID, turnID, nil)
-		return ctx, projectionErr
-	}
-	return admitted, nil
+	return context.WithValue(ctx, turnExecutionKey{}, &turnExecution{id: id.String(), lease: lease, projection: projection}), nil
 }
 
 func (s *Service) EnsureTurnResponse(ctx context.Context, conversationID, turnID string) (string, error) {
-	id, err := s.turns.EnsureResponse(ctx, conversationID, turnID, executionID(ctx))
+	id, err := executionProjection(ctx).AssignResponse(func() (string, error) { return s.turns.EnsureResponse(ctx, conversationID, turnID, executionID(ctx)) })
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return "", chat.ErrConversationGone
-	}
-	if err == nil {
-		if execution := executionFrom(ctx); execution != nil {
-			execution.projection.SetResponse(id)
-		}
 	}
 	return id, err
 }
@@ -136,10 +128,11 @@ func (s *Service) finishTurn(ctx context.Context, conversationID, turnID, state,
 			return database.ErrChatTurnStale
 		}
 	}
-	err := s.turns.FinishResponse(ctx, conversationID, turnID, executionID(ctx), state, reason, responseID, response)
+	err := executionProjection(ctx).CommitResponse(state, reason, response.Content, response.Reasoning, func() (database.ChatTimelineVersion, error) {
+		return s.turns.FinishResponseWithVersion(ctx, conversationID, turnID, executionID(ctx), state, reason, responseID, response)
+	})
 	if err == nil && execution != nil {
 		execution.finished = true
-		execution.projection.Finish(state, reason, true, true)
 	}
 	return err
 }
@@ -155,7 +148,9 @@ func (s *Service) persistTerminal(ctx context.Context, event *ports.DoneEvent, s
 			return false
 		}
 	}
-	err := s.turns.FinishResponse(context.WithoutCancel(ctx), event.ConversationID, event.TurnID, executionID(ctx), state, reason, "", nil)
+	err := executionProjection(ctx).CommitTerminal(state, reason, func() (database.ChatTimelineVersion, error) {
+		return s.turns.FinishResponseWithVersion(context.WithoutCancel(ctx), event.ConversationID, event.TurnID, executionID(ctx), state, reason, "", nil)
+	})
 	if errors.Is(err, database.ErrChatTurnStale) {
 		return false
 	}
@@ -169,7 +164,6 @@ func (s *Service) persistTerminal(ctx context.Context, event *ports.DoneEvent, s
 	// boot recupera apenas o estado confirmado, sem inventar sucesso.
 	if execution != nil {
 		execution.finished = true
-		execution.projection.Finish(state, reason, err == nil && reason != "persistence_error", false)
 	}
 	return true
 }
@@ -206,4 +200,11 @@ func streamProjection(ctx context.Context, iteration int) *chat.StreamProjection
 		return execution.projection.StartStream(iteration)
 	}
 	return nil // handlers unitários sem admissão de execução
+}
+
+func executionProjection(ctx context.Context) *chat.ExecutionProjection {
+	if execution := executionFrom(ctx); execution != nil {
+		return execution.projection
+	}
+	return nil
 }

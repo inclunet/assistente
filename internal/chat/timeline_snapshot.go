@@ -30,6 +30,7 @@ type TimelineTurnSnapshot struct {
 
 // TurnSnapshotReader é a dependência de leitura do terminal, separada dos writers.
 type TurnSnapshotReader interface {
+	ReadVersion(context.Context, string) (database.ChatTimelineVersion, error)
 	ReadTurn(context.Context, string, string) (*TimelineTurnSnapshot, error)
 }
 
@@ -203,4 +204,10 @@ func projectSnapshotResponses(conversationID string, parentID *string, messages 
 		responses[turnID] = response
 	}
 	return responses, nil
+}
+
+// ReadVersion autoriza e identifica a encarnação antes de admitir uma execução.
+// Leituras de conteúdo continuam obtendo versão e dados na mesma transação.
+func (r *DBTimelineReader) ReadVersion(ctx context.Context, conversationID string) (database.ChatTimelineVersion, error) {
+	return database.ReadChatTimelineVersion(ctx, r.db, conversationID)
 }

@@ -86,3 +86,11 @@ func (r *handlerTestTimelineReader) ReadTurn(ctx context.Context, conversationID
 	}
 	return &chat.TimelineTurnSnapshot{Nodes: chat.BuildNodesWithTimelineConsolidation(messages, nil, nil, chat.ToolInvocationSummariesToTurnSegments(summaries))}, nil
 }
+
+func (r *handlerTestTimelineReader) ReadVersion(context.Context, string) (database.ChatTimelineVersion, error) {
+	panic("fixture de handler sem admissão")
+}
+
+func (s *handlerTestTurnStore) FinishResponseWithVersion(ctx context.Context, conversationID, turnID, executionID, state, reason, responseID string, response *database.MessageOptions) (database.ChatTimelineVersion, error) {
+	return database.ChatTimelineVersion{}, s.FinishResponse(ctx, conversationID, turnID, executionID, state, reason, responseID, response)
+}
