@@ -18,9 +18,10 @@ type ExecutionContext struct {
 // FilesystemScope define allowlist/denylist de caminhos (glob) para ferramentas de filesystem.
 // Quando presente, as ferramentas devem respeitar este escopo além das validações padrão.
 type FilesystemScope struct {
-	Read  []string
-	Write []string
-	Deny  []string
+	Read           []string
+	Write          []string
+	Deny           []string
+	DenyComponents []string
 }
 
 type executionContextKey struct{}

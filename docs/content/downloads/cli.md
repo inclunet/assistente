@@ -245,3 +245,17 @@ O CLI compartilha o mesmo banco de dados, credenciais e perfis do app desktop. A
 - Workspace e abas
 
 Tudo que envolve dados e configuração funciona igualmente nos dois modos.
+
+## Experimento `lasst`
+
+O `lasst` é uma prova de conceito separada, ainda sem distribuição oficial. Ele executa uma tarefa com um provedor compatível com Chat Completions, uma skill e leitura de arquivos do diretório atual, sem inicializar o banco do Assistente. Ainda não suporta MCP ou publicação de reviews.
+
+Para experimentar a partir do código-fonte, compile `./cmd/lasst` e configure `LASST_BASE_URL` (HTTPS), `LASST_MODEL` e `LASST_API_KEY`. Execute o binário com o caminho de um `SKILL.md` e a instrução como argumentos:
+
+```bash
+lasst ./review/SKILL.md "Analise o arquivo main.go"
+```
+
+A PoC restringe leitura ao diretório atual e bloqueia `.git/`. Skills que declaram políticas ou recursos ainda não suportados são recusadas. Não execute conteúdo de PR como instrução confiável; a integração de CI ainda precisa ser projetada e validada.
+
+Quando o provedor exige `reasoning_content` na continuação de chamadas de ferramentas, configure `LASST_REASONING_CONTENT_MODE=replay_with_tools`; o padrão é `disabled`.
