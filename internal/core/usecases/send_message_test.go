@@ -116,7 +116,7 @@ func newTestUseCaseWithProviders(t *testing.T, profileMgr *profiles.Manager, pro
 		Registry: llmRegistry,
 	})
 	streamMgr := chat.NewStreamingManager(nil)
-	agentSvc := agent.NewService(agent.ServiceConfig{Turns: database.NewChatTurnRepository(database.DB()),
+	agentSvc := agent.NewService(agent.ServiceConfig{Turns: database.NewChatTurnRepository(database.DB()), Timeline: chat.NewDBTimelineReader(database.DB()),
 		Emitter: events.NoopEmitter{},
 		MsgRepo: chat.NewDBMessageStore(),
 	})
@@ -196,7 +196,7 @@ func newMediaTestUseCaseWithEmitter(
 		ProviderSvc: providerSvc,
 		ProfileMgr:  profileMgr,
 	})
-	agentSvc := agent.NewService(agent.ServiceConfig{Turns: database.NewChatTurnRepository(database.DB()), Emitter: events.NoopEmitter{}, MsgRepo: chat.NewDBMessageStore()})
+	agentSvc := agent.NewService(agent.ServiceConfig{Turns: database.NewChatTurnRepository(database.DB()), Timeline: chat.NewDBTimelineReader(database.DB()), Emitter: events.NoopEmitter{}, MsgRepo: chat.NewDBMessageStore()})
 	cfg := usecases.SendMessageConfig{
 		ChatInteractor: interactor,
 		ProviderSvc:    providerSvc,

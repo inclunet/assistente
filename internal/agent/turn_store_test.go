@@ -3,6 +3,7 @@ package agent
 import (
 	"assistente/internal/chat"
 	"assistente/internal/database"
+	"assistente/internal/toolinvocations"
 	"assistente/internal/turnlease"
 	"context"
 	"strings"
@@ -14,6 +15,7 @@ type handlerTestTurnStore struct{ repo chat.MessageRepository }
 
 func newTestAgentService(cfg ServiceConfig) *Service {
 	cfg.Turns = &handlerTestTurnStore{repo: cfg.MsgRepo}
+	cfg.Timeline = &handlerTestTimelineReader{repo: cfg.MsgRepo}
 	return NewService(cfg)
 }
 
@@ -55,4 +57,32 @@ func (s *handlerTestTurnStore) FinishResponse(ctx context.Context, _, _, _, _, _
 	}
 	_, err := chat.FinalizeAssistantMessage(ctx, s.repo, responseID, *response)
 	return err
+}
+
+// O fake de handlers isola transporte/lifecycle. Testes de snapshot e runtime
+// usam DBTimelineReader real, sem fallback produtivo para leituras avulsas.
+type handlerTestTimelineReader struct{ repo chat.MessageRepository }
+
+func (r *handlerTestTimelineReader) ReadTurn(ctx context.Context, conversationID, turnID string) (*chat.TimelineTurnSnapshot, error) {
+	question, err := r.repo.GetMessage(ctx, turnID)
+	if err != nil {
+		return nil, err
+	}
+	var parent *string
+	if question != nil {
+		parent = question.ParentID
+	}
+	messages, err := r.repo.GetMessagesByTurnID(ctx, conversationID, parent, turnID, 0)
+	if err != nil {
+		return nil, err
+	}
+	userID, err := database.RequireUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	summaries, err := toolinvocations.LoadSummariesForTurnIDsWithUser(ctx, userID, []string{turnID})
+	if err != nil {
+		return nil, err
+	}
+	return &chat.TimelineTurnSnapshot{Nodes: chat.BuildNodesWithTimelineConsolidation(messages, nil, nil, chat.ToolInvocationSummariesToTurnSegments(summaries))}, nil
 }

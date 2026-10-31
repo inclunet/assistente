@@ -26,10 +26,16 @@ func setupMessageWindowAppTestDB(t testing.TB) {
 		&database.User{},
 		&database.Conversation{},
 		&database.ChatMessage{},
+		&database.ChatTurn{},
 		&database.ToolCatalog{},
 		&database.ToolInvocation{},
 	); err != nil {
 		t.Fatalf("migrate: %v", err)
+	}
+	// Fixture imutável de leitura: a integração de versão/triggers usa InitPath
+	// nos testes de snapshot. Preserva o ambiente SQLite em memória da baseline.
+	if err := db.Exec(`CREATE TABLE chat_timeline_versions (conversation_id TEXT PRIMARY KEY, incarnation TEXT NOT NULL, revision INTEGER NOT NULL)`).Error; err != nil {
+		t.Fatal(err)
 	}
 	database.SetDB(db)
 	// Seed do usuário do teste (ToolInvocation tem FK para users).
@@ -80,6 +86,9 @@ func createMessageWindowTestConversation(t testing.TB, title string) *database.C
 	conv, err := database.CreateConversationWithContext(ctx, title, "")
 	if err != nil {
 		t.Fatalf("create conversation: %v", err)
+	}
+	if err := database.DB().Exec("INSERT INTO chat_timeline_versions VALUES(?, ?, 0)", conv.ID, "0123456789abcdef0123456789abcdef").Error; err != nil {
+		t.Fatal(err)
 	}
 	return conv
 }

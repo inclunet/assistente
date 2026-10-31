@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"assistente/internal/database"
+	"gorm.io/gorm"
 )
 
 const MaxDetailBatchSize = 100
@@ -72,20 +73,33 @@ type projectionMetadata struct {
 	} `json:"display"`
 }
 
+// LoadSummariesForTurnIDsWithUser preserva a compatibilidade dos leitores legados.
+// Snapshots usam o método do repositório com uma transação explícita.
 func LoadSummariesForTurnIDsWithUser(ctx context.Context, userID string, turnIDs []string) (map[string][]Summary, error) {
 	userID = strings.TrimSpace(userID)
-	turnIDs = uniqueNonEmptyIDs(turnIDs)
-	result := make(map[string][]Summary, len(turnIDs))
 	if userID == "" {
 		return nil, database.ErrUserScopeRequired
 	}
-	if len(turnIDs) == 0 {
-		return result, nil
-	}
 	db := database.DB()
-	if db == nil || !db.Migrator().HasTable(&database.ToolInvocation{}) {
-		return result, nil
+	if len(turnIDs) == 0 || db == nil || !db.Migrator().HasTable(&database.ToolInvocation{}) {
+		return map[string][]Summary{}, nil
 	}
+	return loadSummariesForTurnIDs(ctx, db, userID, turnIDs)
+}
+
+// LoadSummariesForTurnIDs usa o handle do repositório, inclusive quando é uma
+// transação de snapshot. Falha de schema/consulta não é histórico sem ferramentas.
+func (r *DBRepository) LoadSummariesForTurnIDs(ctx context.Context, turnIDs []string) (map[string][]Summary, error) {
+	userID, err := database.RequireUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return loadSummariesForTurnIDs(ctx, r.db, userID, turnIDs)
+}
+
+func loadSummariesForTurnIDs(ctx context.Context, db *gorm.DB, userID string, turnIDs []string) (map[string][]Summary, error) {
+	turnIDs = uniqueNonEmptyIDs(turnIDs)
+	result := make(map[string][]Summary, len(turnIDs))
 	const resolvedTurnSQL = "tool_invocations.turn_id"
 	type row struct {
 		ID                   string

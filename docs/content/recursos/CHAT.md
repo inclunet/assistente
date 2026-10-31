@@ -17,6 +17,14 @@ terminar, e o foco não é reiniciado a cada trecho. Escape devolve o foco à me
 mensagem; é possível entrar novamente enquanto a geração continua. Isso não
 ativa anúncios automáticos de cada trecho nem outra voz concorrente.
 
+## Consistência do histórico
+
+Ao carregar o histórico ou concluir uma resposta, o aplicativo lê o texto e os
+resumos das ferramentas a partir do mesmo estado salvo. Isso evita combinar
+conteúdo antigo com resultados novos durante uma alteração concorrente.
+Respostas com muitos trechos também preservam o conteúdo final ao concluir,
+sem o corte anterior de 1.000 mensagens internas por turno.
+
 ## Conversa indisponível ao enviar
 
 Se uma aba aponta para uma conversa que não está disponível para o usuário atual,

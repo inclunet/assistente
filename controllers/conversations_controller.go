@@ -304,9 +304,6 @@ func (c *ConversationsController) GetConversationMessageWindow(ctx context.Conte
 	if direction == chat.MessageWindowDirectionAround && anchorMessageID == "" {
 		return nil, fmt.Errorf("direction=around exige anchorMessageId")
 	}
-	if _, err := database.GetConversationInfoWithContext(ctx, conversationID); err != nil {
-		return nil, err
-	}
 
 	var parentID *string
 	threadParentID := ""
@@ -315,46 +312,18 @@ func (c *ConversationsController) GetConversationMessageWindow(ctx context.Conte
 		if threadParentID == "" {
 			return nil, fmt.Errorf("threadParentId é obrigatório para scope=thread")
 		}
-		parentMessage, err := database.GetMessageWithContext(ctx, threadParentID)
-		if err != nil {
-			return nil, fmt.Errorf("threadParentId inválido: %w", err)
-		}
-		if parentMessage.ConversationID != conversationID {
-			return nil, fmt.Errorf("threadParentId não pertence à conversa solicitada")
-		}
-		if parentMessage.ParentID != nil {
-			return nil, fmt.Errorf("threadParentId deve apontar para uma mensagem raiz")
-		}
 		parentID = &threadParentID
 	}
 
-	window, err := database.GetMessageWindowWithContext(ctx, database.MessageWindowQuery{
-		ConversationID:  conversationID,
-		ParentID:        parentID,
-		Anchor:          anchor,
-		AnchorMessageID: anchorMessageID,
-		Direction:       direction,
-		Limit:           limit,
+	snapshot, err := chat.NewDBTimelineReader(database.DB()).ReadWindow(ctx, database.MessageWindowQuery{
+		ConversationID: conversationID, ParentID: parentID, Anchor: anchor, AnchorMessageID: anchorMessageID, Direction: direction, Limit: limit,
 	})
 	if err != nil {
 		return nil, err
 	}
-	nodes, err := buildTimelineMessageNodes(ctx, window.Items, window.Messages, parentID)
-	if err != nil {
-		return nil, err
-	}
-
-	return &chat.MessageWindow{
-		Scope:          scope,
-		ConversationID: conversationID,
-		ThreadParentID: threadParentID,
-		Nodes:          nodes,
-		TotalCount:     window.TotalCount,
-		StartIndex:     window.StartIndex,
-		EndIndex:       window.EndIndex,
-		HasBefore:      window.HasBefore,
-		HasAfter:       window.HasAfter,
-	}, nil
+	snapshot.Window.Scope = scope
+	snapshot.Window.ThreadParentID = threadParentID
+	return &snapshot.Window, nil
 }
 
 // GetToolInvocationDetails carrega payloads técnicos sob demanda em um único
@@ -857,19 +826,6 @@ func buildMessageNodesWithInvocations(ctx context.Context, messages []database.C
 	return assignMessageNodeChildCounts(ctx, nodes), nil
 }
 
-func buildTimelineMessageNodes(ctx context.Context, items []database.MessageWindowItem, messages []database.ChatMessage, parentID *string) ([]chat.MessageNode, error) {
-	if len(messages) == 0 {
-		return []chat.MessageNode{}, nil
-	}
-	turnIDs := chat.CollectTurnIDsWithToolCalls(messages)
-	invocationToolCalls, err := loadChatToolInvocationDisplaysForTurnIDs(ctx, turnIDs)
-	if err != nil {
-		return nil, err
-	}
-	nodes := chat.BuildTimelineMessageNodes(items, messages, parentID, map[string]int{}, invocationToolCalls)
-	return assignMessageNodeChildCounts(ctx, nodes), nil
-}
-
 func loadChatToolInvocationDisplaysForTurnIDs(ctx context.Context, turnIDs []string) (map[string][]chat.TurnSegmentToolCall, error) {
 	userID, err := database.RequireUserID(ctx)
 	if err != nil {
@@ -882,35 +838,5 @@ func loadChatToolInvocationDisplaysForTurnIDs(ctx context.Context, turnIDs []str
 	if err != nil {
 		return nil, fmt.Errorf("erro ao carregar projeção de tool invocations: %w", err)
 	}
-	return toolInvocationSummariesToTurnSegments(results), nil
-}
-
-func toolInvocationSummariesToTurnSegments(summaries map[string][]toolinvocations.Summary) map[string][]chat.TurnSegmentToolCall {
-	out := make(map[string][]chat.TurnSegmentToolCall, len(summaries))
-	for turnID, calls := range summaries {
-		for _, call := range calls {
-			out[turnID] = append(out[turnID], chat.TurnSegmentToolCall{
-				InvocationID:       call.InvocationID,
-				ID:                 call.CallID,
-				Name:               call.Name,
-				Origin:             call.Origin,
-				ServerLabel:        call.ServerLabel,
-				Status:             call.Status,
-				Iteration:          call.Iteration,
-				DurationMs:         call.DurationMs,
-				InputPreview:       call.InputPreview,
-				OutputPreview:      call.OutputPreview,
-				InputBytes:         call.InputBytes,
-				OutputBytes:        call.OutputBytes,
-				HasDetails:         call.HasDetails,
-				ResultAvailability: call.ResultAvailability,
-				HasSearchResults:   call.HasSearchResults,
-				SearchResultCount:  call.SearchResultCount,
-				SecurityOutcome:    call.SecurityOutcome,
-				AssistantMessageID: call.AssistantMessageID,
-				ACPTextOffset:      call.ACPTextOffset,
-			})
-		}
-	}
-	return out
+	return chat.ToolInvocationSummariesToTurnSegments(results), nil
 }
