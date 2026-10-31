@@ -37,6 +37,10 @@ func TestSummarizationExecutionIdentitySurvivesRepeatedCallIDs(t *testing.T) {
 	if strings.Index(prompt, "base sem fala") > strings.Index(prompt, "em andamento") {
 		t.Fatalf("ordem das execuções alterada: %s", prompt)
 	}
+	if !strings.Contains(prompt, "em andamento\n\n---\n\n") {
+		t.Fatalf("separador incorporado ao resultado: %s", prompt)
+	}
+
 	want := EstimateTokens("resultado anterior") + EstimateTokens("resultado atual") + EstimateTokens("base sem fala") + EstimateTokens("em andamento")
 	repeated := append(append([]chat.Message{}, messages...), messages...)
 	if got := estimateHydratedToolResultTokens(repeated, results); got != want {
