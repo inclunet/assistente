@@ -27,6 +27,11 @@ banco o backup `*.pre-tool-ledger-v19.bak` e um manifesto com tamanho e
 SHA-256. Esse backup é o ponto de restauração suportado caso o corte de schema
 falhe; não o remova antes de confirmar que o aplicativo iniciou normalmente.
 
+A preparação do novo histórico também registra quando os dados de cada conversa
+mudam, inclusive durante importações. Essa atualização é automática e não
+reescreve o conteúdo das mensagens. A troca da apresentação do histórico será
+entregue em outra etapa.
+
 ## Diagnóstico local
 
 A preparação do novo histórico de chat também cria um backup consistente

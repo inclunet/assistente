@@ -3390,10 +3390,17 @@ func TestImportConversationCreatesHistoricalTurnAtomically(t *testing.T) {
 				if count != 0 {
 					t.Fatal("mensagens vazaram do rollback")
 				}
+				if err := database.DB().Table("chat_timeline_versions").Where("conversation_id=?", "conv-imported").Count(&count).Error; err != nil || count != 0 {
+					t.Fatalf("versão vazou do rollback: %d %v", count, err)
+				}
 				return
 			}
 			if err != nil {
 				t.Fatal(err)
+			}
+			version, err := database.ReadChatTimelineVersion(portabilityTestCtx(), database.DB(), "conv-imported")
+			if err != nil || version.Revision == 0 || version.Incarnation == "" {
+				t.Fatalf("importação sem invalidação: %+v %v", version, err)
 			}
 			turn, err := database.NewChatTurnRepository(database.DB()).Get(portabilityTestCtx(), "conv-imported", "q-imported")
 			if err != nil {

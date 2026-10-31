@@ -1,6 +1,6 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — fase 1 concluída; fase 2 com identidade, hidratação e lifecycle persistente integrado
+## Status: In Progress — fase 1 concluída; fase 2 com lifecycle e invalidação persistente por conversa
 
 Data: 2026-10-30
 
@@ -353,6 +353,56 @@ Limite: a janela e o patch visual ainda usam o contrato legado. Projeção incre
 época/sequência, recuperação de conteúdo volatile e cutover do frontend permanecem
 pendentes; esta entrega não declara corrigidos foco/ordem da UI nem conclui a fase 2.
 Não há consulta por delta nem duplicação de conteúdo em chat_turns.
+
+Quinto recorte da fase 2: a migração v43 (dependente da v42) adiciona
+`chat_timeline_versions`, sem copiar mensagens ou ferramentas. Cada conversa
+possui uma incarnation aleatória e um contador inteiro de alterações persistidas.
+O par muda ao excluir/recriar a conversa mesmo com o mesmo ID. Triggers de
+mensagens, ledger de chat, catálogo de ferramentas, turnos, tentativas e conversa participam da mesma
+transação dos escritores, incluindo SQL direto, importação e speech. Mudanças
+de vínculo invalidam origem e destino; updates sem alteração não incrementam.
+Cascatas apenas atualizam registros existentes, sem recriar conversas excluídas.
+
+`ReadChatTimelineVersion` autoriza por usuário e exige que o consumidor passe a
+mesma transação de leitura dos dados projetados. Ausência de metadado é erro,
+não versão zero. O contador não é sequence de eventos, epoch do projetor nem
+revisão de comando; deltas voláteis continuam fora dele. Nenhum writer executa
+invalidação adicional, nenhuma consulta por token foi adicionada. Migrações que
+acrescentem colunas às fontes devem reinstalar os triggers na mesma migração.
+
+Evidências: `TestChatTimelineVersion*` verifica escrita direta, no-op, rollback,
+lotes, autorização, lifecycle, mudança de conversa/vínculo nulo, cascatas,
+recriação, reinstalação, snapshot WAL e dependência/atomicidade da migração.
+`TestTimelineVersionFollowsLedgerProjection` verifica resumos reais após mudar
+catálogo ou invocações com conversation_id nulo/divergente; a invalidação segue
+também turn_id, com owner, conforme a leitura existente. Um índice parcial por
+catálogo limita a busca das referências de chat. Importação real e rollback são
+verificados em `TestImportConversationCreatesHistoricalTurnAtomically`. O consumidor da
+barreira, DTO com representante nullable e projeção incremental continuam
+pendentes. Não ativar seleção por ponteiro no adapter antigo: uma resposta
+excluída pode deixar intermediários com representante NULL; o DTO novo deve
+preservar esse estado sem eleger outra resposta. Janela e terminal também devem
+ler referências/conteúdo consistentemente e não confundir corte de segmentos
+com referência inválida.
+
+Medição do quinto recorte: `BenchmarkChatTimelineInvalidation`, Windows/amd64,
+mesmo processador/Go da baseline, SQLite em memória, `-benchtime=100x -count=5`.
+Medianas sem/com triggers: mensagem de 64 KiB 0,120/0,228 ms e 1.297/1.386 B/op;
+update de invocação 0,011/0,182 ms e 1.063/1.303 B/op; catálogo referenciado por
+100 conversas/1.000 invocações 0,009/5,404 ms e 1.047/1.241 B/op. São custos
+adicionados de escrita, não ganho de desempenho nem medição ponta a ponta. O
+catálogo só invalida quando id/nome/display_name/origem mudam; renovar seu
+updated_at não propaga invalidação. `TestChatTimelineVersionCatalogUsesReferenceIndexes`
+verifica o plano das buscas. O orçamento de janela/DTO final permanece pendente
+para o cutover; este microbenchmark não o substitui.
+
+Validação local do quinto recorte: build/vet, lint sem ocorrências novas,
+testes selecionados de database e integração real de importação/ledger;
+TypeScript/ESLint/Stylelint sem erros e 5.887 testes Vitest em 484 arquivos.
+Por restrição do mantenedor, não executar ACP localmente: 31 arquivos frontend
+que mencionam ACP também foram excluídos. Review independente local: três
+rodadas; dois achados de cobertura na primeira, corrigidos e verificados nas
+seguintes, sem pendências na terceira.
 
 ### Fase 3 — Consumidor frontend e remoções
 
