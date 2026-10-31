@@ -25,6 +25,7 @@ type LiveProjection struct {
 
 type projectionKey struct{ userID, conversationID string }
 type projectionConversation struct {
+	publication         canonicalPublication
 	mu                  sync.Mutex
 	readers             int // protegido por LiveProjection.mu; inclui operações de storage
 	epoch               string
