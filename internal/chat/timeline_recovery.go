@@ -158,7 +158,7 @@ func (e *ExecutionProjection) CommitResponse(state, reason, text, reasoning stri
 		return err
 	}
 	t.committedVersion = version
-	confirmStoredContentLocked(t, -1, text, reasoning)
+	confirmStoredContentLocked(t, -1, text, reasoning, t.responseID)
 	finishLiveTurnLocked(c, t, state, reason, true)
 	return nil
 }
@@ -190,9 +190,10 @@ func (e *ExecutionProjection) CommitTerminal(state, reason string, write func() 
 	return err
 }
 
-func (e *ExecutionProjection) CommitContent(iteration int, text, reasoning string, write func() error) error {
+func (e *ExecutionProjection) CommitContent(iteration int, text, reasoning string, write func() (string, error)) error {
 	if e == nil {
-		return write()
+		_, err := write()
+		return err
 	}
 	c, release := e.lockStorage()
 	defer release()
@@ -203,10 +204,14 @@ func (e *ExecutionProjection) CommitContent(iteration int, text, reasoning strin
 	if t == nil || t.finished {
 		return database.ErrChatTurnStale
 	}
-	if err := write(); err != nil {
+	messageID, err := write()
+	if err != nil {
 		return err
 	}
-	if confirmStoredContentLocked(t, iteration, text, reasoning) {
+	if messageID == "" {
+		return errors.New("confirmação de conteúdo sem identidade persistida")
+	}
+	if confirmStoredContentLocked(t, iteration, text, reasoning, messageID) {
 		c.revision++
 	}
 	return nil

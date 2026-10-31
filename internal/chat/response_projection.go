@@ -10,28 +10,38 @@ import (
 	"assistente/internal/database"
 )
 
-// PersistedResponse é a projeção interna de conteúdo, não o envelope wire v1.
+// TimelineItem unifica a projeção interna de mensagens e respostas. Ainda não
+// é o envelope wire v1.
 // Epoch/revision pertencem ao futuro projetor; versão do banco não os substitui.
-type PersistedResponse struct {
-	ItemID         string
-	TurnID         string
-	Representative *Message
-	State          string
-	Origin         string
-	Segments       []ResponseSegment
-	messageCount   int
-	callCount      int
+type TimelineItem struct {
+	ConversationID       string
+	ScopeParentID        *string
+	Kind                 string
+	ReplyToItemID        string
+	MessageIDs           []string
+	Position             TimelinePosition
+	Durability           string
+	legacyRepresentative *Message
+	ItemID               string
+	TurnID               string
+	Representative       *Message
+	State                string
+	Origin               string
+	Segments             []ResponseSegment
+	messageCount         int
+	callCount            int
 }
 
 type ResponseSegment struct {
-	SegmentID   string
-	Kind        string
-	Text        string
-	Invocations []TurnSegmentToolCall
+	SourceMessageID string
+	SegmentID       string
+	Kind            string
+	Text            string
+	Invocations     []TurnSegmentToolCall
 }
 
 func responseTextSegment(kind string, message Message, start int, text string) ResponseSegment {
-	return ResponseSegment{SegmentID: kind + ":" + base64.RawURLEncoding.EncodeToString([]byte(message.ID)) + ":" + strconv.Itoa(start), Kind: kind, Text: text}
+	return ResponseSegment{SourceMessageID: message.ID, SegmentID: kind + ":" + base64.RawURLEncoding.EncodeToString([]byte(message.ID)) + ":" + strconv.Itoa(start), Kind: kind, Text: text}
 }
 
 func responseToolSegment(calls []TurnSegmentToolCall) ResponseSegment {
@@ -46,8 +56,8 @@ func responseToolSegment(calls []TurnSegmentToolCall) ResponseSegment {
 }
 
 // ProjectPersistedResponse valida vínculos e projeta o conteúdo confirmado do turno.
-func ProjectPersistedResponse(conversationID, turnID string, parentID *string, messages []Message, calls []TurnSegmentToolCall, turn *database.ChatTurn) (*PersistedResponse, error) {
-	result := &PersistedResponse{ItemID: ports.ResponseItemID(turnID), TurnID: turnID, State: database.TurnHistoricalUnknown, Origin: "legacy"}
+func ProjectPersistedResponse(conversationID, turnID string, parentID *string, messages []Message, calls []TurnSegmentToolCall, turn *database.ChatTurn) (*TimelineItem, error) {
+	result := &TimelineItem{ItemID: ports.ResponseItemID(turnID), TurnID: turnID, State: database.TurnHistoricalUnknown, Origin: "legacy", ConversationID: conversationID, ScopeParentID: parentID, Kind: "response", ReplyToItemID: ports.MessageItemID(turnID), Durability: "persisted"}
 	for _, message := range messages {
 		if message.ConversationID != conversationID || message.TurnID == nil || *message.TurnID != turnID || !sameScope(message.ParentID, parentID) || message.Role == "user" {
 			return nil, fmt.Errorf("mensagem fora do escopo da resposta %s", turnID)
@@ -81,6 +91,13 @@ func ProjectPersistedResponse(conversationID, turnID string, parentID *string, m
 			}
 		}
 	}
+	for _, message := range ordered {
+		result.MessageIDs = append(result.MessageIDs, message.ID)
+	}
+	if result.Representative == nil && len(ordered) > 0 {
+		fallback := legacyTurnRepresentative(ordered, calls)
+		result.legacyRepresentative = &fallback
+	}
 	result.Segments = projectResponseSegments(ordered, calls, result.Representative)
 	result.messageCount, result.callCount = len(messages), len(calls)
 	return result, nil
@@ -90,14 +107,14 @@ func sameScope(a, b *string) bool { return a == nil && b == nil || a != nil && b
 
 // O contrato antigo exige Message mesmo quando o representante foi excluído.
 // Este fallback visual não altera Representative, State nem os segmentos canônicos.
-func (r *PersistedResponse) legacyMessage(messages []Message, calls []TurnSegmentToolCall) (Message, []TurnSegment) {
+func (r *TimelineItem) legacyMessage() (Message, []TurnSegment) {
 	var message Message
 	if r.Representative != nil {
 		message = *r.Representative
-	} else if len(messages) > 0 {
-		message = legacyTurnRepresentative(orderedTurnMessages(messages), calls)
+	} else if r.legacyRepresentative != nil {
+		message = *r.legacyRepresentative
 	}
-	return message, legacyResponseSegments(r.Segments, len(messages), len(calls))
+	return message, legacyResponseSegments(r.Segments, r.messageCount, r.callCount)
 }
 
 func legacyResponseSegments(segments []ResponseSegment, messageCount, callCount int) []TurnSegment {
@@ -118,7 +135,7 @@ func legacyResponseSegments(segments []ResponseSegment, messageCount, callCount 
 
 // TerminalPatch adapta somente o representante explícito. O fallback de mensagem
 // usado pelo visual legado não comprova qual resposta foi confirmada no storage.
-func (r *PersistedResponse) TerminalPatch() *ports.TurnPatchEvent {
+func (r *TimelineItem) TerminalPatch() *ports.TurnPatchEvent {
 	if r == nil || r.Representative == nil {
 		return nil
 	}

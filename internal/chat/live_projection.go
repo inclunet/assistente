@@ -49,6 +49,7 @@ type liveStream struct {
 	generation uint64
 	sealed     bool
 	confirmed  bool
+	messageID  string
 	parts      []*livePart
 }
 type livePart struct{ text, reasoning strings.Builder }
@@ -56,8 +57,10 @@ type livePart struct{ text, reasoning strings.Builder }
 // Fragmentos guardam apenas texto e raciocínio; o ledger permanece autoridade
 // das invocações e de seus detalhes.
 type LiveStreamSnapshot struct {
-	Iteration int
-	Segments  []ResponseSegment
+	Iteration          int
+	PersistedMessageID string
+	Confirmed          bool
+	Segments           []ResponseSegment
 }
 type LiveTurnSnapshot struct {
 	Detached                                               bool
@@ -237,7 +240,7 @@ func (s *StreamProjection) Seal(text, reasoning string) bool {
 
 // Confirma somente bytes enviados ao writer desta iteração. Não seleciona
 // mensagens por texto nem confirma deltas recebidos depois da escrita.
-func confirmStoredContentLocked(t *liveTurn, iteration int, text, reasoning string) bool {
+func confirmStoredContentLocked(t *liveTurn, iteration int, text, reasoning, messageID string) bool {
 	if iteration == -1 {
 		iteration = latestIteration(t)
 	}
@@ -252,6 +255,7 @@ func confirmStoredContentLocked(t *liveTurn, iteration int, text, reasoning stri
 	}
 	if content.String() == text && thoughts.String() == reasoning {
 		stream.confirmed = true
+		stream.messageID = messageID
 		return true
 	}
 	return false
@@ -405,7 +409,7 @@ func snapshotLiveTurn(c *projectionConversation, t *liveTurn) *LiveTurnSnapshot 
 	sort.Ints(iterations)
 	for _, iteration := range iterations {
 		stream := t.streams[iteration]
-		target := LiveStreamSnapshot{Iteration: iteration}
+		target := LiveStreamSnapshot{Iteration: iteration, PersistedMessageID: stream.messageID, Confirmed: stream.confirmed}
 		for index := range stream.parts {
 			part := stream.parts[index]
 			identity := fmt.Sprintf("draft:%s:%d:%d:%d", base64.RawURLEncoding.EncodeToString([]byte(t.executionID)), iteration, stream.generation, index)

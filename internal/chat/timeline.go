@@ -65,6 +65,9 @@ func ConsolidateTimelineTurn(messages []Message, invocationToolCalls []TurnSegme
 }
 
 func orderedTurnMessages(messages []Message) []Message {
+	if len(messages) < 2 {
+		return messages
+	}
 	ordered := append([]Message(nil), messages...)
 	sort.SliceStable(ordered, func(i, j int) bool {
 		if ordered[i].CreatedAt.Equal(ordered[j].CreatedAt) {
@@ -272,7 +275,7 @@ func BuildNodesWithTimelineConsolidation(
 	return buildResponseNodes(messages, parentID, childCounts, invocationToolCalls, nil)
 }
 
-func buildResponseNodes(messages []Message, parentID *string, childCounts map[string]int, invocationToolCalls map[string][]TurnSegmentToolCall, responses map[string]*PersistedResponse) []MessageNode {
+func buildResponseNodes(messages []Message, parentID *string, childCounts map[string]int, invocationToolCalls map[string][]TurnSegmentToolCall, responses map[string]*TimelineItem) []MessageNode {
 	grouped := make(map[string][]Message)
 	order := make([]string, 0, len(messages))
 	for _, message := range messages {
@@ -308,7 +311,7 @@ func BuildTimelineMessageNodes(
 	return buildResponseWindowNodes(items, messages, parentID, childCounts, invocationToolCalls, nil)
 }
 
-func buildResponseWindowNodes(items []database.MessageWindowItem, messages []Message, parentID *string, childCounts map[string]int, invocationToolCalls map[string][]TurnSegmentToolCall, responses map[string]*PersistedResponse) []MessageNode {
+func buildResponseWindowNodes(items []database.MessageWindowItem, messages []Message, parentID *string, childCounts map[string]int, invocationToolCalls map[string][]TurnSegmentToolCall, responses map[string]*TimelineItem) []MessageNode {
 	messagesByKey := make(map[string][]Message)
 	for _, message := range messages {
 		key := MessageTimelineItemKey(message)
@@ -356,9 +359,9 @@ func CollectTurnIDsWithToolCalls(messages []Message) []string {
 
 // Os leitores legados ainda não carregam metadados. O snapshot produtivo sempre
 // fornece as projeções, compartilhadas pelos dois adaptadores.
-func responseDisplay(turnID string, messages []Message, calls []TurnSegmentToolCall, responses map[string]*PersistedResponse) ConsolidatedTurnResult {
+func responseDisplay(turnID string, messages []Message, calls []TurnSegmentToolCall, responses map[string]*TimelineItem) ConsolidatedTurnResult {
 	if response := responses[turnID]; response != nil {
-		message, segments := response.legacyMessage(messages, calls)
+		message, segments := response.legacyMessage()
 		return ConsolidatedTurnResult{Message: message, Segments: segments}
 	}
 	return ConsolidateTimelineTurn(messages, calls)

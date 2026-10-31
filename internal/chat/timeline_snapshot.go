@@ -14,18 +14,19 @@ import (
 // de streaming. Metadados nullable aguardam o DTO canônico; Nodes/Window ainda
 // são os adaptadores visuais existentes.
 type TimelineWindowSnapshot struct {
+	Items                 []*TimelineItem
 	InvalidTurnReferences int
 	TurnIDs               []string
 	Version               database.ChatTimelineVersion
 	Turns                 map[string]*database.ChatTurn
-	Responses             map[string]*PersistedResponse
+	Responses             map[string]*TimelineItem
 	Window                MessageWindow
 }
 
 type TimelineTurnSnapshot struct {
 	Version  database.ChatTimelineVersion
 	Turn     *database.ChatTurn
-	Response *PersistedResponse
+	Response *TimelineItem
 }
 
 // TurnSnapshotReader é a dependência de leitura do terminal, separada dos writers.
@@ -127,9 +128,13 @@ func (r *DBTimelineReader) ReadWindow(ctx context.Context, query database.Messag
 	}
 	result.InvalidTurnReferences = rows.InvalidTurnReferences
 	result.Turns = facts.turns
+	result.Items, err = projectWindowItems(query.ConversationID, query.ParentID, rows.Items, rows.Messages, result.Responses)
+	if err != nil {
+		return nil, err
+	}
 	result.Window = MessageWindow{
 		ConversationID: query.ConversationID,
-		Nodes:          buildResponseWindowNodes(rows.Items, rows.Messages, query.ParentID, childCounts, facts.calls, result.Responses),
+		Nodes:          legacyItemNodes(result.Items, rows.Items, childCounts),
 		TotalCount:     rows.TotalCount, StartIndex: rows.StartIndex, EndIndex: rows.EndIndex, HasBefore: rows.HasBefore, HasAfter: rows.HasAfter,
 	}
 	return result, nil
@@ -139,6 +144,7 @@ func (r *DBTimelineReader) ReadTurn(ctx context.Context, conversationID, turnID 
 	result := &TimelineTurnSnapshot{}
 	var messages []Message
 	var parentID *string
+	var anchor database.MessageWindowItem
 	var facts timelineFacts
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		version, err := database.ReadChatTimelineVersion(ctx, tx, conversationID)
@@ -155,6 +161,10 @@ func (r *DBTimelineReader) ReadTurn(ctx context.Context, conversationID, turnID 
 			return database.ErrChatTurnInvalid
 		}
 		parentID = question.ParentID
+		anchor = database.MessageWindowItem{Kind: database.MessageWindowItemKindTurn, ID: turnID, TurnID: turnID, AnchorID: turnID}
+		if err := tx.Raw("SELECT CAST(created_at AS TEXT) FROM chat_messages WHERE id = ?", question.ID).Scan(&anchor.AnchorCreatedAt).Error; err != nil {
+			return err
+		}
 		// Mesma completude do item da janela: nunca cortar silenciosamente em 1.000.
 		// A consulta é restrita ao turno/escopo, não recarrega a conversa inteira.
 		messages, err = repo.GetMessagesByTurnIDWithContext(ctx, conversationID, question.ParentID, turnID, 0)
@@ -179,6 +189,9 @@ func (r *DBTimelineReader) ReadTurn(ctx context.Context, conversationID, turnID 
 			return nil, err
 		}
 	}
+	if result.Response != nil {
+		result.Response.Position = itemPosition(anchor)
+	}
 	return result, nil
 }
 
@@ -197,14 +210,14 @@ func snapshotTurnIDs(messages []Message) []string {
 	return ids
 }
 
-func projectSnapshotResponses(conversationID string, parentID *string, messages []Message, facts timelineFacts) (map[string]*PersistedResponse, error) {
+func projectSnapshotResponses(conversationID string, parentID *string, messages []Message, facts timelineFacts) (map[string]*TimelineItem, error) {
 	grouped := make(map[string][]Message)
 	for _, message := range messages {
 		if message.Role != "user" && message.TurnID != nil && strings.TrimSpace(*message.TurnID) != "" {
 			grouped[*message.TurnID] = append(grouped[*message.TurnID], message)
 		}
 	}
-	responses := make(map[string]*PersistedResponse, len(grouped))
+	responses := make(map[string]*TimelineItem, len(grouped))
 	for turnID, rows := range grouped {
 		response, err := ProjectPersistedResponse(conversationID, turnID, parentID, rows, facts.calls[turnID], facts.turns[turnID])
 		if err != nil {

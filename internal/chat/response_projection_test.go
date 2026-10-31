@@ -49,7 +49,7 @@ func TestPersistedResponseNullIsNotLegacyOrCompleted(t *testing.T) {
 	if projection.Representative != nil || projection.State != database.TurnInterrupted || len(projection.Segments) == 0 {
 		t.Fatalf("NULL promovido: %+v", projection)
 	}
-	visual, _ := projection.legacyMessage(messages, calls)
+	visual, _ := projection.legacyMessage()
 	if visual.ID == "" || projection.Representative != nil {
 		t.Fatal("adaptação contaminou a projeção")
 	}
@@ -106,7 +106,7 @@ func TestPersistedResponseSimpleSegmentsAndInvocationIdentity(t *testing.T) {
 	if len(projection.Segments) != 1 || projection.Segments[0].Text != messages[0].Content {
 		t.Fatal("segmento simples omitido")
 	}
-	_, legacy := projection.legacyMessage(messages[:1], nil)
+	_, legacy := projection.legacyMessage()
 	if len(legacy) != 0 {
 		t.Fatal("adaptador antigo perdeu compatibilidade")
 	}
@@ -212,7 +212,7 @@ func TestPersistedResponseTerminalRefusesNullRepresentative(t *testing.T) {
 	if patch == nil || patch.ItemID != response.ItemID || patch.Message.ID != messages[0].ID || patch.Message.Content != messages[0].Content {
 		t.Fatalf("representante explícito perdido: %+v", patch)
 	}
-	_, segments := response.legacyMessage(messages, calls)
+	_, segments := response.legacyMessage()
 	if len(patch.Message.TurnSegments) != len(segments) {
 		t.Fatal("adaptadores divergiram nos segmentos")
 	}

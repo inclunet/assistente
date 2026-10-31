@@ -445,7 +445,7 @@ func (r *agenticLoopRunner) executeToolIteration(ctx context.Context, result Age
 	// Só persista uma mensagem quando houver conteúdo conversacional.
 	if strings.TrimSpace(result.FullResponse) != "" || strings.TrimSpace(result.Reasoning) != "" {
 		var assistantToolMsg *chat.Message
-		err := executionProjection(ctx).CommitContent(iteration, result.FullResponse, result.Reasoning, func() error {
+		err := executionProjection(ctx).CommitContent(iteration, result.FullResponse, result.Reasoning, func() (string, error) {
 			var saveErr error
 			assistantToolMsg, saveErr = r.svc.msgRepo.CreateMessage(ctx, chat.MessageOptions{
 				ConversationID: r.conversationID,
@@ -455,7 +455,10 @@ func (r *agenticLoopRunner) executeToolIteration(ctx context.Context, result Age
 				Reasoning:      result.Reasoning,
 				Model:          result.Model,
 			})
-			return saveErr
+			if saveErr != nil {
+				return "", saveErr
+			}
+			return assistantToolMsg.ID, nil
 		})
 		if err != nil {
 			if errors.Is(err, chat.ErrConversationDeleted) {

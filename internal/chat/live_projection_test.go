@@ -200,7 +200,7 @@ func TestLiveProjectionAcknowledgesOnlyWrittenContent(t *testing.T) {
 			if late {
 				s.Append(" novo")
 			}
-			_ = e.CommitContent(-1, "parcial", "", func() error { return nil })
+			_ = e.CommitContent(-1, "parcial", "", func() (string, error) { return "answer", nil })
 			finishTestProjection(e, database.TurnInterrupted, "cancelled", true, false)
 			snap, _ := p.Snapshot(ctx, "conversation", "question")
 			if snap.Volatile != late {
