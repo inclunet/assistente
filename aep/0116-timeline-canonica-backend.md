@@ -28,7 +28,7 @@ produz tombstone. Metadados/anexos completos e patches de janela seguem pendente
 Testes `CanonicalPublication`, `CanonicalReplay` e `CanonicalItem` verificam delta,
 reset, identidade nullable, limites, evicção, mudança de época, aplicação das operações
 contra snapshot e isolamento de cópias. Build/vet e lint incremental passaram;
-289 testes seguros de chat passaram. Revisor independente eview_aep: desenho
+289 testes seguros de chat passaram. Revisor independente review_aep: desenho
 revisado em duas propostas e gate final sem pendências. Nenhum teste ACP local.
 
 ### Recorte: cursores canônicos validados no snapshot (2026-10-31)
