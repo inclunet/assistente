@@ -237,3 +237,11 @@ execuções da instalação de origem.
 Para turnos com uma resposta final registrada, o histórico e a conclusão usam
 essa referência. Editar uma mensagem intermediária depois da conclusão não a
 transforma na resposta final nem troca os dados de uso exibidos por esse motivo.
+
+
+Ao carregar ou paginar o histórico, cada resposta permanece junto da pergunta
+que a originou, mesmo quando suas mensagens internas têm datas anteriores ou
+posteriores. A navegação usa essa mesma ordem. Mensagens antigas com um vínculo
+inválido continuam legíveis como mensagens independentes. Se a mensagem usada
+como âncora foi excluída, a consulta informa erro em vez de apresentar um fim de
+histórico vazio como se a navegação tivesse sido concluída.

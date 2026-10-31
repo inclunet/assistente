@@ -1,6 +1,6 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — fase 1 concluída; fase 2 com projeção persistida de resposta compartilhada
+## Status: In Progress — fase 1 concluída; fase 2 com ordenação persistida ancorada na pergunta
 
 Data: 2026-10-30
 
@@ -513,6 +513,58 @@ próximo do limite e deve ser acompanhado nos próximos recortes. A exceção de
 payload já documentada no primeiro recorte não muda nesta entrega.
 Revisão local independente: agente review_aep, quatro rodadas. Um achado de
 normalização de IDs foi corrigido com regressão; gate final sem pendências.
+
+Oitavo recorte da fase 2: a janela persistida usa a chave total do adendo
+`(anchor.created_at, anchor.id, slot, itemId)`. Respostas usam a pergunta como
+âncora, slot 1; mensagens independentes usam a própria identidade, slot 0.
+Ordenação ascendente/descendente, contagem antes da âncora e paginação
+before/after/around usam a mesma chave, com comparação binária dos IDs. A chave
+temporal conserva a representação exata do SQLite, sem conversão ou perda de
+nanossegundos ao montar os parâmetros da próxima consulta.
+
+A classificação fica no CTE compartilhado: somente pergunta `user` na mesma
+conversa e escopo pode ancorar uma resposta. A própria pergunta nunca participa
+do grupo de resposta, mesmo com `turn_id` legado igual ao seu ID. Vínculos
+inválidos são itens independentes com diagnóstico estruturado por fatia; a cópia
+de mensagem retornada omite esse vínculo para os adaptadores não a reagruparem.
+Nenhum reparo é gravado no banco. O teste de vínculo vazio usa o conjunto Unicode
+White_Space no SQL e no Go; os bytes de IDs não vazios continuam intactos.
+
+O CTE agrega os membros por item, removendo o ROW_NUMBER que elegia a primeira
+mensagem para ordenar a resposta. Mensagens internas continuam buscadas em lote;
+a pergunta só vem quando seu item está na janela. Uma âncora inválida/excluída
+produz erro explícito mesmo em conversa vazia ou consulta de limite zero. Não
+há novo cursor wire ou evento de sincronização neste recorte: a API atual mantém
+seu contrato de erro e os limites da janela.
+
+Evidências: `TestTimelineOrder*` verifica todos os limites before/after/around,
+âncora intermediária, empates binários, nanossegundos, timestamps invertidos,
+pergunta com vínculo próprio, vínculos inválidos/cross-conversa/cross-thread e
+âncora excluída. Integração com migrações reais comprova classificação até os nós,
+contagem/OriginalIndex, janelas só de pergunta/resposta e ausência de escrita na
+leitura. Regressão percorre Unicode White_Space com perguntas realmente existentes
+para impedir divergência entre a classificação SQL e a montagem Go.
+
+Limites: este recorte ordena carregamento e paginação persistidos. Streaming ainda
+usa eventos/adaptadores anteriores; não declarar corrigida a ordenação em tempo
+real ou o foco. Projetor incremental, barreira snapshot/eventos, epoch/sequence,
+inscrições/cursors wire e migração do consumidor frontend permanecem pendentes.
+
+Medição isolada deste recorte contra #970, mesma fixture, cinco amostras de
+20 iterações: medianas de tempo 100/500/1.000 mensagens
+3,862/9,938/13,039 ms → 3,913/10,265/13,620 ms (+1,3%/+3,3%/+4,5%).
+B/op: 827.238/1.914.348/1.935.189 → 827.231/1.867.098/1.885.280
+(aproximadamente 0%/-2,5%/-2,6%). Payload inalterado: 37.262/88.881/88.882 bytes.
+As alocações acumuladas contra a baseline fixa ficam +19,1%/+14,6%/+15,8%,
+dentro do orçamento de 20%; o caso de 100 mensagens ainda exige acompanhamento.
+Não houve nova consulta por mensagem nem ampliação do payload Wails.
+
+Validação local: build/vet, golangci-lint (zero issues), testes focados de banco,
+ordenação, snapshot, janela e runtime aprovados. TypeScript, ESLint, Stylelint
+e 5.887 testes frontend em 484 arquivos aprovados. Nenhum teste ACP executado
+localmente; suíte Go integral local não executada. Revisor independente
+review_aep: três rodadas, achado de divergência Unicode corrigido com regressão;
+zero pendências no gate final, incluindo conferência das métricas.
 
 ### Fase 3 — Consumidor frontend e remoções
 
