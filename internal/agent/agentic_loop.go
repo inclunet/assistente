@@ -52,12 +52,13 @@ type agenticLoopRunner struct {
 	activeResolve  func(active []llm.ToolDefinition, names []string) []llm.ToolDefinition
 
 	// Acumuladores de estatísticas do loop (AEP-0039 Fase 2).
-	totalToolCallCount    int
-	toolsUsedSet          map[string]struct{}
-	lastUsage             llm.Usage
-	lastDiagnosticUsage   llm.Usage
-	lastFinish            llm.FinishInfo
-	outputLimitRepairUsed bool
+	totalToolCallCount          int
+	toolsUsedSet                map[string]struct{}
+	lastUsage                   llm.Usage
+	lastDiagnosticUsage         llm.Usage
+	lastFinish                  llm.FinishInfo
+	outputLimitRepairUsed       bool
+	continuationPrefixCommitted bool
 }
 
 // run orquestra o loop de iterações preservando a ordem/semântica original:
@@ -212,17 +213,22 @@ func (r *agenticLoopRunner) streamIteration(ctx context.Context, iteration int) 
 		if setter, ok := handler.(interface{ SetAssistantMessageID(string) }); ok {
 			setter.SetAssistantMessageID(r.assistantMessageID)
 		}
-		var setInitialContent func(string)
-		if prefillSetter, ok := handler.(interface{ SetInitialContent(string) }); ok {
-			setInitialContent = prefillSetter.SetInitialContent
+		var setInitialResponse func(string, string)
+		if prefillSetter, ok := handler.(interface{ SetInitialResponse(string, string) }); ok {
+			setInitialResponse = prefillSetter.SetInitialResponse
 		}
-		r.messages = r.svc.applyContinuationPrefill(ctx, r.messages, r.params, r.assistantMessageID, setInitialContent)
+		params := r.params
+		if r.continuationPrefixCommitted {
+			params.AllowAssistantPrefill = false
+			params.ContinueViaUserMessage = false
+		}
+		r.messages = r.svc.applyContinuationPrefill(ctx, r.messages, params, r.assistantMessageID, setInitialResponse)
 		toolNames := make([]string, 0, len(r.activeToolDefs))
 		for _, definition := range r.activeToolDefs {
 			toolNames = append(toolNames, definition.Function.Name)
 		}
 		logging.Debugf(ctx, "agent.agentic-loop", "[Agent] definições locais enviadas ao provider (iteração %d): %v", iteration, toolNames)
-		r.activeStreamer.StreamChat(ctx, r.messages, r.params, handler, r.activeToolDefs...)
+		r.activeStreamer.StreamChat(ctx, r.messages, params, handler, r.activeToolDefs...)
 		// Um callback rejeitado por perda do binding não é resultado vazio
 		// nem falha repetível do provider. Encerrar sem avançar tools/iteração.
 		if !projection.OwnsStream() {
@@ -412,7 +418,7 @@ func (r *agenticLoopRunner) executeToolIteration(ctx context.Context, result Age
 		return ctx, true
 	}
 	r.svc.emitToolStarts(r.conversationID, r.turnID, r.assistantMessageID, result.ToolCalls, r.surfaceOrigin)
-	execBatch := r.svc.executeToolCallsWithRuntimeControls(ctx, toolCalls, toolinvocations.Origin{
+	execBatch := r.svc.executeToolCallsWithRuntimeControls(ctx, toolCalls, toolinvocations.Origin{ChatExecutionID: executionIDRef(ctx),
 		Type:           toolinvocations.OriginChat,
 		ID:             r.turnID,
 		ConversationID: r.conversationID,
@@ -447,7 +453,7 @@ func (r *agenticLoopRunner) executeToolIteration(ctx context.Context, result Age
 		var assistantToolMsg *chat.Message
 		err := executionProjection(ctx).CommitContent(iteration, result.FullResponse, result.Reasoning, func() (string, error) {
 			var saveErr error
-			assistantToolMsg, saveErr = r.svc.msgRepo.CreateMessage(ctx, chat.MessageOptions{
+			assistantToolMsg, saveErr = r.svc.msgRepo.CreateMessage(ctx, chat.MessageOptions{ChatExecutionID: executionIDRef(ctx),
 				ConversationID: r.conversationID,
 				TurnID:         &r.turnID,
 				Role:           "assistant",
@@ -467,6 +473,9 @@ func (r *agenticLoopRunner) executeToolIteration(ctx context.Context, result Age
 			}
 			logging.Errorf(ctx, "agent.agentic-loop", "[Agent] erro ao salvar mensagem assistant intermediária de tool invocation: %v", err)
 		} else if assistantToolMsg != nil {
+			// O prefixo já pertence ao segmento confirmado. Reaplicá-lo no
+			// representante seguinte duplicaria a continuação no histórico.
+			r.continuationPrefixCommitted = true
 			r.svc.tagChatToolInvocationsWithAssistantMessage(ctx, r.turnID, execResults, assistantToolMsg.ID)
 		}
 	}
@@ -643,7 +652,7 @@ func (r *agenticLoopRunner) retryRetryableTools(ctx context.Context, toolCalls [
 				Attempt:            1,
 				SurfaceOrigin:      r.surfaceOrigin,
 			})
-			retried, retriedPersisted := r.svc.executeToolCall(ctx, toolCalls[i], toolinvocations.Origin{
+			retried, retriedPersisted := r.svc.executeToolCall(ctx, toolCalls[i], toolinvocations.Origin{ChatExecutionID: executionIDRef(ctx),
 				Type:           toolinvocations.OriginChat,
 				ID:             r.turnID,
 				ConversationID: r.conversationID,

@@ -30,6 +30,7 @@ type BaseStreamHandler struct {
 	promotedContent      strings.Builder
 	pendingDelta         strings.Builder
 	initialContent       string
+	initialReasoning     string
 	streamSequence       uint64
 	streamStarted        bool
 	accumulatedReasoning string
@@ -56,15 +57,18 @@ func (h *BaseStreamHandler) SetAssistantMessageID(messageID string) {
 	h.AssistantMessageID = messageID
 }
 
-// SetInitialContent define o conteúdo inicial do stream (prefill).
+// SetInitialResponse define o conteúdo inicial do stream (prefill).
 // Útil para continuação explícita: o primeiro lote envia o prefill uma única
 // vez como BaseContent e os chunks novos continuam viajando como delta.
-func (h *BaseStreamHandler) SetInitialContent(content string) {
+func (h *BaseStreamHandler) SetInitialResponse(content, reasoning string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if !h.projection.Initial(content) {
 		return
 	}
+	h.projection.Reasoning(reasoning, true)
+	h.initialReasoning = reasoning
+	h.accumulatedReasoning = reasoning
 	h.initialContent = content
 	h.accumulatedContent.Reset()
 	h.accumulatedContent.WriteString(content)
@@ -245,6 +249,7 @@ func (h *BaseStreamHandler) emitThinkingEvent() {
 
 func (h *BaseStreamHandler) OnThinkingDone(fullReasoning string) {
 	h.mu.Lock()
+	fullReasoning = h.initialReasoning + fullReasoning
 	if !h.projection.Reasoning(fullReasoning, true) {
 		h.mu.Unlock()
 		return
@@ -319,11 +324,11 @@ func (h *BaseStreamHandler) DiscardStreamReasoning() {
 	}
 	h.pendingThinkingEmit = false
 	h.isThinking = false
-	h.accumulatedReasoning = ""
+	h.accumulatedReasoning = h.initialReasoning
 	h.lastThinkingEmitTime = time.Time{}
 	h.mu.Unlock()
 
-	if !h.projection.Reasoning("", true) {
+	if !h.projection.Reasoning(h.initialReasoning, true) {
 		return
 	}
 	if active || hadReasoning {
@@ -333,7 +338,7 @@ func (h *BaseStreamHandler) DiscardStreamReasoning() {
 			AssistantMessageID: h.AssistantMessageID,
 			// Vazio fecha a live region sem promover como definitivo o
 			// raciocínio da tentativa descartada.
-			Content:       "",
+			Content:       h.initialReasoning,
 			Done:          true,
 			SurfaceOrigin: h.SurfaceOrigin,
 		})

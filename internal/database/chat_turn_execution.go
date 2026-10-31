@@ -73,11 +73,28 @@ func (r *ChatTurnRepository) EnsureResponse(ctx context.Context, conversationID,
 		if err := tx.Select("parent_id").First(&question, "id = ?", turnID).Error; err != nil {
 			return err
 		}
-		response := &ChatMessage{ConversationID: conversationID, TurnID: &turnID, ParentID: question.ParentID, Role: "assistant"}
-		if err := tx.Create(response).Error; err != nil {
+		var attempt ChatTurnAttempt
+		if err := tx.First(&attempt, "execution_id=?", executionID).Error; err != nil {
+			return err
+		}
+		response := &ChatMessage{ConversationID: conversationID, TurnID: &turnID, ParentID: question.ParentID, Role: "assistant", ChatExecutionID: &executionID}
+		if attempt.Mode == TurnModeContinue {
+			if attempt.BaseResponseMessageID == nil {
+				return ErrChatTurnInvalid
+			}
+			var base ChatMessage
+			if err := tx.First(&base, "id=?", *attempt.BaseResponseMessageID).Error; err != nil {
+				return err
+			}
+			response.Content, response.Reasoning = base.Content, base.Reasoning
+		}
+		if err := CreateChatMessageInTransaction(tx, response); err != nil {
 			return err
 		}
 		responseID = response.ID
+		if err := tx.Table("chat_turn_attempts").Where("execution_id=?", executionID).Update("response_message_id", responseID).Error; err != nil {
+			return err
+		}
 		return tx.Model(&ChatTurn{}).Where("user_message_id = ?", turnID).Update("response_message_id", responseID).Error
 	})
 	return responseID, err
@@ -156,7 +173,7 @@ func (r *ChatTurnRepository) CheckReady(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if !versions[41] || !versions[42] || !versions[43] {
+	if !versions[41] || !versions[42] || !versions[43] || !versions[44] {
 		return ErrChatTurnMigrationPending
 	}
 	return nil

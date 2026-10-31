@@ -230,8 +230,11 @@ originou o turno; as outras superfícies exibem apenas o que foi persistido.
 
 ## Interrupções e novas tentativas
 
-Uma nova tentativa ou continuação mantém o vínculo com a pergunta e a resposta
-existentes. Repetições automáticas por falha de conexão pertencem à mesma execução.
+Uma nova tentativa mantém o vínculo com a pergunta e substitui a execução
+apresentada, incluindo suas falas intermediárias e ferramentas. A execução
+anterior permanece preservada no backend. Continuar usa o texto da resposta
+selecionada como prefixo; repetir começa outra resposta. Repetições automáticas
+por falha de conexão pertencem à mesma execução.
 Ao reabrir o aplicativo após uma interrupção, o histórico preserva o conteúdo que
 foi salvo; a geração não é retomada automaticamente nem marcada como concluída.
 
@@ -265,3 +268,8 @@ estado, esse patch não é atribuído à tentativa anterior. O backend também p
 leitura e descarte autorizado dos trechos retidos; a apresentação desses recursos
 na interface ainda será integrada. Isso não altera a recomendação de preservar
 conteúdo importante antes de reiniciar após uma falha de gravação.
+
+Ao repetir ou continuar, resumos antigos que poderiam conter a resposta
+substituída são invalidados. Um resumo que já estava sendo gerado não deve
+restaurar esse conteúdo depois. A integração da identidade lógica da resposta
+com todos os consumidores visuais ainda está em andamento.

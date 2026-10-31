@@ -132,13 +132,22 @@ func (r *ChatTurnRepository) BeginExecution(ctx context.Context, conversationID,
 				return ErrChatTurnInvalid
 			}
 		}
-		if responseID != "" {
-			turn.ResponseMessageID = &responseID
-		}
-		if mode == TurnModeContinue && turn.ResponseMessageID == nil {
+		if responseID != "" && (turn.ResponseMessageID == nil || *turn.ResponseMessageID != responseID) {
 			return ErrChatTurnInvalid
 		}
-		if err := tx.Create(attempt).Error; err != nil {
+		if mode == TurnModeContinue {
+			if turn.ResponseMessageID == nil {
+				return ErrChatTurnInvalid
+			}
+			attempt.BaseExecutionID = turn.CurrentExecutionID
+			attempt.BaseResponseMessageID = turn.ResponseMessageID
+		}
+
+		if err := tx.Table("chat_turn_attempts").Create(&struct {
+			*ChatTurnAttempt
+			BaseExecutionID       *string
+			BaseResponseMessageID *string
+		}{attempt, attempt.BaseExecutionID, attempt.BaseResponseMessageID}).Error; err != nil {
 			return err
 		}
 		if leasePath != "" {
@@ -146,8 +155,13 @@ func (r *ChatTurnRepository) BeginExecution(ctx context.Context, conversationID,
 				return err
 			}
 		}
-		return tx.Model(&ChatTurn{}).Where("user_message_id = ?", turnID).Updates(map[string]any{
-			"state": TurnPreparing, "active_execution_id": attempt.ExecutionID, "response_message_id": turn.ResponseMessageID,
+		if mode != TurnModeNew {
+			if err := tx.Model(&Conversation{}).Where("id=? AND user_id=?", conversationID, userID).Updates(map[string]any{"summary": "", "summary_up_to_message_id": ""}).Error; err != nil {
+				return err
+			}
+		}
+		return tx.Table("chat_turns").Where("user_message_id = ?", turnID).Updates(map[string]any{
+			"state": TurnPreparing, "active_execution_id": attempt.ExecutionID, "current_execution_id": attempt.ExecutionID, "response_message_id": nil,
 		}).Error
 	})
 	if err != nil {

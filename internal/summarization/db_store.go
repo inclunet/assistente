@@ -48,9 +48,9 @@ func (s *DBSummarizationStore) SetSummarizingInProgress(ctx context.Context, con
 	return database.SetSummarizingInProgressWithContext(ctx, conversationID, inProgress)
 }
 
-func (s *DBSummarizationStore) UpdateConversationSummary(ctx context.Context, conversationID string, summary string, upToMessageID string) error {
+func (s *DBSummarizationStore) CommitConversationSummary(ctx context.Context, conversationID, summary, upToMessageID, previousSummary string, sourceIDs []string) error {
 	if _, err := database.RequireUserID(ctx); err != nil {
 		return err
 	}
-	return database.UpdateConversationSummaryWithContext(ctx, conversationID, summary, upToMessageID)
+	return database.NewSummarizationRepository(database.DB()).CommitConversationSummary(ctx, conversationID, summary, upToMessageID, previousSummary, sourceIDs)
 }

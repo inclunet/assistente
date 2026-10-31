@@ -103,13 +103,14 @@ func TestTurnRuntimeRecoveryKeepsOneAttemptAndResponse(t *testing.T) {
 	if !matched {
 		t.Fatal("janela perdeu item terminal")
 	}
-	// Retry explícito ganha execução, mas preserva identidade da resposta.
+	// Retry preserva o item visual, mas ganha representante persistido próprio.
 	next, err := svc.BeginTurn(ctx, conv, turn, database.TurnModeRetry)
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { svc.EndUnfinishedTurn(next, conv, turn, nil) })
 	id, err := svc.EnsureTurnResponse(next, conv, turn)
-	if err != nil || id != done.AssistantMessageID || executionID(next) == executionID(ctx) {
+	if err != nil || id == done.AssistantMessageID || id == "" || executionID(next) == executionID(ctx) {
 		t.Fatalf("retry id=%q err=%v", id, err)
 	}
 	if svc.SaveAndFinish(ctx, conv, turn, id, AgenticResult{FullResponse: "atrasada"}, "", nil, nil) {
@@ -117,6 +118,13 @@ func TestTurnRuntimeRecoveryKeepsOneAttemptAndResponse(t *testing.T) {
 	}
 	if len(em.find("chat:done")) != 1 {
 		t.Fatal("terminal antigo duplicado")
+	}
+	if ports.ResponseItemID(turn) != done.ItemID {
+		t.Fatal("identidade visual mudou")
+	}
+	old, err := database.GetMessageWithContext(ctx, done.AssistantMessageID)
+	if err != nil || old.Content != "final" || old.TotalTokens != 7 {
+		t.Fatalf("execução anterior perdida: %+v %v", old, err)
 	}
 	svc.EndUnfinishedTurn(next, conv, turn, nil)
 }
@@ -209,7 +217,7 @@ func TestTurnRuntimePrefillPreservesExactResponseID(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if got := svc.loadAssistantPrefill(ctx, " assistant "); got != "canônica" {
+	if got, _ := svc.loadAssistantPrefill(ctx, " assistant "); got != "canônica" {
 		t.Fatalf("prefill=%q", got)
 	}
 	svc.EndUnfinishedTurn(ctx, conv, turn, nil)

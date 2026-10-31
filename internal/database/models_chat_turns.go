@@ -15,13 +15,16 @@ type ChatTurn struct {
 }
 
 type ChatTurnAttempt struct {
-	ExecutionID    string `gorm:"primaryKey"`
-	TurnID         string
-	Mode           string
-	State          string
-	StartedAt      time.Time
-	FinishedAt     *time.Time
-	TerminalReason string
+	ResponseMessageID     *string `gorm:"->;-:migration"`
+	BaseExecutionID       *string `gorm:"->;-:migration"`
+	BaseResponseMessageID *string `gorm:"->;-:migration"`
+	ExecutionID           string  `gorm:"primaryKey"`
+	TurnID                string
+	Mode                  string
+	State                 string
+	StartedAt             time.Time
+	FinishedAt            *time.Time
+	TerminalReason        string
 }
 
 const (

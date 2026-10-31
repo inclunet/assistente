@@ -28,6 +28,7 @@ const (
 )
 
 type Invocation struct {
+	ChatExecutionID    *string         `json:"-"`
 	ID                 string          `json:"id"`
 	UserID             string          `json:"user_id,omitempty"`
 	ToolCatalogID      string          `json:"tool_catalog_id"`
@@ -67,10 +68,11 @@ type Invocation struct {
 }
 
 type Origin struct {
-	Type           string
-	ID             string
-	ConversationID string
-	TurnID         string
+	ChatExecutionID *string
+	Type            string
+	ID              string
+	ConversationID  string
+	TurnID          string
 }
 
 type ExecuteRequest struct {

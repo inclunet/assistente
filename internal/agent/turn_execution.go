@@ -53,6 +53,15 @@ func executionID(ctx context.Context) string {
 	return ""
 }
 
+// Somente handlers isolados sem admissão têm proveniência legada nil.
+func executionIDRef(ctx context.Context) *string {
+	id := executionID(ctx)
+	if id == "" {
+		return nil
+	}
+	return &id
+}
+
 // CheckTurnStorageReady antecede qualquer escrita de pergunta no pipeline.
 func (s *Service) CheckTurnStorageReady(ctx context.Context) error { return s.turns.CheckReady(ctx) }
 

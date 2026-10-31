@@ -980,6 +980,7 @@ func importConversationToolInvocations(
 			status = toolinvocations.StatusSucceeded
 		}
 		row := database.ToolInvocation{
+			ChatExecutionID: exported.ChatExecutionID,
 			UUIDModel: database.UUIDModel{
 				ID:        exported.ID,
 				CreatedAt: exported.CreatedAt,
@@ -1023,10 +1024,7 @@ func importConversationToolInvocations(
 		if row.QueuedAt.IsZero() {
 			row.QueuedAt = time.Now().UTC()
 		}
-		if err := tx.WithContext(ctx).Table("tool_invocations").Create(&struct {
-			*database.ToolInvocation
-			ChatExecutionID *string
-		}{&row, exported.ChatExecutionID}).Error; err != nil {
+		if err := database.CreateToolInvocationInTransaction(tx.WithContext(ctx), &row); err != nil {
 			return fmt.Errorf("erro ao importar tool invocation %d: %w", index, err)
 		}
 	}

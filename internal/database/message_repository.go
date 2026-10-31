@@ -27,6 +27,7 @@ func NewMessageRepository(database *gorm.DB) *MessageRepository {
 
 // MessageOptions contém opções para criar uma mensagem
 type MessageOptions struct {
+	ChatExecutionID  *string
 	ConversationID   string
 	ParentID         *string // ID da mensagem pai (define hierarquia)
 	TurnID           *string // Agrupa mensagens de um turno (aponta para user message)
@@ -71,6 +72,7 @@ func (r *MessageRepository) CreateMessageWithContext(ctx context.Context, opts M
 	}
 
 	msg := &ChatMessage{
+		ChatExecutionID:  opts.ChatExecutionID,
 		ConversationID:   opts.ConversationID,
 		ParentID:         opts.ParentID,
 		TurnID:           opts.TurnID,
@@ -112,7 +114,7 @@ func (r *MessageRepository) CreateMessageWithContext(ctx context.Context, opts M
 			}
 		}
 
-		if err := tx.WithContext(ctx).Create(msg).Error; err != nil {
+		if err := CreateChatMessageInTransaction(tx.WithContext(ctx),msg); err != nil {
 			return err
 		}
 		return ScopeByUser(ctx, tx.WithContext(ctx).Model(&Conversation{}), "user_id").

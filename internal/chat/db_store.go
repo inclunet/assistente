@@ -61,6 +61,9 @@ func (s *DBMessageStore) LoadHistoryWindow(ctx context.Context, conversationID s
 	if err != nil {
 		return nil, err
 	}
+	if err := database.ResolveContinuationMedia(ctx, database.DB(), window.Messages); err != nil {
+		return nil, err
+	}
 	return &HistoryWindow{
 		Messages:                 window.Messages,
 		Summary:                  window.Summary,
@@ -72,6 +75,9 @@ func (s *DBMessageStore) LoadHistoryWindow(ctx context.Context, conversationID s
 func (s *DBMessageStore) LoadHistoryWindowThroughMessage(ctx context.Context, conversationID, messageID string, maxMessages int) (*HistoryWindow, error) {
 	window, err := database.NewMessageRepository(database.DB()).LoadHistoryWindowThroughMessageWithContext(ctx, conversationID, messageID, maxMessages)
 	if err != nil {
+		return nil, err
+	}
+	if err := database.ResolveContinuationMedia(ctx, database.DB(), window.Messages); err != nil {
 		return nil, err
 	}
 	return &HistoryWindow{
@@ -87,6 +93,9 @@ func (s *DBMessageStore) CreateUserMessageAndLoadHistory(ctx context.Context, op
 	}
 	msg, window, err := database.NewMessageRepository(database.DB()).CreateUserMessageAndLoadHistoryWithContext(ctx, opts, maxMessages)
 	if err != nil {
+		return nil, nil, err
+	}
+	if err := database.ResolveContinuationMedia(ctx, database.DB(), window.Messages); err != nil {
 		return nil, nil, err
 	}
 	return msg, &HistoryWindow{
@@ -141,7 +150,15 @@ func (s *DBMessageStore) GetMessage(ctx context.Context, messageID string) (*dat
 	if _, err := database.RequireUserID(ctx); err != nil {
 		return nil, err
 	}
-	return database.GetMessageWithContext(ctx, messageID)
+	message, err := database.GetMessageWithContext(ctx, messageID)
+	if err != nil {
+		return nil, err
+	}
+	messages := []database.ChatMessage{*message}
+	if err := database.ResolveContinuationMedia(ctx, database.DB(), messages); err != nil {
+		return nil, err
+	}
+	return &messages[0], nil
 }
 
 func (s *DBMessageStore) GetMessages(ctx context.Context, conversationID string, parentID *string) ([]database.ChatMessage, error) {
