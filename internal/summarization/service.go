@@ -101,6 +101,8 @@ func ShouldTriggerSummarization(
 }
 
 type summarizationInvocationResult struct {
+	ExecutionID        string
+	ExecutionDepth     int
 	Result             string
 	ToolName           string
 	Iteration          int
@@ -125,7 +127,10 @@ func summarizationInvocationResultsFromDisplays(displays map[string][]toolinvoca
 	out := make(map[string]map[string]summarizationInvocationResult, len(displays))
 	for turnID, calls := range displays {
 		for _, call := range calls {
-			callID := call.ID
+			callID := call.LedgerID
+			if callID == "" {
+				callID = call.ID
+			}
 			if strings.TrimSpace(callID) == "" {
 				continue
 			}
@@ -138,6 +143,8 @@ func summarizationInvocationResultsFromDisplays(displays map[string][]toolinvoca
 				continue
 			}
 			byCall[callID] = summarizationInvocationResult{
+				ExecutionID:        call.ExecutionID,
+				ExecutionDepth:     call.ExecutionDepth,
 				Result:             call.ModelResult,
 				ToolName:           call.Name,
 				Iteration:          call.Iteration,
@@ -200,7 +207,7 @@ func assignUnscopedSummarizationTurnResults(assistants []chat.Message, byCall ma
 	}
 	pending := make([]pendingInvocation, 0)
 	for callID, result := range byCall {
-		if strings.TrimSpace(result.AssistantMessageID) != "" || strings.TrimSpace(result.Result) == "" {
+		if result.ExecutionID != "" || strings.TrimSpace(result.AssistantMessageID) != "" || strings.TrimSpace(result.Result) == "" {
 			continue
 		}
 		pending = append(pending, pendingInvocation{CallID: callID, Iteration: result.Iteration})
@@ -281,6 +288,17 @@ func buildSummarizationUserPrompt(existingSummary string, messages []chat.Messag
 			appendSummarizationInvocationResults(&sb, m, invocationResults, usedInvocationResults)
 		}
 		sb.WriteString("\n\n")
+	}
+
+	for _, pending := range unboundExecutionResults(messages, invocationResults) {
+		sb.WriteString("\n\nTool result without message association (execution ")
+		sb.WriteString(pending.result.ExecutionID)
+		fmt.Fprintf(&sb, ", iteration %d, %s): ", pending.result.Iteration, pending.result.ToolName)
+		text := strings.TrimSpace(pending.result.Result)
+		if len(text) > 2000 {
+			text = truncateUTF8Safe(text, 2000) + "... [truncated]"
+		}
+		sb.WriteString(text)
 	}
 
 	if existingSummary != "" {
@@ -786,6 +804,14 @@ func estimateHydratedToolResultTokens(messages []chat.Message, invocationResults
 			total += EstimateTokens(res)
 		}
 	}
+	for _, pending := range unboundExecutionResults(messages, invocationResults) {
+		text := strings.TrimSpace(pending.result.Result)
+		if len(text) > 2000 {
+			text = truncateUTF8Safe(text, 2000)
+		}
+		total += EstimateTokens(text)
+	}
+
 	return total
 }
 
@@ -830,4 +856,51 @@ func loadSummarizationToolInvocationResults(ctx context.Context, messages []chat
 		return map[string]map[string]summarizationInvocationResult{}
 	}
 	return summarizationInvocationResultsFromDisplays(displays)
+}
+
+// Resultados sem fala são evidência do turno/execução, não de uma mensagem
+// inferida por posição. Prompt e estimativa usam a mesma seleção e ordem.
+type unboundExecutionResult struct {
+	turnID, ledgerID string
+	turnOrder        int
+	result           summarizationInvocationResult
+}
+
+func unboundExecutionResults(messages []chat.Message, results map[string]map[string]summarizationInvocationResult) []unboundExecutionResult {
+	turns := make(map[string]int)
+	for _, message := range messages {
+		turn := ""
+		if message.Role == "user" {
+			turn = message.ID
+		} else if message.TurnID != nil {
+			turn = *message.TurnID
+		}
+		if turn != "" {
+			if _, exists := turns[turn]; !exists {
+				turns[turn] = len(turns)
+			}
+		}
+	}
+	var pending []unboundExecutionResult
+	for turn, order := range turns {
+		for id, result := range results[turn] {
+			if result.ExecutionID != "" && result.AssistantMessageID == "" && strings.TrimSpace(result.Result) != "" {
+				pending = append(pending, unboundExecutionResult{turn, id, order, result})
+			}
+		}
+	}
+	sort.Slice(pending, func(i, j int) bool {
+		a, b := pending[i], pending[j]
+		if a.turnOrder != b.turnOrder {
+			return a.turnOrder < b.turnOrder
+		}
+		if a.result.ExecutionDepth != b.result.ExecutionDepth {
+			return a.result.ExecutionDepth > b.result.ExecutionDepth
+		}
+		if a.result.Iteration != b.result.Iteration {
+			return a.result.Iteration < b.result.Iteration
+		}
+		return a.ledgerID < b.ledgerID
+	})
+	return pending
 }

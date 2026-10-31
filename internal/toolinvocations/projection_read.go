@@ -13,7 +13,13 @@ import (
 
 const MaxDetailBatchSize = 100
 
+type invocationCallKey struct{ ExecutionID, CallID string }
+
+const assistantMessageSQL = "CASE WHEN json_valid(tool_invocations.metadata) THEN COALESCE(CAST(json_extract(tool_invocations.metadata, '$.display.assistant_message_id') AS TEXT), '') ELSE '' END"
+
 type Summary struct {
+	ExecutionID        string `json:"-"`
+	ExecutionDepth     int    `json:"-"`
 	InvocationID       string `json:"invocationId"`
 	CallID             string `json:"callId"`
 	Name               string `json:"name"`
@@ -102,6 +108,8 @@ func loadSummariesForTurnIDs(ctx context.Context, db *gorm.DB, userID string, tu
 	result := make(map[string][]Summary, len(turnIDs))
 	const resolvedTurnSQL = "tool_invocations.turn_id"
 	type row struct {
+		ExecutionID          string
+		ExecutionDepth       int
 		ID                   string
 		ToolCallID           string
 		Attempt              int
@@ -132,8 +140,8 @@ func loadSummariesForTurnIDs(ctx context.Context, db *gorm.DB, userID string, tu
 	started := time.Now()
 	queryCount := uint64(0)
 	projectionBytes := uint64(0)
-	indexByTurnCall := make(map[string]map[string]int)
-	attemptByTurnCall := make(map[string]map[string]int)
+	indexByTurnCall := make(map[string]map[invocationCallKey]int)
+	attemptByTurnCall := make(map[string]map[invocationCallKey]int)
 	for start := 0; start < len(turnIDs); start += batchSize {
 		end := start + batchSize
 		if end > len(turnIDs) {
@@ -145,7 +153,7 @@ func loadSummariesForTurnIDs(ctx context.Context, db *gorm.DB, userID string, tu
 			Model(&database.ToolInvocation{}).
 			Select(
 				"tool_invocations.id, tool_invocations.tool_call_id, tool_invocations.attempt, tool_invocations.status, "+
-					"tool_invocations.display_name, "+
+					"tool_invocations.display_name, tool_invocations.chat_execution_id AS execution_id, "+(database.ChatInvocationSelection{}).Depth("tool_invocations")+" AS execution_depth, "+
 					"CASE WHEN json_valid(tool_invocations.metadata) THEN COALESCE(CAST(json_extract(tool_invocations.metadata, '$.display.name') AS TEXT), '') ELSE '' END AS metadata_name, "+
 					"CASE WHEN json_valid(tool_invocations.metadata) THEN COALESCE(CAST(json_extract(tool_invocations.metadata, '$.display.origin') AS TEXT), '') ELSE '' END AS metadata_origin, "+
 					"CASE WHEN json_valid(tool_invocations.metadata) THEN COALESCE(CAST(json_extract(tool_invocations.metadata, '$.display.server_label') AS TEXT), '') ELSE '' END AS metadata_server, "+
@@ -156,7 +164,7 @@ func loadSummariesForTurnIDs(ctx context.Context, db *gorm.DB, userID string, tu
 					// exemplo, origem e destino de um move). A primeira evidência não
 					// representa a decisão efetiva: qualquer bloqueio deve prevalecer.
 					"CASE WHEN json_valid(tool_invocations.metadata) AND json_type(tool_invocations.metadata, '$.security_signals') = 'array' THEN COALESCE((SELECT CASE WHEN EXISTS (SELECT 1 FROM json_each(tool_invocations.metadata, '$.security_signals') WHERE json_valid(value) AND json_type(value) = 'object' AND json_type(value, '$.version') = 'integer' AND json_extract(value, '$.version') = 1 AND json_extract(value, '$.outcome') = 'blocked') THEN 'blocked' WHEN EXISTS (SELECT 1 FROM json_each(tool_invocations.metadata, '$.security_signals') WHERE json_valid(value) AND json_type(value) = 'object' AND json_type(value, '$.version') = 'integer' AND json_extract(value, '$.version') = 1 AND json_extract(value, '$.outcome') = 'approved') THEN 'approved' ELSE '' END), '') ELSE '' END AS security_outcome, "+
-					"CASE WHEN json_valid(tool_invocations.metadata) THEN COALESCE(CAST(json_extract(tool_invocations.metadata, '$.display.assistant_message_id') AS TEXT), '') ELSE '' END AS assistant_message_id, "+
+					(database.ChatInvocationSelection{}).PresentationMessage("tool_invocations", assistantMessageSQL)+" AS assistant_message_id, "+
 					"CASE WHEN json_valid(tool_invocations.metadata) THEN CASE WHEN json_type(tool_invocations.metadata, '$.display.acp_text_offset') = 'integer' THEN json_extract(tool_invocations.metadata, '$.display.acp_text_offset') END END AS acp_text_offset, "+
 					"tool_invocations.input_preview, tool_invocations.output_preview, "+
 					"tool_invocations.input_bytes, tool_invocations.output_bytes, tool_invocations.result_availability, "+
@@ -165,6 +173,7 @@ func loadSummariesForTurnIDs(ctx context.Context, db *gorm.DB, userID string, tu
 					"tool_catalog.origin AS tool_origin, "+resolvedTurnSQL+" AS resolved_turn_id",
 			).
 			Joins("LEFT JOIN tool_catalog ON tool_catalog.id = tool_invocations.tool_catalog_id").
+			Joins((database.ChatInvocationSelection{}).Join("tool_invocations")).
 			Where(
 				"tool_invocations.user_id = ? AND tool_invocations.origin_type = ? AND "+resolvedTurnSQL+" IN ? AND TRIM(tool_invocations.tool_call_id) <> '' AND (tool_invocations.completed_at IS NOT NULL OR tool_invocations.status IN (?, ?, ?, ?, ?, ?))",
 				userID,
@@ -177,7 +186,8 @@ func loadSummariesForTurnIDs(ctx context.Context, db *gorm.DB, userID string, tu
 				StatusCancelled,
 				StatusTimedOut,
 			).
-			Order("resolved_turn_id, tool_invocations.queued_at, tool_invocations.id").
+			Where((database.ChatInvocationSelection{}).Predicate("tool_invocations")).
+			Order("resolved_turn_id, execution_depth DESC, tool_invocations.queued_at, tool_invocations.id").
 			Find(&rows).Error; err != nil {
 			return nil, fmt.Errorf("erro ao buscar resumos de tool invocations: %w", err)
 		}
@@ -189,6 +199,7 @@ func loadSummariesForTurnIDs(ctx context.Context, db *gorm.DB, userID string, tu
 				availability = "available"
 			}
 			summary := Summary{
+				ExecutionID: item.ExecutionID, ExecutionDepth: item.ExecutionDepth,
 				InvocationID:       item.ID,
 				CallID:             item.ToolCallID,
 				Name:               name,
@@ -209,22 +220,23 @@ func loadSummariesForTurnIDs(ctx context.Context, db *gorm.DB, userID string, tu
 				AssistantMessageID: item.AssistantMessageID,
 				ACPTextOffset:      item.ACPTextOffset,
 			}
+			key := invocationCallKey{item.ExecutionID, item.ToolCallID}
 			indexByCall := indexByTurnCall[item.ResolvedTurnID]
 			if indexByCall == nil {
-				indexByCall = make(map[string]int)
+				indexByCall = make(map[invocationCallKey]int)
 				indexByTurnCall[item.ResolvedTurnID] = indexByCall
-				attemptByTurnCall[item.ResolvedTurnID] = make(map[string]int)
+				attemptByTurnCall[item.ResolvedTurnID] = make(map[invocationCallKey]int)
 			}
-			if index, exists := indexByCall[item.ToolCallID]; exists {
+			if index, exists := indexByCall[key]; exists {
 				// Attempt é autoritativo para retries. Em dados legados com o mesmo
 				// número, a ordem cronológica da consulta mantém a linha mais recente.
-				if item.Attempt >= attemptByTurnCall[item.ResolvedTurnID][item.ToolCallID] {
+				if item.Attempt >= attemptByTurnCall[item.ResolvedTurnID][key] {
 					result[item.ResolvedTurnID][index] = summary
-					attemptByTurnCall[item.ResolvedTurnID][item.ToolCallID] = item.Attempt
+					attemptByTurnCall[item.ResolvedTurnID][key] = item.Attempt
 				}
 			} else {
-				indexByCall[item.ToolCallID] = len(result[item.ResolvedTurnID])
-				attemptByTurnCall[item.ResolvedTurnID][item.ToolCallID] = item.Attempt
+				indexByCall[key] = len(result[item.ResolvedTurnID])
+				attemptByTurnCall[item.ResolvedTurnID][key] = item.Attempt
 				result[item.ResolvedTurnID] = append(result[item.ResolvedTurnID], summary)
 			}
 			projectionBytes += uint64(len(item.ID) + len(item.ToolCallID) + len(name) + len(origin) +

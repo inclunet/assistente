@@ -28,6 +28,8 @@ type MessageWindowRequest struct {
 
 // TurnSegmentToolCall é a projeção leve de uma invocação canônica.
 type TurnSegmentToolCall struct {
+	ExecutionID        string `json:"-"`
+	ExecutionDepth     int    `json:"-"`
 	InvocationID       string `json:"invocationId,omitempty"`
 	ID                 string `json:"callId"`
 	Name               string `json:"name"`

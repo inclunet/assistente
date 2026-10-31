@@ -26,12 +26,18 @@ func setupConvInfoDB(t *testing.T) {
 	}
 	if err := gdb.AutoMigrate(
 		&database.Conversation{},
-		&database.ChatMessage{},
+		&database.ChatMessage{}, &database.ToolCatalog{}, &database.ToolInvocation{},
 		&database.TaskListWorkflow{},
 		&database.TaskList{},
 		&database.Task{},
 	); err != nil {
 		t.Fatalf("failed to migrate: %v", err)
+	}
+	if err := database.MigrateChatTurns(gdb); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.MigrateChatExecutionContent(gdb); err != nil {
+		t.Fatal(err)
 	}
 	database.SetDB(gdb)
 	t.Cleanup(func() {

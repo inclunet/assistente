@@ -5,12 +5,13 @@ import "time"
 // ChatTurn contém apenas lifecycle e referências. Conteúdo continua em chat_messages.
 // Autoridade de lifecycle do pipeline; a projeção visual migra separadamente (AEP-0116).
 type ChatTurn struct {
-	UserMessageID     string `gorm:"primaryKey"`
-	ConversationID    string
-	ResponseMessageID *string
-	State             string
-	ActiveExecutionID *string
-	Origin            string
+	CurrentExecutionID *string `gorm:"->;-:migration"`
+	UserMessageID      string  `gorm:"primaryKey"`
+	ConversationID     string
+	ResponseMessageID  *string
+	State              string
+	ActiveExecutionID  *string
+	Origin             string
 }
 
 type ChatTurnAttempt struct {

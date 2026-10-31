@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -12,6 +13,8 @@ import (
 )
 
 type ChatToolInvocationDisplay struct {
+	ExecutionID        string `json:"-"`
+	ExecutionDepth     int    `json:"-"`
 	LedgerID           string
 	ID                 string
 	Type               string
@@ -42,39 +45,22 @@ type toolInvocationDisplayMetadata struct {
 	External bool `json:"external,omitempty"`
 }
 
-// LoadChatToolInvocationResultsForTurnIDsWithUser carrega outputs de tool_invocations
-// para turns de chat, organizados como turnID -> callID -> content.
-//
-// Observação: retornos são best-effort; o chamador decide log/propagação.
-func LoadChatToolInvocationResultsForTurnIDsWithUser(ctx context.Context, userID string, turnIDs []string) (map[string]map[string]string, error) {
-	displays, err := LoadChatToolInvocationDisplaysForTurnIDsWithUser(ctx, userID, turnIDs)
-	if err != nil {
-		return nil, err
-	}
-	results := make(map[string]map[string]string, len(displays))
-	for turnID, calls := range displays {
-		for _, call := range calls {
-			callID := call.ID
-			if strings.TrimSpace(callID) == "" {
-				continue
-			}
-			byCall := results[turnID]
-			if byCall == nil {
-				byCall = make(map[string]string)
-				results[turnID] = byCall
-			}
-			if _, ok := byCall[callID]; ok {
-				continue
-			}
-			byCall[callID] = call.ModelResult
-		}
-	}
-	return results, nil
-}
-
 // LoadChatToolInvocationDisplaysForTurnIDsWithUser carrega o snapshot exibível de
 // tool_invocations para turns de chat, organizado como turnID -> chamadas.
 func LoadChatToolInvocationDisplaysForTurnIDsWithUser(ctx context.Context, userID string, turnIDs []string) (map[string][]ChatToolInvocationDisplay, error) {
+	return loadChatToolInvocationDisplays(ctx, userID, turnIDs, false, nil)
+}
+
+// LoadChatToolInvocationDisplaysForExecutionWithUser mantém o escopo da mensagem
+// histórica solicitada. nil identifica legado sem atribuição, nunca a atual.
+func LoadChatToolInvocationDisplaysForExecutionWithUser(ctx context.Context, userID, turnID string, executionID *string) ([]ChatToolInvocationDisplay, error) {
+	result, err := loadChatToolInvocationDisplays(ctx, userID, []string{turnID}, true, executionID)
+	return result[turnID], err
+}
+
+func loadChatToolInvocationDisplays(ctx context.Context, userID string, turnIDs []string, historical bool, executionID *string) (map[string][]ChatToolInvocationDisplay, error) {
+	selection := database.ChatInvocationSelection{Historical: historical}
+
 	turnIDs = uniqueNonEmptyIDs(turnIDs)
 	if len(turnIDs) == 0 {
 		return map[string][]ChatToolInvocationDisplay{}, nil
@@ -94,7 +80,7 @@ func LoadChatToolInvocationDisplaysForTurnIDsWithUser(ctx context.Context, userI
 	const pageSize = 2000
 
 	results := make(map[string][]ChatToolInvocationDisplay, len(turnIDs))
-	indexByTurnCall := make(map[string]map[string]int, len(turnIDs))
+	indexByTurnCall := make(map[string]map[invocationCallKey]int, len(turnIDs))
 	const resolvedTurnSQL = "tool_invocations.turn_id"
 	for start := 0; start < len(turnIDs); start += maxTurnIDsPerBatch {
 		end := start + maxTurnIDsPerBatch
@@ -103,22 +89,26 @@ func LoadChatToolInvocationDisplaysForTurnIDsWithUser(ctx context.Context, userI
 		}
 		batch := turnIDs[start:end]
 
-		attemptByTurnCall := make(map[string]map[string]int)
+		attemptByTurnCall := make(map[string]map[invocationCallKey]int)
 		var cursorQueuedAt *time.Time
 		cursorID := ""
 		cursorTurnID := ""
 		for {
 			type invocationDisplayRow struct {
 				database.ToolInvocation
-				ToolName        string
-				ToolDisplayName string
-				ToolOrigin      string
-				ResolvedTurnID  string `gorm:"column:resolved_turn_id"`
+				ExecutionID           string
+				ExecutionDepth        int
+				PresentationMessageID string
+				ToolName              string
+				ToolDisplayName       string
+				ToolOrigin            string
+				ResolvedTurnID        string `gorm:"column:resolved_turn_id"`
 			}
 			q := db.WithContext(ctx).
 				Model(&database.ToolInvocation{}).
-				Select("tool_invocations.id, tool_invocations.created_at, tool_invocations.origin_id, tool_invocations.tool_call_id, tool_invocations.attempt, tool_invocations.output, tool_invocations.error_message, tool_invocations.metadata, tool_invocations.queued_at, tool_invocations.duration_ms, tool_catalog.name AS tool_name, tool_catalog.display_name AS tool_display_name, tool_catalog.origin AS tool_origin, "+resolvedTurnSQL+" AS resolved_turn_id").
+				Select("tool_invocations.chat_execution_id AS execution_id, "+selection.Depth("tool_invocations")+" AS execution_depth, "+selection.PresentationMessage("tool_invocations", assistantMessageSQL)+" AS presentation_message_id, tool_invocations.id, tool_invocations.created_at, tool_invocations.origin_id, tool_invocations.tool_call_id, tool_invocations.attempt, tool_invocations.output, tool_invocations.error_message, tool_invocations.metadata, tool_invocations.queued_at, tool_invocations.duration_ms, tool_catalog.name AS tool_name, tool_catalog.display_name AS tool_display_name, tool_catalog.origin AS tool_origin, "+resolvedTurnSQL+" AS resolved_turn_id").
 				Joins("LEFT JOIN tool_catalog ON tool_catalog.id = tool_invocations.tool_catalog_id").
+				Joins(selection.Join("tool_invocations")).
 				Where(
 					"tool_invocations.user_id = ? AND tool_invocations.origin_type = ? AND "+resolvedTurnSQL+" IN ? AND TRIM(tool_invocations.tool_call_id) <> '' AND (tool_invocations.completed_at IS NOT NULL OR tool_invocations.status IN (?, ?, ?, ?, ?, ?))",
 					userID,
@@ -131,6 +121,10 @@ func LoadChatToolInvocationDisplaysForTurnIDsWithUser(ctx context.Context, userI
 					StatusCancelled,
 					StatusTimedOut,
 				)
+			if historical {
+				q = q.Joins("JOIN (SELECT ? AS execution_id) requested_chat_execution ON 1=1", executionID)
+			}
+			q = q.Where(selection.Predicate("tool_invocations"))
 			if cursorQueuedAt != nil {
 				q = q.Where("(tool_invocations.turn_id, tool_invocations.queued_at, tool_invocations.id) > (?, ?, ?)", cursorTurnID, *cursorQueuedAt, cursorID)
 			}
@@ -150,24 +144,27 @@ func LoadChatToolInvocationDisplaysForTurnIDsWithUser(ctx context.Context, userI
 				if strings.TrimSpace(turnID) == "" || strings.TrimSpace(callID) == "" {
 					continue
 				}
+				key := invocationCallKey{row.ExecutionID, callID}
 				indexByCall := indexByTurnCall[turnID]
 				if indexByCall == nil {
-					indexByCall = map[string]int{}
+					indexByCall = map[invocationCallKey]int{}
 					indexByTurnCall[turnID] = indexByCall
-					attemptByTurnCall[turnID] = map[string]int{}
+					attemptByTurnCall[turnID] = map[invocationCallKey]int{}
 				}
 				display := toolInvocationRowToDisplay(row.ToolInvocation, row.ToolName, row.ToolDisplayName, row.ToolOrigin)
-				if idx, ok := indexByCall[callID]; ok {
+				display.ExecutionID, display.ExecutionDepth = row.ExecutionID, row.ExecutionDepth
+				display.AssistantMessageID = row.PresentationMessageID
+				if idx, ok := indexByCall[key]; ok {
 					// Attempt é autoritativo para retries; em empate (dados legados),
 					// a ordem cronológica mantém a linha mais recente.
-					if row.Attempt >= attemptByTurnCall[turnID][callID] {
+					if row.Attempt >= attemptByTurnCall[turnID][key] {
 						results[turnID][idx] = display
-						attemptByTurnCall[turnID][callID] = row.Attempt
+						attemptByTurnCall[turnID][key] = row.Attempt
 					}
 					continue
 				}
-				indexByCall[callID] = len(results[turnID])
-				attemptByTurnCall[turnID][callID] = row.Attempt
+				indexByCall[key] = len(results[turnID])
+				attemptByTurnCall[turnID][key] = row.Attempt
 				results[turnID] = append(results[turnID], display)
 			}
 
@@ -179,6 +176,9 @@ func LoadChatToolInvocationDisplaysForTurnIDsWithUser(ctx context.Context, userI
 				break
 			}
 		}
+	}
+	for _, calls := range results {
+		sort.SliceStable(calls, func(i, j int) bool { return calls[i].ExecutionDepth > calls[j].ExecutionDepth })
 	}
 	return results, nil
 }
