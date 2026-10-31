@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -37,6 +38,32 @@ func TestCanonicalWindowIncludesPreparingAndMissingRepresentativeWithoutMessages
 	page, err := f.reader.ReadCanonicalWindow(f.ctx, pageQuery)
 	if err != nil || len(page.Items) != 1 || page.Items[0].ItemID != "message:"+q.ID {
 		t.Fatalf("paginação do item sem representante: %+v %v positions=%+v %+v", page, err, w.Items[0].Position, page.Items[0].Position)
+	}
+	pageQuery.Direction = "around"
+	pageQuery.Limit = 3
+	page, err = f.reader.ReadCanonicalWindow(f.ctx, pageQuery)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var aroundIDs []string
+	for _, item := range page.Items {
+		aroundIDs = append(aroundIDs, item.ItemID)
+	}
+	if !reflect.DeepEqual(aroundIDs, []string{"turn:" + f.question, "message:" + q.ID, "turn:" + q.ID}) || page.Window.StartIndex != 1 {
+		t.Fatalf("janela ao redor do item sem representante: %+v", page)
+	}
+	for _, anchorKind := range []string{"anchorItemId", "anchorMessageId"} {
+		missingQuery := pageQuery
+		missingQuery.AnchorItemID = ""
+		if anchorKind == "anchorItemId" {
+			missingQuery.AnchorItemID = "turn:inexistente"
+		} else {
+			missingQuery.AnchorMessageID = "inexistente"
+		}
+		_, err := f.reader.ReadCanonicalWindow(f.ctx, missingQuery)
+		if err == nil || !strings.Contains(err.Error(), anchorKind+" inválido:") || !strings.Contains(err.Error(), "inexistente") {
+			t.Fatalf("diagnóstico de %s: %v", anchorKind, err)
+		}
 	}
 	before, err := f.reader.ReadWindow(f.ctx, query)
 	if err != nil {
