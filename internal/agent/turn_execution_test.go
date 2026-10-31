@@ -155,7 +155,7 @@ func TestTurnRuntimePartialWriteFailureNeverPublishesOldPatch(t *testing.T) {
 			svc.EndUnfinishedTurn(ctx, conv, turn, nil)
 			done := assertRuntimeTerminal(t, ctx, conv, turn, database.TurnFailed, "persistence_error", em)
 			projected, projectionErr := svc.projection.Snapshot(ctx, conv, turn)
-			if projectionErr != nil || projected == nil || !projected.Volatile || projected.Streams[0].Fragments[0].Text != "texto visível" {
+			if projectionErr != nil || projected == nil || !projected.Volatile || testLiveSegment(projected.Streams[0], "text", 0).Text != "texto visível" {
 				t.Fatalf("conteúdo volatile perdido: %+v %v", projected, projectionErr)
 			}
 

@@ -1,8 +1,23 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — fase 1 concluída; fase 2 com terminal derivado da projeção explícita
+## Status: In Progress — fase 1 concluída; fase 2 com segmentos tipados na recuperação
 
 Data: 2026-10-30
+
+### Recorte: segmentos de recuperação (2026-10-31)
+
+`LiveStreamSnapshot` usa `ResponseSegment`, removendo `LiveFragment` e o formato
+paralelo de pares texto/raciocínio. Snapshots omitem segmentos vazios e conservam
+bytes, cortes e ordem das iterações. IDs incluem execução, iteração, geração de
+transporte, corte e tipo: append preserva identidade, reinício explícito troca
+segmentos sem trocar `itemId`. O teste
+`TestLiveProjectionTypedSegmentsDoNotReuseTransportIdentity` comprova essas regras.
+
+A confirmação persistida continua substituindo a origem por referências do banco;
+não se presume igualdade entre IDs draft e persistidos. O futuro protocolo deve
+emitir substituição explícita de segmentos no mesmo item. Este modelo é interno,
+não anuncia `revision` como sequência wire nem acrescenta um novo evento paralelo.
+Lotes, inscrições e cutover permanecem pendentes; a fase 2 continua parcial.
 
 ### Recorte: adaptador terminal da resposta (2026-10-31)
 

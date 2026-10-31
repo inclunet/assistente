@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"assistente/internal/chat"
 	"context"
 	"testing"
 
@@ -33,7 +34,7 @@ func TestLiveProjectionRuntimeUnfinishedKeepsPendingChunk(t *testing.T) {
 	h.FlushStream()
 	h.OnChunk("callback tardio")
 	snap, err := svc.projection.Snapshot(ctx, conv, turn)
-	if err != nil || !snap.Volatile || snap.State != database.TurnFailed || snap.Reason != "internal_error" || snap.Streams[0].Fragments[0].Text != "recebido antes do timer" || snap.Streams[0].Fragments[0].Reasoning != "raciocínio recebido" {
+	if err != nil || !snap.Volatile || snap.State != database.TurnFailed || snap.Reason != "internal_error" || testLiveSegment(snap.Streams[0], "text", 0).Text != "recebido antes do timer" || testLiveSegment(snap.Streams[0], "reasoning", 0).Text != "raciocínio recebido" {
 		t.Fatalf("terminal sem conteúdo persistido: %+v %v", snap, err)
 	}
 }
@@ -51,7 +52,7 @@ func TestLiveProjectionRuntimeTransportRetryAndFinalReplacement(t *testing.T) {
 	}}
 	svc.StreamSimpleWithRecovery(ctx, streamer, nil, llm.ChatParams{}, conv, turn, "", nil, true, 2)
 	snap, err := svc.projection.Snapshot(ctx, conv, turn)
-	if err != nil || snap.Volatile || !snap.Finished || snap.State != database.TurnCompleted || snap.Streams[0].Fragments[0].Text != "final explícito" {
+	if err != nil || snap.Volatile || !snap.Finished || snap.State != database.TurnCompleted || testLiveSegment(snap.Streams[0], "text", 0).Text != "final explícito" {
 		t.Fatalf("conclusão: %+v %v", snap, err)
 	}
 	next, err := svc.BeginTurn(ctx, conv, turn, database.TurnModeRetry)
@@ -91,4 +92,16 @@ func TestLiveProjectionRuntimeRejectedAgenticCallbackStopsIteration(t *testing.T
 			}
 		})
 	}
+}
+
+func testLiveSegment(stream chat.LiveStreamSnapshot, kind string, index int) chat.ResponseSegment {
+	for _, segment := range stream.Segments {
+		if segment.Kind == kind {
+			if index == 0 {
+				return segment
+			}
+			index--
+		}
+	}
+	return chat.ResponseSegment{}
 }

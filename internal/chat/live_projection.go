@@ -55,10 +55,9 @@ type livePart struct{ text, reasoning strings.Builder }
 
 // Fragmentos guardam apenas texto e raciocínio; o ledger permanece autoridade
 // das invocações e de seus detalhes.
-type LiveFragment struct{ ID, Text, Reasoning string }
 type LiveStreamSnapshot struct {
 	Iteration int
-	Fragments []LiveFragment
+	Segments  []ResponseSegment
 }
 type LiveTurnSnapshot struct {
 	Detached                                               bool
@@ -409,7 +408,13 @@ func snapshotLiveTurn(c *projectionConversation, t *liveTurn) *LiveTurnSnapshot 
 		target := LiveStreamSnapshot{Iteration: iteration}
 		for index := range stream.parts {
 			part := stream.parts[index]
-			target.Fragments = append(target.Fragments, LiveFragment{ID: fmt.Sprintf("draft:%s:%d:%d", base64.RawURLEncoding.EncodeToString([]byte(t.executionID)), iteration, index), Text: strings.Clone(part.text.String()), Reasoning: strings.Clone(part.reasoning.String())})
+			identity := fmt.Sprintf("draft:%s:%d:%d:%d", base64.RawURLEncoding.EncodeToString([]byte(t.executionID)), iteration, stream.generation, index)
+			if part.reasoning.Len() != 0 {
+				target.Segments = append(target.Segments, ResponseSegment{SegmentID: identity + ":reasoning", Kind: "reasoning", Text: strings.Clone(part.reasoning.String())})
+			}
+			if part.text.Len() != 0 {
+				target.Segments = append(target.Segments, ResponseSegment{SegmentID: identity + ":text", Kind: "text", Text: strings.Clone(part.text.String())})
+			}
 		}
 		result.Streams = append(result.Streams, target)
 	}

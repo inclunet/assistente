@@ -31,7 +31,7 @@ func TestTurnRecoveryRuntimeCancellationBeforeFinalWriteRejectsOldPatch(t *testi
 		t.Fatalf("patch antigo no cancelamento: %+v", event)
 	}
 	recovery, err := svc.ReadTurnRecovery(context.WithoutCancel(ctx), conv, turn)
-	if err != nil || len(recovery.Retained) != 1 || recovery.Retained[0].Streams[0].Fragments[0].Text != "recebido sem gravação" {
+	if err != nil || len(recovery.Retained) != 1 || testLiveSegment(recovery.Retained[0].Streams[0], "text", 0).Text != "recebido sem gravação" {
 		t.Fatalf("conteúdo perdido: %+v %v", recovery, err)
 	}
 }
@@ -83,7 +83,7 @@ func TestTurnRecoveryRuntimeRetainedRetryAndDiscard(t *testing.T) {
 	h.OnChunk("conteúdo não salvo")
 	svc.EndUnfinishedTurn(ctx, conv, turn, nil)
 	recovery, err := svc.ReadTurnRecovery(ctx, conv, turn)
-	if err != nil || len(recovery.Retained) != 1 || recovery.Retained[0].Streams[0].Fragments[0].Text != "conteúdo não salvo" || recovery.CanUsePersistedPatch(executionID(ctx)) {
+	if err != nil || len(recovery.Retained) != 1 || testLiveSegment(recovery.Retained[0].Streams[0], "text", 0).Text != "conteúdo não salvo" || recovery.CanUsePersistedPatch(executionID(ctx)) {
 		t.Fatalf("retenção: %+v %v", recovery, err)
 	}
 	next, err := svc.BeginTurn(ctx, conv, turn, database.TurnModeRetry)
