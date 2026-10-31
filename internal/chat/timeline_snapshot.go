@@ -66,6 +66,16 @@ func readTimelineFacts(ctx context.Context, tx *gorm.DB, conversationID string, 
 }
 
 func (r *DBTimelineReader) ReadWindow(ctx context.Context, query database.MessageWindowQuery) (*TimelineWindowSnapshot, error) {
+	return r.readWindow(ctx, query, false)
+}
+
+// ReadCanonicalWindow inclui itens com identidade própria ainda sem mensagem.
+// O adaptador legado continua usando ReadWindow até o cutover do consumidor.
+func (r *DBTimelineReader) ReadCanonicalWindow(ctx context.Context, query database.MessageWindowQuery) (*TimelineWindowSnapshot, error) {
+	return r.readWindow(ctx, query, true)
+}
+
+func (r *DBTimelineReader) readWindow(ctx context.Context, query database.MessageWindowQuery, canonical bool) (*TimelineWindowSnapshot, error) {
 	result := &TimelineWindowSnapshot{}
 	var rows *database.MessageWindowResult
 	var facts timelineFacts
@@ -79,6 +89,9 @@ func (r *DBTimelineReader) ReadWindow(ctx context.Context, query database.Messag
 		}
 		result.Version = version
 		repo := database.NewMessageRepository(tx)
+		if canonical {
+			repo = repo.WithTimelineTurns()
+		}
 		if query.ParentID != nil {
 			parent, err := repo.GetMessageWithContext(ctx, *query.ParentID)
 			if err != nil {
@@ -99,6 +112,16 @@ func (r *DBTimelineReader) ReadWindow(ctx context.Context, query database.Messag
 			return err
 		}
 		result.TurnIDs = snapshotTurnIDs(rows.Messages)
+		seen := make(map[string]bool, len(result.TurnIDs))
+		for _, id := range result.TurnIDs {
+			seen[id] = true
+		}
+		for _, row := range rows.Items {
+			if row.Kind == database.MessageWindowItemKindTurn && !seen[row.TurnID] {
+				result.TurnIDs = append(result.TurnIDs, row.TurnID)
+				seen[row.TurnID] = true
+			}
+		}
 		facts, err = readTimelineFacts(ctx, tx, query.ConversationID, result.TurnIDs)
 		if err != nil {
 			return err
@@ -128,6 +151,14 @@ func (r *DBTimelineReader) ReadWindow(ctx context.Context, query database.Messag
 	result.Responses, err = projectSnapshotResponses(query.ConversationID, query.ParentID, rows.Messages, facts)
 	if err != nil {
 		return nil, err
+	}
+	for _, row := range rows.Items {
+		if row.Kind == database.MessageWindowItemKindTurn && result.Responses[row.TurnID] == nil {
+			result.Responses[row.TurnID], err = ProjectPersistedResponse(query.ConversationID, row.TurnID, query.ParentID, nil, facts.calls[row.TurnID], facts.turns[row.TurnID])
+			if err != nil {
+				return nil, err
+			}
+		}
 	}
 	result.InvalidTurnReferences = rows.InvalidTurnReferences
 	result.Turns = facts.turns

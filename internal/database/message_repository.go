@@ -15,7 +15,8 @@ import (
 
 // MessageRepository encapsula a persistencia de mensagens de chat com um *gorm.DB injetado.
 type MessageRepository struct {
-	db *gorm.DB
+	includeTimelineTurns bool
+	db                   *gorm.DB
 }
 
 // NewMessageRepository cria um MessageRepository com o *gorm.DB injetado.
@@ -114,7 +115,7 @@ func (r *MessageRepository) CreateMessageWithContext(ctx context.Context, opts M
 			}
 		}
 
-		if err := CreateChatMessageInTransaction(tx.WithContext(ctx),msg); err != nil {
+		if err := CreateChatMessageInTransaction(tx.WithContext(ctx), msg); err != nil {
 			return err
 		}
 		return ScopeByUser(ctx, tx.WithContext(ctx).Model(&Conversation{}), "user_id").
@@ -1294,7 +1295,17 @@ func (r *MessageRepository) GetRootMessagesBeforeWithContext(ctx context.Context
 	return messages, nil
 }
 
+// WithTimelineTurns inclui turnos admitidos antes da criação da mensagem final.
+// O contrato legado de MessageWindow não consegue representar esses itens;
+// somente a nova leitura de TimelineItem usa esta mesma consulta ampliada.
+func (r *MessageRepository) WithTimelineTurns() *MessageRepository {
+	clone := *r
+	clone.includeTimelineTurns = true
+	return &clone
+}
+
 type MessageWindowQuery struct {
+	AnchorItemID    string
 	ConversationID  string
 	ParentID        *string
 	Anchor          string
@@ -1380,7 +1391,10 @@ func normalizeMessageWindowCursor(query MessageWindowQuery) (anchor string, dire
 		direction != messageWindowDirectionAround {
 		return "", "", fmt.Errorf("direction de janela de mensagens inválido: %s", query.Direction)
 	}
-	if anchor != "" && query.AnchorMessageID != "" {
+	if query.AnchorItemID != "" && query.AnchorMessageID != "" {
+		return "", "", fmt.Errorf("anchorItemId e anchorMessageId são mutuamente exclusivos")
+	}
+	if anchor != "" && (query.AnchorMessageID != "" || query.AnchorItemID != "") {
 		return "", "", fmt.Errorf("anchor e anchorMessageId são mutuamente exclusivos")
 	}
 	if anchor == messageWindowAnchorStart && direction == messageWindowDirectionBefore {
@@ -1389,7 +1403,7 @@ func normalizeMessageWindowCursor(query MessageWindowQuery) (anchor string, dire
 	if anchor == messageWindowAnchorEnd && direction == messageWindowDirectionAfter {
 		return "", "", fmt.Errorf("anchor=end não aceita direction=after")
 	}
-	if direction == messageWindowDirectionAround && query.AnchorMessageID == "" {
+	if direction == messageWindowDirectionAround && query.AnchorMessageID == "" && query.AnchorItemID == "" {
 		return "", "", fmt.Errorf("direction=around exige anchorMessageId")
 	}
 	return anchor, direction, nil
@@ -1408,10 +1422,19 @@ func (r *MessageRepository) messageScopeQuery(conversationID string, parentID *s
 // resposta. AnchorCreatedAt/AnchorID vêm da pergunta, nunca da resposta.
 // O conjunto Unicode White_Space do TRIM corresponde a strings.TrimSpace;
 // somente detecta ausência de vínculo, sem normalizar os IDs usados no JOIN.
-func timelineItemCTE(parentID *string) string {
+func (r *MessageRepository) timelineItemCTE(parentID *string) string {
 	parentPredicate := "m.parent_id IS NULL"
 	if parentID != nil {
 		parentPredicate = "m.parent_id = ?"
+	}
+	extra := ""
+	if r.includeTimelineTurns {
+		extra = ` UNION ALL SELECT NULL,'turn',t.user_message_id,CAST(q.created_at AS TEXT),q.id,1,0 FROM chat_turns t JOIN chat_messages q ON q.id=t.user_message_id WHERE t.conversation_id=? AND q.conversation_id=t.conversation_id AND q.role='user' AND `
+		if parentID == nil {
+			extra += "q.parent_id IS NULL"
+		} else {
+			extra += "q.parent_id = ?"
+		}
 	}
 	return fmt.Sprintf(`
 WITH scoped AS (
@@ -1427,6 +1450,7 @@ WITH scoped AS (
   AND q.id = m.turn_id AND q.role = 'user'
   AND q.conversation_id = m.conversation_id AND q.parent_id IS m.parent_id
  WHERE m.conversation_id = ? AND %s AND %s
+%s
 ), timeline_items AS (
  SELECT item_kind AS kind, item_id AS id, MIN(id) AS message_id,
   CASE WHEN item_kind = 'turn' THEN item_id ELSE '' END AS turn_id,
@@ -1435,7 +1459,7 @@ WITH scoped AS (
   MAX(invalid_turn_reference) AS invalid_turn_reference
  FROM scoped
  GROUP BY item_kind, item_id, created_at, anchor_id, slot
-)`, parentPredicate, CurrentChatMessageSQL("m"))
+)`, parentPredicate, CurrentChatMessageSQL("m"), extra)
 }
 
 const timelineItemColumns = "kind, id, message_id, turn_id, created_at, anchor_id, invalid_turn_reference"
@@ -1452,29 +1476,39 @@ func timelineKeyArgs(item MessageWindowItem) []interface{} {
 	return []interface{}{item.AnchorCreatedAt, item.AnchorID, slot, key}
 }
 
-func timelineItemArgs(conversationID string, parentID *string) []interface{} {
+func (r *MessageRepository) timelineItemArgs(conversationID string, parentID *string) []interface{} {
 	args := []interface{}{conversationID}
 	if parentID != nil {
 		args = append(args, *parentID)
+	}
+	if r.includeTimelineTurns {
+		args = append(args, args...)
 	}
 	return args
 }
 
 func (r *MessageRepository) countTimelineItems(conversationID string, parentID *string) (int, error) {
 	var count int64
-	sql := timelineItemCTE(parentID) + ` SELECT COUNT(*) FROM timeline_items`
-	err := r.db.Raw(sql, timelineItemArgs(conversationID, parentID)...).Scan(&count).Error
+	sql := r.timelineItemCTE(parentID) + ` SELECT COUNT(*) FROM timeline_items`
+	err := r.db.Raw(sql, r.timelineItemArgs(conversationID, parentID)...).Scan(&count).Error
 	return int(count), err
 }
 
 func (r *MessageRepository) getAnchorTimelineItem(query MessageWindowQuery) (*MessageWindowItem, error) {
-	sql := timelineItemCTE(query.ParentID) + `
+	sql := r.timelineItemCTE(query.ParentID) + `
 SELECT ti.kind, ti.id, ti.message_id, ti.turn_id, ti.created_at, ti.anchor_id, ti.invalid_turn_reference
 FROM timeline_items ti
 JOIN scoped s ON s.item_kind = ti.kind AND s.item_id = ti.id
 WHERE s.id = ?
 LIMIT 1`
-	args := append(timelineItemArgs(query.ConversationID, query.ParentID), query.AnchorMessageID)
+	args := append(r.timelineItemArgs(query.ConversationID, query.ParentID), query.AnchorMessageID)
+	if query.AnchorItemID != "" {
+		if !r.includeTimelineTurns {
+			return nil, fmt.Errorf("anchorItemId exige janela canônica")
+		}
+		sql = r.timelineItemCTE(query.ParentID) + " SELECT " + timelineItemColumns + " FROM timeline_items WHERE item_key=? LIMIT 1"
+		args = append(r.timelineItemArgs(query.ConversationID, query.ParentID), query.AnchorItemID)
+	}
 	var item MessageWindowItem
 	if err := r.db.Raw(sql, args...).Scan(&item).Error; err != nil {
 		return nil, err
@@ -1487,8 +1521,8 @@ LIMIT 1`
 
 func (r *MessageRepository) countTimelineItemsBefore(conversationID string, parentID *string, anchor MessageWindowItem) (int, error) {
 	var count int64
-	sql := timelineItemCTE(parentID) + " SELECT COUNT(*) FROM timeline_items WHERE " + timelineKeyBefore
-	args := append(timelineItemArgs(conversationID, parentID), timelineKeyArgs(anchor)...)
+	sql := r.timelineItemCTE(parentID) + " SELECT COUNT(*) FROM timeline_items WHERE " + timelineKeyBefore
+	args := append(r.timelineItemArgs(conversationID, parentID), timelineKeyArgs(anchor)...)
 	err := r.db.Raw(sql, args...).Scan(&count).Error
 	return int(count), err
 }
@@ -1501,8 +1535,8 @@ func (r *MessageRepository) queryTimelineItems(conversationID string, parentID *
 	if where == "" {
 		columns += ", COUNT(*) OVER () AS window_total"
 	}
-	sql := timelineItemCTE(parentID) + " SELECT " + columns + " FROM timeline_items"
-	args := timelineItemArgs(conversationID, parentID)
+	sql := r.timelineItemCTE(parentID) + " SELECT " + columns + " FROM timeline_items"
+	args := r.timelineItemArgs(conversationID, parentID)
 	if where != "" {
 		sql += " WHERE " + where
 		args = append(args, extraArgs...)
@@ -1520,8 +1554,8 @@ func (r *MessageRepository) queryTimelineItemsAround(conversationID string, pare
 	if limit <= 0 {
 		return []MessageWindowItem{}, nil
 	}
-	sql := timelineItemCTE(parentID) + " SELECT " + timelineItemColumns + " FROM timeline_items ORDER BY " + timelineOrderAscending + " LIMIT ? OFFSET ?"
-	args := append(timelineItemArgs(conversationID, parentID), limit, offset)
+	sql := r.timelineItemCTE(parentID) + " SELECT " + timelineItemColumns + " FROM timeline_items ORDER BY " + timelineOrderAscending + " LIMIT ? OFFSET ?"
+	args := append(r.timelineItemArgs(conversationID, parentID), limit, offset)
 	var items []MessageWindowItem
 	if err := r.db.Raw(sql, args...).Scan(&items).Error; err != nil {
 		return nil, err
@@ -1613,14 +1647,14 @@ func (r *MessageRepository) GetMessageWindowWithContext(ctx context.Context, que
 	// Sem âncora explícita, total e página são calculados pela mesma consulta.
 	// Evita repetir seleção/agregação da conversa só para contar os mesmos itens.
 	total := 0
-	if query.AnchorMessageID != "" || limit == 0 {
+	if (query.AnchorMessageID != "" || query.AnchorItemID != "") || limit == 0 {
 		total, err = r.countTimelineItems(query.ConversationID, query.ParentID)
 		if err != nil {
 			return nil, err
 		}
 	}
 	var anchorItem *MessageWindowItem
-	if query.AnchorMessageID != "" {
+	if query.AnchorMessageID != "" || query.AnchorItemID != "" {
 		anchorItem, err = r.getAnchorTimelineItem(query)
 		if err != nil {
 			return nil, err
@@ -1637,7 +1671,7 @@ func (r *MessageRepository) GetMessageWindowWithContext(ctx context.Context, que
 			HasAfter:   total > 0,
 		}, nil
 	}
-	if total == 0 && query.AnchorMessageID != "" {
+	if total == 0 && (query.AnchorMessageID != "" || query.AnchorItemID != "") {
 		return &MessageWindowResult{
 			Items:      []MessageWindowItem{},
 			Messages:   []ChatMessage{},
