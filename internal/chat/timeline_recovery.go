@@ -272,6 +272,23 @@ func reconcileProjectedTurn(c *projectionConversation, t *liveTurn, version data
 // O adaptador visual ainda retorna conteúdo persistido; não inventa nós live nem
 // mistura tentativas voláteis com o banco. Recuperação de bytes usa ReadRecovery.
 func (p *LiveProjection) ReadWindow(ctx context.Context, query database.MessageWindowQuery, reader WindowSnapshotReader) (*TimelineWindowSnapshot, error) {
+	return p.readWindow(ctx, query, reader, false)
+}
+
+type CanonicalWindowSnapshotReader interface {
+	ReadCanonicalWindow(context.Context, database.MessageWindowQuery) (*TimelineWindowSnapshot, error)
+}
+type canonicalWindowAdapter struct{ reader CanonicalWindowSnapshotReader }
+
+func (a canonicalWindowAdapter) ReadWindow(ctx context.Context, q database.MessageWindowQuery) (*TimelineWindowSnapshot, error) {
+	return a.reader.ReadCanonicalWindow(ctx, q)
+}
+
+func (p *LiveProjection) ReadCanonicalWindow(ctx context.Context, query database.MessageWindowQuery, reader CanonicalWindowSnapshotReader) (*TimelineWindowSnapshot, error) {
+	return p.readWindow(ctx, query, canonicalWindowAdapter{reader}, true)
+}
+
+func (p *LiveProjection) readWindow(ctx context.Context, query database.MessageWindowQuery, reader WindowSnapshotReader, canonical bool) (*TimelineWindowSnapshot, error) {
 	userID, err := database.RequireUserID(ctx)
 	if err != nil {
 		return nil, err
@@ -286,6 +303,20 @@ func (p *LiveProjection) ReadWindow(ctx context.Context, query database.MessageW
 	for _, turnID := range snapshot.TurnIDs {
 		if t := c.turns[turnID]; t != nil {
 			reconcileProjectedTurn(c, t, snapshot.Version, snapshot.Turns[turnID])
+		}
+	}
+	if canonical {
+		for i, item := range snapshot.Items {
+			t := c.turns[item.TurnID]
+			if item.Kind != "response" || t == nil || t.finished || t.detached {
+				continue
+			}
+			composed, err := composeResponse(item, snapshotLiveTurn(c, t))
+			if err != nil {
+				return nil, err
+			}
+			snapshot.Items[i] = composed
+			snapshot.Responses[item.TurnID] = composed
 		}
 	}
 	return snapshot, nil
