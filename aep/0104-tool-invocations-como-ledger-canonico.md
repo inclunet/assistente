@@ -13,6 +13,10 @@ ativados depois, na ordem leitores → writers; este recorte é somente schema.
 A deduplicação de novas chamadas deverá respeitar execução + call ID, e as
 rodadas, execução + iteração. Argumentos/resultados continuam somente no ledger.
 
+Evidências da v44: `internal/database/migration_chat_execution_content.go` e
+`TestExecutionContentSchemaScopesInvocationsAndKeepsTerminalResults`, no
+[PR #978](https://github.com/inclunet/assistente/pull/978).
+
 **Classificação de falhas (25/10/2026):** falha de validação da origem ou criação do registro
 no ledger antes de executar uma tool de chat retorna `unavailable` com código
 `invocation_ledger_unavailable`, mantendo `Persisted=false` e zero efeitos.
