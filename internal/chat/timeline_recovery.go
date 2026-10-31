@@ -14,6 +14,7 @@ import (
 // mesclado ao texto persistido: contém tentativas voláteis ou desvinculadas.
 // Não é DTO wire; o cutover de janelas/eventos permanece separado.
 type TurnRecovery struct {
+	Item                 *TimelineItem
 	Persisted            *TimelineTurnSnapshot
 	PersistedExecutionID string
 	Epoch                string
@@ -74,6 +75,15 @@ func (p *LiveProjection) ReadRecovery(ctx context.Context, conversationID, turnI
 		for _, retained := range result.Retained {
 			retained.Epoch = c.epoch
 			retained.Revision = c.revision
+		}
+	}
+	if persisted.Response != nil {
+		result.Item = persisted.Response
+		if result.Active != nil {
+			result.Item, err = composeResponse(persisted.Response, result.Active)
+			if err != nil {
+				return nil, err
+			}
 		}
 	}
 	sort.Slice(result.Retained, func(i, j int) bool { return result.Retained[i].ExecutionID < result.Retained[j].ExecutionID })

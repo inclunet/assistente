@@ -1,8 +1,46 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — fase 1 concluída; fase 2 com escritores, seleção e portabilidade por execução; composição e cutover pendentes
+## Status: In Progress — fase 1 concluída; fase 2 com composição de recuperação; janelas, protocolo e cutover pendentes
 
 Data: 2026-10-30
+
+### Recorte: composição de fontes confirmadas e streaming (2026-10-31)
+
+A recuperação coordenada fornece um item composto da execução ativa comprovada,
+reutilizando a projeção de segmentos persistida. Cada stream substitui sua fonte
+pelo ID confirmado pelo writer; não há comparação de prefixos ou deduplicação por
+texto. Conteúdo confirmado usa o snapshot do banco, inclusive após edição.
+Geração/execução/iteração identificam drafts; confirmação substitui esses IDs pelos
+segmentos persistidos e conserva o item lógico. Fonte confirmada ausente exige
+recuperação explícita. Tentativas retidas/desvinculadas continuam separadas.
+
+O compositor de mensagens aplica posições válidas de atividade por fonte, mesmo
+quando o turno contém ferramentas locais e nativas. Chamadas sem posição válida
+permanecem na ordem do ledger; nenhuma chamada é descartada ou duplicada. Esse
+algoritmo é compartilhado por leitura persistida, terminal e composição live.
+
+Evidências: `TestCompositionReplacesConfirmedPartialBySourceThenReturnsToStorage`,
+`TestCompositionKeepsConfirmedPrefixOnceAndScopesRepeatedIterations`,
+`TestCompositionPreservesLiveCutsAndTextIdentityDuringReasoning`,
+`TestCompositionRejectsOtherAttemptAndPreservesGenerationIdentity` e
+`TestMixedInvocationOriginsKeepKnownTextPositions`. Testes ACP são compilados,
+mas não executados localmente; cobertura de origens mistas é executada no CI.
+
+Este recorte não expõe novo RPC nem troca o consumidor visual. Os próximos quatro
+recortes deste lote são janela com turnos sem representante, DTO/cursores,
+inscrições por superfície e atualização/recuperação do protocolo. A fase 2 e o
+cutover frontend permanecem incompletos; não há promessa de foco corrigido.
+
+Validação: chat 278, runtime/recuperação 36 e janelas App 10 testes locais
+selecionados passaram; build/vet/lint incremental sem ocorrências. Frontend
+idêntico à árvore validada no lote anterior (1a80d4602a8e2fa432d8897ce1be6b46e8a04f3d).
+Comparação sequencial 5×20 da janela, 100/500/1.000 mensagens: pai
+4,977/12,622/32,177 ms; composição 4,933/12,942/31,882 ms. B/op:
+812.847/1.776.597/1.777.231 → 822.723/1.775.402/1.831.903; payload inalterado.
+O incremento contra o pai fica abaixo de 3,1%. Ambas as versões estão mais
+lentas que a medição histórica neste ambiente, sobretudo no caso 1.000; isso
+não comprova atendimento ao gate absoluto original, que permanece aberto para
+o encerramento da fase. Não se redefine a baseline nem se declara ganho.
 
 ### Decisão: retry substitui a execução apresentada (2026-10-31)
 

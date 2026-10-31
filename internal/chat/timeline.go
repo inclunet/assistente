@@ -2,6 +2,7 @@ package chat
 
 import (
 	"sort"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -109,14 +110,16 @@ func legacyTurnRepresentative(ordered []Message, invocationToolCalls []TurnSegme
 }
 
 func projectResponseSegments(ordered []Message, invocationToolCalls []TurnSegmentToolCall, representative *Message) []ResponseSegment {
+	return projectResponseSegmentsWithSources(ordered, invocationToolCalls, representative, nil)
+}
+
+func projectResponseSegmentsWithSources(ordered []Message, invocationToolCalls []TurnSegmentToolCall, representative *Message, sources map[string][]ResponseSegment) []ResponseSegment {
 	representativeID := ""
 	if representative != nil {
 		representativeID = representative.ID
 	}
-	if segments, ok := consolidateACPTextPositions(ordered, invocationToolCalls); ok {
-		return segments
-	}
-	groups := groupCanonicalInvocations(invocationToolCalls)
+	positioned, remaining := positionedInvocations(ordered, invocationToolCalls)
+	groups := groupCanonicalInvocations(remaining)
 	segments := make([]ResponseSegment, 0, len(ordered)+len(groups))
 	messageGroup := make(map[string]int)
 	finalHasLocalCalls := false
@@ -135,13 +138,13 @@ func projectResponseSegments(ordered []Message, invocationToolCalls []TurnSegmen
 		}
 	}
 	appendText := func(message Message) {
-		if message.Reasoning != "" {
-			segments = append(segments, responseTextSegment("reasoning", message, 0, message.Reasoning))
+		source, exists := sources[message.ID]
+		if !exists {
+			source = messageSegments(message)
 		}
-		if strings.TrimSpace(message.Content) != "" {
-			segments = append(segments, responseTextSegment("text", message, 0, message.Content))
-		}
+		segments = append(segments, positionSourceInvocations(source, positioned[message.ID])...)
 	}
+
 	// Vínculos do ledger colocam a fala antes das tools da própria rodada.
 	// Texto antigo sem vínculo preserva sua ordem antes da próxima fala ligada;
 	// sem nenhum vínculo disponível, mantém-se texto → tools, sem inventar IDs.
@@ -181,60 +184,103 @@ func projectResponseSegments(ordered []Message, invocationToolCalls []TurnSegmen
 	return segments
 }
 
-// ACP mantém a resposta integral numa mensagem. As posições observadas no
-// início das tools permitem reconstruir texto → atividade sem duplicar texto
-// no ledger. Dados antigos/inválidos seguem a consolidação genérica.
-func consolidateACPTextPositions(messages []Message, calls []TurnSegmentToolCall) ([]ResponseSegment, bool) {
-	if len(calls) == 0 {
-		return nil, false
+// Offsets válidos são aplicados por fonte. Uma chamada de outra origem não
+// invalida posições já conhecidas, e cada invocação é consumida uma única vez.
+func positionedInvocations(messages []Message, calls []TurnSegmentToolCall) (map[string][]TurnSegmentToolCall, []TurnSegmentToolCall) {
+	hasPosition := false
+	for _, call := range calls {
+		if call.Origin == "acp_agent" && call.ACPTextOffset != nil {
+			hasPosition = true
+			break
+		}
 	}
-	texts := make(map[string]string)
+	if !hasPosition {
+		return nil, calls
+	}
+	texts := make(map[string]string, len(messages))
 	for _, message := range messages {
 		if message.Role == "assistant" {
 			texts[message.ID] = message.Content
 		}
 	}
-	byMessage := make(map[string][]TurnSegmentToolCall)
+	positioned := make(map[string][]TurnSegmentToolCall)
+	remaining := make([]TurnSegmentToolCall, 0, len(calls))
 	for _, call := range calls {
 		text, exists := texts[call.AssistantMessageID]
-		if call.Origin != "acp_agent" || call.ACPTextOffset == nil || !exists {
-			return nil, false
+		if call.Origin == "acp_agent" && call.ACPTextOffset != nil && exists {
+			offset := *call.ACPTextOffset
+			if offset >= 0 && offset <= len(text) && (offset == len(text) || utf8.RuneStart(text[offset])) {
+				positioned[call.AssistantMessageID] = append(positioned[call.AssistantMessageID], normalizeInvocationSummary(call))
+				continue
+			}
 		}
-		offset := *call.ACPTextOffset
-		if offset < 0 || offset > len(text) || (offset < len(text) && !utf8.RuneStart(text[offset])) {
-			return nil, false
-		}
-		byMessage[call.AssistantMessageID] = append(byMessage[call.AssistantMessageID], normalizeInvocationSummary(call))
+		remaining = append(remaining, call)
 	}
+	return positioned, remaining
+}
+
+func messageSegments(message Message) []ResponseSegment {
 	var segments []ResponseSegment
-	for _, message := range messages {
-		if message.Role != "assistant" {
+	if message.Reasoning != "" {
+		segments = append(segments, responseTextSegment("reasoning", message, 0, message.Reasoning))
+	}
+	if message.Content != "" {
+		segments = append(segments, responseTextSegment("text", message, 0, message.Content))
+	}
+	return segments
+}
+
+// Preserva fragmentos e suas identidades; apenas offsets conhecidos dividem um
+// segmento. Não move raciocínio recebido após um corte para o início do stream.
+func positionSourceInvocations(source []ResponseSegment, activity []TurnSegmentToolCall) []ResponseSegment {
+	if len(activity) == 0 {
+		return source
+	}
+	sort.SliceStable(activity, func(i, j int) bool { return *activity[i].ACPTextOffset < *activity[j].ACPTextOffset })
+	var segments []ResponseSegment
+	position, next := 0, 0
+	appendCall := func(call TurnSegmentToolCall) {
+		if len(segments) > 0 && segments[len(segments)-1].Kind == "tool_invocations" {
+			segments[len(segments)-1].Invocations = append(segments[len(segments)-1].Invocations, call)
+		} else {
+			segments = append(segments, responseToolSegment([]TurnSegmentToolCall{call}))
+		}
+	}
+	for _, segment := range source {
+		if segment.Kind != "text" {
+			segments = append(segments, segment)
 			continue
 		}
-		if message.Reasoning != "" {
-			segments = append(segments, responseTextSegment("reasoning", message, 0, message.Reasoning))
-		}
-		activity := byMessage[message.ID]
-		sort.SliceStable(activity, func(i, j int) bool { return *activity[i].ACPTextOffset < *activity[j].ACPTextOffset })
-		position := 0
-		for _, call := range activity {
-			offset := *call.ACPTextOffset
-			if offset > position {
-				segments = append(segments, responseTextSegment("text", message, position, message.Content[position:offset]))
+		local := 0
+		appendText := func(end int) {
+			if end == local {
+				return
 			}
-			if len(segments) > 0 && segments[len(segments)-1].Kind == "tool_invocations" {
-				last := &segments[len(segments)-1]
-				last.Invocations = append(last.Invocations, call)
-			} else {
-				segments = append(segments, responseToolSegment([]TurnSegmentToolCall{call}))
+			part := segment
+			part.Text = segment.Text[local:end]
+			if local != 0 {
+				if segment.SourceMessageID != "" {
+					part = responseTextSegment(segment.Kind, Message{UUIDModel: database.UUIDModel{ID: segment.SourceMessageID}}, local, part.Text)
+				} else {
+					part.SegmentID = segment.SegmentID + ":" + strconv.Itoa(local)
+				}
 			}
-			position = offset
+			segments = append(segments, part)
+			local = end
 		}
-		if position < len(message.Content) {
-			segments = append(segments, responseTextSegment("text", message, position, message.Content[position:]))
+		for next < len(activity) && *activity[next].ACPTextOffset <= position+len(segment.Text) {
+			appendText(*activity[next].ACPTextOffset - position)
+			appendCall(activity[next])
+			next++
 		}
+		appendText(len(segment.Text))
+		position += len(segment.Text)
 	}
-	return segments, true
+	for next < len(activity) {
+		appendCall(activity[next])
+		next++
+	}
+	return segments
 }
 
 func MessageTimelineItemKey(message Message) string {

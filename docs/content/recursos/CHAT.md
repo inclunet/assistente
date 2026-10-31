@@ -249,6 +249,11 @@ Para turnos com uma resposta final registrada, o histórico e a conclusão usam
 essa referência. Editar uma mensagem intermediária depois da conclusão não a
 transforma na resposta final nem troca os dados de uso exibidos por esse motivo.
 
+Quando uma resposta combina atividades posicionadas no texto e outras
+ferramentas, o histórico conserva as posições conhecidas de cada atividade.
+A presença de uma ferramenta de outra origem não desloca essas atividades para
+fora do trecho correspondente.
+
 
 Ao carregar ou paginar o histórico, cada resposta permanece junto da pergunta
 que a originou, mesmo quando suas mensagens internas têm datas anteriores ou

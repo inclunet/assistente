@@ -57,6 +57,7 @@ type livePart struct{ text, reasoning strings.Builder }
 // Fragmentos guardam apenas texto e raciocínio; o ledger permanece autoridade
 // das invocações e de seus detalhes.
 type LiveStreamSnapshot struct {
+	Generation         uint64
 	Iteration          int
 	PersistedMessageID string
 	Confirmed          bool
@@ -409,7 +410,7 @@ func snapshotLiveTurn(c *projectionConversation, t *liveTurn) *LiveTurnSnapshot 
 	sort.Ints(iterations)
 	for _, iteration := range iterations {
 		stream := t.streams[iteration]
-		target := LiveStreamSnapshot{Iteration: iteration, PersistedMessageID: stream.messageID, Confirmed: stream.confirmed}
+		target := LiveStreamSnapshot{Generation: stream.generation, Iteration: iteration, PersistedMessageID: stream.messageID, Confirmed: stream.confirmed}
 		for index := range stream.parts {
 			part := stream.parts[index]
 			identity := fmt.Sprintf("draft:%s:%d:%d:%d", base64.RawURLEncoding.EncodeToString([]byte(t.executionID)), iteration, stream.generation, index)
