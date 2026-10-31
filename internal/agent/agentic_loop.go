@@ -207,6 +207,7 @@ func (r *agenticLoopRunner) streamIteration(ctx context.Context, iteration int) 
 			return result, "", true
 		}
 		handler := r.newHandler(r.conversationID, iteration)
+		handler.BindProjection(streamProjection(ctx, iteration))
 		if setter, ok := handler.(interface{ SetAssistantMessageID(string) }); ok {
 			setter.SetAssistantMessageID(r.assistantMessageID)
 		}
@@ -452,6 +453,9 @@ func (r *agenticLoopRunner) executeToolIteration(ctx context.Context, result Age
 			}
 			logging.Errorf(ctx, "agent.agentic-loop", "[Agent] erro ao salvar mensagem assistant intermediária de tool invocation: %v", err)
 		} else if assistantToolMsg != nil {
+			if execution := executionFrom(ctx); execution != nil {
+				execution.projection.ConfirmStoredContent(iteration, result.FullResponse, result.Reasoning)
+			}
 			r.svc.tagChatToolInvocationsWithAssistantMessage(ctx, r.turnID, execResults, assistantToolMsg.ID)
 		}
 	}

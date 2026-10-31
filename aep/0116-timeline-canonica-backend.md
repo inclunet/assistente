@@ -1,6 +1,6 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — fase 1 concluída; fase 2 com ordenação persistida ancorada na pergunta
+## Status: In Progress — fase 1 concluída; fase 2 com projeção incremental vinculada à execução
 
 Data: 2026-10-30
 
@@ -565,6 +565,63 @@ e 5.887 testes frontend em 484 arquivos aprovados. Nenhum teste ACP executado
 localmente; suíte Go integral local não executada. Revisor independente
 review_aep: três rodadas, achado de divergência Unicode corrigido com regressão;
 zero pendências no gate final, incluindo conferência das métricas.
+
+Nono recorte da fase 2: `LiveProjection` recebe comandos diretamente dos
+handlers, antes dos timers de IPC, e conserva texto/raciocínio por execução,
+iteração e fragmento. O lifecycle instala um binding imutável após admissão no
+TurnStore; a factory de handlers agênticos deve implementá-lo. Callbacks de
+execuções substituídas, tentativas de transporte anteriores e streams selados
+não alteram a projeção. Retry de transporte reinicia explicitamente sua iteração;
+retry explícito troca executionId e conserva itemId da pergunta.
+
+A serialização é por usuário/conversa. Não há SQL por delta nem novo timer de
+coalescing. O ledger permanece autoridade de ferramentas; o projetor não copia
+argumentos/resultados nem cria uma segunda máquina de estados dessas atividades.
+IDs `draft:<execution>:<iteration>:<fragment>` identificam fragmentos internos
+voláteis; não são IDs persistidos de segmentos nem um novo contrato wire. Seal
+aceita a substituição explícita do conteúdo final pelo provider. A revisão interna
+não é a sequence do protocolo. A futura hidratação precisa declarar a substituição
+dos fragmentos pelo modelo persistido, preservando itemId.
+
+Conclusão distingue confirmação do conteúdo de confirmação apenas do estado.
+Panic/retorno sem terminal após chunks conserva conteúdo volatile, mesmo quando
+o metadado failed foi salvo. Falha de gravação mantém failed/persistence_error.
+Conteúdo concluído e confirmado pode ser descartado após 60 s; ativo/volatile
+não expira. Uma tentativa volatile substituída permanece retida por executionId.
+O segundo PR deste par entrega leitura/descarte autorizado e barreira com storage;
+este primeiro PR não expõe ainda esse conteúdo por RPC nem promete recuperação
+visual. Os acumuladores legados permanecem temporariamente até o cutover, sem
+terceira cópia consolidada; medir o custo incremental é parte deste recorte.
+
+Evidências: `TestLiveProjection*` cobre callback antigo, retry de transporte e
+explícito, segmentos, substituição final, snapshot concorrente, isolamento,
+retenção e terminal sem conteúdo confirmado. O runtime real usa as migrações e
+prova preservação antes de flush e falha de escrita parcial. Eventos legados
+continuam sujeitos ao contrato anterior: a guarda do projetor não torna a emissão
+IPC atômica com a troca de execução. Foco, protocolo wire, inscrições e migração
+do frontend permanecem pendentes; fase 2 continua In Progress.
+
+Confirmação de parcial/intermediário ocorre explicitamente após a escrita
+correspondente, por iteração e bytes exatos; novos deltas invalidam essa confirmação.
+Isso permite expirar cancelamentos já salvos sem perder trechos posteriores nem
+intermediários cuja gravação falhou. A substituição/descarte de reasoning abrange
+o stream inteiro, inclusive após cortes.
+
+Validação local: build/vet e golangci-lint (zero issues); regressões de projeção,
+lifecycle real, patches e finalização aprovadas. TypeScript, ESLint e Stylelint
+aprovados (2.124 avisos CSS preexistentes), Vitest com 484 arquivos e 5.887 testes
+aprovados. Os 31 arquivos frontend relacionados a ACP foram excluídos; nenhum
+teste ACP nem suíte Go integral executados localmente. O detector de corrida
+local não executou porque o toolchain disponível está sem CGO; CI mantém esse gate.
+
+`BenchmarkLiveProjectionAppend` isolado, cinco amostras de 100 operações, cada
+operação criando uma execução e recebendo 1.000 deltas de 18 bytes: mediana
+57,868 microssegundos, 84.825 B/op, 35 allocs/op. Isso mede custo incremental do
+projetor, não heap retido ou ganho contra o handler. O snapshot, o IPC e o buffer
+legado não participam dessa fixture; a duplicação transitória dos acumuladores
+continua explícita até a fase 3. Não houve alteração de SQL/payload da janela.
+Revisão independente `review_aep`: problemas de confirmação de conteúdo e
+substituição de reasoning corrigidos com regressões; gate técnico sem pendências.
 
 ### Fase 3 — Consumidor frontend e remoções
 

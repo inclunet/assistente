@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"assistente/internal/chat"
 	"assistente/internal/core/ports"
 	"assistente/internal/events"
 	"assistente/internal/llm"
@@ -18,6 +19,7 @@ import (
 const StreamCoalesceInterval = 24 * time.Millisecond
 
 type BaseStreamHandler struct {
+	projection         *chat.StreamProjection
 	Emitter            events.Emitter
 	ConversationID     string
 	TurnID             string
@@ -43,6 +45,11 @@ type BaseStreamHandler struct {
 	pendingThinkingEmit  bool
 }
 
+// BindProjection é chamado uma vez, antes de entregar o handler ao provider.
+func (h *BaseStreamHandler) BindProjection(projection *chat.StreamProjection) {
+	h.projection = projection
+}
+
 // SetAssistantMessageID injeta o ID estável da mensagem assistant (placeholder) para este turno.
 // Usado pelo RunAgenticLoop para garantir messageId consistente em chat:stream.
 func (h *BaseStreamHandler) SetAssistantMessageID(messageID string) {
@@ -55,6 +62,9 @@ func (h *BaseStreamHandler) SetAssistantMessageID(messageID string) {
 func (h *BaseStreamHandler) SetInitialContent(content string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if !h.projection.Initial(content) {
+		return
+	}
 	h.initialContent = content
 	h.accumulatedContent.Reset()
 	h.accumulatedContent.WriteString(content)
@@ -102,6 +112,9 @@ func (h *BaseStreamHandler) OnChunk(content string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
+	if !h.projection.Append(content) {
+		return
+	}
 	h.accumulatedContent.WriteString(content)
 	h.pendingDelta.WriteString(content)
 
@@ -118,6 +131,11 @@ func (h *BaseStreamHandler) OnChunk(content string) {
 }
 
 func (h *BaseStreamHandler) flushPendingDeltaLocked() {
+	if !h.projection.Current() {
+		h.pendingDelta.Reset()
+		h.cancelPendingChunkTimer()
+		return
+	}
 	// O emitter pode reter o payload depois deste método. Clone evita que o
 	// evento dependa do armazenamento interno do Builder que será resetado.
 	delta := strings.Clone(h.pendingDelta.String())
@@ -164,6 +182,9 @@ func (h *BaseStreamHandler) OnThinking(content string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
+	if !h.projection.Reasoning(content, false) {
+		return
+	}
 	if !h.isThinking {
 		h.isThinking = true
 		h.Emitter.Emit("chat:thinking", ports.ThinkingEvent{
@@ -209,6 +230,9 @@ func (h *BaseStreamHandler) OnThinking(content string) {
 }
 
 func (h *BaseStreamHandler) emitThinkingEvent() {
+	if !h.projection.Current() {
+		return
+	}
 	h.Emitter.Emit("chat:thinking", ports.ThinkingEvent{
 		ConversationID:     h.ConversationID,
 		TurnID:             h.TurnID,
@@ -221,6 +245,11 @@ func (h *BaseStreamHandler) emitThinkingEvent() {
 
 func (h *BaseStreamHandler) OnThinkingDone(fullReasoning string) {
 	h.mu.Lock()
+	if !h.projection.Reasoning(fullReasoning, true) {
+		h.mu.Unlock()
+		return
+	}
+	h.accumulatedReasoning = fullReasoning
 	if h.thinkingTimer != nil {
 		h.thinkingTimer.Stop()
 		h.thinkingTimer = nil
@@ -294,6 +323,9 @@ func (h *BaseStreamHandler) DiscardStreamReasoning() {
 	h.lastThinkingEmitTime = time.Time{}
 	h.mu.Unlock()
 
+	if !h.projection.Reasoning("", true) {
+		return
+	}
 	if active || hadReasoning {
 		h.Emitter.Emit("chat:thinking", ports.ThinkingEvent{
 			ConversationID:     h.ConversationID,
@@ -346,6 +378,9 @@ func (h *BaseStreamHandler) CutSegment() string {
 	defer h.mu.Unlock()
 	h.flushPendingDeltaLocked()
 	// O segmento sobrevive ao reset/reuso do acumulador.
+	if !h.projection.Cut() {
+		return ""
+	}
 	segment := strings.Clone(h.accumulatedContent.String())
 	h.promotedContent.WriteString(segment)
 	h.accumulatedContent.Reset()

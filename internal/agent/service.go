@@ -54,6 +54,7 @@ type AgenticResult struct {
 type IterationHandler interface {
 	llm.StreamHandler
 	Result() AgenticResult
+	BindProjection(*chat.StreamProjection)
 }
 
 // ServiceConfig contém todas as dependências injetadas do AgentService.
@@ -85,6 +86,7 @@ type ServiceConfig struct {
 type Service struct {
 	pendingTerminals sync.Map // pendingTurnKey -> executionId; apenas transações terminais que falharam
 	turns            TurnStore
+	projection       *chat.LiveProjection
 	timeline         chat.TurnSnapshotReader
 	emitter          events.Emitter
 	msgRepo          chat.MessageRepository
@@ -217,6 +219,7 @@ func NewService(cfg ServiceConfig) *Service {
 	}
 	return &Service{
 		turns:            cfg.Turns,
+		projection:       chat.NewLiveProjection(),
 		timeline:         cfg.Timeline,
 		emitter:          cfg.Emitter,
 		msgRepo:          cfg.MsgRepo,
@@ -1357,7 +1360,13 @@ func (s *Service) persistAssistantPartial(ctx context.Context, assistantMessageI
 	if assistantMessageID == "" || (content == "" && reasoning == "") {
 		return nil
 	}
-	return s.turns.WritePartial(context.WithoutCancel(ctx), executionID(ctx), assistantMessageID, content, reasoning, false)
+	err := s.turns.WritePartial(context.WithoutCancel(ctx), executionID(ctx), assistantMessageID, content, reasoning, false)
+	if err == nil {
+		if execution := executionFrom(ctx); execution != nil {
+			execution.projection.ConfirmStoredContent(-1, content, reasoning)
+		}
+	}
+	return err
 }
 
 // persistErrorWhenEmpty preserva o motivo sanitizado quando não houve resposta (AEP-0108).

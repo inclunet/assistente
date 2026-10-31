@@ -304,3 +304,5 @@ func TestTagChatToolInvocationsWithAssistantMessage_SkipsAlreadyTaggedMetadata(t
 		t.Fatalf("expected metadata to remain untouched, got %s", got.Metadata)
 	}
 }
+
+func (h *testIterationHandler) BindProjection(*chat.StreamProjection) {}
