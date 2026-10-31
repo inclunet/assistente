@@ -142,10 +142,9 @@ func TestTimelineSnapshotProjectsSameAuthoritativeResponse(t *testing.T) {
 	if !reflect.DeepEqual(window.Responses[f.question], terminal.Response) {
 		t.Fatal("janela e terminal divergem")
 	}
-	for _, nodes := range [][]MessageNode{window.Window.Nodes, terminal.Nodes} {
-		if responseNode(t, nodes, f.question).Message.ID != f.answer {
-			t.Fatal("adaptador ignorou representante persistido")
-		}
+	patch := terminal.Response.TerminalPatch()
+	if patch == nil || patch.Message.ID != f.answer || responseNode(t, window.Window.Nodes, f.question).Message.ID != f.answer {
+		t.Fatal("adaptador ignorou representante persistido")
 	}
 	// Paginação pode carregar só a pergunta; a resposta fora da janela não é erro.
 	_, err = f.reader.ReadWindow(f.ctx, database.MessageWindowQuery{ConversationID: f.conversation, Anchor: "start", Direction: "after", Limit: 1})

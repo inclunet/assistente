@@ -101,3 +101,7 @@ func (r *handlerTestTimelineReader) ReadVersion(context.Context, string) (databa
 func (s *handlerTestTurnStore) FinishResponseWithVersion(ctx context.Context, conversationID, turnID, executionID, state, reason, responseID string, response *database.MessageOptions) (database.ChatTimelineVersion, error) {
 	return database.ChatTimelineVersion{}, s.FinishResponse(ctx, conversationID, turnID, executionID, state, reason, responseID, response)
 }
+
+func (r *handlerTestTimelineReader) ReadWindow(context.Context, database.MessageWindowQuery) (*chat.TimelineWindowSnapshot, error) {
+	panic("fixture de handler sem leitura de janela")
+}

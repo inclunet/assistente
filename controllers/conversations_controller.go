@@ -15,6 +15,7 @@ import (
 // ConversationsController orquestra persistência de conversas/mensagens (AEP-0088).
 // Side-effects do App (reset de escopo, questionário, modelo do perfil) entram via hooks.
 type ConversationsControllerConfig struct {
+	ReadTimelineWindow          func(context.Context, database.MessageWindowQuery) (*chat.TimelineWindowSnapshot, error)
 	MsgRepo                     chat.MessageRepository
 	Emitter                     ports.Emitter
 	ResetScopedState            func(ctx context.Context, conversationID string)
@@ -31,6 +32,7 @@ type ConversationsControllerConfig struct {
 
 // ConversationsController é o orquestrador do domínio conversations.
 type ConversationsController struct {
+	readTimelineWindow      func(context.Context, database.MessageWindowQuery) (*chat.TimelineWindowSnapshot, error)
 	msgRepo                 chat.MessageRepository
 	emitter                 ports.Emitter
 	resetScopedState        func(ctx context.Context, conversationID string)
@@ -54,6 +56,7 @@ const clearConversationsMaxAttempts = 8
 
 // NewConversationsController monta o controller a partir da config.
 func NewConversationsController(cfg ConversationsControllerConfig) *ConversationsController {
+
 	if cfg.ValidateBatchDelete == nil {
 		cfg.ValidateBatchDelete = database.ValidateOwnedConversationIDsWithContext
 	}
@@ -70,6 +73,7 @@ func NewConversationsController(cfg ConversationsControllerConfig) *Conversation
 		cfg.DeleteWithinMaintenance = database.DeleteConversationsWithinMaintenanceWithContext
 	}
 	return &ConversationsController{
+		readTimelineWindow:      cfg.ReadTimelineWindow,
 		msgRepo:                 cfg.MsgRepo,
 		emitter:                 cfg.Emitter,
 		resetScopedState:        cfg.ResetScopedState,
@@ -315,7 +319,10 @@ func (c *ConversationsController) GetConversationMessageWindow(ctx context.Conte
 		parentID = &threadParentID
 	}
 
-	snapshot, err := chat.NewDBTimelineReader(database.DB()).ReadWindow(ctx, database.MessageWindowQuery{
+	if c.readTimelineWindow == nil {
+		return nil, fmt.Errorf("leitor coordenado de janela não configurado")
+	}
+	snapshot, err := c.readTimelineWindow(ctx, database.MessageWindowQuery{
 		ConversationID: conversationID, ParentID: parentID, Anchor: anchor, AnchorMessageID: anchorMessageID, Direction: direction, Limit: limit,
 	})
 	if err != nil {

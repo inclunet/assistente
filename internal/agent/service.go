@@ -59,7 +59,7 @@ type IterationHandler interface {
 // ServiceConfig contém todas as dependências injetadas do AgentService.
 type ServiceConfig struct {
 	Turns            TurnStore
-	Timeline         chat.TurnSnapshotReader
+	Timeline         chat.TimelineSnapshotReader
 	Emitter          events.Emitter
 	MsgRepo          chat.MessageRepository
 	ToolExecutor     *tools.Executor
@@ -86,7 +86,7 @@ type Service struct {
 	pendingTerminals sync.Map // pendingTurnKey -> executionId; apenas transações terminais que falharam
 	turns            TurnStore
 	projection       *chat.LiveProjection
-	timeline         chat.TurnSnapshotReader
+	timeline         chat.TimelineSnapshotReader
 	emitter          events.Emitter
 	msgRepo          chat.MessageRepository
 	toolExecutor     *tools.Executor
@@ -1502,4 +1502,9 @@ func (s *Service) ReadTurnRecovery(ctx context.Context, conversationID, turnID s
 
 func (s *Service) DiscardRetainedTurn(ctx context.Context, conversationID, turnID, executionID string) error {
 	return s.projection.DiscardRetained(ctx, conversationID, turnID, executionID, s.timeline)
+}
+
+// ReadTimelineWindow coordena as consultas da apresentação com a execução.
+func (s *Service) ReadTimelineWindow(ctx context.Context, query database.MessageWindowQuery) (*chat.TimelineWindowSnapshot, error) {
+	return s.projection.ReadWindow(ctx, query, s.timeline)
 }

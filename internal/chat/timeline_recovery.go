@@ -40,22 +40,10 @@ func (p *LiveProjection) ReadRecovery(ctx context.Context, conversationID, turnI
 		return nil, err
 	}
 	result := &TurnRecovery{Persisted: persisted}
-	if c.incarnation != persisted.Version.Incarnation {
-		c.epoch = uuid.NewString()
-		c.incarnation = persisted.Version.Incarnation
-		c.revision++
-	}
+	reconcileProjectionVersion(c, persisted.Version)
 	result.Epoch = c.epoch
 	if t := c.turns[turnID]; t != nil {
-		compatible := t.incarnation == persisted.Version.Incarnation && persisted.Turn != nil && persisted.Turn.ActiveExecutionID != nil && *persisted.Turn.ActiveExecutionID == t.executionID
-		if !t.finished && !compatible {
-			// O banco já não reconhece esta execução. Impedir novos comandos sem
-			// inventar um terminal persistido nem apagar os bytes recebidos.
-			if !t.detached {
-				t.detached = true
-				c.revision++
-			}
-		}
+		compatible := reconcileProjectedTurn(c, t, persisted.Version, persisted.Turn)
 		switch {
 		case t.detached:
 			result.RecoveryRequired = true
@@ -244,4 +232,46 @@ func (e *ExecutionProjection) AssignResponse(write func() (string, error)) (stri
 	t.responseID = id
 	c.revision++
 	return id, nil
+}
+
+func reconcileProjectionVersion(c *projectionConversation, version database.ChatTimelineVersion) {
+	if c.incarnation != version.Incarnation {
+		c.epoch = uuid.NewString()
+		c.incarnation = version.Incarnation
+		c.revision++
+	}
+}
+
+// Reconcilia apenas fatos que pertencem ao snapshot autorizado. Ausência em outra
+// página não significa exclusão; o chamador informa os turnos efetivamente lidos.
+func reconcileProjectedTurn(c *projectionConversation, t *liveTurn, version database.ChatTimelineVersion, turn *database.ChatTurn) bool {
+	compatible := t.incarnation == version.Incarnation && turn != nil && turn.ActiveExecutionID != nil && *turn.ActiveExecutionID == t.executionID
+	if !t.finished && !compatible && !t.detached {
+		t.detached = true
+		c.revision++
+	}
+	return compatible
+}
+
+// ReadWindow usa a mesma barreira de admissão, deltas e commits do turno.
+// O adaptador visual ainda retorna conteúdo persistido; não inventa nós live nem
+// mistura tentativas voláteis com o banco. Recuperação de bytes usa ReadRecovery.
+func (p *LiveProjection) ReadWindow(ctx context.Context, query database.MessageWindowQuery, reader WindowSnapshotReader) (*TimelineWindowSnapshot, error) {
+	userID, err := database.RequireUserID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	c, release := p.lockConversation(projectionKey{userID, query.ConversationID}, true)
+	defer release()
+	snapshot, err := reader.ReadWindow(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	reconcileProjectionVersion(c, snapshot.Version)
+	for _, turnID := range snapshot.TurnIDs {
+		if t := c.turns[turnID]; t != nil {
+			reconcileProjectedTurn(c, t, snapshot.Version, snapshot.Turns[turnID])
+		}
+	}
+	return snapshot, nil
 }

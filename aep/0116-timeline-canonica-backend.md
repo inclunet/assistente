@@ -1,8 +1,50 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — fase 1 concluída; fase 2 com segmentos tipados na recuperação
+## Status: In Progress — fase 1 concluída; fase 2 com leitura de janela coordenada com a execução
 
 Data: 2026-10-30
+
+### Recorte: barreira da janela produtiva (2026-10-31)
+
+O controller de conversas recebe `Service.ReadTimelineWindow` no wiring do App.
+Sem leitor explícito, a operação retorna erro; não existe fallback de consulta
+direta fora da barreira. As fixtures de janela também usam o coordenador.
+A abertura/paginação passa pela mesma barreira por usuário/conversa usada por
+admissão, deltas, commits e recuperação do turno. A consulta continua transacional
+e autorizada pelo leitor compartilhado. Falha não retorna memória nem altera a
+execução; fatos de turnos presentes na página desvinculam uma execução que o banco
+já não reconhece. Ausência em outra página não equivale a exclusão. Os bytes
+recebidos permanecem recuperáveis, sem aceitar novos callbacks do vínculo antigo.
+
+`TestWindowRecoverySerializesDeltasAndPreservesOffPageExecution`,
+`TestWindowRecoveryFailureDoesNotChangeExecution` e
+`TestWindowRecoveryUsesAuthorizedTransactionalReader` cobrem esses contratos.
+`TurnIDs` é metadado interno da leitura, não campo novo no payload da janela.
+A leitura de turno também deixa de montar `Nodes`: após o adaptador terminal
+consumir `Response`, essa árvore era calculada e descartada em produção. As
+provas de snapshot, cronologia, escopo e paridade agora verificam o patch ou a
+projeção consumidos em produção, sem manter trabalho runtime só para fixtures.
+Não há SQL por delta, nova tabela nem reconstrução de mensagens no frontend.
+
+Medição local sequencial, cinco amostras de 20 operações na fixture
+`BenchmarkConversationMessageWindowBaseline`, resultado de tool 1 KiB:
+100/500/1.000 mensagens. Pai: 3,834/9,919/13,531 ms e
+837.098/1.850.400/1.929.640 B/op. Coordenado: 3,804/10,015/13,539 ms e
+830.000/1.868.543/1.892.318 B/op. Payload igual nos dois:
+37.262/88.881/88.882 bytes (exceção já documentada da fase 2).
+O incremento de tempo contra o pai fica abaixo de 1%; tempo e B/op coordenados
+ficam dentro de +20% da baseline histórica. Uma amostra preliminar sob condições
+diferentes deu 4,840 ms para 100 mensagens; a comparação sequencial posterior
+substitui essa amostra, não é evidência de ganho por remoção de trabalho.
+
+Validação: build, vet, lint incremental e testes direcionados de chat, agent,
+controller e janelas App passaram, sem executar ACP. Frontend idêntico ao #974:
+reutilizada validação da mesma árvore (484 arquivos/5.887 testes, TypeScript,
+ESLint e Stylelint; 31 arquivos ACP excluídos). Não houve mudança de bindings.
+
+Este recorte coordena a leitura persistida existente; não entrega ainda janela
+wire com overlay live, inscrição, cursor opaco ou replay. Esses itens, a emissão
+por lotes e o cutover frontend seguem pendentes; fase 2 permanece In Progress.
 
 ### Recorte: segmentos de recuperação (2026-10-31)
 

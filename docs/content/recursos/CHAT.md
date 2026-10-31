@@ -20,6 +20,10 @@ ativa anúncios automáticos de cada trecho nem outra voz concorrente.
 Quando uma resposta não possui mensagem final confirmada, o encerramento não
 substitui o conteúdo recebido por uma mensagem intermediária do mesmo turno.
 
+A abertura e a paginação do histórico são coordenadas com a execução em curso.
+Quando a leitura confirma que uma tentativa foi substituída no armazenamento,
+seus callbacks antigos deixam de alterar a projeção em memória.
+
 ## Consistência do histórico
 
 Ao carregar o histórico ou concluir uma resposta, o aplicativo lê o texto e os

@@ -15,6 +15,7 @@ import (
 // são os adaptadores visuais existentes.
 type TimelineWindowSnapshot struct {
 	InvalidTurnReferences int
+	TurnIDs               []string
 	Version               database.ChatTimelineVersion
 	Turns                 map[string]*database.ChatTurn
 	Responses             map[string]*PersistedResponse
@@ -25,13 +26,21 @@ type TimelineTurnSnapshot struct {
 	Version  database.ChatTimelineVersion
 	Turn     *database.ChatTurn
 	Response *PersistedResponse
-	Nodes    []MessageNode
 }
 
 // TurnSnapshotReader é a dependência de leitura do terminal, separada dos writers.
 type TurnSnapshotReader interface {
 	ReadVersion(context.Context, string) (database.ChatTimelineVersion, error)
 	ReadTurn(context.Context, string, string) (*TimelineTurnSnapshot, error)
+}
+
+// WindowSnapshotReader mantém consulta e autorização na mesma transação.
+type WindowSnapshotReader interface {
+	ReadWindow(context.Context, database.MessageWindowQuery) (*TimelineWindowSnapshot, error)
+}
+type TimelineSnapshotReader interface {
+	TurnSnapshotReader
+	WindowSnapshotReader
 }
 
 type DBTimelineReader struct{ db *gorm.DB }
@@ -85,7 +94,8 @@ func (r *DBTimelineReader) ReadWindow(ctx context.Context, query database.Messag
 		if err != nil {
 			return err
 		}
-		facts, err = readTimelineFacts(ctx, tx, query.ConversationID, snapshotTurnIDs(rows.Messages))
+		result.TurnIDs = snapshotTurnIDs(rows.Messages)
+		facts, err = readTimelineFacts(ctx, tx, query.ConversationID, result.TurnIDs)
 		if err != nil {
 			return err
 		}
@@ -169,7 +179,6 @@ func (r *DBTimelineReader) ReadTurn(ctx context.Context, conversationID, turnID 
 			return nil, err
 		}
 	}
-	result.Nodes = buildResponseNodes(messages, parentID, nil, facts.calls, responses)
 	return result, nil
 }
 

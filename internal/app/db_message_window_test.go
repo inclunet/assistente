@@ -75,8 +75,13 @@ func messageWindowTestCtx() context.Context {
 }
 
 func newMessageWindowTestController() *controllers.ConversationsController {
+	projection := chat.NewLiveProjection()
+	reader := chat.NewDBTimelineReader(database.DB())
 	return controllers.NewConversationsController(controllers.ConversationsControllerConfig{
 		MsgRepo: chat.NewDBMessageStore(),
+		ReadTimelineWindow: func(ctx context.Context, q database.MessageWindowQuery) (*chat.TimelineWindowSnapshot, error) {
+			return projection.ReadWindow(ctx, q, reader)
+		},
 	})
 }
 
