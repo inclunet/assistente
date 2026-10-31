@@ -164,7 +164,7 @@ func (r *DBTimelineReader) ReadTurn(ctx context.Context, conversationID, turnID 
 	result.Turn = facts.turns[turnID]
 	result.Response = responses[turnID]
 	if result.Response == nil && result.Turn != nil {
-		result.Response, err = projectPersistedResponse(conversationID, turnID, parentID, nil, facts.calls[turnID], result.Turn)
+		result.Response, err = ProjectPersistedResponse(conversationID, turnID, parentID, nil, facts.calls[turnID], result.Turn)
 		if err != nil {
 			return nil, err
 		}
@@ -197,7 +197,7 @@ func projectSnapshotResponses(conversationID string, parentID *string, messages 
 	}
 	responses := make(map[string]*PersistedResponse, len(grouped))
 	for turnID, rows := range grouped {
-		response, err := projectPersistedResponse(conversationID, turnID, parentID, rows, facts.calls[turnID], facts.turns[turnID])
+		response, err := ProjectPersistedResponse(conversationID, turnID, parentID, rows, facts.calls[turnID], facts.turns[turnID])
 		if err != nil {
 			return nil, err
 		}

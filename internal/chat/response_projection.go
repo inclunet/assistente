@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"strconv"
+	"time"
 
 	"assistente/internal/core/ports"
 	"assistente/internal/database"
@@ -18,6 +19,8 @@ type PersistedResponse struct {
 	State          string
 	Origin         string
 	Segments       []ResponseSegment
+	messageCount   int
+	callCount      int
 }
 
 type ResponseSegment struct {
@@ -42,7 +45,8 @@ func responseToolSegment(calls []TurnSegmentToolCall) ResponseSegment {
 	return ResponseSegment{SegmentID: "tools:" + base64.RawURLEncoding.EncodeToString([]byte(id)), Kind: "tool_invocations", Invocations: calls}
 }
 
-func projectPersistedResponse(conversationID, turnID string, parentID *string, messages []Message, calls []TurnSegmentToolCall, turn *database.ChatTurn) (*PersistedResponse, error) {
+// ProjectPersistedResponse valida vínculos e projeta o conteúdo confirmado do turno.
+func ProjectPersistedResponse(conversationID, turnID string, parentID *string, messages []Message, calls []TurnSegmentToolCall, turn *database.ChatTurn) (*PersistedResponse, error) {
 	result := &PersistedResponse{ItemID: ports.ResponseItemID(turnID), TurnID: turnID, State: database.TurnHistoricalUnknown, Origin: "legacy"}
 	for _, message := range messages {
 		if message.ConversationID != conversationID || message.TurnID == nil || *message.TurnID != turnID || !sameScope(message.ParentID, parentID) || message.Role == "user" {
@@ -78,6 +82,7 @@ func projectPersistedResponse(conversationID, turnID string, parentID *string, m
 		}
 	}
 	result.Segments = projectResponseSegments(ordered, calls, result.Representative)
+	result.messageCount, result.callCount = len(messages), len(calls)
 	return result, nil
 }
 
@@ -109,4 +114,35 @@ func legacyResponseSegments(segments []ResponseSegment, messageCount, callCount 
 		}
 	}
 	return result
+}
+
+// TerminalPatch adapta somente o representante explícito. O fallback de mensagem
+// usado pelo visual legado não comprova qual resposta foi confirmada no storage.
+func (r *PersistedResponse) TerminalPatch() *ports.TurnPatchEvent {
+	if r == nil || r.Representative == nil {
+		return nil
+	}
+	message := EnrichMessage(*r.Representative)
+	patch := &ports.TurnPatchEvent{ItemID: r.ItemID, Message: ports.TurnPatchMessage{
+		ID: message.ID, ConversationID: message.ConversationID, ParentID: message.ParentID,
+		TurnID: r.TurnID, Content: message.Content, Reasoning: message.Reasoning,
+		PromptTokens: message.PromptTokens, CompletionTokens: message.CompletionTokens,
+		TotalTokens: message.TotalTokens, CacheReadTokens: message.CacheReadTokens,
+		CacheWriteTokens: message.CacheWriteTokens, CacheMissTokens: message.CacheMissTokens,
+		Model: message.Model, CreatedAt: message.CreatedAt.Format(time.RFC3339Nano), Timestamp: message.Timestamp,
+	}}
+	for _, segment := range legacyResponseSegments(r.Segments, r.messageCount, r.callCount) {
+		target := ports.TurnPatchSegment{Type: segment.Type, Content: segment.Content}
+		for _, call := range segment.ToolCalls {
+			target.ToolInvocations = append(target.ToolInvocations, ports.TurnPatchToolInvocation{
+				InvocationID: call.InvocationID, CallID: call.ID, Name: call.Name, Origin: call.Origin,
+				ServerLabel: call.ServerLabel, Status: call.Status, Iteration: call.Iteration, DurationMs: call.DurationMs,
+				InputPreview: call.InputPreview, OutputPreview: call.OutputPreview, InputBytes: call.InputBytes, OutputBytes: call.OutputBytes,
+				HasDetails: call.HasDetails, ResultAvailability: call.ResultAvailability,
+				HasSearchResults: call.HasSearchResults, SearchResultCount: call.SearchResultCount, SecurityOutcome: call.SecurityOutcome,
+			})
+		}
+		patch.Message.TurnSegments = append(patch.Message.TurnSegments, target)
+	}
+	return patch
 }

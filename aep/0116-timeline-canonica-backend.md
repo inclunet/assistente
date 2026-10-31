@@ -1,8 +1,21 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — fase 1 concluída; fase 2 com recuperação coordenada da projeção
+## Status: In Progress — fase 1 concluída; fase 2 com terminal derivado da projeção explícita
 
 Data: 2026-10-30
+
+### Recorte: adaptador terminal da resposta (2026-10-31)
+
+O patch terminal passa a consumir `PersistedResponse.TerminalPatch`, eliminando
+seleção de nós e conversão de segmentos no serviço de execução. Janela e terminal
+consomem os segmentos da mesma projeção. Um representante explicitamente nulo não
+é substituído por uma mensagem intermediária no terminal: o adaptador legado de
+janela ainda pode apresentá-la, mas não comprova conclusão nem persistência final.
+`TestPersistedResponseTerminalRefusesNullRepresentative` cobre essa separação.
+
+Este recorte não conclui a fase 2: faltam composição live unificada, janelas sob
+barreira, lotes/inscrições wire e migração dos consumidores. Não altera o payload
+de janela nem acrescenta SQL por delta. Testes ACP permanecem excluídos localmente.
 
 ## Resumo
 

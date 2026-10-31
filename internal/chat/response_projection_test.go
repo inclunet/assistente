@@ -17,7 +17,7 @@ func TestPersistedResponseUsesExplicitRepresentativeAndStableSegments(t *testing
 	messages[1].UpdatedAt = time.Now().Add(time.Hour)
 	var calls []TurnSegmentToolCall
 	turn := &database.ChatTurn{UserMessageID: turnID, ConversationID: "conv-1", ResponseMessageID: &messages[0].ID, State: database.TurnFailed, Origin: "runtime"}
-	first, err := projectPersistedResponse("conv-1", turnID, nil, messages, calls, turn)
+	first, err := ProjectPersistedResponse("conv-1", turnID, nil, messages, calls, turn)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -25,7 +25,7 @@ func TestPersistedResponseUsesExplicitRepresentativeAndStableSegments(t *testing
 		t.Fatalf("autoridade persistida perdida: %+v", first)
 	}
 	messages[0].Content += " e mais texto"
-	second, err := projectPersistedResponse("conv-1", turnID, nil, messages, calls, turn)
+	second, err := ProjectPersistedResponse("conv-1", turnID, nil, messages, calls, turn)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,7 +42,7 @@ func TestPersistedResponseUsesExplicitRepresentativeAndStableSegments(t *testing
 func TestPersistedResponseNullIsNotLegacyOrCompleted(t *testing.T) {
 	turnID, messages, calls := canonicalTurnFixture()
 	turn := &database.ChatTurn{UserMessageID: turnID, ConversationID: "conv-1", State: database.TurnInterrupted, Origin: "runtime"}
-	projection, err := projectPersistedResponse("conv-1", turnID, nil, messages, calls, turn)
+	projection, err := ProjectPersistedResponse("conv-1", turnID, nil, messages, calls, turn)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,14 +53,14 @@ func TestPersistedResponseNullIsNotLegacyOrCompleted(t *testing.T) {
 	if visual.ID == "" || projection.Representative != nil {
 		t.Fatal("adaptação contaminou a projeção")
 	}
-	legacy, err := projectPersistedResponse("conv-1", turnID, nil, messages, calls, nil)
+	legacy, err := ProjectPersistedResponse("conv-1", turnID, nil, messages, calls, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if legacy.Representative == nil || legacy.State != database.TurnHistoricalUnknown {
 		t.Fatalf("legado: %+v", legacy)
 	}
-	empty, err := projectPersistedResponse("conv-1", turnID, nil, nil, nil, turn)
+	empty, err := ProjectPersistedResponse("conv-1", turnID, nil, nil, nil, turn)
 	if err != nil || empty.Representative != nil || empty.State != database.TurnInterrupted {
 		t.Fatalf("turno sem conteúdo: %+v %v", empty, err)
 	}
@@ -70,7 +70,7 @@ func TestPersistedResponseRejectsInvalidReferences(t *testing.T) {
 	turnID, messages, calls := canonicalTurnFixture()
 	missing := "missing"
 	turn := &database.ChatTurn{UserMessageID: turnID, ConversationID: "conv-1", ResponseMessageID: &missing, State: database.TurnCompleted}
-	if _, err := projectPersistedResponse("conv-1", turnID, nil, messages, calls, turn); err == nil {
+	if _, err := ProjectPersistedResponse("conv-1", turnID, nil, messages, calls, turn); err == nil {
 		t.Fatal("representante ausente aceito")
 	}
 	turn.ResponseMessageID = &messages[0].ID
@@ -90,7 +90,7 @@ func TestPersistedResponseRejectsInvalidReferences(t *testing.T) {
 			case "invocation":
 				tools[0].InvocationID = ""
 			}
-			if _, err := projectPersistedResponse("conv-1", turnID, nil, rows, tools, turn); err == nil {
+			if _, err := ProjectPersistedResponse("conv-1", turnID, nil, rows, tools, turn); err == nil {
 				t.Fatal("referência inválida aceita")
 			}
 		})
@@ -99,7 +99,7 @@ func TestPersistedResponseRejectsInvalidReferences(t *testing.T) {
 
 func TestPersistedResponseSimpleSegmentsAndInvocationIdentity(t *testing.T) {
 	turnID, messages, calls := canonicalTurnFixture()
-	projection, err := projectPersistedResponse("conv-1", turnID, nil, messages[:1], nil, nil)
+	projection, err := ProjectPersistedResponse("conv-1", turnID, nil, messages[:1], nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -171,7 +171,7 @@ func TestPersistedResponsePreservesOpaqueMessageLinks(t *testing.T) {
 	messages[1].ID = "m"
 	calls[0].AssistantMessageID = messages[0].ID
 	turn := &database.ChatTurn{UserMessageID: turnID, ConversationID: "conv-1", ResponseMessageID: &messages[1].ID, State: database.TurnCompleted}
-	projection, err := projectPersistedResponse("conv-1", turnID, nil, messages, calls, turn)
+	projection, err := ProjectPersistedResponse("conv-1", turnID, nil, messages, calls, turn)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -191,5 +191,30 @@ func TestSnapshotResponseLeavesBlankTurnAsIndependentMessage(t *testing.T) {
 	responses, err := projectSnapshotResponses("conv", nil, rows, timelineFacts{})
 	if err != nil || len(responses) != 0 {
 		t.Fatalf("mensagem independente promovida: %+v %v", responses, err)
+	}
+}
+
+func TestPersistedResponseTerminalRefusesNullRepresentative(t *testing.T) {
+	turnID, messages, calls := canonicalTurnFixture()
+	turn := &database.ChatTurn{UserMessageID: turnID, ConversationID: "conv-1", State: database.TurnInterrupted, Origin: "runtime"}
+	response, err := ProjectPersistedResponse("conv-1", turnID, nil, messages, calls, turn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.TerminalPatch() != nil {
+		t.Fatal("fallback visual promovido a resposta confirmada")
+	}
+	turn.ResponseMessageID = &messages[0].ID
+	response, err = ProjectPersistedResponse("conv-1", turnID, nil, messages, calls, turn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	patch := response.TerminalPatch()
+	if patch == nil || patch.ItemID != response.ItemID || patch.Message.ID != messages[0].ID || patch.Message.Content != messages[0].Content {
+		t.Fatalf("representante explícito perdido: %+v", patch)
+	}
+	_, segments := response.legacyMessage(messages, calls)
+	if len(patch.Message.TurnSegments) != len(segments) {
+		t.Fatal("adaptadores divergiram nos segmentos")
 	}
 }

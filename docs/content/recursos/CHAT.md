@@ -17,6 +17,9 @@ terminar, e o foco não é reiniciado a cada trecho. Escape devolve o foco à me
 mensagem; é possível entrar novamente enquanto a geração continua. Isso não
 ativa anúncios automáticos de cada trecho nem outra voz concorrente.
 
+Quando uma resposta não possui mensagem final confirmada, o encerramento não
+substitui o conteúdo recebido por uma mensagem intermediária do mesmo turno.
+
 ## Consistência do histórico
 
 Ao carregar o histórico ou concluir uma resposta, o aplicativo lê o texto e os
