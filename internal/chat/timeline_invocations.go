@@ -7,7 +7,8 @@ func ToolInvocationSummariesToTurnSegments(summaries map[string][]toolinvocation
 	for turnID, calls := range summaries {
 		for _, call := range calls {
 			out[turnID] = append(out[turnID], TurnSegmentToolCall{
-				InvocationID:       call.InvocationID,
+				InvocationID: call.InvocationID,
+				ExecutionID:  call.ExecutionID, ExecutionDepth: call.ExecutionDepth,
 				ID:                 call.CallID,
 				Name:               call.Name,
 				Origin:             call.Origin,

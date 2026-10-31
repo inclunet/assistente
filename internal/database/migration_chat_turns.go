@@ -74,7 +74,8 @@ func createChatTurnSchema(tx *gorm.DB) error {
  BEGIN SELECT RAISE(ABORT, 'message update invalidates chat turn'); END`).Error
 }
 
-func migrateChatTurns(db *gorm.DB) error {
+// MigrateChatTurns aplica a migração transacional de turnos e suas invariantes.
+func MigrateChatTurns(db *gorm.DB) error {
 	// Falha no backup bloqueia a migração. Bancos em memória não têm arquivo a copiar.
 	if err := backupChatTurns(db); err != nil {
 		return err

@@ -147,18 +147,18 @@ func (r *MessageRepository) loadHistoryWindow(ctx context.Context, conv Conversa
 	if maxMessages <= 0 {
 		return nil, fmt.Errorf("maxMessages deve ser positivo")
 	}
-	const query = `
+	query := fmt.Sprintf(`
 WITH boundary AS (
 	SELECT id, created_at
 	FROM chat_messages
-	WHERE id = ? AND conversation_id = ? AND parent_id IS NULL
+	WHERE id = ? AND conversation_id = ? AND parent_id IS NULL AND %s
 ),
 selected AS (
 	SELECT * FROM (
 		SELECT chat_messages.*
 		FROM chat_messages
 		WHERE conversation_id = ?
-		  AND parent_id IS NULL
+		  AND parent_id IS NULL AND %s
 		  AND (
 			? = ''
 			OR NOT EXISTS (SELECT 1 FROM boundary)
@@ -173,7 +173,7 @@ selected AS (
 		SELECT chat_messages.*
 		FROM chat_messages
 		WHERE conversation_id = ?
-		  AND parent_id IS NULL
+		  AND parent_id IS NULL AND %s
 		  AND (
 			? = ''
 			OR NOT EXISTS (SELECT 1 FROM boundary)
@@ -188,7 +188,7 @@ SELECT
 	selected.*,
 	COALESCE((SELECT id FROM boundary), '') AS summary_boundary_id
 FROM selected
-ORDER BY created_at ASC, id ASC`
+ORDER BY created_at ASC, id ASC`, CurrentChatMessageSQL("chat_messages"), CurrentChatMessageSQL("chat_messages"), CurrentChatMessageSQL("chat_messages"))
 
 	var rows []historyWindowRow
 	err := r.db.WithContext(ctx).Raw(
@@ -202,7 +202,7 @@ ORDER BY created_at ASC, id ASC`
 		maxMessages,
 	).Scan(&rows).Error
 	if err != nil {
-		return nil, err
+		return nil, chatSelectionReadError(ctx, r.db, err)
 	}
 
 	messages := make([]ChatMessage, 0, len(rows))
@@ -220,8 +220,9 @@ ORDER BY created_at ASC, id ASC`
 		var count int64
 		if err := r.db.WithContext(ctx).Model(&ChatMessage{}).
 			Where("id = ? AND conversation_id = ? AND parent_id IS NULL", conv.SummaryUpToMessageID, conv.ID).
+			Where(CurrentChatMessageSQL("chat_messages")).
 			Count(&count).Error; err != nil {
-			return nil, err
+			return nil, chatSelectionReadError(ctx, r.db, err)
 		}
 		boundaryAvailable = count > 0
 	}
@@ -458,7 +459,7 @@ func (r *MessageRepository) GetMessageWithContext(ctx context.Context, messageID
 		return nil, err
 	}
 	var msg ChatMessage
-	if err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).First(&msg, "chat_messages.id = ?", messageID).Error; err != nil {
+	if err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).Select("chat_messages.*").First(&msg, "chat_messages.id = ?", messageID).Error; err != nil {
 		return nil, err
 	}
 	return &msg, nil
@@ -530,7 +531,7 @@ func (r *MessageRepository) GetPinnedMessagesWithContext(ctx context.Context, co
 		return nil, err
 	}
 	var messages []ChatMessage
-	err := scopedMessageQuery(ctx, r.db.Model(&ChatMessage{})).
+	err := scopedMessageQuery(ctx, r.db.Model(&ChatMessage{})).Where(CurrentChatMessageSQL("chat_messages")).
 		Select(
 			"chat_messages.id",
 			"chat_messages.created_at",
@@ -559,7 +560,7 @@ func (r *MessageRepository) GetTurnMessagesWithContext(ctx context.Context, turn
 		return nil, err
 	}
 	var messages []ChatMessage
-	err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).
+	err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).Where(CurrentChatMessageSQL("chat_messages")).
 		Where("chat_messages.turn_id = ?", turnID).
 		Order("chat_messages.created_at ASC, chat_messages.id ASC").
 		Find(&messages).Error
@@ -581,7 +582,7 @@ func (r *MessageRepository) GetMessagesByTurnIDWithContext(ctx context.Context, 
 	if turnID == "" {
 		return []ChatMessage{}, nil
 	}
-	query := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).
+	query := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).Where(CurrentChatMessageSQL("chat_messages")).
 		Where("chat_messages.conversation_id = ? AND chat_messages.turn_id = ?", conversationID, turnID)
 	if parentID != nil {
 		query = query.Where("chat_messages.parent_id = ?", *parentID)
@@ -1191,7 +1192,7 @@ func (r *MessageRepository) GetMessagesWithContext(ctx context.Context, conversa
 		return nil, err
 	}
 	var messages []ChatMessage
-	query := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).Order("chat_messages.created_at ASC, chat_messages.id ASC")
+	query := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).Where(CurrentChatMessageSQL("chat_messages")).Order("chat_messages.created_at ASC, chat_messages.id ASC")
 
 	if parentID != nil {
 		query = query.Where("chat_messages.parent_id = ?", *parentID)
@@ -1206,7 +1207,7 @@ func (r *MessageRepository) GetMessagesWithContext(ctx context.Context, conversa
 	}
 
 	err := query.Find(&messages).Error
-	return messages, err
+	return messages, chatSelectionReadError(ctx, r.db, err)
 }
 
 // GetRecentRootMessagesWithContext retorna as mensagens raiz mais recentes de
@@ -1228,7 +1229,7 @@ func (r *MessageRepository) GetRecentRootMessagesWithContext(ctx context.Context
 	}
 
 	var messages []ChatMessage
-	err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).Where("chat_messages.conversation_id = ? AND chat_messages.parent_id IS NULL", conversationID).
+	err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).Where(CurrentChatMessageSQL("chat_messages")).Where("chat_messages.conversation_id = ? AND chat_messages.parent_id IS NULL", conversationID).
 		Order("chat_messages.created_at DESC, chat_messages.id DESC").
 		Limit(limit).
 		Find(&messages).Error
@@ -1264,14 +1265,14 @@ func (r *MessageRepository) GetRootMessagesBeforeWithContext(ctx context.Context
 	}
 
 	var before ChatMessage
-	if err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).
+	if err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).Where(CurrentChatMessageSQL("chat_messages")).
 		Select("chat_messages.id", "chat_messages.created_at").
 		First(&before, "chat_messages.id = ? AND chat_messages.conversation_id = ?", beforeID, conversationID).Error; err != nil {
 		return nil, err
 	}
 
 	var messages []ChatMessage
-	err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).Where(
+	err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).Where(CurrentChatMessageSQL("chat_messages")).Where(
 		"chat_messages.conversation_id = ? AND chat_messages.parent_id IS NULL AND (chat_messages.created_at < ? OR (chat_messages.created_at = ? AND chat_messages.id < ?))",
 		conversationID,
 		before.CreatedAt,
@@ -1313,6 +1314,7 @@ type MessageWindowResult struct {
 }
 
 type MessageWindowItem struct {
+	WindowTotal   int `json:"-"`
 	Kind          string
 	ID            string
 	MessageID     string
@@ -1392,7 +1394,7 @@ func normalizeMessageWindowCursor(query MessageWindowQuery) (anchor string, dire
 }
 
 func (r *MessageRepository) messageScopeQuery(conversationID string, parentID *string) *gorm.DB {
-	query := r.db.Model(&ChatMessage{}).Where("conversation_id = ?", conversationID)
+	query := r.db.Model(&ChatMessage{}).Where("conversation_id = ?", conversationID).Where(CurrentChatMessageSQL("chat_messages"))
 	if parentID != nil {
 		return query.Where("parent_id = ?", *parentID)
 	}
@@ -1422,7 +1424,7 @@ WITH scoped AS (
  LEFT JOIN chat_messages q ON m.role <> 'user' AND TRIM(COALESCE(m.turn_id, ''), char(9,10,11,12,13,32,133,160,5760,8192,8193,8194,8195,8196,8197,8198,8199,8200,8201,8202,8232,8233,8239,8287,12288)) <> ''
   AND q.id = m.turn_id AND q.role = 'user'
   AND q.conversation_id = m.conversation_id AND q.parent_id IS m.parent_id
- WHERE m.conversation_id = ? AND %s
+ WHERE m.conversation_id = ? AND %s AND %s
 ), timeline_items AS (
  SELECT item_kind AS kind, item_id AS id, MIN(id) AS message_id,
   CASE WHEN item_kind = 'turn' THEN item_id ELSE '' END AS turn_id,
@@ -1431,7 +1433,7 @@ WITH scoped AS (
   MAX(invalid_turn_reference) AS invalid_turn_reference
  FROM scoped
  GROUP BY item_kind, item_id, created_at, anchor_id, slot
-)`, parentPredicate)
+)`, parentPredicate, CurrentChatMessageSQL("m"))
 }
 
 const timelineItemColumns = "kind, id, message_id, turn_id, created_at, anchor_id, invalid_turn_reference"
@@ -1493,7 +1495,11 @@ func (r *MessageRepository) queryTimelineItems(conversationID string, parentID *
 	if limit <= 0 {
 		return []MessageWindowItem{}, nil
 	}
-	sql := timelineItemCTE(parentID) + " SELECT " + timelineItemColumns + " FROM timeline_items"
+	columns := timelineItemColumns
+	if where == "" {
+		columns += ", COUNT(*) OVER () AS window_total"
+	}
+	sql := timelineItemCTE(parentID) + " SELECT " + columns + " FROM timeline_items"
 	args := timelineItemArgs(conversationID, parentID)
 	if where != "" {
 		sql += " WHERE " + where
@@ -1602,9 +1608,14 @@ func (r *MessageRepository) GetMessageWindowWithContext(ctx context.Context, que
 	}
 
 	limit := normalizeMessageWindowLimit(query.Limit)
-	total, err := r.countTimelineItems(query.ConversationID, query.ParentID)
-	if err != nil {
-		return nil, err
+	// Sem âncora explícita, total e página são calculados pela mesma consulta.
+	// Evita repetir seleção/agregação da conversa só para contar os mesmos itens.
+	total := 0
+	if query.AnchorMessageID != "" || limit == 0 {
+		total, err = r.countTimelineItems(query.ConversationID, query.ParentID)
+		if err != nil {
+			return nil, err
+		}
 	}
 	var anchorItem *MessageWindowItem
 	if query.AnchorMessageID != "" {
@@ -1624,7 +1635,7 @@ func (r *MessageRepository) GetMessageWindowWithContext(ctx context.Context, que
 			HasAfter:   total > 0,
 		}, nil
 	}
-	if total == 0 {
+	if total == 0 && query.AnchorMessageID != "" {
 		return &MessageWindowResult{
 			Items:      []MessageWindowItem{},
 			Messages:   []ChatMessage{},
@@ -1686,14 +1697,22 @@ func (r *MessageRepository) GetMessageWindowWithContext(ctx context.Context, que
 		}
 	} else if anchor == messageWindowAnchorStart || direction == messageWindowDirectionAfter {
 		startIndex = 0
-		items, err = r.queryTimelineItems(query.ConversationID, query.ParentID, "", timelineOrderAscending, windowLimit)
+		items, err = r.queryTimelineItems(query.ConversationID, query.ParentID, "", timelineOrderAscending, limit)
 	} else {
-		items, err = r.queryTimelineItems(query.ConversationID, query.ParentID, "", timelineOrderDescending, windowLimit)
+		items, err = r.queryTimelineItems(query.ConversationID, query.ParentID, "", timelineOrderDescending, limit)
 		reverseTimelineItems(items)
-		startIndex = total - len(items)
 	}
 	if err != nil {
 		return nil, err
+	}
+	if anchorItem == nil && len(items) > 0 {
+		total = items[0].WindowTotal
+		if anchor != messageWindowAnchorStart && direction != messageWindowDirectionAfter {
+			startIndex = total - len(items)
+		}
+	}
+	if len(items) == 0 {
+		items = []MessageWindowItem{}
 	}
 	invalidTurnReferences := 0
 	for i := range items {
@@ -1736,7 +1755,7 @@ func (r *MessageRepository) GetAllConversationMessagesWithContext(ctx context.Co
 		return nil, err
 	}
 	var messages []ChatMessage
-	err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).
+	err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).Select("chat_messages.*").
 		Where("chat_messages.conversation_id = ?", conversationID).
 		Order("chat_messages.created_at ASC, chat_messages.id ASC").
 		Find(&messages).Error
@@ -1920,7 +1939,7 @@ func (r *MessageRepository) GetMessagesAfterIDWithContext(ctx context.Context, c
 		return nil, err
 	}
 	var messages []ChatMessage
-	err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).
+	err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).Where(CurrentChatMessageSQL("chat_messages")).
 		Where("chat_messages.conversation_id = ? AND chat_messages.parent_id IS NULL", conversationID).
 		Order("chat_messages.created_at ASC").Find(&messages).Error
 	if err != nil {
@@ -1953,7 +1972,7 @@ func (r *MessageRepository) GetMessagesBetweenIDsWithContext(ctx context.Context
 		return nil, err
 	}
 	var messages []ChatMessage
-	err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).
+	err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).Where(CurrentChatMessageSQL("chat_messages")).
 		Where("chat_messages.conversation_id = ? AND chat_messages.parent_id IS NULL", conversationID).
 		Order("chat_messages.created_at ASC").Find(&messages).Error
 	if err != nil {

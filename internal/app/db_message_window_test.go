@@ -26,11 +26,16 @@ func setupMessageWindowAppTestDB(t testing.TB) {
 		&database.User{},
 		&database.Conversation{},
 		&database.ChatMessage{},
-		&database.ChatTurn{},
 		&database.ToolCatalog{},
 		&database.ToolInvocation{},
 	); err != nil {
 		t.Fatalf("migrate: %v", err)
+	}
+	if err := database.MigrateChatTurns(db); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.MigrateChatExecutionContent(db); err != nil {
+		t.Fatal(err)
 	}
 	// Fixture imutável de leitura: a integração de versão/triggers usa InitPath
 	// nos testes de snapshot. Preserva o ambiente SQLite em memória da baseline.

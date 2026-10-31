@@ -226,6 +226,7 @@ type Conversation struct {
 // user que o iniciou. Chamadas e resultados de ferramentas pertencem
 // exclusivamente a ToolInvocation.
 type ChatMessage struct {
+	ChatExecutionID *string `json:"-" gorm:"->;-:migration"`
 	UUIDModel
 	ConversationID   string  `json:"conversationId" gorm:"index"`
 	ParentID         *string `json:"parentId,omitempty" gorm:"index"` // ID da mensagem pai (define hierarquia)

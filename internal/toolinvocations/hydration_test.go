@@ -10,22 +10,12 @@ import (
 	"assistente/internal/database"
 	"assistente/internal/tools"
 
-	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
 
 func TestLoadChatToolInvocationDisplaysForTurnIDsPreservesCompletenessOrderAndLatestRetry(t *testing.T) {
-	testDB, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := testDB.AutoMigrate(&database.ToolCatalog{}, &database.ToolInvocation{}); err != nil {
-		t.Fatal(err)
-	}
-	previous := database.DB()
-	database.SetDB(testDB)
-	t.Cleanup(func() { database.SetDB(previous) })
+	testDB := setupProjectionReadTest(t)
 
 	catalog := database.ToolCatalog{
 		Name:               "echo",
@@ -112,21 +102,7 @@ func TestLoadChatToolInvocationDisplaysForTurnIDsPreservesCompletenessOrderAndLa
 }
 
 func TestLoadChatToolInvocationDisplaysUsesCanonicalTurnWithAssistantOrigin(t *testing.T) {
-	testDB, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := testDB.AutoMigrate(
-		&database.Conversation{},
-		&database.ChatMessage{},
-		&database.ToolCatalog{},
-		&database.ToolInvocation{},
-	); err != nil {
-		t.Fatal(err)
-	}
-	previous := database.DB()
-	database.SetDB(testDB)
-	t.Cleanup(func() { database.SetDB(previous) })
+	testDB := setupProjectionReadTest(t)
 
 	conv := database.Conversation{UUIDModel: database.UUIDModel{ID: "conv-legacy"}, UserID: "user-a"}
 	if err := testDB.Create(&conv).Error; err != nil {
@@ -164,25 +140,13 @@ func TestLoadChatToolInvocationDisplaysUsesCanonicalTurnWithAssistantOrigin(t *t
 }
 
 func TestCanonicalHistoryReadsUseScopedIndex(t *testing.T) {
-	testDB, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	if err != nil {
+	testDB := setupProjectionReadTest(t)
+	if err := testDB.Exec("CREATE INDEX idx_tool_invocations_chat_turn ON tool_invocations(user_id,origin_type,turn_id,queued_at,id)").Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := testDB.AutoMigrate(&database.ToolCatalog{}, &database.ToolInvocation{}); err != nil {
-		t.Fatal(err)
-	}
-	for _, sql := range []string{
-		`CREATE INDEX idx_tool_invocations_chat_turn ON tool_invocations(user_id,origin_type,turn_id,queued_at,id)`,
-		`CREATE INDEX idx_tool_invocations_orphan_scan ON tool_invocations(user_id,origin_type,id)`,
-	} {
-		if err := testDB.Exec(sql).Error; err != nil {
-			t.Fatal(err)
-		}
-	}
+
 	log := &orphanPlanLogger{Interface: logger.Default}
-	previous := database.DB()
 	database.SetDB(testDB.Session(&gorm.Session{Logger: log}))
-	t.Cleanup(func() { database.SetDB(previous) })
 	if _, err := LoadChatToolInvocationDisplaysForTurnIDsWithUser(context.Background(), "user", []string{"turn-a", "turn-b"}); err != nil {
 		t.Fatal(err)
 	}
@@ -218,16 +182,7 @@ func TestCanonicalHistoryReadsUseScopedIndex(t *testing.T) {
 }
 
 func TestCanonicalHistoryPaginationPreservesEveryCallAndTurnOrder(t *testing.T) {
-	testDB, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := testDB.AutoMigrate(&database.ToolCatalog{}, &database.ToolInvocation{}); err != nil {
-		t.Fatal(err)
-	}
-	previous := database.DB()
-	database.SetDB(testDB)
-	t.Cleanup(func() { database.SetDB(previous) })
+	testDB := setupProjectionReadTest(t)
 	base := time.Date(2026, 10, 26, 0, 0, 0, 0, time.UTC)
 	// A ordem temporal global intercala os turnos; a página termina dentro do segundo.
 	for _, turn := range []string{"turn-a", "turn-b"} {

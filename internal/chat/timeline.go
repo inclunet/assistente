@@ -32,23 +32,38 @@ func normalizeInvocationSummary(call TurnSegmentToolCall) TurnSegmentToolCall {
 }
 
 type canonicalInvocationGroup struct {
-	iteration int
-	calls     []TurnSegmentToolCall
+	iteration   int
+	executionID string
+	depth       int
+	calls       []TurnSegmentToolCall
 }
 
 func groupCanonicalInvocations(calls []TurnSegmentToolCall) []canonicalInvocationGroup {
-	byIteration := make(map[int][]TurnSegmentToolCall)
+	type groupKey struct {
+		executionID      string
+		iteration, depth int
+	}
+	byIteration := make(map[groupKey][]TurnSegmentToolCall)
 	for _, raw := range calls {
 		call := normalizeInvocationSummary(raw)
-		byIteration[call.Iteration] = append(byIteration[call.Iteration], call)
+		key := groupKey{call.ExecutionID, call.Iteration, call.ExecutionDepth}
+		byIteration[key] = append(byIteration[key], call)
 	}
 	groups := make([]canonicalInvocationGroup, 0, len(byIteration))
 	for iteration, calls := range byIteration {
-		groups = append(groups, canonicalInvocationGroup{iteration: iteration, calls: calls})
+		groups = append(groups, canonicalInvocationGroup{iteration: iteration.iteration, executionID: iteration.executionID, depth: iteration.depth, calls: calls})
 	}
 	// Iterações são numéricas e começam em zero. Dentro da rodada, preservar
 	// a ordem queued_at,id da projeção; call IDs do provedor são opacos.
-	sort.Slice(groups, func(i, j int) bool { return groups[i].iteration < groups[j].iteration })
+	sort.Slice(groups, func(i, j int) bool {
+		if groups[i].depth != groups[j].depth {
+			return groups[i].depth > groups[j].depth
+		}
+		if groups[i].executionID != groups[j].executionID {
+			return groups[i].executionID < groups[j].executionID
+		}
+		return groups[i].iteration < groups[j].iteration
+	})
 	return groups
 }
 

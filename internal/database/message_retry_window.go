@@ -35,14 +35,14 @@ func (r *MessageRepository) LoadHistoryWindowThroughMessageWithContext(ctx conte
 		}
 		// A comparação composta usa o mesmo desempate da ordenação canônica,
 		// inclusive para mensagens com o mesmo timestamp.
-		query := tx.Model(&ChatMessage{}).
+		query := tx.Model(&ChatMessage{}).Where(CurrentChatMessageSQL("chat_messages")).
 			Where("conversation_id = ? AND parent_id IS NULL", conv.ID).
 			Where("(created_at, id) <= (?, ?)", target.CreatedAt, target.ID)
 		summary := ""
 		boundaryAvailable := false
 		if conv.SummaryUpToMessageID != "" {
 			var boundary ChatMessage
-			found := tx.Select("id", "created_at").
+			found := tx.Where(CurrentChatMessageSQL("chat_messages")).Select("id", "created_at").
 				Where("id = ? AND conversation_id = ? AND parent_id IS NULL", conv.SummaryUpToMessageID, conv.ID).
 				Where("(created_at, id) < (?, ?)", target.CreatedAt, target.ID).
 				Limit(1).Find(&boundary)

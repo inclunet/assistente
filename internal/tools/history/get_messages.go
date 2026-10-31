@@ -90,6 +90,8 @@ type getMessagesPayload struct {
 }
 
 type requestedTurn struct {
+	Historical     bool
+	ExecutionID    *string
 	ConversationID string
 	TurnID         string
 }
@@ -115,7 +117,11 @@ func (t *GetMessagesTool) Execute(ctx context.Context, args json.RawMessage) (to
 
 	messages := make([]database.ChatMessage, 0, len(params.IDs))
 	seen := make(map[string]struct{}, len(params.IDs))
-	expandedTurns := make(map[string]struct{})
+	type requestedTurnKey struct {
+		conversation, turn, execution string
+		historical                    bool
+	}
+	expandedTurns := make(map[requestedTurnKey]struct{})
 	requestedTurns := make([]requestedTurn, 0, len(params.IDs))
 	for _, rawID := range params.IDs {
 		id := rawID
@@ -144,12 +150,16 @@ func (t *GetMessagesTool) Execute(ctx context.Context, args json.RawMessage) (to
 			turnID = msg.ID
 		}
 		if params.IncludeToolResults && strings.TrimSpace(turnID) != "" {
-			turnKey := msg.ConversationID + "\x00" + turnID
+			execution := ""
+			if msg.ChatExecutionID != nil {
+				execution = *msg.ChatExecutionID
+			}
+			turnKey := requestedTurnKey{msg.ConversationID, turnID, execution, msg.Role != "user"}
 			if _, expanded := expandedTurns[turnKey]; expanded {
 				continue
 			}
 			expandedTurns[turnKey] = struct{}{}
-			requestedTurns = append(requestedTurns, requestedTurn{ConversationID: msg.ConversationID, TurnID: turnID})
+			requestedTurns = append(requestedTurns, requestedTurn{ConversationID: msg.ConversationID, TurnID: turnID, Historical: msg.Role != "user", ExecutionID: msg.ChatExecutionID})
 		}
 	}
 
@@ -187,14 +197,24 @@ func (t *GetMessagesTool) appendRequestedToolResults(
 ) error {
 	canonicalTurnIDs := make([]string, 0, len(turns))
 	for _, turn := range turns {
-		canonicalTurnIDs = append(canonicalTurnIDs, turn.TurnID)
+		if !turn.Historical {
+			canonicalTurnIDs = append(canonicalTurnIDs, turn.TurnID)
+		}
 	}
 	displays, err := toolinvocations.LoadChatToolInvocationDisplaysForTurnIDsWithUser(ctx, userID, canonicalTurnIDs)
 	if err != nil {
 		return err
 	}
 	for _, turn := range turns {
-		for _, display := range displays[turn.TurnID] {
+		calls := displays[turn.TurnID]
+		if turn.Historical {
+			var err error
+			calls, err = toolinvocations.LoadChatToolInvocationDisplaysForExecutionWithUser(ctx, userID, turn.TurnID, turn.ExecutionID)
+			if err != nil {
+				return err
+			}
+		}
+		for _, display := range calls {
 			ledgerID := display.LedgerID
 			if strings.TrimSpace(ledgerID) == "" {
 				ledgerID = turn.TurnID + ":" + display.ID
