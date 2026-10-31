@@ -1,6 +1,6 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — fase 1 concluída; fase 2 com schema, leitores e portabilidade preparados para seleção por execução
+## Status: In Progress — fase 1 concluída; fase 2 com escritores, seleção e portabilidade por execução; composição e cutover pendentes
 
 Data: 2026-10-30
 
@@ -60,6 +60,64 @@ Evidências de schema: `TestExecutionContentMigrationKeepsLegacyUnattributed`,
 `TestExecutionContentSchemaMarksDeletedBaseUnavailable` e
 `TestExecutionContentMigrationRollsBackOnFailure`. A migração não altera texto,
 usage, IDs nem seleção de dados existentes e não inventa execução no upgrade.
+
+### Recorte: ativação dos escritores por execução (2026-10-31)
+
+A admissão atribui current_execution_id e active_execution_id à mesma tentativa,
+limpa o representante do turno e captura a base explícita de continuação. A
+criação da resposta gera outro registro persistido, vincula-o à tentativa e ao
+turno na mesma transação; repetir a chamada de criação é idempotente. Retry não
+sobrescreve a resposta anterior. O item lógico turn:<questionId> permanece igual;
+a troca dos consumidores frontend para essa identidade continua pendente.
+
+Continuação copia o prefixo textual/raciocínio uma única vez. Mídia é resolvida
+pela cadeia de referências na projeção e no contexto do modelo, sem duplicar
+blobs em chat_messages. Áudio gerado para o texto anterior não é atribuído ao
+novo texto. Uma base excluída não é substituída por outra inferida.
+
+Mensagens intermediárias e todos os produtores de ledger do agente (local,
+nativo e atividade externa) recebem a proveniência da execução admitida. Os
+writers de inserção são compartilhados com importação; modelos de leitura não
+reatribuem proveniência em Save/Update. Dados legados continuam sem atribuição.
+Tentativas de ferramenta e tagging de assistant_message_id são isolados por
+execução; concluir uma ferramenta já registrada pode atualizar o resultado
+anterior, mas não admite outra chamada daquela execução depois do terminal.
+
+Retry/continue invalidam o resumo da conversa na admissão, inclusive quando seu
+boundary está em outro turno. O commit assíncrono compara o resumo anterior e
+confirma que suas mensagens-fonte continuam selecionadas, sob o writer lock.
+Resumo obsoleto é descartado sem anúncio falso de conclusão; não há contador
+paralelo nem coluna nova para resolver essa corrida.
+
+Evidências: `TestExecutionWritersPreserveRetryHistoryAndRejectStaleSummary`,
+`TestInvocationWriterScopesAttemptsAndAllowsLateResult`,
+`TestExecutionWriterNativeCallsRetryAndReferencedMedia`,
+`TestExecutionWriterContinuationPreservesReasoningThroughRuntime`,
+`TestExecutionWriterContinuationPrefixOccursOnceAcrossToolIterations`,
+`TestTurnExecutionAtomicResponseAndLateWrites` e
+`TestTurnRuntimeRecoveryKeepsOneAttemptAndResponse`. Testes de identidade foram
+ajustados ao contrato aprovado: exigem registro novo e preservação do anterior,
+sem retirar rollback, terminais atrasados, usage e identidade do item lógico.
+
+O prefixo de continuação deixa de ser reaplicado depois que uma intermediária
+foi confirmada. Recuperação sem confirmação mantém o prefixo; callbacks de
+thinking compõem o raciocínio novo com a base, sem apagá-la no terminal.
+
+Validação local: database 361, chat 274, agent 136, ledger 96, portabilidade 166,
+sumarização 16 e App 29 testes selecionados passaram, sem execução ACP/NVDA.
+Build/vet e lint incremental passaram. A árvore frontend permanece idêntica à
+validada nesta pilha (484 arquivos/5.887 testes, TypeScript, ESLint e Stylelint).
+Benchmark de janela: medianas 4,109/10,366/14,051 ms e
+805.380/1.752.802/1.775.588 B/op para 100/500/1.000 mensagens, cinco amostras de
+20 operações; payload 37.262/88.881/88.882 bytes. A última medição foi isolada
+por tamanho: duas execuções agrupadas exibiram dispersão de 24–29 ms no caso
+1.000, enquanto suas duas primeiras amostras ficaram em 13–14 ms. Esse ruído
+fica registrado; não é evidência de ganho. A medição isolada atende ao limite
+histórico de +20%, e a fixture continua sendo de histórico legado.
+
+A composição entre segmentos voláteis e persistidos, a prova de ordem final de
+origens mistas, o protocolo de lotes/inscrições e o frontend ainda são pendentes.
+Esta etapa não declara resolvida a perda de foco nem encerra a fase 2.
 
 ### Recorte: portabilidade da seleção e do histórico de execuções (2026-10-31)
 

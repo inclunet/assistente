@@ -15,6 +15,9 @@ func TestTurnExecutionAtomicResponseAndLateWrites(t *testing.T) {
 	if err := MigrateChatTurns(db); err != nil {
 		t.Fatal(err)
 	}
+	if err := MigrateChatExecutionContent(db); err != nil {
+		t.Fatal(err)
+	}
 	ctx := WithUserID(context.Background(), "user")
 	repo := NewChatTurnRepository(db)
 	attempt, err := repo.Begin(ctx, "conv", "turn", "", TurnModeRetry)
@@ -22,7 +25,7 @@ func TestTurnExecutionAtomicResponseAndLateWrites(t *testing.T) {
 		t.Fatal(err)
 	}
 	responseID, err := repo.EnsureResponse(ctx, "conv", "turn", attempt.ExecutionID)
-	if err != nil || responseID != "response" {
+	if err != nil || responseID == "response" || responseID == "" {
 		t.Fatalf("resposta: %q %v", responseID, err)
 	}
 	if err := db.Exec(`CREATE TRIGGER reject_terminal BEFORE UPDATE ON chat_turn_attempts WHEN NEW.state='completed' BEGIN SELECT RAISE(ABORT,'terminal indisponível'); END`).Error; err != nil {
@@ -36,7 +39,7 @@ func TestTurnExecutionAtomicResponseAndLateWrites(t *testing.T) {
 	if err := db.First(&message, "id = ?", responseID).Error; err != nil {
 		t.Fatal(err)
 	}
-	if message.Content != "antes" || message.TotalTokens != 0 {
+	if message.Content != "" || message.TotalTokens != 0 {
 		t.Fatalf("resposta vazou do rollback: %+v", message)
 	}
 	if err := db.Exec("DROP TRIGGER reject_terminal").Error; err != nil {
@@ -55,22 +58,40 @@ func TestTurnExecutionAtomicResponseAndLateWrites(t *testing.T) {
 	if err := repo.FinishResponse(ctx, "conv", "turn", attempt.ExecutionID, TurnCompleted, "completed", responseID, &MessageOptions{Content: "atrasada"}); !errors.Is(err, ErrChatTurnStale) {
 		t.Fatalf("terminal antigo: %v", err)
 	}
-	if err := repo.WritePartial(ctx, next.ExecutionID, responseID, "parcial", "", false); err != nil {
+	nextResponseID, err := repo.EnsureResponse(ctx, "conv", "turn", next.ExecutionID)
+	if err != nil || nextResponseID == responseID {
+		t.Fatalf("retry reutilizou resposta: %q %v", nextResponseID, err)
+	}
+	if err := repo.WritePartial(ctx, next.ExecutionID, responseID, "indevida", "", false); !errors.Is(err, ErrChatTurnStale) {
+		t.Fatalf("execução nova alterou resposta antiga: %v", err)
+	}
+	if err := repo.WritePartial(ctx, next.ExecutionID, nextResponseID, "parcial", "", false); err != nil {
 		t.Fatal(err)
 	}
 	message = ChatMessage{}
-	if err := db.First(&message, "id = ?", responseID).Error; err != nil {
+	if err := db.First(&message, "id=?", nextResponseID).Error; err != nil {
 		t.Fatal(err)
 	}
-	if message.Content != "parcial" || message.TotalTokens != 11 || message.CacheReadTokens != 3 {
-		t.Fatalf("partial alterou usage: %+v", message)
+	if message.Content != "parcial" || message.TotalTokens != 0 || message.CacheReadTokens != 0 {
+		t.Fatalf("partial herdou usage: %+v", message)
 	}
+	message = ChatMessage{}
+	if err := db.First(&message, "id=?", responseID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if message.Content != "nova resposta" || message.TotalTokens != 11 || message.CacheReadTokens != 3 {
+		t.Fatalf("execução anterior alterada: %+v", message)
+	}
+
 }
 
 func TestTurnExecutionReconcilesLegacyButPreservesCanonicalResponse(t *testing.T) {
 	db := newChatTurnTestDB(t, false)
 	seedChatTurnTestMessages(t, db, "conv", "turn", "old")
 	if err := MigrateChatTurns(db); err != nil {
+		t.Fatal(err)
+	}
+	if err := MigrateChatExecutionContent(db); err != nil {
 		t.Fatal(err)
 	}
 	turnID := "turn"
@@ -85,9 +106,18 @@ func TestTurnExecutionReconcilesLegacyButPreservesCanonicalResponse(t *testing.T
 		t.Fatal(err)
 	}
 	responseID, err := repo.EnsureResponse(ctx, "conv", turnID, attempt.ExecutionID)
-	if err != nil || responseID != "final" {
+	if err != nil || responseID == "final" || responseID == "" {
 		t.Fatalf("reconciliação: %q %v", responseID, err)
 	}
+	var copy ChatMessage
+	if err := db.First(&copy, "id=?", responseID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if copy.Content != "final histórico" || attempt.BaseExecutionID != nil || attempt.BaseResponseMessageID == nil || *attempt.BaseResponseMessageID != "final" {
+		t.Fatalf("base legada não preservada: %+v %+v", copy, attempt)
+	}
+	continuationID := responseID
+
 	if err := repo.Finish(ctx, "conv", turnID, attempt.ExecutionID, TurnInterrupted, "cancelled"); err != nil {
 		t.Fatal(err)
 	}
@@ -99,9 +129,17 @@ func TestTurnExecutionReconcilesLegacyButPreservesCanonicalResponse(t *testing.T
 		t.Fatal(err)
 	}
 	responseID, err = repo.EnsureResponse(ctx, "conv", turnID, next.ExecutionID)
-	if err != nil || responseID != "final" {
+	if err != nil || responseID == "final" || responseID == continuationID || responseID == "" {
 		t.Fatalf("reclassificou turno canônico: %q %v", responseID, err)
 	}
+	copy = ChatMessage{}
+	if err := db.First(&copy, "id=?", continuationID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if copy.Content != "final histórico" {
+		t.Fatal("retry apagou continuação anterior")
+	}
+
 }
 
 func TestTurnExecutionStartupRecoversBeforeReconciliation(t *testing.T) {
@@ -111,6 +149,9 @@ func TestTurnExecutionStartupRecoversBeforeReconciliation(t *testing.T) {
 	db := newChatTurnTestDB(t, false)
 	seedChatTurnTestMessages(t, db, "conv", "turn", "")
 	if err := MigrateChatTurns(db); err != nil {
+		t.Fatal(err)
+	}
+	if err := MigrateChatExecutionContent(db); err != nil {
 		t.Fatal(err)
 	}
 	if err := ensureSchemaMigrationsTable(db); err != nil {
@@ -191,6 +232,9 @@ func TestTurnExecutionReconciliationDoesNotRewriteUnchangedResponse(t *testing.T
 	db := newChatTurnTestDB(t, false)
 	seedChatTurnTestMessages(t, db, "conv", "turn", "response")
 	if err := MigrateChatTurns(db); err != nil {
+		t.Fatal(err)
+	}
+	if err := MigrateChatExecutionContent(db); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Exec(`CREATE TRIGGER reject_unchanged BEFORE UPDATE ON chat_turns WHEN NEW.response_message_id IS OLD.response_message_id BEGIN SELECT RAISE(ABORT,'update redundante'); END`).Error; err != nil {

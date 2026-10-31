@@ -5,6 +5,7 @@ import "time"
 // ToolInvocation registra uma execução técnica de tool, independente da origem
 // (chat, job, dry-run manual do catálogo, etc.).
 type ToolInvocation struct {
+	ChatExecutionID *string `json:"-" gorm:"->;-:migration"`
 	UUIDModel
 	UserID        string `json:"userId" gorm:"not null;index:idx_tool_invocations_user_origin,priority:1;index:idx_tool_invocations_user_origin_queued,priority:1;index:idx_tool_invocations_user_tool_started,priority:1;index:idx_tool_invocations_user_status_queued,priority:1;index:idx_tool_invocations_user_dryrun_queued,priority:1;index:idx_tool_invocations_user_conversation_turn,priority:1"`
 	ToolCatalogID string `json:"toolCatalogId" gorm:"not null;index:idx_tool_invocations_user_tool_started,priority:2"`

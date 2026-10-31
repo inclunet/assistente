@@ -71,6 +71,9 @@ func TestChatTurnLifecycleAndStaleTerminal(t *testing.T) {
 	if err := MigrateChatTurns(db); err != nil {
 		t.Fatal(err)
 	}
+	if err := MigrateChatExecutionContent(db); err != nil {
+		t.Fatal(err)
+	}
 	r := NewChatTurnRepository(db)
 	ctx := WithUserID(context.Background(), "user")
 	first, err := r.Begin(ctx, "conv", " turn ", " response ", TurnModeNew)
@@ -85,6 +88,11 @@ func TestChatTurnLifecycleAndStaleTerminal(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	firstResponseID, err := r.EnsureResponse(ctx, "conv", " turn ", first.ExecutionID)
+	if err != nil || firstResponseID == " response " {
+		t.Fatalf("nova resposta: %q %v", firstResponseID, err)
+	}
+
 	if err = r.Finish(ctx, "conv", " turn ", first.ExecutionID, TurnCompleted, "completed"); err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +107,7 @@ func TestChatTurnLifecycleAndStaleTerminal(t *testing.T) {
 		t.Fatalf("terminal atrasado aceito: %v", err)
 	}
 	turn, err := r.Get(ctx, "conv", " turn ")
-	if err != nil || turn.ActiveExecutionID == nil || *turn.ActiveExecutionID != second.ExecutionID || turn.State != TurnPreparing || *turn.ResponseMessageID != " response " {
+	if err != nil || turn.ActiveExecutionID == nil || *turn.ActiveExecutionID != second.ExecutionID || turn.State != TurnPreparing || turn.ResponseMessageID != nil || turn.CurrentExecutionID == nil || *turn.CurrentExecutionID != second.ExecutionID || second.BaseResponseMessageID == nil || *second.BaseResponseMessageID != firstResponseID {
 		t.Fatalf("retry alterado: %+v %v", turn, err)
 	}
 	if err = r.Finish(ctx, "conv", " turn ", second.ExecutionID, TurnFailed, "persistence_error"); err != nil {
@@ -118,6 +126,9 @@ func TestChatTurnScopeAndLinkConstraints(t *testing.T) {
 	seedChatTurnTestMessages(t, db, "conv", "turn", "response")
 	seedChatTurnTestMessages(t, db, "other", "other-turn", "other-response")
 	if err := MigrateChatTurns(db); err != nil {
+		t.Fatal(err)
+	}
+	if err := MigrateChatExecutionContent(db); err != nil {
 		t.Fatal(err)
 	}
 	r := NewChatTurnRepository(db)
@@ -158,6 +169,9 @@ func TestChatTurnFinishSharesResponseTransaction(t *testing.T) {
 	if err := MigrateChatTurns(db); err != nil {
 		t.Fatal(err)
 	}
+	if err := MigrateChatExecutionContent(db); err != nil {
+		t.Fatal(err)
+	}
 	ctx := WithUserID(context.Background(), "user")
 	r := NewChatTurnRepository(db)
 	attempt, err := r.Begin(ctx, "conv", "turn", "response", TurnModeRetry)
@@ -192,6 +206,9 @@ func TestChatTurnConcurrentBeginRecoveryAndCascade(t *testing.T) {
 	seedChatTurnTestMessages(t, db, "conv", "turn", "response")
 	seedChatTurnTestMessages(t, db, "other", "other-turn", "other-response")
 	if err := MigrateChatTurns(db); err != nil {
+		t.Fatal(err)
+	}
+	if err := MigrateChatExecutionContent(db); err != nil {
 		t.Fatal(err)
 	}
 	ctx := WithUserID(context.Background(), "user")

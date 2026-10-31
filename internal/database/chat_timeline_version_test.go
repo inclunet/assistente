@@ -21,6 +21,9 @@ func newTimelineVersionDB(t *testing.T) *gorm.DB {
 	if err := migrateChatTurnLeases(database); err != nil {
 		t.Fatal(err)
 	}
+	if err := MigrateChatExecutionContent(database); err != nil {
+		t.Fatal(err)
+	}
 	if err := migrateChatTimelineVersions(database); err != nil {
 		t.Fatal(err)
 	}
@@ -178,11 +181,15 @@ func TestChatTimelineVersionTracksLifecycleAndCascade(t *testing.T) {
 	if got := timelineVersion(t, database, "conv"); got.Revision != before.Revision+1 {
 		t.Fatal("tentativa não invalidou")
 	}
-	if err := repo.FinishResponse(ctx, "conv", "turn", attempt.ExecutionID, TurnCompleted, "completed", "answer", &MessageOptions{Content: "final"}); err != nil {
+	responseID, err := repo.EnsureResponse(ctx, "conv", "turn", attempt.ExecutionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.FinishResponse(ctx, "conv", "turn", attempt.ExecutionID, TurnCompleted, "completed", responseID, &MessageOptions{Content: "final"}); err != nil {
 		t.Fatal(err)
 	}
 	before = timelineVersion(t, database, "conv")
-	if err := database.Exec("DELETE FROM chat_messages WHERE id='answer'").Error; err != nil {
+	if err := database.Exec("DELETE FROM chat_messages WHERE id=?", responseID).Error; err != nil {
 		t.Fatal(err)
 	}
 	turn, err := repo.Get(ctx, "conv", "turn")

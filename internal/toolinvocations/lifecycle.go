@@ -144,7 +144,7 @@ func (s *Service) beginInvocation(ctx context.Context, req invocationStart) (Inv
 		observationMetadata, _ = json.Marshal(map[string]any{"external": true, "display": display})
 	}
 	origin := req.origin
-	origin.Type, origin.ID = strings.TrimSpace(origin.Type), strings.TrimSpace(origin.ID)
+	origin.Type = strings.TrimSpace(origin.Type)
 	if origin.Type == "" {
 		origin.Type = OriginChat
 	}
@@ -173,7 +173,8 @@ func (s *Service) beginInvocation(ctx context.Context, req invocationStart) (Inv
 	}
 	call := req.persistenceCall()
 	inv := Invocation{
-		ToolCatalogID: catalog.id, OriginType: origin.Type, OriginID: origin.ID,
+		ChatExecutionID: origin.ChatExecutionID,
+		ToolCatalogID:   catalog.id, OriginType: origin.Type, OriginID: origin.ID,
 		ConversationID: origin.ConversationID, TurnID: origin.TurnID,
 		ParentInvocationID: parentID, ToolCallID: req.call.ID, Attempt: 1,
 		Status: StatusQueued, DryRun: req.dryRun, ModelIteration: req.iteration,

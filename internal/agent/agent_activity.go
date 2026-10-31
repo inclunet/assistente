@@ -294,7 +294,7 @@ func (h *SimpleStreamHandler) archiveAgentTool(callID string, track agentToolTra
 			StartedAt: track.started, DisplayMetadata: display,
 		},
 		Call:      tools.ToolCall{ID: callID, Type: "function", Function: tools.FunctionCall{Name: track.name}},
-		Origin:    toolinvocations.Origin{Type: toolinvocations.OriginChat, ID: h.TurnID, ConversationID: h.ConversationID, TurnID: h.TurnID},
+		Origin:    toolinvocations.Origin{ChatExecutionID: executionIDRef(h.ctx), Type: toolinvocations.OriginChat, ID: h.TurnID, ConversationID: h.ConversationID, TurnID: h.TurnID},
 		Iteration: track.iteration, DurationMs: duration, ErrorKind: tools.ErrorKind(errorKind), ErrorMessage: failure,
 	})
 	if h.activity.archiveDone != nil {

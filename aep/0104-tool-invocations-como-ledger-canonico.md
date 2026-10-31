@@ -8,14 +8,20 @@ O mantenedor definiu no AEP-0116 que retry substitui a execução apresentada e
 preserva a anterior no backend. `attempt` do ledger continua sendo tentativa
 da ferramenta; não identifica uma nova resposta ao mesmo turno. A v44 prepara
 `chat_execution_id` nullable, com vínculo imutável e validado ao turno/conversa/
-usuário. Legado não recebe execução inferida. A seleção e os produtores serão
-ativados depois, na ordem leitores → writers; este recorte é somente schema.
-A deduplicação de novas chamadas deverá respeitar execução + call ID, e as
+usuário. Legado não recebe execução inferida. A seleção e os produtores foram ativados em recortes após o schema.
+A deduplicação de novas chamadas respeita execução + call ID, e as
 rodadas, execução + iteração. Argumentos/resultados continuam somente no ledger.
 
 Evidências da v44: `internal/database/migration_chat_execution_content.go` e
 `TestExecutionContentSchemaScopesInvocationsAndKeepsTerminalResults`, no
 [PR #978](https://github.com/inclunet/assistente/pull/978).
+
+Evidências da ativação: `TestInvocationWriterScopesAttemptsAndAllowsLateResult`
+e `TestExecutionWriterNativeCallsRetryAndReferencedMedia`. Tentativa de ferramenta
+reinicia em cada execução; vínculos de mensagem não alteram execuções anteriores.
+Resultados tardios de registros existentes permanecem aceitos, sem nova admissão
+da execução encerrada. A prova final de composição com origens mistas e o cutover
+do consumidor permanecem no AEP-0116; o status continua In Progress.
 
 **Classificação de falhas (25/10/2026):** falha de validação da origem ou criação do registro
 no ledger antes de executar uma tool de chat retorna `unavailable` com código
@@ -425,7 +431,8 @@ replay. Testes garantem zero efeito sem ledger, ausência de cópia técnica em
 - [x] Executar gate, backup e rebuild.
 - [x] Remover tipos, parsers, métodos, fallbacks e testes exclusivamente
       legados.
-- [x] Marcar AEPs 0063, 0078 e 0104 como `Done`.
+- [x] Marcar AEPs 0063 e 0078 como `Done`.
+- [ ] Marcar AEP-0104 como `Done` após a composição e o cutover previstos no AEP-0116.
 
 Evidência: a migração v19 só avança depois da reconciliação integral da v18,
 cria backup SQLite com manifesto e SHA-256, reconstrói `chat_messages` e

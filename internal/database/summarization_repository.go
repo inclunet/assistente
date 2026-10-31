@@ -2,9 +2,41 @@ package database
 
 import (
 	"context"
+	"errors"
 
 	"gorm.io/gorm"
 )
+
+var ErrSummarySourceChanged = errors.New("conteúdo resumido foi substituído; resumo descartado")
+
+// CommitConversationSummary confirma as fontes sob o mesmo writer lock do commit.
+// Retry pode invalidar um resumo anterior mesmo quando seu boundary é um turno
+// posterior; comparar só o último ID permitiria reintroduzir conteúdo substituído.
+func (r *SummarizationRepository) CommitConversationSummary(ctx context.Context, conversationID, summary, upToMessageID, previousSummary string, sourceIDs []string) error {
+	if _, err := RequireUserID(ctx); err != nil {
+		return err
+	}
+	return withSQLiteImmediateTransaction(ctx, r.db, "chat.summary_commit", func(tx *gorm.DB) error {
+		var conversation Conversation
+		if err := ScopeByUser(ctx, tx, "user_id").Select("id,summary").First(&conversation, "id=?", conversationID).Error; err != nil {
+			return err
+		}
+		if conversation.Summary != previousSummary || len(sourceIDs) == 0 {
+			return ErrSummarySourceChanged
+		}
+		for start := 0; start < len(sourceIDs); start += 400 {
+			ids := sourceIDs[start:min(start+400, len(sourceIDs))]
+			var count int64
+			if err := tx.Model(&ChatMessage{}).Where("conversation_id=? AND parent_id IS NULL AND id IN ?", conversationID, ids).Where(CurrentChatMessageSQL("chat_messages")).Count(&count).Error; err != nil {
+				return err
+			}
+			if count != int64(len(ids)) {
+				return ErrSummarySourceChanged
+			}
+		}
+		return NewSummarizationRepository(tx).UpdateConversationSummaryWithContext(ctx, conversationID, summary, upToMessageID)
+	})
+}
 
 // SummarizationRepository encapsula a persistencia de sumario/rolling context com um *gorm.DB injetado.
 type SummarizationRepository struct {

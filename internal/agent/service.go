@@ -146,7 +146,7 @@ func (s *Service) StreamSimpleWithRecovery(
 			return
 		}
 		h.deferAgentTerminal = true
-		messages = s.applyContinuationPrefill(ctx, messages, params, h.AssistantMessageID, h.SetInitialContent)
+		messages = s.applyContinuationPrefill(ctx, messages, params, h.AssistantMessageID, h.SetInitialResponse)
 		// Só a última tentativa deve finalizar o streaming com erro.
 		h.SuppressTerminalError(attempt < attempts)
 		streamer.StreamChat(ctx, messages, params, h)
@@ -747,7 +747,7 @@ func (s *Service) persistNativeMCPCalls(ctx context.Context, conversationID, tur
 					Arguments: args,
 				},
 			},
-			Origin: toolinvocations.Origin{
+			Origin: toolinvocations.Origin{ChatExecutionID: executionIDRef(ctx),
 				Type:           toolinvocations.OriginChat,
 				ID:             turnID,
 				ConversationID: conversationID,
@@ -1222,8 +1222,7 @@ func (s *Service) executeToolCall(ctx context.Context, call tools.ToolCall, orig
 }
 
 func (s *Service) tagChatToolInvocationsWithAssistantMessage(ctx context.Context, turnID string, execResults []tools.ToolExecutionResult, assistantMessageID string) {
-	turnID = strings.TrimSpace(turnID)
-	if turnID == "" || assistantMessageID == "" || len(execResults) == 0 {
+	if strings.TrimSpace(turnID) == "" || assistantMessageID == "" || len(execResults) == 0 {
 		return
 	}
 	db := database.DB()
@@ -1233,8 +1232,8 @@ func (s *Service) tagChatToolInvocationsWithAssistantMessage(ctx context.Context
 	callIDs := make([]string, 0, len(execResults))
 	seen := map[string]struct{}{}
 	for _, result := range execResults {
-		callID := strings.TrimSpace(result.CallID)
-		if callID == "" {
+		callID := result.CallID
+		if strings.TrimSpace(callID) == "" {
 			continue
 		}
 		if _, ok := seen[callID]; ok {
@@ -1249,7 +1248,7 @@ func (s *Service) tagChatToolInvocationsWithAssistantMessage(ctx context.Context
 	var rows []database.ToolInvocation
 	if err := database.ScopeByUser(ctx, db.WithContext(ctx).Model(&database.ToolInvocation{}), "user_id").
 		Select("id", "metadata").
-		Where("origin_type = ? AND origin_id = ? AND tool_call_id IN ?", toolinvocations.OriginChat, turnID, callIDs).
+		Where("origin_type = ? AND origin_id = ? AND tool_call_id IN ? AND chat_execution_id IS ?", toolinvocations.OriginChat, turnID, callIDs, executionIDRef(ctx)).
 		Find(&rows).Error; err != nil {
 		logging.Warnf(ctx, "agent.service", "[Agent] falha ao carregar tool_invocations para marcar assistant_message_id: %v", err)
 		return
@@ -1304,15 +1303,15 @@ func truncateString(s string, maxLen int) string {
 	return s[:cutoff] + suffix
 }
 
-func (s *Service) loadAssistantPrefill(ctx context.Context, assistantMessageID string) string {
+func (s *Service) loadAssistantPrefill(ctx context.Context, assistantMessageID string) (string, string) {
 	if assistantMessageID == "" || s.msgRepo == nil {
-		return ""
+		return "", ""
 	}
 	msg, err := s.msgRepo.GetMessage(ctx, assistantMessageID)
 	if err != nil || msg == nil {
-		return ""
+		return "", ""
 	}
-	return msg.Content
+	return msg.Content, msg.Reasoning
 }
 
 func (s *Service) persistAssistantPartial(ctx context.Context, assistantMessageID, content, reasoning string) error {
@@ -1474,13 +1473,13 @@ func (s *Service) applyContinuationPrefill(
 	messages []llm.Message,
 	params llm.ChatParams,
 	assistantMessageID string,
-	setInitialContent func(string),
+	setInitialResponse func(string, string),
 ) []llm.Message {
 	if !params.AllowAssistantPrefill && !params.ContinueViaUserMessage {
 		return messages
 	}
-	prefill := s.loadAssistantPrefill(ctx, assistantMessageID)
-	if prefill == "" {
+	prefill, reasoning := s.loadAssistantPrefill(ctx, assistantMessageID)
+	if prefill == "" && reasoning == "" {
 		return messages
 	}
 	if params.ContinueViaUserMessage {
@@ -1488,8 +1487,8 @@ func (s *Service) applyContinuationPrefill(
 	} else {
 		messages = patchTrailingAssistantPrefill(messages, prefill)
 	}
-	if setInitialContent != nil {
-		setInitialContent(prefill)
+	if setInitialResponse != nil {
+		setInitialResponse(prefill, reasoning)
 	}
 	return messages
 }

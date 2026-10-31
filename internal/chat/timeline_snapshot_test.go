@@ -49,11 +49,12 @@ func newSnapshotFixture(t testing.TB) snapshotFixture {
 		t.Fatal(err)
 	}
 	repo := database.NewChatTurnRepository(db)
-	attempt, err := repo.Begin(ctx, conv.ID, question.ID, answer.ID, database.TurnModeNew)
-	if err != nil {
+	if err := repo.ReconcileImportedConversationInTransaction(ctx, conv.ID); err != nil {
 		t.Fatal(err)
 	}
-	if err := repo.Finish(ctx, conv.ID, question.ID, attempt.ExecutionID, database.TurnCompleted, "completed"); err != nil {
+	// O fixture preserva conteúdo legado sem proveniência; conclusão conhecida
+	// não exige inventar uma execução retroativamente.
+	if err := db.Model(&database.ChatTurn{}).Where("user_message_id=?", question.ID).Update("state", database.TurnCompleted).Error; err != nil {
 		t.Fatal(err)
 	}
 	catalog := database.ToolCatalog{Name: "snapshot-tool", DisplayName: "Snapshot tool", Origin: "builtin"}
@@ -321,11 +322,7 @@ func TestTimelineSnapshotPreservesThreadScopeAndCurrentRetry(t *testing.T) {
 		t.Fatal(err)
 	}
 	repo := database.NewChatTurnRepository(f.db)
-	attempt, err := repo.Begin(f.ctx, f.conversation, question.ID, answer.ID, database.TurnModeNew)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := repo.Finish(f.ctx, f.conversation, question.ID, attempt.ExecutionID, database.TurnCompleted, "completed"); err != nil {
+	if err := repo.ReconcileImportedConversationInTransaction(f.ctx, f.conversation); err != nil {
 		t.Fatal(err)
 	}
 	before, err := f.reader.ReadTurn(f.ctx, f.conversation, question.ID)
@@ -355,7 +352,11 @@ func TestTimelineSnapshotPreservesThreadScopeAndCurrentRetry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := repo.FinishResponse(f.ctx, f.conversation, question.ID, retry.ExecutionID, database.TurnCompleted, "completed", answer.ID, &database.MessageOptions{Content: "resposta do retry"}); err != nil {
+	replacement, err := repo.EnsureResponse(f.ctx, f.conversation, question.ID, retry.ExecutionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.FinishResponse(f.ctx, f.conversation, question.ID, retry.ExecutionID, database.TurnCompleted, "completed", replacement, &database.MessageOptions{Content: "resposta do retry"}); err != nil {
 		t.Fatal(err)
 	}
 	after, err := f.reader.ReadTurn(f.ctx, f.conversation, question.ID)

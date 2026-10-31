@@ -94,7 +94,7 @@ func (r *lifecycleRepository) ValidateChatOrigin(ctx context.Context, id string)
 
 func runLifecycleEntry(svc *Service, ctx context.Context, mode string) (Invocation, bool) {
 	call := tools.ToolCall{ID: "call-shared", Function: tools.FunctionCall{Name: "echo", Arguments: `{"token":"secret","value":"ok"}`}}
-	origin := Origin{Type: " chat ", ID: " turn-1 "}
+	origin := Origin{Type: " chat ", ID: "turn-1"}
 	if mode == "execute" {
 		result := svc.Execute(ctx, ExecuteRequest{Call: call, Origin: origin, Iteration: 3, ToolCatalogID: "untrusted-id"})
 		return result.Invocation, result.Persisted

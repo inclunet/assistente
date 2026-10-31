@@ -221,7 +221,7 @@ func TestRepositoryCriaCatalogoArchivalIsoladoEIndisponivel(t *testing.T) {
 	}
 }
 
-func TestRepositoryNormalizesChatOriginBeforeOwnershipValidation(t *testing.T) {
+func TestRepositoryNormalizesOriginTypeButPreservesOpaqueID(t *testing.T) {
 	repo, userA, _ := setupRepositoryTest(t)
 	toolID, err := repo.ResolveToolCatalogID(userA, "echo")
 	if err != nil {
@@ -234,6 +234,10 @@ func TestRepositoryNormalizesChatOriginBeforeOwnershipValidation(t *testing.T) {
 		ToolCallID:    "normalized-chat",
 		Status:        StatusQueued,
 	}
+	if err := repo.Create(userA, inv); err == nil {
+		t.Fatal("ID opaco foi confundido com origem sem espaços")
+	}
+	inv.OriginID = "conversation-a"
 	if err := repo.Create(userA, inv); err != nil {
 		t.Fatalf("origem chat normalizada foi recusada: %v", err)
 	}
