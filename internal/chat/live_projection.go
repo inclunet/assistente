@@ -297,7 +297,7 @@ func (e *ExecutionProjection) Finish(state, reason string, persisted, contentCom
 			continue
 		}
 		for _, part := range stream.parts {
-			uncommitted = uncommitted || part.text.Len() != 0 || part.reasoning.Len() != 0
+			uncommitted = uncommitted || strings.TrimSpace(part.text.String()) != "" || strings.TrimSpace(part.reasoning.String()) != ""
 		}
 	}
 	t.state, t.reason, t.finished, t.volatile, t.finishedAt = state, reason, true, !persisted || uncommitted, time.Now()

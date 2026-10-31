@@ -611,7 +611,7 @@ Validação local: build/vet e golangci-lint (zero issues); regressões de proje
 lifecycle real, patches e finalização aprovadas. TypeScript, ESLint e Stylelint
 aprovados (2.124 avisos CSS preexistentes), Vitest com 484 arquivos e 5.887 testes
 aprovados. Os 31 arquivos frontend relacionados a ACP foram excluídos; nenhum
-teste ACP nem suíte Go integral executados localmente. O detector de corrida
+teste ACP nem a suíte Go integral foram executados localmente. O detector de corrida
 local não executou porque o toolchain disponível está sem CGO; CI mantém esse gate.
 
 `BenchmarkLiveProjectionAppend` isolado, cinco amostras de 100 operações, cada

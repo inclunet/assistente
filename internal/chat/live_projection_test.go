@@ -202,3 +202,24 @@ func TestLiveProjectionAcknowledgesOnlyWrittenContent(t *testing.T) {
 		})
 	}
 }
+
+func TestLiveProjectionEmptyIntermediateDoesNotRequireRecovery(t *testing.T) {
+	for _, meaningful := range []bool{false, true} {
+		t.Run(map[bool]string{false: "whitespace", true: "uncommitted_content"}[meaningful], func(t *testing.T) {
+			p, ctx, e := liveFixture(t)
+			first := e.StartStream(1)
+			text := " \t\n\u00a0"
+			if meaningful {
+				text = "intermediário não salvo"
+			}
+			first.Append(text)
+			first.Seal(text, "\t\n")
+			e.StartStream(2).Seal("resposta final", "")
+			e.Finish(database.TurnCompleted, "completed", true, true)
+			snapshot, _ := p.Snapshot(ctx, "conversation", "question")
+			if snapshot.Volatile != meaningful {
+				t.Fatalf("classificação incorreta: %+v", snapshot)
+			}
+		})
+	}
+}
