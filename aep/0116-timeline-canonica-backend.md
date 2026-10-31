@@ -1,8 +1,44 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — fase 1 concluída; fase 2 com leitura de janela coordenada com a execução
+## Status: In Progress — fase 1 concluída; fase 2 com itens persistidos compartilhados e confirmação identificada
 
 Data: 2026-10-30
+
+### Recorte: itens compartilhados e proveniência do streaming (2026-10-31)
+
+`TimelineItem` amplia a projeção de resposta existente para mensagens independentes.
+A janela produtiva materializa itens na ordem SQL e seu adaptador legado passa a
+consumi-los diretamente: não reagrupar mensagens, reordenar nem selecionar outro
+representante nesse adaptador. Leitura de turno e janela compartilham segmentos,
+IDs de mensagens, escopo e chave de posição com timestamp SQLite exato.
+A chave interna não aloca codificação opaca que o adaptador antigo não usa;
+a codificação pertence à futura borda wire. O
+representante nullable continua explícito; a compatibilidade visual fica na borda.
+`CommitContent` exige o ID retornado pelo writer. O snapshot de cada stream informa
+esse vínculo e se seus bytes continuam confirmados; deltas posteriores retiram a
+confirmação, e uma nova geração de transporte não herda o vínculo por texto igual.
+
+Evidências: `TestTimelineItemsShareWindowAndTerminalProjection`,
+`TestTimelineItemsPreserveNullRepresentativeAtLegacyBoundary`,
+`TestTimelineItemPositionPreservesSQLitePrecision`,
+`TestTimelineItemsRejectMissingMaterialization` e
+`TestTimelineContentAcknowledgementKeepsPersistedIdentity`.
+Este recorte ainda não publica DTO wire, não inscreve janelas e não troca o
+consumidor frontend. A composição live/persistida, resposta sem mensagem na
+paginação, lotes, recuperação incremental e migração visual continuam pendentes.
+Não renomeia a revisão interna ou o contador do storage para sequence wire.
+
+Medição deste recorte: a primeira implementação excedeu o orçamento de
+alocações; foi corrigida antes do push, retirando a codificação antecipada e a
+cópia de ordenação para turno com uma mensagem. A rodada final 100/500/1.000
+teve medianas 3,751/9,932/17,408 ms; a última fixture variou de 13,549 a
+23,045 ms. Repetição isolada de cinco amostras de 20 operações confirmou
+13,508 ms para 1.000 (13,164–14,061). Registrar a dispersão, sem escolher a
+melhor amostra. As medianas de alocação foram 770.479/1.693.573/1.693.625 B/op
+(último valor da repetição isolada), abaixo do limite histórico de +20%; o
+payload legado permanece 37.262/88.881/88.882 bytes. A medição isolada final
+fica dentro do orçamento de tempo, sem alegação de melhoria de UI.
+
 
 ### Recorte: barreira da janela produtiva (2026-10-31)
 

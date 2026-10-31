@@ -1319,8 +1319,8 @@ func (s *Service) persistAssistantPartial(ctx context.Context, assistantMessageI
 	if assistantMessageID == "" || (content == "" && reasoning == "") {
 		return nil
 	}
-	return executionProjection(ctx).CommitContent(-1, content, reasoning, func() error {
-		return s.turns.WritePartial(context.WithoutCancel(ctx), executionID(ctx), assistantMessageID, content, reasoning, false)
+	return executionProjection(ctx).CommitContent(-1, content, reasoning, func() (string, error) {
+		return assistantMessageID, s.turns.WritePartial(context.WithoutCancel(ctx), executionID(ctx), assistantMessageID, content, reasoning, false)
 	})
 }
 
