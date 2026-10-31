@@ -623,6 +623,12 @@ continua explícita até a fase 3. Não houve alteração de SQL/payload da jane
 Revisão independente `review_aep`: problemas de confirmação de conteúdo e
 substituição de reasoning corrigidos com regressões; gate técnico sem pendências.
 
+Revisão remota adicional: o runner agêntico verifica a propriedade do stream
+antes de interpretar o resultado. Rejeição por binding substituído encerra a
+iteração, sem converter resultado zero em rodada de ferramentas vazia ou erro
+repetível do provider. Regressão cobre OnDone e OnToolCalls atrasados, sem retry
+nem segment_done; o resultado selado de um binding válido permanece aceito.
+
 ### Fase 3 — Consumidor frontend e remoções
 
 - [ ] Migrar para itens e janelas por IDs, preservando isolamento das superfícies.

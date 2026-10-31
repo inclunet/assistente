@@ -65,3 +65,30 @@ func TestLiveProjectionRuntimeTransportRetryAndFinalReplacement(t *testing.T) {
 		t.Fatalf("retry contaminado: %+v", current)
 	}
 }
+
+func TestLiveProjectionRuntimeRejectedAgenticCallbackStopsIteration(t *testing.T) {
+	for _, toolCalls := range []bool{false, true} {
+		t.Run(map[bool]string{false: "done", true: "tool_calls"}[toolCalls], func(t *testing.T) {
+			svc, ctx, conv, turn, em := setupTurnRuntime(t)
+			id, err := svc.EnsureTurnResponse(ctx, conv, turn)
+			if err != nil {
+				t.Fatal(err)
+			}
+			streamer := &recoveryStreamer{steps: []func(llm.StreamHandler){func(h llm.StreamHandler) {
+				executionFrom(ctx).projection.StartStream(1)
+				if toolCalls {
+					h.OnToolCalls([]llm.ToolCall{{ID: "não-executar"}}, "atrasado", llm.Usage{}, "modelo")
+				} else {
+					h.OnDone("atrasado", llm.Usage{}, "modelo")
+				}
+			}}}
+			runner := agenticLoopRunner{svc: svc, conversationID: conv, turnID: turn, assistantMessageID: id, activeStreamer: streamer, streamingRecoveryEnabled: true, maxRecoveryAttempts: 2, newHandler: func(convID string, iteration int) IterationHandler {
+				return NewAgenticStreamHandler(em, convID, iteration, nil, turn)
+			}}
+			_, streamErr, stop := runner.streamIteration(ctx, 1)
+			if !stop || streamErr != "" || streamer.calls != 1 || len(em.find("chat:segment_done")) != 0 {
+				t.Fatalf("callback rejeitado avançou o loop: stop=%v err=%q calls=%d", stop, streamErr, streamer.calls)
+			}
+		})
+	}
+}

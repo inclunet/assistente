@@ -207,7 +207,8 @@ func (r *agenticLoopRunner) streamIteration(ctx context.Context, iteration int) 
 			return result, "", true
 		}
 		handler := r.newHandler(r.conversationID, iteration)
-		handler.BindProjection(streamProjection(ctx, iteration))
+		projection := streamProjection(ctx, iteration)
+		handler.BindProjection(projection)
 		if setter, ok := handler.(interface{ SetAssistantMessageID(string) }); ok {
 			setter.SetAssistantMessageID(r.assistantMessageID)
 		}
@@ -222,6 +223,11 @@ func (r *agenticLoopRunner) streamIteration(ctx context.Context, iteration int) 
 		}
 		logging.Debugf(ctx, "agent.agentic-loop", "[Agent] definições locais enviadas ao provider (iteração %d): %v", iteration, toolNames)
 		r.activeStreamer.StreamChat(ctx, r.messages, r.params, handler, r.activeToolDefs...)
+		// Um callback rejeitado por perda do binding não é resultado vazio
+		// nem falha repetível do provider. Encerrar sem avançar tools/iteração.
+		if !projection.OwnsStream() {
+			return result, "", true
+		}
 		// Fallback nativo→adapter no MESMO turno: se o provider sinalizou que o
 		// modelo não suporta MCP nativo, troca para o streamer/tools em modo
 		// adapter (bridges presentes) e re-tenta esta iteração SEM consumir uma
