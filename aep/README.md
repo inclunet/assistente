@@ -35,7 +35,7 @@ após deploy permanece pendente.
 **AEP-0074-B — exclusão por lote (25/10/2026): In Progress.** Migração v37
 indexa `(user_id, id)` em `job_runs` para evitar varredura do histórico no DELETE.
 Plano SQL, FKs e recuperação sob writer WAL têm regressões; falta qualificação
-após deploy. AEP-0104 permanece Done: falha ao validar a origem/criar o registro é
+após deploy. O escopo original do AEP-0104 foi concluído: falha ao validar a origem/criar o registro é
 `unavailable`, não cancelamento; o registro obrigatório é preservado.
 
 
@@ -1222,7 +1222,7 @@ de cancelamento de release na dependência; o AEP permanece **In Progress**.
 | [0101](0101-profiles-descobríveis-e-delegacao-autorizada.md) | Profiles descobríveis, delegação autorizada e grants específicos de jobs | ✅ Done |
 | [0102](0102-resultados-grandes-de-tools.md) | Resultados grandes de tools | ✅ Done |
 | [0103](0103-comandos-acionadores-e-camadas-contextuais.md) | Comandos, acionadores e camadas contextuais | 🚧 In Progress |
-| [0104](0104-tool-invocations-como-ledger-canonico.md) | Tool invocations como ledger canônico; correção de vínculos remanescentes e índices de histórico | ✅ Done |
+| [0104](0104-tool-invocations-como-ledger-canonico.md) | Tool invocations como ledger canônico; correção de vínculos remanescentes e índices de histórico | In Progress — ledger concluído; isolamento por execução do chat em implementação (AEP-0116) |
 | [0105](0105-reautorizacao-oauth-mcp-nativo.md) | Reautorização OAuth interativa para MCP nativo | 🚧 In Progress — recuperação interativa implementada; confirmação com servidor real e NVDA pendente; legado exige migração explícita |
 | [0106](0106-contencao-do-pipeline-de-jobs.md) | Contenção do pipeline de jobs (limite de concorrência + cache por slug) | 🚧 In Progress |
 | [0107](0107-tool-execution-ux.md) | Experiência de execução de tools: estado, contexto e resultados acionáveis | ✅ Done |
@@ -1234,7 +1234,7 @@ de cancelamento de release na dependência; o AEP permanece **In Progress**.
 | [0113](0113-capabilities-parametros-e-custos-de-modelos.md) | Compatibilidade de parâmetros por modelo e provedor — fases 1–3 concluídas nos PRs #889, #909 e #919; fase 4 de vozes TTS concluída com a fase 5 da AEP-0115 | ✅ Done |
 | [0114](0114-criacao-de-provedores-e-credenciais-unificadas.md) | Criação de provedores e credenciais unificadas | ✅ Done — preferências ChatGPT, menu API/ACP, comandos e CredManager compartilhado; rota padrão e menu Ações corrigidos |
 | [0115](0115-catalogo-publico-provedores-modelos.md) | Catálogo público de provedores e modelos | ✅ Done — fases 1 e 2 implementadas; fase 3 concluída com persistência explícita, formulário por perfis e fábrica backend allowlisted; onboarding desktop compartilha o formulário; CLI consolidada com autenticação e cadastro compartilhados; fase 4 concluída com resolução exata, vínculos privados por conexão e contratos de parâmetros compartilhados entre editor e envio (defaults, limites e opções); fase 5 de vozes concluída; Cohere e Ollama usam OpenAI-compatible; fase 6 concluída com manutenção editorial e validação antes da publicação |
-| [0116](0116-timeline-canonica-backend.md) | Timeline canônica de chat do backend à apresentação | In Progress — fase 1 concluída; fase 2 com itens persistidos compartilhados e confirmação identificada |
+| [0116](0116-timeline-canonica-backend.md) | Timeline canônica de chat do backend à apresentação | In Progress — fase 1 concluída; fase 2 com proveniência por execução preparada no schema |
 
 Correções paralelas posteriores à revisão da AEP-0103 estão registradas nas seções 10 e 11 da tasklist de conclusão: bridge, importação, restore, outbox, lifecycle e a primeira rodada real de produto. O executor desktop usa `newCommandDesktopExecutor` e `commandconfig.ProjectComplete`; autenticação é por sessão local sem JWT, a bridge é assíncrona com shutdown/join, e recovery é preflight somente leitura fail-closed sem reconciliação interprocesso. A limitação inicial de entrega somente de resumo/status foi resolvida na seção 14: `workspace.list` entrega resultado efêmero no picker compartilhado. A seção 15 liga a seleção da paleta à resolução de configuração persistida, supressão e recusa sem fallback, inclusive na bridge. A falha histórica de `internal/acpregistry` não reapareceu nas suítes completas das seções 12–14, mas sua causa não foi certificada. Providers/transporte de UI, origens físicas, recovery R04 e o aceite BASE-PRONTA permanecem pendentes.
 

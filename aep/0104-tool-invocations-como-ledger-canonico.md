@@ -1,6 +1,17 @@
 # AEP-0104 — Tool invocations como ledger canônico
 
-**Status:** Done — ledger, cutover e correção dos vínculos remanescentes implementados
+**Status:** In Progress — ledger concluído; isolamento por execução do chat em implementação (AEP-0116)
+
+## Extensão de identidade por execução do chat (2026-10-31)
+
+O mantenedor definiu no AEP-0116 que retry substitui a execução apresentada e
+preserva a anterior no backend. `attempt` do ledger continua sendo tentativa
+da ferramenta; não identifica uma nova resposta ao mesmo turno. A v44 prepara
+`chat_execution_id` nullable, com vínculo imutável e validado ao turno/conversa/
+usuário. Legado não recebe execução inferida. A seleção e os produtores serão
+ativados depois, na ordem leitores → writers; este recorte é somente schema.
+A deduplicação de novas chamadas deverá respeitar execução + call ID, e as
+rodadas, execução + iteração. Argumentos/resultados continuam somente no ledger.
 
 **Classificação de falhas (25/10/2026):** falha de validação da origem ou criação do registro
 no ledger antes de executar uma tool de chat retorna `unavailable` com código

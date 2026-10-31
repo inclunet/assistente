@@ -452,6 +452,16 @@ var schemaMigrations = []migration{
 		}
 		return migrateChatTimelineVersions(database)
 	}},
+	{Version: 44, Name: "chat_execution_content_provenance", Phase: phasePostAutoMigrate, Run: func(database *gorm.DB) error {
+		applied, err := appliedMigrationVersions(database)
+		if err != nil {
+			return err
+		}
+		if !applied[43] {
+			return errMigrationDeferred
+		}
+		return migrateChatExecutionContent(database)
+	}},
 }
 
 // runMigrations aplica, na ordem de Version, todas as migrações da fase
