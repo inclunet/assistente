@@ -52,3 +52,15 @@ uma exportação desse período, atualize primeiro a instalação de origem e ge
 um novo arquivo. Ferramentas ausentes na instalação de destino permanecem
 legíveis no histórico por uma entrada archival, mas não são habilitadas para
 execução.
+
+O JSON de versão 3 também preserva as execuções anteriores de uma resposta e
+qual delas está selecionada para o histórico. Ao reimportar, respostas
+substituídas continuam guardadas, sem reaparecer como a resposta atual.
+HTML, PDF e Markdown mantêm o histórico completo exportado, com as ferramentas
+associadas à execução correspondente.
+
+Uma resposta que estava sendo recebida no momento da exportação entra como
+interrompida no destino; importar não retoma o processamento automaticamente.
+Arquivos antigos continuam aceitos, sem inventar informações de execução que
+não estavam neles. Vínculos inválidos ou IDs em conflito impedem a restauração
+daquela conversa, preservando sua versão anterior se houver sobrescrita.

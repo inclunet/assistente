@@ -117,21 +117,34 @@ func richRenderExportFile(source *ExportFile) *ExportFile {
 		if len(conversation.ToolInvocations) == 0 {
 			continue
 		}
-		assistantByTurn := map[string]int{}
+		type executionTurn struct {
+			turnID      string
+			executionID string
+			assigned    bool
+		}
+		key := func(turnID string, executionID *string) executionTurn {
+			result := executionTurn{turnID: turnID}
+			if executionID != nil {
+				result.executionID = *executionID
+				result.assigned = true
+			}
+			return result
+		}
+		assistantByTurn := map[executionTurn]int{}
 		messageByID := map[string]int{}
 		for index, message := range conversation.Messages {
 			if strings.TrimSpace(message.ID) != "" {
 				messageByID[message.ID] = index
 			}
 			if message.Role == "assistant" && strings.TrimSpace(message.TurnID) != "" {
-				if _, exists := assistantByTurn[message.TurnID]; !exists {
-					assistantByTurn[message.TurnID] = index
+				if _, exists := assistantByTurn[key(message.TurnID, message.ChatExecutionID)]; !exists {
+					assistantByTurn[key(message.TurnID, message.ChatExecutionID)] = index
 				}
 			}
 		}
 		callsByMessage := map[int][]map[string]interface{}{}
 		for _, invocation := range conversation.ToolInvocations {
-			index, exists := assistantByTurn[strings.TrimSpace(invocation.TurnID)]
+			index, exists := assistantByTurn[key(invocation.TurnID, invocation.ChatExecutionID)]
 			if !exists {
 				continue
 			}
@@ -144,7 +157,7 @@ func richRenderExportFile(source *ExportFile) *ExportFile {
 				} `json:"display"`
 			}
 			_ = json.Unmarshal([]byte(invocation.Metadata), &metadata)
-			if explicitIndex, found := messageByID[strings.TrimSpace(metadata.Display.AssistantMessageID)]; found {
+			if explicitIndex, found := messageByID[metadata.Display.AssistantMessageID]; found && key(conversation.Messages[explicitIndex].TurnID, conversation.Messages[explicitIndex].ChatExecutionID) == key(invocation.TurnID, invocation.ChatExecutionID) {
 				index = explicitIndex
 			}
 			callType := strings.TrimSpace(metadata.Display.Type)

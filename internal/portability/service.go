@@ -145,6 +145,17 @@ func BuildExportFileWithContext(ctx context.Context, conversationIDs []string, p
 }
 
 func buildConversationExports(ctx context.Context, conversationIDs []string, includeAudio bool) ([]ConversationExport, error) {
+	var result []ConversationExport
+	err := database.DB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var err error
+		result, err = buildConversationExportsTx(ctx, tx, conversationIDs, includeAudio)
+		return err
+	})
+	return result, err
+}
+
+func buildConversationExportsTx(ctx context.Context, tx *gorm.DB, conversationIDs []string, includeAudio bool) ([]ConversationExport, error) {
+
 	if len(conversationIDs) == 0 {
 		return nil, nil
 	}
@@ -152,8 +163,8 @@ func buildConversationExports(ctx context.Context, conversationIDs []string, inc
 	uniqueIDs := make([]string, 0, len(conversationIDs))
 	seen := make(map[string]struct{}, len(conversationIDs))
 	for _, rawID := range conversationIDs {
-		id := strings.TrimSpace(rawID)
-		if id == "" {
+		id := rawID
+		if strings.TrimSpace(id) == "" {
 			return nil, fmt.Errorf("erro ao buscar conversa %s: id vazio", rawID)
 		}
 		if _, exists := seen[id]; exists {
@@ -164,7 +175,7 @@ func buildConversationExports(ctx context.Context, conversationIDs []string, inc
 	}
 
 	var conversations []database.Conversation
-	if err := database.ScopeByUser(ctx, database.DB(), "user_id").
+	if err := database.ScopeByUser(ctx, tx, "user_id").
 		Where("id IN ?", uniqueIDs).
 		Find(&conversations).Error; err != nil {
 		return nil, fmt.Errorf("erro ao buscar conversas para exportação: %w", err)
@@ -184,17 +195,21 @@ func buildConversationExports(ctx context.Context, conversationIDs []string, inc
 		return nil, err
 	}
 	var messages []database.ChatMessage
-	if err := database.DB().
+	if err := tx.
 		Where("conversation_id IN ?", uniqueIDs).
 		Order("conversation_id ASC, created_at ASC").
 		Find(&messages).Error; err != nil {
 		return nil, fmt.Errorf("erro ao buscar mensagens das conversas para exportação: %w", err)
 	}
-	invocationsByConversation, err := loadConversationToolInvocationExports(ctx, userID, uniqueIDs)
+	invocationsByConversation, err := loadConversationToolInvocationExports(ctx, tx, userID, uniqueIDs)
 	if err != nil {
 		return nil, err
 	}
 
+	turns, executions, err := loadExecutionExports(ctx, tx, userID, uniqueIDs)
+	if err != nil {
+		return nil, err
+	}
 	for _, msg := range messages {
 		if conv := conversationsByID[msg.ConversationID]; conv != nil {
 			conv.Messages = append(conv.Messages, msg)
@@ -203,9 +218,11 @@ func buildConversationExports(ctx context.Context, conversationIDs []string, inc
 
 	exports := make([]ConversationExport, 0, len(conversationIDs))
 	for _, rawID := range conversationIDs {
-		id := strings.TrimSpace(rawID)
+		id := rawID
 		exported := exportConversation(conversationsByID[id], includeAudio)
 		exported.ToolInvocations = invocationsByConversation[id]
+		exported.ChatTurns = turns[id]
+		exported.ChatExecutions = executions[id]
 		exports = append(exports, exported)
 	}
 	return exports, nil
@@ -213,6 +230,7 @@ func buildConversationExports(ctx context.Context, conversationIDs []string, inc
 
 func loadConversationToolInvocationExports(
 	ctx context.Context,
+	tx *gorm.DB,
 	userID string,
 	conversationIDs []string,
 ) (map[string][]ToolInvocationExport, error) {
@@ -225,6 +243,7 @@ func loadConversationToolInvocationExports(
 		}
 		type exportRow struct {
 			database.ToolInvocation
+			ChatExecutionID        *string
 			ToolName               string
 			ToolDisplayName        string
 			ToolOrigin             string
@@ -257,7 +276,7 @@ func loadConversationToolInvocationExports(
 			),
 			tool_invocations.origin_id
 		)`
-		if err := database.DB().WithContext(ctx).
+		if err := tx.WithContext(ctx).
 			Model(&database.ToolInvocation{}).
 			Select(
 				"tool_invocations.*, tool_catalog.name AS tool_name, tool_catalog.display_name AS tool_display_name, tool_catalog.origin AS tool_origin, "+
@@ -276,13 +295,14 @@ func loadConversationToolInvocationExports(
 			return nil, fmt.Errorf("erro ao buscar tool invocations para exportação: %w", err)
 		}
 		for _, row := range rows {
-			conversationID := strings.TrimSpace(row.ResolvedConversationID)
-			if conversationID == "" {
+			conversationID := row.ResolvedConversationID
+			if strings.TrimSpace(conversationID) == "" {
 				continue
 			}
-			turnID := strings.TrimSpace(row.ResolvedTurnID)
+			turnID := row.ResolvedTurnID
 			result[conversationID] = append(result[conversationID], ToolInvocationExport{
 				ID:                 row.ID,
+				ChatExecutionID:    row.ChatExecutionID,
 				CreatedAt:          row.CreatedAt,
 				UpdatedAt:          row.UpdatedAt,
 				TurnID:             turnID,
@@ -406,7 +426,7 @@ func ImportConversationsWithRestoreHook(
 			}
 			if imported {
 				result.Imported++
-				restoredIDs = append(restoredIDs, strings.TrimSpace(conv.ID))
+				restoredIDs = append(restoredIDs, conv.ID)
 			}
 		}
 		if restoreHook != nil && len(restoredIDs) > 0 {
@@ -611,6 +631,7 @@ func exportConversation(conv *database.Conversation, includeAudio bool) Conversa
 	for _, msg := range conv.Messages {
 		exported := MessageExport{
 			ID:               msg.ID,
+			ChatExecutionID:  msg.ChatExecutionID,
 			ConversationID:   msg.ConversationID,
 			Role:             msg.Role,
 			Content:          msg.Content,
@@ -712,8 +733,7 @@ func overwriteConversationByExisting(ctx context.Context, conv ConversationExpor
 }
 
 func deleteChatToolInvocationsForConversationTx(ctx context.Context, tx *gorm.DB, conversationID string) error {
-	conversationID = strings.TrimSpace(conversationID)
-	if conversationID == "" {
+	if strings.TrimSpace(conversationID) == "" {
 		return nil
 	}
 	if tx == nil {
@@ -759,8 +779,8 @@ func deleteChatToolInvocationsForConversationTx(ctx context.Context, tx *gorm.DB
 }
 
 func createImportedConversation(ctx context.Context, tx *gorm.DB, conv ConversationExport) (*database.Conversation, error) {
-	conversationID := strings.TrimSpace(conv.ID)
-	if conversationID == "" {
+	conversationID := conv.ID
+	if strings.TrimSpace(conversationID) == "" {
 		return nil, codedErrorf(
 			CodeConversationMissingID,
 			params("conversation", conv.Title, "version", itoa(ExportVersion)),
@@ -791,10 +811,11 @@ func createImportedConversation(ctx context.Context, tx *gorm.DB, conv Conversat
 }
 
 func importConversationMessages(ctx context.Context, tx *gorm.DB, conversationID string, conv ConversationExport, includeAudio bool) error {
+	messages := make([]*database.ChatMessage, 0, len(conv.Messages))
 	exportedMessageIDs := make(map[string]struct{}, len(conv.Messages))
 	for i, msg := range conv.Messages {
-		id := strings.TrimSpace(msg.ID)
-		if id == "" {
+		id := msg.ID
+		if strings.TrimSpace(id) == "" {
 			return codedErrorf(
 				CodeMessageMissingID,
 				params("index", itoa(i), "conversation", conv.Title, "version", itoa(ExportVersion)),
@@ -833,9 +854,10 @@ func importConversationMessages(ctx context.Context, tx *gorm.DB, conversationID
 
 		newMsg := &database.ChatMessage{
 			UUIDModel: database.UUIDModel{
-				ID: strings.TrimSpace(msg.ID),
+				ID: msg.ID,
 			},
 			ConversationID:   conversationID,
+			ChatExecutionID:  msg.ChatExecutionID,
 			ParentID:         parentID,
 			TurnID:           turnID,
 			Role:             msg.Role,
@@ -855,15 +877,10 @@ func importConversationMessages(ctx context.Context, tx *gorm.DB, conversationID
 			newMsg.CreatedAt = msg.CreatedAt
 		}
 
-		if err := tx.Create(newMsg).Error; err != nil {
-			return fmt.Errorf("erro ao importar mensagem %d da conversa '%s': %w", i, conv.Title, err)
-		}
+		messages = append(messages, newMsg)
 		idMap[i] = newMsg.ID
 	}
-	if err := importConversationToolInvocations(ctx, tx, conversationID, conv.ToolInvocations); err != nil {
-		return err
-	}
-	return database.NewChatTurnRepository(tx).ReconcileImportedConversationInTransaction(ctx, conversationID)
+	return restoreConversationExecutionHistory(ctx, tx, conversationID, conv, messages)
 }
 
 func importConversationToolInvocations(
@@ -886,11 +903,11 @@ func importConversationToolInvocations(
 	seenTurns := map[string]struct{}{}
 	for index, exported := range invocations {
 		toolName := strings.TrimSpace(exported.ToolName)
-		turnID := strings.TrimSpace(exported.TurnID)
+		turnID := exported.TurnID
 		if toolName == "" {
 			return fmt.Errorf("tool invocation %d sem toolName", index)
 		}
-		if turnID == "" {
+		if strings.TrimSpace(turnID) == "" {
 			return fmt.Errorf("tool invocation %d sem turnId", index)
 		}
 		if _, exists := seenTools[toolName]; !exists {
@@ -952,7 +969,7 @@ func importConversationToolInvocations(
 	for index, exported := range invocations {
 		toolName := strings.TrimSpace(exported.ToolName)
 		catalogID := catalogIDs[toolName]
-		turnID := strings.TrimSpace(exported.TurnID)
+		turnID := exported.TurnID
 		modelIteration, external := importedModelCallProjection(exported)
 		attempt := exported.Attempt
 		if attempt < 1 {
@@ -964,7 +981,7 @@ func importConversationToolInvocations(
 		}
 		row := database.ToolInvocation{
 			UUIDModel: database.UUIDModel{
-				ID:        strings.TrimSpace(exported.ID),
+				ID:        exported.ID,
 				CreatedAt: exported.CreatedAt,
 				UpdatedAt: exported.UpdatedAt,
 			},
@@ -974,7 +991,7 @@ func importConversationToolInvocations(
 			OriginID:            turnID,
 			ConversationID:      &conversationID,
 			TurnID:              &turnID,
-			ToolCallID:          strings.TrimSpace(exported.ToolCallID),
+			ToolCallID:          exported.ToolCallID,
 			Attempt:             attempt,
 			Status:              status,
 			DryRun:              exported.DryRun,
@@ -1000,13 +1017,16 @@ func importConversationToolInvocations(
 			StartedAt:           exported.StartedAt,
 			CompletedAt:         exported.CompletedAt,
 			DurationMs:          exported.DurationMs,
-			MigrationSourceKey:  "import:" + strings.TrimSpace(exported.ID),
-			MigrationProvenance: "portability:v2",
+			MigrationSourceKey:  "import:" + exported.ID,
+			MigrationProvenance: "portability:v3",
 		}
 		if row.QueuedAt.IsZero() {
 			row.QueuedAt = time.Now().UTC()
 		}
-		if err := tx.WithContext(ctx).Create(&row).Error; err != nil {
+		if err := tx.WithContext(ctx).Table("tool_invocations").Create(&struct {
+			*database.ToolInvocation
+			ChatExecutionID *string
+		}{&row, exported.ChatExecutionID}).Error; err != nil {
 			return fmt.Errorf("erro ao importar tool invocation %d: %w", index, err)
 		}
 	}
@@ -1077,15 +1097,15 @@ func resolveImportedMessageLink(
 	idMap map[int]string,
 	kind messageLinkKind,
 ) (*string, error) {
-	if trimmed := strings.TrimSpace(stableID); trimmed != "" {
-		if _, ok := exportedIDs[trimmed]; !ok {
+	if strings.TrimSpace(stableID) != "" {
+		if _, ok := exportedIDs[stableID]; !ok {
 			return nil, codedErrorf(
 				kind.idCode,
-				params("reference", trimmed),
-				"referência de %s inválida: id %q", kind.label, trimmed,
+				params("reference", stableID),
+				"referência de %s inválida: id %q", kind.label, stableID,
 			)
 		}
-		return &trimmed, nil
+		return &stableID, nil
 	}
 	return resolveImportedMessageReference(index, idMap, kind)
 }
@@ -1115,7 +1135,7 @@ func exportCredentials(ctx context.Context, credMgr *credentials.Manager) ([]Cre
 			continue
 		}
 		id := strings.TrimSpace(entry.ID)
-		if id == "" {
+		if strings.TrimSpace(id) == "" {
 			id = idByPattern[strings.TrimSpace(entry.Pattern)]
 		}
 		result = append(result, CredentialExport{
@@ -1511,7 +1531,7 @@ func parseExportFile(jsonData string) (*ExportFile, []string, error) {
 }
 
 // normalizeExportVersion mantém leitura universal do envelope canônico:
-// version 1 é o formato publicado anterior e não exige reescrita de IDs nem
+// versions 1 e 2 são os formatos publicados anteriores e não exige reescrita de IDs nem
 // de recursos; a versão atual é apenas a versão interna após a normalização.
 // Qualquer versão futura falha fechada antes de analisar ou importar dados.
 func normalizeExportVersion(file *ExportFile) error {
@@ -1519,7 +1539,10 @@ func normalizeExportVersion(file *ExportFile) error {
 		return fmt.Errorf("arquivo de exportação ausente")
 	}
 	switch file.Version {
-	case 1:
+	case 1, 2:
+		if hasExecutionHistory(file) {
+			return fmt.Errorf("proveniência de execução exige export version 3")
+		}
 		file.Version = ExportVersion
 		return nil
 	case ExportVersion:
@@ -1612,15 +1635,15 @@ func importResolutionMapKey(resourceType, identifier string) string {
 }
 
 func findExistingConversationForImport(ctx context.Context, conv ConversationExport) (*database.Conversation, error) {
-	if id := strings.TrimSpace(conv.ID); id != "" {
-		return findExistingConversationByID(ctx, id)
+	if strings.TrimSpace(conv.ID) != "" {
+		return findExistingConversationByID(ctx, conv.ID)
 	}
 	return nil, nil
 }
 
 func findExistingConversationByID(ctx context.Context, id string) (*database.Conversation, error) {
 	var existing database.Conversation
-	err := database.ScopeByUser(ctx, database.DB(), "user_id").Where("id = ?", strings.TrimSpace(id)).First(&existing).Error
+	err := database.ScopeByUser(ctx, database.DB(), "user_id").Where("id = ?", id).First(&existing).Error
 	if err == nil {
 		return &existing, nil
 	}
