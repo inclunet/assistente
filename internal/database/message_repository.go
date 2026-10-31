@@ -204,7 +204,7 @@ ORDER BY created_at ASC, id ASC`, CurrentChatMessageSQL("chat_messages"), Curren
 		maxMessages,
 	).Scan(&rows).Error
 	if err != nil {
-		return nil, err
+		return nil, chatSelectionReadError(ctx, r.db, err)
 	}
 
 	messages := make([]ChatMessage, 0, len(rows))
@@ -224,7 +224,7 @@ ORDER BY created_at ASC, id ASC`, CurrentChatMessageSQL("chat_messages"), Curren
 			Where("id = ? AND conversation_id = ? AND parent_id IS NULL", conv.SummaryUpToMessageID, conv.ID).
 			Where(CurrentChatMessageSQL("chat_messages")).
 			Count(&count).Error; err != nil {
-			return nil, err
+			return nil, chatSelectionReadError(ctx, r.db, err)
 		}
 		boundaryAvailable = count > 0
 	}
@@ -1209,7 +1209,7 @@ func (r *MessageRepository) GetMessagesWithContext(ctx context.Context, conversa
 	}
 
 	err := query.Find(&messages).Error
-	return messages, err
+	return messages, chatSelectionReadError(ctx, r.db, err)
 }
 
 // GetRecentRootMessagesWithContext retorna as mensagens raiz mais recentes de

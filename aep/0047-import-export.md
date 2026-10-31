@@ -468,17 +468,17 @@ Na UI de export, ao detectar que recursos selecionados contêm campos potencialm
 
 ### D10 — Versionamento do formato
 
-O campo `version: 2` no export identifica o novo contrato baseado em IDs estáveis:
+O campo `version: 3` identifica o contrato atual, com IDs estáveis e proveniência das execuções de chat:
 
 - Importação sempre verifica a versão antes de processar
 - O envelope legado publicado até 0.1.9
   (`metadata.version: "2.0"`, conversas no topo e IDs numéricos) é adaptado
-  para `version: 2` antes da análise/importação. IDs determinísticos preservam
+  para `version: 3` antes da análise/importação. IDs determinísticos preservam
   idempotência e as referências `parentId`/`turnId`.
 - Nenhum formato efetivamente publicado deixa de ser suportado. Formatos
   experimentais nunca publicados não entram nessa garantia.
-- Versões futuras podem adicionar campos sem quebrar compatibilidade (campos desconhecidos são ignorados)
-- Se uma versão futura fizer mudanças incompatíveis, incrementa o número e o importador antigo rejeita com mensagem clara
+- Arquivos v1/v2 continuam aceitos, desde que não contenham os campos de execução introduzidos na v3.
+- Versões superiores à atual são rejeitadas antes da importação, com mensagem clara.
 
 Não existe versão intermediária obrigatória: arquivos gerados por qualquer
 release publicada são importados diretamente pela release atual.

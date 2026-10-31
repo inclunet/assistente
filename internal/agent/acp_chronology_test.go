@@ -37,6 +37,12 @@ func TestACPCronologiaNoTerminalEReabertura(t *testing.T) {
 			if err := db.AutoMigrate(&database.User{}, &database.Conversation{}, &database.ChatMessage{}, &database.ToolCatalog{}, &database.ToolInvocation{}); err != nil {
 				t.Fatal(err)
 			}
+			if err := database.MigrateChatTurns(db); err != nil {
+				t.Fatal(err)
+			}
+			if err := database.MigrateChatExecutionContent(db); err != nil {
+				t.Fatal(err)
+			}
 			for _, row := range []any{
 				&database.User{UUIDModel: database.UUIDModel{ID: "user"}, Username: "acp", PasswordHash: "x", Role: database.UserRoleUser, IsActive: true},
 				&database.Conversation{UUIDModel: database.UUIDModel{ID: "conv"}, UserID: "user", Title: "ACP"},
