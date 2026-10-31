@@ -1074,15 +1074,17 @@ func emitLoadedSkillEvent(emitter events.Emitter, metadata map[string]any, conve
 func mergeFilesystemScope(existing, next *tools.FilesystemScope) *tools.FilesystemScope {
 	if existing == nil {
 		return &tools.FilesystemScope{
-			Read:  append([]string{}, next.Read...),
-			Write: append([]string{}, next.Write...),
-			Deny:  append([]string{}, next.Deny...),
+			Read:           append([]string{}, next.Read...),
+			Write:          append([]string{}, next.Write...),
+			Deny:           append([]string{}, next.Deny...),
+			DenyComponents: append([]string{}, next.DenyComponents...),
 		}
 	}
 	return &tools.FilesystemScope{
-		Read:  appendUniqueStrings(existing.Read, next.Read...),
-		Write: appendUniqueStrings(existing.Write, next.Write...),
-		Deny:  appendUniqueStrings(existing.Deny, next.Deny...),
+		Read:           appendUniqueStrings(existing.Read, next.Read...),
+		Write:          appendUniqueStrings(existing.Write, next.Write...),
+		Deny:           appendUniqueStrings(existing.Deny, next.Deny...),
+		DenyComponents: appendUniqueStrings(existing.DenyComponents, next.DenyComponents...),
 	}
 }
 
