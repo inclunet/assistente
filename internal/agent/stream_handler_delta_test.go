@@ -360,3 +360,29 @@ func TestSimpleStreamHandlerFlushesBeforeDoneAndOutputLimit(t *testing.T) {
 		t.Fatalf("chat:done inválido: %+v", done)
 	}
 }
+
+func TestDiscardContinuationReasoningEmitsOnlyForNewContent(t *testing.T) {
+	emitter := &captureEmitter{}
+	handler := NewAgenticStreamHandler(emitter, "conversation", 0, nil, "turn")
+	handler.SetInitialResponse("prefixo", "base")
+	handler.DiscardStreamReasoning()
+	if len(emitter.find("chat:thinking")) != 0 {
+		t.Fatal("base sem delta emitiu evento redundante")
+	}
+	handler.OnThinking(" transitório")
+	handler.DiscardStreamReasoning()
+	captured := emitter.find("chat:thinking")
+	last := captured[len(captured)-1].data.(ports.ThinkingEvent)
+	if !last.Done || last.Content != "base" {
+		t.Fatalf("descarte perdeu base: %+v", last)
+	}
+	before := len(captured)
+	handler.DiscardStreamReasoning()
+	if len(emitter.find("chat:thinking")) != before {
+		t.Fatal("segundo descarte emitiu evento redundante")
+	}
+	_, reasoning := handler.Finalize()
+	if reasoning != "base" {
+		t.Fatalf("base perdida: %q", reasoning)
+	}
+}

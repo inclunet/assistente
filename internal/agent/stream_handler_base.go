@@ -317,7 +317,7 @@ func (h *BaseStreamHandler) ResetStreamAttempt() {
 func (h *BaseStreamHandler) DiscardStreamReasoning() {
 	h.mu.Lock()
 	active := h.isThinking || h.pendingThinkingEmit || h.thinkingTimer != nil
-	hadReasoning := h.accumulatedReasoning != ""
+	hadReasoning := h.accumulatedReasoning != h.initialReasoning
 	if h.thinkingTimer != nil {
 		h.thinkingTimer.Stop()
 		h.thinkingTimer = nil
@@ -336,8 +336,8 @@ func (h *BaseStreamHandler) DiscardStreamReasoning() {
 			ConversationID:     h.ConversationID,
 			TurnID:             h.TurnID,
 			AssistantMessageID: h.AssistantMessageID,
-			// Vazio fecha a live region sem promover como definitivo o
-			// raciocínio da tentativa descartada.
+			// A base fecha a live region sem promover como definitivo o
+			// raciocínio transitório da tentativa descartada.
 			Content:       h.initialReasoning,
 			Done:          true,
 			SurfaceOrigin: h.SurfaceOrigin,

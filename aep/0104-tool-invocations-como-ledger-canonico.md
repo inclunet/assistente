@@ -431,7 +431,8 @@ replay. Testes garantem zero efeito sem ledger, ausência de cópia técnica em
 - [x] Executar gate, backup e rebuild.
 - [x] Remover tipos, parsers, métodos, fallbacks e testes exclusivamente
       legados.
-- [x] Marcar AEPs 0063, 0078 e 0104 como `Done`.
+- [x] Marcar AEPs 0063 e 0078 como `Done`.
+- [ ] Marcar AEP-0104 como `Done` após a composição e o cutover previstos no AEP-0116.
 
 Evidência: a migração v19 só avança depois da reconciliação integral da v18,
 cria backup SQLite com manifesto e SHA-256, reconstrói `chat_messages` e

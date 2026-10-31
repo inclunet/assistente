@@ -230,9 +230,10 @@ originou o turno; as outras superfícies exibem apenas o que foi persistido.
 
 ## Interrupções e novas tentativas
 
-Uma nova tentativa mantém o vínculo com a pergunta e substitui a execução
-apresentada, incluindo suas falas intermediárias e ferramentas. A execução
-anterior permanece preservada no backend. Continuar usa o texto da resposta
+Uma nova tentativa mantém o vínculo com a pergunta. O backend seleciona a nova
+execução para o histórico, incluindo suas falas intermediárias e ferramentas,
+e preserva a anterior. A substituição visual completa ainda depende da
+integração dos consumidores do chat. Continuar usa o texto da resposta
 selecionada como prefixo; repetir começa outra resposta. Repetições automáticas
 por falha de conexão pertencem à mesma execução.
 Ao reabrir o aplicativo após uma interrupção, o histórico preserva o conteúdo que

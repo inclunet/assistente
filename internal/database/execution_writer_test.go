@@ -48,6 +48,10 @@ func TestExecutionWritersPreserveRetryHistoryAndRejectStaleSummary(t *testing.T)
 	if err := summaries.CommitConversationSummary(ctx, "conv", "resumo atrasado", "later-response", "resumo anterior", []string{"later", "later-response"}); !errors.Is(err, ErrSummarySourceChanged) {
 		t.Fatalf("resumo sobre base invalidada aceito: %v", err)
 	}
+	if err := summaries.CommitConversationSummary(ctx, "conv", "resumo atrasado", "later-response", "", []string{response, "later", "later-response"}); !errors.Is(err, ErrSummarySourceChanged) {
+		t.Fatalf("fonte substituída antes do boundary foi aceita: %v", err)
+	}
+
 	if err := summaries.CommitConversationSummary(ctx, "conv", "resumo atrasado", response, "", []string{response}); !errors.Is(err, ErrSummarySourceChanged) {
 		t.Fatalf("resposta substituída no resumo: %v", err)
 	}
