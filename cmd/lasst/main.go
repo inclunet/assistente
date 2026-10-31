@@ -43,12 +43,24 @@ func (h *iteration) OnToolCalls(c []llm.ToolCall, s string, _ llm.Usage, _ strin
 
 // run mantém o histórico somente na execução. Não usa o serviço de chat nem o ledger.
 func run(ctx context.Context, streamer llm.Streamer, model, instruction, prompt, dir string) (string, error) {
+	return runWithTools(ctx, streamer, model, instruction, prompt, dir, nil)
+}
+
+func runWithTools(ctx context.Context, streamer llm.Streamer, model, instruction, prompt, dir string, extra []tools.Tool) (string, error) {
 	ctx = tools.WithExecutionContext(ctx, tools.ExecutionContext{Filesystem: &tools.FilesystemScope{Read: []string{filepath.Join(dir, "**")}, Deny: []string{filepath.Join(dir, ".git", "**")}}})
 	registry := tools.NewRegistry()
 	if err := registry.Register(filesystem.NewReadFile(dir)); err != nil {
 		return "", err
 	}
+	for _, tool := range extra {
+		if err := registry.Register(tool); err != nil {
+			return "", err
+		}
+	}
 	executor := tools.NewExecutor(registry, tools.DefaultExecutorConfig())
+	mcpConfig := tools.DefaultExecutorConfig()
+	mcpConfig.RequireCompleteResult = true
+	mcpExecutor := tools.NewExecutor(registry, mcpConfig)
 	defs := make([]llm.ToolDefinition, 0, 1)
 	for _, d := range registry.ToDefinitions() {
 		defs = append(defs, llm.ToolDefinition{Type: d.Type, Function: llm.FunctionDefinition{Name: d.Function.Name, Description: d.Function.Description, Parameters: d.Function.Parameters}})
@@ -80,7 +92,13 @@ func run(ctx context.Context, streamer llm.Streamer, model, instruction, prompt,
 			if c.ID == "" || c.Function.Name == "" {
 				return "", errors.New("chamada de ferramenta inválida")
 			}
-			result := executor.ExecuteOne(ctx, tools.ToolCall{ID: c.ID, Type: c.Type, Function: tools.FunctionCall{Name: c.Function.Name, Arguments: c.Function.Arguments}})
+			selected := executor
+			if candidate, ok := registry.Get(c.Function.Name); ok {
+				if _, isMCP := tools.MCPIdentityOf(candidate); isMCP {
+					selected = mcpExecutor
+				}
+			}
+			result := selected.ExecuteOne(ctx, tools.ToolCall{ID: c.ID, Type: c.Type, Function: tools.FunctionCall{Name: c.Function.Name, Arguments: c.Function.Arguments}})
 			content := tools.ContentForModel(result.Result)
 			if result.Error != nil {
 				content = result.Error.Error()
@@ -110,7 +128,11 @@ func execute(skillPath, prompt string, out io.Writer) error {
 	if model == "" || key == "" {
 		return errors.New("LASST_MODEL e LASST_API_KEY são obrigatórios")
 	}
-	data, err := os.ReadFile(skillPath)
+	dir, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	data, err := readSkill(dir, skillPath)
 	if err != nil {
 		return fmt.Errorf("ler skill: %w", err)
 	}
@@ -124,10 +146,6 @@ func execute(skillPath, prompt string, out io.Writer) error {
 	if strings.TrimSpace(instruction) == "" || strings.TrimSpace(prompt) == "" {
 		return errors.New("skill e instrução não podem estar vazias")
 	}
-	dir, err := os.Getwd()
-	if err != nil {
-		return err
-	}
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
 	ctx, timeout := context.WithTimeout(ctx, 10*time.Minute)
@@ -137,7 +155,12 @@ func execute(skillPath, prompt string, out io.Writer) error {
 		return errors.New("LASST_REASONING_CONTENT_MODE deve ser disabled ou replay_with_tools")
 	}
 	provider := llm.NewOpenAIProviderWithAPIKey(&llm.ProviderConfig{BaseURL: base, ReasoningContentMode: mode}, key)
-	answer, err := run(ctx, provider, model, instruction, prompt, dir)
+	mcpTools, closeMCP, err := openGitHubMCP(ctx, dir)
+	if err != nil {
+		return err
+	}
+	defer closeMCP()
+	answer, err := runWithTools(ctx, provider, model, instruction, prompt, dir, mcpTools)
 	if err != nil {
 		return err
 	}
