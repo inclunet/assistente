@@ -2,6 +2,22 @@
 
 **Status:** In Progress — escopo DB-only e upgrades entregues; cobertura explícita de acessibilidade do fluxo inline permanece pendente
 
+## Continuação AEP-0116 — histórico de execuções (2026-10-31)
+
+O envelope canônico passa a v3: preserva IDs, proveniência, representantes,
+bases explícitas e seleção atual do chat. V1/v2 continuam legíveis, mas não
+podem transportar os campos novos sob uma versão antiga. Turnos, mensagens e
+ledger são exportados em um único snapshot. Importação valida o grafo, mantém
+execuções substituídas para auditoria e restaura a seleção; não restaura trabalho
+ativo nem leases. Tentativas em curso viram interrupted/restart. Colisões ou
+vínculos inválidos revertem a transação da conversa, inclusive em overwrite.
+
+Evidência: `internal/portability/execution_history_test.go`, round-trip real
+com migrações produtivas, retry/continue, legado sem proveniência, ferramentas,
+interrupção, colisões e rollback. O envelope de comandos usa a mesma versão
+externa, sem mudança do contrato de camadas. Permanecem as pendências de
+acessibilidade do fluxo inline; status deste AEP não muda para Done.
+
 ## Dependências
 
 Continuação AEP-0112 (Slack): o bloco opcional cifrado também transporta a
@@ -452,17 +468,17 @@ Na UI de export, ao detectar que recursos selecionados contêm campos potencialm
 
 ### D10 — Versionamento do formato
 
-O campo `version: 2` no export identifica o novo contrato baseado em IDs estáveis:
+O campo `version: 3` identifica o contrato atual, com IDs estáveis e proveniência das execuções de chat:
 
 - Importação sempre verifica a versão antes de processar
 - O envelope legado publicado até 0.1.9
   (`metadata.version: "2.0"`, conversas no topo e IDs numéricos) é adaptado
-  para `version: 2` antes da análise/importação. IDs determinísticos preservam
+  para `version: 3` antes da análise/importação. IDs determinísticos preservam
   idempotência e as referências `parentId`/`turnId`.
 - Nenhum formato efetivamente publicado deixa de ser suportado. Formatos
   experimentais nunca publicados não entram nessa garantia.
-- Versões futuras podem adicionar campos sem quebrar compatibilidade (campos desconhecidos são ignorados)
-- Se uma versão futura fizer mudanças incompatíveis, incrementa o número e o importador antigo rejeita com mensagem clara
+- Arquivos v1/v2 continuam aceitos, desde que não contenham os campos de execução introduzidos na v3.
+- Versões superiores à atual são rejeitadas antes da importação, com mensagem clara.
 
 Não existe versão intermediária obrigatória: arquivos gerados por qualquer
 release publicada são importados diretamente pela release atual.

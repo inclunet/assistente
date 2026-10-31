@@ -13,7 +13,7 @@ const (
 	FormatPDF      = "pdf"
 	FormatMarkdown = "md"
 	FormatMCPJSON  = "mcp-json"
-	ExportVersion  = 2
+	ExportVersion  = 3
 )
 
 type ExportOptions struct {
@@ -42,6 +42,7 @@ type CredentialCipher struct {
 }
 
 type MessageExport struct {
+	ChatExecutionID  *string   `json:"chatExecutionId,omitempty"`
 	ID               string    `json:"id"`
 	ConversationID   string    `json:"conversationId,omitempty"`
 	Role             string    `json:"role"`
@@ -68,6 +69,8 @@ type MessageExport struct {
 }
 
 type ConversationExport struct {
+	ChatTurns       []ChatTurnExport       `json:"chatTurns,omitempty"`
+	ChatExecutions  []ChatExecutionExport  `json:"chatExecutions,omitempty"`
 	ID              string                 `json:"id"`
 	Title           string                 `json:"title"`
 	Channel         string                 `json:"channel,omitempty"`
@@ -79,6 +82,7 @@ type ConversationExport struct {
 }
 
 type ToolInvocationExport struct {
+	ChatExecutionID    *string    `json:"chatExecutionId,omitempty"`
 	ID                 string     `json:"id"`
 	CreatedAt          time.Time  `json:"createdAt"`
 	UpdatedAt          time.Time  `json:"updatedAt"`
@@ -409,4 +413,25 @@ type ImportAnalysis struct {
 	UnsupportedResourceTypes   []string           `json:"unsupportedResourceTypes,omitempty"`
 	Warnings                   []LocalizedMessage `json:"warnings,omitempty"`
 	CredentialAnalysisError    string             `json:"credentialAnalysisError,omitempty"`
+}
+
+// IDs são estáveis (AEP-0047). Lease e active_execution_id não são portáteis.
+type ChatTurnExport struct {
+	TurnID             string  `json:"turnId" gorm:"column:user_message_id"`
+	CurrentExecutionID *string `json:"currentExecutionId"`
+	ResponseMessageID  *string `json:"responseMessageId"`
+	State              string  `json:"state"`
+}
+
+type ChatExecutionExport struct {
+	ExecutionID           string     `json:"executionId"`
+	TurnID                string     `json:"turnId"`
+	Mode                  string     `json:"mode"`
+	State                 string     `json:"state"`
+	StartedAt             time.Time  `json:"startedAt"`
+	FinishedAt            *time.Time `json:"finishedAt,omitempty"`
+	TerminalReason        string     `json:"terminalReason,omitempty"`
+	ResponseMessageID     *string    `json:"responseMessageId"`
+	BaseExecutionID       *string    `json:"baseExecutionId"`
+	BaseResponseMessageID *string    `json:"baseResponseMessageId"`
 }
