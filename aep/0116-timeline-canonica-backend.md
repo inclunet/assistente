@@ -1,8 +1,38 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — fase 1 concluída; fase 2 com janela, composição e cursores; publicação e cutover pendentes
+## Status: In Progress — fase 1 concluída; fase 2 com operações canônicas internas; inscrições e cutover pendentes
 
 Data: 2026-10-30
+
+### Recorte: operações canônicas e replay interno (2026-10-31)
+
+Leituras coordenadas de turno/janela passam pela mesma projeção leve e pelo mesmo
+codificador de operações. Identidade do item permanece estável; conteúdo crescente
+no mesmo segmento gera append, substituição gera replace e mudança estrutural gera
+upsert. Comparar prefixos aqui codifica um delta entre segmentos de identidade já
+comprovada; não adivinha proveniência nem deduplica fontes.
+
+O journal conserva as próprias operações canônicas, até 256 lotes/2 MiB, com
+sequência decimal independente das revisões de storage e runtime. Snapshot/replay
+não expõem referências mutáveis do journal. Lote maior perde continuidade de replay
+e exige snapshot. O cache de base de diff tem limite separado de 512 itens/8 MiB de
+JSON; evicção não remove buffers vivos nem conteúdo do usuário, e a próxima
+publicação do item usa upsert. Medição de heap real continua pendente.
+
+Limite explícito: publicação ainda é sob demanda nas leituras coordenadas. Alterações
+sem leitura não são publicadas automaticamente. Não oferecer este replay como
+sincronização integral nem expor API pública v1 antes da conexão dos produtores,
+coalescing, inscrições e invalidações de storage/ledger. Ausência em uma página não
+produz tombstone. Metadados/anexos completos e patches de janela seguem pendentes.
+
+Testes `CanonicalPublication`, `CanonicalReplay` e `CanonicalItem` verificam delta,
+reset, identidade nullable, limites, evicção, mudança de época, aplicação das operações
+contra snapshot e isolamento de cópias. Build/vet e lint incremental passaram;
+289 testes seguros de chat passaram. Revisor independente review_aep: desenho
+revisado em duas propostas e gate final sem pendências. A revisão remota do
+CodeRabbit sugeriu provar a fronteira do replay após evicção: after=0/43 recusados,
+after=44 entrega sequências 45–300; após lote excessivo, after=300 recusa e
+301 aceita vazio. Cinco testes focados passaram. Nenhum teste ACP local.
 
 ### Recorte: cursores canônicos validados no snapshot (2026-10-31)
 
