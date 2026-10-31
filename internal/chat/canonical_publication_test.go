@@ -46,10 +46,25 @@ func TestCanonicalPublicationBoundsReplayAndResetsEpoch(t *testing.T) {
 	if len(c.publication.batches) != 256 || c.publication.sequence != 300 {
 		t.Fatal("limite de lotes")
 	}
+	if _, ok := c.publication.replay("epoch", 0); ok {
+		t.Fatal("replay de histórico removido")
+	}
+	if _, ok := c.publication.replay("epoch", 43); ok {
+		t.Fatal("replay anterior ao limite retido")
+	}
+	if batches, ok := c.publication.replay("epoch", 44); !ok || len(batches) != 256 || batches[0].Sequence != "45" || batches[255].Sequence != "300" {
+		t.Fatal("replay na fronteira retida")
+	}
 	item.Segments[0].Text = strings.Repeat("x", canonicalReplayBytes+1)
 	c.publishCanonical("c", []*TimelineItem{item})
 	if len(c.publication.batches) != 0 || c.publication.bytes != 0 || c.publication.sequence != 301 {
 		t.Fatal("overflow")
+	}
+	if _, ok := c.publication.replay("epoch", 300); ok {
+		t.Fatal("replay atravessou lote maior que o orçamento")
+	}
+	if batches, ok := c.publication.replay("epoch", 301); !ok || len(batches) != 0 {
+		t.Fatal("fronteira atual após overflow")
 	}
 	c.epoch = "new"
 	item.Segments[0].Text = "x"
