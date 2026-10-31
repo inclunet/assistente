@@ -1514,6 +1514,9 @@ LIMIT 1`
 		return nil, err
 	}
 	if item.ID == "" {
+		if query.AnchorItemID != "" {
+			return nil, fmt.Errorf("anchorItemId inválido: %s", query.AnchorItemID)
+		}
 		return nil, fmt.Errorf("anchorMessageId inválido: %s", query.AnchorMessageID)
 	}
 	return &item, nil

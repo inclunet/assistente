@@ -31,6 +31,8 @@ Também passaram as provas de isolamento de thread e `historical_unknown` sem
 conteúdo. Build/vet e lint incremental passaram; 281 testes seguros de chat,
 31 de banco e 10 de app passaram, além dos quatro casos canônicos finais.
 Revisor independente `review_aep`: duas rodadas, sem pendências técnicas.
+Revisão remota: paginação `around` com item sem representante e diagnóstico de
+âncora ausente cobertos; o erro identifica `anchorItemId` ou `anchorMessageId`.
 
 `BenchmarkCanonicalWindowTurnMembership` (20 operações, cinco amostras,
 Windows/amd64, execução isolada) mediu medianas legado/canônico de
