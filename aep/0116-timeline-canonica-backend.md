@@ -1,8 +1,26 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — fase 1 concluída; fase 2 com janela canônica e composição; protocolo e cutover pendentes
+## Status: In Progress — fase 1 concluída; fase 2 com janela, composição e cursores; publicação e cutover pendentes
 
 Data: 2026-10-30
+
+### Recorte: cursores canônicos validados no snapshot (2026-10-31)
+
+A janela interna agora fornece e consome cursores opacos versionados com conversa,
+escopo e chave total exata do banco. Owner é reautorizado antes da decodificação;
+a chave da âncora é comparada na mesma transação da página. Âncora removida ou
+movida exige sincronização, sem resposta vazia que pareça fim do histórico.
+Cursor não é credencial; entrada malformada, escopo divergente ou âncoras
+simultâneas são recusados. O tamanho aceito é limitado a 8 KiB.
+
+`TestCanonicalCursorRoundTripAndInvalidation` e
+`TestCanonicalCursorDoesNotGrantAccessOrChangeScope` cobrem ida/volta, mudança de
+posição, exclusão, falta de autenticação, outro owner, escopo e entradas inválidas.
+Revisor independente `review_aep`: uma rodada sem achados bloqueantes. Sem ACP local.
+
+A API pública aguarda publicação coordenada e inscrições: este recorte não
+expõe sequência fictícia nem um DTO provisório. Próximos recortes: mecanismo
+único de lotes/snapshot e inscrições/recuperação, antes do cutover do frontend.
 
 ### Recorte: janela canônica desde a admissão (2026-10-31)
 
