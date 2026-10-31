@@ -12,7 +12,7 @@ import (
 func TestTurnExecutionAtomicResponseAndLateWrites(t *testing.T) {
 	db := newChatTurnTestDB(t, false)
 	seedChatTurnTestMessages(t, db, "conv", "turn", "response")
-	if err := migrateChatTurns(db); err != nil {
+	if err := MigrateChatTurns(db); err != nil {
 		t.Fatal(err)
 	}
 	ctx := WithUserID(context.Background(), "user")
@@ -70,7 +70,7 @@ func TestTurnExecutionAtomicResponseAndLateWrites(t *testing.T) {
 func TestTurnExecutionReconcilesLegacyButPreservesCanonicalResponse(t *testing.T) {
 	db := newChatTurnTestDB(t, false)
 	seedChatTurnTestMessages(t, db, "conv", "turn", "old")
-	if err := migrateChatTurns(db); err != nil {
+	if err := MigrateChatTurns(db); err != nil {
 		t.Fatal(err)
 	}
 	turnID := "turn"
@@ -110,7 +110,7 @@ func TestTurnExecutionStartupRecoversBeforeReconciliation(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", cache)
 	db := newChatTurnTestDB(t, false)
 	seedChatTurnTestMessages(t, db, "conv", "turn", "")
-	if err := migrateChatTurns(db); err != nil {
+	if err := MigrateChatTurns(db); err != nil {
 		t.Fatal(err)
 	}
 	if err := ensureSchemaMigrationsTable(db); err != nil {
@@ -190,7 +190,7 @@ func TestTurnExecutionStartupRecoversBeforeReconciliation(t *testing.T) {
 func TestTurnExecutionReconciliationDoesNotRewriteUnchangedResponse(t *testing.T) {
 	db := newChatTurnTestDB(t, false)
 	seedChatTurnTestMessages(t, db, "conv", "turn", "response")
-	if err := migrateChatTurns(db); err != nil {
+	if err := MigrateChatTurns(db); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Exec(`CREATE TRIGGER reject_unchanged BEFORE UPDATE ON chat_turns WHEN NEW.response_message_id IS OLD.response_message_id BEGIN SELECT RAISE(ABORT,'update redundante'); END`).Error; err != nil {

@@ -15,7 +15,7 @@ func newTimelineVersionDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	database := newChatTurnTestDB(t, false)
 	seedChatTurnTestMessages(t, database, "conv", "turn", "answer")
-	if err := migrateChatTurns(database); err != nil {
+	if err := MigrateChatTurns(database); err != nil {
 		t.Fatal(err)
 	}
 	if err := migrateChatTurnLeases(database); err != nil {

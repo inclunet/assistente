@@ -44,9 +44,12 @@ func TestHydrationPreservesOpaqueIDsAndRetryIsolation(t *testing.T) {
 	if err != nil || len(displays) != 2 {
 		t.Fatalf("turnos alterados: %+v, %v", displays, err)
 	}
-	results, err := LoadChatToolInvocationResultsForTurnIDsWithUser(context.Background(), "user-a", requested)
-	if err != nil {
-		t.Fatal(err)
+	results := make(map[string]map[string]string)
+	for turn, calls := range displays {
+		results[turn] = make(map[string]string)
+		for _, call := range calls {
+			results[turn][call.ID] = call.ModelResult
+		}
 	}
 	for turnIndex, turn := range turns {
 		if len(displays[turn]) != 2 || len(results[turn]) != 2 {

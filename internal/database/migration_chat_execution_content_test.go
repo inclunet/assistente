@@ -12,10 +12,10 @@ func executionSchemaFixture(t *testing.T) (*gorm.DB, *ChatTurnRepository, contex
 	t.Helper()
 	db := newChatTurnTestDB(t, false)
 	seedChatTurnTestMessages(t, db, "conv", "question", "legacy-answer")
-	if err := migrateChatTurns(db); err != nil {
+	if err := MigrateChatTurns(db); err != nil {
 		t.Fatal(err)
 	}
-	if err := migrateChatExecutionContent(db); err != nil {
+	if err := MigrateChatExecutionContent(db); err != nil {
 		t.Fatal(err)
 	}
 	repo := NewChatTurnRepository(db)
@@ -40,7 +40,7 @@ func insertExecutionMessage(db *gorm.DB, id, executionID, conversationID, turnID
 
 func TestExecutionContentMigrationKeepsLegacyUnattributed(t *testing.T) {
 	db, _, _, _ := executionSchemaFixture(t)
-	if err := migrateChatExecutionContent(db); err != nil {
+	if err := MigrateChatExecutionContent(db); err != nil {
 		t.Fatal(err)
 	}
 	var row struct {
@@ -167,13 +167,13 @@ func TestExecutionContentSchemaMarksDeletedBaseUnavailable(t *testing.T) {
 func TestExecutionContentMigrationRollsBackOnFailure(t *testing.T) {
 	db := newChatTurnTestDB(t, false)
 	seedChatTurnTestMessages(t, db, "conv", "question", "answer")
-	if err := migrateChatTurns(db); err != nil {
+	if err := MigrateChatTurns(db); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Exec("ALTER TABLE tool_invocations DROP COLUMN model_iteration").Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := migrateChatExecutionContent(db); err == nil {
+	if err := MigrateChatExecutionContent(db); err == nil {
 		t.Fatal("migração inválida aceita")
 	}
 	if db.Migrator().HasColumn("chat_messages", "chat_execution_id") || db.Migrator().HasColumn("chat_turns", "current_execution_id") {

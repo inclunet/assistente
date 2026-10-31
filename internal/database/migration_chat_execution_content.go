@@ -6,9 +6,10 @@ import (
 	"gorm.io/gorm"
 )
 
+// MigrateChatExecutionContent aplica a migração aditiva de proveniência.
 // A proveniência é nullable para legado: não atribuir conteúdo a uma tentativa
 // por horário, igualdade de texto ou posição. A migração precede os novos writers.
-func migrateChatExecutionContent(db *gorm.DB) error {
+func MigrateChatExecutionContent(db *gorm.DB) error {
 	return db.Transaction(func(tx *gorm.DB) error {
 		columns := []struct{ table, name, definition string }{
 			{"chat_messages", "chat_execution_id", "TEXT REFERENCES chat_turn_attempts(execution_id) ON DELETE CASCADE"},

@@ -10,6 +10,7 @@ import (
 
 func TestMessagePinningPersistsAndIsUserScoped(t *testing.T) {
 	setupUserScopeTestDB(t)
+	migrateExecutionSelectionFixture(t, db)
 
 	anaCtx := WithUserID(context.Background(), "user-ana")
 	leoCtx := WithUserID(context.Background(), "user-leo")

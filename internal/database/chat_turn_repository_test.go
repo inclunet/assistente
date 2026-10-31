@@ -68,7 +68,7 @@ func seedChatTurnTestMessages(t *testing.T, db *gorm.DB, conv, turn, response st
 func TestChatTurnLifecycleAndStaleTerminal(t *testing.T) {
 	db := newChatTurnTestDB(t, false)
 	seedChatTurnTestMessages(t, db, "conv", " turn ", " response ")
-	if err := migrateChatTurns(db); err != nil {
+	if err := MigrateChatTurns(db); err != nil {
 		t.Fatal(err)
 	}
 	r := NewChatTurnRepository(db)
@@ -117,7 +117,7 @@ func TestChatTurnScopeAndLinkConstraints(t *testing.T) {
 	db := newChatTurnTestDB(t, false)
 	seedChatTurnTestMessages(t, db, "conv", "turn", "response")
 	seedChatTurnTestMessages(t, db, "other", "other-turn", "other-response")
-	if err := migrateChatTurns(db); err != nil {
+	if err := MigrateChatTurns(db); err != nil {
 		t.Fatal(err)
 	}
 	r := NewChatTurnRepository(db)
@@ -155,7 +155,7 @@ func TestChatTurnScopeAndLinkConstraints(t *testing.T) {
 func TestChatTurnFinishSharesResponseTransaction(t *testing.T) {
 	db := newChatTurnTestDB(t, false)
 	seedChatTurnTestMessages(t, db, "conv", "turn", "response")
-	if err := migrateChatTurns(db); err != nil {
+	if err := MigrateChatTurns(db); err != nil {
 		t.Fatal(err)
 	}
 	ctx := WithUserID(context.Background(), "user")
@@ -191,7 +191,7 @@ func TestChatTurnConcurrentBeginRecoveryAndCascade(t *testing.T) {
 	db := newChatTurnTestDB(t, false)
 	seedChatTurnTestMessages(t, db, "conv", "turn", "response")
 	seedChatTurnTestMessages(t, db, "other", "other-turn", "other-response")
-	if err := migrateChatTurns(db); err != nil {
+	if err := MigrateChatTurns(db); err != nil {
 		t.Fatal(err)
 	}
 	ctx := WithUserID(context.Background(), "user")
@@ -268,7 +268,7 @@ func TestMigrateChatTurnsBackfillAndIdempotency(t *testing.T) {
 		t.Fatal(err)
 	}
 	for range 2 {
-		if err := migrateChatTurns(db); err != nil {
+		if err := MigrateChatTurns(db); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -293,7 +293,7 @@ func TestMigrateChatTurnsBackupAndBatches(t *testing.T) {
 	for i := range 130 {
 		seedChatTurnTestMessages(t, db, "conv", fmt.Sprintf("turn-%03d", i), "")
 	}
-	if err := migrateChatTurns(db); err != nil {
+	if err := MigrateChatTurns(db); err != nil {
 		t.Fatal(err)
 	}
 	var count int64
@@ -339,7 +339,7 @@ func TestMigrateChatTurnsPreservesOrphanOutsideTurnMetadata(t *testing.T) {
 	if err := db.Exec("PRAGMA foreign_keys=ON").Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := migrateChatTurns(db); err != nil {
+	if err := MigrateChatTurns(db); err != nil {
 		t.Fatal(err)
 	}
 	var count int64
@@ -359,7 +359,7 @@ func TestMigrateChatTurnsRollsBackSchemaAndPreservesHistory(t *testing.T) {
 	if err := db.Exec("DROP TABLE tool_invocations").Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := migrateChatTurns(db); err == nil {
+	if err := MigrateChatTurns(db); err == nil {
 		t.Fatal("ignorou erro de leitura")
 	}
 	if db.Migrator().HasTable("chat_turns") || db.Migrator().HasTable("chat_turn_attempts") {
@@ -386,7 +386,7 @@ func TestMigrateChatTurnsRejectsForeignKeyCorruption(t *testing.T) {
 		t.Fatal(err)
 	}
 	seedChatTurnTestMessages(t, db, "conv", "turn", "response")
-	if err := migrateChatTurns(db); err == nil {
+	if err := MigrateChatTurns(db); err == nil {
 		t.Fatal("ignorou corrupção de FK")
 	}
 	var count int64
@@ -421,7 +421,7 @@ func TestMigrateChatTurnsNativeOriginAndRetrySelection(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			if err := migrateChatTurns(db); err != nil {
+			if err := MigrateChatTurns(db); err != nil {
 				t.Fatal(err)
 			}
 			got, err := NewChatTurnRepository(db).Get(WithUserID(context.Background(), "user"), "conv", turn)

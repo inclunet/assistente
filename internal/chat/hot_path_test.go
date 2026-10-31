@@ -290,7 +290,6 @@ var _ ports.Emitter = (*commitCheckingEmitter)(nil)
 
 func setupHotPathDB(t *testing.T) (*gorm.DB, context.Context, string) {
 	t.Helper()
-	previous := database.DB()
 	path := filepath.ToSlash(filepath.Join(t.TempDir(), "chat-hot-path.db"))
 	testDB, err := gorm.Open(sqlite.Open("file:"+path+"?_pragma=busy_timeout(100)&_pragma=journal_mode(WAL)"), &gorm.Config{})
 	if err != nil {
@@ -301,15 +300,17 @@ func setupHotPathDB(t *testing.T) (*gorm.DB, context.Context, string) {
 		t.Fatal(err)
 	}
 	sqlDB.SetMaxOpenConns(8)
-	if err := testDB.AutoMigrate(&database.Conversation{}, &database.ChatMessage{}); err != nil {
+	if err := testDB.AutoMigrate(&database.Conversation{}, &database.ChatMessage{}, &database.ToolCatalog{}, &database.ToolInvocation{}); err != nil {
 		t.Fatal(err)
 	}
-	database.SetDB(testDB)
-	t.Cleanup(func() {
-		_ = sqlDB.Close()
-		database.SetDB(previous)
-	})
-
+	if err := database.MigrateChatTurns(testDB); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.MigrateChatExecutionContent(testDB); err != nil {
+		t.Fatal(err)
+	}
+	restore := database.SetDB(testDB)
+	t.Cleanup(func() { _ = sqlDB.Close(); restore() })
 	ctx := database.WithUserID(context.Background(), "user-hot-path")
 	conv := &database.Conversation{UserID: "user-hot-path", Title: DefaultConversationTitle}
 	if err := testDB.Create(conv).Error; err != nil {

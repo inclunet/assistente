@@ -20,17 +20,21 @@ func setupProjectionReadTest(t *testing.T) *gorm.DB {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := testDB.AutoMigrate(
-		&database.Conversation{},
-		&database.ChatMessage{},
-		&database.ToolCatalog{},
-		&database.ToolInvocation{},
-	); err != nil {
+	if err := testDB.AutoMigrate(&database.Conversation{}, &database.ChatMessage{}, &database.ToolCatalog{}, &database.ToolInvocation{}); err != nil {
 		t.Fatal(err)
 	}
-	previous := database.DB()
-	database.SetDB(testDB)
-	t.Cleanup(func() { database.SetDB(previous) })
+	if err := database.MigrateChatTurns(testDB); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.MigrateChatExecutionContent(testDB); err != nil {
+		t.Fatal(err)
+	}
+	restore := database.SetDB(testDB)
+	sqlDB, err := testDB.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = sqlDB.Close(); restore() })
 	return testDB
 }
 
@@ -191,6 +195,10 @@ func TestProjectionDetailsValidaLimite(t *testing.T) {
 
 func TestProjectionSecurityOutcomeUsesBlockedPrecedence(t *testing.T) {
 	testDB := setupProjectionReadTest(t)
+	catalog := database.ToolCatalog{Name: "security-projection", Origin: "builtin"}
+	if err := testDB.Create(&catalog).Error; err != nil {
+		t.Fatal(err)
+	}
 	conv := database.Conversation{UUIDModel: database.UUIDModel{ID: "conv-security"}, UserID: "user-security"}
 	if err := testDB.Create(&conv).Error; err != nil {
 		t.Fatal(err)
@@ -218,7 +226,7 @@ func TestProjectionSecurityOutcomeUsesBlockedPrecedence(t *testing.T) {
 			t.Fatal(err)
 		}
 		if err := testDB.Create(&database.ToolInvocation{
-			UUIDModel: database.UUIDModel{ID: "inv-security-" + tc.name}, UserID: conv.UserID,
+			UUIDModel: database.UUIDModel{ID: "inv-security-" + tc.name}, UserID: conv.UserID, ToolCatalogID: catalog.ID,
 			OriginType: OriginChat, OriginID: turn, ConversationID: &conv.ID, TurnID: &turn,
 			ToolCallID: "call-security-" + tc.name, Status: StatusSucceeded, ResultAvailability: "available",
 			Metadata: tc.metadata, QueuedAt: time.Now().UTC().Add(time.Duration(index) * time.Millisecond),

@@ -331,6 +331,12 @@ func TestBuildTurnPatchPropagaResultadosEBloqueioDoLedger(t *testing.T) {
 	if err := db.AutoMigrate(&database.User{}, &database.Conversation{}, &database.ChatMessage{}, &database.ToolCatalog{}, &database.ToolInvocation{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
+	if err := database.MigrateChatTurns(db); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.MigrateChatExecutionContent(db); err != nil {
+		t.Fatal(err)
+	}
 	if err := db.Create(&database.User{UUIDModel: database.UUIDModel{ID: "user-a"}, Username: "agent-test", DisplayName: "Agent Test", PasswordHash: "x", Role: database.UserRoleUser, IsActive: true}).Error; err != nil {
 		t.Fatalf("user: %v", err)
 	}

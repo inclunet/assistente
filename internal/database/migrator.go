@@ -430,7 +430,7 @@ var schemaMigrations = []migration{
 		if !applied[19] {
 			return errMigrationDeferred
 		}
-		return migrateChatTurns(database)
+		return MigrateChatTurns(database)
 	}},
 	{Version: 42, Name: "chat_turn_execution_leases", Phase: phasePostAutoMigrate, Run: func(database *gorm.DB) error {
 		applied, err := appliedMigrationVersions(database)
@@ -460,7 +460,7 @@ var schemaMigrations = []migration{
 		if !applied[43] {
 			return errMigrationDeferred
 		}
-		return migrateChatExecutionContent(database)
+		return MigrateChatExecutionContent(database)
 	}},
 }
 

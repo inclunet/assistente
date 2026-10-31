@@ -22,21 +22,7 @@ import (
 
 func setupRepositoryTest(t *testing.T) (*DBRepository, context.Context, context.Context) {
 	t.Helper()
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open db: %v", err)
-	}
-	if err := db.AutoMigrate(
-		&database.User{}, &database.Conversation{}, &database.ChatMessage{},
-		&database.ToolCatalog{}, &database.ToolInvocation{},
-	); err != nil {
-		t.Fatalf("automigrate: %v", err)
-	}
-	previous := database.DB()
-	database.SetDB(db)
-	t.Cleanup(func() {
-		database.SetDB(previous)
-	})
+	db := setupProjectionReadTest(t)
 	if err := db.Create(&database.ToolCatalog{
 		Name:               "echo",
 		DisplayName:        "echo",

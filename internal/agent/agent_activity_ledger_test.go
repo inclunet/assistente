@@ -38,6 +38,12 @@ func TestACPAtividadePersisteNoPatchEHistorico(t *testing.T) {
 			if err := db.AutoMigrate(&database.User{}, &database.Conversation{}, &database.ChatMessage{}, &database.ToolCatalog{}, &database.ToolInvocation{}); err != nil {
 				t.Fatal(err)
 			}
+			if err := database.MigrateChatTurns(db); err != nil {
+				t.Fatal(err)
+			}
+			if err := database.MigrateChatExecutionContent(db); err != nil {
+				t.Fatal(err)
+			}
 			turnID := "turn-acp"
 			for _, row := range []any{
 				&database.User{UUIDModel: database.UUIDModel{ID: "user-a"}, Username: "acp-test", PasswordHash: "x", Role: database.UserRoleUser, IsActive: true},

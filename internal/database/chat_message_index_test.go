@@ -24,9 +24,15 @@ func setupChatMessageIndexTestDB(t *testing.T) *sql.DB {
 	if err := db.AutoMigrate(
 		&User{},
 		&Conversation{},
-		&ChatMessage{},
+		&ChatMessage{}, &ToolCatalog{}, &ToolInvocation{},
 	); err != nil {
 		t.Fatalf("migrate: %v", err)
+	}
+	if err := MigrateChatTurns(db); err != nil {
+		t.Fatal(err)
+	}
+	if err := MigrateChatExecutionContent(db); err != nil {
+		t.Fatal(err)
 	}
 	if err := ensureChatMessageWindowIndex(); err != nil {
 		t.Fatalf("ensureChatMessageWindowIndex: %v", err)

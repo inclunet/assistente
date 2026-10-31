@@ -21,7 +21,13 @@ func TestSummarizationPreservesOpaqueIDsFromLedgerToPrompt(t *testing.T) {
 	previous := database.DB()
 	database.SetDB(db)
 	t.Cleanup(func() { database.SetDB(previous) })
-	if err := db.AutoMigrate(&database.ToolCatalog{}, &database.ToolInvocation{}); err != nil {
+	if err := db.AutoMigrate(&database.Conversation{}, &database.ChatMessage{}, &database.ToolCatalog{}, &database.ToolInvocation{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.MigrateChatTurns(db); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.MigrateChatExecutionContent(db); err != nil {
 		t.Fatal(err)
 	}
 	catalog := database.ToolCatalog{Name: "echo", DisplayName: "Echo", Origin: "builtin"}
@@ -65,8 +71,10 @@ func TestSummarizationPreservesOpaqueIDsFromLedgerToPrompt(t *testing.T) {
 	if got := estimateHydratedToolResultTokens(repeated, results); got != wantTokens {
 		t.Fatalf("estimativa = %d, esperado %d", got, wantTokens)
 	}
-	if summarizationInvocationResultMatchesMessage(messages[0], results[" turn "]["call"]) {
-		t.Fatal("mensagens com IDs distintos foram tratadas como iguais")
+	for _, result := range results[" turn "] {
+		if summarizationInvocationResultMatchesMessage(messages[0], result) {
+			t.Fatal("mensagens com IDs distintos foram tratadas como iguais")
+		}
 	}
 	// Sem vínculo explícito, a atribuição por turno também mantém as identidades.
 	for turn, calls := range results {

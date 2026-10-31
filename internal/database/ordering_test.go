@@ -22,6 +22,7 @@ func setupOrderingTestDB(t *testing.T) {
 		t.Fatalf("failed to migrate: %v", err)
 	}
 
+	migrateExecutionSelectionFixture(t, db)
 	t.Cleanup(func() {
 		sqlDB, _ := db.DB()
 		if sqlDB != nil {

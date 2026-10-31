@@ -1,6 +1,6 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — fase 1 concluída; fase 2 com proveniência por execução preparada no schema
+## Status: In Progress — fase 1 concluída; fase 2 com schema e leitores preparados para seleção por execução
 
 Data: 2026-10-30
 
@@ -43,14 +43,16 @@ A referência à execução impede ciclos: aponta a execução anterior concluí
 não pode ser modificada. Anexos continuam referenciados pela base; não copiar
 blobs para preservar uma continuação textual.
 
-Ativação em quatro recortes após #977:
+Ativação em recortes após #977 (portabilidade separada para revisão antes dos writers):
 
 1. Schema aditivo e invariantes (este recorte). Não ativa novos writers.
 2. Seleção compartilhada antes de limites/paginação: janela, terminal, contexto
    do LLM e hidratação. Auditoria, exportação e métricas preservam todas as execuções.
-3. Ativação atômica no lifecycle e em todos os produtores, com representante novo
+3. Portabilidade das execuções e seleção, com validação e remapeamento de IDs.
+   Importação não pode tornar conteúdo substituído novamente atual.
+4. Ativação atômica no lifecycle e em todos os produtores, com representante novo
    e vínculos explícitos para mensagens e ledger. Legado continua reconhecível.
-4. Composição live/persistida na recuperação e janela por esses vínculos; retenção
+5. Composição live/persistida na recuperação e janela por esses vínculos; retenção
    volátil anterior continua separada. Lotes, inscrições e cutover visual vêm depois.
 
 Evidências de schema: `TestExecutionContentMigrationKeepsLegacyUnattributed`,
@@ -58,6 +60,56 @@ Evidências de schema: `TestExecutionContentMigrationKeepsLegacyUnattributed`,
 `TestExecutionContentSchemaMarksDeletedBaseUnavailable` e
 `TestExecutionContentMigrationRollsBackOnFailure`. A migração não altera texto,
 usage, IDs nem seleção de dados existentes e não inventa execução no upgrade.
+
+### Recorte: seleção por execução antes dos limites (2026-10-31)
+
+A seleção compartilhada usa `current_execution_id` e a cadeia-base explícita.
+Retry exclui da apresentação intermediárias e ferramentas anteriores; continuação
+herda somente bases declaradas e não repete seus finais já copiados no prefixo.
+Sem seleção explícita, o legado continua sem atribuição inventada. A filtragem
+ocorre antes de limites, contagens, paginação e janela de contexto do modelo.
+Janela e terminal usam a mesma leitura; exportação/auditoria não filtram execuções.
+
+O ledger distingue `(executionID, callID)` e agrupa `(executionID, iteration)`;
+a profundidade da cadeia ordena bases antes da execução selecionada. Identidades
+opacas não são concatenadas para deduplicação. Hidratação preserva `LedgerID`
+até a sumarização; registros novos sem vínculo de mensagem não recebem associação
+por heurística de iteração. `get_messages` por ID de resposta preservada consulta
+aquela execução, enquanto o ID da pergunta expande a seleção atual. Ambos usam
+a mesma seleção de cadeia, com autorização por usuário.
+
+Evidências: `TestExecutionSelectionRetryAndContinuationBeforeLimits`,
+`TestExecutionSelectionLegacyBaseAndUnavailableBase`,
+`TestExecutionSelectionKeepsCallsDistinctAcrossContinuations`,
+`TestGetMessagesHistoricalExecutionDoesNotHydrateCurrentTools`,
+`TestSummarizationExecutionIdentitySurvivesRepeatedCallIDs` e
+`TestTimelineExecutionSelectionMatchesWindowAndTerminal`.
+As fixtures de leitores aplicam as migrações produtivas 41/44; não mantêm DDL
+paralelo nem adicionam fallback de schema ausente ao código de produção.
+O CI identificou duas fixtures de atividade/cronologia ACP ainda sem esses
+metadados; ambas passam a aplicar as mesmas migrações. A compilação do pacote
+agent foi validada localmente, sem executar ACP; a execução fica no CI.
+
+Desempenho: a seleção do ledger é relacionada uma vez por `JOIN`; a janela
+sem âncora calcula total e página na mesma consulta (`COUNT(*) OVER ()`). Não há
+cache de conteúdo nem modo alternativo por heurística. Medianas finais de cinco
+amostras de 20 operações: 100 mensagens 4,134 ms / 805.094 B; 500 mensagens
+10,150 ms / 1.755.961 B; 1.000 mensagens 13,443 ms / 1.796.902 B. A confirmação
+isolada de 1.000 variou de 13,208 a 13,636 ms. Tempo e B/op ficam no orçamento
+original de +20%; payload permanece 37.262 / 88.881 / 88.882 bytes, sem aumento
+neste recorte. A execução agregada teve dispersão em 1.000 (13,385–30,596 ms);
+a comparação do pai no mesmo ambiente também apresentou dispersão tardia.
+Registrar ambas, sem tratar a melhor amostra como resultado. A implementação
+inicial excedia o orçamento em 100; os números acima são após reduzir as consultas.
+
+Este recorte ainda **não ativa escritores com proveniência**. Antes da ativação,
+a invalidação de resumos deve abranger qualquer resposta substituída, mesmo quando
+o boundary do resumo pertence a um turno posterior. Lifecycle, export/import,
+associação explícita de todos os produtores e composição live/persistida ainda
+são pendências. A ordem final de segmentos em continuações com origens mistas
+precisa de prova integrada no recorte de composição; a projeção SQL de âncora
+por si só não comprova essa ordem. Lotes, inscrições e cutover visual continuam
+posteriores. Não reportar a fase 2 como concluída.
 
 ### Recorte: itens compartilhados e proveniência do streaming (2026-10-31)
 

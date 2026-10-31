@@ -123,6 +123,12 @@ func TestPersistNativeMCPCalls_RecordsToolInvocation(t *testing.T) {
 		t.Fatalf("automigrate: %v", err)
 	}
 	prev := database.DB()
+	if err := database.MigrateChatTurns(db); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.MigrateChatExecutionContent(db); err != nil {
+		t.Fatal(err)
+	}
 	database.SetDB(db)
 	t.Cleanup(func() { database.SetDB(prev) })
 
