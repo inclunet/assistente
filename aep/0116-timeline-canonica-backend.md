@@ -1,8 +1,63 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — fase 1 concluída; fase 2 com itens persistidos compartilhados e confirmação identificada
+## Status: In Progress — fase 1 concluída; fase 2 com proveniência por execução preparada no schema
 
 Data: 2026-10-30
+
+### Decisão: retry substitui a execução apresentada (2026-10-31)
+
+Decisão explícita do mantenedor: repetir uma resposta substitui no visual toda a
+execução anterior, inclusive intermediárias e ferramentas, preservando-a no
+backend. Não acumular automaticamente as execuções no mesmo item. A identidade
+`turn:<questionId>` e a posição permanecem estáveis. Tentativa da ferramenta é
+um conceito diferente de execução da resposta.
+
+A inspeção reproduziu uma mistura real: depois de concluir B, a projeção continha
+uma intermediária de A e o final de B. Além disso, o final de A era sobrescrito.
+Somente adicionar um ID não preservaria esse conteúdo. A implementação deve
+criar um representante por execução e selecionar explicitamente a execução
+exibida, sem apagar a anterior nem inferir sua identidade.
+
+A v44 prepara seis vínculos nullable, sem atribuição retrospectiva:
+
+- `chat_messages.chat_execution_id` e `tool_invocations.chat_execution_id`:
+  proveniência única; legado/import continua NULL quando não há evidência.
+- `chat_turns.current_execution_id`: seleção persistente após o terminal,
+  distinta de `active_execution_id`, que representa trabalho em curso.
+- `chat_turn_attempts.response_message_id`: representante daquela execução.
+  O ponteiro do turno é mantido com ele na mesma transação, não outra seleção.
+- `base_execution_id` e `base_response_message_id` na tentativa: continuação
+  declara de onde herda intermediárias/tools e qual texto originou seu prefixo.
+  Base legada pode ter mensagem conhecida e execução desconhecida.
+
+A base é capturada antes de começar a continuação. Novos vínculos são validados
+por turno/conversa/escopo e não podem ser reatribuídos. O prefixo é preservado
+como conteúdo da nova resposta; edição posterior da base não o reescreve.
+`base_response_message_id` só pode ser limpo pela exclusão real da mensagem-base;
+NULL passa a significar indisponibilidade, sem apagar a execução-base, o modo
+de continuação ou o prefixo já copiado. Essa forma também é restaurável no
+import. Uma base indisponível não autoriza escolher outra por heurística.
+Novas continuações exigem base disponível; restauração histórica pode declarar
+a indisponibilidade sem inventar vínculos.
+A referência à execução impede ciclos: aponta a execução anterior concluída e
+não pode ser modificada. Anexos continuam referenciados pela base; não copiar
+blobs para preservar uma continuação textual.
+
+Ativação em quatro recortes após #977:
+
+1. Schema aditivo e invariantes (este recorte). Não ativa novos writers.
+2. Seleção compartilhada antes de limites/paginação: janela, terminal, contexto
+   do LLM e hidratação. Auditoria, exportação e métricas preservam todas as execuções.
+3. Ativação atômica no lifecycle e em todos os produtores, com representante novo
+   e vínculos explícitos para mensagens e ledger. Legado continua reconhecível.
+4. Composição live/persistida na recuperação e janela por esses vínculos; retenção
+   volátil anterior continua separada. Lotes, inscrições e cutover visual vêm depois.
+
+Evidências de schema: `TestExecutionContentMigrationKeepsLegacyUnattributed`,
+`TestExecutionContentSchemaRejectsCrossScopeAndReassignment`,
+`TestExecutionContentSchemaMarksDeletedBaseUnavailable` e
+`TestExecutionContentMigrationRollsBackOnFailure`. A migração não altera texto,
+usage, IDs nem seleção de dados existentes e não inventa execução no upgrade.
 
 ### Recorte: itens compartilhados e proveniência do streaming (2026-10-31)
 
