@@ -60,6 +60,7 @@ func (s *Service) NewSimpleStreamHandler(ctx context.Context, conversationID, us
 	return &SimpleStreamHandler{
 		BaseStreamHandler: BaseStreamHandler{
 			Emitter:            s.emitter,
+			projection:         streamProjection(ctx, 0),
 			ConversationID:     conversationID,
 			TurnID:             userMessageID,
 			AssistantMessageID: assistantMsgID,
@@ -210,6 +211,9 @@ func (h *SimpleStreamHandler) OnDone(fullResponse string, usage llm.Usage, model
 
 	// Delegate save, notify, and event emission to the Service (same as agentic path).
 	// The user message remains a standalone item; the assistant response carries the turn id.
+	if !h.projection.Seal(finalContent, accumulatedReasoning) {
+		return
+	}
 	h.terminalEmitted = h.svc.SaveAndFinish(h.ctx, h.ConversationID, h.userMessageID, h.assistantMessageID, AgenticResult{
 		FullResponse: finalContent,
 		Reasoning:    accumulatedReasoning,

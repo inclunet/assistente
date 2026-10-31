@@ -91,6 +91,9 @@ func (h *AgenticStreamHandler) OnToolCalls(calls []llm.ToolCall, fullResponse st
 		finalContent = content
 	}
 
+	if !h.projection.Seal(finalContent, reasoning) {
+		return
+	}
 	h.result = AgenticResult{
 		FullResponse:    finalContent,
 		Reasoning:       reasoning,
@@ -222,6 +225,9 @@ func (h *AgenticStreamHandler) OnDone(fullResponse string, usage llm.Usage, mode
 		finalContent = content
 	}
 
+	if !h.projection.Seal(finalContent, reasoning) {
+		return
+	}
 	h.result = AgenticResult{
 		FullResponse:    finalContent,
 		Reasoning:       reasoning,

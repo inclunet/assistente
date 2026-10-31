@@ -34,10 +34,11 @@ func terminalKey(ctx context.Context, conversationID, turnID string) pendingTurn
 }
 
 type turnExecution struct {
-	mu       sync.Mutex
-	id       string
-	finished bool
-	lease    *turnlease.Lease
+	mu         sync.Mutex
+	id         string
+	finished   bool
+	lease      *turnlease.Lease
+	projection *chat.ExecutionProjection
 }
 
 func executionFrom(ctx context.Context) *turnExecution {
@@ -88,13 +89,25 @@ func (s *Service) BeginTurn(ctx context.Context, conversationID, turnID, mode st
 		}
 		return ctx, errors.Join(err, releaseErr)
 	}
-	return context.WithValue(ctx, turnExecutionKey{}, &turnExecution{id: attempt.ExecutionID, lease: lease}), nil
+	projection, projectionErr := s.projection.Begin(ctx, conversationID, turnID, attempt.ExecutionID)
+	execution := &turnExecution{id: attempt.ExecutionID, lease: lease, projection: projection}
+	admitted := context.WithValue(ctx, turnExecutionKey{}, execution)
+	if projectionErr != nil {
+		s.EndUnfinishedTurn(admitted, conversationID, turnID, nil)
+		return ctx, projectionErr
+	}
+	return admitted, nil
 }
 
 func (s *Service) EnsureTurnResponse(ctx context.Context, conversationID, turnID string) (string, error) {
 	id, err := s.turns.EnsureResponse(ctx, conversationID, turnID, executionID(ctx))
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return "", chat.ErrConversationGone
+	}
+	if err == nil {
+		if execution := executionFrom(ctx); execution != nil {
+			execution.projection.SetResponse(id)
+		}
 	}
 	return id, err
 }
@@ -126,6 +139,7 @@ func (s *Service) finishTurn(ctx context.Context, conversationID, turnID, state,
 	err := s.turns.FinishResponse(ctx, conversationID, turnID, executionID(ctx), state, reason, responseID, response)
 	if err == nil && execution != nil {
 		execution.finished = true
+		execution.projection.Finish(state, reason, true, true)
 	}
 	return err
 }
@@ -155,6 +169,7 @@ func (s *Service) persistTerminal(ctx context.Context, event *ports.DoneEvent, s
 	// boot recupera apenas o estado confirmado, sem inventar sucesso.
 	if execution != nil {
 		execution.finished = true
+		execution.projection.Finish(state, reason, err == nil && reason != "persistence_error", false)
 	}
 	return true
 }
@@ -184,4 +199,11 @@ func (s *Service) EndUnfinishedTurn(ctx context.Context, conversationID, turnID 
 	if s.persistTerminal(ctx, &event, state, reason) {
 		s.emitter.Emit("chat:done", event)
 	}
+}
+
+func streamProjection(ctx context.Context, iteration int) *chat.StreamProjection {
+	if execution := executionFrom(ctx); execution != nil {
+		return execution.projection.StartStream(iteration)
+	}
+	return nil // handlers unitários sem admissão de execução
 }

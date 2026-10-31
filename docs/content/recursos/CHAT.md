@@ -245,3 +245,9 @@ posteriores. A navegação usa essa mesma ordem. Mensagens antigas com um víncu
 inválido continuam legíveis como mensagens independentes. Se a mensagem usada
 como âncora foi excluída, a consulta informa erro em vez de apresentar um fim de
 histórico vazio como se a navegação tivesse sido concluída.
+
+Durante a geração, o backend também conserva os trechos recebidos antes da sua
+emissão em lote. Se a execução terminar inesperadamente, essa cópia em memória
+não é tratada como conteúdo salvo apenas porque o estado da tentativa foi
+gravado. A integração dessa cópia com a recuperação visual ainda está em
+andamento; reiniciar o aplicativo continua recuperando somente dados persistidos.

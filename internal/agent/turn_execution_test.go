@@ -154,6 +154,11 @@ func TestTurnRuntimePartialWriteFailureNeverPublishesOldPatch(t *testing.T) {
 			svc.StreamSimpleWithRecovery(ctx, streamer, nil, llm.ChatParams{}, conv, turn, "", nil, false, 1)
 			svc.EndUnfinishedTurn(ctx, conv, turn, nil)
 			done := assertRuntimeTerminal(t, ctx, conv, turn, database.TurnFailed, "persistence_error", em)
+			projected, projectionErr := svc.projection.Snapshot(ctx, conv, turn)
+			if projectionErr != nil || projected == nil || !projected.Volatile || projected.Streams[0].Fragments[0].Text != "texto visível" {
+				t.Fatalf("conteúdo volatile perdido: %+v %v", projected, projectionErr)
+			}
+
 			if done.TurnPatch != nil || done.ErrorMessage != ports.ChatErrorPersistence {
 				t.Fatalf("patch obsoleto: %+v", done)
 			}
