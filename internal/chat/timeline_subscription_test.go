@@ -43,12 +43,17 @@ func TestTimelineSubscriptionsIsolateSurfacesAndSession(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("replay: %v %v", ok, err)
 	}
+	found := 0
 	for _, batch := range batches {
 		for _, op := range batch.Operations {
 			if op.ItemID != a.OrderedItemIDs[0] {
 				t.Fatal("item de outra janela")
 			}
+			found++
 		}
+	}
+	if found == 0 {
+		t.Fatal("replay sem operações da janela assinada")
 	}
 	first.Close()
 	first.Close()
