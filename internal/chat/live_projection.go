@@ -196,7 +196,12 @@ func (s *StreamProjection) Reasoning(text string, replace bool) bool {
 func (s *StreamProjection) Cut() bool {
 	return s.apply(func(stream *liveStream) { stream.parts = append(stream.parts, &livePart{}) })
 }
-func (s *StreamProjection) Current() bool {
+
+// OwnsStream inclui o resultado já selado, mas rejeita binding substituído.
+// O runner usa essa prova antes de interpretar o resultado de um callback.
+func (s *StreamProjection) OwnsStream() bool { return s.current(true) }
+func (s *StreamProjection) Current() bool    { return s.current(false) }
+func (s *StreamProjection) current(allowSealed bool) bool {
 	if s == nil {
 		return true
 	}
@@ -208,7 +213,7 @@ func (s *StreamProjection) Current() bool {
 		return false
 	}
 	stream := t.streams[s.iteration]
-	return stream != nil && stream.generation == s.generation && !stream.sealed
+	return stream != nil && stream.generation == s.generation && (allowSealed || !stream.sealed)
 }
 
 // Seal é uma substituição explícita quando o provider termina com um conteúdo

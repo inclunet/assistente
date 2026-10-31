@@ -623,6 +623,12 @@ continua explícita até a fase 3. Não houve alteração de SQL/payload da jane
 Revisão independente `review_aep`: problemas de confirmação de conteúdo e
 substituição de reasoning corrigidos com regressões; gate técnico sem pendências.
 
+Revisão remota adicional: o runner agêntico verifica a propriedade do stream
+antes de interpretar o resultado. Rejeição por binding substituído encerra a
+iteração, sem converter resultado zero em rodada de ferramentas vazia ou erro
+repetível do provider. Regressão cobre OnDone e OnToolCalls atrasados, sem retry
+nem segment_done; o resultado selado de um binding válido permanece aceito.
+
 Décimo recorte da fase 2 (PR empilhado sobre o nono): `ReadTurnRecovery`
 coordena leitura persistida autorizada e buffers em memória pela mesma barreira
 por usuário/conversa. Até a primeira leitura reserva a instância, impedindo que
@@ -686,6 +692,7 @@ em memória e append, não custo SQL, heap retido ou UI; SQL/payload da janela
 persistida não foram alterados. Revisor independente `review_aep`: prova positiva
 do terminal e barreira da primeira leitura corrigidas com regressões; gate
 final sem pendências, incluindo captura dinâmica de conteúdo não confirmado.
+
 
 ### Fase 3 — Consumidor frontend e remoções
 
