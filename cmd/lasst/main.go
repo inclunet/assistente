@@ -43,10 +43,19 @@ func (h *iteration) OnToolCalls(c []llm.ToolCall, s string, _ llm.Usage, _ strin
 
 // run mantém o histórico somente na execução. Não usa o serviço de chat nem o ledger.
 func run(ctx context.Context, streamer llm.Streamer, model, instruction, prompt, dir string) (string, error) {
+	return runWithTools(ctx, streamer, model, instruction, prompt, dir, nil)
+}
+
+func runWithTools(ctx context.Context, streamer llm.Streamer, model, instruction, prompt, dir string, extra []tools.Tool) (string, error) {
 	ctx = tools.WithExecutionContext(ctx, tools.ExecutionContext{Filesystem: &tools.FilesystemScope{Read: []string{filepath.Join(dir, "**")}, Deny: []string{filepath.Join(dir, ".git", "**")}}})
 	registry := tools.NewRegistry()
 	if err := registry.Register(filesystem.NewReadFile(dir)); err != nil {
 		return "", err
+	}
+	for _, tool := range extra {
+		if err := registry.Register(tool); err != nil {
+			return "", err
+		}
 	}
 	executor := tools.NewExecutor(registry, tools.DefaultExecutorConfig())
 	defs := make([]llm.ToolDefinition, 0, 1)
@@ -137,7 +146,12 @@ func execute(skillPath, prompt string, out io.Writer) error {
 		return errors.New("LASST_REASONING_CONTENT_MODE deve ser disabled ou replay_with_tools")
 	}
 	provider := llm.NewOpenAIProviderWithAPIKey(&llm.ProviderConfig{BaseURL: base, ReasoningContentMode: mode}, key)
-	answer, err := run(ctx, provider, model, instruction, prompt, dir)
+	mcpTools, closeMCP, err := openGitHubMCP(ctx, dir)
+	if err != nil {
+		return err
+	}
+	defer closeMCP()
+	answer, err := runWithTools(ctx, provider, model, instruction, prompt, dir, mcpTools)
 	if err != nil {
 		return err
 	}

@@ -248,7 +248,7 @@ Tudo que envolve dados e configuração funciona igualmente nos dois modos.
 
 ## Experimento `lasst`
 
-O `lasst` é uma prova de conceito separada, ainda sem distribuição oficial. Ele executa uma tarefa com um provedor compatível com Chat Completions, uma skill e leitura de arquivos do diretório atual, sem inicializar o banco do Assistente. Ainda não suporta MCP ou publicação de reviews.
+O `lasst` é uma prova de conceito separada, ainda sem distribuição oficial. Ele executa uma tarefa com um provedor compatível com Chat Completions, uma skill e leitura de arquivos do diretório atual, sem inicializar o banco do Assistente. O suporte experimental a GitHub MCP e à publicação de reviews ainda precisa de validação com o servidor real.
 
 Para experimentar a partir do código-fonte, compile `./cmd/lasst` e configure `LASST_BASE_URL` (HTTPS), `LASST_MODEL` e `LASST_API_KEY`. Execute o binário com o caminho de um `SKILL.md` e a instrução como argumentos:
 
@@ -261,3 +261,5 @@ A PoC restringe leitura ao diretório atual e bloqueia `.git/`. Skills que decla
 Quando o provedor exige `reasoning_content` na continuação de chamadas de ferramentas, configure `LASST_REASONING_CONTENT_MODE=replay_with_tools`; o padrão é `disabled`.
 
 Também é possível passar o nome de uma skill encontrada em `.assistente/skills`, `.github/skills`, `.agents/skills`, `.claude/skills` ou `.cursor/skills`. Em caso de nomes duplicados, informe o caminho explícito.
+
+Para habilitar o experimento com GitHub MCP, crie `.assistente/lasst-mcp.json` contendo `{"github":{"enabled":true}}` e configure no ambiente confiável `LASST_GITHUB_TOKEN`, `LASST_GITHUB_REPOSITORY` (`owner/repo`), `LASST_GITHUB_PR`. A configuração habilita somente o GitHub MCP remoto, sem permitir escolher comando ou URL. A CLI expõe somente operações de leitura do PR; a publicação de review ainda não está disponível. O fluxo ainda precisa ser validado contra o servidor real e não substitui o workflow de review.
