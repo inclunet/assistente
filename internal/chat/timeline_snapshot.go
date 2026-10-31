@@ -14,10 +14,11 @@ import (
 // de streaming. Metadados nullable aguardam o DTO canônico; Nodes/Window ainda
 // são os adaptadores visuais existentes.
 type TimelineWindowSnapshot struct {
-	Version   database.ChatTimelineVersion
-	Turns     map[string]*database.ChatTurn
-	Responses map[string]*PersistedResponse
-	Window    MessageWindow
+	InvalidTurnReferences int
+	Version               database.ChatTimelineVersion
+	Turns                 map[string]*database.ChatTurn
+	Responses             map[string]*PersistedResponse
+	Window                MessageWindow
 }
 
 type TimelineTurnSnapshot struct {
@@ -113,6 +114,7 @@ func (r *DBTimelineReader) ReadWindow(ctx context.Context, query database.Messag
 	if err != nil {
 		return nil, err
 	}
+	result.InvalidTurnReferences = rows.InvalidTurnReferences
 	result.Turns = facts.turns
 	result.Window = MessageWindow{
 		ConversationID: query.ConversationID,

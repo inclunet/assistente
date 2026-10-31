@@ -1301,13 +1301,15 @@ type MessageWindowQuery struct {
 }
 
 type MessageWindowResult struct {
-	Items      []MessageWindowItem
-	Messages   []ChatMessage
-	TotalCount int
-	StartIndex int
-	EndIndex   int
-	HasBefore  bool
-	HasAfter   bool
+	// Diagnóstico da fatia materializada, sem log repetido nem reparo na leitura.
+	InvalidTurnReferences int
+	Items                 []MessageWindowItem
+	Messages              []ChatMessage
+	TotalCount            int
+	StartIndex            int
+	EndIndex              int
+	HasBefore             bool
+	HasAfter              bool
 }
 
 type MessageWindowItem struct {
@@ -1316,8 +1318,10 @@ type MessageWindowItem struct {
 	MessageID     string
 	TurnID        string
 	OriginalIndex int
-	CreatedAt     time.Time
-	FirstID       string
+	// Valor SQLite exato da chave: paginação não reinterpreta timezone/precisão.
+	AnchorCreatedAt      string `gorm:"column:created_at"`
+	AnchorID             string
+	InvalidTurnReference bool
 }
 
 const (
@@ -1395,39 +1399,53 @@ func (r *MessageRepository) messageScopeQuery(conversationID string, parentID *s
 	return query.Where("parent_id IS NULL")
 }
 
+// A classificação é comum à contagem, busca de âncora e paginação. A pergunta
+// é sempre item independente; só uma referência válida no mesmo escopo forma
+// resposta. AnchorCreatedAt/AnchorID vêm da pergunta, nunca da resposta.
+// O conjunto Unicode White_Space do TRIM corresponde a strings.TrimSpace;
+// somente detecta ausência de vínculo, sem normalizar os IDs usados no JOIN.
 func timelineItemCTE(parentID *string) string {
-	parentPredicate := "parent_id IS NULL"
+	parentPredicate := "m.parent_id IS NULL"
 	if parentID != nil {
-		parentPredicate = "parent_id = ?"
+		parentPredicate = "m.parent_id = ?"
 	}
 	return fmt.Sprintf(`
 WITH scoped AS (
-	SELECT
-		id,
-		turn_id,
-		created_at,
-		CASE WHEN COALESCE(turn_id, '') <> '' THEN 'turn' ELSE 'message' END AS item_kind,
-		CASE WHEN COALESCE(turn_id, '') <> '' THEN turn_id ELSE id END AS item_id,
-		ROW_NUMBER() OVER (
-			PARTITION BY
-				CASE WHEN COALESCE(turn_id, '') <> '' THEN 'turn' ELSE 'message' END,
-				CASE WHEN COALESCE(turn_id, '') <> '' THEN turn_id ELSE id END
-			ORDER BY created_at ASC, id ASC
-		) AS rn
-	FROM chat_messages
-	WHERE conversation_id = ? AND %s
-),
-timeline_items AS (
-	SELECT
-		item_kind AS kind,
-		item_id AS id,
-		id AS message_id,
-		CASE WHEN item_kind = 'turn' THEN item_id ELSE '' END AS turn_id,
-		created_at,
-		id AS first_id
-	FROM scoped
-	WHERE rn = 1
+ SELECT m.id,
+  CASE WHEN q.id IS NOT NULL THEN 'turn' ELSE 'message' END AS item_kind,
+  CASE WHEN q.id IS NOT NULL THEN q.id ELSE m.id END AS item_id,
+  CASE WHEN q.id IS NOT NULL THEN q.created_at ELSE m.created_at END AS created_at,
+  CASE WHEN q.id IS NOT NULL THEN q.id ELSE m.id END AS anchor_id,
+  CASE WHEN q.id IS NOT NULL THEN 1 ELSE 0 END AS slot,
+  CASE WHEN m.role <> 'user' AND COALESCE(m.turn_id, '') <> '' AND q.id IS NULL THEN 1 ELSE 0 END AS invalid_turn_reference
+ FROM chat_messages m
+ LEFT JOIN chat_messages q ON m.role <> 'user' AND TRIM(COALESCE(m.turn_id, ''), char(9,10,11,12,13,32,133,160,5760,8192,8193,8194,8195,8196,8197,8198,8199,8200,8201,8202,8232,8233,8239,8287,12288)) <> ''
+  AND q.id = m.turn_id AND q.role = 'user'
+  AND q.conversation_id = m.conversation_id AND q.parent_id IS m.parent_id
+ WHERE m.conversation_id = ? AND %s
+), timeline_items AS (
+ SELECT item_kind AS kind, item_id AS id, MIN(id) AS message_id,
+  CASE WHEN item_kind = 'turn' THEN item_id ELSE '' END AS turn_id,
+  created_at, anchor_id, slot,
+  CASE WHEN item_kind = 'turn' THEN 'turn:' ELSE 'message:' END || item_id AS item_key,
+  MAX(invalid_turn_reference) AS invalid_turn_reference
+ FROM scoped
+ GROUP BY item_kind, item_id, created_at, anchor_id, slot
 )`, parentPredicate)
+}
+
+const timelineItemColumns = "kind, id, message_id, turn_id, created_at, anchor_id, invalid_turn_reference"
+const timelineOrderAscending = "created_at ASC, anchor_id COLLATE BINARY ASC, slot ASC, item_key COLLATE BINARY ASC"
+const timelineOrderDescending = "created_at DESC, anchor_id COLLATE BINARY DESC, slot DESC, item_key COLLATE BINARY DESC"
+const timelineKeyBefore = "(created_at, anchor_id COLLATE BINARY, slot, item_key COLLATE BINARY) < (?, ?, ?, ?)"
+const timelineKeyAfter = "(created_at, anchor_id COLLATE BINARY, slot, item_key COLLATE BINARY) > (?, ?, ?, ?)"
+
+func timelineKeyArgs(item MessageWindowItem) []interface{} {
+	slot, key := 0, "message:"+item.ID
+	if item.Kind == MessageWindowItemKindTurn {
+		slot, key = 1, "turn:"+item.ID
+	}
+	return []interface{}{item.AnchorCreatedAt, item.AnchorID, slot, key}
 }
 
 func timelineItemArgs(conversationID string, parentID *string) []interface{} {
@@ -1447,7 +1465,7 @@ func (r *MessageRepository) countTimelineItems(conversationID string, parentID *
 
 func (r *MessageRepository) getAnchorTimelineItem(query MessageWindowQuery) (*MessageWindowItem, error) {
 	sql := timelineItemCTE(query.ParentID) + `
-SELECT ti.kind, ti.id, ti.message_id, ti.turn_id, ti.created_at, ti.first_id
+SELECT ti.kind, ti.id, ti.message_id, ti.turn_id, ti.created_at, ti.anchor_id, ti.invalid_turn_reference
 FROM timeline_items ti
 JOIN scoped s ON s.item_kind = ti.kind AND s.item_id = ti.id
 WHERE s.id = ?
@@ -1465,11 +1483,8 @@ LIMIT 1`
 
 func (r *MessageRepository) countTimelineItemsBefore(conversationID string, parentID *string, anchor MessageWindowItem) (int, error) {
 	var count int64
-	sql := timelineItemCTE(parentID) + `
-SELECT COUNT(*)
-FROM timeline_items
-WHERE created_at < ? OR (created_at = ? AND first_id < ?)`
-	args := append(timelineItemArgs(conversationID, parentID), anchor.CreatedAt, anchor.CreatedAt, anchor.FirstID)
+	sql := timelineItemCTE(parentID) + " SELECT COUNT(*) FROM timeline_items WHERE " + timelineKeyBefore
+	args := append(timelineItemArgs(conversationID, parentID), timelineKeyArgs(anchor)...)
 	err := r.db.Raw(sql, args...).Scan(&count).Error
 	return int(count), err
 }
@@ -1478,9 +1493,7 @@ func (r *MessageRepository) queryTimelineItems(conversationID string, parentID *
 	if limit <= 0 {
 		return []MessageWindowItem{}, nil
 	}
-	sql := timelineItemCTE(parentID) + `
-SELECT kind, id, message_id, turn_id, created_at, first_id
-FROM timeline_items`
+	sql := timelineItemCTE(parentID) + " SELECT " + timelineItemColumns + " FROM timeline_items"
 	args := timelineItemArgs(conversationID, parentID)
 	if where != "" {
 		sql += " WHERE " + where
@@ -1499,11 +1512,7 @@ func (r *MessageRepository) queryTimelineItemsAround(conversationID string, pare
 	if limit <= 0 {
 		return []MessageWindowItem{}, nil
 	}
-	sql := timelineItemCTE(parentID) + `
-SELECT kind, id, message_id, turn_id, created_at, first_id
-FROM timeline_items
-ORDER BY created_at ASC, first_id ASC
-LIMIT ? OFFSET ?`
+	sql := timelineItemCTE(parentID) + " SELECT " + timelineItemColumns + " FROM timeline_items ORDER BY " + timelineOrderAscending + " LIMIT ? OFFSET ?"
 	args := append(timelineItemArgs(conversationID, parentID), limit, offset)
 	var items []MessageWindowItem
 	if err := r.db.Raw(sql, args...).Scan(&items).Error; err != nil {
@@ -1524,25 +1533,39 @@ func (r *MessageRepository) fetchMessagesForTimelineItems(conversationID string,
 	}
 	turnIDs := make([]string, 0)
 	messageIDs := make([]string, 0)
+	var invalidIDs map[string]bool
 	for _, item := range items {
 		if item.Kind == MessageWindowItemKindTurn {
 			turnIDs = append(turnIDs, item.TurnID)
 		} else {
 			messageIDs = append(messageIDs, item.MessageID)
+			if item.InvalidTurnReference {
+				if invalidIDs == nil {
+					invalidIDs = make(map[string]bool)
+				}
+				invalidIDs[item.MessageID] = true
+			}
 		}
 	}
 	query := r.messageScopeQuery(conversationID, parentID)
 	switch {
 	case len(turnIDs) > 0 && len(messageIDs) > 0:
-		query = query.Where("turn_id IN ? OR id IN ?", turnIDs, messageIDs)
+		query = query.Where("(role <> ? AND turn_id IN ?) OR id IN ?", "user", turnIDs, messageIDs)
 	case len(turnIDs) > 0:
-		query = query.Where("turn_id IN ?", turnIDs)
+		query = query.Where("role <> ? AND turn_id IN ?", "user", turnIDs)
 	default:
 		query = query.Where("id IN ?", messageIDs)
 	}
 	var messages []ChatMessage
 	if err := query.Order("created_at ASC, id ASC").Find(&messages).Error; err != nil {
 		return nil, err
+	}
+	// Somente a cópia retornada perde o vínculo inválido para não ser reagrupada
+	// pelos adaptadores. A referência original no banco continua intacta.
+	for i := range messages {
+		if invalidIDs[messages[i].ID] {
+			messages[i].TurnID = nil
+		}
 	}
 	return messages, nil
 }
@@ -1583,6 +1606,13 @@ func (r *MessageRepository) GetMessageWindowWithContext(ctx context.Context, que
 	if err != nil {
 		return nil, err
 	}
+	var anchorItem *MessageWindowItem
+	if query.AnchorMessageID != "" {
+		anchorItem, err = r.getAnchorTimelineItem(query)
+		if err != nil {
+			return nil, err
+		}
+	}
 	if limit == 0 {
 		return &MessageWindowResult{
 			Items:      []MessageWindowItem{},
@@ -1608,11 +1638,7 @@ func (r *MessageRepository) GetMessageWindowWithContext(ctx context.Context, que
 	windowLimit := min(limit, total)
 	var items []MessageWindowItem
 
-	if query.AnchorMessageID != "" {
-		anchorItem, err := r.getAnchorTimelineItem(query)
-		if err != nil {
-			return nil, err
-		}
+	if anchorItem != nil {
 		anchorIndex, err := r.countTimelineItemsBefore(query.ConversationID, query.ParentID, *anchorItem)
 		if err != nil {
 			return nil, err
@@ -1623,12 +1649,10 @@ func (r *MessageRepository) GetMessageWindowWithContext(ctx context.Context, que
 			items, err = r.queryTimelineItems(
 				query.ConversationID,
 				query.ParentID,
-				"created_at > ? OR (created_at = ? AND first_id > ?)",
-				"created_at ASC, first_id ASC",
+				timelineKeyAfter,
+				timelineOrderAscending,
 				windowLimit,
-				anchorItem.CreatedAt,
-				anchorItem.CreatedAt,
-				anchorItem.FirstID,
+				timelineKeyArgs(*anchorItem)...,
 			)
 		case messageWindowDirectionAround:
 			startIndex = anchorIndex - (limit / 2)
@@ -1646,12 +1670,10 @@ func (r *MessageRepository) GetMessageWindowWithContext(ctx context.Context, que
 			items, err = r.queryTimelineItems(
 				query.ConversationID,
 				query.ParentID,
-				"created_at < ? OR (created_at = ? AND first_id < ?)",
-				"created_at DESC, first_id DESC",
+				timelineKeyBefore,
+				timelineOrderDescending,
 				windowLimit,
-				anchorItem.CreatedAt,
-				anchorItem.CreatedAt,
-				anchorItem.FirstID,
+				timelineKeyArgs(*anchorItem)...,
 			)
 			reverseTimelineItems(items)
 			startIndex = anchorIndex - len(items)
@@ -1664,16 +1686,20 @@ func (r *MessageRepository) GetMessageWindowWithContext(ctx context.Context, que
 		}
 	} else if anchor == messageWindowAnchorStart || direction == messageWindowDirectionAfter {
 		startIndex = 0
-		items, err = r.queryTimelineItems(query.ConversationID, query.ParentID, "", "created_at ASC, first_id ASC", windowLimit)
+		items, err = r.queryTimelineItems(query.ConversationID, query.ParentID, "", timelineOrderAscending, windowLimit)
 	} else {
-		items, err = r.queryTimelineItems(query.ConversationID, query.ParentID, "", "created_at DESC, first_id DESC", windowLimit)
+		items, err = r.queryTimelineItems(query.ConversationID, query.ParentID, "", timelineOrderDescending, windowLimit)
 		reverseTimelineItems(items)
 		startIndex = total - len(items)
 	}
 	if err != nil {
 		return nil, err
 	}
+	invalidTurnReferences := 0
 	for i := range items {
+		if items[i].InvalidTurnReference {
+			invalidTurnReferences++
+		}
 		items[i].OriginalIndex = startIndex + i
 	}
 
@@ -1687,13 +1713,14 @@ func (r *MessageRepository) GetMessageWindowWithContext(ctx context.Context, que
 	}
 
 	return &MessageWindowResult{
-		Items:      items,
-		Messages:   messages,
-		TotalCount: total,
-		StartIndex: startIndex,
-		EndIndex:   endIndex,
-		HasBefore:  startIndex > 0,
-		HasAfter:   computeMessageWindowHasAfter(total, startIndex, endIndex, len(items)),
+		InvalidTurnReferences: invalidTurnReferences,
+		Items:                 items,
+		Messages:              messages,
+		TotalCount:            total,
+		StartIndex:            startIndex,
+		EndIndex:              endIndex,
+		HasBefore:             startIndex > 0,
+		HasAfter:              computeMessageWindowHasAfter(total, startIndex, endIndex, len(items)),
 	}, nil
 }
 
