@@ -12,6 +12,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -57,6 +58,7 @@ type IterationHandler interface {
 
 // ServiceConfig contém todas as dependências injetadas do AgentService.
 type ServiceConfig struct {
+	Turns            TurnStore
 	Emitter          events.Emitter
 	MsgRepo          chat.MessageRepository
 	ToolExecutor     *tools.Executor
@@ -80,6 +82,8 @@ type ServiceConfig struct {
 
 // Service encapsula a lógica do agentic loop sem dependências do Wails.
 type Service struct {
+	pendingTerminals sync.Map // pendingTurnKey -> executionId; apenas transações terminais que falharam
+	turns            TurnStore
 	emitter          events.Emitter
 	msgRepo          chat.MessageRepository
 	toolExecutor     *tools.Executor
@@ -115,6 +119,9 @@ func (s *Service) StreamSimpleWithRecovery(
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	if !s.startTurnStreaming(ctx, conversationID, turnID, surfaceOrigin) {
+		return
+	}
 	maxAttempts := normalizeRecoveryMaxAttempts(streamingRecoveryMaxAttempts)
 	attempts := 1
 	if streamingRecoveryEnabled {
@@ -132,7 +139,7 @@ func (s *Service) StreamSimpleWithRecovery(
 		}
 		if err != nil {
 			logging.Errorf(ctx, "agent.service", "[Chat] falha ao criar/reusar placeholder assistant (conversa %s, turno %s): %v", conversationID, turnID, err)
-			s.emitPlaceholderErrorDone(conversationID, turnID, surfaceOrigin)
+			s.emitPlaceholderErrorDone(ctx, conversationID, turnID, surfaceOrigin)
 			return
 		}
 		h.deferAgentTerminal = true
@@ -150,7 +157,10 @@ func (s *Service) StreamSimpleWithRecovery(
 		}
 		if ctx.Err() != nil {
 			partialContent, partialReasoning := h.Finalize()
-			s.persistAssistantPartialBestEffort(ctx, h.AssistantMessageID, partialContent, partialReasoning)
+			if err := s.persistAssistantPartial(ctx, h.AssistantMessageID, partialContent, partialReasoning); err != nil {
+				s.emitFinalizationErrorDone(ctx, conversationID, turnID, h.AssistantMessageID, surfaceOrigin)
+				return
+			}
 			s.emitSimpleContextDone(ctx, conversationID, turnID, h.AssistantMessageID, surfaceOrigin)
 			return
 		}
@@ -162,16 +172,29 @@ func (s *Service) StreamSimpleWithRecovery(
 		// trabalho dele é arquivo editado e comando rodado (AEP-0084 D4).
 		if h.ErrorNotRetryable() {
 			partialContent, partialReasoning := h.Finalize()
-			s.persistAssistantPartialBestEffort(ctx, h.AssistantMessageID, partialContent, partialReasoning)
-			s.persistErrorWhenEmpty(ctx, h.AssistantMessageID, h.LastError())
+			if err := s.persistAssistantPartial(ctx, h.AssistantMessageID, partialContent, partialReasoning); err != nil {
+				s.emitFinalizationErrorDone(ctx, conversationID, turnID, h.AssistantMessageID, surfaceOrigin)
+				return
+			}
+			if err := s.persistErrorWhenEmpty(ctx, h.AssistantMessageID, h.LastError()); err != nil {
+				s.emitFinalizationErrorDone(ctx, conversationID, turnID, h.AssistantMessageID, surfaceOrigin)
+				return
+			}
 			h.emitAgentErrorDone()
 			logging.Errorf(ctx, "agent.service", "[Chat] streaming interrompido sem repetição possível (conversa %s): %s", conversationID, h.LastError())
 			return
 		}
 		if attempt == attempts {
 			partialContent, partialReasoning := h.Finalize()
-			s.persistAssistantPartialBestEffort(ctx, h.AssistantMessageID, partialContent, partialReasoning)
-			s.persistErrorWhenEmpty(ctx, h.AssistantMessageID, h.LastError())
+			if err := s.persistAssistantPartial(ctx, h.AssistantMessageID, partialContent, partialReasoning); err != nil {
+				s.emitFinalizationErrorDone(ctx, conversationID, turnID, h.AssistantMessageID, surfaceOrigin)
+				return
+			}
+			if err := s.persistErrorWhenEmpty(ctx, h.AssistantMessageID, h.LastError()); err != nil {
+				s.emitFinalizationErrorDone(ctx, conversationID, turnID, h.AssistantMessageID, surfaceOrigin)
+				return
+			}
+			h.emitAgentErrorDone()
 		}
 		if attempt < attempts {
 			logging.Errorf(context.Background(), "agent.service", "[Chat] streaming interrompido (conversa %s, tentativa %d/%d): %s", conversationID, attempt, attempts, h.LastError())
@@ -181,10 +204,14 @@ func (s *Service) StreamSimpleWithRecovery(
 
 // NewService cria um novo Service com as dependências injetadas.
 func NewService(cfg ServiceConfig) *Service {
+	if cfg.Turns == nil {
+		panic("agent service: chat turn store not configured")
+	}
 	if cfg.ToolExecutor != nil && cfg.ToolInvocations == nil {
 		panic("agent service: tool invocation ledger not configured")
 	}
 	return &Service{
+		turns:            cfg.Turns,
 		emitter:          cfg.Emitter,
 		msgRepo:          cfg.MsgRepo,
 		toolExecutor:     cfg.ToolExecutor,
@@ -216,27 +243,33 @@ func (s *Service) RunAgenticLoop(
 	streamingRecoveryEnabled bool,
 	streamingRecoveryMaxAttempts int,
 ) {
+	if !s.startTurnStreaming(ctx, conversationID, turnID, surfaceOrigin) {
+		return
+	}
 	if streamer == nil {
 		errMsg := "Cliente LLM não disponível para o agentic loop. Verifique a configuração do provedor."
 		logging.Errorf(ctx, "agent.service", "🔴 [AGENT] streamer nil na conversa %s", conversationID)
-		s.emitter.Emit("chat:done", ports.DoneEvent{
+		event := ports.DoneEvent{
 			ConversationID: conversationID,
 			ItemID:         ports.ResponseItemID(turnID),
 			TurnID:         turnID,
 			SurfaceOrigin:  surfaceOrigin,
 			Reason:         "error",
 			ErrorMessage:   errMsg,
-		})
+		}
+		if s.persistTerminal(ctx, &event, database.TurnFailed, "internal_error") {
+			s.emitter.Emit("chat:done", event)
+		}
 		return
 	}
 
-	assistantMessageID, err := chat.EnsureAssistantPlaceholder(ctx, s.msgRepo, conversationID, turnID)
+	assistantMessageID, err := s.EnsureTurnResponse(ctx, conversationID, turnID)
 	if errors.Is(err, chat.ErrConversationGone) {
 		return
 	}
 	if err != nil {
 		logging.Errorf(ctx, "agent.service", "[Agent] falha ao criar/reusar placeholder assistant (conversa %s, turno %s): %v", conversationID, turnID, err)
-		s.emitPlaceholderErrorDone(conversationID, turnID, surfaceOrigin)
+		s.emitPlaceholderErrorDone(ctx, conversationID, turnID, surfaceOrigin)
 		return
 	}
 
@@ -297,7 +330,7 @@ func (s *Service) SaveAndFinish(
 		}
 		s.persistNativeMCPCalls(ctx, conversationID, turnID, result.NativeMCPEvents, finalIteration)
 	}
-	if conversationID != "" && result.FullResponse != "" {
+	if conversationID != "" {
 
 		opts := chat.MessageOptions{
 			ConversationID:   conversationID,
@@ -317,45 +350,31 @@ func (s *Service) SaveAndFinish(
 		}
 
 		var err error
-		savedMsgID, err = chat.FinalizeAssistantMessage(ctx, s.msgRepo, assistantMessageID, opts)
+		savedMsgID = assistantMessageID
+		state, reason := database.TurnCompleted, "completed"
+		if result.Finish.Reason == llm.FinishReasonMaxTokens {
+			state, reason = database.TurnInterrupted, "output_limit"
+		}
+		err = s.finishTurn(ctx, conversationID, turnID, state, reason, assistantMessageID, &opts)
+		if errors.Is(err, database.ErrChatTurnStale) {
+			return false
+		}
 		if errors.Is(err, chat.ErrConversationGone) {
 			return false
 		}
 		if err != nil {
 			logging.Errorf(ctx, "agent.service", "[Agent] erro ao salvar resposta final: %v", err)
-			s.persistAssistantPartialBestEffort(ctx, assistantMessageID, result.FullResponse, result.Reasoning)
-			if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
+			partialErr := s.persistAssistantPartial(ctx, assistantMessageID, result.FullResponse, result.Reasoning)
+			if partialErr == nil && (errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled)) {
 				s.emitFinalizationCancelledDone(ctx, conversationID, turnID, assistantMessageID, surfaceOrigin)
 				return true
 			}
-			s.emitFinalizationErrorDone(conversationID, turnID, assistantMessageID, surfaceOrigin)
+			s.emitFinalizationErrorDone(ctx, conversationID, turnID, assistantMessageID, surfaceOrigin)
 			return true
 		}
 	}
 	if savedMsgID == "" {
 		savedMsgID = assistantMessageID
-	}
-
-	if s.responseNotifier != nil {
-		s.responseNotifier.NotifyContext(ctx, conversationID, result.FullResponse, savedMsgID)
-	}
-
-	s.emitter.Emit("chat:stream", events.StreamEvent{
-		MessageID:      savedMsgID,
-		Done:           true,
-		ConversationId: conversationID,
-		ItemID:         ports.ResponseItemID(turnID),
-		TurnID:         turnID,
-		SurfaceOrigin:  surfaceOrigin,
-	})
-
-	// TTS proativo: dispara ANTES de chat:done pois chat:done causa cleanup dos listeners no frontend
-	speech := result.FullResponse
-	if result.ReadInSegments {
-		speech = result.RemainingSpeech
-	}
-	if s.onSpeechRequest != nil && strings.TrimSpace(speech) != "" {
-		s.onSpeechRequest(conversationID, savedMsgID, "assistant", speech, "assistant_message", profileSlug, true)
 	}
 
 	hadTools := false
@@ -436,10 +455,36 @@ func (s *Service) SaveAndFinish(
 	if doneEvent.CacheMissTokens == 0 {
 		doneEvent.CacheMissTokens = result.Usage.CacheMissTokens
 	}
-	if patch, err := s.buildTurnPatch(ctx, conversationID, turnID); err == nil {
-		doneEvent.TurnPatch = patch
-	}
-	s.emitter.Emit("chat:done", doneEvent)
+	func() {
+		// O commit já decidiu o resultado. Efeitos externos não podem impedir
+		// seu terminal nem convertê-lo em falha durante a recuperação de panic.
+		defer func() { s.emitter.Emit("chat:done", doneEvent) }()
+		if patch, err := s.buildTurnPatch(ctx, conversationID, turnID); err == nil {
+			doneEvent.TurnPatch = patch
+		}
+		if s.responseNotifier != nil {
+			s.responseNotifier.NotifyContext(ctx, conversationID, result.FullResponse, savedMsgID)
+		}
+
+		s.emitter.Emit("chat:stream", events.StreamEvent{
+			MessageID:      savedMsgID,
+			Done:           true,
+			ConversationId: conversationID,
+			ItemID:         ports.ResponseItemID(turnID),
+			TurnID:         turnID,
+			SurfaceOrigin:  surfaceOrigin,
+		})
+
+		// TTS proativo: dispara ANTES de chat:done pois chat:done causa cleanup dos listeners no frontend
+		speech := result.FullResponse
+		if result.ReadInSegments {
+			speech = result.RemainingSpeech
+		}
+		if s.onSpeechRequest != nil && strings.TrimSpace(speech) != "" {
+			s.onSpeechRequest(conversationID, savedMsgID, "assistant", speech, "assistant_message", profileSlug, true)
+		}
+
+	}()
 
 	if s.triggerSummarize != nil {
 		go func() {
@@ -459,7 +504,7 @@ func (s *Service) emitFinalizationCancelledDone(ctx context.Context, conversatio
 		return
 	}
 	patch, _ := s.buildTurnPatch(ctx, conversationID, turnID)
-	s.emitter.Emit("chat:done", ports.DoneEvent{
+	event := ports.DoneEvent{
 		TurnPatch:          patch,
 		ConversationID:     conversationID,
 		ItemID:             ports.ResponseItemID(turnID),
@@ -467,16 +512,19 @@ func (s *Service) emitFinalizationCancelledDone(ctx context.Context, conversatio
 		AssistantMessageID: assistantMessageID,
 		Reason:             "cancelled",
 		SurfaceOrigin:      surfaceOrigin,
-	})
+	}
+	if s.persistTerminal(ctx, &event, database.TurnInterrupted, "cancelled") {
+		s.emitter.Emit("chat:done", event)
+	}
 }
 
-func (s *Service) emitFinalizationErrorDone(conversationID, turnID, assistantMessageID string, surfaceOrigin *ports.ChatSurfaceOrigin) {
+func (s *Service) emitFinalizationErrorDone(ctx context.Context, conversationID, turnID, assistantMessageID string, surfaceOrigin *ports.ChatSurfaceOrigin) {
 	if s == nil || s.emitter == nil {
 		return
 	}
 	// A failed write leaves the database snapshot older than the streamed text.
 	// Do not replace that text with a stale terminal patch.
-	s.emitter.Emit("chat:done", ports.DoneEvent{
+	event := ports.DoneEvent{
 		ConversationID:     conversationID,
 		ItemID:             ports.ResponseItemID(turnID),
 		TurnID:             turnID,
@@ -484,7 +532,10 @@ func (s *Service) emitFinalizationErrorDone(conversationID, turnID, assistantMes
 		Reason:             "error",
 		ErrorMessage:       ports.ChatErrorPersistence,
 		SurfaceOrigin:      surfaceOrigin,
-	})
+	}
+	if s.persistTerminal(ctx, &event, database.TurnFailed, "persistence_error") {
+		s.emitter.Emit("chat:done", event)
+	}
 }
 
 func optionalTokenCount(value *int) any {
@@ -879,7 +930,7 @@ func (s *Service) HandleRecoveredPanic(
 		if ctx == nil {
 			ctx = context.Background()
 		}
-		msgID, err := chat.EnsureAssistantPlaceholder(context.WithoutCancel(ctx), s.msgRepo, conversationID, turnID)
+		msgID, err := s.EnsureTurnResponse(context.WithoutCancel(ctx), conversationID, turnID)
 		if errors.Is(err, chat.ErrConversationGone) {
 			return
 		}
@@ -891,7 +942,7 @@ func (s *Service) HandleRecoveredPanic(
 	}
 
 	if s.emitter != nil {
-		s.emitter.Emit("chat:done", ports.DoneEvent{
+		event := ports.DoneEvent{
 			ConversationID:     conversationID,
 			ItemID:             ports.ResponseItemID(turnID),
 			TurnID:             turnID,
@@ -899,7 +950,10 @@ func (s *Service) HandleRecoveredPanic(
 			SurfaceOrigin:      surfaceOrigin,
 			Reason:             "error",
 			ErrorMessage:       ports.ChatErrorInternal,
-		})
+		}
+		if s.persistTerminal(ctx, &event, database.TurnFailed, "internal_error") {
+			s.emitter.Emit("chat:done", event)
+		}
 	}
 }
 
@@ -1247,7 +1301,6 @@ func (s *Service) executeToolCall(ctx context.Context, call tools.ToolCall, orig
 
 func (s *Service) tagChatToolInvocationsWithAssistantMessage(ctx context.Context, turnID string, execResults []tools.ToolExecutionResult, assistantMessageID string) {
 	turnID = strings.TrimSpace(turnID)
-	assistantMessageID = strings.TrimSpace(assistantMessageID)
 	if turnID == "" || assistantMessageID == "" || len(execResults) == 0 {
 		return
 	}
@@ -1330,7 +1383,6 @@ func truncateString(s string, maxLen int) string {
 }
 
 func (s *Service) loadAssistantPrefill(ctx context.Context, assistantMessageID string) string {
-	assistantMessageID = strings.TrimSpace(assistantMessageID)
 	if assistantMessageID == "" || s.msgRepo == nil {
 		return ""
 	}
@@ -1341,58 +1393,21 @@ func (s *Service) loadAssistantPrefill(ctx context.Context, assistantMessageID s
 	return msg.Content
 }
 
-func (s *Service) persistAssistantPartialBestEffort(ctx context.Context, assistantMessageID, content, reasoning string) {
-	assistantMessageID = strings.TrimSpace(assistantMessageID)
-	if assistantMessageID == "" || strings.TrimSpace(content) == "" || s.msgRepo == nil {
-		return
+func (s *Service) persistAssistantPartial(ctx context.Context, assistantMessageID, content, reasoning string) error {
+	if assistantMessageID == "" || (content == "" && reasoning == "") {
+		return nil
 	}
-	persistCtx := context.WithoutCancel(ctx)
-
-	var (
-		promptTokens     int
-		completionTokens int
-		totalTokens      int
-		model            string
-	)
-	if msg, err := s.msgRepo.GetMessage(persistCtx, assistantMessageID); err == nil && msg != nil {
-		promptTokens = msg.PromptTokens
-		completionTokens = msg.CompletionTokens
-		totalTokens = msg.TotalTokens
-		model = msg.Model
-		if strings.TrimSpace(reasoning) == "" {
-			reasoning = msg.Reasoning
-		}
-	}
-
-	if err := s.msgRepo.UpdateMessageContentAndReasoning(persistCtx, assistantMessageID, content, reasoning, promptTokens, completionTokens, totalTokens, model); err != nil {
-		logging.Warnf(ctx, "agent.service", "[Agent] aviso: falha ao persistir conteúdo parcial da mensagem assistant %s: %v", assistantMessageID, err)
-	}
+	return s.turns.WritePartial(context.WithoutCancel(ctx), executionID(ctx), assistantMessageID, content, reasoning, false)
 }
 
-// persistErrorWhenEmpty grava o texto do erro no placeholder quando o turno
-// termina sem nenhum conteúdo (AEP-0108 D4). Placeholder vazio apaga o rastro
-// na UI; com o motivo salvo, a conclusão normal o anuncia/fala. Cancelamento
-// de quem chamou não passa por aqui — não é falha. O texto é sanitizado por
-// ser fronteira de dado não confiável (parte dele vem do agente).
-func (s *Service) persistErrorWhenEmpty(ctx context.Context, assistantMessageID, errText string) {
-	assistantMessageID = strings.TrimSpace(assistantMessageID)
-	if assistantMessageID == "" || strings.TrimSpace(errText) == "" || s.msgRepo == nil {
-		return
+// persistErrorWhenEmpty preserva o motivo sanitizado quando não houve resposta (AEP-0108).
+func (s *Service) persistErrorWhenEmpty(ctx context.Context, assistantMessageID, errText string) error {
+	if assistantMessageID == "" || strings.TrimSpace(errText) == "" {
+		return nil
 	}
-	persistCtx := context.WithoutCancel(ctx)
-	msg, err := s.msgRepo.GetMessage(persistCtx, assistantMessageID)
-	if err != nil || msg == nil || strings.TrimSpace(msg.Content) != "" {
-		return
-	}
-	conteudo := "Falha na resposta do agente: " + acp.SanitizeContent(errText)
-	if err := s.msgRepo.UpdateMessageContentAndReasoning(persistCtx, assistantMessageID, conteudo, msg.Reasoning, msg.PromptTokens, msg.CompletionTokens, msg.TotalTokens, msg.Model); err != nil {
-		// Sem prefixo [Agent]: o inventário de logging legado (issue #675)
-		// congela os formatos com prefixo de componente em minúsculas, e código
-		// novo não deve aumentar essa lista.
-		logging.Warnf(ctx, "agent.service", "aviso: falha ao persistir erro da mensagem assistant %s: %v", assistantMessageID, err)
-	}
+	content := "Falha na resposta do agente: " + acp.SanitizeContent(errText)
+	return s.turns.WritePartial(context.WithoutCancel(ctx), executionID(ctx), assistantMessageID, content, "", true)
 }
-
 func (s *Service) emitSimpleContextDone(
 	ctx context.Context,
 	conversationID string,
@@ -1409,7 +1424,7 @@ func (s *Service) emitSimpleContextDone(
 		errorMessage = "tempo limite da geração atingido"
 	}
 	patch, _ := s.buildTurnPatch(ctx, conversationID, turnID)
-	s.emitter.Emit("chat:done", ports.DoneEvent{
+	event := ports.DoneEvent{
 		TurnPatch:          patch,
 		ConversationID:     conversationID,
 		ItemID:             ports.ResponseItemID(turnID),
@@ -1418,10 +1433,14 @@ func (s *Service) emitSimpleContextDone(
 		SurfaceOrigin:      surfaceOrigin,
 		Reason:             "error",
 		ErrorMessage:       errorMessage,
-	})
+	}
+	if s.persistTerminal(ctx, &event, database.TurnInterrupted, "cancelled") {
+		s.emitter.Emit("chat:done", event)
+	}
 }
 
 func (s *Service) emitPlaceholderErrorDone(
+	ctx context.Context,
 	conversationID string,
 	turnID string,
 	surfaceOrigin *ports.ChatSurfaceOrigin,
@@ -1429,14 +1448,17 @@ func (s *Service) emitPlaceholderErrorDone(
 	if s.emitter == nil {
 		return
 	}
-	s.emitter.Emit("chat:done", ports.DoneEvent{
+	event := ports.DoneEvent{
 		ConversationID: conversationID,
 		ItemID:         ports.ResponseItemID(turnID),
 		TurnID:         turnID,
 		SurfaceOrigin:  surfaceOrigin,
 		Reason:         "error",
 		ErrorMessage:   ports.ChatErrorAssistantPlaceholder,
-	})
+	}
+	if s.persistTerminal(ctx, &event, database.TurnFailed, "persistence_error") {
+		s.emitter.Emit("chat:done", event)
+	}
 }
 
 func (s *Service) emitAgenticContextDone(
@@ -1457,7 +1479,7 @@ func (s *Service) emitAgenticContextDone(
 	if errors.Is(err, context.DeadlineExceeded) {
 		errorMessage = "tempo limite da geração atingido"
 	}
-	s.emitter.Emit("chat:done", ports.DoneEvent{
+	event := ports.DoneEvent{
 		ConversationID:     conversationID,
 		ItemID:             ports.ResponseItemID(turnID),
 		TurnID:             turnID,
@@ -1469,7 +1491,10 @@ func (s *Service) emitAgenticContextDone(
 		IterationCount:     iteration + 1,
 		ToolCallCount:      toolCallCount,
 		ToolsUsed:          sortedToolNames(toolsUsedSet),
-	})
+	}
+	if s.persistTerminal(ctx, &event, database.TurnInterrupted, "cancelled") {
+		s.emitter.Emit("chat:done", event)
+	}
 }
 
 // patchTrailingAssistantPrefill substitui o conteúdo do trailing assistant no prompt.

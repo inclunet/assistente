@@ -143,7 +143,7 @@ func TestRunAgenticLoop_ToolCalls_PersisteSomenteNoLedger(t *testing.T) {
 	inv := toolinvocations.NewService(repo, exec)
 
 	msgRepo := &toolMsgRepo{conversationID: conv.ID}
-	svc := NewService(ServiceConfig{
+	svc := newTestAgentService(ServiceConfig{
 		Emitter:         events.NoopEmitter{},
 		MsgRepo:         msgRepo,
 		ToolExecutor:    exec,
@@ -190,7 +190,7 @@ func TestRunAgenticLoop_ToolCalls_CriaCatalogoArchival(t *testing.T) {
 	inv := toolinvocations.NewService(repo, exec)
 
 	msgRepo := &toolMsgRepo{conversationID: conv.ID}
-	svc := NewService(ServiceConfig{
+	svc := newTestAgentService(ServiceConfig{
 		Emitter:         events.NoopEmitter{},
 		MsgRepo:         msgRepo,
 		ToolExecutor:    exec,
@@ -236,7 +236,7 @@ func TestRunAgenticLoop_ToolCalls_ResultLargeFicaSomenteNoLedger(t *testing.T) {
 	inv := toolinvocations.NewService(repo, exec)
 
 	msgRepo := &toolMsgRepo{conversationID: conv.ID}
-	svc := NewService(ServiceConfig{
+	svc := newTestAgentService(ServiceConfig{
 		Emitter: events.NoopEmitter{}, MsgRepo: msgRepo,
 		ToolExecutor: exec, ToolInvocations: inv,
 	})
@@ -293,7 +293,7 @@ func TestTagChatToolInvocationsWithAssistantMessage_SkipsAlreadyTaggedMetadata(t
 		t.Fatalf("seed invocation: %v", err)
 	}
 
-	svc := NewService(ServiceConfig{})
+	svc := newTestAgentService(ServiceConfig{})
 	svc.tagChatToolInvocationsWithAssistantMessage(ctx, "turn-1", []tools.ToolExecutionResult{{CallID: "call-1"}}, "assistant-1")
 
 	var got database.ToolInvocation

@@ -18,7 +18,7 @@ func novoHandlerDeAgente(t *testing.T, emitter *mockEmitter, fala *[]speechCall)
 			*fala = append(*fala, speechCall{convID, msgID, role, text, origin, profileSlug, interrupt})
 		}
 	}
-	svc := NewService(cfg)
+	svc := newTestAgentService(cfg)
 	handler, err := svc.NewSimpleStreamHandler(context.Background(), "conversa-1", "turno-1", "perfil", nil)
 	if err != nil {
 		t.Fatalf("NewSimpleStreamHandler: %v", err)

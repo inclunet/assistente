@@ -252,6 +252,9 @@ func InitPath(path string) error {
 	if err := runMigrations(db, phasePostAutoMigrate); err != nil {
 		return fmt.Errorf("erro nas migrações pós-AutoMigrate: %w", err)
 	}
+	if err := initializeChatTurnsBeforeWorkers(db); err != nil {
+		return fmt.Errorf("erro ao recuperar turnos de chat: %w", err)
+	}
 	// Se a v18 concluiu mas a v19 foi adiada pelo gate, um boot posterior retoma
 	// o backfill antes de tentar novamente o cutover. Depois da v19 este caminho
 	// fica definitivamente inativo.

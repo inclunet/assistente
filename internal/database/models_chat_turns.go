@@ -3,7 +3,7 @@ package database
 import "time"
 
 // ChatTurn contém apenas lifecycle e referências. Conteúdo continua em chat_messages.
-// Ainda não é autoridade do pipeline: a ativação exige reconciliação (AEP-0116).
+// Autoridade de lifecycle do pipeline; a projeção visual migra separadamente (AEP-0116).
 type ChatTurn struct {
 	UserMessageID     string `gorm:"primaryKey"`
 	ConversationID    string

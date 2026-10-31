@@ -57,7 +57,7 @@ func (s *recordingAdapterStreamer) StreamChat(_ context.Context, _ []llm.Message
 func TestRunAgenticLoop_NativeMCPUnsupportedRetriesSameTurnWithBridgeTools(t *testing.T) {
 	em := &captureEmitter{}
 	repo := &inMemoryMsgRepo{}
-	svc := NewService(ServiceConfig{Emitter: em, MsgRepo: repo})
+	svc := newTestAgentService(ServiceConfig{Emitter: em, MsgRepo: repo})
 
 	registry := tools.NewRegistry()
 	registry.MustRegister(fallbackBridgeTool{})

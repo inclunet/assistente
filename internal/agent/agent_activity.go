@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"assistente/internal/core/ports"
+	"assistente/internal/database"
+	"assistente/internal/events"
 	"assistente/internal/llm"
 	"assistente/internal/toolinvocations"
 	"assistente/internal/tools"
@@ -342,9 +344,6 @@ func (h *SimpleStreamHandler) hasAgentActivity() bool {
 }
 
 func (h *SimpleStreamHandler) emitAgentErrorDone() {
-	if !h.hasAgentActivity() {
-		return
-	}
 	patch, err := h.svc.buildTurnPatch(h.ctx, h.ConversationID, h.TurnID)
 	if err != nil {
 		patch = nil
@@ -368,7 +367,22 @@ func (h *SimpleStreamHandler) emitAgentErrorDone() {
 		reasoningTokens := h.usage.ReasoningTokens
 		done.ReasoningTokens = &reasoningTokens
 	}
-	h.Emitter.Emit("chat:done", done)
+	if h.svc.persistTerminal(h.ctx, &done, database.TurnFailed, "provider_error") {
+		h.terminalEmitted = true
+		defer func() { h.Emitter.Emit("chat:done", done) }()
+		if !h.hasAgentActivity() {
+			// Compatibilidade do protocolo atual: o stream também fecha com erro,
+			// mas somente após o lifecycle e a resposta terem sido persistidos.
+			h.Emitter.Emit("chat:stream", events.StreamEvent{
+				MessageID: h.AssistantMessageID, Done: true, Error: done.ErrorMessage,
+				ConversationId: h.ConversationID, ItemID: done.ItemID, TurnID: h.TurnID,
+				SurfaceOrigin: h.SurfaceOrigin, FinishReason: done.FinishReason,
+				RawReason: done.RawReason, Provider: done.Provider, Model: done.Model,
+				EffectiveOutputLimit: done.EffectiveOutputLimit, ResponseBytes: done.ResponseBytes,
+				OutputTokens: done.OutputTokens, ReasoningTokens: done.ReasoningTokens,
+			})
+		}
+	}
 }
 
 type pendingAgentTool struct {

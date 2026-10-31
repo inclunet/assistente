@@ -45,7 +45,7 @@ func TestNativeMCPMismatchSwitchesWithoutDiscardingResult(t *testing.T) {
 				}
 			}
 			em := &captureEmitter{}
-			r := &agenticLoopRunner{svc: NewService(ServiceConfig{Emitter: em, MsgRepo: &inMemoryMsgRepo{}}), params: llm.ChatParams{NativeMCPFallback: fb}, activeStreamer: native, activeToolDefs: []llm.ToolDefinition{{Function: llm.FunctionDefinition{Name: "loaded_later"}}}, newHandler: func(c string, i int) IterationHandler { return NewAgenticStreamHandler(em, c, i, nil, "t") }}
+			r := &agenticLoopRunner{svc: newTestAgentService(ServiceConfig{Emitter: em, MsgRepo: &inMemoryMsgRepo{}}), params: llm.ChatParams{NativeMCPFallback: fb}, activeStreamer: native, activeToolDefs: []llm.ToolDefinition{{Function: llm.FunctionDefinition{Name: "loaded_later"}}}, newHandler: func(c string, i int) IterationHandler { return NewAgenticStreamHandler(em, c, i, nil, "t") }}
 			result, errText, stop := r.streamIteration(context.Background(), 0)
 			if stop || errText != "" || native.calls != 1 || adapter.calls != 0 {
 				t.Fatalf("replay inesperado: native=%d adapter=%d err=%s", native.calls, adapter.calls, errText)
@@ -77,7 +77,7 @@ func TestNativeMCPMismatchDoesNotRetryInterruptedResponse(t *testing.T) {
 	native := &nativeMismatchStreamer{fail: true}
 	adapter := &recordingAdapterStreamer{}
 	em := &captureEmitter{}
-	r := &agenticLoopRunner{svc: NewService(ServiceConfig{Emitter: em, MsgRepo: &inMemoryMsgRepo{}}), params: llm.ChatParams{NativeMCPFallback: &llm.NativeMCPAdapterFallback{Streamer: adapter}}, activeStreamer: native, streamingRecoveryEnabled: true, maxRecoveryAttempts: 3, newHandler: func(c string, i int) IterationHandler { return NewAgenticStreamHandler(em, c, i, nil, "t") }}
+	r := &agenticLoopRunner{svc: newTestAgentService(ServiceConfig{Emitter: em, MsgRepo: &inMemoryMsgRepo{}}), params: llm.ChatParams{NativeMCPFallback: &llm.NativeMCPAdapterFallback{Streamer: adapter}}, activeStreamer: native, streamingRecoveryEnabled: true, maxRecoveryAttempts: 3, newHandler: func(c string, i int) IterationHandler { return NewAgenticStreamHandler(em, c, i, nil, "t") }}
 	result, errText, _ := r.streamIteration(context.Background(), 0)
 	if native.calls != 1 || adapter.calls != 0 || errText != "interrupção após execução" || len(result.NativeMCPEvents) != 1 {
 		t.Fatalf("erro ou efeitos descartados/repetidos: %d/%d %+v %q", native.calls, adapter.calls, result, errText)

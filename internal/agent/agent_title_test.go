@@ -16,7 +16,7 @@ type pedidoDeRenome struct {
 // que os identificadores do turno cheguem ao renomeador do jeito que chegam lá.
 func handlerComRenome(t *testing.T, erro error, pedidos *[]pedidoDeRenome) *SimpleStreamHandler {
 	t.Helper()
-	svc := NewService(ServiceConfig{
+	svc := newTestAgentService(ServiceConfig{
 		Emitter: &mockEmitter{},
 		MsgRepo: &mockMsgRepo{},
 		RenameFromAgent: func(_ context.Context, conversationID, turnMessageID, title string) error {
@@ -83,7 +83,7 @@ func TestTituloVazioPedeRestaurarRotuloAutomatico(t *testing.T) {
 // Sem renomeador configurado o handler simplesmente ignora o título, em vez de
 // quebrar: o app roda com provedores que nunca mandam nome de sessão.
 func TestSemRenomeadorOTituloEhIgnorado(t *testing.T) {
-	svc := NewService(ServiceConfig{Emitter: &mockEmitter{}, MsgRepo: &mockMsgRepo{}})
+	svc := newTestAgentService(ServiceConfig{Emitter: &mockEmitter{}, MsgRepo: &mockMsgRepo{}})
 	handler, err := svc.NewSimpleStreamHandler(context.Background(), "conversa-1", "turno-1", "perfil", nil)
 	if err != nil {
 		t.Fatalf("NewSimpleStreamHandler: %v", err)
