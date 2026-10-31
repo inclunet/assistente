@@ -52,10 +52,16 @@ func TestLiveProjectionIterationAndTransportIdentity(t *testing.T) {
 	}
 	e.StartStream(2).Append("terceiro")
 	after, _ := p.Snapshot(ctx, "conversation", "question")
-	if len(after.Streams) != 2 || len(after.Streams[0].Fragments) != 2 || after.Streams[0].Fragments[0].ID != before.Streams[0].Fragments[0].ID || after.Streams[0].Fragments[1].Text != " segundo" {
+	if len(after.Streams) != 2 || len(after.Streams[0].Segments) != 3 || testLiveSegment(after.Streams[0], "text", 0).SegmentID != testLiveSegment(before.Streams[0], "text", 0).SegmentID || testLiveSegment(after.Streams[0], "text", 1).Text != " segundo" {
 		t.Fatalf("fragmentos e iterações: %+v", after)
 	}
-	if before.Streams[0].Fragments[1].Reasoning != "raciocínio" {
+	if len(before.Streams[0].Segments) != 3 || before.Streams[0].Segments[0].Kind != "text" || before.Streams[0].Segments[1].Kind != "reasoning" || before.Streams[0].Segments[2].Kind != "text" {
+		t.Fatal("ordem de segmentos antes do seal alterada")
+	}
+	if after.Streams[0].Segments[0].Kind != "reasoning" || after.Streams[0].Segments[1].Kind != "text" || after.Streams[0].Segments[2].Kind != "text" {
+		t.Fatal("ordem da substituição explícita de reasoning alterada")
+	}
+	if testLiveSegment(before.Streams[0], "reasoning", 0).Text != "raciocínio" {
 		t.Fatal("snapshot foi alterado posteriormente")
 	}
 }
@@ -72,7 +78,7 @@ func TestLiveProjectionTerminalPreservesUncommittedContent(t *testing.T) {
 				t.Fatal("terminal aceitou delta")
 			}
 			snap, _ := p.Snapshot(ctx, "conversation", "question")
-			if !snap.Volatile || !snap.Finished || snap.Streams[0].Fragments[0].Text != "conteúdo recebido" || snap.Streams[0].Fragments[0].Reasoning != "pensamento" {
+			if !snap.Volatile || !snap.Finished || testLiveSegment(snap.Streams[0], "text", 0).Text != "conteúdo recebido" || testLiveSegment(snap.Streams[0], "reasoning", 0).Text != "pensamento" {
 				t.Fatalf("perdeu conteúdo: %+v", snap)
 			}
 			if committed && snap.Reason != "internal_error" {
@@ -112,7 +118,7 @@ func TestLiveProjectionIsolationAndConcurrentSnapshot(t *testing.T) {
 	}
 	wg.Wait()
 	final, _ := p.Snapshot(ctx, "conversation", "question")
-	if len(final.Streams[0].Fragments[0].Text) != 1000 {
+	if len(testLiveSegment(final.Streams[0], "text", 0).Text) != 1000 {
 		t.Fatal("delta perdido")
 	}
 	other := database.WithUserID(context.Background(), "other")
@@ -173,13 +179,13 @@ func TestLiveProjectionReasoningReplacementAndDiscardAcrossCuts(t *testing.T) {
 	s.Reasoning("B", false)
 	s.Reasoning("AB", true)
 	snap, _ := p.Snapshot(ctx, "conversation", "question")
-	if snap.Streams[0].Fragments[0].Reasoning != "AB" || snap.Streams[0].Fragments[1].Reasoning != "" {
+	if testLiveSegment(snap.Streams[0], "reasoning", 0).Text != "AB" || testLiveSegment(snap.Streams[0], "reasoning", 1).Text != "" {
 		t.Fatalf("raciocínio duplicado: %+v", snap.Streams)
 	}
 	s.Reasoning("", true)
 	snap, _ = p.Snapshot(ctx, "conversation", "question")
-	for _, fragment := range snap.Streams[0].Fragments {
-		if fragment.Reasoning != "" {
+	for _, fragment := range snap.Streams[0].Segments {
+		if fragment.Kind == "reasoning" {
 			t.Fatal("raciocínio descartado permaneceu")
 		}
 	}
@@ -241,12 +247,50 @@ func finishTestProjection(e *ExecutionProjection, state, reason string, persiste
 	if contentCommitted {
 		snapshot, _ := e.owner.Snapshot(database.WithUserID(context.Background(), e.key.userID), e.key.conversationID, e.turnID)
 		var text, reasoning string
-		for _, part := range snapshot.Streams[len(snapshot.Streams)-1].Fragments {
-			text += part.Text
-			reasoning += part.Reasoning
+		for _, part := range snapshot.Streams[len(snapshot.Streams)-1].Segments {
+			switch part.Kind {
+			case "text":
+				text += part.Text
+			case "reasoning":
+				reasoning += part.Text
+			}
 		}
 		_ = e.CommitResponse(state, reason, text, reasoning, write)
 	} else {
 		_ = e.CommitTerminal(state, reason, write)
+	}
+}
+
+func testLiveSegment(stream LiveStreamSnapshot, kind string, index int) ResponseSegment {
+	for _, segment := range stream.Segments {
+		if segment.Kind == kind {
+			if index == 0 {
+				return segment
+			}
+			index--
+		}
+	}
+	return ResponseSegment{}
+}
+
+func TestLiveProjectionTypedSegmentsDoNotReuseTransportIdentity(t *testing.T) {
+	p, ctx, e := liveFixture(t)
+	old := e.StartStream(0)
+	old.Append("primeiro")
+	before, _ := p.Snapshot(ctx, "conversation", "question")
+	old.Append(" maior")
+	grown, _ := p.Snapshot(ctx, "conversation", "question")
+	replacement := e.StartStream(0)
+	replacement.Append("substituído")
+	after, _ := p.Snapshot(ctx, "conversation", "question")
+	first := testLiveSegment(before.Streams[0], "text", 0)
+	if first.SegmentID == "" || first.SegmentID != testLiveSegment(grown.Streams[0], "text", 0).SegmentID {
+		t.Fatal("delta mudou identidade")
+	}
+	if first.SegmentID == testLiveSegment(after.Streams[0], "text", 0).SegmentID || before.ItemID != after.ItemID {
+		t.Fatal("substituição não distinguiu segmento preservando item")
+	}
+	if first.Text != "primeiro" {
+		t.Fatal("snapshot sofreu mutação")
 	}
 }

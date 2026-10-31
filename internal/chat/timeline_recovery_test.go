@@ -54,11 +54,11 @@ func TestTurnRecoverySnapshotDeltaBarrier(t *testing.T) {
 	close(release)
 	r := <-done
 	<-appended
-	if r.Active == nil || r.Active.Streams[0].Fragments[0].Text != "antes" || r.CanUsePersistedPatch("execution") {
+	if r.Active == nil || testLiveSegment(r.Active.Streams[0], "text", 0).Text != "antes" || r.CanUsePersistedPatch("execution") {
 		t.Fatalf("snapshot incoerente: %+v", r)
 	}
 	snap, _ := p.Snapshot(ctx, "conversation", "question")
-	if snap.Streams[0].Fragments[0].Text != "antes depois" {
+	if testLiveSegment(snap.Streams[0], "text", 0).Text != "antes depois" {
 		t.Fatal("delta perdido")
 	}
 }
@@ -182,7 +182,7 @@ func TestTurnRecoveryFailureDoesNotExposeMemoryOrDiscard(t *testing.T) {
 		t.Fatal("descarte ignorou recusa")
 	}
 	snap, _ := p.Snapshot(ctx, "conversation", "question")
-	if snap.Streams[0].Fragments[0].Text != "privado" {
+	if testLiveSegment(snap.Streams[0], "text", 0).Text != "privado" {
 		t.Fatal("falha de leitura perdeu memória")
 	}
 }
