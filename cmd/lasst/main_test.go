@@ -161,3 +161,35 @@ func TestReadRejectsGitCredentials(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+func TestReadRejectsNestedGitCredentials(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "sub", ".git")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "config"), []byte("credencial-teste"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	s := &pathStreamer{t: t, path: "sub/.git/config", expected: "denylist"}
+	if _, err := run(context.Background(), s, "modelo", "skill", "prompt", root); err != nil {
+		t.Fatal(err)
+	}
+}
+func TestReadRejectsSymlinkToNestedGit(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "sub", ".git")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	secret := filepath.Join(dir, "config")
+	if err := os.WriteFile(secret, []byte("credencial-teste"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(secret, filepath.Join(root, "alias.txt")); err != nil {
+		t.Skipf("symlink indisponível: %v", err)
+	}
+	s := &pathStreamer{t: t, path: "alias.txt", expected: "denylist"}
+	if _, err := run(context.Background(), s, "modelo", "skill", "prompt", root); err != nil {
+		t.Fatal(err)
+	}
+}

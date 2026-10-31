@@ -43,7 +43,7 @@ func (h *iteration) OnToolCalls(c []llm.ToolCall, s string, _ llm.Usage, _ strin
 
 // run mantém o histórico somente na execução. Não usa o serviço de chat nem o ledger.
 func run(ctx context.Context, streamer llm.Streamer, model, instruction, prompt, dir string) (string, error) {
-	ctx = tools.WithExecutionContext(ctx, tools.ExecutionContext{Filesystem: &tools.FilesystemScope{Read: []string{filepath.Join(dir, "**")}, Deny: []string{filepath.Join(dir, ".git", "**")}}})
+	ctx = tools.WithExecutionContext(ctx, tools.ExecutionContext{Filesystem: &tools.FilesystemScope{Read: []string{filepath.Join(dir, "**")}, DenyComponents: []string{".git"}}})
 	registry := tools.NewRegistry()
 	if err := registry.Register(filesystem.NewReadFile(dir)); err != nil {
 		return "", err
