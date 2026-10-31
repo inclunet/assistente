@@ -3,6 +3,7 @@ package chat
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"assistente/internal/database"
 	"assistente/internal/toolinvocations"
@@ -13,15 +14,17 @@ import (
 // de streaming. Metadados nullable aguardam o DTO canônico; Nodes/Window ainda
 // são os adaptadores visuais existentes.
 type TimelineWindowSnapshot struct {
-	Version database.ChatTimelineVersion
-	Turns   map[string]*database.ChatTurn
-	Window  MessageWindow
+	Version   database.ChatTimelineVersion
+	Turns     map[string]*database.ChatTurn
+	Responses map[string]*PersistedResponse
+	Window    MessageWindow
 }
 
 type TimelineTurnSnapshot struct {
-	Version database.ChatTimelineVersion
-	Turn    *database.ChatTurn
-	Nodes   []MessageNode
+	Version  database.ChatTimelineVersion
+	Turn     *database.ChatTurn
+	Response *PersistedResponse
+	Nodes    []MessageNode
 }
 
 // TurnSnapshotReader é a dependência de leitura do terminal, separada dos writers.
@@ -106,10 +109,14 @@ func (r *DBTimelineReader) ReadWindow(ctx context.Context, query database.Messag
 		return nil, err
 	}
 	// Consolidação fora da transação: nenhuma consulta nem escrita é necessária.
+	result.Responses, err = projectSnapshotResponses(query.ConversationID, query.ParentID, rows.Messages, facts)
+	if err != nil {
+		return nil, err
+	}
 	result.Turns = facts.turns
 	result.Window = MessageWindow{
 		ConversationID: query.ConversationID,
-		Nodes:          BuildTimelineMessageNodes(rows.Items, rows.Messages, query.ParentID, childCounts, facts.calls),
+		Nodes:          buildResponseWindowNodes(rows.Items, rows.Messages, query.ParentID, childCounts, facts.calls, result.Responses),
 		TotalCount:     rows.TotalCount, StartIndex: rows.StartIndex, EndIndex: rows.EndIndex, HasBefore: rows.HasBefore, HasAfter: rows.HasAfter,
 	}
 	return result, nil
@@ -147,8 +154,19 @@ func (r *DBTimelineReader) ReadTurn(ctx context.Context, conversationID, turnID 
 	if err != nil {
 		return nil, err
 	}
+	responses, err := projectSnapshotResponses(conversationID, parentID, messages, facts)
+	if err != nil {
+		return nil, err
+	}
 	result.Turn = facts.turns[turnID]
-	result.Nodes = BuildNodesWithTimelineConsolidation(messages, parentID, nil, facts.calls)
+	result.Response = responses[turnID]
+	if result.Response == nil && result.Turn != nil {
+		result.Response, err = projectPersistedResponse(conversationID, turnID, parentID, nil, facts.calls[turnID], result.Turn)
+		if err != nil {
+			return nil, err
+		}
+	}
+	result.Nodes = buildResponseNodes(messages, parentID, nil, facts.calls, responses)
 	return result, nil
 }
 
@@ -165,4 +183,22 @@ func snapshotTurnIDs(messages []Message) []string {
 		}
 	}
 	return ids
+}
+
+func projectSnapshotResponses(conversationID string, parentID *string, messages []Message, facts timelineFacts) (map[string]*PersistedResponse, error) {
+	grouped := make(map[string][]Message)
+	for _, message := range messages {
+		if message.Role != "user" && message.TurnID != nil && strings.TrimSpace(*message.TurnID) != "" {
+			grouped[*message.TurnID] = append(grouped[*message.TurnID], message)
+		}
+	}
+	responses := make(map[string]*PersistedResponse, len(grouped))
+	for turnID, rows := range grouped {
+		response, err := projectPersistedResponse(conversationID, turnID, parentID, rows, facts.calls[turnID], facts.turns[turnID])
+		if err != nil {
+			return nil, err
+		}
+		responses[turnID] = response
+	}
+	return responses, nil
 }

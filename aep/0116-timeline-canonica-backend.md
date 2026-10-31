@@ -1,6 +1,6 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — fase 1 concluída; fase 2 com snapshot persistido integrado à janela e ao terminal
+## Status: In Progress — fase 1 concluída; fase 2 com projeção persistida de resposta compartilhada
 
 Data: 2026-10-30
 
@@ -460,6 +460,59 @@ de 1.000 mensagens teve mediana de 18,565 ms e 5.133.805 B/op em cinco amostras
 de dez iterações, evidenciando a materialização ainda proporcional ao turno.
 Revisão local independente: agente review_aep, três rodadas; zero pendências
 na rodada final, incluindo conferência das métricas e diff --check.
+
+Sétimo recorte da fase 2: `PersistedResponse` é o modelo interno compartilhado
+pelos adaptadores da janela e do terminal. Quando existe `chat_turns`, seu
+representante, estado e origem são a autoridade; referência não nula ausente ou
+fora de conversa/turno/escopo falha explicitamente. Não há eleição por usage ou
+data para substituir o representante persistido. NULL continua NULL mesmo com
+mensagens intermediárias restantes. Ausência do registro usa a política legada
+e `historical_unknown`, sem inferir sucesso a partir de texto ou tokens.
+
+O motor existente agora produz `ResponseSegment` com identidade derivada de
+mensagem/tipo/offset inicial ou da primeira invocação do grupo, usando codificação
+inequívoca dos IDs opacos. Texto igual em mensagens diferentes não colide;
+crescimento do texto não troca o segmento. Raciocínio é um segmento próprio;
+resumos continuam leves e referências do ledger não são IDs do provedor.
+A projeção mantém segmentos até para uma resposta simples. O adaptador antigo
+suprime o caso simples e mantém o reasoning no campo antigo da mensagem.
+
+Compatibilidade explícita: `legacyMessage` ainda escolhe uma mensagem para
+apresentar quando o representante persistido é NULL, porque `MessageNode` não
+admite mensagem nula. Essa escolha não altera o representante, o estado ou os
+segmentos da projeção. Leitores antigos de árvore/lista continuam usando a
+política histórica. Não há uma segunda montagem de segmentos: ambos os caminhos
+usam o mesmo motor, com políticas distintas de seleção e adaptação.
+
+Este modelo não é o DTO wire v1 completo: ordem total de itens/paginação,
+representação visual de turno sem mensagens, epoch/sequence/revision, barreira
+com eventos, projeção incremental e frontend permanecem pendentes. Janelas
+projetam somente respostas materializadas; a leitura de turno preserva metadados
+mesmo sem conteúdo. Não inserir respostas fora da janela nem inventar contagens.
+
+Evidências: testes `TestPersistedResponse*` cobrem representante contrário à
+heurística, estado explícito, NULL/legado, referências inválidas, IDs estáveis,
+reasoning e vínculo opaco com espaços. `TestTimelineSnapshotProjectsSameAuthoritativeResponse`
+compara projeção e adaptadores após edição tardia e exclusão do representante,
+incluindo janela que contém somente a pergunta. Teste ACP teve somente adaptação
+de nomes de campos ao tipo de segmento; não foi executado localmente.
+
+Validação local deste recorte: build/vet, golangci-lint (zero issues), regressões
+chat/snapshot/janela/runtime/envio, TypeScript, ESLint e Stylelint aprovados;
+5.887 testes frontend em 484 arquivos aprovados, excluindo ACP. Não foi rodada
+a suíte Go integral local nem qualquer teste ACP.
+
+Comparação isolada contra o snapshot do PR #968, mesma fixture e binário Go,
+cinco amostras de 20 iterações: medianas de tempo para 100/500/1.000 mensagens
+3,640/9,470/12,696 ms → 3,674/9,414/12,568 ms (+0,9%/-0,6%/-1,0%).
+B/op: 774.978/1.806.732/1.771.229 → 833.128/1.916.088/1.914.372
+(+7,5%/+6,1%/+8,1%). Payload idêntico: 37.262/88.881/88.882 bytes.
+Contra as alocações da baseline fixa da fase 1, o acumulado fica em
++19,9%/+17,6%/+17,6%: ainda no orçamento, mas o caso de 100 mensagens está
+próximo do limite e deve ser acompanhado nos próximos recortes. A exceção de
+payload já documentada no primeiro recorte não muda nesta entrega.
+Revisão local independente: agente review_aep, quatro rodadas. Um achado de
+normalização de IDs foi corrigido com regressão; gate final sem pendências.
 
 ### Fase 3 — Consumidor frontend e remoções
 

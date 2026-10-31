@@ -232,3 +232,8 @@ Se o armazenamento falhar, o chat informa o erro e não substitui o texto recebi
 por uma cópia antiga. Uma nova tentativa depende de o armazenamento voltar a
 aceitar gravações. Conversas importadas preservam suas mensagens, sem retomar
 execuções da instalação de origem.
+
+
+Para turnos com uma resposta final registrada, o histórico e a conclusão usam
+essa referência. Editar uma mensagem intermediária depois da conclusão não a
+transforma na resposta final nem troca os dados de uso exibidos por esse motivo.
