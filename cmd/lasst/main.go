@@ -21,16 +21,17 @@ import (
 const maxIterations = 20
 
 type iteration struct {
-	text     string
-	calls    []llm.ToolCall
-	err      string
-	finished bool
-	finish   llm.FinishInfo
+	text      string
+	reasoning string
+	calls     []llm.ToolCall
+	err       string
+	finished  bool
+	finish    llm.FinishInfo
 }
 
 func (h *iteration) OnChunk(string)                         {}
 func (h *iteration) OnThinking(string)                      {}
-func (h *iteration) OnThinkingDone(string)                  {}
+func (h *iteration) OnThinkingDone(s string)                { h.reasoning = s }
 func (h *iteration) OnMCPToolEvent(llm.MCPToolEvent)        {}
 func (h *iteration) OnFinishReason(f llm.FinishInfo)        { h.finish = f }
 func (h *iteration) OnError(e string)                       { h.err = e }
@@ -74,7 +75,7 @@ func run(ctx context.Context, streamer llm.Streamer, model, instruction, prompt,
 		if len(h.calls) == 0 {
 			return "", errors.New("provedor terminou sem resposta nem ferramentas")
 		}
-		messages = append(messages, llm.Message{Role: "assistant", Content: h.text, ToolCalls: h.calls})
+		messages = append(messages, llm.Message{Role: "assistant", Content: h.text, ToolCalls: h.calls, ReasoningContent: h.reasoning})
 		for _, c := range h.calls {
 			if c.ID == "" || c.Function.Name == "" {
 				return "", errors.New("chamada de ferramenta inválida")
@@ -131,7 +132,11 @@ func execute(skillPath, prompt string, out io.Writer) error {
 	defer cancel()
 	ctx, timeout := context.WithTimeout(ctx, 10*time.Minute)
 	defer timeout()
-	provider := llm.NewOpenAIProviderWithAPIKey(&llm.ProviderConfig{BaseURL: base}, key)
+	mode := llm.ReasoningContentMode(strings.TrimSpace(os.Getenv("LASST_REASONING_CONTENT_MODE")))
+	if mode != "" && mode != llm.ReasoningContentDisabled && mode != llm.ReasoningContentReplayWithTools {
+		return errors.New("LASST_REASONING_CONTENT_MODE deve ser disabled ou replay_with_tools")
+	}
+	provider := llm.NewOpenAIProviderWithAPIKey(&llm.ProviderConfig{BaseURL: base, ReasoningContentMode: mode}, key)
 	answer, err := run(ctx, provider, model, instruction, prompt, dir)
 	if err != nil {
 		return err
