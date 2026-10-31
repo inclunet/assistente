@@ -49,6 +49,10 @@ func TestProviderRejectsRedirectToDifferentOrigin(t *testing.T) {
 }
 
 func TestCompleteRunWithHTTPProvider(t *testing.T) {
+	t.Run("disabled", func(t *testing.T) { testCompleteRunWithHTTPProvider(t, llm.ReasoningContentDisabled) })
+	t.Run("replay", func(t *testing.T) { testCompleteRunWithHTTPProvider(t, llm.ReasoningContentReplayWithTools) })
+}
+func testCompleteRunWithHTTPProvider(t *testing.T, mode llm.ReasoningContentMode) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "f.txt"), []byte("conteudo-do-checkout"), 0600); err != nil {
 		t.Fatal(err)
@@ -67,11 +71,15 @@ func TestCompleteRunWithHTTPProvider(t *testing.T) {
 		if requests == 1 && !strings.Contains(string(data), "instrucao-da-skill") {
 			t.Errorf("skill ausente: %s", data)
 		}
+		if requests == 2 && (strings.Contains(string(data), `"reasoning_content":"raciocinio-teste"`) != (mode == llm.ReasoningContentReplayWithTools)) {
+			t.Errorf("replay inesperado no modo %s: %s", mode, data)
+		}
 		if requests == 2 && !strings.Contains(string(data), "conteudo-do-checkout") {
 			t.Errorf("resultado ausente: %s", data)
 		}
 		w.Header().Set("Content-Type", "text/event-stream")
 		if requests == 1 {
+			writeTestStream(t, w, "data: {\"id\":\"id1\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"modelo\",\"choices\":[{\"index\":0,\"delta\":{\"reasoning_content\":\"raciocinio-teste\"}}]}\n\n")
 			writeTestStream(t, w, "data: {\"id\":\"id1\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"modelo\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call1\",\"type\":\"function\",\"function\":{\"name\":\"read_file\",\"arguments\":\"{\\\"path\\\":\\\"f.txt\\\"}\"}}]},\"finish_reason\":null}]}\n\n")
 			writeTestStream(t, w, "data: {\"id\":\"id1\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"modelo\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\ndata: [DONE]\n\n")
 		} else {
@@ -79,7 +87,7 @@ func TestCompleteRunWithHTTPProvider(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	p := llm.NewOpenAIProviderWithAPIKey(&llm.ProviderConfig{BaseURL: server.URL}, "key")
+	p := llm.NewOpenAIProviderWithAPIKey(&llm.ProviderConfig{BaseURL: server.URL, ReasoningContentMode: mode}, "key")
 	got, err := run(context.Background(), p, "modelo", "instrucao-da-skill", "revise", dir)
 	if err != nil || got != "concluido" || requests != 2 {
 		t.Fatalf("got=%q err=%v requests=%d", got, err, requests)

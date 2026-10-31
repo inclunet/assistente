@@ -50,3 +50,5 @@ Ainda faltam integração MCP, operações de review, avaliação de modelos rea
 - TypeScript (`tsc --noEmit`), ESLint e Stylelint passaram; Stylelint apresentou avisos preexistentes. Vitest passou em 493 arquivos e 6.062 testes, com arquivos identificados como relacionados a ACP excluídos.
 - A suíte completa de Go não foi validada: uma tentativa anterior falhou ao iniciar binários de `internal/acp` e `internal/acpregistry`. Por orientação do mantenedor, testes ACP não devem ser executados neste ambiente.
 - A review independente foi repetida após a correção de lint e não encontrou pendências acionáveis no escopo da PoC. Não houve teste com provedor remoto real.
+
+O modo opcional `LASST_REASONING_CONTENT_MODE=replay_with_tools` preserva o reasoning transitório nas continuações com ferramentas, segundo o AEP-0097; por padrão permanece desabilitado.
