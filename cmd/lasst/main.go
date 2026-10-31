@@ -110,6 +110,14 @@ func execute(skillPath, prompt string, out io.Writer) error {
 	if model == "" || key == "" {
 		return errors.New("LASST_MODEL e LASST_API_KEY são obrigatórios")
 	}
+	dir, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	skillPath, err = resolveSkill(dir, skillPath)
+	if err != nil {
+		return err
+	}
 	data, err := os.ReadFile(skillPath)
 	if err != nil {
 		return fmt.Errorf("ler skill: %w", err)
@@ -123,10 +131,6 @@ func execute(skillPath, prompt string, out io.Writer) error {
 	}
 	if strings.TrimSpace(instruction) == "" || strings.TrimSpace(prompt) == "" {
 		return errors.New("skill e instrução não podem estar vazias")
-	}
-	dir, err := os.Getwd()
-	if err != nil {
-		return err
 	}
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()

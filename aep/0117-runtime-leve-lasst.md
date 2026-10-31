@@ -52,3 +52,7 @@ Ainda faltam integração MCP, operações de review, avaliação de modelos rea
 - A review independente foi repetida após a correção de lint e não encontrou pendências acionáveis no escopo da PoC. Não houve teste com provedor remoto real.
 
 O modo opcional `LASST_REASONING_CONTENT_MODE=replay_with_tools` preserva o reasoning transitório nas continuações com ferramentas, segundo o AEP-0097; por padrão permanece desabilitado.
+
+## Descoberta de skills no repositório
+
+O `lasst` aceita um nome simples e procura `SKILL.md` em `.assistente/skills`, `.github/skills`, `.agents/skills`, `.claude/skills` e `.cursor/skills` do diretório de execução. Nomes duplicados são recusados e exigem caminho explícito; links resolvidos fora do workspace não são aceitos na descoberta. Caminhos explícitos continuam disponíveis. A integração MCP e o fluxo de review continuam pendentes.

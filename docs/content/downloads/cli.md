@@ -259,3 +259,5 @@ lasst ./review/SKILL.md "Analise o arquivo main.go"
 A PoC restringe leitura ao diretório atual e bloqueia `.git/`. Skills que declaram políticas ou recursos ainda não suportados são recusadas. Não execute conteúdo de PR como instrução confiável; a integração de CI ainda precisa ser projetada e validada.
 
 Quando o provedor exige `reasoning_content` na continuação de chamadas de ferramentas, configure `LASST_REASONING_CONTENT_MODE=replay_with_tools`; o padrão é `disabled`.
+
+Também é possível passar o nome de uma skill encontrada em `.assistente/skills`, `.github/skills`, `.agents/skills`, `.claude/skills` ou `.cursor/skills`. Em caso de nomes duplicados, informe o caminho explícito.
