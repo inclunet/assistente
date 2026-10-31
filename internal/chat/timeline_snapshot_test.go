@@ -144,22 +144,35 @@ func TestTimelineSnapshotReadsOneCommitAcrossWindowAndTurn(t *testing.T) {
 			t.Cleanup(func() { _ = f.db.Callback().Query().Remove(hook) })
 			var version database.ChatTimelineVersion
 			var turn *database.ChatTurn
-			var nodes []MessageNode
+			var node MessageNode
+			var content, preview string
 			if kind == "window" {
 				snapshot := f.window(t)
-				version, turn, nodes = snapshot.Version, snapshot.Turns[f.question], snapshot.Window.Nodes
+				version, turn = snapshot.Version, snapshot.Turns[f.question]
+				node = responseNode(t, snapshot.Window.Nodes, f.question)
+				content, preview = node.Message.Content, invocationPreview(t, node)
 			} else {
 				snapshot, err := f.reader.ReadTurn(f.ctx, f.conversation, f.question)
 				if err != nil {
 					t.Fatal(err)
 				}
-				version, turn, nodes = snapshot.Version, snapshot.Turn, snapshot.Nodes
+				version, turn = snapshot.Version, snapshot.Turn
+				if snapshot.Response == nil || snapshot.Response.Representative == nil {
+					t.Fatal("resposta ausente")
+				}
+				content = snapshot.Response.Representative.Content
+				for _, segment := range snapshot.Response.Segments {
+					for _, call := range segment.Invocations {
+						if call.InvocationID == f.invocation {
+							preview = call.OutputPreview
+						}
+					}
+				}
 			}
 			if writeErr != nil {
 				t.Fatal(writeErr)
 			}
-			node := responseNode(t, nodes, f.question)
-			if version != before.Version || node.Message.Content != "resposta antiga" || invocationPreview(t, node) != "resultado antigo" || node.ChildCount != 0 || turn == nil || turn.State != database.TurnCompleted {
+			if version != before.Version || content != "resposta antiga" || preview != "resultado antigo" || node.ChildCount != 0 || turn == nil || turn.State != database.TurnCompleted {
 				t.Fatalf("snapshot híbrido: version=%+v turn=%+v node=%+v", version, turn, node)
 			}
 			after := f.window(t)
@@ -190,7 +203,7 @@ func TestTimelineSnapshotPreservesNullableAndLegacyTurnMetadata(t *testing.T) {
 		t.Fatal(err)
 	}
 	snapshot, err = f.reader.ReadTurn(f.ctx, f.conversation, legacy.ID)
-	if err != nil || snapshot.Turn != nil || len(snapshot.Nodes) != 0 {
+	if err != nil || snapshot.Turn != nil || snapshot.Response != nil {
 		t.Fatalf("legado confundido com metadado: %+v %v", snapshot, err)
 	}
 	if _, err = f.reader.ReadTurn(f.ctx, f.conversation, "inexistente"); !errors.Is(err, gorm.ErrRecordNotFound) {
@@ -263,7 +276,10 @@ func TestTimelineSnapshotTurnBeyondThousandMatchesWindow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	node := responseNode(t, snapshot.Nodes, f.question)
+	node := snapshot.Response.TerminalPatch()
+	if node == nil {
+		t.Fatal("patch terminal ausente")
+	}
 	if node.Message.ID != finalID || node.Message.Content != "cauda depois de mil" || len(node.Message.TurnSegments) < 1007 {
 		t.Fatalf("turno truncado: id=%s segmentos=%d", node.Message.ID, len(node.Message.TurnSegments))
 	}
@@ -316,15 +332,18 @@ func TestTimelineSnapshotPreservesThreadScopeAndCurrentRetry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	node := responseNode(t, before.Nodes, question.ID)
-	if node.Level != 1 || node.Message.ID != answer.ID || node.Message.ParentID == nil || *node.Message.ParentID != f.question {
+	node := before.Response.TerminalPatch()
+	if node == nil {
+		t.Fatal("patch de thread ausente")
+	}
+	if node.Message.ID != answer.ID || node.Message.ParentID == nil || *node.Message.ParentID != f.question {
 		t.Fatalf("misturou escopos: %+v", node)
 	}
 	window, err := f.reader.ReadWindow(f.ctx, database.MessageWindowQuery{ConversationID: f.conversation, ParentID: &f.question, Limit: 20, Anchor: "end", Direction: "before"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if responseNode(t, window.Window.Nodes, question.ID).Message.ID != answer.ID {
+	if windowNode := responseNode(t, window.Window.Nodes, question.ID); windowNode.Level != 1 || windowNode.Message.ID != answer.ID {
 		t.Fatal("thread divergiu entre janela/turno")
 	}
 	if _, err := f.reader.ReadWindow(f.ctx, database.MessageWindowQuery{ConversationID: f.conversation, ParentID: &question.ID, Limit: 20}); err == nil {
@@ -343,7 +362,7 @@ func TestTimelineSnapshotPreservesThreadScopeAndCurrentRetry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if after.Version == before.Version || responseNode(t, after.Nodes, question.ID).Message.Content != "resposta do retry" || node.Message.Content != "resposta na thread" {
+	if after.Version == before.Version || after.Response.TerminalPatch().Message.Content != "resposta do retry" || node.Message.Content != "resposta na thread" {
 		t.Fatal("snapshot não isolou gerações de leitura")
 	}
 }

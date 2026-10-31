@@ -26,7 +26,6 @@ type TimelineTurnSnapshot struct {
 	Version  database.ChatTimelineVersion
 	Turn     *database.ChatTurn
 	Response *PersistedResponse
-	Nodes    []MessageNode
 }
 
 // TurnSnapshotReader é a dependência de leitura do terminal, separada dos writers.
@@ -180,7 +179,6 @@ func (r *DBTimelineReader) ReadTurn(ctx context.Context, conversationID, turnID 
 			return nil, err
 		}
 	}
-	result.Nodes = buildResponseNodes(messages, parentID, nil, facts.calls, responses)
 	return result, nil
 }
 

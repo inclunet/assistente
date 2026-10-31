@@ -20,6 +20,10 @@ recebidos permanecem recuperáveis, sem aceitar novos callbacks do vínculo anti
 `TestWindowRecoveryFailureDoesNotChangeExecution` e
 `TestWindowRecoveryUsesAuthorizedTransactionalReader` cobrem esses contratos.
 `TurnIDs` é metadado interno da leitura, não campo novo no payload da janela.
+A leitura de turno também deixa de montar `Nodes`: após o adaptador terminal
+consumir `Response`, essa árvore era calculada e descartada em produção. As
+provas de snapshot, cronologia, escopo e paridade agora verificam o patch ou a
+projeção consumidos em produção, sem manter trabalho runtime só para fixtures.
 Não há SQL por delta, nova tabela nem reconstrução de mensagens no frontend.
 
 Medição local sequencial, cinco amostras de 20 operações na fixture
