@@ -298,6 +298,10 @@ func (p *LiveProjection) readWindow(ctx context.Context, query database.MessageW
 	}
 	c, release := p.lockConversation(projectionKey{userID, query.ConversationID}, true)
 	defer release()
+	return p.readWindowLocked(ctx, query, reader, canonical, c)
+}
+
+func (p *LiveProjection) readWindowLocked(ctx context.Context, query database.MessageWindowQuery, reader WindowSnapshotReader, canonical bool, c *projectionConversation) (*TimelineWindowSnapshot, error) {
 	snapshot, err := reader.ReadWindow(ctx, query)
 	if err != nil {
 		return nil, err

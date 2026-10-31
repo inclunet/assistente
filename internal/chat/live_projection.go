@@ -25,6 +25,7 @@ type LiveProjection struct {
 
 type projectionKey struct{ userID, conversationID string }
 type projectionConversation struct {
+	windows             map[string]*subscribedWindow
 	publication         canonicalPublication
 	mu                  sync.Mutex
 	readers             int // protegido por LiveProjection.mu; inclui operações de storage
@@ -360,7 +361,7 @@ func (p *LiveProjection) pruneLocked(key projectionKey, c *projectionConversatio
 			next = deadline
 		}
 	}
-	if len(c.turns) == 0 && len(c.retained) == 0 {
+	if len(c.turns) == 0 && len(c.retained) == 0 && len(c.windows) == 0 {
 		delete(p.conversations, key)
 		return
 	}
