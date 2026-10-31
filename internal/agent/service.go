@@ -564,11 +564,14 @@ func (s *Service) buildTurnPatch(ctx context.Context, conversationID, turnID str
 	patchCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 	defer cancel()
 
-	snapshot, err := s.timeline.ReadTurn(patchCtx, conversationID, turnID)
+	recovery, err := s.ReadTurnRecovery(patchCtx, conversationID, turnID)
 	if err != nil {
 		return nil, err
 	}
-	nodes := snapshot.Nodes
+	if !recovery.CanUsePersistedPatch(executionID(ctx)) {
+		return nil, chat.ErrProjectionRecoveryRequired
+	}
+	nodes := recovery.Persisted.Nodes
 	itemID := ports.ResponseItemID(turnID)
 	responseIndex := slices.IndexFunc(nodes, func(node chat.MessageNode) bool {
 		return node.ItemID == itemID
@@ -1360,13 +1363,9 @@ func (s *Service) persistAssistantPartial(ctx context.Context, assistantMessageI
 	if assistantMessageID == "" || (content == "" && reasoning == "") {
 		return nil
 	}
-	err := s.turns.WritePartial(context.WithoutCancel(ctx), executionID(ctx), assistantMessageID, content, reasoning, false)
-	if err == nil {
-		if execution := executionFrom(ctx); execution != nil {
-			execution.projection.ConfirmStoredContent(-1, content, reasoning)
-		}
-	}
-	return err
+	return executionProjection(ctx).CommitContent(-1, content, reasoning, func() error {
+		return s.turns.WritePartial(context.WithoutCancel(ctx), executionID(ctx), assistantMessageID, content, reasoning, false)
+	})
 }
 
 // persistErrorWhenEmpty preserva o motivo sanitizado quando não houve resposta (AEP-0108).
@@ -1537,4 +1536,14 @@ func (s *Service) applyContinuationPrefill(
 		setInitialContent(prefill)
 	}
 	return messages
+}
+
+// ReadTurnRecovery é a leitura interna coordenada. O adaptador visual continua
+// usando o patch persistido; a exposição wire da recuperação é outro recorte.
+func (s *Service) ReadTurnRecovery(ctx context.Context, conversationID, turnID string) (*chat.TurnRecovery, error) {
+	return s.projection.ReadRecovery(ctx, conversationID, turnID, s.timeline)
+}
+
+func (s *Service) DiscardRetainedTurn(ctx context.Context, conversationID, turnID, executionID string) error {
+	return s.projection.DiscardRetained(ctx, conversationID, turnID, executionID, s.timeline)
 }

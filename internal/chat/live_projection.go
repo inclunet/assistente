@@ -17,7 +17,7 @@ import (
 
 // LiveProjection conserva dados recebidos do provider, antes do armazenamento.
 // A unidade de serialização é usuário/conversa. Não publica eventos nem chama
-// callbacks sob o mutex. Revision é interna; não é sequence do protocolo wire.
+// callbacks externos sob o mutex (somente storage no coordenador). Revision é interna; não é sequence do protocolo wire.
 type LiveProjection struct {
 	mu            sync.Mutex
 	conversations map[projectionKey]*projectionConversation
@@ -25,16 +25,22 @@ type LiveProjection struct {
 
 type projectionKey struct{ userID, conversationID string }
 type projectionConversation struct {
-	mu       sync.Mutex
-	epoch    string
-	revision uint64
-	turns    map[string]*liveTurn
-	retained map[string]*liveTurn // tentativas volatile substituídas por retry explícito
-	timer    *time.Timer
+	mu                  sync.Mutex
+	readers             int // protegido por LiveProjection.mu; inclui operações de storage
+	epoch               string
+	revision            uint64
+	incarnation         string
+	lastRecoveryVersion database.ChatTimelineVersion
+	turns               map[string]*liveTurn
+	retained            map[string]*liveTurn // tentativas volatile substituídas por retry explícito
+	timer               *time.Timer
 }
 type liveTurn struct {
+	committedVersion                               database.ChatTimelineVersion
 	turnID, executionID, responseID, state, reason string
+	incarnation                                    string
 	finished, volatile                             bool
+	detached                                       bool
 	finishedAt                                     time.Time
 	generation                                     uint64
 	streams                                        map[int]*liveStream
@@ -55,7 +61,9 @@ type LiveStreamSnapshot struct {
 	Fragments []LiveFragment
 }
 type LiveTurnSnapshot struct {
+	Detached                                               bool
 	Epoch                                                  string
+	Incarnation                                            string
 	Revision                                               uint64
 	ItemID, TurnID, ExecutionID, ResponseID, State, Reason string
 	Finished, Volatile                                     bool
@@ -80,57 +88,48 @@ func NewLiveProjection() *LiveProjection {
 	return &LiveProjection{conversations: make(map[projectionKey]*projectionConversation)}
 }
 
-// Begin deve ser chamado somente após a admissão autorizada no TurnStore.
-func (p *LiveProjection) Begin(ctx context.Context, conversationID, turnID, executionID string) (*ExecutionProjection, error) {
+// Admit serializa a admissão no storage e o binding na mesma barreira da leitura.
+// O callback deve somente consultar/escrever storage; não pode chamar o projetor
+// nem emitir eventos. A versão deve ser lida antes da admissão autorizada.
+func (p *LiveProjection) Admit(ctx context.Context, conversationID, turnID, executionID string, admit func() (database.ChatTimelineVersion, error)) (*ExecutionProjection, error) {
 	userID, err := database.RequireUserID(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if conversationID == "" || turnID == "" || executionID == "" {
+	if conversationID == "" || turnID == "" || executionID == "" || admit == nil {
 		return nil, errors.New("identidade incompleta de projeção")
 	}
 	key := projectionKey{userID, conversationID}
-	p.mu.Lock()
-	c := p.conversations[key]
-	if c == nil {
-		c = &projectionConversation{epoch: uuid.NewString(), turns: make(map[string]*liveTurn), retained: make(map[string]*liveTurn)}
-		p.conversations[key] = c
+	c, release := p.lockConversation(key, true)
+	defer release()
+	if old := c.turns[turnID]; old != nil && old.executionID == executionID {
+		return nil, errors.New("execução já projetada")
 	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	defer p.mu.Unlock()
-	if old := c.turns[turnID]; old != nil {
-		if old.executionID == executionID {
-			return nil, errors.New("execução já projetada")
-		}
-		if old.volatile {
-			c.retained[old.executionID] = old
-		}
+	version, err := admit()
+	if err != nil {
+		return nil, err
 	}
-	c.turns[turnID] = &liveTurn{turnID: turnID, executionID: executionID, state: database.TurnPreparing, streams: make(map[int]*liveStream)}
+	if old := c.turns[turnID]; old != nil && (old.volatile || old.detached || hasUncommittedContent(old)) {
+		if !old.finished {
+			old.detached = true
+		}
+		c.retained[old.executionID] = old
+	}
+	if c.incarnation != "" && c.incarnation != version.Incarnation {
+		c.epoch = uuid.NewString()
+	}
+	c.incarnation = version.Incarnation
+	c.turns[turnID] = &liveTurn{turnID: turnID, executionID: executionID, incarnation: version.Incarnation, state: database.TurnPreparing, streams: make(map[int]*liveStream)}
 	c.revision++
 	return &ExecutionProjection{owner: p, key: key, conversation: c, turnID: turnID, executionID: executionID}, nil
 }
 
 func (e *ExecutionProjection) currentLocked() *liveTurn {
 	t := e.conversation.turns[e.turnID]
-	if t == nil || t.executionID != e.executionID {
+	if t == nil || t.executionID != e.executionID || t.detached || t.incarnation != e.conversation.incarnation {
 		return nil
 	}
 	return t
-}
-
-func (e *ExecutionProjection) SetResponse(id string) {
-	if e == nil {
-		return
-	}
-	c := e.conversation
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if t := e.currentLocked(); t != nil && !t.finished {
-		t.responseID = id
-		c.revision++
-	}
 }
 
 func (e *ExecutionProjection) StartStream(iteration int) *StreamProjection {
@@ -237,27 +236,15 @@ func (s *StreamProjection) Seal(text, reasoning string) bool {
 	})
 }
 
-// ConfirmStoredContent acusa uma escrita concluída desta iteração. A comparação
-// exata só evita confirmar deltas recebidos depois do conteúdo enviado ao storage;
-// não escolhe mensagens nem reconstrói identidade a partir de texto.
-// iteration=-1 identifica a última iteração da execução (resposta/parcial final).
-func (e *ExecutionProjection) ConfirmStoredContent(iteration int, text, reasoning string) {
-	if e == nil {
-		return
-	}
-	c := e.conversation
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	t := e.currentLocked()
-	if t == nil || t.finished {
-		return
-	}
+// Confirma somente bytes enviados ao writer desta iteração. Não seleciona
+// mensagens por texto nem confirma deltas recebidos depois da escrita.
+func confirmStoredContentLocked(t *liveTurn, iteration int, text, reasoning string) bool {
 	if iteration == -1 {
 		iteration = latestIteration(t)
 	}
 	stream := t.streams[iteration]
 	if stream == nil {
-		return
+		return false
 	}
 	var content, thoughts strings.Builder
 	for _, part := range stream.parts {
@@ -266,8 +253,9 @@ func (e *ExecutionProjection) ConfirmStoredContent(iteration int, text, reasonin
 	}
 	if content.String() == text && thoughts.String() == reasoning {
 		stream.confirmed = true
-		c.revision++
+		return true
 	}
+	return false
 }
 
 func latestIteration(t *liveTurn) int {
@@ -280,22 +268,16 @@ func latestIteration(t *liveTurn) int {
 	return latest
 }
 
-func (e *ExecutionProjection) Finish(state, reason string, persisted, contentCommitted bool) {
-	if e == nil {
-		return
+func finishLiveTurnLocked(c *projectionConversation, t *liveTurn, state, reason string, persisted bool) {
+	uncommitted := hasUncommittedContent(t)
+	t.state, t.reason, t.finished, t.volatile, t.finishedAt = state, reason, true, !persisted || uncommitted, time.Now()
+	if !persisted {
+		t.state, t.reason = database.TurnFailed, "persistence_error"
 	}
-	c := e.conversation
-	c.mu.Lock()
-	t := e.currentLocked()
-	if t == nil || t.finished {
-		c.mu.Unlock()
-		return
-	}
-	if contentCommitted {
-		if stream := t.streams[latestIteration(t)]; stream != nil {
-			stream.confirmed = true
-		}
-	}
+	c.revision++
+}
+
+func hasUncommittedContent(t *liveTurn) bool {
 	uncommitted := false
 	for _, stream := range t.streams {
 		if stream.confirmed {
@@ -305,23 +287,51 @@ func (e *ExecutionProjection) Finish(state, reason string, persisted, contentCom
 			uncommitted = uncommitted || strings.TrimSpace(part.text.String()) != "" || strings.TrimSpace(part.reasoning.String()) != ""
 		}
 	}
-	t.state, t.reason, t.finished, t.volatile, t.finishedAt = state, reason, true, !persisted || uncommitted, time.Now()
-	if !persisted {
-		t.state, t.reason = database.TurnFailed, "persistence_error"
-	}
-	c.revision++
-	c.mu.Unlock()
-	e.owner.scheduleCleanup(e.key, c)
+	return uncommitted
 }
 
 const projectionRetention = 60 * time.Second
 
 // Há no máximo um timer de retenção por conversa. Cada vencimento calcula o
 // próximo; tráfego em outro turno não prolonga a retenção de conteúdo dispensável.
+// Referências de operação impedem evicção sem segurar o mutex do registro
+// enquanto outra conversa aguarda I/O. Ordem: registro (breve), conversa, DB.
+func (p *LiveProjection) lockConversation(key projectionKey, create bool) (*projectionConversation, func()) {
+	p.mu.Lock()
+	c := p.conversations[key]
+	if c == nil && create {
+		c = &projectionConversation{epoch: uuid.NewString(), turns: make(map[string]*liveTurn), retained: make(map[string]*liveTurn)}
+		p.conversations[key] = c
+	}
+	if c == nil {
+		p.mu.Unlock()
+		return nil, func() {}
+	}
+	c.readers++
+	p.mu.Unlock()
+	c.mu.Lock()
+	return c, func() {
+		c.mu.Unlock()
+		p.mu.Lock()
+		c.readers--
+		p.mu.Unlock()
+		p.scheduleCleanup(key, c)
+	}
+}
+
+func (e *ExecutionProjection) lockStorage() (*projectionConversation, func()) {
+	c, release := e.owner.lockConversation(e.key, false)
+	if c != e.conversation {
+		release()
+		return nil, func() {}
+	}
+	return c, release
+}
+
 func (p *LiveProjection) scheduleCleanup(key projectionKey, c *projectionConversation) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.conversations[key] != c || c.timer != nil {
+	if p.conversations[key] != c || c.timer != nil || c.readers != 0 {
 		return
 	}
 	c.mu.Lock()
@@ -358,9 +368,12 @@ func (p *LiveProjection) pruneLocked(key projectionKey, c *projectionConversatio
 		if p.conversations[key] != c {
 			return
 		}
+		c.timer = nil
+		if c.readers != 0 {
+			return
+		}
 		c.mu.Lock()
 		defer c.mu.Unlock()
-		c.timer = nil
 		p.pruneLocked(key, c, time.Now())
 	})
 }
@@ -372,15 +385,11 @@ func (p *LiveProjection) Snapshot(ctx context.Context, conversationID, turnID st
 	if err != nil {
 		return nil, err
 	}
-	p.mu.Lock()
-	c := p.conversations[projectionKey{userID, conversationID}]
+	c, release := p.lockConversation(projectionKey{userID, conversationID}, false)
+	defer release()
 	if c == nil {
-		p.mu.Unlock()
 		return nil, nil
 	}
-	c.mu.Lock()
-	p.mu.Unlock()
-	defer c.mu.Unlock()
 	t := c.turns[turnID]
 	if t == nil {
 		return nil, nil
@@ -389,7 +398,7 @@ func (p *LiveProjection) Snapshot(ctx context.Context, conversationID, turnID st
 }
 
 func snapshotLiveTurn(c *projectionConversation, t *liveTurn) *LiveTurnSnapshot {
-	result := &LiveTurnSnapshot{Epoch: c.epoch, Revision: c.revision, ItemID: ports.ResponseItemID(t.turnID), TurnID: t.turnID, ExecutionID: t.executionID, ResponseID: t.responseID, State: t.state, Reason: t.reason, Finished: t.finished, Volatile: t.volatile}
+	result := &LiveTurnSnapshot{Detached: t.detached, Epoch: c.epoch, Incarnation: t.incarnation, Revision: c.revision, ItemID: ports.ResponseItemID(t.turnID), TurnID: t.turnID, ExecutionID: t.executionID, ResponseID: t.responseID, State: t.state, Reason: t.reason, Finished: t.finished, Volatile: t.volatile || hasUncommittedContent(t)}
 	iterations := make([]int, 0, len(t.streams))
 	for iteration := range t.streams {
 		iterations = append(iterations, iteration)

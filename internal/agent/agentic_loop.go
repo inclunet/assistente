@@ -444,13 +444,18 @@ func (r *agenticLoopRunner) executeToolIteration(ctx context.Context, result Age
 	// A identidade da chamada ao modelo vem de (turn_id, iteration) no ledger.
 	// Só persista uma mensagem quando houver conteúdo conversacional.
 	if strings.TrimSpace(result.FullResponse) != "" || strings.TrimSpace(result.Reasoning) != "" {
-		assistantToolMsg, err := r.svc.msgRepo.CreateMessage(ctx, chat.MessageOptions{
-			ConversationID: r.conversationID,
-			TurnID:         &r.turnID,
-			Role:           "assistant",
-			Content:        result.FullResponse,
-			Reasoning:      result.Reasoning,
-			Model:          result.Model,
+		var assistantToolMsg *chat.Message
+		err := executionProjection(ctx).CommitContent(iteration, result.FullResponse, result.Reasoning, func() error {
+			var saveErr error
+			assistantToolMsg, saveErr = r.svc.msgRepo.CreateMessage(ctx, chat.MessageOptions{
+				ConversationID: r.conversationID,
+				TurnID:         &r.turnID,
+				Role:           "assistant",
+				Content:        result.FullResponse,
+				Reasoning:      result.Reasoning,
+				Model:          result.Model,
+			})
+			return saveErr
 		})
 		if err != nil {
 			if errors.Is(err, chat.ErrConversationDeleted) {
@@ -459,9 +464,6 @@ func (r *agenticLoopRunner) executeToolIteration(ctx context.Context, result Age
 			}
 			logging.Errorf(ctx, "agent.agentic-loop", "[Agent] erro ao salvar mensagem assistant intermediária de tool invocation: %v", err)
 		} else if assistantToolMsg != nil {
-			if execution := executionFrom(ctx); execution != nil {
-				execution.projection.ConfirmStoredContent(iteration, result.FullResponse, result.Reasoning)
-			}
 			r.svc.tagChatToolInvocationsWithAssistantMessage(ctx, r.turnID, execResults, assistantToolMsg.ID)
 		}
 	}

@@ -2,6 +2,7 @@ package chat
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -13,7 +14,7 @@ func liveFixture(t *testing.T) (*LiveProjection, context.Context, *ExecutionProj
 	t.Helper()
 	p := NewLiveProjection()
 	ctx := database.WithUserID(context.Background(), "user")
-	e, err := p.Begin(ctx, "conversation", "question", "execution")
+	e, err := beginTestProjection(p, ctx, "conversation", "question", "execution")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +67,7 @@ func TestLiveProjectionTerminalPreservesUncommittedContent(t *testing.T) {
 			s := e.StartStream(0)
 			s.Append("conteúdo recebido")
 			s.Reasoning("pensamento", false)
-			e.Finish(database.TurnFailed, "internal_error", committed, false)
+			finishTestProjection(e, database.TurnFailed, "internal_error", committed, false)
 			if s.Append("atrasado") {
 				t.Fatal("terminal aceitou delta")
 			}
@@ -80,7 +81,7 @@ func TestLiveProjectionTerminalPreservesUncommittedContent(t *testing.T) {
 			if !committed && snap.Reason != "persistence_error" {
 				t.Fatal("falha de persistência oculta")
 			}
-			next, err := p.Begin(ctx, "conversation", "question", "retry")
+			next, err := beginTestProjection(p, ctx, "conversation", "question", "retry")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -129,12 +130,12 @@ func TestLiveProjectionIsolationAndConcurrentSnapshot(t *testing.T) {
 func TestLiveProjectionRetentionKeepsActiveAndVolatile(t *testing.T) {
 	p, ctx, e := liveFixture(t)
 	e.StartStream(0).Append("confirmado")
-	e.Finish(database.TurnCompleted, "completed", true, true)
-	active, _ := p.Begin(ctx, "conversation", "active", "active-execution")
+	finishTestProjection(e, database.TurnCompleted, "completed", true, true)
+	active, _ := beginTestProjection(p, ctx, "conversation", "active", "active-execution")
 	active.StartStream(0).Append("ativo")
-	volatile, _ := p.Begin(ctx, "conversation", "volatile", "volatile-execution")
+	volatile, _ := beginTestProjection(p, ctx, "conversation", "volatile", "volatile-execution")
 	volatile.StartStream(0).Append("não salvo")
-	volatile.Finish(database.TurnFailed, "persistence_error", false, false)
+	finishTestProjection(volatile, database.TurnFailed, "persistence_error", false, false)
 	p.mu.Lock()
 	c := e.conversation
 	c.mu.Lock()
@@ -156,7 +157,7 @@ func TestLiveProjectionRetentionKeepsActiveAndVolatile(t *testing.T) {
 func BenchmarkLiveProjectionAppend(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		p := NewLiveProjection()
-		e, _ := p.Begin(database.WithUserID(context.Background(), "user"), "conversation", "turn", "execution")
+		e, _ := beginTestProjection(p, database.WithUserID(context.Background(), "user"), "conversation", "turn", "execution")
 		s := e.StartStream(0)
 		for j := 0; j < 1000; j++ {
 			s.Append("um delta de texto ")
@@ -193,8 +194,8 @@ func TestLiveProjectionAcknowledgesOnlyWrittenContent(t *testing.T) {
 			if late {
 				s.Append(" novo")
 			}
-			e.ConfirmStoredContent(-1, "parcial", "")
-			e.Finish(database.TurnInterrupted, "cancelled", true, false)
+			_ = e.CommitContent(-1, "parcial", "", func() error { return nil })
+			finishTestProjection(e, database.TurnInterrupted, "cancelled", true, false)
 			snap, _ := p.Snapshot(ctx, "conversation", "question")
 			if snap.Volatile != late {
 				t.Fatalf("confirmação incorreta: %+v", snap)
@@ -215,11 +216,37 @@ func TestLiveProjectionEmptyIntermediateDoesNotRequireRecovery(t *testing.T) {
 			first.Append(text)
 			first.Seal(text, "\t\n")
 			e.StartStream(2).Seal("resposta final", "")
-			e.Finish(database.TurnCompleted, "completed", true, true)
+			finishTestProjection(e, database.TurnCompleted, "completed", true, true)
 			snapshot, _ := p.Snapshot(ctx, "conversation", "question")
 			if snapshot.Volatile != meaningful {
 				t.Fatalf("classificação incorreta: %+v", snapshot)
 			}
 		})
+	}
+}
+
+func beginTestProjection(p *LiveProjection, ctx context.Context, conversationID, turnID, executionID string) (*ExecutionProjection, error) {
+	return p.Admit(ctx, conversationID, turnID, executionID, func() (database.ChatTimelineVersion, error) {
+		return database.ChatTimelineVersion{Incarnation: "storage", Revision: 1}, nil
+	})
+}
+
+func finishTestProjection(e *ExecutionProjection, state, reason string, persisted, contentCommitted bool) {
+	write := func() (database.ChatTimelineVersion, error) {
+		if !persisted {
+			return database.ChatTimelineVersion{}, errors.New("falha de gravação")
+		}
+		return database.ChatTimelineVersion{Incarnation: "storage", Revision: 2}, nil
+	}
+	if contentCommitted {
+		snapshot, _ := e.owner.Snapshot(database.WithUserID(context.Background(), e.key.userID), e.key.conversationID, e.turnID)
+		var text, reasoning string
+		for _, part := range snapshot.Streams[len(snapshot.Streams)-1].Fragments {
+			text += part.Text
+			reasoning += part.Reasoning
+		}
+		_ = e.CommitResponse(state, reason, text, reasoning, write)
+	} else {
+		_ = e.CommitTerminal(state, reason, write)
 	}
 }
