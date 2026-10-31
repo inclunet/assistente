@@ -156,7 +156,7 @@ func (r *ChatTurnRepository) CheckReady(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if !versions[41] || !versions[42] || !versions[43] {
+	if !versions[41] || !versions[42] || !versions[43] || !versions[44] {
 		return ErrChatTurnMigrationPending
 	}
 	return nil

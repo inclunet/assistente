@@ -299,6 +299,7 @@ func buildSummarizationUserPrompt(existingSummary string, messages []chat.Messag
 			text = truncateUTF8Safe(text, 2000) + "... [truncated]"
 		}
 		sb.WriteString(text)
+		sb.WriteString("\n\n")
 	}
 
 	if existingSummary != "" {

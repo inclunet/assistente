@@ -113,6 +113,9 @@ Evidências: `TestExecutionSelectionRetryAndContinuationBeforeLimits`,
 `TestTimelineExecutionSelectionMatchesWindowAndTerminal`.
 As fixtures de leitores aplicam as migrações produtivas 41/44; não mantêm DDL
 paralelo nem adicionam fallback de schema ausente ao código de produção.
+O CI identificou duas fixtures de atividade/cronologia ACP ainda sem esses
+metadados; ambas passam a aplicar as mesmas migrações. A compilação do pacote
+agent foi validada localmente, sem executar ACP; a execução fica no CI.
 
 Desempenho: a seleção do ledger é relacionada uma vez por `JOIN`; a janela
 sem âncora calcula total e página na mesma consulta (`COUNT(*) OVER ()`). Não há
