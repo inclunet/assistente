@@ -147,6 +147,17 @@ func (p *LiveProjection) DiscardRetained(ctx context.Context, conversationID, tu
 	}
 	if current {
 		delete(c.turns, turnID)
+		// Descartar buffers também reconcilia o item que os assinantes já viram.
+		// Outro bloqueador impede um patch confiável: invalidar o journal inteiro
+		// exige snapshot e impede reaparecerem operações do texto descartado.
+		if c.publicationErrorLocked() != nil {
+			c.epoch = uuid.NewString()
+			c.publishCanonical(conversationID, nil)
+		} else if persisted.Response != nil {
+			c.publishCanonical(conversationID, []*TimelineItem{persisted.Response})
+		} else {
+			c.publishCanonicalChanges(conversationID, nil, []string{"turn:" + turnID})
+		}
 	} else {
 		delete(c.retained, executionID)
 	}
