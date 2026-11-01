@@ -40,8 +40,8 @@ func TestDBSummarizationStore_UnauthenticatedErrors(t *testing.T) {
 		{"SetSummarizingInProgress", func() error {
 			return store.SetSummarizingInProgress(ctx, "conv-x", true)
 		}},
-		{"UpdateConversationSummary", func() error {
-			return store.UpdateConversationSummary(ctx, "conv-x", "summary", "msg-y")
+		{"CommitConversationSummary", func() error {
+			return store.CommitConversationSummary(ctx, "conv-x", "summary", "msg-y", "", []string{"msg-y"})
 		}},
 	}
 

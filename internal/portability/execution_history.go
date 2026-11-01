@@ -165,7 +165,7 @@ func restoreConversationExecutionHistory(ctx context.Context, tx *gorm.DB, conve
 	invocationGroups := map[string][]ToolInvocationExport{}
 	for _, m := range messages {
 		if m.ChatExecutionID == nil {
-			if err := tx.Create(m).Error; err != nil {
+			if err := database.CreateChatMessageInTransaction(tx, m); err != nil {
 				return err
 			}
 		} else {
@@ -197,10 +197,7 @@ func restoreConversationExecutionHistory(ctx context.Context, tx *gorm.DB, conve
 				return err
 			}
 			for _, m := range messageGroups[e.ExecutionID] {
-				if err := tx.Table("chat_messages").Create(&struct {
-					*database.ChatMessage
-					ChatExecutionID *string
-				}{m, m.ChatExecutionID}).Error; err != nil {
+				if err := database.CreateChatMessageInTransaction(tx, m); err != nil {
 					return err
 				}
 			}

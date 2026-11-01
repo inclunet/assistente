@@ -36,7 +36,7 @@ func (r *repoDeMentira) SetSummarizingInProgress(_ context.Context, _ string, in
 	return nil
 }
 
-func (r *repoDeMentira) UpdateConversationSummary(_ context.Context, _ string, summary string, _ string) error {
+func (r *repoDeMentira) CommitConversationSummary(_ context.Context, _ string, summary string, _ string, _ string, _ []string) error {
 	r.resumoSalvo = summary
 	return nil
 }

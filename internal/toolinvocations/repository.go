@@ -113,21 +113,21 @@ func (r *DBRepository) Create(ctx context.Context, inv *Invocation, options ...C
 	if inv.OriginType == "" {
 		inv.OriginType = OriginChat
 	}
-	inv.OriginID = strings.TrimSpace(inv.OriginID)
-	if inv.OriginType == OriginChat && inv.OriginID == "" {
+	if inv.OriginType == OriginChat && strings.TrimSpace(inv.OriginID) == "" {
 		return ErrChatOriginIDRequired
 	}
 	row := invocationDomainToModel(*inv)
 	create := func(exec *gorm.DB) error {
 		var lastAttempt int
-		if err := exec.WithContext(ctx).Model(&database.ToolInvocation{}).
-			Where("user_id = ? AND origin_type = ? AND origin_id = ? AND tool_call_id = ?", userID, row.OriginType, row.OriginID, row.ToolCallID).
-			Select("COALESCE(MAX(attempt), 0)").
-			Scan(&lastAttempt).Error; err != nil {
+		attempts := exec.WithContext(ctx).Model(&database.ToolInvocation{}).Where("user_id = ? AND origin_type = ? AND origin_id = ? AND tool_call_id = ?", userID, row.OriginType, row.OriginID, row.ToolCallID)
+		if row.ChatExecutionID != nil {
+			attempts = attempts.Where("chat_execution_id=?", *row.ChatExecutionID)
+		}
+		if err := attempts.Select("COALESCE(MAX(attempt), 0)").Scan(&lastAttempt).Error; err != nil {
 			return err
 		}
 		row.Attempt = lastAttempt + 1
-		return withoutInvocationPayloadLogging(exec).WithContext(ctx).Create(&row).Error
+		return database.CreateToolInvocationInTransaction(withoutInvocationPayloadLogging(exec).WithContext(ctx), &row)
 	}
 	createErr := database.WithSQLiteImmediateTransaction(ctx, r.db, "toolinvocations.create", func(tx *gorm.DB) error {
 		if row.OriginType == OriginChat {
@@ -162,8 +162,7 @@ func (r *DBRepository) ValidateChatOrigin(ctx context.Context, originID string) 
 	if err != nil {
 		return err
 	}
-	originID = strings.TrimSpace(originID)
-	if originID == "" {
+	if strings.TrimSpace(originID) == "" {
 		return ErrChatOriginIDRequired
 	}
 	return r.retry(ctx, "validate_chat_origin", func() error {
@@ -212,7 +211,7 @@ func (r *DBRepository) MarkRunning(ctx context.Context, id string, startedAt tim
 	var tx *gorm.DB
 	err := r.retry(ctx, "mark_running", func() error {
 		tx = database.ScopeByUser(ctx, withoutInvocationPayloadLogging(r.db).WithContext(ctx).Model(&database.ToolInvocation{}), "user_id").
-			Where("id = ?", strings.TrimSpace(id)).
+			Where("id = ?", id).
 			Updates(map[string]any{
 				"status":     StatusRunning,
 				"started_at": startedAt,
@@ -251,7 +250,7 @@ func (r *DBRepository) Complete(ctx context.Context, id string, inv *Invocation)
 	var tx *gorm.DB
 	err := r.retry(ctx, "complete", func() error {
 		tx = database.ScopeByUser(ctx, withoutInvocationPayloadLogging(r.db).WithContext(ctx).Model(&database.ToolInvocation{}), "user_id").
-			Where("id = ?", strings.TrimSpace(id)).
+			Where("id = ?", id).
 			Updates(map[string]any{
 				"status":              status,
 				"output":              string(inv.Output),
@@ -288,7 +287,7 @@ func (r *DBRepository) Delete(ctx context.Context, id string) error {
 	var tx *gorm.DB
 	err := r.retry(ctx, "delete", func() error {
 		tx = database.ScopeByUser(ctx, r.db.WithContext(ctx).Model(&database.ToolInvocation{}), "user_id").
-			Where("id = ?", strings.TrimSpace(id)).
+			Where("id = ?", id).
 			Delete(&database.ToolInvocation{})
 		return tx.Error
 	})
@@ -308,7 +307,7 @@ func (r *DBRepository) Get(ctx context.Context, id string) (*Invocation, error) 
 	var row database.ToolInvocation
 	if err := r.retry(ctx, "get", func() error {
 		return database.ScopeByUser(ctx, r.db.WithContext(ctx), "user_id").
-			First(&row, "id = ?", strings.TrimSpace(id)).Error
+			First(&row, "id = ?", id).Error
 	}); err != nil {
 		return nil, err
 	}
@@ -731,29 +730,30 @@ func (r *DBRepository) IsToolCatalogIDVisible(ctx context.Context, toolCatalogID
 func invocationDomainToModel(inv Invocation) database.ToolInvocation {
 	var parentID *string
 	if strings.TrimSpace(inv.ParentInvocationID) != "" {
-		parent := strings.TrimSpace(inv.ParentInvocationID)
+		parent := inv.ParentInvocationID
 		parentID = &parent
 	}
 	var conversationID *string
 	if strings.TrimSpace(inv.ConversationID) != "" {
-		value := strings.TrimSpace(inv.ConversationID)
+		value := inv.ConversationID
 		conversationID = &value
 	}
 	var turnID *string
 	if strings.TrimSpace(inv.TurnID) != "" {
-		value := strings.TrimSpace(inv.TurnID)
+		value := inv.TurnID
 		turnID = &value
 	}
 	return database.ToolInvocation{
-		UUIDModel:          database.UUIDModel{ID: strings.TrimSpace(inv.ID), CreatedAt: inv.CreatedAt, UpdatedAt: inv.UpdatedAt},
+		ChatExecutionID:    inv.ChatExecutionID,
+		UUIDModel:          database.UUIDModel{ID: inv.ID, CreatedAt: inv.CreatedAt, UpdatedAt: inv.UpdatedAt},
 		UserID:             strings.TrimSpace(inv.UserID),
 		ToolCatalogID:      strings.TrimSpace(inv.ToolCatalogID),
 		OriginType:         strings.TrimSpace(inv.OriginType),
-		OriginID:           strings.TrimSpace(inv.OriginID),
+		OriginID:           inv.OriginID,
 		ConversationID:     conversationID,
 		TurnID:             turnID,
 		ParentInvocationID: parentID,
-		ToolCallID:         strings.TrimSpace(inv.ToolCallID),
+		ToolCallID:         inv.ToolCallID,
 		Attempt:            inv.Attempt,
 		Status:             strings.TrimSpace(inv.Status),
 		DryRun:             inv.DryRun,
@@ -796,6 +796,7 @@ func invocationModelToDomain(row database.ToolInvocation) Invocation {
 		turnID = *row.TurnID
 	}
 	return Invocation{
+		ChatExecutionID:    row.ChatExecutionID,
 		ID:                 row.ID,
 		UserID:             row.UserID,
 		ToolCatalogID:      row.ToolCatalogID,

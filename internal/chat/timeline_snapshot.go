@@ -95,6 +95,9 @@ func (r *DBTimelineReader) ReadWindow(ctx context.Context, query database.Messag
 		if err != nil {
 			return err
 		}
+		if err := database.ResolveContinuationMedia(ctx, tx, rows.Messages); err != nil {
+			return err
+		}
 		result.TurnIDs = snapshotTurnIDs(rows.Messages)
 		facts, err = readTimelineFacts(ctx, tx, query.ConversationID, result.TurnIDs)
 		if err != nil {
@@ -169,6 +172,9 @@ func (r *DBTimelineReader) ReadTurn(ctx context.Context, conversationID, turnID 
 		// A consulta é restrita ao turno/escopo, não recarrega a conversa inteira.
 		messages, err = repo.GetMessagesByTurnIDWithContext(ctx, conversationID, question.ParentID, turnID, 0)
 		if err != nil {
+			return err
+		}
+		if err := database.ResolveContinuationMedia(ctx, tx, messages); err != nil {
 			return err
 		}
 		facts, err = readTimelineFacts(ctx, tx, conversationID, []string{turnID})

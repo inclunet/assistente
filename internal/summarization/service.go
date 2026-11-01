@@ -3,6 +3,7 @@ package summarization
 import (
 	"assistente/internal/logging"
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -25,7 +26,7 @@ type SummarizationRepository interface {
 	GetConversationSummary(ctx context.Context, conversationID string) (summary string, upToMessageID string, err error)
 	IsSummarizingInProgress(ctx context.Context, conversationID string) (bool, error)
 	SetSummarizingInProgress(ctx context.Context, conversationID string, inProgress bool) error
-	UpdateConversationSummary(ctx context.Context, conversationID string, summary string, upToMessageID string) error
+	CommitConversationSummary(ctx context.Context, conversationID, summary, upToMessageID, previousSummary string, sourceIDs []string) error
 }
 
 const (
@@ -711,7 +712,15 @@ func (s *Service) executeSummarization(
 		return
 	}
 
-	if err := s.cfg.Repo.UpdateConversationSummary(ctx, conversationID, summary, upToMessageID); err != nil {
+	sourceIDs := make([]string, len(newMessages))
+	for i, message := range newMessages {
+		sourceIDs[i] = message.ID
+	}
+	if err := s.cfg.Repo.CommitConversationSummary(ctx, conversationID, summary, upToMessageID, existingSummary, sourceIDs); err != nil {
+		if errors.Is(err, database.ErrSummarySourceChanged) {
+			logging.Infof(ctx, "summarization.service", "Resumo descartado: fontes substituídas na conversa %s", conversationID)
+			return
+		}
 		logging.Errorf(ctx, "summarization.service", "[Summary] Erro ao salvar resumo: %v", err)
 		s.cfg.Emitter.Emit("chat:summary_error", ports.SummaryErrorEvent{
 			ConversationID: conversationID,
