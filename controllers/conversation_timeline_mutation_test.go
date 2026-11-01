@@ -9,6 +9,7 @@ import (
 
 	"assistente/internal/chat"
 	"assistente/internal/database"
+	"gorm.io/gorm"
 )
 
 type commandTimelineReader struct {
@@ -162,6 +163,64 @@ func TestMessageMutationsReconcileBeforeEvents(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestLegacyPinReadsOnlyAuthorizedIdentityBeforeCoordination(t *testing.T) {
+	restore := database.SetDB(database.DB())
+	if err := database.InitPath(filepath.Join(t.TempDir(), "pin-identity.db")); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = database.Close(); restore() })
+	db := database.DB()
+	if err := db.Create(&database.User{UUIDModel: database.UUIDModel{ID: "pin-owner"}, Username: "pin-owner"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	ctx := database.WithUserID(context.Background(), "pin-owner")
+	conv, err := database.CreateConversationWithContext(ctx, "pin", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	question, err := database.CreateMessageWithContext(ctx, database.MessageOptions{ConversationID: conv.ID, Role: "user", Content: "pergunta"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	answer, err := database.CreateMessageWithContext(ctx, database.MessageOptions{ConversationID: conv.ID, Role: "assistant", TurnID: &question.ID, Content: "resposta"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&database.ChatMessage{}).Where("id=?", answer.ID).Update("audio", strings.Repeat("x", 2<<20)).Error; err != nil {
+		t.Fatal(err)
+	}
+	coordinated := false
+	var columns []string
+	if err := db.Callback().Query().After("gorm:query").Register("pin_identity_columns", func(tx *gorm.DB) {
+		if !coordinated && tx.Statement.Table == "chat_messages" {
+			columns = append(columns, tx.Statement.Selects...)
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	c := NewConversationsController(ConversationsControllerConfig{MutateTimeline: func(_ context.Context, id string, known []string, write func() ([]string, error)) error {
+		coordinated = true
+		if id != conv.ID || len(known) != 2 || known[0] != "message:"+answer.ID || known[1] != "turn:"+question.ID {
+			t.Fatal("vínculos perdidos", id, known)
+		}
+		_, err := write()
+		return err
+	}})
+	pinned, err := c.ToggleMessagePin(ctx, answer.ID)
+	if err != nil || !pinned.Pinned {
+		t.Fatal("pin falhou", err)
+	}
+	if strings.Join(columns, ",") != "chat_messages.id,chat_messages.conversation_id,chat_messages.turn_id" {
+		t.Fatal("pré-leitura carregou payload", columns)
+	}
+	for _, denied := range []context.Context{context.Background(), database.WithUserID(context.Background(), "other")} {
+		coordinated = false
+		if _, err := c.ToggleMessagePin(denied, answer.ID); err == nil || coordinated {
+			t.Fatal("pré-leitura ultrapassou ownership")
+		}
 	}
 }
 

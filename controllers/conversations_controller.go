@@ -574,7 +574,7 @@ func (c *ConversationsController) UpdateMessage(ctx context.Context, messageID s
 
 // ToggleMessagePin alterna a fixação persistente e publica o novo estado.
 func (c *ConversationsController) ToggleMessagePin(ctx context.Context, messageID string) (*database.ChatMessage, error) {
-	msg, err := database.GetMessageWithContext(ctx, messageID)
+	msg, err := database.GetMessageIdentityWithContext(ctx, messageID)
 	if err != nil {
 		return nil, err
 	}

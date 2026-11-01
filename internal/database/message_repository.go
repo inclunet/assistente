@@ -449,6 +449,21 @@ func (r *MessageRepository) GetMessageContentAndRoleWithContext(ctx context.Cont
 	return msg.Content, msg.Role, nil
 }
 
+// GetMessageIdentityWithContext resolve somente a identidade e seus vínculos,
+// com ownership, sem materializar texto, áudio ou anexos para coordenar mutações.
+func GetMessageIdentityWithContext(ctx context.Context, messageID string) (*ChatMessage, error) {
+	if _, err := RequireUserID(ctx); err != nil {
+		return nil, err
+	}
+	var msg ChatMessage
+	if err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).
+		Select("chat_messages.id", "chat_messages.conversation_id", "chat_messages.turn_id").
+		First(&msg, "chat_messages.id = ?", messageID).Error; err != nil {
+		return nil, err
+	}
+	return &msg, nil
+}
+
 // GetMessageWithContext retorna a mensagem completa pelo ID, restrita ao
 // usuário do contexto. Falha fechado sem userID — leitura por ID sem escopo
 // retornaria mensagens de qualquer usuário (vetor de leak silencioso).
