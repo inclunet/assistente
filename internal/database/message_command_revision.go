@@ -91,29 +91,6 @@ func messageCommandRevisionTx(ctx context.Context, tx *gorm.DB, conversationID, 
 	return hex.EncodeToString(digest[:]), nil
 }
 
-// MutateMessageIfUnchangedWithinLifecycleWithContext compares and writes inside
-// one BEGIN IMMEDIATE. The caller owns the lifecycle gate, including events.
-func MutateMessageIfUnchangedWithinLifecycleWithContext(ctx context.Context, conversationID, messageID, expected string, deleting bool) (*ChatMessage, error) {
-	return mutateMessageIfUnchangedWithinLifecycle(ctx, conversationID, messageID, expected, deleting, nil)
-}
-
-func UpdateMessageIfUnchangedWithinLifecycleWithContext(ctx context.Context, conversationID, messageID, expected, content string) (*ChatMessage, error) {
-	return mutateMessageIfUnchangedWithinLifecycle(ctx, conversationID, messageID, expected, false, &content)
-}
-
-func mutateMessageIfUnchangedWithinLifecycle(ctx context.Context, conversationID, messageID, expected string, deleting bool, content *string) (*ChatMessage, error) {
-	if _, err := RequireUserID(ctx); err != nil {
-		return nil, err
-	}
-	var updated *ChatMessage
-	err := WithSQLiteMaintenance(ctx, func() error {
-		var err error
-		updated, err = MutateMessageCommandWithinMaintenanceWithContext(ctx, conversationID, messageID, expected, deleting, content)
-		return err
-	})
-	return updated, err
-}
-
 // MutateMessageCommandWithinMaintenanceWithContext unifica editar, fixar e
 // excluir. O chamador já possui lifecycle/manutenção e pode adquirir a barreira
 // da timeline antes de abrir este writer, sem inverter a ordem dos locks.

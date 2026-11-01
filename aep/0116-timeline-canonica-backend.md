@@ -14,9 +14,10 @@ já confirmadas sem converter o erro original em sucesso.
 
 Os comandos mantêm a ordem lifecycle → guard de sessão/workspace → manutenção →
 projetor → transação SQLite. `MutateMessageCommandWithinMaintenanceWithContext`
-unifica a gravação transacional de editar/fixar/excluir. Os entrypoints anteriores
-preservam seu contrato de adquirir manutenção para consumidores existentes; o
-controller usa o núcleo comum depois de adquirir os locks externos. Revisão
+unifica a gravação transacional de editar/fixar/excluir. Os dois entrypoints antigos,
+que ficaram sem consumidores produtivos, foram removidos; a aquisição de manutenção
+nos testes de storage passou ao fixture, preservando suas asserções. O controller
+usa o núcleo comum depois de adquirir os locks externos. Revisão
 esperada, ownership, cancelamento/preparo e confirmação de ações permanecem nos
 mesmos contratos. Eventos existentes são emitidos após sair da barreira do projetor.
 
@@ -34,7 +35,8 @@ Validação local: 362 testes seguros de database, 92 de controllers e 21 de app
 (timeline/janelas/comandos de mensagem) aprovados; build, vet e golangci-lint
 incremental sem novas ocorrências. O frontend não mudou desde a validação da
 etapa anterior (TypeScript/ESLint/Stylelint e 5.887 testes seguros). Revisão local
-independente review_aep: uma rodada, sem pendências. Nenhum teste ACP executado.
+independente review_aep: duas rodadas, sem pendências; a segunda confirmou a
+remoção das entradas sem consumidores e a preservação das asserções. Nenhum teste ACP executado.
 
 Limites deste recorte: criação de mensagens, limpeza de conversa/import/manutenção
 e gravações de speech ainda precisam completar a integração. Participação de
