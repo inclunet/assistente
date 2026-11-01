@@ -1,8 +1,50 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — fase 1 concluída; fase 2 com composição de recuperação; janelas, protocolo e cutover pendentes
+## Status: In Progress — fase 1 concluída; fase 2 com janela canônica e composição; protocolo e cutover pendentes
 
 Data: 2026-10-30
+
+### Recorte: janela canônica desde a admissão (2026-10-31)
+
+A consulta canônica inclui os turnos admitidos na mesma classificação SQL de
+ordem, contagem e paginação, antes de existir mensagem representante. Pergunta
+continua slot 0; resposta mantém slot 1 mesmo em preparing ou falha de criação.
+Nenhum registro de mensagem é inventado na leitura. A exclusão da pergunta
+remove também o item; âncoras podem identificar diretamente um item sem mensagem.
+
+`ReadCanonicalWindow` usa a mesma barreira de admissão/streaming/commit e a mesma
+composição da recuperação de turno. Autorização e escopo precedem qualquer
+conteúdo em memória. Turnos fora da página não são confundidos com exclusões.
+
+Compatibilidade temporária: `ReadWindow`/`MessageWindow` continuam contando somente
+nós materializáveis pelo consumidor antigo. Ambos usam a mesma consulta e
+projeção; `WithTimelineTurns` habilita exclusivamente a inclusão dos turnos sem
+conteúdo para a nova fronteira. Remover essa opção e o adaptador antigo no
+cutover da fase 3, quando todos os consumidores aceitarem representante nullable.
+A etapa seguinte expõe a leitura canônica pelo contrato wire.
+
+Evidências: `TestCanonicalWindowIncludesPreparingAndMissingRepresentativeWithoutMessages`
+e `TestCanonicalWindowComposesActiveContentAndSharesTurnRecovery`, além das provas
+existentes de barreira, ownership, thread, paginação e contagem. Não houve teste
+ACP local nem alteração de mensagens otimistas ou identidade no frontend.
+Também passaram as provas de isolamento de thread e `historical_unknown` sem
+conteúdo. Build/vet e lint incremental passaram; 281 testes seguros de chat,
+31 de banco e 10 de app passaram, além dos quatro casos canônicos finais.
+Revisor independente `review_aep`: duas rodadas, sem pendências técnicas.
+Revisão remota: paginação `around` com item sem representante e diagnóstico de
+âncora ausente cobertos; o erro identifica `anchorItemId` ou `anchorMessageId`.
+
+`BenchmarkCanonicalWindowTurnMembership` (20 operações, cinco amostras,
+Windows/amd64, execução isolada) mediu medianas legado/canônico de
+4,505/5,447 ms em 100 perguntas; 9,334/17,375 ms em 500; 21,180/26,752 ms
+em 1.000. Em 100, retornam respectivamente 102/202 itens; nos demais, 240,
+mas a composição difere: o canônico inclui respostas sem mensagem. B/op
+canônico: aproximadamente 939 mil/1,062 milhão/1,063 milhão, contra
+749 mil/1,539 milhão/1,541 milhão. Esses números revelam custo adicional,
+não demonstram cumprimento do orçamento histórico nem uma comparação de
+saídas equivalentes. O gate de desempenho permanece aberto: antes do cutover,
+comparar saídas equivalentes e avaliar/otimizar a consulta canônica. Não há
+SQL por delta neste recorte.
 
 ### Recorte: composição de fontes confirmadas e streaming (2026-10-31)
 
