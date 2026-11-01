@@ -12,7 +12,8 @@ import (
 )
 
 // ReconcileImportedConversationInTransaction exige a transação do importador.
-// Nenhum executionId remoto é restaurado; falhas revertem também as mensagens.
+// Reconcilia apenas legado sem tentativas; importação de execuções é explícita
+// no serviço de portabilidade. Falhas revertem também as mensagens.
 func (r *ChatTurnRepository) ReconcileImportedConversationInTransaction(ctx context.Context, conversationID string) error {
 	if _, err := RequireUserID(ctx); err != nil {
 		return err

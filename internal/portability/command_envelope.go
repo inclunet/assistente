@@ -41,7 +41,7 @@ func ExportCommandEnvelope(ctx context.Context, db *gorm.DB, scope commandconfig
 	return commandjson.Marshal(ExportFile{Version: ExportVersion, ExportedAt: time.Now().UTC(), Resources: ExportResources{CommandLayers: layers}})
 }
 
-// ApplyCommandEnvelope decodifica o envelope canônico v1/v2 e usa exclusivamente
+// ApplyCommandEnvelope decodifica o envelope canônico v1/v2/v3 e usa exclusivamente
 // ApplyPlanImport, com autenticação, decisão e CAS do serviço comum. Portas são
 // do host, nunca do arquivo. Rejeita recursos adicionais para não anunciar um
 // restore parcial. Lotes multi-escopo continuam sujeitos à recusa do writer.

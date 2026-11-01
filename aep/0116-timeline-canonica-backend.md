@@ -1,6 +1,6 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — fase 1 concluída; fase 2 com schema e leitores preparados para seleção por execução
+## Status: In Progress — fase 1 concluída; fase 2 com schema, leitores e portabilidade preparados para seleção por execução
 
 Data: 2026-10-30
 
@@ -48,7 +48,7 @@ Ativação em recortes após #977 (portabilidade separada para revisão antes do
 1. Schema aditivo e invariantes (este recorte). Não ativa novos writers.
 2. Seleção compartilhada antes de limites/paginação: janela, terminal, contexto
    do LLM e hidratação. Auditoria, exportação e métricas preservam todas as execuções.
-3. Portabilidade das execuções e seleção, com validação e remapeamento de IDs.
+3. Portabilidade das execuções e seleção, com validação e preservação dos IDs estáveis (AEP-0047).
    Importação não pode tornar conteúdo substituído novamente atual.
 4. Ativação atômica no lifecycle e em todos os produtores, com representante novo
    e vínculos explícitos para mensagens e ledger. Legado continua reconhecível.
@@ -60,6 +60,33 @@ Evidências de schema: `TestExecutionContentMigrationKeepsLegacyUnattributed`,
 `TestExecutionContentSchemaMarksDeletedBaseUnavailable` e
 `TestExecutionContentMigrationRollsBackOnFailure`. A migração não altera texto,
 usage, IDs nem seleção de dados existentes e não inventa execução no upgrade.
+
+### Recorte: portabilidade da seleção e do histórico de execuções (2026-10-31)
+
+O envelope v3 preserva turnos, seleção atual, execuções, representantes e bases
+explícitas, junto de todas as mensagens e ferramentas. IDs estáveis seguem o
+AEP-0047; colisões não são remapeadas silenciosamente. Leitura do conteúdo e dos
+metadados ocorre no mesmo snapshot transacional. Arquivos v1/v2 continuam aceitos
+sem proveniência inventada; campos de execução exigem v3.
+
+A importação valida o grafo e restaura bases em ordem topológica, dentro da mesma
+transação da conversa. Usa as invariantes produtivas de admissão para inserir a
+proveniência imutável; nenhuma tarefa, evento ou lease é criado. Tentativas que
+estavam ativas são restauradas como interrupted/restart; seleção continua
+persistida, active_execution_id fica NULL. Falhas revertem inclusive overwrite.
+O export rico mantém o histórico completo, associando ferramentas à sua execução;
+o JSON canônico conserva os metadados necessários para a seleção na reimportação.
+
+Evidências: `TestExecutionHistoryRoundTripPreservesSelectionAndAudit`,
+`TestExecutionHistoryContinuationAndActiveImport`,
+`TestExecutionHistoryRejectsInvalidGraphAndRollsBack`,
+`TestExecutionHistoryLegacyContinuationPreservesUnknownProvenance`,
+`TestExecutionHistoryCollisionDoesNotOverwriteOtherConversation`,
+`TestExecutionHistoryRichExportKeepsToolsInTheirExecution` e
+`TestExecutionHistoryRequiresVersionThree`, `TestExecutionHistoryPreservesOpaqueIDs`
+e `TestImportConversationsPreservesOpaqueRestoredIDsBeforeHook`.
+Ainda não ativa produtores; lifecycle e invalidação de sumários são o próximo
+recorte. A composição live/persistida e o cutover visual permanecem pendentes.
 
 ### Recorte: seleção por execução antes dos limites (2026-10-31)
 

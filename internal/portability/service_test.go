@@ -1053,8 +1053,6 @@ func setupPortabilityTestDB(t *testing.T) {
 		&database.LLMProvider{},
 		&database.Conversation{},
 		&database.ChatMessage{},
-		&database.ChatTurn{},
-		&database.ChatTurnAttempt{},
 		&database.ToolInvocation{},
 		&database.TaskListWorkflow{},
 		&database.TaskList{},
@@ -1067,6 +1065,13 @@ func setupPortabilityTestDB(t *testing.T) {
 	); err != nil {
 		t.Fatalf("falha ao migrar tabelas: %v", err)
 	}
+	if err := database.MigrateChatTurns(db); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.MigrateChatExecutionContent(db); err != nil {
+		t.Fatal(err)
+	}
+
 	database.SetDB(db)
 }
 
@@ -2585,7 +2590,7 @@ func TestImportConversationsSkipsEmptyConversations(t *testing.T) {
 	}
 }
 
-func TestImportConversationsNormalizesRestoredIDsBeforeHook(t *testing.T) {
+func TestImportConversationsPreservesOpaqueRestoredIDsBeforeHook(t *testing.T) {
 	setupPortabilityTestDB(t)
 
 	now := time.Now().UTC()
@@ -2595,9 +2600,10 @@ func TestImportConversationsNormalizesRestoredIDsBeforeHook(t *testing.T) {
 		ExportedAt: now,
 		Resources: ExportResources{
 			Conversations: []ConversationExport{
+				{ID: conversationID, Title: "Sem espaços", CreatedAt: now, Messages: []MessageExport{{ID: "plain-question", Role: "user", Content: "Oi", CreatedAt: now}}},
 				{
 					ID:        " " + conversationID + " ",
-					Title:     "Com ID normalizado",
+					Title:     "Com ID opaco",
 					CreatedAt: now,
 					Messages: []MessageExport{
 						{ID: "01926b90-0000-7000-8000-000000000512", Role: "user", Content: "Oi", CreatedAt: now},
@@ -2623,16 +2629,18 @@ func TestImportConversationsNormalizesRestoredIDsBeforeHook(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ImportConversationsWithRestoreHook() error = %v", err)
 	}
-	if result.Imported != 1 || result.Failed != 0 {
+	if result.Imported != 2 || result.Failed != 0 {
 		t.Fatalf("unexpected result: %+v", result)
 	}
-	if len(restoredIDs) != 1 || restoredIDs[0] != conversationID {
-		t.Fatalf("restoredIDs = %q, want [%q]", restoredIDs, conversationID)
+	if len(restoredIDs) != 2 || restoredIDs[0] != conversationID || restoredIDs[1] != " "+conversationID+" " {
+		t.Fatalf("restoredIDs = %q, esperava ambos IDs distintos baseados em %q", restoredIDs, conversationID)
 	}
 
-	var imported database.Conversation
-	if err := database.DB().Where("id = ?", conversationID).First(&imported).Error; err != nil {
-		t.Fatalf("conversa normalizada não foi persistida: %v", err)
+	for _, id := range restoredIDs {
+		var imported database.Conversation
+		if err := database.DB().Where("id = ?", id).First(&imported).Error; err != nil {
+			t.Fatalf("ID opaco não foi persistido: %v", err)
+		}
 	}
 }
 
