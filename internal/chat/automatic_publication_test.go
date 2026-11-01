@@ -423,7 +423,7 @@ func TestAutomaticPublicationNewIncarnationInvalidatesOffPageTurns(t *testing.T)
 func TestAutomaticPublicationReadBudgetAndMediaExclusion(t *testing.T) {
 	f := newSnapshotFixture(t)
 	large := strings.Repeat("x", canonicalSourceBytes+1)
-	if err := f.db.Model(&database.ChatMessage{}).Where("id = ?", f.question).Updates(map[string]any{"audio": large, "media": large}).Error; err != nil {
+	if err := f.db.Model(&database.ChatMessage{}).Where("id = ?", f.question).Updates(map[string]any{"audio": large, "media": large, "content": large}).Error; err != nil {
 		t.Fatal(err)
 	}
 	questionRead := false
@@ -449,6 +449,13 @@ func TestAutomaticPublicationReadBudgetAndMediaExclusion(t *testing.T) {
 	}
 	if snapshot.Response.Representative.Audio != "" || snapshot.Response.Representative.Media != "" {
 		t.Fatal("leitura automática materializou mídia")
+	}
+	if err := f.db.Model(&database.ChatMessage{}).Where("id = ?", f.question).Update("turn_id", f.question).Error; err != nil {
+		t.Fatal(err)
+	}
+	legacy, err := f.reader.ReadPublicationTurn(f.ctx, f.conversation, f.question)
+	if err != nil || legacy.Response == nil || legacy.Response.Representative.Content == large {
+		t.Fatal("pergunta legada entrou no orçamento ou na resposta", err)
 	}
 	if err := f.db.Model(&database.ChatMessage{}).Where("id = ?", f.answer).Update("content", large).Error; err != nil {
 		t.Fatal(err)
