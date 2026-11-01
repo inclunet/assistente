@@ -360,7 +360,7 @@ func (p *LiveProjection) scheduleCleanup(key projectionKey, c *projectionConvers
 func (p *LiveProjection) pruneLocked(key projectionKey, c *projectionConversation, now time.Time) {
 	var next time.Time
 	for id, t := range c.turns {
-		if !t.finished || t.volatile {
+		if !t.finished || t.volatile || t.publicationDirty || t.publicationErr != nil {
 			continue
 		}
 		deadline := t.finishedAt.Add(projectionRetention)

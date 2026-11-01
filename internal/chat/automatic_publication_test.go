@@ -290,6 +290,21 @@ func TestAutomaticPublicationRecoveryFlushesOtherFinishedTurns(t *testing.T) {
 			c.setPublicationBaseLocked(other, &TimelineItem{ItemID: "turn:other", TurnID: "other", Kind: "response", State: database.TurnCompleted, Durability: "persisted", Segments: []ResponseSegment{{Kind: "text", SegmentID: "other-text", Text: "aguardando"}}})
 			c.flushPublicationLocked(f.conversation)
 			c.mu.Unlock()
+			// Simula vencimento da retenção antes de liberar o bloqueador. Tanto
+			// A (erro) quanto B (terminal sujo) ainda precisam de reconciliação.
+			p.mu.Lock()
+			c.mu.Lock()
+			if c.timer != nil {
+				c.timer.Stop()
+				c.timer = nil
+			}
+			p.pruneLocked(e.key, c, time.Now().Add(2*projectionRetention))
+			kept := p.conversations[e.key] == c && c.turns[e.turnID] != nil && c.turns["other"] == other
+			c.mu.Unlock()
+			p.mu.Unlock()
+			if !kept {
+				t.Fatal("retenção descartou publicação pendente")
+			}
 			reader.fail.Store(false)
 			denied := errors.New("leitura recusada")
 			if err := p.DiscardRetained(f.ctx, f.conversation, f.question, e.executionID, recoveryReader{func() (*TimelineTurnSnapshot, error) { return nil, denied }}); !errors.Is(err, denied) {
