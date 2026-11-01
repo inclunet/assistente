@@ -176,7 +176,7 @@ func (c *projectionConversation) flushPublicationLocked(conversationID string) {
 	items := make([]*TimelineItem, 0, len(ids))
 	for _, id := range ids {
 		t := c.turns[id]
-		item, err := composeResponse(t.publicationBase, snapshotLiveTurn(c, t))
+		item, err := projectLiveItemLocked(c, t.publicationBase)
 		if err != nil {
 			c.failPublicationLocked(t, err)
 			return

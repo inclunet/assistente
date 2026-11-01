@@ -12,6 +12,10 @@ alteram buffers e agendam um timer por conversa, com coalescing de 24 ms; não
 consultam storage. Admissão e terminal descarregam sincronamente os itens sujos.
 Geração do timer e identidade da instância impedem callbacks antigos após flush
 ou evicção. O terminal volátil conserva conteúdo também na leitura de recuperação.
+Flush e recuperação usam a mesma decisão de composição: terminal confirmado não
+é substituído por um stream vazio, preservando o motivo persistido de falha do
+provedor. Falha na gravação terminal permanece volátil mesmo sem stream ou com
+todos os conteúdos já confirmados; durabilidade inclui o estado, não só o texto.
 
 A base persistida é renovada sob a barreira nas transições do writer, por leitura
 restrita ao turno. É uma cópia sem áudio/mídia e com orçamento de 8 MiB de JSON por
@@ -42,7 +46,7 @@ sem leitura por token, terminal antes do retorno, callback antigo, falha de leit
 após commit, recuperação com buffers novos, cancelamento/retry e limite/isolamento
 da base, deadline após commit e desvinculação sem bloquear outro turno, inclusive
 após terminal confirmado, replay recusado durante falha, recuperação com outro turno
-pendente e limites antes da leitura (inclusive ledger legado). Passaram 305 testes seguros de chat, 137 de agente e
+pendente e limites antes da leitura (inclusive ledger legado). Passaram 307 testes seguros de chat, 137 de agente e
 dez de app; build/vet e lint incremental sem ocorrências novas. Revisor independente
 review_aep: três rodadas; corrigidos deadline ausente e bloqueio após desvinculação
 nas variantes ativa e concluída. Terceira rodada aprovada sem pendências.
@@ -50,6 +54,9 @@ Revisão remota CodeRabbit: corrigidos flush incompleto na recuperação e limit
 da base; adicionada a asserção de replay sugerida. Duas rodadas locais adicionais de
 review_aep corrigiram a leitura da pergunta e a cobertura de vínculos legados no
 preflight; segunda rodada adicional aprovada sem pendências.
+Copilot: corrigidas composição do erro sem chunks e durabilidade de terminal não
+gravado; regressões com SQLite comparam journal e recuperação nas três variantes.
+Sexta rodada local review_aep valida essas correções antes do push.
 Nenhum teste ACP executado localmente.
 
 ### Recorte: inscrições internas com recuperação explícita (2026-10-31)
