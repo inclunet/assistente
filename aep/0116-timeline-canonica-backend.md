@@ -72,7 +72,11 @@ mensagens e turnos: uma pergunta isolada não paga pelas respostas/ferramentas
 fora da seleção. A fonte do SUM usa buscas indexadas e UNION sem dupla contagem.
 O filtro de IDs antecede a classificação compartilhada; `EXPLAIN QUERY PLAN`
 com 1.000 mensagens comprova busca por PK e pelo índice de turno/escopo, incluindo
-o preflight de mensagens e a busca do ledger por usuário/origem/turno.
+o preflight de mensagens, a busca do ledger por usuário/origem/turno e a leitura
+final dos payloads. Esta também seleciona por UNION antes de materializar,
+mantendo escopo, filtro de execução e omissão de mídia.
+Pergunta legada com `turn_id=id` só entra em `message:<id>`; orçamento e leitores
+de resposta excluem `role=user` antes de carregar conteúdo, inclusive no lifecycle.
 
 Falha de reconciliação suspende publicação/replay e troca a época. Recuperação
 reconcilia todos os IDs materializados antes de liberar a publicação; conserva
@@ -105,11 +109,11 @@ mensagens e duas ao incluir turnos. Pergunta isolada com resposta e ledger acima
 de 8 MiB fora da janela continua recuperável; seleção mensagem+turno não duplica
 bytes. Não representa ainda medição de heap nem benchmark do cutover.
 
-Validação local: 323 testes seguros de chat, 362 de database, 137 de agente, 96 de toolinvocations
+Validação local: 324 testes seguros de chat, 362 de database, 137 de agente, 96 de toolinvocations
 e 10 de app; build/vet e lint Go incremental aprovados. TypeScript, ESLint e
 Stylelint passaram (2.124 avisos CSS preexistentes, zero erros); Vitest seguro:
 484 arquivos, 5.887 testes aprovados. Nenhum teste ACP foi executado localmente.
-Revisor independente review_aep: nove rodadas; a primeira identificou a corrida
+Revisor independente review_aep: onze rodadas; a primeira identificou a corrida
 com a inscrição inicial e o custo por âncora. Corrigidos ambos, gate final aprovado
 sem pendências. Copilot apontou o orçamento agregado, a base terminal antiga e
 o filtro tardio da seleção; corrigidos com regressões e nova aprovação local.
@@ -118,6 +122,9 @@ com seleção por tipo de item e EXPLAIN também das consultas de orçamento.
 Terceira rodada remota identificou bloqueio da recuperação explícita por item
 acima da cota; regressão cobre leitura autorizada, buffer, replay suspenso,
 revogação e recuperação posterior da publicação. Nona revisão local aprovada.
+Quarta rodada remota apontou payloads com filtro OR e a pergunta legada no
+orçamento; corrigidos com EXPLAIN da materialização e regressão de pergunta
+acima de 8 MiB com resposta curta, lifecycle e Refresh após mutação de ledger.
 A revisão remota e o CI completam a entrega do PR.
 
 Limites: o coordenador já trata exclusões, mas os comandos de edição/exclusão de
@@ -163,6 +170,11 @@ recusadas não alteram publicação.
 Turnos com erro ou publicação pendente não expiram pelo prazo de retenção de
 60 segundos; permanecem até publicação ou reconciliação/descarte explícito.
 Os quatro caminhos de recuperação também são exercitados após esse prazo.
+Descarte da execução visual atual reconcilia o journal com a resposta persistida
+ou `item_remove` quando ela não existe. Se outro bloqueador impedir publicação,
+invalida época e journal, exigindo snapshot sem reproduzir operações descartadas.
+Descartar tentativa antiga retida não altera a execução atual. O codificador
+compartilhado de remoções é introduzido aqui e reutilizado pelas mutações externas.
 
 Limite deste recorte: publicação automática no journal interno para os escritores
 do lifecycle integrados. Alterações externas de mensagens/ledger, patches de
@@ -170,12 +182,12 @@ participação das janelas, emissor autenticado e bindings Wails seguem pendente
 Não há ainda entrega pública completa nem migração do frontend. A fase 2 permanece
 In Progress; o próximo recorte conecta invalidações e exclusões ao mesmo projetor.
 
-Doze testes `AutomaticPublication` cobrem admissão sem representante, publicação
+Testes `AutomaticPublication` cobrem admissão sem representante, publicação
 sem leitura por token, terminal antes do retorno, callback antigo, falha de leitura
 após commit, recuperação com buffers novos, cancelamento/retry e limite/isolamento
 da base, deadline após commit e desvinculação sem bloquear outro turno, inclusive
 após terminal confirmado, replay recusado durante falha, recuperação com outro turno
-pendente e limites antes da leitura (inclusive ledger legado). Passaram 308 testes seguros de chat, 137 de agente e
+pendente e limites antes da leitura (inclusive ledger legado). Passaram 309 testes seguros de chat, 137 de agente e
 dez de app; build/vet e lint incremental sem ocorrências novas. Revisor independente
 review_aep: três rodadas; corrigidos deadline ausente e bloqueio após desvinculação
 nas variantes ativa e concluída. Terceira rodada aprovada sem pendências.
@@ -191,6 +203,9 @@ no descarte/janela legada. Corrigidos com regressões de publicação, retençã
 bytes, callback antigo e recusa de autorização; sétima revisão local aprovada.
 Terceira rodada Copilot apontou expiração de terminais pendentes; retenção
 corrigida e regressão temporal aprovada na oitava revisão local.
+Quarta rodada Copilot levantou descarte sem correção do journal; a nona revisão
+local cobre estado persistido, ausência comprovada, outro bloqueador, tentativa
+antiga, idempotência e recusa de autorização em `discard_publication_test.go`.
 Nenhum teste ACP executado localmente.
 
 ### Recorte: inscrições internas com recuperação explícita (2026-10-31)

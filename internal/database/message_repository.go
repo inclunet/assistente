@@ -1619,16 +1619,18 @@ func (r *MessageRepository) fetchMessagesForTimelineItems(conversationID string,
 		}
 	}
 	query := r.messageScopeQuery(conversationID, parentID)
-	switch {
-	case len(turnIDs) > 0 && len(messageIDs) > 0:
-		query = query.Where("(role <> ? AND turn_id IN ?) OR id IN ?", "user", turnIDs, messageIDs)
-	case len(turnIDs) > 0:
-		query = query.Where("role <> ? AND turn_id IN ?", "user", turnIDs)
-	default:
-		query = query.Where("id IN ?", messageIDs)
+	parentPredicate := "parent_id IS NULL"
+	args := []interface{}{messageIDs, conversationID}
+	if parentID != nil {
+		parentPredicate = "parent_id = ?"
+		args = append(args, *parentID)
 	}
+	args = append(args, turnIDs)
+	// Seleção pontual antes de carregar payloads; UNION elimina sobreposição.
+	// CROSS JOIN preserva as buscas por identidade também em janelas mistas.
+	query = query.Table("(SELECT id FROM chat_messages WHERE id IN ? UNION SELECT id FROM chat_messages WHERE conversation_id=? AND "+parentPredicate+" AND role <> 'user' AND turn_id IN ?) selected_payload CROSS JOIN chat_messages ON chat_messages.id=selected_payload.id", args...)
 	var messages []ChatMessage
-	if err := query.Order("created_at ASC, id ASC").Find(&messages).Error; err != nil {
+	if err := query.Order("chat_messages.created_at ASC, chat_messages.id ASC").Find(&messages).Error; err != nil {
 		return nil, err
 	}
 	// Somente a cópia retornada perde o vínculo inválido para não ser reagrupada
