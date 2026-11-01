@@ -42,6 +42,11 @@ recusadas não alteram publicação.
 Turnos com erro ou publicação pendente não expiram pelo prazo de retenção de
 60 segundos; permanecem até publicação ou reconciliação/descarte explícito.
 Os quatro caminhos de recuperação também são exercitados após esse prazo.
+Descarte da execução visual atual reconcilia o journal com a resposta persistida
+ou `item_remove` quando ela não existe. Se outro bloqueador impedir publicação,
+invalida época e journal, exigindo snapshot sem reproduzir operações descartadas.
+Descartar tentativa antiga retida não altera a execução atual. O codificador
+compartilhado de remoções é introduzido aqui e reutilizado pelas mutações externas.
 
 Limite deste recorte: publicação automática no journal interno para os escritores
 do lifecycle integrados. Alterações externas de mensagens/ledger, patches de
@@ -49,12 +54,12 @@ participação das janelas, emissor autenticado e bindings Wails seguem pendente
 Não há ainda entrega pública completa nem migração do frontend. A fase 2 permanece
 In Progress; o próximo recorte conecta invalidações e exclusões ao mesmo projetor.
 
-Doze testes `AutomaticPublication` cobrem admissão sem representante, publicação
+Testes `AutomaticPublication` cobrem admissão sem representante, publicação
 sem leitura por token, terminal antes do retorno, callback antigo, falha de leitura
 após commit, recuperação com buffers novos, cancelamento/retry e limite/isolamento
 da base, deadline após commit e desvinculação sem bloquear outro turno, inclusive
 após terminal confirmado, replay recusado durante falha, recuperação com outro turno
-pendente e limites antes da leitura (inclusive ledger legado). Passaram 308 testes seguros de chat, 137 de agente e
+pendente e limites antes da leitura (inclusive ledger legado). Passaram 309 testes seguros de chat, 137 de agente e
 dez de app; build/vet e lint incremental sem ocorrências novas. Revisor independente
 review_aep: três rodadas; corrigidos deadline ausente e bloqueio após desvinculação
 nas variantes ativa e concluída. Terceira rodada aprovada sem pendências.
@@ -70,6 +75,9 @@ no descarte/janela legada. Corrigidos com regressões de publicação, retençã
 bytes, callback antigo e recusa de autorização; sétima revisão local aprovada.
 Terceira rodada Copilot apontou expiração de terminais pendentes; retenção
 corrigida e regressão temporal aprovada na oitava revisão local.
+Quarta rodada Copilot levantou descarte sem correção do journal; a nona revisão
+local cobre estado persistido, ausência comprovada, outro bloqueador, tentativa
+antiga, idempotência e recusa de autorização em `discard_publication_test.go`.
 Nenhum teste ACP executado localmente.
 
 ### Recorte: inscrições internas com recuperação explícita (2026-10-31)
