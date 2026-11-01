@@ -6,6 +6,8 @@ Data: 2026-10-30
 
 ### Recorte: reconciliação de mutações e ledger (2026-11-01)
 
+Falha auxiliar de publicação não bloqueia páginas legadas autorizadas; journal/replay e snapshot canônico continuam suspensos. Regressão com resposta acima de 8 MiB cobre página pequena, revogação e recuperação. O executor coordenado tem provas com ferramenta bloqueada (leitura e mutação concorrentes) e falha de MarkRunning (exclusão reconciliada antes do retorno), usando SQLite e projetor reais.
+
 `ApplyStorageMutation` mantém a barreira da conversa durante a operação externa
 inteira e sua reconciliação. Reserva a instância mesmo sem observadores prévios,
 para a primeira inscrição não ultrapassar um commit pendente. Sem bases ou
@@ -61,11 +63,11 @@ mensagens e duas ao incluir turnos. Pergunta isolada com resposta e ledger acima
 de 8 MiB fora da janela continua recuperável; seleção mensagem+turno não duplica
 bytes. Não representa ainda medição de heap nem benchmark do cutover.
 
-Validação local: 324 testes seguros de chat, 362 de database, 137 de agente, 96 de toolinvocations
+Validação local: 327 testes seguros de chat, 362 de database, 137 de agente, 96 de toolinvocations
 e 10 de app; build/vet e lint Go incremental aprovados. TypeScript, ESLint e
 Stylelint passaram (2.124 avisos CSS preexistentes, zero erros); Vitest seguro:
 484 arquivos, 5.887 testes aprovados. Nenhum teste ACP foi executado localmente.
-Revisor independente review_aep: onze rodadas; a primeira identificou a corrida
+Revisor independente review_aep: quatorze rodadas; a primeira identificou a corrida
 com a inscrição inicial e o custo por âncora. Corrigidos ambos, gate final aprovado
 sem pendências. Copilot apontou o orçamento agregado, a base terminal antiga e
 o filtro tardio da seleção; corrigidos com regressões e nova aprovação local.

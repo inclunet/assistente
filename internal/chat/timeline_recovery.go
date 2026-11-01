@@ -339,7 +339,7 @@ func (p *LiveProjection) readWindow(ctx context.Context, query database.MessageW
 }
 
 func (p *LiveProjection) readWindowLocked(ctx context.Context, query database.MessageWindowQuery, reader WindowSnapshotReader, canonical bool, c *projectionConversation) (*TimelineWindowSnapshot, error) {
-	if err := p.recoverStoragePublicationLocked(ctx, query.ConversationID, c); err != nil {
+	if err := p.recoverStoragePublicationLocked(ctx, query.ConversationID, c); err != nil && canonical {
 		return nil, err
 	}
 	snapshot, err := reader.ReadWindow(ctx, query)

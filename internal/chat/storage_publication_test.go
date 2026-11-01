@@ -335,6 +335,16 @@ func TestStoragePublicationOversizedTurnStillAllowsAuthorizedExplicitRecovery(t 
 	if !errors.Is(storageErr, ErrTimelineSourceLimit) {
 		t.Fatal("fixture não excedeu publicação", storageErr)
 	}
+	legacy, err := p.ReadWindow(f.ctx, database.MessageWindowQuery{ConversationID: f.conversation, Anchor: "start", Direction: "after", Limit: 1}, f.reader)
+	if err != nil || len(legacy.Items) != 1 || legacy.Items[0].ItemID != "message:"+f.question {
+		t.Fatal("orçamento auxiliar bloqueou página legada pequena", err)
+	}
+	deniedWindow := errors.New("janela revogada")
+	if snapshot, err := p.ReadWindow(f.ctx, database.MessageWindowQuery{ConversationID: f.conversation}, windowRecoveryReader(func(context.Context, database.MessageWindowQuery) (*TimelineWindowSnapshot, error) {
+		return nil, deniedWindow
+	})); snapshot != nil || !errors.Is(err, deniedWindow) {
+		t.Fatal("janela legada ignorou autorização", err)
+	}
 	result, err := p.ReadRecovery(f.ctx, f.conversation, f.question, f.reader)
 	if err != nil {
 		t.Fatal("orçamento auxiliar bloqueou recuperação explícita", err)
