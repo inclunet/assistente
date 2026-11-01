@@ -87,12 +87,23 @@ func TestStoragePublicationBudgetQueriesAreBatched(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	snapshot, err := f.reader.ReadSelection(f.ctx, f.conversation, ids)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(snapshot.Items) != 80 || count != 2 {
-		t.Fatalf("pré-leitura deixou de usar lote: itens=%d consultas=%d", len(snapshot.Items), count)
+	for _, mixed := range []bool{false, true} {
+		count = 0
+		selected := append([]string(nil), ids...)
+		expected := 1
+		if mixed {
+			expected = 2
+			for _, m := range messages {
+				selected = append(selected, "turn:"+m.ID)
+			}
+		}
+		snapshot, err := f.reader.ReadSelection(f.ctx, f.conversation, selected)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(snapshot.Items) != 80 || count != expected {
+			t.Fatalf("pré-leitura deixou de usar lote: misto=%v itens=%d consultas=%d", mixed, len(snapshot.Items), count)
+		}
 	}
 }
 
@@ -107,10 +118,18 @@ func TestStoragePublicationSelectionQueryPlanUsesSelectedIdentities(t *testing.T
 	}
 	var query string
 	var args []interface{}
+	type capturedQuery struct {
+		sql  string
+		args []interface{}
+	}
+	var budgets []capturedQuery
 	if err := f.db.Callback().Row().After("gorm:row").Register("selection_plan", func(tx *gorm.DB) {
 		if strings.Contains(tx.Statement.SQL.String(), "WITH scoped AS") {
 			query = tx.Statement.SQL.String()
 			args = append([]interface{}(nil), tx.Statement.Vars...)
+		}
+		if strings.Contains(tx.Statement.SQL.String(), "SUM(1024") {
+			budgets = append(budgets, capturedQuery{tx.Statement.SQL.String(), append([]interface{}(nil), tx.Statement.Vars...)})
 		}
 	}); err != nil {
 		t.Fatal(err)
@@ -134,6 +153,84 @@ func TestStoragePublicationSelectionQueryPlanUsesSelectedIdentities(t *testing.T
 	}
 	if !messageLookup || !turnLookup || !sourceLookup {
 		t.Fatalf("seleção deixou de buscar identidades indexadas: %+v", plan)
+	}
+	if len(budgets) != 2 {
+		t.Fatal("preflight não capturado", len(budgets))
+	}
+	for i, budget := range budgets {
+		plan = nil
+		if err := f.db.Raw("EXPLAIN QUERY PLAN "+budget.sql, budget.args...).Scan(&plan).Error; err != nil {
+			t.Fatal(err)
+		}
+		if i == 0 {
+			messageLookup, turnLookup = false, false
+			for _, row := range plan {
+				if strings.HasPrefix(row.Detail, "SEARCH chat_messages ") && !strings.Contains(row.Detail, "(id=?)") {
+					t.Fatalf("preflight percorre mensagens fora da seleção: %+v", plan)
+				}
+				messageLookup = messageLookup || (strings.HasPrefix(row.Detail, "SEARCH chat_messages ") && strings.Contains(row.Detail, "(id=?)"))
+				turnLookup = turnLookup || (strings.HasPrefix(row.Detail, "SEARCH m ") && strings.Contains(row.Detail, "turn_id=?"))
+			}
+			if !messageLookup || !turnLookup {
+				t.Fatalf("preflight varre histórico: %+v", plan)
+			}
+		} else {
+			ledgerLookup := false
+			for _, row := range plan {
+				ledgerLookup = ledgerLookup || (strings.HasPrefix(row.Detail, "SEARCH tool_invocations ") && strings.Contains(row.Detail, "turn_id=?"))
+			}
+			if !ledgerLookup {
+				t.Fatalf("preflight percorre ledger fora da seleção: %+v", plan)
+			}
+		}
+	}
+}
+
+func TestStoragePublicationQuestionBudgetExcludesUnselectedLargeResponse(t *testing.T) {
+	f := newSnapshotFixture(t)
+	if err := database.UpdateMessageTextWithContext(f.ctx, f.answer, strings.Repeat("x", canonicalSourceBytes+1)); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.db.Model(&database.ToolInvocation{}).Where("id=?", f.invocation).Update("output_preview", strings.Repeat("y", canonicalSourceBytes+1)).Error; err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := f.reader.ReadSelection(f.ctx, f.conversation, []string{"message:" + f.question})
+	if err != nil || len(snapshot.Items) != 1 {
+		t.Fatal("pergunta contou fontes fora da seleção", err)
+	}
+	if _, err := f.reader.ReadSelection(f.ctx, f.conversation, []string{"turn:" + f.question}); !errors.Is(err, ErrTimelineSourceLimit) {
+		t.Fatal("turno grande escapou do orçamento", err)
+	}
+	r := &failingSelectionReader{DBTimelineReader: f.reader}
+	p := NewLiveProjection(r)
+	sub, _, err := p.SubscribeTimeline(f.ctx, &fixtureTimelineSession{ctx: f.ctx, id: "question-budget"}, "q", database.MessageWindowQuery{ConversationID: f.conversation, Anchor: "start", Direction: "after", Limit: 1}, f.reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sub.Close()
+	r.fail.Store(true)
+	if err := p.ApplyStorageMutation(f.ctx, f.conversation, nil, func() ([]string, error) { return nil, nil }); err != nil {
+		t.Fatal(err)
+	}
+	r.fail.Store(false)
+	if _, err := sub.Refresh(f.ctx); err != nil {
+		t.Fatal("recuperação de pergunta bloqueada pela resposta fora da janela", err)
+	}
+}
+
+func TestStoragePublicationBudgetDoesNotDoubleCountSelectedMessageAndTurn(t *testing.T) {
+	f := newSnapshotFixture(t)
+	tx := f.db.WithContext(f.ctx)
+	turn, err := publicationSelectionReadSize(tx, f.conversation, nil, []string{f.question})
+	if err != nil {
+		t.Fatal(err)
+	}
+	both, err := publicationSelectionReadSize(tx, f.conversation, []string{f.answer}, []string{f.question})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if both != turn {
+		t.Fatalf("mensagem duplicada pelo turno: %d != %d", both, turn)
 	}
 }
 

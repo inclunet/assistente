@@ -269,11 +269,7 @@ func TestAutomaticPublicationReadFailurePreservesCommitAndRecoversNewerBuffers(t
 }
 
 func TestAutomaticPublicationRecoveryFlushesOtherFinishedTurns(t *testing.T) {
-	for _, window := range []bool{false, true} {
-		name := "turn"
-		if window {
-			name = "window"
-		}
+	for _, name := range []string{"turn", "window", "discard", "legacy-window"} {
 		t.Run(name, func(t *testing.T) {
 			f, p, e, reader := automaticFixture(t)
 			repo := database.NewChatTurnRepository(f.db)
@@ -289,24 +285,116 @@ func TestAutomaticPublicationRecoveryFlushesOtherFinishedTurns(t *testing.T) {
 			}
 			c := e.conversation
 			c.mu.Lock()
-			other := &liveTurn{turnID: "other", finished: true, state: database.TurnCompleted}
+			other := &liveTurn{turnID: "other", incarnation: c.incarnation, finished: true, state: database.TurnCompleted}
 			c.turns["other"] = other
 			c.setPublicationBaseLocked(other, &TimelineItem{ItemID: "turn:other", TurnID: "other", Kind: "response", State: database.TurnCompleted, Durability: "persisted", Segments: []ResponseSegment{{Kind: "text", SegmentID: "other-text", Text: "aguardando"}}})
 			c.flushPublicationLocked(f.conversation)
 			c.mu.Unlock()
 			reader.fail.Store(false)
-			if window {
+			denied := errors.New("leitura recusada")
+			if err := p.DiscardRetained(f.ctx, f.conversation, f.question, e.executionID, recoveryReader{func() (*TimelineTurnSnapshot, error) { return nil, denied }}); !errors.Is(err, denied) {
+				t.Fatal(err)
+			}
+			if _, err := p.ReadWindow(f.ctx, database.MessageWindowQuery{ConversationID: f.conversation}, windowRecoveryReader(func(context.Context, database.MessageWindowQuery) (*TimelineWindowSnapshot, error) {
+				return nil, denied
+			})); !errors.Is(err, denied) {
+				t.Fatal(err)
+			}
+			c.mu.Lock()
+			_, published := c.publication.items["turn:other"]
+			c.mu.Unlock()
+			if published {
+				t.Fatal("leitura recusada liberou publicação")
+			}
+			switch name {
+			case "window":
 				_, err = p.ReadCanonicalWindow(f.ctx, database.MessageWindowQuery{ConversationID: f.conversation, Anchor: "end", Direction: "before", Limit: 20}, f.reader)
-			} else {
+			case "turn":
 				_, err = p.ReadRecovery(f.ctx, f.conversation, f.question, f.reader)
+			case "discard":
+				err = p.DiscardRetained(f.ctx, f.conversation, f.question, e.executionID, f.reader)
+			case "legacy-window":
+				// A janela autorizada comprova substituição de A; B está fora dela.
+				_, err = p.ReadWindow(f.ctx, database.MessageWindowQuery{ConversationID: f.conversation}, windowRecoveryReader(func(context.Context, database.MessageWindowQuery) (*TimelineWindowSnapshot, error) {
+					version, err := f.reader.ReadVersion(f.ctx, f.conversation)
+					return &TimelineWindowSnapshot{Version: version, TurnIDs: []string{f.question}, Turns: map[string]*database.ChatTurn{f.question: {CurrentExecutionID: refString("replacement")}}}, err
+				}))
 			}
 			if err != nil {
 				t.Fatal(err)
 			}
 			c.mu.Lock()
 			defer c.mu.Unlock()
-			if canonicalText(c.publication.items["turn:other"]) != "aguardando" || other.publicationBase != nil || c.turns[e.turnID].publicationBase != nil {
+			current := c.turns[e.turnID]
+			if canonicalText(c.publication.items["turn:other"]) != "aguardando" || other.publicationBase != nil || (current != nil && current.publicationBase != nil) {
 				t.Fatal("recuperação deixou publicação/base terminal pendente")
+			}
+		})
+	}
+}
+
+func TestAutomaticPublicationNewIncarnationInvalidatesOffPageTurns(t *testing.T) {
+	for _, mode := range []string{"window", "admit"} {
+		t.Run(mode, func(t *testing.T) {
+			f, p, e, _ := automaticFixture(t)
+			stream := e.StartStream(0)
+			stream.Append("conteúdo da encarnação anterior")
+			c := e.conversation
+			c.mu.Lock()
+			if c.publicationTimer != nil {
+				c.publicationTimer.Stop()
+				c.publicationTimer = nil
+				c.publicationGeneration++
+			}
+			old := c.turns[e.turnID]
+			old.publicationDirty = true
+			c.turns["off-page-blocker"] = &liveTurn{turnID: "off-page-blocker", incarnation: c.incarnation, publicationErr: errors.New("falha antiga")}
+			before := c.epoch
+			c.mu.Unlock()
+			question, err := database.CreateMessageWithContext(f.ctx, database.MessageOptions{ConversationID: f.conversation, Role: "user", Content: "nova pergunta"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			// O storage informa uma nova encarnação, como após recriação/importação.
+			if err := f.db.Exec("UPDATE chat_timeline_versions SET incarnation=? WHERE conversation_id=?", strings.ReplaceAll(uuid.NewString(), "-", ""), f.conversation).Error; err != nil {
+				t.Fatal(err)
+			}
+			if mode == "window" {
+				_, err = p.ReadCanonicalWindow(f.ctx, database.MessageWindowQuery{ConversationID: f.conversation, Anchor: "end", Direction: "before", Limit: 1}, f.reader)
+			} else {
+				id, uuidErr := uuid.NewV7()
+				if uuidErr != nil {
+					t.Fatal(uuidErr)
+				}
+				_, err = p.Admit(f.ctx, f.conversation, question.ID, id.String(), func() (database.ChatTimelineVersion, error) {
+					version, err := f.reader.ReadVersion(f.ctx, f.conversation)
+					if err != nil {
+						return version, err
+					}
+					_, err = database.NewChatTurnRepository(f.db).BeginExecution(f.ctx, f.conversation, question.ID, "", database.TurnModeRetry, id.String(), "")
+					return version, err
+				})
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if stream.Append("atrasado") {
+				t.Fatal("callback antigo aceito")
+			}
+			c.mu.Lock()
+			defer c.mu.Unlock()
+			if before == c.epoch || c.publicationErrorLocked() != nil {
+				t.Fatal("encarnação não invalidou falha antiga")
+			}
+			if _, exists := c.publication.items["turn:"+f.question]; exists {
+				t.Fatal("conteúdo anterior publicado na nova época")
+			}
+			if !old.detached || old.publicationBase != nil || old.publicationDirty {
+				t.Fatal("base antiga retida")
+			}
+			retained := snapshotLiveTurn(c, old)
+			if len(retained.Streams) != 1 || testLiveSegment(retained.Streams[0], "text", 0).Text != "conteúdo da encarnação anterior" {
+				t.Fatal("bytes recuperáveis perdidos")
 			}
 		})
 	}

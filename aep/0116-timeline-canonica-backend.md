@@ -66,9 +66,13 @@ também reconcilia o estado confirmado, preservando o resultado original do writ
 mensagens, turnos e ledger no mesmo snapshot. Ausência nesta seleção pode emitir
 `item_remove`; ausência numa página continua sem significar exclusão. A seleção
 omite mídia/áudio e aplica o orçamento de fonte antes da materialização. O
-preflight usa duas consultas por lote de até 400 âncoras, não duas por item.
+preflight usa até duas consultas por lote de 400 âncoras, não duas por item;
+seleção apenas de mensagens dispensa a consulta de ledger. O orçamento distingue
+mensagens e turnos: uma pergunta isolada não paga pelas respostas/ferramentas
+fora da seleção. A fonte do SUM usa buscas indexadas e UNION sem dupla contagem.
 O filtro de IDs antecede a classificação compartilhada; `EXPLAIN QUERY PLAN`
-com 1.000 mensagens comprova busca por PK e pelo índice de turno/escopo.
+com 1.000 mensagens comprova busca por PK e pelo índice de turno/escopo, incluindo
+o preflight de mensagens e a busca do ledger por usuário/origem/turno.
 
 Falha de reconciliação suspende publicação/replay e troca a época. Recuperação
 reconcilia todos os IDs materializados antes de liberar a publicação; conserva
@@ -92,17 +96,21 @@ permanecem exclusivamente no ledger (AEP-0104).
 Evidências: `storage_publication_test.go` cobre escopo/ownership, exclusão com
 erro parcial e preservação de buffers, item fora da seleção, recuperação e
 época por janela, criação durante falha, primeira inscrição concorrente e ledger
-real composto com texto vivo. A prova de lote verifica duas consultas de orçamento
-para 80 itens. Não representa ainda medição de heap nem benchmark do cutover.
+real composto com texto vivo. A prova de lote verifica uma consulta para 80
+mensagens e duas ao incluir turnos. Pergunta isolada com resposta e ledger acima
+de 8 MiB fora da janela continua recuperável; seleção mensagem+turno não duplica
+bytes. Não representa ainda medição de heap nem benchmark do cutover.
 
-Validação local: 317 testes seguros de chat, 362 de database, 137 de agente, 96 de toolinvocations
+Validação local: 321 testes seguros de chat, 362 de database, 137 de agente, 96 de toolinvocations
 e 10 de app; build/vet e lint Go incremental aprovados. TypeScript, ESLint e
 Stylelint passaram (2.124 avisos CSS preexistentes, zero erros); Vitest seguro:
 484 arquivos, 5.887 testes aprovados. Nenhum teste ACP foi executado localmente.
-Revisor independente review_aep: quatro rodadas; a primeira identificou a corrida
+Revisor independente review_aep: sete rodadas; a primeira identificou a corrida
 com a inscrição inicial e o custo por âncora. Corrigidos ambos, gate final aprovado
 sem pendências. Copilot apontou o orçamento agregado, a base terminal antiga e
 o filtro tardio da seleção; corrigidos com regressões e nova aprovação local.
+Segunda rodada remota identificou custo/escopo excessivos no preflight; corrigidos
+com seleção por tipo de item e EXPLAIN também das consultas de orçamento.
 A revisão remota e o CI completam a entrega do PR.
 
 Limites: o coordenador já trata exclusões, mas os comandos de edição/exclusão de
@@ -140,6 +148,11 @@ Ao remover o último erro, descarrega todos os turnos sujos e libera bases termi
 tanto na recuperação individual quanto na leitura canônica de janela.
 Desvinculação comprovada retira o turno dos bloqueadores de publicação, mantendo
 os bytes retidos para recuperação explícita.
+Admissão e leituras compartilham a reconciliação de encarnação: a troca comprovada
+invalida bases/erros antigos também fora da página, sem apagar buffers recuperáveis.
+O flush só admite a encarnação atual. Descarte autorizado e leitura de janela
+legada descarregam os turnos pendentes depois de remover bloqueadores; leituras
+recusadas não alteram publicação.
 
 Limite deste recorte: publicação automática no journal interno para os escritores
 do lifecycle integrados. Alterações externas de mensagens/ledger, patches de
@@ -152,7 +165,7 @@ sem leitura por token, terminal antes do retorno, callback antigo, falha de leit
 após commit, recuperação com buffers novos, cancelamento/retry e limite/isolamento
 da base, deadline após commit e desvinculação sem bloquear outro turno, inclusive
 após terminal confirmado, replay recusado durante falha, recuperação com outro turno
-pendente e limites antes da leitura (inclusive ledger legado). Passaram 307 testes seguros de chat, 137 de agente e
+pendente e limites antes da leitura (inclusive ledger legado). Passaram 308 testes seguros de chat, 137 de agente e
 dez de app; build/vet e lint incremental sem ocorrências novas. Revisor independente
 review_aep: três rodadas; corrigidos deadline ausente e bloqueio após desvinculação
 nas variantes ativa e concluída. Terceira rodada aprovada sem pendências.
@@ -163,6 +176,9 @@ preflight; segunda rodada adicional aprovada sem pendências.
 Copilot: corrigidas composição do erro sem chunks e durabilidade de terminal não
 gravado; regressões com SQLite comparam journal e recuperação nas três variantes.
 Sexta rodada local review_aep valida essas correções antes do push.
+Segunda rodada Copilot apontou flush entre encarnações e desbloqueio sem flush
+no descarte/janela legada. Corrigidos com regressões de publicação, retenção de
+bytes, callback antigo e recusa de autorização; sétima revisão local aprovada.
 Nenhum teste ACP executado localmente.
 
 ### Recorte: inscrições internas com recuperação explícita (2026-10-31)

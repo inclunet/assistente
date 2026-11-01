@@ -49,7 +49,17 @@ func (r *DBTimelineReader) ReadSelection(ctx context.Context, conversationID str
 		var sourceBytes int64
 		for start := 0; start < len(anchors); start += 400 {
 			batch := anchors[start:min(start+400, len(anchors))]
-			size, err := publicationSelectionReadSize(tx, conversationID, batch)
+			var messageIDs, turnIDs []string
+			for _, id := range batch {
+				for _, ref := range byAnchor[id] {
+					if strings.HasPrefix(ref, "turn:") {
+						turnIDs = append(turnIDs, id)
+					} else {
+						messageIDs = append(messageIDs, id)
+					}
+				}
+			}
+			size, err := publicationSelectionReadSize(tx, conversationID, messageIDs, turnIDs)
 			if err != nil {
 				return err
 			}
