@@ -12,7 +12,7 @@ import (
 
 func liveFixture(t *testing.T) (*LiveProjection, context.Context, *ExecutionProjection) {
 	t.Helper()
-	p := NewLiveProjection()
+	p := NewLiveProjection(nil)
 	ctx := database.WithUserID(context.Background(), "user")
 	e, err := beginTestProjection(p, ctx, "conversation", "question", "execution")
 	if err != nil {
@@ -162,7 +162,7 @@ func TestLiveProjectionRetentionKeepsActiveAndVolatile(t *testing.T) {
 
 func BenchmarkLiveProjectionAppend(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		p := NewLiveProjection()
+		p := NewLiveProjection(nil)
 		e, _ := beginTestProjection(p, database.WithUserID(context.Background(), "user"), "conversation", "turn", "execution")
 		s := e.StartStream(0)
 		for j := 0; j < 1000; j++ {

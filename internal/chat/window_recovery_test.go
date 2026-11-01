@@ -77,7 +77,7 @@ func TestWindowRecoveryFailureDoesNotChangeExecution(t *testing.T) {
 
 func TestWindowRecoveryUsesAuthorizedTransactionalReader(t *testing.T) {
 	f := newSnapshotFixture(t)
-	p := NewLiveProjection()
+	p := NewLiveProjection(nil)
 	query := database.MessageWindowQuery{ConversationID: f.conversation, Anchor: "end", Direction: "before", Limit: 20}
 	if result, err := p.ReadWindow(database.WithUserID(context.Background(), "other-user"), query, f.reader); err == nil || result != nil {
 		t.Fatal("janela de outro usuário exposta")
@@ -94,7 +94,7 @@ func TestWindowRecoveryUsesAuthorizedTransactionalReader(t *testing.T) {
 func BenchmarkTimelineWindowBarrier(b *testing.B) {
 	f := newSnapshotFixture(b)
 	query := database.MessageWindowQuery{ConversationID: f.conversation, Anchor: "end", Direction: "before", Limit: 20}
-	p := NewLiveProjection()
+	p := NewLiveProjection(nil)
 	for _, coordinated := range []bool{false, true} {
 		name := "direct"
 		if coordinated {

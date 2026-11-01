@@ -173,6 +173,9 @@ func (s *TimelineSubscription) Replay(ctx context.Context, epoch string, after u
 		return nil, false, err
 	}
 	reconcileProjectionVersion(c, version)
+	if err := c.publicationErrorLocked(); err != nil {
+		return nil, false, err
+	}
 	if c.publication.epoch != c.epoch || c.windows[s.windowID].version != version {
 		return nil, false, nil
 	}

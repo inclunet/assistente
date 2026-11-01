@@ -160,12 +160,20 @@ func canonicalDiff(previous *CanonicalItem, next CanonicalItem) []CanonicalOpera
 // Publica os mesmos valores canônicos que serão devolvidos na leitura, sem
 // interpretar comandos do handler. Deve rodar sob a barreira da conversa.
 func (c *projectionConversation) publishCanonical(conversationID string, items []*TimelineItem) {
+	c.publishCanonicalChanges(conversationID, items, nil)
+}
+
+func (c *projectionConversation) publishCanonicalChanges(conversationID string, items []*TimelineItem, removed []string) {
 	p := &c.publication
 	if p.epoch != c.epoch {
 		*p = canonicalPublication{epoch: c.epoch, items: make(map[string]CanonicalItem), itemSizes: make(map[string]int)}
 	}
 	changed := make([]CanonicalItem, 0)
 	operations := make([]CanonicalOperation, 0)
+	for _, id := range removed {
+		operations = append(operations, CanonicalOperation{Kind: "item_remove", ItemID: id})
+		p.removeItem(id)
+	}
 	for _, item := range items {
 		next := canonicalItem(item)
 		var previous *CanonicalItem
@@ -211,6 +219,13 @@ func (c *projectionConversation) publishCanonical(conversationID string, items [
 		p.batches = p.batches[1:]
 		p.sizes = p.sizes[1:]
 	}
+}
+
+func (p *canonicalPublication) removeItem(id string) {
+	p.itemBytes -= p.itemSizes[id]
+	delete(p.itemSizes, id)
+	delete(p.items, id)
+	p.itemOrder = slices.DeleteFunc(p.itemOrder, func(value string) bool { return value == id })
 }
 
 func encodeItemPosition(item *TimelineItem) string {

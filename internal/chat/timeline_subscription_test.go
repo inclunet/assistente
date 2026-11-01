@@ -23,7 +23,7 @@ func (s *fixtureTimelineSession) AuthorizeTimeline(context.Context) (context.Con
 
 func TestTimelineSubscriptionsIsolateSurfacesAndSession(t *testing.T) {
 	f := newSnapshotFixture(t)
-	p := NewLiveProjection()
+	p := NewLiveProjection(nil)
 	session := &fixtureTimelineSession{ctx: f.ctx, id: "session"}
 	query := database.MessageWindowQuery{ConversationID: f.conversation, Anchor: "start", Direction: "after", Limit: 1}
 	first, a, err := p.SubscribeTimeline(f.ctx, session, "history", query, f.reader)
@@ -77,7 +77,7 @@ func TestTimelineSubscriptionsIsolateSurfacesAndSession(t *testing.T) {
 
 func TestTimelineSubscriptionInvalidatesReplayAfterStorageChange(t *testing.T) {
 	f := newSnapshotFixture(t)
-	p := NewLiveProjection()
+	p := NewLiveProjection(nil)
 	session := &fixtureTimelineSession{ctx: f.ctx, id: "s"}
 	query := database.MessageWindowQuery{ConversationID: f.conversation, Anchor: "end", Direction: "before", Limit: 2}
 	sub, snapshot, err := p.SubscribeTimeline(f.ctx, session, "surface", query, f.reader)
@@ -109,7 +109,7 @@ func TestTimelineSubscriptionInvalidatesReplayAfterStorageChange(t *testing.T) {
 
 func TestTimelineSubscriptionSnapshotDoesNotMutatePublication(t *testing.T) {
 	f := newSnapshotFixture(t)
-	p := NewLiveProjection()
+	p := NewLiveProjection(nil)
 	session := &fixtureTimelineSession{ctx: f.ctx, id: "s"}
 	query := database.MessageWindowQuery{ConversationID: f.conversation, Anchor: "end", Direction: "before", Limit: 1}
 	sub, snapshot, err := p.SubscribeTimeline(f.ctx, session, "surface", query, f.reader)
@@ -132,7 +132,7 @@ func TestTimelineSubscriptionSnapshotDoesNotMutatePublication(t *testing.T) {
 
 func TestTimelineSubscriptionLimitReleasedByClose(t *testing.T) {
 	f := newSnapshotFixture(t)
-	p := NewLiveProjection()
+	p := NewLiveProjection(nil)
 	session := &fixtureTimelineSession{ctx: f.ctx, id: "s"}
 	query := database.MessageWindowQuery{ConversationID: f.conversation, Anchor: "end", Direction: "before", Limit: 1}
 	handles := make([]*TimelineSubscription, 0, 64)

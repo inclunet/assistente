@@ -1,8 +1,88 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — fase 1 concluída; fase 2 com inscrições internas; entrega automática e cutover pendentes
+## Status: In Progress — fase 1 concluída; fase 2 com publicação automática do lifecycle; invalidações, transporte e cutover pendentes
 
 Data: 2026-10-30
+
+### Recorte: publicação automática do lifecycle (2026-11-01)
+
+O orçamento automático conta apenas mensagens de resposta; texto da pergunta não é consumido e não entra na cota. Isso inclui perguntas legadas com turn_id=id, excluídas também da materialização de resposta. A regressão de orçamento cobre pergunta acima de 8 MiB com resposta pequena, vínculo normal e legado.
+
+Recuperar um turno removido também libera o flush de terminais pendentes de outros turnos, após leitura autorizada, mesmo sem item próprio para publicar. A matriz de recuperação cobre ausência do turno/resposta.
+
+Admissão, início/alteração de stream, confirmação de conteúdo e terminal alimentam
+o mesmo codificador de operações usado por snapshot e replay. Tokens apenas
+alteram buffers e agendam um timer por conversa, com coalescing de 24 ms; não
+consultam storage. Admissão e terminal descarregam sincronamente os itens sujos.
+Geração do timer e identidade da instância impedem callbacks antigos após flush
+ou evicção. O terminal volátil conserva conteúdo também na leitura de recuperação.
+Flush e recuperação usam a mesma decisão de composição: terminal confirmado não
+é substituído por um stream vazio, preservando o motivo persistido de falha do
+provedor. Falha na gravação terminal permanece volátil mesmo sem stream ou com
+todos os conteúdos já confirmados; durabilidade inclui o estado, não só o texto.
+
+A base persistida é renovada sob a barreira nas transições do writer, por leitura
+restrita ao turno. É uma cópia sem áudio/mídia e com orçamento de 8 MiB de JSON por
+conversa (estimativa de retenção, não medição de heap). Conclusão publicada libera
+a base; buffers não confirmados continuam disponíveis para recuperação explícita.
+`ReadPublicationTurn` verifica bytes e custo por registro no SQL, dentro do snapshot
+autorizado, antes de materializar mensagens/ledger. A pergunta carrega só metadados;
+mídia/áudio não entram nessa leitura. Uma estimativa conservadora limita também a
+cópia/serialização da projeção, incluindo expansão por escape JSON. Esse limite pode
+recusar uma base menor que 8 MiB serializada; a recuperação explícita permanece disponível.
+Leitura auxiliar tem prazo de três segundos, inclusive após cancelamento do caller.
+Falha ao renovar invalida a base, suspende replay e muda a época uma única vez
+enquanto houver erro. Não reclassifica um commit bem-sucedido como falha de escrita.
+Leitura autorizada restaura a base e compõe os buffers atuais, sem perder deltas.
+Ao remover o último erro, descarrega todos os turnos sujos e libera bases terminais,
+tanto na recuperação individual quanto na leitura canônica de janela.
+Desvinculação comprovada retira o turno dos bloqueadores de publicação, mantendo
+os bytes retidos para recuperação explícita.
+Admissão e leituras compartilham a reconciliação de encarnação: a troca comprovada
+invalida bases/erros antigos também fora da página, sem apagar buffers recuperáveis.
+O flush só admite a encarnação atual. Descarte autorizado e leitura de janela
+legada descarregam os turnos pendentes depois de remover bloqueadores; leituras
+recusadas não alteram publicação.
+Turnos com erro ou publicação pendente não expiram pelo prazo de retenção de
+60 segundos; permanecem até publicação ou reconciliação/descarte explícito.
+Os quatro caminhos de recuperação também são exercitados após esse prazo.
+Descarte da execução visual atual reconcilia o journal com a resposta persistida
+ou `item_remove` quando ela não existe. Se outro bloqueador impedir publicação,
+invalida época e journal, exigindo snapshot sem reproduzir operações descartadas.
+Descartar tentativa antiga retida não altera a execução atual. O codificador
+compartilhado de remoções é introduzido aqui e reutilizado pelas mutações externas.
+
+Limite deste recorte: publicação automática no journal interno para os escritores
+do lifecycle integrados. Alterações externas de mensagens/ledger, patches de
+participação das janelas, emissor autenticado e bindings Wails seguem pendentes.
+Não há ainda entrega pública completa nem migração do frontend. A fase 2 permanece
+In Progress; o próximo recorte conecta invalidações e exclusões ao mesmo projetor.
+
+Testes `AutomaticPublication` cobrem admissão sem representante, publicação
+sem leitura por token, terminal antes do retorno, callback antigo, falha de leitura
+após commit, recuperação com buffers novos, cancelamento/retry e limite/isolamento
+da base, deadline após commit e desvinculação sem bloquear outro turno, inclusive
+após terminal confirmado, replay recusado durante falha, recuperação com outro turno
+pendente e limites antes da leitura (inclusive ledger legado). Passaram 309 testes seguros de chat, 137 de agente e
+dez de app; build/vet e lint incremental sem ocorrências novas. Revisor independente
+review_aep: três rodadas; corrigidos deadline ausente e bloqueio após desvinculação
+nas variantes ativa e concluída. Terceira rodada aprovada sem pendências.
+Revisão remota CodeRabbit: corrigidos flush incompleto na recuperação e limite tardio
+da base; adicionada a asserção de replay sugerida. Duas rodadas locais adicionais de
+review_aep corrigiram a leitura da pergunta e a cobertura de vínculos legados no
+preflight; segunda rodada adicional aprovada sem pendências.
+Copilot: corrigidas composição do erro sem chunks e durabilidade de terminal não
+gravado; regressões com SQLite comparam journal e recuperação nas três variantes.
+Sexta rodada local review_aep valida essas correções antes do push.
+Segunda rodada Copilot apontou flush entre encarnações e desbloqueio sem flush
+no descarte/janela legada. Corrigidos com regressões de publicação, retenção de
+bytes, callback antigo e recusa de autorização; sétima revisão local aprovada.
+Terceira rodada Copilot apontou expiração de terminais pendentes; retenção
+corrigida e regressão temporal aprovada na oitava revisão local.
+Quarta rodada Copilot levantou descarte sem correção do journal; a nona revisão
+local cobre estado persistido, ausência comprovada, outro bloqueador, tentativa
+antiga, idempotência e recusa de autorização em `discard_publication_test.go`.
+Nenhum teste ACP executado localmente.
 
 ### Recorte: inscrições internas com recuperação explícita (2026-10-31)
 

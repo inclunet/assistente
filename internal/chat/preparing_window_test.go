@@ -104,7 +104,7 @@ func TestCanonicalWindowIncludesPreparingAndMissingRepresentativeWithoutMessages
 
 func TestCanonicalWindowComposesActiveContentAndSharesTurnRecovery(t *testing.T) {
 	f := newSnapshotFixture(t)
-	p := NewLiveProjection()
+	p := NewLiveProjection(nil)
 	repo := database.NewChatTurnRepository(f.db)
 	id, err := uuid.NewV7()
 	if err != nil {

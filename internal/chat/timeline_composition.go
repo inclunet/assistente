@@ -15,6 +15,9 @@ func composeResponse(persisted *TimelineItem, live *LiveTurnSnapshot) (*Timeline
 	}
 	result := *persisted
 	result.State = live.State
+	if live.Volatile {
+		result.Durability = "volatile"
+	}
 	if len(live.Streams) == 0 {
 		return &result, nil
 	}
