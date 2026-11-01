@@ -42,12 +42,17 @@ func (c *ConversationsController) commitMessageCommandGuarded(ctx context.Contex
 	return database.WithConversationLifecycle(ctx, func() error {
 		return guard(func() error {
 			var message *database.ChatMessage
-			var err error
-			if content != nil {
-				message, err = database.UpdateMessageIfUnchangedWithinLifecycleWithContext(ctx, conversationID, messageID, fingerprint, *content)
-			} else {
-				message, err = database.MutateMessageIfUnchangedWithinLifecycleWithContext(ctx, conversationID, messageID, fingerprint, deleting)
+			known := []string{}
+			if deleting {
+				known = nil
 			}
+			err := c.withMaintenance(ctx, func() error {
+				return c.coordinateMessageMutation(ctx, conversationID, known, func() ([]string, error) {
+					var err error
+					message, err = database.MutateMessageCommandWithinMaintenanceWithContext(ctx, conversationID, messageID, fingerprint, deleting, content)
+					return messageTimelineIDs(message), err
+				})
+			})
 			if err != nil {
 				return err
 			}
@@ -61,6 +66,25 @@ func (c *ConversationsController) commitMessageCommandGuarded(ctx context.Contex
 			return nil
 		})
 	})
+}
+
+func (c *ConversationsController) coordinateMessageMutation(ctx context.Context, conversationID string, known []string, write func() ([]string, error)) error {
+	if c.mutateTimeline == nil {
+		_, err := write()
+		return err
+	}
+	return c.mutateTimeline(ctx, conversationID, known, write)
+}
+
+func messageTimelineIDs(message *database.ChatMessage) []string {
+	if message == nil {
+		return nil
+	}
+	ids := []string{ports.MessageItemID(message.ID)}
+	if message.TurnID != nil && *message.TurnID != "" {
+		ids = append(ids, ports.ResponseItemID(*message.TurnID))
+	}
+	return ids
 }
 
 func (c *ConversationsController) messageDeleted(conversationID, messageID string) {

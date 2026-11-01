@@ -107,40 +107,54 @@ func mutateMessageIfUnchangedWithinLifecycle(ctx context.Context, conversationID
 	}
 	var updated *ChatMessage
 	err := WithSQLiteMaintenance(ctx, func() error {
-		return withSQLiteImmediateTransaction(ctx, db, "message.command", func(tx *gorm.DB) error {
-			revision, err := messageCommandRevisionTx(ctx, tx, conversationID, messageID, deleting)
+		var err error
+		updated, err = MutateMessageCommandWithinMaintenanceWithContext(ctx, conversationID, messageID, expected, deleting, content)
+		return err
+	})
+	return updated, err
+}
+
+// MutateMessageCommandWithinMaintenanceWithContext unifica editar, fixar e
+// excluir. O chamador já possui lifecycle/manutenção e pode adquirir a barreira
+// da timeline antes de abrir este writer, sem inverter a ordem dos locks.
+func MutateMessageCommandWithinMaintenanceWithContext(ctx context.Context, conversationID, messageID, expected string, deleting bool, content *string) (*ChatMessage, error) {
+	if _, err := RequireUserID(ctx); err != nil {
+		return nil, err
+	}
+	var updated *ChatMessage
+	err := withSQLiteImmediateTransaction(ctx, db, "message.command", func(tx *gorm.DB) error {
+		revision, err := messageCommandRevisionTx(ctx, tx, conversationID, messageID, deleting)
+		if err != nil {
+			return err
+		}
+		if expected == "" || revision != expected {
+			return ErrMessageContentChanged
+		}
+		repo := NewMessageRepository(tx)
+		if deleting {
+			return repo.DeleteMessageWithContext(ctx, messageID)
+		}
+		if content != nil {
+			message, err := repo.GetMessageWithContext(ctx, messageID)
 			if err != nil {
 				return err
 			}
-			if expected == "" || revision != expected {
+			if message.Role != "user" || message.ParentID != nil {
 				return ErrMessageContentChanged
 			}
-			repo := NewMessageRepository(tx)
-			if deleting {
-				return repo.DeleteMessageWithContext(ctx, messageID)
-			}
-			if content != nil {
-				message, err := repo.GetMessageWithContext(ctx, messageID)
-				if err != nil {
-					return err
-				}
-				if message.Role != "user" || message.ParentID != nil {
-					return ErrMessageContentChanged
-				}
-				// Textual edits must preserve the message's generation metadata.
-				if err := repo.UpdateMessageTextWithContext(ctx, messageID, *content); err != nil {
-					return err
-				}
-				updated, err = repo.GetMessageWithContext(ctx, messageID)
-				return err
-			}
-			// Already in BEGIN IMMEDIATE; do not nest the legacy pin transaction.
-			if err := tx.Model(&ChatMessage{}).Where("id = ? AND conversation_id = ?", messageID, conversationID).Update("pinned", gorm.Expr("NOT pinned")).Error; err != nil {
+			// Textual edits must preserve the message's generation metadata.
+			if err := repo.UpdateMessageTextWithContext(ctx, messageID, *content); err != nil {
 				return err
 			}
 			updated, err = repo.GetMessageWithContext(ctx, messageID)
 			return err
-		})
+		}
+		// Already in BEGIN IMMEDIATE; do not nest the legacy pin transaction.
+		if err := tx.Model(&ChatMessage{}).Where("id = ? AND conversation_id = ?", messageID, conversationID).Update("pinned", gorm.Expr("NOT pinned")).Error; err != nil {
+			return err
+		}
+		updated, err = repo.GetMessageWithContext(ctx, messageID)
+		return err
 	})
 	return updated, err
 }
