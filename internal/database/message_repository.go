@@ -1305,6 +1305,7 @@ func (r *MessageRepository) WithTimelineTurns() *MessageRepository {
 }
 
 type MessageWindowQuery struct {
+	Cursor          string
 	AnchorItemID    string
 	ConversationID  string
 	ParentID        *string
@@ -1514,6 +1515,9 @@ LIMIT 1`
 		return nil, err
 	}
 	if item.ID == "" {
+		if query.Cursor != "" {
+			return nil, ErrTimelineCursorStale
+		}
 		if query.AnchorItemID != "" {
 			return nil, fmt.Errorf("anchorItemId inválido: %s", query.AnchorItemID)
 		}
@@ -1641,6 +1645,18 @@ func (r *MessageRepository) GetMessageWindowWithContext(ctx context.Context, que
 			return nil, fmt.Errorf("parentID não pertence à conversa solicitada")
 		}
 	}
+	var cursor *timelineCursor
+	if query.Cursor != "" {
+		if !r.includeTimelineTurns {
+			return nil, ErrTimelineCursorInvalid
+		}
+		var err error
+		cursor, err = decodeTimelineCursor(query)
+		if err != nil {
+			return nil, err
+		}
+		query.AnchorItemID = cursor.ItemID
+	}
 	anchor, direction, err := normalizeMessageWindowCursor(query)
 	if err != nil {
 		return nil, err
@@ -1661,6 +1677,9 @@ func (r *MessageRepository) GetMessageWindowWithContext(ctx context.Context, que
 		anchorItem, err = r.getAnchorTimelineItem(query)
 		if err != nil {
 			return nil, err
+		}
+		if cursor != nil && !cursor.matches(*anchorItem) {
+			return nil, ErrTimelineCursorStale
 		}
 	}
 	if limit == 0 {
