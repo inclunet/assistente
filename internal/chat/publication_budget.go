@@ -12,21 +12,30 @@ import (
 // LENGTH(BLOB) mede bytes sem transportar payloads para o processo Go. O custo
 // fixo por linha também limita coleções enormes de registros quase vazios.
 func checkPublicationReadBudget(tx *gorm.DB, conversationID, turnID string) error {
-	_, err := publicationSelectionReadSize(tx, conversationID, []string{turnID})
+	_, err := publicationSelectionReadSize(tx, conversationID, nil, []string{turnID})
 	return err
 }
 
-func publicationSelectionReadSize(tx *gorm.DB, conversationID string, anchorIDs []string) (int64, error) {
+func publicationSelectionReadSize(tx *gorm.DB, conversationID string, messageIDs, turnIDs []string) (int64, error) {
 	messageSize := publicationSQLBytes("chat_messages", "content", "reasoning", "model", "source")
 	var size int64
-	err := tx.Model(&database.ChatMessage{}).Select("COALESCE(SUM(1024 + "+messageSize+"), 0)").
-		Where("conversation_id = ? AND (id IN ? OR turn_id IN ?)", conversationID, anchorIDs, anchorIDs).
-		Where(database.CurrentChatMessageSQL("chat_messages")).Scan(&size).Error
+	// UNION deduplica uma mensagem pedida também pelo turno. A seleção à
+	// esquerda do CROSS JOIN força buscas por PK; o turno usa o índice completo
+	// de conversa/escopo/turno, sem percorrer o histórico para aplicar um OR.
+	const source = `(SELECT id FROM chat_messages WHERE id IN ?
+ UNION SELECT m.id FROM chat_messages q CROSS JOIN chat_messages m
+ ON m.conversation_id=q.conversation_id AND m.parent_id IS q.parent_id AND m.turn_id=q.id
+ WHERE q.id IN ?) selected CROSS JOIN chat_messages ON chat_messages.id=selected.id`
+	err := tx.Raw("SELECT COALESCE(SUM(1024 + "+messageSize+"), 0) FROM "+source+
+		" WHERE chat_messages.conversation_id=? AND "+database.CurrentChatMessageSQL("chat_messages"), messageIDs, turnIDs, conversationID).Scan(&size).Error
 	if err != nil {
 		return 0, err
 	}
 	if size > canonicalSourceBytes {
 		return 0, ErrTimelineSourceLimit
+	}
+	if len(turnIDs) == 0 {
+		return size, nil
 	}
 	callSize := publicationSQLBytes("tool_invocations", "metadata", "input_preview", "output_preview", "display_name", "tool_call_id", "result_availability", "status")
 	catalogSize := publicationSQLBytes("tool_catalog", "name", "display_name", "origin")
@@ -41,7 +50,7 @@ func publicationSelectionReadSize(tx *gorm.DB, conversationID string, anchorIDs 
 		Joins(selection.Join("tool_invocations")).Where(selection.Predicate("tool_invocations")).
 		// O leitor aceita vínculos legados sem conversation_id. Contamos todos
 		// os registros do usuário/turno, incluindo os que o leitor filtrará depois.
-		Where("tool_invocations.user_id = ? AND tool_invocations.turn_id IN ?", userID, anchorIDs).Scan(&callsSize).Error
+		Where("tool_invocations.user_id = ? AND tool_invocations.origin_type = 'chat' AND tool_invocations.turn_id IN ?", userID, turnIDs).Scan(&callsSize).Error
 	if err != nil {
 		return 0, err
 	}
