@@ -541,7 +541,7 @@ func (c *ConversationsController) DeleteMessage(ctx context.Context, messageID s
 			return err
 		}
 	}
-	msg, err := database.GetMessageWithContext(ctx, messageID)
+	msg, err := database.GetMessageIdentityWithContext(ctx, messageID)
 	if err != nil {
 		return err
 	}
@@ -555,7 +555,7 @@ func (c *ConversationsController) DeleteMessage(ctx context.Context, messageID s
 
 // UpdateMessage atualiza o conteúdo de uma mensagem existente.
 func (c *ConversationsController) UpdateMessage(ctx context.Context, messageID string, newContent string) error {
-	msg, err := database.GetMessageWithContext(ctx, messageID)
+	msg, err := database.GetMessageIdentityWithContext(ctx, messageID)
 	if err != nil {
 		return err
 	}
@@ -779,7 +779,7 @@ func (c *ConversationsController) DeleteMessages(ctx context.Context, conversati
 	}
 	return c.coordinateMessageMutation(ctx, conversationID, nil, func() ([]string, error) {
 		for _, msgID := range messageIDs {
-			msg, err := database.GetMessageWithContext(ctx, msgID)
+			msg, err := database.GetMessageIdentityWithContext(ctx, msgID)
 			if err != nil {
 				return nil, fmt.Errorf("erro ao localizar mensagem %s: %w", msgID, err)
 			}

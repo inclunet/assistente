@@ -101,6 +101,14 @@ func TestMessageMutationsReconcileBeforeEvents(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			var firstMessageColumns []string
+			if err := db.Callback().Query().After("gorm:query").Register("mutation_identity_columns", func(tx *gorm.DB) {
+				if firstMessageColumns == nil && tx.Statement.Table == "chat_messages" {
+					firstMessageColumns = append([]string{}, tx.Statement.Selects...)
+				}
+			}); err != nil {
+				t.Fatal(err)
+			}
 			switch mode {
 			case "command-edit":
 				err = controller.UpdateMessageCommandGuarded(ctx, conv.ID, question.ID, revision, "editada", guard)
@@ -116,6 +124,9 @@ func TestMessageMutationsReconcileBeforeEvents(t *testing.T) {
 				err = controller.DeleteMessage(ctx, question.ID)
 			case "batch-partial":
 				err = controller.DeleteMessages(ctx, conv.ID, []string{question.ID, "missing"})
+			}
+			if !strings.HasPrefix(mode, "command-") && strings.Join(firstMessageColumns, ",") != "chat_messages.id,chat_messages.conversation_id,chat_messages.turn_id" {
+				t.Fatal("leitura de coordenação materializou payload", firstMessageColumns)
 			}
 			if mode == "batch-partial" {
 				if err == nil || events != 0 {

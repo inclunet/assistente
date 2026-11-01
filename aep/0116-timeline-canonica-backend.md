@@ -24,7 +24,7 @@ mesmos contratos. Eventos existentes são emitidos após sair da barreira do pro
 Edições e fixações selecionam somente o item físico e a resposta de seu turno,
 quando existente. Exclusões reconciliam os IDs materializados para cobrir cascatas.
 Não se adiciona consulta por delta nem reconstrução de grupos no frontend.
-A pré-leitura da fixação legada autoriza e seleciona apenas ID, conversa e turno,
+A pré-leitura de edição, fixação e exclusão legadas (inclusive lote) autoriza e seleciona apenas ID, conversa e turno,
 sem materializar texto, áudio ou anexos para entrar no coordenador.
 
 Evidências em `controllers/conversation_timeline_mutation_test.go`: sete caminhos
@@ -39,9 +39,12 @@ Validação local: 362 testes seguros de database, 93 de controllers e 21 de app
 (timeline/janelas/comandos de mensagem) aprovados; build, vet e golangci-lint
 incremental sem novas ocorrências. O frontend não mudou desde a validação da
 etapa anterior (TypeScript/ESLint/Stylelint e 5.887 testes seguros). Revisão local
-independente review_aep: três rodadas, sem pendências; a segunda confirmou a
+independente review_aep: quatro rodadas, sem pendências; a segunda confirmou a
 remoção das entradas sem consumidores e a preservação das asserções. A terceira
 aprovou a leitura mínima e a integração das correções dos PRs anteriores.
+A quarta cobre também a leitura mínima do lote e dos demais métodos legados;
+a matriz de integração verifica as colunas sem enfraquecer as provas de exclusão
+parcial e reconciliação antes dos eventos.
 Nenhum teste ACP executado.
 
 Limites deste recorte: criação de mensagens, limpeza de conversa/import/manutenção
