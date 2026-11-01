@@ -202,7 +202,7 @@ func (p *LiveProjection) recoverPublicationLocked(c *projectionConversation, tur
 		return
 	}
 	t := c.turns[turnID]
-	if t != nil && !t.detached && (!t.finished || t.publicationErr != nil) {
+	if t != nil && !t.detached && (!t.finished || t.publicationErr != nil || t.publicationDirty) {
 		c.setPublicationBaseLocked(t, item)
 	}
 }

@@ -2,6 +2,7 @@ package chat
 
 import (
 	"context"
+	"errors"
 	"sort"
 	"strings"
 
@@ -116,10 +117,49 @@ func (p *LiveProjection) recoverStoragePublicationLocked(ctx context.Context, co
 func (p *LiveProjection) reconcileStorageLocked(ctx context.Context, conversationID string, c *projectionConversation, ids []string) error {
 	readCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), canonicalReadTimeout)
 	defer cancel()
-	snapshot, err := p.reader.ReadSelection(readCtx, conversationID, ids)
-	if err != nil {
+	var version *database.ChatTimelineVersion
+	var reconcileBatch func([]string) error
+	reconcileBatch = func(batch []string) error {
+		snapshot, err := p.reader.ReadSelection(readCtx, conversationID, batch)
+		if errors.Is(err, ErrTimelineSourceLimit) && len(batch) > 1 {
+			middle := len(batch) / 2
+			if err := reconcileBatch(batch[:middle]); err != nil {
+				return err
+			}
+			return reconcileBatch(batch[middle:])
+		}
+		if err != nil {
+			return err
+		}
+		if version == nil {
+			version = &snapshot.Version
+		} else if *version != snapshot.Version {
+			return ErrProjectionRecoveryRequired
+		}
+		return p.reconcileStorageBatchLocked(conversationID, c, batch, snapshot)
+	}
+	// Parcela limitada, sob a mesma barreira. Versão idêntica comprova que os
+	// snapshots pertencem ao mesmo estado; drift mantém replay suspenso. Nenhum
+	// item ainda não lido é considerado ausente. O journal também tem cota própria.
+	if len(ids) == 0 {
+		if err := reconcileBatch(nil); err != nil {
+			return err
+		}
+	}
+	for start := 0; start < len(ids); start += 64 {
+		if err := reconcileBatch(ids[start:min(start+64, len(ids))]); err != nil {
+			return err
+		}
+	}
+	c.storagePublicationErr, c.pendingStorageIDs = nil, nil
+	if err := c.publicationErrorLocked(); err != nil {
 		return err
 	}
+	c.flushPublicationLocked(conversationID)
+	return nil
+}
+
+func (p *LiveProjection) reconcileStorageBatchLocked(conversationID string, c *projectionConversation, ids []string, snapshot *TimelineSelectionSnapshot) error {
 	reconcileProjectionVersion(c, snapshot.Version)
 	for _, id := range ids {
 		if turnID, ok := strings.CutPrefix(id, "turn:"); ok {
@@ -145,11 +185,6 @@ func (p *LiveProjection) reconcileStorageLocked(ctx context.Context, conversatio
 			removed = append(removed, id)
 		}
 	}
-	c.storagePublicationErr, c.pendingStorageIDs = nil, nil
-	if err := c.publicationErrorLocked(); err != nil {
-		return err
-	}
 	c.publishCanonicalChanges(conversationID, items, removed)
-	c.flushPublicationLocked(conversationID)
 	return nil
 }
