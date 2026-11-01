@@ -26,7 +26,7 @@ func TestConversationContentSnapshotStableScopedAndEmptyRevisionRejected(t *test
 	if _, err := ConversationContentSnapshotWithContext(context.Background(), id); !errors.Is(err, ErrUserScopeRequired) {
 		t.Fatalf("scope error=%v", err)
 	}
-	err = WithConversationLifecycle(testCtx(), func() error { return ClearConversationContentIfUnchangedWithinLifecycleWithContext(testCtx(), id, "") })
+	err = WithConversationLifecycle(testCtx(), func() error { return clearConversationContentForTest(testCtx(), NewMessageRepository(db), id, "") })
 	if !errors.Is(err, ErrConversationContentChanged) {
 		t.Fatalf("empty revision accepted: %v", err)
 	}
@@ -94,7 +94,7 @@ func TestConversationContentCompareWaitsForWriterAndRejectsNewMessage(t *testing
 	clearDone := make(chan error, 1)
 	go func() {
 		clearDone <- WithConversationLifecycle(ctx, func() error {
-			return repo.ClearConversationContentIfUnchangedWithinLifecycleWithContext(ctx, conversation.ID, expected)
+			return clearConversationContentForTest(ctx, repo, conversation.ID, expected)
 		})
 	}()
 	close(allowCommit)
@@ -108,4 +108,10 @@ func TestConversationContentCompareWaitsForWriterAndRejectsNewMessage(t *testing
 	if err := conn.Model(&ChatMessage{}).Where("conversation_id = ?", conversation.ID).Count(&count).Error; err != nil || count != 1 {
 		t.Fatalf("new message removed: count=%d error=%v", count, err)
 	}
+}
+
+func clearConversationContentForTest(ctx context.Context, repo *MessageRepository, id, revision string) error {
+	return WithSQLiteMaintenance(ctx, func() error {
+		return repo.ClearConversationContentIfUnchangedWithinMaintenanceWithContext(ctx, id, revision)
+	})
 }

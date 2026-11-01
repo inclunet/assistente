@@ -2054,6 +2054,9 @@ remove mensagens, resumo e registros de ferramentas daquela conversa; não
 exclui a conversa nem a aba. Cancelar preserva o conteúdo. Use uma conversa
 de teste: a limpeza confirmada não possui desfazer.
 
+A limpeza preserva as demais conversas e seus registros de ferramentas,
+inclusive quando o histórico foi importado.
+
 O alvo fica fixado ao iniciar a ação. Trocar de aba, sessão ou conversa não
 redireciona a limpeza. Se o conteúdo mudar enquanto a confirmação está aberta,
 a operação é recusada; reveja a conversa antes de tentar novamente. Uma

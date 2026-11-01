@@ -150,7 +150,7 @@ func TestMessageRevisionStorageFrozenClockDetectsABA(t *testing.T) {
 			t.Fatalf("commit antigo de texto foi aceito: %v", err)
 		}
 		err = WithConversationLifecycle(testCtx(), func() error {
-			return ClearConversationContentIfUnchangedWithinLifecycleWithContext(testCtx(), conversationID, conversationBefore)
+			return clearConversationContentForTest(testCtx(), NewMessageRepository(db), conversationID, conversationBefore)
 		})
 		if !errors.Is(err, ErrConversationContentChanged) {
 			t.Fatalf("clear com snapshot antigo foi aceito: %v", err)

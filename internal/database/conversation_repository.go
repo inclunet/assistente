@@ -851,8 +851,7 @@ func deleteChatToolInvocationsForConversation(ctx context.Context, exec *gorm.DB
 // IMPORTANTE: deve rodar ANTES do delete das mensagens (coleta os ids a partir
 // das mensagens que ainda existem).
 func deleteChatToolInvocationsForConversationTx(ctx context.Context, exec *gorm.DB, conversationID string) error {
-	conversationID = strings.TrimSpace(conversationID)
-	if conversationID == "" {
+	if strings.TrimSpace(conversationID) == "" {
 		return nil
 	}
 	return deleteChatToolInvocationsForConversationsTx(ctx, exec, []string{conversationID})

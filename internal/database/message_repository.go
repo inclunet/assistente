@@ -1114,8 +1114,7 @@ func (r *MessageRepository) ClearConversationContentWithContext(ctx context.Cont
 	if _, err := RequireUserID(ctx); err != nil {
 		return err
 	}
-	conversationID = strings.TrimSpace(conversationID)
-	if conversationID == "" {
+	if strings.TrimSpace(conversationID) == "" {
 		return nil
 	}
 	// Valida posse/escopo antes de mutar (mesma checagem dos helpers originais).

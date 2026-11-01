@@ -1,8 +1,38 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, mensagens e áudio integrados; limpeza/import/manutenção, transporte e cutover pendentes
+## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, mensagens, áudio e limpeza de conteúdo integrados; demais escritores, transporte e cutover pendentes
 
 Data: 2026-10-30
+
+### Recorte: limpeza do conteúdo de conversa (2026-11-01)
+
+As três entradas de limpeza do controller compartilham a coordenação da operação
+inteira, selecionando todos os itens materializados para remover conteúdo antigo.
+A conversa permanece existente. Reset de serviços e evento de limpeza ocorrem
+após reconciliação, ainda sob os contratos de runtime/lifecycle e guard existentes.
+A ordem de locks é runtime → lifecycle → guard → manutenção → projetor → SQLite.
+
+A comparação de revisão e a exclusão continuam na mesma transação. A entrada
+interna foi substituída pela variante `WithinMaintenance`, cujo caller já mantém
+lifecycle e manutenção; não há aquisição recursiva nem wrapper produtivo sem
+consumidores. Fixtures de storage assumem explicitamente a manutenção antes da
+mesma operação, preservando todas as asserções anteriores.
+
+`TestConversationClearCoordinatesBeforeEffects` usa banco/projetor/inscrição reais
+para limpeza simples, com revisão e guardada, revisão obsoleta, guard recusado e
+rollback. Verifica ordem manutenção/projeção, reconciliação antes dos efeitos,
+conversa preservada, histórico vazio no refresh e integridade de mensagens,
+ledger e resumo nas recusas. A revisão identificou normalização indevida em
+dois helpers de limpeza; ambos preservam agora o ID opaco exato. Regressão
+com conversas `conversation` e ` conversation ` cobre as três entradas, mensagens, ledger, resumo
+e inscrições independentes; o cenário simples falhou antes da correção.
+Validação: 98 testes seguros de controllers, 362 de database, build/vet/lint
+aprovados. Review_aep: duas rodadas, P1 corrigido e nenhuma pendência.
+
+Exclusão de conversas (inclusive lote), importação e demais escritores de manutenção
+permanecem pendentes, assim como participação de janelas, transporte e cutover
+frontend. Não há alteração da confirmação pública nem da UI. Nenhum teste ACP
+é executado localmente.
 
 ### Recorte: persistência de áudio (2026-11-01)
 

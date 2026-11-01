@@ -700,7 +700,7 @@ func (c *ConversationsController) GetConversationContentRevision(ctx context.Con
 // ErrConversationContentChanged exige nova captura/confirmação pelo caller.
 func (c *ConversationsController) ClearConversationIfUnchanged(ctx context.Context, conversationID, expectedRevision string) error {
 	return c.clearConversation(ctx, conversationID, func() error {
-		return database.ClearConversationContentIfUnchangedWithinLifecycleWithContext(ctx, conversationID, expectedRevision)
+		return database.ClearConversationContentIfUnchangedWithinMaintenanceWithContext(ctx, conversationID, expectedRevision)
 	})
 }
 
@@ -712,7 +712,7 @@ func (c *ConversationsController) ClearConversationIfUnchangedGuarded(ctx contex
 		return errors.New("conversation clear guard required")
 	}
 	return c.clearConversationGuarded(ctx, conversationID, func() error {
-		return database.ClearConversationContentIfUnchangedWithinLifecycleWithContext(ctx, conversationID, expectedRevision)
+		return database.ClearConversationContentIfUnchangedWithinMaintenanceWithContext(ctx, conversationID, expectedRevision)
 	}, guard)
 }
 
@@ -722,7 +722,7 @@ func (c *ConversationsController) clearConversation(ctx context.Context, convers
 
 func (c *ConversationsController) clearConversationGuarded(ctx context.Context, conversationID string, clear func() error, guard func(func() error) error) error {
 	// Valida ownership antes de fechar os gates runtime. Ordem igual ao delete:
-	// runtime -> lifecycle -> transação. Clear preserva a conversa, logo libera
+	// runtime -> lifecycle -> guard -> manutenção -> projetor -> transação. Clear preserva a conversa, logo libera
 	// sempre com false (sem tombstone), inclusive depois de um commit bem sucedido.
 	if _, err := database.GetConversationInfoWithContext(ctx, conversationID); err != nil {
 		return err
@@ -738,7 +738,12 @@ func (c *ConversationsController) clearConversationGuarded(ctx context.Context, 
 	}
 	return database.WithConversationLifecycle(ctx, func() error {
 		return guard(func() error {
-			if err := clear(); err != nil {
+			err := c.withMaintenance(ctx, func() error {
+				return c.coordinateMessageMutation(ctx, conversationID, nil, func() ([]string, error) {
+					return nil, clear()
+				})
+			})
+			if err != nil {
 				return err
 			}
 			c.conversationCleared(ctx, conversationID)
