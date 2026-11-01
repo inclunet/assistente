@@ -269,7 +269,7 @@ func TestAutomaticPublicationReadFailurePreservesCommitAndRecoversNewerBuffers(t
 }
 
 func TestAutomaticPublicationRecoveryFlushesOtherFinishedTurns(t *testing.T) {
-	for _, name := range []string{"turn", "window", "discard", "legacy-window"} {
+	for _, name := range []string{"turn", "turn-absent", "window", "discard", "legacy-window"} {
 		t.Run(name, func(t *testing.T) {
 			f, p, e, reader := automaticFixture(t)
 			repo := database.NewChatTurnRepository(f.db)
@@ -326,6 +326,11 @@ func TestAutomaticPublicationRecoveryFlushesOtherFinishedTurns(t *testing.T) {
 				_, err = p.ReadCanonicalWindow(f.ctx, database.MessageWindowQuery{ConversationID: f.conversation, Anchor: "end", Direction: "before", Limit: 20}, f.reader)
 			case "turn":
 				_, err = p.ReadRecovery(f.ctx, f.conversation, f.question, f.reader)
+			case "turn-absent":
+				_, err = p.ReadRecovery(f.ctx, f.conversation, f.question, recoveryReader{func() (*TimelineTurnSnapshot, error) {
+					version, err := f.reader.ReadVersion(f.ctx, f.conversation)
+					return &TimelineTurnSnapshot{Version: version}, err
+				}})
 			case "discard":
 				err = p.DiscardRetained(f.ctx, f.conversation, f.question, e.executionID, f.reader)
 			case "legacy-window":

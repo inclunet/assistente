@@ -86,6 +86,8 @@ pendentes. Não há promessa de sincronização pública completa neste recorte.
 
 ### Recorte: publicação automática do lifecycle (2026-11-01)
 
+Recuperar um turno removido também libera o flush de terminais pendentes de outros turnos, após leitura autorizada, mesmo sem item próprio para publicar. A matriz de recuperação cobre ausência do turno/resposta.
+
 Admissão, início/alteração de stream, confirmação de conteúdo e terminal alimentam
 o mesmo codificador de operações usado por snapshot e replay. Tokens apenas
 alteram buffers e agendam um timer por conversa, com coalescing de 24 ms; não
