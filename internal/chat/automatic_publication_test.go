@@ -159,6 +159,72 @@ func TestAutomaticPublicationTerminalAbsorbsScheduledFlush(t *testing.T) {
 	}
 }
 
+func TestAutomaticPublicationEmptyStreamKeepsPersistedProviderError(t *testing.T) {
+	f, p, e, _ := automaticFixture(t)
+	repo := database.NewChatTurnRepository(f.db)
+	id, err := e.AssignResponse(func() (string, error) { return repo.EnsureResponse(f.ctx, f.conversation, f.question, e.executionID) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.StartStream(0)
+	const reason = "Falha na resposta do agente: provedor indisponível"
+	if err := repo.WritePartial(f.ctx, e.executionID, id, reason, "", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.CommitTerminal(database.TurnFailed, "provider_error", func() (database.ChatTimelineVersion, error) {
+		return repo.FinishResponseWithVersion(f.ctx, f.conversation, f.question, e.executionID, database.TurnFailed, "provider_error", "", nil)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	item, _ := publicationItem(t, e)
+	if item.Durability != "persisted" || item.State != database.TurnFailed || canonicalText(item) != reason {
+		t.Fatal("flush substituiu motivo persistido por stream vazio", item)
+	}
+	recovered, err := p.ReadRecovery(f.ctx, f.conversation, f.question, f.reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if recovered.Item.Durability != item.Durability || canonicalText(canonicalItem(recovered.Item)) != reason {
+		t.Fatal("recovery divergiu do journal")
+	}
+}
+
+func TestAutomaticPublicationFailedTerminalIsVolatileWithoutPendingContent(t *testing.T) {
+	for _, confirmed := range []bool{false, true} {
+		t.Run(map[bool]string{false: "sem stream", true: "stream confirmado"}[confirmed], func(t *testing.T) {
+			f, p, e, _ := automaticFixture(t)
+			repo := database.NewChatTurnRepository(f.db)
+			id, err := e.AssignResponse(func() (string, error) { return repo.EnsureResponse(f.ctx, f.conversation, f.question, e.executionID) })
+			if err != nil {
+				t.Fatal(err)
+			}
+			if confirmed {
+				e.StartStream(0).Append("conteúdo salvo")
+				if err := e.CommitContent(0, "conteúdo salvo", "", func() (string, error) {
+					return id, repo.WritePartial(f.ctx, e.executionID, id, "conteúdo salvo", "", false)
+				}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			failure := errors.New("falha de escrita terminal")
+			if err := e.CommitTerminal(database.TurnFailed, "provider_error", func() (database.ChatTimelineVersion, error) { return database.ChatTimelineVersion{}, failure }); !errors.Is(err, failure) {
+				t.Fatal(err)
+			}
+			item, _ := publicationItem(t, e)
+			if item.Durability != "volatile" || item.State != database.TurnFailed {
+				t.Fatal("terminal não gravado anunciado como persistido", item)
+			}
+			recovered, err := p.ReadRecovery(f.ctx, f.conversation, f.question, f.reader)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if recovered.Item.Durability != "volatile" || recovered.Item.State != database.TurnFailed {
+				t.Fatal("recovery anunciou persistência inexistente")
+			}
+		})
+	}
+}
+
 func TestAutomaticPublicationReadFailurePreservesCommitAndRecoversNewerBuffers(t *testing.T) {
 	f, p, e, reader := automaticFixture(t)
 	subscription, snapshot, err := p.SubscribeTimeline(f.ctx, &fixtureTimelineSession{ctx: f.ctx, id: "publication-test"}, "history", database.MessageWindowQuery{ConversationID: f.conversation, Anchor: "end", Direction: "before", Limit: 20}, f.reader)

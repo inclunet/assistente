@@ -16,7 +16,8 @@ import (
 
 type failingSelectionReader struct {
 	*DBTimelineReader
-	fail atomic.Bool
+	fail           atomic.Bool
+	afterSelection func()
 }
 
 func TestStoragePublicationFirstSubscriptionWaitsForWriter(t *testing.T) {
@@ -95,6 +96,47 @@ func TestStoragePublicationBudgetQueriesAreBatched(t *testing.T) {
 	}
 }
 
+func TestStoragePublicationSelectionQueryPlanUsesSelectedIdentities(t *testing.T) {
+	f := newSnapshotFixture(t)
+	messages := make([]database.ChatMessage, 1000)
+	for i := range messages {
+		messages[i] = database.ChatMessage{ConversationID: f.conversation, Role: "user", Content: "fora da seleção"}
+	}
+	if err := f.db.CreateInBatches(&messages, 100).Error; err != nil {
+		t.Fatal(err)
+	}
+	var query string
+	var args []interface{}
+	if err := f.db.Callback().Row().After("gorm:row").Register("selection_plan", func(tx *gorm.DB) {
+		if strings.Contains(tx.Statement.SQL.String(), "WITH scoped AS") {
+			query = tx.Statement.SQL.String()
+			args = append([]interface{}(nil), tx.Statement.Vars...)
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := f.reader.ReadSelection(f.ctx, f.conversation, []string{"message:" + f.question, "turn:" + f.question})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.Items) != 2 || query == "" {
+		t.Fatal("seleção não exercitada")
+	}
+	var plan []struct{ Detail string }
+	if err := f.db.Raw("EXPLAIN QUERY PLAN "+query, args...).Scan(&plan).Error; err != nil {
+		t.Fatal(err)
+	}
+	messageLookup, turnLookup, sourceLookup := false, false, false
+	for _, row := range plan {
+		messageLookup = messageLookup || (strings.HasPrefix(row.Detail, "SEARCH m ") && strings.Contains(row.Detail, "(id=?)"))
+		turnLookup = turnLookup || (strings.HasPrefix(row.Detail, "SEARCH t ") && strings.Contains(row.Detail, "user_message_id=?"))
+		sourceLookup = sourceLookup || (strings.HasPrefix(row.Detail, "SEARCH chat_messages ") && strings.Contains(row.Detail, "turn_id=?"))
+	}
+	if !messageLookup || !turnLookup || !sourceLookup {
+		t.Fatalf("seleção deixou de buscar identidades indexadas: %+v", plan)
+	}
+}
+
 func TestStoragePublicationRecoveryRetainsNewIdentityAfterReadFailure(t *testing.T) {
 	f, p, e, _ := automaticFixture(t)
 	r := &failingSelectionReader{DBTimelineReader: f.reader}
@@ -128,7 +170,11 @@ func (r *failingSelectionReader) ReadSelection(ctx context.Context, conversation
 	if r.fail.Load() {
 		return nil, errors.New("selection unavailable")
 	}
-	return r.DBTimelineReader.ReadSelection(ctx, conversationID, ids)
+	snapshot, err := r.DBTimelineReader.ReadSelection(ctx, conversationID, ids)
+	if err == nil && r.afterSelection != nil {
+		r.afterSelection()
+	}
+	return snapshot, err
 }
 
 func TestStoragePublicationSelectionUsesActualScopeAndOwnership(t *testing.T) {
@@ -298,5 +344,148 @@ func TestStoragePublicationLedgerUsesSharedProjection(t *testing.T) {
 	}
 	if !found || canonicalText(item) != "texto vivo" {
 		t.Fatalf("ledger e buffers não compostos: %+v", item)
+	}
+}
+
+func TestStoragePublicationRecoveryParcelsIndependentLargeWindows(t *testing.T) {
+	f := newSnapshotFixture(t)
+	large := strings.Repeat("x", (4<<20)+4096)
+	if err := database.UpdateMessageTextWithContext(f.ctx, f.question, large); err != nil {
+		t.Fatal(err)
+	}
+	last, err := database.CreateMessageWithContext(f.ctx, database.MessageOptions{ConversationID: f.conversation, Role: "user", Content: large})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := &failingSelectionReader{DBTimelineReader: f.reader}
+	p := NewLiveProjection(r)
+	session := &fixtureTimelineSession{ctx: f.ctx, id: "large"}
+	a, _, err := p.SubscribeTimeline(f.ctx, session, "a", database.MessageWindowQuery{ConversationID: f.conversation, Anchor: "start", Direction: "after", Limit: 1}, f.reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	b, _, err := p.SubscribeTimeline(f.ctx, session, "b", database.MessageWindowQuery{ConversationID: f.conversation, Anchor: "end", Direction: "before", Limit: 1}, f.reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer b.Close()
+	r.fail.Store(true)
+	if err := p.ApplyStorageMutation(f.ctx, f.conversation, nil, func() ([]string, error) { return nil, nil }); err != nil {
+		t.Fatal(err)
+	}
+	r.fail.Store(false)
+	first, err := a.Refresh(f.ctx)
+	if err != nil {
+		t.Fatal("janelas válidas excederam cota agregada", err)
+	}
+	second, err := b.Refresh(f.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(first.Items) != 1 || len(second.Items) != 1 || first.Items[0].ItemID != "message:"+f.question || second.Items[0].ItemID != "message:"+last.ID || canonicalText(first.Items[0]) != large || canonicalText(second.Items[0]) != large {
+		t.Fatal("recuperação perdeu itens das janelas")
+	}
+}
+
+func TestStoragePublicationRecoveryRejectsVersionDriftBetweenParcels(t *testing.T) {
+	f := newSnapshotFixture(t)
+	messages := make([]database.ChatMessage, 70)
+	for i := range messages {
+		messages[i] = database.ChatMessage{ConversationID: f.conversation, Role: "user", Content: "estável"}
+	}
+	if err := f.db.CreateInBatches(&messages, 100).Error; err != nil {
+		t.Fatal(err)
+	}
+	r := &failingSelectionReader{DBTimelineReader: f.reader}
+	p := NewLiveProjection(r)
+	a, before, err := p.SubscribeTimeline(f.ctx, &fixtureTimelineSession{ctx: f.ctx, id: "drift"}, "a", database.MessageWindowQuery{ConversationID: f.conversation, Anchor: "end", Direction: "before", Limit: 100}, f.reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	r.fail.Store(true)
+	if err := p.ApplyStorageMutation(f.ctx, f.conversation, nil, func() ([]string, error) { return nil, nil }); err != nil {
+		t.Fatal(err)
+	}
+	r.fail.Store(false)
+	r.afterSelection = func() {
+		r.afterSelection = nil
+		if err := database.UpdateMessageTextWithContext(f.ctx, messages[69].ID, "novo commit"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := a.Refresh(f.ctx); !errors.Is(err, ErrProjectionRecoveryRequired) {
+		t.Fatal("mistura de versões aceita", err)
+	}
+	if _, ok, err := a.Replay(f.ctx, before.Epoch, 0, f.reader); ok || !errors.Is(err, ErrTimelinePublication) {
+		t.Fatal("replay liberado após recuperação parcial", err)
+	}
+	after, err := a.Refresh(f.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after.Items) != len(before.Items) {
+		t.Fatal("parcela não lida virou exclusão")
+	}
+	found := false
+	for _, item := range after.Items {
+		if item.ItemID == "message:"+messages[69].ID {
+			found = canonicalText(item) == "novo commit"
+		}
+	}
+	if !found {
+		t.Fatal("recuperação não incorporou último commit")
+	}
+}
+
+func TestStoragePublicationTerminalRecoveryKeepsLateLedgerUpdate(t *testing.T) {
+	f, p, e, _ := automaticFixture(t)
+	r := &failingSelectionReader{DBTimelineReader: f.reader}
+	p.reader = r
+	svc := toolinvocations.NewServiceWithCoordinator(toolinvocations.NewDBRepository(f.db), nil, NewLedgerMutationCoordinator(p, f.db))
+	inv, err := svc.Record(f.ctx, toolinvocations.RecordRequest{Origin: toolinvocations.Origin{Type: toolinvocations.OriginChat, ID: f.question, ChatExecutionID: &e.executionID}, Call: tools.ToolCall{ID: "late", Function: tools.FunctionCall{Name: "snapshot-tool", Arguments: "{}"}}, Result: tools.ToolResult{Content: "anterior"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo := database.NewChatTurnRepository(f.db)
+	id, err := e.AssignResponse(func() (string, error) { return repo.EnsureResponse(f.ctx, f.conversation, f.question, e.executionID) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.fail.Store(true)
+	if err := p.ApplyStorageMutation(f.ctx, f.conversation, nil, func() ([]string, error) { return nil, nil }); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.CommitResponse(database.TurnCompleted, "completed", "final", "", func() (database.ChatTimelineVersion, error) {
+		return repo.FinishResponseWithVersion(f.ctx, f.conversation, f.question, e.executionID, database.TurnCompleted, "completed", id, &database.MessageOptions{Content: "final"})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.ApplyStorageMutation(f.ctx, f.conversation, []string{"turn:" + f.question}, func() ([]string, error) {
+		return nil, f.db.Model(&database.ToolInvocation{}).Where("id=?", inv.ID).Update("output_preview", "resultado tardio").Error
+	}); err != nil {
+		t.Fatal(err)
+	}
+	r.fail.Store(false)
+	if _, err := p.ReadRecovery(f.ctx, f.conversation, f.question, f.reader); err != nil {
+		t.Fatal(err)
+	}
+	item, _ := publicationItem(t, e)
+	found := false
+	for _, segment := range item.Segments {
+		for _, call := range segment.Invocations {
+			if call.InvocationID == inv.ID {
+				found = call.OutputPreview == "resultado tardio"
+			}
+		}
+	}
+	if !found {
+		t.Fatal("flush terminal sobrescreveu ledger recuperado", item)
+	}
+	e.conversation.mu.Lock()
+	defer e.conversation.mu.Unlock()
+	if e.conversation.turns[e.turnID].publicationBase != nil {
+		t.Fatal("base concluída não liberada")
 	}
 }

@@ -58,6 +58,8 @@ mensagens, turnos e ledger no mesmo snapshot. Ausência nesta seleção pode emi
 `item_remove`; ausência numa página continua sem significar exclusão. A seleção
 omite mídia/áudio e aplica o orçamento de fonte antes da materialização. O
 preflight usa duas consultas por lote de até 400 âncoras, não duas por item.
+O filtro de IDs antecede a classificação compartilhada; `EXPLAIN QUERY PLAN`
+com 1.000 mensagens comprova busca por PK e pelo índice de turno/escopo.
 
 Falha de reconciliação suspende publicação/replay e troca a época. Recuperação
 reconcilia todos os IDs materializados antes de liberar a publicação; conserva
@@ -65,6 +67,11 @@ buffers válidos e desvincula execuções comprovadamente substituídas/excluíd
 Cada inscrição precisa renovar seu próprio snapshot da nova época. Há um
 suplemento limitado a 512 IDs de criações ainda não materializadas; além dessa
 cota, o snapshot solicitado descobre os itens, sem fila ilimitada durante falha.
+A recuperação parcela conjuntos maiores, reduzindo o lote quando atingir 8 MiB,
+e exige versão idêntica entre parcelas antes de liberar replay. Uma execução
+concluída ainda pendente de publicação também renova sua base; resultado tardio
+do ledger não pode ser sobrescrito pelo flush terminal. Regressões cobrem duas
+janelas independentes acima de 8 MiB somadas e drift depois da primeira parcela.
 
 O bootstrap compartilha o mesmo projetor entre agente e ledger. Criação,
 running, conclusão e exclusões de compensação passam pelo coordenador; a tool
@@ -79,13 +86,15 @@ erro parcial e preservação de buffers, item fora da seleção, recuperação e
 real composto com texto vivo. A prova de lote verifica duas consultas de orçamento
 para 80 itens. Não representa ainda medição de heap nem benchmark do cutover.
 
-Validação local: 313 testes seguros de chat, 137 de agente, 96 de toolinvocations
+Validação local: 317 testes seguros de chat, 362 de database, 137 de agente, 96 de toolinvocations
 e 10 de app; build/vet e lint Go incremental aprovados. TypeScript, ESLint e
 Stylelint passaram (2.124 avisos CSS preexistentes, zero erros); Vitest seguro:
 484 arquivos, 5.887 testes aprovados. Nenhum teste ACP foi executado localmente.
-Revisor independente review_aep: duas rodadas; a primeira identificou a corrida
+Revisor independente review_aep: quatro rodadas; a primeira identificou a corrida
 com a inscrição inicial e o custo por âncora. Corrigidos ambos, gate final aprovado
-sem pendências. A revisão remota e o CI completam a entrega do PR.
+sem pendências. Copilot apontou o orçamento agregado, a base terminal antiga e
+o filtro tardio da seleção; corrigidos com regressões e nova aprovação local.
+A revisão remota e o CI completam a entrega do PR.
 
 Limites: o coordenador já trata exclusões, mas os comandos de edição/exclusão de
 mensagens, import, manutenção e speech ainda precisam aderir. Patches de participação
@@ -100,6 +109,10 @@ alteram buffers e agendam um timer por conversa, com coalescing de 24 ms; não
 consultam storage. Admissão e terminal descarregam sincronamente os itens sujos.
 Geração do timer e identidade da instância impedem callbacks antigos após flush
 ou evicção. O terminal volátil conserva conteúdo também na leitura de recuperação.
+Flush e recuperação usam a mesma decisão de composição: terminal confirmado não
+é substituído por um stream vazio, preservando o motivo persistido de falha do
+provedor. Falha na gravação terminal permanece volátil mesmo sem stream ou com
+todos os conteúdos já confirmados; durabilidade inclui o estado, não só o texto.
 
 A base persistida é renovada sob a barreira nas transições do writer, por leitura
 restrita ao turno. É uma cópia sem áudio/mídia e com orçamento de 8 MiB de JSON por
@@ -130,7 +143,7 @@ sem leitura por token, terminal antes do retorno, callback antigo, falha de leit
 após commit, recuperação com buffers novos, cancelamento/retry e limite/isolamento
 da base, deadline após commit e desvinculação sem bloquear outro turno, inclusive
 após terminal confirmado, replay recusado durante falha, recuperação com outro turno
-pendente e limites antes da leitura (inclusive ledger legado). Passaram 305 testes seguros de chat, 137 de agente e
+pendente e limites antes da leitura (inclusive ledger legado). Passaram 307 testes seguros de chat, 137 de agente e
 dez de app; build/vet e lint incremental sem ocorrências novas. Revisor independente
 review_aep: três rodadas; corrigidos deadline ausente e bloqueio após desvinculação
 nas variantes ativa e concluída. Terceira rodada aprovada sem pendências.
@@ -138,6 +151,9 @@ Revisão remota CodeRabbit: corrigidos flush incompleto na recuperação e limit
 da base; adicionada a asserção de replay sugerida. Duas rodadas locais adicionais de
 review_aep corrigiram a leitura da pergunta e a cobertura de vínculos legados no
 preflight; segunda rodada adicional aprovada sem pendências.
+Copilot: corrigidas composição do erro sem chunks e durabilidade de terminal não
+gravado; regressões com SQLite comparam journal e recuperação nas três variantes.
+Sexta rodada local review_aep valida essas correções antes do push.
 Nenhum teste ACP executado localmente.
 
 ### Recorte: inscrições internas com recuperação explícita (2026-10-31)
