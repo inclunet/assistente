@@ -78,12 +78,10 @@ func (p *LiveProjection) ReadRecovery(ctx context.Context, conversationID, turnI
 		}
 	}
 	if persisted.Response != nil {
-		result.Item = persisted.Response
-		if result.Active != nil {
-			result.Item, err = composeResponse(persisted.Response, result.Active)
-			if err != nil {
-				return nil, err
-			}
+		p.recoverPublicationLocked(c, turnID, persisted.Response)
+		result.Item, err = projectLiveItemLocked(c, persisted.Response)
+		if err != nil {
+			return nil, err
 		}
 	}
 	if result.Item != nil {
@@ -173,6 +171,8 @@ func (e *ExecutionProjection) CommitResponse(state, reason, text, reasoning stri
 	t.committedVersion = version
 	confirmStoredContentLocked(t, -1, text, reasoning, t.responseID)
 	finishLiveTurnLocked(c, t, state, reason, true)
+	e.refreshPublicationLocked()
+	c.flushPublicationLocked(e.key.conversationID)
 	return nil
 }
 
@@ -200,6 +200,12 @@ func (e *ExecutionProjection) CommitTerminal(state, reason string, write func() 
 		t.committedVersion = version
 	}
 	finishLiveTurnLocked(c, t, state, reason, err == nil && reason != "persistence_error")
+	if err == nil {
+		e.refreshPublicationLocked()
+	} else if t.publicationBase != nil {
+		t.publicationDirty = true
+	}
+	c.flushPublicationLocked(e.key.conversationID)
 	return err
 }
 
@@ -227,6 +233,8 @@ func (e *ExecutionProjection) CommitContent(iteration int, text, reasoning strin
 	if confirmStoredContentLocked(t, iteration, text, reasoning, messageID) {
 		c.revision++
 	}
+	e.refreshPublicationLocked()
+	e.schedulePublicationLocked()
 	return nil
 }
 
@@ -249,6 +257,8 @@ func (e *ExecutionProjection) AssignResponse(write func() (string, error)) (stri
 	}
 	t.responseID = id
 	c.revision++
+	e.refreshPublicationLocked()
+	e.schedulePublicationLocked()
 	return id, nil
 }
 
@@ -263,8 +273,12 @@ func reconcileProjectionVersion(c *projectionConversation, version database.Chat
 // Reconcilia apenas fatos que pertencem ao snapshot autorizado. Ausência em outra
 // página não significa exclusão; o chamador informa os turnos efetivamente lidos.
 func reconcileProjectedTurn(c *projectionConversation, t *liveTurn, version database.ChatTimelineVersion, turn *database.ChatTurn) bool {
-	compatible := t.incarnation == version.Incarnation && turn != nil && turn.ActiveExecutionID != nil && *turn.ActiveExecutionID == t.executionID
-	if !t.finished && !compatible && !t.detached {
+	compatible := t.incarnation == version.Incarnation && turn != nil && ((turn.ActiveExecutionID != nil && *turn.ActiveExecutionID == t.executionID) || (t.finished && turn.CurrentExecutionID != nil && *turn.CurrentExecutionID == t.executionID))
+	if !compatible {
+		t.publicationBase, t.publicationBytes = nil, 0
+		t.publicationErr, t.publicationDirty = nil, false
+	}
+	if (!t.finished || t.volatile) && !compatible && !t.detached {
 		t.detached = true
 		c.revision++
 	}
@@ -314,16 +328,15 @@ func (p *LiveProjection) readWindowLocked(ctx context.Context, query database.Me
 	}
 	if canonical {
 		for i, item := range snapshot.Items {
-			t := c.turns[item.TurnID]
-			if item.Kind != "response" || t == nil || t.finished || t.detached {
-				continue
-			}
-			composed, err := composeResponse(item, snapshotLiveTurn(c, t))
+			p.recoverPublicationLocked(c, item.TurnID, item)
+			composed, err := projectLiveItemLocked(c, item)
 			if err != nil {
 				return nil, err
 			}
 			snapshot.Items[i] = composed
-			snapshot.Responses[item.TurnID] = composed
+			if item.Kind == "response" {
+				snapshot.Responses[item.TurnID] = composed
+			}
 		}
 	}
 	if canonical {

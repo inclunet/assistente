@@ -218,7 +218,7 @@ func NewService(cfg ServiceConfig) *Service {
 	}
 	return &Service{
 		turns:            cfg.Turns,
-		projection:       chat.NewLiveProjection(),
+		projection:       chat.NewLiveProjection(cfg.Timeline),
 		timeline:         cfg.Timeline,
 		emitter:          cfg.Emitter,
 		msgRepo:          cfg.MsgRepo,

@@ -1,8 +1,44 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — fase 1 concluída; fase 2 com inscrições internas; entrega automática e cutover pendentes
+## Status: In Progress — fase 1 concluída; fase 2 com publicação automática do lifecycle; invalidações, transporte e cutover pendentes
 
 Data: 2026-10-30
+
+### Recorte: publicação automática do lifecycle (2026-11-01)
+
+Admissão, início/alteração de stream, confirmação de conteúdo e terminal alimentam
+o mesmo codificador de operações usado por snapshot e replay. Tokens apenas
+alteram buffers e agendam um timer por conversa, com coalescing de 24 ms; não
+consultam storage. Admissão e terminal descarregam sincronamente os itens sujos.
+Geração do timer e identidade da instância impedem callbacks antigos após flush
+ou evicção. O terminal volátil conserva conteúdo também na leitura de recuperação.
+
+A base persistida é renovada sob a barreira nas transições do writer, por leitura
+restrita ao turno. É uma cópia sem áudio/mídia e com orçamento de 8 MiB de JSON por
+conversa (estimativa de retenção, não medição de heap). Conclusão publicada libera
+a base; buffers não confirmados continuam disponíveis para recuperação explícita.
+Leitura auxiliar tem prazo de três segundos, inclusive após cancelamento do caller.
+Falha ao renovar invalida a base, suspende replay e muda a época uma única vez
+enquanto houver erro. Não reclassifica um commit bem-sucedido como falha de escrita.
+Leitura autorizada restaura a base e compõe os buffers atuais, sem perder deltas.
+Desvinculação comprovada retira o turno dos bloqueadores de publicação, mantendo
+os bytes retidos para recuperação explícita.
+
+Limite deste recorte: publicação automática no journal interno para os escritores
+do lifecycle integrados. Alterações externas de mensagens/ledger, patches de
+participação das janelas, emissor autenticado e bindings Wails seguem pendentes.
+Não há ainda entrega pública completa nem migração do frontend. A fase 2 permanece
+In Progress; o próximo recorte conecta invalidações e exclusões ao mesmo projetor.
+
+Dez testes `AutomaticPublication` cobrem admissão sem representante, publicação
+sem leitura por token, terminal antes do retorno, callback antigo, falha de leitura
+após commit, recuperação com buffers novos, cancelamento/retry e limite/isolamento
+da base, deadline após commit e desvinculação sem bloquear outro turno, inclusive
+após terminal confirmado. Passaram 303 testes seguros de chat, 137 de agente e
+dez de app; build/vet e lint incremental sem ocorrências novas. Revisor independente
+review_aep: três rodadas; corrigidos deadline ausente e bloqueio após desvinculação
+nas variantes ativa e concluída. Terceira rodada aprovada sem pendências.
+Nenhum teste ACP executado localmente.
 
 ### Recorte: inscrições internas com recuperação explícita (2026-10-31)
 

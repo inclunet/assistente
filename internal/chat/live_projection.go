@@ -19,25 +19,32 @@ import (
 // A unidade de serialização é usuário/conversa. Não publica eventos nem chama
 // callbacks externos sob o mutex (somente storage no coordenador). Revision é interna; não é sequence do protocolo wire.
 type LiveProjection struct {
+	reader        TurnSnapshotReader
 	mu            sync.Mutex
 	conversations map[projectionKey]*projectionConversation
 }
 
 type projectionKey struct{ userID, conversationID string }
 type projectionConversation struct {
-	windows             map[string]*subscribedWindow
-	publication         canonicalPublication
-	mu                  sync.Mutex
-	readers             int // protegido por LiveProjection.mu; inclui operações de storage
-	epoch               string
-	revision            uint64
-	incarnation         string
-	lastRecoveryVersion database.ChatTimelineVersion
-	turns               map[string]*liveTurn
-	retained            map[string]*liveTurn // tentativas volatile substituídas por retry explícito
-	timer               *time.Timer
+	publicationTimer      *time.Timer
+	publicationGeneration uint64
+	windows               map[string]*subscribedWindow
+	publication           canonicalPublication
+	mu                    sync.Mutex
+	readers               int // protegido por LiveProjection.mu; inclui operações de storage
+	epoch                 string
+	revision              uint64
+	incarnation           string
+	lastRecoveryVersion   database.ChatTimelineVersion
+	turns                 map[string]*liveTurn
+	retained              map[string]*liveTurn // tentativas volatile substituídas por retry explícito
+	timer                 *time.Timer
 }
 type liveTurn struct {
+	publicationBase                                *TimelineItem
+	publicationBytes                               int
+	publicationErr                                 error
+	publicationDirty                               bool
 	committedVersion                               database.ChatTimelineVersion
 	turnID, executionID, responseID, state, reason string
 	incarnation                                    string
@@ -78,6 +85,7 @@ type LiveTurnSnapshot struct {
 // ExecutionProjection é um capability imutável admitido pelo lifecycle.
 // Um binding antigo nunca aponta para a execução que o substituiu.
 type ExecutionProjection struct {
+	ctx                 context.Context
 	owner               *LiveProjection
 	key                 projectionKey
 	conversation        *projectionConversation
@@ -89,8 +97,8 @@ type StreamProjection struct {
 	generation uint64
 }
 
-func NewLiveProjection() *LiveProjection {
-	return &LiveProjection{conversations: make(map[projectionKey]*projectionConversation)}
+func NewLiveProjection(reader TurnSnapshotReader) *LiveProjection {
+	return &LiveProjection{reader: reader, conversations: make(map[projectionKey]*projectionConversation)}
 }
 
 // Admit serializa a admissão no storage e o binding na mesma barreira da leitura.
@@ -115,6 +123,7 @@ func (p *LiveProjection) Admit(ctx context.Context, conversationID, turnID, exec
 		return nil, err
 	}
 	if old := c.turns[turnID]; old != nil && (old.volatile || old.detached || hasUncommittedContent(old)) {
+		old.publicationBase, old.publicationBytes = nil, 0
 		if !old.finished {
 			old.detached = true
 		}
@@ -126,7 +135,10 @@ func (p *LiveProjection) Admit(ctx context.Context, conversationID, turnID, exec
 	c.incarnation = version.Incarnation
 	c.turns[turnID] = &liveTurn{turnID: turnID, executionID: executionID, incarnation: version.Incarnation, state: database.TurnPreparing, streams: make(map[int]*liveStream)}
 	c.revision++
-	return &ExecutionProjection{owner: p, key: key, conversation: c, turnID: turnID, executionID: executionID}, nil
+	e := &ExecutionProjection{ctx: context.WithoutCancel(ctx), owner: p, key: key, conversation: c, turnID: turnID, executionID: executionID}
+	e.refreshPublicationLocked()
+	c.flushPublicationLocked(conversationID)
+	return e, nil
 }
 
 func (e *ExecutionProjection) currentLocked() *liveTurn {
@@ -156,6 +168,7 @@ func (e *ExecutionProjection) StartStream(iteration int) *StreamProjection {
 	stream.generation, stream.sealed = t.generation, false
 	t.state = database.TurnStreaming
 	c.revision++
+	e.schedulePublicationLocked()
 	return &StreamProjection{execution: e, iteration: iteration, generation: t.generation}
 }
 
@@ -177,6 +190,7 @@ func (s *StreamProjection) apply(fn func(*liveStream)) bool {
 	fn(stream)
 	stream.confirmed = false
 	c.revision++
+	s.execution.schedulePublicationLocked()
 	return true
 }
 
@@ -362,6 +376,11 @@ func (p *LiveProjection) pruneLocked(key projectionKey, c *projectionConversatio
 		}
 	}
 	if len(c.turns) == 0 && len(c.retained) == 0 && len(c.windows) == 0 {
+		if c.publicationTimer != nil {
+			c.publicationTimer.Stop()
+			c.publicationTimer = nil
+		}
+		c.publicationGeneration++
 		delete(p.conversations, key)
 		return
 	}

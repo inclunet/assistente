@@ -64,7 +64,7 @@ func TestTurnRecoverySnapshotDeltaBarrier(t *testing.T) {
 }
 
 func TestTurnRecoveryFirstReadBlocksAdmissionOnlyForItsConversation(t *testing.T) {
-	p := NewLiveProjection()
+	p := NewLiveProjection(nil)
 	ctx := database.WithUserID(context.Background(), "user")
 	reading, release := make(chan struct{}), make(chan struct{})
 	cleanupRecoveryGate(t, release)

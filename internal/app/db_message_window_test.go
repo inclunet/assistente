@@ -80,7 +80,7 @@ func messageWindowTestCtx() context.Context {
 }
 
 func newMessageWindowTestController() *controllers.ConversationsController {
-	projection := chat.NewLiveProjection()
+	projection := chat.NewLiveProjection(nil)
 	reader := chat.NewDBTimelineReader(database.DB())
 	return controllers.NewConversationsController(controllers.ConversationsControllerConfig{
 		MsgRepo: chat.NewDBMessageStore(),
