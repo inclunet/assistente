@@ -15,7 +15,7 @@ func checkPublicationReadBudget(tx *gorm.DB, conversationID, turnID string) erro
 	messageSize := publicationSQLBytes("chat_messages", "content", "reasoning", "model", "source")
 	var size int64
 	err := tx.Model(&database.ChatMessage{}).Select("COALESCE(SUM(1024 + "+messageSize+"), 0)").
-		Where("conversation_id = ? AND (id = ? OR turn_id = ?)", conversationID, turnID, turnID).
+		Where("conversation_id = ? AND turn_id = ? AND role <> ?", conversationID, turnID, "user").
 		Where(database.CurrentChatMessageSQL("chat_messages")).Scan(&size).Error
 	if err != nil {
 		return err
