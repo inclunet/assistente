@@ -84,8 +84,8 @@ func (p *LiveProjection) ReadRecovery(ctx context.Context, conversationID, turnI
 			return nil, err
 		}
 	}
-	if result.Item != nil {
-		c.flushPublicationLocked(conversationID)
+	c.flushPublicationLocked(conversationID)
+	if result.Item != nil && c.publicationErrorLocked() == nil {
 		c.publishCanonical(conversationID, []*TimelineItem{result.Item})
 	}
 	sort.Slice(result.Retained, func(i, j int) bool { return result.Retained[i].ExecutionID < result.Retained[j].ExecutionID })
