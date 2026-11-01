@@ -123,6 +123,14 @@ func TestStoragePublicationSelectionQueryPlanUsesSelectedIdentities(t *testing.T
 		args []interface{}
 	}
 	var budgets []capturedQuery
+	var payload capturedQuery
+	if err := f.db.Callback().Query().After("gorm:query").Register("selection_payload_plan", func(tx *gorm.DB) {
+		if strings.Contains(tx.Statement.SQL.String(), "selected_payload") {
+			payload = capturedQuery{tx.Statement.SQL.String(), append([]interface{}(nil), tx.Statement.Vars...)}
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
 	if err := f.db.Callback().Row().After("gorm:row").Register("selection_plan", func(tx *gorm.DB) {
 		if strings.Contains(tx.Statement.SQL.String(), "WITH scoped AS") {
 			query = tx.Statement.SQL.String()
@@ -154,6 +162,24 @@ func TestStoragePublicationSelectionQueryPlanUsesSelectedIdentities(t *testing.T
 	if !messageLookup || !turnLookup || !sourceLookup {
 		t.Fatalf("seleção deixou de buscar identidades indexadas: %+v", plan)
 	}
+	if payload.sql == "" {
+		t.Fatal("materialização não capturada")
+	}
+	plan = nil
+	if err := f.db.Raw("EXPLAIN QUERY PLAN "+payload.sql, payload.args...).Scan(&plan).Error; err != nil {
+		t.Fatal(err)
+	}
+	messageLookup, turnLookup = false, false
+	for _, row := range plan {
+		messageLookup = messageLookup || (strings.HasPrefix(row.Detail, "SEARCH chat_messages ") && strings.Contains(row.Detail, "(id=?)"))
+		turnLookup = turnLookup || (strings.HasPrefix(row.Detail, "SEARCH chat_messages ") && strings.Contains(row.Detail, "turn_id=?"))
+		if strings.HasPrefix(row.Detail, "SEARCH chat_messages ") && strings.Contains(row.Detail, "conversation_id=?") && !strings.Contains(row.Detail, "turn_id=?") {
+			t.Fatalf("payload varre escopo: %+v", plan)
+		}
+	}
+	if !messageLookup || !turnLookup {
+		t.Fatalf("payload sem buscas indexadas: %+v", plan)
+	}
 	if len(budgets) != 2 {
 		t.Fatal("preflight não capturado", len(budgets))
 	}
@@ -183,6 +209,51 @@ func TestStoragePublicationSelectionQueryPlanUsesSelectedIdentities(t *testing.T
 				t.Fatalf("preflight percorre ledger fora da seleção: %+v", plan)
 			}
 		}
+	}
+}
+
+func TestStoragePublicationLegacySelfLinkedQuestionIsNotResponseSource(t *testing.T) {
+	f := newSnapshotFixture(t)
+	if err := f.db.Model(&database.ChatMessage{}).Where("id=?", f.question).Updates(map[string]any{"turn_id": f.question, "content": strings.Repeat("x", canonicalSourceBytes+1)}).Error; err != nil {
+		t.Fatal(err)
+	}
+	for _, publication := range []bool{false, true} {
+		var snapshot *TimelineTurnSnapshot
+		var err error
+		if publication {
+			snapshot, err = f.reader.ReadPublicationTurn(f.ctx, f.conversation, f.question)
+		} else {
+			snapshot, err = f.reader.ReadTurn(f.ctx, f.conversation, f.question)
+		}
+		if err != nil || snapshot.Response == nil || canonicalText(canonicalItem(snapshot.Response)) != "resposta antiga" {
+			t.Fatal("pergunta legada entrou na resposta", publication, err)
+		}
+		for _, message := range snapshot.Response.messages {
+			if message.Role == "user" {
+				t.Fatal("materializou pergunta como fonte da resposta")
+			}
+		}
+	}
+	snapshot, err := f.reader.ReadSelection(f.ctx, f.conversation, []string{"turn:" + f.question})
+	if err != nil || len(snapshot.Items) != 1 {
+		t.Fatal("orçamento contou pergunta fora da seleção", err)
+	}
+	if _, err := f.reader.ReadSelection(f.ctx, f.conversation, []string{"message:" + f.question}); !errors.Is(err, ErrTimelineSourceLimit) {
+		t.Fatal("pergunta selecionada escapou do orçamento", err)
+	}
+	p := NewLiveProjection(f.reader)
+	sub, _, err := p.SubscribeTimeline(f.ctx, &fixtureTimelineSession{ctx: f.ctx, id: "legacy-self"}, "response", database.MessageWindowQuery{ConversationID: f.conversation, Anchor: "end", Direction: "before", Limit: 1}, f.reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sub.Close()
+	if err := p.ApplyStorageMutation(f.ctx, f.conversation, []string{"turn:" + f.question}, func() ([]string, error) {
+		return nil, f.db.Model(&database.ToolInvocation{}).Where("id=?", f.invocation).Update("output_preview", "novo resultado").Error
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sub.Refresh(f.ctx); err != nil {
+		t.Fatal("pergunta fora da janela bloqueou Refresh", err)
 	}
 }
 

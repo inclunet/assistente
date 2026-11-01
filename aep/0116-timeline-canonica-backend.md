@@ -24,7 +24,11 @@ mensagens e turnos: uma pergunta isolada não paga pelas respostas/ferramentas
 fora da seleção. A fonte do SUM usa buscas indexadas e UNION sem dupla contagem.
 O filtro de IDs antecede a classificação compartilhada; `EXPLAIN QUERY PLAN`
 com 1.000 mensagens comprova busca por PK e pelo índice de turno/escopo, incluindo
-o preflight de mensagens e a busca do ledger por usuário/origem/turno.
+o preflight de mensagens, a busca do ledger por usuário/origem/turno e a leitura
+final dos payloads. Esta também seleciona por UNION antes de materializar,
+mantendo escopo, filtro de execução e omissão de mídia.
+Pergunta legada com `turn_id=id` só entra em `message:<id>`; orçamento e leitores
+de resposta excluem `role=user` antes de carregar conteúdo, inclusive no lifecycle.
 
 Falha de reconciliação suspende publicação/replay e troca a época. Recuperação
 reconcilia todos os IDs materializados antes de liberar a publicação; conserva
@@ -57,11 +61,11 @@ mensagens e duas ao incluir turnos. Pergunta isolada com resposta e ledger acima
 de 8 MiB fora da janela continua recuperável; seleção mensagem+turno não duplica
 bytes. Não representa ainda medição de heap nem benchmark do cutover.
 
-Validação local: 323 testes seguros de chat, 362 de database, 137 de agente, 96 de toolinvocations
+Validação local: 324 testes seguros de chat, 362 de database, 137 de agente, 96 de toolinvocations
 e 10 de app; build/vet e lint Go incremental aprovados. TypeScript, ESLint e
 Stylelint passaram (2.124 avisos CSS preexistentes, zero erros); Vitest seguro:
 484 arquivos, 5.887 testes aprovados. Nenhum teste ACP foi executado localmente.
-Revisor independente review_aep: nove rodadas; a primeira identificou a corrida
+Revisor independente review_aep: onze rodadas; a primeira identificou a corrida
 com a inscrição inicial e o custo por âncora. Corrigidos ambos, gate final aprovado
 sem pendências. Copilot apontou o orçamento agregado, a base terminal antiga e
 o filtro tardio da seleção; corrigidos com regressões e nova aprovação local.
@@ -70,6 +74,9 @@ com seleção por tipo de item e EXPLAIN também das consultas de orçamento.
 Terceira rodada remota identificou bloqueio da recuperação explícita por item
 acima da cota; regressão cobre leitura autorizada, buffer, replay suspenso,
 revogação e recuperação posterior da publicação. Nona revisão local aprovada.
+Quarta rodada remota apontou payloads com filtro OR e a pergunta legada no
+orçamento; corrigidos com EXPLAIN da materialização e regressão de pergunta
+acima de 8 MiB com resposta curta, lifecycle e Refresh após mutação de ledger.
 A revisão remota e o CI completam a entrega do PR.
 
 Limites: o coordenador já trata exclusões, mas os comandos de edição/exclusão de

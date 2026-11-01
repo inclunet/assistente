@@ -25,7 +25,7 @@ func publicationSelectionReadSize(tx *gorm.DB, conversationID string, messageIDs
 	const source = `(SELECT id FROM chat_messages WHERE id IN ?
  UNION SELECT m.id FROM chat_messages q CROSS JOIN chat_messages m
  ON m.conversation_id=q.conversation_id AND m.parent_id IS q.parent_id AND m.turn_id=q.id
- WHERE q.id IN ?) selected CROSS JOIN chat_messages ON chat_messages.id=selected.id`
+ WHERE q.id IN ? AND m.role <> 'user') selected CROSS JOIN chat_messages ON chat_messages.id=selected.id`
 	err := tx.Raw("SELECT COALESCE(SUM(1024 + "+messageSize+"), 0) FROM "+source+
 		" WHERE chat_messages.conversation_id=? AND "+database.CurrentChatMessageSQL("chat_messages"), messageIDs, turnIDs, conversationID).Scan(&size).Error
 	if err != nil {
