@@ -1038,7 +1038,9 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	a.memorySvc = memory.NewService(memory.NewDBStore(database.DB()))
 
 	// Inicializa repositórios de audio e conversa
-	a.audioSvc = speech.NewDBAudioStore()
+	timelineReader := chat.NewDBTimelineReader(database.DB())
+	timelineProjection := chat.NewLiveProjection(timelineReader)
+	a.audioSvc = speech.NewDBAudioStore(timelineProjection.ApplyStorageMutation)
 	a.convSvc = chat.NewDBConversationStore()
 	a.msgRepo = chat.NewDBMessageStore()
 
@@ -1083,8 +1085,6 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	// Inicializa o gerenciador de servidores MCP (após tool registry)
 	a.initMCP()
 
-	timelineReader := chat.NewDBTimelineReader(database.DB())
-	timelineProjection := chat.NewLiveProjection(timelineReader)
 	a.toolInvocationSvc = toolinvocations.NewServiceWithCoordinator(toolinvocations.NewDBRepository(database.DB()), a.toolExecutor, chat.NewLedgerMutationCoordinator(timelineProjection, database.DB()))
 
 	// Inicializa o gateway de mensageria (Telegram, etc.).
