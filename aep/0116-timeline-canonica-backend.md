@@ -131,6 +131,8 @@ pendentes. Não há promessa de sincronização pública completa neste recorte.
 
 ### Recorte: publicação automática do lifecycle (2026-11-01)
 
+O orçamento automático conta apenas mensagens de resposta; texto da pergunta não é consumido e não entra na cota. Isso inclui perguntas legadas com turn_id=id, excluídas também da materialização de resposta. A regressão de orçamento cobre pergunta acima de 8 MiB com resposta pequena, vínculo normal e legado.
+
 Recuperar um turno removido também libera o flush de terminais pendentes de outros turnos, após leitura autorizada, mesmo sem item próprio para publicar. A matriz de recuperação cobre ausência do turno/resposta.
 
 Admissão, início/alteração de stream, confirmação de conteúdo e terminal alimentam
