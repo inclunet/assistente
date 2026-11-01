@@ -168,7 +168,7 @@ func (c *projectionConversation) flushPublicationLocked(conversationID string) {
 	}
 	ids := make([]string, 0)
 	for id, t := range c.turns {
-		if t.publicationDirty && t.publicationBase != nil && !t.detached {
+		if t.publicationDirty && t.publicationBase != nil && !t.detached && t.incarnation == c.incarnation {
 			ids = append(ids, id)
 		}
 	}

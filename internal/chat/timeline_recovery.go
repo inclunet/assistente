@@ -125,6 +125,7 @@ func (p *LiveProjection) DiscardRetained(ctx context.Context, conversationID, tu
 	if err != nil {
 		return err
 	}
+	reconcileProjectionVersion(c, persisted.Version)
 	t := c.retained[executionID]
 	current := false
 	if candidate := c.turns[turnID]; candidate != nil && candidate.executionID == executionID {
@@ -146,6 +147,7 @@ func (p *LiveProjection) DiscardRetained(ctx context.Context, conversationID, tu
 		delete(c.retained, executionID)
 	}
 	c.revision++
+	c.flushPublicationLocked(conversationID)
 	return nil
 }
 
@@ -268,6 +270,11 @@ func reconcileProjectionVersion(c *projectionConversation, version database.Chat
 		c.epoch = uuid.NewString()
 		c.incarnation = version.Incarnation
 		c.revision++
+		// Troca de encarnação invalida todos os vínculos antigos, mesmo fora da
+		// página lida. Bases/erros não atravessam a época; buffers continuam retidos.
+		for _, t := range c.turns {
+			reconcileProjectedTurn(c, t, version, nil)
+		}
 	}
 }
 
@@ -340,8 +347,8 @@ func (p *LiveProjection) readWindowLocked(ctx context.Context, query database.Me
 			}
 		}
 	}
+	c.flushPublicationLocked(query.ConversationID)
 	if canonical {
-		c.flushPublicationLocked(query.ConversationID)
 		c.publishCanonical(query.ConversationID, snapshot.Items)
 	}
 	return snapshot, nil
