@@ -14,6 +14,8 @@ import (
 // é o envelope wire v1.
 // Epoch/revision pertencem ao futuro projetor; versão do banco não os substitui.
 type TimelineItem struct {
+	messages             []Message
+	invocations          []TurnSegmentToolCall
 	ConversationID       string
 	ScopeParentID        *string
 	Kind                 string
@@ -98,6 +100,7 @@ func ProjectPersistedResponse(conversationID, turnID string, parentID *string, m
 		fallback := legacyTurnRepresentative(ordered, calls)
 		result.legacyRepresentative = &fallback
 	}
+	result.messages, result.invocations = ordered, calls
 	result.Segments = projectResponseSegments(ordered, calls, result.Representative)
 	result.messageCount, result.callCount = len(messages), len(calls)
 	return result, nil
