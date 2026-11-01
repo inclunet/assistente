@@ -36,9 +36,10 @@ func (p *LiveProjection) ReadRecovery(ctx context.Context, conversationID, turnI
 	}
 	c, release := p.lockConversation(projectionKey{userID, conversationID}, true)
 	defer release()
-	if err := p.recoverStoragePublicationLocked(ctx, conversationID, c); err != nil {
-		return nil, err
-	}
+	// O orçamento da publicação auxiliar não limita recuperação explícita.
+	// A falha continua registrada e bloqueia journal/replay; só a leitura
+	// autorizada abaixo permite devolver persistência e buffers ao chamador.
+	_ = p.recoverStoragePublicationLocked(ctx, conversationID, c)
 	persisted, err := reader.ReadTurn(ctx, conversationID, turnID)
 	if err != nil {
 		return nil, err
@@ -87,7 +88,7 @@ func (p *LiveProjection) ReadRecovery(ctx context.Context, conversationID, turnI
 			return nil, err
 		}
 	}
-	if result.Item != nil {
+	if result.Item != nil && c.publicationErrorLocked() == nil {
 		c.flushPublicationLocked(conversationID)
 		c.publishCanonical(conversationID, []*TimelineItem{result.Item})
 	}
