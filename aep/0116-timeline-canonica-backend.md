@@ -105,6 +105,9 @@ invalida bases/erros antigos também fora da página, sem apagar buffers recuper
 O flush só admite a encarnação atual. Descarte autorizado e leitura de janela
 legada descarregam os turnos pendentes depois de remover bloqueadores; leituras
 recusadas não alteram publicação.
+Turnos com erro ou publicação pendente não expiram pelo prazo de retenção de
+60 segundos; permanecem até publicação ou reconciliação/descarte explícito.
+Os quatro caminhos de recuperação também são exercitados após esse prazo.
 
 Limite deste recorte: publicação automática no journal interno para os escritores
 do lifecycle integrados. Alterações externas de mensagens/ledger, patches de
@@ -131,6 +134,8 @@ Sexta rodada local review_aep valida essas correções antes do push.
 Segunda rodada Copilot apontou flush entre encarnações e desbloqueio sem flush
 no descarte/janela legada. Corrigidos com regressões de publicação, retenção de
 bytes, callback antigo e recusa de autorização; sétima revisão local aprovada.
+Terceira rodada Copilot apontou expiração de terminais pendentes; retenção
+corrigida e regressão temporal aprovada na oitava revisão local.
 Nenhum teste ACP executado localmente.
 
 ### Recorte: inscrições internas com recuperação explícita (2026-10-31)
