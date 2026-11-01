@@ -36,6 +36,9 @@ func (p *LiveProjection) ReadRecovery(ctx context.Context, conversationID, turnI
 	}
 	c, release := p.lockConversation(projectionKey{userID, conversationID}, true)
 	defer release()
+	if err := p.recoverStoragePublicationLocked(ctx, conversationID, c); err != nil {
+		return nil, err
+	}
 	persisted, err := reader.ReadTurn(ctx, conversationID, turnID)
 	if err != nil {
 		return nil, err
@@ -317,6 +320,9 @@ func (p *LiveProjection) readWindow(ctx context.Context, query database.MessageW
 }
 
 func (p *LiveProjection) readWindowLocked(ctx context.Context, query database.MessageWindowQuery, reader WindowSnapshotReader, canonical bool, c *projectionConversation) (*TimelineWindowSnapshot, error) {
+	if err := p.recoverStoragePublicationLocked(ctx, query.ConversationID, c); err != nil {
+		return nil, err
+	}
 	snapshot, err := reader.ReadWindow(ctx, query)
 	if err != nil {
 		return nil, err

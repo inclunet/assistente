@@ -15,10 +15,11 @@ import (
 )
 
 type Service struct {
-	repo     Repository
-	executor *tools.Executor
-	now      func() time.Time
-	metrics  *Metrics
+	mutationCoordinator MutationCoordinator
+	repo                Repository
+	executor            *tools.Executor
+	now                 func() time.Time
+	metrics             *Metrics
 
 	// persistOpTimeout limita o tempo de cada operação síncrona de persistência.
 	// A persistência deve sobreviver a cancelamento do usuário, mas não deve
@@ -36,6 +37,25 @@ type Service struct {
 	// persistMaxInputSize limita o input persistido (tool_invocations.input).
 	// Sem isso, argumentos muito grandes podem crescer a tabela sem limite.
 	persistMaxInputSize int
+}
+
+// MutationCoordinator envolve somente a persistência, nunca a execução da tool.
+// O callback conclui sua transação antes de retornar; não reentra no coordenador.
+type MutationCoordinator interface {
+	MutateInvocation(context.Context, *Invocation, func() error) error
+}
+
+func NewServiceWithCoordinator(repo Repository, executor *tools.Executor, coordinator MutationCoordinator) *Service {
+	s := NewService(repo, executor)
+	s.mutationCoordinator = coordinator
+	return s
+}
+
+func (s *Service) mutateInvocation(ctx context.Context, inv *Invocation, write func() error) error {
+	if s.mutationCoordinator == nil || inv.OriginType != OriginChat {
+		return write()
+	}
+	return s.mutationCoordinator.MutateInvocation(ctx, inv, write)
 }
 
 // ErrOrphanChatBatchUnsupported indica que o repositório não pode executar a

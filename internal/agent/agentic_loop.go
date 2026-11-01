@@ -476,7 +476,7 @@ func (r *agenticLoopRunner) executeToolIteration(ctx context.Context, result Age
 			// O prefixo já pertence ao segmento confirmado. Reaplicá-lo no
 			// representante seguinte duplicaria a continuação no histórico.
 			r.continuationPrefixCommitted = true
-			r.svc.tagChatToolInvocationsWithAssistantMessage(ctx, r.turnID, execResults, assistantToolMsg.ID)
+			r.svc.tagChatToolInvocationsWithAssistantMessage(ctx, r.conversationID, r.turnID, execResults, assistantToolMsg.ID)
 		}
 	}
 

@@ -51,6 +51,9 @@ func (c *projectionConversation) failPublicationLocked(t *liveTurn, err error) {
 }
 
 func (c *projectionConversation) publicationErrorLocked() error {
+	if c.storagePublicationErr != nil {
+		return errors.Join(ErrTimelinePublication, c.storagePublicationErr)
+	}
 	for _, t := range c.turns {
 		if t.publicationErr != nil {
 			return errors.Join(ErrTimelinePublication, t.publicationErr)

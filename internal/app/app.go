@@ -1083,7 +1083,9 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	// Inicializa o gerenciador de servidores MCP (após tool registry)
 	a.initMCP()
 
-	a.toolInvocationSvc = toolinvocations.NewService(toolinvocations.NewDBRepository(database.DB()), a.toolExecutor)
+	timelineReader := chat.NewDBTimelineReader(database.DB())
+	timelineProjection := chat.NewLiveProjection(timelineReader)
+	a.toolInvocationSvc = toolinvocations.NewServiceWithCoordinator(toolinvocations.NewDBRepository(database.DB()), a.toolExecutor, chat.NewLedgerMutationCoordinator(timelineProjection, database.DB()))
 
 	// Inicializa o gateway de mensageria (Telegram, etc.).
 	// Fail-closed (AEP-0083): sem DB não há fallback silencioso para filesystem.
@@ -1108,7 +1110,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 
 	// Inicializa o Agent Service (agentic loop desacoplado do Wails)
 	a.agentSvc = agent.NewService(agent.ServiceConfig{
-		Turns: database.NewChatTurnRepository(database.DB()), Timeline: chat.NewDBTimelineReader(database.DB()),
+		Turns: database.NewChatTurnRepository(database.DB()), Timeline: timelineReader, Projection: timelineProjection,
 		Emitter:          a.emitter,
 		MsgRepo:          a.msgRepo,
 		ToolExecutor:     a.toolExecutor,

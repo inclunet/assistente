@@ -1,8 +1,57 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — fase 1 concluída; fase 2 com publicação automática do lifecycle; invalidações, transporte e cutover pendentes
+## Status: In Progress — fase 1 concluída; fase 2 com lifecycle e ledger integrados ao projetor; demais escritores, transporte e cutover pendentes
 
 Data: 2026-10-30
+
+### Recorte: reconciliação de mutações e ledger (2026-11-01)
+
+`ApplyStorageMutation` mantém a barreira da conversa durante a operação externa
+inteira e sua reconciliação. Reserva a instância mesmo sem observadores prévios,
+para a primeira inscrição não ultrapassar um commit pendente. Sem bases ou
+observadores, libera a instância após a gravação sem consultar uma projeção inútil.
+Callbacks de storage não reentram no projetor nem emitem eventos; a ordem é
+barreira do projetor antes da transação SQLite. Uma falha após escrita parcial
+também reconcilia o estado confirmado, preservando o resultado original do writer.
+
+`ReadSelection` autoriza a conversa e lê IDs explícitos, seus escopos reais,
+mensagens, turnos e ledger no mesmo snapshot. Ausência nesta seleção pode emitir
+`item_remove`; ausência numa página continua sem significar exclusão. A seleção
+omite mídia/áudio e aplica o orçamento de fonte antes da materialização. O
+preflight usa duas consultas por lote de até 400 âncoras, não duas por item.
+
+Falha de reconciliação suspende publicação/replay e troca a época. Recuperação
+reconcilia todos os IDs materializados antes de liberar a publicação; conserva
+buffers válidos e desvincula execuções comprovadamente substituídas/excluídas.
+Cada inscrição precisa renovar seu próprio snapshot da nova época. Há um
+suplemento limitado a 512 IDs de criações ainda não materializadas; além dessa
+cota, o snapshot solicitado descobre os itens, sem fila ilimitada durante falha.
+
+O bootstrap compartilha o mesmo projetor entre agente e ledger. Criação,
+running, conclusão e exclusões de compensação passam pelo coordenador; a tool
+executa fora da barreira. A atualização de vínculos de apresentação feita pelo
+agente também participa. Origens antigas usam a mesma resolução autorizada de
+`Create`, sem reconstrução de autoridade no frontend. Argumentos/resultados
+permanecem exclusivamente no ledger (AEP-0104).
+
+Evidências: `storage_publication_test.go` cobre escopo/ownership, exclusão com
+erro parcial e preservação de buffers, item fora da seleção, recuperação e
+época por janela, criação durante falha, primeira inscrição concorrente e ledger
+real composto com texto vivo. A prova de lote verifica duas consultas de orçamento
+para 80 itens. Não representa ainda medição de heap nem benchmark do cutover.
+
+Validação local: 313 testes seguros de chat, 137 de agente, 96 de toolinvocations
+e 10 de app; build/vet e lint Go incremental aprovados. TypeScript, ESLint e
+Stylelint passaram (2.124 avisos CSS preexistentes, zero erros); Vitest seguro:
+484 arquivos, 5.887 testes aprovados. Nenhum teste ACP foi executado localmente.
+Revisor independente review_aep: duas rodadas; a primeira identificou a corrida
+com a inscrição inicial e o custo por âncora. Corrigidos ambos, gate final aprovado
+sem pendências. A revisão remota e o CI completam a entrega do PR.
+
+Limites: o coordenador já trata exclusões, mas os comandos de edição/exclusão de
+mensagens, import, manutenção e speech ainda precisam aderir. Patches de participação
+das janelas, emissor autenticado, bindings Wails e consumidor frontend continuam
+pendentes. Não há promessa de sincronização pública completa neste recorte.
 
 ### Recorte: publicação automática do lifecycle (2026-11-01)
 
