@@ -20,6 +20,7 @@ var ErrTimelineSubscriptionLimit = errors.New("limite de inscrições de timelin
 
 type subscriptionSurface struct{ sessionID, surfaceID string }
 type subscribedWindow struct {
+	epoch   string
 	version database.ChatTimelineVersion
 	id      string
 	surface subscriptionSurface
@@ -103,6 +104,7 @@ func cloneWindowQuery(query database.MessageWindowQuery) database.MessageWindowQ
 func subscriptionSnapshot(c *projectionConversation, window *subscribedWindow, snapshot *TimelineWindowSnapshot) *SubscribedTimelineSnapshot {
 	result := &SubscribedTimelineSnapshot{WindowID: window.id, Epoch: c.epoch, Sequence: strconv.FormatUint(c.publication.sequence, 10), Items: make([]CanonicalItem, 0, len(snapshot.Items)), OrderedItemIDs: make([]string, 0, len(snapshot.Items)), TotalCount: snapshot.Window.TotalCount, StartIndex: snapshot.Window.StartIndex, EndIndex: snapshot.Window.EndIndex, HasBefore: snapshot.Window.HasBefore, HasAfter: snapshot.Window.HasAfter, BeforeCursor: snapshot.BeforeCursor, AfterCursor: snapshot.AfterCursor}
 	window.version = snapshot.Version
+	window.epoch = c.epoch
 	window.itemIDs = make(map[string]bool, len(snapshot.Items))
 	for _, item := range snapshot.Items {
 		view := canonicalItem(item)
@@ -176,7 +178,7 @@ func (s *TimelineSubscription) Replay(ctx context.Context, epoch string, after u
 	if err := c.publicationErrorLocked(); err != nil {
 		return nil, false, err
 	}
-	if c.publication.epoch != c.epoch || c.windows[s.windowID].version != version {
+	if c.publication.epoch != c.epoch || c.windows[s.windowID].epoch != c.epoch || c.windows[s.windowID].version != version {
 		return nil, false, nil
 	}
 	batches, ok := c.publication.replay(epoch, after)

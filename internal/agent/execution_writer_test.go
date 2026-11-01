@@ -47,7 +47,7 @@ func TestExecutionWriterNativeCallsRetryAndReferencedMedia(t *testing.T) {
 			}
 		}
 		svc.persistNativeMCPCalls(ctx, conv, turn, []llm.MCPToolEvent{{ID: "shared-call", Name: "unknown", ServerLabel: "Imported", Arguments: `{}`, Output: mode, IsCompleted: true}}, 0)
-		svc.tagChatToolInvocationsWithAssistantMessage(ctx, turn, []tools.ToolExecutionResult{{CallID: "shared-call"}}, response)
+		svc.tagChatToolInvocationsWithAssistantMessage(ctx, conv, turn, []tools.ToolExecutionResult{{CallID: "shared-call"}}, response)
 		if !svc.SaveAndFinish(ctx, conv, turn, response, AgenticResult{FullResponse: mode}, "", nil, nil) {
 			t.Fatal("terminal não persistido")
 		}

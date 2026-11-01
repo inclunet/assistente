@@ -1424,6 +1424,12 @@ func (r *MessageRepository) messageScopeQuery(conversationID string, parentID *s
 // O conjunto Unicode White_Space do TRIM corresponde a strings.TrimSpace;
 // somente detecta ausência de vínculo, sem normalizar os IDs usados no JOIN.
 func (r *MessageRepository) timelineItemCTE(parentID *string) string {
+	return r.timelineItemCTEWithPredicates(parentID, "chat_messages m", "")
+}
+
+// Predicados são fragmentos internos com parâmetros, nunca SQL vindo da UI.
+// Seleção pontual restringe a fonte; paginação reutiliza a mesma classificação.
+func (r *MessageRepository) timelineItemCTEWithPredicates(parentID *string, messageSource, turnPredicate string) string {
 	parentPredicate := "m.parent_id IS NULL"
 	if parentID != nil {
 		parentPredicate = "m.parent_id = ?"
@@ -1436,6 +1442,7 @@ func (r *MessageRepository) timelineItemCTE(parentID *string) string {
 		} else {
 			extra += "q.parent_id = ?"
 		}
+		extra += turnPredicate
 	}
 	return fmt.Sprintf(`
 WITH scoped AS (
@@ -1446,7 +1453,7 @@ WITH scoped AS (
   CASE WHEN q.id IS NOT NULL THEN q.id ELSE m.id END AS anchor_id,
   CASE WHEN q.id IS NOT NULL THEN 1 ELSE 0 END AS slot,
   CASE WHEN m.role <> 'user' AND COALESCE(m.turn_id, '') <> '' AND q.id IS NULL THEN 1 ELSE 0 END AS invalid_turn_reference
- FROM chat_messages m
+ FROM %s
  LEFT JOIN chat_messages q ON m.role <> 'user' AND TRIM(COALESCE(m.turn_id, ''), char(9,10,11,12,13,32,133,160,5760,8192,8193,8194,8195,8196,8197,8198,8199,8200,8201,8202,8232,8233,8239,8287,12288)) <> ''
   AND q.id = m.turn_id AND q.role = 'user'
   AND q.conversation_id = m.conversation_id AND q.parent_id IS m.parent_id
@@ -1460,7 +1467,7 @@ WITH scoped AS (
   MAX(invalid_turn_reference) AS invalid_turn_reference
  FROM scoped
  GROUP BY item_kind, item_id, created_at, anchor_id, slot
-)`, parentPredicate, CurrentChatMessageSQL("m"), extra)
+)`, messageSource, parentPredicate, CurrentChatMessageSQL("m"), extra)
 }
 
 const timelineItemColumns = "kind, id, message_id, turn_id, created_at, anchor_id, invalid_turn_reference"
@@ -1597,16 +1604,18 @@ func (r *MessageRepository) fetchMessagesForTimelineItems(conversationID string,
 		}
 	}
 	query := r.messageScopeQuery(conversationID, parentID)
-	switch {
-	case len(turnIDs) > 0 && len(messageIDs) > 0:
-		query = query.Where("(role <> ? AND turn_id IN ?) OR id IN ?", "user", turnIDs, messageIDs)
-	case len(turnIDs) > 0:
-		query = query.Where("role <> ? AND turn_id IN ?", "user", turnIDs)
-	default:
-		query = query.Where("id IN ?", messageIDs)
+	parentPredicate := "parent_id IS NULL"
+	args := []interface{}{messageIDs, conversationID}
+	if parentID != nil {
+		parentPredicate = "parent_id = ?"
+		args = append(args, *parentID)
 	}
+	args = append(args, turnIDs)
+	// Seleção pontual antes de carregar payloads; UNION elimina sobreposição.
+	// CROSS JOIN preserva as buscas por identidade também em janelas mistas.
+	query = query.Table("(SELECT id FROM chat_messages WHERE id IN ? UNION SELECT id FROM chat_messages WHERE conversation_id=? AND "+parentPredicate+" AND role <> 'user' AND turn_id IN ?) selected_payload CROSS JOIN chat_messages ON chat_messages.id=selected_payload.id", args...)
 	var messages []ChatMessage
-	if err := query.Order("created_at ASC, id ASC").Find(&messages).Error; err != nil {
+	if err := query.Order("chat_messages.created_at ASC, chat_messages.id ASC").Find(&messages).Error; err != nil {
 		return nil, err
 	}
 	// Somente a cópia retornada perde o vínculo inválido para não ser reagrupada

@@ -58,6 +58,7 @@ type IterationHandler interface {
 
 // ServiceConfig contém todas as dependências injetadas do AgentService.
 type ServiceConfig struct {
+	Projection       *chat.LiveProjection
 	Turns            TurnStore
 	Timeline         chat.TimelineSnapshotReader
 	Emitter          events.Emitter
@@ -216,9 +217,13 @@ func NewService(cfg ServiceConfig) *Service {
 	if cfg.ToolExecutor != nil && cfg.ToolInvocations == nil {
 		panic("agent service: tool invocation ledger not configured")
 	}
+	projection := cfg.Projection
+	if projection == nil {
+		projection = chat.NewLiveProjection(cfg.Timeline)
+	}
 	return &Service{
 		turns:            cfg.Turns,
-		projection:       chat.NewLiveProjection(cfg.Timeline),
+		projection:       projection,
 		timeline:         cfg.Timeline,
 		emitter:          cfg.Emitter,
 		msgRepo:          cfg.MsgRepo,
@@ -1221,7 +1226,16 @@ func (s *Service) executeToolCall(ctx context.Context, call tools.ToolCall, orig
 	return res.Execution, res.Persisted
 }
 
-func (s *Service) tagChatToolInvocationsWithAssistantMessage(ctx context.Context, turnID string, execResults []tools.ToolExecutionResult, assistantMessageID string) {
+func (s *Service) tagChatToolInvocationsWithAssistantMessage(ctx context.Context, conversationID, turnID string, execResults []tools.ToolExecutionResult, assistantMessageID string) {
+	if err := s.projection.ApplyStorageMutation(ctx, conversationID, []string{"turn:" + turnID}, func() ([]string, error) {
+		s.persistToolPresentationLinks(ctx, turnID, execResults, assistantMessageID)
+		return nil, nil
+	}); err != nil {
+		logging.Warnf(ctx, "agent.service", "falha ao coordenar atualização da apresentação do ledger: %v", err)
+	}
+}
+
+func (s *Service) persistToolPresentationLinks(ctx context.Context, turnID string, execResults []tools.ToolExecutionResult, assistantMessageID string) {
 	if strings.TrimSpace(turnID) == "" || assistantMessageID == "" || len(execResults) == 0 {
 		return
 	}

@@ -176,6 +176,17 @@ type chatOriginLink struct {
 	TurnID         string
 }
 
+// ResolveChatOrigin compartilha a resolução usada por Create. Não abre um
+// writer; o chamador pode adquirir a barreira da projeção antes da transação.
+func (r *DBRepository) ResolveChatOrigin(ctx context.Context, originID string) (string, string, error) {
+	userID, err := database.RequireUserID(ctx)
+	if err != nil {
+		return "", "", err
+	}
+	link, err := resolveChatOriginTx(ctx, r.db, userID, originID)
+	return link.ConversationID, link.TurnID, err
+}
+
 func resolveChatOriginTx(ctx context.Context, tx *gorm.DB, userID, originID string) (chatOriginLink, error) {
 	if tx != nil {
 		tx = tx.WithContext(ctx)

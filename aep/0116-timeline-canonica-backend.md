@@ -1,8 +1,90 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — fase 1 concluída; fase 2 com publicação automática do lifecycle; invalidações, transporte e cutover pendentes
+## Status: In Progress — fase 1 concluída; fase 2 com lifecycle e ledger integrados ao projetor; demais escritores, transporte e cutover pendentes
 
 Data: 2026-10-30
+
+### Recorte: reconciliação de mutações e ledger (2026-11-01)
+
+Falha auxiliar de publicação não bloqueia páginas legadas autorizadas; journal/replay e snapshot canônico continuam suspensos. Regressão com resposta acima de 8 MiB cobre página pequena, revogação e recuperação. O executor coordenado tem provas com ferramenta bloqueada (leitura e mutação concorrentes) e falha de MarkRunning (exclusão reconciliada antes do retorno), usando SQLite e projetor reais.
+
+`ApplyStorageMutation` mantém a barreira da conversa durante a operação externa
+inteira e sua reconciliação. Reserva a instância mesmo sem observadores prévios,
+para a primeira inscrição não ultrapassar um commit pendente. Sem bases ou
+observadores, libera a instância após a gravação sem consultar uma projeção inútil.
+Callbacks de storage não reentram no projetor nem emitem eventos; a ordem é
+barreira do projetor antes da transação SQLite. Uma falha após escrita parcial
+também reconcilia o estado confirmado, preservando o resultado original do writer.
+
+`ReadSelection` autoriza a conversa e lê IDs explícitos, seus escopos reais,
+mensagens, turnos e ledger no mesmo snapshot. Ausência nesta seleção pode emitir
+`item_remove`; ausência numa página continua sem significar exclusão. A seleção
+omite mídia/áudio e aplica o orçamento de fonte antes da materialização. O
+preflight usa até duas consultas por lote de 400 âncoras, não duas por item;
+seleção apenas de mensagens dispensa a consulta de ledger. O orçamento distingue
+mensagens e turnos: uma pergunta isolada não paga pelas respostas/ferramentas
+fora da seleção. A fonte do SUM usa buscas indexadas e UNION sem dupla contagem.
+O filtro de IDs antecede a classificação compartilhada; `EXPLAIN QUERY PLAN`
+com 1.000 mensagens comprova busca por PK e pelo índice de turno/escopo, incluindo
+o preflight de mensagens, a busca do ledger por usuário/origem/turno e a leitura
+final dos payloads. Esta também seleciona por UNION antes de materializar,
+mantendo escopo, filtro de execução e omissão de mídia.
+Pergunta legada com `turn_id=id` só entra em `message:<id>`; orçamento e leitores
+de resposta excluem `role=user` antes de carregar conteúdo, inclusive no lifecycle.
+
+Falha de reconciliação suspende publicação/replay e troca a época. Recuperação
+reconcilia todos os IDs materializados antes de liberar a publicação; conserva
+buffers válidos e desvincula execuções comprovadamente substituídas/excluídas.
+Cada inscrição precisa renovar seu próprio snapshot da nova época. Há um
+suplemento limitado a 512 IDs de criações ainda não materializadas; além dessa
+cota, o snapshot solicitado descobre os itens, sem fila ilimitada durante falha.
+A recuperação parcela conjuntos maiores, reduzindo o lote quando atingir 8 MiB,
+e exige versão idêntica entre parcelas antes de liberar replay. Uma execução
+concluída ainda pendente de publicação também renova sua base; resultado tardio
+do ledger não pode ser sobrescrito pelo flush terminal. Regressões cobrem duas
+janelas independentes acima de 8 MiB somadas e drift depois da primeira parcela.
+Recuperação explícita de turno permanece disponível se a publicação auxiliar
+continuar acima da cota: `ReadTurn` autoriza e devolve persistência/buffers,
+enquanto journal e replay ficam suspensos. A leitura não publica o item grande
+nem ignora revogação; reduzir o conteúdo permite recuperar a publicação normal.
+
+O bootstrap compartilha o mesmo projetor entre agente e ledger. Criação,
+running, conclusão e exclusões de compensação passam pelo coordenador; a tool
+executa fora da barreira. A atualização de vínculos de apresentação feita pelo
+agente também participa. Origens antigas usam a mesma resolução autorizada de
+`Create`, sem reconstrução de autoridade no frontend. Argumentos/resultados
+permanecem exclusivamente no ledger (AEP-0104).
+
+Evidências: `storage_publication_test.go` cobre escopo/ownership, exclusão com
+erro parcial e preservação de buffers, item fora da seleção, recuperação e
+época por janela, criação durante falha, primeira inscrição concorrente e ledger
+real composto com texto vivo. A prova de lote verifica uma consulta para 80
+mensagens e duas ao incluir turnos. Pergunta isolada com resposta e ledger acima
+de 8 MiB fora da janela continua recuperável; seleção mensagem+turno não duplica
+bytes. Não representa ainda medição de heap nem benchmark do cutover.
+
+Validação local: 327 testes seguros de chat, 362 de database, 137 de agente, 96 de toolinvocations
+e 10 de app; build/vet e lint Go incremental aprovados. TypeScript, ESLint e
+Stylelint passaram (2.124 avisos CSS preexistentes, zero erros); Vitest seguro:
+484 arquivos, 5.887 testes aprovados. Nenhum teste ACP foi executado localmente.
+Revisor independente review_aep: quatorze rodadas; a primeira identificou a corrida
+com a inscrição inicial e o custo por âncora. Corrigidos ambos, gate final aprovado
+sem pendências. Copilot apontou o orçamento agregado, a base terminal antiga e
+o filtro tardio da seleção; corrigidos com regressões e nova aprovação local.
+Segunda rodada remota identificou custo/escopo excessivos no preflight; corrigidos
+com seleção por tipo de item e EXPLAIN também das consultas de orçamento.
+Terceira rodada remota identificou bloqueio da recuperação explícita por item
+acima da cota; regressão cobre leitura autorizada, buffer, replay suspenso,
+revogação e recuperação posterior da publicação. Nona revisão local aprovada.
+Quarta rodada remota apontou payloads com filtro OR e a pergunta legada no
+orçamento; corrigidos com EXPLAIN da materialização e regressão de pergunta
+acima de 8 MiB com resposta curta, lifecycle e Refresh após mutação de ledger.
+A revisão remota e o CI completam a entrega do PR.
+
+Limites: o coordenador já trata exclusões, mas os comandos de edição/exclusão de
+mensagens, import, manutenção e speech ainda precisam aderir. Patches de participação
+das janelas, emissor autenticado, bindings Wails e consumidor frontend continuam
+pendentes. Não há promessa de sincronização pública completa neste recorte.
 
 ### Recorte: publicação automática do lifecycle (2026-11-01)
 

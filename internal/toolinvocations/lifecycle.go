@@ -193,7 +193,7 @@ func (s *Service) beginInvocation(ctx context.Context, req invocationStart) (Inv
 		populateInputProjection(&inv)
 	}
 	opCtx, cancel := s.persistOpCtx(persistCtx)
-	err = s.repo.Create(opCtx, &inv, CreateOptions{ArchivalToolName: catalog.archivalName})
+	err = s.mutateInvocation(opCtx, &inv, func() error { return s.repo.Create(opCtx, &inv, CreateOptions{ArchivalToolName: catalog.archivalName}) })
 	cancel()
 	if err != nil {
 		s.recordPersistenceFailure()
@@ -212,7 +212,7 @@ func (s *Service) beginInvocation(ctx context.Context, req invocationStart) (Inv
 		startedAt = inv.QueuedAt
 	}
 	opCtx, cancel = s.persistOpCtx(persistCtx)
-	err = s.repo.MarkRunning(opCtx, inv.ID, startedAt)
+	err = s.mutateInvocation(opCtx, &inv, func() error { return s.repo.MarkRunning(opCtx, inv.ID, startedAt) })
 	cancel()
 	if err != nil {
 		s.recordPersistenceFailure()
@@ -220,7 +220,7 @@ func (s *Service) beginInvocation(ctx context.Context, req invocationStart) (Inv
 		// Uma execução local ainda não aconteceu: falha fechada, sem executar.
 		if !req.external {
 			deleteCtx, deleteCancel := s.persistOpCtx(persistCtx)
-			deleteErr := s.repo.Delete(deleteCtx, inv.ID)
+			deleteErr := s.mutateInvocation(deleteCtx, &inv, func() error { return s.repo.Delete(deleteCtx, inv.ID) })
 			deleteCancel()
 			if deleteErr != nil {
 				s.recordPersistenceFailure()
@@ -245,7 +245,7 @@ func (s *Service) finishInvocation(ctx context.Context, inv *Invocation, req inv
 		cancel()
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			opCtx, cancel = s.persistOpCtx(persistCtx)
-			deleteErr := s.repo.Delete(opCtx, inv.ID)
+			deleteErr := s.mutateInvocation(opCtx, inv, func() error { return s.repo.Delete(opCtx, inv.ID) })
 			cancel()
 			if deleteErr != nil {
 				s.recordPersistenceFailure()
@@ -278,14 +278,14 @@ func (s *Service) finishInvocation(ctx context.Context, inv *Invocation, req inv
 	}
 	inv.CompletedAt = &completedAt
 	opCtx, cancel := s.persistOpCtx(persistCtx)
-	err := s.repo.Complete(opCtx, inv.ID, inv)
+	err := s.mutateInvocation(opCtx, inv, func() error { return s.repo.Complete(opCtx, inv.ID, inv) })
 	cancel()
 	if err != nil {
 		s.recordPersistenceFailure()
 		logging.Errorf(ctx, "toolinvocations.service", "failed to complete invocation (id=%s): %v", inv.ID, err)
 		if outcome.deleteOnFailure {
 			deleteCtx, deleteCancel := s.persistOpCtx(persistCtx)
-			deleteErr := s.repo.Delete(deleteCtx, inv.ID)
+			deleteErr := s.mutateInvocation(deleteCtx, inv, func() error { return s.repo.Delete(deleteCtx, inv.ID) })
 			deleteCancel()
 			if deleteErr != nil {
 				s.recordPersistenceFailure()

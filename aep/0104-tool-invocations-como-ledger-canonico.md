@@ -23,6 +23,13 @@ Resultados tardios de registros existentes permanecem aceitos, sem nova admissã
 da execução encerrada. A prova final de composição com origens mistas e o cutover
 do consumidor permanecem no AEP-0116; o status continua In Progress.
 
+Em 01/11/2026, o lifecycle de persistência do ledger passou a compartilhar o
+coordenador de mutações do projetor de chat (AEP-0116). Apenas a gravação e sua
+reconciliação ficam sob a barreira; a execução da ferramenta permanece fora dela.
+`TestStoragePublicationLedgerUsesSharedProjection` comprova publicação do registro
+concluído junto dos buffers vivos, inclusive com origem que informa apenas o ID.
+O transporte público e o cutover continuam pendentes; o status permanece In Progress.
+
 **Classificação de falhas (25/10/2026):** falha de validação da origem ou criação do registro
 no ledger antes de executar uma tool de chat retorna `unavailable` com código
 `invocation_ledger_unavailable`, mantendo `Persisted=false` e zero efeitos.

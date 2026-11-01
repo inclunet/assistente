@@ -51,6 +51,9 @@ func (c *projectionConversation) failPublicationLocked(t *liveTurn, err error) {
 }
 
 func (c *projectionConversation) publicationErrorLocked() error {
+	if c.storagePublicationErr != nil {
+		return errors.Join(ErrTimelinePublication, c.storagePublicationErr)
+	}
 	for _, t := range c.turns {
 		if t.publicationErr != nil {
 			return errors.Join(ErrTimelinePublication, t.publicationErr)
@@ -199,7 +202,7 @@ func (p *LiveProjection) recoverPublicationLocked(c *projectionConversation, tur
 		return
 	}
 	t := c.turns[turnID]
-	if t != nil && !t.detached && (!t.finished || t.publicationErr != nil) {
+	if t != nil && !t.detached && (!t.finished || t.publicationErr != nil || t.publicationDirty) {
 		c.setPublicationBaseLocked(t, item)
 	}
 }

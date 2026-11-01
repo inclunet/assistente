@@ -50,6 +50,7 @@ type TimelineSnapshotReader interface {
 // A publicação automática exige leitura limitada antes de materializar payloads.
 type PublicationSnapshotReader interface {
 	ReadPublicationTurn(context.Context, string, string) (*TimelineTurnSnapshot, error)
+	TimelineSelectionReader
 }
 
 type DBTimelineReader struct{ db *gorm.DB }

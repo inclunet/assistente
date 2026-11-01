@@ -294,7 +294,7 @@ func TestTagChatToolInvocationsWithAssistantMessage_SkipsAlreadyTaggedMetadata(t
 	}
 
 	svc := newTestAgentService(ServiceConfig{})
-	svc.tagChatToolInvocationsWithAssistantMessage(ctx, "turn-1", []tools.ToolExecutionResult{{CallID: "call-1"}}, "assistant-1")
+	svc.tagChatToolInvocationsWithAssistantMessage(ctx, "conv-1", "turn-1", []tools.ToolExecutionResult{{CallID: "call-1"}}, "assistant-1")
 
 	var got database.ToolInvocation
 	if err := db.First(&got, "id = ?", invocation.ID).Error; err != nil {
