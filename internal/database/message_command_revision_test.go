@@ -1,9 +1,26 @@
 package database
 
 import (
+	"context"
 	"errors"
 	"testing"
 )
+
+// Os testes de storage continuam exercitando os mesmos guards/transações;
+// somente a aquisição do gate externo é infraestrutura do fixture.
+func messageCommandMutationForTest(ctx context.Context, conversationID, messageID, expected string, deleting bool, content ...string) (*ChatMessage, error) {
+	var text *string
+	if len(content) != 0 {
+		text = &content[0]
+	}
+	var message *ChatMessage
+	err := WithSQLiteMaintenance(ctx, func() error {
+		var err error
+		message, err = MutateMessageCommandWithinMaintenanceWithContext(ctx, conversationID, messageID, expected, deleting, text)
+		return err
+	})
+	return message, err
+}
 
 func TestMessageCommandPinRevisionDetectsABA(t *testing.T) {
 	setupTestDB(t)
@@ -23,7 +40,7 @@ func TestMessageCommandPinRevisionDetectsABA(t *testing.T) {
 		t.Fatal("ABA revision unchanged", err)
 	}
 	err = WithConversationLifecycle(testCtx(), func() error {
-		_, err := MutateMessageIfUnchangedWithinLifecycleWithContext(testCtx(), cid, mid, before, false)
+		_, err := messageCommandMutationForTest(testCtx(), cid, mid, before, false)
 		return err
 	})
 	if !errors.Is(err, ErrMessageContentChanged) {
@@ -59,7 +76,7 @@ func TestMessageCommandDeleteRollbackAndCrossConversation(t *testing.T) {
 				t.Fatal(err)
 			}
 			err = WithConversationLifecycle(testCtx(), func() error {
-				_, err := MutateMessageIfUnchangedWithinLifecycleWithContext(testCtx(), cid, mid, revision, true)
+				_, err := messageCommandMutationForTest(testCtx(), cid, mid, revision, true)
 				return err
 			})
 			if err == nil {
@@ -104,7 +121,7 @@ func TestMessageEditCommandAtomicCompareAndRollback(t *testing.T) {
 				}
 			}
 			err = WithConversationLifecycle(testCtx(), func() error {
-				_, err := UpdateMessageIfUnchangedWithinLifecycleWithContext(testCtx(), cid, mid, revision, "edited")
+				_, err := messageCommandMutationForTest(testCtx(), cid, mid, revision, false, "edited")
 				return err
 			})
 			if scenario == "success" {

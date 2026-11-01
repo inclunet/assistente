@@ -1,8 +1,51 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — fase 1 concluída; fase 2 com lifecycle e ledger integrados ao projetor; demais escritores, transporte e cutover pendentes
+## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger e comandos de mensagens integrados; demais escritores, transporte e cutover pendentes
 
 Data: 2026-10-30
+
+### Recorte: edição, fixação e exclusão de mensagens (2026-11-01)
+
+`ConversationsController` compartilha o coordenador do projetor para os comandos
+guardados de editar, fixar e excluir, e para os métodos de mensagem ainda usados
+por outros consumidores. Exclusão em lote é uma operação coordenada inteira:
+mesmo quando um item posterior falha, a projeção reconcilia exclusões anteriores
+já confirmadas sem converter o erro original em sucesso.
+
+Os comandos mantêm a ordem lifecycle → guard de sessão/workspace → manutenção →
+projetor → transação SQLite. `MutateMessageCommandWithinMaintenanceWithContext`
+unifica a gravação transacional de editar/fixar/excluir. Os dois entrypoints antigos,
+que ficaram sem consumidores produtivos, foram removidos; a aquisição de manutenção
+nos testes de storage passou ao fixture, preservando suas asserções. O controller
+usa o núcleo comum depois de adquirir os locks externos. Revisão
+esperada, ownership, cancelamento/preparo e confirmação de ações permanecem nos
+mesmos contratos. Eventos existentes são emitidos após sair da barreira do projetor.
+
+Edições e fixações selecionam somente o item físico e a resposta de seu turno,
+quando existente. Exclusões reconciliam os IDs materializados para cobrir cascatas.
+Não se adiciona consulta por delta nem reconstrução de grupos no frontend.
+A pré-leitura de edição, fixação e exclusão legadas (inclusive lote) autoriza e seleciona apenas ID, conversa e turno,
+sem materializar texto, áudio ou anexos para entrar no coordenador.
+
+Evidências em `controllers/conversation_timeline_mutation_test.go`: sete caminhos
+reais com banco e projetor compartilhado, incluindo fixação do representante,
+edição da pergunta/resposta, exclusão em cascata e lote parcialmente confirmado.
+O evento só ocorre após a leitura de reconciliação; os comandos comprovam aquisição
+de manutenção antes da projeção. Guard recusado não chega ao projetor.
+Regressão com áudio de 2 MiB verifica as colunas da pré-leitura e a recusa de
+ownership antes da coordenação, atendendo ao achado do Copilot.
+
+Validação local: 362 testes seguros de database, 94 de controllers e 21 de app
+(timeline/janelas/comandos de mensagem) aprovados; build, vet e golangci-lint
+incremental sem novas ocorrências. O frontend não mudou desde a validação da
+etapa anterior (TypeScript/ESLint/Stylelint e 5.887 testes seguros). Revisão local
+independente review_aep: a revisão completa da oitava rodada identificou vínculo legado composto apenas por espaços; a geração de IDs agora ignora respostas sem identidade, preservando IDs opacos válidos sem normalização. Regressão com espaços ASCII e Unicode e ID opaco verifica edição, fixação e atualização da inscrição sem bloquear a publicação. A nona rodada confirmou a correção, sem pendências.
+Nenhum teste ACP executado.
+
+Limites deste recorte: criação de mensagens, limpeza de conversa/import/manutenção
+e gravações de speech ainda precisam completar a integração. Participação de
+janelas, transporte e cutover frontend permanecem pendentes; o contrato público
+atual de eventos não foi substituído nesta entrega.
 
 ### Recorte: reconciliação de mutações e ledger (2026-11-01)
 

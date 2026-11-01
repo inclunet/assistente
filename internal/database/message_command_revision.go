@@ -91,56 +91,47 @@ func messageCommandRevisionTx(ctx context.Context, tx *gorm.DB, conversationID, 
 	return hex.EncodeToString(digest[:]), nil
 }
 
-// MutateMessageIfUnchangedWithinLifecycleWithContext compares and writes inside
-// one BEGIN IMMEDIATE. The caller owns the lifecycle gate, including events.
-func MutateMessageIfUnchangedWithinLifecycleWithContext(ctx context.Context, conversationID, messageID, expected string, deleting bool) (*ChatMessage, error) {
-	return mutateMessageIfUnchangedWithinLifecycle(ctx, conversationID, messageID, expected, deleting, nil)
-}
-
-func UpdateMessageIfUnchangedWithinLifecycleWithContext(ctx context.Context, conversationID, messageID, expected, content string) (*ChatMessage, error) {
-	return mutateMessageIfUnchangedWithinLifecycle(ctx, conversationID, messageID, expected, false, &content)
-}
-
-func mutateMessageIfUnchangedWithinLifecycle(ctx context.Context, conversationID, messageID, expected string, deleting bool, content *string) (*ChatMessage, error) {
+// MutateMessageCommandWithinMaintenanceWithContext unifica editar, fixar e
+// excluir. O chamador já possui lifecycle/manutenção e pode adquirir a barreira
+// da timeline antes de abrir este writer, sem inverter a ordem dos locks.
+func MutateMessageCommandWithinMaintenanceWithContext(ctx context.Context, conversationID, messageID, expected string, deleting bool, content *string) (*ChatMessage, error) {
 	if _, err := RequireUserID(ctx); err != nil {
 		return nil, err
 	}
 	var updated *ChatMessage
-	err := WithSQLiteMaintenance(ctx, func() error {
-		return withSQLiteImmediateTransaction(ctx, db, "message.command", func(tx *gorm.DB) error {
-			revision, err := messageCommandRevisionTx(ctx, tx, conversationID, messageID, deleting)
+	err := withSQLiteImmediateTransaction(ctx, db, "message.command", func(tx *gorm.DB) error {
+		revision, err := messageCommandRevisionTx(ctx, tx, conversationID, messageID, deleting)
+		if err != nil {
+			return err
+		}
+		if expected == "" || revision != expected {
+			return ErrMessageContentChanged
+		}
+		repo := NewMessageRepository(tx)
+		if deleting {
+			return repo.DeleteMessageWithContext(ctx, messageID)
+		}
+		if content != nil {
+			message, err := repo.GetMessageWithContext(ctx, messageID)
 			if err != nil {
 				return err
 			}
-			if expected == "" || revision != expected {
+			if message.Role != "user" || message.ParentID != nil {
 				return ErrMessageContentChanged
 			}
-			repo := NewMessageRepository(tx)
-			if deleting {
-				return repo.DeleteMessageWithContext(ctx, messageID)
-			}
-			if content != nil {
-				message, err := repo.GetMessageWithContext(ctx, messageID)
-				if err != nil {
-					return err
-				}
-				if message.Role != "user" || message.ParentID != nil {
-					return ErrMessageContentChanged
-				}
-				// Textual edits must preserve the message's generation metadata.
-				if err := repo.UpdateMessageTextWithContext(ctx, messageID, *content); err != nil {
-					return err
-				}
-				updated, err = repo.GetMessageWithContext(ctx, messageID)
-				return err
-			}
-			// Already in BEGIN IMMEDIATE; do not nest the legacy pin transaction.
-			if err := tx.Model(&ChatMessage{}).Where("id = ? AND conversation_id = ?", messageID, conversationID).Update("pinned", gorm.Expr("NOT pinned")).Error; err != nil {
+			// Textual edits must preserve the message's generation metadata.
+			if err := repo.UpdateMessageTextWithContext(ctx, messageID, *content); err != nil {
 				return err
 			}
 			updated, err = repo.GetMessageWithContext(ctx, messageID)
 			return err
-		})
+		}
+		// Already in BEGIN IMMEDIATE; do not nest the legacy pin transaction.
+		if err := tx.Model(&ChatMessage{}).Where("id = ? AND conversation_id = ?", messageID, conversationID).Update("pinned", gorm.Expr("NOT pinned")).Error; err != nil {
+			return err
+		}
+		updated, err = repo.GetMessageWithContext(ctx, messageID)
+		return err
 	})
 	return updated, err
 }

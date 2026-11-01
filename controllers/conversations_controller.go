@@ -15,6 +15,7 @@ import (
 // ConversationsController orquestra persistência de conversas/mensagens (AEP-0088).
 // Side-effects do App (reset de escopo, questionário, modelo do perfil) entram via hooks.
 type ConversationsControllerConfig struct {
+	MutateTimeline              func(context.Context, string, []string, func() ([]string, error)) error
 	ReadTimelineWindow          func(context.Context, database.MessageWindowQuery) (*chat.TimelineWindowSnapshot, error)
 	MsgRepo                     chat.MessageRepository
 	Emitter                     ports.Emitter
@@ -32,6 +33,7 @@ type ConversationsControllerConfig struct {
 
 // ConversationsController é o orquestrador do domínio conversations.
 type ConversationsController struct {
+	mutateTimeline          func(context.Context, string, []string, func() ([]string, error)) error
 	readTimelineWindow      func(context.Context, database.MessageWindowQuery) (*chat.TimelineWindowSnapshot, error)
 	msgRepo                 chat.MessageRepository
 	emitter                 ports.Emitter
@@ -73,6 +75,7 @@ func NewConversationsController(cfg ConversationsControllerConfig) *Conversation
 		cfg.DeleteWithinMaintenance = database.DeleteConversationsWithinMaintenanceWithContext
 	}
 	return &ConversationsController{
+		mutateTimeline:          cfg.MutateTimeline,
 		readTimelineWindow:      cfg.ReadTimelineWindow,
 		msgRepo:                 cfg.MsgRepo,
 		emitter:                 cfg.Emitter,
@@ -538,12 +541,12 @@ func (c *ConversationsController) DeleteMessage(ctx context.Context, messageID s
 			return err
 		}
 	}
-	msg, err := database.GetMessageWithContext(ctx, messageID)
+	msg, err := database.GetMessageIdentityWithContext(ctx, messageID)
 	if err != nil {
 		return err
 	}
 	convID := msg.ConversationID
-	if err := database.DeleteMessageWithContext(ctx, messageID); err != nil {
+	if err := c.coordinateMessageMutation(ctx, convID, nil, func() ([]string, error) { return nil, database.DeleteMessageWithContext(ctx, messageID) }); err != nil {
 		return err
 	}
 	c.messageDeleted(convID, messageID)
@@ -552,15 +555,17 @@ func (c *ConversationsController) DeleteMessage(ctx context.Context, messageID s
 
 // UpdateMessage atualiza o conteúdo de uma mensagem existente.
 func (c *ConversationsController) UpdateMessage(ctx context.Context, messageID string, newContent string) error {
-	msg, err := database.GetMessageWithContext(ctx, messageID)
+	msg, err := database.GetMessageIdentityWithContext(ctx, messageID)
 	if err != nil {
 		return err
 	}
-	if err := database.UpdateMessageContentWithContext(ctx,
-		messageID,
-		newContent,
-		0, 0, 0, "",
-	); err != nil {
+	if err := c.coordinateMessageMutation(ctx, msg.ConversationID, messageTimelineIDs(msg), func() ([]string, error) {
+		return nil, database.UpdateMessageContentWithContext(ctx,
+			messageID,
+			newContent,
+			0, 0, 0, "",
+		)
+	}); err != nil {
 		return err
 	}
 	c.messageUpdated(msg.ConversationID, messageID, newContent)
@@ -569,7 +574,15 @@ func (c *ConversationsController) UpdateMessage(ctx context.Context, messageID s
 
 // ToggleMessagePin alterna a fixação persistente e publica o novo estado.
 func (c *ConversationsController) ToggleMessagePin(ctx context.Context, messageID string) (*database.ChatMessage, error) {
-	msg, err := database.ToggleMessagePinWithContext(ctx, messageID)
+	msg, err := database.GetMessageIdentityWithContext(ctx, messageID)
+	if err != nil {
+		return nil, err
+	}
+	err = c.coordinateMessageMutation(ctx, msg.ConversationID, messageTimelineIDs(msg), func() ([]string, error) {
+		var err error
+		msg, err = database.ToggleMessagePinWithContext(ctx, messageID)
+		return nil, err
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -764,19 +777,21 @@ func (c *ConversationsController) DeleteMessages(ctx context.Context, conversati
 	if _, err := database.GetConversationInfoWithContext(ctx, conversationID); err != nil {
 		return err
 	}
-	for _, msgID := range messageIDs {
-		msg, err := database.GetMessageWithContext(ctx, msgID)
-		if err != nil {
-			return fmt.Errorf("erro ao localizar mensagem %s: %w", msgID, err)
+	return c.coordinateMessageMutation(ctx, conversationID, nil, func() ([]string, error) {
+		for _, msgID := range messageIDs {
+			msg, err := database.GetMessageIdentityWithContext(ctx, msgID)
+			if err != nil {
+				return nil, fmt.Errorf("erro ao localizar mensagem %s: %w", msgID, err)
+			}
+			if msg.ConversationID != conversationID {
+				return nil, fmt.Errorf("mensagem %s não pertence à conversa solicitada", msgID)
+			}
+			if err := database.DeleteMessageWithContext(ctx, msgID); err != nil {
+				return nil, fmt.Errorf("erro ao deletar mensagem %s: %w", msgID, err)
+			}
 		}
-		if msg.ConversationID != conversationID {
-			return fmt.Errorf("mensagem %s não pertence à conversa solicitada", msgID)
-		}
-		if err := database.DeleteMessageWithContext(ctx, msgID); err != nil {
-			return fmt.Errorf("erro ao deletar mensagem %s: %w", msgID, err)
-		}
-	}
-	return nil
+		return nil, nil
+	})
 }
 
 // SearchConversationHistory busca no conteúdo de mensagens (FTS5).

@@ -99,7 +99,7 @@ func TestMessageRevisionStorageFrozenClockDetectsABA(t *testing.T) {
 		}
 
 		err = WithConversationLifecycle(testCtx(), func() error {
-			_, err := MutateMessageIfUnchangedWithinLifecycleWithContext(testCtx(), conversationID, messageID, before, false)
+			_, err := messageCommandMutationForTest(testCtx(), conversationID, messageID, before, false)
 			return err
 		})
 		if !errors.Is(err, ErrMessageContentChanged) {
@@ -143,7 +143,7 @@ func TestMessageRevisionStorageFrozenClockDetectsABA(t *testing.T) {
 		}
 
 		err = WithConversationLifecycle(testCtx(), func() error {
-			_, err := UpdateMessageIfUnchangedWithinLifecycleWithContext(testCtx(), conversationID, messageID, messageBefore, "old commit")
+			_, err := messageCommandMutationForTest(testCtx(), conversationID, messageID, messageBefore, false, "old commit")
 			return err
 		})
 		if !errors.Is(err, ErrMessageContentChanged) {
@@ -354,14 +354,14 @@ func TestMessageRevisionStorageDeleteReinsertSameIDGetsFreshRevision(t *testing.
 		t.Fatal("delete/reinsert ABA não alterou snapshots com payload e datas idênticos")
 	}
 	err = WithConversationLifecycle(testCtx(), func() error {
-		_, err := UpdateMessageIfUnchangedWithinLifecycleWithContext(testCtx(), conversationID, messageID, oldMessageSnapshot, "old commit")
+		_, err := messageCommandMutationForTest(testCtx(), conversationID, messageID, oldMessageSnapshot, false, "old commit")
 		return err
 	})
 	if !errors.Is(err, ErrMessageContentChanged) {
 		t.Fatalf("commit antigo de texto após delete/reinsert foi aceito: %v", err)
 	}
 	err = WithConversationLifecycle(testCtx(), func() error {
-		_, err := MutateMessageIfUnchangedWithinLifecycleWithContext(testCtx(), conversationID, messageID, oldConversationSnapshot, true)
+		_, err := messageCommandMutationForTest(testCtx(), conversationID, messageID, oldConversationSnapshot, true)
 		return err
 	})
 	if !errors.Is(err, ErrMessageContentChanged) {
@@ -543,7 +543,7 @@ func TestMessageRevisionStorageCommittedFileWriterInvalidatesCapturedConversatio
 		t.Fatalf("writers confirmados não deixaram nonce novo: inicial=%q final=%q", initialRevision, finalRevision)
 	}
 	oldCommitErr := WithConversationLifecycle(testCtx(), func() error {
-		_, err := MutateMessageIfUnchangedWithinLifecycleWithContext(testCtx(), conversation.ID, message.ID, oldMessageSnapshot, false)
+		_, err := messageCommandMutationForTest(testCtx(), conversation.ID, message.ID, oldMessageSnapshot, false)
 		return err
 	})
 	if !errors.Is(oldCommitErr, ErrMessageContentChanged) {
