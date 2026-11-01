@@ -10,6 +10,7 @@ import (
 
 	"assistente/internal/database"
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 type countedPublicationReader struct {
@@ -19,7 +20,7 @@ type countedPublicationReader struct {
 	block atomic.Bool
 }
 
-func (r *countedPublicationReader) ReadTurn(ctx context.Context, conversationID, turnID string) (*TimelineTurnSnapshot, error) {
+func (r *countedPublicationReader) ReadPublicationTurn(ctx context.Context, conversationID, turnID string) (*TimelineTurnSnapshot, error) {
 	r.reads.Add(1)
 	if r.block.Load() {
 		if _, ok := ctx.Deadline(); !ok {
@@ -31,7 +32,7 @@ func (r *countedPublicationReader) ReadTurn(ctx context.Context, conversationID,
 	if r.fail.Load() {
 		return nil, errors.New("leitura indisponível")
 	}
-	return r.DBTimelineReader.ReadTurn(ctx, conversationID, turnID)
+	return r.DBTimelineReader.ReadPublicationTurn(ctx, conversationID, turnID)
 }
 
 func automaticFixture(t *testing.T) (snapshotFixture, *LiveProjection, *ExecutionProjection, *countedPublicationReader) {
@@ -160,6 +161,11 @@ func TestAutomaticPublicationTerminalAbsorbsScheduledFlush(t *testing.T) {
 
 func TestAutomaticPublicationReadFailurePreservesCommitAndRecoversNewerBuffers(t *testing.T) {
 	f, p, e, reader := automaticFixture(t)
+	subscription, snapshot, err := p.SubscribeTimeline(f.ctx, &fixtureTimelineSession{ctx: f.ctx, id: "publication-test"}, "history", database.MessageWindowQuery{ConversationID: f.conversation, Anchor: "end", Direction: "before", Limit: 20}, f.reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer subscription.Close()
 	repo := database.NewChatTurnRepository(f.db)
 	s := e.StartStream(0)
 	s.Append("antes")
@@ -175,6 +181,9 @@ func TestAutomaticPublicationReadFailurePreservesCommitAndRecoversNewerBuffers(t
 		t.Fatal("base antiga ainda utilizável após erro")
 	}
 	c.mu.Unlock()
+	if batches, ok, err := subscription.Replay(f.ctx, snapshot.Epoch, 0, f.reader); !errors.Is(err, ErrTimelinePublication) || ok || len(batches) != 0 {
+		t.Fatalf("replay serviu base inválida: %v %v %v", batches, ok, err)
+	}
 	s.Append(" depois")
 	_, _ = e.AssignResponse(func() (string, error) { return id, nil })
 	c.mu.Lock()
@@ -190,6 +199,103 @@ func TestAutomaticPublicationReadFailurePreservesCommitAndRecoversNewerBuffers(t
 	item, _ := publicationItem(t, e)
 	if canonicalText(item) != "antes depois" || canonicalText(canonicalItem(recovery.Item)) != "antes depois" {
 		t.Fatal("recuperação perdeu bytes mais novos")
+	}
+}
+
+func TestAutomaticPublicationRecoveryFlushesOtherFinishedTurns(t *testing.T) {
+	for _, window := range []bool{false, true} {
+		name := "turn"
+		if window {
+			name = "window"
+		}
+		t.Run(name, func(t *testing.T) {
+			f, p, e, reader := automaticFixture(t)
+			repo := database.NewChatTurnRepository(f.db)
+			id, err := e.AssignResponse(func() (string, error) { return repo.EnsureResponse(f.ctx, f.conversation, f.question, e.executionID) })
+			if err != nil {
+				t.Fatal(err)
+			}
+			reader.fail.Store(true)
+			if err := e.CommitResponse(database.TurnCompleted, "completed", "final", "", func() (database.ChatTimelineVersion, error) {
+				return repo.FinishResponseWithVersion(f.ctx, f.conversation, f.question, e.executionID, database.TurnCompleted, "completed", id, &database.MessageOptions{Content: "final"})
+			}); err != nil {
+				t.Fatal(err)
+			}
+			c := e.conversation
+			c.mu.Lock()
+			other := &liveTurn{turnID: "other", finished: true, state: database.TurnCompleted}
+			c.turns["other"] = other
+			c.setPublicationBaseLocked(other, &TimelineItem{ItemID: "turn:other", TurnID: "other", Kind: "response", State: database.TurnCompleted, Durability: "persisted", Segments: []ResponseSegment{{Kind: "text", SegmentID: "other-text", Text: "aguardando"}}})
+			c.flushPublicationLocked(f.conversation)
+			c.mu.Unlock()
+			reader.fail.Store(false)
+			if window {
+				_, err = p.ReadCanonicalWindow(f.ctx, database.MessageWindowQuery{ConversationID: f.conversation, Anchor: "end", Direction: "before", Limit: 20}, f.reader)
+			} else {
+				_, err = p.ReadRecovery(f.ctx, f.conversation, f.question, f.reader)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			c.mu.Lock()
+			defer c.mu.Unlock()
+			if canonicalText(c.publication.items["turn:other"]) != "aguardando" || other.publicationBase != nil || c.turns[e.turnID].publicationBase != nil {
+				t.Fatal("recuperação deixou publicação/base terminal pendente")
+			}
+		})
+	}
+}
+
+func TestAutomaticPublicationReadBudgetAndMediaExclusion(t *testing.T) {
+	f := newSnapshotFixture(t)
+	large := strings.Repeat("x", canonicalSourceBytes+1)
+	if err := f.db.Model(&database.ChatMessage{}).Where("id = ?", f.question).Updates(map[string]any{"audio": large, "media": large}).Error; err != nil {
+		t.Fatal(err)
+	}
+	questionRead := false
+	if err := f.db.Callback().Query().After("gorm:query").Register("publication_question_columns", func(tx *gorm.DB) {
+		if message, ok := tx.Statement.Dest.(*database.ChatMessage); ok && message.ID == f.question {
+			questionRead = true
+			if len(tx.Statement.Selects) != 4 || message.Media != "" || message.Audio != "" {
+				t.Error("pergunta carregou payload em vez de metadados")
+			}
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.db.Model(&database.ChatMessage{}).Where("id = ?", f.answer).Updates(map[string]any{"audio": large, "media": large}).Error; err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := f.reader.ReadPublicationTurn(f.ctx, f.conversation, f.question)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !questionRead {
+		t.Fatal("metadados da pergunta não verificados")
+	}
+	if snapshot.Response.Representative.Audio != "" || snapshot.Response.Representative.Media != "" {
+		t.Fatal("leitura automática materializou mídia")
+	}
+	if err := f.db.Model(&database.ChatMessage{}).Where("id = ?", f.answer).Update("content", large).Error; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.reader.ReadPublicationTurn(f.ctx, f.conversation, f.question); !errors.Is(err, ErrTimelineSourceLimit) {
+		t.Fatalf("payload excedente: %v", err)
+	}
+	if err := f.db.Model(&database.ChatMessage{}).Where("id = ?", f.answer).Update("content", "curto").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := f.db.Model(&database.ToolInvocation{}).Where("id = ?", f.invocation).Update("output_preview", large).Error; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.reader.ReadPublicationTurn(f.ctx, f.conversation, f.question); !errors.Is(err, ErrTimelineSourceLimit) {
+		t.Fatalf("ledger excedente: %v", err)
+	}
+	if err := f.db.Model(&database.ToolInvocation{}).Where("id = ?", f.invocation).Update("conversation_id", nil).Error; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.reader.ReadPublicationTurn(f.ctx, f.conversation, f.question); !errors.Is(err, ErrTimelineSourceLimit) {
+		t.Fatalf("ledger legado excedente: %v", err)
 	}
 }
 

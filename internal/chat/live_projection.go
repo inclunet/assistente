@@ -19,7 +19,7 @@ import (
 // A unidade de serialização é usuário/conversa. Não publica eventos nem chama
 // callbacks externos sob o mutex (somente storage no coordenador). Revision é interna; não é sequence do protocolo wire.
 type LiveProjection struct {
-	reader        TurnSnapshotReader
+	reader        PublicationSnapshotReader
 	mu            sync.Mutex
 	conversations map[projectionKey]*projectionConversation
 }
@@ -97,7 +97,7 @@ type StreamProjection struct {
 	generation uint64
 }
 
-func NewLiveProjection(reader TurnSnapshotReader) *LiveProjection {
+func NewLiveProjection(reader PublicationSnapshotReader) *LiveProjection {
 	return &LiveProjection{reader: reader, conversations: make(map[projectionKey]*projectionConversation)}
 }
 

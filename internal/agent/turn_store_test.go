@@ -63,6 +63,10 @@ func (s *handlerTestTurnStore) FinishResponse(ctx context.Context, _, _, _, _, _
 // usam DBTimelineReader real, sem fallback produtivo para leituras avulsas.
 type handlerTestTimelineReader struct{ repo chat.MessageRepository }
 
+func (r *handlerTestTimelineReader) ReadPublicationTurn(ctx context.Context, conversationID, turnID string) (*chat.TimelineTurnSnapshot, error) {
+	return r.ReadTurn(ctx, conversationID, turnID)
+}
+
 func (r *handlerTestTimelineReader) ReadTurn(ctx context.Context, conversationID, turnID string) (*chat.TimelineTurnSnapshot, error) {
 	question, err := r.repo.GetMessage(ctx, turnID)
 	if err != nil {

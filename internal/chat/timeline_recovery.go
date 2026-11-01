@@ -85,6 +85,7 @@ func (p *LiveProjection) ReadRecovery(ctx context.Context, conversationID, turnI
 		}
 	}
 	if result.Item != nil {
+		c.flushPublicationLocked(conversationID)
 		c.publishCanonical(conversationID, []*TimelineItem{result.Item})
 	}
 	sort.Slice(result.Retained, func(i, j int) bool { return result.Retained[i].ExecutionID < result.Retained[j].ExecutionID })
@@ -340,6 +341,7 @@ func (p *LiveProjection) readWindowLocked(ctx context.Context, query database.Me
 		}
 	}
 	if canonical {
+		c.flushPublicationLocked(query.ConversationID)
 		c.publishCanonical(query.ConversationID, snapshot.Items)
 	}
 	return snapshot, nil

@@ -30,7 +30,7 @@ func (e *ExecutionProjection) refreshPublicationLocked() {
 	}
 	ctx, cancel := context.WithTimeout(e.ctx, canonicalReadTimeout)
 	defer cancel()
-	snapshot, err := e.owner.reader.ReadTurn(ctx, e.key.conversationID, e.turnID)
+	snapshot, err := e.owner.reader.ReadPublicationTurn(ctx, e.key.conversationID, e.turnID)
 	if err == nil && (snapshot == nil || snapshot.Response == nil || snapshot.Turn == nil || snapshot.Turn.CurrentExecutionID == nil || *snapshot.Turn.CurrentExecutionID != e.executionID || snapshot.Version.Incarnation != t.incarnation) {
 		err = ErrProjectionRecoveryRequired
 	}
@@ -62,6 +62,10 @@ func (c *projectionConversation) publicationErrorLocked() error {
 // Remove mídia e áudio da base auxiliar, sem alterar o snapshot do chamador.
 // O orçamento cobre a conversa inteira; excesso exige recuperação explícita.
 func (c *projectionConversation) setPublicationBaseLocked(t *liveTurn, source *TimelineItem) {
+	if !publicationSourceWithinBudget(source) {
+		c.failPublicationLocked(t, ErrTimelineSourceLimit)
+		return
+	}
 	base := *source
 	base.legacyRepresentative = nil
 	base.ScopeParentID = copyPublicationValue(source.ScopeParentID)
