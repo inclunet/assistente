@@ -124,6 +124,7 @@ func (p *LiveProjection) Admit(ctx context.Context, conversationID, turnID, exec
 	if err != nil {
 		return nil, err
 	}
+	reconcileProjectionVersion(c, version)
 	if old := c.turns[turnID]; old != nil && (old.volatile || old.detached || hasUncommittedContent(old)) {
 		old.publicationBase, old.publicationBytes = nil, 0
 		if !old.finished {
@@ -131,10 +132,6 @@ func (p *LiveProjection) Admit(ctx context.Context, conversationID, turnID, exec
 		}
 		c.retained[old.executionID] = old
 	}
-	if c.incarnation != "" && c.incarnation != version.Incarnation {
-		c.epoch = uuid.NewString()
-	}
-	c.incarnation = version.Incarnation
 	c.turns[turnID] = &liveTurn{turnID: turnID, executionID: executionID, incarnation: version.Incarnation, state: database.TurnPreparing, streams: make(map[int]*liveStream)}
 	c.revision++
 	e := &ExecutionProjection{ctx: context.WithoutCancel(ctx), owner: p, key: key, conversation: c, turnID: turnID, executionID: executionID}

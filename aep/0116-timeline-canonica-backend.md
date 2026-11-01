@@ -100,6 +100,11 @@ Ao remover o último erro, descarrega todos os turnos sujos e libera bases termi
 tanto na recuperação individual quanto na leitura canônica de janela.
 Desvinculação comprovada retira o turno dos bloqueadores de publicação, mantendo
 os bytes retidos para recuperação explícita.
+Admissão e leituras compartilham a reconciliação de encarnação: a troca comprovada
+invalida bases/erros antigos também fora da página, sem apagar buffers recuperáveis.
+O flush só admite a encarnação atual. Descarte autorizado e leitura de janela
+legada descarregam os turnos pendentes depois de remover bloqueadores; leituras
+recusadas não alteram publicação.
 
 Limite deste recorte: publicação automática no journal interno para os escritores
 do lifecycle integrados. Alterações externas de mensagens/ledger, patches de
@@ -112,7 +117,7 @@ sem leitura por token, terminal antes do retorno, callback antigo, falha de leit
 após commit, recuperação com buffers novos, cancelamento/retry e limite/isolamento
 da base, deadline após commit e desvinculação sem bloquear outro turno, inclusive
 após terminal confirmado, replay recusado durante falha, recuperação com outro turno
-pendente e limites antes da leitura (inclusive ledger legado). Passaram 307 testes seguros de chat, 137 de agente e
+pendente e limites antes da leitura (inclusive ledger legado). Passaram 308 testes seguros de chat, 137 de agente e
 dez de app; build/vet e lint incremental sem ocorrências novas. Revisor independente
 review_aep: três rodadas; corrigidos deadline ausente e bloqueio após desvinculação
 nas variantes ativa e concluída. Terceira rodada aprovada sem pendências.
@@ -123,6 +128,9 @@ preflight; segunda rodada adicional aprovada sem pendências.
 Copilot: corrigidas composição do erro sem chunks e durabilidade de terminal não
 gravado; regressões com SQLite comparam journal e recuperação nas três variantes.
 Sexta rodada local review_aep valida essas correções antes do push.
+Segunda rodada Copilot apontou flush entre encarnações e desbloqueio sem flush
+no descarte/janela legada. Corrigidos com regressões de publicação, retenção de
+bytes, callback antigo e recusa de autorização; sétima revisão local aprovada.
 Nenhum teste ACP executado localmente.
 
 ### Recorte: inscrições internas com recuperação explícita (2026-10-31)
