@@ -234,6 +234,67 @@ func TestStoragePublicationBudgetDoesNotDoubleCountSelectedMessageAndTurn(t *tes
 	}
 }
 
+func TestStoragePublicationOversizedTurnStillAllowsAuthorizedExplicitRecovery(t *testing.T) {
+	f, p, e, _ := automaticFixture(t)
+	sub, before, err := p.SubscribeTimeline(f.ctx, &fixtureTimelineSession{ctx: f.ctx, id: "large-recovery"}, "history", database.MessageWindowQuery{ConversationID: f.conversation, Anchor: "end", Direction: "before", Limit: 20}, f.reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sub.Close()
+	repo := database.NewChatTurnRepository(f.db)
+	id, err := e.AssignResponse(func() (string, error) { return repo.EnsureResponse(f.ctx, f.conversation, f.question, e.executionID) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.StartStream(0).Append("bytes recuperáveis")
+	large := strings.Repeat("x", canonicalSourceBytes+1)
+	if err := repo.WritePartial(f.ctx, e.executionID, id, large, "", false); err != nil {
+		t.Fatal(err)
+	}
+	svc := toolinvocations.NewServiceWithCoordinator(toolinvocations.NewDBRepository(f.db), nil, NewLedgerMutationCoordinator(p, f.db))
+	if _, err := svc.Record(f.ctx, toolinvocations.RecordRequest{Origin: toolinvocations.Origin{Type: toolinvocations.OriginChat, ID: f.question, ChatExecutionID: &e.executionID}, Call: tools.ToolCall{ID: "large-recovery", Function: tools.FunctionCall{Name: "snapshot-tool", Arguments: "{}"}}, Result: tools.ToolResult{Content: "confirmado"}}); err != nil {
+		t.Fatal("falha auxiliar alterou commit", err)
+	}
+	c := e.conversation
+	c.mu.Lock()
+	sequence := c.publication.sequence
+	epoch := c.epoch
+	storageErr := c.storagePublicationErr
+	c.mu.Unlock()
+	if !errors.Is(storageErr, ErrTimelineSourceLimit) {
+		t.Fatal("fixture não excedeu publicação", storageErr)
+	}
+	result, err := p.ReadRecovery(f.ctx, f.conversation, f.question, f.reader)
+	if err != nil {
+		t.Fatal("orçamento auxiliar bloqueou recuperação explícita", err)
+	}
+	if result.Persisted.Response.Representative.Content != large || result.Active == nil || testLiveSegment(result.Active.Streams[0], "text", 0).Text != "bytes recuperáveis" {
+		t.Fatal("recuperação perdeu persistência ou buffer")
+	}
+	c.mu.Lock()
+	unchanged := c.publication.sequence == sequence && c.epoch == epoch && c.publicationErrorLocked() != nil
+	c.mu.Unlock()
+	if !unchanged {
+		t.Fatal("recuperação acima da cota publicou ou liberou journal")
+	}
+	if _, ok, err := sub.Replay(f.ctx, before.Epoch, 0, f.reader); ok || !errors.Is(err, ErrTimelinePublication) {
+		t.Fatal("replay liberado", err)
+	}
+	if _, err := sub.Refresh(f.ctx); !errors.Is(err, ErrTimelineSourceLimit) {
+		t.Fatal("snapshot automático ignorou cota", err)
+	}
+	denied := errors.New("acesso revogado")
+	if result, err := p.ReadRecovery(f.ctx, f.conversation, f.question, recoveryReader{func() (*TimelineTurnSnapshot, error) { return nil, denied }}); result != nil || !errors.Is(err, denied) {
+		t.Fatal("recuperação ignorou autorização", err)
+	}
+	if err := repo.WritePartial(f.ctx, e.executionID, id, "curto", "", false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sub.Refresh(f.ctx); err != nil {
+		t.Fatal("publicação não recuperou após redução", err)
+	}
+}
+
 func TestStoragePublicationRecoveryRetainsNewIdentityAfterReadFailure(t *testing.T) {
 	f, p, e, _ := automaticFixture(t)
 	r := &failingSelectionReader{DBTimelineReader: f.reader}

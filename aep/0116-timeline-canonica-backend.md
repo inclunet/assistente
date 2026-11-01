@@ -85,6 +85,10 @@ e exige versão idêntica entre parcelas antes de liberar replay. Uma execução
 concluída ainda pendente de publicação também renova sua base; resultado tardio
 do ledger não pode ser sobrescrito pelo flush terminal. Regressões cobrem duas
 janelas independentes acima de 8 MiB somadas e drift depois da primeira parcela.
+Recuperação explícita de turno permanece disponível se a publicação auxiliar
+continuar acima da cota: `ReadTurn` autoriza e devolve persistência/buffers,
+enquanto journal e replay ficam suspensos. A leitura não publica o item grande
+nem ignora revogação; reduzir o conteúdo permite recuperar a publicação normal.
 
 O bootstrap compartilha o mesmo projetor entre agente e ledger. Criação,
 running, conclusão e exclusões de compensação passam pelo coordenador; a tool
@@ -101,16 +105,19 @@ mensagens e duas ao incluir turnos. Pergunta isolada com resposta e ledger acima
 de 8 MiB fora da janela continua recuperável; seleção mensagem+turno não duplica
 bytes. Não representa ainda medição de heap nem benchmark do cutover.
 
-Validação local: 321 testes seguros de chat, 362 de database, 137 de agente, 96 de toolinvocations
+Validação local: 323 testes seguros de chat, 362 de database, 137 de agente, 96 de toolinvocations
 e 10 de app; build/vet e lint Go incremental aprovados. TypeScript, ESLint e
 Stylelint passaram (2.124 avisos CSS preexistentes, zero erros); Vitest seguro:
 484 arquivos, 5.887 testes aprovados. Nenhum teste ACP foi executado localmente.
-Revisor independente review_aep: sete rodadas; a primeira identificou a corrida
+Revisor independente review_aep: nove rodadas; a primeira identificou a corrida
 com a inscrição inicial e o custo por âncora. Corrigidos ambos, gate final aprovado
 sem pendências. Copilot apontou o orçamento agregado, a base terminal antiga e
 o filtro tardio da seleção; corrigidos com regressões e nova aprovação local.
 Segunda rodada remota identificou custo/escopo excessivos no preflight; corrigidos
 com seleção por tipo de item e EXPLAIN também das consultas de orçamento.
+Terceira rodada remota identificou bloqueio da recuperação explícita por item
+acima da cota; regressão cobre leitura autorizada, buffer, replay suspenso,
+revogação e recuperação posterior da publicação. Nona revisão local aprovada.
 A revisão remota e o CI completam a entrega do PR.
 
 Limites: o coordenador já trata exclusões, mas os comandos de edição/exclusão de
@@ -153,6 +160,9 @@ invalida bases/erros antigos também fora da página, sem apagar buffers recuper
 O flush só admite a encarnação atual. Descarte autorizado e leitura de janela
 legada descarregam os turnos pendentes depois de remover bloqueadores; leituras
 recusadas não alteram publicação.
+Turnos com erro ou publicação pendente não expiram pelo prazo de retenção de
+60 segundos; permanecem até publicação ou reconciliação/descarte explícito.
+Os quatro caminhos de recuperação também são exercitados após esse prazo.
 
 Limite deste recorte: publicação automática no journal interno para os escritores
 do lifecycle integrados. Alterações externas de mensagens/ledger, patches de
@@ -179,6 +189,8 @@ Sexta rodada local review_aep valida essas correções antes do push.
 Segunda rodada Copilot apontou flush entre encarnações e desbloqueio sem flush
 no descarte/janela legada. Corrigidos com regressões de publicação, retenção de
 bytes, callback antigo e recusa de autorização; sétima revisão local aprovada.
+Terceira rodada Copilot apontou expiração de terminais pendentes; retenção
+corrigida e regressão temporal aprovada na oitava revisão local.
 Nenhum teste ACP executado localmente.
 
 ### Recorte: inscrições internas com recuperação explícita (2026-10-31)
