@@ -35,16 +35,11 @@ de manutenção antes da projeção. Guard recusado não chega ao projetor.
 Regressão com áudio de 2 MiB verifica as colunas da pré-leitura e a recusa de
 ownership antes da coordenação, atendendo ao achado do Copilot.
 
-Validação local: 362 testes seguros de database, 93 de controllers e 21 de app
+Validação local: 362 testes seguros de database, 94 de controllers e 21 de app
 (timeline/janelas/comandos de mensagem) aprovados; build, vet e golangci-lint
 incremental sem novas ocorrências. O frontend não mudou desde a validação da
 etapa anterior (TypeScript/ESLint/Stylelint e 5.887 testes seguros). Revisão local
-independente review_aep: quatro rodadas, sem pendências; a segunda confirmou a
-remoção das entradas sem consumidores e a preservação das asserções. A terceira
-aprovou a leitura mínima e a integração das correções dos PRs anteriores.
-A quarta cobre também a leitura mínima do lote e dos demais métodos legados;
-a matriz de integração verifica as colunas sem enfraquecer as provas de exclusão
-parcial e reconciliação antes dos eventos.
+independente review_aep: a revisão completa da oitava rodada identificou vínculo legado composto apenas por espaços; a geração de IDs agora ignora respostas sem identidade, preservando IDs opacos válidos sem normalização. Regressão com espaços ASCII e Unicode e ID opaco verifica edição, fixação e atualização da inscrição sem bloquear a publicação. A nona rodada confirmou a correção, sem pendências.
 Nenhum teste ACP executado.
 
 Limites deste recorte: criação de mensagens, limpeza de conversa/import/manutenção

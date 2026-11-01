@@ -81,8 +81,10 @@ func messageTimelineIDs(message *database.ChatMessage) []string {
 		return nil
 	}
 	ids := []string{ports.MessageItemID(message.ID)}
-	if message.TurnID != nil && *message.TurnID != "" {
-		ids = append(ids, ports.ResponseItemID(*message.TurnID))
+	if message.TurnID != nil {
+		if responseID := ports.ResponseItemID(*message.TurnID); responseID != "" {
+			ids = append(ids, responseID)
+		}
 	}
 	return ids
 }

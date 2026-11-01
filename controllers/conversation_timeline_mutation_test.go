@@ -247,3 +247,79 @@ func TestMessageMutationDeniedGuardDoesNotEnterProjector(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestMessageMutationPreservesOpaqueTurnIdentityAndIgnoresWhitespace(t *testing.T) {
+	for _, link := range []string{" \t ", "\u2003\u00a0", " turno opaco "} {
+		t.Run(link, func(t *testing.T) {
+			restore := database.SetDB(database.DB())
+			if err := database.InitPath(filepath.Join(t.TempDir(), "turn-identity.db")); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = database.Close(); restore() })
+			db := database.DB()
+			if err := db.Create(&database.User{UUIDModel: database.UUIDModel{ID: "owner"}, Username: "owner"}).Error; err != nil {
+				t.Fatal(err)
+			}
+			ctx := database.WithUserID(context.Background(), "owner")
+			conv, err := database.CreateConversationWithContext(ctx, "identidade", "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			opaque := strings.TrimSpace(link) != ""
+			if opaque {
+				if err := db.Create(&database.ChatMessage{UUIDModel: database.UUIDModel{ID: link}, ConversationID: conv.ID, Role: "user", Content: "pergunta"}).Error; err != nil {
+					t.Fatal(err)
+				}
+			}
+			message := database.ChatMessage{ConversationID: conv.ID, Role: "assistant", TurnID: &link, Content: "antes"}
+			if err := db.Create(&message).Error; err != nil {
+				t.Fatal(err)
+			}
+			r := &commandTimelineReader{DBTimelineReader: chat.NewDBTimelineReader(db)}
+			p := chat.NewLiveProjection(r)
+			sub, _, err := p.SubscribeTimeline(ctx, commandTimelineSession{ctx}, "identity", database.MessageWindowQuery{ConversationID: conv.ID, Anchor: "end", Direction: "before", Limit: 20}, r)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer sub.Close()
+			c := NewConversationsController(ConversationsControllerConfig{MutateTimeline: p.ApplyStorageMutation})
+			if err := c.UpdateMessage(ctx, message.ID, "depois"); err != nil {
+				t.Fatal(err)
+			}
+			if r.readErr != nil {
+				t.Fatal("identidade inválida bloqueou reconciliação", r.readErr)
+			}
+			revision, err := database.MessageCommandSnapshotWithContext(ctx, conv.ID, message.ID, false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := c.CommitMessageCommandGuarded(ctx, conv.ID, message.ID, revision, false, func(write func() error) error { return write() }); err != nil {
+				t.Fatal(err)
+			}
+			if r.readErr != nil {
+				t.Fatal("fixação bloqueou reconciliação", r.readErr)
+			}
+			snapshot, err := sub.Refresh(ctx)
+			if err != nil {
+				t.Fatal("vínculo bloqueou publicação", err)
+			}
+			wanted := "message:" + message.ID
+			if opaque {
+				wanted = "turn:" + link
+			}
+			found := false
+			for _, item := range snapshot.Items {
+				if item.ItemID == wanted {
+					var text strings.Builder
+					for _, segment := range item.Segments {
+						text.WriteString(segment.Text)
+					}
+					found = text.String() == "depois" && item.Metadata.Pinned
+				}
+			}
+			if !found {
+				t.Fatal("identidade/conteúdo/fixação não preservados", wanted)
+			}
+		})
+	}
+}
