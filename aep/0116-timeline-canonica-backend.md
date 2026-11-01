@@ -1,8 +1,32 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger e comandos de mensagens integrados; demais escritores, transporte e cutover pendentes
+## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, comandos e criação avulsa integrados; demais escritores, transporte e cutover pendentes
 
 Data: 2026-10-30
+
+### Recorte: criação avulsa de mensagens (2026-11-01)
+
+As seis entradas de criação de `ConversationsController` delegam a um núcleo
+único que envolve a gravação no coordenador compartilhado e informa os IDs
+persistidos após o commit. A criação usa seleção vazia inicialmente, sem
+reler todos os itens materializados. Conteúdo, mídia, tokens, modelo e escopo
+filho mantêm o contrato original; falha do writer não inventa identidade nem
+vira sucesso. O pipeline de envio do agente mantém sua admissão própria,
+sem adquirir recursivamente a barreira pelo repositório de storage.
+
+`TestMessageCreationReconcilesAllControllerEntries` cobre as seis entradas com
+SQLite, projetor e inscrição reais, reconciliação antes do retorno, metadados,
+omissão de mídia na projeção, escopo filho e recusa de ownership.
+`TestMessageCreationPreservesWriterFailureAndMissingRepository` cobre preservação
+do erro original e configuração incompleta. Nenhum teste ACP é executado localmente.
+
+A participação automática de itens novos em janelas ainda depende do recorte de
+janelas; nesta etapa a inscrição descobre a criação ao renovar seu snapshot.
+Validação: 96 testes seguros de controllers, build, vet e lint aprovados;
+revisão independente review_aep, primeira rodada sem pendências.
+
+Persistência de áudio, limpeza/import/manutenção, transporte e cutover frontend
+continuam pendentes. Não há alteração de UI, bindings ou do contrato público.
 
 ### Recorte: edição, fixação e exclusão de mensagens (2026-11-01)
 

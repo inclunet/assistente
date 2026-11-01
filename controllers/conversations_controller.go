@@ -602,10 +602,7 @@ func (c *ConversationsController) UpdateConversationModel(ctx context.Context, i
 
 // CreateMessage cria uma mensagem simples.
 func (c *ConversationsController) CreateMessage(ctx context.Context, conversationID string, role, content string) (*database.ChatMessage, error) {
-	if c.msgRepo == nil {
-		return nil, fmt.Errorf("message repository não inicializado")
-	}
-	return c.msgRepo.CreateMessage(ctx, database.MessageOptions{
+	return c.createMessage(ctx, database.MessageOptions{
 		ConversationID: conversationID,
 		Role:           role,
 		Content:        content,
@@ -614,26 +611,17 @@ func (c *ConversationsController) CreateMessage(ctx context.Context, conversatio
 
 // AddMessage adiciona uma mensagem simples.
 func (c *ConversationsController) AddMessage(ctx context.Context, conversationID string, role, content string) (*database.ChatMessage, error) {
-	if c.msgRepo == nil {
-		return nil, fmt.Errorf("message repository não inicializado")
-	}
-	return c.msgRepo.CreateMessage(ctx, database.MessageOptions{ConversationID: conversationID, Role: role, Content: content})
+	return c.createMessage(ctx, database.MessageOptions{ConversationID: conversationID, Role: role, Content: content})
 }
 
 // AddMessageWithMedia adiciona mensagem com mídia.
 func (c *ConversationsController) AddMessageWithMedia(ctx context.Context, conversationID string, role, content, media string) (*database.ChatMessage, error) {
-	if c.msgRepo == nil {
-		return nil, fmt.Errorf("message repository não inicializado")
-	}
-	return c.msgRepo.CreateMessage(ctx, database.MessageOptions{ConversationID: conversationID, Role: role, Content: content, Media: media})
+	return c.createMessage(ctx, database.MessageOptions{ConversationID: conversationID, Role: role, Content: content, Media: media})
 }
 
 // AddMessageWithTokens adiciona mensagem com tokens.
 func (c *ConversationsController) AddMessageWithTokens(ctx context.Context, conversationID string, role, content string, promptTokens, completionTokens, totalTokens int, model string) (*database.ChatMessage, error) {
-	if c.msgRepo == nil {
-		return nil, fmt.Errorf("message repository não inicializado")
-	}
-	return c.msgRepo.CreateMessage(ctx, database.MessageOptions{
+	return c.createMessage(ctx, database.MessageOptions{
 		ConversationID:   conversationID,
 		Role:             role,
 		Content:          content,
@@ -646,10 +634,7 @@ func (c *ConversationsController) AddMessageWithTokens(ctx context.Context, conv
 
 // AddMessageWithTokensAndMedia adiciona mensagem com tokens e mídia.
 func (c *ConversationsController) AddMessageWithTokensAndMedia(ctx context.Context, conversationID string, role, content, media string, promptTokens, completionTokens, totalTokens int, model string) (*database.ChatMessage, error) {
-	if c.msgRepo == nil {
-		return nil, fmt.Errorf("message repository não inicializado")
-	}
-	return c.msgRepo.CreateMessage(ctx, database.MessageOptions{
+	return c.createMessage(ctx, database.MessageOptions{
 		ConversationID:   conversationID,
 		Role:             role,
 		Content:          content,
@@ -663,10 +648,7 @@ func (c *ConversationsController) AddMessageWithTokensAndMedia(ctx context.Conte
 
 // AddChildMessage adiciona mensagem filha.
 func (c *ConversationsController) AddChildMessage(ctx context.Context, conversationID string, parentID string, role, content, model string) (*database.ChatMessage, error) {
-	if c.msgRepo == nil {
-		return nil, fmt.Errorf("message repository não inicializado")
-	}
-	return c.msgRepo.CreateMessage(ctx, database.MessageOptions{
+	return c.createMessage(ctx, database.MessageOptions{
 		ConversationID: conversationID,
 		ParentID:       &parentID,
 		Role:           role,
