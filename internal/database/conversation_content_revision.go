@@ -42,29 +42,26 @@ func (r *MessageRepository) GetConversationContentRevisionWithContext(ctx contex
 	return revision, err
 }
 
-// ClearConversationContentIfUnchangedWithinLifecycleWithContext exige que o
-// caller mantenha WithConversationLifecycle até terminar os efeitos pós-commit.
-// Não readquire esse gate não reentrante. BEGIN IMMEDIATE impede escritores
-// concorrentes entre o snapshot comparado e a limpeza.
-func ClearConversationContentIfUnchangedWithinLifecycleWithContext(ctx context.Context, id, expectedRevision string) error {
-	return NewMessageRepository(db).ClearConversationContentIfUnchangedWithinLifecycleWithContext(ctx, id, expectedRevision)
+// ClearConversationContentIfUnchangedWithinMaintenanceWithContext exige lifecycle
+// e manutenção adquiridos pelo caller, nessa ordem, antes da barreira do projetor.
+// Não readquire esses gates. BEGIN IMMEDIATE mantém comparação e limpeza atômicas.
+func ClearConversationContentIfUnchangedWithinMaintenanceWithContext(ctx context.Context, id, expectedRevision string) error {
+	return NewMessageRepository(db).ClearConversationContentIfUnchangedWithinMaintenanceWithContext(ctx, id, expectedRevision)
 }
 
-func (r *MessageRepository) ClearConversationContentIfUnchangedWithinLifecycleWithContext(ctx context.Context, id, expectedRevision string) error {
+func (r *MessageRepository) ClearConversationContentIfUnchangedWithinMaintenanceWithContext(ctx context.Context, id, expectedRevision string) error {
 	if _, err := RequireUserID(ctx); err != nil {
 		return err
 	}
-	return WithSQLiteMaintenance(ctx, func() error {
-		return withSQLiteImmediateTransaction(ctx, r.db, "conversation.clear_unchanged", func(tx *gorm.DB) error {
-			revision, err := conversationContentRevisionTx(ctx, tx, id)
-			if err != nil {
-				return err
-			}
-			if expectedRevision == "" || revision != expectedRevision {
-				return ErrConversationContentChanged
-			}
-			return clearConversationContentTx(ctx, tx, id)
-		})
+	return withSQLiteImmediateTransaction(ctx, r.db, "conversation.clear_unchanged", func(tx *gorm.DB) error {
+		revision, err := conversationContentRevisionTx(ctx, tx, id)
+		if err != nil {
+			return err
+		}
+		if expectedRevision == "" || revision != expectedRevision {
+			return ErrConversationContentChanged
+		}
+		return clearConversationContentTx(ctx, tx, id)
 	})
 }
 
