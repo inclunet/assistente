@@ -90,7 +90,7 @@ func (p *LiveProjection) reconcileStorageMutationLocked(ctx context.Context, con
 	if c.storagePublicationErr != nil {
 		ids = uniquePublicationIDs(append(ids, c.materializedIDsLocked()...))
 	}
-	if err := p.reconcileStorageLocked(ctx, conversationID, c, ids); err != nil {
+	if err := p.reconcileStorageLocked(ctx, conversationID, c, ids, nil); err != nil {
 		c.failStoragePublicationLocked(ids, err)
 	}
 }
@@ -150,54 +150,48 @@ func (c *projectionConversation) failStoragePublicationLocked(ids []string, err 
 	c.publicationGeneration++
 }
 
-func (p *LiveProjection) recoverStoragePublicationLocked(ctx context.Context, conversationID string, c *projectionConversation) error {
+func (p *LiveProjection) recoverStoragePublicationLocked(ctx context.Context, conversationID string, c *projectionConversation, expected *database.ChatTimelineVersion) error {
 	if c.storagePublicationErr == nil {
 		return nil
 	}
 	ids := c.materializedIDsLocked()
-	if err := p.reconcileStorageLocked(ctx, conversationID, c, ids); err != nil {
+	// Verifica todos os lotes antes de compor/publicar o primeiro. Não conserva
+	// snapshots de todas as janelas em memória; a segunda passagem exige a mesma
+	// versão. A barreira impede crescimento de buffers entre as duas passagens.
+	version, err := p.visitStorageSelectionsLocked(ctx, conversationID, ids, expected, func(batch []string, snapshot *TimelineSelectionSnapshot) error {
+		reconcileStorageLifecycleLocked(c, batch, snapshot)
+		if !windowCompositionWithinBudget(c, snapshot.Items) {
+			return ErrTimelineSourceLimit
+		}
+		return nil
+	})
+	if err == nil {
+		// A barreira oculta o estado provisório. Um lote posterior pode falhar ou
+		// detectar drift: nesse caso nenhum cache/journal parcial fica publicado.
+		published := c.publication
+		c.publication = published.fork()
+		err = p.reconcileStorageLocked(ctx, conversationID, c, ids, version)
+		if err != nil {
+			c.publication = published
+		}
+	}
+	if err != nil {
 		c.failStoragePublicationLocked(ids, err)
 		return err
 	}
 	return nil
 }
 
-func (p *LiveProjection) reconcileStorageLocked(ctx context.Context, conversationID string, c *projectionConversation, ids []string) error {
-	readCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), canonicalReadTimeout)
-	defer cancel()
-	var version *database.ChatTimelineVersion
-	var reconcileBatch func([]string) error
-	reconcileBatch = func(batch []string) error {
-		snapshot, err := p.reader.ReadSelection(readCtx, conversationID, batch)
-		if errors.Is(err, ErrTimelineSourceLimit) && len(batch) > 1 {
-			middle := len(batch) / 2
-			if err := reconcileBatch(batch[:middle]); err != nil {
-				return err
-			}
-			return reconcileBatch(batch[middle:])
-		}
-		if err != nil {
-			return err
-		}
-		if version == nil {
-			version = &snapshot.Version
-		} else if *version != snapshot.Version {
-			return ErrProjectionRecoveryRequired
+func (p *LiveProjection) reconcileStorageLocked(ctx context.Context, conversationID string, c *projectionConversation, ids []string, expected *database.ChatTimelineVersion) error {
+	_, err := p.visitStorageSelectionsLocked(ctx, conversationID, ids, expected, func(batch []string, snapshot *TimelineSelectionSnapshot) error {
+		reconcileStorageLifecycleLocked(c, batch, snapshot)
+		if !windowCompositionWithinBudget(c, snapshot.Items) {
+			return ErrTimelineSourceLimit
 		}
 		return p.reconcileStorageBatchLocked(conversationID, c, batch, snapshot)
-	}
-	// Parcela limitada, sob a mesma barreira. Versão idêntica comprova que os
-	// snapshots pertencem ao mesmo estado; drift mantém replay suspenso. Nenhum
-	// item ainda não lido é considerado ausente. O journal também tem cota própria.
-	if len(ids) == 0 {
-		if err := reconcileBatch(nil); err != nil {
-			return err
-		}
-	}
-	for start := 0; start < len(ids); start += 64 {
-		if err := reconcileBatch(ids[start:min(start+64, len(ids))]); err != nil {
-			return err
-		}
+	})
+	if err != nil {
+		return err
 	}
 	c.storagePublicationErr, c.pendingStorageIDs = nil, nil
 	if err := c.publicationErrorLocked(); err != nil {
@@ -207,15 +201,51 @@ func (p *LiveProjection) reconcileStorageLocked(ctx context.Context, conversatio
 	return nil
 }
 
-func (p *LiveProjection) reconcileStorageBatchLocked(conversationID string, c *projectionConversation, ids []string, snapshot *TimelineSelectionSnapshot) error {
-	reconcileProjectionVersion(c, snapshot.Version)
-	for _, id := range ids {
-		if turnID, ok := strings.CutPrefix(id, "turn:"); ok {
-			if t := c.turns[turnID]; t != nil {
-				reconcileProjectedTurn(c, t, snapshot.Version, snapshot.Turns[turnID])
+// Percurso único em parcelas, com controle de versão em ambas as passagens.
+func (p *LiveProjection) visitStorageSelectionsLocked(ctx context.Context, conversationID string, ids []string, expected *database.ChatTimelineVersion, visit func([]string, *TimelineSelectionSnapshot) error) (*database.ChatTimelineVersion, error) {
+	readCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), canonicalReadTimeout)
+	defer cancel()
+	version := expected
+	var reconcileBatch func([]string) error
+	reconcileBatch = func(batch []string) error {
+		snapshot, err := p.reader.ReadSelection(readCtx, conversationID, batch)
+		if err == nil {
+			if version == nil {
+				version = &snapshot.Version
+			} else if *version != snapshot.Version {
+				return ErrProjectionRecoveryRequired
 			}
+			err = visit(batch, snapshot)
+		}
+		// Tanto as fontes SQL quanto a composição agregada podem exigir lotes
+		// menores. Nenhum callback publica antes de validar seu lote inteiro.
+		if errors.Is(err, ErrTimelineSourceLimit) && len(batch) > 1 {
+			middle := len(batch) / 2
+			if err := reconcileBatch(batch[:middle]); err != nil {
+				return err
+			}
+			return reconcileBatch(batch[middle:])
+		}
+		return err
+	}
+	// Parcela limitada, sob a mesma barreira. Versão idêntica comprova que os
+	// snapshots pertencem ao mesmo estado; drift mantém replay suspenso. Nenhum
+	// item ainda não lido é considerado ausente. O journal também tem cota própria.
+	if len(ids) == 0 {
+		if err := reconcileBatch(nil); err != nil {
+			return version, err
 		}
 	}
+	for start := 0; start < len(ids); start += 64 {
+		if err := reconcileBatch(ids[start:min(start+64, len(ids))]); err != nil {
+			return version, err
+		}
+	}
+	return version, nil
+}
+
+func (p *LiveProjection) reconcileStorageBatchLocked(conversationID string, c *projectionConversation, ids []string, snapshot *TimelineSelectionSnapshot) error {
+	reconcileStorageLifecycleLocked(c, ids, snapshot)
 	items := make([]*TimelineItem, 0, len(snapshot.Items))
 	present := make(map[string]bool, len(snapshot.Items))
 	for _, item := range snapshot.Items {
@@ -235,4 +265,15 @@ func (p *LiveProjection) reconcileStorageBatchLocked(conversationID string, c *p
 	}
 	c.publishCanonicalChanges(conversationID, items, removed)
 	return nil
+}
+
+func reconcileStorageLifecycleLocked(c *projectionConversation, ids []string, snapshot *TimelineSelectionSnapshot) {
+	reconcileProjectionVersion(c, snapshot.Version)
+	for _, id := range ids {
+		if turnID, ok := strings.CutPrefix(id, "turn:"); ok {
+			if t := c.turns[turnID]; t != nil {
+				reconcileProjectedTurn(c, t, snapshot.Version, snapshot.Turns[turnID])
+			}
+		}
+	}
 }

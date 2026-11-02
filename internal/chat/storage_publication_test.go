@@ -81,7 +81,7 @@ func TestStoragePublicationBudgetQueriesAreBatched(t *testing.T) {
 	}
 	count := 0
 	if err := f.db.Callback().Row().After("gorm:row").Register("selection_budget_count", func(tx *gorm.DB) {
-		if strings.Contains(tx.Statement.SQL.String(), "SUM(1024") {
+		if strings.Contains(tx.Statement.SQL.String(), "COALESCE(SUM(1024") {
 			count++
 		}
 	}); err != nil {
@@ -136,7 +136,7 @@ func TestStoragePublicationSelectionQueryPlanUsesSelectedIdentities(t *testing.T
 			query = tx.Statement.SQL.String()
 			args = append([]interface{}(nil), tx.Statement.Vars...)
 		}
-		if strings.Contains(tx.Statement.SQL.String(), "SUM(1024") {
+		if strings.Contains(tx.Statement.SQL.String(), "COALESCE(SUM(1024") {
 			budgets = append(budgets, capturedQuery{tx.Statement.SQL.String(), append([]interface{}(nil), tx.Statement.Vars...)})
 		}
 	}); err != nil {

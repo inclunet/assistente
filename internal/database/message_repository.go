@@ -468,6 +468,24 @@ func (r *MessageRepository) GetMessageIdentityWithContext(ctx context.Context, m
 	return &msg, nil
 }
 
+// MessageScope contém apenas o necessário para validar conversa e hierarquia.
+// HasParent evita transportar um vínculo opaco quando basta testar sua presença.
+type MessageScope struct {
+	ConversationID string
+	HasParent      bool
+}
+
+func (r *MessageRepository) GetMessageScopeWithContext(ctx context.Context, messageID string) (*MessageScope, error) {
+	if _, err := RequireUserID(ctx); err != nil {
+		return nil, err
+	}
+	var scope MessageScope
+	if err := scopedMessageQuery(ctx, r.db.Model(&ChatMessage{})).Select("chat_messages.conversation_id, chat_messages.parent_id IS NOT NULL AS has_parent").Where("chat_messages.id=?", messageID).Take(&scope).Error; err != nil {
+		return nil, err
+	}
+	return &scope, nil
+}
+
 // GetMessageWithContext retorna a mensagem completa pelo ID, restrita ao
 // usuário do contexto. Falha fechado sem userID — leitura por ID sem escopo
 // retornaria mensagens de qualquer usuário (vetor de leak silencioso).
@@ -1489,7 +1507,7 @@ WITH scoped AS (
 )`, messageSource, parentPredicate, CurrentChatMessageSQL("m"), extra)
 }
 
-const timelineItemColumns = "kind, id, message_id, turn_id, created_at, anchor_id, invalid_turn_reference"
+const timelineItemColumns = "kind, id, message_id, turn_id, created_at, anchor_id, invalid_turn_reference, slot, item_key, 0 AS window_total"
 const timelineOrderAscending = "created_at ASC, anchor_id COLLATE BINARY ASC, slot ASC, item_key COLLATE BINARY ASC"
 const timelineOrderDescending = "created_at DESC, anchor_id COLLATE BINARY DESC, slot DESC, item_key COLLATE BINARY DESC"
 const timelineKeyBefore = "(created_at, anchor_id COLLATE BINARY, slot, item_key COLLATE BINARY) < (?, ?, ?, ?)"
@@ -1523,7 +1541,7 @@ func (r *MessageRepository) countTimelineItems(conversationID string, parentID *
 
 func (r *MessageRepository) getAnchorTimelineItem(query MessageWindowQuery) (*MessageWindowItem, error) {
 	sql := r.timelineItemCTE(query.ParentID) + `
-SELECT ti.kind, ti.id, ti.message_id, ti.turn_id, ti.created_at, ti.anchor_id, ti.invalid_turn_reference
+SELECT ti.kind, ti.id, ti.message_id, ti.turn_id, ti.created_at, ti.anchor_id, ti.invalid_turn_reference, ti.slot, ti.item_key, 0 AS window_total
 FROM timeline_items ti
 JOIN scoped s ON s.item_kind = ti.kind AND s.item_id = ti.id
 WHERE s.id = ?
@@ -1536,9 +1554,13 @@ LIMIT 1`
 		sql = r.timelineItemCTE(query.ParentID) + " SELECT " + timelineItemColumns + " FROM timeline_items WHERE item_key=? LIMIT 1"
 		args = append(r.timelineItemArgs(query.ConversationID, query.ParentID), query.AnchorItemID)
 	}
-	var item MessageWindowItem
-	if err := r.db.Raw(sql, args...).Scan(&item).Error; err != nil {
+	rows, err := r.scanTimelineItems(sql, args, "")
+	if err != nil {
 		return nil, err
+	}
+	var item MessageWindowItem
+	if len(rows) > 0 {
+		item = rows[0]
 	}
 	if item.ID == "" {
 		if query.Cursor != "" {
@@ -1566,7 +1588,7 @@ func (r *MessageRepository) queryTimelineItems(conversationID string, parentID *
 	}
 	columns := timelineItemColumns
 	if where == "" {
-		columns += ", COUNT(*) OVER () AS window_total"
+		columns = strings.Replace(columns, "0 AS window_total", "COUNT(*) OVER () AS window_total", 1)
 	}
 	sql := r.timelineItemCTE(parentID) + " SELECT " + columns + " FROM timeline_items"
 	args := r.timelineItemArgs(conversationID, parentID)
@@ -1576,11 +1598,7 @@ func (r *MessageRepository) queryTimelineItems(conversationID string, parentID *
 	}
 	sql += " ORDER BY " + order + " LIMIT ?"
 	args = append(args, limit)
-	var items []MessageWindowItem
-	if err := r.db.Raw(sql, args...).Scan(&items).Error; err != nil {
-		return nil, err
-	}
-	return items, nil
+	return r.scanTimelineItems(sql, args, order)
 }
 
 func (r *MessageRepository) queryTimelineItemsAround(conversationID string, parentID *string, offset int, limit int) ([]MessageWindowItem, error) {
@@ -1589,11 +1607,7 @@ func (r *MessageRepository) queryTimelineItemsAround(conversationID string, pare
 	}
 	sql := r.timelineItemCTE(parentID) + " SELECT " + timelineItemColumns + " FROM timeline_items ORDER BY " + timelineOrderAscending + " LIMIT ? OFFSET ?"
 	args := append(r.timelineItemArgs(conversationID, parentID), limit, offset)
-	var items []MessageWindowItem
-	if err := r.db.Raw(sql, args...).Scan(&items).Error; err != nil {
-		return nil, err
-	}
-	return items, nil
+	return r.scanTimelineItems(sql, args, timelineOrderAscending)
 }
 
 func reverseTimelineItems(items []MessageWindowItem) {
@@ -1660,17 +1674,24 @@ func GetMessageWindowWithContext(ctx context.Context, query MessageWindowQuery) 
 }
 
 func (r *MessageRepository) GetMessageWindowWithContext(ctx context.Context, query MessageWindowQuery) (*MessageWindowResult, error) {
+	return r.ReadMessageWindowWithContext(ctx, query, nil)
+}
+
+// ReadMessageWindowWithContext seleciona a página uma única vez. O guard opcional
+// recebe identidades/metadados antes do conteúdo. O chamador deve fornecer um
+// repositório transacional para manter seleção, guard e leitura no mesmo snapshot.
+func (r *MessageRepository) ReadMessageWindowWithContext(ctx context.Context, query MessageWindowQuery, guard func([]MessageWindowItem) error) (*MessageWindowResult, error) {
 	if _, err := RequireUserID(ctx); err != nil {
 		return nil, err
 	}
 	if query.ConversationID == "" {
 		return nil, fmt.Errorf("conversationID é obrigatório para buscar janela de mensagens")
 	}
-	if _, err := NewConversationRepository(r.db).GetConversationInfoWithContext(ctx, query.ConversationID); err != nil {
+	if _, err := NewConversationRepository(r.db.Select("id")).GetConversationInfoWithContext(ctx, query.ConversationID); err != nil {
 		return nil, err
 	}
 	if query.ParentID != nil {
-		parent, err := r.GetMessageIdentityWithContext(ctx, *query.ParentID)
+		parent, err := r.GetMessageScopeWithContext(ctx, *query.ParentID)
 		if err != nil {
 			return nil, err
 		}
@@ -1813,6 +1834,11 @@ func (r *MessageRepository) GetMessageWindowWithContext(ctx context.Context, que
 		items[i].OriginalIndex = startIndex + i
 	}
 
+	if guard != nil {
+		if err := guard(items); err != nil {
+			return nil, err
+		}
+	}
 	messages, err := r.fetchMessagesForTimelineItems(query.ConversationID, query.ParentID, items)
 	if err != nil {
 		return nil, err

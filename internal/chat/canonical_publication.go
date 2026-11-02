@@ -3,6 +3,7 @@ package chat
 import (
 	"assistente/internal/database"
 	"encoding/json"
+	"maps"
 	"reflect"
 	"slices"
 	"strconv"
@@ -286,4 +287,15 @@ func (p *canonicalPublication) replay(epoch string, after uint64) ([]CanonicalBa
 		return nil, false
 	}
 	return batches, true
+}
+
+// Valores canônicos publicados são imutáveis. Copia apenas os contêineres que
+// cache/evicção/journal alteram, preservando as cotas sem duplicar os textos.
+func (p canonicalPublication) fork() canonicalPublication {
+	p.items = maps.Clone(p.items)
+	p.itemSizes = maps.Clone(p.itemSizes)
+	p.itemOrder = slices.Clone(p.itemOrder)
+	p.batches = slices.Clone(p.batches)
+	p.sizes = slices.Clone(p.sizes)
+	return p
 }

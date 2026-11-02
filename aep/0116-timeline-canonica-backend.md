@@ -1,8 +1,139 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, mensagens, áudio, limpeza, exclusão e importação integrados; retenção por idade, órfãos, navegação e leitura leve de janelas integrados; orçamento agregado, participação automática, transporte e cutover pendentes
+## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, mensagens, áudio, limpeza, exclusão e importação integrados; retenção por idade, órfãos, navegação, leitura leve e orçamento de fontes da janela com recuperação atômica e parcelada integrados; margem de desempenho, participação automática, transporte e cutover pendentes
 
 Data: 2026-10-30
+
+### Recorte: orçamento agregado das fontes da janela (2026-11-02)
+
+O leitor canônico aplica a cota de 8 MiB existente à soma das mensagens,
+metadados de turnos e resumos de ferramentas selecionados, antes de materializar
+seus conteúdos. A paginação continua única: o repositório oferece um ponto de
+verificação após selecionar os itens e antes de buscar seus payloads, dentro da
+mesma transação SQLite do leitor. Não repete seleção nem recarrega a conversa.
+O leitor legado permanece sem essa cota durante a migração.
+
+O estimador SQL compartilhado passa a incluir identificadores e vínculos
+variáveis, além dos textos, metadados e previews já contados. Metadados de lifecycle acompanham também as perguntas visíveis para desvincular
+streams de execuções substituídas/concluídas. Respostas e ledger continuam
+restritos aos itens de resposta selecionados; o orçamento inclui os metadados
+das perguntas, sem carregar o conteúdo da resposta fora da página. Áudio e mídia continuam fora da materialização.
+
+Antes de recuperar bases de publicação ou compor itens com streaming, a janela
+inteira passa por um acumulador conservador compartilhado com a publicação.
+Conta o DTO persistido e os buffers live, incluindo overhead e identidades
+derivadas, sem clonar texto para descobrir excesso. Mede o escape JSON real das
+strings; a margem estrutural ainda pode recusar um DTO pouco abaixo de 8 MiB.
+Não soma cópias internas ao DTO: janelas independentes com 4 MiB de texto cada
+continuam válidas. Mantém uma consulta de orçamento para mensagens/metadados
+e outra para ledger, sem consulta adicional por item. Não percorre tentativas
+retidas ou turnos fora da página; não acrescenta trabalho por token.
+
+Excesso retorna ErrTimelineSourceLimit, sem truncar conteúdo, escolher outra
+página ou descartar buffers. Navigate e Refresh mantêm consulta, participação e
+revisão anteriores. A recusa local não marca erro global de publicação.
+
+Regressões em window_budget_test.go cobrem soma de mensagens/ledger antes do
+fetch, perguntas sem resposta fora da página, preservação do legado, recusa de
+navegação/refresh com buffers intactos, escape JSON e identificadores extensos.
+A prova de snapshot com commit concorrente agora roda também no leitor canônico.
+Após review remota, a regressão inclui pergunta persistida e buffer live de
+4 MiB + 1 byte cada: o preflight persistido aceita, a composição agregada recusa,
+e sequência/cache publicados e inscrição permanecem intactos.
+
+A revisão do Copilot identificou três lacunas adicionais, corrigidas neste PR.
+O orçamento do ledger conta o response_message_id por invocação, pois a
+continuação pode repetir esse destino em cada resumo. A reconciliação de lifecycle
+não depende mais de a resposta estar visível: mantém metadados leves para perguntas
+selecionadas, sem puxar seu ledger.
+
+A janela é validada antes de iniciar recuperação pendente de armazenamento. Essa
+recuperação percorre todos os lotes para validar as fontes e os buffers antes de
+publicar o primeiro. Reutiliza o mesmo percurso em uma segunda passagem, exigindo
+versão idêntica; não retém snapshots de todas as janelas simultaneamente. Só o
+caminho de recuperação pendente faz duas passagens. A barreira impede crescimento
+de buffers entre elas; drift externo mantém a recuperação suspensa.
+
+window_budget_review_test.go reproduz identificador de continuação de 512 KiB
+repetido em vinte ferramentas, conclusão/retry fora do projetor com página só de
+pergunta e recuperação pendente em mais de um lote, com buffer excessivo dentro
+ou fora da página. A recusa preserva cache, sequência, inscrição e bytes recebidos.
+Os três testes novos falham contra o código anterior às correções e passam com
+elas. As expressões estáticas de tamanho SQL são construídas uma vez; o conjunto
+de lifecycle reutiliza a deduplicação já feita durante a leitura.
+A consulta de autorização carrega apenas o ID da conversa, mantendo ownership
+sem transportar seu resumo. Os conjuntos de IDs do orçamento usam um parâmetro
+JSON de hex ASCII, decodificado no lado direito de IN: evita expandir centenas
+de placeholders sem alterar bytes opacos (inclusive NUL e UTF-8 inválido).
+Regressões exercitam esses IDs e o EXPLAIN continua exigindo buscas indexadas.
+
+A segunda rodada de review inclui a amplificação de identidades por cortes live:
+cada ferramenta pode criar um grupo e um corte de texto, contabilizados antes da
+clonagem. A regressão específica de offsets ACP fica reservada ao CI; a cota
+conservadora também tem teste local sem ACP.
+
+Na recuperação, a segunda passagem prepara contêineres provisórios de cache e
+journal, compartilhando valores imutáveis. Falha ou drift posterior restaura toda
+a publicação anterior; o teste compara cache, ordem, tamanhos, sequência e batches.
+As cotas de cache e replay continuam vigentes, sem reter todos os snapshots.
+A autorização por ID também cobre a seleção usada nas duas passagens.
+
+A seleção SQL única agora soma as identidades da página/âncora e mascara os campos
+antes do Scan quando excedem a cota. Parâmetros opacos recebem cota antes da
+expansão hexadecimal e deduplicação. A regressão inspeciona o resultado SQL cru,
+inclusive ID com NUL, e prova preservação da ordenação e contagem. Os testes de
+plano continuam exigindo consultas em lote e buscas indexadas; a captura distingue
+o preflight de payload da nova soma de identidades na seleção existente.
+
+Validação da primeira rodada: 359 testes seguros de chat, 362 de banco e 99 de controllers
+aprovados (820), build/vet/lint sem erros. A conta de escape é confrontada com
+encoding/json, incluindo UTF-8 inválido; a codificação de substituição é medida
+uma vez para acompanhar a versão ativa do encoder. Nenhum teste existente foi
+removido ou relaxado. Revisor independente review_aep: nove rodadas, sem pendências.
+
+A terceira rodada de review fecha o orçamento agregado da recuperação: as duas
+passagens validam o lote inteiro e subdividem quando fontes ou buffers não cabem,
+antes de compor/publicar. Uma recusa indivisível mantém a publicação anterior.
+O preflight inclui os campos de identidade/escopo da pergunta por turno, sem seu
+conteúdo; a validação do pai lê apenas conversa e presença de pai, sem turn_id.
+Regressões cobrem nove buffers de 1 MiB, perguntas sem resposta com parent_id
+extenso e página de thread vazia cujo pai tem turn_id legado excessivo.
+
+Validação da segunda rodada: 364 testes seguros de chat, 363 de banco e 99 de
+controllers aprovados (826), build/vet/lint sem erros; o cenário específico ACP
+permanece para o CI. Revisor independente review_aep: rodada 10 sem achados
+bloqueantes. As execuções interrompidas por falta de espaço não foram contadas;
+foram repetidas depois de limpar apenas artefatos de build deste worktree.
+
+Validação da terceira rodada: 367 testes seguros de chat, 363 de banco e 99 de
+controllers aprovados (829), build/vet/lint sem erros. Revisor independente
+review_aep: rodada 11 identificou teste de observação da consulta antiga,
+corrigido; rodadas 12 e 13 aprovadas. O EXPLAIN detectou varredura na soma de
+escopo, corrigida com busca pela PK, e o teste de deduplicação impediu contar
+novamente a resposta selecionada pelo turno. Nenhum desses testes foi relaxado.
+
+A validação remota da terceira rodada aprovou chat, backend, frontend, bindings
+e E2E, mas revelou disputa de temporização na fixture de estados do ledger:
+TestServicePersistsStatusesAndRetryable compartilhava 5 ms entre cancelamento e
+timeout. O prazo curto agora pertence somente ao cenário de timeout; as asserções
+de persistência, estado e retry permanecem intactas. Os 97 testes seguros do pacote
+toolinvocations e 30 repetições do cenário passaram, assim como vet/lint; revisor
+review_aep aprovou a rodada 14. A correção não altera contratos de produção.
+
+Medição anterior à segunda rodada de review (não representa as novas proteções): Windows/amd64, três pares intercalados de 200
+operações com GOMAXPROCS=2, fixture de 100 perguntas. Medianas de 5,625 ms e
+925.935 B/op na base versus 6,771 ms e 1.047.161 B/op neste recorte: +20,4% de
+tempo e +13,1% de alocações. O caso pequeno ainda não demonstra margem sob o
+critério final de +20%; esse critério permanece pendente, sem declarar a fase
+concluída. Séries locais anteriores tiveram grande variação de tempo inclusive
+na base, motivando a comparação intercalada. Os números medem o leitor, não
+composição live, recuperação pendente ou UI.
+
+São cotas de fonte e estimativa de composição, não um teto do heap do processo:
+SQLite, caches, cópias transitórias e buffers recebidos têm custos distintos.
+O envelope wire final ainda não existe; medição do DTO completo e seu limite,
+participação automática, transporte, cutover e migração de anexos continuam
+pendentes. Nenhuma alteração visível de UI ou teste ACP local/NVDA neste recorte.
 
 ### Recorte: leitura leve da janela canônica (2026-11-02)
 

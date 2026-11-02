@@ -65,11 +65,16 @@ type timelineFacts struct {
 }
 
 func readTimelineFacts(ctx context.Context, tx *gorm.DB, conversationID string, turnIDs []string) (timelineFacts, error) {
+	return readTimelineFactsForSelection(ctx, tx, conversationID, turnIDs, turnIDs)
+}
+
+// Lifecycle acompanha perguntas visíveis; payloads de ferramentas só respostas selecionadas.
+func readTimelineFactsForSelection(ctx context.Context, tx *gorm.DB, conversationID string, turnIDs, responseIDs []string) (timelineFacts, error) {
 	turns, err := database.NewChatTurnRepository(tx).GetMany(ctx, conversationID, turnIDs)
 	if err != nil {
 		return timelineFacts{}, err
 	}
-	summaries, err := toolinvocations.NewDBRepository(tx).LoadSummariesForTurnIDs(ctx, turnIDs)
+	summaries, err := toolinvocations.NewDBRepository(tx).LoadSummariesForTurnIDs(ctx, responseIDs)
 	if err != nil {
 		return timelineFacts{}, err
 	}
@@ -104,18 +109,33 @@ func (r *DBTimelineReader) readWindow(ctx context.Context, query database.Messag
 			repo = repo.WithTimelineTurns()
 		}
 		if query.ParentID != nil {
-			parent, err := repo.GetMessageIdentityWithContext(ctx, *query.ParentID)
+			parent, err := repo.GetMessageScopeWithContext(ctx, *query.ParentID)
 			if err != nil {
 				return fmt.Errorf("threadParentId inválido: %w", err)
 			}
 			if parent.ConversationID != query.ConversationID {
 				return fmt.Errorf("threadParentId não pertence à conversa solicitada")
 			}
-			if parent.ParentID != nil {
+			if parent.HasParent {
 				return fmt.Errorf("threadParentId deve apontar para uma mensagem raiz")
 			}
 		}
-		rows, err = repo.GetMessageWindowWithContext(ctx, query)
+		if canonical {
+			rows, err = repo.ReadMessageWindowWithContext(ctx, query, func(items []database.MessageWindowItem) error {
+				var messageIDs []string
+				for _, item := range items {
+					if item.Kind == database.MessageWindowItemKindTurn {
+						result.TurnIDs = append(result.TurnIDs, item.TurnID)
+					} else {
+						messageIDs = append(messageIDs, item.MessageID)
+					}
+				}
+				_, err := publicationSelectionReadSize(tx, query.ConversationID, messageIDs, result.TurnIDs)
+				return err
+			})
+		} else {
+			rows, err = repo.GetMessageWindowWithContext(ctx, query)
+		}
 		if err != nil {
 			return err
 		}
@@ -124,10 +144,21 @@ func (r *DBTimelineReader) readWindow(ctx context.Context, query database.Messag
 				return err
 			}
 		}
-		result.TurnIDs = snapshotTurnIDs(rows.Messages)
+		responseIDs := result.TurnIDs
+		if !canonical {
+			result.TurnIDs = snapshotTurnIDs(rows.Messages)
+		}
 		seen := make(map[string]bool, len(result.TurnIDs))
 		for _, id := range result.TurnIDs {
 			seen[id] = true
+		}
+		if canonical {
+			for _, message := range rows.Messages {
+				if message.Role == "user" && !seen[message.ID] {
+					result.TurnIDs = append(result.TurnIDs, message.ID)
+					seen[message.ID] = true
+				}
+			}
 		}
 		for _, row := range rows.Items {
 			if row.Kind == database.MessageWindowItemKindTurn && !seen[row.TurnID] {
@@ -135,7 +166,10 @@ func (r *DBTimelineReader) readWindow(ctx context.Context, query database.Messag
 				seen[row.TurnID] = true
 			}
 		}
-		facts, err = readTimelineFacts(ctx, tx, query.ConversationID, result.TurnIDs)
+		if !canonical {
+			responseIDs = result.TurnIDs
+		}
+		facts, err = readTimelineFactsForSelection(ctx, tx, query.ConversationID, result.TurnIDs, responseIDs)
 		if err != nil {
 			return err
 		}
