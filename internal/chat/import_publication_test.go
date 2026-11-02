@@ -155,3 +155,54 @@ func TestImportCoordinatorRefusalPreservesHistory(t *testing.T) {
 		t.Fatal(message, err)
 	}
 }
+
+func TestImportWithoutOriginalQuestionKeepsRecoveryAndDiscardAuthorized(t *testing.T) {
+	f, p, e, _ := automaticFixture(t)
+	e.StartStream(0).Append("bytes para recuperar")
+	repo := database.NewChatTurnRepository(f.db)
+	if err := e.CommitTerminal(database.TurnInterrupted, "cancelled", func() (database.ChatTimelineVersion, error) {
+		return repo.FinishResponseWithVersion(f.ctx, f.conversation, f.question, e.executionID, database.TurnInterrupted, "cancelled", "", nil)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	file := portability.ExportFile{Version: portability.ExportVersion, Resources: portability.ExportResources{Conversations: []portability.ConversationExport{{ID: f.conversation, Title: "Outra versão", Messages: []portability.MessageExport{{ID: "other-question", Role: "user", Content: "outro histórico"}}}}}}
+	raw, err := json.Marshal(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := portability.ImportConversationsWithHooks(f.ctx, string(raw), nil, "", nil, portability.ConversationImportHooks{ImportTimeline: p.ApplyConversationImport})
+	if err != nil || result == nil || result.Imported != 1 {
+		t.Fatal(result, err)
+	}
+	if _, err := f.reader.ReadTurn(f.ctx, f.conversation, f.question); !errors.Is(err, gorm.ErrRecordNotFound) {
+		t.Fatal("pergunta original ainda existe", err)
+	}
+	recovery, err := p.ReadRecovery(f.ctx, f.conversation, f.question, f.reader)
+	if err != nil || recovery.Persisted.Turn != nil || recovery.Item != nil || len(recovery.Retained) != 1 || testLiveSegment(recovery.Retained[0].Streams[0], "text", 0).Text != "bytes para recuperar" {
+		t.Fatal("buffer inacessível sem pergunta", recovery, err)
+	}
+	otherCtx := database.WithUserID(context.Background(), "other-user")
+	if _, err := p.ReadRecovery(otherCtx, f.conversation, f.question, f.reader); err == nil {
+		t.Fatal("outro usuário leu buffer")
+	}
+	if err := p.DiscardRetained(otherCtx, f.conversation, f.question, e.executionID, f.reader); err == nil {
+		t.Fatal("outro usuário descartou buffer")
+	}
+	if err := p.DiscardRetained(f.ctx, f.conversation, f.question, e.executionID, f.reader); err != nil {
+		t.Fatal(err)
+	}
+	recovery, err = p.ReadRecovery(f.ctx, f.conversation, f.question, f.reader)
+	if err != nil || len(recovery.Retained) != 0 {
+		t.Fatal("descarte não liberou bytes", recovery, err)
+	}
+	// Mesmo sem buffers, a conversa continua sendo a autoridade para o acesso.
+	if _, err := database.DeleteConversationsWithContext(f.ctx, []string{f.conversation}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.ReadRecovery(f.ctx, f.conversation, f.question, f.reader); err == nil {
+		t.Fatal("conversa excluída autorizou recuperação")
+	}
+	if err := p.DiscardRetained(f.ctx, f.conversation, f.question, e.executionID, f.reader); err == nil {
+		t.Fatal("conversa excluída autorizou descarte")
+	}
+}

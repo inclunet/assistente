@@ -37,6 +37,16 @@ de App aprovados; build/vet/lint sem erros. Frontend não alterado, mantendo a
 validação da etapa anterior. Review_aep: duas rodadas, P2 corrigido e nenhuma
 pendência. Nenhum teste ACP executado localmente.
 
+A review remota identificou buffers retidos inacessíveis quando a importação
+remove a pergunta original. `ReadRecoveryTurn` autoriza a conversa e lê o turno
+opcional na mesma transação; recuperação/descarte não dependem mais da presença
+da pergunta. Leitura estrita continua rejeitando pergunta ausente e publicação
+mantém seu orçamento. A regressão comprova recuperação e descarte sem a pergunta,
+recusa para outro usuário e recusa após excluir a conversa. Correção validada
+com 334 testes seguros de chat e 137 de agent. A revisão local também identificou
+um fake que precisava manter a leitura estrita; corrigido. Review_aep: quatro
+rodadas ao total, última sem pendências.
+
 Manutenção, participação automática das janelas, transporte e cutover frontend
 permanecem pendentes. A descoberta de novos itens para janelas abertas pertence
 ao recorte de participação; este PR não declara foco/ordem da UI resolvidos.
