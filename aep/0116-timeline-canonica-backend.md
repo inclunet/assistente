@@ -32,9 +32,9 @@ de desempenho da UI nem uma medição do heap retido.
 Controle sem blobs, mesma máquina/benchmark de participação (100/500/1.000
 perguntas, três amostras de cinco operações): medianas canônicas de
 5,73/10,32/14,58 ms, ante 5,74/11,03/14,87 ms na base. Validação: 350 testes
-seguros de chat, 362 de banco e 99 de controllers aprovados; build/vet/lint sem
-erros. Review_aep independente: duas rodadas, zero pendências. As duas listas
-exatas de colunas nos testes de controllers incluem agora parent_id; continuam
+seguros de chat, 362 de banco, 99 de controllers e 38 de speech aprovados; build/vet/lint sem
+erros. Review_aep independente: três rodadas, zero pendências. As listas
+exatas de colunas nos testes de controllers e speech incluem agora parent_id; continuam
 recusando payloads. Nenhum teste ACP local ou NVDA; frontend inalterado.
 
 Orçamento agregado de fonte/DTO, participação automática e transporte continuam
