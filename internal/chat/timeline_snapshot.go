@@ -2,6 +2,7 @@ package chat
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -34,7 +35,7 @@ type TimelineTurnSnapshot struct {
 // TurnSnapshotReader é a dependência de leitura do terminal, separada dos writers.
 type TurnSnapshotReader interface {
 	ReadVersion(context.Context, string) (database.ChatTimelineVersion, error)
-	ReadTurn(context.Context, string, string) (*TimelineTurnSnapshot, error)
+	ReadRecoveryTurn(context.Context, string, string) (*TimelineTurnSnapshot, error)
 }
 
 // WindowSnapshotReader mantém consulta e autorização na mesma transação.
@@ -43,6 +44,7 @@ type WindowSnapshotReader interface {
 }
 type TimelineSnapshotReader interface {
 	TurnSnapshotReader
+	ReadTurn(context.Context, string, string) (*TimelineTurnSnapshot, error)
 	PublicationSnapshotReader
 	WindowSnapshotReader
 }
@@ -188,14 +190,29 @@ func (r *DBTimelineReader) readWindow(ctx context.Context, query database.Messag
 }
 
 func (r *DBTimelineReader) ReadTurn(ctx context.Context, conversationID, turnID string) (*TimelineTurnSnapshot, error) {
-	return r.readTurn(ctx, conversationID, turnID, false)
+	return r.readTurn(ctx, conversationID, turnID, turnReadStrict)
 }
 
 func (r *DBTimelineReader) ReadPublicationTurn(ctx context.Context, conversationID, turnID string) (*TimelineTurnSnapshot, error) {
-	return r.readTurn(ctx, conversationID, turnID, true)
+	return r.readTurn(ctx, conversationID, turnID, turnReadPublication)
 }
 
-func (r *DBTimelineReader) readTurn(ctx context.Context, conversationID, turnID string, publication bool) (*TimelineTurnSnapshot, error) {
+// ReadRecoveryTurn autoriza a conversa e lê o turno opcional na mesma transação.
+// Remover a pergunta não revoga acesso aos buffers desvinculados dessa conversa.
+func (r *DBTimelineReader) ReadRecoveryTurn(ctx context.Context, conversationID, turnID string) (*TimelineTurnSnapshot, error) {
+	return r.readTurn(ctx, conversationID, turnID, turnReadRecovery)
+}
+
+type turnReadMode uint8
+
+const (
+	turnReadStrict turnReadMode = iota
+	turnReadPublication
+	turnReadRecovery
+)
+
+func (r *DBTimelineReader) readTurn(ctx context.Context, conversationID, turnID string, mode turnReadMode) (*TimelineTurnSnapshot, error) {
+	publication := mode == turnReadPublication
 	result := &TimelineTurnSnapshot{}
 	var messages []Message
 	var parentID *string
@@ -216,14 +233,20 @@ func (r *DBTimelineReader) readTurn(ctx context.Context, conversationID, turnID 
 		}
 		repo := database.NewMessageRepository(messageDB)
 		var question *database.ChatMessage
-		if publication {
+		if publication || mode == turnReadRecovery {
 			question = &database.ChatMessage{}
 			err = tx.Select("id", "conversation_id", "role", "parent_id").Where("id = ? AND conversation_id = ?", turnID, conversationID).First(question).Error
 		} else {
 			question, err = repo.GetMessageWithContext(ctx, turnID)
 		}
 		if err != nil {
+			if mode == turnReadRecovery && errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil
+			}
 			return err
+		}
+		if mode == turnReadRecovery && question.Role != "user" {
+			return nil
 		}
 		if question.ConversationID != conversationID || question.Role != "user" {
 			return database.ErrChatTurnInvalid

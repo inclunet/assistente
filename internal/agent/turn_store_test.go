@@ -71,6 +71,10 @@ func (r *handlerTestTimelineReader) ReadPublicationTurn(ctx context.Context, con
 	return r.ReadTurn(ctx, conversationID, turnID)
 }
 
+func (r *handlerTestTimelineReader) ReadRecoveryTurn(ctx context.Context, conversationID, turnID string) (*chat.TimelineTurnSnapshot, error) {
+	return r.ReadTurn(ctx, conversationID, turnID)
+}
+
 func (r *handlerTestTimelineReader) ReadTurn(ctx context.Context, conversationID, turnID string) (*chat.TimelineTurnSnapshot, error) {
 	question, err := r.repo.GetMessage(ctx, turnID)
 	if err != nil {

@@ -28,7 +28,8 @@ var ErrProjectionRecoveryRequired = errors.New("conteúdo não confirmado exige 
 
 // ReadRecovery mantém a barreira durante a autorização/leitura transacional e
 // a captura dos buffers. Não retorna conteúdo em memória quando storage recusa
-// a leitura (inclusive exclusão, revogação ou falha de consulta).
+// a leitura (inclusive exclusão da conversa, revogação ou falha de consulta).
+// A pergunta é opcional: importação pode removê-la sem apagar bytes recuperáveis.
 func (p *LiveProjection) ReadRecovery(ctx context.Context, conversationID, turnID string, reader TurnSnapshotReader) (*TurnRecovery, error) {
 	userID, err := database.RequireUserID(ctx)
 	if err != nil {
@@ -40,7 +41,7 @@ func (p *LiveProjection) ReadRecovery(ctx context.Context, conversationID, turnI
 	// A falha continua registrada e bloqueia journal/replay; só a leitura
 	// autorizada abaixo permite devolver persistência e buffers ao chamador.
 	_ = p.recoverStoragePublicationLocked(ctx, conversationID, c)
-	persisted, err := reader.ReadTurn(ctx, conversationID, turnID)
+	persisted, err := reader.ReadRecoveryTurn(ctx, conversationID, turnID)
 	if err != nil {
 		return nil, err
 	}
@@ -125,7 +126,7 @@ func (p *LiveProjection) DiscardRetained(ctx context.Context, conversationID, tu
 	key := projectionKey{userID, conversationID}
 	c, release := p.lockConversation(key, true)
 	defer release()
-	persisted, err := reader.ReadTurn(ctx, conversationID, turnID)
+	persisted, err := reader.ReadRecoveryTurn(ctx, conversationID, turnID)
 	if err != nil {
 		return err
 	}

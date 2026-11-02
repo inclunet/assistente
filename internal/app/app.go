@@ -1319,6 +1319,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	a.wireMessaging()
 	a.wireEditor()
 	a.wireExportImport()
+	wailsapi.AttachImportTimeline(a.exportImportAPI, timelineProjection.ApplyConversationImport)
 	a.wireLegacyCleanup()
 	a.wireSubagent()
 	a.wireACPCommands()
