@@ -1,8 +1,62 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, mensagens, áudio, limpeza, exclusão e importação integrados; retenção por idade, órfãos, navegação e leitura leve de janelas integrados; orçamento agregado, participação automática, transporte e cutover pendentes
+## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, mensagens, áudio, limpeza, exclusão e importação integrados; retenção por idade, órfãos, navegação, leitura leve e orçamento de fontes da janela integrados; participação automática, transporte e cutover pendentes
 
 Data: 2026-10-30
+
+### Recorte: orçamento agregado das fontes da janela (2026-11-02)
+
+O leitor canônico aplica a cota de 8 MiB existente à soma das mensagens,
+metadados de turnos e resumos de ferramentas selecionados, antes de materializar
+seus conteúdos. A paginação continua única: o repositório oferece um ponto de
+verificação após selecionar os itens e antes de buscar seus payloads, dentro da
+mesma transação SQLite do leitor. Não repete seleção nem recarrega a conversa.
+O leitor legado permanece sem essa cota durante a migração.
+
+O estimador SQL compartilhado passa a incluir identificadores e vínculos
+variáveis, além dos textos, metadados e previews já contados. Fatos são lidos
+somente para itens de resposta da página; uma pergunta isolada não puxa a
+resposta ou o ledger fora dela. Áudio e mídia continuam fora da materialização.
+
+Antes de recuperar bases de publicação ou compor itens com streaming, a janela
+inteira passa por um acumulador conservador compartilhado com a publicação.
+Conta o DTO persistido e os buffers live, incluindo overhead e identidades
+derivadas, sem clonar texto para descobrir excesso. Mede o escape JSON real das
+strings; a margem estrutural ainda pode recusar um DTO pouco abaixo de 8 MiB.
+Não soma cópias internas ao DTO: janelas independentes com 4 MiB de texto cada
+continuam válidas. Mantém uma consulta de orçamento para mensagens/metadados
+e outra para ledger, sem consulta adicional por item. Não percorre tentativas
+retidas ou turnos fora da página; não acrescenta trabalho por token.
+
+Excesso retorna ErrTimelineSourceLimit, sem truncar conteúdo, escolher outra
+página ou descartar buffers. Navigate e Refresh mantêm consulta, participação e
+revisão anteriores. A recusa local não marca erro global de publicação.
+
+Regressões em window_budget_test.go cobrem soma de mensagens/ledger antes do
+fetch, perguntas sem resposta fora da página, preservação do legado, recusa de
+navegação/refresh com buffers intactos, escape JSON e identificadores extensos.
+A prova de snapshot com commit concorrente agora roda também no leitor canônico.
+
+Validação local: 354 testes seguros de chat, 362 de banco e 99 de controllers
+aprovados (815), build/vet/lint sem erros. A conta de escape é confrontada com
+encoding/json, incluindo UTF-8 inválido; a codificação de substituição é medida
+uma vez para acompanhar a versão ativa do encoder. Nenhum teste existente foi
+removido ou relaxado. Revisor independente review_aep: três rodadas, sem pendências.
+
+Benchmark de leitura canônica, mesma máquina Windows/amd64, três amostras de
+30 operações em cada versão: medianas da base de 7,43/12,66/14,64 ms para
+100/500/1.000 perguntas, versus 7,04/11,47/15,92 ms neste recorte. Alocações
+medianas de 940.655/1.061.057/1.062.915 para 1.113.242/1.253.540/1.253.901 B/op
+(aumento de até 18,4%). Permanecem dentro de +20% nessa comparação controlada.
+Os números cobrem o leitor, não a composição live ou a UI; a primeira amostra
+curta variou acima de 20%, motivando a comparação de ambas as versões com
+30 operações. Não representam evidência de aceleração.
+
+São cotas de fonte e estimativa de composição, não um teto do heap do processo:
+SQLite, caches, cópias transitórias e buffers recebidos têm custos distintos.
+O envelope wire final ainda não existe; medição do DTO completo e seu limite,
+participação automática, transporte, cutover e migração de anexos continuam
+pendentes. Nenhuma alteração visível de UI ou teste ACP local/NVDA neste recorte.
 
 ### Recorte: leitura leve da janela canônica (2026-11-02)
 

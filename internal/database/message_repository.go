@@ -1660,6 +1660,13 @@ func GetMessageWindowWithContext(ctx context.Context, query MessageWindowQuery) 
 }
 
 func (r *MessageRepository) GetMessageWindowWithContext(ctx context.Context, query MessageWindowQuery) (*MessageWindowResult, error) {
+	return r.ReadMessageWindowWithContext(ctx, query, nil)
+}
+
+// ReadMessageWindowWithContext seleciona a página uma única vez. O guard opcional
+// recebe identidades/metadados antes do conteúdo. O chamador deve fornecer um
+// repositório transacional para manter seleção, guard e leitura no mesmo snapshot.
+func (r *MessageRepository) ReadMessageWindowWithContext(ctx context.Context, query MessageWindowQuery, guard func([]MessageWindowItem) error) (*MessageWindowResult, error) {
 	if _, err := RequireUserID(ctx); err != nil {
 		return nil, err
 	}
@@ -1813,6 +1820,11 @@ func (r *MessageRepository) GetMessageWindowWithContext(ctx context.Context, que
 		items[i].OriginalIndex = startIndex + i
 	}
 
+	if guard != nil {
+		if err := guard(items); err != nil {
+			return nil, err
+		}
+	}
 	messages, err := r.fetchMessagesForTimelineItems(query.ConversationID, query.ParentID, items)
 	if err != nil {
 		return nil, err

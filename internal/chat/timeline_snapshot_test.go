@@ -100,7 +100,7 @@ func invocationPreview(t testing.TB, node MessageNode) string {
 }
 
 func TestTimelineSnapshotReadsOneCommitAcrossWindowAndTurn(t *testing.T) {
-	for _, kind := range []string{"window", "turn"} {
+	for _, kind := range []string{"window", "canonical", "turn"} {
 		t.Run(kind, func(t *testing.T) {
 			f := newSnapshotFixture(t)
 			before := f.window(t)
@@ -147,8 +147,17 @@ func TestTimelineSnapshotReadsOneCommitAcrossWindowAndTurn(t *testing.T) {
 			var turn *database.ChatTurn
 			var node MessageNode
 			var content, preview string
-			if kind == "window" {
-				snapshot := f.window(t)
+			if kind != "turn" {
+				var snapshot *TimelineWindowSnapshot
+				if kind == "canonical" {
+					var err error
+					snapshot, err = f.reader.ReadCanonicalWindow(f.ctx, database.MessageWindowQuery{ConversationID: f.conversation, Anchor: "end", Direction: "before", Limit: 20})
+					if err != nil {
+						t.Fatal(err)
+					}
+				} else {
+					snapshot = f.window(t)
+				}
 				version, turn = snapshot.Version, snapshot.Turns[f.question]
 				node = responseNode(t, snapshot.Window.Nodes, f.question)
 				content, preview = node.Message.Content, invocationPreview(t, node)

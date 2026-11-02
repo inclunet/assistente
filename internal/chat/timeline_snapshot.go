@@ -115,7 +115,22 @@ func (r *DBTimelineReader) readWindow(ctx context.Context, query database.Messag
 				return fmt.Errorf("threadParentId deve apontar para uma mensagem raiz")
 			}
 		}
-		rows, err = repo.GetMessageWindowWithContext(ctx, query)
+		if canonical {
+			rows, err = repo.ReadMessageWindowWithContext(ctx, query, func(items []database.MessageWindowItem) error {
+				var messageIDs []string
+				for _, item := range items {
+					if item.Kind == database.MessageWindowItemKindTurn {
+						result.TurnIDs = append(result.TurnIDs, item.TurnID)
+					} else {
+						messageIDs = append(messageIDs, item.MessageID)
+					}
+				}
+				_, err := publicationSelectionReadSize(tx, query.ConversationID, messageIDs, result.TurnIDs)
+				return err
+			})
+		} else {
+			rows, err = repo.GetMessageWindowWithContext(ctx, query)
+		}
 		if err != nil {
 			return err
 		}
@@ -124,7 +139,9 @@ func (r *DBTimelineReader) readWindow(ctx context.Context, query database.Messag
 				return err
 			}
 		}
-		result.TurnIDs = snapshotTurnIDs(rows.Messages)
+		if !canonical {
+			result.TurnIDs = snapshotTurnIDs(rows.Messages)
+		}
 		seen := make(map[string]bool, len(result.TurnIDs))
 		for _, id := range result.TurnIDs {
 			seen[id] = true

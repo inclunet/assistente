@@ -354,6 +354,9 @@ func (p *LiveProjection) readWindowLocked(ctx context.Context, query database.Me
 		}
 	}
 	if canonical {
+		if !windowCompositionWithinBudget(c, snapshot.Items) {
+			return nil, ErrTimelineSourceLimit
+		}
 		for i, item := range snapshot.Items {
 			p.recoverPublicationLocked(c, item.TurnID, item)
 			composed, err := projectLiveItemLocked(c, item)
