@@ -26,7 +26,8 @@ de continuação prova que a consulta recursiva de mídia só ocorre no leitor l
 Medição local Windows/amd64, fixture de duas mensagens com media e audio de
 2 MiB cada, três amostras de cinco operações: medianas de 188,37 ms e 17.041.398
 B/op no leitor legado versus 2,26 ms e 203.779 B/op no canônico. Ambos produziram
-DTO de 2.183 bytes. É uma comparação controlada dos leitores, não uma promessa
+DTO de 2.183 bytes. Tempo e alocações incluem leitura, projeção canônica e
+serialização JSON. É uma comparação controlada dos dois caminhos, não uma promessa
 de desempenho da UI nem uma medição do heap retido.
 
 Controle sem blobs, mesma máquina/benchmark de participação (100/500/1.000
