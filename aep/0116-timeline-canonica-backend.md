@@ -1,8 +1,38 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, mensagens, áudio e limpeza de conteúdo integrados; demais escritores, transporte e cutover pendentes
+## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, mensagens, áudio, limpeza e exclusão de conversas integrados; importação, manutenção, janelas, transporte e cutover pendentes
 
 Data: 2026-10-30
+
+### Recorte: exclusão coordenada de conversas (2026-11-02)
+
+Exclusão individual, lote e limpar todas compartilham a escrita sob manutenção
+no controller. O bootstrap liga essa escrita ao projetor; não há outro pipeline
+de delete nem outra transação. A ordem permanece runtime → lifecycle → manutenção
+→ projetor → SQLite, com finalize/reset/evento somente após invalidar a projeção.
+O seam redundante de delete sob lifecycle foi removido do controller.
+
+O projetor reserva os IDs do lote e adquire as barreiras em ordem estável antes
+do writer. A primeira inscrição também aguarda a operação. Após commit, somente
+as conversas efetivamente excluídas perdem janelas, replay, bases e buffers;
+capabilities antigos deixam de aceitar tokens ou devolver conteúdo, inclusive
+após recriar o mesmo ID. Falha da transação não altera a projeção nem produz
+efeitos pós-commit. Locks de conversa são liberados antes de readquirir o mutex
+global no cleanup, evitando inversão de ordem em lotes concorrentes.
+
+Evidências: `conversation_timeline_deletion_test.go` cobre SQLite/projetor/inscrição
+reais, as três entradas, rollback, outro usuário, runtime ocupado, ordem dos
+efeitos e integridade das conversas preservadas. `conversation_deletion_test.go`
+cobre capabilities, liberação do conteúdo, recriação do ID, rollback, autenticação,
+primeira inscrição concorrente e lotes em ordem inversa com IDs duplicados.
+Validação: 99 testes seguros de controllers, 330 de chat e 362 de database,
+mais build/vet/lint, aprovados. Frontend: tsc, ESLint, Stylelint (sem erros)
+e 5.887 testes em 484 arquivos aprovados. Revisão independente review_aep:
+duas rodadas sem pendências. Nenhum teste ACP foi executado localmente.
+
+Importação, demais escritores de manutenção, participação automática das janelas,
+transporte e migração frontend permanecem pendentes. Não declara foco/ordem da UI
+resolvidos. Este recorte mantém o contrato de normalização do delete existente.
 
 ### Recorte: limpeza do conteúdo de conversa (2026-11-01)
 

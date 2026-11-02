@@ -1285,6 +1285,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	a.wireTasklistActions()
 	a.conversationsCtrl = controllers.NewConversationsController(controllers.ConversationsControllerConfig{
 		MutateTimeline:              timelineProjection.ApplyStorageMutation,
+		DeleteTimeline:              timelineProjection.ApplyConversationDeletion,
 		ReadTimelineWindow:          a.agentSvc.ReadTimelineWindow,
 		MsgRepo:                     a.msgRepo,
 		Emitter:                     a.emitter,

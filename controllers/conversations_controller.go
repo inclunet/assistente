@@ -22,7 +22,7 @@ type ConversationsControllerConfig struct {
 	ResetScopedState            func(ctx context.Context, conversationID string)
 	PrepareBatchDelete          func(ctx context.Context, conversationIDs []string) (finalize func(committed bool), err error)
 	ValidateBatchDelete         func(ctx context.Context, conversationIDs []string) ([]string, error)
-	DeleteBatch                 func(ctx context.Context, conversationIDs []string) ([]string, error)
+	DeleteTimeline              func(context.Context, []string, func() ([]string, error)) ([]string, error)
 	ListConversations           func(ctx context.Context) ([]database.Conversation, error)
 	WithMaintenance             func(ctx context.Context, fn func() error) error
 	DeleteWithinMaintenance     func(ctx context.Context, conversationIDs []string) ([]string, error)
@@ -40,7 +40,7 @@ type ConversationsController struct {
 	resetScopedState        func(ctx context.Context, conversationID string)
 	prepareBatchDelete      func(ctx context.Context, conversationIDs []string) (finalize func(committed bool), err error)
 	validateBatchDelete     func(ctx context.Context, conversationIDs []string) ([]string, error)
-	deleteBatch             func(ctx context.Context, conversationIDs []string) ([]string, error)
+	deleteTimeline          func(context.Context, []string, func() ([]string, error)) ([]string, error)
 	listConversations       func(ctx context.Context) ([]database.Conversation, error)
 	withMaintenance         func(ctx context.Context, fn func() error) error
 	deleteWithinMaintenance func(ctx context.Context, conversationIDs []string) ([]string, error)
@@ -62,9 +62,6 @@ func NewConversationsController(cfg ConversationsControllerConfig) *Conversation
 	if cfg.ValidateBatchDelete == nil {
 		cfg.ValidateBatchDelete = database.ValidateOwnedConversationIDsWithContext
 	}
-	if cfg.DeleteBatch == nil {
-		cfg.DeleteBatch = database.DeleteConversationsWithinLifecycleWithContext
-	}
 	if cfg.ListConversations == nil {
 		cfg.ListConversations = database.GetConversationsWithContext
 	}
@@ -82,7 +79,7 @@ func NewConversationsController(cfg ConversationsControllerConfig) *Conversation
 		resetScopedState:        cfg.ResetScopedState,
 		prepareBatchDelete:      cfg.PrepareBatchDelete,
 		validateBatchDelete:     cfg.ValidateBatchDelete,
-		deleteBatch:             cfg.DeleteBatch,
+		deleteTimeline:          cfg.DeleteTimeline,
 		listConversations:       cfg.ListConversations,
 		withMaintenance:         cfg.WithMaintenance,
 		deleteWithinMaintenance: cfg.DeleteWithinMaintenance,
@@ -408,7 +405,15 @@ func (c *ConversationsController) DeleteConversations(ctx context.Context, ids [
 	if err != nil {
 		return nil, err
 	}
-	return c.deletePreparedConversations(ctx, normalizedIDs, c.deleteBatch)
+	return c.deletePreparedConversations(ctx, normalizedIDs, func(ctx context.Context, ids []string) ([]string, error) {
+		var deleted []string
+		err := c.withMaintenance(ctx, func() error {
+			var err error
+			deleted, err = c.deleteTimelineWithinMaintenance(ctx, ids)
+			return err
+		})
+		return deleted, err
+	})
 }
 
 // ClearConversations remove todas as conversas do usuário mantendo o gate de
@@ -452,7 +457,7 @@ func (c *ConversationsController) ClearConversations(ctx context.Context) ([]str
 					if !sameConversationIDs(snapshot, current) {
 						return errClearConversationSnapshotChanged
 					}
-					deleted, err = c.deleteWithinMaintenance(ctx, snapshot)
+					deleted, err = c.deleteTimelineWithinMaintenance(ctx, snapshot)
 					return err
 				})
 				return deleted, err
