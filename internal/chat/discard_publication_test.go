@@ -132,7 +132,7 @@ func TestDiscardRetainedReconcilesPublishedVolatileItem(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				fresh, err := sub.Refresh(f.ctx, nil)
+				fresh, err := sub.Refresh(f.ctx, "1", nil)
 				if err != nil {
 					t.Fatal(err)
 				}

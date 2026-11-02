@@ -61,7 +61,7 @@ func TestConversationDeletionCoordinatesAtomicBatchBeforeEffects(t *testing.T) {
 			coordinated, effects := 0, 0
 			checkEffect := func() {
 				effects++
-				if _, err := subscriptions[0].Refresh(ctx, nil); !errors.Is(err, chat.ErrTimelineSubscription) {
+				if _, err := subscriptions[0].Refresh(ctx, "1", nil); !errors.Is(err, chat.ErrTimelineSubscription) {
 					t.Error("efeito antes da invalidação", err)
 				}
 			}
@@ -128,7 +128,7 @@ func TestConversationDeletionCoordinatesAtomicBatchBeforeEffects(t *testing.T) {
 				if i == 2 {
 					userCtx = database.WithUserID(context.Background(), "other")
 				}
-				snapshot, readErr := subscriptions[i].Refresh(userCtx, nil)
+				snapshot, readErr := subscriptions[i].Refresh(userCtx, "1", nil)
 				if removed {
 					if !errors.Is(readErr, chat.ErrTimelineSubscription) {
 						t.Fatal("inscrição não invalidada", readErr)

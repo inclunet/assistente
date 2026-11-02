@@ -16,8 +16,9 @@ import (
 )
 
 // LiveProjection conserva dados recebidos do provider, antes do armazenamento.
-// A unidade de serialização é usuário/conversa. Não publica eventos nem chama
-// callbacks externos sob o mutex (somente storage no coordenador). Revision é interna; não é sequence do protocolo wire.
+// A unidade de serialização é usuário/conversa. Não entrega eventos nem efeitos
+// externos sob o mutex; leitores, autorização de sessão e writers coordenados
+// não podem reentrar no projetor. Revision é interna, não a sequence do wire.
 type LiveProjection struct {
 	reader        PublicationSnapshotReader
 	mu            sync.Mutex

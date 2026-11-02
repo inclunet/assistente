@@ -10,7 +10,8 @@ import (
 )
 
 // TimelineSession é implementada pelo transporte confiável, que captura e
-// revalida a sessão. Nenhum owner/sessionId é aceito no pedido da superfície.
+// revalida a sessão. A autorização não pode reentrar no projetor: ocorre sob a
+// barreira da conversa. Nenhum owner/sessionId é aceito no pedido da superfície.
 type TimelineSession interface {
 	AuthorizeTimeline(context.Context) (context.Context, string, error)
 }
@@ -73,6 +74,16 @@ func (p *LiveProjection) SubscribeTimeline(ctx context.Context, session Timeline
 	key := projectionKey{userID, query.ConversationID}
 	c, release := p.lockConversation(key, true)
 	defer release()
+	// A primeira autorização identifica a chave; esta confirma a sessão depois
+	// de eventual espera por um writer, antes de consultar dados ou criar a janela.
+	authorized, currentSessionID, err := session.AuthorizeTimeline(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	currentUserID, err := database.RequireUserID(authorized)
+	if err != nil || currentSessionID != sessionID || currentUserID != userID {
+		return nil, nil, ErrTimelineSubscription
+	}
 	surface := subscriptionSurface{sessionID, surfaceID}
 	if len(c.windows) >= 64 {
 		return nil, nil, ErrTimelineSubscriptionLimit
@@ -140,18 +151,36 @@ func (s *TimelineSubscription) authorize(ctx context.Context) (context.Context, 
 	return authorized, nil
 }
 
+// A sessão é validada depois da espera por writers. O capability já fixa a
+// chave usada para obter a barreira, sem confiar em owner enviado pelo caller.
+func (s *TimelineSubscription) lockAuthorized(ctx context.Context) (context.Context, *projectionConversation, func(), error) {
+	if s == nil || s.owner == nil || s.session == nil {
+		return nil, nil, nil, ErrTimelineSubscription
+	}
+	c, release := s.owner.lockConversation(s.key, false)
+	if c == nil || c != s.conversation || c.windows[s.windowID] == nil {
+		release()
+		return nil, nil, nil, ErrTimelineSubscription
+	}
+	authorized, err := s.authorize(ctx)
+	if err != nil {
+		release()
+		return nil, nil, nil, err
+	}
+	return authorized, c, release, nil
+}
+
 // Refresh recupera explicitamente a inscrição. Position nil repete a consulta;
 // uma posição explícita permite abandonar um cursor obsoleto, preservando escopo.
 // Não é chamada por token nem faz fallback silencioso para outra página.
-func (s *TimelineSubscription) Refresh(ctx context.Context, position *TimelineWindowPosition) (*SubscribedTimelineSnapshot, error) {
-	authorized, err := s.authorize(ctx)
+func (s *TimelineSubscription) Refresh(ctx context.Context, windowRevision string, position *TimelineWindowPosition) (*SubscribedTimelineSnapshot, error) {
+	authorized, c, release, err := s.lockAuthorized(ctx)
 	if err != nil {
 		return nil, err
 	}
-	c, release := s.owner.lockConversation(s.key, false)
 	defer release()
-	if c != s.conversation || c == nil || c.windows[s.windowID] == nil {
-		return nil, ErrTimelineSubscription
+	if windowRevision != strconv.FormatUint(c.windows[s.windowID].revision, 10) {
+		return nil, ErrTimelineWindowStale
 	}
 	query := s.query
 	if position != nil {
@@ -189,15 +218,11 @@ func (s *TimelineSubscription) windowQuery(position TimelineWindowPosition) data
 // Dois pedidos da mesma revisão não podem sobrescrever a navegação um do outro.
 // Uma leitura recusada preserva a consulta e os IDs da janela anterior.
 func (s *TimelineSubscription) Navigate(ctx context.Context, request TimelineWindowNavigation) (*SubscribedTimelineSnapshot, error) {
-	authorized, err := s.authorize(ctx)
+	authorized, c, release, err := s.lockAuthorized(ctx)
 	if err != nil {
 		return nil, err
 	}
-	c, release := s.owner.lockConversation(s.key, false)
 	defer release()
-	if c == nil || c != s.conversation || c.windows[s.windowID] == nil {
-		return nil, ErrTimelineSubscription
-	}
 	window := c.windows[s.windowID]
 	if request.Epoch != c.epoch || window.epoch != c.epoch || request.WindowRevision != strconv.FormatUint(window.revision, 10) {
 		return nil, ErrTimelineWindowStale
@@ -219,16 +244,12 @@ func (s *TimelineSubscription) Navigate(ctx context.Context, request TimelineWin
 // Replay lê somente operações já publicadas para os IDs materializados desta
 // inscrição. Lotes vazios preservam a sequência compartilhada. Não é sync público.
 func (s *TimelineSubscription) Replay(ctx context.Context, epoch, windowRevision string, after uint64, reader TurnSnapshotReader) ([]CanonicalBatch, bool, error) {
-	authorized, err := s.authorize(ctx)
+	authorized, c, release, err := s.lockAuthorized(ctx)
 	if err != nil {
 		return nil, false, err
 	}
-	if reader == nil {
-		return nil, false, ErrTimelineSubscription
-	}
-	c, release := s.owner.lockConversation(s.key, false)
 	defer release()
-	if c != s.conversation || c == nil || c.windows[s.windowID] == nil {
+	if reader == nil {
 		return nil, false, ErrTimelineSubscription
 	}
 	// Reautoriza posse e invalida época em import/recriação antes de devolver memória.

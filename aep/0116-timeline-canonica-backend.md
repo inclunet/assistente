@@ -30,6 +30,15 @@ a revisão da janela: pedido antigo que espera atrás de uma navegação não re
 operações filtradas pela página nova. As assinaturas internas foram atualizadas
 nos consumidores de teste, preservando todas as asserções anteriores.
 
+A segunda rodada remota identificou mais duas intercalações: autorização anterior
+à espera pela barreira e recuperação sem revisão concorrente. Os três métodos do
+capability agora compartilham autorização após adquirir a barreira; Subscribe
+também reconfirma a sessão após esperar. O autorizador confiável não reentra no
+projetor. Refresh exige revisão da janela, independente da época: ainda recupera
+import/recriação, mas não sobrescreve navegação ou recuperação mais recente.
+Regressões sincronizam revogação após a reserva efetiva da chamada e recuperação
+atrás de Navigate/Refresh. Nenhuma consulta de conteúdo ocorre na recusa.
+
 `timeline_navigation_test.go` cobre paginação real por cursor, duas superfícies,
 preservação da consulta em Refresh, revisão obsoleta, pedidos concorrentes,
 falha sem mudança de participação, fechamento/revogação, escopo de thread,
@@ -37,8 +46,8 @@ falha sem mudança de participação, fechamento/revogação, escopo de thread,
 cobrem cursor previamente aceito que se torna obsoleto (com/sem nova época) e
 replay concorrente bloqueado atrás de navegação, sem sleeps de sincronização.
 
-Validação local final: 346 testes seguros de chat, 99 de controllers e a regressão de áudio/timeline aprovados; build/vet e lint incremental
-sem erros. Revisão independente review_aep: três rodadas, sem pendências finais após corrigir os dois P2 remotos. Race local indisponível
+Validação local final: 348 testes seguros de chat, 99 de controllers e a regressão de áudio/timeline aprovados; build/vet e lint incremental
+sem erros. Revisão independente review_aep: quatro rodadas, sem pendências finais após corrigir os quatro P2 remotos. Race local indisponível
 por ausência de CGO/compilador C; validação com detector de corrida fica no CI.
 
 Este contrato ainda é interno: não adiciona binding/evento nem altera a UI.

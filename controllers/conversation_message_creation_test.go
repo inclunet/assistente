@@ -83,7 +83,7 @@ func TestMessageCreationReconcilesAllControllerEntries(t *testing.T) {
 					t.Fatal("escopo filho perdido")
 				}
 			}
-			snapshot, err := sub.Refresh(ctx, nil)
+			snapshot, err := sub.Refresh(ctx, "1", nil)
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -57,14 +57,14 @@ func TestTimelineSubscriptionsIsolateSurfacesAndSession(t *testing.T) {
 	}
 	first.Close()
 	first.Close()
-	if _, err := first.Refresh(f.ctx, nil); !errors.Is(err, ErrTimelineSubscription) {
+	if _, err := first.Refresh(f.ctx, "1", nil); !errors.Is(err, ErrTimelineSubscription) {
 		t.Fatalf("fechada: %v", err)
 	}
-	if _, err := second.Refresh(f.ctx, nil); err != nil {
+	if _, err := second.Refresh(f.ctx, "1", nil); err != nil {
 		t.Fatal("fechar uma fechou outra", err)
 	}
 	session.id = "new-session"
-	if _, err := second.Refresh(f.ctx, nil); !errors.Is(err, ErrTimelineSubscription) {
+	if _, err := second.Refresh(f.ctx, "1", nil); !errors.Is(err, ErrTimelineSubscription) {
 		t.Fatalf("sessão trocada: %v", err)
 	}
 	session.id = "session"
@@ -91,7 +91,7 @@ func TestTimelineSubscriptionInvalidatesReplayAfterStorageChange(t *testing.T) {
 	if _, ok, err := sub.Replay(f.ctx, snapshot.Epoch, snapshot.WindowRevision, 0, f.reader); err != nil || ok {
 		t.Fatalf("replay ressuscitou exclusão: %v %v", ok, err)
 	}
-	fresh, err := sub.Refresh(f.ctx, nil)
+	fresh, err := sub.Refresh(f.ctx, "1", nil)
 	if err != nil || len(fresh.Items) != 0 {
 		t.Fatalf("recuperação: %+v %v", fresh, err)
 	}
@@ -118,7 +118,7 @@ func TestTimelineSubscriptionSnapshotDoesNotMutatePublication(t *testing.T) {
 	}
 	defer sub.Close()
 	snapshot.Items[0].Segments[0].Text = "corrompido"
-	fresh, err := sub.Refresh(f.ctx, nil)
+	fresh, err := sub.Refresh(f.ctx, "1", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -158,7 +158,7 @@ func TestTimelineSubscriptionLimitReleasedByClose(t *testing.T) {
 	}
 	defer handle.Close()
 	session.ctx = database.WithUserID(context.Background(), "other-user")
-	if _, err := handle.Refresh(f.ctx, nil); !errors.Is(err, ErrTimelineSubscription) {
+	if _, err := handle.Refresh(f.ctx, "1", nil); !errors.Is(err, ErrTimelineSubscription) {
 		t.Fatalf("owner trocado: %v", err)
 	}
 }

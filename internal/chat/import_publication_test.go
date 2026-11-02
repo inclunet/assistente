@@ -66,7 +66,7 @@ func TestImportCoordinatesReplacementAndPartialRollbackBeforeRestore(t *testing.
 	if err != nil || result == nil || result.Imported != 1 || result.Failed != 1 || coordinated != 2 || !restored {
 		t.Fatalf("import: %+v, %v, coordenadas=%d restore=%v", result, err, coordinated, restored)
 	}
-	after, err := sub.Refresh(f.ctx, nil)
+	after, err := sub.Refresh(f.ctx, "1", nil)
 	if err != nil || len(after.Items) != 2 || canonicalText(after.Items[0]) != "pergunta importada" || canonicalText(after.Items[1]) != "" || len(after.Items[1].Segments) != 0 {
 		t.Fatal("snapshot não corresponde ao commit", after, err)
 	}

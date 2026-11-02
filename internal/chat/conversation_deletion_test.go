@@ -38,7 +38,7 @@ func TestConversationDeletionInvalidatesCapabilitiesAndReleasesContent(t *testin
 	if stream.Append("atrasado") {
 		t.Fatal("binding antigo aceitou conteúdo")
 	}
-	if _, err := sub.Refresh(f.ctx, nil); !errors.Is(err, ErrTimelineSubscription) {
+	if _, err := sub.Refresh(f.ctx, "1", nil); !errors.Is(err, ErrTimelineSubscription) {
 		t.Fatalf("refresh: %v", err)
 	}
 	if _, _, err := sub.Replay(f.ctx, before.Epoch, before.WindowRevision, 0, f.reader); !errors.Is(err, ErrTimelineSubscription) {
@@ -62,7 +62,7 @@ func TestConversationDeletionInvalidatesCapabilitiesAndReleasesContent(t *testin
 	if after.Epoch == before.Epoch || after.WindowID == before.WindowID || len(after.Items) != 0 {
 		t.Fatal("recriação herdou identidade/conteúdo antigo")
 	}
-	if _, err := sub.Refresh(f.ctx, nil); !errors.Is(err, ErrTimelineSubscription) {
+	if _, err := sub.Refresh(f.ctx, "1", nil); !errors.Is(err, ErrTimelineSubscription) {
 		t.Fatal("recriação reativou inscrição antiga", err)
 	}
 }
@@ -79,7 +79,7 @@ func TestConversationDeletionRollbackPreservesSubscription(t *testing.T) {
 	if _, err := p.ApplyConversationDeletion(f.ctx, []string{f.conversation}, func() ([]string, error) { return nil, failure }); !errors.Is(err, failure) {
 		t.Fatal(err)
 	}
-	after, err := sub.Refresh(f.ctx, nil)
+	after, err := sub.Refresh(f.ctx, "1", nil)
 	if err != nil || after.Epoch != before.Epoch || len(after.Items) != len(before.Items) {
 		t.Fatalf("rollback invalidou inscrição: %v", err)
 	}
