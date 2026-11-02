@@ -63,8 +63,9 @@ func TestCanonicalWindowBudgetBeforeMaterialization(t *testing.T) {
 }
 
 func TestWindowBudgetRefusalPreservesSubscription(t *testing.T) {
-	for _, live := range []bool{false, true} {
-		t.Run(map[bool]string{false: "persisted", true: "live"}[live], func(t *testing.T) {
+	for _, mode := range []string{"persisted", "live", "mixed"} {
+		t.Run(mode, func(t *testing.T) {
+			live := mode != "persisted"
 			f, p, e, _ := automaticFixture(t)
 			query := database.MessageWindowQuery{ConversationID: f.conversation, Anchor: "start", Direction: "after", Limit: 1}
 			sub, initial, err := p.SubscribeTimeline(f.ctx, &fixtureTimelineSession{ctx: f.ctx, id: "budget"}, "surface", query, f.reader)
@@ -72,7 +73,27 @@ func TestWindowBudgetRefusalPreservesSubscription(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer sub.Close()
-			large := strings.Repeat("x", canonicalSourceBytes+1)
+			size := canonicalSourceBytes + 1
+			if mode == "mixed" {
+				size = canonicalSourceBytes/2 + 1
+			}
+			large := strings.Repeat("x", size)
+			if mode == "mixed" {
+				if err := f.db.Model(&database.ChatMessage{}).Where("id=?", f.question).Update("content", large).Error; err != nil {
+					t.Fatal(err)
+				}
+				if _, err := f.reader.ReadCanonicalWindow(f.ctx, database.MessageWindowQuery{ConversationID: f.conversation, Anchor: "end", Direction: "before", Limit: 20}); err != nil {
+					t.Fatal("fontes persistidas cabem antes de somar live", err)
+				}
+			}
+			c := sub.conversation
+			c.mu.Lock()
+			publishedBefore, err := json.Marshal(c.publication.items)
+			sequenceBefore := c.publication.sequence
+			c.mu.Unlock()
+			if err != nil {
+				t.Fatal(err)
+			}
 			if live {
 				// Alimenta o buffer real sob a barreira sem agendar publicação;
 				// o teste isola a leitura da janela do timer.
@@ -97,12 +118,15 @@ func TestWindowBudgetRefusalPreservesSubscription(t *testing.T) {
 			if _, err := sub.Refresh(f.ctx, initial.WindowRevision, &position); !errors.Is(err, ErrTimelineSourceLimit) {
 				t.Fatalf("refresh: %v", err)
 			}
-			c := sub.conversation
 			c.mu.Lock()
 			defer c.mu.Unlock()
 			w := c.windows[sub.windowID]
 			if w.revision != 1 || len(w.itemIDs) != 1 || !w.itemIDs[initial.OrderedItemIDs[0]] || !reflect.DeepEqual(sub.query, beforeQuery) {
 				t.Fatal("recusa alterou inscrição")
+			}
+			publishedAfter, err := json.Marshal(c.publication.items)
+			if err != nil || string(publishedBefore) != string(publishedAfter) || c.publication.sequence != sequenceBefore {
+				t.Fatal("recusa alterou janela publicada", err)
 			}
 			if c.publicationErrorLocked() != nil {
 				t.Fatal("recusa local suspendeu publicação global")

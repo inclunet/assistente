@@ -36,12 +36,15 @@ Regressões em window_budget_test.go cobrem soma de mensagens/ledger antes do
 fetch, perguntas sem resposta fora da página, preservação do legado, recusa de
 navegação/refresh com buffers intactos, escape JSON e identificadores extensos.
 A prova de snapshot com commit concorrente agora roda também no leitor canônico.
+Após review remota, a regressão inclui pergunta persistida e buffer live de
+4 MiB + 1 byte cada: o preflight persistido aceita, a composição agregada recusa,
+e sequência/cache publicados e inscrição permanecem intactos.
 
 Validação local: 354 testes seguros de chat, 362 de banco e 99 de controllers
 aprovados (815), build/vet/lint sem erros. A conta de escape é confrontada com
 encoding/json, incluindo UTF-8 inválido; a codificação de substituição é medida
 uma vez para acompanhar a versão ativa do encoder. Nenhum teste existente foi
-removido ou relaxado. Revisor independente review_aep: três rodadas, sem pendências.
+removido ou relaxado. Revisor independente review_aep: quatro rodadas, sem pendências.
 
 Benchmark de leitura canônica, mesma máquina Windows/amd64, três amostras de
 30 operações em cada versão: medianas da base de 7,43/12,66/14,64 ms para
