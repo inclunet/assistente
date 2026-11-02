@@ -1,8 +1,45 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, mensagens, áudio, limpeza, exclusão e importação integrados; retenção por idade integrada; órfãos, janelas, transporte e cutover pendentes
+## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, mensagens, áudio, limpeza, exclusão e importação integrados; retenção por idade e órfãos integrados; janelas, transporte e cutover pendentes
 
 Data: 2026-10-30
+
+### Recorte: limpeza coordenada de órfãos (2026-11-02)
+
+As entradas legada e limitada de limpeza de órfãos passam pela mesma coordenação
+de manutenção da retenção por idade. O predicado de orfandade é único para
+seleção, descoberta e escrita; sua política não foi alterada. Cursores só avançam
+após commit, e a primeira inscrição usa a barreira do projetor compartilhado.
+
+No caminho limitado, a descoberta restringe pais à página e filhos ao mesmo
+prefixo que pode ser desvinculado. A ordem parent_invocation_id + rowid mantém
+esse prefixo estável usando o índice existente, sem ordenar todos os IDs de
+filhos. A união das linhas selecionadas não varre invocações fora da página para
+montar a projeção. Quando restam filhos, a próxima passagem retoma a página.
+
+A transação comum mantém callback e COMMIT em tentativa única; adquirir
+BEGIN IMMEDIATE preserva o retry cancelável canônico. A retenção por idade mantém
+seu retry externo; órfãos não reexecutam callback/COMMIT automaticamente em busy. Mudança do conjunto afetado continua exigindo redescoberta limitada,
+antes de qualquer escrita. A consulta de schema também observa cancelamento.
+
+`orphan_publication_test.go` integra serviço, SQLite e projetor: entradas legada
+e limitada, rollback de detach, cursor preservado, filhos em conversas distintas,
+limite da descoberta por passagem e retirada do órfão da base publicada sem
+apagar mensagens. Testes anteriores de cursores/limites continuam presentes.
+Validação: 339 testes seguros de chat, 97 de toolinvocations, 382 de jobs e
+25 de App aprovados; build/vet/lint sem erros. Review_aep aprovou o código e
+solicitou precisão sobre retry de BEGIN IMMEDIATE, já corrigida neste texto.
+Frontend inalterado; nenhum teste ACP executado localmente.
+
+No CI do #996, duas execuções atingiram o timeout agregado padrão de 10 minutos
+do pacote App (1.394 testes), com o teste corrente ativo por apenas 13–14 segundos.
+O orçamento da suíte com cobertura passa a 15 minutos por pacote, com 30 minutos
+para o job incluindo preparação e compilação. Nenhum teste ou asserção foi removido.
+Uma execução intermediária falhou por SQLITE_BUSY na preparação de um teste de
+comandos; esse teste passou em dez repetições locais consecutivas.
+
+Participação de janelas, transporte e cutover frontend continuam pendentes;
+este recorte não declara os sintomas de foco/ordem da UI resolvidos.
 
 ### Recorte: retenção de ferramentas por idade (2026-11-02)
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"time"
 
 	"assistente/internal/database"
 	"gorm.io/gorm"
@@ -14,19 +15,19 @@ var errMaintenanceScopeChanged = errors.New("conversas afetadas pela manutençã
 // Descobre somente identidades, sem materializar payloads. Revalida sob writer
 // lock antes de alterar qualquer linha, incluindo filhos que serão desvinculados.
 // Nenhum mutex SQLite é mantido enquanto se adquire a barreira do projetor.
-func (r *DBRepository) mutateChatMaintenance(ctx context.Context, operation string, target func(*gorm.DB) *gorm.DB, write func(*gorm.DB) error) error {
+func (r *DBRepository) mutateChatMaintenance(ctx context.Context, operation string, childLimit int, target func(*gorm.DB) *gorm.DB, write func(*gorm.DB) error) error {
 	return database.WithSQLiteMaintenance(ctx, func() error {
 		if r.maintenanceCoordinator == nil {
-			return database.WithSQLiteImmediateTransaction(ctx, r.db, "toolinvocations."+operation, write)
+			return database.WithSQLiteImmediateTransactionOnce(ctx, time.Time{}, r.db, "toolinvocations."+operation, write)
 		}
 		for attempt := 0; attempt < 8; attempt++ {
-			ids, err := maintenanceConversationIDs(ctx, r.db, target)
+			ids, err := maintenanceConversationIDs(ctx, r.db, target, childLimit)
 			if err != nil {
 				return err
 			}
 			err = r.maintenanceCoordinator(ctx, ids, func() error {
-				return database.WithSQLiteImmediateTransaction(ctx, r.db, "toolinvocations."+operation, func(tx *gorm.DB) error {
-					current, err := maintenanceConversationIDs(ctx, tx, target)
+				return database.WithSQLiteImmediateTransactionOnce(ctx, time.Time{}, r.db, "toolinvocations."+operation, func(tx *gorm.DB) error {
+					current, err := maintenanceConversationIDs(ctx, tx, target, childLimit)
 					if err != nil {
 						return err
 					}
@@ -44,12 +45,16 @@ func (r *DBRepository) mutateChatMaintenance(ctx context.Context, operation stri
 	})
 }
 
-func maintenanceConversationIDs(ctx context.Context, db *gorm.DB, target func(*gorm.DB) *gorm.DB) ([]string, error) {
+func maintenanceConversationIDs(ctx context.Context, db *gorm.DB, target func(*gorm.DB) *gorm.DB, childLimit int) ([]string, error) {
 	db = db.WithContext(ctx)
 	parents := target(db).Select("tool_invocations.id")
-	affected := database.ScopeByUser(ctx, db.Model(&database.ToolInvocation{}), "user_id").
-		Select("user_id", "conversation_id", "turn_id", "origin_id").
-		Where("id IN (?) OR parent_invocation_id IN (?)", parents, parents)
+	children := database.ScopeByUser(ctx, db.Model(&database.ToolInvocation{}), "user_id").Where("parent_invocation_id IN (?)", parents)
+	if childLimit > 0 {
+		// Mesma ordem do detach bounded, atendida pelo índice de parent + rowid.
+		children = children.Order("parent_invocation_id, rowid").Limit(childLimit)
+	}
+	fields := []string{"user_id", "conversation_id", "turn_id", "origin_id"}
+	affected := db.Raw("SELECT * FROM (?) AS parents UNION ALL SELECT * FROM (?) AS children", target(db).Select(fields), children.Select(fields))
 	var ids []string
 	// A mesma união de vínculos dos triggers v43: conversation_id sozinho não
 	// representa todos os leitores de linhas legadas. Cada ramo usa PK/turn_id,
