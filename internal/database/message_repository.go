@@ -452,12 +452,16 @@ func (r *MessageRepository) GetMessageContentAndRoleWithContext(ctx context.Cont
 // GetMessageIdentityWithContext resolve somente a identidade e seus vínculos,
 // com ownership, sem materializar texto, áudio ou anexos para coordenar mutações.
 func GetMessageIdentityWithContext(ctx context.Context, messageID string) (*ChatMessage, error) {
+	return NewMessageRepository(db).GetMessageIdentityWithContext(ctx, messageID)
+}
+
+func (r *MessageRepository) GetMessageIdentityWithContext(ctx context.Context, messageID string) (*ChatMessage, error) {
 	if _, err := RequireUserID(ctx); err != nil {
 		return nil, err
 	}
 	var msg ChatMessage
-	if err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).
-		Select("chat_messages.id", "chat_messages.conversation_id", "chat_messages.turn_id").
+	if err := scopedMessageQuery(ctx, r.db.Model(&ChatMessage{})).
+		Select("chat_messages.id", "chat_messages.conversation_id", "chat_messages.turn_id", "chat_messages.parent_id").
 		First(&msg, "chat_messages.id = ?", messageID).Error; err != nil {
 		return nil, err
 	}
@@ -1312,6 +1316,7 @@ func (r *MessageRepository) GetRootMessagesBeforeWithContext(ctx context.Context
 // WithTimelineTurns inclui turnos admitidos antes da criação da mensagem final.
 // O contrato legado de MessageWindow não consegue representar esses itens;
 // somente a nova leitura de TimelineItem usa esta mesma consulta ampliada.
+// A materialização canônica exclui blobs de áudio/mídia, ausentes do seu DTO.
 func (r *MessageRepository) WithTimelineTurns() *MessageRepository {
 	clone := *r
 	clone.includeTimelineTurns = true
@@ -1618,6 +1623,11 @@ func (r *MessageRepository) fetchMessagesForTimelineItems(conversationID string,
 		}
 	}
 	query := r.messageScopeQuery(conversationID, parentID)
+	if r.includeTimelineTurns {
+		// A projeção canônica não transporta blobs. Aplicar somente na consulta
+		// de mensagens evita contaminar autorização e demais modelos do snapshot.
+		query = query.Omit("media", "audio", "audio_mime_type")
+	}
 	parentPredicate := "parent_id IS NULL"
 	args := []interface{}{messageIDs, conversationID}
 	if parentID != nil {
@@ -1660,7 +1670,7 @@ func (r *MessageRepository) GetMessageWindowWithContext(ctx context.Context, que
 		return nil, err
 	}
 	if query.ParentID != nil {
-		parent, err := r.GetMessageWithContext(ctx, *query.ParentID)
+		parent, err := r.GetMessageIdentityWithContext(ctx, *query.ParentID)
 		if err != nil {
 			return nil, err
 		}

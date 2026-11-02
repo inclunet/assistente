@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-
-	"gorm.io/gorm"
 )
 
 // GetTimelineItemsByIDWithContext reconcilia somente identidades materializadas.
@@ -29,8 +27,7 @@ func (r *MessageRepository) GetTimelineItemsByIDWithContext(ctx context.Context,
 		if err := repo.db.WithContext(ctx).Raw(sql, args...).Scan(&rows).Error; err != nil {
 			return nil, err
 		}
-		messageRepo := NewMessageRepository(repo.db.Omit("media", "audio", "audio_mime_type").Session(&gorm.Session{}))
-		messages, err := messageRepo.fetchMessagesForTimelineItems(conversationID, parentID, rows)
+		messages, err := repo.fetchMessagesForTimelineItems(conversationID, parentID, rows)
 		if err != nil {
 			return nil, err
 		}

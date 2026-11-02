@@ -76,7 +76,7 @@ func TestAudioPersistenceCoordinatesTimelineWithoutReadingPayload(t *testing.T) 
 			defer sub.Close()
 			preRead := false
 			if err := db.Callback().Query().After("gorm:query").Register("audio_identity", func(tx *gorm.DB) {
-				if m, ok := tx.Statement.Dest.(*database.ChatMessage); ok && m.ID == message.ID && len(tx.Statement.Selects) == 3 {
+				if m, ok := tx.Statement.Dest.(*database.ChatMessage); ok && m.ID == message.ID && strings.Join(tx.Statement.Selects, ",") == "chat_messages.id,chat_messages.conversation_id,chat_messages.turn_id,chat_messages.parent_id" {
 					preRead = true
 					if m.Audio != "" || m.Content != "" || m.Media != "" {
 						t.Error("pré-leitura carregou payload")

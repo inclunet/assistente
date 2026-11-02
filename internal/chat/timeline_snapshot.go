@@ -104,7 +104,7 @@ func (r *DBTimelineReader) readWindow(ctx context.Context, query database.Messag
 			repo = repo.WithTimelineTurns()
 		}
 		if query.ParentID != nil {
-			parent, err := repo.GetMessageWithContext(ctx, *query.ParentID)
+			parent, err := repo.GetMessageIdentityWithContext(ctx, *query.ParentID)
 			if err != nil {
 				return fmt.Errorf("threadParentId inválido: %w", err)
 			}
@@ -119,8 +119,10 @@ func (r *DBTimelineReader) readWindow(ctx context.Context, query database.Messag
 		if err != nil {
 			return err
 		}
-		if err := database.ResolveContinuationMedia(ctx, tx, rows.Messages); err != nil {
-			return err
+		if !canonical {
+			if err := database.ResolveContinuationMedia(ctx, tx, rows.Messages); err != nil {
+				return err
+			}
 		}
 		result.TurnIDs = snapshotTurnIDs(rows.Messages)
 		seen := make(map[string]bool, len(result.TurnIDs))
