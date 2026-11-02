@@ -1,8 +1,30 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, comandos e criação avulsa integrados; demais escritores, transporte e cutover pendentes
+## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, mensagens e áudio integrados; limpeza/import/manutenção, transporte e cutover pendentes
 
 Data: 2026-10-30
+
+### Recorte: persistência de áudio (2026-11-01)
+
+`DBAudioStore` recebe obrigatoriamente o coordenador compartilhado do bootstrap.
+Todas as gravações de áudio por speech e canais passam pela mesma instância;
+geração TTS e transporte ficam fora da barreira. Apenas a gravação e a
+reconciliação da mensagem/resposta são serializadas com a timeline.
+A pré-leitura autoriza e seleciona somente ID, conversa e turno, sem materializar
+o áudio anterior. IDs de turno vazios não viram identidades de resposta.
+Falha do writer é preservada; ausência do coordenador impede a gravação.
+
+`TestAudioPersistenceCoordinatesTimelineWithoutReadingPayload` usa SQLite,
+projetor e inscrição reais para mensagens avulsas, resposta vinculada e vínculo
+legado vazio. Cobre áudio anterior de 2 MiB, identidade, omissão de payload na
+projeção, renovação do snapshot, recusa de ownership antes da coordenação e
+falha de escrita sem alterar áudio confirmado. Não há mudança do contrato de
+speech ou geração de bindings; armazenamento unificado de anexos continua na fase 4.
+
+Limpeza/import/manutenção, participação de janelas, transporte e cutover
+frontend continuam pendentes. Validação: 38 testes seguros de speech, build,
+vet e lint aprovados; review_aep, primeira rodada sem pendências.
+Nenhum teste ACP é executado localmente.
 
 ### Recorte: criação avulsa de mensagens (2026-11-01)
 
