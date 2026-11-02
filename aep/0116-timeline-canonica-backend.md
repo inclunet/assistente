@@ -10,8 +10,10 @@ Data: 2026-10-30
 pelos writers e pela recuperação. Preserva `windowId`, sessão, conversa e escopo;
 o pedido só informa posição/direção/limite e a época/revisão esperadas. Consulta,
 composição, publicação e troca dos IDs inscritos acontecem antes de liberar a
-barreira. A leitura utiliza o leitor canônico existente e seus limites de itens
-e payload; não existe algoritmo de paginação paralelo.
+barreira. A leitura utiliza o leitor canônico existente e seu limite de 240 itens;
+não existe algoritmo de paginação paralelo. Esse limite não é uma cota de bytes:
+o orçamento agregado de payload da janela permanece pendente. As cotas de fonte,
+cache e replay da publicação não limitam a materialização completa deste snapshot.
 
 Snapshots internos passam a informar `windowRevision`, uma string decimal
 independente da sequência de conteúdo. Cada snapshot aceito avança essa revisão,
@@ -47,11 +49,12 @@ cobrem cursor previamente aceito que se torna obsoleto (com/sem nova época) e
 replay concorrente bloqueado atrás de navegação, sem sleeps de sincronização.
 
 Validação local final: 348 testes seguros de chat, 99 de controllers e a regressão de áudio/timeline aprovados; build/vet e lint incremental
-sem erros. Revisão independente review_aep: quatro rodadas, sem pendências finais após corrigir os quatro P2 remotos. Race local indisponível
+sem erros. Revisão independente review_aep: cinco rodadas, sem pendências finais após corrigir quatro apontamentos remotos e precisar o escopo de memória. Race local indisponível
 por ausência de CGO/compilador C; validação com detector de corrida fica no CI.
 
 Este contrato ainda é interno: não adiciona binding/evento nem altera a UI.
-Participação automática com splices, followTail, retenção por foco, transporte e
+Orçamento agregado de payload da janela, participação automática com splices,
+followTail, retenção por foco, transporte e
 cutover permanecem pendentes. A fixture completa de crescimento simultâneo de
 duas janelas continua aberta. Nenhum teste ACP local ou NVDA neste recorte.
 
