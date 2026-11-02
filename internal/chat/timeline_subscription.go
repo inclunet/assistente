@@ -140,9 +140,10 @@ func (s *TimelineSubscription) authorize(ctx context.Context) (context.Context, 
 	return authorized, nil
 }
 
-// Refresh é uma recuperação explícita. Não é chamada por token e não afirma
-// substituir a futura entrega automática de patches da janela.
-func (s *TimelineSubscription) Refresh(ctx context.Context) (*SubscribedTimelineSnapshot, error) {
+// Refresh recupera explicitamente a inscrição. Position nil repete a consulta;
+// uma posição explícita permite abandonar um cursor obsoleto, preservando escopo.
+// Não é chamada por token nem faz fallback silencioso para outra página.
+func (s *TimelineSubscription) Refresh(ctx context.Context, position *TimelineWindowPosition) (*SubscribedTimelineSnapshot, error) {
 	authorized, err := s.authorize(ctx)
 	if err != nil {
 		return nil, err
@@ -152,10 +153,15 @@ func (s *TimelineSubscription) Refresh(ctx context.Context) (*SubscribedTimeline
 	if c != s.conversation || c == nil || c.windows[s.windowID] == nil {
 		return nil, ErrTimelineSubscription
 	}
-	snapshot, err := s.owner.readWindowLocked(authorized, s.query, canonicalWindowAdapter{s.reader}, true, c)
+	query := s.query
+	if position != nil {
+		query = s.windowQuery(*position)
+	}
+	snapshot, err := s.owner.readWindowLocked(authorized, query, canonicalWindowAdapter{s.reader}, true, c)
 	if err != nil {
 		return nil, err
 	}
+	s.query = cloneWindowQuery(query)
 	return subscriptionSnapshot(c, c.windows[s.windowID], snapshot), nil
 }
 
@@ -164,11 +170,19 @@ func (s *TimelineSubscription) Refresh(ctx context.Context) (*SubscribedTimeline
 type TimelineWindowNavigation struct {
 	Epoch          string
 	WindowRevision string
-	Cursor         string
-	Anchor         string
-	AnchorItemID   string
-	Direction      string
-	Limit          int
+	TimelineWindowPosition
+}
+
+type TimelineWindowPosition struct {
+	Cursor       string
+	Anchor       string
+	AnchorItemID string
+	Direction    string
+	Limit        int
+}
+
+func (s *TimelineSubscription) windowQuery(position TimelineWindowPosition) database.MessageWindowQuery {
+	return database.MessageWindowQuery{ConversationID: s.key.conversationID, ParentID: s.query.ParentID, Cursor: position.Cursor, Anchor: position.Anchor, AnchorItemID: position.AnchorItemID, Direction: position.Direction, Limit: position.Limit}
 }
 
 // Navigate serializa consulta e troca da participação com os writers da conversa.
@@ -188,7 +202,7 @@ func (s *TimelineSubscription) Navigate(ctx context.Context, request TimelineWin
 	if request.Epoch != c.epoch || window.epoch != c.epoch || request.WindowRevision != strconv.FormatUint(window.revision, 10) {
 		return nil, ErrTimelineWindowStale
 	}
-	query := database.MessageWindowQuery{ConversationID: s.key.conversationID, ParentID: s.query.ParentID, Cursor: request.Cursor, Anchor: request.Anchor, AnchorItemID: request.AnchorItemID, Direction: request.Direction, Limit: request.Limit}
+	query := s.windowQuery(request.TimelineWindowPosition)
 	snapshot, err := s.owner.readWindowLocked(authorized, query, canonicalWindowAdapter{s.reader}, true, c)
 	if err != nil {
 		return nil, err
@@ -204,7 +218,7 @@ func (s *TimelineSubscription) Navigate(ctx context.Context, request TimelineWin
 
 // Replay lê somente operações já publicadas para os IDs materializados desta
 // inscrição. Lotes vazios preservam a sequência compartilhada. Não é sync público.
-func (s *TimelineSubscription) Replay(ctx context.Context, epoch string, after uint64, reader TurnSnapshotReader) ([]CanonicalBatch, bool, error) {
+func (s *TimelineSubscription) Replay(ctx context.Context, epoch, windowRevision string, after uint64, reader TurnSnapshotReader) ([]CanonicalBatch, bool, error) {
 	authorized, err := s.authorize(ctx)
 	if err != nil {
 		return nil, false, err
@@ -225,6 +239,9 @@ func (s *TimelineSubscription) Replay(ctx context.Context, epoch string, after u
 	reconcileProjectionVersion(c, version)
 	if err := c.publicationErrorLocked(); err != nil {
 		return nil, false, err
+	}
+	if windowRevision != strconv.FormatUint(c.windows[s.windowID].revision, 10) {
+		return nil, false, ErrTimelineWindowStale
 	}
 	if c.publication.epoch != c.epoch || c.windows[s.windowID].epoch != c.epoch || c.windows[s.windowID].version != version {
 		return nil, false, nil

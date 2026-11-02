@@ -108,7 +108,7 @@ func TestAudioPersistenceCoordinatesTimelineWithoutReadingPayload(t *testing.T) 
 			if err != nil || audio != "novo-áudio" || mime != "audio/mpeg" {
 				t.Fatal("áudio não persistido", err)
 			}
-			if _, err := sub.Refresh(ctx); err != nil {
+			if _, err := sub.Refresh(ctx, nil); err != nil {
 				t.Fatal("inscrição bloqueada após gravação", err)
 			}
 			callsBefore := calls

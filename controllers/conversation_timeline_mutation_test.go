@@ -299,7 +299,7 @@ func TestMessageMutationPreservesOpaqueTurnIdentityAndIgnoresWhitespace(t *testi
 			if r.readErr != nil {
 				t.Fatal("fixação bloqueou reconciliação", r.readErr)
 			}
-			snapshot, err := sub.Refresh(ctx)
+			snapshot, err := sub.Refresh(ctx, nil)
 			if err != nil {
 				t.Fatal("vínculo bloqueou publicação", err)
 			}

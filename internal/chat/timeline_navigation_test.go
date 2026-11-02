@@ -10,7 +10,7 @@ import (
 )
 
 func navigationFrom(snapshot *SubscribedTimelineSnapshot) TimelineWindowNavigation {
-	return TimelineWindowNavigation{Epoch: snapshot.Epoch, WindowRevision: snapshot.WindowRevision, Anchor: "end", Direction: "before", Limit: 1}
+	return TimelineWindowNavigation{Epoch: snapshot.Epoch, WindowRevision: snapshot.WindowRevision, TimelineWindowPosition: TimelineWindowPosition{Anchor: "end", Direction: "before", Limit: 1}}
 }
 
 func TestTimelineNavigationPreservesWindowAndOtherSurface(t *testing.T) {
@@ -41,7 +41,7 @@ func TestTimelineNavigationPreservesWindowAndOtherSurface(t *testing.T) {
 	if window.revision != 1 || !window.itemIDs[fixed.OrderedItemIDs[0]] || len(window.itemIDs) != 1 {
 		t.Fatal("navegação alterou outra superfície", window)
 	}
-	fresh, err := sub.Refresh(f.ctx)
+	fresh, err := sub.Refresh(f.ctx, nil)
 	if err != nil || !reflect.DeepEqual(fresh.OrderedItemIDs, next.OrderedItemIDs) || fresh.WindowRevision != "3" {
 		t.Fatalf("refresh perdeu consulta paginada: %+v %v", fresh, err)
 	}
@@ -174,8 +174,111 @@ func TestTimelineNavigationKeepsThreadScopeAndRejectsRemovedAnchor(t *testing.T)
 	if _, err := sub.Navigate(f.ctx, request); !errors.Is(err, database.ErrTimelineCursorStale) {
 		t.Fatalf("âncora excluída não pediu recuperação: %v", err)
 	}
-	fresh, err := sub.Refresh(f.ctx)
+	fresh, err := sub.Refresh(f.ctx, nil)
 	if err != nil || len(fresh.Items) != 0 {
 		t.Fatalf("recuperação após exclusão: %+v %v", fresh, err)
+	}
+}
+
+func TestTimelineNavigationRecoversAcceptedCursorAfterAnchorRemoval(t *testing.T) {
+	for _, changeEpoch := range []bool{false, true} {
+		t.Run(map[bool]string{false: "same-epoch", true: "new-epoch"}[changeEpoch], func(t *testing.T) {
+			f := newSnapshotFixture(t)
+			p := NewLiveProjection(f.reader)
+			sub, initial, err := p.SubscribeTimeline(f.ctx, &fixtureTimelineSession{ctx: f.ctx, id: "s"}, "surface", database.MessageWindowQuery{ConversationID: f.conversation, Anchor: "start", Direction: "after", Limit: 1}, f.reader)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer sub.Close()
+			request := navigationFrom(initial)
+			request.Anchor, request.Cursor, request.Direction = "", initial.AfterCursor, "after"
+			page, err := sub.Navigate(f.ctx, request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := p.ApplyStorageMutation(f.ctx, f.conversation, nil, func() ([]string, error) {
+				if err := database.DeleteMessageWithContext(f.ctx, f.question); err != nil {
+					return nil, err
+				}
+				if changeEpoch {
+					return nil, f.db.Exec("UPDATE chat_timeline_versions SET incarnation=lower(hex(randomblob(16))) WHERE conversation_id=?", f.conversation).Error
+				}
+				return nil, nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := sub.Refresh(f.ctx, nil); !errors.Is(err, database.ErrTimelineCursorStale) {
+				t.Fatalf("cursor aceito deveria estar obsoleto: %v", err)
+			}
+			if changeEpoch {
+				if _, err := sub.Navigate(f.ctx, navigationFrom(page)); !errors.Is(err, ErrTimelineWindowStale) {
+					t.Fatalf("época antiga navegou: %v", err)
+				}
+			}
+			fresh, err := sub.Refresh(f.ctx, &TimelineWindowPosition{Anchor: "end", Direction: "before", Limit: 1})
+			if err != nil || fresh.WindowID != page.WindowID || len(fresh.Items) != 0 || fresh.WindowRevision == page.WindowRevision {
+				t.Fatalf("recuperação explícita: %+v %v", fresh, err)
+			}
+			if changeEpoch && fresh.Epoch == page.Epoch {
+				t.Fatal("recuperação conservou época antiga")
+			}
+		})
+	}
+}
+
+func TestTimelineNavigationRejectsReplayWaitingForPreviousPage(t *testing.T) {
+	f := newSnapshotFixture(t)
+	p := NewLiveProjection(f.reader)
+	sub, initial, err := p.SubscribeTimeline(f.ctx, &fixtureTimelineSession{ctx: f.ctx, id: "s"}, "surface", database.MessageWindowQuery{ConversationID: f.conversation, Anchor: "start", Direction: "after", Limit: 1}, f.reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sub.Close()
+	reading, release := make(chan struct{}), make(chan struct{})
+	sub.reader = navigationReaderFunc(func(ctx context.Context, q database.MessageWindowQuery) (*TimelineWindowSnapshot, error) {
+		close(reading)
+		<-release
+		return f.reader.ReadCanonicalWindow(ctx, q)
+	})
+	type navigationResult struct {
+		snapshot *SubscribedTimelineSnapshot
+		err      error
+	}
+	navigated := make(chan navigationResult, 1)
+	go func() {
+		snapshot, err := sub.Navigate(f.ctx, navigationFrom(initial))
+		navigated <- navigationResult{snapshot, err}
+	}()
+	<-reading
+	replayStarted, replayed := make(chan struct{}), make(chan error, 1)
+	go func() {
+		close(replayStarted)
+		batches, ok, err := sub.Replay(f.ctx, initial.Epoch, initial.WindowRevision, 0, f.reader)
+		if ok || len(batches) != 0 {
+			replayed <- errors.New("replay antigo devolveu dados da nova página")
+			return
+		}
+		replayed <- err
+	}()
+	<-replayStarted
+	close(release)
+	result := <-navigated
+	if result.err != nil {
+		t.Fatal(result.err)
+	}
+	if err := <-replayed; !errors.Is(err, ErrTimelineWindowStale) {
+		t.Fatalf("replay antigo: %v", err)
+	}
+	current := result.snapshot
+	batches, ok, err := sub.Replay(f.ctx, current.Epoch, current.WindowRevision, 0, f.reader)
+	if err != nil || !ok {
+		t.Fatalf("replay atual recusado: %v", err)
+	}
+	for _, batch := range batches {
+		for _, op := range batch.Operations {
+			if op.ItemID != "turn:"+f.question {
+				t.Fatal("replay atual contém página antiga", op.ItemID)
+			}
+		}
 	}
 }

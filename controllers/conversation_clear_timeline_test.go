@@ -145,7 +145,7 @@ func TestConversationClearCoordinatesBeforeEffects(t *testing.T) {
 			if err := db.Model(&database.ToolInvocation{}).Where("id=?", invocation.ID).Count(&calls).Error; err != nil {
 				t.Fatal(err)
 			}
-			after, err := sub.Refresh(ctx)
+			after, err := sub.Refresh(ctx, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -243,7 +243,7 @@ func TestConversationClearPreservesOpaqueConversationIdentity(t *testing.T) {
 				if err := db.First(&conv, "id=?", id).Error; err != nil {
 					t.Fatal(err)
 				}
-				snapshot, err := subs[i].Refresh(ctx)
+				snapshot, err := subs[i].Refresh(ctx, nil)
 				if err != nil {
 					t.Fatal(err)
 				}
