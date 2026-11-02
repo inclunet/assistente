@@ -356,21 +356,28 @@ func ImportConversationsWithResolutions(
 	credentialPassword string,
 	resolutions []ImportResolution,
 ) (*ImportResult, error) {
-	return ImportConversationsWithRestoreHook(
-		ctx, jsonData, credMgr, credentialPassword, resolutions, nil,
+	return ImportConversationsWithHooks(
+		ctx, jsonData, credMgr, credentialPassword, resolutions, ConversationImportHooks{},
 	)
 }
 
-// ImportConversationsWithRestoreHook executa o hook ainda sob o gate de
+type ConversationImportHooks struct {
+	Restore func([]string)
+	// ImportTimeline envolve cada substituição sob manutenção; reconcilia os
+	// itens anteriores e separa buffers voláteis somente após commit.
+	ImportTimeline func(context.Context, string, func() error) error
+}
+
+// ImportConversationsWithHooks executa o hook ainda sob o gate de
 // manutenção, depois dos commits de conversa, para reabilitar apenas os IDs
 // efetivamente restaurados antes que outro delete possa começar.
-func ImportConversationsWithRestoreHook(
+func ImportConversationsWithHooks(
 	ctx context.Context,
 	jsonData string,
 	credMgr *credentials.Manager,
 	credentialPassword string,
 	resolutions []ImportResolution,
-	restoreHook func([]string),
+	hooks ConversationImportHooks,
 ) (*ImportResult, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -418,7 +425,18 @@ func ImportConversationsWithRestoreHook(
 				result.SkippedEmptyConversations++
 				continue
 			}
-			imported, err := importConversation(ctx, conv, file.Options.IncludeAudio)
+			var imported bool
+			write := func() error {
+				var err error
+				imported, err = importConversation(ctx, conv, file.Options.IncludeAudio)
+				return err
+			}
+			var err error
+			if hooks.ImportTimeline != nil {
+				err = hooks.ImportTimeline(ctx, conv.ID, write)
+			} else {
+				err = write()
+			}
 			if err != nil {
 				result.Errors = append(result.Errors, messageFromError(err))
 				result.Failed++
@@ -429,8 +447,8 @@ func ImportConversationsWithRestoreHook(
 				restoredIDs = append(restoredIDs, conv.ID)
 			}
 		}
-		if restoreHook != nil && len(restoredIDs) > 0 {
-			restoreHook(restoredIDs)
+		if hooks.Restore != nil && len(restoredIDs) > 0 {
+			hooks.Restore(restoredIDs)
 		}
 		return nil
 	}); err != nil {

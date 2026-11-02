@@ -65,3 +65,7 @@ interrompida no destino; importar não retoma o processamento automaticamente.
 Arquivos antigos continuam aceitos, sem inventar informações de execução que
 não estavam neles. Vínculos inválidos ou IDs em conflito impedem a restauração
 daquela conversa, preservando sua versão anterior se houver sobrescrita.
+
+A restauração é confirmada por conversa. Se uma delas falhar, as demais que
+foram importadas com sucesso permanecem salvas; a conversa que falhou conserva
+seu conteúdo anterior.

@@ -2618,16 +2618,16 @@ func TestImportConversationsPreservesOpaqueRestoredIDsBeforeHook(t *testing.T) {
 	}
 
 	var restoredIDs []string
-	result, err := ImportConversationsWithRestoreHook(
+	result, err := ImportConversationsWithHooks(
 		portabilityTestCtx(),
 		string(raw),
 		nil,
 		"",
 		nil,
-		func(ids []string) { restoredIDs = append(restoredIDs, ids...) },
+		ConversationImportHooks{Restore: func(ids []string) { restoredIDs = append(restoredIDs, ids...) }},
 	)
 	if err != nil {
-		t.Fatalf("ImportConversationsWithRestoreHook() error = %v", err)
+		t.Fatalf("ImportConversationsWithHooks() error = %v", err)
 	}
 	if result.Imported != 2 || result.Failed != 0 {
 		t.Fatalf("unexpected result: %+v", result)

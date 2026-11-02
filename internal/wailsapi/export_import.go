@@ -24,7 +24,7 @@ type importConversationsFunc func(
 	*credentials.Manager,
 	string,
 	[]portability.ImportResolution,
-	func([]string),
+	portability.ConversationImportHooks,
 ) (*portability.ImportResult, error)
 
 type commandImportFunc func(context.Context, portability.ImportRequest) (*portability.ImportResult, error)
@@ -39,6 +39,7 @@ type ExportImport struct {
 	appVersion                 string
 	prepareConversationRestore func(context.Context) (func([]string), error)
 	importConversations        importConversationsFunc
+	importTimeline             func(context.Context, string, func() error) error
 	importCommandLayers        commandImportFunc
 	commandExport              commandExportFunc
 	reloadMCP                  func(context.Context) error
@@ -46,7 +47,7 @@ type ExportImport struct {
 
 // NewExportImport cria o bind vazio; AttachExportImport preenche deps no startup.
 func NewExportImport() *ExportImport {
-	return &ExportImport{importConversations: portability.ImportConversationsWithRestoreHook}
+	return &ExportImport{importConversations: portability.ImportConversationsWithHooks}
 }
 
 func (api *ExportImport) importer() importConversationsFunc {
@@ -54,9 +55,23 @@ func (api *ExportImport) importer() importConversationsFunc {
 	importFn := api.importConversations
 	api.mu.RUnlock()
 	if importFn == nil {
-		importFn = portability.ImportConversationsWithRestoreHook
+		importFn = portability.ImportConversationsWithHooks
 	}
 	return importFn
+}
+
+// AttachImportTimeline liga o mesmo coordenador dos demais escritores de chat.
+// Função de pacote para manter a dependência fora dos bindings Wails.
+func AttachImportTimeline(api *ExportImport, importTimeline func(context.Context, string, func() error) error) {
+	api.mu.Lock()
+	defer api.mu.Unlock()
+	api.importTimeline = importTimeline
+}
+
+func (api *ExportImport) importHooks(restore func([]string)) portability.ConversationImportHooks {
+	api.mu.RLock()
+	defer api.mu.RUnlock()
+	return portability.ConversationImportHooks{Restore: restore, ImportTimeline: api.importTimeline}
 }
 
 func (api *ExportImport) publishImport(ctx context.Context, data string, result *portability.ImportResult) {
@@ -357,7 +372,7 @@ func (api *ExportImport) ImportConversations(jsonData string) (*portability.Impo
 			return api.dispatchCommandImport(ctx, portability.ImportRequest{JSONData: jsonData})
 		}
 		result, err := withPreparedConversationRestore(ctx, prepareRestore, func(finalize func([]string)) (*portability.ImportResult, error) {
-			return api.importer()(ctx, jsonData, credMgr, "", nil, finalize)
+			return api.importer()(ctx, jsonData, credMgr, "", nil, api.importHooks(finalize))
 		})
 		api.publishImport(ctx, jsonData, result)
 		return result, err
@@ -378,7 +393,7 @@ func (api *ExportImport) ImportData(jsonData string, credentialExportPassword st
 			})
 		}
 		result, err := withPreparedConversationRestore(ctx, prepareRestore, func(finalize func([]string)) (*portability.ImportResult, error) {
-			return api.importer()(ctx, jsonData, credMgr, credentialExportPassword, nil, finalize)
+			return api.importer()(ctx, jsonData, credMgr, credentialExportPassword, nil, api.importHooks(finalize))
 		})
 		api.publishImport(ctx, jsonData, result)
 		return result, err
@@ -402,7 +417,7 @@ func (api *ExportImport) ImportDataWithResolutions(req portability.ImportRequest
 				credMgr,
 				req.CredentialExportPassword,
 				req.Resolutions,
-				finalize,
+				api.importHooks(finalize),
 			)
 		})
 		api.publishImport(ctx, req.JSONData, result)

@@ -13,7 +13,7 @@ type recoveryReader struct {
 	read func() (*TimelineTurnSnapshot, error)
 }
 
-func (r recoveryReader) ReadTurn(context.Context, string, string) (*TimelineTurnSnapshot, error) {
+func (r recoveryReader) ReadRecoveryTurn(context.Context, string, string) (*TimelineTurnSnapshot, error) {
 	return r.read()
 }
 func (r recoveryReader) ReadVersion(context.Context, string) (database.ChatTimelineVersion, error) {

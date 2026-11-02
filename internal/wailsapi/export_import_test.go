@@ -23,7 +23,7 @@ func TestExportImportReloadFailurePreservesCommittedResult(t *testing.T) {
 		return func([]string) { released = true }, nil
 	})
 	imports, reloads := 0, 0
-	api.importConversations = func(context.Context, string, *credentials.Manager, string, []portability.ImportResolution, func([]string)) (*portability.ImportResult, error) {
+	api.importConversations = func(context.Context, string, *credentials.Manager, string, []portability.ImportResolution, portability.ConversationImportHooks) (*portability.ImportResult, error) {
 		imports++
 		return &portability.ImportResult{Success: true, Imported: 1}, nil
 	}
@@ -124,6 +124,11 @@ func TestImportEntrypointsPropagamIDsRestauradosEAlteramGate(t *testing.T) {
 			var restored []string
 			finalizeCalls := 0
 			api := NewExportImport()
+			coordinated := 0
+			AttachImportTimeline(api, func(context.Context, string, func() error) error {
+				coordinated++
+				return nil
+			})
 			AttachExportImport(
 				api,
 				stubSession{ctx: context.Background()},
@@ -143,9 +148,15 @@ func TestImportEntrypointsPropagamIDsRestauradosEAlteramGate(t *testing.T) {
 				_ *credentials.Manager,
 				_ string,
 				_ []portability.ImportResolution,
-				finalize func([]string),
+				hooks portability.ConversationImportHooks,
 			) (*portability.ImportResult, error) {
-				finalize([]string{"restored-id"})
+				if hooks.ImportTimeline == nil {
+					t.Fatal("entrypoint perdeu coordenador de timeline")
+				}
+				if err := hooks.ImportTimeline(context.Background(), "restored-id", nil); err != nil {
+					t.Fatal(err)
+				}
+				hooks.Restore([]string{"restored-id"})
 				return &portability.ImportResult{
 					Success:  jsonData != "partial",
 					Imported: 1,
@@ -157,7 +168,7 @@ func TestImportEntrypointsPropagamIDsRestauradosEAlteramGate(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if result.Imported != 1 || finalizeCalls != 1 || !reflect.DeepEqual(restored, []string{"restored-id"}) {
+			if result.Imported != 1 || finalizeCalls != 1 || coordinated != 1 || !reflect.DeepEqual(restored, []string{"restored-id"}) {
 				t.Fatalf("fiação incorreta: result=%+v finalizeCalls=%d restored=%v", result, finalizeCalls, restored)
 			}
 		})
