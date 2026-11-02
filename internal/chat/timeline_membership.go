@@ -18,9 +18,22 @@ type TimelineMembershipSnapshot struct {
 
 type TimelineMembershipReader interface {
 	ReadWindowMembership(context.Context, database.MessageWindowQuery) (*TimelineMembershipSnapshot, error)
+	ReadHistoricalMembership(context.Context, database.MessageWindowQuery, string, string) (*TimelineMembershipSnapshot, error)
 }
 
 func (r *DBTimelineReader) ReadWindowMembership(ctx context.Context, query database.MessageWindowQuery) (*TimelineMembershipSnapshot, error) {
+	return r.readMembership(ctx, query, func(repo *database.MessageRepository) (*database.MessageWindowResult, error) {
+		return repo.SelectTimelineWindowWithContext(ctx, query)
+	})
+}
+
+func (r *DBTimelineReader) ReadHistoricalMembership(ctx context.Context, query database.MessageWindowQuery, first, last string) (*TimelineMembershipSnapshot, error) {
+	return r.readMembership(ctx, query, func(repo *database.MessageRepository) (*database.MessageWindowResult, error) {
+		return repo.SelectHistoricalTimelineWithContext(ctx, query, first, last)
+	})
+}
+
+func (r *DBTimelineReader) readMembership(ctx context.Context, query database.MessageWindowQuery, selectWindow func(*database.MessageRepository) (*database.MessageWindowResult, error)) (*TimelineMembershipSnapshot, error) {
 	result := &TimelineMembershipSnapshot{}
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		version, err := database.ReadChatTimelineVersion(ctx, tx, query.ConversationID)
@@ -32,7 +45,7 @@ func (r *DBTimelineReader) ReadWindowMembership(ctx context.Context, query datab
 		if err := validateTimelineParent(ctx, repo, query); err != nil {
 			return err
 		}
-		result.Selection, err = repo.SelectTimelineWindowWithContext(ctx, query)
+		result.Selection, err = selectWindow(repo)
 		return err
 	})
 	if err != nil {
