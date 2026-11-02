@@ -1681,6 +1681,34 @@ func (r *MessageRepository) GetMessageWindowWithContext(ctx context.Context, que
 // recebe identidades/metadados antes do conteúdo. O chamador deve fornecer um
 // repositório transacional para manter seleção, guard e leitura no mesmo snapshot.
 func (r *MessageRepository) ReadMessageWindowWithContext(ctx context.Context, query MessageWindowQuery, guard func([]MessageWindowItem) error) (*MessageWindowResult, error) {
+	selection, err := r.selectMessageWindow(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	if normalizeMessageWindowLimit(query.Limit) == 0 {
+		return selection, nil
+	}
+	if guard != nil {
+		if err := guard(selection.Items); err != nil {
+			return nil, err
+		}
+	}
+	selection.Messages, err = r.fetchMessagesForTimelineItems(query.ConversationID, query.ParentID, selection.Items)
+	if err != nil {
+		return nil, err
+	}
+	return selection, nil
+}
+
+// SelectTimelineWindowWithContext retorna somente identidades e metadados da
+// página canônica. Reutiliza a mesma seleção da leitura de conteúdo, incluindo
+// autorização, cursores e cota de identidades. Não consulta mensagens completas
+// nem ledger. O chamador usa transação para compartilhar a versão do snapshot.
+func (r *MessageRepository) SelectTimelineWindowWithContext(ctx context.Context, query MessageWindowQuery) (*MessageWindowResult, error) {
+	return r.WithTimelineTurns().selectMessageWindow(ctx, query)
+}
+
+func (r *MessageRepository) selectMessageWindow(ctx context.Context, query MessageWindowQuery) (*MessageWindowResult, error) {
 	if _, err := RequireUserID(ctx); err != nil {
 		return nil, err
 	}
@@ -1834,15 +1862,6 @@ func (r *MessageRepository) ReadMessageWindowWithContext(ctx context.Context, qu
 		items[i].OriginalIndex = startIndex + i
 	}
 
-	if guard != nil {
-		if err := guard(items); err != nil {
-			return nil, err
-		}
-	}
-	messages, err := r.fetchMessagesForTimelineItems(query.ConversationID, query.ParentID, items)
-	if err != nil {
-		return nil, err
-	}
 	endIndex := startIndex + len(items) - 1
 	if len(items) == 0 {
 		endIndex = -1
@@ -1851,7 +1870,7 @@ func (r *MessageRepository) ReadMessageWindowWithContext(ctx context.Context, qu
 	return &MessageWindowResult{
 		InvalidTurnReferences: invalidTurnReferences,
 		Items:                 items,
-		Messages:              messages,
+		Messages:              []ChatMessage{},
 		TotalCount:            total,
 		StartIndex:            startIndex,
 		EndIndex:              endIndex,
