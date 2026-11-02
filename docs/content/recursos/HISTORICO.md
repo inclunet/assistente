@@ -13,6 +13,7 @@ O histórico guarda conversas por workspace com busca, filtros e retomada. Conve
 - `Delete` e o botão **Excluir** da barra executam a mesma ação: havendo seleção, uma única confirmação exclui todas as conversas selecionadas; sem seleção, exclui apenas a conversa focada.
 - Enquanto a confirmação ou a exclusão está em andamento, uma segunda exclusão não é iniciada.
 - A exclusão em lote é atômica: se qualquer conversa não puder ser excluída, nenhuma delas é removida. A seleção permanece ativa e o leitor de telas anuncia a falha.
+- Excluir uma conversa preserva o histórico das demais, inclusive quando estão abertas em outras abas. Se a exclusão falhar, o conteúdo das conversas selecionadas permanece disponível.
 - Uma conversa com subagente, resposta do assistente ou entrega para canal ainda em andamento não é excluída. Cancele ou aguarde o trabalho terminar e tente novamente; as demais conversas do lote também permanecem intactas.
 - Após excluir, o foco permanece na mesma posição lógica da grade (ou volta à linha anterior ao excluir a última). Se não restarem conversas, ele retorna a um controle utilizável da página.
 

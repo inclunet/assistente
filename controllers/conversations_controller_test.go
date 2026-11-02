@@ -76,7 +76,7 @@ func TestDeleteConversationsOrdenaPreflightPreparoCommitESideEffects(t *testing.
 			order = append(order, "preparar")
 			return func(committed bool) { order = append(order, fmt.Sprintf("finalizar:%t", committed)) }, nil
 		},
-		DeleteBatch: func(_ context.Context, ids []string) ([]string, error) {
+		DeleteWithinMaintenance: func(_ context.Context, ids []string) ([]string, error) {
 			order = append(order, "excluir")
 			return ids, nil
 		},
@@ -115,7 +115,7 @@ func TestDeleteConversationsLiberaPreparoSemSideEffectsQuandoCommitFalha(t *test
 			order = append(order, "preparar")
 			return func(committed bool) { order = append(order, fmt.Sprintf("finalizar:%t", committed)) }, nil
 		},
-		DeleteBatch: func(_ context.Context, ids []string) ([]string, error) {
+		DeleteWithinMaintenance: func(_ context.Context, ids []string) ([]string, error) {
 			order = append(order, "excluir")
 			return nil, commitErr
 		},
@@ -144,7 +144,7 @@ func TestDeleteConversationsNaoPreparaQuandoPreflightFalha(t *testing.T) {
 			called = true
 			return func(bool) {}, nil
 		},
-		DeleteBatch: func(_ context.Context, ids []string) ([]string, error) {
+		DeleteWithinMaintenance: func(_ context.Context, ids []string) ([]string, error) {
 			called = true
 			return ids, nil
 		},
@@ -281,7 +281,7 @@ func TestDeleteConversationsMantemLifecycleGateDurantePosCommit(t *testing.T) {
 		ValidateBatchDelete: func(_ context.Context, ids []string) ([]string, error) {
 			return ids, nil
 		},
-		DeleteBatch: func(_ context.Context, ids []string) ([]string, error) {
+		DeleteWithinMaintenance: func(_ context.Context, ids []string) ([]string, error) {
 			return ids, nil
 		},
 		ResetScopedState: func(context.Context, string) {
