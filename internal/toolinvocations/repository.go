@@ -53,8 +53,9 @@ type Repository interface {
 }
 
 type DBRepository struct {
-	orphanScanMu    sync.Mutex
-	orphanScanAfter map[string]string
+	maintenanceCoordinator func(context.Context, []string, func() error) error
+	orphanScanMu           sync.Mutex
+	orphanScanAfter        map[string]string
 
 	db  *gorm.DB
 	now func() time.Time
@@ -72,6 +73,12 @@ func NewDBRepository(db *gorm.DB) *DBRepository {
 		now:          time.Now,
 		catalogCache: make(map[string]toolCatalogCacheEntry),
 	}
+}
+
+func NewDBRepositoryWithMaintenanceCoordinator(db *gorm.DB, coordinate func(context.Context, []string, func() error) error) *DBRepository {
+	r := NewDBRepository(db)
+	r.maintenanceCoordinator = coordinate
+	return r
 }
 
 func (r *DBRepository) retry(ctx context.Context, operation string, fn func() error) error {
@@ -404,27 +411,12 @@ func (r *DBRepository) CleanOldChat(ctx context.Context, maxAge time.Duration) (
 	}
 	cutoff := r.now().Add(-maxAge)
 	deleted := 0
-	err := r.retry(ctx, "clean_old_chat", func() error {
-		var deletedThisAttempt int64
-		err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-			oldIDs := database.ScopeByUser(ctx, tx.Model(&database.ToolInvocation{}).Select("tool_invocations.id"), "user_id").
-				Where("queued_at < ? AND origin_type = ?", cutoff, OriginChat)
-			children := database.ScopeByUser(ctx, tx.Model(&database.ToolInvocation{}), "user_id").
-				Where("parent_invocation_id IN (?)", oldIDs)
-			if err := children.Update("parent_invocation_id", nil).Error; err != nil {
-				return err
-			}
-			result := database.ScopeByUser(ctx, tx.Model(&database.ToolInvocation{}), "user_id").
-				Where("id IN (?)", oldIDs).Delete(&database.ToolInvocation{})
-			if result.Error != nil {
-				return result.Error
-			}
-			deletedThisAttempt = result.RowsAffected
-			return nil
-		})
-		if err == nil {
-			deleted = int(deletedThisAttempt)
-		}
+	target := func(tx *gorm.DB) *gorm.DB {
+		return database.ScopeByUser(ctx, tx.Model(&database.ToolInvocation{}), "user_id").Where("queued_at < ? AND origin_type = ?", cutoff, OriginChat)
+	}
+	err := r.mutateChatMaintenance(ctx, "clean_old_chat", target, func(tx *gorm.DB) error {
+		count, err := database.DeleteToolInvocationsWithChildrenDetachedTx(ctx, tx, target(tx))
+		deleted = int(count)
 		return err
 	})
 	if err != nil {
