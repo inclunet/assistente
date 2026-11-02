@@ -1,8 +1,45 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, mensagens, áudio, limpeza, exclusão e importação integrados; retenção por idade, órfãos e navegação de janelas integrados; participação automática, transporte e cutover pendentes
+## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, mensagens, áudio, limpeza, exclusão e importação integrados; retenção por idade, órfãos, navegação e leitura leve de janelas integrados; orçamento agregado, participação automática, transporte e cutover pendentes
 
 Data: 2026-10-30
+
+### Recorte: leitura leve da janela canônica (2026-11-02)
+
+A materialização canônica de mensagens exclui media, audio e audio_mime_type no
+SQL. Janela e seleção por IDs usam o mesmo fetch; foi removida a configuração
+duplicada da seleção. A exclusão fica restrita à consulta de mensagens, sem
+contaminar consultas de autorização/modelos diferentes no mesmo snapshot GORM.
+O leitor canônico também deixa de resolver mídia herdada de continuações, que
+não integra seu DTO atual. O caminho legado mantém sua mídia e resolução.
+
+A identidade de mensagem ganha método de repositório injetado e parent_id entre
+seus vínculos. As duas validações do pai da janela passam por essa consulta leve,
+preservando ownership, conversa e recusa de pai que não é raiz. Nenhum blob ou
+texto do pai é lido para conferir esses vínculos; nenhum dado persistido é alterado.
+
+`window_light_read_test.go` cobre raiz/thread com blobs de 2 MiB, SQL sem as
+colunas pesadas, metadados do pai, igualdade do DTO, isolamento de usuário,
+recusa de pai não raiz e preservação do armazenamento/caminho legado. A regressão
+de continuação prova que a consulta recursiva de mídia só ocorre no leitor legado.
+
+Medição local Windows/amd64, fixture de duas mensagens com media e audio de
+2 MiB cada, três amostras de cinco operações: medianas de 188,37 ms e 17.041.398
+B/op no leitor legado versus 2,26 ms e 203.779 B/op no canônico. Ambos produziram
+DTO de 2.183 bytes. É uma comparação controlada dos leitores, não uma promessa
+de desempenho da UI nem uma medição do heap retido.
+
+Controle sem blobs, mesma máquina/benchmark de participação (100/500/1.000
+perguntas, três amostras de cinco operações): medianas canônicas de
+5,73/10,32/14,58 ms, ante 5,74/11,03/14,87 ms na base. Validação: 350 testes
+seguros de chat, 362 de banco e 99 de controllers aprovados; build/vet/lint sem
+erros. Review_aep independente: duas rodadas, zero pendências. As duas listas
+exatas de colunas nos testes de controllers incluem agora parent_id; continuam
+recusando payloads. Nenhum teste ACP local ou NVDA; frontend inalterado.
+
+Orçamento agregado de fonte/DTO, participação automática e transporte continuam
+pendentes. A fase 4 não está concluída: a UI legada ainda usa sua leitura anterior,
+e anexos referenciados/migração da duplicação de áudio exigem recorte próprio.
 
 ### Recorte: navegação da janela inscrita (2026-11-02)
 

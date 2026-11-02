@@ -125,7 +125,7 @@ func TestMessageMutationsReconcileBeforeEvents(t *testing.T) {
 			case "batch-partial":
 				err = controller.DeleteMessages(ctx, conv.ID, []string{question.ID, "missing"})
 			}
-			if !strings.HasPrefix(mode, "command-") && strings.Join(firstMessageColumns, ",") != "chat_messages.id,chat_messages.conversation_id,chat_messages.turn_id" {
+			if !strings.HasPrefix(mode, "command-") && strings.Join(firstMessageColumns, ",") != "chat_messages.id,chat_messages.conversation_id,chat_messages.turn_id,chat_messages.parent_id" {
 				t.Fatal("leitura de coordenação materializou payload", firstMessageColumns)
 			}
 			if mode == "batch-partial" {
@@ -224,7 +224,7 @@ func TestLegacyPinReadsOnlyAuthorizedIdentityBeforeCoordination(t *testing.T) {
 	if err != nil || !pinned.Pinned {
 		t.Fatal("pin falhou", err)
 	}
-	if strings.Join(columns, ",") != "chat_messages.id,chat_messages.conversation_id,chat_messages.turn_id" {
+	if strings.Join(columns, ",") != "chat_messages.id,chat_messages.conversation_id,chat_messages.turn_id,chat_messages.parent_id" {
 		t.Fatal("pré-leitura carregou payload", columns)
 	}
 	for _, denied := range []context.Context{context.Background(), database.WithUserID(context.Background(), "other")} {
