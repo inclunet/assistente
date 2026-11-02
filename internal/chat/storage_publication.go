@@ -160,10 +160,8 @@ func (p *LiveProjection) recoverStoragePublicationLocked(ctx context.Context, co
 	// versão. A barreira impede crescimento de buffers entre as duas passagens.
 	version, err := p.visitStorageSelectionsLocked(ctx, conversationID, ids, expected, func(batch []string, snapshot *TimelineSelectionSnapshot) error {
 		reconcileStorageLifecycleLocked(c, batch, snapshot)
-		for _, item := range snapshot.Items {
-			if !windowCompositionWithinBudget(c, []*TimelineItem{item}) {
-				return ErrTimelineSourceLimit
-			}
+		if !windowCompositionWithinBudget(c, snapshot.Items) {
+			return ErrTimelineSourceLimit
 		}
 		return nil
 	})
@@ -186,6 +184,10 @@ func (p *LiveProjection) recoverStoragePublicationLocked(ctx context.Context, co
 
 func (p *LiveProjection) reconcileStorageLocked(ctx context.Context, conversationID string, c *projectionConversation, ids []string, expected *database.ChatTimelineVersion) error {
 	_, err := p.visitStorageSelectionsLocked(ctx, conversationID, ids, expected, func(batch []string, snapshot *TimelineSelectionSnapshot) error {
+		reconcileStorageLifecycleLocked(c, batch, snapshot)
+		if !windowCompositionWithinBudget(c, snapshot.Items) {
+			return ErrTimelineSourceLimit
+		}
 		return p.reconcileStorageBatchLocked(conversationID, c, batch, snapshot)
 	})
 	if err != nil {
@@ -207,6 +209,16 @@ func (p *LiveProjection) visitStorageSelectionsLocked(ctx context.Context, conve
 	var reconcileBatch func([]string) error
 	reconcileBatch = func(batch []string) error {
 		snapshot, err := p.reader.ReadSelection(readCtx, conversationID, batch)
+		if err == nil {
+			if version == nil {
+				version = &snapshot.Version
+			} else if *version != snapshot.Version {
+				return ErrProjectionRecoveryRequired
+			}
+			err = visit(batch, snapshot)
+		}
+		// Tanto as fontes SQL quanto a composição agregada podem exigir lotes
+		// menores. Nenhum callback publica antes de validar seu lote inteiro.
 		if errors.Is(err, ErrTimelineSourceLimit) && len(batch) > 1 {
 			middle := len(batch) / 2
 			if err := reconcileBatch(batch[:middle]); err != nil {
@@ -214,15 +226,7 @@ func (p *LiveProjection) visitStorageSelectionsLocked(ctx context.Context, conve
 			}
 			return reconcileBatch(batch[middle:])
 		}
-		if err != nil {
-			return err
-		}
-		if version == nil {
-			version = &snapshot.Version
-		} else if *version != snapshot.Version {
-			return ErrProjectionRecoveryRequired
-		}
-		return visit(batch, snapshot)
+		return err
 	}
 	// Parcela limitada, sob a mesma barreira. Versão idêntica comprova que os
 	// snapshots pertencem ao mesmo estado; drift mantém replay suspenso. Nenhum

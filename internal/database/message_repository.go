@@ -468,6 +468,24 @@ func (r *MessageRepository) GetMessageIdentityWithContext(ctx context.Context, m
 	return &msg, nil
 }
 
+// MessageScope contém apenas o necessário para validar conversa e hierarquia.
+// HasParent evita transportar um vínculo opaco quando basta testar sua presença.
+type MessageScope struct {
+	ConversationID string
+	HasParent      bool
+}
+
+func (r *MessageRepository) GetMessageScopeWithContext(ctx context.Context, messageID string) (*MessageScope, error) {
+	if _, err := RequireUserID(ctx); err != nil {
+		return nil, err
+	}
+	var scope MessageScope
+	if err := scopedMessageQuery(ctx, r.db.Model(&ChatMessage{})).Select("chat_messages.conversation_id, chat_messages.parent_id IS NOT NULL AS has_parent").Where("chat_messages.id=?", messageID).Take(&scope).Error; err != nil {
+		return nil, err
+	}
+	return &scope, nil
+}
+
 // GetMessageWithContext retorna a mensagem completa pelo ID, restrita ao
 // usuário do contexto. Falha fechado sem userID — leitura por ID sem escopo
 // retornaria mensagens de qualquer usuário (vetor de leak silencioso).
@@ -1673,7 +1691,7 @@ func (r *MessageRepository) ReadMessageWindowWithContext(ctx context.Context, qu
 		return nil, err
 	}
 	if query.ParentID != nil {
-		parent, err := r.GetMessageIdentityWithContext(ctx, *query.ParentID)
+		parent, err := r.GetMessageScopeWithContext(ctx, *query.ParentID)
 		if err != nil {
 			return nil, err
 		}

@@ -26,7 +26,7 @@ const publicationMessageSourceSQL = `(SELECT id FROM chat_messages WHERE id IN (
  ON m.conversation_id=q.conversation_id AND m.parent_id IS q.parent_id AND m.turn_id=q.id
  WHERE q.id IN (SELECT CAST(unhex(value) AS TEXT) FROM json_each(?)) AND m.role <> 'user') selected CROSS JOIN chat_messages ON chat_messages.id=selected.id`
 
-var publicationReadBudgetSQL = "SELECT COALESCE(SUM(1024 + " + publicationMessageSizeSQL + "), 0) + (SELECT COALESCE(SUM(1024 + " + publicationTurnSizeSQL + "), 0) FROM chat_turns WHERE conversation_id=? AND user_message_id IN (SELECT CAST(unhex(value) AS TEXT) FROM json_each(?))) FROM " + publicationMessageSourceSQL + " WHERE chat_messages.conversation_id=? AND " + database.CurrentChatMessageSQL("chat_messages")
+var publicationReadBudgetSQL = "SELECT (SELECT COALESCE(SUM(1024 + " + publicationSQLBytes("chat_messages", "id", "conversation_id", "role", "parent_id", "created_at") + "),0) FROM (SELECT CAST(unhex(value) AS TEXT) AS scope_id FROM json_each(?)) selected_scope CROSS JOIN chat_messages ON chat_messages.id=selected_scope.scope_id WHERE conversation_id=?) + COALESCE(SUM(1024 + " + publicationMessageSizeSQL + "), 0) + (SELECT COALESCE(SUM(1024 + " + publicationTurnSizeSQL + "), 0) FROM chat_turns WHERE conversation_id=? AND user_message_id IN (SELECT CAST(unhex(value) AS TEXT) FROM json_each(?))) FROM " + publicationMessageSourceSQL + " WHERE chat_messages.conversation_id=? AND " + database.CurrentChatMessageSQL("chat_messages")
 var publicationCallBudgetSQL = "COALESCE(SUM(1024 + " + publicationCallSizeSQL + " + " + publicationCatalogSizeSQL + "), 0)"
 
 // Executado depois da autorização, na mesma transação da materialização.
@@ -50,7 +50,7 @@ func publicationSelectionReadSize(tx *gorm.DB, conversationID string, messageIDs
 		messagesJSON = publicationIDSet(messageIDs)
 		metadataJSON = publicationIDSet(uniquePublicationIDs(append(append([]string(nil), messageIDs...), turnIDs...)))
 	}
-	err := tx.Raw(publicationReadBudgetSQL, conversationID, metadataJSON, messagesJSON, turnsJSON, conversationID).Scan(&size).Error
+	err := tx.Raw(publicationReadBudgetSQL, turnsJSON, conversationID, conversationID, metadataJSON, messagesJSON, turnsJSON, conversationID).Scan(&size).Error
 	if err != nil {
 		return 0, err
 	}

@@ -109,14 +109,14 @@ func (r *DBTimelineReader) readWindow(ctx context.Context, query database.Messag
 			repo = repo.WithTimelineTurns()
 		}
 		if query.ParentID != nil {
-			parent, err := repo.GetMessageIdentityWithContext(ctx, *query.ParentID)
+			parent, err := repo.GetMessageScopeWithContext(ctx, *query.ParentID)
 			if err != nil {
 				return fmt.Errorf("threadParentId inválido: %w", err)
 			}
 			if parent.ConversationID != query.ConversationID {
 				return fmt.Errorf("threadParentId não pertence à conversa solicitada")
 			}
-			if parent.ParentID != nil {
+			if parent.HasParent {
 				return fmt.Errorf("threadParentId deve apontar para uma mensagem raiz")
 			}
 		}

@@ -11,6 +11,7 @@ import (
 
 	"assistente/internal/database"
 	"assistente/internal/toolinvocations"
+	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
@@ -364,5 +365,104 @@ func TestWindowIdentityBudgetRejectsOversizedAnchor(t *testing.T) {
 		if _, err := f.reader.ReadCanonicalWindow(f.ctx, query); !errors.Is(err, ErrTimelineSourceLimit) {
 			t.Fatal("âncora excessiva aceita", err)
 		}
+	}
+}
+
+func TestStorageRecoverySplitsAggregateLiveBatch(t *testing.T) {
+	f, p, e, _ := automaticFixture(t)
+	c := e.conversation
+	var ids []string
+	for i := 0; i < 9; i++ {
+		question, err := database.CreateMessageWithContext(f.ctx, database.MessageOptions{ConversationID: f.conversation, Role: "user", Content: "pergunta"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		executionUUID, err := uuid.NewV7()
+		if err != nil {
+			t.Fatal(err)
+		}
+		executionID := executionUUID.String()
+		_, err = p.Admit(f.ctx, f.conversation, question.ID, executionID, func() (database.ChatTimelineVersion, error) {
+			_, err := database.NewChatTurnRepository(f.db).BeginExecution(f.ctx, f.conversation, question.ID, "", database.TurnModeNew, executionID, "")
+			if err != nil {
+				return database.ChatTimelineVersion{}, err
+			}
+			return f.reader.ReadVersion(f.ctx, f.conversation)
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, "turn:"+question.ID)
+		c.mu.Lock()
+		part := &livePart{}
+		part.text.WriteString(strings.Repeat("x", 1024*1024))
+		c.turns[question.ID].streams[0] = &liveStream{parts: []*livePart{part}}
+		c.mu.Unlock()
+	}
+	reader := &failingSelectionReader{DBTimelineReader: f.reader}
+	p.reader = reader
+	selections := 0
+	reader.afterSelection = func() { selections++ }
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.failStoragePublicationLocked(ids, errors.New("recuperação pendente"))
+	if err := p.recoverStoragePublicationLocked(f.ctx, f.conversation, c, nil); err != nil {
+		t.Fatal(err)
+	}
+	if selections < 6 || c.publication.sequence < 2 {
+		t.Fatal("lote live agregado não subdividido", selections, c.publication.sequence)
+	}
+	if c.publication.itemBytes > canonicalSourceBytes || c.storagePublicationErr != nil {
+		t.Fatal("recuperação sem cota ou incompleta")
+	}
+	for _, id := range ids {
+		if c.turns[strings.TrimPrefix(id, "turn:")].streams[0].parts[0].text.Len() != 1024*1024 {
+			t.Fatal("buffer alterado")
+		}
+	}
+}
+
+func TestSelectionBudgetsQuestionScopeWithoutContent(t *testing.T) {
+	f := newSnapshotFixture(t)
+	var refs []string
+	parent := strings.Repeat("p", 1024*1024)
+	for i := 0; i < 9; i++ {
+		question := database.ChatMessage{ConversationID: f.conversation, ParentID: &parent, Role: "user", Content: "curto"}
+		if err := f.db.Create(&question).Error; err != nil {
+			t.Fatal(err)
+		}
+		refs = append(refs, "turn:"+question.ID)
+	}
+	if _, err := f.reader.ReadSelection(f.ctx, f.conversation, refs); !errors.Is(err, ErrTimelineSourceLimit) {
+		t.Fatal("escopos agregados fora da cota", err)
+	}
+	id := strings.TrimPrefix(refs[0], "turn:")
+	if err := f.db.Model(&database.ChatMessage{}).Where("id=?", id).Update("parent_id", strings.Repeat("p", canonicalSourceBytes+1)).Error; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.reader.ReadPublicationTurn(f.ctx, f.conversation, id); !errors.Is(err, ErrTimelineSourceLimit) {
+		t.Fatal("escopo individual fora da cota", err)
+	}
+}
+
+func TestThreadValidationDoesNotReadUnusedTurnID(t *testing.T) {
+	f := newSnapshotFixture(t)
+	if err := f.db.Model(&database.ChatMessage{}).Where("id=?", f.question).Update("turn_id", strings.Repeat("x", canonicalSourceBytes+1)).Error; err != nil {
+		t.Fatal(err)
+	}
+	scopes := 0
+	if err := f.db.Callback().Query().After("gorm:query").Register("thread_scope", func(tx *gorm.DB) {
+		if _, ok := tx.Statement.Dest.(*database.MessageScope); ok {
+			scopes++
+			if strings.Contains(strings.Join(tx.Statement.Selects, ","), "turn_id") {
+				t.Error("vínculo desnecessário lido")
+			}
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := f.reader.ReadCanonicalWindow(f.ctx, database.MessageWindowQuery{ConversationID: f.conversation, ParentID: &f.question, Limit: 1})
+	if err != nil || len(snapshot.Items) != 0 || scopes != 2 {
+		t.Fatal("validação leve não exercitada", err, scopes)
 	}
 }

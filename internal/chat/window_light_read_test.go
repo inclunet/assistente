@@ -47,9 +47,9 @@ func TestCanonicalWindowDoesNotMaterializeMediaOrParentPayload(t *testing.T) {
 				if strings.Contains(tx.Statement.SQL.String(), "selected_payload") {
 					payloadSQL = append(payloadSQL, tx.Statement.SQL.String())
 				}
-				if m, ok := tx.Statement.Dest.(*database.ChatMessage); ok && thread && m.ID == f.question {
+				if m, ok := tx.Statement.Dest.(*database.MessageScope); ok && thread {
 					parents++
-					if m.Content != "" || m.Audio != "" || m.Media != "" || len(tx.Statement.Selects) != 4 {
+					if m.ConversationID != f.conversation || m.HasParent || strings.Join(tx.Statement.Selects, ",") != "chat_messages.conversation_id, chat_messages.parent_id IS NOT NULL AS has_parent" {
 						t.Error("validação do pai carregou payload")
 					}
 				}

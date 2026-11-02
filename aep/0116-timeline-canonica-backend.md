@@ -1,6 +1,6 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, mensagens, áudio, limpeza, exclusão e importação integrados; retenção por idade, órfãos, navegação, leitura leve e orçamento de fontes da janela com recuperação atômica integrados; margem de desempenho, participação automática, transporte e cutover pendentes
+## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, mensagens, áudio, limpeza, exclusão e importação integrados; retenção por idade, órfãos, navegação, leitura leve e orçamento de fontes da janela com recuperação atômica e parcelada integrados; margem de desempenho, participação automática, transporte e cutover pendentes
 
 Data: 2026-10-30
 
@@ -91,11 +91,26 @@ encoding/json, incluindo UTF-8 inválido; a codificação de substituição é m
 uma vez para acompanhar a versão ativa do encoder. Nenhum teste existente foi
 removido ou relaxado. Revisor independente review_aep: nove rodadas, sem pendências.
 
+A terceira rodada de review fecha o orçamento agregado da recuperação: as duas
+passagens validam o lote inteiro e subdividem quando fontes ou buffers não cabem,
+antes de compor/publicar. Uma recusa indivisível mantém a publicação anterior.
+O preflight inclui os campos de identidade/escopo da pergunta por turno, sem seu
+conteúdo; a validação do pai lê apenas conversa e presença de pai, sem turn_id.
+Regressões cobrem nove buffers de 1 MiB, perguntas sem resposta com parent_id
+extenso e página de thread vazia cujo pai tem turn_id legado excessivo.
+
 Validação da segunda rodada: 364 testes seguros de chat, 363 de banco e 99 de
 controllers aprovados (826), build/vet/lint sem erros; o cenário específico ACP
 permanece para o CI. Revisor independente review_aep: rodada 10 sem achados
 bloqueantes. As execuções interrompidas por falta de espaço não foram contadas;
 foram repetidas depois de limpar apenas artefatos de build deste worktree.
+
+Validação da terceira rodada: 367 testes seguros de chat, 363 de banco e 99 de
+controllers aprovados (829), build/vet/lint sem erros. Revisor independente
+review_aep: rodada 11 identificou teste de observação da consulta antiga,
+corrigido; rodadas 12 e 13 aprovadas. O EXPLAIN detectou varredura na soma de
+escopo, corrigida com busca pela PK, e o teste de deduplicação impediu contar
+novamente a resposta selecionada pelo turno. Nenhum desses testes foi relaxado.
 
 Medição anterior à segunda rodada de review (não representa as novas proteções): Windows/amd64, três pares intercalados de 200
 operações com GOMAXPROCS=2, fixture de 100 perguntas. Medianas de 5,625 ms e
