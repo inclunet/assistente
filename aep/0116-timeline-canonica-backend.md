@@ -31,6 +31,13 @@ Validação: 339 testes seguros de chat, 97 de toolinvocations, 382 de jobs e
 solicitou precisão sobre retry de BEGIN IMMEDIATE, já corrigida neste texto.
 Frontend inalterado; nenhum teste ACP executado localmente.
 
+No CI do #996, duas execuções atingiram o timeout agregado padrão de 10 minutos
+do pacote App (1.394 testes), com o teste corrente ativo por apenas 13–14 segundos.
+O orçamento da suíte com cobertura passa a 15 minutos por pacote, com 30 minutos
+para o job incluindo preparação e compilação. Nenhum teste ou asserção foi removido.
+Uma execução intermediária falhou por SQLITE_BUSY na preparação de um teste de
+comandos; esse teste passou em dez repetições locais consecutivas.
+
 Participação de janelas, transporte e cutover frontend continuam pendentes;
 este recorte não declara os sintomas de foco/ordem da UI resolvidos.
 
