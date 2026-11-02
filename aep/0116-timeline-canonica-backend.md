@@ -1,8 +1,39 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, mensagens, áudio, limpeza, exclusão e importação integrados; retenção por idade e órfãos integrados; janelas, transporte e cutover pendentes
+## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, mensagens, áudio, limpeza, exclusão e importação integrados; retenção por idade, órfãos e navegação de janelas integrados; participação automática, transporte e cutover pendentes
 
 Data: 2026-10-30
+
+### Recorte: navegação da janela inscrita (2026-11-02)
+
+`TimelineSubscription.Navigate` muda a fatia da inscrição na mesma barreira usada
+pelos writers e pela recuperação. Preserva `windowId`, sessão, conversa e escopo;
+o pedido só informa posição/direção/limite e a época/revisão esperadas. Consulta,
+composição, publicação e troca dos IDs inscritos acontecem antes de liberar a
+barreira. A leitura utiliza o leitor canônico existente e seus limites de itens
+e payload; não existe algoritmo de paginação paralelo.
+
+Snapshots internos passam a informar `windowRevision`, uma string decimal
+independente da sequência de conteúdo. Cada snapshot aceito avança essa revisão,
+inclusive Refresh. Entre pedidos concorrentes baseados na mesma revisão,
+somente um navega; o outro recebe `ErrTimelineWindowStale`. Cursor inválido,
+âncora removida, sessão revogada e leitura malsucedida preservam a consulta e os
+IDs anteriores. Import/recriação detectado durante a leitura recusa época antiga
+antes de trocar a inscrição. Recuperação explícita continua em Refresh.
+
+`timeline_navigation_test.go` cobre paginação real por cursor, duas superfícies,
+preservação da consulta em Refresh, revisão obsoleta, pedidos concorrentes,
+falha sem mudança de participação, fechamento/revogação, escopo de thread,
+âncora excluída e troca de época durante leitura.
+
+Validação local: 344 testes seguros de chat aprovados, build/vet e lint incremental
+sem erros. Revisão independente review_aep sem achados. Race local indisponível
+por ausência de CGO/compilador C; validação com detector de corrida fica no CI.
+
+Este contrato ainda é interno: não adiciona binding/evento nem altera a UI.
+Participação automática com splices, followTail, retenção por foco, transporte e
+cutover permanecem pendentes. A fixture completa de crescimento simultâneo de
+duas janelas continua aberta. Nenhum teste ACP local ou NVDA neste recorte.
 
 ### Recorte: limpeza coordenada de órfãos (2026-11-02)
 

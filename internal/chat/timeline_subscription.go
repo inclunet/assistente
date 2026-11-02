@@ -17,14 +17,16 @@ type TimelineSession interface {
 
 var ErrTimelineSubscription = errors.New("inscrição de timeline inválida ou encerrada")
 var ErrTimelineSubscriptionLimit = errors.New("limite de inscrições de timeline atingido")
+var ErrTimelineWindowStale = errors.New("revisão da janela mudou; sincronização necessária")
 
 type subscriptionSurface struct{ sessionID, surfaceID string }
 type subscribedWindow struct {
-	epoch   string
-	version database.ChatTimelineVersion
-	id      string
-	surface subscriptionSurface
-	itemIDs map[string]bool
+	revision uint64
+	epoch    string
+	version  database.ChatTimelineVersion
+	id       string
+	surface  subscriptionSurface
+	itemIDs  map[string]bool
 }
 
 // TimelineSubscription é um capability interno. Ainda não é binding Wails.
@@ -42,6 +44,7 @@ type TimelineSubscription struct {
 
 type SubscribedTimelineSnapshot struct {
 	WindowID       string
+	WindowRevision string
 	Epoch          string
 	Sequence       string
 	Items          []CanonicalItem
@@ -102,7 +105,9 @@ func cloneWindowQuery(query database.MessageWindowQuery) database.MessageWindowQ
 }
 
 func subscriptionSnapshot(c *projectionConversation, window *subscribedWindow, snapshot *TimelineWindowSnapshot) *SubscribedTimelineSnapshot {
+	window.revision++
 	result := &SubscribedTimelineSnapshot{WindowID: window.id, Epoch: c.epoch, Sequence: strconv.FormatUint(c.publication.sequence, 10), Items: make([]CanonicalItem, 0, len(snapshot.Items)), OrderedItemIDs: make([]string, 0, len(snapshot.Items)), TotalCount: snapshot.Window.TotalCount, StartIndex: snapshot.Window.StartIndex, EndIndex: snapshot.Window.EndIndex, HasBefore: snapshot.Window.HasBefore, HasAfter: snapshot.Window.HasAfter, BeforeCursor: snapshot.BeforeCursor, AfterCursor: snapshot.AfterCursor}
+	result.WindowRevision = strconv.FormatUint(window.revision, 10)
 	window.version = snapshot.Version
 	window.epoch = c.epoch
 	window.itemIDs = make(map[string]bool, len(snapshot.Items))
@@ -152,6 +157,49 @@ func (s *TimelineSubscription) Refresh(ctx context.Context) (*SubscribedTimeline
 		return nil, err
 	}
 	return subscriptionSnapshot(c, c.windows[s.windowID], snapshot), nil
+}
+
+// TimelineWindowNavigation altera somente a fatia da inscrição existente.
+// Owner, sessão, conversa e escopo vêm do capability, nunca deste pedido.
+type TimelineWindowNavigation struct {
+	Epoch          string
+	WindowRevision string
+	Cursor         string
+	Anchor         string
+	AnchorItemID   string
+	Direction      string
+	Limit          int
+}
+
+// Navigate serializa consulta e troca da participação com os writers da conversa.
+// Dois pedidos da mesma revisão não podem sobrescrever a navegação um do outro.
+// Uma leitura recusada preserva a consulta e os IDs da janela anterior.
+func (s *TimelineSubscription) Navigate(ctx context.Context, request TimelineWindowNavigation) (*SubscribedTimelineSnapshot, error) {
+	authorized, err := s.authorize(ctx)
+	if err != nil {
+		return nil, err
+	}
+	c, release := s.owner.lockConversation(s.key, false)
+	defer release()
+	if c == nil || c != s.conversation || c.windows[s.windowID] == nil {
+		return nil, ErrTimelineSubscription
+	}
+	window := c.windows[s.windowID]
+	if request.Epoch != c.epoch || window.epoch != c.epoch || request.WindowRevision != strconv.FormatUint(window.revision, 10) {
+		return nil, ErrTimelineWindowStale
+	}
+	query := database.MessageWindowQuery{ConversationID: s.key.conversationID, ParentID: s.query.ParentID, Cursor: request.Cursor, Anchor: request.Anchor, AnchorItemID: request.AnchorItemID, Direction: request.Direction, Limit: request.Limit}
+	snapshot, err := s.owner.readWindowLocked(authorized, query, canonicalWindowAdapter{s.reader}, true, c)
+	if err != nil {
+		return nil, err
+	}
+	// Import/recriação pode ser detectado pela leitura, inclusive quando o writer
+	// veio de fora do coordenador. Nunca aceita navegação baseada na época antiga.
+	if request.Epoch != c.epoch {
+		return nil, ErrTimelineWindowStale
+	}
+	s.query = cloneWindowQuery(query)
+	return subscriptionSnapshot(c, window, snapshot), nil
 }
 
 // Replay lê somente operações já publicadas para os IDs materializados desta
