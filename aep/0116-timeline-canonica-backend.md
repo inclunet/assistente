@@ -112,6 +112,14 @@ corrigido; rodadas 12 e 13 aprovadas. O EXPLAIN detectou varredura na soma de
 escopo, corrigida com busca pela PK, e o teste de deduplicação impediu contar
 novamente a resposta selecionada pelo turno. Nenhum desses testes foi relaxado.
 
+A validação remota da terceira rodada aprovou chat, backend, frontend, bindings
+e E2E, mas revelou disputa de temporização na fixture de estados do ledger:
+TestServicePersistsStatusesAndRetryable compartilhava 5 ms entre cancelamento e
+timeout. O prazo curto agora pertence somente ao cenário de timeout; as asserções
+de persistência, estado e retry permanecem intactas. Os 97 testes seguros do pacote
+toolinvocations e 30 repetições do cenário passaram, assim como vet/lint; revisor
+review_aep aprovou a rodada 14. A correção não altera contratos de produção.
+
 Medição anterior à segunda rodada de review (não representa as novas proteções): Windows/amd64, três pares intercalados de 200
 operações com GOMAXPROCS=2, fixture de 100 perguntas. Medianas de 5,625 ms e
 925.935 B/op na base versus 6,771 ms e 1.047.161 B/op neste recorte: +20,4% de

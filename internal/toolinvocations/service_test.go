@@ -1026,7 +1026,6 @@ func TestServicePersistsStatusesAndRetryable(t *testing.T) {
 	}
 
 	cfg := tools.DefaultExecutorConfig()
-	cfg.ToolTimeout = 5 * time.Millisecond
 	exec := tools.NewExecutor(registry, cfg)
 	svc := NewService(repo, exec)
 
@@ -1055,6 +1054,7 @@ func TestServicePersistsStatusesAndRetryable(t *testing.T) {
 
 	// Cancelled (cancela DURANTE execução)
 	cancelCtx, cancel := context.WithCancel(userA)
+	defer cancel()
 	go func() {
 		<-started
 		cancel()
@@ -1074,8 +1074,12 @@ func TestServicePersistsStatusesAndRetryable(t *testing.T) {
 		t.Fatalf("expected cancelled not retryable")
 	}
 
-	// Timed out
-	timedOut := svc.Execute(userA, ExecuteRequest{
+	// Só o cenário de timeout usa um prazo curto. Compartilhar 5 ms com o
+	// cancelamento faz a asserção depender de o scheduler acordar a goroutine
+	// antes do deadline, especialmente com -race.
+	cfg.ToolTimeout = 5 * time.Millisecond
+	timeoutService := NewService(repo, tools.NewExecutor(registry, cfg))
+	timedOut := timeoutService.Execute(userA, ExecuteRequest{
 		Call:   tools.ToolCall{ID: "call-timeout", Type: "function", Function: tools.FunctionCall{Name: "ctx_wait", Arguments: `{}`}},
 		Origin: Origin{Type: OriginChat, ID: "turn-timeout"},
 	})
