@@ -1,14 +1,33 @@
 package chat
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"reflect"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
 	"assistente/internal/database"
 	"gorm.io/gorm"
 )
+
+// Expressões constantes compartilhadas: não reconstruir nomes/concatenações
+// em cada leitura. O destino de PresentationMessage é contado por invocação.
+var (
+	publicationMessageSizeSQL = publicationSQLBytes("chat_messages", "id", "conversation_id", "parent_id", "turn_id", "chat_execution_id", "role", "content", "reasoning", "model", "source")
+	publicationTurnSizeSQL    = publicationSQLBytes("chat_turns", "user_message_id", "conversation_id", "response_message_id", "current_execution_id", "active_execution_id", "state", "origin")
+	publicationCallSizeSQL    = publicationSQLBytes("tool_invocations", "id", "user_id", "conversation_id", "turn_id", "chat_execution_id", "tool_catalog_id", "origin_id", "parent_invocation_id", "metadata", "input_preview", "output_preview", "display_name", "tool_call_id", "result_availability", "status") + " + " + publicationSQLBytes("selected_chat_turn", "response_message_id")
+	publicationCatalogSizeSQL = publicationSQLBytes("tool_catalog", "name", "display_name", "origin")
+)
+
+const publicationMessageSourceSQL = `(SELECT id FROM chat_messages WHERE id IN (SELECT CAST(unhex(value) AS TEXT) FROM json_each(?))
+ UNION SELECT m.id FROM chat_messages q CROSS JOIN chat_messages m
+ ON m.conversation_id=q.conversation_id AND m.parent_id IS q.parent_id AND m.turn_id=q.id
+ WHERE q.id IN (SELECT CAST(unhex(value) AS TEXT) FROM json_each(?)) AND m.role <> 'user') selected CROSS JOIN chat_messages ON chat_messages.id=selected.id`
+
+var publicationReadBudgetSQL = "SELECT COALESCE(SUM(1024 + " + publicationMessageSizeSQL + "), 0) + (SELECT COALESCE(SUM(1024 + " + publicationTurnSizeSQL + "), 0) FROM chat_turns WHERE conversation_id=? AND user_message_id IN (SELECT CAST(unhex(value) AS TEXT) FROM json_each(?))) FROM " + publicationMessageSourceSQL + " WHERE chat_messages.conversation_id=? AND " + database.CurrentChatMessageSQL("chat_messages")
+var publicationCallBudgetSQL = "COALESCE(SUM(1024 + " + publicationCallSizeSQL + " + " + publicationCatalogSizeSQL + "), 0)"
 
 // Executado depois da autorização, na mesma transação da materialização.
 // LENGTH(BLOB) mede bytes sem transportar payloads para o processo Go. O custo
@@ -19,19 +38,16 @@ func checkPublicationReadBudget(tx *gorm.DB, conversationID, turnID string) erro
 }
 
 func publicationSelectionReadSize(tx *gorm.DB, conversationID string, messageIDs, turnIDs []string) (int64, error) {
-	messageSize := publicationSQLBytes("chat_messages", "id", "conversation_id", "parent_id", "turn_id", "chat_execution_id", "role", "content", "reasoning", "model", "source")
 	var size int64
-	// UNION deduplica uma mensagem pedida também pelo turno. A seleção à
-	// esquerda do CROSS JOIN força buscas por PK; o turno usa o índice completo
-	// de conversa/escopo/turno, sem percorrer o histórico para aplicar um OR.
-	const source = `(SELECT id FROM chat_messages WHERE id IN ?
- UNION SELECT m.id FROM chat_messages q CROSS JOIN chat_messages m
- ON m.conversation_id=q.conversation_id AND m.parent_id IS q.parent_id AND m.turn_id=q.id
- WHERE q.id IN ? AND m.role <> 'user') selected CROSS JOIN chat_messages ON chat_messages.id=selected.id`
-	turnSize := publicationSQLBytes("chat_turns", "user_message_id", "conversation_id", "response_message_id", "current_execution_id", "active_execution_id", "state", "origin")
-	turnBudget := "(SELECT COALESCE(SUM(1024 + " + turnSize + "), 0) FROM chat_turns WHERE conversation_id=? AND user_message_id IN ?)"
-	err := tx.Raw("SELECT COALESCE(SUM(1024 + "+messageSize+"), 0) + "+turnBudget+" FROM "+source+
-		" WHERE chat_messages.conversation_id=? AND "+database.CurrentChatMessageSQL("chat_messages"), conversationID, turnIDs, messageIDs, turnIDs, conversationID).Scan(&size).Error
+	// Perguntas e respostas da mesma página frequentemente repetem o conjunto.
+	// Serializar uma vez quando os IDs coincidem, preservando a seleção exata.
+	turnsJSON := publicationIDSet(turnIDs)
+	messagesJSON, metadataJSON := turnsJSON, turnsJSON
+	if !slices.Equal(messageIDs, turnIDs) {
+		messagesJSON = publicationIDSet(messageIDs)
+		metadataJSON = publicationIDSet(uniquePublicationIDs(append(append([]string(nil), messageIDs...), turnIDs...)))
+	}
+	err := tx.Raw(publicationReadBudgetSQL, conversationID, metadataJSON, messagesJSON, turnsJSON, conversationID).Scan(&size).Error
 	if err != nil {
 		return 0, err
 	}
@@ -41,20 +57,18 @@ func publicationSelectionReadSize(tx *gorm.DB, conversationID string, messageIDs
 	if len(turnIDs) == 0 {
 		return size, nil
 	}
-	callSize := publicationSQLBytes("tool_invocations", "id", "user_id", "conversation_id", "turn_id", "chat_execution_id", "tool_catalog_id", "origin_id", "parent_invocation_id", "metadata", "input_preview", "output_preview", "display_name", "tool_call_id", "result_availability", "status")
-	catalogSize := publicationSQLBytes("tool_catalog", "name", "display_name", "origin")
 	var callsSize int64
 	userID, err := database.RequireUserID(tx.Statement.Context)
 	if err != nil {
 		return 0, err
 	}
 	selection := database.ChatInvocationSelection{}
-	err = tx.Model(&database.ToolInvocation{}).Select("COALESCE(SUM(1024 + "+callSize+" + "+catalogSize+"), 0)").
+	err = tx.Model(&database.ToolInvocation{}).Select(publicationCallBudgetSQL).
 		Joins("LEFT JOIN tool_catalog ON tool_catalog.id = tool_invocations.tool_catalog_id").
 		Joins(selection.Join("tool_invocations")).Where(selection.Predicate("tool_invocations")).
 		// O leitor aceita vínculos legados sem conversation_id. Contamos todos
 		// os registros do usuário/turno, incluindo os que o leitor filtrará depois.
-		Where("tool_invocations.user_id = ? AND tool_invocations.origin_type = 'chat' AND tool_invocations.turn_id IN ?", userID, turnIDs).Scan(&callsSize).Error
+		Where("tool_invocations.user_id = ? AND tool_invocations.origin_type = 'chat' AND tool_invocations.turn_id IN (SELECT CAST(unhex(value) AS TEXT) FROM json_each(?))", userID, turnsJSON).Scan(&callsSize).Error
 	if err != nil {
 		return 0, err
 	}
@@ -222,3 +236,24 @@ var invalidUTF8JSONBytes = func() int {
 	encoded, _ := json.Marshal(string([]byte{0xff}))
 	return len(encoded) - 2
 }()
+
+// JSON contém somente hex ASCII; unhex + CAST TEXT restaura os bytes originais
+// (inclusive NUL/UTF-8 inválido) no lado direito de IN, preservando os índices.
+func publicationIDSet(ids []string) string {
+	size := 2
+	for _, id := range ids {
+		size += 3 + 2*len(id)
+	}
+	encoded := make([]byte, 0, size)
+	encoded = append(encoded, '[')
+	for i, id := range ids {
+		if i > 0 {
+			encoded = append(encoded, ',')
+		}
+		encoded = append(encoded, '"')
+		encoded = hex.AppendEncode(encoded, []byte(id))
+		encoded = append(encoded, '"')
+	}
+	encoded = append(encoded, ']')
+	return string(encoded)
+}

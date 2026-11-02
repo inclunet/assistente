@@ -65,11 +65,16 @@ type timelineFacts struct {
 }
 
 func readTimelineFacts(ctx context.Context, tx *gorm.DB, conversationID string, turnIDs []string) (timelineFacts, error) {
+	return readTimelineFactsForSelection(ctx, tx, conversationID, turnIDs, turnIDs)
+}
+
+// Lifecycle acompanha perguntas visíveis; payloads de ferramentas só respostas selecionadas.
+func readTimelineFactsForSelection(ctx context.Context, tx *gorm.DB, conversationID string, turnIDs, responseIDs []string) (timelineFacts, error) {
 	turns, err := database.NewChatTurnRepository(tx).GetMany(ctx, conversationID, turnIDs)
 	if err != nil {
 		return timelineFacts{}, err
 	}
-	summaries, err := toolinvocations.NewDBRepository(tx).LoadSummariesForTurnIDs(ctx, turnIDs)
+	summaries, err := toolinvocations.NewDBRepository(tx).LoadSummariesForTurnIDs(ctx, responseIDs)
 	if err != nil {
 		return timelineFacts{}, err
 	}
@@ -139,6 +144,7 @@ func (r *DBTimelineReader) readWindow(ctx context.Context, query database.Messag
 				return err
 			}
 		}
+		responseIDs := result.TurnIDs
 		if !canonical {
 			result.TurnIDs = snapshotTurnIDs(rows.Messages)
 		}
@@ -146,13 +152,24 @@ func (r *DBTimelineReader) readWindow(ctx context.Context, query database.Messag
 		for _, id := range result.TurnIDs {
 			seen[id] = true
 		}
+		if canonical {
+			for _, message := range rows.Messages {
+				if message.Role == "user" && !seen[message.ID] {
+					result.TurnIDs = append(result.TurnIDs, message.ID)
+					seen[message.ID] = true
+				}
+			}
+		}
 		for _, row := range rows.Items {
 			if row.Kind == database.MessageWindowItemKindTurn && !seen[row.TurnID] {
 				result.TurnIDs = append(result.TurnIDs, row.TurnID)
 				seen[row.TurnID] = true
 			}
 		}
-		facts, err = readTimelineFacts(ctx, tx, query.ConversationID, result.TurnIDs)
+		if !canonical {
+			responseIDs = result.TurnIDs
+		}
+		facts, err = readTimelineFactsForSelection(ctx, tx, query.ConversationID, result.TurnIDs, responseIDs)
 		if err != nil {
 			return err
 		}

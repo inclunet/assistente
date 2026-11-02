@@ -47,7 +47,7 @@ func TestCanonicalWindowBudgetBeforeMaterialization(t *testing.T) {
 			// fora da página, mesmo que o turno tenha conteúdo volumoso.
 			query.Limit = 1
 			first, err := f.reader.ReadCanonicalWindow(f.ctx, query)
-			if err != nil || len(first.TurnIDs) != 0 || len(first.Items) != 1 {
+			if err != nil || !reflect.DeepEqual(first.TurnIDs, []string{f.question}) || len(first.Responses) != 0 || len(first.Items) != 1 {
 				t.Fatalf("pergunta isolada: %v", err)
 			}
 			query.Anchor, query.Direction = "end", "before"

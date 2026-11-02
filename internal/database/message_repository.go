@@ -1673,7 +1673,7 @@ func (r *MessageRepository) ReadMessageWindowWithContext(ctx context.Context, qu
 	if query.ConversationID == "" {
 		return nil, fmt.Errorf("conversationID é obrigatório para buscar janela de mensagens")
 	}
-	if _, err := NewConversationRepository(r.db).GetConversationInfoWithContext(ctx, query.ConversationID); err != nil {
+	if _, err := NewConversationRepository(r.db.Select("id")).GetConversationInfoWithContext(ctx, query.ConversationID); err != nil {
 		return nil, err
 	}
 	if query.ParentID != nil {

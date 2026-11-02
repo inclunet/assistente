@@ -1,6 +1,6 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, mensagens, áudio, limpeza, exclusão e importação integrados; retenção por idade, órfãos, navegação, leitura leve e orçamento de fontes da janela integrados; participação automática, transporte e cutover pendentes
+## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, mensagens, áudio, limpeza, exclusão e importação integrados; retenção por idade, órfãos, navegação, leitura leve e orçamento de fontes da janela com recuperação validada integrados; margem de desempenho, participação automática, transporte e cutover pendentes
 
 Data: 2026-10-30
 
@@ -14,9 +14,10 @@ mesma transação SQLite do leitor. Não repete seleção nem recarrega a conver
 O leitor legado permanece sem essa cota durante a migração.
 
 O estimador SQL compartilhado passa a incluir identificadores e vínculos
-variáveis, além dos textos, metadados e previews já contados. Fatos são lidos
-somente para itens de resposta da página; uma pergunta isolada não puxa a
-resposta ou o ledger fora dela. Áudio e mídia continuam fora da materialização.
+variáveis, além dos textos, metadados e previews já contados. Metadados de lifecycle acompanham também as perguntas visíveis para desvincular
+streams de execuções substituídas/concluídas. Respostas e ledger continuam
+restritos aos itens de resposta selecionados; o orçamento inclui os metadados
+das perguntas, sem carregar o conteúdo da resposta fora da página. Áudio e mídia continuam fora da materialização.
 
 Antes de recuperar bases de publicação ou compor itens com streaming, a janela
 inteira passa por um acumulador conservador compartilhado com a publicação.
@@ -40,20 +41,46 @@ Após review remota, a regressão inclui pergunta persistida e buffer live de
 4 MiB + 1 byte cada: o preflight persistido aceita, a composição agregada recusa,
 e sequência/cache publicados e inscrição permanecem intactos.
 
-Validação local: 354 testes seguros de chat, 362 de banco e 99 de controllers
-aprovados (815), build/vet/lint sem erros. A conta de escape é confrontada com
+A revisão do Copilot identificou três lacunas adicionais, corrigidas neste PR.
+O orçamento do ledger conta o response_message_id por invocação, pois a
+continuação pode repetir esse destino em cada resumo. A reconciliação de lifecycle
+não depende mais de a resposta estar visível: mantém metadados leves para perguntas
+selecionadas, sem puxar seu ledger.
+
+A janela é validada antes de iniciar recuperação pendente de armazenamento. Essa
+recuperação percorre todos os lotes para validar as fontes e os buffers antes de
+publicar o primeiro. Reutiliza o mesmo percurso em uma segunda passagem, exigindo
+versão idêntica; não retém snapshots de todas as janelas simultaneamente. Só o
+caminho de recuperação pendente faz duas passagens. A barreira impede crescimento
+de buffers entre elas; drift externo mantém a recuperação suspensa.
+
+window_budget_review_test.go reproduz identificador de continuação de 512 KiB
+repetido em vinte ferramentas, conclusão/retry fora do projetor com página só de
+pergunta e recuperação pendente em mais de um lote, com buffer excessivo dentro
+ou fora da página. A recusa preserva cache, sequência, inscrição e bytes recebidos.
+Os três testes novos falham contra o código anterior às correções e passam com
+elas. As expressões estáticas de tamanho SQL são construídas uma vez; o conjunto
+de lifecycle reutiliza a deduplicação já feita durante a leitura.
+A consulta de autorização carrega apenas o ID da conversa, mantendo ownership
+sem transportar seu resumo. Os conjuntos de IDs do orçamento usam um parâmetro
+JSON de hex ASCII, decodificado no lado direito de IN: evita expandir centenas
+de placeholders sem alterar bytes opacos (inclusive NUL e UTF-8 inválido).
+Regressões exercitam esses IDs e o EXPLAIN continua exigindo buscas indexadas.
+
+Validação local: 359 testes seguros de chat, 362 de banco e 99 de controllers
+aprovados (820), build/vet/lint sem erros. A conta de escape é confrontada com
 encoding/json, incluindo UTF-8 inválido; a codificação de substituição é medida
 uma vez para acompanhar a versão ativa do encoder. Nenhum teste existente foi
-removido ou relaxado. Revisor independente review_aep: quatro rodadas, sem pendências.
+removido ou relaxado. Revisor independente review_aep: nove rodadas, sem pendências.
 
-Benchmark de leitura canônica, mesma máquina Windows/amd64, três amostras de
-30 operações em cada versão: medianas da base de 7,43/12,66/14,64 ms para
-100/500/1.000 perguntas, versus 7,04/11,47/15,92 ms neste recorte. Alocações
-medianas de 940.655/1.061.057/1.062.915 para 1.113.242/1.253.540/1.253.901 B/op
-(aumento de até 18,4%). Permanecem dentro de +20% nessa comparação controlada.
-Os números cobrem o leitor, não a composição live ou a UI; a primeira amostra
-curta variou acima de 20%, motivando a comparação de ambas as versões com
-30 operações. Não representam evidência de aceleração.
+Medição após as correções: Windows/amd64, três pares intercalados de 200
+operações com GOMAXPROCS=2, fixture de 100 perguntas. Medianas de 5,625 ms e
+925.935 B/op na base versus 6,771 ms e 1.047.161 B/op neste recorte: +20,4% de
+tempo e +13,1% de alocações. O caso pequeno ainda não demonstra margem sob o
+critério final de +20%; esse critério permanece pendente, sem declarar a fase
+concluída. Séries locais anteriores tiveram grande variação de tempo inclusive
+na base, motivando a comparação intercalada. Os números medem o leitor, não
+composição live, recuperação pendente ou UI.
 
 São cotas de fonte e estimativa de composição, não um teto do heap do processo:
 SQLite, caches, cópias transitórias e buffers recebidos têm custos distintos.
