@@ -34,7 +34,7 @@ func TestCommandImportSemCallbackNaoFazFallback(t *testing.T) {
 	api := NewExportImport()
 	AttachExportImport(api, stubSession{ctx: context.Background()}, nil, func() ports.SystemDialogPort { return nil }, "dev", nil)
 	genericCalls := 0
-	api.importConversations = func(context.Context, string, *credentials.Manager, string, []portability.ImportResolution, func([]string)) (*portability.ImportResult, error) {
+	api.importConversations = func(context.Context, string, *credentials.Manager, string, []portability.ImportResolution, portability.ConversationImportHooks) (*portability.ImportResult, error) {
 		genericCalls++
 		return nil, errors.New("fallback indevido")
 	}
@@ -54,7 +54,7 @@ func TestCommandImportDuplicatedResourcesNaoInvocaGenericoNemRestore(t *testing.
 		return nil, nil
 	})
 	genericCalls := 0
-	api.importConversations = func(context.Context, string, *credentials.Manager, string, []portability.ImportResolution, func([]string)) (*portability.ImportResult, error) {
+	api.importConversations = func(context.Context, string, *credentials.Manager, string, []portability.ImportResolution, portability.ConversationImportHooks) (*portability.ImportResult, error) {
 		genericCalls++
 		return nil, errors.New("fallback indevido")
 	}

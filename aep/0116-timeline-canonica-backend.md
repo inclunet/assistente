@@ -1,8 +1,45 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, mensagens, áudio, limpeza e exclusão de conversas integrados; importação, manutenção, janelas, transporte e cutover pendentes
+## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, mensagens, áudio, limpeza, exclusão e importação integrados; manutenção, janelas, transporte e cutover pendentes
 
 Data: 2026-10-30
+
+### Recorte: importação coordenada de conversas (2026-11-02)
+
+A importação usa `ApplyConversationImport`, compartilhando a barreira e a
+reconciliação de `ApplyStorageMutation`, para envolver cada transação de
+conversa, inclusive a busca por conteúdo existente. O bootstrap injeta o mesmo
+projetor dos demais escritores nas três entradas Wails. `ConversationImportHooks`
+reúne a coordenação de escrita e o restore pós-commit, substituindo a assinatura
+anterior sem manter outro pipeline público de importação.
+
+O coordenador recebe o ID opaco e seleciona todos os itens materializados antes
+da substituição. Reconciliação acontece sob manutenção antes de liberar tombstones;
+falha de uma conversa não desfaz commits anteriores nem publica conteúdo revertido.
+Parsing, credenciais e demais recursos continuam fora da barreira da timeline.
+A ordem runtime → lifecycle → manutenção → projetor → SQLite permanece vigente.
+
+Evidências: `import_publication_test.go` integra importador, SQLite, projetor e
+inscrição reais; verifica substituição, retirada das fontes antigas da resposta, rollback
+parcial, identidade de janela preservada e recusa antes do writer. A asserção
+pós-commit inspeciona a base publicada antes de Refresh, evitando que releitura
+mascare ausência de coordenação. Os três entrypoints verificam propagação dos
+hooks em `export_import_test.go`.
+
+A primeira revisão identificou sobreposição de buffers voláteis quando o backup
+reutiliza o mesmo execution ID. Após commit, a importação separa os buffers
+anteriores em retained e invalida suas capabilities antes de reconciliar; em
+rollback preserva a projeção. A regressão exporta/reimporta v3 com execução
+terminal volátil e comprova conteúdo restaurado e recuperação dos bytes antigos.
+A regressão falhou com a coordenação genérica anterior e passou com a correção.
+Validação: 333 testes seguros de chat, 195 de Wails, 166 de portabilidade e 42
+de App aprovados; build/vet/lint sem erros. Frontend não alterado, mantendo a
+validação da etapa anterior. Review_aep: duas rodadas, P2 corrigido e nenhuma
+pendência. Nenhum teste ACP executado localmente.
+
+Manutenção, participação automática das janelas, transporte e cutover frontend
+permanecem pendentes. A descoberta de novos itens para janelas abertas pertence
+ao recorte de participação; este PR não declara foco/ordem da UI resolvidos.
 
 ### Recorte: exclusão coordenada de conversas (2026-11-02)
 

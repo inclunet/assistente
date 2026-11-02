@@ -17,6 +17,17 @@ import (
 // Mesmo um callback com erro pode ter confirmado parte da operação: reconciliar
 // nunca transforma sucesso de escrita em falha, nem esconde seu erro original.
 func (p *LiveProjection) ApplyStorageMutation(ctx context.Context, conversationID string, known []string, write func() ([]string, error)) error {
+	return p.applyStorageMutation(ctx, conversationID, known, write, false)
+}
+
+// ApplyConversationImport substitui a proveniência da conversa após commit.
+// Um backup pode reutilizar execution IDs: igualdade de ID não autoriza compor
+// buffers anteriores sobre o conteúdo restaurado. Rollback conserva os vínculos.
+func (p *LiveProjection) ApplyConversationImport(ctx context.Context, conversationID string, write func() error) error {
+	return p.applyStorageMutation(ctx, conversationID, nil, func() ([]string, error) { return nil, write() }, true)
+}
+
+func (p *LiveProjection) applyStorageMutation(ctx context.Context, conversationID string, known []string, write func() ([]string, error), replace bool) error {
 	userID, err := database.RequireUserID(ctx)
 	if err != nil {
 		return err
@@ -25,15 +36,26 @@ func (p *LiveProjection) ApplyStorageMutation(ctx context.Context, conversationI
 	// estado anterior enquanto este writer está prestes a confirmar.
 	c, release := p.lockConversation(projectionKey{userID, conversationID}, true)
 	defer release()
-	if p.reader == nil {
-		_, err := write()
-		return err
-	}
 	ids := known
 	if known == nil {
 		ids = c.materializedIDsLocked()
 	}
 	created, writeErr := write()
+	if replace && writeErr == nil {
+		for id, t := range c.turns {
+			if !t.finished || t.volatile || hasUncommittedContent(t) {
+				t.detached = true
+				t.publicationBase, t.publicationBytes = nil, 0
+				t.publicationErr, t.publicationDirty = nil, false
+				c.retained[t.executionID] = t
+			}
+			delete(c.turns, id)
+			c.revision++
+		}
+	}
+	if p.reader == nil {
+		return writeErr
+	}
 	if len(c.windows) == 0 && len(c.turns) == 0 && len(c.publication.items) == 0 {
 		return writeErr // nenhuma base anterior; a primeira inscrição lerá após o commit
 	}
