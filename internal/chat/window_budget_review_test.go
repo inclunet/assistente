@@ -217,3 +217,152 @@ func TestPublicationBudgetPreservesOpaqueIDs(t *testing.T) {
 		}
 	}
 }
+
+func TestStorageRecoveryRollsBackLaterBatch(t *testing.T) {
+	for _, drift := range []bool{false, true} {
+		t.Run(fmt.Sprint("drift=", drift), func(t *testing.T) {
+			f, p, _, _ := automaticFixture(t)
+			messages := make([]database.ChatMessage, 70)
+			for i := range messages {
+				messages[i] = database.ChatMessage{ConversationID: f.conversation, Role: "user", Content: "antes"}
+			}
+			if err := f.db.CreateInBatches(&messages, 100).Error; err != nil {
+				t.Fatal(err)
+			}
+			sub, initial, err := p.SubscribeTimeline(f.ctx, &fixtureTimelineSession{ctx: f.ctx, id: "rollback"}, "surface", database.MessageWindowQuery{ConversationID: f.conversation, Anchor: "start", Direction: "after", Limit: 100}, f.reader)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer sub.Close()
+			reader := &failingSelectionReader{DBTimelineReader: f.reader}
+			p.reader = reader
+			reader.fail.Store(true)
+			if err := p.ApplyStorageMutation(f.ctx, f.conversation, nil, func() ([]string, error) { return nil, nil }); err != nil {
+				t.Fatal(err)
+			}
+			reader.fail.Store(false)
+			if err := f.db.Model(&database.ChatMessage{}).Where("conversation_id=? AND role=?", f.conversation, "user").Update("content", "depois").Error; err != nil {
+				t.Fatal(err)
+			}
+			c := sub.conversation
+			c.mu.Lock()
+			before := c.publication.fork()
+			c.mu.Unlock()
+			selections := 0
+			reader.afterSelection = func() {
+				selections++
+				if selections == 3 {
+					if drift {
+						if err := database.UpdateMessageTextWithContext(f.ctx, messages[0].ID, "concorrente"); err != nil {
+							t.Fatal(err)
+						}
+					} else {
+						reader.fail.Store(true)
+					}
+				}
+			}
+			if _, err := sub.Refresh(f.ctx, initial.WindowRevision, &TimelineWindowPosition{Anchor: "start", Direction: "after", Limit: 1}); err == nil {
+				t.Fatal("falha posterior ignorada")
+			}
+			c.mu.Lock()
+			defer c.mu.Unlock()
+			if selections < 3 {
+				t.Fatal("segunda passagem não exercitada", selections)
+			}
+			if !reflect.DeepEqual(before, c.publication) {
+				t.Fatal("cache/journal parcialmente publicados")
+			}
+		})
+	}
+}
+
+func TestRecoveryAuthorizationDoesNotReadSummary(t *testing.T) {
+	f, p, _, _ := automaticFixture(t)
+	sub, initial, err := p.SubscribeTimeline(f.ctx, &fixtureTimelineSession{ctx: f.ctx, id: "owner"}, "surface", database.MessageWindowQuery{ConversationID: f.conversation, Limit: 10}, f.reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sub.Close()
+	reader := &failingSelectionReader{DBTimelineReader: f.reader}
+	p.reader = reader
+	reader.fail.Store(true)
+	if err := p.ApplyStorageMutation(f.ctx, f.conversation, nil, func() ([]string, error) { return nil, nil }); err != nil {
+		t.Fatal(err)
+	}
+	reader.fail.Store(false)
+	if err := f.db.Model(&database.Conversation{}).Where("id=?", f.conversation).Update("summary", strings.Repeat("s", 2*1024*1024)).Error; err != nil {
+		t.Fatal(err)
+	}
+	reads, selections := 0, 0
+	reader.afterSelection = func() { selections++ }
+	if err := f.db.Callback().Query().After("gorm:query").Register("recovery_owner_identity", func(tx *gorm.DB) {
+		if conversation, ok := tx.Statement.Dest.(*database.Conversation); ok {
+			reads++
+			if conversation.Summary != "" || !reflect.DeepEqual(tx.Statement.Selects, []string{"id"}) {
+				t.Error("resumo materializado na autorização")
+			}
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sub.Refresh(f.ctx, initial.WindowRevision, nil); err != nil {
+		t.Fatal(err)
+	}
+	if reads < 3 || selections != 2 {
+		t.Fatal("recuperação não exercitada", reads, selections)
+	}
+}
+
+func TestWindowIdentityBudgetPrecedesPayloadGuard(t *testing.T) {
+	f := newSnapshotFixture(t)
+	var messages []database.ChatMessage
+	for i := 0; i < 20; i++ {
+		messages = append(messages, database.ChatMessage{UUIDModel: database.UUIDModel{ID: fmt.Sprint(i) + strings.Repeat("i", 512*1024)}, ConversationID: f.conversation, Role: "user", Content: "curto"})
+	}
+	if err := f.db.CreateInBatches(&messages, 100).Error; err != nil {
+		t.Fatal(err)
+	}
+	guardCalls := 0
+	_, err := database.NewMessageRepository(f.db).WithTimelineTurns().ReadMessageWindowWithContext(f.ctx, database.MessageWindowQuery{ConversationID: f.conversation, Limit: 100}, func(_ []database.MessageWindowItem) error { guardCalls++; return nil })
+	if !errors.Is(err, ErrTimelineSourceLimit) || guardCalls != 0 {
+		t.Fatal("identidades transferidas antes da cota", err, guardCalls)
+	}
+	// A recusa de parâmetros acontece antes de qualquer consulta ou expansão hex.
+	if _, err := publicationSelectionReadSize(nil, f.conversation, []string{strings.Repeat("i", canonicalSourceBytes)}, nil); !errors.Is(err, ErrTimelineSourceLimit) {
+		t.Fatal(err)
+	}
+}
+
+func TestLiveCompositionBudgetsPotentialToolGroups(t *testing.T) {
+	calls := make([]TurnSegmentToolCall, 20)
+	for i := range calls {
+		calls[i].InvocationID = fmt.Sprint(i) + strings.Repeat("i", 256*1024)
+	}
+	item := &TimelineItem{ItemID: "turn:q", TurnID: "q", Kind: "response", Segments: []ResponseSegment{responseToolSegment(calls)}}
+	c := &projectionConversation{turns: map[string]*liveTurn{}}
+	if !windowCompositionWithinBudget(c, []*TimelineItem{item}) {
+		t.Fatal("base persistida deveria caber")
+	}
+	c.turns["q"] = &liveTurn{turnID: "q", executionID: "exec"}
+	if windowCompositionWithinBudget(c, []*TimelineItem{item}) {
+		t.Fatal("identidades de novos grupos não contadas")
+	}
+}
+
+func TestWindowIdentityBudgetRejectsOversizedAnchor(t *testing.T) {
+	f := newSnapshotFixture(t)
+	id := strings.Repeat("i", 3*1024*1024)
+	if err := f.db.Create(&database.ChatMessage{UUIDModel: database.UUIDModel{ID: id}, ConversationID: f.conversation, Role: "user", Content: "curto"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	for _, byItem := range []bool{false, true} {
+		query := database.MessageWindowQuery{ConversationID: f.conversation, Direction: "around", AnchorMessageID: id, Limit: 1}
+		if byItem {
+			query.AnchorItemID = "message:" + id
+			query.AnchorMessageID = ""
+		}
+		if _, err := f.reader.ReadCanonicalWindow(f.ctx, query); !errors.Is(err, ErrTimelineSourceLimit) {
+			t.Fatal("âncora excessiva aceita", err)
+		}
+	}
+}

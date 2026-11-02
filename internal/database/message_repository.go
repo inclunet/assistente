@@ -1489,7 +1489,7 @@ WITH scoped AS (
 )`, messageSource, parentPredicate, CurrentChatMessageSQL("m"), extra)
 }
 
-const timelineItemColumns = "kind, id, message_id, turn_id, created_at, anchor_id, invalid_turn_reference"
+const timelineItemColumns = "kind, id, message_id, turn_id, created_at, anchor_id, invalid_turn_reference, slot, item_key, 0 AS window_total"
 const timelineOrderAscending = "created_at ASC, anchor_id COLLATE BINARY ASC, slot ASC, item_key COLLATE BINARY ASC"
 const timelineOrderDescending = "created_at DESC, anchor_id COLLATE BINARY DESC, slot DESC, item_key COLLATE BINARY DESC"
 const timelineKeyBefore = "(created_at, anchor_id COLLATE BINARY, slot, item_key COLLATE BINARY) < (?, ?, ?, ?)"
@@ -1523,7 +1523,7 @@ func (r *MessageRepository) countTimelineItems(conversationID string, parentID *
 
 func (r *MessageRepository) getAnchorTimelineItem(query MessageWindowQuery) (*MessageWindowItem, error) {
 	sql := r.timelineItemCTE(query.ParentID) + `
-SELECT ti.kind, ti.id, ti.message_id, ti.turn_id, ti.created_at, ti.anchor_id, ti.invalid_turn_reference
+SELECT ti.kind, ti.id, ti.message_id, ti.turn_id, ti.created_at, ti.anchor_id, ti.invalid_turn_reference, ti.slot, ti.item_key, 0 AS window_total
 FROM timeline_items ti
 JOIN scoped s ON s.item_kind = ti.kind AND s.item_id = ti.id
 WHERE s.id = ?
@@ -1536,9 +1536,13 @@ LIMIT 1`
 		sql = r.timelineItemCTE(query.ParentID) + " SELECT " + timelineItemColumns + " FROM timeline_items WHERE item_key=? LIMIT 1"
 		args = append(r.timelineItemArgs(query.ConversationID, query.ParentID), query.AnchorItemID)
 	}
-	var item MessageWindowItem
-	if err := r.db.Raw(sql, args...).Scan(&item).Error; err != nil {
+	rows, err := r.scanTimelineItems(sql, args, "")
+	if err != nil {
 		return nil, err
+	}
+	var item MessageWindowItem
+	if len(rows) > 0 {
+		item = rows[0]
 	}
 	if item.ID == "" {
 		if query.Cursor != "" {
@@ -1566,7 +1570,7 @@ func (r *MessageRepository) queryTimelineItems(conversationID string, parentID *
 	}
 	columns := timelineItemColumns
 	if where == "" {
-		columns += ", COUNT(*) OVER () AS window_total"
+		columns = strings.Replace(columns, "0 AS window_total", "COUNT(*) OVER () AS window_total", 1)
 	}
 	sql := r.timelineItemCTE(parentID) + " SELECT " + columns + " FROM timeline_items"
 	args := r.timelineItemArgs(conversationID, parentID)
@@ -1576,11 +1580,7 @@ func (r *MessageRepository) queryTimelineItems(conversationID string, parentID *
 	}
 	sql += " ORDER BY " + order + " LIMIT ?"
 	args = append(args, limit)
-	var items []MessageWindowItem
-	if err := r.db.Raw(sql, args...).Scan(&items).Error; err != nil {
-		return nil, err
-	}
-	return items, nil
+	return r.scanTimelineItems(sql, args, order)
 }
 
 func (r *MessageRepository) queryTimelineItemsAround(conversationID string, parentID *string, offset int, limit int) ([]MessageWindowItem, error) {
@@ -1589,11 +1589,7 @@ func (r *MessageRepository) queryTimelineItemsAround(conversationID string, pare
 	}
 	sql := r.timelineItemCTE(parentID) + " SELECT " + timelineItemColumns + " FROM timeline_items ORDER BY " + timelineOrderAscending + " LIMIT ? OFFSET ?"
 	args := append(r.timelineItemArgs(conversationID, parentID), limit, offset)
-	var items []MessageWindowItem
-	if err := r.db.Raw(sql, args...).Scan(&items).Error; err != nil {
-		return nil, err
-	}
-	return items, nil
+	return r.scanTimelineItems(sql, args, timelineOrderAscending)
 }
 
 func reverseTimelineItems(items []MessageWindowItem) {

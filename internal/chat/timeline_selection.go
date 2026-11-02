@@ -24,6 +24,9 @@ func (r *DBTimelineReader) ReadSelection(ctx context.Context, conversationID str
 	if len(refs) > 16384 {
 		return nil, fmt.Errorf("seleção de timeline excede o limite")
 	}
+	if err := database.CheckTimelineIdentityBudget(refs); err != nil {
+		return nil, err
+	}
 	refs = uniquePublicationIDs(refs)
 	result := &TimelineSelectionSnapshot{Turns: make(map[string]*database.ChatTurn)}
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {

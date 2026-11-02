@@ -168,7 +168,14 @@ func (p *LiveProjection) recoverStoragePublicationLocked(ctx context.Context, co
 		return nil
 	})
 	if err == nil {
+		// A barreira oculta o estado provisório. Um lote posterior pode falhar ou
+		// detectar drift: nesse caso nenhum cache/journal parcial fica publicado.
+		published := c.publication
+		c.publication = published.fork()
 		err = p.reconcileStorageLocked(ctx, conversationID, c, ids, version)
+		if err != nil {
+			c.publication = published
+		}
 	}
 	if err != nil {
 		c.failStoragePublicationLocked(ids, err)

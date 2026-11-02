@@ -39,6 +39,9 @@ func checkPublicationReadBudget(tx *gorm.DB, conversationID, turnID string) erro
 
 func publicationSelectionReadSize(tx *gorm.DB, conversationID string, messageIDs, turnIDs []string) (int64, error) {
 	var size int64
+	if err := database.CheckTimelineIdentityBudget(messageIDs, turnIDs); err != nil {
+		return 0, err
+	}
 	// Perguntas e respostas da mesma página frequentemente repetem o conjunto.
 	// Serializar uma vez quando os IDs coincidem, preservando a seleção exata.
 	turnsJSON := publicationIDSet(turnIDs)
@@ -161,6 +164,27 @@ func windowCompositionWithinBudget(c *projectionConversation, items []*TimelineI
 		t := c.turns[item.TurnID]
 		if item.Kind != "response" || t == nil || t.detached || (t.finished && !t.volatile) {
 			continue
+		}
+		// Cada chamada pode virar um grupo próprio e cortar mais um segmento.
+		// Conta identidades derivadas mesmo quando o texto persistido ainda não
+		// permite posicionar a chamada, antes de clonar ou compor o live.
+		maxSourceID := len(t.executionID)*2 + 128
+		for _, message := range item.messages {
+			maxSourceID = max(maxSourceID, len(message.ID))
+		}
+		for _, stream := range t.streams {
+			maxSourceID = max(maxSourceID, len(stream.messageID))
+		}
+		for _, segment := range item.Segments {
+			maxSourceID = max(maxSourceID, len(segment.SourceMessageID), len(segment.SegmentID))
+		}
+		for _, segment := range item.Segments {
+			for _, call := range segment.Invocations {
+				budget.remaining -= 1024
+				if !budget.stringBytes(len(call.InvocationID)) || !budget.stringBytes(maxSourceID) || !budget.stringBytes(maxSourceID) {
+					return false
+				}
+			}
 		}
 		for _, value := range []string{t.turnID, t.executionID, t.responseID, t.state, t.reason} {
 			if !budget.stringValue(value) {

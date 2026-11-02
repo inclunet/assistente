@@ -12,7 +12,10 @@ func (r *MessageRepository) GetTimelineItemsByIDWithContext(ctx context.Context,
 	if len(ids) > 16384 {
 		return nil, fmt.Errorf("seleção de timeline excede o limite")
 	}
-	if _, err := NewConversationRepository(r.db).GetConversationInfoWithContext(ctx, conversationID); err != nil {
+	if _, err := NewConversationRepository(r.db.Select("id")).GetConversationInfoWithContext(ctx, conversationID); err != nil {
+		return nil, err
+	}
+	if err := CheckTimelineIdentityBudget(ids); err != nil {
 		return nil, err
 	}
 	result := &MessageWindowResult{}
@@ -23,8 +26,8 @@ func (r *MessageRepository) GetTimelineItemsByIDWithContext(ctx context.Context,
 		if err != nil {
 			return nil, err
 		}
-		var rows []MessageWindowItem
-		if err := repo.db.WithContext(ctx).Raw(sql, args...).Scan(&rows).Error; err != nil {
+		rows, err := NewMessageRepository(repo.db.WithContext(ctx)).WithTimelineTurns().scanTimelineItems(sql, args, timelineOrderAscending)
+		if err != nil {
 			return nil, err
 		}
 		messages, err := repo.fetchMessagesForTimelineItems(conversationID, parentID, rows)

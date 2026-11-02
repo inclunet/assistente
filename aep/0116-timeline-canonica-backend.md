@@ -1,6 +1,6 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, mensagens, áudio, limpeza, exclusão e importação integrados; retenção por idade, órfãos, navegação, leitura leve e orçamento de fontes da janela com recuperação validada integrados; margem de desempenho, participação automática, transporte e cutover pendentes
+## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, mensagens, áudio, limpeza, exclusão e importação integrados; retenção por idade, órfãos, navegação, leitura leve e orçamento de fontes da janela com recuperação atômica integrados; margem de desempenho, participação automática, transporte e cutover pendentes
 
 Data: 2026-10-30
 
@@ -67,13 +67,37 @@ JSON de hex ASCII, decodificado no lado direito de IN: evita expandir centenas
 de placeholders sem alterar bytes opacos (inclusive NUL e UTF-8 inválido).
 Regressões exercitam esses IDs e o EXPLAIN continua exigindo buscas indexadas.
 
-Validação local: 359 testes seguros de chat, 362 de banco e 99 de controllers
+A segunda rodada de review inclui a amplificação de identidades por cortes live:
+cada ferramenta pode criar um grupo e um corte de texto, contabilizados antes da
+clonagem. A regressão específica de offsets ACP fica reservada ao CI; a cota
+conservadora também tem teste local sem ACP.
+
+Na recuperação, a segunda passagem prepara contêineres provisórios de cache e
+journal, compartilhando valores imutáveis. Falha ou drift posterior restaura toda
+a publicação anterior; o teste compara cache, ordem, tamanhos, sequência e batches.
+As cotas de cache e replay continuam vigentes, sem reter todos os snapshots.
+A autorização por ID também cobre a seleção usada nas duas passagens.
+
+A seleção SQL única agora soma as identidades da página/âncora e mascara os campos
+antes do Scan quando excedem a cota. Parâmetros opacos recebem cota antes da
+expansão hexadecimal e deduplicação. A regressão inspeciona o resultado SQL cru,
+inclusive ID com NUL, e prova preservação da ordenação e contagem. Os testes de
+plano continuam exigindo consultas em lote e buscas indexadas; a captura distingue
+o preflight de payload da nova soma de identidades na seleção existente.
+
+Validação da primeira rodada: 359 testes seguros de chat, 362 de banco e 99 de controllers
 aprovados (820), build/vet/lint sem erros. A conta de escape é confrontada com
 encoding/json, incluindo UTF-8 inválido; a codificação de substituição é medida
 uma vez para acompanhar a versão ativa do encoder. Nenhum teste existente foi
 removido ou relaxado. Revisor independente review_aep: nove rodadas, sem pendências.
 
-Medição após as correções: Windows/amd64, três pares intercalados de 200
+Validação da segunda rodada: 364 testes seguros de chat, 363 de banco e 99 de
+controllers aprovados (826), build/vet/lint sem erros; o cenário específico ACP
+permanece para o CI. Revisor independente review_aep: rodada 10 sem achados
+bloqueantes. As execuções interrompidas por falta de espaço não foram contadas;
+foram repetidas depois de limpar apenas artefatos de build deste worktree.
+
+Medição anterior à segunda rodada de review (não representa as novas proteções): Windows/amd64, três pares intercalados de 200
 operações com GOMAXPROCS=2, fixture de 100 perguntas. Medianas de 5,625 ms e
 925.935 B/op na base versus 6,771 ms e 1.047.161 B/op neste recorte: +20,4% de
 tempo e +13,1% de alocações. O caso pequeno ainda não demonstra margem sob o

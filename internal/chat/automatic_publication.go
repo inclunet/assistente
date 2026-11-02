@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"assistente/internal/database"
 	"context"
 	"encoding/json"
 	"errors"
@@ -12,10 +13,10 @@ import (
 
 const canonicalCoalescing = 24 * time.Millisecond
 const canonicalReadTimeout = 3 * time.Second
-const canonicalSourceBytes = 8 * 1024 * 1024
+const canonicalSourceBytes = database.MaxTimelineSourceBytes
 
 var ErrTimelinePublication = errors.New("publicação de timeline exige recuperação")
-var ErrTimelineSourceLimit = errors.New("base da projeção excede o limite de memória")
+var ErrTimelineSourceLimit = database.ErrTimelineSourceLimit
 
 // A base é renovada apenas em transições persistidas. Tokens não fazem I/O.
 // O writer já concluiu: erro aqui suspende publicação, nunca desfaz seu resultado.
