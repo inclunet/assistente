@@ -247,7 +247,7 @@ func TestAutomaticPublicationReadFailurePreservesCommitAndRecoversNewerBuffers(t
 		t.Fatal("base antiga ainda utilizável após erro")
 	}
 	c.mu.Unlock()
-	if batches, ok, err := subscription.Replay(f.ctx, snapshot.Epoch, 0, f.reader); !errors.Is(err, ErrTimelinePublication) || ok || len(batches) != 0 {
+	if batches, ok, err := subscription.Replay(f.ctx, snapshot.Epoch, snapshot.WindowRevision, 0, f.reader); !errors.Is(err, ErrTimelinePublication) || ok || len(batches) != 0 {
 		t.Fatalf("replay serviu base inválida: %v %v %v", batches, ok, err)
 	}
 	s.Append(" depois")

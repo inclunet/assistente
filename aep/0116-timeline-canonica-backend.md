@@ -1,8 +1,62 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, mensagens, áudio, limpeza, exclusão e importação integrados; retenção por idade e órfãos integrados; janelas, transporte e cutover pendentes
+## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, mensagens, áudio, limpeza, exclusão e importação integrados; retenção por idade, órfãos e navegação de janelas integrados; participação automática, transporte e cutover pendentes
 
 Data: 2026-10-30
+
+### Recorte: navegação da janela inscrita (2026-11-02)
+
+`TimelineSubscription.Navigate` muda a fatia da inscrição na mesma barreira usada
+pelos writers e pela recuperação. Preserva `windowId`, sessão, conversa e escopo;
+o pedido só informa posição/direção/limite e a época/revisão esperadas. Consulta,
+composição, publicação e troca dos IDs inscritos acontecem antes de liberar a
+barreira. A leitura utiliza o leitor canônico existente e seu limite de 240 itens;
+não existe algoritmo de paginação paralelo. Esse limite não é uma cota de bytes:
+o orçamento agregado de payload da janela permanece pendente. As cotas de fonte,
+cache e replay da publicação não limitam a materialização completa deste snapshot.
+
+Snapshots internos passam a informar `windowRevision`, uma string decimal
+independente da sequência de conteúdo. Cada snapshot aceito avança essa revisão,
+inclusive Refresh. Entre pedidos concorrentes baseados na mesma revisão,
+somente um navega; o outro recebe `ErrTimelineWindowStale`. Cursor inválido,
+âncora removida, sessão revogada e leitura malsucedida preservam a consulta e os
+IDs anteriores. Import/recriação detectado durante a leitura recusa época antiga
+antes de trocar a inscrição. Recuperação explícita continua em Refresh.
+
+Após a review remota do #997, Refresh aceita uma posição explícita de recuperação,
+compartilhando `TimelineWindowPosition` e a montagem da consulta com Navigate.
+Posição nula repete a última consulta; posição explícita permite abandonar um
+cursor cuja âncora foi excluída, inclusive após mudança de época, sem recriar a
+inscrição nem trocar seu escopo. Não há fallback silencioso. Replay também exige
+a revisão da janela: pedido antigo que espera atrás de uma navegação não recebe
+operações filtradas pela página nova. As assinaturas internas foram atualizadas
+nos consumidores de teste, preservando todas as asserções anteriores.
+
+A segunda rodada remota identificou mais duas intercalações: autorização anterior
+à espera pela barreira e recuperação sem revisão concorrente. Os três métodos do
+capability agora compartilham autorização após adquirir a barreira; Subscribe
+também reconfirma a sessão após esperar. O autorizador confiável não reentra no
+projetor. Refresh exige revisão da janela, independente da época: ainda recupera
+import/recriação, mas não sobrescreve navegação ou recuperação mais recente.
+Regressões sincronizam revogação após a reserva efetiva da chamada e recuperação
+atrás de Navigate/Refresh. Nenhuma consulta de conteúdo ocorre na recusa.
+
+`timeline_navigation_test.go` cobre paginação real por cursor, duas superfícies,
+preservação da consulta em Refresh, revisão obsoleta, pedidos concorrentes,
+falha sem mudança de participação, fechamento/revogação, escopo de thread,
+âncora excluída e troca de época durante leitura. Duas regressões adicionais
+cobrem cursor previamente aceito que se torna obsoleto (com/sem nova época) e
+replay concorrente bloqueado atrás de navegação, sem sleeps de sincronização.
+
+Validação local final: 348 testes seguros de chat, 99 de controllers e a regressão de áudio/timeline aprovados; build/vet e lint incremental
+sem erros. Revisão independente review_aep: cinco rodadas, sem pendências finais após corrigir quatro apontamentos remotos e precisar o escopo de memória. Race local indisponível
+por ausência de CGO/compilador C; validação com detector de corrida fica no CI.
+
+Este contrato ainda é interno: não adiciona binding/evento nem altera a UI.
+Orçamento agregado de payload da janela, participação automática com splices,
+followTail, retenção por foco, transporte e
+cutover permanecem pendentes. A fixture completa de crescimento simultâneo de
+duas janelas continua aberta. Nenhum teste ACP local ou NVDA neste recorte.
 
 ### Recorte: limpeza coordenada de órfãos (2026-11-02)
 

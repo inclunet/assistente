@@ -98,7 +98,7 @@ func TestMaintenanceRetentionCoordinatesParentsAndChildrenAtomically(t *testing.
 			if calls != map[bool]int{false: 0, true: 1}[rollback] || canonicalText(item) != "resposta antiga" {
 				t.Fatal("projeção não reconciliada", item)
 			}
-			after, err := first.Refresh(f.ctx)
+			after, err := first.Refresh(f.ctx, "1", nil)
 			if err != nil || after.WindowID != before.WindowID {
 				t.Fatal(after, err)
 			}

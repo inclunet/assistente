@@ -252,7 +252,7 @@ func TestStoragePublicationLegacySelfLinkedQuestionIsNotResponseSource(t *testin
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := sub.Refresh(f.ctx); err != nil {
+	if _, err := sub.Refresh(f.ctx, "1", nil); err != nil {
 		t.Fatal("pergunta fora da janela bloqueou Refresh", err)
 	}
 }
@@ -284,7 +284,7 @@ func TestStoragePublicationQuestionBudgetExcludesUnselectedLargeResponse(t *test
 		t.Fatal(err)
 	}
 	r.fail.Store(false)
-	if _, err := sub.Refresh(f.ctx); err != nil {
+	if _, err := sub.Refresh(f.ctx, "1", nil); err != nil {
 		t.Fatal("recuperação de pergunta bloqueada pela resposta fora da janela", err)
 	}
 }
@@ -358,10 +358,10 @@ func TestStoragePublicationOversizedTurnStillAllowsAuthorizedExplicitRecovery(t 
 	if !unchanged {
 		t.Fatal("recuperação acima da cota publicou ou liberou journal")
 	}
-	if _, ok, err := sub.Replay(f.ctx, before.Epoch, 0, f.reader); ok || !errors.Is(err, ErrTimelinePublication) {
+	if _, ok, err := sub.Replay(f.ctx, before.Epoch, before.WindowRevision, 0, f.reader); ok || !errors.Is(err, ErrTimelinePublication) {
 		t.Fatal("replay liberado", err)
 	}
-	if _, err := sub.Refresh(f.ctx); !errors.Is(err, ErrTimelineSourceLimit) {
+	if _, err := sub.Refresh(f.ctx, "1", nil); !errors.Is(err, ErrTimelineSourceLimit) {
 		t.Fatal("snapshot automático ignorou cota", err)
 	}
 	denied := errors.New("acesso revogado")
@@ -371,7 +371,7 @@ func TestStoragePublicationOversizedTurnStillAllowsAuthorizedExplicitRecovery(t 
 	if err := repo.WritePartial(f.ctx, e.executionID, id, "curto", "", false); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := sub.Refresh(f.ctx); err != nil {
+	if _, err := sub.Refresh(f.ctx, "1", nil); err != nil {
 		t.Fatal("publicação não recuperou após redução", err)
 	}
 }
@@ -537,11 +537,11 @@ func TestStoragePublicationRecoveryRequiresRefreshForEachWindow(t *testing.T) {
 		t.Fatal(err)
 	}
 	e.StartStream(0).Append("durante falha")
-	if batches, ok, err := a.Replay(f.ctx, before.Epoch, 0, f.reader); !errors.Is(err, ErrTimelinePublication) || ok || len(batches) != 0 {
+	if batches, ok, err := a.Replay(f.ctx, before.Epoch, before.WindowRevision, 0, f.reader); !errors.Is(err, ErrTimelinePublication) || ok || len(batches) != 0 {
 		t.Fatal("replay não bloqueado", err)
 	}
 	r.fail.Store(false)
-	after, err := a.Refresh(f.ctx)
+	after, err := a.Refresh(f.ctx, "1", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -552,10 +552,10 @@ func TestStoragePublicationRecoveryRequiresRefreshForEachWindow(t *testing.T) {
 	if canonicalText(item) != "durante falha" {
 		t.Fatal("recuperação perdeu buffers")
 	}
-	if _, ok, err := b.Replay(f.ctx, after.Epoch, 0, f.reader); err != nil || ok {
+	if _, ok, err := b.Replay(f.ctx, after.Epoch, before.WindowRevision, 0, f.reader); err != nil || ok {
 		t.Fatal("janela antiga aceitou época nova", err)
 	}
-	if _, err := b.Refresh(f.ctx); err != nil {
+	if _, err := b.Refresh(f.ctx, "1", nil); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -614,11 +614,11 @@ func TestStoragePublicationRecoveryParcelsIndependentLargeWindows(t *testing.T) 
 		t.Fatal(err)
 	}
 	r.fail.Store(false)
-	first, err := a.Refresh(f.ctx)
+	first, err := a.Refresh(f.ctx, "1", nil)
 	if err != nil {
 		t.Fatal("janelas válidas excederam cota agregada", err)
 	}
-	second, err := b.Refresh(f.ctx)
+	second, err := b.Refresh(f.ctx, "1", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -654,13 +654,13 @@ func TestStoragePublicationRecoveryRejectsVersionDriftBetweenParcels(t *testing.
 			t.Fatal(err)
 		}
 	}
-	if _, err := a.Refresh(f.ctx); !errors.Is(err, ErrProjectionRecoveryRequired) {
+	if _, err := a.Refresh(f.ctx, "1", nil); !errors.Is(err, ErrProjectionRecoveryRequired) {
 		t.Fatal("mistura de versões aceita", err)
 	}
-	if _, ok, err := a.Replay(f.ctx, before.Epoch, 0, f.reader); ok || !errors.Is(err, ErrTimelinePublication) {
+	if _, ok, err := a.Replay(f.ctx, before.Epoch, before.WindowRevision, 0, f.reader); ok || !errors.Is(err, ErrTimelinePublication) {
 		t.Fatal("replay liberado após recuperação parcial", err)
 	}
-	after, err := a.Refresh(f.ctx)
+	after, err := a.Refresh(f.ctx, "1", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

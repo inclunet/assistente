@@ -53,7 +53,7 @@ func TestDiscardRetainedReconcilesPublishedVolatileItem(t *testing.T) {
 				}
 				next.StartStream(0).Append("execução atual")
 			}
-			sub, _, err := p.SubscribeTimeline(f.ctx, &fixtureTimelineSession{ctx: f.ctx, id: "discard"}, "history", database.MessageWindowQuery{ConversationID: f.conversation, Anchor: "end", Direction: "before", Limit: 20}, f.reader)
+			sub, snapshot, err := p.SubscribeTimeline(f.ctx, &fixtureTimelineSession{ctx: f.ctx, id: "discard"}, "history", database.MessageWindowQuery{ConversationID: f.conversation, Anchor: "end", Direction: "before", Limit: 20}, f.reader)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -101,7 +101,7 @@ func TestDiscardRetainedReconcilesPublishedVolatileItem(t *testing.T) {
 				if !exists || canonicalText(item) != "persistido" || item.Durability != "persisted" || !ok || len(batches) == 0 {
 					t.Fatal("descarte não corrigiu item/replay", item, ok)
 				}
-				if replay, ok, err := sub.Replay(f.ctx, epoch, before, f.reader); err != nil || !ok || len(replay) == 0 {
+				if replay, ok, err := sub.Replay(f.ctx, epoch, snapshot.WindowRevision, before, f.reader); err != nil || !ok || len(replay) == 0 {
 					t.Fatal("assinante não recebeu correção", err)
 				}
 			case "absent":
@@ -122,7 +122,7 @@ func TestDiscardRetainedReconcilesPublishedVolatileItem(t *testing.T) {
 				if exists || newEpoch == epoch || ok {
 					t.Fatal("journal bloqueado reteve texto descartado")
 				}
-				if _, ok, err := sub.Replay(f.ctx, epoch, before, f.reader); ok || !errors.Is(err, ErrTimelinePublication) {
+				if _, ok, err := sub.Replay(f.ctx, epoch, snapshot.WindowRevision, before, f.reader); ok || !errors.Is(err, ErrTimelinePublication) {
 					t.Fatal("bloqueador não suspendeu replay", err)
 				}
 				_, err := p.ReadWindow(f.ctx, database.MessageWindowQuery{ConversationID: f.conversation}, windowRecoveryReader(func(context.Context, database.MessageWindowQuery) (*TimelineWindowSnapshot, error) {
@@ -132,7 +132,7 @@ func TestDiscardRetainedReconcilesPublishedVolatileItem(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				fresh, err := sub.Refresh(f.ctx)
+				fresh, err := sub.Refresh(f.ctx, "1", nil)
 				if err != nil {
 					t.Fatal(err)
 				}
