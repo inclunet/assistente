@@ -1,8 +1,41 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, mensagens, áudio, limpeza, exclusão e importação integrados; manutenção, janelas, transporte e cutover pendentes
+## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, mensagens, áudio, limpeza, exclusão e importação integrados; retenção por idade integrada; órfãos, janelas, transporte e cutover pendentes
 
 Data: 2026-10-30
+
+### Recorte: retenção de ferramentas por idade (2026-11-02)
+
+O repositório de ledger do bootstrap recebe a coordenação de manutenção do mesmo
+projetor. A retenção opcional por idade descobre somente identidades das conversas
+afetadas, incluindo filhos que serão desvinculados e origens legadas autorizadas.
+Sob manutenção → barreiras ordenadas do projetor → transação SQLite imediata,
+revalida esse conjunto antes de executar o delete atômico existente. Mudança de
+escopo aborta sem escrita e refaz a descoberta, com limite de oito tentativas.
+
+`ApplyStorageBatchMutation` reutiliza a reserva de lotes e a reconciliação do
+writer individual. A primeira inscrição espera o commit; buffers não são
+separados como na importação. Erros da escrita permanecem erros; falhas posteriores
+de leitura não incentivam repetir um delete confirmado. O writer de retenção
+reutiliza o helper de desvincular filhos, eliminando a cópia do mesmo SQL.
+
+Evidências: `maintenance_publication_test.go` integra serviço/repositório, SQLite
+e projetor, cobrindo commit, rollback de delete+detach, filhos em outra conversa,
+revalidação de escopo que mudou e primeira inscrição concorrente. Testes existentes
+de retenção por idade preservados. A primeira revisão identificou dois P2:
+vínculos legados por turn_id fora da descoberta e contexto ausente na consulta
+inicial. A descoberta agora usa a união dos vínculos da v43, mais origem pré-v18,
+com owner em todos os ramos e contexto nas consultas. Regressões reais cobrem
+conversation_id nulo/divergente e cancelamento aguardando conexão.
+Validação: 338 testes seguros de chat, 97 de toolinvocations, 382 de jobs e
+25 de App aprovados; build/vet/lint sem erros. Revisão independente review_aep:
+dois P2 corrigidos, rodada final sem pendências. Nenhum teste ACP local.
+Frontend inalterado, mantendo validação da base.
+
+Limpeza de órfãos, participação de janelas, transporte e cutover frontend seguem
+pendentes. Dry-runs operacionais não pertencem à timeline de chat. Este recorte
+mantém a política opcional e o escopo transacional por usuário já existentes;
+não declara limitação por quantidade de registros nem problemas de foco resolvidos.
 
 ### Recorte: importação coordenada de conversas (2026-11-02)
 

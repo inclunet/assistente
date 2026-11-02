@@ -53,11 +53,38 @@ func (p *LiveProjection) applyStorageMutation(ctx context.Context, conversationI
 			c.revision++
 		}
 	}
+	p.reconcileStorageMutationLocked(ctx, conversationID, c, ids, created)
+	return writeErr
+}
+
+// ApplyStorageBatchMutation reserva o conjunto antes do writer. O caller deve
+// revalidar, na transação, que nenhuma conversa fora desse conjunto será alterada.
+// Manutenção antecede esta barreira; o writer não reentra no projetor.
+func (p *LiveProjection) ApplyStorageBatchMutation(ctx context.Context, conversationIDs []string, write func() error) error {
+	userID, err := database.RequireUserID(ctx)
+	if err != nil {
+		return err
+	}
+	conversationIDs = uniquePublicationIDs(conversationIDs)
+	conversations, release := p.lockConversationBatch(userID, conversationIDs)
+	defer release()
+	items := make(map[string][]string, len(conversationIDs))
+	for _, id := range conversationIDs {
+		items[id] = conversations[id].materializedIDsLocked()
+	}
+	writeErr := write()
+	for _, id := range conversationIDs {
+		p.reconcileStorageMutationLocked(ctx, id, conversations[id], items[id], nil)
+	}
+	return writeErr
+}
+
+func (p *LiveProjection) reconcileStorageMutationLocked(ctx context.Context, conversationID string, c *projectionConversation, ids, created []string) {
 	if p.reader == nil {
-		return writeErr
+		return
 	}
 	if len(c.windows) == 0 && len(c.turns) == 0 && len(c.publication.items) == 0 {
-		return writeErr // nenhuma base anterior; a primeira inscrição lerá após o commit
+		return // nenhuma base anterior; a primeira inscrição lerá após o commit
 	}
 	ids = uniquePublicationIDs(append(append([]string(nil), ids...), created...))
 	if c.storagePublicationErr != nil {
@@ -66,7 +93,6 @@ func (p *LiveProjection) applyStorageMutation(ctx context.Context, conversationI
 	if err := p.reconcileStorageLocked(ctx, conversationID, c, ids); err != nil {
 		c.failStoragePublicationLocked(ids, err)
 	}
-	return writeErr
 }
 
 func uniquePublicationIDs(ids []string) []string {

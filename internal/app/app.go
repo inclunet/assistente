@@ -1085,7 +1085,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	// Inicializa o gerenciador de servidores MCP (após tool registry)
 	a.initMCP()
 
-	a.toolInvocationSvc = toolinvocations.NewServiceWithCoordinator(toolinvocations.NewDBRepository(database.DB()), a.toolExecutor, chat.NewLedgerMutationCoordinator(timelineProjection, database.DB()))
+	a.toolInvocationSvc = toolinvocations.NewServiceWithCoordinator(toolinvocations.NewDBRepositoryWithMaintenanceCoordinator(database.DB(), timelineProjection.ApplyStorageBatchMutation), a.toolExecutor, chat.NewLedgerMutationCoordinator(timelineProjection, database.DB()))
 
 	// Inicializa o gateway de mensageria (Telegram, etc.).
 	// Fail-closed (AEP-0083): sem DB não há fallback silencioso para filesystem.
