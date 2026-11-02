@@ -92,7 +92,7 @@ jobs:
 
   backend-tests:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -108,7 +108,9 @@ jobs:
         run: |
           Xvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 &
           export DISPLAY=:99.0
-          go test -covermode=atomic -coverprofile=coverage.out ./...
+          # O pacote app tem mais de 1.300 testes; o limite padrão de 10m
+          # encerra a suíte completa mesmo quando o teste atual ainda progride.
+          go test -timeout=15m -covermode=atomic -coverprofile=coverage.out ./...
 
       - name: Relatório de cobertura (informativo)
         run: |

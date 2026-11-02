@@ -164,6 +164,10 @@ preserva as mensagens e os registros recentes. Um registro recente que dependa
 de outro vencido é preservado e desvinculado; se a transação falhar, a exclusão
 e essa mudança de vínculo são revertidas juntas.
 
+A limpeza de ferramentas órfãs também preserva os registros filhos válidos.
+Na manutenção em lotes, muitos filhos podem exigir mais de uma passagem antes
+da remoção do registro órfão; o progresso só avança quando a passagem é confirmada.
+
 A limpeza do histórico de jobs trabalha em lotes e preserva execuções ainda
 necessárias para eventos pendentes ou ativações válidas de comandos. A seleção
 agrupa essas proteções por usuário para evitar buscas repetidas em históricos

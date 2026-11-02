@@ -414,10 +414,12 @@ func (r *DBRepository) CleanOldChat(ctx context.Context, maxAge time.Duration) (
 	target := func(tx *gorm.DB) *gorm.DB {
 		return database.ScopeByUser(ctx, tx.Model(&database.ToolInvocation{}), "user_id").Where("queued_at < ? AND origin_type = ?", cutoff, OriginChat)
 	}
-	err := r.mutateChatMaintenance(ctx, "clean_old_chat", target, func(tx *gorm.DB) error {
-		count, err := database.DeleteToolInvocationsWithChildrenDetachedTx(ctx, tx, target(tx))
-		deleted = int(count)
-		return err
+	err := r.retry(ctx, "clean_old_chat", func() error {
+		return r.mutateChatMaintenance(ctx, "clean_old_chat", 0, target, func(tx *gorm.DB) error {
+			count, err := database.DeleteToolInvocationsWithChildrenDetachedTx(ctx, tx, target(tx))
+			deleted = int(count)
+			return err
+		})
 	})
 	if err != nil {
 		return 0, err
@@ -446,40 +448,10 @@ func (r *DBRepository) CleanOrphanChatBatch(ctx context.Context, limit int) (int
 	return r.cleanOrphanChat(ctx, limit)
 }
 
-func (r *DBRepository) cleanOrphanChat(ctx context.Context, limit int) (int, bool, error) {
-	userID, err := database.RequireUserID(ctx)
-	if err != nil {
-		return 0, false, err
-	}
-	if !r.db.Migrator().HasTable(&database.ChatMessage{}) {
-		return 0, false, nil
-	}
-	// Vínculos canônicos usam conversation_id/turn_id. origin_id só permanece
-	// para linhas pré-v18 que ainda não receberam o backfill aditivo.
-	deleted := int64(0)
-	more := false
-	nextAfter := ""
-	err = database.WithSQLiteImmediateTransactionOnce(ctx, time.Time{}, r.db, "toolinvocations.clean_orphan_chat", func(tx *gorm.DB) error {
-		var examined []string
-		if limit > 0 {
-			page := database.ScopeByUser(ctx, tx.Model(&database.ToolInvocation{}), "user_id").
-				Where("origin_type = ? AND id > ?", OriginChat, r.orphanScanAfter[userID]).
-				Order("id").Limit(limit + 1)
-			if err := page.Pluck("id", &examined).Error; err != nil {
-				return err
-			}
-			more = len(examined) > limit
-			if more {
-				examined = examined[:limit]
-				nextAfter = examined[len(examined)-1]
-			}
-			if len(examined) == 0 {
-				return nil
-			}
-		}
-		target := database.ScopeByUser(ctx, tx.Model(&database.ToolInvocation{}), "user_id").
-			Where("origin_type = ?", OriginChat).
-			Where(`(
+func orphanChatTarget(ctx context.Context, tx *gorm.DB) *gorm.DB {
+	return database.ScopeByUser(ctx, tx.Model(&database.ToolInvocation{}), "user_id").
+		Where("origin_type = ?", OriginChat).
+		Where(`(
 				tool_invocations.conversation_id IS NOT NULL
 				AND (
 					NOT EXISTS (
@@ -503,15 +475,61 @@ func (r *DBRepository) cleanOrphanChat(ctx context.Context, limit int) (int, boo
 					WHERE chat_messages.id = tool_invocations.origin_id
 				)
 			)`)
+}
+
+func (r *DBRepository) cleanOrphanChat(ctx context.Context, limit int) (int, bool, error) {
+	userID, err := database.RequireUserID(ctx)
+	if err != nil {
+		return 0, false, err
+	}
+	if !r.db.WithContext(ctx).Migrator().HasTable(&database.ChatMessage{}) {
+		if err := ctx.Err(); err != nil {
+			return 0, false, err
+		}
+		return 0, false, nil
+	}
+	// Vínculos canônicos usam conversation_id/turn_id. origin_id só permanece
+	// para linhas pré-v18 que ainda não receberam o backfill aditivo.
+	deleted := int64(0)
+	more := false
+	nextAfter := ""
+	target := func(tx *gorm.DB) *gorm.DB {
+		query := orphanChatTarget(ctx, tx)
+		if limit > 0 {
+			page := database.ScopeByUser(ctx, tx.Model(&database.ToolInvocation{}), "user_id").
+				Select("id").Where("origin_type = ? AND id > ?", OriginChat, r.orphanScanAfter[userID]).Order("id").Limit(limit)
+			query = query.Where("tool_invocations.id IN (?)", page)
+		}
+		return query
+	}
+	err = r.mutateChatMaintenance(ctx, "clean_orphan_chat", limit, target, func(tx *gorm.DB) error {
+		var examined []string
+		if limit > 0 {
+			page := database.ScopeByUser(ctx, tx.Model(&database.ToolInvocation{}), "user_id").
+				Where("origin_type = ? AND id > ?", OriginChat, r.orphanScanAfter[userID]).
+				Order("id").Limit(limit + 1)
+			if err := page.Pluck("id", &examined).Error; err != nil {
+				return err
+			}
+			more = len(examined) > limit
+			if more {
+				examined = examined[:limit]
+				nextAfter = examined[len(examined)-1]
+			}
+			if len(examined) == 0 {
+				return nil
+			}
+		}
+		targetQuery := target(tx)
 		var err error
 		if limit == 0 {
-			deleted, err = database.DeleteToolInvocationsWithChildrenDetachedTx(ctx, tx, target.Session(&gorm.Session{}))
+			deleted, err = database.DeleteToolInvocationsWithChildrenDetachedTx(ctx, tx, targetQuery.Session(&gorm.Session{}))
 			return err
 		}
 
 		var ids []string
 		// O predicado de orfandade só examina os IDs desta página.
-		candidates := target.Session(&gorm.Session{}).
+		candidates := targetQuery.Session(&gorm.Session{}).
 			Where("tool_invocations.id IN ?", examined)
 		if err := candidates.Pluck("tool_invocations.id", &ids).Error; err != nil {
 			return err
@@ -522,7 +540,7 @@ func (r *DBRepository) cleanOrphanChat(ctx context.Context, limit int) (int, boo
 		var childIDs []string
 		children := database.ScopeByUser(ctx, tx.Model(&database.ToolInvocation{}), "user_id").
 			Where("parent_invocation_id IN ?", ids).
-			Limit(limit + 1)
+			Order("parent_invocation_id, rowid").Limit(limit + 1)
 		if err := children.Pluck("tool_invocations.id", &childIDs).Error; err != nil {
 			return err
 		}
