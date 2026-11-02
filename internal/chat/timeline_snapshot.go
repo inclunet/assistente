@@ -3,7 +3,6 @@ package chat
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 
 	"assistente/internal/database"
@@ -108,17 +107,8 @@ func (r *DBTimelineReader) readWindow(ctx context.Context, query database.Messag
 		if canonical {
 			repo = repo.WithTimelineTurns()
 		}
-		if query.ParentID != nil {
-			parent, err := repo.GetMessageScopeWithContext(ctx, *query.ParentID)
-			if err != nil {
-				return fmt.Errorf("threadParentId inválido: %w", err)
-			}
-			if parent.ConversationID != query.ConversationID {
-				return fmt.Errorf("threadParentId não pertence à conversa solicitada")
-			}
-			if parent.HasParent {
-				return fmt.Errorf("threadParentId deve apontar para uma mensagem raiz")
-			}
+		if err := validateTimelineParent(ctx, repo, query); err != nil {
+			return err
 		}
 		if canonical {
 			rows, err = repo.ReadMessageWindowWithContext(ctx, query, func(items []database.MessageWindowItem) error {

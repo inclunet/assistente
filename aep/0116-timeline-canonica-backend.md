@@ -1,8 +1,39 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, mensagens, áudio, limpeza, exclusão e importação integrados; retenção por idade, órfãos, navegação, leitura leve e orçamento de fontes da janela com recuperação atômica e parcelada integrados; margem de desempenho, participação automática, transporte e cutover pendentes
+## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, mensagens, áudio, limpeza, exclusão e importação integrados; retenção por idade, órfãos, navegação, leitura leve e orçamento de fontes da janela com recuperação atômica e parcelada e seleção leve de participação integrados; margem de desempenho, participação automática, transporte e cutover pendentes
 
 Data: 2026-10-30
+
+### Recorte: seleção leve para participação de janelas (2026-11-02)
+
+A seleção de identidades/metadados foi extraída da materialização de conteúdo.
+SelectTimelineWindowWithContext reutiliza exatamente a paginação canônica,
+autorização, validação de cursores e cota SQL de identidades do leitor existente.
+ReadMessageWindowWithContext conserva o guard antes do fetch; o caminho legado
+continua com sua seleção e materialização originais. Não há algoritmo paralelo
+de ordenação/paginação nem consultas por token.
+
+ReadWindowMembership captura versão e seleção na mesma transação SQLite,
+sem consultar conteúdo de mensagens ou resumos do ledger. O resultado interno
+traz identidades ordenadas, índices, contagem e flags da página; Messages fica
+vazio. A validação de pai é compartilhada com a leitura de conteúdo e conserva
+ownership, conversa e exigência de raiz.
+
+Regressões em timeline_membership_test.go comparam começo/cauda/around/cursor,
+thread e página sem itens com a leitura canônica completa. Conteúdo/áudio/ledger
+acima da cota não impede a seleção leve; identidades excessivas continuam
+recusadas antes de materializar. Um commit por outra conexão depois da leitura
+de versão prova que índices e IDs pertencem ao mesmo snapshot. Revogação de
+owner, cancelamento, pai não raiz e âncora excluída falham explicitamente.
+
+Este recorte prepara a atualização de participação, ainda não publica splices,
+não acompanha a cauda automaticamente e não muda o frontend. Integração com
+writers, retenção por foco, protocolo de transporte e cutover continuam pendentes.
+Não há mudança visível nem teste ACP local.
+
+Validação local: 370 testes seguros de chat, 363 de banco e 99 de controllers
+aprovados (832); build/vet/lint incremental sem erros. Revisão independente
+review_aep: uma rodada, sem pendências.
 
 ### Recorte: orçamento agregado das fontes da janela (2026-11-02)
 
