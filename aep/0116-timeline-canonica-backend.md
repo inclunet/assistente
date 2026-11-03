@@ -1,9 +1,43 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, mensagens, áudio, limpeza, exclusão e importação integrados; retenção por idade, órfãos, navegação, leitura leve e orçamento de fontes da janela com recuperação atômica e parcelada e participação histórica automática com publicação e replay atômicos integrados; followTail, retenção por foco/leitura, DTOs compartilhados, RPCs de inscrição, entrega pelo journal e transporte de eventos Wails integrados; núcleo transacional e coordenador de snapshots/eventos/cache frontend preparados; margem de desempenho e cutover pendentes
+## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, mensagens, áudio, limpeza, exclusão e importação integrados; retenção por idade, órfãos, navegação, leitura leve e orçamento de fontes da janela com recuperação atômica e parcelada e participação histórica automática com publicação e replay atômicos integrados; followTail, retenção por foco/leitura, DTOs compartilhados, RPCs de inscrição, entrega pelo journal e transporte de eventos Wails integrados; núcleo transacional, coordenador e cliente Wails por sessão frontend preparados; margem de desempenho e cutover pendentes
 
 Data: 2026-10-30
 
+### Recorte: cliente Wails da timeline por sessão (2026-11-03)
+
+`chatTimelineClient.ts` conecta o coordenador a um listener único, registrado
+antes de Open, e às capabilities de cada superfície. O orçamento de cache é
+compartilhado por sessão. Navigate e SetRetention usam a revisão aplicada pelo
+coordenador; consultas simultâneas na mesma superfície são recusadas como busy.
+Não há consulta por delta nem reconstrução semântica adicional no cliente.
+
+Refresh recupera a conversa em um coordenador candidato, com tokens de todas as
+superfícies registrados antes das consultas. Só promove o candidato após aceitar
+todos os snapshots ainda necessários e seus buffers. Falha parcial conserva o
+visual anterior congelado e guarda a base efetivamente retornada para cada
+capability. A tentativa seguinte usa essas bases; nova época só entra por Refresh.
+Uma posição explícita por superfície permite recuperar âncora histórica perdida,
+sem fallback automático. Operações pendentes impedem iniciar a recuperação.
+
+Close remove a superfície imediatamente e chama o backend antes de aguardar
+consultas pendentes, permitindo cancelá-las. Um Open tardio é fechado mesmo após
+dispose. Falhas de fechamento são reportadas sem reativar o conteúdo local.
+`chatTimelineWails.ts` normaliza os DTOs RPC nullable e oferece um cliente lazy por
+userId/sessionId; mudança de identidade ou estado desautenticado descarta o cliente.
+Importar o módulo não inicia listeners nem inscrições de timeline.
+
+Evidências: `chatTimelineClient.test.ts` cobre evento anterior à Promise, bases
+após recuperação parcial, cancelamento, época mista, retenção após patch, lacuna
+no buffer, âncora perdida e cota de capabilities aposentadas.
+`chatTimelineWails.test.ts` cobre normalização e troca de sessão com Open tardio.
+
+Este recorte ainda não ativa consumidores de UI. Faltam conexão das superfícies
+e retenções de foco/leitura/edição, cutover e remoção do fluxo legado, anexos e
+medições finais. Replay RPC não é usado neste cliente: recuperação explícita usa
+Refresh; a reaplicação local do buffer já pertence ao coordenador. A otimização
+por Replay permanece não entregue. Não se afirma corrigida a perda visual de
+foco antes do cutover.
 ### Recorte: coordenador frontend de snapshots, eventos e cache (2026-11-03)
 
 `timelineConversationState.ts` mantém um índice de itens por conversa/época e
