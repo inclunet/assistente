@@ -6,7 +6,6 @@ import (
 	"sort"
 
 	"assistente/internal/database"
-	"github.com/google/uuid"
 )
 
 // TurnRecovery separa autoridades. Persisted é uma leitura transacional atual;
@@ -73,7 +72,7 @@ func (p *LiveProjection) ReadRecovery(ctx context.Context, conversationID, turnI
 		}
 	}
 	if result.RecoveryRequired && c.lastRecoveryVersion != persisted.Version {
-		c.epoch = uuid.NewString()
+		c.invalidateTimelineEpochLocked()
 		c.lastRecoveryVersion = persisted.Version
 		c.revision++
 		result.Epoch = c.epoch
@@ -152,7 +151,7 @@ func (p *LiveProjection) DiscardRetained(ctx context.Context, conversationID, tu
 		// Outro bloqueador impede um patch confiável: invalidar o journal inteiro
 		// exige snapshot e impede reaparecerem operações do texto descartado.
 		if c.publicationErrorLocked() != nil {
-			c.epoch = uuid.NewString()
+			c.invalidateTimelineEpochLocked()
 			c.publishCanonical(conversationID, nil)
 		} else if persisted.Response != nil {
 			c.publishCanonical(conversationID, []*TimelineItem{persisted.Response})
@@ -283,7 +282,7 @@ func (e *ExecutionProjection) AssignResponse(write func() (string, error)) (stri
 
 func reconcileProjectionVersion(c *projectionConversation, version database.ChatTimelineVersion) {
 	if c.incarnation != version.Incarnation {
-		c.epoch = uuid.NewString()
+		c.invalidateTimelineEpochLocked()
 		c.incarnation = version.Incarnation
 		c.revision++
 		// Troca de encarnação invalida todos os vínculos antigos, mesmo fora da

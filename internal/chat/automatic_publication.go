@@ -7,8 +7,6 @@ import (
 	"errors"
 	"sort"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 const canonicalCoalescing = 24 * time.Millisecond
@@ -69,7 +67,7 @@ func (e *ExecutionProjection) refreshPublicationLocked() {
 
 func (c *projectionConversation) failPublicationLocked(t *liveTurn, err error) {
 	if c.publicationErrorLocked() == nil {
-		c.epoch = uuid.NewString()
+		c.invalidateTimelineEpochLocked()
 	}
 	t.publicationBase, t.publicationBytes = nil, 0
 	t.publicationErr = err

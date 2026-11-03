@@ -199,6 +199,7 @@ func (c *projectionConversation) publishCanonicalWindowChanges(conversationID st
 	}
 	batch := CanonicalBatch{ConversationID: conversationID, Epoch: c.epoch, Sequence: revision, Operations: operations, WindowPatches: c.routeWindowOperations(operations, patches)}
 	p.recordBatch(batch)
+	c.signalDeliveriesLocked()
 }
 
 func (p *canonicalPublication) recordBatch(batch CanonicalBatch) {
