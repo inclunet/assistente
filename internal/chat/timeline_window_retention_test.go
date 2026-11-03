@@ -22,6 +22,35 @@ func retainWindow(t *testing.T, f snapshotFixture, sub *TimelineSubscription, id
 	}
 }
 
+func TestWindowRetentionReusesHistoricalMembershipOnlyAtSameVersion(t *testing.T) {
+	f, _ := membershipFixture(t)
+	probe := &membershipProbe{DBTimelineReader: f.reader}
+	p := NewLiveProjection(probe)
+	sub, initial, err := p.SubscribeTimeline(f.ctx, requestTimelineSession{}, "history", database.MessageWindowQuery{ConversationID: f.conversation, Anchor: "end", Direction: "before", Limit: 10}, probe)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sub.Close()
+	retainWindow(t, f, sub, "message:first")
+	if probe.calls != 0 {
+		t.Fatal("mesma versão releu fronteiras históricas", probe.calls)
+	}
+	batches := membershipReplay(t, f, sub, initial)
+	if len(batches) != 1 || len(batches[0].WindowPatches) != 1 {
+		t.Fatal("retenção sem confirmação única", batches)
+	}
+	patch := batches[0].WindowPatches[0]
+	if len(patch.Splices) != 0 || patch.Metadata == nil || !reflect.DeepEqual(patch.Metadata.RetainedItemIDs, []string{"message:first"}) || patch.Revision == initial.WindowRevision {
+		t.Fatal("retenção alterou participação ou perdeu confirmação", patch)
+	}
+	// Escrita externa muda a versão: a liberação deve descobrir o item inserido.
+	historicalMessage(t, f, "middle", 15, nil)
+	retainWindow(t, f, sub)
+	if probe.calls == 0 || !reflect.DeepEqual(sub.conversation.windows[sub.windowID].orderedIDs, []string{"message:first", "message:middle", "message:last"}) {
+		t.Fatal("nova versão reutilizou participação obsoleta", probe.calls)
+	}
+}
+
 func TestWindowRetentionBlocksCutAndReleasesAtomically(t *testing.T) {
 	f, p := membershipFixture(t)
 	sub, initial := membershipSubscribe(t, f, p, "reading", 2)

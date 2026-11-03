@@ -45,6 +45,17 @@ func (p *LiveProjection) refreshWindowMembershipLocked(ctx context.Context, conv
 			delete(c.windows, id)
 			continue
 		}
+		// Retenção não muda a participação histórica. A mesma versão comprova
+		// IDs, fronteiras e contagem; lifecycle já foi verificado acima.
+		if w.version == version && w.mode == TimelineWindowHistorical {
+			previous := strconv.FormatUint(w.revision, 10)
+			w.revision++
+			w.metadata.RetainedItemIDs = append([]string{}, (*w.pendingRetention)...)
+			w.pendingRetention = nil
+			metadata := w.metadata
+			patches = append(patches, CanonicalWindowPatch{WindowID: id, PreviousRevision: previous, Revision: strconv.FormatUint(w.revision, 10), Metadata: &metadata})
+			continue
+		}
 		deadline, ok := ctx.Deadline()
 		if !ok {
 			deadline = time.Now().Add(canonicalReadTimeout)

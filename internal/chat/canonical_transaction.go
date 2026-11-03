@@ -8,12 +8,14 @@ import (
 // Uma escrita persistida gera um único lote lógico, mesmo quando suas leituras
 // precisam de parcelas. O estágio possui a mesma cota do journal.
 type canonicalPublicationStage struct {
-	started    bool
-	overflow   bool
-	bytes      int
-	operations []CanonicalOperation
-	patches    []CanonicalWindowPatch
-	itemSizes  map[string]int
+	flushRequested bool
+	flushedTurns   []*liveTurn
+	started        bool
+	overflow       bool
+	bytes          int
+	operations     []CanonicalOperation
+	patches        []CanonicalWindowPatch
+	itemSizes      map[string]int
 }
 
 func (s *canonicalPublicationStage) append(operations []CanonicalOperation, patches []CanonicalWindowPatch) {
@@ -73,6 +75,10 @@ func (c *projectionConversation) beginCanonicalPublication() func(string, bool) 
 		if !commit {
 			c.publication, c.windows = published, windows
 			return
+		}
+		if stage.flushRequested {
+			c.stopPublicationTimerLocked()
+			consumePublishedTurns(stage.flushedTurns)
 		}
 		if !stage.started {
 			return

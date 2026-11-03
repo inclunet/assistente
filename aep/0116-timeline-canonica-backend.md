@@ -6,55 +6,71 @@ Data: 2026-10-30
 
 ### Recorte: retenção por foco/leitura na inscrição (2026-11-03)
 
-SetRetention substitui os IDs retidos da janela com época/revisão vigentes e
-somente IDs visíveis. Não altera pinned persistido. Referências e retentionBlocked
-pertencem aos metadados da inscrição e chegam no mesmo lote atômico de conteúdo
-e splices, sem lista visual paralela. Falha de liberação reverte participação,
-referências e journal.
+SetRetention substitui os IDs retidos com época/revisão vigentes e somente IDs
+visíveis. Não altera pinned persistido. Referências e retentionBlocked pertencem
+à inscrição e chegam no mesmo lote de conteúdo e splices. Falha reverte janela,
+referências, cache e journal. O flush provisório não consome timer, dirty nem
+base de turno finalizado: o commit faz esse consumo; rollback conserva o
+callback original e o delta pendente, sem mecanismo paralelo de restauração.
 
 FollowTail preserva fronteiras históricas quando a cauda expulsaria um retido
-sobrevivente e informa retentionBlocked. Exclusão/saída do escopo vence retenção;
-ausência na cauda não comprova exclusão. Refresh usa a mesma seleção da atualização automática e pode recuperar a cauda
-quando ela contém todos os sobreviventes, na mesma versão. Fronteira perdida, intervalo excedente ou item
-retido movido para fora dele exige sincronização local, sem cortar o visual.
+sobrevivente. Exclusão/saída do escopo vence retenção; ausência na cauda não prova
+exclusão. Refresh e atualização automática compartilham a seleção e recuperam a
+cauda quando ela contém todos os sobreviventes na mesma versão. Fronteira perdida,
+intervalo excedente ou retido fora dele exige sincronização local, sem corte.
 
-Navigate e Refresh com posição explícita exigem liberação prévia, exceto quando
-uma nova encarnação comprovada permite substituir cursor perdido. A prova é
-validada antes de efeitos. Falha auxiliar que troca época na mesma encarnação
-conserva referências; liberação em base invalidada só as retira e mantém
-SyncRequired até snapshot. Nova encarnação não herda referências; Close libera
-as da inscrição. Snapshots copiam os IDs.
+Na janela historical, uma troca de retenção na mesma versão reutiliza IDs,
+fronteiras e contagem já comprovados. Não reclassifica a conversa para confirmar
+metadados. Autorização, lifecycle e seleção versionada do conteúdo continuam no
+percurso comum; mudança de versão exige nova seleção histórica.
 
-Refresh/Navigate guardam provas de validade da janela anterior, na mesma versão,
-antes dos efeitos e separadas dos registros completos do snapshot. A atualização comum de participação comprova
-os turnos de todas as janelas antes de qualquer corte, tanto para storage quanto
-para publicação de lifecycle. Pergunta isolada também prova execução/ausência.
-Retry ou exclusão externa desvincula o stream antigo; execução ainda ativa
-continua válida fora da página. Não há leitura específica duplicada em SetRetention.
+Navigate e Refresh com posição explícita exigem liberação, salvo nova encarnação
+comprovada antes de efeitos. Falha auxiliar na mesma encarnação conserva retenção;
+liberação em base invalidada só retira referências e mantém SyncRequired até
+snapshot. Nova encarnação não herda referências; Close libera as da inscrição.
+Snapshots copiam os IDs.
 
-ReadTurnLifecycles seleciona somente user_message_id, active_execution_id e
-current_execution_id na mesma transação autorizada da versão, sem referências
-de resposta, mensagens ou ledger. A cota SQL considera apenas os campos lidos.
-O wrapper acumula somente decisões booleanas, sem reter registros entre parcelas
-nem substituir os registros completos do snapshot. Conteúdo e lifecycle reutilizam
-visitVersionedSelections, com subdivisão por quantidade/bytes e mesma versão em
-cada parcela; um registro individual excessivo continua recusado. Não há cota
-global indevida somando janelas válidas nem SQL por token. O visitante respeita cancelamento e prazo do contexto recebido, com verificação antes e depois da leitura; só a reconciliação de uma escrita confirmada escolhe contexto independente e limitado. Refresh/Navigate cancelados antes da aplicação da prova não alteram janela, journal ou lifecycle; SetRetention preserva cancelamento/prazo em todo o percurso e reverte o estágio antes do commit, mantendo o item em leitura; prazo menor é preservado, e escrita confirmada permanece no replay após cancelamento do pedido. Treze regressões focadas e repetição integral de 424 testes seguros de chat aprovadas, incluindo liberação cancelada sem corte e publicação de commit após cancelamento. A retenção cobre cancelamento após ReadVersion, durante seleção e propagação de prazo menor, preservando janela e journal. A escolha de WithoutCancel fica na fronteira após o writer, não nos visitantes compartilhados.
+Refresh/Navigate guardam decisões de validade da janela anterior, na mesma versão,
+antes dos efeitos e separadas dos registros completos do snapshot. A atualização
+comum comprova os turnos de todas as janelas antes de qualquer corte, em storage
+e lifecycle. Pergunta isolada também prova execução/ausência. Retry/exclusão
+externa desvincula o stream antigo; execução ativa continua válida fora da página.
+Não existe leitura específica duplicada em SetRetention.
 
-Evidências em timeline_window_retention_test.go: duas superfícies, liberação
-parcial/total, replay, exclusão, fronteira perdida, item movido, rollback, pedidos
-obsoletos, nova encarnação, pergunta isolada, retry/exclusão externos, execução
-válida fora da página, corte entre superfícies por ambos os produtores, 80 turnos,
-três referências de execução válidas de 3 MiB, campo necessário excessivo,
-referência de resposta excessiva ignorada apenas na prova mínima e falha/drift
-na segunda parcela sem publicação parcial.
+ReadTurnLifecycles seleciona apenas user_message_id, active_execution_id e
+current_execution_id, na mesma transação autorizada da versão. Não lê referências
+de resposta, mensagens ou ledger. A cota SQL considera os campos lidos, antes da
+materialização. O wrapper acumula somente decisões booleanas por turno. Conteúdo
+e lifecycle usam visitVersionedSelections, com subdivisão por quantidade/bytes
+e mesma versão em cada parcela; registro individual excessivo continua recusado.
+Não há cota indevida somando janelas válidas nem SQL por token.
 
-Validação: 420 testes seguros de chat; 99 de controllers, 53 de handlers/turnos
-do agente e duas regressões de áudio nas rodadas pertinentes. Build/vet e lint
-incremental aprovados. Revisor independente review_aep: dezoito rodadas, sem
-pendências finais. Sem ACP local ou NVDA. Transporte e cutover frontend continuam
-pendentes; este recorte não declara resolução do foco na UI. O custo de leitura
-por transição integra o gate de desempenho final ainda pendente. A fixture de fontes agregadas compartilha somente a preparação entre os mesmos três cenários sequenciais; 21 testes focados passaram após esse ajuste. Medição local desse teste: 33,7 s/44 MB de log antes e 15,5 s/6 KB depois, sem reduzir dados ou asserções; não substitui o gate de desempenho do produto. A suíte completa expôs custo de classificação global na prova de fronteiras; getAnchorTimelineItem agora reutiliza a seleção pontual quando AnchorItemID é conhecido. Sem mudar fixture, timeout ou asserções, o perfil local de SetRetention caiu de 2,72 s para 2,16 s; 33 testes de banco e 20 regressões focadas de chat aprovados. Na repetição integral, 419 casos passaram e o teste de cancelamento dependente do SQL anterior foi corrigido no ponto de injeção, mantendo ambas as asserções; a repetição focada também o aprovou.
+Visitantes respeitam cancelamento/prazo antes e depois da leitura. WithoutCancel
+fica na fronteira posterior ao writer, que também precisa reconciliar commits
+parciais. Refresh/Navigate cancelados antes da aplicação da prova não alteram
+janela, journal ou lifecycle. SetRetention conserva o contexto em todo o percurso
+e descarta o estágio cancelado antes do commit. A escrita já confirmada continua
+publicada mesmo após cancelamento do pedido.
+
+Evidências em timeline_window_retention_test.go, timeline_window_lifecycle_test.go
+e canonical_transaction_test.go: duas superfícies, liberação parcial/total,
+replay, exclusão, fronteira perdida, item movido, rollback, pedidos obsoletos,
+encarnação, pergunta isolada, retry/exclusão externos, execução fora da página,
+corte por ambos os produtores, 80 turnos, três referências de execução de 3 MiB,
+registro individual excessivo e falha/drift na segunda parcela. Cancelamento após
+versão, durante seleção e prazo menor preservam retenção/janela/journal. Rollback
+após flush conserva o callback e entrega o delta no replay, inclusive no terminal
+volátil. Reuso histórico prova ausência de releitura só na mesma versão.
+
+Validação: 426 testes seguros de chat, 39 focados, 33 de banco; 99 de controllers,
+53 de handlers/turnos do agente e duas regressões de áudio nas rodadas pertinentes.
+Build/vet e lint incremental aprovados. Revisor independente review_aep: vinte
+rodadas, sem pendências locais. Sem ACP local ou NVDA. A fixture pesada compartilha
+preparação entre os mesmos cenários e silencia SQL volumoso, mantendo dados e
+assertivas. O perfil local de SetRetention caiu de 2,72 s para 0,32 s após seleção
+pontual de âncoras e reuso histórico; a medição não substitui o gate final do produto.
+Transporte, cutover e margem global de desempenho permanecem pendentes; este
+recorte não declara resolução do foco na UI. CI/review remotos são acompanhados.
 
 ### Recorte: acompanhamento explícito da cauda (2026-11-03)
 
