@@ -25,11 +25,11 @@ Bindings são regenerados pelo Wails, incluindo a referência ao resumo de ferra
 em apidto. Este recorte ainda não expõe novos métodos Wails nem muda o consumidor
 visual. RPCs, eventos, cutover e gate global de desempenho permanecem pendentes.
 
-Validação local: 428 testes seguros de chat, quatro de apidto e 5.887 testes de
+Validação local: 429 testes seguros de chat, quatro de apidto e 5.887 testes de
 frontend em 484 arquivos passaram; 31 arquivos relacionados a ACP ficaram fora
 da execução local. Build, vet, lint incremental, ESLint e Stylelint aprovados.
 Bindings regenerados com Wails 2.15.0 em perfil isolado sob build/bin; TypeScript
-aprovado sobre o resultado. Revisor independente review_aep: três rodadas, sem
+aprovado sobre o resultado. Revisor independente review_aep: quatro rodadas, sem
 pendências locais. CI e review remotos acompanham o PR empilhado.
 
 ### Recorte: execução isolada do pacote de chat no CI (2026-11-03)
