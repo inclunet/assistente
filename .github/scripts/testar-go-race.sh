@@ -4,6 +4,7 @@ set -euo pipefail
 export LC_ALL=C
 
 app=assistente/internal/app
+chat=assistente/internal/chat
 flags=(-race -short -count=1 -timeout=20m)
 groups=(comandos-configuracao comandos-dispositivos
   comandos-contexto-deck-paginas comandos-contexto-deck-mermaid comandos-contexto-deck-camadas comandos-contexto-deck-base
@@ -11,18 +12,22 @@ groups=(comandos-configuracao comandos-dispositivos
   comandos-jobs comandos-interface comandos-seguranca comandos-outros app-chat app-demais)
 
 if [[ $# == 1 && $1 == --groups ]]; then
-  printf '%s\n' pacotes-gerais "${groups[@]}"
+  printf '%s\n' pacotes-gerais pacote-chat "${groups[@]}"
   exit 0
 fi
 
 if [[ $# == 1 && $1 == pacotes-gerais ]]; then
   inventory=$(go list -race ./...)
-  mapfile -t packages < <(printf '%s\n' "$inventory" | awk -v app="$app" 'NF && $0 != app')
-  if [[ $(printf '%s\n' "$inventory" | grep -Fxc "$app") != 1 || ${#packages[@]} == 0 ]]; then
-    echo 'Inventário de pacotes vazio ou sem App único' >&2
+  mapfile -t packages < <(printf '%s\n' "$inventory" | awk -v app="$app" -v chat="$chat" 'NF && $0 != app && $0 != chat')
+  if [[ $(printf '%s\n' "$inventory" | grep -Fxc "$app") != 1 || $(printf '%s\n' "$inventory" | grep -Fxc "$chat") != 1 || ${#packages[@]} == 0 ]]; then
+    echo 'Inventário de pacotes vazio ou sem App/Chat únicos' >&2
     exit 1
   fi
   exec go test "${flags[@]}" "${packages[@]}"
+fi
+
+if [[ $# == 1 && $1 == pacote-chat ]]; then
+  exec go test "${flags[@]}" -v "$chat"
 fi
 
 if [[ $# != 1 || " ${groups[*]} " != *" $1 "* ]]; then
