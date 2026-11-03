@@ -108,7 +108,7 @@ func TestWindowBudgetRefusalPreservesSubscription(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			beforeQuery := sub.query
+			beforeQuery := sub.conversation.windows[sub.windowID].query
 			request := navigationFrom(initial)
 			request.Limit = 20
 			if _, err := sub.Navigate(f.ctx, request); !errors.Is(err, ErrTimelineSourceLimit) {
@@ -121,7 +121,7 @@ func TestWindowBudgetRefusalPreservesSubscription(t *testing.T) {
 			c.mu.Lock()
 			defer c.mu.Unlock()
 			w := c.windows[sub.windowID]
-			if w.revision != 1 || len(w.itemIDs) != 1 || !w.itemIDs[initial.OrderedItemIDs[0]] || !reflect.DeepEqual(sub.query, beforeQuery) {
+			if w.revision != 1 || len(w.itemIDs) != 1 || !w.itemIDs[initial.OrderedItemIDs[0]] || !reflect.DeepEqual(sub.conversation.windows[sub.windowID].query, beforeQuery) {
 				t.Fatal("recusa alterou inscrição")
 			}
 			publishedAfter, err := json.Marshal(c.publication.items)

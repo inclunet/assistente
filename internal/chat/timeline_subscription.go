@@ -22,16 +22,24 @@ var ErrTimelineWindowStale = errors.New("revisão da janela mudou; sincronizaç�
 
 type subscriptionSurface struct{ sessionID, surfaceID string }
 type subscribedWindow struct {
-	revision uint64
-	epoch    string
-	version  database.ChatTimelineVersion
-	id       string
-	surface  subscriptionSurface
-	itemIDs  map[string]bool
+	query            database.MessageWindowQuery
+	handle           *TimelineSubscription
+	membership       TimelineMembershipReader
+	orderedIDs       []string
+	metadata         TimelineWindowMetadata
+	snapshotRevision uint64
+	snapshotSequence uint64
+	syncRequired     bool
+	revision         uint64
+	epoch            string
+	version          database.ChatTimelineVersion
+	id               string
+	surface          subscriptionSurface
+	itemIDs          map[string]bool
 }
 
 // TimelineSubscription é um capability interno. Ainda não é binding Wails.
-// Publicação automática e patches de participação seguem separados deste handle.
+// Estado de consulta e participação pertence exclusivamente à janela.
 type TimelineSubscription struct {
 	owner        *LiveProjection
 	key          projectionKey
@@ -39,7 +47,6 @@ type TimelineSubscription struct {
 	session      TimelineSession
 	windowID     string
 	sessionID    string
-	query        database.MessageWindowQuery
 	reader       CanonicalWindowSnapshotReader
 }
 
@@ -102,9 +109,11 @@ func (p *LiveProjection) SubscribeTimeline(ctx context.Context, session Timeline
 		c.windows = make(map[string]*subscribedWindow)
 	}
 	window := &subscribedWindow{id: id, surface: surface, itemIDs: make(map[string]bool)}
+	window.membership, _ = reader.(TimelineMembershipReader)
 	c.windows[id] = window
-	handle := &TimelineSubscription{owner: p, key: key, conversation: c, session: session, windowID: id, sessionID: sessionID, query: cloneWindowQuery(query), reader: reader}
-	return handle, subscriptionSnapshot(c, window, snapshot), nil
+	handle := &TimelineSubscription{owner: p, key: key, conversation: c, session: session, windowID: id, sessionID: sessionID, reader: reader}
+	window.handle = handle
+	return handle, subscriptionSnapshot(c, window, snapshot, query), nil
 }
 
 func cloneWindowQuery(query database.MessageWindowQuery) database.MessageWindowQuery {
@@ -115,7 +124,9 @@ func cloneWindowQuery(query database.MessageWindowQuery) database.MessageWindowQ
 	return query
 }
 
-func subscriptionSnapshot(c *projectionConversation, window *subscribedWindow, snapshot *TimelineWindowSnapshot) *SubscribedTimelineSnapshot {
+func subscriptionSnapshot(c *projectionConversation, window *subscribedWindow, snapshot *TimelineWindowSnapshot, query database.MessageWindowQuery) *SubscribedTimelineSnapshot {
+	window.query = cloneWindowQuery(query)
+	window.syncRequired = false
 	window.revision++
 	result := &SubscribedTimelineSnapshot{WindowID: window.id, Epoch: c.epoch, Sequence: strconv.FormatUint(c.publication.sequence, 10), Items: make([]CanonicalItem, 0, len(snapshot.Items)), OrderedItemIDs: make([]string, 0, len(snapshot.Items)), TotalCount: snapshot.Window.TotalCount, StartIndex: snapshot.Window.StartIndex, EndIndex: snapshot.Window.EndIndex, HasBefore: snapshot.Window.HasBefore, HasAfter: snapshot.Window.HasAfter, BeforeCursor: snapshot.BeforeCursor, AfterCursor: snapshot.AfterCursor}
 	result.WindowRevision = strconv.FormatUint(window.revision, 10)
@@ -133,6 +144,10 @@ func subscriptionSnapshot(c *projectionConversation, window *subscribedWindow, s
 		result.OrderedItemIDs = append(result.OrderedItemIDs, item.ItemID)
 		window.itemIDs[item.ItemID] = true
 	}
+	window.orderedIDs = append([]string(nil), result.OrderedItemIDs...)
+	window.metadata = metadataFromSubscription(result)
+	window.snapshotRevision = window.revision
+	window.snapshotSequence = c.publication.sequence
 	return result
 }
 
@@ -179,10 +194,10 @@ func (s *TimelineSubscription) Refresh(ctx context.Context, windowRevision strin
 		return nil, err
 	}
 	defer release()
-	if windowRevision != strconv.FormatUint(c.windows[s.windowID].revision, 10) {
+	if _, ok := c.windows[s.windowID].acceptsSnapshotRevision(windowRevision); !ok {
 		return nil, ErrTimelineWindowStale
 	}
-	query := s.query
+	query := c.windows[s.windowID].query
 	if position != nil {
 		query = s.windowQuery(*position)
 	}
@@ -190,8 +205,10 @@ func (s *TimelineSubscription) Refresh(ctx context.Context, windowRevision strin
 	if err != nil {
 		return nil, err
 	}
-	s.query = cloneWindowQuery(query)
-	return subscriptionSnapshot(c, c.windows[s.windowID], snapshot), nil
+	if c.windows[s.windowID] == nil {
+		return nil, ErrTimelineSubscription
+	}
+	return subscriptionSnapshot(c, c.windows[s.windowID], snapshot, query), nil
 }
 
 // TimelineWindowNavigation altera somente a fatia da inscrição existente.
@@ -211,7 +228,7 @@ type TimelineWindowPosition struct {
 }
 
 func (s *TimelineSubscription) windowQuery(position TimelineWindowPosition) database.MessageWindowQuery {
-	return database.MessageWindowQuery{ConversationID: s.key.conversationID, ParentID: s.query.ParentID, Cursor: position.Cursor, Anchor: position.Anchor, AnchorItemID: position.AnchorItemID, Direction: position.Direction, Limit: position.Limit}
+	return database.MessageWindowQuery{ConversationID: s.key.conversationID, ParentID: s.conversation.windows[s.windowID].query.ParentID, Cursor: position.Cursor, Anchor: position.Anchor, AnchorItemID: position.AnchorItemID, Direction: position.Direction, Limit: position.Limit}
 }
 
 // Navigate serializa consulta e troca da participação com os writers da conversa.
@@ -237,12 +254,13 @@ func (s *TimelineSubscription) Navigate(ctx context.Context, request TimelineWin
 	if request.Epoch != c.epoch {
 		return nil, ErrTimelineWindowStale
 	}
-	s.query = cloneWindowQuery(query)
-	return subscriptionSnapshot(c, window, snapshot), nil
+	if c.windows[s.windowID] == nil {
+		return nil, ErrTimelineSubscription
+	}
+	return subscriptionSnapshot(c, c.windows[s.windowID], snapshot, query), nil
 }
 
-// Replay lê somente operações já publicadas para os IDs materializados desta
-// inscrição. Lotes vazios preservam a sequência compartilhada. Não é sync público.
+// Replay usa o roteamento registrado em cada publicação desta inscrição. Lotes vazios preservam a sequência compartilhada. Não é sync público.
 func (s *TimelineSubscription) Replay(ctx context.Context, epoch, windowRevision string, after uint64, reader TurnSnapshotReader) ([]CanonicalBatch, bool, error) {
 	authorized, c, release, err := s.lockAuthorized(ctx)
 	if err != nil {
@@ -261,27 +279,17 @@ func (s *TimelineSubscription) Replay(ctx context.Context, epoch, windowRevision
 	if err := c.publicationErrorLocked(); err != nil {
 		return nil, false, err
 	}
-	if windowRevision != strconv.FormatUint(c.windows[s.windowID].revision, 10) {
-		return nil, false, ErrTimelineWindowStale
-	}
-	if c.publication.epoch != c.epoch || c.windows[s.windowID].epoch != c.epoch || c.windows[s.windowID].version != version {
+	window := c.windows[s.windowID]
+	if c.publication.epoch != c.epoch || window.epoch != c.epoch || (!window.syncRequired && window.version != version) {
 		return nil, false, nil
 	}
+	// Tudo até o snapshot já foi entregue; lacunas anteriores não exigem resync.
+	after = max(after, window.snapshotSequence)
 	batches, ok := c.publication.replay(epoch, after)
 	if !ok {
 		return nil, false, nil
 	}
-	ids := c.windows[s.windowID].itemIDs
-	for i := range batches {
-		operations := make([]CanonicalOperation, 0)
-		for _, op := range batches[i].Operations {
-			if ids[op.ItemID] {
-				operations = append(operations, op)
-			}
-		}
-		batches[i].Operations = operations
-	}
-	return batches, true, nil
+	return replayWindowBatches(window, windowRevision, batches)
 }
 
 // Fechar libera somente este capability, inclusive após revogação. Não retorna

@@ -39,6 +39,15 @@ func TestTimelineSubscriptionsIsolateSurfacesAndSession(t *testing.T) {
 	if a.WindowID == b.WindowID || a.OrderedItemIDs[0] == b.OrderedItemIDs[0] {
 		t.Fatal("janelas misturadas")
 	}
+	// Publicação posterior ao baseline comprova isolamento, sem repetir o snapshot.
+	source, err := f.reader.ReadCanonicalWindow(f.ctx, database.MessageWindowQuery{ConversationID: f.conversation, Anchor: "start", Direction: "after", Limit: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	source.Items[0].Segments = append(source.Items[0].Segments, ResponseSegment{SegmentID: "test-new", Kind: "text", Text: "novo"})
+	first.conversation.mu.Lock()
+	first.conversation.publishCanonical(f.conversation, source.Items)
+	first.conversation.mu.Unlock()
 	batches, ok, err := first.Replay(f.ctx, a.Epoch, a.WindowRevision, 0, f.reader)
 	if err != nil || !ok {
 		t.Fatalf("replay: %v %v", ok, err)

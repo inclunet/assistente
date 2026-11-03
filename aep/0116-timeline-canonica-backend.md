@@ -1,8 +1,59 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, mensagens, áudio, limpeza, exclusão e importação integrados; retenção por idade, órfãos, navegação, leitura leve e orçamento de fontes da janela com recuperação atômica e parcelada e seleção leve de participação com fronteiras históricas integrados; margem de desempenho, participação automática, transporte e cutover pendentes
+## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, mensagens, áudio, limpeza, exclusão e importação integrados; retenção por idade, órfãos, navegação, leitura leve e orçamento de fontes da janela com recuperação atômica e parcelada e participação histórica automática com publicação e replay atômicos integrados; margem de desempenho, followTail, retenção por foco, transporte e cutover pendentes
 
 Data: 2026-10-30
+
+### Recorte: participação histórica e publicação atômica (2026-11-02)
+
+Transições persistidas do lifecycle e escritores coordenados atualizam as janelas
+históricas sob a barreira da conversa. A inscrição concentra consulta, IDs ordenados,
+metadados, revisão e baseline do último snapshot; o capability não guarda outra
+consulta mutável. A seleção preserva as fronteiras aceitas: inclusões externas
+mudam contagem/índices e inclusões internas geram splices calculados no backend.
+Fronteira removida/movida, thread excluída ou intervalo acima da capacidade emite
+SyncRequired somente para aquela janela, preservando seus IDs até Refresh.
+Sessão revogada deixa de participar; import substitutivo sempre invalida a época.
+
+Cada escrita produz um único lote lógico com alterações de conteúdo, patches,
+materialização de itens que entraram e metadados finais. A entrada de item já
+cacheado não inventa revisão de conteúdo. O journal registra o roteamento de
+cada lote; replay não filtra operações antigas pela participação atual. Navegação
+e recuperação estabelecem um baseline: operações anteriores não são reaplicadas,
+e a revisão anterior à última Navigate/Refresh permanece recusada. Refresh pode
+usar uma revisão conhecida desde esse baseline, permitindo recuperar uma lacuna
+que ocultou revisões automáticas sem sobrescrever navegação/recuperação posterior.
+
+O estágio de publicação respeita 2 MiB. Overflow avança a sequência e deixa lacuna
+explícita, nunca um lote parcial. Erro de leitura/composição/cota reverte cache,
+journal e todas as janelas antes de liberar a barreira; não desfaz o commit do
+writer nem os buffers recebidos. A cota de 8 MiB é validada sobre cada janela
+resultante inteira, inclusive itens antigos, evictados e conteúdo live.
+
+Para comprovar que conteúdo e participação pertencem à mesma versão, este recorte
+reconcilia os IDs das janelas abertas em parcelas limitadas nas transições
+persistidas. Não lê a conversa inteira nem consulta SQL por token/timer. O estágio
+retém somente tamanhos por item para a validação agregada, sobrevivendo à evicção
+do cache. Essa reconciliação adiciona custo por transição: o gate de desempenho
+continua pendente; não se declara ganho ou aprovação do benchmark nesta entrega.
+
+Evidências em timeline_window_membership_test.go: duas superfícies, metadados sem
+seguir cauda, entrada/edição/saída antes do replay, baseline sem append duplicado,
+entrada já cacheada, transação com inserção e edição em lote único, falha na última
+janela, drift entre seleção e materialização, conteúdo externo anterior à escrita,
+revogação, cota agregada com item evictado/crescimento sem splice, overflow e
+recuperação com revisão automática perdida. Testes de navegação mantêm as recusas
+de escopo/cursor e passam a consumir a revisão de SyncRequired quando necessária.
+
+O contrato permanece interno. FollowTail, retenção de foco/leitura, transporte,
+cutover frontend, migração de anexos e evidências finais continuam pendentes.
+Nenhum teste ACP local ou teste NVDA foi executado neste recorte.
+
+Validação local: 389 testes seguros de chat, 363 de banco e 99 de controllers
+aprovados (851), build/vet e lint incremental sem erros. Revisão independente
+review_aep: três rodadas; cota agregada e atomicidade corrigidas após a primeira,
+segunda e terceira rodadas sem pendências. CI completo/race e review remota são
+verificados no PR antes da entrega.
 
 ### Recorte: fronteiras estáveis para participação histórica (2026-11-02)
 

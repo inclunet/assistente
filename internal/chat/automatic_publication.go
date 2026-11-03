@@ -40,6 +40,31 @@ func (e *ExecutionProjection) refreshPublicationLocked() {
 		return
 	}
 	c.setPublicationBaseLocked(t, snapshot.Response)
+	if t.publicationErr != nil {
+		return
+	}
+	finish := c.beginCanonicalPublication()
+	err = e.owner.refreshWindowMembershipLocked(ctx, e.key.conversationID, c, snapshot.Version)
+	if err == nil && len(c.participatingIDs()) > 0 {
+		_, err = e.owner.visitStorageSelectionsLocked(ctx, e.key.conversationID, c.participatingIDs(), &snapshot.Version, func(ids []string, selected *TimelineSelectionSnapshot) error {
+			reconcileStorageLifecycleLocked(c, ids, selected)
+			if !windowCompositionWithinBudget(c, selected.Items) {
+				return ErrTimelineSourceLimit
+			}
+			return e.owner.reconcileStorageBatchLocked(e.key.conversationID, c, ids, selected)
+		})
+	}
+	if err == nil {
+		c.flushPublicationLocked(e.key.conversationID)
+		err = c.publicationErrorLocked()
+	}
+	if err == nil {
+		err = c.validateWindowPublicationLocked()
+	}
+	finish(e.key.conversationID, err == nil)
+	if err != nil {
+		c.failPublicationLocked(t, err)
+	}
 }
 
 func (c *projectionConversation) failPublicationLocked(t *liveTurn, err error) {
