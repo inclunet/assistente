@@ -91,14 +91,14 @@ func TestTimelineNavigationFailurePreservesMembershipAndQuery(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer sub.Close()
-	query := sub.query
+	query := sub.conversation.windows[sub.windowID].query
 	request := navigationFrom(initial)
 	request.Anchor, request.Cursor = "", "invalid-cursor"
 	if _, err := sub.Navigate(f.ctx, request); !errors.Is(err, database.ErrTimelineCursorInvalid) {
 		t.Fatalf("cursor inválido: %v", err)
 	}
 	window := sub.conversation.windows[sub.windowID]
-	if window.revision != 1 || !window.itemIDs[initial.OrderedItemIDs[0]] || !reflect.DeepEqual(query, sub.query) {
+	if window.revision != 1 || !window.itemIDs[initial.OrderedItemIDs[0]] || !reflect.DeepEqual(query, sub.conversation.windows[sub.windowID].query) {
 		t.Fatal("falha alterou inscrição")
 	}
 	session.denied = true
@@ -137,7 +137,7 @@ func TestTimelineNavigationDetectsEpochChangedDuringRead(t *testing.T) {
 		t.Fatalf("navegação atravessou época: %v", err)
 	}
 	window := sub.conversation.windows[sub.windowID]
-	if window.revision != 1 || !window.itemIDs[initial.OrderedItemIDs[0]] || sub.query.Anchor != "start" {
+	if window.revision != 1 || !window.itemIDs[initial.OrderedItemIDs[0]] || sub.conversation.windows[sub.windowID].query.Anchor != "start" {
 		t.Fatal("época recusada alterou inscrição")
 	}
 }
@@ -172,6 +172,7 @@ func TestTimelineNavigationKeepsThreadScopeAndRejectsRemovedAnchor(t *testing.T)
 	if err := p.ApplyStorageMutation(f.ctx, f.conversation, nil, func() ([]string, error) { return nil, database.DeleteMessageWithContext(f.ctx, child.ID) }); err != nil {
 		t.Fatal(err)
 	}
+	next.WindowRevision = membershipSyncRevision(t, sub, next, f)
 	request = navigationFrom(next)
 	request.Anchor, request.Cursor = "", next.BeforeCursor
 	if _, err := sub.Navigate(f.ctx, request); !errors.Is(err, database.ErrTimelineCursorStale) {
@@ -209,6 +210,9 @@ func TestTimelineNavigationRecoversAcceptedCursorAfterAnchorRemoval(t *testing.T
 				return nil, nil
 			}); err != nil {
 				t.Fatal(err)
+			}
+			if !changeEpoch {
+				page.WindowRevision = membershipSyncRevision(t, sub, page, f)
 			}
 			if _, err := sub.Refresh(f.ctx, page.WindowRevision, nil); !errors.Is(err, database.ErrTimelineCursorStale) {
 				t.Fatalf("cursor aceito deveria estar obsoleto: %v", err)
@@ -401,7 +405,7 @@ func TestTimelineNavigationRecoveryCannotOverwriteNewerPage(t *testing.T) {
 			if err := <-second; !errors.Is(err, ErrTimelineWindowStale) {
 				t.Fatalf("recuperação antiga sobrescreveu página: %v", err)
 			}
-			if sub.query.Anchor != "end" || sub.conversation.windows[sub.windowID].revision != 2 || reads.Load() != 1 {
+			if sub.conversation.windows[sub.windowID].query.Anchor != "end" || sub.conversation.windows[sub.windowID].revision != 2 || reads.Load() != 1 {
 				t.Fatal("recuperação antiga leu ou alterou página")
 			}
 		})

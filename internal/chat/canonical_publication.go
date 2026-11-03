@@ -53,10 +53,11 @@ type CanonicalOperation struct {
 	Segment   *CanonicalSegment `json:"segment,omitempty"`
 }
 type CanonicalBatch struct {
-	ConversationID string               `json:"conversationId"`
-	Epoch          string               `json:"epoch"`
-	Sequence       string               `json:"sequence"`
-	Operations     []CanonicalOperation `json:"operations"`
+	WindowPatches  []CanonicalWindowPatch `json:"windowPatches,omitempty"`
+	ConversationID string                 `json:"conversationId"`
+	Epoch          string                 `json:"epoch"`
+	Sequence       string                 `json:"sequence"`
+	Operations     []CanonicalOperation   `json:"operations"`
 }
 
 type canonicalPublication struct {
@@ -165,6 +166,10 @@ func (c *projectionConversation) publishCanonical(conversationID string, items [
 }
 
 func (c *projectionConversation) publishCanonicalChanges(conversationID string, items []*TimelineItem, removed []string) {
+	c.publishCanonicalWindowChanges(conversationID, items, removed, nil)
+}
+
+func (c *projectionConversation) publishCanonicalWindowChanges(conversationID string, items []*TimelineItem, removed []string, patches []CanonicalWindowPatch) {
 	p := &c.publication
 	if p.epoch != c.epoch {
 		*p = canonicalPublication{epoch: c.epoch, items: make(map[string]CanonicalItem), itemSizes: make(map[string]int)}
@@ -181,17 +186,43 @@ func (c *projectionConversation) publishCanonicalChanges(conversationID string, 
 		if old, ok := p.items[next.ItemID]; ok {
 			previous = &old
 		}
+		if c.publicationStage != nil {
+			measured := next
+			// Reserva os 20 dígitos possíveis da sequência uint64, inclusive antes
+			// da primeira operação deste estágio atribuir sua revisão definitiva.
+			measured.Revision = "18446744073709551615"
+			encoded, _ := json.Marshal(measured)
+			c.publicationStage.itemSizes[next.ItemID] = len(encoded)
+		}
 		delta := canonicalDiff(previous, next)
+		if c.publicationStage != nil {
+			materialized := next
+			if previous != nil && len(delta) == 0 {
+				materialized.Revision = previous.Revision
+			} else {
+				sequence := p.sequence
+				if !c.publicationStage.started {
+					sequence++
+				}
+				materialized.Revision = strconv.FormatUint(sequence, 10)
+			}
+			c.publicationStage.materialize(materialized)
+		}
 		if len(delta) == 0 {
 			continue
 		}
 		changed = append(changed, next)
 		operations = append(operations, delta...)
 	}
-	if len(operations) == 0 {
+	if len(operations) == 0 && len(patches) == 0 {
 		return
 	}
-	p.sequence++
+	if c.publicationStage == nil || !c.publicationStage.started {
+		p.sequence++
+		if c.publicationStage != nil {
+			c.publicationStage.started = true
+		}
+	}
 	revision := strconv.FormatUint(p.sequence, 10)
 	for _, item := range changed {
 		item.Revision = revision
@@ -203,7 +234,15 @@ func (c *projectionConversation) publishCanonicalChanges(conversationID string, 
 			operations[i].Item.Revision = revision
 		}
 	}
-	batch := CanonicalBatch{ConversationID: conversationID, Epoch: c.epoch, Sequence: revision, Operations: operations}
+	if c.publicationStage != nil {
+		c.publicationStage.append(operations, patches)
+		return
+	}
+	batch := CanonicalBatch{ConversationID: conversationID, Epoch: c.epoch, Sequence: revision, Operations: operations, WindowPatches: c.routeWindowOperations(operations, patches)}
+	p.recordBatch(batch)
+}
+
+func (p *canonicalPublication) recordBatch(batch CanonicalBatch) {
 	encoded, _ := json.Marshal(batch)
 	if len(encoded) > canonicalReplayBytes {
 		p.batches = nil

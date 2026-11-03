@@ -61,10 +61,26 @@ func TestMessageCreationReconcilesAllControllerEntries(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if r.readErr != nil || r.reads != 1 || len(r.selected.Items) != 1 || r.selected.Items[0].ItemID != "message:"+message.ID {
-				t.Fatal("criação não reconciliada antes do retorno", r.readErr)
+			expectedCount := 2 // criação e pai já participante, na mesma versão
+			if mode == "child" {
+				expectedCount = 1
+			} // a janela de filhos estava vazia
+			if r.readErr != nil || r.reads != 1 || r.selected == nil || len(r.selected.Items) != expectedCount {
+				t.Fatal("criação e participantes não reconciliados antes do retorno", r.readErr, r.reads)
 			}
-			projected := r.selected.Items[0]
+			var projected *chat.TimelineItem
+			parentSelected := false
+			for _, item := range r.selected.Items {
+				if item.ItemID == "message:"+message.ID {
+					projected = item
+				}
+				if item.ItemID == "message:"+parent.ID {
+					parentSelected = true
+				}
+			}
+			if projected == nil || (mode != "child" && !parentSelected) {
+				t.Fatal("criação ou participante anterior ausente")
+			}
 			if projected.Representative == nil || projected.Representative.Content != "conteúdo" || projected.Representative.Media != "" {
 				t.Fatal("projeção não preservou conteúdo ou carregou mídia")
 			}

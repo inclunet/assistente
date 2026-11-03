@@ -50,6 +50,7 @@ type TimelineSnapshotReader interface {
 
 // A publicação automática exige leitura limitada antes de materializar payloads.
 type PublicationSnapshotReader interface {
+	ReadVersion(context.Context, string) (database.ChatTimelineVersion, error)
 	ReadPublicationTurn(context.Context, string, string) (*TimelineTurnSnapshot, error)
 	TimelineSelectionReader
 }

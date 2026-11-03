@@ -27,6 +27,7 @@ type LiveProjection struct {
 
 type projectionKey struct{ userID, conversationID string }
 type projectionConversation struct {
+	publicationStage      *canonicalPublicationStage
 	storagePublicationErr error
 	pendingStorageIDs     map[string]bool
 	publicationTimer      *time.Timer

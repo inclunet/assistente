@@ -42,6 +42,7 @@ func (p *LiveProjection) applyStorageMutation(ctx context.Context, conversationI
 	}
 	created, writeErr := write()
 	if replace && writeErr == nil {
+		c.epoch = uuid.NewString()
 		for id, t := range c.turns {
 			if !t.finished || t.volatile || hasUncommittedContent(t) {
 				t.detached = true
@@ -182,7 +183,25 @@ func (p *LiveProjection) recoverStoragePublicationLocked(ctx context.Context, co
 	return nil
 }
 
-func (p *LiveProjection) reconcileStorageLocked(ctx context.Context, conversationID string, c *projectionConversation, ids []string, expected *database.ChatTimelineVersion) error {
+func (p *LiveProjection) reconcileStorageLocked(ctx context.Context, conversationID string, c *projectionConversation, ids []string, expected *database.ChatTimelineVersion) (resultErr error) {
+	finish := c.beginCanonicalPublication()
+	defer func() { finish(conversationID, resultErr == nil) }()
+	if len(c.windows) > 0 {
+		readCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), canonicalReadTimeout)
+		defer cancel()
+		if expected == nil {
+			version, err := p.reader.ReadVersion(readCtx, conversationID)
+			if err != nil {
+				return err
+			}
+			expected = &version
+		}
+		reconcileProjectionVersion(c, *expected)
+		if err := p.refreshWindowMembershipLocked(readCtx, conversationID, c, *expected); err != nil {
+			return err
+		}
+	}
+	ids = uniquePublicationIDs(append(ids, c.participatingIDs()...))
 	_, err := p.visitStorageSelectionsLocked(ctx, conversationID, ids, expected, func(batch []string, snapshot *TimelineSelectionSnapshot) error {
 		reconcileStorageLifecycleLocked(c, batch, snapshot)
 		if !windowCompositionWithinBudget(c, snapshot.Items) {
@@ -198,7 +217,10 @@ func (p *LiveProjection) reconcileStorageLocked(ctx context.Context, conversatio
 		return err
 	}
 	c.flushPublicationLocked(conversationID)
-	return nil
+	if err := c.publicationErrorLocked(); err != nil {
+		return err
+	}
+	return c.validateWindowPublicationLocked()
 }
 
 // Percurso único em parcelas, com controle de versão em ambas as passagens.

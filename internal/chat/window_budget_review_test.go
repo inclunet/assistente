@@ -174,7 +174,7 @@ func TestWindowBudgetPrecedesPendingStorageRecovery(t *testing.T) {
 			if err != nil || string(before) != string(after) || seq != c.publication.sequence {
 				t.Fatal("recuperação publicou antes de recusar", err)
 			}
-			if c.windows[sub.windowID].revision != 1 || sub.query.Limit != 100 || c.turns[e.turnID].streams[0].parts[0].text.Len() != canonicalSourceBytes+1 {
+			if c.windows[sub.windowID].revision != 1 || sub.conversation.windows[sub.windowID].query.Limit != 100 || c.turns[e.turnID].streams[0].parts[0].text.Len() != canonicalSourceBytes+1 {
 				t.Fatal("recusa alterou inscrição ou buffer")
 			}
 		})
@@ -409,8 +409,19 @@ func TestStorageRecoverySplitsAggregateLiveBatch(t *testing.T) {
 	if err := p.recoverStoragePublicationLocked(f.ctx, f.conversation, c, nil); err != nil {
 		t.Fatal(err)
 	}
-	if selections < 6 || c.publication.sequence < 2 {
-		t.Fatal("lote live agregado não subdividido", selections, c.publication.sequence)
+	if selections < 6 {
+		t.Fatal("leitura live agregada não subdividida", selections)
+	}
+	// Parcelas de leitura não são estados públicos: esta recuperação confirma
+	// uma única sequência, cujo payload de 9MiB excede o journal de 2MiB.
+	if c.publication.sequence != 1 || len(c.publication.batches) != 0 {
+		t.Fatal("recuperação publicou parcelas ou journal parcial", c.publication.sequence)
+	}
+	if _, ok := c.publication.replay(c.epoch, 0); ok {
+		t.Fatal("overflow aceitou replay incompleto")
+	}
+	if batches, ok := c.publication.replay(c.epoch, 1); !ok || len(batches) != 0 {
+		t.Fatal("sequência final não confirmada")
 	}
 	if c.publication.itemBytes > canonicalSourceBytes || c.storagePublicationErr != nil {
 		t.Fatal("recuperação sem cota ou incompleta")
