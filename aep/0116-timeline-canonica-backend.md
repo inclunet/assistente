@@ -48,6 +48,14 @@ Nenhum teste ou cenário é descartado do chat;
 -race, -short, -count=1 e -timeout=20m permanecem. A saída detalhada identifica
 os testes em andamento. O agregador backend-race continua exigindo todos os grupos.
 
+As anotações dos jobs 125845109686 e 125845662987 registraram timeout de 25 minutos,
+sem disponibilizar o log nativo. A etapa recebe limite de 23 minutos; o job usa
+45 minutos para acomodar também preparação e publicação do diagnóstico em caso
+de falha. O upload tem limite próprio de dois minutos.
+A saída é preservada em artefato por sete dias; pipefail conserva o erro do Go.
+O timeout de 20 minutos dos testes não muda. Não se presume a causa do atraso
+nem se reduz cobertura para contornar a ausência de diagnóstico.
+
 O teste do script comprova destino único de App/Chat/subpacotes, flags, falhas
 de execução, cobertura exata sem sobreposição dos grupos de chat e igualdade da
 matriz com --groups. A fixture de snapshot usa logger
@@ -61,7 +69,8 @@ O encerramento das consultas de preparação, também diagnosticado no run
 Validação local: bash -n, teste completo do script, 428 testes seguros de chat,
 31 testes seguros de usecases,
 build, vet e lint incremental aprovados. Sem ACP local. Revisor independente
-review_aep: quatro rodadas, sem pendências. CI/review remotos acompanham o PR.
+review_aep: seis rodadas, sem pendências. YAML e propagação de falha pelo tee
+validados localmente. CI/review remotos acompanham o PR.
 
 ### Correção de validação: encerramento da preparação (2026-11-03)
 
