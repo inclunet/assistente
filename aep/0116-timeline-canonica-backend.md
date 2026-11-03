@@ -4,6 +4,58 @@
 
 Data: 2026-10-30
 
+### Recorte: execução isolada do pacote de chat no CI (2026-11-03)
+
+O job geral com detector de corrida atingiu o limite acumulado de 20 minutos
+no run 41600939964, com o teste corrente ativo havia dois segundos e o stack
+na preparação SQLite da fixture. Isso comprova o limite da suíte acumulada;
+não identifica uma asserção falhando nem demonstra deadlock no teste corrente.
+
+O pacote internal/chat passa a rodar em dois grupos com runners próprios. O grupo geral
+exclui exatamente internal/app e internal/chat, preservando subpacotes e novos
+pacotes descobertos por go list. A descoberta Go atribui cada teste top-level,
+exemplo e fuzz target a um grupo pelo checksum estável do nome; subtestes seguem
+juntos. Nomes novos não exigem manutenção de listas nem redistribuem os existentes.
+Nenhum teste ou cenário é descartado do chat;
+-race, -short, -count=1 e -timeout=20m permanecem. A saída detalhada identifica
+os testes em andamento. O agregador backend-race continua exigindo todos os grupos.
+
+As anotações dos jobs 125845109686 e 125845662987 registraram timeout de 25 minutos,
+sem disponibilizar o log nativo. A etapa recebe limite de 23 minutos; o job usa
+45 minutos para acomodar também preparação e publicação do diagnóstico em caso
+de falha. O upload tem limite próprio de dois minutos.
+A saída é preservada em artefato por sete dias; pipefail conserva o erro do Go.
+O timeout de 20 minutos dos testes não muda. Não se presume a causa do atraso
+nem se reduz cobertura para contornar a ausência de diagnóstico.
+
+O teste do script comprova destino único de App/Chat/subpacotes, flags, falhas
+de execução, cobertura exata sem sobreposição dos grupos de chat e igualdade da
+matriz com --groups. A fixture de snapshot usa logger
+SQL parametrizado em nível Error: preserva erros de banco e evita os avisos de lentidão esperados nas cargas sintéticas.
+Dados, asserções e timeouts da suíte permanecem iguais. A alteração não modifica
+logger de produção nem declara concluído o gate de desempenho do produto.
+
+A seleção local do grupo 0 revelou três linhas de 3 MiB no teste de âncora
+excessiva: Scan do GORM 1.31.1 usa um recorder interno e repassa SQL já expandido,
+contornando a parametrização do logger. A fixture passa a registrar erros, sem
+avisos de SLOW SQL dessas cargas deliberadamente grandes. Dados, asserções e
+limites continuam iguais. Essa redução de saída é comprovável localmente, mas
+não estabelece sozinha a causa dos jobs remotos sem log; o CI precisa confirmar.
+No mesmo teste de âncora, a saída caiu de 9.451.325 para 5.399 bytes. Os 211 testes seguros do grupo 0 desta base e os 429 testes seguros de chat passaram, além de vet e lint incremental.
+
+O encerramento das consultas de preparação, também diagnosticado no run
+41606700204, foi incorporado ao PR-base conforme a seção seguinte.
+
+Validação local: bash -n, teste completo do script, 429 testes seguros de chat,
+31 testes seguros de usecases,
+build, vet e lint incremental aprovados. Sem ACP local. Revisor independente
+review_aep: dez rodadas (incluindo integração da base, redução do log da fixture e coerência documental), sem pendências. YAML e propagação de falha pelo tee
+validados localmente. No run 41652048015 (commit 8a54813be),
+o grupo 0 concluiu os testes Go em 439,808 s e o log nativo ficou disponível. Essa rodada
+confirma a execução desse grupo com a saída reduzida, não a conclusão de todo o CI.
+O restante da matriz precisa concluir no run vinculado ao PR. Review remota sem achados de
+código; a descrição histórica do logger foi alinhada ao nível Error.
+
 ### Correção de validação: encerramento da preparação (2026-11-03)
 
 O run 41606500056 falhou ao limpar o banco de
@@ -92,9 +144,10 @@ Validação: 429 testes seguros de chat, 39 focados e as regressões de snapshot
 Build/vet e lint incremental aprovados. Revisor independente review_aep: vinte e cinco
 rodadas, sem pendências locais. Sem ACP local ou NVDA. A fixture pesada compartilha
 preparação entre os mesmos cenários e silencia SQL volumoso, mantendo dados e
-assertivas. O logger da fixture de snapshot parametriza SQL, preservando avisos
-e erros sem imprimir os payloads sintéticos de vários MiB; essa correção de
-volume de logs acompanha o PR-base para reduzir o custo do seu CI.
+assertivas. O logger da fixture de snapshot usa nível Error, sem avisos de SLOW SQL.
+A parametrização não impede que Scan do GORM repasse SQL expandido em erros; não
+há garantia de supressão de payloads nesse caso. A evolução do logger é descrita
+no recorte de CI acima.
 O perfil local de SetRetention caiu de 2,72 s para 0,32 s após seleção
 pontual de âncoras e reuso histórico; a medição não substitui o gate final do produto.
 Transporte, cutover e margem global de desempenho permanecem pendentes; este

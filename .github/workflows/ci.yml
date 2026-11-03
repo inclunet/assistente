@@ -157,16 +157,19 @@ jobs:
           test "$TESTS_RESULT" = success
 
   backend-race-tests:
-    # App excede 20m com -race. A descoberta em cada runner inclui testes novos
-    # automaticamente; os demais pacotes continuam inteiros em um grupo próprio.
+      # App é dividido por famílias; Chat, por hash estável do nome do teste.
+      # Cada grupo tem runner próprio e preserva os subtestes juntos.
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    # Inclui preparação e upload; o teste Go continua limitado a 20 minutos.
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       max-parallel: 8
       matrix:
         group:
           - pacotes-gerais
+          - pacote-chat-0
+          - pacote-chat-1
           - comandos-configuracao
           - comandos-dispositivos
           - comandos-contexto-deck-paginas
@@ -195,12 +198,24 @@ jobs:
           go-version-file: go.mod
 
       - name: Go tests (-race -short)
+        timeout-minutes: 23
         env:
           RACE_GROUP: ${{ matrix.group }}
         run: |
+          set -o pipefail
+          mkdir -p build/bin/ci/race-logs
           Xvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 &
           export DISPLAY=:99.0
-          bash .github/scripts/testar-go-race.sh "$RACE_GROUP"
+          bash .github/scripts/testar-go-race.sh "$RACE_GROUP" 2>&1 | tee "build/bin/ci/race-logs/$RACE_GROUP.log"
+
+      - name: Publicar diagnóstico de race
+        timeout-minutes: 2
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: race-log-${{ matrix.group }}
+          path: build/bin/ci/race-logs/*.log
+          retention-days: 7
 
   backend-race:
     # Preserva o nome do check exigido: só aprova se TODOS os grupos passaram.
