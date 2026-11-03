@@ -39,7 +39,7 @@ O wrapper acumula somente decisões booleanas, sem reter registros entre parcela
 nem substituir os registros completos do snapshot. Conteúdo e lifecycle reutilizam
 visitVersionedSelections, com subdivisão por quantidade/bytes e mesma versão em
 cada parcela; um registro individual excessivo continua recusado. Não há cota
-global indevida somando janelas válidas nem SQL por token.
+global indevida somando janelas válidas nem SQL por token. O visitante respeita cancelamento e prazo do contexto recebido, com verificação antes e depois da leitura; só a reconciliação de uma escrita confirmada escolhe contexto independente e limitado. Refresh/Navigate cancelados antes da aplicação da prova não alteram janela, journal ou lifecycle; prazo menor é preservado, e escrita confirmada permanece no replay após cancelamento do pedido. Doze regressões focadas e repetição integral dos 423 testes seguros de chat aprovadas, incluindo essas três provas.
 
 Evidências em timeline_window_retention_test.go: duas superfícies, liberação
 parcial/total, replay, exclusão, fronteira perdida, item movido, rollback, pedidos
@@ -51,7 +51,7 @@ na segunda parcela sem publicação parcial.
 
 Validação: 420 testes seguros de chat; 99 de controllers, 53 de handlers/turnos
 do agente e duas regressões de áudio nas rodadas pertinentes. Build/vet e lint
-incremental aprovados. Revisor independente review_aep: dezesseis rodadas, sem
+incremental aprovados. Revisor independente review_aep: dezessete rodadas, sem
 pendências finais. Sem ACP local ou NVDA. Transporte e cutover frontend continuam
 pendentes; este recorte não declara resolução do foco na UI. O custo de leitura
 por transição integra o gate de desempenho final ainda pendente. A fixture de fontes agregadas compartilha somente a preparação entre os mesmos três cenários sequenciais; 21 testes focados passaram após esse ajuste. Medição local desse teste: 33,7 s/44 MB de log antes e 15,5 s/6 KB depois, sem reduzir dados ou asserções; não substitui o gate de desempenho do produto. A suíte completa expôs custo de classificação global na prova de fronteiras; getAnchorTimelineItem agora reutiliza a seleção pontual quando AnchorItemID é conhecido. Sem mudar fixture, timeout ou asserções, o perfil local de SetRetention caiu de 2,72 s para 2,16 s; 33 testes de banco e 20 regressões focadas de chat aprovados. Na repetição integral, 419 casos passaram e o teste de cancelamento dependente do SQL anterior foi corrigido no ponto de injeção, mantendo ambas as asserções; a repetição focada também o aprovou.
