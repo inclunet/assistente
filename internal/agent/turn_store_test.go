@@ -63,6 +63,10 @@ func (s *handlerTestTurnStore) FinishResponse(ctx context.Context, _, _, _, _, _
 // usam DBTimelineReader real, sem fallback produtivo para leituras avulsas.
 type handlerTestTimelineReader struct{ repo chat.MessageRepository }
 
+func (r *handlerTestTimelineReader) ReadTurnLifecycles(context.Context, string, []string) (*chat.TimelineSelectionSnapshot, error) {
+	panic("fixture de handler sem retenção de janela")
+}
+
 func (r *handlerTestTimelineReader) ReadSelection(context.Context, string, []string) (*chat.TimelineSelectionSnapshot, error) {
 	panic("fixture de handler sem mutação externa")
 }

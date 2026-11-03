@@ -26,6 +26,9 @@ func cloneSubscribedWindows(windows map[string]*subscribedWindow) map[string]*su
 // Chamado apenas após transições persistidas, sob a barreira da conversa.
 // O caller mantém um checkpoint de publicação/janelas até terminar todo o lote.
 func (p *LiveProjection) refreshWindowMembershipLocked(ctx context.Context, conversationID string, c *projectionConversation, version database.ChatTimelineVersion) error {
+	if err := p.reconcileParticipatingLifecycles(ctx, conversationID, c, version); err != nil {
+		return err
+	}
 	ids := make([]string, 0, len(c.windows))
 	for id := range c.windows {
 		ids = append(ids, id)
@@ -34,7 +37,7 @@ func (p *LiveProjection) refreshWindowMembershipLocked(ctx context.Context, conv
 	patches := make([]CanonicalWindowPatch, 0)
 	for _, id := range ids {
 		w := c.windows[id]
-		if w.epoch != c.epoch || w.syncRequired || w.version == version {
+		if w.epoch != c.epoch || w.syncRequired || (w.version == version && w.pendingRetention == nil) {
 			continue
 		}
 		authorized, err := w.handle.authorize(ctx)
@@ -42,16 +45,30 @@ func (p *LiveProjection) refreshWindowMembershipLocked(ctx context.Context, conv
 			delete(c.windows, id)
 			continue
 		}
+		// Retenção não muda a participação histórica. A mesma versão comprova
+		// IDs, fronteiras e contagem; lifecycle já foi verificado acima.
+		if w.version == version && w.mode == TimelineWindowHistorical {
+			previous := strconv.FormatUint(w.revision, 10)
+			w.revision++
+			w.metadata.RetainedItemIDs = append([]string{}, (*w.pendingRetention)...)
+			w.pendingRetention = nil
+			metadata := w.metadata
+			patches = append(patches, CanonicalWindowPatch{WindowID: id, PreviousRevision: previous, Revision: strconv.FormatUint(w.revision, 10), Metadata: &metadata})
+			continue
+		}
 		deadline, ok := ctx.Deadline()
 		if !ok {
 			deadline = time.Now().Add(canonicalReadTimeout)
 		}
 		readCtx, cancel := context.WithDeadline(authorized, deadline)
-		var snapshot *TimelineMembershipSnapshot
-		if w.mode == TimelineWindowFollowTail {
-			snapshot, err = w.membership.ReadWindowMembership(readCtx, w.query)
-		} else {
-			snapshot, err = w.membership.ReadHistoricalMembership(readCtx, w.query, w.metadata.BeforeCursor, w.metadata.AfterCursor)
+		retained, retainErr := p.survivingRetention(readCtx, conversationID, w, version)
+		if retainErr != nil {
+			cancel()
+			return retainErr
+		}
+		snapshot, blocked, err := selectRetainedMembership(readCtx, w, retained, version)
+		if err == nil && !containsRetained(membershipIDs(snapshot.Selection), retained) {
+			err = database.ErrTimelineCursorStale
 		}
 		if err != nil {
 			if !errors.Is(err, database.ErrTimelineCursorStale) && !errors.Is(err, database.ErrTimelineCursorInvalid) && !errors.Is(err, ErrTimelineSourceLimit) && !errors.Is(err, gorm.ErrRecordNotFound) {
@@ -70,13 +87,13 @@ func (p *LiveProjection) refreshWindowMembershipLocked(ctx context.Context, conv
 			previous := strconv.FormatUint(w.revision, 10)
 			w.revision++
 			w.syncRequired = true
-			patches = append(patches, CanonicalWindowPatch{WindowID: id, PreviousRevision: previous, Revision: strconv.FormatUint(w.revision, 10), SyncRequired: true})
+			w.pendingRetention = nil
+			w.metadata.RetainedItemIDs, w.metadata.RetentionBlocked = retained, blocked
+			metadata := w.metadata
+			patches = append(patches, CanonicalWindowPatch{WindowID: id, PreviousRevision: previous, Revision: strconv.FormatUint(w.revision, 10), SyncRequired: true, Metadata: &metadata})
 			continue
 		}
 		cancel()
-		if snapshot.Version != version {
-			return ErrProjectionRecoveryRequired
-		}
 		encoded, _ := json.Marshal(snapshot.Selection)
 		if len(encoded) > canonicalSourceBytes {
 			return ErrTimelineSourceLimit
@@ -97,8 +114,8 @@ func (p *LiveProjection) refreshWindowMembershipLocked(ctx context.Context, conv
 				entering = append(entering, CanonicalItem{ItemID: itemID})
 			}
 		}
-		metadata := TimelineWindowMetadata{TotalCount: rows.TotalCount, StartIndex: rows.StartIndex, EndIndex: rows.EndIndex, HasBefore: rows.HasBefore, HasAfter: rows.HasAfter, BeforeCursor: w.metadata.BeforeCursor, AfterCursor: w.metadata.AfterCursor}
-		if w.mode == TimelineWindowFollowTail {
+		metadata := TimelineWindowMetadata{RetainedItemIDs: retained, RetentionBlocked: blocked, TotalCount: rows.TotalCount, StartIndex: rows.StartIndex, EndIndex: rows.EndIndex, HasBefore: rows.HasBefore, HasAfter: rows.HasAfter, BeforeCursor: w.metadata.BeforeCursor, AfterCursor: w.metadata.AfterCursor}
+		if w.mode == TimelineWindowFollowTail && !blocked {
 			metadata.BeforeCursor, metadata.AfterCursor = "", ""
 			if len(rows.Items) > 0 {
 				metadata.BeforeCursor = database.EncodeTimelineCursor(conversationID, w.query.ParentID, rows.Items[0])
@@ -106,11 +123,12 @@ func (p *LiveProjection) refreshWindowMembershipLocked(ctx context.Context, conv
 			}
 		}
 		splices := windowSplices(w.orderedIDs, ordered)
-		if len(splices) > 0 || w.metadata != metadata {
+		if len(splices) > 0 || !sameWindowMetadata(w.metadata, metadata) {
 			previous := strconv.FormatUint(w.revision, 10)
 			w.revision++
 			patches = append(patches, CanonicalWindowPatch{WindowID: id, PreviousRevision: previous, Revision: strconv.FormatUint(w.revision, 10), Splices: splices, Items: entering, Metadata: &metadata})
 		}
+		w.pendingRetention = nil
 		w.version = version
 		w.itemIDs, w.orderedIDs, w.metadata = membership, ordered, metadata
 	}

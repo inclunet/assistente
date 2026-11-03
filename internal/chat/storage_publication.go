@@ -91,7 +91,9 @@ func (p *LiveProjection) reconcileStorageMutationLocked(ctx context.Context, con
 	if c.storagePublicationErr != nil {
 		ids = uniquePublicationIDs(append(ids, c.materializedIDsLocked()...))
 	}
-	if err := p.reconcileStorageLocked(ctx, conversationID, c, ids, nil); err != nil {
+	// Somente esta fronteira já confirmou a escrita. Consultas e retenção
+	// compartilham a reconciliação, mas preservam o contexto de seus pedidos.
+	if err := p.reconcileStorageLocked(context.WithoutCancel(ctx), conversationID, c, ids, nil); err != nil {
 		c.failStoragePublicationLocked(ids, err)
 	}
 }
@@ -186,8 +188,12 @@ func (p *LiveProjection) recoverStoragePublicationLocked(ctx context.Context, co
 func (p *LiveProjection) reconcileStorageLocked(ctx context.Context, conversationID string, c *projectionConversation, ids []string, expected *database.ChatTimelineVersion) (resultErr error) {
 	finish := c.beginCanonicalPublication()
 	defer func() { finish(conversationID, resultErr == nil) }()
+	return p.reconcileStorageStageLocked(ctx, conversationID, c, ids, expected)
+}
+
+func (p *LiveProjection) reconcileStorageStageLocked(ctx context.Context, conversationID string, c *projectionConversation, ids []string, expected *database.ChatTimelineVersion) error {
 	if len(c.windows) > 0 {
-		readCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), canonicalReadTimeout)
+		readCtx, cancel := context.WithTimeout(ctx, canonicalReadTimeout)
 		defer cancel()
 		if expected == nil {
 			version, err := p.reader.ReadVersion(readCtx, conversationID)
@@ -225,12 +231,23 @@ func (p *LiveProjection) reconcileStorageLocked(ctx context.Context, conversatio
 
 // Percurso único em parcelas, com controle de versão em ambas as passagens.
 func (p *LiveProjection) visitStorageSelectionsLocked(ctx context.Context, conversationID string, ids []string, expected *database.ChatTimelineVersion, visit func([]string, *TimelineSelectionSnapshot) error) (*database.ChatTimelineVersion, error) {
-	readCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), canonicalReadTimeout)
+	return visitVersionedSelections(ctx, conversationID, ids, expected, p.reader.ReadSelection, visit)
+}
+
+// Compartilhado por conteúdo e lifecycle: parcela por quantidade e por bytes.
+func visitVersionedSelections(ctx context.Context, conversationID string, ids []string, expected *database.ChatTimelineVersion, read func(context.Context, string, []string) (*TimelineSelectionSnapshot, error), visit func([]string, *TimelineSelectionSnapshot) error) (*database.ChatTimelineVersion, error) {
+	readCtx, cancel := context.WithTimeout(ctx, canonicalReadTimeout)
 	defer cancel()
 	version := expected
 	var reconcileBatch func([]string) error
 	reconcileBatch = func(batch []string) error {
-		snapshot, err := p.reader.ReadSelection(readCtx, conversationID, batch)
+		if err := readCtx.Err(); err != nil {
+			return err
+		}
+		snapshot, err := read(readCtx, conversationID, batch)
+		if contextErr := readCtx.Err(); contextErr != nil {
+			return contextErr
+		}
 		if err == nil {
 			if version == nil {
 				version = &snapshot.Version
@@ -291,11 +308,16 @@ func (p *LiveProjection) reconcileStorageBatchLocked(conversationID string, c *p
 
 func reconcileStorageLifecycleLocked(c *projectionConversation, ids []string, snapshot *TimelineSelectionSnapshot) {
 	reconcileProjectionVersion(c, snapshot.Version)
+	turnIDs := append([]string(nil), snapshot.TurnIDs...)
+	// Referências explícitas comprovam também ausência/exclusão de uma resposta.
 	for _, id := range ids {
 		if turnID, ok := strings.CutPrefix(id, "turn:"); ok {
-			if t := c.turns[turnID]; t != nil {
-				reconcileProjectedTurn(c, t, snapshot.Version, snapshot.Turns[turnID])
-			}
+			turnIDs = append(turnIDs, turnID)
+		}
+	}
+	for _, turnID := range uniquePublicationIDs(turnIDs) {
+		if t := c.turns[turnID]; t != nil {
+			reconcileProjectedTurn(c, t, snapshot.Version, snapshot.Turns[turnID])
 		}
 	}
 }

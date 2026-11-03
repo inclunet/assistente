@@ -11,6 +11,7 @@ import (
 )
 
 type TimelineSelectionSnapshot struct {
+	TurnIDs []string
 	Version database.ChatTimelineVersion
 	Items   []*TimelineItem
 	Turns   map[string]*database.ChatTurn
@@ -18,6 +19,48 @@ type TimelineSelectionSnapshot struct {
 
 type TimelineSelectionReader interface {
 	ReadSelection(context.Context, string, []string) (*TimelineSelectionSnapshot, error)
+}
+
+// ReadTurnLifecycles prova execução/ausência sem materializar mensagens ou ledger.
+// Turns contém somente UserMessageID, ActiveExecutionID e CurrentExecutionID;
+// não substitui registros completos da projeção. A versão acompanha a mesma
+// transação autorizada e a cota mede apenas esses campos necessários.
+func (r *DBTimelineReader) ReadTurnLifecycles(ctx context.Context, conversationID string, ids []string) (*TimelineSelectionSnapshot, error) {
+	if len(ids) > database.MaxMessageWindowRows {
+		return nil, ErrTimelineSourceLimit
+	}
+	if err := database.CheckTimelineIdentityBudget(ids); err != nil {
+		return nil, err
+	}
+	result := &TimelineSelectionSnapshot{TurnIDs: uniquePublicationIDs(ids)}
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		version, err := database.ReadChatTimelineVersion(ctx, tx, conversationID)
+		if err != nil {
+			return err
+		}
+		result.Version = version
+		var size int64
+		if err := tx.Model(&database.ChatTurn{}).
+			Select("COALESCE(SUM(1024 + "+publicationLifecycleSizeSQL+"), 0)").
+			Where("conversation_id=? AND user_message_id IN ?", conversationID, result.TurnIDs).
+			Scan(&size).Error; err != nil {
+			return err
+		}
+		if size > canonicalSourceBytes {
+			return ErrTimelineSourceLimit
+		}
+		var turns []database.ChatTurn
+		if err := tx.Select("user_message_id", "active_execution_id", "current_execution_id").
+			Where("conversation_id=? AND user_message_id IN ?", conversationID, result.TurnIDs).Find(&turns).Error; err != nil {
+			return err
+		}
+		result.Turns = make(map[string]*database.ChatTurn, len(turns))
+		for i := range turns {
+			result.Turns[turns[i].UserMessageID] = &turns[i]
+		}
+		return nil
+	})
+	return result, err
 }
 
 func (r *DBTimelineReader) ReadSelection(ctx context.Context, conversationID string, refs []string) (*TimelineSelectionSnapshot, error) {
@@ -100,7 +143,15 @@ func (r *DBTimelineReader) ReadSelection(ctx context.Context, conversationID str
 					ids = append(ids, row.TurnID)
 				}
 			}
-			facts, err := readTimelineFacts(ctx, tx, conversationID, ids)
+			lifecycleIDs := append([]string(nil), ids...)
+			for _, message := range rows.Messages {
+				if message.Role == "user" {
+					lifecycleIDs = append(lifecycleIDs, message.ID)
+				}
+			}
+			lifecycleIDs = uniquePublicationIDs(lifecycleIDs)
+			result.TurnIDs = append(result.TurnIDs, lifecycleIDs...)
+			facts, err := readTimelineFactsForSelection(ctx, tx, conversationID, lifecycleIDs, ids)
 			if err != nil {
 				return err
 			}

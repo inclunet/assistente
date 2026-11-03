@@ -186,12 +186,18 @@ func (p *LiveProjection) flushScheduledPublication(key projectionKey, expected *
 	c.flushPublicationLocked(key.conversationID)
 }
 
-func (c *projectionConversation) flushPublicationLocked(conversationID string) {
+func (c *projectionConversation) stopPublicationTimerLocked() {
 	if c.publicationTimer != nil {
 		c.publicationTimer.Stop()
 		c.publicationTimer = nil
 	}
 	c.publicationGeneration++
+}
+
+func (c *projectionConversation) flushPublicationLocked(conversationID string) {
+	if c.publicationStage == nil {
+		c.stopPublicationTimerLocked()
+	}
 	if c.publicationErrorLocked() != nil {
 		return
 	}
@@ -203,6 +209,7 @@ func (c *projectionConversation) flushPublicationLocked(conversationID string) {
 	}
 	sort.Strings(ids)
 	items := make([]*TimelineItem, 0, len(ids))
+	turns := make([]*liveTurn, 0, len(ids))
 	for _, id := range ids {
 		t := c.turns[id]
 		item, err := projectLiveItemLocked(c, t.publicationBase)
@@ -211,10 +218,21 @@ func (c *projectionConversation) flushPublicationLocked(conversationID string) {
 			return
 		}
 		items = append(items, item)
+		turns = append(turns, t)
 	}
 	c.publishCanonical(conversationID, items)
-	for _, id := range ids {
-		t := c.turns[id]
+	if stage := c.publicationStage; stage != nil {
+		// O lote provisório pode ser descartado. Só seu commit consome o
+		// delta e o timer; rollback conserva o agendamento original.
+		stage.flushRequested = true
+		stage.flushedTurns = append(stage.flushedTurns, turns...)
+		return
+	}
+	consumePublishedTurns(turns)
+}
+
+func consumePublishedTurns(turns []*liveTurn) {
+	for _, t := range turns {
 		t.publicationDirty = false
 		if t.finished {
 			t.publicationBase, t.publicationBytes = nil, 0

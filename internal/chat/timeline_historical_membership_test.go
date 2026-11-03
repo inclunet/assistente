@@ -216,7 +216,7 @@ func TestHistoricalMembershipRepositoryCancelsAfterAuthorization(t *testing.T) {
 	defer cancel()
 	anchorReached := false
 	if err := f.db.Callback().Row().Before("gorm:row").Register("historical_cancel", func(tx *gorm.DB) {
-		if strings.Contains(tx.Statement.SQL.String(), "item_key=?") {
+		if strings.Contains(tx.Statement.SQL.String(), "item_key IN (") {
 			anchorReached = true
 			cancel()
 		}

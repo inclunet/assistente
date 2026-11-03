@@ -14,6 +14,8 @@ import (
 // de streaming. Metadados nullable aguardam o DTO canônico; Nodes/Window ainda
 // são os adaptadores visuais existentes.
 type TimelineWindowSnapshot struct {
+	// Provas anteriores à troca da janela, calculadas sob a mesma barreira.
+	priorTurnValidity     map[string]bool
 	BeforeCursor          string
 	AfterCursor           string
 	Items                 []*TimelineItem
@@ -51,6 +53,7 @@ type TimelineSnapshotReader interface {
 // A publicação automática exige leitura limitada antes de materializar payloads.
 type PublicationSnapshotReader interface {
 	ReadVersion(context.Context, string) (database.ChatTimelineVersion, error)
+	ReadTurnLifecycles(context.Context, string, []string) (*TimelineSelectionSnapshot, error)
 	ReadPublicationTurn(context.Context, string, string) (*TimelineTurnSnapshot, error)
 	TimelineSelectionReader
 }

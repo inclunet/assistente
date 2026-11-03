@@ -22,6 +22,7 @@ var ErrTimelineWindowStale = errors.New("revisão da janela mudou; sincronizaç�
 
 type subscriptionSurface struct{ sessionID, surfaceID string }
 type subscribedWindow struct {
+	pendingRetention *[]string
 	mode             TimelineWindowMode
 	query            database.MessageWindowQuery
 	handle           *TimelineSubscription
@@ -52,20 +53,22 @@ type TimelineSubscription struct {
 }
 
 type SubscribedTimelineSnapshot struct {
-	Mode           TimelineWindowMode
-	WindowID       string
-	WindowRevision string
-	Epoch          string
-	Sequence       string
-	Items          []CanonicalItem
-	OrderedItemIDs []string
-	TotalCount     int
-	StartIndex     int
-	EndIndex       int
-	HasBefore      bool
-	HasAfter       bool
-	BeforeCursor   string
-	AfterCursor    string
+	RetainedItemIDs  []string
+	RetentionBlocked bool
+	Mode             TimelineWindowMode
+	WindowID         string
+	WindowRevision   string
+	Epoch            string
+	Sequence         string
+	Items            []CanonicalItem
+	OrderedItemIDs   []string
+	TotalCount       int
+	StartIndex       int
+	EndIndex         int
+	HasBefore        bool
+	HasAfter         bool
+	BeforeCursor     string
+	AfterCursor      string
 }
 
 func (p *LiveProjection) SubscribeTimeline(ctx context.Context, session TimelineSession, surfaceID string, query database.MessageWindowQuery, reader CanonicalWindowSnapshotReader) (*TimelineSubscription, *SubscribedTimelineSnapshot, error) {
@@ -131,10 +134,16 @@ func cloneWindowQuery(query database.MessageWindowQuery) database.MessageWindowQ
 }
 
 func subscriptionSnapshot(c *projectionConversation, window *subscribedWindow, snapshot *TimelineWindowSnapshot, query database.MessageWindowQuery) *SubscribedTimelineSnapshot {
+	retained := window.metadata.RetainedItemIDs
+	if window.version.Incarnation != snapshot.Version.Incarnation {
+		retained = nil
+	}
 	window.query = cloneWindowQuery(query)
 	window.syncRequired = false
 	window.revision++
 	result := &SubscribedTimelineSnapshot{Mode: window.mode, WindowID: window.id, Epoch: c.epoch, Sequence: strconv.FormatUint(c.publication.sequence, 10), Items: make([]CanonicalItem, 0, len(snapshot.Items)), OrderedItemIDs: make([]string, 0, len(snapshot.Items)), TotalCount: snapshot.Window.TotalCount, StartIndex: snapshot.Window.StartIndex, EndIndex: snapshot.Window.EndIndex, HasBefore: snapshot.Window.HasBefore, HasAfter: snapshot.Window.HasAfter, BeforeCursor: snapshot.BeforeCursor, AfterCursor: snapshot.AfterCursor}
+	result.RetainedItemIDs = retainedInSnapshot(retained, snapshot)
+	result.RetentionBlocked = window.mode == TimelineWindowFollowTail && len(result.RetainedItemIDs) > 0 && snapshot.Window.HasAfter
 	result.WindowRevision = strconv.FormatUint(window.revision, 10)
 	window.version = snapshot.Version
 	window.epoch = c.epoch
@@ -203,13 +212,32 @@ func (s *TimelineSubscription) Refresh(ctx context.Context, windowRevision strin
 	if _, ok := c.windows[s.windowID].acceptsSnapshotRevision(windowRevision); !ok {
 		return nil, ErrTimelineWindowStale
 	}
-	mode := c.windows[s.windowID].mode
+	window := c.windows[s.windowID]
+	replacementIncarnation := ""
+	if position != nil && len(window.metadata.RetainedItemIDs) > 0 {
+		version, readErr := s.owner.reader.ReadVersion(authorized, s.key.conversationID)
+		if readErr != nil {
+			return nil, readErr
+		}
+		if version.Incarnation == window.version.Incarnation {
+			return nil, ErrTimelineRetention
+		}
+		replacementIncarnation = version.Incarnation
+	}
+	mode := window.mode
 	query := c.windows[s.windowID].query
 	if position != nil {
 		query = s.windowQuery(*position)
 		mode = TimelineWindowHistorical
 	}
-	snapshot, err := s.owner.readWindowLocked(authorized, query, canonicalWindowAdapter{s.reader}, true, c)
+	var reader WindowSnapshotReader = canonicalWindowAdapter{s.reader}
+	if position == nil && len(window.metadata.RetainedItemIDs) > 0 {
+		reader = retainedWindowReader{s, window}
+	}
+	if replacementIncarnation != "" {
+		reader = incarnationWindowReader{reader, replacementIncarnation}
+	}
+	snapshot, err := s.owner.readWindowLocked(authorized, query, subscriptionLifecycleReader{s, window, reader}, true, c)
 	if err != nil {
 		return nil, err
 	}
@@ -254,6 +282,9 @@ func (s *TimelineSubscription) Navigate(ctx context.Context, request TimelineWin
 	if request.Epoch != c.epoch || window.epoch != c.epoch || request.WindowRevision != strconv.FormatUint(window.revision, 10) {
 		return nil, ErrTimelineWindowStale
 	}
+	if len(window.metadata.RetainedItemIDs) > 0 {
+		return nil, ErrTimelineRetention
+	}
 	mode, err := navigationMode(request)
 	if err != nil {
 		return nil, err
@@ -262,7 +293,7 @@ func (s *TimelineSubscription) Navigate(ctx context.Context, request TimelineWin
 	if mode == TimelineWindowFollowTail {
 		query.Anchor, query.Direction = "end", "before"
 	}
-	snapshot, err := s.owner.readWindowLocked(authorized, query, canonicalWindowAdapter{s.reader}, true, c)
+	snapshot, err := s.owner.readWindowLocked(authorized, query, subscriptionLifecycleReader{s, window, canonicalWindowAdapter{s.reader}}, true, c)
 	if err != nil {
 		return nil, err
 	}

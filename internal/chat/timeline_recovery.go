@@ -297,7 +297,16 @@ func reconcileProjectionVersion(c *projectionConversation, version database.Chat
 // Reconcilia apenas fatos que pertencem ao snapshot autorizado. Ausência em outra
 // página não significa exclusão; o chamador informa os turnos efetivamente lidos.
 func reconcileProjectedTurn(c *projectionConversation, t *liveTurn, version database.ChatTimelineVersion, turn *database.ChatTurn) bool {
-	compatible := t.incarnation == version.Incarnation && turn != nil && ((turn.ActiveExecutionID != nil && *turn.ActiveExecutionID == t.executionID) || (t.finished && turn.CurrentExecutionID != nil && *turn.CurrentExecutionID == t.executionID))
+	compatible := projectedTurnCompatible(t, version, turn)
+	reconcileProjectedValidity(c, t, compatible)
+	return compatible
+}
+
+func projectedTurnCompatible(t *liveTurn, version database.ChatTimelineVersion, turn *database.ChatTurn) bool {
+	return t != nil && t.incarnation == version.Incarnation && turn != nil && ((turn.ActiveExecutionID != nil && *turn.ActiveExecutionID == t.executionID) || (t.finished && turn.CurrentExecutionID != nil && *turn.CurrentExecutionID == t.executionID))
+}
+
+func reconcileProjectedValidity(c *projectionConversation, t *liveTurn, compatible bool) {
 	if !compatible {
 		t.publicationBase, t.publicationBytes = nil, 0
 		t.publicationErr, t.publicationDirty = nil, false
@@ -306,7 +315,6 @@ func reconcileProjectedTurn(c *projectionConversation, t *liveTurn, version data
 		t.detached = true
 		c.revision++
 	}
-	return compatible
 }
 
 // ReadWindow usa a mesma barreira de admissão, deltas e commits do turno.
@@ -347,7 +355,17 @@ func (p *LiveProjection) readWindowLocked(ctx context.Context, query database.Me
 	if err != nil {
 		return nil, err
 	}
+	// Aceita a leitura antes de reconciliar ou publicar seus efeitos. Depois
+	// desta fronteira, cancelamento pode concorrer com o commit do snapshot.
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	reconcileProjectionVersion(c, snapshot.Version)
+	for turnID, compatible := range snapshot.priorTurnValidity {
+		if t := c.turns[turnID]; t != nil {
+			reconcileProjectedValidity(c, t, compatible)
+		}
+	}
 	for _, turnID := range snapshot.TurnIDs {
 		if t := c.turns[turnID]; t != nil {
 			reconcileProjectedTurn(c, t, snapshot.Version, snapshot.Turns[turnID])

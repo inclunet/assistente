@@ -1551,8 +1551,13 @@ LIMIT 1`
 		if !r.includeTimelineTurns {
 			return nil, fmt.Errorf("anchorItemId exige janela canônica")
 		}
-		sql = r.timelineItemCTE(query.ParentID) + " SELECT " + timelineItemColumns + " FROM timeline_items WHERE item_key=? LIMIT 1"
-		args = append(r.timelineItemArgs(query.ConversationID, query.ParentID), query.AnchorItemID)
+		// A identidade já é conhecida. Reutiliza a seleção pontual para não
+		// classificar toda a conversa em cada prova de fronteira histórica.
+		var err error
+		sql, args, err = r.timelineSelectionQuery(query.ConversationID, query.ParentID, []string{query.AnchorItemID})
+		if err != nil {
+			return nil, err
+		}
 	}
 	rows, err := r.scanTimelineItems(sql, args, "")
 	if err != nil {
