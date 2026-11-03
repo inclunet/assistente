@@ -340,6 +340,11 @@ func TestWindowRetentionNewIncarnationCanReplaceLostCursorExplicitly(t *testing.
 	}
 	w := sub.conversation.windows[sub.windowID]
 	revision := strconv.FormatUint(w.revision, 10)
+	navigation := navigationFrom(fresh)
+	navigation.WindowRevision = revision
+	if _, err := sub.Navigate(f.ctx, navigation); !errors.Is(err, ErrTimelineRetention) {
+		t.Fatal("Navigate recuperou encarnação sem liberar retenção", err)
+	}
 	if _, err := sub.Refresh(f.ctx, revision, nil); err == nil {
 		t.Fatal("cursor removido aceito")
 	}
