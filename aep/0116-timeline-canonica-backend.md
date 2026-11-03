@@ -51,10 +51,10 @@ na segunda parcela sem publicação parcial.
 
 Validação: 420 testes seguros de chat; 99 de controllers, 53 de handlers/turnos
 do agente e duas regressões de áudio nas rodadas pertinentes. Build/vet e lint
-incremental aprovados. Revisor independente review_aep: quatorze rodadas, sem
+incremental aprovados. Revisor independente review_aep: quinze rodadas, sem
 pendências finais. Sem ACP local ou NVDA. Transporte e cutover frontend continuam
 pendentes; este recorte não declara resolução do foco na UI. O custo de leitura
-por transição integra o gate de desempenho final ainda pendente.
+por transição integra o gate de desempenho final ainda pendente. A fixture de fontes agregadas compartilha somente a preparação entre os mesmos três cenários sequenciais; 21 testes focados passaram após esse ajuste. Medição local desse teste: 33,7 s/44 MB de log antes e 15,5 s/6 KB depois, sem reduzir dados ou asserções; não substitui o gate de desempenho do produto.
 
 ### Recorte: acompanhamento explícito da cauda (2026-11-03)
 

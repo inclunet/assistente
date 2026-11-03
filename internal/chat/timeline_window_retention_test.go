@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"github.com/google/uuid"
+	"gorm.io/gorm/logger"
 	"reflect"
 	"strconv"
 	"strings"
@@ -453,6 +454,7 @@ func TestWindowRetentionTailCutReconcilesDepartingExecution(t *testing.T) {
 
 func TestTimelineTurnLifecycleReadDoesNotLoadPayloads(t *testing.T) {
 	f := newSnapshotFixture(t)
+	f.db.Logger = logger.Discard
 	if err := f.db.Model(&database.ChatMessage{}).Where("id=?", f.question).Update("content", strings.Repeat("x", canonicalSourceBytes+1)).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -472,6 +474,7 @@ func TestWindowLifecycleSurvivesRefreshAndNavigationCuts(t *testing.T) {
 	for _, mode := range []string{"delete-refresh", "retry-navigate", "active-navigate", "drift-refresh", "oversized-reference-navigate"} {
 		t.Run(mode, func(t *testing.T) {
 			f, p, e, _ := automaticFixture(t)
+			f.db.Logger = logger.Discard
 			stream := e.StartStream(0)
 			stream.Append("antes")
 			sub, initial, err := p.SubscribeTimeline(f.ctx, &fixtureTimelineSession{ctx: f.ctx, id: "s"}, "tail", database.MessageWindowQuery{ConversationID: f.conversation, Anchor: "end", Direction: "before", Limit: 2}, f.reader)
@@ -577,6 +580,7 @@ func (r *driftingWindowLifecycleReader) ReadTurnLifecycles(ctx context.Context, 
 
 func TestTimelineTurnLifecycleRejectsOversizedReferences(t *testing.T) {
 	f := newSnapshotFixture(t)
+	f.db.Logger = logger.Discard
 	oversized := strings.Repeat("x", canonicalSourceBytes+1)
 	if err := f.db.Table("chat_messages").Create(map[string]any{"id": oversized, "conversation_id": f.conversation, "turn_id": f.question, "role": "assistant", "content": "curto", "created_at": time.Now(), "updated_at": time.Now()}).Error; err != nil {
 		t.Fatal(err)
@@ -684,44 +688,51 @@ func TestWindowRetentionSiblingCutsReconcileLifecycle(t *testing.T) {
 }
 
 func TestWindowLifecyclePartitionsAggregateSources(t *testing.T) {
+	f := newSnapshotFixture(t)
+	f.db.Logger = logger.Discard
+	ids := []string{}
+	for i := 0; i < 3; i++ {
+		q, err := database.CreateMessageWithContext(f.ctx, database.MessageOptions{ConversationID: f.conversation, Role: "user", Content: "pergunta"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		destination := strconv.Itoa(i) + strings.Repeat("x", 3*1024*1024)
+		if err := f.db.Table("chat_messages").Create(map[string]any{"id": destination, "conversation_id": f.conversation, "turn_id": q.ID, "role": "assistant", "content": "curto", "created_at": time.Now(), "updated_at": time.Now()}).Error; err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, q.ID)
+	}
+	if err := database.NewChatTurnRepository(f.db).ReconcileImportedConversationInTransaction(f.ctx, f.conversation); err != nil {
+		t.Fatal(err)
+	}
+	for i, id := range ids {
+		attachTestExecutionReference(t, f, id, strconv.Itoa(i)+strings.Repeat("e", 3*1024*1024))
+	}
+	if _, err := f.reader.ReadTurnLifecycles(f.ctx, f.conversation, ids); !errors.Is(err, ErrTimelineSourceLimit) {
+		t.Fatal("fixture não excede cota agregada", err)
+	}
+	probe := &partitionedLifecycleReader{DBTimelineReader: f.reader}
+	p := NewLiveProjection(probe)
+	var sub *TimelineSubscription
+	for i, id := range ids {
+		opened, _, err := p.SubscribeTimeline(f.ctx, &fixtureTimelineSession{ctx: f.ctx, id: "s"}, strconv.Itoa(i), database.MessageWindowQuery{ConversationID: f.conversation, AnchorItemID: "message:" + id, Direction: "around", Limit: 1}, f.reader)
+		if err != nil {
+			t.Fatal("janela individual inválida", err)
+		}
+		defer opened.Close()
+		if sub == nil {
+			sub = opened
+		}
+	}
+	c := sub.conversation
+	// SetRetention não escreve storage: os três cenários compartilham a mesma
+	// base SQL. Só o estado visual/live é restaurado, mantendo dados e assertivas.
+	initialWindows, initialPublication := cloneSubscribedWindows(c.windows), c.publication.fork()
 	for _, failure := range []string{"", "drift", "read"} {
 		t.Run("failure-"+failure, func(t *testing.T) {
-			f := newSnapshotFixture(t)
-			ids := []string{}
-			for i := 0; i < 3; i++ {
-				q, err := database.CreateMessageWithContext(f.ctx, database.MessageOptions{ConversationID: f.conversation, Role: "user", Content: "pergunta"})
-				if err != nil {
-					t.Fatal(err)
-				}
-				destination := strconv.Itoa(i) + strings.Repeat("x", 3*1024*1024)
-				if err := f.db.Table("chat_messages").Create(map[string]any{"id": destination, "conversation_id": f.conversation, "turn_id": q.ID, "role": "assistant", "content": "curto", "created_at": time.Now(), "updated_at": time.Now()}).Error; err != nil {
-					t.Fatal(err)
-				}
-				ids = append(ids, q.ID)
-			}
-			if err := database.NewChatTurnRepository(f.db).ReconcileImportedConversationInTransaction(f.ctx, f.conversation); err != nil {
-				t.Fatal(err)
-			}
-			for i, id := range ids {
-				attachTestExecutionReference(t, f, id, strconv.Itoa(i)+strings.Repeat("e", 3*1024*1024))
-			}
-			if _, err := f.reader.ReadTurnLifecycles(f.ctx, f.conversation, ids); !errors.Is(err, ErrTimelineSourceLimit) {
-				t.Fatal("fixture não excede cota agregada", err)
-			}
-			probe := &partitionedLifecycleReader{DBTimelineReader: f.reader, failure: failure}
-			p := NewLiveProjection(probe)
-			var sub *TimelineSubscription
-			for i, id := range ids {
-				opened, _, err := p.SubscribeTimeline(f.ctx, &fixtureTimelineSession{ctx: f.ctx, id: "s"}, strconv.Itoa(i), database.MessageWindowQuery{ConversationID: f.conversation, AnchorItemID: "message:" + id, Direction: "around", Limit: 1}, f.reader)
-				if err != nil {
-					t.Fatal("janela individual inválida", err)
-				}
-				defer opened.Close()
-				if sub == nil {
-					sub = opened
-				}
-			}
-			c := sub.conversation
+			c.windows, c.publication = cloneSubscribedWindows(initialWindows), initialPublication.fork()
+			c.turns = make(map[string]*liveTurn)
+			probe.failure, probe.successes = failure, 0
 			for _, id := range ids {
 				c.turns[id] = &liveTurn{turnID: id, executionID: "previous", incarnation: c.incarnation}
 			}
@@ -745,6 +756,7 @@ func TestWindowLifecyclePartitionsAggregateSources(t *testing.T) {
 					t.Fatal("lifecycle não reconciliado", id)
 				}
 			}
+
 		})
 	}
 }
