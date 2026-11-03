@@ -35,10 +35,11 @@ func newSnapshotFixture(t testing.TB) snapshotFixture {
 	}
 	t.Cleanup(func() { _ = database.Close(); restore() })
 	db := database.DB()
-	// Fixtures exercitam payloads de vários MiB. Registrar os parâmetros expande
-	// cada INSERT/UPDATE lento em megabytes de log, sem acrescentar diagnóstico.
+	// Fixtures exercitam payloads sintéticos de vários MiB. Scan do GORM registra
+	// SQL já expandido, mesmo com ParameterizedQueries. Lentidão é esperada aqui;
+	// preservar erros de banco sem despejar megabytes por aviso de SLOW SQL.
 	db.Logger = logger.New(log.New(os.Stdout, "", log.LstdFlags), logger.Config{
-		SlowThreshold: 200 * time.Millisecond, LogLevel: logger.Warn,
+		LogLevel:             logger.Error,
 		ParameterizedQueries: true,
 	})
 	if err := db.Create(&database.User{UUIDModel: database.UUIDModel{ID: "snapshot-user"}, Username: "snapshot-user"}).Error; err != nil {
