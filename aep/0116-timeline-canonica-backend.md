@@ -55,11 +55,17 @@ repetições apenas contra o journal. Duas janelas de 5 MiB ou três superfície
 com a mesma entrada de 3 MiB confirmam participação e oferecem snapshot após
 lacuna, sem suspender a conversa. A cota final de 8 MiB permanece por janela.
 
+A seleção de identidades respeita a cota por superfície, sem somar IDs repetidos
+entre janelas. Regressões cobrem seleções independentes de 3 MiB, recusa de uma
+seleção acima de 8 MiB e rollback do lifecycle após CommitResponse com falha na
+última janela ou drift: cache, journal e participações são restaurados, enquanto
+commit, buffers e conteúdo recuperado permanecem íntegros.
+
 Nenhum teste ACP local ou teste NVDA foi executado neste recorte.
 
-Validação local: 391 testes seguros de chat, 363 de banco, 99 de controllers
-e duas regressões de áudio (855), build/vet e lint incremental sem erros. Revisão
-independente review_aep: quatro rodadas; cota agregada e atomicidade corrigidas
+Validação local: 393 testes seguros de chat, 363 de banco, 99 de controllers
+e duas regressões de áudio (857), build/vet e lint incremental sem erros. Revisão
+independente review_aep: cinco rodadas; cota agregada e atomicidade corrigidas
 após a primeira; rodadas seguintes sem pendências, incluindo as correções remotas.
 O teste de áudio conserva uma única seleção e a omissão do payload, exigindo agora
 todos os participantes em vez de somente o item alterado. Inscrição recusa reader

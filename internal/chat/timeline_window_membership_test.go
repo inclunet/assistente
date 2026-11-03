@@ -608,3 +608,107 @@ func TestWindowMembershipRejectsUnsupportedReaderBeforeSubscription(t *testing.T
 		t.Fatal("reader inválido chegou à inscrição", err)
 	}
 }
+
+type largeMembershipSelection struct {
+	*DBTimelineReader
+	size int
+}
+
+func (r *largeMembershipSelection) ReadHistoricalMembership(ctx context.Context, q database.MessageWindowQuery, first, last string) (*TimelineMembershipSnapshot, error) {
+	result, err := r.DBTimelineReader.ReadHistoricalMembership(ctx, q, first, last)
+	if err == nil {
+		result.Selection.Items[0].ID = strings.Repeat("x", r.size)
+	}
+	return result, err
+}
+
+func TestWindowMembershipSelectionBudgetIsPerSurface(t *testing.T) {
+	for _, oversized := range []bool{false, true} {
+		t.Run(strconv.FormatBool(oversized), func(t *testing.T) {
+			f, p := membershipFixture(t)
+			probe := &largeMembershipSelection{DBTimelineReader: f.reader, size: 3 * 1024 * 1024}
+			if oversized {
+				probe.size = canonicalSourceBytes
+			}
+			var c *projectionConversation
+			for i := range 3 {
+				sub, _ := membershipSubscribe(t, f, p, strconv.Itoa(i), 10)
+				c = sub.conversation
+				c.windows[sub.windowID].membership = probe
+			}
+			historicalMessage(t, f, "outside", 30, nil)
+			version, err := f.reader.ReadVersion(f.ctx, f.conversation)
+			if err != nil {
+				t.Fatal(err)
+			}
+			c.mu.Lock()
+			defer c.mu.Unlock()
+			finish := c.beginCanonicalPublication()
+			err = p.refreshWindowMembershipLocked(f.ctx, f.conversation, c, version)
+			finish(f.conversation, false)
+			if oversized && !errors.Is(err, ErrTimelineSourceLimit) {
+				t.Fatal("seleção excedente aceita", err)
+			}
+			if !oversized && err != nil {
+				t.Fatal("superfícies independentes somadas", err)
+			}
+		})
+	}
+}
+
+func TestWindowMembershipLifecycleFailureRestoresPublicationAndKeepsCommit(t *testing.T) {
+	for _, drift := range []bool{false, true} {
+		t.Run(strconv.FormatBool(drift), func(t *testing.T) {
+			f, p, e, _ := automaticFixture(t)
+			repo := database.NewChatTurnRepository(f.db)
+			responseID, err := e.AssignResponse(func() (string, error) { return repo.EnsureResponse(f.ctx, f.conversation, f.question, e.executionID) })
+			if err != nil {
+				t.Fatal(err)
+			}
+			e.StartStream(0).Append("final preservado")
+			c := e.conversation
+			c.mu.Lock()
+			c.flushPublicationLocked(f.conversation)
+			c.mu.Unlock()
+			a, _ := membershipSubscribe(t, f, p, "one", 10)
+			b, _ := membershipSubscribe(t, f, p, "two", 10)
+			ids := []string{a.windowID, b.windowID}
+			sort.Strings(ids)
+			probe := &membershipProbe{DBTimelineReader: f.reader, fail: !drift, drift: drift}
+			if drift {
+				p.reader = probe
+			} else {
+				c.windows[ids[1]].membership = probe
+			}
+			beforeWindows, beforePublication := cloneSubscribedWindows(c.windows), c.publication.fork()
+			err = e.CommitResponse(database.TurnCompleted, "completed", "final preservado", "", func() (database.ChatTimelineVersion, error) {
+				// Altera contagem em ambas as janelas antes da falha auxiliar.
+				historicalMessage(t, f, "outside", 30, nil)
+				return repo.FinishResponseWithVersion(f.ctx, f.conversation, f.question, e.executionID, database.TurnCompleted, "completed", responseID, &database.MessageOptions{Content: "final preservado"})
+			})
+			if err != nil {
+				t.Fatal("commit confirmado virou erro", err)
+			}
+			c.mu.Lock()
+			publicationErr := c.publicationErrorLocked()
+			restored := reflect.DeepEqual(beforePublication, c.publication) && reflect.DeepEqual(beforeWindows, c.windows)
+			live := snapshotLiveTurn(c, c.turns[e.turnID])
+			c.mu.Unlock()
+			if !restored || !errors.Is(publicationErr, ErrTimelinePublication) {
+				t.Fatal("estágio do lifecycle vazou estado", publicationErr)
+			}
+			if len(live.Streams) != 1 || testLiveSegment(live.Streams[0], "text", 0).Text != "final preservado" {
+				t.Fatal("rollback perdeu buffer")
+			}
+			stored, err := f.reader.ReadTurn(f.ctx, f.conversation, f.question)
+			if err != nil || stored.Turn.State != database.TurnCompleted || stored.Response.Representative.Content != "final preservado" {
+				t.Fatal("commit foi desfeito", err)
+			}
+			probe.fail, probe.drift = false, false
+			recovered, err := p.ReadRecovery(f.ctx, f.conversation, f.question, f.reader)
+			if err != nil || canonicalText(canonicalItem(recovered.Item)) != "final preservado" {
+				t.Fatal("recuperação perdeu conteúdo", err)
+			}
+		})
+	}
+}

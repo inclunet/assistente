@@ -32,7 +32,6 @@ func (p *LiveProjection) refreshWindowMembershipLocked(ctx context.Context, conv
 	}
 	sort.Strings(ids)
 	patches := make([]CanonicalWindowPatch, 0)
-	budget := canonicalSourceBytes
 	for _, id := range ids {
 		w := c.windows[id]
 		if w.epoch != c.epoch || w.syncRequired || w.version == version {
@@ -74,8 +73,7 @@ func (p *LiveProjection) refreshWindowMembershipLocked(ctx context.Context, conv
 			return ErrProjectionRecoveryRequired
 		}
 		encoded, _ := json.Marshal(snapshot.Selection)
-		budget -= len(encoded)
-		if budget < 0 {
+		if len(encoded) > canonicalSourceBytes {
 			return ErrTimelineSourceLimit
 		}
 		rows := snapshot.Selection
