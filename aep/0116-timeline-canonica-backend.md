@@ -14,8 +14,8 @@ referências e journal.
 
 FollowTail preserva fronteiras históricas quando a cauda expulsaria um retido
 sobrevivente e informa retentionBlocked. Exclusão/saída do escopo vence retenção;
-ausência na cauda não comprova exclusão. Se nenhum retido sobrevive, Refresh pode
-recuperar a cauda na mesma versão. Fronteira perdida, intervalo excedente ou item
+ausência na cauda não comprova exclusão. Refresh usa a mesma seleção da atualização automática e pode recuperar a cauda
+quando ela contém todos os sobreviventes, na mesma versão. Fronteira perdida, intervalo excedente ou item
 retido movido para fora dele exige sincronização local, sem cortar o visual.
 
 Navigate e Refresh com posição explícita exigem liberação prévia, exceto quando
@@ -25,15 +25,18 @@ conserva referências; liberação em base invalidada só as retira e mantém
 SyncRequired até snapshot. Nova encarnação não herda referências; Close libera
 as da inscrição. Snapshots copiam os IDs.
 
-Refresh/Navigate incorporam ao snapshot o lifecycle dos turnos da janela anterior,
-na mesma versão e antes dos efeitos. A atualização comum de participação comprova
+Refresh/Navigate guardam provas de validade da janela anterior, na mesma versão,
+antes dos efeitos e separadas dos registros completos do snapshot. A atualização comum de participação comprova
 os turnos de todas as janelas antes de qualquer corte, tanto para storage quanto
 para publicação de lifecycle. Pergunta isolada também prova execução/ausência.
 Retry ou exclusão externa desvincula o stream antigo; execução ainda ativa
 continua válida fora da página. Não há leitura específica duplicada em SetRetention.
 
-ReadTurnLifecycles lê somente versão e chat_turns na mesma transação autorizada,
-sem mensagens/ledger. A cota SQL antecede GetMany. Conteúdo e lifecycle reutilizam
+ReadTurnLifecycles seleciona somente user_message_id, active_execution_id e
+current_execution_id na mesma transação autorizada da versão, sem referências
+de resposta, mensagens ou ledger. A cota SQL considera apenas os campos lidos.
+O wrapper acumula somente decisões booleanas, sem reter registros entre parcelas
+nem substituir os registros completos do snapshot. Conteúdo e lifecycle reutilizam
 visitVersionedSelections, com subdivisão por quantidade/bytes e mesma versão em
 cada parcela; um registro individual excessivo continua recusado. Não há cota
 global indevida somando janelas válidas nem SQL por token.
@@ -42,12 +45,13 @@ Evidências em timeline_window_retention_test.go: duas superfícies, liberação
 parcial/total, replay, exclusão, fronteira perdida, item movido, rollback, pedidos
 obsoletos, nova encarnação, pergunta isolada, retry/exclusão externos, execução
 válida fora da página, corte entre superfícies por ambos os produtores, 80 turnos,
-três referências válidas de 3 MiB, registro individual excessivo e falha/drift
+três referências de execução válidas de 3 MiB, campo necessário excessivo,
+referência de resposta excessiva ignorada apenas na prova mínima e falha/drift
 na segunda parcela sem publicação parcial.
 
-Validação: 419 testes seguros de chat; 99 de controllers, 53 de handlers/turnos
+Validação: 420 testes seguros de chat; 99 de controllers, 53 de handlers/turnos
 do agente e duas regressões de áudio nas rodadas pertinentes. Build/vet e lint
-incremental aprovados. Revisor independente review_aep: treze rodadas, sem
+incremental aprovados. Revisor independente review_aep: quatorze rodadas, sem
 pendências finais. Sem ACP local ou NVDA. Transporte e cutover frontend continuam
 pendentes; este recorte não declara resolução do foco na UI. O custo de leitura
 por transição integra o gate de desempenho final ainda pendente.
@@ -289,7 +293,7 @@ Validação da primeira rodada: 359 testes seguros de chat, 362 de banco e 99 de
 aprovados (820), build/vet/lint sem erros. A conta de escape é confrontada com
 encoding/json, incluindo UTF-8 inválido; a codificação de substituição é medida
 uma vez para acompanhar a versão ativa do encoder. Nenhum teste existente foi
-removido ou relaxado. Revisor independente review_aep: treze rodadas, sem pendências.
+removido ou relaxado. Revisor independente review_aep: quatorze rodadas, sem pendências.
 
 A terceira rodada de review fecha o orçamento agregado da recuperação: as duas
 passagens validam o lote inteiro e subdividem quando fontes ou buffers não cabem,

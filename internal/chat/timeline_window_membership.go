@@ -55,23 +55,7 @@ func (p *LiveProjection) refreshWindowMembershipLocked(ctx context.Context, conv
 			cancel()
 			return retainErr
 		}
-		blocked := false
-		var snapshot *TimelineMembershipSnapshot
-		if w.mode == TimelineWindowFollowTail {
-			snapshot, err = w.membership.ReadWindowMembership(readCtx, w.query)
-			if err == nil {
-				if snapshot.Version != version {
-					cancel()
-					return ErrProjectionRecoveryRequired
-				}
-				blocked = !containsRetained(membershipIDs(snapshot.Selection), retained)
-				if blocked {
-					snapshot, err = w.membership.ReadHistoricalMembership(readCtx, w.query, w.metadata.BeforeCursor, w.metadata.AfterCursor)
-				}
-			}
-		} else {
-			snapshot, err = w.membership.ReadHistoricalMembership(readCtx, w.query, w.metadata.BeforeCursor, w.metadata.AfterCursor)
-		}
+		snapshot, blocked, err := selectRetainedMembership(readCtx, w, retained, version)
 		if err == nil && !containsRetained(membershipIDs(snapshot.Selection), retained) {
 			err = database.ErrTimelineCursorStale
 		}
@@ -99,9 +83,6 @@ func (p *LiveProjection) refreshWindowMembershipLocked(ctx context.Context, conv
 			continue
 		}
 		cancel()
-		if snapshot.Version != version {
-			return ErrProjectionRecoveryRequired
-		}
 		encoded, _ := json.Marshal(snapshot.Selection)
 		if len(encoded) > canonicalSourceBytes {
 			return ErrTimelineSourceLimit

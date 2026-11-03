@@ -3,12 +3,9 @@ package chat
 import (
 	"assistente/internal/database"
 	"context"
-	"maps"
 	"strings"
 )
 
-// Comprova os turnos da janela anterior mesmo quando a nova seleção os corta.
-// Ausência na página não é ausência no storage; a leitura não carrega payloads.
 func liveWindowTurnIDs(c *projectionConversation, itemIDs []string) []string {
 	ids := []string{}
 	for _, itemID := range itemIDs {
@@ -20,41 +17,29 @@ func liveWindowTurnIDs(c *projectionConversation, itemIDs []string) []string {
 	return uniquePublicationIDs(ids)
 }
 
-func (p *LiveProjection) readWindowLifecycles(ctx context.Context, conversationID string, ids []string, version database.ChatTimelineVersion) (*TimelineSelectionSnapshot, error) {
+// Todos os consumidores usam o mesmo percurso limitado, com versão por parcela.
+func (p *LiveProjection) visitWindowLifecycles(ctx context.Context, conversationID string, ids []string, version database.ChatTimelineVersion, visit func([]string, *TimelineSelectionSnapshot) error) error {
 	if len(ids) == 0 {
-		return nil, nil
+		return nil
 	}
 	if p.reader == nil {
-		return nil, ErrTimelineSubscription
+		return ErrTimelineSubscription
 	}
-	readCtx, cancel := context.WithTimeout(ctx, canonicalReadTimeout)
-	defer cancel()
-	lifecycle, err := p.reader.ReadTurnLifecycles(readCtx, conversationID, ids)
-	if err != nil {
-		return nil, err
-	}
-	if lifecycle.Version != version {
-		return nil, ErrProjectionRecoveryRequired
-	}
-	return lifecycle, nil
-}
-
-// Todo produtor que troca participação comprova primeiro os turnos que podem
-// sair de qualquer janela. Parcelas limitam a leitura sem carregar payloads.
-func (p *LiveProjection) reconcileParticipatingLifecycles(ctx context.Context, conversationID string, c *projectionConversation, version database.ChatTimelineVersion) error {
-	ids := liveWindowTurnIDs(c, c.participatingIDs())
-	if len(ids) == 0 {
-		return nil
-	}
-	_, err := visitVersionedSelections(ctx, conversationID, ids, &version, p.reader.ReadTurnLifecycles, func(_ []string, snapshot *TimelineSelectionSnapshot) error {
-		reconcileStorageLifecycleLocked(c, nil, snapshot)
-		return nil
-	})
+	_, err := visitVersionedSelections(ctx, conversationID, ids, &version, p.reader.ReadTurnLifecycles, visit)
 	return err
 }
 
-// A prova é incorporada ao snapshot antes de qualquer efeito do projetor.
-// Os guards do leitor interno (incluindo encarnação) continuam precedendo-a.
+// Todo produtor comprova os turnos antes de qualquer janela perder participantes.
+func (p *LiveProjection) reconcileParticipatingLifecycles(ctx context.Context, conversationID string, c *projectionConversation, version database.ChatTimelineVersion) error {
+	return p.visitWindowLifecycles(ctx, conversationID, liveWindowTurnIDs(c, c.participatingIDs()), version, func(_ []string, snapshot *TimelineSelectionSnapshot) error {
+		reconcileStorageLifecycleLocked(c, nil, snapshot)
+		return nil
+	})
+}
+
+// Guarda somente a decisão de validade, sob a mesma barreira. Não acumula
+// registros por parcela nem sobrescreve os registros completos do snapshot.
+// Todos os guards precedem os efeitos de readWindowLocked.
 type subscriptionLifecycleReader struct {
 	subscription *TimelineSubscription
 	previous     *subscribedWindow
@@ -66,25 +51,22 @@ func (r subscriptionLifecycleReader) ReadWindow(ctx context.Context, q database.
 	if err != nil {
 		return nil, err
 	}
-	lifecycle, err := r.subscription.owner.readWindowLifecycles(ctx, q.ConversationID, liveWindowTurnIDs(r.subscription.conversation, r.previous.orderedIDs), snapshot.Version)
+	c := r.subscription.conversation
+	ids := liveWindowTurnIDs(c, r.previous.orderedIDs)
+	if len(ids) == 0 {
+		return snapshot, nil
+	}
+	validity := make(map[string]bool, len(ids))
+	err = r.subscription.owner.visitWindowLifecycles(ctx, q.ConversationID, ids, snapshot.Version, func(_ []string, proof *TimelineSelectionSnapshot) error {
+		for _, id := range proof.TurnIDs {
+			validity[id] = projectedTurnCompatible(c.turns[id], proof.Version, proof.Turns[id])
+		}
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
-	if lifecycle == nil {
-		return snapshot, nil
-	}
 	result := *snapshot
-	result.TurnIDs = uniquePublicationIDs(append(append([]string(nil), snapshot.TurnIDs...), lifecycle.TurnIDs...))
-	result.Turns = maps.Clone(snapshot.Turns)
-	if result.Turns == nil {
-		result.Turns = make(map[string]*database.ChatTurn)
-	}
-	for _, id := range lifecycle.TurnIDs {
-		if turn := lifecycle.Turns[id]; turn != nil {
-			result.Turns[id] = turn
-		} else {
-			delete(result.Turns, id)
-		}
-	}
+	result.priorTurnValidity = validity
 	return &result, nil
 }

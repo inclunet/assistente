@@ -15,10 +15,11 @@ import (
 // Expressões constantes compartilhadas: não reconstruir nomes/concatenações
 // em cada leitura. O destino de PresentationMessage é contado por invocação.
 var (
-	publicationMessageSizeSQL = publicationSQLBytes("chat_messages", "id", "conversation_id", "parent_id", "turn_id", "chat_execution_id", "role", "content", "reasoning", "model", "source")
-	publicationTurnSizeSQL    = publicationSQLBytes("chat_turns", "user_message_id", "conversation_id", "response_message_id", "current_execution_id", "active_execution_id", "state", "origin")
-	publicationCallSizeSQL    = publicationSQLBytes("tool_invocations", "id", "user_id", "conversation_id", "turn_id", "chat_execution_id", "tool_catalog_id", "origin_id", "parent_invocation_id", "metadata", "input_preview", "output_preview", "display_name", "tool_call_id", "result_availability", "status") + " + " + publicationSQLBytes("selected_chat_turn", "response_message_id")
-	publicationCatalogSizeSQL = publicationSQLBytes("tool_catalog", "name", "display_name", "origin")
+	publicationLifecycleSizeSQL = publicationSQLBytes("chat_turns", "user_message_id", "active_execution_id", "current_execution_id")
+	publicationMessageSizeSQL   = publicationSQLBytes("chat_messages", "id", "conversation_id", "parent_id", "turn_id", "chat_execution_id", "role", "content", "reasoning", "model", "source")
+	publicationTurnSizeSQL      = publicationSQLBytes("chat_turns", "user_message_id", "conversation_id", "response_message_id", "current_execution_id", "active_execution_id", "state", "origin")
+	publicationCallSizeSQL      = publicationSQLBytes("tool_invocations", "id", "user_id", "conversation_id", "turn_id", "chat_execution_id", "tool_catalog_id", "origin_id", "parent_invocation_id", "metadata", "input_preview", "output_preview", "display_name", "tool_call_id", "result_availability", "status") + " + " + publicationSQLBytes("selected_chat_turn", "response_message_id")
+	publicationCatalogSizeSQL   = publicationSQLBytes("tool_catalog", "name", "display_name", "origin")
 )
 
 const publicationMessageSourceSQL = `(SELECT id FROM chat_messages WHERE id IN (SELECT CAST(unhex(value) AS TEXT) FROM json_each(?))

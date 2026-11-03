@@ -22,7 +22,9 @@ type TimelineSelectionReader interface {
 }
 
 // ReadTurnLifecycles prova execução/ausência sem materializar mensagens ou ledger.
-// A versão e os turnos são lidos na mesma transação autorizada.
+// Turns contém somente UserMessageID, ActiveExecutionID e CurrentExecutionID;
+// não substitui registros completos da projeção. A versão acompanha a mesma
+// transação autorizada e a cota mede apenas esses campos necessários.
 func (r *DBTimelineReader) ReadTurnLifecycles(ctx context.Context, conversationID string, ids []string) (*TimelineSelectionSnapshot, error) {
 	if len(ids) > database.MaxMessageWindowRows {
 		return nil, ErrTimelineSourceLimit
@@ -39,7 +41,7 @@ func (r *DBTimelineReader) ReadTurnLifecycles(ctx context.Context, conversationI
 		result.Version = version
 		var size int64
 		if err := tx.Model(&database.ChatTurn{}).
-			Select("COALESCE(SUM(1024 + "+publicationTurnSizeSQL+"), 0)").
+			Select("COALESCE(SUM(1024 + "+publicationLifecycleSizeSQL+"), 0)").
 			Where("conversation_id=? AND user_message_id IN ?", conversationID, result.TurnIDs).
 			Scan(&size).Error; err != nil {
 			return err
@@ -47,8 +49,16 @@ func (r *DBTimelineReader) ReadTurnLifecycles(ctx context.Context, conversationI
 		if size > canonicalSourceBytes {
 			return ErrTimelineSourceLimit
 		}
-		result.Turns, err = database.NewChatTurnRepository(tx).GetMany(ctx, conversationID, result.TurnIDs)
-		return err
+		var turns []database.ChatTurn
+		if err := tx.Select("user_message_id", "active_execution_id", "current_execution_id").
+			Where("conversation_id=? AND user_message_id IN ?", conversationID, result.TurnIDs).Find(&turns).Error; err != nil {
+			return err
+		}
+		result.Turns = make(map[string]*database.ChatTurn, len(turns))
+		for i := range turns {
+			result.Turns[turns[i].UserMessageID] = &turns[i]
+		}
+		return nil
 	})
 	return result, err
 }

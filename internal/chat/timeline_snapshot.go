@@ -14,6 +14,8 @@ import (
 // de streaming. Metadados nullable aguardam o DTO canônico; Nodes/Window ainda
 // são os adaptadores visuais existentes.
 type TimelineWindowSnapshot struct {
+	// Provas anteriores à troca da janela, calculadas sob a mesma barreira.
+	priorTurnValidity     map[string]bool
 	BeforeCursor          string
 	AfterCursor           string
 	Items                 []*TimelineItem

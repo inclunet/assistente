@@ -151,15 +151,12 @@ func (r retainedWindowReader) ReadWindow(ctx context.Context, query database.Mes
 	if err != nil {
 		return nil, err
 	}
-	if w.mode == TimelineWindowFollowTail && len(retained) == 0 {
-		return r.readCanonicalAtVersion(ctx, query, version)
-	}
-	membership, err := w.membership.ReadHistoricalMembership(ctx, query, w.metadata.BeforeCursor, w.metadata.AfterCursor)
+	membership, blocked, err := selectRetainedMembership(ctx, w, retained, version)
 	if err != nil {
 		return nil, err
 	}
-	if membership.Version != version {
-		return nil, ErrProjectionRecoveryRequired
+	if w.mode == TimelineWindowFollowTail && !blocked {
+		return r.readCanonicalAtVersion(ctx, query, version)
 	}
 	ids := membershipIDs(membership.Selection)
 	if !containsRetained(ids, retained) {
@@ -229,4 +226,25 @@ func (r retainedWindowReader) readCanonicalAtVersion(ctx context.Context, query 
 		return nil, ErrProjectionRecoveryRequired
 	}
 	return snapshot, nil
+}
+
+// Uma única regra de seleção para atualização automática e refresh explícito.
+func selectRetainedMembership(ctx context.Context, w *subscribedWindow, retained []string, version database.ChatTimelineVersion) (*TimelineMembershipSnapshot, bool, error) {
+	if w.mode == TimelineWindowFollowTail {
+		tail, err := w.membership.ReadWindowMembership(ctx, w.query)
+		if err != nil {
+			return nil, false, err
+		}
+		if tail.Version != version {
+			return nil, false, ErrProjectionRecoveryRequired
+		}
+		if containsRetained(membershipIDs(tail.Selection), retained) {
+			return tail, false, nil
+		}
+	}
+	historical, err := w.membership.ReadHistoricalMembership(ctx, w.query, w.metadata.BeforeCursor, w.metadata.AfterCursor)
+	if err == nil && historical.Version != version {
+		return nil, w.mode == TimelineWindowFollowTail, ErrProjectionRecoveryRequired
+	}
+	return historical, w.mode == TimelineWindowFollowTail, err
 }

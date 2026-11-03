@@ -350,6 +350,9 @@ func TestWindowRetentionExternalDeletionReleasesTailButNotSurvivingReferences(t 
 			}
 			retainWindow(t, f, sub, ids...)
 			membershipWrite(t, f, p, "new", 30)
+			if keepOther {
+				membershipWrite(t, f, p, "newer", 40)
+			}
 			if err := database.DeleteMessageWithContext(f.ctx, "first"); err != nil {
 				t.Fatal(err)
 			}
@@ -466,7 +469,7 @@ func TestTimelineTurnLifecycleReadDoesNotLoadPayloads(t *testing.T) {
 }
 
 func TestWindowLifecycleSurvivesRefreshAndNavigationCuts(t *testing.T) {
-	for _, mode := range []string{"delete-refresh", "retry-navigate", "active-navigate", "drift-refresh"} {
+	for _, mode := range []string{"delete-refresh", "retry-navigate", "active-navigate", "drift-refresh", "oversized-reference-navigate"} {
 		t.Run(mode, func(t *testing.T) {
 			f, p, e, _ := automaticFixture(t)
 			stream := e.StartStream(0)
@@ -488,7 +491,7 @@ func TestWindowLifecycleSurvivesRefreshAndNavigationCuts(t *testing.T) {
 				c.publicationGeneration++
 			}
 			c.mu.Unlock()
-			if mode == "retry-navigate" {
+			if mode == "retry-navigate" || mode == "oversized-reference-navigate" {
 				repo := database.NewChatTurnRepository(f.db)
 				if err := repo.Finish(f.ctx, f.conversation, f.question, e.executionID, database.TurnInterrupted, "cancelled"); err != nil {
 					t.Fatal(err)
@@ -511,6 +514,22 @@ func TestWindowLifecycleSurvivesRefreshAndNavigationCuts(t *testing.T) {
 			}
 			if mode == "delete-refresh" {
 				if err := database.DeleteMessageWithContext(f.ctx, f.question); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if mode == "oversized-reference-navigate" {
+				large := strings.Repeat("r", canonicalSourceBytes+1)
+				var turn database.ChatTurn
+				if err := f.db.Where("user_message_id=?", f.question).Take(&turn).Error; err != nil {
+					t.Fatal(err)
+				}
+				if err := f.db.Table("chat_messages").Create(map[string]any{"id": large, "conversation_id": f.conversation, "turn_id": f.question, "role": "assistant", "chat_execution_id": turn.ActiveExecutionID, "content": "curto", "created_at": time.Now(), "updated_at": time.Now()}).Error; err != nil {
+					t.Fatal(err)
+				}
+				if err := f.db.Exec("UPDATE chat_turn_attempts SET response_message_id=? WHERE execution_id=?", large, turn.ActiveExecutionID).Error; err != nil {
+					t.Fatal(err)
+				}
+				if err := f.db.Exec("UPDATE chat_turns SET response_message_id=? WHERE user_message_id=?", large, f.question).Error; err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -566,6 +585,14 @@ func TestTimelineTurnLifecycleRejectsOversizedReferences(t *testing.T) {
 		t.Fatal(err)
 	}
 	snapshot, err := f.reader.ReadTurnLifecycles(f.ctx, f.conversation, []string{f.question})
+	if err != nil || snapshot.Turns[f.question].ResponseMessageID != nil {
+		t.Fatal("lifecycle leu referência de resposta desnecessária", err)
+	}
+	if _, err := f.reader.ReadCanonicalWindow(f.ctx, database.MessageWindowQuery{ConversationID: f.conversation, AnchorItemID: "turn:" + f.question, Direction: "around", Limit: 1}); !errors.Is(err, ErrTimelineSourceLimit) {
+		t.Fatal("projeção completa ignorou referência excessiva", err)
+	}
+	attachTestExecutionReference(t, f, f.question, oversized)
+	snapshot, err = f.reader.ReadTurnLifecycles(f.ctx, f.conversation, []string{f.question})
 	if !errors.Is(err, ErrTimelineSourceLimit) || len(snapshot.Turns) != 0 {
 		t.Fatal("referência excessiva materializada", err)
 	}
@@ -675,6 +702,9 @@ func TestWindowLifecyclePartitionsAggregateSources(t *testing.T) {
 			if err := database.NewChatTurnRepository(f.db).ReconcileImportedConversationInTransaction(f.ctx, f.conversation); err != nil {
 				t.Fatal(err)
 			}
+			for i, id := range ids {
+				attachTestExecutionReference(t, f, id, strconv.Itoa(i)+strings.Repeat("e", 3*1024*1024))
+			}
 			if _, err := f.reader.ReadTurnLifecycles(f.ctx, f.conversation, ids); !errors.Is(err, ErrTimelineSourceLimit) {
 				t.Fatal("fixture não excede cota agregada", err)
 			}
@@ -769,5 +799,31 @@ func TestWindowLifecyclePartitionsMoreThan64Turns(t *testing.T) {
 		if !turn.detached {
 			t.Fatal("ausência não reconciliada")
 		}
+	}
+}
+
+func attachTestExecutionReference(t *testing.T, f snapshotFixture, turnID, executionID string) {
+	t.Helper()
+	if err := f.db.Table("chat_turn_attempts").Create(map[string]any{"execution_id": executionID, "turn_id": turnID, "mode": "retry", "state": "completed", "started_at": time.Now(), "finished_at": time.Now(), "terminal_reason": "completed"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := f.db.Exec("UPDATE chat_turns SET current_execution_id=?, response_message_id=NULL WHERE user_message_id=?", executionID, turnID).Error; err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestWindowRetentionRefreshUsesSafeTailWithSurvivor(t *testing.T) {
+	f, p := membershipFixture(t)
+	sub, initial := membershipSubscribe(t, f, p, "reading", 2)
+	followTail(t, f, sub, initial, 2)
+	retainWindow(t, f, sub, "message:first", "message:last")
+	membershipWrite(t, f, p, "new", 30)
+	if err := database.DeleteMessageWithContext(f.ctx, "first"); err != nil {
+		t.Fatal(err)
+	}
+	w := sub.conversation.windows[sub.windowID]
+	fresh, err := sub.Refresh(f.ctx, strconv.FormatUint(w.revision, 10), nil)
+	if err != nil || !reflect.DeepEqual(fresh.OrderedItemIDs, []string{"message:last", "message:new"}) || !reflect.DeepEqual(fresh.RetainedItemIDs, []string{"message:last"}) || fresh.RetentionBlocked {
+		t.Fatal("sobrevivente na cauda bloqueou recuperação segura", err)
 	}
 }
