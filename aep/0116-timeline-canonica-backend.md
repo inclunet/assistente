@@ -1,8 +1,35 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, mensagens, áudio, limpeza, exclusão e importação integrados; retenção por idade, órfãos, navegação, leitura leve e orçamento de fontes da janela com recuperação atômica e parcelada e participação histórica automática com publicação e replay atômicos integrados; margem de desempenho, followTail, retenção por foco, transporte e cutover pendentes
+## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, mensagens, áudio, limpeza, exclusão e importação integrados; retenção por idade, órfãos, navegação, leitura leve e orçamento de fontes da janela com recuperação atômica e parcelada e participação histórica automática com publicação e replay atômicos integrados; followTail integrado; margem de desempenho, retenção por foco, transporte e cutover pendentes
 
 Data: 2026-10-30
+
+### Recorte: acompanhamento explícito da cauda (2026-11-03)
+
+A inscrição passa a declarar modo historical ou followTail no snapshot. Subscribe
+continua histórico por padrão. Navigate com Mode=followTail é o comando explícito
+para acompanhar a cauda; aceita somente fim/before, sem cursor ou item-âncora,
+com limite de 1 a 240. Época e revisão vigentes protegem a troca contra pedidos
+atrasados. Navegação comum e Refresh com posição explícita voltam ao histórico;
+Refresh sem posição conserva modo e consulta.
+
+Em transições persistidas, followTail seleciona a cauda atual do mesmo escopo e
+versão; publica crescimento/corte e cursores novos pelo estágio atômico existente.
+A janela histórica mantém suas fronteiras. Exclusão de fronteira e cauda vazia
+não interrompem o acompanhamento. Não há consulta por token nem outro pipeline.
+
+Evidências em timeline_window_mode_test.go: duas superfícies com corte/entrada,
+replay sem reload, fechamento independente, recuperação mantendo modo, paginação
+interrompendo acompanhamento, fronteira excluída, vazio→mensagem, pedidos inválidos
+e obsoletos, identidade e ordem da pergunta/resposta durante streaming.
+
+Contrato ainda interno. Retenção por foco/leitura, transporte e consumidor
+frontend permanecem pendentes; esta entrega não corrige sozinha o foco da UI.
+As cotas por janela/journal e a pendência de benchmark final permanecem vigentes.
+Validação: 399 testes seguros de chat aprovados; build/vet e lint incremental
+sem erros. Revisor independente review_aep: três rodadas, UUID da fixture
+corrigido e gate final sem pendências. Sem ACP local ou NVDA. CI completo e
+review remota são acompanhados no PR antes de iniciar o próximo recorte.
 
 ### Recorte: participação histórica e publicação atômica (2026-11-02)
 

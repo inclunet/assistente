@@ -47,7 +47,12 @@ func (p *LiveProjection) refreshWindowMembershipLocked(ctx context.Context, conv
 			deadline = time.Now().Add(canonicalReadTimeout)
 		}
 		readCtx, cancel := context.WithDeadline(authorized, deadline)
-		snapshot, err := w.membership.ReadHistoricalMembership(readCtx, w.query, w.metadata.BeforeCursor, w.metadata.AfterCursor)
+		var snapshot *TimelineMembershipSnapshot
+		if w.mode == TimelineWindowFollowTail {
+			snapshot, err = w.membership.ReadWindowMembership(readCtx, w.query)
+		} else {
+			snapshot, err = w.membership.ReadHistoricalMembership(readCtx, w.query, w.metadata.BeforeCursor, w.metadata.AfterCursor)
+		}
 		if err != nil {
 			if !errors.Is(err, database.ErrTimelineCursorStale) && !errors.Is(err, database.ErrTimelineCursorInvalid) && !errors.Is(err, ErrTimelineSourceLimit) && !errors.Is(err, gorm.ErrRecordNotFound) {
 				cancel()
@@ -93,6 +98,13 @@ func (p *LiveProjection) refreshWindowMembershipLocked(ctx context.Context, conv
 			}
 		}
 		metadata := TimelineWindowMetadata{TotalCount: rows.TotalCount, StartIndex: rows.StartIndex, EndIndex: rows.EndIndex, HasBefore: rows.HasBefore, HasAfter: rows.HasAfter, BeforeCursor: w.metadata.BeforeCursor, AfterCursor: w.metadata.AfterCursor}
+		if w.mode == TimelineWindowFollowTail {
+			metadata.BeforeCursor, metadata.AfterCursor = "", ""
+			if len(rows.Items) > 0 {
+				metadata.BeforeCursor = database.EncodeTimelineCursor(conversationID, w.query.ParentID, rows.Items[0])
+				metadata.AfterCursor = database.EncodeTimelineCursor(conversationID, w.query.ParentID, rows.Items[len(rows.Items)-1])
+			}
+		}
 		splices := windowSplices(w.orderedIDs, ordered)
 		if len(splices) > 0 || w.metadata != metadata {
 			previous := strconv.FormatUint(w.revision, 10)
