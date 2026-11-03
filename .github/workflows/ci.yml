@@ -157,8 +157,8 @@ jobs:
           test "$TESTS_RESULT" = success
 
   backend-race-tests:
-    # App excede 20m com -race. A descoberta em cada runner inclui testes novos
-    # automaticamente; os demais pacotes continuam inteiros em um grupo próprio.
+      # App é dividido por famílias. Chat roda inteiro em runner próprio para
+      # não disputar CPU com os demais pacotes durante as fixtures SQLite.
     runs-on: ubuntu-latest
     timeout-minutes: 25
     strategy:
@@ -167,6 +167,7 @@ jobs:
       matrix:
         group:
           - pacotes-gerais
+          - pacote-chat
           - comandos-configuracao
           - comandos-dispositivos
           - comandos-contexto-deck-paginas

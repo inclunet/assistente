@@ -4,6 +4,29 @@
 
 Data: 2026-10-30
 
+### Recorte: execução isolada do pacote de chat no CI (2026-11-03)
+
+O job geral com detector de corrida atingiu o limite acumulado de 20 minutos
+no run 41600939964, com o teste corrente ativo havia dois segundos e o stack
+na preparação SQLite da fixture. Isso comprova o limite da suíte acumulada;
+não identifica uma asserção falhando nem demonstra deadlock no teste corrente.
+
+O pacote internal/chat passa a rodar inteiro em runner próprio. O grupo geral
+exclui exatamente internal/app e internal/chat, preservando subpacotes e novos
+pacotes descobertos por go list. Nenhum teste ou cenário é filtrado do chat;
+-race, -short, -count=1 e -timeout=20m permanecem. A saída detalhada identifica
+os testes em andamento. O agregador backend-race continua exigindo todos os grupos.
+
+O teste do script comprova destino único de App/Chat/subpacotes, flags, falhas
+de execução e igualdade da matriz com --groups. A fixture de snapshot usa logger
+SQL parametrizado, preservando avisos e erros sem imprimir payloads sintéticos.
+Dados, asserções e timeouts da suíte permanecem iguais. A alteração não modifica
+logger de produção nem declara concluído o gate de desempenho do produto.
+
+Validação local: bash -n, teste completo do script, 427 testes seguros de chat,
+build, vet e lint incremental aprovados. Sem ACP local. Revisor independente
+review_aep: uma rodada, sem pendências. CI/review remotos acompanham o PR.
+
 ### Recorte: retenção por foco/leitura na inscrição (2026-11-03)
 
 SetRetention substitui os IDs retidos com época/revisão vigentes e somente IDs
