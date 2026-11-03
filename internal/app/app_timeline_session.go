@@ -14,6 +14,11 @@ func SetChatTimelineAPI(a *App, api *wailsapi.ChatTimeline) { a.chatTimelineAPI 
 
 type timelineWailsSession struct{ wailsSession }
 type timelinePrincipalKey struct{}
+type timelinePrincipalProof struct {
+	principal  capturedTimelineSession
+	sessions   *auth.SessionService
+	validUntil time.Time
+}
 type capturedTimelineSession struct {
 	app               *App
 	userID, sessionID string
@@ -34,7 +39,8 @@ func (s timelineWailsSession) AuthenticatedContext() (context.Context, error) {
 	principal := auth.LocalSessionPrincipal{UserID: captured.userID, SessionID: captured.sessionID}
 	check, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	validated, err := sessions.RevalidateLocalSession(check, principal)
+	start := time.Now()
+	validated, expiry, err := sessions.RevalidateLocalSessionExpiry(check, principal)
 	if err != nil {
 		return nil, err
 	}
@@ -44,14 +50,15 @@ func (s timelineWailsSession) AuthenticatedContext() (context.Context, error) {
 	if _, _, err := captured.AuthorizeTimeline(ctx); err != nil {
 		return nil, err
 	}
-	return context.WithValue(ctx, timelinePrincipalKey{}, captured), nil
+	return context.WithValue(ctx, timelinePrincipalKey{}, timelinePrincipalProof{captured, sessions, timelineAuthorizationDeadline(start, expiry)}), nil
 }
 
 func (s timelineWailsSession) CaptureTimelineSession(ctx context.Context) (chat.TimelineSession, error) {
-	captured, ok := ctx.Value(timelinePrincipalKey{}).(capturedTimelineSession)
-	if !ok || captured.app != s.app {
+	proof, ok := ctx.Value(timelinePrincipalKey{}).(timelinePrincipalProof)
+	if !ok || proof.principal.app != s.app {
 		return nil, chat.ErrTimelineSubscription
 	}
+	captured := proof.principal
 	if _, _, err := captured.AuthorizeTimeline(ctx); err != nil {
 		return nil, err
 	}

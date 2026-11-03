@@ -90,6 +90,13 @@ func TestCommandPrincipalRevalidatesLocalSessionState(t *testing.T) {
 				t.Fatal(err)
 			}
 			principal := LocalSessionPrincipal{UserID: user.ID, SessionID: issued.SessionID}
+			var persisted database.Session
+			if err := service.db.Where("id = ?", issued.SessionID).Take(&persisted).Error; err != nil {
+				t.Fatal(err)
+			}
+			if got, expiry, err := service.RevalidateLocalSessionExpiry(context.Background(), principal); err != nil || got != principal || !expiry.Equal(persisted.ExpiresAt) {
+				t.Fatalf("limite persistido não foi preservado: principal=%+v expiry=%v err=%v", got, expiry, err)
+			}
 			if got, err := service.RevalidateLocalSession(context.Background(), principal); err != nil || got != principal {
 				t.Fatalf("sessão válida não revalidou: principal=%+v err=%v", got, err)
 			}
@@ -98,6 +105,9 @@ func TestCommandPrincipalRevalidatesLocalSessionState(t *testing.T) {
 			}
 			if got, err := service.RevalidateLocalSession(context.Background(), principal); !errors.Is(err, ErrUnauthenticatedLocalSession) || got != (LocalSessionPrincipal{}) {
 				t.Fatalf("estado inválido não foi rejeitado: principal=%+v err=%v", got, err)
+			}
+			if got, expiry, err := service.RevalidateLocalSessionExpiry(context.Background(), principal); !errors.Is(err, ErrUnauthenticatedLocalSession) || got != (LocalSessionPrincipal{}) || !expiry.IsZero() {
+				t.Fatalf("estado inválido conservou prazo de autorização: principal=%+v expiry=%v err=%v", got, expiry, err)
 			}
 		})
 	}

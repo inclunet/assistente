@@ -19,6 +19,15 @@ import (
 type timelineTestSession struct {
 	mu            sync.Mutex
 	user, session string
+	emit          func(context.Context, apidto.TimelineEvent) error
+}
+
+func (s *timelineTestSession) CaptureTimelineEmitter(ctx context.Context) (context.Context, TimelineEventEmitter, error) {
+	emit := s.emit
+	if emit == nil {
+		emit = func(context.Context, apidto.TimelineEvent) error { return nil }
+	}
+	return ctx, timelineEventTestEmitter{emit: emit, closed: make(chan struct{})}, nil
 }
 
 func (s *timelineTestSession) AuthenticatedContext() (context.Context, error) {

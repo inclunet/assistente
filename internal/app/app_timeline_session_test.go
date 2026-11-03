@@ -13,6 +13,7 @@ import (
 	"assistente/internal/apidto"
 	"assistente/internal/chat"
 	"assistente/internal/database"
+	"assistente/internal/events"
 	"assistente/internal/wailsapi"
 )
 
@@ -56,6 +57,95 @@ func TestChatTimelineSessionRequiresCoherentPrincipal(t *testing.T) {
 const timelineTestUserID = "01991f7c-1000-7000-8000-000000000201"
 const timelineTestSessionID = "01991f7c-1000-7000-8000-000000000202"
 
+func TestChatTimelineRejectedOpenReleasesEventAuthorization(t *testing.T) {
+	a, api, request, _ := newAppTimelineFixture(t)
+	request.ConversationID = "conversa-inexistente"
+	if _, err := api.Open(request); err == nil {
+		t.Fatal("abertura inválida aceita")
+	}
+	a.timelineAuthorizationMu.Lock()
+	count := len(a.timelineAuthorizations)
+	a.timelineAuthorizationMu.Unlock()
+	if count != 0 {
+		t.Fatal("abertura recusada deixou autorização viva")
+	}
+}
+
+func TestChatTimelineEventAuthorizationSharedUntilLastClose(t *testing.T) {
+	a, api, request, _ := newAppTimelineFixture(t)
+	first, err := api.Open(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.SurfaceID = "second-surface"
+	second, err := api.Open(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.timelineAuthorizationMu.Lock()
+	count := len(a.timelineAuthorizations)
+	var shared *timelineSharedAuthorization
+	for _, entry := range a.timelineAuthorizations {
+		shared = entry
+	}
+	refs := 0
+	if shared != nil {
+		refs = shared.refs
+	}
+	a.timelineAuthorizationMu.Unlock()
+	if count != 1 || refs != 2 {
+		t.Fatalf("janelas não compartilham autorização: leases=%d refs=%d", count, refs)
+	}
+	if err := api.Close(first.WindowID); err != nil {
+		t.Fatal(err)
+	}
+	if shared.lease.ctx.Err() != nil {
+		t.Fatal("fechamento de uma janela encerrou outra")
+	}
+	if err := api.Close(second.WindowID); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-shared.lease.done:
+	default:
+		t.Fatal("última janela deixou worker vivo")
+	}
+	a.timelineAuthorizationMu.Lock()
+	count = len(a.timelineAuthorizations)
+	a.timelineAuthorizationMu.Unlock()
+	if count != 0 {
+		t.Fatal("última janela deixou autorização na registry")
+	}
+}
+
+func TestChatTimelineExternalRevocationStopsIdleEventStreams(t *testing.T) {
+	a, api, request, _ := newAppTimelineFixture(t)
+	if _, err := api.Open(request); err != nil {
+		t.Fatal(err)
+	}
+	a.timelineAuthorizationMu.Lock()
+	var shared *timelineSharedAuthorization
+	for _, entry := range a.timelineAuthorizations {
+		shared = entry
+	}
+	a.timelineAuthorizationMu.Unlock()
+	if shared == nil {
+		t.Fatal("autorização não criada")
+	}
+	// Revogação externa: não usa setters nem geração local do desktop.
+	if err := database.DB().Model(&database.Session{}).Where("id = ?", timelineTestSessionID).Update("revoked_at", time.Now()).Error; err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-shared.lease.done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("revogação externa não encerrou worker ocioso")
+	}
+	if err := shared.lease.await(context.Background()); err == nil {
+		t.Fatal("sessão revogada ainda admite evento")
+	}
+}
+
 func newAppTimelineFixture(t *testing.T) (*App, *wailsapi.ChatTimeline, apidto.OpenTimelineRequest, *chat.LiveProjection) {
 	t.Helper()
 	cache := t.TempDir()
@@ -81,7 +171,7 @@ func newAppTimelineFixture(t *testing.T) (*App, *wailsapi.ChatTimeline, apidto.O
 	if err != nil {
 		t.Fatal(err)
 	}
-	a := &App{ctx: context.Background(), sessionSvc: sessions}
+	a := &App{ctx: context.Background(), sessionSvc: sessions, emitter: events.NoopEmitter{}}
 	api := wailsapi.NewChatTimeline()
 	SetChatTimelineAPI(a, api)
 	a.setCurrentUserID(timelineTestUserID)
