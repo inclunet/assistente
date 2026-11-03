@@ -229,12 +229,17 @@ func (p *LiveProjection) reconcileStorageStageLocked(ctx context.Context, conver
 
 // Percurso único em parcelas, com controle de versão em ambas as passagens.
 func (p *LiveProjection) visitStorageSelectionsLocked(ctx context.Context, conversationID string, ids []string, expected *database.ChatTimelineVersion, visit func([]string, *TimelineSelectionSnapshot) error) (*database.ChatTimelineVersion, error) {
+	return visitVersionedSelections(ctx, conversationID, ids, expected, p.reader.ReadSelection, visit)
+}
+
+// Compartilhado por conteúdo e lifecycle: parcela por quantidade e por bytes.
+func visitVersionedSelections(ctx context.Context, conversationID string, ids []string, expected *database.ChatTimelineVersion, read func(context.Context, string, []string) (*TimelineSelectionSnapshot, error), visit func([]string, *TimelineSelectionSnapshot) error) (*database.ChatTimelineVersion, error) {
 	readCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), canonicalReadTimeout)
 	defer cancel()
 	version := expected
 	var reconcileBatch func([]string) error
 	reconcileBatch = func(batch []string) error {
-		snapshot, err := p.reader.ReadSelection(readCtx, conversationID, batch)
+		snapshot, err := read(readCtx, conversationID, batch)
 		if err == nil {
 			if version == nil {
 				version = &snapshot.Version

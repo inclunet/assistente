@@ -43,14 +43,14 @@ func (p *LiveProjection) readWindowLifecycles(ctx context.Context, conversationI
 // sair de qualquer janela. Parcelas limitam a leitura sem carregar payloads.
 func (p *LiveProjection) reconcileParticipatingLifecycles(ctx context.Context, conversationID string, c *projectionConversation, version database.ChatTimelineVersion) error {
 	ids := liveWindowTurnIDs(c, c.participatingIDs())
-	for start := 0; start < len(ids); start += 64 {
-		snapshot, err := p.readWindowLifecycles(ctx, conversationID, ids[start:min(start+64, len(ids))], version)
-		if err != nil {
-			return err
-		}
-		reconcileStorageLifecycleLocked(c, nil, snapshot)
+	if len(ids) == 0 {
+		return nil
 	}
-	return nil
+	_, err := visitVersionedSelections(ctx, conversationID, ids, &version, p.reader.ReadTurnLifecycles, func(_ []string, snapshot *TimelineSelectionSnapshot) error {
+		reconcileStorageLifecycleLocked(c, nil, snapshot)
+		return nil
+	})
+	return err
 }
 
 // A prova é incorporada ao snapshot antes de qualquer efeito do projetor.

@@ -655,3 +655,119 @@ func TestWindowRetentionSiblingCutsReconcileLifecycle(t *testing.T) {
 		}
 	}
 }
+
+func TestWindowLifecyclePartitionsAggregateSources(t *testing.T) {
+	for _, failure := range []string{"", "drift", "read"} {
+		t.Run("failure-"+failure, func(t *testing.T) {
+			f := newSnapshotFixture(t)
+			ids := []string{}
+			for i := 0; i < 3; i++ {
+				q, err := database.CreateMessageWithContext(f.ctx, database.MessageOptions{ConversationID: f.conversation, Role: "user", Content: "pergunta"})
+				if err != nil {
+					t.Fatal(err)
+				}
+				destination := strconv.Itoa(i) + strings.Repeat("x", 3*1024*1024)
+				if err := f.db.Table("chat_messages").Create(map[string]any{"id": destination, "conversation_id": f.conversation, "turn_id": q.ID, "role": "assistant", "content": "curto", "created_at": time.Now(), "updated_at": time.Now()}).Error; err != nil {
+					t.Fatal(err)
+				}
+				ids = append(ids, q.ID)
+			}
+			if err := database.NewChatTurnRepository(f.db).ReconcileImportedConversationInTransaction(f.ctx, f.conversation); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := f.reader.ReadTurnLifecycles(f.ctx, f.conversation, ids); !errors.Is(err, ErrTimelineSourceLimit) {
+				t.Fatal("fixture não excede cota agregada", err)
+			}
+			probe := &partitionedLifecycleReader{DBTimelineReader: f.reader, failure: failure}
+			p := NewLiveProjection(probe)
+			var sub *TimelineSubscription
+			for i, id := range ids {
+				opened, _, err := p.SubscribeTimeline(f.ctx, &fixtureTimelineSession{ctx: f.ctx, id: "s"}, strconv.Itoa(i), database.MessageWindowQuery{ConversationID: f.conversation, AnchorItemID: "message:" + id, Direction: "around", Limit: 1}, f.reader)
+				if err != nil {
+					t.Fatal("janela individual inválida", err)
+				}
+				defer opened.Close()
+				if sub == nil {
+					sub = opened
+				}
+			}
+			c := sub.conversation
+			for _, id := range ids {
+				c.turns[id] = &liveTurn{turnID: id, executionID: "previous", incarnation: c.incarnation}
+			}
+			w := c.windows[sub.windowID]
+			windows, published := cloneSubscribedWindows(c.windows), c.publication.fork()
+			err := sub.SetRetention(f.ctx, TimelineRetentionRequest{Epoch: c.epoch, WindowRevision: strconv.FormatUint(w.revision, 10), ItemIDs: []string{"message:" + ids[0]}})
+			if failure != "" {
+				if err == nil || !reflect.DeepEqual(windows, c.windows) || !reflect.DeepEqual(published, c.publication) {
+					t.Fatal("segunda parcela falhou com publicação parcial", err)
+				}
+				if failure == "drift" && !errors.Is(err, ErrProjectionRecoveryRequired) {
+					t.Fatal("drift não identificado", err)
+				}
+				return
+			}
+			if err != nil || probe.successes < 2 {
+				t.Fatal("fontes individuais não foram parceladas", err, probe.successes)
+			}
+			for _, id := range ids {
+				if !c.turns[id].detached {
+					t.Fatal("lifecycle não reconciliado", id)
+				}
+			}
+		})
+	}
+}
+
+type partitionedLifecycleReader struct {
+	*DBTimelineReader
+	failure   string
+	successes int
+}
+
+func (r *partitionedLifecycleReader) ReadTurnLifecycles(ctx context.Context, conversation string, ids []string) (*TimelineSelectionSnapshot, error) {
+	snapshot, err := r.DBTimelineReader.ReadTurnLifecycles(ctx, conversation, ids)
+	if err == nil {
+		r.successes++
+		if r.successes == 2 {
+			if r.failure == "drift" {
+				snapshot.Version.Revision++
+			}
+			if r.failure == "read" {
+				return nil, errors.New("leitura indisponível")
+			}
+		}
+	}
+	return snapshot, err
+}
+
+func TestWindowLifecyclePartitionsMoreThan64Turns(t *testing.T) {
+	f := newSnapshotFixture(t)
+	probe := &partitionedLifecycleReader{DBTimelineReader: f.reader}
+	p := NewLiveProjection(probe)
+	version, err := f.reader.ReadVersion(f.ctx, f.conversation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := &projectionConversation{epoch: "epoch", incarnation: version.Incarnation, turns: map[string]*liveTurn{}, windows: map[string]*subscribedWindow{}}
+	for page := 0; page < 2; page++ {
+		w := &subscribedWindow{epoch: c.epoch}
+		for i := 0; i < 40; i++ {
+			id := strconv.Itoa(page*40 + i)
+			w.orderedIDs = append(w.orderedIDs, "message:"+id)
+			c.turns[id] = &liveTurn{turnID: id, incarnation: c.incarnation, executionID: "old"}
+		}
+		c.windows[strconv.Itoa(page)] = w
+	}
+	if err := p.reconcileParticipatingLifecycles(f.ctx, f.conversation, c, version); err != nil {
+		t.Fatal(err)
+	}
+	if probe.successes != 2 {
+		t.Fatal("mais de64 turnos não foram parcelados", probe.successes)
+	}
+	for _, turn := range c.turns {
+		if !turn.detached {
+			t.Fatal("ausência não reconciliada")
+		}
+	}
+}

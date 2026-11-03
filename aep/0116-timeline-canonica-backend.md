@@ -6,58 +6,51 @@ Data: 2026-10-30
 
 ### Recorte: retenção por foco/leitura na inscrição (2026-11-03)
 
-SetRetention substitui explicitamente o conjunto de IDs retidos de uma janela,
-com época/revisão vigentes e somente IDs visíveis. Não altera pinned persistido.
-RetainedItemIDs pertence aos metadados da inscrição; alterações e retentionBlocked
-chegam pelo mesmo lote atômico de conteúdo e splices. Não há lista visual paralela.
+SetRetention substitui os IDs retidos da janela com época/revisão vigentes e
+somente IDs visíveis. Não altera pinned persistido. Referências e retentionBlocked
+pertencem aos metadados da inscrição e chegam no mesmo lote atômico de conteúdo
+e splices, sem lista visual paralela. Falha de liberação reverte participação,
+referências e journal.
 
-FollowTail tenta a cauda normal. Se ela expulsaria algum ID retido ainda existente
-no escopo, preserva as fronteiras históricas atuais e sinaliza retentionBlocked,
-sem mudar o modo solicitado. A liberação parcial/total reconcilia a cauda na mesma
-barreira e no mesmo estágio: falha reverte referências, participação e journal.
-As cotas existentes continuam valendo; retenção não amplia a janela nem cria
-lista esparsa. Intervalo excedente ou fronteira perdida emite SyncRequired local.
+FollowTail preserva fronteiras históricas quando a cauda expulsaria um retido
+sobrevivente e informa retentionBlocked. Exclusão/saída do escopo vence retenção;
+ausência na cauda não comprova exclusão. Se nenhum retido sobrevive, Refresh pode
+recuperar a cauda na mesma versão. Fronteira perdida, intervalo excedente ou item
+retido movido para fora dele exige sincronização local, sem cortar o visual.
 
-Navigate e Refresh com posição explícita exigem liberação prévia. Refresh sem
-posição materializa as fronteiras retidas, com conteúdo e lifecycle na mesma
-versão da seleção; pergunta isolada também prova execução atual/ausente sem
-carregar ferramentas da resposta fora da página. Snapshot é cópia dos IDs.
+Navigate e Refresh com posição explícita exigem liberação prévia, exceto quando
+uma nova encarnação comprovada permite substituir cursor perdido. A prova é
+validada antes de efeitos. Falha auxiliar que troca época na mesma encarnação
+conserva referências; liberação em base invalidada só as retira e mantém
+SyncRequired até snapshot. Nova encarnação não herda referências; Close libera
+as da inscrição. Snapshots copiam os IDs.
 
-Exclusão persistida ou saída do escopo vence retenção; ausência na cauda não é
-prova de exclusão. Um ID existente movido para fora das fronteiras não pode ser
-cortado: exige sincronização local, e Refresh preserva o compromisso até liberação.
-Falha auxiliar pode mudar a época de publicação, mas preserva as referências
-na mesma encarnação. Em base invalidada, liberação explícita só retira referências
-e mantém SyncRequired até snapshot, sem cortar o visual. Troca de encarnação
-permite recuperação com posição explícita mesmo se o cursor antigo perdeu sua
-âncora; inicia época nova e não transporta retenções da conversa
-substituída. Fechar libera as referências daquela inscrição. Não há SQL por token.
+Refresh/Navigate incorporam ao snapshot o lifecycle dos turnos da janela anterior,
+na mesma versão e antes dos efeitos. A atualização comum de participação comprova
+os turnos de todas as janelas antes de qualquer corte, tanto para storage quanto
+para publicação de lifecycle. Pergunta isolada também prova execução/ausência.
+Retry ou exclusão externa desvincula o stream antigo; execução ainda ativa
+continua válida fora da página. Não há leitura específica duplicada em SetRetention.
 
-Evidências em timeline_window_retention_test.go: duas superfícies, duas referências,
-liberação parcial, replay de corte/liberação, Refresh bloqueado, proibição de
-navegação, exclusão, fronteira perdida, item movido internamente/externamente,
-rollback de liberação com drift, pedidos obsoletos, capacidade e pergunta isolada
-com retry externo. Transporte e cutover frontend continuam pendentes; este recorte
-não declara resolução do foco na UI. Custo de leitura por transição com retenção
-integra o gate de desempenho final ainda pendente.
-Validação: 417 testes seguros de chat, 99 de controllers e duas regressões de
-áudio aprovados. Build/vet
-e lint incremental sem erros. Revisor independente review_aep: doze rodadas;
-item movido, lifecycle de pergunta isolada, cursor perdido e validação anterior
-a efeitos corrigidos, gate final sem pendências. Sem ACP local ou NVDA.
+ReadTurnLifecycles lê somente versão e chat_turns na mesma transação autorizada,
+sem mensagens/ledger. A cota SQL antecede GetMany. Conteúdo e lifecycle reutilizam
+visitVersionedSelections, com subdivisão por quantidade/bytes e mesma versão em
+cada parcela; um registro individual excessivo continua recusado. Não há cota
+global indevida somando janelas válidas nem SQL por token.
 
-Review remota: Refresh em followTail comprova sobrevivência antes de validar
-fronteiras antigas. Exclusão externa da única referência permite recuperar a
-cauda na mesma versão; outra referência sobrevivente continua protegida.
-A liberação reconcilia também os turnos comprovados pela pergunta isolada: após retry externo, o stream antigo recusa Append. A regressão cobre a desvinculação da execução anterior. Os 415 testes seguros de chat passaram após as duas correções.
+Evidências em timeline_window_retention_test.go: duas superfícies, liberação
+parcial/total, replay, exclusão, fronteira perdida, item movido, rollback, pedidos
+obsoletos, nova encarnação, pergunta isolada, retry/exclusão externos, execução
+válida fora da página, corte entre superfícies por ambos os produtores, 80 turnos,
+três referências válidas de 3 MiB, registro individual excessivo e falha/drift
+na segunda parcela sem publicação parcial.
 
-Também antes do corte total de followTail, a liberação comprova o lifecycle dos turnos live da janela anterior na mesma versão. A leitura limitada consulta somente chat_turns, sem mensagens ou ledger; pergunta/resposta fora da nova cauda não deixam a execução antiga aceitar tokens. Regressões cobrem o corte completo, payload acima da cota, autorização e limite. Foram validados também 53 testes seguros de handlers/turnos do agente.
-
-Refresh e Navigate reutilizam a mesma prova da janela anterior, incorporada ao snapshot antes dos efeitos. Exclusão ou retry externo não deixa stream órfão quando a nova página corta o turno; uma execução ainda ativa continua válida fora da página. Drift entre snapshot e lifecycle recusa a operação sem alterar janela/publicação. Matriz de regressão cobre esses quatro percursos.
-
-ReadTurnLifecycles aplica a cota agregada de bytes de chat_turns por SQL na mesma transação autorizada antes de GetMany, reutilizando publicationTurnSizeSQL. Referência response_message_id válida mas excedente é recusada antes da materialização. Os 17 testes focados passaram após esse limite (suíte segura completa anterior: 415 testes).
-
-A prova dos participantes anteriores agora ocorre na entrada comum de refreshWindowMembershipLocked, em parcelas deduplicadas de 64 turnos. Isso cobre todas as janelas tanto em storage/SetRetention quanto em publicação de lifecycle; foi removida a leitura específica de SetRetention. A regressão de duas superfícies disjuntas falhou antes da correção e cobre os dois produtores, retry externo e execução ainda ativa. Suíte segura completa: 417 testes de chat após essa unificação.
+Validação: 419 testes seguros de chat; 99 de controllers, 53 de handlers/turnos
+do agente e duas regressões de áudio nas rodadas pertinentes. Build/vet e lint
+incremental aprovados. Revisor independente review_aep: treze rodadas, sem
+pendências finais. Sem ACP local ou NVDA. Transporte e cutover frontend continuam
+pendentes; este recorte não declara resolução do foco na UI. O custo de leitura
+por transição integra o gate de desempenho final ainda pendente.
 
 ### Recorte: acompanhamento explícito da cauda (2026-11-03)
 
@@ -296,7 +289,7 @@ Validação da primeira rodada: 359 testes seguros de chat, 362 de banco e 99 de
 aprovados (820), build/vet/lint sem erros. A conta de escape é confrontada com
 encoding/json, incluindo UTF-8 inválido; a codificação de substituição é medida
 uma vez para acompanhar a versão ativa do encoder. Nenhum teste existente foi
-removido ou relaxado. Revisor independente review_aep: doze rodadas, sem pendências.
+removido ou relaxado. Revisor independente review_aep: treze rodadas, sem pendências.
 
 A terceira rodada de review fecha o orçamento agregado da recuperação: as duas
 passagens validam o lote inteiro e subdividem quando fontes ou buffers não cabem,
