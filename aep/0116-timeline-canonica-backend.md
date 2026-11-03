@@ -55,17 +55,27 @@ SQL parametrizado, preservando avisos e erros sem imprimir payloads sintéticos.
 Dados, asserções e timeouts da suíte permanecem iguais. A alteração não modifica
 logger de produção nem declara concluído o gate de desempenho do produto.
 
-O run 41606700204 revelou também uma consulta de preparação ainda ativa durante
-a limpeza do banco de teste: PrepareContext retornava por falta de provedor sem
-aguardar a leitura concorrente da conversa. O encerramento agora cancela e
-aguarda ambas as leituras, preservando seu paralelismo e a precedência dos erros.
-Uma regressão bloqueia a saída da consulta cancelada e comprova que a preparação
-somente retorna depois dela. Nenhuma falha de cleanup é ignorada ou repetida.
+O encerramento das consultas de preparação, também diagnosticado no run
+41606700204, foi incorporado ao PR-base conforme a seção seguinte.
 
 Validação local: bash -n, teste completo do script, 428 testes seguros de chat,
 31 testes seguros de usecases,
 build, vet e lint incremental aprovados. Sem ACP local. Revisor independente
-review_aep: três rodadas, sem pendências. CI/review remotos acompanham o PR.
+review_aep: quatro rodadas, sem pendências. CI/review remotos acompanham o PR.
+
+### Correção de validação: encerramento da preparação (2026-11-03)
+
+O run 41606500056 falhou ao limpar o banco de
+TestSendMessageUseCase_ReturnsErrorWhenNoLLMProviders: PrepareContext cancelava,
+mas não aguardava a consulta concorrente da conversa ao retornar por falta de
+provedor. Agora cancela e aguarda as leituras antes do retorno, mantendo
+paralelismo e precedência do erro. A regressão segura a consulta após o
+cancelamento e exige seu encerramento antes de aceitar o retorno.
+
+Essa correção acompanha o PR-base de retenção para não depender de um PR filho
+para validar o próprio CI. A distribuição do race permanece no recorte separado.
+Validação: 428 testes seguros de chat passaram nesta base; os mesmos arquivos da
+correção já passaram por 31 testes de usecases, build, vet e lint na pilha.
 
 ### Recorte: retenção por foco/leitura na inscrição (2026-11-03)
 
@@ -127,9 +137,9 @@ versão, durante seleção e prazo menor preservam retenção/janela/journal. Ro
 após flush conserva o callback e entrega o delta no replay, inclusive no terminal
 volátil. Reuso histórico prova ausência de releitura só na mesma versão.
 
-Validação: 427 testes seguros de chat, 39 focados e a regressão de snapshot cancelado, 33 de banco; 99 de controllers,
+Validação: 428 testes seguros de chat, 39 focados e a regressão de snapshot cancelado, 33 de banco; 99 de controllers,
 53 de handlers/turnos do agente e duas regressões de áudio nas rodadas pertinentes.
-Build/vet e lint incremental aprovados. Revisor independente review_aep: vinte e uma
+Build/vet e lint incremental aprovados. Revisor independente review_aep: vinte e duas
 rodadas, sem pendências locais. Sem ACP local ou NVDA. A fixture pesada compartilha
 preparação entre os mesmos cenários e silencia SQL volumoso, mantendo dados e
 assertivas. O perfil local de SetRetention caiu de 2,72 s para 0,32 s após seleção
