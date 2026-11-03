@@ -38,8 +38,10 @@ fronteiras e contagem já comprovados. Não reclassifica a conversa para confirm
 metadados. Autorização, lifecycle e seleção versionada do conteúdo continuam no
 percurso comum; mudança de versão exige nova seleção histórica.
 
-Navigate e Refresh com posição explícita exigem liberação, salvo nova encarnação
-comprovada antes de efeitos. Falha auxiliar na mesma encarnação conserva retenção;
+Navigate exige liberação prévia e época vigente: não recupera outra encarnação.
+Refresh com posição explícita exige liberação, salvo nova encarnação comprovada
+antes de efeitos. Refresh é o único caminho de recuperação da inscrição.
+Falha auxiliar na mesma encarnação conserva retenção;
 liberação em base invalidada só retira referências e mantém SyncRequired até
 snapshot. Nova encarnação não herda referências; Close libera as da inscrição.
 Snapshots copiam os IDs.
@@ -87,10 +89,13 @@ volátil. Reuso histórico prova ausência de releitura só na mesma versão.
 
 Validação: 429 testes seguros de chat, 39 focados e as regressões de snapshot cancelado e janela syncRequired, 33 de banco; 99 de controllers,
 53 de handlers/turnos do agente e duas regressões de áudio nas rodadas pertinentes.
-Build/vet e lint incremental aprovados. Revisor independente review_aep: vinte e três
+Build/vet e lint incremental aprovados. Revisor independente review_aep: vinte e cinco
 rodadas, sem pendências locais. Sem ACP local ou NVDA. A fixture pesada compartilha
 preparação entre os mesmos cenários e silencia SQL volumoso, mantendo dados e
-assertivas. O perfil local de SetRetention caiu de 2,72 s para 0,32 s após seleção
+assertivas. O logger da fixture de snapshot parametriza SQL, preservando avisos
+e erros sem imprimir os payloads sintéticos de vários MiB; essa correção de
+volume de logs acompanha o PR-base para reduzir o custo do seu CI.
+O perfil local de SetRetention caiu de 2,72 s para 0,32 s após seleção
 pontual de âncoras e reuso histórico; a medição não substitui o gate final do produto.
 Transporte, cutover e margem global de desempenho permanecem pendentes; este
 recorte não declara resolução do foco na UI. CI/review remotos são acompanhados.
