@@ -11,14 +11,18 @@ no run 41600939964, com o teste corrente ativo havia dois segundos e o stack
 na preparação SQLite da fixture. Isso comprova o limite da suíte acumulada;
 não identifica uma asserção falhando nem demonstra deadlock no teste corrente.
 
-O pacote internal/chat passa a rodar inteiro em runner próprio. O grupo geral
+O pacote internal/chat passa a rodar em dois grupos com runners próprios. O grupo geral
 exclui exatamente internal/app e internal/chat, preservando subpacotes e novos
-pacotes descobertos por go list. Nenhum teste ou cenário é filtrado do chat;
+pacotes descobertos por go list. A descoberta Go atribui cada teste top-level,
+exemplo e fuzz target a um grupo pelo checksum estável do nome; subtestes seguem
+juntos. Nomes novos não exigem manutenção de listas nem redistribuem os existentes.
+Nenhum teste ou cenário é descartado do chat;
 -race, -short, -count=1 e -timeout=20m permanecem. A saída detalhada identifica
 os testes em andamento. O agregador backend-race continua exigindo todos os grupos.
 
 O teste do script comprova destino único de App/Chat/subpacotes, flags, falhas
-de execução e igualdade da matriz com --groups. A fixture de snapshot usa logger
+de execução, cobertura exata sem sobreposição dos grupos de chat e igualdade da
+matriz com --groups. A fixture de snapshot usa logger
 SQL parametrizado, preservando avisos e erros sem imprimir payloads sintéticos.
 Dados, asserções e timeouts da suíte permanecem iguais. A alteração não modifica
 logger de produção nem declara concluído o gate de desempenho do produto.
@@ -33,7 +37,7 @@ somente retorna depois dela. Nenhuma falha de cleanup é ignorada ou repetida.
 Validação local: bash -n, teste completo do script, 428 testes seguros de chat,
 31 testes seguros de usecases,
 build, vet e lint incremental aprovados. Sem ACP local. Revisor independente
-review_aep: duas rodadas, sem pendências. CI/review remotos acompanham o PR.
+review_aep: três rodadas, sem pendências. CI/review remotos acompanham o PR.
 
 ### Recorte: retenção por foco/leitura na inscrição (2026-11-03)
 
