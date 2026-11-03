@@ -49,10 +49,11 @@ O encerramento das consultas de preparação, também diagnosticado no run
 Validação local: bash -n, teste completo do script, 429 testes seguros de chat,
 31 testes seguros de usecases,
 build, vet e lint incremental aprovados. Sem ACP local. Revisor independente
-review_aep: nove rodadas (incluindo integração da base, redução do log da fixture e coerência documental), sem pendências. YAML e propagação de falha pelo tee
-validados localmente. O CI completo passou no run 41652048015 (commit 8a54813be);
+review_aep: dez rodadas (incluindo integração da base, redução do log da fixture e coerência documental), sem pendências. YAML e propagação de falha pelo tee
+validados localmente. No run 41652048015 (commit 8a54813be),
 o grupo 0 concluiu os testes Go em 439,808 s e o log nativo ficou disponível. Essa rodada
-confirma a execução da suíte com a saída reduzida. Review remota sem achados de
+confirma a execução desse grupo com a saída reduzida, não a conclusão de todo o CI.
+O restante da matriz precisa concluir no run vinculado ao PR. Review remota sem achados de
 código; a descrição histórica do logger foi alinhada ao nível Error.
 
 ### Correção de validação: encerramento da preparação (2026-11-03)
