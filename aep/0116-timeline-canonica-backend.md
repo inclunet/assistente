@@ -77,8 +77,12 @@ O encerramento das consultas de preparação, também diagnosticado no run
 Validação local: bash -n, teste completo do script, 429 testes seguros de chat,
 31 testes seguros de usecases,
 build, vet e lint incremental aprovados. Sem ACP local. Revisor independente
-review_aep: oito rodadas (incluindo integração da base e redução do log da fixture), sem pendências. YAML e propagação de falha pelo tee
-validados localmente. CI/review remotos acompanham o PR.
+review_aep: dez rodadas (incluindo integração da base, redução do log da fixture e coerência documental), sem pendências. YAML e propagação de falha pelo tee
+validados localmente. No run 41652048015 (commit 8a54813be),
+o grupo 0 concluiu os testes Go em 439,808 s e o log nativo ficou disponível. Essa rodada
+confirma a execução desse grupo com a saída reduzida, não a conclusão de todo o CI.
+O restante da matriz precisa concluir no run vinculado ao PR. Review remota sem achados de
+código; a descrição histórica do logger foi alinhada ao nível Error.
 
 ### Correção de validação: encerramento da preparação (2026-11-03)
 
@@ -168,9 +172,10 @@ Validação: 429 testes seguros de chat, 39 focados e as regressões de snapshot
 Build/vet e lint incremental aprovados. Revisor independente review_aep: vinte e cinco
 rodadas, sem pendências locais. Sem ACP local ou NVDA. A fixture pesada compartilha
 preparação entre os mesmos cenários e silencia SQL volumoso, mantendo dados e
-assertivas. O logger da fixture de snapshot parametriza SQL, preservando avisos
-e erros sem imprimir os payloads sintéticos de vários MiB; essa correção de
-volume de logs acompanha o PR-base para reduzir o custo do seu CI.
+assertivas. O logger da fixture de snapshot usa nível Error, sem avisos de SLOW SQL.
+A parametrização não impede que Scan do GORM repasse SQL expandido em erros; não
+há garantia de supressão de payloads nesse caso. A evolução do logger é descrita
+no recorte de CI acima.
 O perfil local de SetRetention caiu de 2,72 s para 0,32 s após seleção
 pontual de âncoras e reuso histórico; a medição não substitui o gate final do produto.
 Transporte, cutover e margem global de desempenho permanecem pendentes; este
