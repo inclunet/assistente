@@ -9,23 +9,27 @@ import (
 
 // Comprova os turnos da janela anterior mesmo quando a nova seleção os corta.
 // Ausência na página não é ausência no storage; a leitura não carrega payloads.
-func (s *TimelineSubscription) readPreviousWindowLifecycle(ctx context.Context, w *subscribedWindow, version database.ChatTimelineVersion) (*TimelineSelectionSnapshot, error) {
+func liveWindowTurnIDs(c *projectionConversation, itemIDs []string) []string {
 	ids := []string{}
-	for _, itemID := range w.orderedIDs {
+	for _, itemID := range itemIDs {
 		_, id, _ := strings.Cut(itemID, ":")
-		if s.conversation.turns[id] != nil {
+		if c.turns[id] != nil {
 			ids = append(ids, id)
 		}
 	}
+	return uniquePublicationIDs(ids)
+}
+
+func (p *LiveProjection) readWindowLifecycles(ctx context.Context, conversationID string, ids []string, version database.ChatTimelineVersion) (*TimelineSelectionSnapshot, error) {
 	if len(ids) == 0 {
 		return nil, nil
 	}
-	if s.owner.reader == nil {
+	if p.reader == nil {
 		return nil, ErrTimelineSubscription
 	}
 	readCtx, cancel := context.WithTimeout(ctx, canonicalReadTimeout)
 	defer cancel()
-	lifecycle, err := s.owner.reader.ReadTurnLifecycles(readCtx, s.key.conversationID, uniquePublicationIDs(ids))
+	lifecycle, err := p.reader.ReadTurnLifecycles(readCtx, conversationID, ids)
 	if err != nil {
 		return nil, err
 	}
@@ -33,6 +37,20 @@ func (s *TimelineSubscription) readPreviousWindowLifecycle(ctx context.Context, 
 		return nil, ErrProjectionRecoveryRequired
 	}
 	return lifecycle, nil
+}
+
+// Todo produtor que troca participação comprova primeiro os turnos que podem
+// sair de qualquer janela. Parcelas limitam a leitura sem carregar payloads.
+func (p *LiveProjection) reconcileParticipatingLifecycles(ctx context.Context, conversationID string, c *projectionConversation, version database.ChatTimelineVersion) error {
+	ids := liveWindowTurnIDs(c, c.participatingIDs())
+	for start := 0; start < len(ids); start += 64 {
+		snapshot, err := p.readWindowLifecycles(ctx, conversationID, ids[start:min(start+64, len(ids))], version)
+		if err != nil {
+			return err
+		}
+		reconcileStorageLifecycleLocked(c, nil, snapshot)
+	}
+	return nil
 }
 
 // A prova é incorporada ao snapshot antes de qualquer efeito do projetor.
@@ -48,7 +66,7 @@ func (r subscriptionLifecycleReader) ReadWindow(ctx context.Context, q database.
 	if err != nil {
 		return nil, err
 	}
-	lifecycle, err := r.subscription.readPreviousWindowLifecycle(ctx, r.previous, snapshot.Version)
+	lifecycle, err := r.subscription.owner.readWindowLifecycles(ctx, q.ConversationID, liveWindowTurnIDs(r.subscription.conversation, r.previous.orderedIDs), snapshot.Version)
 	if err != nil {
 		return nil, err
 	}

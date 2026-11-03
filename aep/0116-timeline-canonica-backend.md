@@ -40,9 +40,9 @@ rollback de liberação com drift, pedidos obsoletos, capacidade e pergunta isol
 com retry externo. Transporte e cutover frontend continuam pendentes; este recorte
 não declara resolução do foco na UI. Custo de leitura por transição com retenção
 integra o gate de desempenho final ainda pendente.
-Validação: 415 testes seguros de chat, 99 de controllers e duas regressões de
+Validação: 417 testes seguros de chat, 99 de controllers e duas regressões de
 áudio aprovados. Build/vet
-e lint incremental sem erros. Revisor independente review_aep: onze rodadas;
+e lint incremental sem erros. Revisor independente review_aep: doze rodadas;
 item movido, lifecycle de pergunta isolada, cursor perdido e validação anterior
 a efeitos corrigidos, gate final sem pendências. Sem ACP local ou NVDA.
 
@@ -56,6 +56,8 @@ Também antes do corte total de followTail, a liberação comprova o lifecycle d
 Refresh e Navigate reutilizam a mesma prova da janela anterior, incorporada ao snapshot antes dos efeitos. Exclusão ou retry externo não deixa stream órfão quando a nova página corta o turno; uma execução ainda ativa continua válida fora da página. Drift entre snapshot e lifecycle recusa a operação sem alterar janela/publicação. Matriz de regressão cobre esses quatro percursos.
 
 ReadTurnLifecycles aplica a cota agregada de bytes de chat_turns por SQL na mesma transação autorizada antes de GetMany, reutilizando publicationTurnSizeSQL. Referência response_message_id válida mas excedente é recusada antes da materialização. Os 17 testes focados passaram após esse limite (suíte segura completa anterior: 415 testes).
+
+A prova dos participantes anteriores agora ocorre na entrada comum de refreshWindowMembershipLocked, em parcelas deduplicadas de 64 turnos. Isso cobre todas as janelas tanto em storage/SetRetention quanto em publicação de lifecycle; foi removida a leitura específica de SetRetention. A regressão de duas superfícies disjuntas falhou antes da correção e cobre os dois produtores, retry externo e execução ainda ativa. Suíte segura completa: 417 testes de chat após essa unificação.
 
 ### Recorte: acompanhamento explícito da cauda (2026-11-03)
 
@@ -294,7 +296,7 @@ Validação da primeira rodada: 359 testes seguros de chat, 362 de banco e 99 de
 aprovados (820), build/vet/lint sem erros. A conta de escape é confrontada com
 encoding/json, incluindo UTF-8 inválido; a codificação de substituição é medida
 uma vez para acompanhar a versão ativa do encoder. Nenhum teste existente foi
-removido ou relaxado. Revisor independente review_aep: onze rodadas, sem pendências.
+removido ou relaxado. Revisor independente review_aep: doze rodadas, sem pendências.
 
 A terceira rodada de review fecha o orçamento agregado da recuperação: as duas
 passagens validam o lote inteiro e subdividem quando fontes ou buffers não cabem,

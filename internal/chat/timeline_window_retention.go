@@ -69,13 +69,6 @@ func (s *TimelineSubscription) SetRetention(ctx context.Context, request Timelin
 	}
 	finish := c.beginCanonicalPublication()
 	defer func() { finish(s.key.conversationID, resultErr == nil) }()
-	lifecycle, err := s.readPreviousWindowLifecycle(authorized, w, version)
-	if err != nil {
-		return err
-	}
-	if lifecycle != nil {
-		reconcileStorageLifecycleLocked(c, nil, lifecycle)
-	}
 	c.windows[s.windowID].pendingRetention = &requested
 	return s.owner.reconcileStorageStageLocked(authorized, s.key.conversationID, c, nil, &version)
 }

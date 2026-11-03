@@ -26,6 +26,9 @@ func cloneSubscribedWindows(windows map[string]*subscribedWindow) map[string]*su
 // Chamado apenas após transições persistidas, sob a barreira da conversa.
 // O caller mantém um checkpoint de publicação/janelas até terminar todo o lote.
 func (p *LiveProjection) refreshWindowMembershipLocked(ctx context.Context, conversationID string, c *projectionConversation, version database.ChatTimelineVersion) error {
+	if err := p.reconcileParticipatingLifecycles(ctx, conversationID, c, version); err != nil {
+		return err
+	}
 	ids := make([]string, 0, len(c.windows))
 	for id := range c.windows {
 		ids = append(ids, id)

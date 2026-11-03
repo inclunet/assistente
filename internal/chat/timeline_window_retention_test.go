@@ -570,3 +570,88 @@ func TestTimelineTurnLifecycleRejectsOversizedReferences(t *testing.T) {
 		t.Fatal("referência excessiva materializada", err)
 	}
 }
+
+func TestWindowRetentionSiblingCutsReconcileLifecycle(t *testing.T) {
+	for _, producer := range []string{"retention", "publication"} {
+		for _, retry := range []bool{false, true} {
+			t.Run(producer+"-"+strconv.FormatBool(retry), func(t *testing.T) {
+				f, p, e, _ := automaticFixture(t)
+				threadMessage, err := database.CreateMessageWithContext(f.ctx, database.MessageOptions{ConversationID: f.conversation, ParentID: &f.question, Role: "user", Content: "outra superfície"})
+				if err != nil {
+					t.Fatal(err)
+				}
+				stream := e.StartStream(0)
+				stream.Append("antes")
+				session := &fixtureTimelineSession{ctx: f.ctx, id: "s"}
+				tail, initial, err := p.SubscribeTimeline(f.ctx, session, "tail", database.MessageWindowQuery{ConversationID: f.conversation, Anchor: "end", Direction: "before", Limit: 2}, f.reader)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer tail.Close()
+				followTail(t, f, tail, initial, 2)
+				other, _, err := p.SubscribeTimeline(f.ctx, session, "thread", database.MessageWindowQuery{ConversationID: f.conversation, ParentID: &f.question, Anchor: "start", Direction: "after", Limit: 1}, f.reader)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer other.Close()
+				retainWindow(t, f, other, "message:"+threadMessage.ID)
+				c := e.conversation
+				c.mu.Lock()
+				if c.publicationTimer != nil {
+					c.publicationTimer.Stop()
+					c.publicationTimer = nil
+					c.publicationGeneration++
+				}
+				c.mu.Unlock()
+				if retry {
+					repo := database.NewChatTurnRepository(f.db)
+					if err := repo.Finish(f.ctx, f.conversation, f.question, e.executionID, database.TurnInterrupted, "cancelled"); err != nil {
+						t.Fatal(err)
+					}
+					next, err := uuid.NewV7()
+					if err != nil {
+						t.Fatal(err)
+					}
+					if _, err := repo.BeginExecution(f.ctx, f.conversation, f.question, "", database.TurnModeRetry, next.String(), ""); err != nil {
+						t.Fatal(err)
+					}
+				}
+				want := []string{}
+				for _, text := range []string{"nova 1", "nova 2"} {
+					m, err := database.CreateMessageWithContext(f.ctx, database.MessageOptions{ConversationID: f.conversation, Role: "user", Content: text})
+					if err != nil {
+						t.Fatal(err)
+					}
+					want = append(want, "message:"+m.ID)
+				}
+				if producer == "retention" {
+					retainWindow(t, f, other)
+				} else {
+					turnID := strings.TrimPrefix(want[1], "message:")
+					execution, err := uuid.NewV7()
+					if err != nil {
+						t.Fatal(err)
+					}
+					_, err = p.Admit(f.ctx, f.conversation, turnID, execution.String(), func() (database.ChatTimelineVersion, error) {
+						version, err := f.reader.ReadVersion(f.ctx, f.conversation)
+						if err != nil {
+							return version, err
+						}
+						_, err = database.NewChatTurnRepository(f.db).BeginExecution(f.ctx, f.conversation, turnID, "", database.TurnModeNew, execution.String(), "")
+						return version, err
+					})
+					if err != nil || c.publicationErrorLocked() != nil {
+						t.Fatal("publicação recusada", err, c.publicationErrorLocked())
+					}
+					want = []string{"message:" + turnID, "turn:" + turnID}
+				}
+				if !reflect.DeepEqual(c.windows[tail.windowID].orderedIDs, want) {
+					t.Fatal("janela irmã não cortou o turno")
+				}
+				if accepted := stream.Append("depois"); accepted == retry {
+					t.Fatalf("stream aceito=%v, retry=%v", accepted, retry)
+				}
+			})
+		}
+	}
+}
