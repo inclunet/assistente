@@ -555,3 +555,18 @@ func (r *driftingWindowLifecycleReader) ReadTurnLifecycles(ctx context.Context, 
 	}
 	return snapshot, err
 }
+
+func TestTimelineTurnLifecycleRejectsOversizedReferences(t *testing.T) {
+	f := newSnapshotFixture(t)
+	oversized := strings.Repeat("x", canonicalSourceBytes+1)
+	if err := f.db.Table("chat_messages").Create(map[string]any{"id": oversized, "conversation_id": f.conversation, "turn_id": f.question, "role": "assistant", "content": "curto", "created_at": time.Now(), "updated_at": time.Now()}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := f.db.Model(&database.ChatTurn{}).Where("user_message_id=?", f.question).Update("response_message_id", oversized).Error; err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := f.reader.ReadTurnLifecycles(f.ctx, f.conversation, []string{f.question})
+	if !errors.Is(err, ErrTimelineSourceLimit) || len(snapshot.Turns) != 0 {
+		t.Fatal("referência excessiva materializada", err)
+	}
+}

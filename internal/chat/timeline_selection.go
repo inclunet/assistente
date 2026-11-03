@@ -37,6 +37,16 @@ func (r *DBTimelineReader) ReadTurnLifecycles(ctx context.Context, conversationI
 			return err
 		}
 		result.Version = version
+		var size int64
+		if err := tx.Model(&database.ChatTurn{}).
+			Select("COALESCE(SUM(1024 + "+publicationTurnSizeSQL+"), 0)").
+			Where("conversation_id=? AND user_message_id IN ?", conversationID, result.TurnIDs).
+			Scan(&size).Error; err != nil {
+			return err
+		}
+		if size > canonicalSourceBytes {
+			return ErrTimelineSourceLimit
+		}
 		result.Turns, err = database.NewChatTurnRepository(tx).GetMany(ctx, conversationID, result.TurnIDs)
 		return err
 	})
