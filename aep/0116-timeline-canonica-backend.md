@@ -27,8 +27,10 @@ Contrato ainda interno. Retenção por foco/leitura, transporte e consumidor
 frontend permanecem pendentes; esta entrega não corrige sozinha o foco da UI.
 As cotas por janela/journal e a pendência de benchmark final permanecem vigentes.
 Validação: 399 testes seguros de chat aprovados; build/vet e lint incremental
-sem erros. Revisor independente review_aep: três rodadas, UUID da fixture
-corrigido e gate final sem pendências. Sem ACP local ou NVDA. CI completo e
+sem erros. Revisor independente review_aep: quatro rodadas, UUID da fixture
+corrigido e gate final sem pendências. Review remota do CodeRabbit incorporada:
+os testes de vazio e nova pergunta/resposta aplicam os splices recebidos e
+comprovam a ordem final; seis regressões focadas, vet e lint passaram. Sem ACP local ou NVDA. CI completo e
 review remota são acompanhados no PR antes de iniciar o próximo recorte.
 
 ### Recorte: participação histórica e publicação atômica (2026-11-02)

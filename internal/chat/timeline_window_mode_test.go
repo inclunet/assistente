@@ -101,12 +101,17 @@ func TestFollowTailSurvivesDeletedBoundaryAndEmptyWindow(t *testing.T) {
 	if !reflect.DeepEqual(tail.conversation.windows[tail.windowID].orderedIDs, []string{"message:back"}) {
 		t.Fatal("cauda vazia não recebeu mensagem")
 	}
+	delivered := append([]string(nil), initial.OrderedItemIDs...)
 	for _, batch := range membershipReplay(t, f, tail, initial) {
 		for _, patch := range batch.WindowPatches {
 			if patch.SyncRequired {
 				t.Fatal("cauda exigiu sync")
 			}
+			delivered = applyModeTestSplices(delivered, patch.Splices)
 		}
+	}
+	if !reflect.DeepEqual(delivered, []string{"message:back"}) {
+		t.Fatal("replay perdeu exclusão ou entrada", delivered)
 	}
 }
 
@@ -231,5 +236,21 @@ func TestFollowTailReceivesNewQuestionAndResponseInCanonicalOrder(t *testing.T) 
 	if !reflect.DeepEqual(history.conversation.windows[history.windowID].orderedIDs, fixed.OrderedItemIDs) {
 		t.Fatal("histórico seguiu cauda")
 	}
-	membershipReplay(t, f, tail, initial)
+	delivered := append([]string(nil), initial.OrderedItemIDs...)
+	for _, batch := range membershipReplay(t, f, tail, initial) {
+		for _, patch := range batch.WindowPatches {
+			delivered = applyModeTestSplices(delivered, patch.Splices)
+		}
+	}
+	if !reflect.DeepEqual(delivered, ids) {
+		t.Fatal("replay perdeu pergunta/resposta", delivered)
+	}
+}
+
+func applyModeTestSplices(ids []string, splices []TimelineWindowSplice) []string {
+	for _, splice := range splices {
+		suffix := append([]string(nil), ids[splice.Index+splice.DeleteCount:]...)
+		ids = append(append(ids[:splice.Index:splice.Index], splice.InsertIDs...), suffix...)
+	}
+	return ids
 }
