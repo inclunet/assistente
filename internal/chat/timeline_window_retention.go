@@ -48,6 +48,9 @@ func (s *TimelineSubscription) SetRetention(ctx context.Context, request Timelin
 	if err != nil {
 		return err
 	}
+	if err := authorized.Err(); err != nil {
+		return err
+	}
 	if version.Incarnation != w.version.Incarnation || (len(requested) > 0 && !w.syncRequired && version != w.version) {
 		return ErrTimelineWindowStale
 	}
@@ -68,7 +71,12 @@ func (s *TimelineSubscription) SetRetention(ctx context.Context, request Timelin
 		return nil
 	}
 	finish := c.beginCanonicalPublication()
-	defer func() { finish(s.key.conversationID, resultErr == nil) }()
+	defer func() {
+		if resultErr == nil {
+			resultErr = authorized.Err()
+		}
+		finish(s.key.conversationID, resultErr == nil)
+	}()
 	c.windows[s.windowID].pendingRetention = &requested
 	return s.owner.reconcileStorageStageLocked(authorized, s.key.conversationID, c, nil, &version)
 }

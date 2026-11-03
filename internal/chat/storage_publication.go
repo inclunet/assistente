@@ -91,7 +91,9 @@ func (p *LiveProjection) reconcileStorageMutationLocked(ctx context.Context, con
 	if c.storagePublicationErr != nil {
 		ids = uniquePublicationIDs(append(ids, c.materializedIDsLocked()...))
 	}
-	if err := p.reconcileStorageLocked(ctx, conversationID, c, ids, nil); err != nil {
+	// Somente esta fronteira já confirmou a escrita. Consultas e retenção
+	// compartilham a reconciliação, mas preservam o contexto de seus pedidos.
+	if err := p.reconcileStorageLocked(context.WithoutCancel(ctx), conversationID, c, ids, nil); err != nil {
 		c.failStoragePublicationLocked(ids, err)
 	}
 }
@@ -191,7 +193,7 @@ func (p *LiveProjection) reconcileStorageLocked(ctx context.Context, conversatio
 
 func (p *LiveProjection) reconcileStorageStageLocked(ctx context.Context, conversationID string, c *projectionConversation, ids []string, expected *database.ChatTimelineVersion) error {
 	if len(c.windows) > 0 {
-		readCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), canonicalReadTimeout)
+		readCtx, cancel := context.WithTimeout(ctx, canonicalReadTimeout)
 		defer cancel()
 		if expected == nil {
 			version, err := p.reader.ReadVersion(readCtx, conversationID)
@@ -229,8 +231,7 @@ func (p *LiveProjection) reconcileStorageStageLocked(ctx context.Context, conver
 
 // Percurso único em parcelas, com controle de versão em ambas as passagens.
 func (p *LiveProjection) visitStorageSelectionsLocked(ctx context.Context, conversationID string, ids []string, expected *database.ChatTimelineVersion, visit func([]string, *TimelineSelectionSnapshot) error) (*database.ChatTimelineVersion, error) {
-	// A escrita já foi confirmada; sua reconciliação tem orçamento próprio.
-	return visitVersionedSelections(context.WithoutCancel(ctx), conversationID, ids, expected, p.reader.ReadSelection, visit)
+	return visitVersionedSelections(ctx, conversationID, ids, expected, p.reader.ReadSelection, visit)
 }
 
 // Compartilhado por conteúdo e lifecycle: parcela por quantidade e por bytes.
