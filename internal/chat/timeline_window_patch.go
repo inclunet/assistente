@@ -1,19 +1,22 @@
 package chat
 
 import (
+	"slices"
 	"sort"
 	"strconv"
 )
 
 // Patches internos até o transporte canônico. A ordem pertence ao backend.
 type TimelineWindowMetadata struct {
-	TotalCount   int    `json:"totalCount"`
-	StartIndex   int    `json:"startIndex"`
-	EndIndex     int    `json:"endIndex"`
-	HasBefore    bool   `json:"hasBefore"`
-	HasAfter     bool   `json:"hasAfter"`
-	BeforeCursor string `json:"beforeCursor"`
-	AfterCursor  string `json:"afterCursor"`
+	RetainedItemIDs  []string `json:"retainedItemIds"`
+	RetentionBlocked bool     `json:"retentionBlocked"`
+	TotalCount       int      `json:"totalCount"`
+	StartIndex       int      `json:"startIndex"`
+	EndIndex         int      `json:"endIndex"`
+	HasBefore        bool     `json:"hasBefore"`
+	HasAfter         bool     `json:"hasAfter"`
+	BeforeCursor     string   `json:"beforeCursor"`
+	AfterCursor      string   `json:"afterCursor"`
 }
 
 type TimelineWindowSplice struct {
@@ -35,7 +38,7 @@ type CanonicalWindowPatch struct {
 }
 
 func metadataFromSubscription(s *SubscribedTimelineSnapshot) TimelineWindowMetadata {
-	return TimelineWindowMetadata{s.TotalCount, s.StartIndex, s.EndIndex, s.HasBefore, s.HasAfter, s.BeforeCursor, s.AfterCursor}
+	return TimelineWindowMetadata{TotalCount: s.TotalCount, StartIndex: s.StartIndex, EndIndex: s.EndIndex, HasBefore: s.HasBefore, HasAfter: s.HasAfter, BeforeCursor: s.BeforeCursor, AfterCursor: s.AfterCursor, RetainedItemIDs: append([]string{}, s.RetainedItemIDs...), RetentionBlocked: s.RetentionBlocked}
 }
 
 // Preserva o prefixo e o sufixo comuns, alterando somente o trecho necessário.
@@ -140,4 +143,8 @@ func replayWindowBatches(w *subscribedWindow, revision string, batches []Canonic
 func (w *subscribedWindow) acceptsSnapshotRevision(value string) (uint64, bool) {
 	revision, err := strconv.ParseUint(value, 10, 64)
 	return revision, err == nil && strconv.FormatUint(revision, 10) == value && revision >= w.snapshotRevision && revision <= w.revision
+}
+
+func sameWindowMetadata(a, b TimelineWindowMetadata) bool {
+	return a.TotalCount == b.TotalCount && a.StartIndex == b.StartIndex && a.EndIndex == b.EndIndex && a.HasBefore == b.HasBefore && a.HasAfter == b.HasAfter && a.BeforeCursor == b.BeforeCursor && a.AfterCursor == b.AfterCursor && a.RetentionBlocked == b.RetentionBlocked && slices.Equal(a.RetainedItemIDs, b.RetainedItemIDs)
 }

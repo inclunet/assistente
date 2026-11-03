@@ -186,6 +186,10 @@ func (p *LiveProjection) recoverStoragePublicationLocked(ctx context.Context, co
 func (p *LiveProjection) reconcileStorageLocked(ctx context.Context, conversationID string, c *projectionConversation, ids []string, expected *database.ChatTimelineVersion) (resultErr error) {
 	finish := c.beginCanonicalPublication()
 	defer func() { finish(conversationID, resultErr == nil) }()
+	return p.reconcileStorageStageLocked(ctx, conversationID, c, ids, expected)
+}
+
+func (p *LiveProjection) reconcileStorageStageLocked(ctx context.Context, conversationID string, c *projectionConversation, ids []string, expected *database.ChatTimelineVersion) error {
 	if len(c.windows) > 0 {
 		readCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), canonicalReadTimeout)
 		defer cancel()

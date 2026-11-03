@@ -11,6 +11,7 @@ import (
 )
 
 type TimelineSelectionSnapshot struct {
+	TurnIDs []string
 	Version database.ChatTimelineVersion
 	Items   []*TimelineItem
 	Turns   map[string]*database.ChatTurn
@@ -100,7 +101,15 @@ func (r *DBTimelineReader) ReadSelection(ctx context.Context, conversationID str
 					ids = append(ids, row.TurnID)
 				}
 			}
-			facts, err := readTimelineFacts(ctx, tx, conversationID, ids)
+			lifecycleIDs := append([]string(nil), ids...)
+			for _, message := range rows.Messages {
+				if message.Role == "user" {
+					lifecycleIDs = append(lifecycleIDs, message.ID)
+				}
+			}
+			lifecycleIDs = uniquePublicationIDs(lifecycleIDs)
+			result.TurnIDs = append(result.TurnIDs, lifecycleIDs...)
+			facts, err := readTimelineFactsForSelection(ctx, tx, conversationID, lifecycleIDs, ids)
 			if err != nil {
 				return err
 			}

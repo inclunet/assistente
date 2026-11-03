@@ -1,8 +1,50 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, mensagens, áudio, limpeza, exclusão e importação integrados; retenção por idade, órfãos, navegação, leitura leve e orçamento de fontes da janela com recuperação atômica e parcelada e participação histórica automática com publicação e replay atômicos integrados; followTail integrado; margem de desempenho, retenção por foco, transporte e cutover pendentes
+## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, mensagens, áudio, limpeza, exclusão e importação integrados; retenção por idade, órfãos, navegação, leitura leve e orçamento de fontes da janela com recuperação atômica e parcelada e participação histórica automática com publicação e replay atômicos integrados; followTail e retenção por foco/leitura integrados; margem de desempenho, transporte e cutover pendentes
 
 Data: 2026-10-30
+
+### Recorte: retenção por foco/leitura na inscrição (2026-11-03)
+
+SetRetention substitui explicitamente o conjunto de IDs retidos de uma janela,
+com época/revisão vigentes e somente IDs visíveis. Não altera pinned persistido.
+RetainedItemIDs pertence aos metadados da inscrição; alterações e retentionBlocked
+chegam pelo mesmo lote atômico de conteúdo e splices. Não há lista visual paralela.
+
+FollowTail tenta a cauda normal. Se ela expulsaria algum ID retido ainda existente
+no escopo, preserva as fronteiras históricas atuais e sinaliza retentionBlocked,
+sem mudar o modo solicitado. A liberação parcial/total reconcilia a cauda na mesma
+barreira e no mesmo estágio: falha reverte referências, participação e journal.
+As cotas existentes continuam valendo; retenção não amplia a janela nem cria
+lista esparsa. Intervalo excedente ou fronteira perdida emite SyncRequired local.
+
+Navigate e Refresh com posição explícita exigem liberação prévia. Refresh sem
+posição materializa as fronteiras retidas, com conteúdo e lifecycle na mesma
+versão da seleção; pergunta isolada também prova execução atual/ausente sem
+carregar ferramentas da resposta fora da página. Snapshot é cópia dos IDs.
+
+Exclusão persistida ou saída do escopo vence retenção; ausência na cauda não é
+prova de exclusão. Um ID existente movido para fora das fronteiras não pode ser
+cortado: exige sincronização local, e Refresh preserva o compromisso até liberação.
+Falha auxiliar pode mudar a época de publicação, mas preserva as referências
+na mesma encarnação. Em base invalidada, liberação explícita só retira referências
+e mantém SyncRequired até snapshot, sem cortar o visual. Troca de encarnação
+permite recuperação com posição explícita mesmo se o cursor antigo perdeu sua
+âncora; inicia época nova e não transporta retenções da conversa
+substituída. Fechar libera as referências daquela inscrição. Não há SQL por token.
+
+Evidências em timeline_window_retention_test.go: duas superfícies, duas referências,
+liberação parcial, replay de corte/liberação, Refresh bloqueado, proibição de
+navegação, exclusão, fronteira perdida, item movido internamente/externamente,
+rollback de liberação com drift, pedidos obsoletos, capacidade e pergunta isolada
+com retry externo. Transporte e cutover frontend continuam pendentes; este recorte
+não declara resolução do foco na UI. Custo de leitura por transição com retenção
+integra o gate de desempenho final ainda pendente.
+Validação: 410 testes seguros de chat, 99 de controllers e duas regressões de
+áudio aprovados; 11 testes de retenção repetidos após o guard final. Build/vet
+e lint incremental sem erros. Revisor independente review_aep: seis rodadas;
+item movido, lifecycle de pergunta isolada, cursor perdido e validação anterior
+a efeitos corrigidos, gate final sem pendências. Sem ACP local ou NVDA.
 
 ### Recorte: acompanhamento explícito da cauda (2026-11-03)
 

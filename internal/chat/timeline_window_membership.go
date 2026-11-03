@@ -34,7 +34,7 @@ func (p *LiveProjection) refreshWindowMembershipLocked(ctx context.Context, conv
 	patches := make([]CanonicalWindowPatch, 0)
 	for _, id := range ids {
 		w := c.windows[id]
-		if w.epoch != c.epoch || w.syncRequired || w.version == version {
+		if w.epoch != c.epoch || w.syncRequired || (w.version == version && w.pendingRetention == nil) {
 			continue
 		}
 		authorized, err := w.handle.authorize(ctx)
@@ -47,11 +47,30 @@ func (p *LiveProjection) refreshWindowMembershipLocked(ctx context.Context, conv
 			deadline = time.Now().Add(canonicalReadTimeout)
 		}
 		readCtx, cancel := context.WithDeadline(authorized, deadline)
+		retained, retainErr := p.survivingRetention(readCtx, conversationID, w, version)
+		if retainErr != nil {
+			cancel()
+			return retainErr
+		}
+		blocked := false
 		var snapshot *TimelineMembershipSnapshot
 		if w.mode == TimelineWindowFollowTail {
 			snapshot, err = w.membership.ReadWindowMembership(readCtx, w.query)
+			if err == nil {
+				if snapshot.Version != version {
+					cancel()
+					return ErrProjectionRecoveryRequired
+				}
+				blocked = !containsRetained(membershipIDs(snapshot.Selection), retained)
+				if blocked {
+					snapshot, err = w.membership.ReadHistoricalMembership(readCtx, w.query, w.metadata.BeforeCursor, w.metadata.AfterCursor)
+				}
+			}
 		} else {
 			snapshot, err = w.membership.ReadHistoricalMembership(readCtx, w.query, w.metadata.BeforeCursor, w.metadata.AfterCursor)
+		}
+		if err == nil && !containsRetained(membershipIDs(snapshot.Selection), retained) {
+			err = database.ErrTimelineCursorStale
 		}
 		if err != nil {
 			if !errors.Is(err, database.ErrTimelineCursorStale) && !errors.Is(err, database.ErrTimelineCursorInvalid) && !errors.Is(err, ErrTimelineSourceLimit) && !errors.Is(err, gorm.ErrRecordNotFound) {
@@ -70,7 +89,10 @@ func (p *LiveProjection) refreshWindowMembershipLocked(ctx context.Context, conv
 			previous := strconv.FormatUint(w.revision, 10)
 			w.revision++
 			w.syncRequired = true
-			patches = append(patches, CanonicalWindowPatch{WindowID: id, PreviousRevision: previous, Revision: strconv.FormatUint(w.revision, 10), SyncRequired: true})
+			w.pendingRetention = nil
+			w.metadata.RetainedItemIDs, w.metadata.RetentionBlocked = retained, blocked
+			metadata := w.metadata
+			patches = append(patches, CanonicalWindowPatch{WindowID: id, PreviousRevision: previous, Revision: strconv.FormatUint(w.revision, 10), SyncRequired: true, Metadata: &metadata})
 			continue
 		}
 		cancel()
@@ -97,8 +119,8 @@ func (p *LiveProjection) refreshWindowMembershipLocked(ctx context.Context, conv
 				entering = append(entering, CanonicalItem{ItemID: itemID})
 			}
 		}
-		metadata := TimelineWindowMetadata{TotalCount: rows.TotalCount, StartIndex: rows.StartIndex, EndIndex: rows.EndIndex, HasBefore: rows.HasBefore, HasAfter: rows.HasAfter, BeforeCursor: w.metadata.BeforeCursor, AfterCursor: w.metadata.AfterCursor}
-		if w.mode == TimelineWindowFollowTail {
+		metadata := TimelineWindowMetadata{RetainedItemIDs: retained, RetentionBlocked: blocked, TotalCount: rows.TotalCount, StartIndex: rows.StartIndex, EndIndex: rows.EndIndex, HasBefore: rows.HasBefore, HasAfter: rows.HasAfter, BeforeCursor: w.metadata.BeforeCursor, AfterCursor: w.metadata.AfterCursor}
+		if w.mode == TimelineWindowFollowTail && !blocked {
 			metadata.BeforeCursor, metadata.AfterCursor = "", ""
 			if len(rows.Items) > 0 {
 				metadata.BeforeCursor = database.EncodeTimelineCursor(conversationID, w.query.ParentID, rows.Items[0])
@@ -106,11 +128,12 @@ func (p *LiveProjection) refreshWindowMembershipLocked(ctx context.Context, conv
 			}
 		}
 		splices := windowSplices(w.orderedIDs, ordered)
-		if len(splices) > 0 || w.metadata != metadata {
+		if len(splices) > 0 || !sameWindowMetadata(w.metadata, metadata) {
 			previous := strconv.FormatUint(w.revision, 10)
 			w.revision++
 			patches = append(patches, CanonicalWindowPatch{WindowID: id, PreviousRevision: previous, Revision: strconv.FormatUint(w.revision, 10), Splices: splices, Items: entering, Metadata: &metadata})
 		}
+		w.pendingRetention = nil
 		w.version = version
 		w.itemIDs, w.orderedIDs, w.metadata = membership, ordered, metadata
 	}
