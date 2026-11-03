@@ -1838,6 +1838,50 @@ export namespace apidto {
 	    }
 	}
 	
+	export class TurnSegmentToolCall {
+	    invocationId?: string;
+	    callId: string;
+	    name: string;
+	    origin?: string;
+	    serverLabel?: string;
+	    status: string;
+	    iteration?: number;
+	    durationMs?: number;
+	    inputPreview?: string;
+	    outputPreview?: string;
+	    inputBytes?: number;
+	    outputBytes?: number;
+	    hasDetails: boolean;
+	    resultAvailability: string;
+	    hasSearchResults?: boolean;
+	    searchResultCount?: number;
+	    securityOutcome?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new TurnSegmentToolCall(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.invocationId = source["invocationId"];
+	        this.callId = source["callId"];
+	        this.name = source["name"];
+	        this.origin = source["origin"];
+	        this.serverLabel = source["serverLabel"];
+	        this.status = source["status"];
+	        this.iteration = source["iteration"];
+	        this.durationMs = source["durationMs"];
+	        this.inputPreview = source["inputPreview"];
+	        this.outputPreview = source["outputPreview"];
+	        this.inputBytes = source["inputBytes"];
+	        this.outputBytes = source["outputBytes"];
+	        this.hasDetails = source["hasDetails"];
+	        this.resultAvailability = source["resultAvailability"];
+	        this.hasSearchResults = source["hasSearchResults"];
+	        this.searchResultCount = source["searchResultCount"];
+	        this.securityOutcome = source["securityOutcome"];
+	    }
+	}
 	export class UpdateLLMProviderRequest {
 	    credential?: CredentialInput;
 	    auth_mode?: string;
@@ -3388,54 +3432,10 @@ export namespace channels {
 
 export namespace chat {
 	
-	export class TurnSegmentToolCall {
-	    invocationId?: string;
-	    callId: string;
-	    name: string;
-	    origin?: string;
-	    serverLabel?: string;
-	    status: string;
-	    iteration?: number;
-	    durationMs?: number;
-	    inputPreview?: string;
-	    outputPreview?: string;
-	    inputBytes?: number;
-	    outputBytes?: number;
-	    hasDetails: boolean;
-	    resultAvailability: string;
-	    hasSearchResults?: boolean;
-	    searchResultCount?: number;
-	    securityOutcome?: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new TurnSegmentToolCall(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.invocationId = source["invocationId"];
-	        this.callId = source["callId"];
-	        this.name = source["name"];
-	        this.origin = source["origin"];
-	        this.serverLabel = source["serverLabel"];
-	        this.status = source["status"];
-	        this.iteration = source["iteration"];
-	        this.durationMs = source["durationMs"];
-	        this.inputPreview = source["inputPreview"];
-	        this.outputPreview = source["outputPreview"];
-	        this.inputBytes = source["inputBytes"];
-	        this.outputBytes = source["outputBytes"];
-	        this.hasDetails = source["hasDetails"];
-	        this.resultAvailability = source["resultAvailability"];
-	        this.hasSearchResults = source["hasSearchResults"];
-	        this.searchResultCount = source["searchResultCount"];
-	        this.securityOutcome = source["securityOutcome"];
-	    }
-	}
 	export class TurnSegment {
 	    type: string;
 	    content?: string;
-	    toolInvocations?: TurnSegmentToolCall[];
+	    toolInvocations?: apidto.TurnSegmentToolCall[];
 	
 	    static createFrom(source: any = {}) {
 	        return new TurnSegment(source);
@@ -3445,7 +3445,7 @@ export namespace chat {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.type = source["type"];
 	        this.content = source["content"];
-	        this.toolInvocations = this.convertValues(source["toolInvocations"], TurnSegmentToolCall);
+	        this.toolInvocations = this.convertValues(source["toolInvocations"], apidto.TurnSegmentToolCall);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -3685,7 +3685,6 @@ export namespace chat {
 	        this.limit = source["limit"];
 	    }
 	}
-	
 
 }
 

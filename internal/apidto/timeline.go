@@ -1,0 +1,142 @@
+package apidto
+
+// Contrato compartilhado da timeline canônica (AEP-0116 e AEP-0088 D5).
+// IDs são opacos; revisões e sequências são strings decimais. A ordem pertence
+// ao backend. Invocações contêm somente resumos, sem argumentos/resultados integrais.
+
+type CanonicalItem struct {
+	ItemID                  string             `json:"itemId"`
+	ConversationID          string             `json:"conversationId"`
+	ScopeParentID           *string            `json:"scopeParentId"`
+	Kind                    string             `json:"kind"`
+	TurnID                  *string            `json:"turnId"`
+	ReplyToItemID           string             `json:"replyToItemId"`
+	MessageIDs              []string           `json:"messageIds"`
+	RepresentativeMessageID *string            `json:"representativeMessageId"`
+	Position                string             `json:"position"`
+	Revision                string             `json:"revision"`
+	State                   string             `json:"state"`
+	Durability              string             `json:"durability"`
+	Segments                []CanonicalSegment `json:"segments"`
+	Metadata                CanonicalMetadata  `json:"metadata"`
+}
+
+type CanonicalSegment struct {
+	SegmentID   string                `json:"segmentId"`
+	Kind        string                `json:"kind"`
+	Text        string                `json:"text,omitempty"`
+	Invocations []TurnSegmentToolCall `json:"invocations,omitempty"`
+}
+
+type CanonicalMetadata struct {
+	Origin           string `json:"origin"`
+	Role             string `json:"role"`
+	Pinned           bool   `json:"pinned"`
+	Model            string `json:"model"`
+	PromptTokens     int    `json:"promptTokens"`
+	CompletionTokens int    `json:"completionTokens"`
+	TotalTokens      int    `json:"totalTokens"`
+}
+
+type CanonicalOperation struct {
+	Kind      string            `json:"kind"`
+	ItemID    string            `json:"itemId"`
+	Revision  string            `json:"revision"`
+	Item      *CanonicalItem    `json:"item,omitempty"`
+	SegmentID string            `json:"segmentId,omitempty"`
+	Text      string            `json:"text,omitempty"`
+	Segment   *CanonicalSegment `json:"segment,omitempty"`
+}
+
+type TurnSegmentToolCall struct {
+	ExecutionID        string `json:"-"`
+	ExecutionDepth     int    `json:"-"`
+	InvocationID       string `json:"invocationId,omitempty"`
+	ID                 string `json:"callId"`
+	Name               string `json:"name"`
+	Origin             string `json:"origin,omitempty"`
+	ServerLabel        string `json:"serverLabel,omitempty"`
+	Status             string `json:"status"`
+	Iteration          int    `json:"iteration,omitempty"`
+	DurationMs         int64  `json:"durationMs,omitempty"`
+	InputPreview       string `json:"inputPreview,omitempty"`
+	OutputPreview      string `json:"outputPreview,omitempty"`
+	InputBytes         int64  `json:"inputBytes,omitempty"`
+	OutputBytes        int64  `json:"outputBytes,omitempty"`
+	HasDetails         bool   `json:"hasDetails"`
+	ResultAvailability string `json:"resultAvailability"`
+	HasSearchResults   bool   `json:"hasSearchResults,omitempty"`
+	SearchResultCount  int    `json:"searchResultCount,omitempty"`
+	SecurityOutcome    string `json:"securityOutcome,omitempty"`
+	// AssistantMessageID é metadado interno de hidratação para associar a
+	// invocação à mensagem assistant que representou a iteração.
+	AssistantMessageID string `json:"-"`
+	ACPTextOffset      *int   `json:"-"`
+}
+
+type TimelineWindowMetadata struct {
+	RetainedItemIDs  []string `json:"retainedItemIds"`
+	RetentionBlocked bool     `json:"retentionBlocked"`
+	TotalCount       int      `json:"totalCount"`
+	StartIndex       int      `json:"startIndex"`
+	EndIndex         int      `json:"endIndex"`
+	HasBefore        bool     `json:"hasBefore"`
+	HasAfter         bool     `json:"hasAfter"`
+	BeforeCursor     string   `json:"beforeCursor"`
+	AfterCursor      string   `json:"afterCursor"`
+}
+
+type TimelineWindowSplice struct {
+	Index       int      `json:"index"`
+	DeleteCount int      `json:"deleteCount"`
+	InsertIDs   []string `json:"insertIds"`
+}
+
+type SubscribedTimelineSnapshot struct {
+	ConversationID   string             `json:"conversationId"`
+	ScopeParentID    *string            `json:"scopeParentId"`
+	RetainedItemIDs  []string           `json:"retainedItemIds"`
+	RetentionBlocked bool               `json:"retentionBlocked"`
+	Mode             TimelineWindowMode `json:"mode"`
+	WindowID         string             `json:"windowId"`
+	WindowRevision   string             `json:"windowRevision"`
+	Epoch            string             `json:"epoch"`
+	Sequence         string             `json:"sequence"`
+	Items            []CanonicalItem    `json:"items"`
+	OrderedItemIDs   []string           `json:"orderedItemIds"`
+	TotalCount       int                `json:"totalCount"`
+	StartIndex       int                `json:"startIndex"`
+	EndIndex         int                `json:"endIndex"`
+	HasBefore        bool               `json:"hasBefore"`
+	HasAfter         bool               `json:"hasAfter"`
+	BeforeCursor     string             `json:"beforeCursor"`
+	AfterCursor      string             `json:"afterCursor"`
+}
+
+type TimelineWindowNavigation struct {
+	Mode           TimelineWindowMode `json:"mode"`
+	Epoch          string             `json:"epoch"`
+	WindowRevision string             `json:"windowRevision"`
+	TimelineWindowPosition
+}
+
+type TimelineWindowPosition struct {
+	Cursor       string `json:"cursor"`
+	Anchor       string `json:"anchor"`
+	AnchorItemID string `json:"anchorItemId"`
+	Direction    string `json:"direction"`
+	Limit        int    `json:"limit"`
+}
+
+type TimelineRetentionRequest struct {
+	Epoch          string   `json:"epoch"`
+	WindowRevision string   `json:"windowRevision"`
+	ItemIDs        []string `json:"itemIds"`
+}
+
+type TimelineWindowMode string
+
+const (
+	TimelineWindowHistorical TimelineWindowMode = "historical"
+	TimelineWindowFollowTail TimelineWindowMode = "followTail"
+)

@@ -52,25 +52,6 @@ type TimelineSubscription struct {
 	reader       CanonicalWindowSnapshotReader
 }
 
-type SubscribedTimelineSnapshot struct {
-	RetainedItemIDs  []string
-	RetentionBlocked bool
-	Mode             TimelineWindowMode
-	WindowID         string
-	WindowRevision   string
-	Epoch            string
-	Sequence         string
-	Items            []CanonicalItem
-	OrderedItemIDs   []string
-	TotalCount       int
-	StartIndex       int
-	EndIndex         int
-	HasBefore        bool
-	HasAfter         bool
-	BeforeCursor     string
-	AfterCursor      string
-}
-
 func (p *LiveProjection) SubscribeTimeline(ctx context.Context, session TimelineSession, surfaceID string, query database.MessageWindowQuery, reader CanonicalWindowSnapshotReader) (*TimelineSubscription, *SubscribedTimelineSnapshot, error) {
 	if session == nil || reader == nil || surfaceID == "" || len(surfaceID) > 256 || query.ConversationID == "" {
 		return nil, nil, ErrTimelineSubscription
@@ -139,10 +120,12 @@ func subscriptionSnapshot(c *projectionConversation, window *subscribedWindow, s
 		retained = nil
 	}
 	window.query = cloneWindowQuery(query)
+	scope := cloneWindowQuery(query)
 	window.syncRequired = false
 	window.revision++
 	result := &SubscribedTimelineSnapshot{Mode: window.mode, WindowID: window.id, Epoch: c.epoch, Sequence: strconv.FormatUint(c.publication.sequence, 10), Items: make([]CanonicalItem, 0, len(snapshot.Items)), OrderedItemIDs: make([]string, 0, len(snapshot.Items)), TotalCount: snapshot.Window.TotalCount, StartIndex: snapshot.Window.StartIndex, EndIndex: snapshot.Window.EndIndex, HasBefore: snapshot.Window.HasBefore, HasAfter: snapshot.Window.HasAfter, BeforeCursor: snapshot.BeforeCursor, AfterCursor: snapshot.AfterCursor}
 	result.RetainedItemIDs = retainedInSnapshot(retained, snapshot)
+	result.ConversationID, result.ScopeParentID = scope.ConversationID, scope.ParentID
 	result.RetentionBlocked = window.mode == TimelineWindowFollowTail && len(result.RetainedItemIDs) > 0 && snapshot.Window.HasAfter
 	result.WindowRevision = strconv.FormatUint(window.revision, 10)
 	window.version = snapshot.Version
@@ -248,23 +231,7 @@ func (s *TimelineSubscription) Refresh(ctx context.Context, windowRevision strin
 	return subscriptionSnapshot(c, c.windows[s.windowID], snapshot, query), nil
 }
 
-// TimelineWindowNavigation altera somente a fatia da inscrição existente.
-// Owner, sessão, conversa e escopo vêm do capability, nunca deste pedido.
-type TimelineWindowNavigation struct {
-	Mode           TimelineWindowMode
-	Epoch          string
-	WindowRevision string
-	TimelineWindowPosition
-}
-
-type TimelineWindowPosition struct {
-	Cursor       string
-	Anchor       string
-	AnchorItemID string
-	Direction    string
-	Limit        int
-}
-
+// Conversa e escopo vêm do capability, nunca do pedido de navegação.
 func (s *TimelineSubscription) windowQuery(position TimelineWindowPosition) database.MessageWindowQuery {
 	return database.MessageWindowQuery{ConversationID: s.key.conversationID, ParentID: s.conversation.windows[s.windowID].query.ParentID, Cursor: position.Cursor, Anchor: position.Anchor, AnchorItemID: position.AnchorItemID, Direction: position.Direction, Limit: position.Limit}
 }

@@ -6,25 +6,6 @@ import (
 	"strconv"
 )
 
-// Patches internos até o transporte canônico. A ordem pertence ao backend.
-type TimelineWindowMetadata struct {
-	RetainedItemIDs  []string `json:"retainedItemIds"`
-	RetentionBlocked bool     `json:"retentionBlocked"`
-	TotalCount       int      `json:"totalCount"`
-	StartIndex       int      `json:"startIndex"`
-	EndIndex         int      `json:"endIndex"`
-	HasBefore        bool     `json:"hasBefore"`
-	HasAfter         bool     `json:"hasAfter"`
-	BeforeCursor     string   `json:"beforeCursor"`
-	AfterCursor      string   `json:"afterCursor"`
-}
-
-type TimelineWindowSplice struct {
-	Index       int      `json:"index"`
-	DeleteCount int      `json:"deleteCount"`
-	InsertIDs   []string `json:"insertIds"`
-}
-
 type CanonicalWindowPatch struct {
 	WindowID         string                  `json:"windowId"`
 	PreviousRevision string                  `json:"previousRevision"`
