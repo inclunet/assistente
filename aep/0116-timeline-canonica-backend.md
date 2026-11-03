@@ -51,10 +51,10 @@ na segunda parcela sem publicação parcial.
 
 Validação: 420 testes seguros de chat; 99 de controllers, 53 de handlers/turnos
 do agente e duas regressões de áudio nas rodadas pertinentes. Build/vet e lint
-incremental aprovados. Revisor independente review_aep: quinze rodadas, sem
+incremental aprovados. Revisor independente review_aep: dezesseis rodadas, sem
 pendências finais. Sem ACP local ou NVDA. Transporte e cutover frontend continuam
 pendentes; este recorte não declara resolução do foco na UI. O custo de leitura
-por transição integra o gate de desempenho final ainda pendente. A fixture de fontes agregadas compartilha somente a preparação entre os mesmos três cenários sequenciais; 21 testes focados passaram após esse ajuste. Medição local desse teste: 33,7 s/44 MB de log antes e 15,5 s/6 KB depois, sem reduzir dados ou asserções; não substitui o gate de desempenho do produto.
+por transição integra o gate de desempenho final ainda pendente. A fixture de fontes agregadas compartilha somente a preparação entre os mesmos três cenários sequenciais; 21 testes focados passaram após esse ajuste. Medição local desse teste: 33,7 s/44 MB de log antes e 15,5 s/6 KB depois, sem reduzir dados ou asserções; não substitui o gate de desempenho do produto. A suíte completa expôs custo de classificação global na prova de fronteiras; getAnchorTimelineItem agora reutiliza a seleção pontual quando AnchorItemID é conhecido. Sem mudar fixture, timeout ou asserções, o perfil local de SetRetention caiu de 2,72 s para 2,16 s; 33 testes de banco e 20 regressões focadas de chat aprovados. Na repetição integral, 419 casos passaram e o teste de cancelamento dependente do SQL anterior foi corrigido no ponto de injeção, mantendo ambas as asserções; a repetição focada também o aprovou.
 
 ### Recorte: acompanhamento explícito da cauda (2026-11-03)
 
