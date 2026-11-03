@@ -312,7 +312,9 @@ export class TimelineConversationState {
   private pruneBuffer(): void {
     const pendingOpen = [...this.surfaces.values()].some(surface => surface.request && !surface.window);
     const pendingWindows = new Set([...this.surfaces.values()].filter(surface => surface.request).map(surface => surface.window?.windowId));
-    if (!pendingOpen) this.removeBuffered(value => !pendingWindows.has(value.event.windowId));
+    const knownWindows = new Set([...this.surfaces.values()].map(surface => surface.window?.windowId));
+    this.removeBuffered(value => !pendingWindows.has(value.event.windowId) &&
+      (knownWindows.has(value.event.windowId) || !pendingOpen));
   }
 
   private freeze(reason: Reason): TimelineStateResult {

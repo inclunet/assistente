@@ -161,6 +161,24 @@ describe('TimelineConversationState', () => {
     expect(state.receive(event('a', {}, { snapshotRevision: '2' }))).toEqual({ kind: 'applied' });
   });
 
+  it('falha de Refresh libera seus lotes, preservando eventos de Open ainda pendente', () => {
+    const state = new TimelineConversationState('chat', new TimelineCacheBudget());
+    open(state);
+    const failed = state.beginSnapshot('a', null);
+    const pending = state.beginSnapshot('b', null);
+    for (let index = 0; index < 254; index++) state.receive(event('a'));
+    state.receive(event('b'));
+    expect(state.bufferedBatches).toBe(255);
+    expect(state.failSnapshot(failed)).toEqual({ kind: 'recover', reason: 'snapshot' });
+    expect(state.bufferedBatches).toBe(1);
+    expect(state.receive(event('b', { sequence: '12', operations: [{
+      kind: 'segment_append', itemId: 'answer', revision: '12', segmentId: 'text', text: '?',
+    }] }))).toEqual({ kind: 'buffered' });
+    expect(state.acceptSnapshot(pending, snapshot('b'))).toEqual({ kind: 'applied' });
+    expect(state.getItem('b', 'answer')?.segments[0].text).toBe('Olá!?');
+    expect(state.frozenReason).toBeUndefined();
+  });
+
   it.each(['count', 'bytes'])('metadados de capabilities aposentadas têm limite por %s', limit => {
     const state = new TimelineConversationState('chat', new TimelineCacheBudget());
     open(state, 'visible');

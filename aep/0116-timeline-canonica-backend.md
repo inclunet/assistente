@@ -63,6 +63,9 @@ Esse índice de IDs encerrados não usa TTL e tem limite de 256 IDs/2 MiB por
 instância; exceder a cota congela o coordenador sem apagar o visual. O adaptador
 deverá fechar no backend a capability retornada por um Open descartado, inclusive
 após dispose/congelamento; ignorar o snapshot local não substitui esse cleanup.
+Falhar Refresh/Navigate também libera seus envelopes conhecidos, mesmo havendo
+Open em outra superfície; a poda preserva apenas consultas ainda pendentes e
+envelopes desconhecidos necessários às aberturas, sem ocupar cota com lotes órfãos.
 
 ### Recorte: aplicação transacional de lotes no frontend (2026-11-03)
 
