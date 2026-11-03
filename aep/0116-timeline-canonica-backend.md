@@ -29,7 +29,7 @@ Validação local: 429 testes seguros de chat, quatro de apidto e 5.887 testes d
 frontend em 484 arquivos passaram; 31 arquivos relacionados a ACP ficaram fora
 da execução local. Build, vet, lint incremental, ESLint e Stylelint aprovados.
 Bindings regenerados com Wails 2.15.0 em perfil isolado sob build/bin; TypeScript
-aprovado sobre o resultado. Revisor independente review_aep: quatro rodadas, sem
+aprovado sobre o resultado. Revisor independente review_aep: cinco rodadas, sem
 pendências locais. CI e review remotos acompanham o PR empilhado.
 
 ### Recorte: execução isolada do pacote de chat no CI (2026-11-03)
