@@ -123,6 +123,7 @@ type App struct {
 	sessionSvc              *auth.SessionService
 	httpAPIServer           *http.Server
 	authMu                  sync.RWMutex
+	timelineAuthGeneration  atomic.Uint64
 	authSessionMu           sync.Mutex
 	commandStartupOnce      sync.Once
 	commandStartup          chan struct{} // transição completa prepare -> bootstrap -> Start; aquisição cancelável
@@ -386,7 +387,8 @@ type App struct {
 	// chatAPI é o bind Wails do domínio chat/envio (AEP-0040, AEP-0088):
 	// SendMessage e RetryMessage. Criado em main e wired após NewChatController.
 	// sendMessageFromChannel permanece no *App.
-	chatAPI *wailsapi.Chat
+	chatAPI         *wailsapi.Chat
+	chatTimelineAPI *wailsapi.ChatTimeline
 	// Somente o bootstrap GUI registra o bind antes do startup. A CLI cria
 	// sua fachada internamente e não recebe autoridade interativa de comandos.
 	chatDesktopIngress bool
@@ -1040,6 +1042,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	// Inicializa repositórios de audio e conversa
 	timelineReader := chat.NewDBTimelineReader(database.DB())
 	timelineProjection := chat.NewLiveProjection(timelineReader)
+	wailsapi.AttachChatTimeline(a.chatTimelineAPI, timelineWailsSession{wailsSession{app: a}}, timelineProjection, timelineReader)
 	a.audioSvc = speech.NewDBAudioStore(timelineProjection.ApplyStorageMutation)
 	a.convSvc = chat.NewDBConversationStore()
 	a.msgRepo = chat.NewDBMessageStore()
@@ -1401,6 +1404,7 @@ func (a *App) waitBackground(timeout time.Duration) {
 
 // Shutdown encerra todos os serviços do app.
 func (a *App) Shutdown() {
+	wailsapi.CloseChatTimeline(a.chatTimelineAPI)
 	a.startupResult.finish(context.Canceled)
 	// Cancela e aguarda a única recuperação de hot-swap antes de desmontar
 	// lifecycle/adapters. A rotina não pode republicar após o início do shutdown.

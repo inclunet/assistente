@@ -1,9 +1,59 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, mensagens, áudio, limpeza, exclusão e importação integrados; retenção por idade, órfãos, navegação, leitura leve e orçamento de fontes da janela com recuperação atômica e parcelada e participação histórica automática com publicação e replay atômicos integrados; followTail, retenção por foco/leitura e DTOs compartilhados integrados; margem de desempenho, transporte e cutover pendentes
+## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, mensagens, áudio, limpeza, exclusão e importação integrados; retenção por idade, órfãos, navegação, leitura leve e orçamento de fontes da janela com recuperação atômica e parcelada e participação histórica automática com publicação e replay atômicos integrados; followTail, retenção por foco/leitura, DTOs compartilhados e RPCs de inscrição integrados; margem de desempenho, eventos e cutover pendentes
 
 Data: 2026-10-30
 
+### Recorte: inscrições da timeline na borda Wails (2026-11-03)
+
+ChatTimeline expõe Open, Refresh, Navigate, SetRetention, Replay e Close, usando
+o mesmo LiveProjection e DBTimelineReader do runtime. A registry conserva apenas
+capabilities e seu principal: não reconstrói itens, ordem ou estado de janelas.
+DTOs de pedidos, replay e patches públicos vivem em apidto; índices internos do
+journal não atravessam a borda. Lotes vazios continuam avançando a sequência.
+Sequências de replay exigem representação decimal canônica de uint64.
+
+A sessão é capturada sob authMu, com userID e SessionID coerentes, e revalidada
+nas operações do core por geração atômica, sem readquirir authMu. Nenhum owner ou sessionId vem do payload. Troca de usuário
+ou sessão invalida a geração da registry e libera inscrições; refresh da mesma
+sessão as preserva. Aberturas pendentes contam no limite global de 256 handles e
+reservas, além do limite por conversa do core. Uma abertura invalidada não pode
+registrar nem devolver sua inscrição depois de logout/shutdown. Shutdown é
+terminal; attach posterior não reabre a registry.
+
+O detach troca a registry sob lock, mas fecha capabilities depois de liberar
+authMu e o mutex da registry. Captura, autorização e chamadas ao projetor também
+ocorrem fora do mutex da registry, preservando a ordem dos locks.
+
+Cada RPC revalida sessão e conta persistidas com RevalidateLocalSession antes de
+entrar no projetor. A consulta ocorre fora de authMu e da barreira, com prazo
+limitado; um comprovante privado no contexto vincula a captura ao principal e à
+geração efetivamente revalidados. Troca de sessão no intervalo recusa a captura.
+Os callbacks do projetor consultam somente a geração atômica, pois a publicação
+pode ocorrer sob um guard que já detém authMu.RLock. Isso evita reentrada quando
+há um escritor aguardando. A prova de revogação persistida acontece na entrada
+do RPC; não é uma transação conjunta entre autorização e snapshot.
+Provas focadas cobrem os seis RPCs, replay/ordem, lotes vazios, sequências acima
+de 2^53 e inválidas, sessão alheia, limite com reservas, abertura concorrente com
+logout/shutdown, descarte de Refresh invalidado durante a leitura e ausência de ressurreição após retorno à sessão anterior. As reservas permanecem contabilizadas até a abertura terminar, mesmo após invalidação da geração.
+Esta entrega não emite eventos nem troca o consumidor visual: transporte por
+eventos, cutover e gate global de desempenho continuam pendentes.
+
+Validação inicial: 202 testes seguros de wailsapi (incluindo sete focados nos RPCs), 1.170 testes seguros do App (incluindo dois de sessão), quatro
+de apidto, 430 testes seguros de chat e 5.887 testes de frontend em 484 arquivos
+passaram. Execução local exclui ACP. Build, vet, TypeScript, ESLint e Stylelint
+aprovados; lint incremental sem achados. O lint completo aponta 12 achados em
+arquivos fora deste diff, preservados para tratamento separado. Bindings gerados
+com Wails 2.15.0 em perfil isolado. Revisor independente review_aep: seis rodadas de implementação;
+a primeira apontou liberação precoce da cota de aberturas pendentes no detach,
+corrigida e coberta por 256 aberturas concorrentes; segunda rodada sem pendências. A terceira confirmou documentação e integração da base remota sem alterar a árvore revisada.
+A revisão remota apontou reentrada de authMu sob guard de comando e ausência de
+revalidação de sessão persistida. Ambos corrigidos; 15 testes focados de timeline,
+autenticação e sessão do editor passaram após a alteração. A regressão de deadlock
+falhou com a reentrada reintroduzida e passou na versão final. A quarta revisão
+independente aprovou o diff completo, incluindo comprovante privado e geração.
+A quinta e a sexta revisões confirmaram os ajustes de lint no ramo de falha do teste, sem mudança de produção; os 15 testes passaram novamente.
+CI e nova rodada remota completam a entrega deste recorte.
 ### Recorte: contrato compartilhado da timeline (2026-11-03)
 
 Os DTOs leves de itens, segmentos, operações, metadados, splices, snapshot e

@@ -580,22 +580,43 @@ func (a *App) GetAuthUser() (*AuthUser, error) {
 func (a *App) setCurrentUserID(userID string) {
 	userID = strings.TrimSpace(userID)
 	a.authMu.Lock()
-	defer a.authMu.Unlock()
+	var closeWindows func()
+	if a.currentUserID != userID {
+		a.timelineAuthGeneration.Add(1)
+		closeWindows = wailsapi.DetachChatTimeline(a.chatTimelineAPI)
+	}
 	if a.currentUserID != userID && a.credMgr != nil {
 		a.credMgr.ClearCommandCache()
 	}
 	a.currentUserID = userID
+	a.authMu.Unlock()
+	if closeWindows != nil {
+		closeWindows()
+	}
 }
 
 func (a *App) setCurrentAuthUser(user *AuthUser) {
 	a.authMu.Lock()
-	defer a.authMu.Unlock()
+	previous := a.currentAuthUser
+	changed := (previous == nil) != (user == nil)
+	if previous != nil && user != nil {
+		changed = previous.UserID != user.UserID || previous.SessionID != user.SessionID
+	}
+	var closeWindows func()
+	if changed {
+		a.timelineAuthGeneration.Add(1)
+		closeWindows = wailsapi.DetachChatTimeline(a.chatTimelineAPI)
+	}
 	if user == nil {
 		a.currentAuthUser = nil
-		return
+	} else {
+		copy := *user
+		a.currentAuthUser = &copy
 	}
-	copy := *user
-	a.currentAuthUser = &copy
+	a.authMu.Unlock()
+	if closeWindows != nil {
+		closeWindows()
+	}
 }
 
 // adoptLegacyDataForUser executa as migrações pré-AEP-0052 para o
