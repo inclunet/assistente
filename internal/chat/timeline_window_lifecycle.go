@@ -31,7 +31,13 @@ func (p *LiveProjection) visitWindowLifecycles(ctx context.Context, conversation
 
 // Todo produtor comprova os turnos antes de qualquer janela perder participantes.
 func (p *LiveProjection) reconcileParticipatingLifecycles(ctx context.Context, conversationID string, c *projectionConversation, version database.ChatTimelineVersion) error {
-	return p.visitWindowLifecycles(ctx, conversationID, liveWindowTurnIDs(c, c.participatingIDs()), version, func(_ []string, snapshot *TimelineSelectionSnapshot) error {
+	// Janelas aguardando sync ainda referenciam buffers live. Sua exclusão da
+	// publicação não dispensa comprovar que a execução continua sendo a atual.
+	var referencedIDs []string
+	for _, window := range c.windows {
+		referencedIDs = append(referencedIDs, window.orderedIDs...)
+	}
+	return p.visitWindowLifecycles(ctx, conversationID, liveWindowTurnIDs(c, referencedIDs), version, func(_ []string, snapshot *TimelineSelectionSnapshot) error {
 		reconcileStorageLifecycleLocked(c, nil, snapshot)
 		return nil
 	})
