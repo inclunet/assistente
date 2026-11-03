@@ -1,8 +1,32 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, mensagens, áudio, limpeza, exclusão e importação integrados; retenção por idade, órfãos, navegação, leitura leve e orçamento de fontes da janela com recuperação atômica e parcelada e seleção leve de participação integrados; margem de desempenho, participação automática, transporte e cutover pendentes
+## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, mensagens, áudio, limpeza, exclusão e importação integrados; retenção por idade, órfãos, navegação, leitura leve e orçamento de fontes da janela com recuperação atômica e parcelada e seleção leve de participação com fronteiras históricas integrados; margem de desempenho, participação automática, transporte e cutover pendentes
 
 Data: 2026-10-30
+
+### Recorte: fronteiras estáveis para participação histórica (2026-11-02)
+
+ReadHistoricalMembership seleciona o intervalo inclusivo entre os dois cursores
+aceitos pela janela, na mesma transação da versão. Reutiliza a chave total,
+a autorização e a cota SQL de identidades da paginação canônica. Não consulta
+payload de mensagens/ledger e não repete Anchor=end. Inserções e exclusões
+anteriores ao intervalo mudam índices/contagem; inserções internas alteram a
+participação. Mensagens novas posteriores não deslocam a página histórica.
+
+Fronteira excluída ou movida exige sincronização explícita. Cursores de outro
+escopo, limites invertidos ou incompletos são recusados. Crescimento além do
+limite retorna erro de cota, sem truncar a janela. Uma janela sem fronteiras
+permanece vazia e atualiza somente a contagem; seguir a cauda é contrato separado.
+O método exportado do repositório aplica o contexto também ao SQL de fronteiras,
+não apenas à autorização.
+
+Evidências: timeline_historical_membership_test.go cobre raiz/thread, inserções
+internas/externas, remoção interna e de fronteira, fronteira única/movida,
+owner, escopo, cancelamento após autorização, cota de itens/identidades, conteúdo
+pesado e commit por outra conexão entre versão e seleção. Este recorte é o
+seletor necessário para participação automática: integração com writers,
+splices/replay por janela, followTail, foco, transporte e frontend continuam
+pendentes. Não altera comportamento visível nem executa testes ACP localmente.
 
 ### Recorte: seleção leve para participação de janelas (2026-11-02)
 
