@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -13,6 +15,7 @@ import (
 	"assistente/internal/database"
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
 type snapshotFixture struct {
@@ -32,6 +35,12 @@ func newSnapshotFixture(t testing.TB) snapshotFixture {
 	}
 	t.Cleanup(func() { _ = database.Close(); restore() })
 	db := database.DB()
+	// Fixtures exercitam payloads de vários MiB. Registrar os parâmetros expande
+	// cada INSERT/UPDATE lento em megabytes de log, sem acrescentar diagnóstico.
+	db.Logger = logger.New(log.New(os.Stdout, "", log.LstdFlags), logger.Config{
+		SlowThreshold: 200 * time.Millisecond, LogLevel: logger.Warn,
+		ParameterizedQueries: true,
+	})
 	if err := db.Create(&database.User{UUIDModel: database.UUIDModel{ID: "snapshot-user"}, Username: "snapshot-user"}).Error; err != nil {
 		t.Fatal(err)
 	}

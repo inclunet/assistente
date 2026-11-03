@@ -29,8 +29,14 @@ Validação local: 428 testes seguros de chat, quatro de apidto e 5.887 testes d
 frontend em 484 arquivos passaram; 31 arquivos relacionados a ACP ficaram fora
 da execução local. Build, vet, lint incremental, ESLint e Stylelint aprovados.
 Bindings regenerados com Wails 2.15.0 em perfil isolado sob build/bin; TypeScript
-aprovado sobre o resultado. Revisor independente review_aep: uma rodada, sem
+aprovado sobre o resultado. Revisor independente review_aep: duas rodadas, sem
 pendências locais. CI e review remotos acompanham o PR empilhado.
+
+A fixture compartilhada parametriza o logger SQL: preserva consultas lentas e
+erros sem imprimir os payloads sintéticos. Os mesmos 428 testes passaram com
+redução do log local de 206.736.544 para 10625960 bytes, sem alterar dados,
+asserções ou timeouts. O primeiro job geral com race excedeu 25 minutos;
+a indisponibilidade do log remoto não permite atribuir a causa ao logger.
 
 ### Recorte: retenção por foco/leitura na inscrição (2026-11-03)
 
