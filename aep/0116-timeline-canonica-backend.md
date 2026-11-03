@@ -40,16 +40,18 @@ rollback de liberação com drift, pedidos obsoletos, capacidade e pergunta isol
 com retry externo. Transporte e cutover frontend continuam pendentes; este recorte
 não declara resolução do foco na UI. Custo de leitura por transição com retenção
 integra o gate de desempenho final ainda pendente.
-Validação: 412 testes seguros de chat, 99 de controllers e duas regressões de
+Validação: 414 testes seguros de chat, 99 de controllers e duas regressões de
 áudio aprovados. Build/vet
-e lint incremental sem erros. Revisor independente review_aep: oito rodadas;
+e lint incremental sem erros. Revisor independente review_aep: nove rodadas;
 item movido, lifecycle de pergunta isolada, cursor perdido e validação anterior
 a efeitos corrigidos, gate final sem pendências. Sem ACP local ou NVDA.
 
 Review remota: Refresh em followTail comprova sobrevivência antes de validar
 fronteiras antigas. Exclusão externa da única referência permite recuperar a
 cauda na mesma versão; outra referência sobrevivente continua protegida.
-A liberação reconcilia também os turnos comprovados pela pergunta isolada: após retry externo, o stream antigo recusa Append. A regressão cobre a desvinculação da execução anterior. Os 412 testes seguros de chat passaram após as duas correções.
+A liberação reconcilia também os turnos comprovados pela pergunta isolada: após retry externo, o stream antigo recusa Append. A regressão cobre a desvinculação da execução anterior. Os 414 testes seguros de chat passaram após as duas correções.
+
+Também antes do corte total de followTail, a liberação comprova o lifecycle dos turnos live da janela anterior na mesma versão. A leitura limitada consulta somente chat_turns, sem mensagens ou ledger; pergunta/resposta fora da nova cauda não deixam a execução antiga aceitar tokens. Regressões cobrem o corte completo, payload acima da cota, autorização e limite. Foram validados também 53 testes seguros de handlers/turnos do agente.
 
 ### Recorte: acompanhamento explícito da cauda (2026-11-03)
 

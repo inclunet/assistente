@@ -5,6 +5,7 @@ import (
 	"errors"
 	"slices"
 	"strconv"
+	"strings"
 
 	"assistente/internal/database"
 )
@@ -69,6 +70,27 @@ func (s *TimelineSubscription) SetRetention(ctx context.Context, request Timelin
 	}
 	finish := c.beginCanonicalPublication()
 	defer func() { finish(s.key.conversationID, resultErr == nil) }()
+	// O corte pode tirar pergunta e resposta de todos os participantes. Prova
+	// o lifecycle dos turnos live da janela anterior sem reler seus payloads.
+	turnIDs := []string{}
+	for _, itemID := range w.orderedIDs {
+		_, id, _ := strings.Cut(itemID, ":")
+		if c.turns[id] != nil {
+			turnIDs = append(turnIDs, id)
+		}
+	}
+	if len(turnIDs) > 0 {
+		readCtx, cancel := context.WithTimeout(authorized, canonicalReadTimeout)
+		defer cancel()
+		lifecycle, err := s.owner.reader.ReadTurnLifecycles(readCtx, s.key.conversationID, uniquePublicationIDs(turnIDs))
+		if err != nil {
+			return err
+		}
+		if lifecycle.Version != version {
+			return ErrProjectionRecoveryRequired
+		}
+		reconcileStorageLifecycleLocked(c, nil, lifecycle)
+	}
 	c.windows[s.windowID].pendingRetention = &requested
 	return s.owner.reconcileStorageStageLocked(authorized, s.key.conversationID, c, nil, &version)
 }

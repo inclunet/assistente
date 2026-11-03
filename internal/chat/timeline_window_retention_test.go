@@ -6,6 +6,7 @@ import (
 	"github.com/google/uuid"
 	"reflect"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -394,5 +395,72 @@ func TestWindowRetentionReleaseRejectsOldStreamAfterExternalRetry(t *testing.T) 
 	retainWindow(t, f, sub)
 	if stream.Append("tardio") || !e.conversation.turns[e.turnID].detached {
 		t.Fatal("liberação aceitou stream da tentativa substituída")
+	}
+}
+
+func TestWindowRetentionTailCutReconcilesDepartingExecution(t *testing.T) {
+	f, p, e, _ := automaticFixture(t)
+	stream := e.StartStream(0)
+	stream.Append("anterior")
+	sub, initial, err := p.SubscribeTimeline(f.ctx, &fixtureTimelineSession{ctx: f.ctx, id: "s"}, "tail", database.MessageWindowQuery{ConversationID: f.conversation, Anchor: "end", Direction: "before", Limit: 2}, f.reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sub.Close()
+	followTail(t, f, sub, initial, 2)
+	retainWindow(t, f, sub, "message:"+f.question, "turn:"+f.question)
+	c := e.conversation
+	c.mu.Lock()
+	if c.publicationTimer != nil {
+		c.publicationTimer.Stop()
+		c.publicationTimer = nil
+		c.publicationGeneration++
+	}
+	c.mu.Unlock()
+	repo := database.NewChatTurnRepository(f.db)
+	if err := repo.Finish(f.ctx, f.conversation, f.question, e.executionID, database.TurnInterrupted, "cancelled"); err != nil {
+		t.Fatal(err)
+	}
+	next, err := uuid.NewV7()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.BeginExecution(f.ctx, f.conversation, f.question, "", database.TurnModeRetry, next.String(), ""); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{}
+	for _, text := range []string{"nova 1", "nova 2"} {
+		m, err := database.CreateMessageWithContext(f.ctx, database.MessageOptions{ConversationID: f.conversation, Role: "user", Content: text})
+		if err != nil {
+			t.Fatal(err)
+		}
+		want = append(want, "message:"+m.ID)
+	}
+	if e.conversation.turns[e.turnID].detached {
+		t.Fatal("fixture reconciliou antes da liberação")
+	}
+	retainWindow(t, f, sub)
+	if !reflect.DeepEqual(c.windows[sub.windowID].orderedIDs, want) {
+		t.Fatal("cauda não cortou os dois itens antigos")
+	}
+	if stream.Append("tardio") || !c.turns[e.turnID].detached {
+		t.Fatal("corte aceitou stream substituído fora da janela")
+	}
+}
+
+func TestTimelineTurnLifecycleReadDoesNotLoadPayloads(t *testing.T) {
+	f := newSnapshotFixture(t)
+	if err := f.db.Model(&database.ChatMessage{}).Where("id=?", f.question).Update("content", strings.Repeat("x", canonicalSourceBytes+1)).Error; err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := f.reader.ReadTurnLifecycles(f.ctx, f.conversation, []string{f.question, "missing"})
+	if err != nil || snapshot.Turns[f.question] == nil || len(snapshot.TurnIDs) != 2 || len(snapshot.Items) != 0 {
+		t.Fatal("leitura leve falhou", err)
+	}
+	if _, err := f.reader.ReadTurnLifecycles(database.WithUserID(context.Background(), "other"), f.conversation, []string{f.question}); err == nil {
+		t.Fatal("leitura não autorizada")
+	}
+	if _, err := f.reader.ReadTurnLifecycles(f.ctx, f.conversation, make([]string, database.MaxMessageWindowRows+1)); !errors.Is(err, ErrTimelineSourceLimit) {
+		t.Fatal("limite ignorado", err)
 	}
 }

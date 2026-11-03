@@ -21,6 +21,28 @@ type TimelineSelectionReader interface {
 	ReadSelection(context.Context, string, []string) (*TimelineSelectionSnapshot, error)
 }
 
+// ReadTurnLifecycles prova execução/ausência sem materializar mensagens ou ledger.
+// A versão e os turnos são lidos na mesma transação autorizada.
+func (r *DBTimelineReader) ReadTurnLifecycles(ctx context.Context, conversationID string, ids []string) (*TimelineSelectionSnapshot, error) {
+	if len(ids) > database.MaxMessageWindowRows {
+		return nil, ErrTimelineSourceLimit
+	}
+	if err := database.CheckTimelineIdentityBudget(ids); err != nil {
+		return nil, err
+	}
+	result := &TimelineSelectionSnapshot{TurnIDs: uniquePublicationIDs(ids)}
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		version, err := database.ReadChatTimelineVersion(ctx, tx, conversationID)
+		if err != nil {
+			return err
+		}
+		result.Version = version
+		result.Turns, err = database.NewChatTurnRepository(tx).GetMany(ctx, conversationID, result.TurnIDs)
+		return err
+	})
+	return result, err
+}
+
 func (r *DBTimelineReader) ReadSelection(ctx context.Context, conversationID string, refs []string) (*TimelineSelectionSnapshot, error) {
 	if len(refs) > 16384 {
 		return nil, fmt.Errorf("seleção de timeline excede o limite")
