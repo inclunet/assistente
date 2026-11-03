@@ -1,8 +1,36 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, mensagens, áudio, limpeza, exclusão e importação integrados; retenção por idade, órfãos, navegação, leitura leve e orçamento de fontes da janela com recuperação atômica e parcelada e participação histórica automática com publicação e replay atômicos integrados; followTail e retenção por foco/leitura integrados; margem de desempenho, transporte e cutover pendentes
+## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, mensagens, áudio, limpeza, exclusão e importação integrados; retenção por idade, órfãos, navegação, leitura leve e orçamento de fontes da janela com recuperação atômica e parcelada e participação histórica automática com publicação e replay atômicos integrados; followTail, retenção por foco/leitura e DTOs compartilhados integrados; margem de desempenho, transporte e cutover pendentes
 
 Data: 2026-10-30
+
+### Recorte: contrato compartilhado da timeline (2026-11-03)
+
+Os DTOs leves de itens, segmentos, operações, metadados, splices, snapshot e
+pedidos de navegação/retenção passam a ter definição única em internal/apidto,
+conforme AEP-0088 D5. O domínio usa aliases; não há cópia de structs nem mapeamento
+por campo para cruzar a borda. Lotes e patches do journal continuam internos,
+pois contêm índices de roteamento que não pertencem ao contrato público.
+
+Snapshots incluem conversationId e scopeParentId mesmo quando não têm itens.
+O escopo retornado não compartilha ponteiro com o pedido nem com a inscrição.
+Campos JSON usam lowerCamel; navegação mantém posição flat. IDs são strings
+opacas e sequence/windowRevision/revision continuam strings decimais, inclusive
+acima de 2^53. O resumo de ferramenta mantém seus campos internos fora do JSON.
+
+Provas: internal/apidto/timeline_test.go verifica serialização, precisão e
+proveniência; internal/chat/timeline_dto_test.go verifica raiz/thread vazias e
+imutabilidade do escopo guardado diante de mutação do pedido e da resposta.
+Bindings são regenerados pelo Wails, incluindo a referência ao resumo de ferramenta
+em apidto. Este recorte ainda não expõe novos métodos Wails nem muda o consumidor
+visual. RPCs, eventos, cutover e gate global de desempenho permanecem pendentes.
+
+Validação local: 429 testes seguros de chat, quatro de apidto e 5.887 testes de
+frontend em 484 arquivos passaram; 31 arquivos relacionados a ACP ficaram fora
+da execução local. Build, vet, lint incremental, ESLint e Stylelint aprovados.
+Bindings regenerados com Wails 2.15.0 em perfil isolado sob build/bin; TypeScript
+aprovado sobre o resultado. Revisor independente review_aep: cinco rodadas, sem
+pendências locais. CI e review remotos acompanham o PR empilhado.
 
 ### Recorte: execução isolada do pacote de chat no CI (2026-11-03)
 

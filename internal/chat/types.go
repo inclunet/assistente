@@ -26,33 +26,6 @@ type MessageWindowRequest struct {
 	Limit           int    `json:"limit"`
 }
 
-// TurnSegmentToolCall é a projeção leve de uma invocação canônica.
-type TurnSegmentToolCall struct {
-	ExecutionID        string `json:"-"`
-	ExecutionDepth     int    `json:"-"`
-	InvocationID       string `json:"invocationId,omitempty"`
-	ID                 string `json:"callId"`
-	Name               string `json:"name"`
-	Origin             string `json:"origin,omitempty"`
-	ServerLabel        string `json:"serverLabel,omitempty"`
-	Status             string `json:"status"`
-	Iteration          int    `json:"iteration,omitempty"`
-	DurationMs         int64  `json:"durationMs,omitempty"`
-	InputPreview       string `json:"inputPreview,omitempty"`
-	OutputPreview      string `json:"outputPreview,omitempty"`
-	InputBytes         int64  `json:"inputBytes,omitempty"`
-	OutputBytes        int64  `json:"outputBytes,omitempty"`
-	HasDetails         bool   `json:"hasDetails"`
-	ResultAvailability string `json:"resultAvailability"`
-	HasSearchResults   bool   `json:"hasSearchResults,omitempty"`
-	SearchResultCount  int    `json:"searchResultCount,omitempty"`
-	SecurityOutcome    string `json:"securityOutcome,omitempty"`
-	// AssistantMessageID é metadado interno de hidratação para associar a
-	// invocação à mensagem assistant que representou a iteração.
-	AssistantMessageID string `json:"-"`
-	ACPTextOffset      *int   `json:"-"`
-}
-
 // TurnSegment é uma fatia ordenada cronologicamente de um turno do assistente:
 // um trecho de texto OU uma sequência de tool calls dentro de uma única iteração
 // do agentic loop. Issue #150: o chat history precisa preservar a cadeia de

@@ -11,12 +11,6 @@ import (
 
 var ErrTimelineRetention = errors.New("retenção de leitura inválida; libere os itens antes de navegar")
 
-type TimelineRetentionRequest struct {
-	Epoch          string
-	WindowRevision string
-	ItemIDs        []string
-}
-
 // SetRetention substitui as referências visuais desta inscrição. Não altera
 // pinned persistido. A confirmação é publicada com os splices no mesmo lote.
 func (s *TimelineSubscription) SetRetention(ctx context.Context, request TimelineRetentionRequest) (resultErr error) {

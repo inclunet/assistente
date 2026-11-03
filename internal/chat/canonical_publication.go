@@ -10,48 +10,7 @@ import (
 	"strings"
 )
 
-// CanonicalItem é a projeção leve usada por snapshot e operações. Não contém
-// mensagens físicas completas nem argumentos/resultados integrais de ferramentas.
-type CanonicalItem struct {
-	ItemID                  string             `json:"itemId"`
-	ConversationID          string             `json:"conversationId"`
-	ScopeParentID           *string            `json:"scopeParentId"`
-	Kind                    string             `json:"kind"`
-	TurnID                  *string            `json:"turnId"`
-	ReplyToItemID           string             `json:"replyToItemId"`
-	MessageIDs              []string           `json:"messageIds"`
-	RepresentativeMessageID *string            `json:"representativeMessageId"`
-	Position                string             `json:"position"`
-	Revision                string             `json:"revision"`
-	State                   string             `json:"state"`
-	Durability              string             `json:"durability"`
-	Segments                []CanonicalSegment `json:"segments"`
-	Metadata                CanonicalMetadata  `json:"metadata"`
-}
-type CanonicalSegment struct {
-	SegmentID   string                `json:"segmentId"`
-	Kind        string                `json:"kind"`
-	Text        string                `json:"text,omitempty"`
-	Invocations []TurnSegmentToolCall `json:"invocations,omitempty"`
-}
-type CanonicalMetadata struct {
-	Origin           string `json:"origin"`
-	Role             string `json:"role"`
-	Pinned           bool   `json:"pinned"`
-	Model            string `json:"model"`
-	PromptTokens     int    `json:"promptTokens"`
-	CompletionTokens int    `json:"completionTokens"`
-	TotalTokens      int    `json:"totalTokens"`
-}
-type CanonicalOperation struct {
-	Kind      string            `json:"kind"`
-	ItemID    string            `json:"itemId"`
-	Revision  string            `json:"revision"`
-	Item      *CanonicalItem    `json:"item,omitempty"`
-	SegmentID string            `json:"segmentId,omitempty"`
-	Text      string            `json:"text,omitempty"`
-	Segment   *CanonicalSegment `json:"segment,omitempty"`
-}
+// CanonicalBatch conserva o roteamento interno do journal até a borda de replay.
 type CanonicalBatch struct {
 	WindowPatches  []CanonicalWindowPatch `json:"windowPatches,omitempty"`
 	ConversationID string                 `json:"conversationId"`
