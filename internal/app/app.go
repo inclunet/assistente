@@ -123,6 +123,7 @@ type App struct {
 	sessionSvc              *auth.SessionService
 	httpAPIServer           *http.Server
 	authMu                  sync.RWMutex
+	timelineAuthGeneration  atomic.Uint64
 	authSessionMu           sync.Mutex
 	commandStartupOnce      sync.Once
 	commandStartup          chan struct{} // transição completa prepare -> bootstrap -> Start; aquisição cancelável
@@ -1041,7 +1042,7 @@ func (a *App) StartupWithAdapters(ctx context.Context, emitter events.Emitter, w
 	// Inicializa repositórios de audio e conversa
 	timelineReader := chat.NewDBTimelineReader(database.DB())
 	timelineProjection := chat.NewLiveProjection(timelineReader)
-	wailsapi.AttachChatTimeline(a.chatTimelineAPI, wailsSession{app: a}, timelineProjection, timelineReader)
+	wailsapi.AttachChatTimeline(a.chatTimelineAPI, timelineWailsSession{wailsSession{app: a}}, timelineProjection, timelineReader)
 	a.audioSvc = speech.NewDBAudioStore(timelineProjection.ApplyStorageMutation)
 	a.convSvc = chat.NewDBConversationStore()
 	a.msgRepo = chat.NewDBMessageStore()

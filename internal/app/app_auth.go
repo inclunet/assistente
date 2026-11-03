@@ -582,6 +582,7 @@ func (a *App) setCurrentUserID(userID string) {
 	a.authMu.Lock()
 	var closeWindows func()
 	if a.currentUserID != userID {
+		a.timelineAuthGeneration.Add(1)
 		closeWindows = wailsapi.DetachChatTimeline(a.chatTimelineAPI)
 	}
 	if a.currentUserID != userID && a.credMgr != nil {
@@ -603,6 +604,7 @@ func (a *App) setCurrentAuthUser(user *AuthUser) {
 	}
 	var closeWindows func()
 	if changed {
+		a.timelineAuthGeneration.Add(1)
 		closeWindows = wailsapi.DetachChatTimeline(a.chatTimelineAPI)
 	}
 	if user == nil {
