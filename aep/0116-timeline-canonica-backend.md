@@ -23,6 +23,9 @@ a ordem do backend; delta de texto conserva a referência da lista de IDs.
 Evidência: `frontend/src/services/timelineBatch.test.ts` cobre duas janelas nas
 duas ordens de entrega, múltiplos segmentos, atomicidade, sequência acima de 2^53,
 patches, hidratação, tombstones e conclusão com o mesmo itemId.
+Complementos da revisão remota provam rejeição atômica de upsert/hidratação
+com escopo divergente mesmo sem splices, e preservação do estado concluído
+quando um segmento é substituído em lote posterior.
 
 Este é um recorte preparatório da fase 3, ainda sem consumidor ativo. Não afirma
 corrigir foco/DOM na tela atual. Permanecem necessários: admissão de snapshots e

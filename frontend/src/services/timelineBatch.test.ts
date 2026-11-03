@@ -204,6 +204,18 @@ describe('prepareTimelineBatch', () => {
     expect(page.writes.size).toBe(0);
   });
 
+  it.each(['upsert', 'hydration'])('recusa troca de escopo por %s sem splices', source => {
+    const original = item();
+    const entries = cache(original);
+    const foreign = { ...item('answer', '11'), scopeParentId: 'another-thread' };
+    const update = source === 'upsert'
+      ? batch({ operations: [{ kind: 'item_upsert', itemId: 'answer', revision: '11', item: foreign }] })
+      : batch({ windowPatches: [{ windowId: 'window', previousRevision: '1', revision: '2', items: [foreign] }] });
+    expect(prepareTimelineBatch(window(), update, id => entries.get(id)))
+      .toEqual({ kind: 'recover', reason: 'content' });
+    expect(entries.get('answer')?.item).toBe(original);
+  });
+
   it('substitui segmento e conclusão preservando itemId', () => {
     const entries = cache(item());
     const terminal = { ...item('answer', '11'), state: 'completed' };
@@ -213,11 +225,13 @@ describe('prepareTimelineBatch', () => {
     if (result.kind !== 'applied') throw new Error('expected applied');
     expect(result.writes.get('answer')?.item?.state).toBe('completed');
     expect(result.window.orderedItemIds).toEqual(['question', 'answer']);
-    const replaced = prepareTimelineBatch(window(), batch({ operations: [{
-      kind: 'segment_replace', itemId: 'answer', revision: '11', segmentId: 'text',
+    for (const [id, entry] of result.writes) entries.set(id, entry);
+    const replaced = prepareTimelineBatch(result.window, batch({ sequence: '12', operations: [{
+      kind: 'segment_replace', itemId: 'answer', revision: '12', segmentId: 'text',
       segment: { segmentId: 'text', kind: 'text', text: 'Texto final' },
     }] }), id => entries.get(id));
     if (replaced.kind !== 'applied') throw new Error('expected applied');
     expect(replaced.writes.get('answer')?.item?.segments[0].text).toBe('Texto final');
+    expect(replaced.writes.get('answer')?.item?.state).toBe('completed');
   });
 });

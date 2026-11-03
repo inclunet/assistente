@@ -181,7 +181,9 @@ export function prepareTimelineBatch(
       }
     }
     for (const [id, entry] of writes) {
-      if (!entry.item && orderedIds.includes(id)) throw new Error('removed member');
+      if ((!entry.item || entry.item.scopeParentId !== window.scopeParentId) && orderedIds.includes(id)) {
+        throw new Error('membership');
+      }
     }
   } catch {
     return { kind: 'recover', reason: 'content' };
