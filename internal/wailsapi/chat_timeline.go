@@ -162,7 +162,7 @@ func (api *ChatTimeline) Open(request apidto.OpenTimelineRequest) (*apidto.Subsc
 			return nil, err
 		}
 		api.mu.Lock()
-		valid := !api.closed && api.generation == generation
+		valid := !api.closed && api.generation == generation && eventCtx.Err() == nil
 		if valid {
 			var stream *timelineEventStream
 			stream = newTimelineEventStream(eventCtx, subscription, timelineAuthorizedEmitter{principal, emitter}, snapshot, func() {

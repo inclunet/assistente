@@ -26,6 +26,10 @@ andamento antes de aguardar a exclusão; shutdown não depende de cancelar depoi
 o contexto global do App. Prova: `TestTimelineEventStreamCloseCancelsSnapshotQuery`.
 Os complementos de cobertura da revisão verificam remoção da capability/cota
 quando o contexto da autorização termina e preservação de itens/metadados no wire.
+Revisão posterior do Copilot: o gate de registro de Open também recusa contexto
+de eventos já cancelado durante a leitura inicial, liberando reserva e inscrição.
+`TestChatTimelinePendingOpenRejectsExpiredEventAuthorization` reproduz essa
+corrida sem alterar a geração local; a abertura não devolve uma capability morta.
 
 Decisão aprovada pelo mantenedor em 2026-11-03: revogação externa admite prazo
 máximo de **1 segundo** para bloquear novas emissões. Uma lease compartilhada por
@@ -48,12 +52,12 @@ Provas focadas: `TestChatTimelineEventsMatchReplayAndReleaseFailedTransport`,
 `TestTimelineEventStreamCloseDrainsEmitterAndReleasesFeed`,
 `TestChatTimelineEventAuthorizationSharedUntilLastClose`,
 `TestChatTimelineExternalRevocationStopsIdleEventStreams` e testes
-`TestTimelineAuthorization*`. Validação local: 209 testes seguros de Wails,
+`TestTimelineAuthorization*`. Validação local: 210 testes seguros de Wails,
 53 de autenticação e 1.180 do App passaram; os testes adicionados depois da
 seleção ampla também passaram na rodada focada. Frontend: 5.887 testes em 484
 arquivos, TypeScript, ESLint e Stylelint aprovados (avisos preexistentes de CSS,
 sem erros). Build/vet e lint Go incremental passaram. ACP excluído das execuções
-locais; sem NVDA. Revisor independente `review_aep`: seis rodadas técnicas,
+locais; sem NVDA. Revisor independente `review_aep`: sete rodadas técnicas,
 incluindo lifecycle, autorização, integração, diff completo e correções remotas; gate documental
 final aprovado, sem pendências.
 CI/review remotos completam a entrega. Cutover frontend, anexos e gate global de desempenho

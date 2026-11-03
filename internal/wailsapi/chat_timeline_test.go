@@ -285,6 +285,43 @@ func TestChatTimelinePendingOpenCannotSurviveInvalidation(t *testing.T) {
 	}
 }
 
+func TestChatTimelinePendingOpenRejectsExpiredEventAuthorization(t *testing.T) {
+	f := newTimelineAPIFixture(t)
+	eventCtx, cancelEvents := context.WithCancel(f.ctx)
+	defer cancelEvents()
+	f.session.eventContext = eventCtx
+	blocked := &blockedTimelineReader{DBTimelineReader: f.reader, entered: make(chan struct{}), release: make(chan struct{})}
+	release := sync.OnceFunc(func() { close(blocked.release) })
+	t.Cleanup(release)
+	f.api.reader = blocked
+	result := make(chan error, 1)
+	go func() {
+		snapshot, err := f.api.Open(f.request())
+		if snapshot != nil {
+			result <- errors.New("Open devolveu capability com autorização encerrada")
+			return
+		}
+		result <- err
+	}()
+	waitTimelineEventTest(t, blocked.entered)
+	cancelEvents() // revogação externa não altera a geração local da registry
+	release()
+	select {
+	case err := <-result:
+		if !errors.Is(err, chat.ErrTimelineSubscription) {
+			t.Fatal("abertura com autorização encerrada não foi recusada", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("abertura não terminou")
+	}
+	f.api.mu.Lock()
+	count, pending := len(f.api.windows), f.api.pending
+	f.api.mu.Unlock()
+	if count != 0 || pending != 0 {
+		t.Fatalf("abertura recusada reteve cota: handles=%d pending=%d", count, pending)
+	}
+}
+
 type gatedTimelineSession struct {
 	*timelineTestSession
 	entered, release chan struct{}
