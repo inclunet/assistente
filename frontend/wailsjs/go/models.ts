@@ -635,6 +635,210 @@ export namespace apidto {
 	        this.sessionDir = source["sessionDir"];
 	    }
 	}
+	export class CanonicalMetadata {
+	    origin: string;
+	    role: string;
+	    pinned: boolean;
+	    model: string;
+	    promptTokens: number;
+	    completionTokens: number;
+	    totalTokens: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new CanonicalMetadata(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.origin = source["origin"];
+	        this.role = source["role"];
+	        this.pinned = source["pinned"];
+	        this.model = source["model"];
+	        this.promptTokens = source["promptTokens"];
+	        this.completionTokens = source["completionTokens"];
+	        this.totalTokens = source["totalTokens"];
+	    }
+	}
+	export class TurnSegmentToolCall {
+	    invocationId?: string;
+	    callId: string;
+	    name: string;
+	    origin?: string;
+	    serverLabel?: string;
+	    status: string;
+	    iteration?: number;
+	    durationMs?: number;
+	    inputPreview?: string;
+	    outputPreview?: string;
+	    inputBytes?: number;
+	    outputBytes?: number;
+	    hasDetails: boolean;
+	    resultAvailability: string;
+	    hasSearchResults?: boolean;
+	    searchResultCount?: number;
+	    securityOutcome?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new TurnSegmentToolCall(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.invocationId = source["invocationId"];
+	        this.callId = source["callId"];
+	        this.name = source["name"];
+	        this.origin = source["origin"];
+	        this.serverLabel = source["serverLabel"];
+	        this.status = source["status"];
+	        this.iteration = source["iteration"];
+	        this.durationMs = source["durationMs"];
+	        this.inputPreview = source["inputPreview"];
+	        this.outputPreview = source["outputPreview"];
+	        this.inputBytes = source["inputBytes"];
+	        this.outputBytes = source["outputBytes"];
+	        this.hasDetails = source["hasDetails"];
+	        this.resultAvailability = source["resultAvailability"];
+	        this.hasSearchResults = source["hasSearchResults"];
+	        this.searchResultCount = source["searchResultCount"];
+	        this.securityOutcome = source["securityOutcome"];
+	    }
+	}
+	export class CanonicalSegment {
+	    segmentId: string;
+	    kind: string;
+	    text?: string;
+	    invocations?: TurnSegmentToolCall[];
+	
+	    static createFrom(source: any = {}) {
+	        return new CanonicalSegment(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.segmentId = source["segmentId"];
+	        this.kind = source["kind"];
+	        this.text = source["text"];
+	        this.invocations = this.convertValues(source["invocations"], TurnSegmentToolCall);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class CanonicalItem {
+	    itemId: string;
+	    conversationId: string;
+	    scopeParentId?: string;
+	    kind: string;
+	    turnId?: string;
+	    replyToItemId: string;
+	    messageIds: string[];
+	    representativeMessageId?: string;
+	    position: string;
+	    revision: string;
+	    state: string;
+	    durability: string;
+	    segments: CanonicalSegment[];
+	    metadata: CanonicalMetadata;
+	
+	    static createFrom(source: any = {}) {
+	        return new CanonicalItem(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.itemId = source["itemId"];
+	        this.conversationId = source["conversationId"];
+	        this.scopeParentId = source["scopeParentId"];
+	        this.kind = source["kind"];
+	        this.turnId = source["turnId"];
+	        this.replyToItemId = source["replyToItemId"];
+	        this.messageIds = source["messageIds"];
+	        this.representativeMessageId = source["representativeMessageId"];
+	        this.position = source["position"];
+	        this.revision = source["revision"];
+	        this.state = source["state"];
+	        this.durability = source["durability"];
+	        this.segments = this.convertValues(source["segments"], CanonicalSegment);
+	        this.metadata = this.convertValues(source["metadata"], CanonicalMetadata);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	export class CanonicalOperation {
+	    kind: string;
+	    itemId: string;
+	    revision: string;
+	    item?: CanonicalItem;
+	    segmentId?: string;
+	    text?: string;
+	    segment?: CanonicalSegment;
+	
+	    static createFrom(source: any = {}) {
+	        return new CanonicalOperation(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.kind = source["kind"];
+	        this.itemId = source["itemId"];
+	        this.revision = source["revision"];
+	        this.item = this.convertValues(source["item"], CanonicalItem);
+	        this.segmentId = source["segmentId"];
+	        this.text = source["text"];
+	        this.segment = this.convertValues(source["segment"], CanonicalSegment);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
 	export class ChatSpeakRequest {
 	    conversationId: string;
 	    messageId?: string;
@@ -1378,6 +1582,32 @@ export namespace apidto {
 	        this.reason = source["reason"];
 	    }
 	}
+	export class OpenTimelineRequest {
+	    conversationId: string;
+	    scopeParentId?: string;
+	    surfaceId: string;
+	    cursor: string;
+	    anchor: string;
+	    anchorItemId: string;
+	    direction: string;
+	    limit: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new OpenTimelineRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.conversationId = source["conversationId"];
+	        this.scopeParentId = source["scopeParentId"];
+	        this.surfaceId = source["surfaceId"];
+	        this.cursor = source["cursor"];
+	        this.anchor = source["anchor"];
+	        this.anchorItemId = source["anchorItemId"];
+	        this.direction = source["direction"];
+	        this.limit = source["limit"];
+	    }
+	}
 	export class PathAllowlistView {
 	    path: string;
 	    kind: string;
@@ -1402,6 +1632,74 @@ export namespace apidto {
 	        this.createdBy = source["createdBy"];
 	        this.createdAt = source["createdAt"];
 	        this.reason = source["reason"];
+	    }
+	}
+	export class TimelineWindowPosition {
+	    cursor: string;
+	    anchor: string;
+	    anchorItemId: string;
+	    direction: string;
+	    limit: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new TimelineWindowPosition(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.cursor = source["cursor"];
+	        this.anchor = source["anchor"];
+	        this.anchorItemId = source["anchorItemId"];
+	        this.direction = source["direction"];
+	        this.limit = source["limit"];
+	    }
+	}
+	export class RefreshTimelineRequest {
+	    windowRevision: string;
+	    position?: TimelineWindowPosition;
+	
+	    static createFrom(source: any = {}) {
+	        return new RefreshTimelineRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.windowRevision = source["windowRevision"];
+	        this.position = this.convertValues(source["position"], TimelineWindowPosition);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ReplayTimelineRequest {
+	    epoch: string;
+	    windowRevision: string;
+	    afterSequence: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ReplayTimelineRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.epoch = source["epoch"];
+	        this.windowRevision = source["windowRevision"];
+	        this.afterSequence = source["afterSequence"];
 	    }
 	}
 	export class RuntimeToolCatalogEntry {
@@ -1651,6 +1949,70 @@ export namespace apidto {
 		    return a;
 		}
 	}
+	export class SubscribedTimelineSnapshot {
+	    conversationId: string;
+	    scopeParentId?: string;
+	    retainedItemIds: string[];
+	    retentionBlocked: boolean;
+	    mode: string;
+	    windowId: string;
+	    windowRevision: string;
+	    epoch: string;
+	    sequence: string;
+	    items: CanonicalItem[];
+	    orderedItemIds: string[];
+	    totalCount: number;
+	    startIndex: number;
+	    endIndex: number;
+	    hasBefore: boolean;
+	    hasAfter: boolean;
+	    beforeCursor: string;
+	    afterCursor: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new SubscribedTimelineSnapshot(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.conversationId = source["conversationId"];
+	        this.scopeParentId = source["scopeParentId"];
+	        this.retainedItemIds = source["retainedItemIds"];
+	        this.retentionBlocked = source["retentionBlocked"];
+	        this.mode = source["mode"];
+	        this.windowId = source["windowId"];
+	        this.windowRevision = source["windowRevision"];
+	        this.epoch = source["epoch"];
+	        this.sequence = source["sequence"];
+	        this.items = this.convertValues(source["items"], CanonicalItem);
+	        this.orderedItemIds = source["orderedItemIds"];
+	        this.totalCount = source["totalCount"];
+	        this.startIndex = source["startIndex"];
+	        this.endIndex = source["endIndex"];
+	        this.hasBefore = source["hasBefore"];
+	        this.hasAfter = source["hasAfter"];
+	        this.beforeCursor = source["beforeCursor"];
+	        this.afterCursor = source["afterCursor"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class SynthesisResultInfo {
 	    audioBase64: string;
 	    format: string;
@@ -1711,6 +2073,213 @@ export namespace apidto {
 		    return a;
 		}
 	}
+	export class TimelineWindowMetadata {
+	    retainedItemIds: string[];
+	    retentionBlocked: boolean;
+	    totalCount: number;
+	    startIndex: number;
+	    endIndex: number;
+	    hasBefore: boolean;
+	    hasAfter: boolean;
+	    beforeCursor: string;
+	    afterCursor: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new TimelineWindowMetadata(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.retainedItemIds = source["retainedItemIds"];
+	        this.retentionBlocked = source["retentionBlocked"];
+	        this.totalCount = source["totalCount"];
+	        this.startIndex = source["startIndex"];
+	        this.endIndex = source["endIndex"];
+	        this.hasBefore = source["hasBefore"];
+	        this.hasAfter = source["hasAfter"];
+	        this.beforeCursor = source["beforeCursor"];
+	        this.afterCursor = source["afterCursor"];
+	    }
+	}
+	export class TimelineWindowSplice {
+	    index: number;
+	    deleteCount: number;
+	    insertIds: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new TimelineWindowSplice(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.index = source["index"];
+	        this.deleteCount = source["deleteCount"];
+	        this.insertIds = source["insertIds"];
+	    }
+	}
+	export class TimelineWindowPatch {
+	    windowId: string;
+	    previousRevision: string;
+	    revision: string;
+	    splices?: TimelineWindowSplice[];
+	    items?: CanonicalItem[];
+	    metadata?: TimelineWindowMetadata;
+	    syncRequired?: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new TimelineWindowPatch(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.windowId = source["windowId"];
+	        this.previousRevision = source["previousRevision"];
+	        this.revision = source["revision"];
+	        this.splices = this.convertValues(source["splices"], TimelineWindowSplice);
+	        this.items = this.convertValues(source["items"], CanonicalItem);
+	        this.metadata = this.convertValues(source["metadata"], TimelineWindowMetadata);
+	        this.syncRequired = source["syncRequired"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class TimelineUpdate {
+	    conversationId: string;
+	    epoch: string;
+	    sequence: string;
+	    operations: CanonicalOperation[];
+	    windowPatches: TimelineWindowPatch[];
+	
+	    static createFrom(source: any = {}) {
+	        return new TimelineUpdate(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.conversationId = source["conversationId"];
+	        this.epoch = source["epoch"];
+	        this.sequence = source["sequence"];
+	        this.operations = this.convertValues(source["operations"], CanonicalOperation);
+	        this.windowPatches = this.convertValues(source["windowPatches"], TimelineWindowPatch);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class TimelineReplay {
+	    conversationId: string;
+	    windowId: string;
+	    syncRequired: boolean;
+	    updates: TimelineUpdate[];
+	
+	    static createFrom(source: any = {}) {
+	        return new TimelineReplay(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.conversationId = source["conversationId"];
+	        this.windowId = source["windowId"];
+	        this.syncRequired = source["syncRequired"];
+	        this.updates = this.convertValues(source["updates"], TimelineUpdate);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class TimelineRetentionRequest {
+	    epoch: string;
+	    windowRevision: string;
+	    itemIds: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new TimelineRetentionRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.epoch = source["epoch"];
+	        this.windowRevision = source["windowRevision"];
+	        this.itemIds = source["itemIds"];
+	    }
+	}
+	
+	
+	export class TimelineWindowNavigation {
+	    mode: string;
+	    epoch: string;
+	    windowRevision: string;
+	    cursor: string;
+	    anchor: string;
+	    anchorItemId: string;
+	    direction: string;
+	    limit: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new TimelineWindowNavigation(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.mode = source["mode"];
+	        this.epoch = source["epoch"];
+	        this.windowRevision = source["windowRevision"];
+	        this.cursor = source["cursor"];
+	        this.anchor = source["anchor"];
+	        this.anchorItemId = source["anchorItemId"];
+	        this.direction = source["direction"];
+	        this.limit = source["limit"];
+	    }
+	}
+	
+	
+	
 	export class ToolUsageBreakdown {
 	    toolName: string;
 	    callCount: number;
@@ -1838,50 +2407,7 @@ export namespace apidto {
 	    }
 	}
 	
-	export class TurnSegmentToolCall {
-	    invocationId?: string;
-	    callId: string;
-	    name: string;
-	    origin?: string;
-	    serverLabel?: string;
-	    status: string;
-	    iteration?: number;
-	    durationMs?: number;
-	    inputPreview?: string;
-	    outputPreview?: string;
-	    inputBytes?: number;
-	    outputBytes?: number;
-	    hasDetails: boolean;
-	    resultAvailability: string;
-	    hasSearchResults?: boolean;
-	    searchResultCount?: number;
-	    securityOutcome?: string;
 	
-	    static createFrom(source: any = {}) {
-	        return new TurnSegmentToolCall(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.invocationId = source["invocationId"];
-	        this.callId = source["callId"];
-	        this.name = source["name"];
-	        this.origin = source["origin"];
-	        this.serverLabel = source["serverLabel"];
-	        this.status = source["status"];
-	        this.iteration = source["iteration"];
-	        this.durationMs = source["durationMs"];
-	        this.inputPreview = source["inputPreview"];
-	        this.outputPreview = source["outputPreview"];
-	        this.inputBytes = source["inputBytes"];
-	        this.outputBytes = source["outputBytes"];
-	        this.hasDetails = source["hasDetails"];
-	        this.resultAvailability = source["resultAvailability"];
-	        this.hasSearchResults = source["hasSearchResults"];
-	        this.searchResultCount = source["searchResultCount"];
-	        this.securityOutcome = source["securityOutcome"];
-	    }
-	}
 	export class UpdateLLMProviderRequest {
 	    credential?: CredentialInput;
 	    auth_mode?: string;

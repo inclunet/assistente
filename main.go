@@ -200,6 +200,8 @@ func run(args []string) (exitCode int) {
 	application.SetLLMCatalogAPI(a, llmCatalogAPI)
 	chatAPI := wailsapi.NewChat()
 	application.SetChatAPI(a, chatAPI)
+	chatTimelineAPI := wailsapi.NewChatTimeline()
+	application.SetChatTimelineAPI(a, chatTimelineAPI)
 	acpCommandsAPI := wailsapi.NewACPCommands()
 	application.SetACPCommandsAPI(a, acpCommandsAPI)
 	acpProvidersAPI := wailsapi.NewACPProviders()
@@ -277,6 +279,7 @@ func run(args []string) (exitCode int) {
 			llmModelsAPI,
 			llmCatalogAPI,
 			chatAPI,
+			chatTimelineAPI,
 			acpCommandsAPI,
 			acpProvidersAPI,
 			acpOptionsAPI,
