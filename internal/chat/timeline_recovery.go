@@ -355,6 +355,11 @@ func (p *LiveProjection) readWindowLocked(ctx context.Context, query database.Me
 	if err != nil {
 		return nil, err
 	}
+	// Aceita a leitura antes de reconciliar ou publicar seus efeitos. Depois
+	// desta fronteira, cancelamento pode concorrer com o commit do snapshot.
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	reconcileProjectionVersion(c, snapshot.Version)
 	for turnID, compatible := range snapshot.priorTurnValidity {
 		if t := c.turns[turnID]; t != nil {

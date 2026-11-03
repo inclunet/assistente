@@ -48,7 +48,9 @@ Não há cota indevida somando janelas válidas nem SQL por token.
 Visitantes respeitam cancelamento/prazo antes e depois da leitura. WithoutCancel
 fica na fronteira posterior ao writer, que também precisa reconciliar commits
 parciais. Refresh/Navigate cancelados antes da aplicação da prova não alteram
-janela, journal ou lifecycle. SetRetention conserva o contexto em todo o percurso
+janela, journal ou lifecycle. A leitura completa também verifica cancelamento antes de
+aceitar o snapshot e iniciar efeitos, inclusive sem turnos live. Cancelamento
+posterior à aceitação pode concorrer com o commit. SetRetention conserva o contexto em todo o percurso
 e descarta o estágio cancelado antes do commit. A escrita já confirmada continua
 publicada mesmo após cancelamento do pedido.
 
@@ -62,9 +64,9 @@ versão, durante seleção e prazo menor preservam retenção/janela/journal. Ro
 após flush conserva o callback e entrega o delta no replay, inclusive no terminal
 volátil. Reuso histórico prova ausência de releitura só na mesma versão.
 
-Validação: 426 testes seguros de chat, 39 focados, 33 de banco; 99 de controllers,
+Validação: 427 testes seguros de chat, 39 focados e a regressão de snapshot cancelado, 33 de banco; 99 de controllers,
 53 de handlers/turnos do agente e duas regressões de áudio nas rodadas pertinentes.
-Build/vet e lint incremental aprovados. Revisor independente review_aep: vinte
+Build/vet e lint incremental aprovados. Revisor independente review_aep: vinte e uma
 rodadas, sem pendências locais. Sem ACP local ou NVDA. A fixture pesada compartilha
 preparação entre os mesmos cenários e silencia SQL volumoso, mantendo dados e
 assertivas. O perfil local de SetRetention caiu de 2,72 s para 0,32 s após seleção

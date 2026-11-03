@@ -22,6 +22,51 @@ type cancelLifecycleReader struct {
 	cancel context.CancelFunc
 }
 
+type cancelWindowReader struct {
+	*DBTimelineReader
+	cancel context.CancelFunc
+}
+
+func (r *cancelWindowReader) ReadCanonicalWindow(ctx context.Context, query database.MessageWindowQuery) (*TimelineWindowSnapshot, error) {
+	snapshot, err := r.DBTimelineReader.ReadCanonicalWindow(ctx, query)
+	r.cancel()
+	return snapshot, err
+}
+
+func TestWindowLifecycleCancellationAfterSnapshotPreservesSubscription(t *testing.T) {
+	for _, operation := range []string{"refresh", "navigate"} {
+		t.Run(operation, func(t *testing.T) {
+			f := newSnapshotFixture(t)
+			ctx, cancel := context.WithCancel(f.ctx)
+			defer cancel()
+			p := NewLiveProjection(f.reader)
+			sub, initial, err := p.SubscribeTimeline(ctx, requestTimelineSession{}, "reading", database.MessageWindowQuery{ConversationID: f.conversation, Anchor: "start", Direction: "after", Limit: 1}, f.reader)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer sub.Close()
+			sub.reader = &cancelWindowReader{DBTimelineReader: f.reader, cancel: cancel}
+			c := sub.conversation
+			if len(c.turns) != 0 {
+				t.Fatal("fixture deve exercitar janela sem turnos live")
+			}
+			windows, published := cloneSubscribedWindows(c.windows), c.publication.fork()
+			var result *SubscribedTimelineSnapshot
+			if operation == "refresh" {
+				result, err = sub.Refresh(ctx, initial.WindowRevision, nil)
+			} else {
+				result, err = sub.Navigate(ctx, TimelineWindowNavigation{Epoch: initial.Epoch, WindowRevision: initial.WindowRevision, TimelineWindowPosition: TimelineWindowPosition{Anchor: "end", Direction: "before", Limit: 1}})
+			}
+			if !errors.Is(err, context.Canceled) || result != nil {
+				t.Fatalf("snapshot cancelado foi aceito: %+v %v", result, err)
+			}
+			if !reflect.DeepEqual(windows, c.windows) || !reflect.DeepEqual(published, c.publication) {
+				t.Fatal("snapshot cancelado alterou janela ou publicação")
+			}
+		})
+	}
+}
+
 func (r *cancelLifecycleReader) ReadTurnLifecycles(ctx context.Context, conversation string, ids []string) (*TimelineSelectionSnapshot, error) {
 	snapshot, err := r.DBTimelineReader.ReadTurnLifecycles(ctx, conversation, ids)
 	r.cancel() // Cancelamento entre a leitura concluída e a aplicação da prova.
