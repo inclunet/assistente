@@ -48,6 +48,14 @@ Nenhum teste ou cenário é descartado do chat;
 -race, -short, -count=1 e -timeout=20m permanecem. A saída detalhada identifica
 os testes em andamento. O agregador backend-race continua exigindo todos os grupos.
 
+As anotações dos jobs 125845109686 e 125845662987 registraram timeout de 25 minutos,
+sem disponibilizar o log nativo. A etapa recebe limite de 23 minutos; o job usa
+45 minutos para acomodar também preparação e publicação do diagnóstico em caso
+de falha. O upload tem limite próprio de dois minutos.
+A saída é preservada em artefato por sete dias; pipefail conserva o erro do Go.
+O timeout de 20 minutos dos testes não muda. Não se presume a causa do atraso
+nem se reduz cobertura para contornar a ausência de diagnóstico.
+
 O teste do script comprova destino único de App/Chat/subpacotes, flags, falhas
 de execução, cobertura exata sem sobreposição dos grupos de chat e igualdade da
 matriz com --groups. A fixture de snapshot usa logger
@@ -61,7 +69,8 @@ O encerramento das consultas de preparação, também diagnosticado no run
 Validação local: bash -n, teste completo do script, 428 testes seguros de chat,
 31 testes seguros de usecases,
 build, vet e lint incremental aprovados. Sem ACP local. Revisor independente
-review_aep: quatro rodadas, sem pendências. CI/review remotos acompanham o PR.
+review_aep: seis rodadas, sem pendências. YAML e propagação de falha pelo tee
+validados localmente. CI/review remotos acompanham o PR.
 
 ### Correção de validação: encerramento da preparação (2026-11-03)
 
@@ -97,8 +106,10 @@ fronteiras e contagem já comprovados. Não reclassifica a conversa para confirm
 metadados. Autorização, lifecycle e seleção versionada do conteúdo continuam no
 percurso comum; mudança de versão exige nova seleção histórica.
 
-Navigate e Refresh com posição explícita exigem liberação, salvo nova encarnação
-comprovada antes de efeitos. Falha auxiliar na mesma encarnação conserva retenção;
+Navigate exige liberação prévia e época vigente: não recupera outra encarnação.
+Refresh com posição explícita exige liberação, salvo nova encarnação comprovada
+antes de efeitos. Refresh é o único caminho de recuperação da inscrição.
+Falha auxiliar na mesma encarnação conserva retenção;
 liberação em base invalidada só retira referências e mantém SyncRequired até
 snapshot. Nova encarnação não herda referências; Close libera as da inscrição.
 Snapshots copiam os IDs.
@@ -109,6 +120,13 @@ comum comprova os turnos de todas as janelas antes de qualquer corte, em storage
 e lifecycle. Pergunta isolada também prova execução/ausência. Retry/exclusão
 externa desvincula o stream antigo; execução ativa continua válida fora da página.
 Não existe leitura específica duplicada em SetRetention.
+
+A prova de lifecycle inclui também os IDs conservados por janelas syncRequired:
+essas janelas não publicam conteúdo, mas ainda referenciam execuções em memória.
+Uma transição coordenada de outro item deve desvincular a tentativa substituída
+por retry externo sem reativar a janela nem descartar seus buffers. A regressão
+timeline_sync_lifecycle_test.go reproduziu a aceitação indevida antes da correção.
+O percurso parcelado e versionado é o mesmo; não há consulta por token.
 
 ReadTurnLifecycles seleciona apenas user_message_id, active_execution_id e
 current_execution_id, na mesma transação autorizada da versão. Não lê referências
@@ -137,12 +155,15 @@ versão, durante seleção e prazo menor preservam retenção/janela/journal. Ro
 após flush conserva o callback e entrega o delta no replay, inclusive no terminal
 volátil. Reuso histórico prova ausência de releitura só na mesma versão.
 
-Validação: 428 testes seguros de chat, 39 focados e a regressão de snapshot cancelado, 33 de banco; 99 de controllers,
+Validação: 429 testes seguros de chat, 39 focados e as regressões de snapshot cancelado e janela syncRequired, 33 de banco; 99 de controllers,
 53 de handlers/turnos do agente e duas regressões de áudio nas rodadas pertinentes.
-Build/vet e lint incremental aprovados. Revisor independente review_aep: vinte e duas
+Build/vet e lint incremental aprovados. Revisor independente review_aep: vinte e cinco
 rodadas, sem pendências locais. Sem ACP local ou NVDA. A fixture pesada compartilha
 preparação entre os mesmos cenários e silencia SQL volumoso, mantendo dados e
-assertivas. O perfil local de SetRetention caiu de 2,72 s para 0,32 s após seleção
+assertivas. O logger da fixture de snapshot parametriza SQL, preservando avisos
+e erros sem imprimir os payloads sintéticos de vários MiB; essa correção de
+volume de logs acompanha o PR-base para reduzir o custo do seu CI.
+O perfil local de SetRetention caiu de 2,72 s para 0,32 s após seleção
 pontual de âncoras e reuso histórico; a medição não substitui o gate final do produto.
 Transporte, cutover e margem global de desempenho permanecem pendentes; este
 recorte não declara resolução do foco na UI. CI/review remotos são acompanhados.
