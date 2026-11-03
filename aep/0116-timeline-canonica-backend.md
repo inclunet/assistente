@@ -53,6 +53,15 @@ a proteção atual usa janelas, retainedItemIds e estados ativos/volatile.
 Medidas de heap/renders e cutover com remoção do fluxo antigo continuam pendentes; não se afirma correção
 visual de foco nesta entrega.
 
+Complemento da revisão remota: fechar uma capability remove imediatamente seus
+envelopes e registra seu windowId para rejeitar entregas tardias mesmo com outro
+Open pendente. Retornos descartados de Open também aposentam a capability recém
+descoberta; tokens obsoletos de Refresh/Navigate não aposentam a inscrição ativa.
+Esse índice de IDs encerrados não usa TTL e tem limite de 256 IDs/2 MiB por
+instância; exceder a cota congela o coordenador sem apagar o visual. O adaptador
+deverá fechar no backend a capability retornada por um Open descartado, inclusive
+após dispose/congelamento; ignorar o snapshot local não substitui esse cleanup.
+
 ### Recorte: aplicação transacional de lotes no frontend (2026-11-03)
 
 `frontend/src/services/timelineBatch.ts` prepara um lote canônico sem alterar a

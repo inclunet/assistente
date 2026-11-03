@@ -62,9 +62,11 @@ describe('TimelineConversationState', () => {
     const state = new TimelineConversationState('chat', new TimelineCacheBudget());
     const old = state.beginSnapshot('a', null);
     const current = state.beginSnapshot('a', null);
-    expect(state.acceptSnapshot(old, snapshot())).toEqual({ kind: 'ignored' });
+    expect(state.acceptSnapshot(old, snapshot('old'))).toEqual({ kind: 'ignored' });
     expect(state.cachedItems).toBe(0);
-    expect(state.acceptSnapshot(current, snapshot())).toEqual({ kind: 'applied' });
+    expect(state.receive(event('old'))).toEqual({ kind: 'ignored' });
+    expect(state.acceptSnapshot(current, snapshot('current'))).toEqual({ kind: 'applied' });
+    expect(state.getWindow('a')?.windowId).toBe('current');
   });
 
   it('fechar/reabrir descarta resposta e eventos da capability anterior', () => {
@@ -90,6 +92,62 @@ describe('TimelineConversationState', () => {
     expect(state.getItem('b', 'answer')?.segments[0].text).toBe('Olá!');
     expect(state.receive(event('b'))).toEqual({ kind: 'applied' });
     expect(state.getItem('b', 'answer')?.segments[0].text).toBe('Olá!');
+  });
+
+  it('fechar A remove seus lotes e ignora atrasados sem afetar Open pendente de B', () => {
+    const state = new TimelineConversationState('chat', new TimelineCacheBudget());
+    open(state);
+    state.beginSnapshot('a', null);
+    const pending = state.beginSnapshot('b', null);
+    state.receive(event('a'));
+    state.receive(event('b'));
+    expect(state.bufferedBatches).toBe(2);
+    state.close('a');
+    expect(state.bufferedBatches).toBe(1);
+    for (let index = 0; index < 300; index++) expect(state.receive(event('a'))).toEqual({ kind: 'ignored' });
+    expect(state.frozenReason).toBeUndefined();
+    expect(state.acceptSnapshot(pending, snapshot('b'))).toEqual({ kind: 'applied' });
+    expect(state.getItem('b', 'answer')?.segments[0].text).toBe('Olá!');
+  });
+
+  it('resposta tardia de Open aposenta a capability descoberta sem bloquear outro Open', () => {
+    const state = new TimelineConversationState('chat', new TimelineCacheBudget());
+    const closed = state.beginSnapshot('a', null);
+    const pending = state.beginSnapshot('b', null);
+    state.close('a');
+    state.receive(event('a'));
+    expect(state.acceptSnapshot(closed, snapshot('a'))).toEqual({ kind: 'ignored' });
+    expect(state.bufferedBatches).toBe(0);
+    expect(state.receive(event('a'))).toEqual({ kind: 'ignored' });
+    expect(state.acceptSnapshot(pending, snapshot('b'))).toEqual({ kind: 'applied' });
+  });
+
+  it('Refresh obsoleto não aposenta a capability ativa nem aceita token fabricado', () => {
+    const state = new TimelineConversationState('chat', new TimelineCacheBudget());
+    open(state);
+    const old = state.beginSnapshot('a', null);
+    const current = state.beginSnapshot('a', null);
+    expect(state.acceptSnapshot(old, snapshot('a'))).toEqual({ kind: 'ignored' });
+    expect(state.acceptSnapshot({ surfaceId: 'a', scopeParentId: null }, snapshot('a'))).toEqual({ kind: 'ignored' });
+    expect(state.acceptSnapshot(current, snapshot('a', [item()], { windowRevision: '2' }))).toEqual({ kind: 'applied' });
+    expect(state.receive(event('a', {}, { snapshotRevision: '2' }))).toEqual({ kind: 'applied' });
+    expect(state.getItem('a', 'answer')?.segments[0].text).toBe('Olá!');
+  });
+
+  it.each(['count', 'bytes'])('metadados de capabilities aposentadas têm limite por %s', limit => {
+    const state = new TimelineConversationState('chat', new TimelineCacheBudget());
+    open(state, 'visible');
+    const original = state.getItem('visible', 'answer');
+    if (limit === 'count') {
+      for (let index = 0; index < 256; index++) {
+        open(state, 'temporary', snapshot(`window-${index}`));
+        expect(state.close('temporary')).toEqual({ kind: 'applied' });
+      }
+    }
+    open(state, 'temporary', snapshot(limit === 'count' ? 'overflow' : 'x'.repeat(2 * 1024 * 1024 + 1)));
+    expect(state.close('temporary')).toEqual({ kind: 'recover', reason: 'retention' });
+    expect(state.getItem('visible', 'answer')).toBe(original);
+    expect(state.receive(event('visible'))).toEqual({ kind: 'ignored' });
   });
 
   it('preserva a janela durante navegação e ignora eventos da base substituída', () => {

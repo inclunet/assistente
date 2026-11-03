@@ -58,6 +58,9 @@ const protectedItem = (item: TimelineItem | null | undefined) => item &&
 export class TimelineConversationState {
   private readonly surfaces = new Map<string, Surface>();
   private readonly records = new Map<string, RecordEntry>();
+  private readonly openingRequests = new WeakSet<TimelineSnapshotRequest>();
+  private readonly retiredWindows = new Set<string>();
+  private retiredBytes = 0;
   private referenced = new Set<string>();
   private buffered: Buffered[] = [];
   private bufferBytes = 0;
@@ -96,6 +99,7 @@ export class TimelineConversationState {
       this.surfaces.set(surfaceId, surface);
     }
     const token = Object.freeze({ surfaceId, scopeParentId });
+    if (!surface.window) this.openingRequests.add(token);
     surface.request = { token, minimum: surface.window ? revision(surface.window.sequence) : this.floor };
     return token;
   }
@@ -112,9 +116,19 @@ export class TimelineConversationState {
 
   acceptSnapshot(token: TimelineSnapshotRequest, snapshot: TimelineSnapshot): TimelineStateResult {
     const surface = this.surfaces.get(token.surfaceId);
-    if (this.disposed || this.stopped || surface?.request?.token !== token) return { kind: 'ignored' };
+    if (this.disposed || this.stopped) return { kind: 'ignored' };
+    if (surface?.request?.token !== token) {
+      // Apenas Open pode descobrir uma capability descartada. Refresh/Navigate
+      // obsoletos continuam apontando para a capability viva e não a aposentam.
+      if (this.openingRequests.has(token) && snapshot.conversationId === this.conversationId &&
+          snapshot.scopeParentId === token.scopeParentId && snapshot.windowId &&
+          ![...this.surfaces.values()].some(value => value.window?.windowId === snapshot.windowId)) {
+        this.retireWindow(snapshot.windowId);
+      }
+      return this.stopped ? { kind: 'recover', reason: this.stopped } : { kind: 'ignored' };
+    }
     if (snapshot.conversationId !== this.conversationId || snapshot.scopeParentId !== surface.scopeParentId ||
-        !snapshot.windowId || !snapshot.epoch ||
+        !snapshot.windowId || !snapshot.epoch || this.retiredWindows.has(snapshot.windowId) ||
         (surface.window && snapshot.windowId !== surface.window.windowId) ||
         [...this.surfaces.values()].some(other => other !== surface && other.window?.windowId === snapshot.windowId)) {
       return this.failSnapshot(token);
@@ -177,7 +191,8 @@ export class TimelineConversationState {
   }
 
   receive(event: ChatTimelineEvent): TimelineStateResult {
-    if (this.disposed || this.stopped || event.conversationId !== this.conversationId) return { kind: 'ignored' };
+    if (this.disposed || this.stopped || event.conversationId !== this.conversationId ||
+        this.retiredWindows.has(event.windowId)) return { kind: 'ignored' };
     const surface = [...this.surfaces.values()].find(value => value.window?.windowId === event.windowId);
     if (!surface) {
       return [...this.surfaces.values()].some(value => value.request && !value.window)
@@ -218,10 +233,14 @@ export class TimelineConversationState {
     return this.stopped ? { kind: 'recover', reason: this.stopped } : { kind: 'applied' };
   }
 
-  close(surfaceId: string): void {
+  close(surfaceId: string): TimelineStateResult {
+    if (this.disposed) return { kind: 'ignored' };
+    const window = this.getWindow(surfaceId);
+    if (window) this.retireWindow(window.windowId);
     this.surfaces.delete(surfaceId);
     this.pruneBuffer();
     this.collect();
+    return this.stopped ? { kind: 'recover', reason: this.stopped } : { kind: 'applied' };
   }
 
   dispose(): void {
@@ -229,6 +248,8 @@ export class TimelineConversationState {
     this.records.clear();
     this.referenced.clear();
     this.surfaces.clear();
+    this.retiredWindows.clear();
+    this.retiredBytes = 0;
     this.buffered = [];
     this.bufferBytes = this.bufferBatches = 0;
     this.disposed = true;
@@ -256,6 +277,18 @@ export class TimelineConversationState {
     this.bufferBatches += batches;
     this.bufferBytes += bytes;
     return { kind: 'buffered' };
+  }
+
+  private retireWindow(windowId: string): void {
+    this.removeBuffered(value => value.event.windowId === windowId);
+    if (this.retiredWindows.has(windowId)) return;
+    const bytes = encoder.encode(windowId).byteLength;
+    if (this.retiredWindows.size >= 256 || this.retiredBytes + bytes > 2 * 1024 * 1024) {
+      this.freeze('retention');
+      return;
+    }
+    this.retiredWindows.add(windowId);
+    this.retiredBytes += bytes;
   }
 
   private removeBuffered(remove: (value: Buffered) => boolean): void {
