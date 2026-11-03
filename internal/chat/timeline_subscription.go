@@ -70,6 +70,10 @@ func (p *LiveProjection) SubscribeTimeline(ctx context.Context, session Timeline
 	if session == nil || reader == nil || surfaceID == "" || len(surfaceID) > 256 || query.ConversationID == "" {
 		return nil, nil, ErrTimelineSubscription
 	}
+	membership, ok := reader.(TimelineMembershipReader)
+	if !ok {
+		return nil, nil, ErrTimelineSubscription
+	}
 	authorized, sessionID, err := session.AuthorizeTimeline(ctx)
 	if err != nil {
 		return nil, nil, err
@@ -109,7 +113,7 @@ func (p *LiveProjection) SubscribeTimeline(ctx context.Context, session Timeline
 		c.windows = make(map[string]*subscribedWindow)
 	}
 	window := &subscribedWindow{id: id, surface: surface, itemIDs: make(map[string]bool)}
-	window.membership, _ = reader.(TimelineMembershipReader)
+	window.membership = membership
 	c.windows[id] = window
 	handle := &TimelineSubscription{owner: p, key: key, conversation: c, session: session, windowID: id, sessionID: sessionID, reader: reader}
 	window.handle = handle

@@ -47,13 +47,24 @@ de escopo/cursor e passam a consumir a revisão de SyncRequired quando necessár
 
 O contrato permanece interno. FollowTail, retenção de foco/leitura, transporte,
 cutover frontend, migração de anexos e evidências finais continuam pendentes.
+A primeira review remota apontou cotas indevidas entre janelas: entradas de
+superfícies distintas eram lidas juntas e payload compartilhado era cobrado
+novamente contra a cota de fontes. A materialização agora ocorre no percurso
+parcelado único dos participantes; o estágio preenche as entradas e contabiliza
+repetições apenas contra o journal. Duas janelas de 5 MiB ou três superfícies
+com a mesma entrada de 3 MiB confirmam participação e oferecem snapshot após
+lacuna, sem suspender a conversa. A cota final de 8 MiB permanece por janela.
+
 Nenhum teste ACP local ou teste NVDA foi executado neste recorte.
 
-Validação local: 389 testes seguros de chat, 363 de banco e 99 de controllers
-aprovados (851), build/vet e lint incremental sem erros. Revisão independente
-review_aep: três rodadas; cota agregada e atomicidade corrigidas após a primeira,
-segunda e terceira rodadas sem pendências. CI completo/race e review remota são
-verificados no PR antes da entrega.
+Validação local: 391 testes seguros de chat, 363 de banco, 99 de controllers
+e duas regressões de áudio (855), build/vet e lint incremental sem erros. Revisão
+independente review_aep: quatro rodadas; cota agregada e atomicidade corrigidas
+após a primeira; rodadas seguintes sem pendências, incluindo as correções remotas.
+O teste de áudio conserva uma única seleção e a omissão do payload, exigindo agora
+todos os participantes em vez de somente o item alterado. Inscrição recusa reader
+sem suporte à participação antes de consultar ou registrar a janela. CI completo/
+race e review remota são verificados no PR antes da entrega.
 
 ### Recorte: fronteiras estáveis para participação histórica (2026-11-02)
 

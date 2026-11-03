@@ -195,6 +195,19 @@ func (c *projectionConversation) publishCanonicalWindowChanges(conversationID st
 			c.publicationStage.itemSizes[next.ItemID] = len(encoded)
 		}
 		delta := canonicalDiff(previous, next)
+		if c.publicationStage != nil {
+			materialized := next
+			if previous != nil && len(delta) == 0 {
+				materialized.Revision = previous.Revision
+			} else {
+				sequence := p.sequence
+				if !c.publicationStage.started {
+					sequence++
+				}
+				materialized.Revision = strconv.FormatUint(sequence, 10)
+			}
+			c.publicationStage.materialize(materialized)
+		}
 		if len(delta) == 0 {
 			continue
 		}
@@ -219,15 +232,6 @@ func (c *projectionConversation) publishCanonicalWindowChanges(conversationID st
 		operations[i].Revision = revision
 		if operations[i].Item != nil {
 			operations[i].Item.Revision = revision
-		}
-	}
-	for i := range patches {
-		for j := range patches[i].Items {
-			for _, item := range changed {
-				if patches[i].Items[j].ItemID == item.ItemID {
-					patches[i].Items[j].Revision = revision
-				}
-			}
 		}
 	}
 	if c.publicationStage != nil {

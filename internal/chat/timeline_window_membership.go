@@ -32,7 +32,6 @@ func (p *LiveProjection) refreshWindowMembershipLocked(ctx context.Context, conv
 	}
 	sort.Strings(ids)
 	patches := make([]CanonicalWindowPatch, 0)
-	newIDs := map[string]bool{}
 	budget := canonicalSourceBytes
 	for _, id := range ids {
 		w := c.windows[id]
@@ -43,9 +42,6 @@ func (p *LiveProjection) refreshWindowMembershipLocked(ctx context.Context, conv
 		if err != nil {
 			delete(c.windows, id)
 			continue
-		}
-		if w.membership == nil {
-			return ErrTimelineSubscription
 		}
 		deadline, ok := ctx.Deadline()
 		if !ok {
@@ -84,6 +80,7 @@ func (p *LiveProjection) refreshWindowMembershipLocked(ctx context.Context, conv
 		}
 		rows := snapshot.Selection
 		ordered := make([]string, 0, len(rows.Items))
+		entering := make([]CanonicalItem, 0)
 		membership := make(map[string]bool, len(rows.Items))
 		for _, row := range rows.Items {
 			prefix := "message:"
@@ -94,7 +91,7 @@ func (p *LiveProjection) refreshWindowMembershipLocked(ctx context.Context, conv
 			ordered = append(ordered, itemID)
 			membership[itemID] = true
 			if !w.itemIDs[itemID] {
-				newIDs[itemID] = true
+				entering = append(entering, CanonicalItem{ItemID: itemID})
 			}
 		}
 		metadata := TimelineWindowMetadata{TotalCount: rows.TotalCount, StartIndex: rows.StartIndex, EndIndex: rows.EndIndex, HasBefore: rows.HasBefore, HasAfter: rows.HasAfter, BeforeCursor: w.metadata.BeforeCursor, AfterCursor: w.metadata.AfterCursor}
@@ -102,61 +99,13 @@ func (p *LiveProjection) refreshWindowMembershipLocked(ctx context.Context, conv
 		if len(splices) > 0 || w.metadata != metadata {
 			previous := strconv.FormatUint(w.revision, 10)
 			w.revision++
-			patches = append(patches, CanonicalWindowPatch{WindowID: id, PreviousRevision: previous, Revision: strconv.FormatUint(w.revision, 10), Splices: splices, Metadata: &metadata})
+			patches = append(patches, CanonicalWindowPatch{WindowID: id, PreviousRevision: previous, Revision: strconv.FormatUint(w.revision, 10), Splices: splices, Items: entering, Metadata: &metadata})
 		}
 		w.version = version
 		w.itemIDs, w.orderedIDs, w.metadata = membership, ordered, metadata
 	}
-	// Só itens que entraram precisam de payload. A seleção é agregada e limitada.
-	refs := make([]string, 0, len(newIDs))
-	for id := range newIDs {
-		refs = append(refs, id)
-	}
-	sort.Strings(refs)
-	var items []*TimelineItem
-	if len(refs) > 0 {
-		snapshot, err := p.reader.ReadSelection(ctx, conversationID, refs)
-		if err != nil {
-			return err
-		}
-		if snapshot.Version != version || len(snapshot.Items) != len(refs) {
-			return ErrProjectionRecoveryRequired
-		}
-		reconcileStorageLifecycleLocked(c, refs, snapshot)
-		if !windowCompositionWithinBudget(c, snapshot.Items) {
-			return ErrTimelineSourceLimit
-		}
-		for _, item := range snapshot.Items {
-			composed, err := projectLiveItemLocked(c, item)
-			if err != nil {
-				return err
-			}
-			items = append(items, composed)
-		}
-	}
-	byID := make(map[string]CanonicalItem, len(items))
-	for _, item := range items {
-		view := canonicalItem(item)
-		if old, ok := c.publication.items[item.ItemID]; ok {
-			view.Revision = old.Revision
-		}
-		byID[item.ItemID] = view
-	}
-	for i := range patches {
-		for _, splice := range patches[i].Splices {
-			for _, id := range splice.InsertIDs {
-				// O trecho também pode conter IDs antigos entre duas alterações.
-				if view, ok := byID[id]; ok {
-					encoded, _ := json.Marshal(view)
-					budget -= len(encoded)
-					if budget < 0 {
-						return ErrTimelineSourceLimit
-					}
-					patches[i].Items = append(patches[i].Items, view)
-				}
-			}
-		}
-	}
-	c.publishCanonicalWindowChanges(conversationID, items, nil, patches)
+	// O estágio recebe somente as identidades das entradas. Seus payloads vêm
+	// do percurso parcelado único dos participantes, sem leitura agregada extra.
+	c.publishCanonicalWindowChanges(conversationID, nil, nil, patches)
 	return nil
 }

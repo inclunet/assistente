@@ -69,7 +69,7 @@ func TestAudioPersistenceCoordinatesTimelineWithoutReadingPayload(t *testing.T) 
 			}
 			r := &audioTimelineReader{DBTimelineReader: chat.NewDBTimelineReader(db)}
 			p := chat.NewLiveProjection(r)
-			sub, _, err := p.SubscribeTimeline(ctx, audioTimelineSession{ctx}, "audio", database.MessageWindowQuery{ConversationID: conv.ID, Anchor: "end", Direction: "before", Limit: 20}, r)
+			sub, before, err := p.SubscribeTimeline(ctx, audioTimelineSession{ctx}, "audio", database.MessageWindowQuery{ConversationID: conv.ID, Anchor: "end", Direction: "before", Limit: 20}, r)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -93,15 +93,31 @@ func TestAudioPersistenceCoordinatesTimelineWithoutReadingPayload(t *testing.T) 
 			if err := store.SaveMessageAudio(ctx, message.ID, "novo-áudio", "audio/mpeg"); err != nil {
 				t.Fatal(err)
 			}
-			if !preRead || calls != 1 || r.reads != 1 || len(r.selected.Items) != 1 {
+			if !preRead || calls != 1 || r.reads != 1 || r.selected == nil || len(r.selected.Items) != len(before.Items) {
 				t.Fatal("áudio não reconciliado antes do retorno")
 			}
-			selected := r.selected.Items[0]
 			expected := "message:" + message.ID
 			if mode == "turn" {
 				expected = "turn:" + question.ID
 			}
-			if selected.ItemID != expected || selected.Representative == nil || selected.Representative.Audio != "" {
+			// Todos os participantes são reconciliados na mesma versão, sem áudio.
+			var selected *chat.TimelineItem
+			seen := map[string]bool{}
+			for _, item := range r.selected.Items {
+				seen[item.ItemID] = true
+				if item.Representative != nil && item.Representative.Audio != "" {
+					t.Fatal("participante carregou áudio")
+				}
+				if item.ItemID == expected {
+					selected = item
+				}
+			}
+			for _, item := range before.Items {
+				if !seen[item.ItemID] {
+					t.Fatal("participante omitido")
+				}
+			}
+			if selected == nil || selected.Representative == nil || selected.Representative.Audio != "" {
 				t.Fatal("identidade ou omissão de áudio alteradas")
 			}
 			audio, mime, err := store.GetMessageAudio(ctx, message.ID)

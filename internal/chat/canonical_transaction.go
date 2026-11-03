@@ -23,12 +23,43 @@ func (s *canonicalPublicationStage) append(operations []CanonicalOperation, patc
 	encoded, _ := json.Marshal(CanonicalBatch{Operations: operations, WindowPatches: patches})
 	s.bytes += len(encoded)
 	if s.bytes > canonicalReplayBytes {
-		s.overflow = true
-		s.operations, s.patches = nil, nil
+		s.discard()
 		return
 	}
 	s.operations = append(s.operations, operations...)
 	s.patches = append(s.patches, patches...)
+}
+
+// Materializa entradas durante o mesmo percurso parcelado que atualiza itens.
+// Payload repetido em várias superfícies conta na cota do lote, não na cota
+// global de fontes. Excesso descarta somente o journal e cria lacuna recuperável.
+func (s *canonicalPublicationStage) materialize(item CanonicalItem) {
+	if s.overflow {
+		return
+	}
+	var encoded []byte
+	for i := range s.patches {
+		for j, previous := range s.patches[i].Items {
+			if previous.ItemID != item.ItemID {
+				continue
+			}
+			if encoded == nil {
+				encoded, _ = json.Marshal(item)
+			}
+			old, _ := json.Marshal(previous)
+			s.bytes += len(encoded) - len(old)
+			if s.bytes > canonicalReplayBytes {
+				s.discard()
+				return
+			}
+			s.patches[i].Items[j] = item
+		}
+	}
+}
+
+func (s *canonicalPublicationStage) discard() {
+	s.overflow = true
+	s.operations, s.patches = nil, nil
 }
 
 // Não captura buffers nem desfaz storage: somente estado visual e publicação.

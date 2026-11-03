@@ -527,3 +527,84 @@ func TestWindowMembershipReconcilesExternalContentBeforeAdvancingVersion(t *test
 		t.Fatal("cache obsoleto aceito como versão atual")
 	}
 }
+
+func TestWindowMembershipLargeIndependentAndSharedWindowsUseJournalGap(t *testing.T) {
+	for _, shared := range []bool{false, true} {
+		t.Run(strconv.FormatBool(shared), func(t *testing.T) {
+			f := newSnapshotFixture(t)
+			p := NewLiveProjection(f.reader)
+			parents := []string{f.question}
+			if !shared {
+				second, err := database.CreateMessageWithContext(f.ctx, database.MessageOptions{ConversationID: f.conversation, Role: "user", Content: "outra thread"})
+				if err != nil {
+					t.Fatal(err)
+				}
+				parents = append(parents, second.ID)
+			}
+			subs := []*TimelineSubscription{}
+			snapshots := []*SubscribedTimelineSnapshot{}
+			for i, parent := range parents {
+				historicalMessage(t, f, "start-"+strconv.Itoa(i), 10, &parent)
+				historicalMessage(t, f, "end-"+strconv.Itoa(i), 20, &parent)
+				surfaces := 1
+				if shared {
+					surfaces = 3
+				}
+				for j := 0; j < surfaces; j++ {
+					sub, initial, err := p.SubscribeTimeline(f.ctx, &fixtureTimelineSession{ctx: f.ctx, id: "s"}, "surface-"+strconv.Itoa(i)+"-"+strconv.Itoa(j), database.MessageWindowQuery{ConversationID: f.conversation, ParentID: &parent, Limit: 10}, f.reader)
+					if err != nil {
+						t.Fatal(err)
+					}
+					subs = append(subs, sub)
+					snapshots = append(snapshots, initial)
+					t.Cleanup(sub.Close)
+				}
+			}
+			size := 5 * 1024 * 1024
+			if shared {
+				size = 3 * 1024 * 1024
+			}
+			err := p.ApplyStorageMutation(f.ctx, f.conversation, []string{}, func() ([]string, error) {
+				ids := []string{}
+				for i, parent := range parents {
+					id := "middle-" + strconv.Itoa(i)
+					historicalMessage(t, f, id, 15, &parent)
+					if err := database.UpdateMessageTextWithContext(f.ctx, id, strings.Repeat("x", size)); err != nil {
+						return nil, err
+					}
+					ids = append(ids, "message:"+id)
+				}
+				return ids, nil
+			})
+			if err != nil || subs[0].conversation.publicationErrorLocked() != nil {
+				t.Fatal("janelas válidas suspenderam conversa", err, subs[0].conversation.publicationErrorLocked())
+			}
+			for i, sub := range subs {
+				initial := snapshots[i]
+				if len(sub.conversation.windows[sub.windowID].orderedIDs) != 3 {
+					t.Fatal("participação não confirmada")
+				}
+				if _, ok, err := sub.Replay(f.ctx, initial.Epoch, initial.WindowRevision, 0, f.reader); err != nil || ok {
+					t.Fatal("journal grande devolveu lote parcial", err)
+				}
+				fresh, err := sub.Refresh(f.ctx, initial.WindowRevision, nil)
+				if err != nil || len(fresh.Items) != 3 || len(canonicalText(fresh.Items[1])) != size {
+					t.Fatal("snapshot individual não recuperou janela", err)
+				}
+			}
+		})
+	}
+}
+
+func TestWindowMembershipRejectsUnsupportedReaderBeforeSubscription(t *testing.T) {
+	f, p := membershipFixture(t)
+	called := false
+	reader := navigationReaderFunc(func(context.Context, database.MessageWindowQuery) (*TimelineWindowSnapshot, error) {
+		called = true
+		return nil, errors.New("não consultar")
+	})
+	sub, snapshot, err := p.SubscribeTimeline(f.ctx, &fixtureTimelineSession{ctx: f.ctx, id: "s"}, "unsupported", database.MessageWindowQuery{ConversationID: f.conversation, Limit: 10}, reader)
+	if !errors.Is(err, ErrTimelineSubscription) || sub != nil || snapshot != nil || called || len(p.conversations) != 0 {
+		t.Fatal("reader inválido chegou à inscrição", err)
+	}
+}
