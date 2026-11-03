@@ -118,20 +118,14 @@ export class TimelineConversationState {
     const surface = this.surfaces.get(token.surfaceId);
     if (this.disposed || this.stopped) return { kind: 'ignored' };
     if (surface?.request?.token !== token) {
-      // Apenas Open pode descobrir uma capability descartada. Refresh/Navigate
-      // obsoletos continuam apontando para a capability viva e não a aposentam.
-      if (this.openingRequests.has(token) && snapshot.conversationId === this.conversationId &&
-          snapshot.scopeParentId === token.scopeParentId && snapshot.windowId &&
-          ![...this.surfaces.values()].some(value => value.window?.windowId === snapshot.windowId)) {
-        this.retireWindow(snapshot.windowId);
-      }
+      this.retireDiscardedOpen(token, snapshot);
       return this.stopped ? { kind: 'recover', reason: this.stopped } : { kind: 'ignored' };
     }
     if (snapshot.conversationId !== this.conversationId || snapshot.scopeParentId !== surface.scopeParentId ||
         !snapshot.windowId || !snapshot.epoch || this.retiredWindows.has(snapshot.windowId) ||
         (surface.window && snapshot.windowId !== surface.window.windowId) ||
         [...this.surfaces.values()].some(other => other !== surface && other.window?.windowId === snapshot.windowId)) {
-      return this.failSnapshot(token);
+      return this.rejectSnapshot(token, snapshot);
     }
     if (this.epoch && this.epoch !== snapshot.epoch) return this.freeze('epoch');
     const writes = new Map<string, TimelineCacheEntry>();
@@ -156,7 +150,7 @@ export class TimelineConversationState {
         if (!id || !entry?.item || entry.item.scopeParentId !== snapshot.scopeParentId) throw new Error('membership');
       }
     } catch {
-      return this.failSnapshot(token);
+      return this.rejectSnapshot(token, snapshot);
     }
     this.epoch = snapshot.epoch;
     this.write(writes);
@@ -289,6 +283,21 @@ export class TimelineConversationState {
     }
     this.retiredWindows.add(windowId);
     this.retiredBytes += bytes;
+  }
+
+  private retireDiscardedOpen(token: TimelineSnapshotRequest, snapshot: TimelineSnapshot): void {
+    // Refresh/Navigate continuam apontando para a capability viva. Só o Open
+    // emitido por esta instância pode descobrir uma capability a descartar.
+    if (this.openingRequests.has(token) && snapshot.conversationId === this.conversationId &&
+        snapshot.scopeParentId === token.scopeParentId && snapshot.windowId &&
+        ![...this.surfaces.values()].some(value => value.window?.windowId === snapshot.windowId)) {
+      this.retireWindow(snapshot.windowId);
+    }
+  }
+
+  private rejectSnapshot(token: TimelineSnapshotRequest, snapshot: TimelineSnapshot): TimelineStateResult {
+    this.retireDiscardedOpen(token, snapshot);
+    return this.stopped ? { kind: 'recover', reason: this.stopped } : this.failSnapshot(token);
   }
 
   private removeBuffered(remove: (value: Buffered) => boolean): void {

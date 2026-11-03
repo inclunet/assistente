@@ -134,6 +134,33 @@ describe('TimelineConversationState', () => {
     expect(state.getItem('a', 'answer')?.segments[0].text).toBe('Olá!');
   });
 
+  it('Open recusado por tombstone descarta seus eventos sem afetar outra abertura', () => {
+    const state = new TimelineConversationState('chat', new TimelineCacheBudget());
+    open(state);
+    const rejected = state.beginSnapshot('b', null);
+    const pending = state.beginSnapshot('c', null);
+    state.receive(remove('a'));
+    state.receive(event('b'));
+    expect(state.acceptSnapshot(rejected, snapshot('b'))).toEqual({ kind: 'recover', reason: 'snapshot' });
+    expect(state.bufferedBatches).toBe(0);
+    state.close('b');
+    for (let index = 0; index < 300; index++) expect(state.receive(event('b'))).toEqual({ kind: 'ignored' });
+    expect(state.frozenReason).toBeUndefined();
+    expect(state.acceptSnapshot(pending, snapshot('c', [], { sequence: '11' }))).toEqual({ kind: 'applied' });
+  });
+
+  it('snapshot inválido de Refresh preserva a capability para nova recuperação', () => {
+    const state = new TimelineConversationState('chat', new TimelineCacheBudget());
+    open(state);
+    const rejected = state.beginSnapshot('a', null);
+    expect(state.acceptSnapshot(rejected, snapshot('a', [], { orderedItemIds: ['answer'] })))
+      .toEqual({ kind: 'recover', reason: 'snapshot' });
+    const recovery = state.beginSnapshot('a', null);
+    expect(state.acceptSnapshot(recovery, snapshot('a', [item()], { windowRevision: '2' })))
+      .toEqual({ kind: 'applied' });
+    expect(state.receive(event('a', {}, { snapshotRevision: '2' }))).toEqual({ kind: 'applied' });
+  });
+
   it.each(['count', 'bytes'])('metadados de capabilities aposentadas têm limite por %s', limit => {
     const state = new TimelineConversationState('chat', new TimelineCacheBudget());
     open(state, 'visible');

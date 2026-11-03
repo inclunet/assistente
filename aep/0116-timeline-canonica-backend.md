@@ -56,7 +56,9 @@ visual de foco nesta entrega.
 Complemento da revisão remota: fechar uma capability remove imediatamente seus
 envelopes e registra seu windowId para rejeitar entregas tardias mesmo com outro
 Open pendente. Retornos descartados de Open também aposentam a capability recém
-descoberta; tokens obsoletos de Refresh/Navigate não aposentam a inscrição ativa.
+descoberta. O mesmo descarte ocorre quando um Open atual é recusado por snapshot
+inválido (por exemplo, item removido), sem afetar outra abertura pendente.
+Refresh/Navigate recusados ou obsoletos não aposentam a inscrição ativa.
 Esse índice de IDs encerrados não usa TTL e tem limite de 256 IDs/2 MiB por
 instância; exceder a cota congela o coordenador sem apagar o visual. O adaptador
 deverá fechar no backend a capability retornada por um Open descartado, inclusive
