@@ -464,3 +464,94 @@ func TestTimelineTurnLifecycleReadDoesNotLoadPayloads(t *testing.T) {
 		t.Fatal("limite ignorado", err)
 	}
 }
+
+func TestWindowLifecycleSurvivesRefreshAndNavigationCuts(t *testing.T) {
+	for _, mode := range []string{"delete-refresh", "retry-navigate", "active-navigate", "drift-refresh"} {
+		t.Run(mode, func(t *testing.T) {
+			f, p, e, _ := automaticFixture(t)
+			stream := e.StartStream(0)
+			stream.Append("antes")
+			sub, initial, err := p.SubscribeTimeline(f.ctx, &fixtureTimelineSession{ctx: f.ctx, id: "s"}, "tail", database.MessageWindowQuery{ConversationID: f.conversation, Anchor: "end", Direction: "before", Limit: 2}, f.reader)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer sub.Close()
+			followTail(t, f, sub, initial, 2)
+			if mode == "delete-refresh" {
+				retainWindow(t, f, sub, "message:"+f.question)
+			}
+			c := e.conversation
+			c.mu.Lock()
+			if c.publicationTimer != nil {
+				c.publicationTimer.Stop()
+				c.publicationTimer = nil
+				c.publicationGeneration++
+			}
+			c.mu.Unlock()
+			if mode == "retry-navigate" {
+				repo := database.NewChatTurnRepository(f.db)
+				if err := repo.Finish(f.ctx, f.conversation, f.question, e.executionID, database.TurnInterrupted, "cancelled"); err != nil {
+					t.Fatal(err)
+				}
+				next, err := uuid.NewV7()
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := repo.BeginExecution(f.ctx, f.conversation, f.question, "", database.TurnModeRetry, next.String(), ""); err != nil {
+					t.Fatal(err)
+				}
+			}
+			want := []string{}
+			for _, text := range []string{"nova 1", "nova 2"} {
+				m, err := database.CreateMessageWithContext(f.ctx, database.MessageOptions{ConversationID: f.conversation, Role: "user", Content: text})
+				if err != nil {
+					t.Fatal(err)
+				}
+				want = append(want, "message:"+m.ID)
+			}
+			if mode == "delete-refresh" {
+				if err := database.DeleteMessageWithContext(f.ctx, f.question); err != nil {
+					t.Fatal(err)
+				}
+			}
+			w := c.windows[sub.windowID]
+			revision := strconv.FormatUint(w.revision, 10)
+			beforeWindows, beforePublication, beforeEpoch := cloneSubscribedWindows(c.windows), c.publication.fork(), c.epoch
+			if mode == "drift-refresh" {
+				p.reader = &driftingWindowLifecycleReader{f.reader}
+			}
+			var fresh *SubscribedTimelineSnapshot
+			if mode == "delete-refresh" || mode == "drift-refresh" {
+				fresh, err = sub.Refresh(f.ctx, revision, nil)
+			} else {
+				fresh, err = sub.Navigate(f.ctx, TimelineWindowNavigation{Epoch: c.epoch, WindowRevision: revision, TimelineWindowPosition: TimelineWindowPosition{Anchor: "end", Direction: "before", Limit: 2}})
+			}
+			if mode == "drift-refresh" {
+				if !errors.Is(err, ErrProjectionRecoveryRequired) || !reflect.DeepEqual(beforeWindows, c.windows) || !reflect.DeepEqual(beforePublication, c.publication) || beforeEpoch != c.epoch {
+					t.Fatal("drift alterou janela/publicação", err)
+				}
+				if !stream.Append("ainda válido") {
+					t.Fatal("drift desvinculou execução sem prova")
+				}
+				return
+			}
+			if err != nil || !reflect.DeepEqual(fresh.OrderedItemIDs, want) {
+				t.Fatal("corte não aplicado", err)
+			}
+			accepted := stream.Append("depois")
+			if accepted != (mode == "active-navigate") {
+				t.Fatalf("aceitação do stream = %v em %s", accepted, mode)
+			}
+		})
+	}
+}
+
+type driftingWindowLifecycleReader struct{ *DBTimelineReader }
+
+func (r *driftingWindowLifecycleReader) ReadTurnLifecycles(ctx context.Context, conversation string, ids []string) (*TimelineSelectionSnapshot, error) {
+	snapshot, err := r.DBTimelineReader.ReadTurnLifecycles(ctx, conversation, ids)
+	if err == nil {
+		snapshot.Version.Revision++
+	}
+	return snapshot, err
+}

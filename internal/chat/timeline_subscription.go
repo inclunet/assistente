@@ -237,7 +237,7 @@ func (s *TimelineSubscription) Refresh(ctx context.Context, windowRevision strin
 	if replacementIncarnation != "" {
 		reader = incarnationWindowReader{reader, replacementIncarnation}
 	}
-	snapshot, err := s.owner.readWindowLocked(authorized, query, reader, true, c)
+	snapshot, err := s.owner.readWindowLocked(authorized, query, subscriptionLifecycleReader{s, window, reader}, true, c)
 	if err != nil {
 		return nil, err
 	}
@@ -293,7 +293,7 @@ func (s *TimelineSubscription) Navigate(ctx context.Context, request TimelineWin
 	if mode == TimelineWindowFollowTail {
 		query.Anchor, query.Direction = "end", "before"
 	}
-	snapshot, err := s.owner.readWindowLocked(authorized, query, canonicalWindowAdapter{s.reader}, true, c)
+	snapshot, err := s.owner.readWindowLocked(authorized, query, subscriptionLifecycleReader{s, window, canonicalWindowAdapter{s.reader}}, true, c)
 	if err != nil {
 		return nil, err
 	}
