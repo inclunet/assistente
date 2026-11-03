@@ -336,3 +336,36 @@ func TestWindowRetentionNewIncarnationCanReplaceLostCursorExplicitly(t *testing.
 		t.Fatal("encarnação nova bloqueou recuperação explícita", err)
 	}
 }
+
+func TestWindowRetentionExternalDeletionReleasesTailButNotSurvivingReferences(t *testing.T) {
+	for _, keepOther := range []bool{false, true} {
+		t.Run(strconv.FormatBool(keepOther), func(t *testing.T) {
+			f, p := membershipFixture(t)
+			sub, initial := membershipSubscribe(t, f, p, "reading", 2)
+			followTail(t, f, sub, initial, 2)
+			ids := []string{"message:first"}
+			if keepOther {
+				ids = append(ids, "message:last")
+			}
+			retainWindow(t, f, sub, ids...)
+			membershipWrite(t, f, p, "new", 30)
+			if err := database.DeleteMessageWithContext(f.ctx, "first"); err != nil {
+				t.Fatal(err)
+			}
+			w := sub.conversation.windows[sub.windowID]
+			fresh, err := sub.Refresh(f.ctx, strconv.FormatUint(w.revision, 10), nil)
+			if keepOther {
+				if err == nil || !reflect.DeepEqual(w.metadata.RetainedItemIDs, ids) {
+					t.Fatal("fronteira perdida soltou outro item", err)
+				}
+			} else {
+				if err != nil || fresh.Mode != TimelineWindowFollowTail || fresh.RetentionBlocked || len(fresh.RetainedItemIDs) != 0 || !reflect.DeepEqual(fresh.OrderedItemIDs, []string{"message:last", "message:new"}) {
+					t.Fatal("referência excluída bloqueou cauda", err)
+				}
+				if _, err := sub.Navigate(f.ctx, navigationFrom(fresh)); err != nil {
+					t.Fatal("exclusão manteve navegação bloqueada", err)
+				}
+			}
+		})
+	}
+}

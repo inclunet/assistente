@@ -145,15 +145,21 @@ func (r retainedWindowReader) ReadWindow(ctx context.Context, query database.Mes
 		return nil, err
 	}
 	if version.Incarnation != w.version.Incarnation {
-		return r.subscription.reader.ReadCanonicalWindow(ctx, query)
+		return r.readCanonicalAtVersion(ctx, query, version)
+	}
+	retained, err := r.subscription.owner.survivingRetention(ctx, query.ConversationID, w, version)
+	if err != nil {
+		return nil, err
+	}
+	if w.mode == TimelineWindowFollowTail && len(retained) == 0 {
+		return r.readCanonicalAtVersion(ctx, query, version)
 	}
 	membership, err := w.membership.ReadHistoricalMembership(ctx, query, w.metadata.BeforeCursor, w.metadata.AfterCursor)
 	if err != nil {
 		return nil, err
 	}
-	retained, err := r.subscription.owner.survivingRetention(ctx, query.ConversationID, w, membership.Version)
-	if err != nil {
-		return nil, err
+	if membership.Version != version {
+		return nil, ErrProjectionRecoveryRequired
 	}
 	ids := membershipIDs(membership.Selection)
 	if !containsRetained(ids, retained) {
@@ -209,6 +215,17 @@ func (r incarnationWindowReader) ReadWindow(ctx context.Context, query database.
 		return nil, err
 	}
 	if snapshot.Version.Incarnation != r.incarnation {
+		return nil, ErrProjectionRecoveryRequired
+	}
+	return snapshot, nil
+}
+
+func (r retainedWindowReader) readCanonicalAtVersion(ctx context.Context, query database.MessageWindowQuery, version database.ChatTimelineVersion) (*TimelineWindowSnapshot, error) {
+	snapshot, err := r.subscription.reader.ReadCanonicalWindow(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	if snapshot.Version != version {
 		return nil, ErrProjectionRecoveryRequired
 	}
 	return snapshot, nil
