@@ -64,23 +64,25 @@ export interface TimelineOperation {
   segment?: TimelineSegment;
 }
 
+export interface TimelineWindowMetadata {
+  retainedItemIds: string[];
+  retentionBlocked: boolean;
+  totalCount: number;
+  startIndex: number;
+  endIndex: number;
+  hasBefore: boolean;
+  hasAfter: boolean;
+  beforeCursor: string;
+  afterCursor: string;
+}
+
 export interface TimelineWindowPatch {
   windowId: string;
   previousRevision: string;
   revision: string;
   splices?: { index: number; deleteCount: number; insertIds: string[] }[];
   items?: TimelineItem[];
-  metadata?: {
-    retainedItemIds: string[];
-    retentionBlocked: boolean;
-    totalCount: number;
-    startIndex: number;
-    endIndex: number;
-    hasBefore: boolean;
-    hasAfter: boolean;
-    beforeCursor: string;
-    afterCursor: string;
-  };
+  metadata?: TimelineWindowMetadata;
   syncRequired?: boolean;
 }
 

@@ -1,8 +1,41 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, mensagens, áudio, limpeza, exclusão e importação integrados; retenção por idade, órfãos, navegação, leitura leve e orçamento de fontes da janela com recuperação atômica e parcelada e participação histórica automática com publicação e replay atômicos integrados; followTail, retenção por foco/leitura, DTOs compartilhados, RPCs de inscrição, entrega pelo journal e transporte de eventos Wails integrados; margem de desempenho e cutover pendentes
+## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, mensagens, áudio, limpeza, exclusão e importação integrados; retenção por idade, órfãos, navegação, leitura leve e orçamento de fontes da janela com recuperação atômica e parcelada e participação histórica automática com publicação e replay atômicos integrados; followTail, retenção por foco/leitura, DTOs compartilhados, RPCs de inscrição, entrega pelo journal e transporte de eventos Wails integrados; núcleo transacional frontend preparado; margem de desempenho e cutover pendentes
 
 Data: 2026-10-30
+
+### Recorte: aplicação transacional de lotes no frontend (2026-11-03)
+
+`frontend/src/services/timelineBatch.ts` prepara um lote canônico sem alterar a
+janela aceita nem o cache fornecido. O resultado contém somente os itens alterados
+(incluindo tombstones) e a próxima janela; o futuro proprietário deve publicar
+ambos na mesma transação síncrona antes de preparar outro lote. O cache consultado
+pertence exclusivamente à mesma conversa/época. Não há ordenação ou reconstrução
+semântica no frontend.
+
+A sequência pertence a cada capability, pois duas janelas recebem subconjuntos
+diferentes do mesmo lote. Revisões uint64 usam BigInt, hidratação antiga não rebaixa
+itens e várias operações de segmentos na mesma revisão são aplicadas juntas.
+Duplicatas não repetem texto; lacunas, troca de época e lote inválido devolvem
+necessidade de recuperação sem publicar alterações parciais. Splices preservam
+a ordem do backend; delta de texto conserva a referência da lista de IDs.
+
+Evidência: `frontend/src/services/timelineBatch.test.ts` cobre duas janelas nas
+duas ordens de entrega, múltiplos segmentos, atomicidade, sequência acima de 2^53,
+patches, hidratação, tombstones e conclusão com o mesmo itemId.
+Complementos da revisão remota provam rejeição atômica de upsert/hidratação
+com escopo divergente mesmo sem splices, e preservação do estado concluído
+quando um segmento é substituído em lote posterior.
+
+Este é um recorte preparatório da fase 3, ainda sem consumidor ativo. Não afirma
+corrigir foco/DOM na tela atual. Permanecem necessários: admissão de snapshots e
+snapshotRevision, listener antes de Open, buffer limitado e replay, lifecycle de
+sessão/capability, índice compartilhado com descarte seguro de tombstones e cotas,
+e migração das superfícies com remoção do fluxo substituído. A ausência em uma
+página não autoriza remoção global; o helper não decide quando descartar o cache.
+Os limites de memória e a recuperação concorrente serão implementados no dono do
+estado antes da ativação nas telas. Não serão mantidos dois reducers autoritativos
+ativos em paralelo.
 
 ### Recorte: transporte de eventos Wails (2026-11-03)
 
