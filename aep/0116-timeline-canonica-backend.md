@@ -59,17 +59,25 @@ nem se reduz cobertura para contornar a ausência de diagnóstico.
 O teste do script comprova destino único de App/Chat/subpacotes, flags, falhas
 de execução, cobertura exata sem sobreposição dos grupos de chat e igualdade da
 matriz com --groups. A fixture de snapshot usa logger
-SQL parametrizado, preservando avisos e erros sem imprimir payloads sintéticos.
+SQL parametrizado em nível Error: preserva erros de banco e evita os avisos de lentidão esperados nas cargas sintéticas.
 Dados, asserções e timeouts da suíte permanecem iguais. A alteração não modifica
 logger de produção nem declara concluído o gate de desempenho do produto.
+
+A seleção local do grupo 0 revelou três linhas de 3 MiB no teste de âncora
+excessiva: Scan do GORM 1.31.1 usa um recorder interno e repassa SQL já expandido,
+contornando a parametrização do logger. A fixture passa a registrar erros, sem
+avisos de SLOW SQL dessas cargas deliberadamente grandes. Dados, asserções e
+limites continuam iguais. Essa redução de saída é comprovável localmente, mas
+não estabelece sozinha a causa dos jobs remotos sem log; o CI precisa confirmar.
+No mesmo teste de âncora, a saída caiu de 9.451.325 para 5.399 bytes. Os 211 testes seguros do grupo 0 desta base e os 429 testes seguros de chat passaram, além de vet e lint incremental.
 
 O encerramento das consultas de preparação, também diagnosticado no run
 41606700204, foi incorporado ao PR-base conforme a seção seguinte.
 
-Validação local: bash -n, teste completo do script, 428 testes seguros de chat,
+Validação local: bash -n, teste completo do script, 429 testes seguros de chat,
 31 testes seguros de usecases,
 build, vet e lint incremental aprovados. Sem ACP local. Revisor independente
-review_aep: seis rodadas, sem pendências. YAML e propagação de falha pelo tee
+review_aep: oito rodadas (incluindo integração da base e redução do log da fixture), sem pendências. YAML e propagação de falha pelo tee
 validados localmente. CI/review remotos acompanham o PR.
 
 ### Correção de validação: encerramento da preparação (2026-11-03)
