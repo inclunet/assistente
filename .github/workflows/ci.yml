@@ -157,8 +157,8 @@ jobs:
           test "$TESTS_RESULT" = success
 
   backend-race-tests:
-      # App é dividido por famílias. Chat roda inteiro em runner próprio para
-      # não disputar CPU com os demais pacotes durante as fixtures SQLite.
+      # App é dividido por famílias; Chat, por hash estável do nome do teste.
+      # Cada grupo tem runner próprio e preserva os subtestes juntos.
     runs-on: ubuntu-latest
     timeout-minutes: 25
     strategy:
@@ -167,7 +167,8 @@ jobs:
       matrix:
         group:
           - pacotes-gerais
-          - pacote-chat
+          - pacote-chat-0
+          - pacote-chat-1
           - comandos-configuracao
           - comandos-dispositivos
           - comandos-contexto-deck-paginas

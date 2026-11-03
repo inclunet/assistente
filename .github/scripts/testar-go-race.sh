@@ -6,13 +6,13 @@ export LC_ALL=C
 app=assistente/internal/app
 chat=assistente/internal/chat
 flags=(-race -short -count=1 -timeout=20m)
-groups=(comandos-configuracao comandos-dispositivos
+groups=(pacote-chat-0 pacote-chat-1 comandos-configuracao comandos-dispositivos
   comandos-contexto-deck-paginas comandos-contexto-deck-mermaid comandos-contexto-deck-camadas comandos-contexto-deck-base
   comandos-contexto-paleta comandos-contexto-workspace comandos-contexto-base comandos-execucao
   comandos-jobs comandos-interface comandos-seguranca comandos-outros app-chat app-demais)
 
 if [[ $# == 1 && $1 == --groups ]]; then
-  printf '%s\n' pacotes-gerais pacote-chat "${groups[@]}"
+  printf '%s\n' pacotes-gerais "${groups[@]}"
   exit 0
 fi
 
@@ -26,18 +26,29 @@ if [[ $# == 1 && $1 == pacotes-gerais ]]; then
   exec go test "${flags[@]}" "${packages[@]}"
 fi
 
-if [[ $# == 1 && $1 == pacote-chat ]]; then
-  exec go test "${flags[@]}" -v "$chat"
-fi
-
 if [[ $# != 1 || " ${groups[*]} " != *" $1 "* ]]; then
   echo 'Informe um grupo válido (consulte --groups)' >&2
   exit 1
 fi
 
+package=./internal/app
+verbosity=()
+if [[ $1 == pacote-chat-* ]]; then
+  package=./internal/chat
+  verbosity=(-v)
+fi
+
 # Regras em ordem de precedência. O residual inclui automaticamente nomes novos;
 # não há lista manual de testes a manter nem casos descartados por renomeação.
 classify() {
+  if [[ $package == ./internal/chat ]]; then
+    # Hash estável do nome: novos testes não redistribuem os existentes.
+    # A descoberta inclui automaticamente todos os testes, exemplos e fuzz seeds.
+    local checksum
+    checksum=$(printf '%s' "$1" | cksum)
+    printf 'pacote-chat-%s\n' "$(( ${checksum%% *} % 2 ))"
+    return
+  fi
   case "$1" in
     TestCommandSettings*|TestCommandConfig*|TestCommandLayer*|TestCommandBuiltin*|TestCommandImport*|TestCommandExport*|TestCommandReset*) echo comandos-configuracao ;;
     TestCommandDeck*|TestCommandKeyboard*|TestCommandGlobal*|TestCommandHotkey*|TestCommandHost*|TestCommandPhysical*|TestCommandStreamDeck*) echo comandos-dispositivos ;;
@@ -62,11 +73,11 @@ classify() {
 
 # Descoberta e execução usam os mesmos flags/build tags. Não roda testes aqui.
 # O comando ainda compila/abre o binário: uso real somente no runner de CI.
-inventory=$(go test "${flags[@]}" -list . ./internal/app)
+inventory=$(go test "${flags[@]}" -list . "$package")
 mapfile -t names < <(printf '%s\n' "$inventory" |
   awk '/^(Test|Fuzz|Example)[^[:space:]]*$/ && $0 != "TestMain"' | sort -u)
 if (( ${#names[@]} == 0 )); then
-  echo 'Go não descobriu testes, exemplos ou fuzz targets de App' >&2
+  echo "Go não descobriu testes, exemplos ou fuzz targets de $package" >&2
   exit 1
 fi
 selected=()
@@ -79,8 +90,8 @@ if (( ${#selected[@]} == 0 )); then
   echo 'Grupo vazio: confira a classificação e a matriz do CI' >&2
   exit 1
 fi
-printf 'App: grupo %s, %s de %s testes top-level\n' "$1" "${#selected[@]}" "${#names[@]}"
+printf '%s: grupo %s, %s de %s testes top-level\n' "$package" "$1" "${#selected[@]}" "${#names[@]}"
 printf '%s\n' "${selected[@]}"
 # Escape de metacaracteres antes de montar a expressão RE2 ancorada.
 pattern=$(printf '%s\n' "${selected[@]}" | sed 's/[][\.^$*+?(){}|]/\\&/g' | paste -sd '|' -)
-exec go test "${flags[@]}" -run "^($pattern)$" ./internal/app
+exec go test "${flags[@]}" "${verbosity[@]}" -run "^($pattern)$" "$package"

@@ -16,7 +16,11 @@ if [[ $1 == list ]]; then
   cat "$RACE_MOCK_DIR/packages"
 elif [[ " $* " == *' -list '* ]]; then
   [[ ${MOCK_FAIL:-} != discovery ]] || exit 18
-  cat "$RACE_MOCK_DIR/names"
+  if [[ ${!#} == ./internal/chat ]]; then
+    cat "$RACE_MOCK_DIR/chat-names"
+  else
+    cat "$RACE_MOCK_DIR/names"
+  fi
 else
   [[ ${MOCK_FAIL:-} != execution ]] || exit 19
   printf '%s\n' "$@" > "$RACE_MOCK_DIR/args"
@@ -83,7 +87,7 @@ assert_flags() {
 }
 
 expected_groups=(
-  pacotes-gerais pacote-chat comandos-configuracao comandos-dispositivos
+  pacotes-gerais pacote-chat-0 pacote-chat-1 comandos-configuracao comandos-dispositivos
   comandos-contexto-deck-paginas comandos-contexto-deck-mermaid comandos-contexto-deck-camadas comandos-contexto-deck-base
   comandos-contexto-paleta comandos-contexto-workspace comandos-contexto-base
   comandos-execucao comandos-jobs comandos-interface comandos-seguranca comandos-outros app-chat app-demais
@@ -107,7 +111,7 @@ diff -u "$test_dir/script-ci-groups" "$test_dir/ci-groups"
 
 assert_unique 'fixture de nomes' "$test_dir/expected"
 mapfile -t fixture_names < "$test_dir/expected"
-for group in "${expected_groups[@]:2}"; do
+for group in "${expected_groups[@]:3}"; do
   run "$group"
   assert_flags 'test -race -short -count=1 -timeout=20m'
   [[ ${#got[@]} == 8 && ${got[0]} == test && ${got[5]} == -run && ${got[7]} == ./internal/app ]] ||
@@ -140,10 +144,28 @@ assert_flags 'test -race -short -count=1 -timeout=20m'
 [[ ${#got[@]} == 8 && ${got[0]} == test && ${got[5]} == assistente/internal/app/child && ${got[6]} == assistente/internal/chat/child && ${got[7]} == assistente/internal/auth ]] ||
   fail "pacotes-gerais repetiu App/Chat ou mudou a lista: ${got[*]}"
 
-run pacote-chat
-assert_flags 'test -race -short -count=1 -timeout=20m'
-[[ ${#got[@]} == 7 && ${got[5]} == -v && ${got[6]} == assistente/internal/chat ]] ||
-  fail "pacote-chat não executou o pacote inteiro: ${got[*]}"
+# A união disjunta dos grupos precisa cobrir tudo que Go descobriu, incluindo
+# nomes futuros. Não replica o algoritmo de hash para calcular o esperado.
+printf '%s\n' TestChatA TestChatB TestFutureTimeline TestAção FuzzInput Example ExampleOutput > "$test_dir/chat-expected"
+{
+  cat "$test_dir/chat-expected"
+  printf '%s\n' BenchmarkSpeed TestMain 'ok assistente/internal/chat 0.001s'
+} > "$test_dir/chat-names"
+: > "$test_dir/chat-selected"
+for group in pacote-chat-0 pacote-chat-1; do
+  run "$group"
+  assert_flags 'test -race -short -count=1 -timeout=20m'
+  [[ ${#got[@]} == 9 && ${got[5]} == -v && ${got[6]} == -run && ${got[8]} == ./internal/chat ]] ||
+    fail "invocação do chat alterada: ${got[*]}"
+  pattern=${got[7]}
+  [[ $pattern == '^('* && $pattern == *')$' ]] || fail "regex não ancorada: $pattern"
+  grep -E "$pattern" "$test_dir/chat-expected" >> "$test_dir/chat-selected" || fail "grupo vazio: $group"
+  if printf '%s\n' BenchmarkSpeed TestMain TestChatAB | grep -Eq "$pattern"; then
+    fail "grupo de chat selecionou benchmark, TestMain ou prefixo parcial"
+  fi
+done
+assert_unique 'grupos de chat' "$test_dir/chat-selected"
+diff -u <(LC_ALL=C sort "$test_dir/chat-expected") <(LC_ALL=C sort "$test_dir/chat-selected")
 grep -Fxq 'list -race ./...' "$test_dir/calls"
 grep -Fxq 'test -race -short -count=1 -timeout=20m -list . ./internal/app' "$test_dir/calls"
 
@@ -156,7 +178,10 @@ MOCK_FAIL=discovery reject comandos-configuracao
 MOCK_FAIL=execution reject comandos-configuracao
 MOCK_FAIL=packages reject pacotes-gerais
 MOCK_FAIL=execution reject pacotes-gerais
-MOCK_FAIL=execution reject pacote-chat
+MOCK_FAIL=execution reject pacote-chat-0
+MOCK_FAIL=discovery reject pacote-chat-0
+: > "$test_dir/chat-names"
+reject pacote-chat-0
 : > "$test_dir/names"
 reject comandos-configuracao
 printf '%s\n' TestOnly > "$test_dir/names"
