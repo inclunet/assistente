@@ -237,10 +237,16 @@ func (i *Interactor) PrepareContext(ctx context.Context, req PrepareContextReque
 	// ambas, mas consumimos os resultados na ordem histórica para preservar
 	// precedência de erros e efeitos observáveis.
 	ioCtx, cancelIO := context.WithCancel(ctx)
-	defer cancelIO()
+	var reads sync.WaitGroup
+	defer func() {
+		cancelIO()
+		reads.Wait()
+	}()
 	providerCountCh := make(chan int, 1)
 	if i.providerSvc != nil {
+		reads.Add(1)
 		go func() {
+			defer reads.Done()
 			count, _ := i.providerSvc.Count(ioCtx)
 			providerCountCh <- count
 		}()
@@ -252,7 +258,9 @@ func (i *Interactor) PrepareContext(ctx context.Context, req PrepareContextReque
 	var conversationCh chan conversationResult
 	if req.ConversationID != "" && req.UserContent != "" && i.convRepo != nil {
 		conversationCh = make(chan conversationResult, 1)
+		reads.Add(1)
 		go func() {
+			defer reads.Done()
 			conv, err := i.convRepo.GetConversationInfo(ioCtx, req.ConversationID)
 			conversationCh <- conversationResult{conversation: conv, err: err}
 		}()

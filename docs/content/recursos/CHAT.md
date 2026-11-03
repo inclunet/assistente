@@ -79,6 +79,10 @@ pode incluir resultados de outras etapas da resposta dentro do mesmo turno.
 As referências do histórico são preservadas na consulta e na preparação dos
 resumos, sem confundir turnos distintos.
 
+Se a preparação do envio falhar por falta de provedor configurado, o chat
+cancela e aguarda suas consultas em andamento antes de encerrar a preparação.
+O aviso de configuração continua sendo o motivo apresentado para a falha.
+
 ## Retry e persistência
 
 Repetir uma mensagem usa a pergunta raiz selecionada como âncora. O histórico e
