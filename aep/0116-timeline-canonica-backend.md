@@ -1,8 +1,71 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, mensagens, áudio, limpeza, exclusão e importação integrados; retenção por idade, órfãos, navegação, leitura leve e orçamento de fontes da janela com recuperação atômica e parcelada e participação histórica automática com publicação e replay atômicos integrados; followTail, retenção por foco/leitura, DTOs compartilhados, RPCs de inscrição, entrega pelo journal e transporte de eventos Wails integrados; núcleo transacional frontend preparado; margem de desempenho e cutover pendentes
+## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, mensagens, áudio, limpeza, exclusão e importação integrados; retenção por idade, órfãos, navegação, leitura leve e orçamento de fontes da janela com recuperação atômica e parcelada e participação histórica automática com publicação e replay atômicos integrados; followTail, retenção por foco/leitura, DTOs compartilhados, RPCs de inscrição, entrega pelo journal e transporte de eventos Wails integrados; núcleo transacional e coordenador de snapshots/eventos/cache frontend preparados; margem de desempenho e cutover pendentes
 
 Data: 2026-10-30
+
+### Recorte: coordenador frontend de snapshots, eventos e cache (2026-11-03)
+
+`timelineConversationState.ts` mantém um índice de itens por conversa/época e
+janelas por superfície, aplicando o núcleo transacional existente. Cada consulta
+recebe um token por identidade de objeto: substituição, fechamento e dispose
+invalidam retornos antigos antes de hidratar o índice. Snapshot substitui somente
+a janela correspondente, sem rebaixar revisões já recebidas por outra janela.
+
+Eventos recebidos enquanto Open/Refresh/Navigate estão pendentes ficam em buffer
+limitado por conversa a 256 lotes/2 MiB. Após aceitar o snapshot, o coordenador
+reaplica os lotes contíguos da mesma base e ignora envelopes da base substituída.
+Lacuna ou revisão incompatível preserva o conteúdo e solicita recuperação.
+Troca de época e overflow congelam a instância: o adaptador deverá construir uma
+substituta com snapshots aceitos antes de liberar a apresentação anterior. Não
+há RPC, retry automático ou consulta por delta dentro desse coordenador.
+
+`TimelineCacheBudget` é compartilhado entre coordenadores da mesma sessão e
+limita a LRU de itens dispensáveis a 240 itens/8 MiB. Janelas e IDs retidos pelo
+backend são referências; itens preparing/streaming ou volatile não entram na
+LRU. Fechar libera referências e dispose remove os registros da instância.
+O adaptador deverá criar um orçamento por sessão e descartar os coordenadores no
+logout; compartilhar o orçamento entre usuários não é permitido.
+
+O piso de descarte considera as sequências aplicadas de todas as janelas e as
+consultas pendentes. Snapshots anteriores ao piso são recusados mesmo com token
+atual. Tombstones não viram conteúdo vivo; um corpo anterior pode permanecer
+somente para apresentação da janela atrasada até seu patch, fechamento ou novo
+snapshot. Se consultas atrasadas impedirem liberar mais de 240 registros ou
+8 MiB sem referências, a instância congela e solicita recuperação, sem apagar o
+texto visível nem continuar acumulando deltas. Não há TTL para exclusões.
+Essa guarda de registros acima do piso é por conversa; o limite compartilhado
+por sessão se aplica somente à LRU dispensável, não é um teto global de heap.
+Lotes vazios também liberam registros quando o piso alcança a próxima exclusão;
+não é preciso percorrer todo o índice a cada delta de texto.
+
+Evidência: `timelineConversationState.test.ts` cobre eventos antes da Promise,
+consultas substituídas, fechamento/reabertura, paginação concorrente, remoção com
+janela atrasada, piso após GC, troca de época, overflow, LRU entre conversas,
+conteúdo ativo/volatile e descarte no logout; os testes do núcleo continuam ativos.
+
+Recorte preparatório ainda sem listener/RPC ou consumidor de UI ativo. Próximos:
+adaptador Wails com listener antes de Open, normalização dos DTOs nullable,
+Refresh como recuperação de nova época, fechamento das capabilities e conexão
+das superfícies/retenções de foco, leitura e edição.
+Referências externas de foco/edição ainda não têm API própria neste coordenador;
+a proteção atual usa janelas, retainedItemIds e estados ativos/volatile.
+Medidas de heap/renders e cutover com remoção do fluxo antigo continuam pendentes; não se afirma correção
+visual de foco nesta entrega.
+
+Complemento da revisão remota: fechar uma capability remove imediatamente seus
+envelopes e registra seu windowId para rejeitar entregas tardias mesmo com outro
+Open pendente. Retornos descartados de Open também aposentam a capability recém
+descoberta. O mesmo descarte ocorre quando um Open atual é recusado por snapshot
+inválido (por exemplo, item removido), sem afetar outra abertura pendente.
+Refresh/Navigate recusados ou obsoletos não aposentam a inscrição ativa.
+Esse índice de IDs encerrados não usa TTL e tem limite de 256 IDs/2 MiB por
+instância; exceder a cota congela o coordenador sem apagar o visual. O adaptador
+deverá fechar no backend a capability retornada por um Open descartado, inclusive
+após dispose/congelamento; ignorar o snapshot local não substitui esse cleanup.
+Falhar Refresh/Navigate também libera seus envelopes conhecidos, mesmo havendo
+Open em outra superfície; a poda preserva apenas consultas ainda pendentes e
+envelopes desconhecidos necessários às aberturas, sem ocupar cota com lotes órfãos.
 
 ### Recorte: aplicação transacional de lotes no frontend (2026-11-03)
 

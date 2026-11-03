@@ -33,14 +33,14 @@ export type TimelineBatchResult =
 
 const maxUint64 = (1n << 64n) - 1n;
 
-function revision(value: string): bigint {
+export function revision(value: string): bigint {
   if (!/^(0|[1-9][0-9]*)$/.test(value) || value.length > 20) throw new Error('revision');
   const parsed = BigInt(value);
   if (parsed > maxUint64) throw new Error('revision');
   return parsed;
 }
 
-function validItem(item: TimelineItem, window: TimelineBatchWindow, sequence: bigint): void {
+export function validItem(item: TimelineItem, window: Pick<TimelineBatchWindow, 'conversationId'>, sequence: bigint): void {
   if (!item.itemId || item.conversationId !== window.conversationId ||
       revision(item.revision) > sequence ||
       new Set(item.segments.map(segment => segment.segmentId)).size !== item.segments.length ||
