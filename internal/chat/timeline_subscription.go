@@ -22,6 +22,7 @@ var ErrTimelineWindowStale = errors.New("revisão da janela mudou; sincronizaç�
 
 type subscriptionSurface struct{ sessionID, surfaceID string }
 type subscribedWindow struct {
+	mode             TimelineWindowMode
 	query            database.MessageWindowQuery
 	handle           *TimelineSubscription
 	membership       TimelineMembershipReader
@@ -51,6 +52,7 @@ type TimelineSubscription struct {
 }
 
 type SubscribedTimelineSnapshot struct {
+	Mode           TimelineWindowMode
 	WindowID       string
 	WindowRevision string
 	Epoch          string
@@ -112,7 +114,7 @@ func (p *LiveProjection) SubscribeTimeline(ctx context.Context, session Timeline
 	if c.windows == nil {
 		c.windows = make(map[string]*subscribedWindow)
 	}
-	window := &subscribedWindow{id: id, surface: surface, itemIDs: make(map[string]bool)}
+	window := &subscribedWindow{mode: TimelineWindowHistorical, id: id, surface: surface, itemIDs: make(map[string]bool)}
 	window.membership = membership
 	c.windows[id] = window
 	handle := &TimelineSubscription{owner: p, key: key, conversation: c, session: session, windowID: id, sessionID: sessionID, reader: reader}
@@ -132,7 +134,7 @@ func subscriptionSnapshot(c *projectionConversation, window *subscribedWindow, s
 	window.query = cloneWindowQuery(query)
 	window.syncRequired = false
 	window.revision++
-	result := &SubscribedTimelineSnapshot{WindowID: window.id, Epoch: c.epoch, Sequence: strconv.FormatUint(c.publication.sequence, 10), Items: make([]CanonicalItem, 0, len(snapshot.Items)), OrderedItemIDs: make([]string, 0, len(snapshot.Items)), TotalCount: snapshot.Window.TotalCount, StartIndex: snapshot.Window.StartIndex, EndIndex: snapshot.Window.EndIndex, HasBefore: snapshot.Window.HasBefore, HasAfter: snapshot.Window.HasAfter, BeforeCursor: snapshot.BeforeCursor, AfterCursor: snapshot.AfterCursor}
+	result := &SubscribedTimelineSnapshot{Mode: window.mode, WindowID: window.id, Epoch: c.epoch, Sequence: strconv.FormatUint(c.publication.sequence, 10), Items: make([]CanonicalItem, 0, len(snapshot.Items)), OrderedItemIDs: make([]string, 0, len(snapshot.Items)), TotalCount: snapshot.Window.TotalCount, StartIndex: snapshot.Window.StartIndex, EndIndex: snapshot.Window.EndIndex, HasBefore: snapshot.Window.HasBefore, HasAfter: snapshot.Window.HasAfter, BeforeCursor: snapshot.BeforeCursor, AfterCursor: snapshot.AfterCursor}
 	result.WindowRevision = strconv.FormatUint(window.revision, 10)
 	window.version = snapshot.Version
 	window.epoch = c.epoch
@@ -201,9 +203,11 @@ func (s *TimelineSubscription) Refresh(ctx context.Context, windowRevision strin
 	if _, ok := c.windows[s.windowID].acceptsSnapshotRevision(windowRevision); !ok {
 		return nil, ErrTimelineWindowStale
 	}
+	mode := c.windows[s.windowID].mode
 	query := c.windows[s.windowID].query
 	if position != nil {
 		query = s.windowQuery(*position)
+		mode = TimelineWindowHistorical
 	}
 	snapshot, err := s.owner.readWindowLocked(authorized, query, canonicalWindowAdapter{s.reader}, true, c)
 	if err != nil {
@@ -212,12 +216,14 @@ func (s *TimelineSubscription) Refresh(ctx context.Context, windowRevision strin
 	if c.windows[s.windowID] == nil {
 		return nil, ErrTimelineSubscription
 	}
+	c.windows[s.windowID].mode = mode
 	return subscriptionSnapshot(c, c.windows[s.windowID], snapshot, query), nil
 }
 
 // TimelineWindowNavigation altera somente a fatia da inscrição existente.
 // Owner, sessão, conversa e escopo vêm do capability, nunca deste pedido.
 type TimelineWindowNavigation struct {
+	Mode           TimelineWindowMode
 	Epoch          string
 	WindowRevision string
 	TimelineWindowPosition
@@ -248,7 +254,14 @@ func (s *TimelineSubscription) Navigate(ctx context.Context, request TimelineWin
 	if request.Epoch != c.epoch || window.epoch != c.epoch || request.WindowRevision != strconv.FormatUint(window.revision, 10) {
 		return nil, ErrTimelineWindowStale
 	}
+	mode, err := navigationMode(request)
+	if err != nil {
+		return nil, err
+	}
 	query := s.windowQuery(request.TimelineWindowPosition)
+	if mode == TimelineWindowFollowTail {
+		query.Anchor, query.Direction = "end", "before"
+	}
 	snapshot, err := s.owner.readWindowLocked(authorized, query, canonicalWindowAdapter{s.reader}, true, c)
 	if err != nil {
 		return nil, err
@@ -261,6 +274,7 @@ func (s *TimelineSubscription) Navigate(ctx context.Context, request TimelineWin
 	if c.windows[s.windowID] == nil {
 		return nil, ErrTimelineSubscription
 	}
+	c.windows[s.windowID].mode = mode
 	return subscriptionSnapshot(c, c.windows[s.windowID], snapshot, query), nil
 }
 
