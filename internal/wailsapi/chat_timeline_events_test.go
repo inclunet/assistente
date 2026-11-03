@@ -75,6 +75,28 @@ func TestChatTimelineEventsMatchReplayAndReleaseFailedTransport(t *testing.T) {
 	}
 }
 
+func TestChatTimelineEventCancellationReleasesHandle(t *testing.T) {
+	f := newTimelineAPIFixture(t)
+	ctx, cancel := context.WithCancel(f.ctx)
+	defer cancel()
+	f.session.eventContext = ctx
+	snapshot, err := f.api.Open(f.request())
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.api.mu.Lock()
+	handle := f.api.windows[snapshot.WindowID]
+	f.api.mu.Unlock()
+	cancel() // mesmo sinal propagado pela lease após revogação externa
+	waitTimelineEventTest(t, handle.stream.done)
+	f.api.mu.Lock()
+	count := len(f.api.windows)
+	f.api.mu.Unlock()
+	if count != 0 {
+		t.Fatal("autorização encerrada deixou capability/cota registrada")
+	}
+}
+
 type timelineEventTestFeed struct {
 	values chan *chat.TimelineDelivery
 	closed chan struct{}
@@ -111,7 +133,7 @@ func TestTimelineEventStreamDiscardsReplacedSnapshot(t *testing.T) {
 	s := &timelineEventStream{ctx: ctx, cancel: cancel, emitter: emitter, epoch: "epoch", baseline: "1"}
 	defer s.cancel()
 	old := &chat.TimelineDelivery{Epoch: "epoch", SnapshotRevision: "1"}
-	if _, err := s.replaceSnapshot(func() (*apidto.SubscribedTimelineSnapshot, error) {
+	if _, err := s.replaceSnapshot(ctx, func(context.Context) (*apidto.SubscribedTimelineSnapshot, error) {
 		return &apidto.SubscribedTimelineSnapshot{Epoch: "epoch", WindowRevision: "2"}, nil
 	}); err != nil {
 		t.Fatal(err)
@@ -119,7 +141,7 @@ func TestTimelineEventStreamDiscardsReplacedSnapshot(t *testing.T) {
 	if err := s.deliver(old); err != nil || emitted != 0 {
 		t.Fatal("entrega antiga atravessou snapshot", err)
 	}
-	if _, err := s.replaceSnapshot(func() (*apidto.SubscribedTimelineSnapshot, error) { return nil, errors.New("failed") }); err == nil {
+	if _, err := s.replaceSnapshot(ctx, func(context.Context) (*apidto.SubscribedTimelineSnapshot, error) { return nil, errors.New("failed") }); err == nil {
 		t.Fatal("falha perdida")
 	}
 	if err := s.deliver(&chat.TimelineDelivery{Epoch: "epoch", SnapshotRevision: "2"}); err != nil || emitted != 1 {
@@ -177,5 +199,30 @@ func waitTimelineEventTest(t *testing.T, done <-chan struct{}) {
 	case <-done:
 	case <-time.After(3 * time.Second):
 		t.Fatal("entrega não encerrou no prazo")
+	}
+}
+
+func TestTimelineEventStreamCloseCancelsSnapshotQuery(t *testing.T) {
+	feed := &timelineEventTestFeed{values: make(chan *chat.TimelineDelivery), closed: make(chan struct{})}
+	emitter := timelineEventTestEmitter{closed: make(chan struct{}), emit: func(context.Context, apidto.TimelineEvent) error { return errors.New("unexpected") }}
+	s := newTimelineEventStream(context.Background(), feed, emitter, &apidto.SubscribedTimelineSnapshot{Epoch: "epoch", WindowRevision: "1"}, func() {})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel() // libera a consulta mesmo se a regressão voltar a bloquear Close
+	entered, queryDone, closed := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	var queryErr error
+	go func() {
+		_, queryErr = s.replaceSnapshot(ctx, func(queryCtx context.Context) (*apidto.SubscribedTimelineSnapshot, error) {
+			close(entered)
+			<-queryCtx.Done()
+			return nil, queryCtx.Err()
+		})
+		close(queryDone)
+	}()
+	waitTimelineEventTest(t, entered)
+	go func() { s.close(); close(closed) }()
+	waitTimelineEventTest(t, queryDone)
+	waitTimelineEventTest(t, closed)
+	if !errors.Is(queryErr, context.Canceled) || ctx.Err() != nil {
+		t.Fatal("Close não cancelou somente a consulta da inscrição", queryErr, ctx.Err())
 	}
 }

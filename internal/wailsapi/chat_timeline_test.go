@@ -20,9 +20,13 @@ type timelineTestSession struct {
 	mu            sync.Mutex
 	user, session string
 	emit          func(context.Context, apidto.TimelineEvent) error
+	eventContext  context.Context
 }
 
 func (s *timelineTestSession) CaptureTimelineEmitter(ctx context.Context) (context.Context, TimelineEventEmitter, error) {
+	if s.eventContext != nil {
+		ctx = s.eventContext
+	}
 	emit := s.emit
 	if emit == nil {
 		emit = func(context.Context, apidto.TimelineEvent) error { return nil }

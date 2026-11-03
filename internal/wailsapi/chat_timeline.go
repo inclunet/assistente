@@ -216,16 +216,16 @@ func withTimelineHandle[T any](api *ChatTimeline, windowID string, closedOK bool
 
 func (api *ChatTimeline) Refresh(windowID string, request apidto.RefreshTimelineRequest) (*apidto.SubscribedTimelineSnapshot, error) {
 	return withTimelineHandle(api, windowID, false, func(ctx context.Context, w timelineHandle) (*apidto.SubscribedTimelineSnapshot, error) {
-		return w.stream.replaceSnapshot(func() (*apidto.SubscribedTimelineSnapshot, error) {
-			return w.subscription.Refresh(ctx, request.WindowRevision, request.Position)
+		return w.stream.replaceSnapshot(ctx, func(queryCtx context.Context) (*apidto.SubscribedTimelineSnapshot, error) {
+			return w.subscription.Refresh(queryCtx, request.WindowRevision, request.Position)
 		})
 	})
 }
 
 func (api *ChatTimeline) Navigate(windowID string, request apidto.TimelineWindowNavigation) (*apidto.SubscribedTimelineSnapshot, error) {
 	return withTimelineHandle(api, windowID, false, func(ctx context.Context, w timelineHandle) (*apidto.SubscribedTimelineSnapshot, error) {
-		return w.stream.replaceSnapshot(func() (*apidto.SubscribedTimelineSnapshot, error) {
-			return w.subscription.Navigate(ctx, request)
+		return w.stream.replaceSnapshot(ctx, func(queryCtx context.Context) (*apidto.SubscribedTimelineSnapshot, error) {
+			return w.subscription.Navigate(queryCtx, request)
 		})
 	})
 }

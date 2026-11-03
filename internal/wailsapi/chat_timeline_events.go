@@ -92,13 +92,19 @@ func (s *timelineEventStream) deliver(delivery *chat.TimelineDelivery) error {
 
 // O caller executa a consulta do core sob esta mesma exclusão; só um snapshot
 // aceito troca a base. O mutex não ordena Promise RPC e evento no frontend.
-func (s *timelineEventStream) replaceSnapshot(query func() (*apidto.SubscribedTimelineSnapshot, error)) (*apidto.SubscribedTimelineSnapshot, error) {
+func (s *timelineEventStream) replaceSnapshot(ctx context.Context, query func(context.Context) (*apidto.SubscribedTimelineSnapshot, error)) (*apidto.SubscribedTimelineSnapshot, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed || s.ctx.Err() != nil {
 		return nil, chat.ErrTimelineSubscription
 	}
-	snapshot, err := query()
+	// A consulta conserva o principal/deadline do RPC e também termina quando
+	// a inscrição fecha, antes da drenagem que espera por este mutex.
+	ctx, cancel := context.WithCancel(ctx)
+	stop := context.AfterFunc(s.ctx, cancel)
+	defer stop()
+	defer cancel()
+	snapshot, err := query(ctx)
 	if err == nil {
 		s.epoch, s.baseline = snapshot.Epoch, snapshot.WindowRevision
 	}

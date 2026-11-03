@@ -20,6 +20,13 @@ e descartar capabilities encerradas. Close, logout e shutdown cancelam e drenam
 os workers fora dos locks de autenticação e registry. Falha terminal do transporte
 libera capability e cota; a recuperação exige nova abertura autenticada.
 
+Revisão remota do CodeRabbit: Refresh/Navigate recebem contexto derivado do RPC
+e ligado ao cancelamento do stream. Fechar a inscrição cancela a consulta em
+andamento antes de aguardar a exclusão; shutdown não depende de cancelar depois
+o contexto global do App. Prova: `TestTimelineEventStreamCloseCancelsSnapshotQuery`.
+Os complementos de cobertura da revisão verificam remoção da capability/cota
+quando o contexto da autorização termina e preservação de itens/metadados no wire.
+
 Decisão aprovada pelo mantenedor em 2026-11-03: revogação externa admite prazo
 máximo de **1 segundo** para bloquear novas emissões. Uma lease compartilhada por
 principal e geração revalida sessão/conta; sua validade é o menor limite entre
@@ -41,13 +48,13 @@ Provas focadas: `TestChatTimelineEventsMatchReplayAndReleaseFailedTransport`,
 `TestTimelineEventStreamCloseDrainsEmitterAndReleasesFeed`,
 `TestChatTimelineEventAuthorizationSharedUntilLastClose`,
 `TestChatTimelineExternalRevocationStopsIdleEventStreams` e testes
-`TestTimelineAuthorization*`. Validação local: 207 testes seguros de Wails,
+`TestTimelineAuthorization*`. Validação local: 209 testes seguros de Wails,
 53 de autenticação e 1.180 do App passaram; os testes adicionados depois da
 seleção ampla também passaram na rodada focada. Frontend: 5.887 testes em 484
 arquivos, TypeScript, ESLint e Stylelint aprovados (avisos preexistentes de CSS,
 sem erros). Build/vet e lint Go incremental passaram. ACP excluído das execuções
-locais; sem NVDA. Revisor independente `review_aep`: quatro rodadas técnicas,
-incluindo lifecycle, autorização, integração e diff completo; gate documental
+locais; sem NVDA. Revisor independente `review_aep`: seis rodadas técnicas,
+incluindo lifecycle, autorização, integração, diff completo e correções remotas; gate documental
 final aprovado, sem pendências.
 CI/review remotos completam a entrega. Cutover frontend, anexos e gate global de desempenho
 continuam pendentes; esta entrega ainda não altera a apresentação nem comprova
