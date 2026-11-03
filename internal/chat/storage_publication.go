@@ -295,11 +295,16 @@ func (p *LiveProjection) reconcileStorageBatchLocked(conversationID string, c *p
 
 func reconcileStorageLifecycleLocked(c *projectionConversation, ids []string, snapshot *TimelineSelectionSnapshot) {
 	reconcileProjectionVersion(c, snapshot.Version)
+	turnIDs := append([]string(nil), snapshot.TurnIDs...)
+	// Referências explícitas comprovam também ausência/exclusão de uma resposta.
 	for _, id := range ids {
 		if turnID, ok := strings.CutPrefix(id, "turn:"); ok {
-			if t := c.turns[turnID]; t != nil {
-				reconcileProjectedTurn(c, t, snapshot.Version, snapshot.Turns[turnID])
-			}
+			turnIDs = append(turnIDs, turnID)
+		}
+	}
+	for _, turnID := range uniquePublicationIDs(turnIDs) {
+		if t := c.turns[turnID]; t != nil {
+			reconcileProjectedTurn(c, t, snapshot.Version, snapshot.Turns[turnID])
 		}
 	}
 }

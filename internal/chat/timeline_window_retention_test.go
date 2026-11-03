@@ -369,3 +369,30 @@ func TestWindowRetentionExternalDeletionReleasesTailButNotSurvivingReferences(t 
 		})
 	}
 }
+
+func TestWindowRetentionReleaseRejectsOldStreamAfterExternalRetry(t *testing.T) {
+	f, p, e, _ := automaticFixture(t)
+	stream := e.StartStream(0)
+	stream.Append("anterior")
+	sub, _, err := p.SubscribeTimeline(f.ctx, &fixtureTimelineSession{ctx: f.ctx, id: "s"}, "question", database.MessageWindowQuery{ConversationID: f.conversation, Anchor: "start", Direction: "after", Limit: 1}, f.reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sub.Close()
+	retainWindow(t, f, sub, "message:"+f.question)
+	repo := database.NewChatTurnRepository(f.db)
+	if err := repo.Finish(f.ctx, f.conversation, f.question, e.executionID, database.TurnInterrupted, "cancelled"); err != nil {
+		t.Fatal(err)
+	}
+	next, err := uuid.NewV7()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.BeginExecution(f.ctx, f.conversation, f.question, "", database.TurnModeRetry, next.String(), ""); err != nil {
+		t.Fatal(err)
+	}
+	retainWindow(t, f, sub)
+	if stream.Append("tardio") || !e.conversation.turns[e.turnID].detached {
+		t.Fatal("liberação aceitou stream da tentativa substituída")
+	}
+}

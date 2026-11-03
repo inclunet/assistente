@@ -40,16 +40,16 @@ rollback de liberação com drift, pedidos obsoletos, capacidade e pergunta isol
 com retry externo. Transporte e cutover frontend continuam pendentes; este recorte
 não declara resolução do foco na UI. Custo de leitura por transição com retenção
 integra o gate de desempenho final ainda pendente.
-Validação: 410 testes seguros de chat, 99 de controllers e duas regressões de
-áudio aprovados; 11 testes de retenção repetidos após o guard final. Build/vet
-e lint incremental sem erros. Revisor independente review_aep: sete rodadas;
+Validação: 412 testes seguros de chat, 99 de controllers e duas regressões de
+áudio aprovados. Build/vet
+e lint incremental sem erros. Revisor independente review_aep: oito rodadas;
 item movido, lifecycle de pergunta isolada, cursor perdido e validação anterior
 a efeitos corrigidos, gate final sem pendências. Sem ACP local ou NVDA.
 
 Review remota: Refresh em followTail comprova sobrevivência antes de validar
 fronteiras antigas. Exclusão externa da única referência permite recuperar a
 cauda na mesma versão; outra referência sobrevivente continua protegida.
-Doze testes de retenção e vet/lint passaram após essa correção.
+A liberação reconcilia também os turnos comprovados pela pergunta isolada: após retry externo, o stream antigo recusa Append. A regressão cobre a desvinculação da execução anterior. Os 412 testes seguros de chat passaram após as duas correções.
 
 ### Recorte: acompanhamento explícito da cauda (2026-11-03)
 
