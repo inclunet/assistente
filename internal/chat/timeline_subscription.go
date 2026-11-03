@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strconv"
+	"sync/atomic"
 
 	"assistente/internal/database"
 	"github.com/google/uuid"
@@ -22,6 +23,7 @@ var ErrTimelineWindowStale = errors.New("revisão da janela mudou; sincronizaç�
 
 type subscriptionSurface struct{ sessionID, surfaceID string }
 type subscribedWindow struct {
+	delivery         timelineDeliveryCursor
 	pendingRetention *[]string
 	mode             TimelineWindowMode
 	query            database.MessageWindowQuery
@@ -43,6 +45,8 @@ type subscribedWindow struct {
 // TimelineSubscription é um capability interno. Ainda não é binding Wails.
 // Estado de consulta e participação pertence exclusivamente à janela.
 type TimelineSubscription struct {
+	reading      atomic.Bool
+	changed      chan struct{}
 	owner        *LiveProjection
 	key          projectionKey
 	conversation *projectionConversation
@@ -101,7 +105,7 @@ func (p *LiveProjection) SubscribeTimeline(ctx context.Context, session Timeline
 	window := &subscribedWindow{mode: TimelineWindowHistorical, id: id, surface: surface, itemIDs: make(map[string]bool)}
 	window.membership = membership
 	c.windows[id] = window
-	handle := &TimelineSubscription{owner: p, key: key, conversation: c, session: session, windowID: id, sessionID: sessionID, reader: reader}
+	handle := &TimelineSubscription{owner: p, key: key, conversation: c, session: session, windowID: id, sessionID: sessionID, reader: reader, changed: make(chan struct{}, 1)}
 	window.handle = handle
 	return handle, subscriptionSnapshot(c, window, snapshot, query), nil
 }
@@ -146,6 +150,8 @@ func subscriptionSnapshot(c *projectionConversation, window *subscribedWindow, s
 	window.metadata = metadataFromSubscription(result)
 	window.snapshotRevision = window.revision
 	window.snapshotSequence = c.publication.sequence
+	window.delivery = timelineDeliveryCursor{epoch: c.epoch, revision: result.WindowRevision, sequence: c.publication.sequence}
+	window.handle.signalDeliveryLocked()
 	return result
 }
 
@@ -318,5 +324,6 @@ func (s *TimelineSubscription) Close() {
 	defer release()
 	if c == s.conversation && c != nil {
 		delete(c.windows, s.windowID)
+		s.signalDeliveryLocked()
 	}
 }

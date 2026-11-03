@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"assistente/internal/database"
-	"github.com/google/uuid"
 )
 
 // ApplyStorageMutation envolve a operação externa inteira, antes de abrir sua
@@ -42,7 +41,7 @@ func (p *LiveProjection) applyStorageMutation(ctx context.Context, conversationI
 	}
 	created, writeErr := write()
 	if replace && writeErr == nil {
-		c.epoch = uuid.NewString()
+		c.invalidateTimelineEpochLocked()
 		for id, t := range c.turns {
 			if !t.finished || t.volatile || hasUncommittedContent(t) {
 				t.detached = true
@@ -132,7 +131,7 @@ func (c *projectionConversation) materializedIDsLocked() []string {
 
 func (c *projectionConversation) failStoragePublicationLocked(ids []string, err error) {
 	if c.publicationErrorLocked() == nil {
-		c.epoch = uuid.NewString()
+		c.invalidateTimelineEpochLocked()
 	}
 	c.storagePublicationErr = err
 	if c.pendingStorageIDs == nil {

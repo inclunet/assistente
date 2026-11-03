@@ -1,8 +1,45 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, mensagens, áudio, limpeza, exclusão e importação integrados; retenção por idade, órfãos, navegação, leitura leve e orçamento de fontes da janela com recuperação atômica e parcelada e participação histórica automática com publicação e replay atômicos integrados; followTail, retenção por foco/leitura, DTOs compartilhados e RPCs de inscrição integrados; margem de desempenho, eventos e cutover pendentes
+## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, mensagens, áudio, limpeza, exclusão e importação integrados; retenção por idade, órfãos, navegação, leitura leve e orçamento de fontes da janela com recuperação atômica e parcelada e participação histórica automática com publicação e replay atômicos integrados; followTail, retenção por foco/leitura, DTOs compartilhados, RPCs de inscrição e entrega interna pelo journal integrados; margem de desempenho, eventos Wails e cutover pendentes
 
 Data: 2026-10-30
+
+### Recorte: entrega incremental interna das inscrições (2026-11-03)
+
+TimelineSubscription.Next oferece ao futuro adaptador de eventos os lotes
+confirmados do mesmo journal usado por Replay, com o mesmo roteamento por janela.
+Não cria fila de conteúdo, polling, goroutine por inscrição nem consulta SQL por
+delta. Um sinal coalescido apenas acorda o leitor; o conteúdo é extraído sob a
+barreira, copiado e devolvido para processamento fora dela. Existe um leitor por
+capability; chamadas concorrentes são recusadas.
+
+O cursor pertence ao estado da janela e acompanha o checkpoint de publicação.
+Commit sinaliza inclusive overflow e remoção por revogação; rollback não entrega
+operações provisórias. Mudança real de época, exclusão e Close acordam leitores.
+Lacuna no journal (256 lotes/2 MiB), erro de publicação ou janela invalidada produz
+SyncRequired uma vez e suspende a entrega até um novo snapshot. Open, Refresh e
+Navigate posicionam o cursor na mesma barreira do snapshot; Navigate continua
+exigindo época vigente, sem substituir Refresh na recuperação de encarnação.
+
+A extração não é confirmação de recebimento: Replay permanece disponível para
+falha do transporte. SnapshotRevision distingue uma entrega em trânsito de um
+snapshot posterior, mesmo na mesma sequência. A futura borda deve reautorizar a
+emissão e coordenar respostas de snapshot com entrega, descartando bases antigas.
+Next valida o principal capturado e as invalidações coordenadas; não afirma
+revalidar por delta a posse ou revogação persistida externa ainda não observada.
+Replay/Refresh conservam suas verificações de storage. Nenhum callback externo
+executa sob a barreira da conversa.
+
+Provas em timeline_delivery_test.go: paridade com Replay, cópia independente,
+lotes vazios, commit/rollback, overflow por quantidade/bytes/estágio, uma única
+indicação de recuperação, cancelamento sem consumo, leitor exclusivo, despertar
+por publicação/Close/exclusão/revogação, retomada por Refresh e duas superfícies
+com splices e revisões sucessivas. A maioria usa fixture sem banco; os testes de
+Refresh e participação usam SQLite e os escritores coordenados existentes.
+
+Este recorte ainda não conecta Next ao Wails nem altera a UI. Eventos Wails,
+consumidor frontend, anexos e gate global de desempenho continuam pendentes.
+Validação: 438 testes seguros de chat, incluindo oito cenários top-level novos, e 5.887 testes de frontend em 484 arquivos passaram. O teste de espera/concorrência passou em 20 repetições. Build, vet, TypeScript, ESLint, Stylelint e lint Go incremental aprovados. ACP excluído da execução local; sem NVDA. Revisor independente review_aep: duas rodadas técnicas sem pendências; gate documental final aprovado, sem pendências. CI e review remotos completam a entrega deste recorte.
 
 ### Recorte: inscrições da timeline na borda Wails (2026-11-03)
 

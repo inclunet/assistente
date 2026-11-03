@@ -71,7 +71,7 @@ func (c *projectionConversation) clearDeletedConversationLocked() {
 		c.publicationTimer = nil
 	}
 	c.publicationGeneration++
-	c.epoch = uuid.NewString()
+	c.invalidateTimelineEpochLocked()
 	c.incarnation = ""
 	c.revision++
 	c.lastRecoveryVersion = database.ChatTimelineVersion{}

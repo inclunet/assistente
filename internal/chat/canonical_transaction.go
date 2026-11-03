@@ -80,6 +80,10 @@ func (c *projectionConversation) beginCanonicalPublication() func(string, bool) 
 			c.stopPublicationTimerLocked()
 			consumePublishedTurns(stage.flushedTurns)
 		}
+		// Também acorda capabilities removidos por revogação neste commit.
+		for _, w := range windows {
+			w.handle.signalDeliveryLocked()
+		}
 		if !stage.started {
 			return
 		}
