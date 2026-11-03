@@ -33,7 +33,8 @@ func (s *SessionService) AuthenticateLocalAccess(ctx context.Context, token stri
 	if err != nil || claims == nil || !canonicalSessionUUID(claims.Subject) || !canonicalSessionUUID(claims.SessionID) {
 		return LocalSessionPrincipal{}, ErrUnauthenticatedLocalSession
 	}
-	return s.revalidateLocalSession(ctx, LocalSessionPrincipal{UserID: claims.Subject, SessionID: claims.SessionID}, time.Time{}, claims.ExpiresAt)
+	principal, _, err := s.revalidateLocalSession(ctx, LocalSessionPrincipal{UserID: claims.Subject, SessionID: claims.SessionID}, time.Time{}, claims.ExpiresAt)
+	return principal, err
 }
 
 // RevalidateLocalSession reconsulta uma identidade local capturada pelo
@@ -41,29 +42,36 @@ func (s *SessionService) AuthenticateLocalAccess(ctx context.Context, token stri
 // O chamador deve obter o principal de uma sessão desktop já autenticada; este
 // método apenas confirma que a sessão e a conta continuam autorizadas.
 func (s *SessionService) RevalidateLocalSession(ctx context.Context, principal LocalSessionPrincipal) (LocalSessionPrincipal, error) {
+	validated, _, err := s.RevalidateLocalSessionExpiry(ctx, principal)
+	return validated, err
+}
+
+// RevalidateLocalSessionExpiry devolve também o limite persistido, na mesma
+// consulta, para autorizações contínuas que nunca podem ultrapassar a sessão.
+func (s *SessionService) RevalidateLocalSessionExpiry(ctx context.Context, principal LocalSessionPrincipal) (LocalSessionPrincipal, time.Time, error) {
 	if s == nil || s.db == nil || s.now == nil || ctx == nil ||
 		!canonicalSessionUUID(principal.UserID) || !canonicalSessionUUID(principal.SessionID) {
-		return LocalSessionPrincipal{}, ErrUnauthenticatedLocalSession
+		return LocalSessionPrincipal{}, time.Time{}, ErrUnauthenticatedLocalSession
 	}
 	if err := ctx.Err(); err != nil {
-		return LocalSessionPrincipal{}, err
+		return LocalSessionPrincipal{}, time.Time{}, err
 	}
 	before := s.now()
 	if before.IsZero() {
-		return LocalSessionPrincipal{}, ErrUnauthenticatedLocalSession
+		return LocalSessionPrincipal{}, time.Time{}, ErrUnauthenticatedLocalSession
 	}
 	return s.revalidateLocalSession(ctx, principal, before, 0)
 }
 
-func (s *SessionService) revalidateLocalSession(ctx context.Context, principal LocalSessionPrincipal, before time.Time, jwtExpiresAt int64) (LocalSessionPrincipal, error) {
-	validated, err := s.revalidateLocalSessionDB(ctx, s.db, principal, before, jwtExpiresAt)
+func (s *SessionService) revalidateLocalSession(ctx context.Context, principal LocalSessionPrincipal, before time.Time, jwtExpiresAt int64) (LocalSessionPrincipal, time.Time, error) {
+	validated, expiry, err := s.revalidateLocalSessionDB(ctx, s.db, principal, before, jwtExpiresAt)
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			return LocalSessionPrincipal{}, err
+			return LocalSessionPrincipal{}, time.Time{}, err
 		}
-		return LocalSessionPrincipal{}, ErrUnauthenticatedLocalSession
+		return LocalSessionPrincipal{}, time.Time{}, ErrUnauthenticatedLocalSession
 	}
-	return validated, nil
+	return validated, expiry, nil
 }
 
 // RevalidateLocalSessionTx revalida a sessão usando exclusivamente a
@@ -93,7 +101,7 @@ func (s *SessionService) RevalidateLocalSessionTx(ctx context.Context, tx *gorm.
 	if before.IsZero() {
 		return LocalSessionPrincipal{}, ErrUnauthenticatedLocalSession
 	}
-	validated, err := s.revalidateLocalSessionDB(ctx, tx, principal, before, 0)
+	validated, _, err := s.revalidateLocalSessionDB(ctx, tx, principal, before, 0)
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return LocalSessionPrincipal{}, ErrUnauthenticatedLocalSession
 	}
@@ -103,7 +111,7 @@ func (s *SessionService) RevalidateLocalSessionTx(ctx context.Context, tx *gorm.
 	return validated, nil
 }
 
-func (s *SessionService) revalidateLocalSessionDB(ctx context.Context, db *gorm.DB, principal LocalSessionPrincipal, before time.Time, jwtExpiresAt int64) (LocalSessionPrincipal, error) {
+func (s *SessionService) revalidateLocalSessionDB(ctx context.Context, db *gorm.DB, principal LocalSessionPrincipal, before time.Time, jwtExpiresAt int64) (LocalSessionPrincipal, time.Time, error) {
 	var row struct {
 		UserID    string
 		SessionID string
@@ -113,17 +121,17 @@ func (s *SessionService) revalidateLocalSessionDB(ctx context.Context, db *gorm.
 	// consulta por ID recebido separadamente nem usa role antiga contida no JWT.
 	result := db.WithContext(ctx).Table("sessions AS s").Select("s.user_id, s.id AS session_id, s.expires_at").Joins("JOIN users AS u ON u.id = s.user_id").Where("s.id = ? AND s.user_id = ? AND s.revoked_at IS NULL AND u.is_active = ?", principal.SessionID, principal.UserID, true).Take(&row)
 	if err := ctx.Err(); err != nil {
-		return LocalSessionPrincipal{}, err
+		return LocalSessionPrincipal{}, time.Time{}, err
 	}
 	if result.Error != nil {
-		return LocalSessionPrincipal{}, result.Error
+		return LocalSessionPrincipal{}, time.Time{}, result.Error
 	}
 	now := s.now()
 	if now.IsZero() || !row.ExpiresAt.After(now) || (!before.IsZero() && !row.ExpiresAt.After(before)) ||
 		(jwtExpiresAt != 0 && !time.Unix(jwtExpiresAt, 0).After(now)) {
-		return LocalSessionPrincipal{}, ErrUnauthenticatedLocalSession
+		return LocalSessionPrincipal{}, time.Time{}, ErrUnauthenticatedLocalSession
 	}
-	return LocalSessionPrincipal{UserID: row.UserID, SessionID: row.SessionID}, nil
+	return LocalSessionPrincipal{UserID: row.UserID, SessionID: row.SessionID}, row.ExpiresAt, nil
 }
 
 // ActiveUserRole relê o role atual da conta depois de autenticar a sessão.

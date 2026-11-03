@@ -1,8 +1,68 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, mensagens, áudio, limpeza, exclusão e importação integrados; retenção por idade, órfãos, navegação, leitura leve e orçamento de fontes da janela com recuperação atômica e parcelada e participação histórica automática com publicação e replay atômicos integrados; followTail, retenção por foco/leitura, DTOs compartilhados, RPCs de inscrição e entrega interna pelo journal integrados; margem de desempenho, eventos Wails e cutover pendentes
+## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, mensagens, áudio, limpeza, exclusão e importação integrados; retenção por idade, órfãos, navegação, leitura leve e orçamento de fontes da janela com recuperação atômica e parcelada e participação histórica automática com publicação e replay atômicos integrados; followTail, retenção por foco/leitura, DTOs compartilhados, RPCs de inscrição, entrega pelo journal e transporte de eventos Wails integrados; margem de desempenho e cutover pendentes
 
 Data: 2026-10-30
+
+### Recorte: transporte de eventos Wails (2026-11-03)
+
+Cada capability aberta mantém um leitor de `TimelineSubscription.Next` e emite
+`chat:timeline` fora da barreira do core. O transporte usa o mesmo mapper público
+de Replay; não mantém outra fila de conteúdo. O payload inclui conversationId,
+windowId, epoch e snapshotRevision. Sua interface TypeScript é manual, pois um
+payload exclusivo de eventos não pertence aos bindings gerados pelo Wails.
+
+Refresh/Navigate e emissão compartilham uma exclusão por handle. Somente um
+snapshot aceito substitui a base; entrega extraída antes dessa troca é descartada.
+A Promise do RPC e o evento continuam sem ordem garantida no frontend: o futuro
+consumidor deve registrar o listener antes de Open, bufferizar durante snapshots
+e descartar capabilities encerradas. Close, logout e shutdown cancelam e drenam
+os workers fora dos locks de autenticação e registry. Falha terminal do transporte
+libera capability e cota; a recuperação exige nova abertura autenticada.
+
+Revisão remota do CodeRabbit: Refresh/Navigate recebem contexto derivado do RPC
+e ligado ao cancelamento do stream. Fechar a inscrição cancela a consulta em
+andamento antes de aguardar a exclusão; shutdown não depende de cancelar depois
+o contexto global do App. Prova: `TestTimelineEventStreamCloseCancelsSnapshotQuery`.
+Os complementos de cobertura da revisão verificam remoção da capability/cota
+quando o contexto da autorização termina e preservação de itens/metadados no wire.
+Revisão posterior do Copilot: o gate de registro de Open também recusa contexto
+de eventos já cancelado durante a leitura inicial, liberando reserva e inscrição.
+`TestChatTimelinePendingOpenRejectsExpiredEventAuthorization` reproduz essa
+corrida sem alterar a geração local; a abertura não devolve uma capability morta.
+
+Decisão aprovada pelo mantenedor em 2026-11-03: revogação externa admite prazo
+máximo de **1 segundo** para bloquear novas emissões. Uma lease compartilhada por
+principal e geração revalida sessão/conta; sua validade é o menor limite entre
+início da consulta + 1 segundo e expiração persistida. Consulta lenta não estende
+esse prazo. A admissão consulta relógio/contexto/geração, sem SQL por delta, e
+bloqueia enquanto uma autorização vencida aguarda renovação. Erro de validação
+encerra a lease e seus streams. Cada RPC continua revalidando a persistência.
+O último emissor libera o worker compartilhado; aberturas pendentes também
+possuem uma referência e a liberam se forem recusadas.
+
+Troca local invalida a geração imediatamente. O prazo refere-se à **admissão**
+de emissões: eventos já admitidos e enfileirados no runtime não podem ser
+recolhidos. O consumidor deve ignorar eventos de handles encerrados, inclusive
+depois de logout. Não há consulta persistida nem callback Wails sob o lock do
+projetor, e a espera por revalidação não bloqueia a publicação do core.
+
+Provas focadas: `TestChatTimelineEventsMatchReplayAndReleaseFailedTransport`,
+`TestTimelineEventStreamDiscardsReplacedSnapshot`,
+`TestTimelineEventStreamCloseDrainsEmitterAndReleasesFeed`,
+`TestChatTimelineEventAuthorizationSharedUntilLastClose`,
+`TestChatTimelineExternalRevocationStopsIdleEventStreams` e testes
+`TestTimelineAuthorization*`. Validação local: 210 testes seguros de Wails,
+53 de autenticação e 1.180 do App passaram; os testes adicionados depois da
+seleção ampla também passaram na rodada focada. Frontend: 5.887 testes em 484
+arquivos, TypeScript, ESLint e Stylelint aprovados (avisos preexistentes de CSS,
+sem erros). Build/vet e lint Go incremental passaram. ACP excluído das execuções
+locais; sem NVDA. Revisor independente `review_aep`: sete rodadas técnicas,
+incluindo lifecycle, autorização, integração, diff completo e correções remotas; gate documental
+final aprovado, sem pendências.
+CI/review remotos completam a entrega. Cutover frontend, anexos e gate global de desempenho
+continuam pendentes; esta entrega ainda não altera a apresentação nem comprova
+a correção visual do foco.
 
 ### Recorte: entrega incremental interna das inscrições (2026-11-03)
 

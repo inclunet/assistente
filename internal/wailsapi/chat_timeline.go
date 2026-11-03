@@ -16,6 +16,7 @@ import (
 type ChatTimelineSession interface {
 	Session
 	CaptureTimelineSession(context.Context) (chat.TimelineSession, error)
+	CaptureTimelineEmitter(context.Context) (context.Context, TimelineEventEmitter, error)
 }
 
 type ChatTimelineReader interface {
@@ -41,6 +42,7 @@ type ChatTimeline struct {
 }
 
 type timelineHandle struct {
+	stream         *timelineEventStream
 	subscription   *chat.TimelineSubscription
 	principal      timelinePrincipal
 	reader         ChatTimelineReader
@@ -100,7 +102,10 @@ func detachChatTimeline(api *ChatTimeline, terminal bool) func() {
 	api.mu.Unlock()
 	return func() {
 		for _, window := range windows {
-			window.subscription.Close()
+			window.stream.cancel()
+		}
+		for _, window := range windows {
+			window.stream.close()
 		}
 	}
 }
@@ -137,6 +142,16 @@ func (api *ChatTimeline) Open(request apidto.OpenTimelineRequest) (*apidto.Subsc
 			return nil, chat.ErrTimelineSubscription
 		}
 		principal := timelinePrincipal{api: api, generation: generation, captured: captured}
+		eventCtx, emitter, err := session.CaptureTimelineEmitter(ctx)
+		if err != nil {
+			return nil, err
+		}
+		owned := false
+		defer func() {
+			if !owned {
+				emitter.Close()
+			}
+		}()
 		query := database.MessageWindowQuery{ConversationID: request.ConversationID, ParentID: request.ScopeParentID, Cursor: request.Cursor, Anchor: request.Anchor, AnchorItemID: request.AnchorItemID, Direction: request.Direction, Limit: request.Limit}
 		subscription, snapshot, err := projection.SubscribeTimeline(ctx, principal, request.SurfaceID, query, reader)
 		if err != nil {
@@ -147,9 +162,18 @@ func (api *ChatTimeline) Open(request apidto.OpenTimelineRequest) (*apidto.Subsc
 			return nil, err
 		}
 		api.mu.Lock()
-		valid := !api.closed && api.generation == generation
+		valid := !api.closed && api.generation == generation && eventCtx.Err() == nil
 		if valid {
-			api.windows[snapshot.WindowID] = timelineHandle{subscription: subscription, principal: principal, reader: reader, conversationID: request.ConversationID}
+			var stream *timelineEventStream
+			stream = newTimelineEventStream(eventCtx, subscription, timelineAuthorizedEmitter{principal, emitter}, snapshot, func() {
+				api.mu.Lock()
+				if current, ok := api.windows[snapshot.WindowID]; ok && current.stream == stream {
+					delete(api.windows, snapshot.WindowID)
+				}
+				api.mu.Unlock()
+			})
+			api.windows[snapshot.WindowID] = timelineHandle{stream: stream, subscription: subscription, principal: principal, reader: reader, conversationID: request.ConversationID}
+			owned = true
 		}
 		api.mu.Unlock()
 		if !valid {
@@ -192,13 +216,17 @@ func withTimelineHandle[T any](api *ChatTimeline, windowID string, closedOK bool
 
 func (api *ChatTimeline) Refresh(windowID string, request apidto.RefreshTimelineRequest) (*apidto.SubscribedTimelineSnapshot, error) {
 	return withTimelineHandle(api, windowID, false, func(ctx context.Context, w timelineHandle) (*apidto.SubscribedTimelineSnapshot, error) {
-		return w.subscription.Refresh(ctx, request.WindowRevision, request.Position)
+		return w.stream.replaceSnapshot(ctx, func(queryCtx context.Context) (*apidto.SubscribedTimelineSnapshot, error) {
+			return w.subscription.Refresh(queryCtx, request.WindowRevision, request.Position)
+		})
 	})
 }
 
 func (api *ChatTimeline) Navigate(windowID string, request apidto.TimelineWindowNavigation) (*apidto.SubscribedTimelineSnapshot, error) {
 	return withTimelineHandle(api, windowID, false, func(ctx context.Context, w timelineHandle) (*apidto.SubscribedTimelineSnapshot, error) {
-		return w.subscription.Navigate(ctx, request)
+		return w.stream.replaceSnapshot(ctx, func(queryCtx context.Context) (*apidto.SubscribedTimelineSnapshot, error) {
+			return w.subscription.Navigate(queryCtx, request)
+		})
 	})
 }
 
@@ -219,24 +247,14 @@ func (api *ChatTimeline) Replay(windowID string, request apidto.ReplayTimelineRe
 		if err != nil {
 			return nil, err
 		}
-		result := &apidto.TimelineReplay{ConversationID: w.conversationID, WindowID: windowID, SyncRequired: !ok, Updates: make([]apidto.TimelineUpdate, 0, len(batches))}
-		for _, batch := range batches {
-			update := apidto.TimelineUpdate{ConversationID: batch.ConversationID, Epoch: batch.Epoch, Sequence: batch.Sequence, Operations: append([]apidto.CanonicalOperation{}, batch.Operations...), WindowPatches: make([]apidto.TimelineWindowPatch, 0, len(batch.WindowPatches))}
-			for _, patch := range batch.WindowPatches {
-				update.WindowPatches = append(update.WindowPatches, apidto.TimelineWindowPatch{WindowID: patch.WindowID, PreviousRevision: patch.PreviousRevision, Revision: patch.Revision, Splices: patch.Splices, Items: patch.Items, Metadata: patch.Metadata, SyncRequired: patch.SyncRequired})
-			}
-			result.Updates = append(result.Updates, update)
-		}
+		result := &apidto.TimelineReplay{ConversationID: w.conversationID, WindowID: windowID, SyncRequired: !ok, Updates: timelineUpdates(batches)}
 		return result, nil
 	})
 }
 
 func (api *ChatTimeline) Close(windowID string) error {
 	_, err := withTimelineHandle(api, windowID, true, func(_ context.Context, w timelineHandle) (struct{}, error) {
-		w.subscription.Close()
-		api.mu.Lock()
-		delete(api.windows, windowID)
-		api.mu.Unlock()
+		w.stream.close()
 		return struct{}{}, nil
 	})
 	return err
