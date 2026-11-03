@@ -31,14 +31,14 @@ logout/shutdown, descarte de Refresh invalidado durante a leitura e ausência de
 Esta entrega não emite eventos nem troca o consumidor visual: transporte por
 eventos, cutover e gate global de desempenho continuam pendentes.
 
-Validação local: sete testes focados de wailsapi, dois de sessão no App, quatro
+Validação local: 202 testes seguros de wailsapi (incluindo sete focados nos RPCs), 1.170 testes seguros do App (incluindo dois de sessão), quatro
 de apidto, 430 testes seguros de chat e 5.887 testes de frontend em 484 arquivos
 passaram. Execução local exclui ACP. Build, vet, TypeScript, ESLint e Stylelint
 aprovados; lint incremental sem achados. O lint completo aponta 12 achados em
 arquivos fora deste diff, preservados para tratamento separado. Bindings gerados
-com Wails 2.15.0 em perfil isolado. Revisor independente review_aep: duas rodadas;
+com Wails 2.15.0 em perfil isolado. Revisor independente review_aep: três rodadas;
 a primeira apontou liberação precoce da cota de aberturas pendentes no detach,
-corrigida e coberta por 256 aberturas concorrentes; segunda rodada sem pendências.
+corrigida e coberta por 256 aberturas concorrentes; segunda rodada sem pendências. A terceira confirmou documentação e integração da base remota sem alterar a árvore revisada.
 CI e revisão remota completam a entrega deste recorte.
 ### Recorte: contrato compartilhado da timeline (2026-11-03)
 
