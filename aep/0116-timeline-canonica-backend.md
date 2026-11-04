@@ -25,6 +25,11 @@ suficiente continua sendo remoção explícita. Outra época, outra execução o
 identidade ausente exigem reserva e prova; itemId coincidente não basta. Falha da
 reserva não bloqueia um snapshot que comprova continuidade da mesma execução.
 Execução ativa, fonte ausente e cotas excedidas continuam sem autorização de perda.
+Aquisição percorre capabilities elegíveis do mesmo escopo, respeita reservas já
+existentes por referência e tenta outra janela quando uma aquisição é recusada,
+inclusive pela cota compartilhada com buffers. Não substitui uma reserva anterior
+pela mesma referência em outra época/revisão. Tentativas ambíguas ficam registradas
+até sua liberação; a promoção exige também o cleanup dessas tentativas.
 
 Depois dos snapshots, reservas não necessárias são liberadas. Antes da promoção,
 o cliente revalida candidato e capabilities sem await e registra a transferência
@@ -37,13 +42,17 @@ O cliente mantém somente descritores transferidos, separados da ordem e do índ
 normal da timeline. getRecoveredItems lista esses descritores; readRecoveredItem
 lê o DTO na capability proprietária; releaseRecoveredItem libera explicitamente
 a cópia de recuperação, sem apagar execução persistida. Leituras tardias após
-liberação/logout são recusadas. Close normal é recusado antes de alterar a
+liberação/logout são recusadas. O descritor inclui windowId e não pode operar uma
+reserva adquirida após reabrir a mesma superfície. Cleanup revalida exclusão de
+Refresh a cada janela e nunca sobrescreve uma operação pendente. Close normal é recusado antes de alterar a
 superfície enquanto houver reserva transferida; logout/dispose encerra a sessão
 e suas capabilities. Falha de Release mantém a reserva acessível para retry.
 
 Evidências: chatTimelineClient.test.ts cobre o ciclo completo, retry persistido,
 mudança de época, recusa de aquisição com continuidade comprovada, divergência de
-texto/ferramentas/metadados/identidade, cleanup, Close concorrente e logout.
+texto/ferramentas/metadados/identidade, cleanup, Close concorrente e logout,
+distribuição entre janelas com cotas compartilhadas, conflito de referência,
+descritores após reabertura e cleanup concorrente entre superfícies.
 chatTimelineWails.test.ts percorre os DTOs dos RPCs até Refresh/leitura/liberação.
 response_projection_test.go e timeline_recovery_reference_test.go provam a
 identidade explícita no persistido, no live, no terminal e no retry. Bindings

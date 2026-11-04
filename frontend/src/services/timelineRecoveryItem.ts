@@ -10,7 +10,12 @@ export interface RecoveryItemTransport {
 
 export interface RecoveredTimelineItem {
   readonly surfaceId: string;
+  readonly windowId: string;
   readonly identity: RecoveryItemIdentity;
+}
+
+export function recoveryReferenceKey(reference: RecoveryItemIdentity['reference']): string {
+  return JSON.stringify([reference.projectionId, reference.incarnation, reference.turnId, reference.executionId]);
 }
 
 export function recoveryItemIdentity(epoch: string, item: TimelineItem): RecoveryItemIdentity | undefined {
