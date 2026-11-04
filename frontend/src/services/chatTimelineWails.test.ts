@@ -3,6 +3,8 @@ import { createStore } from 'zustand/vanilla';
 import { apidto } from '@wailsjs/go/models';
 
 const mocks = vi.hoisted(() => ({
+  refresh: vi.fn(),
+  reserveItem: vi.fn(), readItem: vi.fn(), releaseItem: vi.fn().mockResolvedValue(undefined),
   read: vi.fn(), reserve: vi.fn(), release: vi.fn().mockResolvedValue(undefined),
   open: vi.fn(), close: vi.fn().mockResolvedValue(undefined), eventsOn: vi.fn(), unsubscribe: vi.fn(),
 }));
@@ -11,8 +13,9 @@ const auth = createStore<{ isAuthenticated: boolean; user: { userId: string; ses
 }));
 vi.mock('../store/authStore', () => ({ useAuthStore: auth }));
 vi.mock('@wailsjs/go/wailsapi/ChatTimeline', () => ({
+  ReserveRecoveryItem: mocks.reserveItem, ReadRecoveryItem: mocks.readItem, ReleaseRecoveryItem: mocks.releaseItem,
   ReadRecoveryPage: mocks.read, ReserveRecovery: mocks.reserve, ReleaseRecovery: mocks.release,
-  Open: mocks.open, Close: mocks.close, Refresh: vi.fn(), Navigate: vi.fn(), SetRetention: vi.fn(),
+  Open: mocks.open, Close: mocks.close, Refresh: mocks.refresh, Navigate: vi.fn(), SetRetention: vi.fn(),
 }));
 vi.mock('@wailsjs/runtime/runtime', () => ({ EventsOn: mocks.eventsOn }));
 
@@ -22,6 +25,38 @@ afterEach(() => {
 });
 
 describe('chatTimelineWails', () => {
+  it('integra reserva, leitura, Refresh e liberação com DTOs Wails', async () => {
+    auth.setState({ isAuthenticated: true, user: { userId: 'user', sessionId: 'item-recovery' } });
+    mocks.eventsOn.mockReturnValue(mocks.unsubscribe);
+    const reference = { projectionId: 'p', incarnation: 'i', turnId: 'turn', executionId: 'execution' };
+    const item = new apidto.CanonicalItem({ recoveryReference: reference, executionId: 'execution', itemId: 'item',
+      conversationId: 'chat', scopeParentId: null, turnId: 'turn', kind: 'response', replyToItemId: 'question',
+      representativeMessageId: null, messageIds: [], position: 'opaque', revision: '1', state: 'interrupted',
+      durability: 'volatile', segments: [{ segmentId: 'text', kind: 'text', text: 'preservar' }],
+      metadata: { origin: 'runtime', role: 'assistant', model: '', pinned: false, promptTokens: 0, completionTokens: 0, totalTokens: 0 } });
+    const base = { conversationId: 'chat', scopeParentId: null, epoch: 'epoch', windowId: 'window',
+      windowRevision: '1', sequence: '1', mode: 'historical', items: [item], orderedItemIds: ['item'],
+      retainedItemIds: [], totalCount: 1, startIndex: 0, endIndex: 1, hasBefore: false, hasAfter: false,
+      retentionBlocked: false, beforeCursor: '', afterCursor: '' };
+    mocks.open.mockResolvedValue(new apidto.SubscribedTimelineSnapshot(base));
+    mocks.refresh.mockResolvedValue(new apidto.SubscribedTimelineSnapshot({ ...base, windowRevision: '2', sequence: '2', items: [], orderedItemIds: [] }));
+    mocks.reserveItem.mockImplementation(async (_window: string, identity: apidto.TimelineRecoveryItemRequest) =>
+      new apidto.TimelineRecoveryItemReservation({ conversationId: 'chat', identity }));
+    mocks.readItem.mockResolvedValue(item);
+    const { getChatTimelineClient } = await import('./chatTimelineWails');
+    const client = getChatTimelineClient();
+    await client.open('chat', 'surface', null, { cursor: '', anchor: 'tail', anchorItemId: '', direction: '', limit: 20 });
+    await client.refresh('chat');
+    const [held] = client.getRecoveredItems('chat');
+    expect((await client.readRecoveredItem('chat', held)).segments[0].text).toBe('preservar');
+    await client.releaseRecoveredItem('chat', held);
+    for (const rpc of [mocks.reserveItem, mocks.readItem, mocks.releaseItem]) {
+      expect(rpc.mock.calls[0][0]).toBe('window');
+      expect(rpc.mock.calls[0][1]).toBeInstanceOf(apidto.TimelineRecoveryItemRequest);
+      expect(rpc.mock.calls[0][1]).toMatchObject({ reference, itemId: 'item', epoch: 'epoch', revision: '1' });
+    }
+    await client.close('chat', 'surface');
+  });
   it('normaliza nullables de DTO sem fabricar identidade ou conteúdo', async () => {
     const { normalizeTimelineSnapshot } = await import('./chatTimelineWails');
     const value = normalizeTimelineSnapshot(new apidto.SubscribedTimelineSnapshot({

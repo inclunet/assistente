@@ -3,6 +3,7 @@ import type { ChatTimelineEvent, TimelineRecoveryReference } from '../types/chat
 import { TimelineCacheBudget } from './timelineCacheBudget';
 import { revision } from './timelineBatch';
 import { TimelineConversationState, type TimelineSnapshot } from './timelineConversationState';
+import { recoveryItemIdentity, recoveryItemKey, sameRecoveryItem, type RecoveryItemIdentity, type RecoveryItemTransport, type RecoveredTimelineItem } from './timelineRecoveryItem';
 
 export interface TimelinePosition {
   cursor: string;
@@ -11,7 +12,7 @@ export interface TimelinePosition {
   direction: string;
   limit: number;
 }
-export interface TimelineTransport extends TimelineRecoveryTransport {
+export interface TimelineTransport extends TimelineRecoveryTransport, RecoveryItemTransport {
   listen(receive: (event: ChatTimelineEvent) => void): () => void;
   open(conversationId: string, surfaceId: string, scope: string | null, position: TimelinePosition): Promise<TimelineSnapshot>;
   refresh(windowId: string, revision: string, position?: TimelinePosition): Promise<TimelineSnapshot>;
@@ -20,6 +21,7 @@ export interface TimelineTransport extends TimelineRecoveryTransport {
   close(windowId: string): Promise<void>;
 }
 interface Slot {
+  recoveryItems?: Map<string, { identity: RecoveryItemIdentity; verified: boolean; transferred: boolean }>;
   recoveryReader?: TimelineRecoveryReader;
   registrationId: string;
   scope: string | null;
@@ -149,6 +151,9 @@ export class ChatTimelineClient {
     if (conversation.recovery) return conversation.recovery;
     if (![...conversation.slots.values()].some(slot => !slot.closed)) return Promise.reject(new Error('Timeline recovery requires an active surface'));
     if ([...conversation.slots.values()].some(slot => slot.pending)) return Promise.reject(new Error('Timeline surface busy'));
+    if ([...conversation.slots.values()].some(slot => [...slot.recoveryItems?.values() ?? []].some(held => !held.transferred))) {
+      return Promise.reject(new Error('Timeline recovery cleanup pending'));
+    }
     const candidate = new TimelineConversationState(conversationId, this.budget, conversation.state);
     conversation.candidate = candidate;
     const requests = [...conversation.slots].filter(([, slot]) => !slot.closed).map(([surface, slot]) => ({
@@ -156,6 +161,28 @@ export class ChatTimelineClient {
     }));
     conversation.recoveryError = undefined;
     const recovery = Promise.resolve().then(async () => {
+      // Reserve antes de Refresh: o snapshot pode retirar a revisão antiga do cache.
+      for (const { epoch, item } of conversation.state.protectedItems()) {
+        const identity = recoveryItemIdentity(epoch, item);
+        const request = requests.find(value => !value.slot.closed && value.slot.scope === item.scopeParentId);
+        if (!identity || !request) continue;
+        const { slot } = request;
+        slot.recoveryItems ??= new Map();
+        const key = recoveryItemKey(identity);
+        if (slot.recoveryItems.has(key) || slot.recoveryItems.size >= 8) continue;
+        const held = { identity, verified: false, transferred: false };
+        slot.recoveryItems.set(key, held); // resposta perdida também exige cleanup.
+        try {
+          const receipt = await this.transport.reserveItem(slot.windowId!, identity);
+          if (slot.closed || this.disposed) continue;
+          if (receipt.conversationId !== conversationId || recoveryItemKey(receipt.identity) !== key) throw new Error('Timeline recovery receipt mismatch');
+          const reserved = await this.transport.readItem(slot.windowId!, identity);
+          if (!slot.closed && !this.disposed && sameRecoveryItem(item, reserved)) held.verified = true;
+        } catch {
+          // O snapshot ainda pode preservar o item. A prova será exigida só se
+          // houver perda; qualquer aquisição ambígua será liberada antes de promover.
+        }
+      }
       const outcomes = await Promise.allSettled(requests.map(async ({ surface, slot, token }) => {
         if (slot.closed || this.disposed) return;
         const snapshot = await this.transport.refresh(slot.windowId!, slot.baseline!, positions.get(surface));
@@ -171,14 +198,41 @@ export class ChatTimelineClient {
       if (failed?.status === 'rejected' || candidate.recoveryReason) {
         throw failed?.status === 'rejected' ? failed.reason : new Error(`Timeline recovery rejected: ${candidate.recoveryReason}`);
       }
-      if (conversation.state.wouldDiscardProtectedItems(candidate)) throw new Error('Timeline protected content requires ownership transfer');
+      const needed = () => conversation.state.protectedItemsLostBy(candidate).map(({ epoch, item }) => {
+        const identity = recoveryItemIdentity(epoch, item);
+        const key = identity && recoveryItemKey(identity);
+        const owner = requests.find(({ slot }) => !slot.closed && key && slot.recoveryItems?.get(key)?.verified);
+        if (!owner || !key) throw new Error('Timeline protected content requires ownership transfer');
+        return { slot: owner.slot, key };
+      });
+      const required = needed();
+      for (const { slot } of requests) {
+        for (const [key, held] of slot.recoveryItems ?? []) {
+          if (!held.transferred && !required.some(value => value.slot === slot && value.key === key)) await this.releaseItem(slot, key);
+        }
+      }
+      if (this.disposed) return;
+      // Eventos e Close podem ter chegado durante cleanup. Revalidar sem await
+      // antes de transferir propriedade e promover a apresentação conjuntamente.
+      const transfer = needed();
+      if (candidate.recoveryReason) throw new Error(`Timeline recovery rejected: ${candidate.recoveryReason}`);
       candidate.finishReplacement();
       if (candidate.recoveryReason) throw new Error(`Timeline recovery rejected: ${candidate.recoveryReason}`);
+      for (const { slot, key } of transfer) slot.recoveryItems!.get(key)!.transferred = true;
       conversation.recoveryError = undefined;
       const previous = conversation.state;
       conversation.state = candidate;
       previous.dispose();
-    }).catch(error => {
+    }).catch(async error => {
+      const cleanup: unknown[] = [];
+      for (const { slot } of requests) {
+        for (const [key, held] of slot.recoveryItems ?? []) {
+          if (!held.transferred) {
+            try { await this.releaseItem(slot, key); } catch (failure) { cleanup.push(failure); }
+          }
+        }
+      }
+      if (cleanup.length) error = Object.assign(new Error('Timeline recovery cleanup failed'), { errors: [error, ...cleanup] });
       if (!this.disposed) conversation.recoveryError = error instanceof Error ? error : Object.assign(new Error('Timeline recovery failed'), { cause: error });
       throw error;
     }).finally(() => {
@@ -215,10 +269,56 @@ export class ChatTimelineClient {
     await this.conversations.get(conversationId)?.slots.get(surfaceId)?.recoveryReader?.close();
   }
 
+  /** Conteúdo de outra época/execução não participa da ordem da timeline atual. */
+  getRecoveredItems(conversationId: string): RecoveredTimelineItem[] {
+    const conversation = this.conversations.get(conversationId);
+    return [...conversation?.slots ?? []].flatMap(([surfaceId, slot]) => [...slot.recoveryItems?.values() ?? []]
+      .filter(held => held.transferred).map(held => ({ surfaceId, identity: structuredClone(held.identity) })));
+  }
+
+  async readRecoveredItem(conversationId: string, descriptor: RecoveredTimelineItem) {
+    this.assertActive();
+    const conversation = this.conversations.get(conversationId);
+    const slot = conversation?.slots.get(descriptor.surfaceId);
+    const key = recoveryItemKey(descriptor.identity);
+    const held = slot?.recoveryItems?.get(key);
+    if (!conversation || conversation.recovery || !slot || slot.closed || !held?.transferred) throw new Error('Timeline recovery item unavailable');
+    const item = await this.transport.readItem(slot.windowId!, held.identity);
+    this.assertActive();
+    if (slot.closed || slot.recoveryItems?.get(key) !== held || !held.transferred) throw new Error('Timeline recovery item unavailable');
+    const identity = recoveryItemIdentity(held.identity.epoch, item);
+    if (item.conversationId !== conversationId || !identity || recoveryItemKey(identity) !== key) throw new Error('Timeline recovery item mismatch');
+    return item;
+  }
+
+  /** Liberação explícita da cópia de recuperação; não apaga execução persistida. */
+  async releaseRecoveredItem(conversationId: string, descriptor: RecoveredTimelineItem): Promise<void> {
+    this.assertActive();
+    const conversation = this.conversations.get(conversationId);
+    const slot = conversation?.slots.get(descriptor.surfaceId);
+    if (!conversation || conversation.recovery || !slot || slot.closed || slot.pending) throw new Error('Timeline recovery surface unavailable');
+    await this.run(slot, () => this.releaseItem(slot, recoveryItemKey(descriptor.identity)));
+    this.notify();
+  }
+
+  async cleanupRecoveryItems(conversationId: string): Promise<void> {
+    this.assertActive();
+    const conversation = this.conversations.get(conversationId);
+    if (conversation?.recovery || [...conversation?.slots.values() ?? []].some(slot => slot.pending)) throw new Error('Timeline recovery busy');
+    for (const slot of conversation?.slots.values() ?? []) {
+      await this.run(slot, async () => {
+        for (const [key, held] of slot.recoveryItems ?? []) if (!held.transferred) await this.releaseItem(slot, key);
+      });
+    }
+  }
+
   async close(conversationId: string, surfaceId: string): Promise<void> {
     const conversation = this.conversations.get(conversationId);
     const slot = conversation?.slots.get(surfaceId);
     if (!conversation || !slot) return;
+    if (!this.disposed && [...slot.recoveryItems?.values() ?? []].some(held => held.transferred)) {
+      throw new Error('Timeline recovered content requires explicit release');
+    }
     slot.closed = true;
     slot.recoveryReader?.invalidate();
     conversation.state.close(surfaceId);
@@ -257,11 +357,23 @@ export class ChatTimelineClient {
   private closeRemote(slot: Slot): Promise<void> {
     if (!slot.windowId) return Promise.resolve();
     return slot.closing ??= this.transport.close(slot.windowId).then(() => {
+      slot.recoveryItems?.clear();
       slot.recoveryReader?.windowClosed();
     }).catch(error => {
       slot.closing = undefined;
       throw error;
     });
+  }
+  private async releaseItem(slot: Slot, key: string): Promise<void> {
+    const held = slot.recoveryItems?.get(key);
+    if (!held) return;
+    try {
+      if (slot.closed || this.disposed) await this.closeRemote(slot);
+      else await this.transport.releaseItem(slot.windowId!, held.identity);
+    } catch (error) {
+      if (slot.recoveryItems?.get(key) === held) throw error;
+    }
+    if (slot.recoveryItems?.get(key) === held) slot.recoveryItems.delete(key);
   }
   private collectIdle() {
     for (const [id, conversation] of this.conversations) {

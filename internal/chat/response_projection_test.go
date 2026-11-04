@@ -39,6 +39,36 @@ func TestPersistedResponseUsesExplicitRepresentativeAndStableSegments(t *testing
 	}
 }
 
+func TestPersistedResponsePublishesExplicitExecutionIdentity(t *testing.T) {
+	turnID, messages, calls := canonicalTurnFixture()
+	execution := "execution-a"
+	turn := &database.ChatTurn{UserMessageID: turnID, ConversationID: "conv-1", CurrentExecutionID: &execution}
+	first, err := ProjectPersistedResponse("conv-1", turnID, nil, messages, calls, turn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := canonicalItem(first)
+	if before.ExecutionID != execution {
+		t.Fatal(before.ExecutionID)
+	}
+	execution = "execution-b"
+	second, err := ProjectPersistedResponse("conv-1", turnID, nil, messages, calls, turn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	after := canonicalItem(second)
+	if before.ItemID != after.ItemID || after.ExecutionID != execution {
+		t.Fatal(after)
+	}
+	if changes := canonicalDiff(&before, after); len(changes) != 1 || changes[0].Kind != "item_upsert" {
+		t.Fatal("retry não publica a nova execução", changes)
+	}
+	legacy, err := ProjectPersistedResponse("conv-1", turnID, nil, messages, calls, nil)
+	if err != nil || canonicalItem(legacy).ExecutionID != "" {
+		t.Fatal("inventou execução legada", err)
+	}
+}
+
 func TestPersistedResponseNullIsNotLegacyOrCompleted(t *testing.T) {
 	turnID, messages, calls := canonicalTurnFixture()
 	turn := &database.ChatTurn{UserMessageID: turnID, ConversationID: "conv-1", State: database.TurnInterrupted, Origin: "runtime"}

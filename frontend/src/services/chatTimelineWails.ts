@@ -7,24 +7,26 @@ import { logger } from '../utils/logger';
 import { ChatTimelineClient, type TimelineTransport } from './chatTimelineClient';
 import type { TimelineSnapshot } from './timelineConversationState';
 
+export function normalizeTimelineItem(item: apidto.CanonicalItem) {
+  return { ...item, scopeParentId: item.scopeParentId ?? null, turnId: item.turnId ?? null,
+    representativeMessageId: item.representativeMessageId ?? null,
+    messageIds: item.messageIds ?? [], segments: item.segments ?? [] };
+}
+
 export function normalizeTimelineSnapshot(snapshot: apidto.SubscribedTimelineSnapshot): TimelineSnapshot {
   return {
     ...snapshot,
     scopeParentId: snapshot.scopeParentId ?? null,
     orderedItemIds: snapshot.orderedItemIds ?? [],
     retainedItemIds: snapshot.retainedItemIds ?? [],
-    items: (snapshot.items ?? []).map(item => ({
-      ...item,
-      scopeParentId: item.scopeParentId ?? null,
-      turnId: item.turnId ?? null,
-      representativeMessageId: item.representativeMessageId ?? null,
-      messageIds: item.messageIds ?? [],
-      segments: item.segments ?? [],
-    })),
+    items: (snapshot.items ?? []).map(normalizeTimelineItem),
   };
 }
 
 const transport: TimelineTransport = {
+  reserveItem: (windowId, identity) => rpc.ReserveRecoveryItem(windowId, new apidto.TimelineRecoveryItemRequest(identity)),
+  readItem: async (windowId, identity) => normalizeTimelineItem(await rpc.ReadRecoveryItem(windowId, new apidto.TimelineRecoveryItemRequest(identity))),
+  releaseItem: (windowId, identity) => rpc.ReleaseRecoveryItem(windowId, new apidto.TimelineRecoveryItemRequest(identity)),
   listen: receive => EventsOn(CHAT_TIMELINE_EVENT, receive),
   open: async (conversationId, surfaceId, scopeParentId, position) => normalizeTimelineSnapshot(await rpc.Open(
     new apidto.OpenTimelineRequest({ conversationId, surfaceId, scopeParentId, ...position }),

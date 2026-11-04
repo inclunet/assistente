@@ -42,6 +42,7 @@ export function revision(value: string): bigint {
 
 export function validItem(item: TimelineItem, window: Pick<TimelineBatchWindow, 'conversationId'>, sequence: bigint): void {
   const reference = item.recoveryReference;
+  if (reference && item.executionId !== undefined && reference.executionId !== item.executionId) throw new Error('execution identity');
   if (reference && (!reference.projectionId || !reference.incarnation || !reference.executionId ||
       !reference.turnId || reference.turnId !== item.turnId)) throw new Error('recovery reference');
   if (!item.itemId || item.conversationId !== window.conversationId ||

@@ -14,6 +14,7 @@ import (
 // é o envelope wire v1.
 // Epoch/revision pertencem ao futuro projetor; versão do banco não os substitui.
 type TimelineItem struct {
+	ExecutionID          string
 	RecoveryReference    *TimelineRecoveryReference
 	messages             []Message
 	invocations          []TurnSegmentToolCall
@@ -82,6 +83,9 @@ func ProjectPersistedResponse(conversationID, turnID string, parentID *string, m
 			return nil, database.ErrChatTurnInvalid
 		}
 		result.State, result.Origin = turn.State, turn.Origin
+		if turn.CurrentExecutionID != nil {
+			result.ExecutionID = *turn.CurrentExecutionID
+		}
 		if turn.ResponseMessageID != nil {
 			for _, message := range ordered {
 				if message.ID == *turn.ResponseMessageID && message.Role == "assistant" {

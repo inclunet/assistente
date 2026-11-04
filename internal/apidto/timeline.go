@@ -5,6 +5,7 @@ package apidto
 // ao backend. Invocações contêm somente resumos, sem argumentos/resultados integrais.
 
 type CanonicalItem struct {
+	ExecutionID             string                     `json:"executionId,omitempty"`
 	RecoveryReference       *TimelineRecoveryReference `json:"recoveryReference,omitempty"`
 	ItemID                  string                     `json:"itemId"`
 	ConversationID          string                     `json:"conversationId"`
