@@ -11,6 +11,8 @@ import (
 	"unsafe"
 
 	"assistente/internal/apidto"
+	"assistente/internal/database"
+	"assistente/internal/portability"
 )
 
 func pageReader(snapshot *TimelineSelectionSnapshot) reconciliationReader {
@@ -53,6 +55,13 @@ func TestRecoveryPagesReconstructBoundedUTF8Buffers(t *testing.T) {
 		}
 		bytes := 0
 		for _, chunk := range page.Chunks {
+			expectedGeneration := "1"
+			if chunk.Iteration == -2 {
+				expectedGeneration = "2"
+			}
+			if chunk.Generation != expectedGeneration {
+				t.Fatal("geração divergente", chunk)
+			}
 			key := recoveryChunkKey(chunk)
 			if chunk.ByteOffset != len(assembled[key]) {
 				t.Fatal("lacuna ou repetição", chunk)
@@ -123,7 +132,7 @@ func TestRecoveryPagesBoundEmptyTraversalAndDistinguishMissing(t *testing.T) {
 }
 
 func TestRecoveryPageMutationsInvalidateOnlyTheirExecution(t *testing.T) {
-	for _, mutation := range []string{"append", "initial", "reasoning", "replace-reasoning", "cut", "seal", "restart", "new-iteration", "other-turn", "retry", "import", "commit", "terminal"} {
+	for _, mutation := range []string{"append", "initial", "reasoning", "replace-reasoning", "cut", "seal", "restart", "new-iteration", "other-turn", "retry", "incarnation-change", "commit", "terminal"} {
 		t.Run(mutation, func(t *testing.T) {
 			sub, session, execution, reference, snapshot := reconciliationFixture(t)
 			text := strings.Repeat("x", recoveryPageTextBytes+12)
@@ -169,12 +178,12 @@ func TestRecoveryPageMutationsInvalidateOnlyTheirExecution(t *testing.T) {
 				}
 				id := "retry"
 				snapshot.Turns["question"].ActiveExecutionID = &id
-			case "import":
+			case "incarnation-change":
 				snapshot.Version.Incarnation = "new-incarnation"
 			}
 			request.Cursor = first.NextCursor
 			page, err := sub.ReadRecoveryPage(session.ctx, request, pageReader(snapshot))
-			stable := mutation == "other-turn" || mutation == "retry" || mutation == "import" || mutation == "commit" || mutation == "terminal"
+			stable := mutation == "other-turn" || mutation == "retry" || mutation == "incarnation-change" || mutation == "commit" || mutation == "terminal"
 			if stable {
 				if err != nil || !page.Found || page.ContentVersion != first.ContentVersion {
 					t.Fatal("invalidou bytes preservados", page, err)
@@ -299,5 +308,52 @@ func TestRecoveryPageAuthorizationAndCancellationDoNotRevealMissing(t *testing.T
 				t.Fatal("falha revelou ausência", page, err)
 			}
 		})
+	}
+}
+
+func TestRecoveryPageContinuesAfterConversationImport(t *testing.T) {
+	f, p, execution, _ := automaticFixture(t)
+	repo := database.NewChatTurnRepository(f.db)
+	text := strings.Repeat("x", recoveryPageTextBytes) + "bytes anteriores"
+	execution.StartStream(0).Append(text)
+	if err := execution.CommitTerminal(database.TurnInterrupted, "cancelled", func() (database.ChatTimelineVersion, error) {
+		return repo.FinishResponseWithVersion(f.ctx, f.conversation, f.question, execution.executionID, database.TurnInterrupted, "cancelled", "", nil)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	sub, _, err := p.SubscribeTimeline(f.ctx, &fixtureTimelineSession{ctx: f.ctx, id: "recovery-import"}, "recovery-import", database.MessageWindowQuery{ConversationID: f.conversation, Anchor: "end", Direction: "before", Limit: 20}, f.reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sub.Close()
+	live, err := p.Snapshot(f.ctx, f.conversation, f.question)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := apidto.TimelineRecoveryPageRequest{Reference: referenceFromLive(live)}
+	first, err := sub.ReadRecoveryPage(f.ctx, request, f.reader)
+	if err != nil || !first.Found || first.NextCursor == "" {
+		t.Fatal(first, err)
+	}
+	before, err := f.reader.ReadVersion(f.ctx, f.conversation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := portability.ExportConversationsWithContext(f.ctx, []string{f.conversation}, nil, portability.ExportRequest{}, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	imported, err := portability.ImportConversationsWithHooks(f.ctx, raw, nil, "", nil, portability.ConversationImportHooks{ImportTimeline: p.ApplyConversationImport})
+	if err != nil || imported == nil || imported.Imported != 1 || imported.Failed != 0 {
+		t.Fatal(imported, err)
+	}
+	after, err := f.reader.ReadVersion(f.ctx, f.conversation)
+	if err != nil || before == after {
+		t.Fatal("import não avançou versão", before, after, err)
+	}
+	request.Cursor = first.NextCursor
+	last, err := sub.ReadRecoveryPage(f.ctx, request, f.reader)
+	if err != nil || !last.Found || last.Reference != first.Reference || last.ContentVersion != first.ContentVersion || last.NextCursor != "" || len(last.Chunks) != 1 || last.Chunks[0].Text != "bytes anteriores" || last.Chunks[0].ByteOffset != recoveryPageTextBytes {
+		t.Fatalf("import perdeu continuação dos bytes retidos: %+v %v", last, err)
 	}
 }
