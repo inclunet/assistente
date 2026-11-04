@@ -185,3 +185,16 @@ const (
 	TimelineWindowHistorical TimelineWindowMode = "historical"
 	TimelineWindowFollowTail TimelineWindowMode = "followTail"
 )
+
+type TimelineRecoveryReservationRequest struct {
+	Reference      TimelineRecoveryReference `json:"reference"`
+	ContentVersion string                    `json:"contentVersion"`
+}
+
+// Reserva de memória da capability, não recibo de persistência. Termina em
+// Release, Close, revogação/invalidação da janela ou descarte explícito.
+type TimelineRecoveryReservation struct {
+	ConversationID string                    `json:"conversationId"`
+	Reference      TimelineRecoveryReference `json:"reference"`
+	ContentVersion string                    `json:"contentVersion"`
+}

@@ -1,8 +1,59 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, mensagens, áudio, limpeza, exclusão e importação integrados; retenção por idade, órfãos, navegação, leitura leve e orçamento de fontes da janela com recuperação atômica e parcelada e participação histórica automática com publicação e replay atômicos integrados; followTail, retenção por foco/leitura, DTOs compartilhados, RPCs de inscrição, entrega pelo journal e transporte de eventos Wails integrados; núcleo transacional, coordenador e cliente Wails por sessão frontend e identidade de recuperação por execução, consulta autorizada de estado e leitura limitada dos buffers preparados; margem de desempenho e cutover pendentes
+## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, mensagens, áudio, limpeza, exclusão e importação integrados; retenção por idade, órfãos, navegação, leitura leve e orçamento de fontes da janela com recuperação atômica e parcelada e participação histórica automática com publicação e replay atômicos integrados; followTail, retenção por foco/leitura, DTOs compartilhados, RPCs de inscrição, entrega pelo journal e transporte de eventos Wails integrados; núcleo transacional, coordenador e cliente Wails por sessão frontend e identidade de recuperação por execução, consulta autorizada de estado, leitura limitada e reserva explícita dos buffers finalizados preparados; margem de desempenho e cutover pendentes
 
 Data: 2026-10-30
+
+### Recorte: reserva explícita de buffers finalizados (2026-11-04)
+
+`ChatTimeline.ReserveRecovery` recebe capability, referência completa e versão
+dos buffers obtida na leitura. Só admite execução finalizada com a versão exata.
+Repete a autorização e leitura leve do lifecycle antes da aquisição; execução
+ativa, versão obsoleta, ausência, erro ou excesso de cota não criam reserva.
+Repetir a mesma aquisição é idempotente, inclusive após a coleta do turno original.
+Resposta perdida não implica aquisição desfeita: repetir o pedido ou fechar a
+capability resolve o resultado ambíguo, sem novas reservas.
+
+A reserva pertence à janela e compartilha somente builders, com descritores limitados de geração, partes e
+versão imutáveis. Não copia texto nem retém IDs de mensagens, publicationBase ou o restante do turno.
+ReadRecoveryPage consulta essa referência exata mesmo após coleta ou importação,
+revalidando sessão e existência/ownership da conversa em cada página. A reserva
+atravessa Refresh, Navigate e mudança de época, enquanto a capability continuar
+válida. ReconcileRecovery informa retained quando só a reserva mantém os bytes.
+
+Por janela, no máximo oito referências e 8 MiB de capacidade dos builders,
+contados conservadoramente por reserva mesmo se outra janela compartilha os mesmos
+buffers. A aquisição visita no máximo 4.096 iterações/partes e soma Cap() sem
+percorrer texto; cotas excedidas recusam a aquisição. Esses limites cobrem a
+retenção adicional, não o heap total nem os buffers originais do projetor.
+Contêineres e índice também têm percurso limitado. Não há contador novo por delta.
+
+`ReleaseRecovery` é idempotente e exige a versão da reserva existente; libera
+apenas sua referência, sem descartar a fonte original. Close/invalidação da
+capability e exclusão da conversa encerram suas reservas. Descarte explícito por
+DiscardRetained prevalece e invalida as reservas correspondentes de todas as
+janelas, inclusive se a fonte original já foi coletada. Exclusão e recriação
+com o mesmo ID não reativam a capability antiga. Falha de descarte/autorização
+não libera reservas. As operações de reserva não se intercalam com os checkpoints
+de publicação: compartilham a barreira da conversa e não participam de staging.
+
+A resposta é uma garantia de retenção em memória da capability, não persistência
+durável, sobrevivência ao processo ou transferência automática do cache visual.
+Ainda é necessário confrontar os bytes protegidos com os reservados e manter
+a capability durante essa proteção. Reservar não autoriza descartar um item
+inteiro, que pode conter ferramentas, áudio ou outros dados fora destes buffers.
+Execuções mutáveis continuam recusadas; última janela fechada encerra a garantia.
+Este recorte não altera as guardas nem ativa a UI.
+
+Evidências: timeline_recovery_reservation_test.go cobre coleta real do turno,
+idempotência, cotas, mutação terminal recusada, versão, falhas, duas capabilities,
+Release, Close e exclusão/recriação. A integração de importação percorre
+export/import reais, Refresh e descarte explícito com e sem reserva.
+Os testes Wails cobrem aquisição terminal, recusa ativa/sessão e cancelamento
+de ReserveRecovery por Close/shutdown ou espera por writer. Bindings regenerados.
+
+Pendente: integração da prova de bytes/ownership na recuperação frontend,
+tratamento das execuções ainda mutáveis, cutover visual e métricas finais.
 
 ### Recorte: páginas limitadas dos buffers de recuperação (2026-11-04)
 

@@ -312,48 +312,73 @@ func TestRecoveryPageAuthorizationAndCancellationDoNotRevealMissing(t *testing.T
 }
 
 func TestRecoveryPageContinuesAfterConversationImport(t *testing.T) {
-	f, p, execution, _ := automaticFixture(t)
-	repo := database.NewChatTurnRepository(f.db)
-	text := strings.Repeat("x", recoveryPageTextBytes) + "bytes anteriores"
-	execution.StartStream(0).Append(text)
-	if err := execution.CommitTerminal(database.TurnInterrupted, "cancelled", func() (database.ChatTimelineVersion, error) {
-		return repo.FinishResponseWithVersion(f.ctx, f.conversation, f.question, execution.executionID, database.TurnInterrupted, "cancelled", "", nil)
-	}); err != nil {
-		t.Fatal(err)
-	}
-	sub, _, err := p.SubscribeTimeline(f.ctx, &fixtureTimelineSession{ctx: f.ctx, id: "recovery-import"}, "recovery-import", database.MessageWindowQuery{ConversationID: f.conversation, Anchor: "end", Direction: "before", Limit: 20}, f.reader)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer sub.Close()
-	live, err := p.Snapshot(f.ctx, f.conversation, f.question)
-	if err != nil {
-		t.Fatal(err)
-	}
-	request := apidto.TimelineRecoveryPageRequest{Reference: referenceFromLive(live)}
-	first, err := sub.ReadRecoveryPage(f.ctx, request, f.reader)
-	if err != nil || !first.Found || first.NextCursor == "" {
-		t.Fatal(first, err)
-	}
-	before, err := f.reader.ReadVersion(f.ctx, f.conversation)
-	if err != nil {
-		t.Fatal(err)
-	}
-	raw, err := portability.ExportConversationsWithContext(f.ctx, []string{f.conversation}, nil, portability.ExportRequest{}, "test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	imported, err := portability.ImportConversationsWithHooks(f.ctx, raw, nil, "", nil, portability.ConversationImportHooks{ImportTimeline: p.ApplyConversationImport})
-	if err != nil || imported == nil || imported.Imported != 1 || imported.Failed != 0 {
-		t.Fatal(imported, err)
-	}
-	after, err := f.reader.ReadVersion(f.ctx, f.conversation)
-	if err != nil || before == after {
-		t.Fatal("import não avançou versão", before, after, err)
-	}
-	request.Cursor = first.NextCursor
-	last, err := sub.ReadRecoveryPage(f.ctx, request, f.reader)
-	if err != nil || !last.Found || last.Reference != first.Reference || last.ContentVersion != first.ContentVersion || last.NextCursor != "" || len(last.Chunks) != 1 || last.Chunks[0].Text != "bytes anteriores" || last.Chunks[0].ByteOffset != recoveryPageTextBytes {
-		t.Fatalf("import perdeu continuação dos bytes retidos: %+v %v", last, err)
+	for _, reserve := range []bool{false, true} {
+		t.Run(fmt.Sprint(reserve), func(t *testing.T) {
+			f, p, execution, _ := automaticFixture(t)
+			repo := database.NewChatTurnRepository(f.db)
+			text := strings.Repeat("x", recoveryPageTextBytes) + "bytes anteriores"
+			execution.StartStream(0).Append(text)
+			if err := execution.CommitTerminal(database.TurnInterrupted, "cancelled", func() (database.ChatTimelineVersion, error) {
+				return repo.FinishResponseWithVersion(f.ctx, f.conversation, f.question, execution.executionID, database.TurnInterrupted, "cancelled", "", nil)
+			}); err != nil {
+				t.Fatal(err)
+			}
+			sub, _, err := p.SubscribeTimeline(f.ctx, &fixtureTimelineSession{ctx: f.ctx, id: "recovery-import"}, "recovery-import", database.MessageWindowQuery{ConversationID: f.conversation, Anchor: "end", Direction: "before", Limit: 20}, f.reader)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer sub.Close()
+			live, err := p.Snapshot(f.ctx, f.conversation, f.question)
+			if err != nil {
+				t.Fatal(err)
+			}
+			request := apidto.TimelineRecoveryPageRequest{Reference: referenceFromLive(live)}
+			first, err := sub.ReadRecoveryPage(f.ctx, request, f.reader)
+			if err != nil || !first.Found || first.NextCursor == "" {
+				t.Fatal(first, err)
+			}
+			if reserve {
+				if _, err := sub.ReserveRecovery(f.ctx, apidto.TimelineRecoveryReservationRequest{Reference: request.Reference, ContentVersion: first.ContentVersion}, f.reader); err != nil {
+					t.Fatal(err)
+				}
+			}
+			before, err := f.reader.ReadVersion(f.ctx, f.conversation)
+			if err != nil {
+				t.Fatal(err)
+			}
+			raw, err := portability.ExportConversationsWithContext(f.ctx, []string{f.conversation}, nil, portability.ExportRequest{}, "test")
+			if err != nil {
+				t.Fatal(err)
+			}
+			imported, err := portability.ImportConversationsWithHooks(f.ctx, raw, nil, "", nil, portability.ConversationImportHooks{ImportTimeline: p.ApplyConversationImport})
+			if err != nil || imported == nil || imported.Imported != 1 || imported.Failed != 0 {
+				t.Fatal(imported, err)
+			}
+			after, err := f.reader.ReadVersion(f.ctx, f.conversation)
+			if err != nil || before == after {
+				t.Fatal("import não avançou versão", before, after, err)
+			}
+			request.Cursor = first.NextCursor
+			last, err := sub.ReadRecoveryPage(f.ctx, request, f.reader)
+			if err != nil || !last.Found || last.Reference != first.Reference || last.ContentVersion != first.ContentVersion || last.NextCursor != "" || len(last.Chunks) != 1 || last.Chunks[0].Text != "bytes anteriores" || last.Chunks[0].ByteOffset != recoveryPageTextBytes {
+				t.Fatalf("import perdeu continuação dos bytes retidos: %+v %v", last, err)
+			}
+			if _, err := sub.Refresh(f.ctx, "1", nil); err != nil {
+				t.Fatal("refresh perdeu reserva", err)
+			}
+			if reserve {
+				held, err := sub.ReserveRecovery(f.ctx, apidto.TimelineRecoveryReservationRequest{Reference: request.Reference, ContentVersion: first.ContentVersion}, f.reader)
+				if err != nil || held.ContentVersion != first.ContentVersion {
+					t.Fatal(held, err)
+				}
+			}
+			if err := p.DiscardRetained(f.ctx, f.conversation, f.question, execution.executionID, f.reader); err != nil {
+				t.Fatal(err)
+			}
+			missing, err := sub.ReadRecoveryPage(f.ctx, request, f.reader)
+			if err != nil || missing.Found {
+				t.Fatal("descarte explícito manteve bytes", missing, err)
+			}
+		})
 	}
 }

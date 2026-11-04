@@ -23,23 +23,24 @@ var ErrTimelineWindowStale = errors.New("revisão da janela mudou; sincronizaç�
 
 type subscriptionSurface struct{ sessionID, surfaceID string }
 type subscribedWindow struct {
-	delivery         timelineDeliveryCursor
-	pendingRetention *[]string
-	mode             TimelineWindowMode
-	query            database.MessageWindowQuery
-	handle           *TimelineSubscription
-	membership       TimelineMembershipReader
-	orderedIDs       []string
-	metadata         TimelineWindowMetadata
-	snapshotRevision uint64
-	snapshotSequence uint64
-	syncRequired     bool
-	revision         uint64
-	epoch            string
-	version          database.ChatTimelineVersion
-	id               string
-	surface          subscriptionSurface
-	itemIDs          map[string]bool
+	recoveryReservations map[TimelineRecoveryReference]recoveryReservation // mutado somente fora de publicação provisória
+	delivery             timelineDeliveryCursor
+	pendingRetention     *[]string
+	mode                 TimelineWindowMode
+	query                database.MessageWindowQuery
+	handle               *TimelineSubscription
+	membership           TimelineMembershipReader
+	orderedIDs           []string
+	metadata             TimelineWindowMetadata
+	snapshotRevision     uint64
+	snapshotSequence     uint64
+	syncRequired         bool
+	revision             uint64
+	epoch                string
+	version              database.ChatTimelineVersion
+	id                   string
+	surface              subscriptionSurface
+	itemIDs              map[string]bool
 }
 
 // TimelineSubscription é um capability interno. Ainda não é binding Wails.

@@ -26,8 +26,16 @@ export function Refresh(arg1, arg2) {
   return window['go']['wailsapi']['ChatTimeline']['Refresh'](arg1, arg2);
 }
 
+export function ReleaseRecovery(arg1, arg2) {
+  return window['go']['wailsapi']['ChatTimeline']['ReleaseRecovery'](arg1, arg2);
+}
+
 export function Replay(arg1, arg2) {
   return window['go']['wailsapi']['ChatTimeline']['Replay'](arg1, arg2);
+}
+
+export function ReserveRecovery(arg1, arg2) {
+  return window['go']['wailsapi']['ChatTimeline']['ReserveRecovery'](arg1, arg2);
 }
 
 export function SetRetention(arg1, arg2) {

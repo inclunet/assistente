@@ -14,6 +14,10 @@ export function ReconcileRecovery(arg1:string,arg2:apidto.TimelineRecoveryRefere
 
 export function Refresh(arg1:string,arg2:apidto.RefreshTimelineRequest):Promise<apidto.SubscribedTimelineSnapshot>;
 
+export function ReleaseRecovery(arg1:string,arg2:apidto.TimelineRecoveryReservationRequest):Promise<void>;
+
 export function Replay(arg1:string,arg2:apidto.ReplayTimelineRequest):Promise<apidto.TimelineReplay>;
+
+export function ReserveRecovery(arg1:string,arg2:apidto.TimelineRecoveryReservationRequest):Promise<apidto.TimelineRecoveryReservation>;
 
 export function SetRetention(arg1:string,arg2:apidto.TimelineRetentionRequest):Promise<void>;
