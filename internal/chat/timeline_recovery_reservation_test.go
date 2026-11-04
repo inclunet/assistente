@@ -48,6 +48,11 @@ func TestRecoveryReservationSurvivesCollectionAndReleaseKeepsSource(t *testing.T
 	if _, err := sub.ReserveRecovery(session.ctx, request, pageReader(snapshot)); err != nil {
 		t.Fatal(err)
 	}
+	session.id = "revoked"
+	if err := sub.ReleaseRecovery(session.ctx, request); !errors.Is(err, ErrTimelineSubscription) || len(w.recoveryReservations) != 1 {
+		t.Fatal("liberação revogada alterou reserva", err)
+	}
+	session.id = sub.sessionID
 	first, err := sub.ReadRecoveryPage(session.ctx, apidto.TimelineRecoveryPageRequest{Reference: request.Reference}, pageReader(snapshot))
 	if err != nil {
 		t.Fatal(err)
