@@ -13,6 +13,14 @@ fontes no banco, não escolhe revisão mais nova e não interpreta IDs de segmen
 Cache ausente, coletado ou divergente recusa a aquisição; ausência nunca prova
 que o frontend pode liberar conteúdo protegido.
 
+A identidade recuperada pode pertencer à encarnação anterior do armazenamento,
+inclusive na primeira aquisição após importação, desde que aquele DTO exato ainda
+esteja publicado no cache. A consulta de lifecycle autoriza a conversa atual;
+não transforma a encarnação atual em identidade dos bytes antigos. Referência
+da encarnação nova não seleciona o DTO antigo. Se a reconciliação já removeu o
+DTO do cache ou mudou sua época, a aquisição é recusada. Essa reserva não afirma
+que o item representa o armazenamento atual nem o reinsere na nova timeline.
+
 A reserva guarda uma cópia JSON independente do DTO wire, incluindo segmentos,
 resumos de ferramentas e metadados. “Item completo” significa todos os campos de
 `CanonicalItem`; não inclui blobs de mídia nem argumentos/resultados completos
