@@ -30,6 +30,7 @@ export interface TimelineSegment {
 }
 
 export interface TimelineItem {
+  recoveryReference?: TimelineRecoveryReference;
   itemId: string;
   conversationId: string;
   scopeParentId: string | null;
@@ -52,6 +53,14 @@ export interface TimelineItem {
     completionTokens: number;
     totalTokens: number;
   };
+}
+
+// Identidade emitida pelo backend; não é confirmação de persistência/ownership.
+export interface TimelineRecoveryReference {
+  projectionId: string;
+  incarnation: string;
+  turnId: string;
+  executionId: string;
 }
 
 export interface TimelineOperation {

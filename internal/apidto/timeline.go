@@ -5,20 +5,30 @@ package apidto
 // ao backend. Invocações contêm somente resumos, sem argumentos/resultados integrais.
 
 type CanonicalItem struct {
-	ItemID                  string             `json:"itemId"`
-	ConversationID          string             `json:"conversationId"`
-	ScopeParentID           *string            `json:"scopeParentId"`
-	Kind                    string             `json:"kind"`
-	TurnID                  *string            `json:"turnId"`
-	ReplyToItemID           string             `json:"replyToItemId"`
-	MessageIDs              []string           `json:"messageIds"`
-	RepresentativeMessageID *string            `json:"representativeMessageId"`
-	Position                string             `json:"position"`
-	Revision                string             `json:"revision"`
-	State                   string             `json:"state"`
-	Durability              string             `json:"durability"`
-	Segments                []CanonicalSegment `json:"segments"`
-	Metadata                CanonicalMetadata  `json:"metadata"`
+	RecoveryReference       *TimelineRecoveryReference `json:"recoveryReference,omitempty"`
+	ItemID                  string                     `json:"itemId"`
+	ConversationID          string                     `json:"conversationId"`
+	ScopeParentID           *string                    `json:"scopeParentId"`
+	Kind                    string                     `json:"kind"`
+	TurnID                  *string                    `json:"turnId"`
+	ReplyToItemID           string                     `json:"replyToItemId"`
+	MessageIDs              []string                   `json:"messageIds"`
+	RepresentativeMessageID *string                    `json:"representativeMessageId"`
+	Position                string                     `json:"position"`
+	Revision                string                     `json:"revision"`
+	State                   string                     `json:"state"`
+	Durability              string                     `json:"durability"`
+	Segments                []CanonicalSegment         `json:"segments"`
+	Metadata                CanonicalMetadata          `json:"metadata"`
+}
+
+// Identifica os bytes de uma execução, não concede autorização nem confirma
+// persistência. O cliente conserva a referência inteira sem interpretar seus IDs.
+type TimelineRecoveryReference struct {
+	ProjectionID string `json:"projectionId"`
+	Incarnation  string `json:"incarnation"`
+	TurnID       string `json:"turnId"`
+	ExecutionID  string `json:"executionId"`
 }
 
 type CanonicalSegment struct {

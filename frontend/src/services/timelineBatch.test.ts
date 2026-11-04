@@ -39,6 +39,35 @@ const append = (segmentId = 'text') => ({
 });
 
 describe('prepareTimelineBatch', () => {
+  it('preserva a referência opaca de recuperação em deltas e substitui no retry', () => {
+    const original = item();
+    original.recoveryReference = { projectionId: 'projection', incarnation: 'storage', turnId: 'turn', executionId: 'first' };
+    const entries = cache(original);
+    const appended = prepareTimelineBatch(window(), batch({ operations: [append()] }), id => entries.get(id));
+    expect(appended.kind).toBe('applied');
+    if (appended.kind !== 'applied') throw new Error('expected applied');
+    expect(appended.writes.get('answer')?.item?.recoveryReference).toEqual(original.recoveryReference);
+    const retry = { ...item('answer', '11'), recoveryReference: { ...original.recoveryReference, executionId: 'retry' } };
+    const replaced = prepareTimelineBatch(window(), batch({ operations: [{ kind: 'item_upsert', itemId: 'answer', revision: '11', item: retry }] }), id => entries.get(id));
+    expect(replaced.kind).toBe('applied');
+    if (replaced.kind !== 'applied') throw new Error('expected applied');
+    expect(replaced.writes.get('answer')?.item?.recoveryReference?.executionId).toBe('retry');
+    expect(original.recoveryReference.executionId).toBe('first');
+  });
+
+  it('recusa referência incompleta ou de outro turno sem alterar o cache', () => {
+    const original = item();
+    const entries = cache(original);
+    for (const reference of [
+      { projectionId: '', incarnation: 'storage', turnId: 'turn', executionId: 'execution' },
+      { projectionId: 'projection', incarnation: 'storage', turnId: 'other', executionId: 'execution' },
+    ]) {
+      const next = { ...item('answer', '11'), recoveryReference: reference };
+      expect(prepareTimelineBatch(window(), batch({ operations: [{ kind: 'item_upsert', itemId: 'answer', revision: '11', item: next }] }), id => entries.get(id)).kind).toBe('recover');
+      expect(entries.get('answer')?.item).toBe(original);
+    }
+  });
+
   it('aplica dois segmentos da mesma revisão e preserva identidade da lista e itens intocados', () => {
     const view = window();
     const original = item();

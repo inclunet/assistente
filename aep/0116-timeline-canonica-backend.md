@@ -1,8 +1,33 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, mensagens, áudio, limpeza, exclusão e importação integrados; retenção por idade, órfãos, navegação, leitura leve e orçamento de fontes da janela com recuperação atômica e parcelada e participação histórica automática com publicação e replay atômicos integrados; followTail, retenção por foco/leitura, DTOs compartilhados, RPCs de inscrição, entrega pelo journal e transporte de eventos Wails integrados; núcleo transacional, coordenador e cliente Wails por sessão frontend preparados; margem de desempenho e cutover pendentes
+## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, mensagens, áudio, limpeza, exclusão e importação integrados; retenção por idade, órfãos, navegação, leitura leve e orçamento de fontes da janela com recuperação atômica e parcelada e participação histórica automática com publicação e replay atômicos integrados; followTail, retenção por foco/leitura, DTOs compartilhados, RPCs de inscrição, entrega pelo journal e transporte de eventos Wails integrados; núcleo transacional, coordenador e cliente Wails por sessão frontend e identidade de recuperação por execução preparados; margem de desempenho e cutover pendentes
 
 Data: 2026-10-30
+
+### Recorte: identidade de recuperação por execução (2026-11-03)
+
+O item canônico ativo ou volátil carrega `recoveryReference`, emitida pelo backend:
+`projectionId`, `incarnation`, `turnId` e `executionId`. A identidade da projeção
+é criada por um único construtor, inclusive nas operações em lote; permanece
+estável através de mudanças de época e muda quando a projeção é recriada.
+A encarnação é a original da execução, mesmo após importação. Retry produz outra
+referência e preserva a identidade da tentativa anterior retida no backend.
+
+Snapshots RPC e eventos carregam o mesmo contrato. O frontend valida a referência
+e a conserva sem interpretar IDs de segmentos ou reconstruir a execução.
+A referência desaparece do item após conclusão confirmada e sem conteúdo volátil.
+Ela não é autorização, comprovante de persistência nem confirmação de ownership;
+sua ausência não permite descartar conteúdo protegido. As guardas atuais de
+retenção e recuperação continuam vigentes.
+
+Evidências: `timeline_recovery_reference_test.go` cobre estabilidade entre chunks,
+retry, retenção, mudança de época, recriação, conclusão e criação em lote;
+`timelineBatch.test.ts` cobre preservação, troca por retry e recusa atômica de
+referências incompletas ou de outro turno. Bindings regenerados pelo Wails.
+
+Pendente: reconciliação autorizada da referência exata, leitura limitada do
+conteúdo de recuperação, integração visual e cutover. Este recorte não acrescenta
+RPC de confirmação, descarte automático nem consumidor visual.
 
 ### Recorte: cliente Wails da timeline por sessão (2026-11-03)
 

@@ -4,6 +4,7 @@ import "assistente/internal/apidto"
 
 // Aliases preservam o domínio sem duplicar o contrato do transporte.
 type CanonicalItem = apidto.CanonicalItem
+type TimelineRecoveryReference = apidto.TimelineRecoveryReference
 type CanonicalSegment = apidto.CanonicalSegment
 type CanonicalMetadata = apidto.CanonicalMetadata
 type CanonicalOperation = apidto.CanonicalOperation

@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"assistente/internal/database"
-	"github.com/google/uuid"
 )
 
 // ApplyConversationDeletion coordena um delete transacional de IDs previamente
@@ -40,7 +39,7 @@ func (p *LiveProjection) lockConversationBatch(userID string, ids []string) (map
 		key := projectionKey{userID, id}
 		c := p.conversations[key]
 		if c == nil {
-			c = &projectionConversation{epoch: uuid.NewString(), turns: make(map[string]*liveTurn), retained: make(map[string]*liveTurn)}
+			c = newProjectionConversation()
 			p.conversations[key] = c
 		}
 		c.readers++
