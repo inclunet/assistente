@@ -165,7 +165,7 @@ func (api *ChatTimeline) Open(request apidto.OpenTimelineRequest) (*apidto.Subsc
 		valid := !api.closed && api.generation == generation && eventCtx.Err() == nil
 		if valid {
 			var stream *timelineEventStream
-			stream = newTimelineEventStream(eventCtx, subscription, timelineAuthorizedEmitter{principal, emitter}, snapshot, func() {
+			stream = newTimelineEventStream(eventCtx, subscription, timelineAuthorizedEmitter{principal, emitter}, request.SurfaceID, snapshot, func() {
 				api.mu.Lock()
 				if current, ok := api.windows[snapshot.WindowID]; ok && current.stream == stream {
 					delete(api.windows, snapshot.WindowID)

@@ -71,11 +71,35 @@ export class TimelineConversationState {
   private epoch?: string;
   private stopped?: Reason;
   private disposed = false;
+  private replacementReferences = new Set<string>();
 
-  constructor(readonly conversationId: string, private readonly budget: TimelineCacheBudget) {}
+  constructor(readonly conversationId: string, private readonly budget: TimelineCacheBudget, replacementOf?: TimelineConversationState) {
+    if (replacementOf) {
+      for (const [id, record] of replacementOf.records) {
+        if (protectedItem(record.entry.item)) this.replacementReferences.add(id);
+      }
+    }
+  }
+
+  finishReplacement(): void {
+    this.replacementReferences.clear();
+    this.collect();
+  }
 
   get frozenReason(): Reason | undefined { return this.stopped; }
+  get recoveryReason(): Reason | undefined {
+    return this.stopped ?? [...this.surfaces.values()].find(surface => surface.recovery)?.recovery;
+  }
   get cachedItems(): number { return this.records.size; }
+  get hasProtectedItems(): boolean { return [...this.records.values()].some(record => protectedItem(record.entry.item)); }
+  wouldDiscardProtectedItems(replacement: TimelineConversationState): boolean {
+    for (const [id, record] of this.records) {
+      if (!protectedItem(record.entry.item)) continue;
+      const next = replacement.records.get(id);
+      if (!next || (replacement.epoch === this.epoch && revision(next.entry.revision) < revision(record.entry.revision))) return true;
+    }
+    return false;
+  }
   get bufferedBatches(): number { return this.bufferBatches; }
 
   getWindow(surfaceId: string): TimelineSurfaceWindow | undefined {
@@ -227,10 +251,14 @@ export class TimelineConversationState {
     return this.stopped ? { kind: 'recover', reason: this.stopped } : { kind: 'applied' };
   }
 
-  close(surfaceId: string): TimelineStateResult {
+  close(surfaceId: string, knownWindowId?: string): TimelineStateResult {
     if (this.disposed) return { kind: 'ignored' };
     const window = this.getWindow(surfaceId);
     if (window) this.retireWindow(window.windowId);
+    if (knownWindowId && knownWindowId !== window?.windowId &&
+        ![...this.surfaces.entries()].some(([id, surface]) => id !== surfaceId && surface.window?.windowId === knownWindowId)) {
+      this.retireWindow(knownWindowId);
+    }
     this.surfaces.delete(surfaceId);
     this.pruneBuffer();
     this.collect();
@@ -244,6 +272,7 @@ export class TimelineConversationState {
     this.surfaces.clear();
     this.retiredWindows.clear();
     this.retiredBytes = 0;
+    this.replacementReferences.clear();
     this.buffered = [];
     this.bufferBytes = this.bufferBatches = 0;
     this.disposed = true;
@@ -330,7 +359,7 @@ export class TimelineConversationState {
 
   private collect(): void {
     const minimum = this.safeFloor();
-    const referenced = new Set<string>();
+    const referenced = new Set(this.replacementReferences);
     for (const surface of this.surfaces.values()) {
       if (surface.window) {
         for (const id of surface.window.orderedItemIds) referenced.add(id);

@@ -6,6 +6,7 @@ const TimelineEventName = "chat:timeline"
 // do snapshot permite descartar entregas em trânsito de uma consulta substituída.
 type TimelineEvent struct {
 	ConversationID   string           `json:"conversationId"`
+	SurfaceID        string           `json:"surfaceId"`
 	WindowID         string           `json:"windowId"`
 	Epoch            string           `json:"epoch"`
 	SnapshotRevision string           `json:"snapshotRevision"`

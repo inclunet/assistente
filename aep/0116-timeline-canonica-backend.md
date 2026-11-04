@@ -1,9 +1,86 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, mensagens, áudio, limpeza, exclusão e importação integrados; retenção por idade, órfãos, navegação, leitura leve e orçamento de fontes da janela com recuperação atômica e parcelada e participação histórica automática com publicação e replay atômicos integrados; followTail, retenção por foco/leitura, DTOs compartilhados, RPCs de inscrição, entrega pelo journal e transporte de eventos Wails integrados; núcleo transacional e coordenador de snapshots/eventos/cache frontend preparados; margem de desempenho e cutover pendentes
+## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, mensagens, áudio, limpeza, exclusão e importação integrados; retenção por idade, órfãos, navegação, leitura leve e orçamento de fontes da janela com recuperação atômica e parcelada e participação histórica automática com publicação e replay atômicos integrados; followTail, retenção por foco/leitura, DTOs compartilhados, RPCs de inscrição, entrega pelo journal e transporte de eventos Wails integrados; núcleo transacional, coordenador e cliente Wails por sessão frontend preparados; margem de desempenho e cutover pendentes
 
 Data: 2026-10-30
 
+### Recorte: cliente Wails da timeline por sessão (2026-11-03)
+
+`chatTimelineClient.ts` conecta o coordenador a um listener único, registrado
+antes de Open, e às capabilities de cada superfície. O orçamento de cache é
+compartilhado por sessão. Navigate e SetRetention usam a revisão aplicada pelo
+coordenador; consultas simultâneas na mesma superfície são recusadas como busy.
+Não há consulta por delta nem reconstrução semântica adicional no cliente.
+
+Refresh recupera a conversa em um coordenador candidato, com tokens de todas as
+superfícies registrados antes das consultas. Só promove o candidato após aceitar
+todos os snapshots ainda necessários e seus buffers. Falha parcial conserva o
+visual anterior congelado e guarda a base efetivamente retornada para cada
+capability. A tentativa seguinte usa essas bases; nova época só entra por Refresh.
+Uma posição explícita por superfície permite recuperar âncora histórica perdida,
+sem fallback automático. Operações pendentes impedem iniciar a recuperação.
+
+Close remove a superfície imediatamente e chama o backend antes de aguardar
+consultas pendentes, permitindo cancelá-las. Um Open tardio é fechado mesmo após
+dispose. Falhas de fechamento são reportadas sem reativar o conteúdo local.
+`chatTimelineWails.ts` normaliza os DTOs RPC nullable e oferece um cliente lazy por
+userId/sessionId; mudança de identidade ou estado desautenticado descarta o cliente.
+Importar o módulo não inicia listeners nem inscrições de timeline.
+
+Evidências: `chatTimelineClient.test.ts` cobre evento anterior à Promise, bases
+após recuperação parcial, cancelamento, época mista, retenção após patch, lacuna
+no buffer, âncora perdida e cota de capabilities aposentadas.
+`chatTimelineWails.test.ts` cobre normalização e troca de sessão com Open tardio.
+
+Complemento da revisão remota: capabilities fechadas são aposentadas inclusive
+quando Open retorna depois do fechamento ou Refresh é cancelado antes do snapshot.
+Durante Refresh, só entram eventos das capabilities ainda ativas. A decisão de
+promover consulta os erros atuais do coordenador: fechar uma superfície elimina
+seu erro local, mas nunca uma falha global de época/overflow.
+O getter também verifica identidade diretamente, sem depender da ordem dos
+assinantes do authStore. Liberação explícita de retenção vazia é permitida durante
+falha usando época/revisão comprovadas por snapshot ou patch aplicado; não limpa
+o fault. CAS stale continua sendo erro do backend, sem retry nem avanço local de
+revisão. Se a revisão necessária não for conhecida e a posição não puder ser
+recuperada, Close e nova abertura continuam sendo escolhas explícitas.
+
+Close remoto falho mantém o slot fechado e a capability para retry explícito;
+não restaura conteúdo. Sem resposta de Open, o fechamento visual é imediato,
+mas sua Promise de cleanup aguarda descobrir a capability: o protocolo não tem
+cancelamento de Open por request ID. Não introduzir timeout que abandone cleanup.
+Coleta oportunista em Open/Close descarta coordenadores sem superfícies,
+recuperação ou itens em cache; evicções podem deixar coordenadores vazios até a
+próxima coleta. Conteúdo ativo/volatile e a LRU continuam preservados.
+Correlação de abertura: o evento Wails agora ecoa `surfaceId` recebido em Open.
+O cliente gera um UUID de inscrição novo por abertura, separado da identidade
+lógica da superfície e do item/mensagem. Antes da Promise, conversa + inscrição
+já permitem rotear; depois dela, windowId também precisa coincidir. Eventos sem
+essa correlação não têm fallback. Fechar invalida a inscrição imediatamente,
+inclusive após promoção de coordenador e nova abertura, sem copiar nem ampliar
+índices de IDs encerrados. O índice limitado do coordenador puro permanece para
+seus outros chamadores, mas não é a autoridade de roteamento do transporte.
+
+Erros locais e globais do coordenador são consultados diretamente, sem espelho
+no cliente; falha de recuperação por RPC é separada porque pode ter mudado bases
+no backend. Ao fechar a última superfície, cache em erro pode ser descartado se
+não houver itens ativos/volatile; cache saudável continua na LRU. Conteúdo
+protegido não é descartado para liberar um erro: esse caso continua exigindo
+ownership/transferência explícita no cutover. Refresh sem superfície ativa não
+pode promover um candidato vazio para contornar essa proteção. Antes de toda
+promoção, itens protegidos anteriores precisam estar representados no candidato
+por revisão suficiente (ou remoção comprovada); caso contrário, a apresentação
+anterior é preservada e a transferência de ownership é exigida. Isso também
+cobre fechamento durante Refresh, com ou sem outra superfície aberta.
+O candidato mantém referências transitórias apenas aos IDs protegidos da origem:
+provas de remoção/persistência não são coletadas antes da decisão de ownership.
+Essas referências são liberadas antes da promoção, com nova verificação do estado,
+ou no dispose do candidato recusado; ausência de item nunca vale como exclusão.
+Este recorte ainda não ativa consumidores de UI. Faltam conexão das superfícies
+e retenções de foco/leitura/edição, cutover e remoção do fluxo legado, anexos e
+medições finais. Replay RPC não é usado neste cliente: recuperação explícita usa
+Refresh; a reaplicação local do buffer já pertence ao coordenador. A otimização
+por Replay permanece não entregue. Não se afirma corrigida a perda visual de
+foco antes do cutover.
 ### Recorte: coordenador frontend de snapshots, eventos e cache (2026-11-03)
 
 `timelineConversationState.ts` mantém um índice de itens por conversa/época e

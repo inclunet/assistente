@@ -26,7 +26,7 @@ function snapshot(windowId = 'a', items = [item()], overrides: Partial<TimelineS
 
 function event(windowId = 'a', overrides: Partial<TimelineUpdate> = {}, envelope: Partial<ChatTimelineEvent> = {}): ChatTimelineEvent {
   return {
-    conversationId: 'chat', epoch: 'epoch', windowId, snapshotRevision: '1', syncRequired: false,
+    conversationId: 'chat', surfaceId: windowId, epoch: 'epoch', windowId, snapshotRevision: '1', syncRequired: false,
     updates: [{ conversationId: 'chat', epoch: 'epoch', sequence: '11', windowPatches: [],
       operations: [{ kind: 'segment_append', itemId: 'answer', revision: '11', segmentId: 'text', text: '!' }],
       ...overrides }], ...envelope,
