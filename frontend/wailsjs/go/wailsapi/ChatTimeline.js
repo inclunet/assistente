@@ -14,6 +14,10 @@ export function Open(arg1) {
   return window['go']['wailsapi']['ChatTimeline']['Open'](arg1);
 }
 
+export function ReadRecoveryItem(arg1, arg2) {
+  return window['go']['wailsapi']['ChatTimeline']['ReadRecoveryItem'](arg1, arg2);
+}
+
 export function ReadRecoveryPage(arg1, arg2) {
   return window['go']['wailsapi']['ChatTimeline']['ReadRecoveryPage'](arg1, arg2);
 }
@@ -30,12 +34,20 @@ export function ReleaseRecovery(arg1, arg2) {
   return window['go']['wailsapi']['ChatTimeline']['ReleaseRecovery'](arg1, arg2);
 }
 
+export function ReleaseRecoveryItem(arg1, arg2) {
+  return window['go']['wailsapi']['ChatTimeline']['ReleaseRecoveryItem'](arg1, arg2);
+}
+
 export function Replay(arg1, arg2) {
   return window['go']['wailsapi']['ChatTimeline']['Replay'](arg1, arg2);
 }
 
 export function ReserveRecovery(arg1, arg2) {
   return window['go']['wailsapi']['ChatTimeline']['ReserveRecovery'](arg1, arg2);
+}
+
+export function ReserveRecoveryItem(arg1, arg2) {
+  return window['go']['wailsapi']['ChatTimeline']['ReserveRecoveryItem'](arg1, arg2);
 }
 
 export function SetRetention(arg1, arg2) {

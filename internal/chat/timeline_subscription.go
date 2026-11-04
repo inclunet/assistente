@@ -23,6 +23,7 @@ var ErrTimelineWindowStale = errors.New("revisão da janela mudou; sincronizaç�
 
 type subscriptionSurface struct{ sessionID, surfaceID string }
 type subscribedWindow struct {
+	recoveryItems        map[TimelineRecoveryReference]recoveryItemReservation
 	recoveryReservations map[TimelineRecoveryReference]recoveryReservation // mutado somente fora de publicação provisória
 	delivery             timelineDeliveryCursor
 	pendingRetention     *[]string

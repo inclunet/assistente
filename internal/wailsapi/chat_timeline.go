@@ -295,3 +295,28 @@ func (api *ChatTimeline) ReleaseRecovery(windowID string, request apidto.Timelin
 	})
 	return err
 }
+
+func (api *ChatTimeline) ReserveRecoveryItem(windowID string, request apidto.TimelineRecoveryItemRequest) (*apidto.TimelineRecoveryItemReservation, error) {
+	return withTimelineHandle(api, windowID, false, func(ctx context.Context, w timelineHandle) (*apidto.TimelineRecoveryItemReservation, error) {
+		ctx, cancel := w.stream.queryContext(ctx)
+		defer cancel()
+		return w.subscription.ReserveRecoveryItem(ctx, request, w.reader)
+	})
+}
+
+func (api *ChatTimeline) ReadRecoveryItem(windowID string, request apidto.TimelineRecoveryItemRequest) (*apidto.CanonicalItem, error) {
+	return withTimelineHandle(api, windowID, false, func(ctx context.Context, w timelineHandle) (*apidto.CanonicalItem, error) {
+		ctx, cancel := w.stream.queryContext(ctx)
+		defer cancel()
+		return w.subscription.ReadRecoveryItem(ctx, request, w.reader)
+	})
+}
+
+func (api *ChatTimeline) ReleaseRecoveryItem(windowID string, request apidto.TimelineRecoveryItemRequest) error {
+	_, err := withTimelineHandle(api, windowID, false, func(ctx context.Context, w timelineHandle) (struct{}, error) {
+		ctx, cancel := w.stream.queryContext(ctx)
+		defer cancel()
+		return struct{}{}, w.subscription.ReleaseRecoveryItem(ctx, request)
+	})
+	return err
+}

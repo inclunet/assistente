@@ -51,7 +51,7 @@ func (r *blockedReconciliationReader) ReadTurnLifecycles(ctx context.Context, _ 
 }
 
 func TestTimelineAPIClosingCancelsReconciliation(t *testing.T) {
-	for _, pages := range []string{"state", "pages", "reserve"} {
+	for _, pages := range []string{"state", "pages", "reserve", "reserve-item", "read-item"} {
 		t.Run(fmt.Sprintf("pages=%v", pages), func(t *testing.T) {
 			for _, shutdown := range []bool{false, true} {
 				t.Run(fmt.Sprint(shutdown), func(t *testing.T) {
@@ -146,7 +146,7 @@ func (s *observedReconciliationSession) AuthenticatedContext() (context.Context,
 }
 
 func TestTimelineAPICloseCancelsReconciliationWaitingForWriter(t *testing.T) {
-	for _, pages := range []string{"state", "pages", "reserve", "release"} {
+	for _, pages := range []string{"state", "pages", "reserve", "release", "reserve-item", "read-item", "release-item"} {
 		t.Run(fmt.Sprintf("pages=%v", pages), func(t *testing.T) {
 			f := newTimelineAPIFixture(t)
 			opened, err := f.api.Open(f.request())
@@ -194,6 +194,16 @@ func TestTimelineAPICloseCancelsReconciliationWaitingForWriter(t *testing.T) {
 }
 
 func queryTimelineRecoveryForTest(api *ChatTimeline, pages string, window string, ref apidto.TimelineRecoveryReference) (any, error) {
+	itemRequest := apidto.TimelineRecoveryItemRequest{Reference: ref, ItemID: "item", Epoch: "epoch", Revision: "1"}
+	if pages == "reserve-item" {
+		return api.ReserveRecoveryItem(window, itemRequest)
+	}
+	if pages == "read-item" {
+		return api.ReadRecoveryItem(window, itemRequest)
+	}
+	if pages == "release-item" {
+		return nil, api.ReleaseRecoveryItem(window, itemRequest)
+	}
 	if pages == "release" {
 		return nil, api.ReleaseRecovery(window, apidto.TimelineRecoveryReservationRequest{Reference: ref, ContentVersion: "1"})
 	}

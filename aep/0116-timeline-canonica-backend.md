@@ -1,8 +1,55 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, mensagens, áudio, limpeza, exclusão e importação integrados; retenção por idade, órfãos, navegação, leitura leve e orçamento de fontes da janela com recuperação atômica e parcelada e participação histórica automática com publicação e replay atômicos integrados; followTail, retenção por foco/leitura, DTOs compartilhados, RPCs de inscrição, entrega pelo journal e transporte de eventos Wails integrados; núcleo transacional, coordenador e cliente Wails por sessão frontend e identidade de recuperação por execução, consulta autorizada de estado, leitura limitada, reserva explícita dos buffers finalizados e leitor de recuperação Wails preparados; margem de desempenho e cutover pendentes
+## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, mensagens, áudio, limpeza, exclusão e importação integrados; retenção por idade, órfãos, navegação, leitura leve e orçamento de fontes da janela com recuperação atômica e parcelada e participação histórica automática com publicação e replay atômicos integrados; followTail, retenção por foco/leitura, DTOs compartilhados, RPCs de inscrição, entrega pelo journal e transporte de eventos Wails integrados; núcleo transacional, coordenador e cliente Wails por sessão frontend e identidade de recuperação por execução, consulta autorizada de estado, leitura limitada, reserva explícita dos buffers finalizados, leitor de recuperação Wails e reserva do DTO canônico publicado preparados; margem de desempenho e cutover pendentes
 
 Data: 2026-10-30
+
+### Recorte: reserva do item canônico publicado (2026-11-04)
+
+`ReserveRecoveryItem` captura o `CanonicalItem` exato já publicado, por
+referência completa de execução, itemId, época e revisão do item. Exige execução
+finalizada, publicação válida e ausência de estágio provisório. Não reconstrói
+fontes no banco, não escolhe revisão mais nova e não interpreta IDs de segmentos.
+Cache ausente, coletado ou divergente recusa a aquisição; ausência nunca prova
+que o frontend pode liberar conteúdo protegido.
+
+A reserva guarda uma cópia JSON independente do DTO wire, incluindo segmentos,
+resumos de ferramentas e metadados. “Item completo” significa todos os campos de
+`CanonicalItem`; não inclui blobs de mídia nem argumentos/resultados completos
+referenciados pelas ferramentas. A revisão identifica o DTO observado, não uma
+prova de que ele contém todos os bytes finais da execução.
+
+`ReadRecoveryItem` devolve esse DTO após revalidar capability, sessão e existência/
+ownership da conversa, mesmo após evicção do cache, importação ou mudança de época.
+Cada leitura cria contêineres independentes. Aquisição repetida da mesma identidade
+é idempotente; identidade diferente não substitui a reserva. Uma revisão diferente
+exige liberar explicitamente a anterior antes de adquirir outra. `ReleaseRecoveryItem`
+libera somente a identidade exata e é idempotente. Close, exclusão da conversa e
+descarte explícito da execução encerram as reservas. Uma resposta perdida exige
+repetir aquisição/liberação ou fechar a capability; não implica rollback remoto.
+
+Reservas de buffers e de itens compartilham o máximo de oito entradas e 8 MiB por
+janela. A conta soma capacidade dos builders e tamanho JSON reservado; não promete
+um limite exato do heap total. Cada DTO reservado tem no máximo 512 KiB; itens
+maiores são recusados antes da cópia pelo tamanho já medido na publicação, com
+verificação adicional do JSON efetivamente capturado. Nenhum scan, hash ou nova
+cópia é feito por delta: o custo ocorre somente na recuperação explícita.
+
+Os três RPCs Wails usam a mesma barreira cancelável e autorização das consultas
+existentes. Os bindings são regenerados. ReconcileRecovery reconhece uma reserva
+de item como retenção quando a fonte original já não existe. Nesse caso, retained
+não promete buffers para ReadRecoveryPage: a leitura é ReadRecoveryItem.
+
+Evidências: timeline_recovery_item_test.go cobre identidade, cotas combinadas,
+cache ausente/provisório, imutabilidade, coleta/troca de época, sessão, duas
+capabilities e descarte. chat_timeline_recovery_item_test.go percorre snapshot
+real → reserva → Refresh → leitura; a matriz de cancelamento da reconciliação
+inclui os novos RPCs, com Close/shutdown e espera por writer.
+
+Pendente: comparação e transferência do DTO protegido no cliente, integração no
+Refresh, execuções mutáveis, itens acima da cota, cutover visual e métricas finais.
+Este recorte não libera cache frontend nem reinsere itens na janela. A reserva
+pertence à capability e não sobrevive ao último Close ou ao processo.
 
 ### Recorte: leitor explícito de recuperação no cliente Wails (2026-11-04)
 
