@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -46,6 +47,8 @@ type projectionConversation struct {
 	timer                 *time.Timer
 }
 type liveTurn struct {
+	contentVersion                                 uint64
+	streamOrder                                    []int // índice de iterações, sem duplicar conteúdo
 	publicationBase                                *TimelineItem
 	publicationBytes                               int
 	publicationErr                                 error
@@ -136,7 +139,7 @@ func (p *LiveProjection) Admit(ctx context.Context, conversationID, turnID, exec
 		}
 		c.retained[old.executionID] = old
 	}
-	c.turns[turnID] = &liveTurn{turnID: turnID, executionID: executionID, incarnation: version.Incarnation, state: database.TurnPreparing, streams: make(map[int]*liveStream)}
+	c.turns[turnID] = &liveTurn{contentVersion: 1, turnID: turnID, executionID: executionID, incarnation: version.Incarnation, state: database.TurnPreparing, streams: make(map[int]*liveStream)}
 	c.revision++
 	e := &ExecutionProjection{ctx: context.WithoutCancel(ctx), owner: p, key: key, conversation: c, turnID: turnID, executionID: executionID}
 	e.refreshPublicationLocked()
@@ -164,6 +167,10 @@ func (e *ExecutionProjection) StartStream(iteration int) *StreamProjection {
 		return &StreamProjection{execution: e, iteration: iteration}
 	}
 	t.generation++
+	t.contentVersion++
+	if index, found := slices.BinarySearch(t.streamOrder, iteration); !found {
+		t.streamOrder = slices.Insert(t.streamOrder, index, iteration)
+	}
 	// Uma nova tentativa de transporte substitui somente sua iteração. O texto
 	// anterior é substituído pelo comando explícito de início da tentativa.
 	stream := &liveStream{parts: []*livePart{{}}}
@@ -191,6 +198,7 @@ func (s *StreamProjection) apply(fn func(*liveStream)) bool {
 		return false
 	}
 	fn(stream)
+	t.contentVersion++
 	stream.confirmed = false
 	c.revision++
 	s.execution.schedulePublicationLocked()

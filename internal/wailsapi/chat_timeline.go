@@ -233,6 +233,15 @@ func (api *ChatTimeline) ReconcileRecovery(windowID string, reference apidto.Tim
 	})
 }
 
+// ReadRecoveryPage lê buffers de uma execução em páginas limitadas e consistentes.
+func (api *ChatTimeline) ReadRecoveryPage(windowID string, request apidto.TimelineRecoveryPageRequest) (*apidto.TimelineRecoveryPage, error) {
+	return withTimelineHandle(api, windowID, false, func(ctx context.Context, w timelineHandle) (*apidto.TimelineRecoveryPage, error) {
+		ctx, cancel := w.stream.queryContext(ctx)
+		defer cancel()
+		return w.subscription.ReadRecoveryPage(ctx, request, w.reader)
+	})
+}
+
 func (api *ChatTimeline) Navigate(windowID string, request apidto.TimelineWindowNavigation) (*apidto.SubscribedTimelineSnapshot, error) {
 	return withTimelineHandle(api, windowID, false, func(ctx context.Context, w timelineHandle) (*apidto.SubscribedTimelineSnapshot, error) {
 		return w.stream.replaceSnapshot(ctx, func(queryCtx context.Context) (*apidto.SubscribedTimelineSnapshot, error) {

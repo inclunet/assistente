@@ -51,37 +51,45 @@ func (r *blockedReconciliationReader) ReadTurnLifecycles(ctx context.Context, _ 
 }
 
 func TestTimelineAPIClosingCancelsReconciliation(t *testing.T) {
-	for _, shutdown := range []bool{false, true} {
-		t.Run(fmt.Sprint(shutdown), func(t *testing.T) {
-			f := newTimelineAPIFixture(t)
-			reader := &blockedReconciliationReader{f.reader, make(chan struct{}), make(chan struct{})}
-			defer close(reader.release) // também desbloqueia cleanup se a regressão reaparecer
-			f.api.reader = reader
-			opened, err := f.api.Open(f.request())
-			if err != nil {
-				t.Fatal(err)
+	for _, pages := range []bool{false, true} {
+		t.Run(fmt.Sprintf("pages=%v", pages), func(t *testing.T) {
+			for _, shutdown := range []bool{false, true} {
+				t.Run(fmt.Sprint(shutdown), func(t *testing.T) {
+					f := newTimelineAPIFixture(t)
+					reader := &blockedReconciliationReader{f.reader, make(chan struct{}), make(chan struct{})}
+					defer close(reader.release) // também desbloqueia cleanup se a regressão reaparecer
+					f.api.reader = reader
+					opened, err := f.api.Open(f.request())
+					if err != nil {
+						t.Fatal(err)
+					}
+					reference := apidto.TimelineRecoveryReference{ProjectionID: "projection", Incarnation: "storage", TurnID: f.message, ExecutionID: "execution"}
+					finished, closed := make(chan struct{}), make(chan struct{})
+					var queryErr, closeErr error
+					go func() {
+						_, queryErr = queryTimelineRecoveryForTest(f.api, pages, opened.WindowID, reference)
+						close(finished)
+					}()
+					waitTimelineEventTest(t, reader.entered)
+					go func() {
+						if shutdown {
+							CloseChatTimeline(f.api)
+						} else {
+							closeErr = f.api.Close(opened.WindowID)
+						}
+						close(closed)
+					}()
+					waitTimelineEventTest(t, finished)
+					waitTimelineEventTest(t, closed)
+					if !errors.Is(queryErr, context.Canceled) || closeErr != nil {
+						t.Fatal("consulta/fechamento", queryErr, closeErr)
+					}
+					if f.ctx.Err() != nil {
+						t.Fatal("cancelou contexto pai")
+					}
+				})
 			}
-			reference := apidto.TimelineRecoveryReference{ProjectionID: "projection", Incarnation: "storage", TurnID: f.message, ExecutionID: "execution"}
-			finished, closed := make(chan struct{}), make(chan struct{})
-			var queryErr, closeErr error
-			go func() { _, queryErr = f.api.ReconcileRecovery(opened.WindowID, reference); close(finished) }()
-			waitTimelineEventTest(t, reader.entered)
-			go func() {
-				if shutdown {
-					CloseChatTimeline(f.api)
-				} else {
-					closeErr = f.api.Close(opened.WindowID)
-				}
-				close(closed)
-			}()
-			waitTimelineEventTest(t, finished)
-			waitTimelineEventTest(t, closed)
-			if !errors.Is(queryErr, context.Canceled) || closeErr != nil {
-				t.Fatal("consulta/fechamento", queryErr, closeErr)
-			}
-			if f.ctx.Err() != nil {
-				t.Fatal("cancelou contexto pai")
-			}
+
 		})
 	}
 }
@@ -138,44 +146,56 @@ func (s *observedReconciliationSession) AuthenticatedContext() (context.Context,
 }
 
 func TestTimelineAPICloseCancelsReconciliationWaitingForWriter(t *testing.T) {
-	f := newTimelineAPIFixture(t)
-	opened, err := f.api.Open(f.request())
-	if err != nil {
-		t.Fatal(err)
-	}
-	writerEntered, writerRelease, writerDone := make(chan struct{}), make(chan struct{}), make(chan struct{})
-	release := sync.OnceFunc(func() { close(writerRelease) })
-	defer release()
-	var writerErr error
-	go func() {
-		writerErr = f.projection.ApplyStorageMutation(f.ctx, f.conversation, nil, func() ([]string, error) {
-			close(writerEntered)
-			<-writerRelease
-			return nil, nil
+	for _, pages := range []bool{false, true} {
+		t.Run(fmt.Sprintf("pages=%v", pages), func(t *testing.T) {
+			f := newTimelineAPIFixture(t)
+			opened, err := f.api.Open(f.request())
+			if err != nil {
+				t.Fatal(err)
+			}
+			writerEntered, writerRelease, writerDone := make(chan struct{}), make(chan struct{}), make(chan struct{})
+			release := sync.OnceFunc(func() { close(writerRelease) })
+			defer release()
+			var writerErr error
+			go func() {
+				writerErr = f.projection.ApplyStorageMutation(f.ctx, f.conversation, nil, func() ([]string, error) {
+					close(writerEntered)
+					<-writerRelease
+					return nil, nil
+				})
+				close(writerDone)
+			}()
+			waitTimelineEventTest(t, writerEntered)
+			observed := &observedReconciliationSession{f.session, make(chan struct{}, 1)}
+			f.api.mu.Lock()
+			f.api.session = observed
+			f.api.mu.Unlock()
+			queried, closed := make(chan struct{}), make(chan struct{})
+			var queryErr, closeErr error
+			go func() {
+				_, queryErr = queryTimelineRecoveryForTest(f.api, pages, opened.WindowID, apidto.TimelineRecoveryReference{ProjectionID: "old", Incarnation: "old", TurnID: f.message, ExecutionID: "old"})
+				close(queried)
+			}()
+			waitTimelineEventTest(t, observed.entered)
+			go func() { closeErr = f.api.Close(opened.WindowID); close(closed) }()
+			waitTimelineEventTest(t, queried) // writer permanece ocupado, Close ainda drena a inscrição
+			if !errors.Is(queryErr, context.Canceled) {
+				t.Fatal("consulta não cancelou", queryErr)
+			}
+			release()
+			waitTimelineEventTest(t, writerDone)
+			waitTimelineEventTest(t, closed)
+			if writerErr != nil || closeErr != nil {
+				t.Fatal(writerErr, closeErr)
+			}
+
 		})
-		close(writerDone)
-	}()
-	waitTimelineEventTest(t, writerEntered)
-	observed := &observedReconciliationSession{f.session, make(chan struct{}, 1)}
-	f.api.mu.Lock()
-	f.api.session = observed
-	f.api.mu.Unlock()
-	queried, closed := make(chan struct{}), make(chan struct{})
-	var queryErr, closeErr error
-	go func() {
-		_, queryErr = f.api.ReconcileRecovery(opened.WindowID, apidto.TimelineRecoveryReference{ProjectionID: "old", Incarnation: "old", TurnID: f.message, ExecutionID: "old"})
-		close(queried)
-	}()
-	waitTimelineEventTest(t, observed.entered)
-	go func() { closeErr = f.api.Close(opened.WindowID); close(closed) }()
-	waitTimelineEventTest(t, queried) // writer permanece ocupado, Close ainda drena a inscrição
-	if !errors.Is(queryErr, context.Canceled) {
-		t.Fatal("consulta não cancelou", queryErr)
 	}
-	release()
-	waitTimelineEventTest(t, writerDone)
-	waitTimelineEventTest(t, closed)
-	if writerErr != nil || closeErr != nil {
-		t.Fatal(writerErr, closeErr)
+}
+
+func queryTimelineRecoveryForTest(api *ChatTimeline, pages bool, window string, ref apidto.TimelineRecoveryReference) (any, error) {
+	if pages {
+		return api.ReadRecoveryPage(window, apidto.TimelineRecoveryPageRequest{Reference: ref})
 	}
+	return api.ReconcileRecovery(window, ref)
 }

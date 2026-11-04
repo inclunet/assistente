@@ -2093,6 +2093,100 @@ export namespace apidto {
 		    return a;
 		}
 	}
+	export class TimelineRecoveryChunk {
+	    iteration: number;
+	    generation: string;
+	    part: number;
+	    kind: string;
+	    byteOffset: number;
+	    text: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new TimelineRecoveryChunk(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.iteration = source["iteration"];
+	        this.generation = source["generation"];
+	        this.part = source["part"];
+	        this.kind = source["kind"];
+	        this.byteOffset = source["byteOffset"];
+	        this.text = source["text"];
+	    }
+	}
+	export class TimelineRecoveryPage {
+	    conversationId: string;
+	    reference: TimelineRecoveryReference;
+	    found: boolean;
+	    contentVersion: string;
+	    chunks: TimelineRecoveryChunk[];
+	    nextCursor: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new TimelineRecoveryPage(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.conversationId = source["conversationId"];
+	        this.reference = this.convertValues(source["reference"], TimelineRecoveryReference);
+	        this.found = source["found"];
+	        this.contentVersion = source["contentVersion"];
+	        this.chunks = this.convertValues(source["chunks"], TimelineRecoveryChunk);
+	        this.nextCursor = source["nextCursor"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class TimelineRecoveryPageRequest {
+	    reference: TimelineRecoveryReference;
+	    cursor: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new TimelineRecoveryPageRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.reference = this.convertValues(source["reference"], TimelineRecoveryReference);
+	        this.cursor = source["cursor"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	
 	export class TimelineRecoveryStatus {
 	    conversationId: string;
