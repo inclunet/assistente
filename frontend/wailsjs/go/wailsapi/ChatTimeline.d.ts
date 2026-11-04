@@ -8,6 +8,8 @@ export function Navigate(arg1:string,arg2:apidto.TimelineWindowNavigation):Promi
 
 export function Open(arg1:apidto.OpenTimelineRequest):Promise<apidto.SubscribedTimelineSnapshot>;
 
+export function ReadRecoveryItem(arg1:string,arg2:apidto.TimelineRecoveryItemRequest):Promise<apidto.CanonicalItem>;
+
 export function ReadRecoveryPage(arg1:string,arg2:apidto.TimelineRecoveryPageRequest):Promise<apidto.TimelineRecoveryPage>;
 
 export function ReconcileRecovery(arg1:string,arg2:apidto.TimelineRecoveryReference):Promise<apidto.TimelineRecoveryStatus>;
@@ -16,8 +18,12 @@ export function Refresh(arg1:string,arg2:apidto.RefreshTimelineRequest):Promise<
 
 export function ReleaseRecovery(arg1:string,arg2:apidto.TimelineRecoveryReservationRequest):Promise<void>;
 
+export function ReleaseRecoveryItem(arg1:string,arg2:apidto.TimelineRecoveryItemRequest):Promise<void>;
+
 export function Replay(arg1:string,arg2:apidto.ReplayTimelineRequest):Promise<apidto.TimelineReplay>;
 
 export function ReserveRecovery(arg1:string,arg2:apidto.TimelineRecoveryReservationRequest):Promise<apidto.TimelineRecoveryReservation>;
+
+export function ReserveRecoveryItem(arg1:string,arg2:apidto.TimelineRecoveryItemRequest):Promise<apidto.TimelineRecoveryItemReservation>;
 
 export function SetRetention(arg1:string,arg2:apidto.TimelineRetentionRequest):Promise<void>;

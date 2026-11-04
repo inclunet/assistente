@@ -198,3 +198,16 @@ type TimelineRecoveryReservation struct {
 	Reference      TimelineRecoveryReference `json:"reference"`
 	ContentVersion string                    `json:"contentVersion"`
 }
+
+// Identidade exata de um DTO publicado; revisão de item não é versão dos buffers.
+type TimelineRecoveryItemRequest struct {
+	Reference TimelineRecoveryReference `json:"reference"`
+	ItemID    string                    `json:"itemId"`
+	Epoch     string                    `json:"epoch"`
+	Revision  string                    `json:"revision"`
+}
+
+type TimelineRecoveryItemReservation struct {
+	ConversationID string                      `json:"conversationId"`
+	Identity       TimelineRecoveryItemRequest `json:"identity"`
+}

@@ -125,17 +125,14 @@ func (s *TimelineSubscription) ReserveRecovery(ctx context.Context, request apid
 	if !t.finished {
 		return nil, ErrRecoveryMutable
 	}
-	if len(w.recoveryReservations) >= recoveryReservationLimit {
+	count, used := w.recoveryUsage()
+	if count >= recoveryReservationLimit {
 		return nil, ErrRecoveryReservationLimit
 	}
 	source := buffersOf(t)
 	buffers, size, err := reserveBuffers(ctx, source)
 	if err != nil {
 		return nil, err
-	}
-	used := 0
-	for _, held := range w.recoveryReservations {
-		used += held.bytes
 	}
 	if size > recoveryReservationBytes-used {
 		return nil, ErrRecoveryReservationLimit
@@ -176,6 +173,11 @@ func (s *TimelineSubscription) ReleaseRecovery(ctx context.Context, request apid
 
 func (c *projectionConversation) discardRecoveryReservations(turnID, executionID string) {
 	for _, w := range c.windows {
+		for ref := range w.recoveryItems {
+			if ref.TurnID == turnID && ref.ExecutionID == executionID {
+				delete(w.recoveryItems, ref)
+			}
+		}
 		for ref := range w.recoveryReservations {
 			if ref.TurnID == turnID && ref.ExecutionID == executionID {
 				delete(w.recoveryReservations, ref)
