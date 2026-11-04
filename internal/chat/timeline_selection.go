@@ -21,6 +21,10 @@ type TimelineSelectionReader interface {
 	ReadSelection(context.Context, string, []string) (*TimelineSelectionSnapshot, error)
 }
 
+type TimelineLifecycleReader interface {
+	ReadTurnLifecycles(context.Context, string, []string) (*TimelineSelectionSnapshot, error)
+}
+
 // ReadTurnLifecycles prova execução/ausência sem materializar mensagens ou ledger.
 // Turns contém somente UserMessageID, ActiveExecutionID e CurrentExecutionID;
 // não substitui registros completos da projeção. A versão acompanha a mesma

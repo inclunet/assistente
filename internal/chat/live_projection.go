@@ -35,7 +35,7 @@ type projectionConversation struct {
 	publicationGeneration uint64
 	windows               map[string]*subscribedWindow
 	publication           canonicalPublication
-	mu                    sync.Mutex
+	mu                    projectionMutex
 	readers               int // protegido por LiveProjection.mu; inclui operações de storage
 	epoch                 string
 	revision              uint64
@@ -324,6 +324,14 @@ const projectionRetention = 60 * time.Second
 // Referências de operação impedem evicção sem segurar o mutex do registro
 // enquanto outra conversa aguarda I/O. Ordem: registro (breve), conversa, DB.
 func (p *LiveProjection) lockConversation(key projectionKey, create bool) (*projectionConversation, func()) {
+	c, release, _ := p.lockConversationContext(context.Background(), key, create)
+	return c, release
+}
+
+func (p *LiveProjection) lockConversationContext(ctx context.Context, key projectionKey, create bool) (*projectionConversation, func(), error) {
+	if err := ctx.Err(); err != nil {
+		return nil, func() {}, err
+	}
 	p.mu.Lock()
 	c := p.conversations[key]
 	if c == nil && create {
@@ -332,18 +340,28 @@ func (p *LiveProjection) lockConversation(key projectionKey, create bool) (*proj
 	}
 	if c == nil {
 		p.mu.Unlock()
-		return nil, func() {}
+		return nil, func() {}, nil
 	}
 	c.readers++
 	p.mu.Unlock()
-	c.mu.Lock()
+	if err := c.mu.LockContext(ctx); err != nil {
+		p.mu.Lock()
+		c.readers--
+		// Não readquirir a barreira no caminho de cancelamento. O timer único
+		// conserva a oportunidade de cleanup se o último leitor foi abandonado.
+		if p.conversations[key] == c && c.readers == 0 && c.timer == nil {
+			p.armCleanupLocked(key, c, 0)
+		}
+		p.mu.Unlock()
+		return nil, func() {}, err
+	}
 	return c, func() {
 		c.mu.Unlock()
 		p.mu.Lock()
 		c.readers--
 		p.mu.Unlock()
 		p.scheduleCleanup(key, c)
-	}
+	}, nil
 }
 
 func (e *ExecutionProjection) lockStorage() (*projectionConversation, func()) {
@@ -394,7 +412,12 @@ func (p *LiveProjection) pruneLocked(key projectionKey, c *projectionConversatio
 	if next.IsZero() {
 		return
 	}
-	c.timer = time.AfterFunc(next.Sub(now), func() {
+	p.armCleanupLocked(key, c, next.Sub(now))
+}
+
+// O registro p.mu protege o timer; no máximo um cleanup fica agendado por conversa.
+func (p *LiveProjection) armCleanupLocked(key projectionKey, c *projectionConversation, delay time.Duration) {
+	c.timer = time.AfterFunc(delay, func() {
 		p.mu.Lock()
 		defer p.mu.Unlock()
 		if p.conversations[key] != c {

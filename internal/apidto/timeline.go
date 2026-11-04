@@ -31,6 +31,14 @@ type TimelineRecoveryReference struct {
 	ExecutionID  string `json:"executionId"`
 }
 
+// Estado observado da execução; não é recibo de bytes nem permissão de descarte.
+// unknown significa prova insuficiente, inclusive após recriação da projeção.
+type TimelineRecoveryStatus struct {
+	ConversationID string                    `json:"conversationId"`
+	Reference      TimelineRecoveryReference `json:"reference"`
+	State          string                    `json:"state"` // active, retained, persisted, unknown
+}
+
 type CanonicalSegment struct {
 	SegmentID   string                `json:"segmentId"`
 	Kind        string                `json:"kind"`

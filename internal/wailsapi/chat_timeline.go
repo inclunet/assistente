@@ -22,6 +22,7 @@ type ChatTimelineSession interface {
 type ChatTimelineReader interface {
 	chat.CanonicalWindowSnapshotReader
 	chat.TurnSnapshotReader
+	chat.TimelineLifecycleReader
 }
 
 var ErrChatTimelineNotWired = errors.New("timeline do chat indisponível")
@@ -219,6 +220,16 @@ func (api *ChatTimeline) Refresh(windowID string, request apidto.RefreshTimeline
 		return w.stream.replaceSnapshot(ctx, func(queryCtx context.Context) (*apidto.SubscribedTimelineSnapshot, error) {
 			return w.subscription.Refresh(queryCtx, request.WindowRevision, request.Position)
 		})
+	})
+}
+
+// ReconcileRecovery reautoriza a capability e consulta a execução sem devolver
+// conteúdo ou liberar a retenção do frontend. Funciona inclusive com época antiga.
+func (api *ChatTimeline) ReconcileRecovery(windowID string, reference apidto.TimelineRecoveryReference) (*apidto.TimelineRecoveryStatus, error) {
+	return withTimelineHandle(api, windowID, false, func(ctx context.Context, w timelineHandle) (*apidto.TimelineRecoveryStatus, error) {
+		ctx, cancel := w.stream.queryContext(ctx)
+		defer cancel()
+		return w.subscription.ReconcileRecovery(ctx, reference, w.reader)
 	})
 }
 

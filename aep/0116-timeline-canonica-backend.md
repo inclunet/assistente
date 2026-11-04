@@ -1,8 +1,56 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, mensagens, áudio, limpeza, exclusão e importação integrados; retenção por idade, órfãos, navegação, leitura leve e orçamento de fontes da janela com recuperação atômica e parcelada e participação histórica automática com publicação e replay atômicos integrados; followTail, retenção por foco/leitura, DTOs compartilhados, RPCs de inscrição, entrega pelo journal e transporte de eventos Wails integrados; núcleo transacional, coordenador e cliente Wails por sessão frontend e identidade de recuperação por execução preparados; margem de desempenho e cutover pendentes
+## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, mensagens, áudio, limpeza, exclusão e importação integrados; retenção por idade, órfãos, navegação, leitura leve e orçamento de fontes da janela com recuperação atômica e parcelada e participação histórica automática com publicação e replay atômicos integrados; followTail, retenção por foco/leitura, DTOs compartilhados, RPCs de inscrição, entrega pelo journal e transporte de eventos Wails integrados; núcleo transacional, coordenador e cliente Wails por sessão frontend e identidade de recuperação por execução e consulta autorizada de estado preparados; margem de desempenho e cutover pendentes
 
 Data: 2026-10-30
+
+### Recorte: consulta autorizada da referência de recuperação (2026-11-04)
+
+`ChatTimeline.ReconcileRecovery` recebe uma capability de janela existente e a
+referência completa emitida pelo backend. Reutiliza a barreira da conversa e
+`ReadTurnLifecycles`: uma leitura transacional autorizada e limitada a um turno,
+sem materializar mensagens ou ledger. Revalida a sessão após a leitura. Erros de
+autorização, storage ou cancelamento não são convertidos em ausência.
+
+O resultado contém conversa, referência e estado observado: `active` para execução
+ativa compatível com o lifecycle atual; `retained` para execução não confirmada
+conservada em memória, inclusive após retry/importação; `persisted` somente para
+terminal compatível, sem volatilidade ou conteúdo não confirmado e com versão de
+commit exatamente igual à versão lida; `unknown` quando não há prova suficiente.
+Comparar sempre projeção, encarnação original, turno e execução. Recriação da
+projeção ou mudança posterior de storage pode produzir `unknown` conservador.
+
+A consulta não altera época, journal, inscrição ou retenção. Não exige que a época
+da janela ainda seja vigente, pois serve à recuperação. Não é chamada por delta.
+A referência identifica uma execução, não uma versão imutável dos seus bytes:
+nenhum destes estados é recibo de transferência ou autorização para liberar o
+cache protegido. O frontend ainda não consome esse RPC nem relaxa suas guardas.
+
+Evidências: `timeline_reconciliation_test.go` cobre identidade, retry, importação,
+pergunta removida inclusive após commit terminal, confirmação parcial, versão posterior e recusas de sessão,
+storage, cancelamento e orçamento; `chat_timeline_reconciliation_test.go` cobre o
+binding por capability, resposta ativa recebida a partir do snapshot, troca de sessão e cancelamento de consulta em espera por
+Close/shutdown, sem cancelar o contexto pai. Consultas compartilham o cancelamento
+da inscrição com Refresh/Navigate, sem adquirir o mutex de emissão.
+Bindings regenerados pelo Wails.
+
+Complemento da revisão remota: a barreira da conversa agora aceita contexto,
+sem polling nem goroutine por waiter. Writers continuam usando a mesma exclusão;
+capabilities compartilham a aquisição cancelável e reautorizam após adquiri-la.
+Cancelar a espera devolve a reserva e agenda o cleanup pelo timer único existente,
+sem readquirir a barreira no caminho de erro. `projection_mutex_test.go` prova
+retorno antes do writer liberar, reservas equilibradas, token preservado e coleta
+da última reserva abandonada. A integração Wails cobre Close durante essa espera;
+o fechamento ainda drena writers em curso, mas a consulta cancelada já retorna.
+
+Medição local de `BenchmarkLiveProjectionAppend` (Windows, três amostras de 200 ms,
+1.000 deltas por operação): mediana de 79,8 µs/85.512 B/43 alocações antes para
+112,8 µs/85.624 B/44 alocações depois. O custo adicional é por projeção e pela
+exclusão dos deltas; não há consulta SQL por token. A medição não encerra os
+critérios globais de desempenho do AEP.
+
+Pendente: leitura limitada e prova de preservação/transferência dos bytes, sua
+integração com a recuperação frontend e posterior cutover visual.
 
 ### Recorte: identidade de recuperação por execução (2026-11-03)
 

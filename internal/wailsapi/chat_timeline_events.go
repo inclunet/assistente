@@ -102,15 +102,25 @@ func (s *timelineEventStream) replaceSnapshot(ctx context.Context, query func(co
 	}
 	// A consulta conserva o principal/deadline do RPC e também termina quando
 	// a inscrição fecha, antes da drenagem que espera por este mutex.
-	ctx, cancel := context.WithCancel(ctx)
-	stop := context.AfterFunc(s.ctx, cancel)
-	defer stop()
+	ctx, cancel := s.queryContext(ctx)
 	defer cancel()
 	snapshot, err := query(ctx)
 	if err == nil {
 		s.epoch, s.baseline = snapshot.Epoch, snapshot.WindowRevision
 	}
 	return snapshot, err
+}
+
+// Consultas preservam o contexto do RPC e terminam também com a inscrição.
+// Não adquire o mutex de emissão: leitores sem troca de snapshot só precisam
+// compartilhar cancelamento, não bloquear a entrega de eventos.
+func (s *timelineEventStream) queryContext(ctx context.Context) (context.Context, func()) {
+	ctx, cancel := context.WithCancel(ctx)
+	stop := context.AfterFunc(s.ctx, cancel)
+	if s.ctx.Err() != nil {
+		cancel()
+	}
+	return ctx, func() { stop(); cancel() }
 }
 
 // Cancelar vem antes da drenagem. Nenhum lock de auth, registry ou core deve
