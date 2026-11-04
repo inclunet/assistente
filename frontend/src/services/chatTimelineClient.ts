@@ -48,6 +48,7 @@ export class ChatTimelineClient {
     this.unsubscribe = transport.listen(event => {
       const conversation = this.conversations.get(event.conversationId);
       if (this.disposed || !conversation || (conversation.error && !conversation.candidate)) return;
+      if (conversation.candidate && ![...conversation.slots.values()].some(slot => !slot.closed && slot.windowId === event.windowId)) return;
       this.observe(conversation, (conversation.candidate ?? conversation.state).receive(event));
       this.notify();
     });
@@ -158,9 +159,10 @@ export class ChatTimelineClient {
       }));
       if (this.disposed) return;
       const failed = outcomes.find((outcome, index) => outcome.status === 'rejected' && !requests[index].slot.closed);
-      if (failed?.status === 'rejected' || conversation.error || candidate.frozenReason) {
-        throw failed?.status === 'rejected' ? failed.reason : conversation.error ?? new Error('Timeline recovery rejected');
+      if (failed?.status === 'rejected' || candidate.recoveryReason) {
+        throw failed?.status === 'rejected' ? failed.reason : new Error(`Timeline recovery rejected: ${candidate.recoveryReason}`);
       }
+      conversation.error = undefined;
       const previous = conversation.state;
       conversation.state = candidate;
       previous.dispose();
@@ -181,6 +183,7 @@ export class ChatTimelineClient {
     slot.closed = true;
     const closed = conversation.state.close(surfaceId);
     this.observe(conversation, conversation.candidate ? conversation.candidate.close(surfaceId, slot.windowId) : closed);
+    if (conversation.candidate && !conversation.candidate.recoveryReason) conversation.error = undefined;
     this.notify();
     // Close precisa cancelar a consulta remota antes de aguardar a Promise dela.
     const closing = this.closeRemote(slot);

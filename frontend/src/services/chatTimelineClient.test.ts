@@ -350,4 +350,42 @@ describe('ChatTimelineClient', () => {
     expect(f.client.getError('chat')).toBeInstanceOf(Error);
     expect(f.client.getWindow('chat', 'a')?.epoch).toBe('epoch');
   });
+
+  it('Refresh ignora eventos de superfície fechada antes de criar o candidato', async () => {
+    const f = fixture();
+    await f.open();
+    await f.open('b');
+    await f.client.close('chat', 'a');
+    const pending = deferred<TimelineSnapshot>();
+    f.port.refresh.mockReturnValue(pending.promise);
+    const recovery = f.client.refresh('chat');
+    for (let index = 0; index < 300; index++) f.emit(event());
+    pending.resolve(snapshot('b', { sequence: '12' }));
+    await recovery;
+    expect(f.client.getError('chat')).toBeUndefined();
+    expect(f.client.getWindow('chat', 'b')?.sequence).toBe('12');
+  });
+
+  it.each([false, true])('fechar janela com erro não mantém erro local, mas preserva falha global=%s', async global => {
+    const f = fixture();
+    await f.open();
+    await f.open('b');
+    const pending = deferred<TimelineSnapshot>();
+    f.port.refresh.mockResolvedValueOnce(snapshot('a', { sequence: '12', windowRevision: '3' }))
+      .mockReturnValueOnce(pending.promise);
+    const recovery = f.client.refresh('chat');
+    await Promise.resolve();
+    await Promise.resolve();
+    f.emit(event('a', { snapshotRevision: '3', syncRequired: !global, updates: [], epoch: global ? 'other' : 'epoch' }));
+    await f.client.close('chat', 'a');
+    pending.resolve(snapshot('b', { sequence: '12', windowRevision: '3' }));
+    if (global) {
+      await expect(recovery).rejects.toThrow();
+      expect(f.client.getWindow('chat', 'b')?.sequence).toBe('10');
+    } else {
+      await recovery;
+      expect(f.client.getError('chat')).toBeUndefined();
+      expect(f.client.getWindow('chat', 'b')?.sequence).toBe('12');
+    }
+  });
 });

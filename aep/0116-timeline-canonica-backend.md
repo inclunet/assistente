@@ -34,6 +34,9 @@ no buffer, âncora perdida e cota de capabilities aposentadas.
 
 Complemento da revisão remota: capabilities fechadas são aposentadas inclusive
 quando Open retorna depois do fechamento ou Refresh é cancelado antes do snapshot.
+Durante Refresh, só entram eventos das capabilities ainda ativas. A decisão de
+promover consulta os erros atuais do coordenador: fechar uma superfície elimina
+seu erro local, mas nunca uma falha global de época/overflow.
 O getter também verifica identidade diretamente, sem depender da ordem dos
 assinantes do authStore. Liberação explícita de retenção vazia é permitida durante
 falha usando época/revisão comprovadas por snapshot ou patch aplicado; não limpa

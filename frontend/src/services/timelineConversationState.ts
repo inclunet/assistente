@@ -75,6 +75,9 @@ export class TimelineConversationState {
   constructor(readonly conversationId: string, private readonly budget: TimelineCacheBudget) {}
 
   get frozenReason(): Reason | undefined { return this.stopped; }
+  get recoveryReason(): Reason | undefined {
+    return this.stopped ?? [...this.surfaces.values()].find(surface => surface.recovery)?.recovery;
+  }
   get cachedItems(): number { return this.records.size; }
   get bufferedBatches(): number { return this.bufferBatches; }
 
