@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { act, createEvent, fireEvent, render as renderUI, screen, cleanup } from '@testing-library/react';
 import { MessageNode } from './MessageNode';
+import { MessageList } from './MessageList';
 import React, { type ReactElement, type ReactNode } from 'react';
 import { useAuthStore } from '../../store/authStore';
 import { useWorkspaceStore } from '../../store/workspaceStore';
@@ -26,10 +27,7 @@ vi.mock('./ChatMessage', () => ({
 
 vi.mock('../../hooks/useAnnouncer', () => ({
   announce: vi.fn(),
-}));
-
-vi.mock('../../hooks/useVirtualModal', () => ({
-  useVirtualModal: () => {},
+  useAnnouncer: () => ({ announceRequest: () => true }),
 }));
 
 vi.mock('../../services/messageAudio', () => ({
@@ -82,6 +80,46 @@ beforeEach(() => {
 afterEach(() => { cleanup(); window.removeEventListener(CHAT_NAVIGATION_COMMAND_EVENT, dispatchNavigation); vi.restoreAllMocks(); });
 
 describe('MessageNode', () => {
+  it('navega por mensagens reais e preserva leitura ao alternar o modo da lista', () => {
+    vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockImplementation(function (this: HTMLElement) {
+      return this.classList.contains('message-list') ? 700 : this.hasAttribute('data-index') ? 140 : 0;
+    });
+    const nodes = Array.from({ length: 41 }, (_, index) => chat.MessageNode.createFrom({
+      message: { id: `row-${index}`, conversationId, role: 'assistant', turnId: `turn-${index}`,
+        content: `mensagem ${index}`, timestamp: index, isStreaming: false, internal: false },
+      children: [], childCount: 0, level: 0,
+    }));
+    const conversation = { id: conversationId, title: 'Chat', threadedMessages: nodes };
+    useChatStore.setState({ timelinesByConversationId: { [conversationId]: conversation },
+      sessionsByConversationId: { [conversationId]: { ...createEmptyChatSession(conversationId), conversation } }, surfaceSessionsByKey: {} });
+    const content = (count: number) => <WorkspacePanelProvider value={{ tab, isActive: true }}>
+      <ChatSessionProvider surface={surface}><MessageList threadedMessages={nodes.slice(0, count)} commandPathname="/chat" /></ChatSessionProvider>
+    </WorkspacePanelProvider>;
+    const view = renderUI(content(3));
+    const row = (index: number) => view.container.querySelector(`[data-message-id="row-${index}"]`) as HTMLElement;
+    act(() => row(0).focus());
+    fireEvent.keyDown(row(0), { key: 'ArrowDown' });
+    expect(row(1)).toHaveFocus();
+    fireEvent.keyDown(row(1), { key: 'ArrowDown' });
+    expect(row(2)).toHaveFocus();
+    fireEvent.keyDown(row(2), { key: 'ArrowUp' });
+    expect(row(1)).toHaveFocus();
+    const original = row(1);
+    fireEvent.keyDown(original, { key: 'Enter' });
+    expect(original).toHaveClass('message-node--reading');
+    view.rerender(content(41));
+    expect(row(1)).toBe(original);
+    expect(original).toHaveClass('message-node--reading');
+    view.rerender(content(40));
+    expect(row(1)).toBe(original);
+    expect(original).toHaveClass('message-node--reading');
+    fireEvent.keyDown(original, { key: 'Escape' });
+    fireEvent.keyDown(original, { key: 'ArrowDown' });
+    expect(row(2)).toHaveFocus();
+    fireEvent.keyDown(row(2), { key: 'ArrowUp' });
+    expect(original).toHaveFocus();
+  });
+
   const keyboardNode = () => new chat.MessageNode({
     message: { id: '01926b90-7a5a-7c4e-8d3f-000000000002', conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001',
       role: 'user', content: 'Mensagem', internal: false, isStreaming: false },

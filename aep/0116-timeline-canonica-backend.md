@@ -1,8 +1,39 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, mensagens, áudio, limpeza, exclusão e importação integrados; retenção por idade, órfãos, navegação, leitura leve e orçamento de fontes da janela com recuperação atômica e parcelada e participação histórica automática com publicação e replay atômicos integrados; followTail, retenção por foco/leitura, DTOs compartilhados, RPCs de inscrição, entrega pelo journal e transporte de eventos Wails integrados; núcleo transacional, coordenador e cliente Wails por sessão frontend e identidade de recuperação por execução, consulta autorizada de estado, leitura limitada, reserva explícita dos buffers finalizados, leitor de recuperação Wails, reserva do DTO canônico publicado e transferência de recuperação no Refresh integrados; margem de desempenho e cutover pendentes
+## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, mensagens, áudio, limpeza, exclusão e importação integrados; retenção por idade, órfãos, navegação, leitura leve e orçamento de fontes da janela com recuperação atômica e parcelada e participação histórica automática com publicação e replay atômicos integrados; followTail, retenção por foco/leitura, DTOs compartilhados, RPCs de inscrição, entrega pelo journal e transporte de eventos Wails integrados; núcleo transacional, coordenador e cliente Wails por sessão frontend e identidade de recuperação por execução, consulta autorizada de estado, leitura limitada, reserva explícita dos buffers finalizados, leitor de recuperação Wails, reserva do DTO canônico publicado e transferência de recuperação no Refresh integrados; DOM da lista unificado com retenção visual por foco; margem de desempenho e cutover pendentes
 
 Data: 2026-10-30
+
+### Recorte: DOM estável e retenção visual da mensagem focada (2026-11-04)
+
+MessageList usa uma única estrutura de linha nos modos curto e virtualizado.
+Cruzar o limite de 40 itens altera posicionamento e faixa materializada, sem
+trocar o wrapper do item. O range inclui a identidade focada, inclusive quando
+o foco está em um editor, controle de ferramenta ou mensagem filha. Prepend
+recalcula seu índice pela identidade; não mantém uma posição antiga como dono.
+Há no máximo uma linha adicional retida por foco em cada superfície, sem copiar
+conteúdo nem acrescentar itens ausentes da janela recebida.
+
+A atualização automática deixa de rolar para o fim enquanto houver foco em uma
+mensagem. Saída intencional libera a retenção. Foi removido o mecanismo que
+interpretava focusout sem destino como desmontagem e restaurava pelo índice:
+não há mais restauração por adivinhação nem frame tardio desse mecanismo capaz
+de focar outra mensagem. A navegação explícita por teclado permanece disponível.
+
+Evidências: MessageList.focusRetention.test.tsx cobre 40→41→40 com foco real no
+item/editor/controle filho, conteúdo e seleção do editor, prepend com conclusão,
+liberação ao sair para o compositor, limite de DOM e exclusão sem transferência
+de foco. O teste antigo de focusout fabricado foi substituído por uma prova de
+produto com elemento realmente focado e prepend. As provas de desempenho de
+100/500/1.000 itens continuam exigindo materialização limitada e ausência de
+renders adicionais em nós estáveis.
+
+Limites: a superfície ainda recebe o modelo legado e sua chave existente.
+A prova it.fails de identidade de turno recebida tardiamente permanece: este
+recorte não declara o cutover nem resolve a mudança de identidade na fonte.
+O cutover deve migrar conjuntamente timestamps, threads, alvos de comandos,
+referências leves de mídia, recuperação explícita e remoção dos overlays legados.
+Nenhum teste ACP local nem teste NVDA é necessário para esta entrega.
 
 ### Recorte: Refresh com transferência explícita de recuperação (2026-11-04)
 

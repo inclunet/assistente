@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import React from 'react';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { MessageList } from './MessageList';
 import { chat } from '../../../wailsjs/go/models';
 
@@ -410,10 +410,8 @@ describe('MessageList', () => {
     expect(onLoadOlder).toHaveBeenCalledWith('navigation');
   });
 
-  // Issue #178: durante o streaming, a mensagem em curso re-renderiza e pode ser
-  // remontada (a chave de timeline muda de `message:<id>` para `turn:<turnId>`),
-  // jogando o foco no <body>. O MessageList deve restaurar o foco no mesmo irmão.
-  it('restaura o foco no irmão focado quando ele é perdido para o <body> em re-render', () => {
+  // Regressão de produto com foco real, sem fabricar focusout para o body.
+  it('preserva o mesmo nó focado durante atualização de streaming e prepend', () => {
     const first = createNode('user-1');
     const streaming = createNode('streaming-1');
     streaming.message.role = 'assistant';
@@ -429,22 +427,21 @@ describe('MessageList', () => {
     ) as HTMLElement;
 
     // Entra na lista: foco no último irmão (mensagem em streaming).
-    fireEvent.focusIn(lastNode, { target: lastNode });
-    // Streaming remonta o nó: o foco cai no <body> (relatedTarget nulo).
-    fireEvent.focusOut(lastNode, { relatedTarget: null });
-    expect(document.activeElement).toBe(document.body);
+    act(() => lastNode.focus());
+    expect(document.activeElement).toBe(lastNode);
 
-    // Próxima atualização das mensagens (streaming) deve restaurar o foco.
+    // O índice muda, mas a identidade e o elemento permanecem.
     const updatedStreaming = createNode('streaming-1');
     updatedStreaming.message.role = 'assistant';
     updatedStreaming.message.isStreaming = true;
     updatedStreaming.message.content = 'parcial...';
-    rerender(<MessageList threadedMessages={[first, updatedStreaming]} isLoading />);
+    rerender(<MessageList threadedMessages={[createNode('older'), first, updatedStreaming]} isLoading />);
 
     const restored = list.querySelector(
-      '[data-message-node][data-level="0"][data-sibling-index="1"]'
+      '[data-message-node][data-level="0"][data-sibling-index="2"]'
     ) as HTMLElement;
-    expect(document.activeElement).toBe(restored);
+    expect(restored).toBe(lastNode);
+    expect(document.activeElement).toBe(lastNode);
   });
 
   it('não rouba o foco quando ele saiu da lista intencionalmente para outro elemento', () => {
@@ -579,15 +576,15 @@ describe('MessageList (virtualização)', () => {
     expect(Math.min(...indexes)).toBeGreaterThanOrEqual(0);
   });
 
-  it('não virtualiza (renderiza tudo) em conversas curtas e mantém navegação por DOM', () => {
+  it('não virtualiza conversas curtas e fornece a mesma navegação entre linhas', () => {
     hoisted.messageNodeMock.mockClear();
     const total = 5;
     render(<MessageList threadedMessages={createNodes(total)} />);
 
     expect(screen.getAllByTestId('message-node')).toHaveLength(total);
-    // Sem virtualização, a MessageList não injeta o callback de foco virtual.
+    // Os wrappers são iguais nos dois modos; a lista resolve o irmão correto.
     const calls = hoisted.messageNodeMock.mock.calls.map(([props]) => props);
-    expect(calls.every((props) => props.onFocusSiblingIndex === undefined)).toBe(true);
+    expect(calls.every((props) => typeof props.onFocusSiblingIndex === 'function')).toBe(true);
   });
 
   it('injeta callback de foco virtualizado para os nós renderizados', () => {

@@ -17,8 +17,8 @@
   width: 100%;
 }
 
-/* Wrapper de item virtualizado: posicionado pelo @tanstack/react-virtual. */
-.message-list__virtual-item {
+/* A mesma linha permanece montada ao ativar/desativar a virtualização. */
+.message-list__item {
   contain: layout style;
 }
 
