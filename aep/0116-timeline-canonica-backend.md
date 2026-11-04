@@ -34,6 +34,21 @@ Close/shutdown, sem cancelar o contexto pai. Consultas compartilham o cancelamen
 da inscrição com Refresh/Navigate, sem adquirir o mutex de emissão.
 Bindings regenerados pelo Wails.
 
+Complemento da revisão remota: a barreira da conversa agora aceita contexto,
+sem polling nem goroutine por waiter. Writers continuam usando a mesma exclusão;
+capabilities compartilham a aquisição cancelável e reautorizam após adquiri-la.
+Cancelar a espera devolve a reserva e agenda o cleanup pelo timer único existente,
+sem readquirir a barreira no caminho de erro. `projection_mutex_test.go` prova
+retorno antes do writer liberar, reservas equilibradas, token preservado e coleta
+da última reserva abandonada. A integração Wails cobre Close durante essa espera;
+o fechamento ainda drena writers em curso, mas a consulta cancelada já retorna.
+
+Medição local de `BenchmarkLiveProjectionAppend` (Windows, três amostras de 200 ms,
+1.000 deltas por operação): mediana de 79,8 µs/85.512 B/43 alocações antes para
+112,8 µs/85.624 B/44 alocações depois. O custo adicional é por projeção e pela
+exclusão dos deltas; não há consulta SQL por token. A medição não encerra os
+critérios globais de desempenho do AEP.
+
 Pendente: leitura limitada e prova de preservação/transferência dos bytes, sua
 integração com a recuperação frontend e posterior cutover visual.
 

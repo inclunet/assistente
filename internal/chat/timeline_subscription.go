@@ -176,7 +176,10 @@ func (s *TimelineSubscription) lockAuthorized(ctx context.Context) (context.Cont
 	if s == nil || s.owner == nil || s.session == nil {
 		return nil, nil, nil, ErrTimelineSubscription
 	}
-	c, release := s.owner.lockConversation(s.key, false)
+	c, release, err := s.owner.lockConversationContext(ctx, s.key, false)
+	if err != nil {
+		return nil, nil, nil, err
+	}
 	if c == nil || c != s.conversation || c.windows[s.windowID] == nil {
 		release()
 		return nil, nil, nil, ErrTimelineSubscription

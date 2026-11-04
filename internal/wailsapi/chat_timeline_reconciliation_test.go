@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"testing"
 
 	"assistente/internal/apidto"
@@ -119,5 +120,62 @@ func TestTimelineAPIReconcileRecoveryReturnsActiveExecution(t *testing.T) {
 	result, err := f.api.ReconcileRecovery(opened.WindowID, *reference)
 	if err != nil || result.State != "active" || result.Reference != *reference || result.ConversationID != f.conversation {
 		t.Fatalf("resultado ativo: %+v %v", result, err)
+	}
+}
+
+type observedReconciliationSession struct {
+	*timelineTestSession
+	entered chan struct{}
+}
+
+func (s *observedReconciliationSession) AuthenticatedContext() (context.Context, error) {
+	ctx, err := s.timelineTestSession.AuthenticatedContext()
+	select {
+	case s.entered <- struct{}{}:
+	default:
+	}
+	return ctx, err
+}
+
+func TestTimelineAPICloseCancelsReconciliationWaitingForWriter(t *testing.T) {
+	f := newTimelineAPIFixture(t)
+	opened, err := f.api.Open(f.request())
+	if err != nil {
+		t.Fatal(err)
+	}
+	writerEntered, writerRelease, writerDone := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	release := sync.OnceFunc(func() { close(writerRelease) })
+	defer release()
+	var writerErr error
+	go func() {
+		writerErr = f.projection.ApplyStorageMutation(f.ctx, f.conversation, nil, func() ([]string, error) {
+			close(writerEntered)
+			<-writerRelease
+			return nil, nil
+		})
+		close(writerDone)
+	}()
+	waitTimelineEventTest(t, writerEntered)
+	observed := &observedReconciliationSession{f.session, make(chan struct{}, 1)}
+	f.api.mu.Lock()
+	f.api.session = observed
+	f.api.mu.Unlock()
+	queried, closed := make(chan struct{}), make(chan struct{})
+	var queryErr, closeErr error
+	go func() {
+		_, queryErr = f.api.ReconcileRecovery(opened.WindowID, apidto.TimelineRecoveryReference{ProjectionID: "old", Incarnation: "old", TurnID: f.message, ExecutionID: "old"})
+		close(queried)
+	}()
+	waitTimelineEventTest(t, observed.entered)
+	go func() { closeErr = f.api.Close(opened.WindowID); close(closed) }()
+	waitTimelineEventTest(t, queried) // writer permanece ocupado, Close ainda drena a inscrição
+	if !errors.Is(queryErr, context.Canceled) {
+		t.Fatal("consulta não cancelou", queryErr)
+	}
+	release()
+	waitTimelineEventTest(t, writerDone)
+	waitTimelineEventTest(t, closed)
+	if writerErr != nil || closeErr != nil {
+		t.Fatal(writerErr, closeErr)
 	}
 }
