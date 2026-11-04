@@ -8,6 +8,8 @@ export function Navigate(arg1:string,arg2:apidto.TimelineWindowNavigation):Promi
 
 export function Open(arg1:apidto.OpenTimelineRequest):Promise<apidto.SubscribedTimelineSnapshot>;
 
+export function ReconcileRecovery(arg1:string,arg2:apidto.TimelineRecoveryReference):Promise<apidto.TimelineRecoveryStatus>;
+
 export function Refresh(arg1:string,arg2:apidto.RefreshTimelineRequest):Promise<apidto.SubscribedTimelineSnapshot>;
 
 export function Replay(arg1:string,arg2:apidto.ReplayTimelineRequest):Promise<apidto.TimelineReplay>;
