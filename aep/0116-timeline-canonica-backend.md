@@ -1,8 +1,58 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, mensagens, áudio, limpeza, exclusão e importação integrados; retenção por idade, órfãos, navegação, leitura leve e orçamento de fontes da janela com recuperação atômica e parcelada e participação histórica automática com publicação e replay atômicos integrados; followTail, retenção por foco/leitura, DTOs compartilhados, RPCs de inscrição, entrega pelo journal e transporte de eventos Wails integrados; núcleo transacional, coordenador e cliente Wails por sessão frontend e identidade de recuperação por execução, consulta autorizada de estado, leitura limitada e reserva explícita dos buffers finalizados preparados; margem de desempenho e cutover pendentes
+## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, mensagens, áudio, limpeza, exclusão e importação integrados; retenção por idade, órfãos, navegação, leitura leve e orçamento de fontes da janela com recuperação atômica e parcelada e participação histórica automática com publicação e replay atômicos integrados; followTail, retenção por foco/leitura, DTOs compartilhados, RPCs de inscrição, entrega pelo journal e transporte de eventos Wails integrados; núcleo transacional, coordenador e cliente Wails por sessão frontend e identidade de recuperação por execução, consulta autorizada de estado, leitura limitada, reserva explícita dos buffers finalizados e leitor de recuperação Wails preparados; margem de desempenho e cutover pendentes
 
 Data: 2026-10-30
+
+### Recorte: leitor explícito de recuperação no cliente Wails (2026-11-04)
+
+`ChatTimelineClient.openRecovery` captura a capability da abertura atual e a
+referência emitida pelo backend. Lê uma primeira página, valida sua identidade
+e reserva exatamente a versão recebida. Não consulta ReconcileRecovery antes,
+não repete aquisição automaticamente e não reconstrói IDs de segmentos.
+Execução ainda mutável ou versão alterada retorna o erro do backend.
+
+O handle oferece `next()` serializado e `close()` idempotente. Conserva somente
+a primeira página até sua entrega e metadados limitados; não acumula texto.
+Fim da leitura não libera a reserva. `handle.close()` libera apenas a reserva;
+Close da superfície invalida a capability inteira e todas as suas reservas.
+Há no máximo um leitor por abertura, evitando que dois consumidores compartilhem
+uma reserva backend e um deles a libere enquanto o outro ainda depende dela.
+
+Cada página valida conversa, referência, versão, ordem estrutural, geração,
+offsets em bytes UTF-8 e cursores sem repetição. As cotas são 128 chunks e 64 KiB
+de texto por página, cursor de até 16 KiB, 8 MiB de texto total e no máximo 256
+páginas. O conjunto de cursores tem, portanto, tamanho limitado; páginas vazias
+com cursor novo são válidas e não indicam fim. Strings com surrogates isolados,
+identidades divergentes, ausência ou lacunas não são convertidas em conteúdo.
+Essas verificações não constituem prova de preservação do item visual inteiro.
+
+Após tentativa de aquisição, até uma Promise rejeitada exige cleanup da mesma
+referência/versão: a resposta pode ter sido perdida depois da reserva. Falha de
+Release é exposta junto do erro original e conserva o leitor fechado na abertura,
+bloqueando outro leitor até `closeRecovery` repetir a liberação ou Close encerrar
+a capability. Fechar durante Reserve aguarda o RPC antes de enviar Release;
+fechar a superfície cancela pelo Close remoto antes de aguardar consultas.
+Resposta tardia não reativa o leitor nem alcança outra abertura ou sessão.
+Rejeição tardia de Release só deixa de ser erro de cleanup após Close remoto
+confirmado. Invalidação local ou Close malsucedido não bastam; o erro original
+de leitura/aquisição continua sendo propagado.
+
+O adaptador Wails usa os DTOs gerados dos três RPCs. O leitor é acessível durante
+erro da timeline para recuperação explícita; abertura de leitor e consultas da
+superfície compartilham a guarda de operação pendente. Refresh pode continuar
+usando a mesma capability depois da aquisição, sem modificar a reserva.
+
+Evidências: timelineRecoveryReader.test.ts cobre páginas, cotas, UTF-8, offsets,
+ausência, aquisição ambígua, recibo adulterado, falha/retry de Release e Close
+durante RPCs. chatTimelineClient.test.ts cobre isolamento entre janelas,
+cleanup pendente, respostas tardias/reabertura e recusa de Refresh que perderia
+item protegido mesmo após leitura reservada. chatTimelineWails.test.ts cobre
+DTOs e invalidação na troca de sessão.
+
+Pendente: prova e transferência do item protegido completo, integração dessa
+decisão no Refresh, execuções mutáveis, cutover visual e métricas finais.
+As guardas atuais de apresentação continuam intactas; este recorte não ativa UI.
 
 ### Recorte: reserva explícita de buffers finalizados (2026-11-04)
 

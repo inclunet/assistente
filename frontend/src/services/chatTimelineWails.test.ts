@@ -3,6 +3,7 @@ import { createStore } from 'zustand/vanilla';
 import { apidto } from '@wailsjs/go/models';
 
 const mocks = vi.hoisted(() => ({
+  read: vi.fn(), reserve: vi.fn(), release: vi.fn().mockResolvedValue(undefined),
   open: vi.fn(), close: vi.fn().mockResolvedValue(undefined), eventsOn: vi.fn(), unsubscribe: vi.fn(),
 }));
 const auth = createStore<{ isAuthenticated: boolean; user: { userId: string; sessionId: string } | null }>(() => ({
@@ -10,6 +11,7 @@ const auth = createStore<{ isAuthenticated: boolean; user: { userId: string; ses
 }));
 vi.mock('../store/authStore', () => ({ useAuthStore: auth }));
 vi.mock('@wailsjs/go/wailsapi/ChatTimeline', () => ({
+  ReadRecoveryPage: mocks.read, ReserveRecovery: mocks.reserve, ReleaseRecovery: mocks.release,
   Open: mocks.open, Close: mocks.close, Refresh: vi.fn(), Navigate: vi.fn(), SetRetention: vi.fn(),
 }));
 vi.mock('@wailsjs/runtime/runtime', () => ({ EventsOn: mocks.eventsOn }));
@@ -88,4 +90,33 @@ describe('chatTimelineWails', () => {
         sequence: '11', operations: [], windowPatches: [{ windowId: 'window', previousRevision: '1', revision: '2' }] }] });
     expect(client.getWindow('chat', 'surface')?.revision).toBe('2');
   });
+});
+
+it('conecta leitor aos DTOs Wails e invalida reserva na troca de sessão', async () => {
+  auth.setState({ isAuthenticated: true, user: { userId: 'user', sessionId: 'reader' } });
+  mocks.eventsOn.mockReturnValue(mocks.unsubscribe);
+  mocks.open.mockResolvedValue(new apidto.SubscribedTimelineSnapshot({ conversationId: 'chat',
+    windowId: 'window', epoch: 'epoch', sequence: '1', windowRevision: '1', mode: 'historical',
+    totalCount: 0, startIndex: 0, endIndex: 0, hasBefore: false, hasAfter: false, retentionBlocked: false }));
+  const reference = { projectionId: 'p', incarnation: 'i', turnId: 't', executionId: 'e' };
+  mocks.read.mockResolvedValue(new apidto.TimelineRecoveryPage({
+    conversationId: 'chat', reference, contentVersion: '2', found: true, chunks: [], nextCursor: '',
+  }));
+  mocks.reserve.mockResolvedValue(new apidto.TimelineRecoveryReservation({ conversationId: 'chat', reference, contentVersion: '2' }));
+  const { getChatTimelineClient } = await import('./chatTimelineWails');
+  const client = getChatTimelineClient();
+  await client.open('chat', 'surface', null, { cursor: '', anchor: 'tail', anchorItemId: '', direction: '', limit: 20 });
+  const reader = await client.openRecovery('chat', 'surface', reference);
+  expect(mocks.read.mock.calls[0][1]).toBeInstanceOf(apidto.TimelineRecoveryPageRequest);
+  expect(mocks.read.mock.calls[0][1]).toMatchObject({ reference, cursor: '' });
+  expect(mocks.reserve.mock.calls[0][1]).toBeInstanceOf(apidto.TimelineRecoveryReservationRequest);
+  expect(mocks.reserve.mock.calls[0][1]).toMatchObject({ reference, contentVersion: '2' });
+  await reader.close();
+  expect(mocks.release.mock.calls[0][1]).toBeInstanceOf(apidto.TimelineRecoveryReservationRequest);
+  expect(mocks.release.mock.calls[0][1]).toMatchObject({ reference, contentVersion: '2' });
+  const held = await client.openRecovery('chat', 'surface', reference);
+  auth.setState({ user: { userId: 'user', sessionId: 'new' } });
+  await expect(held.next()).rejects.toThrow('closed');
+  await vi.waitFor(() => expect(mocks.close).toHaveBeenCalledExactlyOnceWith('window'));
+  expect(mocks.release).toHaveBeenCalledOnce();
 });

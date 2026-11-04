@@ -1,3 +1,4 @@
+import { apidto } from '@wailsjs/go/models';
 import { describe, expect, it, vi } from 'vitest';
 import type { ChatTimelineEvent } from '../types/chatTimelineEvents';
 import { ChatTimelineClient, type TimelineTransport } from './chatTimelineClient';
@@ -45,6 +46,9 @@ function fixture() {
     refresh: vi.fn<TimelineTransport['refresh']>(async id => snapshot(id, { windowRevision: '3', sequence: '12' })),
     navigate: vi.fn<TimelineTransport['navigate']>(async id => snapshot(id, { windowRevision: '3', sequence: '12' })),
     retain: vi.fn<TimelineTransport['retain']>(async () => {}),
+    readRecovery: vi.fn<TimelineTransport['readRecovery']>(),
+    reserveRecovery: vi.fn<TimelineTransport['reserveRecovery']>(),
+    releaseRecovery: vi.fn<TimelineTransport['releaseRecovery']>(async () => {}),
     close: vi.fn<TimelineTransport['close']>(async () => {}),
   };
   const generations = new Map<string, number>();
@@ -519,5 +523,142 @@ describe('ChatTimelineClient', () => {
     expect(f.client.getError('chat')).toBeUndefined();
     expect(f.client.getWindow('chat', 'a')?.orderedItemIds).toEqual([]);
     if (twoSurfaces) expect(f.client.getWindow('chat', 'b')?.orderedItemIds).toEqual([]);
+  });
+});
+
+
+const recoveryReference = { projectionId: 'projection', incarnation: 'storage', turnId: 'turn', executionId: 'execution' };
+function recoveryPage(cursor = '') {
+  return new apidto.TimelineRecoveryPage({ conversationId: 'chat', reference: recoveryReference, found: true, contentVersion: '3',
+    chunks: [{ iteration: 0, generation: '1', part: 0, kind: 'text', byteOffset: 0, text: 'bytes' }], nextCursor: cursor });
+}
+function recoveryReceipt() {
+  return new apidto.TimelineRecoveryReservation({ conversationId: 'chat', reference: recoveryReference, contentVersion: '3' });
+}
+function recoveryFixture() {
+  const f = fixture();
+  f.port.readRecovery.mockResolvedValue(recoveryPage());
+  f.port.reserveRecovery.mockResolvedValue(recoveryReceipt());
+  return f;
+}
+
+describe('recuperação explícita de buffers no cliente', () => {
+  it('mantém a guarda de Refresh mesmo com reserva e leitura concluídas', async () => {
+    const f = recoveryFixture();
+    f.port.open.mockResolvedValueOnce(contentSnapshot(true));
+    await f.open();
+    f.emit(event('a', { syncRequired: true }));
+    const reader = await f.client.openRecovery('chat', 'a', recoveryReference);
+    expect((await reader.next())?.chunks[0].text).toBe('bytes');
+    await expect(f.client.refresh('chat')).rejects.toThrow('ownership transfer');
+    expect(f.client.getItem('chat', 'a', 'item')).toBeDefined();
+    await f.client.closeRecovery('chat', 'a');
+    expect(f.port.releaseRecovery).toHaveBeenCalledExactlyOnceWith('a', recoveryReference, '3');
+    await f.client.close('chat', 'a');
+  });
+
+  it('permite um leitor por abertura e isola reservas de duas janelas', async () => {
+    const f = recoveryFixture();
+    await f.open('a');
+    await f.open('b');
+    const a = await f.client.openRecovery('chat', 'a', recoveryReference);
+    await expect(f.client.openRecovery('chat', 'a', recoveryReference)).rejects.toThrow('unavailable');
+    const b = await f.client.openRecovery('chat', 'b', recoveryReference);
+    await f.client.close('chat', 'a');
+    await expect(a.next()).rejects.toThrow('closed');
+    expect((await b.next())?.chunks[0].text).toBe('bytes');
+    expect(f.port.releaseRecovery).not.toHaveBeenCalled();
+    await b.close();
+    expect(f.port.releaseRecovery).toHaveBeenCalledExactlyOnceWith('b', recoveryReference, '3');
+    await f.client.close('chat', 'b');
+  });
+
+  it('conserva cleanup ambíguo e bloqueia outro leitor até liberação explícita', async () => {
+    const f = recoveryFixture();
+    await f.open();
+    f.port.reserveRecovery.mockRejectedValueOnce(new Error('resposta perdida'));
+    f.port.releaseRecovery.mockRejectedValueOnce(new Error('release perdido'));
+    await expect(f.client.openRecovery('chat', 'a', recoveryReference)).rejects.toThrow('cleanup failed');
+    await expect(f.client.openRecovery('chat', 'a', recoveryReference)).rejects.toThrow('unavailable');
+    expect(f.port.reserveRecovery).toHaveBeenCalledOnce();
+    await f.client.closeRecovery('chat', 'a');
+    const reader = await f.client.openRecovery('chat', 'a', recoveryReference);
+    expect((await reader.next())?.contentVersion).toBe('3');
+    await f.client.close('chat', 'a');
+  });
+
+  it.each(['primeira página', 'reserva', 'próxima página'])('Close invalida %s pendente e não ressuscita abertura', async phase => {
+    const f = recoveryFixture();
+    await f.open();
+    const read = deferred<apidto.TimelineRecoveryPage>();
+    const reserve = deferred<apidto.TimelineRecoveryReservation>();
+    let reading: Promise<unknown>;
+    if (phase === 'próxima página') {
+      f.port.readRecovery.mockResolvedValueOnce(recoveryPage('next'));
+      const reader = await f.client.openRecovery('chat', 'a', recoveryReference);
+      await reader.next();
+      f.port.readRecovery.mockReturnValueOnce(read.promise);
+      reading = reader.next();
+      await vi.waitFor(() => expect(f.port.readRecovery).toHaveBeenCalledTimes(2));
+    } else {
+      if (phase === 'primeira página') f.port.readRecovery.mockReturnValueOnce(read.promise);
+      else f.port.reserveRecovery.mockReturnValueOnce(reserve.promise);
+      reading = f.client.openRecovery('chat', 'a', recoveryReference);
+      await vi.waitFor(() => expect(phase === 'reserva' ? f.port.reserveRecovery : f.port.readRecovery).toHaveBeenCalledOnce());
+    }
+    const rejected = expect(reading).rejects.toThrow('closed');
+    const closing = f.client.close('chat', 'a');
+    await vi.waitFor(() => expect(f.port.close).toHaveBeenCalledExactlyOnceWith('a'));
+    read.resolve(recoveryPage());
+    reserve.resolve(recoveryReceipt());
+    await Promise.all([closing, rejected]);
+    f.port.open.mockResolvedValueOnce(snapshot('new-window'));
+    await f.open();
+    expect(f.client.getWindow('chat', 'a')?.windowId).toBe('new-window');
+    expect(f.port.releaseRecovery).not.toHaveBeenCalled();
+    await f.client.close('chat', 'a');
+  });
+
+  it('handle de abertura antiga nunca fecha a nova capability', async () => {
+    const f = recoveryFixture();
+    await f.open();
+    const old = await f.client.openRecovery('chat', 'a', recoveryReference);
+    await f.client.close('chat', 'a');
+    f.port.open.mockResolvedValueOnce(snapshot('new-window'));
+    await f.open();
+    await old.close();
+    expect(f.port.close).toHaveBeenCalledExactlyOnceWith('a');
+    await expect(old.next()).rejects.toThrow('closed');
+    await f.client.close('chat', 'a');
+  });
+});
+
+describe('Release concorrente com Close da capability', () => {
+  it.each([true, false])('suprime rejeição tardia somente com Close confirmado: %s', async confirmed => {
+    const f = recoveryFixture();
+    await f.open();
+    await f.client.openRecovery('chat', 'a', recoveryReference);
+    const release = deferred<void>();
+    f.port.releaseRecovery.mockReturnValueOnce(release.promise);
+    const cleanup = f.client.closeRecovery('chat', 'a');
+    const outcome = confirmed ? expect(cleanup).resolves.toBeUndefined() : expect(cleanup).rejects.toThrow('release tardio');
+    await vi.waitFor(() => expect(f.port.releaseRecovery).toHaveBeenCalledOnce());
+    if (!confirmed) f.port.close.mockRejectedValueOnce(new Error('close falhou'));
+    const close = f.client.close('chat', 'a');
+    if (!confirmed) await expect(close).rejects.toThrow('close falhou');
+    else {
+      await close;
+      f.port.open.mockResolvedValueOnce(snapshot('new-window'));
+      await f.open();
+    }
+    release.reject(new Error('release tardio'));
+    await outcome;
+    if (confirmed) {
+      expect(f.client.getWindow('chat', 'a')?.windowId).toBe('new-window');
+      const next = await f.client.openRecovery('chat', 'a', recoveryReference);
+      expect((await next.next())?.chunks[0].text).toBe('bytes');
+    }
+    expect(f.port.releaseRecovery).toHaveBeenCalledOnce();
+    await f.client.close('chat', 'a');
   });
 });

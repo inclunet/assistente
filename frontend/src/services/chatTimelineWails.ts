@@ -38,6 +38,15 @@ const transport: TimelineTransport = {
   retain: (windowId, epoch, windowRevision, itemIds) => rpc.SetRetention(
     windowId, new apidto.TimelineRetentionRequest({ epoch, windowRevision, itemIds }),
   ),
+  readRecovery: (windowId, reference, cursor) => rpc.ReadRecoveryPage(
+    windowId, new apidto.TimelineRecoveryPageRequest({ reference, cursor }),
+  ),
+  reserveRecovery: (windowId, reference, contentVersion) => rpc.ReserveRecovery(
+    windowId, new apidto.TimelineRecoveryReservationRequest({ reference, contentVersion }),
+  ),
+  releaseRecovery: (windowId, reference, contentVersion) => rpc.ReleaseRecovery(
+    windowId, new apidto.TimelineRecoveryReservationRequest({ reference, contentVersion }),
+  ),
   close: rpc.Close,
 };
 
