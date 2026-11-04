@@ -493,4 +493,31 @@ describe('ChatTimelineClient', () => {
     expect(f.client.getItem('chat', 'a', 'item')?.durability).toBe('persisted');
     expect(f.client.getError('chat')).toBeUndefined();
   });
+
+  it.each([false, true])('preserva prova de remoção até promover candidato, duas superfícies=%s', async twoSurfaces => {
+    const f = fixture();
+    f.port.open.mockResolvedValueOnce(contentSnapshot(true));
+    await f.open();
+    if (twoSurfaces) {
+      f.port.open.mockResolvedValueOnce({ ...contentSnapshot(true), windowId: 'b' });
+      await f.open('b');
+    }
+    const a = deferred<TimelineSnapshot>();
+    const b = deferred<TimelineSnapshot>();
+    f.port.refresh.mockReturnValueOnce(a.promise).mockReturnValueOnce(b.promise);
+    const recovery = f.client.refresh('chat');
+    a.resolve({ ...contentSnapshot(true), windowRevision: '3' });
+    b.resolve({ ...contentSnapshot(true), windowId: 'b', windowRevision: '3' });
+    await Promise.resolve();
+    await Promise.resolve();
+    for (const id of twoSurfaces ? ['a', 'b'] : ['a']) {
+      f.emit(event(id, { snapshotRevision: '3', updates: [{ conversationId: 'chat', epoch: 'epoch', sequence: '11',
+        operations: [{ kind: 'item_remove', itemId: 'item', revision: '11' }],
+        windowPatches: [{ windowId: id, previousRevision: '3', revision: '4', splices: [{ index: 0, deleteCount: 1, insertIds: [] }] }] }] }));
+    }
+    await recovery;
+    expect(f.client.getError('chat')).toBeUndefined();
+    expect(f.client.getWindow('chat', 'a')?.orderedItemIds).toEqual([]);
+    if (twoSurfaces) expect(f.client.getWindow('chat', 'b')?.orderedItemIds).toEqual([]);
+  });
 });

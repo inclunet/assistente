@@ -147,7 +147,7 @@ export class ChatTimelineClient {
     if (conversation.recovery) return conversation.recovery;
     if (![...conversation.slots.values()].some(slot => !slot.closed)) return Promise.reject(new Error('Timeline recovery requires an active surface'));
     if ([...conversation.slots.values()].some(slot => slot.pending)) return Promise.reject(new Error('Timeline surface busy'));
-    const candidate = new TimelineConversationState(conversationId, this.budget);
+    const candidate = new TimelineConversationState(conversationId, this.budget, conversation.state);
     conversation.candidate = candidate;
     const requests = [...conversation.slots].filter(([, slot]) => !slot.closed).map(([surface, slot]) => ({
       surface, slot, token: candidate.beginSnapshot(surface, slot.scope),
@@ -170,6 +170,8 @@ export class ChatTimelineClient {
         throw failed?.status === 'rejected' ? failed.reason : new Error(`Timeline recovery rejected: ${candidate.recoveryReason}`);
       }
       if (conversation.state.wouldDiscardProtectedItems(candidate)) throw new Error('Timeline protected content requires ownership transfer');
+      candidate.finishReplacement();
+      if (candidate.recoveryReason) throw new Error(`Timeline recovery rejected: ${candidate.recoveryReason}`);
       conversation.recoveryError = undefined;
       const previous = conversation.state;
       conversation.state = candidate;

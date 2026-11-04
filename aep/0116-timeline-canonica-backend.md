@@ -71,6 +71,10 @@ promoção, itens protegidos anteriores precisam estar representados no candidat
 por revisão suficiente (ou remoção comprovada); caso contrário, a apresentação
 anterior é preservada e a transferência de ownership é exigida. Isso também
 cobre fechamento durante Refresh, com ou sem outra superfície aberta.
+O candidato mantém referências transitórias apenas aos IDs protegidos da origem:
+provas de remoção/persistência não são coletadas antes da decisão de ownership.
+Essas referências são liberadas antes da promoção, com nova verificação do estado,
+ou no dispose do candidato recusado; ausência de item nunca vale como exclusão.
 Este recorte ainda não ativa consumidores de UI. Faltam conexão das superfícies
 e retenções de foco/leitura/edição, cutover e remoção do fluxo legado, anexos e
 medições finais. Replay RPC não é usado neste cliente: recuperação explícita usa

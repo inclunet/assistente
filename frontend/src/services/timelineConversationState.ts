@@ -71,8 +71,20 @@ export class TimelineConversationState {
   private epoch?: string;
   private stopped?: Reason;
   private disposed = false;
+  private replacementReferences = new Set<string>();
 
-  constructor(readonly conversationId: string, private readonly budget: TimelineCacheBudget) {}
+  constructor(readonly conversationId: string, private readonly budget: TimelineCacheBudget, replacementOf?: TimelineConversationState) {
+    if (replacementOf) {
+      for (const [id, record] of replacementOf.records) {
+        if (protectedItem(record.entry.item)) this.replacementReferences.add(id);
+      }
+    }
+  }
+
+  finishReplacement(): void {
+    this.replacementReferences.clear();
+    this.collect();
+  }
 
   get frozenReason(): Reason | undefined { return this.stopped; }
   get recoveryReason(): Reason | undefined {
@@ -260,6 +272,7 @@ export class TimelineConversationState {
     this.surfaces.clear();
     this.retiredWindows.clear();
     this.retiredBytes = 0;
+    this.replacementReferences.clear();
     this.buffered = [];
     this.bufferBytes = this.bufferBatches = 0;
     this.disposed = true;
@@ -346,7 +359,7 @@ export class TimelineConversationState {
 
   private collect(): void {
     const minimum = this.safeFloor();
-    const referenced = new Set<string>();
+    const referenced = new Set(this.replacementReferences);
     for (const surface of this.surfaces.values()) {
       if (surface.window) {
         for (const id of surface.window.orderedItemIds) referenced.add(id);
