@@ -39,6 +39,7 @@ export class TimelineRecoveryReader implements TimelineRecoveryHandle {
   private pending?: Promise<unknown>;
   private reading = false;
   private closed = false;
+  private windowReleased = false;
   private attempted = false;
   private closing?: Promise<void>;
 
@@ -98,6 +99,8 @@ export class TimelineRecoveryReader implements TimelineRecoveryHandle {
   invalidate(): void { this.closed = true; this.first = undefined; }
 
   windowClosed(): void {
+    if (this.windowReleased) return;
+    this.windowReleased = true;
     this.invalidate();
     this.attempted = false;
     this.cursors.clear();
@@ -120,6 +123,7 @@ export class TimelineRecoveryReader implements TimelineRecoveryHandle {
       this.cursors.clear();
       this.released();
     })().catch(error => {
+      if (this.windowReleased) return; // Close remoto já confirmou a liberação.
       this.closing = undefined; // retry explícito conserva referência e versão.
       throw error;
     });

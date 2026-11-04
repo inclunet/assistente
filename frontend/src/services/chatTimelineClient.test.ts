@@ -632,3 +632,33 @@ describe('recuperação explícita de buffers no cliente', () => {
     await f.client.close('chat', 'a');
   });
 });
+
+describe('Release concorrente com Close da capability', () => {
+  it.each([true, false])('suprime rejeição tardia somente com Close confirmado: %s', async confirmed => {
+    const f = recoveryFixture();
+    await f.open();
+    await f.client.openRecovery('chat', 'a', recoveryReference);
+    const release = deferred<void>();
+    f.port.releaseRecovery.mockReturnValueOnce(release.promise);
+    const cleanup = f.client.closeRecovery('chat', 'a');
+    const outcome = confirmed ? expect(cleanup).resolves.toBeUndefined() : expect(cleanup).rejects.toThrow('release tardio');
+    await vi.waitFor(() => expect(f.port.releaseRecovery).toHaveBeenCalledOnce());
+    if (!confirmed) f.port.close.mockRejectedValueOnce(new Error('close falhou'));
+    const close = f.client.close('chat', 'a');
+    if (!confirmed) await expect(close).rejects.toThrow('close falhou');
+    else {
+      await close;
+      f.port.open.mockResolvedValueOnce(snapshot('new-window'));
+      await f.open();
+    }
+    release.reject(new Error('release tardio'));
+    await outcome;
+    if (confirmed) {
+      expect(f.client.getWindow('chat', 'a')?.windowId).toBe('new-window');
+      const next = await f.client.openRecovery('chat', 'a', recoveryReference);
+      expect((await next.next())?.chunks[0].text).toBe('bytes');
+    }
+    expect(f.port.releaseRecovery).toHaveBeenCalledOnce();
+    await f.client.close('chat', 'a');
+  });
+});

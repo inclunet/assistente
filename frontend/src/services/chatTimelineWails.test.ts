@@ -110,6 +110,7 @@ it('conecta leitor aos DTOs Wails e invalida reserva na troca de sessão', async
   expect(mocks.read.mock.calls[0][1]).toBeInstanceOf(apidto.TimelineRecoveryPageRequest);
   expect(mocks.read.mock.calls[0][1]).toMatchObject({ reference, cursor: '' });
   expect(mocks.reserve.mock.calls[0][1]).toBeInstanceOf(apidto.TimelineRecoveryReservationRequest);
+  expect(mocks.reserve.mock.calls[0][1]).toMatchObject({ reference, contentVersion: '2' });
   await reader.close();
   expect(mocks.release.mock.calls[0][1]).toBeInstanceOf(apidto.TimelineRecoveryReservationRequest);
   expect(mocks.release.mock.calls[0][1]).toMatchObject({ reference, contentVersion: '2' });

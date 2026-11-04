@@ -34,6 +34,9 @@ bloqueando outro leitor até `closeRecovery` repetir a liberação ou Close ence
 a capability. Fechar durante Reserve aguarda o RPC antes de enviar Release;
 fechar a superfície cancela pelo Close remoto antes de aguardar consultas.
 Resposta tardia não reativa o leitor nem alcança outra abertura ou sessão.
+Rejeição tardia de Release só deixa de ser erro de cleanup após Close remoto
+confirmado. Invalidação local ou Close malsucedido não bastam; o erro original
+de leitura/aquisição continua sendo propagado.
 
 O adaptador Wails usa os DTOs gerados dos três RPCs. O leitor é acessível durante
 erro da timeline para recuperação explícita; abertura de leitor e consultas da
