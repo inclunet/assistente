@@ -35,7 +35,7 @@ func reconciliationFixture(t *testing.T) (*TimelineSubscription, *fixtureTimelin
 }
 
 func TestTimelineReconciliationStatesAndExactIdentity(t *testing.T) {
-	for _, scenario := range []string{"active", "retained", "persisted", "partial", "retry", "import", "removed", "revision", "projection", "execution", "turn", "incarnation"} {
+	for _, scenario := range []string{"active", "retained", "persisted", "partial", "retry", "import", "removed", "finished-removed", "revision", "projection", "execution", "turn", "incarnation"} {
 		t.Run(scenario, func(t *testing.T) {
 			sub, session, execution, reference, snapshot := reconciliationFixture(t)
 			expected := "active"
@@ -75,6 +75,11 @@ func TestTimelineReconciliationStatesAndExactIdentity(t *testing.T) {
 			case "removed":
 				delete(snapshot.Turns, "question")
 				expected = "retained"
+			case "finished-removed":
+				finishTestProjection(execution, database.TurnCompleted, "", true, false)
+				snapshot.Version.Revision = 2
+				delete(snapshot.Turns, "question")
+				expected = "unknown"
 			case "projection":
 				reference.ProjectionID = "recreated"
 				expected = "unknown"

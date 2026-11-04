@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"assistente/internal/apidto"
+	"assistente/internal/database"
+	"github.com/google/uuid"
 )
 
 func TestTimelineAPIReconcileRecoveryAuthorizesCapability(t *testing.T) {
@@ -80,5 +82,42 @@ func TestTimelineAPIClosingCancelsReconciliation(t *testing.T) {
 				t.Fatal("cancelou contexto pai")
 			}
 		})
+	}
+}
+
+func TestTimelineAPIReconcileRecoveryReturnsActiveExecution(t *testing.T) {
+	f := newTimelineAPIFixture(t)
+	id, err := uuid.NewV7()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = f.projection.Admit(f.ctx, f.conversation, f.message, id.String(), func() (database.ChatTimelineVersion, error) {
+		version, readErr := f.reader.ReadVersion(f.ctx, f.conversation)
+		if readErr != nil {
+			return version, readErr
+		}
+		_, writeErr := database.NewChatTurnRepository(database.DB()).BeginExecution(f.ctx, f.conversation, f.message, "", database.TurnModeNew, id.String(), "")
+		return version, writeErr
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	opened, err := f.api.Open(f.request())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var reference *apidto.TimelineRecoveryReference
+	for _, item := range opened.Items {
+		if item.RecoveryReference != nil {
+			reference = item.RecoveryReference
+			break
+		}
+	}
+	if reference == nil {
+		t.Fatal("snapshot não publicou referência ativa")
+	}
+	result, err := f.api.ReconcileRecovery(opened.WindowID, *reference)
+	if err != nil || result.State != "active" || result.Reference != *reference || result.ConversationID != f.conversation {
+		t.Fatalf("resultado ativo: %+v %v", result, err)
 	}
 }

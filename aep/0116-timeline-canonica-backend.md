@@ -27,9 +27,9 @@ nenhum destes estados é recibo de transferência ou autorização para liberar 
 cache protegido. O frontend ainda não consome esse RPC nem relaxa suas guardas.
 
 Evidências: `timeline_reconciliation_test.go` cobre identidade, retry, importação,
-pergunta removida, confirmação parcial, versão posterior e recusas de sessão,
+pergunta removida inclusive após commit terminal, confirmação parcial, versão posterior e recusas de sessão,
 storage, cancelamento e orçamento; `chat_timeline_reconciliation_test.go` cobre o
-binding por capability, troca de sessão e cancelamento de consulta em espera por
+binding por capability, resposta ativa recebida a partir do snapshot, troca de sessão e cancelamento de consulta em espera por
 Close/shutdown, sem cancelar o contexto pai. Consultas compartilham o cancelamento
 da inscrição com Refresh/Navigate, sem adquirir o mutex de emissão.
 Bindings regenerados pelo Wails.
