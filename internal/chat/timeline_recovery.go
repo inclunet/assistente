@@ -137,6 +137,7 @@ func (p *LiveProjection) DiscardRetained(ctx context.Context, conversationID, tu
 		current = true
 	}
 	if t == nil || t.turnID != turnID {
+		c.discardRecoveryReservations(turnID, executionID)
 		return nil
 	}
 	if !t.finished {
@@ -145,6 +146,7 @@ func (p *LiveProjection) DiscardRetained(ctx context.Context, conversationID, tu
 			return ErrProjectionActive
 		}
 	}
+	c.discardRecoveryReservations(turnID, executionID)
 	if current {
 		delete(c.turns, turnID)
 		// Descartar buffers também reconcilia o item que os assinantes já viram.

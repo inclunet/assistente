@@ -19,6 +19,9 @@ func (s *TimelineSubscription) ReconcileRecovery(ctx context.Context, reference 
 	result := &apidto.TimelineRecoveryStatus{ConversationID: s.key.conversationID, Reference: reference, State: "unknown"}
 	t := target.turn
 	if t == nil {
+		if _, ok := s.conversation.windows[s.windowID].recoveryReservations[reference]; ok {
+			result.State = "retained"
+		}
 		return result, nil
 	}
 	snapshot := target.snapshot

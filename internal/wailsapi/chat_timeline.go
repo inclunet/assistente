@@ -279,3 +279,19 @@ func (api *ChatTimeline) Close(windowID string) error {
 	})
 	return err
 }
+
+func (api *ChatTimeline) ReserveRecovery(windowID string, request apidto.TimelineRecoveryReservationRequest) (*apidto.TimelineRecoveryReservation, error) {
+	return withTimelineHandle(api, windowID, false, func(ctx context.Context, w timelineHandle) (*apidto.TimelineRecoveryReservation, error) {
+		ctx, cancel := w.stream.queryContext(ctx)
+		defer cancel()
+		return w.subscription.ReserveRecovery(ctx, request, w.reader)
+	})
+}
+func (api *ChatTimeline) ReleaseRecovery(windowID string, request apidto.TimelineRecoveryReservationRequest) error {
+	_, err := withTimelineHandle(api, windowID, false, func(ctx context.Context, w timelineHandle) (struct{}, error) {
+		ctx, cancel := w.stream.queryContext(ctx)
+		defer cancel()
+		return struct{}{}, w.subscription.ReleaseRecovery(ctx, request)
+	})
+	return err
+}

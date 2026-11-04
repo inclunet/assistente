@@ -51,7 +51,7 @@ func (r *blockedReconciliationReader) ReadTurnLifecycles(ctx context.Context, _ 
 }
 
 func TestTimelineAPIClosingCancelsReconciliation(t *testing.T) {
-	for _, pages := range []bool{false, true} {
+	for _, pages := range []string{"state", "pages", "reserve"} {
 		t.Run(fmt.Sprintf("pages=%v", pages), func(t *testing.T) {
 			for _, shutdown := range []bool{false, true} {
 				t.Run(fmt.Sprint(shutdown), func(t *testing.T) {
@@ -146,7 +146,7 @@ func (s *observedReconciliationSession) AuthenticatedContext() (context.Context,
 }
 
 func TestTimelineAPICloseCancelsReconciliationWaitingForWriter(t *testing.T) {
-	for _, pages := range []bool{false, true} {
+	for _, pages := range []string{"state", "pages", "reserve", "release"} {
 		t.Run(fmt.Sprintf("pages=%v", pages), func(t *testing.T) {
 			f := newTimelineAPIFixture(t)
 			opened, err := f.api.Open(f.request())
@@ -193,8 +193,14 @@ func TestTimelineAPICloseCancelsReconciliationWaitingForWriter(t *testing.T) {
 	}
 }
 
-func queryTimelineRecoveryForTest(api *ChatTimeline, pages bool, window string, ref apidto.TimelineRecoveryReference) (any, error) {
-	if pages {
+func queryTimelineRecoveryForTest(api *ChatTimeline, pages string, window string, ref apidto.TimelineRecoveryReference) (any, error) {
+	if pages == "release" {
+		return nil, api.ReleaseRecovery(window, apidto.TimelineRecoveryReservationRequest{Reference: ref, ContentVersion: "1"})
+	}
+	if pages == "reserve" {
+		return api.ReserveRecovery(window, apidto.TimelineRecoveryReservationRequest{Reference: ref, ContentVersion: "1"})
+	}
+	if pages == "pages" {
 		return api.ReadRecoveryPage(window, apidto.TimelineRecoveryPageRequest{Reference: ref})
 	}
 	return api.ReconcileRecovery(window, ref)

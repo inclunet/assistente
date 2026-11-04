@@ -80,7 +80,14 @@ func (s *TimelineSubscription) ReadRecoveryPage(ctx context.Context, request api
 		return nil, ErrRecoveryCursorInvalid
 	}
 	page := &apidto.TimelineRecoveryPage{ConversationID: s.key.conversationID, Reference: reference, Chunks: []apidto.TimelineRecoveryChunk{}}
-	if t := target.turn; t != nil {
+	var buffers *recoveryBuffers
+	if held, ok := s.conversation.windows[s.windowID].recoveryReservations[reference]; ok {
+		buffers = &held.buffers
+	} else if target.turn != nil {
+		value := buffersOf(target.turn)
+		buffers = &value
+	}
+	if t := buffers; t != nil {
 		page.Found = true
 		page.ContentVersion = strconv.FormatUint(t.contentVersion, 10)
 		position := recoveryPosition{}
@@ -114,7 +121,7 @@ func (s *TimelineSubscription) ReadRecoveryPage(ctx context.Context, request api
 	return page, nil
 }
 
-func (p *recoveryPosition) advance(stream *liveStream) {
+func (p *recoveryPosition) advance(stream recoveryStream) {
 	p.Offset = 0
 	p.Field++
 	if p.Field == 2 {
@@ -127,15 +134,15 @@ func (p *recoveryPosition) advance(stream *liveStream) {
 	}
 }
 
-func readRecoveryChunks(ctx context.Context, t *liveTurn, position recoveryPosition, page *apidto.TimelineRecoveryPage) (recoveryPosition, error) {
+func readRecoveryChunks(ctx context.Context, t *recoveryBuffers, position recoveryPosition, page *apidto.TimelineRecoveryPage) (recoveryPosition, error) {
 	remaining := recoveryPageTextBytes
 	for visited := 0; visited < recoveryPageVisits && remaining > 0 && position.Stream < len(t.streamOrder); visited++ {
 		if err := ctx.Err(); err != nil {
 			return position, err
 		}
 		iteration := t.streamOrder[position.Stream]
-		stream := t.streams[iteration]
-		if stream == nil || position.Part >= len(stream.parts) {
+		stream, found := t.stream(iteration)
+		if !found || position.Part >= len(stream.parts) {
 			return position, ErrRecoveryCursorInvalid
 		}
 		part := stream.parts[position.Part]
