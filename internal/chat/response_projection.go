@@ -14,6 +14,7 @@ import (
 // é o envelope wire v1.
 // Epoch/revision pertencem ao futuro projetor; versão do banco não os substitui.
 type TimelineItem struct {
+	RecoveryReference    *TimelineRecoveryReference
 	messages             []Message
 	invocations          []TurnSegmentToolCall
 	ConversationID       string

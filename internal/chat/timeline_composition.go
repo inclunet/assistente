@@ -14,7 +14,11 @@ func composeResponse(persisted *TimelineItem, live *LiveTurnSnapshot) (*Timeline
 		return nil, ErrProjectionRecoveryRequired
 	}
 	result := *persisted
+	result.RecoveryReference = nil
 	result.State = live.State
+	if !live.Finished || live.Volatile {
+		result.RecoveryReference = &TimelineRecoveryReference{ProjectionID: live.ProjectionID, Incarnation: live.Incarnation, TurnID: live.TurnID, ExecutionID: live.ExecutionID}
+	}
 	if live.Volatile {
 		result.Durability = "volatile"
 	}

@@ -27,6 +27,7 @@ type LiveProjection struct {
 
 type projectionKey struct{ userID, conversationID string }
 type projectionConversation struct {
+	projectionID          string // estável entre épocas; muda quando esta projeção é recriada
 	publicationStage      *canonicalPublicationStage
 	storagePublicationErr error
 	pendingStorageIDs     map[string]bool
@@ -77,6 +78,7 @@ type LiveStreamSnapshot struct {
 	Segments           []ResponseSegment
 }
 type LiveTurnSnapshot struct {
+	ProjectionID                                           string
 	Detached                                               bool
 	Epoch                                                  string
 	Incarnation                                            string
@@ -311,6 +313,10 @@ func hasUncommittedContent(t *liveTurn) bool {
 	return uncommitted
 }
 
+func newProjectionConversation() *projectionConversation {
+	return &projectionConversation{projectionID: uuid.NewString(), epoch: uuid.NewString(), turns: make(map[string]*liveTurn), retained: make(map[string]*liveTurn)}
+}
+
 const projectionRetention = 60 * time.Second
 
 // Há no máximo um timer de retenção por conversa. Cada vencimento calcula o
@@ -321,7 +327,7 @@ func (p *LiveProjection) lockConversation(key projectionKey, create bool) (*proj
 	p.mu.Lock()
 	c := p.conversations[key]
 	if c == nil && create {
-		c = &projectionConversation{epoch: uuid.NewString(), turns: make(map[string]*liveTurn), retained: make(map[string]*liveTurn)}
+		c = newProjectionConversation()
 		p.conversations[key] = c
 	}
 	if c == nil {
@@ -424,7 +430,7 @@ func (p *LiveProjection) Snapshot(ctx context.Context, conversationID, turnID st
 }
 
 func snapshotLiveTurn(c *projectionConversation, t *liveTurn) *LiveTurnSnapshot {
-	result := &LiveTurnSnapshot{Detached: t.detached, Epoch: c.epoch, Incarnation: t.incarnation, Revision: c.revision, ItemID: ports.ResponseItemID(t.turnID), TurnID: t.turnID, ExecutionID: t.executionID, ResponseID: t.responseID, State: t.state, Reason: t.reason, Finished: t.finished, Volatile: t.volatile || hasUncommittedContent(t)}
+	result := &LiveTurnSnapshot{ProjectionID: c.projectionID, Detached: t.detached, Epoch: c.epoch, Incarnation: t.incarnation, Revision: c.revision, ItemID: ports.ResponseItemID(t.turnID), TurnID: t.turnID, ExecutionID: t.executionID, ResponseID: t.responseID, State: t.state, Reason: t.reason, Finished: t.finished, Volatile: t.volatile || hasUncommittedContent(t)}
 	iterations := make([]int, 0, len(t.streams))
 	for iteration := range t.streams {
 		iterations = append(iterations, iteration)

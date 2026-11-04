@@ -739,7 +739,26 @@ export namespace apidto {
 		    return a;
 		}
 	}
+	export class TimelineRecoveryReference {
+	    projectionId: string;
+	    incarnation: string;
+	    turnId: string;
+	    executionId: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new TimelineRecoveryReference(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.projectionId = source["projectionId"];
+	        this.incarnation = source["incarnation"];
+	        this.turnId = source["turnId"];
+	        this.executionId = source["executionId"];
+	    }
+	}
 	export class CanonicalItem {
+	    recoveryReference?: TimelineRecoveryReference;
 	    itemId: string;
 	    conversationId: string;
 	    scopeParentId?: string;
@@ -761,6 +780,7 @@ export namespace apidto {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.recoveryReference = this.convertValues(source["recoveryReference"], TimelineRecoveryReference);
 	        this.itemId = source["itemId"];
 	        this.conversationId = source["conversationId"];
 	        this.scopeParentId = source["scopeParentId"];
@@ -2073,6 +2093,7 @@ export namespace apidto {
 		    return a;
 		}
 	}
+	
 	export class TimelineWindowMetadata {
 	    retainedItemIds: string[];
 	    retentionBlocked: boolean;
