@@ -371,6 +371,14 @@ func TestTimelineSnapshotPreservesThreadScopeAndCurrentRetry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	preparing, err := f.reader.ReadTurn(f.ctx, f.conversation, question.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preparing.Response == nil || preparing.Response.ExecutionID != retry.ExecutionID ||
+		preparing.Response.Representative != nil || len(preparing.Response.MessageIDs) != 0 || len(preparing.Response.Segments) != 0 {
+		t.Fatalf("retry antes da resposta herdou conteúdo anterior: %+v", preparing.Response)
+	}
 	replacement, err := repo.EnsureResponse(f.ctx, f.conversation, question.ID, retry.ExecutionID)
 	if err != nil {
 		t.Fatal(err)

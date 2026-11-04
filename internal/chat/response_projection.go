@@ -60,6 +60,8 @@ func responseToolSegment(calls []TurnSegmentToolCall) ResponseSegment {
 }
 
 // ProjectPersistedResponse valida vínculos e projeta o conteúdo confirmado do turno.
+// Fontes e turno devem vir da mesma leitura transacional, filtrada pela seleção
+// de execução do banco. Continue pode incluir bases explícitas; retry não as herda.
 func ProjectPersistedResponse(conversationID, turnID string, parentID *string, messages []Message, calls []TurnSegmentToolCall, turn *database.ChatTurn) (*TimelineItem, error) {
 	result := &TimelineItem{ItemID: ports.ResponseItemID(turnID), TurnID: turnID, State: database.TurnHistoricalUnknown, Origin: "legacy", ConversationID: conversationID, ScopeParentID: parentID, Kind: "response", ReplyToItemID: ports.MessageItemID(turnID), Durability: "persisted"}
 	for _, message := range messages {

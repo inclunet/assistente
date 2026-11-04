@@ -30,6 +30,9 @@ existentes por referência e tenta outra janela quando uma aquisição é recusa
 inclusive pela cota compartilhada com buffers. Não substitui uma reserva anterior
 pela mesma referência em outra época/revisão. Tentativas ambíguas ficam registradas
 até sua liberação; a promoção exige também o cleanup dessas tentativas.
+Somente reservas verificadas entram no limite preventivo do cliente; recusas
+não consomem a cota local nem impedem a tentativa de outro item. O backend segue
+autoritativo sobre o limite real, inclusive buffers e aquisições ambíguas.
 
 Depois dos snapshots, reservas não necessárias são liberadas. Antes da promoção,
 o cliente revalida candidato e capabilities sem await e registra a transferência
@@ -37,6 +40,8 @@ junto da troca do coordenador. Close durante aquisição/leitura/snapshot invali
 a prova; falha parcial conserva a apresentação anterior. Reservas de tentativas
 malsucedidas são liberadas; cleanup falho conserva a identidade e exige
 cleanupRecoveryItems explícito antes de outro Refresh.
+Se eventos mudarem quais reservas são necessárias durante uma liberação, o cliente
+recalcula o cleanup até uma passagem não precisar aguardar RPC, e só então promove.
 
 O cliente mantém somente descritores transferidos, separados da ordem e do índice
 normal da timeline. getRecoveredItems lista esses descritores; readRecoveredItem
@@ -57,6 +62,10 @@ chatTimelineWails.test.ts percorre os DTOs dos RPCs até Refresh/leitura/libera�
 response_projection_test.go e timeline_recovery_reference_test.go provam a
 identidade explícita no persistido, no live, no terminal e no retry. Bindings
 regenerados; nenhuma edição manual dos modelos gerados.
+timeline_snapshot_test.go também comprova que, logo após Begin(retry) e antes
+de EnsureResponse, a leitura transacional contém a nova execução sem representante,
+mensagens ou segmentos da anterior. A projeção consome fontes já filtradas pela
+seleção do banco; continuação pode herdar bases explicitamente vinculadas.
 
 Pendente: ativar o consumidor na UI, apresentar/confirmar liberação do conteúdo
 recuperado por teclado/leitor de telas, remover o fluxo legado e medir desempenho.

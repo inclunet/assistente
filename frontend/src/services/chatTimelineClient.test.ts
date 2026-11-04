@@ -549,6 +549,54 @@ function itemRecoveryFixture() {
 }
 
 describe('Refresh com transferência de recuperação', () => {
+  it('oito aquisições recusadas não impedem reservar o nono item', async () => {
+    const f = itemRecoveryFixture();
+    f.original.items = Array.from({ length: 9 }, (_, index) => ({ ...structuredClone(f.original.items[0]),
+      itemId: `item-${index}`, turnId: `turn-${index}`, recoveryReference: { ...recoveryReference, turnId: `turn-${index}` } }));
+    f.original.orderedItemIds = f.original.items.map(item => item.itemId);
+    f.original.totalCount = f.original.endIndex = 9;
+    await f.open();
+    f.port.reserveItem.mockImplementation(async (_window, identity) => {
+      if (identity.itemId !== 'item-8') throw new Error('unavailable');
+      return new apidto.TimelineRecoveryItemReservation({ conversationId: 'chat', identity });
+    });
+    f.port.readItem.mockResolvedValue(f.original.items[8]);
+    f.port.refresh.mockResolvedValue({ ...f.original, windowRevision: '3',
+      items: f.original.items.slice(0, 8), orderedItemIds: f.original.orderedItemIds.slice(0, 8), totalCount: 8, endIndex: 8 });
+    await f.client.refresh('chat');
+    expect(f.port.reserveItem).toHaveBeenCalledTimes(9);
+    expect(f.client.getRecoveredItems('chat').map(value => value.identity.itemId)).toEqual(['item-8']);
+    expect(f.port.releaseItem).toHaveBeenCalledTimes(8);
+    await f.client.refresh('chat');
+    await f.client.dispose();
+  });
+
+  it('recalcula cleanup quando evento remove item necessário durante outra liberação', async () => {
+    const f = itemRecoveryFixture();
+    const other = { ...structuredClone(f.original.items[0]), itemId: 'other', turnId: 'other-turn',
+      recoveryReference: { ...recoveryReference, turnId: 'other-turn' } };
+    f.original.items.push(other); f.original.orderedItemIds.push('other');
+    f.original.totalCount = f.original.endIndex = 2;
+    await f.open();
+    f.port.readItem.mockImplementation(async (_window, identity) => structuredClone(f.original.items.find(item => item.itemId === identity.itemId)!));
+    f.port.refresh.mockResolvedValueOnce(snapshot('a', { sequence: '12', windowRevision: '3',
+      items: [other], orderedItemIds: ['other'], totalCount: 1, endIndex: 1 }));
+    const release = deferred<void>();
+    f.port.releaseItem.mockReturnValueOnce(release.promise);
+    const refreshing = f.client.refresh('chat');
+    await vi.waitFor(() => expect(f.port.releaseItem).toHaveBeenCalledOnce());
+    f.emit(event('a', { snapshotRevision: '3', updates: [{ conversationId: 'chat', epoch: 'epoch', sequence: '13',
+      operations: [{ kind: 'item_remove', itemId: 'item', revision: '13' }],
+      windowPatches: [{ windowId: 'a', previousRevision: '3', revision: '4' }] }] }));
+    release.resolve(); await refreshing;
+    expect(f.port.releaseItem.mock.calls.map(([, identity]) => identity.itemId)).toEqual(['other', 'item']);
+    expect(f.client.getRecoveredItems('chat')).toEqual([]);
+    f.port.refresh.mockResolvedValueOnce(snapshot('a', { sequence: '14', windowRevision: '5',
+      items: [other], orderedItemIds: ['other'], totalCount: 1, endIndex: 1 }));
+    await f.client.refresh('chat');
+    await f.client.dispose();
+  });
+
   it.each([false, true])('distribui reservas entre capabilities, primeira com buffers=%s', async buffers => {
     const f = itemRecoveryFixture();
     f.original.items = Array.from({ length: 9 }, (_, index) => ({ ...structuredClone(f.original.items[0]),

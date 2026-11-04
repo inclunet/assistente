@@ -172,7 +172,7 @@ export class ChatTimelineClient {
           slot.recoveryItems ??= new Map();
           // O backend reserva por referência, e não permite substituí-la por
           // outra época/revisão. Outra janela pode possuir a nova identidade.
-          if (slot.recoveryItems.size >= 8 || [...slot.recoveryItems.values()].some(held =>
+          if ([...slot.recoveryItems.values()].filter(held => held.verified).length >= 8 || [...slot.recoveryItems.values()].some(held =>
             recoveryReferenceKey(held.identity.reference) === recoveryReferenceKey(identity.reference))) continue;
           const held = { identity, verified: false, transferred: false };
           slot.recoveryItems.set(key, held); // resposta perdida também exige cleanup.
@@ -211,16 +211,23 @@ export class ChatTimelineClient {
         if (!owner || !key) throw new Error('Timeline protected content requires ownership transfer');
         return { slot: owner.slot, key };
       });
-      const required = needed();
-      for (const { slot } of requests) {
-        for (const [key, held] of slot.recoveryItems ?? []) {
-          if (!held.transferred && !required.some(value => value.slot === slot && value.key === key)) await this.releaseItem(slot, key);
+      // Cada liberação permite novos eventos. Recalcular até não haver await
+      // pendente entre a última prova de necessidade e a promoção síncrona.
+      let transfer = needed();
+      for (;;) {
+        const unused = requests.flatMap(({ slot }) => [...slot.recoveryItems ?? []]
+          .filter(([key, held]) => !held.transferred && !transfer.some(value => value.slot === slot && value.key === key))
+          .map(([key]) => ({ slot, key })));
+        if (!unused.length) break;
+        for (const { slot, key } of unused) {
+          await this.releaseItem(slot, key);
         }
+        if (this.disposed) return;
+        transfer = needed();
       }
       if (this.disposed) return;
       // Eventos e Close podem ter chegado durante cleanup. Revalidar sem await
       // antes de transferir propriedade e promover a apresentação conjuntamente.
-      const transfer = needed();
       if (candidate.recoveryReason) throw new Error(`Timeline recovery rejected: ${candidate.recoveryReason}`);
       candidate.finishReplacement();
       if (candidate.recoveryReason) throw new Error(`Timeline recovery rejected: ${candidate.recoveryReason}`);
