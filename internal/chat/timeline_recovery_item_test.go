@@ -214,3 +214,33 @@ func TestRecoveryItemDeletionDoesNotReviveCapability(t *testing.T) {
 		t.Fatal("exclusão/recriação reativou reserva", err)
 	}
 }
+
+func TestRecoveryItemAcquisitionAfterStorageIncarnationChange(t *testing.T) {
+	sub, session, _, request, snapshot, original := recoveryItemFixture(t)
+	// O armazenamento já mudou; o usuário ainda pode estar lendo este DTO antigo.
+	snapshot.Version.Incarnation = "importada"
+	if _, err := sub.ReserveRecoveryItem(session.ctx, request, pageReader(snapshot)); err != nil {
+		t.Fatal("recuperação confundiu identidade antiga com armazenamento atual", err)
+	}
+	got, err := sub.ReadRecoveryItem(session.ctx, request, pageReader(snapshot))
+	if err != nil || !reflect.DeepEqual(got, &original) {
+		t.Fatal("misturou conteúdo entre encarnações", got, err)
+	}
+	current := request
+	current.Reference.Incarnation = snapshot.Version.Incarnation
+	if _, err := sub.ReserveRecoveryItem(session.ctx, current, pageReader(snapshot)); !errors.Is(err, ErrRecoveryUnavailable) {
+		t.Fatal("referência nova selecionou DTO antigo", err)
+	}
+	if err := sub.ReleaseRecoveryItem(session.ctx, request); err != nil {
+		t.Fatal(err)
+	}
+	session.id = "revoked"
+	if _, err := sub.ReserveRecoveryItem(session.ctx, request, pageReader(snapshot)); !errors.Is(err, ErrTimelineSubscription) {
+		t.Fatal("encarnação antiga contornou autorização atual", err)
+	}
+	session.id = sub.sessionID
+	sub.conversation.publication.removeItem(request.ItemID)
+	if _, err := sub.ReserveRecoveryItem(session.ctx, request, pageReader(snapshot)); !errors.Is(err, ErrRecoveryUnavailable) {
+		t.Fatal("reconstruiu DTO já removido", err)
+	}
+}
