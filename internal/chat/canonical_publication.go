@@ -38,6 +38,7 @@ const canonicalReplayBytes = 2 * 1024 * 1024
 
 func canonicalItem(item *TimelineItem) CanonicalItem {
 	view := CanonicalItem{ItemID: item.ItemID, ConversationID: item.ConversationID, ScopeParentID: item.ScopeParentID, Kind: item.Kind, ReplyToItemID: item.ReplyToItemID, MessageIDs: append([]string{}, item.MessageIDs...), State: item.State, Durability: item.Durability, Segments: make([]CanonicalSegment, 0, len(item.Segments)), Metadata: CanonicalMetadata{Origin: item.Origin}}
+	view.ExecutionID = item.ExecutionID
 	if item.RecoveryReference != nil {
 		reference := *item.RecoveryReference
 		view.RecoveryReference = &reference

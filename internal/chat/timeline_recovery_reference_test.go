@@ -131,6 +131,9 @@ func TestTimelineRecoveryReferenceClearedOnlyWhenNoLongerProtected(t *testing.T)
 				t.Fatalf("referência terminal incorreta: %+v", after.RecoveryReference)
 			}
 			oldWire, newWire := canonicalItem(before), canonicalItem(after)
+			if oldWire.ExecutionID != active.ExecutionID || newWire.ExecutionID != active.ExecutionID {
+				t.Fatal("terminal perdeu identidade da execução")
+			}
 			operations := canonicalDiff(&oldWire, newWire)
 			if len(operations) != 1 || operations[0].Kind != "item_upsert" || operations[0].Item == nil {
 				t.Fatal("terminal não publica a referência completa", operations)

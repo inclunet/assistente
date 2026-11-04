@@ -30,6 +30,7 @@ export interface TimelineSegment {
 }
 
 export interface TimelineItem {
+  executionId?: string;
   recoveryReference?: TimelineRecoveryReference;
   itemId: string;
   conversationId: string;

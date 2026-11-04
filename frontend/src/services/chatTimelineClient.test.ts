@@ -28,7 +28,7 @@ function event(windowId = 'a', overrides: Partial<ChatTimelineEvent> = {}): Chat
 }
 function contentSnapshot(protectedContent: boolean): TimelineSnapshot {
     const value = snapshot();
-    value.items = [{ itemId: 'item', conversationId: 'chat', scopeParentId: null, kind: 'assistant',
+    value.items = [{ itemId: 'item', executionId: 'execution', conversationId: 'chat', scopeParentId: null, kind: 'assistant',
       turnId: 'turn', replyToItemId: 'question', messageIds: ['message'], representativeMessageId: 'message',
       position: 'opaque', revision: '10', state: protectedContent ? 'streaming' : 'completed',
       durability: protectedContent ? 'volatile' : 'persisted', segments: [],
@@ -41,6 +41,9 @@ function fixture() {
   let emit!: (event: ChatTimelineEvent) => void;
   const unsubscribe = vi.fn();
   const port = {
+    reserveItem: vi.fn<TimelineTransport['reserveItem']>(),
+    readItem: vi.fn<TimelineTransport['readItem']>(),
+    releaseItem: vi.fn<TimelineTransport['releaseItem']>(async () => {}),
     listen: vi.fn((receive: typeof emit) => { emit = receive; return unsubscribe; }),
     open: vi.fn<TimelineTransport['open']>(async (_id, surface) => snapshot(surface.split('#')[0])),
     refresh: vi.fn<TimelineTransport['refresh']>(async id => snapshot(id, { windowRevision: '3', sequence: '12' })),
@@ -528,6 +531,319 @@ describe('ChatTimelineClient', () => {
 
 
 const recoveryReference = { projectionId: 'projection', incarnation: 'storage', turnId: 'turn', executionId: 'execution' };
+
+function itemRecoveryFixture() {
+  const f = fixture();
+  const original = contentSnapshot(true);
+  original.items[0].state = 'interrupted';
+  original.items[0].executionId = recoveryReference.executionId;
+  original.items[0].recoveryReference = { ...recoveryReference };
+  original.items[0].segments = [
+    { segmentId: 'opaque', kind: 'text', text: 'conteúdo preservado 🦜' },
+    { segmentId: 'tool', kind: 'tool_invocations', invocations: [{ callId: 'call', name: 'tool', status: 'completed', hasDetails: true, resultAvailability: 'available' }] },
+  ];
+  f.port.open.mockResolvedValueOnce(original);
+  f.port.reserveItem.mockImplementation(async (_window, identity) => new apidto.TimelineRecoveryItemReservation({ conversationId: 'chat', identity }));
+  f.port.readItem.mockImplementation(async () => structuredClone(original.items[0]));
+  return { ...f, original };
+}
+
+describe('Refresh com transferência de recuperação', () => {
+  it('oito aquisições recusadas não impedem reservar o nono item', async () => {
+    const f = itemRecoveryFixture();
+    f.original.items = Array.from({ length: 9 }, (_, index) => ({ ...structuredClone(f.original.items[0]),
+      itemId: `item-${index}`, turnId: `turn-${index}`, recoveryReference: { ...recoveryReference, turnId: `turn-${index}` } }));
+    f.original.orderedItemIds = f.original.items.map(item => item.itemId);
+    f.original.totalCount = f.original.endIndex = 9;
+    await f.open();
+    f.port.reserveItem.mockImplementation(async (_window, identity) => {
+      if (identity.itemId !== 'item-8') throw new Error('unavailable');
+      return new apidto.TimelineRecoveryItemReservation({ conversationId: 'chat', identity });
+    });
+    f.port.readItem.mockResolvedValue(f.original.items[8]);
+    f.port.refresh.mockResolvedValue({ ...f.original, windowRevision: '3',
+      items: f.original.items.slice(0, 8), orderedItemIds: f.original.orderedItemIds.slice(0, 8), totalCount: 8, endIndex: 8 });
+    await f.client.refresh('chat');
+    expect(f.port.reserveItem).toHaveBeenCalledTimes(9);
+    expect(f.client.getRecoveredItems('chat').map(value => value.identity.itemId)).toEqual(['item-8']);
+    expect(f.port.releaseItem).toHaveBeenCalledTimes(8);
+    await f.client.refresh('chat');
+    await f.client.dispose();
+  });
+
+  it('recalcula cleanup quando evento remove item necessário durante outra liberação', async () => {
+    const f = itemRecoveryFixture();
+    const other = { ...structuredClone(f.original.items[0]), itemId: 'other', turnId: 'other-turn',
+      recoveryReference: { ...recoveryReference, turnId: 'other-turn' } };
+    f.original.items.push(other); f.original.orderedItemIds.push('other');
+    f.original.totalCount = f.original.endIndex = 2;
+    await f.open();
+    f.port.readItem.mockImplementation(async (_window, identity) => structuredClone(f.original.items.find(item => item.itemId === identity.itemId)!));
+    f.port.refresh.mockResolvedValueOnce(snapshot('a', { sequence: '12', windowRevision: '3',
+      items: [other], orderedItemIds: ['other'], totalCount: 1, endIndex: 1 }));
+    const release = deferred<void>();
+    f.port.releaseItem.mockReturnValueOnce(release.promise);
+    const refreshing = f.client.refresh('chat');
+    await vi.waitFor(() => expect(f.port.releaseItem).toHaveBeenCalledOnce());
+    f.emit(event('a', { snapshotRevision: '3', updates: [{ conversationId: 'chat', epoch: 'epoch', sequence: '13',
+      operations: [{ kind: 'item_remove', itemId: 'item', revision: '13' }],
+      windowPatches: [{ windowId: 'a', previousRevision: '3', revision: '4' }] }] }));
+    release.resolve(); await refreshing;
+    expect(f.port.releaseItem.mock.calls.map(([, identity]) => identity.itemId)).toEqual(['other', 'item']);
+    expect(f.client.getRecoveredItems('chat')).toEqual([]);
+    f.port.refresh.mockResolvedValueOnce(snapshot('a', { sequence: '14', windowRevision: '5',
+      items: [other], orderedItemIds: ['other'], totalCount: 1, endIndex: 1 }));
+    await f.client.refresh('chat');
+    await f.client.dispose();
+  });
+
+  it('preserva reserva que passa a ser necessária enquanto outra liberação aguarda', async () => {
+    const f = itemRecoveryFixture();
+    const other = { ...structuredClone(f.original.items[0]), itemId: 'other', turnId: 'other-turn',
+      recoveryReference: { ...recoveryReference, turnId: 'other-turn' } };
+    f.original.items.push(other); f.original.orderedItemIds.push('other');
+    f.original.totalCount = f.original.endIndex = 2;
+    await f.open();
+    f.port.readItem.mockImplementation(async (_window, identity) => structuredClone(f.original.items.find(item => item.itemId === identity.itemId)!));
+    f.port.refresh.mockResolvedValueOnce({ ...f.original, sequence: '12', windowRevision: '3' });
+    const release = deferred<void>();
+    f.port.releaseItem.mockReturnValueOnce(release.promise);
+    const refreshing = f.client.refresh('chat');
+    await vi.waitFor(() => expect(f.port.releaseItem).toHaveBeenCalledOnce());
+    const replacement = { ...other, revision: '13', executionId: 'retry',
+      recoveryReference: { ...other.recoveryReference, executionId: 'retry' }, segments: [] };
+    f.emit(event('a', { snapshotRevision: '3', updates: [{ conversationId: 'chat', epoch: 'epoch', sequence: '13',
+      operations: [{ kind: 'item_upsert', itemId: 'other', revision: '13', item: replacement }],
+      windowPatches: [{ windowId: 'a', previousRevision: '3', revision: '4' }] }] }));
+    release.resolve(); await refreshing;
+    expect(f.port.releaseItem.mock.calls.map(([, identity]) => identity.itemId)).toEqual(['item']);
+    const [held] = f.client.getRecoveredItems('chat');
+    expect(held.identity.itemId).toBe('other');
+    expect(await f.client.readRecoveredItem('chat', held)).toEqual(other);
+    expect(f.client.getItem('chat', 'a', 'other')).toEqual(replacement);
+    await f.client.dispose();
+  });
+
+  it.each([false, true])('distribui reservas entre capabilities, primeira com buffers=%s', async buffers => {
+    const f = itemRecoveryFixture();
+    f.original.items = Array.from({ length: 9 }, (_, index) => ({ ...structuredClone(f.original.items[0]),
+      itemId: `item-${index}`, turnId: `turn-${index}`, recoveryReference: { ...recoveryReference, turnId: `turn-${index}` } }));
+    f.original.orderedItemIds = f.original.items.map(item => item.itemId);
+    f.original.totalCount = f.original.endIndex = 9;
+    f.port.readItem.mockImplementation(async (_window, identity) => structuredClone(f.original.items.find(item => item.itemId === identity.itemId)!));
+    const reservations = new Map<string, Set<string>>();
+    f.port.reserveItem.mockImplementation(async (window, identity) => {
+      const held = reservations.get(window) ?? new Set<string>();
+      if (held.size >= (buffers && window === 'a' ? 7 : 8)) throw new Error('reservation limit');
+      held.add(identity.itemId); reservations.set(window, held);
+      return new apidto.TimelineRecoveryItemReservation({ conversationId: 'chat', identity });
+    });
+    await f.open(); await f.open('b');
+    await f.client.refresh('chat');
+    expect(f.client.getRecoveredItems('chat')).toHaveLength(9);
+    expect(reservations.get('a')?.size).toBe(buffers ? 7 : 8);
+    expect(reservations.get('b')?.size).toBe(buffers ? 2 : 1);
+    await f.client.dispose();
+  });
+
+  it.each([false, true])('não substitui referência reservada por outra época, segunda janela=%s', async second => {
+    const f = itemRecoveryFixture();
+    await f.open();
+    const next = structuredClone(f.original);
+    next.epoch = 'new'; next.windowRevision = '3'; next.sequence = next.items[0].revision = '12';
+    f.port.refresh.mockResolvedValueOnce(next);
+    await f.client.refresh('chat');
+    const [old] = f.client.getRecoveredItems('chat');
+    if (second) { f.port.open.mockResolvedValueOnce(snapshot('b', { epoch: 'new', sequence: '12' })); await f.open('b'); }
+    f.port.readItem.mockResolvedValue(next.items[0]);
+    f.port.refresh.mockImplementation(async window => second ? snapshot(window, { epoch: 'new', sequence: '13', windowRevision: '4' }) :
+      { ...next, windowRevision: '4' });
+    await f.client.refresh('chat');
+    expect(f.port.reserveItem.mock.calls.filter(([window]) => window === 'a')).toHaveLength(1);
+    expect(f.client.getRecoveredItems('chat')).toContainEqual(old);
+    expect(f.client.getRecoveredItems('chat')).toHaveLength(second ? 2 : 1);
+    expect(f.port.releaseItem).not.toHaveBeenCalled();
+    await f.client.dispose();
+  });
+
+  it('descritor antigo não lê nem libera reserva da superfície reaberta', async () => {
+    const f = itemRecoveryFixture();
+    await f.open(); await f.client.refresh('chat');
+    const [old] = f.client.getRecoveredItems('chat');
+    await f.client.releaseRecoveredItem('chat', old);
+    await f.client.close('chat', 'a');
+    f.port.open.mockResolvedValueOnce({ ...f.original, windowId: 'new-window' });
+    await f.open(); await f.client.refresh('chat');
+    const [current] = f.client.getRecoveredItems('chat');
+    f.port.readItem.mockClear(); f.port.releaseItem.mockClear();
+    await expect(f.client.readRecoveredItem('chat', old)).rejects.toThrow('unavailable');
+    await expect(f.client.releaseRecoveredItem('chat', old)).rejects.toThrow('unavailable');
+    expect(f.port.readItem).not.toHaveBeenCalled(); expect(f.port.releaseItem).not.toHaveBeenCalled();
+    expect(await f.client.readRecoveredItem('chat', current)).toEqual(f.original.items[0]);
+    await f.client.dispose();
+  });
+
+  it('cleanup entre superfícies não sobrescreve RPC pendente de outra janela', async () => {
+    const f = itemRecoveryFixture();
+    await f.open(); await f.open('b');
+    f.port.reserveItem.mockRejectedValue(new Error('offline'));
+    f.port.releaseItem.mockRejectedValue(new Error('offline'));
+    await expect(f.client.refresh('chat')).rejects.toThrow('cleanup failed');
+    const release = deferred<void>();
+    const reading = deferred<apidto.TimelineRecoveryPage>();
+    f.port.releaseItem.mockReset().mockReturnValueOnce(release.promise);
+    const cleanup = f.client.cleanupRecoveryItems('chat');
+    const rejected = expect(cleanup).rejects.toThrow('busy');
+    await vi.waitFor(() => expect(f.port.releaseItem).toHaveBeenCalledOnce());
+    f.port.readRecovery.mockReturnValueOnce(reading.promise);
+    f.port.reserveRecovery.mockResolvedValue(recoveryReceipt());
+    const opening = f.client.openRecovery('chat', 'b', recoveryReference);
+    await vi.waitFor(() => expect(f.port.readRecovery).toHaveBeenCalledOnce());
+    release.resolve(); await rejected;
+    await expect(f.client.refresh('chat')).rejects.toThrow('busy');
+    reading.resolve(recoveryPage()); await opening;
+    await f.client.cleanupRecoveryItems('chat');
+    await f.client.dispose();
+  });
+
+  it('reserva antes de Refresh, promove sem reinserir e permite leitura/liberação explícita', async () => {
+    const f = itemRecoveryFixture();
+    await f.open();
+    await f.client.refresh('chat');
+    expect(f.port.reserveItem.mock.invocationCallOrder[0]).toBeLessThan(f.port.refresh.mock.invocationCallOrder[0]);
+    expect(f.client.getWindow('chat', 'a')?.orderedItemIds).toEqual([]);
+    expect(f.client.getItem('chat', 'a', 'item')).toBeUndefined();
+    const [held] = f.client.getRecoveredItems('chat');
+    expect(await f.client.readRecoveredItem('chat', held)).toEqual(f.original.items[0]);
+    await expect(f.client.close('chat', 'a')).rejects.toThrow('explicit release');
+    expect(f.client.getWindow('chat', 'a')).toBeDefined();
+    await f.client.refresh('chat');
+    expect(f.port.reserveItem).toHaveBeenCalledTimes(1);
+    expect(f.client.getRecoveredItems('chat')).toEqual([held]);
+    await f.client.releaseRecoveredItem('chat', held);
+    expect(f.client.getRecoveredItems('chat')).toEqual([]);
+    await f.client.close('chat', 'a');
+  });
+
+  it.each(['epoch', 'retry', 'persisted-retry'])('não confunde identidade do item com preservação: %s', async scenario => {
+    const f = itemRecoveryFixture();
+    await f.open();
+    const next = structuredClone(f.original);
+    next.sequence = next.items[0].revision = '12';
+    next.windowRevision = '3';
+    if (scenario === 'epoch') next.epoch = 'new';
+    else {
+      next.items[0].executionId = 'retry';
+      next.items[0].recoveryReference!.executionId = 'retry';
+      next.items[0].segments = [];
+      if (scenario === 'persisted-retry') {
+        delete next.items[0].recoveryReference;
+        next.items[0].durability = 'persisted';
+        next.items[0].state = 'completed';
+      }
+    }
+    f.port.refresh.mockResolvedValueOnce(next);
+    await f.client.refresh('chat');
+    expect(f.client.getRecoveredItems('chat')).toHaveLength(1);
+    expect(f.client.getItem('chat', 'a', 'item')).toEqual(next.items[0]);
+    await f.client.dispose();
+    expect(f.port.close).toHaveBeenCalledOnce();
+  });
+
+  it('reserva recusada não bloqueia snapshot persistido da mesma execução', async () => {
+    const f = itemRecoveryFixture();
+    await f.open();
+    f.port.reserveItem.mockRejectedValueOnce(new Error('cache evicted'));
+    const next = structuredClone(f.original);
+    next.items[0].state = 'completed'; next.items[0].durability = 'persisted';
+    delete next.items[0].recoveryReference;
+    f.port.refresh.mockResolvedValueOnce(next);
+    await f.client.refresh('chat');
+    expect(f.client.getError('chat')).toBeUndefined();
+    expect(f.client.getRecoveredItems('chat')).toEqual([]);
+    expect(f.port.releaseItem).toHaveBeenCalledOnce();
+  });
+
+  it.each(['text', 'tool', 'metadata', 'identity', 'receipt'])('prova do DTO inteiro recusa alteração em %s', async field => {
+    const f = itemRecoveryFixture();
+    await f.open();
+    const value = structuredClone(f.original.items[0]);
+    if (field === 'text') value.segments[0].text += 'diferente';
+    if (field === 'tool') value.segments[1].invocations![0].hasDetails = false;
+    if (field === 'metadata') value.metadata.model = 'other';
+    if (field === 'identity') value.recoveryReference!.executionId = 'other';
+    if (field === 'receipt') f.port.reserveItem.mockResolvedValueOnce(new apidto.TimelineRecoveryItemReservation({ conversationId: 'other', identity: {} }));
+    f.port.readItem.mockResolvedValueOnce(value);
+    await expect(f.client.refresh('chat')).rejects.toThrow('ownership transfer');
+    expect(f.client.getItem('chat', 'a', 'item')).toEqual(f.original.items[0]);
+    expect(f.client.getRecoveredItems('chat')).toEqual([]);
+    expect(f.port.releaseItem).toHaveBeenCalledOnce();
+  });
+
+  it('falha de cleanup conserva identidade e exige retry explícito antes de novo Refresh', async () => {
+    const f = itemRecoveryFixture();
+    await f.open();
+    f.port.reserveItem.mockRejectedValueOnce(new Error('lost response'));
+    f.port.releaseItem.mockRejectedValueOnce(new Error('offline'));
+    await expect(f.client.refresh('chat')).rejects.toThrow('cleanup failed');
+    await expect(f.client.refresh('chat')).rejects.toThrow('cleanup pending');
+    await f.client.cleanupRecoveryItems('chat');
+    expect(f.port.releaseItem.mock.calls[0]).toEqual(f.port.releaseItem.mock.calls[1]);
+    await f.client.refresh('chat');
+    expect(f.client.getRecoveredItems('chat')).toHaveLength(1);
+  });
+
+  it.each(['reserve', 'read', 'refresh'])('Close durante %s impede transferência para capability fechada', async stage => {
+    const f = itemRecoveryFixture();
+    await f.open();
+    const entered = deferred<void>();
+    const pending = deferred<void>();
+    if (stage === 'reserve') f.port.reserveItem.mockImplementationOnce(async (_window, identity) => {
+      entered.resolve(); await pending.promise; return new apidto.TimelineRecoveryItemReservation({ conversationId: 'chat', identity });
+    });
+    if (stage === 'read') f.port.readItem.mockImplementationOnce(async () => {
+      entered.resolve(); await pending.promise; return f.original.items[0];
+    });
+    if (stage === 'refresh') f.port.refresh.mockImplementationOnce(async () => {
+      entered.resolve(); await pending.promise; return snapshot();
+    });
+    const recovering = f.client.refresh('chat');
+    const failure = expect(recovering).rejects.toThrow('ownership transfer');
+    await entered.promise;
+    await f.client.close('chat', 'a');
+    pending.resolve();
+    await failure;
+    expect(f.client.getRecoveredItems('chat')).toEqual([]);
+    expect(f.port.close).toHaveBeenCalledOnce();
+  });
+
+  it('falha de liberação mantém leitura e bloqueia Close; logout encerra capability', async () => {
+    const f = itemRecoveryFixture();
+    await f.open(); await f.client.refresh('chat');
+    const [held] = f.client.getRecoveredItems('chat');
+    f.port.releaseItem.mockRejectedValueOnce(new Error('offline'));
+    await expect(f.client.releaseRecoveredItem('chat', held)).rejects.toThrow('offline');
+    expect(await f.client.readRecoveredItem('chat', held)).toEqual(f.original.items[0]);
+    await expect(f.client.close('chat', 'a')).rejects.toThrow('explicit release');
+    await f.client.dispose();
+    await expect(f.client.readRecoveredItem('chat', held)).rejects.toThrow('disposed');
+  });
+
+  it('leitura tardia não revive reserva liberada nem descritor de outra superfície', async () => {
+    const f = itemRecoveryFixture();
+    await f.open(); await f.open('b'); await f.client.refresh('chat');
+    const [held] = f.client.getRecoveredItems('chat');
+    await expect(f.client.readRecoveredItem('chat', { ...held, surfaceId: 'b' })).rejects.toThrow('unavailable');
+    const pending = deferred<typeof f.original.items[0]>();
+    f.port.readItem.mockReturnValueOnce(pending.promise);
+    const reading = f.client.readRecoveredItem('chat', held);
+    const rejected = expect(reading).rejects.toThrow('unavailable');
+    await f.client.releaseRecoveredItem('chat', held);
+    pending.resolve(f.original.items[0]);
+    await rejected;
+    expect(f.client.getRecoveredItems('chat')).toEqual([]);
+  });
+});
 function recoveryPage(cursor = '') {
   return new apidto.TimelineRecoveryPage({ conversationId: 'chat', reference: recoveryReference, found: true, contentVersion: '3',
     chunks: [{ iteration: 0, generation: '1', part: 0, kind: 'text', byteOffset: 0, text: 'bytes' }], nextCursor: cursor });

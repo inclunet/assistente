@@ -92,13 +92,27 @@ export class TimelineConversationState {
   }
   get cachedItems(): number { return this.records.size; }
   get hasProtectedItems(): boolean { return [...this.records.values()].some(record => protectedItem(record.entry.item)); }
-  wouldDiscardProtectedItems(replacement: TimelineConversationState): boolean {
+  protectedItems(): { epoch: string; item: TimelineItem }[] {
+    if (!this.epoch) return [];
+    return [...this.records.values()].flatMap(record => protectedItem(record.entry.item)
+      ? [{ epoch: this.epoch!, item: record.entry.item! }] : []);
+  }
+  protectedItemsLostBy(replacement: TimelineConversationState): { epoch: string; item: TimelineItem }[] {
+    const lost: { epoch: string; item: TimelineItem }[] = [];
     for (const [id, record] of this.records) {
       if (!protectedItem(record.entry.item)) continue;
       const next = replacement.records.get(id);
-      if (!next || (replacement.epoch === this.epoch && revision(next.entry.revision) < revision(record.entry.revision))) return true;
+      const before = record.entry.item?.recoveryReference;
+      const after = next?.entry.item?.recoveryReference;
+      const expectedExecution = before?.executionId ?? record.entry.item?.executionId;
+      const otherExecution = next?.entry.item && ((!expectedExecution || next.entry.item.executionId !== expectedExecution) ||
+        (before && after && (before.projectionId !== after.projectionId || before.incarnation !== after.incarnation ||
+          before.turnId !== after.turnId || before.executionId !== after.executionId)));
+      if (!next || replacement.epoch !== this.epoch || otherExecution || revision(next.entry.revision) < revision(record.entry.revision)) {
+        lost.push({ epoch: this.epoch!, item: record.entry.item! });
+      }
     }
-    return false;
+    return lost;
   }
   get bufferedBatches(): number { return this.bufferBatches; }
 

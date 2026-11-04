@@ -1,8 +1,80 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, mensagens, áudio, limpeza, exclusão e importação integrados; retenção por idade, órfãos, navegação, leitura leve e orçamento de fontes da janela com recuperação atômica e parcelada e participação histórica automática com publicação e replay atômicos integrados; followTail, retenção por foco/leitura, DTOs compartilhados, RPCs de inscrição, entrega pelo journal e transporte de eventos Wails integrados; núcleo transacional, coordenador e cliente Wails por sessão frontend e identidade de recuperação por execução, consulta autorizada de estado, leitura limitada, reserva explícita dos buffers finalizados, leitor de recuperação Wails e reserva do DTO canônico publicado preparados; margem de desempenho e cutover pendentes
+## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, mensagens, áudio, limpeza, exclusão e importação integrados; retenção por idade, órfãos, navegação, leitura leve e orçamento de fontes da janela com recuperação atômica e parcelada e participação histórica automática com publicação e replay atômicos integrados; followTail, retenção por foco/leitura, DTOs compartilhados, RPCs de inscrição, entrega pelo journal e transporte de eventos Wails integrados; núcleo transacional, coordenador e cliente Wails por sessão frontend e identidade de recuperação por execução, consulta autorizada de estado, leitura limitada, reserva explícita dos buffers finalizados, leitor de recuperação Wails, reserva do DTO canônico publicado e transferência de recuperação no Refresh integrados; margem de desempenho e cutover pendentes
 
 Data: 2026-10-30
+
+### Recorte: Refresh com transferência explícita de recuperação (2026-11-04)
+
+O cliente integra reserva, prova do DTO, promoção e leitura/liberação posterior
+em um único ciclo de Refresh. Antes dos RPCs de snapshot, tenta reservar os itens
+protegidos pela identidade exata publicada e confronta ReadRecoveryItem com todos
+os campos do DTO anterior. Não reconstrói segmentos, não compara prefixos e não
+mistura conteúdo de outra execução na timeline atual. A comparação ordena apenas
+chaves de objetos JSON; conserva a ordem dos arrays e o limite de 512 KiB.
+
+A projeção passa a publicar `executionId` explicitamente, vindo de
+ChatTurn.CurrentExecutionID no persistido e da execução viva na composição. Ele
+permanece após conclusão persistida, quando recoveryReference pode desaparecer.
+Legado/importação sem identidade explícita não inventam uma execução. Troca de
+execução gera upsert canônico, inclusive com o mesmo itemId e o mesmo conteúdo.
+
+Um candidato preserva o item protegido somente na mesma época, com execução
+explícita igual e revisão suficiente. Tombstone da mesma época e revisão
+suficiente continua sendo remoção explícita. Outra época, outra execução ou
+identidade ausente exigem reserva e prova; itemId coincidente não basta. Falha da
+reserva não bloqueia um snapshot que comprova continuidade da mesma execução.
+Execução ativa, fonte ausente e cotas excedidas continuam sem autorização de perda.
+Aquisição percorre capabilities elegíveis do mesmo escopo, respeita reservas já
+existentes por referência e tenta outra janela quando uma aquisição é recusada,
+inclusive pela cota compartilhada com buffers. Não substitui uma reserva anterior
+pela mesma referência em outra época/revisão. Tentativas ambíguas ficam registradas
+até sua liberação; a promoção exige também o cleanup dessas tentativas.
+Somente reservas verificadas entram no limite preventivo do cliente; recusas
+não consomem a cota local nem impedem a tentativa de outro item. O backend segue
+autoritativo sobre o limite real, inclusive buffers e aquisições ambíguas.
+
+Depois dos snapshots, reservas não necessárias são liberadas. Antes da promoção,
+o cliente revalida candidato e capabilities sem await e registra a transferência
+junto da troca do coordenador. Close durante aquisição/leitura/snapshot invalida
+a prova; falha parcial conserva a apresentação anterior. Reservas de tentativas
+malsucedidas são liberadas; cleanup falho conserva a identidade e exige
+cleanupRecoveryItems explícito antes de outro Refresh.
+Se eventos mudarem quais reservas são necessárias durante uma liberação, o cliente
+recalcula o cleanup após cada liberação até uma passagem não precisar aguardar RPC,
+e só então promove. Reserva que passar a ser necessária durante outra liberação
+é preservada; a regressão cobre retry recebido durante essa espera.
+
+O cliente mantém somente descritores transferidos, separados da ordem e do índice
+normal da timeline. getRecoveredItems lista esses descritores; readRecoveredItem
+lê o DTO na capability proprietária; releaseRecoveredItem libera explicitamente
+a cópia de recuperação, sem apagar execução persistida. Leituras tardias após
+liberação/logout são recusadas. O descritor inclui windowId e não pode operar uma
+reserva adquirida após reabrir a mesma superfície. Cleanup revalida exclusão de
+Refresh a cada janela e nunca sobrescreve uma operação pendente. Close normal é recusado antes de alterar a
+superfície enquanto houver reserva transferida; logout/dispose encerra a sessão
+e suas capabilities. Falha de Release mantém a reserva acessível para retry.
+
+Evidências: chatTimelineClient.test.ts cobre o ciclo completo, retry persistido,
+mudança de época, recusa de aquisição com continuidade comprovada, divergência de
+texto/ferramentas/metadados/identidade, cleanup, Close concorrente e logout,
+distribuição entre janelas com cotas compartilhadas, conflito de referência,
+descritores após reabertura e cleanup concorrente entre superfícies.
+chatTimelineWails.test.ts percorre os DTOs dos RPCs até Refresh/leitura/liberação.
+response_projection_test.go e timeline_recovery_reference_test.go provam a
+identidade explícita no persistido, no live, no terminal e no retry. Bindings
+regenerados; nenhuma edição manual dos modelos gerados.
+timeline_snapshot_test.go também comprova que, logo após Begin(retry) e antes
+de EnsureResponse, a leitura transacional contém a nova execução sem representante,
+mensagens ou segmentos da anterior. A projeção consome fontes já filtradas pela
+seleção do banco; continuação pode herdar bases explicitamente vinculadas.
+
+Pendente: ativar o consumidor na UI, apresentar/confirmar liberação do conteúdo
+recuperado por teclado/leitor de telas, remover o fluxo legado e medir desempenho.
+Reservas continuam em memória e vinculadas à capability; não sobrevivem ao processo.
+Execuções mutáveis e conteúdo não reservável conservam a apresentação congelada.
+Este recorte fecha o ciclo do cliente, mas não declara os defeitos visuais de foco
+resolvidos antes do cutover. Nenhum teste ACP local nem teste NVDA foi executado.
 
 ### Recorte: reserva do item canônico publicado (2026-11-04)
 

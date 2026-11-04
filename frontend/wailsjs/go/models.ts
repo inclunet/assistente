@@ -758,6 +758,7 @@ export namespace apidto {
 	    }
 	}
 	export class CanonicalItem {
+	    executionId?: string;
 	    recoveryReference?: TimelineRecoveryReference;
 	    itemId: string;
 	    conversationId: string;
@@ -780,6 +781,7 @@ export namespace apidto {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.executionId = source["executionId"];
 	        this.recoveryReference = this.convertValues(source["recoveryReference"], TimelineRecoveryReference);
 	        this.itemId = source["itemId"];
 	        this.conversationId = source["conversationId"];
