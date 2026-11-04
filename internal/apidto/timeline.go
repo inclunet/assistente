@@ -39,6 +39,33 @@ type TimelineRecoveryStatus struct {
 	State          string                    `json:"state"` // active, retained, persisted, unknown
 }
 
+type TimelineRecoveryPageRequest struct {
+	Reference TimelineRecoveryReference `json:"reference"`
+	Cursor    string                    `json:"cursor"`
+}
+
+// Página de buffers em memória. Found=false não confirma descarte. A versão
+// identifica bytes observados, não garante retenção futura nem transferência.
+type TimelineRecoveryPage struct {
+	ConversationID string                    `json:"conversationId"`
+	Reference      TimelineRecoveryReference `json:"reference"`
+	Found          bool                      `json:"found"`
+	ContentVersion string                    `json:"contentVersion"`
+	Chunks         []TimelineRecoveryChunk   `json:"chunks"`
+	NextCursor     string                    `json:"nextCursor"`
+}
+
+// ByteOffset refere-se aos bytes UTF-8 do buffer identificado por iteração,
+// geração, parte e kind. O leitor não deve reinterpretá-lo como índice UTF-16.
+type TimelineRecoveryChunk struct {
+	Iteration  int    `json:"iteration"`
+	Generation string `json:"generation"`
+	Part       int    `json:"part"`
+	Kind       string `json:"kind"`
+	ByteOffset int    `json:"byteOffset"`
+	Text       string `json:"text"`
+}
+
 type CanonicalSegment struct {
 	SegmentID   string                `json:"segmentId"`
 	Kind        string                `json:"kind"`

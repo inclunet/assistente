@@ -14,6 +14,10 @@ export function Open(arg1) {
   return window['go']['wailsapi']['ChatTimeline']['Open'](arg1);
 }
 
+export function ReadRecoveryPage(arg1, arg2) {
+  return window['go']['wailsapi']['ChatTimeline']['ReadRecoveryPage'](arg1, arg2);
+}
+
 export function ReconcileRecovery(arg1, arg2) {
   return window['go']['wailsapi']['ChatTimeline']['ReconcileRecovery'](arg1, arg2);
 }

@@ -1,8 +1,53 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, mensagens, áudio, limpeza, exclusão e importação integrados; retenção por idade, órfãos, navegação, leitura leve e orçamento de fontes da janela com recuperação atômica e parcelada e participação histórica automática com publicação e replay atômicos integrados; followTail, retenção por foco/leitura, DTOs compartilhados, RPCs de inscrição, entrega pelo journal e transporte de eventos Wails integrados; núcleo transacional, coordenador e cliente Wails por sessão frontend e identidade de recuperação por execução e consulta autorizada de estado preparados; margem de desempenho e cutover pendentes
+## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, mensagens, áudio, limpeza, exclusão e importação integrados; retenção por idade, órfãos, navegação, leitura leve e orçamento de fontes da janela com recuperação atômica e parcelada e participação histórica automática com publicação e replay atômicos integrados; followTail, retenção por foco/leitura, DTOs compartilhados, RPCs de inscrição, entrega pelo journal e transporte de eventos Wails integrados; núcleo transacional, coordenador e cliente Wails por sessão frontend e identidade de recuperação por execução, consulta autorizada de estado e leitura limitada dos buffers preparados; margem de desempenho e cutover pendentes
 
 Data: 2026-10-30
+
+### Recorte: páginas limitadas dos buffers de recuperação (2026-11-04)
+
+`ChatTimeline.ReadRecoveryPage` recebe a capability existente, a referência exata
+e um cursor opaco opcional. Compartilha com ReconcileRecovery a autorização,
+barreira cancelável e leitura transacional leve do lifecycle. Não materializa
+mensagens persistidas ou ledger. Close/shutdown cancelam a consulta, inclusive
+enquanto ela espera por um writer; cada página revalida a sessão.
+
+Cada execução mantém uma versão dos buffers. StartStream e mutações aceitas de
+texto/reasoning, Initial, Cut e Seal avançam essa versão. Confirmação no storage
+e término sem alteração dos buffers não a avançam. O cursor inclui conversa,
+referência completa, versão e posição estrutural; não é uma capability. Mudança
+entre páginas retorna erro de cursor desatualizado e exige reiniciar. A leitura
+não fixa snapshot nem mantém outra cópia integral: streaming contínuo pode exigir
+aguardar estabilização. Retry conserva a versão da execução anterior retida.
+
+Cada página copia no máximo 64 KiB de texto UTF-8 e visita no máximo 128 buffers,
+inclusive vazios. Um índice ordenado de iterações, sem conteúdo duplicado, evita
+ordenar todos os streams na consulta. Páginas vazias podem ter próximo cursor:
+o consumidor deve seguir até cursor vazio. Fatias retornadas são copiadas para
+não manter o backing buffer inteiro. Offsets são bytes UTF-8, não índices UTF-16;
+nenhuma rune é dividida. Texto inválido ou ainda incompleto é recusado sem
+substituição silenciosa; o consumidor pode reiniciar após novos bytes. Identidade
+total, incluindo conversa, limitada a 1.024 bytes e cursor a 16 KiB, com envelope
+JSON escapado abaixo de 512 KiB. O limite de percurso também vale para milhares
+de partes vazias; nenhum hash, snapshot integral ou scan de conteúdo confirmado
+é calculado na leitura.
+
+`found=false` distingue referência ausente de execução existente sem texto.
+Erros de autorização, storage, cursor ou cancelamento não viram ausência. A versão
+identifica somente os bytes observados, não comprova retenção futura, persistência
+ou transferência de responsabilidade. O frontend ainda não consome o RPC nem
+libera cache protegido com esse resultado.
+
+Evidências: `timeline_recovery_page_test.go` cobre reconstrução, cotas, UTF-8,
+fatias independentes, vazio versus ausência, mutadores, retry, importação,
+confirmação/terminal, cursor adulterado, autorização e cancelamento;
+`chat_timeline_recovery_page_test.go` cobre snapshot → referência → páginas,
+capability e sessão; os testes Wails de cancelamento da reconciliação também
+exercitam o novo RPC em Close/shutdown e espera pela barreira de um writer.
+Bindings regenerados pelo Wails.
+
+Pendente: prova de preservação/transferência dos bytes, integração da recuperação
+no frontend, cutover visual e critérios globais de desempenho.
 
 ### Recorte: consulta autorizada da referência de recuperação (2026-11-04)
 
