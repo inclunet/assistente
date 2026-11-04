@@ -95,6 +95,7 @@ export interface TimelineUpdate {
 }
 
 export interface ChatTimelineEvent {
+  surfaceId: string;
   conversationId: string;
   windowId: string;
   epoch: string;

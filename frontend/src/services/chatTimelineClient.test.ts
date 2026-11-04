@@ -20,23 +20,39 @@ function snapshot(windowId = 'a', overrides: Partial<TimelineSnapshot> = {}): Ti
 }
 function event(windowId = 'a', overrides: Partial<ChatTimelineEvent> = {}): ChatTimelineEvent {
   return {
-    conversationId: 'chat', windowId, epoch: 'epoch', snapshotRevision: '1', syncRequired: false,
+    conversationId: 'chat', surfaceId: `${windowId}#1`, windowId, epoch: 'epoch', snapshotRevision: '1', syncRequired: false,
     updates: [{ conversationId: 'chat', epoch: 'epoch', sequence: '11', operations: [],
       windowPatches: [{ windowId, previousRevision: '1', revision: '2' }] }], ...overrides,
   };
+}
+function contentSnapshot(protectedContent: boolean): TimelineSnapshot {
+    const value = snapshot();
+    value.items = [{ itemId: 'item', conversationId: 'chat', scopeParentId: null, kind: 'assistant',
+      turnId: 'turn', replyToItemId: 'question', messageIds: ['message'], representativeMessageId: 'message',
+      position: 'opaque', revision: '10', state: protectedContent ? 'streaming' : 'completed',
+      durability: protectedContent ? 'volatile' : 'persisted', segments: [],
+      metadata: { origin: 'chat', role: 'assistant', pinned: false, model: '', promptTokens: 0, completionTokens: 0, totalTokens: 0 } }];
+    value.orderedItemIds = ['item'];
+    value.totalCount = value.endIndex = 1;
+    return value;
 }
 function fixture() {
   let emit!: (event: ChatTimelineEvent) => void;
   const unsubscribe = vi.fn();
   const port = {
     listen: vi.fn((receive: typeof emit) => { emit = receive; return unsubscribe; }),
-    open: vi.fn<TimelineTransport['open']>(async (_id, surface) => snapshot(surface)),
+    open: vi.fn<TimelineTransport['open']>(async (_id, surface) => snapshot(surface.split('#')[0])),
     refresh: vi.fn<TimelineTransport['refresh']>(async id => snapshot(id, { windowRevision: '3', sequence: '12' })),
     navigate: vi.fn<TimelineTransport['navigate']>(async id => snapshot(id, { windowRevision: '3', sequence: '12' })),
     retain: vi.fn<TimelineTransport['retain']>(async () => {}),
     close: vi.fn<TimelineTransport['close']>(async () => {}),
   };
-  const client = new ChatTimelineClient(port);
+  const generations = new Map<string, number>();
+  const client = new ChatTimelineClient(port, surface => {
+    const generation = (generations.get(surface) ?? 0) + 1;
+    generations.set(surface, generation);
+    return `${surface}#${generation}`;
+  });
   const open = (surface = 'a') => client.open('chat', surface, null, position);
   return { client, port, open, emit: (value: ChatTimelineEvent) => emit(value), unsubscribe };
 }
@@ -387,5 +403,94 @@ describe('ChatTimelineClient', () => {
       expect(f.client.getError('chat')).toBeUndefined();
       expect(f.client.getWindow('chat', 'b')?.sequence).toBe('12');
     }
+  });
+
+  it('promoção e nova abertura não reabilitam entregas de inscrição encerrada', async () => {
+    const f = fixture();
+    await f.open();
+    await f.open('b');
+    await f.client.close('chat', 'a');
+    await f.client.refresh('chat');
+    const pending = deferred<TimelineSnapshot>();
+    f.port.open.mockReturnValueOnce(pending.promise);
+    const opening = f.open('c');
+    for (let index = 0; index < 300; index++) f.emit(event());
+    pending.resolve(snapshot('c', { sequence: '12' }));
+    await opening;
+    expect(f.client.getError('chat')).toBeUndefined();
+    expect(f.client.getWindow('chat', 'b')).toBeDefined();
+    expect(f.client.getWindow('chat', 'c')).toBeDefined();
+  });
+
+  it('fechar superfície com erro local libera operações nas demais sem Refresh', async () => {
+    const f = fixture();
+    await f.open();
+    await f.open('b');
+    f.emit(event('a', { syncRequired: true, updates: [] }));
+    expect(f.client.getError('chat')).toBeDefined();
+    await f.client.close('chat', 'a');
+    expect(f.client.getError('chat')).toBeUndefined();
+    await f.client.navigate('chat', 'b', 'historical', position);
+    f.port.open.mockResolvedValueOnce(snapshot('new-a', { sequence: '12' }));
+    await f.open();
+    expect(f.client.getWindow('chat', 'a')?.windowId).toBe('new-a');
+  });
+
+  it.each([false, true])('último Close descarta cache em erro apenas quando dispensável, protegido=%s', async protectedContent => {
+    const f = fixture();
+    const value = contentSnapshot(protectedContent);
+    f.port.open.mockResolvedValueOnce(value);
+    await f.open();
+    f.port.refresh.mockRejectedValueOnce(new Error('offline'));
+    await expect(f.client.refresh('chat')).rejects.toThrow('offline');
+    await f.client.close('chat', 'a');
+    if (protectedContent) {
+      expect(f.client.getError('chat')).toBeDefined();
+      await expect(f.open()).rejects.toThrow('unavailable');
+      await expect(f.client.refresh('chat')).rejects.toThrow('active surface');
+    } else {
+      await f.open();
+      expect(f.client.getWindow('chat', 'a')).toBeDefined();
+    }
+  });
+
+  it('rejeita evento sem correlação e evento com capability divergente', async () => {
+    const f = fixture();
+    await f.open();
+    f.emit(event('a', { surfaceId: '' }));
+    f.emit(event('other', { surfaceId: 'a#1' }));
+    expect(f.client.getWindow('chat', 'a')?.sequence).toBe('10');
+  });
+
+  it.each([false, true])('não descarta protegido de janela fechada durante Refresh, outra janela=%s', async anotherWindow => {
+    const f = fixture();
+    f.port.open.mockResolvedValueOnce(contentSnapshot(true));
+    await f.open();
+    if (anotherWindow) await f.open('b');
+    const pending = deferred<TimelineSnapshot>();
+    f.port.refresh.mockReturnValueOnce(pending.promise);
+    const recovery = f.client.refresh('chat');
+    await Promise.resolve();
+    await f.client.close('chat', 'a');
+    pending.resolve(snapshot());
+    await expect(recovery).rejects.toThrow('ownership transfer');
+    if (anotherWindow) {
+      expect(f.client.getWindow('chat', 'b')?.sequence).toBe('10');
+      await f.client.close('chat', 'b');
+    }
+    await expect(f.open()).rejects.toThrow('unavailable');
+  });
+
+  it('permite promoção quando snapshot confirma persistência do conteúdo antes protegido', async () => {
+    const f = fixture();
+    f.port.open.mockResolvedValueOnce(contentSnapshot(true));
+    await f.open();
+    const persisted = contentSnapshot(false);
+    persisted.sequence = persisted.items[0].revision = '11';
+    persisted.windowRevision = '2';
+    f.port.refresh.mockResolvedValueOnce(persisted);
+    await f.client.refresh('chat');
+    expect(f.client.getItem('chat', 'a', 'item')?.durability).toBe('persisted');
+    expect(f.client.getError('chat')).toBeUndefined();
   });
 });

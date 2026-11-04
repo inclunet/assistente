@@ -79,6 +79,15 @@ export class TimelineConversationState {
     return this.stopped ?? [...this.surfaces.values()].find(surface => surface.recovery)?.recovery;
   }
   get cachedItems(): number { return this.records.size; }
+  get hasProtectedItems(): boolean { return [...this.records.values()].some(record => protectedItem(record.entry.item)); }
+  wouldDiscardProtectedItems(replacement: TimelineConversationState): boolean {
+    for (const [id, record] of this.records) {
+      if (!protectedItem(record.entry.item)) continue;
+      const next = replacement.records.get(id);
+      if (!next || (replacement.epoch === this.epoch && revision(next.entry.revision) < revision(record.entry.revision))) return true;
+    }
+    return false;
+  }
   get bufferedBatches(): number { return this.bufferBatches; }
 
   getWindow(surfaceId: string): TimelineSurfaceWindow | undefined {

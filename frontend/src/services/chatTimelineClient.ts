@@ -1,7 +1,7 @@
 import type { ChatTimelineEvent } from '../types/chatTimelineEvents';
 import { TimelineCacheBudget } from './timelineCacheBudget';
 import { revision } from './timelineBatch';
-import { TimelineConversationState, type TimelineSnapshot, type TimelineStateResult } from './timelineConversationState';
+import { TimelineConversationState, type TimelineSnapshot } from './timelineConversationState';
 
 export interface TimelinePosition {
   cursor: string;
@@ -19,6 +19,7 @@ export interface TimelineTransport {
   close(windowId: string): Promise<void>;
 }
 interface Slot {
+  registrationId: string;
   scope: string | null;
   windowId?: string;
   baseline?: string;
@@ -32,7 +33,7 @@ interface Conversation {
   slots: Map<string, Slot>;
   candidate?: TimelineConversationState;
   recovery?: Promise<void>;
-  error?: unknown;
+  recoveryError?: Error;
 }
 
 /** Transporte por sessão. Conteúdo, ordem e revisão aplicada pertencem ao coordenador. */
@@ -44,12 +45,13 @@ export class ChatTimelineClient {
   private disposed = false;
   private disposal?: Promise<void>;
 
-  constructor(private readonly transport: TimelineTransport) {
+  constructor(private readonly transport: TimelineTransport, private readonly registrationId = (_surface: string): string => crypto.randomUUID()) {
     this.unsubscribe = transport.listen(event => {
       const conversation = this.conversations.get(event.conversationId);
-      if (this.disposed || !conversation || (conversation.error && !conversation.candidate)) return;
-      if (conversation.candidate && ![...conversation.slots.values()].some(slot => !slot.closed && slot.windowId === event.windowId)) return;
-      this.observe(conversation, (conversation.candidate ?? conversation.state).receive(event));
+      if (this.disposed || !conversation || (conversation.recoveryError && !conversation.candidate)) return;
+      const slot = [...conversation.slots.values()].find(value => !value.closed && value.registrationId === event.surfaceId);
+      if (!slot || (slot.windowId && slot.windowId !== event.windowId)) return;
+      (conversation.candidate ?? conversation.state).receive(event);
       this.notify();
     });
   }
@@ -64,7 +66,12 @@ export class ChatTimelineClient {
   getItem(conversationId: string, surfaceId: string, itemId: string) {
     return this.conversations.get(conversationId)?.state.getItem(surfaceId, itemId);
   }
-  getError(conversationId: string): unknown { return this.conversations.get(conversationId)?.error; }
+  getError(conversationId: string): Error | undefined {
+    const conversation = this.conversations.get(conversationId);
+    if (!conversation) return;
+    const reason = (conversation.candidate ?? conversation.state).recoveryReason;
+    return conversation.recoveryError ?? (reason ? new Error(`Timeline recovery required: ${reason}`) : undefined);
+  }
 
   async open(conversationId: string, surfaceId: string, scope: string | null, position: TimelinePosition): Promise<void> {
     this.assertActive();
@@ -74,28 +81,27 @@ export class ChatTimelineClient {
       conversation = { state: new TimelineConversationState(conversationId, this.budget), slots: new Map() };
       this.conversations.set(conversationId, conversation);
     }
-    if (conversation.recovery || conversation.error || conversation.slots.has(surfaceId)) throw new Error('Timeline surface unavailable');
+    if (conversation.recovery || this.getError(conversationId) || conversation.slots.has(surfaceId)) throw new Error('Timeline surface unavailable');
     const owner = conversation;
     const token = owner.state.beginSnapshot(surfaceId, scope);
-    const slot: Slot = { scope, closed: false };
+    const slot: Slot = { scope, closed: false, registrationId: this.registrationId(surfaceId) };
     owner.slots.set(surfaceId, slot);
     return this.run(slot, async () => {
       try {
-        const snapshot = await this.transport.open(conversationId, surfaceId, scope, position);
+        const snapshot = await this.transport.open(conversationId, slot.registrationId, scope, position);
         slot.windowId = snapshot.windowId;
         slot.baseline = snapshot.windowRevision;
         slot.epoch = snapshot.epoch;
         if (slot.closed || this.disposed) {
-          this.observe(owner, owner.state.acceptSnapshot(token, snapshot));
+          owner.state.acceptSnapshot(token, snapshot);
           await this.closeRemote(slot);
           return;
         }
-        const result = owner.state.acceptSnapshot(token, snapshot);
+        owner.state.acceptSnapshot(token, snapshot);
         if (!owner.state.getWindow(surfaceId)) throw new Error('Timeline snapshot rejected');
-        this.observe(owner, result);
       } catch (error) {
         if (slot.closed || this.disposed) throw error;
-        this.observe(owner, owner.state.close(surfaceId));
+        owner.state.close(surfaceId);
         slot.closed = true;
         await this.closeRemote(slot);
         if (owner.slots.get(surfaceId) === slot) owner.slots.delete(surfaceId);
@@ -114,19 +120,19 @@ export class ChatTimelineClient {
         slot.baseline = snapshot.windowRevision;
         slot.epoch = snapshot.epoch;
         if (slot.closed || this.disposed) return;
-        this.observe(conversation, conversation.state.acceptSnapshot(token, snapshot));
+        conversation.state.acceptSnapshot(token, snapshot);
       } catch (error) {
-        if (!slot.closed && !this.disposed) this.observe(conversation, conversation.state.failSnapshot(token));
+        if (!slot.closed && !this.disposed) conversation.state.failSnapshot(token);
         throw error;
       } finally { this.notify(); }
     });
   }
 
   async setRetention(conversationId: string, surfaceId: string, itemIds: string[]): Promise<void> {
-    const { conversation, slot, window } = this.ready(conversationId, surfaceId, itemIds.length === 0);
+    const { slot, window } = this.ready(conversationId, surfaceId, itemIds.length === 0);
     // Liberação não recupera o visual. Usa somente checkpoints comprovados;
     // revisão desconhecida continua sujeita ao CAS do backend, sem retry implícito.
-    const useSnapshot = conversation.error && slot.epoch && slot.baseline &&
+    const useSnapshot = this.getError(conversationId) && slot.epoch && slot.baseline &&
       (slot.epoch !== window.epoch || revision(slot.baseline) > revision(window.revision));
     const epoch = useSnapshot ? slot.epoch! : window.epoch;
     const currentRevision = useSnapshot ? slot.baseline! : window.revision;
@@ -139,13 +145,14 @@ export class ChatTimelineClient {
     const conversation = this.conversations.get(conversationId);
     if (!conversation) return Promise.reject(new Error('Unknown timeline conversation'));
     if (conversation.recovery) return conversation.recovery;
+    if (![...conversation.slots.values()].some(slot => !slot.closed)) return Promise.reject(new Error('Timeline recovery requires an active surface'));
     if ([...conversation.slots.values()].some(slot => slot.pending)) return Promise.reject(new Error('Timeline surface busy'));
     const candidate = new TimelineConversationState(conversationId, this.budget);
     conversation.candidate = candidate;
     const requests = [...conversation.slots].filter(([, slot]) => !slot.closed).map(([surface, slot]) => ({
       surface, slot, token: candidate.beginSnapshot(surface, slot.scope),
     }));
-    conversation.error = undefined;
+    conversation.recoveryError = undefined;
     const recovery = Promise.resolve().then(async () => {
       const outcomes = await Promise.allSettled(requests.map(async ({ surface, slot, token }) => {
         if (slot.closed || this.disposed) return;
@@ -162,11 +169,15 @@ export class ChatTimelineClient {
       if (failed?.status === 'rejected' || candidate.recoveryReason) {
         throw failed?.status === 'rejected' ? failed.reason : new Error(`Timeline recovery rejected: ${candidate.recoveryReason}`);
       }
-      conversation.error = undefined;
+      if (conversation.state.wouldDiscardProtectedItems(candidate)) throw new Error('Timeline protected content requires ownership transfer');
+      conversation.recoveryError = undefined;
       const previous = conversation.state;
       conversation.state = candidate;
       previous.dispose();
-    }).catch(error => { if (!this.disposed) conversation.error = error; throw error; }).finally(() => {
+    }).catch(error => {
+      if (!this.disposed) conversation.recoveryError = error instanceof Error ? error : Object.assign(new Error('Timeline recovery failed'), { cause: error });
+      throw error;
+    }).finally(() => {
       if (conversation.state !== candidate) candidate.dispose();
       conversation.candidate = undefined;
       conversation.recovery = undefined;
@@ -181,9 +192,8 @@ export class ChatTimelineClient {
     const slot = conversation?.slots.get(surfaceId);
     if (!conversation || !slot) return;
     slot.closed = true;
-    const closed = conversation.state.close(surfaceId);
-    this.observe(conversation, conversation.candidate ? conversation.candidate.close(surfaceId, slot.windowId) : closed);
-    if (conversation.candidate && !conversation.candidate.recoveryReason) conversation.error = undefined;
+    conversation.state.close(surfaceId);
+    conversation.candidate?.close(surfaceId, slot.windowId);
     this.notify();
     // Close precisa cancelar a consulta remota antes de aguardar a Promise dela.
     const closing = this.closeRemote(slot);
@@ -224,7 +234,8 @@ export class ChatTimelineClient {
   }
   private collectIdle() {
     for (const [id, conversation] of this.conversations) {
-      if (conversation.slots.size || conversation.recovery || conversation.candidate || conversation.state.cachedItems) continue;
+      if (conversation.slots.size || conversation.recovery || conversation.candidate) continue;
+      if (conversation.state.cachedItems && (!this.getError(id) || conversation.state.hasProtectedItems)) continue;
       conversation.state.dispose();
       this.conversations.delete(id);
     }
@@ -234,7 +245,7 @@ export class ChatTimelineClient {
     const conversation = this.conversations.get(conversationId);
     const slot = conversation?.slots.get(surfaceId);
     const window = conversation?.state.getWindow(surfaceId);
-    if (!conversation || !slot || !window || slot.closed || slot.pending || conversation.recovery || (conversation.error && !allowRelease)) {
+    if (!conversation || !slot || !window || slot.closed || slot.pending || conversation.recovery || (this.getError(conversationId) && !allowRelease)) {
       throw new Error('Timeline surface unavailable');
     }
     return { conversation, slot, window };
@@ -246,9 +257,6 @@ export class ChatTimelineClient {
     }).finally(() => { if (slot.pending === pending) slot.pending = undefined; });
     slot.pending = pending;
     return pending;
-  }
-  private observe(conversation: Conversation, result: TimelineStateResult) {
-    if (result.kind === 'recover') conversation.error = new Error(`Timeline recovery required: ${result.reason}`);
   }
   private assertActive() { if (this.disposed) throw new Error('Timeline session disposed'); }
   private notify() { if (!this.disposed) for (const listener of this.listeners) listener(); }

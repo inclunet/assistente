@@ -35,23 +35,24 @@ type timelineDeliveryFeed interface {
 // A exclusão protege somente entrega e troca da base, nunca a espera em Next.
 // Ela também permite drenar uma emissão já admitida ao fechar a inscrição.
 type timelineEventStream struct {
-	mu       sync.Mutex
-	ctx      context.Context
-	cancel   context.CancelFunc
-	done     chan struct{}
-	feed     timelineDeliveryFeed
-	emitter  TimelineEventEmitter
-	epoch    string
-	baseline string
-	closed   bool
-	released func()
+	mu        sync.Mutex
+	ctx       context.Context
+	cancel    context.CancelFunc
+	done      chan struct{}
+	feed      timelineDeliveryFeed
+	emitter   TimelineEventEmitter
+	epoch     string
+	baseline  string
+	surfaceID string
+	closed    bool
+	released  func()
 }
 
 // O caller registra o handle sob a registry antes de liberar seu mutex; released
 // usa a mesma registry. Assim, uma saída imediata não antecede o registro.
-func newTimelineEventStream(ctx context.Context, feed timelineDeliveryFeed, emitter TimelineEventEmitter, snapshot *apidto.SubscribedTimelineSnapshot, released func()) *timelineEventStream {
+func newTimelineEventStream(ctx context.Context, feed timelineDeliveryFeed, emitter TimelineEventEmitter, surfaceID string, snapshot *apidto.SubscribedTimelineSnapshot, released func()) *timelineEventStream {
 	ctx, cancel := context.WithCancel(ctx)
-	s := &timelineEventStream{ctx: ctx, cancel: cancel, done: make(chan struct{}), feed: feed, emitter: emitter, epoch: snapshot.Epoch, baseline: snapshot.WindowRevision, released: released}
+	s := &timelineEventStream{ctx: ctx, cancel: cancel, done: make(chan struct{}), feed: feed, emitter: emitter, surfaceID: surfaceID, epoch: snapshot.Epoch, baseline: snapshot.WindowRevision, released: released}
 	go s.run()
 	return s
 }
@@ -84,7 +85,8 @@ func (s *timelineEventStream) deliver(delivery *chat.TimelineDelivery) error {
 	}
 	return s.emitter.Emit(s.ctx, apidto.TimelineEvent{
 		ConversationID: delivery.ConversationID, WindowID: delivery.WindowID,
-		Epoch: delivery.Epoch, SnapshotRevision: delivery.SnapshotRevision,
+		SurfaceID: s.surfaceID,
+		Epoch:     delivery.Epoch, SnapshotRevision: delivery.SnapshotRevision,
 		SyncRequired: delivery.SyncRequired, Reason: delivery.Reason,
 		Updates: timelineUpdates(delivery.Batches),
 	})

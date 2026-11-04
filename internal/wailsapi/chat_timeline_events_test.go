@@ -51,7 +51,7 @@ func TestChatTimelineEventsMatchReplayAndReleaseFailedTransport(t *testing.T) {
 	}
 	select {
 	case event := <-events:
-		if event.ConversationID != f.conversation || event.WindowID != snapshot.WindowID || event.SnapshotRevision != snapshot.WindowRevision || event.Epoch != snapshot.Epoch || event.SyncRequired || len(event.Updates) == 0 {
+		if event.SurfaceID != f.request().SurfaceID || event.ConversationID != f.conversation || event.WindowID != snapshot.WindowID || event.SnapshotRevision != snapshot.WindowRevision || event.Epoch != snapshot.Epoch || event.SyncRequired || len(event.Updates) == 0 {
 			t.Fatal("evento fora do contrato", event)
 		}
 		replay, replayErr := f.api.Replay(snapshot.WindowID, apidto.ReplayTimelineRequest{Epoch: snapshot.Epoch, WindowRevision: snapshot.WindowRevision, AfterSequence: snapshot.Sequence})
@@ -163,7 +163,7 @@ func TestTimelineEventStreamCloseDrainsEmitterAndReleasesFeed(t *testing.T) {
 		return ctx.Err()
 	}}
 	released := make(chan struct{})
-	s := newTimelineEventStream(context.Background(), feed, emitter, &apidto.SubscribedTimelineSnapshot{Epoch: "epoch", WindowRevision: "1"}, func() { close(released) })
+	s := newTimelineEventStream(context.Background(), feed, emitter, "surface", &apidto.SubscribedTimelineSnapshot{Epoch: "epoch", WindowRevision: "1"}, func() { close(released) })
 	feed.values <- &chat.TimelineDelivery{ConversationID: "c", WindowID: "w", Epoch: "epoch", SnapshotRevision: "1"}
 	waitTimelineEventTest(t, entered)
 	done := make(chan struct{})
@@ -186,7 +186,7 @@ func TestTimelineEventStreamCancellationWakesIdleWorker(t *testing.T) {
 	feed := &timelineEventTestFeed{values: make(chan *chat.TimelineDelivery), closed: make(chan struct{})}
 	emitter := timelineEventTestEmitter{closed: make(chan struct{}), emit: func(context.Context, apidto.TimelineEvent) error { return errors.New("unexpected") }}
 	ctx, cancel := context.WithCancel(context.Background())
-	s := newTimelineEventStream(ctx, feed, emitter, &apidto.SubscribedTimelineSnapshot{Epoch: "epoch", WindowRevision: "1"}, func() {})
+	s := newTimelineEventStream(ctx, feed, emitter, "surface", &apidto.SubscribedTimelineSnapshot{Epoch: "epoch", WindowRevision: "1"}, func() {})
 	cancel()
 	waitTimelineEventTest(t, s.done)
 	waitTimelineEventTest(t, emitter.closed)
@@ -205,7 +205,7 @@ func waitTimelineEventTest(t *testing.T, done <-chan struct{}) {
 func TestTimelineEventStreamCloseCancelsSnapshotQuery(t *testing.T) {
 	feed := &timelineEventTestFeed{values: make(chan *chat.TimelineDelivery), closed: make(chan struct{})}
 	emitter := timelineEventTestEmitter{closed: make(chan struct{}), emit: func(context.Context, apidto.TimelineEvent) error { return errors.New("unexpected") }}
-	s := newTimelineEventStream(context.Background(), feed, emitter, &apidto.SubscribedTimelineSnapshot{Epoch: "epoch", WindowRevision: "1"}, func() {})
+	s := newTimelineEventStream(context.Background(), feed, emitter, "surface", &apidto.SubscribedTimelineSnapshot{Epoch: "epoch", WindowRevision: "1"}, func() {})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel() // libera a consulta mesmo se a regressão voltar a bloquear Close
 	entered, queryDone, closed := make(chan struct{}), make(chan struct{}), make(chan struct{})

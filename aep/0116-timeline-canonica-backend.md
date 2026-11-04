@@ -51,6 +51,26 @@ cancelamento de Open por request ID. Não introduzir timeout que abandone cleanu
 Coleta oportunista em Open/Close descarta coordenadores sem superfícies,
 recuperação ou itens em cache; evicções podem deixar coordenadores vazios até a
 próxima coleta. Conteúdo ativo/volatile e a LRU continuam preservados.
+Correlação de abertura: o evento Wails agora ecoa `surfaceId` recebido em Open.
+O cliente gera um UUID de inscrição novo por abertura, separado da identidade
+lógica da superfície e do item/mensagem. Antes da Promise, conversa + inscrição
+já permitem rotear; depois dela, windowId também precisa coincidir. Eventos sem
+essa correlação não têm fallback. Fechar invalida a inscrição imediatamente,
+inclusive após promoção de coordenador e nova abertura, sem copiar nem ampliar
+índices de IDs encerrados. O índice limitado do coordenador puro permanece para
+seus outros chamadores, mas não é a autoridade de roteamento do transporte.
+
+Erros locais e globais do coordenador são consultados diretamente, sem espelho
+no cliente; falha de recuperação por RPC é separada porque pode ter mudado bases
+no backend. Ao fechar a última superfície, cache em erro pode ser descartado se
+não houver itens ativos/volatile; cache saudável continua na LRU. Conteúdo
+protegido não é descartado para liberar um erro: esse caso continua exigindo
+ownership/transferência explícita no cutover. Refresh sem superfície ativa não
+pode promover um candidato vazio para contornar essa proteção. Antes de toda
+promoção, itens protegidos anteriores precisam estar representados no candidato
+por revisão suficiente (ou remoção comprovada); caso contrário, a apresentação
+anterior é preservada e a transferência de ownership é exigida. Isso também
+cobre fechamento durante Refresh, com ou sem outra superfície aberta.
 Este recorte ainda não ativa consumidores de UI. Faltam conexão das superfícies
 e retenções de foco/leitura/edição, cutover e remoção do fluxo legado, anexos e
 medições finais. Replay RPC não é usado neste cliente: recuperação explícita usa
