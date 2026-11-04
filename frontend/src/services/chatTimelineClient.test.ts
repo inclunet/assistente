@@ -597,6 +597,33 @@ describe('Refresh com transferência de recuperação', () => {
     await f.client.dispose();
   });
 
+  it('preserva reserva que passa a ser necessária enquanto outra liberação aguarda', async () => {
+    const f = itemRecoveryFixture();
+    const other = { ...structuredClone(f.original.items[0]), itemId: 'other', turnId: 'other-turn',
+      recoveryReference: { ...recoveryReference, turnId: 'other-turn' } };
+    f.original.items.push(other); f.original.orderedItemIds.push('other');
+    f.original.totalCount = f.original.endIndex = 2;
+    await f.open();
+    f.port.readItem.mockImplementation(async (_window, identity) => structuredClone(f.original.items.find(item => item.itemId === identity.itemId)!));
+    f.port.refresh.mockResolvedValueOnce({ ...f.original, sequence: '12', windowRevision: '3' });
+    const release = deferred<void>();
+    f.port.releaseItem.mockReturnValueOnce(release.promise);
+    const refreshing = f.client.refresh('chat');
+    await vi.waitFor(() => expect(f.port.releaseItem).toHaveBeenCalledOnce());
+    const replacement = { ...other, revision: '13', executionId: 'retry',
+      recoveryReference: { ...other.recoveryReference, executionId: 'retry' }, segments: [] };
+    f.emit(event('a', { snapshotRevision: '3', updates: [{ conversationId: 'chat', epoch: 'epoch', sequence: '13',
+      operations: [{ kind: 'item_upsert', itemId: 'other', revision: '13', item: replacement }],
+      windowPatches: [{ windowId: 'a', previousRevision: '3', revision: '4' }] }] }));
+    release.resolve(); await refreshing;
+    expect(f.port.releaseItem.mock.calls.map(([, identity]) => identity.itemId)).toEqual(['item']);
+    const [held] = f.client.getRecoveredItems('chat');
+    expect(held.identity.itemId).toBe('other');
+    expect(await f.client.readRecoveredItem('chat', held)).toEqual(other);
+    expect(f.client.getItem('chat', 'a', 'other')).toEqual(replacement);
+    await f.client.dispose();
+  });
+
   it.each([false, true])('distribui reservas entre capabilities, primeira com buffers=%s', async buffers => {
     const f = itemRecoveryFixture();
     f.original.items = Array.from({ length: 9 }, (_, index) => ({ ...structuredClone(f.original.items[0]),

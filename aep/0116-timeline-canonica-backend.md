@@ -41,7 +41,9 @@ a prova; falha parcial conserva a apresentação anterior. Reservas de tentativa
 malsucedidas são liberadas; cleanup falho conserva a identidade e exige
 cleanupRecoveryItems explícito antes de outro Refresh.
 Se eventos mudarem quais reservas são necessárias durante uma liberação, o cliente
-recalcula o cleanup até uma passagem não precisar aguardar RPC, e só então promove.
+recalcula o cleanup após cada liberação até uma passagem não precisar aguardar RPC,
+e só então promove. Reserva que passar a ser necessária durante outra liberação
+é preservada; a regressão cobre retry recebido durante essa espera.
 
 O cliente mantém somente descritores transferidos, separados da ordem e do índice
 normal da timeline. getRecoveredItems lista esses descritores; readRecoveredItem

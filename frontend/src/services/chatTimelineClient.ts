@@ -219,9 +219,8 @@ export class ChatTimelineClient {
           .filter(([key, held]) => !held.transferred && !transfer.some(value => value.slot === slot && value.key === key))
           .map(([key]) => ({ slot, key })));
         if (!unused.length) break;
-        for (const { slot, key } of unused) {
-          await this.releaseItem(slot, key);
-        }
+        const { slot, key } = unused[0];
+        await this.releaseItem(slot, key);
         if (this.disposed) return;
         transfer = needed();
       }
