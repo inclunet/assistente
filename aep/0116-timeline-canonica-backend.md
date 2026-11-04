@@ -32,6 +32,22 @@ após recuperação parcial, cancelamento, época mista, retenção após patch,
 no buffer, âncora perdida e cota de capabilities aposentadas.
 `chatTimelineWails.test.ts` cobre normalização e troca de sessão com Open tardio.
 
+Complemento da revisão remota: capabilities fechadas são aposentadas inclusive
+quando Open retorna depois do fechamento ou Refresh é cancelado antes do snapshot.
+O getter também verifica identidade diretamente, sem depender da ordem dos
+assinantes do authStore. Liberação explícita de retenção vazia é permitida durante
+falha usando época/revisão comprovadas por snapshot ou patch aplicado; não limpa
+o fault. CAS stale continua sendo erro do backend, sem retry nem avanço local de
+revisão. Se a revisão necessária não for conhecida e a posição não puder ser
+recuperada, Close e nova abertura continuam sendo escolhas explícitas.
+
+Close remoto falho mantém o slot fechado e a capability para retry explícito;
+não restaura conteúdo. Sem resposta de Open, o fechamento visual é imediato,
+mas sua Promise de cleanup aguarda descobrir a capability: o protocolo não tem
+cancelamento de Open por request ID. Não introduzir timeout que abandone cleanup.
+Coleta oportunista em Open/Close descarta coordenadores sem superfícies,
+recuperação ou itens em cache; evicções podem deixar coordenadores vazios até a
+próxima coleta. Conteúdo ativo/volatile e a LRU continuam preservados.
 Este recorte ainda não ativa consumidores de UI. Faltam conexão das superfícies
 e retenções de foco/leitura/edição, cutover e remoção do fluxo legado, anexos e
 medições finais. Replay RPC não é usado neste cliente: recuperação explícita usa

@@ -1,5 +1,6 @@
 import type { ChatTimelineEvent } from '../types/chatTimelineEvents';
 import { TimelineCacheBudget } from './timelineCacheBudget';
+import { revision } from './timelineBatch';
 import { TimelineConversationState, type TimelineSnapshot, type TimelineStateResult } from './timelineConversationState';
 
 export interface TimelinePosition {
@@ -21,6 +22,7 @@ interface Slot {
   scope: string | null;
   windowId?: string;
   baseline?: string;
+  epoch?: string;
   pending?: Promise<unknown>;
   closed: boolean;
   closing?: Promise<void>;
@@ -65,6 +67,7 @@ export class ChatTimelineClient {
 
   async open(conversationId: string, surfaceId: string, scope: string | null, position: TimelinePosition): Promise<void> {
     this.assertActive();
+    this.collectIdle();
     let conversation = this.conversations.get(conversationId);
     if (!conversation) {
       conversation = { state: new TimelineConversationState(conversationId, this.budget), slots: new Map() };
@@ -80,15 +83,22 @@ export class ChatTimelineClient {
         const snapshot = await this.transport.open(conversationId, surfaceId, scope, position);
         slot.windowId = snapshot.windowId;
         slot.baseline = snapshot.windowRevision;
-        if (slot.closed || this.disposed) { await this.closeRemote(slot); return; }
+        slot.epoch = snapshot.epoch;
+        if (slot.closed || this.disposed) {
+          this.observe(owner, owner.state.acceptSnapshot(token, snapshot));
+          await this.closeRemote(slot);
+          return;
+        }
         const result = owner.state.acceptSnapshot(token, snapshot);
         if (!owner.state.getWindow(surfaceId)) throw new Error('Timeline snapshot rejected');
         this.observe(owner, result);
       } catch (error) {
+        if (slot.closed || this.disposed) throw error;
         this.observe(owner, owner.state.close(surfaceId));
         slot.closed = true;
-        try { await this.closeRemote(slot); }
-        finally { if (owner.slots.get(surfaceId) === slot) owner.slots.delete(surfaceId); }
+        await this.closeRemote(slot);
+        if (owner.slots.get(surfaceId) === slot) owner.slots.delete(surfaceId);
+        this.collectIdle();
         throw error;
       } finally { this.notify(); }
     });
@@ -101,6 +111,7 @@ export class ChatTimelineClient {
       try {
         const snapshot = await this.transport.navigate(window.windowId, window.epoch, window.revision, mode, position);
         slot.baseline = snapshot.windowRevision;
+        slot.epoch = snapshot.epoch;
         if (slot.closed || this.disposed) return;
         this.observe(conversation, conversation.state.acceptSnapshot(token, snapshot));
       } catch (error) {
@@ -111,8 +122,14 @@ export class ChatTimelineClient {
   }
 
   async setRetention(conversationId: string, surfaceId: string, itemIds: string[]): Promise<void> {
-    const { slot, window } = this.ready(conversationId, surfaceId);
-    return this.run(slot, () => this.transport.retain(window.windowId, window.epoch, window.revision, itemIds));
+    const { conversation, slot, window } = this.ready(conversationId, surfaceId, itemIds.length === 0);
+    // Liberação não recupera o visual. Usa somente checkpoints comprovados;
+    // revisão desconhecida continua sujeita ao CAS do backend, sem retry implícito.
+    const useSnapshot = conversation.error && slot.epoch && slot.baseline &&
+      (slot.epoch !== window.epoch || revision(slot.baseline) > revision(window.revision));
+    const epoch = useSnapshot ? slot.epoch! : window.epoch;
+    const currentRevision = useSnapshot ? slot.baseline! : window.revision;
+    return this.run(slot, () => this.transport.retain(window.windowId, epoch, currentRevision, itemIds));
   }
 
   /** Refresh é a única recuperação de época. Falha parcial conserva a apresentação congelada. */
@@ -133,6 +150,7 @@ export class ChatTimelineClient {
         if (slot.closed || this.disposed) return;
         const snapshot = await this.transport.refresh(slot.windowId!, slot.baseline!, positions.get(surface));
         slot.baseline = snapshot.windowRevision;
+        slot.epoch = snapshot.epoch;
         if (slot.closed || this.disposed) return;
         if (snapshot.windowId !== slot.windowId) throw new Error('Timeline capability mismatch');
         const result = candidate.acceptSnapshot(token, snapshot);
@@ -162,14 +180,17 @@ export class ChatTimelineClient {
     if (!conversation || !slot) return;
     slot.closed = true;
     const closed = conversation.state.close(surfaceId);
-    this.observe(conversation, conversation.candidate ? conversation.candidate.close(surfaceId) : closed);
+    this.observe(conversation, conversation.candidate ? conversation.candidate.close(surfaceId, slot.windowId) : closed);
     this.notify();
     // Close precisa cancelar a consulta remota antes de aguardar a Promise dela.
     const closing = this.closeRemote(slot);
     const outcomes = await Promise.allSettled([closing, slot.pending]);
-    if (conversation.slots.get(surfaceId) === slot) conversation.slots.delete(surfaceId);
-    if (slot.closing) await slot.closing;
     if (outcomes[0].status === 'rejected') throw outcomes[0].reason;
+    // Open pode ter descoberto a capability enquanto aguardávamos seu retorno.
+    if (slot.windowId && !slot.closing) throw outcomes[1].status === 'rejected' ? outcomes[1].reason : new Error('Timeline cleanup incomplete');
+    if (slot.closing) await slot.closing;
+    if (conversation.slots.get(surfaceId) === slot) conversation.slots.delete(surfaceId);
+    this.collectIdle();
   }
 
   dispose(): Promise<void> {
@@ -193,14 +214,24 @@ export class ChatTimelineClient {
 
   private closeRemote(slot: Slot): Promise<void> {
     if (!slot.windowId) return Promise.resolve();
-    return slot.closing ??= this.transport.close(slot.windowId);
+    return slot.closing ??= this.transport.close(slot.windowId).catch(error => {
+      slot.closing = undefined;
+      throw error;
+    });
   }
-  private ready(conversationId: string, surfaceId: string) {
+  private collectIdle() {
+    for (const [id, conversation] of this.conversations) {
+      if (conversation.slots.size || conversation.recovery || conversation.candidate || conversation.state.cachedItems) continue;
+      conversation.state.dispose();
+      this.conversations.delete(id);
+    }
+  }
+  private ready(conversationId: string, surfaceId: string, allowRelease = false) {
     this.assertActive();
     const conversation = this.conversations.get(conversationId);
     const slot = conversation?.slots.get(surfaceId);
     const window = conversation?.state.getWindow(surfaceId);
-    if (!conversation || !slot || !window || slot.closed || slot.pending || conversation.recovery || conversation.error) {
+    if (!conversation || !slot || !window || slot.closed || slot.pending || conversation.recovery || (conversation.error && !allowRelease)) {
       throw new Error('Timeline surface unavailable');
     }
     return { conversation, slot, window };

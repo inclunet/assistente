@@ -68,8 +68,9 @@ describe('ChatTimelineClient', () => {
     await Promise.all([opening, closing]);
     expect(f.port.close).toHaveBeenCalledExactlyOnceWith('a');
     expect(f.client.getWindow('chat', 'a')).toBeUndefined();
+    f.port.open.mockResolvedValueOnce(snapshot('new-capability'));
     await f.open();
-    expect(f.client.getWindow('chat', 'a')).toBeDefined();
+    expect(f.client.getWindow('chat', 'a')?.windowId).toBe('new-capability');
   });
 
   it('dispose remove visual e listener imediatamente e fecha Open tardio', async () => {
@@ -247,12 +248,106 @@ describe('ChatTimelineClient', () => {
     expect(f.port.close).not.toHaveBeenCalled();
   });
 
-  it('libera superfície de Open recusado mesmo se cleanup remoto falhar', async () => {
+  it('preserva capability de Open recusado para retry explícito se cleanup remoto falhar', async () => {
     const f = fixture();
     f.port.open.mockResolvedValueOnce(snapshot('rejected', { conversationId: 'other' }));
     f.port.close.mockRejectedValueOnce(new Error('cleanup failed'));
     await expect(f.open()).rejects.toThrow('cleanup failed');
+    await expect(f.open()).rejects.toThrow('unavailable');
+    await f.client.close('chat', 'a');
+    expect(f.port.close).toHaveBeenNthCalledWith(2, 'rejected');
     await f.open();
     expect(f.client.getWindow('chat', 'a')?.windowId).toBe('a');
+  });
+
+  it('aposenta Open tardio fechado enquanto outra superfície ainda abre', async () => {
+    const f = fixture();
+    const a = deferred<TimelineSnapshot>();
+    const b = deferred<TimelineSnapshot>();
+    f.port.open.mockReturnValueOnce(a.promise).mockReturnValueOnce(b.promise);
+    const openingA = f.open();
+    const openingB = f.open('b');
+    await Promise.resolve();
+    const closing = f.client.close('chat', 'a');
+    a.resolve(snapshot());
+    await Promise.all([openingA, closing]);
+    for (let index = 0; index < 300; index++) f.emit(event());
+    b.resolve(snapshot('b'));
+    await openingB;
+    expect(f.client.getError('chat')).toBeUndefined();
+    expect(f.client.getWindow('chat', 'b')).toBeDefined();
+  });
+
+  it('aposenta capability conhecida no candidato mesmo quando Refresh fechado rejeita', async () => {
+    const f = fixture();
+    await f.open();
+    await f.open('b');
+    const a = deferred<TimelineSnapshot>();
+    const b = deferred<TimelineSnapshot>();
+    f.port.refresh.mockReturnValueOnce(a.promise).mockReturnValueOnce(b.promise);
+    f.port.close.mockImplementation(async () => { a.reject(new Error('cancelled')); });
+    const recovery = f.client.refresh('chat');
+    await Promise.resolve();
+    await f.client.close('chat', 'a');
+    for (let index = 0; index < 300; index++) f.emit(event());
+    b.resolve(snapshot('b', { sequence: '12' }));
+    await recovery;
+    expect(f.client.getError('chat')).toBeUndefined();
+    expect(f.client.getWindow('chat', 'b')?.sequence).toBe('12');
+  });
+
+  it('permite liberar retenção após falha sem descongelar visual nem aceitar nova retenção', async () => {
+    const f = fixture();
+    await f.open();
+    f.emit(event());
+    f.port.refresh.mockRejectedValueOnce(new Error('lost anchor'));
+    await expect(f.client.refresh('chat')).rejects.toThrow('lost anchor');
+    await expect(f.client.setRetention('chat', 'a', ['other'])).rejects.toThrow();
+    await f.client.setRetention('chat', 'a', []);
+    expect(f.port.retain).toHaveBeenCalledExactlyOnceWith('a', 'epoch', '2', []);
+    expect(f.client.getError('chat')).toBeInstanceOf(Error);
+    await f.client.refresh('chat', new Map([['a', position]]));
+    expect(f.client.getError('chat')).toBeUndefined();
+  });
+
+  it('liberação após recuperação parcial mantém época e revisão do mesmo snapshot', async () => {
+    const f = fixture();
+    await f.open();
+    await f.open('b');
+    f.emit(event());
+    f.port.refresh.mockResolvedValueOnce(snapshot('a', { epoch: 'new', windowRevision: '1' }))
+      .mockRejectedValueOnce(new Error('offline'));
+    await expect(f.client.refresh('chat')).rejects.toThrow();
+    f.port.retain.mockRejectedValueOnce(new Error('stale'));
+    await expect(f.client.setRetention('chat', 'a', [])).rejects.toThrow('stale');
+    expect(f.port.retain).toHaveBeenCalledExactlyOnceWith('a', 'new', '1', []);
+    expect(f.client.getError('chat')).toBeInstanceOf(Error);
+  });
+
+  it('Close falho mantém capability para retry sem restaurar conteúdo', async () => {
+    const f = fixture();
+    await f.open();
+    f.port.close.mockRejectedValueOnce(new Error('offline'));
+    await expect(f.client.close('chat', 'a')).rejects.toThrow('offline');
+    expect(f.client.getWindow('chat', 'a')).toBeUndefined();
+    await f.client.close('chat', 'a');
+    expect(f.port.close).toHaveBeenNthCalledWith(2, 'a');
+    await f.open();
+  });
+
+  it('descarta coordenador vazio após última superfície fechar', async () => {
+    const f = fixture();
+    await f.open();
+    await f.client.close('chat', 'a');
+    await expect(f.client.refresh('chat')).rejects.toThrow('Unknown');
+  });
+
+  it('Navigate com snapshot incompatível solicita recovery sem trocar apresentação', async () => {
+    const f = fixture();
+    await f.open();
+    f.port.navigate.mockResolvedValueOnce(snapshot('a', { epoch: 'other' }));
+    await f.client.navigate('chat', 'a', 'historical', position);
+    expect(f.client.getError('chat')).toBeInstanceOf(Error);
+    expect(f.client.getWindow('chat', 'a')?.epoch).toBe('epoch');
   });
 });

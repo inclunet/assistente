@@ -43,6 +43,8 @@ describe('chatTimelineWails', () => {
     const opening = client.open('chat', 'surface', null, { cursor: '', anchor: 'tail', anchorItemId: '', direction: '', limit: 20 });
     await Promise.resolve();
     expect(mocks.open.mock.calls[0][0]).toBeInstanceOf(apidto.OpenTimelineRequest);
+    expect(mocks.open.mock.calls[0][0]).toMatchObject({ conversationId: 'chat', surfaceId: 'surface',
+      scopeParentId: null, cursor: '', anchor: 'tail', anchorItemId: '', direction: '', limit: 20 });
     auth.setState({ user: { userId: 'user', sessionId: 'second' } });
     expect(mocks.unsubscribe).toHaveBeenCalledOnce();
     expect(getChatTimelineClient()).not.toBe(client);
@@ -50,5 +52,40 @@ describe('chatTimelineWails', () => {
     await opening;
     expect(mocks.close).toHaveBeenCalledExactlyOnceWith('late');
     expect(client.getWindow('chat', 'surface')).toBeUndefined();
+  });
+
+  it('getter valida identidade antes do listener de limpeza quando outro assinante chama primeiro', async () => {
+    auth.setState({ isAuthenticated: true, user: { userId: 'user', sessionId: 'first' } });
+    mocks.eventsOn.mockReturnValue(mocks.unsubscribe);
+    const { getChatTimelineClient } = await import('./chatTimelineWails');
+    let fromEarlierSubscriber: ReturnType<typeof getChatTimelineClient> | undefined;
+    const unsubscribe = auth.subscribe(() => { fromEarlierSubscriber = getChatTimelineClient(); });
+    try {
+      const old = getChatTimelineClient();
+      auth.setState({ user: { userId: 'user', sessionId: 'second' } });
+      expect(fromEarlierSubscriber).toBeDefined();
+      expect(fromEarlierSubscriber).not.toBe(old);
+      expect(getChatTimelineClient()).toBe(fromEarlierSubscriber);
+      expect(mocks.unsubscribe).toHaveBeenCalledOnce();
+      await expect(old.open('chat', 'surface', null, { cursor: '', anchor: 'end', anchorItemId: '', direction: '', limit: 20 }))
+        .rejects.toThrow('disposed');
+    } finally { unsubscribe(); }
+  });
+
+  it('encaminha payload do listener Wails ao coordenador', async () => {
+    auth.setState({ isAuthenticated: true, user: { userId: 'user', sessionId: 'session' } });
+    mocks.eventsOn.mockReturnValue(mocks.unsubscribe);
+    mocks.open.mockResolvedValue(new apidto.SubscribedTimelineSnapshot({ conversationId: 'chat',
+      windowId: 'window', windowRevision: '1', epoch: 'epoch', sequence: '10', mode: 'historical',
+      items: [], orderedItemIds: [], retainedItemIds: [], retentionBlocked: false, totalCount: 0,
+      startIndex: 0, endIndex: 0, hasBefore: false, hasAfter: false, beforeCursor: '', afterCursor: '' }));
+    const { getChatTimelineClient } = await import('./chatTimelineWails');
+    const client = getChatTimelineClient();
+    await client.open('chat', 'surface', null, { cursor: '', anchor: 'end', anchorItemId: '', direction: '', limit: 20 });
+    expect(mocks.eventsOn.mock.calls[0][0]).toBe('chat:timeline');
+    mocks.eventsOn.mock.calls[0][1]({ conversationId: 'chat', windowId: 'window', epoch: 'epoch',
+      snapshotRevision: '1', syncRequired: false, updates: [{ conversationId: 'chat', epoch: 'epoch',
+        sequence: '11', operations: [], windowPatches: [{ windowId: 'window', previousRevision: '1', revision: '2' }] }] });
+    expect(client.getWindow('chat', 'surface')?.revision).toBe('2');
   });
 });

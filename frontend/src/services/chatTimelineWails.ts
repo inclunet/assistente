@@ -41,21 +41,28 @@ const transport: TimelineTransport = {
   close: rpc.Close,
 };
 
-let current: { userId: string; sessionId: string; client: ChatTimelineClient } | undefined;
+let current: { userId: string; sessionId: string; client: ChatTimelineClient; unsubscribe: () => void } | undefined;
+
+function discardCurrent() {
+  const previous = current;
+  current = undefined;
+  if (!previous) return;
+  previous.unsubscribe();
+  void previous.client.dispose().catch(error => logger.error('[chatTimeline] subscription cleanup failed', error));
+}
 
 /** Ativação lazy: importar o módulo não abre inscrições nem escuta eventos de chat. */
 export function getChatTimelineClient(): ChatTimelineClient {
   const { user, isAuthenticated } = useAuthStore.getState();
+  if (current && (!isAuthenticated || user?.userId !== current.userId || user?.sessionId !== current.sessionId)) discardCurrent();
   if (!isAuthenticated || !user) throw new Error('Authenticated timeline session required');
   if (!current) {
     const client = new ChatTimelineClient(transport);
-    current = { userId: user.userId, sessionId: user.sessionId, client };
     const unsubscribe = useAuthStore.subscribe(state => {
       if (state.isAuthenticated && state.user?.userId === user.userId && state.user?.sessionId === user.sessionId) return;
-      unsubscribe();
-      if (current?.client === client) current = undefined;
-      void client.dispose().catch(error => logger.error('[chatTimeline] subscription cleanup failed', error));
+      if (current?.client === client) discardCurrent();
     });
+    current = { userId: user.userId, sessionId: user.sessionId, client, unsubscribe };
   }
   return current.client;
 }

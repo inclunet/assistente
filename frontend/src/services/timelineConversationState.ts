@@ -227,10 +227,14 @@ export class TimelineConversationState {
     return this.stopped ? { kind: 'recover', reason: this.stopped } : { kind: 'applied' };
   }
 
-  close(surfaceId: string): TimelineStateResult {
+  close(surfaceId: string, knownWindowId?: string): TimelineStateResult {
     if (this.disposed) return { kind: 'ignored' };
     const window = this.getWindow(surfaceId);
     if (window) this.retireWindow(window.windowId);
+    if (knownWindowId && knownWindowId !== window?.windowId &&
+        ![...this.surfaces.entries()].some(([id, surface]) => id !== surfaceId && surface.window?.windowId === knownWindowId)) {
+      this.retireWindow(knownWindowId);
+    }
     this.surfaces.delete(surfaceId);
     this.pruneBuffer();
     this.collect();
