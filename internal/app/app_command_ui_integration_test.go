@@ -296,11 +296,28 @@ func TestUICommandForgedDuplicateAndCrossSessionDenied(t *testing.T) {
 	}
 
 	reservation := beginAuditedTabCreate(t, a)
-	// BeginUICommand reserva e inicia a admissão de forma assíncrona. Aguarde
-	// essa fronteira antes de trocar a sessão; caso contrário, a tentativa
-	// cross-session pode correr junto da preparação contextual e tornar o
-	// resultado dependente do escalonamento do worker.
-	waitCommandUIAdmission(t, a, reservation)
+	// A admissão precede a captura contextual. Para tab.create, o snapshot
+	// começa vazio e só é publicado após essa captura; trocar a sessão antes
+	// disso cancela legitimamente a preparação, em vez de testar o handoff.
+	p := a.commandProduct.Load()
+	deadline := time.NewTimer(uiCommandTestTimeout)
+	defer deadline.Stop()
+	tick := time.NewTicker(time.Millisecond)
+	defer tick.Stop()
+	for {
+		p.mu.Lock()
+		run := p.uiRuns[reservation.Ticket]
+		ready := run != nil && run.admission != nil && run.snapshot.Tab.ID != ""
+		p.mu.Unlock()
+		if ready {
+			break
+		}
+		select {
+		case <-deadline.C:
+			t.Fatal("executor não concluiu a captura contextual de tab.create")
+		case <-tick.C:
+		}
+	}
 	original := *a.currentAuthUser
 	foreign := original
 	foreign.SessionID = uuid.Must(uuid.NewV7()).String()

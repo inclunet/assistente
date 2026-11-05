@@ -71,7 +71,10 @@ func presentationSourceSize(id string, source presentationSource) int {
 func (c *projectionConversation) rememberPresentationBoundaries(item *TimelineItem, live *LiveTurnSnapshot) error {
 	// A admissão conta descritores antes de alocá-los; itens materializados nunca
 	// perdem identidade para abrir espaço para uma nova fonte.
-	active := make(map[string]bool)
+	active := make(map[string]bool, len(c.preparingPresentation))
+	for id := range c.preparingPresentation {
+		active[id] = true
+	}
 	for _, window := range c.windows {
 		for id := range window.itemIDs {
 			active[id] = true

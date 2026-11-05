@@ -1,6 +1,9 @@
 package chat
 
 import (
+	"errors"
+	"github.com/google/uuid"
+	"maps"
 	"reflect"
 	"testing"
 	"time"
@@ -231,4 +234,150 @@ func TestPresentationSegmentsSurviveRealSubscriptionRefreshAfterCommit(t *testin
 		}
 	}
 	t.Fatal("response absent after Refresh")
+}
+
+func TestSnapshotRetainsAllResponseBoundariesUntilWindowCommit(t *testing.T) {
+	for _, budgetFailure := range []bool{false, true} {
+		t.Run(map[bool]string{false: "refresh", true: "budget-rollback"}[budgetFailure], func(t *testing.T) {
+			f, p, first, _ := automaticFixture(t)
+			repo := database.NewChatTurnRepository(f.db)
+			finish := func(e *ExecutionProjection) {
+				id, err := e.AssignResponse(func() (string, error) { return repo.EnsureResponse(f.ctx, f.conversation, e.turnID, e.executionID) })
+				if err != nil {
+					t.Fatal(err)
+				}
+				stream := e.StartStream(0)
+				stream.Append("[link](https://example.com)")
+				stream.Cut()
+				stream.Reasoning("pensamento", false)
+				stream.Append(" fim")
+				text := "[link](https://example.com) fim"
+				if err := e.CommitContent(0, text, "pensamento", func() (string, error) {
+					return id, repo.WritePartial(f.ctx, e.executionID, id, text, "pensamento", false)
+				}); err != nil {
+					t.Fatal(err)
+				}
+				if err := e.CommitResponse(database.TurnCompleted, "completed", text, "pensamento", func() (database.ChatTimelineVersion, error) {
+					return repo.FinishResponseWithVersion(f.ctx, f.conversation, e.turnID, e.executionID, database.TurnCompleted, "completed", id, nil)
+				}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			finish(first)
+			question, err := database.CreateMessageWithContext(f.ctx, database.MessageOptions{ConversationID: f.conversation, Role: "user", Content: "segunda"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			eid, err := uuid.NewV7()
+			if err != nil {
+				t.Fatal(err)
+			}
+			second, err := p.Admit(f.ctx, f.conversation, question.ID, eid.String(), func() (database.ChatTimelineVersion, error) {
+				_, err := repo.BeginExecution(f.ctx, f.conversation, question.ID, "", database.TurnModeNew, eid.String(), "")
+				if err != nil {
+					return database.ChatTimelineVersion{}, err
+				}
+				return f.reader.ReadVersion(f.ctx, f.conversation)
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			finish(second)
+			c := first.conversation
+			var checkpoint map[string]presentationBoundaries
+			if budgetFailure {
+				held, _, err := p.SubscribeTimeline(f.ctx, &fixtureTimelineSession{ctx: f.ctx, id: "held"}, "held", database.MessageWindowQuery{ConversationID: f.conversation, Anchor: "start", Direction: "after", Limit: 1}, f.reader)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer held.Close()
+				c.mu.Lock()
+				// Reserve the existing window's descriptor budget so one new response fits,
+				// but two cannot. This tests accounting without allocating multi-MiB text.
+				c.presentationBoundaries = map[string]presentationBoundaries{"message:" + f.question: {incarnation: c.incarnation, bytes: presentationBoundaryBudget - 900}}
+				checkpoint = maps.Clone(c.presentationBoundaries)
+				c.mu.Unlock()
+			}
+			sub, opened, err := p.SubscribeTimeline(f.ctx, &fixtureTimelineSession{ctx: f.ctx, id: "two"}, "two", database.MessageWindowQuery{ConversationID: f.conversation, Anchor: "end", Direction: "before", Limit: 20}, f.reader)
+			if budgetFailure {
+				if sub != nil {
+					sub.Close()
+				}
+				if !errors.Is(err, ErrTimelineSourceLimit) {
+					t.Fatal("aggregate budget not enforced", err)
+				}
+				c.mu.Lock()
+				defer c.mu.Unlock()
+				if !reflect.DeepEqual(checkpoint, c.presentationBoundaries) || len(c.preparingPresentation) != 0 {
+					t.Fatal("failed snapshot changed descriptor checkpoint")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer sub.Close()
+			expected := map[string][]CanonicalSegment{}
+			for _, item := range opened.Items {
+				if item.Kind == "response" {
+					expected[item.ItemID] = item.Segments
+				}
+			}
+			if len(expected) != 2 {
+				t.Fatal("expected two responses", len(expected))
+			}
+			p.mu.Lock()
+			c.mu.Lock()
+			for _, turn := range c.turns {
+				turn.finishedAt = time.Now().Add(-2 * projectionRetention)
+			}
+			p.pruneLocked(first.key, c, time.Now())
+			remaining := len(c.turns)
+			c.mu.Unlock()
+			p.mu.Unlock()
+			if remaining != 0 {
+				t.Fatal("live state not collected")
+			}
+			refreshed, err := sub.Refresh(f.ctx, opened.WindowRevision, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, item := range refreshed.Items {
+				if segments, ok := expected[item.ItemID]; ok {
+					if !reflect.DeepEqual(segments, item.Segments) {
+						t.Fatalf("response identity lost: %s before=%+v after=%+v", item.ItemID, segments, item.Segments)
+					}
+					delete(expected, item.ItemID)
+				}
+			}
+			if len(expected) != 0 {
+				t.Fatal("response disappeared")
+			}
+		})
+	}
+}
+
+func TestThinkingCompletionDoesNotInvalidateConfirmedBytes(t *testing.T) {
+	p, ctx, e := liveFixture(t)
+	stream := e.StartStream(0)
+	stream.Reasoning("a", false, true)
+	stream.Cut()
+	stream.Reasoning("b", false, true)
+	if err := e.CommitContent(0, "", "ab", func() (string, error) { return "response", nil }); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := p.Snapshot(ctx, "conversation", "question")
+	c := e.conversation
+	c.mu.Lock()
+	version := c.turns[e.turnID].contentVersion
+	c.mu.Unlock()
+	if !stream.Reasoning("ab", true, false) {
+		t.Fatal("completion refused")
+	}
+	after, _ := p.Snapshot(ctx, "conversation", "question")
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if after.Thinking || !after.Streams[0].Confirmed || c.turns[e.turnID].contentVersion != version || !reflect.DeepEqual(before.Streams[0].Segments, after.Streams[0].Segments) {
+		t.Fatal("phase update changed confirmed bytes")
+	}
 }

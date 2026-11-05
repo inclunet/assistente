@@ -633,6 +633,17 @@ describe('MessageList (virtualização)', () => {
     expect(onJumpToEnd).toHaveBeenCalledTimes(1);
   });
 
+  it.each(['Home', 'End'])('salto recusado por Ctrl+%s mantém foco e consome a rejeição', async key => {
+    const refuse = vi.fn(async () => { throw new Error('navigation refused'); });
+    const { container } = render(<MessageList threadedMessages={createNodes(3)} onJumpToStart={refuse} onJumpToEnd={refuse} />);
+    const middle = container.querySelector('[data-sibling-index="1"]') as HTMLElement;
+    act(() => middle.focus());
+    await act(async () => { fireEvent.keyDown(middle, { key, ctrlKey: true }); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+    expect(refuse).toHaveBeenCalledOnce();
+    expect(middle).toHaveFocus();
+  });
+
   it('Ctrl+End materializa e foca o último item mesmo com outra mensagem retida', async () => {
     const { container } = render(<MessageList threadedMessages={createNodes(120)} onJumpToEnd={async () => {}} />);
     const scrollContainer = container.querySelector('.message-list') as HTMLElement;

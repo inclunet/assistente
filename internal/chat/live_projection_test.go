@@ -179,10 +179,17 @@ func TestLiveProjectionReasoningReplacementAndDiscardAcrossCuts(t *testing.T) {
 	s.Reasoning("A", false)
 	s.Cut()
 	s.Reasoning("B", false)
+	before, _ := p.Snapshot(ctx, "conversation", "question")
 	s.Reasoning("AB", true)
 	snap, _ := p.Snapshot(ctx, "conversation", "question")
-	if len(snap.Streams[0].Segments) != 1 || testLiveSegment(snap.Streams[0], "reasoning", 0).Text != "AB" {
-		t.Fatalf("raciocínio duplicado: %+v", snap.Streams)
+	if len(snap.Streams[0].Segments) != 2 || !reflect.DeepEqual(before.Streams[0].Segments, snap.Streams[0].Segments) ||
+		testLiveSegment(snap.Streams[0], "reasoning", 0).Text+testLiveSegment(snap.Streams[0], "reasoning", 1).Text != "AB" {
+		t.Fatalf("mesmos bytes duplicados ou cortes alterados: %+v", snap.Streams)
+	}
+	s.Reasoning("AB substituído", true)
+	snap, _ = p.Snapshot(ctx, "conversation", "question")
+	if len(snap.Streams[0].Segments) != 1 || testLiveSegment(snap.Streams[0], "reasoning", 0).Text != "AB substituído" {
+		t.Fatalf("substituição explícita recusada: %+v", snap.Streams)
 	}
 	s.Reasoning("", true)
 	snap, _ = p.Snapshot(ctx, "conversation", "question")

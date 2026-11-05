@@ -236,7 +236,7 @@ function ChatSessionViewContent({
   useEffect(() => {
     if (!conversationId) return;
     if (session?.conversation) return;
-    void loadConversationSession(conversationId);
+    void loadConversationSession(conversationId).catch(() => { /* A recuperação mantém o erro na superfície. */ });
   }, [conversationId, loadConversationSession, session?.conversation, variant]);
 
   useEffect(() => {
@@ -1079,6 +1079,9 @@ function ChatSessionViewContent({
     pendingWindowAnnouncementRef.current = pending;
     try {
       await load();
+    } catch (error) {
+      if (pendingWindowAnnouncementRef.current === pending) pendingWindowAnnouncementRef.current = null;
+      throw error; // MessageList must distinguish refusal from a completed page.
     } finally {
       // O prazo curto só começa quando o carregamento termina: backend lento não
       // pode custar o aviso de uma paginação que de fato aconteceu. Um

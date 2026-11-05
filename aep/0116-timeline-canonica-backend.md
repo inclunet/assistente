@@ -113,6 +113,16 @@ Build/vet, TypeScript, ESLint e lint Go incremental passaram; bindings regenerad
 `review_aep` fez três rodadas adicionais e uma rechecagem dos ajustes de
 compatibilidade, aprovando o gate sem pendências antes do push consolidado.
 
+Na segunda revisão remota, o fim do raciocínio com bytes idênticos preserva
+cortes, confirmação e versão de conteúdo, alterando apenas a fase ativa. A
+composição protege todos os IDs do snapshot candidato até o fim da publicação;
+o orçamento inclui esses itens e uma falha restaura o mapa anterior de
+descritores. Regressões atravessam o handler real, duas respostas confirmadas,
+coleta live, Refresh e recusa de orçamento sem perda de identidades anteriores.
+Salto recusado não desloca foco nem deixa rejeição assíncrona sem tratamento;
+nós filhos usam a mesma regra de chave da lista e paginação tem rótulo nos três
+idiomas. Nenhum teste ACP é executado para validar esses percursos.
+
 Permanece uma limitação anterior ao cutover: threads ligadas a uma fonte
 intermediária não representante de resposta consolidada não têm acesso próprio
 na UI. A conclusão desta parte exige metadados backend com alvos reais por fonte

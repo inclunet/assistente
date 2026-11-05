@@ -307,6 +307,7 @@ const ptBR = {
       lines: 'linhas',
       largeMessageDeferred: 'Conteúdo grande será renderizado ao entrar na área visível.',
       loadOlderMessages: 'Carregar mensagens anteriores',
+      loadNewerMessages: 'Carregar mensagens posteriores',
       loadingOlderMessages: 'Carregando mensagens anteriores...',
       modelThinking: 'O modelo está pensando',
       modelReasoning: 'Raciocínio do modelo',

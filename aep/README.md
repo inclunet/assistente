@@ -1,3 +1,7 @@
+AEP-0116: identidade preservada também no fim do raciocínio e em snapshots
+com múltiplas respostas; orçamento e rollback mantêm descritores em uso.
+Regressões pelo handler e por Open/coleta/Refresh. Status: **In Progress**.
+
 AEP-0116: revisão do consumidor canônico mantém cópia de respostas terminais
 não persistidas no protocolo de comandos, com autorização da janela e revisão
 exata; contagem de filhos limitada aos pais selecionados. Acesso a threads de

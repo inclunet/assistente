@@ -229,7 +229,8 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
   }, [displayMessages.length, focusMessageAtIndex]);
   const jumpToBoundary = useCallback(async (edge: 'start' | 'end') => {
     if (interactions.current.size > 0) return;
-    await (edge === 'start' ? onJumpToStart?.() : onJumpToEnd?.());
+    try { await (edge === 'start' ? onJumpToStart?.() : onJumpToEnd?.()); }
+    catch { return; } // Recovery owns the error; a refused jump must not move focus.
     requestAnimationFrame(() => {
       if (!listRef.current?.isConnected) return;
       const navigation = boundaryNavigation.current;

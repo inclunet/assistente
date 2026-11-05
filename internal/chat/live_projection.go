@@ -29,6 +29,7 @@ type LiveProjection struct {
 type projectionKey struct{ userID, conversationID string }
 type projectionConversation struct {
 	presentationBoundaries map[string]presentationBoundaries
+	preparingPresentation  map[string]bool
 	projectionID           string // estável entre épocas; muda quando esta projeção é recriada
 	publicationStage       *canonicalPublicationStage
 	storagePublicationErr  error
@@ -187,6 +188,11 @@ func (e *ExecutionProjection) StartStream(iteration int) *StreamProjection {
 }
 
 func (s *StreamProjection) apply(fn func(*liveStream)) bool {
+	return s.mutate(func(stream *liveStream) bool { fn(stream); return true })
+}
+
+// The callback distinguishes byte changes from phase-only updates.
+func (s *StreamProjection) mutate(fn func(*liveStream) bool) bool {
 	if s == nil {
 		return true
 	} // seams de handlers sem admissão; runtime sempre vincula
@@ -201,9 +207,10 @@ func (s *StreamProjection) apply(fn func(*liveStream)) bool {
 	if stream == nil || stream.generation != s.generation || stream.sealed {
 		return false
 	}
-	fn(stream)
-	t.contentVersion++
-	stream.confirmed = false
+	if fn(stream) {
+		t.contentVersion++
+		stream.confirmed = false
+	}
 	c.revision++
 	s.execution.schedulePublicationLocked()
 	return true
@@ -219,11 +226,24 @@ func (s *StreamProjection) Initial(text string) bool {
 	return s.apply(func(stream *liveStream) { stream.parts = []*livePart{{}}; stream.parts[0].text.WriteString(text) })
 }
 func (s *StreamProjection) Reasoning(text string, replace bool, active ...bool) bool {
-	return s.apply(func(stream *liveStream) {
+	return s.mutate(func(stream *liveStream) bool {
 		if len(active) > 0 {
 			stream.thinking = active[0]
 		}
 		if replace {
+			offset := 0
+			same := true
+			for _, part := range stream.parts {
+				value := part.reasoning.String()
+				if len(value) > len(text)-offset || text[offset:offset+len(value)] != value {
+					same = false
+					break
+				}
+				offset += len(value)
+			}
+			if same && offset == len(text) {
+				return false
+			}
 			for _, part := range stream.parts {
 				part.reasoning.Reset()
 			}
@@ -231,6 +251,7 @@ func (s *StreamProjection) Reasoning(text string, replace bool, active ...bool) 
 		} else {
 			stream.parts[len(stream.parts)-1].reasoning.WriteString(text)
 		}
+		return replace || text != ""
 	})
 }
 func (s *StreamProjection) StopThinking() bool {
