@@ -28,23 +28,25 @@ type LiveProjection struct {
 
 type projectionKey struct{ userID, conversationID string }
 type projectionConversation struct {
-	projectionID          string // estável entre épocas; muda quando esta projeção é recriada
-	publicationStage      *canonicalPublicationStage
-	storagePublicationErr error
-	pendingStorageIDs     map[string]bool
-	publicationTimer      *time.Timer
-	publicationGeneration uint64
-	windows               map[string]*subscribedWindow
-	publication           canonicalPublication
-	mu                    projectionMutex
-	readers               int // protegido por LiveProjection.mu; inclui operações de storage
-	epoch                 string
-	revision              uint64
-	incarnation           string
-	lastRecoveryVersion   database.ChatTimelineVersion
-	turns                 map[string]*liveTurn
-	retained              map[string]*liveTurn // tentativas volatile substituídas por retry explícito
-	timer                 *time.Timer
+	presentationBoundaries map[string]presentationBoundaries
+	preparingPresentation  map[string]bool
+	projectionID           string // estável entre épocas; muda quando esta projeção é recriada
+	publicationStage       *canonicalPublicationStage
+	storagePublicationErr  error
+	pendingStorageIDs      map[string]bool
+	publicationTimer       *time.Timer
+	publicationGeneration  uint64
+	windows                map[string]*subscribedWindow
+	publication            canonicalPublication
+	mu                     projectionMutex
+	readers                int // protegido por LiveProjection.mu; inclui operações de storage
+	epoch                  string
+	revision               uint64
+	incarnation            string
+	lastRecoveryVersion    database.ChatTimelineVersion
+	turns                  map[string]*liveTurn
+	retained               map[string]*liveTurn // tentativas volatile substituídas por retry explícito
+	timer                  *time.Timer
 }
 type liveTurn struct {
 	contentVersion                                 uint64
@@ -63,11 +65,13 @@ type liveTurn struct {
 	streams                                        map[int]*liveStream
 }
 type liveStream struct {
-	generation uint64
-	sealed     bool
-	confirmed  bool
-	messageID  string
-	parts      []*livePart
+	thinking             bool
+	presentationReplaced bool
+	generation           uint64
+	sealed               bool
+	confirmed            bool
+	messageID            string
+	parts                []*livePart
 }
 type livePart struct{ text, reasoning strings.Builder }
 
@@ -81,6 +85,7 @@ type LiveStreamSnapshot struct {
 	Segments           []ResponseSegment
 }
 type LiveTurnSnapshot struct {
+	Thinking                                               bool
 	ProjectionID                                           string
 	Detached                                               bool
 	Epoch                                                  string
@@ -183,6 +188,11 @@ func (e *ExecutionProjection) StartStream(iteration int) *StreamProjection {
 }
 
 func (s *StreamProjection) apply(fn func(*liveStream)) bool {
+	return s.mutate(func(stream *liveStream) bool { fn(stream); return true })
+}
+
+// The callback distinguishes byte changes from phase-only updates.
+func (s *StreamProjection) mutate(fn func(*liveStream) bool) bool {
 	if s == nil {
 		return true
 	} // seams de handlers sem admissão; runtime sempre vincula
@@ -197,23 +207,43 @@ func (s *StreamProjection) apply(fn func(*liveStream)) bool {
 	if stream == nil || stream.generation != s.generation || stream.sealed {
 		return false
 	}
-	fn(stream)
-	t.contentVersion++
-	stream.confirmed = false
+	if fn(stream) {
+		t.contentVersion++
+		stream.confirmed = false
+	}
 	c.revision++
 	s.execution.schedulePublicationLocked()
 	return true
 }
 
 func (s *StreamProjection) Append(text string) bool {
-	return s.apply(func(stream *liveStream) { stream.parts[len(stream.parts)-1].text.WriteString(text) })
+	return s.apply(func(stream *liveStream) {
+		stream.thinking = false
+		stream.parts[len(stream.parts)-1].text.WriteString(text)
+	})
 }
 func (s *StreamProjection) Initial(text string) bool {
 	return s.apply(func(stream *liveStream) { stream.parts = []*livePart{{}}; stream.parts[0].text.WriteString(text) })
 }
-func (s *StreamProjection) Reasoning(text string, replace bool) bool {
-	return s.apply(func(stream *liveStream) {
+func (s *StreamProjection) Reasoning(text string, replace bool, active ...bool) bool {
+	return s.mutate(func(stream *liveStream) bool {
+		if len(active) > 0 {
+			stream.thinking = active[0]
+		}
 		if replace {
+			offset := 0
+			same := true
+			for _, part := range stream.parts {
+				value := part.reasoning.String()
+				if len(value) > len(text)-offset || text[offset:offset+len(value)] != value {
+					same = false
+					break
+				}
+				offset += len(value)
+			}
+			if same && offset == len(text) {
+				return false
+			}
 			for _, part := range stream.parts {
 				part.reasoning.Reset()
 			}
@@ -221,10 +251,33 @@ func (s *StreamProjection) Reasoning(text string, replace bool) bool {
 		} else {
 			stream.parts[len(stream.parts)-1].reasoning.WriteString(text)
 		}
+		return replace || text != ""
 	})
 }
+func (s *StreamProjection) StopThinking() bool {
+	if s == nil {
+		return true
+	}
+	c := s.execution.conversation
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	t := s.execution.currentLocked()
+	if t == nil || t.finished {
+		return false
+	}
+	stream := t.streams[s.iteration]
+	if stream == nil || stream.generation != s.generation || stream.sealed {
+		return false
+	}
+	if stream.thinking {
+		stream.thinking = false
+		c.revision++
+		s.execution.schedulePublicationLocked()
+	}
+	return true
+}
 func (s *StreamProjection) Cut() bool {
-	return s.apply(func(stream *liveStream) { stream.parts = append(stream.parts, &livePart{}) })
+	return s.apply(func(stream *liveStream) { stream.thinking = false; stream.parts = append(stream.parts, &livePart{}) })
 }
 
 // OwnsStream inclui o resultado já selado, mas rejeita binding substituído.
@@ -250,18 +303,17 @@ func (s *StreamProjection) current(allowSealed bool) bool {
 // diferente dos chunks. Não compara trechos para adivinhar proveniência.
 func (s *StreamProjection) Seal(text, reasoning string) bool {
 	return s.apply(func(stream *liveStream) {
-		var content strings.Builder
+		var content, thoughts strings.Builder
 		for i := range stream.parts {
 			content.WriteString(stream.parts[i].text.String())
+			thoughts.WriteString(stream.parts[i].reasoning.String())
 		}
-		if content.String() != text {
+		if content.String() != text || thoughts.String() != reasoning {
+			stream.presentationReplaced = true
 			stream.parts = []*livePart{{}}
 			stream.parts[0].text.WriteString(text)
+			stream.parts[0].reasoning.WriteString(reasoning)
 		}
-		for i := range stream.parts {
-			stream.parts[i].reasoning.Reset()
-		}
-		stream.parts[0].reasoning.WriteString(reasoning)
 		stream.sealed = true
 	})
 }
@@ -469,10 +521,14 @@ func snapshotLiveTurn(c *projectionConversation, t *liveTurn) *LiveTurnSnapshot 
 	sort.Ints(iterations)
 	for _, iteration := range iterations {
 		stream := t.streams[iteration]
+		result.Thinking = !t.finished && !stream.sealed && stream.thinking
 		target := LiveStreamSnapshot{Generation: stream.generation, Iteration: iteration, PersistedMessageID: stream.messageID, Confirmed: stream.confirmed}
 		for index := range stream.parts {
 			part := stream.parts[index]
 			identity := fmt.Sprintf("draft:%s:%d:%d:%d", base64.RawURLEncoding.EncodeToString([]byte(t.executionID)), iteration, stream.generation, index)
+			if stream.presentationReplaced {
+				identity += ":replacement"
+			}
 			if part.reasoning.Len() != 0 {
 				target.Segments = append(target.Segments, ResponseSegment{SegmentID: identity + ":reasoning", Kind: "reasoning", Text: strings.Clone(part.reasoning.String())})
 			}

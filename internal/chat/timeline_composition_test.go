@@ -134,7 +134,11 @@ func TestCompositionPreservesLiveCutsAndTextIdentityDuringReasoning(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(b.Segments, second.Streams[0].Segments) || len(b.Segments) != 4 || b.Segments[1].SegmentID != textID {
+	expected := append([]ResponseSegment(nil), second.Streams[0].Segments...)
+	for i := range expected {
+		expected[i].SourceMessageID = "draft:ZXhlY3V0aW9u:0:1"
+	}
+	if !reflect.DeepEqual(b.Segments, expected) || len(b.Segments) != 4 || b.Segments[1].SegmentID != textID {
 		t.Fatalf("fragmentos/identidade alterados: %+v", b.Segments)
 	}
 	stream.Reasoning("", true)

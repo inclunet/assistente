@@ -259,11 +259,7 @@ func positionSourceInvocations(source []ResponseSegment, activity []TurnSegmentT
 			part := segment
 			part.Text = segment.Text[local:end]
 			if local != 0 {
-				if segment.SourceMessageID != "" {
-					part = responseTextSegment(segment.Kind, Message{UUIDModel: database.UUIDModel{ID: segment.SourceMessageID}}, local, part.Text)
-				} else {
-					part.SegmentID = segment.SegmentID + ":" + strconv.Itoa(local)
-				}
+				part.SegmentID = segment.SegmentID + ":" + strconv.Itoa(local)
 			}
 			segments = append(segments, part)
 			local = end

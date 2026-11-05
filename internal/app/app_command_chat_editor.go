@@ -61,7 +61,7 @@ func (a *App) prepareChatEditorTarget(ctx context.Context, p *commandProductRunt
 }
 
 func (a *App) PrepareChatEditorCommand(ticket, messageID, originalContent, targetDocumentID string) (*ChatEditorCommandPlan, error) {
-	if err := a.prepareChatMessageCommand(ticket, messageID, nil, originalContent, &targetDocumentID); err != nil {
+	if err := a.prepareChatMessageCommand(ticket, messageID, nil, originalContent, &targetDocumentID, nil); err != nil {
 		return nil, err
 	}
 	p, run, err := a.commandUIRun(ticket)

@@ -226,6 +226,10 @@ export function PrepareChatMessageEditCommand(arg1, arg2, arg3, arg4) {
   return window['go']['app']['App']['PrepareChatMessageEditCommand'](arg1, arg2, arg3, arg4);
 }
 
+export function PrepareChatTimelineCopyCommand(arg1, arg2, arg3) {
+  return window['go']['app']['App']['PrepareChatTimelineCopyCommand'](arg1, arg2, arg3);
+}
+
 export function PrepareManualCommandLayer(arg1) {
   return window['go']['app']['App']['PrepareManualCommandLayer'](arg1);
 }

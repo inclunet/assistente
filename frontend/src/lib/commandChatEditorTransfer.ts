@@ -1,8 +1,9 @@
+import type { ChatMessageSource } from '../services/chatTimelinePresentation';
 import { flushSync } from 'react-dom';
 import { useAuthStore } from '../store/authStore';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { useWorkspaceChatModalStore } from '../store/workspaceChatModalStore';
-import { useChatStore, type Message } from '../store/chatStore';
+import { type Message } from '../store/chatStore';
 import { useEditorStore } from '../store/editorStore';
 import { getModalRegistrySnapshot } from './modalRegistry';
 import { ReadFocusContext } from './commandContextProviders';
@@ -16,7 +17,7 @@ export const CHAT_EDITOR_COMMAND = 'chat.message.send_to_editor';
 /** The source lease ends at the authorized transition; the destination lease
  * then owns the effect. Neither lease may retarget following navigation. */
 export function prepareChatEditorTransfer(
-  message: Message, payload: SendToEditorPayload, sourceCurrent: () => boolean,
+  message: Message, payload: SendToEditorPayload, sourceCurrent: () => boolean, source: ChatMessageSource,
 ): PreparedChatMessagingTarget | undefined {
   if (!payload.content || !['markdown', 'plain', 'html'].includes(payload.format)) return undefined;
   const owner = useAuthStore.getState().user;
@@ -49,6 +50,7 @@ export function prepareChatEditorTransfer(
   let running = false;
   let destinationSeen = false;
   let closingModal = false;
+  let sourceReleased = false;
   let modalGeneration = initialModal.generationNumber;
   const off: Array<() => void> = [];
   const cleanup = () => { off.splice(0).forEach(unsubscribe => unsubscribe()); destination?.dispose(); };
@@ -56,10 +58,10 @@ export function prepareChatEditorTransfer(
     if (invalid || disposed) return false;
     const auth = useAuthStore.getState();
     const ws = useWorkspaceStore.getState().workspace;
-    const latest = useChatStore.getState().getConversationMessages(message.conversationId!).find(item => item.id === message.id);
+    const latest = source.getMessage(message.id);
     const modals = getModalRegistrySnapshot();
     let valid = auth.isAuthenticated && auth.user?.userId === owner.userId && auth.user?.sessionId === owner.sessionId &&
-      ws?.id === workspace.id && window.location.pathname === pathname && latest === message && latest.content === messageContent &&
+      ws?.id === workspace.id && window.location.pathname === pathname && (sourceReleased || latest === message && latest.content === messageContent) &&
       JSON.stringify(ws.tabs.find(tab => tab.id === sourceTabId)) === sourceBinding;
     if (phase === 'source') valid = valid && sourceCurrent();
     else {
@@ -79,7 +81,7 @@ export function prepareChatEditorTransfer(
     return valid;
   };
   const observe = () => { current(); };
-  off.push(useAuthStore.subscribe(observe), useWorkspaceStore.subscribe(observe), useEditorStore.subscribe(observe), useChatStore.subscribe(observe));
+  off.push(useAuthStore.subscribe(observe), useWorkspaceStore.subscribe(observe), useEditorStore.subscribe(observe), source.subscribe(observe));
   const waitForDestination = async () => {
     const deadline = Date.now() + 10_000;
     while (current() && (useWorkspaceStore.getState().workspace?.activeTabId !== planned?.tabId)) {
@@ -93,7 +95,7 @@ export function prepareChatEditorTransfer(
     canCommit: () => current() && phase === 'source',
     async prepareAdmission(ticket) {
       if (!current()) throw new ChatMessagingStaleError();
-      planned = await prepareChatEditorCommand(ticket, message.id, messageContent, targetId);
+      planned = await prepareChatEditorCommand(ticket, message.timelineItem?.representativeMessageId ?? message.id, messageContent, targetId);
       if (targetId && planned.tabId !== targetId || !current()) throw new ChatMessagingStaleError();
     },
     async execute(handoff) {
@@ -107,6 +109,9 @@ export function prepareChatEditorTransfer(
         if (ownsModal) {
           const modal = useWorkspaceChatModalStore.getState();
           if (!modal.isOpen || modal.boundTabId !== sourceTabId || modal.boundConversationId !== message.conversationId) throw new Error('Chat modal changed');
+          // A partir do fechamento autorizado, o ticket validado pelo backend
+          // conserva a revisão da mensagem; a superfície pode ser descartada.
+          sourceReleased = true;
           closingModal = true;
           flushSync(() => useWorkspaceChatModalStore.getState().close());
           const after = getModalRegistrySnapshot();

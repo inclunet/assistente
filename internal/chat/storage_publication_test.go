@@ -123,7 +123,7 @@ func TestStoragePublicationSelectionQueryPlanUsesSelectedIdentities(t *testing.T
 		args []interface{}
 	}
 	var budgets []capturedQuery
-	var payload capturedQuery
+	var payload, children capturedQuery
 	if err := f.db.Callback().Query().After("gorm:query").Register("selection_payload_plan", func(tx *gorm.DB) {
 		if strings.Contains(tx.Statement.SQL.String(), "selected_payload") {
 			payload = capturedQuery{tx.Statement.SQL.String(), append([]interface{}(nil), tx.Statement.Vars...)}
@@ -132,9 +132,12 @@ func TestStoragePublicationSelectionQueryPlanUsesSelectedIdentities(t *testing.T
 		t.Fatal(err)
 	}
 	if err := f.db.Callback().Row().After("gorm:row").Register("selection_plan", func(tx *gorm.DB) {
-		if strings.Contains(tx.Statement.SQL.String(), "WITH scoped AS") {
+		if strings.Contains(tx.Statement.SQL.String(), "WITH scoped AS") && !strings.Contains(tx.Statement.SQL.String(), "SELECT parent_id, COUNT(*)") {
 			query = tx.Statement.SQL.String()
 			args = append([]interface{}(nil), tx.Statement.Vars...)
+		}
+		if strings.Contains(tx.Statement.SQL.String(), "SELECT parent_id, COUNT(*)") {
+			children = capturedQuery{tx.Statement.SQL.String(), append([]interface{}(nil), tx.Statement.Vars...)}
 		}
 		if strings.Contains(tx.Statement.SQL.String(), "COALESCE(SUM(1024") {
 			budgets = append(budgets, capturedQuery{tx.Statement.SQL.String(), append([]interface{}(nil), tx.Statement.Vars...)})
@@ -179,6 +182,30 @@ func TestStoragePublicationSelectionQueryPlanUsesSelectedIdentities(t *testing.T
 	}
 	if !messageLookup || !turnLookup {
 		t.Fatalf("payload sem buscas indexadas: %+v", plan)
+	}
+	if children.sql == "" {
+		t.Fatal("contagem de filhos não capturada")
+	}
+	plan = nil
+	if err := f.db.Raw("EXPLAIN QUERY PLAN "+children.sql, children.args...).Scan(&plan).Error; err != nil {
+		t.Fatal(err)
+	}
+	turnLookup = false
+	for _, row := range plan {
+		for _, alias := range []string{"m", "q", "p", "t"} {
+			if strings.HasPrefix(row.Detail, "SCAN "+alias+" ") || row.Detail == "SCAN "+alias {
+				t.Fatalf("contagem varre tabela sem restringir pais: %+v", plan)
+			}
+		}
+		if strings.HasPrefix(row.Detail, "SEARCH t ") {
+			turnLookup = true
+			if !strings.Contains(row.Detail, "user_message_id=?") {
+				t.Fatalf("contagem percorre turnos da conversa: %+v", plan)
+			}
+		}
+	}
+	if !turnLookup {
+		t.Fatalf("contagem não consultou turnos por identidade: %+v", plan)
 	}
 	if len(budgets) != 2 {
 		t.Fatal("preflight não capturado", len(budgets))

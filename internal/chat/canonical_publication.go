@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // CanonicalBatch conserva o roteamento interno do journal até a borda de replay.
@@ -37,7 +38,9 @@ const canonicalReplayBatches = 256
 const canonicalReplayBytes = 2 * 1024 * 1024
 
 func canonicalItem(item *TimelineItem) CanonicalItem {
-	view := CanonicalItem{ItemID: item.ItemID, ConversationID: item.ConversationID, ScopeParentID: item.ScopeParentID, Kind: item.Kind, ReplyToItemID: item.ReplyToItemID, MessageIDs: append([]string{}, item.MessageIDs...), State: item.State, Durability: item.Durability, Segments: make([]CanonicalSegment, 0, len(item.Segments)), Metadata: CanonicalMetadata{Origin: item.Origin}}
+	view := CanonicalItem{ItemID: item.ItemID, ConversationID: item.ConversationID, ScopeParentID: item.ScopeParentID, Kind: item.Kind, ReplyToItemID: item.ReplyToItemID, MessageIDs: append([]string{}, item.MessageIDs...), State: item.State, Durability: item.Durability, Segments: make([]CanonicalSegment, 0, len(item.Segments)), Metadata: CanonicalMetadata{Origin: item.Origin, ConclusionSegmentIDs: []string{}}}
+	view.Metadata.Thinking = item.Thinking
+	view.Metadata.TerminalReason = item.TerminalReason
 	view.ExecutionID = item.ExecutionID
 	if item.RecoveryReference != nil {
 		reference := *item.RecoveryReference
@@ -51,16 +54,43 @@ func canonicalItem(item *TimelineItem) CanonicalItem {
 		m := item.Representative
 		id := m.ID
 		view.RepresentativeMessageID = &id
+		view.Metadata.ThreadParentMessageID = &id
 		view.Metadata.Role = m.Role
 		view.Metadata.Pinned = m.Pinned
 		view.Metadata.Model = m.Model
 		view.Metadata.PromptTokens = m.PromptTokens
 		view.Metadata.CompletionTokens = m.CompletionTokens
 		view.Metadata.TotalTokens = m.TotalTokens
+		view.Metadata.CreatedAt = m.CreatedAt.Format(time.RFC3339Nano)
+		view.Metadata.Timestamp = m.CreatedAt.UnixMilli()
+		view.Metadata.Source = m.Source
+		view.Metadata.CacheReadTokens = m.CacheReadTokens
+		view.Metadata.CacheWriteTokens = m.CacheWriteTokens
+		view.Metadata.CacheMissTokens = m.CacheMissTokens
+		if m.Presentation != nil {
+			view.Metadata.ChildCount = m.Presentation.ChildCount
+		}
 	} else if item.Kind == "response" {
 		view.Metadata.Role = "assistant"
+		// A resposta existe antes do representante; sua data é a âncora persistida.
+		for _, layout := range []string{"2006-01-02 15:04:05.999999999-07:00", "2006-01-02 15:04:05.999999999", time.RFC3339Nano} {
+			if created, err := time.Parse(layout, item.Position.AnchorCreatedAt); err == nil {
+				view.Metadata.CreatedAt = created.Format(time.RFC3339Nano)
+				view.Metadata.Timestamp = created.UnixMilli()
+				break
+			}
+		}
+	}
+	conclusionSource := ""
+	for _, segment := range item.Segments {
+		if segment.Kind == "text" && strings.TrimSpace(segment.Text) != "" {
+			conclusionSource = segment.SourceMessageID
+		}
 	}
 	for _, s := range item.Segments {
+		if s.Kind == "text" && s.SourceMessageID == conclusionSource {
+			view.Metadata.ConclusionSegmentIDs = append(view.Metadata.ConclusionSegmentIDs, s.SegmentID)
+		}
 		view.Segments = append(view.Segments, CanonicalSegment{SegmentID: s.SegmentID, Kind: s.Kind, Text: s.Text, Invocations: append([]TurnSegmentToolCall(nil), s.Invocations...)})
 	}
 	if item.ScopeParentID != nil {

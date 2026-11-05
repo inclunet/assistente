@@ -244,3 +244,46 @@ func TestTurnExecutionReconciliationDoesNotRewriteUnchangedResponse(t *testing.T
 		t.Fatal(err)
 	}
 }
+
+func TestTurnExecutionStartupBeforeContentProvenanceMigration(t *testing.T) {
+	db := newChatTurnTestDB(t, false)
+	seedChatTurnTestMessages(t, db, "conv", "turn", "")
+	if err := MigrateChatTurns(db); err != nil {
+		t.Fatal(err)
+	}
+	if err := migrateChatTurnLeases(db); err != nil {
+		t.Fatal(err)
+	}
+	if db.Migrator().HasColumn("chat_turns", "current_execution_id") {
+		t.Fatal("fixture já contém v44")
+	}
+	if err := ensureSchemaMigrationsTable(db); err != nil {
+		t.Fatal(err)
+	}
+	for _, version := range []int{41, 42} {
+		if err := recordMigration(db, migration{Version: version, Name: "startup-fixture"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ctx := WithUserID(context.Background(), "user")
+	lease, err := turnlease.Create(ctx, t.TempDir(), "01926b90-7a5a-7c4e-8d3f-000000000199")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec("INSERT INTO chat_turn_attempts(execution_id,turn_id,mode,state,started_at,terminal_reason,lease_path) VALUES(?,?,?,?,?,?,?)", "01926b90-7a5a-7c4e-8d3f-000000000199", "turn", TurnModeNew, TurnStreaming, time.Now(), "", lease.Path).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec("UPDATE chat_turns SET state=?,active_execution_id=? WHERE user_message_id=?", TurnStreaming, "01926b90-7a5a-7c4e-8d3f-000000000199", "turn").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := lease.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := initializeChatTurnsBeforeWorkers(db); err != nil {
+		t.Fatal(err)
+	}
+	turn, err := NewChatTurnRepository(db).Get(ctx, "conv", "turn")
+	if err != nil || turn.State != TurnInterrupted || turn.ActiveExecutionID != nil {
+		t.Fatalf("startup v42: %+v %v", turn, err)
+	}
+}

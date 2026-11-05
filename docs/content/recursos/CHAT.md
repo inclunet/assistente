@@ -298,3 +298,8 @@ Ao repetir ou continuar, resumos antigos que poderiam conter a resposta
 substituída são invalidados. Um resumo que já estava sendo gerado não deve
 restaurar esse conteúdo depois. A integração da identidade lógica da resposta
 com todos os consumidores visuais ainda está em andamento.
+
+Quando uma resposta permanece visível após falha de gravação, **Copiar mensagem**
+e **Copiar como Markdown** também podem preservar seu texto. A cópia vale para a
+versão exibida: se a resposta mudar ou a janela for fechada durante a operação,
+selecione novamente a mensagem antes de tentar copiar.

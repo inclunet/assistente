@@ -3,6 +3,7 @@ package chat
 import (
 	"context"
 	"errors"
+	"maps"
 	"sort"
 
 	"assistente/internal/database"
@@ -348,7 +349,7 @@ func (p *LiveProjection) readWindow(ctx context.Context, query database.MessageW
 	return p.readWindowLocked(ctx, query, reader, canonical, c)
 }
 
-func (p *LiveProjection) readWindowLocked(ctx context.Context, query database.MessageWindowQuery, reader WindowSnapshotReader, canonical bool, c *projectionConversation) (*TimelineWindowSnapshot, error) {
+func (p *LiveProjection) readWindowLocked(ctx context.Context, query database.MessageWindowQuery, reader WindowSnapshotReader, canonical bool, c *projectionConversation) (_ *TimelineWindowSnapshot, err error) {
 	if !canonical {
 		_ = p.recoverStoragePublicationLocked(ctx, query.ConversationID, c, nil)
 	}
@@ -373,6 +374,23 @@ func (p *LiveProjection) readWindowLocked(ctx context.Context, query database.Me
 		}
 	}
 	if canonical {
+		// Protect the entire candidate before composing its first response.
+		// Open has no window yet; Navigate/Refresh still own the prior page.
+		previousPreparing := c.preparingPresentation
+		previousBoundaries := maps.Clone(c.presentationBoundaries)
+		c.preparingPresentation = maps.Clone(previousPreparing)
+		if c.preparingPresentation == nil {
+			c.preparingPresentation = make(map[string]bool, len(snapshot.Items))
+		}
+		for _, item := range snapshot.Items {
+			c.preparingPresentation[item.ItemID] = true
+		}
+		defer func() {
+			c.preparingPresentation = previousPreparing
+			if err != nil {
+				c.presentationBoundaries = previousBoundaries
+			}
+		}()
 		if !windowCompositionWithinBudget(c, snapshot.Items) {
 			return nil, ErrTimelineSourceLimit
 		}

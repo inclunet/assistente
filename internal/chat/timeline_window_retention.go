@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strconv"
 
+	"assistente/internal/apidto"
 	"assistente/internal/database"
 )
 
@@ -13,12 +14,36 @@ var ErrTimelineRetention = errors.New("retenção de leitura inválida; libere o
 
 // SetRetention substitui as referências visuais desta inscrição. Não altera
 // pinned persistido. A confirmação é publicada com os splices no mesmo lote.
-func (s *TimelineSubscription) SetRetention(ctx context.Context, request TimelineRetentionRequest) (resultErr error) {
+func (s *TimelineSubscription) SetRetention(ctx context.Context, request TimelineRetentionRequest) error {
+	_, err := s.SetRetentionCheckpoint(ctx, request)
+	return err
+}
+
+func (s *TimelineSubscription) SetRetentionCheckpoint(ctx context.Context, request TimelineRetentionRequest) (receipt *apidto.TimelineRetentionReceipt, resultErr error) {
+	receipt = &apidto.TimelineRetentionReceipt{}
+	resultErr = s.setRetention(ctx, request, receipt)
+	if resultErr != nil {
+		return nil, resultErr
+	}
+	return receipt, nil
+}
+
+func (s *TimelineSubscription) setRetention(ctx context.Context, request TimelineRetentionRequest, receipt *apidto.TimelineRetentionReceipt) (resultErr error) {
 	authorized, c, release, err := s.lockAuthorized(ctx)
 	if err != nil {
 		return err
 	}
 	defer release()
+	defer func() {
+		if resultErr == nil {
+			current := c.windows[s.windowID]
+			if current == nil {
+				resultErr = ErrTimelineSubscription
+				return
+			}
+			*receipt = apidto.TimelineRetentionReceipt{WindowID: s.windowID, Epoch: current.epoch, WindowRevision: strconv.FormatUint(current.revision, 10)}
+		}
+	}()
 	w := c.windows[s.windowID]
 	if request.Epoch != w.epoch || (len(request.ItemIDs) > 0 && w.epoch != c.epoch) || request.WindowRevision != strconv.FormatUint(w.revision, 10) {
 		return ErrTimelineWindowStale

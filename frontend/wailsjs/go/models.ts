@@ -636,6 +636,17 @@ export namespace apidto {
 	    }
 	}
 	export class CanonicalMetadata {
+	    thinking?: boolean;
+	    terminalReason?: string;
+	    threadParentMessageId?: string;
+	    conclusionSegmentIds: string[];
+	    createdAt: string;
+	    timestamp: number;
+	    source: string;
+	    childCount: number;
+	    cacheReadTokens: number;
+	    cacheWriteTokens: number;
+	    cacheMissTokens: number;
 	    origin: string;
 	    role: string;
 	    pinned: boolean;
@@ -650,6 +661,17 @@ export namespace apidto {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.thinking = source["thinking"];
+	        this.terminalReason = source["terminalReason"];
+	        this.threadParentMessageId = source["threadParentMessageId"];
+	        this.conclusionSegmentIds = source["conclusionSegmentIds"];
+	        this.createdAt = source["createdAt"];
+	        this.timestamp = source["timestamp"];
+	        this.source = source["source"];
+	        this.childCount = source["childCount"];
+	        this.cacheReadTokens = source["cacheReadTokens"];
+	        this.cacheWriteTokens = source["cacheWriteTokens"];
+	        this.cacheMissTokens = source["cacheMissTokens"];
 	        this.origin = source["origin"];
 	        this.role = source["role"];
 	        this.pinned = source["pinned"];
@@ -2517,6 +2539,22 @@ export namespace apidto {
 		    }
 		    return a;
 		}
+	}
+	export class TimelineRetentionReceipt {
+	    windowId: string;
+	    epoch: string;
+	    windowRevision: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new TimelineRetentionReceipt(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.windowId = source["windowId"];
+	        this.epoch = source["epoch"];
+	        this.windowRevision = source["windowRevision"];
+	    }
 	}
 	export class TimelineRetentionRequest {
 	    epoch: string;
@@ -5730,6 +5768,18 @@ export namespace database {
 		    }
 		    return a;
 		}
+	}
+	export class MessagePresentation {
+	    ChildCount: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new MessagePresentation(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.ChildCount = source["ChildCount"];
+	    }
 	}
 	export class MessageSearchResult {
 	    conversation_id: string;

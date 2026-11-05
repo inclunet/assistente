@@ -242,10 +242,11 @@ test.describe('Chat — cronologia canônica de tools', () => {
         'tool',
         'text:texto intermediário dois',
         'tool',
+        'text:' + finalContent,
       ],
-      finalCount: 1,
-      finalOutsideRegion: true,
-      finalAfterRegion: true,
+      finalCount: 0,
+      finalOutsideRegion: false,
+      finalAfterRegion: false,
       localLiveRegions: 0,
     });
 
@@ -259,10 +260,11 @@ test.describe('Chat — cronologia canônica de tools', () => {
         'tool',
         'text:texto intermediário dois',
         'tool',
+        'text:' + finalContent,
       ],
-      finalCount: 1,
-      finalOutsideRegion: true,
-      finalAfterRegion: true,
+      finalCount: 0,
+      finalOutsideRegion: false,
+      finalAfterRegion: false,
     });
 
     const toggle = reloadedAssistant.locator('.chat-message__chain-toggle');

@@ -244,3 +244,44 @@ func TestRecoveryItemAcquisitionAfterStorageIncarnationChange(t *testing.T) {
 		t.Fatal("reconstruiu DTO já removido", err)
 	}
 }
+
+func TestPublishedCopyValidatesExactTerminalWindowWithoutReservation(t *testing.T) {
+	for _, scenario := range []string{"copy", "revision", "epoch", "execution", "active", "closed", "revoked", "other-window", "persisted", "publication", "quota"} {
+		t.Run(scenario, func(t *testing.T) {
+			sub, session, execution, request, snapshot, item := recoveryItemFixture(t)
+			w := sub.conversation.windows[sub.windowID]
+			w.itemIDs = map[string]bool{request.ItemID: true}
+			switch scenario {
+			case "revision":
+				request.Revision = "8"
+			case "epoch":
+				request.Epoch = "other"
+			case "execution":
+				request.Reference.ExecutionID = "other"
+			case "active":
+				execution.currentLocked().finished = false
+			case "closed":
+				sub.Close()
+			case "revoked":
+				session.id = "revoked"
+			case "other-window":
+				w.itemIDs = map[string]bool{}
+			case "persisted":
+				id := "persisted"
+				item.RepresentativeMessageID = &id
+				sub.conversation.publication.cacheItem(item)
+			case "publication":
+				sub.conversation.publicationStage = &canonicalPublicationStage{}
+			case "quota":
+				w.recoveryReservations = map[TimelineRecoveryReference]recoveryReservation{request.Reference: {bytes: recoveryReservationBytes}}
+			}
+			err := sub.ValidatePublishedCopy(session.ctx, request, pageReader(snapshot))
+			if (scenario == "copy" || scenario == "quota") != (err == nil) {
+				t.Fatalf("%s: %v", scenario, err)
+			}
+			if len(w.recoveryItems) != 0 {
+				t.Fatal("copy allocated recovery reservation")
+			}
+		})
+	}
+}

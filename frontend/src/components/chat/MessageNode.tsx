@@ -1,11 +1,12 @@
+import { getTimelineNodeKey } from '../../services/chatSessionRegistry';
+import { Button } from '../ui/Button';
 import { logger } from '../../utils/logger';
 import React, { useState, useCallback, useEffect, useLayoutEffect, useId } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChatMessage } from './ChatMessage';
 import { MessageNode as MessageNodeType, Message, useChatStore } from '../../store/chatStore';
-import { useChatNodeSessionState } from './ChatSessionContext';
+import { useChatNodeSessionState, useChatTimelineSource } from './ChatSessionContext';
 import { playBumpSound } from '../../services/audioFeedback';
-import { getChatEventControllerExecutionId } from '../../services/chatEventController';
 import { useChatMessageEditDraft } from './useChatMessageEditDraft';
 import { announce } from '../../hooks/useAnnouncer';
 import { useVirtualModal } from '../../hooks/useVirtualModal';
@@ -18,7 +19,7 @@ import { useOptionalWorkspacePanel } from '../workspace/WorkspacePanelContext';
 import { useModalId } from '../ui/Modal';
 import { captureChatNavigationTarget, registerChatNavigationSurface, requestChatNavigationCommand, type ChatNavigationCommandID, type ChatNavigationTarget } from '../../lib/commandChatNavigation';
 import './MessageNode.css';
-import { useMessageInteraction, useActiveMessageInteraction, type RetainMessageInteraction } from './MessageInteractionContext';
+import { useMessageInteraction, useActiveMessageInteraction, useMessageInteractionsActive, type RetainMessageInteraction } from './MessageInteractionContext';
 
 export interface MessageNodeProps {
   node: MessageNodeType;
@@ -81,34 +82,24 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
     conversationId,
     sessionKey,
     editingMessageId,
-    streamingMessageId,
-    streamingReasoning,
-    isThinking: isThinkingGlobal,
-    activeToolCalls,
-    completedSegments,
     isExpanded,
     reasoningExpanded,
     setConversationEditingMessageId,
     toggleConversationThreadExpanded,
     toggleConversationReasoningExpanded,
   } = useChatNodeSessionState(messageId);
-  const canonicalMessage = useChatStore(state => conversationId
-    ? state.getConversationMessages(conversationId).find(message => message.id === node.message.id)
-    : undefined);
-  const canonicalBinding = React.useRef<{ renderedMessage: Message; canonicalMessage: Message | undefined } | null>(null);
-  if (!canonicalBinding.current || canonicalBinding.current.renderedMessage !== node.message) {
-    canonicalBinding.current = { renderedMessage: node.message, canonicalMessage };
-  }
-  
+  const presentation = useChatTimelineSource();
+  const canonicalMessage = presentation?.getMessage(node.message.id);
   const [isLoading, setIsLoading] = useState(false);
-  const editDraft = useChatMessageEditDraft(nodeRef, node.message, conversationId, sessionKey, commandPathname);
+  const editDraft = useChatMessageEditDraft(nodeRef, node.message, conversationId, sessionKey, commandPathname, presentation);
   const { isEditing, editContent } = editDraft;
   const [isReading, setIsReading] = useState(false);
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
 
   // Virtual modal: transforma a mensagem em "dialog" para leitores de tela
-  const retainInteraction = useMessageInteraction();
-  useActiveMessageInteraction(isReading || isEditing || editingMessageId === messageId);
+  const retainInteraction = useMessageInteraction(node.itemId);
+  const interactionsActive = useMessageInteractionsActive();
+  useActiveMessageInteraction(isReading || isEditing || editingMessageId === messageId, node.itemId);
   useVirtualModal({
     elementRef: nodeRef,
     isActive: isReading,
@@ -158,14 +149,20 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
     }
   }, [isPlayingAudio, onSpeak]);
 
+  const threadParent = node.message.timelineItem?.metadata.threadParentMessageId;
+  const threadWindow = threadParent ? presentation?.threadWindow(threadParent) : undefined;
+  const navigateThread = (direction: 'older' | 'newer') => {
+    if (!threadParent || isReading || isEditing || interactionsActive()) return;
+    void presentation?.navigate(direction, threadParent).catch(() => { /* A recuperação é exibida na superfície. */ });
+  };
   const hasChildren = node.childCount > 0 || children.length > 0;
 
   const navigationInstanceId = useId();
   const panel = useOptionalWorkspacePanel();
   const modalId = useModalId();
   const owner = useAuthStore(state => state.user);
-  const navigationLive = React.useRef({ node, conversationId, sessionKey, commandPathname, panel, isReading, isEditing, onContextMenu, onLoadChildren, streamingMessageId, streamingReasoning });
-  navigationLive.current = { node, conversationId, sessionKey, commandPathname, panel, isReading, isEditing, onContextMenu, onLoadChildren, streamingMessageId, streamingReasoning };
+  const navigationLive = React.useRef({ node, conversationId, sessionKey, commandPathname, panel, isReading, isEditing, onContextMenu, onLoadChildren });
+  navigationLive.current = { node, conversationId, sessionKey, commandPathname, panel, isReading, isEditing, onContextMenu, onLoadChildren };
   const navigationListeners = React.useRef(new Set<() => void>());
   const mounted = React.useRef(false);
   const pendingExpansion = React.useRef<{ lease: ChatNavigationTarget; root: HTMLElement; ready: boolean; focusChild: boolean } | null>(null);
@@ -231,31 +228,12 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
     const workspace = useWorkspaceStore.getState().workspace;
     if (!root || !owner || !workspace || !panel || !conversationId || !sessionKey || !commandPathname) return;
     mounted.current = true;
-    const containsMessageReference = (nodes: MessageNodeType[] | undefined, message: Message): boolean => (
-      !!nodes?.some(item => item.message === message || containsMessageReference(item.children, message))
-    );
     const current = () => {
       const live = navigationLive.current;
-      const binding = canonicalBinding.current;
-      const state = useChatStore.getState();
-      const currentCanonicalMessage = state.getConversationMessages(conversationId)
-        .find(message => message.id === live.node.message.id);
-      const surfaceSession = state.surfaceSessionsByKey?.[sessionKey];
-      const visibleNodes = surfaceSession?.visibleThreadedMessages;
-      const belongsToCurrentProjection = visibleNodes
-        ? containsMessageReference(visibleNodes, live.node.message)
-        : currentCanonicalMessage === live.node.message;
-      const executionId = getChatEventControllerExecutionId(conversationId);
-      const isActiveSurfaceStream = !!executionId && surfaceSession?.surfaceOrigin?.executionId === executionId &&
-        surfaceSession.conversationId === conversationId &&
-        surfaceSession.streamingMessageId === live.node.message.id && live.node.message.isStreaming &&
-        binding?.canonicalMessage == null && currentCanonicalMessage == null && belongsToCurrentProjection;
-      return mounted.current && nodeRef.current === root && live.panel?.isActive === true &&
+      const session = useChatStore.getState().surfaceSessionsByKey[sessionKey];
+      return !!session && session.conversationId === conversationId && mounted.current && nodeRef.current === root && live.panel?.isActive === true &&
         live.panel.tab.id === panel.tab.id && live.conversationId === conversationId && live.sessionKey === sessionKey &&
-        surfaceSession?.conversationId === conversationId &&
-        binding?.renderedMessage === live.node.message &&
-        ((binding.canonicalMessage != null && currentCanonicalMessage === binding.canonicalMessage) || isActiveSurfaceStream) &&
-        belongsToCurrentProjection;
+        presentation?.getMessage(live.node.message.id) === live.node.message;
     };
     const off = registerChatNavigationSurface({
       root, instanceId: navigationInstanceId,
@@ -266,24 +244,20 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
       isCurrent: current,
       subscribe(changed) {
         navigationListeners.current.add(changed);
-        const unsubscribe = useChatStore.subscribe(changed);
-        return () => { navigationListeners.current.delete(changed); unsubscribe(); };
+        const unsubscribe = presentation?.subscribe(changed);
+        const unsubscribeSession = useChatStore.subscribe(changed);
+        return () => { navigationListeners.current.delete(changed); unsubscribe?.(); unsubscribeSession(); };
       },
       canOpen(id, target) {
         const live = navigationLive.current;
         const message = live.node.message;
         if (!current() || live.isReading || live.isEditing ||
           target instanceof Element && target !== root && !!target.closest('input,textarea,select,[contenteditable="true"]')) return false;
-        const state = useChatStore.getState();
-        const isTransientSurfaceStream = message.isStreaming &&
-          state.surfaceSessionsByKey?.[sessionKey]?.streamingMessageId === message.id &&
-          state.getConversationMessages(conversationId).every(candidate => candidate.id !== message.id);
-        if (isTransientSurfaceStream) return id === 'chat.message.read.open' && !message.internal;
         const expanded = useChatStore.getState().isConversationThreadExpanded(conversationId, message.id, sessionKey);
         if (id === 'chat.message.read.open') return !message.internal;
         if (id === 'chat.message.menu.open') return !message.internal && !!live.onContextMenu;
         if (id === 'chat.message.reasoning.toggle') return message.role === 'assistant' &&
-          (!!message.reasoning || message.id === live.streamingMessageId && !!live.streamingReasoning);
+          (!!message.reasoning);
         if (id === 'chat.message.thread.expand') return !expanded && !loadingRef.current && ((live.node.children?.length ?? 0) > 0 || live.node.childCount > 0 && !!live.onLoadChildren);
         if (id === 'chat.message.thread.collapse') return expanded;
         return false;
@@ -319,7 +293,7 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
       },
     });
     return () => { mounted.current = false; off(); pendingExpansion.current?.lease.dispose(); pendingExpansion.current = null; loadingRef.current = false; };
-  }, [navigationInstanceId, conversationId, sessionKey, panel?.tab.id, owner?.userId, owner?.sessionId, modalId, commandPathname, node.message, canonicalMessage]);
+  }, [navigationInstanceId, conversationId, sessionKey, panel?.tab.id, owner?.userId, owner?.sessionId, modalId, commandPathname, node.message, canonicalMessage, presentation]);
 
   const handleToggle = () => requestNavigation(isExpanded ? 'chat.message.thread.collapse' : 'chat.message.thread.expand');
 
@@ -658,23 +632,19 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
           onEditContentChange={editDraft.change}
           onSaveEdit={handleSaveEdit}
           onCancelEdit={handleCancelEdit}
-          // Reasoning/Thinking - passa apenas para a mensagem em streaming
-          streamingReasoning={node.message.id === streamingMessageId ? (streamingReasoning || undefined) : undefined}
-          isThinking={node.message.id === streamingMessageId ? isThinkingGlobal : false}
+          isThinking={node.message.timelineItem?.metadata.thinking ?? false}
           isReasoningExpanded={reasoningExpanded}
           onToggleReasoning={() => requestNavigation('chat.message.reasoning.toggle')}
-          // Tool calling - passa apenas para a mensagem em streaming
-          activeToolCalls={node.message.id === streamingMessageId ? activeToolCalls : undefined}
-          completedSegments={node.message.id === streamingMessageId ? completedSegments : undefined}
           isPlayingAudio={isPlayingAudio}
         />
       </div>
 
+      {isExpanded && threadWindow?.metadata.hasBefore && <Button disabled={presentation?.loading} onClick={() => navigateThread('older')}>{t('chat.loadOlderMessages')}</Button>}
       {isExpanded && children.length > 0 && (
-        <div className="message-node__children" role="list" aria-label="Respostas internas">
+        <div className="message-node__children" role="list" aria-label={t('chat.threadReplies')}>
           {children.map((childNode, index) => (
             <MessageNode
-              key={childNode.message.id || index}
+              key={getTimelineNodeKey(childNode)}
               node={childNode}
               level={level + 1}
               siblingIndex={index}
@@ -687,11 +657,14 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
               onSaveEdit={onSaveEdit}
               commandPathname={commandPathname}
               onDelete={onDelete}
+              editorTargets={editorTargets}
+              onSendToEditor={onSendToEditor}
               // Não passa onReachEnd para threads internas
             />
           ))}
         </div>
       )}
+      {isExpanded && threadWindow?.metadata.hasAfter && <Button disabled={presentation?.loading} onClick={() => navigateThread('newer')}>{t('chat.loadNewerMessages')}</Button>}
     </div>
   );
 });

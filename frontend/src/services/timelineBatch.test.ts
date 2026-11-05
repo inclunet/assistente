@@ -12,7 +12,7 @@ function item(id = 'answer', rev = '10'): TimelineItem {
       { segmentId: 'text', kind: 'text', text: 'Olá' },
       { segmentId: 'reason', kind: 'reasoning', text: 'Pensando' },
     ],
-    metadata: { origin: 'chat', role: 'assistant', pinned: false, model: '',
+    metadata: { createdAt: '2026-01-01T00:00:00Z', timestamp: 1767225600000, source: '', childCount: 0, threadParentMessageId: null, conclusionSegmentIds: [], cacheReadTokens: 0, cacheWriteTokens: 0, cacheMissTokens: 0, origin: 'chat', role: 'assistant', pinned: false, model: '',
       promptTokens: 0, completionTokens: 0, totalTokens: 0 },
   };
 }

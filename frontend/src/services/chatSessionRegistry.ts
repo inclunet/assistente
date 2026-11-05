@@ -236,6 +236,7 @@ export const getMessageNodeOrder = (node: MessageNode): number => {
 };
 
 export const getTimelineNodeKey = (node: MessageNode): string => {
+  if (node.itemId) return node.itemId;
   // Keep this rule in sync with backend messageTimelineItemKey.
   const turnId = String(node.message.turnId ?? '').trim();
   if (turnId !== '' && node.message.role !== 'user') {

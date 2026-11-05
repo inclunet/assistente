@@ -1,8 +1,141 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, mensagens, áudio, limpeza, exclusão e importação integrados; retenção por idade, órfãos, navegação, leitura leve e orçamento de fontes da janela com recuperação atômica e parcelada e participação histórica automática com publicação e replay atômicos integrados; followTail, retenção por foco/leitura, DTOs compartilhados, RPCs de inscrição, entrega pelo journal e transporte de eventos Wails integrados; núcleo transacional, coordenador e cliente Wails por sessão frontend e identidade de recuperação por execução, consulta autorizada de estado, leitura limitada, reserva explícita dos buffers finalizados, leitor de recuperação Wails, reserva do DTO canônico publicado e transferência de recuperação no Refresh integrados; DOM da lista unificado com retenção visual por foco; margem de desempenho e cutover pendentes
+## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, mensagens, áudio, limpeza, exclusão e importação integrados; retenção por idade, órfãos, navegação, leitura leve e orçamento de fontes da janela com recuperação atômica e parcelada e participação histórica automática com publicação e replay atômicos integrados; followTail, retenção por foco/leitura, DTOs compartilhados, RPCs de inscrição, entrega pelo journal e transporte de eventos Wails integrados; núcleo transacional, coordenador e cliente Wails por sessão frontend e identidade de recuperação por execução, consulta autorizada de estado, leitura limitada, reserva explícita dos buffers finalizados, leitor de recuperação Wails, reserva do DTO canônico publicado e transferência de recuperação no Refresh integrados; DOM da lista unificado com retenção visual por foco; consumidor visual canônico e identidade dos segmentos integrados; retirada dos reducers visuais legados do controlador operacional e margem de desempenho pendentes
 
 Data: 2026-10-30
+
+### Decisão: identidade de apresentação após confirmação (2026-11-05)
+
+Aprovada pelo mantenedor para o cutover. Esta decisão substitui a troca de IDs
+na confirmação descrita nos recortes de composição e segmentos tipados abaixo.
+Persistir os bytes troca sua fonte e durabilidade; não troca a identidade nem
+os limites dos segmentos já publicados da mesma execução/geração. Seal com os
+mesmos bytes preserva também a posição dos cortes de reasoning. Conteúdo terminal
+diferente, retry e reset de transporte são substituições explícitas, com nova
+identidade para os segmentos substituídos.
+
+O backend conserva a associação comprovada pelo writer entre mensagem persistida
+e faixas publicadas. A associação contém IDs, offsets e hashes de verificação,
+nunca uma segunda cópia de texto ou detalhes de ferramenta. Continuações só herdam
+associações das fontes explicitamente selecionadas pelo backend; retry não herda
+a tentativa anterior. Edição persistida incompatível com os bytes confirmados
+não pode ser sobrescrita por um buffer antigo.
+
+A associação permanece disponível para Refresh depois da coleta do estado live
+se o item continua materializado por alguma janela. Sua vida pertence à projeção
+e à encarnação da conversa. Itens fora de uso podem liberar essas associações;
+recriar a projeção não exige reproduzir identidades de uma interface já desmontada.
+O orçamento adicional de metadados é 8 MiB por conversa: não expulsar associação
+em uso para admitir outra; exceder o limite exige recuperação explícita.
+
+### Recorte: consumidor visual canônico e identidade dos segmentos (2026-11-05)
+
+A lista principal, threads paginadas, streaming, leitura, edição e comandos de
+mensagem consomem a mesma fonte canônica por superfície. O backend fornece data,
+origem, contagem canônica de filhos, alvo persistido das ações e referências dos
+segmentos que compõem a conclusão. O cliente concatena somente essas referências;
+não escolhe a última mensagem nem remove sobreposições por texto.
+
+A identidade visual permanece distinta do representante persistido. Comandos,
+áudio e envio ao editor preservam os guards de owner, sessão, seleção e revisão.
+As interações retêm o item de thread e seus ancestrais nas respectivas janelas.
+O ownership das inscrições filhas independe da página visível; fechar a mãe fecha
+as descendentes, mesmo após paginar. Uma falha transitória de Open pode ser
+recuperada sem desmontar a aba.
+
+SetRetention retorna um recibo produzido sob o lock após o commit. O próximo
+comando usa esse checkpoint da mesma época caso o lote de eventos ainda esteja
+em trânsito; isso não altera o estado visual nem introduz retry automático.
+Refresh normal preserva posição, modo e retenção. Escolher explicitamente as
+mensagens mais recentes exige liberar as interações retidas e restabelece
+followTail na raiz. Falhas conservam o conteúdo de recuperação; liberar uma
+reserva exige decisão explícita. Avisos passam pelo announcer global.
+
+Evidências: `presentation_segments_test.go` (confirmação, terminal, coleta,
+edição, encarnação, rollback e conclusão completa),
+`timeline_retention_receipt_test.go` (checkpoint e revogação durante commit),
+`ChatMessage.test.tsx` (mesmo link e foco durante parcial → confirmação → terminal
+→ novo snapshot), `chatTimelinePresentation.test.ts` (ordem, ownership, retenção,
+reabertura e Refresh), `chatTimelineClient.test.ts` (recibo antes do evento).
+As provas de comandos/edição mantêm recusa por ABA, owner, sessão e mudanças
+concorrentes; suas fixtures injetam a apresentação e não restauram leitura de
+buffers legados no produto.
+
+Validação local deste recorte: 7.000 testes frontend passaram (522 arquivos;
+18 testes pulados pela seleção sem ACP), mais 11 testes focados da apresentação.
+Build, vet, TypeScript, ESLint e Stylelint passaram; Stylelint conserva avisos
+preexistentes. O lint Go completo aponta 12 ocorrências em arquivos não alterados;
+o lint incremental contra origin/main passou com zero ocorrências. A seleção
+segura de chat, os 23 testes selecionados de banco e os 21 testes de timeline
+Wails passaram. Bindings regenerados pelo Wails, sem edição manual.
+Revisor independente `review_aep`: três rodadas de revisão com correções e
+rechecagem final; gate aprovado sem pendências. O último apontamento sobre array
+nullable foi retirado pelo revisor após conferir o produtor e as provas JSON.
+CI e review remotos completam a validação da entrega.
+
+Revisão do consumidor: a fase ativa de raciocínio vem explicitamente do projetor,
+não da existência de texto acumulado. A razão terminal da tentativa corrente é
+lida na mesma transação e aparece como diagnóstico categórico traduzido junto à
+resposta parcial, inclusive após reabrir. Retenção/paginação não alteram o loading
+da geração; conclusão não rouba foco da leitura. Paginação por teclado transfere
+o foco à borda correspondente; scroll não faz essa transferência. A entrega ao
+editor pelo modal libera a fonte visual somente após a transição autorizada,
+conservando o ticket backend e as validações de sessão e destino. Edição de thread
+é recusada antes de abrir o editor. O E2E usa o contrato canônico no backend
+simulado; mantém os testes de comando, teclado, leitura e ferramentas.
+
+Validação das correções de review: 7.013 testes frontend passaram em 523 arquivos
+(18 pulados na seleção sem ACP); 479 testes seguros de chat e 12 de banco/startup
+passaram. E2E: 239 cenários passaram na rodada completa; os dois casos de foco
+restantes passaram na reexecução dos 11 cenários de landmarks/criação de aba,
+após aguardar a conclusão assíncrona do F6. Seis casos permanecem pulados pela
+suíte existente. TypeScript, ESLint, build/vet e lint Go incremental aprovados.
+`review_aep` revisou as correções e confirmou o gate sem pendências, incluindo
+compatibilidade de startup anterior à v44 e paginação concorrente com streaming.
+
+Revisão adicional: copiar texto/Markdown de resposta terminal sem representante
+persistido usa o mesmo ticket de comando, com capability da janela e identidade
+exata da publicação (época, revisão, execução). Backend revalida no handoff;
+cancelamento do comando interrompe a consulta. Não há reserva de recuperação,
+texto fornecido como prova pelo cliente nem liberação de ações destrutivas.
+Contagens legadas continuam refletindo filhos persistidos; contagens canônicas
+incluem respostas admitidas e consultam turnos por identidade, a partir dos pais
+selecionados, independentemente de ANALYZE. A configuração de voz captura a fonte
+canônica mesmo quando o botão entrega uma cópia para renderização.
+
+Validação adicional: 7.017 testes frontend passaram em 523 arquivos (18 pulados
+na seleção sem ACP); 23 testes de timeline Wails e 17 testes de comandos App
+passaram. A seleção ampla de 482 testes seguros de chat encontrou três
+comparações de metadados; corrigido o produtor, as três provas e mais duas de
+contagem/Refresh passaram sem alterar suas expectativas. A cópia também cobre
+descarte entre Prepare e handoff e cancelamento durante autenticação/consulta.
+Build/vet, TypeScript, ESLint e lint Go incremental passaram; bindings regenerados.
+`review_aep` fez três rodadas adicionais e uma rechecagem dos ajustes de
+compatibilidade, aprovando o gate sem pendências antes do push consolidado.
+
+Na segunda revisão remota, o fim do raciocínio com bytes idênticos preserva
+cortes, confirmação e versão de conteúdo, alterando apenas a fase ativa. A
+composição protege todos os IDs do snapshot candidato até o fim da publicação;
+o orçamento inclui esses itens e uma falha restaura o mapa anterior de
+descritores. Regressões atravessam o handler real, duas respostas confirmadas,
+coleta live, Refresh e recusa de orçamento sem perda de identidades anteriores.
+Salto recusado não desloca foco nem deixa rejeição assíncrona sem tratamento;
+nós filhos usam a mesma regra de chave da lista e paginação tem rótulo nos três
+idiomas. Nenhum teste ACP é executado para validar esses percursos.
+
+Permanece uma limitação anterior ao cutover: threads ligadas a uma fonte
+intermediária não representante de resposta consolidada não têm acesso próprio
+na UI. A conclusão desta parte exige metadados backend com alvos reais por fonte
+e acesso distinguível a cada escopo; não somar contagens ao representante nem
+reatribuir filhos. O teste de identidade agora também atravessa CommitContent,
+terminal, coleta live e Refresh real da inscrição.
+
+AEP permanece **In Progress**. O controlador operacional de envio e anúncios
+continua contendo reducers visuais antigos, que deixaram de ser fonte da lista e
+das ações. Sua retirada, os gates restantes de continuidade/retry/ferramentas e
+a margem final de desempenho permanecem pendentes; este PR não declara a fase 3
+nem o AEP integralmente concluídos. Testes locais ACP e NVDA não são executados
+por orientação do mantenedor.
 
 ### Recorte: DOM estável e retenção visual da mensagem focada (2026-11-04)
 
@@ -410,8 +543,12 @@ RPC de confirmação, descarte automático nem consumidor visual.
 
 `chatTimelineClient.ts` conecta o coordenador a um listener único, registrado
 antes de Open, e às capabilities de cada superfície. O orçamento de cache é
-compartilhado por sessão. Navigate e SetRetention usam a revisão aplicada pelo
-coordenador; consultas simultâneas na mesma superfície são recusadas como busy.
+compartilhado por sessão. Navigate e SetRetention usam checkpoints comprovados
+pelo backend: a revisão aplicada pelo coordenador ou o recibo de uma retenção
+confirmada na mesma época, caso seu evento ainda esteja em trânsito. O recibo
+não modifica conteúdo, ordem ou metadados visuais; somente o lote atômico ou
+um snapshot aceito os modifica. Consultas simultâneas na mesma superfície são
+recusadas como busy.
 Não há consulta por delta nem reconstrução semântica adicional no cliente.
 
 Refresh recupera a conversa em um coordenador candidato, com tokens de todas as
@@ -1831,8 +1968,9 @@ A recuperação coordenada fornece um item composto da execução ativa comprova
 reutilizando a projeção de segmentos persistida. Cada stream substitui sua fonte
 pelo ID confirmado pelo writer; não há comparação de prefixos ou deduplicação por
 texto. Conteúdo confirmado usa o snapshot do banco, inclusive após edição.
-Geração/execução/iteração identificam drafts; confirmação substitui esses IDs pelos
-segmentos persistidos e conserva o item lógico. Fonte confirmada ausente exige
+Geração/execução/iteração identificam drafts. A regra original de substituir seus
+IDs na confirmação foi superada pela decisão de identidade de apresentação de
+2026-11-05: confirmar preserva IDs/cortes e troca somente a fonte dos bytes. Fonte confirmada ausente exige
 recuperação explícita. Tentativas retidas/desvinculadas continuam separadas.
 
 O compositor de mensagens aplica posições válidas de atividade por fonte, mesmo
@@ -2143,8 +2281,8 @@ segmentos sem trocar `itemId`. O teste
 `TestLiveProjectionTypedSegmentsDoNotReuseTransportIdentity` comprova essas regras.
 
 A confirmação persistida continua substituindo a origem por referências do banco;
-não se presume igualdade entre IDs draft e persistidos. O futuro protocolo deve
-emitir substituição explícita de segmentos no mesmo item. Este modelo é interno,
+a decisão de 2026-11-05 preserva os IDs de apresentação já publicados. A fonte
+persistida e a identidade visual são contratos distintos; confirmação não é reset. Este modelo é interno,
 não anuncia `revision` como sequência wire nem acrescenta um novo evento paralelo.
 Lotes, inscrições e cutover permanecem pendentes; a fase 2 continua parcial.
 

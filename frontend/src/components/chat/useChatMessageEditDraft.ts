@@ -1,5 +1,6 @@
+import type { ChatMessageSource } from '../../services/chatTimelinePresentation';
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
-import { useChatStore, type Message } from '../../store/chatStore';
+import { type Message } from '../../store/chatStore';
 import { useAuthStore } from '../../store/authStore';
 import { useWorkspaceStore } from '../../store/workspaceStore';
 import { getModalSnapshotGeneration } from '../../lib/modalRegistry';
@@ -64,7 +65,7 @@ export function captureChatMessageEditDraft(root: HTMLElement, conversationId: s
 }
 
 /** Local editor state; no optimistic timeline update, no persisted command data. */
-export function useChatMessageEditDraft(rootRef: RefObject<HTMLDivElement | null>, message: Message, conversationId: string | null, sessionKey: string, pathname?: string) {
+export function useChatMessageEditDraft(rootRef: RefObject<HTMLDivElement | null>, message: Message, conversationId: string | null, sessionKey: string, pathname: string | undefined, presentation: ChatMessageSource | null) {
   const [draft, setDraft] = useState<DraftSnapshot>({ editSession: {}, open: false, revision: 0, content: message.content, originalContent: message.content, originalMessage: message });
   const snapshot = useRef(draft);
   const listeners = useRef(new Set<() => void>());
@@ -79,7 +80,7 @@ export function useChatMessageEditDraft(rootRef: RefObject<HTMLDivElement | null
     const captured = base.current;
     if (!captured || captured.invalid || !snapshot.current.open || !conversationId) return false;
     const auth = useAuthStore.getState();
-    const latest = useChatStore.getState().getConversationMessages(conversationId).find(item => item.id === message.id);
+    const latest = presentation?.getMessage(message.id);
     const valid = auth.isAuthenticated && auth.user?.userId === captured.owner?.userId && auth.user?.sessionId === captured.owner?.sessionId &&
       latest === snapshot.current.originalMessage && latest?.content === snapshot.current.originalContent;
     if (!valid) captured.invalid = true;
@@ -95,7 +96,7 @@ export function useChatMessageEditDraft(rootRef: RefObject<HTMLDivElement | null
       rebaseConfirmed(saved, callerCurrent) {
         const next = snapshot.current;
         if (!next.open || next.editSession !== saved.editSession || !callerCurrent()) return;
-        const latest = useChatStore.getState().getConversationMessages(conversationId).find(item => item.id === message.id);
+        const latest = presentation?.getMessage(message.id);
         if (!latest || latest.content !== saved.content || latest.isStreaming || latest.internal) return;
         // Only an authoritative success can advance the base. Never replace
         // the user's newer text or adopt a different editing session.
@@ -115,10 +116,10 @@ export function useChatMessageEditDraft(rootRef: RefObject<HTMLDivElement | null
       },
     };
     const changed = () => { baseCurrent(); listeners.current.forEach(notify => notify()); };
-    const off = [useChatStore.subscribe(changed), useAuthStore.subscribe(changed), useWorkspaceStore.subscribe(changed)];
+    const off = [presentation?.subscribe(changed) ?? (() => {}), useAuthStore.subscribe(changed), useWorkspaceStore.subscribe(changed)];
     sources.add(source);
     return () => { sources.delete(source); off.forEach(dispose => dispose()); listeners.current.forEach(notify => notify()); listeners.current.clear(); };
-  }, [conversationId, sessionKey, message.id, rootRef]);
+  }, [conversationId, sessionKey, message.id, rootRef, presentation]);
   useLayoutEffect(() => { baseCurrent(); listeners.current.forEach(notify => notify()); }, [pathname]);
   return {
     isEditing: draft.open, editContent: draft.content,

@@ -26,4 +26,4 @@ export function ReserveRecovery(arg1:string,arg2:apidto.TimelineRecoveryReservat
 
 export function ReserveRecoveryItem(arg1:string,arg2:apidto.TimelineRecoveryItemRequest):Promise<apidto.TimelineRecoveryItemReservation>;
 
-export function SetRetention(arg1:string,arg2:apidto.TimelineRetentionRequest):Promise<void>;
+export function SetRetention(arg1:string,arg2:apidto.TimelineRetentionRequest):Promise<apidto.TimelineRetentionReceipt>;

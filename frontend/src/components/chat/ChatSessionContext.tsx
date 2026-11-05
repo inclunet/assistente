@@ -10,46 +10,20 @@ import {
   buildChatSessionKey,
   createChatSurfaceOrigin,
   createEmptyChatSession,
-  getDefaultChatConversationSession,
   getConversationTimeline,
   normalizeChatSurfaceOrigin,
   type ChatSurfaceIdentity,
-  type ChatSurfaceSession,
   type ChatSurfaceOrigin,
-  type ConversationTimeline,
 } from '../../services/chatSessionRegistry';
+import { useChatTimelinePresentation } from './useChatTimelinePresentation';
+import type { ChatTimelinePresentation } from '../../services/chatTimelinePresentation';
 import type { MediaFile } from '../../services/mediaService';
 
-const EMPTY_MESSAGES: never[] = [];
 const EMPTY_SEGMENTS: never[] = [];
 const EMPTY_TOOL_CALLS: never[] = [];
 
-const composeChatSession = (
-  conversationId: string,
-  sessionKey: string,
-  defaultSession: ChatConversationSession | null,
-  timeline: ConversationTimeline | null,
-  surfaceSession: ChatSurfaceSession | null,
-): ChatConversationSession => {
-  const session = surfaceSession ?? createEmptyChatSession(conversationId, sessionKey);
-  const baseConversation = timeline ?? defaultSession?.conversation ?? null;
-  const visibleThreadedMessages = session.visibleThreadedMessages
-    ?? defaultSession?.visibleThreadedMessages
-    ?? baseConversation?.threadedMessages;
-  return {
-    ...session,
-    sessionKey: session.sessionKey ?? sessionKey,
-    conversationId: session.conversationId ?? conversationId,
-    conversation: baseConversation
-      ? {
-        ...baseConversation,
-        threadedMessages: visibleThreadedMessages ?? EMPTY_MESSAGES,
-      }
-      : null,
-  };
-};
-
 export interface ChatSessionContextValue {
+  presentation: ChatTimelinePresentation | null;
   surface: ChatSurfaceIdentity;
   origin: ChatSurfaceOrigin;
   conversationId: string | null;
@@ -86,6 +60,9 @@ export interface ChatSessionContextValue {
   isConversationReasoningExpanded: (conversationId: string, messageId: string) => boolean;
 }
 
+const ChatTimelineContext = createContext<ChatTimelinePresentation | null>(null);
+export const useChatTimelineSource = () => useContext(ChatTimelineContext);
+
 const ChatSessionContext = createContext<ChatSessionContextValue | null>(null);
 type ChatNodeContextValue = Pick<
   ChatSessionContextValue,
@@ -116,37 +93,42 @@ export function ChatSessionProvider({
   const sessionKey = surfaceIdentity.sessionKey;
   const surfaceId = surfaceIdentity.surfaceId;
 
-  const defaultSession = useChatStore((state) => (
-    normalizedConversationId ? getDefaultChatConversationSession(state, normalizedConversationId) : null
-  ));
   const timeline = useChatStore((state) => (
     normalizedConversationId ? getConversationTimeline(state, normalizedConversationId) : null
   ));
   const surfaceSession = useChatStore((state) => (
     normalizedConversationId ? state.surfaceSessionsByKey?.[sessionKey] ?? null : null
   ));
-  const session = useMemo(() => (
-    normalizedConversationId
-      ? composeChatSession(normalizedConversationId, sessionKey, defaultSession, timeline, surfaceSession)
-      : null
-  ), [defaultSession, normalizedConversationId, sessionKey, surfaceSession, timeline]);
+  const { presentation, nodes: threadedMessages, revision } = useChatTimelinePresentation(normalizedConversationId, sessionKey);
+  const window = presentation?.window;
+  const session = useMemo(() => {
+    if (!normalizedConversationId) return null;
+    const state = surfaceSession ?? createEmptyChatSession(normalizedConversationId, sessionKey);
+    return { ...state, conversation: window ? { id: normalizedConversationId, title: timeline?.title ?? '', threadedMessages } : null,
+      messageWindow: window ? { scope: 'conversation' as const, conversationId: normalizedConversationId,
+        totalCount: window.metadata.totalCount, startIndex: window.metadata.startIndex, endIndex: window.metadata.endIndex,
+        hasBefore: window.metadata.hasBefore, hasAfter: window.metadata.hasAfter } : undefined };
+  }, [normalizedConversationId, sessionKey, surfaceSession, threadedMessages, timeline?.title, window]);
   const conversation = session?.conversation ?? null;
-  const threadedMessages = conversation?.threadedMessages ?? EMPTY_MESSAGES;
-  const isLoading = session?.isLoading ?? false;
-  const hasOlderMessages = session?.hasOlderMessages ?? false;
-  const isLoadingOlderMessages = session?.isLoadingOlderMessages ?? false;
-  const isLoadingMessageWindow = session?.isLoadingMessageWindow ?? false;
-  const hasNewerMessages = session?.messageWindow?.hasAfter ?? false;
+  const isLoading = !!session?.isLoading;
+  const hasOlderMessages = window?.metadata.hasBefore ?? false;
+  const isLoadingOlderMessages = presentation?.loading ?? false;
+  const isLoadingMessageWindow = presentation?.loading ?? false;
+  const hasNewerMessages = window?.metadata.hasAfter ?? false;
   const draftMessage = session?.draftMessage ?? '';
   const draftMediaFiles = session?.draftMediaFiles ?? [];
   const scrollTop = session?.scrollTop ?? 0;
   const scrollAnchorMessageId = session?.scrollAnchorMessageId ?? null;
 
-  const loadOlderMessagesForConversation = useChatStore((state) => state.loadOlderMessagesForConversation);
-  const loadNewerMessagesForConversation = useChatStore((state) => state.loadNewerMessagesForConversation);
-  const loadBoundaryMessagesForConversation = useChatStore((state) => state.loadBoundaryMessagesForConversation);
-  const loadMessageChildren = useChatStore((state) => state.loadMessageChildren);
-  const loadConversationSession = useChatStore((state) => state.loadConversationSession);
+  const loadMessageChildren = useCallback(async (messageId: string) => {
+    const target = presentation?.getMessage(messageId)?.timelineItem?.metadata.threadParentMessageId;
+    if (!presentation || !target) return [];
+    await presentation.openThread(target);
+    return presentation.nodes(target);
+  }, [presentation]);
+  const loadConversationSession = useCallback(async (_id: string) => {
+    if (presentation?.window) await presentation.refresh();
+  }, [presentation]);
   const retryMessageToConversationBase = useChatStore((state) => state.retryMessageToConversation);
   const ensureConversationSurfaceSession = useChatStore((state) => state.ensureConversationSurfaceSession);
   const removeConversationSurfaceSession = useChatStore((state) => state.removeConversationSurfaceSession);
@@ -163,29 +145,10 @@ export function ChatSessionProvider({
   const toggleConversationReasoningExpandedBase = useChatStore((state) => state.toggleConversationReasoningExpanded);
   const isConversationReasoningExpandedBase = useChatStore((state) => state.isConversationReasoningExpanded);
 
-  const loadOlderMessages = useCallback(async () => {
-    if (normalizedConversationId) {
-      await loadOlderMessagesForConversation(normalizedConversationId, sessionKey);
-    }
-  }, [loadOlderMessagesForConversation, normalizedConversationId, sessionKey]);
-
-  const loadNewerMessages = useCallback(async () => {
-    if (normalizedConversationId) {
-      await loadNewerMessagesForConversation(normalizedConversationId, sessionKey);
-    }
-  }, [loadNewerMessagesForConversation, normalizedConversationId, sessionKey]);
-
-  const loadStartMessages = useCallback(async () => {
-    if (normalizedConversationId) {
-      await loadBoundaryMessagesForConversation(normalizedConversationId, sessionKey, 'start');
-    }
-  }, [loadBoundaryMessagesForConversation, normalizedConversationId, sessionKey]);
-
-  const loadEndMessages = useCallback(async () => {
-    if (normalizedConversationId) {
-      await loadBoundaryMessagesForConversation(normalizedConversationId, sessionKey, 'end');
-    }
-  }, [loadBoundaryMessagesForConversation, normalizedConversationId, sessionKey]);
+  const loadOlderMessages = useCallback(async () => { await presentation?.navigate('older'); }, [presentation]);
+  const loadNewerMessages = useCallback(async () => { await presentation?.navigate('newer'); }, [presentation]);
+  const loadStartMessages = useCallback(async () => { await presentation?.navigate('start'); }, [presentation]);
+  const loadEndMessages = useCallback(async () => { await presentation?.navigate('end'); }, [presentation]);
 
   const setDraftMessage = useCallback((message: string) => {
     if (!normalizedConversationId) return;
@@ -270,8 +233,13 @@ export function ChatSessionProvider({
   );
 
   const toggleConversationThreadExpanded = useCallback<ChatSessionContextValue['toggleConversationThreadExpanded']>(
-    (targetConversationId, messageId) => toggleConversationThreadExpandedBase(targetConversationId, messageId, sessionKey),
-    [sessionKey, toggleConversationThreadExpandedBase],
+    (targetConversationId, messageId) => {
+      const closing = useChatStore.getState().isConversationThreadExpanded(targetConversationId, messageId, sessionKey);
+      toggleConversationThreadExpandedBase(targetConversationId, messageId, sessionKey);
+      const target = presentation?.getMessage(messageId)?.timelineItem?.metadata.threadParentMessageId;
+      if (closing && target) void presentation?.closeThread(target).catch(() => { /* Recuperação permanece visível na superfície. */ });
+    },
+    [sessionKey, toggleConversationThreadExpandedBase, presentation],
   );
 
   const toggleConversationReasoningExpanded = useCallback<ChatSessionContextValue['toggleConversationReasoningExpanded']>(
@@ -299,6 +267,7 @@ export function ChatSessionProvider({
   ]);
 
   const value = useMemo<ChatSessionContextValue>(() => ({
+    presentation,
     surface: surfaceIdentity,
     origin,
     conversationId: normalizedConversationId,
@@ -334,6 +303,7 @@ export function ChatSessionProvider({
     toggleConversationReasoningExpanded,
     isConversationReasoningExpanded,
   }), [
+    presentation, revision,
     clearConversationMessages,
     clearDraft,
     conversation,
@@ -388,7 +358,7 @@ export function ChatSessionProvider({
   return (
     <ChatSessionContext.Provider value={value}>
       <ChatNodeContext.Provider value={nodeValue}>
-        {children}
+        <ChatTimelineContext.Provider value={presentation}>{children}</ChatTimelineContext.Provider>
       </ChatNodeContext.Provider>
     </ChatSessionContext.Provider>
   );
@@ -416,29 +386,6 @@ export function useChatNodeSessionState(messageId: string) {
   const editingMessageId = useChatStore((state) => (
     conversationId ? getStoredNodeSession(state, conversationId, sessionKey)?.editingMessageId ?? null : null
   ));
-  const streamingMessageId = useChatStore((state) => (
-    conversationId ? getStoredNodeSession(state, conversationId, sessionKey)?.streamingMessageId ?? null : null
-  ));
-  const streamingReasoning = useChatStore((state) => (
-    conversationId && getStoredNodeSession(state, conversationId, sessionKey)?.streamingMessageId === messageId
-      ? getStoredNodeSession(state, conversationId, sessionKey)?.streamingReasoning ?? null
-      : null
-  ));
-  const isThinking = useChatStore((state) => (
-    !!conversationId
-    && getStoredNodeSession(state, conversationId, sessionKey)?.streamingMessageId === messageId
-    && !!getStoredNodeSession(state, conversationId, sessionKey)?.isThinking
-  ));
-  const activeToolCalls = useChatStore((state) => {
-    if (!conversationId) return EMPTY_TOOL_CALLS;
-    const session = getStoredNodeSession(state, conversationId, sessionKey);
-    return session?.streamingMessageId === messageId ? session.activeToolCalls : EMPTY_TOOL_CALLS;
-  });
-  const completedSegments = useChatStore((state) => {
-    if (!conversationId) return EMPTY_SEGMENTS;
-    const session = getStoredNodeSession(state, conversationId, sessionKey);
-    return session?.streamingMessageId === messageId ? session.completedSegments : EMPTY_SEGMENTS;
-  });
   const isExpanded = useChatStore((state) => (
     !!conversationId && !!getStoredNodeSession(state, conversationId, sessionKey)?.expandedThreads?.has(messageId)
   ));
@@ -450,11 +397,6 @@ export function useChatNodeSessionState(messageId: string) {
     conversationId,
     editingMessageId,
     sessionKey,
-    streamingMessageId,
-    streamingReasoning,
-    isThinking,
-    activeToolCalls,
-    completedSegments,
     isExpanded,
     reasoningExpanded,
     setConversationEditingMessageId: context.setConversationEditingMessageId,

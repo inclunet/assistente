@@ -279,7 +279,10 @@ func TestChatTimelineRPCsRevalidatePersistedSession(t *testing.T) {
 					return err
 				},
 				func() error { _, err := api.Navigate(snapshot.WindowID, apidto.TimelineWindowNavigation{}); return err },
-				func() error { return api.SetRetention(snapshot.WindowID, apidto.TimelineRetentionRequest{}) },
+				func() error {
+					_, err := api.SetRetention(snapshot.WindowID, apidto.TimelineRetentionRequest{})
+					return err
+				},
 				func() error {
 					_, err := api.Replay(snapshot.WindowID, apidto.ReplayTimelineRequest{AfterSequence: "0"})
 					return err

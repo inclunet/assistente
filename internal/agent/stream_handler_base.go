@@ -186,7 +186,7 @@ func (h *BaseStreamHandler) OnThinking(content string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	if !h.projection.Reasoning(content, false) {
+	if !h.projection.Reasoning(content, false, true) {
 		return
 	}
 	if !h.isThinking {
@@ -250,7 +250,7 @@ func (h *BaseStreamHandler) emitThinkingEvent() {
 func (h *BaseStreamHandler) OnThinkingDone(fullReasoning string) {
 	h.mu.Lock()
 	fullReasoning = h.initialReasoning + fullReasoning
-	if !h.projection.Reasoning(fullReasoning, true) {
+	if !h.projection.Reasoning(fullReasoning, true, false) {
 		h.mu.Unlock()
 		return
 	}
@@ -276,6 +276,7 @@ func (h *BaseStreamHandler) OnThinkingDone(fullReasoning string) {
 // FinishThinkingIfActive encerra/cancela thinking pendente antes de uma tentativa
 // abortada, evitando timers e estado "pensando" vazarem entre retries.
 func (h *BaseStreamHandler) FinishThinkingIfActive() {
+	h.projection.StopThinking()
 	h.mu.Lock()
 	if !h.isThinking && !h.pendingThinkingEmit && h.thinkingTimer == nil {
 		h.mu.Unlock()
@@ -328,7 +329,7 @@ func (h *BaseStreamHandler) DiscardStreamReasoning() {
 	h.lastThinkingEmitTime = time.Time{}
 	h.mu.Unlock()
 
-	if !h.projection.Reasoning(h.initialReasoning, true) {
+	if !h.projection.Reasoning(h.initialReasoning, true, false) {
 		return
 	}
 	if active || hadReasoning {

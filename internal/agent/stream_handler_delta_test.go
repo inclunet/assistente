@@ -1,7 +1,10 @@
 package agent
 
 import (
+	"assistente/internal/chat"
+	"assistente/internal/database"
 	"context"
+	"reflect"
 	"slices"
 	"testing"
 	"time"
@@ -384,5 +387,40 @@ func TestDiscardContinuationReasoningEmitsOnlyForNewContent(t *testing.T) {
 	_, reasoning := handler.Finalize()
 	if reasoning != "base" {
 		t.Fatalf("base perdida: %q", reasoning)
+	}
+}
+
+func TestThinkingDonePreservesPublishedCutsThroughHandler(t *testing.T) {
+	ctx := database.WithUserID(context.Background(), "user")
+	projection := chat.NewLiveProjection(nil)
+	execution, err := projection.Admit(ctx, "conversation", "question", "execution", func() (database.ChatTimelineVersion, error) {
+		return database.ChatTimelineVersion{Incarnation: "storage", Revision: 1}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := &BaseStreamHandler{Emitter: &captureEmitter{}, ConversationID: "conversation", TurnID: "question", AssistantMessageID: "answer"}
+	handler.BindProjection(execution.StartStream(0))
+	defer handler.Finalize()
+	handler.OnThinking("primeiro 🦜")
+	handler.OnChunk("[link](https://example.com)")
+	handler.CutSegment()
+	handler.OnThinking(" segundo")
+	before, err := projection.Snapshot(ctx, "conversation", "question")
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler.OnThinkingDone("primeiro 🦜 segundo")
+	after, err := projection.Snapshot(ctx, "conversation", "question")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Thinking || !reflect.DeepEqual(before.Streams[0].Segments, after.Streams[0].Segments) {
+		t.Fatalf("thinking completion changed published segments: before=%+v after=%+v", before.Streams, after.Streams)
+	}
+	handler.OnThinkingDone("substituição explícita")
+	replaced, _ := projection.Snapshot(ctx, "conversation", "question")
+	if reflect.DeepEqual(after.Streams[0].Segments, replaced.Streams[0].Segments) {
+		t.Fatal("changed reasoning was not replaced")
 	}
 }

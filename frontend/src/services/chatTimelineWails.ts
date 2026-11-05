@@ -8,7 +8,7 @@ import { ChatTimelineClient, type TimelineTransport } from './chatTimelineClient
 import type { TimelineSnapshot } from './timelineConversationState';
 
 export function normalizeTimelineItem(item: apidto.CanonicalItem) {
-  return { ...item, scopeParentId: item.scopeParentId ?? null, turnId: item.turnId ?? null,
+  return { ...item, metadata: { ...item.metadata, threadParentMessageId: item.metadata?.threadParentMessageId ?? null }, scopeParentId: item.scopeParentId ?? null, turnId: item.turnId ?? null,
     representativeMessageId: item.representativeMessageId ?? null,
     messageIds: item.messageIds ?? [], segments: item.segments ?? [] };
 }

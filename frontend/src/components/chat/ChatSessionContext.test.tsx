@@ -1,3 +1,4 @@
+vi.mock('./useChatTimelinePresentation', async () => import('./canonicalPresentationFixture'));
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -56,12 +57,12 @@ const chatStoreState = {
 };
 
 vi.mock('../../store/chatStore', () => ({
-  useChatStore: (selector?: (state: typeof chatStoreState) => unknown) => {
+  useChatStore: Object.assign((selector?: (state: typeof chatStoreState) => unknown) => {
     if (typeof selector === 'function') {
       return selector(chatStoreState);
     }
     return chatStoreState;
-  },
+  }, { getState: () => chatStoreState, subscribe: () => () => {} }),
 }));
 
 import { ChatSessionProvider, useChatSession } from './ChatSessionContext';

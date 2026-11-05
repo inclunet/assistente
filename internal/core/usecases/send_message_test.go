@@ -709,7 +709,12 @@ func TestSendMessageUseCase_FallsBackToUserMessageWhenProviderUnsupported(t *tes
 	profile.Chat.StreamingRecoveryEnabled = &disabled
 	setupProfileWith(t, mgr, profile)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.Error(w, "provider de teste indisponível", http.StatusBadRequest)
+		// Erro estruturado explicitamente terminal: o teste cobre fallback de
+		// prefill, não heurísticas de retry sobre a URL/porta aleatória do servidor.
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("x-should-retry", "false")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":{"message":"temperature value is outside the allowed range","type":"invalid_request_error","param":"temperature","code":"unsupported_value"}}`))
 	}))
 	t.Cleanup(server.Close)
 	uc := newTestUseCaseWithProviders(t, mgr, &llm.ProviderConfig{

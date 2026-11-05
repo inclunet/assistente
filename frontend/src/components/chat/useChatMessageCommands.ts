@@ -1,8 +1,9 @@
+import { useChatSession } from './ChatSessionContext';
 import { useEffect, useRef, type RefObject } from 'react';
 import { useChatStore, type Message } from '../../store/chatStore';
 import { isBackendId } from '../../lib/idUtils';
 import { ChatMessagingStaleError, CHAT_MESSAGE_ACTION_IDS, isChatMessageAction, type PreparedChatMessagingTarget } from '../../lib/commandChatMessaging';
-import { prepareChatMessageCommand, prepareChatMessageEditCommand, commitChatMessageCommand } from '../../lib/commandChatMessageWails';
+import { prepareChatTimelineCopyCommand, prepareChatMessageCommand, prepareChatMessageEditCommand, commitChatMessageCommand } from '../../lib/commandChatMessageWails';
 import { captureChatMessageEditDraft } from './useChatMessageEditDraft';
 import { useMessageActions } from '../../hooks/useContextMenu';
 import { clearToolInvocationDetailsCache } from '../../services/toolInvocationDetailsCache';
@@ -12,7 +13,6 @@ import { useWorkspaceStore } from '../../store/workspaceStore';
 import { useWorkspaceChatModalStore } from '../../store/workspaceChatModalStore';
 import { getModalSnapshotGeneration } from '../../lib/modalRegistry';
 import { logger } from '../../utils/logger';
-import { handleError, ErrorSeverity } from '../../utils/errorHandler';
 import i18next from 'i18next';
 import { prepareChatEditorTransfer, CHAT_EDITOR_COMMAND } from '../../lib/commandChatEditorTransfer';
 import type { SendToEditorPayload } from '../../lib/editorSendMenu';
@@ -22,12 +22,13 @@ export const isChatMessageCommand = isChatMessageAction;
 
 /** Selection is surface-local, never inferred from the last timeline item. */
 export function useChatMessageCommands(rootRef: RefObject<HTMLDivElement | null>, conversationId: string | null | undefined, sessionKey: string, announce: (text: string) => void) {
+  const { presentation } = useChatSession();
   const selection = useRef({ id: '', revision: 0 });
   const listeners = useRef(new Set<() => void>());
   const playbackLifetimes = useRef(new Set<() => void>());
   const actions = useMessageActions({ onAnnounce: announce });
-  const live = useRef({ conversationId, sessionKey, actions });
-  live.current = { conversationId, sessionKey, actions };
+  const live = useRef({ conversationId, sessionKey, actions, presentation });
+  live.current = { conversationId, sessionKey, actions, presentation };
   useEffect(() => {
     const root = rootRef.current;
     const focus = (event: FocusEvent) => {
@@ -42,12 +43,10 @@ export function useChatMessageCommands(rootRef: RefObject<HTMLDivElement | null>
     root?.addEventListener('focusin', focus);
     return () => { root?.removeEventListener('focusin', focus); playbackLifetimes.current.forEach(cancel => cancel()); };
   }, [rootRef, conversationId, sessionKey]);
-  const getMessage = (id: string) => live.current.conversationId
-    ? useChatStore.getState().getConversationMessages(live.current.conversationId).find(message => message.id === id)
-    : undefined;
+  const getMessage = (id: string) => live.current.presentation?.getMessage(id);
   const eligible = (message: Message | undefined, id: ChatMessageCommandID): message is Message => !!message &&
-    isBackendId(message.id) && !message.isStreaming && !message.internal && message.conversationId === live.current.conversationId &&
-    ((id !== 'chat.message.edit.open' && id !== 'chat.message.edit.save') || message.role === 'user') && (id !== 'chat.message.speak' || ttsService.hasVoiceConfig());
+    (isBackendId(message.timelineItem?.representativeMessageId) || ((id === 'chat.message.copy' || id === 'chat.message.copy_markdown') && !!live.current.presentation?.getCopyTarget?.(message.id))) && !message.isStreaming && !message.internal && message.conversationId === live.current.conversationId &&
+    ((id !== 'chat.message.edit.open' && id !== 'chat.message.edit.save') || message.role === 'user' && !message.timelineItem?.scopeParentId) && (id !== 'chat.message.speak' || ttsService.hasVoiceConfig());
   return {
     subscribe(changed: () => void) { listeners.current.add(changed); return () => { listeners.current.delete(changed); }; },
     canStart(id: ChatMessageCommandID, keyboardTarget?: EventTarget | null) {
@@ -81,7 +80,7 @@ export function useChatMessageCommands(rootRef: RefObject<HTMLDivElement | null>
               !('format' in provided) || !['markdown', 'html', 'plain'].includes(String(provided.format)) || !('target' in provided)) return undefined;
           payload = { ...provided } as SendToEditorPayload;
         } else payload = { target: 'new_document', content: message.content, format: 'markdown', title: i18next.t('editor.fallback.fromChat') };
-        return prepareChatEditorTransfer(message, payload, () => current() && available() && selection.current.revision === selected.revision);
+        return prepareChatEditorTransfer(message, payload, () => current() && available() && selection.current.revision === selected.revision, live.current.presentation!);
       }
       const capturedConversation = live.current.conversationId!;
       const capturedSession = live.current.sessionKey;
@@ -89,6 +88,7 @@ export function useChatMessageCommands(rootRef: RefObject<HTMLDivElement | null>
         ? captureChatMessageEditDraft(rootRef.current, capturedConversation, capturedSession, message.id) : undefined;
       if (id === 'chat.message.edit.save' && (!editDraft || editDraft.originalMessage !== message)) { editDraft?.dispose(); return undefined; }
       const snapshot = { ...message };
+      const copyTarget = !isBackendId(message.timelineItem?.representativeMessageId) ? live.current.presentation?.getCopyTarget?.(message.id) : undefined;
       let disposed = false;
       let invalid = false;
       const messageCurrent = () => {
@@ -110,8 +110,9 @@ export function useChatMessageCommands(rootRef: RefObject<HTMLDivElement | null>
         isCurrent, canCommit,
         async prepareAdmission(ticket) {
           if (!isCurrent()) throw new ChatMessagingStaleError();
-          if (editDraft) await prepareChatMessageEditCommand(ticket, snapshot.id, editDraft.originalContent, editDraft.content);
-          else await prepareChatMessageCommand(ticket, snapshot.id);
+          if (editDraft) await prepareChatMessageEditCommand(ticket, snapshot.timelineItem!.representativeMessageId!, editDraft.originalContent, editDraft.content);
+          else if (copyTarget) await prepareChatTimelineCopyCommand(ticket, copyTarget);
+          else await prepareChatMessageCommand(ticket, snapshot.timelineItem!.representativeMessageId!);
           if (!isCurrent()) throw new ChatMessagingStaleError();
         },
         async execute(handoff) {
@@ -133,14 +134,14 @@ export function useChatMessageCommands(rootRef: RefObject<HTMLDivElement | null>
               return true;
             };
             const changed = () => { playbackCurrent(); };
-            off.push(useChatStore.subscribe(changed), useAuthStore.subscribe(changed), useWorkspaceStore.subscribe(changed), useWorkspaceChatModalStore.subscribe(changed));
+            off.push(live.current.presentation?.subscribe(changed) ?? (() => {}), useChatStore.subscribe(changed), useAuthStore.subscribe(changed), useWorkspaceStore.subscribe(changed), useWorkspaceChatModalStore.subscribe(changed));
             listeners.current.add(changed);
             off.push(() => { listeners.current.delete(changed); });
             playbackLifetimes.current.add(cancel);
             const onStarted = () => { if (playbackCurrent()) { started = true; clearTimeout(startTimeout); resolve(); } };
             // No playback may begin after the audited UI effect has timed out.
             startTimeout = setTimeout(() => { playbackInvalid = true; release(); reject(new Error('chat-message-playback-start-timeout')); }, 20_000);
-            void live.current.actions.speakMessage(snapshot, playbackCurrent, onStarted).then(() => {
+            void live.current.actions.speakMessage({ ...snapshot, id: snapshot.timelineItem!.representativeMessageId! }, playbackCurrent, onStarted).then(() => {
               if (!started) reject(new Error('chat-message-playback-not-started'));
             }, error => {
               if (!started) reject(error);
@@ -157,9 +158,7 @@ export function useChatMessageCommands(rootRef: RefObject<HTMLDivElement | null>
           else editDraft?.rebaseConfirmed(() => current() && getModalSnapshotGeneration() === capturedModalGeneration);
           if (id === 'chat.message.delete' || id === 'chat.message.pin.toggle') {
             clearToolInvocationDetailsCache();
-            void useChatStore.getState().loadConversationSession(capturedConversation, { refreshSurfaceWindows: true }).catch(error => {
-              if (current()) handleError(error, { source: 'ChatMessageCommands.refresh', userMessage: i18next.t('chat.loadError'), severity: ErrorSeverity.RECOVERABLE, metadata: { conversationId: capturedConversation, messageId: snapshot.id } });
-            });
+
           }
         },
         dispose() { disposed = true; unsubscribeDraft?.(); editDraft?.dispose(); },

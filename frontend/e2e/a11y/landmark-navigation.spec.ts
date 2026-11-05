@@ -103,9 +103,7 @@ test.describe('Landmark navigation — F6 / Shift+F6', () => {
     // contentToolbar, contentArea) mas pode pular as indisponíveis.
     const visited: string[] = [];
 
-    for (let i = 0; i < 6; i++) {
-      await page.keyboard.press('F6');
-      const region = await page.evaluate(() => {
+    const readRegion = () => page.evaluate(() => {
         const ae = document.activeElement;
         if (ae?.closest('.topbar')) return 'topbar';
         if (ae?.closest('.workspace-toolbar')) return 'workspaceToolbar';
@@ -114,6 +112,12 @@ test.describe('Landmark navigation — F6 / Shift+F6', () => {
         if (ae?.closest('.ws-content-area')) return 'contentArea';
         return 'unknown';
       });
+    for (let i = 0; i < 6; i++) {
+      const previousRegion = await readRegion();
+      await page.keyboard.press('F6');
+      // O comando é assíncrono: aguarde sua mudança efetiva antes de medir o ciclo.
+      await expect.poll(readRegion).not.toBe(previousRegion);
+      const region = await readRegion();
       visited.push(region);
       // Se voltou ao contentArea, completou o ciclo
       if (region === 'contentArea') break;

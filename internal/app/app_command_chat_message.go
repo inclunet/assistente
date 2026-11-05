@@ -6,10 +6,12 @@ import (
 	"time"
 
 	"assistente/controllers"
+	"assistente/internal/apidto"
 	"assistente/internal/chat"
 	"assistente/internal/commandcatalog"
 	"assistente/internal/commandexecution"
 	"assistente/internal/database"
+	"assistente/internal/wailsapi"
 	"assistente/internal/workspace"
 )
 
@@ -43,7 +45,14 @@ func isChatMessageUICommand(id string) bool {
 	return isChatMessageCommand(id) && !isChatMessageBackendCommand(id)
 }
 
+type canonicalCopyPreparation struct {
+	windowID string
+	identity apidto.TimelineRecoveryItemRequest
+	api      *wailsapi.ChatTimeline
+}
+
 type chatMessagePreparation struct {
+	canonicalCopy *canonicalCopyPreparation
 	ready         chan struct{}
 	ctx           context.Context
 	claimed       bool // guarded by product.mu; even a failed Prepare consumes the claim
@@ -99,16 +108,16 @@ func (a *App) captureChatMessageTarget(ctx context.Context, p *commandProductRun
 // PrepareChatMessageCommand pins one owned persisted message before admission
 // and the destructive decision. The candidate/source created at Begin is retained.
 func (a *App) PrepareChatMessageCommand(ticket, messageID string) error {
-	return a.prepareChatMessageCommand(ticket, messageID, nil, "", nil)
+	return a.prepareChatMessageCommand(ticket, messageID, nil, "", nil, nil)
 }
 
 // PrepareChatMessageEditCommand checks the editor's original text before
 // admission. Text is a private runtime payload, never binding/ledger arguments.
 func (a *App) PrepareChatMessageEditCommand(ticket, messageID, originalContent, content string) error {
-	return a.prepareChatMessageCommand(ticket, messageID, &content, originalContent, nil)
+	return a.prepareChatMessageCommand(ticket, messageID, &content, originalContent, nil, nil)
 }
 
-func (a *App) prepareChatMessageCommand(ticket, messageID string, content *string, originalContent string, editorTarget *string) error {
+func (a *App) prepareChatMessageCommand(ticket, messageID string, content *string, originalContent string, editorTarget *string, canonicalCopy *canonicalCopyPreparation) error {
 	p, run, err := a.commandUIRun(ticket)
 	if err != nil {
 		return err
@@ -131,7 +140,7 @@ func (a *App) prepareChatMessageCommand(ticket, messageID string, content *strin
 			_ = p.ui.Cancel(p.uiOwner(), ticket)
 		}
 	}()
-	if messageID == "" {
+	if messageID == "" && canonicalCopy == nil {
 		return commandexecution.ErrDenied
 	}
 	if content != nil && (strings.TrimSpace(*content) == "" || len(*content) > chat.MaxMessageContentSize) {
@@ -142,7 +151,12 @@ func (a *App) prepareChatMessageCommand(ticket, messageID string, content *strin
 	}
 	var fingerprint string
 	var editor *chatEditorPreparation
-	if editorTarget != nil {
+	if canonicalCopy != nil {
+		if (run.reservation.CommandID != commandMessageCopyID && run.reservation.CommandID != commandMessageCopyMarkdownID) || canonicalCopy.api == nil {
+			return commandexecution.ErrDenied
+		}
+		err = wailsapi.ValidateTimelinePublishedCopy(prep.ctx, canonicalCopy.api, canonicalCopy.windowID, run.snapshot.Tab.ConversationID, canonicalCopy.identity)
+	} else if editorTarget != nil {
 		fingerprint, err = database.MessageSourceCommandSnapshotWithContext(database.WithUserID(prep.ctx, p.principal.UserID), run.snapshot.Tab.ConversationID, messageID, originalContent)
 		if err == nil {
 			editor, err = a.prepareChatEditorTarget(prep.ctx, p, run, *editorTarget)
@@ -164,6 +178,7 @@ func (a *App) prepareChatMessageCommand(ticket, messageID string, content *strin
 		return commandexecution.ErrStale
 	}
 	prep.messageID, prep.fingerprint = messageID, fingerprint
+	prep.canonicalCopy = canonicalCopy
 	prep.editedContent = content
 	prep.editor = editor
 	close(prep.ready)
@@ -211,11 +226,21 @@ func (a *App) validatePreparedChatMessage(ctx context.Context, p *commandProduct
 	prep := run.messagePreparation
 	messageID, fingerprint := prep.messageID, prep.fingerprint
 	editor := prep.editor
+	canonicalCopy := prep.canonicalCopy
 	p.mu.Unlock()
 	if editor != nil {
 		if err := a.validateChatEditorStream(run, editor); err != nil {
 			return err
 		}
+	}
+	if canonicalCopy != nil {
+		if a.chatTimelineAPI != canonicalCopy.api || (run.reservation.CommandID != commandMessageCopyID && run.reservation.CommandID != commandMessageCopyMarkdownID) {
+			return commandexecution.ErrStale
+		}
+		if err := wailsapi.ValidateTimelinePublishedCopy(ctx, canonicalCopy.api, canonicalCopy.windowID, run.snapshot.Tab.ConversationID, canonicalCopy.identity); err != nil {
+			return commandexecution.ErrStale
+		}
+		return nil
 	}
 	if messageID == "" || fingerprint == "" {
 		return commandexecution.ErrDenied
@@ -283,4 +308,10 @@ func (a *App) CommitChatMessageCommand(ticket, handoffID string) error {
 		}
 		return prep.controller.CommitMessageCommandGuarded(database.WithUserID(effectCtx, p.principal.UserID), expected.Tab.ConversationID, prep.messageID, prep.fingerprint, run.reservation.CommandID == commandMessageDeleteID, guard)
 	})
+}
+
+// PrepareChatTimelineCopyCommand admits an exact published response without a
+// persisted representative through the same command ticket and origin guards.
+func (a *App) PrepareChatTimelineCopyCommand(ticket, windowID string, identity apidto.TimelineRecoveryItemRequest) error {
+	return a.prepareChatMessageCommand(ticket, "", nil, "", nil, &canonicalCopyPreparation{windowID: windowID, identity: identity, api: a.chatTimelineAPI})
 }

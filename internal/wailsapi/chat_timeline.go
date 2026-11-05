@@ -15,6 +15,7 @@ import (
 // O caller não fornece owner nem identificador de sessão no payload.
 type ChatTimelineSession interface {
 	Session
+	AuthenticatedTimelineContext(context.Context) (context.Context, error)
 	CaptureTimelineSession(context.Context) (chat.TimelineSession, error)
 	CaptureTimelineEmitter(context.Context) (context.Context, TimelineEventEmitter, error)
 }
@@ -186,6 +187,10 @@ func (api *ChatTimeline) Open(request apidto.OpenTimelineRequest) (*apidto.Subsc
 }
 
 func withTimelineHandle[T any](api *ChatTimeline, windowID string, closedOK bool, fn func(context.Context, timelineHandle) (T, error)) (T, error) {
+	return withTimelineHandleContext(context.Background(), api, windowID, closedOK, fn)
+}
+
+func withTimelineHandleContext[T any](parent context.Context, api *ChatTimeline, windowID string, closedOK bool, fn func(context.Context, timelineHandle) (T, error)) (T, error) {
 	var zero T
 	api.mu.Lock()
 	session, closed := api.session, api.closed
@@ -194,25 +199,27 @@ func withTimelineHandle[T any](api *ChatTimeline, windowID string, closedOK bool
 	if closed || session == nil {
 		return zero, ErrChatTimelineNotWired
 	}
-	return WithUser(session, func(ctx context.Context) (T, error) {
-		if !found {
-			if closedOK {
-				return zero, nil
-			}
-			return zero, chat.ErrTimelineSubscription
+	ctx, err := session.AuthenticatedTimelineContext(parent)
+	if err != nil {
+		return zero, err
+	}
+	if !found {
+		if closedOK {
+			return zero, nil
 		}
-		if _, _, err := window.principal.AuthorizeTimeline(ctx); err != nil {
-			return zero, err
-		}
-		result, err := fn(ctx, window)
-		if err != nil {
-			return zero, err
-		}
-		if _, _, err := window.principal.AuthorizeTimeline(ctx); err != nil {
-			return zero, err
-		}
-		return result, nil
-	})
+		return zero, chat.ErrTimelineSubscription
+	}
+	if _, _, err := window.principal.AuthorizeTimeline(ctx); err != nil {
+		return zero, err
+	}
+	result, err := fn(ctx, window)
+	if err != nil {
+		return zero, err
+	}
+	if _, _, err := window.principal.AuthorizeTimeline(ctx); err != nil {
+		return zero, err
+	}
+	return result, nil
 }
 
 func (api *ChatTimeline) Refresh(windowID string, request apidto.RefreshTimelineRequest) (*apidto.SubscribedTimelineSnapshot, error) {
@@ -250,11 +257,10 @@ func (api *ChatTimeline) Navigate(windowID string, request apidto.TimelineWindow
 	})
 }
 
-func (api *ChatTimeline) SetRetention(windowID string, request apidto.TimelineRetentionRequest) error {
-	_, err := withTimelineHandle(api, windowID, false, func(ctx context.Context, w timelineHandle) (struct{}, error) {
-		return struct{}{}, w.subscription.SetRetention(ctx, request)
+func (api *ChatTimeline) SetRetention(windowID string, request apidto.TimelineRetentionRequest) (*apidto.TimelineRetentionReceipt, error) {
+	return withTimelineHandle(api, windowID, false, func(ctx context.Context, w timelineHandle) (*apidto.TimelineRetentionReceipt, error) {
+		return w.subscription.SetRetentionCheckpoint(ctx, request)
 	})
-	return err
 }
 
 func (api *ChatTimeline) Replay(windowID string, request apidto.ReplayTimelineRequest) (*apidto.TimelineReplay, error) {
@@ -317,6 +323,30 @@ func (api *ChatTimeline) ReleaseRecoveryItem(windowID string, request apidto.Tim
 		ctx, cancel := w.stream.queryContext(ctx)
 		defer cancel()
 		return struct{}{}, w.subscription.ReleaseRecoveryItem(ctx, request)
+	})
+	return err
+}
+
+// ValidateTimelinePublishedCopy is used by command admission; no payload is
+// accepted from the caller and no recovery reservation is consumed.
+func ValidateTimelinePublishedCopy(commandCtx context.Context, api *ChatTimeline, windowID, conversationID string, request apidto.TimelineRecoveryItemRequest) error {
+	if err := commandCtx.Err(); err != nil {
+		return err
+	}
+	_, err := withTimelineHandleContext(commandCtx, api, windowID, false, func(ctx context.Context, w timelineHandle) (struct{}, error) {
+		if w.conversationID != conversationID {
+			return struct{}{}, chat.ErrTimelineSubscription
+		}
+		ctx, cancel := w.stream.queryContext(ctx)
+		defer cancel()
+		linked, cancelCommand := context.WithCancel(ctx)
+		stop := context.AfterFunc(commandCtx, cancelCommand)
+		defer stop()
+		defer cancelCommand()
+		if err := commandCtx.Err(); err != nil {
+			return struct{}{}, err
+		}
+		return struct{}{}, w.subscription.ValidatePublishedCopy(linked, request, w.reader)
 	})
 	return err
 }

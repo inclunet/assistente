@@ -4,6 +4,8 @@ import { chat } from '../../../wailsjs/go/models';
 import { ChatMessage } from './ChatMessage';
 import { MessageNode } from './MessageNode';
 import i18n from '../../lib/i18n';
+import type { Message } from '../../lib/chatMessageTree';
+import type { TimelineItem } from '../../types/chatTimelineEvents';
 import type { SendToEditorPayload } from '../../lib/editorSendMenu';
 
 const conversationId = '01926b90-7a5a-7c4e-8d3f-000000000001';
@@ -20,6 +22,7 @@ vi.mock('../../services/tts', () => ({ ttsService: { isSpeaking: () => false, st
 vi.mock('../../hooks/useVirtualModal', () => ({ useVirtualModal: () => {} }));
 vi.mock('./ChatSessionContext', async importOriginal => ({
   ...await importOriginal<typeof import('./ChatSessionContext')>(),
+  useChatTimelineSource: () => null,
   useChatNodeSessionState: () => ({
   conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001', editingMessageId: null,
   streamingMessageId: null, streamingReasoning: null, isThinking: false, activeToolCalls: [], completedSegments: [],
@@ -95,7 +98,7 @@ vi.mock('../../hooks/useAnnouncer', () => ({
 vi.mock('../ui/MarkdownRenderer', () => ({
   MarkdownRenderer: (props: { content: string; tabNavigation?: string }) => {
     markdownRendererSpy(props);
-    return <div>{props.content}</div>;
+    return props.content === '[focus]' ? <a href='#reading'>foco preservado</a> : <div>{props.content}</div>;
   },
 }));
 
@@ -756,12 +759,12 @@ describe('ChatMessage', () => {
   // Issue #163 (Parte B): fallback — quando `message.content` está ausente/vazio,
   // a conclusão é o último `TurnSegment` de texto NÃO-vazio, ignorando segmentos
   // finais em branco.
-  it('faz fallback para o último segmento textual não-vazio quando content está vazio', () => {
+  it('usa a conclusão fornecida pela apresentação, sem escolher outro segmento textual', () => {
     const message = new chat.EnrichedMessage({
       id: 'turn-empty-content',
       conversationId,
       role: 'assistant',
-      content: '',
+      content: 'segundo',
       createdAt: new Date().toISOString(),
       timestamp: Date.now(),
       isStreaming: false,
@@ -1089,4 +1092,31 @@ describe('ChatMessage', () => {
     expect(screen.queryByText('agora vou refinar')).not.toBeInTheDocument();
     expect(screen.queryByTestId('toolcalls')).not.toBeInTheDocument();
   });
+});
+
+it('preserva o mesmo link focado entre streaming, confirmação, terminal e novo snapshot', () => {
+  const frame = (isStreaming: boolean, durability: string, firstId = 'part-1'): Message => Object.assign(new chat.EnrichedMessage({
+    id: 'turn:question', conversationId, role: 'assistant', content: '[focus]final', timestamp: 1, isStreaming,
+    turnSegments: [{ type: 'text', content: '[focus]' }, { type: 'tool_calls', toolInvocations: [toolInvocation('call', 'search')] }, { type: 'text', content: 'final' }],
+  }), { timelineItem: { itemId: 'turn:question', durability, segments: [
+    { segmentId: firstId, kind: 'text', text: '[focus]' }, { segmentId: 'tools-1', kind: 'tool_invocations' }, { segmentId: 'part-2', kind: 'text', text: 'final' },
+  ] } as TimelineItem });
+  const { rerender } = render(<ChatMessage message={frame(true, 'volatile')} isReading />);
+  const link = screen.getByRole('link', { name: 'foco preservado' });
+  link.focus();
+  for (const next of [frame(true, 'persisted'), frame(false, 'persisted'), frame(false, 'persisted')]) {
+    rerender(<ChatMessage message={next} isReading />);
+    expect(screen.getByRole('link', { name: 'foco preservado' })).toBe(link);
+    expect(link).toHaveFocus();
+  }
+  rerender(<ChatMessage message={frame(true, 'volatile', 'replacement-1')} isReading />);
+  expect(screen.getByRole('link', { name: 'foco preservado' })).not.toBe(link);
+});
+
+it.each([['failed', 'error', 'chat.timelineFailed'], ['interrupted', 'limit_reached', 'chat.timelineLimitReached'], ['interrupted', 'cancelled', 'chat.timelineInterrupted']])('exibe diagnóstico canônico %s sem substituir a resposta parcial', (state, terminalReason, label) => {
+ const message = Object.assign(new chat.EnrichedMessage({ id: 'partial', role: 'assistant', content: 'parcial preservada', conversationId, timestamp: 1 }),
+   { timelineItem: { state, metadata: { terminalReason }, segments: [] } as unknown as TimelineItem });
+ render(<ChatMessage message={message} />);
+ expect(screen.getByText('parcial preservada')).toBeVisible();
+ expect(screen.getByText(label)).toBeVisible();
 });

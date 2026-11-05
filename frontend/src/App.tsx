@@ -1,3 +1,4 @@
+import { ChatTimelineRecoveryHost } from './components/chat/ChatTimelineRecovery';
 import { logger } from './utils/logger';
 import { useEffect, useRef, useState } from 'react';
 import { Outlet, useNavigate } from 'react-router-dom';
@@ -332,6 +333,7 @@ function App() {
                     onAction={handleQuestionnaireSubmit}
                     onCancel={(answers) => { void handleQuestionnaireCancel(answers); }}
                 />
+                <ChatTimelineRecoveryHost />
                 <QuestionnaireDialog
                     isOpen={formQuestionnaireOpen}
                     data={formQuestionnaireData}

@@ -136,8 +136,8 @@ type observedReconciliationSession struct {
 	entered chan struct{}
 }
 
-func (s *observedReconciliationSession) AuthenticatedContext() (context.Context, error) {
-	ctx, err := s.timelineTestSession.AuthenticatedContext()
+func (s *observedReconciliationSession) AuthenticatedTimelineContext(parent context.Context) (context.Context, error) {
+	ctx, err := s.timelineTestSession.AuthenticatedTimelineContext(parent)
 	select {
 	case s.entered <- struct{}{}:
 	default:
@@ -214,4 +214,69 @@ func queryTimelineRecoveryForTest(api *ChatTimeline, pages string, window string
 		return api.ReadRecoveryPage(window, apidto.TimelineRecoveryPageRequest{Reference: ref})
 	}
 	return api.ReconcileRecovery(window, ref)
+}
+
+func TestTimelineCopyCommandCancellationStopsPendingValidation(t *testing.T) {
+	f := newTimelineAPIFixture(t)
+	reader := &blockedReconciliationReader{f.reader, make(chan struct{}), make(chan struct{})}
+	defer close(reader.release)
+	f.api.reader = reader
+	opened, err := f.api.Open(f.request())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(f.ctx)
+	defer cancel()
+	identity := apidto.TimelineRecoveryItemRequest{ItemID: "turn:" + f.message, Epoch: opened.Epoch, Revision: "1", Reference: apidto.TimelineRecoveryReference{ProjectionID: "projection", Incarnation: "storage", TurnID: f.message, ExecutionID: "execution"}}
+	done := make(chan error, 1)
+	go func() { done <- ValidateTimelinePublishedCopy(ctx, f.api, opened.WindowID, f.conversation, identity) }()
+	waitTimelineEventTest(t, reader.entered)
+	cancel()
+	finished := make(chan struct{})
+	var queryErr error
+	go func() { queryErr = <-done; close(finished) }()
+	waitTimelineEventTest(t, finished)
+	if !errors.Is(queryErr, context.Canceled) {
+		t.Fatal("command cancellation lost", queryErr)
+	}
+	if f.ctx.Err() != nil {
+		t.Fatal("cancelled session")
+	}
+	if err := f.api.Close(opened.WindowID); err != nil {
+		t.Fatal("window corrupted", err)
+	}
+}
+
+type blockedCopyAuthentication struct {
+	*timelineTestSession
+	entered chan struct{}
+}
+
+func (s blockedCopyAuthentication) AuthenticatedTimelineContext(ctx context.Context) (context.Context, error) {
+	close(s.entered)
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+func TestTimelineCopyCancellationStopsAuthentication(t *testing.T) {
+	f := newTimelineAPIFixture(t)
+	opened, err := f.api.Open(f.request())
+	if err != nil {
+		t.Fatal(err)
+	}
+	entered := make(chan struct{})
+	f.api.session = blockedCopyAuthentication{f.session, entered}
+	ctx, cancel := context.WithCancel(f.ctx)
+	defer cancel()
+	finished := make(chan struct{})
+	var queryErr error
+	go func() {
+		queryErr = ValidateTimelinePublishedCopy(ctx, f.api, opened.WindowID, f.conversation, apidto.TimelineRecoveryItemRequest{})
+		close(finished)
+	}()
+	waitTimelineEventTest(t, entered)
+	cancel()
+	waitTimelineEventTest(t, finished)
+	if !errors.Is(queryErr, context.Canceled) {
+		t.Fatal(queryErr)
+	}
 }
