@@ -46,6 +46,8 @@ export interface TimelineItem {
   durability: string;
   segments: TimelineSegment[];
   metadata: {
+    thinking?: boolean;
+    terminalReason?: string;
     createdAt: string;
     timestamp: number;
     source: string;

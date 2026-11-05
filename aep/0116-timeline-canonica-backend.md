@@ -73,6 +73,26 @@ rechecagem final; gate aprovado sem pendências. O último apontamento sobre arr
 nullable foi retirado pelo revisor após conferir o produtor e as provas JSON.
 CI e review remotos completam a validação da entrega.
 
+Revisão do consumidor: a fase ativa de raciocínio vem explicitamente do projetor,
+não da existência de texto acumulado. A razão terminal da tentativa corrente é
+lida na mesma transação e aparece como diagnóstico categórico traduzido junto à
+resposta parcial, inclusive após reabrir. Retenção/paginação não alteram o loading
+da geração; conclusão não rouba foco da leitura. Paginação por teclado transfere
+o foco à borda correspondente; scroll não faz essa transferência. A entrega ao
+editor pelo modal libera a fonte visual somente após a transição autorizada,
+conservando o ticket backend e as validações de sessão e destino. Edição de thread
+é recusada antes de abrir o editor. O E2E usa o contrato canônico no backend
+simulado; mantém os testes de comando, teclado, leitura e ferramentas.
+
+Validação das correções de review: 7.013 testes frontend passaram em 523 arquivos
+(18 pulados na seleção sem ACP); 479 testes seguros de chat e 12 de banco/startup
+passaram. E2E: 239 cenários passaram na rodada completa; os dois casos de foco
+restantes passaram na reexecução dos 11 cenários de landmarks/criação de aba,
+após aguardar a conclusão assíncrona do F6. Seis casos permanecem pulados pela
+suíte existente. TypeScript, ESLint, build/vet e lint Go incremental aprovados.
+`review_aep` revisou as correções e confirmou o gate sem pendências, incluindo
+compatibilidade de startup anterior à v44 e paginação concorrente com streaming.
+
 AEP permanece **In Progress**. O controlador operacional de envio e anúncios
 continua contendo reducers visuais antigos, que deixaram de ser fonte da lista e
 das ações. Sua retirada, os gates restantes de continuidade/retry/ferramentas e

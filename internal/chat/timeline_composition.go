@@ -21,6 +21,8 @@ func composeResponseWithSources(persisted *TimelineItem, live *LiveTurnSnapshot,
 	result.ExecutionID = live.ExecutionID
 	result.RecoveryReference = nil
 	result.State = live.State
+	result.Thinking = live.Thinking
+	result.TerminalReason = live.Reason
 	if !live.Finished || live.Volatile {
 		result.RecoveryReference = &TimelineRecoveryReference{ProjectionID: live.ProjectionID, Incarnation: live.Incarnation, TurnID: live.TurnID, ExecutionID: live.ExecutionID}
 	}

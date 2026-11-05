@@ -49,6 +49,14 @@ func (r *ChatTurnRepository) Get(ctx context.Context, conversationID, turnID str
 // GetMany lê metadados nullable sem eleger outra resposta para turnos sem
 // representante. Ausência da chave significa histórico sem registro de turno.
 func (r *ChatTurnRepository) GetMany(ctx context.Context, conversationID string, turnIDs []string) (map[string]*ChatTurn, error) {
+	return r.getMany(ctx, conversationID, turnIDs, false)
+}
+
+// GetManyWithPresentation enriquece somente snapshots do protocolo canônico v44.
+func (r *ChatTurnRepository) GetManyWithPresentation(ctx context.Context, conversationID string, turnIDs []string) (map[string]*ChatTurn, error) {
+	return r.getMany(ctx, conversationID, turnIDs, true)
+}
+func (r *ChatTurnRepository) getMany(ctx context.Context, conversationID string, turnIDs []string, presentation bool) (map[string]*ChatTurn, error) {
 	userID, err := RequireUserID(ctx)
 	if err != nil {
 		return nil, err
@@ -57,7 +65,11 @@ func (r *ChatTurnRepository) GetMany(ctx context.Context, conversationID string,
 	const batchSize = 400
 	for start := 0; start < len(turnIDs); start += batchSize {
 		var turns []ChatTurn
-		if err := r.db.WithContext(ctx).Table("chat_turns").Select("chat_turns.*").
+		query := r.db.WithContext(ctx).Table("chat_turns").Select("chat_turns.*")
+		if presentation {
+			query = query.Select("chat_turns.*, COALESCE(current_attempt.terminal_reason, '') AS terminal_reason").Joins("LEFT JOIN chat_turn_attempts current_attempt ON current_attempt.execution_id = chat_turns.current_execution_id AND current_attempt.turn_id = chat_turns.user_message_id")
+		}
+		if err := query.
 			Joins("JOIN conversations c ON c.id=chat_turns.conversation_id").
 			Where("c.id=? AND c.user_id=? AND chat_turns.user_message_id IN ?", conversationID, userID, turnIDs[start:min(start+batchSize, len(turnIDs))]).Find(&turns).Error; err != nil {
 			return nil, err
@@ -236,7 +248,8 @@ func (r *ChatTurnRepository) RecoverInterruptedBeforeStartup(ctx context.Context
 	return r.transaction(ctx, func(tx *gorm.DB) error {
 		userID, _ := RequireUserID(ctx)
 		var turns []ChatTurn
-		if err := tx.Table("chat_turns").Select("chat_turns.*").Joins("JOIN conversations c ON c.id = chat_turns.conversation_id").
+		if err := tx.Table("chat_turns").Select("chat_turns.*").
+			Joins("JOIN conversations c ON c.id = chat_turns.conversation_id").
 			Where("c.user_id = ? AND active_execution_id IS NOT NULL", userID).Find(&turns).Error; err != nil {
 			return err
 		}

@@ -1112,3 +1112,11 @@ it('preserva o mesmo link focado entre streaming, confirmação, terminal e novo
   rerender(<ChatMessage message={frame(true, 'volatile', 'replacement-1')} isReading />);
   expect(screen.getByRole('link', { name: 'foco preservado' })).not.toBe(link);
 });
+
+it.each([['failed', 'error', 'chat.timelineFailed'], ['interrupted', 'limit_reached', 'chat.timelineLimitReached'], ['interrupted', 'cancelled', 'chat.timelineInterrupted']])('exibe diagnóstico canônico %s sem substituir a resposta parcial', (state, terminalReason, label) => {
+ const message = Object.assign(new chat.EnrichedMessage({ id: 'partial', role: 'assistant', content: 'parcial preservada', conversationId, timestamp: 1 }),
+   { timelineItem: { state, metadata: { terminalReason }, segments: [] } as unknown as TimelineItem });
+ render(<ChatMessage message={message} />);
+ expect(screen.getByText('parcial preservada')).toBeVisible();
+ expect(screen.getByText(label)).toBeVisible();
+});

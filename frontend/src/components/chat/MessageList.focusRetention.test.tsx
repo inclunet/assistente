@@ -8,8 +8,8 @@ vi.mock('../../hooks/useAnnouncer', () => ({ useAnnouncer: () => ({ announceRequ
 // Controles reais do DOM isolam a identidade da linha e do descendente focado.
 // Não simulamos focusout para induzir uma restauração que o navegador não faria.
 vi.mock('./MessageNode', () => ({
-  MessageNode: ({ node, siblingIndex }: { node: chat.MessageNode; siblingIndex: number }) => (
-    <div tabIndex={-1} data-message-node="" data-level="0" data-sibling-index={siblingIndex} data-testid={node.message.id}>
+  MessageNode: ({ node, siblingIndex, onReachStart, onReachEnd }: { node: chat.MessageNode; siblingIndex: number; onReachStart?: () => void; onReachEnd?: () => void }) => (
+    <div tabIndex={-1} data-message-id={node.message.id} onKeyDown={event => { if (event.key === "ArrowUp") onReachStart?.(); if (event.key === "ArrowDown") onReachEnd?.(); }} data-message-node="" data-level="0" data-sibling-index={siblingIndex} data-testid={node.message.id}>
       <span>{node.message.content}</span>
       <textarea aria-label={`edit-${node.message.id}`} defaultValue="rascunho local" />
       <div data-message-node="" data-level="1"><button type="button">{`tool-${node.message.id}`}</button></div>
@@ -137,4 +137,49 @@ describe('identidade e retenção visual da lista', () => {
     expect(document.activeElement).toBe(document.body);
     expect(view.getByTestId('item-2')).not.toHaveFocus();
   });
+});
+
+it.each(['older', 'newer'])('restaura foco na borda da página %s solicitada por teclado', async direction => {
+ vi.useFakeTimers();
+ try {
+  const before = nodes(3);
+  const load = vi.fn(async () => {});
+  const props = { hasOlderMessages: true, hasNewerMessages: true, onLoadOlder: load, onLoadNewer: load };
+  const view = render(<MessageList threadedMessages={before} {...props} />);
+  const old = view.getByTestId(direction === 'older' ? 'item-0' : 'item-2');
+  act(() => old.focus());
+  fireEvent.keyDown(old, { key: direction === 'older' ? 'ArrowUp' : 'ArrowDown' });
+  await act(async () => { await Promise.resolve(); });
+  expect(load).toHaveBeenCalledWith('navigation');
+  view.rerender(<MessageList threadedMessages={nodes(3, 'page')} {...props} />);
+  await act(async () => { await vi.advanceTimersByTimeAsync(20); });
+  expect(view.getByTestId(direction === 'older' ? 'page-2' : 'page-0')).toHaveFocus();
+ } finally { vi.useRealTimers(); }
+});
+
+it.each([false, true])('delta intermediário não consome foco de paginação; rejeitada=%s', async rejected => {
+ vi.useFakeTimers();
+ try {
+  let accept!: () => void; let refuse!: () => void;
+  const load = () => new Promise<void>((resolve, reject) => { accept = resolve; refuse = () => reject(new Error('stale')); });
+  const before = nodes(3);
+  const props = { hasOlderMessages: true, onLoadOlder: load };
+  const view = render(<MessageList threadedMessages={before} {...props} />);
+  act(() => view.getByTestId('item-0').focus());
+  fireEvent.keyDown(view.getByTestId('item-0'), { key: 'ArrowUp' });
+  await act(async () => { await Promise.resolve(); });
+  view.rerender(<MessageList threadedMessages={nodes(3)} {...props} />);
+  await act(async () => { await vi.advanceTimersByTimeAsync(20); });
+  expect(view.getByTestId('item-0')).toHaveFocus();
+  if (rejected) {
+    await act(async () => refuse());
+    view.rerender(<MessageList threadedMessages={nodes(3, 'later')} {...props} />);
+  } else {
+    view.rerender(<MessageList threadedMessages={nodes(3, 'later')} {...props} />);
+    await act(async () => accept());
+  }
+  await act(async () => { await vi.advanceTimersByTimeAsync(20); });
+  if (rejected) expect(document.activeElement).toBe(document.body);
+  else expect(view.getByTestId('later-2')).toHaveFocus();
+ } finally { vi.useRealTimers(); }
 });

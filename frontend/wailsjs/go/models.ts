@@ -636,6 +636,8 @@ export namespace apidto {
 	    }
 	}
 	export class CanonicalMetadata {
+	    thinking?: boolean;
+	    terminalReason?: string;
 	    threadParentMessageId?: string;
 	    conclusionSegmentIds: string[];
 	    createdAt: string;
@@ -659,6 +661,8 @@ export namespace apidto {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.thinking = source["thinking"];
+	        this.terminalReason = source["terminalReason"];
 	        this.threadParentMessageId = source["threadParentMessageId"];
 	        this.conclusionSegmentIds = source["conclusionSegmentIds"];
 	        this.createdAt = source["createdAt"];

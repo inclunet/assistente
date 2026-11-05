@@ -134,3 +134,38 @@ func TestPresentationConclusionIncludesEveryTextCutOfTheLastSource(t *testing.T)
 		t.Fatal("incomplete conclusion", got)
 	}
 }
+
+func TestCanonicalThinkingTracksPhaseNotAccumulatedReasoning(t *testing.T) {
+	p, ctx, execution := liveFixture(t)
+	stream := execution.StartStream(0)
+	stream.Reasoning("prefixo herdado", true)
+	snap, _ := p.Snapshot(ctx, "conversation", "question")
+	if snap.Thinking {
+		t.Fatal("prefixo iniciou thinking")
+	}
+	stream.Reasoning("novo", false, true)
+	snap, _ = p.Snapshot(ctx, "conversation", "question")
+	if !snap.Thinking {
+		t.Fatal("thinking não publicado")
+	}
+	stream.Reasoning("prefixo herdado novo", true, false)
+	snap, _ = p.Snapshot(ctx, "conversation", "question")
+	if snap.Thinking || len(snap.Streams[0].Segments) == 0 {
+		t.Fatal("fim deve preservar conteúdo sem atividade")
+	}
+	stream.Append("resposta")
+	newer := execution.StartStream(0)
+	newer.Reasoning("atual", false, true)
+	if stream.StopThinking() || stream.Reasoning("obsoleto", false, false) {
+		t.Fatal("callback obsoleto aceito")
+	}
+	snap, _ = p.Snapshot(ctx, "conversation", "question")
+	if !snap.Thinking {
+		t.Fatal("callback obsoleto alterou fase atual")
+	}
+	newer.StopThinking()
+	snap, _ = p.Snapshot(ctx, "conversation", "question")
+	if snap.Thinking {
+		t.Fatal("interrupção manteve fase ativa")
+	}
+}

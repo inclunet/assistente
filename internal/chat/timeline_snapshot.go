@@ -73,7 +73,7 @@ func readTimelineFacts(ctx context.Context, tx *gorm.DB, conversationID string, 
 
 // Lifecycle acompanha perguntas visíveis; payloads de ferramentas só respostas selecionadas.
 func readTimelineFactsForSelection(ctx context.Context, tx *gorm.DB, conversationID string, turnIDs, responseIDs []string) (timelineFacts, error) {
-	turns, err := database.NewChatTurnRepository(tx).GetMany(ctx, conversationID, turnIDs)
+	turns, err := database.NewChatTurnRepository(tx).GetManyWithPresentation(ctx, conversationID, turnIDs)
 	if err != nil {
 		return timelineFacts{}, err
 	}

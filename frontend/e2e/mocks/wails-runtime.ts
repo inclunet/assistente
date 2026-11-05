@@ -830,6 +830,141 @@ export function buildWailsMockScript(): string {
     ImportConversations: undefined,
   };
 
+  // Backend simulado do contrato canônico. As fixtures de mensagens continuam
+  // sendo dados de entrada do servidor, nunca uma fonte alternativa no produto.
+  const timelineWindows = new Map();
+  const timelineRows = new Map();
+  const timelineSequences = new Map();
+  const sequenceFor = id => timelineSequences.get(id) || 1;
+  function fixtureRows(conversationId) {
+    if (!timelineRows.has(conversationId)) {
+      const configuredWindow = _config.responses.GetConversationMessageWindow;
+      const configuredMessages = _config.responses.GetMessages;
+      const input = (typeof configuredWindow === 'function' ? configuredWindow({ conversationId }) : configuredWindow)?.nodes
+        || (typeof configuredMessages === 'function' ? configuredMessages(conversationId) : configuredMessages) || [];
+      timelineRows.set(conversationId, JSON.parse(JSON.stringify(input)));
+    }
+    return timelineRows.get(conversationId);
+  }
+  function canonicalItem(node, conversationId) {
+    const m = node.message || node;
+    const id = m.id;
+    const segments = m.canonicalSegments || (m.turnSegments?.length
+      ? m.turnSegments.map((part, index) => ({ segmentId: id + ':part:' + index,
+          kind: part.type === 'tool_calls' ? 'tool_invocations' : part.type,
+          text: part.content, invocations: part.toolInvocations || [] }))
+      : [{ segmentId: id + ':text', kind: 'text', text: m.content || '' }]);
+    if (m.reasoning && !segments.some(part => part.kind === 'reasoning')) {
+      segments.unshift({ segmentId: id + ':reasoning', kind: 'reasoning', text: m.reasoning });
+    }
+    const conclusion = segments.filter(part => part.kind === 'text').slice(-1);
+    return { itemId: id, conversationId, scopeParentId: m.parentId || null,
+      kind: m.role === 'assistant' ? 'response' : 'message', turnId: m.turnId || null,
+      replyToItemId: '', messageIds: [id], representativeMessageId: id,
+      position: id, revision: String(m.canonicalRevision || 1), state: m.isStreaming ? 'streaming' : 'completed',
+      durability: 'persisted', segments,
+      metadata: { thinking: !!m.thinking, terminalReason: m.terminalReason, createdAt: m.createdAt || now, timestamp: m.timestamp || Date.parse(m.createdAt || now),
+        source: m.source || '', childCount: node.childCount || node.children?.length || 0,
+        threadParentMessageId: id, conclusionSegmentIds: conclusion.map(part => part.segmentId),
+        cacheReadTokens: 0, cacheWriteTokens: 0, cacheMissTokens: 0, origin: 'chat',
+        role: m.role, pinned: !!m.pinned, model: m.model || '', promptTokens: 0,
+        completionTokens: 0, totalTokens: 0 } };
+  }
+  function timelineSnapshot(window) {
+    const root = fixtureRows(window.conversationId);
+    const rows = window.scopeParentId
+      ? (_config.responses.GetMessageChildren || root.find(row => row.message?.id === window.scopeParentId)?.children || []) : root;
+    const items = rows.map(row => ({ ...canonicalItem(row, window.conversationId), scopeParentId: window.scopeParentId }));
+    return { ...window, epoch: 'e2e-epoch', windowRevision: String(window.revision),
+      sequence: String(sequenceFor(window.conversationId)), items, orderedItemIds: items.map(item => item.itemId),
+      retainedItemIds: window.retainedItemIds || [], retentionBlocked: false,
+      totalCount: items.length, startIndex: 0, endIndex: items.length,
+      hasBefore: false, hasAfter: false, beforeCursor: '', afterCursor: '' };
+  }
+  function timelineRPC(name, args) {
+    if (name === 'Open') {
+      const request = args[0];
+      const window = { ...request, scopeParentId: request.scopeParentId || null,
+        windowId: request.surfaceId, revision: 1, baseline: 1, mode: 'historical', ids: [] };
+      timelineWindows.set(window.windowId, window);
+      const snapshot = timelineSnapshot(window); window.ids = snapshot.orderedItemIds;
+      return snapshot;
+    }
+    const window = timelineWindows.get(args[0]);
+    if (name === 'Close') { timelineWindows.delete(args[0]); return; }
+    if (!window) throw new Error('Unknown mock timeline window');
+    if (!['SetRetention', 'Navigate', 'Refresh'].includes(name)) throw new Error('Unimplemented mock timeline RPC: ' + name);
+    if (args[1].windowRevision !== String(window.revision) || (name !== 'Refresh' && args[1].epoch !== 'e2e-epoch')) throw new Error('Mock timeline checkpoint mismatch');
+    if (name === 'SetRetention') {
+      window.retainedItemIds = args[1].itemIds;
+      publishTimeline(window.conversationId, false);
+      return { windowId: window.windowId, epoch: 'e2e-epoch', windowRevision: String(window.revision) };
+    }
+    window.revision++;
+    if (name === 'Navigate') window.mode = args[1].mode;
+    window.baseline = window.revision;
+    return timelineSnapshot(window);
+  }
+  function publishTimeline(conversationId, contentChanged = true) {
+    timelineSequences.set(conversationId, sequenceFor(conversationId) + 1);
+    const windows = [...timelineWindows.values()].filter(window => window.conversationId === conversationId);
+    const patches = windows.map(window => {
+      const previousRevision = String(window.revision++);
+      const snapshot = timelineSnapshot(window);
+      const patch = { windowId: window.windowId, previousRevision, revision: String(window.revision),
+        splices: contentChanged ? [{ index: 0, deleteCount: window.ids.length, insertIds: snapshot.orderedItemIds }] : [],
+        items: contentChanged ? snapshot.items : [], metadata: snapshot };
+      window.ids = snapshot.orderedItemIds;
+      return patch;
+    });
+    for (const win of windows) window.runtime.EventsEmit('chat:timeline', {
+      surfaceId: win.surfaceId, conversationId, windowId: win.windowId, epoch: 'e2e-epoch',
+      snapshotRevision: String(win.baseline), syncRequired: false,
+      updates: [{ conversationId, epoch: 'e2e-epoch', sequence: String(sequenceFor(conversationId)),
+        operations: [], windowPatches: patches }] });
+  }
+  function projectFixtureEvent(event, data) {
+    if (event === 'conversation:cleared') {
+      timelineRows.set(data.conversation_id, []); publishTimeline(data.conversation_id); return;
+    }
+    if (!data?.conversationId || (!event.startsWith('chat:') && !event.startsWith('message:'))) return;
+    const rows = fixtureRows(data.conversationId);
+    if (event === 'chat:messages_ready') {
+      if (data.userMessageId && !rows.some(row => row.message.id === data.userMessageId))
+        rows.push({ message: { id: data.userMessageId, role: 'user', content: data.userContent || '', conversationId: data.conversationId }, children: [] });
+    } else if (event === 'message:pin_changed') {
+      const row = rows.find(row => row.message.id === data.messageId);
+      if (row) { row.message.pinned = data.pinned; row.message.canonicalRevision = (row.message.canonicalRevision || 1) + 1; }
+    } else if (['chat:stream', 'chat:thinking', 'chat:tool_start', 'chat:tool_end', 'chat:segment_done', 'chat:done'].includes(event)) {
+      const id = data.assistantMessageId || data.messageId || rows.findLast(row => row.message.role === 'assistant' && row.message.isStreaming)?.message.id;
+      if (!id) return;
+      let row = rows.find(row => row.message.id === id);
+      if (!row) { row = { message: { id, role: 'assistant', content: '', conversationId: data.conversationId, isStreaming: true, canonicalSegments: [] }, children: [] }; rows.push(row); }
+      const m = row.message;
+      m.canonicalRevision = (m.canonicalRevision || 1) + 1;
+      if (data.turnId) m.turnId = data.turnId;
+      m.canonicalSegments ||= canonicalItem(row, data.conversationId).segments;
+      const segments = m.canonicalSegments;
+      if (event === 'chat:stream' && typeof data.delta === 'string') {
+        let tail = segments.at(-1);
+        if (!tail || tail.kind !== 'text' || m.segmentClosed) {
+          tail = { segmentId: id + ':part:' + segments.length, kind: 'text', text: '' }; segments.push(tail);
+        }
+        tail.text = data.reset ? data.delta : tail.text + data.delta;
+        m.content = tail.text; m.segmentClosed = false; m.thinking = false;
+      }
+      if (event === 'chat:thinking') { m.reasoning = data.content || m.reasoning; m.thinking = !data.done; }
+      if (event === 'chat:tool_start') segments.push({ segmentId: id + ':tool:' + data.callId,
+        kind: 'tool_invocations', invocations: [{ callId: data.callId, name: data.name,
+          status: 'running', hasDetails: false, resultAvailability: 'pending' }] });
+      if (event === 'chat:tool_end') for (const part of segments) for (const tool of part.invocations || [])
+        if (tool.callId === data.callId) { tool.status = data.status === 'error' ? 'failed' : 'succeeded'; tool.outputPreview = data.summary; }
+      if (event === 'chat:segment_done') m.segmentClosed = true;
+      if (event === 'chat:done') { m.isStreaming = false; m.thinking = false; m.terminalReason = data.reason; }
+    } else return;
+    publishTimeline(data.conversationId);
+  }
+
   /* ---------- proxy de funções ---------- */
 
   function makeProxy(scope) {
@@ -869,6 +1004,7 @@ export function buildWailsMockScript(): string {
               throw error;
             });
           }
+          if (scope === 'wailsapi.ChatTimeline') return Promise.resolve(timelineRPC(fnName, args));
           if (fnName === 'GetRecentMessages' && 'GetMessages' in _config.responses) {
             const val = _config.responses.GetMessages;
             return Promise.resolve(typeof val === 'function' ? val(...args) : val);
@@ -1027,6 +1163,7 @@ export function buildWailsMockScript(): string {
       LLMProviders: makeProxy('wailsapi.LLMProviders'),
       LLMModels: makeProxy('wailsapi.LLMModels'),
       Chat: makeProxy('wailsapi.Chat'),
+      ChatTimeline: makeProxy('wailsapi.ChatTimeline'),
       ACPCommands: makeProxy('wailsapi.ACPCommands'),
       ACPProviders: makeProxy('wailsapi.ACPProviders'),
       ACPOptions: makeProxy('wailsapi.ACPOptions'),
@@ -1122,6 +1259,12 @@ export function buildWailsMockScript(): string {
     setResponse(fn, value) {
       _config.responses[fn] = value;
       delete _config.errors[fn];
+      if (fn === 'GetMessages' || fn === 'GetConversationMessageWindow') {
+        for (const conversationId of [...timelineRows.keys()]) {
+          timelineRows.delete(conversationId);
+          publishTimeline(conversationId);
+        }
+      }
     },
 
     clearResponse(fn) {
@@ -1138,6 +1281,7 @@ export function buildWailsMockScript(): string {
     },
 
     emit(event, data) {
+      projectFixtureEvent(event, data);
       window.runtime.EventsEmit(event, data);
     },
 

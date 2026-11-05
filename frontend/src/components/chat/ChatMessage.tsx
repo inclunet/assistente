@@ -475,6 +475,11 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
           )}
         </div>
 
+        {role === 'assistant' && ['failed', 'interrupted'].includes(message.timelineItem?.state ?? '') && (
+          <p>{t(message.timelineItem?.state === 'failed' ? 'chat.timelineFailed' :
+            message.timelineItem?.metadata.terminalReason === 'limit_reached' ? 'chat.timelineLimitReached' : 'chat.timelineInterrupted')}</p>
+        )}
+
         {/* Seção de Reasoning/Thinking - exibe cadeia de pensamento do modelo */}
         {role === 'assistant' && (streamingReasoning || effectiveReasoning) && (
           <ReasoningSection 

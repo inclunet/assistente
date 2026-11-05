@@ -110,7 +110,7 @@ export function ChatSessionProvider({
         hasBefore: window.metadata.hasBefore, hasAfter: window.metadata.hasAfter } : undefined };
   }, [normalizedConversationId, sessionKey, surfaceSession, threadedMessages, timeline?.title, window]);
   const conversation = session?.conversation ?? null;
-  const isLoading = !!session?.isLoading || !!presentation?.loading;
+  const isLoading = !!session?.isLoading;
   const hasOlderMessages = window?.metadata.hasBefore ?? false;
   const isLoadingOlderMessages = presentation?.loading ?? false;
   const isLoadingMessageWindow = presentation?.loading ?? false;

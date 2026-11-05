@@ -108,6 +108,10 @@ describe('chat → editor: transição explícita e confirmação da aplicação
     });
     transport.validate.mockImplementationOnce(async () => {
       expect(useWorkspaceChatModalStore.getState().isOpen).toBe(false);
+      // Fechar o modal descarta a inscrição e a mensagem da fonte visual.
+      useChatStore.setState({ getConversationMessages: () => [] });
+      await Promise.resolve();
+      expect(target.isCurrent()).toBe(true);
       const closed = getModalRegistrySnapshot();
       expect(closed.ids).toEqual([]);
       expect(closed.generationNumber).toBe(initial.generationNumber + (scoped ? 2 : 1));

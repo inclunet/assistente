@@ -118,6 +118,26 @@ function capture(commandID: string) {
   return captureChatMessagingTarget(() => '/', commandID);
 }
 describe('ChatSessionView message actions — superfície/lista/registry reais', () => {
+  it('o término da geração não rouba foco da mensagem em leitura', async () => {
+    mount();
+    const setLoading = (isLoading: boolean) => useChatStore.setState(state => ({ surfaceSessionsByKey:
+      Object.fromEntries(Object.entries(state.surfaceSessionsByKey).map(([key, value]) => [key, { ...value, isLoading }])) }));
+    act(() => setLoading(true));
+    const selected = node(); act(() => selected.focus());
+    act(() => setLoading(false));
+    await act(async () => { await new Promise<void>(resolve => requestAnimationFrame(() => resolve())); });
+    expect(selected).toHaveFocus();
+  });
+
+  it('recusa edição de user em thread sem impedir sua leitura', () => {
+    const message = useChatStore.getState().timelinesByConversationId[id].threadedMessages[0].message;
+    message.parentId = secondID;
+    mount();
+    expect(capture('chat.message.edit.open')).toBeUndefined();
+    expect(node()).toBeVisible();
+    expect(prepareMessage).not.toHaveBeenCalled();
+  });
+
   it('captura foco messages a partir do ChatInput fechado, mas não atravessa autocomplete aberto', () => {
     mount(); const input = screen.getByRole('combobox'); act(() => input.focus());
     expect(input).toHaveAttribute('aria-expanded', 'false');

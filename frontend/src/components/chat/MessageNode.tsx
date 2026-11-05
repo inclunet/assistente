@@ -631,7 +631,7 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
           onEditContentChange={editDraft.change}
           onSaveEdit={handleSaveEdit}
           onCancelEdit={handleCancelEdit}
-          isThinking={node.message.isStreaming && !!node.message.reasoning}
+          isThinking={node.message.timelineItem?.metadata.thinking ?? false}
           isReasoningExpanded={reasoningExpanded}
           onToggleReasoning={() => requestNavigation('chat.message.reasoning.toggle')}
           isPlayingAudio={isPlayingAudio}

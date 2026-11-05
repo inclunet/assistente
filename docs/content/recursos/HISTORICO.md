@@ -86,3 +86,10 @@ Se uma atualização não puder ser aplicada com segurança, o conteúdo apresen
 permanece disponível e o chat oferece recuperação. Conteúdo ainda não salvo pode
 ser lido antes de liberar sua cópia de recuperação; essa liberação não exclui a
 conversa salva.
+
+Quando uma resposta falha ou é interrompida, o histórico mantém o conteúdo
+parcial e mostra um aviso da situação. A seção de raciocínio indica atividade
+apenas enquanto o agente está pensando; depois ela pode ser recolhida mesmo
+que a resposta continue chegando. Terminar a resposta não tira o foco de uma
+mensagem ou link em leitura. Ao navegar entre páginas pelas setas, o foco segue
+para a borda da página carregada.

@@ -75,6 +75,8 @@ type CanonicalSegment struct {
 }
 
 type CanonicalMetadata struct {
+	Thinking              bool     `json:"thinking,omitempty"`
+	TerminalReason        string   `json:"terminalReason,omitempty"`
 	ThreadParentMessageID *string  `json:"threadParentMessageId"`
 	ConclusionSegmentIDs  []string `json:"conclusionSegmentIds"`
 	CreatedAt             string   `json:"createdAt"`

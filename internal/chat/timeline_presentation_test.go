@@ -81,3 +81,42 @@ func TestCanonicalPresentationSerializesEmptyConclusionAsArray(t *testing.T) {
 		}
 	}
 }
+
+func TestCanonicalTerminalReasonSurvivesSnapshotWithPartialContent(t *testing.T) {
+	for _, reason := range []string{"provider_error", "persistence_error", "limit_reached"} {
+		t.Run(reason, func(t *testing.T) {
+			f := newSnapshotFixture(t)
+			state := database.TurnFailed
+			if reason == "limit_reached" {
+				state = database.TurnInterrupted
+			}
+			repo := database.NewChatTurnRepository(f.db)
+			attempt, err := repo.Begin(f.ctx, f.conversation, f.question, "", database.TurnModeRetry)
+			if err != nil {
+				t.Fatal(err)
+			}
+			execution := attempt.ExecutionID
+			response, err := repo.EnsureResponse(f.ctx, f.conversation, f.question, execution)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := repo.FinishResponse(f.ctx, f.conversation, f.question, execution, state, reason, response, &database.MessageOptions{Content: "resposta parcial"}); err != nil {
+				t.Fatal(err)
+			}
+
+			snapshot, err := f.reader.ReadPublicationTurn(f.ctx, f.conversation, f.question)
+			if err != nil {
+				t.Fatal(err)
+			}
+			view := canonicalItem(snapshot.Response)
+			if view.Metadata.TerminalReason != reason || view.State != state || len(view.Segments) == 0 {
+				t.Fatalf("diagnóstico/conteúdo perdido: %+v", view)
+			}
+			live := &LiveTurnSnapshot{ItemID: snapshot.Response.ItemID, TurnID: f.question, ExecutionID: execution, State: state, Reason: reason, Finished: true}
+			composed, err := composeResponse(snapshot.Response, live)
+			if err != nil || canonicalItem(composed).Metadata.TerminalReason != reason {
+				t.Fatalf("terminal live: %v %+v", err, composed)
+			}
+		})
+	}
+}

@@ -313,6 +313,37 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
     }, behavior === 'smooth' ? 500 : 0);
   };
 
+  type PageFocus = { direction: 'older' | 'newer'; active: Element | null };
+  const pendingPageFocus = useRef<PageFocus | null>(null);
+  const [completedPageFocus, setCompletedPageFocus] = useState<PageFocus | null>(null);
+  const loadPage = useCallback((direction: 'older' | 'newer', trigger: MessageWindowLoadTrigger, load?: (trigger: MessageWindowLoadTrigger) => Promise<void> | void) => {
+    const intent: PageFocus | null = trigger === 'navigation' ? { direction, active: document.activeElement } : null;
+    pendingPageFocus.current = intent;
+    let result: Promise<void> | void;
+    try { result = load?.(trigger); }
+    catch { if (pendingPageFocus.current === intent) pendingPageFocus.current = null; return Promise.resolve(); }
+    return Promise.resolve(result).then(() => {
+      if (intent && pendingPageFocus.current === intent) setCompletedPageFocus(intent);
+    }, () => {
+      if (pendingPageFocus.current === intent) pendingPageFocus.current = null;
+    });
+  }, []);
+  useLayoutEffect(() => {
+    const pending = completedPageFocus;
+    if (!pending || pendingPageFocus.current !== pending) return;
+    const index = pending.direction === 'older' ? displayMessages.length - 1 : 0;
+    const target = displayMessages[index];
+    if (!target) { pendingPageFocus.current = null; return; }
+    if (shouldVirtualize) rowVirtualizer.scrollToIndex(index, { align: 'auto' });
+    const frame = requestAnimationFrame(() => {
+      pendingPageFocus.current = null;
+      const active = document.activeElement;
+      if (active !== pending.active && !(active === document.body && !pending.active?.isConnected)) return;
+      innerContainerRef.current?.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(target.message.id)}"][data-level="0"]`)?.focus();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [completedPageFocus, displayMessages, rowVirtualizer, shouldVirtualize]);
+
   const handleLoadOlder = useCallback((trigger: MessageWindowLoadTrigger) => {
     if (interactions.current.size > 0 || trigger === 'scroll' && focusedKeyRef.current !== null) return;
     const container = innerContainerRef.current;
@@ -321,7 +352,7 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
       : null;
     pendingScrollRestoreRef.current = snapshot;
 
-    const result = onLoadOlder?.(trigger);
+    const result = loadPage('older', trigger, onLoadOlder);
     void Promise.resolve(result).finally(() => {
       window.setTimeout(() => {
         if (pendingScrollRestoreRef.current === snapshot) {
@@ -329,13 +360,13 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
         }
       }, 0);
     });
-  }, [onLoadOlder]);
+  }, [onLoadOlder, loadPage]);
 
   const handleLoadNewer = useCallback((trigger: MessageWindowLoadTrigger) => {
     if (interactions.current.size > 0 || trigger === 'scroll' && focusedKeyRef.current !== null) return;
-    const result = onLoadNewer?.(trigger);
+    const result = loadPage('newer', trigger, onLoadNewer);
     void Promise.resolve(result);
-  }, [onLoadNewer]);
+  }, [onLoadNewer, loadPage]);
 
   const handleReachStart = useCallback(() => {
     if (hasOlderMessages && onLoadOlder && !isLoadingMessageWindow) {

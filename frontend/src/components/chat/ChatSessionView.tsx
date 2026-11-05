@@ -894,9 +894,11 @@ function ChatSessionViewContent({
       const active = document.activeElement as HTMLElement | null;
       const isEditingMessage = active?.closest('.chat-message--editing') !== null;
       const isEditingWorkspaceTab = !!document.querySelector('.ws-tabs__tab-edit');
-      if (!isEditingMessage && !isEditingWorkspaceTab) {
+      const mayRestoreComposer = !active || active === document.body || active === inputRef.current;
+      if (mayRestoreComposer && !isEditingMessage && !isEditingWorkspaceTab) {
         requestAnimationFrame(() => {
-          inputRef.current?.focus();
+          // A leitura ou outro controle escolhido durante o frame mantém o foco.
+          if (document.activeElement === active) inputRef.current?.focus();
         });
       }
     }

@@ -50,6 +50,7 @@ export function prepareChatEditorTransfer(
   let running = false;
   let destinationSeen = false;
   let closingModal = false;
+  let sourceReleased = false;
   let modalGeneration = initialModal.generationNumber;
   const off: Array<() => void> = [];
   const cleanup = () => { off.splice(0).forEach(unsubscribe => unsubscribe()); destination?.dispose(); };
@@ -60,7 +61,7 @@ export function prepareChatEditorTransfer(
     const latest = source.getMessage(message.id);
     const modals = getModalRegistrySnapshot();
     let valid = auth.isAuthenticated && auth.user?.userId === owner.userId && auth.user?.sessionId === owner.sessionId &&
-      ws?.id === workspace.id && window.location.pathname === pathname && latest === message && latest.content === messageContent &&
+      ws?.id === workspace.id && window.location.pathname === pathname && (sourceReleased || latest === message && latest.content === messageContent) &&
       JSON.stringify(ws.tabs.find(tab => tab.id === sourceTabId)) === sourceBinding;
     if (phase === 'source') valid = valid && sourceCurrent();
     else {
@@ -108,6 +109,9 @@ export function prepareChatEditorTransfer(
         if (ownsModal) {
           const modal = useWorkspaceChatModalStore.getState();
           if (!modal.isOpen || modal.boundTabId !== sourceTabId || modal.boundConversationId !== message.conversationId) throw new Error('Chat modal changed');
+          // A partir do fechamento autorizado, o ticket validado pelo backend
+          // conserva a revisão da mensagem; a superfície pode ser descartada.
+          sourceReleased = true;
           closingModal = true;
           flushSync(() => useWorkspaceChatModalStore.getState().close());
           const after = getModalRegistrySnapshot();

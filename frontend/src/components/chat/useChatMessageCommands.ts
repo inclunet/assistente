@@ -46,7 +46,7 @@ export function useChatMessageCommands(rootRef: RefObject<HTMLDivElement | null>
   const getMessage = (id: string) => live.current.presentation?.getMessage(id);
   const eligible = (message: Message | undefined, id: ChatMessageCommandID): message is Message => !!message &&
     isBackendId(message.timelineItem?.representativeMessageId) && !message.isStreaming && !message.internal && message.conversationId === live.current.conversationId &&
-    ((id !== 'chat.message.edit.open' && id !== 'chat.message.edit.save') || message.role === 'user') && (id !== 'chat.message.speak' || ttsService.hasVoiceConfig());
+    ((id !== 'chat.message.edit.open' && id !== 'chat.message.edit.save') || message.role === 'user' && !message.timelineItem?.scopeParentId) && (id !== 'chat.message.speak' || ttsService.hasVoiceConfig());
   return {
     subscribe(changed: () => void) { listeners.current.add(changed); return () => { listeners.current.delete(changed); }; },
     canStart(id: ChatMessageCommandID, keyboardTarget?: EventTarget | null) {

@@ -53,7 +53,9 @@ async function setupChatWithMessages(wails: Parameters<Parameters<typeof test>[2
     messages: [], message_count: 3,
   });
   await wails.waitForApp();
+  // A inscrição canônica carrega o histórico independentemente do layout.
 }
+
 
 /**
  * Pausa requestAnimationFrame para evitar que restoreDefaultFocus roube o foco.
@@ -165,6 +167,7 @@ test.describe('Chat — alternância input ↔ histórico', () => {
     const textarea = page.locator('.chat-input__textarea');
     await expect(textarea).toBeFocused({ timeout: 5_000 });
 
+    await expect(page.locator('.message-node[data-level="0"]')).toHaveCount(3);
     // O textarea está vazio, cursor na posição 0 → ArrowUp foca última msg
     await page.keyboard.press('ArrowUp');
 

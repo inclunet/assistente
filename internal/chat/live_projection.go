@@ -64,6 +64,7 @@ type liveTurn struct {
 	streams                                        map[int]*liveStream
 }
 type liveStream struct {
+	thinking             bool
 	presentationReplaced bool
 	generation           uint64
 	sealed               bool
@@ -83,6 +84,7 @@ type LiveStreamSnapshot struct {
 	Segments           []ResponseSegment
 }
 type LiveTurnSnapshot struct {
+	Thinking                                               bool
 	ProjectionID                                           string
 	Detached                                               bool
 	Epoch                                                  string
@@ -208,13 +210,19 @@ func (s *StreamProjection) apply(fn func(*liveStream)) bool {
 }
 
 func (s *StreamProjection) Append(text string) bool {
-	return s.apply(func(stream *liveStream) { stream.parts[len(stream.parts)-1].text.WriteString(text) })
+	return s.apply(func(stream *liveStream) {
+		stream.thinking = false
+		stream.parts[len(stream.parts)-1].text.WriteString(text)
+	})
 }
 func (s *StreamProjection) Initial(text string) bool {
 	return s.apply(func(stream *liveStream) { stream.parts = []*livePart{{}}; stream.parts[0].text.WriteString(text) })
 }
-func (s *StreamProjection) Reasoning(text string, replace bool) bool {
+func (s *StreamProjection) Reasoning(text string, replace bool, active ...bool) bool {
 	return s.apply(func(stream *liveStream) {
+		if len(active) > 0 {
+			stream.thinking = active[0]
+		}
 		if replace {
 			for _, part := range stream.parts {
 				part.reasoning.Reset()
@@ -225,8 +233,30 @@ func (s *StreamProjection) Reasoning(text string, replace bool) bool {
 		}
 	})
 }
+func (s *StreamProjection) StopThinking() bool {
+	if s == nil {
+		return true
+	}
+	c := s.execution.conversation
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	t := s.execution.currentLocked()
+	if t == nil || t.finished {
+		return false
+	}
+	stream := t.streams[s.iteration]
+	if stream == nil || stream.generation != s.generation || stream.sealed {
+		return false
+	}
+	if stream.thinking {
+		stream.thinking = false
+		c.revision++
+		s.execution.schedulePublicationLocked()
+	}
+	return true
+}
 func (s *StreamProjection) Cut() bool {
-	return s.apply(func(stream *liveStream) { stream.parts = append(stream.parts, &livePart{}) })
+	return s.apply(func(stream *liveStream) { stream.thinking = false; stream.parts = append(stream.parts, &livePart{}) })
 }
 
 // OwnsStream inclui o resultado já selado, mas rejeita binding substituído.
@@ -470,6 +500,7 @@ func snapshotLiveTurn(c *projectionConversation, t *liveTurn) *LiveTurnSnapshot 
 	sort.Ints(iterations)
 	for _, iteration := range iterations {
 		stream := t.streams[iteration]
+		result.Thinking = !t.finished && !stream.sealed && stream.thinking
 		target := LiveStreamSnapshot{Generation: stream.generation, Iteration: iteration, PersistedMessageID: stream.messageID, Confirmed: stream.confirmed}
 		for index := range stream.parts {
 			part := stream.parts[index]
