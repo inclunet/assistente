@@ -1,3 +1,9 @@
+AEP-0116: revisão do consumidor canônico mantém cópia de respostas terminais
+não persistidas no protocolo de comandos, com autorização da janela e revisão
+exata; contagem de filhos limitada aos pais selecionados. Acesso a threads de
+fontes intermediárias consolidadas continua pendente, assim como retirada dos
+reducers legados e gates finais. Status: **In Progress**.
+
 **AEP-0112 — diagnóstico de renovação OAuth (28/10/2026): In Progress.**
 Contrato base aceito em 05/10 preservado. A extensão registra etapa, causa segura,
 status HTTP e código OAuth controlado; testes cobrem sigilo e política de rotação.

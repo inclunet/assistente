@@ -3,7 +3,7 @@ import { useEffect, useRef, type RefObject } from 'react';
 import { useChatStore, type Message } from '../../store/chatStore';
 import { isBackendId } from '../../lib/idUtils';
 import { ChatMessagingStaleError, CHAT_MESSAGE_ACTION_IDS, isChatMessageAction, type PreparedChatMessagingTarget } from '../../lib/commandChatMessaging';
-import { prepareChatMessageCommand, prepareChatMessageEditCommand, commitChatMessageCommand } from '../../lib/commandChatMessageWails';
+import { prepareChatTimelineCopyCommand, prepareChatMessageCommand, prepareChatMessageEditCommand, commitChatMessageCommand } from '../../lib/commandChatMessageWails';
 import { captureChatMessageEditDraft } from './useChatMessageEditDraft';
 import { useMessageActions } from '../../hooks/useContextMenu';
 import { clearToolInvocationDetailsCache } from '../../services/toolInvocationDetailsCache';
@@ -45,7 +45,7 @@ export function useChatMessageCommands(rootRef: RefObject<HTMLDivElement | null>
   }, [rootRef, conversationId, sessionKey]);
   const getMessage = (id: string) => live.current.presentation?.getMessage(id);
   const eligible = (message: Message | undefined, id: ChatMessageCommandID): message is Message => !!message &&
-    isBackendId(message.timelineItem?.representativeMessageId) && !message.isStreaming && !message.internal && message.conversationId === live.current.conversationId &&
+    (isBackendId(message.timelineItem?.representativeMessageId) || ((id === 'chat.message.copy' || id === 'chat.message.copy_markdown') && !!live.current.presentation?.getCopyTarget?.(message.id))) && !message.isStreaming && !message.internal && message.conversationId === live.current.conversationId &&
     ((id !== 'chat.message.edit.open' && id !== 'chat.message.edit.save') || message.role === 'user' && !message.timelineItem?.scopeParentId) && (id !== 'chat.message.speak' || ttsService.hasVoiceConfig());
   return {
     subscribe(changed: () => void) { listeners.current.add(changed); return () => { listeners.current.delete(changed); }; },
@@ -88,6 +88,7 @@ export function useChatMessageCommands(rootRef: RefObject<HTMLDivElement | null>
         ? captureChatMessageEditDraft(rootRef.current, capturedConversation, capturedSession, message.id) : undefined;
       if (id === 'chat.message.edit.save' && (!editDraft || editDraft.originalMessage !== message)) { editDraft?.dispose(); return undefined; }
       const snapshot = { ...message };
+      const copyTarget = !isBackendId(message.timelineItem?.representativeMessageId) ? live.current.presentation?.getCopyTarget?.(message.id) : undefined;
       let disposed = false;
       let invalid = false;
       const messageCurrent = () => {
@@ -110,6 +111,7 @@ export function useChatMessageCommands(rootRef: RefObject<HTMLDivElement | null>
         async prepareAdmission(ticket) {
           if (!isCurrent()) throw new ChatMessagingStaleError();
           if (editDraft) await prepareChatMessageEditCommand(ticket, snapshot.timelineItem!.representativeMessageId!, editDraft.originalContent, editDraft.content);
+          else if (copyTarget) await prepareChatTimelineCopyCommand(ticket, copyTarget);
           else await prepareChatMessageCommand(ticket, snapshot.timelineItem!.representativeMessageId!);
           if (!isCurrent()) throw new ChatMessagingStaleError();
         },

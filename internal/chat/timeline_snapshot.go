@@ -168,12 +168,31 @@ func (r *DBTimelineReader) readWindow(ctx context.Context, query database.Messag
 			return err
 		}
 		// Lotes limitam parâmetros mesmo quando um único item agrega muitos segmentos.
+		// Response projections keep canonical metadata in both readers. Only
+		// the legacy node adapter uses persisted-child counts below.
 		if err := database.ReadMessagePresentation(ctx, tx, rows.Messages); err != nil {
 			return err
 		}
-		for _, message := range rows.Messages {
-			if message.Presentation != nil {
-				childCounts[message.ID] = message.Presentation.ChildCount
+		if canonical {
+			for _, message := range rows.Messages {
+				if message.Presentation != nil {
+					childCounts[message.ID] = message.Presentation.ChildCount
+				}
+			}
+		} else {
+			for start := 0; start < len(rows.Messages); start += 400 {
+				end := min(start+400, len(rows.Messages))
+				ids := make([]string, 0, end-start)
+				for _, message := range rows.Messages[start:end] {
+					ids = append(ids, message.ID)
+				}
+				counts, err := repo.CountChildrenWithContext(ctx, ids)
+				if err != nil {
+					return err
+				}
+				for id, count := range counts {
+					childCounts[id] = count
+				}
 			}
 		}
 		return nil

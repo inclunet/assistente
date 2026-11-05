@@ -6,6 +6,8 @@ import type { MessageNode, Message } from '../../lib/chatMessageTree';
 import type { TimelineItem } from '../../types/chatTimelineEvents';
 
 const unavailable = new Set<string>();
+const canonicalOverrides = new Map<string, TimelineItem>();
+export function setFixtureCanonicalItem(id: string, item?: TimelineItem) { if (item) canonicalOverrides.set(id, item); else canonicalOverrides.delete(id); }
 export function setFixtureSourceUnavailable(id: string, value: boolean) { if (value) unavailable.add(id); else unavailable.delete(id); }
 
 // Fixture dos testes de comandos e ownership. A origem dos dados é injetada;
@@ -23,7 +25,7 @@ export function useChatTimelinePresentation(conversationId: string | null, sessi
       const decorate = (nodes: MessageNode[]) => {
         for (const node of nodes) {
           node.itemId ??= node.message.id;
-          node.message.timelineItem = { itemId: node.itemId, representativeMessageId: node.message.id, scopeParentId: node.message.parentId ?? null,
+          node.message.timelineItem = canonicalOverrides.get(node.message.id) ?? { itemId: node.itemId, representativeMessageId: node.message.id, scopeParentId: node.message.parentId ?? null,
             metadata: { threadParentMessageId: node.message.id }, segments: [] } as unknown as TimelineItem;
           decorate(node.children ?? []);
         }
@@ -37,7 +39,7 @@ export function useChatTimelinePresentation(conversationId: string | null, sessi
       roots();
       const state = useChatStore.getState();
       const canonical = findNode(id, getConversationTimeline(state, conversationId)?.threadedMessages ?? []);
-      if (canonical) { knownCanonical.add(id); canonical.message.timelineItem = { itemId: canonical.itemId ?? id, representativeMessageId: id, scopeParentId: canonical.message.parentId ?? null, metadata: { threadParentMessageId: id }, segments: [] } as unknown as TimelineItem; return canonical.message; }
+      if (canonical) { knownCanonical.add(id); canonical.message.timelineItem = canonicalOverrides.get(id) ?? { itemId: canonical.itemId ?? id, representativeMessageId: id, scopeParentId: canonical.message.parentId ?? null, metadata: { threadParentMessageId: id }, segments: [] } as unknown as TimelineItem; return canonical.message; }
       if (knownCanonical.has(id)) return undefined;
       const session = state.surfaceSessionsByKey[sessionKey];
       if (session?.conversationId !== conversationId) return undefined;
@@ -45,6 +47,10 @@ export function useChatTimelinePresentation(conversationId: string | null, sessi
     };
     return {
       getMessage: find, getMessageByRepresentative: find,
+      getCopyTarget: (id: string) => {
+        const item = canonicalOverrides.get(id);
+        return item?.recoveryReference ? { windowId: 'copy-window', identity: { itemId: item.itemId, epoch: 'copy-epoch', revision: item.revision, reference: item.recoveryReference } } : undefined;
+      },
       subscribe: useChatStore.subscribe, getRevision: () => 0,
       get window() {
         const state = useChatStore.getState();

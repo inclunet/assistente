@@ -28,6 +28,13 @@ type capturedTimelineSession struct {
 // A consulta persistida ocorre somente na entrada do RPC, fora dos locks do App
 // e do projetor. O comprovante privado vincula Capture ao principal revalidado.
 func (s timelineWailsSession) AuthenticatedContext() (context.Context, error) {
+	return s.AuthenticatedTimelineContext(context.Background())
+}
+
+func (s timelineWailsSession) AuthenticatedTimelineContext(parent context.Context) (context.Context, error) {
+	if err := parent.Err(); err != nil {
+		return nil, err
+	}
 	ctx, err := s.wailsSession.AuthenticatedContext()
 	if err != nil {
 		return nil, err
@@ -39,6 +46,11 @@ func (s timelineWailsSession) AuthenticatedContext() (context.Context, error) {
 	principal := auth.LocalSessionPrincipal{UserID: captured.userID, SessionID: captured.sessionID}
 	check, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
+	stop := context.AfterFunc(parent, cancel)
+	defer stop()
+	if err := parent.Err(); err != nil {
+		return nil, err
+	}
 	start := time.Now()
 	validated, expiry, err := sessions.RevalidateLocalSessionExpiry(check, principal)
 	if err != nil {

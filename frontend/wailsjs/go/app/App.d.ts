@@ -8,6 +8,7 @@ import {database} from '../models';
 import {jsontext} from '../models';
 import {hotkey} from '../models';
 import {credentials} from '../models';
+import {apidto} from '../models';
 import {ports} from '../models';
 
 export function AckGlobalCommandOwnership(arg1:string,arg2:number):Promise<boolean>;
@@ -121,6 +122,8 @@ export function PrepareChatEditorCommand(arg1:string,arg2:string,arg3:string,arg
 export function PrepareChatMessageCommand(arg1:string,arg2:string):Promise<void>;
 
 export function PrepareChatMessageEditCommand(arg1:string,arg2:string,arg3:string,arg4:string):Promise<void>;
+
+export function PrepareChatTimelineCopyCommand(arg1:string,arg2:string,arg3:apidto.TimelineRecoveryItemRequest):Promise<void>;
 
 export function PrepareManualCommandLayer(arg1:string):Promise<app.CommandSettingsMutation>;
 

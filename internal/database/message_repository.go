@@ -1479,9 +1479,13 @@ func (r *MessageRepository) timelineItemCTEWithPredicates(parentID *string, mess
 }
 
 func (r *MessageRepository) timelineItemCTEForScope(parentPredicate, turnParentPredicate, messageSource, turnPredicate string) string {
+	return r.timelineItemCTEWithSources(parentPredicate, turnParentPredicate, messageSource, "chat_turns t JOIN chat_messages q ON q.id=t.user_message_id", turnPredicate)
+}
+
+func (r *MessageRepository) timelineItemCTEWithSources(parentPredicate, turnParentPredicate, messageSource, turnSource, turnPredicate string) string {
 	extra := ""
 	if r.includeTimelineTurns {
-		extra = ` UNION ALL SELECT NULL,'turn',t.user_message_id,CAST(q.created_at AS TEXT),q.id,1,0,q.parent_id FROM chat_turns t JOIN chat_messages q ON q.id=t.user_message_id WHERE t.conversation_id=? AND q.conversation_id=t.conversation_id AND q.role='user' AND ` + turnParentPredicate + turnPredicate
+		extra = ` UNION ALL SELECT NULL,'turn',t.user_message_id,CAST(q.created_at AS TEXT),q.id,1,0,q.parent_id FROM ` + turnSource + ` WHERE t.conversation_id=? AND q.conversation_id=t.conversation_id AND q.role='user' AND ` + turnParentPredicate + turnPredicate
 	}
 	return fmt.Sprintf(`
 WITH scoped AS (

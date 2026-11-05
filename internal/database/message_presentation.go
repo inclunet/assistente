@@ -33,7 +33,11 @@ func countCanonicalChildren(ctx context.Context, tx *gorm.DB, conversationID str
 		return nil, err
 	}
 	repo := NewMessageRepository(tx).WithTimelineTurns()
-	query := repo.timelineItemCTEForScope("m.parent_id IN ?", "q.parent_id IN ?", "chat_messages m", "") + `
+	// CROSS JOIN fixes the loop order: select child questions by parent first,
+	// then probe the turn primary key. No conversation-wide turn scan is needed,
+	// even before SQLite has collected planner statistics.
+	query := repo.timelineItemCTEWithSources("m.parent_id IN ?", "q.parent_id IN ?", "chat_messages m",
+		"chat_messages q CROSS JOIN chat_turns t ON t.user_message_id=q.id", "") + `
  SELECT parent_id, COUNT(*) AS count FROM timeline_items WHERE parent_id IN (
  SELECT p.id FROM chat_messages p JOIN conversations c ON c.id=p.conversation_id WHERE c.user_id=? AND p.conversation_id=? AND p.id IN ?) GROUP BY parent_id`
 	var rows []struct {

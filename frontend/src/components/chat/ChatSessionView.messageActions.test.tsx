@@ -1,3 +1,5 @@
+import { setFixtureCanonicalItem } from './canonicalPresentationFixture';
+import type { TimelineItem } from '../../types/chatTimelineEvents';
 vi.mock('./useChatTimelinePresentation', async () => import('./canonicalPresentationFixture'));
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -27,11 +29,12 @@ function navigationListener(event: Event) {
 
 const id = '01926b90-7a5a-7c4e-8d3f-000000000001';
 const send = vi.hoisted(() => vi.fn());
+const prepareTimelineCopy = vi.hoisted(() => vi.fn(async () => {}));
 const prepareMessage = vi.hoisted(() => vi.fn(async () => {}));
 const commitMessage = vi.hoisted(() => vi.fn(async () => {}));
 const editorTransport = vi.hoisted(() => ({ prepare: vi.fn(), open: vi.fn(), validate: vi.fn() }));
 vi.mock('../../lib/commandChatEditorWails', () => ({ prepareChatEditorCommand: editorTransport.prepare, openChatEditorCommand: editorTransport.open, validateChatEditorCommand: editorTransport.validate }));
-vi.mock('../../lib/commandChatMessageWails', () => ({ prepareChatMessageCommand: prepareMessage, commitChatMessageCommand: commitMessage }));
+vi.mock('../../lib/commandChatMessageWails', () => ({ prepareChatTimelineCopyCommand: prepareTimelineCopy, prepareChatMessageCommand: prepareMessage, commitChatMessageCommand: commitMessage }));
 const retry = vi.hoisted(() => vi.fn());
 const t = vi.hoisted(() => (key: string) => key);
 const announceMessage = vi.hoisted(() => vi.fn());
@@ -80,7 +83,8 @@ beforeEach(() => {
   useAuthStore.setState({ isAuthenticated: true, user: { userId: 'owner', sessionId: 'session', role: 'admin' } });
   useWorkspaceChatModalStore.setState({ isOpen: false, boundConversationId: null, boundTabId: null });
   useWorkspaceStore.setState({ workspace: { id: 'workspace', activeTabId: 'tab', tabs: [{ id: 'tab', type: 'chat', conversationId: id }] } as NonNullable<ReturnType<typeof useWorkspaceStore.getState>['workspace']> });
-  prepareMessage.mockClear(); commitMessage.mockClear();
+  prepareMessage.mockClear(); prepareTimelineCopy.mockClear(); commitMessage.mockClear();
+  setFixtureCanonicalItem(firstID);
   vi.spyOn(HTMLElement.prototype, 'scrollIntoView').mockImplementation(() => {});
   Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: vi.fn(async () => {}) } });
   const conversation = { id, title: 'chat', threadedMessages: [firstID, secondID].map((messageID, index) => new chat.MessageNode({
@@ -398,12 +402,33 @@ describe('ChatSessionView message actions — superfície/lista/registry reais',
       await act(async () => { finish(false); });
     } finally { vi.useRealTimers(); }
   });
+  it.each(['chat.message.copy', 'chat.message.copy_markdown'] as const)('copia resposta volátil pelo ticket canônico: %s', async command => {
+    setFixtureCanonicalItem(firstID, { itemId: firstID, representativeMessageId: null, revision: '7', state: 'failed', durability: 'volatile',
+      recoveryReference: { projectionId: 'projection', incarnation: 'incarnation', turnId: 'turn', executionId: 'execution' }, metadata: {}, segments: [] } as unknown as TimelineItem);
+    mount();
+    const target = capture(command);
+    expect(target).toBeDefined();
+    await act(async () => { expect(await executeChatMessaging(port(), target!)).toBe('succeeded'); });
+    expect(prepareTimelineCopy).toHaveBeenCalledWith('ticket', expect.objectContaining({ windowId: 'copy-window', identity: expect.objectContaining({ revision: '7', itemId: firstID }) }));
+    expect(prepareMessage).not.toHaveBeenCalled();
+    expect(navigator.clipboard.writeText).toHaveBeenCalledOnce();
+    expect(capture('chat.message.pin.toggle')).toBeUndefined();
+    expect(capture('chat.message.delete')).toBeUndefined();
+  });
   it('sem voz configurada oferece configuração e cancelamento não navega', async () => {
     vi.mocked(ttsService.hasVoiceConfig).mockReturnValue(false);
     mount(); act(() => node().focus()); fireEvent.keyDown(node(), { key: ' ' });
     await act(async () => {});
     expect(configure).toHaveBeenCalledOnce(); expect(deepLink).not.toHaveBeenCalled();
     expect(captureChatMessagingTarget(() => '/', 'chat.message.speak')).toBeUndefined();
+    expect(begin).not.toHaveBeenCalled();
+  });
+  it('botão de voz sem configuração captura a fonte canônica apesar do payload copiado', async () => {
+    vi.mocked(ttsService.hasVoiceConfig).mockReturnValue(false); configure.mockResolvedValue(true);
+    mount(); act(() => node().focus());
+    await userEvent.click(screen.getAllByRole('button', { name: 'chat.playAudio' })[0]);
+    await waitFor(() => expect(configure).toHaveBeenCalledOnce());
+    await waitFor(() => expect(deepLink).toHaveBeenCalledOnce());
     expect(begin).not.toHaveBeenCalled();
   });
   it('configurar voz abre perfil capturado sem enviar mensagem', async () => {

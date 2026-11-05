@@ -585,6 +585,9 @@ function ChatSessionViewContent({
         return;
       }
       if (voiceSetupPromptPendingRef.current) return;
+      // Menu payloads may be copies; bind the prompt to the canonical source.
+      const capturedMessage = presentation?.getMessage(message.id);
+      if (!capturedMessage) return;
 
       const capturedOwner = useAuthStore.getState().user;
       const capturedWorkspace = useWorkspaceStore.getState().workspace;
@@ -599,7 +602,7 @@ function ChatSessionViewContent({
           auth?.sessionId === capturedOwner?.sessionId && ws?.id === capturedWorkspace?.id &&
           ws?.activeTabId === capturedOrigin.tabId && ws?.tabs.find(tab => tab.id === capturedOrigin.tabId)?.conversationId === conversationId &&
           messagingLive.current.pathname === capturedPath && messagingLive.current.conversationId === conversationId &&
-          presentation?.getMessage(message.id) === message &&
+          presentation?.getMessage(message.id) === capturedMessage &&
           (!modalId || modal.isOpen && modal.boundTabId === capturedOrigin.tabId && modal.boundConversationId === conversationId);
         if (!valid) invalid = true;
         return Boolean(valid);

@@ -130,3 +130,17 @@ it.each(['preparing', 'completed'])('renders an empty conclusion received as a J
  expect(f.presentation.getMessage('answer')?.content).toBe('');
  await f.presentation.close();
 });
+
+it('exposes the exact published copy capability without reserving recovery bytes', async () => {
+  const f = fixture();
+  const value = { ...item('turn:question'), kind: 'response', turnId: 'question', state: 'failed', durability: 'volatile', representativeMessageId: null,
+    recoveryReference: { projectionId: 'projection', incarnation: 'incarnation', turnId: 'question', executionId: 'execution' } };
+  f.setItems([value]);
+  await f.presentation.open();
+  expect(f.presentation.getCopyTarget(value.itemId)).toEqual({ windowId: 'surface', identity: { itemId: value.itemId, epoch: 'epoch', revision: value.revision, reference: value.recoveryReference } });
+  expect(f.transport.reserveItem).not.toHaveBeenCalled();
+  expect(f.presentation.getCopyTarget('outside')).toBeUndefined();
+  const closing = f.presentation.close();
+  expect(f.presentation.getCopyTarget(value.itemId)).toBeUndefined();
+  await closing;
+});

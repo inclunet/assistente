@@ -35,12 +35,15 @@ func (s *timelineTestSession) CaptureTimelineEmitter(ctx context.Context) (conte
 }
 
 func (s *timelineTestSession) AuthenticatedContext() (context.Context, error) {
+	return s.AuthenticatedTimelineContext(context.Background())
+}
+func (s *timelineTestSession) AuthenticatedTimelineContext(parent context.Context) (context.Context, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.user == "" {
 		return nil, database.ErrUserScopeRequired
 	}
-	return database.WithUserID(context.Background(), s.user), nil
+	return database.WithUserID(parent, s.user), parent.Err()
 }
 func (s *timelineTestSession) AdminContext() (context.Context, error) {
 	return s.AuthenticatedContext()

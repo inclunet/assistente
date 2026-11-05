@@ -145,3 +145,37 @@ func (s *TimelineSubscription) ReleaseRecoveryItem(ctx context.Context, request 
 	}
 	return nil
 }
+
+// ValidatePublishedCopy authorizes only the exact terminal item still owned by
+// this window. It neither reserves bytes nor falls back to a newer execution.
+func (s *TimelineSubscription) ValidatePublishedCopy(ctx context.Context, request apidto.TimelineRecoveryItemRequest, reader TimelineLifecycleReader) error {
+	if !validRecoveryItemRequest(request) {
+		return ErrRecoveryCursorInvalid
+	}
+	target, release, err := s.lockRecoveryTarget(ctx, request.Reference, reader)
+	if err != nil {
+		return err
+	}
+	defer release()
+	c := s.conversation
+	w := c.windows[s.windowID]
+	if target.turn == nil || !target.turn.finished {
+		return ErrRecoveryMutable
+	}
+	if c.publicationStage != nil || c.publicationErrorLocked() != nil || w.syncRequired {
+		return ErrProjectionRecoveryRequired
+	}
+	item, ok := c.publication.items[request.ItemID]
+	if !ok || !w.itemIDs[request.ItemID] || item.RecoveryReference == nil || *item.RecoveryReference != request.Reference ||
+		item.ConversationID != s.key.conversationID || item.TurnID == nil || *item.TurnID != request.Reference.TurnID || item.RepresentativeMessageID != nil {
+		return ErrRecoveryUnavailable
+	}
+	if request.Epoch != c.epoch || request.Epoch != c.publication.epoch || item.Revision != request.Revision {
+		return ErrRecoveryCursorStale
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	_, err = s.authorize(ctx)
+	return err
+}

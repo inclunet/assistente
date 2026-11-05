@@ -1,3 +1,4 @@
+import { recoveryItemIdentity, type RecoveryItemIdentity } from './timelineRecoveryItem';
 import { chat } from '../../wailsjs/go/models';
 import type { Message, MessageNode, TurnSegment } from '../lib/chatMessageTree';
 import type { TimelineItem } from '../types/chatTimelineEvents';
@@ -6,6 +7,7 @@ import { ChatTimelineClient, type TimelinePosition } from './chatTimelineClient'
 export interface ChatMessageSource {
   getMessage(id: string): Message | undefined;
   subscribe(changed: () => void): () => void;
+  getCopyTarget?(id: string): { windowId: string; identity: RecoveryItemIdentity } | undefined;
 }
 
 const endPosition: TimelinePosition = { cursor: '', anchor: 'end', anchorItemId: '', direction: 'before', limit: 80 };
@@ -36,6 +38,17 @@ export class ChatTimelinePresentation implements ChatMessageSource {
   get loading() { return this.busy > 0; }
   get error() { return this.failure ?? this.client.getError(this.conversationId); }
   get window() { return this.client.getWindow(this.conversationId, this.surfaceId); }
+
+  getCopyTarget(id: string): { windowId: string; identity: RecoveryItemIdentity } | undefined {
+    if (this.closing) return;
+    for (const surface of this.sources.keys()) {
+      const window = this.client.getWindow(this.conversationId, surface);
+      const item = this.client.getItem(this.conversationId, surface, id);
+      if (!window || !item || item.representativeMessageId || !window.orderedItemIds.includes(id)) continue;
+      const identity = recoveryItemIdentity(window.epoch, item);
+      if (identity) return { windowId: window.windowId, identity };
+    }
+  }
 
   private notify() { this.revision++; this.listeners.forEach(changed => changed()); }
   private run(action: () => Promise<void>): Promise<void> {

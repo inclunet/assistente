@@ -407,3 +407,26 @@ func TestTimelineSnapshotDoesNotHideLedgerReadFailure(t *testing.T) {
 		t.Fatalf("falha virou janela sem ferramentas: %+v %v", result, err)
 	}
 }
+
+func TestTimelineChildCountsRespectLegacyAndCanonicalWindows(t *testing.T) {
+	f := newSnapshotFixture(t)
+	child, err := database.CreateMessageWithContext(f.ctx, database.MessageOptions{ConversationID: f.conversation, ParentID: &f.answer, Role: "user", Content: "filha admitida"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	turn := database.ChatTurn{UserMessageID: child.ID, ConversationID: f.conversation, State: database.TurnCompleted, Origin: "new"}
+	if err := f.db.Create(&turn).Error; err != nil {
+		t.Fatal(err)
+	}
+	legacy := f.window(t)
+	if got := responseNode(t, legacy.Window.Nodes, f.question).ChildCount; got != 1 {
+		t.Fatalf("legacy count=%d, want persisted child only", got)
+	}
+	canonical, err := f.reader.ReadCanonicalWindow(f.ctx, database.MessageWindowQuery{ConversationID: f.conversation, Anchor: "end", Direction: "before", Limit: 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := responseNode(t, canonical.Window.Nodes, f.question).ChildCount; got != 2 {
+		t.Fatalf("canonical count=%d, want question and admitted response", got)
+	}
+}

@@ -93,6 +93,33 @@ suíte existente. TypeScript, ESLint, build/vet e lint Go incremental aprovados.
 `review_aep` revisou as correções e confirmou o gate sem pendências, incluindo
 compatibilidade de startup anterior à v44 e paginação concorrente com streaming.
 
+Revisão adicional: copiar texto/Markdown de resposta terminal sem representante
+persistido usa o mesmo ticket de comando, com capability da janela e identidade
+exata da publicação (época, revisão, execução). Backend revalida no handoff;
+cancelamento do comando interrompe a consulta. Não há reserva de recuperação,
+texto fornecido como prova pelo cliente nem liberação de ações destrutivas.
+Contagens legadas continuam refletindo filhos persistidos; contagens canônicas
+incluem respostas admitidas e consultam turnos por identidade, a partir dos pais
+selecionados, independentemente de ANALYZE. A configuração de voz captura a fonte
+canônica mesmo quando o botão entrega uma cópia para renderização.
+
+Validação adicional: 7.017 testes frontend passaram em 523 arquivos (18 pulados
+na seleção sem ACP); 23 testes de timeline Wails e 17 testes de comandos App
+passaram. A seleção ampla de 482 testes seguros de chat encontrou três
+comparações de metadados; corrigido o produtor, as três provas e mais duas de
+contagem/Refresh passaram sem alterar suas expectativas. A cópia também cobre
+descarte entre Prepare e handoff e cancelamento durante autenticação/consulta.
+Build/vet, TypeScript, ESLint e lint Go incremental passaram; bindings regenerados.
+`review_aep` fez três rodadas adicionais e uma rechecagem dos ajustes de
+compatibilidade, aprovando o gate sem pendências antes do push consolidado.
+
+Permanece uma limitação anterior ao cutover: threads ligadas a uma fonte
+intermediária não representante de resposta consolidada não têm acesso próprio
+na UI. A conclusão desta parte exige metadados backend com alvos reais por fonte
+e acesso distinguível a cada escopo; não somar contagens ao representante nem
+reatribuir filhos. O teste de identidade agora também atravessa CommitContent,
+terminal, coleta live e Refresh real da inscrição.
+
 AEP permanece **In Progress**. O controlador operacional de envio e anúncios
 continua contendo reducers visuais antigos, que deixaram de ser fonte da lista e
 das ações. Sua retirada, os gates restantes de continuidade/retry/ferramentas e

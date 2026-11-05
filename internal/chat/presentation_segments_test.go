@@ -169,3 +169,66 @@ func TestCanonicalThinkingTracksPhaseNotAccumulatedReasoning(t *testing.T) {
 		t.Fatal("interrupção manteve fase ativa")
 	}
 }
+
+func TestPresentationSegmentsSurviveRealSubscriptionRefreshAfterCommit(t *testing.T) {
+	f, p, e, _ := automaticFixture(t)
+	sub, initial, err := p.SubscribeTimeline(f.ctx, &fixtureTimelineSession{ctx: f.ctx, id: "identity-refresh"}, "identity-refresh", database.MessageWindowQuery{ConversationID: f.conversation, Anchor: "end", Direction: "before", Limit: 20}, f.reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sub.Close()
+	repo := database.NewChatTurnRepository(f.db)
+	id, err := e.AssignResponse(func() (string, error) { return repo.EnsureResponse(f.ctx, f.conversation, f.question, e.executionID) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	stream := e.StartStream(0)
+	stream.Append("[link](https://example.com)")
+	stream.Cut()
+	stream.Reasoning("pensamento", false)
+	stream.Append(" continuação")
+	before, _ := publicationItem(t, e)
+	deadline := time.Now().Add(3 * time.Second)
+	for len(before.Segments) != 3 {
+		if time.Now().After(deadline) {
+			t.Fatal("stream not published")
+		}
+		time.Sleep(time.Millisecond)
+		before, _ = publicationItem(t, e)
+	}
+	text := "[link](https://example.com) continuação"
+	if err := e.CommitContent(0, text, "pensamento", func() (string, error) {
+		return id, repo.WritePartial(f.ctx, e.executionID, id, text, "pensamento", false)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.CommitResponse(database.TurnCompleted, "completed", text, "pensamento", func() (database.ChatTimelineVersion, error) {
+		return repo.FinishResponseWithVersion(f.ctx, f.conversation, f.question, e.executionID, database.TurnCompleted, "completed", id, nil)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	c := e.conversation
+	p.mu.Lock()
+	c.mu.Lock()
+	c.turns[e.turnID].finishedAt = time.Now().Add(-2 * projectionRetention)
+	p.pruneLocked(e.key, c, time.Now())
+	remaining := len(c.turns)
+	c.mu.Unlock()
+	p.mu.Unlock()
+	if remaining != 0 {
+		t.Fatal("live not collected")
+	}
+	refreshed, err := sub.Refresh(f.ctx, initial.WindowRevision, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range refreshed.Items {
+		if item.ItemID == before.ItemID {
+			if !reflect.DeepEqual(item.Segments, before.Segments) {
+				t.Fatalf("refresh changed identity or cuts: before=%+v after=%+v", before.Segments, item.Segments)
+			}
+			return
+		}
+	}
+	t.Fatal("response absent after Refresh")
+}
