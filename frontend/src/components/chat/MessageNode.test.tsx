@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
-import { act, createEvent, fireEvent, render as renderUI, screen, cleanup } from '@testing-library/react';
+import { act, createEvent, fireEvent, render as renderUI, screen, cleanup, waitFor } from '@testing-library/react';
 import { MessageNode } from './MessageNode';
 import { MessageList } from './MessageList';
 import React, { type ReactElement, type ReactNode } from 'react';
@@ -80,7 +80,7 @@ beforeEach(() => {
 afterEach(() => { cleanup(); window.removeEventListener(CHAT_NAVIGATION_COMMAND_EVENT, dispatchNavigation); vi.restoreAllMocks(); });
 
 describe('MessageNode', () => {
-  it('navega por mensagens reais e preserva leitura ao alternar o modo da lista', () => {
+  it('navega por mensagens reais e preserva leitura ao alternar o modo da lista', async () => {
     vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockImplementation(function (this: HTMLElement) {
       return this.classList.contains('message-list') ? 700 : this.hasAttribute('data-index') ? 140 : 0;
     });
@@ -113,6 +113,8 @@ describe('MessageNode', () => {
     view.rerender(content(40));
     expect(row(1)).toBe(original);
     expect(original).toHaveClass('message-node--reading');
+    await waitFor(() => expect(row(39).closest('[inert]')).not.toBeNull());
+    expect(original.closest('[inert]')).toBeNull();
     fireEvent.keyDown(original, { key: 'Escape' });
     fireEvent.keyDown(original, { key: 'ArrowDown' });
     expect(row(2)).toHaveFocus();

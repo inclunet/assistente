@@ -18,6 +18,7 @@ import { useOptionalWorkspacePanel } from '../workspace/WorkspacePanelContext';
 import { useModalId } from '../ui/Modal';
 import { captureChatNavigationTarget, registerChatNavigationSurface, requestChatNavigationCommand, type ChatNavigationCommandID, type ChatNavigationTarget } from '../../lib/commandChatNavigation';
 import './MessageNode.css';
+import { useMessageInteraction, useReadingInteraction, type RetainMessageInteraction } from './MessageInteractionContext';
 
 export interface MessageNodeProps {
   node: MessageNodeType;
@@ -37,7 +38,7 @@ export interface MessageNodeProps {
   onFocusSiblingIndex?: (index: number) => void;
   onJumpToStart?: () => void | Promise<void>;
   onJumpToEnd?: () => void | Promise<void>;
-  onContextMenu?: (e: React.MouseEvent, message: Message) => void;
+  onContextMenu?: (e: React.MouseEvent, message: Message, retain?: RetainMessageInteraction) => void;
   onSpeak?: (message: Message) => void;
   onCopy?: (message: Message, markdown: boolean) => void;
   onEdit?: (message: Message) => void;
@@ -106,6 +107,8 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
 
   // Virtual modal: transforma a mensagem em "dialog" para leitores de tela
+  const retainInteraction = useMessageInteraction();
+  useReadingInteraction(isReading);
   useVirtualModal({
     elementRef: nodeRef,
     isActive: isReading,
@@ -309,7 +312,7 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
         if (id === 'chat.message.menu.open' && live.onContextMenu) {
           const rect = root.getBoundingClientRect();
           live.onContextMenu({ preventDefault() {}, stopPropagation() {}, clientX: rect.left + rect.width / 2,
-            clientY: rect.top + rect.height / 2, currentTarget: root, target: root } as unknown as React.MouseEvent, live.node.message);
+            clientY: rect.top + rect.height / 2, currentTarget: root, target: root } as unknown as React.MouseEvent, live.node.message, retainInteraction);
           return true;
         }
         return false;

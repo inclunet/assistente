@@ -1,4 +1,5 @@
 import { logger } from '../utils/logger';
+import type { RetainMessageInteraction } from '../components/chat/MessageInteractionContext';
 import { useState, useCallback, useEffect, useLayoutEffect, useRef } from 'react';
 import { Message, useChatStore } from '../store/chatStore';
 import { MenuItem } from '../components/menu';
@@ -15,7 +16,7 @@ export interface UseContextMenuResult {
   menuVisible: boolean;
   menuPosition: { x: number; y: number };
   menuItems: MenuItem[];
-  showMenu: (event: React.MouseEvent, message: Message, isUser: boolean) => void;
+  showMenu: (event: React.MouseEvent, message: Message, isUser: boolean, retain?: RetainMessageInteraction) => void;
   hideMenu: () => void;
 }
 
@@ -26,6 +27,12 @@ export function useContextMenu(options: MenuItemsOptions): UseContextMenuResult 
   // Guarda referência ao elemento que abriu o menu para restaurar foco
   const triggerElementRef = useRef<HTMLElement | null>(null);
   const triggerConversationIdRef = useRef<string | null>(null);
+  const releaseInteractionRef = useRef<(() => void) | null>(null);
+  const restoreTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (restoreTimerRef.current !== null) clearTimeout(restoreTimerRef.current);
+    releaseInteractionRef.current?.();
+  }, []);
   const latestOptionsRef = useRef(options);
 
   // Mantém as ações abertas pelo menu atuais sem recriar os callbacks a cada
@@ -35,8 +42,12 @@ export function useContextMenu(options: MenuItemsOptions): UseContextMenuResult 
     latestOptionsRef.current = options;
   }, [options]);
 
-  const showMenu = useCallback((event: React.MouseEvent, message: Message, isUser: boolean) => {
+  const showMenu = useCallback((event: React.MouseEvent, message: Message, isUser: boolean, retain?: RetainMessageInteraction) => {
     event.preventDefault();
+    if (restoreTimerRef.current !== null) clearTimeout(restoreTimerRef.current);
+    const releasePrevious = releaseInteractionRef.current;
+    releaseInteractionRef.current = retain?.() ?? null;
+    releasePrevious?.();
 
     // Guarda o elemento que abriu o menu (ou o target do evento)
     triggerElementRef.current = (event.currentTarget as HTMLElement) || (event.target as HTMLElement);
@@ -66,7 +77,9 @@ export function useContextMenu(options: MenuItemsOptions): UseContextMenuResult 
     setMenuVisible(false);
     
     // Restaura foco ao elemento que abriu o menu (exceto se edição foi iniciada)
-    setTimeout(() => {
+    if (restoreTimerRef.current !== null) clearTimeout(restoreTimerRef.current);
+    restoreTimerRef.current = setTimeout(() => {
+      restoreTimerRef.current = null;
       // Verifica se deve pular a restauração de foco (ex: edição iniciada)
       const conversationId = triggerConversationIdRef.current;
       const sessionKey = options.sessionKey;
@@ -76,6 +89,8 @@ export function useContextMenu(options: MenuItemsOptions): UseContextMenuResult 
       if (shouldSkip) {
         triggerElementRef.current = null;
         triggerConversationIdRef.current = null;
+        releaseInteractionRef.current?.();
+        releaseInteractionRef.current = null;
         return;
       }
       
@@ -88,6 +103,8 @@ export function useContextMenu(options: MenuItemsOptions): UseContextMenuResult 
         triggerElementRef.current = null;
       }
       triggerConversationIdRef.current = null;
+      releaseInteractionRef.current?.();
+      releaseInteractionRef.current = null;
     }, 10);
   }, [options.sessionKey]);
 

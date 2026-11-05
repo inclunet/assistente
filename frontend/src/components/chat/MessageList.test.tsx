@@ -633,6 +633,25 @@ describe('MessageList (virtualização)', () => {
     expect(onJumpToEnd).toHaveBeenCalledTimes(1);
   });
 
+  it('Ctrl+End materializa e foca o último item mesmo com outra mensagem retida', async () => {
+    const { container } = render(<MessageList threadedMessages={createNodes(120)} onJumpToEnd={async () => {}} />);
+    const scrollContainer = container.querySelector('.message-list') as HTMLElement;
+    Object.defineProperty(scrollContainer, 'scrollHeight', { configurable: true, value: ITEM_HEIGHT * 120 });
+    Object.defineProperty(scrollContainer, 'clientHeight', { configurable: true, value: VIEWPORT_HEIGHT });
+    const scroll = vi.fn((options?: ScrollToOptions | number, y?: number) => {
+      scrollContainer.scrollTop = typeof options === 'object' ? options.top ?? 0 : y ?? 0;
+      fireEvent.scroll(scrollContainer);
+    });
+    scrollContainer.scrollTo = scroll;
+    const first = container.querySelector('[data-sibling-index="0"]') as HTMLElement;
+    act(() => first.focus());
+    expect(renderedIndexes(container)).not.toContain(119);
+    await act(async () => { fireEvent.keyDown(first, { key: 'End', ctrlKey: true }); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+    expect(document.activeElement).toHaveAttribute('data-sibling-index', '119');
+    expect(scroll).toHaveBeenCalled();
+  });
+
   it('faz auto-scroll para o fim ao receber nova mensagem', () => {
     const scrollSpy = vi.spyOn(window.HTMLElement.prototype, 'scrollIntoView');
     const initial = createNodes(2);

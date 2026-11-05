@@ -17,11 +17,6 @@
   width: 100%;
 }
 
-/* A mesma linha permanece montada ao ativar/desativar a virtualização. */
-.message-list__item {
-  contain: layout style;
-}
-
 .message-list__load-older {
   display: flex;
   justify-content: center;

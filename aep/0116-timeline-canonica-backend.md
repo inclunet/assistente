@@ -11,11 +11,15 @@ Cruzar o limite de 40 itens altera posicionamento e faixa materializada, sem
 trocar o wrapper do item. O range inclui a identidade focada, inclusive quando
 o foco está em um editor, controle de ferramenta ou mensagem filha. Prepend
 recalcula seu índice pela identidade; não mantém uma posição antiga como dono.
-Há no máximo uma linha adicional retida por foco em cada superfície, sem copiar
-conteúdo nem acrescentar itens ausentes da janela recebida.
+Retém apenas as linhas com foco ou interações abertas (leitura, menu e diálogos
+de ferramentas), sem copiar conteúdo nem acrescentar itens ausentes da janela
+recebida. Cada interação adquire sua retenção explicitamente antes da abertura
+e libera após restaurar o foco; sair do item não invalida o portal que ele abriu.
+Fechamento, substituição e desmontagem liberam as respectivas retenções.
 
 A atualização automática deixa de rolar para o fim enquanto houver foco em uma
-mensagem. Saída intencional libera a retenção. Foi removido o mecanismo que
+mensagem ou interação pertencente a ela. Saída intencional libera a retenção
+por foco. Foi removido o mecanismo que
 interpretava focusout sem destino como desmontagem e restaurava pelo índice:
 não há mais restauração por adivinhação nem frame tardio desse mecanismo capaz
 de focar outra mensagem. A navegação explícita por teclado permanece disponível.
@@ -27,6 +31,16 @@ de foco. O teste antigo de focusout fabricado foi substituído por uma prova de
 produto com elemento realmente focado e prepend. As provas de desempenho de
 100/500/1.000 itens continuam exigindo materialização limitada e ausência de
 renders adicionais em nós estáveis.
+
+MessageList.interactions.test.tsx usa menu e diálogo de ferramenta reais para
+provar abertura, atualização fora da faixa, retorno ao controle original e
+liberação ao sair. MessageNode.test.tsx verifica inert dos novos irmãos na
+transição 41→40 durante leitura. O isolamento acompanha materializações e
+restaura apenas atributos adquiridos por sua instância. As linhas usam top,
+sem transform ou contain:layout, preservando o backdrop fixo na viewport.
+O salto explícito ao início/fim materializa e foca o índice de destino após
+carregar a janela; não depende do último nó já montado nem da rolagem automática.
+MessageList.test.tsx prova Ctrl+End com 120 itens e foco retido fora do destino.
 
 Limites: a superfície ainda recebe o modelo legado e sua chave existente.
 A prova it.fails de identidade de turno recebida tardiamente permanece: este

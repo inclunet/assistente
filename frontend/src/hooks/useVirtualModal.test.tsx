@@ -32,6 +32,20 @@ function VirtualModalHarness({ isActive, onClose = () => {} }: HarnessProps) {
   );
 }
 
+it('isola irmãos materializados durante a leitura e preserva inert anterior ao fechar', async () => {
+  const content = (active: boolean, extra: boolean) => <div>
+    <button ref={element => element?.setAttribute('inert', '')} data-testid="previous-inert">Anterior</button>
+    <VirtualModalHarness isActive={active} />
+    {extra && <button data-testid="new-sibling">Novo</button>}
+  </div>;
+  const view = render(content(true, false));
+  view.rerender(content(true, true));
+  await waitFor(() => expect(screen.getByTestId('new-sibling')).toHaveAttribute('inert'));
+  view.rerender(content(false, true));
+  expect(screen.getByTestId('new-sibling')).not.toHaveAttribute('inert');
+  expect(screen.getByTestId('previous-inert')).toHaveAttribute('inert');
+});
+
 // Estrutura de um turno agêntico: a cadeia inteira (vários segmentos de texto +
 // blocos de tool calls) vive dentro de `.chat-message__content`.
 function AgenticHarness({ isActive, onClose = () => {} }: HarnessProps) {

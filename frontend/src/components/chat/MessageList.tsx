@@ -10,6 +10,7 @@ import { getTimelineNodeKey, isPersistedTimelineNode, type MessageWindowState } 
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import type { VoiceAccessibilityOrigin } from '../../services/voiceAccessibility/types';
 import './MessageList.css';
+import { MessageInteractionProvider, type RetainMessageInteraction } from './MessageInteractionContext';
 
 /**
  * Como a janela de mensagens foi carregada. `scroll` é automático (a lista
@@ -38,7 +39,7 @@ export interface MessageListProps {
   onJumpToStart?: () => Promise<void> | void;
   onJumpToEnd?: () => Promise<void> | void;
   // Callbacks de ações
-  onContextMenu?: (event: React.MouseEvent, message: Message) => void;
+  onContextMenu?: (event: React.MouseEvent, message: Message, retain?: RetainMessageInteraction) => void;
   onSpeak?: (message: Message) => void;
   onCopy?: (message: Message, markdown: boolean) => void;
   onEdit?: (message: Message) => void;
@@ -186,11 +187,25 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
   const [scrollMargin, setScrollMargin] = useState(0);
   const [focusedKey, setFocusedKey] = useState<string | null>(null);
   const focusedKeyRef = useRef<string | null>(null);
+  const interactions = useRef(new Map<symbol, string>());
+  const [interactionKeys, setInteractionKeys] = useState<string[]>([]);
+  const retainInteraction = useCallback((key: string) => {
+    const token = Symbol();
+    interactions.current.set(token, key);
+    setInteractionKeys([...new Set(interactions.current.values())]);
+    return () => {
+      if (!interactions.current.delete(token)) return;
+      setInteractionKeys([...new Set(interactions.current.values())]);
+    };
+  }, []);
   const focusedIndex = focusedKey === null ? -1 : displayMessages.findIndex(node => getTimelineNodeKey(node) === focusedKey);
+  const retainedIndexes = useMemo(() => displayMessages.flatMap((node, index) =>
+    index === focusedIndex || interactionKeys.includes(getTimelineNodeKey(node)) ? [index] : []
+  ), [displayMessages, focusedIndex, interactionKeys]);
   const rangeExtractor = useCallback((range: Range) => {
     const visible = defaultRangeExtractor(range);
-    return focusedIndex < 0 || visible.includes(focusedIndex) ? visible : [...visible, focusedIndex].sort((a, b) => a - b);
-  }, [focusedIndex]);
+    return [...new Set([...visible, ...retainedIndexes])].sort((a, b) => a - b);
+  }, [retainedIndexes]);
 
   const rowVirtualizer = useVirtualizer({
     count: displayMessages.length,
@@ -232,6 +247,21 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
       });
     }
   }, [focusSiblingByIndex]);
+
+  const boundaryNavigation = useRef({ count: displayMessages.length, focus: focusMessageAtIndex });
+  useLayoutEffect(() => {
+    boundaryNavigation.current = { count: displayMessages.length, focus: focusMessageAtIndex };
+  }, [displayMessages.length, focusMessageAtIndex]);
+  const jumpToBoundary = useCallback(async (edge: 'start' | 'end') => {
+    await (edge === 'start' ? onJumpToStart?.() : onJumpToEnd?.());
+    requestAnimationFrame(() => {
+      if (!listRef.current?.isConnected) return;
+      const navigation = boundaryNavigation.current;
+      navigation.focus(edge === 'start' ? 0 : navigation.count - 1);
+    });
+  }, [onJumpToStart, onJumpToEnd]);
+  const jumpToStart = useCallback(() => jumpToBoundary('start'), [jumpToBoundary]);
+  const jumpToEnd = useCallback(() => jumpToBoundary('end'), [jumpToBoundary]);
 
   // Mede o deslocamento da lista dentro do container rolável (botão "carregar
   // anteriores" ocupa espaço acima da lista virtualizada).
@@ -289,7 +319,7 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
 
   const scrollToBottom = (behavior: ScrollBehavior = 'smooth') => {
     // Atualização de conteúdo não deve afastar a mensagem em interação/leitura.
-    if (focusedKeyRef.current !== null) return;
+    if (focusedKeyRef.current !== null || interactions.current.size > 0) return;
     suppressNextScrollLoadRef.current = true;
     if (shouldVirtualize && displayMessages.length > 0) {
       // Garante que o último item esteja montado/medido antes do ajuste final.
@@ -404,8 +434,8 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
       onLoadChildren={onLoadChildren}
       onReachStart={effectiveReachStart}
       onReachEnd={handleReachEnd}
-      onJumpToStart={onJumpToStart}
-      onJumpToEnd={onJumpToEnd}
+      onJumpToStart={onJumpToStart ? jumpToStart : undefined}
+      onJumpToEnd={onJumpToEnd ? jumpToEnd : undefined}
       onContextMenu={onContextMenu}
       onSpeak={onSpeak}
       onCopy={onCopy}
@@ -422,12 +452,12 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
   const handleListKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     if (e.ctrlKey && e.key === 'Home' && onJumpToStart) {
       e.preventDefault();
-      void Promise.resolve(onJumpToStart());
+      void jumpToBoundary('start');
       return;
     }
     if (e.ctrlKey && e.key === 'End' && onJumpToEnd) {
       e.preventDefault();
-      void Promise.resolve(onJumpToEnd());
+      void jumpToBoundary('end');
       return;
     }
     if (e.key === 'ArrowDown') {
@@ -468,7 +498,7 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
   const virtualRows = shouldVirtualize ? rowVirtualizer.getVirtualItems() : [];
   const virtualByIndex = new Map(virtualRows.map(row => [row.index, row]));
   const renderedIndexes = shouldVirtualize
-    ? [...new Set([...virtualByIndex.keys(), ...(focusedIndex >= 0 ? [focusedIndex] : [])])].sort((a, b) => a - b)
+    ? [...new Set([...virtualByIndex.keys(), ...retainedIndexes])].sort((a, b) => a - b)
     : displayMessages.map((_, index) => index);
 
   return (
@@ -517,13 +547,14 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
                 className="message-list__item"
                 style={virtualItem ? {
                   position: 'absolute',
-                  top: 0,
+                  top: `${virtualItem.start - rowVirtualizer.options.scrollMargin}px`,
                   left: 0,
                   width: '100%',
-                  transform: `translateY(${virtualItem.start - rowVirtualizer.options.scrollMargin}px)`,
                 } : undefined}
               >
-                {renderMessageNode(node, index)}
+                <MessageInteractionProvider itemKey={getTimelineNodeKey(node)} retain={retainInteraction}>
+                  {renderMessageNode(node, index)}
+                </MessageInteractionProvider>
               </div>
             );
           })}

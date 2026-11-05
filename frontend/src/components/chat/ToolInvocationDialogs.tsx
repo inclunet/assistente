@@ -25,6 +25,7 @@ import { Button } from '../ui/Button';
 import { isModalOpen, Modal } from '../ui/Modal';
 import { restoreDefaultFocus } from '../../hooks/useDefaultFocus';
 import './ToolCallsSection.css';
+import { useMessageInteraction } from './MessageInteractionContext';
 
 export type ToolInvocationDialogCall = ToolInvocationSummary | ToolCallStatus;
 export type InvocationForDetails = {
@@ -116,6 +117,13 @@ export function ToolInvocationDialogsProvider({
   children: React.ReactNode;
 }) {
   const { t } = useTranslation();
+  const retainInteraction = useMessageInteraction();
+  const detailRetention = useRef<(() => void) | null>(null);
+  const searchRetention = useRef<(() => void) | null>(null);
+  useEffect(() => () => {
+    detailRetention.current?.();
+    searchRetention.current?.();
+  }, []);
   const userId = useAuthStore((state) => state.user?.userId ?? '');
   const [selected, setSelected] = useState<InvocationForDetails | null>(null);
   const [detail, setDetail] = useState<toolinvocations.Detail | null>(null);
@@ -137,12 +145,16 @@ export function ToolInvocationDialogsProvider({
   const searchOwnerRef = useRef<string | null>(null);
   useEffect(() => {
     if (detailOwnerRef.current && detailOwnerRef.current !== userId) {
+      detailRetention.current?.();
+      detailRetention.current = null;
       detailRequestRef.current += 1;
       setSelected(null);
       setDetail(null);
       setLoadError(false);
     }
     if (searchOwnerRef.current && searchOwnerRef.current !== userId) {
+      searchRetention.current?.();
+      searchRetention.current = null;
       searchRequestRef.current += 1;
       setSearchSelected(null);
       setSearchPresentation(null);
@@ -209,6 +221,8 @@ export function ToolInvocationDialogsProvider({
   }, [selected, selectedCurrent?.status, t]);
   const openDetails = useCallback(
     (invocation: InvocationForDetails, origin?: HTMLElement) => {
+      detailRetention.current?.();
+      detailRetention.current = retainInteraction();
       detailRequestRef.current += 1;
       detailOwnerRef.current = userId;
       detailOriginRef.current = origin ?? null;
@@ -217,10 +231,12 @@ export function ToolInvocationDialogsProvider({
       setLoadError(false);
       setLoading(false);
     },
-    [userId]
+    [userId, retainInteraction]
   );
   const openSearchResults = useCallback(
     async (invocation: InvocationForDetails, origin?: HTMLElement) => {
+      searchRetention.current?.();
+      searchRetention.current = retainInteraction();
       const requestId = ++searchRequestRef.current;
       const requestUserId = userId;
       searchOwnerRef.current = requestUserId;
@@ -251,16 +267,20 @@ export function ToolInvocationDialogsProvider({
           setSearchLoading(false);
       }
     },
-    [t, userId]
+    [t, userId, retainInteraction]
   );
   const closeDetails = () => {
     detailRequestRef.current += 1;
     setSelected(null);
     const origin = detailOriginRef.current;
+    const release = detailRetention.current;
+    detailRetention.current = null;
     requestAnimationFrame(() => {
-      if (isModalOpen()) return;
-      if (origin?.isConnected) origin.focus();
-      else restoreDefaultFocus();
+      if (!isModalOpen()) {
+        if (origin?.isConnected) origin.focus();
+        else restoreDefaultFocus();
+      }
+      release?.();
     });
     detailOriginRef.current = null;
   };
@@ -268,10 +288,14 @@ export function ToolInvocationDialogsProvider({
     searchRequestRef.current += 1;
     setSearchSelected(null);
     const origin = searchOriginRef.current;
+    const release = searchRetention.current;
+    searchRetention.current = null;
     requestAnimationFrame(() => {
-      if (isModalOpen()) return;
-      if (origin?.isConnected) origin.focus();
-      else restoreDefaultFocus();
+      if (!isModalOpen()) {
+        if (origin?.isConnected) origin.focus();
+        else restoreDefaultFocus();
+      }
+      release?.();
     });
     searchOriginRef.current = null;
   };
