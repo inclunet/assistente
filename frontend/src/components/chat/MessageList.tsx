@@ -11,6 +11,7 @@ import { useAnnouncer } from '../../hooks/useAnnouncer';
 import type { VoiceAccessibilityOrigin } from '../../services/voiceAccessibility/types';
 import './MessageList.css';
 import { MessageInteractionProvider, type RetainMessageInteraction } from './MessageInteractionContext';
+import { MessageListViewportAnchor } from './MessageListViewportAnchor';
 
 /**
  * Como a janela de mensagens foi carregada. `scroll` é automático (a lista
@@ -502,6 +503,7 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
     : displayMessages.map((_, index) => index);
 
   return (
+    <MessageListViewportAnchor containerRef={innerContainerRef} itemKey={focusedKey ?? interactionKeys[0] ?? null}>
     <div
       className="message-list"
       ref={setContainerRef}
@@ -536,7 +538,7 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
         >
           {renderedIndexes.map(index => {
             const node = displayMessages[index];
-            const virtualItem = virtualByIndex.get(index);
+            const virtualItem = virtualByIndex.get(index) ?? (shouldVirtualize ? rowVirtualizer.measurementsCache[index] : undefined);
             return (
               <div
                 key={getTimelineNodeKey(node)}
@@ -576,6 +578,7 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
         <div ref={messagesEndRef} />
       </div>
     </div>
+    </MessageListViewportAnchor>
   );
 }));
 

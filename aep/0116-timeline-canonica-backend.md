@@ -11,7 +11,7 @@ Cruzar o limite de 40 itens altera posicionamento e faixa materializada, sem
 trocar o wrapper do item. O range inclui a identidade focada, inclusive quando
 o foco está em um editor, controle de ferramenta ou mensagem filha. Prepend
 recalcula seu índice pela identidade; não mantém uma posição antiga como dono.
-Retém apenas as linhas com foco ou interações abertas (leitura, menu e diálogos
+Retém apenas as linhas com foco ou interações abertas (edição, leitura, menu e diálogos
 de ferramentas), sem copiar conteúdo nem acrescentar itens ausentes da janela
 recebida. Cada interação adquire sua retenção explicitamente antes da abertura
 e libera após restaurar o foco; sair do item não invalida o portal que ele abriu.
@@ -44,6 +44,10 @@ MessageList.test.tsx prova Ctrl+End com 120 itens e foco retido fora do destino.
 ChatSessionView.test.tsx usa a lista real para provar carregamento, anúncio e
 foco nos dois limites. O observer de leitura restaura e descarta referências
 de irmãos desconectados a cada mutação, sem acumular subárvores virtualizadas.
+A edição adquire retenção no commit antes do autofocus, cobrindo o timer do
+menu que termina antes do frame do editor. Um snapshot DOM anterior à mutação
+preserva o deslocamento na viewport da mesma identidade durante medição e
+troca de modo. As regressões cobrem timer→frame e alturas alternadas em 40→41→40.
 
 Limites: a superfície ainda recebe o modelo legado e sua chave existente.
 A prova it.fails de identidade de turno recebida tardiamente permanece: este

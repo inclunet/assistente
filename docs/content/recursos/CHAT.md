@@ -30,6 +30,8 @@ Menus e detalhes de ferramentas mantêm sua mensagem disponível enquanto estão
 abertos, mesmo quando novas respostas ou o carregamento do histórico mudam sua
 posição. Ao fechar, o foco retorna ao controle que abriu a interação. Durante a
 leitura, novas mensagens não ficam disponíveis para interação fora dela.
+A mensagem em interação mantém sua posição na tela ao alternar o modo da lista.
+Abrir a edição pelo menu preserva o rascunho enquanto o editor recebe o foco.
 
 Enquanto uma mensagem ou um controle dentro dela está focado, novas atualizações
 não rolam a lista para o fim. A mensagem continua montada mesmo quando a conversa

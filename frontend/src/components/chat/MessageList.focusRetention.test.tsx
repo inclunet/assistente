@@ -36,6 +36,30 @@ beforeEach(() => {
 afterEach(() => { cleanup(); restoreDimensions(); });
 
 describe('identidade e retenção visual da lista', () => {
+  it('preserva posição na viewport com alturas variadas em 40→41→40', () => {
+    const originalRect = HTMLElement.prototype.getBoundingClientRect;
+    const rect = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function(this: HTMLElement) {
+      if (!this.hasAttribute('data-timeline-key')) return originalRect.call(this);
+      const container = this.closest('.message-list') as HTMLElement;
+      const index = Number(this.dataset.index);
+      const naturalTop = Array.from({ length: index }, (_, i) => i % 2 ? 220 : 80).reduce((a, b) => a + b, 0);
+      const top = (this.style.position === 'absolute' ? Number.parseFloat(this.style.top) : naturalTop) - container.scrollTop;
+      return { top, bottom: top + 140, height: 140, left: 0, right: 500, width: 500, x: 0, y: top, toJSON() {} };
+    });
+    try {
+      const initial = nodes(40);
+      const view = render(<MessageList threadedMessages={initial} />);
+      const row = view.getByTestId('item-39').parentElement!;
+      const container = view.container.querySelector('.message-list') as HTMLElement;
+      container.scrollTop = row.getBoundingClientRect().top - 120;
+      act(() => view.getByTestId('item-39').focus());
+      expect(row.getBoundingClientRect().top).toBe(120);
+      view.rerender(<MessageList threadedMessages={[...initial, ...nodes(1, 'extra')]} />);
+      expect(row.getBoundingClientRect().top).toBe(120);
+      view.rerender(<MessageList threadedMessages={initial} />);
+      expect(row.getBoundingClientRect().top).toBe(120);
+    } finally { rect.mockRestore(); }
+  });
   it.each(['row', 'editor', 'thread-control'])('preserva o mesmo DOM ao cruzar 40→41→40, foco=%s', target => {
     const initial = nodes(40);
     const view = render(<MessageList threadedMessages={initial} />);

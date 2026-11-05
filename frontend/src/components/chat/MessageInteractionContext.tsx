@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useRef, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, type ReactNode } from 'react';
 
 export type RetainMessageInteraction = () => () => void;
 const noop = () => {};
@@ -27,8 +27,8 @@ export function MessageInteractionProvider({ itemKey, retain, children }: {
   return <Context.Provider value={acquire}>{children}</Context.Provider>;
 }
 
-/** Leitura permanece proprietária mesmo quando um diálogo filho recebe foco. */
-export function useReadingInteraction(active: boolean) {
+/** Aquisição no commit cobre a transferência do menu antes do autofocus tardio. */
+export function useActiveMessageInteraction(active: boolean) {
   const retain = useMessageInteraction();
-  useEffect(() => active ? retain() : undefined, [active, retain]);
+  useLayoutEffect(() => active ? retain() : undefined, [active, retain]);
 }

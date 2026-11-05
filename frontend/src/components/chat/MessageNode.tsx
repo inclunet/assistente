@@ -18,7 +18,7 @@ import { useOptionalWorkspacePanel } from '../workspace/WorkspacePanelContext';
 import { useModalId } from '../ui/Modal';
 import { captureChatNavigationTarget, registerChatNavigationSurface, requestChatNavigationCommand, type ChatNavigationCommandID, type ChatNavigationTarget } from '../../lib/commandChatNavigation';
 import './MessageNode.css';
-import { useMessageInteraction, useReadingInteraction, type RetainMessageInteraction } from './MessageInteractionContext';
+import { useMessageInteraction, useActiveMessageInteraction, type RetainMessageInteraction } from './MessageInteractionContext';
 
 export interface MessageNodeProps {
   node: MessageNodeType;
@@ -108,7 +108,7 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
 
   // Virtual modal: transforma a mensagem em "dialog" para leitores de tela
   const retainInteraction = useMessageInteraction();
-  useReadingInteraction(isReading);
+  useActiveMessageInteraction(isReading || isEditing || editingMessageId === messageId);
   useVirtualModal({
     elementRef: nodeRef,
     isActive: isReading,
