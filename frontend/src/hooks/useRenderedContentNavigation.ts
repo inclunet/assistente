@@ -295,6 +295,13 @@ function isolateReading(activeElement: HTMLElement): () => void {
   const owned = new Set<HTMLElement>();
   const branches = new Map<Node, HTMLElement>();
   const observer = new MutationObserver(records => {
+    for (const element of owned) {
+      if (!element.isConnected) {
+        element.removeAttribute('inert');
+        element.removeAttribute(INERT_ATTR);
+        owned.delete(element);
+      }
+    }
     for (const record of records) {
       const branch = branches.get(record.target);
       if (branch) applyInert(branch, owned);

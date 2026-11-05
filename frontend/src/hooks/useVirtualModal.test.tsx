@@ -41,6 +41,12 @@ it('isola irmãos materializados durante a leitura e preserva inert anterior ao 
   const view = render(content(true, false));
   view.rerender(content(true, true));
   await waitFor(() => expect(screen.getByTestId('new-sibling')).toHaveAttribute('inert'));
+  const removed = screen.getByTestId('new-sibling');
+  view.rerender(content(true, false));
+  await waitFor(() => expect(removed).not.toHaveAttribute('inert'));
+  expect(removed).not.toHaveAttribute('data-rendered-content-inert');
+  view.rerender(content(true, true));
+  await waitFor(() => expect(screen.getByTestId('new-sibling')).toHaveAttribute('inert'));
   view.rerender(content(false, true));
   expect(screen.getByTestId('new-sibling')).not.toHaveAttribute('inert');
   expect(screen.getByTestId('previous-inert')).toHaveAttribute('inert');

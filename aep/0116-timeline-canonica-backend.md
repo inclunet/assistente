@@ -41,6 +41,9 @@ sem transform ou contain:layout, preservando o backdrop fixo na viewport.
 O salto explícito ao início/fim materializa e foca o índice de destino após
 carregar a janela; não depende do último nó já montado nem da rolagem automática.
 MessageList.test.tsx prova Ctrl+End com 120 itens e foco retido fora do destino.
+ChatSessionView.test.tsx usa a lista real para provar carregamento, anúncio e
+foco nos dois limites. O observer de leitura restaura e descarta referências
+de irmãos desconectados a cada mutação, sem acumular subárvores virtualizadas.
 
 Limites: a superfície ainda recebe o modelo legado e sua chave existente.
 A prova it.fails de identidade de turno recebida tardiamente permanece: este
