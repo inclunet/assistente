@@ -108,6 +108,8 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
   // próprio, então `.current` é confiável mesmo quando o ref externo é um callback.
   const innerContainerRef = useRef<HTMLDivElement | null>(null);
   const pendingScrollRestoreRef = useRef<{ scrollHeight: number; scrollTop: number } | null>(null);
+  const scrollAnchorRestoredRef = useRef(false);
+  const reportScrollAnchorRestore = useCallback((restored: boolean) => { scrollAnchorRestoredRef.current = restored; }, []);
   const suppressNextScrollLoadRef = useRef(false);
   const suppressScrollLoadTimerRef = useRef<number | null>(null);
 
@@ -382,9 +384,13 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
     const pendingRestore = pendingScrollRestoreRef.current;
     const container = innerContainerRef.current;
     if (pendingRestore && container) {
-      const heightDelta = container.scrollHeight - pendingRestore.scrollHeight;
-      container.scrollTop = pendingRestore.scrollTop + heightDelta;
       pendingScrollRestoreRef.current = null;
+      // Só a compensação efetiva deste commit substitui a restauração por
+      // alturas; uma chave retida sem snapshot válido não é suficiente.
+      if (!scrollAnchorRestoredRef.current) {
+        const heightDelta = container.scrollHeight - pendingRestore.scrollHeight;
+        container.scrollTop = pendingRestore.scrollTop + heightDelta;
+      }
       return;
     }
 
@@ -503,7 +509,7 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
     : displayMessages.map((_, index) => index);
 
   return (
-    <MessageListViewportAnchor containerRef={innerContainerRef} itemKey={focusedKey ?? interactionKeys[0] ?? null}>
+    <MessageListViewportAnchor containerRef={innerContainerRef} itemKey={focusedKey ?? interactionKeys[0] ?? null} onRestore={reportScrollAnchorRestore}>
     <div
       className="message-list"
       ref={setContainerRef}

@@ -48,6 +48,10 @@ A edição adquire retenção no commit antes do autofocus, cobrindo o timer do
 menu que termina antes do frame do editor. Um snapshot DOM anterior à mutação
 preserva o deslocamento na viewport da mesma identidade durante medição e
 troca de modo. As regressões cobrem timer→frame e alturas alternadas em 40→41→40.
+Na paginação, a restauração pela diferença de alturas só atua quando a âncora
+não compensou aquele commit; retenção sem snapshot válido não basta para
+suprimi-la. A prova de prepend dispara o carregamento por scroll com o item
+visível e alturas totais diferentes, inclusive trocando o foco no mesmo commit.
 
 Limites: a superfície ainda recebe o modelo legado e sua chave existente.
 A prova it.fails de identidade de turno recebida tardiamente permanece: este

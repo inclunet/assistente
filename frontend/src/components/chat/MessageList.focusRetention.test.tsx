@@ -36,7 +36,8 @@ beforeEach(() => {
 afterEach(() => { cleanup(); restoreDimensions(); });
 
 describe('identidade e retenção visual da lista', () => {
-  it('preserva posição na viewport com alturas variadas em 40→41→40', () => {
+  it.each(['append', 'prepend', 'prepend-new-focus'])('preserva posição com alturas variadas em 40→41→40 (%s)', direction => {
+    vi.useFakeTimers();
     const originalRect = HTMLElement.prototype.getBoundingClientRect;
     const rect = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function(this: HTMLElement) {
       if (!this.hasAttribute('data-timeline-key')) return originalRect.call(this);
@@ -48,17 +49,35 @@ describe('identidade e retenção visual da lista', () => {
     });
     try {
       const initial = nodes(40);
-      const view = render(<MessageList threadedMessages={initial} />);
-      const row = view.getByTestId('item-39').parentElement!;
+      const loadOlder = vi.fn(() => new Promise<void>(() => {}));
+      const content = (items: chat.MessageNode[]) => <MessageList threadedMessages={items} hasOlderMessages onLoadOlder={loadOlder} />;
+      const view = render(content(initial));
+      const prepending = direction.startsWith('prepend');
+      const target = prepending ? 'item-1' : 'item-39';
+      let row = view.getByTestId(target).parentElement!;
       const container = view.container.querySelector('.message-list') as HTMLElement;
-      container.scrollTop = row.getBoundingClientRect().top - 120;
-      act(() => view.getByTestId('item-39').focus());
-      expect(row.getBoundingClientRect().top).toBe(120);
-      view.rerender(<MessageList threadedMessages={[...initial, ...nodes(1, 'extra')]} />);
-      expect(row.getBoundingClientRect().top).toBe(120);
-      view.rerender(<MessageList threadedMessages={initial} />);
-      expect(row.getBoundingClientRect().top).toBe(120);
-    } finally { rect.mockRestore(); }
+      Object.defineProperty(container, 'scrollHeight', { configurable: true, get: () =>
+        Number.parseFloat(view.getByRole('list').style.height) || 6000 });
+      let offset = prepending ? 75 : 120;
+      container.scrollTop = row.getBoundingClientRect().top - offset;
+      act(() => view.getByTestId(target).focus());
+      act(() => vi.advanceTimersByTime(600));
+      if (prepending) {
+        fireEvent.scroll(container);
+        expect(loadOlder).toHaveBeenCalledOnce();
+      }
+      expect(row.getBoundingClientRect().top).toBe(offset);
+      const next = content(prepending ? [...nodes(1, 'extra'), ...initial] : [...initial, ...nodes(1, 'extra')]);
+      if (direction === 'prepend-new-focus') {
+        const nextFocus = view.getByTestId('item-2');
+        row = nextFocus.parentElement!;
+        offset = row.getBoundingClientRect().top;
+        act(() => { nextFocus.focus(); view.rerender(next); });
+      } else view.rerender(next);
+      expect(row.getBoundingClientRect().top).toBe(offset);
+      view.rerender(content(initial));
+      expect(row.getBoundingClientRect().top).toBe(offset);
+    } finally { rect.mockRestore(); vi.useRealTimers(); }
   });
   it.each(['row', 'editor', 'thread-control'])('preserva o mesmo DOM ao cruzar 40→41→40, foco=%s', target => {
     const initial = nodes(40);
