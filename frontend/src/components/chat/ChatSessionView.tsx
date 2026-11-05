@@ -1103,7 +1103,6 @@ function ChatSessionViewContent({
     kind: 'start' | 'end' | 'older' | 'newer',
     trigger: MessageWindowLoadTrigger,
     load: () => Promise<void>,
-    afterLoad?: () => void,
   ) => {
     const windowState = session?.messageWindow;
     const pending = {
@@ -1120,7 +1119,6 @@ function ChatSessionViewContent({
     pendingWindowAnnouncementRef.current = pending;
     try {
       await load();
-      afterLoad?.();
     } finally {
       // O prazo curto só começa quando o carregamento termina: backend lento não
       // pode custar o aviso de uma paginação que de fato aconteceu. Um
@@ -1133,22 +1131,8 @@ function ChatSessionViewContent({
     }
   }, [session?.messageWindow]);
 
-  const handleJumpToStart = useCallback(() => runWindowLoad('start', 'navigation', loadStartMessages, () => {
-    requestAnimationFrame(() => {
-      const container = messagesContainerRef.current;
-      const firstMessage = container?.querySelector('[data-message-node]') as HTMLElement | null;
-      firstMessage?.focus();
-    });
-  }), [loadStartMessages, runWindowLoad]);
-
-  const handleJumpToEnd = useCallback(() => runWindowLoad('end', 'navigation', loadEndMessages, () => {
-    requestAnimationFrame(() => {
-      const container = messagesContainerRef.current;
-      const rootMessages = container?.querySelectorAll<HTMLElement>('[data-message-node][data-level="0"]');
-      const lastMessage = rootMessages?.[rootMessages.length - 1] ?? null;
-      lastMessage?.focus();
-    });
-  }), [loadEndMessages, runWindowLoad]);
+  const handleJumpToStart = useCallback(() => runWindowLoad('start', 'navigation', loadStartMessages), [loadStartMessages, runWindowLoad]);
+  const handleJumpToEnd = useCallback(() => runWindowLoad('end', 'navigation', loadEndMessages), [loadEndMessages, runWindowLoad]);
 
   const handleLoadOlderMessages = useCallback(
     (trigger: MessageWindowLoadTrigger) => runWindowLoad('older', trigger, loadOlderMessages),
@@ -1161,7 +1145,7 @@ function ChatSessionViewContent({
   );
 
   const handleMessageContextMenu = useCallback(
-    (event: React.MouseEvent, message: Message) => {
+    (event: React.MouseEvent, message: Message, retain?: import('./MessageInteractionContext').RetainMessageInteraction) => {
       const capturedMessage = { ...message, convertValues: message.convertValues };
       const root = rootRef.current;
       const instance = root && getChatMessageNavigationInstanceId(root, message.id);
@@ -1173,7 +1157,7 @@ function ChatSessionViewContent({
         menuNavigationTargets.current.set(capturedMessage, { read, reasoning });
         menuNavigationLeases.current = [read, reasoning].filter((target): target is ChatNavigationTarget => !!target);
       }
-      showMenu(event, capturedMessage, message.role === 'user');
+      showMenu(event, capturedMessage, message.role === 'user', retain);
     },
     [disposeMenuNavigation, showMenu],
   );

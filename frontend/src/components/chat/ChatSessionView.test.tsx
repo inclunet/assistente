@@ -42,6 +42,7 @@ const modalState = vi.hoisted(() => ({ open: false }));
 const contextMenuState = vi.hoisted(() => ({ visible: true, realHook: false }));
 const runtimeEventHandlers = vi.hoisted(() => new Map<string, (data: unknown) => void>());
 const messageListRenderMock = vi.hoisted(() => vi.fn());
+const messageListMode = vi.hoisted(() => ({ real: false }));
 const translateMock = vi.hoisted(() => (key: string, options?: { start?: number; end?: number; total?: number }) => (
   options?.total !== undefined ? `${key}:${options.start}-${options.end}-${options.total}` : key
 ));
@@ -215,8 +216,16 @@ vi.mock('./ChatToolbar', () => ({
   ),
 }));
 
-vi.mock('./MessageList', async () => {
+// A integração de navegação usa a lista real; somente o conteúdo das linhas é
+// isolado, sem reproduzir a implementação de foco do componente.
+vi.mock('./MessageNode', () => ({ MessageNode: ({ node, siblingIndex }: {
+  node: chat.MessageNode; siblingIndex: number;
+}) => <div tabIndex={-1} data-message-node data-level="0" data-sibling-index={siblingIndex}
+  data-message-id={node.message.id}>{node.message.content}</div> }));
+
+vi.mock('./MessageList', async (importOriginal) => {
   const React = await import('react');
+  const actual = await importOriginal<typeof import('./MessageList')>();
   return {
     MessageList: React.forwardRef<HTMLDivElement, {
       onContextMenu?: (event: MouseEvent, message: { id: string; role: string }) => void;
@@ -247,6 +256,9 @@ vi.mock('./MessageList', async () => {
     ref: React.Ref<HTMLDivElement>,
   ) => {
     messageListRenderMock({ onContextMenu, onReachEnd, onDelete, threadedMessages, isLoading, origin });
+    if (messageListMode.real) return <actual.MessageList ref={ref}
+      threadedMessages={threadedMessages as chat.MessageNode[]}
+      onJumpToStart={onJumpToStart} onJumpToEnd={onJumpToEnd} />;
     return (
     <div ref={ref} data-testid="message-list">
       <div
@@ -406,6 +418,7 @@ function renderWithPanel(ui: React.ReactElement) {
 
 describe('ChatSessionView', () => {
   beforeEach(() => {
+    messageListMode.real = false;
     vi.spyOn(document, 'hasFocus').mockReturnValue(true);
     useAuthStore.setState({ isAuthenticated: true, user: { userId: 'owner', sessionId: 'session', role: 'admin' } });
     useWorkspaceStore.setState({ workspace: { id: 'workspace', name: 'Workspace', activeTabId: panelTab.id, tabs: [panelTab] } });
@@ -1289,6 +1302,7 @@ describe('ChatSessionView', () => {
   });
 
   it('navegação por Ctrl+Home/Ctrl+End carrega boundaries, anuncia janela e restaura foco', async () => {
+    messageListMode.real = true;
     const sessionKey = 'boundary-session';
     let surfaceSession = {
       ...createEmptyChatSurfaceSession(conversationId, sessionKey),

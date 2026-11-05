@@ -1,6 +1,6 @@
 import { logger } from '../../utils/logger';
 import React, { useEffect, useLayoutEffect, useRef, useMemo, useState, useCallback, forwardRef } from 'react';
-import { useVirtualizer } from '@tanstack/react-virtual';
+import { defaultRangeExtractor, useVirtualizer, type Range } from '@tanstack/react-virtual';
 import { useTranslation } from 'react-i18next';
 import { MessageOutlined } from '@ant-design/icons';
 import { MessageNode as MessageNodeComponent } from './MessageNode';
@@ -10,6 +10,8 @@ import { getTimelineNodeKey, isPersistedTimelineNode, type MessageWindowState } 
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import type { VoiceAccessibilityOrigin } from '../../services/voiceAccessibility/types';
 import './MessageList.css';
+import { MessageInteractionProvider, type RetainMessageInteraction } from './MessageInteractionContext';
+import { MessageListViewportAnchor } from './MessageListViewportAnchor';
 
 /**
  * Como a janela de mensagens foi carregada. `scroll` é automático (a lista
@@ -38,7 +40,7 @@ export interface MessageListProps {
   onJumpToStart?: () => Promise<void> | void;
   onJumpToEnd?: () => Promise<void> | void;
   // Callbacks de ações
-  onContextMenu?: (event: React.MouseEvent, message: Message) => void;
+  onContextMenu?: (event: React.MouseEvent, message: Message, retain?: RetainMessageInteraction) => void;
   onSpeak?: (message: Message) => void;
   onCopy?: (message: Message, markdown: boolean) => void;
   onEdit?: (message: Message) => void;
@@ -106,6 +108,8 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
   // próprio, então `.current` é confiável mesmo quando o ref externo é um callback.
   const innerContainerRef = useRef<HTMLDivElement | null>(null);
   const pendingScrollRestoreRef = useRef<{ scrollHeight: number; scrollTop: number } | null>(null);
+  const scrollAnchorRestoredRef = useRef(false);
+  const reportScrollAnchorRestore = useCallback((restored: boolean) => { scrollAnchorRestoredRef.current = restored; }, []);
   const suppressNextScrollLoadRef = useRef(false);
   const suppressScrollLoadTimerRef = useRef<number | null>(null);
 
@@ -184,6 +188,27 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
   const listRef = useRef<HTMLDivElement>(null);
   const shouldVirtualize = displayMessages.length > VIRTUALIZATION_THRESHOLD;
   const [scrollMargin, setScrollMargin] = useState(0);
+  const [focusedKey, setFocusedKey] = useState<string | null>(null);
+  const focusedKeyRef = useRef<string | null>(null);
+  const interactions = useRef(new Map<symbol, string>());
+  const [interactionKeys, setInteractionKeys] = useState<string[]>([]);
+  const retainInteraction = useCallback((key: string) => {
+    const token = Symbol();
+    interactions.current.set(token, key);
+    setInteractionKeys([...new Set(interactions.current.values())]);
+    return () => {
+      if (!interactions.current.delete(token)) return;
+      setInteractionKeys([...new Set(interactions.current.values())]);
+    };
+  }, []);
+  const focusedIndex = focusedKey === null ? -1 : displayMessages.findIndex(node => getTimelineNodeKey(node) === focusedKey);
+  const retainedIndexes = useMemo(() => displayMessages.flatMap((node, index) =>
+    index === focusedIndex || interactionKeys.includes(getTimelineNodeKey(node)) ? [index] : []
+  ), [displayMessages, focusedIndex, interactionKeys]);
+  const rangeExtractor = useCallback((range: Range) => {
+    const visible = defaultRangeExtractor(range);
+    return [...new Set([...visible, ...retainedIndexes])].sort((a, b) => a - b);
+  }, [retainedIndexes]);
 
   const rowVirtualizer = useVirtualizer({
     count: displayMessages.length,
@@ -192,17 +217,10 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
     estimateSize: () => ESTIMATED_MESSAGE_HEIGHT,
     overscan: VIRTUAL_OVERSCAN,
     scrollMargin,
+    rangeExtractor,
     // Chave estável por nó preserva a medição ao paginar histórico (prepend/append).
     getItemKey: (index) => getTimelineNodeKey(displayMessages[index]),
   });
-
-  // Índice do irmão de nível 0 atualmente focado dentro desta lista. Mantido em
-  // sincronia por listeners de foco nativos para que possamos restaurar o foco
-  // caso o nó seja desmontado por um re-render do streaming (Issue #178).
-  const focusedSiblingIndexRef = useRef<number | null>(null);
-  // Sinaliza que o foco caiu no <body> a partir de um nó da lista (provável
-  // desmontagem durante streaming) e deve ser restaurado no próximo commit.
-  const pendingFocusRestoreRef = useRef(false);
 
   // Move o foco para um irmão de nível 0 pelo índice. Quando virtualizado, rola
   // o índice até a viewport antes (nem todos os irmãos estão montados no DOM).
@@ -232,6 +250,21 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
       });
     }
   }, [focusSiblingByIndex]);
+
+  const boundaryNavigation = useRef({ count: displayMessages.length, focus: focusMessageAtIndex });
+  useLayoutEffect(() => {
+    boundaryNavigation.current = { count: displayMessages.length, focus: focusMessageAtIndex };
+  }, [displayMessages.length, focusMessageAtIndex]);
+  const jumpToBoundary = useCallback(async (edge: 'start' | 'end') => {
+    await (edge === 'start' ? onJumpToStart?.() : onJumpToEnd?.());
+    requestAnimationFrame(() => {
+      if (!listRef.current?.isConnected) return;
+      const navigation = boundaryNavigation.current;
+      navigation.focus(edge === 'start' ? 0 : navigation.count - 1);
+    });
+  }, [onJumpToStart, onJumpToEnd]);
+  const jumpToStart = useCallback(() => jumpToBoundary('start'), [jumpToBoundary]);
+  const jumpToEnd = useCallback(() => jumpToBoundary('end'), [jumpToBoundary]);
 
   // Mede o deslocamento da lista dentro do container rolável (botão "carregar
   // anteriores" ocupa espaço acima da lista virtualizada).
@@ -265,72 +298,31 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
     logger.warn('[MessageList] duplicate timeline keys detected in display messages', Array.from(duplicates));
   }, [displayMessages, threadedMessages]);
 
-  // Rastreia o foco dentro da lista por listeners nativos. Durante o streaming a
-  // mensagem em curso re-renderiza e, quando sua chave de timeline muda
-  // (`message:<id>` → `turn:<turnId>`), o React desmonta/remonta o nó focado e o
-  // foco cai no <body>. Memorizamos o índice do irmão focado e, quando o foco é
-  // perdido para o <body> (relatedTarget nulo), marcamos para restaurar após o
-  // próximo commit. Foco movido intencionalmente para fora (ex.: input via
-  // ArrowDown/Esc) zera o rastreamento e não dispara restauração. (Issue #178)
-  const hasMessages = threadedMessages.length > 0;
-  useEffect(() => {
-    const list = listRef.current;
-    if (!list) return;
+  // Retenção visual por identidade, inclusive quando o foco está em um controle
+  // ou filho da mensagem. Paginação pode mover o índice sem mudar o proprietário.
+  const handleFocusCapture = (event: React.FocusEvent<HTMLDivElement>) => {
+    const row = event.target.closest('[data-timeline-key]');
+    const key = row && event.currentTarget.contains(row) ? row.getAttribute('data-timeline-key') : null;
+    focusedKeyRef.current = key;
+    setFocusedKey(key);
+  };
+  const handleBlurCapture = (event: React.FocusEvent<HTMLDivElement>) => {
+    if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) return;
+    focusedKeyRef.current = null;
+    setFocusedKey(null);
+  };
 
-    const handleFocusIn = (event: FocusEvent) => {
-      const target = event.target as HTMLElement | null;
-      const node = target?.closest?.('[data-message-node][data-level="0"]') as HTMLElement | null;
-      if (!node || !list.contains(node)) return;
-      const rawIndex = node.getAttribute('data-sibling-index');
-      const parsed = rawIndex !== null ? Number.parseInt(rawIndex, 10) : Number.NaN;
-      if (!Number.isNaN(parsed)) {
-        focusedSiblingIndexRef.current = parsed;
-      }
-    };
-
-    const handleFocusOut = (event: FocusEvent) => {
-      const next = event.relatedTarget as HTMLElement | null;
-      if (next) {
-        // Foco moveu-se para um elemento concreto fora da lista: intencional.
-        if (!list.contains(next)) {
-          focusedSiblingIndexRef.current = null;
-        }
-        return;
-      }
-      // relatedTarget nulo: o foco caiu no <body>, provavelmente porque o nó
-      // focado foi desmontado por um re-render do streaming. Marca restauração.
-      if (focusedSiblingIndexRef.current !== null) {
-        pendingFocusRestoreRef.current = true;
-      }
-    };
-
-    list.addEventListener('focusin', handleFocusIn);
-    list.addEventListener('focusout', handleFocusOut);
-    return () => {
-      list.removeEventListener('focusin', handleFocusIn);
-      list.removeEventListener('focusout', handleFocusOut);
-    };
-  }, [hasMessages]);
-
-  // Após cada atualização das mensagens (streaming), restaura o foco no irmão
-  // que o detinha caso ele tenha sido perdido para o <body> pela remontagem.
+  // Remoção/exclusão não transfere a interação para outro item no mesmo índice.
   useLayoutEffect(() => {
-    if (!pendingFocusRestoreRef.current) return;
-    pendingFocusRestoreRef.current = false;
-    const index = focusedSiblingIndexRef.current;
-    if (index === null) return;
-    const active = document.activeElement;
-    // Só restaura quando o foco realmente caiu no <body>; nunca rouba o foco de
-    // outro elemento legítimo (input, modal, outra mensagem).
-    if (active && active !== document.body && active !== document.documentElement) return;
-    if (!focusSiblingByIndex(index)) {
-      requestAnimationFrame(() => {
-        focusSiblingByIndex(index);
-      });
+    if (focusedIndex < 0) {
+      focusedKeyRef.current = null;
+      setFocusedKey(null);
     }
-  }, [displayMessages, focusSiblingByIndex]);
+  }, [focusedIndex]);
 
   const scrollToBottom = (behavior: ScrollBehavior = 'smooth') => {
+    // Atualização de conteúdo não deve afastar a mensagem em interação/leitura.
+    if (focusedKeyRef.current !== null || interactions.current.size > 0) return;
     suppressNextScrollLoadRef.current = true;
     if (shouldVirtualize && displayMessages.length > 0) {
       // Garante que o último item esteja montado/medido antes do ajuste final.
@@ -392,9 +384,13 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
     const pendingRestore = pendingScrollRestoreRef.current;
     const container = innerContainerRef.current;
     if (pendingRestore && container) {
-      const heightDelta = container.scrollHeight - pendingRestore.scrollHeight;
-      container.scrollTop = pendingRestore.scrollTop + heightDelta;
       pendingScrollRestoreRef.current = null;
+      // Só a compensação efetiva deste commit substitui a restauração por
+      // alturas; uma chave retida sem snapshot válido não é suficiente.
+      if (!scrollAnchorRestoredRef.current) {
+        const heightDelta = container.scrollHeight - pendingRestore.scrollHeight;
+        container.scrollTop = pendingRestore.scrollTop + heightDelta;
+      }
       return;
     }
 
@@ -433,7 +429,7 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
     };
   }, [canLoadNewerFromDisplayEnd, hasNewerMessages, hasOlderMessages, isLoadingMessageWindow, onLoadNewer, onLoadOlder]);
 
-  const renderMessageNode = (node: MessageNode, index: number, virtualized: boolean) => (
+  const renderMessageNode = (node: MessageNode, index: number) => (
     <MessageNodeComponent
       key={getTimelineNodeKey(node)}
       node={node}
@@ -445,8 +441,8 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
       onLoadChildren={onLoadChildren}
       onReachStart={effectiveReachStart}
       onReachEnd={handleReachEnd}
-      onJumpToStart={onJumpToStart}
-      onJumpToEnd={onJumpToEnd}
+      onJumpToStart={onJumpToStart ? jumpToStart : undefined}
+      onJumpToEnd={onJumpToEnd ? jumpToEnd : undefined}
       onContextMenu={onContextMenu}
       onSpeak={onSpeak}
       onCopy={onCopy}
@@ -456,19 +452,19 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
       onDelete={onDelete}
       editorTargets={editorTargets}
       onSendToEditor={onSendToEditor}
-      onFocusSiblingIndex={virtualized ? focusMessageAtIndex : undefined}
+      onFocusSiblingIndex={focusMessageAtIndex}
     />
   );
 
   const handleListKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     if (e.ctrlKey && e.key === 'Home' && onJumpToStart) {
       e.preventDefault();
-      void Promise.resolve(onJumpToStart());
+      void jumpToBoundary('start');
       return;
     }
     if (e.ctrlKey && e.key === 'End' && onJumpToEnd) {
       e.preventDefault();
-      void Promise.resolve(onJumpToEnd());
+      void jumpToBoundary('end');
       return;
     }
     if (e.key === 'ArrowDown') {
@@ -506,7 +502,14 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
     );
   }
 
+  const virtualRows = shouldVirtualize ? rowVirtualizer.getVirtualItems() : [];
+  const virtualByIndex = new Map(virtualRows.map(row => [row.index, row]));
+  const renderedIndexes = shouldVirtualize
+    ? [...new Set([...virtualByIndex.keys(), ...retainedIndexes])].sort((a, b) => a - b)
+    : displayMessages.map((_, index) => index);
+
   return (
+    <MessageListViewportAnchor containerRef={innerContainerRef} itemKey={focusedKey ?? interactionKeys[0] ?? null} onRestore={reportScrollAnchorRestore}>
     <div
       className="message-list"
       ref={setContainerRef}
@@ -536,30 +539,33 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
             ? { position: 'relative', height: `${rowVirtualizer.getTotalSize()}px` }
             : undefined}
           onKeyDown={handleListKeyDown}
+          onFocusCapture={handleFocusCapture}
+          onBlurCapture={handleBlurCapture}
         >
-          {shouldVirtualize
-            ? rowVirtualizer.getVirtualItems().map((virtualItem) => {
-                const node = displayMessages[virtualItem.index];
-                return (
-                  <div
-                    key={virtualItem.key}
-                    role="presentation"
-                    data-index={virtualItem.index}
-                    ref={rowVirtualizer.measureElement}
-                    className="message-list__virtual-item"
-                    style={{
-                      position: 'absolute',
-                      top: 0,
-                      left: 0,
-                      width: '100%',
-                      transform: `translateY(${virtualItem.start - rowVirtualizer.options.scrollMargin}px)`,
-                    }}
-                  >
-                    {renderMessageNode(node, virtualItem.index, true)}
-                  </div>
-                );
-              })
-            : displayMessages.map((node, index) => renderMessageNode(node, index, false))}
+          {renderedIndexes.map(index => {
+            const node = displayMessages[index];
+            const virtualItem = virtualByIndex.get(index) ?? (shouldVirtualize ? rowVirtualizer.measurementsCache[index] : undefined);
+            return (
+              <div
+                key={getTimelineNodeKey(node)}
+                data-timeline-key={getTimelineNodeKey(node)}
+                role="presentation"
+                data-index={index}
+                ref={shouldVirtualize ? rowVirtualizer.measureElement : undefined}
+                className="message-list__item"
+                style={virtualItem ? {
+                  position: 'absolute',
+                  top: `${virtualItem.start - rowVirtualizer.options.scrollMargin}px`,
+                  left: 0,
+                  width: '100%',
+                } : undefined}
+              >
+                <MessageInteractionProvider itemKey={getTimelineNodeKey(node)} retain={retainInteraction}>
+                  {renderMessageNode(node, index)}
+                </MessageInteractionProvider>
+              </div>
+            );
+          })}
         </div>
         {isLoading && (
           <div
@@ -578,6 +584,7 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
         <div ref={messagesEndRef} />
       </div>
     </div>
+    </MessageListViewportAnchor>
   );
 }));
 

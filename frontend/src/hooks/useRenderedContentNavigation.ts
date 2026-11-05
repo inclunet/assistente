@@ -128,6 +128,7 @@ export function useRenderedContentNavigation({
       tabIndex: element.getAttribute('tabindex'),
     };
 
+    let releaseIsolation: (() => void) | undefined;
     if (activeProfile === 'modal') {
       const accessibleLabel = dialogLabelRef.current?.trim();
       if (!accessibleLabel) {
@@ -137,7 +138,7 @@ export function useRenderedContentNavigation({
       element.setAttribute('aria-modal', 'true');
       element.setAttribute('aria-label', accessibleLabel);
       element.setAttribute('tabindex', '-1');
-      applyInert(element);
+      releaseIsolation = isolateReading(element);
     }
 
     const selector = contentSelectorRef.current;
@@ -172,6 +173,7 @@ export function useRenderedContentNavigation({
     focusAndAnnounce();
 
     return () => {
+      releaseIsolation?.();
       if (previousElementAttrs.current) {
         restoreNavigationState(
           element,
@@ -271,7 +273,6 @@ function restoreNavigationState(
     restoreAttribute(element, 'aria-modal', previousElement.ariaModal);
     restoreAttribute(element, 'aria-label', previousElement.ariaLabel);
     restoreAttribute(element, 'tabindex', previousElement.tabIndex);
-    removeInert();
   }
 
   if (previousContent) {
@@ -290,30 +291,49 @@ function restoreAttribute(element: HTMLElement, attribute: string, value: string
 
 const INERT_ATTR = 'data-rendered-content-inert';
 
-function applyInert(activeElement: HTMLElement) {
-  let current: HTMLElement | null = activeElement;
-  while (current && current !== document.body) {
-    const parent: HTMLElement | null = current.parentElement;
-    if (parent) {
-      const currentElement = current;
-      Array.from(parent.children).forEach((sibling) => {
-        if (
-          sibling !== currentElement
-          && sibling instanceof HTMLElement
-          && !sibling.hasAttribute('inert')
-        ) {
-          sibling.setAttribute('inert', '');
-          sibling.setAttribute(INERT_ATTR, 'true');
-        }
-      });
+function isolateReading(activeElement: HTMLElement): () => void {
+  const owned = new Set<HTMLElement>();
+  const branches = new Map<Node, HTMLElement>();
+  const observer = new MutationObserver(records => {
+    for (const element of owned) {
+      if (!element.isConnected) {
+        element.removeAttribute('inert');
+        element.removeAttribute(INERT_ATTR);
+        owned.delete(element);
+      }
     }
-    current = parent;
+    for (const record of records) {
+      const branch = branches.get(record.target);
+      if (branch) applyInert(branch, owned);
+    }
+  });
+  let branch = activeElement;
+  while (branch.parentElement) {
+    applyInert(branch, owned);
+    // Portais novos no body têm seu próprio contrato de modal. Observar só
+    // a árvore da leitura evita tornar inerte um diálogo aberto por ela.
+    if (branch.parentElement === document.body) break;
+    branches.set(branch.parentElement, branch);
+    observer.observe(branch.parentElement, { childList: true });
+    branch = branch.parentElement;
   }
+  return () => {
+    observer.disconnect();
+    owned.forEach(element => {
+      element.removeAttribute('inert');
+      element.removeAttribute(INERT_ATTR);
+    });
+  };
 }
 
-function removeInert() {
-  document.querySelectorAll(`[${INERT_ATTR}]`).forEach((element) => {
-    element.removeAttribute('inert');
-    element.removeAttribute(INERT_ATTR);
+function applyInert(activeElement: HTMLElement, owned: Set<HTMLElement>) {
+  const parent = activeElement.parentElement;
+  if (!parent) return;
+  Array.from(parent.children).forEach((sibling) => {
+    if (sibling !== activeElement && sibling instanceof HTMLElement && !sibling.hasAttribute('inert')) {
+      sibling.setAttribute('inert', '');
+      sibling.setAttribute(INERT_ATTR, 'true');
+      owned.add(sibling);
+    }
   });
 }

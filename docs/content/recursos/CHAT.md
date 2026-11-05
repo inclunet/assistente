@@ -26,6 +26,21 @@ seus callbacks antigos deixam de alterar a projeção em memória.
 
 ## Consistência do histórico
 
+Menus e detalhes de ferramentas mantêm sua mensagem disponível enquanto estão
+abertos, mesmo quando novas respostas ou o carregamento do histórico mudam sua
+posição. Ao fechar, o foco retorna ao controle que abriu a interação. Durante a
+leitura, novas mensagens não ficam disponíveis para interação fora dela.
+A mensagem em interação mantém sua posição na tela ao alternar o modo da lista.
+Abrir a edição pelo menu preserva o rascunho enquanto o editor recebe o foco.
+
+Enquanto uma mensagem ou um controle dentro dela está focado, novas atualizações
+não rolam a lista para o fim. A mensagem continua montada mesmo quando a conversa
+cresce e passa a renderizar apenas parte do histórico visível. Isso preserva o
+foco e o rascunho de edição ao cruzar esse limite. Ao mover o foco para o
+compositor, a lista volta a poder liberar as mensagens fora da área visível.
+Excluir uma mensagem não transfere o foco automaticamente para outra que ocupe
+sua posição.
+
 Ao carregar o histórico ou concluir uma resposta, o aplicativo lê o texto e os
 resumos das ferramentas a partir do mesmo estado salvo. Isso evita combinar
 conteúdo antigo com resultados novos durante uma alteração concorrente.
