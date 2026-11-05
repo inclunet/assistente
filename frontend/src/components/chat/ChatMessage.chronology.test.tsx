@@ -9,7 +9,7 @@ import {
   createEmptyChatSurfaceSession,
   type ChatSurfaceIdentity,
 } from '../../services/chatSessionRegistry';
-import { ChatSessionProvider, useChatNodeSessionState } from './ChatSessionContext';
+import { ChatSessionProvider } from './ChatSessionContext';
 import { ChatMessage } from './ChatMessage';
 
 vi.mock('../ui/MarkdownRenderer', () => ({
@@ -30,19 +30,27 @@ const surfaceFor = (targetConversationId: string): ChatSurfaceIdentity => (
   })
 );
 
-const invocation = (callId: string, name: string) => ({
+const invocation = (callId: string, name: string, status = 'succeeded') => ({
   invocationId: `inv-${callId}`,
   callId,
   name,
-  status: 'succeeded',
+  status,
   hasDetails: false,
   resultAvailability: 'available',
 });
 
+const canonicalSegments = (segments: TurnSegment[]) => segments.map(segment => new chat.TurnSegment({
+  type: segment.type, content: segment.content,
+  toolInvocations: segment.toolInvocations ?? segment.toolCalls?.map(call => invocation(call.id, call.function.name, call.status === 'running' ? 'running' : 'succeeded')),
+}));
+
+const fixtureMessages = new Map<string, Message>();
+
 const messageFor = (
   id: string,
   overrides: Partial<ConstructorParameters<typeof chat.EnrichedMessage>[0]> = {},
-): Message => new chat.EnrichedMessage({
+): Message => {
+  const message = new chat.EnrichedMessage({
   id,
   conversationId,
   role: 'assistant',
@@ -53,6 +61,9 @@ const messageFor = (
   internal: false,
   ...overrides,
 }) as Message;
+  fixtureMessages.set(id, message);
+  return message;
+};
 
 const chronologicalSegments = (includeConclusion = true): TurnSegment[] => [
   { type: 'text', content: 'texto intermediário um' },
@@ -111,31 +122,22 @@ const seedStore = ({
       : { [targetConversationId]: { [messageId]: liveContent } },
   });
 
+  // Simula o frame já composto pelo backend, incluindo substituição explícita
+  // de uma tentativa. Nenhum buffer legado é consultado pelo renderer.
+  const message = fixtureMessages.get(messageId);
+  if (message?.isStreaming && streamingMessageId === messageId) {
+    message.turnSegments = canonicalSegments([
+      ...completedSegments,
+      ...(liveContent ? [{ type: 'text' as const, content: liveContent }] : []),
+      ...(activeToolCalls.length ? [{ type: 'tool_calls' as const, toolInvocations: activeToolCalls.map(call => invocation(call.callId!, call.name, call.status === 'running' ? 'running' : 'succeeded')) }] : []),
+    ]);
+    message.content = liveContent ?? '';
+  }
   return surface;
 };
 
 function SessionMessage({ message, isReading = false }: { message: Message; isReading?: boolean }) {
-  const {
-    streamingMessageId,
-    streamingReasoning,
-    isThinking,
-    activeToolCalls,
-    completedSegments,
-    reasoningExpanded,
-  } = useChatNodeSessionState(message.id);
-  const isCurrentStreamingMessage = message.id === streamingMessageId;
-
-  return (
-    <ChatMessage
-      message={message}
-      streamingReasoning={isCurrentStreamingMessage ? (streamingReasoning || undefined) : undefined}
-      isThinking={isCurrentStreamingMessage ? isThinking : false}
-      isReasoningExpanded={reasoningExpanded}
-      activeToolCalls={isCurrentStreamingMessage ? activeToolCalls : undefined}
-      completedSegments={isCurrentStreamingMessage ? completedSegments : undefined}
-      isReading={isReading}
-    />
-  );
+  return <ChatMessage message={message} isReading={isReading} />;
 }
 
 const renderMessage = (
@@ -162,7 +164,7 @@ const assertChronologicalOrder = (content: HTMLElement) => {
   expect(firstTools.compareDocumentPosition(secondText) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   expect(secondText.compareDocumentPosition(secondTools) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   expect(chain.compareDocumentPosition(conclusion) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  expect(chain).not.toContainElement(conclusion);
+  expect(chain).toContainElement(conclusion);
 };
 
 describe('cronologia de ChatMessage', () => {
@@ -192,7 +194,7 @@ describe('cronologia de ChatMessage', () => {
     expect(within(messageContent()).getAllByTestId('markdown').map(node => node.textContent)).toEqual(['Parcial', ' novo']);
 
     const completed = messageFor(message.id, { content: 'Parcial novo' });
-    completed._turnSegments = [...prefix, { type: 'text', content: ' novo' }];
+    completed.turnSegments = canonicalSegments([...prefix, { type: 'text', content: ' novo' }]);
     completed._resumableContent = 'Parcial novo';
     act(() => {
       seedStore({ targetConversationId: conversationId, messageId: message.id });
@@ -213,14 +215,14 @@ describe('cronologia de ChatMessage', () => {
     const warning = 'Erro: não foi possível salvar';
     const scalar = `${finalContent}\n\n${warning}`;
     const message = messageFor('assistant-unsaved', { content: scalar });
-    message._turnSegments = [
+    message.turnSegments = canonicalSegments([
       { type: 'text', content: finalContent },
       { type: 'tool_calls', toolCalls: [{
         id: 'last-call', type: 'function', function: { name: 'search', arguments: '{}' },
         origin: 'builtin', status: 'done',
       }] },
       { type: 'text', content: warning, diagnostic: true },
-    ];
+    ]);
     message._resumableContent = finalContent;
     const surface = seedStore({ targetConversationId: conversationId, messageId: message.id });
     renderMessage(surface, message);
@@ -245,11 +247,12 @@ describe('cronologia de ChatMessage', () => {
     const warning = 'Erro: não foi possível salvar';
     const message = messageFor('assistant-received-conclusion', { content: success ? scalar : `${scalar}\n\n${warning}` });
     message._resumableContent = scalar;
-    message._turnSegments = texts.flatMap((text, index): TurnSegment[] => [
+    message.turnSegments = canonicalSegments(texts.flatMap((text, index): TurnSegment[] => [
       { type: 'text', content: text },
       { type: 'tool_calls', toolInvocations: [invocation(`call-${index}`, 'buscar-fonte')] },
-    ]);
-    if (!success) message._turnSegments.push({ type: 'text', content: warning, diagnostic: true });
+    ]));
+    if (!success) message.turnSegments!.push(new chat.TurnSegment({ type: 'text', content: warning }));
+    if (!represented) message.turnSegments!.push(new chat.TurnSegment({ type: 'text', content: scalar }));
     const surface = seedStore({ targetConversationId: conversationId, messageId: message.id });
     renderMessage(surface, message);
     const expanded = [...texts, ...(!success ? [warning] : []), ...(!represented ? [scalar] : [])];
@@ -263,10 +266,10 @@ describe('cronologia de ChatMessage', () => {
   it('mantém base divergente separada na conclusão recebida sem duplicar scalar', () => {
     const message = messageFor('assistant-divergent-base', { content: 'Editado novo' });
     message._resumableContent = 'Editado novo';
-    message._turnSegments = [
+    message.turnSegments = canonicalSegments([
       { type: 'text', content: 'Original' },
       { type: 'text', content: 'Editado novo' },
-    ];
+    ]);
     const surface = seedStore({ targetConversationId: conversationId, messageId: message.id });
     renderMessage(surface, message);
     expect(within(messageContent()).getAllByTestId('markdown').map(node => node.textContent)).toEqual(['Original', 'Editado novo']);
@@ -283,6 +286,7 @@ describe('cronologia de ChatMessage', () => {
       turnSegments: [
         { type: 'text', content: 'Texto original da execução' },
         { type: 'tool_calls', toolInvocations: [invocation('canonical-call', 'buscar-fonte')] },
+        { type: 'text', content: editedContent },
       ],
     });
     const canonicalSegments = message.turnSegments;
@@ -304,10 +308,10 @@ describe('cronologia de ChatMessage', () => {
 
   it('mostra placeholder de turno só com tools na cadeia recebida expandida e recolhida', () => {
     const message = messageFor('assistant-tools-only', { content: '' });
-    message._turnSegments = [{ type: 'tool_calls', toolCalls: [{
+    message.turnSegments = canonicalSegments([{ type: 'tool_calls', toolCalls: [{
       id: 'only-call', type: 'function', function: { name: 'search', arguments: '{}' },
       origin: 'builtin', status: 'done',
-    }] }];
+    }] }]);
     const surface = seedStore({ targetConversationId: conversationId, messageId: message.id });
     renderMessage(surface, message);
     const placeholder = 'chat.toolOnlyTurnPlaceholder';
@@ -322,13 +326,13 @@ describe('cronologia de ChatMessage', () => {
   it('mantém aviso de limite visível após tools na cadeia recebida expandida', () => {
     const warning = 'chat.outputLimitReached';
     const message = messageFor('assistant-limit', { content: warning });
-    message._turnSegments = [
+    message.turnSegments = canonicalSegments([
       { type: 'tool_calls', toolCalls: [{
         id: 'limit-call', type: 'function', function: { name: 'search', arguments: '{}' },
         origin: 'builtin', status: 'done',
       }] },
       { type: 'text', content: warning, diagnostic: true },
-    ];
+    ]);
     const surface = seedStore({ targetConversationId: conversationId, messageId: message.id });
     renderMessage(surface, message);
     const expanded = messageContent();
@@ -355,7 +359,7 @@ describe('cronologia de ChatMessage', () => {
     const region = document.getElementById(toggle.getAttribute('aria-controls') || '');
     expect(region).not.toBeNull();
     expect(screen.getAllByText(finalContent, { exact: true })).toHaveLength(1);
-    expect(region).not.toContainElement(screen.getByText(finalContent, { exact: true }));
+    expect(region).toContainElement(screen.getByText(finalContent, { exact: true }));
     assertChronologicalOrder(content);
   });
 

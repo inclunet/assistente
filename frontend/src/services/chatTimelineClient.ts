@@ -17,7 +17,7 @@ export interface TimelineTransport extends TimelineRecoveryTransport, RecoveryIt
   open(conversationId: string, surfaceId: string, scope: string | null, position: TimelinePosition): Promise<TimelineSnapshot>;
   refresh(windowId: string, revision: string, position?: TimelinePosition): Promise<TimelineSnapshot>;
   navigate(windowId: string, epoch: string, revision: string, mode: string, position: TimelinePosition): Promise<TimelineSnapshot>;
-  retain(windowId: string, epoch: string, revision: string, itemIds: string[]): Promise<void>;
+  retain(windowId: string, epoch: string, revision: string, itemIds: string[]): Promise<{ windowId: string; epoch: string; windowRevision: string }>;
   close(windowId: string): Promise<void>;
 }
 interface Slot {
@@ -63,6 +63,9 @@ export class ChatTimelineClient {
   subscribe(listener: () => void): () => void {
     this.listeners.add(listener);
     return () => { this.listeners.delete(listener); };
+  }
+  hasSurface(conversationId: string, surfaceId: string): boolean {
+    return this.conversations.get(conversationId)?.slots.has(surfaceId) ?? false;
   }
   getWindow(conversationId: string, surfaceId: string) {
     return this.conversations.get(conversationId)?.state.getWindow(surfaceId);
@@ -120,7 +123,8 @@ export class ChatTimelineClient {
     const token = conversation.state.beginSnapshot(surfaceId, slot.scope);
     return this.run(slot, async () => {
       try {
-        const snapshot = await this.transport.navigate(window.windowId, window.epoch, window.revision, mode, position);
+        const checkpoint = slot.epoch === window.epoch && slot.baseline && revision(slot.baseline) > revision(window.revision) ? slot.baseline : window.revision;
+        const snapshot = await this.transport.navigate(window.windowId, window.epoch, checkpoint, mode, position);
         slot.baseline = snapshot.windowRevision;
         slot.epoch = snapshot.epoch;
         if (slot.closed || this.disposed) return;
@@ -136,11 +140,20 @@ export class ChatTimelineClient {
     const { slot, window } = this.ready(conversationId, surfaceId, itemIds.length === 0);
     // Liberação não recupera o visual. Usa somente checkpoints comprovados;
     // revisão desconhecida continua sujeita ao CAS do backend, sem retry implícito.
-    const useSnapshot = this.getError(conversationId) && slot.epoch && slot.baseline &&
+    const useSnapshot = slot.epoch && slot.baseline &&
       (slot.epoch !== window.epoch || revision(slot.baseline) > revision(window.revision));
     const epoch = useSnapshot ? slot.epoch! : window.epoch;
     const currentRevision = useSnapshot ? slot.baseline! : window.revision;
-    return this.run(slot, () => this.transport.retain(window.windowId, epoch, currentRevision, itemIds));
+    return this.run(slot, async () => {
+      const receipt = await this.transport.retain(window.windowId, epoch, currentRevision, itemIds);
+      if (receipt.windowId !== window.windowId || receipt.epoch !== epoch || revision(receipt.windowRevision) < revision(currentRevision)) {
+        throw new Error('Timeline retention receipt mismatch');
+      }
+      // Checkpoint de RPC não altera o visual: os dados continuam chegando pelo
+      // lote atômico. A próxima operação pode usá-lo mesmo se o evento atrasar.
+      slot.baseline = receipt.windowRevision;
+      slot.epoch = receipt.epoch;
+    });
   }
 
   /** Refresh é a única recuperação de época. Falha parcial conserva a apresentação congelada. */

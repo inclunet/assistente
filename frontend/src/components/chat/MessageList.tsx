@@ -6,7 +6,7 @@ import { MessageOutlined } from '@ant-design/icons';
 import { MessageNode as MessageNodeComponent } from './MessageNode';
 import { MessageNode, Message } from '../../store/chatStore';
 import type { EditorSendTargetOption, ChatSendToEditorPayload } from '../../lib/editorSendMenu';
-import { getTimelineNodeKey, isPersistedTimelineNode, type MessageWindowState } from '../../services/chatSessionRegistry';
+import { getTimelineNodeKey, type MessageWindowState } from '../../services/chatSessionRegistry';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import type { VoiceAccessibilityOrigin } from '../../services/voiceAccessibility/types';
 import './MessageList.css';
@@ -21,6 +21,7 @@ import { MessageListViewportAnchor } from './MessageListViewportAnchor';
 export type MessageWindowLoadTrigger = 'scroll' | 'navigation';
 
 export interface MessageListProps {
+  onRetainedItemsChange?: (itemIds: string[]) => void;
   isLoading?: boolean;
   loadingText?: string; // Optional custom loading text
   // Estrutura hierárquica de mensagens (threads)
@@ -64,13 +65,9 @@ const ESTIMATED_MESSAGE_HEIGHT = 140;
 /** Quantos itens extras renderizar acima/abaixo da viewport. */
 const VIRTUAL_OVERSCAN = 6;
 
-const isPersistedMessageNode = (node: MessageNode | undefined): boolean => {
-  if (!node) return false;
-  return isPersistedTimelineNode(node);
-};
-
 export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProps>((
   {
+    onRetainedItemsChange,
     isLoading = false,
     loadingText,
     threadedMessages,
@@ -150,44 +147,16 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
     }
   }, [announceRequest, effectiveLoadingText, isLoading, origin]);
 
-  // A timeline e o turnPatch já chegam consolidados pelo backend. Mensagens
-  // role=tool existem somente no contexto transitório do loop, nunca na UI.
-  const displayMessages = useMemo(
-    () => threadedMessages.filter((node) => node.message.role !== 'tool'),
-    [threadedMessages]
-  );
-  const canLoadNewerFromDisplayEnd = isPersistedMessageNode(displayMessages[displayMessages.length - 1]);
-  const hasConsolidatedTurns = displayMessages.length !== threadedMessages.length;
-  const messagePositions = useMemo(() => {
-    // Until AEP-0059 phase 2.1 moves absolute counts to canonical timeline items,
-    // raw message indices would announce jumps for locally consolidated turns.
-    if (!messageWindow || messageWindow.totalCount <= 0 || hasConsolidatedTurns) {
-      return displayMessages.map((_, index) => index + 1);
-    }
-    const explicitIndexes = displayMessages.map((node) => node.originalIndex);
-    const canUseAbsolutePositions = explicitIndexes.every((index): index is number => index !== undefined)
-      && explicitIndexes.every((index, position) => position === 0 || index > explicitIndexes[position - 1]!);
-    if (!canUseAbsolutePositions) {
-      return displayMessages.map((_, index) => index + 1);
-    }
-    return explicitIndexes.map((index) => index + 1);
-  }, [displayMessages, hasConsolidatedTurns, messageWindow]);
-  const usesAbsoluteMessagePositions = !!messageWindow
-    && messageWindow.totalCount > 0
-    && !hasConsolidatedTurns
-    && displayMessages.length > 0
-    && displayMessages.every((node, index) => (
-      node.originalIndex !== undefined
-      && (index === 0 || node.originalIndex > displayMessages[index - 1].originalIndex!)
-    ));
-  const ariaSetSize = usesAbsoluteMessagePositions
-    ? Math.max(messageWindow.totalCount, ...messagePositions)
-    : displayMessages.length;
+  const displayMessages = threadedMessages;
+  const canLoadNewerFromDisplayEnd = displayMessages.length > 0;
+  const messagePositions = displayMessages.map((_, index) => (messageWindow?.startIndex ?? 0) + index + 1);
+  const ariaSetSize = messageWindow?.totalCount ?? displayMessages.length;
 
   // Virtualização: conversas longas renderizam apenas os itens visíveis.
   const listRef = useRef<HTMLDivElement>(null);
   const shouldVirtualize = displayMessages.length > VIRTUALIZATION_THRESHOLD;
   const [scrollMargin, setScrollMargin] = useState(0);
+  const [focusedItem, setFocusedItem] = useState<string | null>(null);
   const [focusedKey, setFocusedKey] = useState<string | null>(null);
   const focusedKeyRef = useRef<string | null>(null);
   const interactions = useRef(new Map<symbol, string>());
@@ -201,6 +170,9 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
       setInteractionKeys([...new Set(interactions.current.values())]);
     };
   }, []);
+  useLayoutEffect(() => {
+    onRetainedItemsChange?.([...new Set([...interactionKeys, ...(focusedKey ? [focusedKey] : []), ...(focusedItem ? [focusedItem] : [])])]);
+  }, [focusedKey, focusedItem, interactionKeys, onRetainedItemsChange]);
   const focusedIndex = focusedKey === null ? -1 : displayMessages.findIndex(node => getTimelineNodeKey(node) === focusedKey);
   const retainedIndexes = useMemo(() => displayMessages.flatMap((node, index) =>
     index === focusedIndex || interactionKeys.includes(getTimelineNodeKey(node)) ? [index] : []
@@ -256,6 +228,7 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
     boundaryNavigation.current = { count: displayMessages.length, focus: focusMessageAtIndex };
   }, [displayMessages.length, focusMessageAtIndex]);
   const jumpToBoundary = useCallback(async (edge: 'start' | 'end') => {
+    if (interactions.current.size > 0) return;
     await (edge === 'start' ? onJumpToStart?.() : onJumpToEnd?.());
     requestAnimationFrame(() => {
       if (!listRef.current?.isConnected) return;
@@ -305,11 +278,13 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
     const key = row && event.currentTarget.contains(row) ? row.getAttribute('data-timeline-key') : null;
     focusedKeyRef.current = key;
     setFocusedKey(key);
+    setFocusedItem(event.target.closest('[data-message-id]')?.getAttribute('data-message-id') ?? null);
   };
   const handleBlurCapture = (event: React.FocusEvent<HTMLDivElement>) => {
     if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) return;
     focusedKeyRef.current = null;
     setFocusedKey(null);
+    setFocusedItem(null);
   };
 
   // Remoção/exclusão não transfere a interação para outro item no mesmo índice.
@@ -339,6 +314,7 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
   };
 
   const handleLoadOlder = useCallback((trigger: MessageWindowLoadTrigger) => {
+    if (interactions.current.size > 0 || trigger === 'scroll' && focusedKeyRef.current !== null) return;
     const container = innerContainerRef.current;
     const snapshot = container
       ? { scrollHeight: container.scrollHeight, scrollTop: container.scrollTop }
@@ -356,6 +332,7 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
   }, [onLoadOlder]);
 
   const handleLoadNewer = useCallback((trigger: MessageWindowLoadTrigger) => {
+    if (interactions.current.size > 0 || trigger === 'scroll' && focusedKeyRef.current !== null) return;
     const result = onLoadNewer?.(trigger);
     void Promise.resolve(result);
   }, [onLoadNewer]);

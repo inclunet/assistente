@@ -28,23 +28,24 @@ type LiveProjection struct {
 
 type projectionKey struct{ userID, conversationID string }
 type projectionConversation struct {
-	projectionID          string // estável entre épocas; muda quando esta projeção é recriada
-	publicationStage      *canonicalPublicationStage
-	storagePublicationErr error
-	pendingStorageIDs     map[string]bool
-	publicationTimer      *time.Timer
-	publicationGeneration uint64
-	windows               map[string]*subscribedWindow
-	publication           canonicalPublication
-	mu                    projectionMutex
-	readers               int // protegido por LiveProjection.mu; inclui operações de storage
-	epoch                 string
-	revision              uint64
-	incarnation           string
-	lastRecoveryVersion   database.ChatTimelineVersion
-	turns                 map[string]*liveTurn
-	retained              map[string]*liveTurn // tentativas volatile substituídas por retry explícito
-	timer                 *time.Timer
+	presentationBoundaries map[string]presentationBoundaries
+	projectionID           string // estável entre épocas; muda quando esta projeção é recriada
+	publicationStage       *canonicalPublicationStage
+	storagePublicationErr  error
+	pendingStorageIDs      map[string]bool
+	publicationTimer       *time.Timer
+	publicationGeneration  uint64
+	windows                map[string]*subscribedWindow
+	publication            canonicalPublication
+	mu                     projectionMutex
+	readers                int // protegido por LiveProjection.mu; inclui operações de storage
+	epoch                  string
+	revision               uint64
+	incarnation            string
+	lastRecoveryVersion    database.ChatTimelineVersion
+	turns                  map[string]*liveTurn
+	retained               map[string]*liveTurn // tentativas volatile substituídas por retry explícito
+	timer                  *time.Timer
 }
 type liveTurn struct {
 	contentVersion                                 uint64
@@ -63,11 +64,12 @@ type liveTurn struct {
 	streams                                        map[int]*liveStream
 }
 type liveStream struct {
-	generation uint64
-	sealed     bool
-	confirmed  bool
-	messageID  string
-	parts      []*livePart
+	presentationReplaced bool
+	generation           uint64
+	sealed               bool
+	confirmed            bool
+	messageID            string
+	parts                []*livePart
 }
 type livePart struct{ text, reasoning strings.Builder }
 
@@ -250,18 +252,17 @@ func (s *StreamProjection) current(allowSealed bool) bool {
 // diferente dos chunks. Não compara trechos para adivinhar proveniência.
 func (s *StreamProjection) Seal(text, reasoning string) bool {
 	return s.apply(func(stream *liveStream) {
-		var content strings.Builder
+		var content, thoughts strings.Builder
 		for i := range stream.parts {
 			content.WriteString(stream.parts[i].text.String())
+			thoughts.WriteString(stream.parts[i].reasoning.String())
 		}
-		if content.String() != text {
+		if content.String() != text || thoughts.String() != reasoning {
+			stream.presentationReplaced = true
 			stream.parts = []*livePart{{}}
 			stream.parts[0].text.WriteString(text)
+			stream.parts[0].reasoning.WriteString(reasoning)
 		}
-		for i := range stream.parts {
-			stream.parts[i].reasoning.Reset()
-		}
-		stream.parts[0].reasoning.WriteString(reasoning)
 		stream.sealed = true
 	})
 }
@@ -473,6 +474,9 @@ func snapshotLiveTurn(c *projectionConversation, t *liveTurn) *LiveTurnSnapshot 
 		for index := range stream.parts {
 			part := stream.parts[index]
 			identity := fmt.Sprintf("draft:%s:%d:%d:%d", base64.RawURLEncoding.EncodeToString([]byte(t.executionID)), iteration, stream.generation, index)
+			if stream.presentationReplaced {
+				identity += ":replacement"
+			}
 			if part.reasoning.Len() != 0 {
 				target.Segments = append(target.Segments, ResponseSegment{SegmentID: identity + ":reasoning", Kind: "reasoning", Text: strings.Clone(part.reasoning.String())})
 			}

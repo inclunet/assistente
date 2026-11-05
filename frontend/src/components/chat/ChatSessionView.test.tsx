@@ -128,6 +128,28 @@ const chatStoreState = {
   toggleConversationThreadExpanded: vi.fn(),
 };
 
+vi.mock('./useChatTimelinePresentation', () => ({
+  useChatTimelinePresentation: (_conversationId: string, sessionKey: string) => ({
+    presentation: {
+      getMessage: (id: string) => {
+        const message = chatStoreState.getConversationMessages().find(value => value.id === id);
+        if (message) (message as typeof message & { timelineItem?: unknown }).timelineItem = { representativeMessageId: message.id };
+        return message;
+      },
+      getMessageByRepresentative: (id: string) => chatStoreState.getConversationMessages().find(value => value.id === id),
+      subscribe: () => () => {}, getRevision: () => 0, threadWindow: () => undefined,
+      get window() { const value = chatStoreState.surfaceSessionsByKey[sessionKey]?.messageWindow; return value ? { metadata: value } : undefined; },
+      navigate: (direction: string) => direction === 'start' || direction === 'end'
+        ? chatStoreState.loadBoundaryMessagesForConversation(_conversationId, sessionKey, direction)
+        : direction === 'older' ? chatStoreState.loadOlderMessagesForConversation(_conversationId, sessionKey)
+        : chatStoreState.loadNewerMessagesForConversation(_conversationId, sessionKey),
+      retain: async () => {}, refresh: async () => {}, recoveredItems: [],
+    },
+    nodes: chatStoreState.surfaceSessionsByKey[sessionKey]?.visibleThreadedMessages ?? activeConversation.threadedMessages,
+    revision: 0,
+  }),
+}));
+
 vi.mock('../../store/chatStore', () => ({
   useChatStore: Object.assign((selector?: (s: typeof chatStoreState) => unknown) => {
     if (typeof selector === 'function') {
@@ -1219,10 +1241,8 @@ describe('ChatSessionView', () => {
       turnId: conversationId,
       content: 'resposta parcial',
     };
-    chatStoreState.sessionsByConversationId[conversationId].conversation = {
-      ...activeConversation,
-      threadedMessages: [{ message: syntheticMessage, children: [], level: 0, childCount: 0 }],
-    };
+    activeConversation.threadedMessages = [{ message: syntheticMessage, children: [], level: 0, childCount: 0 }];
+    chatStoreState.sessionsByConversationId[conversationId].conversation = activeConversation;
     (chatStoreState.sessionsByConversationId[conversationId] as typeof chatStoreState.sessionsByConversationId[typeof conversationId] & { lastInterruptedMessageId: string }).lastInterruptedMessageId = syntheticMessage.id;
 
     renderWithPanel(<ChatSessionView variant="embedded" surface={surface({ surfaceType: 'embedded' })} onSend={vi.fn()} showShortcutsHelp={false} />);

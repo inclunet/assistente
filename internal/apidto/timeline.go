@@ -75,13 +75,22 @@ type CanonicalSegment struct {
 }
 
 type CanonicalMetadata struct {
-	Origin           string `json:"origin"`
-	Role             string `json:"role"`
-	Pinned           bool   `json:"pinned"`
-	Model            string `json:"model"`
-	PromptTokens     int    `json:"promptTokens"`
-	CompletionTokens int    `json:"completionTokens"`
-	TotalTokens      int    `json:"totalTokens"`
+	ThreadParentMessageID *string  `json:"threadParentMessageId"`
+	ConclusionSegmentIDs  []string `json:"conclusionSegmentIds"`
+	CreatedAt             string   `json:"createdAt"`
+	Timestamp             int64    `json:"timestamp"`
+	Source                string   `json:"source"`
+	ChildCount            int      `json:"childCount"`
+	CacheReadTokens       int      `json:"cacheReadTokens"`
+	CacheWriteTokens      int      `json:"cacheWriteTokens"`
+	CacheMissTokens       int      `json:"cacheMissTokens"`
+	Origin                string   `json:"origin"`
+	Role                  string   `json:"role"`
+	Pinned                bool     `json:"pinned"`
+	Model                 string   `json:"model"`
+	PromptTokens          int      `json:"promptTokens"`
+	CompletionTokens      int      `json:"completionTokens"`
+	TotalTokens           int      `json:"totalTokens"`
 }
 
 type CanonicalOperation struct {
@@ -178,6 +187,13 @@ type TimelineRetentionRequest struct {
 	Epoch          string   `json:"epoch"`
 	WindowRevision string   `json:"windowRevision"`
 	ItemIDs        []string `json:"itemIds"`
+}
+
+// Checkpoint publicado antes de confirmar a operação ao chamador.
+type TimelineRetentionReceipt struct {
+	WindowID       string `json:"windowId"`
+	Epoch          string `json:"epoch"`
+	WindowRevision string `json:"windowRevision"`
 }
 
 type TimelineWindowMode string

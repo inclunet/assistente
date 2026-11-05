@@ -9,7 +9,7 @@ import {
   createEmptyChatSurfaceSession,
   type ChatSurfaceIdentity,
 } from '../../services/chatSessionRegistry';
-import { ChatSessionProvider, useChatNodeSessionState } from './ChatSessionContext';
+import { ChatSessionProvider } from './ChatSessionContext';
 import { ChatMessage } from './ChatMessage';
 
 // O renderer é um detalhe pesado da mensagem. Mantemos o DOM textual real de
@@ -41,11 +41,19 @@ const invocation = (callId: string, name: string, status = 'succeeded') => ({
   resultAvailability: 'available',
 });
 
+const canonicalSegments = (segments: TurnSegment[]) => segments.map(segment => new chat.TurnSegment({
+  type: segment.type, content: segment.content,
+  toolInvocations: segment.toolInvocations ?? segment.toolCalls?.map(call => invocation(call.id, call.function.name, call.status === 'running' ? 'running' : 'succeeded')),
+}));
+
+const fixtureMessages = new Map<string, Message>();
+
 const messageFor = (
   id: string,
   targetConversationId: string,
   overrides: Partial<ConstructorParameters<typeof chat.EnrichedMessage>[0]> = {},
-): Message => new chat.EnrichedMessage({
+): Message => {
+  const message = new chat.EnrichedMessage({
   id,
   conversationId: targetConversationId,
   role: 'assistant',
@@ -56,6 +64,9 @@ const messageFor = (
   internal: false,
   ...overrides,
 }) as Message;
+  fixtureMessages.set(id, message);
+  return message;
+};
 
 const seedStore = ({
   targetConversationId,
@@ -100,6 +111,17 @@ const seedStore = ({
       : { [targetConversationId]: { [messageId]: liveContent } },
   });
 
+  // Simula o frame já composto pelo backend, incluindo substituição explícita
+  // de uma tentativa. Nenhum buffer legado é consultado pelo renderer.
+  const message = fixtureMessages.get(messageId);
+  if (message?.isStreaming && streamingMessageId === messageId) {
+    message.turnSegments = canonicalSegments([
+      ...completedSegments,
+      ...(liveContent ? [{ type: 'text' as const, content: liveContent }] : []),
+      ...(activeToolCalls.length ? [{ type: 'tool_calls' as const, toolInvocations: activeToolCalls.map(call => invocation(call.callId!, call.name, call.status === 'running' ? 'running' : 'succeeded')) }] : []),
+    ]);
+    message.content = liveContent ?? '';
+  }
   return surface;
 };
 
@@ -113,26 +135,7 @@ const renderMessage = (surface: ChatSurfaceIdentity, message: Message) => render
 // resolve o estado por sessão e só então os props transitórios chegam ao
 // ChatMessage. O hook live continua responsável apenas pelo conteúdo textual.
 function SessionMessage({ message }: { message: Message }) {
-  const {
-    streamingMessageId,
-    streamingReasoning,
-    isThinking,
-    activeToolCalls,
-    completedSegments,
-    reasoningExpanded,
-  } = useChatNodeSessionState(message.id);
-  const isCurrentStreamingMessage = message.id === streamingMessageId;
-
-  return (
-    <ChatMessage
-      message={message}
-      streamingReasoning={isCurrentStreamingMessage ? (streamingReasoning || undefined) : undefined}
-      isThinking={isCurrentStreamingMessage ? isThinking : false}
-      isReasoningExpanded={reasoningExpanded}
-      activeToolCalls={isCurrentStreamingMessage ? activeToolCalls : undefined}
-      completedSegments={isCurrentStreamingMessage ? completedSegments : undefined}
-    />
-  );
+  return <ChatMessage message={message} />;
 }
 
 describe('progresso live de ChatMessage', () => {
@@ -432,6 +435,8 @@ describe('progresso live de ChatMessage', () => {
       },
     });
 
+    firstMessage.turnSegments = canonicalSegments([{ type: 'text', content: 'live da conversa um' }, { type: 'text', content: 'texto um' }]);
+    secondMessage.turnSegments = canonicalSegments([{ type: 'text', content: 'live da conversa dois' }, { type: 'text', content: 'texto dois' }]);
     const { rerender } = renderMessage(firstSurface, firstMessage);
     expect(screen.getByText('live da conversa um')).toBeInTheDocument();
     expect(screen.getByText('texto um')).toBeInTheDocument();

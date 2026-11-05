@@ -253,8 +253,18 @@ func (p *LiveProjection) recoverPublicationLocked(c *projectionConversation, tur
 // expondo a tentativa separadamente para as ações explícitas de recuperação.
 func projectLiveItemLocked(c *projectionConversation, item *TimelineItem) (*TimelineItem, error) {
 	t := c.turns[item.TurnID]
-	if item.Kind != "response" || t == nil || t.detached || (t.finished && !t.volatile) {
+	if item.Kind != "response" {
 		return item, nil
 	}
-	return composeResponse(item, snapshotLiveTurn(c, t))
+	if t == nil || t.detached {
+		return c.applyPresentationBoundaries(item), nil
+	}
+	live := snapshotLiveTurn(c, t)
+	if err := c.rememberPresentationBoundaries(item, live); err != nil {
+		return nil, err
+	}
+	if t.finished && !t.volatile {
+		return c.applyPresentationBoundaries(item), nil
+	}
+	return composeResponseWithSources(item, live, c.presentationSources(item))
 }

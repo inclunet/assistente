@@ -148,6 +148,9 @@ func (r *DBTimelineReader) ReadSelection(ctx context.Context, conversationID str
 				}
 			}
 			lifecycleIDs := append([]string(nil), ids...)
+			if err := database.ReadMessagePresentation(ctx, tx, rows.Messages); err != nil {
+				return err
+			}
 			for _, message := range rows.Messages {
 				if message.Role == "user" {
 					lifecycleIDs = append(lifecycleIDs, message.ID)

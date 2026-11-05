@@ -1471,15 +1471,17 @@ func (r *MessageRepository) timelineItemCTEWithPredicates(parentID *string, mess
 	if parentID != nil {
 		parentPredicate = "m.parent_id = ?"
 	}
+	turnParentPredicate := "q.parent_id IS NULL"
+	if parentID != nil {
+		turnParentPredicate = "q.parent_id = ?"
+	}
+	return r.timelineItemCTEForScope(parentPredicate, turnParentPredicate, messageSource, turnPredicate)
+}
+
+func (r *MessageRepository) timelineItemCTEForScope(parentPredicate, turnParentPredicate, messageSource, turnPredicate string) string {
 	extra := ""
 	if r.includeTimelineTurns {
-		extra = ` UNION ALL SELECT NULL,'turn',t.user_message_id,CAST(q.created_at AS TEXT),q.id,1,0 FROM chat_turns t JOIN chat_messages q ON q.id=t.user_message_id WHERE t.conversation_id=? AND q.conversation_id=t.conversation_id AND q.role='user' AND `
-		if parentID == nil {
-			extra += "q.parent_id IS NULL"
-		} else {
-			extra += "q.parent_id = ?"
-		}
-		extra += turnPredicate
+		extra = ` UNION ALL SELECT NULL,'turn',t.user_message_id,CAST(q.created_at AS TEXT),q.id,1,0,q.parent_id FROM chat_turns t JOIN chat_messages q ON q.id=t.user_message_id WHERE t.conversation_id=? AND q.conversation_id=t.conversation_id AND q.role='user' AND ` + turnParentPredicate + turnPredicate
 	}
 	return fmt.Sprintf(`
 WITH scoped AS (
@@ -1489,7 +1491,7 @@ WITH scoped AS (
   CASE WHEN q.id IS NOT NULL THEN q.created_at ELSE m.created_at END AS created_at,
   CASE WHEN q.id IS NOT NULL THEN q.id ELSE m.id END AS anchor_id,
   CASE WHEN q.id IS NOT NULL THEN 1 ELSE 0 END AS slot,
-  CASE WHEN m.role <> 'user' AND COALESCE(m.turn_id, '') <> '' AND q.id IS NULL THEN 1 ELSE 0 END AS invalid_turn_reference
+  CASE WHEN m.role <> 'user' AND COALESCE(m.turn_id, '') <> '' AND q.id IS NULL THEN 1 ELSE 0 END AS invalid_turn_reference, m.parent_id
  FROM %s
  LEFT JOIN chat_messages q ON m.role <> 'user' AND TRIM(COALESCE(m.turn_id, ''), char(9,10,11,12,13,32,133,160,5760,8192,8193,8194,8195,8196,8197,8198,8199,8200,8201,8202,8232,8233,8239,8287,12288)) <> ''
   AND q.id = m.turn_id AND q.role = 'user'
@@ -1501,9 +1503,9 @@ WITH scoped AS (
   CASE WHEN item_kind = 'turn' THEN item_id ELSE '' END AS turn_id,
   created_at, anchor_id, slot,
   CASE WHEN item_kind = 'turn' THEN 'turn:' ELSE 'message:' END || item_id AS item_key,
-  MAX(invalid_turn_reference) AS invalid_turn_reference
+  MAX(invalid_turn_reference) AS invalid_turn_reference, parent_id
  FROM scoped
- GROUP BY item_kind, item_id, created_at, anchor_id, slot
+ GROUP BY item_kind, item_id, created_at, anchor_id, slot, parent_id
 )`, messageSource, parentPredicate, CurrentChatMessageSQL("m"), extra)
 }
 

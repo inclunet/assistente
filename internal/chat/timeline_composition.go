@@ -8,8 +8,12 @@ import (
 
 // composeResponse substitui fontes pelo vínculo explícito do writer. Não
 // compara prefixos/textos nem mistura tentativas retidas com a execução atual.
-// Os IDs draft incluem a geração; confirmação os substitui por IDs persistidos.
+// Confirmação troca a fonte dos bytes, conservando identidade e cortes publicados.
 func composeResponse(persisted *TimelineItem, live *LiveTurnSnapshot) (*TimelineItem, error) {
+	return composeResponseWithSources(persisted, live, nil)
+}
+
+func composeResponseWithSources(persisted *TimelineItem, live *LiveTurnSnapshot, confirmedSources map[string][]ResponseSegment) (*TimelineItem, error) {
 	if live.Detached || persisted.ItemID != live.ItemID || persisted.TurnID != live.TurnID {
 		return nil, ErrProjectionRecoveryRequired
 	}
@@ -33,7 +37,10 @@ func composeResponse(persisted *TimelineItem, live *LiveTurnSnapshot) (*Timeline
 	replaced := make(map[string]bool)
 	streamMessages := make([]Message, 0, len(live.Streams))
 	iterationIDs := make(map[int]string, len(live.Streams))
-	liveSources := make(map[string][]ResponseSegment)
+	liveSources := make(map[string][]ResponseSegment, len(confirmedSources))
+	for id, segments := range confirmedSources {
+		liveSources[id] = segments
+	}
 	for index, stream := range live.Streams {
 		if stream.Confirmed {
 			message, ok := byID[stream.PersistedMessageID]
@@ -41,6 +48,9 @@ func composeResponse(persisted *TimelineItem, live *LiveTurnSnapshot) (*Timeline
 				return nil, fmt.Errorf("%w: fonte confirmada ausente", ErrProjectionRecoveryRequired)
 			}
 			streamMessages = append(streamMessages, message)
+			if source, valid := confirmedPresentationSource(message, stream); valid {
+				liveSources[message.ID], _ = source.segments(message)
+			}
 			iterationIDs[stream.Iteration] = message.ID
 			replaced[message.ID] = true
 			continue
@@ -56,7 +66,10 @@ func composeResponse(persisted *TimelineItem, live *LiveTurnSnapshot) (*Timeline
 		}
 		// Até uma fonte vazia substitui o prefixo antigo após reset de transporte.
 		id := fmt.Sprintf("draft:%s:%d:%d", base64.RawURLEncoding.EncodeToString([]byte(live.ExecutionID)), stream.Iteration, stream.Generation)
-		liveSources[id] = stream.Segments
+		liveSources[id] = append([]ResponseSegment(nil), stream.Segments...)
+		for i := range liveSources[id] {
+			liveSources[id][i].SourceMessageID = id
+		}
 		message := Message{Role: "assistant", Content: text.String(), Reasoning: reasoning.String()}
 		message.ID, message.ConversationID, message.TurnID = id, persisted.ConversationID, &live.TurnID
 		streamMessages = append(streamMessages, message)

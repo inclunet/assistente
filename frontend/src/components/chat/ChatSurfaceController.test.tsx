@@ -37,7 +37,7 @@ const baseOrigin: ChatSurfaceOrigin = {
 
 function createSession(overrides: Partial<ChatSessionContextValue> = {}): ChatSessionContextValue {
   return {
-    surface: {
+    presentation: null,    surface: {
       conversationId: baseOrigin.conversationId,
       sessionKey: baseOrigin.sessionKey,
       surfaceId: baseOrigin.surfaceId,

@@ -195,6 +195,18 @@ const es = {
     },
 
     chat: {
+    threadReplies: 'Respuestas del hilo',
+    timelineRecoveryTitle: "Contenido recuperable del chat",
+    timelineRecoveryReleaseConfirm: "Se liberará la copia recuperable. La ejecución persistida permanece en el historial del backend. ¿Continuar?",
+    timelineRecoveryRelease: "Liberar copia",
+    timelineRecoveryNotice: "El historial necesita atención. Se conservará el contenido recuperable.",
+    timelineRecoveryOpen: "Ver recuperación",
+    timelineRecoverAtEnd: 'Recuperar en los mensajes más recientes',
+    timelineRefresh: "Sincronizar historial",
+    timelineRecoveryError: "No se pudo completar. Inténtalo de nuevo.",
+    timelineRecoveryRead: "Leer contenido",
+    timelineRecoveryRetryClose: "Reintentar cierre",
+
       placeholder: 'Escribe tu mensaje...',
       send: 'Enviar mensaje',
       newChat: 'Nueva conversación',

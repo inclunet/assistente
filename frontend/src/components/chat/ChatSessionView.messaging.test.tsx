@@ -1,3 +1,4 @@
+vi.mock('./useChatTimelinePresentation', async () => import('./canonicalPresentationFixture'));
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';

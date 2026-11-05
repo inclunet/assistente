@@ -103,38 +103,16 @@ describe('ChatMessage tool dialog host', () => {
     }
   );
   it('mantém o diálogo aberto ao trocar ativo por segmento e patch canônico', () => {
-    const { rerender } = render(
-      <ChatMessage
-        message={baseMessage()}
-        activeToolCalls={[
-          { callId: 'call-1', name: 'search', status: 'running', summary: 'parcial' },
-        ]}
-      />
-    );
-
+    const frame = (status: string, outputPreview: string) => new chat.EnrichedMessage({
+      ...baseMessage(), turnSegments: [{ type: 'tool_calls', toolInvocations: [{
+        invocationId: 'inv-1', callId: 'call-1', name: 'search', status, outputPreview,
+        hasDetails: false, resultAvailability: 'available',
+      }] }],
+    });
+    const { rerender } = render(<ChatMessage message={frame('running', 'parcial')} />);
     fireEvent.click(screen.getByRole('button', { name: 'chat.technicalDetails' }));
     expect(screen.getByRole('dialog')).toHaveTextContent('chat.toolStatusRunning');
-
-    rerender(
-      <ChatMessage
-        message={baseMessage()}
-        activeToolCalls={[]}
-        completedSegments={[
-          {
-            type: 'tool_calls',
-            toolCalls: [
-              {
-                id: 'call-1',
-                type: 'function',
-                function: { name: 'search', arguments: '{}' },
-                status: 'done',
-                result: 'segment result',
-              },
-            ],
-          },
-        ]}
-      />
-    );
+    rerender(<ChatMessage message={frame('succeeded', 'segment result')} />);
     expect(screen.getByRole('dialog')).toBeInTheDocument();
     expect(screen.getByRole('dialog')).toHaveTextContent('chat.toolStatusSucceeded');
     expect(screen.getByRole('dialog')).toHaveTextContent('segment result');

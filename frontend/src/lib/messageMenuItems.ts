@@ -411,7 +411,8 @@ export function getMessageMenuItems(
         }
 
         try {
-          const backendId = isBackendId(message.id) ? message.id : '';
+          const targetId = message.timelineItem?.representativeMessageId ?? message.id;
+          const backendId = isBackendId(targetId) ? targetId : '';
           if (!backendId) {
             onAnnounce?.(i18next.t('chat.announce.cannotIdentifyMessage'));
             return;
@@ -503,7 +504,7 @@ export function getMessageMenuItems(
   }
 
   // 5. Fixar/Desafixar
-  if (onPin && isBackendId(message.id)) {
+  if (onPin && isBackendId(message.timelineItem?.representativeMessageId ?? message.id)) {
     const isPinned = messageFlags.pinned || false;
     items.push({
       id: 'pin',

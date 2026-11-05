@@ -20,9 +20,14 @@ const frames: FrameRequestCallback[] = [];
 const modalClosers: Array<() => void> = [];
 const captures: Array<NonNullable<ReturnType<typeof captureChatMessageEditDraft>>> = [];
 
+const messageSource = {
+  getMessage: (id: string) => useChatStore.getState().getConversationMessages(conversationId).find(item => item.id === id),
+  subscribe: useChatStore.subscribe,
+};
+
 function Harness({ pathname = '/' }: { pathname?: string }) {
   const root = useRef<HTMLDivElement>(null);
-  api = useChatMessageEditDraft(root, message, conversationId, sessionKey, pathname);
+  api = useChatMessageEditDraft(root, message, conversationId, sessionKey, pathname, messageSource);
   return <div ref={root} tabIndex={-1} data-testid="edit-root">
     <output>{api.isEditing ? 'editing' : 'closed'}</output>
     <textarea aria-label="Draft" value={api.editContent} onChange={event => api.change(event.target.value)} />

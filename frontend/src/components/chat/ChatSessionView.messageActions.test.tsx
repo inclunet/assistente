@@ -1,3 +1,4 @@
+vi.mock('./useChatTimelinePresentation', async () => import('./canonicalPresentationFixture'));
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
@@ -292,13 +293,13 @@ describe('ChatSessionView message actions — superfície/lista/registry reais',
     expect(node().querySelector('textarea')).toHaveValue('**primeira**');
     expect(begin).not.toHaveBeenCalled(); expect(prepareMessage).not.toHaveBeenCalled(); expect(complete).not.toHaveBeenCalled();
   });
-  it.each(['chat.message.pin.toggle', 'chat.message.delete'])('%s commita sem endpoint legado e refresh só confirmado', async commandID => {
+  it.each(['chat.message.pin.toggle', 'chat.message.delete'])('%s commita sem endpoint legado nem recarregar a árvore paralela', async commandID => {
     mount(); const target = capture(commandID);
     const refresh = vi.spyOn(useChatStore.getState(), 'loadConversationSession').mockResolvedValue(undefined);
     await act(async () => { await executeChatMessaging(port(), target!); });
     expect(commitMessage).toHaveBeenCalledExactlyOnceWith('ticket', 'handoff');
     expect(getResult).toHaveBeenCalledOnce();
-    expect(refresh).toHaveBeenCalledWith(id, { refreshSurfaceWindows: true });
+    expect(refresh).not.toHaveBeenCalled();
   });
   it('speak usa a mensagem focada e não a última', async () => {
     mount(); const target = capture('chat.message.speak');

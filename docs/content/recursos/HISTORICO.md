@@ -69,3 +69,20 @@ daquela conversa, preservando sua versão anterior se houver sobrescrita.
 A restauração é confirmada por conversa. Se uma delas falhar, as demais que
 foram importadas com sucesso permanecem salvas; a conversa que falhou conserva
 seu conteúdo anterior.
+
+## Leitura durante uma resposta
+
+A resposta permanece no mesmo lugar enquanto é recebida e quando é salva no
+histórico. Links e controles já apresentados conservam o foco ao terminar a
+resposta. Repetir uma resposta ou reiniciar uma transmissão substitui o conteúdo
+da tentativa anterior.
+
+Mensagens anteriores e posteriores são carregadas conforme a navegação. As
+respostas de uma conversa em thread também têm navegação própria. Enquanto uma
+mensagem estiver em leitura ou edição, termine essa interação antes de mudar a
+janela de mensagens.
+
+Se uma atualização não puder ser aplicada com segurança, o conteúdo apresentado
+permanece disponível e o chat oferece recuperação. Conteúdo ainda não salvo pode
+ser lido antes de liberar sua cópia de recuperação; essa liberação não exclui a
+conversa salva.

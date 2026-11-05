@@ -196,6 +196,18 @@ const en = {
     },
 
     chat: {
+    threadReplies: 'Thread replies',
+    timelineRecoveryTitle: "Recoverable chat content",
+    timelineRecoveryReleaseConfirm: "The recovery copy will be released. The persisted execution remains in the backend history. Continue?",
+    timelineRecoveryRelease: "Release copy",
+    timelineRecoveryNotice: "The history needs attention. Recoverable content will be preserved.",
+    timelineRecoveryOpen: "View recovery",
+    timelineRecoverAtEnd: 'Recover at the latest messages',
+    timelineRefresh: "Sync history",
+    timelineRecoveryError: "Could not complete. Try again.",
+    timelineRecoveryRead: "Read content",
+    timelineRecoveryRetryClose: "Retry closing",
+
       placeholder: 'Type your message...',
       send: 'Send message',
       newChat: 'New conversation',

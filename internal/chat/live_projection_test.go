@@ -3,6 +3,7 @@ package chat
 import (
 	"context"
 	"errors"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -58,9 +59,10 @@ func TestLiveProjectionIterationAndTransportIdentity(t *testing.T) {
 	if len(before.Streams[0].Segments) != 3 || before.Streams[0].Segments[0].Kind != "text" || before.Streams[0].Segments[1].Kind != "reasoning" || before.Streams[0].Segments[2].Kind != "text" {
 		t.Fatal("ordem de segmentos antes do seal alterada")
 	}
-	if after.Streams[0].Segments[0].Kind != "reasoning" || after.Streams[0].Segments[1].Kind != "text" || after.Streams[0].Segments[2].Kind != "text" {
-		t.Fatal("ordem da substituição explícita de reasoning alterada")
+	if !reflect.DeepEqual(after.Streams[0].Segments, before.Streams[0].Segments) {
+		t.Fatal("seal com os mesmos bytes alterou cortes ou identidades publicados")
 	}
+
 	if testLiveSegment(before.Streams[0], "reasoning", 0).Text != "raciocínio" {
 		t.Fatal("snapshot foi alterado posteriormente")
 	}

@@ -1,3 +1,5 @@
+import { publishFixtureMessage } from './canonicalPresentationFixture';
+vi.mock('./useChatTimelinePresentation', async () => import('./canonicalPresentationFixture'));
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -103,7 +105,7 @@ function node(messageID = firstID) { return document.querySelector<HTMLElement>(
 
 const saveID = 'chat.message.edit.save';
 function emitUpdate(content: string, conversationId = id) {
-  events.get('message:updated')?.forEach(callback => callback({ conversationId, messageId: firstID, content }));
+  publishFixtureMessage(conversationId, firstID, content);
 }
 async function openEditor(content = 'editado') {
   act(() => node().focus());
@@ -130,13 +132,15 @@ describe('salvar edição: MessageNode, fonte draft, store e executor reais', ()
         visibleThreadedMessages: useChatStore.getState().timelinesByConversationId[id].threadedMessages,
       },
     } });
+    message.turnSegments = (message._turnSegments ?? []).map(segment => new chat.TurnSegment(segment));
     mount();
     await waitFor(() => expect(node()).toHaveTextContent('Resposta anterior'));
     if (collapsed) fireEvent.click(screen.getByRole('button', { name: 'chat.collapseChain' }));
     act(() => emitUpdate('Resposta corrigida'));
     const edited = useChatStore.getState().getConversationMessages(id)[0] as Message;
     expect(edited.content).toBe('Resposta corrigida');
-    expect(edited._turnSegments).toEqual([{ type: 'text', content: 'Resposta corrigida' }]);
+    expect(edited._turnSegments).toBeUndefined();
+    expect(edited.turnSegments).toMatchObject([{ type: 'text', content: 'Resposta corrigida' }]);
     await waitFor(() => expect(node()).toHaveTextContent('Resposta corrigida'));
     expect(node()).not.toHaveTextContent('Resposta anterior');
     expect(node()).not.toHaveTextContent('Atividade anterior');

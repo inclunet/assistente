@@ -64,7 +64,7 @@ describe('identidade e retenção visual da lista', () => {
       act(() => vi.advanceTimersByTime(600));
       if (prepending) {
         fireEvent.scroll(container);
-        expect(loadOlder).toHaveBeenCalledOnce();
+        expect(loadOlder).not.toHaveBeenCalled();
       }
       expect(row.getBoundingClientRect().top).toBe(offset);
       const next = content(prepending ? [...nodes(1, 'extra'), ...initial] : [...initial, ...nodes(1, 'extra')]);

@@ -196,6 +196,18 @@ const ptBR = {
     },
 
     chat: {
+    threadReplies: 'Respostas internas',
+    timelineRecoveryTitle: "Conteúdo recuperável do chat",
+    timelineRecoveryReleaseConfirm: "A cópia recuperável será liberada. A execução persistida permanece no histórico do backend. Continuar?",
+    timelineRecoveryRelease: "Liberar cópia",
+    timelineRecoveryNotice: "O histórico precisa de atenção. Conteúdo recuperável será preservado.",
+    timelineRecoveryOpen: "Ver recuperação",
+    timelineRecoverAtEnd: 'Recuperar nas mensagens mais recentes',
+    timelineRefresh: "Sincronizar histórico",
+    timelineRecoveryError: "Não foi possível concluir. Tente novamente.",
+    timelineRecoveryRead: "Ler conteúdo",
+    timelineRecoveryRetryClose: "Tentar fechar novamente",
+
       placeholder: 'Digite sua mensagem...',
       send: 'Enviar mensagem',
       newChat: 'Nova conversa',

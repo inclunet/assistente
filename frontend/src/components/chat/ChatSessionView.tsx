@@ -1,3 +1,4 @@
+import { ChatTimelineRecovery } from './ChatTimelineRecovery';
 import { useRef, useState, useEffect, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -161,6 +162,7 @@ function ChatSessionViewContent({
   const [showContinueEnabled, setShowContinueEnabled] = useState(false);
   const [activeProfileSlug, setActiveProfileSlug] = useState('');
   const {
+    presentation,
     session,
     conversation,
     threadedMessages,
@@ -175,8 +177,6 @@ function ChatSessionViewContent({
     loadEndMessages,
     loadMessageChildren,
     loadConversationSession,
-    updateConversationMessage,
-    updateConversationMessagePinned,
     isConversationReasoningExpanded,
     origin,
     conversationId,
@@ -189,30 +189,17 @@ function ChatSessionViewContent({
     setScrollState,
   } = controller;
 
+  const retainItems = useCallback((ids: string[]) => {
+    void presentation?.retain(ids).catch(() => { /* A superfície expõe a falha de sincronização. */ });
+  }, [presentation]);
+
   // Os comandos que o agente de código desta conversa oferece entram no menu da
   // barra do campo de mensagem (AEP-0084 D8).
   const agentCommands = useAgentSessionCommands(conversationId);
 
   const clearConversationSendFailure = useChatStore((state) => state.clearConversationSendFailure);
   const getSessionConversation = useCallback(() => conversation, [conversation]);
-  const visibleMessageCount = useMemo(() => {
-    if (!threadedMessages.length) return 0;
-    const processedTurnIds = new Set<string>();
-    let count = 0;
-    for (const node of threadedMessages) {
-      const message = node.message;
-      if (!message) continue;
-      const turnId = message.turnId;
-      if (!turnId) {
-        count += 1;
-        continue;
-      }
-      if (processedTurnIds.has(turnId)) continue;
-      processedTurnIds.add(turnId);
-      count += 1;
-    }
-    return count;
-  }, [threadedMessages]);
+  const visibleMessageCount = threadedMessages.length;
   const usesLocalVisualWindowCount = visibleMessageCount > 0 && visibleMessageCount !== threadedMessages.length;
 
   useEffect(() => {
@@ -505,7 +492,7 @@ function ChatSessionViewContent({
         if (id === 'chat.message.send' && options?.content !== undefined && !options.voice && !options.recovery && content.trim() !== snapshot.draftMessage.trim()) return undefined;
         if (options?.recovery && (!snapshot.sendFailureRetryable || content !== (snapshot.sendFailureRetryContent ?? ''))) return undefined;
         const interruptedId = snapshot.lastInterruptedMessageId;
-        const interrupted = interruptedId ? useChatStore.getState().getConversationMessages(conversationId).find(message => message.id === interruptedId) : undefined;
+        const interrupted = interruptedId ? presentation?.getMessageByRepresentative(interruptedId) : undefined;
         const fallbackRetryId = interrupted?.turnId;
         const messageId = id === 'chat.message.retry' ? (options?.messageId ?? fallbackRetryId) : undefined;
         if (id === 'chat.message.retry' && (!messageId || !isBackendId(messageId))) return undefined;
@@ -568,7 +555,7 @@ function ChatSessionViewContent({
         };
       },
     });
-  }, [conversationId, origin.sessionKey, panelTab.id, modalId, pathname, messagingUser]);
+  }, [conversationId, origin.sessionKey, panelTab.id, modalId, pathname, messagingUser, presentation]);
   const requestMessaging = useCallback((id: ChatMessagingCommandID, override?: unknown) => {
     const target = captureChatMessagingTarget(() => messagingLive.current.pathname, id, messagingInstance.current, undefined, override);
     const accepted = !!target && requestChatMessagingCommand(id, messagingInstance.current, target);
@@ -612,13 +599,13 @@ function ChatSessionViewContent({
           auth?.sessionId === capturedOwner?.sessionId && ws?.id === capturedWorkspace?.id &&
           ws?.activeTabId === capturedOrigin.tabId && ws?.tabs.find(tab => tab.id === capturedOrigin.tabId)?.conversationId === conversationId &&
           messagingLive.current.pathname === capturedPath && messagingLive.current.conversationId === conversationId &&
-          useChatStore.getState().getConversationMessages(conversationId!).find(item => item.id === message.id) === message &&
+          presentation?.getMessage(message.id) === message &&
           (!modalId || modal.isOpen && modal.boundTabId === capturedOrigin.tabId && modal.boundConversationId === conversationId);
         if (!valid) invalid = true;
         return Boolean(valid);
       };
       if (!current() || !messagingLive.current.isInteractiveSurface || (modalId ? !modalIsTopmost() : isModalOpen())) return;
-      const off = [useAuthStore.subscribe(current), useWorkspaceStore.subscribe(current), useWorkspaceChatModalStore.subscribe(current), useChatStore.subscribe(current)];
+      const off = [useAuthStore.subscribe(current), useWorkspaceStore.subscribe(current), useWorkspaceChatModalStore.subscribe(current), presentation?.subscribe(current) ?? (() => {})];
       voiceSetupPromptPendingRef.current = true;
       try {
         const shouldConfigure = await requestConfirm({
@@ -679,7 +666,7 @@ function ChatSessionViewContent({
         voiceSetupPromptPendingRef.current = false;
       }
     },
-    [activeProfileSlug, navigate, origin, profileSlug, requestMessaging, t, conversationId, modalId, modalIsTopmost],
+    [activeProfileSlug, navigate, origin, profileSlug, requestMessaging, t, conversationId, modalId, modalIsTopmost, presentation],
   );
 
   const handleDeleteMessage = useCallback((message: { id: string | number }) => {
@@ -704,8 +691,8 @@ function ChatSessionViewContent({
     },
     onResend: async (message) => {
       const conversationId = getSessionConversation()?.id;
-      if (!conversationId || !isBackendId(message.id)) return;
-      requestMessaging('chat.message.retry', { messageId: message.id });
+      if (!conversationId || !isBackendId(message.timelineItem?.representativeMessageId)) return;
+      requestMessaging('chat.message.retry', { messageId: message.timelineItem!.representativeMessageId! });
     },
     onContinue: async (message) => {
       const conversationId = getSessionConversation()?.id;
@@ -718,8 +705,8 @@ function ChatSessionViewContent({
       const interruptedId = session?.lastInterruptedMessageId;
       if (!interruptedId) return false;
       if (!isBackendId(String(interruptedId))) return false;
-      if (String(message.id) !== String(interruptedId)) return false;
-      if (!isBackendId(message.id)) return false;
+      if (String(message.timelineItem?.representativeMessageId) !== String(interruptedId)) return false;
+      if (!isBackendId(message.timelineItem?.representativeMessageId)) return false;
       if (message.role !== 'assistant' || message.isStreaming) return false;
       if (!String(message.turnId || '').trim()) return false;
       if (!String(message.content || '').trim()) return false;
@@ -940,38 +927,6 @@ function ChatSessionViewContent({
   }, [isInteractiveSurface, shortcutsOpen]);
 
   useEffect(() => {
-    const handleMessageUpdated = (data: unknown) => {
-      if (!data || typeof data !== 'object' || !conversationId) return;
-      const eventData = data as { conversationId?: unknown; messageId?: unknown; content?: unknown };
-      if (eventData.conversationId !== conversationId || typeof eventData.messageId !== 'string' ||
-          !isBackendId(eventData.messageId) || typeof eventData.content !== 'string') return;
-      updateConversationMessage(conversationId, eventData.messageId, eventData.content);
-    };
-
-    const unsubscribe = EventsOn('message:updated', handleMessageUpdated);
-    return () => {
-      if (unsubscribe) unsubscribe();
-    };
-  }, [conversationId, updateConversationMessage]);
-
-  useEffect(() => {
-    const handleMessagePinChanged = (data: unknown) => {
-      const eventData = data as { conversationId?: string; messageId?: string; pinned?: boolean };
-      if (
-        eventData.conversationId !== conversationId
-        || !eventData.messageId
-        || typeof eventData.pinned !== 'boolean'
-      ) return;
-      updateConversationMessagePinned(conversationId, eventData.messageId, eventData.pinned);
-    };
-
-    const unsubscribe = EventsOn('message:pin_changed', handleMessagePinChanged);
-    return () => {
-      unsubscribe();
-    };
-  }, [conversationId, updateConversationMessagePinned]);
-
-  useEffect(() => {
     if (!conversationId) return;
     const unsubscribe = EventsOn('chat:skill_loaded', (data: unknown) => {
       const eventData = data as { conversationId?: string; displayName?: string; slug?: string };
@@ -1186,7 +1141,9 @@ function ChatSessionViewContent({
         />
       </div>
       <div className="ws-content-area">
+        {presentation && <ChatTimelineRecovery presentation={presentation} />}
         <MessageList
+          onRetainedItemsChange={retainItems}
           threadedMessages={threadedMessages}
           messageWindow={session?.messageWindow}
           onLoadChildren={loadMessageChildren}

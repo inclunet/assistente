@@ -2,9 +2,14 @@ import { createContext, useCallback, useContext, useEffect, useLayoutEffect, use
 
 export type RetainMessageInteraction = () => () => void;
 const noop = () => {};
-const Context = createContext<RetainMessageInteraction>(() => noop);
+const Context = createContext<(itemKey?: string) => () => void>(() => noop);
+const ActiveContext = createContext<() => boolean>(() => false);
+export const useMessageInteractionsActive = () => useContext(ActiveContext);
 
-export const useMessageInteraction = () => useContext(Context);
+export function useMessageInteraction(itemKey?: string): RetainMessageInteraction {
+  const acquire = useContext(Context);
+  return useCallback(() => acquire(itemKey), [acquire, itemKey]);
+}
 
 export function MessageInteractionProvider({ itemKey, retain, children }: {
   itemKey: string;
@@ -12,8 +17,10 @@ export function MessageInteractionProvider({ itemKey, retain, children }: {
   children: ReactNode;
 }) {
   const releases = useRef(new Set<() => void>());
-  const acquire = useCallback(() => {
-    const release = retain(itemKey);
+  const acquire = useCallback((targetKey?: string) => {
+    const releaseRoot = retain(itemKey);
+    const releaseTarget = targetKey && targetKey !== itemKey ? retain(targetKey) : noop;
+    const release = () => { releaseTarget(); releaseRoot(); };
     const dispose = () => {
       if (releases.current.delete(dispose)) release();
     };
@@ -24,11 +31,12 @@ export function MessageInteractionProvider({ itemKey, retain, children }: {
     const owned = releases.current;
     return () => owned.forEach(release => release());
   }, []);
-  return <Context.Provider value={acquire}>{children}</Context.Provider>;
+  const active = useCallback(() => releases.current.size > 0, []);
+  return <ActiveContext.Provider value={active}><Context.Provider value={acquire}>{children}</Context.Provider></ActiveContext.Provider>;
 }
 
 /** Aquisição no commit cobre a transferência do menu antes do autofocus tardio. */
-export function useActiveMessageInteraction(active: boolean) {
-  const retain = useMessageInteraction();
+export function useActiveMessageInteraction(active: boolean, itemKey?: string) {
+  const retain = useMessageInteraction(itemKey);
   useLayoutEffect(() => active ? retain() : undefined, [active, retain]);
 }

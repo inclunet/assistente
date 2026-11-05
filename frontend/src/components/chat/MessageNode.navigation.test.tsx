@@ -1,3 +1,5 @@
+import { setFixtureSourceUnavailable } from './canonicalPresentationFixture';
+vi.mock('./useChatTimelinePresentation', async () => import('./canonicalPresentationFixture'));
 import { act, cleanup, createEvent, fireEvent, render, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
@@ -81,6 +83,14 @@ async function startSurfaceStream() {
   const surfaceOrigin = { ...createChatSurfaceOrigin(surface), executionId };
   const emit = (name: string, payload: Record<string, unknown>) => act(() => {
     for (const listener of runtimeListeners.get(name) ?? []) listener(payload);
+    if (name === 'chat:stream' && payload.delta) useChatStore.setState(state => {
+      const session = state.surfaceSessionsByKey[surface.sessionKey];
+      return { surfaceSessionsByKey: { ...state.surfaceSessionsByKey, [surface.sessionKey]: { ...session,
+        visibleThreadedMessages: session.visibleThreadedMessages?.map(node => node.message.id === mid ? { ...node,
+          message: new chat.EnrichedMessage({ ...node.message, content: payload.reset ? String(payload.delta) : node.message.content + String(payload.delta) }),
+        } : node),
+      } } };
+    });
   });
   emit('chat:messages_ready', {
     conversationId: cid, turnId: 'turn-live', userMessageId: 'turn-live', userContent: 'pergunta', surfaceOrigin,
@@ -92,6 +102,7 @@ async function startSurfaceStream() {
   return { emit, surfaceOrigin };
 }
 beforeEach(() => {
+  setFixtureSourceUnavailable(cid, false);
   vi.spyOn(document, 'hasFocus').mockReturnValue(true);
   useAuthStore.setState({ isAuthenticated: true, user: { userId: 'owner', sessionId: 'session', role: 'admin' } });
   useWorkspaceStore.setState({ workspace: { id: 'ws', name: 'Workspace', activeTabId: 'tab', tabs: [tab] } });
@@ -251,7 +262,7 @@ describe('MessageNode navigation — registry, Provider, store e leitura reais',
     if (commandID === 'chat.message.menu.open') expect(menu).toHaveBeenCalledTimes(1);
     if (commandID === 'chat.message.reasoning.toggle') expect(useChatStore.getState().isConversationReasoningExpanded(cid, mid, surface.sessionKey)).toBe(true);
   });
-  it('Enter abre leitura nas projeções clonadas durante streaming e após finalizar', () => {
+  it('Enter abre leitura na projeção única durante streaming e após finalizar', () => {
     const streamingNode = node();
     streamingNode.message.isStreaming = true;
     const conversation = { id: cid, title: 'Chat', threadedMessages: [streamingNode] };
@@ -273,7 +284,8 @@ describe('MessageNode navigation — registry, Provider, store e leitura reais',
     }))));
     const projected = useChatStore.getState().surfaceSessionsByKey[surface.sessionKey].visibleThreadedMessages![0];
     const canonical = useChatStore.getState().getConversationMessages(cid)[0];
-    expect(projected.message).not.toBe(canonical);
+    projected.message = canonical;
+    expect(projected.message).toBe(canonical);
     mount(); root().focus();
     fireEvent.keyDown(root(), { key: 'Enter' });
     expect(root()).toHaveAttribute('aria-modal', 'true');
@@ -291,7 +303,8 @@ describe('MessageNode navigation — registry, Provider, store e leitura reais',
       current => finalizeStreamingNode(current, mid),
     )));
     const finalProjection = useChatStore.getState().surfaceSessionsByKey[surface.sessionKey].visibleThreadedMessages![0];
-    expect(finalProjection.message).not.toBe(useChatStore.getState().getConversationMessages(cid)[0]);
+    finalProjection.message = useChatStore.getState().getConversationMessages(cid)[0];
+    expect(finalProjection.message).toBe(useChatStore.getState().getConversationMessages(cid)[0]);
     root().focus(); fireEvent.keyDown(root(), { key: 'Enter' });
     expect(root()).toHaveAttribute('aria-modal', 'true');
   });
@@ -308,6 +321,20 @@ describe('MessageNode navigation — registry, Provider, store e leitura reais',
     const emit = (name: string, payload: Record<string, unknown>) => {
       act(() => {
         for (const listener of runtimeListeners.get(name) ?? []) listener(payload);
+        if (name === 'chat:done') useChatStore.setState(state => {
+          const session = state.surfaceSessionsByKey[surface.sessionKey];
+          return { surfaceSessionsByKey: { ...state.surfaceSessionsByKey, [surface.sessionKey]: { ...session,
+            visibleThreadedMessages: session.visibleThreadedMessages?.map(node => state.timelinesByConversationId[cid].threadedMessages.find(current => current.message.id === node.message.id) ?? node),
+          } } };
+        });
+    if (name === 'chat:stream' && payload.delta) useChatStore.setState(state => {
+      const session = state.surfaceSessionsByKey[surface.sessionKey];
+      return { surfaceSessionsByKey: { ...state.surfaceSessionsByKey, [surface.sessionKey]: { ...session,
+        visibleThreadedMessages: session.visibleThreadedMessages?.map(node => node.message.id === mid ? { ...node,
+          message: new chat.EnrichedMessage({ ...node.message, content: payload.reset ? String(payload.delta) : node.message.content + String(payload.delta) }),
+        } : node),
+      } } };
+    });
       });
     };
     emit('chat:messages_ready', {
@@ -324,8 +351,10 @@ describe('MessageNode navigation — registry, Provider, store e leitura reais',
     act(() => useChatStore.setState(state => ({ surfaceSessionsByKey: { ...state.surfaceSessionsByKey,
       [surface.sessionKey]: { ...liveSurface, surfaceOrigin: { ...surfaceOrigin, executionId: 'old-execution' } },
     } })));
+    setFixtureSourceUnavailable(cid, true);
     fireEvent.keyDown(root(), { key: 'Enter' });
     expect(root()).not.toHaveAttribute('aria-modal');
+    setFixtureSourceUnavailable(cid, false);
     act(() => useChatStore.setState(state => ({ surfaceSessionsByKey: { ...state.surfaceSessionsByKey,
       [surface.sessionKey]: liveSurface,
     } })));
@@ -367,7 +396,8 @@ describe('MessageNode navigation — registry, Provider, store e leitura reais',
     expect(root()).toHaveAttribute('aria-modal', 'true');
     fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
 
-    // Uma projeção antiga remontada não ganha autoridade sem a execução original.
+    // Uma projeção antiga remontada não ganha autoridade após fechar a fonte.
+    setFixtureSourceUnavailable(cid, true);
     view.unmount();
     act(() => useChatStore.setState(state => ({
       timelinesByConversationId: { [cid]: { id: cid, title: 'Chat', threadedMessages: [] } },
@@ -397,7 +427,7 @@ describe('MessageNode navigation — registry, Provider, store e leitura reais',
           ...liveSurface,
           ...(kind === 'wrong projection' ? { visibleThreadedMessages: [node()] } : {}),
           ...(kind === 'wrong conversation context' ? { conversationId: 'other-conversation' } : {}),
-          ...(kind === 'stream ended and removed' ? { streamingMessageId: null } : {}),
+          ...(kind === 'stream ended and removed' ? { streamingMessageId: null, visibleThreadedMessages: [] } : {}),
         },
       } })));
       expect(getChatEventControllerExecutionId(cid)).toBe(surfaceOrigin.executionId);
@@ -470,6 +500,7 @@ describe('MessageNode navigation — registry, Provider, store e leitura reais',
     const message = node(); message.message.reasoning = ''; message.message.isStreaming = true; seed([message]); mount();
     act(() => useChatStore.setState(state => ({ surfaceSessionsByKey: { ...state.surfaceSessionsByKey,
       [surface.sessionKey]: { ...state.surfaceSessionsByKey[surface.sessionKey], streamingMessageId: mid, streamingReasoning: 'Raciocínio em progresso' } } })));
+    act(() => useChatStore.setState(state => patchChatConversation(state, cid, conversation => ({ ...conversation, threadedMessages: conversation.threadedMessages.map(node => ({ ...node, message: new chat.EnrichedMessage({ ...node.message, reasoning: 'Raciocínio em progresso' }) })) }))));
     const button = root().querySelector<HTMLButtonElement>('.reasoning-section__header')!;
     expect(button).not.toBeNull(); fireEvent.click(button);
     expect(useChatStore.getState().isConversationReasoningExpanded(cid, mid, surface.sessionKey)).toBe(true);

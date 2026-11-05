@@ -2,6 +2,7 @@ package chat
 
 import (
 	"encoding/json"
+	"maps"
 	"strconv"
 )
 
@@ -67,6 +68,8 @@ func (s *canonicalPublicationStage) discard() {
 // Não captura buffers nem desfaz storage: somente estado visual e publicação.
 func (c *projectionConversation) beginCanonicalPublication() func(string, bool) {
 	published, windows := c.publication, c.windows
+	boundaries := c.presentationBoundaries
+	c.presentationBoundaries = maps.Clone(boundaries)
 	c.publication, c.windows = published.fork(), cloneSubscribedWindows(windows)
 	stage := &canonicalPublicationStage{itemSizes: make(map[string]int)}
 	c.publicationStage = stage
@@ -74,6 +77,7 @@ func (c *projectionConversation) beginCanonicalPublication() func(string, bool) 
 		c.publicationStage = nil
 		if !commit {
 			c.publication, c.windows = published, windows
+			c.presentationBoundaries = boundaries
 			return
 		}
 		if stage.flushRequested {

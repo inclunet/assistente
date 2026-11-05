@@ -180,7 +180,7 @@ describe('MessageList', () => {
     }));
   });
 
-  it('usa contagem visual local quando algum item não tem índice absoluto', () => {
+  it('usa contagem da janela mesmo quando o DTO antigo não tem índice absoluto', () => {
     hoisted.messageNodeMock.mockClear();
     const firstNode = createNode('message-1');
     const expandedTurnNode = createNode('message-expanded');
@@ -205,9 +205,9 @@ describe('MessageList', () => {
 
     const calls = hoisted.messageNodeMock.mock.calls.map(([props]) => props);
     expect(calls).toEqual(expect.arrayContaining([
-      expect.objectContaining({ ariaPosition: 1, ariaSetSize: 3 }),
-      expect.objectContaining({ ariaPosition: 2, ariaSetSize: 3 }),
-      expect.objectContaining({ ariaPosition: 3, ariaSetSize: 3 }),
+      expect.objectContaining({ ariaPosition: 41, ariaSetSize: 100 }),
+      expect.objectContaining({ ariaPosition: 42, ariaSetSize: 100 }),
+      expect.objectContaining({ ariaPosition: 43, ariaSetSize: 100 }),
     ]));
   });
 
@@ -477,7 +477,7 @@ describe('MessageList', () => {
     document.body.removeChild(outside);
   });
 
-  it('não pagina mensagens posteriores a partir de nó de streaming', () => {
+  it('pagina conforme hasNewer do backend mesmo quando o último item recebe streaming', () => {
     hoisted.messageNodeMock.mockClear();
     const onLoadNewer = vi.fn();
     const onReachEnd = vi.fn();
@@ -496,8 +496,8 @@ describe('MessageList', () => {
     const props = hoisted.messageNodeMock.mock.calls[0][0] as { onReachEnd: () => void };
     props.onReachEnd();
 
-    expect(onLoadNewer).not.toHaveBeenCalled();
-    expect(onReachEnd).toHaveBeenCalledTimes(1);
+    expect(onLoadNewer).toHaveBeenCalledTimes(1);
+    expect(onReachEnd).not.toHaveBeenCalled();
   });
 });
 

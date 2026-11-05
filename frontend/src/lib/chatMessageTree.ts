@@ -1,5 +1,6 @@
 import { chat } from '../../wailsjs/go/models';
 import type { ToolOrigin } from '../types/chat';
+import type { TimelineItem } from '../types/chatTimelineEvents';
 
 export interface ToolInvocationSummary {
   invocationId?: string;
@@ -43,7 +44,9 @@ export interface TurnSegment {
   toolCalls?: StreamingToolCall[];
 }
 
-export type MessageNode = chat.MessageNode & {
+export type MessageNode = Omit<chat.MessageNode, 'message' | 'children'> & {
+  message: Message;
+  children?: MessageNode[];
   originalIndex?: number;
   isExpanded?: boolean;
 };
@@ -52,6 +55,7 @@ export type MessageNode = chat.MessageNode & {
 // (campo gerado pelo Wails). `_turnSegments` permanece como override
 // transitório usado pelo controlador de streaming até o turno ser persistido.
 export type Message = chat.EnrichedMessage & {
+  timelineItem?: TimelineItem;
   _turnSegments?: TurnSegment[];
   /** Complete received conclusion before presentation-only diagnostics. */
   _resumableContent?: string;

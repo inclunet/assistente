@@ -46,6 +46,15 @@ export interface TimelineItem {
   durability: string;
   segments: TimelineSegment[];
   metadata: {
+    createdAt: string;
+    timestamp: number;
+    source: string;
+    childCount: number;
+    threadParentMessageId: string | null;
+    conclusionSegmentIds: string[];
+    cacheReadTokens: number;
+    cacheWriteTokens: number;
+    cacheMissTokens: number;
     origin: string;
     role: string;
     pinned: boolean;

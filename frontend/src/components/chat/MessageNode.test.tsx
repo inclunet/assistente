@@ -71,6 +71,18 @@ function render(ui: ReactElement) {
   useChatStore.setState({ timelinesByConversationId: { [conversationId]: conversation }, sessionsByConversationId: { [conversationId]: { ...createEmptyChatSession(conversationId), conversation } }, surfaceSessionsByKey: {} });
   return renderUI(<WorkspacePanelProvider value={{ tab, isActive: true }}><ChatSessionProvider surface={surface}>{content}</ChatSessionProvider></WorkspacePanelProvider>);
 }
+vi.mock('./useChatTimelinePresentation', () => ({
+  useChatTimelinePresentation: () => ({
+    presentation: {
+      getMessage: (id: string) => useChatStore.getState().getConversationMessages(conversationId).find(message => message.id === id),
+      subscribe: useChatStore.subscribe, threadWindow: () => undefined,
+      get window() { return undefined; },
+    },
+    nodes: useChatStore.getState().getConversationMessages(conversationId).map(message => ({ message, children: [], level: 0, childCount: 0 })),
+    revision: 0,
+  }),
+}));
+
 beforeEach(() => {
   vi.spyOn(document, 'hasFocus').mockReturnValue(true);
   useAuthStore.setState({ isAuthenticated: true, user: { userId: 'owner', sessionId: 'session', role: 'admin' } });

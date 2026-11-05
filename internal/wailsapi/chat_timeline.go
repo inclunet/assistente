@@ -250,11 +250,10 @@ func (api *ChatTimeline) Navigate(windowID string, request apidto.TimelineWindow
 	})
 }
 
-func (api *ChatTimeline) SetRetention(windowID string, request apidto.TimelineRetentionRequest) error {
-	_, err := withTimelineHandle(api, windowID, false, func(ctx context.Context, w timelineHandle) (struct{}, error) {
-		return struct{}{}, w.subscription.SetRetention(ctx, request)
+func (api *ChatTimeline) SetRetention(windowID string, request apidto.TimelineRetentionRequest) (*apidto.TimelineRetentionReceipt, error) {
+	return withTimelineHandle(api, windowID, false, func(ctx context.Context, w timelineHandle) (*apidto.TimelineRetentionReceipt, error) {
+		return w.subscription.SetRetentionCheckpoint(ctx, request)
 	})
-	return err
 }
 
 func (api *ChatTimeline) Replay(windowID string, request apidto.ReplayTimelineRequest) (*apidto.TimelineReplay, error) {

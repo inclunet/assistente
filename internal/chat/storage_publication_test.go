@@ -132,7 +132,7 @@ func TestStoragePublicationSelectionQueryPlanUsesSelectedIdentities(t *testing.T
 		t.Fatal(err)
 	}
 	if err := f.db.Callback().Row().After("gorm:row").Register("selection_plan", func(tx *gorm.DB) {
-		if strings.Contains(tx.Statement.SQL.String(), "WITH scoped AS") {
+		if strings.Contains(tx.Statement.SQL.String(), "WITH scoped AS") && !strings.Contains(tx.Statement.SQL.String(), "SELECT parent_id, COUNT(*)") {
 			query = tx.Statement.SQL.String()
 			args = append([]interface{}(nil), tx.Statement.Vars...)
 		}

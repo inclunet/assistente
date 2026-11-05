@@ -32,7 +32,7 @@ function contentSnapshot(protectedContent: boolean): TimelineSnapshot {
       turnId: 'turn', replyToItemId: 'question', messageIds: ['message'], representativeMessageId: 'message',
       position: 'opaque', revision: '10', state: protectedContent ? 'streaming' : 'completed',
       durability: protectedContent ? 'volatile' : 'persisted', segments: [],
-      metadata: { origin: 'chat', role: 'assistant', pinned: false, model: '', promptTokens: 0, completionTokens: 0, totalTokens: 0 } }];
+      metadata: { createdAt: '2026-01-01T00:00:00Z', timestamp: 1767225600000, source: '', childCount: 0, threadParentMessageId: null, conclusionSegmentIds: [], cacheReadTokens: 0, cacheWriteTokens: 0, cacheMissTokens: 0, origin: 'chat', role: 'assistant', pinned: false, model: '', promptTokens: 0, completionTokens: 0, totalTokens: 0 } }];
     value.orderedItemIds = ['item'];
     value.totalCount = value.endIndex = 1;
     return value;
@@ -48,7 +48,7 @@ function fixture() {
     open: vi.fn<TimelineTransport['open']>(async (_id, surface) => snapshot(surface.split('#')[0])),
     refresh: vi.fn<TimelineTransport['refresh']>(async id => snapshot(id, { windowRevision: '3', sequence: '12' })),
     navigate: vi.fn<TimelineTransport['navigate']>(async id => snapshot(id, { windowRevision: '3', sequence: '12' })),
-    retain: vi.fn<TimelineTransport['retain']>(async () => {}),
+    retain: vi.fn<TimelineTransport['retain']>(async (windowId, epoch, windowRevision) => ({ windowId, epoch, windowRevision })),
     readRecovery: vi.fn<TimelineTransport['readRecovery']>(),
     reserveRecovery: vi.fn<TimelineTransport['reserveRecovery']>(),
     releaseRecovery: vi.fn<TimelineTransport['releaseRecovery']>(async () => {}),
@@ -977,4 +977,23 @@ describe('Release concorrente com Close da capability', () => {
     expect(f.port.releaseRecovery).toHaveBeenCalledOnce();
     await f.client.close('chat', 'a');
   });
+});
+
+it('uses the retention receipt for navigation before the event arrives without changing the visual', async () => {
+  const f = fixture();
+  await f.open();
+  const before = f.client.getWindow('chat', 'a');
+  f.port.retain.mockResolvedValueOnce({ windowId: 'a', epoch: 'epoch', windowRevision: '2' });
+  await f.client.setRetention('chat', 'a', []);
+  expect(f.client.getWindow('chat', 'a')).toBe(before);
+  await f.client.navigate('chat', 'a', 'historical', position);
+  expect(f.port.navigate).toHaveBeenCalledWith('a', 'epoch', '2', 'historical', position);
+});
+
+it('rejects a retention receipt from another capability', async () => {
+  const f = fixture();
+  await f.open();
+  f.port.retain.mockResolvedValueOnce({ windowId: 'another', epoch: 'epoch', windowRevision: '2' });
+  await expect(f.client.setRetention('chat', 'a', [])).rejects.toThrow('receipt mismatch');
+  expect(f.client.getWindow('chat', 'a')?.revision).toBe('1');
 });

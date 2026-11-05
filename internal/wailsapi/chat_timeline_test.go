@@ -123,7 +123,7 @@ func TestChatTimelineRPCsUseCanonicalWindowAndReplay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = f.api.SetRetention(snapshot.WindowID, apidto.TimelineRetentionRequest{Epoch: snapshot.Epoch, WindowRevision: snapshot.WindowRevision, ItemIDs: []string{"message:" + f.message}}); err != nil {
+	if _, err = f.api.SetRetention(snapshot.WindowID, apidto.TimelineRetentionRequest{Epoch: snapshot.Epoch, WindowRevision: snapshot.WindowRevision, ItemIDs: []string{"message:" + f.message}}); err != nil {
 		t.Fatal(err)
 	}
 	var nextID string
@@ -415,11 +415,13 @@ func TestChatTimelineEmptyScopedBatchStillAdvancesSequence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	childID := ""
 	err = f.projection.ApplyStorageMutation(f.ctx, f.conversation, []string{}, func() ([]string, error) {
 		child, err := database.CreateMessageWithContext(f.ctx, database.MessageOptions{ConversationID: f.conversation, ParentID: &f.message, Role: "user", Content: "thread separada"})
 		if err != nil {
 			return nil, err
 		}
+		childID = child.ID
 		return []string{"message:" + child.ID}, nil
 	})
 	if err != nil {
@@ -430,7 +432,21 @@ func TestChatTimelineEmptyScopedBatchStillAdvancesSequence(t *testing.T) {
 		t.Fatal("lote vazio descartado", replay, err)
 	}
 	update := replay.Updates[0]
-	if update.Sequence == snapshot.Sequence || update.Operations == nil || len(update.Operations) != 0 || len(update.WindowPatches) != 0 {
+	if len(update.Operations) != 1 || update.Operations[0].Item == nil || update.Operations[0].ItemID != "message:"+f.message || update.Operations[0].Item.Metadata.ChildCount != 1 {
+		t.Fatal("criação de filho não atualizou somente a contagem do pai", update)
+	}
+	if err := f.projection.ApplyStorageMutation(f.ctx, f.conversation, []string{"message:" + childID}, func() ([]string, error) {
+		return nil, database.UpdateMessageTextWithContext(f.ctx, childID, "conteúdo privado da thread alterado")
+	}); err != nil {
+		t.Fatal(err)
+	}
+	replay, err = f.api.Replay(snapshot.WindowID, apidto.ReplayTimelineRequest{Epoch: snapshot.Epoch, WindowRevision: snapshot.WindowRevision, AfterSequence: update.Sequence})
+	if err != nil || replay.SyncRequired || len(replay.Updates) != 1 {
+		t.Fatal("lote vazio descartado", replay, err)
+	}
+	previous := update.Sequence
+	update = replay.Updates[0]
+	if update.Sequence == previous || update.Operations == nil || len(update.Operations) != 0 || len(update.WindowPatches) != 0 {
 		t.Fatal("lote fora do escopo vazou conteúdo ou perdeu sequência", update)
 	}
 }
@@ -441,7 +457,7 @@ func TestChatTimelineFailsClosedWithoutWiringOrAuthentication(t *testing.T) {
 		func() error { _, err := api.Open(apidto.OpenTimelineRequest{}); return err },
 		func() error { _, err := api.Refresh("missing", apidto.RefreshTimelineRequest{}); return err },
 		func() error { _, err := api.Navigate("missing", apidto.TimelineWindowNavigation{}); return err },
-		func() error { return api.SetRetention("missing", apidto.TimelineRetentionRequest{}) },
+		func() error { _, err := api.SetRetention("missing", apidto.TimelineRetentionRequest{}); return err },
 		func() error { _, err := api.Replay("missing", apidto.ReplayTimelineRequest{}); return err },
 		func() error { return api.Close("missing") },
 	}

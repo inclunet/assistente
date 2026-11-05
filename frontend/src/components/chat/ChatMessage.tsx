@@ -5,14 +5,13 @@ import {
   MessageOutlined, MobileOutlined, SoundOutlined, PauseCircleOutlined,
 } from '@ant-design/icons';
 import type { Message, TurnSegment } from '../../store/chatStore';
-import { getMessageTurnSegments, isContentRepresentedBySegments, type ToolInvocationSummary } from '../../lib/chatMessageTree';
+import { type ToolInvocationSummary } from '../../lib/chatMessageTree';
 import { MarkdownRenderer } from '../ui/MarkdownRenderer';
 import { ThreadIndicator } from './ThreadIndicator';
 import { ReasoningSection } from './ReasoningSection';
 import { ToolCallsSection } from './ToolCallsSection';
 import { ToolInvocationDialogsProvider, displayToolStatus, type ToolInvocationDialogCall } from './ToolInvocationDialogs';
 import type { ToolCallStatus } from '../../types/chat';
-import { useChatMessageLiveState } from './ChatSessionContext';
 import { isAgentMessage } from '../../lib/chatUtils';
 import { formatRelativeTime } from '../../lib/dateUtils';
 import { buildChatMessageAriaLabel } from '../../lib/chatMessageAriaLabel';
@@ -79,8 +78,6 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
   isThinking = false,
   isReasoningExpanded = false,
   onToggleReasoning,
-  activeToolCalls,
-  completedSegments: _completedSegmentsProp,
   isPlayingAudio = false,
   editorTargets,
   onSendToEditor,
@@ -102,115 +99,22 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
   const [isChainExpanded, setIsChainExpanded] = useState(true);
   const editTextareaRef = useRef<HTMLTextAreaElement>(null);
   const previousShouldDeferHeavyContentRef = useRef(false);
-  const {
-    liveContent,
-    liveIsStreaming,
-    liveReasoning,
-    liveSegments,
-    liveToolCalls,
-  } = useChatMessageLiveState(message);
-
-  const completedSegments = liveSegments.length > 0 ? liveSegments : _completedSegmentsProp;
-  const effectiveToolCalls = liveToolCalls.length > 0 ? liveToolCalls : activeToolCalls;
-
-  const effectiveContent = liveContent !== null ? liveContent : content;
-  const localizedEffectiveContent = message.role === 'assistant'
-    ? translateBackendErrorDiagnostic(effectiveContent)
-    : effectiveContent;
-  const effectiveIsStreaming = liveIsStreaming !== null ? liveIsStreaming : isStreaming;
-  const effectiveReasoning = liveReasoning !== null ? liveReasoning : reasoning;
+  const effectiveContent = content;
+  const localizedEffectiveContent = message.role === 'assistant' ? translateBackendErrorDiagnostic(content) : content;
+  const effectiveIsStreaming = isStreaming;
+  const effectiveReasoning = reasoning;
   const renderedTabNavigation = isReading ? 'enabled' : 'disabled';
-
-  // Segmentos cronológicos do turno: durante streaming usamos override em
-  // memória; turnos persistidos vêm com `turnSegments` canônicos do backend
-  // (Issue #150) para preservar a cadeia de raciocínio em UMA única entrada.
-  const persistedTurnSegments = getMessageTurnSegments(message);
-  const rawTurnSegments = effectiveIsStreaming && completedSegments !== undefined
-    ? completedSegments
-    : persistedTurnSegments || completedSegments || [];
-  const persistedToolInvocations = (persistedTurnSegments ?? [])
-    .flatMap((segment) => segment.toolInvocations ?? []);
-  const hasAgenticSegments = rawTurnSegments.length > 0
-    || (effectiveIsStreaming && (effectiveToolCalls?.length ?? 0) > 0);
+  const rawTurnSegments = (message.turnSegments ?? []) as TurnSegment[];
+  const persistedToolInvocations = rawTurnSegments.flatMap(segment => segment.toolInvocations ?? []);
+  const hasAgenticSegments = rawTurnSegments.length > 0;
   const isAgenticStreaming = effectiveIsStreaming && hasAgenticSegments;
-
-  // Turnos sem texto, mas com invocações no ledger, recebem somente um
-  // placeholder de apresentação; nenhum ChatMessage técnico é fabricado.
-  const isToolOnlyTurn = !effectiveIsStreaming && !effectiveContent.trim() &&
-    rawTurnSegments.some((segment) => (segment.toolInvocations?.length ?? 0) > 0 || (segment.toolCalls?.length ?? 0) > 0);
-  const placeholderContent = isToolOnlyTurn ? t('chat.toolOnlyTurnPlaceholder') : localizedEffectiveContent;
-  const displaySegments = rawTurnSegments;
-
-  // Issues #160/#163: em turnos agênticos (texto → tools → … → texto final) o
-  // leitor de tela deve anunciar APENAS a CONCLUSÃO do turno — não trechos
-  // intermediários. A regra de seleção da conclusão é determinística, nesta
-  // ordem de precedência:
-  //
-  //   1. Streaming agêntico ativo: o conteúdo ao vivo (`effectiveContent`) tem
-  //      precedência. O trecho mais recente costuma ainda estar em
-  //      `effectiveContent` (iteração em curso) e só vira um `TurnSegment`
-  //      concluído depois; usá-lo torna o anúncio substitutivo (reflete o
-  //      último texto disponível, não o segmento anterior já fechado) — #160.
-  //   2. `message.content` consolidado, quando presente e não-vazio: é a fonte
-  //      de verdade da resposta final. O backend (`consolidateTimelineTurn`)
-  //      define `content = finalContent`, ou seja, o ÚLTIMO conteúdo textual
-  //      não-vazio emitido pelo assistente no turno — a conclusão canônica —
-  //      mesmo quando ela não é o último `TurnSegment` da cadeia (#163).
-  //   3. Fallback: último `TurnSegment` de texto não-vazio, para turnos cujo
-  //      `content` escalar esteja ausente/vazio mas a cadeia traga texto.
-  //   4. Placeholder, quando não há texto algum (ex.: turno tool-only).
-  //
-  // A cadeia completa continua acessível via browse mode (segmentos navegáveis)
-  // e pelo modo de leitura (Enter), independente deste valor.
-  const conclusionSource = useMemo(() => {
-    if (effectiveIsStreaming && effectiveContent && effectiveContent.trim()) {
-      return effectiveContent;
-    }
-    if (content && content.trim()) {
-      return content;
-    }
-    for (let i = displaySegments.length - 1; i >= 0; i -= 1) {
-      const seg = displaySegments[i];
-      if (seg.type === 'text' && seg.content && seg.content.trim()) {
-        return seg.content;
-      }
-    }
-    return placeholderContent || '';
-  }, [effectiveIsStreaming, effectiveContent, content, displaySegments, placeholderContent]);
-  const conclusionContent = message.role === 'assistant'
-    ? translateBackendErrorDiagnostic(conclusionSource)
-    : conclusionSource;
-
-  // O backend determina a cronologia. Separar somente a conclusão que já está
-  // no fim mantém sua posição ao recolher a atividade; texto seguido de tools
-  // continua no ponto original, mesmo quando é o último texto disponível.
-  let lastVisibleSegmentIndex = displaySegments.length - 1;
-  while (lastVisibleSegmentIndex >= 0) {
-    const segment = displaySegments[lastVisibleSegmentIndex];
-    if (segment.content?.trim() || segment.toolInvocations?.length || segment.toolCalls?.length) break;
-    lastVisibleSegmentIndex -= 1;
-  }
-  const lastVisibleSegment = displaySegments[lastVisibleSegmentIndex];
-  const hasTrailingConclusion = !effectiveIsStreaming
-    && lastVisibleSegment?.type === 'text'
-    && lastVisibleSegment.content === conclusionSource;
-  const chainSegments = hasTrailingConclusion
-    ? displaySegments.slice(0, lastVisibleSegmentIndex)
-    : displaySegments;
-  const hasConclusionInChain = chainSegments.some((segment) =>
-    segment.type === 'text' && segment.content === conclusionSource);
-  // Received fragments may represent the full scalar across tool boundaries;
-  // diagnostics are separate and must not hide an unrepresented conclusion.
-  const resumableConclusion = message._resumableContent ?? conclusionSource;
-  const hasCompleteReceivedChain = !effectiveIsStreaming
-    && isContentRepresentedBySegments(message._turnSegments, resumableConclusion);
-  const expandedConclusionContent = message._resumableContent !== undefined && isChainExpanded
-    && !hasTrailingConclusion && !hasConclusionInChain && !hasCompleteReceivedChain
-    && message._turnSegments?.some(segment => segment.diagnostic)
-    ? translateBackendErrorDiagnostic(message._resumableContent)
-    : conclusionContent;
-  const showConclusionAfterChain = !effectiveIsStreaming && !!conclusionContent
-    && (hasTrailingConclusion || (!hasConclusionInChain && !hasCompleteReceivedChain) || !isChainExpanded);
+  const isToolOnlyTurn = !effectiveIsStreaming && !content.trim() && rawTurnSegments.some(segment => segment.toolInvocations?.length || segment.toolCalls?.length);
+  const placeholderContent = isToolOnlyTurn ? t('chat.toolOnlyTurnPlaceholder') : '';
+  const conclusionContent = message.role === 'assistant' ? translateBackendErrorDiagnostic(content || placeholderContent) : content;
+  // Segmentos permanecem na mesma posição e com a mesma identidade ao finalizar.
+  const chainSegments = rawTurnSegments;
+  const expandedConclusionContent = conclusionContent;
+  const showConclusionAfterChain = !effectiveIsStreaming && (!isChainExpanded || isToolOnlyTurn) && !!conclusionContent;
 
   // O host dos diálogos vive no ChatMessage, fora das Sections temporárias.
   // A projeção canônica é inserida por último para prevalecer sobre dados ativos
@@ -218,13 +122,9 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
   const dialogCalls = useMemo<ToolInvocationDialogCall[]>(() => {
     const calls = new Map<string, ToolInvocationDialogCall>();
     const put = (call: ToolInvocationDialogCall) => calls.set(call.callId, call);
-    rawTurnSegments.forEach((segment) => {
-      segment.toolCalls?.forEach((call) => put({ callId: call.id, name: call.function.name, args: call.function.arguments, status: call.status ?? 'done', summary: call.result, errorCode: call.errorCode, origin: call.origin ?? 'builtin', serverLabel: call.serverLabel }));
-    });
-    effectiveToolCalls?.forEach(put);
     rawTurnSegments.forEach((segment) => segment.toolInvocations?.forEach((call: ToolInvocationSummary) => put(call)));
     return [...calls.values()];
-  }, [effectiveToolCalls, rawTurnSegments]);
+  }, [rawTurnSegments]);
   const toolLabels = useMemo(() => dialogCalls.map((call) => formatToolPresentation(
     presentTool(
       call.name,
@@ -239,16 +139,9 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
   // Usa editContent externo se está editando
   const editContent = isEditing ? externalEditContent : effectiveContent;
 
-  const toolCallsHasTextEdit =
-    role === 'assistant' &&
-    (persistedToolInvocations.some((invocation) => invocation.name === 'text_edit')
-      || rawTurnSegments.some((segment) =>
-        segment.toolCalls?.some((call) => call.function.name === 'text_edit')));
-
-  // Quando `text_edit` é usado, o conteúdo do assistente pode vir poluído com fences (ex.: ```markdown).
-  // Como a UI já mostra as tool calls, omitimos o corpo textual para evitar ruído.
-  const displayContent = isEditing ? externalEditContent : (toolCallsHasTextEdit && !effectiveIsStreaming ? '' : placeholderContent);
-  const segmentCount = (persistedTurnSegments || completedSegments || []).length;
+  const displayContent = isEditing ? externalEditContent : localizedEffectiveContent || placeholderContent;
+  const toolCallsHasTextEdit = persistedToolInvocations.some(invocation => invocation.name === 'text_edit');
+  const segmentCount = rawTurnSegments.length;
   const shouldDeferHeavyContent =
     !effectiveIsStreaming &&
     !isReading &&
@@ -279,7 +172,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
     if (role === 'user') return t('chat.you');
 
     // Assistente com tool calls pendentes
-    if (role === 'assistant' && (persistedToolInvocations.length > 0 || (effectiveToolCalls?.length ?? 0) > 0)) {
+    if (role === 'assistant' && persistedToolInvocations.length > 0) {
       return t('chat.assistant');
     }
 
@@ -594,7 +487,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
         )}
 
         {/* Interleaved segments: text → tools → text → tools → final answer */}
-        {role === 'assistant' && hasAgenticSegments ? (
+        {role === 'assistant' && hasAgenticSegments && !isEditing ? (
           <>
             {/* Issue #163: turnos concluídos expõem um controle acessível para
                 contrair/expandir a cadeia inteira (segmentos + tool calls). Durante
@@ -619,7 +512,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
               className="chat-message__segments-log"
             >
               {(isAgenticStreaming || isChainExpanded) && (canRenderHeavyContent ? chainSegments.map((seg, idx) => (
-                <React.Fragment key={idx}>
+                <React.Fragment key={message.timelineItem?.segments.filter(segment => segment.kind !== 'reasoning')[idx]?.segmentId}>
                   {seg.type === 'text' && seg.content && (
                     <div className="chat-message__text chat-message__text--segment">
                       <MarkdownRenderer
@@ -655,6 +548,10 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
               ))}
             </div>
 
+            {isAgenticStreaming && rawTurnSegments[rawTurnSegments.length - 1]?.type === 'tool_calls' &&
+              !persistedToolInvocations.some(call => displayToolStatus(call.status) === 'running') && (
+                <div className="chat-message__text chat-message__text--segment">{t('chat.waitingForNextStep')}</div>
+              )}
             {/* Conclusão fora da região recolhível, sempre depois da atividade.
                 O placeholder tool-only também descreve o estado final, não o início. */}
             {showConclusionAfterChain && (
@@ -674,45 +571,9 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
               </div>
             )}
 
-            {/* A leitura explícita expõe os chunks sem aguardar o fim do turno.
-                Não cria anúncios aria-live concorrentes com o announcer global. */}
-            <div aria-busy={!isReading && effectiveIsStreaming}>
-              {effectiveIsStreaming && displayContent && (
-                <div className="chat-message__text">
-                  <MarkdownRenderer
-                    content={displayContent}
-                    tabNavigation={renderedTabNavigation}
-                    interactiveButtons={!!onSendToEditor}
-                    enableSendToEditorButtons={!!onSendToEditor}
-                    editorTargets={editorTargets}
-                    onSendToEditor={sendBlockToEditor}
-                  />
-                </div>
-              )}
-              {effectiveIsStreaming && effectiveToolCalls && effectiveToolCalls.length > 0 && (
-                <ToolCallsSection
-                  activeToolCalls={effectiveToolCalls}
-                  tabNavigationEnabled={isReading}
-                />
-              )}
-              {effectiveIsStreaming && !displayContent && !effectiveToolCalls?.some((call) => call.status === 'running') && (
-                <div className="chat-message__text">
-                  {t('chat.waitingForNextStep')}
-                  <span className="chat-message__cursor" aria-hidden="true">▋</span>
-                </div>
-              )}
-            </div>
           </>
         ) : (
           <>
-            {/* Non-agentic messages: flat layout (reasoning → tools → content) */}
-            {role === 'assistant' && (canRenderHeavyContent || effectiveIsStreaming) && effectiveIsStreaming && effectiveToolCalls && effectiveToolCalls.length > 0 && (
-              <ToolCallsSection
-                activeToolCalls={effectiveIsStreaming ? effectiveToolCalls : undefined}
-                tabNavigationEnabled={isReading}
-              />
-            )}
-
             <div className="chat-message__text">
               {isEditing ? (
                 <div className="chat-message__edit">
