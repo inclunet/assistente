@@ -346,16 +346,10 @@ func (c cliApp) EnsureConversation(title string) (*app.Conversation, error) {
 	return ctrl.EnsureConversation(ctx, title)
 }
 
-func (c cliApp) GetMessages(conversationID string, parentID *string) ([]chat.MessageNode, error) {
-	ctrl, err := c.conversations()
-	if err != nil {
-		return nil, err
-	}
-	ctx, err := app.AuthenticatedContext(c.App)
-	if err != nil {
-		return nil, err
-	}
-	return ctrl.GetMessages(ctx, conversationID, parentID)
+func (c cliApp) ReadTimelineWindow(query database.MessageWindowQuery) (*chat.TimelineWindowSnapshot, error) {
+ ctx, err := app.AuthenticatedContext(c.App)
+ if err != nil { return nil, err }
+ return app.ReadCanonicalTimelineWindow(c.App, ctx, query)
 }
 
 func (c cliApp) DeleteConversation(id string) error {

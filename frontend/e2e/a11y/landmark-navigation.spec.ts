@@ -91,7 +91,7 @@ test.describe('Landmark navigation — F6 / Shift+F6', () => {
   });
 
   test('F6 avança pelas landmarks e cicla de volta ao contentArea', async ({ page, wails }) => {
-    await wails.setResponse('GetMessages', messagesFixture());
+    await wails.setTimelineRows(messagesFixture());
     await wails.waitForApp();
 
     // Garante que o foco inicial é no textarea (contentArea)

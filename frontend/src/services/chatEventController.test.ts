@@ -1,5 +1,5 @@
+import { messageFixture, nodeFixture } from '../test/chatPresentationFixture';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { chat } from '../../wailsjs/go/models';
 import {
   startChatEventController,
   stopAllChatEventControllers,
@@ -133,7 +133,7 @@ interface TestSession extends ChatEventSession {
 }
 
 const createMessage = (id: string, role: string, content = '', conversationId = 'conversation-1'): Message => (
-  new chat.EnrichedMessage({
+  messageFixture({
     id,
     role,
     content,
@@ -145,7 +145,7 @@ const createMessage = (id: string, role: string, content = '', conversationId = 
 );
 
 const createNode = (message: Message): MessageNode => (
-  new chat.MessageNode({
+  nodeFixture({
     message,
     children: [],
     level: 0,

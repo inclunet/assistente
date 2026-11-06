@@ -20,7 +20,7 @@ type historyBackend interface {
 	SearchConversationHistory(query string, limit int) ([]database.MessageSearchResult, error)
 	GetConversations() ([]app.Conversation, error)
 	GetConversation(id string) (*app.Conversation, error)
-	GetMessages(conversationID string, parentID *string) ([]chat.MessageNode, error)
+	ReadTimelineWindow(database.MessageWindowQuery) (*chat.TimelineWindowSnapshot, error)
 	DeleteConversation(id string) error
 }
 
@@ -109,32 +109,62 @@ func runHistoryShow(svc historyBackend, out io.Writer, id string) error {
 		return fmt.Errorf("conversa não encontrada: %w", err)
 	}
 
-	messages, err := svc.GetMessages(id, nil)
-	if err != nil {
-		return fmt.Errorf("erro ao carregar mensagens: %w", err)
-	}
-
 	ew := &errWriter{w: out}
 	ew.printf("=== %s (ID: %s) ===\n\n", conv.Title, conv.ID)
-	fprintMessageNodes(ew, messages)
-	return ew.err
-}
-
-func fprintMessageNodes(ew *errWriter, nodes []chat.MessageNode) {
-	for _, node := range nodes {
-		msg := node.Message
-		role := strings.ToUpper(msg.Role)
-		content := msg.Content
-		contentRunes := []rune(content)
-		if len(contentRunes) > 500 {
-			content = string(contentRunes[:497]) + "..."
-		}
-		ew.printf("[%s] %s\n\n", role, content)
-
-		if len(node.Children) > 0 {
-			fprintMessageNodes(ew, node.Children)
+	var version *database.ChatTimelineVersion
+	var printScope func(*string) error
+	printScope = func(parent *string) error {
+		query := database.MessageWindowQuery{ConversationID: id, ParentID: parent, Anchor: "start", Direction: "after", Limit: database.MaxMessageWindowRows}
+		for {
+			snapshot, err := svc.ReadTimelineWindow(query)
+			if err != nil {
+				return fmt.Errorf("erro ao carregar mensagens: %w", err)
+			}
+			if snapshot == nil {
+				return fmt.Errorf("janela do histórico indisponível")
+			}
+			if version != nil && *version != snapshot.Version {
+				return fmt.Errorf("o histórico mudou durante a leitura; execute o comando novamente")
+			}
+			if snapshot.Window.HasAfter && (snapshot.AfterCursor == "" || snapshot.AfterCursor == query.Cursor) {
+				return fmt.Errorf("histórico sem avanço de cursor")
+			}
+			if version == nil {
+				v := snapshot.Version
+				version = &v
+			}
+			for _, item := range snapshot.Items {
+				role := "assistant"
+				if item.Representative != nil {
+					role = item.Representative.Role
+				}
+				var text strings.Builder
+				for _, segment := range item.Segments {
+					if segment.Kind == "text" {
+						text.WriteString(segment.Text)
+					}
+				}
+				content := []rune(text.String())
+				if len(content) > 500 {
+					content = append(content[:497], '.', '.', '.')
+				}
+				ew.printf("[%s] %s\n\n", strings.ToUpper(role), string(content))
+				if ew.err != nil {
+					return ew.err
+				}
+				if parent == nil && item.Representative != nil && item.Representative.Presentation != nil && item.Representative.Presentation.ChildCount > 0 {
+					if err := printScope(&item.Representative.ID); err != nil {
+						return err
+					}
+				}
+			}
+			if !snapshot.Window.HasAfter {
+				return nil
+			}
+			query.Anchor, query.Cursor = "", snapshot.AfterCursor
 		}
 	}
+	return printScope(nil)
 }
 
 // ─── delete ─────────────────────────────────────────────────────────────────

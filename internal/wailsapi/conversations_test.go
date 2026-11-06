@@ -5,7 +5,8 @@ import (
 	"testing"
 
 	"assistente/controllers"
-	"assistente/internal/chat"
+	"assistente/internal/apidto"
+	"reflect"
 )
 
 func TestConversationsNotWired(t *testing.T) {
@@ -22,12 +23,6 @@ func TestConversationsNotWired(t *testing.T) {
 	}
 	if _, err := api.DeleteConversations([]string{"id"}); !errors.Is(err, ErrConversationsNotWired) {
 		t.Fatalf("DeleteConversations: got %v", err)
-	}
-	if _, err := api.GetMessages("id", nil); !errors.Is(err, ErrConversationsNotWired) {
-		t.Fatalf("GetMessages: got %v", err)
-	}
-	if _, err := api.GetConversationMessageWindow(chat.MessageWindowRequest{}); !errors.Is(err, ErrConversationsNotWired) {
-		t.Fatalf("GetConversationMessageWindow: got %v", err)
 	}
 	if _, err := api.ToggleMessagePin("id"); !errors.Is(err, ErrConversationsNotWired) {
 		t.Fatalf("ToggleMessagePin: got %v", err)
@@ -89,35 +84,8 @@ func TestConversationsUsesWithUserNotRequireAuth(t *testing.T) {
 			_, err := api.GetConversationsByIDs([]string{"id"})
 			return err
 		}},
-		{"GetMessages", func() error {
-			_, err := api.GetMessages("id", nil)
-			return err
-		}},
-		{"GetRecentMessages", func() error {
-			_, err := api.GetRecentMessages("id", 10)
-			return err
-		}},
-		{"GetMessagesBefore", func() error {
-			_, err := api.GetMessagesBefore("id", "before", 10)
-			return err
-		}},
-		{"GetConversationMessageWindow", func() error {
-			_, err := api.GetConversationMessageWindow(chat.MessageWindowRequest{
-				ConversationID: "id",
-				Limit:          10,
-			})
-			return err
-		}},
 		{"GetConversationInfo", func() error {
 			_, err := api.GetConversationInfo("id")
-			return err
-		}},
-		{"GetConversationWithThreads", func() error {
-			_, err := api.GetConversationWithThreads("id")
-			return err
-		}},
-		{"GetMessageChildren", func() error {
-			_, err := api.GetMessageChildren("id")
 			return err
 		}},
 		{"UpdateConversation", func() error {
@@ -211,5 +179,17 @@ func TestConversationsUsesWithUserNotRequireAuth(t *testing.T) {
 				t.Fatalf("erro = %v, quer o da sessão", err)
 			}
 		})
+	}
+}
+
+func TestConversationHistoryHasOnlyCanonicalTransport(t *testing.T) {
+	typ := reflect.TypeOf(NewConversations())
+	for _, name := range []string{"GetMessages", "GetRecentMessages", "GetMessagesBefore", "GetConversationMessageWindow", "GetConversationWithThreads", "GetMessageChildren"} {
+		if _, exists := typ.MethodByName(name); exists {
+			t.Errorf("legacy presentation binding remains: %s", name)
+		}
+	}
+	if _, err := NewChatTimeline().Open(apidto.OpenTimelineRequest{}); !errors.Is(err, ErrChatTimelineNotWired) {
+		t.Fatalf("canonical read without dependencies: %v", err)
 	}
 }

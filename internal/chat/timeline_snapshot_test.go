@@ -80,14 +80,14 @@ func newSnapshotFixture(t testing.TB) snapshotFixture {
 
 func (f snapshotFixture) window(t testing.TB) *TimelineWindowSnapshot {
 	t.Helper()
-	snapshot, err := f.reader.ReadWindow(f.ctx, database.MessageWindowQuery{ConversationID: f.conversation, Anchor: "end", Direction: "before", Limit: 20})
+	snapshot, err := f.reader.ReadCanonicalWindow(f.ctx, database.MessageWindowQuery{ConversationID: f.conversation, Anchor: "end", Direction: "before", Limit: 20})
 	if err != nil {
 		t.Fatal(err)
 	}
 	return snapshot
 }
 
-func responseNode(t testing.TB, nodes []MessageNode, turnID string) MessageNode {
+func responseNode(t testing.TB, nodes []*TimelineItem, turnID string) *TimelineItem {
 	t.Helper()
 	for _, node := range nodes {
 		if node.ItemID == "turn:"+turnID {
@@ -95,13 +95,13 @@ func responseNode(t testing.TB, nodes []MessageNode, turnID string) MessageNode 
 		}
 	}
 	t.Fatalf("resposta ausente: %+v", nodes)
-	return MessageNode{}
+	return nil
 }
 
-func invocationPreview(t testing.TB, node MessageNode) string {
+func invocationPreview(t testing.TB, node *TimelineItem) string {
 	t.Helper()
-	for _, segment := range node.Message.TurnSegments {
-		for _, call := range segment.ToolCalls {
+	for _, segment := range node.Segments {
+		for _, call := range segment.Invocations {
 			return call.OutputPreview
 		}
 	}
@@ -155,7 +155,7 @@ func TestTimelineSnapshotReadsOneCommitAcrossWindowAndTurn(t *testing.T) {
 			t.Cleanup(func() { _ = f.db.Callback().Query().Remove(hook) })
 			var version database.ChatTimelineVersion
 			var turn *database.ChatTurn
-			var node MessageNode
+			var node *TimelineItem
 			var content, preview string
 			if kind != "turn" {
 				var snapshot *TimelineWindowSnapshot
@@ -169,14 +169,15 @@ func TestTimelineSnapshotReadsOneCommitAcrossWindowAndTurn(t *testing.T) {
 					snapshot = f.window(t)
 				}
 				version, turn = snapshot.Version, snapshot.Turns[f.question]
-				node = responseNode(t, snapshot.Window.Nodes, f.question)
-				content, preview = node.Message.Content, invocationPreview(t, node)
+				node = responseNode(t, snapshot.Items, f.question)
+				content, preview = node.Representative.Content, invocationPreview(t, node)
 			} else {
 				snapshot, err := f.reader.ReadTurn(f.ctx, f.conversation, f.question)
 				if err != nil {
 					t.Fatal(err)
 				}
 				version, turn = snapshot.Version, snapshot.Turn
+ node = snapshot.Response
 				if snapshot.Response == nil || snapshot.Response.Representative == nil {
 					t.Fatal("resposta ausente")
 				}
@@ -192,12 +193,12 @@ func TestTimelineSnapshotReadsOneCommitAcrossWindowAndTurn(t *testing.T) {
 			if writeErr != nil {
 				t.Fatal(writeErr)
 			}
-			if version != before.Version || content != "resposta antiga" || preview != "resultado antigo" || node.ChildCount != 0 || turn == nil || turn.State != database.TurnCompleted {
+			if version != before.Version || content != "resposta antiga" || preview != "resultado antigo" || canonicalItem(node).Metadata.ChildCount != 0 || turn == nil || turn.State != database.TurnCompleted {
 				t.Fatalf("snapshot híbrido: version=%+v turn=%+v node=%+v", version, turn, node)
 			}
 			after := f.window(t)
-			current := responseNode(t, after.Window.Nodes, f.question)
-			if after.Version == before.Version || current.Message.Content != "resposta nova" || invocationPreview(t, current) != "resultado novo" || current.ChildCount != 1 || after.Turns[f.question].State != database.TurnInterrupted {
+			current := responseNode(t, after.Items, f.question)
+			if after.Version == before.Version || current.Representative.Content != "resposta nova" || invocationPreview(t, current) != "resultado novo" || canonicalItem(current).Metadata.ChildCount != 1 || after.Turns[f.question].State != database.TurnInterrupted {
 				t.Fatalf("snapshot seguinte não avançou junto: %+v %+v", after.Version, current)
 			}
 		})
@@ -250,7 +251,7 @@ func TestTimelineSnapshotRejectsMissingSchemaOwnershipAndCancellation(t *testing
 	}
 	ctx, cancel := context.WithCancel(f.ctx)
 	cancel()
-	if _, err := f.reader.ReadWindow(ctx, database.MessageWindowQuery{ConversationID: f.conversation, Limit: 10}); !errors.Is(err, context.Canceled) {
+	if _, err := f.reader.ReadCanonicalWindow(ctx, database.MessageWindowQuery{ConversationID: f.conversation, Limit: 10}); !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancelamento ignorado: %v", err)
 	}
 	if err := f.db.Exec("DELETE FROM chat_timeline_versions WHERE conversation_id=?", f.conversation).Error; err != nil {
@@ -304,8 +305,8 @@ func TestTimelineSnapshotTurnBeyondThousandMatchesWindow(t *testing.T) {
 		t.Fatalf("turno truncado: id=%s segmentos=%d", node.Message.ID, len(node.Message.TurnSegments))
 	}
 	window := f.window(t)
-	fromWindow := responseNode(t, window.Window.Nodes, f.question)
-	if fromWindow.Message.ID != node.Message.ID || len(fromWindow.Message.TurnSegments) != len(node.Message.TurnSegments) || window.Version != snapshot.Version {
+	fromWindow := responseNode(t, window.Items, f.question)
+	if fromWindow.Representative.ID != node.Message.ID || len(fromWindow.Segments) != len(node.Message.TurnSegments) || window.Version != snapshot.Version {
 		t.Fatal("janela e terminal divergentes")
 	}
 	for _, segment := range node.Message.TurnSegments {
@@ -355,14 +356,14 @@ func TestTimelineSnapshotPreservesThreadScopeAndCurrentRetry(t *testing.T) {
 	if node.Message.ID != answer.ID || node.Message.ParentID == nil || *node.Message.ParentID != f.question {
 		t.Fatalf("misturou escopos: %+v", node)
 	}
-	window, err := f.reader.ReadWindow(f.ctx, database.MessageWindowQuery{ConversationID: f.conversation, ParentID: &f.question, Limit: 20, Anchor: "end", Direction: "before"})
+	window, err := f.reader.ReadCanonicalWindow(f.ctx, database.MessageWindowQuery{ConversationID: f.conversation, ParentID: &f.question, Limit: 20, Anchor: "end", Direction: "before"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if windowNode := responseNode(t, window.Window.Nodes, question.ID); windowNode.Level != 1 || windowNode.Message.ID != answer.ID {
+	if windowNode := responseNode(t, window.Items, question.ID); windowNode.ScopeParentID == nil || *windowNode.ScopeParentID != f.question || windowNode.Representative.ID != answer.ID {
 		t.Fatal("thread divergiu entre janela/turno")
 	}
-	if _, err := f.reader.ReadWindow(f.ctx, database.MessageWindowQuery{ConversationID: f.conversation, ParentID: &question.ID, Limit: 20}); err == nil {
+	if _, err := f.reader.ReadCanonicalWindow(f.ctx, database.MessageWindowQuery{ConversationID: f.conversation, ParentID: &question.ID, Limit: 20}); err == nil {
 		t.Fatal("aceitou thread aninhada")
 	}
 	// Snapshot é do estado persistido atual; não é barreira para evento de execução
@@ -403,7 +404,7 @@ func TestTimelineSnapshotDoesNotHideLedgerReadFailure(t *testing.T) {
 	if result, err := f.reader.ReadTurn(f.ctx, f.conversation, f.question); err == nil || result != nil {
 		t.Fatalf("falha virou turno sem ferramentas: %+v %v", result, err)
 	}
-	if result, err := f.reader.ReadWindow(f.ctx, database.MessageWindowQuery{ConversationID: f.conversation, Limit: 20}); err == nil || result != nil {
+	if result, err := f.reader.ReadCanonicalWindow(f.ctx, database.MessageWindowQuery{ConversationID: f.conversation, Limit: 20}); err == nil || result != nil {
 		t.Fatalf("falha virou janela sem ferramentas: %+v %v", result, err)
 	}
 }
@@ -419,14 +420,14 @@ func TestTimelineChildCountsRespectLegacyAndCanonicalWindows(t *testing.T) {
 		t.Fatal(err)
 	}
 	legacy := f.window(t)
-	if got := responseNode(t, legacy.Window.Nodes, f.question).ChildCount; got != 1 {
-		t.Fatalf("legacy count=%d, want persisted child only", got)
+	if got := canonicalItem(responseNode(t, legacy.Items, f.question)).Metadata.ChildCount; got != 2 {
+		t.Fatalf("canonical count=%d, want child and admitted response", got)
 	}
 	canonical, err := f.reader.ReadCanonicalWindow(f.ctx, database.MessageWindowQuery{ConversationID: f.conversation, Anchor: "end", Direction: "before", Limit: 20})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := responseNode(t, canonical.Window.Nodes, f.question).ChildCount; got != 2 {
+	if got := canonicalItem(responseNode(t, canonical.Items, f.question)).Metadata.ChildCount; got != 2 {
 		t.Fatalf("canonical count=%d, want question and admitted response", got)
 	}
 }

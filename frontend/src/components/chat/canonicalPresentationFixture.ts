@@ -1,4 +1,4 @@
-import { chat } from '../../../wailsjs/go/models';
+import { messageFixture } from '../../test/chatPresentationFixture';
 import { useMemo } from 'react';
 import { useChatStore } from '../../store/chatStore';
 import { patchChatConversation, getConversationTimeline } from '../../services/chatSessionRegistry';
@@ -27,7 +27,7 @@ export function useChatTimelinePresentation(conversationId: string | null, sessi
         for (const node of nodes) {
           node.itemId ??= node.message.id;
           node.message.timelineItem = canonicalOverrides.get(node.message.id) ?? { itemId: node.itemId, representativeMessageId: node.message.id, scopeParentId: node.message.parentId ?? null,
-            metadata: { threadParentMessageId: node.message.id }, segments: [] } as unknown as TimelineItem;
+            metadata: {}, segments: [] } as unknown as TimelineItem;
           decorate(node.children ?? []);
         }
       };
@@ -40,7 +40,7 @@ export function useChatTimelinePresentation(conversationId: string | null, sessi
       roots();
       const state = useChatStore.getState();
       const canonical = findNode(id, getConversationTimeline(state, conversationId)?.threadedMessages ?? []);
-      if (canonical) { knownCanonical.add(id); canonical.message.timelineItem = canonicalOverrides.get(id) ?? { itemId: canonical.itemId ?? id, representativeMessageId: id, scopeParentId: canonical.message.parentId ?? null, metadata: { threadParentMessageId: id }, segments: [] } as unknown as TimelineItem; return canonical.message; }
+      if (canonical) { knownCanonical.add(id); canonical.message.timelineItem = canonicalOverrides.get(id) ?? { itemId: canonical.itemId ?? id, representativeMessageId: id, scopeParentId: canonical.message.parentId ?? null, metadata: {}, segments: [] } as unknown as TimelineItem; return canonical.message; }
       if (knownCanonical.has(id)) return undefined;
       const session = state.surfaceSessionsByKey[sessionKey];
       if (session?.conversationId !== conversationId) return undefined;
@@ -78,7 +78,7 @@ function findNode(id: string, nodes: MessageNode[]): MessageNode | undefined {
 
 export function publishFixtureMessage(conversationId: string, id: string, content: string) {
   const change = (nodes: MessageNode[]): MessageNode[] => nodes.map(node => ({ ...node,
-    message: node.message.id === id ? Object.assign(new chat.EnrichedMessage({ ...node.message, content, turnSegments: [{ type: 'text', content }] }), { _turnSegments: undefined }) : node.message,
+    message: node.message.id === id ? Object.assign(messageFixture({ ...node.message, content, turnSegments: [{ type: 'text', content }] }), { _turnSegments: undefined }) : node.message,
     children: change(node.children ?? []),
   }));
   useChatStore.setState(state => ({

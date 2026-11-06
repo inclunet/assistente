@@ -42,7 +42,7 @@ const userMessage = {
 
 test.describe('Chat — streaming multi-segmento', () => {
   test('mantém progresso visível antes do término de duas rodadas', async ({ page, wails }) => {
-    await wails.setResponse('GetMessages', [userMessage]);
+    await wails.setTimelineRows([userMessage]);
     await wails.setResponse('SendMessage', initialAssistantMessageId);
     await wails.setResponse('EnsureConversation', baseConversation);
     await wails.waitForApp();
@@ -71,7 +71,7 @@ test.describe('Chat — streaming multi-segmento', () => {
   });
 
   test('exibe segmentos text → tool → text em sequência', async ({ page, wails }) => {
-    await wails.setResponse('GetMessages', [userMessage]);
+    await wails.setTimelineRows([userMessage]);
     await wails.setResponse('SendMessage', initialAssistantMessageId);
     await wails.setResponse('EnsureConversation', baseConversation);
 
@@ -136,7 +136,7 @@ test.describe('Chat — streaming multi-segmento', () => {
   });
 
   test('chat:done reabilita o input para nova mensagem', async ({ page, wails }) => {
-    await wails.setResponse('GetMessages', [userMessage]);
+    await wails.setTimelineRows([userMessage]);
     await wails.setResponse('SendMessage', initialAssistantMessageId);
     await wails.setResponse('EnsureConversation', baseConversation);
 
@@ -407,7 +407,7 @@ test.describe('Chat — erro no envio', () => {
 
 test.describe('Chat — thinking/reasoning', () => {
   test('exibe seção de raciocínio durante streaming', async ({ page, wails }) => {
-    await wails.setResponse('GetMessages', [userMessage]);
+    await wails.setTimelineRows([userMessage]);
     await wails.setResponse('SendMessage', initialAssistantMessageId);
     await wails.setResponse('EnsureConversation', baseConversation);
 
@@ -466,7 +466,7 @@ test.describe('Chat — thinking/reasoning', () => {
 
   test('seção de raciocínio é togglável via clique no header', async ({ page, wails }) => {
     // Configura mensagem com reasoning já existente
-    await wails.setResponse('GetMessages', [
+    await wails.setTimelineRows([
       userMessage,
       {
         message: {
@@ -498,7 +498,7 @@ test.describe('Chat — thinking/reasoning', () => {
 
 test.describe('Chat — Ctrl+L limpar conversa', () => {
   test('Ctrl+L executa o protocolo e remove a conversa', async ({ page, wails }) => {
-    await wails.setResponse('GetMessages', [userMessage]);
+    await wails.setTimelineRows([userMessage]);
     await wails.setResponse('EnsureConversation', baseConversation);
     await configureChatClearCommand(wails);
 

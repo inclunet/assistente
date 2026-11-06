@@ -1,3 +1,4 @@
+import { messageFixture } from '../test/chatPresentationFixture';
 import { describe, expect, it, vi } from 'vitest';
 const { i18nTMock } = vi.hoisted(() => ({
   i18nTMock: vi.fn((key: string, options?: Record<string, unknown>) => {
@@ -18,7 +19,6 @@ import { getMessageMenuItems } from './messageMenuItems';
 import type { Message } from '../store/chatStore';
 import type { MenuItem } from '../components/menu';
 import type { ChatSendToEditorPayload } from './editorSendMenu';
-import { chat } from '../../wailsjs/go/models';
 
 vi.mock('../services/messageAudio', () => ({
   messageAudioService: {
@@ -42,7 +42,7 @@ vi.mock('../services/tts', () => ({
 describe('messageMenuItems', () => {
   it('captura origem integral de mensagem, código, tabela e link em ambos destinos', () => {
     const originalContent = '# Fonte\n\n```ts\nconst a = 1;\n```\n\n| A | B |\n| --- | --- |\n| 1 | 2 |\n\n[Site](https://example.com)';
-    const message = new chat.EnrichedMessage({ id: 'source-a', role: 'assistant', content: originalContent });
+    const message = messageFixture({ id: 'source-a', role: 'assistant', content: originalContent });
     const onSendToEditor = vi.fn<(payload: ChatSendToEditorPayload & { kind: string }) => void>();
     const items = getMessageMenuItems(message, { onSendToEditor, editorTargets: [{ id: 'doc-a', title: 'A' }] });
     message.id = 'source-b';
@@ -69,7 +69,7 @@ describe('messageMenuItems', () => {
 
   it('oferece fixar ou desafixar apenas para mensagens persistidas', () => {
     const onPin = vi.fn();
-    const persisted = new chat.EnrichedMessage({
+    const persisted = messageFixture({
       id: '01926b90-7a5a-7c4e-8d3f-000000000002',
       conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001',
       role: 'assistant',
@@ -83,7 +83,7 @@ describe('messageMenuItems', () => {
     pinItem?.action?.();
     expect(onPin).toHaveBeenCalledWith(persisted);
 
-    const synthetic = new chat.EnrichedMessage({
+    const synthetic = messageFixture({
       ...persisted,
       id: 'streaming-conversation',
       pinned: false,
@@ -93,7 +93,7 @@ describe('messageMenuItems', () => {
 
   it('inclui itens basicos e markdown', () => {
     i18nTMock.mockClear();
-    const assistantMessage = new chat.EnrichedMessage({
+    const assistantMessage = messageFixture({
       id: '1',
       conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001',
       role: 'assistant',
@@ -123,7 +123,7 @@ describe('messageMenuItems', () => {
 
   it('inclui itens de usuario', () => {
     i18nTMock.mockClear();
-    const userMessage = new chat.EnrichedMessage({
+    const userMessage = messageFixture({
       id: '2',
       conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001',
       role: 'user',
@@ -151,7 +151,7 @@ describe('messageMenuItems', () => {
   });
 
   it('inclui "Continuar resposta" quando habilitado', () => {
-    const assistantMessage = new chat.EnrichedMessage({
+    const assistantMessage = messageFixture({
       id: 'a-sintetico',
       conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001',
       role: 'assistant',
@@ -181,7 +181,7 @@ describe('messageMenuItems', () => {
 
   it('inclui envio para editor quando configurado', () => {
     i18nTMock.mockClear();
-    const assistantMessage = new chat.EnrichedMessage({
+    const assistantMessage = messageFixture({
       id: '3',
       conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001',
       role: 'assistant',
@@ -215,7 +215,7 @@ describe('messageMenuItems', () => {
   it('usa titulos distintos ao enviar multiplas tabelas para novo documento', () => {
     i18nTMock.mockClear();
     const onSendToEditor = vi.fn();
-    const assistantMessage = new chat.EnrichedMessage({
+    const assistantMessage = messageFixture({
       id: '4',
       conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001',
       role: 'assistant',
@@ -253,7 +253,7 @@ describe('messageMenuItems', () => {
 
   it('inclui cancelar geração quando mensagem está em streaming', () => {
     const onCancelStreaming = vi.fn();
-    const streamingMessage = new chat.EnrichedMessage({
+    const streamingMessage = messageFixture({
       id: 'streaming-1',
       conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001',
       role: 'assistant',

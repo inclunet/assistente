@@ -66,16 +66,8 @@ export function GetConversationInfo(arg1) {
   return window['go']['wailsapi']['Conversations']['GetConversationInfo'](arg1);
 }
 
-export function GetConversationMessageWindow(arg1) {
-  return window['go']['wailsapi']['Conversations']['GetConversationMessageWindow'](arg1);
-}
-
 export function GetConversationSummary(arg1) {
   return window['go']['wailsapi']['Conversations']['GetConversationSummary'](arg1);
-}
-
-export function GetConversationWithThreads(arg1) {
-  return window['go']['wailsapi']['Conversations']['GetConversationWithThreads'](arg1);
 }
 
 export function GetConversations() {
@@ -94,24 +86,8 @@ export function GetEffectiveModel() {
   return window['go']['wailsapi']['Conversations']['GetEffectiveModel']();
 }
 
-export function GetMessageChildren(arg1) {
-  return window['go']['wailsapi']['Conversations']['GetMessageChildren'](arg1);
-}
-
-export function GetMessages(arg1, arg2) {
-  return window['go']['wailsapi']['Conversations']['GetMessages'](arg1, arg2);
-}
-
-export function GetMessagesBefore(arg1, arg2, arg3) {
-  return window['go']['wailsapi']['Conversations']['GetMessagesBefore'](arg1, arg2, arg3);
-}
-
 export function GetPinnedMessages(arg1) {
   return window['go']['wailsapi']['Conversations']['GetPinnedMessages'](arg1);
-}
-
-export function GetRecentMessages(arg1, arg2) {
-  return window['go']['wailsapi']['Conversations']['GetRecentMessages'](arg1, arg2);
 }
 
 export function GetToolInvocationDetails(arg1) {

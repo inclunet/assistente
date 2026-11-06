@@ -1,8 +1,9 @@
+import type { Message, MessageNode } from '../../lib/chatMessageTree';
+import { messageFixture, nodeFixture, segmentFixture } from '../../test/chatPresentationFixture';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import React from 'react';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { MessageList } from './MessageList';
-import { chat } from '../../../wailsjs/go/models';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
@@ -35,8 +36,8 @@ vi.mock('./MessageNode', () => ({
 }));
 
 describe('MessageList', () => {
-  const createNode = (id = '1') => chat.MessageNode.createFrom({
-    message: new chat.EnrichedMessage({
+  const createNode = (id = '1') => nodeFixture({
+    message: messageFixture({
       id,
       conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001',
       role: 'user',
@@ -217,7 +218,7 @@ describe('MessageList', () => {
     const turnNode = createNode('assistant-final');
     turnNode.message.role = 'assistant';
     turnNode.message.turnId = 'user-1';
-    turnNode.message.turnSegments = [new chat.TurnSegment({
+    turnNode.message.turnSegments = [segmentFixture({
       type: 'tool_calls',
       toolInvocations: [{
         invocationId: 'inv-1',
@@ -271,7 +272,7 @@ describe('MessageList', () => {
     render(<MessageList threadedMessages={[firstAssistant, secondAssistant, thirdAssistant]} />);
 
     const renderedIds = hoisted.messageNodeMock.mock.calls.map(
-      ([props]) => (props as { node: chat.MessageNode }).node.message.id,
+      ([props]) => (props as { node: MessageNode }).node.message.id,
     );
     expect(renderedIds).toEqual(['assistant-1', 'assistant-2', 'assistant-3']);
   });
@@ -296,7 +297,7 @@ describe('MessageList', () => {
 
     expect(hoisted.messageNodeMock).toHaveBeenCalledTimes(2);
     const turnProps = hoisted.messageNodeMock.mock.calls[1][0] as {
-      node: chat.MessageNode & { message: chat.EnrichedMessage & { turnSegments?: unknown[] } };
+      node: MessageNode & { message: Message & { turnSegments?: unknown[] } };
     };
     expect(turnProps.node.message.id).toBe('assistant-final');
     expect(turnProps.node.message.turnSegments).toEqual([
@@ -325,10 +326,10 @@ describe('MessageList', () => {
     render(<MessageList threadedMessages={[canonicalNode, streamingNode]} />);
 
     const canonicalProps = hoisted.messageNodeMock.mock.calls[0][0] as {
-      node: chat.MessageNode & { message: chat.EnrichedMessage & { _turnSegments?: unknown[] } };
+      node: MessageNode & { message: Message & { _turnSegments?: unknown[] } };
     };
     const streamingProps = hoisted.messageNodeMock.mock.calls[1][0] as {
-      node: chat.MessageNode & { message: chat.EnrichedMessage & { _turnSegments?: unknown[] } };
+      node: MessageNode & { message: Message & { _turnSegments?: unknown[] } };
     };
     expect(hoisted.messageNodeMock).toHaveBeenCalledTimes(2);
     expect(canonicalProps.node.message._turnSegments).toEqual([
@@ -508,8 +509,8 @@ describe('MessageList (virtualização)', () => {
 
   const createNodes = (count: number) =>
     Array.from({ length: count }, (_, index) =>
-      chat.MessageNode.createFrom({
-        message: new chat.EnrichedMessage({
+      nodeFixture({
+        message: messageFixture({
           id: `msg-${index}`,
           conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001',
           role: index % 2 === 0 ? 'user' : 'assistant',

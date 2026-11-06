@@ -15,7 +15,6 @@ type CanonicalItem struct {
 	ReplyToItemID           string                     `json:"replyToItemId"`
 	MessageIDs              []string                   `json:"messageIds"`
 	RepresentativeMessageID *string                    `json:"representativeMessageId"`
-	Position                string                     `json:"position"`
 	Revision                string                     `json:"revision"`
 	State                   string                     `json:"state"`
 	Durability              string                     `json:"durability"`
@@ -75,24 +74,22 @@ type CanonicalSegment struct {
 }
 
 type CanonicalMetadata struct {
-	Thinking              bool     `json:"thinking,omitempty"`
-	TerminalReason        string   `json:"terminalReason,omitempty"`
-	ThreadParentMessageID *string  `json:"threadParentMessageId"`
-	ConclusionSegmentIDs  []string `json:"conclusionSegmentIds"`
-	CreatedAt             string   `json:"createdAt"`
-	Timestamp             int64    `json:"timestamp"`
-	Source                string   `json:"source"`
-	ChildCount            int      `json:"childCount"`
-	CacheReadTokens       int      `json:"cacheReadTokens"`
-	CacheWriteTokens      int      `json:"cacheWriteTokens"`
-	CacheMissTokens       int      `json:"cacheMissTokens"`
-	Origin                string   `json:"origin"`
-	Role                  string   `json:"role"`
-	Pinned                bool     `json:"pinned"`
-	Model                 string   `json:"model"`
-	PromptTokens          int      `json:"promptTokens"`
-	CompletionTokens      int      `json:"completionTokens"`
-	TotalTokens           int      `json:"totalTokens"`
+	Thinking             bool     `json:"thinking,omitempty"`
+	TerminalReason       string   `json:"terminalReason,omitempty"`
+	ConclusionSegmentIDs []string `json:"conclusionSegmentIds"`
+	CreatedAt            string   `json:"createdAt"`
+	Source               string   `json:"source,omitempty"`
+	ChildCount           int      `json:"childCount,omitempty"`
+	CacheReadTokens      int      `json:"cacheReadTokens,omitempty"`
+	CacheWriteTokens     int      `json:"cacheWriteTokens,omitempty"`
+	CacheMissTokens      int      `json:"cacheMissTokens,omitempty"`
+	Origin               string   `json:"origin"`
+	Role                 string   `json:"role"`
+	Pinned               bool     `json:"pinned,omitempty"`
+	Model                string   `json:"model,omitempty"`
+	PromptTokens         int      `json:"promptTokens,omitempty"`
+	CompletionTokens     int      `json:"completionTokens,omitempty"`
+	TotalTokens          int      `json:"totalTokens,omitempty"`
 }
 
 type CanonicalOperation struct {

@@ -78,7 +78,7 @@ async function setupAndOpenContextMenu(
   wails: Parameters<Parameters<typeof test>[2]>[0]['wails'],
 ) {
   const now = new Date().toISOString();
-  await wails.setResponse('GetMessages', messagesFixture());
+  await wails.setTimelineRows(messagesFixture());
   await wails.setResponse('DeleteMessage', undefined);
   await wails.setResponse('SpeakMessage', undefined);
   await wails.setResponse('EnsureConversation', {
@@ -259,7 +259,7 @@ test.describe('Menu — Escape closes', () => {
 test.describe('Menu — keyboard opens via Shift+F10', () => {
   test('Shift+F10 em mensagem abre menu de contexto com foco no primeiro item', async ({ page, wails }) => {
     const now = new Date().toISOString();
-    await wails.setResponse('GetMessages', messagesFixture());
+    await wails.setTimelineRows(messagesFixture());
     await wails.setResponse('DeleteMessage', undefined);
     await wails.setResponse('EnsureConversation', {
       id: '01926b90-0000-7000-8000-000000000001', title: 'Conversa', created_at: now, updated_at: now,

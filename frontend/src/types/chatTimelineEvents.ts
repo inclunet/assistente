@@ -40,7 +40,6 @@ export interface TimelineItem {
   replyToItemId: string;
   messageIds: string[];
   representativeMessageId: string | null;
-  position: string;
   revision: string;
   state: string;
   durability: string;
@@ -49,10 +48,8 @@ export interface TimelineItem {
     thinking?: boolean;
     terminalReason?: string;
     createdAt: string;
-    timestamp: number;
     source: string;
     childCount: number;
-    threadParentMessageId: string | null;
     conclusionSegmentIds: string[];
     cacheReadTokens: number;
     cacheWriteTokens: number;
@@ -125,3 +122,13 @@ export interface ChatTimelineEvent {
   reason?: string;
   updates: TimelineUpdate[];
 }
+
+/** Campos omitidos no wire têm estes defaults na única borda de entrada. */
+export type TimelineWireItem = Omit<TimelineItem, 'metadata' | 'scopeParentId' | 'turnId' | 'representativeMessageId'> & {
+  scopeParentId?: string | null; turnId?: string | null; representativeMessageId?: string | null;
+  metadata: Pick<TimelineItem['metadata'], 'createdAt' | 'conclusionSegmentIds' | 'origin' | 'role'> & Partial<TimelineItem['metadata']>;
+};
+export type ChatTimelineWireEvent = Omit<ChatTimelineEvent, 'updates'> & { updates: Array<Omit<TimelineUpdate, 'operations' | 'windowPatches'> & {
+  windowPatches: Array<Omit<TimelineWindowPatch, 'items'> & { items?: TimelineWireItem[] }>;
+  operations: Array<Omit<TimelineOperation, 'item'> & { item?: TimelineWireItem }>;
+}> };

@@ -23,7 +23,9 @@ type mockHistoryBackend struct {
 	convsErr      error
 	conversation  *app.Conversation
 	convErr       error
-	messages      []chat.MessageNode
+	messages      []*chat.TimelineItem
+	children      []*chat.TimelineItem
+	readWindow    func(database.MessageWindowQuery) (*chat.TimelineWindowSnapshot, error)
 	messagesErr   error
 	deleteErr     error
 
@@ -43,8 +45,15 @@ func (m *mockHistoryBackend) GetConversation(id string) (*app.Conversation, erro
 	return m.conversation, m.convErr
 }
 
-func (m *mockHistoryBackend) GetMessages(conversationID string, parentID *string) ([]chat.MessageNode, error) {
-	return m.messages, m.messagesErr
+func (m *mockHistoryBackend) ReadTimelineWindow(q database.MessageWindowQuery) (*chat.TimelineWindowSnapshot, error) {
+	if m.readWindow != nil {
+		return m.readWindow(q)
+	}
+	items := m.messages
+	if q.ParentID != nil {
+		items = m.children
+	}
+	return &chat.TimelineWindowSnapshot{Items: items}, m.messagesErr
 }
 
 func (m *mockHistoryBackend) DeleteConversation(id string) error {
@@ -223,13 +232,9 @@ func TestHistoryList_SearchLongSnippet(t *testing.T) {
 func TestHistoryShow_Success(t *testing.T) {
 	mock := &mockHistoryBackend{
 		conversation: &app.Conversation{UUIDModel: database.UUIDModel{ID: "42"}, Title: "Minha Conversa"},
-		messages: []chat.MessageNode{
-			{
-				Message: chat.EnrichedMessage{Role: "user", Content: "olá"},
-			},
-			{
-				Message: chat.EnrichedMessage{Role: "assistant", Content: "oi!"},
-			},
+		messages: []*chat.TimelineItem{
+			{Representative: &database.ChatMessage{Role: "user"}, Segments: []chat.ResponseSegment{{Kind: "text", Text: "olá"}}},
+			{Representative: &database.ChatMessage{Role: "assistant"}, Segments: []chat.ResponseSegment{{Kind: "text", Text: "oi!"}}},
 		},
 	}
 
@@ -288,14 +293,10 @@ func TestHistoryShow_MessagesError(t *testing.T) {
 func TestHistoryShow_NestedMessages(t *testing.T) {
 	mock := &mockHistoryBackend{
 		conversation: &app.Conversation{UUIDModel: database.UUIDModel{ID: "1"}, Title: "Nested"},
-		messages: []chat.MessageNode{
-			{
-				Message: chat.EnrichedMessage{Role: "user", Content: "pergunta"},
-				Children: []chat.MessageNode{
-					{Message: chat.EnrichedMessage{Role: "assistant", Content: "resposta"}},
-				},
-			},
+		messages: []*chat.TimelineItem{
+			{Representative: &database.ChatMessage{UUIDModel: database.UUIDModel{ID: "parent"}, Role: "user", Presentation: &database.MessagePresentation{ChildCount: 1}}, Segments: []chat.ResponseSegment{{Kind: "text", Text: "pergunta"}}},
 		},
+		children: []*chat.TimelineItem{{Representative: &database.ChatMessage{Role: "assistant"}, Segments: []chat.ResponseSegment{{Kind: "text", Text: "resposta"}}}},
 	}
 
 	var out bytes.Buffer
@@ -345,5 +346,103 @@ func TestHistoryDelete_Error(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "erro ao remover conversa") {
 		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestHistoryShowPaginatesRootAndThread(t *testing.T) {
+	version := database.ChatTimelineVersion{Incarnation: "conversation", Revision: 1}
+	calls := 0
+	svc := &mockHistoryBackend{conversation: &app.Conversation{UUIDModel: database.UUIDModel{ID: "c"}}}
+	svc.readWindow = func(q database.MessageWindowQuery) (*chat.TimelineWindowSnapshot, error) {
+		calls++
+		if q.ConversationID != "c" || q.Direction != "after" || q.Limit != database.MaxMessageWindowRows {
+			t.Fatalf("consulta incorreta: %+v", q)
+		}
+		first := q.Cursor == ""
+		if first && q.Anchor != "start" || !first && q.Anchor != "" {
+			t.Fatalf("âncora incorreta: %+v", q)
+		}
+		prefix := "root"
+		if q.ParentID != nil {
+			if *q.ParentID != "parent" {
+				t.Fatal("pai incorreto", *q.ParentID)
+			}
+			prefix = "thread"
+		}
+		snapshot := &chat.TimelineWindowSnapshot{Version: version}
+		start, end := 0, database.MaxMessageWindowRows
+		if !first {
+			if q.Cursor != prefix+"-next" {
+				t.Fatal("cursor incorreto", q.Cursor)
+			}
+			start, end = end, end+1
+		}
+		for i := start; i < end; i++ {
+			item := &chat.TimelineItem{Segments: []chat.ResponseSegment{{Kind: "text", Text: fmt.Sprintf("%s-%03d", prefix, i)}}}
+			if prefix == "root" && i == 0 {
+				item.Representative = &database.ChatMessage{UUIDModel: database.UUIDModel{ID: "parent"}, Presentation: &database.MessagePresentation{ChildCount: 1}}
+			}
+			snapshot.Items = append(snapshot.Items, item)
+		}
+		snapshot.Window.HasAfter = first
+		if first {
+			snapshot.AfterCursor = prefix + "-next"
+		}
+		return snapshot, nil
+	}
+	var out bytes.Buffer
+	if err := runHistoryShow(svc, &out, "c"); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 4 {
+		t.Fatal("quantidade de páginas", calls)
+	}
+	for _, prefix := range []string{"root", "thread"} {
+		for i := 0; i <= database.MaxMessageWindowRows; i++ {
+			if strings.Count(out.String(), fmt.Sprintf("%s-%03d", prefix, i)) != 1 {
+				t.Fatalf("item omitido ou repetido: %s-%03d", prefix, i)
+			}
+		}
+	}
+}
+
+func TestHistoryShowRejectsVersionChangesAndBrokenCursors(t *testing.T) {
+	for _, mode := range []string{"version", "incarnation", "empty-cursor", "repeated-cursor", "thread-version"} {
+		t.Run(mode, func(t *testing.T) {
+			calls := 0
+			svc := &mockHistoryBackend{conversation: &app.Conversation{}}
+			svc.readWindow = func(q database.MessageWindowQuery) (*chat.TimelineWindowSnapshot, error) {
+				calls++
+				if calls > 2 {
+					t.Fatal("leitura não encerrou após recusa")
+				}
+				snapshot := &chat.TimelineWindowSnapshot{Version: database.ChatTimelineVersion{Incarnation: "a", Revision: 1}, AfterCursor: "next"}
+				snapshot.Window.HasAfter = true
+				if mode == "empty-cursor" {
+					snapshot.AfterCursor = ""
+				}
+				if calls == 1 && mode == "thread-version" {
+					snapshot.Items = []*chat.TimelineItem{{Representative: &database.ChatMessage{UUIDModel: database.UUIDModel{ID: "p"}, Presentation: &database.MessagePresentation{ChildCount: 1}}}}
+				}
+				if calls == 2 {
+					snapshot.Items = []*chat.TimelineItem{{Segments: []chat.ResponseSegment{{Kind: "text", Text: "conteúdo divergente"}}}}
+					switch mode {
+					case "version", "thread-version":
+						snapshot.Version.Revision = 2
+					case "incarnation":
+						snapshot.Version.Incarnation = "b"
+					}
+				}
+				return snapshot, nil
+			}
+			var out bytes.Buffer
+			err := runHistoryShow(svc, &out, "c")
+			if err == nil {
+				t.Fatal("histórico inconsistente aceito")
+			}
+			if strings.Contains(out.String(), "conteúdo divergente") {
+				t.Fatal("página divergente foi impressa")
+			}
+		})
 	}
 }

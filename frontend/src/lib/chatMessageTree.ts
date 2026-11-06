@@ -1,4 +1,3 @@
-import { chat } from '../../wailsjs/go/models';
 import type { ToolOrigin } from '../types/chat';
 import type { TimelineItem } from '../types/chatTimelineEvents';
 
@@ -44,22 +43,44 @@ export interface TurnSegment {
   toolCalls?: StreamingToolCall[];
 }
 
-export type MessageNode = Omit<chat.MessageNode, 'message' | 'children'> & {
+export interface MessageNode {
+  itemId?: string;
+  level: number;
+  childCount: number;
   message: Message;
   children?: MessageNode[];
   originalIndex?: number;
   isExpanded?: boolean;
 };
 
-// Issue #150: o backend agora envia segmentos canônicos via `turnSegments`
-// (campo gerado pelo Wails). `_turnSegments` permanece como override
-// transitório usado pelo controlador de streaming até o turno ser persistido.
-export type Message = chat.EnrichedMessage & {
+/** Dados de apresentação derivados exclusivamente dos itens canônicos. */
+export interface Message {
+  id: string;
+  conversationId: string;
+  parentId?: string;
+  turnId?: string;
+  role: string;
+  content: string;
+  reasoning?: string;
+  media?: string;
+  promptTokens?: number;
+  completionTokens?: number;
+  totalTokens?: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+  cacheMissTokens?: number;
+  model?: string;
+  source?: string;
+  pinned: boolean;
+  createdAt: string;
+  timestamp: number;
+  isStreaming: boolean;
+  internal: boolean;
+  turnSegments?: TurnSegment[];
   timelineItem?: TimelineItem;
   _turnSegments?: TurnSegment[];
-  /** Complete received conclusion before presentation-only diagnostics. */
   _resumableContent?: string;
-};
+}
 
 // getMessageTurnSegments retorna os segmentos cronológicos do turno preferindo
 // o override transitório (`_turnSegments`, populado durante o streaming
@@ -91,37 +112,11 @@ export interface ChatTreeConversation {
 }
 
 function cloneMessage(message: Message, overrides: Partial<Message> = {}): Message {
-  const cloned = new chat.EnrichedMessage({
-    ...message,
-    ...overrides,
-  }) as Message;
-  // Omitting _turnSegments preserves the override; [] explicitly hides canonical segments.
-  const turnSegments = overrides._turnSegments ?? message._turnSegments;
-  if (turnSegments) cloned._turnSegments = turnSegments;
-  if (message._resumableContent !== undefined) cloned._resumableContent = message._resumableContent;
-  return cloned;
+  return { ...message, ...overrides };
 }
 
 function createNode(input: Partial<MessageNode> & { message: Message }): MessageNode {
-  const node = new chat.MessageNode({
-    children: [],
-    childCount: 0,
-    level: 0,
-    ...input,
-  }) as MessageNode;
-  if (!Object.prototype.hasOwnProperty.call(input.message, 'turnId')) {
-    delete (node.message as Message & { turnId?: string }).turnId;
-  }
-  if ((input.message as Message)._turnSegments) {
-    (node.message as Message)._turnSegments = (input.message as Message)._turnSegments;
-  }
-  if (input.message._resumableContent !== undefined) {
-    (node.message as Message)._resumableContent = input.message._resumableContent;
-  }
-  if (input.children) {
-    node.children = [...input.children];
-  }
-  return node;
+  return { childCount: 0, level: 0, ...input, children: input.children ? [...input.children] : [] };
 }
 
 function cloneNode(node: MessageNode, overrides: Partial<MessageNode> = {}): MessageNode {
@@ -133,10 +128,6 @@ function cloneNode(node: MessageNode, overrides: Partial<MessageNode> = {}): Mes
     message,
     children: [],
   });
-  // The generated Wails constructor rehydrates EnrichedMessage and changes its
-  // identity even for structural-only updates. Preserve the message reference
-  // as its version token; callers that changed message data pass a new object.
-  cloned.message = message;
   cloned.children = children;
   cloned.originalIndex = overrides.originalIndex ?? node.originalIndex;
   cloned.isExpanded = overrides.isExpanded ?? node.isExpanded;
@@ -158,7 +149,7 @@ export function flattenThreadedMessages(nodes: MessageNode[] | undefined): Messa
   return flat;
 }
 
-export function withOriginalIndex(node: chat.MessageNode, index: number): MessageNode {
+export function withOriginalIndex(node: MessageNode, index: number): MessageNode {
   const typed = node as MessageNode;
   typed.originalIndex = index;
   return typed;

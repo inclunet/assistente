@@ -12,20 +12,19 @@ import (
 	"assistente/internal/toolinvocations"
 )
 
-// BenchmarkConversationMessageWindowBaseline mede o caminho de produção:
+// BenchmarkCanonicalTimelineWindow mede o caminho de produção:
 // consulta SQLite, hidratação do ledger, montagem da timeline e serialização do
 // payload que cruza a ponte Wails.
-func BenchmarkConversationMessageWindowBaseline(b *testing.B) {
+func BenchmarkCanonicalTimelineWindow(b *testing.B) {
 	for _, messageCount := range []int{100, 500, 1000} {
 		for _, resultBytes := range []int{1 << 10, 100 << 10, 10 << 20} {
 			name := fmt.Sprintf("messages_%d_result_%d", messageCount, resultBytes)
 			b.Run(name, func(b *testing.B) {
 				setupMessageWindowAppTestDB(b)
 				conversationID := seedMessageWindowBenchmark(b, messageCount, resultBytes)
-				controller := newMessageWindowTestController()
-				request := chat.MessageWindowRequest{
+				controller := newMessageWindowTestReader()
+				request := database.MessageWindowQuery{
 					ConversationID: conversationID,
-					Scope:          chat.MessageWindowScopeConversation,
 					Anchor:         chat.MessageWindowAnchorEnd,
 					Direction:      chat.MessageWindowDirectionBefore,
 					Limit:          database.MaxMessageWindowRows,
@@ -35,7 +34,7 @@ func BenchmarkConversationMessageWindowBaseline(b *testing.B) {
 				b.ReportMetric(float64(messageCount), "persisted_messages")
 				b.ResetTimer()
 				for range b.N {
-					window, err := controller.GetConversationMessageWindow(messageWindowTestCtx(), request)
+					window, err := controller.Read(messageWindowTestCtx(), request)
 					if err != nil {
 						b.Fatal(err)
 					}
@@ -53,9 +52,8 @@ func BenchmarkConversationMessageWindowBaseline(b *testing.B) {
 func TestConversationMessageWindowExcluiPayloadIntegralDaTool(t *testing.T) {
 	setupMessageWindowAppTestDB(t)
 	conversationID := seedMessageWindowBenchmark(t, 100, 100<<10)
-	window, err := newMessageWindowTestController().GetConversationMessageWindow(messageWindowTestCtx(), chat.MessageWindowRequest{
+	window, err := newMessageWindowTestReader().Read(messageWindowTestCtx(), database.MessageWindowQuery{
 		ConversationID: conversationID,
-		Scope:          chat.MessageWindowScopeConversation,
 		Anchor:         chat.MessageWindowAnchorEnd,
 		Direction:      chat.MessageWindowDirectionBefore,
 		Limit:          database.MaxMessageWindowRows,
@@ -69,6 +67,10 @@ func TestConversationMessageWindowExcluiPayloadIntegralDaTool(t *testing.T) {
 	}
 	if strings.Contains(string(payload), strings.Repeat("x", 256)) {
 		t.Fatal("timeline leve contém trecho do resultado integral")
+	}
+	t.Logf("payload canônico: %d bytes", len(payload))
+	if len(window.Items) != 100 || len(window.OrderedItemIDs) != 100 {
+		t.Fatal("fixture perdeu itens")
 	}
 	if len(payload) >= 64<<10 {
 		t.Fatalf("timeline leve excedeu 64 KiB: %d bytes", len(payload))

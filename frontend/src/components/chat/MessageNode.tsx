@@ -149,7 +149,7 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
     }
   }, [isPlayingAudio, onSpeak]);
 
-  const threadParent = node.message.timelineItem?.metadata.threadParentMessageId;
+  const threadParent = node.message.timelineItem?.representativeMessageId;
   const threadWindow = threadParent ? presentation?.threadWindow(threadParent) : undefined;
   const navigateThread = (direction: 'older' | 'newer') => {
     if (!threadParent || isReading || isEditing || interactionsActive()) return;

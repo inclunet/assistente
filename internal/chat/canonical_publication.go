@@ -1,7 +1,6 @@
 package chat
 
 import (
-	"assistente/internal/database"
 	"encoding/json"
 	"maps"
 	"reflect"
@@ -54,7 +53,6 @@ func canonicalItem(item *TimelineItem) CanonicalItem {
 		m := item.Representative
 		id := m.ID
 		view.RepresentativeMessageID = &id
-		view.Metadata.ThreadParentMessageID = &id
 		view.Metadata.Role = m.Role
 		view.Metadata.Pinned = m.Pinned
 		view.Metadata.Model = m.Model
@@ -62,7 +60,6 @@ func canonicalItem(item *TimelineItem) CanonicalItem {
 		view.Metadata.CompletionTokens = m.CompletionTokens
 		view.Metadata.TotalTokens = m.TotalTokens
 		view.Metadata.CreatedAt = m.CreatedAt.Format(time.RFC3339Nano)
-		view.Metadata.Timestamp = m.CreatedAt.UnixMilli()
 		view.Metadata.Source = m.Source
 		view.Metadata.CacheReadTokens = m.CacheReadTokens
 		view.Metadata.CacheWriteTokens = m.CacheWriteTokens
@@ -76,7 +73,6 @@ func canonicalItem(item *TimelineItem) CanonicalItem {
 		for _, layout := range []string{"2006-01-02 15:04:05.999999999-07:00", "2006-01-02 15:04:05.999999999", time.RFC3339Nano} {
 			if created, err := time.Parse(layout, item.Position.AnchorCreatedAt); err == nil {
 				view.Metadata.CreatedAt = created.Format(time.RFC3339Nano)
-				view.Metadata.Timestamp = created.UnixMilli()
 				break
 			}
 		}
@@ -106,7 +102,6 @@ func canonicalItem(item *TimelineItem) CanonicalItem {
 			call.ACPTextOffset = nil
 		}
 	}
-	view.Position = encodeItemPosition(item)
 	return view
 }
 
@@ -261,16 +256,6 @@ func (p *canonicalPublication) removeItem(id string) {
 	delete(p.itemSizes, id)
 	delete(p.items, id)
 	p.itemOrder = slices.DeleteFunc(p.itemOrder, func(value string) bool { return value == id })
-}
-
-func encodeItemPosition(item *TimelineItem) string {
-	kind := database.MessageWindowItemKindMessage
-	id := strings.TrimPrefix(item.ItemID, "message:")
-	if item.Kind == "response" {
-		kind = database.MessageWindowItemKindTurn
-		id = item.TurnID
-	}
-	return database.EncodeTimelineCursor(item.ConversationID, item.ScopeParentID, database.MessageWindowItem{Kind: kind, ID: id, AnchorID: item.Position.AnchorID, AnchorCreatedAt: item.Position.AnchorCreatedAt})
 }
 
 // Este cache é apenas a base de diff, não o conteúdo vivo nem a retenção da UI.

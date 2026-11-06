@@ -113,7 +113,7 @@ export function ChatSessionProvider({
   const scrollAnchorMessageId = session?.scrollAnchorMessageId ?? null;
 
   const loadMessageChildren = useCallback(async (messageId: string) => {
-    const target = presentation?.getMessage(messageId)?.timelineItem?.metadata.threadParentMessageId;
+    const target = presentation?.getMessage(messageId)?.timelineItem?.representativeMessageId;
     if (!presentation || !target) return [];
     await presentation.openThread(target);
     return presentation.nodes(target);
@@ -225,7 +225,7 @@ export function ChatSessionProvider({
     (targetConversationId, messageId) => {
       const closing = useChatStore.getState().isConversationThreadExpanded(targetConversationId, messageId, sessionKey);
       toggleConversationThreadExpandedBase(targetConversationId, messageId, sessionKey);
-      const target = presentation?.getMessage(messageId)?.timelineItem?.metadata.threadParentMessageId;
+      const target = presentation?.getMessage(messageId)?.timelineItem?.representativeMessageId;
       if (closing && target) void presentation?.closeThread(target).catch(() => { /* Recuperação permanece visível na superfície. */ });
     },
     [sessionKey, toggleConversationThreadExpandedBase, presentation],

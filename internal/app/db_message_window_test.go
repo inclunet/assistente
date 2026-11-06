@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"assistente/controllers"
 	"assistente/internal/chat"
 	"assistente/internal/database"
 	"assistente/internal/tools"
@@ -79,15 +78,43 @@ func messageWindowTestCtx() context.Context {
 	return database.WithUserID(context.Background(), messageWindowTestUserID)
 }
 
-func newMessageWindowTestController() *controllers.ConversationsController {
-	projection := chat.NewLiveProjection(nil)
-	reader := chat.NewDBTimelineReader(database.DB())
-	return controllers.NewConversationsController(controllers.ConversationsControllerConfig{
-		MsgRepo: chat.NewDBMessageStore(),
-		ReadTimelineWindow: func(ctx context.Context, q database.MessageWindowQuery) (*chat.TimelineWindowSnapshot, error) {
-			return projection.ReadWindow(ctx, q, reader)
-		},
-	})
+type messageWindowTestReader struct {
+	projection *chat.LiveProjection
+	reader     *chat.DBTimelineReader
+}
+type messageWindowTestSession struct{}
+
+func (messageWindowTestSession) AuthorizeTimeline(ctx context.Context) (context.Context, string, error) {
+	if _, err := database.RequireUserID(ctx); err != nil {
+		return nil, "", err
+	}
+	return ctx, "window-test-session", nil
+}
+func newMessageWindowTestReader() *messageWindowTestReader {
+	return &messageWindowTestReader{chat.NewLiveProjection(nil), chat.NewDBTimelineReader(database.DB())}
+}
+func (r *messageWindowTestReader) Read(ctx context.Context, q database.MessageWindowQuery) (*chat.SubscribedTimelineSnapshot, error) {
+	sub, snapshot, err := r.projection.SubscribeTimeline(ctx, messageWindowTestSession{}, "window-test", q, r.reader)
+	if err != nil {
+		return nil, err
+	}
+	defer sub.Close()
+	return snapshot, nil
+}
+func windowItemText(item chat.CanonicalItem) string {
+	var text strings.Builder
+	for _, segment := range item.Segments {
+		if segment.Kind == "text" {
+			text.WriteString(segment.Text)
+		}
+	}
+	return text.String()
+}
+func windowRepresentative(item chat.CanonicalItem) string {
+	if item.RepresentativeMessageID == nil {
+		return ""
+	}
+	return *item.RepresentativeMessageID
 }
 
 func createMessageWindowTestConversation(t testing.TB, title string) *database.Conversation {
@@ -119,7 +146,7 @@ func addMessageWindowAssistant(t testing.TB, ctx context.Context, conversationID
 
 func TestGetConversationMessageWindow_ValidatesRequestShape(t *testing.T) {
 	setupMessageWindowAppTestDB(t)
-	ctrl := newMessageWindowTestController()
+	ctrl := newMessageWindowTestReader()
 
 	conv := createMessageWindowTestConversation(t, "Conversa")
 	ctx := database.WithUserID(context.Background(), messageWindowTestUserID)
@@ -127,9 +154,8 @@ func TestGetConversationMessageWindow_ValidatesRequestShape(t *testing.T) {
 		t.Fatalf("create message: %v", err)
 	}
 
-	_, err := ctrl.GetConversationMessageWindow(messageWindowTestCtx(), chat.MessageWindowRequest{
+	_, err := ctrl.Read(messageWindowTestCtx(), database.MessageWindowQuery{
 		ConversationID: conv.ID,
-		Scope:          chat.MessageWindowScopeConversation,
 		Direction:      "sideways",
 		Limit:          10,
 	})
@@ -137,9 +163,8 @@ func TestGetConversationMessageWindow_ValidatesRequestShape(t *testing.T) {
 		t.Fatalf("expected direction validation error, got %v", err)
 	}
 
-	_, err = ctrl.GetConversationMessageWindow(messageWindowTestCtx(), chat.MessageWindowRequest{
+	_, err = ctrl.Read(messageWindowTestCtx(), database.MessageWindowQuery{
 		ConversationID: conv.ID,
-		Scope:          chat.MessageWindowScopeConversation,
 		Direction:      chat.MessageWindowDirectionAround,
 		Limit:          10,
 	})
@@ -150,7 +175,7 @@ func TestGetConversationMessageWindow_ValidatesRequestShape(t *testing.T) {
 
 func TestGetConversationMessageWindow_RejectsNestedThreadParent(t *testing.T) {
 	setupMessageWindowAppTestDB(t)
-	ctrl := newMessageWindowTestController()
+	ctrl := newMessageWindowTestReader()
 
 	conv := createMessageWindowTestConversation(t, "Conversa")
 	ctx := database.WithUserID(context.Background(), messageWindowTestUserID)
@@ -163,10 +188,9 @@ func TestGetConversationMessageWindow_RejectsNestedThreadParent(t *testing.T) {
 		t.Fatalf("create child: %v", err)
 	}
 
-	_, err = ctrl.GetConversationMessageWindow(messageWindowTestCtx(), chat.MessageWindowRequest{
+	_, err = ctrl.Read(messageWindowTestCtx(), database.MessageWindowQuery{
 		ConversationID: conv.ID,
-		Scope:          chat.MessageWindowScopeThread,
-		ThreadParentID: child.ID,
+		ParentID:       &child.ID,
 		Anchor:         chat.MessageWindowAnchorStart,
 		Direction:      chat.MessageWindowDirectionAfter,
 		Limit:          10,
@@ -178,7 +202,7 @@ func TestGetConversationMessageWindow_RejectsNestedThreadParent(t *testing.T) {
 
 func TestGetConversationMessageWindow_NormalizesAnchorNotFound(t *testing.T) {
 	setupMessageWindowAppTestDB(t)
-	ctrl := newMessageWindowTestController()
+	ctrl := newMessageWindowTestReader()
 
 	conv := createMessageWindowTestConversation(t, "Conversa")
 	ctx := database.WithUserID(context.Background(), messageWindowTestUserID)
@@ -186,9 +210,8 @@ func TestGetConversationMessageWindow_NormalizesAnchorNotFound(t *testing.T) {
 		t.Fatalf("create message: %v", err)
 	}
 
-	_, err := ctrl.GetConversationMessageWindow(messageWindowTestCtx(), chat.MessageWindowRequest{
+	_, err := ctrl.Read(messageWindowTestCtx(), database.MessageWindowQuery{
 		ConversationID:  conv.ID,
-		Scope:           chat.MessageWindowScopeConversation,
 		AnchorMessageID: "missing-message",
 		Direction:       chat.MessageWindowDirectionAfter,
 		Limit:           10,
@@ -200,7 +223,7 @@ func TestGetConversationMessageWindow_NormalizesAnchorNotFound(t *testing.T) {
 
 func TestGetConversationMessageWindow_ClampsOversizedLimit(t *testing.T) {
 	setupMessageWindowAppTestDB(t)
-	ctrl := newMessageWindowTestController()
+	ctrl := newMessageWindowTestReader()
 
 	conv := createMessageWindowTestConversation(t, "Conversa")
 	ctx := database.WithUserID(context.Background(), messageWindowTestUserID)
@@ -210,9 +233,8 @@ func TestGetConversationMessageWindow_ClampsOversizedLimit(t *testing.T) {
 		}
 	}
 
-	window, err := ctrl.GetConversationMessageWindow(messageWindowTestCtx(), chat.MessageWindowRequest{
+	window, err := ctrl.Read(messageWindowTestCtx(), database.MessageWindowQuery{
 		ConversationID: conv.ID,
-		Scope:          chat.MessageWindowScopeConversation,
 		Anchor:         chat.MessageWindowAnchorEnd,
 		Direction:      chat.MessageWindowDirectionBefore,
 		Limit:          database.MaxMessageWindowRows + 60,
@@ -220,14 +242,14 @@ func TestGetConversationMessageWindow_ClampsOversizedLimit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get window: %v", err)
 	}
-	if len(window.Nodes) != database.MaxMessageWindowRows {
-		t.Fatalf("expected clamped window size %d, got %d", database.MaxMessageWindowRows, len(window.Nodes))
+	if len(window.Items) != database.MaxMessageWindowRows {
+		t.Fatalf("expected clamped window size %d, got %d", database.MaxMessageWindowRows, len(window.Items))
 	}
 }
 
 func TestGetConversationMessageWindow_ReturnsCanonicalTimelineItems(t *testing.T) {
 	setupMessageWindowAppTestDB(t)
-	ctrl := newMessageWindowTestController()
+	ctrl := newMessageWindowTestReader()
 
 	conv := createMessageWindowTestConversation(t, "Conversa")
 	ctx := database.WithUserID(context.Background(), messageWindowTestUserID)
@@ -270,9 +292,8 @@ func TestGetConversationMessageWindow_ReturnsCanonicalTimelineItems(t *testing.T
 		t.Fatalf("create child for consolidated representative: %v", err)
 	}
 
-	window, err := ctrl.GetConversationMessageWindow(messageWindowTestCtx(), chat.MessageWindowRequest{
+	window, err := ctrl.Read(messageWindowTestCtx(), database.MessageWindowQuery{
 		ConversationID: conv.ID,
-		Scope:          chat.MessageWindowScopeConversation,
 		Anchor:         chat.MessageWindowAnchorEnd,
 		Direction:      chat.MessageWindowDirectionBefore,
 		Limit:          10,
@@ -284,45 +305,45 @@ func TestGetConversationMessageWindow_ReturnsCanonicalTimelineItems(t *testing.T
 	if window.TotalCount != 2 {
 		t.Fatalf("expected user item + consolidated turn item, got total=%d", window.TotalCount)
 	}
-	if len(window.Nodes) != 2 {
-		t.Fatalf("expected 2 rendered timeline nodes, got %d", len(window.Nodes))
+	if len(window.Items) != 2 {
+		t.Fatalf("expected 2 rendered timeline nodes, got %d", len(window.Items))
 	}
-	if window.Nodes[0].Message.ID != user.ID {
-		t.Fatalf("expected first node to be user item, got %s", window.Nodes[0].Message.ID)
+	if windowRepresentative(window.Items[0]) != user.ID {
+		t.Fatalf("expected first node to be user item, got %s", windowRepresentative(window.Items[0]))
 	}
-	turnNode := window.Nodes[1]
-	if turnNode.Message.ID != finalAssistant.ID {
-		t.Fatalf("expected turn representative to be final assistant, got %s", turnNode.Message.ID)
+	turnNode := window.Items[1]
+	if windowRepresentative(turnNode) != finalAssistant.ID {
+		t.Fatalf("expected turn representative to be final assistant, got %s", windowRepresentative(turnNode))
 	}
-	if turnNode.ChildCount != 1 {
-		t.Fatalf("expected child count from consolidated representative only, got %d", turnNode.ChildCount)
+	if turnNode.Metadata.ChildCount != 1 {
+		t.Fatalf("expected child count from consolidated representative only, got %d", turnNode.Metadata.ChildCount)
 	}
-	if turnNode.OriginalIndex == nil || *turnNode.OriginalIndex != 1 {
-		t.Fatalf("expected canonical originalIndex=1 for turn item, got %v", turnNode.OriginalIndex)
+	if window.StartIndex+1 != 1 {
+		t.Fatalf("expected canonical originalIndex=1 for turn item, got %v", window.StartIndex+1)
 	}
-	if turnNode.Message.Content != "resposta final" {
-		t.Fatalf("expected final content, got %q", turnNode.Message.Content)
+	if turnNode.Segments[len(turnNode.Segments)-1].Text != "resposta final" {
+		t.Fatalf("expected final content, got %q", windowItemText(turnNode))
 	}
 	// Issue #150: o turno volta com segments cronológicos para que o frontend
 	// renderize o turno inteiro em UMA única entrada acessível (cadeia de
 	// raciocínio: texto → tool_calls → resposta final).
-	if len(turnNode.Message.TurnSegments) != 3 {
-		t.Fatalf("expected 3 segments (intermediate text → tool_calls → final text), got %+v", turnNode.Message.TurnSegments)
+	if len(turnNode.Segments) != 3 {
+		t.Fatalf("expected 3 segments (intermediate text → tool_calls → final text), got %+v", turnNode.Segments)
 	}
-	if turnNode.Message.TurnSegments[0].Type != "text" || turnNode.Message.TurnSegments[0].Content != "vou buscar" {
-		t.Fatalf("expected first segment to be intermediate text 'vou buscar', got %+v", turnNode.Message.TurnSegments[0])
+	if turnNode.Segments[0].Kind != "text" || turnNode.Segments[0].Text != "vou buscar" {
+		t.Fatalf("expected first segment to be intermediate text 'vou buscar', got %+v", turnNode.Segments[0])
 	}
-	if turnNode.Message.TurnSegments[1].Type != "tool_calls" || len(turnNode.Message.TurnSegments[1].ToolCalls) == 0 {
-		t.Fatalf("expected second segment to be tool_calls, got %+v", turnNode.Message.TurnSegments[1])
+	if turnNode.Segments[1].Kind != "tool_invocations" || len(turnNode.Segments[1].Invocations) == 0 {
+		t.Fatalf("expected second segment to be tool_calls, got %+v", turnNode.Segments[1])
 	}
-	if turnNode.Message.TurnSegments[2].Type != "text" || turnNode.Message.TurnSegments[2].Content != "resposta final" {
-		t.Fatalf("expected third segment to be final text, got %+v", turnNode.Message.TurnSegments[2])
+	if turnNode.Segments[2].Kind != "text" || turnNode.Segments[2].Text != "resposta final" {
+		t.Fatalf("expected third segment to be final text, got %+v", turnNode.Segments[2])
 	}
 }
 
 func TestGetConversationMessageWindow_HydratesToolCallsFromInvocationsWithoutMessageToolCalls(t *testing.T) {
 	setupMessageWindowAppTestDB(t)
-	ctrl := newMessageWindowTestController()
+	ctrl := newMessageWindowTestReader()
 
 	conv := createMessageWindowTestConversation(t, "Conversa")
 	ctx := database.WithUserID(context.Background(), messageWindowTestUserID)
@@ -363,9 +384,8 @@ func TestGetConversationMessageWindow_HydratesToolCallsFromInvocationsWithoutMes
 	}).Error; err != nil {
 		t.Fatalf("create tool invocation: %v", err)
 	}
-	window, err := ctrl.GetConversationMessageWindow(messageWindowTestCtx(), chat.MessageWindowRequest{
+	window, err := ctrl.Read(messageWindowTestCtx(), database.MessageWindowQuery{
 		ConversationID: conv.ID,
-		Scope:          chat.MessageWindowScopeConversation,
 		Anchor:         chat.MessageWindowAnchorEnd,
 		Direction:      chat.MessageWindowDirectionBefore,
 		Limit:          10,
@@ -373,14 +393,14 @@ func TestGetConversationMessageWindow_HydratesToolCallsFromInvocationsWithoutMes
 	if err != nil {
 		t.Fatalf("get window: %v", err)
 	}
-	if len(window.Nodes) != 2 {
-		t.Fatalf("expected user + consolidated assistant turn, got %d nodes", len(window.Nodes))
+	if len(window.Items) != 2 {
+		t.Fatalf("expected user + consolidated assistant turn, got %d nodes", len(window.Items))
 	}
-	turnNode := window.Nodes[1]
-	if len(turnNode.Message.TurnSegments) != 3 {
-		t.Fatalf("expected text -> tool_calls -> final text segments, got %+v", turnNode.Message.TurnSegments)
+	turnNode := window.Items[1]
+	if len(turnNode.Segments) != 3 {
+		t.Fatalf("expected text -> tool_calls -> final text segments, got %+v", turnNode.Segments)
 	}
-	call := turnNode.Message.TurnSegments[1].ToolCalls[0]
+	call := turnNode.Segments[1].Invocations[0]
 	if call.InvocationID != "inv-new-l3-free" || call.ID != "tool-1" || call.Name != "search" || call.DurationMs != 42 || !call.HasSearchResults || call.SearchResultCount != 2 || call.SecurityOutcome != "approved" {
 		t.Fatalf("expected lightweight invocation summary, got %+v", call)
 	}
@@ -388,7 +408,7 @@ func TestGetConversationMessageWindow_HydratesToolCallsFromInvocationsWithoutMes
 
 func TestGetConversationMessageWindow_AnchorInsideTurnUsesTimelineItem(t *testing.T) {
 	setupMessageWindowAppTestDB(t)
-	ctrl := newMessageWindowTestController()
+	ctrl := newMessageWindowTestReader()
 
 	conv := createMessageWindowTestConversation(t, "Conversa")
 	ctx := database.WithUserID(context.Background(), messageWindowTestUserID)
@@ -422,9 +442,8 @@ func TestGetConversationMessageWindow_AnchorInsideTurnUsesTimelineItem(t *testin
 		t.Fatalf("create next user: %v", err)
 	}
 
-	window, err := ctrl.GetConversationMessageWindow(messageWindowTestCtx(), chat.MessageWindowRequest{
+	window, err := ctrl.Read(messageWindowTestCtx(), database.MessageWindowQuery{
 		ConversationID:  conv.ID,
-		Scope:           chat.MessageWindowScopeConversation,
 		AnchorMessageID: assistant.ID,
 		Direction:       chat.MessageWindowDirectionAfter,
 		Limit:           1,
@@ -432,14 +451,14 @@ func TestGetConversationMessageWindow_AnchorInsideTurnUsesTimelineItem(t *testin
 	if err != nil {
 		t.Fatalf("get window: %v", err)
 	}
-	if len(window.Nodes) != 1 || window.Nodes[0].Message.ID != nextUser.ID {
-		t.Fatalf("expected anchor inside turn to page after the whole turn, got %+v", window.Nodes)
+	if len(window.Items) != 1 || windowRepresentative(window.Items[0]) != nextUser.ID {
+		t.Fatalf("expected anchor inside turn to page after the whole turn, got %+v", window.Items)
 	}
 }
 
 func TestGetConversationMessageWindow_TurnWithEmptyAssistantKeepsLedgerSummary(t *testing.T) {
 	setupMessageWindowAppTestDB(t)
-	ctrl := newMessageWindowTestController()
+	ctrl := newMessageWindowTestReader()
 
 	conv := createMessageWindowTestConversation(t, "Conversa")
 	ctx := database.WithUserID(context.Background(), messageWindowTestUserID)
@@ -469,9 +488,8 @@ func TestGetConversationMessageWindow_TurnWithEmptyAssistantKeepsLedgerSummary(t
 		t.Fatalf("create tool invocation: %v", err)
 	}
 
-	window, err := ctrl.GetConversationMessageWindow(messageWindowTestCtx(), chat.MessageWindowRequest{
+	window, err := ctrl.Read(messageWindowTestCtx(), database.MessageWindowQuery{
 		ConversationID: conv.ID,
-		Scope:          chat.MessageWindowScopeConversation,
 		Anchor:         chat.MessageWindowAnchorStart,
 		Direction:      chat.MessageWindowDirectionAfter,
 		Limit:          10,
@@ -479,29 +497,29 @@ func TestGetConversationMessageWindow_TurnWithEmptyAssistantKeepsLedgerSummary(t
 	if err != nil {
 		t.Fatalf("get window: %v", err)
 	}
-	if window.TotalCount != 2 || len(window.Nodes) != 2 {
-		t.Fatalf("expected user item + assistant turn item, got total=%d nodes=%d", window.TotalCount, len(window.Nodes))
+	if window.TotalCount != 2 || len(window.Items) != 2 {
+		t.Fatalf("expected user item + assistant turn item, got total=%d nodes=%d", window.TotalCount, len(window.Items))
 	}
-	turnNode := window.Nodes[1]
-	if turnNode.Message.ID != assistant.ID {
-		t.Fatalf("expected assistant to remain representative, got %s", turnNode.Message.ID)
+	turnNode := window.Items[1]
+	if windowRepresentative(turnNode) != assistant.ID {
+		t.Fatalf("expected assistant to remain representative, got %s", windowRepresentative(turnNode))
 	}
-	if turnNode.Message.Role != "assistant" || turnNode.Message.Content != "" {
-		t.Fatalf("expected empty assistant for ledger-only result, got role=%q content=%q", turnNode.Message.Role, turnNode.Message.Content)
+	if turnNode.Metadata.Role != "assistant" || windowItemText(turnNode) != "" {
+		t.Fatalf("expected empty assistant for ledger-only result, got role=%q content=%q", turnNode.Metadata.Role, windowItemText(turnNode))
 	}
-	if len(turnNode.Message.TurnSegments) != 1 ||
-		len(turnNode.Message.TurnSegments[0].ToolCalls) != 1 ||
-		turnNode.Message.TurnSegments[0].ToolCalls[0].ResultAvailability != "available" {
-		t.Fatalf("expected lightweight ledger summary, got %+v", turnNode.Message.TurnSegments)
+	if len(turnNode.Segments) != 1 ||
+		len(turnNode.Segments[0].Invocations) != 1 ||
+		turnNode.Segments[0].Invocations[0].ResultAvailability != "available" {
+		t.Fatalf("expected lightweight ledger summary, got %+v", turnNode.Segments)
 	}
-	if turnNode.OriginalIndex == nil || *turnNode.OriginalIndex != 1 {
-		t.Fatalf("expected canonical originalIndex=1 for turn, got %v", turnNode.OriginalIndex)
+	if window.StartIndex+1 != 1 {
+		t.Fatalf("expected canonical originalIndex=1 for turn, got %v", window.StartIndex+1)
 	}
 }
 
 func TestGetMessageChildrenUsesParentConversationForScope(t *testing.T) {
 	setupMessageWindowAppTestDB(t)
-	ctrl := newMessageWindowTestController()
+	ctrl := newMessageWindowTestReader()
 
 	conv := createMessageWindowTestConversation(t, "Conversa")
 	ctx := database.WithUserID(context.Background(), messageWindowTestUserID)
@@ -514,18 +532,22 @@ func TestGetMessageChildrenUsesParentConversationForScope(t *testing.T) {
 		t.Fatalf("create child: %v", err)
 	}
 
-	nodes, err := ctrl.GetMessageChildren(messageWindowTestCtx(), root.ID)
+	snapshot, err := ctrl.Read(messageWindowTestCtx(), database.MessageWindowQuery{ConversationID: conv.ID, ParentID: &root.ID, Limit: 20})
+	var nodes []chat.CanonicalItem
+	if snapshot != nil {
+		nodes = snapshot.Items
+	}
 	if err != nil {
 		t.Fatalf("GetMessageChildren: %v", err)
 	}
-	if len(nodes) != 1 || nodes[0].Message.ID != child.ID {
+	if len(nodes) != 1 || windowRepresentative(nodes[0]) != child.ID {
 		t.Fatalf("children: got %+v, want %s", nodes, child.ID)
 	}
 }
 
 func TestGetMessageChildrenRejectsOtherUsersParent(t *testing.T) {
 	setupMessageWindowAppTestDB(t)
-	ctrl := newMessageWindowTestController()
+	ctrl := newMessageWindowTestReader()
 
 	otherCtx := database.WithUserID(context.Background(), "other-user")
 	otherConv, err := database.CreateConversationWithContext(otherCtx, "Outra", "")
@@ -537,7 +559,7 @@ func TestGetMessageChildrenRejectsOtherUsersParent(t *testing.T) {
 		t.Fatalf("create root: %v", err)
 	}
 
-	_, err = ctrl.GetMessageChildren(messageWindowTestCtx(), root.ID)
+	_, err = ctrl.Read(messageWindowTestCtx(), database.MessageWindowQuery{ConversationID: otherConv.ID, ParentID: &root.ID, Limit: 20})
 	if err == nil {
 		t.Fatal("expected cross-user message children to be rejected")
 	}
@@ -545,7 +567,7 @@ func TestGetMessageChildrenRejectsOtherUsersParent(t *testing.T) {
 
 func TestGetRecentMessages_HonorsLimitWithCanonicalTurns(t *testing.T) {
 	setupMessageWindowAppTestDB(t)
-	ctrl := newMessageWindowTestController()
+	ctrl := newMessageWindowTestReader()
 
 	conv := createMessageWindowTestConversation(t, "Conversa")
 	ctx := database.WithUserID(context.Background(), messageWindowTestUserID)
@@ -572,7 +594,11 @@ func TestGetRecentMessages_HonorsLimitWithCanonicalTurns(t *testing.T) {
 		setTime(assistant.ID, turnBase.Add(1*time.Second))
 	}
 
-	nodes, err := ctrl.GetRecentMessages(messageWindowTestCtx(), conv.ID, 6)
+	snapshot, err := ctrl.Read(messageWindowTestCtx(), database.MessageWindowQuery{ConversationID: conv.ID, Anchor: "end", Direction: "before", Limit: 6})
+	var nodes []chat.CanonicalItem
+	if snapshot != nil {
+		nodes = snapshot.Items
+	}
 	if err != nil {
 		t.Fatalf("GetRecentMessages: %v", err)
 	}
@@ -581,7 +607,7 @@ func TestGetRecentMessages_HonorsLimitWithCanonicalTurns(t *testing.T) {
 	}
 	got := make([]string, 0, len(nodes))
 	for _, n := range nodes {
-		got = append(got, n.Message.Content)
+		got = append(got, windowItemText(n))
 	}
 	// Espera os últimos 3 turns (u2/a2, u3/a3, u4/a4) em ordem cronológica.
 	want := []string{"u2", "a2", "u3", "a3", "u4", "a4"}
@@ -592,7 +618,7 @@ func TestGetRecentMessages_HonorsLimitWithCanonicalTurns(t *testing.T) {
 
 func TestGetMessagesBefore_TrimsFromEndWithCanonicalTurns(t *testing.T) {
 	setupMessageWindowAppTestDB(t)
-	ctrl := newMessageWindowTestController()
+	ctrl := newMessageWindowTestReader()
 
 	conv := createMessageWindowTestConversation(t, "Conversa")
 	ctx := database.WithUserID(context.Background(), messageWindowTestUserID)
@@ -626,7 +652,11 @@ func TestGetMessagesBefore_TrimsFromEndWithCanonicalTurns(t *testing.T) {
 	}
 
 	// Pagina para trás a partir do início do turno 4; espera os últimos 2 turns completos antes dele.
-	nodes, err := ctrl.GetMessagesBefore(messageWindowTestCtx(), conv.ID, turn4UserID, 4)
+	snapshot, err := ctrl.Read(messageWindowTestCtx(), database.MessageWindowQuery{ConversationID: conv.ID, AnchorMessageID: turn4UserID, Direction: "before", Limit: 4})
+	var nodes []chat.CanonicalItem
+	if snapshot != nil {
+		nodes = snapshot.Items
+	}
 	if err != nil {
 		t.Fatalf("GetMessagesBefore: %v", err)
 	}
@@ -635,7 +665,7 @@ func TestGetMessagesBefore_TrimsFromEndWithCanonicalTurns(t *testing.T) {
 	}
 	got := make([]string, 0, len(nodes))
 	for _, n := range nodes {
-		got = append(got, n.Message.Content)
+		got = append(got, windowItemText(n))
 	}
 	// Espera u2/a2, u3/a3 em ordem cronológica.
 	want := []string{"u2", "a2", "u3", "a3"}

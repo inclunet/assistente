@@ -1,6 +1,6 @@
+import { messageFixture } from '../../test/chatPresentationFixture';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { chat } from '../../../wailsjs/go/models';
 import { ChatMessage } from './ChatMessage';
 import { ToolCallsSection } from './ToolCallsSection';
 import { ToolInvocationDialogsProvider } from './ToolInvocationDialogs';
@@ -37,7 +37,7 @@ vi.mock('../ui/MarkdownRenderer', () => ({
 }));
 
 const baseMessage = () =>
-  new chat.EnrichedMessage({
+  messageFixture({
     id: 'dialog-host',
     conversationId: 'conversation-1',
     role: 'assistant',
@@ -103,7 +103,7 @@ describe('ChatMessage tool dialog host', () => {
     }
   );
   it('mantém o diálogo aberto ao trocar ativo por segmento e patch canônico', () => {
-    const frame = (status: string, outputPreview: string) => new chat.EnrichedMessage({
+    const frame = (status: string, outputPreview: string) => messageFixture({
       ...baseMessage(), turnSegments: [{ type: 'tool_calls', toolInvocations: [{
         invocationId: 'inv-1', callId: 'call-1', name: 'search', status, outputPreview,
         hasDetails: false, resultAvailability: 'available',
@@ -120,7 +120,7 @@ describe('ChatMessage tool dialog host', () => {
     rerender(
       <ChatMessage
         message={
-          new chat.EnrichedMessage({
+          messageFixture({
             ...baseMessage(),
             isStreaming: false,
             turnSegments: [

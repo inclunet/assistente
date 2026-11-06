@@ -9,14 +9,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 )
 
 // ConversationsController orquestra persistência de conversas/mensagens (AEP-0088).
 // Side-effects do App (reset de escopo, questionário, modelo do perfil) entram via hooks.
 type ConversationsControllerConfig struct {
 	MutateTimeline              func(context.Context, string, []string, func() ([]string, error)) error
-	ReadTimelineWindow          func(context.Context, database.MessageWindowQuery) (*chat.TimelineWindowSnapshot, error)
 	MsgRepo                     chat.MessageRepository
 	Emitter                     ports.Emitter
 	ResetScopedState            func(ctx context.Context, conversationID string)
@@ -34,7 +32,6 @@ type ConversationsControllerConfig struct {
 // ConversationsController é o orquestrador do domínio conversations.
 type ConversationsController struct {
 	mutateTimeline          func(context.Context, string, []string, func() ([]string, error)) error
-	readTimelineWindow      func(context.Context, database.MessageWindowQuery) (*chat.TimelineWindowSnapshot, error)
 	msgRepo                 chat.MessageRepository
 	emitter                 ports.Emitter
 	resetScopedState        func(ctx context.Context, conversationID string)
@@ -73,7 +70,6 @@ func NewConversationsController(cfg ConversationsControllerConfig) *Conversation
 	}
 	return &ConversationsController{
 		mutateTimeline:          cfg.MutateTimeline,
-		readTimelineWindow:      cfg.ReadTimelineWindow,
 		msgRepo:                 cfg.MsgRepo,
 		emitter:                 cfg.Emitter,
 		resetScopedState:        cfg.ResetScopedState,
@@ -155,184 +151,6 @@ func (c *ConversationsController) EnsureConversation(ctx context.Context, title 
 	return conv, nil
 }
 
-// GetMessages retorna mensagens com filtro por parent (lazy loading).
-func (c *ConversationsController) GetMessages(ctx context.Context, conversationID string, parentID *string) ([]chat.MessageNode, error) {
-	if c.msgRepo == nil {
-		return nil, fmt.Errorf("message repository não inicializado")
-	}
-	messages, err := c.msgRepo.GetMessages(ctx, conversationID, parentID)
-	if err != nil {
-		return nil, err
-	}
-	return buildMessageNodesWithInvocations(ctx, messages, parentID)
-}
-
-// GetRecentMessages retorna as mensagens raiz mais recentes de uma conversa.
-func (c *ConversationsController) GetRecentMessages(ctx context.Context, conversationID string, limit int) ([]chat.MessageNode, error) {
-	if _, err := database.GetConversationInfoWithContext(ctx, conversationID); err != nil {
-		return nil, err
-	}
-	if limit <= 0 {
-		return []chat.MessageNode{}, nil
-	}
-	rawLimit := limit
-	if rawLimit < 10 {
-		rawLimit = 10
-	}
-	if rawLimit > 5000 {
-		rawLimit = 5000
-	}
-	var lastNodes []chat.MessageNode
-	for {
-		messages, err := database.GetRecentRootMessagesWithContext(ctx, conversationID, rawLimit)
-		if err != nil {
-			return nil, err
-		}
-		nodes, buildErr := buildMessageNodesWithInvocations(ctx, messages, nil)
-		if buildErr != nil {
-			return nil, buildErr
-		}
-		lastNodes = nodes
-		if len(nodes) >= limit || len(messages) < rawLimit {
-			if len(nodes) > limit {
-				return nodes[len(nodes)-limit:], nil
-			}
-			return nodes, nil
-		}
-		if rawLimit >= 5000 {
-			break
-		}
-		rawLimit *= 2
-		if rawLimit > 5000 {
-			rawLimit = 5000
-		}
-	}
-	if len(lastNodes) > limit {
-		return lastNodes[len(lastNodes)-limit:], nil
-	}
-	return lastNodes, nil
-}
-
-// GetMessagesBefore retorna mensagens raiz anteriores ao cursor informado.
-func (c *ConversationsController) GetMessagesBefore(ctx context.Context, conversationID string, beforeID string, limit int) ([]chat.MessageNode, error) {
-	if _, err := database.GetConversationInfoWithContext(ctx, conversationID); err != nil {
-		return nil, err
-	}
-	if limit <= 0 {
-		return []chat.MessageNode{}, nil
-	}
-	rawLimit := limit
-	if rawLimit < 10 {
-		rawLimit = 10
-	}
-	if rawLimit > 5000 {
-		rawLimit = 5000
-	}
-	var lastNodes []chat.MessageNode
-	for {
-		messages, err := database.GetRootMessagesBeforeWithContext(ctx, conversationID, beforeID, rawLimit)
-		if err != nil {
-			return nil, err
-		}
-		nodes, buildErr := buildMessageNodesWithInvocations(ctx, messages, nil)
-		if buildErr != nil {
-			return nil, buildErr
-		}
-		lastNodes = nodes
-		if len(nodes) >= limit || len(messages) < rawLimit {
-			if len(nodes) > limit {
-				return nodes[len(nodes)-limit:], nil
-			}
-			return nodes, nil
-		}
-		if rawLimit >= 5000 {
-			break
-		}
-		rawLimit *= 2
-		if rawLimit > 5000 {
-			rawLimit = 5000
-		}
-	}
-	if len(lastNodes) > limit {
-		return lastNodes[len(lastNodes)-limit:], nil
-	}
-	return lastNodes, nil
-}
-
-// GetConversationMessageWindow é a API canônica de carregamento incremental.
-func (c *ConversationsController) GetConversationMessageWindow(ctx context.Context, req chat.MessageWindowRequest) (*chat.MessageWindow, error) {
-	conversationID := strings.TrimSpace(req.ConversationID)
-	if conversationID == "" {
-		return nil, fmt.Errorf("conversationId é obrigatório")
-	}
-	scope := strings.TrimSpace(req.Scope)
-	if scope == "" {
-		scope = chat.MessageWindowScopeConversation
-	}
-	if scope != chat.MessageWindowScopeConversation && scope != chat.MessageWindowScopeThread {
-		return nil, fmt.Errorf("scope de janela de mensagens inválido: %s", req.Scope)
-	}
-	if req.Limit <= 0 {
-		return nil, fmt.Errorf("limit deve ser maior que zero")
-	}
-	limit := req.Limit
-	if limit > database.MaxMessageWindowRows {
-		limit = database.MaxMessageWindowRows
-	}
-
-	anchor := strings.TrimSpace(req.Anchor)
-	anchorMessageID := strings.TrimSpace(req.AnchorMessageID)
-	direction := strings.TrimSpace(req.Direction)
-	if direction == "" {
-		direction = chat.MessageWindowDirectionBefore
-	}
-	if direction != chat.MessageWindowDirectionBefore &&
-		direction != chat.MessageWindowDirectionAfter &&
-		direction != chat.MessageWindowDirectionAround {
-		return nil, fmt.Errorf("direction de janela de mensagens inválido: %s", req.Direction)
-	}
-	if anchor != "" &&
-		anchor != chat.MessageWindowAnchorStart &&
-		anchor != chat.MessageWindowAnchorEnd {
-		return nil, fmt.Errorf("anchor de janela de mensagens inválido: %s", req.Anchor)
-	}
-	if anchor != "" && anchorMessageID != "" {
-		return nil, fmt.Errorf("anchor e anchorMessageId são mutuamente exclusivos")
-	}
-	if anchor == chat.MessageWindowAnchorStart && direction == chat.MessageWindowDirectionBefore {
-		return nil, fmt.Errorf("anchor=start não aceita direction=before")
-	}
-	if anchor == chat.MessageWindowAnchorEnd && direction == chat.MessageWindowDirectionAfter {
-		return nil, fmt.Errorf("anchor=end não aceita direction=after")
-	}
-	if direction == chat.MessageWindowDirectionAround && anchorMessageID == "" {
-		return nil, fmt.Errorf("direction=around exige anchorMessageId")
-	}
-
-	var parentID *string
-	threadParentID := ""
-	if scope == chat.MessageWindowScopeThread {
-		threadParentID = strings.TrimSpace(req.ThreadParentID)
-		if threadParentID == "" {
-			return nil, fmt.Errorf("threadParentId é obrigatório para scope=thread")
-		}
-		parentID = &threadParentID
-	}
-
-	if c.readTimelineWindow == nil {
-		return nil, fmt.Errorf("leitor coordenado de janela não configurado")
-	}
-	snapshot, err := c.readTimelineWindow(ctx, database.MessageWindowQuery{
-		ConversationID: conversationID, ParentID: parentID, Anchor: anchor, AnchorMessageID: anchorMessageID, Direction: direction, Limit: limit,
-	})
-	if err != nil {
-		return nil, err
-	}
-	snapshot.Window.Scope = scope
-	snapshot.Window.ThreadParentID = threadParentID
-	return &snapshot.Window, nil
-}
-
 // GetToolInvocationDetails carrega payloads técnicos sob demanda em um único
 // lote user-scoped. A timeline recebe apenas Summary.
 func (c *ConversationsController) GetToolInvocationDetails(ctx context.Context, invocationIDs []string) ([]toolinvocations.Detail, error) {
@@ -346,32 +164,6 @@ func (c *ConversationsController) GetToolInvocationDetails(ctx context.Context, 
 // GetConversationInfo retorna metadados da conversa (sem mensagens).
 func (c *ConversationsController) GetConversationInfo(ctx context.Context, id string) (*database.Conversation, error) {
 	return database.GetConversationInfoWithContext(ctx, id)
-}
-
-// GetConversationWithThreads retorna conversa com mensagens raiz (lazy loading).
-func (c *ConversationsController) GetConversationWithThreads(ctx context.Context, id string) (*chat.ConversationWithThreads, error) {
-	conv, err := c.GetConversationInfo(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-	threads, err := c.GetMessages(ctx, id, nil)
-	if err != nil {
-		return nil, err
-	}
-	return &chat.ConversationWithThreads{
-		ID:      conv.ID,
-		Title:   conv.Title,
-		Threads: threads,
-	}, nil
-}
-
-// GetMessageChildren retorna os filhos de uma mensagem (lazy loading).
-func (c *ConversationsController) GetMessageChildren(ctx context.Context, messageID string) ([]chat.MessageNode, error) {
-	parent, err := database.GetMessageWithContext(ctx, messageID)
-	if err != nil {
-		return nil, err
-	}
-	return c.GetMessages(ctx, parent.ConversationID, &messageID)
 }
 
 // UpdateConversation atualiza título/modelo e emite rename se houver título.
@@ -807,50 +599,4 @@ func (c *ConversationsController) GetEffectiveModel(_ context.Context) (string, 
 		return "", nil
 	}
 	return c.getEffectiveModel()
-}
-
-func assignMessageNodeChildCounts(ctx context.Context, nodes []chat.MessageNode) []chat.MessageNode {
-	if len(nodes) == 0 {
-		return nodes
-	}
-	msgIDs := make([]string, 0, len(nodes))
-	for _, node := range nodes {
-		msgIDs = append(msgIDs, node.Message.ID)
-	}
-	childCounts, err := database.CountChildrenWithContext(ctx, msgIDs)
-	if err != nil {
-		childCounts = make(map[string]int)
-	}
-	for i := range nodes {
-		nodes[i].ChildCount = childCounts[nodes[i].Message.ID]
-	}
-	return nodes
-}
-
-func buildMessageNodesWithInvocations(ctx context.Context, messages []database.ChatMessage, parentID *string) ([]chat.MessageNode, error) {
-	if len(messages) == 0 {
-		return []chat.MessageNode{}, nil
-	}
-	turnIDs := chat.CollectTurnIDsWithToolCalls(messages)
-	invocationToolCalls, err := loadChatToolInvocationDisplaysForTurnIDs(ctx, turnIDs)
-	if err != nil {
-		return nil, err
-	}
-	nodes := chat.BuildNodesWithTimelineConsolidation(messages, parentID, map[string]int{}, invocationToolCalls)
-	return assignMessageNodeChildCounts(ctx, nodes), nil
-}
-
-func loadChatToolInvocationDisplaysForTurnIDs(ctx context.Context, turnIDs []string) (map[string][]chat.TurnSegmentToolCall, error) {
-	userID, err := database.RequireUserID(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if len(turnIDs) == 0 {
-		return map[string][]chat.TurnSegmentToolCall{}, nil
-	}
-	results, err := toolinvocations.LoadSummariesForTurnIDsWithUser(ctx, userID, turnIDs)
-	if err != nil {
-		return nil, fmt.Errorf("erro ao carregar projeção de tool invocations: %w", err)
-	}
-	return chat.ToolInvocationSummariesToTurnSegments(results), nil
 }

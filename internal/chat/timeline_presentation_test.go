@@ -24,7 +24,7 @@ func TestCanonicalPresentationKeepsMediaOutOfWindow(t *testing.T) {
 	}
 	item := canonicalItem(snapshot.Responses[f.question])
 	metadata := item.Metadata
-	if metadata.ThreadParentMessageID == nil || *metadata.ThreadParentMessageID != f.answer || metadata.ChildCount != 1 || metadata.CacheReadTokens != 42 || metadata.Source != "test-source" || metadata.Timestamp <= 0 || metadata.CreatedAt == "" || len(metadata.ConclusionSegmentIDs) == 0 {
+	if metadata.ChildCount != 1 || metadata.CacheReadTokens != 42 || metadata.Source != "test-source" || metadata.CreatedAt == "" || len(metadata.ConclusionSegmentIDs) == 0 {
 		t.Fatalf("incomplete presentation: %+v", metadata)
 	}
 	wire, err := json.Marshal(item)

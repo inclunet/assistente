@@ -16,16 +16,6 @@ const (
 	MessageWindowDirectionAround = "around"
 )
 
-type MessageWindowRequest struct {
-	Scope           string `json:"scope"`
-	ConversationID  string `json:"conversationId"`
-	ThreadParentID  string `json:"threadParentId,omitempty"`
-	Anchor          string `json:"anchor,omitempty"`
-	AnchorMessageID string `json:"anchorMessageId,omitempty"`
-	Direction       string `json:"direction"`
-	Limit           int    `json:"limit"`
-}
-
 // TurnSegment é uma fatia ordenada cronologicamente de um turno do assistente:
 // um trecho de texto OU uma sequência de tool calls dentro de uma única iteração
 // do agentic loop. Issue #150: o chat history precisa preservar a cadeia de
@@ -78,19 +68,12 @@ type MessageNode struct {
 }
 
 type MessageWindow struct {
-	Scope          string        `json:"scope"`
-	ConversationID string        `json:"conversationId"`
-	ThreadParentID string        `json:"threadParentId,omitempty"`
-	Nodes          []MessageNode `json:"nodes"`
-	TotalCount     int           `json:"totalCount"`
-	StartIndex     int           `json:"startIndex"`
-	EndIndex       int           `json:"endIndex"`
-	HasBefore      bool          `json:"hasBefore"`
-	HasAfter       bool          `json:"hasAfter"`
-}
-
-type ConversationWithThreads struct {
-	ID      string        `json:"id"`
-	Title   string        `json:"title"`
-	Threads []MessageNode `json:"threads"`
+	Scope          string `json:"scope"`
+	ConversationID string `json:"conversationId"`
+	ThreadParentID string `json:"threadParentId,omitempty"`
+	TotalCount     int    `json:"totalCount"`
+	StartIndex     int    `json:"startIndex"`
+	EndIndex       int    `json:"endIndex"`
+	HasBefore      bool   `json:"hasBefore"`
+	HasAfter       bool   `json:"hasAfter"`
 }

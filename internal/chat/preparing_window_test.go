@@ -65,12 +65,12 @@ func TestCanonicalWindowIncludesPreparingAndMissingRepresentativeWithoutMessages
 			t.Fatalf("diagnóstico de %s: %v", anchorKind, err)
 		}
 	}
-	before, err := f.reader.ReadWindow(f.ctx, query)
+	before, err := f.reader.ReadCanonicalWindow(f.ctx, query)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if before.Window.TotalCount != 3 || before.Items[0].ItemID != "message:"+q.ID {
-		t.Fatal("contrato legado passou a anunciar nó que não consegue representar")
+	if before.Window.TotalCount != 4 || before.Items[0].ItemID != "turn:"+q.ID {
+		t.Fatal("resposta admitida sem representante desapareceu da página")
 	}
 	query.Anchor = "start"
 	query.Direction = "after"
@@ -209,24 +209,14 @@ func BenchmarkCanonicalWindowTurnMembership(b *testing.B) {
 				b.Fatal(err)
 			}
 			query := database.MessageWindowQuery{ConversationID: f.conversation, Anchor: "end", Direction: "before", Limit: 240}
-			for _, canonical := range []bool{false, true} {
-				b.Run(fmt.Sprintf("canonical_%t", canonical), func(b *testing.B) {
-					b.ReportAllocs()
-					b.ResetTimer()
-					for i := 0; i < b.N; i++ {
-						var w *TimelineWindowSnapshot
-						var err error
-						if canonical {
-							w, err = f.reader.ReadCanonicalWindow(f.ctx, query)
-						} else {
-							w, err = f.reader.ReadWindow(f.ctx, query)
-						}
-						if err != nil {
-							b.Fatal(err)
-						}
-						b.ReportMetric(float64(len(w.Items)), "items")
-					}
-				})
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				w, err := f.reader.ReadCanonicalWindow(f.ctx, query)
+				if err != nil {
+					b.Fatal(err)
+				}
+				b.ReportMetric(float64(len(w.Items)), "items")
 			}
 		})
 	}

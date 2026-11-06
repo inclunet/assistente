@@ -82,7 +82,7 @@ test('workspace.chat.open cria conversa para terminal, vincula e envia mensagem 
     messages: [],
     message_count: 0,
   });
-  await wails.setResponse('GetMessages', []);
+  await wails.setTimelineRows([]);
   await wails.waitForApp();
 
   // O callback local modela o efeito de workspace.chat.open: grava a conversa

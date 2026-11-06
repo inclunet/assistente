@@ -638,22 +638,20 @@ export namespace apidto {
 	export class CanonicalMetadata {
 	    thinking?: boolean;
 	    terminalReason?: string;
-	    threadParentMessageId?: string;
 	    conclusionSegmentIds: string[];
 	    createdAt: string;
-	    timestamp: number;
-	    source: string;
-	    childCount: number;
-	    cacheReadTokens: number;
-	    cacheWriteTokens: number;
-	    cacheMissTokens: number;
+	    source?: string;
+	    childCount?: number;
+	    cacheReadTokens?: number;
+	    cacheWriteTokens?: number;
+	    cacheMissTokens?: number;
 	    origin: string;
 	    role: string;
-	    pinned: boolean;
-	    model: string;
-	    promptTokens: number;
-	    completionTokens: number;
-	    totalTokens: number;
+	    pinned?: boolean;
+	    model?: string;
+	    promptTokens?: number;
+	    completionTokens?: number;
+	    totalTokens?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new CanonicalMetadata(source);
@@ -663,10 +661,8 @@ export namespace apidto {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.thinking = source["thinking"];
 	        this.terminalReason = source["terminalReason"];
-	        this.threadParentMessageId = source["threadParentMessageId"];
 	        this.conclusionSegmentIds = source["conclusionSegmentIds"];
 	        this.createdAt = source["createdAt"];
-	        this.timestamp = source["timestamp"];
 	        this.source = source["source"];
 	        this.childCount = source["childCount"];
 	        this.cacheReadTokens = source["cacheReadTokens"];
@@ -790,7 +786,6 @@ export namespace apidto {
 	    replyToItemId: string;
 	    messageIds: string[];
 	    representativeMessageId?: string;
-	    position: string;
 	    revision: string;
 	    state: string;
 	    durability: string;
@@ -813,7 +808,6 @@ export namespace apidto {
 	        this.replyToItemId = source["replyToItemId"];
 	        this.messageIds = source["messageIds"];
 	        this.representativeMessageId = source["representativeMessageId"];
-	        this.position = source["position"];
 	        this.revision = source["revision"];
 	        this.state = source["state"];
 	        this.durability = source["durability"];
@@ -4275,264 +4269,6 @@ export namespace channels {
 		    }
 		    return a;
 		}
-	}
-
-}
-
-export namespace chat {
-	
-	export class TurnSegment {
-	    type: string;
-	    content?: string;
-	    toolInvocations?: apidto.TurnSegmentToolCall[];
-	
-	    static createFrom(source: any = {}) {
-	        return new TurnSegment(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.type = source["type"];
-	        this.content = source["content"];
-	        this.toolInvocations = this.convertValues(source["toolInvocations"], apidto.TurnSegmentToolCall);
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
-	export class EnrichedMessage {
-	    id: string;
-	    conversationId: string;
-	    parentId?: string;
-	    turnId?: string;
-	    role: string;
-	    content: string;
-	    reasoning?: string;
-	    media?: string;
-	    promptTokens?: number;
-	    completionTokens?: number;
-	    totalTokens?: number;
-	    cacheReadTokens?: number;
-	    cacheWriteTokens?: number;
-	    cacheMissTokens?: number;
-	    model?: string;
-	    source?: string;
-	    pinned: boolean;
-	    // Go type: time
-	    createdAt: any;
-	    timestamp: number;
-	    isStreaming: boolean;
-	    internal: boolean;
-	    turnSegments?: TurnSegment[];
-	
-	    static createFrom(source: any = {}) {
-	        return new EnrichedMessage(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	        this.conversationId = source["conversationId"];
-	        this.parentId = source["parentId"];
-	        this.turnId = source["turnId"];
-	        this.role = source["role"];
-	        this.content = source["content"];
-	        this.reasoning = source["reasoning"];
-	        this.media = source["media"];
-	        this.promptTokens = source["promptTokens"];
-	        this.completionTokens = source["completionTokens"];
-	        this.totalTokens = source["totalTokens"];
-	        this.cacheReadTokens = source["cacheReadTokens"];
-	        this.cacheWriteTokens = source["cacheWriteTokens"];
-	        this.cacheMissTokens = source["cacheMissTokens"];
-	        this.model = source["model"];
-	        this.source = source["source"];
-	        this.pinned = source["pinned"];
-	        this.createdAt = this.convertValues(source["createdAt"], null);
-	        this.timestamp = source["timestamp"];
-	        this.isStreaming = source["isStreaming"];
-	        this.internal = source["internal"];
-	        this.turnSegments = this.convertValues(source["turnSegments"], TurnSegment);
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
-	export class MessageNode {
-	    itemId?: string;
-	    message: EnrichedMessage;
-	    children?: MessageNode[];
-	    level: number;
-	    childCount: number;
-	    originalIndex?: number;
-	
-	    static createFrom(source: any = {}) {
-	        return new MessageNode(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.itemId = source["itemId"];
-	        this.message = this.convertValues(source["message"], EnrichedMessage);
-	        this.children = this.convertValues(source["children"], MessageNode);
-	        this.level = source["level"];
-	        this.childCount = source["childCount"];
-	        this.originalIndex = source["originalIndex"];
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
-	export class ConversationWithThreads {
-	    id: string;
-	    title: string;
-	    threads: MessageNode[];
-	
-	    static createFrom(source: any = {}) {
-	        return new ConversationWithThreads(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	        this.title = source["title"];
-	        this.threads = this.convertValues(source["threads"], MessageNode);
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
-	
-	
-	export class MessageWindow {
-	    scope: string;
-	    conversationId: string;
-	    threadParentId?: string;
-	    nodes: MessageNode[];
-	    totalCount: number;
-	    startIndex: number;
-	    endIndex: number;
-	    hasBefore: boolean;
-	    hasAfter: boolean;
-	
-	    static createFrom(source: any = {}) {
-	        return new MessageWindow(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.scope = source["scope"];
-	        this.conversationId = source["conversationId"];
-	        this.threadParentId = source["threadParentId"];
-	        this.nodes = this.convertValues(source["nodes"], MessageNode);
-	        this.totalCount = source["totalCount"];
-	        this.startIndex = source["startIndex"];
-	        this.endIndex = source["endIndex"];
-	        this.hasBefore = source["hasBefore"];
-	        this.hasAfter = source["hasAfter"];
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
-	export class MessageWindowRequest {
-	    scope: string;
-	    conversationId: string;
-	    threadParentId?: string;
-	    anchor?: string;
-	    anchorMessageId?: string;
-	    direction: string;
-	    limit: number;
-	
-	    static createFrom(source: any = {}) {
-	        return new MessageWindowRequest(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.scope = source["scope"];
-	        this.conversationId = source["conversationId"];
-	        this.threadParentId = source["threadParentId"];
-	        this.anchor = source["anchor"];
-	        this.anchorMessageId = source["anchorMessageId"];
-	        this.direction = source["direction"];
-	        this.limit = source["limit"];
-	    }
 	}
 
 }

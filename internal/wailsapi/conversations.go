@@ -3,7 +3,6 @@ package wailsapi
 import (
 	"assistente/controllers"
 	"assistente/internal/apidto"
-	"assistente/internal/chat"
 	"assistente/internal/database"
 	"assistente/internal/toolinvocations"
 	"context"
@@ -111,50 +110,6 @@ func (api *Conversations) EnsureConversation(title string) (*database.Conversati
 	})
 }
 
-// GetMessages retorna mensagens com filtro por parent.
-func (api *Conversations) GetMessages(conversationID string, parentID *string) ([]chat.MessageNode, error) {
-	session, ctrl, err := api.deps()
-	if err != nil {
-		return nil, err
-	}
-	return WithUser(session, func(ctx context.Context) ([]chat.MessageNode, error) {
-		return ctrl.GetMessages(ctx, conversationID, parentID)
-	})
-}
-
-// GetRecentMessages retorna as mensagens raiz mais recentes.
-func (api *Conversations) GetRecentMessages(conversationID string, limit int) ([]chat.MessageNode, error) {
-	session, ctrl, err := api.deps()
-	if err != nil {
-		return nil, err
-	}
-	return WithUser(session, func(ctx context.Context) ([]chat.MessageNode, error) {
-		return ctrl.GetRecentMessages(ctx, conversationID, limit)
-	})
-}
-
-// GetMessagesBefore retorna mensagens raiz anteriores ao cursor.
-func (api *Conversations) GetMessagesBefore(conversationID string, beforeID string, limit int) ([]chat.MessageNode, error) {
-	session, ctrl, err := api.deps()
-	if err != nil {
-		return nil, err
-	}
-	return WithUser(session, func(ctx context.Context) ([]chat.MessageNode, error) {
-		return ctrl.GetMessagesBefore(ctx, conversationID, beforeID, limit)
-	})
-}
-
-// GetConversationMessageWindow carrega janela incremental de mensagens.
-func (api *Conversations) GetConversationMessageWindow(req chat.MessageWindowRequest) (*chat.MessageWindow, error) {
-	session, ctrl, err := api.deps()
-	if err != nil {
-		return nil, err
-	}
-	return WithUser(session, func(ctx context.Context) (*chat.MessageWindow, error) {
-		return ctrl.GetConversationMessageWindow(ctx, req)
-	})
-}
-
 // GetToolInvocationDetails carrega no máximo 100 detalhes por lote.
 func (api *Conversations) GetToolInvocationDetails(invocationIDs []string) ([]toolinvocations.Detail, error) {
 	session, ctrl, err := api.deps()
@@ -174,28 +129,6 @@ func (api *Conversations) GetConversationInfo(id string) (*database.Conversation
 	}
 	return WithUser(session, func(ctx context.Context) (*database.Conversation, error) {
 		return ctrl.GetConversationInfo(ctx, id)
-	})
-}
-
-// GetConversationWithThreads retorna conversa com threads raiz.
-func (api *Conversations) GetConversationWithThreads(id string) (*chat.ConversationWithThreads, error) {
-	session, ctrl, err := api.deps()
-	if err != nil {
-		return nil, err
-	}
-	return WithUser(session, func(ctx context.Context) (*chat.ConversationWithThreads, error) {
-		return ctrl.GetConversationWithThreads(ctx, id)
-	})
-}
-
-// GetMessageChildren retorna filhos de uma mensagem.
-func (api *Conversations) GetMessageChildren(messageID string) ([]chat.MessageNode, error) {
-	session, ctrl, err := api.deps()
-	if err != nil {
-		return nil, err
-	}
-	return WithUser(session, func(ctx context.Context) ([]chat.MessageNode, error) {
-		return ctrl.GetMessageChildren(ctx, messageID)
 	})
 }
 

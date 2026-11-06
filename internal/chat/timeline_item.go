@@ -55,28 +55,3 @@ func projectWindowItems(conversationID string, parentID *string, rows []database
 	}
 	return items, nil
 }
-
-// Compatibilidade somente na borda. A ordem e identidade vêm dos itens; este
-// adaptador não agrupa mensagens nem escolhe outro representante canônico.
-func legacyItemNodes(items []*TimelineItem, rows []database.MessageWindowItem, childCounts map[string]int) []MessageNode {
-	nodes := make([]MessageNode, 0, len(items))
-	for i, item := range items {
-		message := item.Representative
-		if message == nil {
-			message = item.legacyRepresentative
-		}
-		if message == nil {
-			continue // O DTO antigo não representa resposta sem mensagem persistida.
-		}
-		node := MessageNode{ItemID: item.ItemID, Message: EnrichMessage(*message), ChildCount: childCounts[message.ID]}
-		if item.ScopeParentID != nil {
-			node.Level = 1
-		}
-		node.OriginalIndex = &rows[i].OriginalIndex
-		if item.Kind == "response" {
-			node.Message.TurnSegments = legacyResponseSegments(item.Segments, item.messageCount, item.callCount)
-		}
-		nodes = append(nodes, node)
-	}
-	return nodes
-}

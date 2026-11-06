@@ -1,14 +1,15 @@
+import { nodeFixture } from '../../test/chatPresentationFixture';
+import type { MessageNode } from '../../lib/chatMessageTree';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render } from '@testing-library/react';
 import { MessageList } from './MessageList';
-import { chat } from '../../../wailsjs/go/models';
 
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 vi.mock('../../hooks/useAnnouncer', () => ({ useAnnouncer: () => ({ announceRequest: () => true }) }));
 // Controles reais do DOM isolam a identidade da linha e do descendente focado.
 // Não simulamos focusout para induzir uma restauração que o navegador não faria.
 vi.mock('./MessageNode', () => ({
-  MessageNode: ({ node, siblingIndex, onReachStart, onReachEnd }: { node: chat.MessageNode; siblingIndex: number; onReachStart?: () => void; onReachEnd?: () => void }) => (
+  MessageNode: ({ node, siblingIndex, onReachStart, onReachEnd }: { node: MessageNode; siblingIndex: number; onReachStart?: () => void; onReachEnd?: () => void }) => (
     <div tabIndex={-1} data-message-id={node.message.id} onKeyDown={event => { if (event.key === "ArrowUp") onReachStart?.(); if (event.key === "ArrowDown") onReachEnd?.(); }} data-message-node="" data-level="0" data-sibling-index={siblingIndex} data-testid={node.message.id}>
       <span>{node.message.content}</span>
       <textarea aria-label={`edit-${node.message.id}`} defaultValue="rascunho local" />
@@ -17,7 +18,7 @@ vi.mock('./MessageNode', () => ({
   ),
 }));
 
-const nodes = (count: number, prefix = 'item') => Array.from({ length: count }, (_, i) => chat.MessageNode.createFrom({
+const nodes = (count: number, prefix = 'item') => Array.from({ length: count }, (_, i) => nodeFixture({
   message: { id: `${prefix}-${i}`, conversationId: 'conversation', role: 'user', content: `texto ${i}`,
     timestamp: i, createdAt: '2026-01-01T00:00:00Z' }, children: [], childCount: 0, level: 0,
 }));
@@ -50,7 +51,7 @@ describe('identidade e retenção visual da lista', () => {
     try {
       const initial = nodes(40);
       const loadOlder = vi.fn(() => new Promise<void>(() => {}));
-      const content = (items: chat.MessageNode[]) => <MessageList threadedMessages={items} hasOlderMessages onLoadOlder={loadOlder} />;
+      const content = (items: MessageNode[]) => <MessageList threadedMessages={items} hasOlderMessages onLoadOlder={loadOlder} />;
       const view = render(content(initial));
       const prepending = direction.startsWith('prepend');
       const target = prepending ? 'item-1' : 'item-39';
@@ -107,7 +108,7 @@ describe('identidade e retenção visual da lista', () => {
     const view = render(<MessageList threadedMessages={initial} />);
     const row = view.getByTestId('item-39');
     act(() => row.focus());
-    const finished = chat.MessageNode.createFrom({ ...initial[39], message: { ...initial[39].message, content: 'final', isStreaming: false } });
+    const finished = nodeFixture({ ...initial[39], message: { ...initial[39].message, content: 'final', isStreaming: false } });
     view.rerender(<MessageList threadedMessages={[...nodes(100, 'older'), ...initial.slice(0, 39), finished]} />);
     expect(view.getByTestId('item-39')).toBe(row);
     expect(row).toHaveAttribute('data-sibling-index', '139');
@@ -117,7 +118,7 @@ describe('identidade e retenção visual da lista', () => {
 
   it('saída para o compositor libera a retenção sem recuperar foco nem acumular linhas', () => {
     const initial = nodes(40);
-    const surface = (items: chat.MessageNode[]) => <><input aria-label="compositor" /><MessageList threadedMessages={items} /></>;
+    const surface = (items: MessageNode[]) => <><input aria-label="compositor" /><MessageList threadedMessages={items} /></>;
     const view = render(surface(initial));
     act(() => view.getByTestId('item-39').focus());
     view.rerender(surface([...initial, ...nodes(100, 'extra')]));

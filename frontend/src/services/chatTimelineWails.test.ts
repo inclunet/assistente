@@ -150,7 +150,7 @@ describe('chatTimelineWails', () => {
     const reference = { projectionId: 'p', incarnation: 'i', turnId: 'turn', executionId: 'execution' };
     const item = new apidto.CanonicalItem({ recoveryReference: reference, executionId: 'execution', itemId: 'item',
       conversationId: 'chat', scopeParentId: null, turnId: 'turn', kind: 'response', replyToItemId: 'question',
-      representativeMessageId: null, messageIds: [], position: 'opaque', revision: '1', state: 'interrupted',
+      representativeMessageId: null, messageIds: [], revision: '1', state: 'interrupted',
       durability: 'volatile', segments: [{ segmentId: 'text', kind: 'text', text: 'preservar' }],
       metadata: { origin: 'runtime', role: 'assistant', model: '', pinned: false, promptTokens: 0, completionTokens: 0, totalTokens: 0 } });
     const base = { conversationId: 'chat', scopeParentId: null, epoch: 'epoch', windowId: 'window',
@@ -273,4 +273,29 @@ it('conecta leitor aos DTOs Wails e invalida reserva na troca de sessão', async
   await expect(held.next()).rejects.toThrow('closed');
   await vi.waitFor(() => expect(mocks.close).toHaveBeenCalledExactlyOnceWith('window'));
   expect(mocks.release).toHaveBeenCalledOnce();
+});
+
+it('normaliza defaults igualmente em snapshot, operações, patches e recuperação', async () => {
+  const { normalizeTimelineItem, normalizeTimelineSnapshot, normalizeTimelineEvent } = await import('./chatTimelineWails');
+  const { sameRecoveryItem } = await import('./timelineRecoveryItem');
+  const original = canonicalTestItem('turn:q');
+  const wire = { ...original, representativeMessageId: null, metadata: {
+    createdAt: original.metadata.createdAt, origin: 'chat', role: 'assistant', conclusionSegmentIds: [],
+  } };
+  const recovered = normalizeTimelineItem(wire);
+  const snapshot = normalizeTimelineSnapshot(new apidto.SubscribedTimelineSnapshot({ items: [wire] }));
+  const event = normalizeTimelineEvent({ surfaceId: 's', windowId: 'w', conversationId: 'conversation', epoch: 'e', snapshotRevision: '1', syncRequired: false,
+    updates: [{ conversationId: 'conversation', epoch: 'e', sequence: '1',
+      operations: [{ kind: 'item_upsert', itemId: wire.itemId, revision: '1', item: wire }],
+      windowPatches: [{ windowId: 'w', previousRevision: '0', revision: '1', items: [wire] }],
+    }] });
+  for (const value of [snapshot.items[0], event.updates[0].operations[0].item!, event.updates[0].windowPatches[0].items![0]]) {
+    expect(sameRecoveryItem(value, recovered)).toBe(true);
+    expect(value.representativeMessageId).toBeNull();
+    expect(value.metadata.conclusionSegmentIds).toEqual([]);
+    expect(value.metadata).toMatchObject({ model: '', pinned: false, totalTokens: 0, childCount: 0 });
+  }
+  const populated = normalizeTimelineItem({ ...wire, metadata: { ...wire.metadata, pinned: true, childCount: 2, model: 'model', cacheReadTokens: 7, promptTokens: 8, completionTokens: 9, totalTokens: 17 } });
+  expect(populated.metadata).toMatchObject({ pinned: true, childCount: 2, model: 'model', cacheReadTokens: 7, promptTokens: 8, completionTokens: 9, totalTokens: 17 });
+  expect(wire.metadata).not.toHaveProperty('totalTokens');
 });

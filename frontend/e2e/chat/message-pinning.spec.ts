@@ -25,16 +25,7 @@ test.describe('Chat — fixação de mensagens', () => {
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     });
-    await wails.setResponse('GetConversationMessageWindow', {
-      scope: 'conversation',
-      conversationId,
-      nodes: [{ message: pinnedMessage(false), children: [], childCount: 0, originalIndex: 0 }],
-      totalCount: 1,
-      startIndex: 0,
-      endIndex: 0,
-      hasBefore: false,
-      hasAfter: false,
-    });
+    await wails.setTimelineRows([{ message: pinnedMessage(false), children: [], childCount: 0, originalIndex: 0 }]);
     await wails.setResponse('ToggleMessagePin', pinnedMessage(true));
     await wails.setResponse('GetPinnedMessages', [pinnedMessage(true)]);
     await wails.waitForApp();

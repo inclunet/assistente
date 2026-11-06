@@ -319,13 +319,6 @@ func reconcileProjectedValidity(c *projectionConversation, t *liveTurn, compatib
 	}
 }
 
-// ReadWindow usa a mesma barreira de admissão, deltas e commits do turno.
-// O adaptador visual ainda retorna conteúdo persistido; não inventa nós live nem
-// mistura tentativas voláteis com o banco. Recuperação de bytes usa ReadRecovery.
-func (p *LiveProjection) ReadWindow(ctx context.Context, query database.MessageWindowQuery, reader WindowSnapshotReader) (*TimelineWindowSnapshot, error) {
-	return p.readWindow(ctx, query, reader, false)
-}
-
 type CanonicalWindowSnapshotReader interface {
 	ReadCanonicalWindow(context.Context, database.MessageWindowQuery) (*TimelineWindowSnapshot, error)
 }
@@ -336,23 +329,21 @@ func (a canonicalWindowAdapter) ReadWindow(ctx context.Context, q database.Messa
 }
 
 func (p *LiveProjection) ReadCanonicalWindow(ctx context.Context, query database.MessageWindowQuery, reader CanonicalWindowSnapshotReader) (*TimelineWindowSnapshot, error) {
-	return p.readWindow(ctx, query, canonicalWindowAdapter{reader}, true)
+	return p.readWindow(ctx, query, canonicalWindowAdapter{reader})
 }
 
-func (p *LiveProjection) readWindow(ctx context.Context, query database.MessageWindowQuery, reader WindowSnapshotReader, canonical bool) (*TimelineWindowSnapshot, error) {
+func (p *LiveProjection) readWindow(ctx context.Context, query database.MessageWindowQuery, reader WindowSnapshotReader) (*TimelineWindowSnapshot, error) {
 	userID, err := database.RequireUserID(ctx)
 	if err != nil {
 		return nil, err
 	}
 	c, release := p.lockConversation(projectionKey{userID, query.ConversationID}, true)
 	defer release()
-	return p.readWindowLocked(ctx, query, reader, canonical, c)
+	return p.readWindowLocked(ctx, query, reader, c)
 }
 
-func (p *LiveProjection) readWindowLocked(ctx context.Context, query database.MessageWindowQuery, reader WindowSnapshotReader, canonical bool, c *projectionConversation) (_ *TimelineWindowSnapshot, err error) {
-	if !canonical {
-		_ = p.recoverStoragePublicationLocked(ctx, query.ConversationID, c, nil)
-	}
+func (p *LiveProjection) readWindowLocked(ctx context.Context, query database.MessageWindowQuery, reader WindowSnapshotReader, c *projectionConversation) (_ *TimelineWindowSnapshot, err error) {
+
 	snapshot, err := reader.ReadWindow(ctx, query)
 	if err != nil {
 		return nil, err
@@ -373,45 +364,45 @@ func (p *LiveProjection) readWindowLocked(ctx context.Context, query database.Me
 			reconcileProjectedTurn(c, t, snapshot.Version, snapshot.Turns[turnID])
 		}
 	}
-	if canonical {
-		// Protect the entire candidate before composing its first response.
-		// Open has no window yet; Navigate/Refresh still own the prior page.
-		previousPreparing := c.preparingPresentation
-		previousBoundaries := maps.Clone(c.presentationBoundaries)
-		c.preparingPresentation = maps.Clone(previousPreparing)
-		if c.preparingPresentation == nil {
-			c.preparingPresentation = make(map[string]bool, len(snapshot.Items))
+
+	// Protect the entire candidate before composing its first response.
+	// Open has no window yet; Navigate/Refresh still own the prior page.
+	previousPreparing := c.preparingPresentation
+	previousBoundaries := maps.Clone(c.presentationBoundaries)
+	c.preparingPresentation = maps.Clone(previousPreparing)
+	if c.preparingPresentation == nil {
+		c.preparingPresentation = make(map[string]bool, len(snapshot.Items))
+	}
+	for _, item := range snapshot.Items {
+		c.preparingPresentation[item.ItemID] = true
+	}
+	defer func() {
+		c.preparingPresentation = previousPreparing
+		if err != nil {
+			c.presentationBoundaries = previousBoundaries
 		}
-		for _, item := range snapshot.Items {
-			c.preparingPresentation[item.ItemID] = true
-		}
-		defer func() {
-			c.preparingPresentation = previousPreparing
-			if err != nil {
-				c.presentationBoundaries = previousBoundaries
-			}
-		}()
-		if !windowCompositionWithinBudget(c, snapshot.Items) {
-			return nil, ErrTimelineSourceLimit
-		}
-		if err := p.recoverStoragePublicationLocked(ctx, query.ConversationID, c, &snapshot.Version); err != nil {
+	}()
+	if !windowCompositionWithinBudget(c, snapshot.Items) {
+		return nil, ErrTimelineSourceLimit
+	}
+	if err := p.recoverStoragePublicationLocked(ctx, query.ConversationID, c, &snapshot.Version); err != nil {
+		return nil, err
+	}
+	for i, item := range snapshot.Items {
+		p.recoverPublicationLocked(c, item.TurnID, item)
+		composed, err := projectLiveItemLocked(c, item)
+		if err != nil {
 			return nil, err
 		}
-		for i, item := range snapshot.Items {
-			p.recoverPublicationLocked(c, item.TurnID, item)
-			composed, err := projectLiveItemLocked(c, item)
-			if err != nil {
-				return nil, err
-			}
-			snapshot.Items[i] = composed
-			if item.Kind == "response" {
-				snapshot.Responses[item.TurnID] = composed
-			}
+		snapshot.Items[i] = composed
+		if item.Kind == "response" {
+			snapshot.Responses[item.TurnID] = composed
 		}
 	}
+
 	c.flushPublicationLocked(query.ConversationID)
-	if canonical {
-		c.publishCanonical(query.ConversationID, snapshot.Items)
-	}
+
+	c.publishCanonical(query.ConversationID, snapshot.Items)
+
 	return snapshot, nil
 }

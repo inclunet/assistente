@@ -73,21 +73,8 @@ const conversation = {
   message_count: 1,
 };
 
-const messageWindow = (nodes: unknown[]) => ({
-  scope: 'conversation',
-  conversationId,
-  threadParentId: '',
-  nodes,
-  totalCount: nodes.length,
-  startIndex: 0,
-  endIndex: Math.max(0, nodes.length - 1),
-  hasBefore: false,
-  hasAfter: false,
-});
-
 async function configureHistory(wails: WailsMock, nodes: unknown[]) {
-  await wails.setResponse('GetMessages', nodes);
-  await wails.setResponse('GetConversationMessageWindow', messageWindow(nodes));
+  await wails.setTimelineRows(nodes);
   await wails.setResponse('GetConversationInfo', conversation);
 }
 
@@ -118,10 +105,9 @@ async function readChronology(assistant: Locator) {
 }
 
 async function installReloadHistory(page: Page) {
-  await page.addInitScript(({ nodes, info, windowResponse }) => {
+  await page.addInitScript(({ nodes, info }) => {
     const apply = () => {
-      window.__wailsMock.setResponse('GetMessages', nodes);
-      window.__wailsMock.setResponse('GetConversationMessageWindow', windowResponse);
+      window.__wailsMock.setTimelineRows(nodes);
       window.__wailsMock.setResponse('GetConversationInfo', info);
     };
     if (document.readyState === 'loading') {
@@ -132,7 +118,6 @@ async function installReloadHistory(page: Page) {
   }, {
     nodes: [userNode, canonicalNode],
     info: conversation,
-    windowResponse: messageWindow([userNode, canonicalNode]),
   });
 }
 

@@ -5,7 +5,7 @@ test('anuncia ferramenta pendente antes do fim e depois sua conclusão', async (
   const userMessageId = '01968740-1234-7000-8000-000000000002';
   const assistantMessageId = '01968740-1234-7000-8000-000000000003';
   const createdAt = new Date().toISOString();
-  await wails.setResponse('GetMessages', [{
+  await wails.setTimelineRows([{
     message: { id: userMessageId, conversationId, role: 'user', content: 'Olá', createdAt },
     children: [],
   }]);

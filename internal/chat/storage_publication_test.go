@@ -362,12 +362,12 @@ func TestStoragePublicationOversizedTurnStillAllowsAuthorizedExplicitRecovery(t 
 	if !errors.Is(storageErr, ErrTimelineSourceLimit) {
 		t.Fatal("fixture não excedeu publicação", storageErr)
 	}
-	legacy, err := p.ReadWindow(f.ctx, database.MessageWindowQuery{ConversationID: f.conversation, Anchor: "start", Direction: "after", Limit: 1}, f.reader)
-	if err != nil || len(legacy.Items) != 1 || legacy.Items[0].ItemID != "message:"+f.question {
-		t.Fatal("orçamento auxiliar bloqueou página legada pequena", err)
+	legacy, err := p.ReadCanonicalWindow(f.ctx, database.MessageWindowQuery{ConversationID: f.conversation, Anchor: "start", Direction: "after", Limit: 1}, f.reader)
+	if legacy != nil || !errors.Is(err, ErrTimelineSourceLimit) {
+		t.Fatal("janela canônica ignorou falha de publicação; recuperação explícita deve permanecer disponível", err)
 	}
 	deniedWindow := errors.New("janela revogada")
-	if snapshot, err := p.ReadWindow(f.ctx, database.MessageWindowQuery{ConversationID: f.conversation}, windowRecoveryReader(func(context.Context, database.MessageWindowQuery) (*TimelineWindowSnapshot, error) {
+	if snapshot, err := p.ReadCanonicalWindow(f.ctx, database.MessageWindowQuery{ConversationID: f.conversation}, windowRecoveryReader(func(context.Context, database.MessageWindowQuery) (*TimelineWindowSnapshot, error) {
 		return nil, deniedWindow
 	})); snapshot != nil || !errors.Is(err, deniedWindow) {
 		t.Fatal("janela legada ignorou autorização", err)

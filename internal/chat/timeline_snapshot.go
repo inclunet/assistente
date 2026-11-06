@@ -11,8 +11,7 @@ import (
 )
 
 // Snapshot persistido: a versão identifica o commit lido, não epoch/sequence
-// de streaming. Metadados nullable aguardam o DTO canônico; Nodes/Window ainda
-// são os adaptadores visuais existentes.
+// de streaming. Items contém a projeção canônica; Window descreve a paginação.
 type TimelineWindowSnapshot struct {
 	// Provas anteriores à troca da janela, calculadas sob a mesma barreira.
 	priorTurnValidity     map[string]bool
@@ -47,7 +46,6 @@ type TimelineSnapshotReader interface {
 	TurnSnapshotReader
 	ReadTurn(context.Context, string, string) (*TimelineTurnSnapshot, error)
 	PublicationSnapshotReader
-	WindowSnapshotReader
 }
 
 // A publicação automática exige leitura limitada antes de materializar payloads.
@@ -84,21 +82,11 @@ func readTimelineFactsForSelection(ctx context.Context, tx *gorm.DB, conversatio
 	return timelineFacts{turns: turns, calls: ToolInvocationSummariesToTurnSegments(summaries)}, nil
 }
 
-func (r *DBTimelineReader) ReadWindow(ctx context.Context, query database.MessageWindowQuery) (*TimelineWindowSnapshot, error) {
-	return r.readWindow(ctx, query, false)
-}
-
-// ReadCanonicalWindow inclui itens com identidade própria ainda sem mensagem.
-// O adaptador legado continua usando ReadWindow até o cutover do consumidor.
+// ReadCanonicalWindow lê uma única projeção leve para toda apresentação.
 func (r *DBTimelineReader) ReadCanonicalWindow(ctx context.Context, query database.MessageWindowQuery) (*TimelineWindowSnapshot, error) {
-	return r.readWindow(ctx, query, true)
-}
-
-func (r *DBTimelineReader) readWindow(ctx context.Context, query database.MessageWindowQuery, canonical bool) (*TimelineWindowSnapshot, error) {
 	result := &TimelineWindowSnapshot{}
 	var rows *database.MessageWindowResult
 	var facts timelineFacts
-	childCounts := make(map[string]int)
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		// Esta primeira leitura autoriza e fixa o snapshot SQLite DEFERRED. Nenhuma
 		// consulta abaixo pode voltar ao handle global ou a outra conexão.
@@ -108,61 +96,51 @@ func (r *DBTimelineReader) readWindow(ctx context.Context, query database.Messag
 		}
 		result.Version = version
 		repo := database.NewMessageRepository(tx)
-		if canonical {
-			repo = repo.WithTimelineTurns()
-		}
+
+		repo = repo.WithTimelineTurns()
+
 		if err := validateTimelineParent(ctx, repo, query); err != nil {
 			return err
 		}
-		if canonical {
-			rows, err = repo.ReadMessageWindowWithContext(ctx, query, func(items []database.MessageWindowItem) error {
-				var messageIDs []string
-				for _, item := range items {
-					if item.Kind == database.MessageWindowItemKindTurn {
-						result.TurnIDs = append(result.TurnIDs, item.TurnID)
-					} else {
-						messageIDs = append(messageIDs, item.MessageID)
-					}
+
+		rows, err = repo.ReadMessageWindowWithContext(ctx, query, func(items []database.MessageWindowItem) error {
+			var messageIDs []string
+			for _, item := range items {
+				if item.Kind == database.MessageWindowItemKindTurn {
+					result.TurnIDs = append(result.TurnIDs, item.TurnID)
+				} else {
+					messageIDs = append(messageIDs, item.MessageID)
 				}
-				_, err := publicationSelectionReadSize(tx, query.ConversationID, messageIDs, result.TurnIDs)
-				return err
-			})
-		} else {
-			rows, err = repo.GetMessageWindowWithContext(ctx, query)
-		}
+			}
+			_, err := publicationSelectionReadSize(tx, query.ConversationID, messageIDs, result.TurnIDs)
+			return err
+		})
+
 		if err != nil {
 			return err
 		}
-		if !canonical {
-			if err := database.ResolveContinuationMedia(ctx, tx, rows.Messages); err != nil {
-				return err
-			}
-		}
+
 		responseIDs := result.TurnIDs
-		if !canonical {
-			result.TurnIDs = snapshotTurnIDs(rows.Messages)
-		}
+
 		seen := make(map[string]bool, len(result.TurnIDs))
 		for _, id := range result.TurnIDs {
 			seen[id] = true
 		}
-		if canonical {
-			for _, message := range rows.Messages {
-				if message.Role == "user" && !seen[message.ID] {
-					result.TurnIDs = append(result.TurnIDs, message.ID)
-					seen[message.ID] = true
-				}
+
+		for _, message := range rows.Messages {
+			if message.Role == "user" && !seen[message.ID] {
+				result.TurnIDs = append(result.TurnIDs, message.ID)
+				seen[message.ID] = true
 			}
 		}
+
 		for _, row := range rows.Items {
 			if row.Kind == database.MessageWindowItemKindTurn && !seen[row.TurnID] {
 				result.TurnIDs = append(result.TurnIDs, row.TurnID)
 				seen[row.TurnID] = true
 			}
 		}
-		if !canonical {
-			responseIDs = result.TurnIDs
-		}
+
 		facts, err = readTimelineFactsForSelection(ctx, tx, query.ConversationID, result.TurnIDs, responseIDs)
 		if err != nil {
 			return err
@@ -173,28 +151,7 @@ func (r *DBTimelineReader) readWindow(ctx context.Context, query database.Messag
 		if err := database.ReadMessagePresentation(ctx, tx, rows.Messages); err != nil {
 			return err
 		}
-		if canonical {
-			for _, message := range rows.Messages {
-				if message.Presentation != nil {
-					childCounts[message.ID] = message.Presentation.ChildCount
-				}
-			}
-		} else {
-			for start := 0; start < len(rows.Messages); start += 400 {
-				end := min(start+400, len(rows.Messages))
-				ids := make([]string, 0, end-start)
-				for _, message := range rows.Messages[start:end] {
-					ids = append(ids, message.ID)
-				}
-				counts, err := repo.CountChildrenWithContext(ctx, ids)
-				if err != nil {
-					return err
-				}
-				for id, count := range counts {
-					childCounts[id] = count
-				}
-			}
-		}
+
 		return nil
 	})
 	if err != nil {
@@ -213,7 +170,7 @@ func (r *DBTimelineReader) readWindow(ctx context.Context, query database.Messag
 			}
 		}
 	}
-	if canonical && len(rows.Items) > 0 {
+	if len(rows.Items) > 0 {
 		result.BeforeCursor = database.EncodeTimelineCursor(query.ConversationID, query.ParentID, rows.Items[0])
 		result.AfterCursor = database.EncodeTimelineCursor(query.ConversationID, query.ParentID, rows.Items[len(rows.Items)-1])
 	}
@@ -225,7 +182,6 @@ func (r *DBTimelineReader) readWindow(ctx context.Context, query database.Messag
 	}
 	result.Window = MessageWindow{
 		ConversationID: query.ConversationID,
-		Nodes:          legacyItemNodes(result.Items, rows.Items, childCounts),
 		TotalCount:     rows.TotalCount, StartIndex: rows.StartIndex, EndIndex: rows.EndIndex, HasBefore: rows.HasBefore, HasAfter: rows.HasAfter,
 	}
 	return result, nil

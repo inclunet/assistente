@@ -26,31 +26,28 @@ func TestTimelineOrderSnapshotKeepsSQLClassificationAndIndexes(t *testing.T) {
 	}
 	before := f.window(t)
 	want := []string{"message:" + f.question, "turn:" + f.question, "message:" + orphan.ID}
-	got := make([]string, 0, len(before.Window.Nodes))
-	for i, node := range before.Window.Nodes {
+	got := make([]string, 0, len(before.Items))
+	for _, node := range before.Items {
 		got = append(got, node.ItemID)
-		if node.OriginalIndex == nil || *node.OriginalIndex != i {
-			t.Fatalf("índice incorreto: %+v", node)
-		}
 	}
 	if !reflect.DeepEqual(got, want) || before.Window.TotalCount != 3 || before.InvalidTurnReferences != 1 {
 		t.Fatalf("projeção divergiu da classificação: %q %+v", got, before)
 	}
-	if before.Window.Nodes[2].Message.TurnID != nil || before.Responses[missing] != nil {
+	if before.Items[2].Representative.TurnID != nil || before.Responses[missing] != nil {
 		t.Fatal("órfã reagrupada pelo adaptador")
 	}
-	onlyResponse, err := f.reader.ReadWindow(f.ctx, database.MessageWindowQuery{ConversationID: f.conversation, AnchorMessageID: f.question, Direction: "after", Limit: 1})
+	onlyResponse, err := f.reader.ReadCanonicalWindow(f.ctx, database.MessageWindowQuery{ConversationID: f.conversation, AnchorMessageID: f.question, Direction: "after", Limit: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(onlyResponse.Window.Nodes) != 1 || onlyResponse.Window.Nodes[0].ItemID != want[1] || onlyResponse.Window.StartIndex != 1 || onlyResponse.Window.EndIndex != 1 {
+	if len(onlyResponse.Items) != 1 || onlyResponse.Items[0].ItemID != want[1] || onlyResponse.Window.StartIndex != 1 || onlyResponse.Window.EndIndex != 1 {
 		t.Fatalf("janela parcial: %+v", onlyResponse.Window)
 	}
-	onlyQuestion, err := f.reader.ReadWindow(f.ctx, database.MessageWindowQuery{ConversationID: f.conversation, AnchorMessageID: f.answer, Direction: "before", Limit: 1})
+	onlyQuestion, err := f.reader.ReadCanonicalWindow(f.ctx, database.MessageWindowQuery{ConversationID: f.conversation, AnchorMessageID: f.answer, Direction: "before", Limit: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(onlyQuestion.Window.Nodes) != 1 || onlyQuestion.Window.Nodes[0].ItemID != want[0] {
+	if len(onlyQuestion.Items) != 1 || onlyQuestion.Items[0].ItemID != want[0] {
 		t.Fatalf("âncora da resposta: %+v", onlyQuestion.Window)
 	}
 	after := f.window(t)
@@ -85,15 +82,15 @@ func TestTimelineOrderSnapshotWhitespaceLinksMatchGoClassification(t *testing.T)
 		}
 		count++
 	}
-	snapshot, err := f.reader.ReadWindow(f.ctx, database.MessageWindowQuery{ConversationID: f.conversation, Anchor: "start", Direction: "after", Limit: 240})
+	snapshot, err := f.reader.ReadCanonicalWindow(f.ctx, database.MessageWindowQuery{ConversationID: f.conversation, Anchor: "start", Direction: "after", Limit: 240})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(snapshot.Window.Nodes) != 2+2*count || snapshot.Window.TotalCount != len(snapshot.Window.Nodes) || snapshot.InvalidTurnReferences != count {
-		t.Fatalf("classificações SQL/Go divergiram: nodes=%d total=%d inválidos=%d", len(snapshot.Window.Nodes), snapshot.Window.TotalCount, snapshot.InvalidTurnReferences)
+	if len(snapshot.Items) != 2+2*count || snapshot.Window.TotalCount != len(snapshot.Items) || snapshot.InvalidTurnReferences != count {
+		t.Fatalf("classificações SQL/Go divergiram: nodes=%d total=%d inválidos=%d", len(snapshot.Items), snapshot.Window.TotalCount, snapshot.InvalidTurnReferences)
 	}
-	for _, node := range snapshot.Window.Nodes {
-		if node.Message.Content == "preservada" && (node.ItemID != "message:"+node.Message.ID || node.Message.TurnID != nil) {
+	for _, node := range snapshot.Items {
+		if node.Representative.Content == "preservada" && (node.ItemID != "message:"+node.Representative.ID || node.Representative.TurnID != nil) {
 			t.Fatalf("vínculo vazio agrupado: %+v", node)
 		}
 	}

@@ -1,3 +1,5 @@
+import type { MessageNode } from '../../lib/chatMessageTree';
+import { messageFixture, nodeFixture } from '../../test/chatPresentationFixture';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import {
@@ -8,7 +10,6 @@ import {
 } from '../workspace/workspacePanelFocusRegistry';
 import userEvent from '@testing-library/user-event';
 import { MediaCategory, type MediaFile } from '../../services/mediaService';
-import { chat } from '../../../wailsjs/go/models';
 
 const updateMessageMock = vi.fn();
 const updateMessagePinnedMock = vi.fn();
@@ -20,7 +21,7 @@ const hideMenuMock = vi.fn();
 const copyMessageMock = vi.fn();
 const speakMessageMock = vi.fn();
 const conversationId = '01926b90-7a5a-7c4e-8d3f-000000000001';
-const voiceMessage = new chat.EnrichedMessage({
+const voiceMessage = messageFixture({
   id: '01926b90-7a5a-7c4e-8d3f-00000000000b', conversationId, role: 'assistant', content: 'Olá',
 });
 type MockThreadedMessage = {
@@ -133,7 +134,7 @@ vi.mock('./useChatTimelinePresentation', () => ({
     presentation: {
       getMessage: (id: string) => {
         const message = chatStoreState.getConversationMessages().find(value => value.id === id);
-        if (message) (message as typeof message & { timelineItem?: unknown }).timelineItem = { representativeMessageId: message.id };
+        if (message) message.timelineItem = messageFixture({ timelineItem: { representativeMessageId: message.id } }).timelineItem;
         return message;
       },
       getMessageByRepresentative: (id: string) => chatStoreState.getConversationMessages().find(value => value.id === id),
@@ -241,7 +242,7 @@ vi.mock('./ChatToolbar', () => ({
 // A integração de navegação usa a lista real; somente o conteúdo das linhas é
 // isolado, sem reproduzir a implementação de foco do componente.
 vi.mock('./MessageNode', () => ({ MessageNode: ({ node, siblingIndex }: {
-  node: chat.MessageNode; siblingIndex: number;
+  node: MessageNode; siblingIndex: number;
 }) => <div tabIndex={-1} data-message-node data-level="0" data-sibling-index={siblingIndex}
   data-message-id={node.message.id}>{node.message.content}</div> }));
 
@@ -279,7 +280,7 @@ vi.mock('./MessageList', async (importOriginal) => {
   ) => {
     messageListRenderMock({ onContextMenu, onReachEnd, onDelete, threadedMessages, isLoading, origin });
     if (messageListMode.real) return <actual.MessageList ref={ref}
-      threadedMessages={threadedMessages as chat.MessageNode[]}
+      threadedMessages={threadedMessages as MessageNode[]}
       onJumpToStart={onJumpToStart} onJumpToEnd={onJumpToEnd} />;
     return (
     <div ref={ref} data-testid="message-list">
@@ -1327,8 +1328,8 @@ describe('ChatSessionView', () => {
     let surfaceSession = {
       ...createEmptyChatSurfaceSession(conversationId, sessionKey),
       visibleThreadedMessages: [
-        new chat.MessageNode({ message: { id: 'm1', role: 'user' }, children: [], level: 0, childCount: 0 }),
-        new chat.MessageNode({ message: { id: 'm2', role: 'assistant' }, children: [], level: 0, childCount: 0 }),
+        nodeFixture({ message: { id: 'm1', role: 'user' }, children: [], level: 0, childCount: 0 }),
+        nodeFixture({ message: { id: 'm2', role: 'assistant' }, children: [], level: 0, childCount: 0 }),
       ],
       messageWindow: {
         scope: 'conversation' as const,
@@ -1426,7 +1427,7 @@ describe('ChatSessionView', () => {
     const sessionKey = 'boundary-complete';
     chatStoreState.surfaceSessionsByKey[sessionKey] = {
       ...createEmptyChatSurfaceSession(conversationId, sessionKey),
-      visibleThreadedMessages: [new chat.MessageNode({ message: { id: 'only', role: 'user' }, children: [], level: 0, childCount: 0 })],
+      visibleThreadedMessages: [nodeFixture({ message: { id: 'only', role: 'user' }, children: [], level: 0, childCount: 0 })],
       messageWindow: { scope: 'conversation', conversationId, totalCount: 1, startIndex: 0, endIndex: 0, hasBefore: false, hasAfter: false },
     };
     renderWithPanel(<ChatSessionView surface={surface({ sessionKey, surfaceId: 'boundary-complete' })} onSend={vi.fn().mockResolvedValue(undefined)} showShortcutsHelp={false} />);

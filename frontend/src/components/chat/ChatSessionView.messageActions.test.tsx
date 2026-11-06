@@ -1,3 +1,4 @@
+import { messageFixture, nodeFixture } from '../../test/chatPresentationFixture';
 import { publishFixtureMessage } from './canonicalPresentationFixture';
 import { setFixtureCanonicalItem } from './canonicalPresentationFixture';
 import type { TimelineItem } from '../../types/chatTimelineEvents';
@@ -13,7 +14,6 @@ import { useAuthStore } from '../../store/authStore';
 import { useWorkspaceStore } from '../../store/workspaceStore';
 import { createChatSurfaceIdentity, createEmptyChatSession } from '../../services/chatSessionRegistry';
 import { CHAT_MESSAGING_EVENT, captureChatMessagingTarget, executeChatMessaging, type ChatMessagingRequest } from '../../lib/commandChatMessaging';
-import { chat } from '../../../wailsjs/go/models';
 import { ttsService } from '../../services/tts';
 import { messageAudioService } from '../../services/messageAudio';
 import { registerEditorTransferSurface } from '../../lib/commandEditorTransfer';
@@ -88,8 +88,8 @@ beforeEach(() => {
   setFixtureCanonicalItem(firstID);
   vi.spyOn(HTMLElement.prototype, 'scrollIntoView').mockImplementation(() => {});
   Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: vi.fn(async () => {}) } });
-  const conversation = { id, title: 'chat', threadedMessages: [firstID, secondID].map((messageID, index) => new chat.MessageNode({
-    message: new chat.EnrichedMessage({ id: messageID, conversationId: id, role: 'user', content: index ? 'segunda' : '**primeira**' }), children: [], hasChildren: false, childCount: 0, level: 0,
+  const conversation = { id, title: 'chat', threadedMessages: [firstID, secondID].map((messageID, index) => nodeFixture({
+    message: messageFixture({ id: messageID, conversationId: id, role: 'user', content: index ? 'segunda' : '**primeira**' }), children: [], hasChildren: false, childCount: 0, level: 0,
   })) };
   useChatStore.setState({ timelinesByConversationId: { [id]: conversation }, sessionsByConversationId: { [id]: { ...createEmptyChatSession(id), conversation } }, surfaceSessionsByKey: {}, loadingConversationIds: new Set() });
   listener = event => {
@@ -199,8 +199,8 @@ describe('ChatSessionView message actions — superfície/lista/registry reais',
   });
   it('menu real alterna raciocínio somente do nó capturado', async () => {
     useChatStore.setState(state => ({ timelinesByConversationId: { [id]: { ...state.timelinesByConversationId[id],
-      threadedMessages: state.timelinesByConversationId[id].threadedMessages.map(item => new chat.MessageNode({ ...item,
-        message: new chat.EnrichedMessage({ ...item.message, role: 'assistant', reasoning: 'raciocínio ' + item.message.id }) })) } } }));
+      threadedMessages: state.timelinesByConversationId[id].threadedMessages.map(item => nodeFixture({ ...item,
+        message: messageFixture({ ...item.message, role: 'assistant', reasoning: 'raciocínio ' + item.message.id }) })) } } }));
     mount(); act(() => node().focus()); fireEvent.keyUp(node(), { key: 'ContextMenu' });
     await userEvent.click(await screen.findByRole('menuitem', { name: /Ver raciocínio do modelo/ }));
     expect(useChatStore.getState().isConversationReasoningExpanded(id, firstID, surface.sessionKey)).toBe(true);
@@ -210,9 +210,9 @@ describe('ChatSessionView message actions — superfície/lista/registry reais',
   it('comandos expand/collapse aplicam o estado à thread real sem escolher outro nó', () => {
     const childID = '01926b90-7a5a-7c4e-8d3f-000000000013';
     useChatStore.setState(state => ({ timelinesByConversationId: { [id]: { ...state.timelinesByConversationId[id],
-      threadedMessages: state.timelinesByConversationId[id].threadedMessages.map((item, index) => index ? item : new chat.MessageNode({ ...item,
-        hasChildren: true, childCount: 1, children: [new chat.MessageNode({
-          message: new chat.EnrichedMessage({ id: childID, conversationId: id, parentId: firstID, role: 'user', content: 'filha' }),
+      threadedMessages: state.timelinesByConversationId[id].threadedMessages.map((item, index) => index ? item : nodeFixture({ ...item,
+        hasChildren: true, childCount: 1, children: [nodeFixture({
+          message: messageFixture({ id: childID, conversationId: id, parentId: firstID, role: 'user', content: 'filha' }),
           children: [], childCount: 0, hasChildren: false, level: 1,
         })] })) } } }));
     mount(); act(() => node().focus());

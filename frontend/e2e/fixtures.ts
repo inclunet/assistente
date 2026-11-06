@@ -10,6 +10,7 @@ import { buildWailsMockScript } from './mocks/wails-runtime';
  */
 
 export interface WailsMock {
+  setTimelineRows: (rows: unknown[], parentId?: string) => Promise<void>;
   /** Sobrescreve a resposta de uma função Wails. Pode ser chamado antes ou depois de waitForApp. */
   setResponse: (fn: string, value: unknown) => Promise<void>;
   /** Remove override one-shot depois do cenário que o exige. */
@@ -35,10 +36,11 @@ export const test = base.extend<{ wails: WailsMock }>({
 
     let navigated = false;
     const pendingResponses: Array<{ fn: string; value: unknown }> = [];
+    const pendingTimeline: Array<{rows: unknown[]; parentId?: string}> = [];
     const pendingErrors: Array<{ fn: string; message: string }> = [];
 
     async function applyPendingMocks() {
-      if (pendingResponses.length === 0 && pendingErrors.length === 0) {
+      if (pendingResponses.length === 0 && pendingErrors.length === 0 && pendingTimeline.length === 0) {
         return;
       }
       const script = pendingResponses
@@ -49,13 +51,19 @@ export const test = base.extend<{ wails: WailsMock }>({
         .concat(pendingErrors.map(({ fn, message }) => (
           `window.__wailsMock.setError(${JSON.stringify(fn)}, ${JSON.stringify(message)});`
         )))
+        .concat(pendingTimeline.map(({ rows, parentId }) => `window.__wailsMock.setTimelineRows(${JSON.stringify(rows)}, ${JSON.stringify(parentId) ?? 'null'});`))
         .join('\n');
       await page.addInitScript({ content: script });
       pendingResponses.length = 0;
+      pendingTimeline.length = 0;
       pendingErrors.length = 0;
     }
 
     const mock: WailsMock = {
+      async setTimelineRows(rows, parentId) {
+        if (!navigated) pendingTimeline.push({ rows, parentId });
+        else await page.evaluate(({ rows, parentId }) => window.__wailsMock.setTimelineRows(rows, parentId), { rows, parentId });
+      },
       async setResponse(fn: string, value: unknown) {
         if (!navigated) {
           // Antes da navegação, enfileirar como addInitScript

@@ -100,7 +100,7 @@ test.describe('Chat — streaming de resposta', () => {
     const now = new Date().toISOString();
 
     // Configura GetMessages para retornar a mensagem do usuário já existente
-    await wails.setResponse('GetMessages', [
+    await wails.setTimelineRows([
       {
         message: {
           id: '01926b90-0000-7000-8000-000000000010',
@@ -169,7 +169,7 @@ test.describe('Chat — acessibilidade', () => {
 
   test('lista de mensagens tem role adequado', async ({ page, wails }) => {
     const now = new Date().toISOString();
-    await wails.setResponse('GetMessages', [
+    await wails.setTimelineRows([
       {
         message: {
           id: '01926b90-0000-7000-8000-000000000010',

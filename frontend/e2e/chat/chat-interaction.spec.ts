@@ -39,7 +39,7 @@ test.describe('Chat — múltiplas interações', () => {
   test('pode enviar várias mensagens em sequência', async ({ page, wails }) => {
     const now = new Date().toISOString();
     await wails.setResponse('SendMessage', '01926b90-0000-7000-8000-100000000001');
-    await wails.setResponse('GetMessages', []);
+    await wails.setTimelineRows([]);
     await wails.setResponse('EnsureConversation', {
       id: '01926b90-0000-7000-8000-000000000001',
       title: 'Conversa',

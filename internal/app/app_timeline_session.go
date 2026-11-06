@@ -109,3 +109,11 @@ func (s capturedTimelineSession) AuthorizeTimeline(ctx context.Context) (context
 	}
 	return ctx, s.sessionID, nil
 }
+
+// ReadCanonicalTimelineWindow é uma entrada interna da CLI, não um binding Wails.
+func ReadCanonicalTimelineWindow(a *App, ctx context.Context, query database.MessageWindowQuery) (*chat.TimelineWindowSnapshot, error) {
+	if a == nil || a.agentSvc == nil {
+		return nil, wailsapi.ErrChatTimelineNotWired
+	}
+	return a.agentSvc.ReadCanonicalTimelineWindow(ctx, query)
+}

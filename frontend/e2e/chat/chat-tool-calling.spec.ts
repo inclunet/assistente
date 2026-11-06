@@ -4,23 +4,14 @@ const now = new Date().toISOString();
 const conversationId = '01926b90-0000-7000-8000-000000000001';
 
 async function setMessagesResponse(wails: WailsMock, nodes: unknown[]): Promise<void> {
-  await wails.setResponse('GetMessages', nodes);
+  await wails.setTimelineRows(nodes);
   await wails.setResponse('GetConversationInfo', {
     id: conversationId,
     title: 'Conversa com ferramentas',
     created_at: now,
     updated_at: now,
   });
-  await wails.setResponse('GetConversationMessageWindow', {
-    scope: 'conversation',
-    conversationId,
-    nodes,
-    totalCount: nodes.length,
-    startIndex: 0,
-    endIndex: Math.max(0, nodes.length - 1),
-    hasBefore: false,
-    hasAfter: false,
-  });
+
 }
 
 const messagesWithToolCalls = [
