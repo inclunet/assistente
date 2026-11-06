@@ -1,9 +1,14 @@
 import { TimelineRecoveryReader, type TimelineRecoveryHandle, type TimelineRecoveryTransport } from './timelineRecoveryReader';
-import type { ChatTimelineEvent, TimelineRecoveryReference } from '../types/chatTimelineEvents';
+import type { ChatTimelineEvent, TimelineItem, TimelineRecoveryReference } from '../types/chatTimelineEvents';
 import { TimelineCacheBudget } from './timelineCacheBudget';
 import { revision } from './timelineBatch';
 import { TimelineConversationState, type TimelineSnapshot } from './timelineConversationState';
 import { recoveryItemIdentity, recoveryItemKey, recoveryReferenceKey, sameRecoveryItem, type RecoveryItemIdentity, type RecoveryItemTransport, type RecoveredTimelineItem } from './timelineRecoveryItem';
+
+function timelineVersionKey(epoch: string, item: TimelineItem): string {
+  return JSON.stringify([epoch, item.itemId, item.executionId, item.revision,
+    item.recoveryReference ? recoveryReferenceKey(item.recoveryReference) : null]);
+}
 
 export interface TimelinePosition {
   cursor: string;
@@ -158,6 +163,10 @@ export class ChatTimelineClient {
 
   /** Refresh é a única recuperação de época. Falha parcial conserva a apresentação congelada. */
   refresh(conversationId: string, positions: ReadonlyMap<string, TimelinePosition> = new Map()): Promise<void> {
+    return this.refreshConversation(conversationId, positions);
+  }
+
+  private refreshConversation(conversationId: string, positions: ReadonlyMap<string, TimelinePosition>, discarded: ReadonlySet<string> = new Set()): Promise<void> {
     this.assertActive();
     const conversation = this.conversations.get(conversationId);
     if (!conversation) return Promise.reject(new Error('Unknown timeline conversation'));
@@ -176,6 +185,7 @@ export class ChatTimelineClient {
     const recovery = Promise.resolve().then(async () => {
       // Reserve antes de Refresh: o snapshot pode retirar a revisão antiga do cache.
       for (const { epoch, item } of conversation.state.protectedItems()) {
+        if (discarded.has(timelineVersionKey(epoch, item))) continue;
         const identity = recoveryItemIdentity(epoch, item);
         if (!identity) continue;
         const key = recoveryItemKey(identity);
@@ -217,7 +227,7 @@ export class ChatTimelineClient {
       if (failed?.status === 'rejected' || candidate.recoveryReason) {
         throw failed?.status === 'rejected' ? failed.reason : new Error(`Timeline recovery rejected: ${candidate.recoveryReason}`);
       }
-      const needed = () => conversation.state.protectedItemsLostBy(candidate).map(({ epoch, item }) => {
+      const needed = () => conversation.state.protectedItemsLostBy(candidate).filter(({ epoch, item }) => !discarded.has(timelineVersionKey(epoch, item))).map(({ epoch, item }) => {
         const identity = recoveryItemIdentity(epoch, item);
         const key = identity && recoveryItemKey(identity);
         const owner = requests.find(({ slot }) => !slot.closed && key && slot.recoveryItems?.get(key)?.verified);
@@ -360,6 +370,69 @@ export class ChatTimelineClient {
     if (slot.closing) await slot.closing;
     if (conversation.slots.get(surfaceId) === slot) conversation.slots.delete(surfaceId);
     this.collectIdle();
+  }
+
+  /** Limpeza confirmada relê as raízes e retorna à cauda pelo protocolo canônico. */
+  async conversationCleared(conversationId: string): Promise<void> {
+    const conversation = this.conversations.get(conversationId);
+    if (!conversation || this.disposed) return;
+    // Autoriza somente o descarte das versões presentes na confirmação.
+    // Uma publicação nova durante os awaits mantém a proteção normal.
+    const protectedAtClear = conversation.state.protectedItems();
+    const discarded = new Set(protectedAtClear.map(({ epoch, item }) => timelineVersionKey(epoch, item)));
+    const discardedReservations = new Set(this.getRecoveredItems(conversationId).map(item => recoveryItemKey(item.identity)));
+    for (const { epoch, item } of protectedAtClear) {
+      const identity = recoveryItemIdentity(epoch, item);
+      if (identity) discardedReservations.add(recoveryItemKey(identity));
+    }
+    // A limpeza confirmada exige uma nova leitura, mesmo se uma fronteira
+    // histórica tiver congelado a janela. Nunca fabricar uma janela vazia.
+    for (;;) {
+      const pending = [...conversation.slots.values()].flatMap(slot => slot.pending ? [slot.pending] : []);
+      if (conversation.recovery) pending.push(conversation.recovery);
+      if (!pending.length) break;
+      await Promise.allSettled(pending);
+      if (this.disposed || this.conversations.get(conversationId) !== conversation) return;
+    }
+    // A limpeza foi confirmada pelo usuário e persistida pelo backend. Liberar
+    // pela RPC antes de fechar comprova o descarte, sem apagar reservas locais.
+    for (const item of this.getRecoveredItems(conversationId)) {
+      if (discardedReservations.has(recoveryItemKey(item.identity))) await this.releaseRecoveredItem(conversationId, item);
+    }
+    for (const [surface, slot] of conversation.slots) {
+      if (slot.scope !== null) await this.close(conversationId, surface);
+    }
+    if (this.disposed || this.conversations.get(conversationId) !== conversation) return;
+    const roots = [...conversation.slots].filter(([, slot]) => !slot.closed);
+    if (!roots.length) return;
+    await this.cleanupRecoveryItems(conversationId);
+    const position = { cursor: '', anchor: 'end', anchorItemId: '', direction: 'before', limit: 80 };
+    await this.refreshConversation(conversationId, new Map(roots.map(([surface]) => [surface, position])), discarded);
+    if (this.disposed || this.conversations.get(conversationId) !== conversation) return;
+    for (const [surface, slot] of roots) {
+      if (!slot.closed) await this.navigate(conversationId, surface, 'followTail', position);
+    }
+  }
+
+  /** Exclusão confirmada pelo backend revoga também as fontes de recuperação. */
+  async conversationDeleted(conversationId: string): Promise<void> {
+    const conversation = this.conversations.get(conversationId);
+    if (!conversation) return;
+    for (const slot of conversation.slots.values()) slot.recoveryItems?.clear();
+    const closing = [...conversation.slots.keys()].map(surface => this.close(conversationId, surface));
+    conversation.state.dispose();
+    conversation.candidate?.dispose();
+    this.conversations.delete(conversationId);
+    this.notify();
+    const results = await Promise.allSettled(closing);
+    const failure = results.find(result => result.status === 'rejected');
+    if (failure?.status === 'rejected') throw failure.reason;
+  }
+
+  async databaseReset(): Promise<void> {
+    const results = await Promise.allSettled([...this.conversations.keys()].map(id => this.conversationDeleted(id)));
+    const failure = results.find(result => result.status === 'rejected');
+    if (failure?.status === 'rejected') throw failure.reason;
   }
 
   dispose(): Promise<void> {

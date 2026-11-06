@@ -5,7 +5,6 @@ export {
   useChatSession,
   useOptionalChatSession,
   useChatNodeSessionState,
-  useChatMessageLiveState,
 } from './ChatSessionContext';
 export type { ChatSessionKey, ChatSurfaceOrigin, ChatSurfaceType } from '../../services/chatSessionRegistry';
 export { ChatInput } from './ChatInput';

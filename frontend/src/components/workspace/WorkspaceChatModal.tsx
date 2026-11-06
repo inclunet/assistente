@@ -241,9 +241,8 @@ export function WorkspaceChatModal() {
         conversationId: targetConversationId,
       });
       if (!sendPlan) { if (context.command) throw new ChatMessagingStaleError(); return false; }
-      if (context.command && !context.command.isCurrent()) throw new ChatMessagingStaleError();
-
       try {
+        if (context.command && !context.command.isCurrent()) throw new ChatMessagingStaleError();
         const sendOrigin = normalizeChatSurfaceOrigin(context.origin, targetConversationId);
         const accepted = await sendChatSurfaceMessage(
           targetConversationId,
@@ -252,6 +251,7 @@ export function WorkspaceChatModal() {
           sendPlan.paramsOverride,
           sendOrigin,
           context.command,
+          sendPlan.onExecutionStarted,
         );
         if (!accepted) {
           sendPlan.onSendRejected?.();
@@ -260,8 +260,8 @@ export function WorkspaceChatModal() {
         await sendPlan.afterSend?.();
         return true;
       } catch (error) {
-        if (context.command) throw error;
         sendPlan.onSendError?.(error);
+        if (context.command) throw error;
         if (!sendPlan.onSendError) {
           throw error;
         }

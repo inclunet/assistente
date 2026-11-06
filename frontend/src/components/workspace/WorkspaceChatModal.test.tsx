@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useLandmarkNavigation, type Landmark } from '../../hooks/useLandmarkNavigation';
 import { captureLandmarkNavigationTarget, LANDMARK_COMMAND_EVENT, type LandmarkCommandRequest } from '../../lib/commandLandmarkNavigation';
 import { registerOpenModal, unregisterOpenModal } from '../../lib/modalRegistry';
+import type { ChatMessagingExecution } from '../../lib/commandChatMessaging';
 
 const hoisted = vi.hoisted(() => {
   const conversationId = '01926b90-7a5a-7c4e-8d3f-000000000001';
@@ -33,7 +34,7 @@ const hoisted = vi.hoisted(() => {
   const activeTab = { id: 'tab-editor', type: 'editor' as const, title: 'Editor', position: 0 };
   const capturedChatPanelProps: {
     onRequestConversationChange?: (id: string, conversation: { title?: string }) => void;
-    onSend?: (content: string, mediaFiles: undefined, context: { origin: typeof workspaceChatModalState.boundSurface }) => Promise<void>;
+    onSend?: (content: string, mediaFiles: undefined, context: { origin: typeof workspaceChatModalState.boundSurface; command?: ChatMessagingExecution; conversationId?: string }) => Promise<void>;
   } = {};
   return {
     activeTab,
@@ -89,7 +90,7 @@ vi.mock('../chat/ChatPanel', () => ({
   ChatPanel: ({ surface, onRequestConversationChange, onSend }: {
     surface: { sessionKey: string };
     onRequestConversationChange?: (id: string, conversation: { title?: string }) => void;
-    onSend?: (content: string, mediaFiles: undefined, context: { origin: typeof workspaceChatModalState.boundSurface }) => Promise<void>;
+    onSend?: (content: string, mediaFiles: undefined, context: { origin: typeof workspaceChatModalState.boundSurface; command?: ChatMessagingExecution; conversationId?: string }) => Promise<void>;
   }) => {
     hoisted.capturedChatPanelProps.onRequestConversationChange = onRequestConversationChange;
     hoisted.capturedChatPanelProps.onSend = onSend;
@@ -315,6 +316,7 @@ describe('WorkspaceChatModal', () => {
       paramsOverride,
       expect.objectContaining({ conversationId, tabId: 'tab-editor' }),
       undefined,
+      undefined,
     );
   });
 
@@ -333,6 +335,25 @@ describe('WorkspaceChatModal', () => {
 
     expect(accepted).toBe(false);
     expect(onSendRejected).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['wails', 'stale'] as const)('limpa o plano antes de propagar falha de comando: %s', async failure => {
+    const onSendError = vi.fn();
+    let current = true;
+    boundSendMock.mockImplementation(async () => {
+      if (failure === 'stale') current = false;
+      return { content: 'Explique', onSendError };
+    });
+    sendChatSurfaceMessageMock.mockRejectedValue(new Error('Wails failed'));
+    render(<WorkspaceChatModal />);
+    const result = capturedChatPanelProps.onSend!('Explique', undefined, {
+      origin: workspaceChatModalState.boundSurface,
+      conversationId,
+      command: { handoff: { ticket: 'ticket', handoffId: 'handoff' }, isCurrent: () => current },
+    });
+    await expect(result).rejects.toThrow(failure === 'wails' ? 'Wails failed' : 'chat-messaging-stale');
+    expect(onSendError).toHaveBeenCalledTimes(1);
+    if (failure === 'stale') expect(sendChatSurfaceMessageMock).not.toHaveBeenCalled();
   });
 
   it('nao rouba foco quando outro modal esta no topo', async () => {

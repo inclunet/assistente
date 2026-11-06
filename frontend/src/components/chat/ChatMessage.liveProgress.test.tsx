@@ -101,14 +101,8 @@ const seedStore = ({
     surfaceSessionsByKey: {
       [surface.sessionKey]: {
         ...emptySurface,
-        streamingMessageId,
-        completedSegments,
-        activeToolCalls,
       },
     },
-    liveMessageContentByConversationId: liveContent === undefined
-      ? {}
-      : { [targetConversationId]: { [messageId]: liveContent } },
   });
 
   // Simula o frame já composto pelo backend, incluindo substituição explícita
@@ -144,7 +138,6 @@ describe('progresso live de ChatMessage', () => {
       sessionsByConversationId: {},
       timelinesByConversationId: {},
       surfaceSessionsByKey: {},
-      liveMessageContentByConversationId: {},
     });
   });
 
@@ -261,7 +254,6 @@ describe('progresso live de ChatMessage', () => {
             completedSegments: [],
           },
         },
-        liveMessageContentByConversationId: {},
       }));
     });
     rerender(
@@ -383,7 +375,6 @@ describe('progresso live de ChatMessage', () => {
             activeToolCalls: [],
           },
         },
-        liveMessageContentByConversationId: {},
       }));
     });
     rerender(
@@ -396,7 +387,7 @@ describe('progresso live de ChatMessage', () => {
     expect(screen.getByText('resposta canônica')).toBeInTheDocument();
     expect(screen.getByRole('listitem')).toHaveTextContent('chat.toolStatusSucceeded');
     expect(screen.queryByText('texto corrente')).not.toBeInTheDocument();
-    expect(useChatStore.getState().liveMessageContentByConversationId).toEqual({});
+    expect(useChatStore.getState()).not.toHaveProperty('liveMessageContentByConversationId');
     expect(useChatStore.getState().surfaceSessionsByKey[surface.sessionKey]).toMatchObject({
       streamingMessageId: null,
       completedSegments: [],
@@ -420,18 +411,10 @@ describe('progresso live de ChatMessage', () => {
       surfaceSessionsByKey: {
         [firstSurface.sessionKey]: {
           ...firstSession,
-          streamingMessageId: firstMessageId,
-          completedSegments: [{ type: 'text', content: 'live da conversa um' }],
         },
         [secondSurface.sessionKey]: {
           ...secondSession,
-          streamingMessageId: secondMessageId,
-          completedSegments: [{ type: 'text', content: 'live da conversa dois' }],
         },
-      },
-      liveMessageContentByConversationId: {
-        [conversationId]: { [firstMessageId]: 'texto um' },
-        [secondConversationId]: { [secondMessageId]: 'texto dois' },
       },
     });
 

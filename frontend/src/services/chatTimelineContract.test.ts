@@ -1,36 +1,42 @@
 import { describe, expect, it } from 'vitest';
-import { sortTimelineNodes } from './chatSessionRegistry';
-import type { MessageNode } from '../lib/chatMessageTree';
-import { chat } from '../../wailsjs/go/models';
+import { canonicalTestFixture, canonicalTestItem } from './chatTimelineTestFixture';
 
-const node = (id: string, timestamp: number, originalIndex?: number): MessageNode => chat.MessageNode.createFrom({
-  message: { id, role: id === 'user' ? 'user' : 'assistant', timestamp,
-    conversationId: 'conversation', content: id,
-    turnId: id === 'user' ? undefined : id === 'assistant' ? 'user' : `question-${id}` },
-  originalIndex, children: [], childCount: 0, level: 0,
-});
+const node = (id: string, timestamp: number, position?: number) => {
+  const item = canonicalTestItem(id, id, { representativeMessageId: id });
+  return { ...item, position: position === undefined ? 'opaque' : String(position),
+    metadata: { ...item.metadata, timestamp, role: id === 'user' ? 'user' : 'assistant' } };
+};
 
-// AEP-0116 fase 1: contratos desejados ainda violados pelo algoritmo atual.
-// it.fails exige a falha: uma correção torna o teste vermelho até retirar .fails.
-// Não substituir a expectativa pela ordem defeituosa para deixar o CI verde.
-describe('AEP-0116 — lacunas conhecidas de ordenação', () => {
-  it.fails('preserva pergunta antes da resposta mesmo com horário local posterior', () => {
-    const ordered = sortTimelineNodes([node('user', 200), node('assistant', 150)]);
+// O backend determina a ordem; timestamps e positions opacas nunca a reordenam.
+// A classificação no produtor é coberta por TestTimelineOrderSnapshotKeepsSQLClassificationAndIndexes.
+describe('AEP-0116 — ordenação canônica', () => {
+  it('preserva pergunta antes da resposta mesmo com horário local posterior', async () => {
+    const f = canonicalTestFixture([node('user', 200), node('assistant', 150)]);
+    const presentation = f.presentation('order'); await presentation.open();
+    const ordered = presentation.nodes();
     expect(ordered.map(item => item.message.id)).toEqual(['user', 'assistant']);
+    await presentation.close();
   });
 
-  it('preserva a precedência dos índices quando ambos os itens têm índice', () => {
+  it('preserva a precedência das posições publicada pelo backend', async () => {
     const a = node('a', 300, 0);
     const b = node('b', 100, 1);
-    expect(sortTimelineNodes([b, a])).toEqual([a, b]);
+    const f = canonicalTestFixture([a, b]);
+    const presentation = f.presentation('order'); await presentation.open();
+    expect(presentation.nodes().map(item => item.itemId)).toEqual(['a', 'b']);
+    await presentation.close();
   });
 
-  it.fails('define uma relação transitiva ao misturar índices e horários', () => {
+  it('mantém relação transitiva sem comparar posições opacas com horários', async () => {
     const a = node('a', 300, 0);
     const b = node('b', 100, 1);
     const c = node('c', 200);
-    const before = (left: MessageNode, right: MessageNode) =>
-      sortTimelineNodes([right, left])[0] === left;
+    const f = canonicalTestFixture([a, b, c]);
+    const presentation = f.presentation('order'); await presentation.open();
+    const ordered = presentation.nodes().map(item => item.itemId);
+    expect(ordered).toEqual(['a', 'b', 'c']);
+    const before = (left: typeof a, right: typeof a) =>
+      ordered.indexOf(left.itemId) < ordered.indexOf(right.itemId);
     const nodes = [a, b, c];
     for (const x of nodes) {
       for (const y of nodes) {
@@ -41,5 +47,6 @@ describe('AEP-0116 — lacunas conhecidas de ordenação', () => {
         }
       }
     }
+    await presentation.close();
   });
 });

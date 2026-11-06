@@ -1,8 +1,187 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, mensagens, áudio, limpeza, exclusão e importação integrados; retenção por idade, órfãos, navegação, leitura leve e orçamento de fontes da janela com recuperação atômica e parcelada e participação histórica automática com publicação e replay atômicos integrados; followTail, retenção por foco/leitura, DTOs compartilhados, RPCs de inscrição, entrega pelo journal e transporte de eventos Wails integrados; núcleo transacional, coordenador e cliente Wails por sessão frontend e identidade de recuperação por execução, consulta autorizada de estado, leitura limitada, reserva explícita dos buffers finalizados, leitor de recuperação Wails, reserva do DTO canônico publicado e transferência de recuperação no Refresh integrados; DOM da lista unificado com retenção visual por foco; consumidor visual canônico e identidade dos segmentos integrados; retirada dos reducers visuais legados do controlador operacional e margem de desempenho pendentes
+## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, mensagens, áudio, limpeza, exclusão e importação integrados; retenção por idade, órfãos, navegação, leitura leve e orçamento de fontes da janela com recuperação atômica e parcelada e participação histórica automática com publicação e replay atômicos integrados; followTail, retenção por foco/leitura, DTOs compartilhados, RPCs de inscrição, entrega pelo journal e transporte de eventos Wails integrados; núcleo transacional, coordenador e cliente Wails por sessão frontend e identidade de recuperação por execução, consulta autorizada de estado, leitura limitada, reserva explícita dos buffers finalizados, leitor de recuperação Wails, reserva do DTO canônico publicado e transferência de recuperação no Refresh integrados; DOM da lista unificado com retenção visual por foco; consumidor visual canônico e identidade dos segmentos integrados; reconstrução visual legada retirada do controlador operacional, incluindo invalidação na limpeza/reset e gates de persistência; gates remotos deste recorte e margem de desempenho pendentes
 
 Data: 2026-10-30
+
+### Recorte: retirada da reconstrução visual legada (2026-11-05)
+
+Decisão confirmada pelo mantenedor em 05/11/2026: falha ao registrar uma
+ferramenta encerra o turno com `persistence_error`, preserva o conteúdo recebido
+e impede a execução da chamada sem admissão persistida. Não há diagnóstico de
+ferramenta fabricado pelo frontend. Falha ao confirmar o resultado de uma ação
+já executada impede retries e a próxima chamada ao modelo; não desfaz o efeito.
+A mesma regra encerra o chat se o registro de MCP nativo falhar, embora sua ação
+já tenha ocorrido externamente. Um lote paralelo pode conter ações já iniciadas;
+nenhum novo grupo sequencial ou retry começa depois de detectar a falha.
+
+`TestExecutionWriterLedgerFailureCannotSilentlyLoseDiagnostic` cobre, com SQLite
+real, admissão, confirmação do resultado, falha adicional ao salvar parcial,
+load_skill antes de ferramentas regulares, falha de confirmação da skill, MCP
+nativo em terminal/iteração/erro e interrupção dos retries de um lote. Conta as
+execuções e chamadas ao modelo e verifica o terminal canônico e o texto preservado.
+Os quatro testes frontend correspondentes agora verificam o aviso de persistência
+e a fonte canônica intacta, com/sem parcial e durabilidade persistida/volátil.
+
+O controlador operacional mantém admissão, fila, cancelamento, anúncios, áudio e
+correlação dos eventos. Não cria mensagens, não agrega deltas para apresentação
+nem reconcilia patches terminais. A apresentação e a paginação pertencem ao
+cliente canônico; o carregador de sessão consulta somente metadados da conversa.
+O editor lê a conclusão pelas referências canônicas da execução concluída numa
+capability própria, sem polling da árvore da UI. Fechar o modal ou trocar seu
+vínculo invalida a leitura. A confirmação e a aplicação também verificam o
+vínculo capturado; voltar à conversa anterior não reativa a operação descartada.
+A segunda rodada remota do PR #1023 motivou os dois testes de troca durante
+leitura e confirmação em `EditorPage.test.tsx` (57 testes do arquivo aprovados).
+
+A migração dos testes acompanha a responsabilidade, sem restaurar um compositor
+legado nas fixtures. Provas antigas de composição do controlador são substituídas
+por provas do writer real, SQLite, projetor e apresentação, revisadas pelo revisor
+independente `review_aep`:
+
+- Retomada do escalar com delta e preservação dos cortes/ferramentas:
+  `TestCompositionReplacesConfirmedPartialBySourceThenReturnsToStorage` e
+  `TestCompositionKeepsConfirmedPrefixOnceAndScopesRepeatedIterations`.
+- Retry com texto igual à resposta anterior e exclusão das ferramentas antigas:
+  `TestTimelineExecutionSelectionMatchesWindowAndTerminal`, incluindo conteúdo
+  idêntico entre execuções e preservação física da tentativa anterior.
+- Retry sem atividade seguido de continuação, com falha ou limite de saída:
+  `TestExecutionWriterRetryWithoutActivityThenContinueExcludesDiagnostic`.
+- Continuação sobre conclusão editada, inclusive ferramenta antes do texto:
+  `TestExecutionWriterContinuationPrefixOccursOnceAcrossToolIterations`.
+- Textos idênticos de fontes distintas:
+  `TestCompositionPreservesIdenticalTextFromDistinctSources`.
+- Retry/continuação somente com ferramentas, conclusão, erro, cancelamento e
+  limite: `TestExecutionWriterToolFirstTerminalUsesExplicitExecutionMode`.
+  A prova cobre leitura entre iterações e reabertura persistida. A transferência
+  de conteúdo/reasoning para a intermediária é atômica, sem duplicar o prefixo
+  deixado no representante; `TestTurnIntermediateTransfersContentAtomically`
+  verifica rollback na inserção e na limpeza, usuário e execução vigentes.
+
+`chatTimelinePresentation.test.ts` mantém as provas de ordem, identidade,
+referências da conclusão e paginação (página vazia, início/fim, loading isolado).
+`ChatSessionLiveState.test.tsx` e `MessageNode.navigation.test.tsx` exercitam
+atualização seletiva, terminal e interação com a fonte canônica. Testes de
+anúncio, arbitragem, admissão e fila continuam na camada operacional.
+
+Implementação e validação local deste recorte concluídas; CI e review remoto
+completam o gate de entrega. Não representa conclusão da fase 3.
+
+Evidências adicionais deste recorte:
+
+- `TestExecutionWriterChronologySurvivesTerminalAndPersistenceFailure` verifica
+  texto → ferramenta → ferramenta → texto em retry/continuação, terminais sem
+  delta, erro, cancelamento, limite e falha de persistência.
+- `TestExecutionWriterSecondContinuationKeepsExecutionChain` cobre duas
+  continuações consecutivas preservando fontes, reasoning e ferramentas.
+- `TestExecutionWriterCancellationPreservesRunningToolChronology` cancela uma
+  ferramenta realmente em execução, com e sem falha de gravação.
+- `TestTurnIntermediateTransfersContentAtomically` mantém também a atividade
+  da conversa na mesma transação, sem avançá-la quando a transferência falha.
+- `ChatSessionView.messaging.test.tsx` recusa continuar conteúdo volátil,
+  perfil desabilitado ou seleção substituída antes do envio; o caso persistido
+  envia a pergunta raiz correta. Ter representante persistido não basta para
+  promover bytes voláteis a base de continuação.
+- `chatTimelineWails.test.ts` exercita exclusão com o hook real ainda montado,
+  isolamento de outra conversa e descarte de Open tardio. O coordenador da
+  sessão invalida a apresentação; o store operacional não recebe essa tarefa.
+
+Início/fim continuam sendo comandos de navegação mesmo quando a página já está
+na borda: alteram explicitamente o modo histórico/followTail. Flags de presença
+de página anterior/posterior não substituem essa decisão do backend.
+
+O antigo cenário de edição de resposta assistant após continuação não possui
+caminho de produto: a edição aceita mensagem user raiz. A prova de recusa de
+edição assistant permanece; esta migração não cria uma nova modalidade de edição.
+
+Validação local: 6.960 testes frontend passaram em 525 arquivos (18 pulados
+pela seleção sem ACP); 144 testes selecionados de agent, 485 de chat e 365 de
+banco passaram. A matriz de nove falhas do ledger e o teste E2E do envio pelo
+modal passaram. Build, vet, TypeScript, ESLint e lint Go incremental contra
+origin/main passaram; Stylelint conserva 2.123 avisos preexistentes, sem erros.
+Testes ACP locais e NVDA não foram executados por orientação do mantenedor.
+
+Revisão independente local: `review_aep` e `review_store_coverage`, sem pendências.
+Atividade transacional, exclusão da apresentação e guardas do editor foram
+corrigidas e revalidadas. O fechamento da política do ledger teve três rodadas
+com `review_aep`: corrigiu propagação em retries/skills/MCP nativo e eventos de
+início do grupo bloqueado, com aprovação na última rodada. A revisão de cobertura
+confirmou a transferência das provas para o backend e a preservação da matriz
+frontend; não houve eliminação de regressões de produto para obter teste verde.
+CI e review remotos permanecem como gates da publicação.
+
+Primeira revisão remota do PR #1023: três apontamentos do Copilot corrigidos.
+A falha ao confirmar ferramenta preserva a intermediária e seu vínculo antes
+do terminal; a regressão SQLite demonstrou ferramenta → texto antes da correção
+e texto → ferramenta após reabertura com a correção. Comando com fonte explícita
+também exige seleção vigente durante Begin/Take; erros técnicos da consulta do
+editor ficam no log e a UI usa tradução. Revalidação: 144 testes selecionados
+de agent e 112 frontend focados passaram; `review_aep` aprovou o ajuste local.
+O inventário de logs foi atualizado de 711 para 708 formatos legados após
+conferir a remoção de três formatos do loop, preservando a proibição de Printf.
+
+Segunda rodada remota (#1023, Copilot e CodeRabbit): o vínculo do editor
+invalida leitura, confirmação e callbacks tardios; continuação usa o perfil da
+superfície e reenvio exige fonte ainda publicada. Diagnósticos operacionais
+permanecem disponíveis sem criar mensagens nem autorizar novo envio. Cargas de
+metadados são invalidadas por exclusão/reset; abas auxiliares podem tentar de
+novo após falha, pelo mesmo caminho assíncrono das abas de chat.
+
+Limpeza confirmada libera as reservas de recuperação pela RPC existente antes
+de fechar threads, relê as raízes por Refresh e passa todas a followTail por
+Navigate. Assim a janela histórica vazia recebe as próximas mensagens. Não
+simula dados nem apaga reservas locais sem confirmação remota. Falha de liberação
+mantém a reserva e impede o fechamento; outra conversa não participa da operação.
+
+Falha de SaveIntermediate encerra com persistence_error e preserva o parcial
+volátil, sem avançar o modelo. MCP simples também registra eventos nativos;
+um erro no lote não impede tentar registrar as demais ações já concluídas.
+A persistência desses fatos usa contexto de finalização limitado a três segundos,
+preservando identidade e sobrevivendo ao cancelamento do stream. As regressões
+SQLite cobrem terminal normal, erro e cancelamento; nenhuma suíte ACP local foi
+executada. Revisores independentes `review_aep` e `review_store_coverage`
+identificaram os casos de cancelamento e recuperação, corrigidos nesta rodada.
+Reset confirmado invalida todas as janelas e leituras canônicas pendentes. A
+compensação do vínculo de chat contextual também usa a exclusão coordenada,
+fora dos locks de criação, e publica o evento de exclusão. Testes verificam
+que a conversa preservada não é excluída e que Open tardio não ressuscita dados.
+Validação local consolidada: 6.978 testes frontend (526 arquivos, 18 casos
+preexistentes ignorados), 300 testes focados e 146 testes seguros de agent
+passaram, além de build/vet/lint. Os nove testes de comandos contextuais passaram e verificam a notificação e a
+passagem pelo coordenador na compensação. O E2E de envio pelo modal também passou.
+
+
+Terceira rodada Copilot (#1023): a limpeza confirmada também autoriza descartar
+as versões voláteis presentes no recebimento do evento, após obter snapshot
+válido. Não tenta reservar fontes já removidas. Uma publicação nova durante a
+operação continua protegida, e Refresh comum mantém o gate de transferência.
+Falha da consulta conserva o visual anterior; regressões cobrem ambos os resultados.
+A revisão independente também restringiu liberações às reservas capturadas na
+confirmação, preservando transferências posteriores. Noventa testes do cliente
+e transporte passaram. O E2E de limpar expôs uma fixture que exigia revisão
+exata em Refresh; foi alinhada a `acceptsSnapshotRevision` do backend (intervalo
+entre último snapshot e revisão atual), mantendo Navigate/SetRetention estritos.
+Revalidação: nove E2Es de toolbar aprovados (um skip preexistente), TypeScript
+e lint aprovados; `review_store_coverage` aprovou o cliente e a fixture.
+
+
+Revalidação de cancelamento (#1023): a gravação da intermediária e seu vínculo
+usam contexto de finalização limitado a três segundos, preservando o contexto
+cancelado do loop. A regressão SQLite agora exige o terminal persistido
+interrupted/cancelled com banco saudável e failed/persistence_error quando a
+escrita realmente falha. O descarte confirmado também foi provado numa thread
+volátil sem Refresh anterior, sem tentar reservar a fonte removida. Passaram
+146 testes de agent, 91 de cliente/transporte e build/vet/lint; revisão local
+aprovada por `review_aep` (backend) e `review_store_coverage` (regressão frontend).
+
+A identidade autorizada para descarte usa época, item, execução, revisão e
+referência de recuperação, reconhecendo clones da mesma versão vindos de
+Refresh pendente sem autorizar versões posteriores. Cargas concorrentes dos
+metadados compartilham a mesma Promise; exclusão/reset invalidam essa carga,
+sem cancelar uma carga nova iniciada depois da invalidação. Regressões cobrem
+os dois consumidores, o clone retornado pelo Refresh e as recusas anteriores.
+Passaram 172 testes focados, TypeScript e lint; `review_store_coverage` aprovou
+a revisão local deste ajuste.
 
 ### Decisão: identidade de apresentação após confirmação (2026-11-05)
 
@@ -2991,10 +3170,10 @@ final sem pendências, incluindo captura dinâmica de conteúdo não confirmado.
 
 ### Fase 3 — Consumidor frontend e remoções
 
-- [ ] Migrar para itens e janelas por IDs, preservando isolamento das superfícies.
+- [x] Migrar para itens e janelas por IDs, preservando isolamento das superfícies. Evidências: consumidor canônico e retirada do compositor descritos acima.
 - [ ] Remover ordenador híbrido, chave alternativa, reconstrução semântica e espelhamentos substituídos.
 - [ ] Unificar corte da janela e eliminar flags derivadas duplicadas.
-- [ ] Preservar identidade DOM/foco/leitura, inclusive no limiar de virtualização.
+- [x] Preservar identidade DOM/foco/leitura, inclusive no limiar de virtualização. Evidências: `ChatMessage.test.tsx`, `MessageList.focusRetention.test.tsx` e `ChatSessionLiveState.test.tsx`.
 - [ ] Validar descarte de cache e consultas concorrentes com eventos.
 
 Saída: uma única aplicação do contrato, sem caminho antigo ativo em paralelo.

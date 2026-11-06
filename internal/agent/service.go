@@ -159,6 +159,9 @@ func (s *Service) StreamSimpleWithRecovery(
 		if h.TerminalEmitted() {
 			return
 		}
+		if h.finishNativePersistenceFailure("") {
+			return
+		}
 		if ctx.Err() != nil {
 			partialContent, partialReasoning := h.Finalize()
 			if err := s.persistAssistantPartial(ctx, h.AssistantMessageID, partialContent, partialReasoning); err != nil {
@@ -341,7 +344,10 @@ func (s *Service) SaveAndFinish(
 		if loopStats != nil && loopStats.IterationCount > 0 {
 			finalIteration = loopStats.IterationCount - 1
 		}
-		s.persistNativeMCPCalls(ctx, conversationID, turnID, result.NativeMCPEvents, finalIteration)
+		if err := s.persistNativeMCPCalls(ctx, conversationID, turnID, result.NativeMCPEvents, finalIteration); err != nil {
+			s.finishToolPersistenceFailure(ctx, conversationID, turnID, assistantMessageID, result, surfaceOrigin)
+			return false
+		}
 	}
 	if conversationID != "" {
 
@@ -634,7 +640,7 @@ func (s *Service) emitTokenStats(conversationID string) {
 	}
 }
 
-func (s *Service) emitToolStarts(conversationID string, turnID string, assistantMessageID string, calls []llm.ToolCall, surfaceOrigin *ports.ChatSurfaceOrigin) {
+func (s *Service) emitToolStarts(conversationID string, turnID string, assistantMessageID string, calls []tools.ToolCall, surfaceOrigin *ports.ChatSurfaceOrigin) {
 	for _, call := range calls {
 		origin, serverLabel, name := s.toolPresentation(call.Function.Name)
 		EmitToolStart(s.emitter, ports.ToolStartEvent{
@@ -671,22 +677,24 @@ func toolPresentation(name string, identity *tools.MCPToolIdentity) (origin, ser
 
 // persistNativeMCPCalls registra MCP nativo exclusivamente em tool_invocations.
 // Nenhum marcador assistant vazio ou fallback role=tool é persistido.
-func (s *Service) persistNativeMCPCalls(ctx context.Context, conversationID, turnID string, mcpEvents []llm.MCPToolEvent, iteration int) {
+func (s *Service) persistNativeMCPCalls(ctx context.Context, conversationID, turnID string, mcpEvents []llm.MCPToolEvent, iteration int) error {
 	if len(mcpEvents) == 0 {
-		return
+		return nil
 	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+	defer cancel()
 	// Defesa (repo-driven): se o turno foi deletado enquanto o provider streamava,
 	// não registrar tool_invocations para evitar registros órfãos.
 	if s.msgRepo != nil {
 		if turnMsg, err := s.msgRepo.GetMessage(ctx, turnID); err != nil {
 			logging.Infof(ctx, "agent.service", "[MCP Native] turn message %s não existe mais; ignorando persistência de MCP events: %v", turnID, err)
-			return
+			return err
 		} else {
 			turnConv := strings.TrimSpace(turnMsg.ConversationID)
 			conv := strings.TrimSpace(conversationID)
 			if turnConv != "" && conv != "" && turnConv != conv {
 				logging.Infof(ctx, "agent.service", "[MCP Native] turn message %s pertence a outra conversa (%s); ignorando persistência de MCP events", turnID, turnMsg.ConversationID)
-				return
+				return database.ErrChatTurnInvalid
 			}
 		}
 	}
@@ -711,9 +719,10 @@ func (s *Service) persistNativeMCPCalls(ctx context.Context, conversationID, tur
 	persistable := s.toolInvocations != nil && s.toolInvocations.CanPersist()
 	if !persistable {
 		logging.Errorf(ctx, "agent.service", "[MCP Native] ledger indisponível; resultados técnicos não serão copiados para chat_messages")
-		return
+		return errors.New("native tool invocation ledger unavailable")
 	}
 
+	var recordError error
 	slugCache := map[string]string{}
 	for _, ev := range mcpEvents {
 		if !ev.IsCompleted || strings.TrimSpace(ev.ID) == "" {
@@ -768,8 +777,10 @@ func (s *Service) persistNativeMCPCalls(ctx context.Context, conversationID, tur
 		})
 		if recErr != nil {
 			logging.Errorf(ctx, "agent.service", "[MCP Native] falha ao registrar tool invocation sem fallback em mensagens (id=%s): %v", ev.ID, recErr)
+			recordError = errors.Join(recordError, recErr)
 		}
 	}
+	return recordError
 }
 
 func archivalMCPServerSlug(serverLabel string) string {
@@ -1138,7 +1149,23 @@ type toolExecutionBatch struct {
 	Context           context.Context
 }
 
-func (s *Service) executeToolCallsWithRuntimeControls(ctx context.Context, calls []tools.ToolCall, origin toolinvocations.Origin, conversationID, turnID string, iteration int, surfaceOrigin *ports.ChatSurfaceOrigin) toolExecutionBatch {
+func (batch toolExecutionBatch) persistenceFailed() bool {
+	for _, execution := range batch.Executions {
+		if !batch.PersistedByCallID[execution.CallID] {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Service) finishToolPersistenceFailure(ctx context.Context, conversationID, turnID, assistantMessageID string, result AgenticResult, origin *ports.ChatSurfaceOrigin) {
+	if err := s.persistAssistantPartial(ctx, assistantMessageID, result.FullResponse, result.Reasoning); err != nil {
+		logging.Errorf(ctx, "agent.service", "falha ao preservar parcial após erro de persistência da ferramenta: %v", err)
+	}
+	s.emitFinalizationErrorDone(ctx, conversationID, turnID, assistantMessageID, origin)
+}
+
+func (s *Service) executeToolCallsWithRuntimeControls(ctx context.Context, calls []tools.ToolCall, origin toolinvocations.Origin, conversationID, turnID, assistantMessageID string, iteration int, surfaceOrigin *ports.ChatSurfaceOrigin) toolExecutionBatch {
 	// Runtime control tools can change the execution context for the rest of the
 	// batch. Run load_skill first even when the model emitted it after regular
 	// tools, then place results back in the original order for persistence/history.
@@ -1156,6 +1183,7 @@ func (s *Service) executeToolCallsWithRuntimeControls(ctx context.Context, calls
 		regularIndexes = append(regularIndexes, i)
 	}
 	if len(loadSkillCalls) == 0 {
+		s.emitToolStarts(conversationID, turnID, assistantMessageID, calls, surfaceOrigin)
 		batch := s.executeToolCalls(ctx, calls, origin, iteration)
 		batch.Context = ctx
 		return batch
@@ -1163,7 +1191,11 @@ func (s *Service) executeToolCallsWithRuntimeControls(ctx context.Context, calls
 
 	executions := make([]tools.ToolExecutionResult, len(calls))
 	persisted := make(map[string]bool, len(calls))
+	s.emitToolStarts(conversationID, turnID, assistantMessageID, loadSkillCalls, surfaceOrigin)
 	loadBatch := s.executeToolCalls(ctx, loadSkillCalls, origin, iteration)
+	if loadBatch.persistenceFailed() {
+		return loadBatch
+	}
 	for i, result := range loadBatch.Executions {
 		executions[loadSkillIndexes[i]] = result
 		persisted[result.CallID] = loadBatch.PersistedByCallID[result.CallID]
@@ -1171,6 +1203,7 @@ func (s *Service) executeToolCallsWithRuntimeControls(ctx context.Context, calls
 	ctx = applyLoadedSkillExecutionContext(ctx, loadBatch.Executions, s.emitter, conversationID, turnID, surfaceOrigin)
 
 	if len(regularCalls) > 0 {
+		s.emitToolStarts(conversationID, turnID, assistantMessageID, regularCalls, surfaceOrigin)
 		regularBatch := s.executeToolCalls(ctx, regularCalls, origin, iteration)
 		for i, result := range regularBatch.Executions {
 			executions[regularIndexes[i]] = result

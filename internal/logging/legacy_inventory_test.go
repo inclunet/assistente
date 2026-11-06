@@ -52,8 +52,11 @@ const (
 	// paralelo de sondagem, credencial e criação do WelcomeController.
 	// A listagem TTS por catálogo elimina seis formatos normalizados da sondagem removida.
 	// O lifecycle propaga falha de parcial ao terminal e remove um aviso legado.
-	expectedLegacyFormatCount  = 711
-	expectedLegacyFormatDigest = "a7080626389ea863cc1db25c29b5b8e26e2b6a02aaadb4a3ed3d585bb012a6ae"
+	// AEP-0116: o loop remove três formatos [Agent] de exclusão, gravação de
+	// intermediária e resultado sem ledger; falhas usam terminais canônicos e
+	// diagnósticos sem prefixo legado. Nenhum logging.Printf foi introduzido.
+	expectedLegacyFormatCount  = 708
+	expectedLegacyFormatDigest = "ec9c9a8f17663719af839f735f7770a921763bdd6914fbacd1443e2a480f1123"
 )
 
 // TestLegacyLoggingInventory mantém reproduzível o inventário da issue #675.

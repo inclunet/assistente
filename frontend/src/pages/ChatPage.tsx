@@ -42,7 +42,7 @@ export default function ChatPage() {
     const session = useChatStore.getState().sessionsByConversationId[conversationId];
     if (!session || session.conversation?.id !== conversationId) return null;
 
-    const executionStatus: ChatCommandExecutionStatus = session.isLoading || session.isThinking || session.streamingMessageId
+    const executionStatus: ChatCommandExecutionStatus = session.isLoading
       ? 'running'
       : (session.queuedTurnCount ?? 0) > 0 ? 'queued' : 'idle';
 
@@ -60,8 +60,6 @@ export default function ChatPage() {
       readonly loaded: boolean;
       readonly sessionKey: string;
       readonly isLoading: boolean;
-      readonly isThinking: boolean;
-      readonly streamingMessageId: string | null;
       readonly queuedTurnCount: number;
     };
     const readFacts = (state: ReturnType<typeof useChatStore.getState>): SessionFacts => {
@@ -72,8 +70,6 @@ export default function ChatPage() {
         loaded,
         sessionKey: session?.sessionKey ?? '',
         isLoading: session?.isLoading ?? false,
-        isThinking: session?.isThinking ?? false,
-        streamingMessageId: session?.streamingMessageId ?? null,
         queuedTurnCount: session?.queuedTurnCount ?? 0,
       };
     };
@@ -82,8 +78,6 @@ export default function ChatPage() {
       && left.loaded === right.loaded
       && left.sessionKey === right.sessionKey
       && left.isLoading === right.isLoading
-      && left.isThinking === right.isThinking
-      && left.streamingMessageId === right.streamingMessageId
       && left.queuedTurnCount === right.queuedTurnCount
     );
     let previousFacts = readFacts(useChatStore.getState());

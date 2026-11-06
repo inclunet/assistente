@@ -65,6 +65,8 @@ const editorPageMocks = vi.hoisted(() => {
     commandSurfaceGetter: null as (() => unknown) | null,
     commandSurfaceSubscribe: null as ((invalidate: () => void) => () => void) | null,
     chatModalIsOpen: true,
+    chatModalConversationId: 'conv-1',
+    chatModalListeners: new Set<() => void>(),
     requestOpen: vi.fn(),
     closeModal: vi.fn(),
     setAdapterError: vi.fn(),
@@ -409,8 +411,14 @@ vi.mock('../store/workspaceChatModalStore', () => ({
       return typeof selector === 'function' ? selector(state) : state;
     },
     {
+      subscribe: (listener: () => void) => {
+        editorPageMocks.chatModalListeners.add(listener);
+        return () => { editorPageMocks.chatModalListeners.delete(listener); };
+      },
       getState: () => ({
         isOpen: editorPageMocks.chatModalIsOpen,
+        boundTabId: 'tab-1',
+        boundConversationId: editorPageMocks.chatModalConversationId,
         requestOpen: editorPageMocks.requestOpen,
         close: editorPageMocks.closeModal,
         setAdapterError: editorPageMocks.setAdapterError,
@@ -496,6 +504,8 @@ describe('EditorPage', () => {
     editorPageMocks.markdownCursorOffset = 0;
     editorPageMocks.markdownHasFocus = true;
     editorPageMocks.chatModalIsOpen = true;
+    editorPageMocks.chatModalConversationId = 'conv-1';
+    editorPageMocks.chatModalListeners.clear();
     editorPageMocks.markdownSelectionListener = null;
     editorPageMocks.markdownModelContentListener = null;
     editorPageMocks.richSelectionListener = null;
@@ -522,7 +532,7 @@ describe('EditorPage', () => {
     editorPageMocks.setAdapterError.mockReset();
     editorPageMocks.bumpFocus.mockReset();
     editorPageMocks.waitForChatDone.mockReset();
-    editorPageMocks.waitForChatDone.mockResolvedValue('conv-1');
+    editorPageMocks.waitForChatDone.mockResolvedValue({ conversationId: 'conv-1', reason: 'completed', itemId: 'response', turnId: 'turn', assistantMessageId: 'assistant' });
     editorPageMocks.waitForEditorPatch.mockReset();
     editorPageMocks.waitForEditorPatch.mockResolvedValue({ ok: false, error: 'Nenhum patch encontrado' });
     editorPageMocks.getMaxMessageId.mockReset();
@@ -740,7 +750,7 @@ describe('EditorPage', () => {
       },
     };
 
-    render(
+    const mounted = render(
       <EditorPage
         workspaceTab={{
           id: 'tab-1',
@@ -760,7 +770,7 @@ describe('EditorPage', () => {
         media: undefined,
         meta: unknown,
         session: { tabId: string; conversationId: string },
-      ) => Promise<{ afterSend?: () => Promise<void> } | null>;
+      ) => Promise<{ onSendError?: (error: unknown) => void; onSendRejected?: () => void; afterSend?: () => Promise<void>; onExecutionStarted?: (id: string) => void } | null>;
     };
     const prepared = await adapter.prepare();
     const plan = await adapter.send('Altere o trecho', undefined, prepared.meta, {
@@ -769,7 +779,10 @@ describe('EditorPage', () => {
     });
 
     expect(plan?.afterSend).toBeDefined();
-    return plan!;
+    plan?.onExecutionStarted?.('editor-execution');
+    return Object.assign(plan!, { rerenderModal: () => mounted.rerender(<EditorPage workspaceTab={{
+      id: 'tab-1', type: 'editor', title: 'Doc', position: 0, conversationId: 'conv-1', state: { filePath: 'doc.md' },
+    }} />) });
   }
 
   async function createRichEditorChatSendPlan(markdown = '## Slide 2\nselected rich text') {
@@ -804,7 +817,7 @@ describe('EditorPage', () => {
         media: undefined,
         meta: unknown,
         session: { tabId: string; conversationId: string },
-      ) => Promise<{ afterSend?: () => Promise<void> } | null>;
+      ) => Promise<{ onSendError?: (error: unknown) => void; onSendRejected?: () => void; afterSend?: () => Promise<void>; onExecutionStarted?: (id: string) => void } | null>;
     };
     const prepared = await adapter.prepare();
     const plan = await adapter.send('Altere o trecho rico', undefined, prepared.meta, {
@@ -813,6 +826,7 @@ describe('EditorPage', () => {
     });
 
     expect(plan?.afterSend).toBeDefined();
+    plan?.onExecutionStarted?.('editor-execution');
     return plan!;
   }
 
@@ -1596,7 +1610,7 @@ describe('EditorPage', () => {
     });
 
     expect(editorPageMocks.closeModal).not.toHaveBeenCalled();
-    expect(editorPageMocks.setAdapterError).toHaveBeenCalledWith('falha do modelo');
+    expect(editorPageMocks.setAdapterError).toHaveBeenCalledWith('editor.chatModal.requestChangeError');
   });
 
   it('mantém o chat modal aberto em resposta textual sem edição no editor', async () => {
@@ -1613,10 +1627,12 @@ describe('EditorPage', () => {
   it('mantém o chat modal aberto quando a tool termina sem alteração no arquivo', async () => {
     const plan = await createEditorChatSendPlan();
     editorPageMocks.emitRuntimeEvent('chat:tool_start', {
+      surfaceOrigin: { executionId: 'editor-execution' },
       conversationId: 'conv-1',
       name: 'edit_file',
     });
     editorPageMocks.emitRuntimeEvent('chat:tool_end', {
+      surfaceOrigin: { executionId: 'editor-execution' },
       conversationId: 'conv-1',
       name: 'edit_file',
       status: 'ok',
@@ -1628,6 +1644,99 @@ describe('EditorPage', () => {
 
     expect(editorPageMocks.closeModal).not.toHaveBeenCalled();
     expect(editorPageMocks.bumpFocus).toHaveBeenCalled();
+  });
+
+  it.each(['error', 'cancelled'])('não fecha o modal por tool anterior quando o terminal é %s', async reason => {
+    editorPageMocks.waitForChatDone.mockResolvedValueOnce({ conversationId: 'conv-1', reason });
+    const plan = await createEditorChatSendPlan();
+    editorPageMocks.emitRuntimeEvent('chat:tool_start', {
+      conversationId: 'conv-1', name: 'edit_file', surfaceOrigin: { executionId: 'editor-execution' },
+    });
+    editorPageMocks.emitRuntimeEvent('chat:tool_end', {
+      conversationId: 'conv-1', name: 'edit_file', status: 'ok', surfaceOrigin: { executionId: 'editor-execution' },
+    });
+    await act(async () => { await plan.afterSend?.(); });
+    expect(editorPageMocks.closeModal).not.toHaveBeenCalled();
+    expect(editorStoreState.setDocMarkdown).not.toHaveBeenCalled();
+    expect(editorPageMocks.waitForEditorPatch).not.toHaveBeenCalled();
+  });
+
+  it('descarta patch tardio quando o modal fecha durante a leitura canônica', async () => {
+    vi.mocked(GetProfile).mockResolvedValueOnce({ chat: { disable_tools: true } } as Awaited<ReturnType<typeof GetProfile>>);
+    let finish!: (value: unknown) => void;
+    const pending = new Promise(resolve => { finish = resolve; });
+    editorPageMocks.waitForEditorPatch.mockReturnValueOnce(pending);
+    const plan = await createEditorChatSendPlan();
+    let afterSend!: Promise<void>;
+    await act(async () => {
+      afterSend = plan.afterSend!();
+      await Promise.resolve();
+    });
+    expect(editorPageMocks.waitForEditorPatch).toHaveBeenCalledTimes(1);
+    const signal = editorPageMocks.waitForEditorPatch.mock.calls[0][1] as AbortSignal;
+    act(() => { editorPageMocks.chatModalIsOpen = false; plan.rerenderModal(); });
+    expect(signal.aborted).toBe(true);
+    await act(async () => {
+      finish({ ok: true, patch: { replacement: 'não aplicar', format: 'plain' } });
+      await afterSend;
+    });
+    expect(editorPageMocks.requestQuestionnaire).not.toHaveBeenCalled();
+    expect(editorStoreState.setDocMarkdown).not.toHaveBeenCalled();
+    expect(editorPageMocks.setAdapterError).not.toHaveBeenCalledWith(expect.any(String));
+  });
+
+  it.each(['leitura', 'confirmação'])('invalida o patch ao trocar conversa durante %s, mesmo voltando ao vínculo original', async phase => {
+    vi.mocked(GetProfile).mockResolvedValueOnce({ chat: { disable_tools: true } } as Awaited<ReturnType<typeof GetProfile>>);
+    let finish!: (value: unknown) => void;
+    const pending = new Promise(resolve => { finish = resolve; });
+    const patch = { ok: true, patch: { replacement: 'não aplicar', format: 'plain' } };
+    if (phase === 'leitura') editorPageMocks.waitForEditorPatch.mockReturnValueOnce(pending);
+    else {
+      editorPageMocks.waitForEditorPatch.mockResolvedValueOnce(patch);
+      editorPageMocks.requestQuestionnaire.mockReturnValueOnce(pending);
+    }
+    const plan = await createEditorChatSendPlan();
+    let afterSend!: Promise<void>;
+    await act(async () => { afterSend = plan.afterSend!(); });
+    const signal = editorPageMocks.waitForEditorPatch.mock.calls[0][1] as AbortSignal;
+    act(() => {
+      editorPageMocks.chatModalConversationId = 'conv-other';
+      for (const listener of [...editorPageMocks.chatModalListeners]) listener();
+      editorPageMocks.chatModalConversationId = 'conv-1';
+      for (const listener of [...editorPageMocks.chatModalListeners]) listener();
+    });
+    expect(signal.aborted).toBe(true);
+    await act(async () => { finish(phase === 'leitura' ? patch : { cancelled: false }); await afterSend; });
+    expect(editorPageMocks.requestQuestionnaire).toHaveBeenCalledTimes(phase === 'leitura' ? 0 : 1);
+    expect(editorStoreState.setDocMarkdown).not.toHaveBeenCalled();
+    expect(editorPageMocks.closeModal).not.toHaveBeenCalled();
+    expect(editorPageMocks.chatModalListeners.size).toBe(0);
+  });
+
+  it.each(['error', 'rejected'])('descarta callback de envio %s após troca de vínculo', async kind => {
+    const plan = await createEditorChatSendPlan();
+    act(() => {
+      editorPageMocks.chatModalConversationId = 'other';
+      for (const listener of [...editorPageMocks.chatModalListeners]) listener();
+    });
+    editorPageMocks.setAdapterError.mockClear();
+    await act(async () => {
+      if (kind === 'error') plan.onSendError?.(new Error('chat-messaging-stale'));
+      else plan.onSendRejected?.();
+    });
+    expect(editorPageMocks.setAdapterError).not.toHaveBeenCalled();
+    expect(editorPageMocks.closeModal).not.toHaveBeenCalled();
+    expect(editorPageMocks.chatModalListeners.size).toBe(0);
+  });
+
+  it('traduz falha da consulta canônica sem expor o erro técnico', async () => {
+    vi.mocked(GetProfile).mockResolvedValueOnce({ chat: { disable_tools: true } } as Awaited<ReturnType<typeof GetProfile>>);
+    editorPageMocks.waitForEditorPatch.mockRejectedValueOnce(new Error('Chat completion replaced or unavailable'));
+    const plan = await createEditorChatSendPlan();
+    await act(async () => { await plan.afterSend?.(); });
+    expect(editorPageMocks.setAdapterError).toHaveBeenCalledWith('editor.chatModal.requestChangeError');
+    expect(editorPageMocks.closeModal).not.toHaveBeenCalled();
+    expect(editorStoreState.setDocMarkdown).not.toHaveBeenCalled();
   });
 
   it('restaura foco e seleção Markdown no trecho editado após aplicar patch inline local', async () => {
@@ -1758,10 +1867,12 @@ describe('EditorPage', () => {
     const plan = await createEditorChatSendPlan();
     vi.mocked(EditorReadFile).mockResolvedValue('Alpha\ntexto da tool\nOmega' as never);
     editorPageMocks.emitRuntimeEvent('chat:tool_start', {
+      surfaceOrigin: { executionId: 'editor-execution' },
       conversationId: 'conv-1',
       name: 'edit_file',
     });
     editorPageMocks.emitRuntimeEvent('chat:tool_end', {
+      surfaceOrigin: { executionId: 'editor-execution' },
       conversationId: 'conv-1',
       name: 'edit_file',
       status: 'ok',
@@ -1793,10 +1904,12 @@ describe('EditorPage', () => {
     const plan = await createEditorChatSendPlan();
     vi.mocked(EditorReadFile).mockResolvedValue('Alpha\nselected markdown\n\nNovo parágrafo\nOmega' as never);
     editorPageMocks.emitRuntimeEvent('chat:tool_start', {
+      surfaceOrigin: { executionId: 'editor-execution' },
       conversationId: 'conv-1',
       name: 'edit_file',
     });
     editorPageMocks.emitRuntimeEvent('chat:tool_end', {
+      surfaceOrigin: { executionId: 'editor-execution' },
       conversationId: 'conv-1',
       name: 'edit_file',
       status: 'ok',
@@ -1820,10 +1933,12 @@ describe('EditorPage', () => {
     const plan = await createEditorChatSendPlan();
     vi.mocked(EditorReadFile).mockResolvedValue('Alpha\nselected markdown alterado\nOmega' as never);
     editorPageMocks.emitRuntimeEvent('chat:tool_start', {
+      surfaceOrigin: { executionId: 'editor-execution' },
       conversationId: 'conv-1',
       name: 'edit_file',
     });
     editorPageMocks.emitRuntimeEvent('chat:tool_end', {
+      surfaceOrigin: { executionId: 'editor-execution' },
       conversationId: 'conv-1',
       name: 'edit_file',
       status: 'ok',
@@ -1870,10 +1985,12 @@ describe('EditorPage', () => {
     vi.mocked(EditorReadFile).mockResolvedValue('## Slide 2\nselected rich text alterado' as never);
     editorPageMocks.richDocText = 'selected rich text alterado';
     editorPageMocks.emitRuntimeEvent('chat:tool_start', {
+      surfaceOrigin: { executionId: 'editor-execution' },
       conversationId: 'conv-1',
       name: 'edit_file',
     });
     editorPageMocks.emitRuntimeEvent('chat:tool_end', {
+      surfaceOrigin: { executionId: 'editor-execution' },
       conversationId: 'conv-1',
       name: 'edit_file',
       status: 'ok',
@@ -1904,6 +2021,7 @@ describe('EditorPage', () => {
   it('fecha o chat modal quando a edição aprovada altera o documento do editor', async () => {
     const plan = await createEditorChatSendPlan();
     editorPageMocks.emitRuntimeEvent('chat:tool_start', {
+      surfaceOrigin: { executionId: 'editor-execution' },
       conversationId: 'conv-1',
       name: 'edit_file',
     });
@@ -1914,6 +2032,7 @@ describe('EditorPage', () => {
       assisted: true,
     });
     editorPageMocks.emitRuntimeEvent('chat:tool_end', {
+      surfaceOrigin: { executionId: 'editor-execution' },
       conversationId: 'conv-1',
       name: 'edit_file',
       status: 'ok',
@@ -1930,6 +2049,7 @@ describe('EditorPage', () => {
   it('não fecha o chat modal quando quem editou foi o agente externo', async () => {
     const plan = await createEditorChatSendPlan();
     editorPageMocks.emitRuntimeEvent('chat:tool_start', {
+      surfaceOrigin: { executionId: 'editor-execution' },
       conversationId: 'conv-1',
       name: 'edit_file',
       origin: 'acp_agent',
@@ -1941,6 +2061,7 @@ describe('EditorPage', () => {
       assisted: true,
     });
     editorPageMocks.emitRuntimeEvent('chat:tool_end', {
+      surfaceOrigin: { executionId: 'editor-execution' },
       conversationId: 'conv-1',
       name: 'edit_file',
       status: 'ok',
@@ -1958,10 +2079,12 @@ describe('EditorPage', () => {
     const plan = await createEditorChatSendPlan();
     vi.mocked(EditorReadFile).mockResolvedValue('Alpha\nselected markdown alterado no disco\nOmega' as never);
     editorPageMocks.emitRuntimeEvent('chat:tool_start', {
+      surfaceOrigin: { executionId: 'editor-execution' },
       conversationId: 'conv-1',
       name: 'edit_file',
     });
     editorPageMocks.emitRuntimeEvent('chat:tool_end', {
+      surfaceOrigin: { executionId: 'editor-execution' },
       conversationId: 'conv-1',
       name: 'edit_file',
       status: 'ok',
@@ -1978,10 +2101,12 @@ describe('EditorPage', () => {
   it('ignora evento assistido tardio depois de tool sem alteração no arquivo', async () => {
     const plan = await createEditorChatSendPlan();
     editorPageMocks.emitRuntimeEvent('chat:tool_start', {
+      surfaceOrigin: { executionId: 'editor-execution' },
       conversationId: 'conv-1',
       name: 'edit_file',
     });
     editorPageMocks.emitRuntimeEvent('chat:tool_end', {
+      surfaceOrigin: { executionId: 'editor-execution' },
       conversationId: 'conv-1',
       name: 'edit_file',
       status: 'ok',
@@ -2007,6 +2132,7 @@ describe('EditorPage', () => {
   it('mantém o chat modal aberto quando a confirmação da edição é rejeitada', async () => {
     const plan = await createEditorChatSendPlan();
     editorPageMocks.emitRuntimeEvent('chat:tool_start', {
+      surfaceOrigin: { executionId: 'editor-execution' },
       conversationId: 'conv-1',
       name: 'edit_file',
     });
@@ -2016,6 +2142,7 @@ describe('EditorPage', () => {
       assisted: true,
     });
     editorPageMocks.emitRuntimeEvent('chat:tool_end', {
+      surfaceOrigin: { executionId: 'editor-execution' },
       conversationId: 'conv-1',
       name: 'edit_file',
       status: 'error',
@@ -2078,19 +2205,22 @@ describe('EditorPage', () => {
         media: undefined,
         meta: unknown,
         session: { tabId: string; conversationId: string },
-      ) => Promise<{ afterSend?: () => Promise<void> } | null>;
+      ) => Promise<{ onSendError?: (error: unknown) => void; onSendRejected?: () => void; afterSend?: () => Promise<void>; onExecutionStarted?: (id: string) => void } | null>;
     };
     const prepared = await adapter.prepare();
     const plan = await adapter.send('Reescreva', undefined, prepared.meta, {
       tabId: 'tab-1',
       conversationId: 'conv-1',
     });
+    plan?.onExecutionStarted?.('editor-execution');
     vi.mocked(EditorReadFile).mockResolvedValue('depois da tool' as never);
     editorPageMocks.emitRuntimeEvent('chat:tool_start', {
+      surfaceOrigin: { executionId: 'editor-execution' },
       conversationId: 'conv-1',
       name: 'edit_file',
     });
     editorPageMocks.emitRuntimeEvent('chat:tool_end', {
+      surfaceOrigin: { executionId: 'editor-execution' },
       conversationId: 'conv-1',
       name: 'edit_file',
       status: 'ok',

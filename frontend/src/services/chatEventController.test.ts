@@ -8,8 +8,6 @@ import {
 } from './chatEventController';
 import { CHAT_TURN_EVENT_NAMES, resetChatEventHubForTests } from './chatEventHub';
 import {
-  getMessageTurnSegments,
-  updateEditedMessageContentInTree,
   updateMessageContentInTree,
   updateMessageReasoningInTree,
   type ChatTreeConversation,
@@ -17,6 +15,20 @@ import {
   type MessageNode,
 } from '../lib/chatMessageTree';
 import type { ChatSurfaceOrigin } from './chatSessionRegistry';
+import { canonicalTestFixture, canonicalTestItem } from './chatTimelineTestFixture';
+import type { TimelineItem, TimelineSegment } from '../types/chatTimelineEvents';
+
+async function canonicalView(conversationId = 'conversation-1') {
+  const item = canonicalTestItem('response', '', { conversationId, state: 'streaming', segments: [] });
+  const fixture = canonicalTestFixture([item]);
+  const presentation = fixture.presentation('visual', conversationId);
+  await presentation.open();
+  return { presentation, fixture, publish(segments: TimelineSegment[], overrides: Partial<TimelineItem> = {}) {
+    fixture.publish('visual', { ...item, ...overrides, segments });
+  }, tools() {
+    return presentation.getMessage('response')!.turnSegments!.flatMap(segment => segment.toolInvocations ?? []);
+  } };
+}
 
 const mockAnnounce = vi.fn();
 vi.mock('../hooks/useAnnouncer', () => ({
@@ -111,9 +123,11 @@ vi.mock('i18next', () => ({
 }));
 
 interface TestSession extends ChatEventSession {
+  conversation: ChatTreeConversation | null;
+  activeToolCalls: import('../types/chat').ToolCallStatus[];
+  completedSegments: import('../lib/chatMessageTree').TurnSegment[];
   isLoading: boolean;
   streamingMessageId: string | null;
-  lastInterruptedMessageId: string | null;
   streamingReasoning: string | null;
   isThinking: boolean;
 }
@@ -154,7 +168,6 @@ const createSession = (conversationId: string): TestSession => ({
   sendFailureRetryable: false,
   sendFailureRetryContent: null,
   sendFailureRetryMediaFiles: [],
-  lastInterruptedMessageId: null,
   streamingReasoning: null,
   isThinking: false,
   activeToolCalls: [],
@@ -207,7 +220,14 @@ function createAdapter(initialConversationIds: string[]) {
     };
   });
 
-  const adapter: ChatEventControllerAdapter = {
+  // Sondas de teste permitem provar que o controller não usa mutações visuais.
+  // Não fazem parte da interface de produção.
+  const adapter: ChatEventControllerAdapter & {
+    patchConversation: (id: string, update: (conversation: ChatTreeConversation) => ChatTreeConversation) => void;
+    updateMessage: typeof updateMessage;
+    commitMessage: typeof commitMessage;
+    updateReasoning: (id: string, messageId: string, reasoning: string) => void;
+  } = {
     getSession: (conversationId) => sessions[conversationId] ?? createSession(conversationId),
     patchSession: (conversationId, patch) => {
       const current = sessions[conversationId] ?? createSession(conversationId);
@@ -216,14 +236,14 @@ function createAdapter(initialConversationIds: string[]) {
         ...patch,
       } as TestSession;
     },
-    patchConversation: (conversationId, updater) => {
+    patchConversation: vi.fn((conversationId, updater) => {
       const current = sessions[conversationId] ?? createSession(conversationId);
       if (!current.conversation) return;
       sessions[conversationId] = {
         ...current,
         conversation: updater(current.conversation),
       };
-    },
+    }),
     updateMessage,
     commitMessage,
     updateReasoning: (conversationId, messageId, reasoning) => {
@@ -255,43 +275,55 @@ function createAdapter(initialConversationIds: string[]) {
 }
 
 describe('chatEventController', () => {
-  it('aplica a identidade final local após substituir uma ponte MCP', () => {
-    const { adapter, sessions } = createAdapter(['conversation-1']);
+  it('aplica a identidade final local após substituir uma ponte MCP', async () => {
+    const view = await canonicalView();
+    const { adapter } = createAdapter(['conversation-1']);
     startChatEventController({ conversationId: 'conversation-1', adapter });
     const identity = { conversationId: 'conversation-1', turnId: 'turn-1', assistantMessageId: 'assistant-1', callId: 'replaced' };
     emitEvent('chat:tool_start', { ...identity, name: 'search', origin: 'mcp_bridge', serverLabel: 'remote' });
     emitEvent('chat:tool_end', { ...identity, name: 'local_alias', origin: 'builtin', status: 'ok' });
-    const expected = { name: 'local_alias', origin: 'builtin', serverLabel: undefined, status: 'done' };
-    expect(sessions['conversation-1'].activeToolCalls[0]).toMatchObject(expected);
+    const tool = { callId: 'replaced', name: 'local_alias', origin: 'builtin', status: 'succeeded', hasDetails: false, resultAvailability: 'available' };
+    view.publish([{ segmentId: 'tools', kind: 'tool_invocations', invocations: [tool] }]);
+    expect(view.tools()).toEqual([tool]);
     emitEvent('chat:segment_done', { ...identity, hasMore: true, content: '' });
-    const segment = sessions['conversation-1'].completedSegments.find((item) => item.type === 'tool_calls');
-    expect(segment?.toolCalls?.[0]).toMatchObject({ function: { name: 'local_alias' }, origin: 'builtin', serverLabel: undefined, status: 'done' });
+    expect(view.tools()).toEqual([tool]);
+    expect(view.tools()[0].serverLabel).toBeUndefined();
+    await view.presentation.close();
   });
 
-  it('preserva texto antes das ferramentas e falhas entre duas rodadas', () => {
-    const { adapter, sessions } = createAdapter(['conversation-1']);
+  it('preserva texto antes das ferramentas e falhas entre duas rodadas', async () => {
+    const view = await canonicalView();
+    const { adapter } = createAdapter(['conversation-1']);
     startChatEventController({ conversationId: 'conversation-1', adapter });
     const identity = { conversationId: 'conversation-1', turnId: 'turn-1', assistantMessageId: 'assistant-1' };
 
     emitEvent('chat:tool_start', { ...identity, name: 'search', callId: 'call-1' });
-    expect(sessions['conversation-1'].activeToolCalls[0].status).toBe('running');
-    expect(sessions['conversation-1'].completedSegments).toEqual([]);
+    const call = { callId: 'call-1', name: 'search', status: 'running', hasDetails: false, resultAvailability: 'pending' };
+    view.publish([{ segmentId: 'tools-1', kind: 'tool_invocations', invocations: [call] }]);
+    expect(view.tools()[0].status).toBe('running');
     emitEvent('chat:tool_end', { ...identity, name: 'search', callId: 'call-1', status: 'error', summary: 'Indisponível', errorCode: 'invocation_ledger_unavailable' });
     emitEvent('chat:segment_done', { ...identity, hasMore: true, content: 'Vou pesquisar.' });
     emitEvent('chat:tool_start', { ...identity, name: 'read', callId: 'call-2' });
-    expect(sessions['conversation-1'].completedSegments.map((segment) => segment.type)).toEqual(['text', 'tool_calls']);
-    expect(sessions['conversation-1'].completedSegments[1].toolCalls?.[0].status).toBe('error');
-    expect(sessions['conversation-1'].completedSegments[1].toolCalls?.[0].errorCode).toBe('invocation_ledger_unavailable');
+    const firstSegments: TimelineSegment[] = [{ segmentId: 'text-1', kind: 'text', text: 'Vou pesquisar.' },
+      { segmentId: 'tools-1', kind: 'tool_invocations', invocations: [{ ...call, status: 'failed', resultAvailability: 'unavailable' }] }];
+    view.publish(firstSegments);
+    expect(view.presentation.getMessage('response')!.turnSegments!.map(segment => segment.type)).toEqual(['text', 'tool_calls']);
+    expect(view.tools()[0]).toMatchObject({ status: 'failed', resultAvailability: 'unavailable' });
     emitEvent('chat:tool_end', { ...identity, name: 'read', callId: 'call-2', status: 'ok' });
     emitEvent('chat:segment_done', { ...identity, hasMore: true, content: 'Vou consultar outra fonte.' });
 
-    expect(sessions['conversation-1'].completedSegments.map((segment) => segment.type)).toEqual(['text', 'tool_calls', 'text', 'tool_calls']);
-    expect(sessions['conversation-1'].completedSegments[3].toolCalls?.[0].status).toBe('done');
-    expect(sessions['conversation-1'].activeToolCalls).toEqual([]);
+    view.publish([...firstSegments, { segmentId: 'text-2', kind: 'text', text: 'Vou consultar outra fonte.' },
+      { segmentId: 'tools-2', kind: 'tool_invocations', invocations: [{ ...call, callId: 'call-2', name: 'read', status: 'succeeded' }] }]);
+    const segments = view.presentation.getMessage('response')!.turnSegments!;
+    expect(segments.map(segment => segment.type)).toEqual(['text', 'tool_calls', 'text', 'tool_calls']);
+    expect(segments.filter(segment => segment.type === 'text').map(segment => segment.content)).toEqual(['Vou pesquisar.', 'Vou consultar outra fonte.']);
+    expect(view.tools().map(tool => tool.status)).toEqual(['failed', 'succeeded']);
+    await view.presentation.close();
   });
 
-  it('mantém cancelamento distinto de falha no estado ao vivo e no anúncio', () => {
-    const { adapter, sessions } = createAdapter(['conversation-1']);
+  it('mantém cancelamento distinto de falha no estado ao vivo e no anúncio', async () => {
+    const view = await canonicalView();
+    const { adapter } = createAdapter(['conversation-1']);
     startChatEventController({ conversationId: 'conversation-1', adapter });
     const identity = { conversationId: 'conversation-1', turnId: 'turn-cancel', assistantMessageId: 'assistant-cancel' };
 
@@ -305,7 +337,9 @@ describe('chatEventController', () => {
       origin: 'builtin',
     });
 
-    expect(sessions['conversation-1'].activeToolCalls[0].status).toBe('cancelled');
+    view.publish([{ segmentId: 'tools', kind: 'tool_invocations', invocations: [{ callId: 'call-cancel', name: 'run_command',
+      status: 'cancelled', hasDetails: false, resultAvailability: 'unavailable' }] }]);
+    expect(view.tools()[0].status).toBe('cancelled');
     expect(mockAnnounceForActiveChatConversation).toHaveBeenCalledWith(
       'conversation-1',
       'chat.toolRunCommand. chat.toolStatusCancelled',
@@ -323,10 +357,12 @@ describe('chatEventController', () => {
       origin: 'builtin',
     });
     expect(mockAnnounceWithOrigin).not.toHaveBeenCalled();
+    await view.presentation.close();
   });
 
-  it('anuncia cancelamento recebido somente como tool_failure uma única vez', () => {
-    const { adapter, sessions } = createAdapter(['conversation-1']);
+  it('anuncia cancelamento recebido somente como tool_failure uma única vez', async () => {
+    const view = await canonicalView();
+    const { adapter } = createAdapter(['conversation-1']);
     startChatEventController({ conversationId: 'conversation-1', adapter });
     const identity = { conversationId: 'conversation-1', turnId: 'turn-cancel', assistantMessageId: 'assistant-cancel' };
     emitEvent('chat:tool_start', { ...identity, name: 'run_command', callId: 'call-cancel-only', origin: 'builtin' });
@@ -348,7 +384,9 @@ describe('chatEventController', () => {
       origin: 'builtin',
     });
 
-    expect(sessions['conversation-1'].activeToolCalls[0].status).toBe('cancelled');
+    view.publish([{ segmentId: 'tools', kind: 'tool_invocations', invocations: [{ callId: 'call-cancel-only', name: 'run_command',
+      status: 'cancelled', hasDetails: false, resultAvailability: 'unavailable' }] }]);
+    expect(view.tools()[0].status).toBe('cancelled');
     expect(mockAnnounceForActiveChatConversation).toHaveBeenCalledTimes(1);
     expect(mockAnnounceForActiveChatConversation).toHaveBeenCalledWith(
       'conversation-1',
@@ -356,20 +394,25 @@ describe('chatEventController', () => {
       'polite',
       undefined,
     );
+    await view.presentation.close();
   });
 
-  it('não promove status terminal legado ou desconhecido a sucesso', () => {
-    const { adapter, sessions } = createAdapter(['conversation-1']);
+  it('não promove status terminal legado ou desconhecido a anúncio de sucesso', () => {
+    const { adapter } = createAdapter(['conversation-1']);
     startChatEventController({ conversationId: 'conversation-1', adapter });
     const identity = { conversationId: 'conversation-1', turnId: 'turn-status', assistantMessageId: 'assistant-status' };
 
     emitEvent('chat:tool_start', { ...identity, name: 'run_command', callId: 'call-legacy', origin: 'builtin' });
     emitEvent('chat:tool_end', { ...identity, name: 'run_command', callId: 'call-legacy', status: 'cancelled', origin: 'builtin' });
-    expect(sessions['conversation-1'].activeToolCalls[0].status).toBe('cancelled');
+    expect(mockAnnounceForActiveChatConversation).toHaveBeenCalledWith(
+      'conversation-1', 'chat.toolRunCommand. chat.toolStatusCancelled', 'polite', undefined,
+    );
 
     emitEvent('chat:tool_start', { ...identity, name: 'run_command', callId: 'call-unknown', origin: 'builtin' });
     emitEvent('chat:tool_end', { ...identity, name: 'run_command', callId: 'call-unknown', status: 'mystery', origin: 'builtin' });
-    expect(sessions['conversation-1'].activeToolCalls[1].status).toBe('error');
+    vi.advanceTimersByTime(2000);
+    expect(mockAnnounceForActiveChatConversation.mock.calls.flat().join(' ')).not.toContain('chat.toolStatusSucceeded');
+    expect(mockAnnounceWithOrigin.mock.calls.flat().map(value => JSON.stringify(value)).join(' ')).not.toContain('chat.toolStatusSucceeded');
   });
 
   beforeEach(() => {
@@ -446,16 +489,18 @@ describe('chatEventController', () => {
       messageId: 'assistant-1',
     });
 
-    expect(sessions['conversation-1'].conversation?.threadedMessages.map((node) => node.message.id)).toEqual([
-      'user-1',
-      'assistant-1',
-    ]);
+    // O transporte operacional não cria outra árvore visual em nenhuma sessão.
+    expect(sessions['conversation-1'].conversation?.threadedMessages).toEqual([]);
     expect(sessions['conversation-2'].conversation?.threadedMessages).toEqual([]);
     expect(mockPlayChatReceiveSoundIfActive).toHaveBeenCalledWith('conversation-1', undefined);
+    expect(mockPlayChatReceiveSoundIfActive).not.toHaveBeenCalledWith('conversation-2', expect.anything());
+    emitEvent('chat:done', { conversationId: 'conversation-1', hadToolCalls: false });
+    expect(sessions['conversation-1'].isLoading).toBe(false);
+    expect(sessions['conversation-2'].isLoading).toBe(true);
   });
 
-  it('concatena deltas Unicode em ordem e rejeita lacunas de sequência', () => {
-    const { adapter, sessions } = createAdapter(['conversation-1']);
+  it('anuncia deltas Unicode válidos sem reconstruir texto e ignora lacunas de sequência', () => {
+    const { adapter, sessions, updateMessage } = createAdapter(['conversation-1']);
     startChatEventController({ conversationId: 'conversation-1', adapter });
     emitEvent('chat:messages_ready', {
       conversationId: 'conversation-1',
@@ -497,14 +542,15 @@ describe('chatEventController', () => {
     });
     vi.advanceTimersByTime(16);
 
-    const messages = sessions['conversation-1'].conversation?.threadedMessages ?? [];
-    expect(messages[1].message.content).toBe('Olá 世界 👩🏽‍💻');
+    expect(sessions['conversation-1'].conversation?.threadedMessages).toEqual([]);
+    expect(updateMessage).not.toHaveBeenCalled();
     expect(mockAnnounceForActiveChatConversation).toHaveBeenCalledTimes(1);
   });
 
-  it('agenda um único RAF por frame e publica apenas o acumulado mais recente', () => {
+  it('publica conteúdo canônico sem um segundo buffer RAF no controller', async () => {
+    const view = await canonicalView();
     const rafSpy = vi.spyOn(globalThis, 'requestAnimationFrame');
-    const { adapter, sessions, updateMessage } = createAdapter(['conversation-1']);
+    const { adapter, updateMessage } = createAdapter(['conversation-1']);
     startChatEventController({ conversationId: 'conversation-1', adapter });
 
     for (const [sequence, delta] of ['Olá ', '世界 ', '👩🏽‍💻'].entries()) {
@@ -518,15 +564,18 @@ describe('chatEventController', () => {
       });
     }
 
-    expect(rafSpy).toHaveBeenCalledTimes(1);
+    expect(rafSpy).not.toHaveBeenCalled();
     expect(updateMessage).not.toHaveBeenCalled();
+    view.publish([{ segmentId: 'text', kind: 'text', text: 'Olá 世界 👩🏽‍💻' }]);
     vi.advanceTimersByTime(16);
-    expect(updateMessage).toHaveBeenCalledTimes(1);
-    expect(sessions['conversation-1'].conversation?.threadedMessages[0].message.content).toBe('Olá 世界 👩🏽‍💻');
+    expect(updateMessage).not.toHaveBeenCalled();
+    expect(view.presentation.getMessage('response')?.content).toBe('Olá 世界 👩🏽‍💻');
+    await view.presentation.close();
     rafSpy.mockRestore();
   });
 
-  it('cancela o RAF e faz flush síncrono ao terminar ou desmontar', () => {
+  it('terminal e desmontagem não reescrevem o conteúdo canônico nem deixam RAF pendente', async () => {
+    const view = await canonicalView();
     const cancelSpy = vi.spyOn(globalThis, 'cancelAnimationFrame');
     const first = createAdapter(['conversation-1']);
     const handle = startChatEventController({ conversationId: 'conversation-1', adapter: first.adapter });
@@ -546,8 +595,11 @@ describe('chatEventController', () => {
       hadToolCalls: false,
     });
 
-    expect(cancelSpy).toHaveBeenCalledTimes(1);
-    expect(first.commitMessage).toHaveBeenCalledWith('conversation-1', 'assistant-1', 'terminal');
+    view.publish([{ segmentId: 'text', kind: 'text', text: 'terminal' }], { state: 'completed' });
+    expect(view.presentation.getMessage('response')?.content).toBe('terminal');
+    expect(view.presentation.getMessage('response')?.isStreaming).toBe(false);
+    expect(cancelSpy).not.toHaveBeenCalled();
+    expect(first.commitMessage).not.toHaveBeenCalled();
     const updatesAfterTerminal = first.updateMessage.mock.calls.length;
     vi.advanceTimersByTime(32);
     expect(first.updateMessage).toHaveBeenCalledTimes(updatesAfterTerminal);
@@ -563,16 +615,20 @@ describe('chatEventController', () => {
       sequence: 0,
     });
     secondHandle.cleanup();
-    expect(second.commitMessage).toHaveBeenCalledWith('conversation-2', 'assistant-2', 'desmontagem');
+    expect(second.commitMessage).not.toHaveBeenCalled();
     const updatesAfterUnmount = second.updateMessage.mock.calls.length;
     vi.advanceTimersByTime(32);
     expect(second.updateMessage).toHaveBeenCalledTimes(updatesAfterUnmount);
     handle.cleanup();
+    expect(view.presentation.getMessage('response')?.content).toBe('terminal');
+    await view.presentation.close();
     cancelSpy.mockRestore();
   });
 
-  it('mantém RAFs e acumulados independentes em conversas paralelas', () => {
-    const { adapter, sessions, updateMessage } = createAdapter(['conversation-1', 'conversation-2']);
+  it('mantém publicações independentes em conversas paralelas sem acumulados no controller', async () => {
+    const first = await canonicalView('conversation-1');
+    const second = await canonicalView('conversation-2');
+    const { adapter, updateMessage } = createAdapter(['conversation-1', 'conversation-2']);
     startChatEventController({ conversationId: 'conversation-1', adapter });
     startChatEventController({ conversationId: 'conversation-2', adapter });
 
@@ -594,13 +650,18 @@ describe('chatEventController', () => {
     });
     vi.advanceTimersByTime(16);
 
-    expect(updateMessage).toHaveBeenCalledTimes(2);
-    expect(sessions['conversation-1'].conversation?.threadedMessages[0].message.content).toBe('um');
-    expect(sessions['conversation-2'].conversation?.threadedMessages[0].message.content).toBe('dois');
+    first.publish([{ segmentId: 'text', kind: 'text', text: 'um' }]);
+    expect(second.presentation.getMessage('response')?.content).toBe('');
+    second.publish([{ segmentId: 'text', kind: 'text', text: 'dois' }]);
+    expect(updateMessage).not.toHaveBeenCalled();
+    expect(first.presentation.getMessage('response')?.content).toBe('um');
+    expect(second.presentation.getMessage('response')?.content).toBe('dois');
+    await first.presentation.close(); await second.presentation.close();
   });
 
-  it('reinicia o acumulado ao recuperar o mesmo turno', () => {
-    const { adapter, sessions } = createAdapter(['conversation-1']);
+  it('apresenta a substituição canônica ao recuperar o mesmo turno sem herdar texto anterior', async () => {
+    const view = await canonicalView();
+    const { adapter, updateMessage } = createAdapter(['conversation-1']);
     startChatEventController({ conversationId: 'conversation-1', adapter });
 
     emitEvent('chat:stream', {
@@ -611,6 +672,8 @@ describe('chatEventController', () => {
       reset: true,
       sequence: 0,
     });
+    view.publish([{ segmentId: 'text', kind: 'text', text: 'tentativa parcial' }]);
+    expect(view.presentation.getMessage('response')?.content).toBe('tentativa parcial');
     emitEvent('chat:stream', {
       conversationId: 'conversation-1',
       turnId: 'turn-1',
@@ -619,9 +682,14 @@ describe('chatEventController', () => {
       reset: true,
       sequence: 0,
     });
+    view.publish([{ segmentId: 'recovered', kind: 'text', text: 'resposta recuperada' }], {
+      metadata: { ...canonicalTestItem('response').metadata, conclusionSegmentIds: ['recovered'] },
+    });
     vi.advanceTimersByTime(16);
 
-    expect(sessions['conversation-1'].conversation?.threadedMessages[0].message.content).toBe('resposta recuperada');
+    expect(view.presentation.getMessage('response')?.content).toBe('resposta recuperada');
+    expect(updateMessage).not.toHaveBeenCalled();
+    await view.presentation.close();
   });
 
   it('reiniciar a mesma conversa cancela o controller anterior sem criar assistant local sem messageId', () => {
@@ -639,7 +707,13 @@ describe('chatEventController', () => {
     expect(sessions['conversation-1'].conversation?.threadedMessages).toEqual([]);
   });
 
-  it('processa messages_ready, stream e done atualizando a sessão correta', () => {
+  it('processa messages_ready, stream e done sem alterar a ordem visual publicada pelo backend', async () => {
+    const question = canonicalTestItem('user-1', 'pergunta', { conversationId: 'conversation-1', kind: 'message' });
+    question.metadata.role = 'user';
+    const response = canonicalTestItem('assistant-1', '', { conversationId: 'conversation-1', state: 'streaming' });
+    const fixture = canonicalTestFixture([question, response]);
+    const presentation = fixture.presentation('visual', 'conversation-1');
+    await presentation.open();
     const { adapter, sessions } = createAdapter(['conversation-1']);
 
     startChatEventController({ conversationId: 'conversation-1', initialUserContent: 'fallback', adapter });
@@ -665,12 +739,16 @@ describe('chatEventController', () => {
       hadToolCalls: false,
     });
 
-    const messages = sessions['conversation-1'].conversation?.threadedMessages ?? [];
+    fixture.publish('visual', { ...response, state: 'completed', segments: [{ segmentId: 'text', kind: 'text', text: 'parcial' }] });
+    const messages = presentation.nodes();
+    expect(messages.map(node => node.itemId)).toEqual(['user-1', 'assistant-1']);
     expect(messages[0].message.content).toBe('pergunta');
     expect(messages[1].message.content).toBe('parcial');
     expect(messages[1].message.isStreaming).toBe(false);
     expect(sessions['conversation-1'].isLoading).toBe(false);
     expect(mockAnnounceChatBackgroundResponseDone).toHaveBeenCalledWith('conversation-1', 'Conversa conversation-1', undefined);
+    expect(sessions['conversation-1'].conversation?.threadedMessages).toEqual([]);
+    await presentation.close();
   });
 
   it('em erro no chat:done sem assistantMessageId não cria mensagem assistant local', () => {
@@ -707,9 +785,7 @@ describe('chatEventController', () => {
     });
 
     const messages = sessions['conversation-1'].conversation?.threadedMessages ?? [];
-    expect(messages).toHaveLength(1);
-    expect(messages[0].message.id).toBe('user-1');
-    expect(sessions['conversation-1'].lastInterruptedMessageId).toBeNull();
+    expect(messages).toHaveLength(0);
     expect(sessions['conversation-1'].sendFailureMessage).toBe('chat.errors.assistantPlaceholder');
     expect(sessions['conversation-1'].sendFailureAnnounced).toBe(true);
     expect(sessions['conversation-1'].sendFailureRetryable).toBe(false);
@@ -727,8 +803,9 @@ describe('chatEventController', () => {
     expect(mockPlayChatErrorSoundIfActive).toHaveBeenCalledWith('conversation-1', surfaceOrigin);
   });
 
-  it('em erro no chat:done usa assistantMessageId persistido quando disponível', () => {
-    const { adapter, sessions } = createAdapter(['conversation-1']);
+  it('em erro no chat:done preserva o alvo canônico e anuncia a falha sem concatená-la ao parcial', async () => {
+    const view = await canonicalView();
+    const { adapter } = createAdapter(['conversation-1']);
 
     startChatEventController({ conversationId: 'conversation-1', adapter });
 
@@ -754,14 +831,21 @@ describe('chatEventController', () => {
       assistantMessageId: 'assistant-db-1',
     });
 
-    const messages = sessions['conversation-1'].conversation?.threadedMessages ?? [];
-    expect(messages[1].message.id).toBe('assistant-db-1');
-    expect(messages[1].message.content).toBe('parcial\n\nErro: boom');
-    expect(sessions['conversation-1'].lastInterruptedMessageId).toBe('assistant-db-1');
+    view.publish([{ segmentId: 'text', kind: 'text', text: 'parcial' }], {
+      state: 'failed', representativeMessageId: 'assistant-db-1',
+      metadata: { ...canonicalTestItem('response').metadata, terminalReason: 'error' },
+    });
+    const message = view.presentation.getMessage('response')!;
+    expect(message.timelineItem?.representativeMessageId).toBe('assistant-db-1');
+    expect(message.content).toBe('parcial');
+    expect(message.timelineItem?.metadata.terminalReason).toBe('error');
+    expect(mockAnnounceWithOrigin).toHaveBeenCalledWith(expect.objectContaining({ message: 'boom', eventType: 'error' }));
+    await view.presentation.close();
   });
 
-  it('anuncia limite de saída, preserva parcial e habilita continuação sem som de erro', () => {
-    const { adapter, sessions } = createAdapter(['conversation-1']);
+  it('anuncia limite de saída e preserva parcial canônico sem som de erro', async () => {
+    const view = await canonicalView();
+    const { adapter } = createAdapter(['conversation-1']);
 
     startChatEventController({ conversationId: 'conversation-1', adapter });
 
@@ -785,18 +869,21 @@ describe('chatEventController', () => {
       assistantMessageId: 'assistant-limit',
     });
 
-    const messages = sessions['conversation-1'].conversation?.threadedMessages ?? [];
-    expect(messages[1].message.content).toBe('resposta parcial');
-    expect(sessions['conversation-1'].lastInterruptedMessageId).toBe('assistant-limit');
+    view.publish([{ segmentId: 'text', kind: 'text', text: 'resposta parcial' }], {
+      state: 'interrupted', metadata: { ...canonicalTestItem('response').metadata, terminalReason: 'output_limit' },
+    });
+    expect(view.presentation.getMessage('response')?.content).toBe('resposta parcial');
+    expect(view.presentation.getMessage('response')?.timelineItem?.metadata.terminalReason).toBe('output_limit');
     expect(mockAnnounceWithOrigin).toHaveBeenCalledWith(expect.objectContaining({
       message: 'chat.outputLimitReached',
       eventType: 'system',
       announcePriority: 'assertive',
     }));
     expect(mockPlayChatErrorSoundIfActive).not.toHaveBeenCalled();
+    await view.presentation.close();
   });
 
-  it('mostra limite de saída sem prefixo de erro quando não houve texto', () => {
+  it('anuncia limite de saída sem prefixo de erro quando não houve texto', () => {
     const { adapter, sessions } = createAdapter(['conversation-1']);
 
     startChatEventController({ conversationId: 'conversation-1', adapter });
@@ -813,12 +900,12 @@ describe('chatEventController', () => {
       assistantMessageId: 'assistant-limit-empty',
     });
 
-    const messages = sessions['conversation-1'].conversation?.threadedMessages ?? [];
-    expect(messages[1].message.content).toBe('chat.outputLimitReached');
-    expect(messages[1].message.content).not.toContain('Erro:');
+    expect(mockAnnounceWithOrigin).toHaveBeenCalledWith(expect.objectContaining({ message: 'chat.outputLimitReached', eventType: 'system' }));
+    expect(sessions['conversation-1'].conversation?.threadedMessages).toEqual([]);
+    expect(mockPlayChatErrorSoundIfActive).not.toHaveBeenCalled();
   });
 
-  it('inclui aviso de limite depois das tools concluídas quando o terminal não traz patch nem texto', () => {
+  it('anuncia limite depois das tools concluídas quando o terminal não traz patch nem texto', () => {
     const { adapter, sessions } = createAdapter(['conversation-1']);
     startChatEventController({ conversationId: 'conversation-1', adapter });
     const identity = { conversationId: 'conversation-1', turnId: 'turn-1', assistantMessageId: 'assistant-1' };
@@ -827,13 +914,9 @@ describe('chatEventController', () => {
     emitEvent('chat:segment_done', { ...identity, hasMore: true, content: '' });
     emitEvent('chat:done', { ...identity, reason: 'output_limit' });
     vi.runOnlyPendingTimers();
-    const message = sessions['conversation-1'].conversation!.threadedMessages[0].message as Message;
-    expect(message.content).toBe('chat.outputLimitReached');
-    expect(getMessageTurnSegments(message)).toMatchObject([
-      { type: 'tool_calls', toolCalls: [{ id: 'call-1' }] },
-      { type: 'text', content: 'chat.outputLimitReached', diagnostic: true },
-    ]);
-    expect(message.isStreaming).toBe(false);
+    expect(mockAnnounceWithOrigin).toHaveBeenCalledWith(expect.objectContaining({ message: 'chat.outputLimitReached', eventType: 'system' }));
+    expect(mockPlayChatErrorSoundIfActive).not.toHaveBeenCalled();
+    expect(sessions['conversation-1'].isLoading).toBe(false);
   });
 
   it('preserva o aviso de limite quando o patch persistido está vazio', () => {
@@ -863,65 +946,13 @@ describe('chatEventController', () => {
       },
     });
 
-    const message = sessions['conversation-1'].conversation?.threadedMessages[1].message;
-    expect(message?.content).toBe('chat.outputLimitReached');
-    expect(message?.isStreaming).toBe(false);
-    expect(sessions['conversation-1'].lastInterruptedMessageId).toBe('assistant-limit-patch');
-  });
-
-  it.each([
-    { terminal: 'error', nextDelta: false },
-    { terminal: 'error', nextDelta: true },
-    { terminal: 'output_limit', nextDelta: false },
-  ])('diagnóstico com patch não vira conteúdo na continuação ($terminal, delta: $nextDelta)', ({ terminal, nextDelta }) => {
-    const { adapter, sessions } = createAdapter(['conversation-1']);
-    const identity = { conversationId: 'conversation-1', turnId: 'turn-1', assistantMessageId: 'assistant-1' };
-    startChatEventController({ conversationId: 'conversation-1', adapter });
-    emitEvent('chat:tool_start', { ...identity, name: 'stale', callId: 'stale-completed', origin: 'builtin' });
-    emitEvent('chat:tool_end', { ...identity, name: 'stale', callId: 'stale-completed', status: 'ok' });
-    emitEvent('chat:segment_done', { ...identity, content: 'Texto obsoleto', hasMore: true });
-    emitEvent('chat:tool_start', { ...identity, name: 'stale', callId: 'stale-active', origin: 'builtin' });
-    const content = terminal === 'error' ? 'Parcial' : '';
-    emitEvent('chat:done', {
-      ...identity, reason: terminal,
-      ...(terminal === 'error' ? { errorMessage: 'internal_error' } : {}),
-      turnPatch: { message: {
-        id: 'assistant-1', conversationId: 'conversation-1', turnId: 'turn-1', content,
-        createdAt: '2026-09-19T10:00:00Z', timestamp: 1,
-        turnSegments: [
-          { type: 'tool_calls', toolInvocations: [{ callId: 'canonical-call', name: 'search', status: 'ok', hasDetails: true, resultAvailability: 'available' }] },
-          ...(content ? [{ type: 'text', content }] : []),
-        ],
-      } },
-    });
-    vi.runOnlyPendingTimers();
-    const ended = sessions['conversation-1'].conversation!.threadedMessages[0].message as Message;
-    const endedSegments = getMessageTurnSegments(ended)!;
-    expect(endedSegments.filter(segment => segment.diagnostic)).toHaveLength(1);
-    expect(JSON.stringify(endedSegments)).not.toContain('stale');
-    expect(JSON.stringify(endedSegments)).not.toContain('Texto obsoleto');
-    startChatEventController({ conversationId: 'conversation-1', adapter, continuationRequested: true });
-    if (nextDelta) {
-      emitEvent('chat:stream', { ...identity, messageId: 'assistant-1', reset: true, sequence: 0, baseContent: content, delta: ' novo' });
-    }
-    emitEvent('chat:tool_start', { ...identity, name: 'read', callId: 'new-call', origin: 'builtin' });
-    emitEvent('chat:tool_end', { ...identity, name: 'read', callId: 'new-call', status: 'ok' });
-    emitEvent('chat:done', { ...identity, reason: 'cancelled' });
-    vi.runOnlyPendingTimers();
-    const resumed = sessions['conversation-1'].conversation!.threadedMessages[0].message as Message;
-    const segments = getMessageTurnSegments(resumed)!;
-    expect(segments.filter(segment => segment.diagnostic)).toEqual([]);
-    expect(segments.filter(segment => segment.type === 'text').map(segment => segment.content))
-      .toEqual(content ? [content + (nextDelta ? ' novo' : '')] : []);
-    expect(segments.flatMap(segment => [
-      ...(segment.toolInvocations ?? []).map(tool => tool.callId),
-      ...(segment.toolCalls ?? []).map(tool => tool.id),
-    ])).toEqual(['canonical-call', 'new-call']);
-    expect(resumed.content).toBe(content + (nextDelta ? ' novo' : ''));
+    expect(mockAnnounceWithOrigin).toHaveBeenCalledWith(expect.objectContaining({ message: 'chat.outputLimitReached', eventType: 'system' }));
+    expect(mockPlayChatErrorSoundIfActive).not.toHaveBeenCalled();
+    expect(sessions['conversation-1'].isLoading).toBe(false);
   });
 
   it('em erro no chat:stream usa messageId persistido para interrupção', () => {
-    const { adapter, sessions } = createAdapter(['conversation-1']);
+    const { adapter } = createAdapter(['conversation-1']);
     const surfaceOrigin = {
       conversationId: 'conversation-1',
       sessionKey: 'tab-1:conversation-1',
@@ -955,7 +986,6 @@ describe('chatEventController', () => {
       surfaceOrigin,
     });
 
-    expect(sessions['conversation-1'].lastInterruptedMessageId).toBe('assistant-db-2');
     expect(mockAnnounceWithOrigin).toHaveBeenCalledWith({
       message: 'boom stream',
       origin: expect.objectContaining({
@@ -971,7 +1001,7 @@ describe('chatEventController', () => {
     expect(mockPlayChatReceiveSoundIfActive).not.toHaveBeenCalled();
   });
 
-  it('preenche fallback visual quando chat:stream falha sem parcial', () => {
+  it('anuncia erro traduzido quando chat:stream falha sem parcial sem criar fallback visual', () => {
     const { adapter, sessions } = createAdapter(['conversation-1']);
 
     startChatEventController({ conversationId: 'conversation-1', adapter });
@@ -989,13 +1019,13 @@ describe('chatEventController', () => {
       messageId: 'assistant-db-2',
     });
 
-    const messages = sessions['conversation-1'].conversation?.threadedMessages ?? [];
-    expect(messages[1].message.content).toBe('Erro: chat.errors.internalError');
-    expect(sessions['conversation-1'].lastInterruptedMessageId).toBe('assistant-db-2');
+    expect(sessions['conversation-1'].conversation?.threadedMessages).toEqual([]);
+    expect(mockAnnounceWithOrigin).toHaveBeenCalledWith(expect.objectContaining({ message: 'chat.errors.internalError', eventType: 'error' }));
+    expect(sessions['conversation-1'].isLoading).toBe(false);
     expect(mockPlayChatErrorSoundIfActive).toHaveBeenCalledWith('conversation-1', undefined);
   });
 
-  it('preenche erro de chat:stream no assistant já criado mesmo sem messageId terminal', () => {
+  it('anuncia erro de chat:stream sem messageId terminal e preserva a classificação de resposta admitida', () => {
     const { adapter, sessions } = createAdapter(['conversation-1']);
 
     startChatEventController({ conversationId: 'conversation-1', adapter });
@@ -1013,13 +1043,12 @@ describe('chatEventController', () => {
       turnId: 'user-1',
     });
 
-    const messages = sessions['conversation-1'].conversation?.threadedMessages ?? [];
-    expect(messages[0].message.id).toBe('assistant-db-existing');
-    expect(messages[0].message.content).toBe('Erro: boom sem id terminal');
-    expect(sessions['conversation-1'].lastInterruptedMessageId).toBe('assistant-db-existing');
+    expect(sessions['conversation-1'].conversation?.threadedMessages).toEqual([]);
+    expect(sessions['conversation-1']).toMatchObject({ sendFailureMessage: 'boom sem id terminal', sendFailureRetryable: false, sendFailureAnnounced: true });
+    expect(mockAnnounceWithOrigin).toHaveBeenCalledWith(expect.objectContaining({ message: 'boom sem id terminal', eventType: 'error' }));
   });
 
-  it('preenche erro de chat:done no assistant já criado mesmo sem assistantMessageId terminal', () => {
+  it('anuncia erro de chat:done sem assistantMessageId terminal e preserva a classificação de resposta admitida', () => {
     const { adapter, sessions } = createAdapter(['conversation-1']);
 
     startChatEventController({ conversationId: 'conversation-1', adapter });
@@ -1037,34 +1066,9 @@ describe('chatEventController', () => {
       errorMessage: 'done sem id terminal',
     });
 
-    const messages = sessions['conversation-1'].conversation?.threadedMessages ?? [];
-    expect(messages[0].message.id).toBe('assistant-db-existing');
-    expect(messages[0].message.content).toBe('Erro: done sem id terminal');
-    expect(sessions['conversation-1'].lastInterruptedMessageId).toBe('assistant-db-existing');
-  });
-
-  it('mostra tool calls antes do primeiro chunk usando assistantMessageId persistido', () => {
-    const { adapter, sessions } = createAdapter(['conversation-1']);
-
-    startChatEventController({ conversationId: 'conversation-1', adapter });
-
-    emitEvent('chat:tool_start', {
-      conversationId: 'conversation-1',
-      turnId: 'user-1',
-      assistantMessageId: 'assistant-db-tool',
-      name: 'buscar',
-      callId: 'call-1',
-      args: '{}',
-    });
-
-    const messages = sessions['conversation-1'].conversation?.threadedMessages ?? [];
-    expect(messages.map((node) => node.message.id)).toEqual(['assistant-db-tool']);
-    expect(sessions['conversation-1'].streamingMessageId).toBe('assistant-db-tool');
-    expect(sessions['conversation-1'].activeToolCalls[0]).toMatchObject({
-      name: 'buscar',
-      callId: 'call-1',
-      status: 'running',
-    });
+    expect(sessions['conversation-1'].conversation?.threadedMessages).toEqual([]);
+    expect(sessions['conversation-1']).toMatchObject({ sendFailureMessage: 'done sem id terminal', sendFailureRetryable: false, sendFailureAnnounced: true });
+    expect(mockAnnounceWithOrigin).toHaveBeenCalledWith(expect.objectContaining({ message: 'done sem id terminal', eventType: 'error' }));
   });
 
   it('anuncia progresso interno pendente antes de uma ferramenta longa terminar', () => {
@@ -1252,8 +1256,8 @@ describe('chatEventController', () => {
     );
   });
 
-  it('guarda a origem da ferramenta do agente para a UI não creditá-la ao app', () => {
-    const { adapter, sessions } = createAdapter(['conversation-1']);
+  it('usa a origem da ferramenta do agente nos anúncios de progresso', () => {
+    const { adapter } = createAdapter(['conversation-1']);
 
     startChatEventController({ conversationId: 'conversation-1', adapter });
 
@@ -1267,13 +1271,8 @@ describe('chatEventController', () => {
       origin: 'acp_agent',
     });
 
-    expect(sessions['conversation-1'].activeToolCalls[0]).toMatchObject({
-      name: 'execute',
-      callId: 'call-acp',
-      status: 'running',
-      summary: 'npm test',
-      origin: 'acp_agent',
-    });
+    vi.runOnlyPendingTimers();
+    expect(mockAnnounceForActiveChatConversation).toHaveBeenCalledWith('conversation-1', 'chat.toolGeneric. chat.toolStatusRunning', 'polite', undefined);
 
     emitEvent('chat:tool_end', {
       conversationId: 'conversation-1',
@@ -1285,10 +1284,6 @@ describe('chatEventController', () => {
       origin: 'acp_agent',
     });
 
-    expect(sessions['conversation-1'].activeToolCalls[0]).toMatchObject({
-      status: 'done',
-      origin: 'acp_agent',
-    });
 
     emitEvent('chat:segment_done', {
       conversationId: 'conversation-1',
@@ -1298,39 +1293,10 @@ describe('chatEventController', () => {
       hasMore: true,
     });
 
-    const segmentoDeFerramentas = sessions['conversation-1'].completedSegments
-      .find((segment) => segment.type === 'tool_calls');
-    expect(segmentoDeFerramentas?.toolCalls?.[0]).toMatchObject({
-      id: 'call-acp',
-      origin: 'acp_agent',
-    });
+    expect(mockAnnounceForActiveChatConversation.mock.calls.some(call => String(call[1]).includes('execute'))).toBe(false);
   });
 
-  it('atualiza chunk sem messageId quando assistant já veio de thinking', () => {
-    const { adapter, sessions } = createAdapter(['conversation-1']);
-
-    startChatEventController({ conversationId: 'conversation-1', adapter });
-
-    emitEvent('chat:thinking', {
-      conversationId: 'conversation-1',
-      turnId: 'user-1',
-      assistantMessageId: 'assistant-db-thinking',
-      started: true,
-    });
-    emitEvent('chat:stream', {
-      conversationId: 'conversation-1',
-      turnId: 'user-1',
-      content: 'chunk sem id',
-      done: false,
-    });
-    vi.runOnlyPendingTimers();
-
-    const messages = sessions['conversation-1'].conversation?.threadedMessages ?? [];
-    expect(messages.map((node) => node.message.id)).toEqual(['assistant-db-thinking']);
-    expect(messages[0].message.content).toBe('chunk sem id');
-  });
-
-  it('não bloqueia criação posterior quando a conversa ainda não está carregada', () => {
+  it('continua anunciando a execução quando os metadados da conversa chegam depois', () => {
     const { adapter, sessions } = createAdapter(['conversation-1']);
     sessions['conversation-1'].conversation = null;
 
@@ -1355,51 +1321,10 @@ describe('chatEventController', () => {
     });
     vi.runOnlyPendingTimers();
 
-    const messages = sessions['conversation-1'].conversation?.threadedMessages ?? [];
-    expect(messages.map((node) => node.message.id)).toEqual(['assistant-db-delayed']);
-    expect(messages[0].message.content).toBe('resposta após carregar');
-  });
-
-  it('marca assistant existente como streaming ao reutilizar messageId persistido', () => {
-    const { adapter, sessions } = createAdapter(['conversation-1']);
-    sessions['conversation-1'].conversation = {
-      ...createConversation('conversation-1'),
-      threadedMessages: [createNode(createMessage('assistant-db-existing', 'assistant', ''))],
-    };
-
-    startChatEventController({ conversationId: 'conversation-1', adapter });
-
-    emitEvent('chat:stream', {
-      conversationId: 'conversation-1',
-      turnId: 'user-1',
-      messageId: 'assistant-db-existing',
-      content: 'resposta em andamento',
-      done: false,
-    });
-    vi.runOnlyPendingTimers();
-
-    const messages = sessions['conversation-1'].conversation?.threadedMessages ?? [];
-    expect(messages[0].message.id).toBe('assistant-db-existing');
-    expect(messages[0].message.isStreaming).toBe(true);
-    expect(messages[0].message.content).toBe('resposta em andamento');
-  });
-
-  it('preserva reasoning final antes do primeiro chunk usando assistantMessageId persistido', () => {
-    const { adapter, sessions } = createAdapter(['conversation-1']);
-
-    startChatEventController({ conversationId: 'conversation-1', adapter });
-
-    emitEvent('chat:thinking', {
-      conversationId: 'conversation-1',
-      turnId: 'user-1',
-      assistantMessageId: 'assistant-db-thinking',
-      content: 'raciocínio final',
-      done: true,
-    });
-
-    const messages = sessions['conversation-1'].conversation?.threadedMessages ?? [];
-    expect(messages.map((node) => node.message.id)).toEqual(['assistant-db-thinking']);
-    expect(messages[0].message.reasoning).toBe('raciocínio final');
+    expect(mockAnnounceForActiveChatConversation).toHaveBeenCalledWith('conversation-1', 'chat.announce.assistantResponding', 'polite', undefined);
+    expect(sessions['conversation-1'].isLoading).toBe(true);
+    emitEvent('chat:done', { conversationId: 'conversation-1', turnId: 'user-1', reason: 'completed' });
+    expect(sessions['conversation-1'].isLoading).toBe(false);
   });
 
   it('toca som de erro em chat:error e chat:tool_failure final, respeitando arbitragem', () => {
@@ -1441,7 +1366,7 @@ describe('chatEventController', () => {
     expect(mockAnnounce).toHaveBeenCalledWith('chat.errors.mcpPreparation');
   });
 
-  it('descarta aviso e cronologia antigos quando uma nova tentativa termina com sucesso sem patch', () => {
+  it('limpa falha operacional anterior quando uma nova tentativa termina com sucesso', () => {
     const { adapter, sessions } = createAdapter(['conversation-1']);
     const identity = { conversationId: 'conversation-1', turnId: 'turn-1', assistantMessageId: 'assistant-1' };
     startChatEventController({ conversationId: 'conversation-1', adapter });
@@ -1455,784 +1380,14 @@ describe('chatEventController', () => {
     emitEvent('chat:stream', { ...identity, messageId: 'assistant-1', done: true });
     emitEvent('chat:done', { ...identity, reason: 'completed' });
     vi.runOnlyPendingTimers();
-    const message = sessions['conversation-1'].conversation!.threadedMessages[0].message as Message;
-    expect(message.content).toBe('Resposta nova');
-    const segments = getMessageTurnSegments(message) ?? [];
-    expect(segments.flatMap(segment => segment.toolCalls ?? [])).toEqual([]);
-    expect(segments.flatMap(segment => segment.toolInvocations ?? [])).toEqual([]);
-    expect(segments.map(segment => segment.content ?? '').join('')).not.toContain('Tentativa antiga');
-    expect(segments.map(segment => segment.content ?? '').join('')).not.toContain('persistenceError');
-    expect(message.isStreaming).toBe(false);
+    expect(sessions['conversation-1'].sendFailureMessage).toBeNull();
+    expect(sessions['conversation-1'].sendFailureRetryable).toBe(false);
+    expect(sessions['conversation-1'].isLoading).toBe(false);
+    expect(mockAnnounceChatBackgroundResponseDone).toHaveBeenCalledOnce();
+    expect(adapter.patchConversation).not.toHaveBeenCalled();
   });
 
-  it.each([false, true])('substitui apresentação antiga numa tentativa apenas com tools (falha: %s)', (failure) => {
-    const { adapter, sessions } = createAdapter(['conversation-1']);
-    const identity = { conversationId: 'conversation-1', turnId: 'turn-1', assistantMessageId: 'assistant-1' };
-    startChatEventController({ conversationId: 'conversation-1', adapter });
-    emitEvent('chat:stream', { ...identity, messageId: 'assistant-1', reset: true, sequence: 0, delta: 'Texto antigo' });
-    emitEvent('chat:tool_start', { ...identity, name: 'search', callId: 'old-call', origin: 'builtin' });
-    emitEvent('chat:tool_end', { ...identity, name: 'search', callId: 'old-call', status: 'ok' });
-    emitEvent('chat:done', { ...identity, reason: 'error', errorMessage: 'persistence_error' });
-    vi.runOnlyPendingTimers();
-    startChatEventController({ conversationId: 'conversation-1', adapter });
-    emitEvent('chat:tool_start', { ...identity, name: 'read', callId: 'new-call', origin: 'builtin' });
-    emitEvent('chat:tool_end', { ...identity, name: 'read', callId: 'new-call', status: 'ok' });
-    if (!failure) emitEvent('chat:stream', { ...identity, messageId: 'assistant-1', done: true });
-    emitEvent('chat:done', {
-      ...identity, reason: failure ? 'error' : 'completed', hadToolCalls: true,
-      ...(failure ? { errorMessage: 'persistence_error' } : {}),
-    });
-    vi.runOnlyPendingTimers();
-    const message = sessions['conversation-1'].conversation!.threadedMessages[0].message as Message;
-    const segments = getMessageTurnSegments(message)!;
-    expect(segments.map(segment => segment.type)).toEqual(failure ? ['tool_calls', 'text'] : ['tool_calls']);
-    expect(segments[0].toolCalls?.map(tool => tool.id)).toEqual(['new-call']);
-    expect(message.content).toBe(failure ? 'Erro: chat.errors.persistenceError' : '');
-    if (failure) expect(segments[1].content).toBe('Erro: chat.errors.persistenceError');
-    expect(message.isStreaming).toBe(false);
-  });
-
-  it.each([false, true])('mantém tools antigas e novas após continuação sem patch seguida de edição (falha: %s)', (failure) => {
-    const { adapter, sessions } = createAdapter(['conversation-1']);
-    sessions['conversation-1'].conversation!.threadedMessages = [new chat.MessageNode({
-      message: {
-        id: 'assistant-1', conversationId: 'conversation-1', turnId: 'turn-1', role: 'assistant', content: 'Parcial',
-        turnSegments: [
-          { type: 'tool_calls', toolInvocations: [{ callId: 'canonical-call', name: 'search', status: 'ok', hasDetails: true, resultAvailability: 'available' }] },
-          { type: 'text', content: 'Parcial' },
-        ],
-      } as Message,
-      children: [], level: 0, childCount: 0,
-    }) as MessageNode];
-    startChatEventController({ conversationId: 'conversation-1', adapter });
-    const identity = { conversationId: 'conversation-1', turnId: 'turn-1', assistantMessageId: 'assistant-1' };
-    emitEvent('chat:stream', { ...identity, messageId: 'assistant-1', reset: true, sequence: 0, baseContent: 'Parcial', delta: ' continuado' });
-    emitEvent('chat:tool_start', { ...identity, name: 'read', callId: 'new-call', origin: 'builtin' });
-    emitEvent('chat:tool_end', { ...identity, name: 'read', callId: 'new-call', status: 'ok' });
-    emitEvent('chat:done', {
-      ...identity, reason: failure ? 'error' : 'completed',
-      ...(failure ? { errorMessage: 'persistence_error' } : {}),
-    });
-    vi.runOnlyPendingTimers();
-    const completed = sessions['conversation-1'].conversation!.threadedMessages[0].message as Message;
-    expect(getMessageTurnSegments(completed)?.[1].content).toBe('Parcial continuado');
-    expect(completed.turnSegments?.[0].toolInvocations?.[0].callId).toBe('canonical-call');
-    adapter.patchConversation('conversation-1', conversation => ({
-      ...conversation,
-      threadedMessages: updateEditedMessageContentInTree(conversation.threadedMessages, 'assistant-1', 'Texto editado'),
-    }));
-    const edited = sessions['conversation-1'].conversation!.threadedMessages[0].message as Message;
-    expect(edited.content).toBe('Texto editado');
-    const segments = getMessageTurnSegments(edited)!;
-    expect(segments.map(segment => segment.type)).toEqual(['tool_calls', 'tool_calls', 'text']);
-    expect(segments[0].toolInvocations?.[0].callId).toBe('canonical-call');
-    expect(segments[1].toolCalls?.[0].id).toBe('new-call');
-    expect(segments[2]).toEqual({ type: 'text', content: 'Texto editado' });
-    expect(edited.turnSegments?.[1].content).toBe('Parcial');
-  });
-
-  it.each([false, true].flatMap(continuationRequested => ['cancelled', 'error'].map(reason => ({ continuationRequested, reason }))))(
-    'terminal tool-first sem delta respeita modo explícito (continuação: $continuationRequested, $reason)',
-    ({ continuationRequested, reason }) => {
-      const { adapter, sessions } = createAdapter(['conversation-1']);
-      const prior = new chat.MessageNode({
-        message: { id: 'assistant-1', conversationId: 'conversation-1', turnId: 'turn-1', role: 'assistant', content: 'Parcial\n\nAviso antigo' },
-        children: [], level: 0, childCount: 0,
-      }) as MessageNode;
-      (prior.message as Message)._turnSegments = [
-        { type: 'tool_calls', toolCalls: [{ id: 'old-call', type: 'function', function: { name: 'search', arguments: '' }, status: 'done' }] },
-        { type: 'text', content: 'Parcial' },
-        { type: 'text', content: 'Aviso antigo', diagnostic: true },
-      ];
-      sessions['conversation-1'].conversation!.threadedMessages = [prior];
-      startChatEventController({ conversationId: 'conversation-1', adapter, continuationRequested });
-      const identity = { conversationId: 'conversation-1', turnId: 'turn-1', assistantMessageId: 'assistant-1' };
-      emitEvent('chat:tool_start', { ...identity, name: 'read', callId: 'new-call', origin: 'builtin' });
-      emitEvent('chat:tool_end', { ...identity, name: 'read', callId: 'new-call', status: 'ok' });
-      emitEvent('chat:done', { ...identity, reason, ...(reason === 'error' ? { errorMessage: 'persistence_error' } : {}) });
-      vi.runOnlyPendingTimers();
-      const message = sessions['conversation-1'].conversation!.threadedMessages[0].message as Message;
-      const segments = getMessageTurnSegments(message)!;
-      expect(segments.flatMap(segment => segment.toolCalls ?? []).map(tool => tool.id))
-        .toEqual(continuationRequested ? ['old-call', 'new-call'] : ['new-call']);
-      expect(segments.filter(segment => segment.type === 'text' && !segment.diagnostic).map(segment => segment.content))
-        .toEqual(continuationRequested ? ['Parcial'] : []);
-      expect(JSON.stringify(segments)).not.toContain('Aviso antigo');
-      expect(message.content).not.toContain('Aviso antigo');
-      expect(message.isStreaming).toBe(false);
-    },
-  );
-
-  it.each([
-    { source: 'helper de edição', useEditHelper: true, content: 'Texto editado', hasCanonicalText: true },
-    { source: 'canônico recarregado', useEditHelper: false, content: 'Texto editado', hasCanonicalText: true },
-    { source: 'edição vazia', useEditHelper: true, content: '', hasCanonicalText: true },
-    { source: 'canônico vazio recarregado', useEditHelper: false, content: '', hasCanonicalText: true },
-    { source: 'canônico só com tools', useEditHelper: false, content: 'Texto editado', hasCanonicalText: false },
-  ].flatMap(scenario => ['cancelled', 'error'].map(reason => ({ ...scenario, reason }))))(
-    'continuação tool-first preserva conclusão de $source ($reason)',
-    ({ useEditHelper, content, hasCanonicalText, reason }) => {
-      const { adapter, sessions } = createAdapter(['conversation-1']);
-      const prior = new chat.MessageNode({
-        message: {
-          id: 'assistant-1', conversationId: 'conversation-1', turnId: 'turn-1', role: 'assistant',
-          content: useEditHelper ? 'Texto original' : content,
-          turnSegments: [
-            ...(hasCanonicalText ? [{ type: 'text', content: 'Texto original' }] : []),
-            { type: 'tool_calls', toolInvocations: [{ callId: 'old-call', name: 'search', status: 'ok', hasDetails: true, resultAvailability: 'available' }] },
-          ],
-        } as Message,
-        children: [], level: 0, childCount: 0,
-      }) as MessageNode;
-      sessions['conversation-1'].conversation!.threadedMessages = useEditHelper
-        ? updateEditedMessageContentInTree([prior], 'assistant-1', content)
-        : [prior];
-      startChatEventController({ conversationId: 'conversation-1', adapter, continuationRequested: true });
-      const identity = { conversationId: 'conversation-1', turnId: 'turn-1', assistantMessageId: 'assistant-1' };
-      emitEvent('chat:tool_start', { ...identity, name: 'read', callId: 'new-call', origin: 'builtin' });
-      emitEvent('chat:tool_end', { ...identity, name: 'read', callId: 'new-call', status: 'ok' });
-      emitEvent('chat:done', { ...identity, reason, ...(reason === 'error' ? { errorMessage: 'persistence_error' } : {}) });
-      vi.runOnlyPendingTimers();
-      const message = sessions['conversation-1'].conversation!.threadedMessages[0].message as Message;
-      const segments = getMessageTurnSegments(message)!;
-      expect(segments.filter(segment => segment.type === 'text' && !segment.diagnostic && segment.content).map(segment => segment.content))
-        .toEqual(useEditHelper ? (content ? [content] : []) : hasCanonicalText ? ['Texto original'] : []);
-      expect(segments.flatMap(segment => [
-        ...(segment.toolInvocations ?? []).map(tool => tool.callId),
-        ...(segment.toolCalls ?? []).map(tool => tool.id),
-      ])).toEqual(['old-call', 'new-call']);
-      if (useEditHelper) expect(JSON.stringify(segments)).not.toContain('Texto original');
-      expect(message.content).toBe(reason === 'error'
-        ? `${content ? content + '\n\n' : ''}Erro: chat.errors.persistenceError`
-        : content);
-      if (hasCanonicalText) expect(message.turnSegments?.[0].content).toBe('Texto original');
-      expect(message.isStreaming).toBe(false);
-    },
-  );
-
-  it('retoma scalar agregado com delta mantendo fragmentos canônicos e tools nas posições originais', () => {
-    const { adapter, sessions } = createAdapter(['conversation-1']);
-    sessions['conversation-1'].conversation!.threadedMessages = [new chat.MessageNode({
-      message: {
-        id: 'assistant-1', conversationId: 'conversation-1', turnId: 'turn-1', role: 'assistant', content: 'AntesDepois',
-        turnSegments: [
-          { type: 'text', content: 'Antes' },
-          { type: 'tool_calls', toolInvocations: [{ callId: 'before-call', name: 'search', status: 'ok', hasDetails: true, resultAvailability: 'available' }] },
-          { type: 'text', content: 'Depois' },
-          { type: 'tool_calls', toolInvocations: [{ callId: 'after-call', name: 'read', status: 'ok', hasDetails: true, resultAvailability: 'available' }] },
-        ],
-      } as Message,
-      children: [], level: 0, childCount: 0,
-    }) as MessageNode];
-    startChatEventController({ conversationId: 'conversation-1', adapter, continuationRequested: true });
-    const identity = { conversationId: 'conversation-1', turnId: 'turn-1', assistantMessageId: 'assistant-1' };
-    emitEvent('chat:stream', { ...identity, messageId: 'assistant-1', reset: true, sequence: 0, baseContent: 'AntesDepois', delta: ' novo' });
-    emitEvent('chat:done', { ...identity, reason: 'error', errorMessage: 'persistence_error' });
-    vi.runOnlyPendingTimers();
-    const message = sessions['conversation-1'].conversation!.threadedMessages[0].message as Message;
-    const segments = getMessageTurnSegments(message)!;
-    expect(segments.map(segment => segment.type)).toEqual(['text', 'tool_calls', 'text', 'tool_calls', 'text', 'text']);
-    expect(segments[0].content).toBe('Antes');
-    expect(segments[1].toolInvocations?.[0].callId).toBe('before-call');
-    expect(segments[2].content).toBe('Depois');
-    expect(segments[3].toolInvocations?.[0].callId).toBe('after-call');
-    expect(segments[4].content).toBe(' novo');
-    expect(segments[5].diagnostic).toBe(true);
-    expect(message.content).toBe('AntesDepois novo\n\nErro: chat.errors.persistenceError');
-  });
-
-  it('não adota tools antigas num retry sem delta cujo texto coincide com a resposta anterior', () => {
-    const { adapter, sessions } = createAdapter(['conversation-1']);
-    sessions['conversation-1'].conversation!.threadedMessages = [new chat.MessageNode({
-      message: {
-        id: 'assistant-1', conversationId: 'conversation-1', turnId: 'turn-1', role: 'assistant', content: 'Texto igual',
-        turnSegments: [
-          { type: 'tool_calls', toolInvocations: [{ callId: 'old-call', name: 'search', status: 'ok', hasDetails: true, resultAvailability: 'available' }] },
-          { type: 'text', content: 'Texto igual' },
-        ],
-      } as Message,
-      children: [], level: 0, childCount: 0,
-    }) as MessageNode];
-    startChatEventController({ conversationId: 'conversation-1', adapter, continuationRequested: false });
-    const identity = { conversationId: 'conversation-1', turnId: 'turn-1', assistantMessageId: 'assistant-1' };
-    emitEvent('chat:tool_start', { ...identity, name: 'read', callId: 'new-call', origin: 'builtin' });
-    emitEvent('chat:tool_end', { ...identity, name: 'read', callId: 'new-call', status: 'ok' });
-    emitEvent('chat:segment_done', { ...identity, content: 'Texto igual', hasMore: false });
-    emitEvent('chat:done', { ...identity, reason: 'completed' });
-    vi.runOnlyPendingTimers();
-    const segments = getMessageTurnSegments(sessions['conversation-1'].conversation!.threadedMessages[0].message as Message)!;
-    expect(segments.flatMap(segment => segment.toolInvocations ?? [])).toEqual([]);
-    expect(segments.flatMap(segment => segment.toolCalls ?? []).map(tool => tool.id)).toEqual(['new-call']);
-    expect(segments.filter(segment => segment.type === 'text').map(segment => segment.content)).toEqual(['Texto igual']);
-  });
-
-  it('não incorpora aviso ao conteúdo quando retry falha antes de qualquer atividade e depois é continuado', () => {
-    const { adapter, sessions } = createAdapter(['conversation-1']);
-    const identity = { conversationId: 'conversation-1', turnId: 'turn-1', assistantMessageId: 'assistant-1' };
-    startChatEventController({ conversationId: 'conversation-1', adapter });
-    emitEvent('chat:stream', { ...identity, messageId: 'assistant-1', reset: true, sequence: 0, delta: 'Parcial' });
-    emitEvent('chat:done', { ...identity, reason: 'error', errorMessage: 'persistence_error' });
-    vi.runOnlyPendingTimers();
-    startChatEventController({ conversationId: 'conversation-1', adapter, continuationRequested: false });
-    emitEvent('chat:done', { ...identity, reason: 'error', errorMessage: 'internal_error' });
-    vi.runOnlyPendingTimers();
-    const failedRetry = sessions['conversation-1'].conversation!.threadedMessages[0].message as Message;
-    expect(failedRetry._resumableContent).toBe('Parcial');
-    expect(failedRetry.content).toBe('Parcial\n\nErro: chat.errors.internalError');
-    expect(getMessageTurnSegments(failedRetry)?.filter(segment => segment.diagnostic)).toHaveLength(1);
-    startChatEventController({ conversationId: 'conversation-1', adapter, continuationRequested: true });
-    emitEvent('chat:tool_start', { ...identity, name: 'read', callId: 'new-call', origin: 'builtin' });
-    emitEvent('chat:tool_end', { ...identity, name: 'read', callId: 'new-call', status: 'ok' });
-    emitEvent('chat:done', { ...identity, reason: 'cancelled' });
-    vi.runOnlyPendingTimers();
-    const resumed = sessions['conversation-1'].conversation!.threadedMessages[0].message as Message;
-    expect(resumed.content).toBe('Parcial');
-    expect(resumed._resumableContent).toBe('Parcial');
-    expect(getMessageTurnSegments(resumed)?.filter(segment => segment.type === 'text'))
-      .toEqual([{ type: 'text', content: 'Parcial' }]);
-  });
-
-  it.each([
-    { withDelta: false, withTool: true },
-    { withDelta: true, withTool: true },
-    { withDelta: false, withTool: false },
-    { withDelta: false, withTool: true, prefillFirst: true },
-    { withDelta: true, withTool: true, prefillFirst: true },
-  ])('segunda continuação preserva scalar integral separado dos fragmentos (delta: $withDelta, tool: $withTool, prefill: $prefillFirst)', ({ withDelta, withTool, prefillFirst }) => {
-    const { adapter, sessions } = createAdapter(['conversation-1']);
-    sessions['conversation-1'].conversation!.threadedMessages = [new chat.MessageNode({
-      message: {
-        id: 'assistant-1', conversationId: 'conversation-1', turnId: 'turn-1', role: 'assistant', content: 'Parcial',
-        turnSegments: [
-          { type: 'text', content: 'Parcial' },
-          { type: 'tool_calls', toolInvocations: [{ callId: 'old-call', name: 'search', status: 'ok', hasDetails: true, resultAvailability: 'available' }] },
-        ],
-      } as Message,
-      children: [], level: 0, childCount: 0,
-    }) as MessageNode];
-    const identity = { conversationId: 'conversation-1', turnId: 'turn-1', assistantMessageId: 'assistant-1' };
-    startChatEventController({ conversationId: 'conversation-1', adapter, continuationRequested: true });
-    emitEvent('chat:stream', { ...identity, messageId: 'assistant-1', reset: true, sequence: 0, baseContent: 'Parcial', delta: ' continuado' });
-    emitEvent('chat:done', { ...identity, reason: 'error', errorMessage: 'persistence_error' });
-    vi.runOnlyPendingTimers();
-    expect((sessions['conversation-1'].conversation!.threadedMessages[0].message as Message)._resumableContent).toBe('Parcial continuado');
-    startChatEventController({ conversationId: 'conversation-1', adapter, continuationRequested: true });
-    if (prefillFirst) emitEvent('chat:segment_done', { ...identity, hasMore: false, content: 'Parcial continuado' });
-    if (withDelta) emitEvent('chat:stream', { ...identity, messageId: 'assistant-1', reset: true, sequence: 0, baseContent: 'Parcial continuado', delta: ' outra vez' });
-    if (withTool) {
-      emitEvent('chat:tool_start', { ...identity, name: 'read', callId: 'new-call', origin: 'builtin' });
-      emitEvent('chat:tool_end', { ...identity, name: 'read', callId: 'new-call', status: 'ok' });
-    }
-    emitEvent('chat:done', { ...identity, reason: 'error', errorMessage: 'persistence_error' });
-    vi.runOnlyPendingTimers();
-    const message = sessions['conversation-1'].conversation!.threadedMessages[0].message as Message;
-    const scalar = `Parcial continuado${withDelta ? ' outra vez' : ''}`;
-    expect(message.content).toBe(`${scalar}\n\nErro: chat.errors.persistenceError`);
-    expect(message._resumableContent).toBe(scalar);
-    const segments = getMessageTurnSegments(message)!;
-    expect(segments.filter(segment => segment.type === 'text' && !segment.diagnostic).map(segment => segment.content))
-      .toEqual(['Parcial', ` continuado${withDelta ? ' outra vez' : ''}`]);
-    expect(segments.filter(segment => segment.diagnostic)).toHaveLength(1);
-  });
-
-  it.each([
-    { reason: 'error', content: 'AntesDepois' },
-    { reason: 'error', content: '' },
-    { reason: 'output_limit', content: '' },
-  ])('preserva segmentos autoritativos literalmente ao anexar diagnóstico ($reason, scalar: $content)', ({ reason, content }) => {
-    const { adapter, sessions } = createAdapter(['conversation-1']);
-    startChatEventController({ conversationId: 'conversation-1', adapter });
-    emitEvent('chat:done', {
-      conversationId: 'conversation-1', turnId: 'turn-1', assistantMessageId: 'assistant-1', reason,
-      ...(reason === 'error' ? { errorMessage: 'internal_error' } : {}),
-      turnPatch: { message: {
-        id: 'assistant-1', conversationId: 'conversation-1', turnId: 'turn-1', content, createdAt: '2026-09-19T10:00:00Z', timestamp: 1,
-        turnSegments: [
-          { type: 'text', content: 'Antes' },
-          { type: 'tool_calls', toolInvocations: [{ callId: 'call-1', name: 'search', status: 'ok', hasDetails: true, resultAvailability: 'available' }] },
-          { type: 'text', content: 'Depois' },
-        ],
-      } },
-    });
-    vi.runOnlyPendingTimers();
-    const message = sessions['conversation-1'].conversation!.threadedMessages[0].message as Message;
-    const segments = getMessageTurnSegments(message)!;
-    expect(segments.slice(0, -1)).toEqual(message.turnSegments);
-    expect(segments[segments.length - 1].diagnostic).toBe(true);
-    expect(message._resumableContent).toBe(content);
-  });
-
-  it('exclui diagnóstico de limite da retomada após retry sem atividade', () => {
-    const { adapter, sessions } = createAdapter(['conversation-1']);
-    const identity = { conversationId: 'conversation-1', turnId: 'turn-1', assistantMessageId: 'assistant-1' };
-    const warning = 'Limite de iterações atingido';
-    startChatEventController({ conversationId: 'conversation-1', adapter });
-    emitEvent('chat:stream', { ...identity, messageId: 'assistant-1', reset: true, sequence: 0, delta: 'Resposta parcial' });
-    emitEvent('chat:tool_start', { ...identity, name: 'search', callId: 'old-call', origin: 'builtin' });
-    emitEvent('chat:tool_end', { ...identity, name: 'search', callId: 'old-call', status: 'ok' });
-    emitEvent('chat:segment_done', { ...identity, hasMore: true, content: 'Resposta parcial' });
-    emitEvent('chat:stream', { ...identity, messageId: 'assistant-1', reset: true, sequence: 0, diagnostic: true, delta: warning });
-    emitEvent('chat:stream', { ...identity, messageId: 'assistant-1', done: true });
-    emitEvent('chat:done', { ...identity, reason: 'limit_reached' });
-    vi.runOnlyPendingTimers();
-    const limited = sessions['conversation-1'].conversation!.threadedMessages[0].message as Message;
-    expect(limited.content).toBe(`Resposta parcial\n\n${warning}`);
-    expect(limited._resumableContent).toBe('Resposta parcial');
-    expect(getMessageTurnSegments(limited)?.filter(segment => segment.diagnostic)).toEqual([{ type: 'text', content: warning, diagnostic: true }]);
-
-    startChatEventController({ conversationId: 'conversation-1', adapter });
-    emitEvent('chat:done', { ...identity, reason: 'error', errorMessage: 'persistence_error' });
-    vi.runOnlyPendingTimers();
-    const failed = sessions['conversation-1'].conversation!.threadedMessages[0].message as Message;
-    expect(failed.content).toBe('Resposta parcial\n\nErro: chat.errors.persistenceError');
-    expect(failed._resumableContent).toBe('Resposta parcial');
-
-    startChatEventController({ conversationId: 'conversation-1', adapter, continuationRequested: true });
-    emitEvent('chat:stream', { ...identity, messageId: 'assistant-1', reset: true, sequence: 0, baseContent: 'Resposta parcial', delta: ' completa' });
-    emitEvent('chat:done', { ...identity, reason: 'completed' });
-    vi.runOnlyPendingTimers();
-    const resumed = sessions['conversation-1'].conversation!.threadedMessages[0].message as Message;
-    expect(resumed.content).toBe('Resposta parcial completa');
-    expect(resumed._resumableContent).toBe('Resposta parcial completa');
-    expect(getMessageTurnSegments(resumed)?.filter(segment => segment.type === 'text')).toEqual([
-      { type: 'text', content: 'Resposta parcial' }, { type: 'text', content: ' completa' },
-    ]);
-  });
-
-  it('mantém conclusão recarregada divergente visível durante continuação', () => {
-    const { adapter, sessions } = createAdapter(['conversation-1']);
-    sessions['conversation-1'].conversation!.threadedMessages = [new chat.MessageNode({
-      message: {
-        id: 'assistant-1', conversationId: 'conversation-1', turnId: 'turn-1', role: 'assistant', content: 'Editado',
-        turnSegments: [{ type: 'text', content: 'Original' }],
-      } as Message,
-      children: [], level: 0, childCount: 0,
-    }) as MessageNode];
-    startChatEventController({ conversationId: 'conversation-1', adapter, continuationRequested: true });
-    emitEvent('chat:stream', { conversationId: 'conversation-1', turnId: 'turn-1', assistantMessageId: 'assistant-1', messageId: 'assistant-1', reset: true, sequence: 0, baseContent: 'Editado', delta: ' novo' });
-    vi.runOnlyPendingTimers();
-    expect(sessions['conversation-1'].completedSegments).toEqual([{ type: 'text', content: 'Original' }]);
-    expect(adapter.updateMessage).toHaveBeenLastCalledWith('conversation-1', 'assistant-1', 'Editado novo');
-    emitEvent('chat:done', { conversationId: 'conversation-1', turnId: 'turn-1', assistantMessageId: 'assistant-1', reason: 'completed' });
-    vi.runOnlyPendingTimers();
-    const completed = sessions['conversation-1'].conversation!.threadedMessages[0].message as Message;
-    expect(completed.content).toBe('Editado novo');
-    expect(getMessageTurnSegments(completed)).toEqual([
-      { type: 'text', content: 'Original' },
-      { type: 'text', content: 'Editado novo' },
-    ]);
-  });
-
-  it.each([false, true])('apresenta só sufixo durante continuação e confirma scalar integral no terminal (falha: %s)', (failure) => {
-    const { adapter, sessions } = createAdapter(['conversation-1']);
-    sessions['conversation-1'].conversation!.threadedMessages = [new chat.MessageNode({
-      message: {
-        id: 'assistant-1', conversationId: 'conversation-1', turnId: 'turn-1', role: 'assistant', content: 'Parcial',
-        turnSegments: [{ type: 'text', content: 'Parcial' }],
-      } as Message,
-      children: [], level: 0, childCount: 0,
-    }) as MessageNode];
-    startChatEventController({ conversationId: 'conversation-1', adapter, continuationRequested: true });
-    const identity = { conversationId: 'conversation-1', turnId: 'turn-1', assistantMessageId: 'assistant-1' };
-    emitEvent('chat:stream', { ...identity, messageId: 'assistant-1', reset: true, sequence: 0, baseContent: 'Parcial', delta: ' novo' });
-    vi.runOnlyPendingTimers();
-    expect(sessions['conversation-1'].completedSegments).toEqual([{ type: 'text', content: 'Parcial' }]);
-    expect(sessions['conversation-1'].conversation!.threadedMessages[0].message.content).toBe(' novo');
-    expect(adapter.updateMessage).toHaveBeenLastCalledWith('conversation-1', 'assistant-1', ' novo');
-    emitEvent('chat:done', { ...identity, reason: failure ? 'error' : 'completed', ...(failure ? { errorMessage: 'persistence_error' } : {}) });
-    vi.runOnlyPendingTimers();
-    const message = sessions['conversation-1'].conversation!.threadedMessages[0].message as Message;
-    expect(message.content).toBe(`Parcial novo${failure ? '\n\nErro: chat.errors.persistenceError' : ''}`);
-    expect(message._resumableContent).toBe('Parcial novo');
-    expect(getMessageTurnSegments(message)?.filter(segment => !segment.diagnostic)).toEqual([{ type: 'text', content: 'Parcial novo' }]);
-    expect(message.isStreaming).toBe(false);
-  });
-
-  it('continua depois de falha de gravação sem transformar o aviso anterior em conteúdo', () => {
-    const { adapter, sessions } = createAdapter(['conversation-1']);
-    const identity = { conversationId: 'conversation-1', turnId: 'turn-1', assistantMessageId: 'assistant-1' };
-    startChatEventController({ conversationId: 'conversation-1', adapter });
-    emitEvent('chat:stream', { ...identity, messageId: 'assistant-1', reset: true, sequence: 0, delta: 'Parcial' });
-    emitEvent('chat:done', { ...identity, reason: 'error', errorMessage: 'persistence_error' });
-    vi.runOnlyPendingTimers();
-    startChatEventController({ conversationId: 'conversation-1', adapter });
-    emitEvent('chat:stream', { ...identity, messageId: 'assistant-1', reset: true, sequence: 0, baseContent: 'Parcial', delta: ' continuado' });
-    emitEvent('chat:done', { ...identity, reason: 'error', errorMessage: 'persistence_error' });
-    vi.runOnlyPendingTimers();
-    const message = sessions['conversation-1'].conversation!.threadedMessages[0].message as Message;
-    expect(getMessageTurnSegments(message)?.map(segment => segment.content)).toEqual([
-      'Parcial continuado', 'Erro: chat.errors.persistenceError',
-    ]);
-    expect(message.content).toBe('Parcial continuado\n\nErro: chat.errors.persistenceError');
-  });
-
-  it.each(['Parcial', 'Parcial primeiro'])('preserva segmentos novos quando a continuação reutiliza a base %s', (baseContent) => {
-    const { adapter, sessions } = createAdapter(['conversation-1']);
-    sessions['conversation-1'].conversation!.threadedMessages = [new chat.MessageNode({
-      message: {
-        id: 'assistant-1', conversationId: 'conversation-1', turnId: 'turn-1', role: 'assistant', content: 'Parcial',
-        turnSegments: [
-          { type: 'text', content: 'Plano anterior' },
-          { type: 'tool_calls', toolInvocations: [{ callId: 'old-call', name: 'search', status: 'ok', hasDetails: true, resultAvailability: 'available' }] },
-          { type: 'text', content: 'Parcial' },
-        ],
-      } as Message,
-      children: [], level: 0, childCount: 0,
-    }) as MessageNode];
-    startChatEventController({ conversationId: 'conversation-1', adapter });
-    const identity = { conversationId: 'conversation-1', turnId: 'turn-1', assistantMessageId: 'assistant-1' };
-    emitEvent('chat:stream', { ...identity, messageId: 'assistant-1', reset: true, sequence: 0, baseContent: 'Parcial', delta: ' primeiro' });
-    emitEvent('chat:tool_start', { ...identity, name: 'read', callId: 'new-call', origin: 'builtin' });
-    emitEvent('chat:tool_end', { ...identity, name: 'read', callId: 'new-call', status: 'ok' });
-    emitEvent('chat:segment_done', { ...identity, hasMore: true, content: 'Parcial primeiro' });
-    emitEvent('chat:stream', { ...identity, messageId: 'assistant-1', reset: true, sequence: 0, baseContent, delta: ' segundo' });
-    emitEvent('chat:done', { ...identity, reason: 'error', errorMessage: 'persistence_error' });
-    vi.runOnlyPendingTimers();
-    const message = sessions['conversation-1'].conversation!.threadedMessages[0].message as Message;
-    const segments = getMessageTurnSegments(message)!;
-    expect(segments.map(segment => segment.type)).toEqual(['text', 'tool_calls', 'text', 'tool_calls', 'text', 'text']);
-    expect(segments[0].content).toBe('Plano anterior');
-    expect(segments[1].toolInvocations?.[0].callId).toBe('old-call');
-    expect(segments[2].content).toBe('Parcial primeiro');
-    expect(segments[3].toolCalls?.[0].id).toBe('new-call');
-    expect(segments[4].content).toBe(' segundo');
-    expect(segments[5].content).toBe('Erro: chat.errors.persistenceError');
-  });
-
-  it.each([' novo', 'Parcial novo'])('preserva sufixo recebido quando segment_done traz %s', (segmentContent) => {
-    const { adapter, sessions } = createAdapter(['conversation-1']);
-    sessions['conversation-1'].conversation!.threadedMessages = [new chat.MessageNode({
-      message: {
-        id: 'assistant-1', conversationId: 'conversation-1', turnId: 'turn-1', role: 'assistant', content: 'Parcial',
-        turnSegments: [
-          { type: 'text', content: 'Parcial' },
-          { type: 'tool_calls', toolInvocations: [{ callId: 'old-call', name: 'search', status: 'ok', hasDetails: true, resultAvailability: 'available' }] },
-        ],
-      } as Message,
-      children: [], level: 0, childCount: 0,
-    }) as MessageNode];
-    startChatEventController({ conversationId: 'conversation-1', adapter });
-    const identity = { conversationId: 'conversation-1', turnId: 'turn-1', assistantMessageId: 'assistant-1' };
-    emitEvent('chat:stream', { ...identity, messageId: 'assistant-1', reset: true, sequence: 0, baseContent: 'Parcial', delta: ' novo' });
-    emitEvent('chat:tool_start', { ...identity, name: 'read', callId: 'new-call', origin: 'builtin' });
-    emitEvent('chat:tool_end', { ...identity, name: 'read', callId: 'new-call', status: 'ok' });
-    emitEvent('chat:segment_done', { ...identity, hasMore: true, content: segmentContent });
-    emitEvent('chat:done', { ...identity, reason: 'error', errorMessage: 'persistence_error' });
-    vi.runOnlyPendingTimers();
-    const segments = getMessageTurnSegments(sessions['conversation-1'].conversation!.threadedMessages[0].message as Message)!;
-    expect(segments.map(segment => segment.type)).toEqual(['text', 'tool_calls', 'text', 'tool_calls', 'text']);
-    expect(segments[0].content).toBe('Parcial');
-    expect(segments[1].toolInvocations?.[0].callId).toBe('old-call');
-    expect(segments[2].content).toBe(' novo');
-    expect(segments[3].toolCalls?.[0].id).toBe('new-call');
-    expect(segments[4].diagnostic).toBe(true);
-  });
-
-  it.each(['Parcial', 'Parcial primeiro'])('não duplica prefill %s numa iteração seguinte só com tools', (prefill) => {
-    const { adapter, sessions } = createAdapter(['conversation-1']);
-    sessions['conversation-1'].conversation!.threadedMessages = [new chat.MessageNode({
-      message: {
-        id: 'assistant-1', conversationId: 'conversation-1', turnId: 'turn-1', role: 'assistant', content: 'Parcial',
-        turnSegments: [{ type: 'text', content: 'Parcial' }],
-      } as Message,
-      children: [], level: 0, childCount: 0,
-    }) as MessageNode];
-    startChatEventController({ conversationId: 'conversation-1', adapter });
-    const identity = { conversationId: 'conversation-1', turnId: 'turn-1', assistantMessageId: 'assistant-1' };
-    emitEvent('chat:stream', { ...identity, messageId: 'assistant-1', reset: true, sequence: 0, baseContent: 'Parcial', delta: ' primeiro' });
-    emitEvent('chat:tool_start', { ...identity, name: 'read', callId: 'call-1', origin: 'builtin' });
-    emitEvent('chat:tool_end', { ...identity, name: 'read', callId: 'call-1', status: 'ok' });
-    emitEvent('chat:segment_done', { ...identity, hasMore: true, content: 'Parcial primeiro' });
-    emitEvent('chat:tool_start', { ...identity, name: 'read', callId: 'call-2', origin: 'builtin' });
-    emitEvent('chat:tool_end', { ...identity, name: 'read', callId: 'call-2', status: 'ok' });
-    emitEvent('chat:segment_done', { ...identity, hasMore: true, content: prefill });
-    emitEvent('chat:done', { ...identity, reason: 'error', errorMessage: 'persistence_error' });
-    vi.runOnlyPendingTimers();
-    const segments = getMessageTurnSegments(sessions['conversation-1'].conversation!.threadedMessages[0].message as Message)!;
-    expect(segments.map(segment => segment.type)).toEqual(['text', 'tool_calls', 'tool_calls', 'text']);
-    expect(segments[0].content).toBe('Parcial primeiro');
-    expect(segments[1].toolCalls?.[0].id).toBe('call-1');
-    expect(segments[2].toolCalls?.[0].id).toBe('call-2');
-    expect(segments[3].diagnostic).toBe(true);
-  });
-
-  it('preserva textos iguais de segmentos distintos sem continuação e sem deltas', () => {
-    const { adapter, sessions } = createAdapter(['conversation-1']);
-    startChatEventController({ conversationId: 'conversation-1', adapter });
-    const identity = { conversationId: 'conversation-1', turnId: 'turn-1', assistantMessageId: 'assistant-1' };
-    for (const callId of ['call-1', 'call-2']) {
-      emitEvent('chat:tool_start', { ...identity, name: 'read', callId, origin: 'builtin' });
-      emitEvent('chat:tool_end', { ...identity, name: 'read', callId, status: 'ok' });
-      emitEvent('chat:segment_done', { ...identity, hasMore: true, content: 'Mesmo texto' });
-    }
-    emitEvent('chat:done', { ...identity, reason: 'completed' });
-    vi.runOnlyPendingTimers();
-    const segments = getMessageTurnSegments(sessions['conversation-1'].conversation!.threadedMessages[0].message as Message)!;
-    expect(segments.map(segment => segment.type)).toEqual(['text', 'tool_calls', 'text', 'tool_calls']);
-    expect(segments[0].content).toBe('Mesmo texto');
-    expect(segments[2].content).toBe('Mesmo texto');
-    expect(segments[1].toolCalls?.[0].id).toBe('call-1');
-    expect(segments[3].toolCalls?.[0].id).toBe('call-2');
-  });
-
-  it.each([
-    { label: 'normal', continuation: false, finalPrefill: false },
-    { label: 'continuação com conclusão', continuation: true, finalPrefill: false },
-    { label: 'continuação com prefill já exibido', continuation: true, finalPrefill: true },
-  ].flatMap(scenario => [false, true].map(failure => ({ ...scenario, failure }))))(
-    'preserva último segmento sem delta: $label (falha: $failure)',
-    ({ continuation, finalPrefill, failure }) => {
-      const { adapter, sessions } = createAdapter(['conversation-1']);
-      if (continuation) {
-        sessions['conversation-1'].conversation!.threadedMessages = [new chat.MessageNode({
-          message: {
-            id: 'assistant-1', conversationId: 'conversation-1', turnId: 'turn-1', role: 'assistant', content: 'Parcial',
-            turnSegments: [{ type: 'text', content: 'Parcial' }],
-          } as Message,
-          children: [], level: 0, childCount: 0,
-        }) as MessageNode];
-      }
-      startChatEventController({ conversationId: 'conversation-1', adapter });
-      const identity = { conversationId: 'conversation-1', turnId: 'turn-1', assistantMessageId: 'assistant-1' };
-      const firstContent = continuation ? 'Parcial primeiro' : ' primeiro';
-      emitEvent('chat:stream', {
-        ...identity, messageId: 'assistant-1', reset: true, sequence: 0,
-        baseContent: continuation ? 'Parcial' : '', delta: ' primeiro',
-      });
-      emitEvent('chat:tool_start', { ...identity, name: 'read', callId: 'call-1', origin: 'builtin' });
-      emitEvent('chat:tool_end', { ...identity, name: 'read', callId: 'call-1', status: 'ok' });
-      emitEvent('chat:segment_done', { ...identity, hasMore: true, content: firstContent });
-      const finalContent = finalPrefill ? 'Parcial' : 'Conclusão recebida apenas no segmento';
-      emitEvent('chat:segment_done', { ...identity, hasMore: false, content: finalContent });
-      emitEvent('chat:done', {
-        ...identity, reason: failure ? 'error' : 'completed',
-        ...(failure ? { errorMessage: 'persistence_error' } : {}),
-      });
-      vi.runOnlyPendingTimers();
-      const message = sessions['conversation-1'].conversation!.threadedMessages[0].message as Message;
-      const segments = getMessageTurnSegments(message)!;
-      expect(segments.filter(segment => segment.type === 'text' && !segment.diagnostic).map(segment => segment.content))
-        .toEqual(finalPrefill ? [firstContent] : [firstContent, finalContent]);
-      expect(segments.flatMap(segment => segment.toolCalls ?? []).map(tool => tool.id)).toEqual(['call-1']);
-      expect(segments.filter(segment => segment.diagnostic).map(segment => segment.content))
-        .toEqual(failure ? ['Erro: chat.errors.persistenceError'] : []);
-      expect(message.content).toBe(finalContent + (failure ? '\n\nErro: chat.errors.persistenceError' : ''));
-      expect(message.isStreaming).toBe(false);
-    },
-  );
-
-  it('não recupera escalar antigo da árvore entre segmentos com conteúdo ao vivo separado', () => {
-    const { adapter, sessions } = createAdapter(['conversation-1']);
-    sessions['conversation-1'].conversation!.threadedMessages = [new chat.MessageNode({
-      message: {
-        id: 'assistant-1', conversationId: 'conversation-1', turnId: 'turn-1', role: 'assistant', content: 'Parcial',
-        turnSegments: [
-          { type: 'text', content: 'Plano anterior' },
-          { type: 'tool_calls', toolInvocations: [{ callId: 'old-call', name: 'search', status: 'ok', hasDetails: true, resultAvailability: 'available' }] },
-          { type: 'text', content: 'Parcial' },
-        ],
-      } as Message,
-      children: [], level: 0, childCount: 0,
-    }) as MessageNode];
-    let liveContent = '';
-    adapter.updateMessage = vi.fn((_conversationId, _messageId, content) => { liveContent = content; });
-    startChatEventController({ conversationId: 'conversation-1', adapter });
-    const identity = { conversationId: 'conversation-1', turnId: 'turn-1', assistantMessageId: 'assistant-1' };
-    emitEvent('chat:stream', { ...identity, messageId: 'assistant-1', reset: true, sequence: 0, baseContent: 'Parcial', delta: ' primeiro' });
-    emitEvent('chat:tool_start', { ...identity, name: 'read', callId: 'new-call', origin: 'builtin' });
-    emitEvent('chat:tool_end', { ...identity, name: 'read', callId: 'new-call', status: 'ok' });
-    emitEvent('chat:segment_done', { ...identity, hasMore: true, content: 'Parcial primeiro' });
-    expect(liveContent).toBe('');
-    expect(sessions['conversation-1'].conversation!.threadedMessages[0].message.content).toBe('Parcial');
-    emitEvent('chat:done', { ...identity, reason: 'error', errorMessage: 'persistence_error' });
-    vi.runOnlyPendingTimers();
-    const message = sessions['conversation-1'].conversation!.threadedMessages[0].message as Message;
-    const segments = getMessageTurnSegments(message)!;
-    expect(segments.map(segment => segment.type)).toEqual(['text', 'tool_calls', 'text', 'tool_calls', 'text']);
-    expect(segments[0].content).toBe('Plano anterior');
-    expect(segments[1].toolInvocations?.[0].callId).toBe('old-call');
-    expect(segments[2].content).toBe('Parcial primeiro');
-    expect(segments[3].toolCalls?.[0].id).toBe('new-call');
-    expect(segments[4].content).toBe('Erro: chat.errors.persistenceError');
-  });
-
-  it('preserva continuação que executa tools antes do primeiro delta', () => {
-    const { adapter, sessions } = createAdapter(['conversation-1']);
-    sessions['conversation-1'].conversation!.threadedMessages = [new chat.MessageNode({
-      message: {
-        id: 'assistant-1', conversationId: 'conversation-1', turnId: 'turn-1', role: 'assistant', content: 'Parcial',
-        turnSegments: [
-          { type: 'text', content: 'Plano anterior' },
-          { type: 'tool_calls', toolInvocations: [{ callId: 'old-call', name: 'search', status: 'ok', hasDetails: true, resultAvailability: 'available' }] },
-          { type: 'text', content: 'Parcial' },
-        ],
-      } as Message,
-      children: [], level: 0, childCount: 0,
-    }) as MessageNode];
-    startChatEventController({ conversationId: 'conversation-1', adapter, continuationRequested: true });
-    const identity = { conversationId: 'conversation-1', turnId: 'turn-1', assistantMessageId: 'assistant-1' };
-    emitEvent('chat:tool_start', { ...identity, name: 'read', callId: 'new-call', origin: 'builtin' });
-    emitEvent('chat:tool_end', { ...identity, name: 'read', callId: 'new-call', status: 'ok' });
-    emitEvent('chat:segment_done', { ...identity, hasMore: true, content: 'Parcial' });
-    emitEvent('chat:stream', { ...identity, messageId: 'assistant-1', reset: true, sequence: 0, baseContent: 'Parcial', delta: ' segundo' });
-    emitEvent('chat:done', { ...identity, reason: 'error', errorMessage: 'persistence_error' });
-    vi.runOnlyPendingTimers();
-    const message = sessions['conversation-1'].conversation!.threadedMessages[0].message as Message;
-    const segments = getMessageTurnSegments(message)!;
-    expect(segments.map(segment => segment.type)).toEqual(['text', 'tool_calls', 'text', 'tool_calls', 'text', 'text']);
-    expect(segments[0].content).toBe('Plano anterior');
-    expect(segments[1].toolInvocations?.[0].callId).toBe('old-call');
-    expect(segments[2].content).toBe('Parcial');
-    expect(segments[3].toolCalls?.[0].id).toBe('new-call');
-    expect(segments[4].content).toBe(' segundo');
-    expect(segments[5].content).toBe('Erro: chat.errors.persistenceError');
-  });
-
-  it('mantém tools posteriores ao texto retomado sem duplicar baseContent', () => {
-    const { adapter, sessions } = createAdapter(['conversation-1']);
-    sessions['conversation-1'].conversation!.threadedMessages = [new chat.MessageNode({
-      message: {
-        id: 'assistant-1', conversationId: 'conversation-1', turnId: 'turn-1',
-        role: 'assistant', content: 'Parcial',
-        turnSegments: [
-          { type: 'text', content: 'Parcial' },
-          { type: 'tool_calls', toolInvocations: [{ callId: 'old-call', name: 'search', status: 'ok', hasDetails: true, resultAvailability: 'available' }] },
-        ],
-      } as Message,
-      children: [], level: 0, childCount: 0,
-    }) as MessageNode];
-    startChatEventController({ conversationId: 'conversation-1', adapter });
-    const identity = { conversationId: 'conversation-1', turnId: 'turn-1', assistantMessageId: 'assistant-1' };
-    emitEvent('chat:stream', { ...identity, messageId: 'assistant-1', reset: true, sequence: 0, baseContent: 'Parcial', delta: ' continuação' });
-    emitEvent('chat:done', { ...identity, reason: 'error', errorMessage: 'persistence_error' });
-    vi.runOnlyPendingTimers();
-    const message = sessions['conversation-1'].conversation!.threadedMessages[0].message as Message;
-    expect(message._turnSegments?.map(segment => segment.type)).toEqual(['text', 'tool_calls', 'text', 'text']);
-    expect(message._turnSegments?.[0].content).toBe('Parcial');
-    expect(message._turnSegments?.[1].toolInvocations?.[0].callId).toBe('old-call');
-    expect(message._turnSegments?.[2].content).toBe(' continuação');
-    expect(message._turnSegments?.[3].content).toBe('Erro: chat.errors.persistenceError');
-  });
-
-  it.each([false, true])('preserva prefill sem delta ao consolidar segmento (mais: %s)', (hasMore) => {
-    const { adapter, sessions } = createAdapter(['conversation-1']);
-    sessions['conversation-1'].conversation!.threadedMessages = [new chat.MessageNode({
-      message: {
-        id: 'assistant-1', conversationId: 'conversation-1', turnId: 'turn-1',
-        role: 'assistant', content: 'Parcial',
-        turnSegments: [
-          { type: 'text', content: 'Parcial' },
-          { type: 'tool_calls', toolInvocations: [{ callId: 'old-call', name: 'search', status: 'ok', hasDetails: true, resultAvailability: 'available' }] },
-        ],
-      } as Message,
-      children: [], level: 0, childCount: 0,
-    }) as MessageNode];
-    startChatEventController({ conversationId: 'conversation-1', adapter, continuationRequested: true });
-    const identity = { conversationId: 'conversation-1', turnId: 'turn-1', assistantMessageId: 'assistant-1' };
-    emitEvent('chat:segment_done', { ...identity, content: 'Parcial', hasMore });
-    emitEvent('chat:done', { ...identity, reason: 'error', errorMessage: 'persistence_error' });
-    vi.runOnlyPendingTimers();
-    const message = sessions['conversation-1'].conversation!.threadedMessages[0].message as Message;
-    expect(message._turnSegments?.map(segment => segment.type)).toEqual(['text', 'tool_calls', 'text']);
-    expect(message._turnSegments?.[0].content).toBe('Parcial');
-    expect(message._turnSegments?.[1].toolInvocations?.[0].callId).toBe('old-call');
-    expect(message._turnSegments?.[2].content).toBe('Erro: chat.errors.persistenceError');
-  });
-
-  it.each([false, true])('distingue continuação de nova tentativa na cronologia após falha (continuação: %s)', (continuation) => {
-    const { adapter, sessions } = createAdapter(['conversation-1']);
-    const priorSegments = [
-      { type: 'text', content: 'Vou pesquisar.' },
-      { type: 'tool_calls', toolInvocations: [{ callId: 'old-call', name: 'search', status: 'ok', hasDetails: true, resultAvailability: 'available' }] },
-      { type: 'text', content: 'Resposta parcial' },
-    ];
-    sessions['conversation-1'].conversation!.threadedMessages = [new chat.MessageNode({
-      message: { id: 'assistant-1', conversationId: 'conversation-1', turnId: 'turn-1', role: 'assistant', content: 'Resposta parcial', turnSegments: priorSegments } as Message,
-      children: [], level: 0, childCount: 0,
-    }) as MessageNode];
-    startChatEventController({ conversationId: 'conversation-1', adapter });
-    const identity = { conversationId: 'conversation-1', turnId: 'turn-1', assistantMessageId: 'assistant-1' };
-    emitEvent('chat:stream', {
-      ...identity, messageId: 'assistant-1', reset: true, sequence: 0,
-      baseContent: continuation ? 'Resposta parcial' : '', delta: ' nova resposta',
-    });
-    emitEvent('chat:done', { ...identity, reason: 'error', errorMessage: 'persistence_error' });
-    vi.runOnlyPendingTimers();
-    const message = sessions['conversation-1'].conversation!.threadedMessages[0].message as Message;
-    const segments = message._turnSegments!;
-    expect(segments.map(segment => segment.type)).toEqual(continuation ? ['text', 'tool_calls', 'text', 'text'] : ['text', 'text']);
-    if (continuation) {
-      expect(segments[0].content).toBe('Vou pesquisar.');
-      expect(segments[1].toolInvocations?.[0].callId).toBe('old-call');
-    }
-    expect(segments[segments.length - 2]?.content).toBe(`${continuation ? 'Resposta parcial' : ''} nova resposta`);
-    expect(segments[segments.length - 1]?.content).toBe('Erro: chat.errors.persistenceError');
-  });
-
-  it.each(['cancelled', 'output_limit', 'error'])('preserva cronologia retomada no terminal sem patch %s', (reason) => {
-    const continuation = true;
-    const { adapter, sessions } = createAdapter(['conversation-1']);
-    const priorSegments = [
-      { type: 'text', content: 'Vou pesquisar.' },
-      { type: 'tool_calls', toolInvocations: [{ callId: 'old-call', name: 'search', status: 'ok', hasDetails: true, resultAvailability: 'available' }] },
-      { type: 'text', content: 'Resposta parcial' },
-    ];
-    sessions['conversation-1'].conversation!.threadedMessages = [new chat.MessageNode({
-      message: { id: 'assistant-1', conversationId: 'conversation-1', turnId: 'turn-1', role: 'assistant', content: 'Resposta parcial', turnSegments: priorSegments } as Message,
-      children: [], level: 0, childCount: 0,
-    }) as MessageNode];
-    startChatEventController({ conversationId: 'conversation-1', adapter });
-    const identity = { conversationId: 'conversation-1', turnId: 'turn-1', assistantMessageId: 'assistant-1' };
-    emitEvent('chat:stream', {
-      ...identity, messageId: 'assistant-1', reset: true, sequence: 0,
-      baseContent: continuation ? 'Resposta parcial' : '', delta: ' nova resposta',
-    });
-    emitEvent('chat:done', { ...identity, reason, ...(reason === 'error' ? { errorMessage: 'geração cancelada' } : {}) });
-    vi.runOnlyPendingTimers();
-    const message = sessions['conversation-1'].conversation!.threadedMessages[0].message as Message;
-    const segments = message._turnSegments!;
-    expect(segments.map(segment => segment.type)).toEqual(reason === 'error' ? ['text', 'tool_calls', 'text', 'text'] : ['text', 'tool_calls', 'text']);
-    if (continuation) {
-      expect(segments[0].content).toBe('Vou pesquisar.');
-      expect(segments[1].toolInvocations?.[0].callId).toBe('old-call');
-    }
-    expect(segments[2]?.content).toBe(`${continuation ? 'Resposta parcial' : ''} nova resposta`);
-    if (reason === 'error') expect(segments[3]?.content).toBe('Erro: geração cancelada');
-  });
-
-  it.each([false, true])('preserva cronologia recebida na falha de gravação (última tool ativa: %s)', (withActiveTool) => {
-    const { adapter, sessions } = createAdapter(['conversation-1']);
-    startChatEventController({ conversationId: 'conversation-1', adapter });
-    const identity = { conversationId: 'conversation-1', turnId: 'turn-1', assistantMessageId: 'assistant-1' };
-    emitEvent('chat:stream', { ...identity, messageId: 'assistant-1', content: 'Vou pesquisar.', done: false });
-    emitEvent('chat:tool_start', { ...identity, name: 'search', callId: 'call-1', origin: 'mcp_bridge', serverLabel: 'remote' });
-    emitEvent('chat:tool_end', { ...identity, name: 'search', callId: 'call-1', status: 'ok', summary: 'Encontrado' });
-    emitEvent('chat:segment_done', { ...identity, hasMore: true, content: 'Vou pesquisar.' });
-    emitEvent('chat:stream', { ...identity, messageId: 'assistant-1', content: 'Resposta final.', done: false });
-    if (withActiveTool) {
-      emitEvent('chat:tool_start', { ...identity, name: 'read', callId: 'call-2', origin: 'builtin' });
-      emitEvent('chat:tool_end', { ...identity, name: 'read', callId: 'call-2', status: 'ok' });
-    }
-    emitEvent('chat:done', { ...identity, reason: 'error', errorMessage: 'persistence_error' });
-    vi.runOnlyPendingTimers();
-    const message = sessions['conversation-1'].conversation!.threadedMessages[0].message as Message;
-    expect(message._turnSegments?.map(segment => segment.type)).toEqual(
-      withActiveTool ? ['text', 'tool_calls', 'text', 'tool_calls', 'text'] : ['text', 'tool_calls', 'text', 'text'],
-    );
-    expect(message._turnSegments?.[0].content).toBe('Vou pesquisar.');
-    expect(message._turnSegments?.[1].toolCalls?.[0]).toMatchObject({
-      id: 'call-1', function: { name: 'search' }, status: 'done', result: 'Encontrado',
-      origin: 'mcp_bridge', serverLabel: 'remote',
-    });
-    expect(message._turnSegments?.[2].content).toBe('Resposta final.');
-    expect(message._turnSegments?.[withActiveTool ? 4 : 3].content).toBe('Erro: chat.errors.persistenceError');
-    if (withActiveTool) expect(message._turnSegments?.[3].toolCalls?.[0].id).toBe('call-2');
-    expect(sessions['conversation-1'].completedSegments).toEqual([]);
-    expect(sessions['conversation-1'].activeToolCalls).toEqual([]);
-    expect(message.isStreaming).toBe(false);
-  });
-
-  it('preserva texto recebido e informa falha de salvamento sem pedir nova geração', () => {
+  it('anuncia falha de salvamento sem pedir nova geração', () => {
     const { adapter, sessions } = createAdapter(['conversation-1']);
     startChatEventController({ conversationId: 'conversation-1', adapter });
     emitEvent('chat:messages_ready', {
@@ -2250,12 +1405,13 @@ describe('chatEventController', () => {
       errorMessage: 'persistence_error',
     });
     vi.runOnlyPendingTimers();
-    const messages = sessions['conversation-1'].conversation?.threadedMessages ?? [];
-    expect(messages[1].message.content).toBe('resposta completa recebida\n\nErro: chat.errors.persistenceError');
-    expect(messages[1].message.isStreaming).toBe(false);
+    expect(mockAnnounceWithOrigin).toHaveBeenCalledWith(expect.objectContaining({ message: 'chat.errors.persistenceError', eventType: 'error' }));
+    expect(sessions['conversation-1'].isLoading).toBe(false);
+    expect(mockReloadConversationSnapshot).not.toHaveBeenCalled();
+    expect(sessions['conversation-1'].sendFailureRetryable).toBe(false);
   });
 
-  it('preenche fallback visual quando chat:done falha sem parcial', () => {
+  it('anuncia falha sem parcial sem fabricar conteúdo de resposta', () => {
     const { adapter, sessions } = createAdapter(['conversation-1']);
 
     startChatEventController({ conversationId: 'conversation-1', adapter });
@@ -2274,9 +1430,9 @@ describe('chatEventController', () => {
       assistantMessageId: 'assistant-db-3',
     });
 
-    const messages = sessions['conversation-1'].conversation?.threadedMessages ?? [];
-    expect(messages[1].message.content).toBe('Erro: chat.errors.internalError');
-    expect(sessions['conversation-1'].lastInterruptedMessageId).toBe('assistant-db-3');
+    expect(mockAnnounceWithOrigin).toHaveBeenCalledWith(expect.objectContaining({ message: 'chat.errors.internalError', eventType: 'error' }));
+    expect(sessions['conversation-1'].conversation?.threadedMessages).toEqual([]);
+    expect(sessions['conversation-1'].isLoading).toBe(false);
   });
 
   it('propaga surfaceOrigin dos eventos para anúncio, som e fala', async () => {
@@ -2409,11 +1565,8 @@ describe('chatEventController', () => {
       userContent: '**olá** externo',
     });
 
-    expect(sessions['conversation-1'].conversation?.threadedMessages[0].message).toMatchObject({
-      id: 'user-ext',
-      content: '**olá** externo',
-      source: 'telegram',
-    });
+    expect(sessions['conversation-1'].isLoading).toBe(true);
+    expect(sessions['conversation-1'].conversation?.threadedMessages).toEqual([]);
     expect(mockAnnounce).toHaveBeenCalledWith('Maria via telegram: olá externo');
   });
 
@@ -2478,40 +1631,36 @@ describe('chatEventController', () => {
     }));
   });
 
+  // O writer/SQLite prova a decisão de abortar antes do efeito e a persistência.
+  // Aqui o terminal operacional anuncia a falha sem fabricar segmentos visuais.
   it.each([
-    [false, false], [true, false], [false, true], [true, true],
-  ])('preserva diagnóstico não persistido no patch: segmento=%s registro=%s', (completed, persisted) => {
+    [false, 'persisted'], [true, 'persisted'], [false, 'volatile'], [true, 'volatile'],
+  ] as const)('anuncia falha do ledger preservando a fonte canônica: parcial=%s durabilidade=%s', async (partial, durability) => {
+    const view = await canonicalView();
     const { adapter, sessions } = createAdapter(['conversation-1']);
     startChatEventController({ conversationId: 'conversation-1', adapter });
-    const identity = { conversationId: 'conversation-1', turnId: 'turn-1', assistantMessageId: 'backend-assistant' };
+    const identity = { conversationId: 'conversation-1', turnId: 'turn', assistantMessageId: 'assistant' };
+    emitEvent('chat:messages_ready', { ...identity, userMessageId: 'question', userContent: 'pergunta' });
     emitEvent('chat:tool_start', { ...identity, name: 'echo', callId: 'blocked' });
     emitEvent('chat:tool_end', { ...identity, callId: 'blocked', status: 'error', errorKind: 'unavailable',
       errorCode: 'invocation_ledger_unavailable', summary: 'diagnostic' });
-    if (completed) emitEvent('chat:segment_done', { ...identity, hasMore: true, content: 'intermediário' });
-    const canonical = [
-      { type: 'text', content: 'resposta canônica' },
-      ...(persisted ? [{ type: 'tool_calls', toolInvocations: [{ callId: 'blocked', invocationId: 'persisted',
-        name: 'echo', status: 'failed', hasDetails: true, resultAvailability: 'available' }] }] : []),
-    ];
-    emitEvent('chat:done', { ...identity, hadToolCalls: true, turnPatch: { message: {
-      id: 'backend-assistant', conversationId: 'conversation-1', turnId: 'turn-1',
-      content: 'resposta canônica', createdAt: '2026-10-25T00:00:00Z', timestamp: 1, turnSegments: canonical,
-    } } });
-    const message = sessions['conversation-1'].conversation!.threadedMessages[0].message as Message;
-    expect(message.content).toBe('resposta canônica');
-    expect(message.turnSegments).toEqual(canonical);
-    if (persisted) {
-      expect(message._turnSegments).toBeUndefined();
-    } else {
-      expect(message._resumableContent).toBe('resposta canônica');
-      expect(message._turnSegments).toHaveLength(2);
-      expect(message._turnSegments?.[1]).toMatchObject({ type: 'tool_calls', diagnostic: true,
-        toolCalls: [{ id: 'blocked', errorCode: 'invocation_ledger_unavailable', status: 'error' }] });
-    }
-    expect(sessions['conversation-1'].activeToolCalls).toEqual([]);
+    const segments: TimelineSegment[] = partial ? [{ segmentId: 'text', kind: 'text', text: 'parcial recebido' }] : [];
+    view.publish(segments, { state: 'failed', durability,
+      metadata: { ...canonicalTestItem('response').metadata, conclusionSegmentIds: partial ? ['text'] : [], terminalReason: 'persistence_error' } });
+    const canonical = view.presentation.getMessage('response');
+    emitEvent('chat:done', { ...identity, reason: 'error', errorMessage: 'persistence_error' });
+    expect(view.presentation.getMessage('response')).toBe(canonical);
+    expect(canonical?.content).toBe(partial ? 'parcial recebido' : '');
+    expect(canonical?.timelineItem?.metadata.terminalReason).toBe('persistence_error');
+    expect(view.tools()).toEqual([]);
+    expect(adapter.patchConversation).not.toHaveBeenCalled();
+    expect(sessions['conversation-1'].isLoading).toBe(false);
+    expect(sessions['conversation-1'].sendFailureRetryable).toBe(false);
+    expect(mockAnnounceWithOrigin).toHaveBeenCalledWith(expect.objectContaining({ message: 'chat.errors.persistenceError', eventType: 'error' }));
+    await view.presentation.close();
   });
 
-  it('aplica patch canônico multi-segmento sem recarregar snapshot completo', () => {
+  it('ignora patches visuais operacionais sem recarregar nem modificar outra fonte', () => {
     const { adapter, sessions } = createAdapter(['conversation-1']);
     const transientAssistant = createMessage('backend-assistant', 'assistant', 'temporária');
     transientAssistant.turnId = 'turn-1';
@@ -2524,6 +1673,7 @@ describe('chatEventController', () => {
       createNode(duplicateAssistant),
       createNode(legacyTool),
     ];
+    const originalMessages = sessions['conversation-1'].conversation!.threadedMessages;
 
     startChatEventController({ conversationId: 'conversation-1', adapter });
     emitEvent('chat:stream', {
@@ -2570,11 +1720,11 @@ describe('chatEventController', () => {
     expect(mockReloadConversationSnapshot).not.toHaveBeenCalled();
     expect(sessions['conversation-1'].conversation?.threadedMessages.map((node) => node.message.id)).toEqual([
       'backend-assistant',
+      'assistant-iteration-2',
       'legacy-tool',
     ]);
-    expect(sessions['conversation-1'].conversation?.threadedMessages[0].message.content).toBe('resposta final');
-    expect(sessions['conversation-1'].conversation?.threadedMessages[0].message.turnSegments).toHaveLength(3);
-    expect(sessions['conversation-1'].conversation?.threadedMessages[1].message.role).toBe('tool');
+    expect(sessions['conversation-1'].conversation?.threadedMessages).toBe(originalMessages);
+    expect(adapter.patchConversation).not.toHaveBeenCalled();
     expect(mockAnnounceForActiveChatConversation).toHaveBeenCalledTimes(1);
   });
 
@@ -2614,8 +1764,11 @@ describe('chatEventController', () => {
       done: false,
     });
 
-    const ids = sessions['conversation-1'].conversation?.threadedMessages.map((node) => node.message.id);
-    expect(ids).toEqual(['turn-atual']);
+    emitEvent('chat:done', { conversationId: 'conversation-1', turnId: 'turn-antigo', reason: 'completed' });
+    expect(sessions['conversation-1'].isLoading).toBe(true);
+    expect(mockPlayChatReceiveSoundIfActive).not.toHaveBeenCalled();
+    emitEvent('chat:done', { conversationId: 'conversation-1', turnId: 'turn-atual', reason: 'completed' });
+    expect(sessions['conversation-1'].isLoading).toBe(false);
   });
 
   it('anuncia conclusão genérica quando o turno com ferramentas termina sem texto', () => {
@@ -2636,7 +1789,7 @@ describe('chatEventController', () => {
   });
 
   it('não anuncia conclusão quando o turno termina cancelado', () => {
-    const { adapter, sessions } = createAdapter(['conversation-1']);
+    const { adapter } = createAdapter(['conversation-1']);
     startChatEventController({ conversationId: 'conversation-1', adapter });
 
     emitEvent('chat:done', {
@@ -2647,7 +1800,6 @@ describe('chatEventController', () => {
       reason: 'cancelled',
     });
 
-    expect(sessions['conversation-1'].lastInterruptedMessageId).toBe('assistant-cancelled');
     expect(mockAnnounceForActiveChatConversation).not.toHaveBeenCalledWith(
       'conversation-1',
       'chat.progressLabel',
@@ -2657,7 +1809,7 @@ describe('chatEventController', () => {
     expect(mockAnnounceChatBackgroundResponseDone).not.toHaveBeenCalled();
   });
 
-  it('aplica o patch autoritativo ao terminar cancelado', () => {
+  it('encerra cancelamento sem aplicar patch visual do evento operacional', () => {
     const { adapter, sessions } = createAdapter(['conversation-1']);
     startChatEventController({ conversationId: 'conversation-1', adapter });
     emitEvent('chat:stream', {
@@ -2685,11 +1837,10 @@ describe('chatEventController', () => {
       },
     });
 
-    const messages = sessions['conversation-1'].conversation?.threadedMessages ?? [];
-    expect(messages).toHaveLength(1);
-    expect(messages[0].message.content).toBe('parcial persistido');
-    expect(messages[0].message.isStreaming).toBe(false);
-    expect(sessions['conversation-1'].lastInterruptedMessageId).toBe('assistant-cancelled');
+    expect(adapter.patchConversation).not.toHaveBeenCalled();
+    expect(sessions['conversation-1'].isLoading).toBe(false);
+    expect(mockPlayChatReceiveSoundIfActive).not.toHaveBeenCalled();
+    expect(mockAnnounceChatBackgroundResponseDone).not.toHaveBeenCalled();
   });
 
   it('cobre superfície inativa com o anúncio de resposta em segundo plano', () => {
@@ -2804,7 +1955,7 @@ describe('chatEventController', () => {
   });
 
   it('traduz streaming_interrupted', () => {
-    const { adapter, sessions } = createAdapter(['conversation-1']);
+    const { adapter } = createAdapter(['conversation-1']);
     startChatEventController({ conversationId: 'conversation-1', adapter });
     emitEvent('chat:stream', {
       conversationId: 'conversation-1',
@@ -2812,13 +1963,13 @@ describe('chatEventController', () => {
       turnId: 't1',
       messageId: 'a1',
     });
-    expect(
-      sessions['conversation-1'].conversation?.threadedMessages[0].message.content,
-    ).toBe('Erro: chat.errors.streamingInterrupted');
+    expect(mockAnnounceWithOrigin).toHaveBeenCalledWith(expect.objectContaining({ message: 'chat.errors.streamingInterrupted', eventType: 'error' }));
   });
 
-  it('traduz streaming_interrupted em chat:done sem perder o parcial do turnPatch', () => {
-    const { adapter, sessions } = createAdapter(['conversation-1']);
+  it('traduz streaming_interrupted em chat:done sem sobrescrever a conclusão canônica com turnPatch', async () => {
+    const view = await canonicalView();
+    const { adapter } = createAdapter(['conversation-1']);
+    view.publish([{ segmentId: 'text', kind: 'text', text: 'resposta parcial' }], { state: 'interrupted' });
     startChatEventController({ conversationId: 'conversation-1', adapter });
     emitEvent('chat:messages_ready', {
       conversationId: 'conversation-1',
@@ -2852,13 +2003,13 @@ describe('chatEventController', () => {
       },
     });
 
-    expect(
-      sessions['conversation-1'].conversation?.threadedMessages[1].message.content,
-    ).toBe('resposta parcial\n\nErro: chat.errors.streamingInterrupted');
+    expect(view.presentation.getMessage('response')?.content).toBe('resposta parcial');
+    expect(mockAnnounceWithOrigin).toHaveBeenCalledWith(expect.objectContaining({ message: 'chat.errors.streamingInterrupted' }));
+    await view.presentation.close();
   });
 
   it('traduz streaming_idle_timeout', () => {
-    const { adapter, sessions } = createAdapter(['conversation-2']);
+    const { adapter } = createAdapter(['conversation-2']);
     startChatEventController({ conversationId: 'conversation-2', adapter });
     emitEvent('chat:stream', {
       conversationId: 'conversation-2',
@@ -2866,13 +2017,11 @@ describe('chatEventController', () => {
       turnId: 't1',
       messageId: 'a1',
     });
-    expect(
-      sessions['conversation-2'].conversation?.threadedMessages[0].message.content,
-    ).toBe('Erro: chat.errors.streamingIdleTimeout');
+    expect(mockAnnounceWithOrigin).toHaveBeenCalledWith(expect.objectContaining({ message: 'chat.errors.streamingIdleTimeout', eventType: 'error' }));
   });
 
   it('traduz streaming_retries_exhausted', () => {
-    const { adapter, sessions } = createAdapter(['conversation-2']);
+    const { adapter } = createAdapter(['conversation-2']);
     startChatEventController({ conversationId: 'conversation-2', adapter });
     emitEvent('chat:stream', {
       conversationId: 'conversation-2',
@@ -2880,13 +2029,11 @@ describe('chatEventController', () => {
       turnId: 't1',
       messageId: 'a1',
     });
-    expect(
-      sessions['conversation-2'].conversation?.threadedMessages[0].message.content,
-    ).toBe('Erro: chat.errors.streamingRetriesExhausted');
+    expect(mockAnnounceWithOrigin).toHaveBeenCalledWith(expect.objectContaining({ message: 'chat.errors.streamingRetriesExhausted', eventType: 'error' }));
   });
 
   it('traduz streaming_prompt_cache_hint_rejected', () => {
-    const { adapter, sessions } = createAdapter(['conversation-2']);
+    const { adapter } = createAdapter(['conversation-2']);
     startChatEventController({ conversationId: 'conversation-2', adapter });
     emitEvent('chat:stream', {
       conversationId: 'conversation-2',
@@ -2894,9 +2041,7 @@ describe('chatEventController', () => {
       turnId: 't1',
       messageId: 'a1',
     });
-    expect(
-      sessions['conversation-2'].conversation?.threadedMessages[0].message.content,
-    ).toBe('Erro: chat.errors.streamingPromptCacheHintRejected');
+    expect(mockAnnounceWithOrigin).toHaveBeenCalledWith(expect.objectContaining({ message: 'chat.errors.streamingPromptCacheHintRejected', eventType: 'error' }));
   });
 
   it.each([
@@ -2905,14 +2050,14 @@ describe('chatEventController', () => {
     ['chatgpt_reauthorization_required', 'reauthorize'], ['chatgpt_permission_required', 'permission'],
     ['chatgpt_temporarily_unavailable', 'temporary'], ['chatgpt_rate_limit', 'rateLimit'], ['chatgpt_request_cancelled', 'cancelled'], ['chatgpt_request_failed', 'failed'],
   ])('traduz falha ChatGPT %s', (error, key) => {
-    const { adapter, sessions } = createAdapter(['conversation-2']);
+    const { adapter } = createAdapter(['conversation-2']);
     startChatEventController({ conversationId: 'conversation-2', adapter });
     emitEvent('chat:stream', { conversationId: 'conversation-2', error, turnId: 't1', messageId: 'a1' });
-    expect(sessions['conversation-2'].conversation?.threadedMessages[0].message.content).toBe(`Erro: chatgpt.errors.${key}`);
+    expect(mockAnnounceWithOrigin).toHaveBeenCalledWith(expect.objectContaining({ message: `chatgpt.errors.${key}`, eventType: 'error' }));
   });
 
   it('traduz streaming_token_rate_limit', () => {
-    const { adapter, sessions } = createAdapter(['conversation-2']);
+    const { adapter } = createAdapter(['conversation-2']);
     startChatEventController({ conversationId: 'conversation-2', adapter });
     emitEvent('chat:stream', {
       conversationId: 'conversation-2',
@@ -2920,13 +2065,13 @@ describe('chatEventController', () => {
       turnId: 't1',
       messageId: 'a1',
     });
-    expect(
-      sessions['conversation-2'].conversation?.threadedMessages[0].message.content,
-    ).toBe('Erro: chat.errors.streamingTokenRateLimit');
+    expect(mockAnnounceWithOrigin).toHaveBeenCalledWith(expect.objectContaining({ message: 'chat.errors.streamingTokenRateLimit', eventType: 'error' }));
   });
 
-  it('preserva conteúdo parcial e acrescenta erro terminal de chat:stream', () => {
-    const { adapter, sessions } = createAdapter(['conversation-1']);
+  it('preserva bytes do parcial canônico e anuncia erro terminal de chat:stream separadamente', async () => {
+    const view = await canonicalView();
+    const { adapter } = createAdapter(['conversation-1']);
+    view.publish([{ segmentId: 'text', kind: 'text', text: 'resposta parcial  \n' }]);
     startChatEventController({ conversationId: 'conversation-1', adapter });
     emitEvent('chat:stream', {
       conversationId: 'conversation-1',
@@ -2945,13 +2090,15 @@ describe('chatEventController', () => {
       messageId: 'a1',
     });
 
-    expect(
-      sessions['conversation-1'].conversation?.threadedMessages[0].message.content,
-    ).toBe('resposta parcial  \n\n\nErro: chat.errors.streamingIdleTimeout');
+    expect(view.presentation.getMessage('response')?.content).toBe('resposta parcial  \n');
+    expect(mockAnnounceWithOrigin).toHaveBeenCalledWith(expect.objectContaining({ message: 'chat.errors.streamingIdleTimeout' }));
+    await view.presentation.close();
   });
 
-  it('preserva conteúdo parcial e acrescenta erro terminal de chat:done', () => {
-    const { adapter, sessions } = createAdapter(['conversation-1']);
+  it('preserva parcial canônico e anuncia erro terminal de chat:done separadamente', async () => {
+    const view = await canonicalView();
+    const { adapter } = createAdapter(['conversation-1']);
+    view.publish([{ segmentId: 'text', kind: 'text', text: 'resposta parcial' }]);
     startChatEventController({ conversationId: 'conversation-1', adapter });
     emitEvent('chat:stream', {
       conversationId: 'conversation-1',
@@ -2970,13 +2117,14 @@ describe('chatEventController', () => {
       hadToolCalls: false,
     });
 
-    expect(
-      sessions['conversation-1'].conversation?.threadedMessages[0].message.content,
-    ).toBe('resposta parcial\n\nErro: chat.errors.streamingInterrupted');
+    expect(view.presentation.getMessage('response')?.content).toBe('resposta parcial');
+    expect(mockAnnounceWithOrigin).toHaveBeenCalledWith(expect.objectContaining({ message: 'chat.errors.streamingInterrupted' }));
+    await view.presentation.close();
   });
 
-  it('limpa o reasoning visual quando uma tentativa é descartada', () => {
-    const { adapter, sessions } = createAdapter(['conversation-1']);
+  it('limpa reasoning descartado quando o backend substitui os segmentos da tentativa', async () => {
+    const view = await canonicalView();
+    const { adapter } = createAdapter(['conversation-1']);
     startChatEventController({ conversationId: 'conversation-1', adapter });
     emitEvent('chat:thinking', {
       conversationId: 'conversation-1',
@@ -2985,7 +2133,8 @@ describe('chatEventController', () => {
       started: true,
       content: 'raciocínio descartado',
     });
-    adapter.updateReasoning('conversation-1', 'a1', 'raciocínio já salvo');
+    view.publish([{ segmentId: 'reasoning', kind: 'reasoning', text: 'raciocínio já salvo' }]);
+    expect(view.presentation.getMessage('response')?.reasoning).toBe('raciocínio já salvo');
     emitEvent('chat:thinking', {
       conversationId: 'conversation-1',
       assistantMessageId: 'a1',
@@ -2994,11 +2143,10 @@ describe('chatEventController', () => {
       content: '',
     });
 
-    expect(sessions['conversation-1'].isThinking).toBe(false);
-    expect(sessions['conversation-1'].streamingReasoning).toBe('');
-    expect(
-      sessions['conversation-1'].conversation?.threadedMessages[0].message.reasoning,
-    ).toBe('');
+    view.publish([], { metadata: { ...canonicalTestItem('response').metadata, conclusionSegmentIds: [], thinking: false } });
+    expect(view.presentation.getMessage('response')?.timelineItem?.metadata.thinking).toBe(false);
+    expect(view.presentation.getMessage('response')?.reasoning).toBe('');
+    await view.presentation.close();
   });
 
   it('não vincula o controller por thinking atrasado antes de messages_ready', () => {
@@ -3032,14 +2180,13 @@ describe('chatEventController', () => {
     vi.runOnlyPendingTimers();
 
     const messages = sessions['conversation-1'].conversation?.threadedMessages ?? [];
-    expect(messages.map((node) => node.message.id)).toEqual([
-      'assistant-antigo',
-      'user-novo',
-      'assistant-novo',
-    ]);
+    expect(messages.map((node) => node.message.id)).toEqual(['assistant-antigo']);
     expect(messages[0].message.content).toBe('resposta persistida');
     expect(messages[0].message.isStreaming).toBe(false);
     expect(messages[0].message.reasoning).toBeUndefined();
-    expect(messages[2].message.content).toBe('resposta nova');
+    emitEvent('chat:done', { conversationId: 'conversation-1', turnId: 'turn-antigo' });
+    expect(sessions['conversation-1'].isLoading).toBe(true);
+    emitEvent('chat:done', { conversationId: 'conversation-1', turnId: 'turn-novo' });
+    expect(sessions['conversation-1'].isLoading).toBe(false);
   });
 });

@@ -175,12 +175,14 @@ func TestPersistNativeMCPCalls_RecordsToolInvocation(t *testing.T) {
 		ToolInvocations: invSvc,
 	})
 
-	svc.persistNativeMCPCalls(userCtx, "conv-1", "turn-1", []llm.MCPToolEvent{
+	if err := svc.persistNativeMCPCalls(userCtx, "conv-1", "turn-1", []llm.MCPToolEvent{
 		{ID: "call-1", Name: "ping", ServerLabel: "Server One", Arguments: `{"x":1}`, Output: "ok", IsCompleted: true},
 		{ID: "call-2", Name: "unknown", ServerLabel: "Missing Server", Arguments: `{}`, Output: "ok", IsCompleted: true},
 		{ID: "call-3", Name: "unknown", ServerLabel: "Missing Server", Arguments: `{}`, Output: "saída original do proxy", Error: "contrato incompatível", IsCompleted: true},
 		{ID: "call-4", Name: "unknown", ServerLabel: "Missing Server", Arguments: `{}`, Error: "contrato incompatível", IsCompleted: true},
-	}, 0)
+	}, 0); err != nil {
+		t.Fatal(err)
+	}
 
 	rows, err := repo.List(userCtx, toolinvocations.Filter{OriginType: toolinvocations.OriginChat, OriginID: "turn-1", Limit: 10})
 	if err != nil {
@@ -276,7 +278,7 @@ func TestPersistNativeMCPCalls_SemLedgerNaoCriaFallbackEmMensagem(t *testing.T) 
 	svc := newTestAgentService(ServiceConfig{MsgRepo: msgRepo})
 
 	ctx := database.WithUserID(context.Background(), "user-mcp")
-	svc.persistNativeMCPCalls(ctx, "conv-1", "turn-1", []llm.MCPToolEvent{{
+	if err := svc.persistNativeMCPCalls(ctx, "conv-1", "turn-1", []llm.MCPToolEvent{{
 		ID:          "call-1",
 		Name:        "ping",
 		ServerLabel: "Server One",
@@ -284,6 +286,8 @@ func TestPersistNativeMCPCalls_SemLedgerNaoCriaFallbackEmMensagem(t *testing.T) 
 		Output:      "",
 		Error:       "boom",
 		IsCompleted: true,
-	}}, 0)
+	}}, 0); err == nil {
+		t.Fatal("expected ledger persistence error")
+	}
 
 }

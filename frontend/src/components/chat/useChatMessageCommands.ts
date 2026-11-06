@@ -48,6 +48,11 @@ export function useChatMessageCommands(rootRef: RefObject<HTMLDivElement | null>
     (isBackendId(message.timelineItem?.representativeMessageId) || ((id === 'chat.message.copy' || id === 'chat.message.copy_markdown') && !!live.current.presentation?.getCopyTarget?.(message.id))) && !message.isStreaming && !message.internal && message.conversationId === live.current.conversationId &&
     ((id !== 'chat.message.edit.open' && id !== 'chat.message.edit.save') || message.role === 'user' && !message.timelineItem?.scopeParentId) && (id !== 'chat.message.speak' || ttsService.hasVoiceConfig());
   return {
+    captureSelection() {
+      const selected = selection.current;
+      const message = getMessage(selected.id);
+      return { message, isCurrent: () => selection.current === selected && getMessage(selected.id) === message };
+    },
     subscribe(changed: () => void) { listeners.current.add(changed); return () => { listeners.current.delete(changed); }; },
     canStart(id: ChatMessageCommandID, keyboardTarget?: EventTarget | null) {
       if (id === 'chat.message.edit.save') {

@@ -1,148 +1,89 @@
 import { act, cleanup, render, screen } from '@testing-library/react';
-import { useEffect } from 'react';
+import { useEffect, useSyncExternalStore } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { chat } from '../../../wailsjs/go/models';
-import { useChatStore, type Message, type MessageNode } from '../../store/chatStore';
-import { createEmptyChatSurfaceSession } from '../../services/chatSessionRegistry';
-import { useChatMessageLiveState } from './ChatSessionContext';
+import { useChatStore } from '../../store/chatStore';
+import { canonicalTestFixture, canonicalTestItem } from '../../services/chatTimelineTestFixture';
+import type { ChatTimelinePresentation } from '../../services/chatTimelinePresentation';
 
-const createMessage = (id: string, conversationId: string, content: string): Message => (
-  new chat.EnrichedMessage({
-    id,
-    conversationId,
-    role: 'assistant',
-    content,
-    isStreaming: true,
-    internal: false,
-    createdAt: '2026-09-09T00:00:00.000Z',
-  }) as Message
-);
-
-const createNode = (message: Message): MessageNode => (
-  new chat.MessageNode({ message, children: [], childCount: 0, level: 0 }) as MessageNode
-);
-
-function LiveProbe({ message, onRender }: { message: Message; onRender: () => void }) {
-  const { liveContent } = useChatMessageLiveState(message);
-  useEffect(() => {
-    onRender();
-  });
-  return <span>{liveContent ?? message.content}</span>;
+function LiveProbe({ presentation, id, onRender }: {
+  presentation: ChatTimelinePresentation; id: string; onRender: () => void;
+}) {
+  const message = useSyncExternalStore(presentation.subscribe, () => presentation.getMessage(id));
+  useEffect(() => { onRender(); });
+  return <span>{message?.content}</span>;
 }
 
-describe('estado live granular do chat', () => {
+describe('estado live granular da apresentação canônica', () => {
+  let fixture: ReturnType<typeof canonicalTestFixture>;
   beforeEach(() => {
-    useChatStore.setState({
-      sessionsByConversationId: {},
-      timelinesByConversationId: {},
-      surfaceSessionsByKey: {},
-      liveMessageContentByConversationId: {},
-    });
+    useChatStore.setState({ sessionsByConversationId: {}, timelinesByConversationId: {}, surfaceSessionsByKey: {} });
+    fixture = canonicalTestFixture();
   });
+  afterEach(async () => { cleanup(); await fixture.client.dispose(); });
 
-  afterEach(() => {
-    cleanup();
-    useChatStore.setState({ liveMessageContentByConversationId: {} });
-  });
-
-  it('rerenderiza somente a mensagem e conversa afetadas com seletor estável', () => {
-    const renderOne = vi.fn();
-    const renderTwo = vi.fn();
-    const messageOne = createMessage('assistant-1', 'conversation-1', 'inicial 1');
-    const messageTwo = createMessage('assistant-2', 'conversation-2', 'inicial 2');
-
-    render(
-      <>
-        <LiveProbe message={messageOne} onRender={renderOne} />
-        <LiveProbe message={messageTwo} onRender={renderTwo} />
-      </>,
-    );
-
-    act(() => {
-      useChatStore.getState().setConversationLiveMessageContent('conversation-1', 'assistant-1', 'delta acumulado 👩🏽‍💻');
-    });
+  it('rerenderiza somente a mensagem e conversa afetadas com seletor estável', async () => {
+    const one = canonicalTestItem('assistant-1', 'inicial 1', { conversationId: 'conversation-1', state: 'streaming' });
+    const two = canonicalTestItem('assistant-2', 'inicial 2', { conversationId: 'conversation-2', state: 'streaming' });
+    fixture.setItems([one, two]);
+    const first = fixture.presentation('first', 'conversation-1');
+    const second = fixture.presentation('second', 'conversation-2');
+    await first.open(); await second.open();
+    const renderOne = vi.fn(); const renderTwo = vi.fn();
+    render(<><LiveProbe presentation={first} id={one.itemId} onRender={renderOne} />
+      <LiveProbe presentation={second} id={two.itemId} onRender={renderTwo} /></>);
+    const next = { ...one, segments: [{ segmentId: 'text', kind: 'text' as const, text: 'delta acumulado 👩🏽‍💻' }] };
+    let delivered!: ReturnType<typeof fixture.publish>;
+    act(() => { delivered = fixture.publish('first', next); });
     expect(screen.getByText('delta acumulado 👩🏽‍💻')).toBeInTheDocument();
     expect(renderOne).toHaveBeenCalledTimes(2);
     expect(renderTwo).toHaveBeenCalledTimes(1);
-
-    act(() => {
-      useChatStore.getState().setConversationLiveMessageContent('conversation-1', 'assistant-1', 'delta acumulado 👩🏽‍💻');
-    });
+    act(() => { fixture.emit(delivered); });
     expect(renderOne).toHaveBeenCalledTimes(2);
     expect(renderTwo).toHaveBeenCalledTimes(1);
   });
 
-  it('não altera identidades da timeline ao publicar frames live', () => {
-    const message = createMessage('assistant-1', 'conversation-1', 'inicial');
-    const untouched = createNode(createMessage('assistant-2', 'conversation-1', 'intocada'));
-    const nodes = [createNode(message), untouched];
-    const timeline = {
-      id: 'conversation-1',
-      title: 'Conversa',
-      threadedMessages: nodes,
-    };
-    useChatStore.setState({
-      timelinesByConversationId: { 'conversation-1': timeline },
-    });
-
-    act(() => {
-      useChatStore.getState().setConversationLiveMessageContent('conversation-1', 'assistant-1', 'novo frame');
-    });
-
-    const currentTimeline = useChatStore.getState().timelinesByConversationId['conversation-1'];
-    expect(currentTimeline).toBe(timeline);
-    expect(currentTimeline.threadedMessages).toBe(nodes);
-    expect(currentTimeline.threadedMessages[1]).toBe(untouched);
+  it('preserva identidades dos nós não alterados ao publicar frames live', async () => {
+    const one = canonicalTestItem('assistant-1', 'inicial', { state: 'streaming' });
+    const two = canonicalTestItem('assistant-2', 'intocada');
+    fixture.setItems([one, two]);
+    const presentation = fixture.presentation(); await presentation.open();
+    const before = presentation.nodes();
+    fixture.publish('surface', { ...one, segments: [{ segmentId: 'text', kind: 'text', text: 'novo frame' }] });
+    const current = presentation.nodes();
+    expect(current[0].itemId).toBe(before[0].itemId);
+    expect(current[0].message.content).toBe('novo frame');
+    expect(current[1]).toBe(before[1]);
+    expect(current[1].message).toBe(before[1].message);
   });
 
-  it('preserva o snapshot Zustand quando o commit não tem timeline nem estado live', () => {
+  it('ignora terminal de janela fechada sem criar timeline nem estado Zustand', async () => {
+    const item = canonicalTestItem('message', 'parcial', { state: 'streaming' });
+    fixture.setItems([item]);
+    const presentation = fixture.presentation(); await presentation.open();
+    await presentation.close();
     const before = useChatStore.getState();
-
-    act(() => {
-      useChatStore.getState().commitConversationLiveMessage('conversation-missing', 'message-missing', '');
-    });
-
+    fixture.publish('surface', { ...item, state: 'completed' });
+    expect(presentation.getMessage(item.itemId)).toBeUndefined();
+    expect(fixture.client.hasSurface('conversation', 'surface')).toBe(false);
     expect(useChatStore.getState()).toBe(before);
   });
 
-  it('consolida no terminal o nó transitório visível que ainda não entrou na timeline', () => {
-    const conversationId = 'conversation-1';
-    const sessionKey = 'tab-1:conversation-1';
-    const userNode = createNode(createMessage('user-1', conversationId, 'pergunta'));
-    userNode.message.role = 'user';
-    userNode.message.isStreaming = false;
-    const assistantNode = createNode(createMessage('assistant-1', conversationId, ''));
-    useChatStore.setState({
-      timelinesByConversationId: {
-        [conversationId]: {
-          id: conversationId,
-          title: 'Conversa',
-          threadedMessages: [userNode],
-        },
-      },
-      surfaceSessionsByKey: {
-        [sessionKey]: {
-          ...createEmptyChatSurfaceSession(conversationId, sessionKey),
-          visibleThreadedMessages: [userNode, assistantNode],
-          streamingMessageId: 'assistant-1',
-        },
-      },
-      liveMessageContentByConversationId: {
-        [conversationId]: { 'assistant-1': 'resposta terminal' },
-      },
-    });
-
-    act(() => {
-      useChatStore.getState().commitConversationLiveMessage(
-        conversationId,
-        'assistant-1',
-        'resposta terminal',
-      );
-    });
-
-    const state = useChatStore.getState();
-    expect(state.surfaceSessionsByKey[sessionKey].visibleThreadedMessages?.[1].message.content)
-      .toBe('resposta terminal');
-    expect(state.liveMessageContentByConversationId[conversationId]).toBeUndefined();
+  it('confirma a resposta visível sem exigir árvore nem sessão padrão no Zustand', async () => {
+    const user = canonicalTestItem('question', 'pergunta', { kind: 'message' });
+    const assistant = canonicalTestItem('response', '', { state: 'streaming', durability: 'live' });
+    fixture.setItems([user, assistant]);
+    const presentation = fixture.presentation(); await presentation.open();
+    const previous = presentation.nodes();
+    const before = useChatStore.getState();
+    fixture.publish('surface', { ...assistant, state: 'completed', durability: 'persisted',
+      segments: [{ segmentId: 'text', kind: 'text', text: 'resposta terminal' }] });
+    const current = presentation.nodes();
+    expect(current.map(node => node.itemId)).toEqual(['question', 'response']);
+    expect(current[0]).toBe(previous[0]);
+    expect(current[1].message.content).toBe('resposta terminal');
+    expect(current[1].message.isStreaming).toBe(false);
+    expect(useChatStore.getState()).toBe(before);
+    expect(before.sessionsByConversationId).toEqual({});
+    expect(before.timelinesByConversationId).toEqual({});
   });
 });

@@ -41,6 +41,7 @@ export type WorkspaceChatSendPlan = {
   content: string;
   mediaFiles?: MediaFile[];
   paramsOverride?: Partial<llm.ChatParams>;
+  onExecutionStarted?: (executionId: string) => void;
   afterSend?: () => Promise<void>;
   onSendRejected?: () => void;
   onSendError?: (error: unknown) => void;

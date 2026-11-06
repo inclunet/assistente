@@ -1421,6 +1421,25 @@ describe('ChatSessionView', () => {
     });
   });
 
+  it('encaminha saltos explícitos mesmo na borda para permitir a troca de modo canônico', async () => {
+    messageListMode.real = true;
+    const sessionKey = 'boundary-complete';
+    chatStoreState.surfaceSessionsByKey[sessionKey] = {
+      ...createEmptyChatSurfaceSession(conversationId, sessionKey),
+      visibleThreadedMessages: [new chat.MessageNode({ message: { id: 'only', role: 'user' }, children: [], level: 0, childCount: 0 })],
+      messageWindow: { scope: 'conversation', conversationId, totalCount: 1, startIndex: 0, endIndex: 0, hasBefore: false, hasAfter: false },
+    };
+    renderWithPanel(<ChatSessionView surface={surface({ sessionKey, surfaceId: 'boundary-complete' })} onSend={vi.fn().mockResolvedValue(undefined)} showShortcutsHelp={false} />);
+    const list = screen.getByRole('list');
+    fireEvent.keyDown(list, { key: 'Home', ctrlKey: true });
+    fireEvent.keyDown(list, { key: 'End', ctrlKey: true });
+    await waitFor(() => expect(document.activeElement).toHaveAttribute('data-message-id', 'only'));
+    expect(chatStoreState.loadBoundaryMessagesForConversation).toHaveBeenCalledWith(conversationId, sessionKey, 'start');
+    expect(chatStoreState.loadBoundaryMessagesForConversation).toHaveBeenCalledWith(conversationId, sessionKey, 'end');
+    expect(chatStoreState.loadOlderMessagesForConversation).not.toHaveBeenCalled();
+    expect(chatStoreState.loadNewerMessagesForConversation).not.toHaveBeenCalled();
+  });
+
   it('anuncia janela mesmo quando o carregamento demora a resolver', async () => {
     const sessionKey = 'slow-session';
     let surfaceSession = {

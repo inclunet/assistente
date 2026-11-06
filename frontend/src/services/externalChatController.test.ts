@@ -9,17 +9,11 @@ vi.mock('./chatEventController', () => ({
 
 const emptySession: ChatEventSession = {
   conversation: null,
-  activeToolCalls: [],
-  completedSegments: [],
 };
 
 const chatEventAdapter: ChatEventControllerAdapter = {
   getSession: () => emptySession,
   patchSession: vi.fn(),
-  patchConversation: vi.fn(),
-  updateMessage: vi.fn(),
-  commitMessage: vi.fn(),
-  updateReasoning: vi.fn(),
   setConversationLoading: vi.fn(),
 };
 

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"gorm.io/gorm"
 )
@@ -51,6 +52,45 @@ func (r *ChatTurnRepository) WritePartial(ctx context.Context, executionID, mess
 		}
 		return NewMessageRepository(tx).UpdateMessageContentAndReasoningWithContext(ctx, messageID, content, reasoning, message.PromptTokens, message.CompletionTokens, message.TotalTokens, message.Model)
 	})
+}
+
+// SaveIntermediate transfere a fonte de conteúdo para a mensagem intermediária
+// na mesma transação. O representante mantém sua identidade, sem a cópia inicial
+// do prefixo de continuação, mesmo se o processo terminar antes da próxima iteração.
+func (r *ChatTurnRepository) SaveIntermediate(ctx context.Context, executionID, responseID string, opts MessageOptions) (*ChatMessage, error) {
+	if opts.TurnID == nil || opts.Role != "assistant" || opts.ChatExecutionID == nil || *opts.ChatExecutionID != executionID {
+		return nil, ErrChatTurnInvalid
+	}
+	var message *ChatMessage
+	err := r.transaction(ctx, func(tx *gorm.DB) error {
+		turn, err := scopedChatTurn(ctx, tx, opts.ConversationID, *opts.TurnID)
+		if err != nil {
+			return err
+		}
+		if turn.ActiveExecutionID == nil || *turn.ActiveExecutionID != executionID || turn.ResponseMessageID == nil || *turn.ResponseMessageID != responseID {
+			return ErrChatTurnStale
+		}
+		var response ChatMessage
+		if err := tx.First(&response, "id = ?", responseID).Error; err != nil {
+			return err
+		}
+		message = &ChatMessage{ConversationID: opts.ConversationID, TurnID: opts.TurnID,
+			ChatExecutionID: opts.ChatExecutionID, ParentID: response.ParentID, Role: "assistant",
+			Content: opts.Content, Reasoning: opts.Reasoning, Model: opts.Model}
+		if err := CreateChatMessageInTransaction(tx, message); err != nil {
+			return err
+		}
+		if err := tx.Model(&ChatMessage{}).Where("id = ?", responseID).
+			Updates(map[string]any{"content": "", "reasoning": ""}).Error; err != nil {
+			return err
+		}
+		return ScopeByUser(ctx, tx.Model(&Conversation{}), "user_id").
+			Where("id = ?", opts.ConversationID).Update("updated_at", time.Now()).Error
+	})
+	if err != nil {
+		return nil, err
+	}
+	return message, nil
 }
 
 // EnsureResponse vincula a única resposta editável à execução ativa. Nunca

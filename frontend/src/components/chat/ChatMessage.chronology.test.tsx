@@ -112,14 +112,8 @@ const seedStore = ({
     surfaceSessionsByKey: {
       [surface.sessionKey]: {
         ...emptySurface,
-        streamingMessageId,
-        completedSegments,
-        activeToolCalls,
       },
     },
-    liveMessageContentByConversationId: liveContent === undefined
-      ? {}
-      : { [targetConversationId]: { [messageId]: liveContent } },
   });
 
   // Simula o frame já composto pelo backend, incluindo substituição explícita
@@ -173,7 +167,6 @@ describe('cronologia de ChatMessage', () => {
       sessionsByConversationId: {},
       timelinesByConversationId: {},
       surfaceSessionsByKey: {},
-      liveMessageContentByConversationId: {},
     });
   });
 
@@ -466,7 +459,6 @@ describe('cronologia de ChatMessage', () => {
             activeToolCalls: [],
           },
         },
-        liveMessageContentByConversationId: {},
       }));
     });
     rerender(

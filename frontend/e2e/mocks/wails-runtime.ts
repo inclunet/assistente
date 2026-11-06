@@ -894,7 +894,13 @@ export function buildWailsMockScript(): string {
     if (name === 'Close') { timelineWindows.delete(args[0]); return; }
     if (!window) throw new Error('Unknown mock timeline window');
     if (!['SetRetention', 'Navigate', 'Refresh'].includes(name)) throw new Error('Unimplemented mock timeline RPC: ' + name);
-    if (args[1].windowRevision !== String(window.revision) || (name !== 'Refresh' && args[1].epoch !== 'e2e-epoch')) throw new Error('Mock timeline checkpoint mismatch');
+    // Refresh aceita checkpoints desde o último snapshot, como acceptsSnapshotRevision
+    // no backend; Navigate/SetRetention continuam exigindo a revisão atual.
+    const requestedRevision = args[1].windowRevision;
+    const validRevision = name === 'Refresh'
+      ? /^[1-9][0-9]*$/.test(requestedRevision) && BigInt(requestedRevision) >= BigInt(window.baseline) && BigInt(requestedRevision) <= BigInt(window.revision)
+      : requestedRevision === String(window.revision) && args[1].epoch === 'e2e-epoch';
+    if (!validRevision) throw new Error('Mock timeline checkpoint mismatch');
     if (name === 'SetRetention') {
       window.retainedItemIds = args[1].itemIds;
       publishTimeline(window.conversationId, false);

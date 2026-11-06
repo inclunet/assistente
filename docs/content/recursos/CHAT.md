@@ -100,6 +100,15 @@ O aviso de configuração continua sendo o motivo apresentado para a falha.
 
 ## Retry e persistência
 
+**Continuar resposta** usa a conclusão salva da resposta selecionada e depende
+de a opção estar habilitada no perfil. Se a gravação falhou, copie o conteúdo
+recebido antes de sair: a continuação não usa uma versão antiga e incompleta do
+banco. Ao continuar várias vezes, o texto anterior aparece uma única vez, mesmo
+quando a nova etapa começa com uma ferramenta ou é cancelada durante sua execução.
+
+Ao excluir uma conversa, suas mensagens deixam de aparecer também nas superfícies
+que ainda estiverem abertas. Outras conversas continuam disponíveis.
+
 Repetir uma mensagem usa a pergunta raiz selecionada como âncora. O histórico e
 as políticas de contexto são carregados somente até essa pergunta; mensagens,
 respostas e resumo posteriores não entram no novo payload. Mídias da pergunta
@@ -122,6 +131,13 @@ resposta; **copie-o antes de fechar ou recarregar a conversa**, pois não há
 garantia de que tenha sido salvo. Um snapshot antigo do banco não substitui
 esse texto no encerramento com falha de gravação. Não há notificação de sucesso,
 TTS ou sumarização nesse caso.
+
+Se o aplicativo não conseguir registrar uma ferramenta no banco, a chamada
+não é executada e a resposta termina com erro de persistência. O conteúdo já
+recebido permanece disponível. Se a falha acontecer ao salvar o resultado, a
+ação pode já ter ocorrido: o app encerra o turno sem repetir a ferramenta ou
+continuar consultando o modelo. Isso também vale para registros de ferramentas
+nativas já executadas pelo provedor.
 
 ## Limites e truncamentos
 
@@ -303,3 +319,12 @@ Quando uma resposta permanece visível após falha de gravação, **Copiar mensa
 e **Copiar como Markdown** também podem preservar seu texto. A cópia vale para a
 versão exibida: se a resposta mudar ou a janela for fechada durante a operação,
 selecione novamente a mensagem antes de tentar copiar.
+
+Ao limpar uma conversa, as janelas abertas atualizam o histórico e voltam a
+acompanhar as próximas mensagens. Cópias de recuperação daquela conversa também
+são liberadas pela limpeza confirmada. Se a liberação falhar, a cópia permanece
+preservada. Outras conversas não são afetadas.
+
+O diagnóstico de falha continua disponível no aviso do chat, além do anúncio,
+sem substituir o conteúdo parcial recebido. A opção de continuar respeita o
+perfil da aba ou painel em uso.

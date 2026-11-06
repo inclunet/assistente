@@ -1,23 +1,9 @@
 import { chatGPTErrorKey } from '../lib/chatgptErrors';
 import { logger } from '../utils/logger';
 import i18next from 'i18next';
-import { chat } from '../../wailsjs/go/models';
 import { type ToolCallStatus, type ToolOrigin } from '../types/chat';
 import type { MediaFile } from './mediaService';
 import { announce } from '../hooks/useAnnouncer';
-import {
-  finalizeStreamingNode,
-  flattenThreadedMessages,
-  getMessageTurnSegments,
-  isContentRepresentedBySegments,
-  hasMessageId,
-  markMessageStreamingInTree,
-  updateMessageSegmentsInTree,
-  type ChatTreeConversation,
-  type Message,
-  type MessageNode,
-  type TurnSegment,
-} from '../lib/chatMessageTree';
 import { stripMarkdown } from '../lib/stripMarkdown';
 import {
   announceChatBackgroundResponseDone,
@@ -30,9 +16,8 @@ import { announceWithOrigin } from './voiceAccessibility/announcerBroker';
 import { formatToolPresentation, presentTool } from '../lib/toolPresentation';
 import { handleChatSpeak, type ChatSpeakEvent } from './chatSpeak';
 import { createChatProgressAnnouncer } from './chatProgressAnnouncer';
-import type { ChatSurfaceOrigin, MessageWindowState } from './chatSessionRegistry';
+import type { ChatSurfaceOrigin } from './chatSessionRegistry';
 import { clearChatTurnRoutes, createChatTurnEventRouter } from './chatEventHub';
-import { invalidateToolInvocationDetails } from './toolInvocationDetailsCache';
 import { translateErrorMarkers } from '../lib/providerErrorMessage';
 
 const translateBackendChatError = (message: string) => {
@@ -181,7 +166,6 @@ interface ChatDoneEvent {
   responseBytes?: number;
   errorMessage?: string;
   surfaceOrigin?: ChatSurfaceOrigin;
-  turnPatch?: ChatTurnPatch;
 }
 
 interface ChatErrorEvent {
@@ -208,57 +192,24 @@ function terminalToolStatus(event: ChatToolEndEvent): 'done' | 'error' | 'cancel
   return 'error';
 }
 
-interface ChatTurnPatch {
-  itemId: string;
-  message: {
-    id: string;
-    conversationId: string;
-    parentId?: string;
-    turnId: string;
-    content: string;
-    reasoning?: string;
-    promptTokens?: number;
-    completionTokens?: number;
-    totalTokens?: number;
-    cacheReadTokens?: number;
-    cacheWriteTokens?: number;
-    cacheMissTokens?: number;
-    model?: string;
-    createdAt: string;
-    timestamp: number;
-    turnSegments?: TurnSegment[];
-  };
-}
-
 export interface ChatEventSession {
-  conversation: ChatTreeConversation | null;
-  activeToolCalls: ToolCallStatus[];
-  completedSegments: TurnSegment[];
+  conversation: { id: string; title: string } | null;
   sendFailureMessage?: string | null;
   sendFailureAnnounced?: boolean;
   sendFailureRetryable?: boolean;
   sendFailureRetryContent?: string | null;
   sendFailureRetryMediaFiles?: MediaFile[];
-  messageWindow?: MessageWindowState;
   surfaceOrigin?: ChatSurfaceOrigin;
 }
 
 export interface ChatEventControllerAdapter {
   getSession: (conversationId: string, sessionKey?: string) => ChatEventSession;
-  patchSession: (conversationId: string, patch: Partial<ChatEventSession> & Record<string, unknown>) => void;
-  patchConversation: (
-    conversationId: string,
-    updater: (conversation: ChatTreeConversation) => ChatTreeConversation,
-  ) => void;
-  updateMessage: (conversationId: string, messageId: string, content: string) => void;
-  commitMessage: (conversationId: string, messageId: string, content: string) => void;
-  updateReasoning: (conversationId: string, messageId: string, reasoning: string) => void;
+  patchSession: (conversationId: string, patch: Partial<Omit<ChatEventSession, 'conversation'>> & Record<string, unknown>) => void;
   setConversationLoading: (conversationId: string, isLoading: boolean, sessionKey?: string) => void;
 }
 
 interface ChatEventControllerOptions {
   conversationId: string;
-  continuationRequested?: boolean;
   initialUserContent?: string;
   initialMediaFiles?: MediaFile[];
   external?: {
@@ -300,7 +251,6 @@ export function stopAllChatEventControllers() {
 
 export function startChatEventController({
   conversationId,
-  continuationRequested = false,
   initialUserContent = '',
   initialMediaFiles,
   external,
@@ -308,41 +258,27 @@ export function startChatEventController({
   adapter,
 }: ChatEventControllerOptions): ChatEventControllerHandle {
   const conversationIdStr = conversationId.toString();
-  let currentAssistantNodeId: string | null = null;
   let cleanupExecuted = false;
   let streamingAnnounced = false;
-  let assistantNodeCreated = false;
-  // Turnos agênticos que terminam sem texto não têm nada para o backend falar
-  // via chat:speak; o leitor de tela precisa de um aviso de conclusão próprio.
   let turnHadAssistantText = false;
-  let currentTurnId: string | null = null;
-  let provisionalThinkingTurnId: string | null = null;
-  let provisionalThinkingNodeId: string | null = null;
-  let streamedContent = '';
-  let pendingStreamDiagnostic: string | null = null;
-  let resumedTextAlreadyShown = 0;
-  let presentationInitialized = false;
-  let representedBaseContent = '';
-  let continuationBaseContent = '';
   let streamSequence = -1;
   let streamInitialized = false;
-  let pendingVisualContent: string | null = null;
-  let animationFrameId: number | null = null;
-  let streamingCommitted = false;
+  let assistantMessageId: string | null = null;
+  let currentTurnId: string | null = null;
+  // Identidade necessária aos anúncios; conteúdo visual pertence à timeline.
+  const announcementTools = new Map<string, ToolCallStatus>();
   const announcedCancellationCallIds = new Set<string>();
   let resolveDone: () => void = () => {};
   const done = new Promise<void>((resolve) => {
     resolveDone = resolve;
   });
   const getCurrentSession = () => adapter.getSession(conversationId, origin?.sessionKey);
-  const patchCurrentSession = (patch: Partial<ChatEventSession> & Record<string, unknown>) => {
+  const patchCurrentSession = (patch: Parameters<ChatEventControllerAdapter['patchSession']>[1]) => {
     adapter.patchSession(conversationId, origin ? { ...patch, surfaceOrigin: origin } : patch);
   };
 
   adapter.setConversationLoading(conversationId, true, origin?.sessionKey);
   patchCurrentSession({
-    completedSegments: [],
-    activeToolCalls: [],
     isLoading: true,
     sendFailureMessage: null,
     sendFailureAnnounced: false,
@@ -384,75 +320,8 @@ export function startChatEventController({
     },
   });
 
-  const ensureAssistantNode = (messageId?: string | null) => {
-    const backendMessageId = messageId && messageId !== '' ? messageId : null;
-    if (!backendMessageId) return false;
-    const session = getCurrentSession();
-    if (!session.conversation) return false;
-    currentAssistantNodeId = backendMessageId;
-    if (assistantNodeCreated) return true;
-    if (hasMessageId(session.conversation.threadedMessages, backendMessageId)) {
-      assistantNodeCreated = true;
-      adapter.patchConversation(
-        conversationId,
-        (conversation) => ({
-          ...conversation,
-          threadedMessages: markMessageStreamingInTree(conversation.threadedMessages, backendMessageId, currentTurnId),
-        }),
-      );
-      patchCurrentSession({
-        streamingMessageId: backendMessageId,
-        lastInterruptedMessageId: null,
-      });
-      return true;
-    }
-    assistantNodeCreated = true;
-    const assistantMsg = new chat.EnrichedMessage({
-      id: backendMessageId,
-      role: 'assistant',
-      content: '',
-      timestamp: Date.now(),
-      conversationId,
-      turnId: currentTurnId ?? undefined,
-      isStreaming: true,
-      internal: false,
-      createdAt: new Date().toISOString(),
-    }) as Message;
-    const assistantNode = new chat.MessageNode({ message: assistantMsg, children: [], level: 0, childCount: 0 });
-    patchCurrentSession({
-      conversation: {
-        ...session.conversation,
-        threadedMessages: [...session.conversation.threadedMessages, assistantNode as MessageNode],
-      },
-      appendVisibleMessages: true,
-      streamingMessageId: backendMessageId,
-      lastInterruptedMessageId: null,
-    });
-    return true;
-  };
-
-  const flushVisualStreamingUpdate = () => {
-    if (animationFrameId !== null) {
-      cancelAnimationFrame(animationFrameId);
-      animationFrameId = null;
-    }
-    const content = pendingVisualContent;
-    pendingVisualContent = null;
-    if (content === null || cleanupExecuted || !currentAssistantNodeId) return;
-    adapter.updateMessage(conversationId, currentAssistantNodeId, content.slice(resumedTextAlreadyShown));
-  };
-
-  const commitStreamingContent = () => {
-    if (streamingCommitted || !currentAssistantNodeId) return;
-    const finalContent = pendingVisualContent ?? streamedContent;
-    flushVisualStreamingUpdate();
-    adapter.commitMessage(conversationId, currentAssistantNodeId, finalContent);
-    streamingCommitted = true;
-  };
-
   const cleanup = () => {
     if (cleanupExecuted) return;
-    commitStreamingContent();
     cleanupExecuted = true;
     unsubMessagesReady();
     unsubMediaProcessing();
@@ -466,155 +335,23 @@ export function startChatEventController({
     unsubError();
     unsubSpeak();
     progressAnnouncer.dispose();
+    announcementTools.clear();
     turnEvents.unregister();
     activeControllers.delete(conversationIdStr);
     adapter.setConversationLoading(conversationId, false, origin?.sessionKey);
     patchCurrentSession({
       isLoading: false,
-      streamingMessageId: null,
-      streamingReasoning: null,
-      isThinking: false,
-      activeToolCalls: [],
-      completedSegments: [],
     });
     resolveDone();
   };
 
-  const finalizeStreaming = (finalId?: string | null, finalTurnId: string | null = currentTurnId) => {
-    if (finalId && !currentAssistantNodeId) {
-      ensureAssistantNode(finalId);
-    }
-    if (!currentAssistantNodeId) return;
-    commitStreamingContent();
-    const assistantNodeId = currentAssistantNodeId;
-    adapter.patchConversation(
-      conversationId,
-      (conversation) => finalizeStreamingNode(conversation, assistantNodeId, finalId, finalTurnId),
-    );
-  };
-
-  const applyTurnPatch = (patch?: ChatTurnPatch) => {
-    if (!patch?.message || patch.message.conversationId !== conversationId) return;
-    if (currentTurnId && patch.message.turnId !== currentTurnId) return;
-    const canonicalSegments = patch.message.turnSegments ?? [];
-    const persistedCalls = new Set(canonicalSegments.flatMap(segment =>
-      (segment.toolInvocations ?? []).map(invocation => invocation.callId)));
-    // Falhas anteriores ao registro não existem no snapshot do ledger. São
-    // diagnósticos desta apresentação, nunca execuções persistidas ou contexto
-    // retomável. O patch continua autoritativo para texto e chamadas registradas.
-    const unpersistedFailures = Array.from(new Map(collectReceivedSegments('')
-      .flatMap(segment => segment.toolCalls ?? [])
-      .filter(call => call.status === 'error'
-        && call.errorCode === 'invocation_ledger_unavailable' && !persistedCalls.has(call.id))
-      .map(call => [call.id, call])).values());
-    invalidateToolInvocationDetails(
-      (patch.message.turnSegments ?? [])
-        .flatMap((segment) => segment.toolInvocations ?? [])
-        .map((invocation) => invocation.invocationId ?? '')
-        .filter(Boolean),
-    );
-    const persistedMessage = new chat.EnrichedMessage({
-      ...patch.message,
-      role: 'assistant',
-      turnId: patch.message.turnId,
-      isStreaming: false,
-      internal: false,
-      pinned: false,
-    }) as Message;
-    const persistedNode = new chat.MessageNode({
-      message: persistedMessage,
-      children: [],
-      level: 0,
-      childCount: 0,
-    }) as MessageNode;
-    adapter.patchConversation(conversationId, (conversation) => {
-      const matchingNodes = conversation.threadedMessages.filter((node) => {
-        const sameTurn = node.message.role === 'assistant' && node.message.turnId === patch.message.turnId;
-        const sameMessage = node.message.id === patch.message.id;
-        return sameTurn || sameMessage;
-      });
-      const mergedChildren = Array.from(new Map(
-        matchingNodes.flatMap((node) => node.children ?? [])
-          .map((child) => [child.message.id, child]),
-      ).values());
-      const unloadedChildren = matchingNodes.reduce(
-        (total, node) => total + Math.max(0, (node.childCount ?? 0) - (node.children?.length ?? 0)),
-        0,
-      );
-      let replaced = false;
-      const threadedMessages = conversation.threadedMessages.flatMap((node) => {
-        const sameTurn = node.message.role === 'assistant' && node.message.turnId === patch.message.turnId;
-        const sameMessage = node.message.id === patch.message.id;
-        if (!sameTurn && !sameMessage) return [node];
-        if (replaced) return [];
-        replaced = true;
-        return [new chat.MessageNode({
-          message: persistedMessage,
-          children: mergedChildren,
-          level: node.level,
-          childCount: mergedChildren.length + unloadedChildren,
-          originalIndex: node.originalIndex,
-        }) as MessageNode];
-      });
-      const patchedNodes = replaced ? threadedMessages : [...threadedMessages, persistedNode];
-      return {
-        ...conversation,
-        threadedMessages: unpersistedFailures.length
-          ? updateMessageSegmentsInTree(patchedNodes, patch.message.id, [
-            ...(canonicalSegments.length ? canonicalSegments : patch.message.content
-              ? [{ type: 'text' as const, content: patch.message.content }] : []),
-            { type: 'tool_calls', diagnostic: true, toolCalls: unpersistedFailures },
-          ], patch.message.content)
-          : patchedNodes,
-      };
-    });
-    currentAssistantNodeId = patch.message.id;
-    assistantNodeCreated = true;
-    if (animationFrameId !== null) {
-      cancelAnimationFrame(animationFrameId);
-      animationFrameId = null;
-    }
-    pendingVisualContent = null;
-    streamedContent = patch.message.content;
-    streamInitialized = true;
-    streamingCommitted = false;
-    turnHadAssistantText = turnHadAssistantText
-      || patch.message.content.trim().length > 0
-      || (patch.message.turnSegments ?? []).some(
-        (segment) => segment.type === 'text' && Boolean(segment.content?.trim()),
-      );
-    patchCurrentSession({ completedSegments: [], streamingMessageId: patch.message.id });
-  };
-
-  const updateStreamingMessage = (content: string) => {
-    if (!currentAssistantNodeId) return;
-    pendingVisualContent = content;
-    streamingCommitted = false;
-    if (animationFrameId !== null) return;
-    animationFrameId = requestAnimationFrame(() => {
-      animationFrameId = null;
-      const nextContent = pendingVisualContent;
-      pendingVisualContent = null;
-      if (nextContent === null || cleanupExecuted || !currentAssistantNodeId) return;
-      adapter.updateMessage(conversationId, currentAssistantNodeId, nextContent.slice(resumedTextAlreadyShown));
-    });
-  };
-
-  const getCurrentAssistantContent = () => {
-    if (!currentAssistantNodeId) return '';
-    if (pendingVisualContent !== null) return pendingVisualContent;
-    if (streamInitialized || presentationInitialized) return streamedContent;
-    const messages = flattenThreadedMessages(getCurrentSession().conversation?.threadedMessages);
-    return String(messages.find(m => m.id === currentAssistantNodeId)?.content || '');
-  };
-
-  const updateAssistantWithError = (message: string) => {
-    const currentContent = getCurrentAssistantContent();
-    const hasContent = currentContent.trim().length > 0;
-    const formattedError = i18next.t('chat.errorPrefix', { message });
-    updateStreamingMessage(
-      hasContent ? `${currentContent}\n\n${formattedError}` : formattedError,
-    );
+  const reportError = (message: string, eventOrigin?: ChatSurfaceOrigin) => {
+    const translated = translateBackendChatError(message.trim());
+    announceWithOrigin({ message: translated,
+      origin: getChatConversationVoiceOrigin(conversationId, undefined, eventOrigin),
+      eventType: 'error', announcePriority: 'assertive' });
+    playChatErrorSoundIfActive(conversationId, eventOrigin);
+    patchCurrentSession({ sendFailureMessage: translated, sendFailureAnnounced: true, sendFailureRetryable: false });
   };
 
   const existingCleanup = activeControllers.get(conversationIdStr)?.cleanup;
@@ -630,7 +367,6 @@ export function startChatEventController({
   unsubError = turnEvents.on('chat:error', (event: ChatErrorEvent) => {
     if (event.conversationId !== conversationId && event.conversationId !== '') return;
     if (!isActive()) return;
-    finalizeStreaming();
     announce(translateBackendChatError(event.error));
     playChatErrorSoundIfActive(conversationId, origin);
     cleanup();
@@ -664,52 +400,7 @@ export function startChatEventController({
     if (event.conversationId !== conversationId) return;
     if (!isActive()) return;
     if (!event.userMessageId) return;
-    const nextTurnId = event.turnId || event.userMessageId.toString();
-    if (
-      provisionalThinkingTurnId
-      && provisionalThinkingTurnId !== nextTurnId
-    ) {
-      if (currentAssistantNodeId && provisionalThinkingNodeId === currentAssistantNodeId) {
-        const staleAssistantId = currentAssistantNodeId;
-        adapter.patchConversation(conversationId, (conversation) => ({
-          ...conversation,
-          threadedMessages: conversation.threadedMessages.filter(
-            (node) => node.message.id !== staleAssistantId,
-          ),
-        }));
-      }
-      currentAssistantNodeId = null;
-      assistantNodeCreated = false;
-      streamedContent = '';
-      streamInitialized = false;
-      pendingVisualContent = null;
-      patchCurrentSession({ streamingMessageId: null, streamingReasoning: null, isThinking: false });
-    }
-    provisionalThinkingTurnId = null;
-    provisionalThinkingNodeId = null;
-    currentTurnId = nextTurnId;
-    if (hasMessageId(getCurrentSession().conversation?.threadedMessages, String(event.userMessageId))) return;
-    const userMsg = new chat.EnrichedMessage({
-      id: event.userMessageId.toString(),
-      role: 'user',
-      content: event.userContent || external?.text || initialUserContent,
-      timestamp: Date.now(),
-      conversationId: event.conversationId,
-      isStreaming: false,
-      internal: false,
-      createdAt: new Date().toISOString(),
-      source: external?.channel,
-    }) as Message;
-    const userNode = new chat.MessageNode({ message: userMsg, children: [], level: 0, childCount: 0 });
-    const session = getCurrentSession();
-    if (!session.conversation) return;
-    patchCurrentSession({
-      conversation: {
-        ...session.conversation,
-        threadedMessages: [...session.conversation.threadedMessages, userNode as MessageNode],
-      },
-      appendVisibleMessages: true,
-    });
+    assistantMessageId = null;
     if (external && event.userContent) {
       announce(i18next.t('chat.announce.externalMessage', {
         from: external.from,
@@ -753,141 +444,40 @@ export function startChatEventController({
   });
 
   unsubStream = turnEvents.on('chat:stream', (event: ChatStreamEvent) => {
-    if (event.conversationId !== conversationId) return;
-    if (!isActive()) return;
-
-    if (event.diagnostic && event.delta) {
-      currentTurnId = event.turnId || currentTurnId;
-      ensureAssistantNode(event.messageId);
-      pendingStreamDiagnostic = event.delta;
-      if (!streamInitialized && presentationInitialized) {
-        streamedContent = representedBaseContent;
-        resumedTextAlreadyShown = isContentRepresentedBySegments(getCurrentSession().completedSegments, streamedContent)
-          ? streamedContent.length : 0;
-        updateStreamingMessage(streamedContent);
-      }
-      return;
-    }
-    if (event.done && pendingStreamDiagnostic !== null) return;
-
+    if (event.conversationId !== conversationId || !isActive()) return;
+    assistantMessageId = event.messageId || assistantMessageId;
+    if (event.diagnostic) return;
     if (event.delta && !event.done && !event.error) {
-      if (
-        !Number.isSafeInteger(event.sequence)
-        || (event.reset
-          ? event.sequence !== 0
-          : !streamInitialized || event.sequence !== streamSequence + 1)
-      ) {
-        return;
-      }
-      currentTurnId = event.turnId || currentTurnId;
-      const backendAssistantId = event.messageId && event.messageId !== '' ? event.messageId : null;
-      if (!ensureAssistantNode(backendAssistantId) && !currentAssistantNodeId) return;
-      if (event.reset) {
-        resumedTextAlreadyShown = 0;
-        initializePresentation(event.baseContent ?? '');
-        if (event.baseContent && representedBaseContent.startsWith(event.baseContent)) {
-          resumedTextAlreadyShown = event.baseContent.length;
-        }
-        streamedContent = event.baseContent ?? '';
-        streamSequence = -1;
-        streamInitialized = true;
-        streamingCommitted = false;
-      }
+      if (!Number.isSafeInteger(event.sequence) || (event.reset
+        ? event.sequence !== 0 : !streamInitialized || event.sequence !== streamSequence + 1)) return;
+      streamInitialized = true;
       streamSequence = event.sequence;
-      streamedContent += event.delta;
-      if (streamedContent.trim()) turnHadAssistantText = true;
+      if (event.delta.trim() || event.baseContent?.trim()) turnHadAssistantText = true;
       if (!streamingAnnounced) {
         streamingAnnounced = true;
         announceForActiveChatConversation(conversationId, i18next.t('chat.announce.assistantResponding'), 'polite', getEventOrigin(event));
       }
-      updateStreamingMessage(streamedContent);
     }
-
     if (event.error) {
-      currentTurnId = event.turnId || currentTurnId;
-      const backendAssistantId = event.messageId && event.messageId !== '' ? event.messageId : null;
-      const hasAssistantNode = ensureAssistantNode(backendAssistantId) || currentAssistantNodeId !== null;
-      const errorMessage = translateBackendChatError(String(event.error || '').trim());
-      preserveReceivedSegments(i18next.t('chat.errorPrefix', { message: errorMessage }));
-      const eventOrigin = getEventOrigin(event);
-      announceWithOrigin({
-        message: errorMessage,
-        origin: getChatConversationVoiceOrigin(conversationId, undefined, eventOrigin),
-        eventType: 'error',
-        announcePriority: 'assertive',
-      });
-      playChatErrorSoundIfActive(conversationId, eventOrigin);
-      if (hasAssistantNode) {
-        updateAssistantWithError(errorMessage);
-      } else {
-        patchCurrentSession({ sendFailureMessage: errorMessage, sendFailureAnnounced: true, sendFailureRetryable: false });
-      }
-      const interruptedId = backendAssistantId || currentAssistantNodeId;
-      patchCurrentSession({ lastInterruptedMessageId: interruptedId });
-      finalizeStreaming();
+      reportError(event.error, getEventOrigin(event));
       cleanup();
-      return;
-    }
-
-    if (event.done) {
-      currentTurnId = event.turnId || currentTurnId;
-      const backendAssistantId = event.messageId && event.messageId !== '' ? event.messageId : null;
-      ensureAssistantNode(backendAssistantId);
-      finalizeStreaming(backendAssistantId, event.turnId || currentTurnId);
-
-      const flatMessages = flattenThreadedMessages(getCurrentSession().conversation?.threadedMessages);
-      const finalMessage = flatMessages.find(m => m.id === (backendAssistantId || currentAssistantNodeId));
-      if (finalMessage?.content) playChatReceiveSoundIfActive(conversationId, getEventOrigin(event));
+    } else if (event.done && turnHadAssistantText) {
+      playChatReceiveSoundIfActive(conversationId, getEventOrigin(event));
     }
   });
 
   unsubThinking = turnEvents.on('chat:thinking', (event: ChatThinkingEvent) => {
-    if (event.conversationId !== conversationId) return;
-    if (!isActive()) return;
-    let existingProvisionalNode = false;
-    if (!currentTurnId && event.turnId) {
-      provisionalThinkingTurnId = event.turnId;
-      existingProvisionalNode = hasMessageId(
-        getCurrentSession().conversation?.threadedMessages,
-        String(event.assistantMessageId || ''),
-      );
-      if (!existingProvisionalNode && event.assistantMessageId) {
-        provisionalThinkingNodeId = event.assistantMessageId;
-      }
-    }
-    if (!existingProvisionalNode) ensureAssistantNode(event.assistantMessageId);
-    if (event.started) {
-      patchCurrentSession({
-        isThinking: true,
-        streamingReasoning: event.content || '',
-      });
-      announceForActiveChatConversation(conversationId, i18next.t('chat.announce.modelThinking'), 'polite', getEventOrigin(event));
-    } else if (event.done) {
-      patchCurrentSession({ isThinking: false, streamingReasoning: '' });
-      if (currentAssistantNodeId) {
-        adapter.updateReasoning(conversationId, currentAssistantNodeId, event.content || '');
-      }
-    } else {
-      patchCurrentSession({ streamingReasoning: event.content || '' });
-    }
+    if (event.conversationId !== conversationId || !isActive()) return;
+    assistantMessageId = event.assistantMessageId || assistantMessageId;
+    if (event.started) announceForActiveChatConversation(conversationId, i18next.t('chat.announce.modelThinking'), 'polite', getEventOrigin(event));
   });
 
   unsubToolStart = turnEvents.on('chat:tool_start', (event: ChatToolStartEvent) => {
     if (event.conversationId !== conversationId) return;
     if (!isActive()) return;
-    currentTurnId = event.turnId || currentTurnId;
-    ensureAssistantNode(event.assistantMessageId);
-    const session = getCurrentSession();
-    const existing = session.activeToolCalls.findIndex((tc) => tc.callId === event.callId);
-    patchCurrentSession({
-      activeToolCalls: existing >= 0
-        ? session.activeToolCalls.map((tc) =>
-          tc.callId === event.callId
-            ? { ...tc, name: event.name, callId: event.callId, args: event.args ?? tc.args, status: 'running' as const, summary: event.summary, errorCode: undefined, origin: event.origin ?? tc.origin, serverLabel: event.serverLabel ?? tc.serverLabel }
-            : tc
-        )
-        : [...session.activeToolCalls, { name: event.name, callId: event.callId, args: event.args, status: 'running' as const, summary: event.summary, errorCode: undefined, origin: event.origin, serverLabel: event.serverLabel }],
-    });
+    assistantMessageId = event.assistantMessageId || assistantMessageId;
+    announcementTools.set(event.callId, { name: event.name, callId: event.callId, args: event.args,
+      status: 'running', summary: event.summary, origin: event.origin, serverLabel: event.serverLabel });
     if (!external) {
       progressAnnouncer.toolStarted({
         callId: event.callId,
@@ -910,18 +500,17 @@ export function startChatEventController({
   unsubToolEnd = turnEvents.on('chat:tool_end', (event: ChatToolEndEvent) => {
     if (event.conversationId !== conversationId) return;
     if (!isActive()) return;
-    currentTurnId = event.turnId || currentTurnId;
     const terminalStatus = terminalToolStatus(event);
     const cancelled = terminalStatus === 'cancelled';
-    ensureAssistantNode(event.assistantMessageId);
-    const session = getCurrentSession();
-    const activeToolCalls = session.activeToolCalls.map((tc) =>
-        tc.callId === event.callId
-          ? { ...tc, name: event.name ?? tc.name, status: terminalStatus, summary: event.summary, errorCode: event.errorCode, origin: event.origin ?? tc.origin, serverLabel: event.origin === 'builtin' ? undefined : event.serverLabel ?? tc.serverLabel }
-          : tc
-      );
-    patchCurrentSession({ activeToolCalls });
-    const finishedCall = activeToolCalls.find((tool) => tool.callId === event.callId);
+    const startedCall = announcementTools.get(event.callId);
+    const finishedCall: ToolCallStatus = {
+      ...startedCall, callId: event.callId, name: event.name ?? startedCall?.name ?? '',
+      status: terminalStatus, origin: event.origin ?? startedCall?.origin,
+      serverLabel: event.origin === 'builtin' ? undefined : event.serverLabel ?? startedCall?.serverLabel,
+    };
+    announcementTools.set(event.callId, finishedCall);
+    // Falha/retry pode chegar depois de tool_end sem repetir a origem.
+    // A identidade permanece até o fim do segmento para os anúncios.
     if (!external) progressAnnouncer.toolEnded(event.callId, terminalStatus === 'done' ? 'ok' : 'error', finishedCall);
     if (!external && !cancelled) return;
     if (cancelled) {
@@ -960,17 +549,9 @@ export function startChatEventController({
   unsubToolFailure = turnEvents.on('chat:tool_failure', (event: ChatToolFailureEvent) => {
     if (event.conversationId !== conversationId) return;
     if (!isActive()) return;
-    currentTurnId = event.turnId || currentTurnId;
     if (!external) progressAnnouncer.toolFailed(event.callId, event.willRetry);
-    ensureAssistantNode(event.assistantMessageId);
-    const session = getCurrentSession();
-    const failedCall = session.activeToolCalls.find((tool) => tool.callId === event.callId);
+    const failedCall = announcementTools.get(event.callId);
     if (event.errorKind === 'cancelled') {
-      patchCurrentSession({
-        activeToolCalls: session.activeToolCalls.map((tool) =>
-          tool.callId === event.callId ? { ...tool, status: 'cancelled' as const } : tool
-        ),
-      });
       if (!announcedCancellationCallIds.has(event.callId)) {
         const cancelledLabel = formatToolPresentation(
           presentTool(event.name ?? failedCall?.name ?? '', event.origin ?? failedCall?.origin, failedCall?.serverLabel, failedCall?.args),
@@ -1003,288 +584,35 @@ export function startChatEventController({
     playChatErrorSoundIfActive(conversationId, getEventOrigin(event));
   });
 
-  const getResumableSegments = (message?: Message): TurnSegment[] => {
-    if (!message) return [];
-    const segments = (getMessageTurnSegments(message) ?? []).filter(segment => !segment.diagnostic);
-    if (segments.length || message._turnSegments !== undefined) return segments;
-    return message.content ? [{ type: 'text', content: message.content }] : [];
-  };
-
-  const initializePresentation = (baseContent: string) => {
-    if (presentationInitialized) return;
-    continuationBaseContent = baseContent;
-
-    const existing = flattenThreadedMessages(getCurrentSession().conversation?.threadedMessages)
-      .find(message => message.id === currentAssistantNodeId);
-    const knownSegments = getResumableSegments(existing);
-    if (baseContent) {
-      const seed: TurnSegment[] = knownSegments.length
-        ? [...knownSegments] : [{ type: 'text', content: baseContent }];
-      patchCurrentSession({ completedSegments: seed });
-      const baseRepresented = isContentRepresentedBySegments(seed, baseContent);
-      representedBaseContent = baseRepresented ? baseContent : '';
-      resumedTextAlreadyShown = baseRepresented ? baseContent.length : 0;
-    }
-    // A new attempt owns its presentation, including when its final patch
-    // cannot be read. Capture continuation history before clearing it.
-    if (currentAssistantNodeId) {
-      const messageId = currentAssistantNodeId;
-      adapter.patchConversation(conversationId, conversation => ({
-        ...conversation,
-        threadedMessages: updateMessageSegmentsInTree(conversation.threadedMessages, messageId, []),
-      }));
-    }
-    presentationInitialized = true;
-  };
-
-  const collectReceivedSegments = (content: string): TurnSegment[] => {
-    const session = getCurrentSession();
-    if (!presentationInitialized && session.activeToolCalls.length === 0 && session.completedSegments.length === 0) {
-      const existing = flattenThreadedMessages(session.conversation?.threadedMessages)
-        .find(message => message.id === currentAssistantNodeId);
-      const knownSegments = getResumableSegments(existing);
-      if (knownSegments.length) return knownSegments;
-    }
-    const newSegments: TurnSegment[] = [...session.completedSegments];
-    const receivedText = content.slice(resumedTextAlreadyShown);
-    if (receivedText) {
-      const last = newSegments[newSegments.length - 1];
-      const hasUnrepresentedContinuationBase = !!continuationBaseContent && !representedBaseContent;
-      if (last?.type === 'text' && !hasUnrepresentedContinuationBase) {
-        newSegments[newSegments.length - 1] = { ...last, content: (last.content ?? '') + receivedText };
-      } else {
-        newSegments.push({ type: 'text', content: receivedText });
-      }
-    }
-    if (session.activeToolCalls.length > 0) {
-      newSegments.push({
-        type: 'tool_calls',
-        toolCalls: session.activeToolCalls.map(tc => ({
-          id: tc.callId,
-          type: 'function',
-          function: { name: tc.name, arguments: tc.args || '' },
-          result: tc.summary,
-          errorCode: tc.errorCode,
-          origin: tc.origin,
-          serverLabel: tc.serverLabel,
-          status: tc.status,
-        })),
-      });
-    }
-    return newSegments;
-  };
-
-  const preserveReceivedSegments = (diagnostic?: string) => {
-    if (!currentAssistantNodeId) return;
-    if (!presentationInitialized && (continuationRequested || getCurrentSession().activeToolCalls.length > 0)) {
-      if (continuationRequested) {
-        const existing = flattenThreadedMessages(getCurrentSession().conversation?.threadedMessages)
-          .find(message => message.id === currentAssistantNodeId);
-        const knownSegments = getResumableSegments(existing);
-        const lastTextIndex = knownSegments.map(segment => segment.type).lastIndexOf('text');
-        // Canonical scalar may aggregate several text fragments. Keep its full
-        // value independently of the literal chronology and UI diagnostics.
-        const conclusion = existing?._turnSegments !== undefined
-          ? existing._resumableContent ?? knownSegments[lastTextIndex]?.content ?? ''
-          : existing?.content ?? '';
-        patchCurrentSession({ completedSegments: knownSegments });
-        // Retain the displayed conclusion without appending it a second time.
-        resumedTextAlreadyShown = conclusion.length;
-        updateStreamingMessage(conclusion);
-      } else {
-        updateStreamingMessage('');
-      }
-    }
-    if (!presentationInitialized && !continuationRequested && getCurrentSession().activeToolCalls.length === 0) {
-      const existing = flattenThreadedMessages(getCurrentSession().conversation?.threadedMessages)
-        .find(message => message.id === currentAssistantNodeId);
-      if (existing?._resumableContent !== undefined) updateStreamingMessage(existing._resumableContent);
-    }
-    const messageId = currentAssistantNodeId;
-    const resumableContent = getCurrentAssistantContent();
-    const segments = collectReceivedSegments(resumableContent);
-    if (diagnostic) segments.push({ type: 'text', content: diagnostic, diagnostic: true });
-    adapter.patchConversation(conversationId, conversation => ({
-      ...conversation,
-      threadedMessages: updateMessageSegmentsInTree(conversation.threadedMessages, messageId, segments, resumableContent),
-    }));
-  };
-
-  const preservePatchedDiagnostic = (diagnostic: string) => {
-    if (!currentAssistantNodeId) return;
-    const messageId = currentAssistantNodeId;
-    const patched = flattenThreadedMessages(getCurrentSession().conversation?.threadedMessages)
-      .find(message => message.id === messageId);
-    // The applied patch owns the chronology; live tool/segment lists can still
-    // contain the same executions and must not be merged into this projection.
-    const canonical = patched ? getMessageTurnSegments(patched) ?? [] : [];
-    const segments: TurnSegment[] = [
-      ...(canonical.length ? canonical : patched?.content ? [{ type: 'text' as const, content: patched.content }] : []),
-      { type: 'text', content: diagnostic, diagnostic: true },
-    ];
-    adapter.patchConversation(conversationId, conversation => ({
-      ...conversation,
-      threadedMessages: updateMessageSegmentsInTree(conversation.threadedMessages, messageId, segments, patched?.content ?? ''),
-    }));
-  };
-
   unsubSegmentDone = turnEvents.on('chat:segment_done', (event: ChatSegmentDoneEvent) => {
-    if (event.conversationId !== conversationId) return;
-    if (!isActive()) return;
-    currentTurnId = event.turnId || currentTurnId;
-    ensureAssistantNode(event.assistantMessageId);
+    if (event.conversationId !== conversationId || !isActive()) return;
+    assistantMessageId = event.assistantMessageId || assistantMessageId;
     if (!external) progressAnnouncer.finishSegment();
-    if (!presentationInitialized) {
-      // Without a delta, a matching segment can be the continuation prefill.
-      // Otherwise it is new content and must not adopt the old chronology.
-      const existing = flattenThreadedMessages(getCurrentSession().conversation?.threadedMessages)
-        .find(message => message.id === currentAssistantNodeId);
-      const knownText = getResumableSegments(existing)
-        .filter(segment => segment.type === 'text').pop()?.content;
-      initializePresentation(continuationRequested && event.content && (event.content === knownText || event.content === existing?.content || event.content === existing?._resumableContent)
-        ? event.content : '');
+    if (event.content?.trim()) turnHadAssistantText = true;
+    if (event.hasMore) {
+      announcementTools.clear();
+      streamSequence = -1;
+      streamInitialized = false;
     }
-    // Provider completion content may omit the prefill. The streamed buffer
-    // already contains it and is authoritative whenever deltas were received.
-    const segmentContent = streamInitialized ? streamedContent : event.content ?? '';
-    if (!streamInitialized && continuationBaseContent && segmentContent
-      && representedBaseContent.startsWith(segmentContent)) {
-      resumedTextAlreadyShown = segmentContent.length;
-    }
-    if (segmentContent.trim()) turnHadAssistantText = true;
-    if (!event.hasMore) {
-      streamedContent = segmentContent;
-      updateStreamingMessage(segmentContent);
-      return;
-    }
-    const newSegments = collectReceivedSegments(segmentContent);
-    if (segmentContent) representedBaseContent = segmentContent;
-    patchCurrentSession({
-      completedSegments: newSegments,
-      activeToolCalls: [],
-    });
-    flushVisualStreamingUpdate();
-    if (currentAssistantNodeId) adapter.updateMessage(conversationId, currentAssistantNodeId, '');
-    streamedContent = '';
-    resumedTextAlreadyShown = 0;
-    streamSequence = -1;
-    streamInitialized = false;
-    streamingCommitted = false;
   });
 
   unsubDone = turnEvents.on('chat:done', (event: ChatDoneEvent) => {
-    if (event.conversationId !== conversationId) return;
-    if (!isActive()) return;
-    currentTurnId = event.turnId || currentTurnId;
+    if (event.conversationId !== conversationId || !isActive()) return;
     if (!external) progressAnnouncer.finishSegment();
-
-    if (event.errorMessage) {
-      // O snapshot persistido contém apenas o parcial. Aplique-o antes do
-      // marcador de erro para que o patch não apague o diagnóstico terminal.
-      applyTurnPatch(event.turnPatch);
-      const backendAssistantId = event.assistantMessageId && event.assistantMessageId !== '' ? event.assistantMessageId : null;
-      const hasAssistantNode = ensureAssistantNode(backendAssistantId) || currentAssistantNodeId !== null;
-      const errorMessage = translateBackendChatError(String(event.errorMessage || '').trim());
-      const diagnostic = i18next.t('chat.errorPrefix', { message: errorMessage });
-      if (event.turnPatch) preservePatchedDiagnostic(diagnostic);
-      else preserveReceivedSegments(diagnostic);
-      const eventOrigin = getEventOrigin(event);
-      announceWithOrigin({
-        message: errorMessage,
-        origin: getChatConversationVoiceOrigin(conversationId, undefined, eventOrigin),
-        eventType: 'error',
-        announcePriority: 'assertive',
-      });
-      playChatErrorSoundIfActive(conversationId, eventOrigin);
-      if (hasAssistantNode) {
-        updateAssistantWithError(errorMessage);
-      } else {
-        patchCurrentSession({ sendFailureMessage: errorMessage, sendFailureAnnounced: true, sendFailureRetryable: false });
-      }
-      const interruptedId = backendAssistantId || currentAssistantNodeId;
-      patchCurrentSession({ lastInterruptedMessageId: interruptedId });
-      finalizeStreaming(backendAssistantId, currentTurnId);
-      cleanup();
-      return;
-    }
-
-    if (event.reason === 'limit_reached' && pendingStreamDiagnostic !== null) {
-      const diagnostic = pendingStreamDiagnostic;
-      applyTurnPatch(event.turnPatch);
-      const backendAssistantId = event.assistantMessageId || null;
-      ensureAssistantNode(backendAssistantId);
-      if (event.turnPatch) preservePatchedDiagnostic(diagnostic);
-      else preserveReceivedSegments(diagnostic);
-      const content = getCurrentAssistantContent();
-      streamingCommitted = false;
-      updateStreamingMessage(content ? `${content}\n\n${diagnostic}` : diagnostic);
-      finalizeStreaming(backendAssistantId, currentTurnId);
-      patchCurrentSession({ lastInterruptedMessageId: backendAssistantId || currentAssistantNodeId });
-      cleanup();
-      return;
-    }
-
-    if (event.reason === 'output_limit') {
-      // O patch é autoritativo. Aplique-o antes de decidir se precisamos do
-      // aviso visual de fallback, para que ele não apague o aviso em seguida.
-      applyTurnPatch(event.turnPatch);
-      const backendAssistantId = event.assistantMessageId && event.assistantMessageId !== '' ? event.assistantMessageId : null;
-      const hasAssistantNode = ensureAssistantNode(backendAssistantId) || currentAssistantNodeId !== null;
-      const message = i18next.t('chat.outputLimitReached');
-      const hasOnlyNewTools = !event.turnPatch && !presentationInitialized && getCurrentSession().activeToolCalls.length > 0;
-      const needsNotice = hasAssistantNode && (hasOnlyNewTools || !getCurrentAssistantContent().trim());
-      if (!event.turnPatch) preserveReceivedSegments(needsNotice ? message : undefined);
-      else if (needsNotice) preservePatchedDiagnostic(message);
-      announceWithOrigin({
-        message,
+    assistantMessageId = event.assistantMessageId || assistantMessageId;
+    const interrupted = !!event.errorMessage || event.reason === 'error' || event.reason === 'cancelled'
+      || event.finishReason === 'cancelled' || event.reason === 'limit_reached' || event.reason === 'output_limit';
+    if (event.errorMessage) reportError(event.errorMessage, getEventOrigin(event));
+    else if (event.reason === 'output_limit') {
+      announceWithOrigin({ message: i18next.t('chat.outputLimitReached'),
         origin: getChatConversationVoiceOrigin(conversationId, undefined, getEventOrigin(event)),
-        eventType: 'system',
-        announcePriority: 'assertive',
-      });
-      if (needsNotice) {
-        updateStreamingMessage(message);
+        eventType: 'system', announcePriority: 'assertive' });
+    } else if (!interrupted) {
+      if (event.hadToolCalls && !turnHadAssistantText) {
+        announceForActiveChatConversation(conversationId, i18next.t('chat.progressLabel'), 'polite', getEventOrigin(event));
       }
-      const interruptedId = backendAssistantId || currentAssistantNodeId;
-      patchCurrentSession({ lastInterruptedMessageId: interruptedId });
-      finalizeStreaming(backendAssistantId, currentTurnId);
-      cleanup();
-      return;
+      announceChatBackgroundResponseDone(conversationId, getCurrentSession().conversation?.title, getEventOrigin(event));
     }
-
-    if (event.reason === 'cancelled' || event.finishReason === 'cancelled') {
-      if (!event.turnPatch) preserveReceivedSegments();
-      const backendAssistantId = event.assistantMessageId && event.assistantMessageId !== '' ? event.assistantMessageId : null;
-      finalizeStreaming(backendAssistantId, event.turnId || currentTurnId);
-      applyTurnPatch(event.turnPatch);
-      patchCurrentSession({ lastInterruptedMessageId: backendAssistantId || currentAssistantNodeId });
-      cleanup();
-      return;
-    }
-
-    const backendAssistantId = event.assistantMessageId && event.assistantMessageId !== '' ? event.assistantMessageId : null;
-    if (!event.turnPatch) {
-      ensureAssistantNode(backendAssistantId);
-      preserveReceivedSegments();
-    }
-    finalizeStreaming(backendAssistantId, event.turnId || currentTurnId);
-    applyTurnPatch(event.turnPatch);
-    patchCurrentSession({ lastInterruptedMessageId: null });
-
-    if (event.hadToolCalls) {
-      // O aviso genérico existe só para o turno que termina em silêncio. Se
-      // houve texto — inclusive só em segmentos intermediários — o chat:speak
-      // já o verbalizou e o aviso viraria ruído em cima da fala.
-      if (!turnHadAssistantText) {
-        announceForActiveChatConversation(
-          conversationId,
-          i18next.t('chat.progressLabel'),
-          'polite',
-          getEventOrigin(event),
-        );
-      }
-    }
-
-    announceChatBackgroundResponseDone(conversationId, getCurrentSession().conversation?.title, getEventOrigin(event));
     cleanup();
   });
 
@@ -1299,7 +627,6 @@ export function startChatEventController({
       adapter.setConversationLoading(conversationId, false, origin?.sessionKey);
       patchCurrentSession({
         isLoading: false,
-        streamingMessageId: null,
       });
     },
     handleSendFailure: (message: string, provenNotSubmitted = false) => {
@@ -1311,7 +638,6 @@ export function startChatEventController({
       adapter.setConversationLoading(conversationId, false, origin?.sessionKey);
       patchCurrentSession({
         isLoading: false,
-        streamingMessageId: null,
         sendFailureMessage,
         sendFailureAnnounced: false,
         sendFailureRetryable: provenNotSubmitted,

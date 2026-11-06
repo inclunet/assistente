@@ -6,6 +6,7 @@ import (
 	"errors"
 	"sort"
 	"strings"
+	"time"
 
 	"assistente/internal/chat"
 	"assistente/internal/core/ports"
@@ -93,7 +94,10 @@ func (r *agenticLoopRunner) run(ctx context.Context) {
 		// 2. Erro?
 		if streamErr != "" {
 			logging.Errorf(ctx, "agent.agentic-loop", "[Agent] erro na iteração %d: %s", iteration, result.Error)
-			r.persistAndAccountNativeMCP(ctx, result, iteration)
+			if _, err := r.persistAndAccountNativeMCP(ctx, result, iteration); err != nil {
+				r.svc.finishToolPersistenceFailure(ctx, r.conversationID, r.turnID, r.assistantMessageID, result, r.surfaceOrigin)
+				return
+			}
 			// chat:done é o evento terminal canônico — inclui ErrorMessage para que
 			// adapters (CLI, frontend) exibam o erro sem depender de chat:stream terminal.
 			event := r.buildErrorDoneEventWithContext(ctx, streamErr, iteration)
@@ -404,7 +408,11 @@ func reconcileToolContentsWithContracts(ctx context.Context, results []tools.Too
 // deixou de existir e o loop deve abortar.
 func (r *agenticLoopRunner) executeToolIteration(ctx context.Context, result AgenticResult, iteration int) (context.Context, bool) {
 	// 5a. Persiste MCP calls nativas desta iteração antes das bridge calls
-	iterationNativeTools := r.persistAndAccountNativeMCP(ctx, result, iteration)
+	iterationNativeTools, nativeErr := r.persistAndAccountNativeMCP(ctx, result, iteration)
+	if nativeErr != nil {
+		r.svc.finishToolPersistenceFailure(ctx, r.conversationID, r.turnID, r.assistantMessageID, result, r.surfaceOrigin)
+		return ctx, true
+	}
 
 	// 5b. Adiciona mensagem do assistant ao histórico para próxima iteração
 	// (Persistência no DB movida para após execução — AEP-0039 Fase 5)
@@ -417,18 +425,23 @@ func (r *agenticLoopRunner) executeToolIteration(ctx context.Context, result Age
 	if !r.turnStillValid(ctx) {
 		return ctx, true
 	}
-	r.svc.emitToolStarts(r.conversationID, r.turnID, r.assistantMessageID, result.ToolCalls, r.surfaceOrigin)
 	execBatch := r.svc.executeToolCallsWithRuntimeControls(ctx, toolCalls, toolinvocations.Origin{ChatExecutionID: executionIDRef(ctx),
 		Type:           toolinvocations.OriginChat,
 		ID:             r.turnID,
 		ConversationID: r.conversationID,
 		TurnID:         r.turnID,
-	}, r.conversationID, r.turnID, iteration, r.surfaceOrigin)
+	}, r.conversationID, r.turnID, r.assistantMessageID, iteration, r.surfaceOrigin)
 	ctx = execBatch.Context
 	execResults := execBatch.Executions
+	if r.stopOnToolPersistenceFailure(ctx, result, execBatch, nil, iteration) {
+		return ctx, true
+	}
 
 	// 5e. Retry automático para erros retryable (AEP-0039 Fase 3)
 	retriedCallIDs := r.retryRetryableTools(ctx, toolCalls, execResults, execBatch.PersistedByCallID, iteration)
+	if r.stopOnToolPersistenceFailure(ctx, result, execBatch, retriedCallIDs, iteration) {
+		return ctx, true
+	}
 	recordRecentToolUsage(ctx, execResults)
 
 	// 5f. Emit tool_end/failure events e acumula stats
@@ -449,35 +462,13 @@ func (r *agenticLoopRunner) executeToolIteration(ctx context.Context, result Age
 	// em tool_invocations.metadata, associado por tool_call_id.
 	// A identidade da chamada ao modelo vem de (turn_id, iteration) no ledger.
 	// Só persista uma mensagem quando houver conteúdo conversacional.
-	if strings.TrimSpace(result.FullResponse) != "" || strings.TrimSpace(result.Reasoning) != "" {
-		var assistantToolMsg *chat.Message
-		err := executionProjection(ctx).CommitContent(iteration, result.FullResponse, result.Reasoning, func() (string, error) {
-			var saveErr error
-			assistantToolMsg, saveErr = r.svc.msgRepo.CreateMessage(ctx, chat.MessageOptions{ChatExecutionID: executionIDRef(ctx),
-				ConversationID: r.conversationID,
-				TurnID:         &r.turnID,
-				Role:           "assistant",
-				Content:        result.FullResponse,
-				Reasoning:      result.Reasoning,
-				Model:          result.Model,
-			})
-			if saveErr != nil {
-				return "", saveErr
-			}
-			return assistantToolMsg.ID, nil
-		})
-		if err != nil {
-			if errors.Is(err, chat.ErrConversationDeleted) {
-				logging.Errorf(ctx, "agent.agentic-loop", "[Agent] conversa %s deletada — abortando", r.conversationID)
-				return ctx, true
-			}
-			logging.Errorf(ctx, "agent.agentic-loop", "[Agent] erro ao salvar mensagem assistant intermediária de tool invocation: %v", err)
-		} else if assistantToolMsg != nil {
-			// O prefixo já pertence ao segmento confirmado. Reaplicá-lo no
-			// representante seguinte duplicaria a continuação no histórico.
-			r.continuationPrefixCommitted = true
-			r.svc.tagChatToolInvocationsWithAssistantMessage(ctx, r.conversationID, r.turnID, execResults, assistantToolMsg.ID)
+	if err := r.persistToolIterationContent(ctx, result, iteration, execResults); err != nil {
+		if errors.Is(err, chat.ErrConversationDeleted) {
+			return ctx, true
 		}
+		logging.Errorf(ctx, "agent.agentic-loop", "erro ao salvar mensagem intermediária: %v", err)
+		r.svc.emitFinalizationErrorDone(ctx, r.conversationID, r.turnID, r.assistantMessageID, r.surfaceOrigin)
+		return ctx, true
 	}
 
 	// 5f-iv. Resultados técnicos já foram persistidos exclusivamente no ledger.
@@ -487,10 +478,6 @@ func (r *agenticLoopRunner) executeToolIteration(ctx context.Context, result Age
 		// O histórico do LLM recebe o envelope já medido pelo pre-check: truncado
 		// quando a janela apertou, íntegro quando coube.
 		content := toolContents[i]
-		persisted := execBatch.PersistedByCallID[execResult.CallID]
-		if !persisted {
-			logging.Errorf(ctx, "agent.agentic-loop", "[Agent] tool result sem confirmação de persistência no ledger (call_id=%s)", execResult.CallID)
-		}
 		r.messages = append(r.messages, llm.Message{
 			Role:       "tool",
 			Content:    content,
@@ -516,14 +503,58 @@ func (r *agenticLoopRunner) executeToolIteration(ctx context.Context, result Age
 	return ctx, false
 }
 
+func (r *agenticLoopRunner) persistToolIterationContent(ctx context.Context, result AgenticResult, iteration int, executions []tools.ToolExecutionResult) error {
+	if strings.TrimSpace(result.FullResponse) == "" && strings.TrimSpace(result.Reasoning) == "" {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+	defer cancel()
+	var message *chat.Message
+	err := executionProjection(ctx).CommitContent(iteration, result.FullResponse, result.Reasoning, func() (string, error) {
+		var saveErr error
+		message, saveErr = r.svc.turns.SaveIntermediate(ctx, executionID(ctx), r.assistantMessageID, chat.MessageOptions{
+			ChatExecutionID: executionIDRef(ctx), ConversationID: r.conversationID, TurnID: &r.turnID,
+			Role: "assistant", Content: result.FullResponse, Reasoning: result.Reasoning, Model: result.Model,
+		})
+		if saveErr != nil {
+			return "", saveErr
+		}
+		return message.ID, nil
+	})
+	if err != nil {
+		return err
+	}
+	if message != nil {
+		r.continuationPrefixCommitted = true
+		r.svc.tagChatToolInvocationsWithAssistantMessage(ctx, r.conversationID, r.turnID, executions, message.ID)
+	}
+	return nil
+}
+
+// Uma chamada sem registro confirmado não alimenta outra iteração nem retry.
+// O serviço do ledger já impede executar a ferramenta quando a admissão falha.
+func (r *agenticLoopRunner) stopOnToolPersistenceFailure(ctx context.Context, result AgenticResult, batch toolExecutionBatch, retried map[string]struct{}, iteration int) bool {
+	if !batch.persistenceFailed() {
+		return false
+	}
+	r.emitToolEndsAndAccount(batch.Executions, retried)
+	if err := r.persistToolIterationContent(ctx, result, iteration, batch.Executions); err != nil {
+		logging.Errorf(ctx, "agent.agentic-loop", "falha ao preservar fonte intermediária após erro do ledger: %v", err)
+	}
+	r.svc.emitFinalizationErrorDone(ctx, r.conversationID, r.turnID, r.assistantMessageID, r.surfaceOrigin)
+	return true
+}
+
 // persistAndAccountNativeMCP persiste as MCP calls nativas da iteração e
 // contabiliza as completas nas estatísticas do loop, retornando o resumo para o
 // segment_done (AEP-0039 Fase 1).
-func (r *agenticLoopRunner) persistAndAccountNativeMCP(ctx context.Context, result AgenticResult, iteration int) []ports.ToolSummary {
+func (r *agenticLoopRunner) persistAndAccountNativeMCP(ctx context.Context, result AgenticResult, iteration int) ([]ports.ToolSummary, error) {
 	if len(result.NativeMCPEvents) == 0 {
-		return nil
+		return nil, nil
 	}
-	r.svc.persistNativeMCPCalls(ctx, r.conversationID, r.turnID, result.NativeMCPEvents, iteration)
+	if err := r.svc.persistNativeMCPCalls(ctx, r.conversationID, r.turnID, result.NativeMCPEvents, iteration); err != nil {
+		return nil, err
+	}
 	var iterationNativeTools []ports.ToolSummary
 	for _, ev := range result.NativeMCPEvents {
 		if ev.IsCompleted {
@@ -544,7 +575,7 @@ func (r *agenticLoopRunner) persistAndAccountNativeMCP(ctx context.Context, resu
 			}
 		}
 	}
-	return iterationNativeTools
+	return iterationNativeTools, nil
 }
 
 func recordRecentToolUsage(ctx context.Context, results []tools.ToolExecutionResult) {
@@ -660,6 +691,9 @@ func (r *agenticLoopRunner) retryRetryableTools(ctx context.Context, toolCalls [
 			}, iteration)
 			execResults[i] = retried
 			persistedByCallID[retried.CallID] = retriedPersisted
+			if !retriedPersisted {
+				break
+			}
 		}
 	}
 	return retriedCallIDs
