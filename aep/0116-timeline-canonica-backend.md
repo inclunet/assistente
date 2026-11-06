@@ -18,7 +18,8 @@ validam os bytes. Arquivo vazio é conteúdo de zero bytes, distinto de ausênci
 Base64 e data URI base64 são separados dos metadados e deduplicados por usuário;
 URLs externas permanecem referências, sem qualquer download na migração. Formatos
 inválidos ou data URI não suportada interrompem o corte com diagnóstico, sem
-silenciar conteúdo nem continuar por um leitor alternativo.
+silenciar conteúdo nem continuar por um leitor alternativo. `null` não vira
+arquivo vazio. Reexecutar v45 após v46 não recria colunas nem altera anexos.
 
 Áudio `received` que representa a mesma ocorrência de `media` perde o vínculo
 redundante, mantendo um único binário. `generated` e `legacy_unknown` não são
@@ -29,13 +30,14 @@ anexos recebidos.
 A resolução de áudio compartilhada por retry e histórico normaliza MIME e extrai
 o base64 de data URIs (`data` ou `url`), sem encaminhar o prefixo ao transcritor.
 Contexto, retry e exportação hidratam anexos explicitamente. Continuação busca a
-primeira base com mídia própria sem copiar seus vínculos nem herdar TTS. A janela
+primeira base com mídia própria sem copiar seus vínculos nem herdar TTS; somente
+a base escolhida é hidratada, sem materializar ancestrais descartados. A janela
 e o término visual continuam sem blobs; foram retirados os `Omit` defensivos das
 colunas que já não existem.
 
 O corte usa backup verificado e uma transação. Preserva IDs, timestamps e nonces;
 reinstala somente os triggers de timeline afetados pelo DROP COLUMN e valida
-hashes, integridade SQLite e FKs das tabelas de anexos. Violações históricas de
+hashes, integridade SQLite, FKs e ownership dos vínculos de anexos. Violações históricas de
 outras tabelas não se tornam bloqueios desse corte (AEP-0104/D9). Conversas sem
 dono adiam v46 até adoção; mensagem com conteúdo cuja conversa não existe bloqueia
 com diagnóstico de reconciliação offline. Uma verificação final impede remover
@@ -68,6 +70,10 @@ revisão final sem pendências, incluindo as fixtures compartilhadas de comandos
 A sétima rodada zerou a correção apontada pelo Copilot no retry de áudio:
 STT assíncrono e paridade com data URI aprovados, mais 36 regressões selecionadas
 de mídia/áudio/histórico/retry; build/vet e lint novamente aprovados.
+As rodadas oito e nove zeraram os quatro achados do CodeRabbit (base de continuação,
+null, ownership e replay de migração) e a fixture de mídia de canal apontada pelo
+Copilot. Revalidação: 388 testes selecionados de banco, 170 de portabilidade e
+quatro de canais aprovados; revisão independente final sem pendências.
 ACP permanece restrito ao CI e não há validação NVDA nesta etapa.
 
 Este recorte conclui o armazenamento de anexos da fase 4. O AEP permanece

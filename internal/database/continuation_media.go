@@ -46,6 +46,17 @@ func ResolveContinuationMedia(ctx context.Context, db *gorm.DB, messages []ChatM
 		if err != nil {
 			return err
 		}
+		// Rows are depth-ordered. Hydrate only the nearest base for each message;
+		// unused older content must not affect this continuation.
+		selected := rows[:0]
+		seen := map[string]bool{}
+		for _, row := range rows {
+			if !seen[row.ID] {
+				selected = append(selected, row)
+				seen[row.ID] = true
+			}
+		}
+		rows = selected
 		bases := make([]ChatMessage, len(rows))
 		for i, row := range rows {
 			bases[i].ID = row.BaseID

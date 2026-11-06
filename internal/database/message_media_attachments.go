@@ -44,10 +44,11 @@ func parseStoredMedia(media string) ([]storedMediaPart, error) {
 			raw, found = part[field]
 		}
 		if found {
-			var data string
-			if err := json.Unmarshal(raw, &data); err != nil {
+			var value *string
+			if err := json.Unmarshal(raw, &value); err != nil || value == nil {
 				return nil, errors.New("conteúdo de mídia deve ser texto")
 			}
+			data := *value
 			if field == "data" || strings.HasPrefix(data, "data:") {
 				if strings.HasPrefix(data, "data:") {
 					prefix, payload, ok := strings.Cut(data, ",")

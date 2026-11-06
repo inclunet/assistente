@@ -223,14 +223,8 @@ func TestAudioMigrationRollsBackOnInvalidBytes(t *testing.T) {
 }
 
 func TestLegacyAudioIsNormalizedAtomicallyOnAdoption(t *testing.T) {
-	tx, ctx, _ := audioRuntimeFixture(t)
-	// Reconstruct the historical layout; runtime models never recreate retired columns.
-	if err := ensureLegacyChatMediaColumns(tx); err != nil {
-		t.Fatal(err)
-	}
-	if err := tx.Exec("DELETE FROM schema_migrations WHERE version=46").Error; err != nil {
-		t.Fatal(err)
-	}
+	tx, _ := mediaV45Fixture(t)
+	ctx := WithUserID(context.Background(), "media-owner")
 	for _, name := range []string{"chat_audio_retired_insert", "chat_audio_retired_update"} {
 		if err := tx.Exec("DROP TRIGGER IF EXISTS " + name).Error; err != nil {
 			t.Fatal(err)
@@ -248,7 +242,7 @@ func TestLegacyAudioIsNormalizedAtomicallyOnAdoption(t *testing.T) {
 	if _, _, err := GetMessageAudioWithContext(ctx, "legacy-audio"); !errors.Is(err, gorm.ErrRecordNotFound) {
 		t.Fatal("órfão acessível antes de adoção", err)
 	}
-	if err := AdoptLegacyData("audio-owner"); err != nil {
+	if err := AdoptLegacyData("media-owner"); err != nil {
 		t.Fatal(err)
 	}
 	if audio, _, err := GetMessageAudioWithContext(ctx, "legacy-audio"); err != nil || audio != "AQID" {

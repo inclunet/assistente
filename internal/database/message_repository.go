@@ -400,7 +400,7 @@ func (r *MessageRepository) GetMessageAudioWithContext(ctx context.Context, mess
 	}
 	err := scopedMessageQuery(ctx, r.db.Model(&ChatMessage{})).
 		Select("b.content,b.sha256,b.size,a.mime_type").Joins("JOIN chat_message_attachments a ON a.message_id=chat_messages.id JOIN chat_attachment_contents b ON b.id=a.content_id").
-		Where("chat_messages.id=? AND a.purpose='media' AND b.size>0 AND lower(trim(a.mime_type)) LIKE 'audio/%'", messageID).Order("a.position").Limit(1).Scan(&row).Error
+		Where("chat_messages.id=? AND a.purpose='media' AND b.user_id=conversations.user_id AND b.size>0 AND lower(trim(a.mime_type)) LIKE 'audio/%'", messageID).Order("a.position").Limit(1).Scan(&row).Error
 	if err != nil {
 		return "", "", err
 	}
@@ -447,7 +447,7 @@ func (r *MessageRepository) HasMessageAudioWithContext(ctx context.Context, mess
 		return false
 	}
 	var count int64
-	scopedMessageQuery(ctx, db.Model(&ChatMessage{})).Where("chat_messages.id = ? AND EXISTS(SELECT 1 FROM chat_message_attachments a JOIN chat_attachment_contents b ON b.id=a.content_id WHERE a.message_id=chat_messages.id AND b.size>0 AND (a.purpose='audio' OR (a.purpose='media' AND lower(trim(a.mime_type)) LIKE 'audio/%')))", messageID).Count(&count)
+	scopedMessageQuery(ctx, db.Model(&ChatMessage{})).Where("chat_messages.id = ? AND EXISTS(SELECT 1 FROM chat_message_attachments a JOIN chat_attachment_contents b ON b.id=a.content_id WHERE a.message_id=chat_messages.id AND b.user_id=conversations.user_id AND b.size>0 AND (a.purpose='audio' OR (a.purpose='media' AND lower(trim(a.mime_type)) LIKE 'audio/%')))", messageID).Count(&count)
 	return count > 0
 }
 

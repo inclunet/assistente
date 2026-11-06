@@ -8,6 +8,10 @@ import (
 // Audio becomes a single referenced binary per user. General media remains in
 // its existing column until its own verified cutover; no fallback audio reader.
 func MigrateChatAudioAttachments(db *gorm.DB) error {
+	// v46 supersedes this layout; replay must not recreate retired columns.
+	if db.Migrator().HasColumn("chat_message_attachments", "metadata") {
+		return nil
+	}
 	if err := ensureLegacyChatMediaColumns(db); err != nil {
 		return err
 	}

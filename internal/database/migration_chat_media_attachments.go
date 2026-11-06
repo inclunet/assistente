@@ -134,6 +134,17 @@ func MigrateChatMediaAttachments(database *gorm.DB) error {
 					return fmt.Errorf("integridade referencial após migração de anexos em %s: %d violações", table, len(violations))
 				}
 			}
+			var wrongOwners int64
+			if err := tx.Raw(`SELECT COUNT(*) FROM chat_message_attachments a
+ JOIN chat_messages m ON m.id=a.message_id
+ LEFT JOIN conversations c ON c.id=m.conversation_id
+ JOIN chat_attachment_contents b ON b.id=a.content_id
+ WHERE c.user_id IS NULL OR b.user_id<>c.user_id`).Scan(&wrongOwners).Error; err != nil {
+				return err
+			}
+			if wrongOwners > 0 {
+				return fmt.Errorf("integridade de proprietário dos anexos: %d vínculos incompatíveis", wrongOwners)
+			}
 			lastContent := ""
 			for {
 				var row struct {

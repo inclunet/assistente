@@ -118,29 +118,41 @@ func TestMediaMigrationPreservesBytesMetadataRevisionsAndSecondBoot(t *testing.T
 }
 
 func TestMediaMigrationInvalidBytesRollBackEntireCutover(t *testing.T) {
-	database, _ := mediaV45Fixture(t)
-	for _, row := range []struct{ ID, Media string }{{"a-valid", `[{"type":"image/png","data":"AQID"}]`}, {"z-invalid", `[{"type":"image/png","data":"invalid!"}]`}} {
-		if err := database.Exec("INSERT INTO chat_messages(id,conversation_id,role,content,media) VALUES (?,'media-conv','user','',?)", row.ID, row.Media).Error; err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := runMigrations(database, phasePostAutoMigrate); err == nil {
-		t.Fatal("migração aceitou conteúdo inválido")
-	}
-	versions, err := appliedMigrationVersions(database)
-	if err != nil || versions[46] {
-		t.Fatalf("migração falha foi registrada: %v", err)
-	}
-	if !database.Migrator().HasColumn("chat_messages", "media") || database.Migrator().HasColumn("chat_message_attachments", "metadata") {
-		t.Fatal("schema parcial após rollback")
-	}
-	var media string
-	database.Raw("SELECT media FROM chat_messages WHERE id='a-valid'").Scan(&media)
-	assertSameMedia(t, `[{"type":"image/png","data":"AQID"}]`, media)
-	var count int64
-	database.Table("chat_message_attachments").Count(&count)
-	if count != 0 {
-		t.Fatal("rollback deixou anexos parciais")
+	for name, invalid := range map[string]string{
+		"base64":    `[{"type":"image/png","data":"invalid!"}]`,
+		"null-data": `[{"type":"image/png","data":null}]`,
+		"null-url":  `[{"type":"image/png","url":null}]`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			database, _ := mediaV45Fixture(t)
+			for _, row := range []struct{ ID, Media string }{{"a-valid", `[{"type":"image/png","data":"AQID"}]`}, {"z-invalid", invalid}} {
+				if err := database.Exec("INSERT INTO chat_messages(id,conversation_id,role,content,media) VALUES (?,'media-conv','user','',?)", row.ID, row.Media).Error; err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := runMigrations(database, phasePostAutoMigrate); err == nil {
+				t.Fatal("migração aceitou conteúdo inválido")
+			}
+			versions, err := appliedMigrationVersions(database)
+			if err != nil || versions[46] {
+				t.Fatalf("migração falha foi registrada: %v", err)
+			}
+			if !database.Migrator().HasColumn("chat_messages", "media") || database.Migrator().HasColumn("chat_message_attachments", "metadata") {
+				t.Fatal("schema parcial após rollback")
+			}
+			var media string
+			database.Raw("SELECT media FROM chat_messages WHERE id='a-valid'").Scan(&media)
+			assertSameMedia(t, `[{"type":"image/png","data":"AQID"}]`, media)
+			var count int64
+			database.Table("chat_message_attachments").Count(&count)
+			if count != 0 {
+				t.Fatal("rollback deixou anexos parciais")
+			}
+			var preserved string
+			if err := database.Raw("SELECT media FROM chat_messages WHERE id='z-invalid'").Scan(&preserved).Error; err != nil || preserved != invalid {
+				t.Fatal("rollback alterou conteúdo inválido", err)
+			}
+		})
 	}
 }
 
@@ -212,5 +224,61 @@ func TestMediaMigrationRejectsCorruptCanonicalAudio(t *testing.T) {
 	}
 	if !database.Migrator().HasColumn("chat_messages", "media") {
 		t.Fatal("falha não reverteu corte físico")
+	}
+}
+
+func TestMediaMigrationReplayPreservesNormalizedAttachments(t *testing.T) {
+	tx, ctx, root := audioRuntimeFixture(t)
+	media := `[{"type":"image/png","name":"keep","url":"data:image/png;base64,AQID","extra":true}]`
+	message, err := CreateMessageWithContext(ctx, MessageOptions{ConversationID: root.ConversationID, Role: "user", Media: media, Audio: "BAUG", AudioMimeType: "audio/wav", AudioOrigin: AttachmentGenerated})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if err := MigrateChatAudioAttachments(tx); err != nil {
+			t.Fatal(err)
+		}
+		if err := MigrateChatMediaAttachments(tx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	messages := []ChatMessage{*message}
+	if err := LoadMessageMedia(ctx, tx, messages); err != nil {
+		t.Fatal(err)
+	}
+	assertSameMedia(t, media, messages[0].Media)
+	audio, mime, err := GetMessageAudioWithContext(ctx, message.ID)
+	if err != nil || audio != "BAUG" || mime != "audio/wav" {
+		t.Fatalf("replay perdeu áudio: %q %q %v", audio, mime, err)
+	}
+	for _, column := range []string{"media", "audio", "audio_mime_type"} {
+		if tx.Migrator().HasColumn("chat_messages", column) {
+			t.Fatal("replay recriou coluna", column)
+		}
+	}
+}
+
+func TestMediaMigrationRejectsCrossOwnerAttachment(t *testing.T) {
+	tx, _ := mediaV45Fixture(t)
+	if err := tx.Create(&User{UUIDModel: UUIDModel{ID: "other-owner"}, Username: "other-owner"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Create(&ChatMessage{UUIDModel: UUIDModel{ID: "cross-owner"}, ConversationID: "media-conv", Role: "user"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := storeMessageAudio(tx, "cross-owner", "AQID", "audio/wav", AttachmentReceived); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Exec("DROP TRIGGER chat_attachment_content_immutable").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Exec("UPDATE chat_attachment_contents SET user_id='other-owner'").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := runMigrations(tx, phasePostAutoMigrate); err == nil || !strings.Contains(err.Error(), "proprietário") {
+		t.Fatal("migração aceitou vínculo entre usuários", err)
+	}
+	if !tx.Migrator().HasColumn("chat_messages", "media") {
+		t.Fatal("falha não reverteu corte")
 	}
 }

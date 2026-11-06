@@ -159,3 +159,83 @@ func TestMediaPlaybackSkipsEmptyAndExternalAudio(t *testing.T) {
 		assertSameMedia(t, media, messages[0].Media)
 	}
 }
+
+func TestMediaPlaybackDoesNotReadContentOwnedByAnotherUser(t *testing.T) {
+	tx, ctx, root := audioRuntimeFixture(t)
+	message, err := CreateMessageWithContext(ctx, MessageOptions{ConversationID: root.ConversationID, Role: "user", Media: `[{"type":"audio/wav","data":"AQID"}]`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Create(&User{UUIDModel: UUIDModel{ID: "foreign-content-owner"}, Username: "foreign-content-owner"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	// Simulate an inconsistent imported/externally altered database, bypassing its guard.
+	if err := tx.Exec("DROP TRIGGER chat_attachment_content_immutable").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Exec("UPDATE chat_attachment_contents SET user_id='foreign-content-owner'").Error; err != nil {
+		t.Fatal(err)
+	}
+	audio, _, err := GetMessageAudioWithContext(ctx, message.ID)
+	if err != nil || audio != "" || HasMessageAudioWithContext(ctx, message.ID) {
+		t.Fatalf("conteúdo de outro usuário acessível: %q %v", audio, err)
+	}
+	if err := LoadMessageMedia(ctx, tx, []ChatMessage{*message}); err == nil {
+		t.Fatal("hidratação aceitou vínculo inconsistente")
+	}
+}
+
+func TestMediaAttachmentsRejectNullDataAndURL(t *testing.T) {
+	_, ctx, root := audioRuntimeFixture(t)
+	for _, media := range []string{`[{"type":"audio/wav","data":null}]`, `[{"type":"image/png","url":null}]`} {
+		if _, err := CreateMessageWithContext(ctx, MessageOptions{ConversationID: root.ConversationID, Role: "user", Media: media}); err == nil {
+			t.Fatalf("null aceito: %s", media)
+		}
+	}
+}
+
+func TestContinuationMediaIgnoresUnselectedCorruptAncestor(t *testing.T) {
+	tx, turns, ctx, first := executionSchemaFixture(t)
+	if err := tx.Exec("CREATE TABLE chat_timeline_versions (conversation_id TEXT PRIMARY KEY, incarnation TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 0)").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := MigrateChatAudioAttachments(tx); err != nil {
+		t.Fatal(err)
+	}
+	if err := MigrateChatMediaAttachments(tx); err != nil {
+		t.Fatal(err)
+	}
+	for index, row := range []struct{ execution, response, baseExecution, baseMessage, media string }{
+		{first, "old", "", "", `[{"type":"image/png","data":"AQID"}]`},
+		{"middle-run", "middle", first, "old", `[{"type":"image/png","data":"BAUG"}]`},
+		{"last-run", "last", "middle-run", "middle", ""},
+	} {
+		if index > 0 {
+			selectExecutionFixture(t, tx, row.execution, TurnModeContinue, row.baseExecution, row.baseMessage)
+		}
+		if err := insertExecutionMessage(tx, row.response, row.execution, "conv", "question"); err != nil {
+			t.Fatal(err)
+		}
+		bindExecutionFixture(t, tx, row.execution, row.response)
+		if row.media != "" {
+			if err := tx.Transaction(func(db *gorm.DB) error { return storeMessageMedia(db, row.response, row.media) }); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := turns.Finish(ctx, "conv", "question", row.execution, TurnCompleted, "completed"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := tx.Exec("DROP TRIGGER chat_attachment_content_immutable").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Exec("UPDATE chat_attachment_contents SET sha256=? WHERE id IN (SELECT content_id FROM chat_message_attachments WHERE message_id='old')", strings.Repeat("0", 64)).Error; err != nil {
+		t.Fatal(err)
+	}
+	execution := "last-run"
+	messages := []ChatMessage{{UUIDModel: UUIDModel{ID: "last"}, ChatExecutionID: &execution}}
+	if err := ResolveContinuationMedia(ctx, tx, messages); err != nil {
+		t.Fatal(err)
+	}
+	assertSameMedia(t, `[{"type":"image/png","data":"BAUG"}]`, messages[0].Media)
+}
