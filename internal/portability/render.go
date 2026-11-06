@@ -835,6 +835,10 @@ func normalizeBase64Data(data string) (string, bool) {
 
 func sanitizeMIMEType(mimeType string) string {
 	normalized := strings.ToLower(strings.TrimSpace(mimeType))
+	if strings.HasPrefix(normalized, "audio/") {
+		base, _, _ := strings.Cut(normalized, ";")
+		normalized = strings.TrimSpace(base)
+	}
 	if normalized == "" {
 		return "application/octet-stream"
 	}

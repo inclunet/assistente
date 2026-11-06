@@ -231,7 +231,7 @@ ORDER BY created_at ASC, id ASC`, CurrentChatMessageSQL("chat_messages"), Curren
 		}
 		boundaryAvailable = count > 0
 	}
-	if err := LoadMessageAudios(ctx, r.db, messages, true); err != nil {
+	if err := LoadMessageAudios(ctx, r.db, messages, AudioReceivedOnly); err != nil {
 		return nil, err
 	}
 	return &HistoryWindowResult{
@@ -381,7 +381,7 @@ func (r *MessageRepository) GetMessageAudioWithContext(ctx context.Context, mess
 		return "", "", err
 	}
 	messages := []ChatMessage{message}
-	if err := LoadMessageAudios(ctx, r.db, messages, true); err != nil {
+	if err := LoadMessageAudios(ctx, r.db, messages, AudioAll); err != nil {
 		return "", "", err
 	}
 	return messages[0].Audio, messages[0].AudioMimeType, nil

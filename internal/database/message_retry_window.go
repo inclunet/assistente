@@ -71,7 +71,7 @@ func (r *MessageRepository) LoadHistoryWindowThroughMessageWithContext(ctx conte
 			}
 			messages = append(messages, message)
 		}
-		if err := LoadMessageAudios(ctx, tx, messages, true); err != nil {
+		if err := LoadMessageAudios(ctx, tx, messages, AudioReceivedOnly); err != nil {
 			return err
 		}
 		result = &HistoryWindowResult{

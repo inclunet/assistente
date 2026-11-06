@@ -5,15 +5,19 @@ import (
 	"gorm.io/gorm"
 	"os"
 	"reflect"
+	"strings"
 	"testing"
 )
 
 func TestPublishedDatabase019UpgradesDirectlyToLatest(t *testing.T) {
 	for _, invalid := range []bool{false, true} {
-		t.Run(map[bool]string{false: "valid", true: "retry_invalid_audio"}[invalid], func(t *testing.T) { testPublishedDatabase019Upgrade(t, invalid) })
+		t.Run(map[bool]string{false: "valid", true: "retry_invalid_audio"}[invalid], func(t *testing.T) { testPublishedDatabase019Upgrade(t, invalid, false) })
 	}
 }
-func testPublishedDatabase019Upgrade(t *testing.T, invalid bool) {
+func TestPublishedDatabase019AdoptionBlocksAmbiguityUntilRepair(t *testing.T) {
+	testPublishedDatabase019Upgrade(t, false, true)
+}
+func testPublishedDatabase019Upgrade(t *testing.T, invalid, ambiguous bool) {
 	previous := db
 	database := newMigratorTestDB(t)
 	db = database
@@ -36,6 +40,11 @@ func testPublishedDatabase019Upgrade(t *testing.T, invalid bool) {
 		}
 	}
 
+	if ambiguous {
+		if err := database.Exec(`INSERT INTO chat_messages(id,conversation_id,parent_id,turn_id,role,content,tool_call_id) VALUES(44,7,42,41,'tool','resultado duplicado injetado pela fixture','fixture-call-019')`).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
 	if err := runMigrations(database, phasePreAutoMigrate); err != nil {
 		t.Fatalf("migrações pré-AutoMigrate: %v", err)
 	}
@@ -58,6 +67,25 @@ func testPublishedDatabase019Upgrade(t *testing.T, invalid bool) {
 	}
 	if err := database.Create(&owner).Error; err != nil {
 		t.Fatal(err)
+	}
+	if ambiguous {
+		err := AdoptLegacyData(owner.ID)
+		if err == nil || !strings.Contains(err.Error(), "duplicate_tool_result") {
+			t.Fatalf("sem diagnóstico de ambiguidade: %v", err)
+		}
+		applied, err := appliedMigrationVersions(database)
+		if err != nil || applied[19] || applied[45] {
+			t.Fatalf("corte liberado com ambiguidade: %v", err)
+		}
+		var count int64
+		if err := database.Table("chat_messages").Where("role='tool'").Count(&count).Error; err != nil || count != 2 {
+			t.Fatalf("perdeu resultados: %d %v", count, err)
+		}
+		// Apenas a fixture conhece qual resultado foi inserido artificialmente.
+		// O produto nunca escolhe nem descarta resultados ambíguos automaticamente.
+		if err := database.Exec("DELETE FROM chat_messages WHERE content=?", "resultado duplicado injetado pela fixture").Error; err != nil {
+			t.Fatal(err)
+		}
 	}
 	if invalid {
 		if err := AdoptLegacyData(owner.ID); err == nil {
@@ -108,7 +136,7 @@ func testPublishedDatabase019Upgrade(t *testing.T, invalid bool) {
 		messages[1].ParentID == nil || *messages[1].ParentID != messages[0].ID {
 		t.Fatalf("hierarquia não preservada: %#v", messages)
 	}
-	if err := LoadMessageAudios(WithUserID(context.Background(), owner.ID), database, messages, true); err != nil {
+	if err := LoadMessageAudios(WithUserID(context.Background(), owner.ID), database, messages, AudioAll); err != nil {
 		t.Fatal(err)
 	}
 	if messages[0].Audio != "AQID" || messages[0].AudioOrigin != AttachmentLegacyUnknown {

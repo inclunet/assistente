@@ -13,15 +13,18 @@ import (
 
 func TestRichExportDeduplicatesAudioByBytesAndMIME(t *testing.T) {
 	for _, tc := range []struct {
-		name, audio, mime string
-		count             int
+		name, audio, mime, mediaMIME string
+		count                        int
 	}{
-		{"equivalent_base64", "/w==", "audio/wav", 1},
-		{"different_bytes", "/g==", "audio/wav", 2},
-		{"different_mime", "/w==", "audio/mpeg", 2},
+		{"equivalent_base64", "/w==", "audio/wav", "audio/wav", 1},
+		{"different_bytes", "/g==", "audio/wav", "audio/wav", 2},
+		{"different_mime", "/w==", "audio/mpeg", "audio/wav", 2},
+		{"audio_parameters", "/w==", "Audio/WAV; codecs=pcm", "audio/wav", 1},
+		{"media_parameters", "/w==", "audio/wav", "audio/wav; codecs=pcm", 1},
+		{"both_parameters", "/w==", "audio/wav; codecs=pcm", "audio/wav; codecs=pcm", 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			msg := MessageExport{Media: `[{"type":"audio/wav","data":"/x==","name":"gravacao.wav"}]`, Audio: tc.audio, AudioMimeType: tc.mime}
+			msg := MessageExport{Media: `[{"type":"` + tc.mediaMIME + `","data":"/x==","name":"gravacao.wav"}]`, Audio: tc.audio, AudioMimeType: tc.mime}
 			if html := string(renderMessageMediaTemplate(msg)); strings.Count(html, "<audio ") != tc.count || !strings.Contains(html, "gravacao.wav") {
 				t.Fatal("HTML lost or duplicated attachment", html)
 			}

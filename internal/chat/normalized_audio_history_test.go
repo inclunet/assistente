@@ -25,7 +25,7 @@ func TestNormalizedAudioReachesSendAndRetryHistory(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newSnapshotFixture(t)
-			message, err := database.CreateMessageWithContext(f.ctx, database.MessageOptions{ConversationID: f.conversation, Role: "user", Content: tc.text, Media: tc.media, Audio: "/w==", AudioMimeType: "audio/wav", AudioOrigin: tc.origin})
+			message, err := database.CreateMessageWithContext(f.ctx, database.MessageOptions{ConversationID: f.conversation, Role: "user", Content: tc.text, Media: tc.media, Audio: "/w==", AudioMimeType: "Audio/WAV; codecs=pcm", AudioOrigin: tc.origin})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -58,7 +58,11 @@ func TestNormalizedAudioReachesSendAndRetryHistory(t *testing.T) {
 						for _, part := range candidate.Content.([]interface{}) {
 							object := part.(map[string]interface{})
 							if object["type"] == "input_audio" {
-								audio := object["input_audio"].(map[string]interface{})["data"].(string)
+								audioPart := object["input_audio"].(map[string]interface{})
+								if audioPart["format"] != "wav" {
+									t.Fatalf("formato não normalizado: %v", audioPart)
+								}
+								audio := audioPart["data"].(string)
 								decoded, err := base64.StdEncoding.DecodeString(audio)
 								if err != nil || len(decoded) != 1 || decoded[0] != 255 {
 									t.Fatal("audio bytes lost", err)

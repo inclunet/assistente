@@ -201,7 +201,11 @@ func buildConversationExportsTx(ctx context.Context, tx *gorm.DB, conversationID
 		Find(&messages).Error; err != nil {
 		return nil, fmt.Errorf("erro ao buscar mensagens das conversas para exportação: %w", err)
 	}
-	if err := database.LoadMessageAudios(ctx, tx, messages, includeAudio); err != nil {
+	selection := database.AudioPreserved
+	if includeAudio {
+		selection = database.AudioAll
+	}
+	if err := database.LoadMessageAudios(ctx, tx, messages, selection); err != nil {
 		return nil, err
 	}
 	invocationsByConversation, err := loadConversationToolInvocationExports(ctx, tx, userID, uniqueIDs)

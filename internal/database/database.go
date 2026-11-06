@@ -353,6 +353,7 @@ func AdoptLegacyData(userID string) error {
 	}
 	audioSchemaReady := applied[45]
 	err = db.Transaction(func(tx *gorm.DB) error {
+		adoptedConversations := false
 		tables := []string{
 			"llm_providers",
 			"conversations",
@@ -363,14 +364,16 @@ func AdoptLegacyData(userID string) error {
 			if !tx.Migrator().HasTable(table) {
 				continue
 			}
-			if err := tx.Exec(
-				fmt.Sprintf("UPDATE %s SET user_id = ? WHERE user_id IS NULL OR user_id = ''", table),
-				userID,
-			).Error; err != nil {
-				return err
+			result := tx.Exec(
+				fmt.Sprintf("UPDATE %s SET user_id = ? WHERE user_id IS NULL OR user_id = ''", table), userID)
+			if result.Error != nil {
+				return result.Error
+			}
+			if table == "conversations" {
+				adoptedConversations = result.RowsAffected > 0
 			}
 		}
-		if audioSchemaReady {
+		if audioSchemaReady && adoptedConversations {
 			if err := migrateOwnedMessageAudio(tx, userID); err != nil {
 				return err
 			}
@@ -445,7 +448,14 @@ func AdoptLegacyData(userID string) error {
 		return err
 	}
 	if !applied[45] {
-		return fmt.Errorf("armazenamento de áudio aguarda migração: %w", ErrChatTurnMigrationPending)
+		var pending []struct {
+			LastErrorCode string
+			Resources     int64
+		}
+		if err := db.Model(&ToolLedgerMigrationState{}).Select("last_error_code, COUNT(*) AS resources").Where("state = ?", toolLedgerStatePending).Group("last_error_code").Order("last_error_code").Scan(&pending).Error; err != nil {
+			return err
+		}
+		return fmt.Errorf("migração bloqueada após adoção: %v; diagnóstico e reconciliação offline em docs/operations/tool-invocation-ledger-migration.md; repetir login sem corrigir a causa não resolve", pending)
 	}
 	return nil
 

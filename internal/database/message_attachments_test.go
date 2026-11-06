@@ -162,7 +162,7 @@ func TestAudioMigrationPreservesProvenanceAndBackup(t *testing.T) {
 		t.Fatal("migration changed historical timestamp", changed, err)
 	}
 	messages := []ChatMessage{{UUIDModel: UUIDModel{ID: "received"}}, {UUIDModel: UUIDModel{ID: "unknown"}}}
-	if err := LoadMessageAudios(WithUserID(context.Background(), "user"), tx, messages, false); err != nil {
+	if err := LoadMessageAudios(WithUserID(context.Background(), "user"), tx, messages, AudioPreserved); err != nil {
 		t.Fatal(err)
 	}
 	if messages[0].Audio != "AQID" || messages[0].AudioOrigin != AttachmentReceived || messages[1].AudioOrigin != AttachmentLegacyUnknown || messages[1].Audio != "AQID" {
@@ -246,5 +246,77 @@ func TestLegacyAudioIsNormalizedAtomicallyOnAdoption(t *testing.T) {
 	tx.Raw("SELECT audio FROM chat_messages WHERE id='legacy-audio'").Scan(&legacy)
 	if legacy != "" {
 		t.Fatal("adoção manteve duas fontes")
+	}
+}
+
+func TestAudioHistoryLoadsOnlyReceivedAttachments(t *testing.T) {
+	_, ctx, original := audioRuntimeFixture(t)
+	var all []ChatMessage
+	for _, origin := range []string{AttachmentReceived, AttachmentGenerated, AttachmentLegacyUnknown} {
+		m, err := CreateMessageWithContext(ctx, MessageOptions{ConversationID: original.ConversationID, Role: "user", Content: origin, Audio: "AQID", AudioMimeType: "audio/wav", AudioOrigin: origin})
+		if err != nil {
+			t.Fatal(err)
+		}
+		all = append(all, *m)
+	}
+	for _, retry := range []bool{false, true} {
+		var messages []ChatMessage
+		if retry {
+			window, err := NewMessageRepository(db).LoadHistoryWindowThroughMessageWithContext(ctx, original.ConversationID, all[2].ID, 50)
+			if err != nil {
+				t.Fatal(err)
+			}
+			messages = window.Messages
+		} else {
+			window, err := NewMessageRepository(db).LoadHistoryWindowWithContext(ctx, original.ConversationID, 50)
+			if err != nil {
+				t.Fatal(err)
+			}
+			messages = window.Messages
+		}
+		seen := 0
+		for _, m := range messages {
+			for _, target := range all {
+				if m.ID == target.ID {
+					seen++
+					if target.AudioOrigin == AttachmentReceived {
+						if m.Audio != "AQID" {
+							t.Fatal("áudio recebido ausente")
+						}
+					} else if m.Audio != "" || m.AudioOrigin != "" {
+						t.Fatal("carregou áudio fora do contexto")
+					}
+				}
+			}
+		}
+		if seen != 3 {
+			t.Fatalf("mensagens ausentes: %d", seen)
+		}
+	}
+}
+
+func TestAdoptionWithoutOrphansDoesNotScanMessageAudio(t *testing.T) {
+	database, _, _ := audioRuntimeFixture(t)
+	scans := 0
+	const callback = "test:audio_adoption_scan"
+	if err := database.Callback().Query().Before("gorm:query").Register(callback, func(tx *gorm.DB) {
+		if tx.Statement.Table == "chat_messages" {
+			scans++
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := database.Callback().Query().Remove(callback); err != nil {
+			t.Error(err)
+		}
+	}()
+	for range 2 {
+		if err := AdoptLegacyData("audio-owner"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if scans != 0 {
+		t.Fatalf("adoção sem órfãos consultou mensagens %d vezes", scans)
 	}
 }

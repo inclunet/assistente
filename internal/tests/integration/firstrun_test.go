@@ -331,7 +331,7 @@ func TestIntegration_FirstMessageWithAudio(t *testing.T) {
 	}
 
 	hydrated := []database.ChatMessage{retrieved}
-	if err := database.LoadMessageAudios(ctx, db, hydrated, true); err != nil {
+	if err := database.LoadMessageAudios(ctx, db, hydrated, database.AudioAll); err != nil {
 		t.Fatal(err)
 	}
 	retrieved = hydrated[0]

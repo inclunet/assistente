@@ -96,8 +96,16 @@ func storeMessageAudio(tx *gorm.DB, messageID, data, mime, origin string) error 
 	return tx.Exec(`INSERT INTO chat_message_attachments(message_id,purpose,position,content_id,origin,mime_type) VALUES (?,'audio',0,?,?,?) ON CONFLICT(message_id,purpose,position) DO UPDATE SET content_id=excluded.content_id,origin=excluded.origin,mime_type=excluded.mime_type`, messageID, contentID, origin, mime).Error
 }
 
+type AudioSelection int
+
+const (
+	AudioAll AudioSelection = iota
+	AudioPreserved
+	AudioReceivedOnly
+)
+
 // Hydrate only consumers requiring audio. Visual readers never call this method.
-func LoadMessageAudios(ctx context.Context, tx *gorm.DB, messages []ChatMessage, includeGenerated bool) error {
+func LoadMessageAudios(ctx context.Context, tx *gorm.DB, messages []ChatMessage, selection AudioSelection) error {
 	user, err := RequireUserID(ctx)
 	if err != nil {
 		return err
@@ -119,8 +127,14 @@ func LoadMessageAudios(ctx context.Context, tx *gorm.DB, messages []ChatMessage,
 			Content                             []byte
 		}
 		q := tx.WithContext(ctx).Table("chat_message_attachments a").Select("a.message_id,a.origin,a.mime_type,b.sha256,b.size,b.content").Joins("JOIN chat_attachment_contents b ON b.id=a.content_id").Joins("JOIN chat_messages m ON m.id=a.message_id").Joins("JOIN conversations c ON c.id=m.conversation_id").Where("c.user_id=? AND b.user_id=? AND a.purpose='audio' AND a.message_id IN ?", user, user, ids)
-		if !includeGenerated {
+		switch selection {
+		case AudioAll:
+		case AudioPreserved:
 			q = q.Where("a.origin<>?", AttachmentGenerated)
+		case AudioReceivedOnly:
+			q = q.Where("a.origin=?", AttachmentReceived)
+		default:
+			return errors.New("seleção de áudio inválida")
 		}
 		if err := q.Scan(&rows).Error; err != nil {
 			return err

@@ -165,7 +165,7 @@ func (l *MediaHistoryLoader) format(ctx context.Context, dbMessages []Message, e
 				}
 			}
 			if !present {
-				mediaParts = append(mediaParts, map[string]interface{}{"type": m.AudioMimeType, "data": m.Audio})
+				mediaParts = append(mediaParts, map[string]interface{}{"type": NormalizeAudioMIME(m.AudioMimeType), "data": m.Audio})
 			}
 		}
 		msg.Content = m.Content
