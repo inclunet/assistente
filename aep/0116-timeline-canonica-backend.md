@@ -151,6 +151,20 @@ passaram, além de build/vet/lint. Os nove testes de comandos contextuais passar
 passagem pelo coordenador na compensação. O E2E de envio pelo modal também passou.
 
 
+Terceira rodada Copilot (#1023): a limpeza confirmada também autoriza descartar
+as versões voláteis presentes no recebimento do evento, após obter snapshot
+válido. Não tenta reservar fontes já removidas. Uma publicação nova durante a
+operação continua protegida, e Refresh comum mantém o gate de transferência.
+Falha da consulta conserva o visual anterior; regressões cobrem ambos os resultados.
+A revisão independente também restringiu liberações às reservas capturadas na
+confirmação, preservando transferências posteriores. Noventa testes do cliente
+e transporte passaram. O E2E de limpar expôs uma fixture que exigia revisão
+exata em Refresh; foi alinhada a `acceptsSnapshotRevision` do backend (intervalo
+entre último snapshot e revisão atual), mantendo Navigate/SetRetention estritos.
+Revalidação: nove E2Es de toolbar aprovados (um skip preexistente), TypeScript
+e lint aprovados; `review_store_coverage` aprovou o cliente e a fixture.
+
+
 ### Decisão: identidade de apresentação após confirmação (2026-11-05)
 
 Aprovada pelo mantenedor para o cutover. Esta decisão substitui a troca de IDs

@@ -81,6 +81,45 @@ describe('ChatTimelineClient', () => {
     await f.client.dispose();
   });
 
+  it.each([false, true])('limpeza descarta parcial congelado somente após snapshot válido: falha=%s', async fail => {
+    const f = fixture();
+    f.port.open.mockResolvedValueOnce(contentSnapshot(true));
+    await f.open();
+    f.emit(event('a', { syncRequired: true, updates: [] }));
+    f.port.reserveItem.mockRejectedValue(new Error('removed source'));
+    if (fail) f.port.refresh.mockRejectedValueOnce(new Error('offline'));
+    if (fail) {
+      await expect(f.client.conversationCleared('chat')).rejects.toThrow('offline');
+      expect(f.client.getWindow('chat', 'a')?.orderedItemIds).toEqual(['item']);
+      expect(f.port.navigate).not.toHaveBeenCalled();
+    } else {
+      await f.client.conversationCleared('chat');
+      expect(f.client.getWindow('chat', 'a')?.orderedItemIds).toEqual([]);
+      expect(f.port.navigate).toHaveBeenCalledWith('a', 'epoch', '3', 'followTail', expect.anything());
+    }
+    expect(f.port.reserveItem).not.toHaveBeenCalled();
+    await f.client.dispose();
+  });
+
+  it('limpeza não autoriza descartar parcial novo recebido enquanto aguarda navegação', async () => {
+    const f = fixture();
+    f.port.open.mockResolvedValueOnce(contentSnapshot(true));
+    await f.open();
+    const pending = deferred<TimelineSnapshot>();
+    f.port.navigate.mockReturnValueOnce(pending.promise);
+    const navigation = f.client.navigate('chat', 'a', 'historical', position);
+    const clearing = f.client.conversationCleared('chat');
+    const rejected = expect(clearing).rejects.toThrow('ownership transfer');
+    const fresh = contentSnapshot(true);
+    fresh.windowRevision = '3'; fresh.sequence = '12'; fresh.items[0].revision = '12';
+    fresh.items[0].executionId = 'new-execution';
+    pending.resolve(fresh);
+    await navigation;
+    await rejected;
+    expect(f.client.getItem('chat', 'a', 'item')?.executionId).toBe('new-execution');
+    await f.client.dispose();
+  });
+
   it('reset descarta janelas de todas as conversas e Open pendente', async () => {
     const f = fixture();
     f.port.open.mockResolvedValueOnce(contentSnapshot(false));
@@ -585,6 +624,33 @@ function itemRecoveryFixture() {
 }
 
 describe('Refresh com transferência de recuperação', () => {
+  it('limpeza não libera recuperação de execução nova transferida durante a espera', async () => {
+    const f = itemRecoveryFixture();
+    await f.open();
+    const fresh = structuredClone(f.original);
+    fresh.items[0].executionId = 'new-execution';
+    fresh.items[0].recoveryReference!.executionId = 'new-execution';
+    fresh.windowRevision = '3'; fresh.sequence = fresh.items[0].revision = '12';
+    const pending = deferred<TimelineSnapshot>();
+    f.port.refresh.mockReturnValueOnce(pending.promise);
+    f.port.refresh.mockImplementation(async window => snapshot(window, { windowRevision: '4', sequence: '13' }));
+    f.port.readItem.mockImplementation(async (_window, identity) => identity.reference.executionId === 'new-execution' ? fresh.items[0] : f.original.items[0]);
+    let next: Promise<void> | undefined;
+    const unsubscribe = f.client.subscribe(() => {
+      if (!next && f.client.getItem('chat', 'a', 'item')?.executionId === 'new-execution') next = f.client.refresh('chat');
+    });
+    const refreshing = f.client.refresh('chat');
+    const clearing = f.client.conversationCleared('chat');
+    pending.resolve(fresh);
+    await refreshing;
+    await clearing;
+    await next;
+    expect(f.client.getRecoveredItems('chat').map(item => item.identity.reference.executionId)).toEqual(['new-execution']);
+    expect(f.port.releaseItem.mock.calls.every(([, identity]) => identity.reference.executionId !== 'new-execution')).toBe(true);
+    unsubscribe();
+    await f.client.dispose();
+  });
+
   it.each([false, true])('limpa thread recuperada somente após liberar a reserva: falha=%s', async fail => {
     const f = itemRecoveryFixture();
     f.original.scopeParentId = 'parent';

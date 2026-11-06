@@ -1,5 +1,5 @@
 import { TimelineRecoveryReader, type TimelineRecoveryHandle, type TimelineRecoveryTransport } from './timelineRecoveryReader';
-import type { ChatTimelineEvent, TimelineRecoveryReference } from '../types/chatTimelineEvents';
+import type { ChatTimelineEvent, TimelineItem, TimelineRecoveryReference } from '../types/chatTimelineEvents';
 import { TimelineCacheBudget } from './timelineCacheBudget';
 import { revision } from './timelineBatch';
 import { TimelineConversationState, type TimelineSnapshot } from './timelineConversationState';
@@ -158,6 +158,10 @@ export class ChatTimelineClient {
 
   /** Refresh é a única recuperação de época. Falha parcial conserva a apresentação congelada. */
   refresh(conversationId: string, positions: ReadonlyMap<string, TimelinePosition> = new Map()): Promise<void> {
+    return this.refreshConversation(conversationId, positions);
+  }
+
+  private refreshConversation(conversationId: string, positions: ReadonlyMap<string, TimelinePosition>, discarded: ReadonlySet<TimelineItem> = new Set()): Promise<void> {
     this.assertActive();
     const conversation = this.conversations.get(conversationId);
     if (!conversation) return Promise.reject(new Error('Unknown timeline conversation'));
@@ -176,6 +180,7 @@ export class ChatTimelineClient {
     const recovery = Promise.resolve().then(async () => {
       // Reserve antes de Refresh: o snapshot pode retirar a revisão antiga do cache.
       for (const { epoch, item } of conversation.state.protectedItems()) {
+        if (discarded.has(item)) continue;
         const identity = recoveryItemIdentity(epoch, item);
         if (!identity) continue;
         const key = recoveryItemKey(identity);
@@ -217,7 +222,7 @@ export class ChatTimelineClient {
       if (failed?.status === 'rejected' || candidate.recoveryReason) {
         throw failed?.status === 'rejected' ? failed.reason : new Error(`Timeline recovery rejected: ${candidate.recoveryReason}`);
       }
-      const needed = () => conversation.state.protectedItemsLostBy(candidate).map(({ epoch, item }) => {
+      const needed = () => conversation.state.protectedItemsLostBy(candidate).filter(({ item }) => !discarded.has(item)).map(({ epoch, item }) => {
         const identity = recoveryItemIdentity(epoch, item);
         const key = identity && recoveryItemKey(identity);
         const owner = requests.find(({ slot }) => !slot.closed && key && slot.recoveryItems?.get(key)?.verified);
@@ -366,6 +371,15 @@ export class ChatTimelineClient {
   async conversationCleared(conversationId: string): Promise<void> {
     const conversation = this.conversations.get(conversationId);
     if (!conversation || this.disposed) return;
+    // Autoriza somente o descarte das versões presentes na confirmação.
+    // Uma publicação nova durante os awaits mantém a proteção normal.
+    const protectedAtClear = conversation.state.protectedItems();
+    const discarded = new Set(protectedAtClear.map(({ item }) => item));
+    const discardedReservations = new Set(this.getRecoveredItems(conversationId).map(item => recoveryItemKey(item.identity)));
+    for (const { epoch, item } of protectedAtClear) {
+      const identity = recoveryItemIdentity(epoch, item);
+      if (identity) discardedReservations.add(recoveryItemKey(identity));
+    }
     // A limpeza confirmada exige uma nova leitura, mesmo se uma fronteira
     // histórica tiver congelado a janela. Nunca fabricar uma janela vazia.
     for (;;) {
@@ -378,7 +392,7 @@ export class ChatTimelineClient {
     // A limpeza foi confirmada pelo usuário e persistida pelo backend. Liberar
     // pela RPC antes de fechar comprova o descarte, sem apagar reservas locais.
     for (const item of this.getRecoveredItems(conversationId)) {
-      await this.releaseRecoveredItem(conversationId, item);
+      if (discardedReservations.has(recoveryItemKey(item.identity))) await this.releaseRecoveredItem(conversationId, item);
     }
     for (const [surface, slot] of conversation.slots) {
       if (slot.scope !== null) await this.close(conversationId, surface);
@@ -388,7 +402,7 @@ export class ChatTimelineClient {
     if (!roots.length) return;
     await this.cleanupRecoveryItems(conversationId);
     const position = { cursor: '', anchor: 'end', anchorItemId: '', direction: 'before', limit: 80 };
-    await this.refresh(conversationId, new Map(roots.map(([surface]) => [surface, position])));
+    await this.refreshConversation(conversationId, new Map(roots.map(([surface]) => [surface, position])), discarded);
     if (this.disposed || this.conversations.get(conversationId) !== conversation) return;
     for (const [surface, slot] of roots) {
       if (!slot.closed) await this.navigate(conversationId, surface, 'followTail', position);
