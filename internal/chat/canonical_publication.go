@@ -184,8 +184,7 @@ func (c *projectionConversation) publishCanonicalWindowChanges(conversationID st
 			// Reserva os 20 dígitos possíveis da sequência uint64, inclusive antes
 			// da primeira operação deste estágio atribuir sua revisão definitiva.
 			measured.Revision = "18446744073709551615"
-			encoded, _ := json.Marshal(measured)
-			c.publicationStage.itemSizes[next.ItemID] = len(encoded)
+			c.publicationStage.itemSizes[next.ItemID] = canonicalJSONSize(measured)
 		}
 		delta := canonicalDiff(previous, next)
 		if c.publicationStage != nil {
@@ -237,16 +236,16 @@ func (c *projectionConversation) publishCanonicalWindowChanges(conversationID st
 }
 
 func (p *canonicalPublication) recordBatch(batch CanonicalBatch) {
-	encoded, _ := json.Marshal(batch)
-	if len(encoded) > canonicalReplayBytes {
+	size := canonicalJSONSize(batch)
+	if size > canonicalReplayBytes {
 		p.batches = nil
 		p.sizes = nil
 		p.bytes = 0
 		return
 	}
 	p.batches = append(p.batches, batch)
-	p.sizes = append(p.sizes, len(encoded))
-	p.bytes += len(encoded)
+	p.sizes = append(p.sizes, size)
+	p.bytes += size
 	for len(p.batches) > canonicalReplayBatches || p.bytes > canonicalReplayBytes {
 		p.bytes -= p.sizes[0]
 		p.batches[0] = CanonicalBatch{}
@@ -265,11 +264,11 @@ func (p *canonicalPublication) removeItem(id string) {
 // Este cache é apenas a base de diff, não o conteúdo vivo nem a retenção da UI.
 // Evicção perde a base: a próxima publicação obrigatoriamente usa upsert.
 func (p *canonicalPublication) cacheItem(item CanonicalItem) {
-	encoded, _ := json.Marshal(item)
+	size := canonicalJSONSize(item)
 	if old, ok := p.itemSizes[item.ItemID]; ok {
 		p.itemBytes -= old
 	}
-	if len(encoded) > canonicalItemCacheBytes {
+	if size > canonicalItemCacheBytes {
 		p.itemOrder = slices.DeleteFunc(p.itemOrder, func(id string) bool { return id == item.ItemID })
 		delete(p.items, item.ItemID)
 		delete(p.itemSizes, item.ItemID)
@@ -279,8 +278,8 @@ func (p *canonicalPublication) cacheItem(item CanonicalItem) {
 		p.itemOrder = append(p.itemOrder, item.ItemID)
 	}
 	p.items[item.ItemID] = item
-	p.itemSizes[item.ItemID] = len(encoded)
-	p.itemBytes += len(encoded)
+	p.itemSizes[item.ItemID] = size
+	p.itemBytes += size
 	for len(p.items) > canonicalItemCacheCount || p.itemBytes > canonicalItemCacheBytes {
 		id := p.itemOrder[0]
 		p.itemOrder = p.itemOrder[1:]
@@ -321,4 +320,20 @@ func (p canonicalPublication) fork() canonicalPublication {
 	p.batches = slices.Clone(p.batches)
 	p.sizes = slices.Clone(p.sizes)
 	return p
+}
+
+// As cotas precisam do tamanho exato do encoder, não de uma cópia dos bytes.
+// Os DTOs canônicos são acíclicos e contêm apenas tipos serializáveis.
+func canonicalJSONSize(value any) int {
+	var counter canonicalByteCounter
+	_ = json.NewEncoder(&counter).Encode(value)
+	// Encoder acrescenta um newline que não pertence ao payload de Marshal.
+	return max(0, counter.bytes-1)
+}
+
+type canonicalByteCounter struct{ bytes int }
+
+func (c *canonicalByteCounter) Write(data []byte) (int, error) {
+	c.bytes += len(data)
+	return len(data), nil
 }
