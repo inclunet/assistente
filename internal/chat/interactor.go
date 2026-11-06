@@ -754,7 +754,7 @@ func (i *Interactor) ResolveUserContent(ctx context.Context, req ResolveUserCont
 
 	content := req.Content
 	needsSTT := false
-	if content == "" && (req.Media != "" || audioBase64 != "") {
+	if content == "" && audioBase64 != "" {
 		if req.Source != "wails" {
 			stt := req.STTProvider
 			if stt == "webspeech" || stt == "" {
