@@ -15,20 +15,21 @@ function item(id: string, scope: string | null = null): TimelineItem {
 
 function fixture() {
   const scopes = new Map<string, string | null>();
+  const modes = new Map<string, 'historical' | 'followTail'>();
   let nextItems = [item('second'), item('first')];
   const snapshot = (surface: string, scope: string | null): TimelineSnapshot => ({
-    conversationId: 'conversation', scopeParentId: scope, windowId: surface, epoch: 'epoch', windowRevision: '1', sequence: '1', mode: 'historical',
+    conversationId: 'conversation', scopeParentId: scope, windowId: surface, epoch: 'epoch', windowRevision: '1', sequence: '1', mode: modes.get(surface) ?? 'historical',
     orderedItemIds: nextItems.map(value => value.itemId), items: nextItems, retainedItemIds: [], retentionBlocked: false,
     totalCount: nextItems.length, startIndex: 0, endIndex: nextItems.length, hasBefore: false, hasAfter: false, beforeCursor: '', afterCursor: '',
   });
   const transport: TimelineTransport = {
     listen: () => () => {}, open: vi.fn(async (_conversation, surface, scope) => { scopes.set(surface, scope); return snapshot(surface, scope); }),
-    navigate: vi.fn(async window => snapshot(window, scopes.get(window) ?? null)), refresh: vi.fn(async window => snapshot(window, null)), retain: vi.fn(async (windowId, epoch, windowRevision) => ({ windowId, epoch, windowRevision })), close: vi.fn(async () => {}),
+    navigate: vi.fn(async (window, _epoch, _revision, mode) => { modes.set(window, mode); return snapshot(window, scopes.get(window) ?? null); }), refresh: vi.fn(async window => snapshot(window, null)), retain: vi.fn(async (windowId, epoch, windowRevision) => ({ windowId, epoch, windowRevision })), close: vi.fn(async () => {}),
     readRecovery: vi.fn(), reserveRecovery: vi.fn(), releaseRecovery: vi.fn(), reserveItem: vi.fn(), readItem: vi.fn(), releaseItem: vi.fn(),
   };
   const client = new ChatTimelineClient(transport, surface => surface);
   const presentation = new ChatTimelinePresentation(client, 'conversation', 'surface');
-  return { presentation, transport, setItems(items: TimelineItem[]) { nextItems = items; } };
+  return { presentation, transport, modes, setItems(items: TimelineItem[]) { nextItems = items; } };
 }
 
 describe('canonical presentation', () => {
@@ -120,6 +121,49 @@ it('normal Refresh preserves the backend position and mode instead of choosing a
  await f.presentation.refresh();
  expect(f.transport.refresh).toHaveBeenCalledWith('surface', '1', undefined);
  await f.presentation.close();
+});
+
+it('accepts an empty navigation snapshot as the authoritative window', async () => {
+ const f = fixture(); await f.presentation.open();
+ f.setItems([]);
+ await f.presentation.navigate('newer');
+ expect(f.presentation.nodes()).toEqual([]);
+ expect(f.presentation.window?.metadata).toMatchObject({ totalCount: 0, hasBefore: false, hasAfter: false });
+ await f.presentation.close();
+});
+
+it.each(['start', 'end'] as const)('navigates to %s using the backend anchor and replaces membership', async direction => {
+ const f = fixture(); await f.presentation.open();
+ f.modes.set('surface', direction === 'end' ? 'historical' : 'followTail');
+ await f.presentation.refresh();
+ expect(f.presentation.window?.mode).toBe(direction === 'end' ? 'historical' : 'followTail');
+ expect(f.presentation.window?.metadata).toMatchObject({ hasBefore: false, hasAfter: false });
+ f.setItems([item('destination')]);
+ await f.presentation.navigate(direction);
+ expect(f.transport.navigate).toHaveBeenLastCalledWith('surface', 'epoch', '1', direction === 'end' ? 'followTail' : 'historical',
+   expect.objectContaining({ anchor: direction, cursor: '', direction: direction === 'end' ? 'before' : 'after' }));
+ expect(f.presentation.nodes().map(node => node.itemId)).toEqual(['destination']);
+ expect(f.presentation.window?.mode).toBe(direction === 'end' ? 'followTail' : 'historical');
+ await f.presentation.close();
+});
+
+it('keeps navigation loading local to the requesting presentation', async () => {
+ const f = fixture(); await f.presentation.open();
+ const other = new ChatTimelinePresentation(f.presentation.client, 'conversation', 'other');
+ await other.open();
+ let release!: () => void;
+ const gate = new Promise<void>(resolve => { release = resolve; });
+ const navigate = vi.mocked(f.transport.navigate).getMockImplementation()!;
+ vi.mocked(f.transport.navigate).mockImplementationOnce(async (...args) => {
+   await gate;
+   return navigate(...args);
+ });
+ const pending = f.presentation.navigate('older');
+ expect(f.presentation.loading).toBe(true);
+ expect(other.loading).toBe(false);
+ release(); await pending;
+ expect(f.presentation.loading).toBe(false);
+ await f.presentation.close(); await other.close();
 });
 
 it.each(['preparing', 'completed'])('renders an empty conclusion received as a JSON array (%s)', async state => {

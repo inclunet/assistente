@@ -49,6 +49,11 @@ silenciosamente.
 
 ### Chat Inline
 
+Quando o resultado do chat é usado como texto no editor, o aplicativo lê a
+conclusão da execução iniciada por aquela solicitação. Isso preserva a posição
+do histórico que você está lendo. Fechar o modal ou mudar o destino invalida a
+operação pendente, evitando aplicar uma resposta tardia ao documento errado.
+
 O chat inline permite pedir para a IA editar, gerar ou transformar conteúdo diretamente no editor:
 
 1. Selecione o texto que quer alterar (ou posicione o cursor)

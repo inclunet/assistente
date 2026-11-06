@@ -16,7 +16,6 @@ import { useEditorStore, type EditorDocument } from '../store/editorStore';
 import type { WorkspaceTab } from '../store/workspaceStore';
 import { useQuestionnaireUIStore } from '../store/questionnaireUIStore';
 import { useUIStore } from '../store/uiStore';
-import { useChatStore } from '../store/chatStore';
 import { applyTextReplacementByOffset } from '../lib/editorPatchApply';
 import { applyRichTextInsert, type RichTextEditorLike } from '../lib/richTextPatchApply';
 import { validateRichTextSelectionSnapshot } from '../lib/richTextSelectionValidation';
@@ -27,7 +26,6 @@ import { getErrorMessage } from '../lib/editorContent';
 import { normalizePathKey } from '../utils/path';
 import { useEditorInlineChatPatch } from '../hooks/useEditorInlineChatPatch';
 import type { MediaFile } from '../services/mediaService';
-import type { Message } from '../store/chatStore';
 import { isAppToolEvent } from '../types/chat';
 import { GetProfile } from '@wailsjs/go/wailsapi/Profiles';
 import {
@@ -127,7 +125,7 @@ export function useEditorInlineChat({
   const { t } = useTranslation();
   const addToast = useUIStore((s) => s.addToast);
   const requestQuestionnaire = useQuestionnaireUIStore((s) => s.request);
-  const { waitForChatDone, waitForEditorPatch, getMaxMessageId } = useEditorInlineChatPatch();
+  const { waitForChatDone, waitForEditorPatch } = useEditorInlineChatPatch();
 
   const [isAsking, setIsAsking] = useState(false);
   const inlineChatRunIdRef = useRef(0);
@@ -171,9 +169,6 @@ export function useEditorInlineChat({
 
     const expectedConversationId = session?.conversationId || workspaceTab?.conversationId || undefined;
     if (!expectedConversationId) return null;
-
-    const beforeMessages = useChatStore.getState().getConversationMessages(expectedConversationId);
-    const afterMessageId = getMaxMessageId(beforeMessages as Message[]);
 
     const trimmed = String(instruction || '').trim();
     if (!trimmed) return null;
@@ -382,6 +377,7 @@ export function useEditorInlineChat({
         ],
       });
 
+      if (runId !== inlineChatRunIdRef.current || !useWorkspaceChatModalStore.getState().isOpen) return;
       if (!resp.cancelled) {
         applyInlinePatchNow(selection, normalizedPatch);
         return;
@@ -401,6 +397,7 @@ export function useEditorInlineChat({
       // - tools ON  => edit_file com confirmação contextual (Go-side); fecha só se o documento mudou
       // - tools OFF => body-only (extrai ```editor_patch``` do texto e confirma aqui)
       const toolCallingEnabled = await isToolCallingEnabledForProfileSlug(effectiveProfileSlug);
+      if (runId !== inlineChatRunIdRef.current || !useWorkspaceChatModalStore.getState().isOpen) return null;
 
       // Drafts sem filePath não conseguem usar edit_file; nesse caso, cai para o
       // mesmo fluxo principal com fallback body-only e aplicação local do patch.
@@ -459,6 +456,7 @@ export function useEditorInlineChat({
         if (syncBeforeClose) {
           await syncAssistedChangeForTab(inlineChatSelection.tabId);
         }
+        if (runId !== inlineChatRunIdRef.current || !useWorkspaceChatModalStore.getState().isOpen) return;
         if (!didToolTurnChangeEditorMarkdown()) {
           useWorkspaceChatModalStore.getState().bumpFocus();
           setIsAsking(false);
@@ -481,21 +479,27 @@ export function useEditorInlineChat({
         context: surfaceContext,
       });
 
+      let executionId: string | undefined;
       const doneWaitAbortController = new AbortController();
-      const donePromise = waitForChatDone(expectedConversationId, undefined, doneWaitAbortController.signal);
+      const abortPendingCompletion = () => {
+        doneWaitAbortController.abort();
+        inlineChatToolCloseCleanupsRef.current.delete(abortPendingCompletion);
+      };
+      inlineChatToolCloseCleanupsRef.current.add(abortPendingCompletion);
+      const donePromise = waitForChatDone(expectedConversationId, () => executionId, undefined, doneWaitAbortController.signal);
       // O plano pode ser rejeitado antes de afterSend ser executado. Trate a
       // rejeição desde a criação para que o cancelamento não vire unhandled.
       void donePromise.catch(() => undefined);
       if (filePathBeforeToolTurn) {
-        unsubscribeEditorApplyToolStart = EventsOn('chat:tool_start', (data: { conversationId?: string; name?: string; origin?: string }) => {
-          if (String(data?.conversationId || '') !== expectedConversationId) return;
+        unsubscribeEditorApplyToolStart = EventsOn('chat:tool_start', (data: { conversationId?: string; name?: string; origin?: string; surfaceOrigin?: { executionId?: string } }) => {
+          if (String(data?.conversationId || '') !== expectedConversationId || !executionId || data.surfaceOrigin?.executionId !== executionId) return;
           if (!isAppToolEvent(data?.origin)) return;
           if (EDITOR_APPLY_TOOL_NAMES.has(String(data?.name || ''))) {
             sawEditorApplyTool = true;
           }
         });
-        unsubscribeEditorApplyToolEnd = EventsOn('chat:tool_end', (data: { conversationId?: string; name?: string; status?: string; origin?: string }) => {
-          if (String(data?.conversationId || '') !== expectedConversationId) return;
+        unsubscribeEditorApplyToolEnd = EventsOn('chat:tool_end', (data: { conversationId?: string; name?: string; status?: string; origin?: string; surfaceOrigin?: { executionId?: string } }) => {
+          if (String(data?.conversationId || '') !== expectedConversationId || !executionId || data.surfaceOrigin?.executionId !== executionId) return;
           if (!isAppToolEvent(data?.origin)) return;
           if (!EDITOR_APPLY_TOOL_NAMES.has(String(data?.name || ''))) return;
           if (String(data?.status || '') !== 'error') {
@@ -518,12 +522,19 @@ export function useEditorInlineChat({
         content: prompt,
         mediaFiles,
         paramsOverride: surfaceParams,
+        onExecutionStarted: id => { executionId = id; },
         afterSend: async () => {
           try {
-            const completedConversationId = await donePromise;
+            const completion = await donePromise;
 
             if (runId !== inlineChatRunIdRef.current) {
               stopTrackingAssistedFileChange();
+              return;
+            }
+            if (completion.reason !== 'completed' || completion.errorMessage) {
+              stopTrackingAssistedFileChange();
+              useWorkspaceChatModalStore.getState().bumpFocus();
+              setIsAsking(false);
               return;
             }
 
@@ -557,11 +568,8 @@ export function useEditorInlineChat({
             }
 
             // Fallback (sem tool calling): extrai patch do corpo da resposta e confirma.
-            const extracted = await waitForEditorPatch({
-              conversationId: completedConversationId,
-              afterMessageId,
-              timeoutMs: 8000,
-            });
+            const extracted = await waitForEditorPatch(completion, doneWaitAbortController.signal);
+            if (doneWaitAbortController.signal.aborted || runId !== inlineChatRunIdRef.current) return;
             if (!extracted.ok) {
               const errText = String(extracted.error || '').trim();
               if (/nenhum patch encontrado|não contém patch|patch vazio|json inválido|patch inválido|muito grande/i.test(errText)) {
@@ -575,20 +583,23 @@ export function useEditorInlineChat({
             await confirmInlinePatch(inlineChatSelection, extracted.patch as EditorPatch);
           } catch (e: unknown) {
             stopTrackingAssistedFileChange();
+            if (doneWaitAbortController.signal.aborted || runId !== inlineChatRunIdRef.current) return;
             logger.error('[useEditorInlineChat] inline chat error:', e);
             useWorkspaceChatModalStore.getState().setAdapterError(getErrorMessage(e) || t('editor.chatModal.requestChangeError'));
             setIsAsking(false);
+          } finally {
+            inlineChatToolCloseCleanupsRef.current.delete(abortPendingCompletion);
           }
         },
         onSendError: (e: unknown) => {
-          doneWaitAbortController.abort();
+          abortPendingCompletion();
           stopTrackingAssistedFileChange();
           logger.error('[useEditorInlineChat] inline chat error:', e);
           useWorkspaceChatModalStore.getState().setAdapterError(getErrorMessage(e) || t('editor.chatModal.requestChangeError'));
           setIsAsking(false);
         },
         onSendRejected: () => {
-          doneWaitAbortController.abort();
+          abortPendingCompletion();
           stopTrackingAssistedFileChange();
           setIsAsking(false);
         },

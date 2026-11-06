@@ -32,6 +32,24 @@ func (s *handlerTestTurnStore) EnsureResponse(ctx context.Context, conversationI
 func (s *handlerTestTurnStore) MarkStreaming(context.Context, string, string, string) error {
 	return nil
 }
+func (s *handlerTestTurnStore) SaveIntermediate(ctx context.Context, _, responseID string, opts database.MessageOptions) (*database.ChatMessage, error) {
+	message, err := s.repo.CreateMessage(ctx, opts)
+	if err != nil {
+		return nil, err
+	}
+	if responseID != "" {
+		response, err := s.repo.GetMessage(ctx, responseID)
+		if err != nil {
+			return nil, err
+		}
+		if response != nil {
+			if err := s.repo.UpdateMessageContentAndReasoning(ctx, responseID, "", "", response.PromptTokens, response.CompletionTokens, response.TotalTokens, response.Model); err != nil {
+				return nil, err
+			}
+		}
+	}
+	return message, nil
+}
 func (s *handlerTestTurnStore) WritePartial(ctx context.Context, _, messageID, content, reasoning string, onlyWhenEmpty bool) error {
 	if s.repo == nil {
 		return nil

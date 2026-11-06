@@ -85,6 +85,96 @@ func TestTurnExecutionAtomicResponseAndLateWrites(t *testing.T) {
 
 }
 
+func TestTurnIntermediateTransfersContentAtomically(t *testing.T) {
+	for _, failure := range []string{"", "insert", "clear"} {
+		t.Run(failure, func(t *testing.T) {
+			db := newChatTurnTestDB(t, false)
+			seedChatTurnTestMessages(t, db, "conv", "turn", "response")
+			if err := MigrateChatTurns(db); err != nil {
+				t.Fatal(err)
+			}
+			if err := MigrateChatExecutionContent(db); err != nil {
+				t.Fatal(err)
+			}
+			if err := db.Model(&ChatMessage{}).Where("id = ?", "response").Updates(map[string]any{"content": "prefixo", "reasoning": "pensamento"}).Error; err != nil {
+				t.Fatal(err)
+			}
+			ctx := WithUserID(context.Background(), "user")
+			repo := NewChatTurnRepository(db)
+			attempt, err := repo.Begin(ctx, "conv", "turn", "", TurnModeContinue)
+			if err != nil {
+				t.Fatal(err)
+			}
+			responseID, err := repo.EnsureResponse(ctx, "conv", "turn", attempt.ExecutionID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			switch failure {
+			case "insert":
+				if err := db.Exec(`CREATE TRIGGER reject_intermediate BEFORE INSERT ON chat_messages BEGIN SELECT RAISE(ABORT,'inserção indisponível'); END`).Error; err != nil {
+					t.Fatal(err)
+				}
+			case "clear":
+				if err := db.Exec(`CREATE TRIGGER reject_transfer BEFORE UPDATE OF content ON chat_messages WHEN NEW.content='' BEGIN SELECT RAISE(ABORT,'transferência indisponível'); END`).Error; err != nil {
+					t.Fatal(err)
+				}
+			}
+			turnID := "turn"
+			opts := MessageOptions{ConversationID: "conv", TurnID: &turnID, ChatExecutionID: &attempt.ExecutionID, Role: "assistant", Content: "prefixo e novo", Reasoning: "pensamento e novo", Model: "modelo"}
+			previousActivity := time.Now().Add(-time.Hour).UTC().Truncate(time.Second)
+			if err := db.Model(&Conversation{}).Where("id = ?", "conv").Update("updated_at", previousActivity).Error; err != nil {
+				t.Fatal(err)
+			}
+			intermediate, err := repo.SaveIntermediate(ctx, attempt.ExecutionID, responseID, opts)
+			if (err != nil) != (failure != "") {
+				t.Fatalf("transferência: %v", err)
+			}
+			var current, original ChatMessage
+			var conversation Conversation
+			if err := db.First(&conversation, "id = ?", "conv").Error; err != nil {
+				t.Fatal(err)
+			}
+			if failure == "" && !conversation.UpdatedAt.After(previousActivity) || failure != "" && !conversation.UpdatedAt.Equal(previousActivity) {
+				t.Fatalf("activity transaction: before=%v after=%v failure=%s", previousActivity, conversation.UpdatedAt, failure)
+			}
+			if err := db.First(&current, "id=?", responseID).Error; err != nil {
+				t.Fatal(err)
+			}
+			if err := db.First(&original, "id=?", "response").Error; err != nil {
+				t.Fatal(err)
+			}
+			if original.Content != "prefixo" || original.Reasoning != "pensamento" {
+				t.Fatalf("base anterior modificada: %+v", original)
+			}
+			var count int64
+			if err := db.Model(&ChatMessage{}).Where("chat_execution_id=? AND id<>?", attempt.ExecutionID, responseID).Count(&count).Error; err != nil {
+				t.Fatal(err)
+			}
+			if failure != "" {
+				if intermediate != nil || count != 0 || current.Content != "prefixo" || current.Reasoning != "pensamento" {
+					t.Fatalf("rollback incompleto: count=%d current=%+v intermediate=%+v", count, current, intermediate)
+				}
+				return
+			}
+			if count != 1 || current.Content != "" || current.Reasoning != "" || intermediate.Content != opts.Content || intermediate.Reasoning != opts.Reasoning {
+				t.Fatalf("fontes duplicadas/perdidas: current=%+v intermediate=%+v", current, intermediate)
+			}
+			if _, err := repo.SaveIntermediate(ctx, attempt.ExecutionID, "response", opts); !errors.Is(err, ErrChatTurnStale) {
+				t.Fatalf("aceitou representante anterior: %v", err)
+			}
+			if _, err := repo.SaveIntermediate(WithUserID(context.Background(), "outro"), attempt.ExecutionID, responseID, opts); err == nil {
+				t.Fatal("aceitou outro usuário")
+			}
+			if err := repo.FinishResponse(ctx, "conv", turnID, attempt.ExecutionID, TurnInterrupted, "restart", "", nil); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := repo.SaveIntermediate(ctx, attempt.ExecutionID, responseID, opts); !errors.Is(err, ErrChatTurnStale) {
+				t.Fatalf("aceitou execução encerrada: %v", err)
+			}
+		})
+	}
+}
+
 func TestTurnExecutionReconcilesLegacyButPreservesCanonicalResponse(t *testing.T) {
 	db := newChatTurnTestDB(t, false)
 	seedChatTurnTestMessages(t, db, "conv", "turn", "old")

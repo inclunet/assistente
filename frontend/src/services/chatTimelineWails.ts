@@ -69,10 +69,16 @@ export function getChatTimelineClient(): ChatTimelineClient {
   if (!isAuthenticated || !user) throw new Error('Authenticated timeline session required');
   if (!current) {
     const client = new ChatTimelineClient(transport);
-    const unsubscribe = useAuthStore.subscribe(state => {
+    const unsubscribeDeleted = EventsOn('conversation:deleted', (event: { conversation_id?: string }) => {
+      if (!event.conversation_id || current?.client !== client) return;
+      void client.conversationDeleted(event.conversation_id)
+        .catch(error => logger.error('[chatTimeline] deleted conversation cleanup failed', error));
+    });
+    const unsubscribeAuth = useAuthStore.subscribe(state => {
       if (state.isAuthenticated && state.user?.userId === user.userId && state.user?.sessionId === user.sessionId) return;
       if (current?.client === client) discardCurrent();
     });
+    const unsubscribe = () => { unsubscribeDeleted(); unsubscribeAuth(); };
     current = { userId: user.userId, sessionId: user.sessionId, client, unsubscribe };
   }
   return current.client;

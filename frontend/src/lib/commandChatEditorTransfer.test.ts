@@ -11,7 +11,8 @@ import { registerEditorTransferSurface } from './commandEditorTransfer';
 import { useAuthStore } from '../store/authStore';
 import { useWorkspaceStore, type WorkspaceData } from '../store/workspaceStore';
 import { useEditorStore } from '../store/editorStore';
-import { useChatStore, type Message } from '../store/chatStore';
+import type { Message } from '../store/chatStore';
+import { createStore } from 'zustand/vanilla';
 import { useWorkspaceChatModalStore } from '../store/workspaceChatModalStore';
 import { getModalRegistrySnapshot, registerChatPresentationModalScope, registerOpenModal, unregisterOpenModal } from './modalRegistry';
 
@@ -22,10 +23,12 @@ vi.mock('../services/tts', () => ({ ttsService: { stop: vi.fn() } }));
 vi.mock('../services/messageAudio', () => ({ messageAudioService: { stopCurrentAudio: vi.fn() } }));
 
 const message = { id: 'message-a', conversationId: 'conversation-a', role: 'user', content: '**original**', internal: false } as Message;
+// Fonte injetada dos testes de handoff; não reinstala leitura de mensagens no store do produto.
+const messageSource = createStore<{ getConversationMessages: (id: string) => Message[] }>(() => ({ getConversationMessages: () => [] }));
 const cleanups: Array<() => void> = [];
 const apply = vi.fn();
 const sourceCurrent = () => useWorkspaceStore.getState().workspace?.activeTabId === 'chat';
-const draft = () => prepareChatEditorTransfer(message, { target: 'new_document', format: 'markdown', content: message.content, title: 'From chat' }, sourceCurrent, { getMessage: id => useChatStore.getState().getConversationMessages(message.conversationId).find(value => value.id === id), subscribe: useChatStore.subscribe })!;
+const draft = () => prepareChatEditorTransfer(message, { target: 'new_document', format: 'markdown', content: message.content, title: 'From chat' }, sourceCurrent, { getMessage: id => messageSource.getState().getConversationMessages(message.conversationId).find(value => value.id === id), subscribe: messageSource.subscribe })!;
 function activate() {
   const ws = useWorkspaceStore.getState().workspace!;
   useWorkspaceStore.setState({ workspace: { ...ws, activeTabId: 'editor', tabs: ws.tabs.some(tab => tab.id === 'editor') ? ws.tabs : [...ws.tabs, { id: 'editor', type: 'editor', position: 1, title: 'Editor' }] } });
@@ -82,7 +85,7 @@ beforeEach(() => {
   useAuthStore.setState({ isAuthenticated: true, user: { userId: 'owner', sessionId: 'session', role: 'admin' } });
   useWorkspaceStore.setState({ workspace: { id: 'workspace', name: 'Workspace', activeTabId: 'chat', tabs: [{ id: 'chat', type: 'chat', title: 'Chat', position: 0, conversationId: message.conversationId }] } as WorkspaceData });
   useEditorStore.setState({ ownerUserId: 'owner', documents: {} });
-  useChatStore.setState({ getConversationMessages: () => [message] });
+  messageSource.setState({ getConversationMessages: () => [message] });
   useWorkspaceChatModalStore.setState({ isOpen: false, boundTabId: null, boundConversationId: null });
   transport.prepare.mockReset().mockResolvedValue({ tabId: 'editor', draftId: 'draft' });
   transport.open.mockReset().mockImplementation(async () => { activate(); return { tabId: 'editor', draftId: 'draft' }; });
@@ -95,7 +98,7 @@ describe('chat → editor: transição explícita e confirmação da aplicação
   it.each([false, true])('fecha modal real após Open, scope=%s, preservando destino capturado inativo', async scoped => {
     const destination = mountInactiveRealEditor();
     const initial = mountOriginModal(scoped);
-    const target = prepareChatEditorTransfer(message, { target: 'document', targetDocumentId: 'editor', content: 'replacement', format: 'plain' }, sourceCurrent, { getMessage: id => useChatStore.getState().getConversationMessages(message.conversationId).find(value => value.id === id), subscribe: useChatStore.subscribe })!;
+    const target = prepareChatEditorTransfer(message, { target: 'document', targetDocumentId: 'editor', content: 'replacement', format: 'plain' }, sourceCurrent, { getMessage: id => messageSource.getState().getConversationMessages(message.conversationId).find(value => value.id === id), subscribe: messageSource.subscribe })!;
     expect(target).toBeDefined(); cleanups.push(target.dispose);
     await target.prepareAdmission!('ticket');
     transport.open.mockImplementationOnce(async () => {
@@ -109,7 +112,7 @@ describe('chat → editor: transição explícita e confirmação da aplicação
     transport.validate.mockImplementationOnce(async () => {
       expect(useWorkspaceChatModalStore.getState().isOpen).toBe(false);
       // Fechar o modal descarta a inscrição e a mensagem da fonte visual.
-      useChatStore.setState({ getConversationMessages: () => [] });
+      messageSource.setState({ getConversationMessages: () => [] });
       await Promise.resolve();
       expect(target.isCurrent()).toBe(true);
       const closed = getModalRegistrySnapshot();
@@ -125,7 +128,7 @@ describe('chat → editor: transição explícita e confirmação da aplicação
 
   it('modal adicional aberto e fechado durante Open invalida sem fechar origem ou aplicar', async () => {
     const destination = mountInactiveRealEditor(); mountOriginModal(true);
-    const target = prepareChatEditorTransfer(message, { target: 'document', targetDocumentId: 'editor', content: 'replacement', format: 'plain' }, sourceCurrent, { getMessage: id => useChatStore.getState().getConversationMessages(message.conversationId).find(value => value.id === id), subscribe: useChatStore.subscribe })!;
+    const target = prepareChatEditorTransfer(message, { target: 'document', targetDocumentId: 'editor', content: 'replacement', format: 'plain' }, sourceCurrent, { getMessage: id => messageSource.getState().getConversationMessages(message.conversationId).find(value => value.id === id), subscribe: messageSource.subscribe })!;
     cleanups.push(target.dispose); await target.prepareAdmission!('ticket');
     transport.open.mockImplementationOnce(async () => {
       const overlay = document.createElement('div'); overlay.className = 'modal-overlay'; overlay.dataset.modalId = 'temporary'; document.body.append(overlay);
@@ -156,7 +159,7 @@ describe('chat → editor: transição explícita e confirmação da aplicação
     const ws = useWorkspaceStore.getState().workspace!;
     useWorkspaceStore.setState({ workspace: { ...ws, tabs: [...ws.tabs, { id: 'editor', type: 'editor', title: 'Existing', position: 1 }] } });
     useEditorStore.getState().createDocument({ id: 'editor', markdown: 'existing' });
-    const target = prepareChatEditorTransfer(message, { target: 'document', targetDocumentId: 'editor', content: 'snippet', format: 'plain' }, sourceCurrent, { getMessage: id => useChatStore.getState().getConversationMessages(message.conversationId).find(value => value.id === id), subscribe: useChatStore.subscribe })!;
+    const target = prepareChatEditorTransfer(message, { target: 'document', targetDocumentId: 'editor', content: 'snippet', format: 'plain' }, sourceCurrent, { getMessage: id => messageSource.getState().getConversationMessages(message.conversationId).find(value => value.id === id), subscribe: messageSource.subscribe })!;
     cleanups.push(target.dispose);
     useEditorStore.getState().setDocMarkdown('editor', 'changed concurrently');
     await expect(target.prepareAdmission!('ticket')).rejects.toThrow();
@@ -179,7 +182,7 @@ describe('chat → editor: transição explícita e confirmação da aplicação
       if (kind === 'owner') { useAuthStore.setState({ user: { ...user!, sessionId: 'other' } }); useAuthStore.setState({ user }); }
       if (kind === 'tab') { useWorkspaceStore.setState({ workspace: { ...ws, activeTabId: 'other' } }); useWorkspaceStore.setState({ workspace: ws }); }
       if (kind === 'workspace') { useWorkspaceStore.setState({ workspace: { ...ws, id: 'other' } }); useWorkspaceStore.setState({ workspace: ws }); }
-      if (kind === 'message') { useChatStore.setState({ getConversationMessages: () => [Object.assign(Object.create(Object.getPrototypeOf(message)), message, { content: 'changed' }) as Message] }); useChatStore.setState({ getConversationMessages: () => [message] }); }
+      if (kind === 'message') { messageSource.setState({ getConversationMessages: () => [Object.assign(Object.create(Object.getPrototypeOf(message)), message, { content: 'changed' }) as Message] }); messageSource.setState({ getConversationMessages: () => [message] }); }
       activate(); return { tabId: 'editor' };
     });
     mountEditor(); await expect(target.execute({ ticket: 'ticket', handoffId: 'handoff' })).rejects.toThrow();
@@ -203,7 +206,7 @@ describe('chat → editor: transição explícita e confirmação da aplicação
   it('não captura documento read-only nem modal de outra operação', () => {
     activate(); useWorkspaceStore.setState({ workspace: { ...useWorkspaceStore.getState().workspace!, activeTabId: 'chat' } });
     useEditorStore.setState({ documents: { editor: { ...useEditorStore.getState().documents.editor, readOnly: true } } });
-    expect(prepareChatEditorTransfer(message, { target: 'document', targetDocumentId: 'editor', content: 'x', format: 'plain' }, sourceCurrent, { getMessage: id => useChatStore.getState().getConversationMessages(message.conversationId).find(value => value.id === id), subscribe: useChatStore.subscribe })).toBeUndefined();
+    expect(prepareChatEditorTransfer(message, { target: 'document', targetDocumentId: 'editor', content: 'x', format: 'plain' }, sourceCurrent, { getMessage: id => messageSource.getState().getConversationMessages(message.conversationId).find(value => value.id === id), subscribe: messageSource.subscribe })).toBeUndefined();
     const overlay = document.createElement('div'); overlay.className = 'modal-overlay'; overlay.dataset.modalId = 'other'; document.body.appendChild(overlay);
     registerOpenModal('other'); cleanups.push(() => { unregisterOpenModal('other'); overlay.remove(); });
     expect(draft()).toBeUndefined();

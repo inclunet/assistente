@@ -4,6 +4,7 @@ import { useChatStore } from '../../store/chatStore';
 import { patchChatConversation, getConversationTimeline } from '../../services/chatSessionRegistry';
 import type { MessageNode, Message } from '../../lib/chatMessageTree';
 import type { TimelineItem } from '../../types/chatTimelineEvents';
+import { flattenThreadedMessages } from '../../lib/chatMessageTree';
 
 const unavailable = new Set<string>();
 const canonicalOverrides = new Map<string, TimelineItem>();
@@ -60,12 +61,16 @@ export function useChatTimelinePresentation(conversationId: string | null, sessi
       },
       nodes: (parent?: string) => parent ? findNode(parent, roots())?.children ?? [] : roots(),
       threadWindow: () => undefined,
-      openThread: async (parent: string) => { await useChatStore.getState().loadMessageChildren(parent); },
+      openThread: async () => {},
       closeThread: async () => {}, retain: async () => {}, refresh: async () => {},
       recoveredItems: [], loading: false, error: undefined,
     };
   }, [conversationId, sessionKey]);
   return { presentation, nodes: presentation?.nodes() ?? [], revision: 0 };
+}
+
+export function fixtureMessages(conversationId: string) {
+  return flattenThreadedMessages(getConversationTimeline(useChatStore.getState(), conversationId)?.threadedMessages);
 }
 function findNode(id: string, nodes: MessageNode[]): MessageNode | undefined {
   for (const node of nodes) { if (node.message.id === id) return node; const child = findNode(id, node.children ?? []); if (child) return child; }
@@ -76,5 +81,13 @@ export function publishFixtureMessage(conversationId: string, id: string, conten
     message: node.message.id === id ? Object.assign(new chat.EnrichedMessage({ ...node.message, content, turnSegments: [{ type: 'text', content }] }), { _turnSegments: undefined }) : node.message,
     children: change(node.children ?? []),
   }));
-  useChatStore.setState(state => patchChatConversation(state, conversationId, conversation => ({ ...conversation, threadedMessages: change(conversation.threadedMessages) })));
+  useChatStore.setState(state => ({
+    ...patchChatConversation(state, conversationId, conversation => ({ ...conversation, threadedMessages: change(conversation.threadedMessages) })),
+    // A fixture publica explicitamente em cada fonte visual injetada. O store
+    // do produto não faz mais essa composição ou espelhamento de mensagens.
+    surfaceSessionsByKey: Object.fromEntries(Object.entries(state.surfaceSessionsByKey).map(([key, session]) => [key,
+      session.conversationId === conversationId && session.visibleThreadedMessages
+        ? { ...session, visibleThreadedMessages: change(session.visibleThreadedMessages) } : session,
+    ])),
+  }));
 }

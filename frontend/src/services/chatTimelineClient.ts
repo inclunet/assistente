@@ -362,6 +362,21 @@ export class ChatTimelineClient {
     this.collectIdle();
   }
 
+  /** Exclusão confirmada pelo backend revoga também as fontes de recuperação. */
+  async conversationDeleted(conversationId: string): Promise<void> {
+    const conversation = this.conversations.get(conversationId);
+    if (!conversation) return;
+    for (const slot of conversation.slots.values()) slot.recoveryItems?.clear();
+    const closing = [...conversation.slots.keys()].map(surface => this.close(conversationId, surface));
+    conversation.state.dispose();
+    conversation.candidate?.dispose();
+    this.conversations.delete(conversationId);
+    this.notify();
+    const results = await Promise.allSettled(closing);
+    const failure = results.find(result => result.status === 'rejected');
+    if (failure?.status === 'rejected') throw failure.reason;
+  }
+
   dispose(): Promise<void> {
     if (this.disposal) return this.disposal;
     this.disposed = true;

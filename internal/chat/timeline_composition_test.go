@@ -151,3 +151,33 @@ func TestCompositionPreservesLiveCutsAndTextIdentityDuringReasoning(t *testing.T
 		t.Fatalf("descarte reidentificou texto: %+v", c.Segments)
 	}
 }
+
+func TestCompositionPreservesIdenticalTextFromDistinctSources(t *testing.T) {
+	stored := compositionItem(t, []Message{
+		{UUIDModel: database.UUIDModel{ID: "middle"}, Content: "igual"},
+		{UUIDModel: database.UUIDModel{ID: "response"}, Content: "igual"},
+	}, []TurnSegmentToolCall{{InvocationID: "tool", ID: "call", ExecutionID: "execution", AssistantMessageID: "middle"}})
+	live := &LiveTurnSnapshot{ItemID: stored.ItemID, TurnID: "question", ExecutionID: "execution", ResponseID: "response",
+		State: database.TurnStreaming, Streams: []LiveStreamSnapshot{
+			{Iteration: 0, Confirmed: true, PersistedMessageID: "middle"},
+			{Iteration: 1, Generation: 1, Segments: []ResponseSegment{{SegmentID: "draft:last", Kind: "text", Text: "igual"}}},
+		}}
+	composed, err := composeResponse(stored, live)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range []*TimelineItem{stored, composed} {
+		var texts, textIDs, kinds []string
+		for _, segment := range item.Segments {
+			kinds = append(kinds, segment.Kind)
+			if segment.Kind == "text" {
+				texts = append(texts, segment.Text)
+				textIDs = append(textIDs, segment.SegmentID)
+			}
+		}
+		if !reflect.DeepEqual(texts, []string{"igual", "igual"}) || textIDs[0] == textIDs[1] ||
+			!reflect.DeepEqual(kinds, []string{"text", "tool_invocations", "text"}) {
+			t.Fatalf("fontes iguais foram deduplicadas ou reordenadas: %+v", item.Segments)
+		}
+	}
+}

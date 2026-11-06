@@ -22,6 +22,7 @@ type TurnStore interface {
 	EnsureResponse(context.Context, string, string, string) (string, error)
 	MarkStreaming(context.Context, string, string, string) error
 	WritePartial(context.Context, string, string, string, string, bool) error
+	SaveIntermediate(context.Context, string, string, database.MessageOptions) (*database.ChatMessage, error)
 	FinishResponseWithVersion(context.Context, string, string, string, string, string, string, *database.MessageOptions) (database.ChatTimelineVersion, error)
 }
 

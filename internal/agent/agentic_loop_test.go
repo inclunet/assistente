@@ -315,18 +315,19 @@ func TestAgenticLoopRunner_RetryRetryableTools_LastIterationNoRetry(t *testing.T
 }
 
 func TestAgenticLoopRunner_PersistAndAccountNativeMCP(t *testing.T) {
-	em := &captureEmitter{}
-	msgRepo := &capturingMsgRepo{conversationID: "c1"}
-	svc := newTestAgentService(ServiceConfig{Emitter: em, MsgRepo: msgRepo})
-	r := newSeamRunner(svc, "c1", "t1")
-	ctx := database.WithUserID(context.Background(), "u1")
+	svc, ctx, conv, turn, _ := setupTurnRuntime(t)
+	r := newSeamRunner(svc, conv, turn)
 
-	summaries := r.persistAndAccountNativeMCP(ctx, AgenticResult{NativeMCPEvents: []llm.MCPToolEvent{
+	svc.toolInvocations = newAgentTestToolInvocations(tools.NewRegistry())
+	summaries, err := r.persistAndAccountNativeMCP(ctx, AgenticResult{NativeMCPEvents: []llm.MCPToolEvent{
 		{ID: "n1", Name: "ping", ServerLabel: "Srv", Output: "ok", IsCompleted: true},
 		{ID: "n2", Name: "boom", ServerLabel: "Srv", Error: "e", IsCompleted: true},
 		{ID: "n3", Name: "pending", IsCompleted: false},
 	}}, 0)
 
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(summaries) != 2 {
 		t.Fatalf("summaries=%d, want 2 (só completas)", len(summaries))
 	}

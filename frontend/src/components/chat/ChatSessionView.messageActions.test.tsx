@@ -1,3 +1,4 @@
+import { publishFixtureMessage } from './canonicalPresentationFixture';
 import { setFixtureCanonicalItem } from './canonicalPresentationFixture';
 import type { TimelineItem } from '../../types/chatTimelineEvents';
 vi.mock('./useChatTimelinePresentation', async () => import('./canonicalPresentationFixture'));
@@ -192,7 +193,7 @@ describe('ChatSessionView message actions — superfície/lista/registry reais',
   it('menu com mensagem substituída não abre leitura da nova versão', async () => {
     mount(); act(() => node().focus()); fireEvent.keyUp(node(), { key: 'ContextMenu' });
     await screen.findByRole('menuitem', { name: /Ativar modo de leitura/ });
-    act(() => useChatStore.getState().updateConversationMessage(id, firstID, 'alterada'));
+    act(() => publishFixtureMessage(id, firstID, 'alterada'));
     await userEvent.click(screen.getByRole('menuitem', { name: /Ativar modo de leitura/ }));
     expect(node()).not.toHaveAttribute('aria-modal'); expect(begin).not.toHaveBeenCalled();
   });

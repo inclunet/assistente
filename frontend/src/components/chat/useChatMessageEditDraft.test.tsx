@@ -1,3 +1,4 @@
+import { fixtureMessages } from './canonicalPresentationFixture';
 import { useRef } from 'react';
 import { act, cleanup, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -21,7 +22,7 @@ const modalClosers: Array<() => void> = [];
 const captures: Array<NonNullable<ReturnType<typeof captureChatMessageEditDraft>>> = [];
 
 const messageSource = {
-  getMessage: (id: string) => useChatStore.getState().getConversationMessages(conversationId).find(item => item.id === id),
+  getMessage: (id: string) => fixtureMessages(conversationId).find(item => item.id === id),
   subscribe: useChatStore.subscribe,
 };
 

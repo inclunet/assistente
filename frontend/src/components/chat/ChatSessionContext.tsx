@@ -2,8 +2,6 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 import {
   type ActiveConversation,
   type ChatConversationSession,
-  type Message,
-  type TurnSegment,
   useChatStore,
 } from '../../store/chatStore';
 import {
@@ -18,9 +16,6 @@ import {
 import { useChatTimelinePresentation } from './useChatTimelinePresentation';
 import type { ChatTimelinePresentation } from '../../services/chatTimelinePresentation';
 import type { MediaFile } from '../../services/mediaService';
-
-const EMPTY_SEGMENTS: never[] = [];
-const EMPTY_TOOL_CALLS: never[] = [];
 
 export interface ChatSessionContextValue {
   presentation: ChatTimelinePresentation | null;
@@ -48,11 +43,8 @@ export interface ChatSessionContextValue {
   loadStartMessages: () => Promise<void>;
   loadEndMessages: () => Promise<void>;
   loadConversationSession: ReturnType<typeof useChatStore.getState>['loadConversationSession'];
-  loadMessageChildren: ReturnType<typeof useChatStore.getState>['loadMessageChildren'];
+  loadMessageChildren: (messageId: string) => Promise<ActiveConversation['threadedMessages']>;
   retryMessageToConversation: ReturnType<typeof useChatStore.getState>['retryMessageToConversation'];
-  updateConversationMessage: ReturnType<typeof useChatStore.getState>['updateConversationMessage'];
-  updateConversationMessagePinned: ReturnType<typeof useChatStore.getState>['updateConversationMessagePinned'];
-  clearConversationMessages: ReturnType<typeof useChatStore.getState>['clearConversationMessages'];
   startConversationEditing: (conversationId: string, id: string) => void;
   setConversationEditingMessageId: (conversationId: string, id: string | null) => void;
   toggleConversationThreadExpanded: (conversationId: string, messageId: string) => void;
@@ -132,9 +124,6 @@ export function ChatSessionProvider({
   const retryMessageToConversationBase = useChatStore((state) => state.retryMessageToConversation);
   const ensureConversationSurfaceSession = useChatStore((state) => state.ensureConversationSurfaceSession);
   const removeConversationSurfaceSession = useChatStore((state) => state.removeConversationSurfaceSession);
-  const updateConversationMessage = useChatStore((state) => state.updateConversationMessage);
-  const updateConversationMessagePinned = useChatStore((state) => state.updateConversationMessagePinned);
-  const clearConversationMessages = useChatStore((state) => state.clearConversationMessages);
   const startConversationEditingBase = useChatStore((state) => state.startConversationEditing);
   const setConversationDraftMessage = useChatStore((state) => state.setConversationDraftMessage);
   const setConversationDraftMediaFiles = useChatStore((state) => state.setConversationDraftMediaFiles);
@@ -294,9 +283,6 @@ export function ChatSessionProvider({
     loadConversationSession,
     loadMessageChildren,
     retryMessageToConversation,
-    updateConversationMessage,
-    updateConversationMessagePinned,
-    clearConversationMessages,
     startConversationEditing,
     setConversationEditingMessageId,
     toggleConversationThreadExpanded,
@@ -304,7 +290,6 @@ export function ChatSessionProvider({
     isConversationReasoningExpanded,
   }), [
     presentation, revision,
-    clearConversationMessages,
     clearDraft,
     conversation,
     draftMediaFiles,
@@ -338,8 +323,6 @@ export function ChatSessionProvider({
     threadedMessages,
     toggleConversationReasoningExpanded,
     toggleConversationThreadExpanded,
-    updateConversationMessage,
-    updateConversationMessagePinned,
   ]);
   const nodeValue = useMemo<ChatNodeContextValue>(() => ({
     conversationId: normalizedConversationId,
@@ -402,26 +385,5 @@ export function useChatNodeSessionState(messageId: string) {
     setConversationEditingMessageId: context.setConversationEditingMessageId,
     toggleConversationThreadExpanded: context.toggleConversationThreadExpanded,
     toggleConversationReasoningExpanded: context.toggleConversationReasoningExpanded,
-  };
-}
-
-export function useChatMessageLiveState(message: Message) {
-  const nodeContext = useContext(ChatNodeContext);
-  const messageId = message.id;
-  const messageConversationId = nodeContext?.conversationId
-    || String(message.conversationId || '');
-  const liveContent = useChatStore((state) => (
-    messageConversationId
-      ? state.liveMessageContentByConversationId?.[messageConversationId]?.[messageId] ?? null
-      : null
-  ));
-
-  return {
-    liveContent,
-    liveIsStreaming: null,
-    liveReasoning: null,
-    liveToolCallsRaw: null,
-    liveSegments: EMPTY_SEGMENTS as TurnSegment[],
-    liveToolCalls: EMPTY_TOOL_CALLS,
   };
 }

@@ -1,3 +1,4 @@
+import { fixtureMessages } from './canonicalPresentationFixture';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { act, createEvent, fireEvent, render as renderUI, screen, cleanup, waitFor } from '@testing-library/react';
 import { MessageNode } from './MessageNode';
@@ -74,11 +75,11 @@ function render(ui: ReactElement) {
 vi.mock('./useChatTimelinePresentation', () => ({
   useChatTimelinePresentation: () => ({
     presentation: {
-      getMessage: (id: string) => useChatStore.getState().getConversationMessages(conversationId).find(message => message.id === id),
+      getMessage: (id: string) => fixtureMessages(conversationId).find(message => message.id === id),
       subscribe: useChatStore.subscribe, threadWindow: () => undefined,
       get window() { return undefined; },
     },
-    nodes: useChatStore.getState().getConversationMessages(conversationId).map(message => ({ message, children: [], level: 0, childCount: 0 })),
+    nodes: fixtureMessages(conversationId).map(message => ({ message, children: [], level: 0, childCount: 0 })),
     revision: 0,
   }),
 }));

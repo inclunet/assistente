@@ -12,16 +12,20 @@ import { CHAT_MESSAGING_EVENT, captureChatMessagingTarget, executeChatMessaging,
 import { MediaCategory, type MediaFile } from '../../services/mediaService';
 import { Modal } from '../ui/Modal';
 import { useWorkspaceChatModalStore } from '../../store/workspaceChatModalStore';
+import { setFixtureCanonicalItem, publishFixtureMessage } from './canonicalPresentationFixture';
+import { canonicalTestItem } from '../../services/chatTimelineTestFixture';
+import { chat } from '../../../wailsjs/go/models';
 
 const id = '01926b90-7a5a-7c4e-8d3f-000000000001';
 const send = vi.hoisted(() => vi.fn());
 const retry = vi.hoisted(() => vi.fn());
 const t = vi.hoisted(() => (key: string) => key);
 const translation = vi.hoisted(() => ({ current: (key: string) => key }));
+const continuationProfile = vi.hoisted(() => ({ enabled: true }));
 vi.mock('react-i18next', () => ({ initReactI18next: { type: '3rdParty', init() {} }, useTranslation: () => ({ t: translation.current }) }));
 vi.mock('@wailsjs/go/wailsapi/Chat', () => ({ SendMessage: send, RetryMessage: retry }));
 vi.mock('@wailsjs/runtime/runtime', () => ({ EventsOn: () => () => {} }));
-vi.mock('@wailsjs/go/wailsapi/Profiles', () => ({ GetActiveProfile: vi.fn(async () => ({})), GetActiveProfileSlug: vi.fn(async () => 'default') }));
+vi.mock('@wailsjs/go/wailsapi/Profiles', () => ({ GetActiveProfile: vi.fn(async () => ({ chat: { streaming_recovery_show_continue: continuationProfile.enabled } })), GetActiveProfileSlug: vi.fn(async () => 'default') }));
 vi.mock('@wailsjs/go/wailsapi/Skills', () => ({ GetUserInvocableSkillsForProfile: vi.fn(async () => []) }));
 vi.mock('../../services/audioFeedback', () => ({ playSendSound: vi.fn(), playReceiveSound: vi.fn(), playChatErrorSound: vi.fn() }));
 vi.mock('../../hooks/useAnnouncer', () => ({ announce: vi.fn(), useAnnouncer: () => ({ announce: vi.fn(), announceRequest: vi.fn() }) }));
@@ -47,6 +51,8 @@ function mount() {
   return render(<MemoryRouter><ChatSessionView surface={surface} onSend={(content, media, origin, command) => sendChatSurfaceMessage(id, content, media, undefined, origin, command)} /></MemoryRouter>);
 }
 beforeEach(() => {
+  continuationProfile.enabled = true;
+  setFixtureCanonicalItem('response');
   translation.current = t;
   vi.spyOn(document, 'hasFocus').mockReturnValue(true);
   send.mockReset().mockResolvedValue(id); retry.mockReset().mockResolvedValue(id);
@@ -78,6 +84,41 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 describe('ChatSessionView + ChatInput + pipeline reais', () => {
+  it.each(['volatile', 'profile-disabled', 'persisted'] as const)('prepara continuação pela publicação canônica: %s', async scenario => {
+    continuationProfile.enabled = scenario !== 'profile-disabled';
+    const item = canonicalTestItem('response', 'parcial', { conversationId: id, turnId: id, representativeMessageId: id, state: 'interrupted', durability: scenario === 'volatile' ? 'volatile' : 'persisted' });
+    item.metadata.terminalReason = 'cancelled';
+    setFixtureCanonicalItem('response', item);
+    useChatStore.setState(state => ({ timelinesByConversationId: { ...state.timelinesByConversationId, [id]: { id, title: 'chat', threadedMessages: [new chat.MessageNode({ message: { id: 'response', conversationId: id, role: 'assistant', content: 'parcial', turnId: id }, children: [], childCount: 0, level: 0 })] } } }));
+    await act(async () => { mount(); });
+    const target = captureChatMessagingTarget(() => '/', 'chat.message.retry', undefined, undefined, { sourceItemId: 'response', messageId: id, continue: true });
+    if (scenario !== 'persisted') {
+      expect(target).toBeUndefined();
+      expect(retry).not.toHaveBeenCalled();
+      return;
+    }
+    expect(target).toBeDefined();
+    take.mockResolvedValue({ ticket: 'ticket', invocationId: 'invocation', commandId: 'chat.message.retry', handoffId: 'handoff' });
+    await act(async () => { await executeChatMessaging({ beginUICommand: begin, takeUICommand: take, commitBackendCommand: commit, completeUICommand: complete, cancelUICommand: vi.fn(), getUICommandResult: getResult }, target!); });
+    expect(retry).toHaveBeenCalledExactlyOnceWith(id, id, expect.objectContaining({ allowAssistantPrefill: true }));
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it('recusa a continuação capturada quando a publicação é substituída antes do envio', async () => {
+    const item = canonicalTestItem('response', 'parcial', { conversationId: id, turnId: id, representativeMessageId: id, state: 'interrupted' });
+    item.metadata.terminalReason = 'cancelled';
+    setFixtureCanonicalItem('response', item);
+    useChatStore.setState(state => ({ timelinesByConversationId: { ...state.timelinesByConversationId, [id]: { id, title: 'chat', threadedMessages: [new chat.MessageNode({ message: { id: 'response', conversationId: id, role: 'assistant', content: 'parcial', turnId: id }, children: [], childCount: 0, level: 0 })] } } }));
+    await act(async () => { mount(); });
+    const target = captureChatMessagingTarget(() => '/', 'chat.message.retry', undefined, undefined, { sourceItemId: 'response', messageId: id, continue: true });
+    expect(target).toBeDefined();
+    act(() => publishFixtureMessage(id, 'response', 'outra execução'));
+    expect(target!.isCurrent()).toBe(false);
+    await act(async () => { await executeChatMessaging({ beginUICommand: begin, takeUICommand: take, commitBackendCommand: commit, completeUICommand: complete, cancelUICommand: vi.fn(), getUICommandResult: getResult }, target!); });
+    expect(retry).not.toHaveBeenCalled();
+    expect(begin).not.toHaveBeenCalled();
+  });
+
   it.each(['button', 'keyboard'])('preserva rascunho e explica conversa indisponível via %s', async source => {
     begin.mockRejectedValue('chat_conversation_unavailable');
     mount(); const input = screen.getByRole('combobox');

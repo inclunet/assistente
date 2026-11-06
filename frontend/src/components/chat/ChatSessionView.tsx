@@ -1,3 +1,4 @@
+import { canContinueChatMessage } from '../../lib/chatContinuation';
 import { ChatTimelineRecovery } from './ChatTimelineRecovery';
 import { useRef, useState, useEffect, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -386,8 +387,8 @@ function ChatSessionViewContent({
   const messagingInstance = useRef(`chat-messaging-${crypto.randomUUID()}`);
   const voiceSetupPromptPendingRef = useRef(false);
   const navigate = useNavigate();
-  const messagingLive = useRef({ controller, conversationId, origin, draftMessage, draftMediaFiles, effectiveFailedMessage, isLoading, isInteractiveSurface, pathname, modalIsTopmost, t });
-  messagingLive.current = { controller, conversationId, origin, draftMessage, draftMediaFiles, effectiveFailedMessage, isLoading, isInteractiveSurface, pathname, modalIsTopmost, t };
+  const messagingLive = useRef({ controller, conversationId, origin, draftMessage, draftMediaFiles, effectiveFailedMessage, isLoading, isInteractiveSurface, pathname, modalIsTopmost, showContinueEnabled, t });
+  messagingLive.current = { controller, conversationId, origin, draftMessage, draftMediaFiles, effectiveFailedMessage, isLoading, isInteractiveSurface, pathname, modalIsTopmost, showContinueEnabled, t };
   const messagingUser = useAuthStore(state => state.user);
   const navigationInstance = useRef(`chat-navigation-${crypto.randomUUID()}`);
   const menuNavigationTargets = useRef(new WeakMap<Message, { read?: ChatNavigationTarget; reasoning?: ChatNavigationTarget }>());
@@ -475,12 +476,13 @@ function ChatSessionViewContent({
       },
       subscribe: changed => {
         const off = [useAuthStore.subscribe(changed), useWorkspaceStore.subscribe(changed), useWorkspaceChatModalStore.subscribe(changed), useChatStore.subscribe(changed), messageCommandsRef.current.subscribe(changed)];
+        if (presentation) off.push(presentation.subscribe(changed));
         return () => off.forEach(dispose => dispose());
       },
       prepare: (id, override) => {
         if (isChatMessageCommand(id)) return messageCommandsRef.current.prepare(id, override, current, available);
         const live = messagingLive.current;
-        const options = override ? { ...override as { content?: string; media?: MediaFile[]; messageId?: string; continue?: boolean; voice?: boolean; recovery?: boolean } } : undefined;
+        const options = override ? { ...override as { content?: string; media?: MediaFile[]; messageId?: string; sourceItemId?: string; continue?: boolean; voice?: boolean; recovery?: boolean } } : undefined;
         const store = useChatStore.getState();
         const snapshot = store.surfaceSessionsByKey[sessionKey];
         if (!snapshot || snapshot.conversationId !== conversationId) return undefined;
@@ -491,10 +493,13 @@ function ChatSessionViewContent({
         const media = (options?.recovery ? snapshot.sendFailureRetryMediaFiles : snapshot.draftMediaFiles).map(item => ({ ...item }));
         if (id === 'chat.message.send' && options?.content !== undefined && !options.voice && !options.recovery && content.trim() !== snapshot.draftMessage.trim()) return undefined;
         if (options?.recovery && (!snapshot.sendFailureRetryable || content !== (snapshot.sendFailureRetryContent ?? ''))) return undefined;
-        const interruptedId = snapshot.lastInterruptedMessageId;
-        const interrupted = interruptedId ? presentation?.getMessageByRepresentative(interruptedId) : undefined;
-        const fallbackRetryId = interrupted?.turnId;
-        const messageId = id === 'chat.message.retry' ? (options?.messageId ?? fallbackRetryId) : undefined;
+        const selected = messageCommandsRef.current.captureSelection();
+        const source = options?.sourceItemId ? presentation?.getMessage(options.sourceItemId) : selected.message;
+        const sourceCurrent = () => options?.sourceItemId
+          ? presentation?.getMessage(options.sourceItemId) === source : selected.isCurrent();
+        const messageId = id === 'chat.message.retry'
+          ? options?.messageId ?? (source?.role === 'user' ? source.timelineItem?.representativeMessageId : source?.turnId) : undefined;
+        if (options?.continue && (!live.showContinueEnabled || !canContinueChatMessage(source))) return undefined;
         if (id === 'chat.message.retry' && (!messageId || !isBackendId(messageId))) return undefined;
         if (id !== 'chat.response.cancel' && !messageId && !content.trim() && !media.length) return undefined;
         const pipelineRevision = store.getMessagingPipelineRevision(conversationId);
@@ -504,6 +509,8 @@ function ChatSessionViewContent({
         let invalid = false;
         const isCurrent = () => {
           const valid = !disposed && !invalid && current() &&
+            (!options?.continue || pipelineStarted || messagingLive.current.showContinueEnabled) &&
+            (id !== 'chat.message.retry' || pipelineStarted || !source || sourceCurrent()) &&
             (!pipelineStarted || useChatStore.getState().getMessagingPipelineRevision(conversationId) === runRevision) &&
             (id === 'chat.response.cancel' ? useChatStore.getState().getMessagingPipelineRevision(conversationId) === pipelineRevision :
               (id !== 'chat.message.send' || useChatStore.getState().getDraftRevision(sessionKey) === draftRevision));
@@ -695,26 +702,15 @@ function ChatSessionViewContent({
     onResend: async (message) => {
       const conversationId = getSessionConversation()?.id;
       if (!conversationId || !isBackendId(message.timelineItem?.representativeMessageId)) return;
-      requestMessaging('chat.message.retry', { messageId: message.timelineItem!.representativeMessageId! });
+      requestMessaging('chat.message.retry', { messageId: message.timelineItem!.representativeMessageId!, sourceItemId: message.id });
     },
     onContinue: async (message) => {
       const conversationId = getSessionConversation()?.id;
       const turnId = String(message.turnId || '').trim();
       if (!conversationId || !turnId) return;
-      requestMessaging('chat.message.retry', { messageId: turnId, continue: true });
+      requestMessaging('chat.message.retry', { messageId: turnId, sourceItemId: message.id, continue: true });
     },
-    shouldShowContinue: (message) => {
-      if (!showContinueEnabled) return false;
-      const interruptedId = session?.lastInterruptedMessageId;
-      if (!interruptedId) return false;
-      if (!isBackendId(String(interruptedId))) return false;
-      if (String(message.timelineItem?.representativeMessageId) !== String(interruptedId)) return false;
-      if (!isBackendId(message.timelineItem?.representativeMessageId)) return false;
-      if (message.role !== 'assistant' || message.isStreaming) return false;
-      if (!String(message.turnId || '').trim()) return false;
-      if (!String(message.content || '').trim()) return false;
-      return true;
-    },
+    shouldShowContinue: (message) => showContinueEnabled && canContinueChatMessage(message),
     onDelete: handleDeleteMessage,
     onCancelStreaming: (message) => {
       if (!message.isStreaming) return;

@@ -1,3 +1,5 @@
+import { publishFixtureMessage } from './canonicalPresentationFixture';
+import { fixtureMessages } from './canonicalPresentationFixture';
 import { setFixtureSourceUnavailable } from './canonicalPresentationFixture';
 vi.mock('./useChatTimelinePresentation', async () => import('./canonicalPresentationFixture'));
 import { act, cleanup, createEvent, fireEvent, render, waitFor } from '@testing-library/react';
@@ -72,6 +74,15 @@ function request(id: ChatNavigationCommandID, messageId = mid) {
   return requestChatNavigationCommand(id, root(messageId).dataset.chatNavigationInstance!);
 }
 function deferred() { let resolve!: () => void; const promise = new Promise<void>(done => { resolve = done; }); return { promise, resolve }; }
+function publishSurfaceProjection(content: string, isStreaming: boolean) {
+  const projected = node();
+  projected.message.content = content;
+  projected.message.isStreaming = isStreaming;
+  projected.message.reasoning = '';
+  act(() => useChatStore.setState(state => ({ surfaceSessionsByKey: { ...state.surfaceSessionsByKey,
+    [surface.sessionKey]: { ...state.surfaceSessionsByKey[surface.sessionKey], visibleThreadedMessages: [projected] },
+  } })));
+}
 async function startSurfaceStream() {
   seed([]);
   useChatStore.getState().ensureConversationSurfaceSession(cid, surface.sessionKey, surface);
@@ -83,14 +94,6 @@ async function startSurfaceStream() {
   const surfaceOrigin = { ...createChatSurfaceOrigin(surface), executionId };
   const emit = (name: string, payload: Record<string, unknown>) => act(() => {
     for (const listener of runtimeListeners.get(name) ?? []) listener(payload);
-    if (name === 'chat:stream' && payload.delta) useChatStore.setState(state => {
-      const session = state.surfaceSessionsByKey[surface.sessionKey];
-      return { surfaceSessionsByKey: { ...state.surfaceSessionsByKey, [surface.sessionKey]: { ...session,
-        visibleThreadedMessages: session.visibleThreadedMessages?.map(node => node.message.id === mid ? { ...node,
-          message: new chat.EnrichedMessage({ ...node.message, content: payload.reset ? String(payload.delta) : node.message.content + String(payload.delta) }),
-        } : node),
-      } } };
-    });
   });
   emit('chat:messages_ready', {
     conversationId: cid, turnId: 'turn-live', userMessageId: 'turn-live', userContent: 'pergunta', surfaceOrigin,
@@ -98,7 +101,8 @@ async function startSurfaceStream() {
   emit('chat:stream', {
     conversationId: cid, turnId: 'turn-live', messageId: mid, delta: 'primeiro chunk', reset: true, sequence: 0, surfaceOrigin,
   });
-  await waitFor(() => expect(useChatStore.getState().surfaceSessionsByKey[surface.sessionKey]?.streamingMessageId).toBe(mid));
+  publishSurfaceProjection('primeiro chunk', true);
+  await waitFor(() => expect(useChatStore.getState().surfaceSessionsByKey[surface.sessionKey]?.isLoading).toBe(true));
   return { emit, surfaceOrigin };
 }
 beforeEach(() => {
@@ -283,7 +287,7 @@ describe('MessageNode navigation — registry, Provider, store e leitura reais',
       threadedMessages: updateMessageContentInTree(current.threadedMessages, mid, 'trecho recebido'),
     }))));
     const projected = useChatStore.getState().surfaceSessionsByKey[surface.sessionKey].visibleThreadedMessages![0];
-    const canonical = useChatStore.getState().getConversationMessages(cid)[0];
+    const canonical = fixtureMessages(cid)[0];
     projected.message = canonical;
     expect(projected.message).toBe(canonical);
     mount(); root().focus();
@@ -291,7 +295,7 @@ describe('MessageNode navigation — registry, Provider, store e leitura reais',
     expect(root()).toHaveAttribute('aria-modal', 'true');
     expect(document.activeElement).toHaveAttribute('role', 'document');
 
-    act(() => useChatStore.getState().updateConversationMessage(cid, mid, 'chunk atualizado durante a leitura'));
+    act(() => publishFixtureMessage(cid, mid, 'chunk atualizado durante a leitura'));
     expect(root()).toHaveAttribute('aria-modal', 'true');
     expect(document.activeElement).toHaveAttribute('role', 'document');
     expect(root().textContent).toContain('chunk atualizado durante a leitura');
@@ -303,8 +307,8 @@ describe('MessageNode navigation — registry, Provider, store e leitura reais',
       current => finalizeStreamingNode(current, mid),
     )));
     const finalProjection = useChatStore.getState().surfaceSessionsByKey[surface.sessionKey].visibleThreadedMessages![0];
-    finalProjection.message = useChatStore.getState().getConversationMessages(cid)[0];
-    expect(finalProjection.message).toBe(useChatStore.getState().getConversationMessages(cid)[0]);
+    finalProjection.message = fixtureMessages(cid)[0];
+    expect(finalProjection.message).toBe(fixtureMessages(cid)[0]);
     root().focus(); fireEvent.keyDown(root(), { key: 'Enter' });
     expect(root()).toHaveAttribute('aria-modal', 'true');
   });
@@ -321,20 +325,6 @@ describe('MessageNode navigation — registry, Provider, store e leitura reais',
     const emit = (name: string, payload: Record<string, unknown>) => {
       act(() => {
         for (const listener of runtimeListeners.get(name) ?? []) listener(payload);
-        if (name === 'chat:done') useChatStore.setState(state => {
-          const session = state.surfaceSessionsByKey[surface.sessionKey];
-          return { surfaceSessionsByKey: { ...state.surfaceSessionsByKey, [surface.sessionKey]: { ...session,
-            visibleThreadedMessages: session.visibleThreadedMessages?.map(node => state.timelinesByConversationId[cid].threadedMessages.find(current => current.message.id === node.message.id) ?? node),
-          } } };
-        });
-    if (name === 'chat:stream' && payload.delta) useChatStore.setState(state => {
-      const session = state.surfaceSessionsByKey[surface.sessionKey];
-      return { surfaceSessionsByKey: { ...state.surfaceSessionsByKey, [surface.sessionKey]: { ...session,
-        visibleThreadedMessages: session.visibleThreadedMessages?.map(node => node.message.id === mid ? { ...node,
-          message: new chat.EnrichedMessage({ ...node.message, content: payload.reset ? String(payload.delta) : node.message.content + String(payload.delta) }),
-        } : node),
-      } } };
-    });
       });
     };
     emit('chat:messages_ready', {
@@ -343,9 +333,10 @@ describe('MessageNode navigation — registry, Provider, store e leitura reais',
     emit('chat:stream', {
       conversationId: cid, turnId: 'turn-live', messageId: mid, delta: 'primeiro chunk', reset: true, sequence: 0, surfaceOrigin,
     });
-    await waitFor(() => expect(useChatStore.getState().surfaceSessionsByKey[surface.sessionKey]?.streamingMessageId).toBe(mid));
+    publishSurfaceProjection('primeiro chunk', true);
+    await waitFor(() => expect(useChatStore.getState().surfaceSessionsByKey[surface.sessionKey]?.isLoading).toBe(true));
     expect(useChatStore.getState().surfaceSessionsByKey[surface.sessionKey].visibleThreadedMessages?.some(item => item.message.id === mid)).toBe(true);
-    expect(useChatStore.getState().getConversationMessages(cid).some(message => message.id === mid)).toBe(false);
+    expect(fixtureMessages(cid).some(message => message.id === mid)).toBe(false);
     const view = mount(); await waitFor(() => expect(root()).toHaveAttribute('data-message-id', mid)); root().focus();
     const liveSurface = useChatStore.getState().surfaceSessionsByKey[surface.sessionKey];
     act(() => useChatStore.setState(state => ({ surfaceSessionsByKey: { ...state.surfaceSessionsByKey,
@@ -367,6 +358,7 @@ describe('MessageNode navigation — registry, Provider, store e leitura reais',
     emit('chat:stream', {
       conversationId: cid, turnId: 'turn-live', messageId: mid, delta: ' segundo chunk', sequence: 1, surfaceOrigin,
     });
+    publishSurfaceProjection('primeiro chunk segundo chunk', true);
     await waitFor(() => expect(root().textContent).toContain('segundo chunk'));
     expect(root()).toHaveAttribute('aria-modal', 'true');
     expect(document.activeElement).toHaveAttribute('role', 'document');
@@ -385,7 +377,8 @@ describe('MessageNode navigation — registry, Provider, store e leitura reais',
         content: 'primeiro chunk segundo chunk', createdAt: '2026-09-30T12:00:00Z', timestamp: 1,
       } },
     });
-    await waitFor(() => expect(useChatStore.getState().surfaceSessionsByKey[surface.sessionKey]?.streamingMessageId).toBeNull());
+    publishSurfaceProjection('primeiro chunk segundo chunk', false);
+    await waitFor(() => expect(useChatStore.getState().surfaceSessionsByKey[surface.sessionKey]?.isLoading).toBe(false));
     expect(root()).toHaveAttribute('aria-modal', 'true');
     expect(document.activeElement).toHaveAttribute('role', 'document');
     expect(root().querySelector('.chat-message')).not.toHaveAttribute('aria-busy', 'true');

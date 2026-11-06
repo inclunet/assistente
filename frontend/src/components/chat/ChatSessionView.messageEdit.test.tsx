@@ -1,3 +1,4 @@
+import { fixtureMessages } from './canonicalPresentationFixture';
 import { publishFixtureMessage } from './canonicalPresentationFixture';
 vi.mock('./useChatTimelinePresentation', async () => import('./canonicalPresentationFixture'));
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
@@ -137,7 +138,7 @@ describe('salvar edição: MessageNode, fonte draft, store e executor reais', ()
     await waitFor(() => expect(node()).toHaveTextContent('Resposta anterior'));
     if (collapsed) fireEvent.click(screen.getByRole('button', { name: 'chat.collapseChain' }));
     act(() => emitUpdate('Resposta corrigida'));
-    const edited = useChatStore.getState().getConversationMessages(id)[0] as Message;
+    const edited = fixtureMessages(id)[0] as Message;
     expect(edited.content).toBe('Resposta corrigida');
     expect(edited._turnSegments).toBeUndefined();
     expect(edited.turnSegments).toMatchObject([{ type: 'text', content: 'Resposta corrigida' }]);
@@ -150,7 +151,7 @@ describe('salvar edição: MessageNode, fonte draft, store e executor reais', ()
     mount(); await openEditor('  novo texto  ');
     commitMessage.mockImplementationOnce(async () => {
       expect(node().querySelector('textarea')).toHaveValue('  novo texto  ');
-      expect(useChatStore.getState().getConversationMessages(id)[0].content).toBe('**primeira**');
+      expect(fixtureMessages(id)[0].content).toBe('**primeira**');
       emitUpdate('  novo texto  ');
     });
     clickSave(); await act(async () => { await Promise.all(runs); });
@@ -166,7 +167,7 @@ describe('salvar edição: MessageNode, fonte draft, store e executor reais', ()
       emitUpdate('externo', '01926b90-7a5a-7c4e-8d3f-000000000099');
       events.get('message:updated')?.forEach(callback => callback({ message_id: firstID, content: 'legado' }));
     });
-    expect(useChatStore.getState().getConversationMessages(id)[0].content).toBe('**primeira**');
+    expect(fixtureMessages(id)[0].content).toBe('**primeira**');
     expect(captureChatMessagingTarget(() => '/', saveID)).toBeDefined();
   });
   it('base original atualizada durante edição recusa salvar mesmo depois ABA', async () => {
@@ -190,7 +191,7 @@ describe('salvar edição: MessageNode, fonte draft, store e executor reais', ()
     commitMessage.mockImplementationOnce(async () => { emitUpdate('enviado'); fireEvent.change(editor, { target: { value: 'novo rascunho' } }); });
     clickSave(); await act(async () => { await Promise.all(runs); });
     expect(node().querySelector('textarea')).toHaveValue('novo rascunho');
-    expect(useChatStore.getState().getConversationMessages(id)[0].content).toBe('enviado');
+    expect(fixtureMessages(id)[0].content).toBe('enviado');
     commitMessage.mockImplementationOnce(async () => { emitUpdate('novo rascunho'); });
     clickSave(); await act(async () => { await Promise.all(runs); });
     expect(prepareEdit).toHaveBeenLastCalledWith('ticket', firstID, 'enviado', 'novo rascunho');

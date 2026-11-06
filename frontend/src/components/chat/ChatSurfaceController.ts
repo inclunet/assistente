@@ -34,13 +34,14 @@ export async function sendChatSurfaceMessage(
   paramsOverride: Partial<llm.ChatParams> | undefined,
   origin: ChatSurfaceOrigin | undefined,
   command?: ChatMessagingExecution,
+  onExecutionStarted?: (executionId: string) => void,
 ): Promise<boolean> {
   return useChatStore.getState().sendMessageToConversation(
     conversationId,
     content,
     mediaFiles,
     paramsOverride,
-    { origin, command },
+    { origin, command, onExecutionStarted },
   );
 }
 
