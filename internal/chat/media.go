@@ -154,6 +154,7 @@ func (l *MediaHistoryLoader) format(ctx context.Context, dbMessages []Message, e
 			audioBytes, audioErr := base64.StdEncoding.DecodeString(m.Audio)
 			for _, part := range mediaParts {
 				kind, _ := part["type"].(string)
+				kind = NormalizeAudioMIME(kind)
 				data, _ := part["data"].(string)
 				if !strings.HasPrefix(kind, "audio/") || NormalizeAudioMIME(kind) != NormalizeAudioMIME(m.AudioMimeType) {
 					continue
@@ -215,6 +216,9 @@ func (l *MediaHistoryLoader) convertMediaParts(ctx context.Context, mediaParts [
 
 	for _, mp := range mediaParts {
 		mediaType, _ := mp["type"].(string)
+		if strings.HasPrefix(NormalizeAudioMIME(mediaType), "audio/") {
+			mediaType = NormalizeAudioMIME(mediaType)
+		}
 		data, _ := mp["data"].(string)
 		name, _ := mp["name"].(string)
 

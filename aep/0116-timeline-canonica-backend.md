@@ -40,7 +40,8 @@ perda e retomada após correção explícita. Não há escolha automática entre
 Não existe fallback de leitura para o armazenamento antigo.
 Histórico normal e retry consultam apenas áudio `received`, sem carregar blobs
 `generated`/`legacy_unknown` que o modelo não usa. MIME é normalizado no consumo
-e na exportação rica, com regressões para caixa e parâmetros.
+e na exportação rica, com regressões para caixa e parâmetros nos dois lados
+da deduplicação, inclusive no campo legado `media`.
 A última referência removida coleta o binário; mudanças de áudio renovam revisões
 de conteúdo e invalidam confirmações antigas, inclusive em alterações A→B→A.
 
