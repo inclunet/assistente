@@ -243,3 +243,60 @@ func TestUpgradeDiagnosticReadsLegacyUserVersionWithoutRegistry(t *testing.T) {
 		t.Fatalf("diagnóstico legado inesperado: %#v", diagnostic)
 	}
 }
+
+func TestPublishedDatabase019AdoptionReportsOwnerlessJobRuns(t *testing.T) {
+	previous := db
+	database := newMigratorTestDB(t)
+	db = database
+	t.Cleanup(func() { db = previous })
+	raw, err := os.ReadFile("testdata/published/0.1.9.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Exec(string(raw)).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := runMigrations(database, phasePreAutoMigrate); err != nil {
+		t.Fatal(err)
+	}
+	fullAutoMigrate(t, database)
+	for _, statement := range []string{
+		"ALTER TABLE job_runs ADD COLUMN tool_name text",
+		"ALTER TABLE job_runs ADD COLUMN inputs text",
+		"ALTER TABLE job_runs ADD COLUMN output text",
+		"INSERT INTO job_runs (id, user_id, job_id, trigger_id, status, queued_at, tool_name, inputs, output) VALUES ('ownerless-job-run', '', 'missing-job', '', 'completed', '2026-01-01', 'legacy-tool', '{}', 'private-output')",
+	} {
+		if err := database.Exec(statement).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := runMigrations(database, phasePostAutoMigrate); err != nil {
+		t.Fatal(err)
+	}
+	owner := User{UUIDModel: UUIDModel{ID: "ownerless-diagnostic-owner"}, Username: "ownerless-diagnostic", PasswordHash: "fixture", Role: UserRoleAdmin, IsActive: true}
+	if err := database.Create(&owner).Error; err != nil {
+		t.Fatal(err)
+	}
+	err = AdoptLegacyData(owner.ID)
+	if err == nil || !strings.Contains(err.Error(), "job_run:1") || strings.Contains(err.Error(), "private-output") {
+		t.Fatalf("diagnóstico deve identificar recurso sem expor conteúdo: %v", err)
+	}
+	applied, err := appliedMigrationVersions(database)
+	if err != nil || applied[19] || applied[45] {
+		t.Fatalf("corte liberado sem dono: %v", err)
+	}
+	var row struct {
+		UserID string
+		Output string
+	}
+	if err := database.Table("job_runs").Select("user_id, output").Where("id = ?", "ownerless-job-run").Scan(&row).Error; err != nil {
+		t.Fatal(err)
+	}
+	if row.UserID != "" || row.Output != "private-output" {
+		t.Fatalf("execução órfã alterada: %+v", row)
+	}
+	var count int64
+	if err := database.Model(&ToolLedgerMigrationState{}).Where("resource_id = ?", "ownerless-job-run").Count(&count).Error; err != nil || count != 0 {
+		t.Fatalf("fixture precisa cobrir recurso sem estado de ledger: %d %v", count, err)
+	}
+}

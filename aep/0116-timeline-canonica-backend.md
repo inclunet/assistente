@@ -11,6 +11,11 @@ Esses jobs passam a emitir eventos JSON por teste e preservar os logs como
 artefatos, sem alterar seleção, limites ou critérios de aprovação. A instrumentação
 permite distinguir teste preso de compilação ou custo acumulado; timeout não é
 considerado aprovação nem atribuído automaticamente à infraestrutura.
+A instrumentação revelou duas fixtures ainda legadas: cronologia ACP sem tabela de
+anexos e prova de pin com escrita direta na coluna aposentada. Ambas usam agora
+schema/escritor canônicos, mantendo as verificações de ordem, ownership e leitura
+leve. A prova ACP permanece restrita ao CI, conforme orientação do mantenedor.
+
 
 
 O áudio persistido deixa de ser lido ou gravado nas colunas `audio` e
@@ -3937,3 +3942,11 @@ atualizador sob carga (três repetições isoladas passaram) e encerramentos
 localmente: podem disparar antivírus e alertas de Infosec. Não executar
 `go test ./...` localmente nesse contexto. Preservar os testes versionados e
 registrar a restrição; a cobertura completa fica a cargo do CI remoto.
+
+
+Revisão do recorte de áudio (#1028): retry de imagem sem texto não recebe aviso
+exclusivo de áudio sem STT; regressão cobre STT vazio e WebSpeech. O diagnóstico
+pós-adoção reutiliza a descoberta de recursos legados do backfill para contar
+recursos sem proprietário mesmo sem estado de ledger. A fixture publicada 0.1.9
+prova bloqueio sem atribuição nem perda de output; o runbook descreve reconciliação
+offline com evidência de propriedade.

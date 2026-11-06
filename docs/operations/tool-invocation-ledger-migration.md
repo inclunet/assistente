@@ -117,3 +117,25 @@ automático de reparo. Depois de corrigir a causa em uma cópia e verificar os d
 use o banco reconciliado e reinicie: o migrador repete a validação e só conclui o
 corte se todos os gates passarem. A fixture publicada 0.1.9 cobre bloqueio sem
 perda e retomada após correção explícita de uma duplicação conhecida.
+
+O diagnóstico também conta recursos legados sem proprietário por tipo (por exemplo,
+`job_run:1`). Esses recursos podem bloquear v19 antes de existir uma linha em
+`tool_ledger_migration_states`; uma lista de estados vazia não significa que o
+banco está pronto. Para localizar execuções órfãs na cópia offline, enquanto as
+colunas legadas ainda existem:
+
+```sql
+SELECT id, job_id
+FROM job_runs
+WHERE trim(COALESCE(user_id, '')) = ''
+  AND (trim(COALESCE(tool_name, '')) <> ''
+    OR trim(COALESCE(inputs, '')) <> ''
+    OR trim(COALESCE(output, '')) <> '');
+```
+
+Reconcilie o proprietário somente com evidência independente da execução e do job
+original. Não atribua automaticamente ao usuário que está fazendo login nem
+infira propriedade apenas porque existe um job com o mesmo ID. Preserve inputs,
+outputs e identificadores; revise a correção na cópia com o mantenedor antes de
+substituir o banco. Se o job original ou a evidência não existir, mantenha o backup
+e solicite suporte, sem apagar a execução ou forçar versões de migração.

@@ -319,13 +319,14 @@ func backfillExistingInvocationMetadata(database *gorm.DB) (int, error) {
 	}
 }
 
-func seedToolLedgerMigrationStates(database *gorm.DB) (int, error) {
-	type resource struct {
-		UserID       string
-		ResourceType string
-		ResourceID   string
-	}
-	var resources []resource
+type legacyToolLedgerResource struct {
+	UserID       string
+	ResourceType string
+	ResourceID   string
+}
+
+func legacyToolLedgerResources(database *gorm.DB) ([]legacyToolLedgerResource, error) {
+	var resources []legacyToolLedgerResource
 	queries := make([]string, 0, 2)
 	if database.Migrator().HasColumn("chat_messages", "tool_calls") {
 		queries = append(queries, `
@@ -353,8 +354,16 @@ func seedToolLedgerMigrationStates(database *gorm.DB) (int, error) {
 	}
 	if len(queries) > 0 {
 		if err := database.Raw(strings.Join(queries, " UNION ALL ")).Scan(&resources).Error; err != nil {
-			return 0, err
+			return nil, err
 		}
+	}
+	return resources, nil
+}
+
+func seedToolLedgerMigrationStates(database *gorm.DB) (int, error) {
+	resources, err := legacyToolLedgerResources(database)
+	if err != nil {
+		return 0, err
 	}
 	deferred := 0
 	var existingStates []ToolLedgerMigrationState

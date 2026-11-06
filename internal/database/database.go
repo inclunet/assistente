@@ -455,7 +455,17 @@ func AdoptLegacyData(userID string) error {
 		if err := db.Model(&ToolLedgerMigrationState{}).Select("last_error_code, COUNT(*) AS resources").Where("state = ?", toolLedgerStatePending).Group("last_error_code").Order("last_error_code").Scan(&pending).Error; err != nil {
 			return err
 		}
-		return fmt.Errorf("migração bloqueada após adoção: %v; diagnóstico e reconciliação offline em docs/operations/tool-invocation-ledger-migration.md; repetir login sem corrigir a causa não resolve", pending)
+		resources, err := legacyToolLedgerResources(db)
+		if err != nil {
+			return err
+		}
+		ownerless := map[string]int{}
+		for _, resource := range resources {
+			if strings.TrimSpace(resource.UserID) == "" {
+				ownerless[resource.ResourceType]++
+			}
+		}
+		return fmt.Errorf("migração bloqueada após adoção: %v; recursos sem proprietário: %v; diagnóstico e reconciliação offline em docs/operations/tool-invocation-ledger-migration.md; repetir login sem corrigir a causa não resolve", pending, ownerless)
 	}
 	return nil
 
