@@ -1,8 +1,53 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — histórico canônico integrado do backend à UI e CLI; APIs e adaptadores visuais antigos retirados; abertura otimizada e leituras visuais sem blobs; armazenamento de anexos e gates finais de desempenho/memória pendentes
+## Status: In Progress — histórico canônico integrado do backend à UI e CLI; APIs e adaptadores visuais antigos retirados; abertura otimizada e leituras visuais sem blobs; áudio normalizado; mídia geral e gates finais de desempenho/memória pendentes
 
 Data: 2026-10-30
+
+### Recorte de armazenamento de áudio (06/11/2026)
+
+O áudio persistido deixa de ser lido ou gravado nas colunas `audio` e
+`audio_mime_type` de `chat_messages`. Conteúdos binários são únicos por usuário e
+SHA-256 em `chat_attachment_contents`; `chat_message_attachments` associa mensagem,
+conteúdo, posição, MIME e origem. Playback, gravação de TTS, contexto LLM e
+portabilidade usam esse contrato. Os leitores visuais continuam sem blobs.
+
+Decisões confirmadas pelo mantenedor: áudio antigo sem evidência conclusiva de
+origem recebe `legacy_unknown`; nunca inferimos TTS apenas pelo papel da mensagem.
+Na exportação, `includeAudio=false` exclui somente TTS `generated`; áudio recebido
+e legado desconhecido são preservados. O envelope v4 transporta `audioOrigin`;
+v1/v2/v3 permanecem legíveis e seu áudio sem proveniência vira `legacy_unknown`.
+
+A migração v45 cria backup verificável antes de converter conteúdo existente,
+valida base64 e bytes, deduplica por usuário e limpa as colunas antigas na mesma
+transação. Novas gravações nessas colunas são recusadas. Dados históricos sem dono
+ficam intactos e inacessíveis até a adoção no primeiro login; atribuição de dono e
+normalização são atômicas. Não existe fallback de leitura para o armazenamento antigo.
+A última referência removida coleta o binário; mudanças de áudio renovam revisões
+de conteúdo e invalidam confirmações antigas, inclusive em alterações A→B→A.
+
+Evidências: `TestAudioAttachmentsDeduplicateIsolateAndCollect`,
+`TestAudioMutationInvalidatesDestructiveConfirmationIncludingABA`,
+`TestAudioMigrationPreservesProvenanceAndBackup`,
+`TestAudioMigrationRollsBackOnInvalidBytes`,
+`TestLegacyAudioIsNormalizedAtomicallyOnAdoption`,
+`TestAudioRoundTripPreservesReceivedAndUnknownWithoutTTS` e
+`TestAudioExportVersionPreservesLegacyWithoutInventingOrigin`.
+
+Validação local: build, vet, lint Go incremental, TypeScript, ESLint e Stylelint
+aprovados (Stylelint mantém avisos preexistentes). Vitest: 7.007 testes em 526
+arquivos aprovados, excluindo ACP. Backend: 370 testes seguros de database,
+166 de portability mais 2 novos de áudio, 146 de agent, 38 de speech e 36 de
+history aprovados. Dos 485 testes seguros de chat, quatro fixtures precisavam
+usar o novo escritor; os quatro passaram na reexecução após a adaptação. Os
+dois testes de integração de áudio usam agora schema real e anexos normalizados.
+Sem execução local de ACP ou NVDA. Revisor independente `review_audio_storage`:
+quatro rodadas, três achados corrigidos (adoção de órfãos, invalidação de
+confirmações e timestamp histórico), zero pendências na revisão final.
+
+**Parcial:** o campo geral `media` ainda mantém seu formato anterior. A migração
+dos demais anexos, retirada física das colunas legadas e gates finais de memória/
+desempenho continuam pendentes. Não marcamos a fase de anexos nem o AEP como Done.
 
 ### Recorte de leitura leve do término e recuperação (06/11/2026)
 

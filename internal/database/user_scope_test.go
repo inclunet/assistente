@@ -19,6 +19,9 @@ func setupUserScopeTestDB(t *testing.T) {
 	if err := db.AutoMigrate(&User{}, &Conversation{}, &ChatMessage{}, &LLMProvider{}, &TaskListWorkflow{}, &TaskList{}, &Task{}, &TaskNote{}, &SubAgentRun{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
+	if err := MigrateChatAudioAttachments(db); err != nil {
+		t.Fatal(err)
+	}
 	t.Cleanup(func() {
 		sqlDB, _ := db.DB()
 		if sqlDB != nil {

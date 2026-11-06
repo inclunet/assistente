@@ -334,19 +334,23 @@ Na importação:
 
 Isso mantém portabilidade entre máquinas sem acoplar o arquivo à DEK ou ao keyring da máquina de origem.
 
-### D5 — Áudio excluído por padrão
+### D5 — TTS gerado opcional; áudio recebido preservado
 
-O campo `audio` (base64) das mensagens é **omitido** por padrão:
+O envelope v4 acrescenta `audioOrigin`: `received`, `generated` ou
+`legacy_unknown`. O padrão `includeAudio=false` exclui somente áudio gerado por
+TTS, que pode ser regenerado. Áudio recebido e áudio legado de origem desconhecida
+fazem parte da conversa e permanecem no backup. A opção `includeAudio=true` inclui
+também o TTS e pode aumentar significativamente o arquivo. Quando TTS é omitido,
+o export não promete preservar seu MIME ou outros metadados de reprodução.
 
-- Uma mensagem TTS de ~30s gera ~500KB em base64
-- 100 mensagens com áudio = ~50MB, tornando o export impraticável
-- Áudio pode ser regenerado via TTS
+Arquivos v1/v2/v3 continuam legíveis; áudio existente recebe `legacy_unknown`.
+Arquivos antigos não podem declarar a nova origem; v4 exige origem válida para
+áudio não vazio. Importação preserva os bytes e a origem no armazenamento
+normalizado, inclusive ao sobrescrever; erro reverte a conversa inteira.
+O campo geral `media` ainda é transportado integralmente neste recorte.
 
-O campo `audioMimeType` é preservado como indicação de que havia áudio originalmente.
-
-Nesta fase, `includeAudio: true` está disponível para exports completos e inclui
-o conteúdo base64 do áudio das mensagens. Como isso pode aumentar muito o tamanho
-do arquivo, a opção permanece desligada por padrão e deve ser explícita na UI/CLI.
+Evidências: `TestAudioRoundTripPreservesReceivedAndUnknownWithoutTTS` e
+`TestAudioExportVersionPreservesLegacyWithoutInventingOrigin` (AEP-0116).
 
 ### D5.1 — HTML e PDF são formatos derivados de exportação
 
@@ -498,7 +502,7 @@ Campos que **não** são exportados por serem computados ou estado de runtime:
 |---|---|---|
 | `Conversation` | `messageCount` | Computado (gorm:"-") |
 | `Conversation` | `summarizingInProgress` | Estado runtime |
-| `ChatMessage` | `audio` | Excluído por padrão (D5) |
+| `ChatMessage` | `audio` | TTS opcional; recebido/legado preservado (D5) |
 | `Job` | `filePath`, `lastRun`, `status` | Estado runtime |
 | Todos | `id` (PK) | **Mantido** no formato portável para idempotência |
 | Todos | `updatedAt` | Pode ser regenerado; `createdAt` é preservado |
@@ -648,12 +652,12 @@ alterar o JSON canônico.
 
 | # | Risco | Probabilidade | Impacto | Mitigação |
 |---|---|---|---|---|
-| R1 | Export de sistema grande é lento | Média | Médio | Streaming JSON ou progress bar; excluir áudio por padrão |
+| R1 | Export de sistema grande é lento | Média | Médio | Streaming JSON ou progress bar; excluir TTS por padrão |
 | R2 | Referências cruzadas quebradas na importação | Alta | Médio | Warnings ao usuário; campos vazios não impedem import |
 | R3 | Vazamento de dados sensíveis em MCP `env` | Média | Alto | Warning explícito na UI antes de confirmar export |
 | R4 | Conflito de slugs gera confusão | Média | Médio | Preview detalhado antes de importar; opção renomear |
 | R5 | Formato JSON com referências quebradas dificulta debug | Baixa | Baixo | IDs preservados, índices auxiliares e `createdAt` permitem rastreio |
-| R6 | Áudio excluído causa perda silenciosa | Média | Baixo | Campo `audioMimeType` preservado como indicador |
+| R6 | Áudio excluído causa perda silenciosa | Média | Baixo | Áudio recebido e desconhecido preservado; somente TTS é opcional |
 
 ## Critérios de aceitação
 
@@ -668,7 +672,7 @@ DB-only descrito em D0.
 6. **Recursos fora do escopo no import** são ignorados com warning claro, sem bloquear os recursos DB-only válidos do arquivo.
 7. **Credenciais** ficam excluídas por padrão e, quando incluídas, aparecem apenas em bloco criptografado por senha de exportação; `CredentialKeyWrap` nunca é exportado.
 8. **Bloco de credenciais obrigatório**: se `includeCredentials: true`, `resources.credentials` deve existir e ser válido.
-9. **Áudio** é excluído por padrão; `audioMimeType` é preservado. Quando `includeAudio` for usado, o comportamento deve ser explícito na UI/CLI.
+9. **Áudio recebido e legado desconhecido** é preservado; somente TTS gerado é opcional. `includeAudio` inclui TTS e deve ser explícito na UI/CLI.
 10. **Versionamento**: import aceita `version: 2`, adapta diretamente o
     envelope publicado pela 0.1.9 e rejeita somente versões desconhecidas/não
     publicadas com mensagem clara.

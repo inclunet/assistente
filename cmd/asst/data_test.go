@@ -112,12 +112,12 @@ func TestDataExportIncludeAudioHelpIsExplicit(t *testing.T) {
 	if flag == nil {
 		t.Fatal("expected include-audio flag to exist")
 	}
-	if !strings.Contains(flag.Usage, "conteúdo de áudio") {
-		t.Fatalf("include-audio help should mention audio content, got %q", flag.Usage)
+	for _, meaning := range []string{"TTS", "recebido", "desconhecida", "preservado"} {
+		if !strings.Contains(flag.Usage, meaning) {
+			t.Fatalf("include-audio help must explain %q, got %q", meaning, flag.Usage)
+		}
 	}
-	if !strings.Contains(flag.Usage, "audioMimeType") {
-		t.Fatalf("include-audio help should mention audioMimeType, got %q", flag.Usage)
-	}
+
 }
 
 func TestRunDataExport_ToFile(t *testing.T) {

@@ -2,6 +2,7 @@ package chat
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"reflect"
 	"strings"
@@ -71,7 +72,12 @@ func TestMembershipMatchesCanonicalPaginationWithoutPayload(t *testing.T) {
 	}
 	// Conteúdo pesado do escopo e do ledger não impede contar/ordenar identidades.
 	large := strings.Repeat("x", canonicalSourceBytes+1)
-	if err := f.db.Model(&database.ChatMessage{}).Where("id IN ?", []string{f.question, f.answer, child.ID}).Updates(map[string]any{"content": large, "audio": large}).Error; err != nil {
+	for _, id := range []string{f.question, f.answer, child.ID} {
+		if err := database.SaveMessageAudioWithContext(f.ctx, id, base64.StdEncoding.EncodeToString([]byte(large)), "audio/wav"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := f.db.Model(&database.ChatMessage{}).Where("id IN ?", []string{f.question, f.answer, child.ID}).Updates(map[string]any{"content": large}).Error; err != nil {
 		t.Fatal(err)
 	}
 	if err := f.db.Model(&database.ToolInvocation{}).Where("id=?", f.invocation).Update("output_preview", large).Error; err != nil {

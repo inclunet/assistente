@@ -201,6 +201,9 @@ func buildConversationExportsTx(ctx context.Context, tx *gorm.DB, conversationID
 		Find(&messages).Error; err != nil {
 		return nil, fmt.Errorf("erro ao buscar mensagens das conversas para exportação: %w", err)
 	}
+	if err := database.LoadMessageAudios(ctx, tx, messages, includeAudio); err != nil {
+		return nil, err
+	}
 	invocationsByConversation, err := loadConversationToolInvocationExports(ctx, tx, userID, uniqueIDs)
 	if err != nil {
 		return nil, err
@@ -656,6 +659,7 @@ func exportConversation(conv *database.Conversation, includeAudio bool) Conversa
 			Reasoning:        msg.Reasoning,
 			Media:            msg.Media,
 			AudioMimeType:    msg.AudioMimeType,
+			AudioOrigin:      msg.AudioOrigin,
 			PromptTokens:     msg.PromptTokens,
 			CompletionTokens: msg.CompletionTokens,
 			TotalTokens:      msg.TotalTokens,
@@ -670,7 +674,7 @@ func exportConversation(conv *database.Conversation, includeAudio bool) Conversa
 		if msg.TurnID != nil {
 			exported.TurnID = *msg.TurnID
 		}
-		if includeAudio {
+		if includeAudio || msg.AudioOrigin != database.AttachmentGenerated {
 			exported.Audio = msg.Audio
 		}
 		if msg.ParentID != nil {
@@ -863,7 +867,7 @@ func importConversationMessages(ctx context.Context, tx *gorm.DB, conversationID
 		}
 
 		audio := ""
-		if includeAudio {
+		if includeAudio || msg.AudioOrigin != database.AttachmentGenerated {
 			audio = msg.Audio
 		}
 		if strings.EqualFold(strings.TrimSpace(msg.Role), "tool") {
@@ -884,6 +888,7 @@ func importConversationMessages(ctx context.Context, tx *gorm.DB, conversationID
 			Media:            msg.Media,
 			Audio:            audio,
 			AudioMimeType:    msg.AudioMimeType,
+			AudioOrigin:      msg.AudioOrigin,
 			PromptTokens:     msg.PromptTokens,
 			CompletionTokens: msg.CompletionTokens,
 			TotalTokens:      msg.TotalTokens,
@@ -1554,18 +1559,31 @@ func normalizeExportVersion(file *ExportFile) error {
 	if file == nil {
 		return fmt.Errorf("arquivo de exportação ausente")
 	}
-	switch file.Version {
-	case 1, 2:
-		if hasExecutionHistory(file) {
-			return fmt.Errorf("proveniência de execução exige export version 3")
-		}
-		file.Version = ExportVersion
-		return nil
-	case ExportVersion:
-		return nil
-	default:
+	if file.Version < 1 || file.Version > ExportVersion {
 		return fmt.Errorf("versão de exportação não suportada: %d", file.Version)
 	}
+	if file.Version < 3 && hasExecutionHistory(file) {
+		return fmt.Errorf("proveniência de execução exige export version 3")
+	}
+	for ci := range file.Resources.Conversations {
+		for mi := range file.Resources.Conversations[ci].Messages {
+			message := &file.Resources.Conversations[ci].Messages[mi]
+			if file.Version < 4 {
+				if message.AudioOrigin != "" {
+					return fmt.Errorf("origem de áudio exige export version 4")
+				}
+				if message.Audio != "" {
+					message.AudioOrigin = database.AttachmentLegacyUnknown
+				}
+			} else if message.AudioOrigin != "" && message.AudioOrigin != database.AttachmentReceived && message.AudioOrigin != database.AttachmentGenerated && message.AudioOrigin != database.AttachmentLegacyUnknown {
+				return fmt.Errorf("origem de áudio inválida")
+			} else if message.Audio != "" && message.AudioOrigin == "" {
+				return fmt.Errorf("áudio exige origem explícita")
+			}
+		}
+	}
+	file.Version = ExportVersion
+	return nil
 }
 
 func collectUnsupportedResourceTypes(resources map[string]json.RawMessage) []string {

@@ -423,6 +423,9 @@ func TestDBMessageStorePlaceholderLocksAreScopedByTurn(t *testing.T) {
 
 func TestDBMessageStoreBatchKeepsHistoryBoundedAndUserScoped(t *testing.T) {
 	testDB, ctx, conversationID := setupHotPathDB(t)
+	if err := database.MigrateChatAudioAttachments(testDB); err != nil {
+		t.Fatal(err)
+	}
 	var summaryUpToID string
 	for index := range 100 {
 		role := "assistant"

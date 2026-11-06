@@ -37,7 +37,7 @@ func TestGetMessagesIntegrationFullPayloadOmitsLargeBinaries(t *testing.T) {
 		Content:        fullContent,
 		Reasoning:      "raciocínio-privado-marcador",
 		Media:          "base64-midia-marcador",
-		Audio:          "base64-audio-marcador",
+		Audio:          "YXVkaW8tbWFyY2Fkb3I=",
 		AudioMimeType:  "audio/mpeg",
 	})
 
@@ -49,7 +49,7 @@ func TestGetMessagesIntegrationFullPayloadOmitsLargeBinaries(t *testing.T) {
 	if !strings.Contains(result.Content, fullContent) {
 		t.Fatal("complete message content was not returned")
 	}
-	for _, forbidden := range []string{"base64-midia-marcador", "base64-audio-marcador", "raciocínio-privado-marcador", `"media"`, `"audio"`} {
+	for _, forbidden := range []string{"base64-midia-marcador", "YXVkaW8tbWFyY2Fkb3I=", "raciocínio-privado-marcador", `"media"`, `"audio"`} {
 		if strings.Contains(result.Content, forbidden) {
 			t.Fatalf("payload exposed omitted field %q: %s", forbidden, result.Content)
 		}

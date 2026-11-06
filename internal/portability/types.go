@@ -13,7 +13,7 @@ const (
 	FormatPDF      = "pdf"
 	FormatMarkdown = "md"
 	FormatMCPJSON  = "mcp-json"
-	ExportVersion  = 3
+	ExportVersion  = 4
 )
 
 type ExportOptions struct {
@@ -42,6 +42,7 @@ type CredentialCipher struct {
 }
 
 type MessageExport struct {
+	AudioOrigin      string    `json:"audioOrigin,omitempty"`
 	ChatExecutionID  *string   `json:"chatExecutionId,omitempty"`
 	ID               string    `json:"id"`
 	ConversationID   string    `json:"conversationId,omitempty"`

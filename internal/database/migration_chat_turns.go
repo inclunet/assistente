@@ -101,6 +101,10 @@ func MigrateChatTurns(db *gorm.DB) error {
 }
 
 func backupChatTurns(db *gorm.DB) error {
+	return backupChatMigration(db, ".pre-chat-turns-v41.bak")
+}
+
+func backupChatMigration(db *gorm.DB, suffix string) error {
 	sqlDB, err := db.DB()
 	if err != nil {
 		return err
@@ -109,7 +113,7 @@ func backupChatTurns(db *gorm.DB) error {
 	if err != nil || path == "" || path == ":memory:" {
 		return err
 	}
-	backup := path + ".pre-chat-turns-v41.bak"
+	backup := path + suffix
 	if err := archivePreviousToolLedgerBackup(backup); err != nil {
 		return err
 	}

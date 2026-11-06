@@ -10,6 +10,17 @@ importação de dados e a manutenção do armazenamento do Assistente. O roteiro
 abaixo trata da exportação e importação de camadas de comandos; a seção de
 manutenção explica o banco SQLite, suas migrações e sua compactação.
 
+## Áudio nos backups de conversas
+
+O backup de conversas preserva os áudios enviados ou recebidos. A opção
+`--include-audio` da CLI inclui também a leitura em voz alta gerada por TTS,
+que fica fora do backup por padrão e pode ser gerada novamente.
+
+Áudios antigos cuja origem não possa ser identificada também são preservados.
+Arquivos de backup das versões anteriores continuam aceitos. A atualização do
+banco mantém uma cópia de segurança antes de migrar os áudios; se algum conteúdo
+for inválido, a migração é interrompida sem apagar os dados originais.
+
 ## Inicialização
 
 A limpeza automática faz uma pausa progressiva quando falha: começa em 30

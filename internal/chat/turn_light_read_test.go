@@ -19,8 +19,13 @@ func TestTurnReadersDoNotMaterializeMedia(t *testing.T) {
 		t.Fatal(err)
 	}
 	large := strings.Repeat("x", 2*1024*1024)
-	if err := f.db.Model(&database.ChatMessage{}).Where("conversation_id=?", f.conversation).Updates(map[string]any{"audio": large, "media": large, "audio_mime_type": "audio/wav"}).Error; err != nil {
+	if err := f.db.Model(&database.ChatMessage{}).Where("conversation_id=?", f.conversation).Updates(map[string]any{"media": large}).Error; err != nil {
 		t.Fatal(err)
+	}
+	for _, id := range []string{f.question, f.answer} {
+		if err := database.SaveMessageAudioWithContext(f.ctx, id, large, "audio/wav"); err != nil {
+			t.Fatal(err)
+		}
 	}
 	for name, read := range map[string]func(context.Context, string, string) (*TimelineTurnSnapshot, error){"publication": f.reader.ReadPublicationTurn, "recovery": f.reader.ReadRecoveryTurn} {
 		t.Run(name, func(t *testing.T) {
@@ -97,8 +102,13 @@ func BenchmarkRecoveryTurnMedia(b *testing.B) {
 		b.Run(name, func(b *testing.B) {
 			f := newSnapshotFixture(b)
 			payload := strings.Repeat("x", size)
-			if err := f.db.Model(&database.ChatMessage{}).Where("conversation_id=?", f.conversation).Updates(map[string]any{"audio": payload, "media": payload, "audio_mime_type": "audio/wav"}).Error; err != nil {
+			if err := f.db.Model(&database.ChatMessage{}).Where("conversation_id=?", f.conversation).Updates(map[string]any{"media": payload}).Error; err != nil {
 				b.Fatal(err)
+			}
+			for _, id := range []string{f.question, f.answer} {
+				if err := database.SaveMessageAudioWithContext(f.ctx, id, payload, "audio/wav"); err != nil {
+					b.Fatal(err)
+				}
 			}
 			b.ReportAllocs()
 			b.ResetTimer()

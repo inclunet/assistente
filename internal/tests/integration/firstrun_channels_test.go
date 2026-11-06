@@ -2,6 +2,7 @@ package integration
 
 import (
 	"encoding/json"
+	"gorm.io/gorm"
 	"strings"
 	"testing"
 
@@ -334,13 +335,14 @@ func TestIntegration_FirstMessageChannelAudioHandling(t *testing.T) {
 		t.Skip("Utilizando -short, pulando teste de integração")
 	}
 
-	db := setupIntegrationDB(t)
+	db, ctx := setupAudioIntegrationDB(t)
 
 	// 1. Setup: mensagem com áudio via Telegram
 	channel := "telegram"
 
 	conv := &database.Conversation{
-		Title: "Audio from Telegram",
+		Title:  "Audio from Telegram",
+		UserID: "audio-integration",
 	}
 
 	if err := db.Create(conv).Error; err != nil {
@@ -357,9 +359,10 @@ func TestIntegration_FirstMessageChannelAudioHandling(t *testing.T) {
 		Source:         channel,
 		Audio:          audioBase64,
 		AudioMimeType:  "audio/mpeg",
+		AudioOrigin:    database.AttachmentReceived,
 	}
 
-	if err := db.Create(userMsg).Error; err != nil {
+	if err := db.Transaction(func(tx *gorm.DB) error { return database.CreateChatMessageInTransaction(tx, userMsg) }); err != nil {
 		t.Fatalf("falha ao criar mensagem com áudio: %v", err)
 	}
 
@@ -368,6 +371,12 @@ func TestIntegration_FirstMessageChannelAudioHandling(t *testing.T) {
 	if err := db.First(&retrieved, "id = ?", userMsg.ID).Error; err != nil {
 		t.Fatalf("falha ao recuperar mensagem: %v", err)
 	}
+
+	hydrated := []database.ChatMessage{retrieved}
+	if err := database.LoadMessageAudios(ctx, db, hydrated, true); err != nil {
+		t.Fatal(err)
+	}
+	retrieved = hydrated[0]
 
 	if retrieved.Audio == "" {
 		t.Error("áudio não foi persistido")

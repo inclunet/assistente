@@ -1,6 +1,10 @@
 package integration
 
 import (
+	"context"
+	"encoding/base64"
+	"gorm.io/gorm"
+	"path/filepath"
 	"testing"
 
 	"assistente/internal/database"
@@ -18,8 +22,8 @@ func TestIntegration_FirstUserMessage(t *testing.T) {
 
 	// 1. Criar primeira conversa
 	conv := &database.Conversation{
-		Title:     "Nova Conversa",
-		Channel:   "", // Local (Wails)
+		Title:   "Nova Conversa",
+		Channel: "", // Local (Wails)
 	}
 
 	if err := db.Create(conv).Error; err != nil {
@@ -81,7 +85,7 @@ func TestIntegration_FirstAssistantResponse(t *testing.T) {
 
 	// 1. Setup: criar conversa e primeira mensagem
 	conv := &database.Conversation{
-		Title:     "Teste Resposta",
+		Title: "Teste Resposta",
 	}
 
 	if err := db.Create(conv).Error; err != nil {
@@ -150,7 +154,7 @@ func TestIntegration_FirstMessageAutoRenameConversation(t *testing.T) {
 
 	// 1. Criar conversa com título genérico
 	conv := &database.Conversation{
-		Title:     "Nova Conversa",
+		Title: "Nova Conversa",
 	}
 
 	if err := db.Create(conv).Error; err != nil {
@@ -213,7 +217,7 @@ func TestIntegration_FirstMessageConversationHistory(t *testing.T) {
 
 	// 1. Criar conversa
 	conv := &database.Conversation{
-		Title:     "Histórico",
+		Title: "Histórico",
 	}
 
 	if err := db.Create(conv).Error; err != nil {
@@ -291,11 +295,12 @@ func TestIntegration_FirstMessageWithAudio(t *testing.T) {
 		t.Skip("Utilizando -short, pulando teste de integração")
 	}
 
-	db := setupIntegrationDB(t)
+	db, ctx := setupAudioIntegrationDB(t)
 
 	// 1. Criar conversa
 	conv := &database.Conversation{
-		Title:     "Mensagem com Áudio",
+		Title:  "Mensagem com Áudio",
+		UserID: "audio-integration",
 	}
 
 	if err := db.Create(conv).Error; err != nil {
@@ -303,7 +308,7 @@ func TestIntegration_FirstMessageWithAudio(t *testing.T) {
 	}
 
 	// 2. Primeira mensagem com áudio (usuário gravou um áudio)
-	audioBase64 := "//NExAAAAAANIAAAAAExBTUUzLjk4LjJVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVU="
+	audioBase64 := base64.StdEncoding.EncodeToString([]byte{0xff, 0xf3, 0x44, 0xc4, 0, 0, 1, 2, 3, 4})
 
 	msg := &database.ChatMessage{
 		ConversationID: conv.ID,
@@ -311,10 +316,11 @@ func TestIntegration_FirstMessageWithAudio(t *testing.T) {
 		Content:        "Olá, aqui está minha pergunta em áudio",
 		Audio:          audioBase64,
 		AudioMimeType:  "audio/mpeg",
+		AudioOrigin:    database.AttachmentReceived,
 		Source:         "wails",
 	}
 
-	if err := db.Create(msg).Error; err != nil {
+	if err := db.Transaction(func(tx *gorm.DB) error { return database.CreateChatMessageInTransaction(tx, msg) }); err != nil {
 		t.Fatalf("falha ao armazenar mensagem com áudio: %v", err)
 	}
 
@@ -323,6 +329,12 @@ func TestIntegration_FirstMessageWithAudio(t *testing.T) {
 	if err := db.First(&retrieved, "id = ?", msg.ID).Error; err != nil {
 		t.Fatalf("falha ao recuperar mensagem: %v", err)
 	}
+
+	hydrated := []database.ChatMessage{retrieved}
+	if err := database.LoadMessageAudios(ctx, db, hydrated, true); err != nil {
+		t.Fatal(err)
+	}
+	retrieved = hydrated[0]
 
 	if retrieved.Audio != audioBase64 {
 		t.Error("áudio não foi persistido corretamente")
@@ -349,7 +361,7 @@ func TestIntegration_FirstMessageProviderMetadata(t *testing.T) {
 
 	// 1. Criar conversa
 	conv := &database.Conversation{
-		Title:     "Provider Metadata",
+		Title: "Provider Metadata",
 	}
 
 	if err := db.Create(conv).Error; err != nil {
@@ -434,7 +446,7 @@ func TestIntegration_FirstMessageWithTurnTracking(t *testing.T) {
 
 	// 1. Criar conversa
 	conv := &database.Conversation{
-		Title:     "Turn Tracking",
+		Title: "Turn Tracking",
 	}
 
 	if err := db.Create(conv).Error; err != nil {
@@ -484,4 +496,18 @@ func TestIntegration_FirstMessageWithTurnTracking(t *testing.T) {
 	}
 
 	t.Log("✓ Rastreamento de turno (TurnID) funcionando corretamente")
+}
+
+func setupAudioIntegrationDB(t *testing.T) (*gorm.DB, context.Context) {
+	t.Helper()
+	restore := database.SetDB(database.DB())
+	if err := database.InitPath(filepath.Join(t.TempDir(), "audio.db")); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = database.Close(); restore() })
+	db := database.DB()
+	if err := db.Create(&database.User{UUIDModel: database.UUIDModel{ID: "audio-integration"}, Username: "audio-integration"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	return db, database.WithUserID(context.Background(), "audio-integration")
 }

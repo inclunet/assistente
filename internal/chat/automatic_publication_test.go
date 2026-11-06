@@ -2,6 +2,7 @@ package chat
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"strings"
 	"sync/atomic"
@@ -423,7 +424,12 @@ func TestAutomaticPublicationNewIncarnationInvalidatesOffPageTurns(t *testing.T)
 func TestAutomaticPublicationReadBudgetAndMediaExclusion(t *testing.T) {
 	f := newSnapshotFixture(t)
 	large := strings.Repeat("x", canonicalSourceBytes+1)
-	if err := f.db.Model(&database.ChatMessage{}).Where("id = ?", f.question).Updates(map[string]any{"audio": large, "media": large, "content": large}).Error; err != nil {
+	for _, id := range []string{f.question} {
+		if err := database.SaveMessageAudioWithContext(f.ctx, id, base64.StdEncoding.EncodeToString([]byte(large)), "audio/wav"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := f.db.Model(&database.ChatMessage{}).Where("id = ?", f.question).Updates(map[string]any{"media": large, "content": large}).Error; err != nil {
 		t.Fatal(err)
 	}
 	questionRead := false
@@ -437,7 +443,7 @@ func TestAutomaticPublicationReadBudgetAndMediaExclusion(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := f.db.Model(&database.ChatMessage{}).Where("id = ?", f.answer).Updates(map[string]any{"audio": large, "media": large}).Error; err != nil {
+	if err := f.db.Model(&database.ChatMessage{}).Where("id = ?", f.answer).Updates(map[string]any{"media": large}).Error; err != nil {
 		t.Fatal(err)
 	}
 	snapshot, err := f.reader.ReadPublicationTurn(f.ctx, f.conversation, f.question)

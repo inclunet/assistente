@@ -10,6 +10,7 @@ import (
 
 	"assistente/internal/contextprovider"
 	"assistente/internal/core/ports"
+	"assistente/internal/database"
 	"assistente/internal/events"
 	"assistente/internal/llm"
 	"assistente/internal/profiles"
@@ -597,6 +598,7 @@ func (i *Interactor) RecordUserMessage(ctx context.Context, req RecordUserMessag
 		Content:        req.Content,
 		Media:          req.Media,
 		Audio:          req.AudioBase64,
+		AudioOrigin:    database.AttachmentReceived,
 		AudioMimeType:  req.AudioMimeType,
 		Source:         req.Source,
 	}

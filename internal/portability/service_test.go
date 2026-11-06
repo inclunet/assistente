@@ -3,6 +3,8 @@ package portability
 import (
 	"context"
 	"encoding/json"
+	"github.com/glebarez/sqlite"
+	"gorm.io/gorm"
 	"strings"
 	"testing"
 	"time"
@@ -10,8 +12,6 @@ import (
 	"assistente/internal/credentials"
 	"assistente/internal/database"
 
-	"github.com/glebarez/sqlite"
-	"gorm.io/gorm"
 	"path/filepath"
 )
 
@@ -110,7 +110,7 @@ func TestExportConversationOmitsAudioByDefault(t *testing.T) {
 	conv := &database.Conversation{
 		Title: "Audio",
 		Messages: []database.ChatMessage{
-			{UUIDModel: database.UUIDModel{ID: "1"}, Role: "assistant", Content: "fala", Audio: "base64-audio", AudioMimeType: "audio/mpeg"},
+			{UUIDModel: database.UUIDModel{ID: "1"}, Role: "assistant", Content: "fala", Audio: "base64-audio", AudioMimeType: "audio/mpeg", AudioOrigin: database.AttachmentGenerated},
 		},
 	}
 
@@ -1072,6 +1072,9 @@ func setupPortabilityTestDB(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	if err := database.MigrateChatAudioAttachments(db); err != nil {
+		t.Fatal(err)
+	}
 	database.SetDB(db)
 }
 
