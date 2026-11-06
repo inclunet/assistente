@@ -236,9 +236,9 @@ type ChatMessage struct {
 	Role             string  `json:"role"`                            // user, assistant, system
 	Content          string  `json:"content"`
 	Reasoning        string  `json:"reasoning,omitempty"`                         // Reasoning/thinking do modelo (DeepSeek, Claude, o1, etc)
-	Media            string  `json:"media,omitempty"`                             // JSON com mídias (imagens, áudio, etc) em base64
-	Audio            string  `json:"audio,omitempty" gorm:"type:text"`            // Áudio da mensagem em base64 (recebido ou gerado via TTS)
-	AudioMimeType    string  `json:"audioMimeType,omitempty"`                     // MIME do áudio: "audio/mpeg", "audio/aac", etc.
+	Media            string  `json:"media,omitempty" gorm:"-"`                    // JSON com mídias (imagens, áudio, etc) em base64
+	Audio            string  `json:"audio,omitempty" gorm:"-"`                    // Áudio da mensagem em base64 (recebido ou gerado via TTS)
+	AudioMimeType    string  `json:"audioMimeType,omitempty" gorm:"-"`            // MIME do áudio: "audio/mpeg", "audio/aac", etc.
 	PromptTokens     int     `json:"promptTokens,omitempty"`                      // Tokens de entrada
 	CompletionTokens int     `json:"completionTokens,omitempty"`                  // Tokens de saída
 	TotalTokens      int     `json:"totalTokens,omitempty"`                       // Total de tokens

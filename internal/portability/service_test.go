@@ -1075,6 +1075,9 @@ func setupPortabilityTestDB(t *testing.T) {
 	if err := database.MigrateChatAudioAttachments(db); err != nil {
 		t.Fatal(err)
 	}
+	if err := database.MigrateChatMediaAttachments(db); err != nil {
+		t.Fatal(err)
+	}
 	database.SetDB(db)
 }
 

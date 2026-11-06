@@ -53,11 +53,10 @@ func TestMessagePinningPersistsAndIsUserScoped(t *testing.T) {
 	if err := SaveMessageAudioWithContext(anaCtx, anaMessage.ID, "YXVkaW8gZ3JhbmRl", "audio/wav"); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.Model(&ChatMessage{}).Where("id = ?", anaMessage.ID).Updates(map[string]any{
-
-		"media": "mídia grande",
-	}).Error; err != nil {
-		t.Fatalf("populate large message fields: %v", err)
+	if err := db.Transaction(func(tx *gorm.DB) error {
+		return storeMessageMedia(tx, anaMessage.ID, `[{"type":"image/png","data":"AQID","name":"mídia grande"}]`)
+	}); err != nil {
+		t.Fatalf("populate media attachment: %v", err)
 	}
 
 	list, err := GetPinnedMessagesWithContext(anaCtx, anaConversation.ID)

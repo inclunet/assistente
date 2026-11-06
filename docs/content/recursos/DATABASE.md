@@ -27,6 +27,24 @@ for inválido, a migração é interrompida sem apagar os dados originais.
 Ao vincular um banco antigo ao primeiro usuário, a busca de mensagens antigas e
 novas fica disponível após a atualização, sem precisar reiniciar o aplicativo.
 
+## Anexos e atualização do histórico
+
+Imagens, documentos, vídeos e demais mídias são armazenados separadamente das
+mensagens, preservando nomes, ordem e conteúdo. Arquivos iguais do mesmo usuário
+compartilham os bytes sem fundir as ocorrências. Arquivos vazios continuam anexos
+válidos. Links externos são preservados como referências; a atualização não baixa
+arquivos da internet.
+
+A atualização cria uma cópia de segurança antes de retirar o armazenamento antigo.
+Se houver mídia inválida ou uma mensagem sem a conversa correspondente, o corte é
+interrompido com os dados preservados. Conversas antigas sem proprietário aguardam
+a adoção no login. Não apague registros nem force a versão do banco para contornar
+um erro: preserve o backup e solicite suporte para reconciliar os dados.
+
+Backups existentes continuam aceitos. Uma importação inválida não apaga os anexos
+da conversa que seria substituída. Abrir o histórico não carrega os arquivos
+integrais; eles são lidos pelos consumidores que precisam do conteúdo.
+
 ## Inicialização
 
 A limpeza automática faz uma pausa progressiva quando falha: começa em 30

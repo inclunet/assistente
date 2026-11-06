@@ -2,9 +2,11 @@ package usecases_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -1008,7 +1010,21 @@ func TestSendMessageUseCase_RetryImageWithoutServerSTTPreservesEmptyText(t *test
 				t.Fatal(err)
 			}
 			stored, err := database.GetMessageWithContext(ctx, message.ID)
-			if err != nil || stored.Content != "" || stored.Media != message.Media {
+			if err != nil {
+				t.Fatal(err)
+			}
+			hydrated := []database.ChatMessage{*stored}
+			if err := database.LoadMessageMedia(ctx, database.DB(), hydrated); err != nil {
+				t.Fatal(err)
+			}
+			var beforeMedia, afterMedia any
+			if err := json.Unmarshal([]byte(message.Media), &beforeMedia); err != nil {
+				t.Fatal(err)
+			}
+			if err := json.Unmarshal([]byte(hydrated[0].Media), &afterMedia); err != nil {
+				t.Fatal(err)
+			}
+			if stored.Content != "" || !reflect.DeepEqual(beforeMedia, afterMedia) {
 				t.Fatalf("imagem alterada pelo aviso de áudio: %+v %v", stored, err)
 			}
 			cancel()

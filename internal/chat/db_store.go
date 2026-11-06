@@ -155,6 +155,9 @@ func (s *DBMessageStore) GetMessage(ctx context.Context, messageID string) (*dat
 		return nil, err
 	}
 	messages := []database.ChatMessage{*message}
+	if err := database.LoadMessageMedia(ctx, database.DB(), messages); err != nil {
+		return nil, err
+	}
 	if err := database.LoadMessageAudios(ctx, database.DB(), messages, database.AudioAll); err != nil {
 		return nil, err
 	}
@@ -168,14 +171,28 @@ func (s *DBMessageStore) GetMessages(ctx context.Context, conversationID string,
 	if _, err := database.RequireUserID(ctx); err != nil {
 		return nil, err
 	}
-	return database.GetMessagesWithContext(ctx, conversationID, parentID)
+	messages, err := database.GetMessagesWithContext(ctx, conversationID, parentID)
+	if err != nil {
+		return nil, err
+	}
+	if err := database.LoadMessageMedia(ctx, database.DB(), messages); err != nil {
+		return nil, err
+	}
+	return messages, nil
 }
 
 func (s *DBMessageStore) GetMessagesByTurnID(ctx context.Context, conversationID string, parentID *string, turnID string, limit int) ([]database.ChatMessage, error) {
 	if _, err := database.RequireUserID(ctx); err != nil {
 		return nil, err
 	}
-	return database.GetMessagesByTurnIDWithContext(ctx, conversationID, parentID, turnID, limit)
+	messages, err := database.GetMessagesByTurnIDWithContext(ctx, conversationID, parentID, turnID, limit)
+	if err != nil {
+		return nil, err
+	}
+	if err := database.LoadMessageMedia(ctx, database.DB(), messages); err != nil {
+		return nil, err
+	}
+	return messages, nil
 }
 
 func (s *DBMessageStore) GetConversationSummary(ctx context.Context, conversationID string) (string, string, error) {

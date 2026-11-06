@@ -35,9 +35,7 @@ func TestCanonicalWindowDoesNotMaterializeMediaOrParentPayload(t *testing.T) {
 				if err := database.SaveMessageAudioWithContext(f.ctx, id, large, "audio/wav"); err != nil {
 					t.Fatal(err)
 				}
-				if err := f.db.Model(&database.ChatMessage{}).Where("id=?", id).Updates(map[string]any{"media": media}).Error; err != nil {
-					t.Fatal(err)
-				}
+				attachFixtureMedia(t, f.db, id, media)
 			}
 			if thread {
 				if err := f.db.Model(&database.ChatMessage{}).Where("id=?", f.question).Update("content", large).Error; err != nil {
@@ -90,8 +88,9 @@ func TestCanonicalWindowDoesNotMaterializeMediaOrParentPayload(t *testing.T) {
 					t.Fatal("representante reteve blobs")
 				}
 			}
-			stored, err := database.GetMessageWithContext(f.ctx, selected)
-			if err != nil || stored.Media != media {
+			stored := []database.ChatMessage{{UUIDModel: database.UUIDModel{ID: selected}}}
+			err = database.LoadMessageMedia(f.ctx, f.db, stored)
+			if err != nil || !equalFixtureMedia(stored[0].Media, media) {
 				t.Fatal("leitura alterou armazenamento", err)
 			}
 			audio, mime, err := database.GetMessageAudioWithContext(f.ctx, selected)
@@ -116,9 +115,7 @@ func TestCanonicalWindowDoesNotMaterializeMediaOrParentPayload(t *testing.T) {
 func TestTimelineReadersSkipContinuationMediaResolution(t *testing.T) {
 	f := newSnapshotFixture(t)
 	media := `[{"type":"image","url":"data:image/png;base64,` + strings.Repeat("x", 2*1024*1024) + `"}]`
-	if err := f.db.Model(&database.ChatMessage{}).Where("id=?", f.answer).Update("media", media).Error; err != nil {
-		t.Fatal(err)
-	}
+	attachFixtureMedia(t, f.db, f.answer, media)
 	turns := database.NewChatTurnRepository(f.db)
 	execution, err := turns.Begin(f.ctx, f.conversation, f.question, f.answer, database.TurnModeContinue)
 	if err != nil {
@@ -168,7 +165,7 @@ func TestTimelineReadersSkipContinuationMediaResolution(t *testing.T) {
 	if err := database.ResolveContinuationMedia(f.ctx, f.db, messages); err != nil {
 		t.Fatal(err)
 	}
-	if resolutions == 0 || messages[0].Media != media {
+	if resolutions == 0 || !equalFixtureMedia(messages[0].Media, media) {
 		t.Fatal("contexto perdeu mídia de continuação")
 	}
 
@@ -177,8 +174,8 @@ func TestTimelineReadersSkipContinuationMediaResolution(t *testing.T) {
 func BenchmarkCanonicalWindowLargeMedia(b *testing.B) {
 	f := newSnapshotFixture(b)
 	large := strings.Repeat("x", 2*1024*1024)
-	if err := f.db.Model(&database.ChatMessage{}).Where("conversation_id=?", f.conversation).Updates(map[string]any{"media": large}).Error; err != nil {
-		b.Fatal(err)
+	for _, id := range []string{f.question, f.answer} {
+		attachFixtureMedia(b, f.db, id, `[{"type":"application/octet-stream","data":"`+large+`"}]`)
 	}
 	for _, id := range []string{f.question, f.answer} {
 		if err := database.SaveMessageAudioWithContext(f.ctx, id, large, "audio/wav"); err != nil {

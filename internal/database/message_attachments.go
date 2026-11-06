@@ -77,23 +77,40 @@ func storeMessageAudio(tx *gorm.DB, messageID, data, mime, origin string) error 
 	if err != nil {
 		return err
 	}
+	contentID, err := storeAttachmentContent(tx, owner, decoded)
+	if err != nil {
+		return err
+	}
+
+	return tx.Exec(`INSERT INTO chat_message_attachments(message_id,purpose,position,content_id,origin,mime_type) VALUES (?,'audio',0,?,?,?) ON CONFLICT(message_id,purpose,position) DO UPDATE SET content_id=excluded.content_id,origin=excluded.origin,mime_type=excluded.mime_type`, messageID, contentID, origin, mime).Error
+}
+
+func storeAttachmentContent(tx *gorm.DB, owner string, decoded []byte) (string, error) {
 	sum := sha256.Sum256(decoded)
 	hash := hex.EncodeToString(sum[:])
 	id, err := uuid.NewV7()
 	if err != nil {
-		return err
+		return "", err
 	}
 	if err := tx.Exec(`INSERT INTO chat_attachment_contents(id,user_id,sha256,size,content) VALUES (?,?,?,?,?) ON CONFLICT(user_id,sha256) DO NOTHING`, id.String(), owner, hash, len(decoded), decoded).Error; err != nil {
-		return err
+		return "", err
 	}
 	var contentID string
 	if err := tx.Raw(`SELECT id FROM chat_attachment_contents WHERE user_id=? AND sha256=? AND size=? AND content=?`, owner, hash, len(decoded), decoded).Scan(&contentID).Error; err != nil {
-		return err
+		return "", err
 	}
 	if contentID == "" {
+		return "", errors.New("integridade do conteúdo de anexo inválida")
+	}
+	return contentID, nil
+}
+
+func validateAttachmentContent(content []byte, size int, hash string) error {
+	sum := sha256.Sum256(content)
+	if len(content) != size || hex.EncodeToString(sum[:]) != hash {
 		return errors.New("integridade do conteúdo de anexo inválida")
 	}
-	return tx.Exec(`INSERT INTO chat_message_attachments(message_id,purpose,position,content_id,origin,mime_type) VALUES (?,'audio',0,?,?,?) ON CONFLICT(message_id,purpose,position) DO UPDATE SET content_id=excluded.content_id,origin=excluded.origin,mime_type=excluded.mime_type`, messageID, contentID, origin, mime).Error
+	return nil
 }
 
 type AudioSelection int
@@ -140,8 +157,7 @@ func LoadMessageAudios(ctx context.Context, tx *gorm.DB, messages []ChatMessage,
 			return err
 		}
 		for _, row := range rows {
-			sum := sha256.Sum256(row.Content)
-			if len(row.Content) != row.Size || hex.EncodeToString(sum[:]) != row.SHA256 {
+			if err := validateAttachmentContent(row.Content, row.Size, row.SHA256); err != nil {
 				return fmt.Errorf("integridade do anexo da mensagem %s inválida", row.MessageID)
 			}
 			encoded := base64.StdEncoding.EncodeToString(row.Content)

@@ -205,6 +205,9 @@ func buildConversationExportsTx(ctx context.Context, tx *gorm.DB, conversationID
 	if includeAudio {
 		selection = database.AudioAll
 	}
+	if err := database.LoadMessageMedia(ctx, tx, messages); err != nil {
+		return nil, err
+	}
 	if err := database.LoadMessageAudios(ctx, tx, messages, selection); err != nil {
 		return nil, err
 	}

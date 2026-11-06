@@ -309,7 +309,14 @@ func setupHotPathDB(t *testing.T) (*gorm.DB, context.Context, string) {
 	if err := database.MigrateChatExecutionContent(testDB); err != nil {
 		t.Fatal(err)
 	}
+	// Attachment mutation triggers require timeline invalidation storage.
+	if err := testDB.Exec(`CREATE TABLE chat_timeline_versions (conversation_id TEXT PRIMARY KEY,incarnation TEXT NOT NULL,revision INTEGER NOT NULL DEFAULT 0)`).Error; err != nil {
+		t.Fatal(err)
+	}
 	if err := database.MigrateChatAudioAttachments(testDB); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.MigrateChatMediaAttachments(testDB); err != nil {
 		t.Fatal(err)
 	}
 	restore := database.SetDB(testDB)

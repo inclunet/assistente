@@ -352,6 +352,7 @@ func AdoptLegacyData(userID string) error {
 		return err
 	}
 	audioSchemaReady := applied[45]
+	mediaSchemaReady := applied[46]
 	err = db.Transaction(func(tx *gorm.DB) error {
 		adoptedConversations := false
 		tables := []string{
@@ -373,7 +374,7 @@ func AdoptLegacyData(userID string) error {
 				adoptedConversations = result.RowsAffected > 0
 			}
 		}
-		if audioSchemaReady && adoptedConversations {
+		if audioSchemaReady && !mediaSchemaReady && adoptedConversations {
 			if err := migrateOwnedMessageAudio(tx, userID); err != nil {
 				return err
 			}
@@ -435,7 +436,7 @@ func AdoptLegacyData(userID string) error {
 		}
 		return nil
 	})
-	if err != nil || audioSchemaReady {
+	if err != nil || mediaSchemaReady {
 		return err
 	}
 	// O corte v19 pode aguardar o primeiro dono. Retome a cadeia antes de liberar
@@ -447,7 +448,7 @@ func AdoptLegacyData(userID string) error {
 	if err != nil {
 		return err
 	}
-	if !applied[45] {
+	if !applied[46] {
 		var pending []struct {
 			LastErrorCode string
 			Resources     int64

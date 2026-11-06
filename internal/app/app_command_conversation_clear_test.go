@@ -33,6 +33,15 @@ func clearCommandFixture(t *testing.T, kind workspace.TabType) (*App, <-chan map
 	if err := database.MigrateMessageRevisions(database.DB()); err != nil {
 		t.Fatal(err)
 	}
+	if err := database.DB().Exec("CREATE TABLE chat_timeline_versions (conversation_id TEXT PRIMARY KEY, incarnation TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 0)").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := database.MigrateChatAudioAttachments(database.DB()); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.MigrateChatMediaAttachments(database.DB()); err != nil {
+		t.Fatal(err)
+	}
 	conv, err := database.CreateConversationWithContext(database.WithUserID(ctx, a.currentUserID), "clear", "")
 	if err != nil {
 		t.Fatal(err)

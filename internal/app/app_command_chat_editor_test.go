@@ -30,7 +30,7 @@ func TestCommandChatEditorPlanOpenAckAndReplay(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			m := messageCommandSeed(t, cid)
+			m := messageCommandSeedWithAttachments(t, cid)
 			m.Role = "assistant"
 			if err := database.DB().Save(&m).Error; err != nil {
 				t.Fatal(err)

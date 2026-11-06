@@ -58,10 +58,10 @@ func TestAudioRoundTripPreservesReceivedAndUnknownWithoutTTS(t *testing.T) {
 	if database.HasMessageAudioWithContext(ctx, "generated") {
 		t.Fatal("roundtrip retained TTS")
 	}
-	var blobs, inline int64
+	var blobs int64
 	database.DB().Table("chat_attachment_contents").Count(&blobs)
-	database.DB().Table("chat_messages").Where("audio <> '' OR audio_mime_type <> ''").Count(&inline)
-	if blobs != 1 || inline != 0 {
+	inline := database.DB().Migrator().HasColumn("chat_messages", "audio") || database.DB().Migrator().HasColumn("chat_messages", "audio_mime_type")
+	if blobs != 1 || inline {
 		t.Fatal("duplicate storage", blobs, inline)
 	}
 	conversation.Messages[0].Audio = "invalid!"

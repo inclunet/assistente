@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"encoding/base64"
+	"gorm.io/gorm"
 	"testing"
 	"time"
 
@@ -18,8 +20,17 @@ import (
 
 func messageCommandSeed(t *testing.T, cid string) database.ChatMessage {
 	t.Helper()
-	m := database.ChatMessage{ConversationID: cid, Role: "user", Content: "private-message-batch91", Media: "private-media-batch91"}
+	m := database.ChatMessage{ConversationID: cid, Role: "user", Content: "private-message-batch91"}
 	if err := database.DB().Create(&m).Error; err != nil {
+		t.Fatal(err)
+	}
+	return m
+}
+
+func messageCommandSeedWithAttachments(t *testing.T, cid string) database.ChatMessage {
+	t.Helper()
+	m := database.ChatMessage{ConversationID: cid, Role: "user", Content: "private-message-batch91", Media: `[{"type":"image/png","data":"` + base64.StdEncoding.EncodeToString([]byte("private-media-batch91")) + `"}]`}
+	if err := database.DB().Transaction(func(tx *gorm.DB) error { return database.CreateChatMessageInTransaction(tx, &m) }); err != nil {
 		t.Fatal(err)
 	}
 	return m
@@ -29,7 +40,7 @@ func TestCommandChatMessagePreparedEffects(t *testing.T) {
 	for _, id := range commandChatMessageIDs {
 		t.Run(id, func(t *testing.T) {
 			a, events, cid := clearCommandFixture(t, workspace.TabTypeChat)
-			m := messageCommandSeed(t, cid)
+			m := messageCommandSeedWithAttachments(t, cid)
 			r := beginUICommand(t, a, id)
 			if commandInvocationCount(t, id) != 0 {
 				t.Fatal("admitted before message preparation")

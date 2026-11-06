@@ -138,6 +138,9 @@ func TestAudioMutationInvalidatesDestructiveConfirmationIncludingABA(t *testing.
 
 func TestAudioMigrationPreservesProvenanceAndBackup(t *testing.T) {
 	tx := newChatTurnTestDB(t, true)
+	if err := ensureLegacyChatMediaColumns(tx); err != nil {
+		t.Fatal(err)
+	}
 	seedChatTurnTestMessages(t, tx, "conv", "received", "unknown")
 	if err := MigrateMessageRevisions(tx); err != nil {
 		t.Fatal(err)
@@ -191,6 +194,9 @@ func TestAudioMigrationPreservesProvenanceAndBackup(t *testing.T) {
 
 func TestAudioMigrationRollsBackOnInvalidBytes(t *testing.T) {
 	tx := newChatTurnTestDB(t, false)
+	if err := ensureLegacyChatMediaColumns(tx); err != nil {
+		t.Fatal(err)
+	}
 	seedChatTurnTestMessages(t, tx, "conv", "a-valid", "z-invalid")
 	if err := MigrateChatTurns(tx); err != nil {
 		t.Fatal(err)
@@ -207,8 +213,8 @@ func TestAudioMigrationRollsBackOnInvalidBytes(t *testing.T) {
 	if err := MigrateChatAudioAttachments(tx); err == nil {
 		t.Fatal("migração aceitou bytes inválidos")
 	}
-	var m ChatMessage
-	if err := tx.First(&m, "id='a-valid'").Error; err != nil || m.Audio != "AQID" {
+	var m struct{ Audio string }
+	if err := tx.Table("chat_messages").Where("id='a-valid'").Take(&m).Error; err != nil || m.Audio != "AQID" {
 		t.Fatal("rollback perdeu bytes", err)
 	}
 	if tx.Migrator().HasTable("chat_attachment_contents") {
@@ -218,9 +224,15 @@ func TestAudioMigrationRollsBackOnInvalidBytes(t *testing.T) {
 
 func TestLegacyAudioIsNormalizedAtomicallyOnAdoption(t *testing.T) {
 	tx, ctx, _ := audioRuntimeFixture(t)
-	// Reconstruct a pre-v45 orphan without changing production writers.
+	// Reconstruct the historical layout; runtime models never recreate retired columns.
+	if err := ensureLegacyChatMediaColumns(tx); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Exec("DELETE FROM schema_migrations WHERE version=46").Error; err != nil {
+		t.Fatal(err)
+	}
 	for _, name := range []string{"chat_audio_retired_insert", "chat_audio_retired_update"} {
-		if err := tx.Exec("DROP TRIGGER " + name).Error; err != nil {
+		if err := tx.Exec("DROP TRIGGER IF EXISTS " + name).Error; err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -242,9 +254,7 @@ func TestLegacyAudioIsNormalizedAtomicallyOnAdoption(t *testing.T) {
 	if audio, _, err := GetMessageAudioWithContext(ctx, "legacy-audio"); err != nil || audio != "AQID" {
 		t.Fatal("adoção perdeu áudio", err)
 	}
-	var legacy string
-	tx.Raw("SELECT audio FROM chat_messages WHERE id='legacy-audio'").Scan(&legacy)
-	if legacy != "" {
+	if tx.Migrator().HasColumn("chat_messages", "audio") {
 		t.Fatal("adoção manteve duas fontes")
 	}
 }

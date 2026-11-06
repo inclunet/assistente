@@ -21,9 +21,6 @@ import (
 func chatActionFixture(t *testing.T) (*App, string, context.Context) {
 	t.Helper()
 	a, _, cid := clearCommandFixture(t, workspace.TabTypeChat)
-	if err := database.MigrateChatAudioAttachments(database.DB()); err != nil {
-		t.Fatal(err)
-	}
 	a.chatCtrl = controllers.NewChatController(controllers.ChatControllerConfig{})
 	a.chatInteractor = chat.NewInteractor(chat.InteractorConfig{Repo: chat.NewDBMessageStore()})
 	return a, cid, database.WithUserID(context.Background(), a.currentUserID)

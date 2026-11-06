@@ -37,6 +37,9 @@ func setupChatMessageIndexTestDB(t *testing.T) *sql.DB {
 	if err := MigrateChatAudioAttachments(db); err != nil {
 		t.Fatal(err)
 	}
+	if err := MigrateChatMediaAttachments(db); err != nil {
+		t.Fatal(err)
+	}
 	if err := ensureChatMessageWindowIndex(); err != nil {
 		t.Fatalf("ensureChatMessageWindowIndex: %v", err)
 	}

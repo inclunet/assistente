@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/base64"
 	"reflect"
 	"strings"
 	"testing"
@@ -20,11 +21,13 @@ func TestCommandChatMessageEditSavePreservesMetadataAndEmitsOnce(t *testing.T) {
 	for _, text := range []string{"private edited text\nçãΩ", "  preserved spaces  "} {
 		t.Run(text, func(t *testing.T) {
 			a, _, cid := clearCommandFixture(t, workspace.TabTypeChat)
-			m := messageCommandSeed(t, cid)
+			m := messageCommandSeedWithAttachments(t, cid)
 			m.Model = "private-model"
 			m.Reasoning = "private-reasoning"
-			m.Audio = "private-audio"
-			m.AudioMimeType = "audio/wav"
+			ctx := database.WithUserID(context.Background(), a.currentUserID)
+			if err := database.SaveMessageAudioWithContext(ctx, m.ID, base64.StdEncoding.EncodeToString([]byte("private-audio")), "audio/wav"); err != nil {
+				t.Fatal(err)
+			}
 			m.PromptTokens = 20
 			m.CompletionTokens = 30
 			m.TotalTokens = 50
@@ -39,6 +42,7 @@ func TestCommandChatMessageEditSavePreservesMetadataAndEmitsOnce(t *testing.T) {
 			if err := database.DB().First(&m, "id = ?", m.ID).Error; err != nil {
 				t.Fatal(err)
 			}
+			loadCommandMessageAttachments(t, ctx, &m)
 			events := make(chan ports.MessageUpdatedEvent, 2)
 			a.authMu.Lock()
 			a.conversationsCtrl = controllers.NewConversationsController(controllers.ConversationsControllerConfig{PrepareBatchDelete: a.prepareConversationDeletion, Emitter: commandOSBootstrapEmitter(func(name string, value any) {
@@ -74,6 +78,7 @@ func TestCommandChatMessageEditSavePreservesMetadataAndEmitsOnce(t *testing.T) {
 			if err := database.DB().First(&current, "id = ?", m.ID).Error; err != nil {
 				t.Fatal(err)
 			}
+			loadCommandMessageAttachments(t, ctx, &current)
 			if current.Content != text {
 				t.Fatal("content not saved")
 			}
@@ -274,4 +279,16 @@ func TestCommandChatMessageEditSaveRejectsInvalidInputAndTargets(t *testing.T) {
 			}
 		})
 	}
+}
+
+func loadCommandMessageAttachments(t *testing.T, ctx context.Context, message *database.ChatMessage) {
+	t.Helper()
+	messages := []database.ChatMessage{*message}
+	if err := database.LoadMessageMedia(ctx, database.DB(), messages); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.LoadMessageAudios(ctx, database.DB(), messages, database.AudioAll); err != nil {
+		t.Fatal(err)
+	}
+	*message = messages[0]
 }

@@ -29,6 +29,9 @@ func TestChatSelectionReadersReportDeferredMigration(t *testing.T) {
 	if err := MigrateChatAudioAttachments(db); err != nil {
 		t.Fatal(err)
 	}
+	if err := MigrateChatMediaAttachments(db); err != nil {
+		t.Fatal(err)
+	}
 	if messages, err := repo.GetMessagesWithContext(ctx, "conv", nil); err != nil || len(messages) != 2 {
 		t.Fatalf("leitura após schema: %v %+v", err, messages)
 	}
