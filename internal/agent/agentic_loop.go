@@ -6,6 +6,7 @@ import (
 	"errors"
 	"sort"
 	"strings"
+	"time"
 
 	"assistente/internal/chat"
 	"assistente/internal/core/ports"
@@ -506,6 +507,8 @@ func (r *agenticLoopRunner) persistToolIterationContent(ctx context.Context, res
 	if strings.TrimSpace(result.FullResponse) == "" && strings.TrimSpace(result.Reasoning) == "" {
 		return nil
 	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+	defer cancel()
 	var message *chat.Message
 	err := executionProjection(ctx).CommitContent(iteration, result.FullResponse, result.Reasoning, func() (string, error) {
 		var saveErr error

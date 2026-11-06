@@ -165,6 +165,15 @@ Revalidação: nove E2Es de toolbar aprovados (um skip preexistente), TypeScript
 e lint aprovados; `review_store_coverage` aprovou o cliente e a fixture.
 
 
+Revalidação de cancelamento (#1023): a gravação da intermediária e seu vínculo
+usam contexto de finalização limitado a três segundos, preservando o contexto
+cancelado do loop. A regressão SQLite agora exige o terminal persistido
+interrupted/cancelled com banco saudável e failed/persistence_error quando a
+escrita realmente falha. O descarte confirmado também foi provado numa thread
+volátil sem Refresh anterior, sem tentar reservar a fonte removida. Passaram
+146 testes de agent, 91 de cliente/transporte e build/vet/lint; revisão local
+aprovada por `review_aep` (backend) e `review_store_coverage` (regressão frontend).
+
 ### Decisão: identidade de apresentação após confirmação (2026-11-05)
 
 Aprovada pelo mantenedor para o cutover. Esta decisão substitui a troca de IDs

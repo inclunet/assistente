@@ -624,6 +624,21 @@ function itemRecoveryFixture() {
 }
 
 describe('Refresh com transferência de recuperação', () => {
+  it('limpa thread com parcial volátil sem Refresh prévio e sem reservar fonte removida', async () => {
+    const f = itemRecoveryFixture();
+    f.original.scopeParentId = 'parent';
+    f.original.items[0].scopeParentId = 'parent';
+    await f.client.open('chat', 'a', 'parent', position);
+    await f.open('b');
+    f.port.reserveItem.mockRejectedValue(new Error('deleted source'));
+    await f.client.conversationCleared('chat');
+    expect(f.port.close).toHaveBeenCalledWith('a');
+    expect(f.port.reserveItem).not.toHaveBeenCalled();
+    expect(f.client.getWindow('chat', 'b')?.orderedItemIds).toEqual([]);
+    expect(f.port.navigate).toHaveBeenCalledWith('b', 'epoch', '3', 'followTail', expect.anything());
+    await f.client.dispose();
+  });
+
   it('limpeza não libera recuperação de execução nova transferida durante a espera', async () => {
     const f = itemRecoveryFixture();
     await f.open();

@@ -418,6 +418,11 @@ func TestExecutionWriterCancellationPreservesRunningToolChronology(t *testing.T)
 			if finalIdentity := assertChain(read(), "cancelled"); finalIdentity != identity {
 				t.Fatalf("identidade alterada: %s -> %s", identity, finalIdentity)
 			}
+			if !failWrite {
+				assertRuntimeTerminal(t, context.WithoutCancel(ctx), conv, turn, database.TurnInterrupted, "cancelled", em)
+			} else {
+				assertRuntimeTerminal(t, context.WithoutCancel(ctx), conv, turn, database.TurnFailed, "persistence_error", em)
+			}
 		})
 	}
 }
