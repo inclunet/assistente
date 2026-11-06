@@ -155,6 +155,9 @@ func (s *DBMessageStore) GetMessage(ctx context.Context, messageID string) (*dat
 		return nil, err
 	}
 	messages := []database.ChatMessage{*message}
+	if err := database.LoadMessageAudios(ctx, database.DB(), messages, database.AudioAll); err != nil {
+		return nil, err
+	}
 	if err := database.ResolveContinuationMedia(ctx, database.DB(), messages); err != nil {
 		return nil, err
 	}

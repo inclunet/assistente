@@ -712,21 +712,30 @@ func renderPreformattedTemplate(content string) template.HTML {
 	return template.HTML("<pre>" + template.HTMLEscapeString(content) + "</pre>")
 }
 
-func renderMessageMediaTemplate(msg MessageExport) template.HTML {
-	var parts []string
-	for _, media := range parseMediaAttachments(msg.Media) {
-		parts = append(parts, renderAttachmentHTML(media))
+func messageMediaAttachments(msg MessageExport) ([]mediaAttachment, error) {
+	attachments := parseMediaAttachments(msg.Media)
+	if strings.TrimSpace(msg.Audio) == "" || strings.TrimSpace(msg.AudioMimeType) == "" {
+		return attachments, nil
 	}
-	if strings.TrimSpace(msg.Audio) != "" && strings.TrimSpace(msg.AudioMimeType) != "" {
-		normalizedAudio, ok := normalizeBase64Data(msg.Audio)
-		if !ok {
-			return template.HTML(strings.Join(parts, ""))
+	audio, ok := normalizeBase64Data(msg.Audio)
+	if !ok {
+		return attachments, fmt.Errorf("áudio da mensagem inválido ou acima do limite de exportação")
+	}
+	mime := sanitizeMIMEType(msg.AudioMimeType)
+	// Ambos os lados estão recodificados a partir dos bytes, não do texto base64 original.
+	for _, media := range attachments {
+		if media.MIME == mime && media.Data == audio {
+			return attachments, nil
 		}
-		parts = append(parts, renderAttachmentHTML(mediaAttachment{
-			Name: "Áudio da mensagem",
-			MIME: sanitizeMIMEType(msg.AudioMimeType),
-			Data: normalizedAudio,
-		}))
+	}
+	return append(attachments, mediaAttachment{Name: "Áudio da mensagem", MIME: mime, Data: audio}), nil
+}
+
+func renderMessageMediaTemplate(msg MessageExport) template.HTML {
+	attachments, _ := messageMediaAttachments(msg)
+	var parts []string
+	for _, media := range attachments {
+		parts = append(parts, renderAttachmentHTML(media))
 	}
 	return template.HTML(strings.Join(parts, ""))
 }
@@ -826,6 +835,10 @@ func normalizeBase64Data(data string) (string, bool) {
 
 func sanitizeMIMEType(mimeType string) string {
 	normalized := strings.ToLower(strings.TrimSpace(mimeType))
+	if strings.HasPrefix(normalized, "audio/") {
+		base, _, _ := strings.Cut(normalized, ";")
+		normalized = strings.TrimSpace(base)
+	}
 	if normalized == "" {
 		return "application/octet-stream"
 	}
@@ -1270,21 +1283,13 @@ func htmlAttr(n *html.Node, key string) string {
 }
 
 func writePDFMediaAttachments(pdf *fpdf.Fpdf, useUTF8 bool, msg MessageExport) error {
+	attachments, err := messageMediaAttachments(msg)
 	var errs []string
-	for idx, media := range parseMediaAttachments(msg.Media) {
-		if err := writePDFAttachment(pdf, useUTF8, media, fmt.Sprintf("media-%d", idx)); err != nil {
-			errs = append(errs, err.Error())
-		}
+	if err != nil {
+		errs = append(errs, err.Error())
 	}
-	if strings.TrimSpace(msg.Audio) != "" && strings.TrimSpace(msg.AudioMimeType) != "" {
-		normalizedAudio, ok := normalizeBase64Data(msg.Audio)
-		if !ok {
-			errs = append(errs, "áudio da mensagem inválido ou acima do limite de exportação")
-		} else if err := writePDFAttachment(pdf, useUTF8, mediaAttachment{
-			Name: "Áudio da mensagem",
-			MIME: sanitizeMIMEType(msg.AudioMimeType),
-			Data: normalizedAudio,
-		}, "audio-message"); err != nil {
+	for idx, media := range attachments {
+		if err := writePDFAttachment(pdf, useUTF8, media, fmt.Sprintf("media-%d", idx)); err != nil {
 			errs = append(errs, err.Error())
 		}
 	}

@@ -399,7 +399,7 @@ func init() {
 	dataExportCmd.Flags().StringSliceVar(&dataExportTaskListIDs, "tasklist-id", nil, "ID de task list para exportar (repetível)")
 	dataExportCmd.Flags().BoolVar(&dataExportIncludeCredentials, "include-credentials", false, "Inclui credenciais exportáveis")
 	dataExportCmd.Flags().StringVar(&dataExportCredentialPassword, "credential-password", "", "Senha para exportar/descriptografar credenciais")
-	dataExportCmd.Flags().BoolVar(&dataExportIncludeAudio, "include-audio", false, "Inclui o conteúdo de áudio das mensagens, além de preservar audioMimeType")
+	dataExportCmd.Flags().BoolVar(&dataExportIncludeAudio, "include-audio", false, "Inclui áudio de leitura gerado (TTS); áudio recebido e legado de origem desconhecida é sempre preservado")
 
 	dataAnalyzeCmd.Flags().StringVar(&dataAnalyzeCredentialPassword, "credential-password", "", "Senha para analisar credenciais criptografadas")
 

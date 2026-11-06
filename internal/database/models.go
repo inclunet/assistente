@@ -226,6 +226,7 @@ type Conversation struct {
 // user que o iniciou. Chamadas e resultados de ferramentas pertencem
 // exclusivamente a ToolInvocation.
 type ChatMessage struct {
+	AudioOrigin     string               `json:"-" gorm:"-"`
 	Presentation    *MessagePresentation `json:"-" gorm:"-"`
 	ChatExecutionID *string              `json:"-" gorm:"->;-:migration"`
 	UUIDModel

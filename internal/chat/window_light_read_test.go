@@ -32,7 +32,10 @@ func TestCanonicalWindowDoesNotMaterializeMediaOrParentPayload(t *testing.T) {
 			large := strings.Repeat("x", 2*1024*1024)
 			media := `[{"type":"audio","data":"` + large + `"}]`
 			for _, id := range []string{f.question, selected} {
-				if err := f.db.Model(&database.ChatMessage{}).Where("id=?", id).Updates(map[string]any{"audio": large, "media": media, "audio_mime_type": "audio/wav"}).Error; err != nil {
+				if err := database.SaveMessageAudioWithContext(f.ctx, id, large, "audio/wav"); err != nil {
+					t.Fatal(err)
+				}
+				if err := f.db.Model(&database.ChatMessage{}).Where("id=?", id).Updates(map[string]any{"media": media}).Error; err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -88,8 +91,12 @@ func TestCanonicalWindowDoesNotMaterializeMediaOrParentPayload(t *testing.T) {
 				}
 			}
 			stored, err := database.GetMessageWithContext(f.ctx, selected)
-			if err != nil || stored.Audio != large || stored.Media != media {
+			if err != nil || stored.Media != media {
 				t.Fatal("leitura alterou armazenamento", err)
+			}
+			audio, mime, err := database.GetMessageAudioWithContext(f.ctx, selected)
+			if err != nil || audio != large || mime != "audio/wav" {
+				t.Fatal("playback perdeu áudio", err)
 			}
 			if thread {
 				nested := query
@@ -170,8 +177,13 @@ func TestTimelineReadersSkipContinuationMediaResolution(t *testing.T) {
 func BenchmarkCanonicalWindowLargeMedia(b *testing.B) {
 	f := newSnapshotFixture(b)
 	large := strings.Repeat("x", 2*1024*1024)
-	if err := f.db.Model(&database.ChatMessage{}).Where("conversation_id=?", f.conversation).Updates(map[string]any{"audio": large, "media": large}).Error; err != nil {
+	if err := f.db.Model(&database.ChatMessage{}).Where("conversation_id=?", f.conversation).Updates(map[string]any{"media": large}).Error; err != nil {
 		b.Fatal(err)
+	}
+	for _, id := range []string{f.question, f.answer} {
+		if err := database.SaveMessageAudioWithContext(f.ctx, id, large, "audio/wav"); err != nil {
+			b.Fatal(err)
+		}
 	}
 	query := database.MessageWindowQuery{ConversationID: f.conversation, Anchor: "end", Direction: "before", Limit: 20}
 	b.Run("canonical", func(b *testing.B) {

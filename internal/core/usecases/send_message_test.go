@@ -373,79 +373,106 @@ func (e mediaEventEmitter) Emit(name string, payload any) {
 }
 
 func TestSendMessageUseCase_STTAssincronoUnicoEPersistido(t *testing.T) {
-	setupTestDB(t)
-	sqlDB, err := database.DB().DB()
-	if err != nil {
-		t.Fatal(err)
-	}
-	sqlDB.SetMaxOpenConns(1)
-	ctx := database.WithUserID(context.Background(), "test-user")
-	mgr := setupProfileDir(t)
-	profile := minValidProfile("Media Async", "media-test")
-	profile.Input = profiles.InputConfig{Enabled: true, STTProvider: "whisper_api", Language: "pt-BR"}
-	setupProfileWith(t, mgr, profile)
-	conv, err := database.CreateConversationWithContext(ctx, "media", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	started := make(chan struct{}, 1)
-	release := make(chan struct{})
-	var calls atomic.Int32
-	uc, _ := newMediaTestUseCase(t, mgr, func(ctx context.Context, _, _ string) (string, error) {
-		calls.Add(1)
-		select {
-		case started <- struct{}{}:
-		default:
-		}
-		select {
-		case <-release:
-			return "transcrição persistida", nil
-		case <-ctx.Done():
-			return "", ctx.Err()
-		}
-	})
-
-	type executeResult struct {
-		id  string
-		err error
-	}
-	result := make(chan executeResult, 1)
-	go func() {
-		got, executeErr := uc.Execute(usecases.SendMessageRequest{
-			Ctx:            ctx,
-			ConversationID: conv.ID,
-			UserMedia:      `[{"name":"voz.webm","type":"audio/webm","data":"YXVkaW8=","size":5}]`,
-			Source:         "wails",
-		})
-		result <- executeResult{id: got, err: executeErr}
-	}()
-	select {
-	case <-started:
-	case <-time.After(time.Second):
-		t.Fatal("Whisper não iniciou")
-	}
-	select {
-	case got := <-result:
-		if got.err != nil || got.id != conv.ID {
-			t.Fatalf("envio assíncrono: id=%q err=%v", got.id, got.err)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("SendMessage bloqueou aguardando Whisper")
-	}
-	close(release)
-
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		messages, loadErr := chat.NewDBMessageStore().GetMessages(ctx, conv.ID, nil)
-		if loadErr == nil && len(messages) > 0 && messages[0].Content == "transcrição persistida" {
-			if calls.Load() != 1 {
-				t.Fatalf("Whisper chamado %d vezes; esperado 1", calls.Load())
+	for _, retry := range []bool{false, true} {
+		t.Run(map[bool]string{false: "send", true: "retry_normalized"}[retry], func(t *testing.T) {
+			setupTestDB(t)
+			sqlDB, err := database.DB().DB()
+			if err != nil {
+				t.Fatal(err)
 			}
-			return
-		}
-		time.Sleep(10 * time.Millisecond)
+			sqlDB.SetMaxOpenConns(1)
+			ctx, cancel := context.WithCancel(database.WithUserID(context.Background(), "test-user"))
+			defer cancel()
+			mgr := setupProfileDir(t)
+			profile := minValidProfile("Media Async", "media-test")
+			profile.Input = profiles.InputConfig{Enabled: true, STTProvider: "whisper_api", Language: "pt-BR"}
+			setupProfileWith(t, mgr, profile)
+			conv, err := database.CreateConversationWithContext(ctx, "media", "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			media := `[{"name":"voz.webm","type":"audio/webm","data":"YXVkaW8=","size":5}]`
+			retryID := ""
+			if retry {
+				message, err := database.CreateMessageWithContext(ctx, database.MessageOptions{ConversationID: conv.ID, Role: "user", Audio: "YXVkaW8=", AudioMimeType: "audio/webm", AudioOrigin: database.AttachmentReceived, Source: "wails"})
+				if err != nil {
+					t.Fatal(err)
+				}
+				retryID = message.ID
+				media = ""
+			}
+			started := make(chan struct{}, 1)
+			release := make(chan struct{})
+			var calls atomic.Int32
+			uc, _ := newMediaTestUseCase(t, mgr, func(ctx context.Context, audio, filename string) (string, error) {
+				if audio != "YXVkaW8=" || filename != "audio.webm" {
+					t.Errorf("áudio para STT: %q %q", audio, filename)
+				}
+				calls.Add(1)
+				select {
+				case started <- struct{}{}:
+				default:
+				}
+				select {
+				case <-release:
+					return "transcrição persistida", nil
+				case <-ctx.Done():
+					return "", ctx.Err()
+				}
+			})
+
+			type executeResult struct {
+				id  string
+				err error
+			}
+			result := make(chan executeResult, 1)
+			finished := make(chan struct{})
+			go func() {
+				got, executeErr := uc.Execute(usecases.SendMessageRequest{
+					Ctx:            ctx,
+					ConversationID: conv.ID,
+					UserMedia:      media,
+					RetryMessageID: retryID,
+					OnFinished:     func() { close(finished) },
+					Source:         "wails",
+				})
+				result <- executeResult{id: got, err: executeErr}
+			}()
+			select {
+			case <-started:
+			case <-time.After(time.Second):
+				t.Fatal("Whisper não iniciou")
+			}
+			select {
+			case got := <-result:
+				if got.err != nil || got.id != conv.ID {
+					t.Fatalf("envio assíncrono: id=%q err=%v", got.id, got.err)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("SendMessage bloqueou aguardando Whisper")
+			}
+			close(release)
+
+			deadline := time.Now().Add(2 * time.Second)
+			for time.Now().Before(deadline) {
+				messages, loadErr := chat.NewDBMessageStore().GetMessages(ctx, conv.ID, nil)
+				if loadErr == nil && len(messages) > 0 && messages[0].Content == "transcrição persistida" {
+					cancel()
+					select {
+					case <-finished:
+					case <-time.After(2 * time.Second):
+						t.Fatal("execução não liberou seus recursos")
+					}
+					if calls.Load() != 1 {
+						t.Fatalf("Whisper chamado %d vezes; esperado 1", calls.Load())
+					}
+					return
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+			t.Fatal("transcrição não foi persistida no histórico")
+		})
 	}
-	t.Fatal("transcrição não foi persistida no histórico")
 }
 
 func TestSendMessageUseCase_CancelaSTTEmAndamento(t *testing.T) {
@@ -910,5 +937,89 @@ func TestSendMessageRejectsPendingTurnMigrationBeforeWriting(t *testing.T) {
 	}
 	if count != 0 {
 		t.Fatalf("gravou %d mensagens antes da migração", count)
+	}
+}
+
+func TestSendMessageUseCase_RetryNormalizedAudioWithoutServerSTT(t *testing.T) {
+	for _, stt := range []string{"", "webspeech"} {
+		t.Run("provider_"+stt, func(t *testing.T) {
+			setupTestDB(t)
+			ctx, cancel := context.WithCancel(database.WithUserID(context.Background(), "test-user"))
+			defer cancel()
+			mgr := setupProfileDir(t)
+			profile := minValidProfile("Retry sem STT", "media-test")
+			profile.Input = profiles.InputConfig{Enabled: true, STTProvider: stt, Language: "pt-BR"}
+			setupProfileWith(t, mgr, profile)
+			conv, err := database.CreateConversationWithContext(ctx, "retry", "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			message, err := database.CreateMessageWithContext(ctx, database.MessageOptions{ConversationID: conv.ID, Role: "user", Audio: "YXVkaW8=", AudioMimeType: "audio/wav", AudioOrigin: database.AttachmentReceived, Source: "telegram"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var calls atomic.Int32
+			uc, _ := newMediaTestUseCase(t, mgr, func(context.Context, string, string) (string, error) { calls.Add(1); return "unexpected", nil })
+			finished := make(chan struct{})
+			_, err = uc.Execute(usecases.SendMessageRequest{Ctx: ctx, ConversationID: conv.ID, RetryMessageID: message.ID, Source: "telegram", OnFinished: func() { close(finished) }})
+			if err != nil {
+				t.Fatal(err)
+			}
+			stored, err := database.GetMessageWithContext(ctx, message.ID)
+			if err != nil || stored.Content != chat.AudioSTTNotConfiguredFallback("pt-BR") {
+				t.Fatalf("aviso não persistido: %+v %v", stored, err)
+			}
+			cancel()
+			select {
+			case <-finished:
+			case <-time.After(2 * time.Second):
+				t.Fatal("execução não terminou")
+			}
+			if calls.Load() != 0 {
+				t.Fatal("transcritor sem configuração foi chamado")
+			}
+		})
+	}
+}
+
+func TestSendMessageUseCase_RetryImageWithoutServerSTTPreservesEmptyText(t *testing.T) {
+	for _, stt := range []string{"", "webspeech"} {
+		t.Run("provider_"+stt, func(t *testing.T) {
+			setupTestDB(t)
+			ctx, cancel := context.WithCancel(database.WithUserID(context.Background(), "test-user"))
+			defer cancel()
+			mgr := setupProfileDir(t)
+			profile := minValidProfile("Retry sem STT", "media-test")
+			profile.Input = profiles.InputConfig{Enabled: true, STTProvider: stt, Language: "pt-BR"}
+			setupProfileWith(t, mgr, profile)
+			conv, err := database.CreateConversationWithContext(ctx, "retry", "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			message, err := database.CreateMessageWithContext(ctx, database.MessageOptions{ConversationID: conv.ID, Role: "user", Media: `[{"type":"image/png","data":"aW1hZ2U="}]`, Source: "telegram"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var calls atomic.Int32
+			uc, _ := newMediaTestUseCase(t, mgr, func(context.Context, string, string) (string, error) { calls.Add(1); return "unexpected", nil })
+			finished := make(chan struct{})
+			_, err = uc.Execute(usecases.SendMessageRequest{Ctx: ctx, ConversationID: conv.ID, RetryMessageID: message.ID, Source: "telegram", OnFinished: func() { close(finished) }})
+			if err != nil {
+				t.Fatal(err)
+			}
+			stored, err := database.GetMessageWithContext(ctx, message.ID)
+			if err != nil || stored.Content != "" || stored.Media != message.Media {
+				t.Fatalf("imagem alterada pelo aviso de áudio: %+v %v", stored, err)
+			}
+			cancel()
+			select {
+			case <-finished:
+			case <-time.After(2 * time.Second):
+				t.Fatal("execução não terminou")
+			}
+			if calls.Load() != 0 {
+				t.Fatal("transcritor sem configuração foi chamado")
+			}
+		})
 	}
 }

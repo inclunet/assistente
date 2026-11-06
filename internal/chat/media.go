@@ -1,8 +1,11 @@
 package chat
 
 import (
+	"assistente/internal/database"
 	"assistente/internal/logging"
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -140,18 +143,38 @@ func (l *MediaHistoryLoader) format(ctx context.Context, dbMessages []Message, e
 			Role:      m.Role,
 		}
 
+		var mediaParts []map[string]interface{}
 		if m.Media != "" {
-			var mediaParts []map[string]interface{}
-			if err := json.Unmarshal([]byte(m.Media), &mediaParts); err == nil {
-				msg.Content = l.convertMediaParts(ctx, mediaParts, m.Content)
-				if m.Role == "user" && strings.TrimSpace(m.Content) != "" {
-					msg.ACPOriginalAudio = originalAudioForACP(mediaParts)
-				}
-			} else {
-				msg.Content = m.Content
+			if err := json.Unmarshal([]byte(m.Media), &mediaParts); err != nil {
+				mediaParts = nil
 			}
-		} else {
-			msg.Content = m.Content
+		}
+		if m.AudioOrigin == database.AttachmentReceived && m.Audio != "" {
+			present := false
+			audioBytes, audioErr := base64.StdEncoding.DecodeString(m.Audio)
+			for _, part := range mediaParts {
+				kind, _ := part["type"].(string)
+				kind = NormalizeAudioMIME(kind)
+				data, _ := part["data"].(string)
+				if !strings.HasPrefix(kind, "audio/") || NormalizeAudioMIME(kind) != NormalizeAudioMIME(m.AudioMimeType) {
+					continue
+				}
+				partBytes, err := base64.StdEncoding.DecodeString(strings.Join(strings.Fields(data), ""))
+				if audioErr == nil && err == nil && bytes.Equal(partBytes, audioBytes) {
+					present = true
+					break
+				}
+			}
+			if !present {
+				mediaParts = append(mediaParts, map[string]interface{}{"type": NormalizeAudioMIME(m.AudioMimeType), "data": m.Audio})
+			}
+		}
+		msg.Content = m.Content
+		if len(mediaParts) > 0 {
+			msg.Content = l.convertMediaParts(ctx, mediaParts, m.Content)
+			if m.Role == "user" && strings.TrimSpace(m.Content) != "" {
+				msg.ACPOriginalAudio = originalAudioForACP(mediaParts)
+			}
 		}
 
 		messages = append(messages, msg)
@@ -193,6 +216,9 @@ func (l *MediaHistoryLoader) convertMediaParts(ctx context.Context, mediaParts [
 
 	for _, mp := range mediaParts {
 		mediaType, _ := mp["type"].(string)
+		if strings.HasPrefix(NormalizeAudioMIME(mediaType), "audio/") {
+			mediaType = NormalizeAudioMIME(mediaType)
+		}
 		data, _ := mp["data"].(string)
 		name, _ := mp["name"].(string)
 

@@ -2,6 +2,7 @@ package chat
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -12,7 +13,12 @@ import (
 func TestCanonicalPresentationKeepsMediaOutOfWindow(t *testing.T) {
 	f := newSnapshotFixture(t)
 	blob := strings.Repeat("private-media-payload", 1024)
-	if err := f.db.Model(&database.ChatMessage{}).Where("id=?", f.answer).Updates(map[string]any{"media": blob, "audio": blob, "source": "test-source", "cache_read_tokens": 42}).Error; err != nil {
+	for _, id := range []string{f.answer} {
+		if err := database.SaveMessageAudioWithContext(f.ctx, id, base64.StdEncoding.EncodeToString([]byte(blob)), "audio/wav"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := f.db.Model(&database.ChatMessage{}).Where("id=?", f.answer).Updates(map[string]any{"media": blob, "source": "test-source", "cache_read_tokens": 42}).Error; err != nil {
 		t.Fatal(err)
 	}
 	if _, err := database.CreateMessageWithContext(f.ctx, database.MessageOptions{ConversationID: f.conversation, ParentID: &f.answer, Role: "user", Content: "thread"}); err != nil {

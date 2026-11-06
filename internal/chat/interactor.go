@@ -10,6 +10,7 @@ import (
 
 	"assistente/internal/contextprovider"
 	"assistente/internal/core/ports"
+	"assistente/internal/database"
 	"assistente/internal/events"
 	"assistente/internal/llm"
 	"assistente/internal/profiles"
@@ -597,6 +598,7 @@ func (i *Interactor) RecordUserMessage(ctx context.Context, req RecordUserMessag
 		Content:        req.Content,
 		Media:          req.Media,
 		Audio:          req.AudioBase64,
+		AudioOrigin:    database.AttachmentReceived,
 		AudioMimeType:  req.AudioMimeType,
 		Source:         req.Source,
 	}
@@ -723,11 +725,13 @@ func (i *Interactor) ReuseUserMessage(ctx context.Context, req RecordUserMessage
 
 // ResolveUserContentRequest contém os dados brutos para resolução de conteúdo do usuário.
 type ResolveUserContentRequest struct {
-	Content     string
-	Media       string
-	Source      string
-	STTProvider string // activeProfile.Input.STTProvider (pode ser "")
-	STTLanguage string // activeProfile.Input.Language (pode ser "")
+	AudioBase64   string
+	AudioMimeType string
+	Content       string
+	Media         string
+	Source        string
+	STTProvider   string // activeProfile.Input.STTProvider (pode ser "")
+	STTLanguage   string // activeProfile.Input.Language (pode ser "")
 }
 
 // ResolveUserContentResponse contém o conteúdo resolvido e os dados de áudio extraídos.
@@ -742,12 +746,15 @@ type ResolveUserContentResponse struct {
 // ResolveUserContent é uma resolução pura: extrai áudio e decide se o pipeline
 // assíncrono precisa executar STT. Nenhuma rede ou transcrição acontece aqui.
 func (i *Interactor) ResolveUserContent(ctx context.Context, req ResolveUserContentRequest) ResolveUserContentResponse {
-	audioBase64, audioMime := ExtractAudio(req.Media)
+	audioBase64, audioMime := req.AudioBase64, req.AudioMimeType
+	if audioBase64 == "" {
+		audioBase64, audioMime = ExtractAudio(req.Media)
+	}
 	audioMime = NormalizeAudioMIME(audioMime)
 
 	content := req.Content
 	needsSTT := false
-	if content == "" && req.Media != "" {
+	if content == "" && audioBase64 != "" {
 		if req.Source != "wails" {
 			stt := req.STTProvider
 			if stt == "webspeech" || stt == "" {

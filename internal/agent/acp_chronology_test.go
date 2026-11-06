@@ -43,6 +43,9 @@ func TestACPCronologiaNoTerminalEReabertura(t *testing.T) {
 			if err := database.MigrateChatExecutionContent(db); err != nil {
 				t.Fatal(err)
 			}
+			if err := database.MigrateChatAudioAttachments(db); err != nil {
+				t.Fatal(err)
+			}
 			for _, row := range []any{
 				&database.User{UUIDModel: database.UUIDModel{ID: "user"}, Username: "acp", PasswordHash: "x", Role: database.UserRoleUser, IsActive: true},
 				&database.Conversation{UUIDModel: database.UUIDModel{ID: "conv"}, UserID: "user", Title: "ACP"},

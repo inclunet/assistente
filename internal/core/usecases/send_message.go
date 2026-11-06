@@ -244,13 +244,18 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 		sttProvider = activeProfile.Input.STTProvider
 		sttLanguage = activeProfile.Input.Language
 	}
-	mediaResolution := uc.chatInteractor.ResolveUserContent(ctx, chat.ResolveUserContentRequest{
+	mediaRequest := chat.ResolveUserContentRequest{
 		Content:     pctx.UserContent,
 		Media:       req.UserMedia,
 		Source:      req.Source,
 		STTProvider: sttProvider,
 		STTLanguage: sttLanguage,
-	})
+	}
+	if retryUserMsg != nil && retryUserMsg.AudioOrigin == database.AttachmentReceived {
+		mediaRequest.AudioBase64 = retryUserMsg.Audio
+		mediaRequest.AudioMimeType = retryUserMsg.AudioMimeType
+	}
+	mediaResolution := uc.chatInteractor.ResolveUserContent(ctx, mediaRequest)
 	if mediaResolution.NeedsSTT && !isDeferredMediaContext(ctx) {
 		asyncCtx := context.WithValue(ctx, deferredMediaContextKey{}, true)
 		surfaceOrigin := ports.NewChatSurfaceOrigin(
@@ -464,7 +469,7 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 				return "", err
 			}
 		}
-		if mediaResolution.NeedsSTT {
+		if mediaResolution.NeedsSTT || (retryUserMsg.Content == "" && userContent != "") {
 			if err := uc.chatInteractor.PersistUserTranscription(ctx, retryUserMsg.ID, userContent); err != nil {
 				return "", err
 			}

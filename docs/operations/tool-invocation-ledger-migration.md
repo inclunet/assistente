@@ -89,3 +89,53 @@ O cutover final só pode ocorrer quando não houver pendências ou ambiguidades,
 contagens e hashes conferirem, `foreign_key_check` estiver vazio e
 `integrity_check` retornar `ok`. O app cria e verifica backup antes do rebuild.
 Após remoção física, o único downgrade suportado é restaurar esse backup.
+
+## Recuperação offline quando a adoção está bloqueada
+
+Se a adoção já atribuiu o proprietário, mas restam resultados ambíguos, o login
+é recusado até a reconciliação. Repetir login ou reiniciar sem corrigir a causa
+não resolve. Não marque v19/v45 como aplicadas e não altere estados para liberar
+o acesso: isso removeria a proteção contra perda de histórico.
+
+Feche todas as instâncias do aplicativo e faça uma cópia integral do banco e de
+seus arquivos auxiliares antes de qualquer intervenção. Com uma ferramenta SQLite,
+abra primeiro uma cópia somente para leitura; o diagnóstico não requer login:
+
+```sql
+SELECT resource_type, resource_id, state, last_error_code, ambiguous_count,
+       legacy_rows, ledger_rows
+FROM tool_ledger_migration_states
+WHERE state = 'pending';
+```
+
+`duplicate_tool_result` indica mais de um resultado para a mesma chamada. Compare
+os registros originais com uma fonte confiável para determinar a associação
+correta; nunca escolha pelo mais recente nem descarte conteúdo sem evidência.
+A correção é específica aos dados e deve ser revisada por quem mantém o banco.
+Sem evidência suficiente, preserve os arquivos e solicite suporte; não há comando
+automático de reparo. Depois de corrigir a causa em uma cópia e verificar os dados,
+use o banco reconciliado e reinicie: o migrador repete a validação e só conclui o
+corte se todos os gates passarem. A fixture publicada 0.1.9 cobre bloqueio sem
+perda e retomada após correção explícita de uma duplicação conhecida.
+
+O diagnóstico também conta recursos legados sem proprietário por tipo (por exemplo,
+`job_run:1`). Esses recursos podem bloquear v19 antes de existir uma linha em
+`tool_ledger_migration_states`; uma lista de estados vazia não significa que o
+banco está pronto. Para localizar execuções órfãs na cópia offline, enquanto as
+colunas legadas ainda existem:
+
+```sql
+SELECT id, job_id
+FROM job_runs
+WHERE trim(COALESCE(user_id, '')) = ''
+  AND (trim(COALESCE(tool_name, '')) <> ''
+    OR trim(COALESCE(inputs, '')) <> ''
+    OR trim(COALESCE(output, '')) <> '');
+```
+
+Reconcilie o proprietário somente com evidência independente da execução e do job
+original. Não atribua automaticamente ao usuário que está fazendo login nem
+infira propriedade apenas porque existe um job com o mesmo ID. Preserve inputs,
+outputs e identificadores; revise a correção na cópia com o mantenedor antes de
+substituir o banco. Se o job original ou a evidência não existir, mantenha o backup
+e solicite suporte, sem apagar a execução ou forçar versões de migração.

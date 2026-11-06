@@ -23,7 +23,7 @@ if [[ $# == 1 && $1 == pacotes-gerais ]]; then
     echo 'Inventário de pacotes vazio ou sem App/Chat únicos' >&2
     exit 1
   fi
-  exec go test "${flags[@]}" "${packages[@]}"
+  exec go test "${flags[@]}" -json "${packages[@]}"
 fi
 
 if [[ $# != 1 || " ${groups[*]} " != *" $1 "* ]]; then

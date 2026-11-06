@@ -1,6 +1,7 @@
 package portability
 
 import (
+	"assistente/internal/database"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
@@ -154,6 +155,9 @@ func parseLegacyConversationsExport(raw []byte) (*ExportFile, bool, error) {
 				Model:            legacyMessage.Model,
 				Source:           legacyMessage.Source,
 				CreatedAt:        legacyMessage.CreatedAt,
+			}
+			if message.Audio != "" {
+				message.AudioOrigin = database.AttachmentLegacyUnknown
 			}
 			if legacyMessage.ParentID != nil {
 				parentID, ok := messageIDs[*legacyMessage.ParentID]

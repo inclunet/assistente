@@ -87,20 +87,9 @@ func TestCredentialLossRepro_PreAEP0052BootPreservesAllCredentials(t *testing.T)
 	assertCredentialCount(t, len(seeds), "após dedup pré-migrate")
 
 	// 2. AutoMigrate completo (mesmas tabelas que internal/app/db.go inicializa).
-	if err := db.AutoMigrate(
-		&User{},
-		&Session{},
-		&CredentialEntry{},
-		&CredentialKeyWrap{},
-		&LLMProvider{},
-		&Conversation{},
-		&ChatMessage{},
-		&TaskListWorkflow{},
-		&TaskList{},
-		&Task{},
-		&TaskNote{},
-	); err != nil {
-		t.Fatalf("auto-migrate: %v", err)
+	fullAutoMigrate(t, db)
+	if err := ensureSchemaMigrationsTable(db); err != nil {
+		t.Fatal(err)
 	}
 	assertCredentialCount(t, len(seeds), "após AutoMigrate")
 
@@ -289,20 +278,9 @@ func openMultiUserDB(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
-	if err := db.AutoMigrate(
-		&User{},
-		&Session{},
-		&CredentialEntry{},
-		&CredentialKeyWrap{},
-		&LLMProvider{},
-		&Conversation{},
-		&ChatMessage{},
-		&TaskListWorkflow{},
-		&TaskList{},
-		&Task{},
-		&TaskNote{},
-	); err != nil {
-		t.Fatalf("auto-migrate: %v", err)
+	fullAutoMigrate(t, db)
+	if err := ensureSchemaMigrationsTable(db); err != nil {
+		t.Fatal(err)
 	}
 	if err := ensureCredentialEntryUserPatternIndex(); err != nil {
 		t.Fatalf("ensureCredentialEntryUserPatternIndex: %v", err)

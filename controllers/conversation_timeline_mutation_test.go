@@ -200,7 +200,7 @@ func TestLegacyPinReadsOnlyAuthorizedIdentityBeforeCoordination(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.Model(&database.ChatMessage{}).Where("id=?", answer.ID).Update("audio", strings.Repeat("x", 2<<20)).Error; err != nil {
+	if err := database.SaveMessageAudioWithContext(ctx, answer.ID, strings.Repeat("x", 2<<20), "audio/wav"); err != nil {
 		t.Fatal(err)
 	}
 	coordinated := false

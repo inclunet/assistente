@@ -50,8 +50,11 @@ func TestMessagePinningPersistsAndIsUserScoped(t *testing.T) {
 	if err != nil || !reloaded.Pinned {
 		t.Fatalf("pinned state was not persisted: message=%+v err=%v", reloaded, err)
 	}
+	if err := SaveMessageAudioWithContext(anaCtx, anaMessage.ID, "YXVkaW8gZ3JhbmRl", "audio/wav"); err != nil {
+		t.Fatal(err)
+	}
 	if err := db.Model(&ChatMessage{}).Where("id = ?", anaMessage.ID).Updates(map[string]any{
-		"audio": "audio grande",
+
 		"media": "mídia grande",
 	}).Error; err != nil {
 		t.Fatalf("populate large message fields: %v", err)

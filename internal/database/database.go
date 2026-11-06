@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"assistente/internal/configdir"
@@ -20,6 +21,9 @@ import (
 )
 
 var db *gorm.DB
+
+// A adoção e a retomada de migrações formam uma única sequência de bootstrap.
+var legacyAdoptionMu sync.Mutex
 
 // dbPath guarda o caminho absoluto do arquivo SQLite resolvido em Init().
 // Usado pela manutenção física (maintenance.go) para medir tamanho em disco.
@@ -334,6 +338,8 @@ func InitPath(path string) error {
 // caller — possivelmente ao usuário errado. Validar essa premissa
 // antes de qualquer mudança que produza órfãos em runtime.
 func AdoptLegacyData(userID string) error {
+	legacyAdoptionMu.Lock()
+	defer legacyAdoptionMu.Unlock()
 	if db == nil {
 		return errors.New("banco de dados não inicializado")
 	}
@@ -341,7 +347,13 @@ func AdoptLegacyData(userID string) error {
 		return errors.New("userID obrigatório")
 	}
 
-	return db.Transaction(func(tx *gorm.DB) error {
+	applied, err := appliedMigrationVersions(db)
+	if err != nil {
+		return err
+	}
+	audioSchemaReady := applied[45]
+	err = db.Transaction(func(tx *gorm.DB) error {
+		adoptedConversations := false
 		tables := []string{
 			"llm_providers",
 			"conversations",
@@ -352,10 +364,17 @@ func AdoptLegacyData(userID string) error {
 			if !tx.Migrator().HasTable(table) {
 				continue
 			}
-			if err := tx.Exec(
-				fmt.Sprintf("UPDATE %s SET user_id = ? WHERE user_id IS NULL OR user_id = ''", table),
-				userID,
-			).Error; err != nil {
+			result := tx.Exec(
+				fmt.Sprintf("UPDATE %s SET user_id = ? WHERE user_id IS NULL OR user_id = ''", table), userID)
+			if result.Error != nil {
+				return result.Error
+			}
+			if table == "conversations" {
+				adoptedConversations = result.RowsAffected > 0
+			}
+		}
+		if audioSchemaReady && adoptedConversations {
+			if err := migrateOwnedMessageAudio(tx, userID); err != nil {
 				return err
 			}
 		}
@@ -416,4 +435,38 @@ func AdoptLegacyData(userID string) error {
 		}
 		return nil
 	})
+	if err != nil || audioSchemaReady {
+		return err
+	}
+	// O corte v19 pode aguardar o primeiro dono. Retome a cadeia antes de liberar
+	// autenticação; backups e rebuilds não podem executar dentro da adoção.
+	if err := runMigrations(db, phasePostAutoMigrate); err != nil {
+		return err
+	}
+	applied, err = appliedMigrationVersions(db)
+	if err != nil {
+		return err
+	}
+	if !applied[45] {
+		var pending []struct {
+			LastErrorCode string
+			Resources     int64
+		}
+		if err := db.Model(&ToolLedgerMigrationState{}).Select("last_error_code, COUNT(*) AS resources").Where("state = ?", toolLedgerStatePending).Group("last_error_code").Order("last_error_code").Scan(&pending).Error; err != nil {
+			return err
+		}
+		resources, err := legacyToolLedgerResources(db)
+		if err != nil {
+			return err
+		}
+		ownerless := map[string]int{}
+		for _, resource := range resources {
+			if strings.TrimSpace(resource.UserID) == "" {
+				ownerless[resource.ResourceType]++
+			}
+		}
+		return fmt.Errorf("migração bloqueada após adoção: %v; recursos sem proprietário: %v; diagnóstico e reconciliação offline em docs/operations/tool-invocation-ledger-migration.md; repetir login sem corrigir a causa não resolve", pending, ownerless)
+	}
+	return nil
+
 }

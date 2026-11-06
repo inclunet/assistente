@@ -1,8 +1,107 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — histórico canônico integrado do backend à UI e CLI; APIs e adaptadores visuais antigos retirados; abertura otimizada e leituras visuais sem blobs; armazenamento de anexos e gates finais de desempenho/memória pendentes
+## Status: In Progress — histórico canônico integrado do backend à UI e CLI; APIs e adaptadores visuais antigos retirados; abertura otimizada e leituras visuais sem blobs; áudio normalizado; mídia geral e gates finais de desempenho/memória pendentes
 
 Data: 2026-10-30
+
+### Recorte de armazenamento de áudio (06/11/2026)
+
+A validação remota deste recorte encontrou timeout nos grupos gerais do backend.
+Esses jobs passam a emitir eventos JSON por teste e preservar os logs como
+artefatos, sem alterar seleção, limites ou critérios de aprovação. A instrumentação
+permite distinguir teste preso de compilação ou custo acumulado; timeout não é
+considerado aprovação nem atribuído automaticamente à infraestrutura.
+A instrumentação revelou duas fixtures ainda legadas: cronologia ACP sem tabela de
+anexos e prova de pin com escrita direta na coluna aposentada. Ambas usam agora
+schema/escritor canônicos, mantendo as verificações de ordem, ownership e leitura
+leve. A prova ACP permanece restrita ao CI, conforme orientação do mantenedor.
+
+
+
+O áudio persistido deixa de ser lido ou gravado nas colunas `audio` e
+`audio_mime_type` de `chat_messages`. Conteúdos binários são únicos por usuário e
+SHA-256 em `chat_attachment_contents`; `chat_message_attachments` associa mensagem,
+conteúdo, posição, MIME e origem. Playback, gravação de TTS, contexto LLM e
+portabilidade usam esse contrato. Os leitores visuais continuam sem blobs.
+
+Decisões confirmadas pelo mantenedor: áudio antigo sem evidência conclusiva de
+origem recebe `legacy_unknown`; nunca inferimos TTS apenas pelo papel da mensagem.
+Na exportação, `includeAudio=false` exclui somente TTS `generated`; áudio recebido
+e legado desconhecido são preservados. O envelope v4 transporta `audioOrigin`;
+v1/v2/v3 permanecem legíveis e seu áudio sem proveniência vira `legacy_unknown`.
+
+A migração v45 cria backup verificável antes de converter conteúdo existente,
+valida base64 e bytes, deduplica por usuário e limpa as colunas antigas na mesma
+transação. Novas gravações nessas colunas são recusadas. Dados históricos sem dono
+ficam intactos e inacessíveis até a adoção no primeiro login. Com v45 vigente,
+atribuição de dono e normalização são atômicas. A normalização na adoção só roda
+quando houve conversas órfãs atribuídas; login/refresh comum não varre áudios. Se v19 e suas dependentes estiverem
+adiadas por falta de dono, a adoção confirma primeiro o proprietário e retoma o
+migrador normal fora dessa transação, antes de liberar a autenticação. As migrações
+mantêm suas próprias garantias: v19 e v45 criam backups; v42 não cria backup.
+Uma falha na normalização mantém o áudio original e permite
+retentar com o dono já atribuído. O bootstrap só retorna sucesso após confirmar
+v45 no registro. A sequência completa é serializada entre tentativas concorrentes
+de adoção. O corte v19 restaura tabela, triggers e conteúdo do FTS na própria
+transação de reconstrução, inclusive quando retomado após startup; a fixture
+publicada comprova busca de mensagens antigas e indexação de novas sem reiniciar.
+Ambiguidades no ledger continuam bloqueando o corte conforme AEP-0104; a adoção
+informa códigos de diagnóstico e aponta o runbook de reconciliação offline.
+`TestPublishedDatabase019AdoptionBlocksAmbiguityUntilRepair` prova bloqueio sem
+perda e retomada após correção explícita. Não há escolha automática entre resultados.
+Não existe fallback de leitura para o armazenamento antigo.
+Histórico normal e retry consultam apenas áudio `received`, sem carregar blobs
+`generated`/`legacy_unknown` que o modelo não usa. MIME é normalizado no consumo
+e na exportação rica, com regressões para caixa e parâmetros nos dois lados
+da deduplicação, inclusive no campo legado `media`. Retry de áudio recebido sem
+texto encaminha o anexo normalizado à resolução compartilhada de STT, mesmo sem
+`media`; a prova do use case verifica transcrição única e persistida. Sem STT
+server-side configurado, o retry persiste o aviso do resolvedor como o envio normal.
+A última referência removida coleta o binário; mudanças de áudio renovam revisões
+de conteúdo e invalidam confirmações antigas, inclusive em alterações A→B→A.
+
+Evidências: `TestAudioAttachmentsDeduplicateIsolateAndCollect`,
+`TestAudioMutationInvalidatesDestructiveConfirmationIncludingABA`,
+`TestAudioMigrationPreservesProvenanceAndBackup`,
+`TestAudioMigrationRollsBackOnInvalidBytes`,
+`TestLegacyAudioIsNormalizedAtomicallyOnAdoption`,
+`TestAudioRoundTripPreservesReceivedAndUnknownWithoutTTS` e
+`TestAudioExportVersionPreservesLegacyWithoutInventingOrigin`.
+
+Validação local: build, vet, lint Go incremental, TypeScript, ESLint e Stylelint
+aprovados (Stylelint mantém avisos preexistentes). Vitest: 7.007 testes em 526
+arquivos aprovados, excluindo ACP. Backend: 370 testes seguros de database,
+166 de portability mais 2 novos de áudio, 146 de agent, 38 de speech e 36 de
+history aprovados. Dos 485 testes seguros de chat, quatro fixtures precisavam
+usar o novo escritor; os quatro passaram na reexecução após a adaptação. Os
+dois testes de integração de áudio usam agora schema real e anexos normalizados.
+Sem execução local de ACP ou NVDA. Revisor independente `review_audio_storage`:
+quatro rodadas, três achados corrigidos (adoção de órfãos, invalidação de
+confirmações e timestamp histórico), zero pendências na revisão final.
+
+Revisão remota: a fixture publicada 0.1.9 agora inclui áudio e prova adoção,
+retomada real de v19–45 e retry após áudio inválido, sem chamada manual ao migrador
+no teste. `TestNormalizedAudioReachesSendAndRetryHistory` prova o consumo do áudio
+recebido normalizado no envio e retry, preservando transcrição, outras mídias e
+não duplicação. Duas rodadas adicionais do revisor local sobre as correções
+remotas zeraram a pendência de concorrência na adoção. Validação adicional:
+370 testes de database, sete cenários de adoção, 96 testes selecionados de
+autenticação/startup, novo cenário de mídia e paridade de retry aprovados;
+build, vet e lint Go incremental novamente aprovados. TTS gerado e origem desconhecida não são inventados como entrada
+de áudio do modelo.
+
+A segunda rodada remota corrigiu deduplicação por bytes no contexto (base64
+textualmente diferente pode representar o mesmo áudio) e duplicação de áudio
+recebido em HTML/PDF. Os dois renderizadores compartilham a seleção de anexos;
+`TestRichExportDeduplicatesAudioByBytesAndMIME` verifica players HTML e blocos
+PDF efetivos, preservando conteúdo ou MIME distintos. O JSON canônico mantém
+ambas as representações enquanto a migração de `media` não estiver concluída.
+Revisor local do delta sem achados; 169 testes de portability e a regressão de
+histórico de áudio aprovados, sem ACP.
+
+**Parcial:** o campo geral `media` ainda mantém seu formato anterior. A migração
+dos demais anexos, retirada física das colunas legadas e gates finais de memória/
+desempenho continuam pendentes. Não marcamos a fase de anexos nem o AEP como Done.
 
 ### Recorte de leitura leve do término e recuperação (06/11/2026)
 
@@ -3843,3 +3942,11 @@ atualizador sob carga (três repetições isoladas passaram) e encerramentos
 localmente: podem disparar antivírus e alertas de Infosec. Não executar
 `go test ./...` localmente nesse contexto. Preservar os testes versionados e
 registrar a restrição; a cobertura completa fica a cargo do CI remoto.
+
+
+Revisão do recorte de áudio (#1028): retry de imagem sem texto não recebe aviso
+exclusivo de áudio sem STT; regressão cobre STT vazio e WebSpeech. O diagnóstico
+pós-adoção reutiliza a descoberta de recursos legados do backfill para contar
+recursos sem proprietário mesmo sem estado de ledger. A fixture publicada 0.1.9
+prova bloqueio sem atribuição nem perda de output; o runbook descreve reconciliação
+offline com evidência de propriedade.

@@ -1,6 +1,7 @@
 package portability
 
 import (
+	"bytes"
 	"encoding/base64"
 	"path/filepath"
 	"strings"
@@ -9,6 +10,41 @@ import (
 
 	"codeberg.org/go-pdf/fpdf"
 )
+
+func TestRichExportDeduplicatesAudioByBytesAndMIME(t *testing.T) {
+	for _, tc := range []struct {
+		name, audio, mime, mediaMIME string
+		count                        int
+	}{
+		{"equivalent_base64", "/w==", "audio/wav", "audio/wav", 1},
+		{"different_bytes", "/g==", "audio/wav", "audio/wav", 2},
+		{"different_mime", "/w==", "audio/mpeg", "audio/wav", 2},
+		{"audio_parameters", "/w==", "Audio/WAV; codecs=pcm", "audio/wav", 1},
+		{"media_parameters", "/w==", "audio/wav", "audio/wav; codecs=pcm", 1},
+		{"both_parameters", "/w==", "audio/wav; codecs=pcm", "audio/wav; codecs=pcm", 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			msg := MessageExport{Media: `[{"type":"` + tc.mediaMIME + `","data":"/x==","name":"gravacao.wav"}]`, Audio: tc.audio, AudioMimeType: tc.mime}
+			if html := string(renderMessageMediaTemplate(msg)); strings.Count(html, "<audio ") != tc.count || !strings.Contains(html, "gravacao.wav") {
+				t.Fatal("HTML lost or duplicated attachment", html)
+			}
+			pdf := fpdf.New("P", "mm", "A4", "")
+			pdf.SetCompression(false)
+			pdf.AddPage()
+			pdf.SetFont("Helvetica", "", 11)
+			if err := writePDFMediaAttachments(pdf, false, msg); err != nil {
+				t.Fatal(err)
+			}
+			var output bytes.Buffer
+			if err := pdf.Output(&output); err != nil {
+				t.Fatal(err)
+			}
+			if count := strings.Count(output.String(), "(Anexo)"); count != tc.count {
+				t.Fatalf("PDF attachments=%d expected=%d", count, tc.count)
+			}
+		})
+	}
+}
 
 func TestRenderConversationsHTMLIncludesConversationContent(t *testing.T) {
 	const tinyPNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jp1EAAAAASUVORK5CYII="

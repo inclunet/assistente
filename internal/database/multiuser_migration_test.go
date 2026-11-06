@@ -16,20 +16,9 @@ func setupMultiUserTestDB(t *testing.T) *sql.DB {
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
-	if err := db.AutoMigrate(
-		&User{},
-		&Session{},
-		&Conversation{},
-		&ChatMessage{},
-		&CredentialEntry{},
-		&CredentialKeyWrap{},
-		&LLMProvider{},
-		&TaskListWorkflow{},
-		&TaskList{},
-		&Task{},
-		&TaskNote{},
-	); err != nil {
-		t.Fatalf("migrate: %v", err)
+	fullAutoMigrate(t, db)
+	if err := ensureSchemaMigrationsTable(db); err != nil {
+		t.Fatal(err)
 	}
 	if err := ensureCredentialEntryUserPatternIndex(); err != nil {
 		t.Fatalf("ensureCredentialEntryUserPatternIndex: %v", err)
@@ -114,7 +103,7 @@ func TestAdoptLegacyDataAssignsBlankOwners(t *testing.T) {
 	field := &LLMModelCapabilityField{
 		CapabilityID: capability.ID, FieldCode: "temperature",
 		CompatibilityRevision: provider.CompatibilityRevision,
-		RecognizerID: "openai.chat.unsupported_parameter",
+		RecognizerID:          "openai.chat.unsupported_parameter",
 	}
 	if err := db.Create(field).Error; err != nil {
 		t.Fatalf("create legacy field restriction: %v", err)

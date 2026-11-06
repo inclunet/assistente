@@ -28,6 +28,7 @@ func NewMessageRepository(database *gorm.DB) *MessageRepository {
 
 // MessageOptions contém opções para criar uma mensagem
 type MessageOptions struct {
+	AudioOrigin      string
 	ChatExecutionID  *string
 	ConversationID   string
 	ParentID         *string // ID da mensagem pai (define hierarquia)
@@ -82,6 +83,7 @@ func (r *MessageRepository) CreateMessageWithContext(ctx context.Context, opts M
 		Reasoning:        opts.Reasoning,
 		Media:            opts.Media,
 		Audio:            opts.Audio,
+		AudioOrigin:      opts.AudioOrigin,
 		AudioMimeType:    opts.AudioMimeType,
 		PromptTokens:     opts.PromptTokens,
 		CompletionTokens: opts.CompletionTokens,
@@ -229,6 +231,9 @@ ORDER BY created_at ASC, id ASC`, CurrentChatMessageSQL("chat_messages"), Curren
 		}
 		boundaryAvailable = count > 0
 	}
+	if err := LoadMessageAudios(ctx, r.db, messages, AudioReceivedOnly); err != nil {
+		return nil, err
+	}
 	return &HistoryWindowResult{
 		Messages:                 messages,
 		Summary:                  conv.Summary,
@@ -282,10 +287,11 @@ func (r *MessageRepository) CreateUserMessageAndLoadHistoryWithContext(ctx conte
 			Content:        opts.Content,
 			Media:          opts.Media,
 			Audio:          opts.Audio,
+			AudioOrigin:    opts.AudioOrigin,
 			AudioMimeType:  opts.AudioMimeType,
 			Source:         opts.Source,
 		}
-		if err := tx.WithContext(ctx).Create(created).Error; err != nil {
+		if err := CreateChatMessageInTransaction(tx.WithContext(ctx), created); err != nil {
 			return err
 		}
 		if err := ScopeByUser(ctx, tx.WithContext(ctx).Model(&Conversation{}), "user_id").
@@ -367,17 +373,18 @@ func GetMessageAudioWithContext(ctx context.Context, messageID string) (string, 
 }
 
 func (r *MessageRepository) GetMessageAudioWithContext(ctx context.Context, messageID string) (string, string, error) {
-	db := r.db
 	if _, err := RequireUserID(ctx); err != nil {
 		return "", "", err
 	}
-	var msg ChatMessage
-	if err := scopedMessageQuery(ctx, db.Model(&ChatMessage{})).
-		Select("chat_messages.audio", "chat_messages.audio_mime_type").
-		First(&msg, "chat_messages.id = ?", messageID).Error; err != nil {
+	var message ChatMessage
+	if err := scopedMessageQuery(ctx, r.db.Model(&ChatMessage{})).Select("chat_messages.id").First(&message, "chat_messages.id=?", messageID).Error; err != nil {
 		return "", "", err
 	}
-	return msg.Audio, msg.AudioMimeType, nil
+	messages := []ChatMessage{message}
+	if err := LoadMessageAudios(ctx, r.db, messages, AudioAll); err != nil {
+		return "", "", err
+	}
+	return messages[0].Audio, messages[0].AudioMimeType, nil
 }
 
 // SaveMessageAudioWithContext salva áudio (base64) numa mensagem existente do
@@ -387,15 +394,16 @@ func SaveMessageAudioWithContext(ctx context.Context, messageID string, audioBas
 }
 
 func (r *MessageRepository) SaveMessageAudioWithContext(ctx context.Context, messageID string, audioBase64 string, mimeType string) error {
-	db := r.db
 	if _, err := RequireUserID(ctx); err != nil {
 		return err
 	}
-	messageIDs := scopedMessageQuery(ctx, db.Model(&ChatMessage{}).Select("chat_messages.id").Where("chat_messages.id = ?", messageID))
-	return db.WithContext(ctx).Model(&ChatMessage{}).Where("id = ?", messageID).Where("id IN (?)", messageIDs).Updates(map[string]interface{}{
-		"audio":           audioBase64,
-		"audio_mime_type": mimeType,
-	}).Error
+	return withSQLiteImmediateTransaction(ctx, r.db, "chat.save_audio", func(tx *gorm.DB) error {
+		var message ChatMessage
+		if err := scopedMessageQuery(ctx, tx.Model(&ChatMessage{})).Select("chat_messages.id").First(&message, "chat_messages.id=?", messageID).Error; err != nil {
+			return err
+		}
+		return storeMessageAudio(tx, messageID, audioBase64, mimeType, AttachmentGenerated)
+	})
 }
 
 // HasMessageAudioWithContext verifica se uma mensagem do usuário do contexto
@@ -414,7 +422,7 @@ func (r *MessageRepository) HasMessageAudioWithContext(ctx context.Context, mess
 		return false
 	}
 	var count int64
-	scopedMessageQuery(ctx, db.Model(&ChatMessage{})).Where("chat_messages.id = ? AND chat_messages.audio != '' AND chat_messages.audio IS NOT NULL", messageID).Count(&count)
+	scopedMessageQuery(ctx, db.Model(&ChatMessage{})).Where("chat_messages.id = ? AND EXISTS(SELECT 1 FROM chat_message_attachments a WHERE a.message_id=chat_messages.id AND a.purpose='audio')", messageID).Count(&count)
 	return count > 0
 }
 
@@ -486,7 +494,7 @@ func (r *MessageRepository) GetMessageScopeWithContext(ctx context.Context, mess
 	return &scope, nil
 }
 
-// GetMessageWithContext retorna a mensagem completa pelo ID, restrita ao
+// GetMessageWithContext retorna os campos da mensagem (sem hidratar anexos), restrita ao
 // usuário do contexto. Falha fechado sem userID — leitura por ID sem escopo
 // retornaria mensagens de qualquer usuário (vetor de leak silencioso).
 func GetMessageWithContext(ctx context.Context, messageID string) (*ChatMessage, error) {
@@ -678,7 +686,7 @@ func (r *MessageRepository) EnsureAssistantPlaceholderWithContext(ctx context.Co
 			Role:           "assistant",
 			Content:        "",
 		}
-		if err := tx.WithContext(ctx).Create(created).Error; err != nil {
+		if err := CreateChatMessageInTransaction(tx.WithContext(ctx), created); err != nil {
 			return err
 		}
 		if err := ScopeByUser(ctx, tx.WithContext(ctx).Model(&Conversation{}), "user_id").

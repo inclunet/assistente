@@ -141,7 +141,7 @@ done
 
 run pacotes-gerais
 assert_flags 'test -race -short -count=1 -timeout=20m'
-[[ ${#got[@]} == 8 && ${got[0]} == test && ${got[5]} == assistente/internal/app/child && ${got[6]} == assistente/internal/chat/child && ${got[7]} == assistente/internal/auth ]] ||
+[[ ${#got[@]} == 9 && ${got[0]} == test && ${got[5]} == -json && ${got[6]} == assistente/internal/app/child && ${got[7]} == assistente/internal/chat/child && ${got[8]} == assistente/internal/auth ]] ||
   fail "pacotes-gerais repetiu App/Chat ou mudou a lista: ${got[*]}"
 
 # A união disjunta dos grupos precisa cobrir tudo que Go descobriu, incluindo

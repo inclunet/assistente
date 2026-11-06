@@ -53,7 +53,7 @@ func TestAudioPersistenceCoordinatesTimelineWithoutReadingPayload(t *testing.T) 
 			if err != nil {
 				t.Fatal(err)
 			}
-			message := database.ChatMessage{ConversationID: conv.ID, Role: "assistant", Content: "texto", Audio: strings.Repeat("x", 2*1024*1024), AudioMimeType: "audio/wav"}
+			message := database.ChatMessage{ConversationID: conv.ID, Role: "assistant", Content: "texto"}
 			if mode == "turn" {
 				message.TurnID = &question.ID
 			}
@@ -62,6 +62,9 @@ func TestAudioPersistenceCoordinatesTimelineWithoutReadingPayload(t *testing.T) 
 				message.TurnID = &blank
 			}
 			if err := db.Create(&message).Error; err != nil {
+				t.Fatal(err)
+			}
+			if err := database.SaveMessageAudioWithContext(ctx, message.ID, strings.Repeat("x", 2*1024*1024), "audio/wav"); err != nil {
 				t.Fatal(err)
 			}
 			if err := database.NewChatTurnRepository(db).ReconcileImportedConversationInTransaction(ctx, conv.ID); err != nil {
@@ -90,7 +93,7 @@ func TestAudioPersistenceCoordinatesTimelineWithoutReadingPayload(t *testing.T) 
 				calls++
 				return p.ApplyStorageMutation(ctx, id, ids, write)
 			})
-			if err := store.SaveMessageAudio(ctx, message.ID, "novo-áudio", "audio/mpeg"); err != nil {
+			if err := store.SaveMessageAudio(ctx, message.ID, "bm92by3DoXVkaW8=", "audio/mpeg"); err != nil {
 				t.Fatal(err)
 			}
 			if !preRead || calls != 1 || r.reads != 1 || r.selected == nil || len(r.selected.Items) != len(before.Items) {
@@ -121,7 +124,7 @@ func TestAudioPersistenceCoordinatesTimelineWithoutReadingPayload(t *testing.T) 
 				t.Fatal("identidade ou omissão de áudio alteradas")
 			}
 			audio, mime, err := store.GetMessageAudio(ctx, message.ID)
-			if err != nil || audio != "novo-áudio" || mime != "audio/mpeg" {
+			if err != nil || audio != "bm92by3DoXVkaW8=" || mime != "audio/mpeg" {
 				t.Fatal("áudio não persistido", err)
 			}
 			if _, err := sub.Refresh(ctx, "1", nil); err != nil {
@@ -132,21 +135,21 @@ func TestAudioPersistenceCoordinatesTimelineWithoutReadingPayload(t *testing.T) 
 				t.Fatal("recusa de ownership chegou ao coordenador")
 			}
 			failure := errors.New("escrita de áudio recusada")
-			if err := db.Callback().Update().Before("gorm:update").Register("audio_failure", func(tx *gorm.DB) {
-				if tx.Statement.Table == "chat_messages" {
+			if err := db.Callback().Raw().Before("gorm:raw").Register("audio_failure", func(tx *gorm.DB) {
+				if strings.Contains(tx.Statement.SQL.String(), "INSERT INTO chat_message_attachments") {
 					_ = tx.AddError(failure)
 				}
 			}); err != nil {
 				t.Fatal(err)
 			}
-			if err := store.SaveMessageAudio(ctx, message.ID, "não confirmar", "audio/wav"); !errors.Is(err, failure) {
+			if err := store.SaveMessageAudio(ctx, message.ID, "bmFvIGNvbmZpcm1hcg==", "audio/wav"); !errors.Is(err, failure) {
 				t.Fatal("erro original perdido", err)
 			}
-			if err := db.Callback().Update().Remove("audio_failure"); err != nil {
+			if err := db.Callback().Raw().Remove("audio_failure"); err != nil {
 				t.Fatal(err)
 			}
 			audio, _, err = store.GetMessageAudio(ctx, message.ID)
-			if err != nil || audio != "novo-áudio" {
+			if err != nil || audio != "bm92by3DoXVkaW8=" {
 				t.Fatal("falha alterou áudio confirmado", err)
 			}
 		})
