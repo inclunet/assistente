@@ -293,21 +293,6 @@ func (r *DBTimelineReader) readTurn(ctx context.Context, conversationID, turnID 
 	return result, nil
 }
 
-func snapshotTurnIDs(messages []Message) []string {
-	ids := CollectTurnIDsWithToolCalls(messages)
-	seen := make(map[string]bool, len(ids))
-	for _, id := range ids {
-		seen[id] = true
-	}
-	for _, message := range messages {
-		if message.Role == "user" && !seen[message.ID] {
-			ids = append(ids, message.ID)
-			seen[message.ID] = true
-		}
-	}
-	return ids
-}
-
 func projectSnapshotResponses(conversationID string, parentID *string, messages []Message, facts timelineFacts) (map[string]*TimelineItem, error) {
 	grouped := make(map[string][]Message)
 	for _, message := range messages {

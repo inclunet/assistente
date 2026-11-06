@@ -74,6 +74,11 @@ backend e duas frontend. Achados corrigidos e conferidos, sem pendências locais
 CI e review remota permanecem gates de publicação; desempenho global não foi
 aprovado por este recorte.
 
+O CI inicial detectou `snapshotTurnIDs` sem uso, deixada pela retirada do leitor.
+A função foi removida, 31 testes de snapshot/janela passaram e `review_aep`
+aprovou a correção. Lint local completo 2.15 encontrou 12 ocorrências em arquivos
+idênticos à base; não são declaradas corrigidas por este recorte. O CI usa 2.11.4.
+
 Permanecem pendentes os adaptadores internos antigos ainda exercitados por
 provas de projeção, a migração de anexos da fase 4 e os gates finais do AEP.
 Esta retirada de APIs não conclui esses trabalhos.
