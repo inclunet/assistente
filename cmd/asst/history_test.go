@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -444,5 +445,17 @@ func TestHistoryShowRejectsVersionChangesAndBrokenCursors(t *testing.T) {
 				t.Fatal("página divergente foi impressa")
 			}
 		})
+	}
+}
+
+type historyFailingWriter struct{ err error }
+
+func (w historyFailingWriter) Write([]byte) (int, error) { return 0, w.err }
+
+func TestHistoryShowEmptyPropagatesOutputFailure(t *testing.T) {
+	expected := errors.New("saída indisponível")
+	backend := &mockHistoryBackend{conversation: &app.Conversation{Title: "vazia"}}
+	if err := runHistoryShow(backend, historyFailingWriter{expected}, "empty"); !errors.Is(err, expected) {
+		t.Fatalf("falha de saída perdida: %v", err)
 	}
 }

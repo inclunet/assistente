@@ -159,7 +159,7 @@ func runHistoryShow(svc historyBackend, out io.Writer, id string) error {
 				}
 			}
 			if !snapshot.Window.HasAfter {
-				return nil
+				return ew.err
 			}
 			query.Anchor, query.Cursor = "", snapshot.AfterCursor
 		}
