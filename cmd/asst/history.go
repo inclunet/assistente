@@ -139,9 +139,14 @@ func runHistoryShow(svc historyBackend, out io.Writer, id string) error {
 					role = item.Representative.Role
 				}
 				var text strings.Builder
+				var previousSource string
 				for _, segment := range item.Segments {
-					if segment.Kind == "text" {
+					if segment.Kind == "text" && segment.Text != "" {
+						if text.Len() > 0 && previousSource != segment.SourceMessageID {
+							text.WriteString("\n\n")
+						}
 						text.WriteString(segment.Text)
+						previousSource = segment.SourceMessageID
 					}
 				}
 				content := []rune(text.String())

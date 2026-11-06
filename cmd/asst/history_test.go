@@ -490,3 +490,20 @@ func TestHistoryShowIncludesIntermediateThreads(t *testing.T) {
 		t.Fatal("thread perdida ou repetida", reads, out.String())
 	}
 }
+
+func TestHistoryShowPreservesTextSourceBoundaries(t *testing.T) {
+	backend := &mockHistoryBackend{conversation: &app.Conversation{}, messages: []*chat.TimelineItem{{Segments: []chat.ResponseSegment{
+		{Kind: "text", SourceMessageID: "intermediate", Text: "Vou "},
+		{Kind: "text", SourceMessageID: "intermediate", Text: "consultar."},
+		{Kind: "tool_invocations"},
+		{Kind: "reasoning", SourceMessageID: "final", Text: "raciocínio"},
+		{Kind: "text", SourceMessageID: "final", Text: "Concluído."},
+	}}}}
+	var out bytes.Buffer
+	if err := runHistoryShow(backend, &out, "c"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "Vou consultar.\n\nConcluído.") || strings.Contains(out.String(), "raciocínio") {
+		t.Fatal("limites de fontes alterados", out.String())
+	}
+}

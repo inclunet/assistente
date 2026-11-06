@@ -93,6 +93,11 @@ caso real sem representante. CLI (18), chat focado (5) e vet passaram;
 `review_aep` conferiu as correções. A fixture E2E aceita ID explícito para listas
 vazias; 13 E2E focados e revisão de `review_store_coverage` passaram.
 
+O resumo final do Copilot apontou separação textual no CLI. O render mantém
+fragmentos da mesma fonte unidos e separa fontes distintas, sem ordenar nem
+reconstruir conteúdo. `TestHistoryShowPreservesTextSourceBoundaries` passou junto
+com os 19 testes de histórico e vet; `review_aep` aprovou a correção.
+
 Permanecem pendentes os adaptadores internos antigos ainda exercitados por
 provas de projeção, a migração de anexos da fase 4 e os gates finais do AEP.
 Esta retirada de APIs não conclui esses trabalhos.
