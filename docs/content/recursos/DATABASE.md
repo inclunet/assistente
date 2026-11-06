@@ -19,6 +19,7 @@ que fica fora do backup por padrão e pode ser gerada novamente.
 Áudios antigos cuja origem não possa ser identificada também são preservados.
 Ao repetir uma mensagem importada com áudio recebido e sem texto, o app usa a
 transcrição configurada e salva o resultado na mensagem, como no envio normal.
+Em canais sem transcrição no servidor, o aviso de configuração também fica salvo.
 
 Arquivos de backup das versões anteriores continuam aceitos. A atualização do
 banco mantém uma cópia de segurança antes de migrar os áudios; se algum conteúdo

@@ -469,7 +469,7 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (string, error) {
 				return "", err
 			}
 		}
-		if mediaResolution.NeedsSTT {
+		if mediaResolution.NeedsSTT || (retryUserMsg.Content == "" && userContent != "") {
 			if err := uc.chatInteractor.PersistUserTranscription(ctx, retryUserMsg.ID, userContent); err != nil {
 				return "", err
 			}

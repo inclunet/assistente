@@ -939,3 +939,45 @@ func TestSendMessageRejectsPendingTurnMigrationBeforeWriting(t *testing.T) {
 		t.Fatalf("gravou %d mensagens antes da migração", count)
 	}
 }
+
+func TestSendMessageUseCase_RetryNormalizedAudioWithoutServerSTT(t *testing.T) {
+	for _, stt := range []string{"", "webspeech"} {
+		t.Run("provider_"+stt, func(t *testing.T) {
+			setupTestDB(t)
+			ctx, cancel := context.WithCancel(database.WithUserID(context.Background(), "test-user"))
+			defer cancel()
+			mgr := setupProfileDir(t)
+			profile := minValidProfile("Retry sem STT", "media-test")
+			profile.Input = profiles.InputConfig{Enabled: true, STTProvider: stt, Language: "pt-BR"}
+			setupProfileWith(t, mgr, profile)
+			conv, err := database.CreateConversationWithContext(ctx, "retry", "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			message, err := database.CreateMessageWithContext(ctx, database.MessageOptions{ConversationID: conv.ID, Role: "user", Audio: "YXVkaW8=", AudioMimeType: "audio/wav", AudioOrigin: database.AttachmentReceived, Source: "telegram"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var calls atomic.Int32
+			uc, _ := newMediaTestUseCase(t, mgr, func(context.Context, string, string) (string, error) { calls.Add(1); return "unexpected", nil })
+			finished := make(chan struct{})
+			_, err = uc.Execute(usecases.SendMessageRequest{Ctx: ctx, ConversationID: conv.ID, RetryMessageID: message.ID, Source: "telegram", OnFinished: func() { close(finished) }})
+			if err != nil {
+				t.Fatal(err)
+			}
+			stored, err := database.GetMessageWithContext(ctx, message.ID)
+			if err != nil || stored.Content != chat.AudioSTTNotConfiguredFallback("pt-BR") {
+				t.Fatalf("aviso não persistido: %+v %v", stored, err)
+			}
+			cancel()
+			select {
+			case <-finished:
+			case <-time.After(2 * time.Second):
+				t.Fatal("execução não terminou")
+			}
+			if calls.Load() != 0 {
+				t.Fatal("transcritor sem configuração foi chamado")
+			}
+		})
+	}
+}

@@ -43,7 +43,8 @@ Histórico normal e retry consultam apenas áudio `received`, sem carregar blobs
 e na exportação rica, com regressões para caixa e parâmetros nos dois lados
 da deduplicação, inclusive no campo legado `media`. Retry de áudio recebido sem
 texto encaminha o anexo normalizado à resolução compartilhada de STT, mesmo sem
-`media`; a prova do use case verifica transcrição única e persistida.
+`media`; a prova do use case verifica transcrição única e persistida. Sem STT
+server-side configurado, o retry persiste o aviso do resolvedor como o envio normal.
 A última referência removida coleta o binário; mudanças de áudio renovam revisões
 de conteúdo e invalidam confirmações antigas, inclusive em alterações A→B→A.
 
