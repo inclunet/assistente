@@ -6,6 +6,13 @@ Data: 2026-10-30
 
 ### Recorte de armazenamento de áudio (06/11/2026)
 
+A validação remota deste recorte encontrou timeout nos grupos gerais do backend.
+Esses jobs passam a emitir eventos JSON por teste e preservar os logs como
+artefatos, sem alterar seleção, limites ou critérios de aprovação. A instrumentação
+permite distinguir teste preso de compilação ou custo acumulado; timeout não é
+considerado aprovação nem atribuído automaticamente à infraestrutura.
+
+
 O áudio persistido deixa de ser lido ou gravado nas colunas `audio` e
 `audio_mime_type` de `chat_messages`. Conteúdos binários são únicos por usuário e
 SHA-256 em `chat_attachment_contents`; `chat_message_attachments` associa mensagem,
