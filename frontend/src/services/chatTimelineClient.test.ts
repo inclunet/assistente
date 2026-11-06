@@ -639,6 +639,23 @@ describe('Refresh com transferência de recuperação', () => {
     await f.client.dispose();
   });
 
+  it('limpeza reconhece a mesma versão clonada por Refresh pendente', async () => {
+    const f = itemRecoveryFixture();
+    await f.open();
+    const pending = deferred<TimelineSnapshot>();
+    f.port.refresh.mockReturnValueOnce(pending.promise);
+    const refreshing = f.client.refresh('chat');
+    await vi.waitFor(() => expect(f.port.refresh).toHaveBeenCalledTimes(1));
+    const clearing = f.client.conversationCleared('chat');
+    f.port.reserveItem.mockRejectedValue(new Error('deleted source'));
+    pending.resolve({ ...structuredClone(f.original), windowRevision: '3', sequence: '12' });
+    await refreshing; await clearing;
+    expect(f.port.reserveItem).toHaveBeenCalledTimes(1);
+    expect(f.client.getWindow('chat', 'a')?.orderedItemIds).toEqual([]);
+    expect(f.port.navigate).toHaveBeenCalledWith('a', 'epoch', '3', 'followTail', expect.anything());
+    await f.client.dispose();
+  });
+
   it('limpeza não libera recuperação de execução nova transferida durante a espera', async () => {
     const f = itemRecoveryFixture();
     await f.open();

@@ -223,10 +223,24 @@ describe('chatStore validation', () => {
     vi.useRealTimers();
   });
 
+  it('compartilha a carga de metadados entre consumidores concorrentes', async () => {
+    let finish!: (value: unknown) => void;
+    mockGetConversationInfo.mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
+    const first = useChatStore.getState().loadConversationSession(defaultConversationId);
+    const second = useChatStore.getState().loadConversationSession(defaultConversationId);
+    expect(second).toBe(first);
+    await Promise.resolve();
+    expect(mockGetConversationInfo).toHaveBeenCalledTimes(1);
+    finish({ title: 'compartilhada' });
+    await Promise.all([first, second]);
+    expect(useChatStore.getState().getConversationSession(defaultConversationId)?.conversation?.title).toBe('compartilhada');
+  });
+
   it.each(['delete', 'reset'])('recusa metadados tardios após %s e permite nova carga', async action => {
     let finish!: (value: unknown) => void;
     mockGetConversationInfo.mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
     const loading = useChatStore.getState().loadConversationSession(defaultConversationId);
+    await Promise.resolve();
     const rejected = expect(loading).rejects.toThrow('chat-messaging-stale');
     if (action === 'delete') useChatStore.getState().handleConversationDeleted(defaultConversationId);
     else useChatStore.getState().handleDatabaseReset();

@@ -174,6 +174,15 @@ volátil sem Refresh anterior, sem tentar reservar a fonte removida. Passaram
 146 testes de agent, 91 de cliente/transporte e build/vet/lint; revisão local
 aprovada por `review_aep` (backend) e `review_store_coverage` (regressão frontend).
 
+A identidade autorizada para descarte usa época, item, execução, revisão e
+referência de recuperação, reconhecendo clones da mesma versão vindos de
+Refresh pendente sem autorizar versões posteriores. Cargas concorrentes dos
+metadados compartilham a mesma Promise; exclusão/reset invalidam essa carga,
+sem cancelar uma carga nova iniciada depois da invalidação. Regressões cobrem
+os dois consumidores, o clone retornado pelo Refresh e as recusas anteriores.
+Passaram 172 testes focados, TypeScript e lint; `review_store_coverage` aprovou
+a revisão local deste ajuste.
+
 ### Decisão: identidade de apresentação após confirmação (2026-11-05)
 
 Aprovada pelo mantenedor para o cutover. Esta decisão substitui a troca de IDs

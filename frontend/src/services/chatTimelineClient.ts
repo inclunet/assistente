@@ -5,6 +5,11 @@ import { revision } from './timelineBatch';
 import { TimelineConversationState, type TimelineSnapshot } from './timelineConversationState';
 import { recoveryItemIdentity, recoveryItemKey, recoveryReferenceKey, sameRecoveryItem, type RecoveryItemIdentity, type RecoveryItemTransport, type RecoveredTimelineItem } from './timelineRecoveryItem';
 
+function timelineVersionKey(epoch: string, item: TimelineItem): string {
+  return JSON.stringify([epoch, item.itemId, item.executionId, item.revision,
+    item.recoveryReference ? recoveryReferenceKey(item.recoveryReference) : null]);
+}
+
 export interface TimelinePosition {
   cursor: string;
   anchor: string;
@@ -161,7 +166,7 @@ export class ChatTimelineClient {
     return this.refreshConversation(conversationId, positions);
   }
 
-  private refreshConversation(conversationId: string, positions: ReadonlyMap<string, TimelinePosition>, discarded: ReadonlySet<TimelineItem> = new Set()): Promise<void> {
+  private refreshConversation(conversationId: string, positions: ReadonlyMap<string, TimelinePosition>, discarded: ReadonlySet<string> = new Set()): Promise<void> {
     this.assertActive();
     const conversation = this.conversations.get(conversationId);
     if (!conversation) return Promise.reject(new Error('Unknown timeline conversation'));
@@ -180,7 +185,7 @@ export class ChatTimelineClient {
     const recovery = Promise.resolve().then(async () => {
       // Reserve antes de Refresh: o snapshot pode retirar a revisão antiga do cache.
       for (const { epoch, item } of conversation.state.protectedItems()) {
-        if (discarded.has(item)) continue;
+        if (discarded.has(timelineVersionKey(epoch, item))) continue;
         const identity = recoveryItemIdentity(epoch, item);
         if (!identity) continue;
         const key = recoveryItemKey(identity);
@@ -222,7 +227,7 @@ export class ChatTimelineClient {
       if (failed?.status === 'rejected' || candidate.recoveryReason) {
         throw failed?.status === 'rejected' ? failed.reason : new Error(`Timeline recovery rejected: ${candidate.recoveryReason}`);
       }
-      const needed = () => conversation.state.protectedItemsLostBy(candidate).filter(({ item }) => !discarded.has(item)).map(({ epoch, item }) => {
+      const needed = () => conversation.state.protectedItemsLostBy(candidate).filter(({ epoch, item }) => !discarded.has(timelineVersionKey(epoch, item))).map(({ epoch, item }) => {
         const identity = recoveryItemIdentity(epoch, item);
         const key = identity && recoveryItemKey(identity);
         const owner = requests.find(({ slot }) => !slot.closed && key && slot.recoveryItems?.get(key)?.verified);
@@ -374,7 +379,7 @@ export class ChatTimelineClient {
     // Autoriza somente o descarte das versões presentes na confirmação.
     // Uma publicação nova durante os awaits mantém a proteção normal.
     const protectedAtClear = conversation.state.protectedItems();
-    const discarded = new Set(protectedAtClear.map(({ item }) => item));
+    const discarded = new Set(protectedAtClear.map(({ epoch, item }) => timelineVersionKey(epoch, item)));
     const discardedReservations = new Set(this.getRecoveredItems(conversationId).map(item => recoveryItemKey(item.identity)));
     for (const { epoch, item } of protectedAtClear) {
       const identity = recoveryItemIdentity(epoch, item);

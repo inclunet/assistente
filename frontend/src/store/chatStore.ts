@@ -149,7 +149,7 @@ interface ChatStore {
 }
 
 export const useChatStore = create<ChatStore>()((set, get) => {
-  const metadataLoads = new Map<string, symbol>();
+  const metadataLoads = new Map<string, Promise<void>>();
   const turnQueue = createConversationTurnQueue();
   const pipelineRevisions = new Map<string, number>();
   const draftRevisions = new Map<string, number>();
@@ -541,19 +541,23 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       return conv.id;
     },
 
-    loadConversationSession: async (id) => {
-      const token = Symbol(id);
-      metadataLoads.set(id, token);
-      try {
-        const snapshot = await loadConversationSnapshot(id);
-        if (metadataLoads.get(id) !== token) throw new ChatMessagingStaleError();
-        set(state => ({ ...patchSession(state, id, {
-          conversation: { id, ...snapshot },
-          isLoading: state.loadingConversationIds.has(id),
-        }), isInitialized: true }));
-      } finally {
-        if (metadataLoads.get(id) === token) metadataLoads.delete(id);
-      }
+    loadConversationSession: (id) => {
+      const pending = metadataLoads.get(id);
+      if (pending) return pending;
+      const loading = Promise.resolve().then(async () => {
+        try {
+          const snapshot = await loadConversationSnapshot(id);
+          if (metadataLoads.get(id) !== loading) throw new ChatMessagingStaleError();
+          set(state => ({ ...patchSession(state, id, {
+            conversation: { id, ...snapshot },
+            isLoading: state.loadingConversationIds.has(id),
+          }), isInitialized: true }));
+        } finally {
+          if (metadataLoads.get(id) === loading) metadataLoads.delete(id);
+        }
+      });
+      metadataLoads.set(id, loading);
+      return loading;
     },
 
     getConversationSession: (conversationId) => {
