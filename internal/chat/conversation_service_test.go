@@ -1,81 +1,65 @@
 package chat
 
 import (
+	"assistente/internal/database"
 	"testing"
 	"time"
-
-	"assistente/internal/database"
 )
 
-func TestBuildMessageTree_OrdersByCreatedAt(t *testing.T) {
-	now := time.Now()
-
-	// Create messages with IDs that would sort differently by string vs by time.
-	// msg2 has a lexicographically smaller ID but was created later.
-	msg1 := Message{
-		UUIDModel:      database.UUIDModel{ID: "01970a9e-ffff-7000-8000-000000000001", CreatedAt: now},
-		ConversationID: "conv-1",
-		Role:           "user",
-		Content:        "first",
-	}
-	msg2 := Message{
-		UUIDModel:      database.UUIDModel{ID: "01970a9e-0001-7000-8000-000000000002", CreatedAt: now.Add(time.Second)},
-		ConversationID: "conv-1",
-		Role:           "assistant",
-		Content:        "second",
-	}
-
-	tree := BuildMessageTree([]Message{msg2, msg1})
-
-	if len(tree) != 2 {
-		t.Fatalf("expected 2 root nodes, got %d", len(tree))
-	}
-	if tree[0].Message.ID != msg1.ID {
-		t.Errorf("first node should be msg1 (earlier CreatedAt), got ID %s", tree[0].Message.ID)
-	}
-	if tree[1].Message.ID != msg2.ID {
-		t.Errorf("second node should be msg2 (later CreatedAt), got ID %s", tree[1].Message.ID)
-	}
-}
-
-func TestBuildMessageTree_ChildrenOrderedByCreatedAt(t *testing.T) {
-	now := time.Now()
-	parentID := "01970a9e-0000-7000-8000-000000000001"
-
-	parent := Message{
-		UUIDModel:      database.UUIDModel{ID: parentID, CreatedAt: now},
-		ConversationID: "conv-1",
-		Role:           "user",
-		Content:        "parent",
-	}
-	// child2 has lexicographically smaller ID but later timestamp
-	child1 := Message{
-		UUIDModel:      database.UUIDModel{ID: "01970a9e-ffff-7000-8000-000000000010", CreatedAt: now.Add(time.Second)},
-		ConversationID: "conv-1",
-		ParentID:       &parentID,
-		Role:           "assistant",
-		Content:        "child1",
-	}
-	child2 := Message{
-		UUIDModel:      database.UUIDModel{ID: "01970a9e-0001-7000-8000-000000000020", CreatedAt: now.Add(2 * time.Second)},
-		ConversationID: "conv-1",
-		ParentID:       &parentID,
-		Role:           "assistant",
-		Content:        "child2",
-	}
-
-	tree := BuildMessageTree([]Message{child2, parent, child1})
-
-	if len(tree) != 1 {
-		t.Fatalf("expected 1 root node, got %d", len(tree))
-	}
-	if tree[0].ChildCount != 2 {
-		t.Fatalf("expected 2 children, got %d", tree[0].ChildCount)
-	}
-	if tree[0].Children[0].Message.ID != child1.ID {
-		t.Errorf("first child should be child1 (earlier CreatedAt), got %s", tree[0].Children[0].Message.ID)
-	}
-	if tree[0].Children[1].Message.ID != child2.ID {
-		t.Errorf("second child should be child2 (later CreatedAt), got %s", tree[0].Children[1].Message.ID)
+// A cronologia precisa ser provada na leitura usada pelo produto, não numa
+// árvore em memória sem consumidores. A mesma prova cobre raiz e thread.
+func TestCanonicalWindowOrdersRootAndThreadByCreatedAt(t *testing.T) {
+	for _, thread := range []bool{false, true} {
+		name := "root"
+		if thread {
+			name = "thread"
+		}
+		t.Run(name, func(t *testing.T) {
+			f := newSnapshotFixture(t)
+			conv, err := database.CreateConversationWithContext(f.ctx, "chronology", "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			var parentID *string
+			if thread {
+				parent, err := database.CreateMessageWithContext(f.ctx, database.MessageOptions{ConversationID: conv.ID, Role: "user", Content: "parent"})
+				if err != nil {
+					t.Fatal(err)
+				}
+				parentID = &parent.ID
+			}
+			base := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+			messages := []Message{
+				{UUIDModel: database.UUIDModel{ID: "zz-earlier", CreatedAt: base}, ConversationID: conv.ID, ParentID: parentID, Role: "assistant", Content: "first"},
+				{UUIDModel: database.UUIDModel{ID: "aa-later", CreatedAt: base.Add(time.Second)}, ConversationID: conv.ID, ParentID: parentID, Role: "assistant", Content: "second"},
+			}
+			for i := len(messages) - 1; i >= 0; i-- {
+				if err := f.db.Create(&messages[i]).Error; err != nil {
+					t.Fatal(err)
+				}
+			}
+			window, err := f.reader.ReadCanonicalWindow(f.ctx, database.MessageWindowQuery{ConversationID: conv.ID, ParentID: parentID, Anchor: "end", Direction: "before", Limit: 20})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(window.Items) != 2 {
+				t.Fatal(window.Items)
+			}
+			for i, want := range messages {
+				item := canonicalItem(window.Items[i])
+				if item.RepresentativeMessageID == nil || *item.RepresentativeMessageID != want.ID || !sameScope(item.ScopeParentID, parentID) {
+					t.Fatalf("ordem/escopo incorretos: %+v", item)
+				}
+			}
+			if thread {
+				root, err := f.reader.ReadCanonicalWindow(f.ctx, database.MessageWindowQuery{ConversationID: conv.ID, Anchor: "end", Direction: "before", Limit: 20})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if len(root.Items) != 1 || canonicalItem(root.Items[0]).Metadata.ChildCount != 2 {
+					t.Fatal("contagem de filhos perdida", root.Items)
+				}
+			}
+		})
 	}
 }

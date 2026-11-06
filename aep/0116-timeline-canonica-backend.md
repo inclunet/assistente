@@ -1,10 +1,69 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, mensagens, áudio, limpeza, exclusão e importação integrados; retenção por idade, órfãos, navegação, leitura leve e orçamento de fontes da janela com recuperação atômica e parcelada e participação histórica automática com publicação e replay atômicos integrados; followTail, retenção por foco/leitura, DTOs compartilhados, RPCs de inscrição, entrega pelo journal e transporte de eventos Wails integrados; núcleo transacional, coordenador e cliente Wails por sessão frontend e identidade de recuperação por execução, consulta autorizada de estado, leitura limitada, reserva explícita dos buffers finalizados, leitor de recuperação Wails, reserva do DTO canônico publicado e transferência de recuperação no Refresh integrados; DOM da lista unificado com retenção visual por foco; consumidor visual canônico e identidade dos segmentos integrados; reconstrução visual legada retirada do controlador operacional, incluindo invalidação na limpeza/reset e gates de persistência; consultas visuais antigas retiradas, CLI migrado e payload abaixo de 64 KiB validados localmente; CI/review remotos e desempenho global pendentes
+## Status: In Progress — histórico canônico integrado do backend à UI e CLI; APIs visuais antigas retiradas no PR #1024; retirada dos adaptadores internos em validação; anexos e gates finais de desempenho/memória pendentes
 
 Data: 2026-10-30
 
-### Recorte em validação: retirada das consultas visuais antigas (2026-11-06)
+### Recorte: retirada dos adaptadores sustentados por testes (2026-11-06)
+
+O PR #1024 foi mergeado com CI verde e sem threads abertas. Este recorte
+retira a cadeia interna que perdeu consumidores de produção após esse merge:
+`MessageNode`, `BuildMessageTree`, `BuildMessageNodes`,
+`BuildNodesWithTimelineConsolidation`, `BuildTimelineMessageNodes`,
+`ConsolidateTimelineTurn`, `CollectTurnIDsWithToolCalls` e seus auxiliares.
+Não mover essa implementação para arquivos de teste nem conservar APIs para
+sustentar fixtures. A busca de consumidores inclui todos os fontes versionados.
+
+Também sai `legacyRepresentative`: o fallback era calculado na projeção
+produtiva para satisfazer o visual antigo mesmo quando o representante explícito
+era nulo. A projeção preserva NULL e o conteúdo confirmado. O fallback histórico
+usado na ausência de um ChatTurn continua necessário e tem provas próprias.
+
+`TerminalPatch` permanece: `agent.Service` ainda o publica para integrações.
+Sua conversão agora vai diretamente de `ResponseSegment` para o DTO de evento,
+sem materializar `TurnSegment` ou `EnrichedMessage` intermediários. A função
+`EnrichMessage`, cujo único consumidor remanescente era esse adaptador, também sai. O contrato do evento é preservado.
+A leitura de janelas usa `CanonicalWindowSnapshotReader` de ponta a ponta;
+`WindowSnapshotReader` e `canonicalWindowAdapter` deixam de existir. Guards de
+autorização, incarnation, lifecycle e retenção continuam no mesmo percurso.
+
+Critério de retirada de testes: eliminar somente provas da adaptação removida
+ou consolidá-las no contrato vigente; não retirar regressões para resolver falhas.
+Mapa de cobertura:
+
+- Cronologia de raiz/thread e contagem de filhos: a antiga árvore em memória é
+  substituída por `TestCanonicalWindowOrdersRootAndThreadByCreatedAt`, com SQLite
+  real e leitura canônica. A ordem de inserção e a ordem lexical dos IDs divergem
+  da cronologia esperada.
+- Ledger leve, metadados, rodadas silenciosas, calls paralelas, MCP e heurística
+  histórica: `TestHistoricalResponse*` exerce `ProjectPersistedResponse`, sem
+  converter sua saída para o formato removido. O raciocínio é verificado como
+  segmento próprio; a prova de payload serializa o DTO canônico.
+- Troca de representante e IDs opacos: `TestCanonicalIdentitySurvivesRepresentativeChange`
+  e `TestCanonicalWindowPreservesOpaqueIDsAndIndependentMessages`. As provas do
+  placeholder persistido e do terminal do agente também usam a projeção vigente.
+- Segmento simples e representante nulo: provas existentes de
+  `TestPersistedResponseSimpleSegmentsAndInvocationIdentity` e
+  `TestPersistedResponseNullIsNotLegacyOrCompleted`. Saem as expectativas de
+  ausência de segmentos e de representante artificial do adaptador extinto.
+- Índices/paginação: continuam nas provas canônicas de `timeline_membership_test.go`,
+  `timeline_order_test.go` e `preparing_window_test.go`; não conservar OriginalIndex
+  num nó de apresentação sem consumidores. A deduplicação do coletor extinto não
+  representa um contrato de produto e sua prova sai junto do coletor.
+
+Validação local: build e vet Go passaram; 480 testes seguros de chat e 146 do
+agente passaram. Após a retirada final de EnrichedMessage e a simplificação da
+declaração do reader, 79 testes focados passaram. TypeScript, ESLint e 7.034 testes
+Vitest passaram; Stylelint sem erros, com avisos preexistentes. Lint incremental
+sem achados; lint completo local 2.15 mantém 12 ocorrências em arquivos idênticos
+à base (CI usa 2.11.4). Revisão independente `review_retire_adapters`: duas
+rodadas; corrigida a expectativa herdada que omitiria reasoning, segunda rodada
+sem pendências. CI e review remota são os gates de publicação restantes.
+Testes ACP e NVDA não executados localmente, conforme orientação do mantenedor. Sem mudança visível de produto,
+sem mudança de workflow e sem ampliar orçamentos. Os gates globais de desempenho,
+heap real da WebView e anexos permanecem abertos; esta limpeza não os conclui.
+
+### Recorte concluído no PR #1024: retirada das consultas visuais antigas (2026-11-06)
 
 Retirados os bindings/controller `GetMessages`, `GetRecentMessages`,
 `GetMessagesBefore`, `GetConversationMessageWindow`, `GetConversationWithThreads`

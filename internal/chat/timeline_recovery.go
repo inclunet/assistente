@@ -322,17 +322,8 @@ func reconcileProjectedValidity(c *projectionConversation, t *liveTurn, compatib
 type CanonicalWindowSnapshotReader interface {
 	ReadCanonicalWindow(context.Context, database.MessageWindowQuery) (*TimelineWindowSnapshot, error)
 }
-type canonicalWindowAdapter struct{ reader CanonicalWindowSnapshotReader }
-
-func (a canonicalWindowAdapter) ReadWindow(ctx context.Context, q database.MessageWindowQuery) (*TimelineWindowSnapshot, error) {
-	return a.reader.ReadCanonicalWindow(ctx, q)
-}
 
 func (p *LiveProjection) ReadCanonicalWindow(ctx context.Context, query database.MessageWindowQuery, reader CanonicalWindowSnapshotReader) (*TimelineWindowSnapshot, error) {
-	return p.readWindow(ctx, query, canonicalWindowAdapter{reader})
-}
-
-func (p *LiveProjection) readWindow(ctx context.Context, query database.MessageWindowQuery, reader WindowSnapshotReader) (*TimelineWindowSnapshot, error) {
 	userID, err := database.RequireUserID(ctx)
 	if err != nil {
 		return nil, err
@@ -342,9 +333,9 @@ func (p *LiveProjection) readWindow(ctx context.Context, query database.MessageW
 	return p.readWindowLocked(ctx, query, reader, c)
 }
 
-func (p *LiveProjection) readWindowLocked(ctx context.Context, query database.MessageWindowQuery, reader WindowSnapshotReader, c *projectionConversation) (_ *TimelineWindowSnapshot, err error) {
+func (p *LiveProjection) readWindowLocked(ctx context.Context, query database.MessageWindowQuery, reader CanonicalWindowSnapshotReader, c *projectionConversation) (_ *TimelineWindowSnapshot, err error) {
 
-	snapshot, err := reader.ReadWindow(ctx, query)
+	snapshot, err := reader.ReadCanonicalWindow(ctx, query)
 	if err != nil {
 		return nil, err
 	}

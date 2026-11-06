@@ -137,7 +137,7 @@ func (b *projectionBudget) visit(v reflect.Value) bool {
 
 func (b *projectionBudget) item(source *TimelineItem) bool {
 	base := *source
-	base.messages, base.legacyRepresentative = nil, nil
+	base.messages = nil
 	if source.Representative != nil {
 		message := publicationSourceMessage(*source.Representative)
 		base.Representative = &message

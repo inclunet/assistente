@@ -338,9 +338,9 @@ func TestAssistantPlaceholderPreservesOpaqueTurnIdentity(t *testing.T) {
 		if message.TurnID == nil || *message.TurnID != turnID {
 			t.Fatalf("turno persistido foi alterado: %+v", message)
 		}
-		nodes := BuildNodesWithTimelineConsolidation([]Message{message}, nil, map[string]int{}, nil)
-		if len(nodes) != 1 || nodes[0].ItemID != ports.ResponseItemID(turnID) {
-			t.Fatalf("identidade persistida diverge do evento: %+v", nodes)
+		item, err := ProjectPersistedResponse(conversationID, turnID, nil, []Message{message}, nil, nil)
+		if err != nil || item.ItemID != ports.ResponseItemID(turnID) {
+			t.Fatalf("identidade persistida diverge do evento: %+v, %v", item, err)
 		}
 	}
 }

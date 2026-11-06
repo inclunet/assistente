@@ -144,12 +144,12 @@ func TestSaveAndFinish_DoneEvent_CarregaPatchAutoritativo(t *testing.T) {
 	if done.Reason != "output_limit" || done.TurnPatch == nil {
 		t.Fatalf("esperava output_limit com patch, recebeu %+v", done)
 	}
-	window := chat.BuildTimelineMessageNodes([]database.MessageWindowItem{{
-		Kind: database.MessageWindowItemKindTurn, TurnID: turnID,
-	}}, repo.turnMessages, nil, nil, nil)
-	if len(window) != 1 || window[0].ItemID != "turn:turn-1" ||
-		done.ItemID != window[0].ItemID || done.TurnPatch.ItemID != window[0].ItemID {
-		t.Fatalf("identidade divergiu entre terminal e janela: done=%+v window=%+v", done, window)
+	response, err := chat.ProjectPersistedResponse("conv-1", turnID, nil, repo.turnMessages, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.ItemID != "turn:turn-1" || done.ItemID != response.ItemID || done.TurnPatch.ItemID != response.ItemID {
+		t.Fatalf("identidade divergiu entre terminal e projeção: done=%+v response=%+v", done, response)
 	}
 	if done.FinishReason != "max_tokens" || done.RawReason != "length" ||
 		done.Provider != "provider-1" || done.Model != "modelo-real" ||

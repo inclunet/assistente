@@ -7,8 +7,8 @@ import (
 	"assistente/internal/database"
 )
 
-// TimelinePosition conserva a chave SQLite sem codificar um cursor que o
-// adaptador antigo não utiliza. A codificação opaca pertence à borda wire.
+// TimelinePosition conserva a chave de ordenação SQLite. A codificação opaca
+// dos cursores pertence à borda wire.
 type TimelinePosition struct {
 	AnchorCreatedAt string
 	AnchorID        string

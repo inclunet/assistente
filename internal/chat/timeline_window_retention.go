@@ -165,7 +165,7 @@ type retainedWindowReader struct {
 	window       *subscribedWindow
 }
 
-func (r retainedWindowReader) ReadWindow(ctx context.Context, query database.MessageWindowQuery) (*TimelineWindowSnapshot, error) {
+func (r retainedWindowReader) ReadCanonicalWindow(ctx context.Context, query database.MessageWindowQuery) (*TimelineWindowSnapshot, error) {
 	w := r.window
 	version, err := r.subscription.owner.reader.ReadVersion(ctx, query.ConversationID)
 	if err != nil {
@@ -229,12 +229,12 @@ func containsRetained(ids, retained []string) bool {
 // Recusa uma prova que mudou entre a autorização de recuperação e o snapshot,
 // antes de o projetor reconciliar lifecycle ou publicar qualquer conteúdo.
 type incarnationWindowReader struct {
-	reader      WindowSnapshotReader
+	reader      CanonicalWindowSnapshotReader
 	incarnation string
 }
 
-func (r incarnationWindowReader) ReadWindow(ctx context.Context, query database.MessageWindowQuery) (*TimelineWindowSnapshot, error) {
-	snapshot, err := r.reader.ReadWindow(ctx, query)
+func (r incarnationWindowReader) ReadCanonicalWindow(ctx context.Context, query database.MessageWindowQuery) (*TimelineWindowSnapshot, error) {
+	snapshot, err := r.reader.ReadCanonicalWindow(ctx, query)
 	if err != nil {
 		return nil, err
 	}

@@ -2,6 +2,7 @@ package chat
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -31,66 +32,55 @@ func canonicalTurnFixture() (string, []database.ChatMessage, []TurnSegmentToolCa
 	return turnID, messages, calls
 }
 
-func TestConsolidateTimelineTurnUsaSomenteLedgerCanonico(t *testing.T) {
+func TestHistoricalResponseUsaSomenteLedgerCanonico(t *testing.T) {
 	_, messages, calls := canonicalTurnFixture()
-	result := ConsolidateTimelineTurn(messages, calls)
-	if result.Message.ID != "assistant-2" || result.Message.Content != "resposta final" {
-		t.Fatalf("representante incorreto: %+v", result.Message)
+	result := historicalResponse(t, messages, calls)
+	if result.Representative.ID != "assistant-2" || result.Representative.Content != "resposta final" {
+		t.Fatalf("representante incorreto: %+v", result.Representative)
 	}
 	if len(result.Segments) != 3 {
 		t.Fatalf("esperava texto/tool/texto: %+v", result.Segments)
 	}
-	tool := result.Segments[1].ToolCalls[0]
+	tool := result.Segments[1].Invocations[0]
 	if tool.InvocationID != "inv-1" || tool.Name != "read_file" || !tool.HasDetails || !tool.HasSearchResults || tool.SearchResultCount != 2 || tool.SecurityOutcome != "approved" {
 		t.Fatalf("resumo canônico incorreto: %+v", tool)
 	}
 }
 
-func TestConsolidateTimelineTurnNaoSerializaMetadadoInterno(t *testing.T) {
+func TestHistoricalResponseNaoSerializaMetadadoInterno(t *testing.T) {
 	_, messages, calls := canonicalTurnFixture()
-	payload, err := json.Marshal(ConsolidateTimelineTurn(messages, calls).Segments)
+	payload, err := json.Marshal(canonicalItem(historicalResponse(t, messages, calls)).Segments)
 	if err != nil {
 		t.Fatal(err)
 	}
 	text := string(payload)
-	if containsAny(text, "assistant-1", "arguments", "result\":") {
+	if strings.Contains(text, "assistantMessageId") || strings.Contains(text, "arguments") || strings.Contains(text, "result\":") {
 		t.Fatalf("timeline expôs payload ou metadado interno: %s", text)
 	}
 }
 
-func containsAny(value string, candidates ...string) bool {
-	for _, candidate := range candidates {
-		for index := 0; index+len(candidate) <= len(value); index++ {
-			if value[index:index+len(candidate)] == candidate {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func TestConsolidateTimelineTurnAgrupaInvocacoesSemAssistantPorIteracao(t *testing.T) {
+func TestHistoricalResponseAgrupaInvocacoesSemAssistantPorIteracao(t *testing.T) {
 	_, messages, _ := canonicalTurnFixture()
 	calls := []TurnSegmentToolCall{
 		{InvocationID: "inv-2", ID: "b", Name: "segunda", Iteration: 2},
 		{InvocationID: "inv-1", ID: "a", Name: "primeira", Iteration: 1},
 	}
-	result := ConsolidateTimelineTurn(messages, calls)
+	result := historicalResponse(t, messages, calls)
 	if len(result.Segments) != 4 {
 		t.Fatalf("segmentos por iteração ausentes: %+v", result.Segments)
 	}
-	if result.Segments[1].ToolCalls[0].ID != "a" || result.Segments[2].ToolCalls[0].ID != "b" {
+	if result.Segments[1].Invocations[0].ID != "a" || result.Segments[2].Invocations[0].ID != "b" {
 		t.Fatalf("ordem de iteração incorreta: %+v", result.Segments)
 	}
 }
 
-func TestConsolidateTimelineTurnNormalizaResumoIncompleto(t *testing.T) {
+func TestHistoricalResponseNormalizaResumoIncompleto(t *testing.T) {
 	_, messages, _ := canonicalTurnFixture()
-	result := ConsolidateTimelineTurn(messages, []TurnSegmentToolCall{{ID: "call-1"}})
+	result := historicalResponse(t, messages, []TurnSegmentToolCall{{ID: "call-1"}})
 	var call TurnSegmentToolCall
 	for _, segment := range result.Segments {
-		if segment.Type == "tool_calls" && len(segment.ToolCalls) == 1 {
-			call = segment.ToolCalls[0]
+		if segment.Kind == "tool_invocations" && len(segment.Invocations) == 1 {
+			call = segment.Invocations[0]
 			break
 		}
 	}
@@ -99,109 +89,7 @@ func TestConsolidateTimelineTurnNormalizaResumoIncompleto(t *testing.T) {
 	}
 }
 
-func TestConsolidateTimelineTurnTrivialNaoCriaSegmentos(t *testing.T) {
-	message := database.ChatMessage{UUIDModel: database.UUIDModel{ID: "assistant"}, Role: "assistant", Content: "ok"}
-	result := ConsolidateTimelineTurn([]database.ChatMessage{message}, nil)
-	if len(result.Segments) != 0 || result.Message.ID != "assistant" {
-		t.Fatalf("turno trivial alterado: %+v", result)
-	}
-}
-
-func TestMessageTimelineItemKeyMantemUsuarioSeparado(t *testing.T) {
-	turnID := "turn-1"
-	user := database.ChatMessage{UUIDModel: database.UUIDModel{ID: "user-1"}, TurnID: &turnID, Role: "user"}
-	assistant := database.ChatMessage{UUIDModel: database.UUIDModel{ID: "assistant-1"}, TurnID: &turnID, Role: "assistant"}
-	if MessageTimelineItemKey(user) != "message:user-1" {
-		t.Fatalf("usuário não permaneceu separado")
-	}
-	if MessageTimelineItemKey(assistant) != "turn:turn-1" {
-		t.Fatalf("assistant não foi agrupado")
-	}
-}
-
-func TestBuildNodesWithTimelineConsolidationAnexaSegmentos(t *testing.T) {
-	turnID, messages, calls := canonicalTurnFixture()
-	nodes := BuildNodesWithTimelineConsolidation(messages, nil, map[string]int{}, map[string][]TurnSegmentToolCall{turnID: calls})
-	if len(nodes) != 1 || len(nodes[0].Message.TurnSegments) != 3 {
-		t.Fatalf("nó consolidado incorreto: %+v", nodes)
-	}
-}
-
-func TestBuildTimelineMessageNodesPreservaIndiceOriginal(t *testing.T) {
-	turnID, messages, calls := canonicalTurnFixture()
-	items := []database.MessageWindowItem{{
-		Kind:          database.MessageWindowItemKindTurn,
-		TurnID:        turnID,
-		MessageID:     "assistant-1",
-		OriginalIndex: 7,
-	}}
-	nodes := BuildTimelineMessageNodes(items, messages, nil, map[string]int{}, map[string][]TurnSegmentToolCall{turnID: calls})
-	if len(nodes) != 1 || nodes[0].OriginalIndex == nil || *nodes[0].OriginalIndex != 7 {
-		t.Fatalf("índice original perdido: %+v", nodes)
-	}
-}
-
-func TestCollectTurnIDsWithToolCallsDeduplicaTurnosConversacionais(t *testing.T) {
-	turnID, messages, _ := canonicalTurnFixture()
-	ids := CollectTurnIDsWithToolCalls(messages)
-	if len(ids) != 1 || ids[0] != turnID {
-		t.Fatalf("turn IDs inesperados: %v", ids)
-	}
-}
-
-func TestTimelineItemIdentitySurvivesRepresentativeChange(t *testing.T) {
-	turnID, messages, calls := canonicalTurnFixture()
-	before := BuildNodesWithTimelineConsolidation(messages[:1], nil, nil, nil)
-	after := BuildNodesWithTimelineConsolidation(messages, nil, nil, map[string][]TurnSegmentToolCall{turnID: calls})
-	if len(before) != 1 || len(after) != 1 {
-		t.Fatalf("esperava um item por turno: before=%+v after=%+v", before, after)
-	}
-	if before[0].Message.ID == after[0].Message.ID {
-		t.Fatal("fixture precisa trocar a mensagem representante")
-	}
-	if before[0].ItemID != "turn:"+turnID || after[0].ItemID != before[0].ItemID {
-		t.Fatalf("troca de representante mudou identidade: before=%+v after=%+v", before, after)
-	}
-}
-
-func TestTimelineItemIdentityKeepsLegacyAndUserIndependent(t *testing.T) {
-	turnID := "question"
-	messages := []Message{
-		{UUIDModel: database.UUIDModel{ID: "question"}, Role: "user", TurnID: &turnID},
-		{UUIDModel: database.UUIDModel{ID: "legacy"}, Role: "assistant"},
-	}
-	nodes := BuildNodesWithTimelineConsolidation(messages, nil, nil, nil)
-	if len(nodes) != 2 || nodes[0].ItemID != "message:question" || nodes[1].ItemID != "message:legacy" {
-		t.Fatalf("mensagem independente promovida indevidamente a turno: %+v", nodes)
-	}
-}
-
-func TestTimelineItemIdentityPreservesOpaqueTurnIDs(t *testing.T) {
-	plain, spaced := "question", " question "
-	messages := []Message{
-		{UUIDModel: database.UUIDModel{ID: "a"}, Role: "assistant", TurnID: &plain, Content: "primeira"},
-		{UUIDModel: database.UUIDModel{ID: "b"}, Role: "assistant", TurnID: &spaced, Content: "segunda"},
-	}
-	items := []database.MessageWindowItem{
-		{Kind: database.MessageWindowItemKindTurn, TurnID: plain},
-		{Kind: database.MessageWindowItemKindTurn, TurnID: spaced},
-	}
-	for _, nodes := range [][]MessageNode{
-		BuildNodesWithTimelineConsolidation(messages, nil, nil, nil),
-		BuildTimelineMessageNodes(items, messages, nil, nil, nil),
-	} {
-		if len(nodes) != 2 || nodes[0].ItemID != "turn:question" || nodes[1].ItemID != "turn: question " ||
-			nodes[0].Message.Content != "primeira" || nodes[1].Message.Content != "segunda" {
-			t.Fatalf("IDs opacos foram normalizados ou agrupados: %+v", nodes)
-		}
-	}
-	ids := CollectTurnIDsWithToolCalls(messages)
-	if len(ids) != 2 || ids[0] != plain || ids[1] != spaced {
-		t.Fatalf("hidratação deve consultar IDs exatos: %q", ids)
-	}
-}
-
-func TestConsolidateTimelineTurnFinalPreCriadoSemUsageUsaAtualizacaoTerminal(t *testing.T) {
+func TestHistoricalResponseFinalPreCriadoSemUsageUsaAtualizacaoTerminal(t *testing.T) {
 	turnID := "turn-updated-final"
 	base := time.Date(2026, 9, 17, 12, 0, 0, 0, time.UTC)
 	final := database.ChatMessage{
@@ -226,25 +114,26 @@ func TestConsolidateTimelineTurnFinalPreCriadoSemUsageUsaAtualizacaoTerminal(t *
 		Role:           "assistant",
 		Content:        "vou consultar",
 	}
-	result := ConsolidateTimelineTurn([]database.ChatMessage{final, intermediate}, []TurnSegmentToolCall{
+	result := historicalResponse(t, []database.ChatMessage{final, intermediate}, []TurnSegmentToolCall{
 		{ID: "call-0", Name: "search", Iteration: 0, AssistantMessageID: intermediate.ID},
 		{ID: "call-1", Name: "fetch", Iteration: 1},
 	})
 
-	if result.Message.ID != final.ID || result.Message.Content != final.Content || result.Message.TotalTokens != 0 ||
-		result.Message.Reasoning != final.Reasoning || result.Message.CacheReadTokens != final.CacheReadTokens ||
-		result.Message.CacheWriteTokens != final.CacheWriteTokens || result.Message.CacheMissTokens != final.CacheMissTokens ||
-		result.Message.Model != final.Model {
-		t.Fatalf("representante final/metadados alterados: got=%+v want=%+v", result.Message, final)
+	if result.Representative.ID != final.ID || result.Representative.Content != final.Content || result.Representative.TotalTokens != 0 ||
+		result.Representative.Reasoning != final.Reasoning || result.Representative.CacheReadTokens != final.CacheReadTokens ||
+		result.Representative.CacheWriteTokens != final.CacheWriteTokens || result.Representative.CacheMissTokens != final.CacheMissTokens ||
+		result.Representative.Model != final.Model {
+		t.Fatalf("representante final/metadados alterados: got=%+v want=%+v", result.Representative, final)
 	}
-	if len(result.Segments) != 4 || result.Segments[0].Content != "vou consultar" ||
-		result.Segments[1].ToolCalls[0].ID != "call-0" || result.Segments[2].ToolCalls[0].ID != "call-1" ||
-		result.Segments[3].Content != "resposta final" {
+	if len(result.Segments) != 5 || result.Segments[0].Text != "vou consultar" ||
+		result.Segments[1].Invocations[0].ID != "call-0" || result.Segments[2].Invocations[0].ID != "call-1" ||
+		result.Segments[3].Kind != "reasoning" || result.Segments[3].Text != final.Reasoning ||
+		result.Segments[4].Text != "resposta final" {
 		t.Fatalf("cronologia do final sem usage incorreta: %+v", result.Segments)
 	}
 }
 
-func TestConsolidateTimelineTurnUsageNaoVenceEscritaFinalMaisRecente(t *testing.T) {
+func TestHistoricalResponseUsageNaoVenceEscritaFinalMaisRecente(t *testing.T) {
 	base := time.Date(2026, 9, 17, 12, 0, 0, 0, time.UTC)
 	final := Message{
 		UUIDModel: database.UUIDModel{ID: "final", CreatedAt: base, UpdatedAt: base.Add(10 * time.Second)},
@@ -254,14 +143,14 @@ func TestConsolidateTimelineTurnUsageNaoVenceEscritaFinalMaisRecente(t *testing.
 		UUIDModel: database.UUIDModel{ID: "antigo", CreatedAt: base.Add(time.Second), UpdatedAt: base.Add(2 * time.Second)},
 		Role:      "assistant", Content: "texto anterior", TotalTokens: 42,
 	}
-	result := ConsolidateTimelineTurn([]Message{final, older}, nil)
-	if result.Message.ID != final.ID || result.Message.TotalTokens != 0 ||
-		len(result.Segments) != 2 || result.Segments[0].Content != older.Content || result.Segments[1].Content != final.Content {
+	result := historicalResponse(t, []Message{final, older}, nil)
+	if result.Representative.ID != final.ID || result.Representative.TotalTokens != 0 ||
+		len(result.Segments) != 2 || result.Segments[0].Text != older.Content || result.Segments[1].Text != final.Content {
 		t.Fatalf("usage antiga substituiu a conclusão: %+v", result)
 	}
 }
 
-func TestConsolidateTimelineTurnAgrupaIteracoesSilenciosasNumericamenteZeroBased(t *testing.T) {
+func TestHistoricalResponseAgrupaIteracoesSilenciosasNumericamenteZeroBased(t *testing.T) {
 	turnID := "turn-silent"
 	base := time.Date(2026, 9, 17, 13, 0, 0, 0, time.UTC)
 	final := database.ChatMessage{
@@ -276,21 +165,21 @@ func TestConsolidateTimelineTurnAgrupaIteracoesSilenciosasNumericamenteZeroBased
 		{ID: "opaque-1", Name: "r1", Iteration: 1},
 		{ID: "opaque-0", Name: "r0", Iteration: 0},
 	}
-	result := ConsolidateTimelineTurn([]database.ChatMessage{final}, calls)
+	result := historicalResponse(t, []database.ChatMessage{final}, calls)
 	if len(result.Segments) != 5 {
 		t.Fatalf("esperava quatro rodadas silenciosas e texto final: %+v", result.Segments)
 	}
 	for index, want := range []string{"opaque-0", "opaque-1", "opaque-2", "opaque-10"} {
-		if got := result.Segments[index].ToolCalls[0].ID; got != want {
+		if got := result.Segments[index].Invocations[0].ID; got != want {
 			t.Fatalf("ordem numérica zero-based incorreta no segmento %d: got=%q want=%q; segments=%+v", index, got, want, result.Segments)
 		}
 	}
-	if result.Segments[4].Type != "text" || result.Segments[4].Content != "final" {
+	if result.Segments[4].Kind != "text" || result.Segments[4].Text != "final" {
 		t.Fatalf("texto final não ficou após rodadas silenciosas: %+v", result.Segments)
 	}
 }
 
-func TestConsolidateTimelineTurnIntercalaMCPDoMesmoAnchorPorIteracao(t *testing.T) {
+func TestHistoricalResponseIntercalaMCPDoMesmoAnchorPorIteracao(t *testing.T) {
 	turnID := "turn-mcp"
 	base := time.Date(2026, 9, 17, 14, 0, 0, 0, time.UTC)
 	final := database.ChatMessage{
@@ -311,7 +200,7 @@ func TestConsolidateTimelineTurnIntercalaMCPDoMesmoAnchorPorIteracao(t *testing.
 		Role:      "assistant",
 		Content:   "segunda rodada",
 	}
-	result := ConsolidateTimelineTurn([]database.ChatMessage{second, final, first}, []TurnSegmentToolCall{
+	result := historicalResponse(t, []database.ChatMessage{second, final, first}, []TurnSegmentToolCall{
 		{ID: "native-0", Name: "mcp_zero", Origin: "mcp_native", Iteration: 0, AssistantMessageID: final.ID},
 		{ID: "local-0", Name: "local_zero", Iteration: 0, AssistantMessageID: first.ID},
 		{ID: "native-1", Name: "mcp_one", Origin: "mcp_native", Iteration: 1, AssistantMessageID: final.ID},
@@ -320,8 +209,8 @@ func TestConsolidateTimelineTurnIntercalaMCPDoMesmoAnchorPorIteracao(t *testing.
 
 	var callIDs []string
 	for _, segment := range result.Segments {
-		if segment.Type == "tool_calls" {
-			for _, call := range segment.ToolCalls {
+		if segment.Kind == "tool_invocations" {
+			for _, call := range segment.Invocations {
 				callIDs = append(callIDs, call.ID)
 			}
 		}
@@ -335,12 +224,12 @@ func TestConsolidateTimelineTurnIntercalaMCPDoMesmoAnchorPorIteracao(t *testing.
 			t.Fatalf("ordem de blocos por iteração incorreta: got=%v want=%v", callIDs, wantIDs)
 		}
 	}
-	if result.Segments[len(result.Segments)-1].Type != "text" || result.Segments[len(result.Segments)-1].Content != final.Content {
+	if result.Segments[len(result.Segments)-1].Kind != "text" || result.Segments[len(result.Segments)-1].Text != final.Content {
 		t.Fatalf("texto final não ficou depois do MCP ligado à âncora: %+v", result.Segments)
 	}
 }
 
-func TestConsolidateTimelineTurnPreservaOrdemDeCallsParalelasComIDsOpacos(t *testing.T) {
+func TestHistoricalResponsePreservaOrdemDeCallsParalelasComIDsOpacos(t *testing.T) {
 	turnID := "turn-parallel"
 	base := time.Date(2026, 9, 17, 15, 0, 0, 0, time.UTC)
 	final := database.ChatMessage{
@@ -349,19 +238,19 @@ func TestConsolidateTimelineTurnPreservaOrdemDeCallsParalelasComIDsOpacos(t *tes
 		Role:      "assistant",
 		Content:   "final",
 	}
-	result := ConsolidateTimelineTurn([]database.ChatMessage{final}, []TurnSegmentToolCall{
+	result := historicalResponse(t, []database.ChatMessage{final}, []TurnSegmentToolCall{
 		{ID: "z-call", Name: "primeira", Iteration: 0},
 		{ID: "a-call", Name: "segunda", Iteration: 0},
 	})
-	if len(result.Segments) != 2 || len(result.Segments[0].ToolCalls) != 2 {
+	if len(result.Segments) != 2 || len(result.Segments[0].Invocations) != 2 {
 		t.Fatalf("esperava um grupo paralelo antes do final: %+v", result.Segments)
 	}
-	if got := []string{result.Segments[0].ToolCalls[0].ID, result.Segments[0].ToolCalls[1].ID}; got[0] != "z-call" || got[1] != "a-call" {
+	if got := []string{result.Segments[0].Invocations[0].ID, result.Segments[0].Invocations[1].ID}; got[0] != "z-call" || got[1] != "a-call" {
 		t.Fatalf("ordem de entrada das calls paralelas foi alterada: %v", got)
 	}
 }
 
-func TestConsolidateTimelineTurnFallbackLegadoEscolheFinalCriadoPorUltimo(t *testing.T) {
+func TestHistoricalResponseFallbackLegadoEscolheFinalCriadoPorUltimo(t *testing.T) {
 	turnID := "turn-legacy-final"
 	base := time.Date(2026, 9, 17, 16, 0, 0, 0, time.UTC)
 	intermediate := database.ChatMessage{
@@ -376,16 +265,16 @@ func TestConsolidateTimelineTurnFallbackLegadoEscolheFinalCriadoPorUltimo(t *tes
 		Role:      "assistant",
 		Content:   "texto final",
 	}
-	result := ConsolidateTimelineTurn([]database.ChatMessage{final, intermediate}, []TurnSegmentToolCall{{
+	result := historicalResponse(t, []database.ChatMessage{final, intermediate}, []TurnSegmentToolCall{{
 		ID: "legacy-call", Name: "search", Iteration: 0, AssistantMessageID: intermediate.ID,
 	}})
-	if result.Message.ID != final.ID || len(result.Segments) != 3 ||
-		result.Segments[0].Content != intermediate.Content || result.Segments[2].Content != final.Content {
-		t.Fatalf("fallback legado não preservou final criado por último: message=%+v segments=%+v", result.Message, result.Segments)
+	if result.Representative.ID != final.ID || len(result.Segments) != 3 ||
+		result.Segments[0].Text != intermediate.Content || result.Segments[2].Text != final.Content {
+		t.Fatalf("fallback legado não preservou final criado por último: message=%+v segments=%+v", result.Representative, result.Segments)
 	}
 }
 
-func TestConsolidateTimelineTurnNaoPromoveIntermediarioComEdicaoTardia(t *testing.T) {
+func TestHistoricalResponseNaoPromoveIntermediarioComEdicaoTardia(t *testing.T) {
 	turnID := "turn-late-edit"
 	base := time.Date(2026, 9, 17, 17, 0, 0, 0, time.UTC)
 	final := database.ChatMessage{
@@ -401,24 +290,24 @@ func TestConsolidateTimelineTurnNaoPromoveIntermediarioComEdicaoTardia(t *testin
 		Role:      "assistant",
 		Content:   "texto intermediário editado depois",
 	}
-	result := ConsolidateTimelineTurn([]database.ChatMessage{intermediate, final}, []TurnSegmentToolCall{{
+	result := historicalResponse(t, []database.ChatMessage{intermediate, final}, []TurnSegmentToolCall{{
 		ID:                 "local-call",
 		Name:               "search",
 		Iteration:          0,
 		AssistantMessageID: intermediate.ID,
 	}})
 
-	if result.Message.ID != final.ID || result.Message.Content != final.Content || result.Message.Model != final.Model {
-		t.Fatalf("edição tardia promoveu intermediário ao representante: message=%+v", result.Message)
+	if result.Representative.ID != final.ID || result.Representative.Content != final.Content || result.Representative.Model != final.Model {
+		t.Fatalf("edição tardia promoveu intermediário ao representante: message=%+v", result.Representative)
 	}
-	if len(result.Segments) != 3 || result.Segments[0].Content != intermediate.Content ||
-		result.Segments[1].Type != "tool_calls" || result.Segments[1].ToolCalls[0].ID != "local-call" ||
-		result.Segments[2].Content != final.Content {
+	if len(result.Segments) != 3 || result.Segments[0].Text != intermediate.Content ||
+		result.Segments[1].Kind != "tool_invocations" || result.Segments[1].Invocations[0].ID != "local-call" ||
+		result.Segments[2].Text != final.Content {
 		t.Fatalf("segmentos após edição tardia incorretos: %+v", result.Segments)
 	}
 }
 
-func TestConsolidateTimelineTurnSemAssistantFinalMantemTextoAntesDasTools(t *testing.T) {
+func TestHistoricalResponseSemAssistantFinalMantemTextoAntesDasTools(t *testing.T) {
 	turnID := "turn-no-final-assistant"
 	message := database.ChatMessage{
 		UUIDModel: database.UUIDModel{
@@ -429,18 +318,88 @@ func TestConsolidateTimelineTurnSemAssistantFinalMantemTextoAntesDasTools(t *tes
 		Role:    "assistant",
 		Content: "texto intermediário",
 	}
-	result := ConsolidateTimelineTurn([]database.ChatMessage{message}, []TurnSegmentToolCall{{
+	result := historicalResponse(t, []database.ChatMessage{message}, []TurnSegmentToolCall{{
 		ID:                 "tool-after-text",
 		Name:               "fetch",
 		Iteration:          0,
 		AssistantMessageID: message.ID,
 	}})
 
-	if result.Message.ID != message.ID || len(result.Segments) != 2 {
-		t.Fatalf("representante ou quantidade de segmentos incorretos: message=%+v segments=%+v", result.Message, result.Segments)
+	if result.Representative.ID != message.ID || len(result.Segments) != 2 {
+		t.Fatalf("representante ou quantidade de segmentos incorretos: message=%+v segments=%+v", result.Representative, result.Segments)
 	}
-	if result.Segments[0].Type != "text" || result.Segments[0].Content != message.Content ||
-		result.Segments[1].Type != "tool_calls" || result.Segments[1].ToolCalls[0].ID != "tool-after-text" {
+	if result.Segments[0].Kind != "text" || result.Segments[0].Text != message.Content ||
+		result.Segments[1].Kind != "tool_invocations" || result.Segments[1].Invocations[0].ID != "tool-after-text" {
 		t.Fatalf("texto foi promovido para depois das tools: %+v", result.Segments)
+	}
+}
+
+// Completa apenas identidades de fixtures históricas; não adapta a saída canônica.
+func historicalResponse(t *testing.T, messages []Message, calls []TurnSegmentToolCall) *TimelineItem {
+	t.Helper()
+	turnID := "fixture-turn"
+	if len(messages) > 0 && messages[0].TurnID != nil {
+		turnID = *messages[0].TurnID
+	}
+	rows := append([]Message(nil), messages...)
+	for i := range rows {
+		rows[i].ConversationID = "conv-1"
+		rows[i].TurnID = &turnID
+	}
+	tools := append([]TurnSegmentToolCall(nil), calls...)
+	for i := range tools {
+		if tools[i].InvocationID == "" {
+			tools[i].InvocationID = "inv-" + tools[i].ID
+		}
+	}
+	item, err := ProjectPersistedResponse("conv-1", turnID, nil, rows, tools, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return item
+}
+
+func TestCanonicalIdentitySurvivesRepresentativeChange(t *testing.T) {
+	_, messages, calls := canonicalTurnFixture()
+	before := historicalResponse(t, messages[:1], nil)
+	after := historicalResponse(t, messages, calls)
+	if before.Representative.ID == after.Representative.ID {
+		t.Fatal("fixture precisa trocar representante")
+	}
+	if before.ItemID != "turn:turn-1" || after.ItemID != before.ItemID {
+		t.Fatal("identidade mudou", before, after)
+	}
+}
+
+func TestCanonicalWindowPreservesOpaqueIDsAndIndependentMessages(t *testing.T) {
+	plain, spaced := "question", " question "
+	rows := []database.MessageWindowItem{
+		{Kind: database.MessageWindowItemKindMessage, MessageID: "question"},
+		{Kind: database.MessageWindowItemKindMessage, MessageID: "legacy"},
+		{Kind: database.MessageWindowItemKindTurn, TurnID: plain},
+		{Kind: database.MessageWindowItemKindTurn, TurnID: spaced},
+	}
+	messages := []Message{
+		{UUIDModel: database.UUIDModel{ID: "question"}, Role: "user", TurnID: &plain},
+		{UUIDModel: database.UUIDModel{ID: "legacy"}, Role: "assistant"},
+	}
+	responses := map[string]*TimelineItem{
+		plain:  historicalResponse(t, []Message{{UUIDModel: database.UUIDModel{ID: "a"}, Role: "assistant", TurnID: &plain, Content: "primeira"}}, nil),
+		spaced: historicalResponse(t, []Message{{UUIDModel: database.UUIDModel{ID: "b"}, Role: "assistant", TurnID: &spaced, Content: "segunda"}}, nil),
+	}
+	items, err := projectWindowItems("conv-1", nil, rows, messages, responses)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 4 {
+		t.Fatal(items)
+	}
+	for i, want := range []string{"message:question", "message:legacy", "turn:question", "turn: question "} {
+		if items[i].ItemID != want {
+			t.Fatalf("item %d: %q != %q", i, items[i].ItemID, want)
+		}
+	}
+	if items[2].Representative.Content != "primeira" || items[3].Representative.Content != "segunda" {
+		t.Fatal("IDs opacos agrupados", items)
 	}
 }

@@ -38,10 +38,6 @@ type TurnSnapshotReader interface {
 	ReadRecoveryTurn(context.Context, string, string) (*TimelineTurnSnapshot, error)
 }
 
-// WindowSnapshotReader mantém consulta e autorização na mesma transação.
-type WindowSnapshotReader interface {
-	ReadWindow(context.Context, database.MessageWindowQuery) (*TimelineWindowSnapshot, error)
-}
 type TimelineSnapshotReader interface {
 	TurnSnapshotReader
 	ReadTurn(context.Context, string, string) (*TimelineTurnSnapshot, error)
@@ -146,8 +142,7 @@ func (r *DBTimelineReader) ReadCanonicalWindow(ctx context.Context, query databa
 			return err
 		}
 		// Lotes limitam parâmetros mesmo quando um único item agrega muitos segmentos.
-		// Response projections keep canonical metadata in both readers. Only
-		// the legacy node adapter uses persisted-child counts below.
+		// Metadados e contagens de filhos pertencem à mesma leitura canônica.
 		if err := database.ReadMessagePresentation(ctx, tx, rows.Messages); err != nil {
 			return err
 		}

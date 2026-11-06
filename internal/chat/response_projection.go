@@ -10,32 +10,30 @@ import (
 	"assistente/internal/database"
 )
 
-// TimelineItem unifica a projeção interna de mensagens e respostas. Ainda não
-// é o envelope wire v1.
-// Epoch/revision pertencem ao futuro projetor; versão do banco não os substitui.
+// TimelineItem é a projeção interna de mensagens e respostas. O envelope wire
+// é publicado pelo projetor, que mantém época e revisão próprias.
 type TimelineItem struct {
-	Thinking             bool
-	TerminalReason       string
-	ExecutionID          string
-	RecoveryReference    *TimelineRecoveryReference
-	messages             []Message
-	invocations          []TurnSegmentToolCall
-	ConversationID       string
-	ScopeParentID        *string
-	Kind                 string
-	ReplyToItemID        string
-	MessageIDs           []string
-	Position             TimelinePosition
-	Durability           string
-	legacyRepresentative *Message
-	ItemID               string
-	TurnID               string
-	Representative       *Message
-	State                string
-	Origin               string
-	Segments             []ResponseSegment
-	messageCount         int
-	callCount            int
+	Thinking          bool
+	TerminalReason    string
+	ExecutionID       string
+	RecoveryReference *TimelineRecoveryReference
+	messages          []Message
+	invocations       []TurnSegmentToolCall
+	ConversationID    string
+	ScopeParentID     *string
+	Kind              string
+	ReplyToItemID     string
+	MessageIDs        []string
+	Position          TimelinePosition
+	Durability        string
+	ItemID            string
+	TurnID            string
+	Representative    *Message
+	State             string
+	Origin            string
+	Segments          []ResponseSegment
+	messageCount      int
+	callCount         int
 }
 
 type ResponseSegment struct {
@@ -106,10 +104,6 @@ func ProjectPersistedResponse(conversationID, turnID string, parentID *string, m
 	for _, message := range ordered {
 		result.MessageIDs = append(result.MessageIDs, message.ID)
 	}
-	if result.Representative == nil && len(ordered) > 0 {
-		fallback := legacyTurnRepresentative(ordered, calls)
-		result.legacyRepresentative = &fallback
-	}
 	result.messages, result.invocations = ordered, calls
 	result.Segments = projectResponseSegments(ordered, calls, result.Representative)
 	result.messageCount, result.callCount = len(messages), len(calls)
@@ -118,52 +112,35 @@ func ProjectPersistedResponse(conversationID, turnID string, parentID *string, m
 
 func sameScope(a, b *string) bool { return a == nil && b == nil || a != nil && b != nil && *a == *b }
 
-// O contrato antigo exige Message mesmo quando o representante foi excluído.
-// Este fallback visual não altera Representative, State nem os segmentos canônicos.
-func (r *TimelineItem) legacyMessage() (Message, []TurnSegment) {
-	var message Message
-	if r.Representative != nil {
-		message = *r.Representative
-	} else if r.legacyRepresentative != nil {
-		message = *r.legacyRepresentative
-	}
-	return message, legacyResponseSegments(r.Segments, r.messageCount, r.callCount)
-}
-
-func legacyResponseSegments(segments []ResponseSegment, messageCount, callCount int) []TurnSegment {
-	if callCount == 0 && messageCount <= 1 {
-		return nil
-	}
-	result := make([]TurnSegment, 0, len(segments))
-	for _, segment := range segments {
-		switch segment.Kind {
-		case "text":
-			result = append(result, TurnSegment{Type: "text", Content: segment.Text})
-		case "tool_invocations":
-			result = append(result, TurnSegment{Type: "tool_calls", ToolCalls: segment.Invocations})
-		}
-	}
-	return result
-}
-
-// TerminalPatch adapta somente o representante explícito. O fallback de mensagem
-// usado pelo visual legado não comprova qual resposta foi confirmada no storage.
+// TerminalPatch preserva o evento terminal ainda consumido por integrações.
+// Somente o representante explícito comprova a resposta confirmada no storage.
 func (r *TimelineItem) TerminalPatch() *ports.TurnPatchEvent {
 	if r == nil || r.Representative == nil {
 		return nil
 	}
-	message := EnrichMessage(*r.Representative)
+	message := r.Representative
 	patch := &ports.TurnPatchEvent{ItemID: r.ItemID, Message: ports.TurnPatchMessage{
 		ID: message.ID, ConversationID: message.ConversationID, ParentID: message.ParentID,
 		TurnID: r.TurnID, Content: message.Content, Reasoning: message.Reasoning,
 		PromptTokens: message.PromptTokens, CompletionTokens: message.CompletionTokens,
 		TotalTokens: message.TotalTokens, CacheReadTokens: message.CacheReadTokens,
 		CacheWriteTokens: message.CacheWriteTokens, CacheMissTokens: message.CacheMissTokens,
-		Model: message.Model, CreatedAt: message.CreatedAt.Format(time.RFC3339Nano), Timestamp: message.Timestamp,
+		Model: message.Model, CreatedAt: message.CreatedAt.Format(time.RFC3339Nano), Timestamp: message.CreatedAt.UnixMilli(),
 	}}
-	for _, segment := range legacyResponseSegments(r.Segments, r.messageCount, r.callCount) {
-		target := ports.TurnPatchSegment{Type: segment.Type, Content: segment.Content}
-		for _, call := range segment.ToolCalls {
+	if r.callCount == 0 && r.messageCount <= 1 {
+		return patch
+	}
+	for _, segment := range r.Segments {
+		target := ports.TurnPatchSegment{}
+		switch segment.Kind {
+		case "text":
+			target.Type, target.Content = "text", segment.Text
+		case "tool_invocations":
+			target.Type = "tool_calls"
+		default:
+			continue
+		}
+		for _, call := range segment.Invocations {
 			target.ToolInvocations = append(target.ToolInvocations, ports.TurnPatchToolInvocation{
 				InvocationID: call.InvocationID, CallID: call.ID, Name: call.Name, Origin: call.Origin,
 				ServerLabel: call.ServerLabel, Status: call.Status, Iteration: call.Iteration, DurationMs: call.DurationMs,
