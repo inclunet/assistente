@@ -21,8 +21,14 @@ v1/v2/v3 permanecem legíveis e seu áudio sem proveniência vira `legacy_unknow
 A migração v45 cria backup verificável antes de converter conteúdo existente,
 valida base64 e bytes, deduplica por usuário e limpa as colunas antigas na mesma
 transação. Novas gravações nessas colunas são recusadas. Dados históricos sem dono
-ficam intactos e inacessíveis até a adoção no primeiro login; atribuição de dono e
-normalização são atômicas. Não existe fallback de leitura para o armazenamento antigo.
+ficam intactos e inacessíveis até a adoção no primeiro login. Com v45 vigente,
+atribuição de dono e normalização são atômicas. Se v19 e suas dependentes estiverem
+adiadas por falta de dono, a adoção confirma primeiro o proprietário e retoma o
+migrador normal fora dessa transação, antes de liberar a autenticação. Cada
+migração preserva sua transação e backup; falha mantém o áudio original e permite
+retentar com o dono já atribuído. O bootstrap só retorna sucesso após confirmar
+v45 no registro. A sequência completa é serializada entre tentativas concorrentes
+de adoção. Não existe fallback de leitura para o armazenamento antigo.
 A última referência removida coleta o binário; mudanças de áudio renovam revisões
 de conteúdo e invalidam confirmações antigas, inclusive em alterações A→B→A.
 
@@ -44,6 +50,17 @@ dois testes de integração de áudio usam agora schema real e anexos normalizad
 Sem execução local de ACP ou NVDA. Revisor independente `review_audio_storage`:
 quatro rodadas, três achados corrigidos (adoção de órfãos, invalidação de
 confirmações e timestamp histórico), zero pendências na revisão final.
+
+Revisão remota: a fixture publicada 0.1.9 agora inclui áudio e prova adoção,
+retomada real de v19–45 e retry após áudio inválido, sem chamada manual ao migrador
+no teste. `TestNormalizedAudioReachesSendAndRetryHistory` prova o consumo do áudio
+recebido normalizado no envio e retry, preservando transcrição, outras mídias e
+não duplicação. Duas rodadas adicionais do revisor local sobre as correções
+remotas zeraram a pendência de concorrência na adoção. Validação adicional:
+370 testes de database, sete cenários de adoção, 96 testes selecionados de
+autenticação/startup, novo cenário de mídia e paridade de retry aprovados;
+build, vet e lint Go incremental novamente aprovados. TTS gerado e origem desconhecida não são inventados como entrada
+de áudio do modelo.
 
 **Parcial:** o campo geral `media` ainda mantém seu formato anterior. A migração
 dos demais anexos, retirada física das colunas legadas e gates finais de memória/

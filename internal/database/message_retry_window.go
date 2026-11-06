@@ -71,6 +71,9 @@ func (r *MessageRepository) LoadHistoryWindowThroughMessageWithContext(ctx conte
 			}
 			messages = append(messages, message)
 		}
+		if err := LoadMessageAudios(ctx, tx, messages, true); err != nil {
+			return err
+		}
 		result = &HistoryWindowResult{
 			Messages: messages, Summary: summary,
 			SummaryUpToMessageID:     conv.SummaryUpToMessageID,

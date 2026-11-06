@@ -9,36 +9,20 @@ import (
 	"assistente/internal/database"
 	"assistente/internal/llm"
 
-	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
+	"path/filepath"
 )
 
 func setupAuthAppTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open db: %v", err)
+	restore := database.SetDB(database.DB())
+	if err := database.InitPath(filepath.Join(t.TempDir(), "auth.db")); err != nil {
+		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(
-		&database.User{},
-		&database.Session{},
-		&database.CredentialEntry{},
-		&database.CredentialKeyWrap{},
-		&database.LLMProvider{},
-		&database.Conversation{},
-		&database.TaskList{},
-	); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
-	database.SetDB(db)
-	t.Cleanup(func() {
-		sqlDB, _ := db.DB()
-		if sqlDB != nil {
-			_ = sqlDB.Close()
-		}
-		database.SetDB(nil)
-	})
+	db := database.DB()
+	t.Cleanup(func() { _ = database.Close(); restore() })
+
 	return db
 }
 

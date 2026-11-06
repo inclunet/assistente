@@ -9,6 +9,11 @@ import (
 )
 
 func TestPublishedDatabase019UpgradesDirectlyToLatest(t *testing.T) {
+	for _, invalid := range []bool{false, true} {
+		t.Run(map[bool]string{false: "valid", true: "retry_invalid_audio"}[invalid], func(t *testing.T) { testPublishedDatabase019Upgrade(t, invalid) })
+	}
+}
+func testPublishedDatabase019Upgrade(t *testing.T, invalid bool) {
 	previous := db
 	database := newMigratorTestDB(t)
 	db = database
@@ -20,6 +25,15 @@ func TestPublishedDatabase019UpgradesDirectlyToLatest(t *testing.T) {
 	}
 	if err := database.Exec(string(raw)).Error; err != nil {
 		t.Fatalf("carregar fixture 0.1.9: %v", err)
+	}
+
+	if err := database.Exec("UPDATE chat_messages SET audio='AQID',audio_mime_type='audio/wav' WHERE role='user'").Error; err != nil {
+		t.Fatal(err)
+	}
+	if invalid {
+		if err := database.Exec("UPDATE chat_messages SET audio='invalid!' WHERE role='user'").Error; err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	if err := runMigrations(database, phasePreAutoMigrate); err != nil {
@@ -45,14 +59,37 @@ func TestPublishedDatabase019UpgradesDirectlyToLatest(t *testing.T) {
 	if err := database.Create(&owner).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := AdoptLegacyData(owner.ID); err != nil {
-		t.Fatalf("adotar owner publicado: %v", err)
+	if invalid {
+		if err := AdoptLegacyData(owner.ID); err == nil {
+			t.Fatal("invalid migration released bootstrap")
+		}
+		applied, err := appliedMigrationVersions(database)
+		if err != nil || applied[45] {
+			t.Fatal("failed migration recorded", err)
+		}
+		var audio string
+		if err := database.Raw("SELECT audio FROM chat_messages WHERE role='user' LIMIT 1").Scan(&audio).Error; err != nil || audio != "invalid!" {
+			t.Fatal("failure lost legacy audio", err)
+		}
+		if err := database.Exec("UPDATE chat_messages SET audio='AQID' WHERE role='user'").Error; err != nil {
+			t.Fatal(err)
+		}
 	}
-	if err := runMigrations(database, phasePostAutoMigrate); err != nil {
-		t.Fatalf("retomar backfill após adoção: %v", err)
+
+	start := make(chan struct{})
+	results := make(chan error, 4)
+	for range 4 {
+		go func() { <-start; results <- AdoptLegacyData(owner.ID) }()
 	}
+	close(start)
+	for range 4 {
+		if err := <-results; err != nil {
+			t.Fatalf("adocoes concorrentes: %v", err)
+		}
+	}
+
 	applied, err := appliedMigrationVersions(database)
-	if err != nil || !applied[41] || !database.Migrator().HasTable("chat_turns") {
+	if err != nil || !applied[45] || !applied[41] || !database.Migrator().HasTable("chat_turns") {
 		t.Fatalf("turnos não migrados após adoção: %v %v", applied[41], err)
 	}
 
@@ -71,6 +108,13 @@ func TestPublishedDatabase019UpgradesDirectlyToLatest(t *testing.T) {
 		messages[1].ParentID == nil || *messages[1].ParentID != messages[0].ID {
 		t.Fatalf("hierarquia não preservada: %#v", messages)
 	}
+	if err := LoadMessageAudios(WithUserID(context.Background(), owner.ID), database, messages, true); err != nil {
+		t.Fatal(err)
+	}
+	if messages[0].Audio != "AQID" || messages[0].AudioOrigin != AttachmentLegacyUnknown {
+		t.Fatal("upgrade perdeu audio", messages[0].AudioOrigin)
+	}
+
 	var invocation ToolInvocation
 	if err := database.Where("user_id = ? AND origin_type = ? AND tool_call_id = ?", owner.ID, "chat", "fixture-call-019").First(&invocation).Error; err != nil {
 		t.Fatalf("invocação legada não migrada: %v", err)

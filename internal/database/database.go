@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"assistente/internal/configdir"
@@ -20,6 +21,9 @@ import (
 )
 
 var db *gorm.DB
+
+// A adoção e a retomada de migrações formam uma única sequência de bootstrap.
+var legacyAdoptionMu sync.Mutex
 
 // dbPath guarda o caminho absoluto do arquivo SQLite resolvido em Init().
 // Usado pela manutenção física (maintenance.go) para medir tamanho em disco.
@@ -334,6 +338,8 @@ func InitPath(path string) error {
 // caller — possivelmente ao usuário errado. Validar essa premissa
 // antes de qualquer mudança que produza órfãos em runtime.
 func AdoptLegacyData(userID string) error {
+	legacyAdoptionMu.Lock()
+	defer legacyAdoptionMu.Unlock()
 	if db == nil {
 		return errors.New("banco de dados não inicializado")
 	}
@@ -341,7 +347,12 @@ func AdoptLegacyData(userID string) error {
 		return errors.New("userID obrigatório")
 	}
 
-	return db.Transaction(func(tx *gorm.DB) error {
+	applied, err := appliedMigrationVersions(db)
+	if err != nil {
+		return err
+	}
+	audioSchemaReady := applied[45]
+	err = db.Transaction(func(tx *gorm.DB) error {
 		tables := []string{
 			"llm_providers",
 			"conversations",
@@ -359,8 +370,10 @@ func AdoptLegacyData(userID string) error {
 				return err
 			}
 		}
-		if err := migrateOwnedMessageAudio(tx, userID); err != nil {
-			return err
+		if audioSchemaReady {
+			if err := migrateOwnedMessageAudio(tx, userID); err != nil {
+				return err
+			}
 		}
 		// Antes do UPDATE genérico de credential_entries, removemos órfãs
 		// (user_id IS NULL/'') cujo `pattern` JÁ está reivindicado pelo
@@ -419,4 +432,21 @@ func AdoptLegacyData(userID string) error {
 		}
 		return nil
 	})
+	if err != nil || audioSchemaReady {
+		return err
+	}
+	// O corte v19 pode aguardar o primeiro dono. Retome a cadeia antes de liberar
+	// autenticação; backups e rebuilds não podem executar dentro da adoção.
+	if err := runMigrations(db, phasePostAutoMigrate); err != nil {
+		return err
+	}
+	applied, err = appliedMigrationVersions(db)
+	if err != nil {
+		return err
+	}
+	if !applied[45] {
+		return fmt.Errorf("armazenamento de áudio aguarda migração: %w", ErrChatTurnMigrationPending)
+	}
+	return nil
+
 }

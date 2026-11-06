@@ -309,6 +309,9 @@ func setupHotPathDB(t *testing.T) (*gorm.DB, context.Context, string) {
 	if err := database.MigrateChatExecutionContent(testDB); err != nil {
 		t.Fatal(err)
 	}
+	if err := database.MigrateChatAudioAttachments(testDB); err != nil {
+		t.Fatal(err)
+	}
 	restore := database.SetDB(testDB)
 	t.Cleanup(func() { _ = sqlDB.Close(); restore() })
 	ctx := database.WithUserID(context.Background(), "user-hot-path")
@@ -423,9 +426,6 @@ func TestDBMessageStorePlaceholderLocksAreScopedByTurn(t *testing.T) {
 
 func TestDBMessageStoreBatchKeepsHistoryBoundedAndUserScoped(t *testing.T) {
 	testDB, ctx, conversationID := setupHotPathDB(t)
-	if err := database.MigrateChatAudioAttachments(testDB); err != nil {
-		t.Fatal(err)
-	}
 	var summaryUpToID string
 	for index := range 100 {
 		role := "assistant"

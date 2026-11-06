@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"assistente/internal/database"
 	"assistente/internal/logging"
 	"context"
 	"encoding/json"
@@ -140,18 +141,32 @@ func (l *MediaHistoryLoader) format(ctx context.Context, dbMessages []Message, e
 			Role:      m.Role,
 		}
 
+		var mediaParts []map[string]interface{}
 		if m.Media != "" {
-			var mediaParts []map[string]interface{}
-			if err := json.Unmarshal([]byte(m.Media), &mediaParts); err == nil {
-				msg.Content = l.convertMediaParts(ctx, mediaParts, m.Content)
-				if m.Role == "user" && strings.TrimSpace(m.Content) != "" {
-					msg.ACPOriginalAudio = originalAudioForACP(mediaParts)
-				}
-			} else {
-				msg.Content = m.Content
+			if err := json.Unmarshal([]byte(m.Media), &mediaParts); err != nil {
+				mediaParts = nil
 			}
-		} else {
-			msg.Content = m.Content
+		}
+		if m.AudioOrigin == database.AttachmentReceived && m.Audio != "" {
+			present := false
+			for _, part := range mediaParts {
+				kind, _ := part["type"].(string)
+				data, _ := part["data"].(string)
+				if strings.HasPrefix(kind, "audio/") && strings.Join(strings.Fields(data), "") == m.Audio {
+					present = true
+					break
+				}
+			}
+			if !present {
+				mediaParts = append(mediaParts, map[string]interface{}{"type": m.AudioMimeType, "data": m.Audio})
+			}
+		}
+		msg.Content = m.Content
+		if len(mediaParts) > 0 {
+			msg.Content = l.convertMediaParts(ctx, mediaParts, m.Content)
+			if m.Role == "user" && strings.TrimSpace(m.Content) != "" {
+				msg.ACPOriginalAudio = originalAudioForACP(mediaParts)
+			}
 		}
 
 		messages = append(messages, msg)
