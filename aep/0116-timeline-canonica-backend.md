@@ -28,7 +28,10 @@ migrador normal fora dessa transação, antes de liberar a autenticação. Cada
 migração preserva sua transação e backup; falha mantém o áudio original e permite
 retentar com o dono já atribuído. O bootstrap só retorna sucesso após confirmar
 v45 no registro. A sequência completa é serializada entre tentativas concorrentes
-de adoção. Não existe fallback de leitura para o armazenamento antigo.
+de adoção. O corte v19 restaura tabela, triggers e conteúdo do FTS na própria
+transação de reconstrução, inclusive quando retomado após startup; a fixture
+publicada comprova busca de mensagens antigas e indexação de novas sem reiniciar.
+Não existe fallback de leitura para o armazenamento antigo.
 A última referência removida coleta o binário; mudanças de áudio renovam revisões
 de conteúdo e invalidam confirmações antigas, inclusive em alterações A→B→A.
 

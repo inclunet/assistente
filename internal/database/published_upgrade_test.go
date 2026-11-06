@@ -115,6 +115,20 @@ func testPublishedDatabase019Upgrade(t *testing.T, invalid bool) {
 		t.Fatal("upgrade perdeu audio", messages[0].AudioOrigin)
 	}
 
+	ctx := WithUserID(context.Background(), owner.ID)
+	oldResults, err := SearchMessageContentWithContext(ctx, "mensagem", 10)
+	if err != nil || len(oldResults) != 1 || oldResults[0].MessageID != messages[0].ID {
+		t.Fatalf("busca antiga após adoção: %#v, %v", oldResults, err)
+	}
+	newMessage, err := CreateMessageWithContext(ctx, MessageOptions{ConversationID: conversation.ID, Role: "user", Content: "indexacaoposadocao"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	newResults, err := SearchMessageContentWithContext(ctx, "indexacaoposadocao", 10)
+	if err != nil || len(newResults) != 1 || newResults[0].MessageID != newMessage.ID {
+		t.Fatalf("indexação após adoção: %#v, %v", newResults, err)
+	}
+
 	var invocation ToolInvocation
 	if err := database.Where("user_id = ? AND origin_type = ? AND tool_call_id = ?", owner.ID, "chat", "fixture-call-019").First(&invocation).Error; err != nil {
 		t.Fatalf("invocação legada não migrada: %v", err)

@@ -20,6 +20,8 @@ que fica fora do backup por padrão e pode ser gerada novamente.
 Arquivos de backup das versões anteriores continuam aceitos. A atualização do
 banco mantém uma cópia de segurança antes de migrar os áudios; se algum conteúdo
 for inválido, a migração é interrompida sem apagar os dados originais.
+Ao vincular um banco antigo ao primeiro usuário, a busca de mensagens antigas e
+novas fica disponível após a atualização, sem precisar reiniciar o aplicativo.
 
 ## Inicialização
 

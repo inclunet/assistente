@@ -76,6 +76,14 @@ func migrateToolLedgerPhysicalCutover(database *gorm.DB) error {
 			if err := recreateCutoverIndexes(tx); err != nil {
 				return err
 			}
+			// O corte pode ocorrer após o startup, durante a adoção. Restaure
+			// tabela, triggers e conteúdo na mesma transação que os removeu.
+			if err := initializeFTS5(tx); err != nil {
+				return err
+			}
+			if err := NewFTSRepository(tx).RebuildFTSIndex(context.Background()); err != nil {
+				return err
+			}
 			return tx.Model(&ToolLedgerMigrationState{}).
 				Where("state = ?", toolLedgerStateBackfilled).
 				Update("state", toolLedgerStateCanonical).Error

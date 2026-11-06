@@ -33,11 +33,10 @@ type MessageSearchResult struct {
 // initFTS5 cria a tabela FTS5 e triggers de sincronização.
 // Idempotente — pode ser chamada múltiplas vezes sem efeito.
 func initFTS5() error {
-	sqlDB, err := db.DB()
-	if err != nil {
-		return fmt.Errorf("erro ao obter sql.DB: %w", err)
-	}
+	return initializeFTS5(db)
+}
 
+func initializeFTS5(database *gorm.DB) error {
 	stmts := []string{
 		// Tabela FTS5 virtual (content-sync externo via triggers)
 		`CREATE VIRTUAL TABLE IF NOT EXISTS chat_messages_fts USING fts5(
@@ -77,7 +76,7 @@ func initFTS5() error {
 	}
 
 	for _, stmt := range stmts {
-		if _, err := sqlDB.Exec(stmt); err != nil {
+		if err := database.Exec(stmt).Error; err != nil {
 			return fmt.Errorf("erro FTS5 setup: %w\nSQL: %s", err, stmt)
 		}
 	}
@@ -102,22 +101,16 @@ func RebuildFTSIndex(ctx context.Context) error {
 }
 
 func (r *FTSRepository) RebuildFTSIndex(ctx context.Context) error {
-	db := r.db
-	sqlDB, err := db.DB()
-	if err != nil {
-		return err
-	}
-
-	if _, err := sqlDB.ExecContext(ctx, `INSERT INTO chat_messages_fts(chat_messages_fts) VALUES('delete-all')`); err != nil {
+	database := r.db.WithContext(ctx)
+	if err := database.Exec(`INSERT INTO chat_messages_fts(chat_messages_fts) VALUES('delete-all')`).Error; err != nil {
 		return fmt.Errorf("erro ao limpar FTS: %w", err)
 	}
-
-	if _, err := sqlDB.ExecContext(ctx, `
+	if err := database.Exec(`
 		INSERT INTO chat_messages_fts(rowid, content, role, conversation_id)
 		SELECT rowid, content, role, conversation_id
 		FROM chat_messages
 		WHERE role IN ('user', 'assistant') AND content != ''
-	`); err != nil {
+	`).Error; err != nil {
 		return fmt.Errorf("erro ao repopular FTS: %w", err)
 	}
 
