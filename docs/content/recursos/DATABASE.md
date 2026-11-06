@@ -17,6 +17,9 @@ O backup de conversas preserva os áudios enviados ou recebidos. A opção
 que fica fora do backup por padrão e pode ser gerada novamente.
 
 Áudios antigos cuja origem não possa ser identificada também são preservados.
+Ao repetir uma mensagem importada com áudio recebido e sem texto, o app usa a
+transcrição configurada e salva o resultado na mensagem, como no envio normal.
+
 Arquivos de backup das versões anteriores continuam aceitos. A atualização do
 banco mantém uma cópia de segurança antes de migrar os áudios; se algum conteúdo
 for inválido, a migração é interrompida sem apagar os dados originais.
