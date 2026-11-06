@@ -1,24 +1,13 @@
+import { normalizeTimelineItem } from './timelineWire';
+export { normalizeTimelineItem } from './timelineWire';
 import * as rpc from '@wailsjs/go/wailsapi/ChatTimeline';
 import { apidto } from '@wailsjs/go/models';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import { useAuthStore } from '../store/authStore';
-import { CHAT_TIMELINE_EVENT, type TimelineWireItem, type TimelineItem, type ChatTimelineWireEvent, type ChatTimelineEvent } from '../types/chatTimelineEvents';
+import { CHAT_TIMELINE_EVENT, type ChatTimelineWireEvent, type ChatTimelineEvent } from '../types/chatTimelineEvents';
 import { logger } from '../utils/logger';
 import { ChatTimelineClient, type TimelineTransport } from './chatTimelineClient';
 import type { TimelineSnapshot } from './timelineConversationState';
-
-export function normalizeTimelineItem(item: TimelineWireItem): TimelineItem {
-  const metadata = item.metadata;
-  return { ...item, metadata: { ...metadata,
-    source: metadata?.source ?? '', childCount: metadata?.childCount ?? 0,
-    cacheReadTokens: metadata?.cacheReadTokens ?? 0, cacheWriteTokens: metadata?.cacheWriteTokens ?? 0,
-    cacheMissTokens: metadata?.cacheMissTokens ?? 0, pinned: metadata?.pinned ?? false,
-    model: metadata?.model ?? '', promptTokens: metadata?.promptTokens ?? 0,
-    completionTokens: metadata?.completionTokens ?? 0, totalTokens: metadata?.totalTokens ?? 0,
-  }, scopeParentId: item.scopeParentId ?? null, turnId: item.turnId ?? null,
-    representativeMessageId: item.representativeMessageId ?? null,
-    messageIds: item.messageIds ?? [], segments: item.segments ?? [] };
-}
 
 export function normalizeTimelineEvent(event: ChatTimelineWireEvent): ChatTimelineEvent {
   return { ...event, updates: event.updates.map(update => ({ ...update,

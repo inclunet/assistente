@@ -1,3 +1,4 @@
+import { timelineItemWireBytes } from './timelineWire';
 import type { apidto } from '@wailsjs/go/models';
 import type { TimelineItem } from '../types/chatTimelineEvents';
 
@@ -33,8 +34,7 @@ export function recoveryItemKey(identity: RecoveryItemIdentity): string {
 // A ordenação é apenas das chaves JSON; arrays mantêm a ordem emitida pelo backend.
 export function sameRecoveryItem(expected: TimelineItem, actual: TimelineItem): boolean {
   const encode = (value: TimelineItem) => {
-    const raw = JSON.stringify(value);
-    if (new TextEncoder().encode(raw).length > 512 * 1024) throw new Error('Timeline recovery item exceeds limit');
+    if (timelineItemWireBytes(value) > 512 * 1024) throw new Error('Timeline recovery item exceeds limit');
     return JSON.stringify(value, (_key, field: unknown) => {
       if (!field || typeof field !== 'object' || Array.isArray(field)) return field;
       return Object.fromEntries(Object.entries(field).sort(([a], [b]) => a.localeCompare(b)));

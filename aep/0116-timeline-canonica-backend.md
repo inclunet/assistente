@@ -98,6 +98,14 @@ fragmentos da mesma fonte unidos e separa fontes distintas, sem ordenar nem
 reconstruir conteúdo. `TestHistoryShowPreservesTextSourceBoundaries` passou junto
 com os 19 testes de histórico e vet; `review_aep` aprovou a correção.
 
+A prova de transferência de recuperação aplica o teto de 512 KiB aos bytes do
+contrato, excluindo somente defaults locais que o backend omite. A comparação
+integral continua sobre os objetos normalizados. `timelineWire.ts` centraliza
+os defaults usados nos dois percursos. A regressão aceita o wire com exatamente
+512 KiB mesmo após normalização, detecta conteúdo divergente e rejeita um byte
+adicional; não há aumento da cota. 112 testes focados de transporte, cliente e
+apresentação passaram e `review_store_coverage` aprovou a correção.
+
 Permanecem pendentes os adaptadores internos antigos ainda exercitados por
 provas de projeção, a migração de anexos da fase 4 e os gates finais do AEP.
 Esta retirada de APIs não conclui esses trabalhos.

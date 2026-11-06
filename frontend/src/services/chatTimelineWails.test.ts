@@ -299,3 +299,21 @@ it('normaliza defaults igualmente em snapshot, operações, patches e recuperaç
   expect(populated.metadata).toMatchObject({ pinned: true, childCount: 2, model: 'model', cacheReadTokens: 7, promptTokens: 8, completionTokens: 9, totalTokens: 17 });
   expect(wire.metadata).not.toHaveProperty('totalTokens');
 });
+
+it('aceita recuperação no teto wire mesmo quando os defaults locais excedem esse teto', async () => {
+  const { normalizeTimelineItem } = await import('./timelineWire');
+  const { sameRecoveryItem } = await import('./timelineRecoveryItem');
+  const { metadata, ...identity } = canonicalTestItem('turn:limit', '');
+  const wire = { ...identity, metadata: { createdAt: metadata.createdAt, role: metadata.role, origin: metadata.origin, conclusionSegmentIds: ['text'] } };
+  const limit = 512 * 1024;
+  const remaining = limit - new TextEncoder().encode(JSON.stringify(wire)).length;
+  wire.segments[0].text = 'x'.repeat(remaining);
+  expect(new TextEncoder().encode(JSON.stringify(wire)).length).toBe(limit);
+  const normalized = normalizeTimelineItem(wire);
+  expect(new TextEncoder().encode(JSON.stringify(normalized)).length).toBeGreaterThan(limit);
+  expect(sameRecoveryItem(normalized, normalizeTimelineItem(JSON.parse(JSON.stringify(wire))))).toBe(true);
+  const changed = { ...normalized, metadata: { ...normalized.metadata, role: 'user' } };
+  expect(sameRecoveryItem(normalized, changed)).toBe(false);
+  wire.segments = [{ ...wire.segments[0], text: wire.segments[0].text + 'x' }];
+  expect(() => sameRecoveryItem(normalized, normalizeTimelineItem(wire))).toThrow('Timeline recovery item exceeds limit');
+});
