@@ -17,7 +17,7 @@ func TestTimelineItemsShareWindowAndTerminalProjection(t *testing.T) {
 	if response != window.Responses[f.question] || response.Kind != "response" || response.Durability != "persisted" || response.ReplyToItemID != window.Items[0].ItemID {
 		t.Fatalf("resposta não compartilhada: %+v", response)
 	}
-	turn, err := f.reader.ReadTurn(f.ctx, f.conversation, f.question)
+	turn, err := f.reader.ReadPublicationTurn(f.ctx, f.conversation, f.question)
 	if err != nil {
 		t.Fatal(err)
 	}

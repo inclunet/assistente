@@ -40,7 +40,6 @@ type TurnSnapshotReader interface {
 
 type TimelineSnapshotReader interface {
 	TurnSnapshotReader
-	ReadTurn(context.Context, string, string) (*TimelineTurnSnapshot, error)
 	PublicationSnapshotReader
 }
 
@@ -182,10 +181,6 @@ func (r *DBTimelineReader) ReadCanonicalWindow(ctx context.Context, query databa
 	return result, nil
 }
 
-func (r *DBTimelineReader) ReadTurn(ctx context.Context, conversationID, turnID string) (*TimelineTurnSnapshot, error) {
-	return r.readTurn(ctx, conversationID, turnID, turnReadStrict)
-}
-
 func (r *DBTimelineReader) ReadPublicationTurn(ctx context.Context, conversationID, turnID string) (*TimelineTurnSnapshot, error) {
 	return r.readTurn(ctx, conversationID, turnID, turnReadPublication)
 }
@@ -199,8 +194,7 @@ func (r *DBTimelineReader) ReadRecoveryTurn(ctx context.Context, conversationID,
 type turnReadMode uint8
 
 const (
-	turnReadStrict turnReadMode = iota
-	turnReadPublication
+	turnReadPublication turnReadMode = iota
 	turnReadRecovery
 )
 
@@ -217,21 +211,13 @@ func (r *DBTimelineReader) readTurn(ctx context.Context, conversationID, turnID 
 			return err
 		}
 		result.Version = version
-		messageDB := tx
 		if publication {
 			if err := checkPublicationReadBudget(tx, conversationID, turnID); err != nil {
 				return err
 			}
-			messageDB = tx.Omit("media", "audio", "audio_mime_type").Session(&gorm.Session{})
 		}
-		repo := database.NewMessageRepository(messageDB)
-		var question *database.ChatMessage
-		if publication || mode == turnReadRecovery {
-			question = &database.ChatMessage{}
-			err = tx.Select("id", "conversation_id", "role", "parent_id").Where("id = ? AND conversation_id = ?", turnID, conversationID).First(question).Error
-		} else {
-			question, err = repo.GetMessageWithContext(ctx, turnID)
-		}
+		question := &database.ChatMessage{}
+		err = tx.Select("id", "conversation_id", "role", "parent_id").Where("id = ? AND conversation_id = ?", turnID, conversationID).First(question).Error
 		if err != nil {
 			if mode == turnReadRecovery && errors.Is(err, gorm.ErrRecordNotFound) {
 				return nil
@@ -251,15 +237,12 @@ func (r *DBTimelineReader) readTurn(ctx context.Context, conversationID, turnID 
 		}
 		// Mesma completude do item da janela: nunca cortar silenciosamente em 1.000.
 		// A consulta é restrita ao turno/escopo, não recarrega a conversa inteira.
-		responseDB := messageDB.Where("chat_messages.role <> ?", "user").Session(&gorm.Session{})
+		// Recuperação e publicação projetam texto/metadados, nunca blobs.
+		// Contexto do modelo e playback resolvem mídia em seus próprios leitores.
+		responseDB := tx.Omit("media", "audio", "audio_mime_type").Where("chat_messages.role <> ?", "user").Session(&gorm.Session{})
 		messages, err = database.NewMessageRepository(responseDB).GetMessagesByTurnIDWithContext(ctx, conversationID, question.ParentID, turnID, 0)
 		if err != nil {
 			return err
-		}
-		if !publication {
-			if err := database.ResolveContinuationMedia(ctx, tx, messages); err != nil {
-				return err
-			}
 		}
 		facts, err = readTimelineFacts(ctx, tx, conversationID, []string{turnID})
 		if err == nil {

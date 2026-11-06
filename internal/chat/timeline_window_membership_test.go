@@ -700,7 +700,7 @@ func TestWindowMembershipLifecycleFailureRestoresPublicationAndKeepsCommit(t *te
 			if len(live.Streams) != 1 || testLiveSegment(live.Streams[0], "text", 0).Text != "final preservado" {
 				t.Fatal("rollback perdeu buffer")
 			}
-			stored, err := f.reader.ReadTurn(f.ctx, f.conversation, f.question)
+			stored, err := f.reader.ReadPublicationTurn(f.ctx, f.conversation, f.question)
 			if err != nil || stored.Turn.State != database.TurnCompleted || stored.Response.Representative.Content != "final preservado" {
 				t.Fatal("commit foi desfeito", err)
 			}

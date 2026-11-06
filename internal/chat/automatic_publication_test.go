@@ -516,7 +516,7 @@ func TestAutomaticPublicationReadDeadlineDoesNotUndoWriter(t *testing.T) {
 	if !errors.Is(publicationErr, context.DeadlineExceeded) {
 		t.Fatalf("leitura não limitada: %v", publicationErr)
 	}
-	stored, err := f.reader.ReadTurn(f.ctx, f.conversation, f.question)
+	stored, err := f.reader.ReadPublicationTurn(f.ctx, f.conversation, f.question)
 	if err != nil || stored.Response.Representative.ID != id {
 		t.Fatalf("commit alterado: %v", err)
 	}

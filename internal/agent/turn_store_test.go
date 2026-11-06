@@ -89,15 +89,11 @@ func (r *handlerTestTimelineReader) ReadSelection(context.Context, string, []str
 	panic("fixture de handler sem mutação externa")
 }
 
-func (r *handlerTestTimelineReader) ReadPublicationTurn(ctx context.Context, conversationID, turnID string) (*chat.TimelineTurnSnapshot, error) {
-	return r.ReadTurn(ctx, conversationID, turnID)
-}
-
 func (r *handlerTestTimelineReader) ReadRecoveryTurn(ctx context.Context, conversationID, turnID string) (*chat.TimelineTurnSnapshot, error) {
-	return r.ReadTurn(ctx, conversationID, turnID)
+	return r.ReadPublicationTurn(ctx, conversationID, turnID)
 }
 
-func (r *handlerTestTimelineReader) ReadTurn(ctx context.Context, conversationID, turnID string) (*chat.TimelineTurnSnapshot, error) {
+func (r *handlerTestTimelineReader) ReadPublicationTurn(ctx context.Context, conversationID, turnID string) (*chat.TimelineTurnSnapshot, error) {
 	question, err := r.repo.GetMessage(ctx, turnID)
 	if err != nil {
 		return nil, err
