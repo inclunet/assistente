@@ -3,7 +3,9 @@ package chat
 import (
 	"assistente/internal/database"
 	"assistente/internal/logging"
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -149,10 +151,15 @@ func (l *MediaHistoryLoader) format(ctx context.Context, dbMessages []Message, e
 		}
 		if m.AudioOrigin == database.AttachmentReceived && m.Audio != "" {
 			present := false
+			audioBytes, audioErr := base64.StdEncoding.DecodeString(m.Audio)
 			for _, part := range mediaParts {
 				kind, _ := part["type"].(string)
 				data, _ := part["data"].(string)
-				if strings.HasPrefix(kind, "audio/") && strings.Join(strings.Fields(data), "") == m.Audio {
+				if !strings.HasPrefix(kind, "audio/") || NormalizeAudioMIME(kind) != NormalizeAudioMIME(m.AudioMimeType) {
+					continue
+				}
+				partBytes, err := base64.StdEncoding.DecodeString(strings.Join(strings.Fields(data), ""))
+				if audioErr == nil && err == nil && bytes.Equal(partBytes, audioBytes) {
 					present = true
 					break
 				}

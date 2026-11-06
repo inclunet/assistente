@@ -62,6 +62,15 @@ autenticação/startup, novo cenário de mídia e paridade de retry aprovados;
 build, vet e lint Go incremental novamente aprovados. TTS gerado e origem desconhecida não são inventados como entrada
 de áudio do modelo.
 
+A segunda rodada remota corrigiu deduplicação por bytes no contexto (base64
+textualmente diferente pode representar o mesmo áudio) e duplicação de áudio
+recebido em HTML/PDF. Os dois renderizadores compartilham a seleção de anexos;
+`TestRichExportDeduplicatesAudioByBytesAndMIME` verifica players HTML e blocos
+PDF efetivos, preservando conteúdo ou MIME distintos. O JSON canônico mantém
+ambas as representações enquanto a migração de `media` não estiver concluída.
+Revisor local do delta sem achados; 169 testes de portability e a regressão de
+histórico de áudio aprovados, sem ACP.
+
 **Parcial:** o campo geral `media` ainda mantém seu formato anterior. A migração
 dos demais anexos, retirada física das colunas legadas e gates finais de memória/
 desempenho continuam pendentes. Não marcamos a fase de anexos nem o AEP como Done.

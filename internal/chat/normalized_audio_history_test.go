@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -17,13 +18,14 @@ func TestNormalizedAudioReachesSendAndRetryHistory(t *testing.T) {
 		{"received", database.AttachmentReceived, "", "", 1},
 		{"transcribed", database.AttachmentReceived, "transcricao", "", 0},
 		{"mixed", database.AttachmentReceived, "", `[{"type":"image/png","data":"image-marker"}]`, 1},
-		{"duplicate", database.AttachmentReceived, "", `[{"type":"audio/wav","data":"AQID"}]`, 1},
+		{"duplicate", database.AttachmentReceived, "", `[{"type":"audio/wav","data":"/w=="}]`, 1},
+		{"equivalent_encoding", database.AttachmentReceived, "", `[{"type":"audio/wav","data":"/x=="}]`, 1},
 		{"generated", database.AttachmentGenerated, "texto", "", 0},
 		{"unknown", database.AttachmentLegacyUnknown, "texto", "", 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newSnapshotFixture(t)
-			message, err := database.CreateMessageWithContext(f.ctx, database.MessageOptions{ConversationID: f.conversation, Role: "user", Content: tc.text, Media: tc.media, Audio: "AQID", AudioMimeType: "audio/wav", AudioOrigin: tc.origin})
+			message, err := database.CreateMessageWithContext(f.ctx, database.MessageOptions{ConversationID: f.conversation, Role: "user", Content: tc.text, Media: tc.media, Audio: "/w==", AudioMimeType: "audio/wav", AudioOrigin: tc.origin})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -52,8 +54,17 @@ func TestNormalizedAudioReachesSendAndRetryHistory(t *testing.T) {
 					if strings.Count(wire, `"type":"input_audio"`) != tc.audioCount {
 						t.Fatalf("retry=%v content=%s", retry, wire)
 					}
-					if tc.audioCount > 0 && !strings.Contains(wire, "AQID") {
-						t.Fatal("audio bytes lost")
+					if tc.audioCount > 0 {
+						for _, part := range candidate.Content.([]interface{}) {
+							object := part.(map[string]interface{})
+							if object["type"] == "input_audio" {
+								audio := object["input_audio"].(map[string]interface{})["data"].(string)
+								decoded, err := base64.StdEncoding.DecodeString(audio)
+								if err != nil || len(decoded) != 1 || decoded[0] != 255 {
+									t.Fatal("audio bytes lost", err)
+								}
+							}
+						}
 					}
 					if tc.name == "mixed" && !strings.Contains(wire, "image-marker") {
 						t.Fatal("other media lost")
