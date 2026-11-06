@@ -17,7 +17,7 @@ func recoveryItemFixture(t *testing.T) (*TimelineSubscription, *fixtureTimelineS
 	ref := buffers.Reference
 	item := CanonicalItem{ItemID: "turn:" + ref.TurnID, ConversationID: sub.key.conversationID, TurnID: &ref.TurnID,
 		RecoveryReference: &ref, Revision: "7", State: "interrupted", Durability: "volatile", Kind: "response",
-		ReplyToItemID: "question", Position: "opaque-position", MessageIDs: []string{"message"},
+		ReplyToItemID: "question", MessageIDs: []string{"message"},
 		Segments: []CanonicalSegment{{SegmentID: "opaque-text", Kind: "text", Text: "conteúdo 🦜"},
 			{SegmentID: "tool", Kind: "tool_calls", Invocations: []TurnSegmentToolCall{{ID: "call", Name: "tool", Status: "completed", HasDetails: true}}}},
 		Metadata: CanonicalMetadata{Role: "assistant", Model: "model", Pinned: true}}

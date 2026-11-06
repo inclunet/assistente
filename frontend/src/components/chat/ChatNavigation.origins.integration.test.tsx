@@ -1,3 +1,4 @@
+import { messageFixture, nodeFixture } from '../../test/chatPresentationFixture';
 vi.mock('./useChatTimelinePresentation', async () => import('./canonicalPresentationFixture'));
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -12,7 +13,6 @@ import { useChatStore } from '../../store/chatStore';
 import { useWorkspaceStore } from '../../store/workspaceStore';
 import { useWorkspaceChatModalStore } from '../../store/workspaceChatModalStore';
 import { createChatSurfaceIdentity, createEmptyChatSession } from '../../services/chatSessionRegistry';
-import { chat } from '../../../wailsjs/go/models';
 
 const state = vi.hoisted(() => ({
   mapReady: false,
@@ -154,10 +154,10 @@ vi.mock('../../hooks/useToolbarKeyboardNav', () => ({ useToolbarKeyboardNav: sta
 vi.mock('../../lib/commandContextReact', () => ({ useCommandContextScope: () => null }));
 
 function message(id: string, content: string, childID: string) {
-  return new chat.MessageNode({
-    message: new chat.EnrichedMessage({ id, conversationId: conversationID, role: 'assistant', content, reasoning: `reasoning-${id}` }),
-    children: [new chat.MessageNode({
-      message: new chat.EnrichedMessage({ id: childID, conversationId: conversationID, parentId: id, role: 'user', content: `child-${id}`, internal: true }),
+  return nodeFixture({
+    message: messageFixture({ id, conversationId: conversationID, role: 'assistant', content, reasoning: `reasoning-${id}` }),
+    children: [nodeFixture({
+      message: messageFixture({ id: childID, conversationId: conversationID, parentId: id, role: 'user', content: `child-${id}`, internal: true }),
       children: [], childCount: 0, hasChildren: false, level: 1,
     })],
     hasChildren: true,

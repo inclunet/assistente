@@ -1,3 +1,5 @@
+import { nodeFixture } from '../../test/chatPresentationFixture';
+import type { Message, MessageNode } from '../../lib/chatMessageTree';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MessageList, type MessageListProps } from './MessageList';
@@ -7,16 +9,15 @@ import { useChatStore } from '../../store/chatStore';
 import { ToolCallsSection } from './ToolCallsSection';
 import { ContextMenu } from '../menu';
 import { useContextMenu } from '../../hooks/useContextMenu';
-import { chat } from '../../../wailsjs/go/models';
 
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 vi.mock('../../hooks/useAnnouncer', () => ({ announce: vi.fn(), useAnnouncer: () => ({ announceRequest: () => true }) }));
-vi.mock('../../lib/messageMenuItems', () => ({ getMessageMenuItems: (message: chat.EnrichedMessage, options: { onEdit?: (message: chat.EnrichedMessage) => void }) => [
+vi.mock('../../lib/messageMenuItems', () => ({ getMessageMenuItems: (message: Message, options: { onEdit?: (message: Message) => void }) => [
   { id: 'copy', label: 'Copiar' }, { id: 'edit', label: 'Editar', action: () => options.onEdit?.(message) },
 ] }));
 const Editing = createContext<string | null>(null);
 vi.mock('./MessageNode', () => ({
-  MessageNode: function Row({ node, onContextMenu }: { node: chat.MessageNode; onContextMenu: MessageListProps['onContextMenu'] }) {
+  MessageNode: function Row({ node, onContextMenu }: { node: MessageNode; onContextMenu: MessageListProps['onContextMenu'] }) {
     const retain = useMessageInteraction();
     const editing = useContext(Editing) === node.message.id;
     useActiveMessageInteraction(editing);
@@ -35,12 +36,12 @@ vi.mock('./MessageNode', () => ({
   },
 }));
 
-const nodes = (count: number, prefix = 'item') => Array.from({ length: count }, (_, i) => chat.MessageNode.createFrom({
+const nodes = (count: number, prefix = 'item') => Array.from({ length: count }, (_, i) => nodeFixture({
   message: { id: `${prefix}-${i}`, conversationId: 'conversation', role: 'user', content: `texto ${i}`,
     timestamp: i, createdAt: '2026-01-01T00:00:00Z' }, children: [], childCount: 0, level: 0,
 }));
 
-function Surface({ items }: { items: chat.MessageNode[] }) {
+function Surface({ items }: { items: MessageNode[] }) {
   const [editing, setEditing] = useState<string | null>(null);
   const menu = useContextMenu({ sessionKey: 'test', onEdit: message => setEditing(message.id) });
   return <><input aria-label="compositor" /><Editing.Provider value={editing}><MessageList threadedMessages={items}

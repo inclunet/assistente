@@ -1,16 +1,19 @@
+import { normalizeTimelineItem } from './timelineWire';
+export { normalizeTimelineItem } from './timelineWire';
 import * as rpc from '@wailsjs/go/wailsapi/ChatTimeline';
 import { apidto } from '@wailsjs/go/models';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import { useAuthStore } from '../store/authStore';
-import { CHAT_TIMELINE_EVENT } from '../types/chatTimelineEvents';
+import { CHAT_TIMELINE_EVENT, type ChatTimelineWireEvent, type ChatTimelineEvent } from '../types/chatTimelineEvents';
 import { logger } from '../utils/logger';
 import { ChatTimelineClient, type TimelineTransport } from './chatTimelineClient';
 import type { TimelineSnapshot } from './timelineConversationState';
 
-export function normalizeTimelineItem(item: apidto.CanonicalItem) {
-  return { ...item, metadata: { ...item.metadata, threadParentMessageId: item.metadata?.threadParentMessageId ?? null }, scopeParentId: item.scopeParentId ?? null, turnId: item.turnId ?? null,
-    representativeMessageId: item.representativeMessageId ?? null,
-    messageIds: item.messageIds ?? [], segments: item.segments ?? [] };
+export function normalizeTimelineEvent(event: ChatTimelineWireEvent): ChatTimelineEvent {
+  return { ...event, updates: event.updates.map(update => ({ ...update,
+    operations: update.operations.map(operation => ({ ...operation, item: operation.item ? normalizeTimelineItem(operation.item) : undefined })),
+    windowPatches: update.windowPatches.map(patch => ({ ...patch, items: patch.items?.map(normalizeTimelineItem) })),
+  })) };
 }
 
 export function normalizeTimelineSnapshot(snapshot: apidto.SubscribedTimelineSnapshot): TimelineSnapshot {
@@ -27,7 +30,7 @@ const transport: TimelineTransport = {
   reserveItem: (windowId, identity) => rpc.ReserveRecoveryItem(windowId, new apidto.TimelineRecoveryItemRequest(identity)),
   readItem: async (windowId, identity) => normalizeTimelineItem(await rpc.ReadRecoveryItem(windowId, new apidto.TimelineRecoveryItemRequest(identity))),
   releaseItem: (windowId, identity) => rpc.ReleaseRecoveryItem(windowId, new apidto.TimelineRecoveryItemRequest(identity)),
-  listen: receive => EventsOn(CHAT_TIMELINE_EVENT, receive),
+  listen: receive => EventsOn(CHAT_TIMELINE_EVENT, (event: ChatTimelineWireEvent) => receive(normalizeTimelineEvent(event))),
   open: async (conversationId, surfaceId, scopeParentId, position) => normalizeTimelineSnapshot(await rpc.Open(
     new apidto.OpenTimelineRequest({ conversationId, surfaceId, scopeParentId, ...position }),
   )),

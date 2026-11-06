@@ -30,9 +30,9 @@ function contentSnapshot(protectedContent: boolean): TimelineSnapshot {
     const value = snapshot();
     value.items = [{ itemId: 'item', executionId: 'execution', conversationId: 'chat', scopeParentId: null, kind: 'assistant',
       turnId: 'turn', replyToItemId: 'question', messageIds: ['message'], representativeMessageId: 'message',
-      position: 'opaque', revision: '10', state: protectedContent ? 'streaming' : 'completed',
+      revision: '10', state: protectedContent ? 'streaming' : 'completed',
       durability: protectedContent ? 'volatile' : 'persisted', segments: [],
-      metadata: { createdAt: '2026-01-01T00:00:00Z', timestamp: 1767225600000, source: '', childCount: 0, threadParentMessageId: null, conclusionSegmentIds: [], cacheReadTokens: 0, cacheWriteTokens: 0, cacheMissTokens: 0, origin: 'chat', role: 'assistant', pinned: false, model: '', promptTokens: 0, completionTokens: 0, totalTokens: 0 } }];
+      metadata: { createdAt: '2026-01-01T00:00:00Z', source: '', childCount: 0, conclusionSegmentIds: [], cacheReadTokens: 0, cacheWriteTokens: 0, cacheMissTokens: 0, origin: 'chat', role: 'assistant', pinned: false, model: '', promptTokens: 0, completionTokens: 0, totalTokens: 0 } }];
     value.orderedItemIds = ['item'];
     value.totalCount = value.endIndex = 1;
     return value;

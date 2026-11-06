@@ -7,10 +7,10 @@ import type { ChatTimelineEvent, TimelineItem } from '../types/chatTimelineEvent
 export function canonicalTestItem(id: string, content = id, overrides: Partial<TimelineItem> = {}): TimelineItem {
   return { itemId: id, conversationId: 'conversation', scopeParentId: null, kind: 'response', turnId: 'turn',
     executionId: 'execution', replyToItemId: 'question', messageIds: ['assistant'], representativeMessageId: 'assistant',
-    position: 'opaque', revision: '1', state: 'completed', durability: 'persisted',
+    revision: '1', state: 'completed', durability: 'persisted',
     segments: [{ segmentId: 'text', kind: 'text', text: content }],
-    metadata: { createdAt: '2026-01-01T00:00:00Z', timestamp: 1767225600000, source: '', childCount: 0,
-      threadParentMessageId: 'assistant', conclusionSegmentIds: ['text'], cacheReadTokens: 0, cacheWriteTokens: 0,
+    metadata: { createdAt: '2026-01-01T00:00:00Z', source: '', childCount: 0,
+      conclusionSegmentIds: ['text'], cacheReadTokens: 0, cacheWriteTokens: 0,
       cacheMissTokens: 0, origin: 'chat', role: 'assistant', pinned: false, model: '', promptTokens: 0, completionTokens: 0, totalTokens: 0 },
     ...overrides };
 }

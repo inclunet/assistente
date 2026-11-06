@@ -18,6 +18,7 @@ interface MockConfig {
 declare global {
   interface Window {
     __wailsMock: {
+      setTimelineRows: (rows: unknown[], parentId?: string, conversationId?: string) => void;
       setResponse: (fn: string, value: unknown) => void;
       clearResponse: (fn: string) => void;
       setError: (fn: string, message: string) => void;
@@ -534,20 +535,6 @@ export function buildWailsMockScript(): string {
     CreateConversation: defaultConversation,
     GetConversationInfo: defaultConversation,
     GetConversations: [],
-    GetMessages: [],
-    GetRecentMessages: [],
-    GetMessagesBefore: [],
-    GetConversationMessageWindow: {
-      scope: 'conversation',
-      conversationId: defaultConversation.id,
-      nodes: [],
-      totalCount: 0,
-      startIndex: 0,
-      endIndex: -1,
-      hasBefore: false,
-      hasAfter: false,
-    },
-    GetMessageChildren: [],
     ClearConversation: undefined,
     DeleteConversation: undefined,
     DeleteConversations: (ids) => ids,
@@ -836,17 +823,12 @@ export function buildWailsMockScript(): string {
   const timelineRows = new Map();
   const timelineSequences = new Map();
   const sequenceFor = id => timelineSequences.get(id) || 1;
+  const timelineThreadRows = new Map();
   function fixtureRows(conversationId) {
-    if (!timelineRows.has(conversationId)) {
-      const configuredWindow = _config.responses.GetConversationMessageWindow;
-      const configuredMessages = _config.responses.GetMessages;
-      const input = (typeof configuredWindow === 'function' ? configuredWindow({ conversationId }) : configuredWindow)?.nodes
-        || (typeof configuredMessages === 'function' ? configuredMessages(conversationId) : configuredMessages) || [];
-      timelineRows.set(conversationId, JSON.parse(JSON.stringify(input)));
-    }
+    if (!timelineRows.has(conversationId)) timelineRows.set(conversationId, []);
     return timelineRows.get(conversationId);
   }
-  function canonicalItem(node, conversationId) {
+    function canonicalItem(node, conversationId) {
     const m = node.message || node;
     const id = m.id;
     const segments = m.canonicalSegments || (m.turnSegments?.length
@@ -861,11 +843,11 @@ export function buildWailsMockScript(): string {
     return { itemId: id, conversationId, scopeParentId: m.parentId || null,
       kind: m.role === 'assistant' ? 'response' : 'message', turnId: m.turnId || null,
       replyToItemId: '', messageIds: [id], representativeMessageId: id,
-      position: id, revision: String(m.canonicalRevision || 1), state: m.isStreaming ? 'streaming' : 'completed',
+      revision: String(m.canonicalRevision || 1), state: m.isStreaming ? 'streaming' : 'completed',
       durability: 'persisted', segments,
-      metadata: { thinking: !!m.thinking, terminalReason: m.terminalReason, createdAt: m.createdAt || now, timestamp: m.timestamp || Date.parse(m.createdAt || now),
+      metadata: { thinking: !!m.thinking, terminalReason: m.terminalReason, createdAt: m.createdAt || now,
         source: m.source || '', childCount: node.childCount || node.children?.length || 0,
-        threadParentMessageId: id, conclusionSegmentIds: conclusion.map(part => part.segmentId),
+        conclusionSegmentIds: conclusion.map(part => part.segmentId),
         cacheReadTokens: 0, cacheWriteTokens: 0, cacheMissTokens: 0, origin: 'chat',
         role: m.role, pinned: !!m.pinned, model: m.model || '', promptTokens: 0,
         completionTokens: 0, totalTokens: 0 } };
@@ -873,7 +855,7 @@ export function buildWailsMockScript(): string {
   function timelineSnapshot(window) {
     const root = fixtureRows(window.conversationId);
     const rows = window.scopeParentId
-      ? (_config.responses.GetMessageChildren || root.find(row => row.message?.id === window.scopeParentId)?.children || []) : root;
+      ? (timelineThreadRows.get(window.scopeParentId) || root.find(row => row.message?.id === window.scopeParentId)?.children || []) : root;
     const items = rows.map(row => ({ ...canonicalItem(row, window.conversationId), scopeParentId: window.scopeParentId }));
     return { ...window, epoch: 'e2e-epoch', windowRevision: String(window.revision),
       sequence: String(sequenceFor(window.conversationId)), items, orderedItemIds: items.map(item => item.itemId),
@@ -1011,14 +993,8 @@ export function buildWailsMockScript(): string {
             });
           }
           if (scope === 'wailsapi.ChatTimeline') return Promise.resolve(timelineRPC(fnName, args));
-          if (fnName === 'GetRecentMessages' && 'GetMessages' in _config.responses) {
-            const val = _config.responses.GetMessages;
-            return Promise.resolve(typeof val === 'function' ? val(...args) : val);
-          }
-          if (fnName === 'GetMessagesBefore' && 'GetMessages' in _config.responses) {
-            const val = _config.responses.GetMessages;
-            return Promise.resolve(typeof val === 'function' ? val(...args) : val);
-          }
+
+
           if (fnName === 'GetConversationsPage' && 'GetConversations' in _config.responses) {
             const val = _config.responses.GetConversations;
             const rows = typeof val === 'function' ? val() : val;
@@ -1038,62 +1014,7 @@ export function buildWailsMockScript(): string {
               return row ? [row] : [];
             }));
           }
-          if (
-            fnName === 'GetConversationMessageWindow'
-            && !('GetConversationMessageWindow' in _config.responses)
-            && 'GetMessages' in _config.responses
-          ) {
-            const val = _config.responses.GetMessages;
-            const messages = typeof val === 'function' ? val(...args) : val;
-            const nodes = Array.isArray(messages) ? messages : [];
-            const req = args[0] || {};
-            const limit = Math.max(0, Number(req.limit || nodes.length || 0));
-            const direction = String(req.direction || 'before');
-            const anchor = String(req.anchor || 'end');
-            const anchorMessageId = String(req.anchorMessageId || '');
-            const getNodeId = (node) => String(node?.message?.id ?? node?.id ?? '');
-            const anchorIndex = anchorMessageId
-              ? nodes.findIndex((node) => getNodeId(node) === anchorMessageId)
-              : -1;
-            let startIndex = 0;
-            let endIndexExclusive = limit > 0 ? limit : 0;
-            if (anchorIndex >= 0 && direction === 'before') {
-              endIndexExclusive = anchorIndex;
-              startIndex = Math.max(0, endIndexExclusive - limit);
-            } else if (anchorIndex >= 0 && direction === 'after') {
-              startIndex = Math.min(nodes.length, anchorIndex + 1);
-              endIndexExclusive = limit > 0 ? startIndex + limit : startIndex;
-            } else if (anchorIndex >= 0 && direction === 'around') {
-              startIndex = Math.max(0, anchorIndex - Math.floor(limit / 2));
-              if (limit > 0 && startIndex + limit > nodes.length) {
-                startIndex = Math.max(0, nodes.length - limit);
-              }
-              endIndexExclusive = limit > 0 ? startIndex + limit : startIndex;
-            } else if (anchorIndex >= 0) {
-              startIndex = Math.max(0, Math.min(anchorIndex, nodes.length - limit));
-              endIndexExclusive = limit > 0 ? startIndex + limit : startIndex;
-            } else if (anchor === 'end' || direction === 'before') {
-              startIndex = Math.max(0, nodes.length - limit);
-              endIndexExclusive = limit > 0 ? startIndex + limit : startIndex;
-            } else {
-              endIndexExclusive = limit > 0 ? startIndex + limit : startIndex;
-            }
-            const visibleNodes = nodes.slice(startIndex, endIndexExclusive).map((node, index) => ({
-              ...node,
-              originalIndex: startIndex + index,
-            }));
-            return Promise.resolve({
-              scope: req.scope || 'conversation',
-              conversationId: req.conversationId || defaultConversation.id,
-              threadParentId: req.threadParentId || '',
-              nodes: visibleNodes,
-              totalCount: nodes.length,
-              startIndex,
-              endIndex: visibleNodes.length > 0 ? startIndex + visibleNodes.length - 1 : -1,
-              hasBefore: startIndex > 0,
-              hasAfter: visibleNodes.length > 0 && startIndex + visibleNodes.length < nodes.length,
-            });
-          }
+
           if (fnName in defaults) {
             const val = defaults[fnName];
             let response;
@@ -1262,15 +1183,21 @@ export function buildWailsMockScript(): string {
   /* ---------- API pública para os testes ---------- */
 
   window.__wailsMock = {
+    setTimelineRows(rows, parentId, conversationId) {
+      const copied = JSON.parse(JSON.stringify(rows));
+      if (parentId) {
+        timelineThreadRows.set(parentId, copied);
+        for (const id of timelineRows.keys()) publishTimeline(id);
+      } else {
+        const id = conversationId ?? rows[0]?.message?.conversationId ?? defaultConversation.id;
+        timelineRows.set(id, copied);
+        publishTimeline(id);
+      }
+    },
     setResponse(fn, value) {
       _config.responses[fn] = value;
       delete _config.errors[fn];
-      if (fn === 'GetMessages' || fn === 'GetConversationMessageWindow') {
-        for (const conversationId of [...timelineRows.keys()]) {
-          timelineRows.delete(conversationId);
-          publishTimeline(conversationId);
-        }
-      }
+
     },
 
     clearResponse(fn) {

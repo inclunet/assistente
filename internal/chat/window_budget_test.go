@@ -55,8 +55,8 @@ func TestCanonicalWindowBudgetBeforeMaterialization(t *testing.T) {
 				t.Fatal("resposta isolada", err)
 			}
 			query.Limit = 20
-			if _, err := f.reader.ReadWindow(f.ctx, query); err != nil {
-				t.Fatal("legado mudou", err)
+			if snapshot, err := f.reader.ReadCanonicalWindow(f.ctx, query); !errors.Is(err, ErrTimelineSourceLimit) || snapshot != nil {
+				t.Fatal("página agregada deve continuar recusada após leituras isoladas", err)
 			}
 		})
 	}

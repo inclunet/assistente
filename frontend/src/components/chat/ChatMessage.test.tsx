@@ -1,6 +1,6 @@
+import { messageFixture, nodeFixture } from '../../test/chatPresentationFixture';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, createEvent, fireEvent, render, screen } from '@testing-library/react';
-import { chat } from '../../../wailsjs/go/models';
 import { ChatMessage } from './ChatMessage';
 import { MessageNode } from './MessageNode';
 import i18n from '../../lib/i18n';
@@ -67,7 +67,7 @@ vi.mock('../../store/chatStore', () => {
     // Esta fixture não carrega histórico canônico; MessageNode também consulta
     // o seletor ao registrar navegação. Os testes abaixo exercitam fala, não
     // fabricam admissão de um comando de navegação para uma mensagem ausente.
-    getConversationMessages: (): chat.EnrichedMessage[] => [],
+    getConversationMessages: (): Message[] => [],
   };
   const useChatStore = (selector?: (value: typeof state) => unknown) => (
     selector ? selector(state) : state
@@ -119,7 +119,7 @@ vi.mock('./ToolCallsSection', () => ({
 describe('ChatMessage', () => {
   it('traduz marcadores de erro em mensagens recuperadas do histórico', async () => {
     await i18n.changeLanguage('pt-BR');
-    const message = new chat.EnrichedMessage({
+    const message = messageFixture({
       id: 'history-error', conversationId, role: 'assistant',
       content: 'Falha na resposta do agente: provider_error:v1:authentication:',
     });
@@ -132,22 +132,22 @@ describe('ChatMessage', () => {
   it('preserva marcadores literais em mensagens do usuário e exemplos de código', async () => {
     await i18n.changeLanguage('pt-BR');
     const userText = 'provider_error:v1:authentication:';
-    render(<ChatMessage message={new chat.EnrichedMessage({ id: 'user-marker', conversationId, role: 'user', content: userText })} />);
+    render(<ChatMessage message={messageFixture({ id: 'user-marker', conversationId, role: 'user', content: userText })} />);
     expect(screen.getByText(userText)).toBeInTheDocument();
 
     const userMcpMarker = 'mcp_error:v1:Equipe%3A%20Produ%C3%A7%C3%A3o:call';
-    render(<ChatMessage message={new chat.EnrichedMessage({ id: 'user-mcp-marker', conversationId, role: 'user', content: userMcpMarker })} />);
+    render(<ChatMessage message={messageFixture({ id: 'user-mcp-marker', conversationId, role: 'user', content: userMcpMarker })} />);
     expect(screen.getByText(userMcpMarker)).toBeInTheDocument();
 
     const codeSample = 'const diagnostic = "provider_error:v1:authentication:";';
-    render(<ChatMessage message={new chat.EnrichedMessage({ id: 'assistant-code', conversationId, role: 'assistant', content: codeSample })} />);
+    render(<ChatMessage message={messageFixture({ id: 'assistant-code', conversationId, role: 'assistant', content: codeSample })} />);
     const lastProps = markdownRendererSpy.mock.calls[markdownRendererSpy.mock.calls.length - 1][0] as { content: string };
     expect(lastProps.content).toBe(codeSample);
   });
 
   it('localiza o diagnóstico histórico de valor recusado sem sugerir remoção do campo', async () => {
     await i18n.changeLanguage('pt-BR');
-    const message = new chat.EnrichedMessage({
+    const message = messageFixture({
       id: 'history-invalid-value', conversationId, role: 'assistant',
       content: 'Falha na resposta do agente: provider_error:v1:invalid_value:temperature:400',
     });
@@ -160,7 +160,7 @@ describe('ChatMessage', () => {
   it('traduz uma conclusão diagnóstica compartilhada pelo conteúdo e pelo segmento final', async () => {
     await i18n.changeLanguage('pt-BR');
     const diagnostic = 'Falha na resposta do agente: provider_error:v1:authentication:';
-    const message = new chat.EnrichedMessage({
+    const message = messageFixture({
       id: 'history-diagnostic-chain', conversationId, role: 'assistant', content: diagnostic,
       turnSegments: [{ type: 'text', content: diagnostic }],
     });
@@ -172,12 +172,12 @@ describe('ChatMessage', () => {
   });
 
   it('mantém a origem do callback de bloco capturada antes de trocar a mensagem', () => {
-    const message = new chat.EnrichedMessage({ id: 'source-a', conversationId, role: 'assistant', content: 'Mensagem integral A' });
+    const message = messageFixture({ id: 'source-a', conversationId, role: 'assistant', content: 'Mensagem integral A' });
     const onSendToEditor = vi.fn();
     const view = render(<ChatMessage message={message} onSendToEditor={onSendToEditor} />);
     const captured: { onSendToEditor: (payload: SendToEditorPayload) => void } = markdownRendererSpy.mock.calls[markdownRendererSpy.mock.calls.length - 1][0];
     message.content = 'mutação posterior';
-    view.rerender(<ChatMessage message={new chat.EnrichedMessage({ id: 'source-b', conversationId, role: 'assistant', content: 'Mensagem B' })} onSendToEditor={onSendToEditor} />);
+    view.rerender(<ChatMessage message={messageFixture({ id: 'source-b', conversationId, role: 'assistant', content: 'Mensagem B' })} onSendToEditor={onSendToEditor} />);
     const payload: SendToEditorPayload = { target: 'document', targetDocumentId: 'doc-a', content: 'bloco', title: 'Código', format: 'markdown' };
     captured.onSendToEditor(payload);
     expect(onSendToEditor).toHaveBeenCalledExactlyOnceWith({ ...payload, messageId: 'source-a', originalContent: 'Mensagem integral A' });
@@ -195,7 +195,7 @@ describe('ChatMessage', () => {
     }
   });
 
-  const keyboardMessage = () => new chat.EnrichedMessage({
+  const keyboardMessage = () => messageFixture({
     id: '01926b90-7a5a-7c4e-8d3f-000000000002', conversationId, role: 'user', content: 'Mensagem de teclado',
     isStreaming: false, internal: false,
   });
@@ -203,7 +203,7 @@ describe('ChatMessage', () => {
   it('Space no ChatMessage real dentro do MessageNode executa somente uma vez', async () => {
     const onSpeak = vi.fn(); const onOuterKeyDown = vi.fn(); const message = keyboardMessage();
     const { container } = render(<div onKeyDown={onOuterKeyDown}>
-      <MessageNode node={new chat.MessageNode({ message, children: [], childCount: 0, level: 0 })} onSpeak={onSpeak} />
+      <MessageNode node={nodeFixture({ message, children: [], childCount: 0, level: 0 })} onSpeak={onSpeak} />
     </div>);
     const child = container.querySelector('.chat-message')!;
     await act(async () => { fireEvent.keyDown(child, { key: ' ', code: 'Space' }); });
@@ -215,7 +215,7 @@ describe('ChatMessage', () => {
 
   it('Space ignora repeat, IME, 229 e defaultPrevented também na árvore real', async () => {
     const onSpeak = vi.fn();
-    const { container } = render(<MessageNode node={new chat.MessageNode({ message: keyboardMessage(), children: [], childCount: 0, level: 0 })} onSpeak={onSpeak} />);
+    const { container } = render(<MessageNode node={nodeFixture({ message: keyboardMessage(), children: [], childCount: 0, level: 0 })} onSpeak={onSpeak} />);
     const child = container.querySelector('.chat-message')!;
     for (const extra of [{ repeat: true }, { isComposing: true }, { keyCode: 229 }]) {
       fireEvent.keyDown(child, { key: ' ', code: 'Space', ...extra });
@@ -229,7 +229,7 @@ describe('ChatMessage', () => {
   it('primeiro Space para fala ativa, mas autorepeat não interrompe novamente', async () => {
     playback.active = true;
     const onSpeak = vi.fn();
-    render(<MessageNode node={new chat.MessageNode({ message: keyboardMessage(), children: [], childCount: 0, level: 0 })} onSpeak={onSpeak} />);
+    render(<MessageNode node={nodeFixture({ message: keyboardMessage(), children: [], childCount: 0, level: 0 })} onSpeak={onSpeak} />);
     const button = screen.getByRole('button', { name: 'chat.playAudio' });
     await act(async () => { fireEvent.keyDown(button, { key: ' ', code: 'Space' }); });
     fireEvent.keyDown(button, { key: ' ', code: 'Space', repeat: true });
@@ -248,7 +248,7 @@ describe('ChatMessage', () => {
 
   it('renderiza conteudo e botao de audio', () => {
     const onSpeak = vi.fn();
-    const message = new chat.EnrichedMessage({
+    const message = messageFixture({
       id: '1',
       conversationId,
       role: 'user',
@@ -274,7 +274,7 @@ describe('ChatMessage', () => {
   });
 
   it('indica fixação por texto e no nome acessível', () => {
-    const message = new chat.EnrichedMessage({
+    const message = messageFixture({
       id: 'pinned-message',
       conversationId,
       role: 'assistant',
@@ -293,7 +293,7 @@ describe('ChatMessage', () => {
   });
 
   it('habilita a navegação interna do renderer somente no modo de leitura', () => {
-    const message = new chat.EnrichedMessage({
+    const message = messageFixture({
       id: 'reading-navigation',
       conversationId,
       role: 'assistant',
@@ -318,7 +318,7 @@ describe('ChatMessage', () => {
   });
 
   it.each([false, true])('leitura ao vivo não mantém texto sob aria-busy (com ferramentas: %s)', agentic => {
-    const message = new chat.EnrichedMessage({
+    const message = messageFixture({
       id: 'live-reading-busy', conversationId, role: 'assistant',
       content: 'Texto chegando', isStreaming: true, internal: false,
     });
@@ -332,7 +332,7 @@ describe('ChatMessage', () => {
   });
 
   it('renderiza modo de edicao', () => {
-    const message = new chat.EnrichedMessage({
+    const message = messageFixture({
       id: '1',
       conversationId,
       role: 'user',
@@ -357,7 +357,7 @@ describe('ChatMessage', () => {
   });
 
   it('não anuncia conteúdo do assistente em nenhuma fase do streaming', () => {
-    const streamingMessage = new chat.EnrichedMessage({
+    const streamingMessage = messageFixture({
       id: 'assistant-no-announce-1',
       conversationId,
       role: 'assistant',
@@ -367,7 +367,7 @@ describe('ChatMessage', () => {
       isStreaming: true,
       internal: false,
     });
-    const completedMessage = new chat.EnrichedMessage({
+    const completedMessage = messageFixture({
       ...streamingMessage,
       isStreaming: false,
       content: 'Resposta parcial com conteúdo suficiente para anunciar. Final.',
@@ -381,7 +381,7 @@ describe('ChatMessage', () => {
   });
 
   it('não anuncia conclusão de turno agêntico sem texto', () => {
-    const streamingMessage = new chat.EnrichedMessage({
+    const streamingMessage = messageFixture({
       id: 'assistant-tool-only-1',
       conversationId,
       role: 'assistant',
@@ -391,7 +391,7 @@ describe('ChatMessage', () => {
       isStreaming: true,
       internal: false,
     });
-    const completedToolOnlyMessage = new chat.EnrichedMessage({
+    const completedToolOnlyMessage = messageFixture({
       ...streamingMessage,
       isStreaming: false,
       turnSegments: [
@@ -436,7 +436,7 @@ describe('ChatMessage', () => {
     vi.stubGlobal('IntersectionObserver', MockIntersectionObserver);
 
     const largeContent = `inicio-${'a'.repeat(8_100)}-fim`;
-    const message = new chat.EnrichedMessage({
+    const message = messageFixture({
       id: '1',
       conversationId,
       role: 'assistant',
@@ -474,7 +474,7 @@ describe('ChatMessage', () => {
     vi.stubGlobal('IntersectionObserver', MockIntersectionObserver);
 
     const largeContent = `inicio-${'a'.repeat(8_100)}-fim`;
-    const streamingMessage = new chat.EnrichedMessage({
+    const streamingMessage = messageFixture({
       id: '1',
       conversationId,
       role: 'assistant',
@@ -484,7 +484,7 @@ describe('ChatMessage', () => {
       isStreaming: true,
       internal: false,
     });
-    const completedMessage = new chat.EnrichedMessage({
+    const completedMessage = messageFixture({
       ...streamingMessage,
       isStreaming: false,
     });
@@ -510,7 +510,7 @@ describe('ChatMessage', () => {
     }
     vi.stubGlobal('IntersectionObserver', MockIntersectionObserver);
 
-    const message = new chat.EnrichedMessage({
+    const message = messageFixture({
       id: 'tool-only',
       conversationId,
       role: 'assistant',
@@ -537,7 +537,7 @@ describe('ChatMessage', () => {
   // tools → resposta final) e o ChatMessage precisa renderizar tudo dentro de
   // UMA única entrada acessível, com a cadeia de raciocínio em ordem.
   it('renderiza segmentos canônicos do turno em ordem cronológica numa única entrada', () => {
-    const message = new chat.EnrichedMessage({
+    const message = messageFixture({
       id: 'turn-final',
       conversationId,
       role: 'assistant',
@@ -572,7 +572,7 @@ describe('ChatMessage', () => {
   });
 
   it('renderiza placeholder acessível para turno sem resposta do assistente', () => {
-    const message = new chat.EnrichedMessage({
+    const message = messageFixture({
       id: 'tool-only',
       conversationId,
       role: 'assistant',
@@ -603,7 +603,7 @@ describe('ChatMessage', () => {
   // cadeia termina num texto intermediário ou em tool_calls), nunca um trecho
   // intermediário.
   it('usa message.content como conclusão quando ele não é o último segmento de texto', () => {
-    const message = new chat.EnrichedMessage({
+    const message = messageFixture({
       id: 'turn-final',
       conversationId,
       role: 'assistant',
@@ -643,7 +643,7 @@ describe('ChatMessage', () => {
   // Issue #163 (Parte B): quando a conclusão é, de fato, o último segmento de
   // texto e coincide com `message.content`, o aria-label traz essa resposta.
   it('usa a conclusão como último segmento quando coincide com message.content', () => {
-    const message = new chat.EnrichedMessage({
+    const message = messageFixture({
       id: 'turn-final-seg',
       conversationId,
       role: 'assistant',
@@ -677,7 +677,7 @@ describe('ChatMessage', () => {
     // `content` (live) e só vira um TurnSegment concluído depois. O anúncio
     // precisa refletir esse trecho mais recente, sem ficar preso no último
     // segmento já fechado.
-    const first = new chat.EnrichedMessage({
+    const first = messageFixture({
       id: 'turn-streaming',
       conversationId,
       role: 'assistant',
@@ -701,7 +701,7 @@ describe('ChatMessage', () => {
 
     // O novo trecho ("parte dois") chega como conteúdo ao vivo; os segmentos
     // concluídos ainda terminam no texto anterior ("parte um") + tool_calls.
-    const second = new chat.EnrichedMessage({
+    const second = messageFixture({
       id: 'turn-streaming',
       conversationId,
       role: 'assistant',
@@ -732,7 +732,7 @@ describe('ChatMessage', () => {
   });
 
   it('mantém o placeholder tool-only no aria-label quando o turno só tem tool_calls', () => {
-    const message = new chat.EnrichedMessage({
+    const message = messageFixture({
       id: 'tool-only-aria',
       conversationId,
       role: 'assistant',
@@ -760,7 +760,7 @@ describe('ChatMessage', () => {
   // a conclusão é o último `TurnSegment` de texto NÃO-vazio, ignorando segmentos
   // finais em branco.
   it('usa a conclusão fornecida pela apresentação, sem escolher outro segmento textual', () => {
-    const message = new chat.EnrichedMessage({
+    const message = messageFixture({
       id: 'turn-empty-content',
       conversationId,
       role: 'assistant',
@@ -791,7 +791,7 @@ describe('ChatMessage', () => {
   // a conclusão canônica está em `message.content`, o aria-label usa o content —
   // não o último segmento (que está em branco) nem um intermediário.
   it('usa message.content quando o último segmento textual está em branco', () => {
-    const message = new chat.EnrichedMessage({
+    const message = messageFixture({
       id: 'turn-blank-final',
       conversationId,
       role: 'assistant',
@@ -821,7 +821,7 @@ describe('ChatMessage', () => {
   });
 
   it('mostra o estado terminal depois das tools quando o turno tool-only tem apenas turnSegments', () => {
-    const message = new chat.EnrichedMessage({
+    const message = messageFixture({
       id: 'tool-only-segmented',
       conversationId,
       role: 'assistant',
@@ -855,7 +855,7 @@ describe('ChatMessage', () => {
   // modo de leitura (role="document") —, garantindo que o leitor de tela leia
   // TUDO quando a cadeia está expandida.
   it('mantém toda a cadeia (segmentos + tool calls) dentro de chat-message__content no modo de leitura', () => {
-    const message = new chat.EnrichedMessage({
+    const message = messageFixture({
       id: 'turn-reading',
       conversationId,
       role: 'assistant',
@@ -893,7 +893,7 @@ describe('ChatMessage', () => {
   // contrair/expandir (botão com nome e `aria-expanded`). Inicia expandida
   // (preserva o visual) e recolher remove a cadeia do DOM por economia.
   it('expõe um controle de contrair/expandir a cadeia com aria-expanded', () => {
-    const message = new chat.EnrichedMessage({
+    const message = messageFixture({
       id: 'turn-toggle',
       conversationId,
       role: 'assistant',
@@ -941,7 +941,7 @@ describe('ChatMessage', () => {
   // modo de leitura; do contrário ele (e os demais interativos da mensagem) não
   // deve ser um tabstop ao navegar pela lista de mensagens.
   it('torna o toggle da cadeia focável apenas no modo de leitura', () => {
-    const message = new chat.EnrichedMessage({
+    const message = messageFixture({
       id: 'turn-toggle-tabindex',
       conversationId,
       role: 'assistant',
@@ -972,7 +972,7 @@ describe('ChatMessage', () => {
   // para que o role="document" do useVirtualModal exponha todos os segmentos +
   // tool calls. O `aria-expanded` permanece consistente com o conteúdo visível.
   it('força a cadeia recolhida de volta ao DOM ao entrar no modo de leitura', () => {
-    const message = new chat.EnrichedMessage({
+    const message = messageFixture({
       id: 'turn-reading-collapsed',
       conversationId,
       role: 'assistant',
@@ -1019,7 +1019,7 @@ describe('ChatMessage', () => {
   // leitura, o estado da cadeia deve voltar ao que era antes — se o usuário a
   // tinha recolhido, ela volta a recolher (não fica expandida permanentemente).
   it('restaura o estado recolhido da cadeia ao sair do modo de leitura', () => {
-    const message = new chat.EnrichedMessage({
+    const message = messageFixture({
       id: 'turn-restore-collapsed',
       conversationId,
       role: 'assistant',
@@ -1061,7 +1061,7 @@ describe('ChatMessage', () => {
   // a CONCLUSÃO do turno (mesma fonte de verdade do aria-label), sem as tool
   // calls nem os segmentos intermediários.
   it('exibe a conclusão (sem tool calls/intermediários) quando a cadeia está recolhida', () => {
-    const message = new chat.EnrichedMessage({
+    const message = messageFixture({
       id: 'turn-collapsed-preview',
       conversationId,
       role: 'assistant',
@@ -1095,7 +1095,7 @@ describe('ChatMessage', () => {
 });
 
 it('preserva o mesmo link focado entre streaming, confirmação, terminal e novo snapshot', () => {
-  const frame = (isStreaming: boolean, durability: string, firstId = 'part-1'): Message => Object.assign(new chat.EnrichedMessage({
+  const frame = (isStreaming: boolean, durability: string, firstId = 'part-1'): Message => Object.assign(messageFixture({
     id: 'turn:question', conversationId, role: 'assistant', content: '[focus]final', timestamp: 1, isStreaming,
     turnSegments: [{ type: 'text', content: '[focus]' }, { type: 'tool_calls', toolInvocations: [toolInvocation('call', 'search')] }, { type: 'text', content: 'final' }],
   }), { timelineItem: { itemId: 'turn:question', durability, segments: [
@@ -1114,7 +1114,7 @@ it('preserva o mesmo link focado entre streaming, confirmação, terminal e novo
 });
 
 it.each([['failed', 'error', 'chat.timelineFailed'], ['interrupted', 'limit_reached', 'chat.timelineLimitReached'], ['interrupted', 'cancelled', 'chat.timelineInterrupted']])('exibe diagnóstico canônico %s sem substituir a resposta parcial', (state, terminalReason, label) => {
- const message = Object.assign(new chat.EnrichedMessage({ id: 'partial', role: 'assistant', content: 'parcial preservada', conversationId, timestamp: 1 }),
+ const message = Object.assign(messageFixture({ id: 'partial', role: 'assistant', content: 'parcial preservada', conversationId, timestamp: 1 }),
    { timelineItem: { state, metadata: { terminalReason }, segments: [] } as unknown as TimelineItem });
  render(<ChatMessage message={message} />);
  expect(screen.getByText('parcial preservada')).toBeVisible();

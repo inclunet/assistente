@@ -1,8 +1,9 @@
+import type { MessageNode } from '../../lib/chatMessageTree';
+import { messageFixture, nodeFixture } from '../../test/chatPresentationFixture';
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, render } from '@testing-library/react';
 import { MessageList } from './MessageList';
-import { chat } from '../../../wailsjs/go/models';
 
 const renderMessageNode = vi.hoisted(() => vi.fn());
 
@@ -15,14 +16,14 @@ vi.mock('../../hooks/useAnnouncer', () => ({
 }));
 
 vi.mock('./MessageNode', () => ({
-  MessageNode: React.memo((props: { node: chat.MessageNode; onReachStart?: () => void; onReachEnd?: () => void }) => {
+  MessageNode: React.memo((props: { node: MessageNode; onReachStart?: () => void; onReachEnd?: () => void }) => {
     renderMessageNode(props);
     return <div data-message-node={String(props.node.message.id)} />;
   }),
 }));
 
-const createNode = (id = 'message-1') => chat.MessageNode.createFrom({
-  message: new chat.EnrichedMessage({
+const createNode = (id = 'message-1') => nodeFixture({
+  message: messageFixture({
     id,
     conversationId: 'conversation-1',
     role: 'assistant',
@@ -119,7 +120,7 @@ describe('MessageList performance', () => {
     const { rerender } = render(<MessageList threadedMessages={[first, second]} />);
     expect(renderMessageNode).toHaveBeenCalledTimes(2);
     renderMessageNode.mockClear();
-    const changed = chat.MessageNode.createFrom({ ...second, message: { ...second.message, content: 'novo conteúdo' } });
+    const changed = nodeFixture({ ...second, message: { ...second.message, content: 'novo conteúdo' } });
     rerender(<MessageList threadedMessages={[first, changed]} />);
     expect(renderMessageNode).toHaveBeenCalledTimes(1);
     expect(renderMessageNode.mock.calls[0][0].node).toBe(changed);

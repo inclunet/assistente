@@ -1,3 +1,4 @@
+import { nodeFixture } from '../../test/chatPresentationFixture';
 vi.mock('./useChatTimelinePresentation', async () => import('./canonicalPresentationFixture'));
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
@@ -14,7 +15,6 @@ import { Modal } from '../ui/Modal';
 import { useWorkspaceChatModalStore } from '../../store/workspaceChatModalStore';
 import { setFixtureCanonicalItem, publishFixtureMessage } from './canonicalPresentationFixture';
 import { canonicalTestItem } from '../../services/chatTimelineTestFixture';
-import { chat } from '../../../wailsjs/go/models';
 
 const id = '01926b90-7a5a-7c4e-8d3f-000000000001';
 const send = vi.hoisted(() => vi.fn());
@@ -93,7 +93,7 @@ describe('ChatSessionView + ChatInput + pipeline reais', () => {
     const item = canonicalTestItem('response', 'parcial', { conversationId: id, turnId: id, representativeMessageId: id, state: 'interrupted' });
     item.metadata.terminalReason = 'cancelled';
     setFixtureCanonicalItem('response', item);
-    useChatStore.setState(state => ({ timelinesByConversationId: { ...state.timelinesByConversationId, [id]: { id, title: 'chat', threadedMessages: [new chat.MessageNode({ message: { id: 'response', conversationId: id, role: 'assistant', content: 'parcial', turnId: id }, children: [], childCount: 0, level: 0 })] } } }));
+    useChatStore.setState(state => ({ timelinesByConversationId: { ...state.timelinesByConversationId, [id]: { id, title: 'chat', threadedMessages: [nodeFixture({ message: { id: 'response', conversationId: id, role: 'assistant', content: 'parcial', turnId: id }, children: [], childCount: 0, level: 0 })] } } }));
     await act(async () => { mount('surface-profile'); });
     const target = captureChatMessagingTarget(() => '/', 'chat.message.retry', undefined, undefined, { sourceItemId: 'response', messageId: id, continue: true });
     expect(!!target).toBe(enabled);
@@ -110,7 +110,7 @@ describe('ChatSessionView + ChatInput + pipeline reais', () => {
     const item = canonicalTestItem('response', 'parcial', { conversationId: id, turnId: id, representativeMessageId: id, state: 'interrupted', durability: scenario === 'volatile' ? 'volatile' : 'persisted' });
     item.metadata.terminalReason = 'cancelled';
     setFixtureCanonicalItem('response', item);
-    useChatStore.setState(state => ({ timelinesByConversationId: { ...state.timelinesByConversationId, [id]: { id, title: 'chat', threadedMessages: [new chat.MessageNode({ message: { id: 'response', conversationId: id, role: 'assistant', content: 'parcial', turnId: id }, children: [], childCount: 0, level: 0 })] } } }));
+    useChatStore.setState(state => ({ timelinesByConversationId: { ...state.timelinesByConversationId, [id]: { id, title: 'chat', threadedMessages: [nodeFixture({ message: { id: 'response', conversationId: id, role: 'assistant', content: 'parcial', turnId: id }, children: [], childCount: 0, level: 0 })] } } }));
     await act(async () => { mount(); });
     const target = captureChatMessagingTarget(() => '/', 'chat.message.retry', undefined, undefined, { sourceItemId: 'response', messageId: id, continue: true });
     if (scenario !== 'persisted') {
@@ -129,7 +129,7 @@ describe('ChatSessionView + ChatInput + pipeline reais', () => {
     const item = canonicalTestItem('response', 'parcial', { conversationId: id, turnId: id, representativeMessageId: id, state: 'interrupted' });
     item.metadata.terminalReason = 'cancelled';
     setFixtureCanonicalItem('response', item);
-    useChatStore.setState(state => ({ timelinesByConversationId: { ...state.timelinesByConversationId, [id]: { id, title: 'chat', threadedMessages: [new chat.MessageNode({ message: { id: 'response', conversationId: id, role: 'assistant', content: 'parcial', turnId: id }, children: [], childCount: 0, level: 0 })] } } }));
+    useChatStore.setState(state => ({ timelinesByConversationId: { ...state.timelinesByConversationId, [id]: { id, title: 'chat', threadedMessages: [nodeFixture({ message: { id: 'response', conversationId: id, role: 'assistant', content: 'parcial', turnId: id }, children: [], childCount: 0, level: 0 })] } } }));
     await act(async () => { mount(); });
     const target = captureChatMessagingTarget(() => '/', 'chat.message.retry', undefined, undefined, { sourceItemId: 'response', messageId: id, continue: true });
     expect(target).toBeDefined();
@@ -144,7 +144,7 @@ describe('ChatSessionView + ChatInput + pipeline reais', () => {
     const item = canonicalTestItem('response', 'parcial', { conversationId: id, turnId: id, representativeMessageId: id, state: 'interrupted' });
     item.metadata.terminalReason = 'cancelled';
     setFixtureCanonicalItem('response', item);
-    useChatStore.setState(state => ({ timelinesByConversationId: { ...state.timelinesByConversationId, [id]: { id, title: 'chat', threadedMessages: [new chat.MessageNode({ message: { id: 'response', conversationId: id, role: 'assistant', content: 'parcial', turnId: id }, children: [], childCount: 0, level: 0 })] } } }));
+    useChatStore.setState(state => ({ timelinesByConversationId: { ...state.timelinesByConversationId, [id]: { id, title: 'chat', threadedMessages: [nodeFixture({ message: { id: 'response', conversationId: id, role: 'assistant', content: 'parcial', turnId: id }, children: [], childCount: 0, level: 0 })] } } }));
     await act(async () => { mount(); });
     act(() => screen.getByRole('button', { name: 'first message' }).focus());
     const target = captureChatMessagingTarget(() => '/', 'chat.message.retry', undefined, undefined, { sourceItemId: 'response', messageId: id, continue: true });

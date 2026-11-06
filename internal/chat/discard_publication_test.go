@@ -125,7 +125,7 @@ func TestDiscardRetainedReconcilesPublishedVolatileItem(t *testing.T) {
 				if _, ok, err := sub.Replay(f.ctx, epoch, snapshot.WindowRevision, before, f.reader); ok || !errors.Is(err, ErrTimelinePublication) {
 					t.Fatal("bloqueador não suspendeu replay", err)
 				}
-				_, err := p.ReadWindow(f.ctx, database.MessageWindowQuery{ConversationID: f.conversation}, windowRecoveryReader(func(context.Context, database.MessageWindowQuery) (*TimelineWindowSnapshot, error) {
+				_, err := p.ReadCanonicalWindow(f.ctx, database.MessageWindowQuery{ConversationID: f.conversation}, windowRecoveryReader(func(context.Context, database.MessageWindowQuery) (*TimelineWindowSnapshot, error) {
 					version, err := f.reader.ReadVersion(f.ctx, f.conversation)
 					return &TimelineWindowSnapshot{Version: version, TurnIDs: []string{"blocker"}}, err
 				}))

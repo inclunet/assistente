@@ -27,7 +27,7 @@ func TestTimelineItemsShareWindowAndTerminalProjection(t *testing.T) {
 	if !reflect.DeepEqual(response.MessageIDs, []string{f.answer}) || response.Position.AnchorID != f.question {
 		t.Fatalf("referências incompletas: %+v", response)
 	}
-	if window.Window.Nodes[1].ItemID != response.ItemID || window.Window.Nodes[1].Message.ID != response.Representative.ID {
+	if window.Items[1].ItemID != response.ItemID || window.Items[1].Representative.ID != response.Representative.ID {
 		t.Fatal("adaptador alterou identidade")
 	}
 }
@@ -42,7 +42,7 @@ func TestTimelineItemsPreserveNullRepresentativeAtLegacyBoundary(t *testing.T) {
 	if response.Representative != nil || response.TerminalPatch() != nil || len(response.Segments) == 0 {
 		t.Fatalf("NULL promovido a representante: %+v", response)
 	}
-	if window.Window.Nodes[1].Message.ID != f.answer || response.State != database.TurnCompleted {
+	if len(response.Segments) == 0 || response.Segments[0].SourceMessageID != f.answer || response.State != database.TurnCompleted {
 		t.Fatal("compatibilidade visual alterou conteúdo ou estado persistido")
 	}
 }

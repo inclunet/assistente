@@ -86,17 +86,17 @@ func TestTurnRuntimeRecoveryKeepsOneAttemptAndResponse(t *testing.T) {
 	if len(messages) != 1 || messages[0].ID != done.AssistantMessageID || messages[0].Content != "final" || messages[0].TotalTokens != 7 || messages[0].CacheReadTokens != 2 {
 		t.Fatalf("resposta: %+v", messages)
 	}
-	snapshot, err := chat.NewDBTimelineReader(database.DB()).ReadWindow(ctx, database.MessageWindowQuery{ConversationID: conv, Anchor: "end", Direction: "before", Limit: 20})
+	snapshot, err := chat.NewDBTimelineReader(database.DB()).ReadCanonicalWindow(ctx, database.MessageWindowQuery{ConversationID: conv, Anchor: "end", Direction: "before", Limit: 20})
 	if err != nil {
 		t.Fatal(err)
 	}
 	matched := false
-	for _, node := range snapshot.Window.Nodes {
+	for _, node := range snapshot.Items {
 		if node.ItemID != done.ItemID {
 			continue
 		}
 		matched = true
-		if done.TurnPatch == nil || done.TurnPatch.Message.ID != node.Message.ID || done.TurnPatch.Message.Content != node.Message.Content || done.TurnPatch.Message.TotalTokens != node.Message.TotalTokens || done.TurnPatch.Message.CacheReadTokens != node.Message.CacheReadTokens {
+		if done.TurnPatch == nil || done.TurnPatch.Message.ID != node.Representative.ID || done.TurnPatch.Message.Content != node.Representative.Content || done.TurnPatch.Message.TotalTokens != node.Representative.TotalTokens || done.TurnPatch.Message.CacheReadTokens != node.Representative.CacheReadTokens {
 			t.Fatalf("terminal e janela divergentes: %+v %+v", done.TurnPatch, node)
 		}
 	}

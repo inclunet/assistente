@@ -1,5 +1,5 @@
+import { messageFixture, nodeFixture, segmentFixture } from '../test/chatPresentationFixture';
 import { describe, expect, it } from 'vitest';
-import { chat } from '../../wailsjs/go/models';
 import {
   attachChildrenToMessage,
   finalizeStreamingNode,
@@ -13,7 +13,7 @@ import {
   type MessageNode,
 } from './chatMessageTree';
 
-const message = (id: string, role: string, content = id, parentId?: string): Message => new chat.EnrichedMessage({
+const message = (id: string, role: string, content = id, parentId?: string): Message => messageFixture({
   id,
   role,
   content,
@@ -22,7 +22,7 @@ const message = (id: string, role: string, content = id, parentId?: string): Mes
   createdAt: '2026-04-30T00:00:00.000Z',
 }) as Message;
 
-const node = (msg: Message, children: MessageNode[] = [], level = 0): MessageNode => new chat.MessageNode({
+const node = (msg: Message, children: MessageNode[] = [], level = 0): MessageNode => nodeFixture({
   message: msg,
   children,
   level,
@@ -84,7 +84,7 @@ describe('chatMessageTree', () => {
 
   it('preserves canonical segments while an empty retry override hides them until an edit removes it', () => {
     const nodes = [node(message('root', 'assistant', 'Parcial'))];
-    nodes[0].message.turnSegments = [new chat.TurnSegment({ type: 'text', content: 'Parcial' })];
+    nodes[0].message.turnSegments = [segmentFixture({ type: 'text', content: 'Parcial' })];
     const received = updateMessageSegmentsInTree(nodes, 'root', [], '');
     expect((received[0].message as Message)._resumableContent).toBe('');
     const retry = updateMessageSegmentsInTree(received, 'root', []);
@@ -98,7 +98,7 @@ describe('chatMessageTree', () => {
 
   it('projects edited text even when canonical chronology contains no tools', () => {
     const nodes = [node(message('root', 'assistant', 'old'))];
-    nodes[0].message.turnSegments = [new chat.TurnSegment({ type: 'text', content: 'old' })];
+    nodes[0].message.turnSegments = [segmentFixture({ type: 'text', content: 'old' })];
     const edited = updateEditedMessageContentInTree(nodes, 'root', 'new');
     expect(getMessageTurnSegments(edited[0].message as Message)).toEqual([{ type: 'text', content: 'new' }]);
     expect(edited[0].message.turnSegments?.[0].content).toBe('old');

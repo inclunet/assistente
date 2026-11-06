@@ -6,10 +6,10 @@ import type { TimelineSnapshot } from './timelineConversationState';
 
 function item(id: string, scope: string | null = null): TimelineItem {
   return { itemId: id, conversationId: 'conversation', scopeParentId: scope, kind: 'message', turnId: null,
-    replyToItemId: '', messageIds: [id], representativeMessageId: id, position: 'opaque', revision: '1', state: 'completed', durability: 'persisted',
+    replyToItemId: '', messageIds: [id], representativeMessageId: id, revision: '1', state: 'completed', durability: 'persisted',
     segments: [{ segmentId: 'text', kind: 'text', text: id }],
-    metadata: { createdAt: '2026-01-01T00:00:00Z', timestamp: 1767225600000, source: '', childCount: 0,
-      threadParentMessageId: id, conclusionSegmentIds: ['text'], cacheReadTokens: 0, cacheWriteTokens: 0, cacheMissTokens: 0,
+    metadata: { createdAt: '2026-01-01T00:00:00Z', source: '', childCount: 0,
+      conclusionSegmentIds: ['text'], cacheReadTokens: 0, cacheWriteTokens: 0, cacheMissTokens: 0,
       origin: 'chat', role: 'user', pinned: false, model: '', promptTokens: 0, completionTokens: 0, totalTokens: 0 } };
 }
 
@@ -58,7 +58,7 @@ describe('canonical presentation', () => {
   it('uses the visual identity even when a response has no persisted action target', async () => {
     const f = fixture();
     f.setItems([{ ...item('turn:question'), kind: 'response', state: 'preparing', representativeMessageId: null,
-      metadata: { ...item('turn:question').metadata, role: 'assistant', threadParentMessageId: null } }]);
+      metadata: { ...item('turn:question').metadata, role: 'assistant' } }]);
     await f.presentation.open();
     const message = f.presentation.nodes()[0].message;
     expect(message.id).toBe('turn:question');
@@ -187,4 +187,17 @@ it('exposes the exact published copy capability without reserving recovery bytes
   const closing = f.presentation.close();
   expect(f.presentation.getCopyTarget(value.itemId)).toBeUndefined();
   await closing;
+});
+
+it.each([
+  ['2026-01-01T00:00:00.123456789Z', Date.UTC(2026, 0, 1, 0, 0, 0, 123)],
+  ['2026-01-01T00:00:00.123456789-03:00', Date.UTC(2026, 0, 1, 3, 0, 0, 123)],
+])('converte a data %s em milissegundos somente para exibição', async (createdAt, expected) => {
+  const f = fixture();
+  const original = item('date');
+  f.setItems([{ ...original, metadata: { ...original.metadata, createdAt } }]);
+  await f.presentation.open();
+  expect(f.presentation.nodes()[0].message.timestamp).toBe(expected);
+  expect(f.presentation.nodes()[0].message.createdAt).toBe(createdAt);
+  await f.presentation.close();
 });

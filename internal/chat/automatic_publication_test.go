@@ -310,7 +310,7 @@ func TestAutomaticPublicationRecoveryFlushesOtherFinishedTurns(t *testing.T) {
 			if err := p.DiscardRetained(f.ctx, f.conversation, f.question, e.executionID, recoveryReader{func() (*TimelineTurnSnapshot, error) { return nil, denied }}); !errors.Is(err, denied) {
 				t.Fatal(err)
 			}
-			if _, err := p.ReadWindow(f.ctx, database.MessageWindowQuery{ConversationID: f.conversation}, windowRecoveryReader(func(context.Context, database.MessageWindowQuery) (*TimelineWindowSnapshot, error) {
+			if _, err := p.ReadCanonicalWindow(f.ctx, database.MessageWindowQuery{ConversationID: f.conversation}, windowRecoveryReader(func(context.Context, database.MessageWindowQuery) (*TimelineWindowSnapshot, error) {
 				return nil, denied
 			})); !errors.Is(err, denied) {
 				t.Fatal(err)
@@ -335,7 +335,7 @@ func TestAutomaticPublicationRecoveryFlushesOtherFinishedTurns(t *testing.T) {
 				err = p.DiscardRetained(f.ctx, f.conversation, f.question, e.executionID, f.reader)
 			case "legacy-window":
 				// A janela autorizada comprova substituição de A; B está fora dela.
-				_, err = p.ReadWindow(f.ctx, database.MessageWindowQuery{ConversationID: f.conversation}, windowRecoveryReader(func(context.Context, database.MessageWindowQuery) (*TimelineWindowSnapshot, error) {
+				_, err = p.ReadCanonicalWindow(f.ctx, database.MessageWindowQuery{ConversationID: f.conversation}, windowRecoveryReader(func(context.Context, database.MessageWindowQuery) (*TimelineWindowSnapshot, error) {
 					version, err := f.reader.ReadVersion(f.ctx, f.conversation)
 					return &TimelineWindowSnapshot{Version: version, TurnIDs: []string{f.question}, Turns: map[string]*database.ChatTurn{f.question: {CurrentExecutionID: refString("replacement")}}}, err
 				}))

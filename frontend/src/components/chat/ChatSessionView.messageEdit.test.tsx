@@ -1,3 +1,4 @@
+import { messageFixture, nodeFixture, segmentFixture } from '../../test/chatPresentationFixture';
 import { fixtureMessages } from './canonicalPresentationFixture';
 import { publishFixtureMessage } from './canonicalPresentationFixture';
 vi.mock('./useChatTimelinePresentation', async () => import('./canonicalPresentationFixture'));
@@ -11,7 +12,6 @@ import { useAuthStore } from '../../store/authStore';
 import { useWorkspaceStore } from '../../store/workspaceStore';
 import { createChatSurfaceIdentity, createEmptyChatSession } from '../../services/chatSessionRegistry';
 import { CHAT_MESSAGING_EVENT, captureChatMessagingTarget, executeChatMessaging, type ChatMessagingRequest } from '../../lib/commandChatMessaging';
-import { chat } from '../../../wailsjs/go/models';
 import type { Message } from '../../lib/chatMessageTree';
 import { ttsService } from '../../services/tts';
 
@@ -77,8 +77,8 @@ beforeEach(() => {
   announceMessage.mockClear();
   vi.spyOn(HTMLElement.prototype, 'scrollIntoView').mockImplementation(() => {});
   Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: vi.fn(async () => {}) } });
-  const conversation = { id, title: 'chat', threadedMessages: [firstID, secondID].map((messageID, index) => new chat.MessageNode({
-    message: new chat.EnrichedMessage({ id: messageID, conversationId: id, role: 'user', content: index ? 'segunda' : '**primeira**' }), children: [], hasChildren: false, childCount: 0, level: 0,
+  const conversation = { id, title: 'chat', threadedMessages: [firstID, secondID].map((messageID, index) => nodeFixture({
+    message: messageFixture({ id: messageID, conversationId: id, role: 'user', content: index ? 'segunda' : '**primeira**' }), children: [], hasChildren: false, childCount: 0, level: 0,
   })) };
   useChatStore.setState({ timelinesByConversationId: { [id]: conversation }, sessionsByConversationId: { [id]: { ...createEmptyChatSession(id), conversation } }, surfaceSessionsByKey: {}, loadingConversationIds: new Set() });
   listener = event => {
@@ -133,7 +133,7 @@ describe('salvar edição: MessageNode, fonte draft, store e executor reais', ()
         visibleThreadedMessages: useChatStore.getState().timelinesByConversationId[id].threadedMessages,
       },
     } });
-    message.turnSegments = (message._turnSegments ?? []).map(segment => new chat.TurnSegment(segment));
+    message.turnSegments = (message._turnSegments ?? []).map(segment => segmentFixture(segment));
     mount();
     await waitFor(() => expect(node()).toHaveTextContent('Resposta anterior'));
     if (collapsed) fireEvent.click(screen.getByRole('button', { name: 'chat.collapseChain' }));

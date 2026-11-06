@@ -67,7 +67,7 @@ function messagesFixture() {
 
 async function setupChatWithMessages(wails: Parameters<Parameters<typeof test>[2]>[0]['wails']) {
   const now = new Date().toISOString();
-  await wails.setResponse('GetMessages', messagesFixture());
+  await wails.setTimelineRows(messagesFixture());
   await wails.setResponse('SendMessage', '01926b90-7a5a-7c4e-8d3f-000000000104');
   await wails.setResponse('UpdateMessage', undefined);
   await wails.setResponse('SpeakMessage', undefined);
@@ -92,12 +92,9 @@ async function installMessageCommandLedger(
       handoffId?: string;
       status: string;
     }>();
-    const setMessageWindow = () => window.__wailsMock.setResponse('GetConversationMessageWindow', () => ({
-      scope: 'conversation', conversationId, nodes: currentNodes, totalCount: currentNodes.length,
-      startIndex: 0, endIndex: currentNodes.length - 1, hasBefore: false, hasAfter: false,
-    }));
+    const setMessageWindow = () => window.__wailsMock.setTimelineRows(currentNodes);
     setMessageWindow();
-    window.__wailsMock.setResponse('GetMessages', () => currentNodes);
+
     window.__wailsMock.setResponse('BeginUICommand', (commandId: string) => {
       if (!['chat.message.copy', 'chat.message.copy_markdown', 'chat.message.delete'].includes(commandId)) {
         throw new Error(`Unexpected message command ${commandId}`);
@@ -423,8 +420,8 @@ test.describe('MessageNode — ArrowRight/Left thread expand/collapse', () => {
       },
     ];
 
-    await wails.setResponse('GetMessages', messagesWithChildren);
-    await wails.setResponse('GetMessageChildren', childrenResponse);
+    await wails.setTimelineRows(messagesWithChildren);
+    await wails.setTimelineRows(childrenResponse, parentMessageId);
     await wails.setResponse('EnsureConversation', {
       id: conversationId, title: 'Conversa', created_at: now, updated_at: now,
       messages: [], message_count: 2,
@@ -467,8 +464,8 @@ test.describe('MessageNode — ArrowRight/Left thread expand/collapse', () => {
       },
     ];
 
-    await wails.setResponse('GetMessages', messagesWithChildren);
-    await wails.setResponse('GetMessageChildren', childrenResponse);
+    await wails.setTimelineRows(messagesWithChildren);
+    await wails.setTimelineRows(childrenResponse, parentMessageId);
     await wails.setResponse('EnsureConversation', {
       id: conversationId, title: 'Conversa', created_at: now, updated_at: now,
       messages: [], message_count: 1,
@@ -549,7 +546,7 @@ test.describe('MessageNode — PageDown/PageUp navigation', () => {
       childCount: 0,
     }));
 
-    await wails.setResponse('GetMessages', manyMessages);
+    await wails.setTimelineRows(manyMessages);
     await wails.setResponse('EnsureConversation', {
       id: conversationId, title: 'Conversa', created_at: now, updated_at: now,
       messages: [], message_count: 15,
@@ -590,7 +587,7 @@ test.describe('MessageNode — ARIA attributes', () => {
       },
     ];
 
-    await wails.setResponse('GetMessages', messagesWithAndWithoutChildren);
+    await wails.setTimelineRows(messagesWithAndWithoutChildren);
     await wails.setResponse('EnsureConversation', {
       id: conversationId, title: 'Conversa', created_at: now, updated_at: now,
       messages: [], message_count: 2,

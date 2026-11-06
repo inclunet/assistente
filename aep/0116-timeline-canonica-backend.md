@@ -1,8 +1,114 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, mensagens, áudio, limpeza, exclusão e importação integrados; retenção por idade, órfãos, navegação, leitura leve e orçamento de fontes da janela com recuperação atômica e parcelada e participação histórica automática com publicação e replay atômicos integrados; followTail, retenção por foco/leitura, DTOs compartilhados, RPCs de inscrição, entrega pelo journal e transporte de eventos Wails integrados; núcleo transacional, coordenador e cliente Wails por sessão frontend e identidade de recuperação por execução, consulta autorizada de estado, leitura limitada, reserva explícita dos buffers finalizados, leitor de recuperação Wails, reserva do DTO canônico publicado e transferência de recuperação no Refresh integrados; DOM da lista unificado com retenção visual por foco; consumidor visual canônico e identidade dos segmentos integrados; reconstrução visual legada retirada do controlador operacional, incluindo invalidação na limpeza/reset e gates de persistência; gates remotos deste recorte e margem de desempenho pendentes
+## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, mensagens, áudio, limpeza, exclusão e importação integrados; retenção por idade, órfãos, navegação, leitura leve e orçamento de fontes da janela com recuperação atômica e parcelada e participação histórica automática com publicação e replay atômicos integrados; followTail, retenção por foco/leitura, DTOs compartilhados, RPCs de inscrição, entrega pelo journal e transporte de eventos Wails integrados; núcleo transacional, coordenador e cliente Wails por sessão frontend e identidade de recuperação por execução, consulta autorizada de estado, leitura limitada, reserva explícita dos buffers finalizados, leitor de recuperação Wails, reserva do DTO canônico publicado e transferência de recuperação no Refresh integrados; DOM da lista unificado com retenção visual por foco; consumidor visual canônico e identidade dos segmentos integrados; reconstrução visual legada retirada do controlador operacional, incluindo invalidação na limpeza/reset e gates de persistência; consultas visuais antigas retiradas, CLI migrado e payload abaixo de 64 KiB validados localmente; CI/review remotos e desempenho global pendentes
 
 Data: 2026-10-30
+
+### Recorte em validação: retirada das consultas visuais antigas (2026-11-06)
+
+Retirados os bindings/controller `GetMessages`, `GetRecentMessages`,
+`GetMessagesBefore`, `GetConversationMessageWindow`, `GetConversationWithThreads`
+e `GetMessageChildren`. O CLI, consumidor remanescente de `GetMessages`, passa
+pelo leitor canônico autorizado e paginado. Os componentes usam tipos locais
+para sua apresentação, sem depender de classes geradas por APIs obsoletas.
+As fixtures E2E passam a fornecer a timeline diretamente.
+
+A cobertura de janela migra para `SubscribeTimeline`, preservando recusa de
+ownership, escopo, orçamento de fontes, cronologia e exclusão de resultados
+integrais de ferramentas. `TestHistoryShowPaginatesRootAndThread` cobre páginas
+raiz e thread, e `TestHistoryShowRejectsVersionChangesAndBrokenCursors` impede
+misturar versões persistidas ou imprimir páginas sem avanço válido.
+
+A medição atual usa `BenchmarkCanonicalTimelineWindow`; a baseline histórica
+abaixo mantém seu nome e valores originais e pode ser reproduzida no commit
+registrado. A fixture de 100 mensagens revelou 112.621 bytes no contrato canônico.
+O mantenedor autorizou incluir a redução neste recorte, mantendo o teto de 64 KiB.
+O payload passou a 64.849 bytes (redução de 42,4%), sem reduzir os 100 itens,
+identidades, segmentos, referências de recuperação ou resumos de ferramentas.
+A prova de payload mantém tanto o teto quanto a exclusão do resultado integral.
+
+Simplificação do contrato wire, aprovada neste recorte:
+- A posição total continua interna ao backend. O DTO de item não envia `position`;
+  `orderedItemIds` e splices determinam a ordem, e os cursores continuam nas janelas.
+- `representativeMessageId` também é o alvo de thread. Não repetir o mesmo valor
+  em `metadata.threadParentMessageId`.
+- `createdAt` permanece no wire; milissegundos para exibição são derivados somente
+  na apresentação, sem participar de ordem, identidade, paginação ou comandos.
+- Source/model vazios, pin falso e contagens/uso zero são omitidos. Uma única
+  normalização na borda Wails aplica defaults a snapshots, itens de operações,
+  itens de patches e leitura de recuperação. Arrays semânticos vazios e IDs
+  nullable permanecem explícitos; não inferir representante nem conclusão.
+
+`TestCanonicalMetadataOmitsDefaultsWithoutLosingValues` prova round-trip,
+omissão dos defaults e preservação dos valores não padrão. A prova frontend
+`normaliza defaults igualmente em snapshot, operações, patches e recuperação`
+compara inclusive a representação integral usada na transferência de recuperação.
+DTOs e consumidores de eventos são atualizados no mesmo build, com bindings
+gerados novamente; não há formato compacto paralelo nem interpretação de ordem
+no frontend. A margem contra a baseline antiga continua um gate global do AEP:
+o orçamento de 64 KiB deste teste não substitui a comparação de desempenho final.
+
+Benchmark isolado em 06/11/2026, 20 operações por amostra, cinco amostras,
+mesmo equipamento/Go da baseline; medianas independentes de tempo/B/op:
+- 100 mensagens: 9,363 ms; 1.979.328 B/op; 64.845 bytes no wire.
+- 500 mensagens: 35,263 ms; 4.258.631 B/op; 153.878 bytes no wire.
+- 1.000 mensagens: 57,145 ms; 4.290.593 B/op; 153.879 bytes no wire.
+
+A diferença de quatro bytes contra a prova de 64.849 vem do tamanho do resultado
+integral na fixture (1 KiB no benchmark, 100 KiB no teste), informado no resumo
+leve. Os dois cenários maiores mantêm limite de 240 itens. O teto de 64 KiB vale
+para a fixture de 100 itens, não é uma promessa para qualquer janela/conteúdo.
+As medianas não satisfazem o gate global de +20% frente à baseline legada.
+Esta medição inclui inscrição, publicação e serialização canônicas; permanece
+pendente otimizar a abertura e repetir a comparação, sem afrouxar o gate.
+
+Validação anterior à redução: Go build/vet e lint incremental sem achados;
+485 testes selecionados de chat, 146 do agente, 20 dos controllers, 15 da API e
+16 do CLI passaram, sem ACP. Frontend: 7.030 testes Vitest e 107 E2E passaram
+(um cenário previamente desabilitado). Após a redução: Go build/vet e lint incremental passaram novamente; 485 testes
+de chat, 10 de janela/cronologia do app (incluindo o teto) e cinco de DTOs
+passaram. TypeScript, ESLint, 7.033 Vitest e 107 E2E passaram. Bindings regenerados.
+Revisão independente: ciclo inicial com duas rodadas backend (`review_aep`) e
+uma frontend (`review_store_coverage`); contrato reduzido com uma conferência
+backend e duas frontend. Achados corrigidos e conferidos, sem pendências locais.
+CI e review remota permanecem gates de publicação; desempenho global não foi
+aprovado por este recorte.
+
+O CI inicial detectou `snapshotTurnIDs` sem uso, deixada pela retirada do leitor.
+A função foi removida, 31 testes de snapshot/janela passaram e `review_aep`
+aprovou a correção. Lint local completo 2.15 encontrou 12 ocorrências em arquivos
+idênticos à base; não são declaradas corrigidas por este recorte. O CI usa 2.11.4.
+O Copilot encontrou perda de erro de escrita do cabeçalho no histórico vazio da
+CLI. Corrigido com `TestHistoryShowEmptyPropagatesOutputFailure`; 17 testes de
+histórico e vet do CLI passaram, com conferência independente de `review_aep`.
+
+Na rodada remota seguinte, o CLI passou a visitar threads de todas as fontes
+persistidas com filhos de uma resposta, usando contagens da mesma transação e
+sem consultas de escopos vazios. A UI conserva seu alvo no representante.
+`TestHistoryShowIncludesIntermediateThreads` e
+`TestCanonicalWindowIncludesIntermediateThreadParents` cobrem preservação e
+não duplicação. Datas SQLite sem horário/minutos passam pela normalização
+backend antes do RFC3339Nano; `TestCanonicalPreparingDateOnlyAnchor` prova o
+caso real sem representante. CLI (18), chat focado (5) e vet passaram;
+`review_aep` conferiu as correções. A fixture E2E aceita ID explícito para listas
+vazias; 13 E2E focados e revisão de `review_store_coverage` passaram.
+
+O resumo final do Copilot apontou separação textual no CLI. O render mantém
+fragmentos da mesma fonte unidos e separa fontes distintas, sem ordenar nem
+reconstruir conteúdo. `TestHistoryShowPreservesTextSourceBoundaries` passou junto
+com os 19 testes de histórico e vet; `review_aep` aprovou a correção.
+
+A prova de transferência de recuperação aplica o teto de 512 KiB aos bytes do
+contrato, excluindo somente defaults locais que o backend omite. A comparação
+integral continua sobre os objetos normalizados. `timelineWire.ts` centraliza
+os defaults usados nos dois percursos. A regressão aceita o wire com exatamente
+512 KiB mesmo após normalização, detecta conteúdo divergente e rejeita um byte
+adicional; não há aumento da cota. 112 testes focados de transporte, cliente e
+apresentação passaram e `review_store_coverage` aprovou a correção.
+
+Permanecem pendentes os adaptadores internos antigos ainda exercitados por
+provas de projeção, a migração de anexos da fase 4 e os gates finais do AEP.
+Esta retirada de APIs não conclui esses trabalhos.
 
 ### Recorte: retirada da reconstrução visual legada (2026-11-05)
 
@@ -3310,7 +3416,7 @@ usuário/sessão do transporte, nunca pelo owner fornecido no payload.
 
 - `TimelineItem`: `itemId`, `conversationId`, `scopeParentId` (null na raiz),
   `kind` (message/response), `turnId` (null em item sem turno), `replyToItemId`,
-  `messageIds`, `representativeMessageId`, `position`, `revision`, `state`,
+  `messageIds`, `representativeMessageId`, `revision`, `state`,
   `durability`, `segments`, `metadata` (origem, pin, uso, modelo e anexos leves).
 - `TimelineSegment`: `segmentId`, `kind` (text/reasoning/tool_invocations),
   `text` ou `invocations` (resumos do ledger); ordem é a posição no array.
@@ -3363,7 +3469,8 @@ banco e comparação binária de IDs, não `localeCompare`. Import com vínculo
 inexistente não inventa pergunta: rejeitar vínculo inválido no novo formato;
 legado é classificado e preservado como item independente com diagnóstico.
 
-`position` e cursores codificam essa chave e escopo; não são autorização. Paginar
+A posição interna e os cursores de janela codificam essa chave e escopo; não são
+autorização. O item wire não repete posição; sua ordem vem da janela. Paginar
 por cursor validado no mesmo owner/conversa; âncora excluída retorna sincronização
 necessária, nunca outra conversa nem janela vazia falsamente definitiva.
 

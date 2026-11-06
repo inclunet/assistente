@@ -1,5 +1,4 @@
 import { recoveryItemIdentity, type RecoveryItemIdentity } from './timelineRecoveryItem';
-import { chat } from '../../wailsjs/go/models';
 import type { Message, MessageNode, TurnSegment } from '../lib/chatMessageTree';
 import type { TimelineItem } from '../types/chatTimelineEvents';
 import { ChatTimelineClient, type TimelinePosition } from './chatTimelineClient';
@@ -118,7 +117,7 @@ export class ChatTimelinePresentation implements ChatMessageSource {
       const surface = `${this.surfaceId}:thread:${parentId}`;
       if (this.sources.has(surface)) return;
       const owner = [...this.sources.keys()].find(key => this.client.getWindow(this.conversationId, key)?.orderedItemIds.some(id =>
-        this.client.getItem(this.conversationId, key, id)?.metadata.threadParentMessageId === parentId));
+        this.client.getItem(this.conversationId, key, id)?.representativeMessageId === parentId));
       if (!owner) throw new Error('Thread parent unavailable');
       this.sources.set(surface, parentId);
       this.owners.set(surface, owner);
@@ -211,7 +210,7 @@ export class ChatTimelinePresentation implements ChatMessageSource {
     const nodes = window.orderedItemIds.map((id, index) => {
       const item = this.client.getItem(this.conversationId, surface, id);
       if (!item) throw new Error('Canonical window item unavailable');
-      const parent = item.metadata.threadParentMessageId;
+      const parent = item.representativeMessageId;
       const message = this.message(item);
       const children = parent ? this.nodes(parent) : emptyNodes;
       const originalIndex = window.metadata.startIndex + index;
@@ -232,13 +231,13 @@ export class ChatTimelinePresentation implements ChatMessageSource {
       type: segment.kind === 'tool_invocations' ? 'tool_calls' : 'text', content: segment.text,
       toolInvocations: segment.invocations as TurnSegment['toolInvocations'],
     }));
-    const message = Object.assign(new chat.EnrichedMessage({
-      ...item.metadata, id: item.itemId, conversationId: item.conversationId, parentId: item.scopeParentId ?? undefined,
+    const message = {
+      ...item.metadata, timestamp: Date.parse(item.metadata.createdAt), id: item.itemId, conversationId: item.conversationId, parentId: item.scopeParentId ?? undefined,
       turnId: item.turnId ?? undefined, content: item.metadata.conclusionSegmentIds.map(id => item.segments.find(segment => segment.segmentId === id)?.text ?? '').join(''),
       reasoning: item.segments.filter(segment => segment.kind === 'reasoning').map(segment => segment.text ?? '').join('\n'),
       isStreaming: item.state === 'preparing' || item.state === 'streaming', internal: false,
       turnSegments: segments,
-    }), { timelineItem: item }) as Message;
+    timelineItem: item } satisfies Message;
     this.messages.set(item, message);
     return message;
   }

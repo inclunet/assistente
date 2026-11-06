@@ -1,6 +1,6 @@
+import { messageFixture, segmentFixture } from '../../test/chatPresentationFixture';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { chat } from '../../../wailsjs/go/models';
 import type { ToolCallStatus } from '../../types/chat';
 import type { Message, TurnSegment } from '../../store/chatStore';
 import { useChatStore } from '../../store/chatStore';
@@ -39,7 +39,7 @@ const invocation = (callId: string, name: string, status = 'succeeded') => ({
   resultAvailability: 'available',
 });
 
-const canonicalSegments = (segments: TurnSegment[]) => segments.map(segment => new chat.TurnSegment({
+const canonicalSegments = (segments: TurnSegment[]) => segments.map(segment => segmentFixture({
   type: segment.type, content: segment.content,
   toolInvocations: segment.toolInvocations ?? segment.toolCalls?.map(call => invocation(call.id, call.function.name, call.status === 'running' ? 'running' : 'succeeded')),
 }));
@@ -48,9 +48,9 @@ const fixtureMessages = new Map<string, Message>();
 
 const messageFor = (
   id: string,
-  overrides: Partial<ConstructorParameters<typeof chat.EnrichedMessage>[0]> = {},
+  overrides: Partial<Partial<Message>> = {},
 ): Message => {
-  const message = new chat.EnrichedMessage({
+  const message = messageFixture({
   id,
   conversationId,
   role: 'assistant',
@@ -244,8 +244,8 @@ describe('cronologia de ChatMessage', () => {
       { type: 'text', content: text },
       { type: 'tool_calls', toolInvocations: [invocation(`call-${index}`, 'buscar-fonte')] },
     ]));
-    if (!success) message.turnSegments!.push(new chat.TurnSegment({ type: 'text', content: warning }));
-    if (!represented) message.turnSegments!.push(new chat.TurnSegment({ type: 'text', content: scalar }));
+    if (!success) message.turnSegments!.push(segmentFixture({ type: 'text', content: warning }));
+    if (!represented) message.turnSegments!.push(segmentFixture({ type: 'text', content: scalar }));
     const surface = seedStore({ targetConversationId: conversationId, messageId: message.id });
     renderMessage(surface, message);
     const expanded = [...texts, ...(!success ? [warning] : []), ...(!represented ? [scalar] : [])];

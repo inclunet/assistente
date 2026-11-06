@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { chat } from '../../wailsjs/go/models';
 import {
   loadConversationSnapshot,
 } from './chatSessionLoader';
@@ -21,25 +20,6 @@ vi.mock('i18next', () => ({
     t: (key: string) => (key === 'chat.conversation' ? 'Conversation fallback' : key),
   },
 }));
-
-const node = (id: string) => new chat.MessageNode({
-  message: new chat.EnrichedMessage({ id, role: 'user', content: id }),
-  children: [],
-  level: 0,
-  childCount: 0,
-});
-
-const windowResult = (ids: string[], overrides: Partial<chat.MessageWindow> = {}) => chat.MessageWindow.createFrom({
-  scope: 'conversation',
-  conversationId: 'conversation-1',
-  nodes: ids.map(node),
-  totalCount: ids.length,
-  startIndex: 0,
-  endIndex: ids.length - 1,
-  hasBefore: false,
-  hasAfter: false,
-  ...overrides,
-});
 
 describe('chatSessionLoader', () => {
   let fixture: ReturnType<typeof canonicalTestFixture>;
@@ -88,7 +68,7 @@ describe('chatSessionLoader', () => {
 
   it('usa i18n quando snapshot não tem título', async () => {
     mockGetConversationInfo.mockResolvedValue({ title: '' });
-    mockGetConversationMessageWindow.mockResolvedValue(windowResult([]));
+    mockGetConversationMessageWindow.mockRejectedValue(new Error("API legada não deve ser chamada"));
 
     const snapshot = await loadConversationSnapshot('conversation-1');
 
@@ -174,7 +154,7 @@ describe('chatSessionLoader', () => {
 
   it('carrega filhos de mensagem', async () => {
     const parent = canonicalTestItem('parent', 'pai', { conversationId: 'conversation-1' });
-    parent.metadata.threadParentMessageId = 'message-1';
+    parent.representativeMessageId = 'message-1';
     fixture.setItems([parent,
       canonicalTestItem('child-1', 'um', { conversationId: 'conversation-1', scopeParentId: 'message-1' }),
       canonicalTestItem('child-2', 'dois', { conversationId: 'conversation-1', scopeParentId: 'message-1' })]);

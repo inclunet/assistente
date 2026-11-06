@@ -1,3 +1,5 @@
+import type { MessageNode as ChatMessageNode } from '../../lib/chatMessageTree';
+import { messageFixture, nodeFixture } from '../../test/chatPresentationFixture';
 import { fixtureMessages } from './canonicalPresentationFixture';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { act, createEvent, fireEvent, render as renderUI, screen, cleanup, waitFor } from '@testing-library/react';
@@ -11,7 +13,6 @@ import { ChatSessionProvider } from './ChatSessionContext';
 import { WorkspacePanelProvider } from '../workspace/WorkspacePanelContext';
 import { createChatSurfaceIdentity, createEmptyChatSession } from '../../services/chatSessionRegistry';
 import { CHAT_NAVIGATION_COMMAND_EVENT, captureChatNavigationTarget, type ChatNavigationRequest } from '../../lib/commandChatNavigation';
-import { chat } from '../../../wailsjs/go/models';
 
 const chatMessageSpy = vi.fn();
 
@@ -57,10 +58,10 @@ function dispatchNavigation(event: Event) {
   finally { lease?.dispose(); }
 }
 function render(ui: ReactElement) {
-  const nodes: chat.MessageNode[] = [];
+  const nodes: ChatMessageNode[] = [];
   const prepare = (child: ReactNode): ReactNode => {
     if (!React.isValidElement(child)) return child;
-    const element = child as ReactElement<{ node?: chat.MessageNode; commandPathname?: string; children?: ReactNode }>;
+    const element = child as ReactElement<{ node?: ChatMessageNode; commandPathname?: string; children?: ReactNode }>;
     if (element.type === MessageNode && element.props.node) {
       nodes.push(element.props.node);
       return React.cloneElement(element, { commandPathname: '/chat' });
@@ -97,7 +98,7 @@ describe('MessageNode', () => {
     vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockImplementation(function (this: HTMLElement) {
       return this.classList.contains('message-list') ? 700 : this.hasAttribute('data-index') ? 140 : 0;
     });
-    const nodes = Array.from({ length: 41 }, (_, index) => chat.MessageNode.createFrom({
+    const nodes = Array.from({ length: 41 }, (_, index) => nodeFixture({
       message: { id: `row-${index}`, conversationId, role: 'assistant', turnId: `turn-${index}`,
         content: `mensagem ${index}`, timestamp: index, isStreaming: false, internal: false },
       children: [], childCount: 0, level: 0,
@@ -135,7 +136,7 @@ describe('MessageNode', () => {
     expect(original).toHaveFocus();
   });
 
-  const keyboardNode = () => new chat.MessageNode({
+  const keyboardNode = () => nodeFixture({
     message: { id: '01926b90-7a5a-7c4e-8d3f-000000000002', conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001',
       role: 'user', content: 'Mensagem', internal: false, isStreaming: false },
     childCount: 0, level: 0, children: [],
@@ -187,8 +188,8 @@ describe('MessageNode', () => {
   it('renderiza container e passa indicador de thread', () => {
     render(
       <MessageNode
-        node={chat.MessageNode.createFrom({
-          message: new chat.EnrichedMessage({
+        node={nodeFixture({
+          message: messageFixture({
             id: '1',
             conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001',
             role: 'user',
@@ -215,8 +216,8 @@ describe('MessageNode', () => {
     render(
       <div onKeyDown={onOuterKeyDown}>
         <MessageNode
-          node={chat.MessageNode.createFrom({
-            message: new chat.EnrichedMessage({
+          node={nodeFixture({
+            message: messageFixture({
               id: 'reading-message',
               conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001',
               role: 'assistant',

@@ -662,12 +662,12 @@ func TestExecutionWriterNativeCallsRetryAndReferencedMedia(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	window, err := reader.ReadWindow(ctx, database.MessageWindowQuery{ConversationID: conv, Anchor: "end", Direction: "before", Limit: 20})
+	window, err := reader.ReadCanonicalWindow(ctx, database.MessageWindowQuery{ConversationID: conv, Anchor: "end", Direction: "before", Limit: 20})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if terminal.Response.Representative.Media != `[{"type":"image","data":"base"}]` || window.Responses[turn].Representative.Media != terminal.Response.Representative.Media {
-		t.Fatal("janela e terminal perderam referência de mídia")
+	if terminal.Response.Representative.Media != `[{"type":"image","data":"base"}]` || window.Responses[turn].Representative.Media != "" {
+		t.Fatal("terminal perdeu mídia herdada ou janela leve materializou o blob")
 	}
 }
 

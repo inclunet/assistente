@@ -1550,7 +1550,11 @@ func (s *Service) DiscardRetainedTurn(ctx context.Context, conversationID, turnI
 	return s.projection.DiscardRetained(ctx, conversationID, turnID, executionID, s.timeline)
 }
 
-// ReadTimelineWindow coordena as consultas da apresentação com a execução.
-func (s *Service) ReadTimelineWindow(ctx context.Context, query database.MessageWindowQuery) (*chat.TimelineWindowSnapshot, error) {
-	return s.projection.ReadWindow(ctx, query, s.timeline)
+// ReadCanonicalTimelineWindow compartilha a projeção e a barreira com a CLI.
+func (s *Service) ReadCanonicalTimelineWindow(ctx context.Context, query database.MessageWindowQuery) (*chat.TimelineWindowSnapshot, error) {
+	reader, ok := s.timeline.(chat.CanonicalWindowSnapshotReader)
+	if !ok {
+		return nil, fmt.Errorf("leitor canônico indisponível")
+	}
+	return s.projection.ReadCanonicalWindow(ctx, query, reader)
 }

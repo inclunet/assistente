@@ -1,6 +1,6 @@
+import { messageFixture, segmentFixture } from '../../test/chatPresentationFixture';
 import { act, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { chat } from '../../../wailsjs/go/models';
 import type { ToolCallStatus } from '../../types/chat';
 import type { Message, TurnSegment } from '../../store/chatStore';
 import { useChatStore } from '../../store/chatStore';
@@ -41,7 +41,7 @@ const invocation = (callId: string, name: string, status = 'succeeded') => ({
   resultAvailability: 'available',
 });
 
-const canonicalSegments = (segments: TurnSegment[]) => segments.map(segment => new chat.TurnSegment({
+const canonicalSegments = (segments: TurnSegment[]) => segments.map(segment => segmentFixture({
   type: segment.type, content: segment.content,
   toolInvocations: segment.toolInvocations ?? segment.toolCalls?.map(call => invocation(call.id, call.function.name, call.status === 'running' ? 'running' : 'succeeded')),
 }));
@@ -51,9 +51,9 @@ const fixtureMessages = new Map<string, Message>();
 const messageFor = (
   id: string,
   targetConversationId: string,
-  overrides: Partial<ConstructorParameters<typeof chat.EnrichedMessage>[0]> = {},
+  overrides: Partial<Partial<Message>> = {},
 ): Message => {
-  const message = new chat.EnrichedMessage({
+  const message = messageFixture({
   id,
   conversationId: targetConversationId,
   role: 'assistant',

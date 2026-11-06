@@ -1,3 +1,5 @@
+import type { MessageNode as ChatMessageNode } from '../../lib/chatMessageTree';
+import { messageFixture, nodeFixture } from '../../test/chatPresentationFixture';
 import { publishFixtureMessage } from './canonicalPresentationFixture';
 import { fixtureMessages } from './canonicalPresentationFixture';
 import { setFixtureSourceUnavailable } from './canonicalPresentationFixture';
@@ -15,7 +17,6 @@ import { useWorkspaceChatModalStore } from '../../store/workspaceChatModalStore'
 import { createChatSurfaceIdentity, createChatSurfaceOrigin, createEmptyChatSession, createEmptyChatSurfaceSession, patchChatConversation } from '../../services/chatSessionRegistry';
 import { CHAT_NAVIGATION_COMMAND_EVENT, captureChatNavigationTarget, requestChatNavigationCommand, type ChatNavigationRequest, type ChatNavigationCommandID } from '../../lib/commandChatNavigation';
 import { attachChildrenToMessage, updateMessageContentInTree, finalizeStreamingNode } from '../../lib/chatMessageTree';
-import { chat } from '../../../wailsjs/go/models';
 import { getChatEventControllerExecutionId, stopAllChatEventControllers } from '../../services/chatEventController';
 
 const { mockSendMessage } = vi.hoisted(() => ({ mockSendMessage: vi.fn().mockResolvedValue(undefined) }));
@@ -45,17 +46,17 @@ function dispatch(event: Event) {
   try { if (lease?.canOpen(commandID)) { event.preventDefault(); executed(commandID, lease.open(commandID)); } }
   finally { lease?.dispose(); }
 }
-function node(id = mid, internal = false): chat.MessageNode {
-  return new chat.MessageNode({ message: new chat.EnrichedMessage({ id, conversationId: cid, role: 'assistant', content: '**Mensagem** [link](https://example.org)', reasoning: 'Raciocínio', internal, isStreaming: false }), children: [], childCount: 0, level: internal ? 1 : 0 });
+function node(id = mid, internal = false): ChatMessageNode {
+  return nodeFixture({ message: messageFixture({ id, conversationId: cid, role: 'assistant', content: '**Mensagem** [link](https://example.org)', reasoning: 'Raciocínio', internal, isStreaming: false }), children: [], childCount: 0, level: internal ? 1 : 0 });
 }
-function seed(nodes: chat.MessageNode[]) {
+function seed(nodes: ChatMessageNode[]) {
   const conversation = { id: cid, title: 'Chat', threadedMessages: nodes };
   useChatStore.setState({ timelinesByConversationId: { [cid]: conversation }, sessionsByConversationId: { [cid]: { ...createEmptyChatSession(cid), conversation } }, surfaceSessionsByKey: {} });
 }
-function replaceTree(nodes: chat.MessageNode[]) {
+function replaceTree(nodes: ChatMessageNode[]) {
   useChatStore.setState({ timelinesByConversationId: { [cid]: { id: cid, title: 'Chat', threadedMessages: nodes } } });
 }
-function attachChildrenToConversationInStore(messageId: string, children: chat.MessageNode[]) {
+function attachChildrenToConversationInStore(messageId: string, children: ChatMessageNode[]) {
   useChatStore.setState(state => patchChatConversation(state, cid, conversation => ({
     ...conversation,
     threadedMessages: attachChildrenToMessage(conversation.threadedMessages, messageId, children),
@@ -493,7 +494,7 @@ describe('MessageNode navigation — registry, Provider, store e leitura reais',
     const message = node(); message.message.reasoning = ''; message.message.isStreaming = true; seed([message]); mount();
     act(() => useChatStore.setState(state => ({ surfaceSessionsByKey: { ...state.surfaceSessionsByKey,
       [surface.sessionKey]: { ...state.surfaceSessionsByKey[surface.sessionKey], streamingMessageId: mid, streamingReasoning: 'Raciocínio em progresso' } } })));
-    act(() => useChatStore.setState(state => patchChatConversation(state, cid, conversation => ({ ...conversation, threadedMessages: conversation.threadedMessages.map(node => ({ ...node, message: new chat.EnrichedMessage({ ...node.message, reasoning: 'Raciocínio em progresso' }) })) }))));
+    act(() => useChatStore.setState(state => patchChatConversation(state, cid, conversation => ({ ...conversation, threadedMessages: conversation.threadedMessages.map(node => ({ ...node, message: messageFixture({ ...node.message, reasoning: 'Raciocínio em progresso' }) })) }))));
     const button = root().querySelector<HTMLButtonElement>('.reasoning-section__header')!;
     expect(button).not.toBeNull(); fireEvent.click(button);
     expect(useChatStore.getState().isConversationReasoningExpanded(cid, mid, surface.sessionKey)).toBe(true);

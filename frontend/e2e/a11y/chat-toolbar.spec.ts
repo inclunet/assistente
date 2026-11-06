@@ -74,7 +74,7 @@ test.describe('ChatToolbar — ARIA structure', () => {
 test.describe('ChatToolbar — Ctrl+L limpa conversa', () => {
   test('Ctrl+L limpa conversa e anuncia para screen reader', async ({ page, wails }) => {
     const now = new Date().toISOString();
-    await wails.setResponse('GetMessages', messagesFixture());
+    await wails.setTimelineRows(messagesFixture());
     await wails.setResponse('EnsureConversation', {
       id: conversationID, title: 'Conversa', created_at: now, updated_at: now,
       messages: [], message_count: 2,
@@ -111,7 +111,7 @@ test.describe('ChatToolbar — Ctrl+L limpa conversa', () => {
   });
 
   test('Ctrl+L restaura foco no input após limpar', async ({ page, wails }) => {
-    await wails.setResponse('GetMessages', messagesFixture());
+    await wails.setTimelineRows(messagesFixture());
     const now = new Date().toISOString();
     await wails.setResponse('EnsureConversation', {
       id: conversationID, title: 'Conversa', created_at: now, updated_at: now,
@@ -183,7 +183,7 @@ test.describe('ChatToolbar — Ctrl+H history picker', () => {
       channel: '',
       contact_id: '',
     });
-    await wails.setResponse('GetMessages', []);
+    await wails.setTimelineRows([]);
     await wails.setResponse('UpdateWorkspaceTab', undefined);
 
     const historyBtn = page.locator('.ws-content-toolbar .picker-button').first();

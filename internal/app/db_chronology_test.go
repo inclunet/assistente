@@ -59,26 +59,26 @@ func TestMessageWindowPreservaCronologiaComFinalPreCriadoSemUsage(t *testing.T) 
 			t.Fatal(err)
 		}
 	}
-	window, err := newMessageWindowTestController().GetConversationMessageWindow(messageWindowTestCtx(), chat.MessageWindowRequest{
-		ConversationID: conv.ID, Scope: chat.MessageWindowScopeConversation,
-		Anchor: chat.MessageWindowAnchorEnd, Direction: chat.MessageWindowDirectionBefore, Limit: 10,
+	window, err := newMessageWindowTestReader().Read(messageWindowTestCtx(), database.MessageWindowQuery{
+		ConversationID: conv.ID,
+		Anchor:         chat.MessageWindowAnchorEnd, Direction: chat.MessageWindowDirectionBefore, Limit: 10,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(window.Nodes) != 2 {
-		t.Fatalf("esperava usuário e um único turno: %+v", window.Nodes)
+	if len(window.Items) != 2 {
+		t.Fatalf("esperava usuário e um único turno: %+v", window.Items)
 	}
-	message := window.Nodes[1].Message
-	if message.ID != final.ID || message.Content != "resposta final" {
+	message := window.Items[1]
+	if windowRepresentative(message) != final.ID || message.Segments[len(message.Segments)-1].Text != "resposta final" {
 		t.Fatalf("representante final sem usage perdido: %+v", message)
 	}
-	segments := message.TurnSegments
-	if len(segments) != 4 || segments[0].Content != "vou consultar" || segments[3].Content != "resposta final" {
+	segments := message.Segments
+	if len(segments) != 4 || segments[0].Text != "vou consultar" || segments[3].Text != "resposta final" {
 		t.Fatalf("textos fora de ordem: %+v", segments)
 	}
 	for index := 0; index < 2; index++ {
-		if len(segments[index+1].ToolCalls) != 1 || segments[index+1].ToolCalls[0].ID != fmt.Sprintf("call-%d", index) {
+		if len(segments[index+1].Invocations) != 1 || segments[index+1].Invocations[0].ID != fmt.Sprintf("call-%d", index) {
 			t.Fatalf("ferramentas fora de ordem: %+v", segments)
 		}
 	}

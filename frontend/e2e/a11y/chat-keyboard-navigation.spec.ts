@@ -46,7 +46,7 @@ function messagesFixture() {
 
 async function setupChatWithMessages(wails: Parameters<Parameters<typeof test>[2]>[0]['wails']) {
   const now = new Date().toISOString();
-  await wails.setResponse('GetMessages', messagesFixture());
+  await wails.setTimelineRows(messagesFixture());
   await wails.setResponse('SendMessage', '01926b90-0000-7000-8000-100000000004');
   await wails.setResponse('EnsureConversation', {
     id: '01926b90-0000-7000-8000-000000000001', title: 'Conversa', created_at: now, updated_at: now,

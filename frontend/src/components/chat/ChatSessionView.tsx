@@ -1112,7 +1112,7 @@ function ChatSessionViewContent({
 
   const handleMessageContextMenu = useCallback(
     (event: React.MouseEvent, message: Message, retain?: import('./MessageInteractionContext').RetainMessageInteraction) => {
-      const capturedMessage = { ...message, convertValues: message.convertValues };
+      const capturedMessage = { ...message };
       const root = rootRef.current;
       const instance = root && getChatMessageNavigationInstanceId(root, message.id);
       disposeMenuNavigation();

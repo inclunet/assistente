@@ -79,7 +79,7 @@ async function sendAndStream(
 
 test.describe('Chat — Renderização Markdown', () => {
   test.beforeEach(async ({ wails }) => {
-    await wails.setResponse('GetMessages', [userMessage]);
+    await wails.setTimelineRows([userMessage]);
     await wails.setResponse('SendMessage', '01926b90-0000-7000-8000-100000000002');
     await wails.setResponse('EnsureConversation', baseConversation);
   });

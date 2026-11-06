@@ -1,7 +1,8 @@
+import { nodeFixture } from '../../test/chatPresentationFixture';
+import type { MessageNode } from '../../lib/chatMessageTree';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, render } from '@testing-library/react';
 import { MessageList } from './MessageList';
-import { chat } from '../../../wailsjs/go/models';
 
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 vi.mock('../../hooks/useAnnouncer', () => ({
@@ -10,7 +11,7 @@ vi.mock('../../hooks/useAnnouncer', () => ({
 // Isola a identidade do container da lista, sem simular focusout.
 // Não comprova o comportamento do Markdown ou do cursor virtual do NVDA.
 vi.mock('./MessageNode', () => ({
-  MessageNode: ({ node, siblingIndex }: { node: chat.MessageNode; siblingIndex: number }) => (
+  MessageNode: ({ node, siblingIndex }: { node: MessageNode; siblingIndex: number }) => (
     <div tabIndex={-1} data-message-node="" data-level="0"
       data-sibling-index={siblingIndex} data-testid={node.message.id}>
       {node.message.content}
@@ -20,7 +21,7 @@ vi.mock('./MessageNode', () => ({
 
 afterEach(cleanup);
 
-const response = (turnId: string | undefined, streaming: boolean) => chat.MessageNode.createFrom({
+const response = (turnId: string | undefined, streaming: boolean) => nodeFixture({
   message: { id: 'assistant', conversationId: 'conversation', role: 'assistant',
     content: streaming ? 'parcial' : 'final', turnId, isStreaming: streaming,
     timestamp: 100, createdAt: '2026-01-01T00:00:00Z' },

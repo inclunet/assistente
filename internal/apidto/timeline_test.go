@@ -95,3 +95,46 @@ func TestTimelineToolSummaryOmitsInternalProvenance(t *testing.T) {
 		t.Fatalf("resumo expôs campos inesperados: %s", raw)
 	}
 }
+
+func TestCanonicalMetadataOmitsDefaultsWithoutLosingValues(t *testing.T) {
+	for _, metadata := range []CanonicalMetadata{
+		{CreatedAt: "2026-01-01T00:00:00Z", Role: "assistant", Origin: "chat", ConclusionSegmentIDs: []string{}},
+		{CreatedAt: "2026-01-01T00:00:00Z", Role: "assistant", Origin: "chat", ConclusionSegmentIDs: []string{"text"}, Source: "channel", ChildCount: 2, Pinned: true, Model: "model", PromptTokens: 3, CompletionTokens: 4, TotalTokens: 7, CacheReadTokens: 5, CacheWriteTokens: 6, CacheMissTokens: 7},
+	} {
+		original := CanonicalItem{ItemID: "turn:q", Metadata: metadata}
+		raw, err := json.Marshal(original)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var decoded CanonicalItem
+		if err := json.Unmarshal(raw, &decoded); err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(original, decoded) {
+			t.Fatal("wire perdeu metadados", string(raw))
+		}
+		var wire map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &wire); err != nil {
+			t.Fatal(err)
+		}
+		if _, exists := wire["position"]; exists {
+			t.Fatal("posição interna vazou")
+		}
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(wire["metadata"], &fields); err != nil {
+			t.Fatal(err)
+		}
+		for _, key := range []string{"timestamp", "threadParentMessageId"} {
+			if _, exists := fields[key]; exists {
+				t.Fatal("metadado redundante", key)
+			}
+		}
+		if !metadata.Pinned {
+			for _, key := range []string{"source", "childCount", "pinned", "model", "promptTokens", "completionTokens", "totalTokens", "cacheReadTokens", "cacheWriteTokens", "cacheMissTokens"} {
+				if _, exists := fields[key]; exists {
+					t.Fatal("default redundante", key)
+				}
+			}
+		}
+	}
+}

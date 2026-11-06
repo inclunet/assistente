@@ -87,22 +87,6 @@ func TestCanonicalWindowDoesNotMaterializeMediaOrParentPayload(t *testing.T) {
 					t.Fatal("representante reteve blobs")
 				}
 			}
-			legacy, err := f.reader.ReadWindow(f.ctx, query)
-			if err != nil {
-				t.Fatal(err)
-			}
-			found := false
-			for _, item := range legacy.Items {
-				if item.Representative != nil && item.Representative.ID == selected {
-					found = true
-					if item.Representative.Audio != large || item.Representative.Media != media {
-						t.Fatal("caminho legado perdeu mídia")
-					}
-				}
-			}
-			if !found {
-				t.Fatal("representante legado não encontrado")
-			}
 			stored, err := database.GetMessageWithContext(f.ctx, selected)
 			if err != nil || stored.Audio != large || stored.Media != media {
 				t.Fatal("leitura alterou armazenamento", err)
@@ -163,16 +147,15 @@ func TestCanonicalWindowSkipsContinuationMediaResolution(t *testing.T) {
 	if resolutions != 0 || canonical.Responses[f.question].Representative.Media != "" {
 		t.Fatal("janela canônica resolveu mídia herdada")
 	}
-	legacy, err := f.reader.ReadWindow(f.ctx, query)
-	if err != nil {
+	// Mídia herdada continua disponível ao contexto LLM; a janela não a resolve.
+	messages := []database.ChatMessage{{UUIDModel: database.UUIDModel{ID: answer}, ChatExecutionID: &execution.ExecutionID}}
+	if err := database.ResolveContinuationMedia(f.ctx, f.db, messages); err != nil {
 		t.Fatal(err)
 	}
-	if resolutions == 0 || legacy.Responses[f.question].Representative.Media != media {
-		t.Fatal("janela legada perdeu mídia de continuação")
+	if resolutions == 0 || messages[0].Media != media {
+		t.Fatal("contexto perdeu mídia de continuação")
 	}
-	if !reflect.DeepEqual(canonicalItem(canonical.Responses[f.question]), canonicalItem(legacy.Responses[f.question])) {
-		t.Fatal("exclusão de mídia alterou DTO canônico")
-	}
+
 }
 
 func BenchmarkCanonicalWindowLargeMedia(b *testing.B) {
@@ -182,25 +165,23 @@ func BenchmarkCanonicalWindowLargeMedia(b *testing.B) {
 		b.Fatal(err)
 	}
 	query := database.MessageWindowQuery{ConversationID: f.conversation, Anchor: "end", Direction: "before", Limit: 20}
-	for _, canonical := range []bool{false, true} {
-		b.Run(map[bool]string{false: "legacy", true: "canonical"}[canonical], func(b *testing.B) {
-			b.ReportAllocs()
-			b.ResetTimer()
-			for i := 0; i < b.N; i++ {
-				snapshot, err := f.reader.readWindow(f.ctx, query, canonical)
-				if err != nil {
-					b.Fatal(err)
-				}
-				views := make([]CanonicalItem, 0, len(snapshot.Items))
-				for _, item := range snapshot.Items {
-					views = append(views, canonicalItem(item))
-				}
-				payload, err := json.Marshal(views)
-				if err != nil {
-					b.Fatal(err)
-				}
-				b.ReportMetric(float64(len(payload)), "DTO-bytes")
+	b.Run("canonical", func(b *testing.B) {
+		b.ReportAllocs()
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			snapshot, err := f.reader.ReadCanonicalWindow(f.ctx, query)
+			if err != nil {
+				b.Fatal(err)
 			}
-		})
-	}
+			views := make([]CanonicalItem, 0, len(snapshot.Items))
+			for _, item := range snapshot.Items {
+				views = append(views, canonicalItem(item))
+			}
+			payload, err := json.Marshal(views)
+			if err != nil {
+				b.Fatal(err)
+			}
+			b.ReportMetric(float64(len(payload)), "DTO-bytes")
+		}
+	})
 }

@@ -1,8 +1,9 @@
+import type { Message } from '../../lib/chatMessageTree';
+import { messageFixture, nodeFixture } from '../../test/chatPresentationFixture';
 import { fixtureMessages } from './canonicalPresentationFixture';
 import { useRef } from 'react';
 import { act, cleanup, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { chat } from '../../../wailsjs/go/models';
 import { useAuthStore } from '../../store/authStore';
 import { useWorkspaceStore } from '../../store/workspaceStore';
 import { useChatStore } from '../../store/chatStore';
@@ -15,7 +16,7 @@ vi.mock('@wailsjs/runtime/runtime', () => ({ EventsOn: () => () => {} }));
 const conversationId = '01926b90-7a5a-7c4e-8d3f-000000000001';
 const messageId = '01926b90-7a5a-7c4e-8d3f-000000000011';
 const sessionKey = `page:tab:tab:${conversationId}`;
-let message: chat.EnrichedMessage;
+let message: Message;
 let api: ReturnType<typeof useChatMessageEditDraft>;
 const frames: FrameRequestCallback[] = [];
 const modalClosers: Array<() => void> = [];
@@ -34,8 +35,8 @@ function Harness({ pathname = '/' }: { pathname?: string }) {
     <textarea aria-label="Draft" value={api.editContent} onChange={event => api.change(event.target.value)} />
   </div>;
 }
-function replaceStoredMessage(next: chat.EnrichedMessage) {
-  const conversation = { id: conversationId, title: 'Conversa', threadedMessages: [new chat.MessageNode({ message: next, children: [], level: 0, childCount: 0 })] };
+function replaceStoredMessage(next: Message) {
+  const conversation = { id: conversationId, title: 'Conversa', threadedMessages: [nodeFixture({ message: next, children: [], level: 0, childCount: 0 })] };
   // MessageNode's constructor materializes DTOs; retain its exact stored identity.
   const stored = conversation.threadedMessages[0].message;
   useChatStore.setState({ timelinesByConversationId: { [conversationId]: conversation },
@@ -67,7 +68,7 @@ beforeEach(() => {
   useAuthStore.setState({ isAuthenticated: true, user: { userId: 'owner', sessionId: 'session', role: 'admin' } });
   useWorkspaceStore.setState({ workspace: { id: 'workspace', name: 'Workspace', activeTabId: 'tab',
     tabs: [{ id: 'tab', type: 'chat', title: 'Chat', position: 0, conversationId }] } });
-  message = replaceStoredMessage(new chat.EnrichedMessage({ id: messageId, conversationId, role: 'user', content: 'Original' }));
+  message = replaceStoredMessage(messageFixture({ id: messageId, conversationId, role: 'user', content: 'Original' }));
   vi.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => { frames.push(callback); return frames.length; });
 });
 afterEach(() => {
@@ -100,7 +101,7 @@ describe('useChatMessageEditDraft with real stores', () => {
 
   it('confirmed own event may update message identity before result acceptance', () => {
     open(); const target = capture()!;
-    act(() => { replaceStoredMessage(new chat.EnrichedMessage({ ...message, content: target.content })); });
+    act(() => { replaceStoredMessage(messageFixture({ ...message, content: target.content })); });
     expect(target.isCurrent()).toBe(false);
     act(() => { expect(target.accept(() => true)).toBe(true); });
     expect(api.isEditing).toBe(false);
@@ -109,22 +110,22 @@ describe('useChatMessageEditDraft with real stores', () => {
 
   it('own event plus a newer draft never closes or focuses the newer edit', () => {
     open(); const target = capture()!;
-    act(() => { replaceStoredMessage(new chat.EnrichedMessage({ ...message, content: target.content })); api.change('Não salvo ainda'); });
+    act(() => { replaceStoredMessage(messageFixture({ ...message, content: target.content })); api.change('Não salvo ainda'); });
     expect(target.accept(() => true)).toBe(false); expect(api.editContent).toBe('Não salvo ainda');
     expect(api.isEditing).toBe(true); expect(frames).toHaveLength(0);
   });
 
   it('external message update and content ABA cannot replace the original CAS base', () => {
     open();
-    act(() => { replaceStoredMessage(new chat.EnrichedMessage({ ...message, content: 'Concorrente' })); });
-    act(() => { replaceStoredMessage(new chat.EnrichedMessage({ ...message, content: 'Original' })); });
+    act(() => { replaceStoredMessage(messageFixture({ ...message, content: 'Concorrente' })); });
+    act(() => { replaceStoredMessage(messageFixture({ ...message, content: 'Original' })); });
     expect(capture()).toBeUndefined(); expect(api.isEditing).toBe(true); expect(api.editContent).toBe('Rascunho novo');
   });
 
   it('confirmed own save rebases only the original, keeping a newer draft available for a second save', () => {
     open(); const saved = capture()!;
     act(() => {
-      replaceStoredMessage(new chat.EnrichedMessage({ ...message, content: saved.content }));
+      replaceStoredMessage(messageFixture({ ...message, content: saved.content }));
       api.change('Segunda alteração');
     });
     expect(saved.accept(() => true)).toBe(false);
@@ -135,7 +136,7 @@ describe('useChatMessageEditDraft with real stores', () => {
 
   it('confirmation cannot rebase a different persisted value', () => {
     open(); const saved = capture()!;
-    act(() => { replaceStoredMessage(new chat.EnrichedMessage({ ...message, content: 'Escrita concorrente' })); api.change('Não perder'); });
+    act(() => { replaceStoredMessage(messageFixture({ ...message, content: 'Escrita concorrente' })); api.change('Não perder'); });
     act(() => saved.rebaseConfirmed(() => true));
     expect(capture()).toBeUndefined(); expect(api.editContent).toBe('Não perder'); expect(api.isEditing).toBe(true);
   });
@@ -143,7 +144,7 @@ describe('useChatMessageEditDraft with real stores', () => {
   it('old confirmation cannot rebase a cancelled and reopened edit session', () => {
     open(); const saved = capture()!;
     act(() => { api.cancel(); api.open(); api.change('Outra sessão de edição'); });
-    act(() => { replaceStoredMessage(new chat.EnrichedMessage({ ...message, content: saved.content })); });
+    act(() => { replaceStoredMessage(messageFixture({ ...message, content: saved.content })); });
     act(() => saved.rebaseConfirmed(() => true));
     expect(capture()).toBeUndefined(); expect(api.editContent).toBe('Outra sessão de edição'); expect(api.isEditing).toBe(true);
   });
@@ -151,7 +152,7 @@ describe('useChatMessageEditDraft with real stores', () => {
   it.each(['owner', 'session', 'workspace', 'tab', 'conversation', 'authenticated'] as const)(
     '%s ABA after own message event cannot accept the old result', field => {
       open(); const target = capture()!;
-      act(() => { replaceStoredMessage(new chat.EnrichedMessage({ ...message, content: target.content })); });
+      act(() => { replaceStoredMessage(messageFixture({ ...message, content: target.content })); });
       const auth = useAuthStore.getState(); const workspace = useWorkspaceStore.getState().workspace!;
       act(() => {
         if (field === 'owner') useAuthStore.setState({ user: { ...auth.user!, userId: 'other' } });
@@ -168,7 +169,7 @@ describe('useChatMessageEditDraft with real stores', () => {
 
   it('route ABA after own event cannot accept an old result', () => {
     const view = open(); const target = capture()!;
-    act(() => { replaceStoredMessage(new chat.EnrichedMessage({ ...message, content: target.content })); });
+    act(() => { replaceStoredMessage(messageFixture({ ...message, content: target.content })); });
     view.rerender(<Harness pathname="/settings" />); view.rerender(<Harness pathname="/" />);
     expect(target.accept(() => true)).toBe(false); expect(api.isEditing).toBe(true);
   });
