@@ -4,6 +4,10 @@ intermediárias é atômica; continuação exige conteúdo salvo; exclusão inva
 apresentações montadas. Falha no ledger encerra o turno com erro de persistência, conforme decisão
 do mantenedor; revisão local aprovada, CI e review remotos pendentes. **In Progress**.
 
+PR #1023: primeira rodada Copilot corrigida com provas de cronologia após falha
+do ledger, seleção durante Begin/Take e tradução do erro no editor. Inventário
+de logs atualizado pela remoção de três formatos; revisão local revalidada.
+
 AEP-0116: identidade preservada também no fim do raciocínio e em snapshots
 com múltiplas respostas; orçamento e rollback mantêm descritores em uso.
 Regressões pelo handler e por Open/coleta/Refresh. Status: **In Progress**.

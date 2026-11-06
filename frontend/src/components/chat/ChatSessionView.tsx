@@ -495,8 +495,8 @@ function ChatSessionViewContent({
         if (options?.recovery && (!snapshot.sendFailureRetryable || content !== (snapshot.sendFailureRetryContent ?? ''))) return undefined;
         const selected = messageCommandsRef.current.captureSelection();
         const source = options?.sourceItemId ? presentation?.getMessage(options.sourceItemId) : selected.message;
-        const sourceCurrent = () => options?.sourceItemId
-          ? presentation?.getMessage(options.sourceItemId) === source : selected.isCurrent();
+        const sourceCurrent = () => selected.isCurrent() && (!options?.sourceItemId
+          || presentation?.getMessage(options.sourceItemId) === source);
         const messageId = id === 'chat.message.retry'
           ? options?.messageId ?? (source?.role === 'user' ? source.timelineItem?.representativeMessageId : source?.turnId) : undefined;
         if (options?.continue && (!live.showContinueEnabled || !canContinueChatMessage(source))) return undefined;

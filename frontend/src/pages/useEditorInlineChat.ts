@@ -585,7 +585,7 @@ export function useEditorInlineChat({
             stopTrackingAssistedFileChange();
             if (doneWaitAbortController.signal.aborted || runId !== inlineChatRunIdRef.current) return;
             logger.error('[useEditorInlineChat] inline chat error:', e);
-            useWorkspaceChatModalStore.getState().setAdapterError(getErrorMessage(e) || t('editor.chatModal.requestChangeError'));
+            useWorkspaceChatModalStore.getState().setAdapterError(t('editor.chatModal.requestChangeError'));
             setIsAsking(false);
           } finally {
             inlineChatToolCloseCleanupsRef.current.delete(abortPendingCompletion);

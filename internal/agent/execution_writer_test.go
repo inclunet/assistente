@@ -548,6 +548,21 @@ func TestExecutionWriterLedgerFailureCannotSilentlyLoseDiagnostic(t *testing.T) 
 				if reopened.Response.TerminalReason != "persistence_error" {
 					t.Fatalf("reopened=%+v", reopened)
 				}
+				if scenario == "result" {
+					order := []string{}
+					for _, segment := range reopened.Response.Segments {
+						if segment.Kind == "text" && segment.Text != "" {
+							order = append(order, "text:"+segment.Text)
+						}
+						for range segment.Invocations {
+							order = append(order, "tool")
+						}
+					}
+					if strings.Join(order, ",") != "text:parcial recebido,tool" {
+						t.Fatalf("reopened chronology=%v", order)
+					}
+				}
+
 			}
 		})
 	}

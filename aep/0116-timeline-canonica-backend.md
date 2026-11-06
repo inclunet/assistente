@@ -106,6 +106,16 @@ confirmou a transferência das provas para o backend e a preservação da matriz
 frontend; não houve eliminação de regressões de produto para obter teste verde.
 CI e review remotos permanecem como gates da publicação.
 
+Primeira revisão remota do PR #1023: três apontamentos do Copilot corrigidos.
+A falha ao confirmar ferramenta preserva a intermediária e seu vínculo antes
+do terminal; a regressão SQLite demonstrou ferramenta → texto antes da correção
+e texto → ferramenta após reabertura com a correção. Comando com fonte explícita
+também exige seleção vigente durante Begin/Take; erros técnicos da consulta do
+editor ficam no log e a UI usa tradução. Revalidação: 144 testes selecionados
+de agent e 112 frontend focados passaram; `review_aep` aprovou o ajuste local.
+O inventário de logs foi atualizado de 711 para 708 formatos legados após
+conferir a remoção de três formatos do loop, preservando a proibição de Printf.
+
 ### Decisão: identidade de apresentação após confirmação (2026-11-05)
 
 Aprovada pelo mantenedor para o cutover. Esta decisão substitui a troca de IDs

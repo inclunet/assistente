@@ -1600,7 +1600,7 @@ describe('EditorPage', () => {
     });
 
     expect(editorPageMocks.closeModal).not.toHaveBeenCalled();
-    expect(editorPageMocks.setAdapterError).toHaveBeenCalledWith('falha do modelo');
+    expect(editorPageMocks.setAdapterError).toHaveBeenCalledWith('editor.chatModal.requestChangeError');
   });
 
   it('mantém o chat modal aberto em resposta textual sem edição no editor', async () => {
@@ -1673,6 +1673,16 @@ describe('EditorPage', () => {
     expect(editorPageMocks.requestQuestionnaire).not.toHaveBeenCalled();
     expect(editorStoreState.setDocMarkdown).not.toHaveBeenCalled();
     expect(editorPageMocks.setAdapterError).not.toHaveBeenCalledWith(expect.any(String));
+  });
+
+  it('traduz falha da consulta canônica sem expor o erro técnico', async () => {
+    vi.mocked(GetProfile).mockResolvedValueOnce({ chat: { disable_tools: true } } as Awaited<ReturnType<typeof GetProfile>>);
+    editorPageMocks.waitForEditorPatch.mockRejectedValueOnce(new Error('Chat completion replaced or unavailable'));
+    const plan = await createEditorChatSendPlan();
+    await act(async () => { await plan.afterSend?.(); });
+    expect(editorPageMocks.setAdapterError).toHaveBeenCalledWith('editor.chatModal.requestChangeError');
+    expect(editorPageMocks.closeModal).not.toHaveBeenCalled();
+    expect(editorStoreState.setDocMarkdown).not.toHaveBeenCalled();
   });
 
   it('restaura foco e seleção Markdown no trecho editado após aplicar patch inline local', async () => {

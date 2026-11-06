@@ -35,7 +35,10 @@ vi.mock('./useAgentSessionCommands', () => ({ useAgentSessionCommands: () => [] 
 vi.mock('./VoiceButton', () => ({ VoiceButton: () => null }));
 vi.mock('./MessageList', async () => {
   const React = await import('react');
-  return { MessageList: React.forwardRef<HTMLDivElement>((_, ref) => <div ref={ref} />) };
+  return { MessageList: React.forwardRef<HTMLDivElement>((_, ref) => <div ref={ref}>
+    <button data-message-node data-message-id="response">first message</button>
+    <button data-message-node data-message-id="other">other message</button>
+  </div>) };
 });
 vi.mock('../workspace/WorkspacePanelContext', () => ({ useWorkspacePanel: () => ({ tab: { id: 'tab', type: 'chat' }, isActive: true }) }));
 const surface = createChatSurfaceIdentity({ conversationId: id, tabId: 'tab', surfaceType: 'page' });
@@ -117,6 +120,36 @@ describe('ChatSessionView + ChatInput + pipeline reais', () => {
     await act(async () => { await executeChatMessaging({ beginUICommand: begin, takeUICommand: take, commitBackendCommand: commit, completeUICommand: complete, cancelUICommand: vi.fn(), getUICommandResult: getResult }, target!); });
     expect(retry).not.toHaveBeenCalled();
     expect(begin).not.toHaveBeenCalled();
+  });
+
+  it.each(['begin', 'take'] as const)('recusa continuar se a seleção mudar durante %s', async phase => {
+    const item = canonicalTestItem('response', 'parcial', { conversationId: id, turnId: id, representativeMessageId: id, state: 'interrupted' });
+    item.metadata.terminalReason = 'cancelled';
+    setFixtureCanonicalItem('response', item);
+    useChatStore.setState(state => ({ timelinesByConversationId: { ...state.timelinesByConversationId, [id]: { id, title: 'chat', threadedMessages: [new chat.MessageNode({ message: { id: 'response', conversationId: id, role: 'assistant', content: 'parcial', turnId: id }, children: [], childCount: 0, level: 0 })] } } }));
+    await act(async () => { mount(); });
+    act(() => screen.getByRole('button', { name: 'first message' }).focus());
+    const target = captureChatMessagingTarget(() => '/', 'chat.message.retry', undefined, undefined, { sourceItemId: 'response', messageId: id, continue: true });
+    expect(target).toBeDefined();
+    let release!: (value: unknown) => void;
+    const pipelineRevision = useChatStore.getState().getMessagingPipelineRevision(id);
+    const pending = new Promise(resolve => { release = resolve; });
+    (phase === 'begin' ? begin : take).mockReturnValueOnce(pending);
+    let running!: Promise<unknown>;
+    await act(async () => {
+      running = executeChatMessaging({ beginUICommand: begin, takeUICommand: take, commitBackendCommand: commit, completeUICommand: complete, cancelUICommand: vi.fn(), getUICommandResult: getResult }, target!);
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(phase === 'begin' ? begin : take).toHaveBeenCalledOnce());
+    act(() => screen.getByRole('button', { name: 'other message' }).focus());
+    expect(target!.isCurrent()).toBe(false);
+    await act(async () => {
+      release({ ticket: 'ticket', invocationId: 'invocation', commandId: 'chat.message.retry', handoffId: 'handoff' });
+      await running;
+    });
+    expect(retry).not.toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalled();
+    expect(useChatStore.getState().getMessagingPipelineRevision(id)).toBe(pipelineRevision);
   });
 
   it.each(['button', 'keyboard'])('preserva rascunho e explica conversa indisponível via %s', async source => {
