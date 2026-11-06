@@ -49,11 +49,11 @@ func (p *LiveProjection) reconcileParticipatingLifecycles(ctx context.Context, c
 type subscriptionLifecycleReader struct {
 	subscription *TimelineSubscription
 	previous     *subscribedWindow
-	reader       WindowSnapshotReader
+	reader       CanonicalWindowSnapshotReader
 }
 
-func (r subscriptionLifecycleReader) ReadWindow(ctx context.Context, q database.MessageWindowQuery) (*TimelineWindowSnapshot, error) {
-	snapshot, err := r.reader.ReadWindow(ctx, q)
+func (r subscriptionLifecycleReader) ReadCanonicalWindow(ctx context.Context, q database.MessageWindowQuery) (*TimelineWindowSnapshot, error) {
+	snapshot, err := r.reader.ReadCanonicalWindow(ctx, q)
 	if err != nil {
 		return nil, err
 	}

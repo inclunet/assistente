@@ -96,7 +96,7 @@ func (p *LiveProjection) SubscribeTimeline(ctx context.Context, session Timeline
 			return nil, nil, ErrTimelineSubscription
 		}
 	}
-	snapshot, err := p.readWindowLocked(authorized, query, canonicalWindowAdapter{reader}, c)
+	snapshot, err := p.readWindowLocked(authorized, query, reader, c)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -224,7 +224,7 @@ func (s *TimelineSubscription) Refresh(ctx context.Context, windowRevision strin
 		query = s.windowQuery(*position)
 		mode = TimelineWindowHistorical
 	}
-	var reader WindowSnapshotReader = canonicalWindowAdapter{s.reader}
+	reader := s.reader
 	if position == nil && len(window.metadata.RetainedItemIDs) > 0 {
 		reader = retainedWindowReader{s, window}
 	}
@@ -271,7 +271,7 @@ func (s *TimelineSubscription) Navigate(ctx context.Context, request TimelineWin
 	if mode == TimelineWindowFollowTail {
 		query.Anchor, query.Direction = "end", "before"
 	}
-	snapshot, err := s.owner.readWindowLocked(authorized, query, subscriptionLifecycleReader{s, window, canonicalWindowAdapter{s.reader}}, c)
+	snapshot, err := s.owner.readWindowLocked(authorized, query, subscriptionLifecycleReader{s, window, s.reader}, c)
 	if err != nil {
 		return nil, err
 	}

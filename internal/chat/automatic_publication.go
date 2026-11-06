@@ -94,7 +94,6 @@ func (c *projectionConversation) setPublicationBaseLocked(t *liveTurn, source *T
 		return
 	}
 	base := *source
-	base.legacyRepresentative = nil
 	base.ScopeParentID = copyPublicationValue(source.ScopeParentID)
 	base.MessageIDs = append([]string(nil), source.MessageIDs...)
 	base.invocations = copyPublicationCalls(source.invocations)
