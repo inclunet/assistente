@@ -1044,7 +1044,7 @@ describe('chatEventController', () => {
     });
 
     expect(sessions['conversation-1'].conversation?.threadedMessages).toEqual([]);
-    expect(sessions['conversation-1'].sendFailureMessage).toBeNull();
+    expect(sessions['conversation-1']).toMatchObject({ sendFailureMessage: 'boom sem id terminal', sendFailureRetryable: false, sendFailureAnnounced: true });
     expect(mockAnnounceWithOrigin).toHaveBeenCalledWith(expect.objectContaining({ message: 'boom sem id terminal', eventType: 'error' }));
   });
 
@@ -1067,7 +1067,7 @@ describe('chatEventController', () => {
     });
 
     expect(sessions['conversation-1'].conversation?.threadedMessages).toEqual([]);
-    expect(sessions['conversation-1'].sendFailureMessage).toBeNull();
+    expect(sessions['conversation-1']).toMatchObject({ sendFailureMessage: 'done sem id terminal', sendFailureRetryable: false, sendFailureAnnounced: true });
     expect(mockAnnounceWithOrigin).toHaveBeenCalledWith(expect.objectContaining({ message: 'done sem id terminal', eventType: 'error' }));
   });
 

@@ -159,6 +159,9 @@ func (s *Service) StreamSimpleWithRecovery(
 		if h.TerminalEmitted() {
 			return
 		}
+		if h.finishNativePersistenceFailure("") {
+			return
+		}
 		if ctx.Err() != nil {
 			partialContent, partialReasoning := h.Finalize()
 			if err := s.persistAssistantPartial(ctx, h.AssistantMessageID, partialContent, partialReasoning); err != nil {
@@ -678,6 +681,8 @@ func (s *Service) persistNativeMCPCalls(ctx context.Context, conversationID, tur
 	if len(mcpEvents) == 0 {
 		return nil
 	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+	defer cancel()
 	// Defesa (repo-driven): se o turno foi deletado enquanto o provider streamava,
 	// não registrar tool_invocations para evitar registros órfãos.
 	if s.msgRepo != nil {
@@ -717,6 +722,7 @@ func (s *Service) persistNativeMCPCalls(ctx context.Context, conversationID, tur
 		return errors.New("native tool invocation ledger unavailable")
 	}
 
+	var recordError error
 	slugCache := map[string]string{}
 	for _, ev := range mcpEvents {
 		if !ev.IsCompleted || strings.TrimSpace(ev.ID) == "" {
@@ -771,10 +777,10 @@ func (s *Service) persistNativeMCPCalls(ctx context.Context, conversationID, tur
 		})
 		if recErr != nil {
 			logging.Errorf(ctx, "agent.service", "[MCP Native] falha ao registrar tool invocation sem fallback em mensagens (id=%s): %v", ev.ID, recErr)
-			return recErr
+			recordError = errors.Join(recordError, recErr)
 		}
 	}
-	return nil
+	return recordError
 }
 
 func archivalMCPServerSlug(serverLabel string) string {

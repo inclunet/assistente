@@ -223,6 +223,20 @@ describe('chatStore validation', () => {
     vi.useRealTimers();
   });
 
+  it.each(['delete', 'reset'])('recusa metadados tardios após %s e permite nova carga', async action => {
+    let finish!: (value: unknown) => void;
+    mockGetConversationInfo.mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
+    const loading = useChatStore.getState().loadConversationSession(defaultConversationId);
+    const rejected = expect(loading).rejects.toThrow('chat-messaging-stale');
+    if (action === 'delete') useChatStore.getState().handleConversationDeleted(defaultConversationId);
+    else useChatStore.getState().handleDatabaseReset();
+    mockGetConversationInfo.mockResolvedValueOnce({ title: 'nova' });
+    await useChatStore.getState().loadConversationSession(defaultConversationId);
+    finish({ title: 'antiga' });
+    await rejected;
+    expect(useChatStore.getState().getConversationSession(defaultConversationId)?.conversation?.title).toBe('nova');
+  });
+
   it('envio auditado reutiliza SendMessage e serializa somente a correlação', async () => {
     const isCurrent = vi.fn(() => true);
     const handoff = { ticket: 'ticket-send', handoffId: 'handoff-send' };

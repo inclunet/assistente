@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"assistente/controllers"
 	"assistente/internal/commandexecution"
 	"assistente/internal/commandui"
 	"assistente/internal/database"
@@ -17,6 +18,7 @@ import (
 func contextChatFixture(t *testing.T, kind workspace.TabType) *App {
 	t.Helper()
 	a := readyCommandProduct(t)
+	a.conversationsCtrl = controllers.NewConversationsController(controllers.ConversationsControllerConfig{})
 	if err := database.DB().AutoMigrate(&database.Conversation{}, &database.ChatMessage{}); err != nil {
 		t.Fatal(err)
 	}
@@ -129,6 +131,18 @@ func TestCommandWorkspaceContextChatFailureCompensatesOnlyNewConversation(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
+	deletedEvents := &contextChatDeletionEvents{}
+	coordinated := false
+	a.conversationsCtrl = controllers.NewConversationsController(controllers.ConversationsControllerConfig{
+		Emitter: deletedEvents,
+		DeleteTimeline: func(ctx context.Context, ids []string, commit func() ([]string, error)) ([]string, error) {
+			coordinated = true
+			if len(ids) != 1 || ids[0] == kept.ID {
+				t.Fatal("invalid compensation target")
+			}
+			return commit()
+		},
+	})
 	r, h := beginContextChat(t, a)
 	// Fixture path is under t.TempDir. A nonempty directory forces publication
 	// failure on Windows and Unix without permission tricks or production hooks.
@@ -150,6 +164,9 @@ func TestCommandWorkspaceContextChatFailureCompensatesOnlyNewConversation(t *tes
 	}
 	if contextChatCount(t) != 1 {
 		t.Fatal("orphan conversation or unrelated deletion")
+	}
+	if !coordinated || len(deletedEvents.ids) != 1 || deletedEvents.ids[0] == kept.ID {
+		t.Fatalf("compensation bypassed canonical deletion: %v %v", coordinated, deletedEvents.ids)
 	}
 	if _, err := database.GetConversationInfoWithContext(database.WithUserID(context.Background(), owner), kept.ID); err != nil {
 		t.Fatal(err)
@@ -199,5 +216,13 @@ func TestCommandWorkspaceContextChatGuards(t *testing.T) {
 				t.Fatal("rejected command created a conversation")
 			}
 		})
+	}
+}
+
+type contextChatDeletionEvents struct{ ids []string }
+
+func (e *contextChatDeletionEvents) Emit(name string, data interface{}) {
+	if name == "conversation:deleted" {
+		e.ids = append(e.ids, data.(map[string]interface{})["conversation_id"].(string))
 	}
 }

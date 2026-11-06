@@ -362,6 +362,39 @@ export class ChatTimelineClient {
     this.collectIdle();
   }
 
+  /** Limpeza confirmada relê as raízes e retorna à cauda pelo protocolo canônico. */
+  async conversationCleared(conversationId: string): Promise<void> {
+    const conversation = this.conversations.get(conversationId);
+    if (!conversation || this.disposed) return;
+    // A limpeza confirmada exige uma nova leitura, mesmo se uma fronteira
+    // histórica tiver congelado a janela. Nunca fabricar uma janela vazia.
+    for (;;) {
+      const pending = [...conversation.slots.values()].flatMap(slot => slot.pending ? [slot.pending] : []);
+      if (conversation.recovery) pending.push(conversation.recovery);
+      if (!pending.length) break;
+      await Promise.allSettled(pending);
+      if (this.disposed || this.conversations.get(conversationId) !== conversation) return;
+    }
+    // A limpeza foi confirmada pelo usuário e persistida pelo backend. Liberar
+    // pela RPC antes de fechar comprova o descarte, sem apagar reservas locais.
+    for (const item of this.getRecoveredItems(conversationId)) {
+      await this.releaseRecoveredItem(conversationId, item);
+    }
+    for (const [surface, slot] of conversation.slots) {
+      if (slot.scope !== null) await this.close(conversationId, surface);
+    }
+    if (this.disposed || this.conversations.get(conversationId) !== conversation) return;
+    const roots = [...conversation.slots].filter(([, slot]) => !slot.closed);
+    if (!roots.length) return;
+    await this.cleanupRecoveryItems(conversationId);
+    const position = { cursor: '', anchor: 'end', anchorItemId: '', direction: 'before', limit: 80 };
+    await this.refresh(conversationId, new Map(roots.map(([surface]) => [surface, position])));
+    if (this.disposed || this.conversations.get(conversationId) !== conversation) return;
+    for (const [surface, slot] of roots) {
+      if (!slot.closed) await this.navigate(conversationId, surface, 'followTail', position);
+    }
+  }
+
   /** Exclusão confirmada pelo backend revoga também as fontes de recuperação. */
   async conversationDeleted(conversationId: string): Promise<void> {
     const conversation = this.conversations.get(conversationId);
@@ -373,6 +406,12 @@ export class ChatTimelineClient {
     this.conversations.delete(conversationId);
     this.notify();
     const results = await Promise.allSettled(closing);
+    const failure = results.find(result => result.status === 'rejected');
+    if (failure?.status === 'rejected') throw failure.reason;
+  }
+
+  async databaseReset(): Promise<void> {
+    const results = await Promise.allSettled([...this.conversations.keys()].map(id => this.conversationDeleted(id)));
     const failure = results.find(result => result.status === 'rejected');
     if (failure?.status === 'rejected') throw failure.reason;
   }

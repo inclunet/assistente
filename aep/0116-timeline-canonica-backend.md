@@ -1,6 +1,6 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, mensagens, áudio, limpeza, exclusão e importação integrados; retenção por idade, órfãos, navegação, leitura leve e orçamento de fontes da janela com recuperação atômica e parcelada e participação histórica automática com publicação e replay atômicos integrados; followTail, retenção por foco/leitura, DTOs compartilhados, RPCs de inscrição, entrega pelo journal e transporte de eventos Wails integrados; núcleo transacional, coordenador e cliente Wails por sessão frontend e identidade de recuperação por execução, consulta autorizada de estado, leitura limitada, reserva explícita dos buffers finalizados, leitor de recuperação Wails, reserva do DTO canônico publicado e transferência de recuperação no Refresh integrados; DOM da lista unificado com retenção visual por foco; consumidor visual canônico e identidade dos segmentos integrados; reconstrução visual legada retirada do controlador operacional; gates remotos deste recorte e margem de desempenho pendentes
+## Status: In Progress — fase 1 concluída; fase 2 com lifecycle, ledger, mensagens, áudio, limpeza, exclusão e importação integrados; retenção por idade, órfãos, navegação, leitura leve e orçamento de fontes da janela com recuperação atômica e parcelada e participação histórica automática com publicação e replay atômicos integrados; followTail, retenção por foco/leitura, DTOs compartilhados, RPCs de inscrição, entrega pelo journal e transporte de eventos Wails integrados; núcleo transacional, coordenador e cliente Wails por sessão frontend e identidade de recuperação por execução, consulta autorizada de estado, leitura limitada, reserva explícita dos buffers finalizados, leitor de recuperação Wails, reserva do DTO canônico publicado e transferência de recuperação no Refresh integrados; DOM da lista unificado com retenção visual por foco; consumidor visual canônico e identidade dos segmentos integrados; reconstrução visual legada retirada do controlador operacional, incluindo invalidação na limpeza/reset e gates de persistência; gates remotos deste recorte e margem de desempenho pendentes
 
 Data: 2026-10-30
 
@@ -28,7 +28,11 @@ correlação dos eventos. Não cria mensagens, não agrega deltas para apresenta
 nem reconcilia patches terminais. A apresentação e a paginação pertencem ao
 cliente canônico; o carregador de sessão consulta somente metadados da conversa.
 O editor lê a conclusão pelas referências canônicas da execução concluída numa
-capability própria, sem polling da árvore da UI. Fechar o modal invalida a leitura.
+capability própria, sem polling da árvore da UI. Fechar o modal ou trocar seu
+vínculo invalida a leitura. A confirmação e a aplicação também verificam o
+vínculo capturado; voltar à conversa anterior não reativa a operação descartada.
+A segunda rodada remota do PR #1023 motivou os dois testes de troca durante
+leitura e confirmação em `EditorPage.test.tsx` (57 testes do arquivo aprovados).
 
 A migração dos testes acompanha a responsabilidade, sem restaurar um compositor
 legado nas fixtures. Provas antigas de composição do controlador são substituídas
@@ -115,6 +119,37 @@ editor ficam no log e a UI usa tradução. Revalidação: 144 testes selecionado
 de agent e 112 frontend focados passaram; `review_aep` aprovou o ajuste local.
 O inventário de logs foi atualizado de 711 para 708 formatos legados após
 conferir a remoção de três formatos do loop, preservando a proibição de Printf.
+
+Segunda rodada remota (#1023, Copilot e CodeRabbit): o vínculo do editor
+invalida leitura, confirmação e callbacks tardios; continuação usa o perfil da
+superfície e reenvio exige fonte ainda publicada. Diagnósticos operacionais
+permanecem disponíveis sem criar mensagens nem autorizar novo envio. Cargas de
+metadados são invalidadas por exclusão/reset; abas auxiliares podem tentar de
+novo após falha, pelo mesmo caminho assíncrono das abas de chat.
+
+Limpeza confirmada libera as reservas de recuperação pela RPC existente antes
+de fechar threads, relê as raízes por Refresh e passa todas a followTail por
+Navigate. Assim a janela histórica vazia recebe as próximas mensagens. Não
+simula dados nem apaga reservas locais sem confirmação remota. Falha de liberação
+mantém a reserva e impede o fechamento; outra conversa não participa da operação.
+
+Falha de SaveIntermediate encerra com persistence_error e preserva o parcial
+volátil, sem avançar o modelo. MCP simples também registra eventos nativos;
+um erro no lote não impede tentar registrar as demais ações já concluídas.
+A persistência desses fatos usa contexto de finalização limitado a três segundos,
+preservando identidade e sobrevivendo ao cancelamento do stream. As regressões
+SQLite cobrem terminal normal, erro e cancelamento; nenhuma suíte ACP local foi
+executada. Revisores independentes `review_aep` e `review_store_coverage`
+identificaram os casos de cancelamento e recuperação, corrigidos nesta rodada.
+Reset confirmado invalida todas as janelas e leituras canônicas pendentes. A
+compensação do vínculo de chat contextual também usa a exclusão coordenada,
+fora dos locks de criação, e publica o evento de exclusão. Testes verificam
+que a conversa preservada não é excluída e que Open tardio não ressuscita dados.
+Validação local consolidada: 6.978 testes frontend (526 arquivos, 18 casos
+preexistentes ignorados), 300 testes focados e 146 testes seguros de agent
+passaram, além de build/vet/lint. Os nove testes de comandos contextuais passaram e verificam a notificação e a
+passagem pelo coordenador na compensação. O E2E de envio pelo modal também passou.
+
 
 ### Decisão: identidade de apresentação após confirmação (2026-11-05)
 

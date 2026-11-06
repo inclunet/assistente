@@ -1,3 +1,4 @@
+import { resetChatTimelineDatabase } from '../services/chatTimelineWails';
 import { create } from 'zustand';
 import {
   SendMessage,
@@ -148,6 +149,7 @@ interface ChatStore {
 }
 
 export const useChatStore = create<ChatStore>()((set, get) => {
+  const metadataLoads = new Map<string, symbol>();
   const turnQueue = createConversationTurnQueue();
   const pipelineRevisions = new Map<string, number>();
   const draftRevisions = new Map<string, number>();
@@ -540,11 +542,18 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     },
 
     loadConversationSession: async (id) => {
-      const snapshot = await loadConversationSnapshot(id);
-      set(state => ({ ...patchSession(state, id, {
-        conversation: { id, ...snapshot },
-        isLoading: state.loadingConversationIds.has(id),
-      }), isInitialized: true }));
+      const token = Symbol(id);
+      metadataLoads.set(id, token);
+      try {
+        const snapshot = await loadConversationSnapshot(id);
+        if (metadataLoads.get(id) !== token) throw new ChatMessagingStaleError();
+        set(state => ({ ...patchSession(state, id, {
+          conversation: { id, ...snapshot },
+          isLoading: state.loadingConversationIds.has(id),
+        }), isInitialized: true }));
+      } finally {
+        if (metadataLoads.get(id) === token) metadataLoads.delete(id);
+      }
     },
 
     getConversationSession: (conversationId) => {
@@ -752,6 +761,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     ),
 
     handleConversationDeleted: (conversationId: string) => {
+      metadataLoads.delete(conversationId);
       turnQueue.clear(conversationId);
       stopChatEventController(conversationId);
       set(state => removeChatSession(state, conversationId));
@@ -791,6 +801,8 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     },
 
     handleDatabaseReset: () => {
+      metadataLoads.clear();
+      resetChatTimelineDatabase();
       turnQueue.clearAll();
       stopAllChatEventControllers();
       set({

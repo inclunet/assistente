@@ -30,7 +30,8 @@ type SimpleStreamHandler struct {
 	usage                 llm.Usage
 	// activity acompanha um turno conduzido por agente externo (AEP-0084):
 	// ferramentas que o agente rodou e os segmentos já fechados.
-	activity agentActivity
+	activity        agentActivity
+	nativeMCPEvents []llm.MCPToolEvent
 }
 
 // SimpleStreamHandler também recebe a atividade de agentes externos e a marca
@@ -171,6 +172,8 @@ func (h *SimpleStreamHandler) OnToolCalls(calls []llm.ToolCall, fullResponse str
 }
 
 func (h *SimpleStreamHandler) OnMCPToolEvent(event llm.MCPToolEvent) {
+	h.nativeMCPEvents = append(h.nativeMCPEvents, event)
+	h.MarkErrorNotRetryable()
 	if event.IsCompleted {
 		if event.Error != "" {
 			// Falha já emitida ao frontend e logada em ERRO correlacionado pelo
@@ -187,7 +190,26 @@ func (h *SimpleStreamHandler) OnMCPToolEvent(event llm.MCPToolEvent) {
 	}
 }
 
+func (h *SimpleStreamHandler) finishNativePersistenceFailure(fullResponse string) bool {
+	events := h.nativeMCPEvents
+	h.nativeMCPEvents = nil
+	if err := h.svc.persistNativeMCPCalls(h.ctx, h.ConversationID, h.userMessageID, events, 0); err != nil {
+		content, reasoning := h.Finalize()
+		if fullResponse != "" {
+			content = fullResponse
+		}
+		h.svc.finishToolPersistenceFailure(h.ctx, h.ConversationID, h.userMessageID, h.assistantMessageID, AgenticResult{FullResponse: content, Reasoning: reasoning}, h.SurfaceOrigin)
+		h.terminalEmitted = true
+		return true
+	}
+	return false
+}
+
 func (h *SimpleStreamHandler) OnDone(fullResponse string, usage llm.Usage, model string) {
+	if h.finishNativePersistenceFailure(fullResponse) {
+		return
+	}
+
 	remainingSpeech, readInSegments := h.UnreadTail()
 	accumulatedContent, accumulatedReasoning := h.Finalize()
 	h.closePendingAgentTools(h.pendingToolErrorKind())

@@ -74,12 +74,22 @@ export function getChatTimelineClient(): ChatTimelineClient {
       void client.conversationDeleted(event.conversation_id)
         .catch(error => logger.error('[chatTimeline] deleted conversation cleanup failed', error));
     });
+    const unsubscribeCleared = EventsOn('conversation:cleared', (event: { conversation_id?: string }) => {
+      if (!event.conversation_id || current?.client !== client) return;
+      void client.conversationCleared(event.conversation_id)
+        .catch(error => logger.error('[chatTimeline] cleared conversation refresh failed', error));
+    });
     const unsubscribeAuth = useAuthStore.subscribe(state => {
       if (state.isAuthenticated && state.user?.userId === user.userId && state.user?.sessionId === user.sessionId) return;
       if (current?.client === client) discardCurrent();
     });
-    const unsubscribe = () => { unsubscribeDeleted(); unsubscribeAuth(); };
+    const unsubscribe = () => { unsubscribeDeleted(); unsubscribeCleared(); unsubscribeAuth(); };
     current = { userId: user.userId, sessionId: user.sessionId, client, unsubscribe };
   }
   return current.client;
+}
+
+/** Reset confirmado invalida o cliente existente sem criar uma sessão nova. */
+export function resetChatTimelineDatabase(): void {
+  void current?.client.databaseReset().catch(error => logger.error('[chatTimeline] database reset cleanup failed', error));
 }

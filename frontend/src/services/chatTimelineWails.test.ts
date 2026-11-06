@@ -72,6 +72,61 @@ describe('chatTimelineWails', () => {
     await waitFor(() => expect(mocks.close).toHaveBeenCalledWith('other'));
   });
 
+  it('atualiza as janelas montadas após limpeza e preserva outra conversa', async () => {
+    auth.setState({ isAuthenticated: true, user: { userId: 'user', sessionId: 'cleared' } });
+    mocks.eventsOn.mockReturnValue(mocks.unsubscribe);
+    mocks.open.mockImplementation(async (request: apidto.OpenTimelineRequest) => new apidto.SubscribedTimelineSnapshot({
+      conversationId: request.conversationId, scopeParentId: null, epoch: 'epoch', windowId: request.conversationId,
+      windowRevision: '1', sequence: '1', mode: 'followTail',
+      items: [canonicalTestItem('item', 'conteúdo recebido', { conversationId: request.conversationId })], orderedItemIds: ['item'], retainedItemIds: [],
+      totalCount: 1, startIndex: 0, endIndex: 1, hasBefore: false, hasAfter: false, retentionBlocked: false,
+    }));
+    mocks.navigate.mockImplementation(async (windowId: string) => new apidto.SubscribedTimelineSnapshot({
+      conversationId: windowId, scopeParentId: null, epoch: 'epoch', windowId,
+      windowRevision: '2', sequence: '2', mode: 'followTail',
+      items: [canonicalTestItem('item', 'conteúdo recebido', { conversationId: windowId })], orderedItemIds: ['item'], retainedItemIds: [],
+      totalCount: 1, startIndex: 0, endIndex: 1, hasBefore: false, hasAfter: false, retentionBlocked: false,
+    }));
+    let cleared = false;
+    mocks.refresh.mockImplementation(async (windowId: string) => {
+      cleared = true;
+      return new apidto.SubscribedTimelineSnapshot({ conversationId: windowId, scopeParentId: null, epoch: 'epoch', windowId,
+        windowRevision: '3', sequence: '3', mode: 'historical', items: [], orderedItemIds: [], retainedItemIds: [],
+        totalCount: 0, startIndex: 0, endIndex: -1, hasBefore: false, hasAfter: false, retentionBlocked: false });
+    });
+    const initialNavigate = mocks.navigate.getMockImplementation()!;
+    mocks.navigate.mockImplementation(async (windowId: string) => cleared && windowId === 'deleted'
+      ? new apidto.SubscribedTimelineSnapshot({ conversationId: windowId, scopeParentId: null, epoch: 'epoch', windowId,
+        windowRevision: '4', sequence: '4', mode: 'followTail', items: [], orderedItemIds: [], retainedItemIds: [],
+        totalCount: 0, startIndex: 0, endIndex: -1, hasBefore: false, hasAfter: false, retentionBlocked: false })
+      : initialNavigate(windowId));
+    const { useChatTimelinePresentation } = await import('../components/chat/useChatTimelinePresentation');
+    const { result, unmount } = renderHook(() => ({
+      deleted: useChatTimelinePresentation('deleted', 'surface'),
+      other: useChatTimelinePresentation('other', 'surface'),
+    }));
+    await waitFor(() => {
+      expect(result.current.deleted.presentation?.window?.revision).toBe('2');
+      expect(result.current.other.presentation?.window?.revision).toBe('2');
+      expect(result.current.deleted.presentation?.error).toBeUndefined();
+    });
+    const otherWindow = result.current.other.presentation?.window;
+    expect(result.current.deleted.nodes).toHaveLength(1);
+    const otherNodes = result.current.other.nodes;
+    const previousRevision = result.current.deleted.revision;
+    const deletedListener = mocks.eventsOn.mock.calls.find(([name]) => name === 'conversation:cleared')![1];
+    act(() => deletedListener({ conversation_id: 'deleted' }));
+    await waitFor(() => expect(result.current.deleted.presentation?.window?.revision).toBe('4'));
+    expect(result.current.deleted.presentation?.window?.mode).toBe('followTail');
+    expect(result.current.deleted.nodes).toEqual([]);
+    expect(result.current.deleted.revision).toBeGreaterThan(previousRevision);
+    expect(result.current.other.presentation?.window).toBe(otherWindow);
+    expect(result.current.other.nodes).toBe(otherNodes);
+    expect(mocks.refresh).toHaveBeenCalledTimes(1);
+    unmount();
+    await waitFor(() => expect(mocks.close).toHaveBeenCalledWith('other'));
+  });
+
   it('descarta Open pendente da conversa excluída e fecha sua capability tardia', async () => {
     auth.setState({ isAuthenticated: true, user: { userId: 'user', sessionId: 'pending-deletion' } });
     mocks.eventsOn.mockReturnValue(mocks.unsubscribe);
@@ -147,7 +202,7 @@ describe('chatTimelineWails', () => {
     expect(mocks.open.mock.calls[0][0]).toMatchObject({ conversationId: 'chat', surfaceId: expect.any(String),
       scopeParentId: null, cursor: '', anchor: 'tail', anchorItemId: '', direction: '', limit: 20 });
     auth.setState({ user: { userId: 'user', sessionId: 'second' } });
-    expect(mocks.unsubscribe).toHaveBeenCalledTimes(2);
+    expect(mocks.unsubscribe).toHaveBeenCalledTimes(3);
     expect(getChatTimelineClient()).not.toBe(client);
     resolve(new apidto.SubscribedTimelineSnapshot({ windowId: 'late' }));
     await opening;
@@ -167,7 +222,7 @@ describe('chatTimelineWails', () => {
       expect(fromEarlierSubscriber).toBeDefined();
       expect(fromEarlierSubscriber).not.toBe(old);
       expect(getChatTimelineClient()).toBe(fromEarlierSubscriber);
-      expect(mocks.unsubscribe).toHaveBeenCalledTimes(2);
+      expect(mocks.unsubscribe).toHaveBeenCalledTimes(3);
       await expect(old.open('chat', 'surface', null, { cursor: '', anchor: 'end', anchorItemId: '', direction: '', limit: 20 }))
         .rejects.toThrow('disposed');
     } finally { unsubscribe(); }

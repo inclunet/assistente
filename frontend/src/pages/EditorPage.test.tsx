@@ -65,6 +65,8 @@ const editorPageMocks = vi.hoisted(() => {
     commandSurfaceGetter: null as (() => unknown) | null,
     commandSurfaceSubscribe: null as ((invalidate: () => void) => () => void) | null,
     chatModalIsOpen: true,
+    chatModalConversationId: 'conv-1',
+    chatModalListeners: new Set<() => void>(),
     requestOpen: vi.fn(),
     closeModal: vi.fn(),
     setAdapterError: vi.fn(),
@@ -409,8 +411,14 @@ vi.mock('../store/workspaceChatModalStore', () => ({
       return typeof selector === 'function' ? selector(state) : state;
     },
     {
+      subscribe: (listener: () => void) => {
+        editorPageMocks.chatModalListeners.add(listener);
+        return () => { editorPageMocks.chatModalListeners.delete(listener); };
+      },
       getState: () => ({
         isOpen: editorPageMocks.chatModalIsOpen,
+        boundTabId: 'tab-1',
+        boundConversationId: editorPageMocks.chatModalConversationId,
         requestOpen: editorPageMocks.requestOpen,
         close: editorPageMocks.closeModal,
         setAdapterError: editorPageMocks.setAdapterError,
@@ -496,6 +504,8 @@ describe('EditorPage', () => {
     editorPageMocks.markdownCursorOffset = 0;
     editorPageMocks.markdownHasFocus = true;
     editorPageMocks.chatModalIsOpen = true;
+    editorPageMocks.chatModalConversationId = 'conv-1';
+    editorPageMocks.chatModalListeners.clear();
     editorPageMocks.markdownSelectionListener = null;
     editorPageMocks.markdownModelContentListener = null;
     editorPageMocks.richSelectionListener = null;
@@ -760,7 +770,7 @@ describe('EditorPage', () => {
         media: undefined,
         meta: unknown,
         session: { tabId: string; conversationId: string },
-      ) => Promise<{ afterSend?: () => Promise<void>; onExecutionStarted?: (id: string) => void } | null>;
+      ) => Promise<{ onSendError?: (error: unknown) => void; onSendRejected?: () => void; afterSend?: () => Promise<void>; onExecutionStarted?: (id: string) => void } | null>;
     };
     const prepared = await adapter.prepare();
     const plan = await adapter.send('Altere o trecho', undefined, prepared.meta, {
@@ -807,7 +817,7 @@ describe('EditorPage', () => {
         media: undefined,
         meta: unknown,
         session: { tabId: string; conversationId: string },
-      ) => Promise<{ afterSend?: () => Promise<void>; onExecutionStarted?: (id: string) => void } | null>;
+      ) => Promise<{ onSendError?: (error: unknown) => void; onSendRejected?: () => void; afterSend?: () => Promise<void>; onExecutionStarted?: (id: string) => void } | null>;
     };
     const prepared = await adapter.prepare();
     const plan = await adapter.send('Altere o trecho rico', undefined, prepared.meta, {
@@ -1675,6 +1685,50 @@ describe('EditorPage', () => {
     expect(editorPageMocks.setAdapterError).not.toHaveBeenCalledWith(expect.any(String));
   });
 
+  it.each(['leitura', 'confirmação'])('invalida o patch ao trocar conversa durante %s, mesmo voltando ao vínculo original', async phase => {
+    vi.mocked(GetProfile).mockResolvedValueOnce({ chat: { disable_tools: true } } as Awaited<ReturnType<typeof GetProfile>>);
+    let finish!: (value: unknown) => void;
+    const pending = new Promise(resolve => { finish = resolve; });
+    const patch = { ok: true, patch: { replacement: 'não aplicar', format: 'plain' } };
+    if (phase === 'leitura') editorPageMocks.waitForEditorPatch.mockReturnValueOnce(pending);
+    else {
+      editorPageMocks.waitForEditorPatch.mockResolvedValueOnce(patch);
+      editorPageMocks.requestQuestionnaire.mockReturnValueOnce(pending);
+    }
+    const plan = await createEditorChatSendPlan();
+    let afterSend!: Promise<void>;
+    await act(async () => { afterSend = plan.afterSend!(); });
+    const signal = editorPageMocks.waitForEditorPatch.mock.calls[0][1] as AbortSignal;
+    act(() => {
+      editorPageMocks.chatModalConversationId = 'conv-other';
+      for (const listener of [...editorPageMocks.chatModalListeners]) listener();
+      editorPageMocks.chatModalConversationId = 'conv-1';
+      for (const listener of [...editorPageMocks.chatModalListeners]) listener();
+    });
+    expect(signal.aborted).toBe(true);
+    await act(async () => { finish(phase === 'leitura' ? patch : { cancelled: false }); await afterSend; });
+    expect(editorPageMocks.requestQuestionnaire).toHaveBeenCalledTimes(phase === 'leitura' ? 0 : 1);
+    expect(editorStoreState.setDocMarkdown).not.toHaveBeenCalled();
+    expect(editorPageMocks.closeModal).not.toHaveBeenCalled();
+    expect(editorPageMocks.chatModalListeners.size).toBe(0);
+  });
+
+  it.each(['error', 'rejected'])('descarta callback de envio %s após troca de vínculo', async kind => {
+    const plan = await createEditorChatSendPlan();
+    act(() => {
+      editorPageMocks.chatModalConversationId = 'other';
+      for (const listener of [...editorPageMocks.chatModalListeners]) listener();
+    });
+    editorPageMocks.setAdapterError.mockClear();
+    await act(async () => {
+      if (kind === 'error') plan.onSendError?.(new Error('chat-messaging-stale'));
+      else plan.onSendRejected?.();
+    });
+    expect(editorPageMocks.setAdapterError).not.toHaveBeenCalled();
+    expect(editorPageMocks.closeModal).not.toHaveBeenCalled();
+    expect(editorPageMocks.chatModalListeners.size).toBe(0);
+  });
+
   it('traduz falha da consulta canônica sem expor o erro técnico', async () => {
     vi.mocked(GetProfile).mockResolvedValueOnce({ chat: { disable_tools: true } } as Awaited<ReturnType<typeof GetProfile>>);
     editorPageMocks.waitForEditorPatch.mockRejectedValueOnce(new Error('Chat completion replaced or unavailable'));
@@ -2151,7 +2205,7 @@ describe('EditorPage', () => {
         media: undefined,
         meta: unknown,
         session: { tabId: string; conversationId: string },
-      ) => Promise<{ afterSend?: () => Promise<void>; onExecutionStarted?: (id: string) => void } | null>;
+      ) => Promise<{ onSendError?: (error: unknown) => void; onSendRejected?: () => void; afterSend?: () => Promise<void>; onExecutionStarted?: (id: string) => void } | null>;
     };
     const prepared = await adapter.prepare();
     const plan = await adapter.send('Reescreva', undefined, prepared.meta, {

@@ -41,12 +41,6 @@ export function useWorkspaceChatBridge() {
 
     const snapshotTabId = activeTab.id;
 
-    if (conversationId && MINI_CHAT_LAZY_CONVERSATION.has(activeTab.type)) {
-      void useChatStore.getState().loadConversationSession(conversationId);
-      lastSyncedRef.current = syncKey;
-      return;
-    }
-
     if (conversationId) {
       const gen = ++syncGenerationRef.current;
       void (async () => {

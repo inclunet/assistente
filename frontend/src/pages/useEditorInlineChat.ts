@@ -173,6 +173,15 @@ export function useEditorInlineChat({
     const trimmed = String(instruction || '').trim();
     if (!trimmed) return null;
 
+    const runId = (inlineChatRunIdRef.current += 1);
+    const binding = useWorkspaceChatModalStore.getState();
+    let bindingInvalidated = false;
+    const isBindingCurrent = () => {
+      const current = useWorkspaceChatModalStore.getState();
+      return !bindingInvalidated && current.isOpen && current.boundSurface === binding.boundSurface
+        && current.boundTabId === binding.boundTabId && current.boundConversationId === binding.boundConversationId;
+    };
+
     const prompt = trimmed;
     if (activeTab.mode === 'rich') {
       flushActiveRichMarkdownNow();
@@ -181,6 +190,7 @@ export function useEditorInlineChat({
     // (text_edit/edit_file) leem o arquivo do disco, e o autosave debounced
     // pode deixar o disco atrás do que o usuário está vendo.
     await persistTabContentNow(activeTab.id);
+    if (!isBindingCurrent() || runId !== inlineChatRunIdRef.current) return null;
     const latestActiveTab = useEditorStore.getState().documents[activeTab.id] ?? activeTab;
     const editorSurfaceTab = workspaceTab ?? {
       id: latestActiveTab.id,
@@ -194,7 +204,6 @@ export function useEditorInlineChat({
     const surfaceContext = buildEditorInlineChatSurfaceContext(latestActiveTab, inlineChatSelection);
 
     clearPendingInlineChatEditorRestore();
-    const runId = (inlineChatRunIdRef.current += 1);
     useWorkspaceChatModalStore.getState().setAdapterError(null);
 
     const isToolCallingEnabledForProfileSlug = async (slug: string): Promise<boolean> => {
@@ -211,6 +220,7 @@ export function useEditorInlineChat({
     };
 
     const applyInlinePatchNow = (selection: InlineChatSelection, patch: EditorPatch) => {
+      if (!isBindingCurrent()) return;
       const replacement = normalizeReplacementForEditor(String(patch?.replacement || ''), patch?.format, selection?.selectedText);
       const { documents: currentDocs } = useEditorStore.getState();
       const tab = currentDocs[selection.tabId] || null;
@@ -345,6 +355,7 @@ export function useEditorInlineChat({
     };
 
     const confirmInlinePatch = async (selection: InlineChatSelection, patch: EditorPatch) => {
+      if (!isBindingCurrent()) return;
       const before =
         selection.mode === 'rich'
           ? String(selection.selectedMarkdown || selection.selectedText || '')
@@ -377,7 +388,7 @@ export function useEditorInlineChat({
         ],
       });
 
-      if (runId !== inlineChatRunIdRef.current || !useWorkspaceChatModalStore.getState().isOpen) return;
+      if (runId !== inlineChatRunIdRef.current || !isBindingCurrent()) return;
       if (!resp.cancelled) {
         applyInlinePatchNow(selection, normalizedPatch);
         return;
@@ -397,7 +408,7 @@ export function useEditorInlineChat({
       // - tools ON  => edit_file com confirmação contextual (Go-side); fecha só se o documento mudou
       // - tools OFF => body-only (extrai ```editor_patch``` do texto e confirma aqui)
       const toolCallingEnabled = await isToolCallingEnabledForProfileSlug(effectiveProfileSlug);
-      if (runId !== inlineChatRunIdRef.current || !useWorkspaceChatModalStore.getState().isOpen) return null;
+      if (runId !== inlineChatRunIdRef.current || !isBindingCurrent()) return null;
 
       // Drafts sem filePath não conseguem usar edit_file; nesse caso, cai para o
       // mesmo fluxo principal com fallback body-only e aplicação local do patch.
@@ -456,7 +467,7 @@ export function useEditorInlineChat({
         if (syncBeforeClose) {
           await syncAssistedChangeForTab(inlineChatSelection.tabId);
         }
-        if (runId !== inlineChatRunIdRef.current || !useWorkspaceChatModalStore.getState().isOpen) return;
+        if (runId !== inlineChatRunIdRef.current || !isBindingCurrent()) return;
         if (!didToolTurnChangeEditorMarkdown()) {
           useWorkspaceChatModalStore.getState().bumpFocus();
           setIsAsking(false);
@@ -481,10 +492,20 @@ export function useEditorInlineChat({
 
       let executionId: string | undefined;
       const doneWaitAbortController = new AbortController();
+      let unsubscribeBinding: (() => void) | undefined;
       const abortPendingCompletion = () => {
+        bindingInvalidated = true;
         doneWaitAbortController.abort();
+        unsubscribeBinding?.();
+        stopTrackingAssistedFileChange();
         inlineChatToolCloseCleanupsRef.current.delete(abortPendingCompletion);
       };
+      unsubscribeBinding = useWorkspaceChatModalStore.subscribe(() => {
+        if (!isBindingCurrent()) {
+          abortPendingCompletion();
+          if (runId === inlineChatRunIdRef.current) setIsAsking(false);
+        }
+      });
       inlineChatToolCloseCleanupsRef.current.add(abortPendingCompletion);
       const donePromise = waitForChatDone(expectedConversationId, () => executionId, undefined, doneWaitAbortController.signal);
       // O plano pode ser rejeitado antes de afterSend ser executado. Trate a
@@ -527,7 +548,7 @@ export function useEditorInlineChat({
           try {
             const completion = await donePromise;
 
-            if (runId !== inlineChatRunIdRef.current) {
+            if (!isBindingCurrent() || runId !== inlineChatRunIdRef.current) {
               stopTrackingAssistedFileChange();
               return;
             }
@@ -569,7 +590,7 @@ export function useEditorInlineChat({
 
             // Fallback (sem tool calling): extrai patch do corpo da resposta e confirma.
             const extracted = await waitForEditorPatch(completion, doneWaitAbortController.signal);
-            if (doneWaitAbortController.signal.aborted || runId !== inlineChatRunIdRef.current) return;
+            if (!isBindingCurrent() || doneWaitAbortController.signal.aborted || runId !== inlineChatRunIdRef.current) return;
             if (!extracted.ok) {
               const errText = String(extracted.error || '').trim();
               if (/nenhum patch encontrado|não contém patch|patch vazio|json inválido|patch inválido|muito grande/i.test(errText)) {
@@ -583,28 +604,33 @@ export function useEditorInlineChat({
             await confirmInlinePatch(inlineChatSelection, extracted.patch as EditorPatch);
           } catch (e: unknown) {
             stopTrackingAssistedFileChange();
-            if (doneWaitAbortController.signal.aborted || runId !== inlineChatRunIdRef.current) return;
+            if (!isBindingCurrent() || doneWaitAbortController.signal.aborted || runId !== inlineChatRunIdRef.current) return;
             logger.error('[useEditorInlineChat] inline chat error:', e);
             useWorkspaceChatModalStore.getState().setAdapterError(t('editor.chatModal.requestChangeError'));
             setIsAsking(false);
           } finally {
+            unsubscribeBinding?.();
             inlineChatToolCloseCleanupsRef.current.delete(abortPendingCompletion);
           }
         },
         onSendError: (e: unknown) => {
+          const ownsUI = isBindingCurrent() && runId === inlineChatRunIdRef.current;
           abortPendingCompletion();
           stopTrackingAssistedFileChange();
+          if (!ownsUI) return;
           logger.error('[useEditorInlineChat] inline chat error:', e);
           useWorkspaceChatModalStore.getState().setAdapterError(getErrorMessage(e) || t('editor.chatModal.requestChangeError'));
           setIsAsking(false);
         },
         onSendRejected: () => {
+          const ownsUI = isBindingCurrent() && runId === inlineChatRunIdRef.current;
           abortPendingCompletion();
           stopTrackingAssistedFileChange();
-          setIsAsking(false);
+          if (ownsUI) setIsAsking(false);
         },
       };
     } catch (e: unknown) {
+      if (!isBindingCurrent() || runId !== inlineChatRunIdRef.current) return null;
       logger.error('[useEditorInlineChat] inline chat error:', e);
       useWorkspaceChatModalStore.getState().setAdapterError(getErrorMessage(e) || t('editor.chatModal.requestChangeError'));
       setIsAsking(false);

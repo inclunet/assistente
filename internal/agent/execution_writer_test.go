@@ -437,7 +437,7 @@ func (tool executionWriterObservedTool) Execute(context.Context, json.RawMessage
 }
 
 func TestExecutionWriterLedgerFailureCannotSilentlyLoseDiagnostic(t *testing.T) {
-	for _, scenario := range []string{"admission", "result", "admission_and_partial", "load_skill", "native_final", "native_tools", "native_error", "retry_batch", "load_skill_result"} {
+	for _, scenario := range []string{"admission", "result", "admission_and_partial", "load_skill", "native_final", "native_tools", "native_error", "retry_batch", "load_skill_result", "intermediate"} {
 		t.Run(scenario, func(t *testing.T) {
 			svc, ctx, conv, turn, em := setupTurnRuntime(t)
 			if err := database.DB().Create(&database.ToolCatalog{Name: "ok_tool", DisplayName: "ok_tool", Origin: tools.ToolOriginBuiltin, AvailabilityStatus: tools.ToolAvailabilityAvailable}).Error; err != nil {
@@ -459,6 +459,12 @@ func TestExecutionWriterLedgerFailureCannotSilentlyLoseDiagnostic(t *testing.T) 
 			}
 			if err := database.DB().Exec("CREATE TRIGGER reject_invocation BEFORE " + operation + " ON tool_invocations" + condition + " BEGIN SELECT RAISE(ABORT,'ledger unavailable'); END").Error; err != nil {
 				t.Fatal(err)
+			}
+			if scenario == "intermediate" {
+				database.DB().Exec("DROP TRIGGER reject_invocation")
+				if err := database.DB().Exec("CREATE TRIGGER reject_intermediate BEFORE INSERT ON chat_messages WHEN NEW.role='assistant' AND NEW.content <> '' BEGIN SELECT RAISE(ABORT,'write unavailable'); END").Error; err != nil {
+					t.Fatal(err)
+				}
 			}
 			streamer := &recoveryStreamer{steps: []func(llm.StreamHandler){func(h llm.StreamHandler) {
 				h.OnChunk("parcial recebido")
@@ -500,7 +506,7 @@ func TestExecutionWriterLedgerFailureCannotSilentlyLoseDiagnostic(t *testing.T) 
 				t.Fatalf("terminal=%+v model calls=%d", done, streamer.calls)
 			}
 			wantCalls := int32(0)
-			if scenario == "result" {
+			if scenario == "result" || scenario == "intermediate" {
 				wantCalls = 1
 			}
 			if scenario == "retry_batch" {
@@ -536,7 +542,7 @@ func TestExecutionWriterLedgerFailureCannotSilentlyLoseDiagnostic(t *testing.T) 
 			if text != "parcial recebido" {
 				t.Fatalf("partial lost: %q", text)
 			}
-			if scenario == "admission_and_partial" {
+			if scenario == "admission_and_partial" || scenario == "intermediate" {
 				if response.Durability != "volatile" {
 					t.Fatalf("durability=%s", response.Durability)
 				}
@@ -885,5 +891,74 @@ func TestExecutionWriterRetryWithoutActivityThenContinueExcludesDiagnostic(t *te
 				t.Fatalf("histórico físico alterado: %+v %v", previous, err)
 			}
 		})
+	}
+}
+
+func TestSimpleNativeLedgerPersistsCompletedBatchDespiteFailure(t *testing.T) {
+	for _, terminal := range []string{"done", "error"} {
+		t.Run(terminal, func(t *testing.T) {
+			svc, ctx, conv, turn, em := setupTurnRuntime(t)
+			svc.toolInvocations = toolinvocations.NewService(toolinvocations.NewDBRepository(database.DB()), nil)
+			if err := database.DB().Exec("CREATE TRIGGER reject_first_native BEFORE INSERT ON tool_invocations WHEN NEW.tool_call_id='first' BEGIN SELECT RAISE(ABORT,'first unavailable'); END").Error; err != nil {
+				t.Fatal(err)
+			}
+			streamer := &recoveryStreamer{steps: []func(llm.StreamHandler){func(h llm.StreamHandler) {
+				h.OnChunk("parcial nativo")
+				for _, id := range []string{"first", "second"} {
+					h.OnMCPToolEvent(llm.MCPToolEvent{ID: id, Name: "remote", ServerLabel: "fixture", IsCompleted: true, Output: "executado"})
+				}
+				if terminal == "done" {
+					h.OnDone("parcial nativo", llm.Usage{}, "modelo")
+				} else {
+					h.OnError("provider error")
+				}
+			}}}
+			svc.StreamSimpleWithRecovery(ctx, streamer, nil, llm.ChatParams{}, conv, turn, "", nil, true, 3)
+			svc.EndUnfinishedTurn(ctx, conv, turn, nil)
+			assertRuntimeTerminal(t, ctx, conv, turn, database.TurnFailed, "persistence_error", em)
+			if streamer.calls != 1 {
+				t.Fatalf("repeated native effects: %d", streamer.calls)
+			}
+			var count int64
+			if err := database.DB().Table("tool_invocations").Where("tool_call_id = ? AND status = ?", "second", "succeeded").Count(&count).Error; err != nil || count != 1 {
+				t.Fatalf("remaining completed call lost: %d %v", count, err)
+			}
+			reopened, err := chat.NewDBTimelineReader(database.DB()).ReadTurn(ctx, conv, turn)
+			if err != nil {
+				t.Fatal(err)
+			}
+			text := ""
+			for _, segment := range reopened.Response.Segments {
+				if segment.Kind == "text" {
+					text += segment.Text
+				}
+			}
+			if text != "parcial nativo" {
+				t.Fatalf("partial lost: %q", text)
+			}
+		})
+	}
+}
+
+func TestSimpleNativeCompletedCallSurvivesCancellation(t *testing.T) {
+	svc, ctx, conv, turn, em := setupTurnRuntime(t)
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	svc.toolInvocations = toolinvocations.NewService(toolinvocations.NewDBRepository(database.DB()), nil)
+	streamer := &recoveryStreamer{steps: []func(llm.StreamHandler){func(h llm.StreamHandler) {
+		h.OnChunk("antes do cancelamento")
+		h.OnMCPToolEvent(llm.MCPToolEvent{ID: "completed", Name: "remote", ServerLabel: "fixture", IsCompleted: true, Output: "feito"})
+		cancel()
+	}}}
+	svc.StreamSimpleWithRecovery(ctx, streamer, nil, llm.ChatParams{}, conv, turn, "", nil, true, 3)
+	ctx = context.WithoutCancel(ctx)
+	svc.EndUnfinishedTurn(ctx, conv, turn, nil)
+	assertRuntimeTerminal(t, ctx, conv, turn, database.TurnInterrupted, "cancelled", em)
+	var count int64
+	if err := database.DB().Table("tool_invocations").Where("tool_call_id = ? AND status = ?", "completed", "succeeded").Count(&count).Error; err != nil || count != 1 {
+		t.Fatalf("completed effect lost: %d %v", count, err)
+	}
+	if streamer.calls != 1 {
+		t.Fatalf("repeated native effects: %d", streamer.calls)
 	}
 }

@@ -319,3 +319,12 @@ Quando uma resposta permanece visível após falha de gravação, **Copiar mensa
 e **Copiar como Markdown** também podem preservar seu texto. A cópia vale para a
 versão exibida: se a resposta mudar ou a janela for fechada durante a operação,
 selecione novamente a mensagem antes de tentar copiar.
+
+Ao limpar uma conversa, as janelas abertas atualizam o histórico e voltam a
+acompanhar as próximas mensagens. Cópias de recuperação daquela conversa também
+são liberadas pela limpeza confirmada. Se a liberação falhar, a cópia permanece
+preservada. Outras conversas não são afetadas.
+
+O diagnóstico de falha continua disponível no aviso do chat, além do anúncio,
+sem substituir o conteúdo parcial recebido. A opção de continuar respeita o
+perfil da aba ou painel em uso.

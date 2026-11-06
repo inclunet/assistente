@@ -65,6 +65,42 @@ function fixture() {
 }
 
 describe('ChatTimelineClient', () => {
+  it('recupera as duas janelas na limpeza confirmada, mesmo com syncRequired', async () => {
+    const f = fixture();
+    f.port.open.mockImplementation(async (_id, surface) => ({ ...contentSnapshot(false), windowId: surface.split('#')[0] }));
+    await f.open(); await f.open('b');
+    f.emit(event('a', { syncRequired: true, updates: [] }));
+    expect(f.client.getWindow('chat', 'a')?.orderedItemIds).toEqual(['item']);
+    await f.client.conversationCleared('chat');
+    expect(f.client.getWindow('chat', 'a')?.orderedItemIds).toEqual([]);
+    expect(f.client.getWindow('chat', 'b')?.orderedItemIds).toEqual([]);
+    expect(f.port.refresh).toHaveBeenCalledTimes(2);
+    expect(f.port.navigate).toHaveBeenCalledTimes(2);
+    expect(f.port.navigate).toHaveBeenCalledWith('a', 'epoch', '3', 'followTail', expect.objectContaining({ anchor: 'end' }));
+    expect(f.port.refresh).toHaveBeenCalledWith('a', '1', expect.objectContaining({ anchor: 'end', cursor: '' }));
+    await f.client.dispose();
+  });
+
+  it('reset descarta janelas de todas as conversas e Open pendente', async () => {
+    const f = fixture();
+    f.port.open.mockResolvedValueOnce(contentSnapshot(false));
+    await f.open();
+    const pending = deferred<TimelineSnapshot>();
+    f.port.open.mockReturnValueOnce(pending.promise);
+    const opening = f.client.open('other', 'late', null, position);
+    await Promise.resolve();
+    const reset = f.client.databaseReset();
+    expect(f.client.getWindow('chat', 'a')).toBeUndefined();
+    pending.resolve(snapshot('late', { conversationId: 'other' }));
+    await opening; await reset;
+    expect(f.client.getWindow('other', 'late')).toBeUndefined();
+    expect(f.port.close).toHaveBeenCalledWith('a');
+    expect(f.port.close).toHaveBeenCalledWith('late');
+    await f.open();
+    expect(f.client.getWindow('chat', 'a')).toBeDefined();
+    await f.client.dispose();
+  });
+
   it('instala um listener antes de Open e reaplica evento antecipado', async () => {
     const f = fixture();
     const pending = deferred<TimelineSnapshot>();
@@ -549,6 +585,35 @@ function itemRecoveryFixture() {
 }
 
 describe('Refresh com transferência de recuperação', () => {
+  it.each([false, true])('limpa thread recuperada somente após liberar a reserva: falha=%s', async fail => {
+    const f = itemRecoveryFixture();
+    f.original.scopeParentId = 'parent';
+    f.original.items[0].scopeParentId = 'parent';
+    await f.client.open('chat', 'a', 'parent', position);
+    await f.open('b');
+    f.port.refresh.mockImplementation(async window => snapshot(window, { scopeParentId: window === 'a' ? 'parent' : null, windowRevision: '3', sequence: '12' }));
+    await f.client.refresh('chat');
+    const held = f.client.getRecoveredItems('chat');
+    expect(held).toHaveLength(1);
+    if (fail) {
+      f.port.releaseItem.mockRejectedValueOnce(new Error('offline'));
+      await expect(f.client.conversationCleared('chat')).rejects.toThrow('offline');
+      expect(f.client.getRecoveredItems('chat')).toEqual(held);
+      expect(f.port.close).not.toHaveBeenCalled();
+    } else {
+      await f.client.conversationCleared('chat');
+      expect(f.port.releaseItem.mock.invocationCallOrder[0]).toBeLessThan(f.port.close.mock.invocationCallOrder[0]);
+      expect(f.port.close).toHaveBeenCalledWith('a');
+      expect(f.client.getRecoveredItems('chat')).toEqual([]);
+      expect(f.client.getWindow('chat', 'b')?.orderedItemIds).toEqual([]);
+      const item = { ...contentSnapshot(false).items[0], revision: '13' };
+      f.emit(event('b', { snapshotRevision: '3', updates: [{ conversationId: 'chat', epoch: 'epoch', sequence: '13', operations: [],
+        windowPatches: [{ windowId: 'b', previousRevision: '3', revision: '4', items: [item], splices: [{ index: 0, deleteCount: 0, insertIds: ['item'] }] }] }] }));
+      expect(f.client.getWindow('chat', 'b')?.orderedItemIds).toEqual(['item']);
+    }
+    await f.client.dispose();
+  });
+
   it('oito aquisições recusadas não impedem reservar o nono item', async () => {
     const f = itemRecoveryFixture();
     f.original.items = Array.from({ length: 9 }, (_, index) => ({ ...structuredClone(f.original.items[0]),

@@ -466,6 +466,8 @@ func (r *agenticLoopRunner) executeToolIteration(ctx context.Context, result Age
 			return ctx, true
 		}
 		logging.Errorf(ctx, "agent.agentic-loop", "erro ao salvar mensagem intermediária: %v", err)
+		r.svc.emitFinalizationErrorDone(ctx, r.conversationID, r.turnID, r.assistantMessageID, r.surfaceOrigin)
+		return ctx, true
 	}
 
 	// 5f-iv. Resultados técnicos já foram persistidos exclusivamente no ledger.

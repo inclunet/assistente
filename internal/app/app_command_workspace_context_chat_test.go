@@ -1,6 +1,7 @@
 package app
 
 import (
+	"assistente/controllers"
 	"context"
 	"testing"
 	"time"
@@ -138,6 +139,7 @@ func TestCommandWorkspaceContextChatDefaultCtrlShiftICommitAuditaKeyboardLocal(t
 
 func TestCommandWorkspaceContextChatStreamDeckNativeCommitAuditaStreamDeck(t *testing.T) {
 	a, decisions := settingsSecurityFixture(t)
+	a.conversationsCtrl = controllers.NewConversationsController(controllers.ConversationsControllerConfig{})
 	if err := database.DB().AutoMigrate(&database.Conversation{}, &database.ChatMessage{}); err != nil {
 		t.Fatal(err)
 	}

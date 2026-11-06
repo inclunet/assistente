@@ -21,11 +21,11 @@ const send = vi.hoisted(() => vi.fn());
 const retry = vi.hoisted(() => vi.fn());
 const t = vi.hoisted(() => (key: string) => key);
 const translation = vi.hoisted(() => ({ current: (key: string) => key }));
-const continuationProfile = vi.hoisted(() => ({ enabled: true }));
+const continuationProfile = vi.hoisted(() => ({ enabled: true, surfaceEnabled: true }));
 vi.mock('react-i18next', () => ({ initReactI18next: { type: '3rdParty', init() {} }, useTranslation: () => ({ t: translation.current }) }));
 vi.mock('@wailsjs/go/wailsapi/Chat', () => ({ SendMessage: send, RetryMessage: retry }));
 vi.mock('@wailsjs/runtime/runtime', () => ({ EventsOn: () => () => {} }));
-vi.mock('@wailsjs/go/wailsapi/Profiles', () => ({ GetActiveProfile: vi.fn(async () => ({ chat: { streaming_recovery_show_continue: continuationProfile.enabled } })), GetActiveProfileSlug: vi.fn(async () => 'default') }));
+vi.mock('@wailsjs/go/wailsapi/Profiles', () => ({ GetProfile: vi.fn(async () => ({ chat: { streaming_recovery_show_continue: continuationProfile.surfaceEnabled } })), GetActiveProfile: vi.fn(async () => ({ chat: { streaming_recovery_show_continue: continuationProfile.enabled } })), GetActiveProfileSlug: vi.fn(async () => 'default') }));
 vi.mock('@wailsjs/go/wailsapi/Skills', () => ({ GetUserInvocableSkillsForProfile: vi.fn(async () => []) }));
 vi.mock('../../services/audioFeedback', () => ({ playSendSound: vi.fn(), playReceiveSound: vi.fn(), playChatErrorSound: vi.fn() }));
 vi.mock('../../hooks/useAnnouncer', () => ({ announce: vi.fn(), useAnnouncer: () => ({ announce: vi.fn(), announceRequest: vi.fn() }) }));
@@ -50,8 +50,8 @@ const take = vi.fn();
 const commit = vi.fn();
 const complete = vi.fn();
 const getResult = vi.fn();
-function mount() {
-  return render(<MemoryRouter><ChatSessionView surface={surface} onSend={(content, media, origin, command) => sendChatSurfaceMessage(id, content, media, undefined, origin, command)} /></MemoryRouter>);
+function mount(profileSlug?: string) {
+  return render(<MemoryRouter><ChatSessionView surface={surface} profileSlug={profileSlug} onSend={(content, media, origin, command) => sendChatSurfaceMessage(id, content, media, undefined, origin, command)} /></MemoryRouter>);
 }
 beforeEach(() => {
   continuationProfile.enabled = true;
@@ -87,6 +87,24 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 describe('ChatSessionView + ChatInput + pipeline reais', () => {
+  it.each([true, false])('admite continuação conforme perfil da superfície: %s', async enabled => {
+    continuationProfile.enabled = !enabled;
+    continuationProfile.surfaceEnabled = enabled;
+    const item = canonicalTestItem('response', 'parcial', { conversationId: id, turnId: id, representativeMessageId: id, state: 'interrupted' });
+    item.metadata.terminalReason = 'cancelled';
+    setFixtureCanonicalItem('response', item);
+    useChatStore.setState(state => ({ timelinesByConversationId: { ...state.timelinesByConversationId, [id]: { id, title: 'chat', threadedMessages: [new chat.MessageNode({ message: { id: 'response', conversationId: id, role: 'assistant', content: 'parcial', turnId: id }, children: [], childCount: 0, level: 0 })] } } }));
+    await act(async () => { mount('surface-profile'); });
+    const target = captureChatMessagingTarget(() => '/', 'chat.message.retry', undefined, undefined, { sourceItemId: 'response', messageId: id, continue: true });
+    expect(!!target).toBe(enabled);
+  });
+
+  it('recusa reenvio cuja fonte já saiu da apresentação', async () => {
+    await act(async () => { mount(); });
+    expect(captureChatMessagingTarget(() => '/', 'chat.message.retry', undefined, undefined, { sourceItemId: 'removed', messageId: id })).toBeUndefined();
+    expect(begin).not.toHaveBeenCalled();
+  });
+
   it.each(['volatile', 'profile-disabled', 'persisted'] as const)('prepara continuação pela publicação canônica: %s', async scenario => {
     continuationProfile.enabled = scenario !== 'profile-disabled';
     const item = canonicalTestItem('response', 'parcial', { conversationId: id, turnId: id, representativeMessageId: id, state: 'interrupted', durability: scenario === 'volatile' ? 'volatile' : 'persisted' });

@@ -35,7 +35,7 @@ import { useAuthStore } from '../../store/authStore';
 import { registerChatNavigationSurface, requestChatNavigationCommand, getChatMessageNavigationInstanceId, captureChatNavigationTarget, type ChatNavigationTarget } from '../../lib/commandChatNavigation';
 import { useWorkspaceChatModalStore } from '../../store/workspaceChatModalStore';
 import { getTopmostModalID } from '../../lib/modalRegistry';
-import { GetActiveProfile, GetActiveProfileSlug } from '@wailsjs/go/wailsapi/Profiles';
+import { GetActiveProfile, GetActiveProfileSlug, GetProfile } from '@wailsjs/go/wailsapi/Profiles';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import { announce, useAnnouncer } from '../../hooks/useAnnouncer';
 import type { EditorSendTargetOption, ChatSendToEditorPayload } from '../../lib/editorSendMenu';
@@ -206,18 +206,24 @@ function ChatSessionViewContent({
   useEffect(() => {
     let mounted = true;
 
+    let generation = 0;
     const loadActiveProfile = async () => {
+      const request = ++generation;
+      setShowContinueEnabled(false);
       try {
-        const [profile, profileSlug] = await Promise.all([GetActiveProfile(), GetActiveProfileSlug()]);
-        if (!mounted) return;
+        const [profile, resolvedSlug] = await Promise.all([
+          profileSlug ? GetProfile(profileSlug) : GetActiveProfile(),
+          profileSlug ? Promise.resolve(profileSlug) : GetActiveProfileSlug(),
+        ]);
+        if (!mounted || request !== generation) return;
         // A continuação é habilitada apenas pelo perfil: o backend sempre consegue
         // continuar — via assistant prefill quando o provider suporta, ou via
         // fallback por mensagem de usuário quando não suporta (Issue #124).
         const profileAllowsContinue = profile?.chat?.streaming_recovery_show_continue ?? true;
         setShowContinueEnabled(profileAllowsContinue);
-        setActiveProfileSlug(profileSlug);
+        setActiveProfileSlug(resolvedSlug);
       } catch {
-        if (!mounted) return;
+        if (!mounted || request !== generation) return;
         setShowContinueEnabled(false);
         setActiveProfileSlug('');
       }
@@ -232,7 +238,7 @@ function ChatSessionViewContent({
       unsubChanged();
       unsubUpdated();
     };
-  }, []);
+  }, [profileSlug]);
 
   useEffect(() => {
     if (!conversationId) return;
@@ -495,6 +501,7 @@ function ChatSessionViewContent({
         if (options?.recovery && (!snapshot.sendFailureRetryable || content !== (snapshot.sendFailureRetryContent ?? ''))) return undefined;
         const selected = messageCommandsRef.current.captureSelection();
         const source = options?.sourceItemId ? presentation?.getMessage(options.sourceItemId) : selected.message;
+        if (id === 'chat.message.retry' && options?.sourceItemId && !source) return undefined;
         const sourceCurrent = () => selected.isCurrent() && (!options?.sourceItemId
           || presentation?.getMessage(options.sourceItemId) === source);
         const messageId = id === 'chat.message.retry'

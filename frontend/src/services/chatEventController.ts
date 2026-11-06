@@ -351,7 +351,7 @@ export function startChatEventController({
       origin: getChatConversationVoiceOrigin(conversationId, undefined, eventOrigin),
       eventType: 'error', announcePriority: 'assertive' });
     playChatErrorSoundIfActive(conversationId, eventOrigin);
-    if (!assistantMessageId) patchCurrentSession({ sendFailureMessage: translated, sendFailureAnnounced: true, sendFailureRetryable: false });
+    patchCurrentSession({ sendFailureMessage: translated, sendFailureAnnounced: true, sendFailureRetryable: false });
   };
 
   const existingCleanup = activeControllers.get(conversationIdStr)?.cleanup;
