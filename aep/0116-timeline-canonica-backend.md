@@ -26,6 +26,8 @@ reclassificados por heurística. Playback prioriza o slot dedicado e pode resolv
 o primeiro áudio recebido não vazio de `media`; referências externas e arquivos
 vazios são preservados, mas não anunciam playback local. TTS não substitui os
 anexos recebidos.
+A resolução de áudio compartilhada por retry e histórico normaliza MIME e extrai
+o base64 de data URIs (`data` ou `url`), sem encaminhar o prefixo ao transcritor.
 Contexto, retry e exportação hidratam anexos explicitamente. Continuação busca a
 primeira base com mídia própria sem copiar seus vínculos nem herdar TTS. A janela
 e o término visual continuam sem blobs; foram retirados os `Omit` defensivos das
@@ -63,6 +65,9 @@ apresentá-lo como gate comparável de desempenho. Revisor independente:
 `review_audio_storage`; rodadas de revisão corrigiram órfãos sem conversa,
 validação FK indevidamente global, seleção de áudio vazio e uma fixture inválida;
 revisão final sem pendências, incluindo as fixtures compartilhadas de comandos.
+A sétima rodada zerou a correção apontada pelo Copilot no retry de áudio:
+STT assíncrono e paridade com data URI aprovados, mais 36 regressões selecionadas
+de mídia/áudio/histórico/retry; build/vet e lint novamente aprovados.
 ACP permanece restrito ao CI e não há validação NVDA nesta etapa.
 
 Este recorte conclui o armazenamento de anexos da fase 4. O AEP permanece

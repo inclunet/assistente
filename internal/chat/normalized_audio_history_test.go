@@ -20,6 +20,8 @@ func TestNormalizedAudioReachesSendAndRetryHistory(t *testing.T) {
 		{"mixed", database.AttachmentReceived, "", `[{"type":"image/png","data":"aW1hZ2UtbWFya2Vy"}]`, 1},
 		{"duplicate", database.AttachmentReceived, "", `[{"type":"audio/wav","data":"/w=="}]`, 1},
 		{"uppercase_media", database.AttachmentReceived, "", `[{"type":"Audio/WAV; codecs=pcm","data":"/w=="}]`, 1},
+		{"data_uri", database.AttachmentReceived, "", `[{"type":"audio/wav","data":"data:audio/wav;base64,/w=="}]`, 1},
+		{"url_data_uri", database.AttachmentReceived, "", `[{"type":"audio/wav","url":"data:audio/wav;base64,/w=="}]`, 1},
 		{"equivalent_encoding", database.AttachmentReceived, "", `[{"type":"audio/wav","data":"/x=="}]`, 1},
 		{"generated", database.AttachmentGenerated, "texto", "", 0},
 		{"unknown", database.AttachmentLegacyUnknown, "texto", "", 0},

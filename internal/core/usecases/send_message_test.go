@@ -375,8 +375,9 @@ func (e mediaEventEmitter) Emit(name string, payload any) {
 }
 
 func TestSendMessageUseCase_STTAssincronoUnicoEPersistido(t *testing.T) {
-	for _, retry := range []bool{false, true} {
-		t.Run(map[bool]string{false: "send", true: "retry_normalized"}[retry], func(t *testing.T) {
+	for _, scenario := range []string{"send", "retry_normalized", "retry_uppercase_media", "retry_data_uri", "retry_url_data_uri"} {
+		retry := scenario != "send"
+		t.Run(scenario, func(t *testing.T) {
 			setupTestDB(t)
 			sqlDB, err := database.DB().DB()
 			if err != nil {
@@ -396,9 +397,24 @@ func TestSendMessageUseCase_STTAssincronoUnicoEPersistido(t *testing.T) {
 			media := `[{"name":"voz.webm","type":"audio/webm","data":"YXVkaW8=","size":5}]`
 			retryID := ""
 			if retry {
-				message, err := database.CreateMessageWithContext(ctx, database.MessageOptions{ConversationID: conv.ID, Role: "user", Audio: "YXVkaW8=", AudioMimeType: "audio/webm", AudioOrigin: database.AttachmentReceived, Source: "wails"})
+				retryMedia := ""
+				switch scenario {
+				case "retry_uppercase_media":
+					retryMedia = `[{"type":"Audio/WebM; codecs=opus","data":"YXVkaW8="}]`
+				case "retry_data_uri":
+					retryMedia = `[{"type":"audio/webm","data":"data:audio/webm;base64,YXVkaW8="}]`
+				case "retry_url_data_uri":
+					retryMedia = `[{"type":"audio/webm","url":"data:audio/webm;base64,YXVkaW8="}]`
+				}
+				message, err := database.CreateMessageWithContext(ctx, database.MessageOptions{ConversationID: conv.ID, Role: "user", Media: retryMedia, Audio: "YXVkaW8=", AudioMimeType: "audio/webm", AudioOrigin: database.AttachmentReceived, Source: "wails"})
 				if err != nil {
 					t.Fatal(err)
+				}
+				if retryMedia != "" {
+					var slots int64
+					if err := database.DB().Table("chat_message_attachments").Where("message_id=? AND purpose='audio'", message.ID).Count(&slots).Error; err != nil || slots != 0 {
+						t.Fatalf("slot recebido redundante: %d %v", slots, err)
+					}
 				}
 				retryID = message.ID
 				media = ""
