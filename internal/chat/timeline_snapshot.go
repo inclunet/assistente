@@ -239,7 +239,7 @@ func (r *DBTimelineReader) readTurn(ctx context.Context, conversationID, turnID 
 		// A consulta é restrita ao turno/escopo, não recarrega a conversa inteira.
 		// Recuperação e publicação projetam texto/metadados, nunca blobs.
 		// Contexto do modelo e playback resolvem mídia em seus próprios leitores.
-		responseDB := tx.Omit("media", "audio", "audio_mime_type").Where("chat_messages.role <> ?", "user").Session(&gorm.Session{})
+		responseDB := tx.Where("chat_messages.role <> ?", "user").Session(&gorm.Session{})
 		messages, err = database.NewMessageRepository(responseDB).GetMessagesByTurnIDWithContext(ctx, conversationID, question.ParentID, turnID, 0)
 		if err != nil {
 			return err

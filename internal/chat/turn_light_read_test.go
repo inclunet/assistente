@@ -19,10 +19,9 @@ func TestTurnReadersDoNotMaterializeMedia(t *testing.T) {
 		t.Fatal(err)
 	}
 	large := strings.Repeat("x", 2*1024*1024)
-	if err := f.db.Model(&database.ChatMessage{}).Where("conversation_id=?", f.conversation).Updates(map[string]any{"media": large}).Error; err != nil {
-		t.Fatal(err)
-	}
+
 	for _, id := range []string{f.question, f.answer} {
+		attachFixtureMedia(t, f.db, id, `[{"type":"application/octet-stream","data":"`+large+`"}]`)
 		if err := database.SaveMessageAudioWithContext(f.ctx, id, large, "audio/wav"); err != nil {
 			t.Fatal(err)
 		}
@@ -72,8 +71,9 @@ func TestTurnReadersDoNotMaterializeMedia(t *testing.T) {
 	if err != nil || audio != large || mime != "audio/wav" {
 		t.Fatal("playback perdeu o áudio", err)
 	}
-	stored, err := database.GetMessageWithContext(f.ctx, f.answer)
-	if err != nil || stored.Media != large {
+	stored := []database.ChatMessage{{UUIDModel: database.UUIDModel{ID: f.answer}}}
+	err = database.LoadMessageMedia(f.ctx, f.db, stored)
+	if err != nil || !equalFixtureMedia(stored[0].Media, `[{"type":"application/octet-stream","data":"`+large+`"}]`) {
 		t.Fatal("mídia persistida alterada", err)
 	}
 }
@@ -102,10 +102,8 @@ func BenchmarkRecoveryTurnMedia(b *testing.B) {
 		b.Run(name, func(b *testing.B) {
 			f := newSnapshotFixture(b)
 			payload := strings.Repeat("x", size)
-			if err := f.db.Model(&database.ChatMessage{}).Where("conversation_id=?", f.conversation).Updates(map[string]any{"media": payload}).Error; err != nil {
-				b.Fatal(err)
-			}
 			for _, id := range []string{f.question, f.answer} {
+				attachFixtureMedia(b, f.db, id, `[{"type":"image/png","data":"`+payload+`"}]`)
 				if err := database.SaveMessageAudioWithContext(f.ctx, id, payload, "audio/wav"); err != nil {
 					b.Fatal(err)
 				}

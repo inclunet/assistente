@@ -3,6 +3,7 @@ package database
 import (
 	"assistente/internal/logging"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -231,6 +232,9 @@ ORDER BY created_at ASC, id ASC`, CurrentChatMessageSQL("chat_messages"), Curren
 		}
 		boundaryAvailable = count > 0
 	}
+	if err := LoadMessageMedia(ctx, r.db, messages); err != nil {
+		return nil, err
+	}
 	if err := LoadMessageAudios(ctx, r.db, messages, AudioReceivedOnly); err != nil {
 		return nil, err
 	}
@@ -384,7 +388,28 @@ func (r *MessageRepository) GetMessageAudioWithContext(ctx context.Context, mess
 	if err := LoadMessageAudios(ctx, r.db, messages, AudioAll); err != nil {
 		return "", "", err
 	}
-	return messages[0].Audio, messages[0].AudioMimeType, nil
+	if messages[0].Audio != "" {
+		return messages[0].Audio, messages[0].AudioMimeType, nil
+	}
+	// Received audio is a media occurrence; TTS keeps its dedicated slot.
+	var row struct {
+		Content  []byte
+		MimeType string
+		SHA256   string
+		Size     int
+	}
+	err := scopedMessageQuery(ctx, r.db.Model(&ChatMessage{})).
+		Select("b.content,b.sha256,b.size,a.mime_type").Joins("JOIN chat_message_attachments a ON a.message_id=chat_messages.id JOIN chat_attachment_contents b ON b.id=a.content_id").
+		Where("chat_messages.id=? AND a.purpose='media' AND b.user_id=conversations.user_id AND b.size>0 AND lower(trim(a.mime_type)) LIKE 'audio/%'", messageID).Order("a.position").Limit(1).Scan(&row).Error
+	if err != nil {
+		return "", "", err
+	}
+	if row.SHA256 != "" {
+		if err := validateAttachmentContent(row.Content, row.Size, row.SHA256); err != nil {
+			return "", "", err
+		}
+	}
+	return base64.StdEncoding.EncodeToString(row.Content), row.MimeType, nil
 }
 
 // SaveMessageAudioWithContext salva áudio (base64) numa mensagem existente do
@@ -422,7 +447,7 @@ func (r *MessageRepository) HasMessageAudioWithContext(ctx context.Context, mess
 		return false
 	}
 	var count int64
-	scopedMessageQuery(ctx, db.Model(&ChatMessage{})).Where("chat_messages.id = ? AND EXISTS(SELECT 1 FROM chat_message_attachments a WHERE a.message_id=chat_messages.id AND a.purpose='audio')", messageID).Count(&count)
+	scopedMessageQuery(ctx, db.Model(&ChatMessage{})).Where("chat_messages.id = ? AND EXISTS(SELECT 1 FROM chat_message_attachments a JOIN chat_attachment_contents b ON b.id=a.content_id WHERE a.message_id=chat_messages.id AND b.user_id=conversations.user_id AND b.size>0 AND (a.purpose='audio' OR (a.purpose='media' AND lower(trim(a.mime_type)) LIKE 'audio/%')))", messageID).Count(&count)
 	return count > 0
 }
 
@@ -1656,11 +1681,7 @@ func (r *MessageRepository) fetchMessagesForTimelineItems(conversationID string,
 		}
 	}
 	query := r.messageScopeQuery(conversationID, parentID)
-	if r.includeTimelineTurns {
-		// A projeção canônica não transporta blobs. Aplicar somente na consulta
-		// de mensagens evita contaminar autorização e demais modelos do snapshot.
-		query = query.Omit("media", "audio", "audio_mime_type")
-	}
+
 	parentPredicate := "parent_id IS NULL"
 	args := []interface{}{messageIDs, conversationID}
 	if parentID != nil {

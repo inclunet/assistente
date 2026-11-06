@@ -399,13 +399,14 @@ func TestIntegration_FirstMessageChannelMediaHandling(t *testing.T) {
 		t.Skip("Utilizando -short, pulando teste de integração")
 	}
 
-	db := setupIntegrationDB(t)
+	db, ctx := setupAudioIntegrationDB(t)
 
 	// 1. Setup: conversa via Slack com imagem
 	channel := "slack"
 
 	conv := &database.Conversation{
-		Title: "Media from Slack",
+		Title:  "Media from Slack",
+		UserID: "audio-integration",
 	}
 
 	if err := db.Create(conv).Error; err != nil {
@@ -423,7 +424,7 @@ func TestIntegration_FirstMessageChannelMediaHandling(t *testing.T) {
 		Media:          mediaJSON,
 	}
 
-	if err := db.Create(userMsg).Error; err != nil {
+	if err := db.Transaction(func(tx *gorm.DB) error { return database.CreateChatMessageInTransaction(tx, userMsg) }); err != nil {
 		t.Fatalf("falha ao criar mensagem com mídia: %v", err)
 	}
 
@@ -433,6 +434,11 @@ func TestIntegration_FirstMessageChannelMediaHandling(t *testing.T) {
 		t.Fatalf("falha ao recuperar mensagem: %v", err)
 	}
 
+	hydrated := []database.ChatMessage{retrieved}
+	if err := database.LoadMessageMedia(ctx, db, hydrated); err != nil {
+		t.Fatal(err)
+	}
+	retrieved = hydrated[0]
 	if retrieved.Media == "" {
 		t.Error("mídia não foi persistida")
 	}

@@ -65,6 +65,9 @@ func setupToolLedgerMigrationTest(t *testing.T) (*User, *User, *ToolCatalog) {
 	t.Helper()
 	database := newMigratorTestDB(t)
 	fullAutoMigrate(t, database)
+	if err := ensureLegacyChatMediaColumns(database); err != nil {
+		t.Fatal(err)
+	}
 	for _, statement := range []string{
 		`ALTER TABLE chat_messages ADD COLUMN tool_calls text`,
 		`ALTER TABLE chat_messages ADD COLUMN tool_call_id text`,

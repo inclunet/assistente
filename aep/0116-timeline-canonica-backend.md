@@ -1,8 +1,84 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — histórico canônico integrado do backend à UI e CLI; APIs e adaptadores visuais antigos retirados; abertura otimizada e leituras visuais sem blobs; áudio normalizado; mídia geral e gates finais de desempenho/memória pendentes
+## Status: In Progress — histórico canônico integrado do backend à UI e CLI; APIs e adaptadores visuais antigos retirados; abertura otimizada e leituras visuais sem blobs; anexos normalizados e colunas legadas removidas; gates finais de desempenho/memória e auditoria de encerramento pendentes
 
 Data: 2026-10-30
+
+### Unificação dos anexos e corte físico do armazenamento legado (06/11/2026)
+
+A v46 migra `media` para os vínculos de anexos e conteúdo binário já usados pelo
+áudio, e remove fisicamente `media`, `audio` e `audio_mime_type` de `chat_messages`.
+Esses campos passam a ser apenas representações transitórias para consumidores
+que precisam de bytes. O modelo runtime não recria as colunas no AutoMigrate;
+v19/v45 declaram explicitamente o layout histórico de que dependem.
+
+Cada ocorrência preserva posição, MIME, nome e campos JSON adicionais no vínculo.
+O tamanho declarado histórico permanece nos metadados; tamanho real e SHA-256
+validam os bytes. Arquivo vazio é conteúdo de zero bytes, distinto de ausência.
+Base64 e data URI base64 são separados dos metadados e deduplicados por usuário;
+URLs externas permanecem referências, sem qualquer download na migração. Formatos
+inválidos ou data URI não suportada interrompem o corte com diagnóstico, sem
+silenciar conteúdo nem continuar por um leitor alternativo. `null` não vira
+arquivo vazio. Reexecutar v45 após v46 não recria colunas nem altera anexos.
+
+Áudio `received` que representa a mesma ocorrência de `media` perde o vínculo
+redundante, mantendo um único binário. `generated` e `legacy_unknown` não são
+reclassificados por heurística. Playback prioriza o slot dedicado e pode resolver
+o primeiro áudio recebido não vazio de `media`; referências externas e arquivos
+vazios são preservados, mas não anunciam playback local. TTS não substitui os
+anexos recebidos.
+A resolução de áudio compartilhada por retry e histórico normaliza MIME e extrai
+o base64 de data URIs (`data` ou `url`), sem encaminhar o prefixo ao transcritor.
+Contexto, retry e exportação hidratam anexos explicitamente. Continuação busca a
+primeira base com mídia própria sem copiar seus vínculos nem herdar TTS; somente
+a base escolhida é hidratada, sem materializar ancestrais descartados. A janela
+e o término visual continuam sem blobs; foram retirados os `Omit` defensivos das
+colunas que já não existem.
+
+O corte usa backup verificado e uma transação. Preserva IDs, timestamps e nonces;
+reinstala somente os triggers de timeline afetados pelo DROP COLUMN e valida
+hashes, integridade SQLite, FKs e ownership dos vínculos de anexos. Violações históricas de
+outras tabelas não se tornam bloqueios desse corte (AEP-0104/D9). Conversas sem
+dono adiam v46 até adoção; mensagem com conteúdo cuja conversa não existe bloqueia
+com diagnóstico de reconciliação offline. Uma verificação final impede remover
+colunas enquanto restar áudio legado. Adoção e admissão de novos turnos exigem v46.
+
+O envelope de backup continua v4 e aceita v1–v3: exportação recompõe a representação
+portável apenas quando solicitada. Não há outra fonte persistida autoritativa.
+Importação inválida reverte inclusive overwrite da conversa. As fixtures de
+schemas antigos são explícitas; provas visuais usam o escritor normalizado e
+conservam os asserts de payload, escopo, ordenação e recuperação.
+
+Evidências: `message_media_attachments_test.go`,
+`migration_chat_media_attachments_test.go`, `media_roundtrip_test.go`,
+`normalized_audio_history_test.go`, `window_light_read_test.go` e
+`turn_light_read_test.go`. Instalação limpa/segundo boot, fixture publicada 0.1.9,
+rollback, FTS, bytes/metadados, isolamento, GC e invalidação A→B→A são verificados.
+Validação local: build/vet, golangci-lint (zero issues), TypeScript, ESLint e
+Stylelint; 381 testes selecionados de banco, 486 de chat, 99 de controllers,
+33 de usecases, 38 de speech, 36 das ferramentas de histórico e 35 de comandos
+chat/editor/limpeza após atualizar suas fixtures. A suíte de
+portabilidade passou antes da adição dos dois round-trips de mídia, também
+aprovados; migração v46 e playback tiveram reexecuções focadas após a revisão.
+Vitest: 7.006/7.007 na execução ampla; o teste de paleta que excedeu o prazo passou
+junto dos 122 testes do arquivo na reexecução isolada, sem alterar timeouts.
+O benchmark de recuperação foi executado como smoke test (uma iteração), sem
+apresentá-lo como gate comparável de desempenho. Revisor independente:
+`review_audio_storage`; rodadas de revisão corrigiram órfãos sem conversa,
+validação FK indevidamente global, seleção de áudio vazio e uma fixture inválida;
+revisão final sem pendências, incluindo as fixtures compartilhadas de comandos.
+A sétima rodada zerou a correção apontada pelo Copilot no retry de áudio:
+STT assíncrono e paridade com data URI aprovados, mais 36 regressões selecionadas
+de mídia/áudio/histórico/retry; build/vet e lint novamente aprovados.
+As rodadas oito e nove zeraram os quatro achados do CodeRabbit (base de continuação,
+null, ownership e replay de migração) e a fixture de mídia de canal apontada pelo
+Copilot. Revalidação: 388 testes selecionados de banco, 170 de portabilidade e
+quatro de canais aprovados; revisão independente final sem pendências.
+ACP permanece restrito ao CI e não há validação NVDA nesta etapa.
+
+Este recorte conclui o armazenamento de anexos da fase 4. O AEP permanece
+**In Progress**: gates comparáveis de desempenho/heap/renders e a auditoria final
+dos consumidores, testes e critérios de aceitação continuam abertos.
 
 ### Recorte de armazenamento de áudio (06/11/2026)
 
@@ -3576,8 +3652,8 @@ Saída: uma única aplicação do contrato, sem caminho antigo ativo em paralelo
 ### Fase 4 — Anexos e recortes de armazenamento
 
 - [x] Remover leitura desnecessária de áudio da janela e do término/recuperação; provas em `window_light_read_test.go` e `turn_light_read_test.go`.
-- [ ] Unificar anexos e migrar duplicação de áudio com integridade e portabilidade.
-- [ ] Implementar apenas mudanças de esquema aprovadas na fase 1; legacy de threads em recorte separado se necessário.
+- [x] Unificar anexos e migrar duplicação de áudio com integridade e portabilidade. Evidências: v45/v46 e testes de anexos/round-trip descritos acima.
+- [x] Implementar mudanças de anexos aprovadas na fase 1, incluindo retirada das colunas legadas na v46. Vínculos de threads são preservados.
 
 Pode ser PR independente após fechar o contrato de anexos; não bloqueia a
 correção inicial de identidade e foco das fases 2–3.

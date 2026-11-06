@@ -18,7 +18,8 @@ func TestCanonicalPresentationKeepsMediaOutOfWindow(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := f.db.Model(&database.ChatMessage{}).Where("id=?", f.answer).Updates(map[string]any{"media": blob, "source": "test-source", "cache_read_tokens": 42}).Error; err != nil {
+	attachFixtureMedia(t, f.db, f.answer, `[{"type":"application/octet-stream","data":"`+base64.StdEncoding.EncodeToString([]byte(blob))+`"}]`)
+	if err := f.db.Model(&database.ChatMessage{}).Where("id=?", f.answer).Updates(map[string]any{"source": "test-source", "cache_read_tokens": 42}).Error; err != nil {
 		t.Fatal(err)
 	}
 	if _, err := database.CreateMessageWithContext(f.ctx, database.MessageOptions{ConversationID: f.conversation, ParentID: &f.answer, Role: "user", Content: "thread"}); err != nil {

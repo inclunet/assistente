@@ -46,48 +46,55 @@ func migrateChatTimelineVersions(database *gorm.DB) error {
 			{"chat_turn_attempts", "conversation_id=(SELECT conversation_id FROM chat_turns WHERE user_message_id=OLD.turn_id)", "conversation_id=(SELECT conversation_id FROM chat_turns WHERE user_message_id=NEW.turn_id)"},
 		}
 		for _, source := range sources {
-			// Enumerar o schema real também cobre campos legados preservados no upgrade.
-			// Migrações futuras que acrescentem campos devem reinstalar estes gatilhos.
-			columns, err := tx.Migrator().ColumnTypes(source.table)
-			if err != nil {
+			if err := installTimelineSourceTriggers(tx, source.table, source.oldScope, source.newScope); err != nil {
 				return err
-			}
-			changes := make([]string, 0, len(columns))
-			for _, column := range columns {
-				// Descoberta de ferramentas renova updated_at mesmo sem mudança
-				// visual. Somente estes campos do catálogo entram nos resumos.
-				if source.table == "tool_catalog" && column.Name() != "id" && column.Name() != "name" && column.Name() != "display_name" && column.Name() != "origin" {
-					continue
-				}
-				name := `"` + strings.ReplaceAll(column.Name(), `"`, `""`) + `"`
-				changes = append(changes, "OLD."+name+" IS NOT NEW."+name)
-			}
-			for _, operation := range []string{"insert", "update", "delete"} {
-				if source.table == "conversations" && operation != "update" {
-					continue
-				}
-				predicate, condition := source.newScope, ""
-				switch operation {
-				case "delete":
-					predicate = source.oldScope
-				case "update":
-					predicate = "(" + source.oldScope + ") OR (" + source.newScope + ")"
-					condition = " WHEN " + strings.Join(changes, " OR ")
-				}
-				name := "chat_timeline_" + source.table + "_" + operation
-				// Reinstalação idempotente conserva incarnation/revision existentes.
-				if err := tx.Exec("DROP TRIGGER IF EXISTS " + name).Error; err != nil {
-					return err
-				}
-				statement := fmt.Sprintf(`CREATE TRIGGER %s AFTER %s ON %s%s
-     BEGIN UPDATE chat_timeline_versions SET revision=revision+1 WHERE %s; END`, name, operation, source.table, condition, predicate)
-				if err := tx.Exec(statement).Error; err != nil {
-					return err
-				}
 			}
 		}
 		return nil
 	})
+}
+
+func installTimelineSourceTriggers(tx *gorm.DB, table, oldScope, newScope string) error {
+	// Enumerar o schema real também cobre campos legados preservados no upgrade.
+	// Migrações futuras que acrescentem campos devem reinstalar estes gatilhos.
+	columns, err := tx.Migrator().ColumnTypes(table)
+	if err != nil {
+		return err
+	}
+	changes := make([]string, 0, len(columns))
+	for _, column := range columns {
+		// Descoberta de ferramentas renova updated_at mesmo sem mudança
+		// visual. Somente estes campos do catálogo entram nos resumos.
+		if table == "tool_catalog" && column.Name() != "id" && column.Name() != "name" && column.Name() != "display_name" && column.Name() != "origin" {
+			continue
+		}
+		name := `"` + strings.ReplaceAll(column.Name(), `"`, `""`) + `"`
+		changes = append(changes, "OLD."+name+" IS NOT NEW."+name)
+	}
+	for _, operation := range []string{"insert", "update", "delete"} {
+		if table == "conversations" && operation != "update" {
+			continue
+		}
+		predicate, condition := newScope, ""
+		switch operation {
+		case "delete":
+			predicate = oldScope
+		case "update":
+			predicate = "(" + oldScope + ") OR (" + newScope + ")"
+			condition = " WHEN " + strings.Join(changes, " OR ")
+		}
+		name := "chat_timeline_" + table + "_" + operation
+		// Reinstalação idempotente conserva incarnation/revision existentes.
+		if err := tx.Exec("DROP TRIGGER IF EXISTS " + name).Error; err != nil {
+			return err
+		}
+		statement := fmt.Sprintf(`CREATE TRIGGER %s AFTER %s ON %s%s
+     BEGIN UPDATE chat_timeline_versions SET revision=revision+1 WHERE %s; END`, name, operation, table, condition, predicate)
+		if err := tx.Exec(statement).Error; err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // O leitor de resumos usa user_id+turn_id, inclusive em registros cujo vínculo

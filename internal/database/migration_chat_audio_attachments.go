@@ -8,6 +8,13 @@ import (
 // Audio becomes a single referenced binary per user. General media remains in
 // its existing column until its own verified cutover; no fallback audio reader.
 func MigrateChatAudioAttachments(db *gorm.DB) error {
+	// v46 supersedes this layout; replay must not recreate retired columns.
+	if db.Migrator().HasColumn("chat_message_attachments", "metadata") {
+		return nil
+	}
+	if err := ensureLegacyChatMediaColumns(db); err != nil {
+		return err
+	}
 	var count int64
 	if err := db.Model(&ChatMessage{}).Where("COALESCE(audio,'')<>''").Count(&count).Error; err != nil {
 		return err
@@ -86,7 +93,10 @@ func migrateOwnedMessageAudio(tx *gorm.DB, userID string) error {
 	last := ""
 	for {
 		var rows []struct {
-			ChatMessage
+			ID              string
+			Audio           string
+			AudioMimeType   string
+			Media           string
 			StoredUpdatedAt *string `gorm:"column:stored_updated_at"`
 		}
 		if err := tx.Table("chat_messages").Select("id, audio, audio_mime_type, media, CAST(updated_at AS TEXT) AS stored_updated_at").Where("id>? AND COALESCE(audio,'')<>''", last).Where("conversation_id IN (SELECT id FROM conversations WHERE COALESCE(user_id,'')<>'' AND (?='' OR user_id=?))", userID, userID).Order("id").Limit(1).Find(&rows).Error; err != nil {

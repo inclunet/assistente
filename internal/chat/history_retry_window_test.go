@@ -28,6 +28,7 @@ func TestHistoryLoader_AnchoredStoreParityWithLegacyOracle(t *testing.T) {
 	if err := testDB.Create(&messages).Error; err != nil {
 		t.Fatalf("create parity fixture: %v", err)
 	}
+	attachFixtureMedia(t, testDB, "retry-target", `[{"type":"image","url":"fixture"}]`)
 	if err := testDB.Model(&database.Conversation{}).Where("id = ?", conversationID).Updates(map[string]any{
 		"summary":                  "resumo até A1",
 		"summary_up_to_message_id": boundary,
@@ -37,6 +38,10 @@ func TestHistoryLoader_AnchoredStoreParityWithLegacyOracle(t *testing.T) {
 	full, err := database.GetMessagesWithContext(ctx, conversationID, nil)
 	if err != nil {
 		t.Fatalf("load oracle history: %v", err)
+	}
+
+	if err := database.LoadMessageMedia(ctx, testDB, full); err != nil {
+		t.Fatal(err)
 	}
 
 	for _, maxMessages := range []int{2, 3} {

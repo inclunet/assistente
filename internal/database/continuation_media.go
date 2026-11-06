@@ -29,8 +29,8 @@ func ResolveContinuationMedia(ctx context.Context, db *gorm.DB, messages []ChatM
 	}
 	for start := 0; start < len(ids); start += 400 {
 		var rows []struct {
-			ID    string
-			Media string
+			ID     string
+			BaseID string
 		}
 		err := db.WithContext(ctx).Raw(`WITH RECURSIVE bases(id,base_id,depth) AS (
  SELECT m.id,a.base_response_message_id,1 FROM chat_messages m
@@ -42,14 +42,32 @@ func ResolveContinuationMedia(ctx context.Context, db *gorm.DB, messages []ChatM
  JOIN chat_messages m ON m.id=b.base_id
  JOIN chat_turn_attempts a ON a.execution_id=m.chat_execution_id AND a.response_message_id=m.id
  WHERE a.mode='continue' AND a.base_response_message_id IS NOT NULL
- ) SELECT b.id,m.media FROM bases b JOIN chat_messages m ON m.id=b.base_id WHERE m.media<>'' ORDER BY b.depth`, user, ids[start:min(start+400, len(ids))]).Scan(&rows).Error
+ ) SELECT b.id,b.base_id FROM bases b JOIN chat_messages m ON m.id=b.base_id JOIN conversations c ON c.id=m.conversation_id WHERE c.user_id=? AND EXISTS(SELECT 1 FROM chat_message_attachments x WHERE x.message_id=m.id AND x.purpose='media') ORDER BY b.depth`, user, ids[start:min(start+400, len(ids))], user).Scan(&rows).Error
 		if err != nil {
 			return err
 		}
+		// Rows are depth-ordered. Hydrate only the nearest base for each message;
+		// unused older content must not affect this continuation.
+		selected := rows[:0]
+		seen := map[string]bool{}
 		for _, row := range rows {
+			if !seen[row.ID] {
+				selected = append(selected, row)
+				seen[row.ID] = true
+			}
+		}
+		rows = selected
+		bases := make([]ChatMessage, len(rows))
+		for i, row := range rows {
+			bases[i].ID = row.BaseID
+		}
+		if err := LoadMessageMedia(ctx, db, bases); err != nil {
+			return err
+		}
+		for i, row := range rows {
 			for _, index := range byID[row.ID] {
 				if messages[index].Media == "" {
-					messages[index].Media = row.Media
+					messages[index].Media = bases[i].Media
 				}
 			}
 		}

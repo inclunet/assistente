@@ -297,6 +297,9 @@ func fileSHA256(path string) (string, int64, error) {
 }
 
 func rebuildCanonicalChatMessages(tx *gorm.DB) error {
+	if err := ensureLegacyChatMediaColumns(tx); err != nil {
+		return err
+	}
 	var before, technical int64
 	if err := tx.Table("chat_messages").Count(&before).Error; err != nil {
 		return err

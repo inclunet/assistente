@@ -42,6 +42,9 @@ func TestExecutionSelectionRetryAndContinuationBeforeLimits(t *testing.T) {
 	if err := MigrateChatAudioAttachments(db); err != nil {
 		t.Fatal(err)
 	}
+	if err := MigrateChatMediaAttachments(db); err != nil {
+		t.Fatal(err)
+	}
 	for _, id := range []string{"a-mid", "a-final"} {
 		if err := insertExecutionMessage(db, id, first, "conv", "question"); err != nil {
 			t.Fatal(err)
@@ -165,6 +168,9 @@ func migrateExecutionSelectionFixture(t testing.TB, db *gorm.DB) {
 		t.Fatal(err)
 	}
 	if err := MigrateChatAudioAttachments(db); err != nil {
+		t.Fatal(err)
+	}
+	if err := MigrateChatMediaAttachments(db); err != nil {
 		t.Fatal(err)
 	}
 }

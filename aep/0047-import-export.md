@@ -2,6 +2,16 @@
 
 **Status:** In Progress — escopo DB-only e upgrades entregues; cobertura explícita de acessibilidade do fluxo inline permanece pendente
 
+## Continuação AEP-0116 — anexos normalizados (06/11/2026)
+
+O armazenamento de mídia passa a vínculos ordenados e binários únicos por usuário,
+sem mudar o envelope v4. Exportação recompõe `media` com nomes, campos históricos,
+arquivos vazios e referências externas. Áudio recebido já presente em `media` não
+é duplicado no campo dedicado; TTS e origem desconhecida mantêm sua proveniência.
+Importações antigas passam pelo mesmo escritor; bytes inválidos revertem inclusive
+a substituição de uma conversa. Evidência: `media_roundtrip_test.go` e
+`audio_roundtrip_test.go`. As demais pendências deste AEP permanecem inalteradas.
+
 ## Continuação AEP-0116 — histórico de execuções (2026-10-31)
 
 O envelope canônico passa a v3: preserva IDs, proveniência, representantes,

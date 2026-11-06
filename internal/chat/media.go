@@ -77,13 +77,36 @@ func ExtractAudio(mediaJSON string) (audioBase64, mimeType string) {
 		return "", ""
 	}
 	for _, p := range parts {
-		t, _ := p["type"].(string)
-		d, _ := p["data"].(string)
-		if strings.HasPrefix(t, "audio/") && d != "" {
-			return d, t
+		if data, mime := audioMediaPayload(p); data != "" {
+			return data, mime
 		}
 	}
 	return "", ""
+}
+
+// audioMediaPayload resolves the same received occurrence for retry and history.
+// External references are never fetched; transport consumers need raw base64.
+func audioMediaPayload(part map[string]interface{}) (string, string) {
+	kind, _ := part["type"].(string)
+	kind = NormalizeAudioMIME(kind)
+	if !strings.HasPrefix(kind, "audio/") {
+		return "", ""
+	}
+	data, hasData := part["data"].(string)
+	if !hasData {
+		data, _ = part["url"].(string)
+		if !strings.HasPrefix(data, "data:") {
+			return "", ""
+		}
+	}
+	if strings.HasPrefix(data, "data:") {
+		prefix, payload, ok := strings.Cut(data, ",")
+		if !ok || !strings.HasSuffix(prefix, ";base64") {
+			return "", ""
+		}
+		data = payload
+	}
+	return strings.Join(strings.Fields(data), ""), kind
 }
 
 // TranscribeFunc abstrai a transcrição única do áudio do turno sem acoplar este
@@ -153,13 +176,11 @@ func (l *MediaHistoryLoader) format(ctx context.Context, dbMessages []Message, e
 			present := false
 			audioBytes, audioErr := base64.StdEncoding.DecodeString(m.Audio)
 			for _, part := range mediaParts {
-				kind, _ := part["type"].(string)
-				kind = NormalizeAudioMIME(kind)
-				data, _ := part["data"].(string)
-				if !strings.HasPrefix(kind, "audio/") || NormalizeAudioMIME(kind) != NormalizeAudioMIME(m.AudioMimeType) {
+				data, kind := audioMediaPayload(part)
+				if data == "" || kind != NormalizeAudioMIME(m.AudioMimeType) {
 					continue
 				}
-				partBytes, err := base64.StdEncoding.DecodeString(strings.Join(strings.Fields(data), ""))
+				partBytes, err := base64.StdEncoding.DecodeString(data)
 				if audioErr == nil && err == nil && bytes.Equal(partBytes, audioBytes) {
 					present = true
 					break
@@ -186,9 +207,8 @@ func (l *MediaHistoryLoader) format(ctx context.Context, dbMessages []Message, e
 func originalAudioForACP(mediaParts []map[string]interface{}) []llm.InputAudio {
 	var audio []llm.InputAudio
 	for _, part := range mediaParts {
-		mediaType, _ := part["type"].(string)
-		data, _ := part["data"].(string)
-		if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(mediaType)), "audio/") || strings.TrimSpace(data) == "" {
+		data, mediaType := audioMediaPayload(part)
+		if data == "" {
 			continue
 		}
 		format := strings.TrimPrefix(NormalizeAudioMIME(mediaType), "audio/")
@@ -232,6 +252,10 @@ func (l *MediaHistoryLoader) convertMediaParts(ctx context.Context, mediaParts [
 			})
 
 		case strings.HasPrefix(mediaType, "audio/"):
+			data, mediaType = audioMediaPayload(mp)
+			if data == "" {
+				continue
+			}
 			// Se já temos transcrição no Content, não re-transcreve o áudio
 			if hasTextContent {
 				logging.Infof(ctx, "chat.media", "[Media] Áudio ignorado no histórico — já temos transcrição no content")

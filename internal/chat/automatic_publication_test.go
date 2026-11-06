@@ -429,7 +429,8 @@ func TestAutomaticPublicationReadBudgetAndMediaExclusion(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := f.db.Model(&database.ChatMessage{}).Where("id = ?", f.question).Updates(map[string]any{"media": large, "content": large}).Error; err != nil {
+	attachFixtureMedia(t, f.db, f.question, `[{"type":"application/octet-stream","data":"`+base64.StdEncoding.EncodeToString([]byte(large))+`"}]`)
+	if err := f.db.Model(&database.ChatMessage{}).Where("id = ?", f.question).Updates(map[string]any{"content": large}).Error; err != nil {
 		t.Fatal(err)
 	}
 	questionRead := false
@@ -443,9 +444,7 @@ func TestAutomaticPublicationReadBudgetAndMediaExclusion(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := f.db.Model(&database.ChatMessage{}).Where("id = ?", f.answer).Updates(map[string]any{"media": large}).Error; err != nil {
-		t.Fatal(err)
-	}
+	attachFixtureMedia(t, f.db, f.answer, `[{"type":"application/octet-stream","data":"`+base64.StdEncoding.EncodeToString([]byte(large))+`"}]`)
 	snapshot, err := f.reader.ReadPublicationTurn(f.ctx, f.conversation, f.question)
 	if err != nil {
 		t.Fatal(err)

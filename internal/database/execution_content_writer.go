@@ -18,14 +18,22 @@ func CreateChatMessageInTransaction(tx *gorm.DB, message *ChatMessage) error {
 			ChatExecutionID *string
 		}{message, message.ChatExecutionID}).Error
 	}
-	if err != nil || audio == "" {
+	if err != nil {
 		return err
 	}
 	origin := message.AudioOrigin
 	if origin == "" {
 		origin = AttachmentLegacyUnknown
 	}
-	return storeMessageAudio(tx, message.ID, audio, mime, origin)
+	if audio != "" {
+		if err := storeMessageAudio(tx, message.ID, audio, mime, origin); err != nil {
+			return err
+		}
+	}
+	if message.Media != "" {
+		return storeMessageMedia(tx, message.ID, message.Media)
+	}
+	return nil
 }
 
 func CreateToolInvocationInTransaction(tx *gorm.DB, invocation *ToolInvocation) error {

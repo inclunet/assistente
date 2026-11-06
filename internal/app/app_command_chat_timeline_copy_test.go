@@ -26,9 +26,6 @@ func TestCommandChatTimelineCopyUsesExactPublishedResponse(t *testing.T) {
 			if err := database.MigrateChatExecutionContent(db); err != nil {
 				t.Fatal(err)
 			}
-			if err := db.Exec("CREATE TABLE chat_timeline_versions (conversation_id TEXT PRIMARY KEY, incarnation TEXT NOT NULL, revision INTEGER NOT NULL)").Error; err != nil {
-				t.Fatal(err)
-			}
 			if err := db.Exec("INSERT INTO chat_timeline_versions VALUES (?, 'copy-incarnation', 1)", cid).Error; err != nil {
 				t.Fatal(err)
 			}

@@ -22,6 +22,9 @@ func setupUserScopeTestDB(t *testing.T) {
 	if err := MigrateChatAudioAttachments(db); err != nil {
 		t.Fatal(err)
 	}
+	if err := MigrateChatMediaAttachments(db); err != nil {
+		t.Fatal(err)
+	}
 	t.Cleanup(func() {
 		sqlDB, _ := db.DB()
 		if sqlDB != nil {

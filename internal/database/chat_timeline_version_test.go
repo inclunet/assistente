@@ -14,6 +14,9 @@ import (
 func newTimelineVersionDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	database := newChatTurnTestDB(t, false)
+	if err := ensureLegacyChatMediaColumns(database); err != nil {
+		t.Fatal(err)
+	}
 	seedChatTurnTestMessages(t, database, "conv", "turn", "answer")
 	if err := MigrateChatTurns(database); err != nil {
 		t.Fatal(err)

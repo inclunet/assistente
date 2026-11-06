@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"gorm.io/gorm"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -609,7 +610,7 @@ func TestExecutionWriterNativeCallsRetryAndReferencedMedia(t *testing.T) {
 				t.Fatalf("continuação duplicou blob ou perdeu prefixo: %+v", stored)
 			}
 			presented, err := chat.NewDBMessageStore().GetMessage(ctx, response)
-			if err != nil || presented.Media != `[{"type":"image","data":"base"}]` {
+			if err != nil || presented.Media != `[{"data":"base","type":"image"}]` {
 				t.Fatalf("referência de mídia perdida: %+v %v", presented, err)
 			}
 		}
@@ -621,7 +622,16 @@ func TestExecutionWriterNativeCallsRetryAndReferencedMedia(t *testing.T) {
 			t.Fatal("terminal não persistido")
 		}
 		if mode == database.TurnModeRetry {
-			if err := database.DB().Model(&database.ChatMessage{}).Where("id=?", response).Update("media", `[{"type":"image","data":"base"}]`).Error; err != nil {
+			if err := database.DB().Transaction(func(tx *gorm.DB) error {
+				scratch := database.ChatMessage{ConversationID: conv, Role: "user", Media: `[{"type":"image","data":"base"}]`}
+				if err := database.CreateChatMessageInTransaction(tx, &scratch); err != nil {
+					return err
+				}
+				if err := tx.Exec("UPDATE chat_message_attachments SET message_id=? WHERE message_id=?", response, scratch.ID).Error; err != nil {
+					return err
+				}
+				return tx.Delete(&database.ChatMessage{}, "id=?", scratch.ID).Error
+			}); err != nil {
 				t.Fatal(err)
 			}
 		}
