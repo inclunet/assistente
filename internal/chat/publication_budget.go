@@ -22,10 +22,14 @@ var (
 	publicationCatalogSizeSQL   = publicationSQLBytes("tool_catalog", "name", "display_name", "origin")
 )
 
+// Parte de turn_id para usar a busca indexada da seleção. Partir de cada
+// pergunta permite ao SQLite escolher a conversa inteira como fonte interna.
+// A validação de conversa/escopo continua depois da seleção por identidade.
 const publicationMessageSourceSQL = `(SELECT id FROM chat_messages WHERE id IN (SELECT CAST(unhex(value) AS TEXT) FROM json_each(?))
- UNION SELECT m.id FROM chat_messages q CROSS JOIN chat_messages m
- ON m.conversation_id=q.conversation_id AND m.parent_id IS q.parent_id AND m.turn_id=q.id
- WHERE q.id IN (SELECT CAST(unhex(value) AS TEXT) FROM json_each(?)) AND m.role <> 'user') selected CROSS JOIN chat_messages ON chat_messages.id=selected.id`
+ UNION SELECT m.id FROM chat_messages m CROSS JOIN chat_messages q ON q.id=m.turn_id
+ WHERE m.turn_id IN (SELECT CAST(unhex(value) AS TEXT) FROM json_each(?))
+ AND m.conversation_id=q.conversation_id AND m.parent_id IS q.parent_id
+ AND m.role <> 'user') selected CROSS JOIN chat_messages ON chat_messages.id=selected.id`
 
 var publicationReadBudgetSQL = "SELECT (SELECT COALESCE(SUM(1024 + " + publicationSQLBytes("chat_messages", "id", "conversation_id", "role", "parent_id", "created_at") + "),0) FROM (SELECT CAST(unhex(value) AS TEXT) AS scope_id FROM json_each(?)) selected_scope CROSS JOIN chat_messages ON chat_messages.id=selected_scope.scope_id WHERE conversation_id=?) + COALESCE(SUM(1024 + " + publicationMessageSizeSQL + "), 0) + (SELECT COALESCE(SUM(1024 + " + publicationTurnSizeSQL + "), 0) FROM chat_turns WHERE conversation_id=? AND user_message_id IN (SELECT CAST(unhex(value) AS TEXT) FROM json_each(?))) FROM " + publicationMessageSourceSQL + " WHERE chat_messages.conversation_id=? AND " + database.CurrentChatMessageSQL("chat_messages")
 var publicationCallBudgetSQL = "COALESCE(SUM(1024 + " + publicationCallSizeSQL + " + " + publicationCatalogSizeSQL + "), 0)"

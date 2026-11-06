@@ -1,10 +1,80 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — histórico canônico integrado do backend à UI e CLI; APIs visuais antigas retiradas no PR #1024; retirada dos adaptadores internos em validação; anexos e gates finais de desempenho/memória pendentes
+## Status: In Progress — histórico canônico integrado do backend à UI e CLI; APIs e adaptadores visuais antigos retirados; otimização da abertura em validação; anexos e gates finais de desempenho/memória pendentes
 
 Data: 2026-10-30
 
-### Recorte: retirada dos adaptadores sustentados por testes (2026-11-06)
+### Recorte: custo da abertura e alocações de publicação (2026-11-06)
+
+O PR #1025 foi mergeado com CI verde, Copilot sem achados e três conferências
+locais independentes. Este recorte mantém os mesmos itens, payload, transação,
+limites e autorização; não introduz cache nem uma segunda leitura de histórico.
+
+O perfil de CPU de `BenchmarkCanonicalTimelineWindow/messages_1000_result_1024`
+localizou 54,63% das amostras em `publicationSelectionReadSize`. A fonte SQL do
+orçamento agora começa pelas mensagens com `turn_id` selecionado e só depois
+valida a pergunta, conversa, escopo e papel. O percurso anterior começava por
+cada pergunta e permitia ao planejador escolher uma fonte interna mais ampla.
+`UNION` continua deduplicando mensagens pedidas diretamente e por turno. A cota
+é verificada antes de materializar conteúdo, na mesma transação autorizada.
+
+O perfil de alocações também identificou cópias descartadas do JSON durante a
+contagem dos bytes de cache/journal/reserva. `canonicalJSONSize` usa o mesmo
+encoder com um writer contador e desconta somente o newline do Encoder. Não
+usa estimativa, não altera escape nem aumenta as cotas. Em versões do Go que
+usam buffer interno no Encoder, esse buffer pode continuar existindo; a mudança
+retira a cópia final que Marshal devolvia e era descartada imediatamente.
+
+Provas deste recorte:
+- `TestPublicationSourceSelectsOnlyRequestedMessagesAndValidTurnSources` cobre
+  seleção mista, sobreposição, ID solicitado inexistente, conversa e escopo inválidos
+  e exclusão de mensagens user do ramo de respostas.
+- `TestPublicationBudgetPlanStartsFromSelectedTurnMessages` verifica a busca
+  indexada por turn_id, sem depender do nome do índice.
+- `TestCanonicalJSONSizeMatchesWireEncoding` compara o tamanho exato com Marshal
+  em itens/lotes, arrays nulos/vazios, Unicode, escapes, UTF-8 inválido e texto
+  grande. As provas existentes mantêm cotas, recuperação, retenção e replay.
+
+Medição em 06/11/2026 com Go 1.27.1, Windows/amd64 e Intel Core Ultra 7 155H:
+controle compilado de `5c32e18e0` e binário deste recorte, cinco pares alternados
+(AB/BA), 20 operações por amostra, sem suítes/linters concorrentes. Medianas
+independentes de tempo e B/op; payload idêntico antes/depois:
+
+- 100 mensagens: 15,774 → 12,929 ms (-18,0%); 1.996.942 → 1.829.398 B/op
+  (-8,4%); 64.845 bytes no wire. Tempos antes: 14,327 / 14,091 / 15,774 /
+  17,112 / 17,246 ms; depois: 12,655 / 12,929 / 12,665 / 14,709 / 13,568 ms.
+- 500 mensagens: 56,001 → 30,343 ms (-45,8%); 4.477.540 → 4.105.056 B/op
+  (-8,3%); 153.878 bytes no wire. Tempos antes: 55,832 / 54,582 / 56,001 /
+  60,537 / 56,584 ms; depois: 30,343 / 31,327 / 29,093 / 29,506 / 30,478 ms.
+- 1.000 mensagens: 103,018 → 35,151 ms (-65,9%); 4.400.218 → 4.007.541 B/op
+  (-8,9%); 153.879 bytes no wire. Tempos antes: 91,540 / 103,018 / 99,584 /
+  107,449 / 103,637 ms; depois: 35,151 / 35,120 / 35,051 / 37,475 / 37,939 ms.
+
+A janela continua limitada a 240 itens. Alocações/op (medianas): 14.948 →
+14.951, 34.052 → 34.056 e 34.056 → 34.059; a redução é de bytes copiados,
+não de quantidade de objetos. Tempos absolutos oscilaram em relação às rodadas
+históricas, por isso o ganho deste recorte usa controle atual alternado, não
+comparação de execuções distantes. Os gates históricos de +20% de tempo/B-op,
++10% de payload e heap da WebView permanecem abertos.
+
+Reprodução: compilar `./internal/app` de cada revisão com `go test -c -o`
+sob `build/bin/`; executar cada binário com `-test.run=^$`,
+`-test.bench=BenchmarkCanonicalTimelineWindow/messages_(100|500|1000)_result_1024$`,
+`-test.benchtime=20x -test.count=1 -test.benchmem`, alternando a ordem por cinco
+rodadas. Configurar GOTMPDIR/GOCACHE/TEMP/TMP/TMPDIR no worktree; isolar também
+ASSISTENTE_HOME/USERPROFILE/APPDATA/LOCALAPPDATA do processo de benchmark.
+
+Validação: build/vet Go, 483 testes seguros de chat, 10 de janela/payload do App,
+TypeScript, ESLint e 7.034 testes Vitest passaram. Stylelint sem erros, com avisos
+preexistentes. Lint incremental sem achados; lint completo local mantém 12
+ocorrências em arquivos fora do diff. Revisor independente
+`review_opening_performance`: primeira rodada sem achados de semântica ou cota;
+segunda rodada conferiu testes e medianas nos logs, sem pendências após duas precisões documentais. CI e review remota
+continuam como gates de publicação.
+Não há mudança visível de produto, schema ou workflow. ACP/NVDA não são executados
+localmente, conforme orientação do mantenedor.
+
+### Recorte concluído no PR #1025: retirada dos adaptadores sustentados por testes (2026-11-06)
 
 O PR #1024 foi mergeado com CI verde e sem threads abertas. Este recorte
 retira a cadeia interna que perdeu consumidores de produção após esse merge:
