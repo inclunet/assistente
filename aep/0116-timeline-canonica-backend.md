@@ -1,10 +1,71 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — histórico canônico integrado do backend à UI e CLI; APIs e adaptadores visuais antigos retirados; otimização da abertura em validação; anexos e gates finais de desempenho/memória pendentes
+## Status: In Progress — histórico canônico integrado do backend à UI e CLI; APIs e adaptadores visuais antigos retirados; abertura otimizada e leituras visuais sem blobs; armazenamento de anexos e gates finais de desempenho/memória pendentes
 
 Data: 2026-10-30
 
-### Recorte: custo da abertura e alocações de publicação (2026-11-06)
+### Recorte de leitura leve do término e recuperação (06/11/2026)
+
+Depois do PR #1026, a janela e a publicação já omitiam mídia, mas
+`ReadRecoveryTurn`, usado no término, ainda carregava `media`, `audio` e
+`audio_mime_type` e resolvia mídia herdada de continuações. Nem o DTO canônico
+nem `TerminalPatch` consomem esses blobs. A recuperação passa a omiti-los na
+consulta e deixa de resolver referências de mídia. O leitor do contexto LLM e
+o playback preservam suas consultas e os bytes persistidos.
+
+A auditoria também identificou `ReadTurn` sem consumidores produtivos. O método,
+a exigência na interface e seu terceiro modo de leitura foram removidos. As
+provas de identidade, execução, escopo, falha de ledger e paridade foram migradas
+para `ReadPublicationTurn`. Uma dupla execução da mesma janela no teste de
+snapshot foi substituída pela prova transacional de `ReadRecoveryTurn`; sem manter
+`ReadTurn` no código produtivo para sustentar testes.
+
+Publicação e recuperação compartilham a seleção leve, preservando suas diferenças
+contratuais: publicação exige pergunta válida e preflight da cota; recuperação
+autoriza a conversa mesmo sem pergunta e permite texto confirmado acima da cota
+automática. Não reduzimos esse conteúdo nem alteramos o contrato de recuperação.
+
+Evidências: `TestTurnReadersDoNotMaterializeMedia` verifica a consulta e os
+objetos antes da projeção, paridade canônica/terminal, ownership, cancelamento e
+playback; `TestTimelineReadersSkipContinuationMediaResolution` cobre janela,
+publicação e recuperação e comprova que o contexto continua resolvendo a mídia;
+`TestRecoveryTurnKeepsTextBeyondPublicationBudget` preserva o texto acima da cota.
+`TestTimelineSnapshotReadsOneCommitAcrossWindowAndTurn` prova o mesmo commit nas
+três leituras produtivas. `BenchmarkRecoveryTurnMedia` compara recuperação com e
+sem 2 MiB em cada campo de mídia/áudio por mensagem.
+
+Medição em Windows/amd64, Intel Core Ultra 7 155H, Go 1.27.1,
+GOMAXPROCS padrão (22): cinco pares alternados AB/BA, 20 operações por amostra,
+sem suítes/linters concorrentes. O controle usa o leitor de `714bafea1` por overlay
+Go e a mesma fixture do binário novo. Medianas independentes:
+
+- Sem mídia: 2,711 → 2,716 ms; 181.630 → 181.918 B/op;
+  1.114 → 1.103 allocs/op.
+- Com mídia: 11,521 → 2,619 ms (-77,3%); 8.605.413 → 180.117 B/op
+  (-97,9%); 1.151 → 1.099 allocs/op.
+- O evento terminal tem mediana de 640 bytes, com amostras entre 639 e 640
+  bytes nos dois binários; paridade de conteúdo é verificada no teste. Tempos com mídia
+  antes: 12,619 / 11,901 / 10,653 / 11,071 / 11,521 ms; depois:
+  2,227 / 2,976 / 2,788 / 2,412 / 2,619 ms. A carga vazia ficou estável;
+  a melhoria é evitar materialização de blobs, não reduzir o payload wire.
+
+Validação local: build, vet, lint Go incremental, TypeScript, ESLint e Stylelint
+aprovados (Stylelint mantém avisos preexistentes). Vitest: 7.034 testes em 527
+arquivos aprovados. Dos 485 testes seguros de chat, 484 passaram na execução
+inicial; o teste de janelas grandes atingiu deadline de consulta sob carga e
+passou em cinco repetições isoladas, sem alterações. Os 146 testes seguros de
+agent e a prova específica de retry/continuação com mídia herdada passaram.
+Sem execução local de ACP ou NVDA. Revisor independente `review_light_recovery`:
+duas rodadas; ajuste da descrição do tamanho medido (mediana e intervalo),
+sem pendências de código.
+
+Este recorte fecha a leitura desnecessária de blobs visuais, não a migração de
+anexos. Permanecem conteúdo binário único por usuário, vínculos/papéis, integridade
+e export/import antes de retirar as colunas antigas, além dos gates globais de
+desempenho/payload e heap real da WebView.
+
+
+### Recorte concluído no PR #1026: custo da abertura e alocações de publicação (2026-11-06)
 
 O PR #1025 foi mergeado com CI verde, Copilot sem achados e três conferências
 locais independentes. Este recorte mantém os mesmos itens, payload, transação,
@@ -3415,7 +3476,7 @@ Saída: uma única aplicação do contrato, sem caminho antigo ativo em paralelo
 
 ### Fase 4 — Anexos e recortes de armazenamento
 
-- [ ] Remover leitura desnecessária de áudio da janela.
+- [x] Remover leitura desnecessária de áudio da janela e do término/recuperação; provas em `window_light_read_test.go` e `turn_light_read_test.go`.
 - [ ] Unificar anexos e migrar duplicação de áudio com integridade e portabilidade.
 - [ ] Implementar apenas mudanças de esquema aprovadas na fase 1; legacy de threads em recorte separado se necessário.
 

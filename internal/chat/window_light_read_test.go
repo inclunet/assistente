@@ -106,7 +106,7 @@ func TestCanonicalWindowDoesNotMaterializeMediaOrParentPayload(t *testing.T) {
 	}
 }
 
-func TestCanonicalWindowSkipsContinuationMediaResolution(t *testing.T) {
+func TestTimelineReadersSkipContinuationMediaResolution(t *testing.T) {
 	f := newSnapshotFixture(t)
 	media := `[{"type":"image","url":"data:image/png;base64,` + strings.Repeat("x", 2*1024*1024) + `"}]`
 	if err := f.db.Model(&database.ChatMessage{}).Where("id=?", f.answer).Update("media", media).Error; err != nil {
@@ -146,6 +146,15 @@ func TestCanonicalWindowSkipsContinuationMediaResolution(t *testing.T) {
 	}
 	if resolutions != 0 || canonical.Responses[f.question].Representative.Media != "" {
 		t.Fatal("janela canônica resolveu mídia herdada")
+	}
+	for _, read := range []func(context.Context, string, string) (*TimelineTurnSnapshot, error){f.reader.ReadPublicationTurn, f.reader.ReadRecoveryTurn} {
+		snapshot, err := read(f.ctx, f.conversation, f.question)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if resolutions != 0 || snapshot.Response.Representative.Media != "" || !reflect.DeepEqual(canonicalItem(snapshot.Response), canonicalItem(canonical.Responses[f.question])) {
+			t.Fatal("turno resolveu mídia herdada ou divergiu da janela")
+		}
 	}
 	// Mídia herdada continua disponível ao contexto LLM; a janela não a resolve.
 	messages := []database.ChatMessage{{UUIDModel: database.UUIDModel{ID: answer}, ChatExecutionID: &execution.ExecutionID}}

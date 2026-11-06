@@ -174,7 +174,7 @@ func TestImportWithoutOriginalQuestionKeepsRecoveryAndDiscardAuthorized(t *testi
 	if err != nil || result == nil || result.Imported != 1 {
 		t.Fatal(result, err)
 	}
-	if _, err := f.reader.ReadTurn(f.ctx, f.conversation, f.question); !errors.Is(err, gorm.ErrRecordNotFound) {
+	if _, err := f.reader.ReadPublicationTurn(f.ctx, f.conversation, f.question); !errors.Is(err, gorm.ErrRecordNotFound) {
 		t.Fatal("pergunta original ainda existe", err)
 	}
 	recovery, err := p.ReadRecovery(f.ctx, f.conversation, f.question, f.reader)

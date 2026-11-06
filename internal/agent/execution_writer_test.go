@@ -61,7 +61,7 @@ func TestExecutionWriterToolFirstTerminalUsesExplicitExecutionMode(t *testing.T)
 					h.OnToolCalls([]llm.ToolCall{{ID: "new-call", Type: "function", Function: llm.FunctionCall{Name: "ok_tool", Arguments: `{}`}}}, "", llm.Usage{}, "modelo")
 				},
 				func(h llm.StreamHandler) {
-					stored, err := chat.NewDBTimelineReader(database.DB()).ReadTurn(ctx, conv, turn)
+					stored, err := chat.NewDBTimelineReader(database.DB()).ReadPublicationTurn(ctx, conv, turn)
 					if err != nil {
 						t.Fatal(err)
 					}
@@ -128,7 +128,7 @@ func TestExecutionWriterToolFirstTerminalUsesExplicitExecutionMode(t *testing.T)
 			if reasoning != wantReasoning {
 				t.Fatalf("reasoning duplicado/perdido: %q", reasoning)
 			}
-			reopened, err := chat.NewDBTimelineReader(database.DB()).ReadTurn(context.WithoutCancel(ctx), conv, turn)
+			reopened, err := chat.NewDBTimelineReader(database.DB()).ReadPublicationTurn(context.WithoutCancel(ctx), conv, turn)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -300,7 +300,7 @@ func TestExecutionWriterSecondContinuationKeepsExecutionChain(t *testing.T) {
 			func(c string, i int) IterationHandler { return NewAgenticStreamHandler(em, c, i, nil, turn) }, nil, false, 1)
 		svc.EndUnfinishedTurn(ctx, conv, turn, nil)
 		wantText += suffix
-		stored, err := chat.NewDBTimelineReader(database.DB()).ReadTurn(ctx, conv, turn)
+		stored, err := chat.NewDBTimelineReader(database.DB()).ReadPublicationTurn(ctx, conv, turn)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -552,7 +552,7 @@ func TestExecutionWriterLedgerFailureCannotSilentlyLoseDiagnostic(t *testing.T) 
 					t.Fatalf("durability=%s", response.Durability)
 				}
 			} else {
-				reopened, err := chat.NewDBTimelineReader(database.DB()).ReadTurn(ctx, conv, turn)
+				reopened, err := chat.NewDBTimelineReader(database.DB()).ReadPublicationTurn(ctx, conv, turn)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -658,7 +658,7 @@ func TestExecutionWriterNativeCallsRetryAndReferencedMedia(t *testing.T) {
 		}
 	}
 	reader := chat.NewDBTimelineReader(database.DB())
-	terminal, err := reader.ReadTurn(ctx, conv, turn)
+	terminal, err := reader.ReadRecoveryTurn(ctx, conv, turn)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -666,8 +666,8 @@ func TestExecutionWriterNativeCallsRetryAndReferencedMedia(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if terminal.Response.Representative.Media != `[{"type":"image","data":"base"}]` || window.Responses[turn].Representative.Media != "" {
-		t.Fatal("terminal perdeu mídia herdada ou janela leve materializou o blob")
+	if terminal.Response.Representative.Media != "" || window.Responses[turn].Representative.Media != "" {
+		t.Fatal("terminal ou janela materializou mídia destinada ao contexto LLM")
 	}
 }
 
@@ -698,7 +698,7 @@ func TestExecutionWriterContinuationPreservesReasoningThroughRuntime(t *testing.
 			}}}
 			svc.StreamSimpleWithRecovery(ctx, streamer, nil, llm.ChatParams{ContinueViaUserMessage: true}, conv, turn, "", nil, false, 1)
 			svc.EndUnfinishedTurn(ctx, conv, turn, nil)
-			snapshot, err := chat.NewDBTimelineReader(database.DB()).ReadTurn(ctx, conv, turn)
+			snapshot, err := chat.NewDBTimelineReader(database.DB()).ReadPublicationTurn(ctx, conv, turn)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -798,7 +798,7 @@ func TestExecutionWriterContinuationPrefixOccursOnceAcrossToolIterations(t *test
 			}}
 			svc.RunAgenticLoop(ctx, nil, llm.ChatParams{MaxAgenticIterations: 3, ContinueViaUserMessage: true}, conv, turn, nil, streamer, nil, func(c string, i int) IterationHandler { return NewAgenticStreamHandler(em, c, i, nil, turn) }, nil, false, 1)
 			svc.EndUnfinishedTurn(ctx, conv, turn, nil)
-			snapshot, err := chat.NewDBTimelineReader(database.DB()).ReadTurn(ctx, conv, turn)
+			snapshot, err := chat.NewDBTimelineReader(database.DB()).ReadPublicationTurn(ctx, conv, turn)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -860,7 +860,7 @@ func TestExecutionWriterRetryWithoutActivityThenContinueExcludesDiagnostic(t *te
 				}
 			}
 			svc.EndUnfinishedTurn(ctx, conv, turn, nil)
-			failed, err := chat.NewDBTimelineReader(database.DB()).ReadTurn(ctx, conv, turn)
+			failed, err := chat.NewDBTimelineReader(database.DB()).ReadPublicationTurn(ctx, conv, turn)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -878,7 +878,7 @@ func TestExecutionWriterRetryWithoutActivityThenContinueExcludesDiagnostic(t *te
 			}}}
 			svc.StreamSimpleWithRecovery(ctx, streamer, nil, llm.ChatParams{ContinueViaUserMessage: true}, conv, turn, "", nil, false, 1)
 			svc.EndUnfinishedTurn(ctx, conv, turn, nil)
-			finished, err := chat.NewDBTimelineReader(database.DB()).ReadTurn(ctx, conv, turn)
+			finished, err := chat.NewDBTimelineReader(database.DB()).ReadPublicationTurn(ctx, conv, turn)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -928,7 +928,7 @@ func TestSimpleNativeLedgerPersistsCompletedBatchDespiteFailure(t *testing.T) {
 			if err := database.DB().Table("tool_invocations").Where("tool_call_id = ? AND status = ?", "second", "succeeded").Count(&count).Error; err != nil || count != 1 {
 				t.Fatalf("remaining completed call lost: %d %v", count, err)
 			}
-			reopened, err := chat.NewDBTimelineReader(database.DB()).ReadTurn(ctx, conv, turn)
+			reopened, err := chat.NewDBTimelineReader(database.DB()).ReadPublicationTurn(ctx, conv, turn)
 			if err != nil {
 				t.Fatal(err)
 			}

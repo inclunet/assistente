@@ -176,7 +176,7 @@ func TestTurnRecoveryRuntimeVersionReadFailureRollsBackTerminal(t *testing.T) {
 	if err == nil {
 		t.Fatal("confirmou terminal sem prova de versão")
 	}
-	after, err := svc.timeline.ReadTurn(ctx, conv, turn)
+	after, err := svc.timeline.ReadPublicationTurn(ctx, conv, turn)
 	if err != nil {
 		t.Fatal(err)
 	}

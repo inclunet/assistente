@@ -157,7 +157,7 @@ func TestTimelineSnapshotProjectsSameAuthoritativeResponse(t *testing.T) {
 		t.Fatal(err)
 	}
 	window := f.window(t)
-	terminal, err := f.reader.ReadTurn(f.ctx, f.conversation, f.question)
+	terminal, err := f.reader.ReadPublicationTurn(f.ctx, f.conversation, f.question)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -177,7 +177,7 @@ func TestTimelineSnapshotProjectsSameAuthoritativeResponse(t *testing.T) {
 		t.Fatal(err)
 	}
 	window = f.window(t)
-	terminal, err = f.reader.ReadTurn(f.ctx, f.conversation, f.question)
+	terminal, err = f.reader.ReadPublicationTurn(f.ctx, f.conversation, f.question)
 	if err != nil {
 		t.Fatal(err)
 	}

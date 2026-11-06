@@ -110,7 +110,7 @@ func invocationPreview(t testing.TB, node *TimelineItem) string {
 }
 
 func TestTimelineSnapshotReadsOneCommitAcrossWindowAndTurn(t *testing.T) {
-	for _, kind := range []string{"window", "canonical", "turn"} {
+	for _, kind := range []string{"window", "publication", "recovery"} {
 		t.Run(kind, func(t *testing.T) {
 			f := newSnapshotFixture(t)
 			before := f.window(t)
@@ -157,27 +157,22 @@ func TestTimelineSnapshotReadsOneCommitAcrossWindowAndTurn(t *testing.T) {
 			var turn *database.ChatTurn
 			var node *TimelineItem
 			var content, preview string
-			if kind != "turn" {
-				var snapshot *TimelineWindowSnapshot
-				if kind == "canonical" {
-					var err error
-					snapshot, err = f.reader.ReadCanonicalWindow(f.ctx, database.MessageWindowQuery{ConversationID: f.conversation, Anchor: "end", Direction: "before", Limit: 20})
-					if err != nil {
-						t.Fatal(err)
-					}
-				} else {
-					snapshot = f.window(t)
-				}
+			if kind == "window" {
+				snapshot := f.window(t)
 				version, turn = snapshot.Version, snapshot.Turns[f.question]
 				node = responseNode(t, snapshot.Items, f.question)
 				content, preview = node.Representative.Content, invocationPreview(t, node)
 			} else {
-				snapshot, err := f.reader.ReadTurn(f.ctx, f.conversation, f.question)
+				read := f.reader.ReadPublicationTurn
+				if kind == "recovery" {
+					read = f.reader.ReadRecoveryTurn
+				}
+				snapshot, err := read(f.ctx, f.conversation, f.question)
 				if err != nil {
 					t.Fatal(err)
 				}
 				version, turn = snapshot.Version, snapshot.Turn
- node = snapshot.Response
+				node = snapshot.Response
 				if snapshot.Response == nil || snapshot.Response.Representative == nil {
 					t.Fatal("resposta ausente")
 				}
@@ -211,7 +206,7 @@ func TestTimelineSnapshotPreservesNullableAndLegacyTurnMetadata(t *testing.T) {
 	if err := f.db.Delete(&database.ChatMessage{}, "id=?", f.answer).Error; err != nil {
 		t.Fatal(err)
 	}
-	snapshot, err := f.reader.ReadTurn(f.ctx, f.conversation, f.question)
+	snapshot, err := f.reader.ReadPublicationTurn(f.ctx, f.conversation, f.question)
 	if err != nil || snapshot.Turn == nil || snapshot.Turn.ResponseMessageID != nil {
 		t.Fatalf("nullable perdido: %+v %v", snapshot, err)
 	}
@@ -223,11 +218,11 @@ func TestTimelineSnapshotPreservesNullableAndLegacyTurnMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	snapshot, err = f.reader.ReadTurn(f.ctx, f.conversation, legacy.ID)
+	snapshot, err = f.reader.ReadPublicationTurn(f.ctx, f.conversation, legacy.ID)
 	if err != nil || snapshot.Turn != nil || snapshot.Response != nil {
 		t.Fatalf("legado confundido com metadado: %+v %v", snapshot, err)
 	}
-	if _, err = f.reader.ReadTurn(f.ctx, f.conversation, "inexistente"); !errors.Is(err, gorm.ErrRecordNotFound) {
+	if _, err = f.reader.ReadPublicationTurn(f.ctx, f.conversation, "inexistente"); !errors.Is(err, gorm.ErrRecordNotFound) {
 		t.Fatalf("pergunta ausente: %v", err)
 	}
 }
@@ -235,7 +230,7 @@ func TestTimelineSnapshotPreservesNullableAndLegacyTurnMetadata(t *testing.T) {
 func TestTimelineSnapshotRejectsMissingSchemaOwnershipAndCancellation(t *testing.T) {
 	f := newSnapshotFixture(t)
 	for _, ctx := range []context.Context{context.Background(), database.WithUserID(context.Background(), "outro-user")} {
-		if _, err := f.reader.ReadTurn(ctx, f.conversation, f.question); err == nil {
+		if _, err := f.reader.ReadPublicationTurn(ctx, f.conversation, f.question); err == nil {
 			t.Fatal("leitura sem owner")
 		}
 	}
@@ -243,10 +238,10 @@ func TestTimelineSnapshotRejectsMissingSchemaOwnershipAndCancellation(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.reader.ReadTurn(f.ctx, other.ID, f.question); err == nil {
+	if _, err := f.reader.ReadPublicationTurn(f.ctx, other.ID, f.question); err == nil {
 		t.Fatal("pergunta de outra conversa")
 	}
-	if _, err := f.reader.ReadTurn(f.ctx, f.conversation, f.answer); err == nil {
+	if _, err := f.reader.ReadPublicationTurn(f.ctx, f.conversation, f.answer); err == nil {
 		t.Fatal("assistant não é pergunta")
 	}
 	ctx, cancel := context.WithCancel(f.ctx)
@@ -257,7 +252,7 @@ func TestTimelineSnapshotRejectsMissingSchemaOwnershipAndCancellation(t *testing
 	if err := f.db.Exec("DELETE FROM chat_timeline_versions WHERE conversation_id=?", f.conversation).Error; err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.reader.ReadTurn(f.ctx, f.conversation, f.question); !errors.Is(err, gorm.ErrRecordNotFound) {
+	if _, err := f.reader.ReadPublicationTurn(f.ctx, f.conversation, f.question); !errors.Is(err, gorm.ErrRecordNotFound) {
 		t.Fatalf("metadado ausente virou versão zero: %v", err)
 	}
 }
@@ -293,7 +288,7 @@ func seedLargeSnapshotTurn(t testing.TB, f snapshotFixture) string {
 func TestTimelineSnapshotTurnBeyondThousandMatchesWindow(t *testing.T) {
 	f := newSnapshotFixture(t)
 	finalID := seedLargeSnapshotTurn(t, f)
-	snapshot, err := f.reader.ReadTurn(f.ctx, f.conversation, f.question)
+	snapshot, err := f.reader.ReadPublicationTurn(f.ctx, f.conversation, f.question)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -322,7 +317,7 @@ func BenchmarkTimelineTurnSnapshotLarge(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for range b.N {
-		if _, err := f.reader.ReadTurn(f.ctx, f.conversation, f.question); err != nil {
+		if _, err := f.reader.ReadPublicationTurn(f.ctx, f.conversation, f.question); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -345,7 +340,7 @@ func TestTimelineSnapshotPreservesThreadScopeAndCurrentRetry(t *testing.T) {
 	if err := repo.ReconcileImportedConversationInTransaction(f.ctx, f.conversation); err != nil {
 		t.Fatal(err)
 	}
-	before, err := f.reader.ReadTurn(f.ctx, f.conversation, question.ID)
+	before, err := f.reader.ReadPublicationTurn(f.ctx, f.conversation, question.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -372,7 +367,7 @@ func TestTimelineSnapshotPreservesThreadScopeAndCurrentRetry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	preparing, err := f.reader.ReadTurn(f.ctx, f.conversation, question.ID)
+	preparing, err := f.reader.ReadPublicationTurn(f.ctx, f.conversation, question.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -387,7 +382,7 @@ func TestTimelineSnapshotPreservesThreadScopeAndCurrentRetry(t *testing.T) {
 	if err := repo.FinishResponse(f.ctx, f.conversation, question.ID, retry.ExecutionID, database.TurnCompleted, "completed", replacement, &database.MessageOptions{Content: "resposta do retry"}); err != nil {
 		t.Fatal(err)
 	}
-	after, err := f.reader.ReadTurn(f.ctx, f.conversation, question.ID)
+	after, err := f.reader.ReadPublicationTurn(f.ctx, f.conversation, question.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -401,7 +396,7 @@ func TestTimelineSnapshotDoesNotHideLedgerReadFailure(t *testing.T) {
 	if err := f.db.Exec("DROP TABLE tool_invocations").Error; err != nil {
 		t.Fatal(err)
 	}
-	if result, err := f.reader.ReadTurn(f.ctx, f.conversation, f.question); err == nil || result != nil {
+	if result, err := f.reader.ReadPublicationTurn(f.ctx, f.conversation, f.question); err == nil || result != nil {
 		t.Fatalf("falha virou turno sem ferramentas: %+v %v", result, err)
 	}
 	if result, err := f.reader.ReadCanonicalWindow(f.ctx, database.MessageWindowQuery{ConversationID: f.conversation, Limit: 20}); err == nil || result != nil {

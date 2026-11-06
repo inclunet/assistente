@@ -250,7 +250,7 @@ func TestStoragePublicationLegacySelfLinkedQuestionIsNotResponseSource(t *testin
 		if publication {
 			snapshot, err = f.reader.ReadPublicationTurn(f.ctx, f.conversation, f.question)
 		} else {
-			snapshot, err = f.reader.ReadTurn(f.ctx, f.conversation, f.question)
+			snapshot, err = f.reader.ReadRecoveryTurn(f.ctx, f.conversation, f.question)
 		}
 		if err != nil || snapshot.Response == nil || canonicalText(canonicalItem(snapshot.Response)) != "resposta antiga" {
 			t.Fatal("pergunta legada entrou na resposta", publication, err)
