@@ -18,7 +18,7 @@ interface MockConfig {
 declare global {
   interface Window {
     __wailsMock: {
-      setTimelineRows: (rows: unknown[], parentId?: string) => void;
+      setTimelineRows: (rows: unknown[], parentId?: string, conversationId?: string) => void;
       setResponse: (fn: string, value: unknown) => void;
       clearResponse: (fn: string) => void;
       setError: (fn: string, message: string) => void;
@@ -1183,13 +1183,13 @@ export function buildWailsMockScript(): string {
   /* ---------- API pública para os testes ---------- */
 
   window.__wailsMock = {
-    setTimelineRows(rows, parentId) {
+    setTimelineRows(rows, parentId, conversationId) {
       const copied = JSON.parse(JSON.stringify(rows));
       if (parentId) {
         timelineThreadRows.set(parentId, copied);
         for (const id of timelineRows.keys()) publishTimeline(id);
       } else {
-        const id = rows[0]?.message?.conversationId || defaultConversation.id;
+        const id = conversationId ?? rows[0]?.message?.conversationId ?? defaultConversation.id;
         timelineRows.set(id, copied);
         publishTimeline(id);
       }

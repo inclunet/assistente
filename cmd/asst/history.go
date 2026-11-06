@@ -152,9 +152,11 @@ func runHistoryShow(svc historyBackend, out io.Writer, id string) error {
 				if ew.err != nil {
 					return ew.err
 				}
-				if parent == nil && item.Representative != nil && item.Representative.Presentation != nil && item.Representative.Presentation.ChildCount > 0 {
-					if err := printScope(&item.Representative.ID); err != nil {
-						return err
+				if parent == nil {
+					for _, threadParentID := range item.ThreadParentIDs() {
+						if err := printScope(&threadParentID); err != nil {
+							return err
+						}
 					}
 				}
 			}

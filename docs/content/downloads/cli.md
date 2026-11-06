@@ -209,7 +209,8 @@ asst history delete <id>              # Remove conversa
 ```
 
 `history show` percorre o histórico em páginas, usando a mesma ordem de mensagens
-e segmentos fornecida pelo backend ao chat. Se uma alteração persistida ocorrer
+e segmentos fornecida pelo backend ao chat. Também inclui threads ligadas às
+falas intermediárias de uma resposta. Se uma alteração persistida ocorrer
 entre páginas, o comando informa que o histórico mudou: execute-o novamente para
 refazer a leitura. Conteúdo já impresso antes do aviso pode estar incompleto.
 A leitura não congela uma resposta que ainda está sendo recebida por streaming.

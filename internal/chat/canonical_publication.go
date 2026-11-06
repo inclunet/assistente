@@ -70,7 +70,11 @@ func canonicalItem(item *TimelineItem) CanonicalItem {
 	} else if item.Kind == "response" {
 		view.Metadata.Role = "assistant"
 		// A resposta existe antes do representante; sua data é a âncora persistida.
-		for _, layout := range []string{"2006-01-02 15:04:05.999999999-07:00", "2006-01-02 15:04:05.999999999", time.RFC3339Nano} {
+		for _, layout := range []string{
+			time.RFC3339Nano, "2006-01-02 15:04:05.999999999-07:00",
+			"2006-01-02T15:04:05.999999999", "2006-01-02 15:04:05.999999999",
+			"2006-01-02T15:04", "2006-01-02 15:04", "2006-01-02",
+		} {
 			if created, err := time.Parse(layout, item.Position.AnchorCreatedAt); err == nil {
 				view.Metadata.CreatedAt = created.Format(time.RFC3339Nano)
 				break

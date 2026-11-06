@@ -459,3 +459,34 @@ func TestHistoryShowEmptyPropagatesOutputFailure(t *testing.T) {
 		t.Fatalf("falha de saída perdida: %v", err)
 	}
 }
+
+func TestHistoryShowIncludesIntermediateThreads(t *testing.T) {
+	turn := "q"
+	messages := []chat.Message{
+		{UUIDModel: database.UUIDModel{ID: "intermediate"}, ConversationID: "c", TurnID: &turn, Role: "assistant", Content: "parcial", Presentation: &database.MessagePresentation{ChildCount: 1}},
+		{UUIDModel: database.UUIDModel{ID: "final"}, ConversationID: "c", TurnID: &turn, Role: "assistant", Content: "final", Presentation: &database.MessagePresentation{ChildCount: 0}},
+	}
+	response, err := chat.ProjectPersistedResponse("c", turn, nil, messages, nil, &database.ChatTurn{UserMessageID: turn, ConversationID: "c", ResponseMessageID: &messages[1].ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reads := 0
+	backend := &mockHistoryBackend{conversation: &app.Conversation{}}
+	backend.readWindow = func(q database.MessageWindowQuery) (*chat.TimelineWindowSnapshot, error) {
+		reads++
+		if q.ParentID == nil {
+			return &chat.TimelineWindowSnapshot{Items: []*chat.TimelineItem{response}}, nil
+		}
+		if *q.ParentID != "intermediate" {
+			t.Fatal("consulta desnecessária ou alvo incorreto", *q.ParentID)
+		}
+		return &chat.TimelineWindowSnapshot{Items: []*chat.TimelineItem{{Segments: []chat.ResponseSegment{{Kind: "text", Text: "thread intermediária"}}}}}, nil
+	}
+	var out bytes.Buffer
+	if err := runHistoryShow(backend, &out, "c"); err != nil {
+		t.Fatal(err)
+	}
+	if reads != 2 || strings.Count(out.String(), "thread intermediária") != 1 {
+		t.Fatal("thread perdida ou repetida", reads, out.String())
+	}
+}

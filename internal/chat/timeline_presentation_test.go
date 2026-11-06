@@ -120,3 +120,49 @@ func TestCanonicalTerminalReasonSurvivesSnapshotWithPartialContent(t *testing.T)
 		})
 	}
 }
+
+func TestCanonicalPreparingDateOnlyAnchor(t *testing.T) {
+	f := newSnapshotFixture(t)
+	if _, err := database.NewChatTurnRepository(f.db).Begin(f.ctx, f.conversation, f.question, "", database.TurnModeRetry); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.db.Exec("UPDATE chat_messages SET created_at=? WHERE id=?", "2026-01-01", f.question).Error; err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := f.reader.ReadCanonicalWindow(f.ctx, database.MessageWindowQuery{ConversationID: f.conversation, Anchor: "end", Direction: "before", Limit: 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	item := canonicalItem(snapshot.Responses[f.question])
+	if item.RepresentativeMessageID != nil || item.Metadata.CreatedAt != "2026-01-01T00:00:00Z" {
+		t.Fatalf("data da resposta sem representante perdida: %+v", item)
+	}
+}
+
+func TestCanonicalWindowIncludesIntermediateThreadParents(t *testing.T) {
+	f := newSnapshotFixture(t)
+	intermediate, err := database.CreateMessageWithContext(f.ctx, database.MessageOptions{ConversationID: f.conversation, TurnID: &f.question, Role: "assistant", Content: "intermediária"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, parent := range []string{intermediate.ID, f.answer} {
+		if _, err := database.CreateMessageWithContext(f.ctx, database.MessageOptions{ConversationID: f.conversation, ParentID: &parent, Role: "user", Content: "thread"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	snapshot, err := f.reader.ReadCanonicalWindow(f.ctx, database.MessageWindowQuery{ConversationID: f.conversation, Anchor: "end", Direction: "before", Limit: 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	parents := snapshot.Responses[f.question].ThreadParentIDs()
+	if len(parents) != 2 {
+		t.Fatal("perdeu ou duplicou escopos", parents)
+	}
+	found := map[string]bool{}
+	for _, id := range parents {
+		found[id] = true
+	}
+	if !found[intermediate.ID] || !found[f.answer] {
+		t.Fatal("escopos incorretos", parents)
+	}
+}

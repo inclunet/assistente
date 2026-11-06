@@ -82,6 +82,17 @@ O Copilot encontrou perda de erro de escrita do cabeçalho no histórico vazio d
 CLI. Corrigido com `TestHistoryShowEmptyPropagatesOutputFailure`; 17 testes de
 histórico e vet do CLI passaram, com conferência independente de `review_aep`.
 
+Na rodada remota seguinte, o CLI passou a visitar threads de todas as fontes
+persistidas com filhos de uma resposta, usando contagens da mesma transação e
+sem consultas de escopos vazios. A UI conserva seu alvo no representante.
+`TestHistoryShowIncludesIntermediateThreads` e
+`TestCanonicalWindowIncludesIntermediateThreadParents` cobrem preservação e
+não duplicação. Datas SQLite sem horário/minutos passam pela normalização
+backend antes do RFC3339Nano; `TestCanonicalPreparingDateOnlyAnchor` prova o
+caso real sem representante. CLI (18), chat focado (5) e vet passaram;
+`review_aep` conferiu as correções. A fixture E2E aceita ID explícito para listas
+vazias; 13 E2E focados e revisão de `review_store_coverage` passaram.
+
 Permanecem pendentes os adaptadores internos antigos ainda exercitados por
 provas de projeção, a migração de anexos da fase 4 e os gates finais do AEP.
 Esta retirada de APIs não conclui esses trabalhos.

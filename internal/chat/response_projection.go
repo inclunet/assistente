@@ -176,3 +176,21 @@ func (r *TimelineItem) TerminalPatch() *ports.TurnPatchEvent {
 	}
 	return patch
 }
+
+// ThreadParentIDs retorna os escopos com filhos já contados pela leitura
+// transacional, inclusive fontes intermediárias de uma resposta agrupada.
+func (r *TimelineItem) ThreadParentIDs() []string {
+	var ids []string
+	seen := map[string]bool{}
+	add := func(message *Message) {
+		if message != nil && message.Presentation != nil && message.Presentation.ChildCount > 0 && !seen[message.ID] {
+			ids = append(ids, message.ID)
+			seen[message.ID] = true
+		}
+	}
+	for i := range r.messages {
+		add(&r.messages[i])
+	}
+	add(r.Representative)
+	return ids
+}
