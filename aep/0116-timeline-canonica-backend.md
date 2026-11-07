@@ -50,6 +50,16 @@ ACP foram excluídos previamente da execução local; os casos desses arquivos
 ficam no CI. Revisor independente `review_canonical_cleanup`: três rodadas,
 ajustes de comentários/contrato resolvidos, rodada final sem pendências.
 
+A revisão remota identificou e foi atendida em dois pontos: a fixture de
+serialização passou a exigir `invocationId` sem relaxar a exclusão de proveniência
+interna; o diálogo conserva o último resumo recebido antes da retirada da
+invocação, em vez de regressar ao resumo da abertura. A regressão percorre
+execução → conclusão → retirada, com e sem detalhes completos, e mantém a
+identidade do diálogo e uma única consulta. O mock de tradução mantém `t`
+estável entre renders, como o hook real sem troca de idioma. Os 11 testes do
+arquivo e o pacote `internal/apidto` passaram, assim como TypeScript e ESLint.
+O mesmo revisor independente concluiu as rodadas 4 e 5 sem pendências.
+
 ### Janela canônica única na apresentação (07/11/2026)
 
 `ChatSessionProvider` entrega diretamente `TimelineWindowMetadata` da janela

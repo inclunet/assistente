@@ -148,6 +148,8 @@ export function ToolInvocationDialogsProvider({
       currentCalls.find(call => call.invocationId === selected.invocationId) ?? selected
     );
   }, [currentCalls, selected]);
+  // Preserve o último resumo confirmado, inclusive quando a invocação sair da janela.
+  if (selectedCurrent !== selected) setSelected(selectedCurrent);
   useEffect(() => {
     const status = selectedCurrent ? displayToolStatus(selectedCurrent.status) : 'unknown';
     if (

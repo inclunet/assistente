@@ -7,8 +7,9 @@ import { ToolInvocationDialogsProvider } from './ToolInvocationDialogs';
 
 const currentUser = vi.hoisted(() => ({ id: 'user-a' }));
 const loadDetails = vi.hoisted(() => vi.fn());
+const translate = vi.hoisted(() => (key: string) => key);
 
-vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
+vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: translate }) }));
 vi.mock('./ChatSessionContext', () => ({
   useChatMessageLiveState: () => ({
     liveContent: null,
@@ -97,6 +98,26 @@ describe('ChatMessage tool dialog host', () => {
     expect(screen.getByRole('dialog')).toHaveTextContent('chat.toolStatusRunning');
     expect(screen.getByRole('dialog')).not.toHaveTextContent('outra execução');
     expect(loadDetails).not.toHaveBeenCalled();
+  });
+  it.each([false, true])('preserva a conclusão após retirada da janela, com detalhes=%s', async (hasDetails) => {
+    const initial = invocationFixture({ invocationId: 'previous', callId: 'reused', outputPreview: 'prévia parcial', hasDetails });
+    const completed = { ...initial, status: 'succeeded', outputPreview: 'prévia final' };
+    const replacement = invocationFixture({ invocationId: 'next', callId: 'reused', outputPreview: 'outra execução' });
+    loadDetails.mockResolvedValue(new Map([['previous', { invocationId: 'previous', output: 'resultado completo', metadata: '{}' }]]));
+    const { rerender } = render(<ToolCallsSection toolInvocations={[initial]} tabNavigationEnabled />);
+    fireEvent.click(screen.getByRole('button', { name: 'chat.technicalDetails' }));
+    expect(screen.getByRole('dialog')).toHaveTextContent('chat.toolStatusRunning');
+    rerender(<ToolCallsSection toolInvocations={[completed]} tabNavigationEnabled />);
+    const expectedOutput = hasDetails ? 'resultado completo' : 'prévia final';
+    await waitFor(() => expect(screen.getByRole('dialog')).toHaveTextContent(expectedOutput));
+    const dialog = screen.getByRole('dialog');
+    rerender(<ToolCallsSection toolInvocations={[replacement]} tabNavigationEnabled />);
+    expect(screen.getByRole('dialog')).toBe(dialog);
+    expect(dialog).toHaveTextContent('chat.toolStatusSucceeded');
+    expect(dialog).toHaveTextContent(expectedOutput);
+    expect(dialog).not.toHaveTextContent('prévia parcial');
+    expect(dialog).not.toHaveTextContent('outra execução');
+    expect(loadDetails).toHaveBeenCalledTimes(hasDetails ? 1 : 0);
   });
   it.each(['', 'saída original preservada'])(
     'mostra diagnóstico separado da saída MCP %j',
