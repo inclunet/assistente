@@ -5,21 +5,15 @@ import (
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
-	"log"
-	"os"
 	"strings"
 	"testing"
-	"time"
 )
 
 func TestTimelineIdentitySelectionMasksBeforeScan(t *testing.T) {
-	// A prova usa IDs maiores que 8 MiB. O logger preserva diagnósticos de SQL
-	// sem interpolar esses parâmetros sintéticos no log, sobretudo sob -race.
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: logger.New(
-		log.New(os.Stdout, "", log.LstdFlags), logger.Config{
-			SlowThreshold: 200 * time.Millisecond, LogLevel: logger.Warn, ParameterizedQueries: true,
-		},
-	)})
+	// Scan usa Recorder interno e não respeita ParameterizedQueries do logger.
+	// Esta prova deliberadamente pesada não imprime o ID de 8 MiB como slow SQL;
+	// erros de SQL continuam visíveis e todas as consultas têm erro verificado.
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: logger.Default.LogMode(logger.Error)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -32,7 +26,7 @@ func TestTimelineIdentitySelectionMasksBeforeScan(t *testing.T) {
 			t.Error(err)
 		}
 	})
-	repo := NewMessageRepository(db).WithTimelineTurns()
+	repo := NewMessageRepository(db)
 	// A consulta seleciona dois itens, incluindo um ID com NUL; LENGTH(TEXT)
 	// contaria só seu prefixo e deixaria a identidade excessiva passar.
 	query := `SELECT 'message' kind, ? id, '' message_id, '' turn_id, '2026' created_at, 'anchor' anchor_id, 0 invalid_turn_reference, 0 slot, 'message:a' item_key, 12 window_total UNION ALL SELECT 'message', 'small', '', '', '2025', 'anchor', 0, 0, 'message:b', 12`

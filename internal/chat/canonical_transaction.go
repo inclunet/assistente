@@ -1,7 +1,6 @@
 package chat
 
 import (
-	"encoding/json"
 	"maps"
 	"strconv"
 )
@@ -23,8 +22,7 @@ func (s *canonicalPublicationStage) append(operations []CanonicalOperation, patc
 	if s.overflow {
 		return
 	}
-	encoded, _ := json.Marshal(CanonicalBatch{Operations: operations, WindowPatches: patches})
-	s.bytes += len(encoded)
+	s.bytes += canonicalJSONSize(CanonicalBatch{Operations: operations, WindowPatches: patches})
 	if s.bytes > canonicalReplayBytes {
 		s.discard()
 		return
@@ -40,17 +38,16 @@ func (s *canonicalPublicationStage) materialize(item CanonicalItem) {
 	if s.overflow {
 		return
 	}
-	var encoded []byte
+	size := 0
 	for i := range s.patches {
 		for j, previous := range s.patches[i].Items {
 			if previous.ItemID != item.ItemID {
 				continue
 			}
-			if encoded == nil {
-				encoded, _ = json.Marshal(item)
+			if size == 0 {
+				size = canonicalJSONSize(item)
 			}
-			old, _ := json.Marshal(previous)
-			s.bytes += len(encoded) - len(old)
+			s.bytes += size - canonicalJSONSize(previous)
 			if s.bytes > canonicalReplayBytes {
 				s.discard()
 				return

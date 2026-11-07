@@ -280,12 +280,12 @@ func TestGetMessageWindow_EndBeforeReturnsAbsoluteMetadata(t *testing.T) {
 	setupOrderingTestDB(t)
 	convID, ids := createConvWithSameTimestampRootMessages(t)
 
-	window, err := GetMessageWindowWithContext(testCtx(), MessageWindowQuery{
+	window, err := NewMessageRepository(db).ReadMessageWindowWithContext(testCtx(), MessageWindowQuery{
 		ConversationID: convID,
 		Anchor:         "end",
 		Direction:      "before",
 		Limit:          2,
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("GetMessageWindow: %v", err)
 	}
@@ -379,7 +379,7 @@ func TestGetMessageWindow_RejectsInvalidCursorShape(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := GetMessageWindowWithContext(testCtx(), tc.query)
+			_, err := NewMessageRepository(db).ReadMessageWindowWithContext(testCtx(), tc.query, nil)
 			if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("expected error containing %q, got %v", tc.want, err)
 			}
@@ -391,12 +391,12 @@ func TestGetMessageWindow_BeforeAnchorUsesAbsoluteIndex(t *testing.T) {
 	setupOrderingTestDB(t)
 	convID, ids := createConvWithSameTimestampRootMessages(t)
 
-	window, err := GetMessageWindowWithContext(testCtx(), MessageWindowQuery{
+	window, err := NewMessageRepository(db).ReadMessageWindowWithContext(testCtx(), MessageWindowQuery{
 		ConversationID:  convID,
 		AnchorMessageID: ids[4],
 		Direction:       "before",
 		Limit:           3,
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("GetMessageWindow before anchor: %v", err)
 	}
@@ -419,12 +419,12 @@ func TestGetMessageWindow_BeforeAnchorNearStartDoesNotIncludeAnchor(t *testing.T
 	setupOrderingTestDB(t)
 	convID, ids := createConvWithSameTimestampRootMessages(t)
 
-	window, err := GetMessageWindowWithContext(testCtx(), MessageWindowQuery{
+	window, err := NewMessageRepository(db).ReadMessageWindowWithContext(testCtx(), MessageWindowQuery{
 		ConversationID:  convID,
 		AnchorMessageID: ids[0],
 		Direction:       "before",
 		Limit:           3,
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("GetMessageWindow before first anchor: %v", err)
 	}
@@ -446,12 +446,12 @@ func TestGetMessageWindow_AroundRebalancesAtEnd(t *testing.T) {
 	setupOrderingTestDB(t)
 	convID, ids := createConvWithSameTimestampRootMessages(t)
 
-	window, err := GetMessageWindowWithContext(testCtx(), MessageWindowQuery{
+	window, err := NewMessageRepository(db).ReadMessageWindowWithContext(testCtx(), MessageWindowQuery{
 		ConversationID:  convID,
 		AnchorMessageID: ids[4],
 		Direction:       "around",
 		Limit:           4,
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("GetMessageWindow around anchor: %v", err)
 	}
@@ -520,12 +520,12 @@ func TestGetMessageWindow_CountsTurnAsTimelineItem(t *testing.T) {
 		t.Fatalf("create next user: %v", err)
 	}
 
-	window, err := GetMessageWindowWithContext(testCtx(), MessageWindowQuery{
+	window, err := NewMessageRepository(db).ReadMessageWindowWithContext(testCtx(), MessageWindowQuery{
 		ConversationID: conv.ID,
 		Anchor:         "start",
 		Direction:      "after",
 		Limit:          10,
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("GetMessageWindow: %v", err)
 	}
@@ -573,12 +573,12 @@ func TestGetMessageWindow_UserRemainsStandaloneAndAssistantFormsTurn(t *testing.
 		t.Fatalf("save assistant turn: %v", err)
 	}
 
-	window, err := GetMessageWindowWithContext(testCtx(), MessageWindowQuery{
+	window, err := NewMessageRepository(db).ReadMessageWindowWithContext(testCtx(), MessageWindowQuery{
 		ConversationID: conv.ID,
 		Anchor:         "start",
 		Direction:      "after",
 		Limit:          10,
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("GetMessageWindow: %v", err)
 	}
@@ -610,12 +610,12 @@ func TestGetMessageWindow_AnchorInsideTurnPagesByWholeItem(t *testing.T) {
 		t.Fatalf("create next user: %v", err)
 	}
 
-	window, err := GetMessageWindowWithContext(testCtx(), MessageWindowQuery{
+	window, err := NewMessageRepository(db).ReadMessageWindowWithContext(testCtx(), MessageWindowQuery{
 		ConversationID:  conv.ID,
 		AnchorMessageID: assistant.ID,
 		Direction:       "after",
 		Limit:           1,
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("GetMessageWindow: %v", err)
 	}
@@ -644,12 +644,12 @@ func TestGetMessageWindow_BeforeAnchorInsideTurnPagesBeforeWholeItem(t *testing.
 	assistant := addCanonicalTurnAssistant(t, conv.ID, user.ID, "vou buscar")
 	addCanonicalTurnAssistant(t, conv.ID, user.ID, "resultado")
 
-	window, err := GetMessageWindowWithContext(testCtx(), MessageWindowQuery{
+	window, err := NewMessageRepository(db).ReadMessageWindowWithContext(testCtx(), MessageWindowQuery{
 		ConversationID:  conv.ID,
 		AnchorMessageID: assistant.ID,
 		Direction:       "before",
 		Limit:           2,
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("GetMessageWindow: %v", err)
 	}
@@ -681,12 +681,12 @@ func TestGetMessageWindow_AroundAnchorInsideToolCentersWholeTurn(t *testing.T) {
 		t.Fatalf("create next user: %v", err)
 	}
 
-	window, err := GetMessageWindowWithContext(testCtx(), MessageWindowQuery{
+	window, err := NewMessageRepository(db).ReadMessageWindowWithContext(testCtx(), MessageWindowQuery{
 		ConversationID:  conv.ID,
 		AnchorMessageID: conclusion.ID,
 		Direction:       "around",
 		Limit:           3,
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("GetMessageWindow: %v", err)
 	}
@@ -706,13 +706,13 @@ func TestGetMessageWindow_ThreadScopeCountsChildren(t *testing.T) {
 	convID, ids := createConvWithSameTimestampRootMessages(t)
 
 	parentID := ids[2]
-	window, err := GetMessageWindowWithContext(testCtx(), MessageWindowQuery{
+	window, err := NewMessageRepository(db).ReadMessageWindowWithContext(testCtx(), MessageWindowQuery{
 		ConversationID: convID,
 		ParentID:       &parentID,
 		Anchor:         "start",
 		Direction:      "after",
 		Limit:          10,
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("GetMessageWindow thread: %v", err)
 	}

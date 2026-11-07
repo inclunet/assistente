@@ -1,8 +1,72 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — histórico canônico integrado do backend à UI e CLI; anexos normalizados e colunas legadas removidas; identidade visual, janela e ferramentas canônicas na UI; metadados e sessões sem espelhamentos; mutadores e estados legados removidos; renders e retenção V8 verificados; gates de desempenho e auditoria de encerramento pendentes
+## Status: In Progress — histórico canônico integrado do backend à UI e CLI; anexos normalizados e colunas legadas removidas; identidade visual, janela e ferramentas canônicas na UI; metadados e sessões sem espelhamentos; leitor canônico único no backend; mutadores e estados legados removidos; renders e retenção V8 verificados; gates de desempenho e auditoria de encerramento pendentes
 
 Data: 2026-10-30
+
+### Leitura canônica única e contagem sem cópia de payload (07/11/2026)
+
+`MessageRepository` não possui mais o modo opcional `WithTimelineTurns`.
+Toda leitura de janela inclui turnos admitidos e aplica a mesma classificação,
+autorização, cursores e cota de identidades antes da materialização. Os wrappers
+`GetMessageWindowWithContext`, sem consumidores produtivos, foram retirados;
+as regressões de ordenação, paginação, seleção de execução e autorização usam
+`ReadMessageWindowWithContext`, o mesmo contrato do leitor canônico.
+
+O estágio de publicação conta bytes pelo encoder existente, sem guardar cópias
+do JSON que seriam descartadas imediatamente. A contabilização continua exata
+para caracteres escapados e UTF-8; conteúdo repetido em duas superfícies conta
+duas vezes. Excesso continua descartando somente o journal e produzindo lacuna
+recuperável. A prova `TestCanonicalStageCountsMaterializedPayloadAcrossSurfaces`
+verifica materialização e overflow, junto das regressões de rollback/replay.
+
+A referência histórica abaixo a `WithTimelineTurns` descreve uma etapa de
+migração já encerrada. Não há mais seleção entre janela legada e canônica no
+produto ou nas fixtures desses leitores. Não mudam schema, DTO, ordem de
+mensagens, limites de memória ou protocolo; não há alteração de uso da UI.
+
+Permanecem pendentes os gates históricos de desempenho, a prova versionada de
+pressão acima de 8 MiB na WebView e a auditoria consolidada de encerramento.
+A retirada desses caminhos não é evidência de cumprimento dos orçamentos.
+
+Validação local: 388 testes seguros de banco, 87 de chat e 6.139 testes frontend
+em 497 arquivos aprovados; build, vet, golangci-lint incremental, TypeScript,
+ESLint e Stylelint passaram. Foram excluídos previamente os arquivos que
+mencionam ACP (31 no frontend); não houve testes NVDA. A primeira tentativa
+Vitest não iniciou por `spawn EPERM` do esbuild na sandbox; a execução com
+permissão de subprocesso passou sem mudar testes. Revisão independente por
+`review_canonical_cleanup`: uma rodada, zero pendências.
+
+Cinco amostras de 20 operações por fixture (`BenchmarkCanonicalTimelineWindow`,
+Windows/amd64, Go 1.27.1, mesmo equipamento) mantiveram payloads de
+64.845/153.878/153.879 bytes para 100/500/1.000 mensagens. Medianas de B/op:
+1.760.282/3.802.956/3.805.332, contra 1.753.122/3.768.605/3.802.216 antes.
+Não se demonstrou redução de alocações na abertura; a contagem alterada é do
+estágio de publicação. Os tempos oscilaram fortemente dentro das séries, sem
+alegação de ganho de velocidade: medianas posteriores 8,656/21,306/59,625 ms.
+Os gates contra a baseline histórica continuam não atendidos.
+
+O CI deste recorte excedeu o prazo de pacotes gerais em duas execuções, sem
+asserção falha nem corrida reportada. No primeiro log, banco e agente passaram
+em 932/964 segundos; o tempo acumulado interrompeu `wailsapi` depois. Esse
+pacote passa a ter runner próprio, excluído exatamente uma vez do residual,
+incluindo automaticamente seus testes futuros. Permanecem `-race`, `-short`,
+`-count=1`, timeout Go de 20 minutos e timeout da etapa de 23 minutos. O teste
+do script usa Go falso e prova partição, matriz, flags, subpacotes e falhas.
+
+A segunda execução também mostrou que `ParameterizedQueries` não evita o
+payload gigante no `Scan` do GORM 1.31.1: ele usa `logger.Recorder` internamente.
+A fixture de identidades limita somente seu log a erros, mantendo erros de SQL
+e todas as asserções. O teste em modo verboso passou com 168 bytes de saída,
+sem o ID sintético de 8 MiB. Isso corrige a limitação da tentativa anterior
+descrita abaixo; não altera logger de produção nem reduz cobertura. A mudança
+de CI é o reparo necessário aos checks deste PR, não a auditoria ampla da issue
+#1008, que continua separada.
+
+Validação da correção: teste do particionador com Go falso, teste de identidades
+em modo verboso, build/vet Go e golangci-lint incremental passaram. Segunda
+rodada de `review_canonical_cleanup` sem pendências. O novo CI deve confirmar
+a execução de todos os grupos; nenhum teste ACP foi executado localmente.
 
 ### Metadados e sessões sem espelhamento (07/11/2026)
 

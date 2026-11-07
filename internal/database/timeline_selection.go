@@ -19,18 +19,17 @@ func (r *MessageRepository) GetTimelineItemsByIDWithContext(ctx context.Context,
 		return nil, err
 	}
 	result := &MessageWindowResult{}
-	repo := r.WithTimelineTurns()
 	for start := 0; start < len(ids); start += 400 {
 		end := min(start+400, len(ids))
-		sql, args, err := repo.timelineSelectionQuery(conversationID, parentID, ids[start:end])
+		sql, args, err := r.timelineSelectionQuery(conversationID, parentID, ids[start:end])
 		if err != nil {
 			return nil, err
 		}
-		rows, err := NewMessageRepository(repo.db.WithContext(ctx)).WithTimelineTurns().scanTimelineItems(sql, args, timelineOrderAscending)
+		rows, err := NewMessageRepository(r.db.WithContext(ctx)).scanTimelineItems(sql, args, timelineOrderAscending)
 		if err != nil {
 			return nil, err
 		}
-		messages, err := repo.fetchMessagesForTimelineItems(conversationID, parentID, rows)
+		messages, err := r.fetchMessagesForTimelineItems(conversationID, parentID, rows)
 		if err != nil {
 			return nil, err
 		}
@@ -68,10 +67,8 @@ func (r *MessageRepository) timelineSelectionQuery(conversationID string, parent
 	args = append(args, scopeArgs...)
 	args = append(args, turns)
 	args = append(args, scopeArgs...)
-	if r.includeTimelineTurns {
-		args = append(args, scopeArgs...)
-		args = append(args, turns)
-	}
+	args = append(args, scopeArgs...)
+	args = append(args, turns)
 	args = append(args, ids)
 	// CROSS JOIN mantém a seleção à esquerda: o SQLite busca cada mensagem pela
 	// PK, sem preferir percorrer todo o índice da conversa antes da classificação.
