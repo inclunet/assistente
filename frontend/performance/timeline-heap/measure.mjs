@@ -52,11 +52,12 @@ try {
   await page.waitForFunction(() => !!window.timelineHeap, { timeout: 30_000 });
   const cdp = await context.newCDPSession(page);
   const samples = [];
-  async function sample(messages, cycle, stage) {
+  async function sample(messages, cycle, stage, scenario = 'item-count') {
     await cdp.send('HeapProfiler.collectGarbage');
     const heap = await cdp.send('Runtime.getHeapUsage');
     const instances = {};
     let cachedItems = 0;
+    let cacheBytes = 0;
     try {
       for (const name of ['client', 'presentation', 'conversation']) {
         const prototype = await cdp.send('Runtime.evaluate', {
@@ -67,16 +68,23 @@ try {
         });
         const length = await cdp.send('Runtime.callFunctionOn', {
           objectId: objects.objects.objectId,
-          functionDeclaration: 'function() { return { count: this.length, cachedItems: this.reduce((total, value) => total + (value.cachedItems ?? 0), 0) }; }',
+          functionDeclaration: 'function() { return { count: this.length, cachedItems: this.reduce((total, value) => total + (value.cachedItems ?? 0), 0), cacheBytes: this.reduce((total, value) => total + (value.budget?.usage.bytes ?? 0), 0) }; }',
           returnByValue: true,
         });
         instances[name] = length.result.value.count;
         if (name === 'conversation') cachedItems = length.result.value.cachedItems;
+        if (name === 'client') cacheBytes = length.result.value.cacheBytes;
       }
     } finally { await cdp.send('Runtime.releaseObjectGroup', { objectGroup: 'heap-probe' }); }
-    samples.push({ messages, cycle, stage, ...heap, instances, cachedItems });
+    samples.push({ scenario, messages, cycle, stage, ...heap, instances, cachedItems, cacheBytes });
     console.log(JSON.stringify(samples.at(-1)));
     if (cachedItems > 240 || (stage === 'logout' && cachedItems !== 0)) throw new Error('Cache excedeu o contrato após fechamento/logout');
+    if (cacheBytes > 8 * 1024 * 1024 || (stage === 'logout' && cacheBytes !== 0)) throw new Error('Cache excedeu a cota de bytes após fechamento/logout');
+    // Duas janelas oferecem mais de 10 MiB com apenas 128 identidades.
+    // O limite de 240 itens não pode explicar a evicção observada aqui.
+    if (scenario === 'byte-pressure' && stage !== 'logout' && (cachedItems < 64 || cachedItems >= 128 || cacheBytes === 0)) {
+      throw new Error('Pressão de bytes não exercitou retenção e evicção antes do limite de itens');
+    }
     if (instances.presentation !== 0 || (stage === 'logout' && (instances.client !== 0 || instances.conversation !== 0))) {
       throw new Error('Instâncias da timeline permaneceram retidas após encerramento');
     }
@@ -93,6 +101,17 @@ try {
     await page.evaluate(() => window.timelineHeap.logout());
     await sample(messages, 30, 'logout');
   }
+  await page.evaluate(() => window.timelineHeap.logout());
+  for (let cycle = 0; cycle < 2; cycle++) await page.evaluate(() => window.timelineHeap.cycle(64, 80 * 1024));
+  await sample(64, 2, 'pressure', 'byte-pressure');
+  for (let cycle = 2; cycle < 5; cycle++) await page.evaluate(() => window.timelineHeap.cycle(64, 80 * 1024));
+  await sample(64, 0, 'warm', 'byte-pressure');
+  for (let cycle = 1; cycle <= 30; cycle++) {
+    await page.evaluate(() => window.timelineHeap.cycle(64, 80 * 1024));
+    if (cycle % 5 === 0) await sample(64, cycle, 'closed', 'byte-pressure');
+  }
+  await page.evaluate(() => window.timelineHeap.logout());
+  await sample(64, 30, 'logout', 'byte-pressure');
   if (errors.length) throw new Error(errors.join('\n'));
   const result = { runtime: await browser.version(), capturedAt: new Date().toISOString(), samples };
   await writeFile(path.join(build, 'results/timeline-webview-heap.json'), JSON.stringify(result, null, 2));
