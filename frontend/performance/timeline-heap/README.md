@@ -44,3 +44,10 @@ Esta prova cobre retenção de estado e componentes na WebView. Não mede o heap
 Go, latência SQL/IPC, TTS, áudio, execução de ferramentas ou NVDA. Os perfis da
 WebView e artefatos permanecem em `build/bin/agent-build/` para inspeção; o
 processo do harness é encerrado ao terminar, inclusive em caso de erro.
+
+Evidências da execução de 06/11/2026 (BRT), pelo Windows PowerShell 5.1:
+[amostras WebView2](evidence/webview-2026-11-06.json). O timestamp interno usa UTC.
+Os [cinco pares do benchmark Go](evidence/window-2026-11-06.json) comparam a
+main `8f32811d4` com a reserva de vetores apenas para a primeira publicação.
+São resultados desta máquina, não novos limites de aprovação. Novas execuções
+gravam em `build/bin`; não sobrescrevem as evidências versionadas.

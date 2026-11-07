@@ -21,9 +21,9 @@ try {
     New-Item -ItemType Directory -Force -Path $instrumentedModule | Out-Null
     Get-ChildItem -LiteralPath $wailsModule | Copy-Item -Destination $instrumentedModule -Recurse -Force
     $frontendSource = Join-Path $instrumentedModule 'internal/frontend/desktop/windows/frontend.go'
-    $source = Get-Content -LiteralPath $frontendSource -Raw
+    $source = Get-Content -LiteralPath $frontendSource -Raw -Encoding utf8
     $anchor = 'chromium.MessageCallback = f.processMessage'
-    if (($source.Split($anchor)).Count -ne 2) { throw 'Wails mudou; revisar instrumentação CDP' }
+    if (($source.Split([string[]]@($anchor), [System.StringSplitOptions]::None)).Count -ne 2) { throw 'Wails mudou; revisar instrumentação CDP' }
     Set-ItemProperty -LiteralPath $frontendSource -Name IsReadOnly -Value $false
     $source.Replace($anchor, 'chromium.AdditionalBrowserArgs = append(chromium.AdditionalBrowserArgs, "--remote-debugging-port="+os.Getenv("TIMELINE_HEAP_CDP_PORT"))' + "`n`t" + $anchor) |
         Set-Content -LiteralPath $frontendSource -Encoding utf8

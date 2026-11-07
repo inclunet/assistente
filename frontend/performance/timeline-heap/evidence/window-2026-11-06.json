@@ -1,0 +1,281 @@
+{
+  "baseline": "8f32811d4b05235f64b35841ef57fc1a29fc16d4",
+  "go": "1.27.1",
+  "os": "windows",
+  "arch": "amd64",
+  "cpu": "Intel Core Ultra 7 155H",
+  "gomaxprocs": 22,
+  "operationsPerProcess": 20,
+  "samples": [
+    {
+      "pair": 1,
+      "variant": "after",
+      "messages": 100,
+      "nsPerOp": 9946500,
+      "windowBytes": 64845,
+      "bytesPerOp": 1749099,
+      "allocsPerOp": 15310
+    },
+    {
+      "pair": 1,
+      "variant": "after",
+      "messages": 500,
+      "nsPerOp": 24722840,
+      "windowBytes": 153878,
+      "bytesPerOp": 3834559,
+      "allocsPerOp": 34974
+    },
+    {
+      "pair": 1,
+      "variant": "after",
+      "messages": 1000,
+      "nsPerOp": 28207955,
+      "windowBytes": 153879,
+      "bytesPerOp": 3839682,
+      "allocsPerOp": 34971
+    },
+    {
+      "pair": 1,
+      "variant": "before",
+      "messages": 100,
+      "nsPerOp": 10101565,
+      "windowBytes": 64845,
+      "bytesPerOp": 1854107,
+      "allocsPerOp": 15331
+    },
+    {
+      "pair": 1,
+      "variant": "before",
+      "messages": 500,
+      "nsPerOp": 23990680,
+      "windowBytes": 153878,
+      "bytesPerOp": 4112354,
+      "allocsPerOp": 34989
+    },
+    {
+      "pair": 1,
+      "variant": "before",
+      "messages": 1000,
+      "nsPerOp": 25281850,
+      "windowBytes": 153879,
+      "bytesPerOp": 4215201,
+      "allocsPerOp": 34994
+    },
+    {
+      "pair": 2,
+      "variant": "after",
+      "messages": 100,
+      "nsPerOp": 10274145,
+      "windowBytes": 64845,
+      "bytesPerOp": 1732648,
+      "allocsPerOp": 15310
+    },
+    {
+      "pair": 2,
+      "variant": "after",
+      "messages": 500,
+      "nsPerOp": 24155510,
+      "windowBytes": 153878,
+      "bytesPerOp": 3810326,
+      "allocsPerOp": 34973
+    },
+    {
+      "pair": 2,
+      "variant": "after",
+      "messages": 1000,
+      "nsPerOp": 28644110,
+      "windowBytes": 153879,
+      "bytesPerOp": 3806874,
+      "allocsPerOp": 34983
+    },
+    {
+      "pair": 2,
+      "variant": "before",
+      "messages": 100,
+      "nsPerOp": 9978475,
+      "windowBytes": 64845,
+      "bytesPerOp": 1833365,
+      "allocsPerOp": 15322
+    },
+    {
+      "pair": 2,
+      "variant": "before",
+      "messages": 500,
+      "nsPerOp": 23533265,
+      "windowBytes": 153878,
+      "bytesPerOp": 4182655,
+      "allocsPerOp": 34995
+    },
+    {
+      "pair": 2,
+      "variant": "before",
+      "messages": 1000,
+      "nsPerOp": 30876850,
+      "windowBytes": 153879,
+      "bytesPerOp": 4076614,
+      "allocsPerOp": 34989
+    },
+    {
+      "pair": 3,
+      "variant": "after",
+      "messages": 100,
+      "nsPerOp": 9654340,
+      "windowBytes": 64845,
+      "bytesPerOp": 1766881,
+      "allocsPerOp": 15309
+    },
+    {
+      "pair": 3,
+      "variant": "after",
+      "messages": 500,
+      "nsPerOp": 21761360,
+      "windowBytes": 153878,
+      "bytesPerOp": 3774487,
+      "allocsPerOp": 34972
+    },
+    {
+      "pair": 3,
+      "variant": "after",
+      "messages": 1000,
+      "nsPerOp": 26564250,
+      "windowBytes": 153879,
+      "bytesPerOp": 3770870,
+      "allocsPerOp": 34972
+    },
+    {
+      "pair": 3,
+      "variant": "before",
+      "messages": 100,
+      "nsPerOp": 9971240,
+      "windowBytes": 64845,
+      "bytesPerOp": 1843098,
+      "allocsPerOp": 15327
+    },
+    {
+      "pair": 3,
+      "variant": "before",
+      "messages": 500,
+      "nsPerOp": 22907800,
+      "windowBytes": 153878,
+      "bytesPerOp": 4107697,
+      "allocsPerOp": 34990
+    },
+    {
+      "pair": 3,
+      "variant": "before",
+      "messages": 1000,
+      "nsPerOp": 28998650,
+      "windowBytes": 153879,
+      "bytesPerOp": 3972046,
+      "allocsPerOp": 34996
+    },
+    {
+      "pair": 4,
+      "variant": "after",
+      "messages": 100,
+      "nsPerOp": 9537580,
+      "windowBytes": 64845,
+      "bytesPerOp": 1749236,
+      "allocsPerOp": 15311
+    },
+    {
+      "pair": 4,
+      "variant": "after",
+      "messages": 500,
+      "nsPerOp": 22169555,
+      "windowBytes": 153878,
+      "bytesPerOp": 3806942,
+      "allocsPerOp": 34971
+    },
+    {
+      "pair": 4,
+      "variant": "after",
+      "messages": 1000,
+      "nsPerOp": 29831925,
+      "windowBytes": 153879,
+      "bytesPerOp": 3803825,
+      "allocsPerOp": 34973
+    },
+    {
+      "pair": 4,
+      "variant": "before",
+      "messages": 100,
+      "nsPerOp": 10672275,
+      "windowBytes": 64845,
+      "bytesPerOp": 1831072,
+      "allocsPerOp": 15327
+    },
+    {
+      "pair": 4,
+      "variant": "before",
+      "messages": 500,
+      "nsPerOp": 22590780,
+      "windowBytes": 153878,
+      "bytesPerOp": 4085312,
+      "allocsPerOp": 34986
+    },
+    {
+      "pair": 4,
+      "variant": "before",
+      "messages": 1000,
+      "nsPerOp": 26679640,
+      "windowBytes": 153879,
+      "bytesPerOp": 3973257,
+      "allocsPerOp": 34993
+    },
+    {
+      "pair": 5,
+      "variant": "after",
+      "messages": 100,
+      "nsPerOp": 10528455,
+      "windowBytes": 64845,
+      "bytesPerOp": 1764834,
+      "allocsPerOp": 15312
+    },
+    {
+      "pair": 5,
+      "variant": "after",
+      "messages": 500,
+      "nsPerOp": 21735185,
+      "windowBytes": 153878,
+      "bytesPerOp": 3805545,
+      "allocsPerOp": 34971
+    },
+    {
+      "pair": 5,
+      "variant": "after",
+      "messages": 1000,
+      "nsPerOp": 26556540,
+      "windowBytes": 153879,
+      "bytesPerOp": 3730351,
+      "allocsPerOp": 34966
+    },
+    {
+      "pair": 5,
+      "variant": "before",
+      "messages": 100,
+      "nsPerOp": 10898645,
+      "windowBytes": 64845,
+      "bytesPerOp": 1842011,
+      "allocsPerOp": 15324
+    },
+    {
+      "pair": 5,
+      "variant": "before",
+      "messages": 500,
+      "nsPerOp": 23130745,
+      "windowBytes": 153878,
+      "bytesPerOp": 4043250,
+      "allocsPerOp": 34989
+    },
+    {
+      "pair": 5,
+      "variant": "before",
+      "messages": 1000,
+      "nsPerOp": 28388280,
+      "windowBytes": 153879,
+      "bytesPerOp": 4148951,
+      "allocsPerOp": 34993
+    }
+  ]
+}

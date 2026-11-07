@@ -96,10 +96,24 @@ func TestProjectionMutexCancellationDoesNotLoseToken(t *testing.T) {
 }
 
 func TestProjectionCancelledLastReservationStillCleansUp(t *testing.T) {
+	for _, withTimer := range []bool{false, true} {
+		t.Run(map[bool]string{false: "without_timer", true: "retention_timer"}[withTimer], func(t *testing.T) {
+			testCancelledLastReservation(t, withTimer)
+		})
+	}
+}
+
+func testCancelledLastReservation(t *testing.T, withTimer bool) {
+	t.Helper()
 	p := NewLiveProjection(nil)
 	key := projectionKey{"user", "conversation"}
 	c := newProjectionConversation()
 	p.conversations[key] = c
+	if withTimer {
+		p.mu.Lock()
+		p.armCleanupLocked(key, c, projectionRetention)
+		p.mu.Unlock()
+	}
 	c.mu.Lock()
 	unlock := sync.OnceFunc(c.mu.Unlock)
 	defer unlock()

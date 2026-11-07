@@ -23,26 +23,28 @@ uma medição da memória nativa total da WebView nem do heap Go/SQL/IPC. O runn
 verifica renderização, fechamento das janelas, remoção das sessões visuais e
 limite da LRU, inclusive seu descarte no logout. Não executa ACP ou NVDA.
 
-Execução em WebView2 156.0.4314.58, Windows, 06/11/2026. Heap V8 usado após GC,
+Execução em WebView2 156.0.4314.58, Windows PowerShell 5.1, 06/11/2026
+(21:45 BRT; timestamp do JSON em UTC). Heap V8 usado após GC,
 em bytes (aquecimento → ciclo 30 fechado → logout):
 
-- 100 mensagens: 7.909.952 → 8.120.020 → 7.127.772.
-- 500 mensagens: 8.203.340 → 8.204.792 → 7.893.212.
-- 1.000 mensagens: 8.204.636 → 8.200.444 → 7.883.152.
+- 100 mensagens: 7.907.752 → 8.046.680 → 7.089.496.
+- 500 mensagens: 8.216.180 → 8.219.356 → 7.870.652.
+- 1.000 mensagens: 8.208.404 → 8.203.376 → 7.900.072.
 
 Nas 21 amostras com sessão aberta, a LRU ficou em 240 itens e não restaram
 apresentações fechadas. Uma sessão conservou três estados de conversa no caso
 de 100 itens/página e um nos casos de 240, conforme a LRU global. Nos três
 logouts, `queryObjects` encontrou zero clientes, apresentações, estados de
 conversa e itens. O heap total remanescente não deve ser confundido com conteúdo
-retido por essas instâncias. Os resultados brutos ficam no JSON indicado pelo
-README do harness, junto à versão do runtime. A prova cobre os 105 ciclos,
+retido por essas instâncias. As [amostras brutas desta execução](../frontend/performance/timeline-heap/evidence/webview-2026-11-06.json)
+ficam versionadas junto ao harness, incluindo a versão do runtime. A prova cobre os 105 ciclos,
 não todas as formas possíveis de crescimento de memória do aplicativo.
 
 No backend, o perfil da abertura identificou alocações por expansão repetida
 dos vetores de DTOs/operações da publicação inicial. A reserva passa a usar o
-tamanho conhecido da página, somente depois da primeira alteração. Leituras
-estáveis continuam sem alocar esses vetores; não há novo cache, fallback ou
+tamanho conhecido da página somente quando a base de diff está vazia e todos
+os itens serão upserts. Leituras estáveis continuam sem alocar esses vetores e
+mudanças esparsas não reservam a página inteira; não há novo cache, fallback ou
 mudança no journal, revisões e payload. Uma alternativa para a contagem SQL foi
 medida e descartada por não apresentar ganho consistente.
 
@@ -50,12 +52,15 @@ Comparação local contra `8f32811d4`, em cinco pares alternados de processos,
 20 operações por cenário, Go 1.27.1/Windows, Intel Core Ultra 7 155H,
 GOMAXPROCS padrão 22, sem outras suítes deste trabalho concorrendo:
 
-- 100 mensagens: mediana 15,989 → 14,795 ms; 1.867.074 → 1.767.984 B/op;
-  15.327 → 15.312 alocações; payload inalterado em 64.845 bytes.
-- 500 mensagens: 33,723 → 33,580 ms; 4.147.974 → 3.796.048 B/op;
-  34.993 → 34.974 alocações; payload inalterado em 153.878 bytes.
-- 1.000 mensagens: 40,740 → 44,834 ms; 3.939.712 → 3.781.807 B/op;
-  34.997 → 34.973 alocações; payload inalterado em 153.879 bytes.
+- 100 mensagens: mediana 10,102 → 9,947 ms; 1.842.011 → 1.749.236 B/op;
+  15.327 → 15.310 alocações; payload inalterado em 64.845 bytes.
+- 500 mensagens: 23,131 → 22,170 ms; 4.107.697 → 3.806.942 B/op;
+  34.989 → 34.972 alocações; payload inalterado em 153.878 bytes.
+- 1.000 mensagens: 28,388 → 28,208 ms; 4.076.614 → 3.803.825 B/op;
+  34.993 → 34.972 alocações; payload inalterado em 153.879 bytes.
+
+[Amostras de cada par](../frontend/performance/timeline-heap/evidence/window-2026-11-06.json)
+preservam tempo, bytes, alocações e payload antes/depois.
 
 Há redução de alocações, mas não se afirma ganho geral de latência. Os gates
 históricos de +20% em tempo/B/op e +10% de payload continuam **abertos**; esta
@@ -72,13 +77,23 @@ Sua retirada deve migrar as regressões de produto para o contrato canônico,
 sem conservar implementação produtiva apenas para sustentar testes antigos.
 
 Validação local: build/vet/lint incremental Go, 486 testes seguros do domínio de
-chat, 35 da borda app; TypeScript, ESLint e Stylelint. Vitest completo: 7.032
+chat (487 após a regressão de importação/fechamento), 35 da borda app;
+TypeScript, ESLint e Stylelint. Vitest completo: 7.032
 passaram e dois testes de foco de `Topbar.palette.integration.test.tsx` falharam;
 a repetição isolada desse arquivo e dos gates de render passou nos
 128 testes. Nenhum teste foi removido ou enfraquecido. ACP permanece fora da
 execução local, conforme orientação do mantenedor.
-Revisor local independente `review_opening_performance`: três rodadas; corrigida
-a limpeza do host quando o fechamento CDP falha, revisão final sem pendências.
+Após o ajuste final do timer, 159 testes focados passaram e build/vet/lint foram
+repetidos sem falhas. O detector de corrida fica no CI: este ambiente local
+está sem compilador C/CGO requerido por `-race`.
+O procedimento completo passou também no Windows PowerShell 5.1; a seleção
+explícita da sobrecarga `Split(string[], StringSplitOptions)` preserva a âncora
+literal nesse shell. O CI da primeira revisão passou no frontend completo.
+Revisor local independente `review_opening_performance`: sete rodadas;
+corrigidas a limpeza do host em erro CDP e a evicção com timer preexistente,
+incluindo a última reserva cancelada. Rodada final sem pendências. A regressão
+de importação/fechamento e o teste parametrizado de cancelamento preservam os
+prazos de conteúdo retido e exigem liberação do projetor vazio.
 
 ### Unificação dos anexos e corte físico do armazenamento legado (06/11/2026)
 
@@ -4005,9 +4020,11 @@ referências; logout limpa todo o cache. Itens ativos/volatile não são expulso
 silenciosamente: limite excedido bloqueia novas retenções opcionais e pede
 resolução explícita quando não houver conteúdo dispensável.
 
-Backend conserva projetor enquanto houver execução ou assinante. Turnos
-concluídos não voláteis podem ser retidos por até 60 s após o término; o projetor
-já vazio, sem turnos, tentativas retidas ou janelas, é descartado imediatamente.
+Backend conserva projetor enquanto houver execução, assinante ou referência de
+operação. Turnos concluídos não voláteis, sem erro de publicação nem publicação
+pendente, podem ser retidos por até 60 s após o término; o projetor já vazio,
+sem turnos, tentativas retidas, janelas ou referências de operação, é descartado
+imediatamente, inclusive quando uma importação o esvazia antes do timer vencer.
 Esta precisão foi confirmada pelo mantenedor em 06/11/2026 e não introduz cache
 adicional. Conteúdo volatile exige persistência ou descarte explícito, não
 timeout. Reinício/evicção produz nova época e snapshot. Não armazenar JSON

@@ -409,7 +409,7 @@ func (p *LiveProjection) lockConversationContext(ctx context.Context, key projec
 		c.readers--
 		// Não readquirir a barreira no caminho de cancelamento. O timer único
 		// conserva a oportunidade de cleanup se o último leitor foi abandonado.
-		if p.conversations[key] == c && c.readers == 0 && c.timer == nil {
+		if p.conversations[key] == c && c.readers == 0 {
 			p.armCleanupLocked(key, c, 0)
 		}
 		p.mu.Unlock()
@@ -436,11 +436,20 @@ func (e *ExecutionProjection) lockStorage() (*projectionConversation, func()) {
 func (p *LiveProjection) scheduleCleanup(key projectionKey, c *projectionConversation) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.conversations[key] != c || c.timer != nil || c.readers != 0 {
+	if p.conversations[key] != c || c.readers != 0 {
 		return
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.timer != nil {
+		// Importação pode remover o último turno antes do prazo de retenção.
+		// Preserve o timer existente somente enquanto houver algo a conservar.
+		if len(c.turns) != 0 || len(c.retained) != 0 || len(c.windows) != 0 {
+			return
+		}
+		c.timer.Stop()
+		c.timer = nil
+	}
 	p.pruneLocked(key, c, time.Now())
 }
 
@@ -477,10 +486,14 @@ func (p *LiveProjection) pruneLocked(key projectionKey, c *projectionConversatio
 
 // O registro p.mu protege o timer; no máximo um cleanup fica agendado por conversa.
 func (p *LiveProjection) armCleanupLocked(key projectionKey, c *projectionConversation, delay time.Duration) {
-	c.timer = time.AfterFunc(delay, func() {
+	if c.timer != nil {
+		c.timer.Stop()
+	}
+	var timer *time.Timer
+	timer = time.AfterFunc(delay, func() {
 		p.mu.Lock()
 		defer p.mu.Unlock()
-		if p.conversations[key] != c {
+		if p.conversations[key] != c || c.timer != timer {
 			return
 		}
 		c.timer = nil
@@ -491,6 +504,7 @@ func (p *LiveProjection) armCleanupLocked(key projectionKey, c *projectionConver
 		defer c.mu.Unlock()
 		p.pruneLocked(key, c, time.Now())
 	})
+	c.timer = timer
 }
 
 // Snapshot não consulta SQL. O chamador deve usar o coordenador de recuperação
