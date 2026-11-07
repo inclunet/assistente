@@ -114,7 +114,7 @@ vi.mock('../chat/ChatPanel', () => ({
   ChatPanel: () => <><div className="ws-content-toolbar"><button>Modal toolbar</button></div><div className="message-list"><div className="message-list__list" tabIndex={0} aria-label="Modal messages" /></div><div className="chat-input"><textarea className="chat-input__textarea" aria-label="Modal composer" /></div></>,
 }));
 vi.mock('../chat/ChatSurfaceController', () => ({
-  sendChatSurfaceMessage: vi.fn(), useChatConversationTimeline: () => ({ id: 'conversation-a', title: 'Conversation', threadedMessages: [] }),
+  sendChatSurfaceMessage: vi.fn(), useChatConversationInfo: () => ({ id: 'conversation-a', title: 'Conversation', threadedMessages: [] }),
 }));
 function Regions({ prefix = 'page', modal = false, enabled = true }: { prefix?: string; modal?: boolean; enabled?: boolean }) {
   const root = useRef<HTMLDivElement>(null);

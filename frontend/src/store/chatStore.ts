@@ -43,15 +43,15 @@ import { loadConversationSnapshot } from '../services/chatSessionLoader';
 import {
   createEmptyChatSurfaceSession,
   getChatSession,
-  getConversationTimeline,
+  getDefaultChatSessionKey,
+  getConversationInfo,
   patchChatConversation,
   patchChatSession,
   removeChatSession,
-  type ActiveConversation,
+  type ConversationInfo,
   type ChatConversationSession,
   type ChatSurfaceSession,
   type ChatSurfaceOrigin,
-  type ConversationTimeline,
 } from '../services/chatSessionRegistry';
 import {
   getUtf8ByteLength,
@@ -63,11 +63,10 @@ const MAX_MEDIA_SIZE = 20 * 1024 * 1024;            // must match backend MaxMed
 
 export type { Message, MessageNode, TurnSegment } from '../lib/chatMessageTree';
 export type {
-  ActiveConversation,
+  ConversationInfo,
   ChatConversationSession,
   ChatSurfaceOrigin,
   ChatSurfaceSession,
-  ConversationTimeline,
 } from '../services/chatSessionRegistry';
 
 const getErrorMessage = (error: unknown): string => {
@@ -81,8 +80,7 @@ const getErrorMessage = (error: unknown): string => {
 };
 
 interface ChatStore {
-  sessionsByConversationId: Record<string, ChatConversationSession>;
-  timelinesByConversationId: Record<string, ConversationTimeline>;
+  conversationInfoById: Record<string, ConversationInfo>;
   surfaceSessionsByKey: Record<string, ChatSurfaceSession>;
   loadingConversationIds: Set<string>;
   isInitialized: boolean;
@@ -104,7 +102,6 @@ interface ChatStore {
 
   createConversation: (title?: string) => Promise<string>;
   loadConversationSession: (id: string, options?: { refreshSurfaceWindows?: boolean }) => Promise<void>;
-  getConversationSession: (conversationId: string | null | undefined) => ChatConversationSession | null;
 
 
   toggleConversationThreadExpanded: (conversationId: string, messageId: string, sessionKey: string) => void;
@@ -161,7 +158,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
   const patchSession = (
     state: ChatStore,
     conversationId: string,
-    patch: Partial<ChatConversationSession> | ((session: ChatConversationSession) => ChatConversationSession),
+    patch: Partial<ChatSurfaceSession> | ((session: ChatSurfaceSession) => ChatSurfaceSession),
     sessionKey?: string,
   ): Partial<ChatStore> => {
     return patchChatSession(state, conversationId, patch, sessionKey);
@@ -173,7 +170,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     patch: Partial<ChatSurfaceSession>,
     sessionKey: string,
   ): Partial<ChatStore> => {
-    const defaultSession = state.sessionsByConversationId[conversationId];
+    const defaultSession = state.surfaceSessionsByKey[getDefaultChatSessionKey(conversationId)];
     const currentSession = state.surfaceSessionsByKey[sessionKey] ?? {
       ...createEmptyChatSurfaceSession(conversationId, sessionKey),
       isLoading: defaultSession?.isLoading ?? false,
@@ -197,7 +194,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
   const patchConversation = (
     state: ChatStore,
     conversationId: string,
-    updater: (conversation: ActiveConversation) => ActiveConversation,
+    updater: (conversation: ConversationInfo) => ConversationInfo,
   ): Partial<ChatStore> => {
     return patchChatConversation(state, conversationId, updater);
   };
@@ -423,8 +420,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
   };
 
   return {
-    sessionsByConversationId: {},
-    timelinesByConversationId: {},
+    conversationInfoById: {},
     surfaceSessionsByKey: {},
     loadingConversationIds: new Set(),
     isInitialized: false,
@@ -490,7 +486,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
             },
           };
         }
-        const defaultSession = state.sessionsByConversationId[conversationId];
+        const defaultSession = state.surfaceSessionsByKey[getDefaultChatSessionKey(conversationId)];
         const surfaceSession = {
           ...createEmptyChatSurfaceSession(conversationId, sessionKey),
           surfaceOrigin: origin,
@@ -531,10 +527,10 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         const conversation = {
           id: conv.id,
           title: conv.title || title || defaultTitle,
-          threadedMessages: [],
         };
         return {
-          ...patchSession(state, conv.id, { conversation }),
+          conversationInfoById: { ...state.conversationInfoById, [conv.id]: conversation },
+          ...patchSession(state, conv.id, {}),
           isInitialized: true,
         };
       });
@@ -548,21 +544,17 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         try {
           const snapshot = await loadConversationSnapshot(id);
           if (metadataLoads.get(id) !== loading) throw new ChatMessagingStaleError();
-          set(state => ({ ...patchSession(state, id, {
-            conversation: { id, ...snapshot },
-            isLoading: state.loadingConversationIds.has(id),
-          }), isInitialized: true }));
+          set(state => ({
+            ...patchSession(state, id, { isLoading: state.loadingConversationIds.has(id) }),
+            conversationInfoById: { ...state.conversationInfoById, [id]: { id, ...snapshot } },
+            isInitialized: true,
+          }));
         } finally {
           if (metadataLoads.get(id) === loading) metadataLoads.delete(id);
         }
       });
       metadataLoads.set(id, loading);
       return loading;
-    },
-
-    getConversationSession: (conversationId) => {
-      if (!conversationId) return null;
-      return get().sessionsByConversationId[conversationId] ?? null;
     },
 
     sendMessageToConversation: async (conversationId, content, mediaFiles, paramsOverride, options) => {
@@ -582,7 +574,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         return false;
       }
       if (!validateSendPayload(content, mediaFiles)) return false;
-      if (!getConversationTimeline(get(), conversationId)) {
+      if (!getConversationInfo(get(), conversationId)) {
         await get().loadConversationSession(conversationId);
       }
       const sessionKey = options?.origin?.sessionKey;
@@ -617,7 +609,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         announce(i18next.t('chat.errors.noActiveConversation'), 'assertive');
         return false;
       }
-      if (!getConversationTimeline(get(), conversationId)) {
+      if (!getConversationInfo(get(), conversationId)) {
         await get().loadConversationSession(conversationId);
       }
       const sessionKey = options?.origin?.sessionKey;
@@ -779,12 +771,11 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     },
 
     handleConversationCleared: (conversationId: string) => {
-      if (getConversationTimeline(get(), conversationId)) {
+      if (getConversationInfo(get(), conversationId)) {
         announce(i18next.t('chat.announce.conversationMessagesRemoved'));
         set((state) => ({
           ...patchConversation(state, conversationId, (conversation) => ({
             ...conversation,
-            threadedMessages: [],
             title: i18next.t('chat.conversationCleared'),
           })),
         }));
@@ -810,8 +801,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       turnQueue.clearAll();
       stopAllChatEventControllers();
       set({
-        sessionsByConversationId: {},
-        timelinesByConversationId: {},
+        conversationInfoById: {},
         surfaceSessionsByKey: {},
         loadingConversationIds: new Set(),
         isInitialized: false,
@@ -839,7 +829,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
 
     handleExternalIncoming: (data) => {
       void handleExternalChatIncoming(data, {
-        hasConversationSession: (conversationId) => !!getConversationTimeline(get(), conversationId),
+        hasConversationSession: (conversationId) => !!getConversationInfo(get(), conversationId),
         loadConversationSession: (conversationId) => get().loadConversationSession(conversationId),
         // Mensagens recebidas por canal não são envios da toolbar e não podem
         // ser descartadas pela ação local de cancelar o próximo turno. Elas

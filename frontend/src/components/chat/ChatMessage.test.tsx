@@ -47,23 +47,10 @@ vi.mock('react-i18next', async importOriginal => ({
 
 vi.mock('../../store/chatStore', () => {
   const state = {
-    sessionsByConversationId: {
-      '01926b90-7a5a-7c4e-8d3f-000000000001': {
-        streamingMessageId: null,
-        completedSegments: [],
-        activeToolCalls: [],
-        conversation: {
-          id: '01926b90-7a5a-7c4e-8d3f-000000000001',
-          title: 'Conversa',
-          threadedMessages: [],
-        },
-      },
-    },
-    streamingMessageId: null,
-    completedSegments: [],
-    activeToolCalls: [],
-    tabs: [],
-    liveMessageContentByConversationId: {},
+    conversationInfoById: { '01926b90-7a5a-7c4e-8d3f-000000000001': {
+      id: '01926b90-7a5a-7c4e-8d3f-000000000001', title: 'Conversa',
+    } },
+    surfaceSessionsByKey: {},
     // Esta fixture não carrega histórico canônico; MessageNode também consulta
     // o seletor ao registrar navegação. Os testes abaixo exercitam fala, não
     // fabricam admissão de um comando de navegação para uma mensagem ausente.
@@ -203,7 +190,7 @@ describe('ChatMessage', () => {
   it('Space no ChatMessage real dentro do MessageNode executa somente uma vez', async () => {
     const onSpeak = vi.fn(); const onOuterKeyDown = vi.fn(); const message = keyboardMessage();
     const { container } = render(<div onKeyDown={onOuterKeyDown}>
-      <MessageNode node={nodeFixture({ message, children: [], childCount: 0, level: 0 })} onSpeak={onSpeak} />
+      <MessageNode node={nodeFixture({ message, children: [], childCount: 0 })} onSpeak={onSpeak} />
     </div>);
     const child = container.querySelector('.chat-message')!;
     await act(async () => { fireEvent.keyDown(child, { key: ' ', code: 'Space' }); });
@@ -215,7 +202,7 @@ describe('ChatMessage', () => {
 
   it('Space ignora repeat, IME, 229 e defaultPrevented também na árvore real', async () => {
     const onSpeak = vi.fn();
-    const { container } = render(<MessageNode node={nodeFixture({ message: keyboardMessage(), children: [], childCount: 0, level: 0 })} onSpeak={onSpeak} />);
+    const { container } = render(<MessageNode node={nodeFixture({ message: keyboardMessage(), children: [], childCount: 0 })} onSpeak={onSpeak} />);
     const child = container.querySelector('.chat-message')!;
     for (const extra of [{ repeat: true }, { isComposing: true }, { keyCode: 229 }]) {
       fireEvent.keyDown(child, { key: ' ', code: 'Space', ...extra });
@@ -229,7 +216,7 @@ describe('ChatMessage', () => {
   it('primeiro Space para fala ativa, mas autorepeat não interrompe novamente', async () => {
     playback.active = true;
     const onSpeak = vi.fn();
-    render(<MessageNode node={nodeFixture({ message: keyboardMessage(), children: [], childCount: 0, level: 0 })} onSpeak={onSpeak} />);
+    render(<MessageNode node={nodeFixture({ message: keyboardMessage(), children: [], childCount: 0 })} onSpeak={onSpeak} />);
     const button = screen.getByRole('button', { name: 'chat.playAudio' });
     await act(async () => { fireEvent.keyDown(button, { key: ' ', code: 'Space' }); });
     fireEvent.keyDown(button, { key: ' ', code: 'Space', repeat: true });

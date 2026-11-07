@@ -1,3 +1,4 @@
+import { withFixtureProjection } from '../../test/chatWindowFixture';
 import { messageFixture, nodeFixture } from '../../test/chatPresentationFixture';
 vi.mock('./useChatTimelinePresentation', async () => import('./canonicalPresentationFixture'));
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
@@ -12,7 +13,7 @@ import { useAuthStore } from '../../store/authStore';
 import { useChatStore } from '../../store/chatStore';
 import { useWorkspaceStore } from '../../store/workspaceStore';
 import { useWorkspaceChatModalStore } from '../../store/workspaceChatModalStore';
-import { createChatSurfaceIdentity, createEmptyChatSession } from '../../services/chatSessionRegistry';
+import { createChatSurfaceIdentity, createEmptyChatSurfaceSession } from '../../services/chatSessionRegistry';
 
 const state = vi.hoisted(() => ({
   mapReady: false,
@@ -158,25 +159,22 @@ function message(id: string, content: string, childID: string) {
     message: messageFixture({ id, conversationId: conversationID, role: 'assistant', content, reasoning: `reasoning-${id}` }),
     children: [nodeFixture({
       message: messageFixture({ id: childID, conversationId: conversationID, parentId: id, role: 'user', content: `child-${id}`, internal: true }),
-      children: [], childCount: 0, hasChildren: false, level: 1,
+      children: [], childCount: 0, hasChildren: false,
     })],
     hasChildren: true,
     childCount: 1,
-    level: 0,
+
   });
 }
 
 function seed() {
-  const conversation = {
-    id: conversationID,
-    title: 'Chat',
-    threadedMessages: [message(firstID, 'first', firstChildID), message(secondID, 'second', secondChildID)],
-  };
+  const conversation = withFixtureProjection({ id: conversationID, title: 'Chat' }, { nodes: [message(firstID, 'first', firstChildID), message(secondID, 'second', secondChildID)] });
   useChatStore.setState({
-    timelinesByConversationId: { [conversationID]: conversation },
-    sessionsByConversationId: { [conversationID]: { ...createEmptyChatSession(conversationID), conversation } },
-    surfaceSessionsByKey: {},
     loadingConversationIds: new Set(),
+    conversationInfoById: { [conversationID]: conversation },
+    surfaceSessionsByKey: {
+      ['conversation:' + conversationID]: { ...createEmptyChatSurfaceSession(conversationID) },
+    },
   });
 }
 

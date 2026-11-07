@@ -1,3 +1,4 @@
+import { withFixtureProjection } from '../../test/chatWindowFixture';
 import { nodeFixture } from '../../test/chatPresentationFixture';
 vi.mock('./useChatTimelinePresentation', async () => import('./canonicalPresentationFixture'));
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
@@ -8,7 +9,7 @@ import { sendChatSurfaceMessage } from './ChatSurfaceController';
 import { useChatStore } from '../../store/chatStore';
 import { useAuthStore } from '../../store/authStore';
 import { useWorkspaceStore } from '../../store/workspaceStore';
-import { createChatSurfaceIdentity, createEmptyChatSession } from '../../services/chatSessionRegistry';
+import { createChatSurfaceIdentity, createEmptyChatSurfaceSession } from '../../services/chatSessionRegistry';
 import { CHAT_MESSAGING_EVENT, captureChatMessagingTarget, executeChatMessaging, type ChatMessagingRequest } from '../../lib/commandChatMessaging';
 import { MediaCategory, type MediaFile } from '../../services/mediaService';
 import { Modal } from '../ui/Modal';
@@ -66,8 +67,12 @@ beforeEach(() => {
   getResult.mockReset().mockImplementation(async () => ({ invocationId: 'invocation', status }));
   useAuthStore.setState({ isAuthenticated: true, user: { userId: 'owner', sessionId: 'session', role: 'admin' } });
   useWorkspaceStore.setState({ workspace: { id: 'workspace', activeTabId: 'tab', tabs: [{ id: 'tab', type: 'chat', conversationId: id }] } as NonNullable<ReturnType<typeof useWorkspaceStore.getState>['workspace']> });
-  const conversation = { id, title: 'chat', threadedMessages: [] };
-  useChatStore.setState({ timelinesByConversationId: { [id]: conversation }, sessionsByConversationId: { [id]: { ...createEmptyChatSession(id), conversation } }, surfaceSessionsByKey: {}, loadingConversationIds: new Set() });
+  const conversation = withFixtureProjection({ id, title: 'chat' }, { nodes: [] });
+  useChatStore.setState({
+    loadingConversationIds: new Set(),
+    conversationInfoById: { [id]: conversation },
+    surfaceSessionsByKey: { ['conversation:' + id]: { ...createEmptyChatSurfaceSession(id) } },
+  });
   listener = event => {
     const request = (event as CustomEvent<ChatMessagingRequest>).detail;
     const target = request.target ?? captureChatMessagingTarget(() => '/', request.commandId, request.instanceId);
@@ -93,7 +98,7 @@ describe('ChatSessionView + ChatInput + pipeline reais', () => {
     const item = canonicalTestItem('response', 'parcial', { conversationId: id, turnId: id, representativeMessageId: id, state: 'interrupted' });
     item.metadata.terminalReason = 'cancelled';
     setFixtureCanonicalItem('response', item);
-    useChatStore.setState(state => ({ timelinesByConversationId: { ...state.timelinesByConversationId, [id]: { id, title: 'chat', threadedMessages: [nodeFixture({ message: { id: 'response', conversationId: id, role: 'assistant', content: 'parcial', turnId: id }, children: [], childCount: 0, level: 0 })] } } }));
+    useChatStore.setState(state => ({ conversationInfoById: { ...state.conversationInfoById, [id]: withFixtureProjection({ id, title: 'chat' }, { nodes: [nodeFixture({ message: { id: 'response', conversationId: id, role: 'assistant', content: 'parcial', turnId: id }, children: [], childCount: 0 })] }) } }));
     await act(async () => { mount('surface-profile'); });
     const target = captureChatMessagingTarget(() => '/', 'chat.message.retry', undefined, undefined, { sourceItemId: 'response', messageId: id, continue: true });
     expect(!!target).toBe(enabled);
@@ -110,7 +115,7 @@ describe('ChatSessionView + ChatInput + pipeline reais', () => {
     const item = canonicalTestItem('response', 'parcial', { conversationId: id, turnId: id, representativeMessageId: id, state: 'interrupted', durability: scenario === 'volatile' ? 'volatile' : 'persisted' });
     item.metadata.terminalReason = 'cancelled';
     setFixtureCanonicalItem('response', item);
-    useChatStore.setState(state => ({ timelinesByConversationId: { ...state.timelinesByConversationId, [id]: { id, title: 'chat', threadedMessages: [nodeFixture({ message: { id: 'response', conversationId: id, role: 'assistant', content: 'parcial', turnId: id }, children: [], childCount: 0, level: 0 })] } } }));
+    useChatStore.setState(state => ({ conversationInfoById: { ...state.conversationInfoById, [id]: withFixtureProjection({ id, title: 'chat' }, { nodes: [nodeFixture({ message: { id: 'response', conversationId: id, role: 'assistant', content: 'parcial', turnId: id }, children: [], childCount: 0 })] }) } }));
     await act(async () => { mount(); });
     const target = captureChatMessagingTarget(() => '/', 'chat.message.retry', undefined, undefined, { sourceItemId: 'response', messageId: id, continue: true });
     if (scenario !== 'persisted') {
@@ -129,7 +134,7 @@ describe('ChatSessionView + ChatInput + pipeline reais', () => {
     const item = canonicalTestItem('response', 'parcial', { conversationId: id, turnId: id, representativeMessageId: id, state: 'interrupted' });
     item.metadata.terminalReason = 'cancelled';
     setFixtureCanonicalItem('response', item);
-    useChatStore.setState(state => ({ timelinesByConversationId: { ...state.timelinesByConversationId, [id]: { id, title: 'chat', threadedMessages: [nodeFixture({ message: { id: 'response', conversationId: id, role: 'assistant', content: 'parcial', turnId: id }, children: [], childCount: 0, level: 0 })] } } }));
+    useChatStore.setState(state => ({ conversationInfoById: { ...state.conversationInfoById, [id]: withFixtureProjection({ id, title: 'chat' }, { nodes: [nodeFixture({ message: { id: 'response', conversationId: id, role: 'assistant', content: 'parcial', turnId: id }, children: [], childCount: 0 })] }) } }));
     await act(async () => { mount(); });
     const target = captureChatMessagingTarget(() => '/', 'chat.message.retry', undefined, undefined, { sourceItemId: 'response', messageId: id, continue: true });
     expect(target).toBeDefined();
@@ -144,7 +149,7 @@ describe('ChatSessionView + ChatInput + pipeline reais', () => {
     const item = canonicalTestItem('response', 'parcial', { conversationId: id, turnId: id, representativeMessageId: id, state: 'interrupted' });
     item.metadata.terminalReason = 'cancelled';
     setFixtureCanonicalItem('response', item);
-    useChatStore.setState(state => ({ timelinesByConversationId: { ...state.timelinesByConversationId, [id]: { id, title: 'chat', threadedMessages: [nodeFixture({ message: { id: 'response', conversationId: id, role: 'assistant', content: 'parcial', turnId: id }, children: [], childCount: 0, level: 0 })] } } }));
+    useChatStore.setState(state => ({ conversationInfoById: { ...state.conversationInfoById, [id]: withFixtureProjection({ id, title: 'chat' }, { nodes: [nodeFixture({ message: { id: 'response', conversationId: id, role: 'assistant', content: 'parcial', turnId: id }, children: [], childCount: 0 })] }) } }));
     await act(async () => { mount(); });
     act(() => screen.getByRole('button', { name: 'first message' }).focus());
     const target = captureChatMessagingTarget(() => '/', 'chat.message.retry', undefined, undefined, { sourceItemId: 'response', messageId: id, continue: true });
@@ -210,11 +215,14 @@ describe('ChatSessionView + ChatInput + pipeline reais', () => {
     expect(input).toHaveValue('rascunho da origem');
     const nextID = '01926b90-7a5a-7c4e-8d3f-000000000002';
     const nextSurface = createChatSurfaceIdentity({ conversationId: nextID, tabId: 'tab', surfaceType: 'page' });
-    const nextConversation = { id: nextID, title: 'outra conversa', threadedMessages: [] };
+    const nextConversation = withFixtureProjection({ id: nextID, title: 'outra conversa' }, { nodes: [] });
     act(() => {
-      useChatStore.setState(state => ({
-        timelinesByConversationId: { ...state.timelinesByConversationId, [nextID]: nextConversation },
-        sessionsByConversationId: { ...state.sessionsByConversationId, [nextID]: { ...createEmptyChatSession(nextID), conversation: nextConversation } },
+      useChatStore.setState((state) => ({
+        conversationInfoById: { ...state.conversationInfoById, [nextID]: nextConversation },
+        surfaceSessionsByKey: {
+          ...state.surfaceSessionsByKey,
+          ['conversation:' + nextID]: { ...createEmptyChatSurfaceSession(nextID) },
+        },
       }));
       useWorkspaceStore.setState({ workspace: { id: 'workspace', activeTabId: 'tab', tabs: [{ id: 'tab', type: 'chat', conversationId: nextID }] } as NonNullable<ReturnType<typeof useWorkspaceStore.getState>['workspace']> });
     });

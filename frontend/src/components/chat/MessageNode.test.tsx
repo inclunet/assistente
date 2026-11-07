@@ -1,3 +1,4 @@
+import { withFixtureProjection } from '../../test/chatWindowFixture';
 import type { MessageNode as ChatMessageNode } from '../../lib/chatMessageTree';
 import { messageFixture, nodeFixture } from '../../test/chatPresentationFixture';
 import { fixtureMessages } from './canonicalPresentationFixture';
@@ -11,7 +12,7 @@ import { useWorkspaceStore } from '../../store/workspaceStore';
 import { useChatStore } from '../../store/chatStore';
 import { ChatSessionProvider } from './ChatSessionContext';
 import { WorkspacePanelProvider } from '../workspace/WorkspacePanelContext';
-import { createChatSurfaceIdentity, createEmptyChatSession } from '../../services/chatSessionRegistry';
+import { createChatSurfaceIdentity, createEmptyChatSurfaceSession } from '../../services/chatSessionRegistry';
 import { CHAT_NAVIGATION_COMMAND_EVENT, captureChatNavigationTarget, type ChatNavigationRequest } from '../../lib/commandChatNavigation';
 
 const chatMessageSpy = vi.fn();
@@ -69,8 +70,13 @@ function render(ui: ReactElement) {
     return React.cloneElement(element, {}, React.Children.map(element.props.children, prepare));
   };
   const content = prepare(ui);
-  const conversation = { id: conversationId, title: 'Chat', threadedMessages: nodes };
-  useChatStore.setState({ timelinesByConversationId: { [conversationId]: conversation }, sessionsByConversationId: { [conversationId]: { ...createEmptyChatSession(conversationId), conversation } }, surfaceSessionsByKey: {} });
+  const conversation = withFixtureProjection({ id: conversationId, title: 'Chat' }, { nodes: nodes });
+  useChatStore.setState({
+    conversationInfoById: { [conversationId]: conversation },
+    surfaceSessionsByKey: {
+      ['conversation:' + conversationId]: { ...createEmptyChatSurfaceSession(conversationId) },
+    },
+  });
   return renderUI(<WorkspacePanelProvider value={{ tab, isActive: true }}><ChatSessionProvider surface={surface}>{content}</ChatSessionProvider></WorkspacePanelProvider>);
 }
 vi.mock('./useChatTimelinePresentation', () => ({
@@ -80,7 +86,7 @@ vi.mock('./useChatTimelinePresentation', () => ({
       subscribe: useChatStore.subscribe, threadWindow: () => undefined,
       get window() { return undefined; },
     },
-    nodes: fixtureMessages(conversationId).map(message => ({ message, children: [], level: 0, childCount: 0 })),
+    nodes: fixtureMessages(conversationId).map(message => ({ message, children: [],  childCount: 0 })),
     revision: 0,
   }),
 }));
@@ -101,11 +107,15 @@ describe('MessageNode', () => {
     const nodes = Array.from({ length: 41 }, (_, index) => nodeFixture({
       message: { id: `row-${index}`, conversationId, role: 'assistant', turnId: `turn-${index}`,
         content: `mensagem ${index}`, timestamp: index, isStreaming: false, internal: false },
-      children: [], childCount: 0, level: 0,
+      children: [], childCount: 0,
     }));
-    const conversation = { id: conversationId, title: 'Chat', threadedMessages: nodes };
-    useChatStore.setState({ timelinesByConversationId: { [conversationId]: conversation },
-      sessionsByConversationId: { [conversationId]: { ...createEmptyChatSession(conversationId), conversation } }, surfaceSessionsByKey: {} });
+    const conversation = withFixtureProjection({ id: conversationId, title: 'Chat' }, { nodes: nodes });
+    useChatStore.setState({
+      conversationInfoById: { [conversationId]: conversation },
+      surfaceSessionsByKey: {
+        ['conversation:' + conversationId]: { ...createEmptyChatSurfaceSession(conversationId) },
+      },
+    });
     const content = (count: number) => <WorkspacePanelProvider value={{ tab, isActive: true }}>
       <ChatSessionProvider surface={surface}><MessageList threadedMessages={nodes.slice(0, count)} commandPathname="/chat" /></ChatSessionProvider>
     </WorkspacePanelProvider>;
@@ -139,7 +149,7 @@ describe('MessageNode', () => {
   const keyboardNode = () => nodeFixture({
     message: { id: '01926b90-7a5a-7c4e-8d3f-000000000002', conversationId: '01926b90-7a5a-7c4e-8d3f-000000000001',
       role: 'user', content: 'Mensagem', internal: false, isStreaming: false },
-    childCount: 0, level: 0, children: [],
+    childCount: 0,  children: [],
   });
 
   it.each([' ', 'Delete', 'F2', 'c'])('ação %s ignora repeat, IME, 229 e evento já consumido', async key => {
@@ -200,7 +210,7 @@ describe('MessageNode', () => {
             internal: false,
           }),
           childCount: 1,
-          level: 0,
+
           children: [],
         })}
       />
@@ -228,7 +238,7 @@ describe('MessageNode', () => {
               internal: false,
             }),
             childCount: 0,
-            level: 0,
+
             children: [],
           })}
         />

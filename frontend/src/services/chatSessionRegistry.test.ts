@@ -3,23 +3,19 @@ import {
   buildWorkspaceModalChatSurfaceId,
   createChatSurfaceIdentity,
   createChatSurfaceOrigin,
-  createEmptyChatSession,
+  createEmptyChatSurfaceSession,
   getChatSurfaceSessionsForConversation,
   getChatSession,
-  getConversationTimeline,
+  getConversationInfo,
   normalizeChatSurfaceOrigin,
   patchChatConversation,
   patchChatSession,
   removeChatSession,
-  type ActiveConversation,
+  type ConversationInfo,
   type ChatSessionRegistryState,
 } from './chatSessionRegistry';
 
-const conversation = (id: string): ActiveConversation => ({
-  id,
-  title: `Conversa ${id}`,
-  threadedMessages: [],
-});
+const conversation = (id: string): ConversationInfo => ({ id, title: `Conversa ${id}` });
 
 describe('chatSessionRegistry', () => {
   it('cria identidade canônica para superfície de aba', () => {
@@ -80,8 +76,7 @@ describe('chatSessionRegistry', () => {
 
   it('retorna sessão vazia para conversa ausente', () => {
     const state: ChatSessionRegistryState = {
-      sessionsByConversationId: {},
-      timelinesByConversationId: {},
+      conversationInfoById: {},
       surfaceSessionsByKey: {},
     };
 
@@ -123,34 +118,31 @@ describe('chatSessionRegistry', () => {
 
   it('aplica patch criando sessão quando necessário', () => {
     const state: ChatSessionRegistryState = {
-      sessionsByConversationId: {},
-      timelinesByConversationId: {},
+      conversationInfoById: {},
       surfaceSessionsByKey: {},
     };
 
     const next = patchChatSession(state, 'conversation-1', { isLoading: true });
 
-    expect(next.sessionsByConversationId['conversation-1']).toMatchObject({
+    expect(next.surfaceSessionsByKey['conversation:' + 'conversation-1']).toMatchObject({
       isLoading: true,
-      conversation: null,
+      conversationId: 'conversation-1',
     });
     expect(next.surfaceSessionsByKey?.['conversation:conversation-1']).toMatchObject({
       isLoading: true,
       conversationId: 'conversation-1',
     });
-    expect(state.sessionsByConversationId['conversation-1']).toBeUndefined();
+    expect(state.surfaceSessionsByKey['conversation:' + 'conversation-1']).toBeUndefined();
   });
 
   it('aplica updater na conversa quando ela existe', () => {
     const state: ChatSessionRegistryState = {
-      sessionsByConversationId: {
-        'conversation-1': {
-          ...createEmptyChatSession('conversation-1'),
-          conversation: conversation('conversation-1'),
+      conversationInfoById: { 'conversation-1': conversation('conversation-1') },
+      surfaceSessionsByKey: {
+        ['conversation:' + 'conversation-1']: {
+          ...createEmptyChatSurfaceSession('conversation-1'),
         },
       },
-      timelinesByConversationId: {},
-      surfaceSessionsByKey: {},
     };
 
     const next = patchChatConversation(state, 'conversation-1', (current) => ({
@@ -158,47 +150,38 @@ describe('chatSessionRegistry', () => {
       title: 'Renomeada',
     }));
 
-    expect(next.sessionsByConversationId?.['conversation-1'].conversation?.title).toBe('Renomeada');
-    expect(next.timelinesByConversationId?.['conversation-1'].title).toBe('Renomeada');
+    expect(state.conversationInfoById['conversation-1'].title).toBe('Conversa conversation-1');
+    expect(next.conversationInfoById?.['conversation-1'].title).toBe('Renomeada');
   });
 
   it('remove sessão sem mutar o estado original', () => {
     const state: ChatSessionRegistryState = {
-      sessionsByConversationId: {
-        'conversation-1': {
-          ...createEmptyChatSession('conversation-1'),
-          conversation: conversation('conversation-1'),
-        },
-      },
-      timelinesByConversationId: {
-        'conversation-1': conversation('conversation-1'),
-      },
+      conversationInfoById: { 'conversation-1': conversation('conversation-1') },
       surfaceSessionsByKey: {
-        'conversation:conversation-1': createEmptyChatSession('conversation-1'),
+        'conversation:conversation-1': createEmptyChatSurfaceSession('conversation-1'),
       },
     };
 
     const next = removeChatSession(state, 'conversation-1');
 
-    expect(next.sessionsByConversationId['conversation-1']).toBeUndefined();
-    expect(next.timelinesByConversationId?.['conversation-1']).toBeUndefined();
+    expect(next.surfaceSessionsByKey['conversation:' + 'conversation-1']).toBeUndefined();
+    expect(next.conversationInfoById?.['conversation-1']).toBeUndefined();
     expect(next.surfaceSessionsByKey?.['conversation:conversation-1']).toBeUndefined();
-    expect(state.sessionsByConversationId['conversation-1']).toBeDefined();
+    expect(state.surfaceSessionsByKey['conversation:' + 'conversation-1']).toBeDefined();
   });
 
   it('compõe timeline compartilhada com sessão visual por chave', () => {
     const state: ChatSessionRegistryState = {
-      sessionsByConversationId: {},
-      timelinesByConversationId: {
+      conversationInfoById: {
         'conversation-1': conversation('conversation-1'),
       },
       surfaceSessionsByKey: {
         'tab-a:conversation-1': {
-          ...createEmptyChatSession('conversation-1', 'tab-a:conversation-1'),
+          ...createEmptyChatSurfaceSession('conversation-1', 'tab-a:conversation-1'),
           expandedThreads: new Set(['message-1']),
         },
         'tab-b:conversation-1': {
-          ...createEmptyChatSession('conversation-1', 'tab-b:conversation-1'),
+          ...createEmptyChatSurfaceSession('conversation-1', 'tab-b:conversation-1'),
           expandedThreads: new Set(['message-2']),
         },
       },
@@ -212,8 +195,7 @@ describe('chatSessionRegistry', () => {
 
   it('mantém painéis independentes com timeline compartilhada', () => {
     const state: ChatSessionRegistryState = {
-      sessionsByConversationId: {},
-      timelinesByConversationId: {
+      conversationInfoById: {
         'conversation-1': {
           ...conversation('conversation-1'),
           title: 'Timeline compartilhada',
@@ -221,7 +203,7 @@ describe('chatSessionRegistry', () => {
       },
       surfaceSessionsByKey: {
         'tab-a:conversation-1': {
-          ...createEmptyChatSession('conversation-1', 'tab-a:conversation-1'),
+          ...createEmptyChatSurfaceSession('conversation-1', 'tab-a:conversation-1'),
           draftMessage: 'rascunho A',
           draftMediaFiles: [{ id: 'media-a' } as unknown as import('./mediaService').MediaFile],
           scrollTop: 120,
@@ -231,7 +213,7 @@ describe('chatSessionRegistry', () => {
           isLoading: true,
         },
         'tab-b:conversation-1': {
-          ...createEmptyChatSession('conversation-1', 'tab-b:conversation-1'),
+          ...createEmptyChatSurfaceSession('conversation-1', 'tab-b:conversation-1'),
           draftMessage: 'rascunho B',
           draftMediaFiles: [],
           scrollTop: 540,
@@ -247,7 +229,8 @@ describe('chatSessionRegistry', () => {
     const tabB = getChatSession(state, 'conversation-1', 'tab-b:conversation-1');
 
     expect(tabA.conversation).toStrictEqual(tabB.conversation);
-    expect(tabA.conversation?.threadedMessages).toBe(tabB.conversation?.threadedMessages);
+    expect(tabA.conversation).not.toHaveProperty('threadedMessages');
+    expect(tabA.conversation).toBe(state.conversationInfoById['conversation-1']);
     expect(tabA.conversation?.title).toBe('Timeline compartilhada');
     expect(tabA.draftMessage).toBe('rascunho A');
     expect(tabB.draftMessage).toBe('rascunho B');
@@ -268,18 +251,14 @@ describe('chatSessionRegistry', () => {
 
   it('não herda estado visual de compatibilidade em sessionKey não padrão', () => {
     const state: ChatSessionRegistryState = {
-      sessionsByConversationId: {
-        'conversation-1': {
-          ...createEmptyChatSession('conversation-1'),
-          conversation: conversation('conversation-1'),
+      conversationInfoById: { 'conversation-1': conversation('conversation-1') },
+      surfaceSessionsByKey: {
+        ['conversation:' + 'conversation-1']: {
+          ...createEmptyChatSurfaceSession('conversation-1'),
           expandedThreads: new Set(['message-from-default']),
           editingMessageId: 'editing-default',
         },
       },
-      timelinesByConversationId: {
-        'conversation-1': conversation('conversation-1'),
-      },
-      surfaceSessionsByKey: {},
     };
 
     const defaultSession = getChatSession(state, 'conversation-1');
@@ -291,18 +270,14 @@ describe('chatSessionRegistry', () => {
     expect(surfaceSession.conversation?.title).toBe('Conversa conversation-1');
   });
 
-  it('não grava estado visual de sessionKey não padrão em sessionsByConversationId', () => {
+  it('não grava estado visual de sessionKey não padrão na sessão padrão', () => {
     const state: ChatSessionRegistryState = {
-      sessionsByConversationId: {
-        'conversation-1': {
-          ...createEmptyChatSession('conversation-1'),
-          conversation: conversation('conversation-1'),
+      conversationInfoById: { 'conversation-1': conversation('conversation-1') },
+      surfaceSessionsByKey: {
+        ['conversation:' + 'conversation-1']: {
+          ...createEmptyChatSurfaceSession('conversation-1'),
         },
       },
-      timelinesByConversationId: {
-        'conversation-1': conversation('conversation-1'),
-      },
-      surfaceSessionsByKey: {},
     };
 
     const next = {
@@ -313,25 +288,24 @@ describe('chatSessionRegistry', () => {
       }, 'tab-a:conversation-1'),
     };
 
-    expect(next.sessionsByConversationId['conversation-1'].editingMessageId).toBeNull();
-    expect(next.sessionsByConversationId['conversation-1'].expandedThreads.has('message-from-tab')).toBe(false);
+    expect(next.surfaceSessionsByKey['conversation:' + 'conversation-1'].editingMessageId).toBeNull();
+    expect(next.surfaceSessionsByKey['conversation:' + 'conversation-1'].expandedThreads.has('message-from-tab')).toBe(false);
     expect(getChatSession(next, 'conversation-1', 'tab-a:conversation-1').editingMessageId).toBe('message-from-tab');
-    expect(getConversationTimeline(next, 'conversation-1')?.title).toBe('Conversa conversation-1');
+    expect(getConversationInfo(next, 'conversation-1')?.title).toBe('Conversa conversation-1');
   });
 
   it('atualiza timeline uma vez sem sobrescrever sessões visuais interessadas', () => {
     const state: ChatSessionRegistryState = {
-      sessionsByConversationId: {},
-      timelinesByConversationId: {
+      conversationInfoById: {
         'conversation-1': conversation('conversation-1'),
       },
       surfaceSessionsByKey: {
         'tab-a:conversation-1': {
-          ...createEmptyChatSession('conversation-1', 'tab-a:conversation-1'),
+          ...createEmptyChatSurfaceSession('conversation-1', 'tab-a:conversation-1'),
           expandedThreads: new Set(['message-1']),
         },
         'tab-b:conversation-1': {
-          ...createEmptyChatSession('conversation-1', 'tab-b:conversation-1'),
+          ...createEmptyChatSurfaceSession('conversation-1', 'tab-b:conversation-1'),
           expandedThreads: new Set(['message-2']),
         },
       },
@@ -345,7 +319,7 @@ describe('chatSessionRegistry', () => {
       })),
     };
 
-    expect(getConversationTimeline(next, 'conversation-1')?.title).toBe('Timeline atualizada');
+    expect(getConversationInfo(next, 'conversation-1')?.title).toBe('Timeline atualizada');
     expect(getChatSurfaceSessionsForConversation(next, 'conversation-1')).toHaveLength(2);
     expect(getChatSession(next, 'conversation-1', 'tab-a:conversation-1').expandedThreads.has('message-1')).toBe(true);
     expect(getChatSession(next, 'conversation-1', 'tab-b:conversation-1').expandedThreads.has('message-2')).toBe(true);
@@ -355,8 +329,7 @@ describe('chatSessionRegistry', () => {
 
   it('não apaga timeline ao aplicar patch visual sem conversation', () => {
     const state: ChatSessionRegistryState = {
-      sessionsByConversationId: {},
-      timelinesByConversationId: {
+      conversationInfoById: {
         'conversation-1': conversation('conversation-1'),
       },
       surfaceSessionsByKey: {},
@@ -367,15 +340,14 @@ describe('chatSessionRegistry', () => {
       ...patchChatSession(state, 'conversation-1', { isLoading: true }, 'tab-a:conversation-1'),
     };
 
-    expect(getConversationTimeline(next, 'conversation-1')?.title).toBe('Conversa conversation-1');
+    expect(getConversationInfo(next, 'conversation-1')?.title).toBe('Conversa conversation-1');
     expect(getChatSession(next, 'conversation-1', 'tab-a:conversation-1').isLoading).toBe(true);
     expect(getChatSession(next, 'conversation-1', 'tab-a:conversation-1').conversation?.title).toBe('Conversa conversation-1');
   });
 
   it('reusa referência da timeline em patch visual', () => {
     const state: ChatSessionRegistryState = {
-      sessionsByConversationId: {},
-      timelinesByConversationId: {
+      conversationInfoById: {
         'conversation-1': conversation('conversation-1'),
       },
       surfaceSessionsByKey: {},
@@ -383,7 +355,7 @@ describe('chatSessionRegistry', () => {
 
     const patch = patchChatSession(state, 'conversation-1', { isLoading: true }, 'tab-a:conversation-1');
 
-    expect(patch.timelinesByConversationId).toBe(state.timelinesByConversationId);
+    expect({ ...state, ...patch }.conversationInfoById).toBe(state.conversationInfoById);
     expect(getChatSession({ ...state, ...patch }, 'conversation-1', 'tab-a:conversation-1').isLoading).toBe(true);
   });
 

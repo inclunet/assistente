@@ -5,10 +5,10 @@ import type { MediaFile } from '../../services/mediaService';
 import type { ChatMessagingExecution } from '../../lib/commandChatMessaging';
 import type { llm } from '../../../wailsjs/go/models';
 import {
-  getConversationTimeline,
+  getConversationInfo,
   normalizeChatSurfaceOrigin,
   type ChatSurfaceOrigin,
-  type ConversationTimeline,
+  type ConversationInfo,
 } from '../../services/chatSessionRegistry';
 import {
   useChatSession,
@@ -83,8 +83,8 @@ export function useChatSurfaceController({
   };
 }
 
-export function useChatConversationTimeline(conversationId?: string | null): ConversationTimeline | null {
+export function useChatConversationInfo(conversationId?: string | null): ConversationInfo | null {
   return useChatStore((state) => (
-    conversationId ? getConversationTimeline(state, conversationId) : null
+    conversationId ? getConversationInfo(state, conversationId) : null
   ));
 }

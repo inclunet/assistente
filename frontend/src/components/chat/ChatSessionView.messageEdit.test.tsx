@@ -1,4 +1,4 @@
-import { withFixtureProjection } from '../../test/chatWindowFixture';
+import { fixtureProjection, withFixtureProjection } from '../../test/chatWindowFixture';
 import { messageFixture, nodeFixture } from '../../test/chatPresentationFixture';
 import { fixtureMessages } from './canonicalPresentationFixture';
 import { publishFixtureMessage } from './canonicalPresentationFixture';
@@ -11,7 +11,7 @@ import { sendChatSurfaceMessage } from './ChatSurfaceController';
 import { useChatStore } from '../../store/chatStore';
 import { useAuthStore } from '../../store/authStore';
 import { useWorkspaceStore } from '../../store/workspaceStore';
-import { createChatSurfaceIdentity, createEmptyChatSession } from '../../services/chatSessionRegistry';
+import { createChatSurfaceIdentity, createEmptyChatSurfaceSession } from '../../services/chatSessionRegistry';
 import { CHAT_MESSAGING_EVENT, captureChatMessagingTarget, executeChatMessaging, type ChatMessagingRequest } from '../../lib/commandChatMessaging';
 import type { Message } from '../../lib/chatMessageTree';
 import { ttsService } from '../../services/tts';
@@ -78,10 +78,14 @@ beforeEach(() => {
   announceMessage.mockClear();
   vi.spyOn(HTMLElement.prototype, 'scrollIntoView').mockImplementation(() => {});
   Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: vi.fn(async () => {}) } });
-  const conversation = { id, title: 'chat', threadedMessages: [firstID, secondID].map((messageID, index) => nodeFixture({
-    message: messageFixture({ id: messageID, conversationId: id, role: 'user', content: index ? 'segunda' : '**primeira**' }), children: [], hasChildren: false, childCount: 0, level: 0,
-  })) };
-  useChatStore.setState({ timelinesByConversationId: { [id]: conversation }, sessionsByConversationId: { [id]: { ...createEmptyChatSession(id), conversation } }, surfaceSessionsByKey: {}, loadingConversationIds: new Set() });
+  const conversation = withFixtureProjection({ id, title: 'chat' }, { nodes: [firstID, secondID].map((messageID, index) => nodeFixture({
+    message: messageFixture({ id: messageID, conversationId: id, role: 'user', content: index ? 'segunda' : '**primeira**' }), children: [], hasChildren: false, childCount: 0,
+  })) });
+  useChatStore.setState({
+    loadingConversationIds: new Set(),
+    conversationInfoById: { [id]: conversation },
+    surfaceSessionsByKey: { ['conversation:' + id]: { ...createEmptyChatSurfaceSession(id) } },
+  });
   listener = event => {
     const request = (event as CustomEvent<ChatMessagingRequest>).detail;
     const target = request.target ?? captureChatMessagingTarget(() => '/', request.commandId, request.instanceId);
@@ -121,7 +125,7 @@ async function openEditor(content = 'editado') {
 function clickSave() { fireEvent.click(screen.getByRole('button', { name: 'common.save' })); }
 describe('salvar edição: MessageNode, fonte draft, store e executor reais', () => {
   it.each([false, true])('edição recebida substitui segmentos transitórios antigos (recolhido: %s)', async (collapsed) => {
-    const message = useChatStore.getState().timelinesByConversationId[id].threadedMessages[0].message as Message;
+    const message = fixtureProjection(useChatStore.getState().conversationInfoById[id]).nodes![0].message as Message;
     message.role = 'assistant';
     message.content = 'Resposta anterior';
     message.turnSegments = [
@@ -130,8 +134,8 @@ describe('salvar edição: MessageNode, fonte draft, store e executor reais', ()
     ];
     useChatStore.setState({ surfaceSessionsByKey: {
       [surface.sessionKey]: withFixtureProjection(
-        { ...createEmptyChatSession(id, surface.sessionKey) },
-        { nodes: useChatStore.getState().timelinesByConversationId[id].threadedMessages },
+        { ...createEmptyChatSurfaceSession(id, surface.sessionKey) },
+        { nodes: fixtureProjection(useChatStore.getState().conversationInfoById[id]).nodes! },
       ),
     } });
     mount();

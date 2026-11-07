@@ -1,15 +1,15 @@
 import type { TimelineWindowMetadata } from '../../types/chatTimelineEvents';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef } from 'react';
 import {
-  type ActiveConversation,
-  type ChatConversationSession,
+  type ConversationInfo,
+  type ChatSurfaceSession,
   useChatStore,
 } from '../../store/chatStore';
 import {
   buildChatSessionKey,
   createChatSurfaceOrigin,
-  createEmptyChatSession,
-  getConversationTimeline,
+  createEmptyChatSurfaceSession,
+  getConversationInfo,
   normalizeChatSurfaceOrigin,
   type ChatSurfaceIdentity,
   type ChatSurfaceOrigin,
@@ -17,6 +17,9 @@ import {
 import { useChatTimelinePresentation } from './useChatTimelinePresentation';
 import type { ChatTimelinePresentation } from '../../services/chatTimelinePresentation';
 import type { MediaFile } from '../../services/mediaService';
+
+type ActiveConversation = ConversationInfo & { threadedMessages: import('../../lib/chatMessageTree').MessageNode[] };
+type ChatConversationSession = ChatSurfaceSession & { conversation: ActiveConversation | null };
 
 export interface ChatSessionContextValue {
   presentation: ChatTimelinePresentation | null;
@@ -66,9 +69,8 @@ type ChatNodeContextValue = Pick<
 const ChatNodeContext = createContext<ChatNodeContextValue | null>(null);
 const getStoredNodeSession = (
   state: ReturnType<typeof useChatStore.getState>,
-  conversationId: string,
   sessionKey: string,
-) => state.surfaceSessionsByKey?.[sessionKey] ?? state.sessionsByConversationId[conversationId];
+) => state.surfaceSessionsByKey[sessionKey];
 
 export interface ChatSessionProviderProps {
   surface: ChatSurfaceIdentity;
@@ -85,7 +87,7 @@ export function ChatSessionProvider({
   const surfaceId = surfaceIdentity.surfaceId;
 
   const timeline = useChatStore((state) => (
-    normalizedConversationId ? getConversationTimeline(state, normalizedConversationId) : null
+    normalizedConversationId ? getConversationInfo(state, normalizedConversationId) : null
   ));
   const surfaceSession = useChatStore((state) => (
     normalizedConversationId ? state.surfaceSessionsByKey?.[sessionKey] ?? null : null
@@ -94,7 +96,7 @@ export function ChatSessionProvider({
   const window = presentation?.window;
   const session = useMemo(() => {
     if (!normalizedConversationId) return null;
-    const state = surfaceSession ?? createEmptyChatSession(normalizedConversationId, sessionKey);
+    const state = surfaceSession ?? createEmptyChatSurfaceSession(normalizedConversationId, sessionKey);
     return { ...state, conversation: window ? { id: normalizedConversationId, title: timeline?.title ?? '', threadedMessages } : null };
   }, [normalizedConversationId, sessionKey, surfaceSession, threadedMessages, timeline?.title, window]);
   const conversation = session?.conversation ?? null;
@@ -357,13 +359,13 @@ export function useChatNodeSessionState(messageId: string) {
   const conversationId = context.conversationId;
   const sessionKey = context.origin.sessionKey;
   const editingMessageId = useChatStore((state) => (
-    conversationId ? getStoredNodeSession(state, conversationId, sessionKey)?.editingMessageId ?? null : null
+    conversationId ? getStoredNodeSession(state, sessionKey)?.editingMessageId ?? null : null
   ));
   const isExpanded = useChatStore((state) => (
-    !!conversationId && !!getStoredNodeSession(state, conversationId, sessionKey)?.expandedThreads?.has(messageId)
+    !!conversationId && !!getStoredNodeSession(state, sessionKey)?.expandedThreads?.has(messageId)
   ));
   const reasoningExpanded = useChatStore((state) => (
-    !!conversationId && !!getStoredNodeSession(state, conversationId, sessionKey)?.expandedReasonings?.has(messageId)
+    !!conversationId && !!getStoredNodeSession(state, sessionKey)?.expandedReasonings?.has(messageId)
   ));
 
   return {

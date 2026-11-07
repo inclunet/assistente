@@ -49,7 +49,7 @@ describe('MessageList', () => {
       internal: false,
     }),
     childCount: 0,
-    level: 0,
+
     children: [],
   });
 
@@ -159,7 +159,6 @@ describe('MessageList', () => {
   it('repassa posição absoluta e tamanho total para itens renderizados', () => {
     hoisted.messageNodeMock.mockClear();
     const node = createNode('message-42');
-    (node as typeof node & { originalIndex?: number }).originalIndex = 41;
 
     render(
       <MessageList
@@ -185,8 +184,6 @@ describe('MessageList', () => {
     const firstNode = createNode('message-1');
     const expandedTurnNode = createNode('message-expanded');
     const thirdNode = createNode('message-3');
-    (firstNode as typeof firstNode & { originalIndex?: number }).originalIndex = 40;
-    (thirdNode as typeof thirdNode & { originalIndex?: number }).originalIndex = 41;
 
     render(
       <MessageList
@@ -226,8 +223,6 @@ describe('MessageList', () => {
         resultAvailability: 'available',
       }],
     })];
-    (userNode as typeof userNode & { originalIndex?: number }).originalIndex = 0;
-    (turnNode as typeof turnNode & { originalIndex?: number }).originalIndex = 1;
 
     render(
       <MessageList
@@ -525,7 +520,7 @@ describe('MessageList (virtualização)', () => {
           internal: false,
         }),
         childCount: 0,
-        level: 0,
+
         children: [],
       })
     );
