@@ -22,14 +22,17 @@ conversas e seus itens cacheados; referências da inspeção são liberadas. Nã
 uma medição da memória nativa total da WebView nem do heap Go/SQL/IPC. O runner
 verifica renderização, fechamento das janelas, remoção das sessões visuais e
 limite da LRU, inclusive seu descarte no logout. Não executa ACP ou NVDA.
+Cada desmontagem exige antes a cardinalidade esperada na apresentação
+(100 ou 240 itens), além de um nó efetivamente renderizado. A carga abaixo de
+8 MiB exercita o limite por quantidade; não comprova pressão no teto de bytes.
 
 Execução em WebView2 156.0.4314.58, Windows PowerShell 5.1, 06/11/2026
-(21:45 BRT; timestamp do JSON em UTC). Heap V8 usado após GC,
+(22:03 BRT; timestamp do JSON em UTC). Heap V8 usado após GC,
 em bytes (aquecimento → ciclo 30 fechado → logout):
 
-- 100 mensagens: 7.907.752 → 8.046.680 → 7.089.496.
-- 500 mensagens: 8.216.180 → 8.219.356 → 7.870.652.
-- 1.000 mensagens: 8.208.404 → 8.203.376 → 7.900.072.
+- 100 mensagens: 7.927.148 → 8.113.256 → 7.118.748.
+- 500 mensagens: 8.187.196 → 8.191.084 → 7.866.804.
+- 1.000 mensagens: 8.198.396 → 8.194.968 → 7.887.744.
 
 Nas 21 amostras com sessão aberta, a LRU ficou em 240 itens e não restaram
 apresentações fechadas. Uma sessão conservou três estados de conversa no caso
@@ -89,7 +92,7 @@ está sem compilador C/CGO requerido por `-race`.
 O procedimento completo passou também no Windows PowerShell 5.1; a seleção
 explícita da sobrecarga `Split(string[], StringSplitOptions)` preserva a âncora
 literal nesse shell. O CI da primeira revisão passou no frontend completo.
-Revisor local independente `review_opening_performance`: sete rodadas;
+Revisor local independente `review_opening_performance`: oito rodadas;
 corrigidas a limpeza do host em erro CDP e a evicção com timer preexistente,
 incluindo a última reserva cancelada. Rodada final sem pendências. A regressão
 de importação/fechamento e o teste parametrizado de cancelamento preservam os
@@ -3738,6 +3741,8 @@ final sem pendências, incluindo captura dinâmica de conteúdo não confirmado.
 - [x] Preservar identidade DOM/foco/leitura, inclusive no limiar de virtualização. Evidências: `ChatMessage.test.tsx`, `MessageList.focusRetention.test.tsx` e `ChatSessionLiveState.test.tsx`.
 - [x] Validar descarte de cache: medição V8 e contagem de instâncias/itens em 105 ciclos de abertura/fechamento/logout, descritas acima.
 - [ ] Consolidar evidências de consultas concorrentes com eventos na auditoria final.
+- [ ] Exercitar pressão acima de 8 MiB com menos de 240 itens na WebView; os
+  ciclos acima cobrem limite por quantidade e descarte, não esse teto de bytes.
 
 Saída: uma única aplicação do contrato, sem caminho antigo ativo em paralelo.
 

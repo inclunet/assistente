@@ -58,7 +58,9 @@ function login() {
 login();
 function TimelineView() {
   const { threadedMessages } = useChatSession();
-  return <MessageList threadedMessages={threadedMessages} />;
+  return <div data-timeline-items={threadedMessages.length} style={{ display: 'contents' }}>
+    <MessageList threadedMessages={threadedMessages} />
+  </div>;
 }
 // Timer funciona também na WebView oculta, sem depender de requestAnimationFrame.
 const settle = () => new Promise(resolve => setTimeout(resolve, 100));
@@ -81,7 +83,7 @@ const api = {
     flushSync(() => root.render(<BrowserRouter><div style={{ height: 700, display: 'flex' }}>
       <ChatSessionProvider surface={surface}><TimelineView /></ChatSessionProvider>
     </div></BrowserRouter>));
-    await waitFor(() => !!document.querySelector('[data-message-node]'), 'Lista não renderizou mensagens');
+    await waitFor(() => !!document.querySelector(`[data-timeline-items="${Math.min(messages, 240)}"] [data-message-node]`), 'Lista não renderizou a janela completa');
     flushSync(() => root.render(null));
     await waitFor(() => windows.size === 0, 'Janela remota não encerrada');
     await settle();

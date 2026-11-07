@@ -26,6 +26,8 @@ cenário tem cinco ciclos de aquecimento e trinta ciclos medidos, com amostras a
 cada cinco ciclos e após logout. A mesma sessão conserva sua LRU entre ciclos;
 logout muda a sessão no store de autenticação, exercitando o descarte real do
 cliente. A fixture verifica também a liberação das sessões visuais do store.
+Antes de desmontar, exige os 100/240 itens esperados na apresentação e um nó
+renderizado. Esta carga fica abaixo de 8 MiB e não testa pressão no teto de bytes.
 Os casos de 500 e 1.000 têm os mesmos 240 itens materializados: exercitam
 históricos maiores com janela limitada, não cargas de 500/1.000 itens na UI.
 
