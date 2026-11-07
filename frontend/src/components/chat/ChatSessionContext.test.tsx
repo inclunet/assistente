@@ -1,3 +1,5 @@
+import { nodeFixture } from '../../test/chatPresentationFixture';
+import { withFixtureProjection } from '../../test/chatWindowFixture';
 vi.mock('./useChatTimelinePresentation', async () => import('./canonicalPresentationFixture'));
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -11,30 +13,21 @@ const retryMessageToConversationMock = vi.fn().mockResolvedValue(undefined);
 const setConversationDraftMessageMock = vi.fn();
 const setConversationDraftMediaFilesMock = vi.fn();
 
-type TestMessageNode = {
-  message: { id: string };
-  children: TestMessageNode[];
-  childCount: number;
-};
-
-const testMessageNode = (id: string): TestMessageNode => ({
-  message: { id },
-  children: [],
-  childCount: 0,
-});
+type TestMessageNode = import('../../lib/chatMessageTree').MessageNode;
+const testMessageNode = (id: string): TestMessageNode => nodeFixture({ message: { id } });
 
 const chatStoreState = {
   sessionsByConversationId: {
-    [currentConversationId]: {
-      conversation: { id: currentConversationId, title: 'Conversa', threadedMessages: [] as TestMessageNode[] },
-      isLoading: false,
-      hasOlderMessages: true,
-      isLoadingOlderMessages: false,
-      queuedTurnCount: 0,
-      draftMessage: '',
-      draftMediaFiles: [],
-      visibleThreadedMessages: undefined as TestMessageNode[] | undefined,
-    },
+    [currentConversationId]: withFixtureProjection(
+      {
+        conversation: { id: currentConversationId, title: 'Conversa', threadedMessages: [] as TestMessageNode[] },
+        isLoading: false,
+        queuedTurnCount: 0,
+        draftMessage: '',
+        draftMediaFiles: [],
+      },
+      { nodes: undefined as TestMessageNode[] | undefined },
+    ),
   },
   timelinesByConversationId: {},
   surfaceSessionsByKey: {},
@@ -127,11 +120,13 @@ describe('ChatSessionProvider', () => {
     retryMessageToConversationMock.mockClear();
     setConversationDraftMessageMock.mockClear();
     setConversationDraftMediaFilesMock.mockClear();
-    chatStoreState.sessionsByConversationId[currentConversationId] = {
-      ...chatStoreState.sessionsByConversationId[currentConversationId],
-      conversation: { id: currentConversationId, title: 'Conversa', threadedMessages: [] as TestMessageNode[] },
-      visibleThreadedMessages: undefined,
-    };
+    chatStoreState.sessionsByConversationId[currentConversationId] = withFixtureProjection(
+      {
+        ...chatStoreState.sessionsByConversationId[currentConversationId],
+        conversation: { id: currentConversationId, title: 'Conversa', threadedMessages: [] as TestMessageNode[] },
+      },
+      { nodes: undefined },
+    );
     chatStoreState.surfaceSessionsByKey = {};
   });
 
@@ -187,20 +182,17 @@ describe('ChatSessionProvider', () => {
   });
 
   it('usa janela visível padrão antes da superfície ser materializada', () => {
-    chatStoreState.sessionsByConversationId[currentConversationId] = {
-      ...chatStoreState.sessionsByConversationId[currentConversationId],
-      conversation: {
-        id: currentConversationId,
-        title: 'Conversa',
-        threadedMessages: [
-          testMessageNode('full-1'),
-          testMessageNode('full-2'),
-        ],
+    chatStoreState.sessionsByConversationId[currentConversationId] = withFixtureProjection(
+      {
+        ...chatStoreState.sessionsByConversationId[currentConversationId],
+        conversation: {
+          id: currentConversationId,
+          title: 'Conversa',
+          threadedMessages: [testMessageNode('full-1'), testMessageNode('full-2')],
+        },
       },
-      visibleThreadedMessages: [
-        testMessageNode('window-1'),
-      ],
-    };
+      { nodes: [testMessageNode('window-1')] },
+    );
 
     render(
       <ChatSessionProvider surface={embeddedSurface()}>
@@ -228,8 +220,6 @@ describe('ChatSessionProvider', () => {
         sessionKey: embeddedSessionKey,
         conversationId: currentConversationId,
         isLoading: false,
-        hasOlderMessages: false,
-        isLoadingOlderMessages: false,
         streamingMessageId: null,
         sendFailureMessage: null,
         sendFailureRetryable: false,
@@ -326,8 +316,6 @@ describe('ChatSessionProvider', () => {
         sessionKey: embeddedSessionKey,
         conversationId: currentConversationId,
         isLoading: false,
-        hasOlderMessages: false,
-        isLoadingOlderMessages: false,
         streamingMessageId: null,
         sendFailureMessage: null,
         sendFailureRetryable: false,
@@ -368,8 +356,6 @@ describe('ChatSessionProvider', () => {
         sessionKey: `editor-a:${currentConversationId}`,
         conversationId: currentConversationId,
         isLoading: false,
-        hasOlderMessages: false,
-        isLoadingOlderMessages: false,
         streamingMessageId: null,
         sendFailureMessage: null,
         sendFailureRetryable: false,
@@ -390,8 +376,6 @@ describe('ChatSessionProvider', () => {
         sessionKey: `editor-b:${currentConversationId}`,
         conversationId: currentConversationId,
         isLoading: false,
-        hasOlderMessages: false,
-        isLoadingOlderMessages: false,
         streamingMessageId: null,
         sendFailureMessage: null,
         sendFailureRetryable: false,

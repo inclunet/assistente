@@ -1,3 +1,4 @@
+import { windowFixture } from '../../test/chatWindowFixture';
 import type { Message, MessageNode } from '../../lib/chatMessageTree';
 import { messageFixture, nodeFixture, segmentFixture } from '../../test/chatPresentationFixture';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -163,15 +164,13 @@ describe('MessageList', () => {
     render(
       <MessageList
         threadedMessages={[node]}
-        messageWindow={{
-          scope: 'conversation',
-          conversationId: 'conversation-1',
+        messageWindow={windowFixture({
           totalCount: 100,
           startIndex: 41,
           endIndex: 41,
           hasBefore: true,
           hasAfter: true,
-        }}
+        })}
       />
     );
 
@@ -192,15 +191,13 @@ describe('MessageList', () => {
     render(
       <MessageList
         threadedMessages={[firstNode, expandedTurnNode, thirdNode]}
-        messageWindow={{
-          scope: 'conversation',
-          conversationId: 'conversation-1',
+        messageWindow={windowFixture({
           totalCount: 100,
           startIndex: 40,
           endIndex: 41,
           hasBefore: true,
           hasAfter: true,
-        }}
+        })}
       />
     );
 
@@ -235,15 +232,13 @@ describe('MessageList', () => {
     render(
       <MessageList
         threadedMessages={[userNode, turnNode]}
-        messageWindow={{
-          scope: 'conversation',
-          conversationId: 'conversation-1',
+        messageWindow={windowFixture({
           totalCount: 2,
           startIndex: 0,
           endIndex: 1,
           hasBefore: false,
           hasAfter: false,
-        }}
+        })}
       />
     );
 
@@ -366,8 +361,7 @@ describe('MessageList', () => {
     render(
       <MessageList
         threadedMessages={[createNode()]}
-        hasOlderMessages
-        hasNewerMessages
+        messageWindow={windowFixture({ hasBefore: true, hasAfter: true })}
         onLoadOlder={onLoadOlder}
         onLoadNewer={onLoadNewer}
       />
@@ -401,7 +395,7 @@ describe('MessageList', () => {
     render(
       <MessageList
         threadedMessages={[createNode()]}
-        hasOlderMessages
+        messageWindow={windowFixture({ hasBefore: true })}
         onLoadOlder={onLoadOlder}
       />
     );
@@ -488,7 +482,7 @@ describe('MessageList', () => {
     render(
       <MessageList
         threadedMessages={[streamingNode]}
-        hasNewerMessages
+        messageWindow={windowFixture({ hasAfter: true })}
         onLoadNewer={onLoadNewer}
         onReachEnd={onReachEnd}
       />

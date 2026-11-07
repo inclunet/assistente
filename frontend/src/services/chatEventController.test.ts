@@ -56,9 +56,6 @@ vi.mock('@wailsjs/go/app/App', () => ({
 vi.mock('./chatSessionLoader', () => ({
   reloadConversationSnapshot: (...args: unknown[]) => mockReloadConversationSnapshot(...args),
 }));
-vi.mock('./messageWindowLimits', () => ({
-  INITIAL_MESSAGE_WINDOW_SIZE: 80,
-}));
 
 type EventCallback = (data: unknown) => void;
 const eventListeners = new Map<string, EventCallback[]>();

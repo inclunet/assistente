@@ -1,3 +1,4 @@
+import type { TimelineWindowMetadata } from '../../types/chatTimelineEvents';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef } from 'react';
 import {
   type ActiveConversation,
@@ -26,10 +27,8 @@ export interface ChatSessionContextValue {
   conversation: ActiveConversation | null;
   threadedMessages: NonNullable<ActiveConversation['threadedMessages']>;
   isLoading: boolean;
-  hasOlderMessages: boolean;
-  isLoadingOlderMessages: boolean;
+  messageWindow: TimelineWindowMetadata | undefined;
   isLoadingMessageWindow: boolean;
-  hasNewerMessages: boolean;
   draftMessage: string;
   draftMediaFiles: MediaFile[];
   scrollTop: number;
@@ -96,17 +95,12 @@ export function ChatSessionProvider({
   const session = useMemo(() => {
     if (!normalizedConversationId) return null;
     const state = surfaceSession ?? createEmptyChatSession(normalizedConversationId, sessionKey);
-    return { ...state, conversation: window ? { id: normalizedConversationId, title: timeline?.title ?? '', threadedMessages } : null,
-      messageWindow: window ? { scope: 'conversation' as const, conversationId: normalizedConversationId,
-        totalCount: window.metadata.totalCount, startIndex: window.metadata.startIndex, endIndex: window.metadata.endIndex,
-        hasBefore: window.metadata.hasBefore, hasAfter: window.metadata.hasAfter } : undefined };
+    return { ...state, conversation: window ? { id: normalizedConversationId, title: timeline?.title ?? '', threadedMessages } : null };
   }, [normalizedConversationId, sessionKey, surfaceSession, threadedMessages, timeline?.title, window]);
   const conversation = session?.conversation ?? null;
   const isLoading = !!session?.isLoading;
-  const hasOlderMessages = window?.metadata.hasBefore ?? false;
-  const isLoadingOlderMessages = presentation?.loading ?? false;
+  const messageWindow = window?.metadata;
   const isLoadingMessageWindow = presentation?.loading ?? false;
-  const hasNewerMessages = window?.metadata.hasAfter ?? false;
   const draftMessage = session?.draftMessage ?? '';
   const draftMediaFiles = session?.draftMediaFiles ?? [];
   const scrollTop = session?.scrollTop ?? 0;
@@ -264,10 +258,8 @@ export function ChatSessionProvider({
     conversation,
     threadedMessages,
     isLoading,
-    hasOlderMessages,
-    isLoadingOlderMessages,
+    messageWindow,
     isLoadingMessageWindow,
-    hasNewerMessages,
     draftMessage,
     draftMediaFiles,
     scrollTop,
@@ -294,11 +286,9 @@ export function ChatSessionProvider({
     conversation,
     draftMediaFiles,
     draftMessage,
-    hasOlderMessages,
-    hasNewerMessages,
     isConversationReasoningExpanded,
     isLoading,
-    isLoadingOlderMessages,
+    messageWindow,
     isLoadingMessageWindow,
     loadConversationSession,
     loadEndMessages,

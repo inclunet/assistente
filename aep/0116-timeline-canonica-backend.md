@@ -1,8 +1,46 @@
 # AEP-0116 — Timeline canônica de chat do backend à apresentação
 
-## Status: In Progress — histórico canônico integrado do backend à UI e CLI; anexos normalizados e colunas legadas removidas; identidade visual obrigatória e mutadores legados removidos; renders e retenção V8 verificados; gates de desempenho e auditoria de encerramento pendentes
+## Status: In Progress — histórico canônico integrado do backend à UI e CLI; anexos normalizados e colunas legadas removidas; identidade visual e janela canônicas na UI; mutadores e estados legados removidos; renders e retenção V8 verificados; gates de desempenho e auditoria de encerramento pendentes
 
 Data: 2026-10-30
+
+### Janela canônica única na apresentação (07/11/2026)
+
+`ChatSessionProvider` entrega diretamente `TimelineWindowMetadata` da janela
+canônica. `ChatSessionView` e `MessageList` usam essa mesma fonte para posições
+absolutas, tamanho do histórico, fronteiras e anúncios de paginação. Foram
+removidos o DTO paralelo `MessageWindowState`, a cópia dentro de `session`, as
+props duplicadas `hasOlderMessages`/`hasNewerMessages` e o segundo indicador de
+carregamento. A navegação preserva um único `presentation.loading`, separado do
+estado operacional de geração da resposta.
+
+O store não declara nem inicializa mais janela, lista visível ou flags de
+paginação. As injeções dos testes de comandos/ownership passaram para uma
+fixture exclusiva de testes, fora do estado do produto. Não há compositor ou
+ordenador novo: a lista continua usando integralmente a janela entregue pelo
+backend, com virtualização apenas do DOM. Saíram também `messageWindowLimits.ts`,
+que só restava num mock, e um ramo impossível de anúncio que comparava o tamanho
+da lista com ele mesmo.
+
+`ChatSessionContext.window.test.tsx` usa provider, hook de lifecycle, cliente e
+apresentação reais. Verifica posição/tamanho acessível do backend, paginação e
+carregamento isolados entre duas superfícies da mesma conversa, recuperação do
+indicador após falha e ausência dos campos removidos no store. As regressões de
+foco, comandos, edição e anúncios foram preservadas e adaptadas ao contrato.
+
+Continuam pendentes a auditoria dos demais espelhamentos operacionais, provas
+consolidadas de concorrência, pressão de 8 MiB na WebView e gates históricos de
+tempo/alocações/payload. Este recorte não altera transporte, persistência,
+bindings, comandos ou fluxos visíveis.
+
+Validação local: TypeScript, ESLint, Stylelint, build/vet/lint incremental Go
+(zero issues), 35 testes seguros da borda app e 6.131 testes frontend em 497
+arquivos aprovados. Após o ajuste final da fixture, os 52 testes afetados
+passaram novamente. Revisor independente `review_canonical_cleanup`: duas
+rodadas sem pendências; evidência de CI/revisão remota registrada no PR.
+Os testes locais excluem os arquivos que mencionam ACP; os cenários de paginação em `ChatSessionView.test.tsx`
+ficam para o CI porque esse arquivo contém mocks ACP. A prova canônica nova não
+depende desses mocks.
 
 ### Identidade visual obrigatória e retirada dos mutadores legados (06/11/2026)
 
@@ -3783,7 +3821,7 @@ final sem pendências, incluindo captura dinâmica de conteúdo não confirmado.
 - [x] Migrar para itens e janelas por IDs, preservando isolamento das superfícies. Evidências: consumidor canônico e retirada do compositor descritos acima.
 - [x] Retirar chave alternativa e mutadores de reconstrução semântica mantidos apenas por testes. Evidências: `MessageNode.itemId` obrigatório, chaves diretas e regressões canônicas descritas acima.
 - [ ] Concluir auditoria dos espelhamentos substituídos e confirmar ausência de ordenador híbrido ativo em todos os consumidores.
-- [ ] Unificar corte da janela e eliminar flags derivadas duplicadas.
+- [x] Unificar corte da janela e eliminar flags derivadas duplicadas. Evidências: metadados canônicos diretos, único carregamento, retirada dos campos do store e prova `ChatSessionContext.window.test.tsx`, descritos acima.
 - [x] Preservar identidade DOM/foco/leitura, inclusive no limiar de virtualização. Evidências: `ChatMessage.test.tsx`, `MessageList.focusRetention.test.tsx` e `ChatSessionLiveState.test.tsx`.
 - [x] Validar descarte de cache: medição V8 e contagem de instâncias/itens em 105 ciclos de abertura/fechamento/logout, descritas acima.
 - [ ] Consolidar evidências de consultas concorrentes com eventos na auditoria final.

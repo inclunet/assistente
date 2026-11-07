@@ -1,3 +1,4 @@
+import { windowFixture } from '../../test/chatWindowFixture';
 import { nodeFixture } from '../../test/chatPresentationFixture';
 import type { MessageNode } from '../../lib/chatMessageTree';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -51,7 +52,7 @@ describe('identidade e retenção visual da lista', () => {
     try {
       const initial = nodes(40);
       const loadOlder = vi.fn(() => new Promise<void>(() => {}));
-      const content = (items: MessageNode[]) => <MessageList threadedMessages={items} hasOlderMessages onLoadOlder={loadOlder} />;
+      const content = (items: MessageNode[]) => <MessageList threadedMessages={items} messageWindow={windowFixture({ hasBefore: true })} onLoadOlder={loadOlder} />;
       const view = render(content(initial));
       const prepending = direction.startsWith('prepend');
       const target = prepending ? 'item-1' : 'item-39';
@@ -145,7 +146,7 @@ it.each(['older', 'newer'])('restaura foco na borda da página %s solicitada por
  try {
   const before = nodes(3);
   const load = vi.fn(async () => {});
-  const props = { hasOlderMessages: true, hasNewerMessages: true, onLoadOlder: load, onLoadNewer: load };
+  const props = { messageWindow: windowFixture({ hasBefore: true, hasAfter: true }), onLoadOlder: load, onLoadNewer: load };
   const view = render(<MessageList threadedMessages={before} {...props} />);
   const old = view.getByTestId(direction === 'older' ? 'item-0' : 'item-2');
   act(() => old.focus());
@@ -164,7 +165,7 @@ it.each([false, true])('delta intermediário não consome foco de paginação; r
   let accept!: () => void; let refuse!: () => void;
   const load = () => new Promise<void>((resolve, reject) => { accept = resolve; refuse = () => reject(new Error('stale')); });
   const before = nodes(3);
-  const props = { hasOlderMessages: true, onLoadOlder: load };
+  const props = { messageWindow: windowFixture({ hasBefore: true }), onLoadOlder: load };
   const view = render(<MessageList threadedMessages={before} {...props} />);
   act(() => view.getByTestId('item-0').focus());
   fireEvent.keyDown(view.getByTestId('item-0'), { key: 'ArrowUp' });

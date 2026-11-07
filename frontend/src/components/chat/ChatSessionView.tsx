@@ -168,9 +168,7 @@ function ChatSessionViewContent({
     conversation,
     threadedMessages,
     isLoading,
-    hasOlderMessages,
-    hasNewerMessages,
-    isLoadingOlderMessages,
+    messageWindow,
     isLoadingMessageWindow,
     loadOlderMessages,
     loadNewerMessages,
@@ -200,8 +198,6 @@ function ChatSessionViewContent({
 
   const clearConversationSendFailure = useChatStore((state) => state.clearConversationSendFailure);
   const getSessionConversation = useCallback(() => conversation, [conversation]);
-  const visibleMessageCount = threadedMessages.length;
-  const usesLocalVisualWindowCount = visibleMessageCount > 0 && visibleMessageCount !== threadedMessages.length;
 
   useEffect(() => {
     let mounted = true;
@@ -974,7 +970,7 @@ function ChatSessionViewContent({
   }, [announce, dismissedSessionSendError, sendError, sessionSendFailureAnnounced, sessionSendFailureMessage]);
 
   useEffect(() => {
-    const windowState = session?.messageWindow;
+    const windowState = messageWindow;
     latestWindowKeyRef.current = windowState
       ? `${windowState.startIndex}:${windowState.endIndex}:${windowState.totalCount}`
       : null;
@@ -1007,17 +1003,11 @@ function ChatSessionViewContent({
     // vai como progresso para esperar a leitura do conteúdo terminar. Navegação
     // explícita é resposta a uma ação e não espera.
     const eventType = pendingAnnouncement.trigger === 'scroll' ? 'progress' : 'user-action';
-    const message = usesLocalVisualWindowCount
-      ? t('chat.announce.messageWindowLoaded', {
-        start: 1,
-        end: visibleMessageCount,
-        total: visibleMessageCount,
-      })
-      : t('chat.announce.messageWindowLoaded', {
-        start: windowState.startIndex + 1,
-        end: windowState.endIndex + 1,
-        total: windowState.totalCount,
-      });
+    const message = t('chat.announce.messageWindowLoaded', {
+      start: windowState.startIndex + 1,
+      end: windowState.endIndex + 1,
+      total: windowState.totalCount,
+    });
     announceRequest({
       message,
       eventType,
@@ -1028,7 +1018,7 @@ function ChatSessionViewContent({
       // que está na tela quando a leitura da resposta terminar.
       waitsForReading: true,
     });
-  }, [announceRequest, origin, session?.messageWindow, t, usesLocalVisualWindowCount, visibleMessageCount]);
+  }, [announceRequest, origin, messageWindow, t]);
 
   useEffect(() => {
     if (!isInteractiveSurface) return;
@@ -1067,7 +1057,7 @@ function ChatSessionViewContent({
     trigger: MessageWindowLoadTrigger,
     load: () => Promise<void>,
   ) => {
-    const windowState = session?.messageWindow;
+    const windowState = messageWindow;
     const pending = {
       kind,
       trigger,
@@ -1095,7 +1085,7 @@ function ChatSessionViewContent({
         pending.expiresAt = Date.now() + PENDING_WINDOW_ANNOUNCEMENT_MAX_AGE_MS;
       }
     }
-  }, [session?.messageWindow]);
+  }, [messageWindow]);
 
   const handleJumpToStart = useCallback(() => runWindowLoad('start', 'navigation', loadStartMessages), [loadStartMessages, runWindowLoad]);
   const handleJumpToEnd = useCallback(() => runWindowLoad('end', 'navigation', loadEndMessages), [loadEndMessages, runWindowLoad]);
@@ -1156,13 +1146,10 @@ function ChatSessionViewContent({
         <MessageList
           onRetainedItemsChange={retainItems}
           threadedMessages={threadedMessages}
-          messageWindow={session?.messageWindow}
+          messageWindow={messageWindow}
           onLoadChildren={loadMessageChildren}
           onReachEnd={handleReachEnd}
           isLoading={isLoading}
-          hasOlderMessages={hasOlderMessages}
-          hasNewerMessages={hasNewerMessages}
-          isLoadingOlderMessages={isLoadingOlderMessages}
           isLoadingMessageWindow={isLoadingMessageWindow}
           onLoadOlder={handleLoadOlderMessages}
           onLoadNewer={handleLoadNewerMessages}
