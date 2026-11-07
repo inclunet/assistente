@@ -6,7 +6,7 @@ import { MessageOutlined } from '@ant-design/icons';
 import { MessageNode as MessageNodeComponent } from './MessageNode';
 import { MessageNode, Message } from '../../store/chatStore';
 import type { EditorSendTargetOption, ChatSendToEditorPayload } from '../../lib/editorSendMenu';
-import { getTimelineNodeKey, type MessageWindowState } from '../../services/chatSessionRegistry';
+import { type MessageWindowState } from '../../services/chatSessionRegistry';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import type { VoiceAccessibilityOrigin } from '../../services/voiceAccessibility/types';
 import './MessageList.css';
@@ -173,9 +173,9 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
   useLayoutEffect(() => {
     onRetainedItemsChange?.([...new Set([...interactionKeys, ...(focusedKey ? [focusedKey] : []), ...(focusedItem ? [focusedItem] : [])])]);
   }, [focusedKey, focusedItem, interactionKeys, onRetainedItemsChange]);
-  const focusedIndex = focusedKey === null ? -1 : displayMessages.findIndex(node => getTimelineNodeKey(node) === focusedKey);
+  const focusedIndex = focusedKey === null ? -1 : displayMessages.findIndex(node => node.itemId === focusedKey);
   const retainedIndexes = useMemo(() => displayMessages.flatMap((node, index) =>
-    index === focusedIndex || interactionKeys.includes(getTimelineNodeKey(node)) ? [index] : []
+    index === focusedIndex || interactionKeys.includes(node.itemId) ? [index] : []
   ), [displayMessages, focusedIndex, interactionKeys]);
   const rangeExtractor = useCallback((range: Range) => {
     const visible = defaultRangeExtractor(range);
@@ -191,7 +191,7 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
     scrollMargin,
     rangeExtractor,
     // Chave estável por nó preserva a medição ao paginar histórico (prepend/append).
-    getItemKey: (index) => getTimelineNodeKey(displayMessages[index]),
+    getItemKey: (index) => displayMessages[index].itemId,
   });
 
   // Move o foco para um irmão de nível 0 pelo índice. Quando virtualizado, rola
@@ -260,7 +260,7 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
     const duplicates = new Set<string>();
 
     for (const node of displayMessages) {
-      const key = getTimelineNodeKey(node);
+      const key = node.itemId;
       if (seen.has(key)) {
         duplicates.add(key);
       } else {
@@ -440,7 +440,7 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
 
   const renderMessageNode = (node: MessageNode, index: number) => (
     <MessageNodeComponent
-      key={getTimelineNodeKey(node)}
+      key={node.itemId}
       node={node}
       level={0}
       siblingIndex={index}
@@ -556,8 +556,8 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
             const virtualItem = virtualByIndex.get(index) ?? (shouldVirtualize ? rowVirtualizer.measurementsCache[index] : undefined);
             return (
               <div
-                key={getTimelineNodeKey(node)}
-                data-timeline-key={getTimelineNodeKey(node)}
+                key={node.itemId}
+                data-timeline-key={node.itemId}
                 role="presentation"
                 data-index={index}
                 ref={shouldVirtualize ? rowVirtualizer.measureElement : undefined}
@@ -569,7 +569,7 @@ export const MessageList = React.memo(forwardRef<HTMLDivElement, MessageListProp
                   width: '100%',
                 } : undefined}
               >
-                <MessageInteractionProvider itemKey={getTimelineNodeKey(node)} retain={retainInteraction}>
+                <MessageInteractionProvider itemKey={node.itemId} retain={retainInteraction}>
                   {renderMessageNode(node, index)}
                 </MessageInteractionProvider>
               </div>

@@ -1,147 +1,108 @@
-import { messageFixture, nodeFixture, segmentFixture } from '../test/chatPresentationFixture';
-import { describe, expect, it } from 'vitest';
-import {
-  attachChildrenToMessage,
-  finalizeStreamingNode,
-  getMessageTurnSegments,
-  flattenThreadedMessages,
-  hasMessageId,
-  updateMessageContentInTree,
-  updateEditedMessageContentInTree,
-  updateMessageSegmentsInTree,
-  type Message,
-  type MessageNode,
-} from './chatMessageTree';
+import { afterEach, describe, expect, it } from 'vitest';
+import { canonicalTestFixture, canonicalTestItem } from '../services/chatTimelineTestFixture';
+import type { TimelineItem } from '../types/chatTimelineEvents';
 
-const message = (id: string, role: string, content = id, parentId?: string): Message => messageFixture({
-  id,
-  role,
-  content,
-  parentId,
-  conversationId: 'conversation-1',
-  createdAt: '2026-04-30T00:00:00.000Z',
-}) as Message;
+const clients: ReturnType<typeof canonicalTestFixture>['client'][] = [];
+afterEach(async () => { await Promise.all(clients.splice(0).map(client => client.dispose())); });
+function fixture(items: TimelineItem[]) {
+  const f = canonicalTestFixture(items);
+  clients.push(f.client);
+  return { ...f, view: f.presentation() };
+}
+const item = (id: string, content = id, scope: string | null = null) => canonicalTestItem(id, content, {
+  scopeParentId: scope, representativeMessageId: id, messageIds: [id],
+});
 
-const node = (msg: Message, children: MessageNode[] = [], level = 0): MessageNode => nodeFixture({
-  message: msg,
-  children,
-  level,
-  childCount: children.length,
-}) as MessageNode;
-
-describe('chatMessageTree', () => {
-  it('flattens and searches threaded messages recursively', () => {
-    const nodes = [
-      node(message('root', 'user'), [
-        node(message('child', 'assistant'), [
-          node(message('grandchild', 'tool')),
-        ], 1),
-      ]),
-    ];
-
-    expect(flattenThreadedMessages(nodes).map((item) => item.id)).toEqual(['root', 'child', 'grandchild']);
-    expect(hasMessageId(nodes, 'grandchild')).toBe(true);
-    expect(hasMessageId(nodes, 'missing')).toBe(false);
+describe('regressões da árvore migradas para a apresentação canônica', () => {
+  it('encontra mensagens em threads sem reconstruir a árvore por IDs físicos', async () => {
+    const f = fixture([item('root'), item('child', 'child', 'root'), item('grandchild', 'grandchild', 'child')]);
+    await f.view.open(); await f.view.openThread('root'); await f.view.openThread('child');
+    expect(f.view.nodes()[0].children?.[0].children?.[0].itemId).toBe('grandchild');
+    expect(f.view.getMessage('grandchild')?.content).toBe('grandchild');
+    expect(f.view.getMessage('missing')).toBeUndefined();
   });
 
-  it('updates message content inside nested nodes', () => {
-    const untouched = node(message('untouched', 'assistant'));
-    const sibling = node(message('sibling', 'user'));
-    const nodes = [
-      node(message('root', 'user'), [
-        node(message('child', 'assistant', 'old'), [], 1),
-        untouched,
-      ]),
-      sibling,
-    ];
-    const untouchedInTree = nodes[0].children?.[1];
-    const originalChildMessage = nodes[0].children?.[0].message;
-
-    const updated = updateMessageContentInTree(nodes, 'child', 'new');
-
-    expect(updated[0].children?.[0].message.content).toBe('new');
-    expect(updated[0].children?.[0].message).not.toBe(originalChildMessage);
-    expect(updated[0].children?.[1]).toBe(untouchedInTree);
-    expect(updated[1]).toBe(sibling);
-    expect(updateMessageContentInTree(nodes, 'missing', 'new')).toBe(nodes);
+  it('atualiza filho por publicação canônica e preserva referências dos irmãos', async () => {
+    const child = item('child', 'old', 'root');
+    const f = fixture([item('root'), item('sibling'), child, item('untouched', 'same', 'root')]);
+    await f.view.open(); await f.view.openThread('root');
+    const before = f.view.nodes();
+    const untouched = before[0].children?.[1];
+    f.publish('surface:thread:root', { ...child, segments: [{ segmentId: 'text', kind: 'text', text: 'new' }] });
+    const after = f.view.nodes();
+    expect(after[0].children?.[0].message.content).toBe('new');
+    expect(after[0].children?.[0].message).not.toBe(before[0].children?.[0].message);
+    expect(after[0].children?.[1]).toBe(untouched);
+    expect(after[1]).toBe(before[1]);
+    expect(f.view.nodes()).toEqual(after);
   });
 
-  it('invalidates received segments only for authoritative edits, preserving children and streaming updates', () => {
-    const nodes = [node(message('root', 'assistant', 'old'), [node(message('child', 'tool'))])];
-    const original = nodes[0].message as Message;
-    original._turnSegments = [{ type: 'text', content: 'old' }];
-    original._resumableContent = 'old';
-    const streamed = updateMessageContentInTree(nodes, 'root', 'delta');
-    expect((streamed[0].message as Message)._turnSegments).toBe(original._turnSegments);
-    expect((streamed[0].message as Message)._resumableContent).toBe('old');
-    const edited = updateEditedMessageContentInTree(streamed, 'root', 'edited');
-    expect(edited[0].message.content).toBe('edited');
-    expect((edited[0].message as Message)._turnSegments).toEqual([{ type: 'text', content: 'edited' }]);
-    expect((edited[0].message as Message)._resumableContent).toBeUndefined();
-    expect(edited[0].children).toBe(nodes[0].children);
-    expect(updateEditedMessageContentInTree(edited, 'root', 'edited')).toBe(edited);
+  it('edição substitui a projeção recebida sem overrides e preserva filhos', async () => {
+    const original = item('root', 'old');
+    const f = fixture([original, item('child', 'child', 'root')]);
+    await f.view.open(); await f.view.openThread('root');
+    const child = f.view.nodes()[0].children?.[0];
+    f.publish('surface', { ...original, state: 'streaming', segments: [{ segmentId: 'text', kind: 'text', text: 'delta' }] });
+    expect(f.view.getMessage('root')?.content).toBe('delta');
+    f.publish('surface', item('root', 'edited'));
+    const message = f.view.getMessage('root')!;
+    expect(message.content).toBe('edited');
+    expect(message.turnSegments).toEqual([{ type: 'text', content: 'edited' }]);
+    expect(message).not.toHaveProperty('_turnSegments');
+    expect(message).not.toHaveProperty('_resumableContent');
+    expect(f.view.nodes()[0].children?.[0]).toBe(child);
   });
 
-  it('preserves canonical segments while an empty retry override hides them until an edit removes it', () => {
-    const nodes = [node(message('root', 'assistant', 'Parcial'))];
-    nodes[0].message.turnSegments = [segmentFixture({ type: 'text', content: 'Parcial' })];
-    const received = updateMessageSegmentsInTree(nodes, 'root', [], '');
-    expect((received[0].message as Message)._resumableContent).toBe('');
-    const retry = updateMessageSegmentsInTree(received, 'root', []);
-    expect((retry[0].message as Message)._resumableContent).toBeUndefined();
-    expect(getMessageTurnSegments(retry[0].message as Message)).toEqual([]);
-    expect(retry[0].message.turnSegments?.[0].content).toBe('Parcial');
-    const edited = updateEditedMessageContentInTree(retry, 'root', 'Parcial');
-    expect((edited[0].message as Message)._turnSegments).toEqual([{ type: 'text', content: 'Parcial' }]);
-    expect(getMessageTurnSegments(edited[0].message as Message)?.[0].content).toBe('Parcial');
+  it('retry substitui segmentos da execução anterior no mesmo item visual', async () => {
+    const original = item('response', 'Parcial');
+    const f = fixture([original]); await f.view.open();
+    f.publish('surface', { ...original, executionId: 'retry', state: 'preparing', segments: [],
+      metadata: { ...original.metadata, conclusionSegmentIds: [] } });
+    expect(f.view.nodes()[0].itemId).toBe('response');
+    expect(f.view.getMessage('response')?.turnSegments).toEqual([]);
+    expect(f.view.getMessage('response')?.content).toBe('');
+    f.publish('surface', { ...item('response', 'Novo'), executionId: 'retry' });
+    expect(f.view.getMessage('response')?.content).toBe('Novo');
+    expect(f.view.getMessage('response')?.turnSegments).toEqual([{ type: 'text', content: 'Novo' }]);
   });
 
-  it('projects edited text even when canonical chronology contains no tools', () => {
-    const nodes = [node(message('root', 'assistant', 'old'))];
-    nodes[0].message.turnSegments = [segmentFixture({ type: 'text', content: 'old' })];
-    const edited = updateEditedMessageContentInTree(nodes, 'root', 'new');
-    expect(getMessageTurnSegments(edited[0].message as Message)).toEqual([{ type: 'text', content: 'new' }]);
-    expect(edited[0].message.turnSegments?.[0].content).toBe('old');
+  it('projeta edição sem ferramentas diretamente dos segmentos do backend', async () => {
+    const original = item('root', 'old');
+    const f = fixture([original]); await f.view.open();
+    f.publish('surface', item('root', 'new'));
+    expect(f.view.getMessage('root')?.turnSegments).toEqual([{ type: 'text', content: 'new' }]);
+    expect(original.segments[0].text).toBe('old');
   });
 
-  it('attaches loaded children to the requested message', () => {
-    const nodes = [node(message('root', 'user'), [node(message('parent', 'assistant'), [], 1)])];
-    const parentMessage = nodes[0].children?.[0].message;
-    const loadedChildren = [node(message('loaded', 'tool'), [], 2)];
-
-    const updated = attachChildrenToMessage(nodes, 'parent', loadedChildren);
-
-    expect(updated[0].children?.[0].children?.[0].message.id).toBe('loaded');
-    expect(updated[0].message).toBe(nodes[0].message);
-    expect(updated[0].children?.[0].message).toBe(parentMessage);
+  it('abre filhos apenas no escopo solicitado sem substituir as mensagens ancestrais', async () => {
+    const f = fixture([item('root'), item('parent', 'parent', 'root'), item('loaded', 'loaded', 'parent')]);
+    await f.view.open(); await f.view.openThread('root');
+    const before = f.view.nodes();
+    await f.view.openThread('parent');
+    const after = f.view.nodes();
+    expect(after[0].children?.[0].children?.[0].itemId).toBe('loaded');
+    expect(after[0].message).toBe(before[0].message);
+    expect(after[0].children?.[0].message).toBe(before[0].children?.[0].message);
   });
 
-  it('replaces synthetic streaming id with backend id', () => {
-    const conversation = {
-      id: 'conversation-1',
-      title: 'Conversation',
-      threadedMessages: [node(message('synthetic', 'assistant'))],
-    };
-    conversation.threadedMessages[0].message.isStreaming = true;
-
-    const updated = finalizeStreamingNode(conversation, 'synthetic', 'backend');
-
-    expect(updated.threadedMessages[0].message.id).toBe('backend');
-    expect(updated.threadedMessages[0].message.isStreaming).toBe(false);
+  it('atribui alvo persistido sem substituir a identidade visual durante streaming', async () => {
+    const pending = item('turn:question', 'partial');
+    const f = fixture([{ ...pending, state: 'streaming', representativeMessageId: null, messageIds: [] }]);
+    await f.view.open();
+    const before = f.view.nodes()[0];
+    f.publish('surface', { ...pending, representativeMessageId: 'backend', messageIds: ['backend'] });
+    expect(f.view.nodes()[0].itemId).toBe(before.itemId);
+    expect(f.view.nodes()[0].message.id).toBe('turn:question');
+    expect(f.view.nodes()[0].message.timelineItem?.representativeMessageId).toBe('backend');
+    expect(f.view.nodes()[0].message.isStreaming).toBe(false);
   });
 
-  it('preserves backend turn id when finalizing a streaming node', () => {
-    const conversation = {
-      id: 'conversation-1',
-      title: 'Conversation',
-      threadedMessages: [node(message('synthetic', 'assistant'))],
-    };
-    conversation.threadedMessages[0].message.isStreaming = true;
-
-    const updated = finalizeStreamingNode(conversation, 'synthetic', 'backend', 'turn-1');
-
-    expect(updated.threadedMessages[0].message.id).toBe('backend');
-    expect(updated.threadedMessages[0].message.turnId).toBe('turn-1');
-    expect(updated.threadedMessages[0].message.isStreaming).toBe(false);
+  it('preserva o turno fornecido pelo backend ao concluir streaming', async () => {
+    const response = { ...item('response', 'partial'), turnId: 'turn-1', state: 'streaming' };
+    const f = fixture([response]); await f.view.open();
+    f.publish('surface', { ...response, state: 'completed' });
+    expect(f.view.nodes()[0].message.turnId).toBe('turn-1');
+    expect(f.view.nodes()[0].message.isStreaming).toBe(false);
+    expect(f.view.nodes()[0].itemId).toBe('response');
   });
 });

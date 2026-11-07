@@ -1,4 +1,3 @@
-import { getTimelineNodeKey } from '../../services/chatSessionRegistry';
 import { Button } from '../ui/Button';
 import { logger } from '../../utils/logger';
 import React, { useState, useCallback, useEffect, useLayoutEffect, useId } from 'react';
@@ -644,7 +643,7 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
         <div className="message-node__children" role="list" aria-label={t('chat.threadReplies')}>
           {children.map((childNode, index) => (
             <MessageNode
-              key={getTimelineNodeKey(childNode)}
+              key={childNode.itemId}
               node={childNode}
               level={level + 1}
               siblingIndex={index}

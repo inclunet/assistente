@@ -217,7 +217,7 @@ export class ChatTimelinePresentation implements ChatMessageSource {
       const existing = byId.get(id);
       if (existing?.message === message && existing.children === children && existing.originalIndex === originalIndex) return existing;
       return { itemId: id, message, children,
-        childCount: item.metadata.childCount, level: scope === null ? 0 : 1, originalIndex } as MessageNode;
+        childCount: item.metadata.childCount, level: scope === null ? 0 : 1, originalIndex } satisfies MessageNode;
     });
     if (previous?.length === nodes.length && nodes.every((node, index) => node === previous[index])) return previous;
     this.nodeWindows.set(surface, nodes);

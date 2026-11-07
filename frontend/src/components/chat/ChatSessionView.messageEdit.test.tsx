@@ -1,4 +1,4 @@
-import { messageFixture, nodeFixture, segmentFixture } from '../../test/chatPresentationFixture';
+import { messageFixture, nodeFixture } from '../../test/chatPresentationFixture';
 import { fixtureMessages } from './canonicalPresentationFixture';
 import { publishFixtureMessage } from './canonicalPresentationFixture';
 vi.mock('./useChatTimelinePresentation', async () => import('./canonicalPresentationFixture'));
@@ -123,7 +123,7 @@ describe('salvar edição: MessageNode, fonte draft, store e executor reais', ()
     const message = useChatStore.getState().timelinesByConversationId[id].threadedMessages[0].message as Message;
     message.role = 'assistant';
     message.content = 'Resposta anterior';
-    message._turnSegments = [
+    message.turnSegments = [
       { type: 'text', content: 'Atividade anterior' },
       { type: 'text', content: 'Resposta anterior' },
     ];
@@ -133,14 +133,13 @@ describe('salvar edição: MessageNode, fonte draft, store e executor reais', ()
         visibleThreadedMessages: useChatStore.getState().timelinesByConversationId[id].threadedMessages,
       },
     } });
-    message.turnSegments = (message._turnSegments ?? []).map(segment => segmentFixture(segment));
     mount();
     await waitFor(() => expect(node()).toHaveTextContent('Resposta anterior'));
     if (collapsed) fireEvent.click(screen.getByRole('button', { name: 'chat.collapseChain' }));
     act(() => emitUpdate('Resposta corrigida'));
     const edited = fixtureMessages(id)[0] as Message;
     expect(edited.content).toBe('Resposta corrigida');
-    expect(edited._turnSegments).toBeUndefined();
+    expect(edited).not.toHaveProperty('_turnSegments');
     expect(edited.turnSegments).toMatchObject([{ type: 'text', content: 'Resposta corrigida' }]);
     await waitFor(() => expect(node()).toHaveTextContent('Resposta corrigida'));
     expect(node()).not.toHaveTextContent('Resposta anterior');

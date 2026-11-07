@@ -8,13 +8,10 @@ import {
 } from './chatEventController';
 import { CHAT_TURN_EVENT_NAMES, resetChatEventHubForTests } from './chatEventHub';
 import {
-  updateMessageContentInTree,
-  updateMessageReasoningInTree,
-  type ChatTreeConversation,
   type Message,
   type MessageNode,
 } from '../lib/chatMessageTree';
-import type { ChatSurfaceOrigin } from './chatSessionRegistry';
+import type { ActiveConversation, ChatSurfaceOrigin } from './chatSessionRegistry';
 import { canonicalTestFixture, canonicalTestItem } from './chatTimelineTestFixture';
 import type { TimelineItem, TimelineSegment } from '../types/chatTimelineEvents';
 
@@ -123,7 +120,7 @@ vi.mock('i18next', () => ({
 }));
 
 interface TestSession extends ChatEventSession {
-  conversation: ChatTreeConversation | null;
+  conversation: ActiveConversation | null;
   activeToolCalls: import('../types/chat').ToolCallStatus[];
   completedSegments: import('../lib/chatMessageTree').TurnSegment[];
   isLoading: boolean;
@@ -153,7 +150,7 @@ const createNode = (message: Message): MessageNode => (
   }) as MessageNode
 );
 
-const createConversation = (id: string): ChatTreeConversation => ({
+const createConversation = (id: string): ActiveConversation => ({
   id,
   title: `Conversa ${id}`,
   threadedMessages: [],
@@ -197,36 +194,15 @@ function createAdapter(initialConversationIds: string[]) {
   const sessions: Record<string, TestSession> = Object.fromEntries(
     initialConversationIds.map((conversationId) => [conversationId, createSession(conversationId)]),
   );
-  const updateMessage = vi.fn((conversationId: string, messageId: string, content: string) => {
-    const current = sessions[conversationId] ?? createSession(conversationId);
-    if (!current.conversation) return;
-    sessions[conversationId] = {
-      ...current,
-      conversation: {
-        ...current.conversation,
-        threadedMessages: updateMessageContentInTree(current.conversation.threadedMessages, messageId, content),
-      },
-    };
-  });
-  const commitMessage = vi.fn((conversationId: string, messageId: string, content: string) => {
-    const current = sessions[conversationId] ?? createSession(conversationId);
-    if (!current.conversation) return;
-    sessions[conversationId] = {
-      ...current,
-      conversation: {
-        ...current.conversation,
-        threadedMessages: updateMessageContentInTree(current.conversation.threadedMessages, messageId, content),
-      },
-    };
-  });
+  const updateMessage = vi.fn();
+  const commitMessage = vi.fn();
 
   // Sondas de teste permitem provar que o controller não usa mutações visuais.
   // Não fazem parte da interface de produção.
   const adapter: ChatEventControllerAdapter & {
-    patchConversation: (id: string, update: (conversation: ChatTreeConversation) => ChatTreeConversation) => void;
+    patchConversation: (id: string, update: (conversation: ActiveConversation) => ActiveConversation) => void;
     updateMessage: typeof updateMessage;
     commitMessage: typeof commitMessage;
-    updateReasoning: (id: string, messageId: string, reasoning: string) => void;
   } = {
     getSession: (conversationId) => sessions[conversationId] ?? createSession(conversationId),
     patchSession: (conversationId, patch) => {
@@ -236,27 +212,9 @@ function createAdapter(initialConversationIds: string[]) {
         ...patch,
       } as TestSession;
     },
-    patchConversation: vi.fn((conversationId, updater) => {
-      const current = sessions[conversationId] ?? createSession(conversationId);
-      if (!current.conversation) return;
-      sessions[conversationId] = {
-        ...current,
-        conversation: updater(current.conversation),
-      };
-    }),
+    patchConversation: vi.fn(),
     updateMessage,
     commitMessage,
-    updateReasoning: (conversationId, messageId, reasoning) => {
-      const current = sessions[conversationId] ?? createSession(conversationId);
-      if (!current.conversation) return;
-      sessions[conversationId] = {
-        ...current,
-        conversation: {
-          ...current.conversation,
-          threadedMessages: updateMessageReasoningInTree(current.conversation.threadedMessages, messageId, reasoning),
-        },
-      };
-    },
     setConversationLoading: (conversationId, isLoading) => {
       const current = sessions[conversationId] ?? createSession(conversationId);
       sessions[conversationId] = {
