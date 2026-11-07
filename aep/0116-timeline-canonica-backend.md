@@ -79,8 +79,8 @@ build/vet Go e a execução real dos 140 ciclos passaram. O recorte altera
 somente harness/documentação/evidência; o código de produto e suas regressões
 são os mesmos validados no recorte anterior (388 testes seguros de banco,
 87 de chat e 6.139 frontend). Não se repetiu essa suíte sem mudança produtiva.
-Revisão independente por `review_canonical_cleanup`: uma rodada, sem pendências
-na prova de pressão ou na rastreabilidade dos critérios funcionais.
+Revisão independente por `review_canonical_cleanup`: duas rodadas, sem pendências
+na prova de pressão, rastreabilidade dos critérios ou incorporação do reparo de CI.
 
 Após este quinto recorte da sequência autorizada, o único critério de aceitação
 aberto é desempenho: tempo/B-op e payload frente à baseline da fase 1. A leitura
@@ -129,6 +129,28 @@ Não se demonstrou redução de alocações na abertura; a contagem alterada é 
 estágio de publicação. Os tempos oscilaram fortemente dentro das séries, sem
 alegação de ganho de velocidade: medianas posteriores 8,656/21,306/59,625 ms.
 Os gates contra a baseline histórica continuam não atendidos.
+
+O CI deste recorte excedeu o prazo de pacotes gerais em duas execuções, sem
+asserção falha nem corrida reportada. No primeiro log, banco e agente passaram
+em 932/964 segundos; o tempo acumulado interrompeu `wailsapi` depois. Esse
+pacote passa a ter runner próprio, excluído exatamente uma vez do residual,
+incluindo automaticamente seus testes futuros. Permanecem `-race`, `-short`,
+`-count=1`, timeout Go de 20 minutos e timeout da etapa de 23 minutos. O teste
+do script usa Go falso e prova partição, matriz, flags, subpacotes e falhas.
+
+A segunda execução também mostrou que `ParameterizedQueries` não evita o
+payload gigante no `Scan` do GORM 1.31.1: ele usa `logger.Recorder` internamente.
+A fixture de identidades limita somente seu log a erros, mantendo erros de SQL
+e todas as asserções. O teste em modo verboso passou com 168 bytes de saída,
+sem o ID sintético de 8 MiB. Isso corrige a limitação da tentativa anterior
+descrita abaixo; não altera logger de produção nem reduz cobertura. A mudança
+de CI é o reparo necessário aos checks deste PR, não a auditoria ampla da issue
+#1008, que continua separada.
+
+Validação da correção: teste do particionador com Go falso, teste de identidades
+em modo verboso, build/vet Go e golangci-lint incremental passaram. Segunda
+rodada de `review_canonical_cleanup` sem pendências. O novo CI deve confirmar
+a execução de todos os grupos; nenhum teste ACP foi executado localmente.
 
 ### Metadados e sessões sem espelhamento (07/11/2026)
 
