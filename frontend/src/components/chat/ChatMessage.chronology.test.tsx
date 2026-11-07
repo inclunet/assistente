@@ -41,7 +41,7 @@ const invocation = (callId: string, name: string, status = 'succeeded') => ({
 
 const canonicalSegments = (segments: TurnSegment[]) => segments.map(segment => segmentFixture({
   type: segment.type, content: segment.content,
-  toolInvocations: segment.toolInvocations ?? segment.toolCalls?.map(call => invocation(call.id, call.function.name, call.status === 'running' ? 'running' : 'succeeded')),
+  toolInvocations: segment.toolInvocations,
 }));
 
 const fixtureMessages = new Map<string, Message>();
@@ -209,11 +209,8 @@ describe('cronologia de ChatMessage', () => {
     const message = messageFor('assistant-unsaved', { content: scalar });
     message.turnSegments = canonicalSegments([
       { type: 'text', content: finalContent },
-      { type: 'tool_calls', toolCalls: [{
-        id: 'last-call', type: 'function', function: { name: 'search', arguments: '{}' },
-        origin: 'builtin', status: 'done',
-      }] },
-      { type: 'text', content: warning, diagnostic: true },
+      { type: 'tool_calls', toolInvocations: [invocation('last-call', 'search')] },
+      { type: 'text', content: warning },
     ]);
     const surface = seedStore({ targetConversationId: conversationId, messageId: message.id });
     renderMessage(surface, message);
@@ -297,10 +294,7 @@ describe('cronologia de ChatMessage', () => {
 
   it('mostra placeholder de turno só com tools na cadeia recebida expandida e recolhida', () => {
     const message = messageFor('assistant-tools-only', { content: '' });
-    message.turnSegments = canonicalSegments([{ type: 'tool_calls', toolCalls: [{
-      id: 'only-call', type: 'function', function: { name: 'search', arguments: '{}' },
-      origin: 'builtin', status: 'done',
-    }] }]);
+    message.turnSegments = canonicalSegments([{ type: 'tool_calls', toolInvocations: [invocation('only-call', 'search')] }]);
     const surface = seedStore({ targetConversationId: conversationId, messageId: message.id });
     renderMessage(surface, message);
     const placeholder = 'chat.toolOnlyTurnPlaceholder';
@@ -316,11 +310,8 @@ describe('cronologia de ChatMessage', () => {
     const warning = 'chat.outputLimitReached';
     const message = messageFor('assistant-limit', { content: warning });
     message.turnSegments = canonicalSegments([
-      { type: 'tool_calls', toolCalls: [{
-        id: 'limit-call', type: 'function', function: { name: 'search', arguments: '{}' },
-        origin: 'builtin', status: 'done',
-      }] },
-      { type: 'text', content: warning, diagnostic: true },
+      { type: 'tool_calls', toolInvocations: [invocation('limit-call', 'search')] },
+      { type: 'text', content: warning },
     ]);
     const surface = seedStore({ targetConversationId: conversationId, messageId: message.id });
     renderMessage(surface, message);

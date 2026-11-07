@@ -43,7 +43,7 @@ const invocation = (callId: string, name: string, status = 'succeeded') => ({
 
 const canonicalSegments = (segments: TurnSegment[]) => segments.map(segment => segmentFixture({
   type: segment.type, content: segment.content,
-  toolInvocations: segment.toolInvocations ?? segment.toolCalls?.map(call => invocation(call.id, call.function.name, call.status === 'running' ? 'running' : 'succeeded')),
+  toolInvocations: segment.toolInvocations,
 }));
 
 const fixtureMessages = new Map<string, Message>();
@@ -276,11 +276,7 @@ describe('progresso live de ChatMessage', () => {
       { type: 'text', content: 'texto da primeira rodada' },
       {
         type: 'tool_calls',
-        toolCalls: [{
-          id: 'first-round-tool',
-          type: 'function',
-          function: { name: 'buscar-inicial', arguments: '{}' },
-        }],
+        toolInvocations: [invocation('first-round-tool', 'buscar-inicial')],
       },
     ];
     const surface = seedStore({
@@ -319,11 +315,7 @@ describe('progresso live de ChatMessage', () => {
         { type: 'text', content: 'texto da rodada anterior' },
         {
           type: 'tool_calls',
-          toolCalls: [{
-            id: 'completed-tool',
-            type: 'function',
-            function: { name: 'ferramenta-concluída', arguments: '{}' },
-          }],
+          toolInvocations: [invocation('completed-tool', 'ferramenta-concluída')],
         },
       ],
     });

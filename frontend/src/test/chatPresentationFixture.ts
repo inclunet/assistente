@@ -1,4 +1,4 @@
-import type { Message, MessageNode, TurnSegment } from '../lib/chatMessageTree';
+import type { Message, MessageNode, TurnSegment, ToolInvocationSummary } from '../lib/chatMessageTree';
 import type { TimelineItem } from '../types/chatTimelineEvents';
 
 type FixtureMessage = Omit<Partial<Message>, 'timelineItem'> & { timelineItem?: Partial<TimelineItem> };
@@ -11,3 +11,8 @@ export function nodeFixture(source: Omit<Partial<MessageNode>, 'message'> & { me
   return { itemId: `message:${source.message.id ?? "message"}`, level: 0, childCount: 0, children: [], ...source, message: messageFixture(source.message) };
 }
 export function segmentFixture(source: TurnSegment): TurnSegment { return source; }
+
+export function invocationFixture(source: Partial<ToolInvocationSummary> = {}): ToolInvocationSummary {
+  return { invocationId: `inv-${source.callId ?? 'call'}`, callId: 'call', name: 'search',
+    status: 'running', hasDetails: false, resultAvailability: 'pending', ...source };
+}

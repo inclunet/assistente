@@ -1,46 +1,12 @@
-import type { ToolOrigin } from '../types/chat';
-import type { TimelineItem } from '../types/chatTimelineEvents';
+import type { TimelineItem, TimelineToolSummary } from '../types/chatTimelineEvents';
 
-export interface ToolInvocationSummary {
-  invocationId?: string;
-  callId: string;
-  name: string;
-  origin?: ToolOrigin;
-  serverLabel?: string;
-  status: string;
-  iteration?: number;
-  durationMs?: number;
-  inputPreview?: string;
-  outputPreview?: string;
-  inputBytes?: number;
-  outputBytes?: number;
-  hasDetails: boolean;
-  resultAvailability: string;
-  hasSearchResults?: boolean;
-  searchResultCount?: number;
-  securityOutcome?: 'approved' | 'blocked';
-}
-
-export interface StreamingToolCall {
-  errorCode?: string;
-  id: string;
-  type: string;
-  function: { name: string; arguments: string };
-  result?: string;
-  origin?: ToolOrigin;
-  serverLabel?: string;
-  status?: 'running' | 'done' | 'error' | 'cancelled';
-}
+export type ToolInvocationSummary = TimelineToolSummary;
 
 export interface TurnSegment {
   type: 'text' | 'tool_calls';
   content?: string;
-  /** Aviso da apresentação; não integra o conteúdo retomado pelo modelo. */
-  diagnostic?: boolean;
-  /** Projeção leve persistida; detalhes são carregados sob demanda. */
+  /** Resumos canônicos do ledger, inclusive durante streaming; detalhes sob demanda. */
   toolInvocations?: ToolInvocationSummary[];
-  /** Estado transitório enquanto o turno ainda está em streaming. */
-  toolCalls?: StreamingToolCall[];
 }
 
 export interface MessageNode {

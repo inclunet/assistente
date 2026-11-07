@@ -1,3 +1,4 @@
+import { invocationFixture } from '../../test/chatPresentationFixture';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { ToolCallsSection } from './ToolCallsSection';
@@ -43,7 +44,7 @@ describe('ToolCallsSection', () => {
   it('renderiza tool calls ativos', () => {
     render(
       <ToolCallsSection
-        activeToolCalls={[{ name: 'Search', callId: '1', status: 'running' }]}
+        toolInvocations={[invocationFixture({ name: 'Search', callId: '1', status: 'running' })]}
       />
     );
 
@@ -53,7 +54,7 @@ describe('ToolCallsSection', () => {
 
   it('torna os controles focáveis somente durante a leitura', () => {
     const props = {
-      activeToolCalls: [{ name: 'Search', callId: '1', status: 'running' as const }],
+      toolInvocations: [invocationFixture({ name: 'Search', callId: '1', status: 'running' as const })],
     };
     const { rerender } = render(<ToolCallsSection {...props} />);
     expect(screen.getByRole('button')).toHaveAttribute('tabindex', '-1');
@@ -72,7 +73,7 @@ describe('ToolCallsSection', () => {
     render(
       <ToolCallsSection
         tabNavigationEnabled
-        toolInvocations={[{
+        toolInvocations={[invocationFixture({
           invocationId: 'inv-1',
           callId: 'call-1',
           name: 'search',
@@ -81,7 +82,7 @@ describe('ToolCallsSection', () => {
           outputPreview: 'prévia',
           hasDetails: true,
           resultAvailability: 'available',
-        }]}
+        })]}
       />,
     );
 
@@ -103,10 +104,10 @@ describe('ToolCallsSection', () => {
         items: [{ kind: 'file', title: 'arquivo.ts', snippet: '10: match', target: { kind: 'file', path: 'C:/repo/arquivo.ts' } }],
       } }),
     }]]));
-    render(<ToolCallsSection tabNavigationEnabled toolInvocations={[{
+    render(<ToolCallsSection tabNavigationEnabled toolInvocations={[invocationFixture({
       invocationId: 'inv-search', callId: 'call-search', name: 'search_files', status: 'succeeded',
       hasDetails: true, resultAvailability: 'available', hasSearchResults: true, searchResultCount: 1,
-    }]} />);
+    })]} />);
 
     fireEvent.click(screen.getByRole('button', { name: 'chat.viewSearchResults' }));
 
@@ -117,9 +118,9 @@ describe('ToolCallsSection', () => {
 
   it('anuncia quando não consegue abrir um destino de ferramenta', async () => {
     openToolNavigationTarget.mockRejectedValueOnce(new Error('falha'));
-    render(<ToolCallsSection tabNavigationEnabled activeToolCalls={[{
-      name: 'read_file', callId: 'read-1', status: 'running', args: '{"path":"C:/repo/arquivo.ts"}',
-    }]} />);
+    render(<ToolCallsSection tabNavigationEnabled toolInvocations={[invocationFixture({
+      name: 'read_file', callId: 'read-1', status: 'running', inputPreview: '{"path":"C:/repo/arquivo.ts"}',
+    })]} />);
 
     fireEvent.click(screen.getByRole('button', { name: /chat\.toolReadFile/ }));
 
@@ -133,10 +134,10 @@ describe('ToolCallsSection', () => {
       } }),
     }]]));
     openToolNavigationTarget.mockRejectedValueOnce(new Error('falha'));
-    render(<ToolCallsSection tabNavigationEnabled toolInvocations={[{
+    render(<ToolCallsSection tabNavigationEnabled toolInvocations={[invocationFixture({
       invocationId: 'inv-open-failure', callId: 'search-open-failure', name: 'search_web', status: 'succeeded',
       hasDetails: true, resultAvailability: 'available', hasSearchResults: true, searchResultCount: 1,
-    }]} />);
+    })]} />);
 
     fireEvent.click(screen.getByRole('button', { name: 'chat.viewSearchResults' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Resultado' }));
@@ -151,10 +152,10 @@ describe('ToolCallsSection', () => {
     loadDetails.mockResolvedValue(new Map([['inv-paged', {
       invocationId: 'inv-paged', metadata: JSON.stringify({ search_result_presentation: { version: 1, total: 21, items } }),
     }]]));
-    render(<ToolCallsSection tabNavigationEnabled toolInvocations={[{
+    render(<ToolCallsSection tabNavigationEnabled toolInvocations={[invocationFixture({
       invocationId: 'inv-paged', callId: 'call-paged', name: 'search_files', status: 'succeeded',
       hasDetails: true, resultAvailability: 'available', hasSearchResults: true, searchResultCount: 21,
-    }]} />);
+    })]} />);
 
     fireEvent.click(screen.getByRole('button', { name: 'chat.viewSearchResults' }));
     expect(await screen.findByText('arquivo-20.ts')).toBeInTheDocument();
@@ -169,7 +170,7 @@ describe('ToolCallsSection', () => {
     const { container } = render(
       <ToolCallsSection
         tabNavigationEnabled
-        toolInvocations={[{
+        toolInvocations={[invocationFixture({
           invocationId: 'inv-axe',
           callId: 'call-axe',
           name: 'search',
@@ -178,7 +179,7 @@ describe('ToolCallsSection', () => {
           outputPreview: '{"bytes":42}',
           hasDetails: true,
           resultAvailability: 'available',
-        }]}
+        })]}
       />,
     );
     expect(await axe(container)).toHaveNoViolations();
@@ -187,7 +188,7 @@ describe('ToolCallsSection', () => {
   it('usa fallback plug-and-play do provedor MCP e duração da projeção canônica', () => {
     render(
       <ToolCallsSection
-        toolInvocations={[{
+        toolInvocations={[invocationFixture({
           invocationId: 'inv-mcp',
           callId: 'call-mcp',
           name: 'jira_search',
@@ -197,7 +198,7 @@ describe('ToolCallsSection', () => {
           durationMs: 1500,
           hasDetails: false,
           resultAvailability: 'unavailable',
-        }]}
+        })]}
       />,
     );
     expect(screen.getByText('chat.toolMcpProvider')).toBeInTheDocument();
@@ -207,9 +208,9 @@ describe('ToolCallsSection', () => {
   it('marca a ferramenta do agente externo enquanto ela roda', () => {
     render(
       <ToolCallsSection
-        activeToolCalls={[
-          { name: 'execute', callId: '1', status: 'running', origin: 'acp_agent' },
-          { name: 'read_file', callId: '2', status: 'running', origin: 'builtin' },
+        toolInvocations={[
+          invocationFixture({ name: 'execute', callId: '1', status: 'running', origin: 'acp_agent' }),
+          invocationFixture({ name: 'read_file', callId: '2', status: 'running', origin: 'builtin' }),
         ]}
       />
     );
@@ -220,11 +221,11 @@ describe('ToolCallsSection', () => {
   });
 
   it('mostra ação concluída e mantém prévias técnicas apenas nos detalhes', () => {
-    render(<ToolCallsSection tabNavigationEnabled toolInvocations={[{
+    render(<ToolCallsSection tabNavigationEnabled toolInvocations={[invocationFixture({
       invocationId: 'inv-read', callId: 'read', name: 'read_file', origin: 'builtin',
       status: 'succeeded', inputPreview: '{"fields":["path"]}', outputPreview: '{"bytes":42}',
       hasDetails: false, resultAvailability: 'available',
-    }]} />);
+    })]} />);
     expect(screen.getByText('chat.toolReadFileDone')).toBeInTheDocument();
     expect(screen.queryByText('{"bytes":42}')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'chat.technicalDetails' }));
@@ -235,10 +236,10 @@ describe('ToolCallsSection', () => {
     render(
       <ToolCallsSection
         toolInvocations={[
-          { invocationId: 'queued', callId: 'queued', name: 'search_files', status: 'queued', hasDetails: false, resultAvailability: 'pending', outputPreview: 'parcial' },
-          { invocationId: 'failed', callId: 'failed', name: 'search_files', status: 'failed', hasDetails: false, resultAvailability: 'available' },
-          { invocationId: 'cancelled', callId: 'cancelled', name: 'search_files', status: 'cancelled', hasDetails: false, resultAvailability: 'available' },
-          { invocationId: 'unknown', callId: 'unknown', name: 'search_files', status: 'unexpected', hasDetails: false, resultAvailability: 'available' },
+          invocationFixture({ invocationId: 'queued', callId: 'queued', name: 'search_files', status: 'queued', hasDetails: false, resultAvailability: 'pending', outputPreview: 'parcial' }),
+          invocationFixture({ invocationId: 'failed', callId: 'failed', name: 'search_files', status: 'failed', hasDetails: false, resultAvailability: 'available' }),
+          invocationFixture({ invocationId: 'cancelled', callId: 'cancelled', name: 'search_files', status: 'cancelled', hasDetails: false, resultAvailability: 'available' }),
+          invocationFixture({ invocationId: 'unknown', callId: 'unknown', name: 'search_files', status: 'unexpected', hasDetails: false, resultAvailability: 'available' }),
         ]}
       />,
     );
@@ -252,16 +253,16 @@ describe('ToolCallsSection', () => {
   });
 
   it('trata done do streaming como concluído', () => {
-    render(<ToolCallsSection activeToolCalls={[{ name: 'search', callId: 'done', status: 'done', args: '{"token":"secret"}' }]} tabNavigationEnabled />);
+    render(<ToolCallsSection toolInvocations={[invocationFixture({ name: 'search', callId: 'done', status: 'done', inputPreview: '{"token":"secret"}' })]} tabNavigationEnabled />);
     expect(screen.getByText('chat.toolStatusSucceeded')).toBeInTheDocument();
   });
 
   it('não mostra a prévia técnica recebida durante o streaming', () => {
     const technicalPreview = '{"bytes":42,"fields":["content"]}';
-    render(<ToolCallsSection tabNavigationEnabled activeToolCalls={[{
+    render(<ToolCallsSection tabNavigationEnabled toolInvocations={[invocationFixture({
       name: 'read_file', callId: 'streaming-preview', status: 'running',
-      args: '{"path":"C:/repo/arquivo.txt"}', summary: technicalPreview,
-    }]} />);
+      inputPreview: '{"path":"C:/repo/arquivo.txt"}', outputPreview: technicalPreview,
+    })]} />);
 
     expect(screen.getByText('chat.partialOutputAvailable')).toBeInTheDocument();
     expect(screen.queryByText(technicalPreview)).not.toBeInTheDocument();
@@ -269,14 +270,14 @@ describe('ToolCallsSection', () => {
 
   it('apresenta timeout persistido como falha terminal', () => {
     render(<ToolCallsSection toolInvocations={[
-      {
+      invocationFixture({
         invocationId: 'inv-timed-out', callId: 'call-timed-out', name: 'search',
         status: 'timed_out', hasDetails: true, resultAvailability: 'available',
-      },
-      {
+      }),
+      invocationFixture({
         invocationId: 'inv-timeout', callId: 'call-timeout', name: 'search',
         status: 'timeout', hasDetails: true, resultAvailability: 'available',
-      },
+      }),
     ]} />);
 
     expect(screen.getAllByText('chat.toolStatusFailed')).toHaveLength(2);
@@ -284,7 +285,7 @@ describe('ToolCallsSection', () => {
   });
 
   it('sanitiza o fallback de argumentos no modal e acompanha a transição do ativo', async () => {
-    const props = { activeToolCalls: [{ name: 'search', callId: 'same', status: 'running' as const, args: '{"password":"secret"}', summary: 'parcial' }] };
+    const props = { toolInvocations: [invocationFixture({ invocationId: 'inv-transition', name: 'search', callId: 'same', status: 'running' as const, inputPreview: '{"password":"secret"}', outputPreview: 'parcial' })] };
     const { rerender } = render(<ToolCallsSection {...props} tabNavigationEnabled />);
     fireEvent.click(screen.getByRole('button', { name: 'chat.technicalDetails' }));
     expect(screen.getByRole('dialog').querySelector('.tool-calls-section__args')).toHaveTextContent('[redacted]');
@@ -293,10 +294,10 @@ describe('ToolCallsSection', () => {
     loadDetails.mockResolvedValue(new Map([['inv-transition', {
       invocationId: 'inv-transition', input: '{"password":"secret"}', output: '{"content":"integral"}', metadata: '{}',
     }]]));
-    rerender(<ToolCallsSection tabNavigationEnabled toolInvocations={[{
+    rerender(<ToolCallsSection tabNavigationEnabled toolInvocations={[invocationFixture({
       invocationId: 'inv-transition', callId: 'same', name: 'search', status: 'succeeded',
       inputPreview: '{"password":"[redacted]"}', outputPreview: 'preview', hasDetails: true, resultAvailability: 'available',
-    }]} />);
+    })]} />);
     expect(screen.getByRole('dialog')).toHaveTextContent('chat.toolStatusSucceeded');
     expect(await screen.findByText('integral')).toBeInTheDocument();
   });
@@ -305,9 +306,9 @@ describe('ToolCallsSection', () => {
     loadDetails.mockResolvedValue(new Map([['inv-modal', {
       invocationId: 'inv-modal', input: '{}', output: '{"content":"ok"}', metadata: '{}',
     }]]));
-    const { container } = render(<ToolCallsSection tabNavigationEnabled toolInvocations={[{
+    const { container } = render(<ToolCallsSection tabNavigationEnabled toolInvocations={[invocationFixture({
       invocationId: 'inv-modal', callId: 'modal', name: 'search', status: 'succeeded', hasDetails: true, resultAvailability: 'available',
-    }]} />);
+    })]} />);
     const details = screen.getByRole('button', { name: 'chat.technicalDetails' });
     details.focus();
     fireEvent.click(details);
@@ -324,14 +325,14 @@ describe('ToolCallsSection', () => {
     loadDetails.mockImplementation((_: string, ids: string[]) => ids[0] === 'first' ? first : Promise.resolve(new Map([['second', {
       invocationId: 'second', input: '{}', output: '{"content":"segundo"}', metadata: '{}',
     }]])));
-    const { rerender } = render(<ToolCallsSection tabNavigationEnabled toolInvocations={[{
+    const { rerender } = render(<ToolCallsSection tabNavigationEnabled toolInvocations={[invocationFixture({
       invocationId: 'first', callId: 'first', name: 'search', status: 'succeeded', hasDetails: true, resultAvailability: 'available',
-    }]} />);
+    })]} />);
     fireEvent.click(screen.getByRole('button', { name: 'chat.technicalDetails' }));
     fireEvent.click(screen.getByRole('button', { name: 'ui.modal.close' }));
-    rerender(<ToolCallsSection tabNavigationEnabled toolInvocations={[{
+    rerender(<ToolCallsSection tabNavigationEnabled toolInvocations={[invocationFixture({
       invocationId: 'second', callId: 'second', name: 'search', status: 'succeeded', hasDetails: true, resultAvailability: 'available',
-    }]} />);
+    })]} />);
     fireEvent.click(screen.getByRole('button', { name: 'chat.technicalDetails' }));
     resolveFirst(new Map([['first', { invocationId: 'first', input: '{}', output: '{"content":"primeiro"}', metadata: '{}' }]]));
     expect(await screen.findByText('segundo')).toBeInTheDocument();
@@ -341,9 +342,9 @@ describe('ToolCallsSection', () => {
   it('avisa limite da busca e pagina os 100 itens preservados', async () => {
     const items = Array.from({ length: 150 }, (_, index) => ({ kind: 'text', title: `resultado-${index + 1}` }));
     loadDetails.mockResolvedValue(new Map([['inv-limit', { invocationId: 'inv-limit', metadata: JSON.stringify({ search_result_presentation: { version: 1, total: 150, items } }) }]]));
-    render(<ToolCallsSection tabNavigationEnabled toolInvocations={[{
+    render(<ToolCallsSection tabNavigationEnabled toolInvocations={[invocationFixture({
       invocationId: 'inv-limit', callId: 'limit', name: 'search_files', status: 'succeeded', hasDetails: true, hasSearchResults: true, searchResultCount: 150, resultAvailability: 'available',
-    }]} />);
+    })]} />);
     fireEvent.click(screen.getByRole('button', { name: 'chat.viewSearchResults' }));
     expect(await screen.findByText(/resultado-20/)).toBeInTheDocument();
     expect(screen.queryByText('resultado-101')).not.toBeInTheDocument();

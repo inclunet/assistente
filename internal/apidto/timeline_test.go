@@ -81,7 +81,7 @@ func TestTimelineWireRequestsUseFlatLowerCamelContract(t *testing.T) {
 }
 
 func TestTimelineToolSummaryOmitsInternalProvenance(t *testing.T) {
-	call := TurnSegmentToolCall{ExecutionID: "private-execution", ExecutionDepth: 9, AssistantMessageID: "private-message", ID: "call", Name: "tool", Status: "succeeded", InputPreview: "resumo", ResultAvailability: "available"}
+	call := TurnSegmentToolCall{InvocationID: "ledger-id", ExecutionID: "private-execution", ExecutionDepth: 9, AssistantMessageID: "private-message", ID: "call", Name: "tool", Status: "succeeded", InputPreview: "resumo", ResultAvailability: "available"}
 	raw, err := json.Marshal(call)
 	if err != nil {
 		t.Fatal(err)
@@ -90,7 +90,7 @@ func TestTimelineToolSummaryOmitsInternalProvenance(t *testing.T) {
 	if err := json.Unmarshal(raw, &wire); err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]any{"callId": "call", "name": "tool", "status": "succeeded", "inputPreview": "resumo", "hasDetails": false, "resultAvailability": "available"}
+	want := map[string]any{"invocationId": "ledger-id", "callId": "call", "name": "tool", "status": "succeeded", "inputPreview": "resumo", "hasDetails": false, "resultAvailability": "available"}
 	if !reflect.DeepEqual(wire, want) {
 		t.Fatalf("resumo expôs campos inesperados: %s", raw)
 	}
